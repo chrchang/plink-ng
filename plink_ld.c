@@ -18,7 +18,7 @@ void ld_epi_init(Ld_info* ldip, Epi_info* epi_ip) {
   range_list_init(&(ldip->snps_rl));
   epi_ip->modifier = 0;
   epi_ip->case_only_gap = 1000000;
-  epi_ip->epi1 = 0.0001;
+  epi_ip->epi1 = 0.0;
   epi_ip->epi2 = 0.01;
   epi_ip->twolocus_mkr1 = NULL;
   epi_ip->twolocus_mkr2 = NULL;
@@ -2252,20 +2252,30 @@ static inline void two_locus_count_table_zmiss1(uintptr_t* lptr1, uintptr_t* lpt
 
 static inline void two_locus_count_table(uintptr_t* lptr1, uintptr_t* lptr2, uint32_t* counts_3x3, uint32_t indiv_ctv3, uint32_t is_zmiss2) {
 #ifdef __LP64__
+  uint32_t uii;
   fill_uint_zero(counts_3x3, 9);
-  two_locus_3x3_tablev((__m128i*)lptr2, (__m128i*)lptr1, counts_3x3, indiv_ctv3 / 2, 3 - is_zmiss2);
+  if (!is_zmiss2) {
+    two_locus_3x3_tablev((__m128i*)lptr1, (__m128i*)lptr2, counts_3x3, indiv_ctv3 / 2, 3);
+  } else {
+    two_locus_3x3_tablev((__m128i*)lptr2, (__m128i*)lptr1, counts_3x3, indiv_ctv3 / 2, 2);
+    uii = counts_3x3[1];
+    counts_3x3[1] = counts_3x3[3];
+    counts_3x3[3] = uii;
+    counts_3x3[6] = counts_3x3[2];
+    counts_3x3[7] = counts_3x3[5];
+  }
 #else
   counts_3x3[0] = popcount_longs_intersect(lptr2, lptr1, indiv_ctv3);
-  counts_3x3[1] = popcount_longs_intersect(lptr2, &(lptr1[indiv_ctv3]), indiv_ctv3);
-  counts_3x3[2] = popcount_longs_intersect(lptr2, &(lptr1[2 * indiv_ctv3]), indiv_ctv3);
+  counts_3x3[3] = popcount_longs_intersect(lptr2, &(lptr1[indiv_ctv3]), indiv_ctv3);
+  counts_3x3[6] = popcount_longs_intersect(lptr2, &(lptr1[2 * indiv_ctv3]), indiv_ctv3);
   lptr2 = &(lptr2[indiv_ctv3]);
-  counts_3x3[3] = popcount_longs_intersect(lptr2, lptr1, indiv_ctv3);
+  counts_3x3[1] = popcount_longs_intersect(lptr2, lptr1, indiv_ctv3);
   counts_3x3[4] = popcount_longs_intersect(lptr2, &(lptr1[indiv_ctv3]), indiv_ctv3);
-  counts_3x3[5] = popcount_longs_intersect(lptr2, &(lptr1[2 * indiv_ctv3]), indiv_ctv3);
+  counts_3x3[7] = popcount_longs_intersect(lptr2, &(lptr1[2 * indiv_ctv3]), indiv_ctv3);
   if (!is_zmiss2) {
     lptr2 = &(lptr2[indiv_ctv3]);
-    counts_3x3[6] = popcount_longs_intersect(lptr2, lptr1, indiv_ctv3);
-    counts_3x3[7] = popcount_longs_intersect(lptr2, &(lptr1[indiv_ctv3]), indiv_ctv3);
+    counts_3x3[2] = popcount_longs_intersect(lptr2, lptr1, indiv_ctv3);
+    counts_3x3[5] = popcount_longs_intersect(lptr2, &(lptr1[indiv_ctv3]), indiv_ctv3);
     counts_3x3[8] = popcount_longs_intersect(lptr2, &(lptr1[2 * indiv_ctv3]), indiv_ctv3);
   }
 #endif
@@ -2609,6 +2619,7 @@ static uint32_t* g_epi_fail_ct1;
 static uintptr_t* g_epi_geno2;
 static uintptr_t* g_epi_zmiss2;
 static uint32_t* g_epi_tot2;
+static double* g_epi_marginal_assoc2 = NULL;
 static double* g_epi_best_chisq2;
 static uint32_t* g_epi_best_id2;
 static uint32_t* g_epi_n_sig_ct2;
@@ -2648,13 +2659,16 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   uint32_t group_ct = 2 - is_case_only;
   uint32_t tot_stride = group_ct * 3;
   uint32_t no_ueki = (g_epi_flag / EPI_FAST_NO_UEKI) & 1;
+  uint32_t is_boost = (g_epi_flag / EPI_FAST_BOOST) & 1;
   uint32_t do_joint_effects = (g_epi_flag / EPI_FAST_JOINT_EFFECTS) & 1;
+  uint32_t obs_ct_fixed = 0;
   uint32_t best_id_fixed = 0;
   uint32_t* geno1_offsets = g_epi_geno1_offsets;
   uintptr_t* geno2 = g_epi_geno2;
   uintptr_t* zmiss2 = g_epi_zmiss2;
   uintptr_t* cur_geno1_ctrls = NULL;
   uint32_t* tot2 = g_epi_tot2;
+  double* marginal_assoc2 = g_epi_marginal_assoc2;
   double* all_chisq = &(g_epi_all_chisq[idx2_block_start]);
   double* best_chisq1 = &(g_epi_best_chisq1[idx1_block_start16]);
   uint32_t* best_id1 = &(g_epi_best_id1[idx1_block_start16]);
@@ -2669,10 +2683,13 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   double ctrl_var = 0;
   uint32_t tot1[6];
   uint32_t counts[18];
+  double tot1d[6];
+  double totgeno1d[3];
   uintptr_t* cur_geno2;
   double* all_chisq_write;
   double* chisq2_ptr;
   uint32_t* cur_tot2;
+  double* cur_marginal_assoc2;
   uintptr_t block_idx1;
   uintptr_t block_delta1;
   uintptr_t block_idx2;
@@ -2681,13 +2698,18 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   double case_var;
   double ctrl_or;
   double dxx;
+  double dyy;
+  double dzz;
+  double tot_recip;
   double zsq;
+  double marginal_assoc_fixed;
   uint32_t nm_case_fixed;
   uint32_t nm_ctrl_fixed;
   uintptr_t cur_zmiss2;
   uintptr_t cur_zmiss2_tmp;
   uint32_t n_sig_ct_fixed;
   uint32_t fail_ct_fixed;
+  uint32_t uii;
   tot1[3] = 0; // suppress warning
   tot1[4] = 0;
   tot1[5] = 0;
@@ -2715,6 +2737,58 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
       tot1[3] = popcount_longs(cur_geno1_ctrls, 0, ctrl_ctv3);
       tot1[4] = popcount_longs(&(cur_geno1_ctrls[ctrl_ctv3]), 0, ctrl_ctv3);
       tot1[5] = popcount_longs(&(cur_geno1_ctrls[2 * ctrl_ctv3]), 0, ctrl_ctv3);
+      if (is_boost) {
+	// from BOOSTx64.c lines 556-569:
+	//   MarginalAssociation[] := (-MarginalEntropySNP_Y[] +
+        //                              MarginalEntropySNP[] +
+	//                              MarginalEntropyY[]) * obs_ct * 2
+	//   MarginalEntropyY[] := entropy(case_ct / obs_ct) +
+	//                         entropy(ctrl_ct / obs_ct)
+	//   MarginalEntropySNP[] := entropy(genotype_ct / obs_ct)
+	//                           (summed over 3 genotypes)
+        //   MarginalEntropySNP_Y[] := entropy(geno_and_case_ct / genotype_ct)
+	//                           + entropy(geno_and_ctrl_ct / genotype_ct)
+	//                             (summed over 3 genotypes)
+	// MarginalEntropyY, case_ct, ctrl_ct, and obs_ct are no longer
+	// constant across all variants since we permit missing data; but the
+	// necessary values are cached to minimize relative performance penalty
+	// in the no-missing-data case.
+
+	for (uii = 0; uii < 6; uii++) {
+	  tot1d[uii] = (double)((int32_t)tot1[uii]);
+	}
+	for (uii = 0; uii < 3; uii++) {
+	  totgeno1d[uii] = tot1d[uii] + tot1d[uii + 3];
+	}
+	dxx = totgeno1d[0] + totgeno1d[1] + totgeno1d[2];
+	tot_recip = 1.0 / dxx;
+	// subtract MarginalEntropyY[] (negate everything at the end)
+	// both case_ct and ctrl_ct guaranteed to be nonzero due to monomorphic
+	// screening step
+	dyy = (tot1d[0] + tot1d[1] + tot1d[2]) * tot_recip;
+	marginal_assoc_fixed = dyy * log(dyy);
+	dyy = (tot1d[3] + tot1d[4] + tot1d[5]) * tot_recip;
+	marginal_assoc_fixed += dyy * log(dyy);
+	for (uii = 0; uii < 3; uii++) {
+	  dyy = totgeno1d[uii];
+	  if (dyy != 0.0) {
+            // MarginalEntropySNP[]
+	    dzz = dyy * tot_recip;
+	    marginal_assoc_fixed += dzz * log(dzz);
+	    // MarginalEntropySNP_Y[]
+	    dyy = 1.0 / dyy;
+	    if (tot1[uii]) {
+	      dzz = tot1d[uii] * dyy;
+              marginal_assoc_fixed -= dzz * log(dzz);
+	    }
+	    if (tot1[uii + 3]) {
+	      dzz = tot1d[uii + 3] * dyy;
+              marginal_assoc_fixed -= dzz * log(dzz);
+	    }
+	  }
+	}
+	marginal_assoc_fixed *= (-2) * dxx;
+      }
     }
     cur_geno2 = &(geno2[block_idx2 * tot_ctsplit]);
     block_delta1 = block_idx1 - block_idx1_start;
@@ -2727,40 +2801,29 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
       cur_zmiss2_tmp = cur_zmiss2 & 1;
       if (nm_case_fixed) {
 	two_locus_count_table_zmiss1(cur_geno1, cur_geno2, counts, case_ctv3, cur_zmiss2_tmp);
-	if (cur_zmiss2_tmp) {
-	  counts[2] = tot1[0] - counts[0] - counts[1];
-	  counts[5] = tot1[1] - counts[3] - counts[4];
-	}
 	counts[6] = cur_tot2[0] - counts[0] - counts[3];
 	counts[7] = cur_tot2[1] - counts[1] - counts[4];
-	counts[8] = cur_tot2[2] - counts[2] - counts[5];
       } else {
-	// counts[] is transposed relative to two_locus_count_table_zmiss1()
         two_locus_count_table(cur_geno1, cur_geno2, counts, case_ctv3, cur_zmiss2_tmp);
-	if (cur_zmiss2_tmp) {
-	  counts[6] = tot1[0] - counts[0] - counts[3];
-	  counts[7] = tot1[1] - counts[1] - counts[4];
-	  counts[8] = tot1[2] - counts[2] - counts[5];
-	}
+      }
+      if (cur_zmiss2_tmp) {
+	counts[2] = tot1[0] - counts[0] - counts[1];
+	counts[5] = tot1[1] - counts[3] - counts[4];
+	counts[8] = tot1[2] - counts[6] - counts[7];
       }
       if (!is_case_only) {
 	cur_zmiss2 >>= 1;
 	if (nm_ctrl_fixed) {
 	  two_locus_count_table_zmiss1(cur_geno1_ctrls, &(cur_geno2[case_ctsplit]), &(counts[9]), ctrl_ctv3, cur_zmiss2);
-	  if (cur_zmiss2) {
-	    counts[11] = tot1[3] - counts[9] - counts[10];
-	    counts[14] = tot1[4] - counts[12] - counts[13];
-	  }
 	  counts[15] = cur_tot2[3] - counts[9] - counts[12];
 	  counts[16] = cur_tot2[4] - counts[10] - counts[13];
-	  counts[17] = cur_tot2[5] - counts[11] - counts[14];
 	} else {
 	  two_locus_count_table(cur_geno1_ctrls, &(cur_geno2[case_ctsplit]), &(counts[9]), ctrl_ctv3, cur_zmiss2);
-	  if (cur_zmiss2) {
-	    counts[15] = tot1[3] - counts[9] - counts[12];
-	    counts[16] = tot1[4] - counts[10] - counts[13];
-	    counts[17] = tot1[5] - counts[11] - counts[14];
-	  }
+	}
+	if (cur_zmiss2) {
+	  counts[11] = tot1[3] - counts[9] - counts[10];
+	  counts[14] = tot1[4] - counts[12] - counts[13];
+	  counts[17] = tot1[5] - counts[15] - counts[16];
 	}
       }
       if (!do_joint_effects) {
@@ -3246,6 +3309,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
   uint32_t modifier = epi_ip->modifier;
   uint32_t is_fast = modifier & EPI_FAST;
+  uint32_t is_boost = (modifier / EPI_FAST_BOOST) & 1;
   uint32_t no_ueki = modifier & EPI_FAST_NO_UEKI;
   uint32_t is_case_only = (modifier / EPI_FAST_CASE_ONLY) & 1;
   uint32_t tot_stride = 6 - 3 * is_case_only;
@@ -3470,10 +3534,26 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   g_epi_case_ct = case_ct;
   g_epi_flag = modifier;
   g_epi_marker_ct = marker_ct;
-  dxx = ltqnorm(epi_ip->epi1 / 2);
-  g_epi_alpha1sq = dxx * dxx;
-  dxx = ltqnorm(epi_ip->epi2 / 2);
-  g_epi_alpha2sq = dxx * dxx;
+  // might want to provide a Bonferroni correction interface...
+  if (is_boost) {
+    // repurpose these variables as tau thresholds
+    if (epi_ip->epi1 == 0.0) {
+      g_epi_alpha1sq = 30.0;
+    } else {
+      g_epi_alpha1sq = inverse_chiprob(epi_ip->epi1, 4);
+    }
+    g_epi_alpha2sq = inverse_chiprob(epi_ip->epi2, 4);
+  } else {
+    if (epi_ip->epi1 == 0.0) {
+      dxx = 0.00005;
+    } else {
+      dxx = epi_ip->epi1 / 2;
+    }
+    dxx = ltqnorm(dxx);
+    g_epi_alpha1sq = dxx * dxx;
+    dxx = ltqnorm(epi_ip->epi2 / 2);
+    g_epi_alpha2sq = dxx * dxx;
+  }
   pct_thresh = tests_expected / 100;
   if (!is_fast) {
     retval = epistasis_regression();
@@ -3553,8 +3633,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     if (!is_triangular) {
       fill_uint_zero(g_epi_geno1_offsets, idx1_block_size);
     }
-    // using loose packing for initial test, but should test if regular packing
-    // ends up being faster
+    // now: add space for boost precalc
     ulii = tot_ctsplit * sizeof(intptr_t) + 1 + tot_stride * sizeof(int32_t) + thread_ct * (3 * sizeof(int32_t) + sizeof(double));
     idx2_block_size = (wkspace_left - CACHELINE - thread_ct * (5 * (CACHELINE - 4))) / ulii;
     if (idx2_block_size > marker_ct) {
@@ -3590,7 +3669,20 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     if (marker_idx1) {
       marker_uidx = jump_forward_unset_unsafe(marker_exclude1, marker_uidx + 1, marker_idx1);
     }
-    sprintf(logbuf, "--fast-epistasis%s%s to %s...", is_case_only? " case-only" : "", no_ueki? " no-ueki" : ((modifier & EPI_FAST_JOINT_EFFECTS)? " joint-effects" : ""), outname);
+    wptr = memcpya(logbuf, "--fast-epistasis", 16);
+    if (is_boost) {
+      wptr = memcpya(wptr, " boost", 6);
+    } else if (no_ueki) {
+      wptr = memcpya(wptr, " no-ueki", 8);
+    } else if (modifier & EPI_FAST_JOINT_EFFECTS) {
+      wptr = memcpya(wptr, " joint-effects", 14);
+    }
+    if (is_case_only) {
+      wptr = memcpya(wptr, " case-only", 10);
+    }
+    wptr = memcpya(wptr, " to ", 4);
+    wptr = strcpya(wptr, outname);
+    memcpy(wptr, "...", 4);
     logprintb();
     fputs(" 0%", stdout);
     do {

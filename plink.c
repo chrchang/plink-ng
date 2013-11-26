@@ -8904,18 +8904,32 @@ int32_t main(int32_t argc, char** argv) {
 	}
         for (uii = 1; uii <= param_ct; uii++) {
 	  if (!strcmp(argv[cur_arg + uii], "no-ueki")) {
-	    if (epi_info.modifier & EPI_FAST_JOINT_EFFECTS) {
-	      logprint("Error: --fast-epistasis 'no-ueki' modifier cannot be used with 'joint-effects.'\n");
-	      goto main_ret_INVALID_CMDLINE;
+	    if (epi_info.modifier & (EPI_FAST_BOOST | EPI_FAST_JOINT_EFFECTS)) {
+	      sprintf(logbuf, "Error: --fast-epistasis 'no-ueki' modifier cannot be used with '%s'.%s", (epi_info.modifier & EPI_FAST_BOOST)? "boost" : "joint-effects", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    epi_info.modifier |= EPI_FAST_NO_UEKI;
+	  } else if (!strcmp(argv[cur_arg + uii], "boost")) {
+	    if (epi_info.modifier & (EPI_FAST_NO_UEKI | EPI_FAST_JOINT_EFFECTS)) {
+	      sprintf(logbuf, "Error: --fast-epistasis 'boost' modifier cannot be used with '%s'.%s", (epi_info.modifier & EPI_FAST_NO_UEKI)? "no-ueki" : "joint-effects", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    if (epi_info.modifier & EPI_FAST_CASE_ONLY) {
+	      logprint("Error: --fast-epistasis boost does not have a case-only mode.\n");
+              goto main_ret_INVALID_CMDLINE;
+	    }
+	    epi_info.modifier |= EPI_FAST_BOOST;
 	  } else if (!strcmp(argv[cur_arg + uii], "joint-effects")) {
-	    if (epi_info.modifier & EPI_FAST_NO_UEKI) {
-	      logprint("Error: --fast-epistasis 'no-ueki' modifier cannot be used with 'joint-effects.'\n");
-	      goto main_ret_INVALID_CMDLINE;
+	    if (epi_info.modifier & (EPI_FAST_NO_UEKI | EPI_FAST_BOOST)) {
+	      sprintf(logbuf, "Error: --fast-epistasis 'joint-effects' modifier cannot be used with '%s'.%s", (epi_info.modifier & EPI_FAST_NO_UEKI)? "no-ueki" : "boost", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    epi_info.modifier |= EPI_FAST_JOINT_EFFECTS;
 	  } else if (!strcmp(argv[cur_arg + uii], "case-only")) {
+	    if (epi_info.modifier & EPI_FAST_BOOST) {
+              logprint("Error: --fast-epistasis boost does not have a case-only mode.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
 	    epi_info.modifier |= EPI_FAST_CASE_ONLY;
 	  } else if (!strcmp(argv[cur_arg + uii], "set-by-set")) {
             if (!(epi_info.modifier & EPI_SET_BY_ALL)) {

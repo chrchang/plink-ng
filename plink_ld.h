@@ -37,11 +37,12 @@ typedef struct {
 #define EPI_FAST 1
 #define EPI_FAST_CASE_ONLY 2
 #define EPI_FAST_NO_UEKI 4
-#define EPI_FAST_JOINT_EFFECTS 8
-#define EPI_FAST_NO_P_VALUE 0x10
-#define EPI_REG 0x20
-#define EPI_SET_BY_SET 0x40
-#define EPI_SET_BY_ALL 0x80
+#define EPI_FAST_BOOST 8
+#define EPI_FAST_JOINT_EFFECTS 0x10
+#define EPI_FAST_NO_P_VALUE 0x20
+#define EPI_REG 0x40
+#define EPI_SET_BY_SET 0x80
+#define EPI_SET_BY_ALL 0x100
 
 typedef struct {
   uint32_t modifier;
