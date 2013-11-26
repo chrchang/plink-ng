@@ -1429,7 +1429,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("fast-epistasis\tepistasis\tgap\tepi1\tepi2", &help_ctrl, 0,
 "  --gap [kbs]      : Set '--fast-epistasis case-only' min. gap (default 1000).\n"
-"  --epi1 [p-value] : Set --[fast-]epistasis reporting threshold (def. 0.0001).\n"
+"  --epi1 [p-value] : Set --[fast-]epistasis reporting threshold (default\n"
+"                     0.000005 for 'boost', 0.0001 otherwise).\n"
 "  --epi2 [p-value] : Set threshold for contributing to SIG_E count (def. 0.01).\n"
 	       );
     help_print("parallel\tgenome-lists", &help_ctrl, 0,

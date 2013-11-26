@@ -2605,7 +2605,7 @@ void fepi_counts_to_joint_effects_stats(uint32_t group_ct, uint32_t* counts, dou
   *ctrl_var_ptr = dyy;
 }
 
-double boost_marginal_assoc(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2_ct, uint32_t ctrl0_ct, uint32_t ctrl1_ct, uint32_t ctrl2_ct) {
+double boost_marginal_assoc(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2_ct, uint32_t ctrl0_ct, uint32_t ctrl1_ct, uint32_t ctrl2_ct, double* p_bc, double* p_ca) {
   // from BOOSTx64.c lines 556-569:
   //   MarginalAssociation[] := (-MarginalEntropySNP_Y[] +
   //                              MarginalEntropySNP[] +
@@ -2638,8 +2638,27 @@ double boost_marginal_assoc(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2
   for (uii = 0; uii < 3; uii++) {
     totgenod[uii] = totd[uii] + totd[uii + 3];
   }
+  if (p_bc) {
+    tot_recip = totd[0] + totd[1] + totd[2];
+    if (tot_recip != 0.0) {
+      tot_recip = 1.0 / tot_recip;
+    }
+    p_bc[0] = totd[0] * tot_recip;
+    p_bc[1] = totd[1] * tot_recip;
+    p_bc[2] = totd[2] * tot_recip;
+    tot_recip = totd[3] + totd[4] + totd[5];
+    if (tot_recip != 0.0) {
+      tot_recip = 1.0 / tot_recip;
+    }
+    p_bc[3] = totd[3] * tot_recip;
+    p_bc[4] = totd[4] * tot_recip;
+    p_bc[5] = totd[5] * tot_recip;
+  }
   tot = totgenod[0] + totgenod[1] + totgenod[2];
   if (tot == 0.0) {
+    if (p_ca) {
+      fill_double_zero(p_ca, 6);
+    }
     return 0;
   }
   tot_recip = 1.0 / tot;
@@ -2660,21 +2679,74 @@ double boost_marginal_assoc(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2
       marginal_assoc += dzz * log(dzz);
       // MarginalEntropySNP_Y[]
       dyy = 1.0 / dyy;
-      if (totd[uii] != 0.0) {
-	dzz = totd[uii] * dyy;
+      dzz = totd[uii] * dyy;
+      dyy = totd[uii + 3] * dyy;
+      if (dzz != 0.0) {
 	marginal_assoc -= dzz * log(dzz);
       }
-      if (totd[uii + 3] != 0.0) {
-	dzz = totd[uii + 3] * dyy;
-	marginal_assoc -= dzz * log(dzz);
+      if (dyy != 0.0) {
+	marginal_assoc -= dyy * log(dyy);
+      }
+      if (p_ca) {
+        p_ca[uii] = dzz;
+	p_ca[uii + 3] = dyy;
       }
     }
   }
   return (marginal_assoc * (-2) * tot);
 }
 
-uint32_t fepi_counts_to_boost_chisq(uint32_t* counts, double marginal_assoc1, double marginal_assoc2, double screen_thresh, double* approx_chisq_ptr, double* chisq_ptr) {
-  return 0;
+double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, double marginal_assoc1, double marginal_assoc2, double screen_thresh, double* chisq_ptr) {
+  // see BOOSTx64.c lines 625-903.
+  double sum = 0.0;
+  double interaction_measure = 0.0;
+  double tau = 0.0;
+  double p_ab[9];
+  double* dptr = p_ab;
+  uint32_t* uiptr = counts;
+  double sum_recip;
+  double dxx;
+  double dyy;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+  for (uii = 0; uii < 3; uii++) {
+    dxx = (double)((int32_t)(counts[uii] + counts[uii + 3] + counts[uii + 6] + counts[uii + 9] + counts[uii + 12] + counts[uii + 15]));
+    sum += dxx;
+    dxx = 1.0 / dxx;
+    for (ujj = uii; ujj < 9; ujj += 3) {
+      *dptr++ = dxx * ((double)((int32_t)(counts[ujj] + counts[ujj + 9])));
+    }
+  }
+  if (sum == 0.0) {
+    return NAN;
+  }
+  sum_recip = 1.0 / sum;
+  for (ukk = 0; ukk < 2; ukk++) {
+    for (uii = 0; uii < 3; uii++) {
+      for (ujj = 0; ujj < 3; ujj++) {
+	dxx = ((double)((int32_t)(*uiptr++))) * sum_recip;
+	if (dxx != 0.0) {
+          interaction_measure += dxx * log(dxx);
+	}
+        dyy = p_ab[3 * ujj + uii] * p_bc[3 * ukk + ujj] * p_ca[2 * uii + ukk];
+	if (dyy != 0.0) {
+          interaction_measure -= dxx * log(dyy);
+          tau += dyy;
+	}
+      }
+    }
+  }
+  interaction_measure = (interaction_measure + log(tau)) * sum * 2;
+  if (interaction_measure > screen_thresh) {
+    // todo: iterative statistic evaluation
+    // ...
+    *chisq_ptr = interaction_measure;
+    if (interaction_measure < screen_thresh) {
+      interaction_measure = screen_thresh;
+    }
+  }
+  return interaction_measure;
 }
 
 // epistasis multithread globals
@@ -2691,7 +2763,7 @@ static uint32_t* g_epi_fail_ct1;
 static uintptr_t* g_epi_geno2;
 static uintptr_t* g_epi_zmiss2;
 static uint32_t* g_epi_tot2;
-static double* g_epi_marginal_assoc2 = NULL;
+static double* g_epi_boost_precalc2 = NULL;
 static double* g_epi_best_chisq2;
 static uint32_t* g_epi_best_id2;
 static uint32_t* g_epi_n_sig_ct2;
@@ -2738,8 +2810,8 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   uintptr_t* geno2 = g_epi_geno2;
   uintptr_t* zmiss2 = g_epi_zmiss2;
   uintptr_t* cur_geno1_ctrls = NULL;
-  double* marginal_assoc2 = g_epi_marginal_assoc2;
-  double* cur_marginal_assoc2 = NULL;
+  double* boost_precalc2 = g_epi_boost_precalc2;
+  double* cur_boost_precalc2 = NULL;
   double* all_chisq = &(g_epi_all_chisq[idx2_block_start]);
   double* best_chisq1 = &(g_epi_best_chisq1[idx1_block_start16]);
   double* best_chisq2 = &(g_epi_best_chisq2[tidx * idx2_block_sizem16]);
@@ -2756,6 +2828,11 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   double ctrl_var = 0;
   uint32_t tot1[6];
   uint32_t counts[18];
+  double p_bc_tmp[6];
+  double p_ca_fixed[6];
+  double p_ca_tmp[6];
+  double* p_bc_ptr;
+  double* p_ca_ptr;
   uintptr_t* cur_geno2;
   double* all_chisq_write;
   double* chisq2_ptr;
@@ -2771,6 +2848,7 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   double zsq;
   uint32_t nm_case_fixed;
   uint32_t nm_ctrl_fixed;
+  uint32_t nm_fixed;
   uintptr_t cur_zmiss2;
   uintptr_t cur_zmiss2_tmp;
   uint32_t n_sig_ct_fixed;
@@ -2794,6 +2872,7 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
     fail_ct_fixed = 0;
     nm_case_fixed = is_set_ul(zmiss1, block_idx1 * 2);
     nm_ctrl_fixed = is_set_ul(zmiss1, block_idx1 * 2 + 1);
+    nm_fixed = nm_case_fixed & nm_ctrl_fixed;
     tot1[0] = popcount_longs(cur_geno1, 0, case_ctv3);
     tot1[1] = popcount_longs(&(cur_geno1[case_ctv3]), 0, case_ctv3);
     tot1[2] = popcount_longs(&(cur_geno1[2 * case_ctv3]), 0, case_ctv3);
@@ -2803,8 +2882,8 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
       tot1[4] = popcount_longs(&(cur_geno1_ctrls[ctrl_ctv3]), 0, ctrl_ctv3);
       tot1[5] = popcount_longs(&(cur_geno1_ctrls[2 * ctrl_ctv3]), 0, ctrl_ctv3);
       if (is_boost) {
-	marginal_assoc_fixed = boost_marginal_assoc(tot1[0], tot1[1], tot1[2], tot1[3], tot1[4], tot1[5]);
-	cur_marginal_assoc2 = &(marginal_assoc2[block_idx2]);
+	marginal_assoc_fixed = boost_marginal_assoc(tot1[0], tot1[1], tot1[2], tot1[3], tot1[4], tot1[5], NULL, p_ca_fixed);
+	cur_boost_precalc2 = &(boost_precalc2[block_idx2 * 7]);
       }
     }
     cur_geno2 = &(geno2[block_idx2 * tot_ctsplit]);
@@ -2812,7 +2891,7 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
     best_chisq_fixed = best_chisq1[block_delta1];
     all_chisq_write = &(all_chisq[block_idx1 * marker_ct]);
     chisq2_ptr = &(best_chisq2[block_idx2]);
-    for (; block_idx2 < idx2_block_size; block_idx2++, chisq2_ptr++) {
+    for (; block_idx2 < idx2_block_size; block_idx2++, chisq2_ptr++, cur_geno2 = &(cur_geno2[tot_ctsplit])) {
       cur_tot2 = &(tot2[block_idx2 * tot_stride]);
       cur_zmiss2 = (zmiss2[block_idx2 / BITCT2] >> (2 * (block_idx2 % BITCT2))) & 3;
       cur_zmiss2_tmp = cur_zmiss2 & 1;
@@ -2854,31 +2933,9 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
 	  fepi_counts_to_joint_effects_stats(group_ct, counts, &dxx, &case_var, &ctrl_var);
 	}
 	zsq = dxx * dxx / (case_var + ctrl_var);
-      } else {
-	// repurpose ctrl_var and case_var as marginal associations
-	if (nm_case_fixed & nm_ctrl_fixed) {
-	  ctrl_var = *cur_marginal_assoc2; // cached marginal assoc
-	} else {
-	  ctrl_var = boost_marginal_assoc(counts[0] + counts[1] + counts[2], counts[3] + counts[4] + counts[5], counts[6] + counts[7] + counts[8], counts[9] + counts[10] + counts[11], counts[12] + counts[13] + counts[14], counts[15] + counts[16] + counts[17]);
+	if (!realnum(zsq)) {
+	  goto fast_epi_thread_fail;
 	}
-	cur_marginal_assoc2++;
-	if (cur_zmiss2 == 3) {
-	  case_var = marginal_assoc_fixed;
-	} else {
-	  case_var = boost_marginal_assoc(counts[0] + counts[3] + counts[6], counts[1] + counts[4] + counts[7], counts[2] + counts[5] + counts[8], counts[9] + counts[12] + counts[15], counts[10] + counts[13] + counts[16], counts[11] + counts[14] + counts[17]);
-	}
-	if (fepi_counts_to_boost_chisq(counts, ctrl_var, case_var, alpha1sq, &zsq, &dxx)) {
-	  // more accurate likelihood ratio.  May be smaller than threshold
-	  // even when the approximation was larger, so we need a bit of extra
-	  // logic here.
-	  all_chisq_write[block_idx2] = dxx;
-	}
-	if (realnum(zsq)) {
-	  goto fast_epi_thread_boost_save;
-	}
-	goto fast_epi_thread_fail;
-      }
-      if (realnum(zsq)) {
 	if (zsq >= alpha1sq) {
 	  all_chisq_write[block_idx2] = zsq;
 	}
@@ -2897,15 +2954,36 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
 	  best_id2[block_idx2] = marker_idx1;
 	}
       } else {
+	// repurpose ctrl_var and case_var as marginal associations
+	if (nm_fixed) {
+	  ctrl_var = *cur_boost_precalc2; // cached marginal assoc
+	  p_bc_ptr = &(cur_boost_precalc2[1]);
+	} else {
+	  ctrl_var = boost_marginal_assoc(counts[0] + counts[1] + counts[2], counts[3] + counts[4] + counts[5], counts[6] + counts[7] + counts[8], counts[9] + counts[10] + counts[11], counts[12] + counts[13] + counts[14], counts[15] + counts[16] + counts[17], p_bc_tmp, NULL);
+	  p_bc_ptr = p_bc_tmp;
+	}
+	cur_boost_precalc2 = &(cur_boost_precalc2[7]);
+	if (cur_zmiss2 == 3) {
+	  case_var = marginal_assoc_fixed;
+	  p_ca_ptr = p_ca_fixed;
+	} else {
+	  case_var = boost_marginal_assoc(counts[0] + counts[3] + counts[6], counts[1] + counts[4] + counts[7], counts[2] + counts[5] + counts[8], counts[9] + counts[12] + counts[15], counts[10] + counts[13] + counts[16], counts[11] + counts[14] + counts[17], NULL, p_ca_tmp);
+	  p_ca_ptr = p_ca_tmp;
+	}
+	// if approximate zsq >= epi1 threshold but more accurate value is not,
+	// we still want to save the more accurate value
+	zsq = fepi_counts_to_boost_chisq(counts, p_bc_ptr, p_ca_ptr, ctrl_var, case_var, alpha1sq, &(all_chisq_write[block_idx2]));
+	if (realnum(zsq)) {
+	  goto fast_epi_thread_boost_save;
+	}
       fast_epi_thread_fail:
-        fail_ct_fixed++;
+	fail_ct_fixed++;
 	fail_ct2[block_idx2] += 1;
 	if (alpha1sq == 0.0) {
 	  // special case: log NA
-          all_chisq_write[block_idx2] = NAN;
+	  all_chisq_write[block_idx2] = NAN;
 	}
       }
-      cur_geno2 = &(cur_geno2[tot_ctsplit]);
     }
     if (best_chisq_fixed > best_chisq1[block_delta1]) {
       best_chisq1[block_delta1] = best_chisq_fixed;
@@ -3580,13 +3658,17 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   g_epi_marker_ct = marker_ct;
   // might want to provide a Bonferroni correction interface...
   if (is_boost) {
-    // repurpose these variables as tau thresholds
     if (epi_ip->epi1 == 0.0) {
-      g_epi_alpha1sq = 30.0;
+      dxx = 0.000005;
     } else {
-      g_epi_alpha1sq = inverse_chiprob(epi_ip->epi1, 4);
+      dxx = epi_ip->epi1;
     }
+    g_epi_alpha1sq = inverse_chiprob(dxx, 4);
     g_epi_alpha2sq = inverse_chiprob(epi_ip->epi2, 4);
+    if (g_epi_alpha1sq == g_epi_alpha2sq) {
+      // count final instead of screening p-value hits
+      g_epi_alpha2sq *= 1 + SMALL_EPSILON;
+    }
   } else {
     if (epi_ip->epi1 == 0.0) {
       dxx = 0.00005;
@@ -3677,9 +3759,8 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     if (!is_triangular) {
       fill_uint_zero(g_epi_geno1_offsets, idx1_block_size);
     }
-    // now: add space for boost precalc
-    ulii = tot_ctsplit * sizeof(intptr_t) + 1 + tot_stride * sizeof(int32_t) + thread_ct * (3 * sizeof(int32_t) + sizeof(double));
-    idx2_block_size = (wkspace_left - CACHELINE - thread_ct * (5 * (CACHELINE - 4))) / ulii;
+    ulii = tot_ctsplit * sizeof(intptr_t) + 1 + is_boost * 7 * sizeof(double) + tot_stride * sizeof(int32_t) + thread_ct * (3 * sizeof(int32_t) + sizeof(double));
+    idx2_block_size = (wkspace_left - CACHELINE - is_boost * (CACHELINE - 8) - thread_ct * (5 * (CACHELINE - 4))) / ulii;
     if (idx2_block_size > marker_ct) {
       idx2_block_size = marker_ct;
     }
@@ -3696,7 +3777,9 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	    wkspace_alloc_ui_checked(&g_epi_best_id2, thread_ct * idx2_block_size * sizeof(int32_t)) ||
 	    wkspace_alloc_ui_checked(&g_epi_n_sig_ct2, thread_ct * idx2_block_size * sizeof(int32_t)) ||
 	    wkspace_alloc_ui_checked(&g_epi_fail_ct2, thread_ct * idx2_block_size * sizeof(int32_t)))) {
-	break;
+	if ((!is_boost) || (!wkspace_alloc_d_checked(&g_epi_boost_precalc2, 7 * idx2_block_size * sizeof(double)))) {
+	  break;
+	}
       }
       wkspace_reset(wkspace_mark2);
       idx2_block_size -= 16;
@@ -3861,6 +3944,9 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	    uiptr[3] = popcount_longs(ulptr, 0, ctrl_ctv3);
 	    uiptr[4] = popcount_longs(&(ulptr[ctrl_ctv3]), 0, ctrl_ctv3);
 	    uiptr[5] = popcount_longs(&(ulptr[2 * ctrl_ctv3]), 0, ctrl_ctv3);
+	    if (is_boost) {
+	      g_epi_boost_precalc2[block_idx2 * 7] = boost_marginal_assoc(uiptr[0], uiptr[1], uiptr[2], uiptr[3], uiptr[4], uiptr[5], &(g_epi_boost_precalc2[block_idx2 * 7 + 1]), NULL);
+	    }
 	  }
 	  if (ulii) {
 	    g_epi_zmiss2[block_idx2 / BITCT2] |= ulii << (2 * (block_idx2 % BITCT2));
@@ -3938,7 +4024,6 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
               best_ids[block_idx2 + marker_idx2] = uiptr[block_idx2];
 	    }
 	    *uiptr4 += *uiptr2++;
-	    // don't increment tests_thrown_out here, that would double-count
             *uiptr5 += *uiptr3++;
 	  }
 	}
@@ -3985,7 +4070,11 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
                 wptr = double_g_writewx4x(wptr, dxx, 12, ' ');
 	      }
 	      if (!no_p_value) {
-		wptr = double_g_writewx4x(wptr, normdist(-sqrt(dxx)) * 2, 12, ' ');
+		if (!is_boost) {
+		  wptr = double_g_writewx4x(wptr, normdist(-sqrt(dxx)) * 2, 12, ' ');
+		} else {
+		  wptr = double_g_writewx4x(wptr, chiprob_p(dxx, 4), 12, ' ');
+		}
 	      }
 	      *wptr++ = '\n';
 	      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
