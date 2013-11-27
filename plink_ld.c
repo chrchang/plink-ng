@@ -2891,14 +2891,16 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
   uint32_t ukk;
   for (uii = 0; uii < 3; uii++) {
     dxx = (double)((int32_t)(counts[uii] + counts[uii + 3] + counts[uii + 6] + counts[uii + 9] + counts[uii + 12] + counts[uii + 15]));
-    if (dxx == 0.0) {
-      return NAN;
+    if (dxx != 0.0) {
+      sum += dxx;
+      dxx = 1.0 / dxx;
     }
-    sum += dxx;
-    dxx = 1.0 / dxx;
     for (ujj = uii; ujj < 9; ujj += 3) {
       *dptr++ = dxx * ((double)((int32_t)(counts[ujj] + counts[ujj + 9])));
     }
+  }
+  if (sum == 0.0) {
+    return NAN;
   }
   sum_recip = 1.0 / sum;
   for (ukk = 0; ukk < 2; ukk++) {
