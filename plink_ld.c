@@ -2605,6 +2605,62 @@ void fepi_counts_to_joint_effects_stats(uint32_t group_ct, uint32_t* counts, dou
   *ctrl_var_ptr = dyy;
 }
 
+void boost_calc_p_bc(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2_ct, uint32_t ctrl0_ct, uint32_t ctrl1_ct, uint32_t ctrl2_ct, double* p_bc) {
+  double totd[3];
+  double tot_recip;
+  totd[0] = (double)((int32_t)case0_ct);
+  totd[1] = (double)((int32_t)case1_ct);
+  totd[2] = (double)((int32_t)case2_ct);
+  tot_recip = totd[0] + totd[1] + totd[2];
+  if (tot_recip != 0.0) {
+    tot_recip = 1.0 / tot_recip;
+  }
+  p_bc[0] = totd[0] * tot_recip;
+  p_bc[1] = totd[1] * tot_recip;
+  p_bc[2] = totd[2] * tot_recip;
+  totd[0] = (double)((int32_t)ctrl0_ct);
+  totd[1] = (double)((int32_t)ctrl1_ct);
+  totd[2] = (double)((int32_t)ctrl2_ct);
+  tot_recip = totd[0] + totd[1] + totd[2];
+  if (tot_recip != 0.0) {
+    tot_recip = 1.0 / tot_recip;
+  }
+  p_bc[3] = totd[0] * tot_recip;
+  p_bc[4] = totd[1] * tot_recip;
+  p_bc[5] = totd[2] * tot_recip;
+}
+
+void boost_calc_p_ca(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2_ct, uint32_t ctrl0_ct, uint32_t ctrl1_ct, uint32_t ctrl2_ct, double* p_ca) {
+  double totd[2];
+  double tot_recip;
+  totd[0] = (double)((int32_t)case0_ct);
+  totd[1] = (double)((int32_t)ctrl0_ct);
+  tot_recip = totd[0] + totd[1];
+  if (tot_recip != 0.0) {
+    tot_recip = 1.0 / tot_recip;
+  }
+  p_ca[0] = totd[0] * tot_recip;
+  p_ca[1] = totd[1] * tot_recip;
+  totd[0] = (double)((int32_t)case1_ct);
+  totd[1] = (double)((int32_t)ctrl1_ct);
+  tot_recip = totd[0] + totd[1];
+  if (tot_recip != 0.0) {
+    tot_recip = 1.0 / tot_recip;
+  }
+  p_ca[2] = totd[0] * tot_recip;
+  p_ca[3] = totd[1] * tot_recip;
+  totd[0] = (double)((int32_t)case2_ct);
+  totd[1] = (double)((int32_t)ctrl2_ct);
+  tot_recip = totd[0] + totd[1];
+  if (tot_recip != 0.0) {
+    tot_recip = 1.0 / tot_recip;
+  }
+  p_ca[4] = totd[0] * tot_recip;
+  p_ca[5] = totd[1] * tot_recip;
+}
+
+/*
+// (don't actually need this in main loop...)
 double boost_marginal_assoc(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2_ct, uint32_t ctrl0_ct, uint32_t ctrl1_ct, uint32_t ctrl2_ct, double* p_bc, double* p_ca) {
   // from BOOSTx64.c lines 556-569:
   //   MarginalAssociation[] := (-MarginalEntropySNP_Y[] +
@@ -2695,8 +2751,9 @@ double boost_marginal_assoc(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2
   }
   return (marginal_assoc * (-2) * tot);
 }
+*/
 
-double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, double marginal_assoc1, double marginal_assoc2, double screen_thresh, double* chisq_ptr) {
+double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, double screen_thresh, double* chisq_ptr) {
   // see BOOSTx64.c lines 625-903.
   double sum = 0.0;
   double interaction_measure = 0.0;
@@ -2790,7 +2847,6 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   uintptr_t idx2_block_end = idx2_block_start + idx2_block_size;
   uintptr_t idx2_block_sizem16 = (idx2_block_size + 15) & (~(15 * ONELU));
   uintptr_t marker_ct = g_epi_marker_ct;
-  double marginal_assoc_fixed = 0.0;
   uint32_t case_ct = g_epi_case_ct;
   uint32_t ctrl_ct = g_epi_ctrl_ct;
   uint32_t case_ctv3 = 2 * ((case_ct + (2 * BITCT - 1)) / (2 * BITCT));
@@ -2811,10 +2867,11 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   uintptr_t* zmiss2 = g_epi_zmiss2;
   uintptr_t* cur_geno1_ctrls = NULL;
   double* boost_precalc2 = g_epi_boost_precalc2;
-  double* cur_boost_precalc2 = NULL;
   double* all_chisq = &(g_epi_all_chisq[idx2_block_start]);
   double* best_chisq1 = &(g_epi_best_chisq1[idx1_block_start16]);
   double* best_chisq2 = &(g_epi_best_chisq2[tidx * idx2_block_sizem16]);
+  double* cur_boost_precalc2 = NULL;
+  double* p_bc_ptr = NULL;
   uint32_t* geno1_offsets = g_epi_geno1_offsets;
   uint32_t* tot2 = g_epi_tot2;
   uint32_t* best_id1 = &(g_epi_best_id1[idx1_block_start16]);
@@ -2831,7 +2888,6 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   double p_bc_tmp[6];
   double p_ca_fixed[6];
   double p_ca_tmp[6];
-  double* p_bc_ptr;
   double* p_ca_ptr;
   uintptr_t* cur_geno2;
   double* all_chisq_write;
@@ -2882,8 +2938,12 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
       tot1[4] = popcount_longs(&(cur_geno1_ctrls[ctrl_ctv3]), 0, ctrl_ctv3);
       tot1[5] = popcount_longs(&(cur_geno1_ctrls[2 * ctrl_ctv3]), 0, ctrl_ctv3);
       if (is_boost) {
-	marginal_assoc_fixed = boost_marginal_assoc(tot1[0], tot1[1], tot1[2], tot1[3], tot1[4], tot1[5], NULL, p_ca_fixed);
-	cur_boost_precalc2 = &(boost_precalc2[block_idx2 * 7]);
+	if (nm_fixed) {
+	  cur_boost_precalc2 = &(boost_precalc2[block_idx2 * 6]);
+	} else {
+	  p_bc_ptr = p_bc_tmp;
+	}
+	boost_calc_p_ca(tot1[0], tot1[1], tot1[2], tot1[3], tot1[4], tot1[5], p_ca_fixed);
       }
     }
     cur_geno2 = &(geno2[block_idx2 * tot_ctsplit]);
@@ -2954,25 +3014,21 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
 	  best_id2[block_idx2] = marker_idx1;
 	}
       } else {
-	// repurpose ctrl_var and case_var as marginal associations
 	if (nm_fixed) {
-	  ctrl_var = *cur_boost_precalc2; // cached marginal assoc
-	  p_bc_ptr = &(cur_boost_precalc2[1]);
+          p_bc_ptr = cur_boost_precalc2;
+	  cur_boost_precalc2 = &(cur_boost_precalc2[6]);
 	} else {
-	  ctrl_var = boost_marginal_assoc(counts[0] + counts[1] + counts[2], counts[3] + counts[4] + counts[5], counts[6] + counts[7] + counts[8], counts[9] + counts[10] + counts[11], counts[12] + counts[13] + counts[14], counts[15] + counts[16] + counts[17], p_bc_tmp, NULL);
-	  p_bc_ptr = p_bc_tmp;
+          boost_calc_p_bc(counts[0] + counts[1] + counts[2], counts[3] + counts[4] + counts[5], counts[6] + counts[7] + counts[8], counts[9] + counts[10] + counts[11], counts[12] + counts[13] + counts[14], counts[15] + counts[16] + counts[17], p_bc_ptr);
 	}
-	cur_boost_precalc2 = &(cur_boost_precalc2[7]);
 	if (cur_zmiss2 == 3) {
-	  case_var = marginal_assoc_fixed;
 	  p_ca_ptr = p_ca_fixed;
 	} else {
-	  case_var = boost_marginal_assoc(counts[0] + counts[3] + counts[6], counts[1] + counts[4] + counts[7], counts[2] + counts[5] + counts[8], counts[9] + counts[12] + counts[15], counts[10] + counts[13] + counts[16], counts[11] + counts[14] + counts[17], NULL, p_ca_tmp);
+	  boost_calc_p_ca(counts[0] + counts[3] + counts[6], counts[1] + counts[4] + counts[7], counts[2] + counts[5] + counts[8], counts[9] + counts[12] + counts[15], counts[10] + counts[13] + counts[16], counts[11] + counts[14] + counts[17], p_ca_tmp);
 	  p_ca_ptr = p_ca_tmp;
 	}
 	// if approximate zsq >= epi1 threshold but more accurate value is not,
 	// we still want to save the more accurate value
-	zsq = fepi_counts_to_boost_chisq(counts, p_bc_ptr, p_ca_ptr, ctrl_var, case_var, alpha1sq, &(all_chisq_write[block_idx2]));
+	zsq = fepi_counts_to_boost_chisq(counts, p_bc_ptr, p_ca_ptr, alpha1sq, &(all_chisq_write[block_idx2]));
 	if (realnum(zsq)) {
 	  goto fast_epi_thread_boost_save;
 	}
@@ -3759,7 +3815,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     if (!is_triangular) {
       fill_uint_zero(g_epi_geno1_offsets, idx1_block_size);
     }
-    ulii = tot_ctsplit * sizeof(intptr_t) + 1 + is_boost * 7 * sizeof(double) + tot_stride * sizeof(int32_t) + thread_ct * (3 * sizeof(int32_t) + sizeof(double));
+    ulii = tot_ctsplit * sizeof(intptr_t) + 1 + is_boost * 6 * sizeof(double) + tot_stride * sizeof(int32_t) + thread_ct * (3 * sizeof(int32_t) + sizeof(double));
     idx2_block_size = (wkspace_left - CACHELINE - is_boost * (CACHELINE - 8) - thread_ct * (5 * (CACHELINE - 4))) / ulii;
     if (idx2_block_size > marker_ct) {
       idx2_block_size = marker_ct;
@@ -3777,7 +3833,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	    wkspace_alloc_ui_checked(&g_epi_best_id2, thread_ct * idx2_block_size * sizeof(int32_t)) ||
 	    wkspace_alloc_ui_checked(&g_epi_n_sig_ct2, thread_ct * idx2_block_size * sizeof(int32_t)) ||
 	    wkspace_alloc_ui_checked(&g_epi_fail_ct2, thread_ct * idx2_block_size * sizeof(int32_t)))) {
-	if ((!is_boost) || (!wkspace_alloc_d_checked(&g_epi_boost_precalc2, 7 * idx2_block_size * sizeof(double)))) {
+	if ((!is_boost) || (!wkspace_alloc_d_checked(&g_epi_boost_precalc2, 6 * idx2_block_size * sizeof(double)))) {
 	  break;
 	}
       }
@@ -3945,7 +4001,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	    uiptr[4] = popcount_longs(&(ulptr[ctrl_ctv3]), 0, ctrl_ctv3);
 	    uiptr[5] = popcount_longs(&(ulptr[2 * ctrl_ctv3]), 0, ctrl_ctv3);
 	    if (is_boost) {
-	      g_epi_boost_precalc2[block_idx2 * 7] = boost_marginal_assoc(uiptr[0], uiptr[1], uiptr[2], uiptr[3], uiptr[4], uiptr[5], &(g_epi_boost_precalc2[block_idx2 * 7 + 1]), NULL);
+	      boost_calc_p_bc(uiptr[0], uiptr[1], uiptr[2], uiptr[3], uiptr[4], uiptr[5], &(g_epi_boost_precalc2[block_idx2 * 6]));
 	    }
 	  }
 	  if (ulii) {
