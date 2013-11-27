@@ -3225,13 +3225,6 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
           p_bc_ptr = cur_boost_precalc2;
 	  cur_boost_precalc2 = &(cur_boost_precalc2[6]);
 	  boost_calc_p_bc(counts[0] + counts[3] + counts[6], counts[1] + counts[4] + counts[7], counts[2] + counts[5] + counts[8], counts[9] + counts[12] + counts[15], counts[10] + counts[13] + counts[16], counts[11] + counts[14] + counts[17], p_bc_tmp);
-	  /*
-	  printf("%g %g %g %g %g %g\n", p_bc_ptr[0], p_bc_ptr[1], p_bc_ptr[2], p_bc_ptr[3], p_bc_ptr[4], p_bc_ptr[5]);
-	  printf("%g %g %g %g %g %g\n", p_bc_tmp[0], p_bc_tmp[1], p_bc_tmp[2], p_bc_tmp[3], p_bc_tmp[4], p_bc_tmp[5]);
-	  printf("%u %u %u %u %u %u\n", cur_tot2[0], cur_tot2[1], cur_tot2[2], cur_tot2[3], cur_tot2[4], cur_tot2[5]);
-	  printf("%u %u %u %u %u %u\n", counts[0] + counts[3] + counts[6], counts[1] + counts[4] + counts[7], counts[2] + counts[5] + counts[8], counts[9] + counts[12] + counts[15], counts[10] + counts[13] + counts[16], counts[11] + counts[14] + counts[17]);
-          exit(1);
-	  */
 	} else {
 	  boost_calc_p_bc(counts[0] + counts[3] + counts[6], counts[1] + counts[4] + counts[7], counts[2] + counts[5] + counts[8], counts[9] + counts[12] + counts[15], counts[10] + counts[13] + counts[16], counts[11] + counts[14] + counts[17], p_bc_ptr);
 	}
