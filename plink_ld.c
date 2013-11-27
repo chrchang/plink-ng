@@ -3215,12 +3215,12 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
           p_bc_ptr = cur_boost_precalc2;
 	  cur_boost_precalc2 = &(cur_boost_precalc2[6]);
 	} else {
-          boost_calc_p_bc(counts[0] + counts[1] + counts[2], counts[3] + counts[4] + counts[5], counts[6] + counts[7] + counts[8], counts[9] + counts[10] + counts[11], counts[12] + counts[13] + counts[14], counts[15] + counts[16] + counts[17], p_bc_ptr);
+	  boost_calc_p_bc(counts[0] + counts[3] + counts[6], counts[1] + counts[4] + counts[7], counts[2] + counts[5] + counts[8], counts[9] + counts[12] + counts[15], counts[10] + counts[13] + counts[16], counts[11] + counts[14] + counts[17], p_bc_ptr);
 	}
 	if (cur_zmiss2 == 3) {
 	  p_ca_ptr = p_ca_fixed;
 	} else {
-	  boost_calc_p_ca(counts[0] + counts[3] + counts[6], counts[1] + counts[4] + counts[7], counts[2] + counts[5] + counts[8], counts[9] + counts[12] + counts[15], counts[10] + counts[13] + counts[16], counts[11] + counts[14] + counts[17], p_ca_tmp);
+          boost_calc_p_ca(counts[0] + counts[1] + counts[2], counts[3] + counts[4] + counts[5], counts[6] + counts[7] + counts[8], counts[9] + counts[10] + counts[11], counts[12] + counts[13] + counts[14], counts[15] + counts[16] + counts[17], p_ca_tmp);
 	  p_ca_ptr = p_ca_tmp;
 	}
 	// if approximate zsq >= epi1 threshold but more accurate value is not,
