@@ -3154,29 +3154,39 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
       cur_zmiss2_tmp = cur_zmiss2 & 1;
       if (nm_case_fixed) {
 	two_locus_count_table_zmiss1(cur_geno1, cur_geno2, counts, case_ctv3, cur_zmiss2_tmp);
+	if (cur_zmiss2_tmp) {
+	  counts[2] = tot1[0] - counts[0] - counts[1];
+	  counts[5] = tot1[1] - counts[3] - counts[4];
+	}
 	counts[6] = cur_tot2[0] - counts[0] - counts[3];
 	counts[7] = cur_tot2[1] - counts[1] - counts[4];
+	counts[8] = cur_tot2[2] - counts[2] - counts[5];
       } else {
         two_locus_count_table(cur_geno1, cur_geno2, counts, case_ctv3, cur_zmiss2_tmp);
-      }
-      if (cur_zmiss2_tmp) {
-	counts[2] = tot1[0] - counts[0] - counts[1];
-	counts[5] = tot1[1] - counts[3] - counts[4];
-	counts[8] = tot1[2] - counts[6] - counts[7];
+	if (cur_zmiss2_tmp) {
+	  counts[2] = tot1[0] - counts[0] - counts[1];
+	  counts[5] = tot1[1] - counts[3] - counts[4];
+	  counts[8] = tot1[2] - counts[6] - counts[7];
+	}
       }
       if (!is_case_only) {
 	cur_zmiss2_tmp = cur_zmiss2 >> 1;
 	if (nm_ctrl_fixed) {
 	  two_locus_count_table_zmiss1(cur_geno1_ctrls, &(cur_geno2[case_ctsplit]), &(counts[9]), ctrl_ctv3, cur_zmiss2_tmp);
+	  if (cur_zmiss2_tmp) {
+	    counts[11] = tot1[3] - counts[9] - counts[10];
+	    counts[14] = tot1[4] - counts[12] - counts[13];
+	  }
 	  counts[15] = cur_tot2[3] - counts[9] - counts[12];
 	  counts[16] = cur_tot2[4] - counts[10] - counts[13];
+	  counts[17] = cur_tot2[5] - counts[11] - counts[14];
 	} else {
 	  two_locus_count_table(cur_geno1_ctrls, &(cur_geno2[case_ctsplit]), &(counts[9]), ctrl_ctv3, cur_zmiss2_tmp);
-	}
-	if (cur_zmiss2_tmp) {
-	  counts[11] = tot1[3] - counts[9] - counts[10];
-	  counts[14] = tot1[4] - counts[12] - counts[13];
-	  counts[17] = tot1[5] - counts[15] - counts[16];
+	  if (cur_zmiss2_tmp) {
+	    counts[11] = tot1[3] - counts[9] - counts[10];
+	    counts[14] = tot1[4] - counts[12] - counts[13];
+	    counts[17] = tot1[5] - counts[15] - counts[16];
+	  }
 	}
       }
       if (!is_boost) {
@@ -3214,6 +3224,14 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
 	if (nm_fixed) {
           p_bc_ptr = cur_boost_precalc2;
 	  cur_boost_precalc2 = &(cur_boost_precalc2[6]);
+	  boost_calc_p_bc(counts[0] + counts[3] + counts[6], counts[1] + counts[4] + counts[7], counts[2] + counts[5] + counts[8], counts[9] + counts[12] + counts[15], counts[10] + counts[13] + counts[16], counts[11] + counts[14] + counts[17], p_bc_tmp);
+	  /*
+	  printf("%g %g %g %g %g %g\n", p_bc_ptr[0], p_bc_ptr[1], p_bc_ptr[2], p_bc_ptr[3], p_bc_ptr[4], p_bc_ptr[5]);
+	  printf("%g %g %g %g %g %g\n", p_bc_tmp[0], p_bc_tmp[1], p_bc_tmp[2], p_bc_tmp[3], p_bc_tmp[4], p_bc_tmp[5]);
+	  printf("%u %u %u %u %u %u\n", cur_tot2[0], cur_tot2[1], cur_tot2[2], cur_tot2[3], cur_tot2[4], cur_tot2[5]);
+	  printf("%u %u %u %u %u %u\n", counts[0] + counts[3] + counts[6], counts[1] + counts[4] + counts[7], counts[2] + counts[5] + counts[8], counts[9] + counts[12] + counts[15], counts[10] + counts[13] + counts[16], counts[11] + counts[14] + counts[17]);
+          exit(1);
+	  */
 	} else {
 	  boost_calc_p_bc(counts[0] + counts[3] + counts[6], counts[1] + counts[4] + counts[7], counts[2] + counts[5] + counts[8], counts[9] + counts[12] + counts[15], counts[10] + counts[13] + counts[16], counts[11] + counts[14] + counts[17], p_bc_ptr);
 	}
