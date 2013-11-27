@@ -2659,111 +2659,21 @@ void boost_calc_p_ca(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2_ct, ui
   p_ca[5] = totd[1] * tot_recip;
 }
 
-/*
-// (don't actually need this in main loop...)
-double boost_marginal_assoc(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2_ct, uint32_t ctrl0_ct, uint32_t ctrl1_ct, uint32_t ctrl2_ct, double* p_bc, double* p_ca) {
-  // from BOOSTx64.c lines 556-569:
-  //   MarginalAssociation[] := (-MarginalEntropySNP_Y[] +
-  //                              MarginalEntropySNP[] +
-  //                              MarginalEntropyY[]) * obs_ct * 2
-  //   MarginalEntropyY[] := entropy(case_ct / obs_ct) +
-  //                         entropy(ctrl_ct / obs_ct)
-  //   MarginalEntropySNP[] := entropy(genotype_ct / obs_ct)
-  //                           (summed over 3 genotypes)
-  //   MarginalEntropySNP_Y[] := entropy(geno_and_case_ct / genotype_ct)
-  //                           + entropy(geno_and_ctrl_ct / genotype_ct)
-  //                             (summed over 3 genotypes)
-  // MarginalEntropyY, case_ct, ctrl_ct, and obs_ct are no longer
-  // constant across all variants since we permit missing data; but the
-  // necessary values are cached to minimize relative performance penalty
-  // in the no-missing-data case.
-  double marginal_assoc = 0.0;
-  double totd[6];
-  double totgenod[3];
-  double tot;
-  double dyy;
-  double dzz;
-  double tot_recip;
-  uint32_t uii;
-  totd[0] = (double)((int32_t)case0_ct);
-  totd[1] = (double)((int32_t)case1_ct);
-  totd[2] = (double)((int32_t)case2_ct);
-  totd[3] = (double)((int32_t)ctrl0_ct);
-  totd[4] = (double)((int32_t)ctrl1_ct);
-  totd[5] = (double)((int32_t)ctrl2_ct);
-  for (uii = 0; uii < 3; uii++) {
-    totgenod[uii] = totd[uii] + totd[uii + 3];
-  }
-  if (p_bc) {
-    tot_recip = totd[0] + totd[1] + totd[2];
-    if (tot_recip != 0.0) {
-      tot_recip = 1.0 / tot_recip;
-    }
-    p_bc[0] = totd[0] * tot_recip;
-    p_bc[1] = totd[1] * tot_recip;
-    p_bc[2] = totd[2] * tot_recip;
-    tot_recip = totd[3] + totd[4] + totd[5];
-    if (tot_recip != 0.0) {
-      tot_recip = 1.0 / tot_recip;
-    }
-    p_bc[3] = totd[3] * tot_recip;
-    p_bc[4] = totd[4] * tot_recip;
-    p_bc[5] = totd[5] * tot_recip;
-  }
-  tot = totgenod[0] + totgenod[1] + totgenod[2];
-  if (tot == 0.0) {
-    if (p_ca) {
-      fill_double_zero(p_ca, 6);
-    }
-    return 0;
-  }
-  tot_recip = 1.0 / tot;
-  // subtract MarginalEntropyY[] (negate everything at the end)
-  dyy = (totd[0] + totd[1] + totd[2]) * tot_recip;
-  if (dyy != 0.0) {
-    marginal_assoc = dyy * log(dyy);
-  }
-  dyy = (totd[3] + totd[4] + totd[5]) * tot_recip;
-  if (dyy != 0.0) {
-    marginal_assoc += dyy * log(dyy);
-  }
-  for (uii = 0; uii < 3; uii++) {
-    dyy = totgenod[uii];
-    if (dyy != 0.0) {
-      // MarginalEntropySNP[]
-      dzz = dyy * tot_recip;
-      marginal_assoc += dzz * log(dzz);
-      // MarginalEntropySNP_Y[]
-      dyy = 1.0 / dyy;
-      dzz = totd[uii] * dyy;
-      dyy = totd[uii + 3] * dyy;
-      if (dzz != 0.0) {
-	marginal_assoc -= dzz * log(dzz);
-      }
-      if (dyy != 0.0) {
-	marginal_assoc -= dyy * log(dyy);
-      }
-      if (p_ca) {
-        p_ca[uii] = dzz;
-	p_ca[uii + 3] = dyy;
-      }
-    }
-  }
-  return (marginal_assoc * (-2) * tot);
-}
-*/
-
 double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, double screen_thresh, double* chisq_ptr) {
   // see BOOSTx64.c lines 625-903.
   double sum = 0.0;
   double interaction_measure = 0.0;
   double tau = 0.0;
   double p_ab[9];
+  double mu_tmp[18];
+  double mu0_tmp[18];
+  double mu_xx[9];
   double* dptr = p_ab;
   uint32_t* uiptr = counts;
   double sum_recip;
   double dxx;
   double dyy;
+  double mu_error;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -2796,8 +2706,83 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
   }
   interaction_measure = (interaction_measure + log(tau)) * sum * 2;
   if (interaction_measure > screen_thresh) {
-    // todo: iterative statistic evaluation
-    // ...
+    for (uii = 0; uii < 18; uii++) {
+      mu_tmp[uii] = 1.0;
+    }
+    do {
+      memcpy(mu0_tmp, mu_tmp, 18 * sizeof(double));
+      dptr = mu_xx; // mu_ij
+      for (uii = 0; uii < 18; uii += 2) {
+        *dptr++ = mu_tmp[uii] + mu_tmp[uii + 1];
+      }
+      dptr = mu_tmp;
+      for (uii = 0; uii < 9; uii++) {
+	dxx = mu_xx[uii];
+	if (dxx != 0.0) {
+	  dxx = ((double)((int32_t)(counts[uii] + counts[uii + 9]))) / dxx;
+	}
+	*dptr *= dxx;
+	dptr++;
+	*dptr *= dxx;
+	dptr++;
+      }
+      dptr = mu_xx; // mu_ik
+      for (uii = 0; uii < 18; uii += 6) {
+	for (ukk = uii; ukk < uii + 2; ukk++) {
+          *dptr++ = mu_tmp[ukk] + mu_tmp[ukk + 2] + mu_tmp[ukk + 4];
+	}
+      }
+      for (uii = 0; uii < 3; uii++) {
+	for (ukk = 0; ukk < 2; ukk++) {
+	  dxx = mu_xx[uii * 2 + ukk];
+          if (dxx != 0.0) {
+            dxx = ((double)((int32_t)(counts[ukk * 9 + uii * 3] + counts[ukk * 9 + uii * 3 + 1] + counts[ukk * 9 + uii * 3 + 2]))) / dxx;
+	  }
+	  mu_tmp[uii * 6 + ukk] *= dxx;
+	  mu_tmp[uii * 6 + ukk + 2] *= dxx;
+	  mu_tmp[uii * 6 + ukk + 4] *= dxx;
+	}
+      }
+      dptr = mu_xx; // mu_jk
+      for (uii = 0; uii < 6; uii++) {
+        *dptr = mu_tmp[uii] + mu_tmp[uii + 6] + mu_tmp[uii + 12];
+	dptr++;
+      }
+      for (ujj = 0; ujj < 3; ujj++) {
+	for (ukk = 0; ukk < 2; ukk++) {
+	  dxx = mu_xx[ujj * 2 + ukk];
+          if (dxx != 0.0) {
+	    dxx = ((double)((int32_t)(counts[ukk * 9 + ujj] + counts[ukk * 9 + ujj + 3] + counts[ukk * 9 + ujj + 6]))) / dxx;
+	  }
+          mu_tmp[ujj * 2 + ukk] *= dxx;
+          mu_tmp[ujj * 2 + ukk + 6] *= dxx;
+          mu_tmp[ujj * 2 + ukk + 12] *= dxx;
+	}
+      }
+      mu_error = 0.0;
+      for (uii = 0; uii < 18; uii++) {
+        mu_error += fabs(mu_tmp[uii] - mu0_tmp[uii]);
+      }
+    } while (mu_error > 0.001);
+    tau = 0.0;
+    interaction_measure = 0.0;
+    uiptr = counts;
+    for (ukk = 0; ukk < 2; ukk++) {
+      for (uii = 0; uii < 3; uii++) {
+	for (ujj = 0; ujj < 3; ujj++) {
+	  dxx = ((double)((int32_t)(*uiptr++))) * sum_recip;
+	  if (dxx != 0.0) {
+	    interaction_measure += dxx * log(dxx);
+	  }
+	  dyy = mu_tmp[uii * 6 + ujj * 2 + ukk] * sum_recip;
+	  if (dyy != 0.0) {
+	    interaction_measure -= dxx * log(dyy);
+	    tau += dyy;
+	  }
+	}
+      }
+    }
+    interaction_measure = (interaction_measure + log(tau)) * sum * 2;
     *chisq_ptr = interaction_measure;
     if (interaction_measure < screen_thresh) {
       interaction_measure = screen_thresh;
