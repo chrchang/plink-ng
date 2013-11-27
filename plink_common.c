@@ -2830,6 +2830,29 @@ uint32_t prev_unset_unsafe(uintptr_t* bit_arr, uint32_t loc) {
   return ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + BITCT - 1 - CLZLU(ulii);
 }
 
+uint32_t prev_unset(uintptr_t* bit_arr, uint32_t loc, uint32_t floor) {
+  uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
+  uint32_t remainder = loc % BITCT;
+  uintptr_t* bit_arr_first;
+  uintptr_t ulii;
+  if (remainder) {
+    ulii = (~(*bit_arr_ptr)) & ((ONELU << remainder) - ONELU);
+    if (ulii) {
+      loc = (loc | (BITCT - 1)) - CLZLU(ulii);
+      return MAXV(loc, floor);
+    }
+  }
+  bit_arr_first = &(bit_arr[floor / BITCT]);
+  do {
+    if (bit_arr_ptr == bit_arr_first) {
+      return floor;
+    }
+    ulii = ~(*(--bit_arr_ptr));
+  } while (!ulii);
+  loc = ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + BITCT - 1 - CLZLU(ulii);
+  return MAXV(loc, floor);
+}
+
 void fill_idx_to_uidx(uintptr_t* exclude_arr, uintptr_t unfiltered_item_ct, uintptr_t item_ct, uint32_t* idx_to_uidx) {
   uint32_t* idx_to_uidx_end = &(idx_to_uidx[item_ct]);
   uint32_t item_uidx = 0;

@@ -1267,6 +1267,8 @@ int32_t last_set_bit(uintptr_t* bit_arr, uint32_t word_ct);
 // position
 uint32_t prev_unset_unsafe(uintptr_t* bit_arr, uint32_t loc);
 
+uint32_t prev_unset(uintptr_t* bit_arr, uint32_t loc, uint32_t floor);
+
 static inline void prev_unset_unsafe_ck(uintptr_t* bit_arr, uint32_t* loc_ptr) {
   *loc_ptr -= 1;
   if (IS_SET(bit_arr, *loc_ptr)) {

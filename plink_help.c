@@ -420,7 +420,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --write-cluster <omit-unassigned>\n"
 "    If a --within file is loaded, this generates another cluster file (with all\n"
 "    filters applied).  The 'omit-unassigned' modifier causes unclustered\n"
-"    individuals to be omitted from the file; otherwise their cluster is \"NA\".\n\n"
+"    individuals to be omitted from the file; otherwise their cluster is 'NA'.\n\n"
 	       );
 #ifndef STABLE_BUILD
     help_print("write-set\tset-table", &help_ctrl, 1,
@@ -651,9 +651,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * If you're satisfied with all the default settings described below, just\n"
 "      use --homozyg with no modifiers.  Otherwise, --homozyg lets you change a\n"
 "      few binary settings:\n"
-"      * 'group[-verbose]' adds a report on pools of overlapping runs of\n"
+"      * 'group{-verbose}' adds a report on pools of overlapping runs of\n"
 "        homozygosity.  (Automatically set when --homozyg-match is present.)\n"
-"      * With 'group[-verbose]', 'consensus-match' causes pairwise segmental\n"
+"      * With 'group{-verbose}', 'consensus-match' causes pairwise segmental\n"
 "        matches to be called based on the variants in the pool's consensus\n"
 "        segment, rather than the variants in the pairwise intersection.\n"
 "      * Due to how the scanning window algorithm works, it is possible for a\n"
@@ -859,7 +859,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * 'nop' strips p-values from the main report.\n"
 "    * These computations can be subdivided with --parallel; however...\n"
 "  --epistasis-summary-merge [common file prefix] [ct]\n"
-"    When a --[fast-]epistasis job is subdivided with --parallel, the main\n"
+"    When a --{fast-}epistasis job is subdivided with --parallel, the main\n"
 "    report can be assembled at the end by applying Unix 'cat' in the usual\n"
 "    manner, but the .summary.1, .summary.2, ... files may require a specialized\n"
 "    merge.  --epistasis-summary-merge takes care of the latter.\n\n"
@@ -1099,7 +1099,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                  from the file or don't have any of the listed\n"
 "                                  attributes.  If some attribute names in the\n"
 "                                  list are preceded by '-', they are treated as\n"
-"                                  \"negative match conditions\" instead: variants\n"
+"                                  'negative match conditions' instead: variants\n"
 "                                  with all the negative match attributes are\n"
 "                                  removed.\n"
 "                                  The first character in the list cannot be a\n"
@@ -1174,7 +1174,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("read-freq\tupdate-freq", &help_ctrl, 0,
 "  --read-freq [fn] : Estimate MAFs and heterozygote frequencies from the given\n"
-"                     --freq[x] report, instead of the input fileset.\n"
+"                     --freq{x} report, instead of the input fileset.\n"
 	       );
     help_print("hwe", &help_ctrl, 0,
 "  --hwe {val}      : Exclude variants with Hardy-Weinberg equilibrium exact\n"
@@ -1263,8 +1263,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     three modes are currently supported:\n"
 "                     * 'none'/'0' keeps individuals in the order they were\n"
 "                       loaded.  This is the default for non-merge operations.\n"
-"                     * 'natural'/'n' invokes \"natural sort\", e.g. 'id2' <\n"
-"                       'ID3' < 'id10'.  This is the default when merging.\n"
+"                     * 'natural'/'n' invokes 'natural sort', e.g. 'id2' < 'ID3'\n"
+"                       < 'id10'.  This is the default when merging.\n"
 "                     * 'ascii'/'a' sorts in ASCII order, e.g. 'ID3' < 'id10' <\n"
 "                       'id2'.\n"
 "                     For now, only --make-bed and --merge/--bmerge/--merge-list\n"
@@ -1302,7 +1302,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 #endif
     help_print("indep\tindep-pairwise\tld-xchr", &help_ctrl, 0,
-"  --ld-xchr [code]   : Specify X chromosome model for --indep[-pairwise].\n"
+"  --ld-xchr [code]   : Specify X chromosome model for --indep{-pairwise}.\n"
 "                       1 (default) = males coded 0/1, females 0/1/2 (A1 dosage)\n"
 "                       2 = males coded 0/2\n"
 "                       3 = males coded 0/2, but females given double weighting\n"
@@ -1429,7 +1429,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("fast-epistasis\tepistasis\tgap\tepi1\tepi2", &help_ctrl, 0,
 "  --gap [kbs]      : Set '--fast-epistasis case-only' min. gap (default 1000).\n"
-"  --epi1 [p-value] : Set --[fast-]epistasis reporting threshold (default\n"
+"  --epi1 [p-value] : Set --{fast-}epistasis reporting threshold (default\n"
 "                     0.000005 for 'boost', 0.0001 otherwise).\n"
 "  --epi2 [p-value] : Set threshold for contributing to SIG_E count (def. 0.01).\n"
 	       );

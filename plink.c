@@ -5104,7 +5104,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       logprint("Error: Windowed --r/--r2 runs require a sorted .map/.bim.  Retry this command\nafter using --make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
-    retval = ld_report(threads, ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, zero_extra_chroms, chrom_info_ptr, marker_pos, unfiltered_indiv_ct, founder_info, parallel_idx, parallel_tot, sex_male, outname, outname_end, hh_exists);
+    retval = ld_report(threads, ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, zero_extra_chroms, chrom_info_ptr, marker_pos, unfiltered_indiv_ct, founder_info, parallel_idx, parallel_tot, sex_male, outname, outname_end, hh_exists);
     if (retval) {
     }
   }
@@ -7606,7 +7606,7 @@ int32_t main(int32_t argc, char** argv) {
     case 'c':
       if (!memcmp(argptr2, "hr", 3)) {
 	if (chrom_flag_present) {
-	  sprintf(logbuf, "Error: --chr cannot be used with --autosome[-xy].%s", errstr_append);
+	  sprintf(logbuf, "Error: --chr cannot be used with --autosome{-xy}.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
         retval = parse_chrom_ranges(param_ct, '-', &(argv[cur_arg]), chrom_info.chrom_mask, &chrom_info, (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1, argptr);
@@ -8219,7 +8219,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --cnv-union-overlap cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	} else if (cnv_overlap_type) {
-	  sprintf(logbuf, "Error: --cnv-union-overlap cannot be used with --cnv-[region-]overlap/-disrupt.%s", errstr_append);
+	  sprintf(logbuf, "Error: --cnv-union-overlap cannot be used with --cnv-{region-}overlap/-disrupt.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -8777,7 +8777,7 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "rom", 4)) {
 	if (chrom_flag_present) {
-	  sprintf(logbuf, "Error: --from cannot be used with --autosome[-xy] or --[not-]chr.%s", errstr_append);
+	  sprintf(logbuf, "Error: --from cannot be used with --autosome{-xy} or --{not-}chr.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	} else if (load_rare == LOAD_RARE_CNV) {
 	  sprintf(logbuf, "Error: --from cannot be used with a .cnv fileset.  Use --from-bp/-kb/-mb\ninstead.%s", errstr_append);
@@ -10842,7 +10842,7 @@ int32_t main(int32_t argc, char** argv) {
         calculation_type |= CALC_NEIGHBOR;
       } else if (!memcmp(argptr2, "ot-chr", 7)) {
 	if (markername_from) {
-	  sprintf(logbuf, "Error: --from cannot be used with --autosome[-xy] or --[not-]chr.%s", errstr_append);
+	  sprintf(logbuf, "Error: --from cannot be used with --autosome{-xy} or --{not-}chr.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	// allowed:
@@ -10852,7 +10852,7 @@ int32_t main(int32_t argc, char** argv) {
 	// does not make sense, disallowed:
 	//   --allow-extra-chr --chr 5-22 --not-chr bobs_chrom
 
-	// --allow-extra-chr present, --chr/--autosome[-xy] not present
+	// --allow-extra-chr present, --chr/--autosome{-xy} not present
 	uii = ((misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1) && (!chrom_info.is_include_stack);
 	retval = parse_chrom_ranges(param_ct, '-', &(argv[cur_arg]), chrom_exclude, &chrom_info, uii, argptr);
 	if (retval) {
@@ -11125,7 +11125,7 @@ int32_t main(int32_t argc, char** argv) {
         cluster.ppc = dxx;
       } else if (!memcmp(argptr2, "ool-size", 9)) {
 	if (!(homozyg.modifier & (HOMOZYG_GROUP | HOMOZYG_GROUP_VERBOSE))) {
-          logprint("Error: --pool-size must be used with --homozyg group[-verbose].\n");
+          logprint("Error: --pool-size must be used with --homozyg group{-verbose}.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -11839,7 +11839,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --snp cannot be used with --from-bp/-kb/-mb.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	} else if ((!all_words_zero(chrom_info.chrom_mask, CHROM_MASK_INITIAL_WORDS)) || chrom_info.incl_excl_name_stack) {
-	  sprintf(logbuf, "Error: --snp cannot be used with --autosome[-xy] or --[not-]chr.%s", errstr_append);
+	  sprintf(logbuf, "Error: --snp cannot be used with --autosome{-xy} or --{not-}chr.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	} else if (markername_snp) {
           sprintf(logbuf, "Error: --snp cannot be used with --exclude-snp.%s", errstr_append);
@@ -12135,7 +12135,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (!(epi_info.modifier & (EPI_FAST | EPI_REG))) {
-	  sprintf(logbuf, "Error: --set-by-all must be used with --[fast-]epistasis.%s", errstr_append);
+	  sprintf(logbuf, "Error: --set-by-all must be used with --{fast-}epistasis.%s", errstr_append);
           goto main_ret_INVALID_CMDLINE_3;
 	}
 	logprint("Note: --set-by-all flag deprecated.  Use e.g. '--fast-epistasis set-by-all'.\n");
@@ -12260,7 +12260,7 @@ int32_t main(int32_t argc, char** argv) {
 	load_rare |= LOAD_RARE_TPED;
       } else if (!memcmp(argptr2, "o", 2)) {
 	if ((!all_words_zero(chrom_info.chrom_mask, CHROM_MASK_INITIAL_WORDS)) || chrom_info.incl_excl_name_stack) {
-	  sprintf(logbuf, "Error: --to cannot be used with --autosome[-xy] or --[not-]chr.%s", errstr_append);
+	  sprintf(logbuf, "Error: --to cannot be used with --autosome{-xy} or --{not-}chr.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	} else if (markername_snp) {
 	  sprintf(logbuf, "Error: --to cannot be used with --snp.%s", errstr_append);
