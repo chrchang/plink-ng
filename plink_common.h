@@ -1637,6 +1637,8 @@ static inline uint32_t popcount_long(uintptr_t val) {
 
 uint32_t is_monomorphic(uintptr_t* lptr, uint32_t indiv_ct);
 
+uint32_t has_three_genotypes(uintptr_t* lptr, uint32_t indiv_ct);
+
 uintptr_t popcount_longs(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx);
 
 uintptr_t popcount2_longs(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx);

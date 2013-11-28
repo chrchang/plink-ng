@@ -2842,33 +2842,37 @@ void boost_calc_p_bc(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2_ct, ui
   p_bc[5] = totd[2] * tot_recip;
 }
 
-void boost_calc_p_ca(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2_ct, uint32_t ctrl0_ct, uint32_t ctrl1_ct, uint32_t ctrl2_ct, double* p_ca) {
+uint32_t boost_calc_p_ca(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2_ct, uint32_t ctrl0_ct, uint32_t ctrl1_ct, uint32_t ctrl2_ct, double* p_ca) {
   double totd[2];
   double tot_recip;
   totd[0] = (double)((int32_t)case0_ct);
   totd[1] = (double)((int32_t)ctrl0_ct);
   tot_recip = totd[0] + totd[1];
-  if (tot_recip != 0.0) {
-    tot_recip = 1.0 / tot_recip;
+  if (tot_recip == 0.0) {
+    return 1;
   }
+  tot_recip = 1.0 / tot_recip;
   p_ca[0] = totd[0] * tot_recip;
   p_ca[1] = totd[1] * tot_recip;
   totd[0] = (double)((int32_t)case1_ct);
   totd[1] = (double)((int32_t)ctrl1_ct);
   tot_recip = totd[0] + totd[1];
-  if (tot_recip != 0.0) {
-    tot_recip = 1.0 / tot_recip;
+  if (tot_recip == 0.0) {
+    return 1;
   }
+  tot_recip = 1.0 / tot_recip;
   p_ca[2] = totd[0] * tot_recip;
   p_ca[3] = totd[1] * tot_recip;
   totd[0] = (double)((int32_t)case2_ct);
   totd[1] = (double)((int32_t)ctrl2_ct);
   tot_recip = totd[0] + totd[1];
-  if (tot_recip != 0.0) {
-    tot_recip = 1.0 / tot_recip;
+  if (tot_recip == 0.0) {
+    return 1;
   }
+  tot_recip = 1.0 / tot_recip;
   p_ca[4] = totd[0] * tot_recip;
   p_ca[5] = totd[1] * tot_recip;
+  return 0;
 }
 
 double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, double screen_thresh, double* chisq_ptr) {
@@ -2876,6 +2880,7 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
   double sum = 0.0;
   double interaction_measure = 0.0;
   double tau = 0.0;
+  double case_plus_control[9];
   double p_ab[9];
   double mu_tmp[18];
   double mu0_tmp[18];
@@ -2889,8 +2894,11 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
+  for (uii = 0; uii < 9; uii++) {
+    case_plus_control[uii] = (double)((int32_t)(counts[uii] + counts[uii + 9]));
+  }
   for (uii = 0; uii < 3; uii++) {
-    dxx = (double)((int32_t)(counts[uii] + counts[uii + 3] + counts[uii + 6] + counts[uii + 9] + counts[uii + 12] + counts[uii + 15]));
+    dxx = case_plus_control[uii] + case_plus_control[uii + 3] + case_plus_control[uii + 6];
     if (dxx == 0.0) {
       // may want to support this in the future by adjusting chisq df
       return NAN;
@@ -2898,7 +2906,7 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
     sum += dxx;
     dxx = 1.0 / dxx;
     for (ujj = uii; ujj < 9; ujj += 3) {
-      *dptr++ = dxx * ((double)((int32_t)(counts[ujj] + counts[ujj + 9])));
+      *dptr++ = dxx * case_plus_control[ujj];
     }
   }
   sum_recip = 1.0 / sum;
@@ -2932,7 +2940,7 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
       for (uii = 0; uii < 9; uii++) {
 	dxx = mu_xx[uii];
 	if (dxx != 0.0) {
-	  dxx = ((double)((int32_t)(counts[uii] + counts[uii + 9]))) / dxx;
+	  dxx = case_plus_control[uii] / dxx;
 	}
 	*dptr *= dxx;
 	dptr++;
@@ -3231,7 +3239,10 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
 	if (cur_zmiss2 == 3) {
 	  p_ca_ptr = p_ca_fixed;
 	} else {
-          boost_calc_p_ca(counts[0] + counts[1] + counts[2], counts[3] + counts[4] + counts[5], counts[6] + counts[7] + counts[8], counts[9] + counts[10] + counts[11], counts[12] + counts[13] + counts[14], counts[15] + counts[16] + counts[17], p_ca_tmp);
+          if (boost_calc_p_ca(counts[0] + counts[1] + counts[2], counts[3] + counts[4] + counts[5], counts[6] + counts[7] + counts[8], counts[9] + counts[10] + counts[11], counts[12] + counts[13] + counts[14], counts[15] + counts[16] + counts[17], p_ca_tmp)) {
+	    // check for df reduction here instead of the main loop
+	    goto fast_epi_thread_fail;
+	  }
 	  p_ca_ptr = p_ca_tmp;
 	}
 	// if approximate zsq >= epi1 threshold but more accurate value is not,
@@ -3776,7 +3787,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   } else if (pheno_nm_ct >= 0x20000000) {
     // may as well document the existence of sub-2b overflow conditions even
     // though they'll never come up
-    logprint("Error: --[fast-]epistasis does not support >= 2^29 samples.\n");
+    logprint("Error: --{fast-}epistasis does not support >= 2^29 samples.\n");
     goto epistasis_report_ret_INVALID_CMDLINE;
   }
   if (!pheno_d) {
@@ -3830,18 +3841,26 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	  goto epistasis_report_ret_READ_FAIL;
 	}
       }
-      if (!pheno_d) {
+      if (!no_ueki) {
+	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, casebuf, pheno_nm_ct, pheno_nm, 0)) {
+          goto epistasis_report_ret_READ_FAIL;
+	}
+	if (is_boost) {
+	  // also throw out sites with e.g. zero hom A1 observations for now,
+	  // since we don't adjust the test df.
+	  if (!has_three_genotypes(casebuf, pheno_nm_ct)) {
+	    SET_BIT(marker_exclude2, marker_uidx);
+	  }
+	} else {
+	  if (is_monomorphic(casebuf, pheno_nm_ct)) {
+	    SET_BIT(marker_exclude2, marker_uidx);
+	  }
+	}
+      } else {
         if (load_and_split(bedfile, loadbuf, unfiltered_indiv_ct, casebuf, ctrlbuf, pheno_nm, pheno_c)) {
           goto epistasis_report_ret_READ_FAIL;
 	}
 	if (is_monomorphic(casebuf, case_ct) || ((!is_case_only) && is_monomorphic(ctrlbuf, ctrl_ct))) {
-	  SET_BIT(marker_exclude2, marker_uidx);
-	}
-      } else {
-	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, casebuf, pheno_nm_ct, pheno_nm, 0)) {
-          goto epistasis_report_ret_READ_FAIL;
-	}
-	if (is_monomorphic(casebuf, pheno_nm_ct)) {
 	  SET_BIT(marker_exclude2, marker_uidx);
 	}
       }
@@ -3854,7 +3873,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     goto epistasis_report_ret_TOO_FEW_MARKERS;
   }
   if (ulii != marker_ct) {
-    sprintf(logbuf, "--%sepistasis: Skipping %" PRIuPTR " monomorphic/non-autosomal site%s.\n", is_fast? "fast-" : "", marker_ct - ulii, (marker_ct - ulii == 1)? "" : "s");
+    sprintf(logbuf, "--%sepistasis: Skipping %" PRIuPTR "%s site%s.\n", is_fast? "fast-" : "", marker_ct - ulii, is_boost? "" : " monomorphic/non-autosomal", (marker_ct - ulii == 1)? "" : "s");
     logprintb();
     marker_uidx_base = next_unset_ul_unsafe(marker_exclude, marker_uidx_base);
   } else {
@@ -4481,7 +4500,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     if (pheno_d) {
       logprint("Error: --epistasis requires 2+ non-monomorphic autosomal diploid sites.\n");
     } else {
-      logprint("Error: --[fast-]epistasis requires 2+ autosomal diploid sites not monomorphic\nin either cases or controls.\n");
+      logprint("Error: --{fast-}epistasis requires 2+ autosomal diploid sites not monomorphic\nin either cases or controls.\n");
     }
   epistasis_report_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;

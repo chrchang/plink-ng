@@ -4247,6 +4247,52 @@ uint32_t is_monomorphic(uintptr_t* lptr, uint32_t indiv_ct) {
   return 1;
 }
 
+uint32_t has_three_genotypes(uintptr_t* lptr, uint32_t indiv_ct) {
+  uintptr_t* lptr_end = &(lptr[indiv_ct / BITCT2]);
+  uint32_t indiv_rem = indiv_ct % BITCT2;
+  uintptr_t* cur_lptr;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  cur_lptr = lptr;
+  while (1) {
+    ulii = ~(*cur_lptr);
+    uljj = ulii & (ulii >> 1) & FIVEMASK;
+    if (cur_lptr == lptr_end) {
+      if ((!indiv_rem) || (!(uljj << (BITCT - indiv_rem * 2)))) {
+	return 0;
+      }
+      break;
+    }
+    if (uljj) {
+      // found hom A1
+      break;
+    }
+    cur_lptr++;
+  }
+  cur_lptr = lptr;
+  // zero-padding is benign for het and hom A2 checks
+  lptr_end = &(lptr[(indiv_ct + (BITCT2 - 1)) / BITCT2]);
+  while (1) {
+    ulii = *cur_lptr;
+    uljj = (ulii >> 1) & FIVEMASK;
+    if ((~ulii) & uljj) {
+      break;
+    }
+    if (++cur_lptr == lptr_end) {
+      return 0;
+    }
+  }
+  cur_lptr = lptr;
+  do {
+    ulii = *cur_lptr;
+    uljj = (ulii >> 1) & FIVEMASK;
+    if (ulii & uljj) {
+      return 1;
+    }
+  } while (++cur_lptr < lptr_end);
+  return 0;
+}
+
 #ifdef __LP64__
 // Basic SSE2 implementation of Lauradoux/Walisch popcount.
 static inline uintptr_t popcount_vecs(__m128i* vptr, uintptr_t ct) {
