@@ -2880,7 +2880,7 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
   double sum = 0.0;
   double interaction_measure = 0.0;
   double tau = 0.0;
-  double case_plus_control[9];
+  double case_plus_control[3];
   double p_ab[9];
   double mu_tmp[18];
   double mu0_tmp[18];
@@ -2894,18 +2894,20 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
-  for (uii = 0; uii < 9; uii++) {
-    case_plus_control[uii] = (double)((int32_t)(counts[uii] + counts[uii + 9]));
-  }
   for (uii = 0; uii < 3; uii++) {
-    dxx = case_plus_control[uii] + case_plus_control[uii + 3] + case_plus_control[uii + 6];
+    dxx = 0.0;
+    for (ujj = 0; ujj < 3; ujj++) {
+      dyy = (double)((int32_t)(counts[uii + ujj * 3] + counts[uii + ujj * 3 + 9]));
+      case_plus_control[ujj] = dyy;
+      dxx += dyy;
+    }
     if (dxx == 0.0) {
       // may want to support this in the future by adjusting chisq df
       return NAN;
     }
     sum += dxx;
     dxx = 1.0 / dxx;
-    for (ujj = uii; ujj < 9; ujj += 3) {
+    for (ujj = 0; ujj < 3; ujj++) {
       *dptr++ = dxx * case_plus_control[ujj];
     }
   }
@@ -2914,14 +2916,15 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
     for (uii = 0; uii < 3; uii++) {
       for (ujj = 0; ujj < 3; ujj++) {
 	dxx = ((double)((int32_t)(*uiptr++))) * sum_recip;
-	if (dxx != 0.0) {
-          interaction_measure += dxx * log(dxx);
-	}
         dyy = p_ab[3 * ujj + uii] * p_bc[3 * ukk + ujj] * p_ca[2 * uii + ukk];
-	if (dyy != 0.0) {
-          interaction_measure -= dxx * log(dyy);
-          tau += dyy;
+	if (dxx != 0.0) {
+	  if (dyy != 0.0) {
+	    interaction_measure += dxx * (log(dxx) - log(dyy));
+	  } else {
+            interaction_measure += dxx * log(dxx);
+	  }
 	}
+	tau += dyy;
       }
     }
   }
@@ -2940,7 +2943,7 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
       for (uii = 0; uii < 9; uii++) {
 	dxx = mu_xx[uii];
 	if (dxx != 0.0) {
-	  dxx = case_plus_control[uii] / dxx;
+	  dxx = (double)((int32_t)(counts[uii] + counts[uii + 9])) / dxx;
 	}
 	*dptr *= dxx;
 	dptr++;
