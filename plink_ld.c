@@ -2817,64 +2817,6 @@ void fepi_counts_to_joint_effects_stats(uint32_t group_ct, uint32_t* counts, dou
   *ctrl_var_ptr = dyy;
 }
 
-void boost_calc_p_bc(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2_ct, uint32_t ctrl0_ct, uint32_t ctrl1_ct, uint32_t ctrl2_ct, double* p_bc) {
-  double totd[3];
-  double tot_recip;
-  totd[0] = (double)((int32_t)case0_ct);
-  totd[1] = (double)((int32_t)case1_ct);
-  totd[2] = (double)((int32_t)case2_ct);
-  tot_recip = totd[0] + totd[1] + totd[2];
-  if (tot_recip != 0.0) {
-    tot_recip = 1.0 / tot_recip;
-  }
-  p_bc[0] = totd[0] * tot_recip;
-  p_bc[1] = totd[1] * tot_recip;
-  p_bc[2] = totd[2] * tot_recip;
-  totd[0] = (double)((int32_t)ctrl0_ct);
-  totd[1] = (double)((int32_t)ctrl1_ct);
-  totd[2] = (double)((int32_t)ctrl2_ct);
-  tot_recip = totd[0] + totd[1] + totd[2];
-  if (tot_recip != 0.0) {
-    tot_recip = 1.0 / tot_recip;
-  }
-  p_bc[3] = totd[0] * tot_recip;
-  p_bc[4] = totd[1] * tot_recip;
-  p_bc[5] = totd[2] * tot_recip;
-}
-
-uint32_t boost_calc_p_ca(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2_ct, uint32_t ctrl0_ct, uint32_t ctrl1_ct, uint32_t ctrl2_ct, double* p_ca) {
-  double totd[2];
-  double tot_recip;
-  totd[0] = (double)((int32_t)case0_ct);
-  totd[1] = (double)((int32_t)ctrl0_ct);
-  tot_recip = totd[0] + totd[1];
-  if (tot_recip == 0.0) {
-    return 1;
-  }
-  tot_recip = 1.0 / tot_recip;
-  p_ca[0] = totd[0] * tot_recip;
-  p_ca[1] = totd[1] * tot_recip;
-  totd[0] = (double)((int32_t)case1_ct);
-  totd[1] = (double)((int32_t)ctrl1_ct);
-  tot_recip = totd[0] + totd[1];
-  if (tot_recip == 0.0) {
-    return 1;
-  }
-  tot_recip = 1.0 / tot_recip;
-  p_ca[2] = totd[0] * tot_recip;
-  p_ca[3] = totd[1] * tot_recip;
-  totd[0] = (double)((int32_t)case2_ct);
-  totd[1] = (double)((int32_t)ctrl2_ct);
-  tot_recip = totd[0] + totd[1];
-  if (tot_recip == 0.0) {
-    return 1;
-  }
-  tot_recip = 1.0 / tot_recip;
-  p_ca[4] = totd[0] * tot_recip;
-  p_ca[5] = totd[1] * tot_recip;
-  return 0;
-}
-
 // epistasis multithread globals
 static uint32_t* g_epi_geno1_offsets;
 static double* g_epi_all_chisq;
@@ -2905,6 +2847,45 @@ static uintptr_t g_epi_idx2_block_size;
 static uintptr_t g_epi_idx2_block_start;
 static double g_epi_alpha1sq;
 static double g_epi_alpha2sq;
+
+void boost_calc_p_bc(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2_ct, uint32_t ctrl0_ct, uint32_t ctrl1_ct, uint32_t ctrl2_ct, double* p_bc) {
+  double* recip_cache = g_epi_recip_cache;
+  double tot_recip = recip_cache[case0_ct + case1_ct + case2_ct];
+  p_bc[0] = ((int32_t)case0_ct) * tot_recip;
+  p_bc[1] = ((int32_t)case1_ct) * tot_recip;
+  p_bc[2] = ((int32_t)case2_ct) * tot_recip;
+  tot_recip = recip_cache[ctrl0_ct + ctrl1_ct + ctrl2_ct];
+  p_bc[3] = ((int32_t)ctrl0_ct) * tot_recip;
+  p_bc[4] = ((int32_t)ctrl1_ct) * tot_recip;
+  p_bc[5] = ((int32_t)ctrl2_ct) * tot_recip;
+}
+
+uint32_t boost_calc_p_ca(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2_ct, uint32_t ctrl0_ct, uint32_t ctrl1_ct, uint32_t ctrl2_ct, double* p_ca) {
+  double* recip_cache = g_epi_recip_cache;
+  uint32_t uii = case0_ct + ctrl0_ct;
+  double tot_recip;
+  if (!uii) {
+    return 1;
+  }
+  tot_recip = recip_cache[uii];
+  p_ca[0] = ((int32_t)case0_ct) * tot_recip;
+  p_ca[1] = ((int32_t)ctrl0_ct) * tot_recip;
+  uii = case1_ct + ctrl1_ct;
+  if (!uii) {
+    return 1;
+  }
+  tot_recip = recip_cache[uii];
+  p_ca[2] = ((int32_t)case1_ct) * tot_recip;
+  p_ca[3] = ((int32_t)ctrl1_ct) * tot_recip;
+  uii = case2_ct + ctrl2_ct;
+  if (!uii) {
+    return 1;
+  }
+  tot_recip = recip_cache[uii];
+  p_ca[4] = ((int32_t)case2_ct) * tot_recip;
+  p_ca[5] = ((int32_t)ctrl2_ct) * tot_recip;
+  return 0;
+}
 
 double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, double screen_thresh, double* chisq_ptr) {
   // see BOOSTx64.c lines 625-903.
