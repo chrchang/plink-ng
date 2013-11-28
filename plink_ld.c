@@ -2944,23 +2944,43 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
     for (uii = 0; uii < 3; uii++) {
       dyy = p_ca[2 * uii + ukk];
       dptr = &(p_bc[3 * ukk]);
-      for (ujj = 0; ujj < 3; ujj++) {
-        dxx = mu_xx[3 * ujj + uii] * (*dptr++) * dyy;
-	tau += dxx;
-	umm = *uiptr++;
-	if (umm) {
-	  if (dxx != 0.0) {
-	    //   Cx * log(Cx / y)
-	    // = Cx * (log(C) + log(x / y))
-	    // = Cx * log(C) + Cx * log(x / y)
+      dxx = mu_xx[uii] * (*dptr++) * dyy;
+      tau += dxx;
+      umm = *uiptr++;
+      if (umm) {
+	if (dxx != 0.0) {
+	  //   Cx * log(Cx / y)
+	  // = Cx * (log(C) + log(x / y))
+	  // = Cx * log(C) + Cx * log(x / y)
 
-	    // caching entropy as well would merely reduce a multiplication to
-	    // an addition, which is almost certainly not worth the cost
-	    interaction_measure -= ((int32_t)umm) * log(dxx * recip_cache[umm]);
-	  } else {
-	    dxx = (double)((int32_t)umm);
-            interaction_measure += dxx * log(dxx);
-	  }
+	  // caching entropy as well would merely reduce a multiplication to
+	  // an addition, which is almost certainly not worth the cost
+	  interaction_measure -= ((int32_t)umm) * log(dxx * recip_cache[umm]);
+	} else {
+	  dxx = (double)((int32_t)umm);
+	  interaction_measure += dxx * log(dxx);
+	}
+      }
+      dxx = mu_xx[uii + 3] * (*dptr++) * dyy;
+      tau += dxx;
+      umm = *uiptr++;
+      if (umm) {
+	if (dxx != 0.0) {
+	  interaction_measure -= ((int32_t)umm) * log(dxx * recip_cache[umm]);
+	} else {
+	  dxx = (double)((int32_t)umm);
+	  interaction_measure += dxx * log(dxx);
+	}
+      }
+      dxx = mu_xx[uii + 6] * (*dptr++) * dyy;
+      tau += dxx;
+      umm = *uiptr++;
+      if (umm) {
+	if (dxx != 0.0) {
+	  interaction_measure -= ((int32_t)umm) * log(dxx * recip_cache[umm]);
+	} else {
+	  dxx = (double)((int32_t)umm);
+	  interaction_measure += dxx * log(dxx);
 	}
       }
     }
@@ -3034,9 +3054,8 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
     for (ukk = 0; ukk < 2; ukk++) {
       for (uii = 0; uii < 3; uii++) {
 	for (ujj = 0; ujj < 3; ujj++) {
-	  dyy = mu_tmp[uii * 6 + ujj * 2 + ukk] * sum_recip;
 	  dxx = ((double)((int32_t)(*uiptr++))) * sum_recip;
-	  tau += dyy;
+	  dyy = mu_tmp[uii * 6 + ujj * 2 + ukk] * sum_recip;
 	  if (dxx != 0.0) {
 	    if (dyy != 0.0) {
 	      interaction_measure += dxx * log(dxx / dyy);
@@ -3044,6 +3063,7 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
               interaction_measure += dxx * log(dxx);
 	    }
 	  }
+	  tau += dyy;
 	}
       }
     }
