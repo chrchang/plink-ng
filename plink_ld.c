@@ -2880,7 +2880,6 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
   double sum = 0.0;
   double interaction_measure = 0.0;
   double tau = 0.0;
-  double case_plus_control[3];
   double p_ab[9];
   double mu_tmp[18];
   double mu0_tmp[18];
@@ -2890,33 +2889,32 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
   double sum_recip;
   double dxx;
   double dyy;
+  double dzz;
   double mu_error;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
   for (uii = 0; uii < 3; uii++) {
-    dxx = 0.0;
-    for (ujj = 0; ujj < 3; ujj++) {
-      dyy = (double)((int32_t)(counts[uii + ujj * 3] + counts[uii + ujj * 3 + 9]));
-      case_plus_control[ujj] = dyy;
-      dxx += dyy;
-    }
-    if (dxx == 0.0) {
-      // may want to support this in the future by adjusting chisq df
+    dxx = (double)((int32_t)(counts[uii] + counts[uii + 9])); 
+    dyy = (double)((int32_t)(counts[uii + 3] + counts[uii + 12])); 
+    dzz = (double)((int32_t)(counts[uii + 6] + counts[uii + 15])); 
+    mu_error = dxx + dyy + dzz; // repurpose as partial sum
+    if (mu_error == 0.0) {
       return NAN;
     }
-    sum += dxx;
-    dxx = 1.0 / dxx;
-    for (ujj = 0; ujj < 3; ujj++) {
-      *dptr++ = dxx * case_plus_control[ujj];
-    }
+    sum += mu_error;
+    mu_error = 1.0 / mu_error;
+    *dptr++ = dxx * mu_error;
+    *dptr++ = dyy * mu_error;
+    *dptr++ = dzz * mu_error;
   }
   sum_recip = 1.0 / sum;
   for (ukk = 0; ukk < 2; ukk++) {
     for (uii = 0; uii < 3; uii++) {
+      dzz = p_ca[2 * uii + ukk];
       for (ujj = 0; ujj < 3; ujj++) {
 	dxx = ((double)((int32_t)(*uiptr++))) * sum_recip;
-        dyy = p_ab[3 * ujj + uii] * p_bc[3 * ukk + ujj] * p_ca[2 * uii + ukk];
+        dyy = p_ab[3 * ujj + uii] * p_bc[3 * ukk + ujj] * dzz;
 	if (dxx != 0.0) {
 	  if (dyy != 0.0) {
 	    interaction_measure += dxx * (log(dxx) - log(dyy));
