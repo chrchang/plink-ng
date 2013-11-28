@@ -2765,15 +2765,10 @@ static double g_epi_alpha2sq;
 // variant of this code.  This would have been a friggin' nightmare to debug if
 // he hadn't already done all the real work.)
 static void fepi_counts_to_stats(uint32_t* counts_3x3, uint32_t no_ueki, double* or_ptr, double* var_ptr) {
-  double* recip_cache = g_epi_recip_cache;
-  uint32_t u11 = 4 * counts_3x3[0] + 2 * (counts_3x3[1] + counts_3x3[3]) + counts_3x3[4];
-  uint32_t u12 = 4 * counts_3x3[2] + 2 * (counts_3x3[1] + counts_3x3[5]) + counts_3x3[4];
-  uint32_t u21 = 4 * counts_3x3[6] + 2 * (counts_3x3[3] + counts_3x3[7]) + counts_3x3[4];
-  uint32_t u22 = 4 * counts_3x3[8] + 2 * (counts_3x3[5] + counts_3x3[7]) + counts_3x3[4];
-  double c11;
-  double c12;
-  double c21;
-  double c22;
+  double c11 = (double)((int32_t)(4 * counts_3x3[0] + 2 * (counts_3x3[1] + counts_3x3[3]) + counts_3x3[4]));
+  double c12 = (double)((int32_t)(4 * counts_3x3[2] + 2 * (counts_3x3[1] + counts_3x3[5]) + counts_3x3[4]));
+  double c21 = (double)((int32_t)(4 * counts_3x3[6] + 2 * (counts_3x3[3] + counts_3x3[7]) + counts_3x3[4]));
+  double c22 = (double)((int32_t)(4 * counts_3x3[8] + 2 * (counts_3x3[5] + counts_3x3[7]) + counts_3x3[4]));
   double rc11;
   double rc12;
   double rc21;
@@ -2784,25 +2779,16 @@ static void fepi_counts_to_stats(uint32_t* counts_3x3, uint32_t no_ueki, double*
     // See AdjustedFastEpistasis::calculateLogOddsAdjustedVariance().
     no_adj = (counts_3x3[0] && counts_3x3[1] && counts_3x3[2] && counts_3x3[3] && counts_3x3[4] && counts_3x3[5] && counts_3x3[6] && counts_3x3[7] && counts_3x3[8]);
     if (!no_adj) {
-      c11 = (double)((int32_t)u11) + 4.5;
-      c22 = (double)((int32_t)u22) + 4.5;
-      rc12 = 1.0 / ((double)((int32_t)u12) + 4.5);
-      rc21 = 1.0 / ((double)((int32_t)u21) + 4.5);
-      rc11 = 1.0 / c11;
-      rc22 = 1.0 / c22;
-      dxx = c11 * c22;
-    } else {
-#ifdef __LP64__
-      dxx = (double)((intptr_t)(((uintptr_t)u11) * ((uintptr_t)u22)));
-#else
-      dxx = ((double)((int32_t)u11)) * ((double)((int32_t)u22));
-#endif
-      rc11 = recip_cache[u11];
-      rc12 = recip_cache[u12];
-      rc21 = recip_cache[u21];
-      rc22 = recip_cache[u22];
+      c11 += 4.5;
+      c12 += 4.5;
+      c21 += 4.5;
+      c22 += 4.5;
     }
-    *or_ptr = log(dxx * rc12 * rc21);
+    rc11 = 1.0 / c11;
+    rc12 = 1.0 / c12;
+    rc21 = 1.0 / c21;
+    rc22 = 1.0 / c22;
+    *or_ptr = log(c11 * c22 * rc12 * rc21);
 
     c11 = rc11 - rc12; // bit2
     c12 = rc11 - rc21; // bit3
@@ -2842,15 +2828,11 @@ static void fepi_counts_to_stats(uint32_t* counts_3x3, uint32_t no_ueki, double*
                  dxx * ((double)((int32_t)counts_3x3[4]) + 0.5);
     }
   } else {
-    rc11 = recip_cache[u11];
-    rc12 = recip_cache[u12];
-    rc21 = recip_cache[u21];
-    rc22 = recip_cache[u22];
-#ifdef __LP64__
-    *or_ptr = log(((intptr_t)(((uintptr_t)u11) * ((uintptr_t)u22))) * rc12 * rc21);
-#else
-    *or_ptr = log(((double)((int32_t)u11)) * ((double)((int32_t)u22)) * rc12 * rc21);
-#endif
+    rc11 = 1.0 / c11;
+    rc12 = 1.0 / c12;
+    rc21 = 1.0 / c21;
+    rc22 = 1.0 / c22;
+    *or_ptr = log(c11 * c22 * rc12 * rc21);
     *var_ptr = rc11 + rc12 + rc21 + rc22;
   }
 }
@@ -3992,15 +3974,6 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     g_epi_alpha1sq = dxx * dxx;
     dxx = ltqnorm(epi_ip->epi2 / 2);
     g_epi_alpha2sq = dxx * dxx;
-    if (!do_joint_effects) {
-      if (wkspace_alloc_d_checked(&g_epi_recip_cache, (4 * pheno_nm_ct + 1) * sizeof(double))) {
-	goto epistasis_report_ret_NOMEM;
-      }
-      g_epi_recip_cache[0] = NAN;
-      for (uii = 1; uii <= 4 * pheno_nm_ct; uii++) {
-	g_epi_recip_cache[uii] = 1.0 / ((double)((int32_t)uii));
-      }
-    }
   }
   pct_thresh = tests_expected / 100;
   if (!is_fast) {
