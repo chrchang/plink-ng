@@ -2912,12 +2912,16 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
   for (ukk = 0; ukk < 2; ukk++) {
     for (uii = 0; uii < 3; uii++) {
       dzz = p_ca[2 * uii + ukk];
+      dptr = &(p_bc[3 * ukk]);
       for (ujj = 0; ujj < 3; ujj++) {
-	dxx = ((double)((int32_t)(*uiptr++))) * sum_recip;
-        dyy = p_ab[3 * ujj + uii] * p_bc[3 * ukk + ujj] * dzz;
+	dxx = (double)((int32_t)(*uiptr++));
+        dyy = p_ab[3 * ujj + uii] * (*dptr++) * dzz;
 	if (dxx != 0.0) {
 	  if (dyy != 0.0) {
-	    interaction_measure += dxx * (log(dxx) - log(dyy));
+	    //   Cx * log(Cx / y)
+	    // = Cx * (log(C) + log(x / y))
+	    // = Cx * log(C) + Cx * log(x / y)
+	    interaction_measure += dxx * log(dxx / dyy);
 	  } else {
             interaction_measure += dxx * log(dxx);
 	  }
@@ -2926,6 +2930,7 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
       }
     }
   }
+  interaction_measure = interaction_measure * sum_recip + log(sum_recip);
   interaction_measure = (interaction_measure + log(tau)) * sum * 2;
   if (interaction_measure > screen_thresh) {
     for (uii = 0; uii < 18; uii++) {
