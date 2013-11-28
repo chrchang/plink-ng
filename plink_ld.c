@@ -1619,6 +1619,7 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 }
 
 int32_t ld_report_regular(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, uintptr_t* founder_include2, uintptr_t* founder_male_include2, uintptr_t* loadbuf, char* outname, uint32_t hh_exists) {
+  logprint("--r/--r2 under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
   /*
   FILE* infile = NULL;
@@ -1996,7 +1997,7 @@ int32_t ld_report_regular(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, ui
   fclose_cond(infile);
   // trust parent to free memory
   return retval;
-  */
+*/
 }
 
 int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
@@ -2090,9 +2091,11 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
 	goto ld_report_ret_INVALID_CMDLINE;
       }
     }
+    /*
     logprint("Error: --r/--r2 table reports are currently under development.  (Square matrix\noutput is working.)\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
     goto ld_report_ret_1;
+    */
     g_ld_plink_maxsnp = plink_maxsnp;
     g_ld_marker_allele_ptrs = marker_allele_ptrs;
     g_ld_marker_pos = marker_pos;
@@ -2493,91 +2496,6 @@ static void two_locus_count_table(uintptr_t* lptr1, uintptr_t* lptr2, uint32_t* 
 #endif
 }
 
-// The following two functions are essentially ported from Statistics.cpp in
-// Richard Howey's CASSI software
-// (http://www.staff.ncl.ac.uk/richard.howey/cassi/index.html).  (CASSI is also
-// GPLv3-licensed; just remember to give credit to Howey if you redistribute a
-// variant of this code.  This would have been a friggin' nightmare to debug if
-// he hadn't already done all the real work.)
-static void fepi_counts_to_stats(uint32_t* counts_3x3, uint32_t no_ueki, double* or_ptr, double* var_ptr) {
-  double c11;
-  double c12;
-  double c21;
-  double c22;
-  double rc11;
-  double rc12;
-  double rc21;
-  double rc22;
-  double dxx;
-  uint32_t no_adj;
-
-  c11 = (double)((int32_t)(4 * counts_3x3[0] + 2 * (counts_3x3[1] + counts_3x3[3]) + counts_3x3[4]));
-  c12 = (double)((int32_t)(4 * counts_3x3[2] + 2 * (counts_3x3[1] + counts_3x3[5]) + counts_3x3[4]));
-  c21 = (double)((int32_t)(4 * counts_3x3[6] + 2 * (counts_3x3[3] + counts_3x3[7]) + counts_3x3[4]));
-  c22 = (double)((int32_t)(4 * counts_3x3[8] + 2 * (counts_3x3[5] + counts_3x3[7]) + counts_3x3[4]));
-
-  if (!no_ueki) {
-    // See AdjustedFastEpistasis::calculateLogOddsAdjustedVariance().
-    no_adj = (counts_3x3[0] && counts_3x3[1] && counts_3x3[2] && counts_3x3[3] && counts_3x3[4] && counts_3x3[5] && counts_3x3[6] && counts_3x3[7] && counts_3x3[8]);
-    if (!no_adj) {
-      c11 += 4.5;
-      c12 += 4.5;
-      c21 += 4.5;
-      c22 += 4.5;
-    }
-    rc11 = 1.0 / c11;
-    rc12 = 1.0 / c12;
-    rc21 = 1.0 / c21;
-    rc22 = 1.0 / c22;
-    *or_ptr = log(c11 * c22 * rc12 * rc21);
-
-    c11 = rc11 - rc12; // bit2
-    c12 = rc11 - rc21; // bit3
-    dxx = rc11 - rc12 - rc21 + rc22; // bit5
-    c21 = rc22 - rc12; // bit6
-    c22 = rc22 - rc21; // bit8
-
-    rc11 *= rc11;
-    rc12 *= rc12;
-    rc21 *= rc21;
-    rc22 *= rc22;
-    c11 *= c11;
-    c12 *= c12;
-    c21 *= c21;
-    c22 *= c22;
-    dxx *= dxx;
-
-    if (no_adj) {
-      *var_ptr = 4 * (4 * (rc11 * (double)((int32_t)counts_3x3[0]) +
-			   rc12 * (double)((int32_t)counts_3x3[2]) +
-			   rc21 * (double)((int32_t)counts_3x3[6]) +
-			   rc22 * (double)((int32_t)counts_3x3[8])) +
-		      c11 * (double)((int32_t)counts_3x3[1]) +
-		      c12 * (double)((int32_t)counts_3x3[3]) +
-		      c21 * (double)((int32_t)counts_3x3[5]) +
-		      c22 * (double)((int32_t)counts_3x3[7])) +
-                 dxx * (double)((int32_t)counts_3x3[4]);
-    } else {
-      *var_ptr = 4 * (4 * (rc11 * ((double)((int32_t)counts_3x3[0]) + 0.5) +
-			   rc12 * ((double)((int32_t)counts_3x3[2]) + 0.5) +
-			   rc21 * ((double)((int32_t)counts_3x3[6]) + 0.5) +
-			   rc22 * ((double)((int32_t)counts_3x3[8]) + 0.5)) +
-		      c11 * ((double)((int32_t)counts_3x3[1]) + 0.5) +
-		      c12 * ((double)((int32_t)counts_3x3[3]) + 0.5) +
-		      c21 * ((double)((int32_t)counts_3x3[5]) + 0.5) +
-		      c22 * ((double)((int32_t)counts_3x3[7]) + 0.5)) +
-                 dxx * ((double)((int32_t)counts_3x3[4]) + 0.5);
-    }
-  } else {
-    rc11 = 1.0 / c11;
-    rc12 = 1.0 / c12;
-    rc21 = 1.0 / c21;
-    rc22 = 1.0 / c22;
-    *or_ptr = log(c11 * c22 * rc12 * rc21);
-    *var_ptr = rc11 + rc12 + rc21 + rc22;
-  }
-}
-
 void fepi_counts_to_joint_effects_stats(uint32_t group_ct, uint32_t* counts, double* diff_ptr, double* case_var_ptr, double* ctrl_var_ptr) {
   // See JointEffects::evaluateStatistic().  This is slightly reordered to
   // avoid a bit of redundant calculation, but the logic is otherwise
@@ -2655,6 +2573,7 @@ void fepi_counts_to_joint_effects_stats(uint32_t group_ct, uint32_t* counts, dou
   double dyy;
   double* dptr;
   double* dptr2;
+  double* dptr3;
   uint32_t use_reg_stat;
   uint32_t uii;
   uint32_t ujj;
@@ -2710,11 +2629,12 @@ void fepi_counts_to_joint_effects_stats(uint32_t group_ct, uint32_t* counts, dou
   dptr2 = ivv;
   for (uii = 0; uii < group_ct; uii++) {
     dptr = &(dcounts[uii * 9]);
+    dptr3 = &(invcounts[uii * 9]);
     dxx = dptr[8];
-    *dptr2++ = dxx * dptr[0] / (dptr[2] * dptr[6]);
-    *dptr2++ = dxx * dptr[1] / (dptr[2] * dptr[7]);
-    *dptr2++ = dxx * dptr[3] / (dptr[5] * dptr[6]);
-    *dptr2++ = dxx * dptr[4] / (dptr[5] * dptr[7]);
+    *dptr2++ = dxx * dptr[0] * dptr3[2] * dptr3[6];
+    *dptr2++ = dxx * dptr[1] * dptr3[2] * dptr3[7];
+    *dptr2++ = dxx * dptr[3] * dptr3[5] * dptr3[6];
+    *dptr2++ = dxx * dptr[4] * dptr3[5] * dptr3[7];
   }
   use_reg_stat = (ivv[3] > 0.5) && ((group_ct == 1) || (ivv[7] > 0.5));
   if (use_reg_stat) {
@@ -2847,6 +2767,98 @@ static uintptr_t g_epi_idx2_block_size;
 static uintptr_t g_epi_idx2_block_start;
 static double g_epi_alpha1sq;
 static double g_epi_alpha2sq;
+
+// The following two functions are essentially ported from Statistics.cpp in
+// Richard Howey's CASSI software
+// (http://www.staff.ncl.ac.uk/richard.howey/cassi/index.html).  (CASSI is also
+// GPLv3-licensed; just remember to give credit to Howey if you redistribute a
+// variant of this code.  This would have been a friggin' nightmare to debug if
+// he hadn't already done all the real work.)
+static void fepi_counts_to_stats(uint32_t* counts_3x3, uint32_t no_ueki, double* or_ptr, double* var_ptr) {
+  double* recip_cache = g_epi_recip_cache;
+  uint32_t u11 = 4 * counts_3x3[0] + 2 * (counts_3x3[1] + counts_3x3[3]) + counts_3x3[4];
+  uint32_t u12 = 4 * counts_3x3[2] + 2 * (counts_3x3[1] + counts_3x3[5]) + counts_3x3[4];
+  uint32_t u21 = 4 * counts_3x3[6] + 2 * (counts_3x3[3] + counts_3x3[7]) + counts_3x3[4];
+  uint32_t u22 = 4 * counts_3x3[8] + 2 * (counts_3x3[5] + counts_3x3[7]) + counts_3x3[4];
+#ifndef __LP64__
+  double c11 = (double)((int32_t)u11);
+  double c22 = (double)((int32_t)u22);
+#endif
+  double rc11 = recip_cache[u11];
+  double rc12 = recip_cache[u12];
+  double rc21 = recip_cache[u21];
+  double rc22 = recip_cache[u22];
+#ifdef __LP64__
+  double c11;
+  double c22;
+#endif
+  double c12;
+  double c21;
+  double dxx;
+  uint32_t no_adj;
+  if (!no_ueki) {
+    // See AdjustedFastEpistasis::calculateLogOddsAdjustedVariance().
+#ifdef __LP64__
+    c11 = (double)((int32_t)u11);
+    c22 = (double)((int32_t)u22);
+#endif
+    no_adj = (counts_3x3[0] && counts_3x3[1] && counts_3x3[2] && counts_3x3[3] && counts_3x3[4] && counts_3x3[5] && counts_3x3[6] && counts_3x3[7] && counts_3x3[8]);
+    if (!no_adj) {
+      c11 += 4.5;
+      c22 += 4.5;
+      rc11 = 1.0 / c11;
+      rc12 = 1.0 / ((double)((int32_t)u12) + 4.5);
+      rc21 = 1.0 / ((double)((int32_t)u21) + 4.5);
+      rc22 = 1.0 / c22;
+    }
+    *or_ptr = log(c11 * c22 * rc12 * rc21);
+
+    c11 = rc11 - rc12; // bit2
+    c12 = rc11 - rc21; // bit3
+    dxx = rc11 - rc12 - rc21 + rc22; // bit5
+    c21 = rc22 - rc12; // bit6
+    c22 = rc22 - rc21; // bit8
+
+    rc11 *= rc11;
+    rc12 *= rc12;
+    rc21 *= rc21;
+    rc22 *= rc22;
+    c11 *= c11;
+    c12 *= c12;
+    c21 *= c21;
+    c22 *= c22;
+    dxx *= dxx;
+
+    if (no_adj) {
+      *var_ptr = 4 * (4 * (rc11 * (double)((int32_t)counts_3x3[0]) +
+			   rc12 * (double)((int32_t)counts_3x3[2]) +
+			   rc21 * (double)((int32_t)counts_3x3[6]) +
+			   rc22 * (double)((int32_t)counts_3x3[8])) +
+		      c11 * (double)((int32_t)counts_3x3[1]) +
+		      c12 * (double)((int32_t)counts_3x3[3]) +
+		      c21 * (double)((int32_t)counts_3x3[5]) +
+		      c22 * (double)((int32_t)counts_3x3[7])) +
+                 dxx * (double)((int32_t)counts_3x3[4]);
+    } else {
+      *var_ptr = 4 * (4 * (rc11 * ((double)((int32_t)counts_3x3[0]) + 0.5) +
+			   rc12 * ((double)((int32_t)counts_3x3[2]) + 0.5) +
+			   rc21 * ((double)((int32_t)counts_3x3[6]) + 0.5) +
+			   rc22 * ((double)((int32_t)counts_3x3[8]) + 0.5)) +
+		      c11 * ((double)((int32_t)counts_3x3[1]) + 0.5) +
+		      c12 * ((double)((int32_t)counts_3x3[3]) + 0.5) +
+		      c21 * ((double)((int32_t)counts_3x3[5]) + 0.5) +
+		      c22 * ((double)((int32_t)counts_3x3[7]) + 0.5)) +
+                 dxx * ((double)((int32_t)counts_3x3[4]) + 0.5);
+    }
+  } else {
+#ifdef __LP64__
+    *or_ptr = log(((intptr_t)(((uintptr_t)u11) * ((uintptr_t)u22))) * rc12 * rc21);
+#else
+    *or_ptr = log(c11 * c22 * rc12 * rc21);
+#endif
+    *var_ptr = rc11 + rc12 + rc21 + rc22;
+  }
+}
 
 void boost_calc_p_bc(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2_ct, uint32_t ctrl0_ct, uint32_t ctrl1_ct, uint32_t ctrl2_ct, double* p_bc) {
   double* recip_cache = g_epi_recip_cache;
@@ -3968,7 +3980,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       g_epi_alpha2sq *= 1 + SMALL_EPSILON;
     }
     if (wkspace_alloc_d_checked(&g_epi_recip_cache, (pheno_nm_ct + 1) * sizeof(double))) {
-      goto epistasis_report_ret_NOMEM;;
+      goto epistasis_report_ret_NOMEM;
     }
     g_epi_recip_cache[0] = 0.0;
     for (uii = 1; uii <= pheno_nm_ct; uii++) {
@@ -3978,12 +3990,19 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     if (epi_ip->epi1 == 0.0) {
       dxx = 0.00005;
     } else {
-      dxx = epi_ip->epi1 / 2;
+      dxx = epi_ip->epi1 * 0.5;
     }
     dxx = ltqnorm(dxx);
     g_epi_alpha1sq = dxx * dxx;
     dxx = ltqnorm(epi_ip->epi2 / 2);
     g_epi_alpha2sq = dxx * dxx;
+    if (wkspace_alloc_d_checked(&g_epi_recip_cache, (4 * pheno_nm_ct + 1) * sizeof(double))) {
+      goto epistasis_report_ret_NOMEM;
+    }
+    g_epi_recip_cache[0] = NAN;
+    for (uii = 1; uii <= 4 * pheno_nm_ct; uii++) {
+      g_epi_recip_cache[uii] = 1.0 / ((double)((int32_t)uii));
+    }
   }
   pct_thresh = tests_expected / 100;
   if (!is_fast) {
