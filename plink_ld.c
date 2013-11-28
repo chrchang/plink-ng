@@ -2220,7 +2220,7 @@ uint32_t load_and_split3(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_i
 }
 
 #ifdef __LP64__
-static inline void two_locus_3x3_tablev(__m128i* vec1, __m128i* vec2, uint32_t* counts_3x3, uint32_t indiv_ctv6, uint32_t iter_ct) {
+static void two_locus_3x3_tablev(__m128i* vec1, __m128i* vec2, uint32_t* counts_3x3, uint32_t indiv_ctv6, uint32_t iter_ct) {
   const __m128i m1 = {FIVEMASK, FIVEMASK};
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
@@ -2441,7 +2441,7 @@ static inline void two_locus_3x3_zmiss_tablev(__m128i* veca0, __m128i* vecb0, ui
 }
 #endif
 
-static inline void two_locus_count_table_zmiss1(uintptr_t* lptr1, uintptr_t* lptr2, uint32_t* counts_3x3, uint32_t indiv_ctv3, uint32_t is_zmiss2) {
+static void two_locus_count_table_zmiss1(uintptr_t* lptr1, uintptr_t* lptr2, uint32_t* counts_3x3, uint32_t indiv_ctv3, uint32_t is_zmiss2) {
 #ifdef __LP64__
   fill_uint_zero(counts_3x3, 6);
   if (is_zmiss2) {
@@ -2462,7 +2462,7 @@ static inline void two_locus_count_table_zmiss1(uintptr_t* lptr1, uintptr_t* lpt
 #endif
 }
 
-static inline void two_locus_count_table(uintptr_t* lptr1, uintptr_t* lptr2, uint32_t* counts_3x3, uint32_t indiv_ctv3, uint32_t is_zmiss2) {
+static void two_locus_count_table(uintptr_t* lptr1, uintptr_t* lptr2, uint32_t* counts_3x3, uint32_t indiv_ctv3, uint32_t is_zmiss2) {
 #ifdef __LP64__
   uint32_t uii;
   fill_uint_zero(counts_3x3, 9);
@@ -2499,7 +2499,7 @@ static inline void two_locus_count_table(uintptr_t* lptr1, uintptr_t* lptr2, uin
 // GPLv3-licensed; just remember to give credit to Howey if you redistribute a
 // variant of this code.  This would have been a friggin' nightmare to debug if
 // he hadn't already done all the real work.)
-static inline void fepi_counts_to_stats(uint32_t* counts_3x3, uint32_t no_ueki, double* or_ptr, double* var_ptr) {
+static void fepi_counts_to_stats(uint32_t* counts_3x3, uint32_t no_ueki, double* or_ptr, double* var_ptr) {
   double c11;
   double c12;
   double c21;
@@ -2880,11 +2880,10 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
   double sum = 0.0;
   double interaction_measure = 0.0;
   double tau = 0.0;
-  double p_ab[9];
   double mu_tmp[18];
   double mu0_tmp[18];
-  double mu_xx[9];
-  double* dptr = p_ab;
+  double mu_xx[9]; // initially p_ab
+  double* dptr = mu_xx;
   uint32_t* uiptr = counts;
   double sum_recip;
   double dxx;
@@ -2894,6 +2893,7 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
+  uint32_t umm;
   for (uii = 0; uii < 3; uii++) {
     dxx = (double)((int32_t)(counts[uii] + counts[uii + 9])); 
     dyy = (double)((int32_t)(counts[uii + 3] + counts[uii + 12])); 
@@ -2914,9 +2914,11 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
       dzz = p_ca[2 * uii + ukk];
       dptr = &(p_bc[3 * ukk]);
       for (ujj = 0; ujj < 3; ujj++) {
-	dxx = (double)((int32_t)(*uiptr++));
-        dyy = p_ab[3 * ujj + uii] * (*dptr++) * dzz;
-	if (dxx != 0.0) {
+        dyy = mu_xx[3 * ujj + uii] * (*dptr++) * dzz;
+	// dxx = (double)((int32_t)(*uiptr++));
+	umm = *uiptr++;
+	if (umm) {
+	  dxx = (double)((int32_t)umm);
 	  if (dyy != 0.0) {
 	    //   Cx * log(Cx / y)
 	    // = Cx * (log(C) + log(x / y))
