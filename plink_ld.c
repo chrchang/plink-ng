@@ -1619,7 +1619,7 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 }
 
 int32_t ld_report_regular(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, uintptr_t* founder_include2, uintptr_t* founder_male_include2, uintptr_t* loadbuf, char* outname, uint32_t hh_exists) {
-  logprint("--r/--r2 under development.\n");
+  logprint("Error: --r/--r2 is currently under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
   /*
   FILE* infile = NULL;
@@ -1642,7 +1642,7 @@ int32_t ld_report_regular(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, ui
   uint32_t* marker_pos = g_ld_marker_pos;
   uint32_t founder_trail_ct = founder_ct_192_long - founder_ctl * 2;
   uint32_t idx1_subset = (ldip->snpstr || ldip->snps_rl.name_ct)? 1 : 0;
-  uint32_t window_size = ldip->window_size;
+  uint32_t window_size_m1 = ldip->window_size - 1;
   uint32_t window_bp = ldip->window_bp;
   uint32_t thread_ct = g_ld_thread_ct;
   uint32_t chrom_fo_idx = 0;
@@ -1667,6 +1667,8 @@ int32_t ld_report_regular(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, ui
   uintptr_t marker_uidx1;
   uintptr_t marker_uidx1_tmp;
   uintptr_t marker_uidx2_base;
+  uintptr_t marker_uidx2_back;
+  uintptr_t marker_uidx2_fwd;
   uintptr_t marker_uidx2;
   uintptr_t block_idx1;
   uintptr_t block_idx2;
@@ -1677,6 +1679,7 @@ int32_t ld_report_regular(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, ui
   uint32_t window_size_ceil;
   uint32_t chrom_idx;
   uint32_t chrom_end;
+  uint32_t chrom_last;
   uint32_t chrom_size;
   uint32_t cur_marker_pos;
   uint32_t uii;
@@ -1769,8 +1772,8 @@ int32_t ld_report_regular(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, ui
   if (is_inter_chr) {
     marker_idx2_maxw = marker_ct + 1 - idx1_subset;
   } else {
-    window_size_ceil = (idx1_subset + 1) * window_size - 1;
-    if ((window_size < 13) || ((!idx1_subset) && (window_size < 18))) {
+    window_size_ceil = (idx1_subset + 1) * (window_size_m1 + 1) - 1;
+    if ((window_size_m1 < 12) || ((!idx1_subset) && (window_size_m1 <= 16))) {
       marker_idx2_maxw = window_size_ceil;
     } else {
       if (idx1_subset) {
@@ -1886,22 +1889,7 @@ int32_t ld_report_regular(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, ui
     marker_uidx1_tmp = marker_uidx1;
 
     if (idx1_subset) {
-      // search backwards for first marker in window
-      chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx1);
-      uii = next_unset_unsafe(marker_exclude, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx]);
-      ujj = 1; // steps moved back + 1
-      marker_uidx2_base = marker_uidx1;
-      cur_marker_pos = marker_pos[marker_uidx1];
-      while (marker_uidx2_base > uii) {
-	ukk = prev_unset(marker_exclude, marker_uidx2_base, uii);
-	if (marker_pos[ukk] + window_bp < cur_marker_pos) {
-	  break;
-	}
-	marker_uidx2_base = ukk;
-	if (++ujj == window_size) {
-	  break;
-	}
-      }
+      marker_uidx2_base = window_back(marker_pos, marker_exclude, next_unset_unsafe(marker_exclude, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx]), marker_uidx1, window_size_m1, window_bp);
       marker_idx2 = marker_uidx2_base - popcount_bit_idx(marker_exclude, 0, marker_uidx2_base);
     } else {
       marker_idx2 = marker_uidx1 + 1 - popcount_bit_idx(marker_exclude, 0, marker_uidx1);
@@ -1924,13 +1912,15 @@ int32_t ld_report_regular(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, ui
       if (marker_uidx1_tmp >= chrom_end) {
         chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx1_tmp);
         chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+        chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+	chrom_last = prev_unset_unsafe(marker_exclude, chrom_end);
         is_haploid = IS_SET(chrom_info_ptr->haploid_mask, chrom_idx);
 	is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code)? 1 : 0;
 	is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code)? 1 : 0;
 	if (idx1_subset) {
-	  // initialize temp backwards-looking uidx2, idx2
-	} else {
+	  marker_uidx2_back = window_back(marker_pos, marker_exclude, next_unset_unsafe(marker_exclude, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx]), marker_uidx1_tmp, window_size_m1, window_bp);
 	}
+	marker_uidx2_fwd = window_forward(marker_pos, marker_exclude, marker_uidx1_tmp, chrom_last, window_size_m1, window_bp);
       }
       if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, &(g_ld_geno1[block_idx1 * founder_ct_192_long]), founder_ct, founder_info, IS_SET(marker_reverse, marker_uidx1_tmp))) {
 	goto ld_report_regular_ret_READ_FAIL;
@@ -1997,7 +1987,7 @@ int32_t ld_report_regular(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, ui
   fclose_cond(infile);
   // trust parent to free memory
   return retval;
-*/
+  */
 }
 
 int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
@@ -2780,38 +2770,39 @@ static void fepi_counts_to_stats(uint32_t* counts_3x3, uint32_t no_ueki, double*
   uint32_t u12 = 4 * counts_3x3[2] + 2 * (counts_3x3[1] + counts_3x3[5]) + counts_3x3[4];
   uint32_t u21 = 4 * counts_3x3[6] + 2 * (counts_3x3[3] + counts_3x3[7]) + counts_3x3[4];
   uint32_t u22 = 4 * counts_3x3[8] + 2 * (counts_3x3[5] + counts_3x3[7]) + counts_3x3[4];
-#ifndef __LP64__
-  double c11 = (double)((int32_t)u11);
-  double c22 = (double)((int32_t)u22);
-#endif
-  double rc11 = recip_cache[u11];
-  double rc12 = recip_cache[u12];
-  double rc21 = recip_cache[u21];
-  double rc22 = recip_cache[u22];
-#ifdef __LP64__
   double c11;
-  double c22;
-#endif
   double c12;
   double c21;
+  double c22;
+  double rc11;
+  double rc12;
+  double rc21;
+  double rc22;
   double dxx;
   uint32_t no_adj;
   if (!no_ueki) {
     // See AdjustedFastEpistasis::calculateLogOddsAdjustedVariance().
-#ifdef __LP64__
-    c11 = (double)((int32_t)u11);
-    c22 = (double)((int32_t)u22);
-#endif
     no_adj = (counts_3x3[0] && counts_3x3[1] && counts_3x3[2] && counts_3x3[3] && counts_3x3[4] && counts_3x3[5] && counts_3x3[6] && counts_3x3[7] && counts_3x3[8]);
     if (!no_adj) {
-      c11 += 4.5;
-      c22 += 4.5;
-      rc11 = 1.0 / c11;
+      c11 = (double)((int32_t)u11) + 4.5;
+      c22 = (double)((int32_t)u22) + 4.5;
       rc12 = 1.0 / ((double)((int32_t)u12) + 4.5);
       rc21 = 1.0 / ((double)((int32_t)u21) + 4.5);
+      rc11 = 1.0 / c11;
       rc22 = 1.0 / c22;
+      dxx = c11 * c22;
+    } else {
+#ifdef __LP64__
+      dxx = (double)((intptr_t)(((uintptr_t)u11) * ((uintptr_t)u22)));
+#else
+      dxx = ((double)((int32_t)u11)) * ((double)((int32_t)u22));
+#endif
+      rc11 = recip_cache[u11];
+      rc12 = recip_cache[u12];
+      rc21 = recip_cache[u21];
+      rc22 = recip_cache[u22];
     }
-    *or_ptr = log(c11 * c22 * rc12 * rc21);
+    *or_ptr = log(dxx * rc12 * rc21);
 
     c11 = rc11 - rc12; // bit2
     c12 = rc11 - rc21; // bit3
@@ -2851,10 +2842,14 @@ static void fepi_counts_to_stats(uint32_t* counts_3x3, uint32_t no_ueki, double*
                  dxx * ((double)((int32_t)counts_3x3[4]) + 0.5);
     }
   } else {
+    rc11 = recip_cache[u11];
+    rc12 = recip_cache[u12];
+    rc21 = recip_cache[u21];
+    rc22 = recip_cache[u22];
 #ifdef __LP64__
     *or_ptr = log(((intptr_t)(((uintptr_t)u11) * ((uintptr_t)u22))) * rc12 * rc21);
 #else
-    *or_ptr = log(c11 * c22 * rc12 * rc21);
+    *or_ptr = log(((double)((int32_t)u11)) * ((double)((int32_t)u22)) * rc12 * rc21);
 #endif
     *var_ptr = rc11 + rc12 + rc21 + rc22;
   }
@@ -3734,6 +3729,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   uint32_t modifier = epi_ip->modifier;
   uint32_t is_fast = modifier & EPI_FAST;
   uint32_t is_boost = (modifier / EPI_FAST_BOOST) & 1;
+  uint32_t do_joint_effects = modifier & EPI_FAST_JOINT_EFFECTS;
   uint32_t no_ueki = modifier & EPI_FAST_NO_UEKI;
   uint32_t is_case_only = (modifier / EPI_FAST_CASE_ONLY) & 1;
   uint32_t tot_stride = 6 - 3 * is_case_only;
@@ -3996,12 +3992,14 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     g_epi_alpha1sq = dxx * dxx;
     dxx = ltqnorm(epi_ip->epi2 / 2);
     g_epi_alpha2sq = dxx * dxx;
-    if (wkspace_alloc_d_checked(&g_epi_recip_cache, (4 * pheno_nm_ct + 1) * sizeof(double))) {
-      goto epistasis_report_ret_NOMEM;
-    }
-    g_epi_recip_cache[0] = NAN;
-    for (uii = 1; uii <= 4 * pheno_nm_ct; uii++) {
-      g_epi_recip_cache[uii] = 1.0 / ((double)((int32_t)uii));
+    if (!do_joint_effects) {
+      if (wkspace_alloc_d_checked(&g_epi_recip_cache, (4 * pheno_nm_ct + 1) * sizeof(double))) {
+	goto epistasis_report_ret_NOMEM;
+      }
+      g_epi_recip_cache[0] = NAN;
+      for (uii = 1; uii <= 4 * pheno_nm_ct; uii++) {
+	g_epi_recip_cache[uii] = 1.0 / ((double)((int32_t)uii));
+      }
     }
   }
   pct_thresh = tests_expected / 100;
@@ -4125,7 +4123,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       wptr = memcpya(wptr, " boost", 6);
     } else if (no_ueki) {
       wptr = memcpya(wptr, " no-ueki", 8);
-    } else if (modifier & EPI_FAST_JOINT_EFFECTS) {
+    } else if (do_joint_effects) {
       wptr = memcpya(wptr, " joint-effects", 14);
     }
     if (is_case_only) {

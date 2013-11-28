@@ -1267,7 +1267,7 @@ int32_t last_set_bit(uintptr_t* bit_arr, uint32_t word_ct);
 // position
 uint32_t prev_unset_unsafe(uintptr_t* bit_arr, uint32_t loc);
 
-uint32_t prev_unset(uintptr_t* bit_arr, uint32_t loc, uint32_t floor);
+// uint32_t prev_unset(uintptr_t* bit_arr, uint32_t loc, uint32_t floor);
 
 static inline void prev_unset_unsafe_ck(uintptr_t* bit_arr, uint32_t* loc_ptr) {
   *loc_ptr -= 1;
@@ -1646,6 +1646,10 @@ uintptr_t popcount2_longs(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_id
 #define popcount01_longs popcount2_longs
 
 uintptr_t popcount_bit_idx(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx);
+
+uint32_t window_back(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t marker_uidx_min, uint32_t marker_uidx, uint32_t count_max, uint32_t bp_max);
+
+uint32_t window_forward(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t marker_uidx_start, uint32_t marker_uidx_last, uint32_t count_max, uint32_t bp_max);
 
 uintptr_t jump_forward_unset_unsafe(uintptr_t* bit_arr, uintptr_t cur_pos, uintptr_t forward_ct);
 

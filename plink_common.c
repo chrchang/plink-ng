@@ -2794,6 +2794,7 @@ int32_t last_set_bit(uintptr_t* bit_arr, uint32_t word_ct) {
 }
 
 int32_t last_clear_bit(uintptr_t* bit_arr, uint32_t ceil) {
+  // can return ceil or any lower number
   uintptr_t* bit_arr_ptr = &(bit_arr[ceil / BITCT]);
   uint32_t remainder = ceil % BITCT;
   uintptr_t ulii;
@@ -2830,6 +2831,7 @@ uint32_t prev_unset_unsafe(uintptr_t* bit_arr, uint32_t loc) {
   return ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + BITCT - 1 - CLZLU(ulii);
 }
 
+/*
 uint32_t prev_unset(uintptr_t* bit_arr, uint32_t loc, uint32_t floor) {
   uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
   uint32_t remainder = loc % BITCT;
@@ -2852,6 +2854,7 @@ uint32_t prev_unset(uintptr_t* bit_arr, uint32_t loc, uint32_t floor) {
   loc = ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + BITCT - 1 - CLZLU(ulii);
   return MAXV(loc, floor);
 }
+*/
 
 void fill_idx_to_uidx(uintptr_t* exclude_arr, uintptr_t unfiltered_item_ct, uintptr_t item_ct, uint32_t* idx_to_uidx) {
   uint32_t* idx_to_uidx_end = &(idx_to_uidx[item_ct]);
@@ -4615,6 +4618,104 @@ uintptr_t popcount_bit_idx(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_i
     ct += popcount_long(lptr[end_idxl] & ((ONELU << end_idxlr) - ONELU));
   }
   return ct;
+}
+
+uint32_t window_back(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t marker_uidx_min, uint32_t marker_uidx_start, uint32_t count_max, uint32_t bp_max) {
+  // finds the earliest location which is within count_max sites and bp_max bps
+  // count_max must be positive
+  if (marker_uidx_min == marker_uidx_start) {
+    // special-case this since it happens frequently
+    return marker_uidx_min;
+  }
+  uint32_t min_pos = 0;
+  uint32_t marker_uwidx_cur = marker_uidx_start / BITCT;
+  uint32_t uii = marker_uidx_start % BITCT;
+  uintptr_t* marker_exclude_cur = &(marker_exclude[marker_uwidx_cur]);
+  uintptr_t cur_word;
+  marker_uwidx_cur *= BITCT;
+  if (bp_max <= marker_pos[marker_uidx_start]) {
+    min_pos = marker_pos[marker_uidx_start] - bp_max;
+  }
+  if (!uii) {
+    goto window_back_zstart;
+  }
+  cur_word = (~(*marker_exclude_cur)) & ((ONELU << uii) - ONELU);
+  while (1) {
+    uii = popcount_long(cur_word);
+    if (uii >= count_max) {
+      uii -= count_max; // now a count of number of bits to advance
+      while (uii) {
+	cur_word &= cur_word - 1;
+        uii--;
+      }
+      marker_uwidx_cur += CTZLU(cur_word);
+      if (marker_pos[marker_uwidx_cur] < min_pos) {
+	goto window_back_find_first_pos;
+      }
+      return MAXV(marker_uwidx_cur, marker_uidx_min);
+    } else if (marker_pos[marker_uwidx_cur] < min_pos) {
+    window_back_find_first_pos:
+      marker_uwidx_cur += uint32arr_greater_than(&(marker_pos[marker_uwidx_cur]), marker_uidx_start - marker_uwidx_cur, min_pos);
+      if (marker_uwidx_cur > marker_uidx_min) {
+	next_unset_unsafe_ck(marker_exclude, &marker_uwidx_cur);
+	return marker_uwidx_cur;
+      } else {
+	return marker_uidx_min;
+      }
+    } else if (marker_uwidx_cur <= marker_uidx_min) {
+      return marker_uidx_min;
+    }
+    count_max -= uii;
+    marker_uidx_start = marker_uwidx_cur;
+  window_back_zstart:  
+    cur_word = ~(*(--marker_exclude_cur));
+    marker_uwidx_cur -= BITCT;
+  }
+}
+
+uint32_t window_forward(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t marker_uidx_start, uint32_t marker_uidx_last, uint32_t count_max, uint32_t bp_max) {
+  if (marker_uidx_start == marker_uidx_last) {
+    return marker_uidx_start;
+  }
+  uint32_t marker_uwidx_prev = marker_uidx_start;
+  uint32_t max_pos = bp_max + marker_pos[marker_uidx_start++];
+  uint32_t marker_uwidx_cur = marker_uidx_start / BITCT;
+  uint32_t uii = marker_uidx_start % BITCT;
+  uintptr_t* marker_exclude_cur = &(marker_exclude[marker_uwidx_cur]);
+  uintptr_t cur_word;
+  marker_uwidx_cur *= BITCT;
+  cur_word = ~((*marker_exclude_cur) | ((ONELU << uii) - ONELU));
+  while (1) {
+    uii = popcount_long(cur_word);
+    if (uii >= count_max) {
+      while (--count_max) {
+	cur_word &= cur_word - 1;
+      }
+      marker_uwidx_cur += CTZLU(cur_word);
+      if (marker_pos[marker_uwidx_cur] > max_pos) {
+	break;
+      }
+      return MINV(marker_uwidx_cur, marker_uidx_last);
+    }
+    marker_uwidx_cur += BITCT;
+    if (marker_uwidx_cur >= marker_uidx_last) {
+      if (marker_pos[marker_uidx_last] <= max_pos) {
+        return marker_uidx_last;
+      } else {
+	marker_uwidx_cur = marker_uidx_last;
+	break;
+      }
+    } else if (marker_pos[marker_uwidx_cur] > max_pos) {
+      break;
+    }
+    marker_uwidx_prev = marker_uwidx_cur;
+    count_max -= uii;
+    marker_uidx_start = marker_uwidx_cur;
+    cur_word = ~(*(++marker_exclude_cur));
+  }
+  marker_uwidx_prev += uint32arr_greater_than(&(marker_pos[marker_uwidx_prev]), marker_uwidx_cur - marker_uwidx_prev, max_pos + 1);
+  prev_unset_unsafe_ck(marker_exclude, &marker_uwidx_prev);
+  return marker_uwidx_prev;
 }
 
 uintptr_t jump_forward_unset_unsafe(uintptr_t* bit_arr, uintptr_t cur_pos, uintptr_t forward_ct) {
