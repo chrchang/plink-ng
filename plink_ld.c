@@ -2875,65 +2875,100 @@ uint32_t boost_calc_p_ca(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2_ct
   return 0;
 }
 
+// epistasis multithread globals
+static uint32_t* g_epi_geno1_offsets;
+static double* g_epi_all_chisq;
+static uintptr_t* g_epi_geno1;
+static uintptr_t* g_epi_zmiss1;
+static uint32_t* g_epi_idx1_block_bounds;
+static uint32_t* g_epi_idx1_block_bounds16;
+static double* g_epi_best_chisq1;
+static uint32_t* g_epi_best_id1; // best partner ID
+static uint32_t* g_epi_n_sig_ct1;
+static uint32_t* g_epi_fail_ct1;
+static uintptr_t* g_epi_geno2;
+static uintptr_t* g_epi_zmiss2;
+static uint32_t* g_epi_tot2;
+static double* g_epi_boost_precalc2 = NULL;
+static double* g_epi_best_chisq2;
+static uint32_t* g_epi_best_id2;
+static uint32_t* g_epi_n_sig_ct2;
+static uint32_t* g_epi_fail_ct2;
+static double* g_epi_recip_cache;
+static uint32_t g_epi_thread_ct;
+static uint32_t g_epi_case_ct;
+static uint32_t g_epi_ctrl_ct;
+static uint32_t g_epi_flag;
+static uintptr_t g_epi_marker_ct;
+static uintptr_t g_epi_marker_idx1;
+static uintptr_t g_epi_idx2_block_size;
+static uintptr_t g_epi_idx2_block_start;
+static double g_epi_alpha1sq;
+static double g_epi_alpha2sq;
+
 double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, double screen_thresh, double* chisq_ptr) {
   // see BOOSTx64.c lines 625-903.
-  double sum = 0.0;
   double interaction_measure = 0.0;
   double tau = 0.0;
+  double* recip_cache = g_epi_recip_cache;
+  uint32_t* uiptr = counts;
+  uint32_t sum = 0;
+  double mu_xx[9]; // initially p_ab
   double mu_tmp[18];
   double mu0_tmp[18];
-  double mu_xx[9]; // initially p_ab
   double* dptr = mu_xx;
-  uint32_t* uiptr = counts;
   double sum_recip;
   double dxx;
   double dyy;
-  double dzz;
   double mu_error;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
   uint32_t umm;
+  uint32_t unn;
   for (uii = 0; uii < 3; uii++) {
-    dxx = (double)((int32_t)(counts[uii] + counts[uii + 9])); 
-    dyy = (double)((int32_t)(counts[uii + 3] + counts[uii + 12])); 
-    dzz = (double)((int32_t)(counts[uii + 6] + counts[uii + 15])); 
-    mu_error = dxx + dyy + dzz; // repurpose as partial sum
-    if (mu_error == 0.0) {
+    ujj = counts[uii] + counts[uii + 9];
+    ukk = counts[uii + 3] + counts[uii + 12];
+    umm = counts[uii + 6] + counts[uii + 15];
+    unn = ujj + ukk + umm;
+    if (!unn) {
       return NAN;
     }
-    sum += mu_error;
-    mu_error = 1.0 / mu_error;
-    *dptr++ = dxx * mu_error;
-    *dptr++ = dyy * mu_error;
-    *dptr++ = dzz * mu_error;
+    sum += unn;
+    dxx = recip_cache[unn];
+    *dptr++ = ((int32_t)ujj) * dxx;
+    *dptr++ = ((int32_t)ukk) * dxx;
+    *dptr++ = ((int32_t)umm) * dxx;
   }
-  sum_recip = 1.0 / sum;
   for (ukk = 0; ukk < 2; ukk++) {
     for (uii = 0; uii < 3; uii++) {
-      dzz = p_ca[2 * uii + ukk];
+      dyy = p_ca[2 * uii + ukk];
       dptr = &(p_bc[3 * ukk]);
       for (ujj = 0; ujj < 3; ujj++) {
-        dyy = mu_xx[3 * ujj + uii] * (*dptr++) * dzz;
-	// dxx = (double)((int32_t)(*uiptr++));
+        dxx = mu_xx[3 * ujj + uii] * (*dptr++) * dyy;
+	tau += dxx;
 	umm = *uiptr++;
 	if (umm) {
-	  dxx = (double)((int32_t)umm);
-	  if (dyy != 0.0) {
+	  if (dxx != 0.0) {
 	    //   Cx * log(Cx / y)
 	    // = Cx * (log(C) + log(x / y))
 	    // = Cx * log(C) + Cx * log(x / y)
-	    interaction_measure += dxx * log(dxx / dyy);
+
+	    // caching entropy as well would merely reduce a multiplication to
+	    // an addition, which is almost certainly not worth the cost
+	    interaction_measure -= ((int32_t)umm) * log(dxx * recip_cache[umm]);
 	  } else {
+	    dxx = (double)((int32_t)umm);
             interaction_measure += dxx * log(dxx);
 	  }
 	}
-	tau += dyy;
       }
     }
   }
-  interaction_measure = interaction_measure * sum_recip + log(sum_recip);
-  interaction_measure = (interaction_measure + log(tau)) * sum * 2;
+  // interaction_measure = interaction_measure / sum - log(sum);
+  // interaction_measure = (interaction_measure + log(tau)) * sum * 2;
+  sum_recip = recip_cache[sum];
+  interaction_measure = 2 * (interaction_measure + ((int32_t)sum) * log(tau * sum_recip));
   if (interaction_measure > screen_thresh) {
     for (uii = 0; uii < 18; uii++) {
       mu_tmp[uii] = 1.0;
@@ -2999,19 +3034,20 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
     for (ukk = 0; ukk < 2; ukk++) {
       for (uii = 0; uii < 3; uii++) {
 	for (ujj = 0; ujj < 3; ujj++) {
-	  dxx = ((double)((int32_t)(*uiptr++))) * sum_recip;
-	  if (dxx != 0.0) {
-	    interaction_measure += dxx * log(dxx);
-	  }
 	  dyy = mu_tmp[uii * 6 + ujj * 2 + ukk] * sum_recip;
-	  if (dyy != 0.0) {
-	    interaction_measure -= dxx * log(dyy);
-	    tau += dyy;
+	  dxx = ((double)((int32_t)(*uiptr++))) * sum_recip;
+	  tau += dyy;
+	  if (dxx != 0.0) {
+	    if (dyy != 0.0) {
+	      interaction_measure += dxx * log(dxx / dyy);
+	    } else {
+              interaction_measure += dxx * log(dxx);
+	    }
 	  }
 	}
       }
     }
-    interaction_measure = (interaction_measure + log(tau)) * sum * 2;
+    interaction_measure = (interaction_measure + log(tau)) * ((int32_t)(sum * 2));
     *chisq_ptr = interaction_measure;
     if (interaction_measure < screen_thresh) {
       interaction_measure = screen_thresh;
@@ -3019,36 +3055,6 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
   }
   return interaction_measure;
 }
-
-// epistasis multithread globals
-static uint32_t* g_epi_geno1_offsets;
-static double* g_epi_all_chisq;
-static uintptr_t* g_epi_geno1;
-static uintptr_t* g_epi_zmiss1;
-static uint32_t* g_epi_idx1_block_bounds;
-static uint32_t* g_epi_idx1_block_bounds16;
-static double* g_epi_best_chisq1;
-static uint32_t* g_epi_best_id1; // best partner ID
-static uint32_t* g_epi_n_sig_ct1;
-static uint32_t* g_epi_fail_ct1;
-static uintptr_t* g_epi_geno2;
-static uintptr_t* g_epi_zmiss2;
-static uint32_t* g_epi_tot2;
-static double* g_epi_boost_precalc2 = NULL;
-static double* g_epi_best_chisq2;
-static uint32_t* g_epi_best_id2;
-static uint32_t* g_epi_n_sig_ct2;
-static uint32_t* g_epi_fail_ct2;
-static uint32_t g_epi_thread_ct;
-static uint32_t g_epi_case_ct;
-static uint32_t g_epi_ctrl_ct;
-static uint32_t g_epi_flag;
-static uintptr_t g_epi_marker_ct;
-static uintptr_t g_epi_marker_idx1;
-static uintptr_t g_epi_idx2_block_size;
-static uintptr_t g_epi_idx2_block_start;
-static double g_epi_alpha1sq;
-static double g_epi_alpha2sq;
 
 THREAD_RET_TYPE fast_epi_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
@@ -3959,6 +3965,13 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     if (g_epi_alpha1sq == g_epi_alpha2sq) {
       // count final instead of screening p-value hits
       g_epi_alpha2sq *= 1 + SMALL_EPSILON;
+    }
+    if (wkspace_alloc_d_checked(&g_epi_recip_cache, (pheno_nm_ct + 1) * sizeof(double))) {
+      goto epistasis_report_ret_NOMEM;;
+    }
+    g_epi_recip_cache[0] = 0.0;
+    for (uii = 1; uii <= pheno_nm_ct; uii++) {
+      g_epi_recip_cache[uii] = 1.0 / ((double)((int32_t)uii));
     }
   } else {
     if (epi_ip->epi1 == 0.0) {
