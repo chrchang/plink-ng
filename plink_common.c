@@ -4622,16 +4622,19 @@ uintptr_t popcount_bit_idx(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_i
   return ct;
 }
 
-uint32_t window_back(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t marker_uidx_min, uint32_t marker_uidx_start, uint32_t count_max, uint32_t bp_max) {
+uint32_t window_back(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t marker_uidx_min, uint32_t marker_uidx_start, uint32_t count_max, uint32_t bp_max, uint32_t* window_trail_ct_ptr) {
   // finds the earliest location which is within count_max sites and bp_max bps
   // count_max must be positive
   if (marker_uidx_min == marker_uidx_start) {
     // special-case this since it happens frequently
+    *window_trail_ct_ptr = 0;
     return marker_uidx_min;
   }
   uint32_t min_pos = 0;
   uint32_t marker_uwidx_cur = marker_uidx_start / BITCT;
   uint32_t uii = marker_uidx_start % BITCT;
+  uint32_t marker_uidx_last = marker_uidx_start;
+  uint32_t remaining_count = count_max;
   uintptr_t* marker_exclude_cur = &(marker_exclude[marker_uwidx_cur]);
   uintptr_t cur_word;
   marker_uwidx_cur *= BITCT;
@@ -4644,8 +4647,8 @@ uint32_t window_back(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t m
   cur_word = (~(*marker_exclude_cur)) & ((ONELU << uii) - ONELU);
   while (1) {
     uii = popcount_long(cur_word);
-    if (uii >= count_max) {
-      uii -= count_max; // now a count of number of bits to advance
+    if (uii >= remaining_count) {
+      uii -= remaining_count; // now a count of number of bits to advance
       while (uii) {
 	cur_word &= cur_word - 1;
         uii--;
@@ -4654,55 +4657,68 @@ uint32_t window_back(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t m
       if (marker_pos[marker_uwidx_cur] < min_pos) {
 	goto window_back_find_first_pos;
       }
+      *window_trail_ct_ptr = remaining_count;
       return MAXV(marker_uwidx_cur, marker_uidx_min);
     } else if (marker_pos[marker_uwidx_cur] < min_pos) {
     window_back_find_first_pos:
-      marker_uwidx_cur += uint32arr_greater_than(&(marker_pos[marker_uwidx_cur]), marker_uidx_start - marker_uwidx_cur, min_pos);
+      marker_uwidx_cur += uint32arr_greater_than(&(marker_pos[marker_uwidx_cur]), marker_uidx_last - marker_uwidx_cur, min_pos);
       if (marker_uwidx_cur > marker_uidx_min) {
 	next_unset_unsafe_ck(marker_exclude, &marker_uwidx_cur);
-	return marker_uwidx_cur;
       } else {
-	return marker_uidx_min;
+      window_back_min:
+	marker_uwidx_cur = marker_uidx_min;
       }
+      *window_trail_ct_ptr = marker_uidx_start - marker_uwidx_cur - popcount_bit_idx(marker_exclude, marker_uwidx_cur, marker_uidx_start);
+      return marker_uwidx_cur;
     } else if (marker_uwidx_cur <= marker_uidx_min) {
-      return marker_uidx_min;
+      goto window_back_min;
     }
-    count_max -= uii;
-    marker_uidx_start = marker_uwidx_cur;
+    remaining_count -= uii;
+    marker_uidx_last = marker_uwidx_cur;
   window_back_zstart:  
     cur_word = ~(*(--marker_exclude_cur));
     marker_uwidx_cur -= BITCT;
   }
 }
 
-uint32_t window_forward(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t marker_uidx_start, uint32_t marker_uidx_last, uint32_t count_max, uint32_t bp_max) {
+uint32_t window_forward(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t marker_uidx_start, uint32_t marker_uidx_last, uint32_t count_max, uint32_t bp_max, uint32_t* window_lead_ct_ptr) {
+  // window_lead_ct_ptr currently cannot be NULL
   if (marker_uidx_start == marker_uidx_last) {
+    *window_lead_ct_ptr = 0;
     return marker_uidx_start;
   }
   uint32_t marker_uwidx_prev = marker_uidx_start;
-  uint32_t max_pos = bp_max + marker_pos[marker_uidx_start++];
-  uint32_t marker_uwidx_cur = marker_uidx_start / BITCT;
-  uint32_t uii = marker_uidx_start % BITCT;
+  uint32_t max_pos = bp_max + marker_pos[marker_uidx_start];
+  uint32_t marker_uwidx_cur = (marker_uidx_start + 1) / BITCT;
+  uint32_t uii = (marker_uidx_start + 1) % BITCT;
+  uint32_t remaining_count = count_max;
   uintptr_t* marker_exclude_cur = &(marker_exclude[marker_uwidx_cur]);
   uintptr_t cur_word;
   marker_uwidx_cur *= BITCT;
   cur_word = ~((*marker_exclude_cur) | ((ONELU << uii) - ONELU));
   while (1) {
     uii = popcount_long(cur_word);
-    if (uii >= count_max) {
-      while (--count_max) {
+    if (uii >= remaining_count) {
+      while (--remaining_count) {
 	cur_word &= cur_word - 1;
       }
       marker_uwidx_cur += CTZLU(cur_word);
       if (marker_pos[marker_uwidx_cur] > max_pos) {
 	break;
       }
-      return MINV(marker_uwidx_cur, marker_uidx_last);
+      if (marker_uwidx_cur <= marker_uidx_last) {
+	*window_lead_ct_ptr = count_max;
+	return marker_uwidx_cur;
+      } else {
+	marker_uwidx_prev = marker_uidx_last;
+	goto window_forward_return;
+      }
     }
     marker_uwidx_cur += BITCT;
     if (marker_uwidx_cur >= marker_uidx_last) {
       if (marker_pos[marker_uidx_last] <= max_pos) {
-        return marker_uidx_last;
+	marker_uwidx_prev = marker_uidx_last;
+	goto window_forward_return;
       } else {
 	marker_uwidx_cur = marker_uidx_last;
 	break;
@@ -4711,12 +4727,13 @@ uint32_t window_forward(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_
       break;
     }
     marker_uwidx_prev = marker_uwidx_cur;
-    count_max -= uii;
-    marker_uidx_start = marker_uwidx_cur;
+    remaining_count -= uii;
     cur_word = ~(*(++marker_exclude_cur));
   }
   marker_uwidx_prev += uint32arr_greater_than(&(marker_pos[marker_uwidx_prev]), marker_uwidx_cur - marker_uwidx_prev, max_pos + 1);
   prev_unset_unsafe_ck(marker_exclude, &marker_uwidx_prev);
+ window_forward_return:
+  *window_lead_ct_ptr = marker_uwidx_prev - marker_uidx_start - popcount_bit_idx(marker_exclude, marker_uidx_start, marker_uwidx_prev);
   return marker_uwidx_prev;
 }
 
