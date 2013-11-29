@@ -2756,7 +2756,7 @@ static uintptr_t g_epi_marker_idx1;
 static uintptr_t g_epi_idx2_block_size;
 static uintptr_t g_epi_idx2_block_start;
 static double g_epi_alpha1sq[3];
-static double g_epi_alpha2sq;
+static double g_epi_alpha2sq[3];
 
 // The following two functions are essentially ported from Statistics.cpp in
 // Richard Howey's CASSI software
@@ -2878,7 +2878,7 @@ uint32_t boost_calc_p_ca(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2_ct
   return (df_adj > 1);
 }
 
-double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, double* thresholds, double* chisq_ptr, uint32_t df_adj) {
+double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, double* alpha1sq_ptr, double* alpha2sq_ptr, uint32_t df_adj, double* chisq_ptr, uint32_t* sig_ct1_ptr, uint32_t* sig_ct2_ptr) {
   // see BOOSTx64.c lines 625-903.
   double interaction_measure = 0.0;
   double tau = 0.0;
@@ -2967,7 +2967,8 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
   // interaction_measure = (interaction_measure + log(tau)) * sum * 2;
   sum_recip = recip_cache[sum];
   interaction_measure = 2 * (interaction_measure + ((int32_t)sum) * log(tau * sum_recip));
-  if (interaction_measure > thresholds[df_adj]) {
+  // > instead of >= for maximum compatibility, I guess
+  if (interaction_measure > alpha1sq_ptr[df_adj]) {
     for (uii = 0; uii < 18; uii++) {
       mu_tmp[uii] = 1.0;
     }
@@ -3051,9 +3052,13 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
     du.uu[0] &= ~(3 * ONELU);
     du.uu[0] |= df_adj;
     *chisq_ptr = du.dd;
-    if (interaction_measure < thresholds[df_adj]) {
-      interaction_measure = thresholds[df_adj];
+    if (interaction_measure < alpha1sq_ptr[df_adj]) {
+      interaction_measure = alpha1sq_ptr[df_adj];
     }
+  }
+  if (interaction_measure >= alpha2sq_ptr[df_adj]) {
+    *sig_ct1_ptr += 1;
+    *sig_ct2_ptr += 1;    
   }
   return interaction_measure;
 }
@@ -3102,8 +3107,10 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   uint32_t* best_id2 = &(g_epi_best_id2[tidx * idx2_block_sizem16]);
   uint32_t* n_sig_ct2 = &(g_epi_n_sig_ct2[tidx * idx2_block_sizem16]);
   uint32_t* fail_ct2 = &(g_epi_fail_ct2[tidx * idx2_block_sizem16]);
-  double* alpha1sq = g_epi_alpha1sq;
-  double alpha2sq = g_epi_alpha2sq;
+  double* alpha1sq_ptr = g_epi_alpha1sq;
+  double* alpha2sq_ptr = g_epi_alpha2sq;
+  double alpha1sq = alpha1sq_ptr[0];
+  double alpha2sq = alpha2sq_ptr[0];
   double ctrl_var = 0;
   uint32_t tot1[6];
   uint32_t counts[18];
@@ -3230,14 +3237,14 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
 	if (!realnum(zsq)) {
 	  goto fast_epi_thread_fail;
 	}
-	if (zsq >= alpha1sq[0]) {
+	if (zsq >= alpha1sq) {
 	  all_chisq_write[block_idx2] = zsq;
 	}
-      fast_epi_thread_boost_save:
 	if (zsq >= alpha2sq) {
 	  n_sig_ct_fixed++;
 	  n_sig_ct2[block_idx2] += 1;
 	}
+      fast_epi_thread_boost_save:
 	if (zsq > best_chisq_fixed) {
 	  best_chisq_fixed = zsq;
 	  best_id_fixed = block_idx2 + idx2_block_start;
@@ -3263,16 +3270,19 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
 	  }
 	  p_ca_ptr = p_ca_tmp;
 	}
+
 	// if approximate zsq >= epi1 threshold but more accurate value is not,
 	// we still want to save the more accurate value
-	zsq = fepi_counts_to_boost_chisq(counts, p_bc_ptr, p_ca_ptr, alpha1sq, &(all_chisq_write[block_idx2]), df_adj);
+	// also, we want epi2 counting to be df-sensitive
+	// (punt on df/best_chisq for now)
+	zsq = fepi_counts_to_boost_chisq(counts, p_bc_ptr, p_ca_ptr, alpha1sq_ptr, alpha2sq_ptr, df_adj, &(all_chisq_write[block_idx2]), &n_sig_ct_fixed, &(n_sig_ct2[block_idx2]));
 	if (realnum(zsq)) {
 	  goto fast_epi_thread_boost_save;
 	}
       fast_epi_thread_fail:
 	fail_ct_fixed++;
 	fail_ct2[block_idx2] += 1;
-	if (alpha1sq[0] == 0.0) {
+	if (alpha1sq == 0.0) {
 	  // special case: log NA
 	  all_chisq_write[block_idx2] = NAN;
 	}
@@ -3961,10 +3971,15 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     g_epi_alpha1sq[0] = inverse_chiprob(dxx, 4);
     g_epi_alpha1sq[1] = inverse_chiprob(dxx, 2);
     g_epi_alpha1sq[2] = inverse_chiprob(dxx, 1);
-    g_epi_alpha2sq = inverse_chiprob(epi_ip->epi2, 4);
-    if (g_epi_alpha1sq[0] == g_epi_alpha2sq) {
+    g_epi_alpha2sq[0] = inverse_chiprob(epi_ip->epi2, 4);
+    if (g_epi_alpha1sq[0] == g_epi_alpha2sq[0]) {
       // count final instead of screening p-value hits
-      g_epi_alpha2sq *= 1 + SMALL_EPSILON;
+      g_epi_alpha2sq[0] *= 1 + SMALL_EPSILON;
+      g_epi_alpha2sq[1] = g_epi_alpha1sq[1] * (1 + SMALL_EPSILON);
+      g_epi_alpha2sq[2] = g_epi_alpha1sq[2] * (1 + SMALL_EPSILON);
+    } else {
+      g_epi_alpha2sq[1] = inverse_chiprob(epi_ip->epi2, 2);
+      g_epi_alpha2sq[2] = inverse_chiprob(epi_ip->epi2, 1);
     }
     if (wkspace_alloc_d_checked(&g_epi_recip_cache, (pheno_nm_ct + 1) * sizeof(double))) {
       goto epistasis_report_ret_NOMEM;
@@ -3982,7 +3997,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     dxx = ltqnorm(dxx);
     g_epi_alpha1sq[0] = dxx * dxx;
     dxx = ltqnorm(epi_ip->epi2 / 2);
-    g_epi_alpha2sq = dxx * dxx;
+    g_epi_alpha2sq[0] = dxx * dxx;
   }
   pct_thresh = tests_expected / 100;
   if (!is_fast) {
