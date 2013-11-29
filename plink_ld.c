@@ -2755,7 +2755,7 @@ static uintptr_t g_epi_marker_ct;
 static uintptr_t g_epi_marker_idx1;
 static uintptr_t g_epi_idx2_block_size;
 static uintptr_t g_epi_idx2_block_start;
-static double g_epi_alpha1sq;
+static double g_epi_alpha1sq[3];
 static double g_epi_alpha2sq;
 
 // The following two functions are essentially ported from Statistics.cpp in
@@ -2849,40 +2849,43 @@ void boost_calc_p_bc(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2_ct, ui
   p_bc[5] = ((int32_t)ctrl2_ct) * tot_recip;
 }
 
-uint32_t boost_calc_p_ca(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2_ct, uint32_t ctrl0_ct, uint32_t ctrl1_ct, uint32_t ctrl2_ct, double* p_ca) {
+uint32_t boost_calc_p_ca(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2_ct, uint32_t ctrl0_ct, uint32_t ctrl1_ct, uint32_t ctrl2_ct, double* p_ca, uint32_t* df_adj_ptr) {
   double* recip_cache = g_epi_recip_cache;
   uint32_t uii = case0_ct + ctrl0_ct;
+  uint32_t df_adj = 0;
   double tot_recip;
-  if (!uii) {
-    return 1;
-  }
   tot_recip = recip_cache[uii];
+  if (!uii) {
+    df_adj++;
+  }
   p_ca[0] = ((int32_t)case0_ct) * tot_recip;
   p_ca[1] = ((int32_t)ctrl0_ct) * tot_recip;
   uii = case1_ct + ctrl1_ct;
-  if (!uii) {
-    return 1;
-  }
   tot_recip = recip_cache[uii];
+  if (!uii) {
+    df_adj++;
+  }
   p_ca[2] = ((int32_t)case1_ct) * tot_recip;
   p_ca[3] = ((int32_t)ctrl1_ct) * tot_recip;
   uii = case2_ct + ctrl2_ct;
-  if (!uii) {
-    return 1;
-  }
   tot_recip = recip_cache[uii];
+  if (!uii) {
+    df_adj++;
+  }
   p_ca[4] = ((int32_t)case2_ct) * tot_recip;
   p_ca[5] = ((int32_t)ctrl2_ct) * tot_recip;
-  return 0;
+  *df_adj_ptr = df_adj;
+  return (df_adj > 1);
 }
 
-double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, double screen_thresh, double* chisq_ptr) {
+double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, double* thresholds, double* chisq_ptr, uint32_t df_adj) {
   // see BOOSTx64.c lines 625-903.
   double interaction_measure = 0.0;
   double tau = 0.0;
   double* recip_cache = g_epi_recip_cache;
   uint32_t* uiptr = counts;
   uint32_t sum = 0;
+  uint32_t uoo = 0;
   double mu_xx[9]; // initially p_ab
   double mu_tmp[18];
   double mu0_tmp[18];
@@ -2891,6 +2894,8 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
   double dxx;
   double dyy;
   double mu_error;
+  // dirty hack: encode df adjustment in low bits of *chisq_ptr
+  __double_ulong du;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -2902,7 +2907,10 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
     umm = counts[uii + 6] + counts[uii + 15];
     unn = ujj + ukk + umm;
     if (!unn) {
-      return NAN;
+      if (uoo++) {
+	return NAN;
+      }
+      df_adj++;
     }
     sum += unn;
     dxx = recip_cache[unn];
@@ -2959,7 +2967,7 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
   // interaction_measure = (interaction_measure + log(tau)) * sum * 2;
   sum_recip = recip_cache[sum];
   interaction_measure = 2 * (interaction_measure + ((int32_t)sum) * log(tau * sum_recip));
-  if (interaction_measure > screen_thresh) {
+  if (interaction_measure > thresholds[df_adj]) {
     for (uii = 0; uii < 18; uii++) {
       mu_tmp[uii] = 1.0;
     }
@@ -3038,9 +3046,13 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
       }
     }
     interaction_measure = (interaction_measure + log(tau)) * ((int32_t)(sum * 2));
-    *chisq_ptr = interaction_measure;
-    if (interaction_measure < screen_thresh) {
-      interaction_measure = screen_thresh;
+    du.dd = interaction_measure;
+    // save df_adj in low two bits
+    du.uu[0] &= ~(3 * ONELU);
+    du.uu[0] |= df_adj;
+    *chisq_ptr = du.dd;
+    if (interaction_measure < thresholds[df_adj]) {
+      interaction_measure = thresholds[df_adj];
     }
   }
   return interaction_measure;
@@ -3090,7 +3102,7 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   uint32_t* best_id2 = &(g_epi_best_id2[tidx * idx2_block_sizem16]);
   uint32_t* n_sig_ct2 = &(g_epi_n_sig_ct2[tidx * idx2_block_sizem16]);
   uint32_t* fail_ct2 = &(g_epi_fail_ct2[tidx * idx2_block_sizem16]);
-  double alpha1sq = g_epi_alpha1sq;
+  double* alpha1sq = g_epi_alpha1sq;
   double alpha2sq = g_epi_alpha2sq;
   double ctrl_var = 0;
   uint32_t tot1[6];
@@ -3106,6 +3118,8 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   uintptr_t block_idx1;
   uintptr_t block_delta1;
   uintptr_t block_idx2;
+  uintptr_t cur_zmiss2;
+  uintptr_t cur_zmiss2_tmp;
   uintptr_t ulii;
   double best_chisq_fixed;
   double case_var;
@@ -3115,10 +3129,10 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   uint32_t nm_case_fixed;
   uint32_t nm_ctrl_fixed;
   uint32_t nm_fixed;
-  uintptr_t cur_zmiss2;
-  uintptr_t cur_zmiss2_tmp;
   uint32_t n_sig_ct_fixed;
   uint32_t fail_ct_fixed;
+  uint32_t df_adj_base;
+  uint32_t df_adj;
   tot1[3] = 0; // suppress warning
   tot1[4] = 0;
   tot1[5] = 0;
@@ -3153,7 +3167,7 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
 	} else {
 	  p_bc_ptr = p_bc_tmp;
 	}
-	boost_calc_p_ca(tot1[0], tot1[1], tot1[2], tot1[3], tot1[4], tot1[5], p_ca_fixed);
+	boost_calc_p_ca(tot1[0], tot1[1], tot1[2], tot1[3], tot1[4], tot1[5], p_ca_fixed, &df_adj_base);
       }
     }
     cur_geno2 = &(geno2[block_idx2 * tot_ctsplit]);
@@ -3216,7 +3230,7 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
 	if (!realnum(zsq)) {
 	  goto fast_epi_thread_fail;
 	}
-	if (zsq >= alpha1sq) {
+	if (zsq >= alpha1sq[0]) {
 	  all_chisq_write[block_idx2] = zsq;
 	}
       fast_epi_thread_boost_save:
@@ -3242,23 +3256,23 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
 	}
 	if (cur_zmiss2 == 3) {
 	  p_ca_ptr = p_ca_fixed;
+	  df_adj = df_adj_base;
 	} else {
-          if (boost_calc_p_ca(counts[0] + counts[1] + counts[2], counts[3] + counts[4] + counts[5], counts[6] + counts[7] + counts[8], counts[9] + counts[10] + counts[11], counts[12] + counts[13] + counts[14], counts[15] + counts[16] + counts[17], p_ca_tmp)) {
-	    // check for df reduction here instead of the main loop
+          if (boost_calc_p_ca(counts[0] + counts[1] + counts[2], counts[3] + counts[4] + counts[5], counts[6] + counts[7] + counts[8], counts[9] + counts[10] + counts[11], counts[12] + counts[13] + counts[14], counts[15] + counts[16] + counts[17], p_ca_tmp, &df_adj)) {
 	    goto fast_epi_thread_fail;
 	  }
 	  p_ca_ptr = p_ca_tmp;
 	}
 	// if approximate zsq >= epi1 threshold but more accurate value is not,
 	// we still want to save the more accurate value
-	zsq = fepi_counts_to_boost_chisq(counts, p_bc_ptr, p_ca_ptr, alpha1sq, &(all_chisq_write[block_idx2]));
+	zsq = fepi_counts_to_boost_chisq(counts, p_bc_ptr, p_ca_ptr, alpha1sq, &(all_chisq_write[block_idx2]), df_adj);
 	if (realnum(zsq)) {
 	  goto fast_epi_thread_boost_save;
 	}
       fast_epi_thread_fail:
 	fail_ct_fixed++;
 	fail_ct2[block_idx2] += 1;
-	if (alpha1sq == 0.0) {
+	if (alpha1sq[0] == 0.0) {
 	  // special case: log NA
 	  all_chisq_write[block_idx2] = NAN;
 	}
@@ -3733,6 +3747,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   uint32_t chrom_idx = 0;
   uint32_t chrom_end = 0;
   uint32_t last_pos = 0;
+  uint32_t uii = 0;
   int32_t retval = 0;
   uint32_t* gap_cts = NULL;
   uintptr_t* ctrlbuf = NULL;
@@ -3778,12 +3793,12 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   uintptr_t ulii;
   uintptr_t uljj;
   uintptr_t chrom_end2;
+  __double_ulong du;
   uint32_t is_triangular;
   uint32_t chrom_fo_idx;
   uint32_t chrom_fo_idx2;
   uint32_t chrom_idx2;
   uint32_t cur_window_end;
-  uint32_t uii;
   uint32_t ujj;
   // common initialization between --epistasis and --fast-epistasis: remove
   // monomorphic and non-autosomal diploid sites
@@ -3850,16 +3865,8 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, casebuf, pheno_nm_ct, pheno_nm, 0)) {
           goto epistasis_report_ret_READ_FAIL;
 	}
-	if (is_boost) {
-	  // also throw out sites with e.g. zero hom A1 observations for now,
-	  // since we don't adjust the test df.
-	  if (!has_three_genotypes(casebuf, pheno_nm_ct)) {
-	    SET_BIT(marker_exclude2, marker_uidx);
-	  }
-	} else {
-	  if (is_monomorphic(casebuf, pheno_nm_ct)) {
-	    SET_BIT(marker_exclude2, marker_uidx);
-	  }
+	if (is_monomorphic(casebuf, pheno_nm_ct)) {
+	  SET_BIT(marker_exclude2, marker_uidx);
 	}
       } else {
         if (load_and_split(bedfile, loadbuf, unfiltered_indiv_ct, casebuf, ctrlbuf, pheno_nm, pheno_c)) {
@@ -3878,7 +3885,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     goto epistasis_report_ret_TOO_FEW_MARKERS;
   }
   if (ulii != marker_ct) {
-    sprintf(logbuf, "--%sepistasis: Skipping %" PRIuPTR "%s site%s.\n", is_fast? "fast-" : "", marker_ct - ulii, is_boost? "" : " monomorphic/non-autosomal", (marker_ct - ulii == 1)? "" : "s");
+    sprintf(logbuf, "--%sepistasis: Skipping %" PRIuPTR " monomorphic/non-autosomal site%s.\n", is_fast? "fast-" : "", marker_ct - ulii, (marker_ct - ulii == 1)? "" : "s");
     logprintb();
     marker_uidx_base = next_unset_ul_unsafe(marker_exclude, marker_uidx_base);
   } else {
@@ -3951,9 +3958,11 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     } else {
       dxx = epi_ip->epi1;
     }
-    g_epi_alpha1sq = inverse_chiprob(dxx, 4);
+    g_epi_alpha1sq[0] = inverse_chiprob(dxx, 4);
+    g_epi_alpha1sq[1] = inverse_chiprob(dxx, 2);
+    g_epi_alpha1sq[2] = inverse_chiprob(dxx, 1);
     g_epi_alpha2sq = inverse_chiprob(epi_ip->epi2, 4);
-    if (g_epi_alpha1sq == g_epi_alpha2sq) {
+    if (g_epi_alpha1sq[0] == g_epi_alpha2sq) {
       // count final instead of screening p-value hits
       g_epi_alpha2sq *= 1 + SMALL_EPSILON;
     }
@@ -3971,7 +3980,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       dxx = epi_ip->epi1 * 0.5;
     }
     dxx = ltqnorm(dxx);
-    g_epi_alpha1sq = dxx * dxx;
+    g_epi_alpha1sq[0] = dxx * dxx;
     dxx = ltqnorm(epi_ip->epi2 / 2);
     g_epi_alpha2sq = dxx * dxx;
   }
@@ -4004,7 +4013,13 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       wptr = fw_strcpyn(plink_maxsnp, 4, "SNP1", wptr);
       wptr = memcpya(wptr, " CHR2 ", 6);
       wptr = fw_strcpyn(plink_maxsnp, 4, "SNP2", wptr);
-      wptr = memcpya(wptr, "         STAT            P ", no_p_value? 14 : 27);
+      wptr = memcpya(wptr, "         STAT ", 14);
+      if (is_boost) {
+	wptr = memcpya(wptr, "  DF ", 5);
+      }
+      if (!no_p_value) {
+        wptr = memcpya(wptr, "           P ", 13);
+      }
       *wptr++ = '\n';
       if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
 	goto epistasis_report_ret_WRITE_FAIL;
@@ -4118,7 +4133,11 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	}
       }
       g_epi_marker_idx1 = marker_idx1;
-      fill_double_zero(g_epi_all_chisq, idx1_block_size * marker_ct);
+      dptr = g_epi_all_chisq;
+      dptr2 = &(g_epi_all_chisq[idx1_block_size * marker_ct]);
+      do {
+	*dptr++ = -1;
+      } while (dptr < dptr2);
       marker_uidx_tmp = marker_uidx;
       if (fseeko(bedfile, bed_offset + (marker_uidx * unfiltered_indiv_ct4), SEEK_SET)) {
 	goto epistasis_report_ret_READ_FAIL;
@@ -4354,10 +4373,20 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	  *wptr_start2++ = ' ';
 	  for (; marker_uidx2 < chrom_end2; next_unset_ul_ck(marker_exclude2, &marker_uidx2, chrom_end2), marker_idx2++, dptr++) {
 	    dxx = *dptr;
-	    if (dxx != 0.0) {
+	    if (dxx != -1) {
 	      wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), wptr_start2);
 	      *wptr++ = ' ';
-	      if (!no_ueki) {
+	      if (is_boost) {
+		du.dd = dxx;
+		uii = 4 >> (du.uu[0] & 3);
+		// don't want ugly e-324s when zero belongs
+		du.uu[0] &= ~(3 * ONELU);
+		dxx = du.dd;
+		wptr = width_force(12, wptr, double_g_write(wptr, dxx));
+		wptr = memseta(wptr, 32, 4);
+		*wptr++ = '0' + uii;
+		*wptr++ = ' ';
+	      } else if (!no_ueki) {
 		wptr = width_force(12, wptr, double_g_write(wptr, dxx));
 		*wptr++ = ' ';
 	      } else {
@@ -4368,7 +4397,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 		if (!is_boost) {
 		  wptr = double_g_writewx4x(wptr, normdist(-sqrt(dxx)) * 2, 12, ' ');
 		} else {
-		  wptr = double_g_writewx4x(wptr, chiprob_p(dxx, 4), 12, ' ');
+		  wptr = double_g_writewx4x(wptr, chiprob_p(dxx, uii), 12, ' ');
 		}
 	      }
 	      *wptr++ = '\n';
@@ -4376,7 +4405,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 		goto epistasis_report_ret_WRITE_FAIL;
 	      }
 	      // could remove this writeback in --epi1 1 case
-	      *dptr = 0.0;
+	      *dptr = -1;
 	    }
 	    marker_uidx2++;
 	  }

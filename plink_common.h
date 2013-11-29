@@ -606,6 +606,15 @@ typedef union {
   int32_t ii;
 } __floatint32;
 
+typedef union {
+  double dd;
+#ifdef __LP64__
+  uintptr_t uu[1];
+#else
+  uintptr_t uu[2];
+#endif
+} __double_ulong;
+
 uint32_t push_ll_str(Ll_str** ll_stack_ptr, const char* ss);
 
 void logstr(const char* ss);
@@ -1637,7 +1646,7 @@ static inline uint32_t popcount_long(uintptr_t val) {
 
 uint32_t is_monomorphic(uintptr_t* lptr, uint32_t indiv_ct);
 
-uint32_t has_three_genotypes(uintptr_t* lptr, uint32_t indiv_ct);
+// uint32_t has_three_genotypes(uintptr_t* lptr, uint32_t indiv_ct);
 
 uintptr_t popcount_longs(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx);
 

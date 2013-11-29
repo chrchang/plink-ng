@@ -4250,6 +4250,7 @@ uint32_t is_monomorphic(uintptr_t* lptr, uint32_t indiv_ct) {
   return 1;
 }
 
+/*
 uint32_t has_three_genotypes(uintptr_t* lptr, uint32_t indiv_ct) {
   uintptr_t* lptr_end = &(lptr[indiv_ct / BITCT2]);
   uint32_t indiv_rem = indiv_ct % BITCT2;
@@ -4295,6 +4296,7 @@ uint32_t has_three_genotypes(uintptr_t* lptr, uint32_t indiv_ct) {
   } while (++cur_lptr < lptr_end);
   return 0;
 }
+*/
 
 #ifdef __LP64__
 // Basic SSE2 implementation of Lauradoux/Walisch popcount.
