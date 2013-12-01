@@ -1228,84 +1228,9 @@ static uint32_t g_ld_is_first_block;
 static uint32_t g_ld_is_inter_chr;
 static uint32_t g_ld_prefix_len;
 static uint32_t g_ld_zero_extra_chroms;
+static uint32_t g_ld_keep_sign;
+static uint32_t g_ld_modifier;
 
-THREAD_RET_TYPE ld_square_block_thread(void* arg) {
-  uintptr_t tidx = (uintptr_t)arg;
-  uintptr_t block_idx1_start = (tidx * g_ld_idx1_block_size) / g_ld_thread_ct;
-  uintptr_t block_idx1_end = ((tidx + 1) * g_ld_idx1_block_size) / g_ld_thread_ct;
-  uintptr_t idx2_block_size = g_ld_idx2_block_size;
-  uintptr_t idx2_block_start = g_ld_idx2_block_start;
-  uintptr_t marker_ctm8 = g_ld_marker_ctm8;
-  uintptr_t founder_ct = g_ld_founder_ct;
-  uintptr_t founder_ctwd = founder_ct / BITCT2;
-  uintptr_t founder_ctwd12 = founder_ctwd / 12;
-  uintptr_t founder_ctwd12_rem = founder_ctwd - (12 * founder_ctwd12);
-  uintptr_t lshift_last = 2 * ((0x7fffffc0 - founder_ct) % BITCT2);
-  uintptr_t founder_ct_192_long = g_ld_founder_ct_192_long;
-  uintptr_t* geno1 = g_ld_geno1;
-  uintptr_t* geno2 = g_ld_geno2;
-  uintptr_t* geno_masks1 = g_ld_geno_masks1;
-  uintptr_t* geno_masks2 = g_ld_geno_masks2;
-  uint32_t* missing_cts1 = g_ld_missing_cts1;
-  uint32_t* missing_cts2 = g_ld_missing_cts2;
-  uint32_t founder_ct_mld_m1 = g_ld_founder_ct_mld_m1;
-  uint32_t founder_ct_mld_rem = g_ld_founder_ct_mld_rem;
-  uint32_t is_r2 = g_ld_is_r2;
-  double* results = g_ld_results;
-
-  // todo: add another slot for missing ct and get rid of missing_ct_intersect?
-  int32_t dp_result[5];
-  double* rptr;
-  uintptr_t* geno_fixed_vec_ptr;
-  uintptr_t* geno_var_vec_ptr;
-  uintptr_t* mask_fixed_vec_ptr;
-  uintptr_t* mask_var_vec_ptr;
-  uintptr_t block_idx1;
-  uintptr_t block_idx2;
-  double non_missing_ctd;
-  double cov12;
-  double dxx;
-  double dyy;
-  uint32_t fixed_missing_ct;
-  uint32_t fixed_non_missing_ct;
-  uint32_t non_missing_ct;
-  for (block_idx1 = block_idx1_start; block_idx1 < block_idx1_end; block_idx1++) {
-    rptr = &(results[block_idx1 * marker_ctm8 + idx2_block_start]);
-    fixed_missing_ct = missing_cts1[block_idx1];
-    fixed_non_missing_ct = founder_ct - fixed_missing_ct;
-    geno_fixed_vec_ptr = &(geno1[block_idx1 * founder_ct_192_long]);
-    mask_fixed_vec_ptr = &(geno_masks1[block_idx1 * founder_ct_192_long]);
-    for (block_idx2 = 0; block_idx2 < idx2_block_size; block_idx2++, rptr++) {
-      geno_var_vec_ptr = &(geno2[block_idx2 * founder_ct_192_long]);
-      mask_var_vec_ptr = &(geno_masks2[block_idx2 * founder_ct_192_long]);
-      non_missing_ct = fixed_non_missing_ct - missing_cts2[block_idx2];
-      if (fixed_missing_ct && missing_cts2[block_idx2]) {
-        non_missing_ct += ld_missing_ct_intersect(mask_var_vec_ptr, mask_fixed_vec_ptr, founder_ctwd12, founder_ctwd12_rem, lshift_last);
-      }
-      dp_result[0] = founder_ct;
-      dp_result[1] = -fixed_non_missing_ct;
-      dp_result[2] = missing_cts2[block_idx2] - founder_ct;
-      dp_result[3] = dp_result[1];
-      dp_result[4] = dp_result[2];
-      ld_dot_prod(geno_var_vec_ptr, geno_fixed_vec_ptr, mask_var_vec_ptr, mask_fixed_vec_ptr, dp_result, founder_ct_mld_m1, founder_ct_mld_rem);
-      non_missing_ctd = (double)((int32_t)non_missing_ct);
-      dxx = dp_result[1];
-      dyy = dp_result[2];
-      cov12 = dp_result[0] * non_missing_ctd - dxx * dyy;
-      dxx = (dp_result[3] * non_missing_ctd + dxx * dxx) * (dp_result[4] * non_missing_ctd + dyy * dyy);
-      if (!is_r2) {
-	dxx = cov12 / sqrt(dxx);
-      } else {
-	dxx = (cov12 * cov12) / dxx;
-      }
-      *rptr = dxx;
-    }
-  }
-  THREAD_RETURN;
-}
-
-// probably want to remove ld_square_block_thread and just make it use this
-// interface
 THREAD_RET_TYPE ld_block_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
   uintptr_t block_idx1_start = (tidx * g_ld_idx1_block_size) / g_ld_thread_ct;
@@ -1329,6 +1254,7 @@ THREAD_RET_TYPE ld_block_thread(void* arg) {
   uint32_t founder_ct_mld_m1 = g_ld_founder_ct_mld_m1;
   uint32_t founder_ct_mld_rem = g_ld_founder_ct_mld_rem;
   uint32_t is_r2 = g_ld_is_r2;
+  uint32_t keep_sign = g_ld_keep_sign;
   double* results = g_ld_results;
   int32_t dp_result[5];
   double* rptr;
@@ -1391,9 +1317,9 @@ THREAD_RET_TYPE ld_block_thread(void* arg) {
       dxx = (dp_result[3] * non_missing_ctd + dxx * dxx) * (dp_result[4] * non_missing_ctd + dyy * dyy);
       if (!is_r2) {
 	dxx = cov12 / sqrt(dxx);
+      } else if (!keep_sign) {
+	dxx = (cov12 * cov12) / dxx;
       } else {
-	// preserve phase info, but avoid extraneous sqrt()
-	// todo: turn off fabs() for matrix calculations
 	dxx = (fabs(cov12) * cov12) / dxx;
       }
       *rptr = dxx;
@@ -1402,7 +1328,7 @@ THREAD_RET_TYPE ld_block_thread(void* arg) {
   THREAD_RETURN;
 }
 
-uint32_t ld_square_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
+uint32_t ld_matrix_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
   char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
   uintptr_t block_size1 = g_ld_idx1_block_size;
@@ -1410,16 +1336,33 @@ uint32_t ld_square_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   uintptr_t marker_ctm8 = g_ld_marker_ctm8;
   uintptr_t block_idx1 = g_ld_block_idx1;
   uintptr_t marker_idx = g_ld_idx2_block_start;
+  uintptr_t marker_idx_end = g_ld_idx2_block_size;
+  uint32_t is_square = ((g_ld_modifier & LD_MATRIX_SHAPEMASK) == LD_MATRIX_SQ)? 1 : 0;
+  uint32_t is_square0 = ((g_ld_modifier & LD_MATRIX_SHAPEMASK) == LD_MATRIX_SQ0)? 1 : 0;
   char delimiter = g_ld_delimiter;
   double* results = g_ld_results;
   double* dptr;
+  uintptr_t ulii;
   while (block_idx1 < block_size1) {
     dptr = &(results[block_idx1 * marker_ctm8 + marker_idx]);
-    while (marker_idx < marker_ct) {
+    while (marker_idx < marker_idx_end) {
       sptr_cur = double_g_writex(sptr_cur, *dptr++, delimiter);
       marker_idx++;
       if (sptr_cur > readbuf_end) {
-	goto ld_square_emitn_ret;
+	goto ld_matrix_emitn_ret;
+      }
+    }
+    if (is_square0) {
+      while (marker_idx < marker_ct) {
+        ulii = (((uintptr_t)(readbuf_end - sptr_cur)) + 1) / 2;
+        if (ulii <= marker_ct - marker_idx) {
+	  sptr_cur = memcpya(sptr_cur, tbuf, ulii * 2);
+	  marker_idx += ulii;
+	  goto ld_matrix_emitn_ret;
+	} else {
+          sptr_cur = memcpya(sptr_cur, tbuf, (marker_ct - marker_idx) * 2);
+          marker_idx = marker_ct;
+	}
       }
     }
     if (delimiter == '\t') {
@@ -1427,18 +1370,25 @@ uint32_t ld_square_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
     }
     *sptr_cur++ = '\n';
     marker_idx = 0;
+    if (!is_square) {
+      marker_idx_end++;
+    }
     block_idx1++;
   }
- ld_square_emitn_ret:
+ ld_matrix_emitn_ret:
   g_ld_block_idx1 = block_idx1;
   g_ld_idx2_block_start = marker_idx;
+  g_ld_idx2_block_size = marker_idx_end;
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
-int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, uintptr_t* founder_include2, uintptr_t* founder_male_include2, uintptr_t* loadbuf, char* outname, uint32_t hh_exists) {
+int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, uintptr_t* founder_include2, uintptr_t* founder_male_include2, uintptr_t* loadbuf, char* outname, uint32_t hh_exists) {
   FILE* outfile = NULL;
   uint32_t ld_modifier = ldip->modifier;
   uint32_t is_binary = ld_modifier & LD_MATRIX_BIN;
+  uint32_t is_square = ((ld_modifier & LD_MATRIX_SHAPEMASK) == LD_MATRIX_SQ)? 1 : 0;
+  uint32_t is_square0 = ((ld_modifier & LD_MATRIX_SHAPEMASK) == LD_MATRIX_SQ0)? 1 : 0;
+  uint32_t output_single_prec = ld_modifier & LD_SINGLE_PREC;
   uint32_t output_gz = ld_modifier & LD_REPORT_GZ;
   uint32_t ignore_x = (ld_modifier / LD_IGNORE_X) & 1;
   uintptr_t marker_ct = g_ld_marker_ct;
@@ -1453,10 +1403,10 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   uintptr_t marker_idx1_start = (((uint64_t)parallel_idx) * marker_ct) / parallel_tot;
   uintptr_t marker_idx1 = marker_idx1_start;
   uintptr_t marker_idx1_end = (((uint64_t)(parallel_idx + 1)) * marker_ct) / parallel_tot;
-  uintptr_t job_size = marker_idx1_end - marker_idx1;
   uintptr_t pct = 1;
+  uint64_t job_size = marker_idx1_end - marker_idx1_start;
+  uint64_t pct_thresh = job_size / 100;
   Chrom_info* chrom_info_ptr = g_ld_chrom_info_ptr;
-  uintptr_t pct_thresh = job_size / 100;
   uint32_t founder_trail_ct = founder_ct_192_long - founder_ctl * 2;
   uint32_t thread_ct = g_ld_thread_ct;
   uint32_t chrom_fo_idx = 0;
@@ -1466,8 +1416,12 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   uint32_t not_first_write = 0;
   int32_t retval = 0;
   unsigned char* wkspace_mark2;
+  uintptr_t* ulptr;
+  double* dptr;
+  uint64_t tests_completed;
   uintptr_t thread_workload;
   uintptr_t cur_idx2_block_size;
+  uintptr_t marker_idx2_end;
   uintptr_t marker_uidx1_tmp;
   uintptr_t block_idx1;
   uintptr_t marker_uidx2;
@@ -1479,39 +1433,60 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   uintptr_t uljj;
   uint32_t chrom_idx;
   uint32_t chrom_end;
+  float fxx;
 
+  g_ld_modifier = ld_modifier;
   if (is_binary) {
     if (fopen_checked(&outfile, outname, "wb")) {
-      goto ld_report_square_ret_OPEN_FAIL;
+      goto ld_report_matrix_ret_OPEN_FAIL;
     }
   }
-  g_ld_marker_ctm8 = marker_ctm8;
   // claim up to half of memory with idx1 bufs; each marker costs
   //   founder_ct_192_long * sizeof(intptr_t) for genotype buffer
   // + founder_ct_192_long * sizeof(intptr_t) for missing mask buffer
   // + sizeof(int32_t) for g_ld_missing_cts1 entry
+  // + 2 * sizeof(int32_t) for g_ld_interval1
   // + marker_ctm8 * sizeof(double) for g_ld_results buffer
   // round down to multiple of thread_ct for better workload distribution
-  ulii = founder_ct_192_long * 2 * sizeof(intptr_t) + sizeof(int32_t) + marker_ctm8 * sizeof(double);
+  ulii = founder_ct_192_long * 2 * sizeof(intptr_t) + 3 * sizeof(int32_t) + marker_ctm8 * sizeof(double);
   idx1_block_size = wkspace_left / (ulii * 2);
   thread_workload = idx1_block_size / thread_ct;
   if (!thread_workload) {
-    goto ld_report_square_ret_NOMEM;
+    goto ld_report_matrix_ret_NOMEM;
   }
   idx1_block_size = thread_workload * thread_ct;
-  if (idx1_block_size > job_size) {
-    idx1_block_size = job_size;
+  if ((parallel_tot > 1) && (marker_ct < 2 * parallel_tot)) {
+    sprintf(logbuf, "Error: Too few variants in --r%s run for --parallel %u %u.\n", g_ld_is_r2? "2" : "", parallel_idx + 1, parallel_tot);
+    logprintb();
+    goto ld_report_matrix_ret_INVALID_CMDLINE;
+  }
+  if (!is_square) {
+    job_size = ((uint64_t)marker_ct) * (marker_ct + 1);
+    if (parallel_tot > 1) {
+      job_size /= parallel_tot;
+      marker_idx1_start = triangle_divide(job_size * parallel_idx, 1);
+      if (parallel_idx + 1 < parallel_tot) {
+        marker_idx1_end = triangle_divide(job_size * (parallel_idx + 1), 1);
+      }
+      job_size = ((((uint64_t)marker_idx1_end) * (marker_idx1_end + 1)) - (((uint64_t)marker_idx1_start) * (marker_idx1_start + 1))) / 2;
+    } else {
+      job_size /= 2;
+    }
+  }
+  pct_thresh = job_size / 100;
+  if (idx1_block_size > marker_idx1_end - marker_idx1_start) {
+    idx1_block_size = marker_idx1_end - marker_idx1_start;
   }
   g_ld_geno1 = (uintptr_t*)wkspace_alloc(founder_ct_192_long * idx1_block_size * sizeof(intptr_t));
   g_ld_geno_masks1 = (uintptr_t*)wkspace_alloc(founder_ct_192_long * idx1_block_size * sizeof(intptr_t));
   g_ld_missing_cts1 = (uint32_t*)wkspace_alloc(idx1_block_size * sizeof(int32_t));
+  g_ld_interval1 = (uint32_t*)wkspace_alloc(idx1_block_size * 2 * sizeof(int32_t));
   if (wkspace_alloc_d_checked(&g_ld_results, marker_ctm8 * idx1_block_size * sizeof(double))) {
-    goto ld_report_square_ret_NOMEM;
+    goto ld_report_matrix_ret_NOMEM;
   }
 
-  // claim the other half with idx2 buffer; all but the g_ld_results buffer
-  // cost apply
-  ulii -= (marker_ctm8 * sizeof(double) - 4);
+  // claim the other half with idx2 buffer
+  ulii -= (marker_ctm8 * sizeof(double) + 2 * sizeof(int32_t));
   idx2_block_size = (wkspace_left / ulii) & (~(7 * ONELU));
   if (idx2_block_size > marker_ctm8) {
     idx2_block_size = marker_ctm8;
@@ -1519,7 +1494,7 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   wkspace_mark2 = wkspace_base;
   while (1) {
     if (!idx2_block_size) {
-      goto ld_report_square_ret_NOMEM;
+      goto ld_report_matrix_ret_NOMEM;
     }
     if (!(wkspace_alloc_ul_checked(&g_ld_geno2, founder_ct_192_long * idx2_block_size * sizeof(intptr_t)) ||
           wkspace_alloc_ul_checked(&g_ld_geno_masks2, founder_ct_192_long * idx2_block_size * sizeof(intptr_t)) ||
@@ -1538,10 +1513,43 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     fill_ulong_zero(&(g_ld_geno2[ulii * founder_ct_192_long - uljj]), uljj);
     fill_ulong_zero(&(g_ld_geno_masks2[ulii * founder_ct_192_long - uljj]), uljj);
   }
+  if (is_square) {
+    for (ulii = 0; ulii < idx1_block_size; ulii++) {
+      g_ld_interval1[ulii * 2] = 0;
+      g_ld_interval1[ulii * 2 + 1] = marker_ct;
+    }
+    g_ld_marker_ctm8 = marker_ctm8;
+  } else {
+    for (ulii = 0; ulii < idx1_block_size; ulii++) {
+      g_ld_interval1[ulii * 2] = 0;
+    }
+    if (is_square0) {
+      if (is_binary) {
+	if (!output_single_prec) {
+          fill_double_zero((double*)tbuf, MAXLINELEN / sizeof(double));
+	} else {
+          fill_float_zero((float*)tbuf, MAXLINELEN / sizeof(float));
+	}
+      } else {
+	ulptr = (uintptr_t*)tbuf;
+	// assume little-endian
+	// 0[delim]0[delim]...
+#ifdef __LP64__
+	ulii = 0x30003000300030LLU | (0x100010001000100LLU * ((unsigned char)g_ld_delimiter));
+#else
+	ulii = 0x300030 | (0x1000100 * ((unsigned char)g_ld_delimiter));
+#endif
+        for (uljj = 0; uljj < MAXLINELEN / sizeof(intptr_t); uljj++) {
+	  *ulptr++ = ulii;
+	}
+      }
+    }
+  }
   if (marker_idx1) {
     marker_uidx1 = jump_forward_unset_unsafe(marker_exclude, marker_uidx1 + 1, marker_idx1);
   }
-  sprintf(logbuf, "--r%s square to %s...", g_ld_is_r2? "2" : "", outname);
+  g_ld_keep_sign = 0;
+  sprintf(logbuf, "--r%s %s%s%s to %s...", g_ld_is_r2? "2" : "", is_square? "square" : (is_square0? "square0" : "triangle"), is_binary? " bin" : (output_gz? " gz" : ""), output_single_prec? " single-prec" : "", outname);
   logprintb();
   fputs(" 0%", stdout);
   do {
@@ -1557,14 +1565,14 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     g_ld_idx1_block_size = idx1_block_size;
     marker_uidx1_tmp = marker_uidx1;
     if (fseeko(bedfile, bed_offset + (marker_uidx1 * unfiltered_indiv_ct4), SEEK_SET)) {
-      goto ld_report_square_ret_READ_FAIL;
+      goto ld_report_matrix_ret_READ_FAIL;
     }
     chrom_end = 0;
     for (block_idx1 = 0; block_idx1 < idx1_block_size; marker_uidx1_tmp++, block_idx1++) {
       if (IS_SET(marker_exclude, marker_uidx1_tmp)) {
         marker_uidx1_tmp = next_unset_ul_unsafe(marker_exclude, marker_uidx1_tmp);
         if (fseeko(bedfile, bed_offset + (marker_uidx1_tmp * unfiltered_indiv_ct4), SEEK_SET)) {
-	  goto ld_report_square_ret_READ_FAIL;
+	  goto ld_report_matrix_ret_READ_FAIL;
 	}
       }
       if (marker_uidx1_tmp >= chrom_end) {
@@ -1575,7 +1583,7 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 	is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code)? 1 : 0;
       }
       if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, &(g_ld_geno1[block_idx1 * founder_ct_192_long]), founder_ct, founder_info, IS_SET(marker_reverse, marker_uidx1_tmp))) {
-	goto ld_report_square_ret_READ_FAIL;
+	goto ld_report_matrix_ret_READ_FAIL;
       }
       if (is_haploid && hh_exists) {
 	haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)(&(g_ld_geno1[block_idx1 * founder_ct_192_long])));
@@ -1584,20 +1592,30 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     }
     marker_uidx2 = marker_uidx_base;
     marker_idx2 = 0;
+    if (is_square) {
+      marker_idx2_end = marker_ct;
+    } else {
+      marker_idx2_end = marker_idx1 + idx1_block_size;
+      for (ulii = 1; ulii <= idx1_block_size; ulii++) {
+	g_ld_interval1[2 * ulii - 1] = ulii + marker_idx1;
+      }
+      marker_ctm8 = (marker_idx2_end + 7) & (~7);
+      g_ld_marker_ctm8 = marker_ctm8;
+    }
     chrom_end = 0;
     if (fseeko(bedfile, bed_offset + (marker_uidx2 * unfiltered_indiv_ct4), SEEK_SET)) {
-      goto ld_report_square_ret_READ_FAIL;
+      goto ld_report_matrix_ret_READ_FAIL;
     }
     cur_idx2_block_size = idx2_block_size;
     do {
-      if (cur_idx2_block_size > marker_ct - marker_idx2) {
-	cur_idx2_block_size = marker_ct - marker_idx2;
+      if (cur_idx2_block_size > marker_idx2_end - marker_idx2) {
+	cur_idx2_block_size = marker_idx2_end - marker_idx2;
       }
       for (block_idx2 = 0; block_idx2 < cur_idx2_block_size; marker_uidx2++, block_idx2++) {
 	if (IS_SET(marker_exclude, marker_uidx2)) {
           marker_uidx2 = next_unset_ul_unsafe(marker_exclude, marker_uidx2);
 	  if (fseeko(bedfile, bed_offset + (marker_uidx2 * unfiltered_indiv_ct4), SEEK_SET)) {
-	    goto ld_report_square_ret_READ_FAIL;
+	    goto ld_report_matrix_ret_READ_FAIL;
 	  }
 	}
 	if (marker_uidx2 >= chrom_end) {
@@ -1608,7 +1626,7 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 	  is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code)? 1 : 0;
 	}
 	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, &(g_ld_geno2[block_idx2 * founder_ct_192_long]), founder_ct, founder_info, IS_SET(marker_reverse, marker_uidx2))) {
-	  goto ld_report_square_ret_READ_FAIL;
+	  goto ld_report_matrix_ret_READ_FAIL;
 	}
 	if (is_haploid && hh_exists) {
 	  haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)(&(g_ld_geno2[block_idx2 * founder_ct_192_long])));
@@ -1617,48 +1635,125 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
       }
       g_ld_idx2_block_size = cur_idx2_block_size;
       g_ld_idx2_block_start = marker_idx2;
-      if (spawn_threads(threads, &ld_square_block_thread, g_ld_thread_ct)) {
-	goto ld_report_square_ret_THREAD_CREATE_FAIL;
+      if (spawn_threads(threads, &ld_block_thread, g_ld_thread_ct)) {
+	goto ld_report_matrix_ret_THREAD_CREATE_FAIL;
       }
-      ld_square_block_thread((void*)0);
+      ld_block_thread((void*)0);
       join_threads(threads, g_ld_thread_ct);
       marker_idx2 += cur_idx2_block_size;
-    } while (marker_idx2 < marker_ct);
+    } while (marker_idx2 < marker_idx2_end);
     fputs("\b\b\b\b\b\b\b\b\b\b\bwriting]   \b\b\b", stdout);
     fflush(stdout);
     if (is_binary) {
-      if (!idx2_rem) {
-	if (fwrite_checked(g_ld_results, marker_ct * idx1_block_size * sizeof(double), outfile)) {
-	  goto ld_report_square_ret_WRITE_FAIL;
+      if (!output_single_prec) {
+	if (is_square && (!idx2_rem)) {
+	  if (fwrite_checked(g_ld_results, marker_ct * idx1_block_size * sizeof(double), outfile)) {
+	    goto ld_report_matrix_ret_WRITE_FAIL;
+	  }
+	} else {
+	  if (is_square) {
+	    for (block_idx1 = 0; block_idx1 < idx1_block_size; block_idx1++) {
+	      if (fwrite_checked(&(g_ld_results[block_idx1 * marker_ctm8]), cur_idx2_block_size * sizeof(double), outfile)) {
+		goto ld_report_matrix_ret_WRITE_FAIL;
+	      }
+	    }
+	  } else {
+	    for (block_idx1 = 0; block_idx1 < idx1_block_size; block_idx1++) {
+	      if (fwrite_checked(&(g_ld_results[block_idx1 * marker_ctm8]), (block_idx1 + marker_idx1 + 1) * sizeof(double), outfile)) {
+		goto ld_report_matrix_ret_WRITE_FAIL;
+	      }
+	      if (is_square0) {
+		ulii = marker_ct - block_idx1 - marker_idx1 - 1;
+		while (ulii) {
+		  if (ulii > MAXLINELEN / sizeof(double)) {
+		    uljj = MAXLINELEN / sizeof(double);
+		    ulii -= MAXLINELEN / sizeof(double);
+		  } else {
+		    uljj = ulii;
+		    ulii = 0;
+		  }
+		  if (fwrite_checked(tbuf, uljj * sizeof(double), outfile)) {
+		    goto ld_report_matrix_ret_WRITE_FAIL;
+		  }
+		}
+	      }
+	    }
+	  }
 	}
       } else {
-	for (block_idx1 = 0; block_idx1 < idx1_block_size; block_idx1++) {
-	  if (fwrite_checked(&(g_ld_results[block_idx1 * marker_ctm8]), cur_idx2_block_size * sizeof(double), outfile)) {
-	    goto ld_report_square_ret_WRITE_FAIL;
+        // todo if single-precision speed matters: store single-precision
+	// result in main loop instead of converting at this step
+        if (is_square) {
+          for (block_idx1 = 0; block_idx1 < idx1_block_size; block_idx1++) {
+	    dptr = &(g_ld_results[block_idx1 * marker_ctm8]);
+            for (block_idx2 = 0; block_idx2 < marker_ct; block_idx2++) {
+	      fxx = (float)(*dptr++);
+              fwrite(&fxx, 1, sizeof(float), outfile);
+	    }
+	    if (ferror(outfile)) {
+	      goto ld_report_matrix_ret_WRITE_FAIL;
+	    }
+	  }
+	} else {
+	  for (block_idx1 = 0; block_idx1 < idx1_block_size; block_idx1++) {
+	    dptr = &(g_ld_results[block_idx1 * marker_ctm8]);
+	    ulii = block_idx1 + marker_idx1;
+	    for (block_idx2 = 0; block_idx2 <= ulii; block_idx2++) {
+	      fxx = (float)(*dptr++);
+              fwrite(&fxx, 1, sizeof(float), outfile);
+	    }
+	    if (ferror(outfile)) {
+	      goto ld_report_matrix_ret_WRITE_FAIL;
+	    }
+	    if (is_square0) {
+	      ulii = marker_ct - block_idx1 - marker_idx1 - 1;
+	      while (ulii) {
+		if (ulii > MAXLINELEN / sizeof(float)) {
+		  uljj = MAXLINELEN / sizeof(float);
+		  ulii -= MAXLINELEN / sizeof(float);
+		} else {
+		  uljj = ulii;
+		  ulii = 0;
+		}
+		if (fwrite_checked(tbuf, uljj * sizeof(float), outfile)) {
+		  goto ld_report_matrix_ret_WRITE_FAIL;
+		}
+	      }
+	    }
 	  }
 	}
       }
     } else {
       g_ld_block_idx1 = 0;
       g_ld_idx2_block_start = 0;
-      if (output_gz) {
-        parallel_compress(outname, not_first_write, ld_square_emitn);
+      if (is_square) {
+        g_ld_idx2_block_size = marker_ct;
       } else {
-        write_uncompressed(outname, not_first_write, ld_square_emitn);
+	g_ld_idx2_block_size = marker_idx1 + 1;
+      }
+      if (output_gz) {
+        parallel_compress(outname, not_first_write, ld_matrix_emitn);
+      } else {
+        write_uncompressed(outname, not_first_write, ld_matrix_emitn);
       }
       not_first_write = 1;
     }
     marker_idx1 += idx1_block_size;
     fputs("\b\b\b\b\b\b\b\b\b\b          \b\b\b\b\b\b\b\b\b\b", stdout);
-    if (marker_idx1 >= pct_thresh) {
+    if (is_square) {
+      tests_completed = marker_idx1 - marker_idx1_start;
+    } else {
+      tests_completed = ((((uint64_t)marker_idx1) * (marker_idx1 + 1)) - (((uint64_t)marker_idx1_start) * (marker_idx1_start + 1))) / 2;
+    }
+    if (tests_completed >= pct_thresh) {
       if (pct > 10) {
 	putchar('\b');
       }
-      pct = ((marker_idx1 - marker_idx1_start) * 100LLU) / job_size;
+      pct = (tests_completed * 100LLU) / job_size;
       if (pct < 100) {
 	printf("\b\b%" PRIuPTR "%%", pct);
 	fflush(stdout);
-	pct_thresh = marker_idx1_start + ((++pct) * ((uint64_t)job_size)) / 100;
+	pct_thresh = ((++pct) * ((uint64_t)job_size)) / 100;
       }
     }
   } while (marker_idx1 < marker_idx1_end);
@@ -1666,23 +1761,26 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   logprint(" done.\n");
   if (is_binary) {
     if (fclose_null(&outfile)) {
-      goto ld_report_square_ret_WRITE_FAIL;
+      goto ld_report_matrix_ret_WRITE_FAIL;
     }
   }
   while (0) {
-  ld_report_square_ret_NOMEM:
+  ld_report_matrix_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  ld_report_square_ret_OPEN_FAIL:
+  ld_report_matrix_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;
-  ld_report_square_ret_READ_FAIL:
+  ld_report_matrix_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  ld_report_square_ret_WRITE_FAIL:
+  ld_report_matrix_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
-  ld_report_square_ret_THREAD_CREATE_FAIL:
+  ld_report_matrix_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+  ld_report_matrix_ret_THREAD_CREATE_FAIL:
     logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     break;
@@ -1974,7 +2072,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
       wkspace_reset((unsigned char*)id_map);
     }
   }
-  if (marker_ct1 < parallel_tot) {
+  if ((parallel_tot > 1) && (marker_ct1 < 2 * parallel_tot)) {
     sprintf(logbuf, "Error: Too few variants in --r%s run for --parallel %u %u.\n", g_ld_is_r2? "2" : "", parallel_idx + 1, parallel_tot);
     logprintb();
     goto ld_report_regular_ret_INVALID_CMDLINE;
@@ -2067,6 +2165,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
   g_ld_marker_exclude_idx1 = marker_exclude_idx1;
   g_ld_marker_exclude = marker_exclude;
   g_ld_is_inter_chr = is_inter_chr;
+  g_ld_keep_sign = 1;
   if (g_ld_is_r2) {
     g_ld_window_r2 = ldip->window_r2;
   }
@@ -2385,13 +2484,6 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
     logprint("Error: Gigantic (over 400k sites) --r/--r2 unfiltered, non-distributed\ncomputation.  Rerun with the 'yes-really' modifier if you are SURE you have\nenough hard drive space and want to do this.\n");
     goto ld_report_ret_INVALID_CMDLINE;
   }
-  if (ld_modifier & LD_SINGLE_PREC) {
-    // this will be little more than a copy-and-search-replace job when the
-    // other flags are finished
-    logprint("Error: --r/--r2 'single-prec' has not been implemented yet.\n");
-    retval = RET_CALC_NOT_YET_SUPPORTED;
-    goto ld_report_ret_1;
-  }
   if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, founder_ct, XMHH_EXISTS | hh_exists, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
     goto ld_report_ret_NOMEM;
   }
@@ -2414,12 +2506,8 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
     }
   }
   *bufptr = '\0';
-  if (ld_modifier & LD_MATRIX_SQ) {
-    retval = ld_report_square(threads, ldip, bedfile, bed_offset, unfiltered_marker_ct, marker_exclude, marker_reverse, unfiltered_indiv_ct, founder_info, parallel_idx, parallel_tot, sex_male, founder_include2, founder_male_include2, loadbuf, outname, hh_exists);
-  } else if (ld_modifier & (LD_MATRIX_SQ0 | LD_MATRIX_TRI)) {
-    logprint("Error: --r/--r2 does not support square0 or triangle output yet.\n");
-    retval = RET_CALC_NOT_YET_SUPPORTED;
-    goto ld_report_ret_1;
+  if (ld_modifier & (LD_MATRIX_SQ | LD_MATRIX_SQ0 | LD_MATRIX_TRI)) {
+    retval = ld_report_matrix(threads, ldip, bedfile, bed_offset, unfiltered_marker_ct, marker_exclude, marker_reverse, unfiltered_indiv_ct, founder_info, parallel_idx, parallel_tot, sex_male, founder_include2, founder_male_include2, loadbuf, outname, hh_exists);
   } else {
     if (output_gz) {
       uii = 4;
@@ -4260,7 +4348,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   tests_expected = ((((uint64_t)marker_ct) * (marker_ct - 1)) / 2);
   if (parallel_tot > 1) {
     if (marker_ct < 2 * parallel_tot) {
-      sprintf(logbuf, "Error: Too few sites remaining for --parallel %u %u + --%sepistasis.\n", parallel_idx, parallel_tot, is_fast? "fast-" : "");
+      sprintf(logbuf, "Error: Too few sites remaining for --parallel %u %u + --%sepistasis.\n", parallel_idx + 1, parallel_tot, is_fast? "fast-" : "");
       goto epistasis_report_ret_INVALID_CMDLINE;
     }
     // If there are n markers, and we're computing the usual upper right

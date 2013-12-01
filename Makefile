@@ -77,5 +77,8 @@ prettifyw: prettify.c
 prettify64w: prettify.c
 	gcc -Wall -O2 prettify.c -o prettify64
 
+dbl2txt: dbl2txt.c
+	gcc -Wall -arch x86_64 -O2 dbl2txt.c -o dbl2txt
+
 clobber:
 	rm -f *.o

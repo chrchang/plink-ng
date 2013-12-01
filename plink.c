@@ -11785,6 +11785,10 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	}
+	if ((ld_info.modifier & (LD_SINGLE_PREC | LD_MATRIX_BIN)) == LD_SINGLE_PREC) {
+	  sprintf(logbuf, "Error: --r/--r2 'single-prec' modifier currently must be used with 'bin'.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
         if ((ld_info.modifier & LD_MATRIX_BIN) && (!(ld_info.modifier & LD_MATRIX_SHAPEMASK))) {
           ld_info.modifier |= LD_MATRIX_SQ;
 	}
