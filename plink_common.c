@@ -211,7 +211,7 @@ int32_t scan_token_ct_len(FILE* infile, char* buf, uintptr_t half_bufsize, uintp
     if (!bufsize) {
       if (curtoklen) {
         // corner case
-        if (curtoklen > max_token_len) {
+        if (curtoklen >= max_token_len) {
 	  max_token_len = curtoklen + 1;
 	}
 	token_ct++;
@@ -246,7 +246,7 @@ int32_t scan_token_ct_len(FILE* infile, char* buf, uintptr_t half_bufsize, uintp
 	}
 	break;
       }
-      if (curtoklen > max_token_len) {
+      if (curtoklen >= max_token_len) {
 	if (curtoklen >= half_bufsize) {
 	  return RET_INVALID_FORMAT;
 	}
