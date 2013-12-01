@@ -80,7 +80,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (29 Nov 2013)";
+  " (1 Dec 2013) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -9593,6 +9593,9 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
           id_delim = '_';
 	}
+      } else if (!memcmp(argptr2, "nter-chr", 9)) {
+        logprint("Note: --inter-chr flag deprecated.  Use e.g. '--r2 inter-chr'.\n");
+	ld_info.modifier |= LD_INTER_CHR;
       } else if (!memcmp(argptr2, "nd-major", 9)) {
 	logprint("Error: --ind-major is retired, to discourage creation of .bed files that\nconstantly have to be transposed back.  --recode exports individual-major files\nwhich are good enough for smaller jobs; we suggest transposing small data\nwindows on the fly when tackling large jobs.\n");
         goto main_ret_INVALID_CMDLINE;
@@ -13029,7 +13032,7 @@ int32_t main(int32_t argc, char** argv) {
         sprintf(logbuf, "Error: --ld-window flag must be used with --r/--r2.%s", errstr_append);
       }
       goto main_ret_INVALID_CMDLINE_3;
-    } else if (ld_info.window_bp != 200000) {
+    } else if (ld_info.window_bp != 1000000) {
       if (calculation_type & CALC_LD) {
 	sprintf(logbuf, "Error: --ld-window-kb flag cannot be used with the --r/--r2 'inter-chr' or\nmatrix output modifiers.%s", errstr_append);
       } else {

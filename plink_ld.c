@@ -12,7 +12,7 @@ void ld_epi_init(Ld_info* ldip, Epi_info* epi_ip) {
   ldip->prune_window_kb = 0;
   ldip->prune_last_param = 0.0;
   ldip->window_size = 10;
-  ldip->window_bp = 200000;
+  ldip->window_bp = 1000000;
   ldip->window_r2 = 0.2;
   ldip->snpstr = NULL;
   range_list_init(&(ldip->snps_rl));
@@ -1212,9 +1212,22 @@ static uint32_t g_ld_is_r2;
 static uint32_t g_ld_thread_ct;
 static char g_ld_delimiter;
 static uint32_t g_ld_plink_maxsnp;
+static char* g_ld_marker_ids;
 static char** g_ld_marker_allele_ptrs;
 static Chrom_info* g_ld_chrom_info_ptr;
 static uint32_t* g_ld_marker_pos;
+static uintptr_t* g_ld_marker_exclude_idx1;
+static uintptr_t* g_ld_marker_exclude;
+static uintptr_t g_ld_max_marker_id_len;
+static uintptr_t g_ld_marker_uidx1;
+static uintptr_t g_ld_uidx2_start;
+static uintptr_t g_ld_marker_uidx2;
+static uintptr_t g_ld_block_idx2;
+static double g_ld_window_r2;
+static uint32_t g_ld_is_first_block;
+static uint32_t g_ld_is_inter_chr;
+static uint32_t g_ld_prefix_len;
+static uint32_t g_ld_zero_extra_chroms;
 
 THREAD_RET_TYPE ld_square_block_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
@@ -1680,32 +1693,48 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 }
 
 uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
-  return 0;
-  /*
   char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
   char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
   Chrom_info* chrom_info_ptr = g_ld_chrom_info_ptr;
   uintptr_t* marker_exclude_idx1 = g_ld_marker_exclude_idx1;
   uintptr_t* marker_exclude = g_ld_marker_exclude;
   uint32_t* marker_pos = g_ld_marker_pos;
+  char* marker_ids = g_ld_marker_ids;
   char** marker_allele_ptrs = g_ld_marker_allele_ptrs;
   uint32_t* ld_interval1 = g_ld_interval1;
   double* results = g_ld_results;
+  uintptr_t max_marker_id_len = g_ld_max_marker_id_len;
   uintptr_t marker_uidx1 = g_ld_marker_uidx1;
-  uintptr_t marker_idx1_start = g_ld_marker_idx1_start;
   uintptr_t block_idx1 = g_ld_block_idx1;
   uintptr_t block_size1 = g_ld_idx1_block_size;
   uintptr_t marker_uidx2_start = g_ld_uidx2_start;
+  uintptr_t block_idx2_start = g_ld_idx2_block_start;
+  uintptr_t block_idx2 = g_ld_block_idx2;
+  uintptr_t marker_idx2_maxw = g_ld_marker_ctm8;
   uintptr_t marker_uidx2 = g_ld_marker_uidx2;
-  uintptr_t marker_idx2 = g_ld_marker_idx2;
+  double window_r2 = g_ld_window_r2;
+  uint32_t plink_maxsnp = g_ld_plink_maxsnp;
+  uint32_t is_inter_chr = g_ld_is_inter_chr;
   uint32_t is_r2 = g_ld_is_r2;
-  uintptr_t marker_idx2_start;
-  uintptr_t marker_idx2_end;
+  uint32_t zero_extra_chroms = g_ld_zero_extra_chroms;
+  uint32_t prefix_len = g_ld_prefix_len;
+  uint32_t chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx1);
+  uint32_t chrom_idx1 = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+  uint32_t chrom_end1 = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+  uint32_t chrom_idx2 = 0;
+  uintptr_t block_end2;
+  uint32_t chrom_end2;
+  char* sptr2;
   double* dptr;
+  double dxx;
   if (block_idx1 == block_size1) {
     goto ld_regular_emitn_ret;
   }
-  if ((!marker_idx2) && (!(block_idx1 + marker_idx1_start))) {
+  if (block_idx2) {
+    goto ld_regular_emitn_start_2;
+  }
+  // block_idx2 is only zero on initial call, never on reentry
+  if (g_ld_is_first_block) {
     sptr_cur = memcpya(sptr_cur, " CHR_A         BP_A ", 20);
     sptr_cur = fw_strcpyn(g_ld_plink_maxsnp, 5, "SNP_A", sptr_cur);
     // --D/--dprime not supported for now
@@ -1714,33 +1743,97 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
     sptr_cur = memcpya(sptr_cur, "      PHASE           ", 22);
     sptr_cur = memcpya(sptr_cur, is_r2? "R2 \n" : " R \n", 4);
   }
-  marker_idx2_start = ld_interval1[2 * block_idx1];
-  marker_idx2_end = ld_interval1[2 * block_idx1 + 1];
-  
   goto ld_regular_emitn_start;
   do {
-    marker_idx2_start = ld_interval1[2 * block_idx1];
-    marker_idx2_end = ld_interval1[2 * block_idx1 + 1];
-    marker_idx2 = marker_idx2_start;
-    dptr = &(results[block_idx1 * marker_idx2_maxw]);
+    marker_uidx1++;
+    next_unset_ul_unsafe_ck(marker_exclude_idx1, &marker_uidx1);
+    if (marker_uidx1 >= chrom_end1) {
+      chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx1);
+      chrom_idx1 = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+      chrom_end1 = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+    }
+    block_idx2 = ld_interval1[2 * block_idx1];
+    if (block_idx2_start < block_idx2) {
+      marker_uidx2_start++;
+      marker_uidx2_start = jump_forward_unset_unsafe(marker_exclude, marker_uidx2_start, block_idx2 - block_idx2_start);
+      block_idx2_start = block_idx2;
+    }
   ld_regular_emitn_start:
-    while (marker_idx2 < marker_idx2_end) {
+    marker_uidx2 = marker_uidx2_start;
+    sptr2 = width_force(6, tbuf, chrom_name_write(tbuf, chrom_info_ptr, chrom_idx1, zero_extra_chroms));
+    sptr2 = memseta(sptr2, 32, 3);
+    sptr2 = uint32_writew10x(sptr2, marker_pos[marker_uidx1], ' ');
+    sptr2 = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx1 * max_marker_id_len]), sptr2);
+    *sptr2++ = ' ';
+    if (!is_inter_chr) {
+      sptr2 = width_force(6, sptr2, chrom_name_write(sptr2, chrom_info_ptr, chrom_idx1, zero_extra_chroms));
+      sptr2 = memseta(sptr2, 32, 3);
+    }
+    prefix_len = (uintptr_t)(sptr2 - tbuf);
+  ld_regular_emitn_start_2:
+    chrom_end2 = 0;
+    block_end2 = ld_interval1[2 * block_idx1 + 1];
+    dptr = &(results[block_idx1 * marker_idx2_maxw + block_idx2 - block_idx2_start]);
+    while (block_idx2 < block_end2) {
+      next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx2);
+      dxx = *dptr++;
+      if ((!is_r2) || (fabs(dxx) >= window_r2)) {
+	sptr_cur = memcpya(sptr_cur, tbuf, prefix_len);
+	if (is_inter_chr) {
+	  if (marker_uidx2 >= chrom_end2) {
+	    chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx2);
+	    chrom_idx2 = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+	    chrom_end2 = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+	  }
+	  sptr_cur = width_force(6, sptr_cur, chrom_name_write(sptr_cur, chrom_info_ptr, chrom_idx2, zero_extra_chroms));
+	  sptr_cur = memseta(sptr_cur, 32, 3);
+	}
+	sptr_cur = uint32_writew10x(sptr_cur, marker_pos[marker_uidx2], ' ');
+	sptr_cur = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), sptr_cur);
+	*sptr_cur++ = ' ';
+	sptr2 = strcpya(sptr_cur, marker_allele_ptrs[2 * marker_uidx1]);
+	if (dxx > 0.0) {
+	  sptr2 = strcpyax(sptr2, marker_allele_ptrs[2 * marker_uidx2], '/');
+	  sptr2 = strcpya(sptr2, marker_allele_ptrs[2 * marker_uidx1 + 1]);
+	  sptr2 = strcpya(sptr2, marker_allele_ptrs[2 * marker_uidx2 + 1]);
+	} else {
+	  sptr2 = strcpyax(sptr2, marker_allele_ptrs[2 * marker_uidx2 + 1], '/');
+	  sptr2 = strcpya(sptr2, marker_allele_ptrs[2 * marker_uidx1 + 1]);
+	  sptr2 = strcpya(sptr2, marker_allele_ptrs[2 * marker_uidx2]);
+	  if (is_r2) {
+	    dxx = fabs(dxx);
+	  }
+	}
+	sptr_cur = width_force(10, sptr_cur, sptr2);
+	*sptr_cur++ = ' ';
+	sptr_cur = width_force(12, sptr_cur, double_g_write(sptr_cur, dxx));
+	sptr_cur = memcpya(sptr_cur, " \n", 2);
+      }
+      block_idx2++;
+      marker_uidx2++;
+      if (sptr_cur > readbuf_end) {
+        goto ld_regular_emitn_ret;
+      }
     }
   } while (++block_idx1 < block_size1);
  ld_regular_emitn_ret:
   g_ld_marker_uidx1 = marker_uidx1;
   g_ld_block_idx1 = block_idx1;
+  g_ld_prefix_len = prefix_len;
+  g_ld_uidx2_start = marker_uidx2_start;
+  g_ld_idx2_block_start = block_idx2_start;
   g_ld_marker_uidx2 = marker_uidx2;
-  g_ld_marker_idx2 = marker_idx2;
+  g_ld_block_idx2 = block_idx2;
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
-  */
 }
 
-int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, uintptr_t* founder_include2, uintptr_t* founder_male_include2, uintptr_t* loadbuf, char* outname, uint32_t hh_exists) {
-  logprint("Error: --r/--r2 is currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
-  /*
+int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, uintptr_t* founder_include2, uintptr_t* founder_male_include2, uintptr_t* loadbuf, char* outname, uint32_t hh_exists) {
+  // logprint("Error: --r/--r2 is currently under development.\n");
+  // return RET_CALC_NOT_YET_SUPPORTED;
   FILE* infile = NULL;
+  uintptr_t* marker_exclude = g_ld_marker_exclude;
+  char* marker_ids = g_ld_marker_ids;
+  uintptr_t max_marker_id_len = g_ld_max_marker_id_len;
   uint32_t ld_modifier = ldip->modifier;
   uint32_t output_gz = ld_modifier & LD_REPORT_GZ;
   uint32_t ignore_x = (ld_modifier & LD_IGNORE_X) & 1;
@@ -1968,7 +2061,13 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
   idx2_block_size = (wkspace_left / ulii) & (~(7 * ONELU));
   if (idx2_block_size > marker_ct) {
     idx2_block_size = (marker_ct + 7) & (~7);
-  }  
+  }
+  g_ld_marker_exclude_idx1 = marker_exclude_idx1;
+  g_ld_marker_exclude = marker_exclude;
+  g_ld_is_inter_chr = is_inter_chr;
+  if (g_ld_is_r2) {
+    g_ld_window_r2 = ldip->window_r2;
+  }
   wkspace_mark2 = wkspace_base;
   while (1) {
     if (!idx2_block_size) {
@@ -1998,7 +2097,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
   sprintf(logbuf, "--r%s%s to %s...", g_ld_is_r2? "2" : "", is_inter_chr? " inter-chr" : "", outname);
   logprintb();
   fputs(" 0%", stdout);
-  do {
+  while (1) {
     fputs(" [processing]", stdout);
     fflush(stdout);
     if (idx1_block_size > marker_idx1_end - marker_idx1) {
@@ -2079,11 +2178,14 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 	    while (marker_pos[marker_uidx2_fwd2] <= cur_marker_pos) {
 	      marker_uidx2_fwd = marker_uidx2_fwd2;
 	      window_lead_ct++;
-	      if ((marker_uidx2_fwd2 == chrom_last) || (window_lead_ct > window_size_m1)) {
+	      if (marker_uidx2_fwd == chrom_last) {
 		break;
 	      }
 	      marker_uidx2_fwd2++;
 	      next_unset_unsafe_ck(marker_exclude, &marker_uidx2_fwd2);
+	      if (window_lead_ct > window_size_m1) {
+		break;
+	      }
 	    }
 	  }
 	  window_lead_ct--;
@@ -2115,7 +2217,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
     }
 
     cur_idx2_block_size = idx2_block_size;
-    marker_idx2_end = g_ld_interval1[2 * idx1_block_size - 1];
+    marker_idx2_end = g_ld_interval1[2 * idx1_block_size - 1] + 1;
     uii = (marker_idx2_end + 7 - marker_idx2_base) & (~7);
     if (uii < marker_idx2_maxw) {
       marker_idx2_maxw = uii;
@@ -2126,6 +2228,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
       if (cur_idx2_block_size > marker_idx2_end - marker_idx2) {
 	cur_idx2_block_size = marker_idx2_end - marker_idx2;
       }
+
       for (block_idx2 = 0; block_idx2 < cur_idx2_block_size; marker_uidx2++, block_idx2++) {
 	// todo: when set has big holes in the middle, do not load everything
 	if (IS_SET(marker_exclude, marker_uidx2)) {
@@ -2161,9 +2264,12 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 
     fputs("\b\b\b\b\b\b\b\b\b\b\bwriting]   \b\b\b", stdout);
     fflush(stdout);
+    g_ld_marker_uidx1 = marker_uidx1;
     g_ld_block_idx1 = 0;
-    g_ld_idx2_block_start = marker_idx2_base;
-    ;;;
+    g_ld_uidx2_start = marker_uidx2_base;
+    g_ld_idx2_block_start = 0;
+    g_ld_block_idx2 = 0;
+    g_ld_is_first_block = (!not_first_write) && (!parallel_idx);
     if (output_gz) {
       parallel_compress(outname, not_first_write, ld_regular_emitn);
     } else {
@@ -2184,7 +2290,11 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 	pct_thresh = marker_idx1_start + ((++pct) * ((uint64_t)job_size)) / 100;
       }
     }
-  } while (marker_idx1 < marker_idx1_end);
+    if (marker_idx1 == marker_idx1_end) {
+      break;
+    }
+    marker_uidx1 = jump_forward_unset_unsafe(marker_exclude_idx1, marker_uidx1, idx1_block_size);
+  }
   fputs("\b\b\b", stdout);
   logprint(" done.\n");
   while (0) {
@@ -2214,7 +2324,6 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
   fclose_cond(infile);
   // trust parent to free memory
   return retval;
-  */
 }
 
 int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
@@ -2308,15 +2417,14 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
 	goto ld_report_ret_INVALID_CMDLINE;
       }
     }
-    /*
-    logprint("Error: --r/--r2 table reports are currently under development.  (Square matrix\noutput is working.)\n");
-    retval = RET_CALC_NOT_YET_SUPPORTED;
-    goto ld_report_ret_1;
-    */
     g_ld_plink_maxsnp = plink_maxsnp;
+    g_ld_marker_ids = marker_ids;
     g_ld_marker_allele_ptrs = marker_allele_ptrs;
     g_ld_marker_pos = marker_pos;
-    retval = ld_report_regular(threads, ldip, bedfile, bed_offset, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, unfiltered_indiv_ct, founder_info, parallel_idx, parallel_tot, sex_male, founder_include2, founder_male_include2, loadbuf, outname, hh_exists);
+    g_ld_marker_exclude = marker_exclude;
+    g_ld_max_marker_id_len = max_marker_id_len;
+    g_ld_zero_extra_chroms = zero_extra_chroms;
+    retval = ld_report_regular(threads, ldip, bedfile, bed_offset, unfiltered_marker_ct, marker_reverse, unfiltered_indiv_ct, founder_info, parallel_idx, parallel_tot, sex_male, founder_include2, founder_male_include2, loadbuf, outname, hh_exists);
   }
   // great success
   while (0) {

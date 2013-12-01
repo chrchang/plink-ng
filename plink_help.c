@@ -495,7 +495,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Note that you need to rerun " PROG_NAME_CAPS " using --extract or --exclude on the\n"
 "    .prune.in/.prune.out file to apply the list to another computation.\n\n"
 		);
-    help_print("r\tr2\tmatrix", &help_ctrl, 1,
+    help_print("r\tr2\tmatrix\tinter-chr", &help_ctrl, 1,
 "  --r <square | square0 | triangle | inter-chr> <gz | bin> <single-prec>\n"
 "      <spaces> <yes-really>\n"
 "  --r2 <square | square0 | triangle | inter-chr> <gz | bin> <single-prec>\n"
@@ -1294,7 +1294,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #ifndef STABLE_BUILD
     help_print("r\tr2\tld-window-r2\tld-window\tld-window-kb\tld-snp\tld-snps\tld-snp-list", &help_ctrl, 0,
 "  --ld-window [ct+1] : Set --r/--r2 max site ct pairwise distance (usually 10).\n"
-"  --ld-window-kb [x] : Set --r/--r2 max kb pairwise distance (usually 200).\n"
+"  --ld-window-kb [x] : Set --r/--r2 max kb pairwise distance (usually 1000).\n"
 "  --ld-window-r2 [x] : Set threshold for --r2 report inclusion (usually 0.2).\n"
 "  --ld-snp [var ID]  : Set first variant in all --r/--r2 pairs.\n"
 "  --ld-snps [vID...] : Restrict first --r/--r2 variant to the given ranges.\n"
