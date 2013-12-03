@@ -3299,35 +3299,35 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
       freq22 = ((intptr_t)base_ct22) * twice_tot_recip;
       prod_1122 = freq11 * freq22;
       prod_1221 = freq12 * freq21;
+      half_hethet_share = ((int32_t)counts[4]) * twice_tot_recip;
+      // the following four values should all be guaranteed nonzero except in
+      // the NAN case
+      freq1x = freq11 + freq12 + half_hethet_share;
+      freq2x = 1.0 - freq1x;
+      freqx1 = freq11 + freq21 + half_hethet_share;
+      freqx2 = 1.0 - freqx1;
       if (counts[4]) {
-	half_hethet_share = ((int32_t)counts[4]) * twice_tot_recip;
         if (prod_1122 != 0.0) {
 	  if (prod_1221 != 0.0) {
 	    sum_1122 = freq11 + freq22;
 	    incr_1122 = half_hethet_share * prod_1122 / (prod_1122 + prod_1221);
-	    freq12 += half_hethet_share;
-	    freq21 += half_hethet_share;
-	    prod_1221 = freq12 * freq21;
-	    // todo: compare speed and numerical stability to analytic solution
+	    prod_1221 = (freq12 + half_hethet_share) * (freq21 + half_hethet_share);
+	    // todo: compare this EM loop with alternatives such as analytic
+	    // solution, Newton-Raphson on cubic (is this effectively
+	    // identical?)...
 	    do {
 	      last_incr_1122 = incr_1122;
 	      dxx = (sum_1122 + incr_1122) * incr_1122;
 	      prod_1122_cur = prod_1122 + dxx;
 	      incr_1122 = half_hethet_share * prod_1122_cur / (prod_1122_cur + prod_1221 + dxx - incr_1122);
 	    } while (fabs(incr_1122 - last_incr_1122) > EPSILON);
+	    // only actually need freq11
 	    freq11 += incr_1122;
-	    freq12 -= incr_1122;
-	    freq21 -= incr_1122;
-	    freq22 += incr_1122;
 	  } else {
             freq11 += half_hethet_share;
-	    freq22 += half_hethet_share;
 	  }
-	} else if (prod_1221 != 0.0) {
-	  freq12 += half_hethet_share;
-          freq21 += half_hethet_share;
-	} else {
-	  // 0/0, so regular EM initialization doesn't work, but if we ignore
+	} else if (prod_1221 == 0.0) {
+	  // 0/0, so regular EM initialization doesn't work, but if we reject
 	  // the degenerate solutions we're down to a linear equation (assuming
 	  // WLOG that f11 and f12 are zero):
 	  //
@@ -3335,33 +3335,27 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
 	  //   f22 + x = f21 + K - x
 	  //   2x = f21 + K - f22
 	  //   x = (K + f21 - f22) / 2
-          incr_1122 = (half_hethet_share + freq12 + freq21 - freq11 - freq22) * 0.5;
-	  freq11 += incr_1122;
-	  freq22 += incr_1122;
-	  freq12 += half_hethet_share - incr_1122;
-	  freq21 += half_hethet_share - incr_1122;
+	  freq11 = (freq1x + freq21 - freq22) * 0.5;
 	}
       } else if ((prod_1122 == 0.0) && (prod_1221 == 0.0)) {
 	*rptr++ = NAN;
 	*rptr++ = NAN;
 	continue;
       }
-      // the following four values should all be guaranteed nonzero
-      freq1x = freq11 + freq12;
-      freq2x = 1.0 - freq1x;
-      freqx1 = freq11 + freq21;
-      freqx2 = 1.0 - freqx1;
-      dxx = freq11 - freqx1 * freq1x; // D
+      last_incr_1122 = freqx1 * freq1x; // fA * fB temp var
+      // a bit of numeric instability here, but not tragic since this is the
+      // end of the calculation
+      dxx = freq11 - last_incr_1122; // D
       if (is_r2) {
-	*rptr = fabs(dxx) * dxx / (freq1x * freq2x * freqx1 * freqx2);
+	*rptr = fabs(dxx) * dxx / (last_incr_1122 * freq2x * freqx2);
       } else {
-	*rptr = dxx / sqrt(freq1x * freq2x * freqx1 * freqx2);
+	*rptr = dxx / sqrt(last_incr_1122 * freq2x * freqx2);
       }
       rptr++;
       if (dxx >= 0) {
         *rptr = dxx / MINV(freqx1 * freq2x, freqx2 * freq1x);
       } else {
-	*rptr = -dxx / MINV(freqx1 * freq1x, freqx2 * freq2x);
+	*rptr = -dxx / MINV(last_incr_1122, freqx2 * freq2x);
       }
       rptr++;
     }
@@ -4310,6 +4304,8 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
   }
   loadbuf[unfiltered_indiv_ctv2 - 2] = 0;
   loadbuf[unfiltered_indiv_ctv2 - 1] = 0;
+  // possible todo: throw out all monomorphic sites (and, in at least the
+  // matrix case, dump a list of expelled site IDs)
   if (is_binary) {
     bufptr = memcpya(bufptr, ".bin", 4);
   }

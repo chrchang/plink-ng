@@ -8603,6 +8603,14 @@ void cluster_dist_multiply(uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* c
   }
 }
 
+uint32_t cubic_real_solutions(double coef_a, double coef_b, double coef_c, double* solutions) {
+  // Analytically finds all real solutions to x^3 + ax^2 + bx + c, saving them
+  // in solutions[] (sorted from smallest to largest), and returning the count.
+  // Multiple roots are only returned/counted once.
+  // Additional research into numerical stability may be in order here.
+  return 0;
+}
+
 void join_threads(pthread_t* threads, uint32_t ctp1) {
   if (!(--ctp1)) {
     return;
