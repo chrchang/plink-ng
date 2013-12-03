@@ -1851,7 +1851,7 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   double window_r2 = g_ld_window_r2;
   uint32_t plink_maxsnp = g_ld_plink_maxsnp;
   uint32_t is_inter_chr = g_ld_is_inter_chr;
-  uint32_t is_dprime = g_ld_modifier & LD_DPRIME;
+  uint32_t is_dprime = (g_ld_modifier / LD_DPRIME) & 1;
   uint32_t is_r2 = g_ld_is_r2;
   uint32_t zero_extra_chroms = g_ld_zero_extra_chroms;
   uint32_t prefix_len = g_ld_prefix_len;
@@ -1923,7 +1923,7 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   ld_regular_emitn_start_2:
     chrom_end2 = 0;
     block_end2 = ld_interval1[2 * block_idx1 + 1];
-    dptr = &(results[block_idx1 * marker_idx2_maxw + block_idx2 - block_idx2_start]);
+    dptr = &(results[(block_idx1 * marker_idx2_maxw + block_idx2 - block_idx2_start) * (1 + is_dprime)]);
     while (block_idx2 < block_end2) {
       next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx2);
       dxx = *dptr++;
@@ -3286,7 +3286,7 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
       base_ct12 = 2 * counts[2] + counts[1] + counts[5];
       base_ct21 = 2 * counts[6] + counts[3] + counts[7];
       base_ct22 = 2 * counts[8] + counts[5] + counts[7];
-      twice_tot = base_ct11 + base_ct12 + base_ct21 + base_ct22;
+      twice_tot = base_ct11 + base_ct12 + base_ct21 + base_ct22 + 2 * counts[4];
       if (!twice_tot) {
         *rptr++ = NAN;
 	*rptr++ = NAN;
@@ -3358,10 +3358,10 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
 	*rptr = dxx / sqrt(freq1x * freq2x * freqx1 * freqx2);
       }
       rptr++;
-      if (dxx > 0) {
+      if (dxx >= 0) {
         *rptr = dxx / MINV(freqx1 * freq2x, freqx2 * freq1x);
       } else {
-	*rptr = fabs(dxx) / MINV(freqx1 * freq1x, freqx2 * freq2x);
+	*rptr = -dxx / MINV(freqx1 * freq1x, freqx2 * freq2x);
       }
       rptr++;
     }
