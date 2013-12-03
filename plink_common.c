@@ -4061,6 +4061,7 @@ void bitfield_invert(uintptr_t* bit_arr, uintptr_t bit_ct) {
 */
 
 void bitfield_exclude_to_include(uintptr_t* exclude_arr, uintptr_t* include_arr, uintptr_t bit_ct) {
+  // works the other way around too
   uintptr_t* exclude_stop = &(exclude_arr[bit_ct / BITCT]);
   while (exclude_arr < exclude_stop) {
     *include_arr++ = ~(*exclude_arr++);

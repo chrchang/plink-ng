@@ -495,11 +495,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Note that you need to rerun " PROG_NAME_CAPS " using --extract or --exclude on the\n"
 "    .prune.in/.prune.out file to apply the list to another computation.\n\n"
 		);
-    help_print("r\tr2\tmatrix\tinter-chr", &help_ctrl, 1,
+    help_print("r\tr2\tmatrix\tinter-chr\tD\tdprime\twith-freqs\tld", &help_ctrl, 1,
 "  --r <square | square0 | triangle | inter-chr> <gz | bin> <single-prec>\n"
-"      <spaces> <yes-really>\n"
+"      <spaces> <dprime> <with-freqs> <yes-really>\n"
 "  --r2 <square | square0 | triangle | inter-chr> <gz | bin> <single-prec>\n"
-"       <spaces> <yes-really>\n"
+"       <spaces> <dprime> <with-freqs> <yes-really>\n"
 "    LD statistic reports.  --r yields raw inter-variant correlations, while\n"
 "    --r2 reports their squares.  You can request results for all pairs in\n"
 "    matrix format (if you specify 'bin' or one of the shape modifiers), all\n"
@@ -511,11 +511,22 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * In combination with 'bin', 'single-prec' causes single-precision instead\n"
 "      of double-precision numbers to be written.\n"
 "    * By default, text matrices are tab-delimited; 'spaces' switches this.\n"
+"    * 'dprime' adds Lewontin's D-prime statistic to table-formatted reports,\n"
+"      and forces both r/r^2 and D-prime to be based on haplotype frequency\n"
+"      estimates (obtained via the EM algorithm).\n"
+"    * You can combine 'dprime' with 'with-freqs' to include MAFs in the report.\n"
 "    * Since the resulting file can easily be huge, you're required to add the\n"
 "      'yes-really' modifier when requesting an unfiltered, non-distributed all\n"
 "      pairs computation on more than 400k variants.\n"
 "    * These computations can be subdivided with --parallel (even when the\n"
-"      'square' modifier is active).\n\n"
+"      'square' modifier is active).\n"
+"  --ld [variant ID] [variant ID]\n"
+"    This displays haplotype frequencies, r^2, and D' for a single pair of\n"
+"    variants.  Het/het genotype pairs are resolved to haplotypes using the\n"
+"    method described in Gaunt T, Rodriguez S, Day I (2007) Cubic exact\n"
+"    solutions for the estimation of pairwise haplotype frequencies.  When there\n"
+"    are multiple biologically possible solutions to the cubic equation, all are\n"
+"    displayed (instead of just the EM solution identified by --r/--r2).\n\n"
 	       );
     help_print("distance", &help_ctrl, 1,
 "  --distance <square | square0 | triangle> <gz | bin> <ibs> <1-ibs> <allele-ct>\n"
@@ -804,11 +815,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("lasso", &help_ctrl, 1,
 "  --lasso [h2 estimate] {min lambda} <report-zeroes>\n"
-"    Estimate variant effect sizes via the LASSO regression discussed in\n"
-"    Vattikuti S, Lee J, Hsu S, Chow CC (2013) Application of compressed sensing\n"
-"    to genome wide association studies and genomic selection\n"
-"    (http://arxiv.org/abs/1310.2264 ).  You must provide an additive\n"
-"    heritability estimate to calibrate the regression.\n"
+"    Estimate variant effect sizes via LASSO regression.  You must provide an\n"
+"    additive heritability estimate to calibrate the regression.\n"
 "    Note that this method may require a very large sample size (e.g. hundreds\n"
 "    of thousands) to be effective on complex polygenic traits.\n\n"
 	       );
@@ -826,8 +834,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      relationship matrix.  (Specify the phenotype with --pheno.)\n"
 "    * For more details about the method, see Vattikuti S, Guo J, Chow CC (2012)\n"
 "      Heritability and Genetic Correlations Explained by Common SNPs for\n"
-"      Metabolic Syndrome Traits.  PLoS Genet 8(3): e1002637.\n"
-"      doi:10.1371/journal.pgen.1002637\n\n"
+"      Metabolic Syndrome Traits.\n\n"
 	       );
 #endif
 #endif
@@ -939,8 +946,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("version", &help_ctrl, 0,
 "  --version        : Display only version number before exiting.\n"
 	       );
-    help_print("silent", &help_ctrl, 0,
+    help_print("silent\tgplink", &help_ctrl, 0,
 "  --silent         : Suppress output to console.\n"
+"  --gplink         : Reserved for interoperation with gPLINK.\n"
 	       );
     help_print("missing-genotype", &help_ctrl, 0,
 "  --missing-genotype [char] : Set missing genotype code (normally '0').\n"

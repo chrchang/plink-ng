@@ -80,7 +80,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (1 Dec 2013) ";
+  " (3 Dec 2013) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -2931,7 +2931,7 @@ int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_m
       } else {
 	bufptr = width_force(4, tbuf2, chrom_name_write(tbuf2, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx), zero_extra_chroms));
 	fwrite(tbuf2, 1, bufptr - tbuf2, outfile);
-	fprintf(outfile, tbuf, &(marker_ids[marker_uidx * max_marker_id_len]), minor_ptr, major_ptr, (reverse? set_allele_freqs[marker_uidx] : (1.0 - set_allele_freqs[marker_uidx])) * (1 + SMALL_EPSILON), 2 * (ll_cts[marker_uidx] + lh_cts[marker_uidx] + hh_cts[marker_uidx]) + hapl_cts[marker_uidx] + haph_cts[marker_uidx]);
+	fprintf(outfile, tbuf, &(marker_ids[marker_uidx * max_marker_id_len]), minor_ptr, major_ptr, (1.0 - set_allele_freqs[marker_uidx]) * (1 + SMALL_EPSILON), 2 * (ll_cts[marker_uidx] + lh_cts[marker_uidx] + hh_cts[marker_uidx]) + hapl_cts[marker_uidx] + haph_cts[marker_uidx]);
       }
       if (ferror(outfile)) {
 	goto write_freqs_ret_WRITE_FAIL;
@@ -3508,13 +3508,16 @@ void calc_marker_reverse_bin(uintptr_t* marker_reverse, uintptr_t* marker_exclud
   uint32_t marker_uidx = 0;
   uint32_t markers_done = 0;
   uint32_t marker_uidx_stop;
+  double dxx;
   do {
     marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
     marker_uidx_stop = next_set(marker_exclude, marker_uidx, unfiltered_marker_ct);
     markers_done += marker_uidx_stop - marker_uidx;
     for (; marker_uidx < marker_uidx_stop; marker_uidx++) {
-      if (set_allele_freqs[marker_uidx] < 0.5) {
+      dxx = set_allele_freqs[marker_uidx];
+      if (dxx < 0.5) {
 	SET_BIT(marker_reverse, marker_uidx);
+	set_allele_freqs[marker_uidx] = 1.0 - dxx;
       }
     }
   } while (markers_done < marker_ct);
@@ -3840,7 +3843,7 @@ void calc_marker_weights(double exponent, uint32_t unfiltered_marker_ct, uintptr
   } while (markers_done < marker_ct);
 }
 
-int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char** marker_allele_ptrs, uintptr_t* max_marker_allele_len_ptr, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t is_a2) {
+int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char** marker_allele_ptrs, uintptr_t* max_marker_allele_len_ptr, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, double* set_allele_freqs, uint32_t is_a2) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   char skipchar = axalleles->skipchar;
@@ -3928,9 +3931,15 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
     slen = strlen_se(colx_ptr);
     colx_ptr[slen] = '\0';
     if (!strcmp(colx_ptr, marker_allele_ptrs[marker_uidx * 2 + is_a2])) {
-      CLEAR_BIT(marker_reverse, marker_uidx);
+      if (IS_SET(marker_reverse, marker_uidx)) {
+        set_allele_freqs[marker_uidx] = 1.0 - set_allele_freqs[marker_uidx];
+        CLEAR_BIT(marker_reverse, marker_uidx);
+      }
     } else if (!strcmp(colx_ptr, marker_allele_ptrs[marker_uidx * 2 + 1 - is_a2])) {
-      SET_BIT(marker_reverse, marker_uidx);
+      if (!IS_SET(marker_reverse, marker_uidx)) {
+        set_allele_freqs[marker_uidx] = 1.0 - set_allele_freqs[marker_uidx];
+        SET_BIT(marker_reverse, marker_uidx);
+      }
     } else if (marker_allele_ptrs[marker_uidx * 2 + is_a2] == missing_geno_ptr) {
       if (allele_reset(&(marker_allele_ptrs[marker_uidx * 2 + is_a2]), colx_ptr, slen)) {
 	goto load_ax_alleles_ret_NOMEM;
@@ -3938,7 +3947,10 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
       if (slen >= max_marker_allele_len) {
 	max_marker_allele_len = slen + 1;
       }
-      CLEAR_BIT(marker_reverse, marker_uidx);
+      if (IS_SET(marker_reverse, marker_uidx)) {
+        set_allele_freqs[marker_uidx] = 1.0 - set_allele_freqs[marker_uidx];
+        CLEAR_BIT(marker_reverse, marker_uidx);
+      }
     } else {
       sprintf(logbuf, "Warning: Impossible A%c allele assignment for variant %s.\n", is_a2? '2' : '1', colid_ptr);
       logprintb();
@@ -4810,7 +4822,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     goto plink_ret_INVALID_CMDLINE_2;
   }
   if (g_thread_ct > 1) {
-    if ((calculation_type & (CALC_RELATIONSHIP | CALC_REL_CUTOFF | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_LASSO | CALC_LD | CALC_EPI)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_PERM | GLM_MPERM))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname)))) {
+    if ((calculation_type & (CALC_RELATIONSHIP | CALC_REL_CUTOFF | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_LASSO | CALC_LD)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_PERM | GLM_MPERM))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname))) || ((calculation_type & CALC_EPI) && (epi_ip->modifier & EPI_FAST))) {
       sprintf(logbuf, "Using %d threads (change this with --threads).\n", g_thread_ct);
       logprintb();
     } else {
@@ -4888,7 +4900,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     calc_marker_reverse_bin(marker_reverse, marker_exclude, unfiltered_marker_ct, unfiltered_marker_ct - marker_exclude_ct, set_allele_freqs);
   }
   if (a1alleles || a2alleles) {
-    retval = load_ax_alleles(a1alleles? a1alleles : a2alleles, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_allele_ptrs, &max_marker_allele_len, marker_reverse, marker_ids, max_marker_id_len, a2alleles? 1 : 0);
+    retval = load_ax_alleles(a1alleles? a1alleles : a2alleles, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_allele_ptrs, &max_marker_allele_len, marker_reverse, marker_ids, max_marker_id_len, set_allele_freqs, a2alleles? 1 : 0);
     if (retval) {
       goto plink_ret_1;
     }
@@ -5099,13 +5111,21 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
+  if ((calculation_type & CALC_EPI) && epi_ip->ld_mkr1) {
+    retval = twolocus(epi_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, chrom_info_ptr, unfiltered_indiv_ct, founder_info, 0, NULL, 0, 0, NULL, sex_male, NULL, NULL, hh_exists);
+    if (retval) {
+      goto plink_ret_1;
+    }
+  }
+
   if (calculation_type & CALC_LD) {
     if ((!(ldip->modifier & (LD_MATRIX_SHAPEMASK & LD_INTER_CHR))) && (map_is_unsorted & UNSORTED_BP)) {
       logprint("Error: Windowed --r/--r2 runs require a sorted .map/.bim.  Retry this command\nafter using --make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
-    retval = ld_report(threads, ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, zero_extra_chroms, chrom_info_ptr, marker_pos, unfiltered_indiv_ct, founder_info, parallel_idx, parallel_tot, sex_male, outname, outname_end, hh_exists);
+    retval = ld_report(threads, ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, set_allele_freqs, zero_extra_chroms, chrom_info_ptr, marker_pos, unfiltered_indiv_ct, founder_info, parallel_idx, parallel_tot, sex_male, outname, outname_end, hh_exists);
     if (retval) {
+      goto plink_ret_1;
     }
   }
 
@@ -6980,7 +7000,7 @@ int32_t main(int32_t argc, char** argv) {
   }
 
   for (cur_flag = 0; cur_flag < flag_ct; cur_flag++) {
-    if (!memcmp("silent", &(flag_buf[cur_flag * MAX_FLAG_LEN]), 7)) {
+    if ((!memcmp("silent", &(flag_buf[cur_flag * MAX_FLAG_LEN]), 7)) || (!memcmp("gplink", &(flag_buf[cur_flag * MAX_FLAG_LEN]), 7))) {
       freopen("/dev/null", "w", stdout);
       break;
     }
@@ -7213,6 +7233,15 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_ret_INVALID_CMDLINE_2;
       }
       break;
+
+    case 'D':
+      if (*argptr2 == '\0') {
+	logprint("Note: --D flag deprecated.  Use e.g. '--r2 dprime'.\n");
+	ld_info.modifier |= LD_DPRIME;
+	goto main_param_zero;
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
+      }
 
     case 'K':
       if (*argptr2 == '\0') {
@@ -8559,6 +8588,10 @@ int32_t main(int32_t argc, char** argv) {
 	}
         misc_flags |= MISC_DOUBLE_ID;
         goto main_param_zero;
+      } else if (!memcmp(argptr2, "prime", 6)) {
+	logprint("Note: --dprime flag deprecated.  Use e.g. '--r2 dprime'.\n");
+	ld_info.modifier |= LD_DPRIME;
+	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -9196,6 +9229,8 @@ int32_t main(int32_t argc, char** argv) {
 	    epi_info.case_only_gap = 1;
 	  }
 	}
+      } else if (!memcmp(argptr2, "plink", 6)) {
+        misc_flags |= MISC_GPLINK;
       } else if (!memcmp(argptr2, "ates", 5)) {
         logprint("Error: --gates is not implemented yet.\n");
 	retval = RET_CALC_NOT_YET_SUPPORTED;
@@ -9943,6 +9978,17 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
 	ld_info.modifier |= LD_SNP_LIST_FILE;
+      } else if (!memcmp(argptr2, "d", 2)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 2)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (alloc_string(&(epi_info.ld_mkr1), argv[cur_arg + 1])) {
+	  goto main_ret_NOMEM;
+	}
+	if (alloc_string(&(epi_info.ld_mkr2), argv[cur_arg + 2])) {
+	  goto main_ret_NOMEM;
+	}
+        calculation_type |= CALC_EPI;
       } else {
         goto main_ret_INVALID_CMDLINE_2;
       }
@@ -11712,39 +11758,31 @@ int32_t main(int32_t argc, char** argv) {
 	    if (ld_info.modifier & LD_MATRIX_SHAPEMASK) {
 	      logprint("Error: Multiple --r/--r2 shape modifiers.\n");
 	      goto main_ret_INVALID_CMDLINE;
-	    } else if (ld_info.modifier & LD_INTER_CHR) {
-              logprint("Error: --r/--r2 'inter-chr' cannot be used with a shape modifier.\n");
-	      goto main_ret_INVALID_CMDLINE;
+	    } else if (ld_info.modifier & (LD_INTER_CHR | LD_DPRIME)) {
+	    main_r2_matrix_conflict:
+              sprintf(logbuf, "Error: --r/--r2 '%s' cannot be used with matrix output.%s", (ld_info.modifier & LD_INTER_CHR)? "inter-chr" : "dprime", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    ld_info.modifier |= LD_MATRIX_SQ;
 	  } else if (!strcmp(argv[cur_arg + uii], "square0")) {
 	    if (ld_info.modifier & LD_MATRIX_SHAPEMASK) {
 	      logprint("Error: Multiple --r/--r2 shape modifiers.\n");
 	      goto main_ret_INVALID_CMDLINE;
-	    } else if (ld_info.modifier & LD_INTER_CHR) {
-	      logprint("Error: --r/--r2 'inter-chr' cannot be used with a shape modifier.\n");
-	      goto main_ret_INVALID_CMDLINE;
+	    } else if (ld_info.modifier & (LD_INTER_CHR | LD_DPRIME)) {
+	      goto main_r2_matrix_conflict;
 	    }
 	    ld_info.modifier |= LD_MATRIX_SQ0;
 	  } else if (!strcmp(argv[cur_arg + uii], "triangle")) {
 	    if (ld_info.modifier & LD_MATRIX_SHAPEMASK) {
 	      logprint("Error: Multiple --r/--r2 shape modifiers.\n");
 	      goto main_ret_INVALID_CMDLINE;
-	    } else if (ld_info.modifier & LD_INTER_CHR) {
-	      logprint("Error: --r/--r2 'inter-chr' cannot be used with a shape modifier.\n");
-	      goto main_ret_INVALID_CMDLINE;
+	    } else if (ld_info.modifier & (LD_INTER_CHR | LD_DPRIME)) {
+	      goto main_r2_matrix_conflict;
 	    }
 	    ld_info.modifier |= LD_MATRIX_TRI;
 	  } else if (!strcmp(argv[cur_arg + uii], "inter-chr")) {
-            if (ld_info.modifier & LD_MATRIX_SHAPEMASK) {
-              logprint("Error: --r/--r2 'inter-chr' cannot be used with a shape modifier.\n");
-	      goto main_ret_INVALID_CMDLINE;
-	    } else if (ld_info.modifier & LD_MATRIX_BIN) {
-	      logprint("Error: --r/--r2 'inter-chr' and 'bin' modifiers cannot be used together.\n");
-              goto main_ret_INVALID_CMDLINE;
-	    } else if (ld_info.modifier & LD_MATRIX_SPACES) {
-	      logprint("Error: --r/--r2 'inter-chr' and 'spaces' modifiers cannot be used together.\n");
-              goto main_ret_INVALID_CMDLINE;
+            if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_SPACES)) {
+	      goto main_r2_matrix_conflict;
 	    }
             ld_info.modifier |= LD_INTER_CHR;
 	  } else if (!strcmp(argv[cur_arg + uii], "gz")) {
@@ -11754,9 +11792,8 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	    ld_info.modifier |= LD_REPORT_GZ;
 	  } else if (!strcmp(argv[cur_arg + uii], "bin")) {
-	    if (ld_info.modifier & LD_INTER_CHR) {
-              logprint("Error: --r/--r2 'inter-chr' and 'bin' modifiers cannot be used together.\n");
-	      goto main_ret_INVALID_CMDLINE;
+	    if (ld_info.modifier & (LD_INTER_CHR | LD_DPRIME)) {
+	      goto main_r2_matrix_conflict;
 	    } else if (ld_info.modifier & LD_REPORT_GZ) {
 	      logprint("Error: --r/--r2 'gz' and 'bin' modifiers cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE;
@@ -11770,14 +11807,20 @@ int32_t main(int32_t argc, char** argv) {
             // since there are no long chains of floating point calculations...
 	    ld_info.modifier |= LD_SINGLE_PREC;
 	  } else if (!strcmp(argv[cur_arg + uii], "spaces")) {
-	    if (ld_info.modifier & LD_INTER_CHR) {
-	      logprint("Error: --r/--r2 'inter-chr' and 'spaces' modifiers cannot be used together.\n");
-              goto main_ret_INVALID_CMDLINE;
+	    if (ld_info.modifier & (LD_INTER_CHR | LD_DPRIME)) {
+	      goto main_r2_matrix_conflict;
 	    } else if (ld_info.modifier & LD_MATRIX_BIN) {
 	      logprint("Error: --r/--r2 'bin' and 'spaces' modifiers cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    ld_info.modifier |= LD_MATRIX_SPACES;
+	  } else if (!strcmp(argv[cur_arg + uii], "dprime")) {
+            if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_SPACES)) {
+	      goto main_r2_matrix_conflict;
+	    }
+	    ld_info.modifier |= LD_DPRIME;
+	  } else if (!strcmp(argv[cur_arg + uii], "with-freqs")) {
+	    ld_info.modifier |= LD_WITH_FREQS;
 	  } else if (!strcmp(argv[cur_arg + uii], "yes-really")) {
 	    ld_info.modifier |= LD_YES_REALLY;
 	  } else {
@@ -12825,6 +12868,9 @@ int32_t main(int32_t argc, char** argv) {
         calculation_type |= CALC_WRITE_SET;
 	set_info.modifier |= SET_WRITE_LIST;
         goto main_param_zero;
+      } else if (!memcmp(argptr2, "ith-freqs", 10)) {
+        ld_info.modifier |= LD_WITH_FREQS;
+	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -13052,6 +13098,14 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_ret_INVALID_CMDLINE_3;
       }
     }
+  }
+  if ((ld_info.modifier & LD_DPRIME) && (!(calculation_type & CALC_LD))) {
+    sprintf(logbuf, "Error: --D/--dprime must be used with --r/--r2.%s", errstr_append);
+    goto main_ret_INVALID_CMDLINE_3;
+  }
+  if ((ld_info.modifier & LD_WITH_FREQS) && (!(ld_info.modifier & LD_DPRIME))) {
+    sprintf(logbuf, "Error: --r/--r2 'with-freqs' modifier must be used with 'dprime'.%s", errstr_append);
+    goto main_ret_INVALID_CMDLINE_3;
   }
 
   // --from-bp/-kb/-mb without any --to/--to-bp/...: include to end of
@@ -13438,6 +13492,17 @@ int32_t main(int32_t argc, char** argv) {
     } else {
       fclose(logfile);
     }
+    logfile = NULL;
   }
+  if (misc_flags & MISC_GPLINK) {
+    memcpy(outname_end, ".gplink", 8);
+    logfile = fopen(outname, "w");
+    if (logfile) { // can't do much if an error occurs here...
+      putc(retval? '1' : '0', logfile);
+      putc('\n', logfile);
+      fclose(logfile);
+    }
+  }
+
   return retval;
 }

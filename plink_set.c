@@ -232,7 +232,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       }
       if (!set_ct) {
         if (gene_all || sip->genekeep_flattened) {
-	  logprint("Error: All variants excluded by --gene[-all], since no sets were defined from\n--make-set file.\n");
+	  logprint("Error: All variants excluded by --gene{-all}, since no sets were defined from\n--make-set file.\n");
 	  goto define_sets_ret_ALL_MARKERS_EXCLUDED;
 	}
 	logprint("Warning: No sets defined from --make-set file.\n");
