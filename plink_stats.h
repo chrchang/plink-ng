@@ -23,6 +23,8 @@ double calc_tprob(double tt, double df);
 
 double ltqnorm(double p);
 
+double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2);
+
 double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22);
 
 double fisher22_tail_pval(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t right_offset, double tot_prob, double right_prob, double tail_sum, uint32_t new_m11);

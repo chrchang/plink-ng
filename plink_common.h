@@ -1845,7 +1845,7 @@ void cluster_dist_divide(uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* clu
 
 void cluster_dist_multiply(uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_starts, double* cluster_sdistances);
 
-uint32_t cubic_real_solutions(double coef_a, double coef_b, double coef_c, double* solutions);
+uint32_t cubic_real_roots(double coef_a, double coef_b, double coef_c, double* solutions);
 
 void join_threads(pthread_t* threads, uint32_t ctp1);
 

@@ -3346,16 +3346,21 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
       // a bit of numeric instability here, but not tragic since this is the
       // end of the calculation
       dxx = freq11 - last_incr_1122; // D
-      if (is_r2) {
-	*rptr = fabs(dxx) * dxx / (last_incr_1122 * freq2x * freqx2);
+      if (fabs(dxx) < SMALL_EPSILON) {
+	*rptr++ = 0;
+	*rptr = 0;
       } else {
-	*rptr = dxx / sqrt(last_incr_1122 * freq2x * freqx2);
-      }
-      rptr++;
-      if (dxx >= 0) {
-        *rptr = dxx / MINV(freqx1 * freq2x, freqx2 * freq1x);
-      } else {
-	*rptr = -dxx / MINV(last_incr_1122, freqx2 * freq2x);
+	if (is_r2) {
+	  *rptr = fabs(dxx) * dxx / (last_incr_1122 * freq2x * freqx2);
+	} else {
+	  *rptr = dxx / sqrt(last_incr_1122 * freq2x * freqx2);
+	}
+	rptr++;
+	if (dxx >= 0) {
+	  *rptr = dxx / MINV(freqx1 * freq2x, freqx2 * freq1x);
+	} else {
+	  *rptr = -dxx / MINV(last_incr_1122, freqx2 * freq2x);
+	}
       }
       rptr++;
     }
@@ -4615,6 +4620,7 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
   uint32_t counts_cc[32];
   uintptr_t* loadbufs[2];
   uintptr_t marker_uidxs[2];
+  double solutions[3];
   uintptr_t* loadbuf_raw;
   uintptr_t* loadbuf0_ptr;
   uintptr_t* loadbuf1_ptr;
@@ -4627,6 +4633,17 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
   uintptr_t indiv_idx;
   uintptr_t indiv_idx_end;
   uintptr_t ulkk;
+  double twice_tot_recip;
+  double half_hethet_share;
+  double freq11;
+  double freq12;
+  double freq21;
+  double freq22;
+  double freq1x;
+  double freq2x;
+  double freqx1;
+  double freqx2;
+  double dxx;
   uint32_t chrom_fo_idx;
   uint32_t chrom_idx;
   uint32_t is_x;
@@ -4636,6 +4653,10 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
   uint32_t alen10;
   uint32_t alen11;
   uint32_t count_total;
+  uint32_t base_ct11;
+  uint32_t base_ct12;
+  uint32_t base_ct21;
+  uint32_t base_ct22;
   if (!outname) {
     indiv_ct = popcount_longs(indiv_exclude, 0, unfiltered_indiv_ctl2 / 2);
     if (!indiv_ct) {
@@ -4781,9 +4802,166 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
       logprint("Error: No valid observations for --ld.\n");
       goto twolocus_ret_INVALID_CMDLINE;
     }
-    sprintf(logbuf, "--ld %s %s:\n\n", mkr1, mkr2);
+    if ((!counts_cc[2]) && ((!counts_cc[0]) || (!counts_cc[3]))) {
+      sprintf(logbuf, "Error: %s is monomorphic across all valid observations.\n", mkr1);
+      goto twolocus_ret_INVALID_CMDLINE_2;
+    } else if ((!counts_cc[6]) && ((!counts_cc[4]) || (!counts_cc[7]))) {
+      sprintf(logbuf, "Error: %s is monomorphic across all valid observations.\n", mkr2);
+      goto twolocus_ret_INVALID_CMDLINE_2;
+    } else if ((alen00 > (MAXLINELEN / 4) - 16) || (alen01 > (MAXLINELEN / 4) - 16)) {
+      sprintf(logbuf, "Error: %s has a pathologically long allele code.\n", mkr1);
+      goto twolocus_ret_INVALID_CMDLINE;
+    } else if ((alen10 > (MAXLINELEN / 4) - 16) || (alen11 > (MAXLINELEN / 4) - 16)) {
+      sprintf(logbuf, "Error: %s has a pathologically long allele code.\n", mkr2);
+      goto twolocus_ret_INVALID_CMDLINE;
+    }
+    sprintf(logbuf, "\n--ld %s %s:\n", mkr1, mkr2);
     logprintb();
-    // ...
+    ulii = 0;
+    // todo: factor out redundancy with ld_dprime_thread()
+    base_ct11 = 2 * counts_all[0] + counts_all[2] + counts_all[8];
+    base_ct12 = 2 * counts_all[3] + counts_all[2] + counts_all[11];
+    base_ct21 = 2 * counts_all[12] + counts_all[8] + counts_all[14];
+    base_ct22 = 2 * counts_all[15] + counts_all[11] + counts_all[14];
+    twice_tot_recip = 0.5 / ((double)((int32_t)count_total));
+    freq11 = ((int32_t)base_ct11) * twice_tot_recip;
+    freq12 = ((int32_t)base_ct12) * twice_tot_recip;
+    freq21 = ((int32_t)base_ct21) * twice_tot_recip;
+    freq22 = ((int32_t)base_ct22) * twice_tot_recip;
+    half_hethet_share = ((int32_t)counts_all[10]) * twice_tot_recip;
+    freq1x = freq11 + freq12 + half_hethet_share;
+    freq2x = 1.0 - freq1x;
+    freqx1 = freq11 + freq21 + half_hethet_share;
+    freqx2 = 1.0 - freqx1;
+    if (counts_all[10]) {
+      // detect degenerate cases to avoid e-17 ugliness
+      if (freq11 * freq22 != 0.0) {
+	if (freq12 * freq21 != 0.0) {
+	  // (f11 + x)(f22 + x)(K - x) = x(f12 + K - x)(f21 + K - x)
+	  // (x - K)(x + f11)(x + f22) + x(x - K - f12)(x - K - f21) = 0
+	  //   x^3 + (f11 + f22 - K)x^2 + (f11*f22 - K*f11 - K*f22)x - K*f11*f22
+	  // + x^3 - (2K + f12 + f21)x^2 + (K + f12)(K + f21)x = 0
+	  uljj = cubic_real_roots(0.5 * (freq11 + freq22 - freq12 - freq21 - 3 * half_hethet_share), 0.5 * (freq11 * freq22 + freq12 * freq21 + half_hethet_share * (freq12 + freq21 - freq11 - freq22 + half_hethet_share)), -0.5 * half_hethet_share * freq11 * freq22, solutions);
+	  if (uljj > 1) {
+	    while (solutions[uljj - 1] > half_hethet_share) {
+	      uljj--;
+	    }
+	    while (solutions[ulii] < 0.0) {
+	      ulii++;
+	    }
+	  }
+	} else {
+	  uljj = 1;
+          solutions[0] = half_hethet_share;
+	}
+      } else if (freq12 * freq21 == 0.0) {
+	uljj = 3;
+	solutions[0] = 0;
+	solutions[1] = (half_hethet_share + freq21 - freq22) * 0.5;
+	solutions[2] = half_hethet_share;
+      } else {
+        uljj = 1;
+	solutions[0] = 0;
+      }
+      if (uljj > ulii + 1) {
+	logprint("Multiple solutions; HWE or sample size assumptions may be violated.\n\nHWE exact test p-values\n-----------------------\n");
+	sprintf(logbuf, "   %s: %g\n", mkr1, SNPHWE2(counts_cc[2] + counts_all[9], counts_cc[0] + counts_all[1], counts_cc[3] + counts_all[13]));
+	logprintb();
+	sprintf(logbuf, "   %s: %g\n\n", mkr2, SNPHWE2(counts_cc[6] + counts_all[6], counts_cc[4] + counts_all[4], counts_cc[7] + counts_all[7]));
+	logprintb();
+      }
+    } else {
+      uljj = 1;
+      solutions[0] = 0.0;
+    }
+    if (uljj == ulii + 1) {
+      logprint("\n");
+    }
+    for (ulkk = ulii; ulkk < uljj; ulkk++) {
+      if (uljj - ulii > 1) {
+        sprintf(logbuf, "Solution #%" PRIuPTR ":\n", ulkk + 1 - ulii);
+	logprintb();
+      }
+      dxx = freq11 + solutions[ulkk] - freqx1 * freq1x; // D
+      if (fabs(dxx) < SMALL_EPSILON) {
+	dxx = 0;
+      }
+      bufptr = memcpya(logbuf, "   R-sq = ", 10);
+      bufptr = double_g_write(bufptr, dxx * dxx / (freq1x * freqx1 * freq2x * freqx2));
+      bufptr = memcpya(bufptr, "     D' = ", 10);
+      if (dxx >= 0) {
+	bufptr = double_g_write(bufptr, dxx / MINV(freqx1 * freq2x, freqx2 * freq1x));
+      } else {
+	bufptr = double_g_write(bufptr, -dxx / MINV(freqx1 * freq1x, freqx2 * freq2x));
+      }
+      bufptr = memcpya(bufptr, "\n\n", 3);
+      logprintb();
+      logprint("   Haplotype     Frequency    Expectation under LE\n");
+      logprint("   ---------     ---------    --------------------\n");
+      bufptr = memseta(logbuf, 32, 3);
+      if (alen00 + alen10 < 9) {
+	bufptr = memseta(bufptr, 32, 9 - alen00 - alen10);
+      }
+      bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[0]], alen00);
+      bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[1]], alen10);
+      bufptr = memseta(bufptr, 32, 2);
+      bufptr = width_force(12, bufptr, double_g_write(bufptr, freq11 + solutions[ulkk]));
+      bufptr = memseta(bufptr, 32, 12);
+      bufptr = width_force(12, bufptr, double_g_write(bufptr, freqx1 * freq1x));
+      bufptr = memcpya(bufptr, "\n", 2);
+      logprintb();
+      bufptr = &(logbuf[3]);
+      if (alen01 + alen10 < 9) {
+	bufptr = memseta(bufptr, 32, 9 - alen01 - alen10);
+      }
+      bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[0] + 1], alen01);
+      bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[1]], alen10);
+      bufptr = memseta(bufptr, 32, 2);
+      bufptr = width_force(12, bufptr, double_g_write(bufptr, freq21 + half_hethet_share - solutions[ulkk]));
+      bufptr = memseta(bufptr, 32, 12);
+      bufptr = width_force(12, bufptr, double_g_write(bufptr, freqx1 * freq2x));
+      bufptr = memcpya(bufptr, "\n", 2);
+      logprintb();
+      bufptr = &(logbuf[3]);
+      if (alen00 + alen11 < 9) {
+	bufptr = memseta(bufptr, 32, 9 - alen00 - alen11);
+      }
+      bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[0]], alen00);
+      bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[1] + 1], alen11);
+      bufptr = memseta(bufptr, 32, 2);
+      bufptr = width_force(12, bufptr, double_g_write(bufptr, freq12 + half_hethet_share - solutions[ulkk]));
+      bufptr = memseta(bufptr, 32, 12);
+      bufptr = width_force(12, bufptr, double_g_write(bufptr, freqx2 * freq1x));
+      bufptr = memcpya(bufptr, "\n", 2);
+      logprintb();
+      bufptr = &(logbuf[3]);
+      if (alen01 + alen11 < 9) {
+	bufptr = memseta(bufptr, 32, 9 - alen01 - alen11);
+      }
+      bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[0] + 1], alen01);
+      bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[1] + 1], alen11);
+      bufptr = memseta(bufptr, 32, 2);
+      bufptr = width_force(12, bufptr, double_g_write(bufptr, freq22 + solutions[ulkk]));
+      bufptr = memseta(bufptr, 32, 12);
+      bufptr = width_force(12, bufptr, double_g_write(bufptr, freqx2 * freq2x));
+      bufptr = memcpyl3a(bufptr, "\n\n");
+      logprintb();
+      bufptr = &(logbuf[3]);
+      bufptr = memcpya(bufptr, "In phase alleles are ", 21);
+      if (dxx > 0) {
+	bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[0]], alen00);
+	bufptr = memcpyax(bufptr, marker_allele_ptrs[2 * marker_uidxs[1]], alen10, '/');
+	bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[0] + 1], alen01);
+	bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[1] + 1], alen11);
+      } else {
+	bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[0]], alen00);
+	bufptr = memcpyax(bufptr, marker_allele_ptrs[2 * marker_uidxs[1] + 1], alen11, '/');
+	bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[0] + 1], alen01);
+	bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[1]], alen10);
+      }
+      bufptr = memcpyl3a(bufptr, "\n\n");
+      logprintb();
+    }
   }
   while (0) {
   twolocus_ret_NOMEM:
@@ -4804,6 +4982,10 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
     } else {
       logprint("Error: --ld variant name not found.\n");
     }
+    retval = RET_INVALID_CMDLINE;
+    break;
+  twolocus_ret_INVALID_CMDLINE_2:
+    logprintb();
   twolocus_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;

@@ -8603,12 +8603,74 @@ void cluster_dist_multiply(uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* c
   }
 }
 
-uint32_t cubic_real_solutions(double coef_a, double coef_b, double coef_c, double* solutions) {
-  // Analytically finds all real solutions to x^3 + ax^2 + bx + c, saving them
-  // in solutions[] (sorted from smallest to largest), and returning the count.
+uint32_t cubic_real_roots(double coef_a, double coef_b, double coef_c, double* solutions) {
+  // Analytically finds all real roots of x^3 + ax^2 + bx + c, saving them in
+  // solutions[] (sorted from smallest to largest), and returning the count.
   // Multiple roots are only returned/counted once.
   // Additional research into numerical stability may be in order here.
-  return 0;
+  double a2 = coef_a * coef_a;
+  double qq = (a2 - 3 * coef_b) * (1.0 / 9.0);
+  double rr = (2 * a2 * coef_a - 9 * coef_a * coef_b + 27 * coef_c) * (1.0 / 54.0);
+  double r2 = rr * rr;
+  double q3 = qq * qq * qq;
+  double adiv3 = coef_a * (1.0 / 3.0);
+  double sq;
+  double dxx;
+  if (r2 < q3) {
+    // three real roots
+    sq = sqrt(qq);
+    dxx = acos(rr / (qq * sq)) * (1.0 / 3.0);
+    sq *= -2;
+    solutions[0] = sq * cos(dxx) - adiv3;
+    solutions[1] = sq * cos(dxx + (2.0 * PI / 3.0)) - adiv3;
+    solutions[2] = sq * cos(dxx - (2.0 * PI / 3.0)) - adiv3;
+    // now sort and check for within-epsilon equality
+    if (solutions[0] > solutions[1]) {
+      dxx = solutions[0];
+      solutions[0] = solutions[1];
+      if (dxx > solutions[2]) {
+        solutions[1] = solutions[2];
+	solutions[2] = dxx;
+      } else {
+	solutions[1] = dxx;
+      }
+      if (solutions[0] > solutions[1]) {
+	dxx = solutions[0];
+	solutions[0] = solutions[1];
+	solutions[1] = dxx;
+      }
+    } else if (solutions[1] > solutions[2]) {
+      dxx = solutions[1];
+      solutions[1] = solutions[2];
+      solutions[2] = dxx;
+    }
+    if (solutions[1] - solutions[0] < EPSILON) {
+      solutions[1] = solutions[2];
+      return (solutions[1] - solutions[0] < EPSILON)? 1 : 2;
+    }
+    return (solutions[2] - solutions[1] < EPSILON)? 2 : 3;
+  }
+  dxx = -pow(fabs(rr) + sqrt(r2 - q3), 1.0 / 3.0);
+  if (dxx == 0.0) {
+    solutions[0] = -adiv3;
+    return 1;
+  } else {
+    if (rr < 0.0) {
+      dxx = -dxx;
+    }
+    sq = qq / dxx;
+  }
+  solutions[0] = dxx + sq - adiv3;
+  if (fabs(dxx - sq) < EPSILON) {
+    if (dxx >= 0.0) {
+      solutions[1] = solutions[0];
+      solutions[0] = -dxx - adiv3;
+    } else {
+      solutions[1] = -dxx - adiv3;
+    }
+    return 2;
+  }
+  return 1;
 }
 
 void join_threads(pthread_t* threads, uint32_t ctp1) {
