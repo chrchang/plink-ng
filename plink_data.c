@@ -10398,49 +10398,34 @@ void simulate_cc_get_conditional_probs(double prevalence, double g0, double g1, 
   //   + X * (g0 * hom0_odds + g1 * het_odds + g2 -
   //          prevalence * (1 + het_odds + hom0_odds)
   //   - prevalence
-  //
-  // Cubic discriminant:
-  //   27a^2d^2 + 4ac^3 + 4b^3d - b^2c^2 - 18abcd
-  //   (Wikipedia article currently has the sign wrong!)
-  //
-  // ...eh, screw it, casework for applying the formula is a bit too annoying
-  // for me to implement it for now.  Maybe if one or two other cubics come up,
-  // I'll do it.  Meanwhile, here's a simple numeric binary search.
-  uint32_t iters_left = 53;
-  double min_f2 = 0.0;
-  double max_f2 = 1.0;
-  double cur_f2;
+  double solutions[3];
+  double coef_recip;
   double cur_f2_odds;
-  double cur_f0;
-  double cur_f1;
-  double cur_prevalence;
+  double cur_f0_odds;
+  double cur_f1_odds;
+  uint32_t root_ct;
+  uint32_t root_idx;
   if ((prevalence == 0) || (prevalence == 1)) {
     *f0p = prevalence;
     *f1p = prevalence;
     *f2p = prevalence;
     return;
   }
-  do {
-    cur_f2 = 0.5 * (min_f2 + max_f2);
-    cur_f2_odds = cur_f2 / (1 - cur_f2);
-    // odds = p / (1 - p)
-    // -> p = odds / (1 + odds)
-    cur_f0 = cur_f2_odds * hom0_odds;
-    cur_f1 = cur_f2_odds * het_odds;
-    cur_f0 = cur_f0 / (1 + cur_f0);
-    cur_f1 = cur_f1 / (1 + cur_f1);
-    cur_prevalence = g0 * cur_f0 + g1 * cur_f1 + g2 * cur_f2;
-    if (cur_prevalence > prevalence) {
-      max_f2 = cur_f2;
-    } else if (cur_prevalence < prevalence) {
-      min_f2 = cur_f2;
-    } else {
-      break;
-    }
-  } while (--iters_left);
-  *f0p = cur_f0;
-  *f1p = cur_f1;
-  *f2p = cur_f2;
+  coef_recip = 1.0 / (het_odds * hom0_odds * (1.0 - prevalence));
+  // this always has a positive solution since f(0) is negative
+  root_ct = cubic_real_roots(coef_recip * (g0 * hom0_odds * (1 + het_odds) + g1 * het_odds + (1 + hom0_odds) + g2 * (hom0_odds + het_odds) - prevalence * (het_odds * hom0_odds + het_odds + hom0_odds)), coef_recip * (g0 * hom0_odds + g1 * het_odds + g2 - prevalence * (1 + het_odds + hom0_odds)), coef_recip * (-prevalence), solutions);
+  cur_f2_odds = solutions[0];
+  root_idx = 0;
+  while ((cur_f2_odds <= 0) && (root_idx + 1 < root_ct)) {
+    cur_f2_odds = solutions[++root_idx];
+  }
+  // odds = p / (1 - p)
+  // -> p = odds / (1 + odds)
+  cur_f0_odds = cur_f2_odds * hom0_odds;
+  cur_f1_odds = cur_f2_odds * het_odds;
+  *f0p = cur_f0_odds / (1 + cur_f0_odds);
+  *f1p = cur_f1_odds / (1 + cur_f1_odds);
+  *f2p = cur_f2_odds / (1 + cur_f2_odds);
 }
 
 void simulate_init_freqs_cc(uint32_t do_haps, double dprime, double* freqs, double prevalence, double het_odds, double hom0_odds, double missing_freq, uint64_t* ctrl_thresholds, uint64_t* case_thresholds) {

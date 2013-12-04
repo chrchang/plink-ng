@@ -4626,6 +4626,7 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
   uintptr_t* loadbuf1_ptr;
   uintptr_t* loadbuf0_end;
   char* bufptr;
+  char* bufptr2;
   uintptr_t indiv_ctl2;
   uintptr_t marker_uidx;
   uintptr_t marker_idx;
@@ -4891,9 +4892,11 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
       if (fabs(dxx) < SMALL_EPSILON) {
 	dxx = 0;
       }
-      bufptr = memcpya(logbuf, "   R-sq =", 9);
-      bufptr = double_f_writew96_spaced(bufptr, dxx * dxx / (freq1x * freqx1 * freq2x * freqx2));
-      bufptr = memcpya(bufptr, "     D' = ", 10);
+      bufptr = memcpya(logbuf, "   R-sq = ", 10);
+      bufptr2 = double_g_write(bufptr, dxx * dxx / (freq1x * freqx1 * freq2x * freqx2));
+      // assumes bufptr2 - bufptr < 15
+      bufptr = memseta(bufptr2, 32, 15 - ((uintptr_t)(bufptr2 - bufptr)));
+      bufptr = memcpya(bufptr, "D' = ", 5);
       if (dxx >= 0) {
 	bufptr = double_g_write(bufptr, dxx / MINV(freqx1 * freq2x, freqx2 * freq1x));
       } else {
