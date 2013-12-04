@@ -1730,6 +1730,17 @@ char* double_f_writew74(char* start, double dxx) {
   return start;
 }
 
+char* double_f_writew96_spaced(char* start, double dxx) {
+  start = double_f_writew96(start, dxx);
+  zeroes_to_spaces(start);
+  return start;
+}
+
+char* double_f_writew96_clipped(char* start, double dxx) {
+  start = double_f_writew96(start, dxx);
+  return clip_zeroes(start);
+}
+
 char* double_g_write(char* start, double dxx) {
   uint32_t xp10 = 0;
   uint32_t uii;

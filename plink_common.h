@@ -1003,6 +1003,32 @@ char* double_f_writew96(char* start, double dxx);
 
 char* double_f_writew74(char* start, double dxx);
 
+static inline void zeroes_to_spaces(char* start) {
+  // removes trailing zeroes
+  start--;
+  while (*start == '0') {
+    *start-- = ' ';
+  }
+  if (*start == '.') {
+    *start = ' ';
+  }
+}
+
+static inline char* clip_zeroes(char* start) {
+  start--;
+  while (*start == '0') {
+    *(start--) = ' ';
+  }
+  if (*start == '.') {
+    start--;
+  }
+  return &(start[1]);
+}
+
+char* double_f_writew96_spaced(char* start, double dxx);
+
+char* double_f_writew96_clipped(char* start, double dxx);
+
 char* double_g_write(char* start, double dxx);
 
 char* float_g_write(char* start, float dxx);

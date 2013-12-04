@@ -4490,28 +4490,28 @@ void twolocus_write_table(FILE* outfile, uint32_t* counts, uint32_t plink_maxsnp
   bufptr = memseta(tbuf, 32, plink_maxsnp + 14);
   bufptr = strcpyax(bufptr, mkr2, '\n');
   fwrite(tbuf, 1, bufptr - tbuf, outfile);
-  fwrite(tbuf, 1, plink_maxsnp + 7, outfile);
+  fwrite(tbuf, 1, plink_maxsnp + 9, outfile);
+  fputs(allele10, outfile);
+  putc('/', outfile);
+  fputs(allele10, outfile);
   if (alen10 < 4) {
     fwrite(spaces, 1, 9 - 2 * alen10, outfile);
   }
+  putc(' ', outfile);
   fputs(allele10, outfile);
   putc('/', outfile);
-  fputs(allele10, outfile);
-  putc(' ', outfile);
+  fputs(allele11, outfile);
   if (alen10 + alen11 < 7) {
     fwrite(spaces, 1, 9 - alen10 - alen11, outfile);
   }
-  fputs(allele10, outfile);
+  putc(' ', outfile);
+  fputs(allele11, outfile);
   putc('/', outfile);
   fputs(allele11, outfile);
-  putc(' ', outfile);
   if (alen11 < 4) {
     fwrite(spaces, 1, 9 - 2 * alen11, outfile);
   }
-  fputs(allele11, outfile);
-  putc('/', outfile);
-  fputs(allele11, outfile);
-  fputs("        0/0        */*\n", outfile);
+  fputs(" 0/0        */*\n", outfile);
 
   bufptr = fw_strcpy(plink_maxsnp, mkr1, tbuf);
   *bufptr++ = ' ';
@@ -4523,15 +4523,15 @@ void twolocus_write_table(FILE* outfile, uint32_t* counts, uint32_t plink_maxsnp
   putc('/', outfile);
   fputs(allele00, outfile);
   bufptr = memseta(tbuf, 32, 2);
-  bufptr = double_f_writew96(bufptr, ((int32_t)counts[0]) * tot_recip);
+  bufptr = double_f_writew96_spaced(bufptr, ((int32_t)counts[0]) * tot_recip);
   bufptr = memseta(bufptr, 32, 2);
-  bufptr = double_f_writew96(bufptr, ((int32_t)counts[2]) * tot_recip);
+  bufptr = double_f_writew96_spaced(bufptr, ((int32_t)counts[2]) * tot_recip);
   bufptr = memseta(bufptr, 32, 2);
-  bufptr = double_f_writew96(bufptr, ((int32_t)counts[3]) * tot_recip);
+  bufptr = double_f_writew96_spaced(bufptr, ((int32_t)counts[3]) * tot_recip);
   bufptr = memseta(bufptr, 32, 2);
-  bufptr = double_f_writew96(bufptr, ((int32_t)counts[1]) * tot_recip);
+  bufptr = double_f_writew96_spaced(bufptr, ((int32_t)counts[1]) * tot_recip);
   bufptr = memseta(bufptr, 32, 2);
-  bufptr = double_f_writew96(bufptr, ((int32_t)marg_a[0]) * tot_recip);
+  bufptr = double_f_writew96_clipped(bufptr, ((int32_t)marg_a[0]) * tot_recip);
   *bufptr++ = '\n';
   fwrite(tbuf, 1, bufptr - tbuf, outfile);
 
@@ -4544,15 +4544,15 @@ void twolocus_write_table(FILE* outfile, uint32_t* counts, uint32_t plink_maxsnp
   putc('/', outfile);
   fputs(allele01, outfile);
   bufptr = memseta(tbuf, 32, 2);
-  bufptr = double_f_writew96(bufptr, ((int32_t)counts[8]) * tot_recip);
+  bufptr = double_f_writew96_spaced(bufptr, ((int32_t)counts[8]) * tot_recip);
   bufptr = memseta(bufptr, 32, 2);
-  bufptr = double_f_writew96(bufptr, ((int32_t)counts[10]) * tot_recip);
+  bufptr = double_f_writew96_spaced(bufptr, ((int32_t)counts[10]) * tot_recip);
   bufptr = memseta(bufptr, 32, 2);
-  bufptr = double_f_writew96(bufptr, ((int32_t)counts[11]) * tot_recip);
+  bufptr = double_f_writew96_spaced(bufptr, ((int32_t)counts[11]) * tot_recip);
   bufptr = memseta(bufptr, 32, 2);
-  bufptr = double_f_writew96(bufptr, ((int32_t)counts[9]) * tot_recip);
+  bufptr = double_f_writew96_spaced(bufptr, ((int32_t)counts[9]) * tot_recip);
   bufptr = memseta(bufptr, 32, 2);
-  bufptr = double_f_writew96(bufptr, ((int32_t)marg_a[2]) * tot_recip);
+  bufptr = double_f_writew96_clipped(bufptr, ((int32_t)marg_a[2]) * tot_recip);
   *bufptr++ = '\n';
   fwrite(tbuf, 1, bufptr - tbuf, outfile);
 
@@ -4565,42 +4565,42 @@ void twolocus_write_table(FILE* outfile, uint32_t* counts, uint32_t plink_maxsnp
   putc('/', outfile);
   fputs(allele01, outfile);
   bufptr = memseta(tbuf, 32, 2);
-  bufptr = double_f_writew96(bufptr, ((int32_t)counts[12]) * tot_recip);
+  bufptr = double_f_writew96_spaced(bufptr, ((int32_t)counts[12]) * tot_recip);
   bufptr = memseta(bufptr, 32, 2);
-  bufptr = double_f_writew96(bufptr, ((int32_t)counts[14]) * tot_recip);
+  bufptr = double_f_writew96_spaced(bufptr, ((int32_t)counts[14]) * tot_recip);
   bufptr = memseta(bufptr, 32, 2);
-  bufptr = double_f_writew96(bufptr, ((int32_t)counts[15]) * tot_recip);
+  bufptr = double_f_writew96_spaced(bufptr, ((int32_t)counts[15]) * tot_recip);
   bufptr = memseta(bufptr, 32, 2);
-  bufptr = double_f_writew96(bufptr, ((int32_t)counts[13]) * tot_recip);
+  bufptr = double_f_writew96_spaced(bufptr, ((int32_t)counts[13]) * tot_recip);
   bufptr = memseta(bufptr, 32, 2);
-  bufptr = double_f_writew96(bufptr, ((int32_t)marg_a[3]) * tot_recip);
+  bufptr = double_f_writew96_clipped(bufptr, ((int32_t)marg_a[3]) * tot_recip);
   *bufptr++ = '\n';
   fwrite(tbuf, 1, bufptr - tbuf, outfile);
 
   bufptr = memseta(tbuf, 32, plink_maxsnp + 3);
   bufptr = memcpya(bufptr, "0/0  ", 5);
-  bufptr = double_f_writew96(bufptr, ((int32_t)counts[4]) * tot_recip);
+  bufptr = double_f_writew96_spaced(bufptr, ((int32_t)counts[4]) * tot_recip);
   bufptr = memseta(bufptr, 32, 2);
-  bufptr = double_f_writew96(bufptr, ((int32_t)counts[6]) * tot_recip);
+  bufptr = double_f_writew96_spaced(bufptr, ((int32_t)counts[6]) * tot_recip);
   bufptr = memseta(bufptr, 32, 2);
-  bufptr = double_f_writew96(bufptr, ((int32_t)counts[7]) * tot_recip);
+  bufptr = double_f_writew96_spaced(bufptr, ((int32_t)counts[7]) * tot_recip);
   bufptr = memseta(bufptr, 32, 2);
-  bufptr = double_f_writew96(bufptr, ((int32_t)counts[5]) * tot_recip);
+  bufptr = double_f_writew96_spaced(bufptr, ((int32_t)counts[5]) * tot_recip);
   bufptr = memseta(bufptr, 32, 2);
-  bufptr = double_f_writew96(bufptr, ((int32_t)marg_a[1]) * tot_recip);
+  bufptr = double_f_writew96_clipped(bufptr, ((int32_t)marg_a[1]) * tot_recip);
   *bufptr++ = '\n';
   fwrite(tbuf, 1, bufptr - tbuf, outfile);
 
   bufptr = memseta(tbuf, 32, plink_maxsnp + 3);
   bufptr = memcpya(bufptr, "*/*  ", 5);
-  bufptr = double_f_writew96(bufptr, ((int32_t)marg_b[0]) * tot_recip);
+  bufptr = double_f_writew96_spaced(bufptr, ((int32_t)marg_b[0]) * tot_recip);
   bufptr = memseta(bufptr, 32, 2);
-  bufptr = double_f_writew96(bufptr, ((int32_t)marg_b[2]) * tot_recip);
+  bufptr = double_f_writew96_spaced(bufptr, ((int32_t)marg_b[2]) * tot_recip);
   bufptr = memseta(bufptr, 32, 2);
-  bufptr = double_f_writew96(bufptr, ((int32_t)marg_b[3]) * tot_recip);
+  bufptr = double_f_writew96_spaced(bufptr, ((int32_t)marg_b[3]) * tot_recip);
   bufptr = memseta(bufptr, 32, 2);
-  bufptr = double_f_writew96(bufptr, ((int32_t)marg_b[1]) * tot_recip);
-  bufptr = memcpya(bufptr, "          1\n\n", 13);
+  bufptr = double_f_writew96_spaced(bufptr, ((int32_t)marg_b[1]) * tot_recip);
+  bufptr = memcpya(bufptr, "   1\n\n", 6);
   fwrite(tbuf, 1, bufptr - tbuf, outfile);
 }
 
@@ -4855,10 +4855,15 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
           solutions[0] = half_hethet_share;
 	}
       } else if (freq12 * freq21 == 0.0) {
-	uljj = 3;
 	solutions[0] = 0;
-	solutions[1] = (half_hethet_share + freq21 - freq22) * 0.5;
-	solutions[2] = half_hethet_share;
+	if ((freq22 + EPSILON < half_hethet_share + freq21) && (freq21 + EPSILON < half_hethet_share + freq22)) {
+	  uljj = 3;
+	  solutions[1] = (half_hethet_share + freq21 - freq22) * 0.5;
+	  solutions[2] = half_hethet_share;
+	} else {
+	  uljj = 2;
+	  solutions[1] = half_hethet_share;
+	}
       } else {
         uljj = 1;
 	solutions[0] = 0;
@@ -4886,8 +4891,8 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
       if (fabs(dxx) < SMALL_EPSILON) {
 	dxx = 0;
       }
-      bufptr = memcpya(logbuf, "   R-sq = ", 10);
-      bufptr = double_g_write(bufptr, dxx * dxx / (freq1x * freqx1 * freq2x * freqx2));
+      bufptr = memcpya(logbuf, "   R-sq =", 9);
+      bufptr = double_f_writew96_spaced(bufptr, dxx * dxx / (freq1x * freqx1 * freq2x * freqx2));
       bufptr = memcpya(bufptr, "     D' = ", 10);
       if (dxx >= 0) {
 	bufptr = double_g_write(bufptr, dxx / MINV(freqx1 * freq2x, freqx2 * freq1x));
@@ -4904,10 +4909,10 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
       }
       bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[0]], alen00);
       bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[1]], alen10);
-      bufptr = memseta(bufptr, 32, 2);
-      bufptr = width_force(12, bufptr, double_g_write(bufptr, freq11 + solutions[ulkk]));
-      bufptr = memseta(bufptr, 32, 12);
-      bufptr = width_force(12, bufptr, double_g_write(bufptr, freqx1 * freq1x));
+      bufptr = memseta(bufptr, 32, 5);
+      bufptr = double_f_writew96_spaced(bufptr, freq11 + solutions[ulkk]);
+      bufptr = memseta(bufptr, 32, 15);
+      bufptr = double_f_writew96_clipped(bufptr, freqx1 * freq1x);
       bufptr = memcpya(bufptr, "\n", 2);
       logprintb();
       bufptr = &(logbuf[3]);
@@ -4916,10 +4921,10 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
       }
       bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[0] + 1], alen01);
       bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[1]], alen10);
-      bufptr = memseta(bufptr, 32, 2);
-      bufptr = width_force(12, bufptr, double_g_write(bufptr, freq21 + half_hethet_share - solutions[ulkk]));
-      bufptr = memseta(bufptr, 32, 12);
-      bufptr = width_force(12, bufptr, double_g_write(bufptr, freqx1 * freq2x));
+      bufptr = memseta(bufptr, 32, 5);
+      bufptr = double_f_writew96_spaced(bufptr, freq21 + half_hethet_share - solutions[ulkk]);
+      bufptr = memseta(bufptr, 32, 15);
+      bufptr = double_f_writew96_clipped(bufptr, freqx1 * freq2x);
       bufptr = memcpya(bufptr, "\n", 2);
       logprintb();
       bufptr = &(logbuf[3]);
@@ -4928,10 +4933,10 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
       }
       bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[0]], alen00);
       bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[1] + 1], alen11);
-      bufptr = memseta(bufptr, 32, 2);
-      bufptr = width_force(12, bufptr, double_g_write(bufptr, freq12 + half_hethet_share - solutions[ulkk]));
-      bufptr = memseta(bufptr, 32, 12);
-      bufptr = width_force(12, bufptr, double_g_write(bufptr, freqx2 * freq1x));
+      bufptr = memseta(bufptr, 32, 5);
+      bufptr = double_f_writew96_spaced(bufptr, freq12 + half_hethet_share - solutions[ulkk]);
+      bufptr = memseta(bufptr, 32, 15);
+      bufptr = double_f_writew96_clipped(bufptr, freqx2 * freq1x);
       bufptr = memcpya(bufptr, "\n", 2);
       logprintb();
       bufptr = &(logbuf[3]);
@@ -4940,10 +4945,10 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
       }
       bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[0] + 1], alen01);
       bufptr = memcpya(bufptr, marker_allele_ptrs[2 * marker_uidxs[1] + 1], alen11);
-      bufptr = memseta(bufptr, 32, 2);
-      bufptr = width_force(12, bufptr, double_g_write(bufptr, freq22 + solutions[ulkk]));
-      bufptr = memseta(bufptr, 32, 12);
-      bufptr = width_force(12, bufptr, double_g_write(bufptr, freqx2 * freq2x));
+      bufptr = memseta(bufptr, 32, 5);
+      bufptr = double_f_writew96_spaced(bufptr, freq22 + solutions[ulkk]);
+      bufptr = memseta(bufptr, 32, 15);
+      bufptr = double_f_writew96_clipped(bufptr, freqx2 * freq2x);
       bufptr = memcpyl3a(bufptr, "\n\n");
       logprintb();
       bufptr = &(logbuf[3]);
