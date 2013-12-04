@@ -7836,7 +7836,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       if (!is_space_or_eoln(*cptr2)) {
 	no_extra_cols = 0;
 	putchar('\r');
-	logprint("Note: Extra columns in .tped file.  Ignoring.\n");
+	logprint("Warning: Extra columns in .tped file.  Ignoring.\n");
 	transposed_to_bed_print_pct(pct);
 	goto transposed_to_bed_nextline;
       }

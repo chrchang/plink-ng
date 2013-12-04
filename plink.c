@@ -93,7 +93,7 @@ const char ver_str2[] =
 const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
 const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n";
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
-const char notestr_null_calc[] = "Note: No output requested.  Exiting.\n";
+const char null_calc_str[] = "Warning: No output requested.  Exiting.\n";
 #ifdef STABLE_BUILD
 const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --hardy, --ibc, --indep, --r2, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour, --ibs-test,\n--regress-distance, --model, --gxe, --logistic, --lasso, and --fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
 #else
@@ -1032,11 +1032,11 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
   if (makepheno_all) {
     fill_all_bits(pheno_nm, unfiltered_indiv_ct);
   }
-  tbuf[MAXLINELEN - 1] = ' ';  
+  // probably want to permit long lines here
+  tbuf[MAXLINELEN - 1] = ' '; 
   while (fgets(tbuf, MAXLINELEN, phenofile) != NULL) {
     if (!tbuf[MAXLINELEN - 1]) {
-      sprintf(logbuf, "Error: Excessively long line in phenotype file (max %d chars).\n", MAXLINELEN - 3);
-      logprintb();
+      logprint("Error: Pathologically long line in phenotype file.\n");
       return RET_INVALID_FORMAT;
     }
     bufptr0 = skip_initial_spaces(tbuf);
@@ -1227,7 +1227,7 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, infile)) {
     if (!tbuf[MAXLINELEN - 1]) {
-      sprintf(logbuf, "Error: Excessively long line in --keep/--remove file (max %u chars).\n", MAXLINELEN - 3);
+      logprint("Error: Pathologically long line in --keep/--remove file.\n");
       goto filter_indivs_file_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(tbuf);
@@ -1279,12 +1279,9 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
   filter_indivs_file_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  filter_indivs_file_ret_INVALID_FORMAT_2:
-    logprintb();
-    retval = RET_INVALID_FORMAT;
-    break;
   filter_indivs_file_ret_INVALID_FORMAT:
     logprint("Error: Too few columns in --filter file line.\n");
+  filter_indivs_file_ret_INVALID_FORMAT_2:
     retval = RET_INVALID_FORMAT;
     break;
   filter_indivs_file_ret_ALL_SAMPLES_EXCLUDED:
@@ -2674,7 +2671,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
   while (0) {
   read_external_freqs_ret_TOO_LONG_LINE:
     if (loadbuf_size == MAXLINEBUFLEN) {
-      logprint("Error: Pathologically long line in --freq[x] file.\n");
+      logprint("Error: Pathologically long line in --freq{x} file.\n");
       retval = RET_INVALID_FORMAT;
       break;
     }
@@ -4724,7 +4721,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   if (covar_fname) {
     // update this as more covariate-referencing commands are added
     if (!(calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_WRITE_COVAR | CALC_GXE | CALC_GLM | CALC_LASSO))) {
-      logprint("Note: Ignoring --covar since no commands reference the covariates.\n");
+      logprint("Warning: Ignoring --covar since no commands reference the covariates.\n");
     } else {
       // if only --gxe, ignore --covar-name/--covar-number
       uii = (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_WRITE_COVAR | CALC_GLM | CALC_LASSO))? 1 : 0;
@@ -6592,7 +6589,6 @@ int32_t main(int32_t argc, char** argv) {
   }
   if (!flag_ct) {
     print_ver();
-    fputs(notestr_null_calc, stdout);
     fputs(cmdline_format_str, stdout);
     fputs(notestr_null_calc2, stdout);
     retval = RET_NULL_CALC;
@@ -12091,7 +12087,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --threads parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	} else if (ii > MAX_THREADS) {
-	  sprintf(logbuf, "Note: Reducing --threads parameter to %d.  (If this is not large enough,\nrecompile with a larger MAX_THREADS setting.)\n", MAX_THREADS);
+	  sprintf(logbuf, "Note: Reducing --threads parameter to %u.  (If this is not large enough,\nrecompile with a larger MAX_THREADS setting.)\n", MAX_THREADS);
 	  logprintb();
 	  ii = MAX_THREADS;
 	}
@@ -13239,7 +13235,7 @@ int32_t main(int32_t argc, char** argv) {
     retval = RET_INVALID_CMDLINE;
     break;
   main_ret_NULL_CALC:
-    logprint(notestr_null_calc);
+    logprint(null_calc_str);
     fputs(cmdline_format_str, stdout);
     fputs(notestr_null_calc2, stdout);
     retval = RET_NULL_CALC;

@@ -569,9 +569,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("make-rel", &help_ctrl, 1,
 "  --make-rel <square | square0 | triangle> <gz | bin> <cov | ibc2 | ibc3>\n"
 "             <single-prec>\n"
-"    Write a lower-triangular variance-standardized relationship (coancestry)\n"
-"    matrix to {output prefix}.rel, and corresponding IDs to\n"
-"    {output prefix}.rel.id.\n"
+"    Write a lower-triangular variance-standardized realized relationship matrix\n"
+"    to {output prefix}.rel, and corresponding IDs to {output prefix}.rel.id.\n"
 "    * 'square', 'square0', 'triangle', 'gz', and 'bin' act as they do on\n"
 "      --distance.\n"
 "    * The 'cov' modifier removes the variance standardization step, causing a\n"
@@ -1004,8 +1003,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --simulate-n [num]        : Set --simulate-qt indiv count (default 1000).\n"
 	       );
     help_print("simulate\tsimulate-qt\tsimulate-label\tsimulate-missing", &help_ctrl, 0,
-"  --simulate-label [prefix] : Set --simulate(-qt) individual name prefix.\n"
-"  --simulate-missing [freq] : Set --simulate(-qt) missing genotype frequency.\n"
+"  --simulate-label [prefix] : Set --simulate{-qt} individual name prefix.\n"
+"  --simulate-missing [freq] : Set --simulate{-qt} missing genotype frequency.\n"
 	       );
     help_print("pheno\tall-pheno\tmpheno\tpheno-name\tpheno-merge", &help_ctrl, 0,
 "  --pheno [fname]  : Load phenotype data from the specified file, instead of\n"
@@ -1309,7 +1308,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 #endif
     help_print("indep\tindep-pairwise\tld-xchr", &help_ctrl, 0,
-"  --ld-xchr [code]   : Specify X chromosome model for --indep{-pairwise}.\n"
+"  --ld-xchr [code]   : Specify Xchr model for --indep{-pairwise}/--r{2}.\n"
 "                       1 (default) = males coded 0/1, females 0/1/2 (A1 dosage)\n"
 "                       2 = males coded 0/2\n"
 "                       3 = males coded 0/2, but females given double weighting\n"

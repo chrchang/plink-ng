@@ -43,14 +43,15 @@ typedef struct {
   uint32_t** range_ptrs;
 
   // uninitialized if range representation used
-  // otherwise, [2n] is offset and [2n+1] is bit length; 16-bit alignment
-  // forced
+  // otherwise, [2n] is offset and [2n+1] is bit length.  for
+  // SSE2-friendliness, offsets are always divisible by 128.
   uint32_t* bounds;
 
   // entry is NULL if that set is represented with a range
   uintptr_t** bitfield_ptrs;
 
-  // bitfield tracking whether all out-of-bounds variants are in the set
+  // bitfield tracking whether all out-of-bounds variants are in set n.  (bit
+  // should always be clear for range representation.)
   uintptr_t* include_out_of_bounds;
 } Set_info;
 

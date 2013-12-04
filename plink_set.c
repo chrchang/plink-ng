@@ -54,19 +54,21 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   char* midbuf = &(tbuf[MAXLINELEN]);
   char* sorted_subset_ids = NULL;
   char* set_names = NULL;
-  char* bufptr;
+  char* bufptr = NULL;
   char* bufptr2;
   char* bufptr3;
+  char* buf_end;
   Ll_str* ll_tmp;
   Make_set_range* msr_tmp;
   uint32_t* marker_id_map;
-  uint32_t* set_range_ptrs;
+  uint32_t** set_range_ptrs;
   uint32_t* set_bounds;
   uintptr_t* marker_exclude_new;
   uintptr_t* marker_bitfield_tmp;
-  uintptr_t* set_bitfield_ptrs;
+  uintptr_t** set_bitfield_ptrs;
   uintptr_t* include_out_of_bounds;
   uint32_t* uiptr;
+  uintptr_t set_ctl;
   uintptr_t set_idx;
   uintptr_t bufsize;
   uintptr_t topsize_bak;
@@ -262,13 +264,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       set_names = (char*)wkspace_alloc(set_ct * max_set_id_len);
       rewind(infile);
     } else {
-      max_set_id_len = strlen(sip->merged_set_name) + 1;
       set_ct = 1;
-      wkspace_left -= topsize;
-      if (wkspace_alloc_c_checked(&set_names, max_set_id_len)) {
-	goto define_sets_ret_NOMEM2;
-      }
-      wkspace_left += topsize;
     }
     make_set_range_arr = (Make_set_range**)top_alloc(&topsize, set_ct * sizeof(intptr_t));
     for (set_idx = 0; set_idx < set_ct; set_idx++) {
@@ -356,8 +352,9 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       make_set_range_arr[set_idx] = msr_tmp;
     }
   }
-  // 3. if --gene or --gene-all is present, pre-filter variants.
+  // 4. if --gene or --gene-all is present, pre-filter variants.
   if (gene_all || sip->genekeep_flattened) {
+    topsize_bak = topsize;
     marker_bitfield_tmp = (uintptr_t*)top_alloc(&topsize, unfiltered_marker_ctl * sizeof(intptr_t));
     if (!marker_bitfield_tmp) {
       goto define_sets_ret_NOMEM;
@@ -366,11 +363,11 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     if (!marker_exclude_new) {
       goto define_sets_ret_NOMEM;
     }
+    fill_ulong_zero(marker_bitfield_tmp, unfiltered_marker_ctl);
     fill_all_bits(marker_exclude_new, unfiltered_marker_ct);
     // then include every variant that appears, or include every variant that
     // fails to appear in a fully loaded set in the complement case
     if (make_set) {
-      fill_ulong_zero(marker_bitfield_tmp, unfiltered_marker_ctl);
       for (set_idx = 0; set_idx < set_ct; set_idx++) {
         msr_tmp = make_set_range_arr[set_idx];
 	while (msr_tmp) {
@@ -389,12 +386,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
           fill_ulong_zero(marker_bitfield_tmp, unfiltered_marker_ctl);
 	}
       }
-      if (!complement_sets) {
-	bitfield_andnot(marker_exclude_new, marker_bitfield_tmp, unfiltered_marker_ctl);
-      }
-      bitfield_or(marker_exclude, marker_exclude_new, unfiltered_marker_ctl);
     } else {
-      topsize_bak = topsize;
       sorted_marker_ids = (char*)top_alloc(&topsize, marker_ct * max_marker_id_len);
       if (!sorted_marker_ids) {
 	goto define_sets_ret_NOMEM;
@@ -460,37 +452,185 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	    if (!in_set) {
 	      goto define_sets_ret_INVALID_FORMAT_EXTRA_END;
 	    }
+            if (complement_sets) {
+	      bitfield_and(marker_exclude_new, marker_bitfield_tmp, unfiltered_marker_ctl);
+              fill_ulong_zero(marker_bitfield_tmp, unfiltered_marker_ctl);
+	    }
             in_set = 0;
 	  } else if (!in_set) {
+	    if (subset_ct) {
+	      *bufptr2 = '\0';
+	      ii = bsearch_str(bufptr, sorted_subset_ids, max_subset_id_len, 0, subset_ct - 1);
+	      if (ii == -1) {
+		in_set = 2; // ignore this set
+		bufptr = &(bufptr2[1]);
+		continue;
+	      }
+	    }
 	    if (curtoklen >= max_set_id_len) {
 	      max_set_id_len = curtoklen + 1;
 	    }
 	    set_ct++;
 	    in_set = 1;
-	  } else {
+	  } else if (in_set == 1) {
 	    *bufptr2 = '\0';
 	    ii = bsearch_str(bufptr, sorted_marker_ids, max_marker_id_len, 0, marker_ct - 1);
 	    if (ii != -1) {
-              = marker_id_map[(uint32_t)ii];
-	    // look up marker ID
+	      set_bit(marker_bitfield_tmp, marker_id_map[(uint32_t)ii]);
 	    }
 	  }
+	  bufptr = &(bufptr2[1]);
 	}
       }
       if (!feof(infile)) {
 	goto define_sets_ret_READ_FAIL;
       }
-      topsize = topsize_bak;
+      if (!set_ct) {
+	if (!complement_sets) {
+	  logprint("Error: All variants excluded by --gene{-all}, since no sets were defined from\n--set file.\n");
+	  goto define_sets_ret_ALL_MARKERS_EXCLUDED;
+	}
+	logprint("Warning: No sets defined from --set file.\n");
+	goto define_sets_ret_1;
+      }
     }
+    if (!complement_sets) {
+      bitfield_andnot(marker_exclude_new, marker_bitfield_tmp, unfiltered_marker_ctl);
+    }
+    bitfield_or(marker_exclude, marker_exclude_new, unfiltered_marker_ctl);
+    marker_exclude_ct = popcount_longs(marker_exclude, 0, unfiltered_marker_ctl);
     if (marker_exclude_ct == unfiltered_marker_ct) {
       goto define_sets_ret_ALL_MARKERS_EXCLUDED;
     }
     *marker_exclude_ct_ptr = marker_exclude_ct;
     rewind(infile);
-  } else if () {
-    // 4. otherwise, with --set and no --set-collapse-all, count number of sets
+    topsize = topsize_bak;
+  } else if ((!make_set) && (!sip->merged_set_name)) {
+    // 5. otherwise, with --set and no --set-collapse-all, count number of sets
     //    and max_name_len.
+    while (1) {
+      if (fread_checked(midbuf, MAXLINELEN, infile, &bufsize)) {
+	goto define_sets_ret_READ_FAIL;
+      }
+      if (!bufsize) {
+	if (curtoklen) {
+	  if ((curtoklen != 3) || (memcmp(bufptr, "END", 3))) {
+	    goto define_sets_ret_INVALID_FORMAT_NO_END;
+	  } else if (!in_set) {
+	    goto define_sets_ret_INVALID_FORMAT_EXTRA_END;
+	  }
+	} else if (in_set) {
+          goto define_sets_ret_INVALID_FORMAT_NO_END;
+	}
+	break;
+      }
+      buf_end = &(midbuf[bufsize]);
+      *buf_end = ' ';
+      buf_end[1] = '0';
+      bufptr = &(tbuf[MAXLINELEN - curtoklen]);
+      bufptr2 = midbuf;
+      if (curtoklen) {
+	goto define_sets_tok_start_2;
+      }
+      while (1) {
+	while (*bufptr <= ' ') {
+	  bufptr++;
+	}
+        if (bufptr >= buf_end) {
+          curtoklen = 0;
+	  break;
+	}
+        bufptr2 = &(bufptr[1]);
+      define_sets_tok_start_2:
+        while (*bufptr2 > ' ') {
+	  bufptr2++;
+	}
+        curtoklen = (uintptr_t)(bufptr2 - bufptr);
+        if ((bufptr2 == buf_end) && (buf_end == &(tbuf[MAXLINELEN * 2]))) {
+          bufptr3 = &(tbuf[MAXLINELEN - curtoklen]);
+          memcpy(bufptr3, bufptr, curtoklen);
+	  bufptr = bufptr3;
+	  break;
+	}
+        if ((curtoklen == 3) && (!memcmp(bufptr, "END", 3))) {
+          if (!in_set) {
+	    goto define_sets_ret_INVALID_FORMAT_EXTRA_END;
+	  }
+	  in_set = 0;
+	} else if (!in_set) {
+	  in_set = 1;
+	  if (subset_ct) {
+	    *bufptr2 = '\0';
+            ii = bsearch_str(bufptr, sorted_subset_ids, max_subset_id_len, 0, subset_ct - 1);
+            if (ii == -1) {
+	      // no need for in_set = 2, just don't adjust set_ct/id_len
+              bufptr = &(bufptr2[1]);
+	      continue;
+	    }
+	  }
+	  if (curtoklen >= max_set_id_len) {
+	    max_set_id_len = curtoklen + 1;
+	  }
+	  set_ct++;
+	}
+	bufptr = &(bufptr2[1]);
+      }
+    }
+    if (!set_ct) {
+      logprint("Warning: No sets defined from --set file.\n");
+      goto define_sets_ret_1;
+    }
+    rewind(infile);
   }
+  // 6. allocate sip->names[], range_ptrs[], bounds[], bitfield_ptrs[],
+  //    include_out_of_bounds[] on stack
+  wkspace_left -= topsize;
+  if (!set_names) {
+    if (sip->merged_set_name) {
+      set_ct = 1;
+      max_set_id_len = strlen(sip->merged_set_name) + 1;
+      if (wkspace_alloc_c_checked(&set_names, max_set_id_len)) {
+	goto define_sets_ret_NOMEM2;
+      }
+      memcpy(set_names, sip->merged_set_name, max_set_id_len);
+    } else {
+      if (wkspace_alloc_c_checked(&set_names, set_ct * max_set_id_len)) {
+	goto define_sets_ret_NOMEM2;
+      }
+    }
+  }
+  set_range_ptrs = (uint32_t**)wkspace_alloc(set_ct * sizeof(intptr_t));
+  if (!set_range_ptrs) {
+    goto define_sets_ret_NOMEM2;
+  }
+  if (wkspace_alloc_ui_checked(&set_bounds, 2 * set_ct * sizeof(int32_t))) {
+    goto define_sets_ret_NOMEM2;
+  }
+  set_bitfield_ptrs = (uintptr_t**)wkspace_alloc(set_ct * sizeof(intptr_t));
+  if (!set_bitfield_ptrs) {
+    goto define_sets_ret_NOMEM2;
+  }
+  set_ctl = (set_ct + (BITCT - 1)) / BITCT;
+  if (wkspace_alloc_ul_checked(&include_out_of_bounds, set_ctl * sizeof(intptr_t))) {
+    goto define_sets_ret_NOMEM2;
+  }
+  fill_ulong_zero(include_out_of_bounds, set_ctl);
+  printf("set_ct: %lu\n", set_ct);
+  exit(1);
+  if (make_set) {
+    // 7. If --make-set, allocate entries on stack (todo: check if bitfield
+    //    representation is more compact)
+  } else {
+    // 8. If --set, load sets and allocate on stack (todo: check if range
+    //    representation is more compact)
+  }
+  wkspace_left += topsize;
+  sip->ct = set_ct;
+  sip->max_name_len = max_set_id_len;
+  sip->range_ptrs = set_range_ptrs;
+  sip->bounds = set_bounds;
+  sip->bitfield_ptrs = set_bitfield_ptrs;
+  sip->include_out_of_bounds = include_out_of_bounds;
   while (0) {
   define_sets_merge_nothing:
     sip->ct = 1;
@@ -543,7 +683,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     break;
   define_sets_ret_INVALID_FORMAT_NO_END:
     logprint("Error: Last token in --set file isn't 'END'.\n");
-    retval = RET_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
     break;
   define_sets_ret_INVALID_FORMAT_2:
     logprintb();
