@@ -4043,6 +4043,7 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
   int32_t retval = 0;
   const char* missing_geno_ptr = g_missing_geno_ptr;
   const char* output_missing_geno_ptr = g_output_missing_geno_ptr;
+  char cbuf[16];
   char wbuf[16];
   uint32_t chrom_start[MAX_POSSIBLE_CHROM + 1];
   uint32_t chrom_id[MAX_POSSIBLE_CHROM];
@@ -4083,8 +4084,9 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
     cur_chrom = chrom_id[uii];
     ujj = chrom_start[uii + 1];
     if (cur_chrom <= max_code) {
-      chrom_ptr = uint32_write(wbuf, cur_chrom);
+      chrom_ptr = uint32_write(cbuf, cur_chrom);
       *chrom_ptr = '\0';
+      chrom_ptr = cbuf;
     } else if (zero_extra_chroms) {
       chrom_ptr = (char*)(&(g_one_char_strs[96]));
     } else {
@@ -4965,7 +4967,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	pheno_col = col_idx;
 	if (cc == 'B') {
 	  // check for pathological case
-	  if (mc_ct && ((bsearch_str("0", sorted_mc, max_mc_len, 0, mc_ct - 1) == -1) || (bsearch_str("1", sorted_mc, max_mc_len, 0, mc_ct - 1) == -1))) {
+	  if (mc_ct && ((bsearch_str("0", sorted_mc, max_mc_len, 0, mc_ct - 1) != -1) || (bsearch_str("1", sorted_mc, max_mc_len, 0, mc_ct - 1) != -1))) {
 	    logprint("Error: '0' and '1' are unacceptable missing case/control phenotype codes.\n");
 	    goto oxford_to_bed_ret_INVALID_CMDLINE;
 	  }

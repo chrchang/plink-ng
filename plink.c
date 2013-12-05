@@ -80,7 +80,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (4 Dec 2013) ";
+  " (5 Dec 2013) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -9788,7 +9788,7 @@ int32_t main(int32_t argc, char** argv) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx <= 0)) {
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0)) {
 	  sprintf(logbuf, "Error: Invalid --ld-window-kb parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
