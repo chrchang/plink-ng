@@ -2695,7 +2695,7 @@ uint32_t next_unset(uintptr_t* bit_arr, uint32_t loc, uint32_t ceil) {
   }
   bit_arr_last = &(bit_arr[(ceil - 1) / BITCT]);
   do {
-    if (bit_arr_ptr == bit_arr_last) {
+    if (bit_arr_ptr >= bit_arr_last) {
       return ceil;
     }
     ulii = *(++bit_arr_ptr);
@@ -2715,7 +2715,7 @@ uintptr_t next_unset_ul(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil) {
   }
   bit_arr_last = &(bit_arr[(ceil - 1) / BITCT]);
   do {
-    if (bit_arr_ptr == bit_arr_last) {
+    if (bit_arr_ptr >= bit_arr_last) {
       return ceil;
     }
     ulii = *(++bit_arr_ptr);
@@ -2762,7 +2762,7 @@ uint32_t next_set(uintptr_t* bit_arr, uint32_t loc, uint32_t ceil) {
   }
   bit_arr_last = &(bit_arr[(ceil - 1) / BITCT]);
   do {
-    if (bit_arr_ptr == bit_arr_last) {
+    if (bit_arr_ptr >= bit_arr_last) {
       return ceil;
     }
     ulii = *(++bit_arr_ptr);
@@ -2782,7 +2782,7 @@ uintptr_t next_set_ul(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil) {
   }
   bit_arr_last = &(bit_arr[(ceil - 1) / BITCT]);
   do {
-    if (bit_arr_ptr == bit_arr_last) {
+    if (bit_arr_ptr >= bit_arr_last) {
       return ceil;
     }
     ulii = *(++bit_arr_ptr);
@@ -4802,7 +4802,7 @@ uintptr_t jump_forward_unset_unsafe(uintptr_t* bit_arr, uintptr_t cur_pos, uintp
   }
 #else
   while (forward_ct > BITCT) {
-    uljj = forward_ct / BITCT;
+    uljj = (forward_ct - 1) / BITCT;
     ulkk = popcount_longs(bptr, 0, uljj);
     bptr = &(bptr[uljj]);
     forward_ct -= uljj * BITCT - ulkk;
