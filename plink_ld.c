@@ -3335,7 +3335,17 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
 	  //   f22 + x = f21 + K - x
 	  //   2x = f21 + K - f22
 	  //   x = (K + f21 - f22) / 2
-	  freq11 = (freq1x + freq21 - freq22) * 0.5;
+
+	  // bugfix: when K < abs(f21 - f22), we do actually want to use the 0
+	  // or K solution
+	  incr_1122 = (half_hethet_share - freq11 + freq12 + freq21 - freq22) * 0.5;
+	  if (incr_1122 > 0.0) {
+            if (incr_1122 < half_hethet_share) {
+	      freq11 += incr_1122;
+	    } else {
+	      freq11 += half_hethet_share;
+	    }
+	  }
 	}
       } else if ((prod_1122 == 0.0) && (prod_1221 == 0.0)) {
 	*rptr++ = NAN;
@@ -4870,7 +4880,7 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
 	solutions[0] = 0;
       }
       if (uljj > ulii + 1) {
-	logprint("Multiple solutions; HWE or sample size assumptions may be violated.\n\nHWE exact test p-values\n-----------------------\n");
+	logprint("Multiple haplotype phasing solutions; sample size, HWE, or random mating\nassumption may be violated.\n\nHWE exact test p-values\n-----------------------\n");
 	sprintf(logbuf, "   %s: %g\n", mkr1, SNPHWE2(counts_cc[2] + counts_all[9], counts_cc[0] + counts_all[1], counts_cc[3] + counts_all[13]));
 	logprintb();
 	sprintf(logbuf, "   %s: %g\n\n", mkr2, SNPHWE2(counts_cc[6] + counts_all[6], counts_cc[4] + counts_all[4], counts_cc[7] + counts_all[7]));

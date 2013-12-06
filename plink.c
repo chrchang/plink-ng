@@ -80,7 +80,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (5 Dec 2013) ";
+  " (7 Dec 2013) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
