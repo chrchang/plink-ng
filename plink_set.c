@@ -990,7 +990,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	  if (!in_set) {
 	    goto define_sets_ret_INVALID_FORMAT_EXTRA_END;
 	  }
-	  if (!sip->merged_set_name) {
+	  if ((!sip->merged_set_name) && (in_set == 1)) {
 	    if (save_set_bitfield(marker_bitfield_tmp, marker_ct, range_first, range_last + 1, complement_sets, &(set_range_ptrs[set_idx]))) {
 	      goto define_sets_ret_NOMEM;
 	    }
@@ -1014,7 +1014,6 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	  if (!sip->merged_set_name) {
 	    memcpyx(&(set_names[set_idx * max_set_id_len]), bufptr, bufptr2 - bufptr, '\0');
 	  }
-	  in_set = 1;
 	} else if (in_set == 1) {
 	  *bufptr2 = '\0';
 	  ii = bsearch_str(bufptr, sorted_marker_ids, max_marker_id_len, 0, marker_ct - 1);
