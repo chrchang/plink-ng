@@ -4893,6 +4893,13 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     topsize = 0;
   }
 
+  if (calculation_type & CALC_WRITE_SET) {
+    retval = write_set(sip, outname, outname_end, marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_pos, zero_extra_chroms, chrom_info_ptr);
+    if (retval) {
+      goto plink_ret_1;
+    }
+  }
+
   if (calculation_type & CALC_WRITE_SNPLIST) {
     retval = write_snplist(outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, NULL, 0);
     if (retval) {

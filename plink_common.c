@@ -1731,12 +1731,12 @@ char* double_f_writew74(char* start, double dxx) {
 }
 
 char* double_f_writew96_spaced(char* start, double dxx) {
-  // Prettier fixed-width decimal: removes trailing zero if and only if the
+  // Prettier fixed-width decimal: removes trailing zero(es) if and only if the
   // match appears to be exact.
-  // Does not detect exact matches when abs(dxx) > 2147.
-  double dyy = dxx * 1000000 + 0.0000005;
+  // Does not detect exact matches when abs(dxx) > 2^31 / 10^5.
+  double dyy = dxx * 100000 + 0.00000005;
   start = double_f_writew96(start, dxx);
-  if (dyy - ((double)((int32_t)dyy)) >= 0.000001) {
+  if (dyy - ((double)((int32_t)dyy)) >= 0.0000001) {
     return start;
   }
   zeroes_to_spaces(start);
