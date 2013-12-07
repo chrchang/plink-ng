@@ -1192,10 +1192,10 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
 	    range_start = cur_set_ptr[1];
 	    uii = cur_set_ptr[3];
 	    if (marker_idx >= range_start) {
-	      ujj = cur_set_ptr[2] + range_start;
-              if (marker_idx < ujj) {
+	      ujj = cur_set_ptr[2];
+              if (marker_idx < ujj + range_start) {
                 ulptr = (uintptr_t*)(&(cur_set_ptr[4]));
-		ukk = marker_idx - uii;
+		ukk = marker_idx - range_start;
                 if (IS_SET(ulptr, ukk)) {
 		  *cptr = '1';
 		  ukk++;
@@ -1204,7 +1204,7 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
                   *cptr = '0';
                   ukk = next_set(ulptr, ukk, ujj);
 		}
-		next_adj[set_idx] = uii + ukk;
+		next_adj[set_idx] = range_start + ukk;
 	      } else {
 		*cptr = '0' + uii;
 		next_adj[set_idx] = marker_ct;
@@ -1225,7 +1225,7 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
     if (fclose_null(&outfile)) {
       goto write_set_ret_WRITE_FAIL;
     }
-    sprintf(logbuf, "--set-table: %s generated.\n", outname);
+    sprintf(logbuf, "--set-table: %s written.\n", outname);
     logprintb();
   }
   if (sip->modifier & SET_WRITE_LIST) {
@@ -1284,7 +1284,7 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
     if (fclose_null(&outfile)) {
       goto write_set_ret_WRITE_FAIL;
     }
-    sprintf(logbuf, "--write-set: %s generated.\n", outname);
+    sprintf(logbuf, "--write-set: %s written.\n", outname);
     logprintb();
   }
   while (0) {
