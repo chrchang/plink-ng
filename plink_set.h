@@ -36,23 +36,16 @@ typedef struct {
   // values which have been excluded elsewhere).
   // Finally, set_include_out_of_bounds makes small bitfield inversion work.
 
-  // entry is NULL if that set is represented with a bitfield instead of a
-  // range.  otherwise, points to an array of uint32_ts where
+  // Points to a 16-byte-aligned array of uint32_ts.  If the first element is
+  // not 0xffffffffU, its contents are
   //   [0]: number of ranges
   //   [2k+1], [2k+2]: start and end of range k (half-open); sorted
+  // Otherwise, the set is represented as a bitfield starting from [4], and
+  //   [1]: offset of first bit (always divisible by 128)
+  //   [2]: number of bits
+  //   [3]: 1 if all out-of-bounds bits are set, 0 otherwise (other flags may
+  //        be added later)
   uint32_t** range_ptrs;
-
-  // uninitialized if range representation used
-  // otherwise, [2n] is offset and [2n+1] is bit length.  for
-  // SSE2-friendliness, offsets are always divisible by 128.
-  uint32_t* bounds;
-
-  // entry is NULL if that set is represented with a range
-  uintptr_t** bitfield_ptrs;
-
-  // bitfield tracking whether all out-of-bounds variants are in set n.  (bit
-  // should always be clear for range representation.)
-  uintptr_t* include_out_of_bounds;
 } Set_info;
 
 void set_init(Set_info* sip);
@@ -61,6 +54,6 @@ void set_cleanup(Set_info* sip);
 
 int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* marker_pos, uintptr_t* marker_exclude_ct_ptr, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr);
 
-int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr);
+int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr);
 
 #endif // __PLINK_SET_H__

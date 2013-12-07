@@ -4070,7 +4070,6 @@ void distance_print_done(int32_t format_code, char* outname, char* outname_end) 
   logprintb();
 }
 
-/*
 void bitfield_invert(uintptr_t* bit_arr, uintptr_t bit_ct) {
   uintptr_t* bit_arr_stop = &(bit_arr[bit_ct / BITCT]);
   while (bit_arr < bit_arr_stop) {
@@ -4081,7 +4080,6 @@ void bitfield_invert(uintptr_t* bit_arr, uintptr_t bit_ct) {
     *bit_arr = (~(*bit_arr)) & ((ONELU << (bit_ct % BITCT)) - ONELU);
   }
 }
-*/
 
 void bitfield_exclude_to_include(uintptr_t* exclude_arr, uintptr_t* include_arr, uintptr_t bit_ct) {
   // works the other way around too

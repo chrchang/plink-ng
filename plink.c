@@ -4894,7 +4894,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_WRITE_SET) {
-    retval = write_set(sip, outname, outname_end, marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_pos, zero_extra_chroms, chrom_info_ptr);
+    retval = write_set(sip, outname, outname_end, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_pos, zero_extra_chroms, chrom_info_ptr);
     if (retval) {
       goto plink_ret_1;
     }

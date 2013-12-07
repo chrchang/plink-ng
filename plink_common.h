@@ -1642,7 +1642,7 @@ int32_t bsearch_fam_indiv(char* id_buf, char* lptr, uintptr_t max_id_len, uint32
 
 void bsearch_fam(char* id_buf, char* lptr, uintptr_t max_id_len, uint32_t filter_line_ct, char* fam_id, uint32_t* first_idx_ptr, uint32_t* last_idx_ptr);
 
-// void bitfield_invert(uintptr_t* bit_arr, uintptr_t bit_ct);
+void bitfield_invert(uintptr_t* bit_arr, uintptr_t bit_ct);
 
 void bitfield_exclude_to_include(uintptr_t* exclude_arr, uintptr_t* include_arr, uintptr_t bit_ct);
 
