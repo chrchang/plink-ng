@@ -17,7 +17,6 @@ void set_cleanup(Set_info* sip) {
 }
 
 uint32_t save_set_bitfield(uintptr_t* marker_bitfield_tmp, uint32_t marker_ct, uint32_t range_start, uint32_t range_end, uint32_t complement_sets, uint32_t** set_range_pp) {
-  // assumes at least marker_ctl * sizeof(intptr_t) bytes left on stack
   uintptr_t mem_req = ((marker_ct + 255) / 128) * 16;
   uint32_t bound_bottom_d128 = range_start / 128;
   uint32_t bound_top_d128 = (range_end - 1) / 128;
@@ -88,8 +87,8 @@ uint32_t save_set_bitfield(uintptr_t* marker_bitfield_tmp, uint32_t marker_ct, u
   }
   bound_top_d128++;
   // equal or greater than this -> use bitfield
-  range_ct_ceil = 2 * (bound_top_d128 - bound_bottom_d128);
-  mem_req = 16 + range_ct_ceil * 8;
+  range_ct_ceil = 2 * (1 + bound_top_d128 - bound_bottom_d128);
+  mem_req = range_ct_ceil * 8;
   // try to compress as sequence of ranges
   uiptr = &((*set_range_pp)[1]);
   bit_idx = bound_bottom_d128 * 128;
@@ -170,6 +169,187 @@ uint32_t save_set_bitfield(uintptr_t* marker_bitfield_tmp, uint32_t marker_ct, u
   return 0;
 }
 
+uint32_t save_set_range(uint64_t* range_sort_buf, uint32_t marker_ct, uint32_t rsb_last_idx, uint32_t complement_sets, uint32_t** set_range_pp) {
+  uint32_t* uiptr = (uint32_t*)wkspace_base;
+  uint32_t range_start = (uint32_t)(range_sort_buf[0] >> 32);
+  uint32_t range_end = (uint32_t)(range_sort_buf[rsb_last_idx]);
+  uint32_t bound_bottom_d128 = range_start / 128;
+  uint32_t bound_top_d128 = (range_end - 1) / 128;
+  uint32_t range_ct = bound_top_d128 - bound_bottom_d128;
+  uint32_t set_bits_outer = complement_sets;
+  uint32_t do_flip = 0; // flip set_bits_outer since that's more compact?
+  uint32_t rsb_idx = 0;
+  uintptr_t* bitfield_ptr = (uintptr_t*)(&(uiptr[4]));
+  uint64_t ullii;
+  uintptr_t mem_req;
+  uintptr_t ulii;
+  uint32_t uii;
+  uint32_t ujj;
+  if (wkspace_left < (rsb_last_idx / 2) * 16 + 32) {
+    return 1;
+  }
+  *set_range_pp = uiptr;
+  if (!range_start) {
+    uii = (uint32_t)range_sort_buf[0];
+    if (range_end == marker_ct) {
+      if (uii != marker_ct) {
+	do_flip = 1;
+        range_start = uii;
+	range_end = (uint32_t)(range_sort_buf[rsb_last_idx] >> 32);
+      } else {
+	wkspace_left -= 16;
+	wkspace_base = &(wkspace_base[16]);
+	if (!complement_sets) {
+	  uiptr[0] = 1;
+	  uiptr[1] = 0;
+	  uiptr[2] = marker_ct;
+	} else {
+	  uiptr[0] = 0;
+	}
+	return 0;
+      }
+    } else {
+      if (((marker_ct - 1) / 128) - (uii / 128) < range_ct) {
+	do_flip = 1;
+	range_start = uii;
+        range_end = marker_ct;
+      }
+    }
+  } else {
+    if (range_end == marker_ct) {
+      if ((((uint32_t)(range_sort_buf[rsb_last_idx] - 1)) / 128) < range_ct) {
+	do_flip = 1;
+	range_start = 0;
+	range_end = range_sort_buf[rsb_last_idx];
+      }
+    }
+  }
+  if (do_flip) {
+    set_bits_outer = 1 - set_bits_outer;
+    bound_bottom_d128 = range_start / 128;
+    bound_top_d128 = (range_end - 1) / 128;
+  }
+  bound_top_d128++;
+  range_end = bound_top_d128 * 128;
+  if (range_end > marker_ct) {
+    range_end = marker_ct;
+  }
+  mem_req = 16 * (1 + bound_top_d128 - bound_bottom_d128);
+  if (!complement_sets) {
+    ulii = ((rsb_last_idx + 1) / 2) + 1;
+    ulii *= 16;
+    if (ulii > mem_req) {
+      fill_ulong_zero(bitfield_ptr, (bound_top_d128 - bound_bottom_d128) * (128 / BITCT));
+      range_start = bound_bottom_d128 * 128;
+      if (do_flip) {
+	rsb_last_idx--;
+	if (range_start) {
+	  // first range must begin at bit 0
+	  uii = range_start;
+	  ujj = (uint32_t)(range_sort_buf[0]);
+	  goto save_set_range_late_start_1;
+	}
+      }
+      for (; rsb_idx <= rsb_last_idx; rsb_idx++) {
+	ullii = range_sort_buf[rsb_idx];
+	uii = (uint32_t)(ullii >> 32);
+	ujj = (uint32_t)ullii;
+      save_set_range_late_start_1:
+	fill_bits(bitfield_ptr, uii - range_start, ujj - uii);
+      }
+      if (do_flip) {
+	// last range may go past bitfield end
+        ullii = range_sort_buf[rsb_idx];
+	uii = (uint32_t)(ullii >> 32);
+	ujj = (uint32_t)ullii;
+        if (ujj > range_end) {
+	  ujj = range_end;
+	}
+	fill_bits(bitfield_ptr, uii - range_start, ujj - uii);
+      }
+      goto save_set_range_bitfield_finish_encode;
+    }
+    wkspace_left -= ulii;
+    wkspace_base = &(wkspace_base[ulii]);
+    *uiptr++ = rsb_last_idx + 1;
+    for (; rsb_idx <= rsb_last_idx; rsb_idx++) {
+      ullii = range_sort_buf[rsb_idx];
+      *uiptr++ = (uint32_t)(ullii >> 32);
+      *uiptr++ = (uint32_t)ullii;
+    }
+  } else {
+    range_ct = rsb_last_idx + 2;
+    if (((uint32_t)range_sort_buf[rsb_last_idx]) == marker_ct) {
+      range_ct--;
+    }
+    ullii = range_sort_buf[0];
+    range_start = (uint32_t)(ullii >> 32);
+    if (range_start) {
+      ulii = (range_ct / 2) + 1;
+    } else {
+      ulii = ((range_ct - 1) / 2) + 1;
+    }
+    ulii *= 16;
+    if (ulii > mem_req) {
+      range_start = bound_bottom_d128 * 128;
+      fill_all_bits(bitfield_ptr, range_end - range_start);
+      if (do_flip) {
+	rsb_last_idx--;
+	if (range_start) {
+	  // first raw range must begin at bit 0, so complemented range must
+	  // begin later
+	  uii = range_start;
+	  ujj = (uint32_t)(range_sort_buf[0]);
+	  goto save_set_range_late_start_2;
+	}
+      }
+      for (; rsb_idx <= rsb_last_idx; rsb_idx++) {
+	ullii = range_sort_buf[rsb_idx];
+	uii = (uint32_t)(ullii >> 32);
+        ujj = (uint32_t)ullii;
+      save_set_range_late_start_2:
+        clear_bits(bitfield_ptr, uii - range_start, ujj - uii);
+      }
+      if (do_flip) {
+        ullii = range_sort_buf[rsb_idx];
+	uii = (uint32_t)(ullii >> 32);
+	ujj = (uint32_t)ullii;
+        if (ujj > range_end) {
+	  ujj = range_end;
+	}
+	clear_bits(bitfield_ptr, uii - range_start, ujj - uii);
+      }
+    save_set_range_bitfield_finish_encode:
+      wkspace_left -= mem_req;
+      wkspace_base = &(wkspace_base[mem_req]);
+      uiptr[0] = 0xffffffffU;
+      uiptr[1] = range_start;
+      uiptr[2] = range_end - range_start;
+      uiptr[3] = set_bits_outer;
+    } else {
+      wkspace_left -= ulii;
+      wkspace_base = &(wkspace_base[ulii]);
+      if (range_start) {
+	*uiptr++ = range_ct;
+	*uiptr++ = 0;
+	*uiptr++ = range_start;
+      } else {
+	*uiptr++ = range_ct - 1;
+      }
+      for (rsb_idx = 1; rsb_idx <= rsb_last_idx; rsb_idx++) {
+	*uiptr++ = (uint32_t)ullii;
+	ullii = range_sort_buf[rsb_idx];
+	*uiptr++ = (uint32_t)(ullii >> 32);
+      }
+      if (range_ct == rsb_last_idx + 2) {
+	*uiptr++ = (uint32_t)ullii;
+	*uiptr++ = marker_ct;
+      }
+    }
+  }
+  return 0;
+}
+
 typedef struct make_set_range_struct {
   struct make_set_range_struct* next;
   uint32_t uidx_start;
@@ -216,7 +396,6 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   uint32_t** set_range_ptrs;
   uintptr_t* marker_exclude_new;
   uintptr_t* marker_bitfield_tmp;
-  uint32_t* uiptr;
   uintptr_t set_idx;
   uintptr_t bufsize;
   uintptr_t topsize_bak;
@@ -850,60 +1029,8 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	  range_last = (uint32_t)ullii;
 	}
       }
-      uiptr = (uint32_t*)wkspace_base;
-      set_range_ptrs[set_idx] = uiptr;
-      // todo: check if bitfield representation is more compact
-      if (!complement_sets) {
-	ulii = ((ukk + 1) / 2) + 1;
-	ulii *= 16;
-	if (wkspace_left < ulii) {
-	  goto define_sets_ret_NOMEM;
-	}
-	wkspace_left -= ulii;
-	wkspace_base = &(wkspace_base[ulii]);
-	*uiptr++ = ukk + 1;
-	for (ujj = 0; ujj <= ukk; ujj++) {
-	  ullii = range_sort_buf[ujj];
-	  *uiptr++ = (uint32_t)(ullii >> 32);
-	  *uiptr++ = (uint32_t)ullii;
-	}
-      } else {
-	for (umm = 0; umm <= ukk; umm++) {
-	  ullii = range_sort_buf[umm];
-	}
-	umm = ukk + 2;
-	if (((uint32_t)range_sort_buf[ukk]) == marker_ct) {
-	  umm--;
-	}
-	ullii = range_sort_buf[0];
-	range_first = (uint32_t)(ullii >> 32);
-	if (range_first) {
-	  ulii = (umm / 2) + 1;
-	} else {
-          ulii = ((umm - 1) / 2) + 1;
-	}
-        ulii *= 16;
-        if (wkspace_left < ulii) {
-	  goto define_sets_ret_NOMEM;
-	}
-	wkspace_left -= ulii;
-        wkspace_base = &(wkspace_base[ulii]);
-	if (range_first) {
-          *uiptr++ = umm;
-          *uiptr++ = 0;
-          *uiptr++ = range_first;
-	} else {
-	  *uiptr++ = umm - 1;
-	}
-	for (ujj = 1; ujj <= ukk; ujj++) {
-          *uiptr++ = (uint32_t)ullii;
-	  ullii = range_sort_buf[ujj];
-	  *uiptr++ = (uint32_t)(ullii >> 32);
-	}
-	if (umm == ukk + 2) {
-	  *uiptr++ = (uint32_t)ullii;
-          *uiptr++ = marker_ct;
-	}
+      if (save_set_range(range_sort_buf, marker_ct, ukk, complement_sets, &(set_range_ptrs[set_idx]))) {
+	goto define_sets_ret_NOMEM;
       }
     }
   } else {
@@ -1022,7 +1149,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	    if (uii < range_first) {
 	      range_first = uii;
 	    }
-	    if (((uint32_t)ii) > range_last) {
+	    if (uii > range_last) {
 	      range_last = uii;
 	    }
 	    set_bit(marker_bitfield_tmp, uii);
@@ -1301,4 +1428,65 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
   fclose_cond(outfile);
   wkspace_reset(wkspace_mark);
   return retval;
+}
+
+void unpack_set_unfiltered(uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* range_ptr, uintptr_t* new_exclude) {
+  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t last_uidx = next_unset_unsafe(marker_exclude, 0);
+  uintptr_t marker_uidx = last_uidx;
+  uint32_t range_ct = range_ptr[0];
+  uint32_t range_end = 0;
+  uintptr_t* bitfield_ptr;
+  uint32_t* uiptr;
+  uint32_t keep_outer;
+  uint32_t range_start;
+  uint32_t range_idx;
+  memcpy(new_exclude, marker_exclude, unfiltered_marker_ctl * sizeof(intptr_t));
+  if (range_ct == 0xffffffffU) {
+    range_start = range_ptr[1];
+    range_ct = range_ptr[2];
+    keep_outer = range_ptr[3];
+    bitfield_ptr = (uintptr_t*)(&(range_ptr[4]));
+    if (range_start) {
+      // if nonzero, range_start also must be greater than 1
+      marker_uidx = jump_forward_unset_unsafe(marker_exclude, last_uidx, range_start - 1) + 1;
+      if (!keep_outer) {
+	fill_bits(new_exclude, last_uidx, marker_uidx - last_uidx);
+      }
+    }
+    for (range_idx = 0; range_idx < range_ct; range_idx++, marker_uidx++) {
+      next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
+      if (!IS_SET(bitfield_ptr, range_idx)) {
+	SET_BIT(new_exclude, marker_uidx);
+      }
+    }
+    if ((!keep_outer) && (range_start + range_ct < marker_ct)) {
+      fill_bits(new_exclude, marker_uidx, unfiltered_marker_ct - marker_uidx);
+    }
+  } else {
+    uiptr = &(range_ptr[1]);
+    range_idx = 0;
+    if ((!range_ptr[1]) && range_ct) {
+      range_start = *uiptr++;
+      goto unpack_set_unfiltered_late_start;
+    }
+    for (; range_idx < range_ct; range_idx++) {
+      range_start = *uiptr++;
+      if (range_start > range_end + 1) {
+	marker_uidx = jump_forward_unset_unsafe(marker_exclude, last_uidx, range_start - range_end - 1) + 1;
+	fill_bits(new_exclude, last_uidx, marker_uidx - last_uidx);
+      } else {
+	SET_BIT(new_exclude, marker_uidx);
+	marker_uidx++;
+      }
+      next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
+    unpack_set_unfiltered_late_start:
+      range_end = *uiptr++;
+      if (range_end == marker_ct) {
+	break;
+      }
+      last_uidx = jump_forward_unset_unsafe(marker_exclude, marker_uidx, range_end - range_start);
+    }
+    fill_bits(new_exclude, last_uidx, unfiltered_marker_ct - last_uidx);
+  }
 }

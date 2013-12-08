@@ -5019,7 +5019,7 @@ int32_t epistasis_regression() {
   return RET_CALC_NOT_YET_SUPPORTED;
 }
 
-int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, uint32_t plink_maxsnp, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uint32_t ctrl_ct, uintptr_t* pheno_c, double* pheno_d, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end) {
+int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, uint32_t plink_maxsnp, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uint32_t ctrl_ct, uintptr_t* pheno_c, double* pheno_d, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end, Set_info* sip) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
@@ -5034,6 +5034,8 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   uint32_t do_joint_effects = modifier & EPI_FAST_JOINT_EFFECTS;
   uint32_t no_ueki = modifier & EPI_FAST_NO_UEKI;
   uint32_t is_case_only = (modifier / EPI_FAST_CASE_ONLY) & 1;
+  uint32_t is_custom_set1 = modifier & (EPI_SET_BY_SET | EPI_SET_BY_ALL);
+  uint32_t is_set_by_all = modifier & EPI_SET_BY_ALL;
   uint32_t tot_stride = 6 - 3 * is_case_only;
   uint32_t no_p_value = modifier & EPI_FAST_NO_P_VALUE;
   uint32_t case_only_gap = epi_ip->case_only_gap;
@@ -5057,9 +5059,9 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   int32_t retval = 0;
   uint32_t* gap_cts = NULL;
   uintptr_t* ctrlbuf = NULL;
+  uintptr_t* marker_exclude1 = NULL;
   uintptr_t* casebuf;
   uintptr_t* loadbuf;
-  uintptr_t* marker_exclude1;
   uintptr_t* marker_exclude2;
   uintptr_t* ulptr;
   double* best_chisq;
@@ -5115,6 +5117,28 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     // though they'll never come up
     logprint("Error: --{fast-}epistasis does not support >= 2^29 samples.\n");
     goto epistasis_report_ret_INVALID_CMDLINE;
+  }
+  if (is_custom_set1) {
+    logprint("Error: --{fast-}epistasis set-by-set/set-by-all is currently under development.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto epistasis_report_ret_1;
+    if (!sip->ct) {
+      sprintf(logbuf, "Error: --%sepistasis set-by-%s requires a variant set to be loaded.\n", is_fast? "fast-" : "", is_set_by_all? "all" : "set");
+      logprintb();
+      goto epistasis_report_ret_INVALID_CMDLINE;
+    } else if (is_set_by_all) {
+      if (sip->ct > 1) {
+	logprint("Error: --{fast-}epistasis set-by-all requires exactly one set.\n(--set-collapse-all may be handy here.\n");
+	goto epistasis_report_ret_INVALID_CMDLINE;
+      }
+    } else if (sip->ct > 2) {
+      logprint("Error: --{fast-}epistasis set-by-set requires exactly one or two sets.\n");
+      goto epistasis_report_ret_INVALID_CMDLINE;
+    }
+    if (wkspace_alloc_ul_checked(&marker_exclude1, unfiltered_marker_ctl * sizeof(intptr_t))) {
+      goto epistasis_report_ret_NOMEM;
+    }
+    unpack_set_unfiltered(marker_ct, unfiltered_marker_ct, marker_exclude, sip->range_ptrs[0], marker_exclude1);
   }
   if (!pheno_d) {
     if ((case_ct < 2) || ((!is_case_only) && (ctrl_ct < 2))) {
