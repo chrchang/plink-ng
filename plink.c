@@ -80,7 +80,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (8 Dec 2013) ";
+  " (9 Dec 2013) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -9084,9 +9084,6 @@ int32_t main(int32_t argc, char** argv) {
 	  epi_info.case_only_gap = 2147483647;
 	} else {
           epi_info.case_only_gap = (int32_t)(dxx * 1000 * (1 + SMALL_EPSILON));
-	  if (!epi_info.case_only_gap) {
-	    epi_info.case_only_gap = 1;
-	  }
 	}
       } else if (!memcmp(argptr2, "plink", 6)) {
         misc_flags |= MISC_GPLINK;
@@ -11819,6 +11816,15 @@ int32_t main(int32_t argc, char** argv) {
         if (alloc_string(&set_info.merged_set_name, argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
+      } else if (!memcmp(argptr2, "et-names", 9)) {
+	if (!set_info.fname) {
+	  logprint("Error: --set-names must be used with --set/--make-set.\n");
+          goto main_ret_INVALID_CMDLINE;
+	}
+	retval = alloc_and_flatten(&(set_info.setnames_flattened), &(argv[cur_arg + 1]), param_ct);
+	if (retval) {
+	  goto main_ret_1;
+	}
       } else if (!memcmp(argptr2, "ubset", 6)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -13108,7 +13114,7 @@ int32_t main(int32_t argc, char** argv) {
   // force 64-byte align on OS X to make cache line sensitivity work
   wkspace = (unsigned char*)CACHEALIGN((uintptr_t)wkspace_ua);
   wkspace_base = wkspace;
-  wkspace_left = malloc_size_mb * 1048576 - (uintptr_t)(wkspace - wkspace_ua);
+  wkspace_left = (malloc_size_mb * 1048576 - (uintptr_t)(wkspace - wkspace_ua)) & (~(CACHELINE - ONELU));
   free(bubble);
 
   if (epi_info.summary_merge_prefix) {

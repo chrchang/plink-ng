@@ -2,6 +2,7 @@
 
 void set_init(Set_info* sip) {
   sip->fname = NULL;
+  sip->setnames_flattened = NULL;
   sip->subset_fname = NULL;
   sip->merged_set_name = NULL;
   sip->genekeep_flattened = NULL;
@@ -11,6 +12,7 @@ void set_init(Set_info* sip) {
 
 void set_cleanup(Set_info* sip) {
   free_cond(sip->fname);
+  free_cond(sip->setnames_flattened);
   free_cond(sip->subset_fname);
   free_cond(sip->merged_set_name);
   free_cond(sip->genekeep_flattened);
@@ -393,7 +395,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   Make_set_range* msr_tmp;
   uint32_t* marker_id_map;
   uint32_t* marker_uidx_to_idx;
-  uint32_t** set_range_ptrs;
+  uint32_t** all_setdefs;
   uintptr_t* marker_exclude_new;
   uintptr_t* marker_bitfield_tmp;
   uintptr_t set_idx;
@@ -465,27 +467,49 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       qsort(sorted_genekeep_ids, genekeep_ct, max_genekeep_len, strcmp_casted);
     }
   }
-  // 2. if --subset is present, load and sort that file
-  if (sip->subset_fname) {
-    if (fopen_checked(&infile, sip->subset_fname, "rb")) {
-      goto define_sets_ret_OPEN_FAIL;
-    }
-    retval = scan_token_ct_len(infile, tbuf, MAXLINELEN, &subset_ct, &max_subset_id_len);
-    if (retval) {
-      if (retval == RET_INVALID_FORMAT) {
-        logprint("Error: Pathologically long token in --subset file.\n");
+  // 2. if --set-names and/or --subset is present, (load and) sort those lists
+  if (sip->setnames_flattened || sip->subset_fname) {
+    if (sip->subset_fname) {
+      if (fopen_checked(&infile, sip->subset_fname, "rb")) {
+	goto define_sets_ret_OPEN_FAIL;
       }
-      goto define_sets_ret_1;
+      retval = scan_token_ct_len(infile, tbuf, MAXLINELEN, &subset_ct, &max_subset_id_len);
+      if (retval) {
+	if (retval == RET_INVALID_FORMAT) {
+	  logprint("Error: Pathologically long token in --subset file.\n");
+	}
+	goto define_sets_ret_1;
+      }
+    }
+    ulii = subset_ct;
+    if (sip->setnames_flattened) {
+      bufptr = sip->setnames_flattened;
+      while (*bufptr) {
+        slen = strlen(bufptr) + 1;
+	if (slen > max_subset_id_len) {
+          max_subset_id_len = slen;
+	}
+        subset_ct++;
+        bufptr = &(bufptr[slen]);
+      }
     }
     if (!subset_ct) {
       if ((gene_all || sip->genekeep_flattened) && ((!sip->merged_set_name) || (!complement_sets))) {
-	logprint("Error: All variants excluded, since --subset file is empty.\n");
+	if (sip->subset_fname) {
+	  logprint("Error: All variants excluded, since --subset file is empty.\n");
+	} else {
+	  logprint("Error: All variants excluded, since --set-names was given no parameters.\n");
+	}
 	goto define_sets_ret_ALL_MARKERS_EXCLUDED_2;
       }
       if (sip->merged_set_name) {
 	goto define_sets_merge_nothing;
       } else {
-        logprint("Warning: Empty --subset file; no sets defined.\n");
+	if (sip->subset_fname) {
+          logprint("Warning: Empty --subset file; no sets defined.\n");
+	} else {
+          logprint("Warning: No sets defined since --set-names was given no parameters.\n");
+	}
         goto define_sets_ret_1;
       }
     }
@@ -493,16 +517,29 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     if (!sorted_subset_ids) {
       goto define_sets_ret_NOMEM;
     }
-    rewind(infile);
-    retval = read_tokens(infile, tbuf, MAXLINELEN, subset_ct, max_subset_id_len, sorted_subset_ids);
-    if (retval) {
-      goto define_sets_ret_1;
+    if (sip->subset_fname) {
+      if (ulii) {
+	rewind(infile);
+	retval = read_tokens(infile, tbuf, MAXLINELEN, ulii, max_subset_id_len, sorted_subset_ids);
+	if (retval) {
+	  goto define_sets_ret_1;
+	}
+      }
+      if (fclose_null(&infile)) {
+	goto define_sets_ret_READ_FAIL;
+      }
+    }
+    if (sip->setnames_flattened) {
+      bufptr = sip->setnames_flattened;
+      while (*bufptr) {
+	slen = strlen(bufptr) + 1;
+        memcpy(&(sorted_subset_ids[ulii * max_subset_id_len]), bufptr, slen);
+	ulii++;
+	bufptr = &(bufptr[slen]);
+      }
     }
     qsort(sorted_subset_ids, subset_ct, max_subset_id_len, strcmp_casted);
     subset_ct = collapse_duplicate_ids(sorted_subset_ids, subset_ct, max_subset_id_len, NULL);
-    if (fclose_null(&infile)) {
-      goto define_sets_ret_READ_FAIL;
-    }
   }
   if (fopen_checked(&infile, sip->fname, "r")) {
     goto define_sets_ret_OPEN_FAIL;
@@ -934,7 +971,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     }
     rewind(infile);
   }
-  // 6. allocate sip->names[], range_ptrs[] on stack
+  // 6. allocate sip->names[], setdefs[] on stack
   marker_uidx_to_idx = (uint32_t*)top_alloc(&topsize, unfiltered_marker_ct * sizeof(int32_t));
   if (!marker_uidx_to_idx) {
     goto define_sets_ret_NOMEM;
@@ -955,8 +992,8 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       }
     }
   }
-  set_range_ptrs = (uint32_t**)wkspace_alloc(set_ct * sizeof(intptr_t));
-  if (!set_range_ptrs) {
+  all_setdefs = (uint32_t**)wkspace_alloc(set_ct * sizeof(intptr_t));
+  if (!all_setdefs) {
     goto define_sets_ret_NOMEM2;
   }
   if (make_set) {
@@ -994,15 +1031,15 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	if (wkspace_left < 16) {
 	  goto define_sets_ret_NOMEM;
 	}
-	set_range_ptrs[set_idx] = (uint32_t*)wkspace_base;
+	all_setdefs[set_idx] = (uint32_t*)wkspace_base;
 	wkspace_left -= 16;
 	wkspace_base = &(wkspace_base[16]);
 	if (!complement_sets) {
-	  set_range_ptrs[set_idx][0] = 0;
+	  all_setdefs[set_idx][0] = 0;
 	} else {
-	  set_range_ptrs[set_idx][0] = 1;
-	  set_range_ptrs[set_idx][1] = 0;
-	  set_range_ptrs[set_idx][2] = marker_ct;
+	  all_setdefs[set_idx][0] = 1;
+	  all_setdefs[set_idx][1] = 0;
+	  all_setdefs[set_idx][2] = marker_ct;
 	}
 	continue;
       }
@@ -1029,7 +1066,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	  range_last = (uint32_t)ullii;
 	}
       }
-      if (save_set_range(range_sort_buf, marker_ct, ukk, complement_sets, &(set_range_ptrs[set_idx]))) {
+      if (save_set_range(range_sort_buf, marker_ct, ukk, complement_sets, &(all_setdefs[set_idx]))) {
 	goto define_sets_ret_NOMEM;
       }
     }
@@ -1118,7 +1155,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	    goto define_sets_ret_INVALID_FORMAT_EXTRA_END;
 	  }
 	  if ((!sip->merged_set_name) && (in_set == 1)) {
-	    if (save_set_bitfield(marker_bitfield_tmp, marker_ct, range_first, range_last + 1, complement_sets, &(set_range_ptrs[set_idx]))) {
+	    if (save_set_bitfield(marker_bitfield_tmp, marker_ct, range_first, range_last + 1, complement_sets, &(all_setdefs[set_idx]))) {
 	      goto define_sets_ret_NOMEM;
 	    }
 	    set_idx++;
@@ -1159,7 +1196,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       }
     }
     if (sip->merged_set_name) {
-      if (save_set_bitfield(marker_bitfield_tmp, marker_ct, range_first, range_last + 1, complement_sets, set_range_ptrs)) {
+      if (save_set_bitfield(marker_bitfield_tmp, marker_ct, range_first, range_last + 1, complement_sets, all_setdefs)) {
 	goto define_sets_ret_NOMEM;
       }
     }
@@ -1168,29 +1205,33 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   sip->ct = set_ct;
   sip->names = set_names;
   sip->max_name_len = max_set_id_len;
-  sip->range_ptrs = set_range_ptrs;
+  sip->setdefs = all_setdefs;
+  sprintf(logbuf, "--%sset: %" PRIuPTR " set%s defined.\n", make_set? "make-" : "", set_ct, (set_ct == 1)? "" : "s");
+  logprintb();
   while (0) {
   define_sets_merge_nothing:
     sip->ct = 1;
     uii = strlen(sip->merged_set_name) + 1;
     // topsize = 0;
-    sip->range_ptrs = (uint32_t**)wkspace_alloc(sizeof(intptr_t));
-    if (!sip->range_ptrs) {
+    sip->setdefs = (uint32_t**)wkspace_alloc(sizeof(intptr_t));
+    if (!sip->setdefs) {
       goto define_sets_ret_NOMEM;
     }
     if (wkspace_alloc_c_checked(&sip->names, uii) ||
-	wkspace_alloc_ui_checked(&(sip->range_ptrs[0]), (1 + 2 * complement_sets) * sizeof(int32_t))) {
+	wkspace_alloc_ui_checked(&(sip->setdefs[0]), (1 + 2 * complement_sets) * sizeof(int32_t))) {
       goto define_sets_ret_NOMEM;
     }
     memcpy(sip->names, sip->merged_set_name, uii);
     sip->max_name_len = uii;
     if (complement_sets) {
-      sip->range_ptrs[0][0] = 1;
-      sip->range_ptrs[0][1] = 0;
-      sip->range_ptrs[0][2] = marker_ct;
+      sip->setdefs[0][0] = 1;
+      sip->setdefs[0][1] = 0;
+      sip->setdefs[0][2] = marker_ct;
     } else {
-      sip->range_ptrs[0][0] = 0;
+      sip->setdefs[0][0] = 0;
     }
+    sprintf(logbuf, "--%sset: 1 set defined.\n", make_set? "make-" : "");
+    logprintb();
     break;
   define_sets_ret_NOMEM2:
     wkspace_left += topsize;
@@ -1297,18 +1338,18 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
       cptr = cur_setting;
       for (set_idx = 0; set_idx < set_ct; set_idx++) {
         if (next_adj[set_idx] <= marker_idx) {
-	  cur_set_ptr = sip->range_ptrs[set_idx];
+	  cur_set_ptr = sip->setdefs[set_idx];
 	  range_ct = cur_set_ptr[0];
 	  if (range_ct != 0xffffffffU) {
 	    uii = last_idx[set_idx];
 	    if (uii < range_ct) {
-	      range_start = sip->range_ptrs[set_idx][2 * uii + 1];
+	      range_start = sip->setdefs[set_idx][2 * uii + 1];
 	      if (range_start > marker_idx) {
 		*cptr = '0';
 		next_adj[set_idx] = range_start;
 	      } else {
 		*cptr = '1';
-		next_adj[set_idx] = sip->range_ptrs[set_idx][2 * uii + 2];
+		next_adj[set_idx] = sip->setdefs[set_idx][2 * uii + 2];
 		last_idx[set_idx] = uii + 1;
 	      }
 	    } else {
@@ -1367,7 +1408,7 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
     for (set_idx = 0; set_idx < set_ct; set_idx++) {
       fputs(&(sip->names[set_idx * max_set_name_len]), outfile);
       putc('\n', outfile);
-      cur_set_ptr = sip->range_ptrs[set_idx];
+      cur_set_ptr = sip->setdefs[set_idx];
       range_ct = cur_set_ptr[0];
       if (range_ct != 0xffffffffU) {
         for (uii = 0; uii < range_ct; uii++) {
@@ -1430,11 +1471,11 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
   return retval;
 }
 
-void unpack_set_unfiltered(uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* range_ptr, uintptr_t* new_exclude) {
+void unpack_set_unfiltered(uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* setdef, uintptr_t* new_exclude) {
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t last_uidx = next_unset_unsafe(marker_exclude, 0);
   uintptr_t marker_uidx = last_uidx;
-  uint32_t range_ct = range_ptr[0];
+  uint32_t range_ct = setdef[0];
   uint32_t range_end = 0;
   uintptr_t* bitfield_ptr;
   uint32_t* uiptr;
@@ -1443,19 +1484,21 @@ void unpack_set_unfiltered(uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, 
   uint32_t range_idx;
   memcpy(new_exclude, marker_exclude, unfiltered_marker_ctl * sizeof(intptr_t));
   if (range_ct == 0xffffffffU) {
-    range_start = range_ptr[1];
-    range_ct = range_ptr[2];
-    keep_outer = range_ptr[3];
-    bitfield_ptr = (uintptr_t*)(&(range_ptr[4]));
+    range_start = setdef[1];
+    range_ct = setdef[2];
+    keep_outer = setdef[3];
+    bitfield_ptr = (uintptr_t*)(&(setdef[4]));
     if (range_start) {
       // if nonzero, range_start also must be greater than 1
-      marker_uidx = jump_forward_unset_unsafe(marker_exclude, last_uidx, range_start - 1) + 1;
+      marker_uidx = jump_forward_unset_unsafe(marker_exclude, last_uidx + 1, range_start);
       if (!keep_outer) {
 	fill_bits(new_exclude, last_uidx, marker_uidx - last_uidx);
       }
     }
     for (range_idx = 0; range_idx < range_ct; range_idx++, marker_uidx++) {
       next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
+      // we know that range representation is not more compact, so probably not
+      // worthwhile to use next_unset/next_set/fill_bits() here
       if (!IS_SET(bitfield_ptr, range_idx)) {
 	SET_BIT(new_exclude, marker_uidx);
       }
@@ -1464,28 +1507,25 @@ void unpack_set_unfiltered(uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, 
       fill_bits(new_exclude, marker_uidx, unfiltered_marker_ct - marker_uidx);
     }
   } else {
-    uiptr = &(range_ptr[1]);
+    uiptr = &(setdef[1]);
     range_idx = 0;
-    if ((!range_ptr[1]) && range_ct) {
+    if ((!setdef[1]) && range_ct) {
       range_start = *uiptr++;
       goto unpack_set_unfiltered_late_start;
     }
     for (; range_idx < range_ct; range_idx++) {
       range_start = *uiptr++;
-      if (range_start > range_end + 1) {
-	marker_uidx = jump_forward_unset_unsafe(marker_exclude, last_uidx, range_start - range_end - 1) + 1;
-	fill_bits(new_exclude, last_uidx, marker_uidx - last_uidx);
-      } else {
-	SET_BIT(new_exclude, marker_uidx);
-	marker_uidx++;
+      if (range_start > range_end) {
+        marker_uidx = jump_forward_unset_unsafe(marker_exclude, last_uidx + 1, range_start - range_end);
       }
+      fill_bits(new_exclude, last_uidx, marker_uidx - last_uidx);
       next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
     unpack_set_unfiltered_late_start:
       range_end = *uiptr++;
       if (range_end == marker_ct) {
 	break;
       }
-      last_uidx = jump_forward_unset_unsafe(marker_exclude, marker_uidx, range_end - range_start);
+      last_uidx = jump_forward_unset_unsafe(marker_exclude, marker_uidx + 1, range_end - range_start);
     }
     fill_bits(new_exclude, last_uidx, unfiltered_marker_ct - last_uidx);
   }

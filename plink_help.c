@@ -422,7 +422,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    filters applied).  The 'omit-unassigned' modifier causes unclustered\n"
 "    individuals to be omitted from the file; otherwise their cluster is 'NA'.\n\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("write-set\tset-table", &help_ctrl, 1,
 "  --write-set\n"
 "  --set-table\n"
@@ -430,7 +429,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    membership lists to {output prefix}.set, while --set-table writes a\n"
 "    variant-by-set membership table to {output prefix}.set.table.\n\n"
 	       );
-#endif
     help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 1,
 "  --merge [.ped filename] [.map filename]\n"
 "  --merge [text fileset prefix]\n"
@@ -1057,10 +1055,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                  commands once for each cluster in the file,\n"
 "                                  using cluster membership as the phenotype.\n"
 	       );
-#ifndef STABLE_BUILD
-    help_print("set\tsubset\tset-collapse-all\tmake-set-collapse-all\tcomplement-sets\tmake-set-complement-all\tmake-set\tmake-set-border\tborder\tmake-set-collapse-group\t--make-set-complement-group", &help_ctrl, 0,
+    help_print("set\tset-names\tsubset\tset-collapse-all\tmake-set-collapse-all\tcomplement-sets\tmake-set-complement-all\tmake-set\tmake-set-border\tborder\tmake-set-collapse-group\t--make-set-complement-group", &help_ctrl, 0,
 "  --set [filename]              : Load sets from a .set file.\n"
-"  --subset [filename]           : Throw out sets not named in the given file.\n"
+"  --set-names {name(s)...}      : Load only sets named on the command line.\n"
+"  --subset [filename]           : Load only sets named in the given text file.\n"
 "  --set-collapse-all [set name] : Merge all sets.\n"
 "  --complement-sets             : Invert all sets.  (Names gain 'C_' prefixes.)\n"
 "  --make-set-complement-all [s] : --set-collapse-all + inversion.\n"
@@ -1069,7 +1067,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --make-set-collapse-group     : Define sets from groups instead of sets in\n"
 "                                  --make-set file.\n"
 	       );
-#endif
     help_print("keep\tremove\tkeep-fam\tremove-fam", &help_ctrl, 0,
 "  --keep [fname]   : Exclude all individuals not named in the file.\n"
 "  --remove [fname] : Exclude all individuals named in the file.\n"
@@ -1090,13 +1087,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --remove-clusters [filename]        : Exclude all clusters named in the file.\n"
 "  --remove-cluster-names [name(s)...] : Exclude the named clusters.\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("set\tmake-set\tgene\tgene-all", &help_ctrl, 0,
 "  --gene [sets...] : Exclude variants not in a set named on the command line.\n"
 "  --gene-all       : Exclude variants which aren't a member of any set.  (PLINK\n"
 "                     1.07 automatically did this under some circumstances.)\n"
 	       );
-#endif
     help_print("filter-attrib\tfilter-attrib-indiv", &help_ctrl, 0,
 "  --filter-attrib [f] {att lst} : Given a file assigning attributes to\n"
 "  --filter-attrib-indiv [f] {a}   variants, and a comma-delimited list (with no\n"

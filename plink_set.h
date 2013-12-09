@@ -14,6 +14,7 @@
 typedef struct {
   // command-line, allocated on heap and freed by main()
   char* fname;
+  char* setnames_flattened;
   char* subset_fname;
   char* merged_set_name;
   char* genekeep_flattened;
@@ -45,7 +46,7 @@ typedef struct {
   //   [2]: number of bits (divisible by 128 unless very last bit included)
   //   [3]: 1 if all out-of-bounds bits are set, 0 otherwise (other flags may
   //        be added later)
-  uint32_t** range_ptrs;
+  uint32_t** setdefs;
 } Set_info;
 
 void set_init(Set_info* sip);
@@ -56,6 +57,6 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 
 int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr);
 
-void unpack_set_unfiltered(uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* range_ptr, uintptr_t* new_exclude);
+void unpack_set_unfiltered(uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* setdef, uintptr_t* new_exclude);
 
 #endif // __PLINK_SET_H__

@@ -4761,7 +4761,8 @@ uint32_t window_forward(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_
 
 uintptr_t jump_forward_unset_unsafe(uintptr_t* bit_arr, uintptr_t cur_pos, uintptr_t forward_ct) {
   // advances forward_ct unset bits; forward_ct must be positive.  (stays put
-  // if forward_ct == 1 and current bit is unset.)
+  // if forward_ct == 1 and current bit is unset.  may want to tweak this
+  // interface, easy to introduce off-by-one bugs...)
   // In usual 64-bit case, also assumes bit_arr is 16-byte aligned and the end
   // of the trailing 16-byte block can be safely read from.
   uintptr_t widx = cur_pos / BITCT;
