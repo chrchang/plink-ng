@@ -3311,7 +3311,6 @@ THREAD_RET_TYPE assoc_set_thread(void* arg) {
   double sval;
   uint32_t missing_ct;
   uint32_t het_ct;
-  uint32_t homcom_ct;
   if (is_haploid) { // includes g_is_x
     min_ploidy = 1;
   }
@@ -3329,15 +3328,12 @@ THREAD_RET_TYPE assoc_set_thread(void* arg) {
       row1x_sum = min_ploidy * case_ct;
       tot_obs = min_ploidy * (pheno_nm_ct - missing_ct);
     }
-    col2_sum = tot_obs - col1_sum;
     loadbuf_cur = &(loadbuf[marker_bidx * pheno_nm_ctl2]);
     if (!is_x_or_y) {
       if (!is_haploid) {
 	het_ct = het_cts[marker_idx];
-	homcom_ct = (col1_sum - het_ct) / 2;
       } else {
 	het_ct = 0;
-	homcom_ct = col1_sum;
       }
       git_homrar_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
       git_missing_cts = &(git_homrar_cts[perm_vec_ctcl4m]);
