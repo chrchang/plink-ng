@@ -5257,7 +5257,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	if (pheno_d) {
 	  retval = qassoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_mperm_val, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, sex_male, hh_exists, perm_batch_size);
 	} else {
-	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male);
+	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male, sip);
 	}
 	if (retval) {
 	  goto plink_ret_1;
@@ -7259,7 +7259,7 @@ int32_t main(int32_t argc, char** argv) {
 	    logprint("Error: Improper --assoc mperm syntax.  (Use '--assoc mperm=[value]'.)\n");
 	    goto main_ret_INVALID_CMDLINE;
 	  } else if (!strcmp(argv[cur_arg + uii], "set-test")) {
-	    model_modifier |= MODEL_ASSOC_SET_TEST;
+	    model_modifier |= MODEL_SET_TEST;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --assoc parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
@@ -9624,7 +9624,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 #endif
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 9)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 10)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
@@ -9712,6 +9712,8 @@ int32_t main(int32_t argc, char** argv) {
 	    glm_modifier |= GLM_STANDARD_BETA;
 	  } else if (!strcmp(argv[cur_arg + uii], "beta")) {
 	    glm_modifier |= GLM_BETA;
+	  } else if (!strcmp(argv[cur_arg + uii], "set-test")) {
+	    glm_modifier |= GLM_SET_TEST;
 	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
 	    sprintf(logbuf, "Error: Improper --%s mperm syntax.  (Use '--%s mperm=[value]'.)\n", argptr, argptr);
 	    goto main_ret_INVALID_CMDLINE_3;
@@ -10324,6 +10326,8 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
 	    logprint("Error: Improper --model mperm syntax.  (Use '--model mperm=[value]'.)\n");
 	    goto main_ret_INVALID_CMDLINE;
+	  } else if (!strcmp(argv[cur_arg + uii], "set-test")) {
+	    model_modifier |= MODEL_SET_TEST;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --model parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
@@ -12004,8 +12008,11 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	logprint("Note: --set-test flag deprecated.  Use e.g. '--assoc perm set-test'.\n");
-	if (model_modifier & MODEL_ASSOC) {
-          model_modifier |= MODEL_ASSOC_SET_TEST;
+	if (calculation_type & CALC_MODEL) {
+          model_modifier |= MODEL_SET_TEST;
+	}
+	if (calculation_type & CALC_GLM) {
+	  model_modifier |= GLM_SET_TEST;
 	}
 	if ((epi_info.modifier & (EPI_FAST | EPI_REG)) && (!(epi_info.modifier & EPI_SET_BY_ALL))) {
 	  epi_info.modifier |= EPI_SET_BY_SET;
@@ -12019,9 +12026,11 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	logprint("Error: --set-p is not implemented yet.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx <= 0) || (dxx > 1)) {
+	  sprintf(logbuf, "Error: Invalid --set-p parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	set_info.set_p = dxx;
       } else if (!memcmp(argptr2, "et-r2", 5)) {
 	if (!set_info.fname) {
 	  sprintf(logbuf, "Error: --set-r2 must be used with --set/--make-set.%s", errstr_append);
@@ -12030,9 +12039,11 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	logprint("Error: --set-r2 is not implemented yet.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx <= 0) || (dxx > 1)) {
+	  sprintf(logbuf, "Error: Invalid --set-r2 parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	set_info.set_r2 = dxx;
       } else if (!memcmp(argptr2, "et-max", 5)) {
 	if (!set_info.fname) {
 	  sprintf(logbuf, "Error: --set-max must be used with --set/--make-set.%s", errstr_append);
@@ -12041,9 +12052,12 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	logprint("Error: --set-max is not implemented yet.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
+	ii = atoi(argv[cur_arg + 1]);
+	if (ii < 1) {
+	  sprintf(logbuf, "Error: Invalid --set-max parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        set_info.set_max = ii;
       } else if (!memcmp(argptr2, "et-by-all", 10)) {
 	if (!set_info.fname) {
 	  sprintf(logbuf, "Error: --set-by-all must be used with --set/--make-set.%s", errstr_append);
@@ -12930,6 +12944,21 @@ int32_t main(int32_t argc, char** argv) {
     } else if (set_info.genekeep_flattened) {
       logprint("Error: --gene must be used with --set/--make-set.\n");
       goto main_ret_INVALID_CMDLINE;
+    } else if (model_modifier & MODEL_SET_TEST) {
+      logprint("Error: --assoc/--model set-test must be used with --set/--make-set.\n");
+      goto main_ret_INVALID_CMDLINE;
+    } else if (glm_modifier & GLM_SET_TEST) {
+      logprint("Error: --linear/--logistic set-test must be used with --set/--make-set.\n");
+      goto main_ret_INVALID_CMDLINE;
+    }
+  } else {
+    if (((model_modifier & (MODEL_PERM | MODEL_SET_TEST)) == MODEL_SET_TEST) && (!model_mperm_val)) {
+      sprintf(logbuf, "Error: --assoc/--model set-test requires permutation.%s", errstr_append);
+      goto main_ret_INVALID_CMDLINE_3;
+    }
+    if (((glm_modifier & (GLM_PERM | GLM_SET_TEST)) == GLM_SET_TEST) && (!glm_mperm_val)) {
+      sprintf(logbuf, "Error: --linear/--logistic set-test requires permutation.%s", errstr_append);
+      goto main_ret_INVALID_CMDLINE_3;
     }
   }
   if ((!(calculation_type & CALC_LD)) || ((calculation_type & CALC_LD) && (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_INTER_CHR)))) {

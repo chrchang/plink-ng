@@ -8,6 +8,9 @@ void set_init(Set_info* sip) {
   sip->genekeep_flattened = NULL;
   sip->ct = 0;
   sip->modifier = 0;
+  sip->set_r2 = 0.5;
+  sip->set_p = 0.05;
+  sip->set_max = 5;
 }
 
 void set_cleanup(Set_info* sip) {

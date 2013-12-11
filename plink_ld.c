@@ -5847,10 +5847,12 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	      if (marker_idx2 == marker_ct2) {
 		goto epistasis_report_write_loop;
 	      }
-	      marker_uidx2 = jump_forward_unset_unsafe(marker_exclude2, marker_uidx2 + 1, marker_idx2 - ujj);
-	      dptr = &(dptr[marker_idx2 - ujj]);
-	      if (marker_uidx2 >= chrom_end2) {
-		break;
+	      if (marker_idx2 > ujj) {
+	        marker_uidx2 = jump_forward_unset_unsafe(marker_exclude2, marker_uidx2 + 1, marker_idx2 - ujj);
+	        dptr = &(dptr[marker_idx2 - ujj]);
+	        if (marker_uidx2 >= chrom_end2) {
+		  break;
+	        }
 	      }
 	    } else if (marker_idx2 == marker_ct2) {
 	      goto epistasis_report_write_loop;
@@ -5962,14 +5964,14 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       }
       tests_thrown_out += (uint64_t)ujj;
       // number of tests attempted in this run:
-      // * if this site's entire row was calculated, there are
+      // * if set1 and set2 are identical, there are
       //   marker_ct2 - 1 - marker_idx1_start cells between the row and the
       //   same-index column
-      // * if it was not, the column segment has length job_size
-      if (marker_idx1 < marker_idx1_end) {
-	ujj = marker_ct2 - 1 - marker_idx1_start - ujj;
+      // * otherwise, gap_cts[] counted the number of skipped cells
+      if (is_triangular) {
+        ujj = marker_ct2 - 1 - marker_idx1_start - ujj;
       } else {
-        ujj = job_size - ujj;
+	ujj = marker_ct2 - ujj;
       }
       wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr_start);
       wptr = memcpyl3a(wptr, "   ");

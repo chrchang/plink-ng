@@ -20,6 +20,9 @@ typedef struct {
   char* genekeep_flattened;
   uint32_t modifier;
   uint32_t make_set_border;
+  double set_r2;
+  double set_p;
+  uint32_t set_max;
 
   // main data structure, allocated on stack
   uintptr_t ct;
