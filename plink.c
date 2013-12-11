@@ -5255,7 +5255,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     plink_skip_all_pheno:
       if (calculation_type & CALC_MODEL) {
 	if (pheno_d) {
-	  retval = qassoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_mperm_val, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, sex_male, hh_exists, perm_batch_size);
+	  retval = qassoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_mperm_val, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, sex_male, hh_exists, perm_batch_size, sip);
 	} else {
 	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male, sip);
 	}
@@ -5265,9 +5265,9 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
       if (calculation_type & CALC_GLM) {
 	if (!(glm_modifier & GLM_NO_SNP)) {
-          retval = glm_assoc(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, zero_extra_chroms, condition_mname, condition_fname, chrom_info_ptr, unfiltered_indiv_ct, g_indiv_ct, indiv_exclude, cluster_ct, cluster_map, cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_nm, sex_male, hh_exists, perm_batch_size);
+          retval = glm_assoc(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, zero_extra_chroms, condition_mname, condition_fname, chrom_info_ptr, unfiltered_indiv_ct, g_indiv_ct, indiv_exclude, cluster_ct, cluster_map, cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_nm, sex_male, hh_exists, perm_batch_size, sip);
 	} else {
-	  retval = glm_assoc_nosnp(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_indiv_ct, g_indiv_ct, indiv_exclude, cluster_ct, cluster_map, cluster_starts, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_nm, sex_male, hh_exists, perm_batch_size);
+	  retval = glm_assoc_nosnp(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_indiv_ct, g_indiv_ct, indiv_exclude, cluster_ct, cluster_map, cluster_starts, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_nm, sex_male, hh_exists, perm_batch_size, sip);
 	}
 	if (retval) {
 	  goto plink_ret_1;
@@ -10248,7 +10248,7 @@ int32_t main(int32_t argc, char** argv) {
         logprint("Note: --mcovar flag deprecated.  Use '--gxe [covariate index]'.\n");
 	gxe_mcovar = ii;
       } else if (!memcmp(argptr2, "odel", 5)) {
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 5)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 6)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (model_modifier & MODEL_ASSOC_FDEPR) {
@@ -12039,11 +12039,15 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx <= 0) || (dxx > 1)) {
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0) || (dxx > 1)) {
 	  sprintf(logbuf, "Error: Invalid --set-r2 parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	set_info.set_r2 = dxx;
+	if (dxx > 0.0) {
+	  set_info.set_r2 = dxx;
+	} else {
+	  set_info.set_max = 1;
+	}
       } else if (!memcmp(argptr2, "et-max", 5)) {
 	if (!set_info.fname) {
 	  sprintf(logbuf, "Error: --set-max must be used with --set/--make-set.%s", errstr_append);
@@ -12952,13 +12956,26 @@ int32_t main(int32_t argc, char** argv) {
       goto main_ret_INVALID_CMDLINE;
     }
   } else {
-    if (((model_modifier & (MODEL_PERM | MODEL_SET_TEST)) == MODEL_SET_TEST) && (!model_mperm_val)) {
-      sprintf(logbuf, "Error: --assoc/--model set-test requires permutation.%s", errstr_append);
-      goto main_ret_INVALID_CMDLINE_3;
+    if (model_modifier & MODEL_SET_TEST) {
+      if ((!(model_modifier & MODEL_PERM)) && (!model_mperm_val)) {
+        sprintf(logbuf, "Error: --assoc/--model set-test requires permutation.%s", errstr_append);
+        goto main_ret_INVALID_CMDLINE_3;
+      } else if (model_modifier & MODEL_FISHER) {
+	sprintf(logbuf, "Error: --assoc/--model set-test cannot be used with Fisher's exact test.%s", errstr_append);
+        goto main_ret_INVALID_CMDLINE_3;
+      }
+      logprint("Error: --assoc/--model set-test is currently under development.\n");
+      retval = RET_CALC_NOT_YET_SUPPORTED;
+      goto main_ret_1;
     }
-    if (((glm_modifier & (GLM_PERM | GLM_SET_TEST)) == GLM_SET_TEST) && (!glm_mperm_val)) {
-      sprintf(logbuf, "Error: --linear/--logistic set-test requires permutation.%s", errstr_append);
-      goto main_ret_INVALID_CMDLINE_3;
+    if (glm_modifier & GLM_SET_TEST) {
+      if ((!(glm_modifier & GLM_PERM)) && (!glm_mperm_val)) {
+        sprintf(logbuf, "Error: --linear/--logistic set-test requires permutation.%s", errstr_append);
+        goto main_ret_INVALID_CMDLINE_3;
+      }
+      logprint("Error: --linear/--logistic set-test is currently under development.\n");
+      retval = RET_CALC_NOT_YET_SUPPORTED;
+      goto main_ret_1;
     }
   }
   if ((!(calculation_type & CALC_LD)) || ((calculation_type & CALC_LD) && (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_INTER_CHR)))) {

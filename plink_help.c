@@ -714,16 +714,18 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    neighbors, associated Z-scores, and the identities of those neighbors.\n"
 "    Useful for outlier detection.\n\n"
 	       );
-    help_print("assoc\tmodel\tfisher\tperm\tmperm\tperm-count\tcounts\tp2\tmodel-dom\tmodel-gen\tmodel-rec\tmodel-trend\tgenedrop\tqt-means\ttrend", &help_ctrl, 1,
-"  --assoc <perm | mperm=[value]> <perm-count> <fisher> <counts>\n"
+    help_print("assoc\tmodel\tfisher\tperm\tmperm\tperm-count\tcounts\tp2\tset-test\tmodel-dom\tmodel-gen\tmodel-rec\tmodel-trend\tgenedrop\tqt-means\ttrend", &help_ctrl, 1,
+"  --assoc <perm | mperm=[value]> <perm-count> <fisher> <counts> <set-test>\n"
 	       /*
 "  --assoc <perm | mperm=[value]> <genedrop> <perm-count> <fisher> <counts> <p2>\n"
+"          <set-test>\n"
 	       */
-"  --assoc <perm | mperm=[value]> <perm-count> <qt-means> <lin>\n"
-"  --model <perm | mperm=[value]> <perm-count> <fisher | trend-only>\n"
+"  --assoc <perm | mperm=[value]> <perm-count> <qt-means> <lin> <set-test>\n"
       /*
 "  --model <perm | mperm=[value]> <genedrop> <perm-count> <fisher | trend-only>\n"
-										  */
+"          <set-test> <dom | rec | gen | trend>\n"
+      */
+"  --model <perm | mperm=[value]> <perm-count> <fisher | trend-only> <set-test>\n"
 "          <dom | rec | gen | trend>\n"
 "    Basic association analysis report.\n"
 "    Given a case/control phenotype, --assoc performs a 1df chi-square allelic\n"
@@ -743,6 +745,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       /*
 "    * 'p2' changes the --assoc permutation test used (see PLINK documentation).\n"
 	       */
+"    * 'set-test' tests the significance of variant sets.  Requires permutation;\n"
+"      can be customized with --set-p/--set-r2/--set-max.\n"
 "    * 'dom', 'rec', 'gen', and 'trend' force the corresponding test to be used\n"
 "      as the basis for --model permutation.  (By default, the most significant\n"
 "      result among the allelic, dominant, and recessive tests is used.)\n"
@@ -764,19 +768,19 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    default, the first covariate in the --covar file defines the groups; use\n"
 "    e.g. '--gxe 3' to base them on the third covariate instead.\n\n"
 	       );
-    help_print("linear\tlogistic\tperm\tmperm\tperm-count\tgenotypic\thethom\tdominant\trecessive\tno-snp\thide-covar\tsex\tno-x-sex\tinteraction\tstandard-beta\tbeta", &help_ctrl, 1,
+    help_print("linear\tlogistic\tperm\tmperm\tperm-count\tset-test\tgenotypic\thethom\tdominant\trecessive\tno-snp\thide-covar\tsex\tno-x-sex\tinteraction\tstandard-beta\tbeta", &help_ctrl, 1,
                /*
-"  --linear <perm | mperm=[value]> <genedrop> <perm-count>\n"
+"  --linear <perm | mperm=[value]> <genedrop> <perm-count> <set-test>\n"
                */
 #ifndef NOLAPACK
-"  --linear <perm | mperm=[value]> <perm-count>\n"
+"  --linear <perm | mperm=[value]> <perm-count> <set-test>\n"
 "           <genotypic | hethom | dominant | recessive | no-snp> <hide-covar>\n"
 "           <sex | no-x-sex> <interaction> <beta> <standard-beta>\n"
 #endif
 	       /*
-"  --logistic <perm | mperm=[value]> <genedrop> <perm-count>\n"
+"  --logistic <perm | mperm=[value]> <genedrop> <perm-count> <set-test>\n"
 	       */
-"  --logistic <perm | mperm=[value]> <perm-count>\n"
+"  --logistic <perm | mperm=[value]> <perm-count> <set-test>\n"
 "             <genotypic | hethom | dominant | recessive | no-snp> <hide-covar>\n"
 "             <sex | no-x-sex> <interaction> <beta>\n"
 "    Multi-covariate association analysis on a quantitative (--linear) or\n"
@@ -789,6 +793,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       */
 "    * 'perm-count' causes the permutation test report to include counts instead\n"
 "      of frequencies.\n"
+"    * 'set-test' tests the significance of variant sets.  Requires permutation;\n"
+"      can be customized with --set-p/--set-r2/--set-max.\n"
 "    * The 'genotypic' modifier adds an additive effect/dominance deviation 2df\n"
 "      joint test (0/1/2 and 0/1/0 coding), while 'hethom' uses 0/0/1 and 0/1/0\n"
 "      coding instead.  If permutation is also requested, these modifiers cause\n"
@@ -1425,6 +1431,14 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("mperm-save\tmperm-save-all", &help_ctrl, 0,
 "  --mperm-save     : Save best max(T) permutation test statistics.\n"
 "  --mperm-save-all : Save all max(T) permutation test statistics.\n"
+	       );
+    help_print("set-p\tset-r2\tset-max\tset-test", &help_ctrl, 0,
+"  --set-p [p-val]  : Adjust set test significant variant p-value ceiling\n"
+"                     (default 0.05).\n"
+"  --set-r2 [val]   : Adjust set test significant variant pairwise r^2 ceiling\n"
+"                     (default 0.5).\n"
+"  --set-max [ct]   : Adjust set test maximum # of significant variants\n"
+"                     considered per set (default 5).\n"
 	       );
     help_print("fast-epistasis\tepistasis\tgap\tepi1\tepi2", &help_ctrl, 0,
 "  --gap [kbs]      : Set '--fast-epistasis case-only' min. gap (default 1000).\n"
