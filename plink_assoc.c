@@ -3295,7 +3295,6 @@ THREAD_RET_TYPE assoc_set_thread(void* arg) {
   uint32_t* __restrict__ perm_vecst = g_perm_vecst;
   uint32_t* __restrict__ missing_cts = g_missing_cts;
   uint32_t* __restrict__ set_cts = g_set_cts; // ugh, should rename this
-  uint32_t* __restrict__ het_cts = g_het_cts;
   uint32_t* __restrict__ adapt_m_table = g_adapt_m_table;
   double* msa_ptr = NULL;
   uintptr_t* loadbuf_cur;
@@ -3303,14 +3302,12 @@ THREAD_RET_TYPE assoc_set_thread(void* arg) {
   uintptr_t marker_idx;
   intptr_t row1x_sum;
   intptr_t col1_sum;
-  intptr_t col2_sum;
   intptr_t tot_obs;
   uint32_t case_set_ct;
   uint32_t case_missing_ct;
   uint32_t uii;
   double sval;
   uint32_t missing_ct;
-  uint32_t het_ct;
   if (is_haploid) { // includes g_is_x
     min_ploidy = 1;
   }
@@ -3330,11 +3327,6 @@ THREAD_RET_TYPE assoc_set_thread(void* arg) {
     }
     loadbuf_cur = &(loadbuf[marker_bidx * pheno_nm_ctl2]);
     if (!is_x_or_y) {
-      if (!is_haploid) {
-	het_ct = het_cts[marker_idx];
-      } else {
-	het_ct = 0;
-      }
       git_homrar_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
       git_missing_cts = &(git_homrar_cts[perm_vec_ctcl4m]);
       git_het_cts = &(git_homrar_cts[2 * perm_vec_ctcl4m]);
