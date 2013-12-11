@@ -5384,8 +5384,9 @@ int32_t check_cm_col(FILE* bimfile, char* tbuf, uint32_t is_binary, uint32_t buf
     }
     if (no_more_items_kns(next_item(bufptr))) {
       *gd_col_ptr = 0;
+    } else {
+      *gd_col_ptr = 1;
     }
-    *gd_col_ptr = 1;
     return 0;
   }
   return -1;
