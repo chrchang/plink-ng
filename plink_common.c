@@ -3900,6 +3900,7 @@ void update_neighbor(uintptr_t indiv_ct, uint32_t neighbor_n2, uintptr_t indiv_i
 }
 
 uintptr_t bsearch_str_lb(char* lptr, uintptr_t arr_length, uintptr_t max_id_len, char* id_buf) {
+  // returns number of elements in lptr[] less than or equal to id_buf
   // assumes nonempty array
   intptr_t min_idx = 0;
   intptr_t max_idx = arr_length - 1;
@@ -3919,42 +3920,48 @@ uintptr_t bsearch_str_lb(char* lptr, uintptr_t arr_length, uintptr_t max_id_len,
   }
 }
 
-int32_t bsearch_str(const char* id_buf, char* lptr, uintptr_t max_id_len, intptr_t min_idx, intptr_t max_idx) {
-  intptr_t mid_idx;
+int32_t bsearch_str(const char* id_buf, uintptr_t cur_id_len, char* lptr, uintptr_t max_id_len, uintptr_t end_idx) {
+  // does not assume null-terminated id_buf, or nonempty array.
+  // N.B. max_id_len includes null terminator as usual, while cur_id_len does
+  // NOT.
+  uintptr_t start_idx = 0;
+  uintptr_t mid_idx;
   int32_t ii;
-  if (max_idx < min_idx) {
+  if (cur_id_len >= max_id_len) {
     return -1;
   }
-  mid_idx = (min_idx + max_idx) / 2;
-  ii = strcmp(id_buf, &(lptr[((uintptr_t)mid_idx) * max_id_len]));
-  if (ii) {
-    if (ii < 0) {
-      return bsearch_str(id_buf, lptr, max_id_len, min_idx, mid_idx - 1);
+  while (start_idx < end_idx) {
+    mid_idx = (start_idx + end_idx) / 2;
+    ii = memcmp(id_buf, &(lptr[mid_idx * max_id_len]), cur_id_len);
+    if (ii > 0) {
+      start_idx = mid_idx + 1;
+    } else if ((ii < 0) || lptr[mid_idx * max_id_len + cur_id_len]) {
+      end_idx = mid_idx;
     } else {
-      return bsearch_str(id_buf, lptr, max_id_len, mid_idx + 1, max_idx);
+      return ((uint32_t)mid_idx);
     }
-  } else {
-    return mid_idx;
   }
+  return -1;
 }
 
-int32_t bsearch_str_natural(char* id_buf, char* lptr, uintptr_t max_id_len, intptr_t min_idx, intptr_t max_idx) {
-  intptr_t mid_idx;
+int32_t bsearch_str_natural(char* id_buf, char* lptr, uintptr_t max_id_len, uintptr_t end_idx) {
+  // unlike bsearch_str(), caller is responsible for slen > max_id_len check
+  // if appropriate here
+  uintptr_t start_idx = 0;
+  uintptr_t mid_idx;
   int32_t ii;
-  if (max_idx < min_idx) {
-    return -1;
-  }
-  mid_idx = (min_idx + max_idx) / 2;
-  ii = strcmp_natural(id_buf, &(lptr[((uintptr_t)mid_idx) * max_id_len]));
-  if (ii) {
-    if (ii < 0) {
-      return bsearch_str_natural(id_buf, lptr, max_id_len, min_idx, mid_idx - 1);
+  while (start_idx < end_idx) {
+    mid_idx = (start_idx + end_idx) / 2;
+    ii = strcmp_natural(id_buf, &(lptr[mid_idx * max_id_len]));
+    if (ii > 0) {
+      start_idx = mid_idx + 1;
+    } else if (ii < 0) {
+      end_idx = mid_idx;
     } else {
-      return bsearch_str_natural(id_buf, lptr, max_id_len, mid_idx + 1, max_idx);
+      return ((uint32_t)mid_idx);
     }
-  } else {
-    return mid_idx;
   }
+  return -1;
 }
 
 void fill_idbuf_fam_indiv(char* idbuf, char* fam_indiv, char fillchar) {
@@ -3973,18 +3980,18 @@ int32_t bsearch_fam_indiv(char* id_buf, char* lptr, uintptr_t max_id_len, uint32
   // id_buf = workspace
   // lptr = packed, sorted list of ID strings to search over
   // fam_id and indiv_id are considered terminated by any space/eoln character
+  uintptr_t ulii;
   uint32_t uii;
   uint32_t ujj;
-  if (!filter_line_ct) {
-    return -1;
-  }
   uii = strlen_se(fam_id);
   ujj = strlen_se(indiv_id);
-  if (uii + ujj + 2 > max_id_len) {
+  ulii = uii + ujj + 1;
+  if (ulii >= max_id_len) {
+    // avoid buffer overflow
     return -1;
   }
-  memcpyx(memcpyax(id_buf, fam_id, uii, '\t'), indiv_id, ujj, '\0');
-  return bsearch_str(id_buf, lptr, max_id_len, 0, filter_line_ct - 1);
+  memcpy(memcpyax(id_buf, fam_id, uii, '\t'), indiv_id, ujj);
+  return bsearch_str(id_buf, ulii, lptr, max_id_len, filter_line_ct);
 }
 
 void bsearch_fam(char* id_buf, char* lptr, uintptr_t max_id_len, uint32_t filter_line_ct, char* fam_id, uint32_t* first_idx_ptr, uint32_t* last_idx_ptr) {
@@ -6298,19 +6305,14 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint3
   // if fixed_len is zero, header_line is assumed to be a list of
   // space-delimited unequal-length names
   uintptr_t max_id_len = range_list_ptr->name_max_len;
-  uint32_t name_ct = range_list_ptr->name_ct;
-  intptr_t name_ct_m1 = (uintptr_t)(name_ct - 1);
+  uintptr_t name_ct = range_list_ptr->name_ct;
   uint32_t item_idx = 0;
   int32_t retval = 0;
   char* bufptr;
-  char cc;
   int32_t ii;
   while (1) {
     bufptr = item_endnn(header_line);
-    cc = *bufptr;
-    *bufptr = '\0';
-    ii = bsearch_str(header_line, sorted_ids, max_id_len, 0, name_ct_m1);
-    *bufptr = cc;
+    ii = bsearch_str(header_line, (uintptr_t)(bufptr - header_line), sorted_ids, max_id_len, name_ct);
     if (ii != -1) {
       if (seen_idxs[(uint32_t)ii] != -1) {
         sprintf(logbuf, "Error: Duplicate --%s token in %s.\n", range_list_flag, file_descrip);
@@ -6388,7 +6390,6 @@ int32_t string_range_list_to_bitfield2(char* sorted_ids, uint32_t* id_map, uintp
   char* names = range_list_ptr->names;
   unsigned char* starts_range = range_list_ptr->starts_range;
   uintptr_t name_max_len = range_list_ptr->name_max_len;
-  uintptr_t item_ct_m1 = item_ct - 1;
   uint32_t name_ct = range_list_ptr->name_ct;
   int32_t retval = 0;
   uint32_t param_idx;
@@ -6398,7 +6399,7 @@ int32_t string_range_list_to_bitfield2(char* sorted_ids, uint32_t* id_map, uintp
   int32_t ii;
   for (param_idx = 0; param_idx < name_ct; param_idx++) {
     bufptr = &(names[param_idx * name_max_len]);
-    ii = bsearch_str(bufptr, sorted_ids, max_id_len, 0, item_ct_m1);
+    ii = bsearch_str_nl(bufptr, sorted_ids, max_id_len, item_ct);
     if (ii == -1) {
       goto string_range_list_to_bitfield2_ret_INVALID_CMDLINE_2;
     }
@@ -6406,7 +6407,7 @@ int32_t string_range_list_to_bitfield2(char* sorted_ids, uint32_t* id_map, uintp
     if (starts_range[param_idx]) {
       param_idx++;
       bufptr = &(names[param_idx * name_max_len]);
-      ii = bsearch_str(bufptr, sorted_ids, max_id_len, 0, item_ct_m1);
+      ii = bsearch_str_nl(bufptr, sorted_ids, max_id_len, item_ct);
       if (ii == -1) {
         goto string_range_list_to_bitfield2_ret_INVALID_CMDLINE_2;
       }

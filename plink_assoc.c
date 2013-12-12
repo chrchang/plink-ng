@@ -8757,7 +8757,6 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
   uintptr_t condition_ct_max;
   uintptr_t condition_idx;
   uintptr_t indiv_uidx_offset;
-  uintptr_t slen;
   uintptr_t ulii;
   uintptr_t uljj;
   uint32_t marker_uidx;
@@ -8765,7 +8764,6 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
   uint32_t is_x;
   uint32_t is_y;
   int32_t ii;
-  char cc;
   if (condition_mname) {
     ii = get_uidx_from_unsorted(condition_mname, marker_exclude, marker_ct, marker_ids, max_marker_id_len);
     if (ii == -1) {
@@ -8807,25 +8805,20 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
       bufptr = skip_initial_spaces(tbuf);
       while (!is_eoln_kns(*bufptr)) {
         bufptr2 = item_endnn(bufptr);
-        slen = (uintptr_t)(bufptr2 - bufptr);
-	if (slen < max_marker_id_len) {
-	  cc = *bufptr2;
-	  *bufptr2 = '\0';
-	  ii = bsearch_str(bufptr, sorted_ids, max_marker_id_len, 0, marker_ct - 1);
-	  if (ii == -1) {
-            miss_ct++;
-	  }
+	ii = bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_ids, max_marker_id_len, marker_ct);
+	if (ii == -1) {
+	  miss_ct++;
+	} else {
 	  if (is_set(already_seen, ii)) {
 	    sprintf(logbuf, "Error: Duplicate variant %s in --condition-list file.\n", bufptr);
-            logprintb();
+	    logprintb();
 	    goto glm_scan_conditions_ret_INVALID_FORMAT;
 	  }
 	  if (condition_ct == condition_ct_max) {
 	    goto glm_scan_conditions_ret_NOMEM;
 	  }
-          set_bit(already_seen, ii);
-          condition_uidxs_tmp[condition_ct++] = marker_idx_to_uidx[id_map[(uint32_t)ii]];
-	  *bufptr2 = cc;
+	  set_bit(already_seen, ii);
+	  condition_uidxs_tmp[condition_ct++] = marker_idx_to_uidx[id_map[(uint32_t)ii]];
 	}
         bufptr = skip_initial_spaces(bufptr2);
       }

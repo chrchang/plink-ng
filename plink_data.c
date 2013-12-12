@@ -1228,6 +1228,7 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
   uintptr_t* already_seen;
   char* loadbuf;
   uintptr_t loadbuf_size;
+  uintptr_t slen;
   uint32_t colmin;
   uint32_t coldiff;
   char* colid_ptr;
@@ -1287,13 +1288,14 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
 	goto update_marker_cms_ret_INVALID_FORMAT_2;
       }
     }
-    colid_ptr[strlen_se(colid_ptr)] = '\0';
-    sorted_idx = bsearch_str(colid_ptr, sorted_marker_ids, max_marker_id_len, 0, marker_ct - 1);
+    slen = strlen_se(colid_ptr);
+    sorted_idx = bsearch_str(colid_ptr, slen, sorted_marker_ids, max_marker_id_len, marker_ct);
     if (sorted_idx == -1) {
       miss_ct++;
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
+      colid_ptr[slen] = '\0';
       sprintf(logbuf, "Error: Duplicate variant %s in --update-cm file.\n", colid_ptr);
       logprintb();
       goto update_marker_cms_ret_INVALID_FORMAT;
@@ -1350,6 +1352,7 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
   uintptr_t* already_seen;
   char* loadbuf;
   uintptr_t loadbuf_size;
+  uintptr_t slen;
   uint32_t colmin;
   uint32_t coldiff;
   char* colid_ptr;
@@ -1410,13 +1413,14 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
 	goto update_marker_pos_ret_INVALID_FORMAT_2;
       }
     }
-    colid_ptr[strlen_se(colid_ptr)] = '\0';
-    sorted_idx = bsearch_str(colid_ptr, sorted_marker_ids, max_marker_id_len, 0, marker_ct - 1);
+    slen = strlen_se(colid_ptr);
+    sorted_idx = bsearch_str(colid_ptr, slen, sorted_marker_ids, max_marker_id_len, marker_ct);
     if (sorted_idx == -1) {
       miss_ct++;
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
+      colid_ptr[slen] = '\0';
       sprintf(logbuf, "Error: Duplicate variant %s in --update-map file.\n", colid_ptr);
       logprintb();
       goto update_marker_pos_ret_INVALID_FORMAT;
@@ -1556,13 +1560,14 @@ int32_t update_marker_names(Two_col_params* update_name, char* sorted_marker_ids
       }
       colold_ptr = next_item_mult(colnew_ptr, coldiff);
     }
-    colold_ptr[strlen_se(colold_ptr)] = '\0';
-    sorted_idx = bsearch_str(colold_ptr, sorted_marker_ids, max_marker_id_len, 0, marker_ct - 1);
+    slen = strlen_se(colold_ptr);
+    sorted_idx = bsearch_str(colold_ptr, slen, sorted_marker_ids, max_marker_id_len, marker_ct);
     if (sorted_idx == -1) {
       miss_ct++;
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
+      colold_ptr[slen] = '\0';
       sprintf(logbuf, "Error: Duplicate variant %s in --update-name file.\n", colold_ptr);
       logprintb();
       goto update_marker_names_ret_INVALID_FORMAT;
@@ -1648,20 +1653,20 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
       continue;
     }
     bufptr2 = item_endnn(bufptr3);
-    *bufptr2 = '\0';
-    bufptr2 = skip_initial_spaces(&(bufptr2[1]));
-    sorted_idx = bsearch_str(bufptr3, sorted_marker_ids, max_marker_id_len, 0, marker_ct - 1);
+    sorted_idx = bsearch_str(bufptr3, (uintptr_t)(bufptr2 - bufptr3), sorted_marker_ids, max_marker_id_len, marker_ct);
     if (sorted_idx == -1) {
       miss_ct++;
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
+      *bufptr2 = '\0';
       sprintf(logbuf, "Error: Duplicate variant %s in --update-alleles file.\n", bufptr3);
       logprintb();
       goto update_marker_alleles_ret_INVALID_FORMAT;
     }
     set_bit(already_seen, sorted_idx);
     marker_uidx = marker_id_map[((uint32_t)sorted_idx)];
+    bufptr2 = skip_initial_spaces(bufptr2);
     len2 = strlen_se(bufptr2);
     bufptr = &(bufptr2[len2]);
     *bufptr = '\0';
@@ -1756,10 +1761,11 @@ int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintpt
   char* bufptr;
   char* bufptr2;
   char* wptr;
+  uintptr_t len_tot;
+  uintptr_t indiv_uidx;
   uint32_t len;
   uint32_t len2;
   int32_t sorted_idx;
-  uintptr_t indiv_uidx;
   if (wkspace_alloc_c_checked(&idbuf, max_person_id_len) ||
       wkspace_alloc_ul_checked(&already_seen, indiv_ctl * sizeof(intptr_t))) {
     goto update_indiv_ids_ret_NOMEM;
@@ -1781,21 +1787,22 @@ int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintpt
     len = strlen_se(bufptr);
     bufptr2 = skip_initial_spaces(&(bufptr[len + 1]));
     len2 = strlen_se(bufptr2);
-    if (len + len2 + 2 > max_person_id_len) {
+    len_tot = len + len2 + 1;
+    if (len_tot >= max_person_id_len) {
       miss_ct++;
       continue;
     }
     memcpy(idbuf, bufptr, len);
     idbuf[len] = '\t';
     memcpy(&(idbuf[len + 1]), bufptr2, len2);
-    idbuf[len + len2 + 1] = '\0';
-    sorted_idx = bsearch_str(idbuf, sorted_person_ids, max_person_id_len, 0, indiv_ct - 1);
+    sorted_idx = bsearch_str(idbuf, len_tot, sorted_person_ids, max_person_id_len, indiv_ct);
     if (sorted_idx == -1) {
       miss_ct++;
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
       idbuf[len] = ' ';
+      idbuf[len_tot] = '\0';
       sprintf(logbuf, "Error: Duplicate individual %s in --update-ids file.\n", idbuf);
       logprintb();
       goto update_indiv_ids_ret_INVALID_FORMAT;
@@ -1853,10 +1860,11 @@ int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids
   char* bufptr2;
   char* bufptr3;
   char* wptr;
+  uintptr_t len_tot;
+  uintptr_t indiv_uidx;
   uint32_t len;
   uint32_t len2;
   int32_t sorted_idx;
-  uintptr_t indiv_uidx;
   if (wkspace_alloc_c_checked(&idbuf, max_person_id_len) ||
       wkspace_alloc_ul_checked(&already_seen, indiv_ctl * sizeof(intptr_t))) {
     goto update_indiv_parents_ret_NOMEM;
@@ -1881,21 +1889,22 @@ int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids
     if (!len2) {
       goto update_indiv_parents_ret_MISSING_TOKENS;
     }
-    if (len + len2 + 2 > max_person_id_len) {
+    len_tot = len + len2 + 1;
+    if (len_tot >= max_person_id_len) {
       miss_ct++;
       continue;
     }
     memcpy(idbuf, bufptr, len);
     idbuf[len] = '\t';
     memcpy(&(idbuf[len + 1]), bufptr2, len2);
-    idbuf[len + len2 + 1] = '\0';
-    sorted_idx = bsearch_str(idbuf, sorted_person_ids, max_person_id_len, 0, indiv_ct - 1);
+    sorted_idx = bsearch_str(idbuf, len_tot, sorted_person_ids, max_person_id_len, indiv_ct);
     if (sorted_idx == -1) {
       miss_ct++;
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
       idbuf[len] = ' ';
+      idbuf[len_tot] = '\0';
       sprintf(logbuf, "Error: Duplicate individual %s in --update-parents file.\n", idbuf);
       logprintb();
       goto update_indiv_parents_ret_INVALID_FORMAT;
@@ -1966,6 +1975,7 @@ int32_t update_indiv_sexes(char* update_sex_fname, char* sorted_person_ids, uint
   uintptr_t* already_seen;
   char* bufptr;
   char* bufptr2;
+  uintptr_t len_tot;
   uint32_t len;
   uint32_t len2;
   int32_t sorted_idx;
@@ -1993,21 +2003,22 @@ int32_t update_indiv_sexes(char* update_sex_fname, char* sorted_person_ids, uint
     len = strlen_se(bufptr);
     bufptr2 = skip_initial_spaces(&(bufptr[len + 1]));
     len2 = strlen_se(bufptr2);
-    if (len + len2 + 2 > max_person_id_len) {
+    len_tot = len + len2 + 1;
+    if (len_tot >= max_person_id_len) {
       miss_ct++;
       continue;
     }
     memcpy(idbuf, bufptr, len);
     idbuf[len] = '\t';
     memcpy(&(idbuf[len + 1]), bufptr2, len2);
-    idbuf[len + len2 + 1] = '\0';
-    sorted_idx = bsearch_str(idbuf, sorted_person_ids, max_person_id_len, 0, indiv_ct - 1);
+    sorted_idx = bsearch_str(idbuf, len_tot, sorted_person_ids, max_person_id_len, indiv_ct);
     if (sorted_idx == -1) {
       miss_ct++;
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
       idbuf[len] = ' ';
+      idbuf[len_tot] = '\0';
       sprintf(logbuf, "Error: Duplicate individual %s in --update-sex file.\n", idbuf);
       logprintb();
       goto update_indiv_sexes_ret_INVALID_FORMAT;
@@ -2120,12 +2131,12 @@ int32_t flip_strand(char* flip_fname, char* sorted_marker_ids, uintptr_t marker_
       continue;
     }
     slen = strlen_se(bufptr);
-    bufptr[slen] = '\0';
-    sorted_idx = bsearch_str(bufptr, sorted_marker_ids, max_marker_id_len, 0, marker_ct - 1);
+    sorted_idx = bsearch_str(bufptr, slen, sorted_marker_ids, max_marker_id_len, marker_ct);
     if (sorted_idx == -1) {
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
+      bufptr[slen] = '\0';
       sprintf(logbuf, "Error: Duplicate SNP %s in --flip file.\n", bufptr);
       logprintb();
       goto flip_strand_ret_INVALID_FORMAT;
@@ -2518,8 +2529,7 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
     } else {
       bufptr2 = item_endnn(bufptr);
       cond_ptr = skip_initial_spaces(bufptr2);
-      *bufptr2 = '\0';
-      sorted_idx = bsearch_str(bufptr, sorted_ids, max_id_len, 0, sorted_ids_ct - 1);
+      sorted_idx = bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_ids, max_id_len, sorted_ids_ct);
     }
     if (sorted_idx == -1) {
       continue;
@@ -2530,6 +2540,7 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
 	*bufptr = ' ';
         sprintf(logbuf, "Error: Duplicate individual %s in --filter-attrib-indiv file.\n", id_buf);
       } else {
+	*bufptr2 = '\0';
 	sprintf(logbuf, "Error: Duplicate variant %s in --filter-attrib file.\n", bufptr);
       }
       goto filter_attrib_ret_INVALID_FORMAT_2;
@@ -2546,27 +2557,19 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
       bufptr = item_endnn(cond_ptr);
       ulii = (uintptr_t)(bufptr - bufptr2);
       cond_ptr = skip_initial_spaces(bufptr);
-      *bufptr = '\0';
-      if (pos_match_needed) {
-	if (max_pos_match_len > ulii) {
-	  sorted_idx = bsearch_str(bufptr2, sorted_pos_match, max_pos_match_len, 0, pos_match_ct - 1);
-          if (sorted_idx != -1) {
-            pos_match_needed = 0;
-	  }
-	}
+      if (pos_match_needed && (bsearch_str(bufptr2, ulii, sorted_pos_match, max_pos_match_len, pos_match_ct) == -1)) {
+	pos_match_needed = 0;
       }
       if (cur_neg_match_ct < neg_match_ct) {
-        if (max_neg_match_len > ulii) {
-          sorted_idx = bsearch_str(bufptr2, sorted_neg_match, max_neg_match_len, 0, neg_match_ct - 1);
-	  if ((sorted_idx != -1) && (!is_set(cur_neg_matches, sorted_idx))) {
-            cur_neg_match_ct++;
-	    if (cur_neg_match_ct == neg_match_ct) {
-	      // fail
-	      pos_match_needed = 1;
-              break;
-	    }
-            set_bit(cur_neg_matches, sorted_idx);
+	sorted_idx = bsearch_str(bufptr2, ulii, sorted_neg_match, max_neg_match_len, neg_match_ct);
+	if ((sorted_idx != -1) && (!is_set(cur_neg_matches, sorted_idx))) {
+          cur_neg_match_ct++;
+	  if (cur_neg_match_ct == neg_match_ct) {
+	    // fail
+	    pos_match_needed = 1;
+            break;
 	  }
+          set_bit(cur_neg_matches, sorted_idx);
 	}
       }
     }
@@ -3866,6 +3869,7 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
   char* colx_ptr;
   uintptr_t marker_idx;
   uintptr_t delta;
+  uintptr_t slen;
   int32_t sorted_idx;
   char cc;
   int32_t retval;
@@ -3943,13 +3947,14 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
 	goto update_marker_chroms_ret_INVALID_FORMAT_2;
       }
     }
-    colid_ptr[strlen_se(colid_ptr)] = '\0';
-    sorted_idx = bsearch_str(colid_ptr, sorted_marker_ids, max_marker_id_len, 0, marker_ct - 1);
+    slen = strlen_se(colid_ptr);
+    sorted_idx = bsearch_str(colid_ptr, slen, sorted_marker_ids, max_marker_id_len, marker_ct);
     if (sorted_idx == -1) {
       miss_ct++;
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
+      colid_ptr[slen] = '\0';
       sprintf(logbuf, "Error: Duplicate variant %s in --update-chr file.\n", colid_ptr);
       logprintb();
       goto update_marker_chroms_ret_INVALID_FORMAT;
@@ -4780,6 +4785,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   uintptr_t loadbuf_size;
   uintptr_t ulii;
   uintptr_t uljj;
+  uintptr_t slen;
   uintptr_t cur_word;
   double dxx;
   double dyy;
@@ -4967,7 +4973,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	pheno_col = col_idx;
 	if (cc == 'B') {
 	  // check for pathological case
-	  if (mc_ct && ((bsearch_str("0", sorted_mc, max_mc_len, 0, mc_ct - 1) != -1) || (bsearch_str("1", sorted_mc, max_mc_len, 0, mc_ct - 1) != -1))) {
+	  if ((bsearch_str("0", 1, sorted_mc, max_mc_len, mc_ct) != -1) || (bsearch_str("1", 1, sorted_mc, max_mc_len, mc_ct) != -1)) {
 	    logprint("Error: '0' and '1' are unacceptable missing case/control phenotype codes.\n");
 	    goto oxford_to_bed_ret_INVALID_CMDLINE;
 	  }
@@ -5046,19 +5052,18 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	}
 	col_idx++;
       }
-      bufptr2 = item_endnn(bufptr);
+      slen = (uintptr_t)(item_endnn(bufptr) - bufptr);
       if (is_binary_pheno) {
 	cc = *bufptr;
-	if (((uintptr_t)(bufptr2 - bufptr) != 1) || ((cc != '0') && (cc != '1'))) {
+	if ((slen != 1) || ((cc != '0') && (cc != '1'))) {
 	  goto oxford_to_bed_missing_pheno;
 	} else {
           *wptr++ = cc + 1;
 	}
       } else {
-        *bufptr2 = '\0';
-	if ((!mc_ct) || (bsearch_str(bufptr, sorted_mc, max_mc_len, 0, mc_ct - 1) == -1)) {
+	if (bsearch_str(bufptr, slen, sorted_mc, max_mc_len, mc_ct) == -1) {
 	  if (!scan_double(bufptr, &dxx)) {
-            wptr = memcpya(wptr, bufptr, bufptr2 - bufptr);
+            wptr = memcpya(wptr, bufptr, slen);
 	  } else {
 	    goto oxford_to_bed_missing_pheno;
 	  }
@@ -6862,46 +6867,43 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
       if (is_eoln_kns(*cptr)) {
 	continue;
       }
-      cptr2 = item_end(cptr);
+      cptr2 = item_endnn(cptr);
       a1ptr = skip_initial_spaces(cptr2);
       if (no_more_items_kns(a1ptr)) {
 	goto lgen_to_bed_ret_INVALID_FORMAT_4;
       }
       a1len = strlen_se(cptr);
-      if (a1len < max_marker_id_len) {
-	memcpyx(id_buf, cptr, a1len, '\0');
-	ii = bsearch_str(id_buf, marker_ids, max_marker_id_len, 0, marker_ct - 1);
-	if (ii != -1) {
-	  marker_idx = marker_id_map[ii];
-	  if (marker_allele_ptrs[2 * marker_idx + 1]) {
-	    goto lgen_to_bed_ret_INVALID_FORMAT_4;
-	  }
-	  sptr = item_end(a1ptr);
-	  a2ptr = skip_initial_spaces(sptr);
-	  a1len = (uintptr_t)(sptr - a1ptr);
-	  a1ptr[a1len] = '\0';
-	  if (allele_set(&(marker_allele_ptrs[2 * marker_idx + 1]), a1ptr, a1len)) {
-	    goto lgen_to_bed_ret_NOMEM;
-	  }
-	  if (no_more_items_kns(a2ptr)) {
-	    if (lgen_allele_count) {
-	      a1ptr[a1len++] = 'v';
-	      a1ptr[a1len] = '\0';
-	      if (allele_set(&(marker_allele_ptrs[2 * marker_idx]), a1ptr, a1len)) {
-		goto lgen_to_bed_ret_NOMEM;
-	      }
-	    }
-	  } else {
-	    a2len = strlen_se(a2ptr);
-	    a2ptr[a2len] = '\0';
-	    if (allele_set(&(marker_allele_ptrs[2 * marker_idx]), a2ptr, a2len)) {
+      ii = bsearch_str(cptr, a1len, marker_ids, max_marker_id_len, marker_ct);
+      if (ii != -1) {
+	marker_idx = marker_id_map[(uint32_t)ii];
+	if (marker_allele_ptrs[2 * marker_idx + 1]) {
+	  goto lgen_to_bed_ret_INVALID_FORMAT_4;
+	}
+	sptr = item_endnn(a1ptr);
+	a2ptr = skip_initial_spaces(sptr);
+	a1len = (uintptr_t)(sptr - a1ptr);
+	a1ptr[a1len] = '\0';
+	if (allele_set(&(marker_allele_ptrs[2 * marker_idx + 1]), a1ptr, a1len)) {
+	  goto lgen_to_bed_ret_NOMEM;
+	}
+	if (no_more_items_kns(a2ptr)) {
+	  if (lgen_allele_count) {
+	    a1ptr[a1len++] = 'v';
+	    a1ptr[a1len] = '\0';
+	    if (allele_set(&(marker_allele_ptrs[2 * marker_idx]), a1ptr, a1len)) {
 	      goto lgen_to_bed_ret_NOMEM;
 	    }
 	  }
-	  memset(&(writebuf[marker_idx * indiv_ct4]), 0xff, indiv_ct / 4);
-	  if (indiv_ct % 4) {
-	    writebuf[(marker_idx + 1) * indiv_ct4 - 1] = 0x3f >> (6 - 2 * (indiv_ct % 4));
+	} else {
+	  a2len = strlen_se(a2ptr);
+	  a2ptr[a2len] = '\0';
+	  if (allele_set(&(marker_allele_ptrs[2 * marker_idx]), a2ptr, a2len)) {
+	    goto lgen_to_bed_ret_NOMEM;
 	  }
+	}
+	memset(&(writebuf[marker_idx * indiv_ct4]), 0xff, indiv_ct / 4);
+	if (indiv_ct % 4) {
+	  writebuf[(marker_idx + 1) * indiv_ct4 - 1] = 0x3f >> (6 - 2 * (indiv_ct % 4));
 	}
       }
     }
@@ -6956,7 +6958,6 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
       }
       a1ptr = skip_initial_spaces(cptr4);
       sptr = item_end(a1ptr);
-      a1len = (uintptr_t)(sptr - a1ptr);
       a2ptr = next_item(sptr);
       if (compound_genotypes == 1) {
 	if (no_more_items_kns(a2ptr)) {
@@ -6967,12 +6968,12 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
       }
       if (!compound_genotypes) {
 	if (no_more_items_kns(a2ptr)) {
-	  printf("fail2\n");
 	  goto lgen_to_bed_ret_INVALID_FORMAT;
 	}
+        a1len = (uintptr_t)(sptr - a1ptr);
 	a2len = strlen_se(a2ptr);
       } else {
-	if (a1len != 2) {
+	if ((!sptr) || ((uintptr_t)(sptr - a1ptr) != 2)) {
 	  goto lgen_to_bed_ret_INVALID_FORMAT;
 	}
 	a1len = 1;
@@ -6985,11 +6986,9 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
 	goto lgen_to_bed_ret_INVALID_FORMAT_2;
       }
       indiv_idx = indiv_id_map[(uint32_t)ii];
-      ulii = (uintptr_t)(cptr4 - cptr3);
-      memcpyx(id_buf, cptr3, ulii, '\0');
-      ii = bsearch_str(id_buf, marker_ids, max_marker_id_len, 0, marker_ct - 1);
+      ii = bsearch_str(cptr3, (uintptr_t)(cptr4 - cptr3), marker_ids, max_marker_id_len, marker_ct);
       if (ii != -1) {
-	marker_idx = marker_id_map[ii];
+	marker_idx = marker_id_map[(uint32_t)ii];
 	sptr = marker_allele_ptrs[2 * marker_idx + 1]; // existing A2
 	a1ptr[a1len] = '\0';
 	a2ptr[a2len] = '\0';
@@ -7100,11 +7099,9 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
 	goto lgen_to_bed_ret_INVALID_FORMAT_2;
       }
       indiv_idx = indiv_id_map[(uint32_t)ii];
-      ulii = (uintptr_t)(cptr4 - cptr3);
-      memcpyx(id_buf, cptr3, ulii, '\0');
-      ii = bsearch_str(id_buf, marker_ids, max_marker_id_len, 0, marker_ct - 1);
+      ii = bsearch_str(cptr3, (uintptr_t)(cptr4 - cptr3), marker_ids, max_marker_id_len, marker_ct);
       if (ii != -1) {
-	marker_idx = marker_id_map[ii];
+	marker_idx = marker_id_map[(uint32_t)ii];
 	a1len = strlen_se(a1ptr);
 	ucc = (unsigned char)(*a1ptr);
 	if ((a1len != 1) || (ucc < 48) || (ucc > 50)) {
@@ -8476,9 +8473,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       goto vcf_to_bed_ret_INVALID_FORMAT_3;
     }
     if (fexcept_ct) {
-      *bufptr2 = '\0';
-      ii = bsearch_str(bufptr, sorted_fexcepts, max_fexcept_len, 0, fexcept_ct - 1);
-      if (ii == -1) {
+      if (bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_fexcepts, max_fexcept_len, fexcept_ct) == -1) {
 	marker_skip_ct++;
 	continue;
       }
@@ -8972,8 +8967,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	if (bufptr2 == linebuf_end) {
 	  goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
 	}
-	*bufptr2 = '\0';
-	ii = bsearch_str(bufptr, sorted_fexcepts, max_fexcept_len, 0, fexcept_ct - 1) != -1;
+	ii = bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_fexcepts, max_fexcept_len, fexcept_ct);
         if (ii != -1) {
           if (fexcept_idxs[(uint32_t)ii]) {
 	    goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
@@ -9786,8 +9780,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
 	// if !last_early_xy, then we already saw "first hit in last half" and
 	// force the marker to be on XY.
 	if (last_early_xy) {
-	  id_start[id_len] = '\0';
-	  if (bsearch_str(id_start, xylist, xylist_max_id_len, 0, xylist_ct - 1) != -1) {
+	  if (bsearch_str(id_start, id_len, xylist, xylist_max_id_len, xylist_ct) != -1) {
 	    if (atoiz(pos_start, &ii)) {
 	      pos_start[strlen_se(pos_start)] = '\0';
 	      sprintf(logbuf, "Error: Invalid --23file variant position '%s'.\n", pos_start);
@@ -11251,8 +11244,7 @@ int32_t recode_allele_load(char* loadbuf, uintptr_t loadbuf_size, char* recode_a
       goto recode_allele_load_ret_INVALID_FORMAT;
     }
     alen = strlen_se(bufptr2);
-    bufptr[slen] = '\0';
-    ii = bsearch_str(bufptr, sorted_ids, max_marker_id_len, 0, marker_ct - 1);
+    ii = bsearch_str(bufptr, slen, sorted_ids, max_marker_id_len, marker_ct);
     if (ii != -1) {
       marker_uidx = id_map[(uint32_t)ii];
       bufptr2[alen++] = '\0';
@@ -13461,9 +13453,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
         cptr = &(person_ids[indiv_uidx * max_person_id_len]);
         aptr = (char*)memchr(cptr, '\t', max_person_id_len);
         fputs(&(aptr[1]), outfile);
-	memcpy(tbuf, cptr, aptr - cptr);
-        tbuf[(uintptr_t)(aptr - cptr)] = '\0';
-        ii = bsearch_str(tbuf, writebuf3, max_fid_len, 0, fid_ct - 1);
+        ii = bsearch_str(cptr, (uintptr_t)(aptr - cptr), writebuf3, max_fid_len, fid_ct);
 	cur_fid = fid_map[(uint32_t)ii];
 	if (!cur_fid) {
 	  cur_fid = ++last_pos;
@@ -14409,9 +14399,9 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
       ujj = (bufptr4 - bufptr3);
       memcpyx(memcpyax(idbuf, bufptr, uii, '\t'), bufptr3, ujj, 0);
       if (merge_nsort) {
-        ii = bsearch_str_natural(idbuf, person_ids, max_person_id_len, 0, tot_indiv_ct - 1);
+        ii = bsearch_str_natural(idbuf, person_ids, max_person_id_len, tot_indiv_ct);
       } else {
-	ii = bsearch_str(idbuf, person_ids, max_person_id_len, 0, tot_indiv_ct - 1);
+	ii = bsearch_str(idbuf, uii + ujj + 1, person_ids, max_person_id_len, tot_indiv_ct);
 	if (indiv_nsmap && (ii != -1)) {
 	  ii = indiv_nsmap[(uint32_t)ii];
 	}
@@ -14460,9 +14450,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
       continue;
     }
     bufptr3 = item_endnn(bufptr);
-    uii = (bufptr3 - bufptr);
-    memcpyx(idbuf, bufptr, uii, 0);
-    ii = bsearch_str(idbuf, marker_ids, max_marker_id_len, 0, tot_marker_ct - 1);
+    ii = bsearch_str(bufptr, (uintptr_t)(bufptr3 - bufptr), marker_ids, max_marker_id_len, tot_marker_ct);
     if (ii == -1) {
       goto merge_main_ret_READ_FAIL;
     }
@@ -14776,9 +14764,9 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
       ujj = (bufptr2 - bufptr3);
       memcpyx(memcpyax(idbuf, bufptr, uii, '\t'), bufptr3, ujj, 0);
       if (merge_nsort) {
-        ii = bsearch_str_natural(idbuf, person_ids, max_person_id_len, 0, tot_indiv_ct - 1);
+        ii = bsearch_str_natural(idbuf, person_ids, max_person_id_len, tot_indiv_ct);
       } else {
-	ii = bsearch_str(idbuf, person_ids, max_person_id_len, 0, tot_indiv_ct - 1);
+	ii = bsearch_str(idbuf, uii + ujj + 1, person_ids, max_person_id_len, tot_indiv_ct);
 	if (indiv_nsmap && (ii != -1)) {
 	  ii = indiv_nsmap[(uint32_t)ii];
 	}

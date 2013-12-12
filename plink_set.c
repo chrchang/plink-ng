@@ -571,16 +571,14 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	  logprint("Error: Fewer tokens than expected in --make-set file line.\n");
 	  goto define_sets_ret_INVALID_FORMAT;
 	}
-	ii = get_chrom_code(chrom_info_ptr, bufptr);
-	if (ii == -1) {
+	if (get_chrom_code(chrom_info_ptr, bufptr) == -1) {
 	  logprint("Error: Invalid chromosome code in --make-set file.\n");
 	  goto define_sets_ret_INVALID_FORMAT;
 	}
 	uii = strlen_se(bufptr2);
 	bufptr2[uii] = '\0';
 	if (subset_ct) {
-          ii = bsearch_str(bufptr2, sorted_subset_ids, max_subset_id_len, 0, subset_ct - 1);
-	  if (ii == -1) {
+          if (bsearch_str(bufptr2, uii, sorted_subset_ids, max_subset_id_len, subset_ct) == -1) {
 	    continue;
 	  }
 	}
@@ -673,13 +671,8 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       if (chrom_end == chrom_start) {
 	continue;
       }
-      uii = strlen_se(bufptr2);
-      bufptr2[uii] = '\0';
-      if (subset_ct) {
-	ii = bsearch_str(bufptr2, sorted_subset_ids, max_subset_id_len, 0, subset_ct - 1);
-	if (ii == -1) {
-	  continue;
-	}
+      if (subset_ct && (bsearch_str(bufptr2, strlen_se(bufptr2), sorted_subset_ids, max_subset_id_len, subset_ct) == -1)) {
+	continue;
       }
       bufptr = next_item(bufptr);
       if (atoiz2(bufptr, &ii)) {
@@ -715,7 +708,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
           memcpy(bufptr3, "C_", 2);
 	}
 	// this should never fail
-        set_idx = (uint32_t)bsearch_str_natural(bufptr3, set_names, max_set_id_len, 0, set_ct - 1);
+        set_idx = (uint32_t)bsearch_str_natural(bufptr3, set_names, max_set_id_len, set_ct);
       } else {
 	set_idx = 0;
       }
@@ -766,7 +759,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     // fails to appear in a fully loaded set in the complement case
     if (make_set) {
       for (set_idx = 0; set_idx < set_ct; set_idx++) {
-	if (gene_all || (bsearch_str(&(set_names[set_idx * max_set_id_len]), sorted_genekeep_ids, max_genekeep_len, 0, genekeep_ct - 1) != -1)) {
+	if (gene_all || (bsearch_str_nl(&(set_names[set_idx * max_set_id_len]), sorted_genekeep_ids, max_genekeep_len, genekeep_ct) != -1)) {
 	  msr_tmp = make_set_range_arr[set_idx];
 	  while (msr_tmp) {
 	    fill_bits(marker_bitfield_tmp, msr_tmp->uidx_start, msr_tmp->uidx_end - msr_tmp->uidx_start);
@@ -849,14 +842,10 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	    }
             in_set = 0;
 	  } else if (!in_set) {
-	    if (subset_ct) {
-	      *bufptr2 = '\0';
-	      ii = bsearch_str(bufptr, sorted_subset_ids, max_subset_id_len, 0, subset_ct - 1);
-	      if (ii == -1) {
-		in_set = 2; // ignore this set
-		bufptr = &(bufptr2[1]);
-		continue;
-	      }
+	    if (subset_ct && (bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_subset_ids, max_subset_id_len, subset_ct) == -1)) {
+	      in_set = 2; // ignore this set
+	      bufptr = &(bufptr2[1]);
+	      continue;
 	    }
 	    if (curtoklen >= max_set_id_len) {
 	      max_set_id_len = curtoklen + 1;
@@ -864,8 +853,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	    set_ct++;
 	    in_set = 1;
 	  } else if (in_set == 1) {
-	    *bufptr2 = '\0';
-	    ii = bsearch_str(bufptr, sorted_marker_ids, max_marker_id_len, 0, marker_ct - 1);
+	    ii = bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_marker_ids, max_marker_id_len, marker_ct);
 	    if (ii != -1) {
 	      set_bit(marker_bitfield_tmp, marker_id_map[(uint32_t)ii]);
 	    }
@@ -951,14 +939,10 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	  in_set = 0;
 	} else if (!in_set) {
 	  in_set = 1;
-	  if (subset_ct) {
-	    *bufptr2 = '\0';
-            ii = bsearch_str(bufptr, sorted_subset_ids, max_subset_id_len, 0, subset_ct - 1);
-            if (ii == -1) {
-	      // no need for in_set = 2, just don't adjust set_ct/id_len
-              bufptr = &(bufptr2[1]);
-	      continue;
-	    }
+	  if (subset_ct && (bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_subset_ids, max_subset_id_len, subset_ct) == -1)) {
+	    // no need for in_set = 2, just don't adjust set_ct/id_len
+	    bufptr = &(bufptr2[1]);
+	    continue;
 	  }
 	  if (curtoklen >= max_set_id_len) {
 	    max_set_id_len = curtoklen + 1;
@@ -1169,21 +1153,16 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	  in_set = 0;
 	} else if (!in_set) {
 	  in_set = 1;
-	  if (subset_ct) {
-	    *bufptr2 = '\0';
-            ii = bsearch_str(bufptr, sorted_subset_ids, max_subset_id_len, 0, subset_ct - 1);
-	    if (ii == -1) {
-	      in_set = 2;
-	      bufptr = &(bufptr2[1]);
-	      continue;
-	    }
+	  if (subset_ct && (bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_subset_ids, max_subset_id_len, subset_ct) == -1)) {
+	    in_set = 2;
+	    bufptr = &(bufptr2[1]);
+	    continue;
 	  }
 	  if (!sip->merged_set_name) {
 	    memcpyx(&(set_names[set_idx * max_set_id_len]), bufptr, bufptr2 - bufptr, '\0');
 	  }
 	} else if (in_set == 1) {
-	  *bufptr2 = '\0';
-	  ii = bsearch_str(bufptr, sorted_marker_ids, max_marker_id_len, 0, marker_ct - 1);
+	  ii = bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_marker_ids, max_marker_id_len, marker_ct);
 	  if (ii != -1) {
 	    uii = marker_id_map[(uint32_t)ii];
 	    if (uii < range_first) {

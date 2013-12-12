@@ -214,11 +214,9 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
 	  cluster_name_ptr = remove_flattened;
 	  do {
 	    slen = strlen(cluster_name_ptr);
-	    if (slen < max_cluster_kr_len) {
-	      sorted_idx = bsearch_str(cluster_name_ptr, sorted_keep_ids, max_cluster_kr_len, 0, cluster_kr_ct - 1);
-	      if (sorted_idx != -1) {
-		set_bit(already_seen, sorted_idx);
-	      }
+	    sorted_idx = bsearch_str(cluster_name_ptr, slen, sorted_keep_ids, max_cluster_kr_len, cluster_kr_ct);
+	    if (sorted_idx != -1) {
+	      set_bit(already_seen, sorted_idx);
 	    }
 	    cluster_name_ptr = &(cluster_name_ptr[slen + 1]);
 	  } while (*cluster_name_ptr);
@@ -236,13 +234,9 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
 	    if (is_eoln_kns(*cluster_name_ptr)) {
 	      continue;
 	    }
-            slen = strlen(cluster_name_ptr);
-	    if (slen < max_cluster_kr_len) {
-              cluster_name_ptr[slen] = '\0';
-              sorted_idx = bsearch_str(cluster_name_ptr, sorted_keep_ids, max_cluster_kr_len, 0, cluster_kr_ct - 1);
-              if (sorted_idx != -1) {
-                set_bit(already_seen, sorted_idx);
-	      }
+	    sorted_idx = bsearch_str_nl(cluster_name_ptr, sorted_keep_ids, max_cluster_kr_len, cluster_kr_ct);
+	    if (sorted_idx != -1) {
+	      set_bit(already_seen, sorted_idx);
 	    }
 	  }
 	}
@@ -394,9 +388,8 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
       // ignore cluster=NA lines for the purpose of detecting duplicate indivs
       continue;
     }
-    cluster_name_ptr[slen] = '\0';
     // cluster won't exist because of --keep-clusters/--remove-clusters?
-    if ((sorted_keep_ids && (bsearch_str(cluster_name_ptr, sorted_keep_ids, max_cluster_kr_len, 0, cluster_kr_ct - 1) == -1)) || (sorted_remove_ids && (bsearch_str(cluster_name_ptr, sorted_remove_ids, max_cluster_kr_len, 0, cluster_kr_ct - 1) != -1))) {
+    if ((sorted_keep_ids && (bsearch_str(cluster_name_ptr, slen, sorted_keep_ids, max_cluster_kr_len, cluster_kr_ct) == -1)) || (sorted_remove_ids && (bsearch_str(cluster_name_ptr, slen, sorted_remove_ids, max_cluster_kr_len, cluster_kr_ct) != -1))) {
       continue;
     }
     if (slen >= max_cluster_id_len) {
@@ -404,7 +397,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
     }
     llptr = top_alloc_llstr(&topsize, slen + 1);
     llptr->next = cluster_names;
-    memcpy(llptr->ss, cluster_name_ptr, slen + 1);
+    memcpyx(llptr->ss, cluster_name_ptr, slen, '\0');
     cluster_names = llptr;
     assigned_ct++;
   }
@@ -465,21 +458,21 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
 	continue;
       }
       indiv_uidx = id_map[(uint32_t)sorted_idx];
-      cluster_name_ptr[slen] = '\0';
       if (sorted_keep_ids) {
-        sorted_idx = bsearch_str(cluster_name_ptr, sorted_keep_ids, max_cluster_kr_len, 0, cluster_kr_ct - 1);
+        sorted_idx = bsearch_str(cluster_name_ptr, slen, sorted_keep_ids, max_cluster_kr_len, cluster_kr_ct);
 	if (sorted_idx == -1) {
 	  continue;
 	}
         clear_bit(indiv_exclude_new, indiv_uidx);
       } else if (sorted_remove_ids) {
-        sorted_idx = bsearch_str(cluster_name_ptr, sorted_remove_ids, max_cluster_kr_len, 0, cluster_kr_ct - 1);
+        sorted_idx = bsearch_str(cluster_name_ptr, slen, sorted_remove_ids, max_cluster_kr_len, cluster_kr_ct);
         if (sorted_idx != -1) {
 	  set_bit(indiv_exclude_new, indiv_uidx);
 	  continue;
 	}
       }
-      sorted_idx = bsearch_str_natural(cluster_name_ptr, cluster_ids, max_cluster_id_len, 0, cluster_ct - 1);
+      cluster_name_ptr[slen] = '\0';
+      sorted_idx = bsearch_str_natural(cluster_name_ptr, cluster_ids, max_cluster_id_len, cluster_ct);
       uii = tmp_cluster_starts[(uint32_t)sorted_idx];
       tmp_cluster_starts[(uint32_t)sorted_idx] += 1;
       cluster_map[uii] = indiv_uidx;

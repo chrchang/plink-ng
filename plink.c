@@ -80,7 +80,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (11 Dec 2013)";
+  " (12 Dec 2013)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -473,6 +473,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   char* cur_person_id;
   char* last_family_id = NULL;
   char* cur_family_id;
+  char* id_ptr;
   uint32_t* family_sizes;
   uint32_t* uiptr;
   uint32_t* uiptr2 = NULL;
@@ -631,9 +632,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   // family_rel_nf_idxs.
   cur_person_id = person_ids;
   for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
-    jj = strlen_se(cur_person_id);
-    memcpyx(tbuf, cur_person_id, jj, 0);
-    kk = bsearch_str(tbuf, family_ids, max_family_id_len, 0, family_id_ct - 1);
+    kk = bsearch_str(cur_person_id, strlen_se(cur_person_id), family_ids, max_family_id_len, family_id_ct);
     pri_ptr->family_idxs[indiv_uidx] = kk;
     if (IS_SET(founder_info, indiv_uidx)) {
       pri_ptr->family_founder_cts[(uint32_t)kk] += 1;
@@ -730,10 +729,12 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 	kk = fis_ptr[ii++];
 
 	// does not track sex for now
-	if (memcmp("0", &(paternal_ids[kk * max_paternal_id_len]), 2)) {
-	  mm = bsearch_str(&(paternal_ids[kk * max_paternal_id_len]), indiv_ids, max_indiv_id_len, 0, family_size - 1);
+	id_ptr = &(paternal_ids[((uint32_t)kk) * max_paternal_id_len]);
+	if (memcmp("0", id_ptr, 2)) {
+	  ujj = strlen(id_ptr);
+	  mm = bsearch_str(id_ptr, ujj, indiv_ids, max_indiv_id_len, family_size);
 	  if (mm == -1) {
-	    strcpy(cur_person_id, &(paternal_ids[kk * max_paternal_id_len]));
+	    memcpy(cur_person_id, id_ptr, ujj + 1);
 	    cur_person_id = &(cur_person_id[max_pm_id_len]);
 	    stray_parent_ct++;
 	    remaining_indiv_parent_idxs[uii * 2] = -2;
@@ -743,10 +744,12 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 	} else {
           remaining_indiv_parent_idxs[uii * 2] = -1;
 	}
-	if (memcmp("0", &(maternal_ids[kk * max_maternal_id_len]), 2)) {
-	  mm = bsearch_str(&(maternal_ids[kk * max_maternal_id_len]), indiv_ids, max_indiv_id_len, 0, family_size - 1);
+	id_ptr = &(maternal_ids[((uint32_t)kk) * max_maternal_id_len]);
+	if (memcmp("0", id_ptr, 2)) {
+	  ujj = strlen(id_ptr);
+          mm = bsearch_str(id_ptr, ujj, indiv_ids, max_indiv_id_len, family_size);
 	  if (mm == -1) {
-	    strcpy(cur_person_id, &(maternal_ids[kk * max_maternal_id_len]));
+	    memcpy(cur_person_id, id_ptr, ujj + 1);
 	    cur_person_id = &(cur_person_id[max_pm_id_len]);
 	    stray_parent_ct++;
 	    remaining_indiv_parent_idxs[uii * 2 + 1] = -2;
@@ -796,14 +799,14 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
       for (uii = 0; uii < remaining_indiv_ct; uii++) {
 	jj = remaining_indiv_idxs[uii];
 	if (remaining_indiv_parent_idxs[uii * 2] == -2) {
-	  kk = bsearch_str(&(paternal_ids[jj * max_paternal_id_len]), stray_parent_ids, max_pm_id_len, 0, stray_parent_ct - 1);
+	  kk = bsearch_str_nl(&(paternal_ids[((uint32_t)jj) * max_paternal_id_len]), stray_parent_ids, max_pm_id_len, stray_parent_ct);
 	  if (kk != -1) {
 	    kk += unfiltered_indiv_ctlm;
 	  }
 	  remaining_indiv_parent_idxs[uii * 2] = kk;
 	}
 	if (remaining_indiv_parent_idxs[uii * 2 + 1] == -2) {
-	  kk = bsearch_str(&(maternal_ids[jj * max_maternal_id_len]), stray_parent_ids, max_pm_id_len, 0, stray_parent_ct - 1);
+	  kk = bsearch_str_nl(&(maternal_ids[((uint32_t)jj) * max_maternal_id_len]), stray_parent_ids, max_pm_id_len, stray_parent_ct);
 	  if (kk != -1) {
 	    kk += unfiltered_indiv_ctlm;
 	  }
@@ -941,7 +944,6 @@ int32_t make_founders(uintptr_t unfiltered_indiv_ct, uintptr_t indiv_ct, char* p
   uint32_t fam_len_p1;
   uint32_t missing_parent_ct;
   uint32_t cur_len;
-  int32_t ii;
   if (wkspace_alloc_c_checked(&id_buf, max_person_id_len) ||
       wkspace_alloc_ul_checked(&nf_bitarr, unfiltered_indiv_ctl * sizeof(intptr_t))) {
     goto make_founders_ret_NOMEM;
@@ -968,9 +970,8 @@ int32_t make_founders(uintptr_t unfiltered_indiv_ct, uintptr_t indiv_ct, char* p
     if (cur_len + fam_len_p1 >= max_person_id_len) {
       missing_parent_ct++;
     } else {
-      memcpy(wptr, pat_ptr, cur_len + 1);
-      ii = bsearch_str(id_buf, sorted_ids, max_person_id_len, 0, indiv_ct - 1);
-      if (ii == -1) {
+      memcpy(wptr, pat_ptr, cur_len);
+      if (bsearch_str(id_buf, cur_len + fam_len_p1, sorted_ids, max_person_id_len, indiv_ct) == -1) {
 	missing_parent_ct++;
       }
     }
@@ -979,9 +980,8 @@ int32_t make_founders(uintptr_t unfiltered_indiv_ct, uintptr_t indiv_ct, char* p
     if (cur_len + fam_len_p1 >= max_person_id_len) {
       missing_parent_ct++;
     } else {
-      memcpy(wptr, mat_ptr, cur_len + 1);
-      ii = bsearch_str(id_buf, sorted_ids, max_person_id_len, 0, indiv_ct - 1);
-      if (ii == -1) {
+      memcpy(wptr, mat_ptr, cur_len);
+      if (bsearch_str(id_buf, cur_len + fam_len_p1, sorted_ids, max_person_id_len, indiv_ct) == -1) {
 	missing_parent_ct++;
       }
     }
@@ -1246,8 +1246,7 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
 	if (no_more_items_kns(bufptr)) {
 	  goto filter_indivs_file_ret_INVALID_FORMAT;
 	}
-	bufptr[strlen_se(bufptr)] = '\0';
-	if (bsearch_str(bufptr, sorted_filtervals, max_filterval_len, 0, filterval_ct - 1) != -1) {
+	if (bsearch_str(bufptr, strlen_se(bufptr), sorted_filtervals, max_filterval_len, filterval_ct) != -1) {
 	  if (is_set(indiv_exclude_new, person_idx)) {
 	    clear_bit(indiv_exclude_new, person_idx);
 	    include_ct++;
@@ -2517,8 +2516,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
       if (!bufptr2) {
         goto read_external_freqs_ret_INVALID_FORMAT;
       }
-      read_next_terminate(bufptr, bufptr); // destructive read (\0 at end of item)
-      ii = bsearch_str(bufptr, sorted_ids, max_marker_id_len, 0, unfiltered_marker_ct - marker_exclude_ct - 1);
+      ii = bsearch_str(bufptr, strlen_se(bufptr), sorted_ids, max_marker_id_len, unfiltered_marker_ct - marker_exclude_ct);
       if (ii != -1) {
         marker_uidx = id_map[(uint32_t)ii];
         if ((chrom_idx == get_marker_chrom(chrom_info_ptr, marker_uidx)) || (!chrom_idx) || (!get_marker_chrom(chrom_info_ptr, marker_uidx))) {
@@ -2580,8 +2578,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
       if (!bufptr2) {
         goto read_external_freqs_ret_INVALID_FORMAT;
       }
-      read_next_terminate(bufptr, bufptr); // destructive read (\0 at end of item)
-      ii = bsearch_str(bufptr, sorted_ids, max_marker_id_len, 0, unfiltered_marker_ct - marker_exclude_ct - 1);
+      ii = bsearch_str(bufptr, strlen_se(bufptr), sorted_ids, max_marker_id_len, unfiltered_marker_ct - marker_exclude_ct);
       if (ii != -1) {
         marker_uidx = id_map[(uint32_t)ii];
         if ((chrom_idx == get_marker_chrom(chrom_info_ptr, marker_uidx)) || (!chrom_idx) || (!get_marker_chrom(chrom_info_ptr, marker_uidx))) {
@@ -2639,8 +2636,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
       if (!bufptr) {
         goto read_external_freqs_ret_INVALID_FORMAT;
       }
-      read_next_terminate(loadbuf, loadbuf); // destructive read
-      ii = bsearch_str(loadbuf, sorted_ids, max_marker_id_len, 0, unfiltered_marker_ct - marker_exclude_ct - 1);
+      ii = bsearch_str(loadbuf, strlen_se(loadbuf), sorted_ids, max_marker_id_len, unfiltered_marker_ct - marker_exclude_ct);
       if (ii != -1) {
         marker_uidx = id_map[(uint32_t)ii];
 	alen1 = strlen_se(bufptr);
@@ -3769,12 +3765,13 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
       }
       colid_ptr = next_item_mult(colx_ptr, coldiff);
     }
-    colid_ptr[strlen_se(colid_ptr)] = '\0';
-    sorted_idx = bsearch_str(colid_ptr, sorted_marker_ids, max_marker_id_len, 0, marker_ct - 1);
+    slen = strlen_se(colid_ptr);
+    sorted_idx = bsearch_str(colid_ptr, slen, sorted_marker_ids, max_marker_id_len, marker_ct);
     if (sorted_idx == -1) {
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
+      colid_ptr[slen] = '\0';
       sprintf(logbuf, "Error: Duplicate variant %s in --a%c-allele file.\n", colid_ptr, is_a2? '2' : '1');
       logprintb();
       goto load_ax_alleles_ret_INVALID_FORMAT;
@@ -12039,11 +12036,13 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0) || (dxx > 1)) {
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0.0)) {
 	  sprintf(logbuf, "Error: Invalid --set-r2 parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (dxx > 0.0) {
+	  // greater than 1 = no LD check.  (it still happens with a parameter
+	  // of 1.)
 	  set_info.set_r2 = dxx;
 	} else {
 	  set_info.set_max = 1;

@@ -3891,7 +3891,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
           goto ld_report_regular_ret_READ_FAIL;
 	}
 	for (marker_idx1 = 0; marker_idx1 < snplist_ct; marker_idx1++) {
-          ii = bsearch_str(&(bufptr[marker_idx1 * max_snplist_id_len]), sorted_ids, max_marker_id_len, 0, marker_ct - 1);
+          ii = bsearch_str_nl(&(bufptr[marker_idx1 * max_snplist_id_len]), sorted_ids, max_marker_id_len, marker_ct);
           if (ii != -1) {
             uii = id_map[(uint32_t)ii];
             if (!is_set(marker_exclude_idx1, uii)) {

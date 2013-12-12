@@ -161,12 +161,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
 	if (no_more_items_kns(bufptr)) {
 	  continue;
 	}
-	ulii = strlen_se(bufptr);
-	if (ulii >= max_subset_name_len) {
-	  continue;
-	}
-	bufptr[ulii] = '\0';
-	if (bsearch_str(bufptr, subset_list, max_subset_name_len, 0, subset_ct - 1) == -1) {
+	if (bsearch_str(bufptr, strlen_se(bufptr), subset_list, max_subset_name_len, subset_ct) == -1) {
 	  continue;
 	}
       }
