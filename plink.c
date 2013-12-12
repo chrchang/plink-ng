@@ -366,35 +366,6 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
 
 // back to our regular program
 
-inline char* read_next_unsafe(char* target, char* source) {
-  // assumes space- or tab-termination
-  while ((*source != ' ') && (*source != '\t')) {
-    *target++ = *source++;
-  }
-  return target;
-}
-
-inline char* read_next_unsafe_upd(char* target, char** source_ptr) {
-  // assumes space- or tab-termination
-  while ((**source_ptr != ' ') && (**source_ptr != '\t')) {
-    *target++ = **source_ptr;
-    *source_ptr += 1;
-  }
-  return target;
-}
-
-inline char* read_next_upd(char* target, char** source_ptr) {
-  while (!is_space_or_eoln(**source_ptr)) {
-    *target++ = **source_ptr;
-    *source_ptr += 1;
-  }
-  return target;
-}
-
-inline int32_t is_contained(char* id_buf, char* lptr, int32_t max_id_len, int32_t filter_line_ct, char* fam_id, char* indiv_id) {
-  return (bsearch_fam_indiv(id_buf, lptr, max_id_len, filter_line_ct, fam_id, indiv_id) != -1);
-}
-
 uint32_t random_thin_markers(double thin_keep_prob, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr) {
   uint32_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
   uint32_t marker_uidx = 0;
@@ -1043,19 +1014,16 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
     if (is_eoln_kns(*bufptr0)) {
       continue;
     }
-    bufptr = next_item(bufptr0);
-    if (no_more_items_kns(bufptr)) {
+    if (bsearch_read_fam_indiv(id_buf, sorted_person_ids, max_person_id_len, unfiltered_indiv_ct, bufptr0, &bufptr, &ii)) {
       logprint(errstr_phenotype_format);
       return RET_INVALID_FORMAT;
     }
-    ii = bsearch_fam_indiv(id_buf, sorted_person_ids, max_person_id_len, unfiltered_indiv_ct, bufptr0, bufptr);
     if (ii != -1) {
       person_idx = id_map[(uint32_t)ii];
       if (makepheno_all) {
 	SET_BIT(pheno_c, person_idx);
       } else {
 	SET_BIT(pheno_nm, person_idx);
-	bufptr = next_item(bufptr);
         tmp_len = strlen_se(bufptr);
 	if ((tmp_len == mp_strlen) && (!memcmp(bufptr, makepheno_str, mp_strlen))) {
 	  SET_BIT(pheno_c, person_idx);
@@ -1234,15 +1202,15 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    bufptr = next_item(bufptr);
-    if (no_more_items_kns(bufptr)) {
+    if (bsearch_read_fam_indiv(id_buf, sorted_person_ids, max_person_id_len, sorted_ids_len, bufptr, &bufptr, &person_idx)) {
       goto filter_indivs_file_ret_INVALID_FORMAT;
     }
-    person_idx = bsearch_fam_indiv(id_buf, sorted_person_ids, max_person_id_len, sorted_ids_len, tbuf, bufptr);
     if (person_idx != -1) {
       person_idx = id_map[(uint32_t)person_idx];
       if (!is_set(indiv_exclude, person_idx)) {
-	bufptr = next_item_mult(bufptr, mfilter_col);
+	if (mfilter_col > 1) {
+	  bufptr = next_item_mult(bufptr, mfilter_col - 1);
+	}
 	if (no_more_items_kns(bufptr)) {
 	  goto filter_indivs_file_ret_INVALID_FORMAT;
 	}
@@ -5254,7 +5222,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	if (pheno_d) {
 	  retval = qassoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_mperm_val, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, sex_male, hh_exists, perm_batch_size, sip);
 	} else {
-	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male, sip);
+	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male, sip);
 	}
 	if (retval) {
 	  goto plink_ret_1;
@@ -9902,6 +9870,9 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (alloc_string(&makepheno_str, argv[cur_arg + 2])) {
 	  goto main_ret_NOMEM;
+	}
+	if (((argv[cur_arg + 2][0] == '\'') || (argv[cur_arg + 2][0] == '"')) && (argv[cur_arg + 2][1] == '*') && (argv[cur_arg + 2][2] == argv[cur_arg + 2][0]) && (!argv[cur_arg + 2][3])) {
+	  memcpy(makepheno_str, "*", 2);
 	}
       } else if (!memcmp(argptr2, "pheno", 6)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {

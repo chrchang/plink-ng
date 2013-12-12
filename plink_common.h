@@ -924,6 +924,7 @@ void get_top_two(uint32_t* uint_arr, uintptr_t uia_size, uintptr_t* top_idx_ptr,
 
 int32_t intlen(int32_t num);
 
+// safer than item_endnn(), since it handles length zero
 static inline uintptr_t strlen_se(char* ss) {
   char* ss2 = ss;
   while (!is_space_or_eoln(*ss2)) {
@@ -1631,8 +1632,6 @@ uintptr_t doublearr_greater_than(double* sorted_dbl_arr, uintptr_t arr_length, d
 
 void update_neighbor(uintptr_t indiv_ct, uint32_t neighbor_n2, uintptr_t indiv_idx1, uintptr_t indiv_idx2, double cur_ibs, double* neighbor_quantiles, uint32_t* neighbor_qindices);
 
-uintptr_t bsearch_str_lb(char* lptr, uintptr_t arr_length, uintptr_t max_id_len, char* id_buf);
-
 int32_t bsearch_str(const char* id_buf, uintptr_t cur_id_len, char* lptr, uintptr_t max_id_len, uintptr_t end_idx);
 
 static inline int32_t bsearch_str_nl(const char* id_buf, char* lptr, uintptr_t max_id_len, intptr_t end_idx) {
@@ -1641,9 +1640,11 @@ static inline int32_t bsearch_str_nl(const char* id_buf, char* lptr, uintptr_t m
 
 int32_t bsearch_str_natural(char* id_buf, char* lptr, uintptr_t max_id_len, uintptr_t end_idx);
 
+uintptr_t bsearch_str_lb(const char* id_buf, uintptr_t cur_id_len, char* lptr, uintptr_t max_id_len, uintptr_t end_idx);
+
 void fill_idbuf_fam_indiv(char* id_buf, char* fam_indiv, char fillchar);
 
-int32_t bsearch_fam_indiv(char* id_buf, char* lptr, uintptr_t max_id_len, uint32_t filter_line_ct, char* fam_id, char* indiv_id);
+uint32_t bsearch_read_fam_indiv(char* id_buf, char* lptr, uintptr_t max_id_len, uintptr_t filter_line_ct, char* read_ptr, char** read_pp_new, int32_t* retval_ptr);
 
 void bsearch_fam(char* id_buf, char* lptr, uintptr_t max_id_len, uint32_t filter_line_ct, char* fam_id, uint32_t* first_idx_ptr, uint32_t* last_idx_ptr);
 

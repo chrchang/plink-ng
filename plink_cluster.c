@@ -122,7 +122,6 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
   char* sorted_ids;
   uint32_t* id_map;
   char* fam_id;
-  char* indiv_id;
   char* cluster_name_ptr;
   uintptr_t ulii;
   int32_t sorted_idx;
@@ -365,13 +364,9 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
     if (is_eoln_kns(*fam_id)) {
       continue;
     }
-    indiv_id = next_item(fam_id);
-    cluster_name_ptr = next_item_mult(indiv_id, mwithin_col);
-    if (no_more_items_kns(cluster_name_ptr)) {
-      logprint("Error: Fewer tokens than expected in --within file line.\n");
-      goto load_clusters_ret_INVALID_FORMAT;
+    if (bsearch_read_fam_indiv(idbuf, sorted_ids, max_person_id_len, indiv_ct, fam_id, &cluster_name_ptr, &sorted_idx)) {
+      goto load_clusters_ret_MISSING_TOKENS;
     }
-    sorted_idx = bsearch_fam_indiv(idbuf, sorted_ids, max_person_id_len, indiv_ct, fam_id, indiv_id);
     if (sorted_idx == -1) {
       continue;
     }
@@ -380,6 +375,12 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
       sprintf(logbuf, "Error: Duplicate individual %s in --within file.\n", idbuf);
       logprintb();
       goto load_clusters_ret_INVALID_FORMAT;
+    }
+    if (mwithin_col > 1) {
+      cluster_name_ptr = next_item_mult(cluster_name_ptr, mwithin_col - 1);
+    }
+    if (no_more_items_kns(cluster_name_ptr)) {
+      goto load_clusters_ret_MISSING_TOKENS;
     }
     set_bit(already_seen, sorted_idx);
     slen = strlen_se(cluster_name_ptr);
@@ -447,14 +448,15 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
       if (is_eoln_kns(*fam_id)) {
 	continue;
       }
-      indiv_id = next_item(fam_id);
-      cluster_name_ptr = next_item_mult(indiv_id, mwithin_col);
-      slen = strlen_se(cluster_name_ptr);
-      if ((!keep_na) && (slen == 2) && (!memcmp(cluster_name_ptr, "NA", 2))) {
+      bsearch_read_fam_indiv(idbuf, sorted_ids, max_person_id_len, indiv_ct, fam_id, &cluster_name_ptr, &sorted_idx);
+      if (sorted_idx == -1) {
 	continue;
       }
-      sorted_idx = bsearch_fam_indiv(idbuf, sorted_ids, max_person_id_len, indiv_ct, fam_id, indiv_id);
-      if (sorted_idx == -1) {
+      if (mwithin_col > 1) {
+	cluster_name_ptr = next_item_mult(cluster_name_ptr, mwithin_col - 1);
+      }
+      slen = strlen_se(cluster_name_ptr);
+      if ((!keep_na) && (slen == 2) && (!memcmp(cluster_name_ptr, "NA", 2))) {
 	continue;
       }
       indiv_uidx = id_map[(uint32_t)sorted_idx];
@@ -521,6 +523,8 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
   load_clusters_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
+  load_clusters_ret_MISSING_TOKENS:
+    logprint("Error: Fewer tokens than expected in --within file line.\n");
   load_clusters_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -876,7 +880,6 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
   uint32_t* id_map;
   char* bufptr;
   char* fam_id;
-  char* indiv_id;
   uint32_t indiv_idx1;
   uint32_t indiv_idx2;
   double cur_ibs;
@@ -916,19 +919,16 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
     if (is_eoln_kns(*fam_id)) {
       continue;
     }
-    indiv_id = next_item(fam_id);
-    bufptr = next_item_mult(indiv_id, 2);
-    if (no_more_items(bufptr)) {
+    if (bsearch_read_fam_indiv(idbuf, sorted_ids, max_person_id_len, indiv_ct, fam_id, &fam_id, &ii)) {
       goto read_genome_ret_INVALID_FORMAT_4;
     }
-    ii = bsearch_fam_indiv(idbuf, sorted_ids, max_person_id_len, indiv_ct, fam_id, indiv_id);
     if (ii == -1) {
       continue;
     }
     indiv_idx1 = id_map[(uint32_t)ii];
-    fam_id = next_item(indiv_id);
-    indiv_id = bufptr;
-    ii = bsearch_fam_indiv(idbuf, sorted_ids, max_person_id_len, indiv_ct, fam_id, indiv_id);
+    if (bsearch_read_fam_indiv(idbuf, sorted_ids, max_person_id_len, indiv_ct, fam_id, &bufptr, &ii)) {
+      goto read_genome_ret_INVALID_FORMAT_4;
+    }
     if (ii == -1) {
       continue;
     }
@@ -937,7 +937,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
       logprint("Error: FID1/IID1 matches FID2/IID2 in --read-genome input file line.\n");
       goto read_genome_ret_INVALID_FORMAT;
     }
-    bufptr = next_item_mult(indiv_id, 8); // distance
+    bufptr = next_item_mult(bufptr, 7); // distance
     fam_id = next_item(bufptr); // repurposed to PPC test value
     if (no_more_items(fam_id)) {
       goto read_genome_ret_INVALID_FORMAT_4;
@@ -1165,11 +1165,9 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       if (is_eoln_kns(*bufptr)) {
 	continue;
       }
-      bufptr2 = next_item(bufptr);
-      if (no_more_items(bufptr2)) {
-        goto cluster_enforce_match_ret_INVALID_FORMAT_2;
+      if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_person_id_len, indiv_ct, bufptr, &bufptr2, &ii)) {
+	goto cluster_enforce_match_ret_INVALID_FORMAT_2;
       }
-      ii = bsearch_fam_indiv(id_buf, sorted_ids, max_person_id_len, indiv_ct, bufptr, bufptr2);
       if (ii == -1) {
 	continue;
       }
@@ -1179,7 +1177,6 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	goto cluster_enforce_match_ret_INVALID_FORMAT;
       }
       indiv_idx_to_match_str[indiv_idx1] = wptr;
-      bufptr2 = item_endnn(bufptr2);
       for (cov_idx = 0; cov_idx < cov_ct; cov_idx++) {
         bufptr = skip_initial_spaces(bufptr2);
 	if (is_eoln_kns(*bufptr)) {
@@ -1376,11 +1373,9 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       if (is_eoln_kns(*bufptr)) {
 	continue;
       }
-      bufptr2 = next_item(bufptr);
-      if (no_more_items(bufptr2)) {
+      if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_person_id_len, indiv_ct, bufptr, &bufptr, &ii)) {
         goto cluster_enforce_match_ret_INVALID_FORMAT_4;
       }
-      ii = bsearch_fam_indiv(id_buf, sorted_ids, max_person_id_len, indiv_ct, bufptr, bufptr2);
       if (ii == -1) {
 	continue;
       }
@@ -1391,20 +1386,21 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       }
       indiv_idx_to_dvals[indiv_idx1] = dptr;
       for (cov_idx = 0; cov_idx < cov_ct; cov_idx++) {
-	bufptr2 = skip_initial_spaces(item_endnn(bufptr2));
-	if (is_eoln_kns(*bufptr2)) {
+	bufptr = skip_initial_spaces(bufptr);
+	if (is_eoln_kns(*bufptr)) {
 	  goto cluster_enforce_match_ret_INVALID_FORMAT_4;
 	}
         if (tol_arr[cov_idx] != -1) {
-	  if ((!memcmp(bufptr2, missing_str, missing_len)) && (((unsigned char)bufptr2[missing_len]) <= ' ')) {
+	  if ((!memcmp(bufptr, missing_str, missing_len)) && (((unsigned char)bufptr[missing_len]) <= ' ')) {
 	    *dptr++ = -INFINITY;
 	  } else {
-            if (scan_double(bufptr2, dptr++)) {
+            if (scan_double(bufptr, dptr++)) {
               logprint("Error: Non-numeric covariate in --qmatch file.\n");
 	      goto cluster_enforce_match_ret_INVALID_FORMAT;
 	    }
 	  }
 	}
+	bufptr = item_endnn(bufptr);
       }
 
       if (wkspace_left < (uintptr_t)(((unsigned char*)(&(dptr[non_null_cov_ct]))) - wkspace_base)) {

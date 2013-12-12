@@ -74,17 +74,13 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
     if (is_eoln_kns(*bufptr0)) {
       continue;
     }
-    tmp_len = strlen_se(bufptr0);
-    bufptr = next_item(bufptr0);
-    if (no_more_items_kns(bufptr)) {
-      logprint(errstr_phenotype_format);
-      logprint("At least two tokens expected in line.\n");
-      sprintf(logbuf, "Original line: %s", bufptr0);
-      logprintb();
-      goto load_pheno_ret_INVALID_FORMAT;
-    }
-    tmp_len2 = strlen_se(bufptr);
     if (!header_processed) {
+      tmp_len = strlen_se(bufptr0);
+      bufptr = skip_initial_spaces(&(bufptr0[tmp_len]));
+      if (is_eoln_kns(*bufptr)) {
+	goto load_pheno_ret_MISSING_TOKENS;
+      }
+      tmp_len2 = strlen_se(bufptr);
       if (phenoname_str || ((tmp_len == 3) && (tmp_len2 == 3) && (!memcmp("FID", bufptr0, 3)) && (!memcmp("IID", bufptr, 3)))) {
 	if (phenoname_str) {
 	  tmp_len = strlen(phenoname_str);
@@ -108,10 +104,14 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
     if (!header_processed) {
       header_processed = 1;
     } else {
-      person_idx = bsearch_fam_indiv(tbuf, sorted_person_ids, max_person_id_len, indiv_ct, bufptr0, bufptr);
+      if (bsearch_read_fam_indiv(tbuf, sorted_person_ids, max_person_id_len, indiv_ct, bufptr0, &bufptr, &person_idx)) {
+	goto load_pheno_ret_MISSING_TOKENS;
+      }
       if (person_idx != -1) {
 	person_idx = id_map[(uint32_t)person_idx];
-	bufptr = next_item_mult(bufptr, mpheno_col);
+	if (mpheno_col > 1) {
+	  bufptr = next_item_mult(bufptr, mpheno_col - 1);
+	}
 	if (no_more_items_kns(bufptr)) {
 	  // not always an error
 	  return LOAD_PHENO_LAST_COL;
@@ -182,6 +182,8 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
   load_pheno_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
+  load_pheno_ret_MISSING_TOKENS:
+    logprint(errstr_phenotype_format);
   load_pheno_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -2244,12 +2246,10 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
 	continue;
       }
       if (!families_only) {
-	bufptr = next_item(bufptr0);
-	if (no_more_items_kns(bufptr)) {
+	if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_ct, bufptr0, NULL, &ii)) {
 	  sprintf(logbuf, "Error: Fewer tokens than expected in --%s line.\n", include_or_exclude_flag_str(flags));
 	  goto include_or_exclude_ret_INVALID_FORMAT;
 	}
-	ii = bsearch_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_ct, bufptr0, bufptr);
 	if (ii != -1) {
 	  unfiltered_idx = id_map[(uint32_t)ii];
 	  if (do_exclude) {
@@ -2297,12 +2297,10 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
 	continue;
       }
       bufptr = item_endnn(bufptr0);
-      *bufptr = '\0';
-      ulii = bsearch_str_lb(sorted_ids, sorted_ids_ct, max_id_len, bufptr0);
+      ulii = bsearch_str_lb(bufptr0, (uintptr_t)(bufptr - bufptr0), sorted_ids, max_id_len, sorted_ids_ct);
       if (ulii != sorted_ids_ct) {
         *bufptr = ' ';
-        bufptr[1] = '\0';
-        uljj = bsearch_str_lb(sorted_ids, sorted_ids_ct, max_id_len, bufptr0);
+        uljj = bsearch_str_lb(bufptr0, (uintptr_t)((&(bufptr[1])) - bufptr0), sorted_ids, max_id_len, sorted_ids_ct);
         if (uljj > ulii) {
           do {
 	    unfiltered_idx = id_map[ulii];
@@ -2368,6 +2366,7 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
   char* sorted_pos_match = NULL;
   char* sorted_neg_match = NULL;
   char* id_buf = NULL;
+  char* bufptr2 = NULL;
   uint32_t pos_match_ct = 0;
   uint32_t neg_match_ct = 0;
   uint32_t neg_match_ctl = 0;
@@ -2380,7 +2379,6 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
   char* loadbuf;
   char* cond_ptr;
   char* bufptr;
-  char* bufptr2;
   uintptr_t loadbuf_size;
   uintptr_t pos_match_idx;
   uintptr_t neg_match_idx;
@@ -2519,13 +2517,10 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
       continue;
     }
     if (is_indiv) {
-      bufptr2 = next_item(bufptr);
-      if (!bufptr2) {
+      if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_ct, bufptr, &cond_ptr, &sorted_idx)) {
         logprint("Error: --filter-attrib-indiv line has only one token.\n");
         goto filter_attrib_ret_INVALID_FORMAT;
       }
-      sorted_idx = bsearch_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_ct, bufptr, bufptr2);
-      cond_ptr = skip_initial_spaces(item_endnn(bufptr2));
     } else {
       bufptr2 = item_endnn(bufptr);
       cond_ptr = skip_initial_spaces(bufptr2);
@@ -2636,7 +2631,6 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
   char* sorted_ids;
   uint32_t* id_map;
   char* fam_id;
-  char* indiv_id;
   double* dptr;
   uint64_t fpos;
   uint64_t fpos2;
@@ -2687,12 +2681,10 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
       if (is_eoln_kns(*fam_id)) {
         continue;
       }
-      indiv_id = next_item(fam_id);
-      if (no_more_items(indiv_id)) {
-        logprint("Error: Improperly formatted --read-dists ID file.\n");
+      if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_person_id_len, indiv_ct, fam_id, NULL, &ii)) {
+        logprint("Error: --read-dists file line has only one token.\n");
         goto read_dists_ret_INVALID_FORMAT;
       }
-      ii = bsearch_fam_indiv(id_buf, sorted_ids, max_person_id_len, indiv_ct, fam_id, indiv_id);
       if (ii == -1) {
         is_presorted = 0;
         id_entry_ct++;
@@ -3142,24 +3134,22 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    bufptr2 = next_item(bufptr);
-    if (!bufptr2) {
+    if (bsearch_read_fam_indiv(tbuf, sorted_ids, max_person_id_len, indiv_ct, bufptr, &bufptr2, &ii)) {
       goto load_covars_ret_INVALID_FORMAT_2;
     }
-    ii = bsearch_fam_indiv(tbuf, sorted_ids, max_person_id_len, indiv_ct, bufptr, bufptr2);
     if (ii == -1) {
       continue;
     }
     if (is_set(already_seen, ii)) {
-      bufptr[strlen_se(bufptr)] = '\0';
-      bufptr2[strlen_se(bufptr2)] = '\0';
-      sprintf(logbuf, "Error: %s %s appears multiple times in --covar file.\n", bufptr, bufptr2);
-      logprintb();
+      logprint("Error: Duplicate individual ID in --covar file.\n");
       goto load_covars_ret_INVALID_FORMAT;
     }
     set_bit(already_seen, ii);
     indiv_idx = id_map[(uint32_t)ii];
-    if (!next_item_mult(bufptr2, min_covar_col_ct)) {
+    if (min_covar_col_ct > 1) {
+      bufptr2 = next_item_mult(bufptr2, min_covar_col_ct - 1);
+    }
+    if (no_more_items_kns(bufptr2)) {
       goto load_covars_ret_INVALID_FORMAT_2;
     }
     bufptr2 = item_endnn(bufptr2);
@@ -6950,8 +6940,13 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
       if (is_eoln_kns(*cptr)) {
 	continue;
       }
-      cptr2 = next_item(cptr);
-      cptr3 = next_item(cptr2);
+      if (bsearch_read_fam_indiv(id_buf, sorted_indiv_ids, max_person_id_len, indiv_ct, cptr, &cptr3, &ii)) {
+	goto lgen_to_bed_ret_INVALID_FORMAT;
+      }
+      if (ii == -1) {
+	goto lgen_to_bed_ret_INVALID_FORMAT_2;
+      }
+      indiv_idx = indiv_id_map[(uint32_t)ii];
       cptr4 = item_end(cptr3);
       if (!cptr4) {
 	goto lgen_to_bed_ret_INVALID_FORMAT;
@@ -6981,11 +6976,6 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
 	*a2ptr = a1ptr[1];
 	a2len = 1;
       }
-      ii = bsearch_fam_indiv(id_buf, sorted_indiv_ids, max_person_id_len, indiv_ct, cptr, cptr2);
-      if (ii == -1) {
-	goto lgen_to_bed_ret_INVALID_FORMAT_2;
-      }
-      indiv_idx = indiv_id_map[(uint32_t)ii];
       ii = bsearch_str(cptr3, (uintptr_t)(cptr4 - cptr3), marker_ids, max_marker_id_len, marker_ct);
       if (ii != -1) {
 	marker_idx = marker_id_map[(uint32_t)ii];
@@ -7084,8 +7074,13 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
       if (is_eoln_kns(*cptr)) {
 	continue;
       }
-      cptr2 = next_item(cptr);
-      cptr3 = next_item(cptr2);
+      if (bsearch_read_fam_indiv(id_buf, sorted_indiv_ids, max_person_id_len, indiv_ct, cptr, &cptr3, &ii)) {
+	goto lgen_to_bed_ret_INVALID_FORMAT;
+      }
+      if (ii == -1) {
+	goto lgen_to_bed_ret_INVALID_FORMAT_2;
+      }
+      indiv_idx = indiv_id_map[(uint32_t)ii];
       cptr4 = item_end(cptr3);
       if (!cptr4) {
 	goto lgen_to_bed_ret_INVALID_FORMAT;
@@ -7094,11 +7089,6 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
       if (no_more_items_kns(a1ptr)) {
 	goto lgen_to_bed_ret_INVALID_FORMAT;
       }
-      ii = bsearch_fam_indiv(id_buf, sorted_indiv_ids, max_person_id_len, indiv_ct, cptr, cptr2);
-      if (ii == -1) {
-	goto lgen_to_bed_ret_INVALID_FORMAT_2;
-      }
-      indiv_idx = indiv_id_map[(uint32_t)ii];
       ii = bsearch_str(cptr3, (uintptr_t)(cptr4 - cptr3), marker_ids, max_marker_id_len, marker_ct);
       if (ii != -1) {
 	marker_idx = marker_id_map[(uint32_t)ii];
@@ -7291,10 +7281,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
     retval = RET_WRITE_FAIL;
     break;
   lgen_to_bed_ret_INVALID_FORMAT_2:
-    cptr[strlen_se(cptr)] = '\0';
-    cptr2[strlen_se(cptr2)] = '\0';
-    sprintf(logbuf, "Error: Person %s %s in .lgen file but missing from .fam.\n", cptr, cptr2);
-    logprintb();
+    logprint("Error: .fam file does not contain all individual IDs mentioned in .lgen file.\n");
     retval = RET_INVALID_FORMAT;
     break;
   lgen_to_bed_ret_INVALID_FORMAT_5:

@@ -1033,9 +1033,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --make-pheno [fn] [val] : Define a new case/control phenotype.  If the val\n"
 "                            parameter is '*', all individuals listed in the\n"
 "                            the given file are cases, and everyone else is a\n"
-"                            control.  Otherwise, only individuals both listed\n"
-"                            in the file and with third column entry identical\n"
-"                            to the val parameter are cases.\n"
+"                            control.  (Note that, in some shells, it is\n"
+"                            necessary to surround the * with quotes.)\n"
+"                            Otherwise, only individuals both listed in the file\n"
+"                            and with third column entry identical to the val\n"
+"                            parameter are cases.\n"
 	       );
     help_print("tail-pheno\tgroupdist\tpheno", &help_ctrl, 0,
 "  --tail-pheno [Lt] {Hbt} : Downcode a scalar phenotype to a case/control\n"

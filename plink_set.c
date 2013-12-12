@@ -1512,3 +1512,8 @@ void unpack_set_unfiltered(uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, 
     fill_bits(new_exclude, last_uidx, unfiltered_marker_ct - last_uidx);
   }
 }
+
+int32_t extract_full_union_unfiltered(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t** union_marker_exclude_ptr, uintptr_t* union_marker_ct_ptr) {
+  // todo
+  return 0;
+}

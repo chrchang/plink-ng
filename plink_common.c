@@ -3899,27 +3899,6 @@ void update_neighbor(uintptr_t indiv_ct, uint32_t neighbor_n2, uintptr_t indiv_i
   }
 }
 
-uintptr_t bsearch_str_lb(char* lptr, uintptr_t arr_length, uintptr_t max_id_len, char* id_buf) {
-  // returns number of elements in lptr[] less than or equal to id_buf
-  // assumes nonempty array
-  intptr_t min_idx = 0;
-  intptr_t max_idx = arr_length - 1;
-  uintptr_t mid_idx;
-  while (min_idx < max_idx) {
-    mid_idx = (((uintptr_t)min_idx) + ((uintptr_t)max_idx)) / 2;
-    if (strcmp(id_buf, &(lptr[mid_idx * max_id_len])) > 0) {
-      min_idx = mid_idx + 1;
-    } else {
-      max_idx = mid_idx - 1;
-    }
-  }
-  if (strcmp(id_buf, &(lptr[((uintptr_t)min_idx) * max_id_len])) > 0) {
-    return (min_idx + 1);
-  } else {
-    return min_idx;
-  }
-}
-
 int32_t bsearch_str(const char* id_buf, uintptr_t cur_id_len, char* lptr, uintptr_t max_id_len, uintptr_t end_idx) {
   // does not assume null-terminated id_buf, or nonempty array.
   // N.B. max_id_len includes null terminator as usual, while cur_id_len does
@@ -3964,6 +3943,24 @@ int32_t bsearch_str_natural(char* id_buf, char* lptr, uintptr_t max_id_len, uint
   return -1;
 }
 
+uintptr_t bsearch_str_lb(const char* id_buf, uintptr_t cur_id_len, char* lptr, uintptr_t max_id_len, uintptr_t end_idx) {
+  // returns number of elements in lptr[] less than id_buf.
+  uintptr_t start_idx = 0;
+  uintptr_t mid_idx;
+  if (cur_id_len > max_id_len) {
+    cur_id_len = max_id_len;
+  }
+  while (start_idx < end_idx) {
+    mid_idx = (start_idx + end_idx) / 2;
+    if (memcmp(id_buf, &(lptr[mid_idx * max_id_len]), cur_id_len) > 0) {
+      start_idx = mid_idx + 1;
+    } else {
+      end_idx = mid_idx;
+    }
+  }
+  return start_idx;
+}
+
 void fill_idbuf_fam_indiv(char* idbuf, char* fam_indiv, char fillchar) {
   char* iend_ptr = item_endnn(fam_indiv);
   uint32_t slen = (iend_ptr - fam_indiv);
@@ -3976,22 +3973,35 @@ void fill_idbuf_fam_indiv(char* idbuf, char* fam_indiv, char fillchar) {
   memcpyx(&(idbuf[slen + 1]), fam_indiv, slen2, '\0');
 }
 
-int32_t bsearch_fam_indiv(char* id_buf, char* lptr, uintptr_t max_id_len, uint32_t filter_line_ct, char* fam_id, char* indiv_id) {
+uint32_t bsearch_read_fam_indiv(char* id_buf, char* lptr, uintptr_t max_id_len, uintptr_t filter_line_ct, char* read_ptr, char** read_pp_new, int32_t* retval_ptr) {
   // id_buf = workspace
   // lptr = packed, sorted list of ID strings to search over
-  // fam_id and indiv_id are considered terminated by any space/eoln character
-  uintptr_t ulii;
-  uint32_t uii;
-  uint32_t ujj;
-  uii = strlen_se(fam_id);
-  ujj = strlen_se(indiv_id);
-  ulii = uii + ujj + 1;
-  if (ulii >= max_id_len) {
-    // avoid buffer overflow
-    return -1;
+  // read_ptr is assumed to point to beginning of FID.  FID is terminated by
+  // any space/eoln character, then IID is assumed to follow it (and is also
+  // terminated by any space/eoln).  Nonzero error value is returned if IID
+  // does not exist.
+  char* iid_ptr;
+  uintptr_t slen_fid;
+  uintptr_t slen_iid;
+  uintptr_t slen_final;
+  slen_fid = strlen_se(read_ptr);
+  iid_ptr = skip_initial_spaces(&(read_ptr[slen_fid]));
+  if (is_eoln_kns(*iid_ptr)) {
+    return 1;
   }
-  memcpy(memcpyax(id_buf, fam_id, uii, '\t'), indiv_id, ujj);
-  return bsearch_str(id_buf, ulii, lptr, max_id_len, filter_line_ct);
+  slen_iid = strlen_se(iid_ptr);
+  if (read_pp_new) {
+    *read_pp_new = skip_initial_spaces(&(iid_ptr[slen_iid]));
+  }
+  slen_final = slen_fid + slen_iid + 1;
+  if (slen_final >= max_id_len) {
+    // avoid buffer overflow
+    *retval_ptr = -1;
+    return 0;
+  }
+  memcpy(memcpyax(id_buf, read_ptr, slen_fid, '\t'), iid_ptr, slen_iid);
+  *retval_ptr = bsearch_str(id_buf, slen_final, lptr, max_id_len, filter_line_ct);
+  return 0;
 }
 
 void bsearch_fam(char* id_buf, char* lptr, uintptr_t max_id_len, uint32_t filter_line_ct, char* fam_id, uint32_t* first_idx_ptr, uint32_t* last_idx_ptr) {
@@ -4007,13 +4017,12 @@ void bsearch_fam(char* id_buf, char* lptr, uintptr_t max_id_len, uint32_t filter
   }
   memcpy(id_buf, fam_id, slen);
   id_buf[slen] = '\t';
-  id_buf[slen + 1] = '\0';
-  fidx = bsearch_str_lb(lptr, filter_line_ct, max_id_len, id_buf);
+  fidx = bsearch_str_lb(id_buf, slen + 1, lptr, max_id_len, filter_line_ct);
   if (fidx == filter_line_ct) {
     goto bsearch_fam_ret_null;
   }
   id_buf[slen] = ' ';
-  loff = bsearch_str_lb(&(lptr[fidx * max_id_len]), filter_line_ct - fidx, max_id_len, id_buf);
+  loff = bsearch_str_lb(id_buf, slen + 1, &(lptr[fidx * max_id_len]), max_id_len, filter_line_ct - fidx);
   if (!loff) {
     goto bsearch_fam_ret_null;
   }
