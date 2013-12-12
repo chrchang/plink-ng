@@ -1763,10 +1763,8 @@ int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintpt
   char* bufptr;
   char* bufptr2;
   char* wptr;
-  uintptr_t len_tot;
   uintptr_t indiv_uidx;
   uint32_t len;
-  uint32_t len2;
   int32_t sorted_idx;
   if (wkspace_alloc_c_checked(&idbuf, max_person_id_len) ||
       wkspace_alloc_ul_checked(&already_seen, indiv_ctl * sizeof(intptr_t))) {
@@ -1786,33 +1784,18 @@ int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintpt
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    len = strlen_se(bufptr);
-    bufptr2 = skip_initial_spaces(&(bufptr[len + 1]));
-    len2 = strlen_se(bufptr2);
-    len_tot = len + len2 + 1;
-    if (len_tot >= max_person_id_len) {
-      miss_ct++;
-      continue;
-    }
-    memcpy(idbuf, bufptr, len);
-    idbuf[len] = '\t';
-    memcpy(&(idbuf[len + 1]), bufptr2, len2);
-    sorted_idx = bsearch_str(idbuf, len_tot, sorted_person_ids, max_person_id_len, indiv_ct);
+    bsearch_read_fam_indiv(idbuf, sorted_person_ids, max_person_id_len, indiv_ct, bufptr, &bufptr, &sorted_idx);
     if (sorted_idx == -1) {
       miss_ct++;
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
-      idbuf[len] = ' ';
-      idbuf[len_tot] = '\0';
-      sprintf(logbuf, "Error: Duplicate individual %s in --update-ids file.\n", idbuf);
-      logprintb();
+      logprint("Error: Duplicate individual in --update-ids file.\n");
       goto update_indiv_ids_ret_INVALID_FORMAT;
     }
     set_bit(already_seen, sorted_idx);
     indiv_uidx = indiv_id_map[((uint32_t)sorted_idx)];
     wptr = &(person_ids[indiv_uidx * max_person_id_len]);
-    bufptr = skip_initial_spaces(&(bufptr2[len2 + 1]));
     len = strlen_se(bufptr);
     bufptr2 = &(bufptr[len]);
     wptr = memcpyax(wptr, bufptr, len, '\t');
@@ -1862,7 +1845,6 @@ int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids
   char* bufptr2;
   char* bufptr3;
   char* wptr;
-  uintptr_t len_tot;
   uintptr_t indiv_uidx;
   uint32_t len;
   uint32_t len2;
@@ -1885,36 +1867,20 @@ int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    len = strlen_se(bufptr);
-    bufptr2 = skip_initial_spaces(&(bufptr[len + 1]));
-    len2 = strlen_se(bufptr2);
-    if (!len2) {
+    if (bsearch_read_fam_indiv(idbuf, sorted_person_ids, max_person_id_len, indiv_ct, bufptr, &bufptr, &sorted_idx)) {
       goto update_indiv_parents_ret_MISSING_TOKENS;
     }
-    len_tot = len + len2 + 1;
-    if (len_tot >= max_person_id_len) {
-      miss_ct++;
-      continue;
-    }
-    memcpy(idbuf, bufptr, len);
-    idbuf[len] = '\t';
-    memcpy(&(idbuf[len + 1]), bufptr2, len2);
-    sorted_idx = bsearch_str(idbuf, len_tot, sorted_person_ids, max_person_id_len, indiv_ct);
     if (sorted_idx == -1) {
       miss_ct++;
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
-      idbuf[len] = ' ';
-      idbuf[len_tot] = '\0';
-      sprintf(logbuf, "Error: Duplicate individual %s in --update-parents file.\n", idbuf);
-      logprintb();
+      logprint("Error: Duplicate individual in --update-parents file.\n");
       goto update_indiv_parents_ret_INVALID_FORMAT;
     }
     set_bit(already_seen, sorted_idx);
     indiv_uidx = indiv_id_map[((uint32_t)sorted_idx)];
     wptr = &(paternal_ids[indiv_uidx * max_paternal_id_len]);
-    bufptr = skip_initial_spaces(&(bufptr2[len2 + 1]));
     len = strlen_se(bufptr);
     if (!len) {
       goto update_indiv_parents_ret_MISSING_TOKENS;
@@ -1976,10 +1942,6 @@ int32_t update_indiv_sexes(char* update_sex_fname, char* sorted_person_ids, uint
   char* idbuf;
   uintptr_t* already_seen;
   char* bufptr;
-  char* bufptr2;
-  uintptr_t len_tot;
-  uint32_t len;
-  uint32_t len2;
   int32_t sorted_idx;
   uint32_t indiv_uidx;
   char cc;
@@ -2002,35 +1964,21 @@ int32_t update_indiv_sexes(char* update_sex_fname, char* sorted_person_ids, uint
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    len = strlen_se(bufptr);
-    bufptr2 = skip_initial_spaces(&(bufptr[len + 1]));
-    len2 = strlen_se(bufptr2);
-    len_tot = len + len2 + 1;
-    if (len_tot >= max_person_id_len) {
-      miss_ct++;
-      continue;
+    if (bsearch_read_fam_indiv(idbuf, sorted_person_ids, max_person_id_len, indiv_ct, bufptr, &bufptr, &sorted_idx)) {
+      goto update_indiv_sexes_ret_MISSING_TOKENS;
     }
-    memcpy(idbuf, bufptr, len);
-    idbuf[len] = '\t';
-    memcpy(&(idbuf[len + 1]), bufptr2, len2);
-    sorted_idx = bsearch_str(idbuf, len_tot, sorted_person_ids, max_person_id_len, indiv_ct);
     if (sorted_idx == -1) {
       miss_ct++;
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
-      idbuf[len] = ' ';
-      idbuf[len_tot] = '\0';
-      sprintf(logbuf, "Error: Duplicate individual %s in --update-sex file.\n", idbuf);
-      logprintb();
+      logprint("Error: Duplicate individual in --update-sex file.\n");
       goto update_indiv_sexes_ret_INVALID_FORMAT;
     }
     set_bit(already_seen, sorted_idx);
     indiv_uidx = indiv_id_map[((uint32_t)sorted_idx)];
-    bufptr = skip_initial_spaces(&(bufptr2[len2 + 1]));
     if (no_more_items_kns(bufptr)) {
-      logprint("Error: Fewer tokens than expected in --update-sex line.\n");
-      goto update_indiv_sexes_ret_INVALID_FORMAT;
+      goto update_indiv_sexes_ret_MISSING_TOKENS;
     }
     cc = *bufptr;
     ucc = ((unsigned char)cc) & 0xdfU;
@@ -2071,6 +2019,8 @@ int32_t update_indiv_sexes(char* update_sex_fname, char* sorted_person_ids, uint
   update_indiv_sexes_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
+  update_indiv_sexes_ret_MISSING_TOKENS:
+    logprint("Error: Fewer tokens than expected in --update-sex line.\n");
   update_indiv_sexes_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
