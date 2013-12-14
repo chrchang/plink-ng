@@ -80,7 +80,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (12 Dec 2013)";
+  " (14 Dec 2013)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -10303,8 +10303,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	calculation_type |= CALC_MODEL;
       } else if (!memcmp(argptr2, "odel-dom", 9)) {
-	if ((!(calculation_type & CALC_MODEL)) || (model_modifier & MODEL_ASSOC)) {
-	  logprint("Error: --model-dom must be used with --model.\n");
+	if (model_modifier & MODEL_ASSOC) {
+	  logprint("Error: --model-dom cannot be used with --assoc.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (model_modifier & (MODEL_PREC | MODEL_PGEN | MODEL_PTREND)) {
@@ -10313,10 +10313,11 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	logprint("Note: --model-dom flag deprecated.  Use '--model dom'.\n");
 	model_modifier |= MODEL_PDOM;
+	calculation_type |= CALC_MODEL;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "odel-gen", 9)) {
-	if ((!(calculation_type & CALC_MODEL)) || (model_modifier & MODEL_ASSOC)) {
-	  logprint("Error: --model-gen must be used with --model.\n");
+	if (model_modifier & MODEL_ASSOC) {
+	  logprint("Error: --model-gen cannot be used with --assoc.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (model_modifier & (MODEL_PDOM | MODEL_PREC | MODEL_PTREND)) {
@@ -10325,10 +10326,11 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	logprint("Note: --model-gen flag deprecated.  Use '--model gen'.\n");
 	model_modifier |= MODEL_PGEN;
+        calculation_type |= CALC_MODEL;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "odel-rec", 9)) {
-	if ((!(calculation_type & CALC_MODEL)) || (model_modifier & MODEL_ASSOC)) {
-	  logprint("Error: --model-rec must be used with --model.\n");
+	if (model_modifier & MODEL_ASSOC) {
+	  logprint("Error: --model-rec cannot be used with --assoc.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (model_modifier & (MODEL_PDOM | MODEL_PGEN | MODEL_PTREND)) {
@@ -10337,10 +10339,11 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	logprint("Note: --model-rec flag deprecated.  Use '--model rec'.\n");
 	model_modifier |= MODEL_PREC;
+        calculation_type |= CALC_MODEL;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "odel-trend", 11)) {
-	if ((!(calculation_type & CALC_MODEL)) || (model_modifier & MODEL_ASSOC)) {
-	  logprint("Error: --model-trend must be used with --model.\n");
+	if (model_modifier & MODEL_ASSOC) {
+	  logprint("Error: --model-trend cannot be used with --assoc.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (model_modifier & (MODEL_PDOM | MODEL_PGEN | MODEL_PREC)) {
@@ -10349,6 +10352,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	logprint("Note: --model-trend flag deprecated.  Use '--model trend'.\n");
 	model_modifier |= MODEL_PTREND;
+        calculation_type |= CALC_MODEL;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "perm", 5)) {
 	if (model_modifier & (MODEL_PERM | MODEL_MPERM)) {
@@ -12229,8 +12233,8 @@ int32_t main(int32_t argc, char** argv) {
 	  marker_pos_end = ii;
 	}
       } else if (!memcmp(argptr2, "rend", 5)) {
-	if ((!(calculation_type & CALC_MODEL)) || (model_modifier & MODEL_ASSOC)) {
-	  sprintf(logbuf, "Error: --trend must be used with --model.%s", errstr_append);
+	if (model_modifier & MODEL_ASSOC) {
+	  sprintf(logbuf, "Error: --trend cannot be used with --assoc.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (model_modifier & MODEL_FISHER) {
@@ -12242,6 +12246,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	logprint("Note: --trend flag deprecated.  Use '--model trend ...'.\n");
 	model_modifier |= MODEL_PTREND | MODEL_TRENDONLY;
+        calculation_type |= CALC_MODEL;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "hin", 4)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {

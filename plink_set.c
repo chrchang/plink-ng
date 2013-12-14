@@ -1513,7 +1513,70 @@ void unpack_set_unfiltered(uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, 
   }
 }
 
-int32_t extract_full_union_unfiltered(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t** union_marker_exclude_ptr, uintptr_t* union_marker_ct_ptr) {
-  // todo
+/*
+uint32_t extract_full_union(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t** union_marker_exclude_ptr, uintptr_t* union_marker_ct_ptr) {
+  // If union = all remaining markers, simply makes union_marker_exclude_ptr
+  // point to marker_exclude.  Otherwise, allocates union_marker_exclude on the
+  // stack.
+  // Assumes marker_ct is initial value of *union_marker_ct_ptr.
+  unsigned char* wkspace_mark = wkspace_base;
+  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t marker_ct = *union_marker_ct_ptr;
+  uintptr_t set_ct = sip->ct;
+  uintptr_t* union_marker_exclude;
+  uint32_t* cur_setdef;
+  uintptr_t set_idx;
+  uintptr_t ulii;
+  uint32_t range_ct;
+  uint32_t range_idx;
+  if (wkspace_alloc_ul_checked(&union_marker_exclude, unfiltered_marker_ctl * sizeof(intptr_t))) {
+    return 1;
+  }
+  // due to how range representation works, better to make this initially empty
+  // and flip it later
+  for (set_idx = 0; set_idx < set_ct; set_idx++) {
+    cur_setdef = sip->setdefs[set_idx];
+    range_ct = cur_setdef[0];
+    if (range_ct == 0xffffffffU) {
+    } else {
+      for (range_idx = 0; range_idx < range_ct; range_idx++) {
+        range_start_uidx = marker_idx_to_uidx[*(++cur_setdef)];
+        range_end_uidx = marker_idx_to_uidx[*(++cur_setdef)];
+        
+      }
+    }
+  }
+  ulii = unfiltered_marker_ct - popcount_longs(union_marker_exclude, 0, unfiltered_marker_ctl);
+  if (ulii == marker_ct) {
+    *union_marker_exclude_ptr = marker_exclude;
+    wkspace_reset(wkspace_mark);
+  } else {
+    *union_marker_ct_ptr = ulii;
+    *union_marker_exclude_ptr = union_marker_exclude;
+  }
+  return 0;
+}
+*/
+
+uint32_t extract_full_union_unfiltered(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t** union_marker_exclude_ptr, uintptr_t* union_marker_ct_ptr) {
+  /*
+  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t orig_marker_ct = *union_marker_ct_ptr;
+  uintptr_t* union_marker_exclude;
+  uintptr_t* filtered_union_ptr;
+  if (wkspace_alloc_ul_checked(&union_marker_exclude, unfiltered_marker_ctl * sizeof(intptr_t))) {
+    return 1;
+  }
+  if (extract_full_union(sip, &filtered_union_ptr, union_marker_ct_ptr)) {
+    return 1;
+  }
+  if ((*union_marker_ct_ptr) == marker_ct) {
+    wkspace_reset((unsigned char*)union_marker_exclude);
+    *union_marker_exclude_ptr = marker_exclude;
+  } else {
+    ;
+    *union_marker_exclude_ptr = union_marker_exclude;
+  }
+  */
   return 0;
 }

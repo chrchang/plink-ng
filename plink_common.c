@@ -2950,6 +2950,9 @@ void fill_vec_55(uintptr_t* vec, uint32_t ct) {
 }
 
 void vec_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_bitarr, uint32_t filtered_ct, uintptr_t* output_vec) {
+  // Used to unpack e.g. unfiltered sex_male to a filtered 2-bit vector usable
+  // as a raw input bitmask.
+  // Assumes output_vec is sized to a multiple of 16 bytes.
   uintptr_t cur_write = 0;
   uint32_t item_uidx = 0;
   uint32_t write_bit = 0;
@@ -8304,9 +8307,9 @@ void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* exclu
   uint32_t item_uidx_stop;
   if (!exclude_arr[0]) {
     item_uidx = next_set(exclude_arr, 0, orig_ct & (~(BITCT - 1))) & (~(BITCT - 1));
-    memcpy(output_arr, bit_arr, item_uidx / 4);
+    memcpy(output_arr, bit_arr, item_uidx / 8);
     item_idx = item_uidx;
-    output_arr = &(output_arr[item_uidx / BITCT2]);
+    output_arr = &(output_arr[item_uidx / BITCT]);
   }
   while (item_idx < filtered_ct) {
     item_uidx = next_unset_unsafe(exclude_arr, item_uidx);
@@ -8334,9 +8337,9 @@ void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* 
   uint32_t item_uidx_stop;
   if (!(~include_arr[0])) {
     item_uidx = next_unset(include_arr, 0, orig_ct & (~(BITCT - 1)));
-    memcpy(output_arr, bit_arr, item_uidx / 4);
+    memcpy(output_arr, bit_arr, item_uidx / 8);
     item_idx = item_uidx;
-    output_arr = &(output_arr[item_uidx / BITCT2]);
+    output_arr = &(output_arr[item_uidx / BITCT]);
   }
   while (item_idx < filtered_ct) {
     item_uidx = next_set_unsafe(include_arr, item_uidx);
@@ -8355,6 +8358,51 @@ void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* 
     *output_arr = cur_write;
   }
 }
+
+/*
+void uncollapse_copy_bitarr(uintptr_t* collapsed_bit_arr, uint32_t unfiltered_ct, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr) {
+  uint32_t unfiltered_ctl = (unfiltered_ct + (BITCT - 1)) / BITCT;
+  if (unfiltered_ct == filtered_ct) {
+    memcpy(output_arr, collapsed_bit_arr, unfiltered_ctl * sizeof(intptr_t));
+    return;
+  }
+  
+  uintptr_t cur_write = 0;
+  uint32_t item_uidx = 0;
+  uint32_t write_bit = 0;
+  uint32_t item_idx = 0;
+  uint32_t item_uidx_stop;
+  if (!exclude_arr[0]) {
+    item_uidx = next_set(exclude_arr, 0, orig_ct & (~(BITCT - 1))) & (~(BITCT - 1));
+    memcpy(output_arr, bit_arr, item_uidx / 4);
+    item_idx = item_uidx;
+    output_arr = &(output_arr[item_uidx / BITCT2]);
+  }
+  while (item_idx < filtered_ct) {
+    item_uidx = next_unset_unsafe(exclude_arr, item_uidx);
+    item_uidx_stop = next_set(exclude_arr, item_uidx, unfiltered_ct);
+    item_idx += item_uidx_stop - item_uidx;
+    do {
+    } while (++item_uidx < item_uidx_stop);
+  }
+  while (item_idx < filtered_ct) {
+    item_uidx = next_unset_unsafe(exclude_arr, item_uidx);
+    item_uidx_stop = next_set(exclude_arr, item_uidx, orig_ct);
+    item_idx += item_uidx_stop - item_uidx;
+    do {
+      cur_write |= ((bit_arr[item_uidx / BITCT] >> (item_uidx % BITCT)) & 1) << write_bit;
+      if (++write_bit == BITCT) {
+	*output_arr++ = cur_write;
+        cur_write = 0;
+	write_bit = 0;
+      }
+    } while (++item_uidx < item_uidx_stop);
+  }
+  if (write_bit) {
+    *output_arr = cur_write;
+  }
+}
+*/
 
 void copy_when_nonmissing(uintptr_t* loadbuf, char* source, uintptr_t elem_size, uintptr_t unfiltered_indiv_ct, uintptr_t missing_ct, char* dest) {
   uintptr_t* loadbuf_end = &(loadbuf[(unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2]);

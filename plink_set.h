@@ -62,6 +62,6 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
 
 void unpack_set_unfiltered(uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* setdef, uintptr_t* new_exclude);
 
-int32_t extract_full_union_unfiltered(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t** union_marker_exclude_ptr, uintptr_t* union_marker_ct_ptr);
+uint32_t extract_full_union_unfiltered(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t** union_marker_exclude_ptr, uintptr_t* union_marker_ct_ptr);
 
 #endif // __PLINK_SET_H__

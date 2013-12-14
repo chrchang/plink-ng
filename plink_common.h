@@ -1837,6 +1837,8 @@ void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* exclu
 
 void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_arr);
 
+// void uncollapse_copy_bitarr(uintptr_t* collapsed_bit_arr, uint32_t unfiltered_ct, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr);
+
 void copy_when_nonmissing(uintptr_t* loadbuf, char* source, uintptr_t elem_size, uintptr_t unfiltered_indiv_ct, uintptr_t missing_ct, char* dest);
 
 uint32_t collapse_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len, uint32_t* id_starts);
