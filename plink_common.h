@@ -543,6 +543,11 @@
 // used to size a few tables
 #define EXPECTED_MISSING_FREQ 0.05
 
+// load markers in blocks to enable multithreading and, for quantitative
+// phenotypes, PERMORY-style LD exploitation
+#define MODEL_BLOCKSIZE 1024
+#define MODEL_BLOCKKEEP 64
+
 // hash table constants for merge operations
 
 // last prime before 2^19

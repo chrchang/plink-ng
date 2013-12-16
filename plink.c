@@ -31,6 +31,7 @@
 #include "plink_cnv.h"
 #include "plink_data.h"
 // #include "plink_dosage.h"
+#include "plink_glm.h"
 #include "plink_help.h"
 #include "plink_homozyg.h"
 #include "plink_lasso.h"
