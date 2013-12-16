@@ -80,7 +80,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (14 Dec 2013)";
+  " (16 Dec 2013)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -12939,9 +12939,6 @@ int32_t main(int32_t argc, char** argv) {
 	sprintf(logbuf, "Error: --assoc/--model set-test cannot be used with Fisher's exact test.%s", errstr_append);
         goto main_ret_INVALID_CMDLINE_3;
       }
-      logprint("Error: --assoc/--model set-test is currently under development.\n");
-      retval = RET_CALC_NOT_YET_SUPPORTED;
-      goto main_ret_1;
     }
     if (glm_modifier & GLM_SET_TEST) {
       if ((!(glm_modifier & GLM_PERM)) && (!glm_mperm_val)) {

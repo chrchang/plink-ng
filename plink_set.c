@@ -699,10 +699,9 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       }
       range_last += make_set_border;
       if (set_ct > 1) {
-	if (collapse_group) {
-	  uii = strlen_se(bufptr3);
-	  bufptr3[uii] = '\0';
-	}
+	// bugfix: bsearch_str_natural requires null-terminated string
+	uii = strlen_se(bufptr3);
+	bufptr3[uii] = '\0';
 	if (c_prefix) {
 	  bufptr3 = &(bufptr3[-2]);
           memcpy(bufptr3, "C_", 2);
@@ -1533,9 +1532,10 @@ uint32_t extract_full_union(Set_info* sip, uintptr_t** filtered_union_ptr, uintp
   uint32_t range_end;
   uint32_t keep_outer;
   uint32_t read_offset;
-  if (wkspace_alloc_ul_checked(&filtered_union, marker_ctl * sizeof(intptr_t))) {
+  if (wkspace_alloc_ul_checked(filtered_union_ptr, marker_ctl * sizeof(intptr_t))) {
     return 1;
   }
+  filtered_union = *filtered_union_ptr;
   fill_ulong_zero(filtered_union, marker_ctl);
   for (set_idx = 0; set_idx < set_ct; set_idx++) {
     cur_setdef = sip->setdefs[set_idx];
@@ -1585,20 +1585,20 @@ uint32_t extract_full_union(Set_info* sip, uintptr_t** filtered_union_ptr, uintp
         range_ct = (uint32arr_greater_than(cur_setdef, range_ct * 2, unset_endw * BITCT) + 1) / 2;
       }
       if (range_ct) {
-	range_start = *(++cur_setdef);
-        range_end = *(++cur_setdef);
+	range_start = *(cur_setdef++);
+        range_end = *(cur_setdef++);
         if (range_start < unset_startw * BITCT) {
 	  range_start = unset_startw * BITCT;
 	}
 	if (range_ct > 1) {
           fill_bits(filtered_union, range_start, range_end - range_start);
 	  for (range_idx = 2; range_idx < range_ct; range_idx++) {
-	    range_start = *(++cur_setdef);
-	    range_end = *(++cur_setdef);
+	    range_start = *(cur_setdef++);
+	    range_end = *(cur_setdef++);
 	    fill_bits(filtered_union, range_start, range_end - range_start);
 	  }
-          range_start = *(++cur_setdef);
-          range_end = *(++cur_setdef);
+          range_start = *(cur_setdef++);
+          range_end = *(cur_setdef++);
 	}
 	if (range_end > unset_endw * BITCT) {
 	  range_end = unset_endw * BITCT;
