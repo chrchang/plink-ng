@@ -81,7 +81,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (16 Dec 2013)";
+  " (18 Dec 2013)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -5027,9 +5027,9 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
   if (relationship_or_ibc_req(calculation_type)) {
     if (rel_calc_type & REL_CALC_SINGLE_PREC) {
-      retval = calc_rel_f(threads, parallel_idx, parallel_tot, calculation_type, rel_calc_type, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, person_ids, max_person_id_len, ibc_type, (float)rel_cutoff, set_allele_freqs, chrom_info_ptr);
+      retval = calc_rel_f(threads, parallel_idx, parallel_tot, calculation_type, rel_calc_type, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ct, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, person_ids, max_person_id_len, ibc_type, (float)rel_cutoff, set_allele_freqs, chrom_info_ptr);
     } else {
-      retval = calc_rel(threads, parallel_idx, parallel_tot, calculation_type, rel_calc_type, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, person_ids, max_person_id_len, ibc_type, rel_cutoff, set_allele_freqs, &rel_ibc, chrom_info_ptr);
+      retval = calc_rel(threads, parallel_idx, parallel_tot, calculation_type, rel_calc_type, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ct, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, person_ids, max_person_id_len, ibc_type, rel_cutoff, set_allele_freqs, &rel_ibc, chrom_info_ptr);
     }
     if (retval) {
       goto plink_ret_1;

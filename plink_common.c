@@ -6731,7 +6731,7 @@ uint32_t load_and_split(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_in
   }
 }
 
-uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* marker_exclude, uint32_t marker_ct_autosomal, uint32_t block_max_size, uintptr_t unfiltered_indiv_ct4, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_weights, unsigned char* readbuf, uint32_t* chrom_fo_idx_ptr, uintptr_t* marker_uidx_ptr, uintptr_t* marker_idx_ptr, uint32_t* block_size_ptr, double* set_allele_freq_buf, float* set_allele_freq_buf_fl, uint32_t* wtbuf) {
+uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* marker_exclude, uint32_t marker_ct_autosomal, uint32_t block_max_size, uintptr_t unfiltered_indiv_ct4, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_weights, unsigned char* readbuf, uint32_t* chrom_fo_idx_ptr, uintptr_t* marker_uidx_ptr, uintptr_t* marker_idx_ptr, uint32_t* block_size_ptr, uintptr_t* marker_reverse, double* set_allele_freq_buf, float* set_allele_freq_buf_fl, uint32_t* wtbuf) {
   uintptr_t marker_uidx = *marker_uidx_ptr;
   uintptr_t marker_idx = *marker_idx_ptr;
   uint32_t chrom_fo_idx = *chrom_fo_idx_ptr;
@@ -6774,9 +6774,17 @@ uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* mark
       return RET_READ_FAIL;
     }
     if (set_allele_freq_buf) {
-      set_allele_freq_buf[markers_read] = set_allele_freqs[marker_uidx];
+      if (!IS_SET(marker_reverse, marker_uidx)) {
+        set_allele_freq_buf[markers_read] = set_allele_freqs[marker_uidx];
+      } else {
+        set_allele_freq_buf[markers_read] = 1.0 - set_allele_freqs[marker_uidx];
+      }
     } else if (set_allele_freq_buf_fl) {
-      set_allele_freq_buf_fl[markers_read] = (float)set_allele_freqs[marker_uidx];
+      if (!IS_SET(marker_reverse, marker_uidx)) {
+        set_allele_freq_buf_fl[markers_read] = (float)set_allele_freqs[marker_uidx];
+      } else {
+        set_allele_freq_buf_fl[markers_read] = 1.0 - ((float)set_allele_freqs[marker_uidx]);
+      }
     }
     if (wtbuf) {
       wtbuf[markers_read] = marker_weights[marker_idx];

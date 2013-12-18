@@ -97,10 +97,10 @@
 
 void update_rel_ibc(double* rel_ibc, uintptr_t* geno, double* set_allele_freqs, int32_t ibc_type, uint32_t indiv_ct) {
   // first calculate weight array, then loop
-  int32_t ii;
-  int32_t jj;
-  int32_t kk;
   uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+  uint32_t umm;
   double twt;
   double* wtptr;
   double mult = 1.0;
@@ -120,100 +120,100 @@ void update_rel_ibc(double* rel_ibc, uintptr_t* geno, double* set_allele_freqs, 
   double wtarr[BITCT2 * 5];
   double *wptr = weights;
   fill_double_zero(wtarr, BITCT2 * 5);
-  for (ii = 0; ii < MULTIPLEX_REL / 3; ii += 1) {
-    if ((set_allele_freqs[ii] != 0.0) && (set_allele_freqs[ii] < (1.0 - EPSILON))) {
+  for (uii = 0; uii < MULTIPLEX_REL / 3; uii += 1) {
+    if ((set_allele_freqs[uii] != 0.0) && (set_allele_freqs[uii] < (1.0 - EPSILON))) {
       if (ibc_type) {
         if (ibc_type == 2) {
-          wtarr[ii * 8] = 2;
-          wtarr[ii * 8 + 2] = 2.0 - 1.0 / (2 * set_allele_freqs[ii] * (1.0 - set_allele_freqs[ii]));
-          wtarr[ii * 8 + 3] = 2;
+          wtarr[uii * 8] = 2;
+          wtarr[uii * 8 + 2] = 2.0 - 1.0 / (2 * set_allele_freqs[uii] * (1.0 - set_allele_freqs[uii]));
+          wtarr[uii * 8 + 3] = 2;
         } else {
-          twt = 2 * set_allele_freqs[ii];
+          twt = 2 * set_allele_freqs[uii];
           if (ibc_type == 1) {
-            mult = 1 / (twt * (1.0 - set_allele_freqs[ii]));
+            mult = 1 / (twt * (1.0 - set_allele_freqs[uii]));
           }
-          wtarr[ii * 8] = twt * twt * mult;
-          wtarr[ii * 8 + 2] = (1.0 - twt) * (1.0 - twt) * mult;
-          wtarr[ii * 8 + 3] = (2.0 - twt) * (2.0 - twt) * mult;
+          wtarr[uii * 8] = twt * twt * mult;
+          wtarr[uii * 8 + 2] = (1.0 - twt) * (1.0 - twt) * mult;
+          wtarr[uii * 8 + 3] = (2.0 - twt) * (2.0 - twt) * mult;
         }
       } else {
-        twt = 1.0 - set_allele_freqs[ii];
-        mult = 1 / (set_allele_freqs[ii] * twt);
-        wtarr[ii * 8] = 1.0 + set_allele_freqs[ii] * set_allele_freqs[ii] * mult;
-        wtarr[ii * 8 + 3] = 1.0 + twt * twt * mult;
+        twt = 1.0 - set_allele_freqs[uii];
+        mult = 1 / (set_allele_freqs[uii] * twt);
+        wtarr[uii * 8] = 1.0 + set_allele_freqs[uii] * set_allele_freqs[uii] * mult;
+        wtarr[uii * 8 + 3] = 1.0 + twt * twt * mult;
       }
     } else {
       if (ibc_type) {
         if (ibc_type == -1) {
-          twt = 2 * set_allele_freqs[ii];
-          wtarr[ii * 8] = twt * twt;
-          wtarr[ii * 8 + 2] = (1.0 - twt) * (1.0 - twt);
-          wtarr[ii * 8 + 3] = (2.0 - twt) * (2.0 - twt);
+          twt = 2 * set_allele_freqs[uii];
+          wtarr[uii * 8] = twt * twt;
+          wtarr[uii * 8 + 2] = (1.0 - twt) * (1.0 - twt);
+          wtarr[uii * 8 + 3] = (2.0 - twt) * (2.0 - twt);
         } else if (ibc_type == 1) {
-	  wtarr[ii * 8 + 2] = INFINITY;
-          if (set_allele_freqs[ii] == 0.0) {
-            wtarr[ii * 8] = 0;
-            wtarr[ii * 8 + 3] = INFINITY;
+	  wtarr[uii * 8 + 2] = INFINITY;
+          if (set_allele_freqs[uii] == 0.0) {
+            wtarr[uii * 8] = 0;
+            wtarr[uii * 8 + 3] = INFINITY;
           } else {
-            wtarr[ii * 8] = INFINITY;
-            wtarr[ii * 8 + 3] = 0;
+            wtarr[uii * 8] = INFINITY;
+            wtarr[uii * 8 + 3] = 0;
           }
         } else {
           // need to set to 1 instead of 2 for agreement with GCTA
-          wtarr[ii * 8] = 1;
-          wtarr[ii * 8 + 2] = -INFINITY;
-          wtarr[ii * 8 + 3] = 1;
+          wtarr[uii * 8] = 1;
+          wtarr[uii * 8 + 2] = -INFINITY;
+          wtarr[uii * 8 + 3] = 1;
         }
       } else {
-        if (set_allele_freqs[ii] == 0.0) {
-          wtarr[ii * 8] = 1;
-          wtarr[ii * 8 + 3] = INFINITY;
+        if (set_allele_freqs[uii] == 0.0) {
+          wtarr[uii * 8] = 1;
+          wtarr[uii * 8 + 3] = INFINITY;
         } else {
-          wtarr[ii * 8] = INFINITY;
-          wtarr[ii * 8 + 3] = 1;
+          wtarr[uii * 8] = INFINITY;
+          wtarr[uii * 8 + 3] = 1;
         }
       }
     }
   }
-  for (kk = 0; kk < (BITCT * 5) / 32; kk++) {
-    wtptr = &(wtarr[16 * kk]);
+  for (ukk = 0; ukk < (BITCT * 5) / 32; ukk++) {
+    wtptr = &(wtarr[16 * ukk]);
 #ifdef __LP64__
-    if ((kk == 2) || (kk == 7)) {
-      for (ii = 0; ii < 8; ii++) {
-	twt = wtptr[ii + 8];
-	for (jj = 0; jj < 8; jj++) {
-	  *wptr++ = twt + wtptr[jj];
+    if ((ukk == 2) || (ukk == 7)) {
+      for (uii = 0; uii < 8; uii++) {
+	twt = wtptr[uii + 8];
+	for (ujj = 0; ujj < 8; ujj++) {
+	  *wptr++ = twt + wtptr[ujj];
 	}
 	wptr = &(wptr[8]);
       }
     } else {
-      for (ii = 0; ii < 8; ii++) {
-	twt = wtptr[ii + 8];
-	for (jj = 0; jj < 8; jj++) {
-	  *wptr++ = twt + wtptr[jj];
+      for (uii = 0; uii < 8; uii++) {
+	twt = wtptr[uii + 8];
+	for (ujj = 0; ujj < 8; ujj++) {
+	  *wptr++ = twt + wtptr[ujj];
 	}
       }
     }
 #else
-    if (kk == 2) {
-      for (ii = 0; ii < 8; ii++) {
-	twt = wtptr[ii + 8];
-	for (jj = 0; jj < 8; jj++) {
-	  *wptr++ = twt + wtptr[jj];
+    if (ukk == 2) {
+      for (uii = 0; uii < 8; uii++) {
+	twt = wtptr[uii + 8];
+	for (ujj = 0; ujj < 8; ujj++) {
+	  *wptr++ = twt + wtptr[ujj];
 	}
 	wptr = &(wptr[8]);
       }
     } else {
-      for (ii = 0; ii < 8; ii++) {
-	twt = wtptr[ii + 8];
-	for (jj = 0; jj < 8; jj++) {
-	  *wptr++ = twt + wtptr[jj];
+      for (uii = 0; uii < 8; uii++) {
+	twt = wtptr[uii + 8];
+	for (ujj = 0; ujj < 8; ujj++) {
+	  *wptr++ = twt + wtptr[ujj];
 	}
       }
     }
 #endif
   }
-  for (uii = 0; uii < indiv_ct; uii++) {
+  for (umm = 0; umm < indiv_ct; umm++) {
     ulii = *geno++;
 #ifdef __LP64__
     *rel_ibc += weights9[ulii >> 57] + weights8[(ulii >> 51) & 63] + weights7[(ulii >> 44) & 127] + weights6[(ulii >> 38) & 63] + weights5[(ulii >> 32) & 63] + weights4[(ulii >> 25) & 63] + weights3[(ulii >> 19) & 63] + weights2[(ulii >> 12) & 127] + weights1[(ulii >> 6) & 63] + weights[ulii & 63];
@@ -226,10 +226,10 @@ void update_rel_ibc(double* rel_ibc, uintptr_t* geno, double* set_allele_freqs, 
 
 void update_rel_f_ibc(float* rel_ibc, uintptr_t* geno, float* set_allele_freqs, int32_t ibc_type, uint32_t indiv_ct) {
   // first calculate weight array, then loop
-  int32_t ii;
-  int32_t jj;
-  int32_t kk;
   uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+  uint32_t umm;
   float twt;
   float* wtptr;
   float mult = 1.0;
@@ -249,100 +249,100 @@ void update_rel_f_ibc(float* rel_ibc, uintptr_t* geno, float* set_allele_freqs, 
   float wtarr[BITCT2 * 5];
   float *wptr = weights;
   fill_float_zero(wtarr, BITCT2 * 5);
-  for (ii = 0; ii < MULTIPLEX_REL / 3; ii += 1) {
-    if ((set_allele_freqs[ii] != 0.0) && (set_allele_freqs[ii] < (1.0 - EPSILON))) {
+  for (uii = 0; uii < MULTIPLEX_REL / 3; uii += 1) {
+    if ((set_allele_freqs[uii] != 0.0) && (set_allele_freqs[uii] < (1.0 - EPSILON))) {
       if (ibc_type) {
         if (ibc_type == 2) {
-          wtarr[ii * 8] = 2;
-          wtarr[ii * 8 + 2] = 2.0 - 1.0 / (2 * set_allele_freqs[ii] * (1.0 - set_allele_freqs[ii]));
-          wtarr[ii * 8 + 3] = 2;
+          wtarr[uii * 8] = 2;
+          wtarr[uii * 8 + 2] = 2.0 - 1.0 / (2 * set_allele_freqs[uii] * (1.0 - set_allele_freqs[uii]));
+          wtarr[uii * 8 + 3] = 2;
         } else {
-          twt = 2 * set_allele_freqs[ii];
+          twt = 2 * set_allele_freqs[uii];
           if (ibc_type == 1) {
-            mult = 1 / (twt * (1.0 - set_allele_freqs[ii]));
+            mult = 1 / (twt * (1.0 - set_allele_freqs[uii]));
           }
-          wtarr[ii * 8] = twt * twt * mult;
-          wtarr[ii * 8 + 2] = (1.0 - twt) * (1.0 - twt) * mult;
-          wtarr[ii * 8 + 3] = (2.0 - twt) * (2.0 - twt) * mult;
+          wtarr[uii * 8] = twt * twt * mult;
+          wtarr[uii * 8 + 2] = (1.0 - twt) * (1.0 - twt) * mult;
+          wtarr[uii * 8 + 3] = (2.0 - twt) * (2.0 - twt) * mult;
         }
       } else {
-        twt = 1.0 - set_allele_freqs[ii];
-        mult = 1 / (set_allele_freqs[ii] * twt);
-        wtarr[ii * 8] = 1.0 + set_allele_freqs[ii] * set_allele_freqs[ii] * mult;
-        wtarr[ii * 8 + 3] = 1.0 + twt * twt * mult;
+        twt = 1.0 - set_allele_freqs[uii];
+        mult = 1 / (set_allele_freqs[uii] * twt);
+        wtarr[uii * 8] = 1.0 + set_allele_freqs[uii] * set_allele_freqs[uii] * mult;
+        wtarr[uii * 8 + 3] = 1.0 + twt * twt * mult;
       }
     } else {
       if (ibc_type) {
         if (ibc_type == -1) {
-          twt = 2 * set_allele_freqs[ii];
-          wtarr[ii * 8] = twt * twt;
-          wtarr[ii * 8 + 2] = (1.0 - twt) * (1.0 - twt);
-          wtarr[ii * 8 + 3] = (2.0 - twt) * (2.0 - twt);
+          twt = 2 * set_allele_freqs[uii];
+          wtarr[uii * 8] = twt * twt;
+          wtarr[uii * 8 + 2] = (1.0 - twt) * (1.0 - twt);
+          wtarr[uii * 8 + 3] = (2.0 - twt) * (2.0 - twt);
         } else if (ibc_type == 1) {
-	  wtarr[ii * 8 + 2] = INFINITY;
-          if (set_allele_freqs[ii] == 0.0) {
-            wtarr[ii * 8] = 0;
-            wtarr[ii * 8 + 3] = INFINITY;
+	  wtarr[uii * 8 + 2] = INFINITY;
+          if (set_allele_freqs[uii] == 0.0) {
+            wtarr[uii * 8] = 0;
+            wtarr[uii * 8 + 3] = INFINITY;
           } else {
-            wtarr[ii * 8] = INFINITY;
-            wtarr[ii * 8 + 3] = 0;
+            wtarr[uii * 8] = INFINITY;
+            wtarr[uii * 8 + 3] = 0;
           }
         } else {
           // need to set to 1 instead of 2 for agreement with GCTA
-          wtarr[ii * 8] = 1;
-          wtarr[ii * 8 + 2] = -INFINITY;
-          wtarr[ii * 8 + 3] = 1;
+          wtarr[uii * 8] = 1;
+          wtarr[uii * 8 + 2] = -INFINITY;
+          wtarr[uii * 8 + 3] = 1;
         }
       } else {
-        if (set_allele_freqs[ii] == 0.0) {
-          wtarr[ii * 8] = 1;
-          wtarr[ii * 8 + 3] = INFINITY;
+        if (set_allele_freqs[uii] == 0.0) {
+          wtarr[uii * 8] = 1;
+          wtarr[uii * 8 + 3] = INFINITY;
         } else {
-          wtarr[ii * 8] = INFINITY;
-          wtarr[ii * 8 + 3] = 1;
+          wtarr[uii * 8] = INFINITY;
+          wtarr[uii * 8 + 3] = 1;
         }
       }
     }
   }
-  for (kk = 0; kk < (BITCT * 5) / 32; kk++) {
-    wtptr = &(wtarr[16 * kk]);
+  for (ukk = 0; ukk < (BITCT * 5) / 32; ukk++) {
+    wtptr = &(wtarr[16 * ukk]);
 #ifdef __LP64__
-    if ((kk == 2) || (kk == 7)) {
-      for (ii = 0; ii < 8; ii++) {
-	twt = wtptr[ii + 8];
-	for (jj = 0; jj < 8; jj++) {
-	  *wptr++ = twt + wtptr[jj];
+    if ((ukk == 2) || (ukk == 7)) {
+      for (uii = 0; uii < 8; uii++) {
+	twt = wtptr[uii + 8];
+	for (ujj = 0; ujj < 8; ujj++) {
+	  *wptr++ = twt + wtptr[ujj];
 	}
 	wptr = &(wptr[8]);
       }
     } else {
-      for (ii = 0; ii < 8; ii++) {
-	twt = wtptr[ii + 8];
-	for (jj = 0; jj < 8; jj++) {
-	  *wptr++ = twt + wtptr[jj];
+      for (uii = 0; uii < 8; uii++) {
+	twt = wtptr[uii + 8];
+	for (ujj = 0; ujj < 8; ujj++) {
+	  *wptr++ = twt + wtptr[ujj];
 	}
       }
     }
 #else
-    if (kk == 2) {
-      for (ii = 0; ii < 8; ii++) {
-	twt = wtptr[ii + 8];
-	for (jj = 0; jj < 8; jj++) {
-	  *wptr++ = twt + wtptr[jj];
+    if (ukk == 2) {
+      for (uii = 0; uii < 8; uii++) {
+	twt = wtptr[uii + 8];
+	for (ujj = 0; ujj < 8; ujj++) {
+	  *wptr++ = twt + wtptr[ujj];
 	}
 	wptr = &(wptr[8]);
       }
     } else {
-      for (ii = 0; ii < 8; ii++) {
-	twt = wtptr[ii + 8];
-	for (jj = 0; jj < 8; jj++) {
-	  *wptr++ = twt + wtptr[jj];
+      for (uii = 0; uii < 8; uii++) {
+	twt = wtptr[uii + 8];
+	for (ujj = 0; ujj < 8; ujj++) {
+	  *wptr++ = twt + wtptr[ujj];
 	}
       }
     }
 #endif
   }
-  for (uii = 0; uii < indiv_ct; uii++) {
+  for (umm = 0; umm < indiv_ct; umm++) {
     ulii = *geno++;
 #ifdef __LP64__
     *rel_ibc += weights9[ulii >> 57] + weights8[(ulii >> 51) & 63] + weights7[(ulii >> 44) & 127] + weights6[(ulii >> 38) & 63] + weights5[(ulii >> 32) & 63] + weights4[(ulii >> 25) & 63] + weights3[(ulii >> 19) & 63] + weights2[(ulii >> 12) & 127] + weights1[(ulii >> 6) & 63] + weights[ulii & 63];
@@ -354,12 +354,12 @@ void update_rel_f_ibc(float* rel_ibc, uintptr_t* geno, float* set_allele_freqs, 
 }
 
 void fill_weights(double* weights, double* set_allele_freqs, double exponent) {
-  int32_t ii;
-  int32_t jj;
-  int32_t kk;
-  int32_t mm;
-  int32_t nn;
-  int32_t oo;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+  uint32_t umm;
+  uint32_t unn;
+  uint32_t uoo;
   double wtarr[MULTIPLEX_DIST_EXP / 2];
   double* wt;
 #ifdef __LP64__
@@ -370,44 +370,44 @@ void fill_weights(double* weights, double* set_allele_freqs, double exponent) {
   __m128d vfinal1;
   __m128d vfinal2;
 #else
-  int32_t pp;
-  int32_t qq;
+  uint32_t upp;
+  uint32_t uqq;
   double twt[7];
 #endif
-  for (ii = 0; ii < MULTIPLEX_DIST_EXP / 2; ii++) {
-    wtarr[ii] = pow(2 * set_allele_freqs[ii] * (1.0 - set_allele_freqs[ii]), -exponent);
+  for (uii = 0; uii < MULTIPLEX_DIST_EXP / 2; uii++) {
+    wtarr[uii] = pow(2 * set_allele_freqs[uii] * (1.0 - set_allele_freqs[uii]), -exponent);
   }
-  for (oo = 0; oo < 2; oo++) {
-    wt = &(wtarr[7 * oo]);
+  for (uoo = 0; uoo < 2; uoo++) {
+    wt = &(wtarr[7 * uoo]);
 #ifdef __LP64__
     vfinal1 = _mm_set_pd(wt[0], 0.0);
     vfinal2 = _mm_set_pd(wt[0] * 2, wt[0]);
 #endif
     twt[0] = 0;
-    for (ii = 0; ii < 4; ii += 1) {
-      // turning the ii == 2 case into a memcpy doesn't actually seem to speed
+    for (uii = 0; uii < 4; uii += 1) {
+      // turning the uii == 2 case into a memcpy doesn't actually seem to speed
       // this up
-      if (ii & 1) {
+      if (uii & 1) {
 	twt[0] += wt[6];
       }
       twt[1] = twt[0];
-      for (jj = 0; jj < 4; jj += 1) {
-	if (jj & 1) {
+      for (ujj = 0; ujj < 4; ujj += 1) {
+	if (ujj & 1) {
 	  twt[1] += wt[5];
 	}
 	twt[2] = twt[1];
-	for (kk = 0; kk < 4; kk += 1) {
-	  if (kk & 1) {
+	for (ukk = 0; ukk < 4; ukk += 1) {
+	  if (ukk & 1) {
 	    twt[2] += wt[4];
 	  }
 	  twt[3] = twt[2];
-	  for (mm = 0; mm < 4; mm++) {
-	    if (mm & 1) {
+	  for (umm = 0; umm < 4; umm++) {
+	    if (umm & 1) {
 	      twt[3] += wt[3];
 	    }
 	    twt[4] = twt[3];
-	    for (nn = 0; nn < 4; nn++) {
-	      if (nn & 1) {
+	    for (unn = 0; unn < 4; unn++) {
+	      if (unn & 1) {
 		twt[4] += wt[2];
 	      }
 #ifdef __LP64__
@@ -428,13 +428,13 @@ void fill_weights(double* weights, double* set_allele_freqs, double exponent) {
 	      *wpairs++ = _mm_add_pd(vpen, vfinal2);
 #else
               twt[5] = twt[4];
-              for (pp = 0; pp < 4; pp++) {
-                if (pp & 1) {
+              for (upp = 0; upp < 4; upp++) {
+                if (upp & 1) {
                   twt[5] += wt[1];
                 }
                 twt[6] = twt[5];
-                for (qq = 0; qq < 4; qq++) {
-                  if (qq & 1) {
+                for (uqq = 0; uqq < 4; uqq++) {
+                  if (uqq & 1) {
                     twt[6] += wt[0];
                   }
                   *weights++ = twt[6];
@@ -448,28 +448,28 @@ void fill_weights(double* weights, double* set_allele_freqs, double exponent) {
     }
   }
 #ifdef __LP64__
-  for (oo = 0; oo < 3; oo++) {
-    wt = &(wtarr[14 + 6 * oo]);
+  for (uoo = 0; uoo < 3; uoo++) {
+    wt = &(wtarr[14 + 6 * uoo]);
     vfinal1 = _mm_set_pd(wt[0], 0.0);
     vfinal2 = _mm_set_pd(2 * wt[0], wt[0]);
     twt[0] = 0;
-    for (ii = 0; ii < 4; ii += 1) {
-      if (ii & 1) {
+    for (uii = 0; uii < 4; uii += 1) {
+      if (uii & 1) {
         twt[0] += wt[5];
       }
       twt[1] = twt[0];
-      for (jj = 0; jj < 4; jj += 1) {
-        if (jj & 1) {
+      for (ujj = 0; ujj < 4; ujj += 1) {
+        if (ujj & 1) {
           twt[1] += wt[4];
         }
         twt[2] = twt[1];
-	for (kk = 0; kk < 4; kk += 1) {
-          if (kk & 1) {
+	for (ukk = 0; ukk < 4; ukk += 1) {
+          if (ukk & 1) {
             twt[2] += wt[3];
           }
           twt[3] = twt[2];
-          for (mm = 0; mm < 4; mm++) {
-	    if (mm & 1) {
+          for (umm = 0; umm < 4; umm++) {
+	    if (umm & 1) {
 	      twt[3] += wt[2];
 	    }
 	    twtf = twt[3];
@@ -496,11 +496,11 @@ void fill_weights(double* weights, double* set_allele_freqs, double exponent) {
 }
 
 void fill_weights_r(double* weights, double* set_allele_freqs, uint32_t var_std) {
-  int32_t ii;
-  int32_t jj;
-  int32_t kk;
-  int32_t mm;
-  int32_t nn;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+  uint32_t umm;
+  uint32_t unn;
   // 20 markers to process in quintuplets, for 64-bit; 10, for 32-bit.
   // Each quintuplet of markers requires 40 wtarr entries, and induces
   // 2^15 writes to weights[].
@@ -524,7 +524,7 @@ void fill_weights_r(double* weights, double* set_allele_freqs, uint32_t var_std)
   __m128d vfinal3;
   __m128d vfinal4;
 #else
-  int32_t oo;
+  uint32_t uoo;
 #endif
   if (((uintptr_t)wtarr) & 15) {
     // force 16-byte alignment; can't do this at compile-time since stack
@@ -532,76 +532,76 @@ void fill_weights_r(double* weights, double* set_allele_freqs, uint32_t var_std)
     // yes, this assumes doubles are 8 bytes.
     wtarr++;
   }
-  for (ii = 0; ii < MULTIPLEX_REL / 3; ii += 1) {
-    if (((set_allele_freqs[ii] != 0.0) && (set_allele_freqs[ii] < (1.0 - EPSILON))) || (!var_std)) {
-      if (set_allele_freqs[ii] < 0.5) {
-	mean = 2 * set_allele_freqs[ii];
+  for (uii = 0; uii < MULTIPLEX_REL / 3; uii += 1) {
+    if (((set_allele_freqs[uii] != 0.0) && (set_allele_freqs[uii] < (1.0 - EPSILON))) || (!var_std)) {
+      if (set_allele_freqs[uii] < 0.5) {
+	mean = 2 * set_allele_freqs[uii];
 	mean_m1 = mean - 1.0;
 	mean_m2 = mean - 2.0;
         if (var_std) {
-	  mult = 1 / (mean * (1.0 - set_allele_freqs[ii]));
+	  mult = 1 / (mean * (1.0 - set_allele_freqs[uii]));
         }
         aux = mean * mult;
-	wtarr[ii * 8] = mean * aux;
-        wtarr[ii * 8 + 1] = 0;
-	wtarr[ii * 8 + 2] = mean_m1 * aux;
-	wtarr[ii * 8 + 3] = mean_m2 * aux;
-	wtarr[ii * 8 + 4] = mean_m1 * mean_m1 * mult;
-	wtarr[ii * 8 + 5] = mean_m2 * mean_m1 * mult;
-	wtarr[ii * 8 + 6] = mean_m2 * mean_m2 * mult;
+	wtarr[uii * 8] = mean * aux;
+        wtarr[uii * 8 + 1] = 0;
+	wtarr[uii * 8 + 2] = mean_m1 * aux;
+	wtarr[uii * 8 + 3] = mean_m2 * aux;
+	wtarr[uii * 8 + 4] = mean_m1 * mean_m1 * mult;
+	wtarr[uii * 8 + 5] = mean_m2 * mean_m1 * mult;
+	wtarr[uii * 8 + 6] = mean_m2 * mean_m2 * mult;
       } else {
-	mean = 2 * (1.0 - set_allele_freqs[ii]);
+	mean = 2 * (1.0 - set_allele_freqs[uii]);
 	mean_m1 = mean - 1.0;
 	mean_m2 = mean - 2.0;
         if (var_std) {
-	  mult = 1 / (mean * set_allele_freqs[ii]);
+	  mult = 1 / (mean * set_allele_freqs[uii]);
         }
         aux = mean_m2 * mult;
-	wtarr[ii * 8] = mean_m2 * aux;
-        wtarr[ii * 8 + 1] = 0;
-	wtarr[ii * 8 + 2] = mean_m1 * aux;
-	wtarr[ii * 8 + 3] = mean * aux;
-	wtarr[ii * 8 + 4] = mean_m1 * mean_m1 * mult;
-	wtarr[ii * 8 + 5] = mean_m1 * mean * mult;
-	wtarr[ii * 8 + 6] = mean * mean * mult;
+	wtarr[uii * 8] = mean_m2 * aux;
+        wtarr[uii * 8 + 1] = 0;
+	wtarr[uii * 8 + 2] = mean_m1 * aux;
+	wtarr[uii * 8 + 3] = mean * aux;
+	wtarr[uii * 8 + 4] = mean_m1 * mean_m1 * mult;
+	wtarr[uii * 8 + 5] = mean_m1 * mean * mult;
+	wtarr[uii * 8 + 6] = mean * mean * mult;
       }
     } else {
-      if (set_allele_freqs[ii] == 0.0) {
-        wtarr[ii * 8] = 0;
-        wtarr[ii * 8 + 1] = 0;
-        wtarr[ii * 8 + 2] = -1;
-        wtarr[ii * 8 + 3] = -2;
-        wtarr[ii * 8 + 4] = INFINITY;
-        wtarr[ii * 8 + 5] = INFINITY;
-        wtarr[ii * 8 + 6] = INFINITY;
+      if (set_allele_freqs[uii] == 0.0) {
+        wtarr[uii * 8] = 0;
+        wtarr[uii * 8 + 1] = 0;
+        wtarr[uii * 8 + 2] = -1;
+        wtarr[uii * 8 + 3] = -2;
+        wtarr[uii * 8 + 4] = INFINITY;
+        wtarr[uii * 8 + 5] = INFINITY;
+        wtarr[uii * 8 + 6] = INFINITY;
       } else {
-        wtarr[ii * 8] = INFINITY;
-        wtarr[ii * 8 + 1] = 0;
-        wtarr[ii * 8 + 2] = INFINITY;
-        wtarr[ii * 8 + 3] = -2;
-        wtarr[ii * 8 + 4] = INFINITY;
-        wtarr[ii * 8 + 5] = -1;
-        wtarr[ii * 8 + 6] = 0;
+        wtarr[uii * 8] = INFINITY;
+        wtarr[uii * 8 + 1] = 0;
+        wtarr[uii * 8 + 2] = INFINITY;
+        wtarr[uii * 8 + 3] = -2;
+        wtarr[uii * 8 + 4] = INFINITY;
+        wtarr[uii * 8 + 5] = -1;
+        wtarr[uii * 8 + 6] = 0;
       }
     }
-    wtarr[ii * 8 + 7] = 0;
+    wtarr[uii * 8 + 7] = 0;
   }
-  for (nn = 0; nn < BITCT / 16; nn++) {
-    wtptr = &(wtarr[40 * nn]);
+  for (unn = 0; unn < BITCT / 16; unn++) {
+    wtptr = &(wtarr[40 * unn]);
 #ifdef __LP64__
     vfinal1 = _mm_load_pd(wtptr);
     vfinal2 = _mm_load_pd(&(wtptr[2]));
     vfinal3 = _mm_load_pd(&(wtptr[4]));
     vfinal4 = _mm_load_pd(&(wtptr[6]));
 #endif
-    for (ii = 0; ii < 8; ii++) {
-      twt = wtptr[ii + 32];
-      for (jj = 0; jj < 8; jj++) {
-        twt2 = twt + wtptr[jj + 24];
-        for (kk = 0; kk < 8; kk++) {
-          twt3 = twt2 + wtptr[kk + 16];
-          for (mm = 0; mm < 8; mm++) {
-            twt4 = twt3 + wtptr[mm + 8];
+    for (uii = 0; uii < 8; uii++) {
+      twt = wtptr[uii + 32];
+      for (ujj = 0; ujj < 8; ujj++) {
+        twt2 = twt + wtptr[ujj + 24];
+        for (ukk = 0; ukk < 8; ukk++) {
+          twt3 = twt2 + wtptr[ukk + 16];
+          for (umm = 0; umm < 8; umm++) {
+            twt4 = twt3 + wtptr[umm + 8];
 #ifdef __LP64__
             vpen = _mm_set1_pd(twt4);
             *wpairs++ = _mm_add_pd(vpen, vfinal1);
@@ -609,8 +609,8 @@ void fill_weights_r(double* weights, double* set_allele_freqs, uint32_t var_std)
             *wpairs++ = _mm_add_pd(vpen, vfinal3);
             *wpairs++ = _mm_add_pd(vpen, vfinal4);
 #else
-            for (oo = 0; oo < 8; oo++) {
-              *weights++ = twt4 + wtptr[oo];
+            for (uoo = 0; uoo < 8; uoo++) {
+              *weights++ = twt4 + wtptr[uoo];
             }
 #endif
           }
@@ -621,11 +621,11 @@ void fill_weights_r(double* weights, double* set_allele_freqs, uint32_t var_std)
 }
 
 void fill_weights_r_f(float* weights_f, float* set_allele_freqs_f, uint32_t var_std) {
-  int32_t ii;
-  int32_t jj;
-  int32_t kk;
-  int32_t mm;
-  int32_t nn;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+  uint32_t umm;
+  uint32_t unn;
   // 20 markers to process in quintuplets, for 64-bit; 10, for 32-bit.
   // Each quintuplet of markers requires 40 wtarr entries, and induces
   // 2^15 writes to weights_f[].
@@ -647,90 +647,90 @@ void fill_weights_r_f(float* weights_f, float* set_allele_freqs_f, uint32_t var_
   __m128 vfinal1;
   __m128 vfinal2;
 #else
-  int32_t oo;
+  uint32_t uoo;
 #endif
-  ii = (((uintptr_t)wtarr) & 15);
-  if (ii) {
+  uii = (((uintptr_t)wtarr) & 15);
+  if (uii) {
     // force 16-byte alignment; can't do this at compile-time since stack
     // pointer has no 16-byte align guarantee.
     // yes, this assumes floats are 4 bytes.
-    wtarr = &(wtarr[4 - (ii / 4)]);
+    wtarr = &(wtarr[4 - (uii / 4)]);
   }
-  for (ii = 0; ii < MULTIPLEX_REL / 3; ii += 1) {
-    if (((set_allele_freqs_f[ii] != 0.0) && (set_allele_freqs_f[ii] < (1.0 - EPSILON))) || (!var_std)) {
-      if (set_allele_freqs_f[ii] < 0.5) {
-	mean = 2 * set_allele_freqs_f[ii];
+  for (uii = 0; uii < MULTIPLEX_REL / 3; uii += 1) {
+    if (((set_allele_freqs_f[uii] != 0.0) && (set_allele_freqs_f[uii] < (1.0 - EPSILON))) || (!var_std)) {
+      if (set_allele_freqs_f[uii] < 0.5) {
+	mean = 2 * set_allele_freqs_f[uii];
 	mean_m1 = mean - 1.0;
 	mean_m2 = mean - 2.0;
         if (var_std) {
-	  mult = 1 / (mean * (1.0 - set_allele_freqs_f[ii]));
+	  mult = 1 / (mean * (1.0 - set_allele_freqs_f[uii]));
         }
         aux = mean * mult;
-	wtarr[ii * 8] = mean * aux;
-        wtarr[ii * 8 + 1] = 0;
-	wtarr[ii * 8 + 2] = mean_m1 * aux;
-	wtarr[ii * 8 + 3] = mean_m2 * aux;
-	wtarr[ii * 8 + 4] = mean_m1 * mean_m1 * mult;
-	wtarr[ii * 8 + 5] = mean_m2 * mean_m1 * mult;
-	wtarr[ii * 8 + 6] = mean_m2 * mean_m2 * mult;
+	wtarr[uii * 8] = mean * aux;
+        wtarr[uii * 8 + 1] = 0;
+	wtarr[uii * 8 + 2] = mean_m1 * aux;
+	wtarr[uii * 8 + 3] = mean_m2 * aux;
+	wtarr[uii * 8 + 4] = mean_m1 * mean_m1 * mult;
+	wtarr[uii * 8 + 5] = mean_m2 * mean_m1 * mult;
+	wtarr[uii * 8 + 6] = mean_m2 * mean_m2 * mult;
       } else {
-	mean = 2 * (1.0 - set_allele_freqs_f[ii]);
+	mean = 2 * (1.0 - set_allele_freqs_f[uii]);
 	mean_m1 = mean - 1.0;
 	mean_m2 = mean - 2.0;
         if (var_std) {
-	  mult = 1 / (mean * set_allele_freqs_f[ii]);
+	  mult = 1 / (mean * set_allele_freqs_f[uii]);
         }
         aux = mean_m2 * mult;
-	wtarr[ii * 8] = mean_m2 * aux;
-        wtarr[ii * 8 + 1] = 0;
-	wtarr[ii * 8 + 2] = mean_m1 * aux;
-	wtarr[ii * 8 + 3] = mean * aux;
-	wtarr[ii * 8 + 4] = mean_m1 * mean_m1 * mult;
-	wtarr[ii * 8 + 5] = mean_m1 * mean * mult;
-	wtarr[ii * 8 + 6] = mean * mean * mult;
+	wtarr[uii * 8] = mean_m2 * aux;
+        wtarr[uii * 8 + 1] = 0;
+	wtarr[uii * 8 + 2] = mean_m1 * aux;
+	wtarr[uii * 8 + 3] = mean * aux;
+	wtarr[uii * 8 + 4] = mean_m1 * mean_m1 * mult;
+	wtarr[uii * 8 + 5] = mean_m1 * mean * mult;
+	wtarr[uii * 8 + 6] = mean * mean * mult;
       }
     } else {
-      if (set_allele_freqs_f[ii] == 0.0) {
-        wtarr[ii * 8] = 0;
-        wtarr[ii * 8 + 1] = 0;
-        wtarr[ii * 8 + 2] = -1;
-        wtarr[ii * 8 + 3] = -2;
-        wtarr[ii * 8 + 4] = INFINITY;
-        wtarr[ii * 8 + 5] = INFINITY;
-        wtarr[ii * 8 + 6] = INFINITY;
+      if (set_allele_freqs_f[uii] == 0.0) {
+        wtarr[uii * 8] = 0;
+        wtarr[uii * 8 + 1] = 0;
+        wtarr[uii * 8 + 2] = -1;
+        wtarr[uii * 8 + 3] = -2;
+        wtarr[uii * 8 + 4] = INFINITY;
+        wtarr[uii * 8 + 5] = INFINITY;
+        wtarr[uii * 8 + 6] = INFINITY;
       } else {
-        wtarr[ii * 8] = INFINITY;
-        wtarr[ii * 8 + 1] = 0;
-        wtarr[ii * 8 + 2] = INFINITY;
-        wtarr[ii * 8 + 3] = -2;
-        wtarr[ii * 8 + 4] = INFINITY;
-        wtarr[ii * 8 + 5] = -1;
-        wtarr[ii * 8 + 6] = 0;
+        wtarr[uii * 8] = INFINITY;
+        wtarr[uii * 8 + 1] = 0;
+        wtarr[uii * 8 + 2] = INFINITY;
+        wtarr[uii * 8 + 3] = -2;
+        wtarr[uii * 8 + 4] = INFINITY;
+        wtarr[uii * 8 + 5] = -1;
+        wtarr[uii * 8 + 6] = 0;
       }
     }
-    wtarr[ii * 8 + 7] = 0;
+    wtarr[uii * 8 + 7] = 0;
   }
-  for (nn = 0; nn < BITCT / 16; nn++) {
-    wtptr = &(wtarr[40 * nn]);
+  for (unn = 0; unn < BITCT / 16; unn++) {
+    wtptr = &(wtarr[40 * unn]);
 #ifdef __LP64__
     vfinal1 = _mm_load_ps(wtptr);
     vfinal2 = _mm_load_ps(&(wtptr[4]));
 #endif
-    for (ii = 0; ii < 8; ii++) {
-      twt = wtptr[ii + 32];
-      for (jj = 0; jj < 8; jj++) {
-        twt2 = twt + wtptr[jj + 24];
-        for (kk = 0; kk < 8; kk++) {
-          twt3 = twt2 + wtptr[kk + 16];
-          for (mm = 0; mm < 8; mm++) {
-            twt4 = twt3 + wtptr[mm + 8];
+    for (uii = 0; uii < 8; uii++) {
+      twt = wtptr[uii + 32];
+      for (ujj = 0; ujj < 8; ujj++) {
+        twt2 = twt + wtptr[ujj + 24];
+        for (ukk = 0; ukk < 8; ukk++) {
+          twt3 = twt2 + wtptr[ukk + 16];
+          for (umm = 0; umm < 8; umm++) {
+            twt4 = twt3 + wtptr[umm + 8];
 #ifdef __LP64__
             vpen = _mm_set1_ps(twt4);
             *wquads++ = _mm_add_ps(vpen, vfinal1);
             *wquads++ = _mm_add_ps(vpen, vfinal2);
 #else
-            for (oo = 0; oo < 8; oo++) {
-              *weights_f++ = twt4 + wtptr[oo];
+            for (uoo = 0; uoo < 8; uoo++) {
+              *weights_f++ = twt4 + wtptr[uoo];
             }
 #endif
           }
@@ -944,13 +944,9 @@ static int32_t* g_idists;
 static uintptr_t* g_pheno_nm = NULL;
 static uintptr_t* g_pheno_c = NULL;
 static unsigned char* g_geno = NULL;
-// see incr_dists()
-#if (2048 * BITCT) < 45056
-#error "Insufficient initial size for g_weights[]."
-#endif
-static double g_weights[2048 * BITCT];
-static float* g_weights_f = (float*)g_weights;
-static uint32_t* g_weights_i = (uint32_t*)g_weights;
+static double* g_weights;
+static float* g_weights_f;
+static uint32_t* g_weights_i;
 static double g_reg_tot_xy;
 static double g_reg_tot_x;
 static double g_reg_tot_y;
@@ -1695,6 +1691,7 @@ THREAD_RET_TYPE calc_dist_thread(void* arg) {
 }
 
 void incr_wt_dist_missing(uint32_t* mtw, uint32_t tidx) {
+  uint32_t* weights_i = g_weights_i;
   uintptr_t* glptr;
   uintptr_t ulii;
   uintptr_t uljj;
@@ -1707,7 +1704,7 @@ void incr_wt_dist_missing(uint32_t* mtw, uint32_t tidx) {
       for (ujj = 0; ujj < uii; ujj++) {
 	uljj = (*glptr++) & ulii;
         while (uljj) {
-          mtw[ujj] += g_weights_i[CTZLU(uljj)];
+          mtw[ujj] += weights_i[CTZLU(uljj)];
           uljj &= uljj - 1;
         }
       }
@@ -5687,7 +5684,7 @@ uint32_t calc_rel_grm_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
-int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, uint64_t calculation_type, uint32_t rel_calc_type, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, int32_t ibc_type, double rel_cutoff, double* set_allele_freqs, double** rel_ibc_ptr, Chrom_info* chrom_info_ptr) {
+int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, uint64_t calculation_type, uint32_t rel_calc_type, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, uint32_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, int32_t ibc_type, double rel_cutoff, double* set_allele_freqs, double** rel_ibc_ptr, Chrom_info* chrom_info_ptr) {
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
@@ -5771,7 +5768,8 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   if (wkspace_alloc_uc_checked(&g_geno, g_indiv_ct * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&g_mmasks, g_indiv_ct * sizeof(intptr_t)) ||
       wkspace_alloc_uc_checked(&gptr, MULTIPLEX_REL * unfiltered_indiv_ct4) ||
-      wkspace_alloc_ul_checked(&g_masks, g_indiv_ct * sizeof(intptr_t))) {
+      wkspace_alloc_ul_checked(&g_masks, g_indiv_ct * sizeof(intptr_t)) ||
+      wkspace_alloc_d_checked(&g_weights, 2048 * BITCT * sizeof(double))) {
     goto calc_rel_ret_NOMEM;
   }
 
@@ -5794,7 +5792,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   // each marker to 3 bits and use + instead of XOR to distinguish the
   // cases.
   do {
-    retval = block_load_autosomal(bedfile, bed_offset, marker_exclude, marker_ct, MULTIPLEX_REL, unfiltered_indiv_ct4, chrom_info_ptr, set_allele_freqs, NULL, gptr, &chrom_fo_idx, &marker_uidx, &marker_idx, &cur_markers_loaded, set_allele_freq_buf, NULL, NULL);
+    retval = block_load_autosomal(bedfile, bed_offset, marker_exclude, marker_ct, MULTIPLEX_REL, unfiltered_indiv_ct4, chrom_info_ptr, set_allele_freqs, NULL, gptr, &chrom_fo_idx, &marker_uidx, &marker_idx, &cur_markers_loaded, marker_reverse, set_allele_freq_buf, NULL, NULL);
     if (retval) {
       goto calc_rel_ret_1;
     }
@@ -6252,12 +6250,12 @@ uint32_t calc_rel_f_grm_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
-int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, uint64_t calculation_type, uint32_t rel_calc_type, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, int32_t ibc_type, float rel_cutoff, double* set_allele_freqs, Chrom_info* chrom_info_ptr) {
-  // N.B. ACTA may currently outperform this when compiled with ICC and run on
-  // a heavily multicore 64-bit Linux system.  If ACTA ever gets to the point
+int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, uint64_t calculation_type, uint32_t rel_calc_type, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, uint32_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, int32_t ibc_type, float rel_cutoff, double* set_allele_freqs, Chrom_info* chrom_info_ptr) {
+  // N.B. REACTA may currently outperform this when compiled with ICC and run
+  // on a heavily multicore 64-bit Linux system.  If it ever gets to the point
   // where it wins when compiled with gcc, on both 32- and 64-bit systems with
   // as few as a single core, and on OS X/Windows as well as Linux, then it's
-  // time to replace this with the ACTA implementation.
+  // time to replace this with their implementation.
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
@@ -6335,7 +6333,8 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
   if (wkspace_alloc_uc_checked(&g_geno, g_indiv_ct * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&g_mmasks, g_indiv_ct * sizeof(intptr_t)) ||
       wkspace_alloc_uc_checked(&gptr, MULTIPLEX_REL * unfiltered_indiv_ct4) ||
-      wkspace_alloc_ul_checked(&g_masks, g_indiv_ct * sizeof(intptr_t))) {
+      wkspace_alloc_ul_checked(&g_masks, g_indiv_ct * sizeof(intptr_t)) ||
+      wkspace_alloc_f_checked(&g_weights_f, 2048 * BITCT * sizeof(float))) {
     goto calc_rel_f_ret_NOMEM;
   }
 
@@ -6352,7 +6351,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
   }
 
   do {
-    retval = block_load_autosomal(bedfile, bed_offset, marker_exclude, marker_ct, MULTIPLEX_REL, unfiltered_indiv_ct4, chrom_info_ptr, set_allele_freqs, NULL, gptr, &chrom_fo_idx, &marker_uidx, &marker_idx, &cur_markers_loaded, NULL, set_allele_freq_buf, NULL);
+    retval = block_load_autosomal(bedfile, bed_offset, marker_exclude, marker_ct, MULTIPLEX_REL, unfiltered_indiv_ct4, chrom_info_ptr, set_allele_freqs, NULL, gptr, &chrom_fo_idx, &marker_uidx, &marker_idx, &cur_markers_loaded, marker_reverse, NULL, set_allele_freq_buf, NULL);
     if (retval) {
       goto calc_rel_f_ret_1;
     }
@@ -6752,7 +6751,7 @@ int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintpt
     logprintb();
   }
   while (marker_idx < marker_ct_autosomal) {
-    retval = block_load_autosomal(bedfile, bed_offset, marker_exclude, marker_ct_autosomal, MULTIPLEX_DIST, unfiltered_indiv_ct4, chrom_info_ptr, NULL, NULL, bedbuf, &chrom_fo_idx, &marker_uidx, &marker_idx, &ujj, NULL, NULL, NULL);
+    retval = block_load_autosomal(bedfile, bed_offset, marker_exclude, marker_ct_autosomal, MULTIPLEX_DIST, unfiltered_indiv_ct4, chrom_info_ptr, NULL, NULL, bedbuf, &chrom_fo_idx, &marker_uidx, &marker_idx, &ujj, NULL, NULL, NULL, NULL);
     if (retval) {
       goto calc_ibm_ret_1;
     }
@@ -6919,6 +6918,17 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   if (wkspace_alloc_uc_checked(&bedbuf, multiplex * unfiltered_indiv_ct4)) {
     goto calc_distance_ret_NOMEM;
   }
+  if (!exp0) {
+#ifdef __LP64__
+    if (wkspace_alloc_d_checked(&g_weights, 45056 * sizeof(double))) {
+      goto calc_distance_ret_NOMEM;
+    }
+#else
+    if (wkspace_alloc_d_checked(&g_weights, 32768 * sizeof(double))) {
+      goto calc_distance_ret_NOMEM;
+    }
+#endif
+  }
   fseeko(bedfile, bed_offset, SEEK_SET);
   uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1);
   marker_ct_autosomal = marker_ct - uii;
@@ -6975,7 +6985,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     // See the comments at the beginning of this file for discussion of
     // the zero exponent special case.
 
-    retval = block_load_autosomal(bedfile, bed_offset, marker_exclude, marker_ct_autosomal, multiplex, unfiltered_indiv_ct4, chrom_info_ptr, set_allele_freqs, marker_weights_i, bedbuf, &chrom_fo_idx, &marker_uidx, &marker_idx, &ujj, set_allele_freq_buf, NULL, wt_needed? wtbuf : NULL);
+    retval = block_load_autosomal(bedfile, bed_offset, marker_exclude, marker_ct_autosomal, multiplex, unfiltered_indiv_ct4, chrom_info_ptr, set_allele_freqs, marker_weights_i, bedbuf, &chrom_fo_idx, &marker_uidx, &marker_idx, &ujj, NULL, set_allele_freq_buf, NULL, wt_needed? wtbuf : NULL);
     if (retval) {
       goto calc_distance_ret_1;
     }
