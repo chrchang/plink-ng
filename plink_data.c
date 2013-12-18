@@ -2188,7 +2188,7 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
     }
     while (fgets(tbuf, MAXLINELEN, infile) != NULL) {
       if (!tbuf[MAXLINELEN - 1]) {
-	sprintf(logbuf, "Error: Excessively long line in --%s file (max %d chars).\n", include_or_exclude_flag_str(flags), MAXLINELEN - 3);
+	sprintf(logbuf, "Error: Excessively long line in --%s file (max %u chars).\n", include_or_exclude_flag_str(flags), MAXLINELEN - 3);
 	goto include_or_exclude_ret_INVALID_FORMAT;
       }
       bufptr0 = skip_initial_spaces(tbuf);
@@ -2239,7 +2239,7 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
   } else {
     while (fgets(tbuf, MAXLINELEN, infile) != NULL) {
       if (!tbuf[MAXLINELEN - 1]) {
-	sprintf(logbuf, "Error: Excessively long line in --%s file (max %d chars).\n", flags? "exclude" : "extract", MAXLINELEN - 3);
+	sprintf(logbuf, "Error: Excessively long line in --%s file (max %u chars).\n", flags? "exclude" : "extract", MAXLINELEN - 3);
 	goto include_or_exclude_ret_INVALID_FORMAT;
       }
       bufptr0 = skip_initial_spaces(tbuf);
@@ -8814,7 +8814,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     if (memcmp(tbuf, "BCF\4", 4)) {
       sprintf(logbuf, "Error: %s is not a BCF2 file.\n", bcfname);
     } else {
-      sprintf(logbuf, "Error: %s is a BCF1 file; --bcf only supports BCF2.\nUse 'bcftools view' to convert to a readable VCF.\n", bcfname);
+      sprintf(logbuf, "Error: %s appears to be a BCF1 file; --bcf only supports BCF2.\nUse 'bcftools view' to convert to a readable VCF.\n", bcfname);
     }
     goto bcf_to_bed_ret_INVALID_FORMAT_2;
   }

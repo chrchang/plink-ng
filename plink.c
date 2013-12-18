@@ -3771,6 +3771,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
         CLEAR_BIT(marker_reverse, marker_uidx);
       }
     } else {
+      colid_ptr[slen] = '\0';
       sprintf(logbuf, "Warning: Impossible A%c allele assignment for variant %s.\n", is_a2? '2' : '1', colid_ptr);
       logprintb();
     }
@@ -4642,7 +4643,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
   if (g_thread_ct > 1) {
     if ((calculation_type & (CALC_RELATIONSHIP | CALC_REL_CUTOFF | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_LD)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_PERM | GLM_MPERM))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname))) || ((calculation_type & CALC_EPI) && (epi_ip->modifier & EPI_FAST))) {
-      sprintf(logbuf, "Using %d threads (change this with --threads).\n", g_thread_ct);
+      sprintf(logbuf, "Using %u threads (change this with --threads).\n", g_thread_ct);
       logprintb();
     } else {
       logprint("Using 1 thread (no multithreaded calculations invoked).\n");
@@ -12939,11 +12940,20 @@ int32_t main(int32_t argc, char** argv) {
       } else if (model_modifier & MODEL_FISHER) {
 	sprintf(logbuf, "Error: --assoc/--model set-test cannot be used with Fisher's exact test.%s", errstr_append);
         goto main_ret_INVALID_CMDLINE_3;
+      } else if ((mtest_adjust & ADJUST_GC) || (adjust_lambda != 0.0)) {
+        sprintf(logbuf, "Error: --adjust 'gc' modifier and --lambda do not make sense with\n--assoc/--model set-test.%s", errstr_append);
+        goto main_ret_INVALID_CMDLINE_3;
       }
+      logprint("Error: --assoc/--model set-test is currently under development.\n");
+      retval = RET_CALC_NOT_YET_SUPPORTED;
+      goto main_ret_1;
     }
     if (glm_modifier & GLM_SET_TEST) {
       if ((!(glm_modifier & GLM_PERM)) && (!glm_mperm_val)) {
         sprintf(logbuf, "Error: --linear/--logistic set-test requires permutation.%s", errstr_append);
+        goto main_ret_INVALID_CMDLINE_3;
+      } else if ((mtest_adjust & ADJUST_GC) || (adjust_lambda != 0.0)) {
+        sprintf(logbuf, "Error: --adjust 'gc' modifier and --lambda do not make sense with\n--linear/--logistic set-test.%s", errstr_append);
         goto main_ret_INVALID_CMDLINE_3;
       }
       logprint("Error: --linear/--logistic set-test is currently under development.\n");

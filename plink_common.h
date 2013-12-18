@@ -16,7 +16,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define PROG_NAME_STR "plink"
 #define PROG_NAME_CAPS "PLINK"
@@ -581,7 +581,7 @@ extern const char cmdline_format_str[];
 extern const char errstr_phenotype_format[];
 
 extern FILE* logfile;
-extern char logbuf[MAXLINELEN];
+extern char logbuf[];
 extern int32_t debug_on;
 extern int32_t log_failed;
 

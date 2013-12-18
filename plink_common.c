@@ -19,7 +19,7 @@ const char* g_output_missing_geno_ptr = &(g_one_char_strs[96]);
 sfmt_t sfmt;
 
 FILE* logfile = NULL;
-char logbuf[MAXLINELEN]; // safe sprintf buffer, if one is needed
+char logbuf[MAXLINELEN * 2]; // safe sprintf buffer, if one is needed
 int32_t debug_on = 0;
 int32_t log_failed = 0;
 uintptr_t g_indiv_ct;
