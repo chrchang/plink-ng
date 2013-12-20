@@ -1057,8 +1057,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       }
     }
   } else {
-    // 8. If --set, load sets and allocate on stack (todo: check if range
-    //    representation is more compact)
+    // 8. If --set, load sets and allocate on stack
     set_idx = 0;
     in_set = 0;
     curtoklen = 0;

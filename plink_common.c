@@ -2924,6 +2924,19 @@ void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t unfiltered_item_ct, 
   } while (item_idx < item_ct);
 }
 
+void fill_midx_to_idx(uintptr_t* exclude_arr_orig, uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* midx_to_idx) {
+  // assumes item_ct is nonzero
+  uint32_t item_uidx = next_unset_unsafe(exclude_arr_orig, 0);
+  uint32_t item_idx = 0;
+  uint32_t item_midx;
+  for (item_midx = 0; item_idx < item_ct; item_uidx++, item_midx++) {
+    next_unset_unsafe_ck(exclude_arr_orig, &item_uidx);
+    if (!IS_SET(exclude_arr, item_uidx)) {
+      midx_to_idx[item_midx] = item_idx++;
+    }
+  }
+}
+
 void fill_vec_55(uintptr_t* vec, uint32_t ct) {
   uint32_t ctl = 2 * ((ct + (BITCT - 1)) / BITCT);
   uint32_t rem = ct & (BITCT - 1);

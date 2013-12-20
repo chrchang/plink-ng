@@ -38,13 +38,12 @@ typedef struct {
   // often we won't need a bitfield at all; we can check if marker_idx is in a
   // single range or small list of them (assuming we don't query marker_idx
   // values which have been excluded elsewhere).
-  // Finally, set_include_out_of_bounds makes small bitfield inversion work.
 
-  // Points to a 16-byte-aligned array of uint32_ts.  If the first element is
-  // not 0xffffffffU, its contents are
-  //   [0]: number of ranges
+  // setdefs[r] oints to a 16-byte-aligned array of uint32_ts.  If the first
+  // element is not 0xffffffffU, its contents are
+  //   [0]: number of ranges in set #r
   //   [2k+1], [2k+2]: start and end of range k (half-open); sorted
-  // Otherwise, the set is represented as a bitfield starting from [4], and
+  // Otherwise, set #r is represented as a bitfield starting from [4], and
   //   [1]: offset of first bit (always divisible by 128)
   //   [2]: number of bits (divisible by 128 unless very last bit included)
   //   [3]: 1 if all out-of-bounds bits are set, 0 otherwise (other flags may
