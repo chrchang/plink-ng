@@ -3021,6 +3021,9 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
     covar_nm = *covar_nm_ptr;
     covar_d = *covar_d_ptr;
     fill_ulong_zero(covar_nm, indiv_ctl);
+    for (ulii = 0; ulii < covar_ct * indiv_ct; ulii++) {
+      covar_d[ulii] = missing_phenod;
+    }
   }
   if (gxe_mcovar) {
     if (wkspace_alloc_ul_checked(gxe_covar_nm_ptr, indiv_ctl * sizeof(intptr_t)) ||
@@ -3096,13 +3099,13 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
     }
     set_bit(already_seen, ii);
     indiv_idx = id_map[(uint32_t)ii];
+    bufptr = bufptr2;
     if (min_covar_col_ct > 1) {
-      bufptr2 = next_item_mult(bufptr2, min_covar_col_ct - 1);
+      bufptr = next_item_mult(bufptr, min_covar_col_ct - 1);
     }
-    if (no_more_items_kns(bufptr2)) {
+    if (no_more_items_kns(bufptr)) {
       goto load_covars_ret_INVALID_FORMAT_2;
     }
-    bufptr2 = item_endnn(bufptr2);
     if (covar_range_list_ptr) {
       dptr = &(covar_d[indiv_idx * covar_ct]);
     }
