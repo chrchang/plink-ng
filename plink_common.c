@@ -4523,24 +4523,20 @@ static inline uintptr_t popcount_vecs_intersect(__m128i* vptr1, __m128i* vptr2, 
 }
 #endif
 
-uintptr_t popcount_longs(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
-  // Efficiently popcounts lptr[start_idx..(end_idx - 1)].  In the 64-bit case,
-  // lptr[] must be 16-byte aligned.
+uintptr_t popcount_longs(uintptr_t* lptr, uintptr_t word_ct) {
+  // Efficiently popcounts lptr[0..(word_ct - 1)].  In the 64-bit case, lptr[]
+  // must be 16-byte aligned.
+  // The popcount_longs_nzbase() wrapper takes care of starting from a later
+  // index.
   uintptr_t tot = 0;
-  uintptr_t* lptr_end = &(lptr[end_idx]);
+  uintptr_t* lptr_end = &(lptr[word_ct]);
 #ifdef __LP64__
   uintptr_t six_ct;
   __m128i* vptr;
-  if (start_idx == end_idx) {
-    return 0;
-  }
-  if (start_idx & 1) {
-    tot = popcount_long(lptr[start_idx++]);
-  }
-  vptr = (__m128i*)(&(lptr[start_idx]));
-  six_ct = (end_idx - start_idx) / 6;
+  vptr = (__m128i*)lptr;
+  six_ct = word_ct / 6;
   tot += popcount_vecs(vptr, six_ct * 3);
-  lptr = &(lptr[start_idx + six_ct * 6]);
+  lptr = &(lptr[six_ct * 6]);
 #else
   // The humble 16-bit lookup table actually beats
   // http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel
@@ -4552,8 +4548,7 @@ uintptr_t popcount_longs(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx
   uintptr_t loader;
   uintptr_t ulii;
   uintptr_t uljj;
-  lptr = &(lptr[start_idx]);
-  lptr_six_end = &(lptr[6 * ((end_idx - start_idx) / 6)]);
+  lptr_six_end = &(lptr[word_ct - (word_ct % 6)]);
   while (lptr < lptr_six_end) {
     loader = *lptr++;
     ulii = loader - ((loader >> 1) & FIVEMASK);
@@ -4589,31 +4584,24 @@ uintptr_t popcount_longs(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx
   return tot;
 }
 
-uintptr_t popcount2_longs(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
+uintptr_t popcount2_longs(uintptr_t* lptr, uintptr_t word_ct) {
   // treats lptr[] as an array of two-bit instead of one-bit numbers
   uintptr_t tot = 0;
-  uintptr_t* lptr_end = &(lptr[end_idx]);
+  uintptr_t* lptr_end = &(lptr[word_ct]);
 #ifdef __LP64__
   uintptr_t twelve_ct;
   __m128i* vptr;
-  if (start_idx == end_idx) {
-    return 0;
-  }
-  if (start_idx & 1) {
-    tot = popcount2_long(lptr[start_idx++]);
-  }
-  vptr = (__m128i*)(&(lptr[start_idx]));
-  twelve_ct = (end_idx - start_idx) / 12;
+  vptr = (__m128i*)lptr;
+  twelve_ct = word_ct / 12;
   tot += popcount2_vecs(vptr, twelve_ct * 6);
-  lptr = &(lptr[start_idx + twelve_ct * 12]);
+  lptr = &(lptr[twelve_ct * 12]);
 #else
   uintptr_t* lptr_six_end;
   uintptr_t loader1;
   uintptr_t loader2;
   uintptr_t ulii;
   uintptr_t uljj;
-  lptr = &(lptr[start_idx]);
-  lptr_six_end = &(lptr[6 * ((end_idx - start_idx) / 6)]);
+  lptr_six_end = &(lptr[word_ct - (word_ct % 6)]);
   while (lptr < lptr_six_end) {
     loader1 = *lptr++;
     loader2 = *lptr++;
@@ -4655,7 +4643,7 @@ uintptr_t popcount_bit_idx(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_i
     ct = popcount_long(lptr[start_idxl++] >> start_idxlr);
   }
   if (end_idxl > start_idxl) {
-    ct += popcount_longs(lptr, start_idxl, end_idxl);
+    ct += popcount_longs_nzbase(lptr, start_idxl, end_idxl);
   }
   if (end_idxlr) {
     ct += popcount_long(lptr[end_idxl] & ((ONELU << end_idxlr) - ONELU));
@@ -4833,7 +4821,7 @@ uintptr_t jump_forward_unset_unsafe(uintptr_t* bit_arr, uintptr_t cur_pos, uintp
 #else
   while (forward_ct > BITCT) {
     uljj = (forward_ct - 1) / BITCT;
-    ulkk = popcount_longs(bptr, 0, uljj);
+    ulkk = popcount_longs(bptr, uljj);
     bptr = &(bptr[uljj]);
     forward_ct -= uljj * BITCT - ulkk;
   }
@@ -6774,7 +6762,7 @@ uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* mark
       return RET_READ_FAIL;
     }
     if (set_allele_freq_buf) {
-      if (!IS_SET(marker_reverse, marker_uidx)) {
+      if ((!marker_reverse) || (!IS_SET(marker_reverse, marker_uidx))) {
         set_allele_freq_buf[markers_read] = set_allele_freqs[marker_uidx];
       } else {
         set_allele_freq_buf[markers_read] = 1.0 - set_allele_freqs[marker_uidx];

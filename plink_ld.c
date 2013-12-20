@@ -456,7 +456,7 @@ uint32_t ld_process_load(uintptr_t* geno_buf, uintptr_t* mask_buf, uintptr_t* mi
       ssq += popcount2_long(new_geno);
     }
     ssq += popcount2_long(new_geno << (BITCT - 2 * (1 + ((founder_ct - 1) % BITCT2))));
-    missing_ct += founder_ct - (popcount_longs(nonmale_masks, 0, founder_ctl2) / 2);
+    missing_ct += founder_ct - (popcount_longs(nonmale_masks, founder_ctl2) / 2);
     founder_ct *= 2;
   }
   *missing_ct_ptr = missing_ct;
@@ -518,7 +518,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = 2 * ((unfiltered_indiv_ct + (BITCT - 1)) / BITCT);
-  uintptr_t founder_ct = popcount_longs(founder_info, 0, unfiltered_indiv_ctl2 / 2);
+  uintptr_t founder_ct = popcount_longs(founder_info, unfiltered_indiv_ctl2 / 2);
   uint32_t weighted_founder_ct = founder_ct;
   uintptr_t founder_ctl = (founder_ct + BITCT - 1) / BITCT;
 #ifdef __LP64__
@@ -613,7 +613,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
     goto ld_prune_ret_NOMEM;
   }
   if (weighted_x) {
-    nonmale_founder_ct = founder_ct - popcount01_longs(founder_male_include2, 0, founder_ctl);
+    nonmale_founder_ct = founder_ct - popcount01_longs(founder_male_include2, founder_ctl);
     if (founder_ct + nonmale_founder_ct > 0x7fffffff) {
       // no, this shouldn't ever happen, but may as well document that there
       // theoretically is a 32-bit integer range issue here
@@ -1112,7 +1112,7 @@ void ld_process_load2(uintptr_t* geno_buf, uintptr_t* mask_buf, uint32_t* missin
   if (founder_ct % BITCT2) {
     mask_buf[founder_ct / BITCT2] &= (ONELU << (2 * (founder_ct % BITCT2))) - ONELU;
   }
-  *missing_ct_ptr = founder_ct - (popcount_longs(mask_buf, 0, (founder_ct + (BITCT - 1)) / BITCT2) / 2);
+  *missing_ct_ptr = founder_ct - (popcount_longs(mask_buf, (founder_ct + (BITCT - 1)) / BITCT2) / 2);
 }
 
 uint32_t ld_missing_ct_intersect(uintptr_t* lptr1, uintptr_t* lptr2, uintptr_t word12_ct, uintptr_t word12_rem, uintptr_t lshift_last) {
@@ -3058,14 +3058,14 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
     nm_case_fixed = is_set_ul(zmiss1, block_idx1 * 2);
     nm_ctrl_fixed = is_set_ul(zmiss1, block_idx1 * 2 + 1);
     nm_fixed = nm_case_fixed & nm_ctrl_fixed;
-    tot1[0] = popcount_longs(cur_geno1, 0, case_ctv3);
-    tot1[1] = popcount_longs(&(cur_geno1[case_ctv3]), 0, case_ctv3);
-    tot1[2] = popcount_longs(&(cur_geno1[2 * case_ctv3]), 0, case_ctv3);
+    tot1[0] = popcount_longs(cur_geno1, case_ctv3);
+    tot1[1] = popcount_longs(&(cur_geno1[case_ctv3]), case_ctv3);
+    tot1[2] = popcount_longs(&(cur_geno1[2 * case_ctv3]), case_ctv3);
     if (!is_case_only) {
       cur_geno1_ctrls = &(cur_geno1[case_ctsplit]);
-      tot1[3] = popcount_longs(cur_geno1_ctrls, 0, ctrl_ctv3);
-      tot1[4] = popcount_longs(&(cur_geno1_ctrls[ctrl_ctv3]), 0, ctrl_ctv3);
-      tot1[5] = popcount_longs(&(cur_geno1_ctrls[2 * ctrl_ctv3]), 0, ctrl_ctv3);
+      tot1[3] = popcount_longs(cur_geno1_ctrls, ctrl_ctv3);
+      tot1[4] = popcount_longs(&(cur_geno1_ctrls[ctrl_ctv3]), ctrl_ctv3);
+      tot1[5] = popcount_longs(&(cur_geno1_ctrls[2 * ctrl_ctv3]), ctrl_ctv3);
       if (is_boost) {
 	if (nm_fixed) {
 	  cur_boost_precalc2 = &(boost_precalc2[block_idx2 * 6]);
@@ -3285,9 +3285,9 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
     }
     nm_fixed = is_set_ul(zmiss1, block_idx1);
     cur_geno1 = &(geno1[block_idx1 * founder_ctsplit]);
-    tot1[0] = popcount_longs(cur_geno1, 0, founder_ctv3);
-    tot1[1] = popcount_longs(&(cur_geno1[founder_ctv3]), 0, founder_ctv3);
-    tot1[2] = popcount_longs(&(cur_geno1[2 * founder_ctv3]), 0, founder_ctv3);
+    tot1[0] = popcount_longs(cur_geno1, founder_ctv3);
+    tot1[1] = popcount_longs(&(cur_geno1[founder_ctv3]), founder_ctv3);
+    tot1[2] = popcount_longs(&(cur_geno1[2 * founder_ctv3]), founder_ctv3);
     cur_geno2 = &(geno2[block_idx2 * founder_ctsplit]);
     rptr = &(results[2 * block_idx1 * marker_idx2_maxw]);
     for (; block_idx2 < cur_block_idx2_end; block_idx2++, cur_geno2 = &(cur_geno2[founder_ctsplit])) {
@@ -3700,9 +3700,9 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 	ulptr = &(g_ld_geno2[block_idx2 * founder_ctsplit]);
 	load_and_split3(NULL, loadbuf2, unfiltered_indiv_ct, ulptr, dummy_nm, dummy_nm, founder_ctv3, 0, 0, 1, &ulii);
 	uiptr = &(g_epi_tot2[block_idx2 * 3]);
-	uiptr[0] = popcount_longs(ulptr, 0, founder_ctv3);
-	uiptr[1] = popcount_longs(&(ulptr[founder_ctv3]), 0, founder_ctv3);
-        uiptr[2] = popcount_longs(&(ulptr[2 * founder_ctv3]), 0, founder_ctv3);
+	uiptr[0] = popcount_longs(ulptr, founder_ctv3);
+	uiptr[1] = popcount_longs(&(ulptr[founder_ctv3]), founder_ctv3);
+        uiptr[2] = popcount_longs(&(ulptr[2 * founder_ctv3]), founder_ctv3);
 	if (ulii) {
 	  SET_BIT(g_epi_zmiss2, block_idx2);
 	}
@@ -3905,7 +3905,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
       } else {
         retval = string_range_list_to_bitfield2(sorted_ids, id_map, marker_ct, max_marker_id_len, &(ldip->snps_rl), "ld-snps", marker_exclude_idx1);
         bitfield_or(marker_exclude_idx1, marker_exclude, unfiltered_marker_ctl);
-        marker_ct1 = marker_ct - popcount_longs(marker_exclude_idx1, 0, unfiltered_marker_ctl);
+        marker_ct1 = marker_ct - popcount_longs(marker_exclude_idx1, unfiltered_marker_ctl);
       }
       if (!marker_ct1) {
 	goto ld_report_regular_ret_EMPTY_SET1;
@@ -4296,7 +4296,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, double* set_allele_freqs, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ctv2 = 2 * ((unfiltered_indiv_ct + (BITCT - 1)) / BITCT);
-  uintptr_t founder_ct = popcount_longs(founder_info, 0, unfiltered_indiv_ctv2 / 2);
+  uintptr_t founder_ct = popcount_longs(founder_info, unfiltered_indiv_ctv2 / 2);
   uintptr_t* founder_include2 = NULL;
   uintptr_t* founder_male_include2 = NULL;
   uintptr_t founder_ct_mld = (founder_ct + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
@@ -4697,7 +4697,7 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
   uint32_t base_ct21;
   uint32_t base_ct22;
   if (!outname) {
-    indiv_ct = popcount_longs(indiv_exclude, 0, unfiltered_indiv_ctl2 / 2);
+    indiv_ct = popcount_longs(indiv_exclude, unfiltered_indiv_ctl2 / 2);
     if (!indiv_ct) {
       logprint("Warning: Skipping --ld since there are no founders.  (--make-founders may come\nin handy here.)\n");
       goto twolocus_ret_1;
@@ -5162,7 +5162,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     }
     unpack_set_unfiltered(marker_ct2, unfiltered_marker_ct, marker_exclude, sip->setdefs[0], marker_exclude1);
     if (is_set_by_set && (sip->ct == 1)) {
-      marker_ct2 = unfiltered_marker_ct - popcount_longs(marker_exclude1, 0, unfiltered_marker_ctl);
+      marker_ct2 = unfiltered_marker_ct - popcount_longs(marker_exclude1, unfiltered_marker_ctl);
     } else {
       is_triangular = 0;
     }
@@ -5248,7 +5248,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       marker_uidx++;
     }
   }
-  ulii = unfiltered_marker_ct - popcount_longs(marker_exclude2, 0, unfiltered_marker_ctl);
+  ulii = unfiltered_marker_ct - popcount_longs(marker_exclude2, unfiltered_marker_ctl);
   if ((!ulii) || ((ulii == 1) && is_triangular)) {
     goto epistasis_report_ret_TOO_FEW_MARKERS;
   }
@@ -5269,7 +5269,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     tests_expected = ((((uint64_t)marker_ct1) * (marker_ct1 - 1)) / 2);
   } else {
     bitfield_or(marker_exclude1, marker_exclude2, unfiltered_marker_ctl);
-    marker_ct1 = unfiltered_marker_ct - popcount_longs(marker_exclude1, 0, unfiltered_marker_ctl);
+    marker_ct1 = unfiltered_marker_ct - popcount_longs(marker_exclude1, unfiltered_marker_ctl);
     if (sip->ct == 2) {
       if (wkspace_alloc_ul_checked(&ulptr, unfiltered_marker_ctl * sizeof(intptr_t))) {
 	goto epistasis_report_ret_NOMEM;
@@ -5278,7 +5278,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       unpack_set_unfiltered(marker_ct2, unfiltered_marker_ct, marker_exclude, sip->setdefs[1], marker_exclude2);
       bitfield_or(marker_exclude2, ulptr, unfiltered_marker_ctl);
       wkspace_reset((unsigned char*)ulptr);
-      marker_ct2 = unfiltered_marker_ct - popcount_longs(marker_exclude2, 0, unfiltered_marker_ctl);
+      marker_ct2 = unfiltered_marker_ct - popcount_longs(marker_exclude2, unfiltered_marker_ctl);
     } else {
       marker_ct2 = ulii;
     }
@@ -5713,14 +5713,14 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	    goto epistasis_report_ret_READ_FAIL;
 	  }
 	  uiptr = &(g_epi_tot2[block_idx2 * tot_stride]);
-	  uiptr[0] = popcount_longs(ulptr, 0, case_ctv3);
-	  uiptr[1] = popcount_longs(&(ulptr[case_ctv3]), 0, case_ctv3);
-	  uiptr[2] = popcount_longs(&(ulptr[2 * case_ctv3]), 0, case_ctv3);
+	  uiptr[0] = popcount_longs(ulptr, case_ctv3);
+	  uiptr[1] = popcount_longs(&(ulptr[case_ctv3]), case_ctv3);
+	  uiptr[2] = popcount_longs(&(ulptr[2 * case_ctv3]), case_ctv3);
 	  if (!is_case_only) {
 	    ulptr = &(ulptr[case_ctv3 * 3]);
-	    uiptr[3] = popcount_longs(ulptr, 0, ctrl_ctv3);
-	    uiptr[4] = popcount_longs(&(ulptr[ctrl_ctv3]), 0, ctrl_ctv3);
-	    uiptr[5] = popcount_longs(&(ulptr[2 * ctrl_ctv3]), 0, ctrl_ctv3);
+	    uiptr[3] = popcount_longs(ulptr, ctrl_ctv3);
+	    uiptr[4] = popcount_longs(&(ulptr[ctrl_ctv3]), ctrl_ctv3);
+	    uiptr[5] = popcount_longs(&(ulptr[2 * ctrl_ctv3]), ctrl_ctv3);
 	    if (is_boost) {
 	      boost_calc_p_bc(uiptr[0], uiptr[1], uiptr[2], uiptr[3], uiptr[4], uiptr[5], &(g_epi_boost_precalc2[block_idx2 * 6]));
 	    }

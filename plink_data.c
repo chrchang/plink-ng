@@ -2969,7 +2969,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
       // deallocate --covar-name support
       topsize -= (uintptr_t)(((unsigned char*)already_seen) - ((unsigned char*)covar_name_flag_seen_idxs));
     }
-    covar_ct = popcount_longs(covars_active, 0, covar_raw_ctl);
+    covar_ct = popcount_longs(covars_active, covar_raw_ctl);
   } else if (covar_range_list_ptr) {
     fill_all_bits(covars_active, covar_raw_ct);
     covar_ct = covar_raw_ct;
@@ -8465,9 +8465,9 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	}
 	alt_allele_idx = 1;
 	if (alt_ct > 1) {
-	  ulii = popcount2_longs(&(base_bitfields[indiv_ctv2]), 0, indiv_ctl2);
+	  ulii = popcount2_longs(&(base_bitfields[indiv_ctv2]), indiv_ctl2);
 	  for (alt_idx = 2; alt_idx <= alt_ct; alt_idx++) {
-	    uljj = popcount2_longs(&(base_bitfields[indiv_ctv2 * alt_idx]), 0, indiv_ctl2);
+	    uljj = popcount2_longs(&(base_bitfields[indiv_ctv2 * alt_idx]), indiv_ctl2);
 	    if (uljj > ulii) {
 	      ulii = uljj;
 	      alt_allele_idx = alt_idx;
@@ -9371,9 +9371,9 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     }
     alt_allele_idx = 1;
     if (n_allele > 2) {
-      ulii = popcount2_longs(&(base_bitfields[indiv_ctv2]), 0, indiv_ctl2);
+      ulii = popcount2_longs(&(base_bitfields[indiv_ctv2]), indiv_ctl2);
       for (ulkk = 2; ulkk < n_allele; ulkk++) {
-        uljj = popcount2_longs(&(base_bitfields[indiv_ctv2 * ulkk]), 0, indiv_ctl2);
+        uljj = popcount2_longs(&(base_bitfields[indiv_ctv2 * ulkk]), indiv_ctl2);
         if (!biallelic_only) {
 	  if (uljj <= ulii) {
 	    continue;
@@ -10990,7 +10990,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
 	  *wbptr2 = uljj;
 	}
       }
-      if (popcount_longs(writebuf, 0, indiv_ctl2) < indiv_ct) {
+      if (popcount_longs(writebuf, indiv_ctl2) < indiv_ct) {
 	reverse_loadbuf((unsigned char*)writebuf, indiv_ct);
 	cc = cur_alleles[0];
 	cur_alleles[0] = cur_alleles[1];
@@ -11020,7 +11020,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
 	goto simulate_ret_WRITE_FAIL;
       }
       if (do_haps) {
-	if (popcount_longs(writebuf2, 0, indiv_ctl2) < indiv_ct) {
+	if (popcount_longs(writebuf2, indiv_ctl2) < indiv_ct) {
 	  reverse_loadbuf((unsigned char*)writebuf2, indiv_ct);
 	  cc = cur_alleles[2];
 	  cur_alleles[2] = cur_alleles[3];

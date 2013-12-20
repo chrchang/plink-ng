@@ -18,8 +18,10 @@ static uintptr_t* g_loadbuf;
 static uintptr_t* g_perm_vecs;
 
 static double* g_pheno_d2;
+#ifndef NOLAPACK
 static double g_pheno_sum;
 static double g_pheno_ssq;
+#endif
 
 // permutation-major instead of individual-major order for --linear (PERMORY
 // speedups do not apply)
@@ -2419,7 +2421,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   }
   loadbuf_raw[unfiltered_indiv_ctv2 - 2] = 0;
   loadbuf_raw[unfiltered_indiv_ctv2 - 1] = 0;
-  indiv_valid_ct = popcount_longs(load_mask, 0, unfiltered_indiv_ctl);
+  indiv_valid_ct = popcount_longs(load_mask, unfiltered_indiv_ctl);
   if (condition_mname || condition_fname) {
     // temporary allocation of unfiltered indiv_include2 and
     // indiv_male_include2 for glm_scan_conditions()
@@ -2487,7 +2489,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
 	  np_diploid_raw = genotypic_or_hethom;
 	}
         bitfield_and(load_mask, sex_nm, unfiltered_indiv_ctl);
-        indiv_valid_ct = popcount_longs(load_mask, 0, unfiltered_indiv_ctl);
+        indiv_valid_ct = popcount_longs(load_mask, unfiltered_indiv_ctl);
       } else {
 	np_sex_raw = 1;
 	if (covar_interactions) {
@@ -2565,7 +2567,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       logprint("Error: --parameters must retain at least one dosage-dependent variable.  To\nperform one-off regression(s), use the --linear/--logistic 'no-snp' modifier\ninstead.\n");
       goto glm_assoc_ret_INVALID_CMDLINE;
     }
-    param_ct_max = popcount_longs(active_params, 0, param_raw_ctl);
+    param_ct_max = popcount_longs(active_params, param_raw_ctl);
     if (np_diploid_raw) {
       np_diploid = IS_SET(active_params, 2);
       if (covar_interactions) {
@@ -2752,7 +2754,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
     fill_ulong_zero(g_joint_test_params, param_ctl_max);
     if (tests_range_list_ptr->name_ct) {
       numeric_range_list_to_bitfield(tests_range_list_ptr, param_ct_max - 1, g_joint_test_params, 1, 1);
-      constraint_ct_max = popcount_longs(g_joint_test_params, 0, param_ctl_max);
+      constraint_ct_max = popcount_longs(g_joint_test_params, param_ctl_max);
     } else if (glm_modifier & GLM_TEST_ALL) {
       constraint_ct_max = param_ct_max - 1;
       fill_bits(g_joint_test_params, 0, constraint_ct_max);
@@ -3267,7 +3269,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       goto glm_assoc_ret_NOMEM;
     }
     vec_collapse_init(pheno_c, unfiltered_indiv_ct, load_mask, indiv_valid_ct, pheno_c_collapsed);
-    g_case_ct = popcount_longs(pheno_c_collapsed, 0, indiv_valid_ctv2);
+    g_case_ct = popcount_longs(pheno_c_collapsed, indiv_valid_ctv2);
     if ((!g_case_ct) || (g_case_ct == indiv_valid_ct)) {
       goto glm_assoc_ret_PHENO_CONSTANT;
     }
@@ -3861,7 +3863,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
     g_perms_done += g_perm_vec_ct;
     if (g_perms_done < perms_total) {
       if (perm_adapt || (!perm_pass_idx)) {
-        marker_unstopped_ct = marker_initial_ct - popcount_longs((uintptr_t*)g_perm_adapt_stop, 0, (marker_initial_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
+        marker_unstopped_ct = marker_initial_ct - popcount_longs((uintptr_t*)g_perm_adapt_stop, (marker_initial_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
         if (!marker_unstopped_ct) {
           goto glm_assoc_perm_count;
 	}
@@ -4161,7 +4163,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   if (glm_init_load_mask(indiv_exclude, pheno_nm, covar_nm, indiv_ct, unfiltered_indiv_ctv2, &load_mask)) {
     goto glm_assoc_nosnp_ret_NOMEM;
   }
-  indiv_valid_ct = popcount_longs(load_mask, 0, unfiltered_indiv_ctl);
+  indiv_valid_ct = popcount_longs(load_mask, unfiltered_indiv_ctl);
   if (condition_mname || condition_fname) {
     loadbuf_raw = (uintptr_t*)top_alloc(&topsize, unfiltered_indiv_ctv2 * sizeof(intptr_t));
     if (!loadbuf_raw) {
@@ -4219,7 +4221,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     if (variation_in_sex) {
       param_raw_ct++;
       bitfield_and(load_mask, sex_nm, unfiltered_indiv_ctl);
-      indiv_valid_ct = popcount_longs(load_mask, 0, unfiltered_indiv_ctl);
+      indiv_valid_ct = popcount_longs(load_mask, unfiltered_indiv_ctl);
     } else {
       sprintf(logbuf, "Warning: Ignoring --%s 'sex' modifier since sex is invariant.\n", pheno_d? "linear" : "logistic");
       logprintb();
@@ -4258,7 +4260,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     fill_ulong_zero(active_params, param_raw_ctl);
     active_params[0] = 1;
     numeric_range_list_to_bitfield(parameters_range_list_ptr, param_raw_ct, active_params, 0, 1);
-    param_ct = popcount_longs(active_params, 0, param_raw_ctl);
+    param_ct = popcount_longs(active_params, param_raw_ctl);
   } else {
     fill_all_bits(active_params, param_raw_ct);
     param_ct = param_raw_ct;
@@ -4302,7 +4304,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     fill_ulong_zero(joint_test_params, ulii);
     if (tests_range_list_ptr->name_ct) {
       numeric_range_list_to_bitfield(tests_range_list_ptr, param_ct - 1, joint_test_params, 1, 1);
-      constraint_ct = popcount_longs(joint_test_params, 0, ulii);
+      constraint_ct = popcount_longs(joint_test_params, ulii);
     } else {
       constraint_ct = param_ct - 1;
       fill_bits(joint_test_params, 0, constraint_ct);
@@ -4604,7 +4606,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
       goto glm_assoc_nosnp_ret_NOMEM;
     }
     vec_collapse_init(pheno_c, unfiltered_indiv_ct, load_mask, indiv_valid_ct, g_perm_vecs);
-    g_case_ct = popcount01_longs(g_perm_vecs, 0, indiv_valid_ctv2);
+    g_case_ct = popcount01_longs(g_perm_vecs, indiv_valid_ctv2);
     if ((!g_case_ct) || (g_case_ct == indiv_valid_ct)) {
       goto glm_assoc_nosnp_ret_PHENO_CONSTANT;
     }

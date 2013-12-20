@@ -876,7 +876,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       bitfield_andnot(marker_exclude_new, marker_bitfield_tmp, unfiltered_marker_ctl);
     }
     bitfield_or(marker_exclude, marker_exclude_new, unfiltered_marker_ctl);
-    marker_exclude_ct = popcount_longs(marker_exclude, 0, unfiltered_marker_ctl);
+    marker_exclude_ct = popcount_longs(marker_exclude, unfiltered_marker_ctl);
     if (marker_exclude_ct == unfiltered_marker_ct) {
       goto define_sets_ret_ALL_MARKERS_EXCLUDED;
     }
@@ -1622,7 +1622,7 @@ uint32_t extract_full_union(Set_info* sip, uintptr_t** filtered_union_ptr, uintp
   }
  extract_full_union_exit_early:
   zero_trailing_bits(filtered_union, marker_ct);
-  *union_marker_ct_ptr = popcount_longs(filtered_union, 0, marker_ctl);
+  *union_marker_ct_ptr = popcount_longs(filtered_union, marker_ctl);
   return 0;
 }
 

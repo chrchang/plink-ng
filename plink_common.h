@@ -1686,9 +1686,26 @@ uint32_t is_monomorphic(uintptr_t* lptr, uint32_t indiv_ct);
 
 // uint32_t has_three_genotypes(uintptr_t* lptr, uint32_t indiv_ct);
 
-uintptr_t popcount_longs(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx);
+uintptr_t popcount_longs(uintptr_t* lptr, uintptr_t word_ct);
 
-uintptr_t popcount2_longs(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx);
+#ifdef __LP64__
+static inline uintptr_t popcount_longs_nzbase(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
+  uintptr_t prefix_ct = 0;
+  if (start_idx & 1) {
+    if (end_idx == start_idx) {
+      return 0;
+    }
+    prefix_ct = popcount_long(lptr[start_idx++]);
+  }
+  return prefix_ct + popcount_longs(&(lptr[start_idx]), end_idx - start_idx);
+}
+#else
+static inline uintptr_t popcount_longs_nzbase(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
+  return popcount_longs(&(lptr[start_idx]), end_idx - start_idx);
+}
+#endif
+
+uintptr_t popcount2_longs(uintptr_t* lptr, uintptr_t word_ct);
 
 #define popcount01_longs popcount2_longs
 

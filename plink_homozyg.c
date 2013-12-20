@@ -1503,7 +1503,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
           // (excluded).  (This is tracked by the fresh_meat flag.)  If, and
 	  // only if, that is the case, we are at the beginning of the
 	  // consensus region for a maximal pool.
-	  pool_size = popcount_longs(roh_slot_occupied, 0, max_pool_sizel);
+	  pool_size = popcount_longs(roh_slot_occupied, max_pool_sizel);
 	  if (pool_size >= pool_size_min) {
 	    // pool encoding:
 	    // [0]: pool_list index of next pool of same size (~ZEROLU if none)

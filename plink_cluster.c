@@ -494,7 +494,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
     sprintf(logbuf, "--within: %" PRIuPTR " cluster%s loaded, covering a total of %" PRIuPTR " %s.\n", cluster_ct, (cluster_ct == 1)? "" : "s", assigned_ct, species_str(assigned_ct));
     logprintb();
     if (indiv_exclude_new) {
-      ulii = popcount_longs(indiv_exclude_new, 0, unfiltered_indiv_ctl);
+      ulii = popcount_longs(indiv_exclude_new, unfiltered_indiv_ctl);
       if (ulii != indiv_exclude_ct) {
 	memcpy(indiv_exclude, indiv_exclude_new, unfiltered_indiv_ctl * sizeof(intptr_t));
 	*indiv_exclude_ct_ptr = ulii;

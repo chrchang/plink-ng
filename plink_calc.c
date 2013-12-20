@@ -2620,7 +2620,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
     logprint("Error: --unrelated-heritability requires scalar phenotype.\n");
     goto unrelated_herit_batch_ret_INVALID_CMDLINE;
   }
-  pheno_nm_ct = popcount_longs(pheno_nm, 0, unfiltered_indiv_ctl);
+  pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
   if (pheno_nm_ct < 2) {
     logprint("Error: Less than two phenotypes present.\n");
     goto unrelated_herit_batch_ret_INVALID_FORMAT;
@@ -7924,7 +7924,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     memcpy(mds_plot_dmatrix_copy, cluster_sorted_ibs, initial_triangle_size * sizeof(double));
   }
   if (pheno_c) {
-    case_ct = popcount_longs(pheno_c, 0, unfiltered_indiv_ctl);
+    case_ct = popcount_longs(pheno_c, unfiltered_indiv_ctl);
     ctrl_ct = indiv_ct - case_ct;
     if ((cp->modifier & CLUSTER_CC) || (cp->max_cases < case_ct) || (cp->max_ctrls < ctrl_ct)) {
       if (wkspace_alloc_ul_checked(&collapsed_pheno_c, indiv_ctl * sizeof(intptr_t))) {
@@ -8133,7 +8133,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       if (tcoord >= (umm * (umm + 1)) / 2) {
 	umm++;
       }
-      heap_size -= popcount_longs(cluster_merge_prevented, tcoord / BITCT, (initial_triangle_size + (BITCT - 1)) / BITCT);
+      heap_size -= popcount_longs_nzbase(cluster_merge_prevented, tcoord / BITCT, (initial_triangle_size + (BITCT - 1)) / BITCT);
     }
     if (!heap_size) {
       logprint("Error: No cluster merges possible.\n");

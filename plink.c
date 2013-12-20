@@ -81,7 +81,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (18 Dec 2013)";
+  " (20 Dec 2013)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -1289,7 +1289,7 @@ void filter_indivs_bitfields(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exc
     }
   }
   zero_trailing_bits(indiv_exclude, unfiltered_indiv_ct);
-  *indiv_exclude_ct_ptr = popcount_longs(indiv_exclude, 0, unfiltered_indiv_ctl);
+  *indiv_exclude_ct_ptr = popcount_longs(indiv_exclude, unfiltered_indiv_ctl);
 }
 
 void calc_plink_maxfid(uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uint32_t* plink_maxfid_ptr, uint32_t* plink_maxiid_ptr) {
@@ -2063,7 +2063,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   memcpy(indiv_male_include2, indiv_include2, unfiltered_indiv_ctv2 * sizeof(intptr_t));
   vec_include_mask_in(unfiltered_indiv_ct, indiv_male_include2, sex_nm);
   vec_include_mask_in(unfiltered_indiv_ct, indiv_male_include2, sex_male);
-  indiv_male_ct = popcount01_longs(indiv_male_include2, 0, unfiltered_indiv_ctv2);
+  indiv_male_ct = popcount01_longs(indiv_male_include2, unfiltered_indiv_ctv2);
   if (indiv_male_ct) {
     male_ct_recip = 1.0 / ((double)((int32_t)indiv_male_ct));
   }
@@ -2077,7 +2077,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
       }
       memcpy(indiv_nonmale_include2, indiv_include2, unfiltered_indiv_ctv2 * sizeof(intptr_t));
       vec_include_mask_out_intersect(unfiltered_indiv_ct, indiv_nonmale_include2, sex_nm, sex_male);
-      indiv_nonmale_ct = popcount01_longs(indiv_nonmale_include2, 0, unfiltered_indiv_ctv2);
+      indiv_nonmale_ct = popcount01_longs(indiv_nonmale_include2, unfiltered_indiv_ctv2);
       founder_nonmale_include2 = indiv_nonmale_include2;
       founder_ctrl_nonmale_include2 = indiv_nonmale_include2;
     }
@@ -2101,14 +2101,14 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
       }
       memcpy(founder_male_include2, indiv_male_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t));
       vec_include_mask_in(unfiltered_indiv_ct, founder_male_include2, founder_info);
-      indiv_f_male_ct = popcount01_longs(founder_male_include2, 0, unfiltered_indiv_ctv2);
+      indiv_f_male_ct = popcount01_longs(founder_male_include2, unfiltered_indiv_ctv2);
       if (nonmales_needed) {
 	if (wkspace_alloc_ul_checked(&founder_nonmale_include2, unfiltered_indiv_ctv2 * sizeof(intptr_t))) {
 	  goto calc_freqs_and_hwe_ret_NOMEM;
 	}
 	memcpy(founder_nonmale_include2, indiv_nonmale_include2, unfiltered_indiv_ctv2 * sizeof(intptr_t));
 	vec_include_mask_in(unfiltered_indiv_ct, founder_nonmale_include2, founder_info);
-	indiv_f_nonmale_ct = popcount01_longs(founder_nonmale_include2, 0, unfiltered_indiv_ctv2);
+	indiv_f_nonmale_ct = popcount01_longs(founder_nonmale_include2, unfiltered_indiv_ctv2);
       }
     }
     founder_ctrl_include2 = founder_include2;
@@ -2134,7 +2134,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
     zero_trailing_bits(tmp_indiv_excl_mask2, unfiltered_indiv_ct);
     // tmp_indiv_excl_mask is now set for each indiv who is excluded, or a
     // nonfounder, or is noncontrol.
-    indiv_f_ctrl_ct = unfiltered_indiv_ct - popcount_longs(tmp_indiv_excl_mask2, 0, unfiltered_indiv_ctl);
+    indiv_f_ctrl_ct = unfiltered_indiv_ct - popcount_longs(tmp_indiv_excl_mask2, unfiltered_indiv_ctl);
     exclude_to_vec_include(unfiltered_indiv_ct, founder_ctrl_include2, tmp_indiv_excl_mask2);
     if (nonmales_needed) {
       if (wkspace_alloc_ul_checked(&founder_ctrl_nonmale_include2, unfiltered_indiv_ctv2 * sizeof(intptr_t))) {
@@ -2142,7 +2142,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
       }
       memcpy(founder_ctrl_nonmale_include2, indiv_nonmale_include2, unfiltered_indiv_ctv2 * sizeof(intptr_t));
       vec_include_mask_out(unfiltered_indiv_ct, founder_ctrl_nonmale_include2, tmp_indiv_excl_mask2);
-      indiv_f_ctl_nonmale_ct = popcount01_longs(founder_ctrl_nonmale_include2, 0, unfiltered_indiv_ctv2);
+      indiv_f_ctl_nonmale_ct = popcount01_longs(founder_ctrl_nonmale_include2, unfiltered_indiv_ctv2);
     }
     if (hardy_needed) {
       if (wkspace_alloc_ul_checked(&founder_case_include2, unfiltered_indiv_ctv2 *  sizeof(intptr_t))) {
@@ -2153,7 +2153,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	tmp_indiv_excl_mask[indiv_uidx] |= (~(pheno_nm[indiv_uidx])) | (~pheno_c[indiv_uidx]);
       }
       zero_trailing_bits(tmp_indiv_excl_mask, unfiltered_indiv_ct);
-      indiv_f_case_ct = unfiltered_indiv_ct - popcount_longs(tmp_indiv_excl_mask, 0, unfiltered_indiv_ctl);
+      indiv_f_case_ct = unfiltered_indiv_ct - popcount_longs(tmp_indiv_excl_mask, unfiltered_indiv_ctl);
       exclude_to_vec_include(unfiltered_indiv_ct, founder_case_include2, tmp_indiv_excl_mask);
       if (nonmales_needed) {
 	if (wkspace_alloc_ul_checked(&founder_case_nonmale_include2, unfiltered_indiv_ctv2 * sizeof(intptr_t))) {
@@ -2161,7 +2161,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	}
 	memcpy(founder_case_nonmale_include2, indiv_nonmale_include2, unfiltered_indiv_ctv2 * sizeof(intptr_t));
 	vec_include_mask_out(unfiltered_indiv_ct, founder_case_nonmale_include2, tmp_indiv_excl_mask);
-	indiv_f_ctl_nonmale_ct = popcount01_longs(founder_case_nonmale_include2, 0, unfiltered_indiv_ctv2);
+	indiv_f_ctl_nonmale_ct = popcount01_longs(founder_case_nonmale_include2, unfiltered_indiv_ctv2);
       }
     }
   }
@@ -4478,7 +4478,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   if (misc_flags & MISC_PRUNE) {
     bitfield_ornot(indiv_exclude, pheno_nm, unfiltered_indiv_ctl);
     zero_trailing_bits(indiv_exclude, unfiltered_indiv_ct);
-    indiv_exclude_ct = popcount_longs(indiv_exclude, 0, unfiltered_indiv_ctl);
+    indiv_exclude_ct = popcount_longs(indiv_exclude, unfiltered_indiv_ctl);
   }
 
   if (filter_binary & (FILTER_BINARY_CASES | FILTER_BINARY_CONTROLS)) {
@@ -4612,7 +4612,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     bitfield_and(pheno_c, pheno_nm, unfiltered_indiv_ctl);
   }
   bitfield_andnot(founder_info, indiv_exclude, unfiltered_indiv_ctl);
-  pheno_nm_ct = popcount_longs(pheno_nm, 0, unfiltered_indiv_ctl);
+  pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
   if (!pheno_nm_ct) {
     logprint("Note: No phenotypes present.\n");
     misc_flags |= MISC_HWE_ALL;
@@ -5212,7 +5212,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	if (gender_unk_ct && (!(sex_missing_pheno & ALLOW_NO_SEX))) {
 	  bitfield_and(pheno_nm, sex_nm, unfiltered_indiv_ctl);
 	}
-	pheno_nm_ct = popcount_longs(pheno_nm, 0, unfiltered_indiv_ctl);
+	pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
 	if (!pheno_nm_ct) {
 	  goto plink_skip_empty_pheno;
 	}

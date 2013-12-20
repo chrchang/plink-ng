@@ -714,7 +714,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   if (!covar_ct) {
     indiv_valid_ct = pheno_nm_ct;
   } else {
-    indiv_valid_ct = popcount_longs(covar_nm, 0, (pheno_nm_ct + (BITCT - 1)) / BITCT);
+    indiv_valid_ct = popcount_longs(covar_nm, (pheno_nm_ct + (BITCT - 1)) / BITCT);
   }
   if (indiv_valid_ct < 2) {
     if (pheno_nm_ct < 2) {
@@ -848,7 +848,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   tbuf[MAXLINELEN] = '\t';
   if (select_covars) {
     if (select_covars_bitfield) {
-      marker_idx = covar_ct - popcount_longs(select_covars_bitfield, 0, (covar_ct + (BITCT - 1)) / BITCT);
+      marker_idx = covar_ct - popcount_longs(select_covars_bitfield, (covar_ct + (BITCT - 1)) / BITCT);
     } else {
       marker_idx = 0;
     }

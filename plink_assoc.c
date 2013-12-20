@@ -5660,7 +5660,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       goto model_assoc_ret_NOMEM;
     }
     vec_collapse_init(sex_male, unfiltered_indiv_ct, pheno_nm, pheno_nm_ct, g_indiv_male_include2);
-    male_ct = popcount01_longs(g_indiv_male_include2, 0, pheno_nm_ctl2);
+    male_ct = popcount01_longs(g_indiv_male_include2, pheno_nm_ctl2);
     vec_init_invert(pheno_nm_ct, g_indiv_nonmale_include2, g_indiv_male_include2);
     nonmale_ct = pheno_nm_ct - male_ct;
   }
@@ -5793,7 +5793,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     goto model_assoc_ret_NOMEM;
   }
   vec_collapse_init(pheno_c, unfiltered_indiv_ct, pheno_nm, pheno_nm_ct, indiv_case_include2);
-  g_case_ct = popcount01_longs(indiv_case_include2, 0, pheno_nm_ctl2);
+  g_case_ct = popcount01_longs(indiv_case_include2, pheno_nm_ctl2);
   vec_init_invert(pheno_nm_ct, indiv_ctrl_include2, indiv_case_include2);
   ctrl_ct = pheno_nm_ct - g_case_ct;
   if (gender_req) {
@@ -5807,7 +5807,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     }
     vec_collapse_init(sex_male, unfiltered_indiv_ct, pheno_nm, pheno_nm_ct, indiv_male_case_include2);
     bitfield_and(indiv_male_case_include2, indiv_case_include2, pheno_nm_ctl2);
-    case_male_ct = popcount01_longs(indiv_male_case_include2, 0, pheno_nm_ctl2);
+    case_male_ct = popcount01_longs(indiv_male_case_include2, pheno_nm_ctl2);
     vec_init_andnot(pheno_nm_ctl2, indiv_male_ctrl_include2, g_indiv_male_include2, indiv_male_case_include2);
     vec_init_andnot(pheno_nm_ctl2, indiv_nonmale_case_include2, indiv_case_include2, indiv_male_case_include2);
     vec_init_andnot(pheno_nm_ctl2, indiv_nonmale_ctrl_include2, indiv_ctrl_include2, indiv_male_ctrl_include2);
@@ -6912,7 +6912,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     wkspace_reset((unsigned char*)g_perm_vecs);
     if (g_perms_done < perms_total) {
       if (model_adapt_nst) {
-	marker_unstopped_ct = marker_ct - popcount_longs((uintptr_t*)g_perm_adapt_stop, 0, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
+	marker_unstopped_ct = marker_ct - popcount_longs((uintptr_t*)g_perm_adapt_stop, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
 	if (!marker_unstopped_ct) {
 	  goto model_assoc_adapt_perm_count;
 	}
@@ -7961,7 +7961,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     wkspace_reset((unsigned char*)g_perm_vecstd);
     if (g_perms_done < perms_total) {
       if (perm_adapt) {
-	marker_unstopped_ct = marker_ct - popcount_longs((uintptr_t*)g_perm_adapt_stop, 0, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
+	marker_unstopped_ct = marker_ct - popcount_longs((uintptr_t*)g_perm_adapt_stop, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
 	if (!marker_unstopped_ct) {
 	  goto qassoc_adapt_perm_count;
 	}
@@ -8156,11 +8156,11 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
-  uintptr_t covar_nm_ct = popcount_longs(gxe_covar_nm, 0, indiv_ctl);
+  uintptr_t covar_nm_ct = popcount_longs(gxe_covar_nm, indiv_ctl);
   uintptr_t covar_nm_ctl = (covar_nm_ct + (BITCT - 1)) / BITCT;
   // gxe_covar_c has opposite truth value from ->bcovar in PLINK 1.07 gxe.cpp;
   // see lines 50-58 in gxe.cpp
-  uintptr_t group2_size = popcount_longs(gxe_covar_c, 0, indiv_ctl);
+  uintptr_t group2_size = popcount_longs(gxe_covar_c, indiv_ctl);
   uintptr_t group1_size = covar_nm_ct - group2_size;
   uintptr_t male_ct = 0;
   uintptr_t male_ctl = 0;
