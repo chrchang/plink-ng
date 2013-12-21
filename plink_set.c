@@ -1511,7 +1511,7 @@ void unpack_set_unfiltered(uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, 
   }
 }
 
-uint32_t extract_full_union(Set_info* sip, uintptr_t** filtered_union_ptr, uintptr_t* union_marker_ct_ptr) {
+uint32_t extract_set_union(Set_info* sip, uintptr_t* set_incl, uintptr_t** filtered_union_ptr, uintptr_t* union_marker_ct_ptr) {
   // allocates filtered_union on "stack", caller responsible for handling it
   uintptr_t marker_ct = *union_marker_ct_ptr;
   uintptr_t marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
@@ -1537,6 +1537,9 @@ uint32_t extract_full_union(Set_info* sip, uintptr_t** filtered_union_ptr, uintp
   filtered_union = *filtered_union_ptr;
   fill_ulong_zero(filtered_union, marker_ctl);
   for (set_idx = 0; set_idx < set_ct; set_idx++) {
+    if (set_incl && (!IS_SET(set_incl, set_idx))) {
+      continue;
+    }
     cur_setdef = sip->setdefs[set_idx];
     range_ct = cur_setdef[0];
     if (range_ct == 0xffffffffU) {
@@ -1607,7 +1610,7 @@ uint32_t extract_full_union(Set_info* sip, uintptr_t** filtered_union_ptr, uintp
     }
     while (1) {
       if (unset_startw >= unset_endw) {
-        goto extract_full_union_exit_early;
+        goto extract_set_union_exit_early;
       }
       if (~(filtered_union[unset_startw])) {
 	// guaranteed to terminate
@@ -1619,7 +1622,7 @@ uint32_t extract_full_union(Set_info* sip, uintptr_t** filtered_union_ptr, uintp
       unset_startw++;
     }
   }
- extract_full_union_exit_early:
+ extract_set_union_exit_early:
   zero_trailing_bits(filtered_union, marker_ct);
   *union_marker_ct_ptr = popcount_longs(filtered_union, marker_ctl);
   return 0;
@@ -1637,7 +1640,7 @@ uint32_t extract_full_union_unfiltered(Set_info* sip, uintptr_t unfiltered_marke
   if (wkspace_alloc_ul_checked(&union_marker_exclude, unfiltered_marker_ctl * sizeof(intptr_t))) {
     return 1;
   }
-  if (extract_full_union(sip, &filtered_union, union_marker_ct_ptr)) {
+  if (extract_set_union(sip, NULL, &filtered_union, union_marker_ct_ptr)) {
     return 1;
   }
   if ((*union_marker_ct_ptr) == orig_marker_ct) {
@@ -1648,4 +1651,93 @@ uint32_t extract_full_union_unfiltered(Set_info* sip, uintptr_t unfiltered_marke
     *union_marker_exclude_ptr = union_marker_exclude;
   }
   return 0;
+}
+
+uint32_t setdefs_compress(Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude, uintptr_t marker_ct, uint32_t*** new_setdefs_ptr) {
+  // currently assumes marker_exclude does not exclude anything in the union of
+  // the remaining sets
+  uintptr_t marker_ctlv = ((marker_ct + 127) / 128) * (128 / BITCT);
+  uintptr_t topsize = 0;
+  uint32_t set_uidx = 0;
+  uintptr_t* cur_bitfield;
+  uintptr_t* read_bitfield;
+  uint32_t** new_setdefs;
+  uint32_t* marker_midx_to_idx;
+  uint32_t* cur_setdef;
+  uintptr_t set_idx;
+  uint32_t range_ct;
+  uint32_t range_idx;
+  uint32_t range_offset;
+  uint32_t range_stop;
+  uint32_t range_start;
+  uint32_t range_end;
+  uint32_t include_out_of_bounds;
+  uint32_t marker_midx;
+  new_setdefs = (uint32_t**)wkspace_alloc(set_ct * sizeof(intptr_t));
+  if (!new_setdefs) {
+    return 1;
+  }
+  cur_bitfield = (uintptr_t*)top_alloc(&topsize, marker_ctlv * sizeof(intptr_t));
+  if (!cur_bitfield) {
+    return 1;
+  }
+  marker_midx_to_idx = (uint32_t*)top_alloc(&topsize, marker_ct_orig * sizeof(int32_t));
+  if (!marker_midx_to_idx) {
+    return 1;
+  }
+  fill_midx_to_idx(marker_exclude_orig, marker_exclude, marker_ct, marker_midx_to_idx);
+  wkspace_left -= topsize;
+  for (set_idx = 0; set_idx < set_ct; set_uidx++, set_idx++) {
+    if (set_incl) {
+      next_set_unsafe_ck(set_incl, &set_uidx);
+    }
+    cur_setdef = sip->setdefs[set_uidx];
+    fill_ulong_zero(cur_bitfield, marker_ctlv);
+    range_ct = cur_setdef[0];
+    range_start = marker_ct;
+    range_end = 0;
+    if (range_ct != 0xffffffffU) {
+      if (range_ct) {
+        range_start = marker_midx_to_idx[cur_setdef[1]];
+	for (range_idx = 0; range_idx < range_ct; range_idx++) {
+	  range_offset = *(++cur_setdef);
+	  range_stop = *(++cur_setdef);
+	  fill_bits(cur_bitfield, marker_midx_to_idx[range_offset], range_stop - range_offset);
+	}
+        range_end = marker_midx_to_idx[range_offset] + range_stop - range_offset;
+      }
+    } else {
+      range_offset = cur_setdef[1];
+      range_stop = cur_setdef[2];
+      include_out_of_bounds = cur_setdef[3];
+      read_bitfield = (uintptr_t*)(&(cur_setdef[4]));
+      if (include_out_of_bounds && range_offset) {
+        fill_ulong_one(cur_bitfield, range_offset / BITCT);
+	range_start = 0;
+      }
+      for (marker_midx = 0; marker_midx < range_stop; marker_midx++) {
+        if (IS_SET(read_bitfield, marker_midx)) {
+          set_bit(cur_bitfield, marker_midx_to_idx[marker_midx + range_offset]);
+	}
+      }
+      if (include_out_of_bounds && (range_offset + range_stop < marker_ct_orig)) {
+        fill_bits(cur_bitfield, marker_midx_to_idx[range_offset + range_stop], marker_ct_orig - range_offset - range_stop);
+        range_end = marker_ct;
+      } else {
+        range_end = 1 + last_set_bit(cur_bitfield, (range_offset + range_stop + (BITCT - 1)) / BITCT);
+      }
+      if (range_start) {
+        range_start = marker_midx_to_idx[next_set_unsafe(read_bitfield, 0) + range_offset];
+      }
+    }
+    if (save_set_bitfield(cur_bitfield, marker_ct, range_start, range_end, 0, &(new_setdefs[set_idx]))) {
+      goto setdefs_compress_fail_and_free_top;
+    }
+  }
+  *new_setdefs_ptr = new_setdefs;
+  wkspace_left += topsize;
+  return 0;
+ setdefs_compress_fail_and_free_top:
+  wkspace_left += topsize;
+  return 1;
 }

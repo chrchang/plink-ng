@@ -5321,19 +5321,28 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
 }
 
 int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, uint32_t mtest_adjust, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude_mid, uintptr_t marker_ct_mid, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t aperm_min, uint32_t aperm_max, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uint32_t gender_req, Set_info* sip, uintptr_t* loadbuf_raw) {
-  return 0;
-  /*
+  // return 0;
   // Could reuse more of the code in model_assoc() since there's considerable
   // overlap, but there are enough differences between the regular and set
   // permutation tests that separating this out and doing a fair bit of
   // cut-and-paste is justifiable (especially for the first version of this
   // function).
+
+  // There are three levels of marker subsets here.
+  // 1. marker_exclude_orig refers to all markers which passed QC filters, etc.
+  // 2. marker_exclude_mid refers to all markers contained in at least one set.
+  //    This is a subset of marker_exclude_orig.  (They are identical if
+  //    --gene-all was specified.)  It was used during the single-marker
+  //    association test phase.
+  // 3. Finally, the marker_exclude used for set-based permutation testing
+  //    refers to all markers contained in at least one *significant* set.
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   FILE* outfile = NULL;
   FILE* outfile_msa = NULL;
-  uintptr_t* marker_exclude = marker_ct_mid;
+  uintptr_t* marker_exclude = marker_exclude_mid;
+  uintptr_t* cur_bitfield = NULL;
   double* orig_1mpval = g_orig_1mpval;
   uintptr_t marker_uidx = next_unset_unsafe(marker_exclude_mid, 0);
   uintptr_t marker_ct = marker_ct_mid;
@@ -5343,13 +5352,15 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   double set_p_flip = 1.0 - sip->set_p;
   uint32_t model_assoc = model_modifier & MODEL_ASSOC;
   uint32_t max_sigset_size = 0;
+  int32_t retval = 0;
   uintptr_t* set_incl;
   double* o1mpptr;
   double* o1mp_end;
-  uintptr_t* cur_bitfield;
+  uint32_t** setdefs;
   uint32_t* marker_midx_to_idx;
   uint32_t* marker_idx_to_uidx;
-  uint32_t* setdef;
+  uint32_t* cur_setdef;
+  uintptr_t marker_ctl;
   uintptr_t marker_midx;
   uintptr_t marker_idx;
   uintptr_t set_idx;
@@ -5369,14 +5380,14 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   // determine which sets contain at least one significant marker.  do not
   // attempt to calculate the sum statistic yet: we need the LD map for that.
   for (set_idx = 0; set_idx < raw_set_ct; set_idx++) {
-    setdef = sip->setdefs[set_idx];
-    range_ct = setdef[0];
+    cur_setdef = sip->setdefs[set_idx];
+    range_ct = cur_setdef[0];
     cur_set_size = 0;
     uii = 0; // found a significant marker?
     if (range_ct != 0xffffffffU) {
       for (range_idx = 0; range_idx < range_ct; range_idx++) {
-        marker_midx = *(++setdef);
-        range_stop = *(++setdef);
+        marker_midx = *(++cur_setdef);
+        range_stop = *(++cur_setdef);
         cur_set_size += range_stop - marker_midx;
         if (!uii) {
           o1mpptr = &(orig_1mpval[marker_midx_to_idx[marker_midx]]);
@@ -5390,10 +5401,10 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
 	}
       }
     } else {
-      range_offset = setdef[1];
-      range_stop = setdef[2];
-      include_out_of_bounds = setdef[3];
-      cur_bitfield = (uintptr_t*)(&(setdef[4]));
+      range_offset = cur_setdef[1];
+      range_stop = cur_setdef[2];
+      include_out_of_bounds = cur_setdef[3];
+      cur_bitfield = (uintptr_t*)(&(cur_setdef[4]));
       if (include_out_of_bounds && range_offset) {
         for (marker_midx = 0; marker_midx < range_offset; marker_midx++) {
 	  // all initial markers guaranteed to be in union, no orig_1mpval
@@ -5430,28 +5441,93 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
     }
     if (uii) {
       SET_BIT(set_incl, set_idx);
+      set_ct++;
       if (cur_set_size > max_sigset_size) {
 	max_sigset_size = cur_set_size;
       }
     }
   }
-  if () {
+  if (!set_ct) {
+    // todo: skip everything but the final write
+  }
+  wkspace_reset((unsigned char*)marker_midx_to_idx);
+  if (set_ct < raw_set_ct) {
     if (wkspace_alloc_ul_checked(&marker_exclude, unfiltered_marker_ctl * sizeof(intptr_t))) {
       goto model_assoc_set_test_ret_NOMEM;
     }
-    memcpy(marker_exclude, marker_exclude_mid, unfiltered_marker_ctl * sizeof(intptr_t));
-    for (marker_idx = 0; marker_idx < marker_ct_mid; marker_uidx++, marker_idx++) {
-      next_unset_ul_unsafe_ck(marker_exclude_mid, &marker_uidx);
-      if () {
-	SET_BIT(marker_exclude, marker_uidx);
-	marker_ct--;
-      }
+    marker_ct = marker_ct_orig;
+    if (extract_set_union(sip, set_incl, &cur_bitfield, &marker_ct)) {
+      goto model_assoc_set_test_ret_NOMEM;
     }
-    if (marker_ct == marker_ct_mid) {
+    if (marker_ct < marker_ct_mid) {
+      uncollapse_copy_flip_include_arr(cur_bitfield, unfiltered_marker_ct, marker_exclude_orig, marker_exclude);
+      wkspace_reset((unsigned char*)cur_bitfield);
+    } else {
       wkspace_reset((unsigned char*)marker_exclude);
       marker_exclude = marker_exclude_mid;
     }
   }
+  // Okay, we've pruned all we can, now it's time to suck it up and construct
+  // the potentially huge LD map
+  marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
+  if (wkspace_alloc_ui_checked(&marker_idx_to_uidx, marker_ct * sizeof(int32_t))) {
+    goto model_assoc_set_test_ret_NOMEM;
+  }
+  fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_idx_to_uidx);
+  if (marker_ct < marker_ct_orig) {
+    if (setdefs_compress(sip, set_incl, set_ct, unfiltered_marker_ct, marker_exclude_orig, marker_ct_orig, marker_exclude, marker_ct, &setdefs)) {
+      goto model_assoc_set_test_ret_NOMEM;
+    }
+  } else {
+    setdefs = sip->setdefs;
+  }
+  uii = 0;
+  /*
+  for (set_idx = 0; set_idx < set_ct; uii++, set_idx++) {
+    next_set_unsafe_ck(set_incl, &uii);
+    printf("%s:", &(sip->names[uii * sip->max_name_len]));
+    cur_setdef = setdefs[set_idx];
+    range_ct = cur_setdef[0];
+    if (range_ct != 0xffffffffU) {
+      for (range_idx = 0; range_idx < range_ct; range_idx++) {
+        range_offset = *(++cur_setdef);
+        range_stop = *(++cur_setdef);
+        printf("[%u %u]", range_offset, range_stop);
+        for (marker_idx = range_offset; marker_idx < range_stop; marker_idx++) {
+          printf(" %s", &(marker_ids[marker_idx_to_uidx[marker_idx] * max_marker_id_len]));
+	}
+      }
+    } else {
+      range_offset = cur_setdef[1];
+      range_stop = cur_setdef[2];
+      include_out_of_bounds = cur_setdef[3];
+      cur_bitfield = (uintptr_t*)(&(cur_setdef[4]));
+      if (include_out_of_bounds && range_offset) {
+        for (marker_idx = 0; marker_idx < range_offset; marker_idx++) {
+          printf(" %s", &(marker_ids[marker_idx_to_uidx[marker_idx] * max_marker_id_len]));
+	}
+      }
+      for (marker_idx = 0; marker_idx < range_stop; marker_idx++) {
+        if (IS_SET(cur_bitfield, marker_idx)) {
+          printf(" %s", &(marker_ids[marker_idx_to_uidx[marker_idx + range_offset] * max_marker_id_len]));
+	}
+      }
+      if (include_out_of_bounds) {
+        for (marker_idx = range_offset + range_stop; marker_idx < marker_ct; marker_idx++) {
+          printf(" %s", &(marker_ids[marker_idx_to_uidx[marker_idx + range_offset] * max_marker_id_len]));
+	}
+      }
+    }
+    printf("\n");
+  }
+  */
+  logprint("Error: --assoc/--model set-test is currently under development.\n");
+  retval = RET_CALC_NOT_YET_SUPPORTED;
+  /*
+  if (construct_ld_map(bedfile, bed_offset, )) {
+    goto model_assoc_set_test_ret_1;
+  }
+  */
   while (0) {
   model_assoc_set_test_ret_NOMEM:
     retval = RET_NOMEM;
@@ -5466,9 +5542,9 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
     retval = RET_WRITE_FAIL;
     break;
   }
+ model_assoc_set_test_ret_1:
   wkspace_reset(wkspace_mark);
   return retval;
-  */
 }
 
 void get_model_assoc_precomp_bounds(uint32_t missing_ct, uint32_t is_model, uint32_t* minp, uint32_t* ctp) {

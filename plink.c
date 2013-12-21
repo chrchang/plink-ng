@@ -12944,9 +12944,6 @@ int32_t main(int32_t argc, char** argv) {
         sprintf(logbuf, "Error: --adjust 'gc' modifier and --lambda do not make sense with\n--assoc/--model set-test.%s", errstr_append);
         goto main_ret_INVALID_CMDLINE_3;
       }
-      logprint("Error: --assoc/--model set-test is currently under development.\n");
-      retval = RET_CALC_NOT_YET_SUPPORTED;
-      goto main_ret_1;
     }
     if (glm_modifier & GLM_SET_TEST) {
       if ((!(glm_modifier & GLM_PERM)) && (!glm_mperm_val)) {

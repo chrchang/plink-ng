@@ -3012,17 +3012,18 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
     // not only --gxe
     *covar_ct_ptr = covar_ct;
     *max_covar_name_len_ptr = max_covar_name_len;
+    ulii = covar_ct * indiv_ct;
     if (wkspace_alloc_c_checked(covar_names_ptr, covar_ct * max_covar_name_len) ||
         wkspace_alloc_ul_checked(covar_nm_ptr, indiv_ctl * sizeof(intptr_t)) ||
-        wkspace_alloc_d_checked(covar_d_ptr, covar_ct * indiv_ct * sizeof(double))) {
+        wkspace_alloc_d_checked(covar_d_ptr, ulii * sizeof(double))) {
       goto load_covars_ret_NOMEM2;
     }
     covar_names = *covar_names_ptr;
     covar_nm = *covar_nm_ptr;
     covar_d = *covar_d_ptr;
     fill_ulong_zero(covar_nm, indiv_ctl);
-    for (ulii = 0; ulii < covar_ct * indiv_ct; ulii++) {
-      covar_d[ulii] = missing_phenod;
+    for (covar_idx = 0; covar_idx < ulii; covar_idx++) {
+      covar_d[covar_idx] = missing_phenod;
     }
   }
   if (gxe_mcovar) {
@@ -3179,8 +3180,13 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
   } else {
     logprint("--covar: 1 case/control covariate loaded for --gxe.\n");
   }
+  ulii = indiv_ct - loaded_indiv_ct;
   if (missing_cov_ct) {
-    sprintf(logbuf, "%" PRIuPTR " %s had missing value(s).\n", missing_cov_ct, species_str(missing_cov_ct));
+    sprintf(logbuf, "%" PRIuPTR " %s had missing value(s)%s", missing_cov_ct, species_str(missing_cov_ct), ulii? ", and " : ".\n");
+    logprintb();
+  }
+  if (ulii) {
+    sprintf(logbuf, "%" PRIuPTR " %s was not present.\n", ulii, species_str(ulii));
     logprintb();
   }
 
