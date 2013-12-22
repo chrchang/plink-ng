@@ -469,6 +469,14 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Generate individual- and variant-based missing data reports.  If clusters\n"
 "    are defined, the variant-based report is cluster-stratified.\n\n"
 	       );
+#ifndef STABLE_BUILD
+    help_print("test-mishap", &help_ctrl, 1,
+"  --test-mishap <fisher>\n"
+"    Check for association between missing calls and flanking haplotypes.  By\n"
+"    default, p-values are based on chi-square tests; add the 'fisher' modifier\n"
+"    to apply Fisher's exact test instead.\n\n"
+	       );
+#endif
     help_print("hardy", &help_ctrl, 1,
 "  --hardy\n"
 "    Generate a Hardy-Weinberg exact test p-value report.  (This does NOT\n"
@@ -824,6 +832,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    of thousands) to be effective on complex polygenic traits.\n\n"
 	       );
 #ifndef STABLE_BUILD
+    help_print("test-missing\tperm\tmperm", &help_ctrl, 1,
+"  --test-missing <perm | mperm=[value]>\n"
+"    Check for association between missingness and case/control status.\n\n"
+	       );
 #ifndef NOLAPACK
     help_print("unrelated-heritability", &help_ctrl, 1,
 "  --unrelated-heritability <strict> {tol} {initial covg} {initial covr}\n"
@@ -1434,13 +1446,14 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --mperm-save     : Save best max(T) permutation test statistics.\n"
 "  --mperm-save-all : Save all max(T) permutation test statistics.\n"
 	       );
-    help_print("set-p\tset-r2\tset-max\tset-test", &help_ctrl, 0,
-"  --set-p [p-val]  : Adjust set test significant variant p-value ceiling\n"
-"                     (default 0.05).\n"
-"  --set-r2 [val]   : Adjust set test significant variant pairwise r^2 ceiling\n"
-"                     (default 0.5).\n"
-"  --set-max [ct]   : Adjust set test maximum # of significant variants\n"
-"                     considered per set (default 5).\n"
+    help_print("set-p\tset-r2\tset-max\tset-test\twrite-set-r2", &help_ctrl, 0,
+"  --set-p [p-val]      : Adjust set test significant variant p-value ceiling\n"
+"                         (default 0.05).\n"
+"  --set-r2 {v} <write> : Adjust set test significant variant pairwise r^2\n"
+"                         ceiling (default 0.5).  'write' causes violating pairs\n"
+"                         to be dumped to {output prefix}.ldset.\n"
+"  --set-max [ct]       : Adjust set test maximum # of significant variants\n"
+"                         considered per set (default 5).\n"
 	       );
     help_print("fast-epistasis\tepistasis\tgap\tepi1\tepi2", &help_ctrl, 0,
 "  --gap [kbs]      : Set '--fast-epistasis case-only' min. gap (default 1000).\n"

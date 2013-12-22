@@ -16,7 +16,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define PROG_NAME_STR "plink"
 #define PROG_NAME_CAPS "PLINK"
@@ -195,6 +195,7 @@
 #define MISC_BIALLELIC_ONLY_LIST 0x10000000LLU
 #define MISC_VCF_FILTER 0x20000000LLU
 #define MISC_GPLINK 0x40000000LLU
+#define MISC_MISHAP_FISHER 0x80000000LLU
 
 #define CALC_RELATIONSHIP 1LLU
 #define CALC_IBC 2LLU
@@ -234,6 +235,8 @@
 #define CALC_WRITE_SET 0x400000000LLU
 #define CALC_LD 0x800000000LLU
 #define CALC_EPI 0x1000000000LLU
+#define CALC_TESTMISS 0x2000000000LLU
+#define CALC_TESTMISHAP 0x4000000000LLU
 
 // necessary to patch heterozygous haploids/female Y chromosome genotypes
 // during loading?
@@ -564,6 +567,15 @@
 #define HASHMEM 2097152
 #define HASHMEM_S 2097152
 #endif
+
+typedef struct {
+  uint32_t min;
+  uint32_t max;
+  double alpha;
+  double beta;
+  double init_interval;
+  double interval_slope;
+} Aperm_info;
 
 // fit 4 pathologically long IDs plus a bit extra
 extern char tbuf[];

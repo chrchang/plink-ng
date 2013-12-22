@@ -4576,22 +4576,22 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
   // currently NOT safe to initialize any of the above until line_locs has been
   // copied to tmp_ullp
 
-  if (tmp_fam_col_6) {
-    if (affection) {
-      pheno_c = (uintptr_t*)malloc(unfiltered_indiv_ctl * sizeof(intptr_t));
-      if (!pheno_c) {
-	return RET_NOMEM;
-      }
-      fill_ulong_zero(pheno_c, unfiltered_indiv_ctl);
-      *pheno_c_ptr = pheno_c;
-    } else {
-      pheno_d = (double*)malloc(unfiltered_indiv_ct * sizeof(double));
-      if (!pheno_d) {
-	return RET_NOMEM;
-      }
-      fill_double_zero(pheno_d, unfiltered_indiv_ct);
-      *pheno_d_ptr = pheno_d;
+  // force either pheno_c or pheno_d to be allocated even if there is no
+  // phenotype data
+  if ((!tmp_fam_col_6) || affection) {
+    pheno_c = (uintptr_t*)malloc(unfiltered_indiv_ctl * sizeof(intptr_t));
+    if (!pheno_c) {
+      return RET_NOMEM;
     }
+    fill_ulong_zero(pheno_c, unfiltered_indiv_ctl);
+    *pheno_c_ptr = pheno_c;
+  } else {
+    pheno_d = (double*)malloc(unfiltered_indiv_ct * sizeof(double));
+    if (!pheno_d) {
+      return RET_NOMEM;
+    }
+    fill_double_zero(pheno_d, unfiltered_indiv_ct);
+    *pheno_d_ptr = pheno_d;
   }
   wkspace_mark = wkspace_base;
   if (new_buflen) {
@@ -4841,7 +4841,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   while (*bufptr == ' ') {
     bufptr++;
   }
-  if (memcmp(bufptr, "missing", 7)) {
+  if (!match_upper_nt(bufptr, "MISSING", 7)) {
     goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1; 
   }
   bufptr = &(bufptr[7]);

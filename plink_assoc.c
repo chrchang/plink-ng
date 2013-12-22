@@ -1,7 +1,17 @@
 #include "plink_cluster.h"
+#include "plink_ld.h"
 #include "plink_matrix.h"
 #include "plink_set.h"
 #include "plink_stats.h"
+
+void aperm_init(Aperm_info* apip) {
+  apip->min = 6;
+  apip->max = 1000000;
+  apip->alpha = 0;
+  apip->beta = 0.0001;
+  apip->init_interval = 1;
+  apip->interval_slope = 0.001;
+}
 
 void single_marker_cc_freqs(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* ctrl_include2, uintptr_t* case_include2, uint32_t* ctrl_setp, uint32_t* ctrl_missingp, uint32_t* case_setp, uint32_t* case_missingp) {
   // Counts the number of A2 alleles and missing calls for both cases and
@@ -5320,8 +5330,10 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
   THREAD_RETURN;
 }
 
-int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, uint32_t mtest_adjust, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude_mid, uintptr_t marker_ct_mid, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t aperm_min, uint32_t aperm_max, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uint32_t gender_req, Set_info* sip, uintptr_t* loadbuf_raw) {
-  // return 0;
+int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, char* outname_end2, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, uint32_t mtest_adjust, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude_mid, uintptr_t marker_ct_mid, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, Aperm_info* apip, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uint32_t gender_req, Set_info* sip, uintptr_t* loadbuf_raw) {
+  logprint("Error: --assoc/--model set-test is currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
+  /*
   // Could reuse more of the code in model_assoc() since there's considerable
   // overlap, but there are enough differences between the regular and set
   // permutation tests that separating this out and doing a fair bit of
@@ -5360,6 +5372,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uint32_t* marker_midx_to_idx;
   uint32_t* marker_idx_to_uidx;
   uint32_t* cur_setdef;
+  uint32_t** ld_map;
   uintptr_t marker_ctl;
   uintptr_t marker_midx;
   uintptr_t marker_idx;
@@ -5452,19 +5465,9 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   }
   wkspace_reset((unsigned char*)marker_midx_to_idx);
   if (set_ct < raw_set_ct) {
-    if (wkspace_alloc_ul_checked(&marker_exclude, unfiltered_marker_ctl * sizeof(intptr_t))) {
-      goto model_assoc_set_test_ret_NOMEM;
-    }
     marker_ct = marker_ct_orig;
-    if (extract_set_union(sip, set_incl, &cur_bitfield, &marker_ct)) {
+    if (extract_set_union_unfiltered(sip, set_incl, unfiltered_marker_ct, marker_exclude_orig, &marker_exclude, &marker_ct)) {
       goto model_assoc_set_test_ret_NOMEM;
-    }
-    if (marker_ct < marker_ct_mid) {
-      uncollapse_copy_flip_include_arr(cur_bitfield, unfiltered_marker_ct, marker_exclude_orig, marker_exclude);
-      wkspace_reset((unsigned char*)cur_bitfield);
-    } else {
-      wkspace_reset((unsigned char*)marker_exclude);
-      marker_exclude = marker_exclude_mid;
     }
   }
   // Okay, we've pruned all we can, now it's time to suck it up and construct
@@ -5481,53 +5484,9 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   } else {
     setdefs = sip->setdefs;
   }
-  uii = 0;
-  /*
-  for (set_idx = 0; set_idx < set_ct; uii++, set_idx++) {
-    next_set_unsafe_ck(set_incl, &uii);
-    printf("%s:", &(sip->names[uii * sip->max_name_len]));
-    cur_setdef = setdefs[set_idx];
-    range_ct = cur_setdef[0];
-    if (range_ct != 0xffffffffU) {
-      for (range_idx = 0; range_idx < range_ct; range_idx++) {
-        range_offset = *(++cur_setdef);
-        range_stop = *(++cur_setdef);
-        printf("[%u %u]", range_offset, range_stop);
-        for (marker_idx = range_offset; marker_idx < range_stop; marker_idx++) {
-          printf(" %s", &(marker_ids[marker_idx_to_uidx[marker_idx] * max_marker_id_len]));
-	}
-      }
-    } else {
-      range_offset = cur_setdef[1];
-      range_stop = cur_setdef[2];
-      include_out_of_bounds = cur_setdef[3];
-      cur_bitfield = (uintptr_t*)(&(cur_setdef[4]));
-      if (include_out_of_bounds && range_offset) {
-        for (marker_idx = 0; marker_idx < range_offset; marker_idx++) {
-          printf(" %s", &(marker_ids[marker_idx_to_uidx[marker_idx] * max_marker_id_len]));
-	}
-      }
-      for (marker_idx = 0; marker_idx < range_stop; marker_idx++) {
-        if (IS_SET(cur_bitfield, marker_idx)) {
-          printf(" %s", &(marker_ids[marker_idx_to_uidx[marker_idx + range_offset] * max_marker_id_len]));
-	}
-      }
-      if (include_out_of_bounds) {
-        for (marker_idx = range_offset + range_stop; marker_idx < marker_ct; marker_idx++) {
-          printf(" %s", &(marker_ids[marker_idx_to_uidx[marker_idx + range_offset] * max_marker_id_len]));
-	}
-      }
-    }
-    printf("\n");
-  }
-  */
-  logprint("Error: --assoc/--model set-test is currently under development.\n");
-  retval = RET_CALC_NOT_YET_SUPPORTED;
-  /*
-  if (construct_ld_map(bedfile, bed_offset, )) {
+  if (construct_ld_map(threads, bedfile, bed_offset, marker_exclude, marker_ct, marker_idx_to_uidx, unfiltered_indiv_ct, pheno_nm, pheno_nm_ct, sip, set_incl, set_ct, setdefs, outname, outname_end, marker_ids, max_marker_id_len, &ld_map)) {
     goto model_assoc_set_test_ret_1;
   }
-  */
   while (0) {
   model_assoc_set_test_ret_NOMEM:
     retval = RET_NOMEM;
@@ -5545,6 +5504,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
  model_assoc_set_test_ret_1:
   wkspace_reset(wkspace_mark);
   return retval;
+  */
 }
 
 void get_model_assoc_precomp_bounds(uint32_t missing_ct, uint32_t is_model, uint32_t* minp, uint32_t* ctp) {
@@ -5589,7 +5549,7 @@ void get_model_assoc_precomp_bounds(uint32_t missing_ct, uint32_t is_model, uint
   }
 }
 
-int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_male, Set_info* sip) {
+int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_male, Set_info* sip) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
@@ -5716,12 +5676,12 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   g_model_fisher = model_modifier & MODEL_FISHER;
   g_pheno_nm_ct = pheno_nm_ct;
   g_perms_done = 0;
-  g_aperm_alpha = aperm_alpha;
+  g_aperm_alpha = apip->alpha;
   g_is_model_prec = (model_modifier & MODEL_PREC)? 1 : 0;
   g_is_y = 0;
   g_mperm_save_all = NULL;
   if (is_set_test) {
-    if (extract_full_union_unfiltered(sip, unfiltered_marker_ct, marker_exclude_orig, &marker_exclude, &marker_ct)) {
+    if (extract_set_union_unfiltered(sip, NULL, unfiltered_marker_ct, marker_exclude_orig, &marker_exclude, &marker_ct)) {
       goto model_assoc_ret_NOMEM;
     }
   }
@@ -5753,7 +5713,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   } else {
     mperm_save = 0;
     if (model_adapt_nst) {
-      perms_total = aperm_max;
+      perms_total = apip->max;
     }
   }
   if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
@@ -5837,7 +5797,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     }
   }
   marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
-  g_adaptive_ci_zt = ltqnorm(1 - aperm_beta / (2.0 * marker_ct));
+  g_adaptive_ci_zt = ltqnorm(1 - apip->beta / (2.0 * marker_ct));
   if (wkspace_alloc_ul_checked(&g_loadbuf, MODEL_BLOCKSIZE * pheno_nm_ctl2 * sizeof(intptr_t)) ||
       wkspace_alloc_d_checked(&g_orig_1mpval, marker_ct * sizeof(double)) ||
       wkspace_alloc_ui_checked(&g_missing_cts, marker_ct * sizeof(int32_t))) {
@@ -5981,8 +5941,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	    wkspace_alloc_uc_checked(&g_perm_adapt_stop, marker_ct)) {
 	  goto model_assoc_ret_NOMEM;
 	}
+	ujj = apip->max;
 	for (uii = 0; uii < marker_ct; uii++) {
-	  g_perm_attempt_ct[uii] = aperm_max;
+	  g_perm_attempt_ct[uii] = ujj;
 	}
 	fill_ulong_zero((uintptr_t*)g_perm_adapt_stop, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
       }
@@ -6042,16 +6003,16 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       if (perm_pass_idx) {
 	while (g_first_adapt_check <= g_perms_done) {
 	  // APERM_MAX prevents infinite loop here
-	  g_first_adapt_check += (int32_t)(aperm_init_interval + ((int32_t)g_first_adapt_check) * aperm_interval_slope);
+	  g_first_adapt_check += (int32_t)(apip->init_interval + ((int32_t)g_first_adapt_check) * apip->interval_slope);
 	}
       } else {
-	if (aperm_min < aperm_init_interval) {
-	  g_first_adapt_check = (int32_t)aperm_init_interval;
+	if (apip->min < apip->init_interval) {
+	  g_first_adapt_check = (int32_t)(apip->init_interval);
 	} else {
-	  g_first_adapt_check = aperm_min;
+	  g_first_adapt_check = apip->min;
 	}
-	g_adaptive_intercept = aperm_init_interval;
-	g_adaptive_slope = aperm_interval_slope;
+	g_adaptive_intercept = apip->init_interval;
+	g_adaptive_slope = apip->interval_slope;
       }
       g_perm_vec_ct = wkspace_left / (pheno_nm_ctl2 * sizeof(intptr_t));
     } else {
@@ -7071,7 +7032,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	}
       }
     } else {
-      retval = model_assoc_set_test(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_mperm_val, pfilter, mtest_adjust, unfiltered_marker_ct, marker_exclude_orig, marker_ct_orig, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, aperm_min, aperm_max, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, gender_req, sip, loadbuf_raw);
+      retval = model_assoc_set_test(threads, bedfile, bed_offset, outname, outname_end, outname_end2, model_modifier, model_mperm_val, pfilter, mtest_adjust, unfiltered_marker_ct, marker_exclude_orig, marker_ct_orig, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, apip, pheno_nm_ct, pheno_nm, pheno_c, gender_req, sip, loadbuf_raw);
       if (retval) {
         goto model_assoc_ret_1;
       }
@@ -7315,7 +7276,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   return retval;
 }
 
-int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* sex_male, uint32_t hh_exists, uint32_t perm_batch_size, Set_info* sip) {
+int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* sex_male, uint32_t hh_exists, uint32_t perm_batch_size, Set_info* sip) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctv2 = 2 * ((unfiltered_indiv_ct + BITCT - 1) / BITCT);
@@ -7417,7 +7378,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   }
   memset(spacebuf, 32, 8);
   g_pheno_nm_ct = pheno_nm_ct;
-  g_aperm_alpha = aperm_alpha;
+  g_aperm_alpha = apip->alpha;
   g_perms_done = 0;
   g_mperm_save_all = NULL;
   if (perm_maxt) {
@@ -7449,13 +7410,14 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   } else {
     mperm_save = 0;
     if (perm_adapt) {
-      perms_total = aperm_max;
+      perms_total = apip->max;
       if (wkspace_alloc_ui_checked(&g_perm_attempt_ct, marker_ct * sizeof(int32_t)) ||
 	  wkspace_alloc_uc_checked(&g_perm_adapt_stop, marker_ct)) {
 	goto qassoc_ret_NOMEM;
       }
+      ujj = apip->max;
       for (uii = 0; uii < marker_ct; uii++) {
-	g_perm_attempt_ct[uii] = aperm_max;
+	g_perm_attempt_ct[uii] = ujj;
       }
       fill_ulong_zero((uintptr_t*)g_perm_adapt_stop, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
     }
@@ -7548,7 +7510,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       goto qassoc_ret_NOMEM;
     }
   }
-  g_adaptive_ci_zt = ltqnorm(1 - aperm_beta / (2.0 * marker_ct));
+  g_adaptive_ci_zt = ltqnorm(1 - apip->beta / (2.0 * marker_ct));
   if (wkspace_alloc_ul_checked(&g_loadbuf, MODEL_BLOCKSIZE * pheno_nm_ctv2 * sizeof(intptr_t)) ||
       wkspace_alloc_d_checked(&g_orig_1mpval, marker_ct * sizeof(double)) ||
       wkspace_alloc_ui_checked(&marker_idx_to_uidx, marker_ct * sizeof(int32_t)) ||
@@ -7592,16 +7554,16 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       if (perm_pass_idx) {
 	while (g_first_adapt_check <= g_perms_done) {
 	  // APERM_MAX prevents infinite loop here
-	  g_first_adapt_check += (int32_t)(aperm_init_interval + ((int32_t)g_first_adapt_check) * aperm_interval_slope);
+	  g_first_adapt_check += (int32_t)(apip->init_interval + ((int32_t)g_first_adapt_check) * apip->interval_slope);
 	}
       } else {
-	if (aperm_min < aperm_init_interval) {
-	  g_first_adapt_check = (int32_t)aperm_init_interval;
+	if (apip->min < apip->init_interval) {
+	  g_first_adapt_check = (int32_t)(apip->init_interval);
 	} else {
-	  g_first_adapt_check = aperm_min;
+	  g_first_adapt_check = apip->min;
 	}
-	g_adaptive_intercept = aperm_init_interval;
-	g_adaptive_slope = aperm_interval_slope;
+	g_adaptive_intercept = apip->init_interval;
+	g_adaptive_slope = apip->interval_slope;
       }
     }
     // g_perm_vec_ct memory allocation dependencies:
@@ -8838,12 +8800,55 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
   return retval;
 }
 
-int32_t assoc_cmh() {
+int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t testmiss_modifier, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_male) {
+  logprint("Error: --test-missing is currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
+  /*
+  unsigned char* wkspace_mark = wkspace_base;
+  uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  FILE* outfile = NULL;
+  FILE* outfile_msa = NULL;
+  int32_t retval = 0;
+  uint32_t ctrl_ct;
+  if () {
+  }
+  if ((!g_case_ct) || (!ctrl_ct)) {
+    logprint("Warning: Skipping --test-missing since at least one case and one control is\nrequired.\n");
+    goto testmiss_ret_1;
+  }
+
+  memcpy(outname_end, ".missing", 9);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto testmiss_ret_OPEN_FAIL;
+  }
+  while (0) {
+  testmiss_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  testmiss_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  testmiss_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  testmiss_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+ testmiss_ret_1:
+  wkspace_reset(wkspace_mark);
+  fclose_cond(outfile);
+  fclose_cond(outfile_msa);
+  return retval;
+  */
+}
+
+int32_t cmh_assoc() {
   logprint("Error: --mh and --mh2 are currently under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
 }
 
-int32_t assoc_homog() {
+int32_t homog_assoc() {
   logprint("Error: --homog is currently under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
 }

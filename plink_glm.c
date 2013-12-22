@@ -2238,7 +2238,7 @@ THREAD_RET_TYPE glm_logistic_maxt_thread(void* arg) {
   THREAD_RETURN;
 }
 
-int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, char* condition_mname, char* condition_fname, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_ct, uintptr_t* indiv_exclude, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, uintptr_t covar_ct, char* covar_names, uintptr_t max_covar_name_len, uintptr_t* covar_nm, double* covar_d, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t hh_exists, uint32_t perm_batch_size, Set_info* sip) {
+int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, char* condition_mname, char* condition_fname, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_ct, uintptr_t* indiv_exclude, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, uintptr_t covar_ct, char* covar_names, uintptr_t max_covar_name_len, uintptr_t* covar_nm, double* covar_d, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t hh_exists, uint32_t perm_batch_size, Set_info* sip) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + BITCT - 1) / BITCT;
@@ -3003,6 +3003,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   g_cluster_ct = 0;
   g_pheno_nm_ct = indiv_valid_ct;
   g_perms_done = 0;
+  g_aperm_alpha = apip->alpha;
 
   if (!perm_maxt) {
     mperm_save = 0;
@@ -3030,9 +3031,9 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       // need this for max(T) now since we need to track permutation failures
       fill_uint_zero(g_perm_attempt_ct, marker_initial_ct);
       if (perm_adapt) {
-	perms_total = aperm_max;
+	perms_total = apip->max;
 	if (perms_total < perm_batch_size) {
-	  perm_batch_size = aperm_max;
+	  perm_batch_size = apip->max;
 	}
       } else {
 	perms_total = glm_mperm_val;
@@ -3306,7 +3307,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   fputs("        STAT            P \n", outfile);
   loop_end = marker_initial_ct / 100;
   marker_unstopped_ct = marker_initial_ct;
-  g_adaptive_ci_zt = ltqnorm(1 - aperm_beta / (2.0 * marker_initial_ct));
+  g_adaptive_ci_zt = ltqnorm(1 - apip->beta / (2.0 * marker_initial_ct));
 
   // ----- begin main loop -----
  glm_assoc_more_perms:
@@ -3314,24 +3315,24 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
     if (perm_adapt) {
       if (perm_pass_idx) {
 	while (g_first_adapt_check <= g_perms_done) {
-	  g_first_adapt_check += (int32_t)(aperm_init_interval + ((int32_t)g_first_adapt_check) * aperm_interval_slope);
+	  g_first_adapt_check += (int32_t)(apip->init_interval + ((int32_t)g_first_adapt_check) * apip->interval_slope);
 	}
       } else {
-	if (aperm_min < aperm_init_interval) {
-	  g_first_adapt_check = (int32_t)aperm_init_interval;
+	if (apip->min < apip->init_interval) {
+	  g_first_adapt_check = (int32_t)(apip->init_interval);
 	} else {
-	  g_first_adapt_check = aperm_min;
+	  g_first_adapt_check = apip->min;
 	}
-	g_adaptive_intercept = aperm_init_interval;
-        g_adaptive_slope = aperm_interval_slope;
+	g_adaptive_intercept = apip->init_interval;
+        g_adaptive_slope = apip->interval_slope;
       }
     }
     g_perm_vec_ct = perm_batch_size;
     if (perm_adapt && (g_perms_done < perm_batch_size)) {
       // special case: split first batch to reduce adaptive overshoot
       ulii = perm_batch_size;
-      uljj = (intptr_t)aperm_init_interval;
-      uljj = MAXV(uljj, aperm_min);
+      uljj = (intptr_t)(apip->init_interval);
+      uljj = MAXV(uljj, apip->min);
       uljj *= 2;
       uljj = MAXV(64, uljj);
       while (ulii >= (uljj << perm_pass_idx)) {

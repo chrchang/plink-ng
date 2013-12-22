@@ -6487,3 +6487,70 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
   wkspace_reset(wkspace_mark);
   return retval;
 }
+
+int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_exclude, uintptr_t marker_ct, uint32_t* marker_idx_to_uidx, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, uint32_t** setdefs, char* outname, char* outname_end, char* marker_ids, uintptr_t max_marker_id_len, uint32_t*** ld_map_ptr) {
+  return 0;
+  /*
+  // Takes a bunch of set definitions, and determines which pairs of same-set
+  // markers reach/exceed the --set-r2 threshold, saving them (in setdef
+  // format) to a newly stack-allocated ld_map[].
+  // If --set-r2 write was specified, the map's contents are written to {output
+  // prefix}.ldset.
+  // Note that, when very large set(s) are present, and there's a moderate
+  // amount of "random" long-range LD, the memory requirement may be huge.
+  FILE* outfile = NULL;
+  uintptr_t topsize = 0;
+  uintptr_t max_set_id_len = sip->max_name_len;
+  int32_t retval = 0;
+  char charbuf[8];
+  uint32_t** ld_map;
+  char* sptr;
+  char* wptr_start;
+  uint32_t set_idx;
+  uint32_t set_uidx;
+  uint32_t uii;
+  ld_map = (uint32_t**)wkspace_alloc(marker_ct * sizeof(intptr_t));
+  if (!ld_map) {
+    goto construct_ld_map_ret_NOMEM;
+  }
+  *ld_map_ptr = ld_map;
+  if (max_marker_id_len) {
+    memcpy(charbuf, outname_end, 8);
+    memcpy(outname_end, ".ldset", 7);
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto construct_ld_map_ret_OPEN_FAIL;
+    }
+    memcpy(outname_end, charbuf, 8);
+    set_uidx = 0;
+    for (set_idx = 0; set_idx < set_ct; set_uidx++, set_idx++) {
+      next_set_unsafe(set_incl, &set_uidx);
+      sptr = &(sip->names[set_uidx * max_set_id_len]);
+      uii = strlen(sptr);
+      wptr_start = memcpya(tbuf, sptr, ' ');
+      for () {
+      }
+      
+    }
+    if (fclose_null(&outfile)) {
+      goto construct_ld_map_ret_WRITE_FAIL;
+    }
+  }
+  while (0) {
+  construct_ld_map_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  construct_ld_map_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  construct_ld_map_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  construct_ld_map_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+  fclose_cond(outfile);
+  wkspace_left += topsize;
+  return retval;
+  */
+}
