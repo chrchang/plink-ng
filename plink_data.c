@@ -4841,7 +4841,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   while (*bufptr == ' ') {
     bufptr++;
   }
-  if (!match_upper_nt(bufptr, "MISSING", 7)) {
+  if ((!match_upper_nt(bufptr, "MISSING", 7)) || (bufptr[7] > ' ')) {
     goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1; 
   }
   bufptr = &(bufptr[7]);

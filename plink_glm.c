@@ -3003,9 +3003,10 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   g_cluster_ct = 0;
   g_pheno_nm_ct = indiv_valid_ct;
   g_perms_done = 0;
-  g_aperm_alpha = apip->alpha;
+  g_mperm_save_all = NULL;
 
   if (!perm_maxt) {
+    g_aperm_alpha = apip->alpha;
     mperm_save = 0;
   }
   mperm_save_all = mperm_save & MPERM_DUMP_ALL;

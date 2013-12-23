@@ -1,7 +1,7 @@
+#include "plink_assoc.h"
 #include "plink_cluster.h"
 #include "plink_ld.h"
 #include "plink_matrix.h"
-#include "plink_set.h"
 #include "plink_stats.h"
 
 void aperm_init(Aperm_info* apip) {
@@ -279,14 +279,12 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
   } else if (non_chi) {
     for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
       dxx = 1 - chi[cur_idx];
-      if (dxx < 1) {
-	dyy = inverse_chiprob(dxx, 1);
-	if (dyy >= 0) {
-	  sp[uii] = dxx;
-	  new_order[uii] = marker_uidxs[cur_idx];
-	  schi[uii] = dyy;
-	  uii++;
-	}
+      dyy = inverse_chiprob(dxx, 1);
+      if (dyy >= 0) {
+	sp[uii] = dxx;
+	new_order[uii] = marker_uidxs[cur_idx];
+	schi[uii] = dyy;
+	uii++;
       }
     }
   } else {
@@ -5676,7 +5674,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   g_model_fisher = model_modifier & MODEL_FISHER;
   g_pheno_nm_ct = pheno_nm_ct;
   g_perms_done = 0;
-  g_aperm_alpha = apip->alpha;
   g_is_model_prec = (model_modifier & MODEL_PREC)? 1 : 0;
   g_is_y = 0;
   g_mperm_save_all = NULL;
@@ -5713,6 +5710,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   } else {
     mperm_save = 0;
     if (model_adapt_nst) {
+      g_aperm_alpha = apip->alpha;
       perms_total = apip->max;
     }
   }
@@ -7378,7 +7376,6 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   }
   memset(spacebuf, 32, 8);
   g_pheno_nm_ct = pheno_nm_ct;
-  g_aperm_alpha = apip->alpha;
   g_perms_done = 0;
   g_mperm_save_all = NULL;
   if (perm_maxt) {
@@ -7410,6 +7407,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   } else {
     mperm_save = 0;
     if (perm_adapt) {
+      g_aperm_alpha = apip->alpha;
       perms_total = apip->max;
       if (wkspace_alloc_ui_checked(&g_perm_attempt_ct, marker_ct * sizeof(int32_t)) ||
 	  wkspace_alloc_uc_checked(&g_perm_adapt_stop, marker_ct)) {
@@ -7701,7 +7699,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	goto qassoc_ret_READ_FAIL;
       }
       if (g_is_haploid && hh_exists) {
-	haploid_fix(hh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, g_is_x, g_is_y, (unsigned char*)loadbuf_ptr);
+	haploid_fix(hh_exists, indiv_include2, indiv_male_include2, pheno_nm_ct, g_is_x, g_is_y, (unsigned char*)loadbuf_ptr);
       }
       if (perm_adapt) {
 	g_adapt_m_table[block_size] = marker_idx2++;
@@ -8800,27 +8798,255 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
   return retval;
 }
 
-int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t testmiss_modifier, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_male) {
-  logprint("Error: --test-missing is currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
-  /*
+int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t testmiss_mperm_val, uint32_t testmiss_modifier, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_male, uint32_t hh_exists) {
+  // Simple variant of model_assoc().
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t pheno_nm_ctl = (pheno_nm_ct + (BITCT - 1)) / BITCT;
+  uintptr_t cur_indiv_ctl = pheno_nm_ctl;
+  // uintptr_t pheno_nm_ctv2 = 2 * pheno_nm_ctl;
+  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t marker_uidx = next_unset_unsafe(marker_exclude_orig, 0);
   FILE* outfile = NULL;
   FILE* outfile_msa = NULL;
+  uintptr_t* indiv_hh_include2 = NULL;
+  uintptr_t* indiv_hh_male_include2 = NULL;
+  uintptr_t* pheno_male_nm2 = NULL;
+  uintptr_t* pheno_c_collapsed_male = NULL;
+  char* wptr_start = NULL;
+  uint32_t perm_adapt = testmiss_modifier & TESTMISS_PERM;
+  uint32_t perm_maxt = testmiss_modifier & TESTMISS_MPERM;
+  uint32_t do_perms = testmiss_modifier;
+  uint32_t perms_total = 0;
+  uint32_t chrom_fo_idx = 0xffffffffU;
+  uint32_t is_x = 0;
+  uint32_t is_haploid = 0;
+  uint32_t skip_y = 0;
+  uint32_t cur_pheno_nm_ct = pheno_nm_ct;
+  uint32_t case_ct = popcount_longs(pheno_c, unfiltered_indiv_ctl);
+  uint32_t ctrl_ct = pheno_nm_ct - case_ct;
+  uint32_t male_ct = popcount_longs_intersect(sex_male, pheno_nm, unfiltered_indiv_ctl);
+  uint32_t case_ct_y = popcount_longs_intersect(sex_male, pheno_c, unfiltered_indiv_ctl);
+  uint32_t ctrl_ct_y = male_ct - case_ct_y;
+  uint32_t cur_case_ct = case_ct;
+  uint32_t cur_ctrl_ct = ctrl_ct;
+  uint32_t chrom_end = 0;
+  uintptr_t pheno_male_nm_ctl = (male_ct + (BITCT - 1)) / BITCT;
+  int32_t y_code = chrom_info_ptr->y_code;
   int32_t retval = 0;
-  uint32_t ctrl_ct;
-  if () {
-  }
-  if ((!g_case_ct) || (!ctrl_ct)) {
+  uintptr_t* loadbuf_raw;
+  uintptr_t* pheno_nm2;
+  uintptr_t* cur_pheno_nm2;
+  uintptr_t* pheno_c_collapsed;
+  uintptr_t* cur_pheno_c_collapsed;
+  uintptr_t* missing_bitfield;
+  uintptr_t* marker_exclude;
+  double* dptr;
+  uint32_t* marker_idx_to_uidx;
+  char* outname_end2;
+  char* wptr;
+  uintptr_t marker_ct;
+  uintptr_t marker_idx;
+  double pval;
+  double cur_case_ct_recip;
+  double cur_ctrl_ct_recip;
+  uint32_t missing_ct;
+  uint32_t uii;
+  uint32_t ujj;
+  if ((!case_ct) || (!ctrl_ct)) {
     logprint("Warning: Skipping --test-missing since at least one case and one control is\nrequired.\n");
     goto testmiss_ret_1;
   }
-
-  memcpy(outname_end, ".missing", 9);
+  cur_case_ct_recip = 1.0 / ((double)((int32_t)case_ct));
+  cur_ctrl_ct_recip = 1.0 / ((double)((int32_t)ctrl_ct));
+  // Y chromosome requires special handling--only male genotypes should be
+  // considered.
+  if ((y_code == -1) || (!is_set(chrom_info_ptr->chrom_mask, y_code))) {
+    skip_y = 1;
+  } else if ((!case_ct_y) || (!ctrl_ct_y)) {
+    logprint("Warning: --test-missing is skipping Y chromosome since at least one male case\nand one male control are necessary.\n");
+    skip_y = 1;
+  }
+  if (perm_maxt) {
+    perms_total = testmiss_mperm_val;
+    if (wkspace_alloc_d_checked(&g_maxt_extreme_stat, sizeof(double) * perms_total)) {
+      goto testmiss_ret_NOMEM;
+    }
+    for (uii = 0; uii < perms_total; uii++) {
+      g_maxt_extreme_stat[uii] = 1;
+    }
+    if (mperm_save & MPERM_DUMP_ALL) {
+      memcpy(outname_end, ".mperm.dump.all", 16);
+      if (fopen_checked(&outfile_msa, outname, "w")) {
+        goto testmiss_ret_OPEN_FAIL;
+      }
+      sprintf(logbuf, "Dumping all permutation p-values to %s.\n", outname);
+      logprintb();
+    }
+  } else {
+    mperm_save = 0;
+    if (perm_adapt) {
+      g_aperm_alpha = apip->alpha;
+      perms_total = apip->max;
+    }
+  }
+  // Sites with no (or all) missing calls are now excluded from the permutation
+  // test.  Since it's likely that many such sites exist, we postpone the
+  // associated memory allocations until after the basic .missing report is
+  // generated.
+  if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&pheno_nm2, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&pheno_c_collapsed, pheno_nm_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&missing_bitfield, pheno_nm_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&marker_exclude, unfiltered_marker_ctl * sizeof(intptr_t))) {
+    goto testmiss_ret_NOMEM;
+  }
+  memcpy(marker_exclude, marker_exclude_orig, unfiltered_marker_ctl * sizeof(intptr_t));
+  loadbuf_raw[unfiltered_indiv_ctl2 - 1] = 0;
+  vec_include_init(unfiltered_indiv_ct, pheno_nm2, pheno_nm);
+  cur_pheno_nm2 = pheno_nm2;
+  collapse_copy_bitarr_incl(unfiltered_indiv_ct, pheno_c, pheno_nm, pheno_nm_ct, pheno_c_collapsed);
+  cur_pheno_c_collapsed = pheno_c_collapsed;
+  if (!skip_y) {
+    if (wkspace_alloc_ul_checked(&pheno_male_nm2, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
+        wkspace_alloc_ul_checked(&pheno_c_collapsed_male, pheno_male_nm_ctl * sizeof(intptr_t))) {
+      goto testmiss_ret_NOMEM;
+    }
+    // temporary non-excluded male bitfield
+    memcpy(pheno_male_nm2, pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t));
+    bitfield_and(pheno_male_nm2, sex_male, unfiltered_indiv_ctl);
+    collapse_copy_bitarr_incl(unfiltered_indiv_ct, pheno_c, pheno_male_nm2, male_ct, pheno_c_collapsed_male);
+    memcpy(pheno_male_nm2, pheno_nm2, unfiltered_indiv_ctl2 * sizeof(intptr_t));
+    vec_include_mask_in(unfiltered_indiv_ct, pheno_male_nm2, sex_male);
+  }
+  outname_end2 = memcpyb(outname_end, ".missing", 9);
   if (fopen_checked(&outfile, outname, "w")) {
     goto testmiss_ret_OPEN_FAIL;
   }
+  sprintf(logbuf, "Writing --test-missing report to %s...", outname);
+  logprintb();
+  fflush(stdout);
+  sprintf(tbuf, " CHR %%%us     F_MISS_A     F_MISS_U            P \n", plink_maxsnp);
+  fprintf(outfile, tbuf, "SNP");
+  if (ferror(outfile)) {
+    goto testmiss_ret_WRITE_FAIL;
+  }
+  // technically this part could be even faster with some custom code, but not
+  // worth the additional maintenance
+  if (alloc_raw_haploid_filters(unfiltered_indiv_ct, hh_exists, 1, pheno_nm, sex_male, &indiv_hh_include2, &indiv_hh_male_include2)) {
+    goto testmiss_ret_NOMEM;
+  }
+  if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+    goto testmiss_ret_READ_FAIL;
+  }
+  chrom_end = 0;
+  // must be last allocation
+  if (wkspace_alloc_d_checked(&g_orig_1mpval, marker_ct_orig * sizeof(double))) {
+    goto testmiss_ret_NOMEM;
+  }
+  dptr = g_orig_1mpval;
+  for (marker_idx = 0; marker_idx < marker_ct_orig; marker_uidx++, marker_idx++) {
+    if (IS_SET(marker_exclude_orig, marker_uidx)) {
+      marker_uidx = next_unset_ul_unsafe(marker_exclude_orig, marker_uidx);
+      if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+        goto testmiss_ret_NOMEM;
+      }
+    }
+    if (marker_uidx >= chrom_end) {
+      // exploit overflow
+      chrom_fo_idx++;
+      refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &g_is_y, &is_haploid);
+      if (!skip_y) {
+        if (!g_is_y) {
+          cur_pheno_nm2 = pheno_nm2;
+          cur_pheno_nm_ct = pheno_nm_ct;
+          cur_indiv_ctl = pheno_nm_ctl;
+          cur_case_ct = case_ct;
+          cur_ctrl_ct = ctrl_ct;
+	  cur_pheno_c_collapsed = pheno_c_collapsed;
+	} else {
+          cur_pheno_nm2 = pheno_male_nm2;
+          cur_pheno_nm_ct = male_ct;
+          cur_indiv_ctl = pheno_male_nm_ctl;
+          cur_case_ct = case_ct_y;
+          cur_ctrl_ct = ctrl_ct_y;
+	  cur_pheno_c_collapsed = pheno_c_collapsed_male;
+	}
+        cur_case_ct_recip = 1.0 / ((double)((int32_t)cur_case_ct));
+        cur_ctrl_ct_recip = 1.0 / ((double)((int32_t)cur_ctrl_ct));
+      } else if (g_is_y) {
+        fill_bits(marker_exclude, marker_uidx, chrom_end - marker_uidx);
+	marker_idx += chrom_end - marker_uidx - 1 - popcount_bit_idx(marker_exclude_orig, marker_uidx, chrom_end);
+	marker_uidx = chrom_end - 1;
+	continue;
+      }
+      uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+      wptr_start = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, uii, zero_extra_chroms));
+      *wptr_start++ = ' ';
+    }
+    if (fread(loadbuf_raw, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+      goto testmiss_ret_READ_FAIL;
+    }
+    if (is_haploid && hh_exists) {
+      haploid_fix(hh_exists, indiv_hh_include2, indiv_hh_male_include2, unfiltered_indiv_ct, is_x, g_is_y, (unsigned char*)loadbuf_raw);
+    }
+    extract_collapsed_missing_bitfield(loadbuf_raw, unfiltered_indiv_ct, cur_pheno_nm2, cur_pheno_nm_ct, missing_bitfield);
+    missing_ct = popcount_longs(missing_bitfield, cur_indiv_ctl);
+    if ((!missing_ct) || (missing_ct == cur_pheno_nm_ct)) {
+      SET_BIT(marker_exclude, marker_uidx);
+      continue;
+    }
+    uii = popcount_longs_intersect(missing_bitfield, cur_pheno_c_collapsed, cur_indiv_ctl);
+    ujj = missing_ct - uii;
+    pval = fisher22(uii, ujj, cur_case_ct - uii, cur_ctrl_ct - ujj);
+    *dptr++ = 1 - pval;
+    if (pval > pfilter) {
+      continue;
+    }
+    wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr_start);
+    *wptr++ = ' ';
+    wptr = double_g_writewx4x(wptr, ((int32_t)uii) * cur_case_ct_recip, 12, ' ');
+    wptr = double_g_writewx4x(wptr, ((int32_t)ujj) * cur_ctrl_ct_recip, 12, ' ');
+    wptr = double_g_writewx4x(wptr, pval, 12, '\n');
+    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+      goto testmiss_ret_WRITE_FAIL;
+    }
+  }
+  if (fclose_null(&outfile)) {
+    goto testmiss_ret_WRITE_FAIL;
+  }
+  logprint(" done.\n");
+  marker_ct = (uintptr_t)(dptr - g_orig_1mpval);
+  wkspace_reset((unsigned char*)g_orig_1mpval);
+  g_orig_1mpval = (double*)wkspace_alloc(marker_ct * sizeof(double));
+  if (mtest_adjust) {
+    if (adjust_lambda != 0.0) {
+      logprint("Ignoring 'gc'/--lambda for --test-missing multiple-test correction.\n");
+      mtest_adjust &= ~(ADJUST_GC | ADJUST_LAMBDA);
+    }
+    if (wkspace_alloc_ui_checked(&marker_idx_to_uidx, marker_ct * sizeof(int32_t))) {
+      goto testmiss_ret_NOMEM;
+    }
+    fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_idx_to_uidx);
+    retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, zero_extra_chroms, chrom_info_ptr, g_orig_1mpval, pfilter, mtest_adjust, 0.0, 1, NULL);
+    if (retval) {
+      goto testmiss_ret_1;
+    }
+  }
+  if (do_perms) {
+    if (!marker_ct) {
+      logprint("Skipping --test-missing permutation test since all sites are degenerate.\n");
+    } else {
+      sprintf(logbuf, "Including %" PRIuPTR " site%s in --test-missing permutation test.\n", marker_ct, (marker_ct == 1)? "" : "s");
+      logprintb();
+      logprint("Error: --test-missing permutation tests are currently under development.\n");
+      retval = RET_CALC_NOT_YET_SUPPORTED;
+      goto testmiss_ret_1;
+    }
+  }
+
   while (0) {
   testmiss_ret_NOMEM:
     retval = RET_NOMEM;
@@ -8840,7 +9066,6 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
   fclose_cond(outfile);
   fclose_cond(outfile_msa);
   return retval;
-  */
 }
 
 int32_t cmh_assoc() {

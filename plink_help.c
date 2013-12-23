@@ -471,11 +471,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 #ifndef STABLE_BUILD
     help_print("test-mishap", &help_ctrl, 1,
-"  --test-mishap <fisher>\n"
-"    Check for association between missing calls and flanking haplotypes.  By\n"
-"    default, p-values are based on chi-square tests; add the 'fisher' modifier\n"
-"    to apply Fisher's exact test instead.\n\n"
-	       );
+"  --test-mishap\n"
+"    Check for association between missing calls and flanking haplotypes.\n\n"
+               );
 #endif
     help_print("hardy", &help_ctrl, 1,
 "  --hardy\n"
@@ -831,11 +829,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Note that this method may require a very large sample size (e.g. hundreds\n"
 "    of thousands) to be effective on complex polygenic traits.\n\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("test-missing\tperm\tmperm", &help_ctrl, 1,
 "  --test-missing <perm | mperm=[value]>\n"
 "    Check for association between missingness and case/control status.\n\n"
 	       );
+#ifndef STABLE_BUILD
 #ifndef NOLAPACK
     help_print("unrelated-heritability", &help_ctrl, 1,
 "  --unrelated-heritability <strict> {tol} {initial covg} {initial covr}\n"

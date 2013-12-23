@@ -7058,6 +7058,73 @@ void vec_include_mask_out_intersect(uintptr_t unfiltered_indiv_ct, uintptr_t* in
   } while (--unfiltered_indiv_ctl);
 }
 
+void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_include2, uintptr_t indiv_ct, uintptr_t* missing_bitfield) {
+  uint32_t word_ct = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t indiv_idx;
+  uintptr_t cur_word;
+  uintptr_t cur_mask;
+  uintptr_t cur_write;
+  uint32_t woffset;
+  uint32_t widx;
+  uint32_t uii;
+  if (unfiltered_indiv_ct == indiv_ct) {
+    cur_write = 0;
+    woffset = 0;
+    for (widx = 0; widx < word_ct; widx++) {
+      cur_word = *lptr++;
+      cur_word = cur_word & ((~cur_word) >> 1) & (*indiv_include2++);
+      while (cur_word) {
+        uii = CTZLU(cur_word) / 2;
+        cur_write |= ONELU << (woffset + uii);
+	cur_word &= cur_word - 1;
+      }
+      if (woffset) {
+        *missing_bitfield++ = cur_write;
+        cur_write = 0;
+        woffset = 0;
+      } else {
+	woffset = BITCT2;
+      }
+    }
+    if (woffset) {
+      *missing_bitfield++ = cur_write;
+    }
+  } else {
+    fill_ulong_zero(missing_bitfield, (indiv_ct + (BITCT - 1)) / BITCT);
+    indiv_idx = 0;
+    for (widx = 0; indiv_idx < indiv_ct; widx++, lptr++) {
+      cur_mask = *indiv_include2++;
+      if (cur_mask) {
+        cur_word = *lptr;
+        cur_word = cur_word & ((~cur_word) >> 1) & cur_mask;
+	if (cur_mask == FIVEMASK) {
+          if (cur_word) {
+	    uii = indiv_idx;
+            do {
+              set_bit(missing_bitfield, (CTZLU(cur_word) / 2) + uii);
+              cur_word &= cur_word - 1;
+	    } while (cur_word);
+	  }
+	  indiv_idx += BITCT2;
+	} else {
+	  if (cur_word) {
+	    do {
+	      uii = CTZLU(cur_mask);
+	      if ((cur_word >> uii) & 1) {
+                set_bit_ul(missing_bitfield, indiv_idx);
+	      }
+	      indiv_idx++;
+	      cur_mask &= cur_mask - 1;
+	    } while (cur_mask);
+	  } else {
+            indiv_idx += popcount2_long(cur_mask);
+	  }
+        }
+      }
+    }
+  }
+}
+
 void hh_reset(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t unfiltered_indiv_ct) {
   uintptr_t indiv_bidx = 0;
   unsigned char* loadbuf_end = &(loadbuf[(unfiltered_indiv_ct + 3) / 4]);
@@ -8345,7 +8412,7 @@ void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* 
   uint32_t item_idx = 0;
   uint32_t item_uidx_stop;
   if (!(~include_arr[0])) {
-    item_uidx = next_unset(include_arr, 0, orig_ct & (~(BITCT - 1)));
+    item_uidx = next_unset(include_arr, 0, orig_ct & (~(BITCT - 1))) & (~(BITCT - 1));
     memcpy(output_arr, bit_arr, item_uidx / 8);
     item_idx = item_uidx;
     output_arr = &(output_arr[item_uidx / BITCT]);

@@ -16,7 +16,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define PROG_NAME_STR "plink"
 #define PROG_NAME_CAPS "PLINK"
@@ -195,7 +195,6 @@
 #define MISC_BIALLELIC_ONLY_LIST 0x10000000LLU
 #define MISC_VCF_FILTER 0x20000000LLU
 #define MISC_GPLINK 0x40000000LLU
-#define MISC_MISHAP_FISHER 0x80000000LLU
 
 #define CALC_RELATIONSHIP 1LLU
 #define CALC_IBC 2LLU
@@ -1822,6 +1821,8 @@ void vec_include_mask_in(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, 
 void vec_include_mask_out(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* mask_arr);
 
 void vec_include_mask_out_intersect(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* mask_arr, uintptr_t* mask2_arr);
+
+void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_include2, uintptr_t indiv_ct, uintptr_t* missing_bitfield);
 
 void hh_reset(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t unfiltered_indiv_ct);
 
