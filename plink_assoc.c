@@ -8845,7 +8845,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
   uintptr_t* marker_exclude;
   double* dptr;
   uint32_t* marker_idx_to_uidx;
-  char* outname_end2;
+  // char* outname_end2;
   char* wptr;
   uintptr_t marker_ct;
   uintptr_t marker_idx;
@@ -8921,7 +8921,8 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
     memcpy(pheno_male_nm2, pheno_nm2, unfiltered_indiv_ctl2 * sizeof(intptr_t));
     vec_include_mask_in(unfiltered_indiv_ct, pheno_male_nm2, sex_male);
   }
-  outname_end2 = memcpyb(outname_end, ".missing", 9);
+  memcpy(outname_end, ".missing", 9);
+  // outname_end2 = memcpyb(outname_end, ".missing", 9);
   if (fopen_checked(&outfile, outname, "w")) {
     goto testmiss_ret_OPEN_FAIL;
   }
