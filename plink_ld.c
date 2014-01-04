@@ -80,17 +80,19 @@ static inline void ld_dot_prod_batch(__m128i* vec1, __m128i* vec2, __m128i* mask
   // where N is the number of individuals processed after applying the
   // missingness masks indicated by the subscripts.
   //
-  // Calculation of terms [1]-[4] are  [0] term currently proceeds as follows:
-  // 1. N + \sum_i x_i = popcount2(vec1 & mask2)
-  // The "2" suffix refers to starting with two-bit integers instead of one-bit
-  // integers in our summing process, so we get to skip a few operations.
-  // (Once we can assume the presence of hardware popcount, a slightly
-  // different implementation may be better.)
+  // Computation of terms [1]-[4] is based on the identity
+  //   N_y + \sum_{i: nonmissing from y} x_i = popcount2(vec1 & mask2)
+  // where "popcount2" refers to starting with two-bit integers instead of
+  // one-bit integers in our summing process (this allows us to skip a few
+  // operations).  (Once we can assume the presence of hardware popcount, a
+  // slightly different implementation may be better.)
   //
-  // 2. zcheck := (vec1 | vec2) & 0x5555...
+  // The trickier [0] computation currently proceeds as follows:
+  //
+  // 1. zcheck := (vec1 | vec2) & 0x5555...
   // Detects whether at least one member of the pair has a 0/missing value.
   //
-  // 3. popcount2(((vec1 ^ vec2) & (0xaaaa... - zcheck)) | zcheck)
+  // 2. popcount2(((vec1 ^ vec2) & (0xaaaa... - zcheck)) | zcheck)
   // Subtracting this *from* a bias will give us our desired \sum_i x_iy_i dot
   // product.
   //
@@ -248,26 +250,29 @@ static inline void ld_dot_prod_batch(uintptr_t* vec1, uintptr_t* vec2, uintptr_t
     //
     // This function performs the update
     //   return_vals[0] += (-N) + \sum_i x_iy_i
-    //   return_vals[1] += N_y + \sum_i x_i
-    //   return_vals[2] += N_x + \sum_i y_i
-    //   return_vals[3] += N_y - \sum_i x_i^2
-    //   return_vals[4] += N_x - \sum_i y_i^2
+    //   return_vals[1] += N_y + \sum_{i: nonmissing from y} x_i
+    //   return_vals[2] += N_x + \sum_{i: nonmissing from x} y_i
+    //   return_vals[3] += N_y - \sum_{i: nonmissing from y} x_i^2
+    //   return_vals[4] += N_x - \sum_{i: nonmissing from x} y_i^2
     // where N is the number of individuals processed after applying the
-    // missingness masks indicated by the subscripts.  The [0] calculation
-    // currently proceeds as follows:
+    // missingness masks indicated by the subscripts.
     //
-    // 1. N + \sum_i x_i = popcount_variant(vec1 & mask2)
-    // The "variant" suffix refers to starting with two-bit integers instead of
-    // one-bit integers in our summing process, so we get to skip a few
-    // operations.  (Once all reserachers are using machines with fast hardware
-    // popcount, a slightly different implementation may be better.)
+    // Computation of terms [1]-[4] is based on the identity
+    //   N_y + \sum_{i: nonmissing from y} x_i = popcount2(vec1 & mask2)
+    // where "popcount2" refers to starting with two-bit integers instead of
+    // one-bit integers in our summing process (this allows us to skip a few
+    // operations).  (Once we can assume the presence of hardware popcount, a
+    // slightly different implementation may be better.)
     //
-    // 2. zcheck := (vec1 | vec2) & 0x5555...
+    // The trickier [0] computation currently proceeds as follows:
+    //
+    // 1. zcheck := (vec1 | vec2) & 0x5555...
     // Detects whether at least one member of the pair has a 0/missing value.
     //
-    // 3. popcount_variant(((vec1 ^ vec2) & (0xaaaa... - zcheck)) | zcheck)
+    // 2. popcount2(((vec1 ^ vec2) & (0xaaaa... - zcheck)) | zcheck)
     // Subtracting this *from* a bias will give us our desired \sum_i x_iy_i
     // dot product.
+
 
     loader1 = *vec1++;
     loader2 = *vec2++;

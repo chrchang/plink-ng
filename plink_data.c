@@ -5285,6 +5285,11 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     break;
   oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN:
     logprint("Error: Improperly formatted .gen file.\n");
+    sprintf(logbuf, "Variant number (0-based): %u\n", marker_ct);
+    logprintb();
+    sprintf(logbuf, "Sample number (0-based): %u\n", indiv_idx);
+    logprintb();
+    logstr(loadbuf);
     retval = RET_INVALID_FORMAT;
     break;
   oxford_to_bed_ret_MISSING_TOKENS_GEN:
