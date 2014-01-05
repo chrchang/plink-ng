@@ -6826,9 +6826,9 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   uint32_t exp0 = (exponent == 0.0);
   uint32_t* giptr = NULL;
   uint32_t* giptr2 = NULL;
+  char* writebuf = NULL;
   double set_allele_freq_buf[MULTIPLEX_DIST];
   uint32_t wtbuf[MULTIPLEX_DIST];
-  char wbuf[16];
   char* wptr;
   unsigned char* wkspace_mark;
   unsigned char* bedbuf;
@@ -7145,6 +7145,12 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   }
   putchar('\r');
   logprint("Distance matrix calculation complete.\n");
+  wkspace_reset((unsigned char*)g_masks);
+  if (calculation_type & (CALC_PLINK1_DISTANCE_MATRIX | CALC_PLINK1_IBS_MATRIX)) {
+    if (wkspace_alloc_c_checked(&writebuf, 16 * g_indiv_ct)) {
+      goto calc_distance_ret_NOMEM;
+    }
+  }
   if (calculation_type & CALC_PLINK1_DISTANCE_MATRIX) {
     strcpy(outname_end, ".mdist");
     if (fopen_checked(&outfile, outname, "w")) {
@@ -7157,19 +7163,18 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
       giptr2 = g_indiv_missing_unwt;
       uii = marker_ct_autosomal - giptr2[indiv_idx];
+      wptr = writebuf;
       for (ujj = 0; ujj < indiv_idx; ujj++) {
-	wptr = double_g_writex(wbuf, ((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++))), ' ');
-	fwrite(wbuf, 1, wptr - wbuf, outfile);
+	wptr = double_g_writex(wptr, ((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++))), ' ');
       }
-      putc('0', outfile);
-      putc(' ', outfile);
+      wptr = memcpya(wptr, "0 ", 2);
       giptr2++;
       for (ulii = indiv_idx + 1; ulii < g_indiv_ct; ulii++) {
 	uljj = tri_coord_no_diag(indiv_idx, ulii);
-	wptr = double_g_writex(wbuf, ((double)g_idists[uljj]) / (2 * (uii - (*giptr2++) + g_missing_dbl_excluded[uljj])), ' ');
-	fwrite(wbuf, 1, wptr - wbuf, outfile);
+	wptr = double_g_writex(wptr, ((double)g_idists[uljj]) / (2 * (uii - (*giptr2++) + g_missing_dbl_excluded[uljj])), ' ');
       }
-      if (putc_checked('\n', outfile)) {
+      *wptr++ = '\n';
+      if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
 	goto calc_distance_ret_WRITE_FAIL;
       }
       if (indiv_idx * 100LLU >= ((uint64_t)pct * g_indiv_ct)) {
@@ -7203,19 +7208,18 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
       giptr2 = g_indiv_missing_unwt;
       uii = marker_ct_autosomal - giptr2[indiv_idx];
+      wptr = writebuf;
       for (ujj = 0; ujj < indiv_idx; ujj++) {
-	wptr = double_g_writex(wbuf, 1.0 - (((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++)))), ' ');
-	fwrite(wbuf, 1, wptr - wbuf, outfile);
+	wptr = double_g_writex(wptr, 1.0 - (((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++)))), ' ');
       }
-      putc('1', outfile);
-      putc(' ', outfile);
+      wptr = memcpya(wptr, "1 ", 2);
       giptr2++;
       for (ulii = indiv_idx + 1; ulii < g_indiv_ct; ulii++) {
 	uljj = tri_coord_no_diag(indiv_idx, ulii);
-	wptr = double_g_writex(wbuf, 1.0 - (((double)g_idists[uljj]) / (2 * (uii - (*giptr2++) + g_missing_dbl_excluded[uljj]))), ' ');
-	fwrite(wbuf, 1, wptr - wbuf, outfile);
+	wptr = double_g_writex(wptr, 1.0 - (((double)g_idists[uljj]) / (2 * (uii - (*giptr2++) + g_missing_dbl_excluded[uljj]))), ' ');
       }
-      if (putc_checked('\n', outfile)) {
+      *wptr++ = '\n';
+      if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
 	goto calc_distance_ret_WRITE_FAIL;
       }
       if (indiv_idx * 100 >= (pct * g_indiv_ct)) {

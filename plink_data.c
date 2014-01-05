@@ -5082,7 +5082,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     ii = get_chrom_code(chrom_info_ptr, bufptr);
     if (ii == -1) {
       if (!allow_extra_chroms) {
-	logprint("Error: Unrecognized chromosome code in .gen file.  (Did you forget\n--allow-extra-chroms?).\n");
+	logprint("Error: Unrecognized chromosome code in .gen file.  (Did you forget\n--allow-extra-chr?).\n");
 	goto oxford_to_bed_ret_INVALID_FORMAT;
       }
       retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii);

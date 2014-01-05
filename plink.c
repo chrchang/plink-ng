@@ -1,5 +1,5 @@
 // PLINK 1.90
-// Copyright (C) 2005-2013 Shaun Purcell, Christopher Chang
+// Copyright (C) 2005-2014 Shaun Purcell, Christopher Chang
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -81,7 +81,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (4 Jan 2014)";
+  " (5 Jan 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -90,7 +90,7 @@ const char ver_str2[] =
   "  "
 #endif
   "      https://www.cog-genomics.org/plink2\n"
-  "(C) 2005-2013 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
+  "(C) 2005-2014 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
 const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
 const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n";
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
