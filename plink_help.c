@@ -1138,6 +1138,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --autosome-xy    : Exclude all non-autosomal variants, except those with\n"
 "                     chromosome code XY (pseudo-autosomal region of X).\n"
 	       );
+    help_print("snps-only", &help_ctrl, 0,
+"  --snps-only <no-di> : Exclude sites with multi-character allele codes.\n"
+	       );
     help_print("from\tto\tsnp\twindow\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb\texclude-snp\textract-snp", &help_ctrl, 0,
 "  --from [var ID]  : Use ID(s) to specify a variant range to load.  When used\n"
 "  --to   [var ID]    together, both variants must be on the same chromosome.\n"
