@@ -830,7 +830,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    of thousands) to be effective on complex polygenic traits.\n\n"
 	       );
     help_print("test-missing\tperm\tmperm", &help_ctrl, 1,
-"  --test-missing <perm | mperm=[value]>\n"
+"  --test-missing <perm | mperm=[value]> <perm-count>\n"
 "    Check for association between missingness and case/control status.\n\n"
 	       );
 #ifndef STABLE_BUILD

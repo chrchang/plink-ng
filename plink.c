@@ -10980,6 +10980,7 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "erm-count", 10)) {
 	model_modifier |= MODEL_PERM_COUNT;
 	glm_modifier |= GLM_PERM_COUNT;
+        testmiss_modifier |= TESTMISS_PERM_COUNT;
 	logprint("Note: --perm-count flag deprecated.  Use e.g. '--model perm-count'.\n");
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "2", 2)) {
@@ -12359,17 +12360,17 @@ int32_t main(int32_t argc, char** argv) {
 	}
         calculation_type |= CALC_EPI;
       } else if (!memcmp(argptr2, "est-missing", 12)) {
-        if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if (param_ct) {
-          if (!strcmp(argv[cur_arg + 1], "perm")) {
+	for (uii = 1; uii <= param_ct; uii++) {
+          if (!strcmp(argv[cur_arg + uii], "perm")) {
             if (testmiss_modifier & TESTMISS_MPERM) {
               sprintf(logbuf, "Error: --test-missing 'mperm' and 'perm' cannot be used together.%s", errstr_append);
               goto main_ret_INVALID_CMDLINE_3;
 	    }
             testmiss_modifier |= TESTMISS_PERM;
-	  } else if (!memcmp(argv[cur_arg + 1], "mperm=", 6)) {
+	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
             if (testmiss_modifier & TESTMISS_PERM) {
               sprintf(logbuf, "Error: --test-missing 'mperm' and 'perm' cannot be used together.%s", errstr_append);
               goto main_ret_INVALID_CMDLINE_3;
@@ -12378,18 +12379,20 @@ int32_t main(int32_t argc, char** argv) {
               sprintf(logbuf, "Error: Duplicate --test-missing 'mperm' modifier.%s", errstr_append);
               goto main_ret_INVALID_CMDLINE_3;
 	    }
-            ii = atoi(&(argv[cur_arg + 1][6]));
+            ii = atoi(&(argv[cur_arg + uii][6]));
             if (ii < 1) {
-	      sprintf(logbuf, "Error: Invalid --test-missing mperm parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	      sprintf(logbuf, "Error: Invalid --test-missing mperm parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
               goto main_ret_INVALID_CMDLINE_3;
 	    }
             testmiss_mperm_val = (uint32_t)ii;
             testmiss_modifier |= TESTMISS_MPERM;
-	  } else if (!strcmp(argv[cur_arg + 1], "mperm")) {
+	  } else if (!strcmp(argv[cur_arg + uii], "perm-count")) {
+            testmiss_modifier |= TESTMISS_PERM_COUNT;
+	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
             logprint("Error: Improper --test-missing mperm syntax.  (Use\n'--test-missing mperm=[value]'.)\n");
             goto main_ret_INVALID_CMDLINE;
 	  } else {
-            sprintf(logbuf, "Error: Invalid --test-missing parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+            sprintf(logbuf, "Error: Invalid --test-missing parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
             goto main_ret_INVALID_CMDLINE_3;
 	  }
 	}
