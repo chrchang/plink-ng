@@ -6332,13 +6332,13 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint3
         goto string_range_list_to_bitfield_ret_INVALID_FORMAT;
       }
       seen_idxs[(uint32_t)ii] = item_idx;
-      if (ii && range_list_ptr->starts_range[((uint32_t)ii) - 1]) {
+      if (item_idx && range_list_ptr->starts_range[item_idx - 1]) {
         if (seen_idxs[((uint32_t)ii) - 1] == -1) {
           sprintf(logbuf, "Error: Second element of --%s range appears before first element in\n%s.\n", range_list_flag, file_descrip);
           goto string_range_list_to_bitfield_ret_INVALID_CMDLINE;
 	}
 	fill_bits(bitfield, seen_idxs[((uint32_t)ii) - 1], (item_idx - seen_idxs[((uint32_t)ii) - 1]) + 1);
-      } else if (!(range_list_ptr->starts_range[(uint32_t)ii])) {
+      } else if (!(range_list_ptr->starts_range[item_idx])) {
 	SET_BIT(bitfield, item_idx);
       }
     }
@@ -8374,6 +8374,52 @@ char* alloc_and_init_collapsed_arr(char* item_arr, uintptr_t item_len, uintptr_t
   } while (wptr < wptr_end);
   return new_arr;
 }
+
+/*
+void inplace_delta_collapse_arr(char* item_arr, uintptr_t item_len, uintptr_t filtered_ct_orig, uintptr_t filtered_ct_new, uintptr_t* exclude_orig, uintptr_t* exclude_new) {
+  uintptr_t* exclude_orig_start = exclude_orig;
+  char* write_end = &(item_arr[filtered_ct_new * item_len]);
+  uintptr_t read_idx = 1;
+  uint32_t uii = 0;
+  char* write_ptr;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  uint32_t read_uidx;
+  uint32_t ujj;
+  if (filtered_ct_new == filtered_ct_orig) {
+    return;
+  }
+  // find location of first newly excluded item
+  while (1) {
+    ulii = *exclude_orig;
+    uljj = *exclude_new;
+    if (ulii != uljj) {
+      break;
+    }
+    uii += popcount_long(ulii);
+    exclude_orig++;
+    exclude_new++;
+  }
+  exclude_new -= ((uintptr_t)(exclude_orig - exclude_orig_start));
+  read_uidx = BITCT * ((uintptr_t)(exclude_orig - exclude_orig_start));
+  ujj = CTZLU(ulii ^ uljj);
+  read_uidx += ujj;
+  uii += popcount_long(ulii & ((ONELU << ujj) - ONELU));
+  uii = read_uidx - uii; // now equal to # initial filtered indices skipped
+  filtered_ct_new -= uii;
+  item_arr = &(item_arr[uii * item_len]);
+  write_ptr = item_arr;
+  read_uidx++;
+  for (; write_ptr < write_end; read_uidx++, read_idx++) {
+    next_unset_unsafe_ck(exclude_orig_start, &read_uidx);
+    if (IS_SET(exclude_new, read_uidx)) {
+      continue;
+    }
+    memcpy(write_ptr, &(item_arr[read_idx * item_len]), item_len);
+    write_ptr = &(write_ptr[item_len]);
+  }
+}
+*/
 
 void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr) {
   uintptr_t cur_write = 0;

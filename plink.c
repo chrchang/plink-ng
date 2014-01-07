@@ -82,7 +82,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (6 Jan 2014) ";
+  " (7 Jan 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -12096,7 +12096,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct) {
-          if (strcmp(argv[cur_arg + 1], "no-di")) {
+	  if ((strlen(argv[cur_arg + 1]) != 5) || (memcmp(argv[cur_arg + 1], "no-", 3)) || (!match_upper(&(argv[cur_arg + 1][3]), "DI"))) {
 	    sprintf(logbuf, "Error: Invalid --snps-only parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }

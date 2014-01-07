@@ -497,8 +497,9 @@
   #define MAX_THREADS 63
   #define MAX_THREADS_P1 64
 #else
-  #define MAX_THREADS 127
-  #define MAX_THREADS_P1 128
+// shouldn't be larger than MODEL_BLOCKSIZE for now
+  #define MAX_THREADS 1023
+  #define MAX_THREADS_P1 1024
 #endif
 
 #ifdef __LP64__

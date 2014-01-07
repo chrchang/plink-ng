@@ -2283,6 +2283,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   uint32_t perm_pass_idx = 0;
   uint32_t perm_fail_ct = 0;
   uint32_t pct = 0;
+  uint32_t max_thread_ct = g_thread_ct;
   int32_t retval = 0;
 #ifndef NOLAPACK
   char dgels_trans = 'N';
@@ -3041,8 +3042,28 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
 	if (perms_total < perm_batch_size) {
 	  perm_batch_size = perms_total;
 	}
+      }
+#ifndef NOLAPACK
+      if (pheno_d) {
+        uii = perm_batch_size / CACHELINE_INT32;
+	if (!uii) {
+	  uii = 1;
+	}
+      } else {
+#endif
+        uii = perm_batch_size;
+#ifndef NOLAPACK
+      }
+#endif
+      if (uii > GLM_BLOCKSIZE / CACHELINE_INT32) {
+	uii = GLM_BLOCKSIZE / CACHELINE_INT32;
+      }
+      if (max_thread_ct > uii) {
+	max_thread_ct = uii;
+      }
+      if (!perm_adapt) {
 	ulii = (perm_batch_size + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
-        if (wkspace_alloc_d_checked(&g_maxt_thread_results, ulii * g_thread_ct * sizeof(double)),
+        if (wkspace_alloc_d_checked(&g_maxt_thread_results, ulii * max_thread_ct * sizeof(double)),
             wkspace_alloc_d_checked(&g_maxt_extreme_stat, perms_total * sizeof(double))) {
           goto glm_assoc_ret_NOMEM;
 	}
@@ -3072,7 +3093,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
     //
     // cluster_ct1, etc. includes size-1 clusters, while the same variables
     // without the "1" at the end exclude them.
-    retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 0, NULL, indiv_valid_ct, cluster_ct, cluster_map, cluster_starts, &cluster_ct1, &cluster_map1, &cluster_starts1, NULL, NULL);
+    retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 0, NULL, indiv_valid_ct, 0, cluster_ct, cluster_map, cluster_starts, &cluster_ct1, &cluster_map1, &cluster_starts1, NULL, NULL);
     if (retval) {
       goto glm_assoc_ret_1;
     }
@@ -3085,19 +3106,19 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       if (do_perms) {
 #ifndef NOLAPACK
 	if (pheno_d) {
-	  retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 1, NULL, indiv_valid_ct, cluster_ct, cluster_map, cluster_starts, &g_cluster_ct, &g_cluster_map, &g_cluster_starts, NULL, NULL);
+	  retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 1, NULL, indiv_valid_ct, 0, cluster_ct, cluster_map, cluster_starts, &g_cluster_ct, &g_cluster_map, &g_cluster_starts, NULL, NULL);
 	  if (retval) {
 	    goto glm_assoc_ret_1;
 	  }
 	  if (!g_cluster_ct) {
 	    goto glm_assoc_ret_NO_PERMUTATION_CLUSTERS;
 	  }
-	  if (wkspace_alloc_ui_checked(&g_qassoc_cluster_thread_wkspace, g_thread_ct * ((g_cluster_ct + (CACHELINE_INT32 - 1)) / CACHELINE_INT32) * CACHELINE)) {
+	  if (wkspace_alloc_ui_checked(&g_qassoc_cluster_thread_wkspace, max_thread_ct * ((g_cluster_ct + (CACHELINE_INT32 - 1)) / CACHELINE_INT32) * CACHELINE)) {
 	    goto glm_assoc_ret_NOMEM;
 	  }
 	} else {
 #endif
-	  retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 1, pheno_c, indiv_valid_ct, cluster_ct, cluster_map, cluster_starts, &g_cluster_ct, &g_cluster_map, &g_cluster_starts, &g_cluster_case_cts, &g_cluster_cc_perm_preimage);
+	  retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 1, pheno_c, indiv_valid_ct, 0, cluster_ct, cluster_map, cluster_starts, &g_cluster_ct, &g_cluster_map, &g_cluster_starts, &g_cluster_case_cts, &g_cluster_cc_perm_preimage);
 	  if (retval) {
 	    goto glm_assoc_ret_1;
 	  }
@@ -3126,13 +3147,13 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
 #ifndef NOLAPACK
     }
 #endif
-    g_sfmtp_arr = (sfmt_t**)wkspace_alloc(g_thread_ct * sizeof(intptr_t));
+    g_sfmtp_arr = (sfmt_t**)wkspace_alloc(max_thread_ct * sizeof(intptr_t));
     if (!g_sfmtp_arr) {
       goto glm_assoc_ret_NOMEM;
     }
     g_sfmtp_arr[0] = &sfmt;
-    if (g_thread_ct > 1) {
-      for (uii = 0; uii < g_thread_ct; uii++) {
+    if (max_thread_ct > 1) {
+      for (uii = 0; uii < max_thread_ct; uii++) {
         g_sfmtp_arr[uii] = (sfmt_t*)wkspace_alloc(sizeof(sfmt_t));
         if (!g_sfmtp_arr[uii]) {
 	  goto glm_assoc_ret_NOMEM;
@@ -3151,9 +3172,9 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
     }
   }
 #endif
-  g_glm_mt = (Glm_multithread*)malloc(g_thread_ct * sizeof(Glm_multithread));
+  g_glm_mt = (Glm_multithread*)malloc(max_thread_ct * sizeof(Glm_multithread));
   ulii = (perm_batch_size + (BITCT - 1)) / BITCT;
-  for (tidx = 0; tidx < g_thread_ct; tidx++) {
+  for (tidx = 0; tidx < max_thread_ct; tidx++) {
     if (wkspace_alloc_d_checked(&(g_glm_mt[tidx].cur_covars_cov_major), param_ct_max * indiv_valid_ct * sizeof(double)) ||
         wkspace_alloc_d_checked(&(g_glm_mt[tidx].cur_covars_indiv_major), param_ct_max * indiv_valid_ct * sizeof(double)) ||
         wkspace_alloc_ul_checked(&(g_glm_mt[tidx].perm_fails), ulii * sizeof(intptr_t)) ||
@@ -3308,7 +3329,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   fputs("        STAT            P \n", outfile);
   loop_end = marker_initial_ct / 100;
   marker_unstopped_ct = marker_initial_ct;
-  g_adaptive_ci_zt = ltqnorm(1 - apip->beta / (2.0 * marker_initial_ct));
+  g_adaptive_ci_zt = ltqnorm(1 - apip->beta / (2.0 * ((int32_t)marker_initial_ct)));
 
   // ----- begin main loop -----
  glm_assoc_more_perms:
@@ -3347,8 +3368,8 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
     ulii = 0;
 #ifndef NOLAPACK
     if (pheno_d) {
-      if (g_perm_vec_ct >= CACHELINE_INT32 * g_thread_ct) {
-        g_assoc_thread_ct = g_thread_ct;
+      if (g_perm_vec_ct >= CACHELINE_INT32 * max_thread_ct) {
+        g_assoc_thread_ct = max_thread_ct;
       } else {
         g_assoc_thread_ct = g_perm_vec_ct / CACHELINE_INT32;
 	if (!g_assoc_thread_ct) {
@@ -3369,8 +3390,8 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       join_threads(threads, g_assoc_thread_ct);
     } else {
 #endif
-      if (g_perm_vec_ct > g_thread_ct) {
-        g_assoc_thread_ct = g_thread_ct;
+      if (g_perm_vec_ct > max_thread_ct) {
+        g_assoc_thread_ct = max_thread_ct;
       } else {
         g_assoc_thread_ct = g_perm_vec_ct;
       }
@@ -3738,8 +3759,8 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       // 3. linear/logistic regression on permutations, handle adaptive logic,
       //    --mperm-save[-all], etc.
       g_assoc_thread_ct = block_size / CACHELINE_INT32;
-      if (g_assoc_thread_ct > g_thread_ct) {
-	g_assoc_thread_ct = g_thread_ct;
+      if (g_assoc_thread_ct > max_thread_ct) {
+	g_assoc_thread_ct = max_thread_ct;
       } else if (!g_assoc_thread_ct) {
 	g_assoc_thread_ct = 1;
       }
@@ -4067,6 +4088,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   uint32_t perm_fail_total = 0;
   uint32_t joint_perm_fail_extra = 0;
   uint32_t perm_fail_ct = 0;
+  uint32_t max_thread_ct = g_thread_ct;
   int32_t retval = 0;
 #ifndef NOLAPACK
   char dgels_trans = 'N';
@@ -4616,8 +4638,23 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   }
 #endif
 
+#ifndef NOLAPACK
+  if (pheno_d) {
+    uii = perm_batch_size / CACHELINE_INT32;
+    if (!uii) {
+      uii = 1;
+    }
+  } else {
+#endif
+    uii = perm_batch_size;
+#ifndef NOLAPACK
+  }
+#endif
+  if (max_thread_ct > uii) {
+    max_thread_ct = uii;
+  }
   if (cluster_starts) {
-    retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 0, NULL, indiv_valid_ct, cluster_ct, cluster_map, cluster_starts, &cluster_ct1, &cluster_map1, &cluster_starts1, NULL, NULL);
+    retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 0, NULL, indiv_valid_ct, 0, cluster_ct, cluster_map, cluster_starts, &cluster_ct1, &cluster_map1, &cluster_starts1, NULL, NULL);
     if (retval) {
       goto glm_assoc_nosnp_ret_1;
     }
@@ -4632,19 +4669,19 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
       if (do_perms) {
 #ifndef NOLAPACK
 	if (pheno_d) {
-	  retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 1, NULL, indiv_valid_ct, cluster_ct, cluster_map, cluster_starts, &g_cluster_ct, &g_cluster_map, &g_cluster_starts, NULL, NULL);
+	  retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 1, NULL, indiv_valid_ct, 0, cluster_ct, cluster_map, cluster_starts, &g_cluster_ct, &g_cluster_map, &g_cluster_starts, NULL, NULL);
 	  if (retval) {
 	    goto glm_assoc_nosnp_ret_1;
 	  }
 	  if (!g_cluster_ct) {
 	    goto glm_assoc_nosnp_ret_NO_PERMUTATION_CLUSTERS;
 	  }
-	  if (wkspace_alloc_ui_checked(&g_qassoc_cluster_thread_wkspace, g_thread_ct * ((g_cluster_ct + (CACHELINE_INT32 - 1)) / CACHELINE_INT32) * CACHELINE)) {
+	  if (wkspace_alloc_ui_checked(&g_qassoc_cluster_thread_wkspace, max_thread_ct * ((g_cluster_ct + (CACHELINE_INT32 - 1)) / CACHELINE_INT32) * CACHELINE)) {
 	    goto glm_assoc_nosnp_ret_NOMEM;
 	  }
 	} else {
 #endif
-	  retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 1, pheno_c, indiv_valid_ct, cluster_ct, cluster_map, cluster_starts, &g_cluster_ct, &g_cluster_map, &g_cluster_starts, &g_cluster_case_cts, &g_cluster_cc_perm_preimage);
+	  retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 1, pheno_c, indiv_valid_ct, 0, cluster_ct, cluster_map, cluster_starts, &g_cluster_ct, &g_cluster_map, &g_cluster_starts, &g_cluster_case_cts, &g_cluster_cc_perm_preimage);
 	  if (retval) {
 	    goto glm_assoc_nosnp_ret_1;
 	  }
@@ -4675,13 +4712,13 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
 #endif
     // Note that, for now, the main nosnp regression loop is not multithreaded;
     // only the permutation generation process is.
-    g_sfmtp_arr = (sfmt_t**)wkspace_alloc(g_thread_ct * sizeof(intptr_t));
+    g_sfmtp_arr = (sfmt_t**)wkspace_alloc(max_thread_ct * sizeof(intptr_t));
     if (!g_sfmtp_arr) {
       goto glm_assoc_nosnp_ret_NOMEM;
     }
     g_sfmtp_arr[0] = &sfmt;
-    if (g_thread_ct > 1) {
-      for (uii = 1; uii < g_thread_ct; uii++) {
+    if (max_thread_ct > 1) {
+      for (uii = 1; uii < max_thread_ct; uii++) {
 	g_sfmtp_arr[uii] = (sfmt_t*)wkspace_alloc(sizeof(sfmt_t));
 	if (!g_sfmtp_arr[uii]) {
 	  goto glm_assoc_nosnp_ret_NOMEM;
@@ -4849,8 +4886,8 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
 
 #ifndef NOLAPACK
     if (pheno_d) {
-      if (cur_batch_size >= CACHELINE_INT32 * g_thread_ct) {
-	g_assoc_thread_ct = g_thread_ct;
+      if (cur_batch_size >= CACHELINE_INT32 * max_thread_ct) {
+	g_assoc_thread_ct = max_thread_ct;
       } else {
 	g_assoc_thread_ct = cur_batch_size / CACHELINE_INT32;
 	if (!g_assoc_thread_ct) {
@@ -4931,8 +4968,8 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
       }
     } else {
 #endif
-      if (cur_batch_size > g_thread_ct) {
-	g_assoc_thread_ct = g_thread_ct;
+      if (cur_batch_size > max_thread_ct) {
+	g_assoc_thread_ct = max_thread_ct;
       } else {
         g_assoc_thread_ct = g_perm_vec_ct;
       }

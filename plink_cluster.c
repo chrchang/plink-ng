@@ -673,26 +673,42 @@ void populate_cluster_case_cts(uintptr_t* pheno_c, uint32_t cluster_ct, uint32_t
   }
 }
 
-void adjust_cc_perm_preimage(uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* cluster_case_cts, uintptr_t* cluster_cc_perm_preimage) {
+void adjust_cc_perm_preimage(uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* cluster_case_cts, uintptr_t* cluster_cc_perm_preimage, uint32_t is_perm1) {
   uint32_t cluster_idx;
   uint32_t map_idx;
   uint32_t cluster_end;
-  for (cluster_idx = 0; cluster_idx < cluster_ct; cluster_idx++) {
-    map_idx = cluster_starts[cluster_idx];
-    cluster_end = cluster_starts[cluster_idx + 1];
-    if (cluster_case_cts[cluster_idx] * 2 < cluster_end - map_idx) {
-      do {
-        CLEAR_BIT_DBL(cluster_cc_perm_preimage, cluster_map[map_idx]);
-      } while (++map_idx < cluster_end);
-    } else {
-      do {
-	SET_BIT_DBL(cluster_cc_perm_preimage, cluster_map[map_idx]);
-      } while (++map_idx < cluster_end);
+  if (!is_perm1) {
+    for (cluster_idx = 0; cluster_idx < cluster_ct; cluster_idx++) {
+      map_idx = cluster_starts[cluster_idx];
+      cluster_end = cluster_starts[cluster_idx + 1];
+      if (cluster_case_cts[cluster_idx] * 2 < cluster_end - map_idx) {
+	do {
+	  CLEAR_BIT_DBL(cluster_cc_perm_preimage, cluster_map[map_idx]);
+	} while (++map_idx < cluster_end);
+      } else {
+	do {
+	  SET_BIT_DBL(cluster_cc_perm_preimage, cluster_map[map_idx]);
+	} while (++map_idx < cluster_end);
+      }
+    }
+  } else {
+    for (cluster_idx = 0; cluster_idx < cluster_ct; cluster_idx++) {
+      map_idx = cluster_starts[cluster_idx];
+      cluster_end = cluster_starts[cluster_idx + 1];
+      if (cluster_case_cts[cluster_idx] * 2 < cluster_end - map_idx) {
+	do {
+	  CLEAR_BIT(cluster_cc_perm_preimage, cluster_map[map_idx]);
+	} while (++map_idx < cluster_end);
+      } else {
+	do {
+	  SET_BIT(cluster_cc_perm_preimage, cluster_map[map_idx]);
+	} while (++map_idx < cluster_end);
+      }
     }
   }
 }
 
-int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_include, uint32_t remove_size1, uintptr_t* pheno_c, uintptr_t indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* new_cluster_ct_ptr, uint32_t** new_cluster_map_ptr, uint32_t** new_cluster_starts_ptr, uint32_t** cluster_case_cts_ptr, uintptr_t** cluster_cc_perm_preimage_ptr) {
+int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_include, uint32_t remove_size1, uintptr_t* pheno_c, uintptr_t indiv_ct, uint32_t is_perm1, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* new_cluster_ct_ptr, uint32_t** new_cluster_map_ptr, uint32_t** new_cluster_starts_ptr, uint32_t** cluster_case_cts_ptr, uintptr_t** cluster_cc_perm_preimage_ptr) {
   // If any individuals are excluded, this converts a unfiltered-index cluster
   // map to a collapsed-index cluster map (suitable for passing to the
   // per-cluster permutation function), allocating space for the latter.
@@ -723,11 +739,15 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
   uint32_t last_case_ct_incr;
   uint32_t shrink_map;
   if (pheno_c) {
-    if (wkspace_alloc_ul_checked(cluster_cc_perm_preimage_ptr, 2 * ((indiv_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t))) {
+    if (wkspace_alloc_ul_checked(cluster_cc_perm_preimage_ptr, (2 - is_perm1) * ((indiv_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t))) {
       goto cluster_include_and_reindex_ret_NOMEM;
     }
     cluster_cc_perm_preimage = *cluster_cc_perm_preimage_ptr;
-    vec_collapse_init(pheno_c, unfiltered_indiv_ct, indiv_include, indiv_ct, cluster_cc_perm_preimage);
+    if (!is_perm1) {
+      vec_collapse_init(pheno_c, unfiltered_indiv_ct, indiv_include, indiv_ct, cluster_cc_perm_preimage);
+    } else {
+      collapse_copy_bitarr_incl(unfiltered_indiv_ct, pheno_c, indiv_include, indiv_ct, cluster_cc_perm_preimage);
+    }
   }
   if ((indiv_ct == unfiltered_indiv_ct) && ((!remove_size1) || no_size1(cluster_ct, cluster_starts))) {
     *new_cluster_map_ptr = cluster_map;
@@ -738,7 +758,7 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
 	goto cluster_include_and_reindex_ret_NOMEM;
       }
       populate_cluster_case_cts(pheno_c, cluster_ct, cluster_map, cluster_starts, *cluster_case_cts_ptr);
-      adjust_cc_perm_preimage(cluster_ct, cluster_map, cluster_starts, *cluster_case_cts_ptr, cluster_cc_perm_preimage);
+      adjust_cc_perm_preimage(cluster_ct, cluster_map, cluster_starts, *cluster_case_cts_ptr, cluster_cc_perm_preimage, is_perm1);
     }
     return 0;
   }
@@ -830,7 +850,7 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
     }
   }
   if (pheno_c && new_cluster_ct) {
-    adjust_cc_perm_preimage(new_cluster_ct, new_cluster_map, new_cluster_starts, cluster_case_cts, cluster_cc_perm_preimage);
+    adjust_cc_perm_preimage(new_cluster_ct, new_cluster_map, new_cluster_starts, cluster_case_cts, cluster_cc_perm_preimage, is_perm1);
   }
   wkspace_reset((unsigned char*)uidx_to_idx);
   return 0;
