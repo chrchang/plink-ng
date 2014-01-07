@@ -8995,8 +8995,8 @@ void calc_git_missing(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uintptr_t* __r
   // and nonmissing.
   // thread_bufs[] is assumed to be zeroed out before this function is called.
   uint32_t pheno_nm_ctl = (pheno_nm_ct + (BITCT - 1)) / BITCT;
-  uint32_t perm_ct16 = (perm_vec_ct + 15) / 16;
 #ifdef __LP64__
+  uint32_t perm_ct16 = (perm_vec_ct + 15) / 16;
   uint32_t perm_ct128 = (perm_vec_ct + 127) / 128;
   uint32_t perm_ct128x4 = perm_ct128 * 4;
   uint32_t perm_ct32 = (perm_vec_ct + 31) / 32;
