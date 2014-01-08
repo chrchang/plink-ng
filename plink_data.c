@@ -1238,7 +1238,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
   FILE* shapeitfile = NULL;
   char* octothorpe_ptr = NULL;
   char* fname_write = NULL;
-  char* tbuf2 = &(tbuf[MAXLINELEN]);
+  char* fname_buf = &(tbuf[MAXLINELEN]);
   double cm_old = 0.0;
   uint32_t autosome_ct = chrom_info_ptr->autosome_ct;
   uint32_t post_octothorpe_len = 0;
@@ -1253,6 +1253,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
   uint32_t chrom_end;
   uint32_t marker_uidx;
   uint32_t uii;
+  uint32_t irreg_line_ct;
   int32_t bp_old;
   int32_t bp_new;
   int32_t ii;
@@ -1260,7 +1261,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
     chrom_fo_idx = 0;
     chrom_ct = chrom_info_ptr->chrom_ct;
     octothorpe_ptr = strchr(cm_map_fname, '#');
-    fname_write = memcpya(tbuf2, cm_map_fname, (uintptr_t)(octothorpe_ptr - cm_map_fname));
+    fname_write = memcpya(fname_buf, cm_map_fname, (uintptr_t)(octothorpe_ptr - cm_map_fname));
     octothorpe_ptr++;
     post_octothorpe_len = strlen(octothorpe_ptr) + 1;
   } else {
@@ -1271,6 +1272,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
     }
     chrom_fo_idx = (uint32_t)ii;
     chrom_ct = chrom_fo_idx + 1;
+    fname_buf = cm_map_fname;
   }
   tbuf[MAXLINELEN - 1] = ' ';
   for (; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
@@ -1286,8 +1288,8 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
       }
       bufptr = uint32_write(fname_write, uii);
       memcpy(bufptr, octothorpe_ptr, post_octothorpe_len);
-      if (fopen_checked(&shapeitfile, tbuf2, "r")) {
-	sprintf(logbuf, "Warning: --cm-map failed to open %s.\n", tbuf2);
+      if (fopen_checked(&shapeitfile, fname_buf, "r")) {
+	sprintf(logbuf, "Warning: --cm-map failed to open %s.\n", fname_buf);
 	logprintb();
         continue;
       }
@@ -1297,6 +1299,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
       }
     }
     updated_chrom_ct++;
+    irreg_line_ct = 0;
     // First line is a header with three arbitrary fields.
     // All subsequent lines have three fields in the following order:
     //   1. bp position (increasing)
@@ -1324,8 +1327,13 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
       }
       bufptr = skip_initial_spaces(tbuf);
       if ((*bufptr < '+') || (*bufptr > '9')) {
-	// silently skip lines starting with text, since as of 8 Jan 2014 the
-	// posted chromosome 19 map has such a line
+	// warning instead of error if text line found, since as of 8 Jan 2014
+        // the posted chromosome 19 map has such a line
+	if (*bufptr > ' ') {
+	  if (++irreg_line_ct == 0xffffffffU) {
+	    goto apply_cm_map_ret_INVALID_FORMAT_3;
+	  }
+	}
         continue;
       }
       if (atoiz2(bufptr, &bp_new)) {
@@ -1368,6 +1376,10 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
   apply_cm_map_chrom_done:
     if (fclose_null(&shapeitfile)) {
       goto apply_cm_map_ret_READ_FAIL;
+    }
+    if (irreg_line_ct) {
+      sprintf(logbuf, "Warning: %u irregular line%s skipped in %s.\n", irreg_line_ct, (irreg_line_ct == 1)? "" : "s", fname_buf);
+      logprintb();
     }
   }
   sprintf(logbuf, "--cm-map: %u chromosome%s updated.\n", updated_chrom_ct, (updated_chrom_ct == 1)? "" : "s");
