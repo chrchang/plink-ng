@@ -1062,6 +1062,9 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     }
     fill_double_zero(*marker_cms_ptr, unfiltered_marker_ct);
   }
+  if (misc_flags & MISC_ZERO_CMS) {
+    marker_cms_needed = 0;
+  }
 
   // second pass: actually load stuff
   loadbuf2 = (char*)malloc(max_loadbuf);
@@ -1228,6 +1231,169 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   fclose_cond(bimfile);
   free_cond(sf_pos);
   free_cond(loadbuf2);
+  return retval;
+}
+
+int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* marker_pos, double* marker_cms, Chrom_info* chrom_info_ptr) {
+  FILE* shapeitfile = NULL;
+  char* octothorpe_ptr = NULL;
+  char* fname_write = NULL;
+  char* tbuf2 = &(tbuf[MAXLINELEN]);
+  double cm_old = 0.0;
+  uint32_t autosome_ct = chrom_info_ptr->autosome_ct;
+  uint32_t post_octothorpe_len = 0;
+  uint32_t updated_chrom_ct = 0;
+  int32_t retval = 0;
+  char* bufptr;
+  char* bufptr2;
+  double cm_new;
+  double dxx;
+  uint32_t chrom_fo_idx;
+  uint32_t chrom_ct;
+  uint32_t chrom_end;
+  uint32_t marker_uidx;
+  uint32_t uii;
+  int32_t bp_old;
+  int32_t bp_new;
+  int32_t ii;
+  if (!cm_map_chrname) {
+    chrom_fo_idx = 0;
+    chrom_ct = chrom_info_ptr->chrom_ct;
+    octothorpe_ptr = strchr(cm_map_fname, '#');
+    fname_write = memcpya(tbuf2, cm_map_fname, (uintptr_t)(octothorpe_ptr - cm_map_fname));
+    octothorpe_ptr++;
+    post_octothorpe_len = strlen(octothorpe_ptr) + 1;
+  } else {
+    ii = get_chrom_code(chrom_info_ptr, cm_map_chrname);
+    if (ii == -1) {
+      sprintf(logbuf, "Error: --cm-map chromosome code '%s' not found in dataset.\n", cm_map_chrname);
+      goto apply_cm_map_ret_INVALID_CMDLINE;
+    }
+    chrom_fo_idx = (uint32_t)ii;
+    chrom_ct = chrom_fo_idx + 1;
+  }
+  tbuf[MAXLINELEN - 1] = ' ';
+  for (; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
+    chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+    marker_uidx = next_unset(marker_exclude, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx], chrom_end);
+    if (marker_uidx == chrom_end) {
+      continue;
+    }
+    uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+    if (!cm_map_chrname) {
+      if ((!uii) || (uii > autosome_ct)) {
+        continue;
+      }
+      bufptr = uint32_write(fname_write, uii);
+      memcpy(bufptr, octothorpe_ptr, post_octothorpe_len);
+      if (fopen_checked(&shapeitfile, tbuf2, "r")) {
+	sprintf(logbuf, "Warning: --cm-map failed to open %s.\n", tbuf2);
+	logprintb();
+        continue;
+      }
+    } else {
+      if (fopen_checked(&shapeitfile, cm_map_fname, "r")) {
+        goto apply_cm_map_ret_OPEN_FAIL;
+      }
+    }
+    updated_chrom_ct++;
+    // First line is a header with three arbitrary fields.
+    // All subsequent lines have three fields in the following order:
+    //   1. bp position (increasing)
+    //   2. cM/Mb recombination rate between current and previous bp positions
+    //   3. current cM position
+    // We mostly ignore field 2, since depending just on fields 1 and 3
+    // maximizes accuracy.  The one exception is the very first nonheader line.
+    retval = load_to_first_token(shapeitfile, MAXLINELEN, '\0', "--cm-map file", tbuf, &bufptr);
+    if (retval) {
+      goto apply_cm_map_ret_1;
+    }
+    bufptr = next_item_mult(bufptr, 2);
+    if (no_more_items_kns(bufptr)) {
+      goto apply_cm_map_ret_INVALID_FORMAT_2;
+    }
+    bufptr = next_item(bufptr);
+    if (!no_more_items_kns(bufptr)) {
+      goto apply_cm_map_ret_INVALID_FORMAT_2;
+    }
+    bp_old = -1;
+    while (fgets(tbuf, MAXLINELEN, shapeitfile)) {
+      if (!tbuf[MAXLINELEN - 1]) {
+        logprint("Error: Pathologically long line in --cm-map file.\n");
+        goto apply_cm_map_ret_INVALID_FORMAT;
+      }
+      bufptr = skip_initial_spaces(tbuf);
+      if ((*bufptr < '+') || (*bufptr > '9')) {
+	// silently skip lines starting with text, since as of 8 Jan 2014 the
+	// posted chromosome 19 map has such a line
+        continue;
+      }
+      if (atoiz2(bufptr, &bp_new)) {
+        goto apply_cm_map_ret_INVALID_FORMAT_3;
+      }
+      if (bp_new <= bp_old) {
+        logprint("Error: bp positions in --cm-map file are not in increasing order.\n");
+        goto apply_cm_map_ret_INVALID_FORMAT;
+      }
+      bufptr2 = next_item_mult(bufptr, 2);
+      if (no_more_items_kns(bufptr2)) {
+	goto apply_cm_map_ret_INVALID_FORMAT_3;
+      }
+      if (scan_double(bufptr2, &cm_new)) {
+	goto apply_cm_map_ret_INVALID_FORMAT_3;
+      }
+      if (bp_old == -1) {
+	// parse field 2 only in this case
+        bufptr = next_item(bufptr);
+        if (scan_double(bufptr, &dxx)) {
+	  goto apply_cm_map_ret_INVALID_FORMAT_3;
+	}
+        cm_old = cm_new - dxx * 0.000001 * ((double)(bp_new + 1));
+      }
+      dxx = (cm_new - cm_old) / ((double)(bp_new - bp_old));
+      while (marker_pos[marker_uidx] <= ((uint32_t)bp_new)) {
+	marker_cms[marker_uidx] = cm_new - ((int32_t)(((uint32_t)bp_new) - marker_pos[marker_uidx])) * dxx;
+	marker_uidx++;
+	next_unset_ck(marker_exclude, &marker_uidx, chrom_end);
+	if (marker_uidx == chrom_end) {
+	  goto apply_cm_map_chrom_done;
+	}
+      }
+      bp_old = bp_new;
+      cm_old = cm_new;
+    }
+    for (; marker_uidx < chrom_end; marker_uidx++) {
+      marker_cms[marker_uidx] = cm_old;
+    }
+  apply_cm_map_chrom_done:
+    if (fclose_null(&shapeitfile)) {
+      goto apply_cm_map_ret_READ_FAIL;
+    }
+  }
+  sprintf(logbuf, "--cm-map: %u chromosome%s updated.\n", updated_chrom_ct, (updated_chrom_ct == 1)? "" : "s");
+  logprintb();
+  while (0) {
+  apply_cm_map_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  apply_cm_map_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  apply_cm_map_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+  apply_cm_map_ret_INVALID_FORMAT_3:
+    logprint("Error: Improperly formatted --cm-map file.\n");
+    retval = RET_INVALID_FORMAT;
+    break;
+  apply_cm_map_ret_INVALID_FORMAT_2:
+    logprint("Error: Unrecognized --cm-map file header line.\n");
+  apply_cm_map_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ apply_cm_map_ret_1:
+  fclose_cond(shapeitfile);
   return retval;
 }
 
@@ -3723,7 +3889,7 @@ int32_t write_map_or_bim(char* outname, uintptr_t* marker_exclude, uintptr_t mar
     if (!marker_cms) {
       *bufptr++ = '0';
     } else {
-      bufptr = double_g_write(bufptr, marker_cms[marker_uidx]);
+      bufptr = double_g_writewx8(bufptr, marker_cms[marker_uidx], 1);
     }
     *bufptr++ = delim;
     bufptr = uint32_write(bufptr, marker_pos[marker_uidx]);
@@ -4068,7 +4234,7 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
       if (!marker_cms) {
         bufptr = memcpya(&(wbuf[1]), "0\t", 2); 
       } else {
-        bufptr = double_g_writex(&(wbuf[1]), marker_cms[marker_idx2], '\t');
+        bufptr = double_g_writewx8x(&(wbuf[1]), marker_cms[marker_idx2], 1, '\t');
       }
       fwrite(wbuf, 1, bufptr - wbuf, outfile);
       bufptr = uint32_write(wbuf, (uint32_t)(ll_buf[marker_idx] >> 32));
@@ -4150,7 +4316,7 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
     memcpyx(&(marker_ids[marker_idx * max_marker_id_len]), bufptr, uii, 0);
     bufptr = next_item(bufptr);
     if (map_cols == 4) {
-      marker_cms[marker_idx] = atof(bufptr);
+      scan_double(bufptr, &(marker_cms[marker_idx]));
       bufptr = next_item(bufptr);
     } else {
       marker_cms[marker_idx] = 0.0;
@@ -4178,7 +4344,7 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
       fwrite(wbuf, 1, bufptr - wbuf, map_outfile);
       fputs(&(marker_ids[marker_idx2 * max_marker_id_len]), map_outfile);
       wbuf[0] = '\t';
-      bufptr = double_g_writex(&(wbuf[1]), marker_cms[marker_idx2], '\t');
+      bufptr = double_g_writewx8x(&(wbuf[1]), marker_cms[marker_idx2], 1, '\t');
       fwrite(wbuf, 1, bufptr - wbuf, map_outfile);
       bufptr = uint32_write(wbuf, (uint32_t)(ll_buf[marker_idx] >> 32));
       fwrite(wbuf, 1, bufptr - wbuf, map_outfile);
@@ -4203,6 +4369,7 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
     break;
   load_sort_and_write_map_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
+    break;
   }
   if (ll_buf) {
     wkspace_reset((unsigned char*)ll_buf);

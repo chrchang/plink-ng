@@ -987,20 +987,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    (alias: --missing_code)            phenotype values for Oxford-formatted\n"
 "                                       filesets (normally 'NA').\n"
 	       );
-    help_print("allow-extra-chr", &help_ctrl, 0,
-"  --allow-extra-chr <0>     : Permit unrecognized chromosome codes.  The '0'\n"
-"                              modifier causes them to be treated as if they had\n"
-"                              been set to zero.\n"
-               );
-    help_print("chr-set\tcow\tdog\thorse\tmouse\trice\tsheep\tautosome-num", &help_ctrl, 0,
-"  --chr-set [autosome ct] <no-x> <no-y> <no-xy> <no-mt> :\n"
-"    Specify a nonhuman chromosome set.  The first parameter sets the number of\n"
-"    diploid autosome pairs if positive, or haploid chromosomes if negative.\n"
-"    Given diploid autosomes, the remaining modifiers indicate the absence of\n"
-"    the named non-autosomal chromosomes.\n"
-"  --cow/--dog/--horse/--mouse/--rice/--sheep : Shortcuts for those species.\n"
-"  --autosome-num [value]    : Alias for '--chr-set [value] no-y no-xy no-mt'.\n"
-	       );
     help_print("23file\t23file-convert-xy\t23file-make-xylist", &help_ctrl, 0,
 "  --23file-convert-xy {f}   : Separate out XY pseudo-autosomal region.  A\n"
 "                              variant list (from e.g. --23file-make-xylist) is\n"
@@ -1019,6 +1005,28 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("simulate\tsimulate-qt\tsimulate-label\tsimulate-missing", &help_ctrl, 0,
 "  --simulate-label [prefix] : Set --simulate{-qt} individual name prefix.\n"
 "  --simulate-missing [freq] : Set --simulate{-qt} missing genotype frequency.\n"
+	       );
+    help_print("allow-extra-chr", &help_ctrl, 0,
+"  --allow-extra-chr <0>     : Permit unrecognized chromosome codes.  The '0'\n"
+"                              modifier causes them to be treated as if they had\n"
+"                              been set to zero.\n"
+               );
+    help_print("chr-set\tcow\tdog\thorse\tmouse\trice\tsheep\tautosome-num", &help_ctrl, 0,
+"  --chr-set [autosome ct] <no-x> <no-y> <no-xy> <no-mt> :\n"
+"    Specify a nonhuman chromosome set.  The first parameter sets the number of\n"
+"    diploid autosome pairs if positive, or haploid chromosomes if negative.\n"
+"    Given diploid autosomes, the remaining modifiers indicate the absence of\n"
+"    the named non-autosomal chromosomes.\n"
+"  --cow/--dog/--horse/--mouse/--rice/--sheep : Shortcuts for those species.\n"
+"  --autosome-num [value]    : Alias for '--chr-set [value] no-y no-xy no-mt'.\n"
+	       );
+    help_print("cm-map\tzero-cms\tupdate-cm", &help_ctrl, 0,
+"  --cm-map [fname pattern] {chr} : Use SHAPEIT-format recombination maps to set\n"
+"                                   centimorgan positions.  To process more than\n"
+"                                   one chromosome, include a '#' in the first\n"
+"                                   parameter where the chrom. number belongs,\n"
+"                                   e.g. 'genetic_map_chr#_combined_b37.txt'.\n"
+"  --zero-cms       : Zero out centimorgan positions.\n"
 	       );
     help_print("pheno\tall-pheno\tmpheno\tpheno-name\tpheno-merge", &help_ctrl, 0,
 "  --pheno [fname]  : Load phenotype data from the specified file, instead of\n"
