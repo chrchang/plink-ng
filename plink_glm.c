@@ -2533,6 +2533,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
     goto glm_assoc_ret_NOMEM;
   }
   for (uii = 1; uii <= GLM_BLOCKSIZE; uii++) {
+    g_loadbuf[uii * indiv_valid_ctv2 - 2] = 0;
     g_loadbuf[uii * indiv_valid_ctv2 - 1] = 0;
   }
   collapse_copy_bitarr_incl(unfiltered_indiv_ct, sex_male, load_mask, indiv_valid_ct, sex_male_collapsed);

@@ -3408,14 +3408,14 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
   if (report_type) {
     for (; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
       next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
-      p_values[marker_uidx] = SNPHWE2(hwe_lh_allfs[marker_uidx], hwe_ll_allfs[marker_uidx], hwe_hh_allfs[marker_uidx]);
+      p_values[marker_idx] = SNPHWE2(hwe_lh_allfs[marker_uidx], hwe_ll_allfs[marker_uidx], hwe_hh_allfs[marker_uidx]);
     }
   } else {
     for (; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
       next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
-      p_values[marker_uidx * 3] = SNPHWE2(hwe_lh_allfs[marker_uidx], hwe_ll_allfs[marker_uidx], hwe_hh_allfs[marker_uidx]);
-      p_values[marker_uidx * 3 + 1] = SNPHWE2(hwe_lh_cases[marker_uidx], hwe_ll_cases[marker_uidx], hwe_hh_cases[marker_uidx]);
-      p_values[marker_uidx * 3 + 2] = SNPHWE2(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx]);
+      p_values[marker_idx * 3] = SNPHWE2(hwe_lh_allfs[marker_uidx], hwe_ll_allfs[marker_uidx], hwe_hh_allfs[marker_uidx]);
+      p_values[marker_idx * 3 + 1] = SNPHWE2(hwe_lh_cases[marker_uidx], hwe_ll_cases[marker_uidx], hwe_hh_cases[marker_uidx]);
+      p_values[marker_idx * 3 + 2] = SNPHWE2(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx]);
     }
   }
   marker_uidx = 0;
@@ -3447,7 +3447,7 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
     for (; pct <= 100; pct++) {
       loop_end = (((uint64_t)pct) * marker_ct) / 100LLU;
       for (; marker_idx < loop_end; marker_uidx++, marker_idx++) {
-	marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+	next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
 	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
@@ -3471,7 +3471,7 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
 	cptr5 = fw_strcpy(4, cptr4, &(cptr5[1]));
 	*cptr5 = ' ';
 	prefix_len = 1 + (cptr5 - writebuf);
-	if (hardy_report_write_line(outfile, writebuf, prefix_len, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], cptr2, p_values[marker_uidx])) {
+	if (hardy_report_write_line(outfile, writebuf, prefix_len, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], cptr2, p_values[marker_idx])) {
 	  goto hardy_report_ret_WRITE_FAIL;
 	}
       }
@@ -3489,7 +3489,7 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
     for (; pct <= 100; pct++) {
       loop_end = (((uint64_t)pct) * marker_ct) / 100LLU;
       for (; marker_idx < loop_end; marker_uidx++, marker_idx++) {
-	marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+	next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
 	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
@@ -3509,17 +3509,17 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
 	cptr5 = fw_strcpy(4, cptr4, &(cptr5[1]));
 	*cptr5 = ' ';
 	prefix_len = 1 + (cptr5 - writebuf);
-	if (hardy_report_write_line(outfile, writebuf, prefix_len, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], cptr2, p_values[3 * marker_uidx])) {
+	if (hardy_report_write_line(outfile, writebuf, prefix_len, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], cptr2, p_values[3 * marker_idx])) {
 	  goto hardy_report_ret_WRITE_FAIL;
 	}
 
 	memcpy(&(cptr0[7 + plink_maxsnp]), "FF", 2);
-	if (hardy_report_write_line(outfile, writebuf, prefix_len, reverse, hwe_ll_cases[marker_uidx], hwe_lh_cases[marker_uidx], hwe_hh_cases[marker_uidx], cptr2, p_values[3 * marker_uidx + 1])) {
+	if (hardy_report_write_line(outfile, writebuf, prefix_len, reverse, hwe_ll_cases[marker_uidx], hwe_lh_cases[marker_uidx], hwe_hh_cases[marker_uidx], cptr2, p_values[3 * marker_idx + 1])) {
 	  goto hardy_report_ret_WRITE_FAIL;
 	}
 
 	memcpy(&(cptr0[4 + plink_maxsnp]), "UN", 2);
-	if (hardy_report_write_line(outfile, writebuf, prefix_len, reverse, hwe_lls[marker_uidx], hwe_lhs[marker_uidx], hwe_hhs[marker_uidx], cptr2, p_values[3 * marker_uidx + 2])) {
+	if (hardy_report_write_line(outfile, writebuf, prefix_len, reverse, hwe_lls[marker_uidx], hwe_lhs[marker_uidx], hwe_hhs[marker_uidx], cptr2, p_values[3 * marker_idx + 2])) {
 	  goto hardy_report_ret_WRITE_FAIL;
 	}
       }

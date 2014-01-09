@@ -1284,7 +1284,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
       sprintf(logbuf, "Error: --cm-map chromosome code '%s' not found in dataset.\n", cm_map_chrname);
       goto apply_cm_map_ret_INVALID_CMDLINE;
     }
-    chrom_fo_idx = (uint32_t)ii;
+    chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, chrom_info_ptr->chrom_start[(uint32_t)ii]);
     chrom_ct = chrom_fo_idx + 1;
     fname_buf = cm_map_fname;
   }
