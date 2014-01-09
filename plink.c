@@ -82,7 +82,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (8 Jan 2014) ";
+  " (9 Jan 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -4246,7 +4246,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	goto plink_ret_1;
       }
     } else if (phenofile) {
-      retval = load_pheno(phenofile, unfiltered_indiv_ct, 0, cptr, max_person_id_len, uiptr, missing_pheno, missing_pheno_len, (misc_flags / MISC_AFFECTION_01) & 1, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d);
+      retval = load_pheno(phenofile, unfiltered_indiv_ct, 0, cptr, max_person_id_len, uiptr, missing_pheno, missing_pheno_len, (misc_flags / MISC_AFFECTION_01) & 1, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d, NULL, 0);
       if (retval) {
 	if (retval == LOAD_PHENO_LAST_COL) {
 	  logprint(errstr_phenotype_format);
@@ -5169,12 +5169,12 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto plink_skip_all_pheno;
     }
     uii = 0; // phenotype/cluster number
+    *outname_end = '.';
     if (loop_assoc_fname) {
       retval = load_clusters(loop_assoc_fname, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, person_ids, max_person_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len, NULL, NULL, NULL, NULL);
       if (retval) {
 	goto plink_ret_1;
       }
-      *outname_end = '.';
       if (pheno_d) {
 	free(pheno_d);
 	pheno_d = NULL;
@@ -5188,7 +5188,6 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       if (retval) {
 	goto plink_ret_1;
       }
-      memcpy(outname_end, ".P", 2);
     }
     do {
       if (loop_assoc_fname) {
@@ -5230,7 +5229,8 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	uii++;
       plink_skip_empty_pheno:
 	rewind(phenofile);
-	retval = load_pheno(phenofile, unfiltered_indiv_ct, indiv_exclude_ct, cptr, max_person_id_len, uiptr, missing_pheno, missing_pheno_len, (misc_flags / MISC_AFFECTION_01) & 1, uii, NULL, pheno_nm, &pheno_c, &pheno_d);
+	outname_end[1] = '\0';
+	retval = load_pheno(phenofile, unfiltered_indiv_ct, indiv_exclude_ct, cptr, max_person_id_len, uiptr, missing_pheno, missing_pheno_len, (misc_flags / MISC_AFFECTION_01) & 1, uii, NULL, pheno_nm, &pheno_c, &pheno_d, &(outname_end[1]), (uintptr_t)((&(outname[FNAMESIZE - 32])) - outname_end));
 	if (retval == LOAD_PHENO_LAST_COL) {
 	  wkspace_reset(wkspace_mark);
 	  break;
@@ -5245,7 +5245,12 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	if (!pheno_nm_ct) {
 	  goto plink_skip_empty_pheno;
 	}
-	outname_end2 = uint32_write(&(outname_end[2]), uii);
+	if (!outname_end[1]) {
+	  outname_end[1] = 'P';
+	  outname_end2 = uint32_write(&(outname_end[2]), uii);
+	} else {
+          outname_end2 = (char*)memchr(&(outname_end[1]), '\0', FNAMESIZE);
+	}
       }
       *outname_end2 = '\0';
     plink_skip_all_pheno:

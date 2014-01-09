@@ -13,7 +13,7 @@
 
 #define PHENO_EPSILON 0.000030517578125
 
-int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_exclude_ct, char* sorted_person_ids, uintptr_t max_person_id_len, uint32_t* id_map, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01, uint32_t mpheno_col, char* phenoname_str, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr, double** pheno_d_ptr) {
+int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_exclude_ct, char* sorted_person_ids, uintptr_t max_person_id_len, uint32_t* id_map, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01, uint32_t mpheno_col, char* phenoname_str, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, char* phenoname_load, uintptr_t max_pheno_name_len) {
   uint32_t affection = 1;
   uintptr_t* pheno_c = *pheno_c_ptr;
   double* pheno_d = *pheno_d_ptr;
@@ -81,7 +81,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 	goto load_pheno_ret_MISSING_TOKENS;
       }
       tmp_len2 = strlen_se(bufptr);
-      if (phenoname_str || ((tmp_len == 3) && (tmp_len2 == 3) && (!memcmp("FID", bufptr0, 3)) && (!memcmp("IID", bufptr, 3)))) {
+      if ((tmp_len == 3) && (tmp_len2 == 3) && (!memcmp("FID", bufptr0, 3)) && (!memcmp("IID", bufptr, 3))) {
 	if (phenoname_str) {
 	  tmp_len = strlen(phenoname_str);
 	  do {
@@ -93,7 +93,21 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 	    mpheno_col++;
 	    tmp_len2 = strlen_se(bufptr);
 	  } while ((tmp_len2 != tmp_len) || memcmp(bufptr, phenoname_str, tmp_len));
+	} else if (phenoname_load) {
+          bufptr = next_item_mult(bufptr, mpheno_col);
+	  if (no_more_items_kns(bufptr)) {
+	    return LOAD_PHENO_LAST_COL;
+	  }
+	  tmp_len = strlen_se(bufptr);
+	  if (tmp_len > max_pheno_name_len) {
+	    logprint("Error: Excessively long phenotype name in --pheno file.\n");
+            goto load_pheno_ret_INVALID_FORMAT;
+	  }
+          memcpyx(phenoname_load, bufptr, tmp_len, '\0');
 	}
+      } else if (phenoname_str) {
+	logprint("Error: --pheno-name requires the --pheno file to have a header line with first\ntwo columns 'FID' and 'IID'.\n");
+	goto load_pheno_ret_INVALID_FORMAT;
       } else {
 	header_processed = 1;
         if (!mpheno_col) {
