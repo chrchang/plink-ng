@@ -483,11 +483,20 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("ibc\thet", &help_ctrl, 1,
 "  --ibc\n"
 "    Calculate inbreeding coefficients in three different ways.  (The second is\n"
-"    the excess homozygosity coefficient calculated by the old --het command.)\n"
+"    approximately equal to the excess homozygosity coefficient calculated by\n"
+"    the old --het command.)\n"
 "    * For more details, see Yang J, Lee SH, Goddard ME and Visscher PM.  GCTA:\n"
 "      a tool for Genome-wide Complex Trait Analysis.  Am J Hum Genet. 2011 Jan\n"
 "      88(1): 76-82.  This paper also describes the relationship matrix\n"
 "      computation we implement.\n\n"
+	       );
+    help_print("check-sex\timpute-sex\tupdate-sex\tsex-check", &help_ctrl, 1,
+"  --check-sex\n"
+"  --impute-sex\n"
+"    --check-sex compares sex assignments in the input dataset with those\n"
+"    imputed from X chromosome inbreeding coefficients, while --impute-sex also\n"
+"    changes sex assignments to the imputed values.  (Combine --impute-sex with\n"
+"    --make-bed to keep the new values.)\n\n"
 	       );
     help_print("indep\tindep-pairwise", &help_ctrl, 1,
 "  --indep [window size]<kb> [step size (site ct)] [VIF threshold]\n"
@@ -1269,7 +1278,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                             names to 1/2/3/4s.\n"
 "  --alleleACGT <multichar> : Reverse of --allele1234.\n"
 	       );
-    help_print("update-ids\tupdate-parents\tupdate-sex", &help_ctrl, 0,
+    help_print("update-ids\tupdate-parents\tupdate-sex\timpute-sex", &help_ctrl, 0,
 "  --update-ids [f]     : Update individual IDs.\n"
 "  --update-parents [f] : Update parental IDs.\n"
 "  --update-sex [f]     : Update individual sexes.\n"

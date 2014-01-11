@@ -198,6 +198,7 @@
 #define MISC_SNPS_ONLY 0x80000000LLU
 #define MISC_SNPS_ONLY_NO_DI 0x100000000LLU
 #define MISC_ZERO_CMS 0x200000000LLU
+#define MISC_IMPUTE_SEX 0x400000000LLU
 
 #define CALC_RELATIONSHIP 1LLU
 #define CALC_IBC 2LLU
@@ -239,6 +240,7 @@
 #define CALC_EPI 0x1000000000LLU
 #define CALC_TESTMISS 0x2000000000LLU
 #define CALC_TESTMISHAP 0x4000000000LLU
+#define CALC_SEXCHECK 0x8000000000LLU
 
 // necessary to patch heterozygous haploids/female Y chromosome genotypes
 // during loading?

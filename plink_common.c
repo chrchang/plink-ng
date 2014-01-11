@@ -6248,6 +6248,7 @@ void vec_3freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, ui
 
 uintptr_t count_01(uintptr_t* lptr, uintptr_t word_ct) {
   // really just for getting a missing count
+  // unlike popcount01_longs, this assumes lptr[] has no 11s
   uintptr_t* lptr_end = &(lptr[word_ct]);
   uintptr_t loader;
 #ifdef __LP64__

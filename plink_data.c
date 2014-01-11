@@ -3021,7 +3021,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
   return retval;
 }
 
-int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, double missing_phenod, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t gxe_mcovar, uintptr_t* covar_ct_ptr, char** covar_names_ptr, uintptr_t* max_covar_name_len_ptr, uintptr_t* pheno_nm, uint32_t* pheno_nm_ct_ptr, uintptr_t** covar_nm_ptr, double** covar_d_ptr, uintptr_t** gxe_covar_nm_ptr, uintptr_t** gxe_covar_c_ptr) {
+int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, double missing_phenod, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t gxe_mcovar, uintptr_t* covar_ct_ptr, char** covar_names_ptr, uintptr_t* max_covar_name_len_ptr, uintptr_t* pheno_nm, uintptr_t** covar_nm_ptr, double** covar_d_ptr, uintptr_t** gxe_covar_nm_ptr, uintptr_t** gxe_covar_c_ptr) {
   // similar to load_clusters() in plink_cluster.c
   unsigned char* wkspace_mark = wkspace_base;
   unsigned char* wkspace_mark2 = NULL;
@@ -3336,7 +3336,6 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
 	    // compatibility
 	    if (!keep_pheno_on_missing_cov) {
 	      CLEAR_BIT(pheno_nm, indiv_uidx);
-	      *pheno_nm_ct_ptr -= 1;
 	    }
 	  } else if (dxx != 0.0) {
 	    SET_BIT(gxe_covar_nm, indiv_idx);
@@ -3356,7 +3355,6 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
 	  indiv_uidx = indiv_idx_to_uidx[indiv_idx];
 	  if (IS_SET(pheno_nm, indiv_uidx)) {
 	    CLEAR_BIT(pheno_nm, indiv_uidx);
-	    *pheno_nm_ct_ptr -= 1;
 	  }
 	}
       }
@@ -12646,14 +12644,14 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       wbufptr = double_g_writex(wbufptr, ((double)((int32_t)missing_cts[indiv_idx])) * dxx, ' ');
       *wbufptr++ = sexchar(sex_nm, sex_male, indiv_uidx);
       *wbufptr++ = ' ';
-      if (pheno_d) {
-        wbufptr = double_g_write(wbufptr, pheno_d[indiv_uidx]);
-      } else {
-        if (IS_SET(pheno_nm, indiv_uidx)) {
+      if (IS_SET(pheno_nm, indiv_uidx)) {
+        if (pheno_d) {
+          wbufptr = double_g_write(wbufptr, pheno_d[indiv_uidx]);
+        } else {
           *wbufptr++ = '0' + IS_SET(pheno_c, indiv_uidx);
-	} else {
-	  wbufptr = memcpya(wbufptr, "NA", 2);
 	}
+      } else {
+	wbufptr = memcpya(wbufptr, "NA", 2);
       }
       *wbufptr++ = '\n';
       if (fwrite_checked(tbuf, wbufptr - tbuf, outfile)) {

@@ -82,7 +82,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (9 Jan 2014) ";
+  " (11 Jan 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -97,12 +97,12 @@ const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n"
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
 const char null_calc_str[] = "Warning: No output requested.  Exiting.\n";
 #ifdef STABLE_BUILD
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --hardy, --ibc, --indep, --r2, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour, --ibs-test,\n--regress-distance, --model, --gxe, --logistic, --lasso, and --fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --hardy, --ibc, --impute-sex, --indep, --r2, --distance, --genome,\n--homozyg, --make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour,\n--ibs-test, --regress-distance, --model, --gxe, --logistic, --lasso, and\n--fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
 #else
   #ifndef NOLAPACK
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --ibc, --indep, --r2, --distance, --genome,\n--homozyg, --make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour,\n--ibs-test, --regress-distance, --model, --gxe, --logistic, --lasso,\n--test-missing, --unrelated-heritability, and --fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --ibc, --impute-sex, --indep, --r2,\n--distance, --genome, --homozyg, --make-rel, --make-grm-gz, --rel-cutoff,\n--cluster, --neighbour, --ibs-test, --regress-distance, --model, --gxe,\n--logistic, --lasso, --test-missing, --unrelated-heritability, and\n--fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --ibc, --indep, --r2, --distance, --genome,\n--homozyg, --make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour,\n--ibs-test, --regress-distance, --model, --gxe, --logistic, --lasso,\n--test-missing, and --fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --ibc, --impute-sex, --indep, --r2,\n--distance, --genome, --homozyg, --make-rel, --make-grm-gz, --rel-cutoff,\n--cluster, --neighbour, --ibs-test, --regress-distance, --model, --gxe,\n--logistic, --lasso, --test-missing, and --fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #endif
 #endif
 
@@ -396,6 +396,48 @@ uint32_t random_thin_markers(double thin_keep_prob, uintptr_t unfiltered_marker_
   return 0;
 }
 
+int32_t write_nosex(char* outname, char* outname_end, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* sex_nm, uintptr_t gender_unk_ct, char* person_ids, uintptr_t max_person_id_len) {
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* outfile = NULL;
+  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t indiv_uidx = 0;
+  int32_t retval = 0;
+  uintptr_t* sex_missing;
+  uintptr_t indiv_idx;
+  if (wkspace_alloc_ul_checked(&sex_missing, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+    goto write_nosex_ret_NOMEM;
+  }
+  bitfield_exclude_to_include(indiv_exclude, sex_missing, unfiltered_indiv_ct);
+  bitfield_andnot(sex_missing, sex_nm, unfiltered_indiv_ctl);
+  memcpy(outname_end, ".nosex", 7);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto write_nosex_ret_OPEN_FAIL;
+  }
+  for (indiv_idx = 0; indiv_idx < gender_unk_ct; indiv_idx++, indiv_uidx++) {
+    next_set_ul_unsafe_ck(sex_missing, &indiv_uidx);
+    fputs(&(person_ids[indiv_uidx * max_person_id_len]), outfile);
+    putc('\n', outfile);
+  }
+  if (fclose_null(&outfile)) {
+    goto write_nosex_ret_WRITE_FAIL;
+  }
+  sprintf(logbuf, "Ambiguous sex ID%s written to %s.\n", (gender_unk_ct == 1)? "" : "s", outname);
+  logprintb();
+  while (0) {
+  write_nosex_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  write_nosex_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  write_nosex_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+  wkspace_reset(wkspace_mark);
+  fclose_cond(outfile);
+  return retval;
+}
 
 double calc_wt_mean(double exponent, int32_t lhi, int32_t lli, int32_t hhi) {
   double lcount = (double)lli + ((double)lhi * 0.5);
@@ -424,6 +466,241 @@ double calc_wt_mean_maf(double exponent, double maf) {
   }
   weight = pow(lh_freq, -exponent);
   return (lh_freq * (ll_freq + lh_freq) + 2 * ll_freq * hh_freq) * weight;
+}
+
+int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t do_impute, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* gender_unk_ct_ptr) {
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* outfile = NULL;
+  uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t indiv_ctl2 = (indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t x_variant_ct = 0;
+  double nei_multiplier_nm = 4.0 * ((double)((intptr_t)indiv_ct)) / ((double)((intptr_t)(indiv_ct * 2 - 1)));
+  double nei_sum = 0.0;
+  uint32_t gender_unk_ct = 0;
+  uint32_t problem_ct = 0;
+  int32_t x_code = chrom_info_ptr->x_code;
+  int32_t retval = 0;
+  uintptr_t* loadbuf_raw;
+  uintptr_t* loadbuf;
+  // We wish to compute three quantities for each individual:
+  // 1. Observed homozygous polymorphic Xchr sites.
+  // 2. Observed nonmissing polymorphic Xchr sites.
+  // 3. Nei's unbiased estimator of the expected quantity #1.  (This has an
+  //    N/(N-1) term which makes it slightly different from GCTA's Fhat2.
+  //    Todo: check whether --ibc Fhat2 calculation should be revised to be
+  //    consistent with --het...)
+  uintptr_t* lptr;
+  uint32_t* het_cts;
+  uint32_t* missing_cts;
+  double* nei_offsets;
+  char* fid_ptr;
+  char* iid_ptr;
+  char* wptr;
+  double dpp;
+  double dtot;
+  double cur_nei;
+  double dff;
+  double dee;
+  uintptr_t marker_uidx;
+  uintptr_t marker_uidx_end;
+  uintptr_t marker_idxs_left;
+  uintptr_t indiv_uidx;
+  uintptr_t indiv_idx;
+  uintptr_t cur_missing_ct;
+  uintptr_t allele_obs_ct;
+  uintptr_t set_allele_ct;
+  uintptr_t cur_word;
+  uintptr_t ulii;
+  uint32_t orig_sex_code;
+  uint32_t imputed_sex_code;
+  if ((x_code == -1) || (!is_set(chrom_info_ptr->chrom_mask, (uint32_t)x_code))) {
+    goto sexcheck_ret_INVALID_CMDLINE;
+  }
+  marker_uidx_end = chrom_info_ptr->chrom_end[(uint32_t)x_code];
+  marker_uidx = next_unset_ul(marker_exclude, chrom_info_ptr->chrom_start[(uint32_t)x_code], marker_uidx_end);
+  if (marker_uidx == marker_uidx_end) {
+    goto sexcheck_ret_INVALID_CMDLINE;
+  }
+  marker_idxs_left = marker_uidx_end - marker_uidx - popcount_bit_idx(marker_exclude, marker_uidx, marker_uidx_end);
+  if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&loadbuf, indiv_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ui_checked(&het_cts, indiv_ct * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&missing_cts, indiv_ct * sizeof(int32_t)) ||
+      wkspace_alloc_d_checked(&nei_offsets, indiv_ct * sizeof(double))) {
+    goto sexcheck_ret_NOMEM;
+  }
+  loadbuf_raw[unfiltered_indiv_ctl2 - 1] = 0;
+  loadbuf[indiv_ctl2 - 1] = 0;
+  fill_uint_zero(het_cts, indiv_ct);
+  fill_uint_zero(missing_cts, indiv_ct);
+  fill_double_zero(nei_offsets, indiv_ct);
+  if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+    goto sexcheck_ret_READ_FAIL;
+  }
+  for (; marker_idxs_left; marker_idxs_left--, marker_uidx++) {
+    if (IS_SET(marker_exclude, marker_uidx)) {
+      marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+      if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+        goto sexcheck_ret_READ_FAIL;
+      }
+    }
+    if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, indiv_ct, indiv_exclude, 0)) {
+      goto sexcheck_ret_READ_FAIL;
+    }
+    cur_missing_ct = count_01(loadbuf, indiv_ctl2);
+    allele_obs_ct = 2 * (indiv_ct - cur_missing_ct);
+    set_allele_ct = popcount_longs(loadbuf, indiv_ctl2) - cur_missing_ct;
+    // skip monomorphic sites
+    if ((!set_allele_ct) || (set_allele_ct == allele_obs_ct)) {
+      continue;
+    }
+    x_variant_ct++;
+    if (cur_missing_ct) {
+      dtot = (double)((intptr_t)allele_obs_ct);
+      dpp = set_allele_freqs[marker_uidx];
+      cur_nei = 1.0 - 2 * dpp * (1 - dpp) * dtot / ((double)((intptr_t)((allele_obs_ct - 1))));
+      // iterate through missing calls
+      lptr = loadbuf;
+      for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx += BITCT2) {
+        cur_word = *lptr++;
+        cur_word = (~(cur_word >> 1)) & cur_word & FIVEMASK;
+        while (cur_word) {
+          ulii = indiv_idx + CTZLU(cur_word) / 2;
+          missing_cts[ulii] += 1;
+          nei_offsets[ulii] += cur_nei;
+          cur_word &= cur_word - 1;
+	}
+      }
+    } else {
+      dpp = set_allele_freqs[marker_uidx];
+      cur_nei = 1.0 - dpp * (1 - dpp) * nei_multiplier_nm;
+    }
+    lptr = loadbuf;
+    // iterate through heterozygous calls
+    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx += BITCT2) {
+      cur_word = *lptr++;
+      cur_word = (cur_word >> 1) & (~cur_word) & FIVEMASK;
+      while (cur_word) {
+        het_cts[indiv_idx + CTZLU(cur_word) / 2] += 1;
+        cur_word &= cur_word - 1;
+      }
+    }
+    nei_sum += cur_nei;
+  }
+  if (!x_variant_ct) {
+    goto sexcheck_ret_INVALID_CMDLINE;
+  }
+  memcpy(outname_end, ".sexcheck", 10);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto sexcheck_ret_OPEN_FAIL;
+  }
+  sprintf(tbuf, "%%%us %%%us       PEDSEX       SNPSEX       STATUS            F\n", plink_maxfid, plink_maxiid);
+  fprintf(outfile, tbuf, "FID", "IID");
+  indiv_uidx = 0;
+  if (do_impute) {
+    bitfield_andnot(sex_nm, indiv_exclude, unfiltered_indiv_ctl);
+  }
+  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++, indiv_uidx++) {
+    next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
+    fid_ptr = &(person_ids[indiv_uidx * max_person_id_len]);
+    iid_ptr = (char*)memchr(fid_ptr, '\t', max_person_id_len);
+    wptr = fw_strcpyn(plink_maxfid, (uintptr_t)(iid_ptr - fid_ptr), fid_ptr, tbuf);
+    *wptr++ = ' ';
+    wptr = fw_strcpy(plink_maxiid, &(iid_ptr[1]), wptr);
+    if (!IS_SET(sex_nm, indiv_uidx)) {
+      orig_sex_code = 0;
+    } else {
+      orig_sex_code = 2 - IS_SET(sex_male, indiv_uidx);
+    }
+    wptr = memseta(wptr, 32, 12);
+    *wptr++ = '0' + orig_sex_code;
+    wptr = memseta(wptr, 32, 12);
+    ulii = x_variant_ct - missing_cts[indiv_idx];
+    if (ulii) {
+      dee = nei_sum - nei_offsets[indiv_idx];
+      dtot = (double)((intptr_t)ulii) - dee;
+      dff = (dtot - ((double)((intptr_t)(het_cts[indiv_idx])))) / dtot;
+      if (dff > 0.8) {
+        imputed_sex_code = 1;
+      } else if (dff < 0.2) {
+        imputed_sex_code = 2;
+      } else {
+        imputed_sex_code = 0;
+      }
+      *wptr++ = '0' + imputed_sex_code;
+      if (orig_sex_code && (orig_sex_code == imputed_sex_code)) {
+        wptr = memcpya(wptr, "           OK ", 14);
+      } else {
+        wptr = memcpya(wptr, "      PROBLEM ", 14);
+	problem_ct++;
+      }
+      wptr = double_g_writewx4x(wptr, dff, 12, '\n');
+    } else {
+      imputed_sex_code = 0;
+      wptr = memcpya(wptr, "0      PROBLEM          nan\n", 28);
+      problem_ct++;
+    }
+    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+      goto sexcheck_ret_WRITE_FAIL;
+    }
+    if (do_impute) {
+      if (imputed_sex_code) {
+	SET_BIT(sex_nm, indiv_uidx);
+	if (imputed_sex_code == 1) {
+	  SET_BIT(sex_male, indiv_uidx);
+	} else {
+	  CLEAR_BIT(sex_male, indiv_uidx);
+	}
+      } else {
+	CLEAR_BIT(sex_nm, indiv_uidx);
+      }
+    }
+  }
+  if (fclose_null(&outfile)) {
+    goto sexcheck_ret_WRITE_FAIL;
+  }
+  if (do_impute) {
+    bitfield_and(sex_male, sex_nm, unfiltered_indiv_ctl);
+    gender_unk_ct = indiv_ct - popcount_longs(sex_nm, unfiltered_indiv_ctl);
+    if (!gender_unk_ct) {
+      sprintf(logbuf, "--impute-sex: %" PRIuPTR " Xchr variant%s scanned, all sexes imputed.\n", x_variant_ct, (x_variant_ct == 1)? "" : "s");
+    } else {
+      sprintf(logbuf, "--impute-sex: %" PRIuPTR " Xchr variant%s scanned, %" PRIuPTR "/%" PRIuPTR " sex%s imputed.\n", x_variant_ct, (x_variant_ct == 1)? "" : "s", (indiv_ct - gender_unk_ct), indiv_ct, (indiv_ct == 1)? "" : "es");
+    }
+    *gender_unk_ct_ptr = gender_unk_ct;
+  } else {
+    if (!problem_ct) {
+      sprintf(logbuf, "--check-sex: %" PRIuPTR " Xchr variant%s scanned, no problems detected.\n", x_variant_ct, (x_variant_ct == 1)? "" : "s");
+    } else {
+      sprintf(logbuf, "--check-sex: %" PRIuPTR " Xchr variant%s scanned, %u problem%s detected.\n", x_variant_ct, (x_variant_ct == 1)? "" : "s", problem_ct, (problem_ct == 1)? "" : "s");
+    }
+  }
+  logprintb();
+  sprintf(logbuf, "Report written to %s.\n", outname);
+  logprintb();
+  while (0) {
+  sexcheck_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  sexcheck_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  sexcheck_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  sexcheck_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  sexcheck_ret_INVALID_CMDLINE:
+    logprint("Error: --check-sex/--impute-sex requires at least one polymorphic X chromosome\nsite.\n");
+    retval = RET_INVALID_CMDLINE;
+    break;
+  }
+  wkspace_reset(wkspace_mark);
+  fclose_cond(outfile);
+  return retval;
 }
 
 int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfiltered_indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info) {
@@ -3953,7 +4230,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uint32_t map_cols = 3;
   uint32_t affection = 0;
   uintptr_t* pheno_nm = NULL;
-  uintptr_t* pheno_nosex_exclude = NULL; // --make-bed/--recode only
+  uintptr_t* pheno_nm_datagen = NULL; // --make-bed/--recode/--write-covar only
   uintptr_t* orig_pheno_nm = NULL; // --all-pheno + --pheno-merge
   uintptr_t* pheno_c = NULL;
   uintptr_t* orig_pheno_c = NULL;
@@ -4224,10 +4501,15 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   marker_ct = unfiltered_marker_ct - marker_exclude_ct;
   if (gender_unk_ct) {
     sprintf(logbuf, "%" PRIuPTR " variant%s and %" PRIuPTR " %s (%d male%s, %d female%s, %u ambiguous) loaded.\n", marker_ct, (marker_ct == 1)? "" : "s", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), uii, (uii == 1)? "" : "s", ujj, (ujj == 1)? "" : "s", gender_unk_ct);
+    logprintb();
+    retval = write_nosex(outname, outname_end, unfiltered_indiv_ct, indiv_exclude, sex_nm, gender_unk_ct, person_ids, max_person_id_len);
+    if (retval) {
+      goto plink_ret_1;
+    }
   } else {
     sprintf(logbuf, "%" PRIuPTR " variant%s and %" PRIuPTR " %s (%d male%s, %d female%s) loaded.\n", marker_ct, (marker_ct == 1)? "" : "s", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), uii, (uii == 1)? "" : "s", ujj, (ujj == 1)? "" : "s");
+    logprintb();
   }
-  logprintb();
 
   if (phenoname && fopen_checked(&phenofile, phenoname, "r")) {
     goto plink_ret_OPEN_FAIL;
@@ -4483,19 +4765,19 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
-  if (gender_unk_ct && (calculation_type & (CALC_MAKE_BED | CALC_RECODE)) && (!sex_missing_pheno)) {
-    // postponed to here to avoid e.g. --update-sex not working on missing-sex
-    // individuals because --allow-no-sex was not specified
-    pheno_nosex_exclude = (uintptr_t*)malloc(unfiltered_indiv_ctl * sizeof(intptr_t));
-    if (!pheno_nosex_exclude) {
-      goto plink_ret_NOMEM;
+  if (gender_unk_ct && popcount_longs_exclude(pheno_nm, sex_nm, unfiltered_indiv_ctl)) {
+    if (!(sex_missing_pheno & ALLOW_NO_SEX)) {
+      if ((!sex_missing_pheno) && (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_WRITE_COVAR))) {
+	if (calculation_type & (~(CALC_MAKE_BED | CALC_RECODE | CALC_WRITE_COVAR))) {
+	  logprint("Error: When ambiguous-sex samples with phenotype data are present,\n--make-bed/--recode/--write-covar usually cannot be combined with other\ncommands.  Split them across multiple PLINK runs, or use\n--allow-no-sex/--must-have-sex.\n");
+	  goto plink_ret_INVALID_CMDLINE;
+	}
+      } else {
+	// either --must-have-sex without --allow-no-sex, or no data generation
+	// command
+        bitfield_and(pheno_nm, sex_nm, unfiltered_indiv_ctl);
+      }
     }
-    memcpy(pheno_nosex_exclude, pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t));
-    bitfield_andnot(pheno_nosex_exclude, indiv_exclude, unfiltered_indiv_ctl);
-    bitfield_andnot(pheno_nosex_exclude, sex_nm, unfiltered_indiv_ctl);
-  }
-  if (!(sex_missing_pheno & ALLOW_NO_SEX)) {
-    bitfield_and(pheno_nm, sex_nm, unfiltered_indiv_ctl);
   }
   if (misc_flags & MISC_PRUNE) {
     bitfield_ornot(indiv_exclude, pheno_nm, unfiltered_indiv_ctl);
@@ -4634,6 +4916,63 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     bitfield_and(pheno_c, pheno_nm, unfiltered_indiv_ctl);
   }
   bitfield_andnot(founder_info, indiv_exclude, unfiltered_indiv_ctl);
+
+  if ((parallel_tot > 1) && (parallel_tot > g_indiv_ct / 2)) {
+    sprintf(logbuf, "Error: Too many --parallel jobs (maximum %" PRIuPTR "/2 = %" PRIuPTR ").\n", g_indiv_ct, g_indiv_ct / 2);
+    goto plink_ret_INVALID_CMDLINE_2;
+  }
+  if (g_thread_ct > 1) {
+    if ((calculation_type & (CALC_RELATIONSHIP | CALC_REL_CUTOFF | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_LD)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_PERM | GLM_MPERM))) || ((calculation_type & CALC_TESTMISS) && (testmiss_modifier & (TESTMISS_PERM | TESTMISS_MPERM))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname))) || ((calculation_type & CALC_EPI) && (epi_ip->modifier & EPI_FAST))) {
+      sprintf(logbuf, "Using %u threads (change this with --threads).\n", g_thread_ct);
+      logprintb();
+    } else {
+      logprint("Using 1 thread (no multithreaded calculations invoked).\n");
+    }
+  }
+
+  if ((calculation_type & (CALC_SEXCHECK | CALC_MISSING_REPORT | CALC_GENOME | CALC_HOMOZYG)) || cluster_ptr->mds_dim_ct) {
+    calc_plink_maxfid(unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, &plink_maxfid, &plink_maxiid);
+  }
+  plink_maxsnp = calc_plink_maxsnp(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len);
+
+  if (indiv_sort & (INDIV_SORT_NATURAL | INDIV_SORT_ASCII)) {
+    retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, 0, 0, (indiv_sort & INDIV_SORT_NATURAL)? strcmp_natural_deref : strcmp_deref);
+    if (retval) {
+      goto plink_ret_1;
+    }
+    indiv_sort_map = uiptr;
+    wkspace_reset((unsigned char*)cptr);
+  }
+
+  if ((misc_flags & (MISC_MAKE_FOUNDERS | MISC_MAKE_FOUNDERS_FIRST)) == MISC_MAKE_FOUNDERS) {
+    if (make_founders(unfiltered_indiv_ct, g_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, (misc_flags / MISC_MAKE_FOUNDERS_REQUIRE_2_MISSING) & 1, indiv_exclude, founder_info)) {
+      goto plink_ret_NOMEM;
+    }
+  }
+
+  if (calculation_type & CALC_WRITE_CLUSTER) {
+    retval = write_clusters(outname, outname_end, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, (misc_flags / MISC_WRITE_CLUSTER_OMIT_UNASSIGNED) & 1, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len);
+    if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER))))) {
+      goto plink_ret_1;
+    }
+  }
+
+  // this currently has to come last since covar data structures refer to
+  // filtered individual indices.
+  if (covar_fname) {
+    // update this as more covariate-referencing commands are added
+    if (!(calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_WRITE_COVAR | CALC_GXE | CALC_GLM | CALC_LASSO))) {
+      logprint("Warning: Ignoring --covar since no commands reference the covariates.\n");
+    } else {
+      // if only --gxe, ignore --covar-name/--covar-number
+      uii = (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_WRITE_COVAR | CALC_GLM | CALC_LASSO))? 1 : 0;
+      retval = load_covars(covar_fname, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, missing_phenod, uii? covar_modifier : (covar_modifier & COVAR_KEEP_PHENO_ON_MISSING_COV), uii? covar_range_list_ptr : NULL, gxe_mcovar, &covar_ct, &covar_names, &max_covar_name_len, pheno_nm, &covar_nm, &covar_d, &gxe_covar_nm, &gxe_covar_c);
+      if (retval) {
+	goto plink_ret_1;
+      }
+    }
+  }
+
   pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
   if (!pheno_nm_ct) {
     logprint("Note: No phenotypes present.\n");
@@ -4657,68 +4996,6 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
     logprintb();
     misc_flags |= MISC_HWE_ALL;
-  }
-
-  if ((parallel_tot > 1) && (parallel_tot > g_indiv_ct / 2)) {
-    sprintf(logbuf, "Error: Too many --parallel jobs (maximum %" PRIuPTR "/2 = %" PRIuPTR ").\n", g_indiv_ct, g_indiv_ct / 2);
-    goto plink_ret_INVALID_CMDLINE_2;
-  }
-  if (g_thread_ct > 1) {
-    if ((calculation_type & (CALC_RELATIONSHIP | CALC_REL_CUTOFF | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_LD)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_PERM | GLM_MPERM))) || ((calculation_type & CALC_TESTMISS) && (testmiss_modifier & (TESTMISS_PERM | TESTMISS_MPERM))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname))) || ((calculation_type & CALC_EPI) && (epi_ip->modifier & EPI_FAST))) {
-      sprintf(logbuf, "Using %u threads (change this with --threads).\n", g_thread_ct);
-      logprintb();
-    } else {
-      logprint("Using 1 thread (no multithreaded calculations invoked).\n");
-    }
-  }
-
-  if ((calculation_type & (CALC_MISSING_REPORT | CALC_GENOME | CALC_HOMOZYG)) || cluster_ptr->mds_dim_ct) {
-    calc_plink_maxfid(unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, &plink_maxfid, &plink_maxiid);
-  }
-  plink_maxsnp = calc_plink_maxsnp(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len);
-
-  if (indiv_sort & (INDIV_SORT_NATURAL | INDIV_SORT_ASCII)) {
-    retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, 0, 0, (indiv_sort & INDIV_SORT_NATURAL)? strcmp_natural_deref : strcmp_deref);
-    if (retval) {
-      goto plink_ret_1;
-    }
-    indiv_sort_map = uiptr;
-    wkspace_reset((unsigned char*)cptr);
-  }
-
-  if ((misc_flags & (MISC_MAKE_FOUNDERS | MISC_MAKE_FOUNDERS_FIRST)) == MISC_MAKE_FOUNDERS) {
-    if (make_founders(unfiltered_indiv_ct, g_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, (misc_flags / MISC_MAKE_FOUNDERS_REQUIRE_2_MISSING) & 1, indiv_exclude, founder_info)) {
-      goto plink_ret_NOMEM;
-    }
-  }
-  if ((calculation_type & CALC_GENOME) || genome_skip_write) {
-    retval = populate_pedigree_rel_info(&pri, unfiltered_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, founder_info);
-    if (retval) {
-      goto plink_ret_1;
-    }
-  }
-
-  if (calculation_type & CALC_WRITE_CLUSTER) {
-    retval = write_clusters(outname, outname_end, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, (misc_flags / MISC_WRITE_CLUSTER_OMIT_UNASSIGNED) & 1, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len);
-    if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER))))) {
-      goto plink_ret_1;
-    }
-  }
-
-  // this currently has to come last since covar data structures refer to
-  // filtered individual indices.
-  if (covar_fname) {
-    // update this as more covariate-referencing commands are added
-    if (!(calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_WRITE_COVAR | CALC_GXE | CALC_GLM | CALC_LASSO))) {
-      logprint("Warning: Ignoring --covar since no commands reference the covariates.\n");
-    } else {
-      // if only --gxe, ignore --covar-name/--covar-number
-      uii = (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_WRITE_COVAR | CALC_GLM | CALC_LASSO))? 1 : 0;
-      retval = load_covars(covar_fname, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, missing_phenod, uii? covar_modifier : (covar_modifier & COVAR_KEEP_PHENO_ON_MISSING_COV), uii? covar_range_list_ptr : NULL, gxe_mcovar, &covar_ct, &covar_names, &max_covar_name_len, pheno_nm, &pheno_nm_ct, &covar_nm, &covar_d, &gxe_covar_nm, &gxe_covar_c);
-      if (retval) {
-	goto plink_ret_1;
-      }
-    }
   }
 
   if (unfiltered_marker_ct == marker_exclude_ct) {
@@ -4882,6 +5159,20 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     topsize = 0;
   }
 
+  if (calculation_type & CALC_SEXCHECK) {
+    retval = sexcheck(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, sex_nm, sex_male, (misc_flags / MISC_IMPUTE_SEX) & 1, chrom_info_ptr, set_allele_freqs, &gender_unk_ct);
+    if (retval) {
+      goto plink_ret_1;
+    }
+  }
+
+  if ((calculation_type & CALC_GENOME) || genome_skip_write) {
+    retval = populate_pedigree_rel_info(&pri, unfiltered_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, founder_info);
+    if (retval) {
+      goto plink_ret_1;
+    }
+  }
+
   if (calculation_type & CALC_WRITE_SET) {
     retval = write_set(sip, outname, outname_end, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_pos, zero_extra_chroms, chrom_info_ptr);
     if (retval) {
@@ -4904,30 +5195,33 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & (CALC_WRITE_COVAR | CALC_MAKE_BED | CALC_RECODE)) {
-    if (pheno_nosex_exclude) {
-      bitfield_andnot_reversed_args(pheno_nosex_exclude, pheno_nm, unfiltered_indiv_ctl);
+    // parentheses needed around ALLOW_NO_SEX | MUST_HAVE_SEX!!
+    if (gender_unk_ct && (sex_missing_pheno & MUST_HAVE_SEX)) {
+      pheno_nm_datagen = (uintptr_t*)malloc(unfiltered_indiv_ctl * sizeof(intptr_t));
+      memcpy(pheno_nm_datagen, pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t));
+      bitfield_and(pheno_nm_datagen, sex_nm, unfiltered_indiv_ctl);
     }
     if (covar_fname) {
-      retval = write_covars(outname, outname_end, write_covar_modifier, write_covar_dummy_max_categories, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nosex_exclude? pheno_nosex_exclude : pheno_nm, pheno_c, pheno_d, missing_phenod, output_missing_pheno, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d);
+      retval = write_covars(outname, outname_end, write_covar_modifier, write_covar_dummy_max_categories, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm_datagen? pheno_nm_datagen : pheno_nm, pheno_c, pheno_d, missing_phenod, output_missing_pheno, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d);
       if (retval) {
 	goto plink_ret_1;
       }
     }
     if (calculation_type & CALC_MAKE_BED) {
-      retval = make_bed(bedfile, bed_offset, mapname, map_cols, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_cms, marker_pos, marker_allele_ptrs, marker_reverse, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nosex_exclude? pheno_nosex_exclude : pheno_nm, pheno_c, pheno_d, output_missing_pheno, map_is_unsorted, indiv_sort_map, misc_flags, update_chr, flip_subset_fname, hh_exists, chrom_info_ptr);
+      retval = make_bed(bedfile, bed_offset, mapname, map_cols, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_cms, marker_pos, marker_allele_ptrs, marker_reverse, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm_datagen? pheno_nm_datagen : pheno_nm, pheno_c, pheno_d, output_missing_pheno, map_is_unsorted, indiv_sort_map, misc_flags, update_chr, flip_subset_fname, hh_exists, chrom_info_ptr);
       if (retval) {
         goto plink_ret_1;
       }
     }
     if (calculation_type & CALC_RECODE) {
-      retval = recode(recode_modifier, bedfile, bed_offset, outname, outname_end, recode_allele_name, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, marker_ids, max_marker_id_len, marker_cms, marker_allele_ptrs, max_marker_allele_len, marker_pos, marker_reverse, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nosex_exclude? pheno_nosex_exclude : pheno_nm, pheno_c, pheno_d, output_missing_pheno, map_is_unsorted, misc_flags, hh_exists, chrom_info_ptr);
+      retval = recode(recode_modifier, bedfile, bed_offset, outname, outname_end, recode_allele_name, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, marker_ids, max_marker_id_len, marker_cms, marker_allele_ptrs, max_marker_allele_len, marker_pos, marker_reverse, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm_datagen? pheno_nm_datagen : pheno_nm, pheno_c, pheno_d, output_missing_pheno, map_is_unsorted, misc_flags, hh_exists, chrom_info_ptr);
       if (retval) {
         goto plink_ret_1;
       }
     }
-    if (pheno_nosex_exclude) {
-      free(pheno_nosex_exclude);
-      pheno_nosex_exclude = NULL;
+    if (pheno_nm_datagen) {
+      free(pheno_nm_datagen);
+      pheno_nm_datagen = NULL;
     }
   }
 
@@ -5338,7 +5632,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   if (topsize) {
     wkspace_left += topsize;
   }
-  free_cond(pheno_nosex_exclude);
+  free_cond(pheno_nm_datagen);
   free_cond(orig_pheno_d);
   free_cond(orig_pheno_c);
   free_cond(orig_pheno_nm);
@@ -8259,6 +8553,9 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_NOMEM;
 	  }
 	}
+      } else if (!memcmp(argptr2, "heck-sex", 9)) {
+        calculation_type |= CALC_SEXCHECK;
+        goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -9151,7 +9448,7 @@ int32_t main(int32_t argc, char** argv) {
 	misc_flags |= MISC_HWE_ALL;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "et", 3)) {
-	sprintf(logbuf, "Error: --het retired.  Use --ibc.%s", errstr_append);
+	sprintf(logbuf, "Error: --het provisionally retired.  Contact us if --ibc is unsatisfactory.%s", errstr_append);
 	goto main_ret_INVALID_CMDLINE_3;
       } else if (!memcmp(argptr2, "ardy", 5)) {
 	calculation_type |= CALC_HARDY;
@@ -9524,6 +9821,14 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "nd-major", 9)) {
 	logprint("Error: --ind-major is retired, to discourage creation of .bed files that\nconstantly have to be transposed back.  --recode exports individual-major files\nwhich are good enough for smaller jobs; we suggest transposing small data\nwindows on the fly when tackling large jobs.\n");
         goto main_ret_INVALID_CMDLINE;
+      } else if (!memcmp(argptr2, "mpute-sex", 10)) {
+	if (calculation_type & CALC_SEXCHECK) {
+          logprint("Note: --check-sex is redundant with --impute-sex.\n");
+	}
+        calculation_type |= CALC_SEXCHECK;
+        misc_flags |= MISC_IMPUTE_SEX;
+	sex_missing_pheno |= ALLOW_NO_SEX;
+        goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -12656,12 +12961,12 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "pdate-sex", 10)) {
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
 	if (update_ids_fname) {
 	  logprint("Error: --update-sex cannot be used with --update-ids.\n");
 	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	retval = alloc_fname(&update_sex_fname, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
@@ -13043,10 +13348,19 @@ int32_t main(int32_t argc, char** argv) {
         goto main_ret_INVALID_CMDLINE;
       }
     } else {
-      if (!(calculation_type & (CALC_MAKE_BED | CALC_RECODE))) {
-        logprint("Error: --must-have-sex must be used with --make-bed or --recode.\n");
+      if (!(calculation_type & (CALC_WRITE_COVAR | CALC_MAKE_BED | CALC_RECODE))) {
+        logprint("Error: --must-have-sex must be used with --make-bed/--recode/--write-covar.\n");
         goto main_ret_INVALID_CMDLINE;
       }
+    }
+  }
+  if (misc_flags & MISC_IMPUTE_SEX) {
+    if (!(calculation_type & (CALC_WRITE_COVAR | CALC_MAKE_BED | CALC_RECODE))) {
+      sprintf(logbuf, "Error: --impute-sex must be used with --make-bed/--recode/--write-covar.%s", errstr_append);
+      goto main_ret_INVALID_CMDLINE_3;
+    } else if (calculation_type & (~(CALC_WRITE_COVAR | CALC_MAKE_BED | CALC_RECODE | CALC_SEXCHECK))) {
+      sprintf(logbuf, "Error: --impute-sex cannot be used with any commands other than\n--make-bed/--recode/--write-covar.%s", errstr_append);
+      goto main_ret_INVALID_CMDLINE_3;
     }
   }
   if (cluster.qmatch_fname && (!cluster.qt_fname)) {
