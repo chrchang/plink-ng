@@ -491,12 +491,14 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      computation we implement.\n\n"
 	       );
     help_print("check-sex\timpute-sex\tupdate-sex\tsex-check", &help_ctrl, 1,
-"  --check-sex\n"
-"  --impute-sex\n"
+"  --check-sex {female max F} {male min F}\n"
+"  --impute-sex {female max F} {male min F}\n"
 "    --check-sex compares sex assignments in the input dataset with those\n"
-"    imputed from X chromosome inbreeding coefficients, while --impute-sex also\n"
-"    changes sex assignments to the imputed values.  (Combine --impute-sex with\n"
-"    --make-bed to keep the new values.)\n\n"
+"    imputed from X chromosome inbreeding coefficients.  By default, values\n"
+"    smaller than 0.2 yield female calls, and values larger than 0.8 yield male\n"
+"    calls; change these thresholds by passing parameters to --check-sex.\n"
+"    --impute-sex also changes sex assignments to the imputed values, and must\n"
+"    be used with --make-bed/--recode/--write-covar.\n\n"
 	       );
     help_print("indep\tindep-pairwise", &help_ctrl, 1,
 "  --indep [window size]<kb> [step size (site ct)] [VIF threshold]\n"
