@@ -40,6 +40,10 @@
 #include "plink_stats.h"
 #include "pigz.h"
 
+#define HWE_MIDP 1
+#define HWE_THRESH_MIDP 2
+#define HWE_THRESH_ALL 4
+
 // default jackknife iterations
 #define ITERS_DEFAULT 100000
 #define DEFAULT_PPC_GAP 500000
@@ -121,248 +125,6 @@ void dispmsg(int32_t retval) {
   case RET_READ_FAIL:
     logprint("\nError: File read failure.\n");
     break;
-  }
-}
-
-int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double thresh) {
-  // Threshold-test-only version of SNPHWE2() which is usually able to exit
-  // from the calculation earlier.  Returns 0 if these counts are close enough
-  // to Hardy-Weinberg equilibrium, 1 otherwise.
-  //
-  // Suppose, for definiteness, that the number of observed hets is no less
-  // than expectation.  (Same ideas apply for the other case.)  We proceed as
-  // follows:
-  // - Sum the *relative* likelihoods of more likely smaller het counts.
-  // - Determine the minimum tail mass to pass the threshold.
-  // - The majority of the time, the tail boundary elements are enough to pass
-  // the threshold; we never need to sum the remainder of the tails.
-  // - And in the case of disequilibrium, we will often be able to immediately
-  // determine that the tail sum cannot possibly pass the threshold, just by
-  // looking at the tail boundary elements and using a geometric series to
-  // upper-bound the tail sums.
-  // - Only when neither of these conditions hold do we start traveling down
-  // the tails.
-  intptr_t obs_homc;
-  intptr_t obs_homr;
-  if (obs_hom1 < obs_hom2) {
-    obs_homc = obs_hom2;
-    obs_homr = obs_hom1;
-  } else {
-    obs_homc = obs_hom1;
-    obs_homr = obs_hom2;
-  }
-  int64_t rare_copies = 2LL * obs_homr + obs_hets;
-  int64_t genotypes2 = (obs_hets + obs_homc + obs_homr) * 2LL;
-  double curr_hets_t2 = obs_hets; // tail 2
-  double curr_homr_t2 = obs_homr;
-  double curr_homc_t2 = obs_homc;
-
-  // Subtract epsilon from initial probability mass, so that we can compare to
-  // 1 when determining tail vs. center membership without floating point error
-  // biting us in the ass
-  double tailp1 = (1 - SMALL_EPSILON) * EXACT_TEST_BIAS;
-  double centerp = 0;
-  double lastp2 = tailp1;
-  double tailp2 = 0;
-  double tail1_ceil;
-  double tail2_ceil;
-  double lastp1;
-  double curr_hets_t1;
-  double curr_homr_t1;
-  double curr_homc_t1;
-
-  // Initially, if center sum reaches this, the test can immediately fail.
-  // Once center is summed, this is recalculated, and when tail sum has reached
-  // this, we've passed.
-  double exit_thresh;
-  double exit_threshx;
-  double ratio;
-  double preaddp;
-  if (!genotypes2) {
-    return 0;
-  }
-
-  // Convert thresh into reverse odds ratio.
-  thresh = (1 - thresh) / thresh;
-
-  // Expected het count:
-  //   2 * rarefreq * (1 - rarefreq) * genotypes
-  // = 2 * (rare_copies / (2 * genotypes)) * (1 - rarefreq) * genotypes
-  // = rare_copies * (1 - (rare_copies / (2 * genotypes)))
-  // = (rare_copies * (2 * genotypes - rare_copies)) / (2 * genotypes)
-  // 
-  // The computational identity is
-  //   P(nhets == n) := P(nhets == n+2) * (n+2) * (n+1) /
-  //                    (4 * homr(n) * homc(n))
-  // where homr() and homc() are the number of homozygous rares/commons needed
-  // to maintain the same allele frequencies.
-  // This probability is always decreasing when proceeding away from the
-  // expected het count.
-
-  if (obs_hets * genotypes2 > rare_copies * (genotypes2 - rare_copies)) {
-    // tail 1 = upper
-    if (obs_hets < 2) {
-      return 0;
-    }
-
-    // An initial upper bound on the tail sum is useful, since it lets us
-    // report test failure before summing the entire center.
-    // The immediate tail is easy: if the next element out on the tail is r,
-    // then 1 + r + r^2 + ... = 1 / (1-r) works.
-    // For the far tail, we currently use the trivial bound of
-    //   1 + floor[het_exp_floor / 2]
-    // (each far tail element must be no greater than 1 and there are at
-    // most that many of them).  This bound could be improved, but it might not
-    // be worth the precomputational effort.
-    // ...and as long as we're using such a weak bound for the far tail,
-    // there's no point to carefully calculating the near tail since we're very
-    // unlikely to use the partial result before exiting from the function.
-    exit_thresh = rare_copies * thresh * EXACT_TEST_BIAS;
-
-    // het_probs[curr_hets] = 1
-    // het_probs[curr_hets - 2] = het_probs[curr_hets] * curr_hets * (curr_hets - 1) / (4 * (curr_homr + 1) * (curr_homc + 1))
-    do {
-      curr_homr_t2 += 1;
-      curr_homc_t2 += 1;
-      lastp2 *= (curr_hets_t2 * (curr_hets_t2 - 1)) / (4 * curr_homr_t2 * curr_homc_t2);
-      curr_hets_t2 -= 2;
-      if (lastp2 < EXACT_TEST_BIAS) {
-	tailp2 = lastp2;
-	break;
-      }
-      centerp += lastp2;
-      if (centerp > exit_thresh) {
-	return 1;
-      }
-    } while (curr_hets_t2 > 1.5);
-    exit_thresh = centerp / thresh;
-    if (tailp1 + tailp2 >= exit_thresh) {
-      return 0;
-    }
-    // c + cr + cr^2 + ... = c/(1-r), which is an upper bound for the tail sum
-    ratio = (curr_hets_t2 * (curr_hets_t2 - 1)) / (4 * (curr_homr_t2 + 1) * (curr_homc_t2 + 1));
-    tail2_ceil = tailp2 / (1 - ratio);
-    curr_hets_t1 = obs_hets + 2;
-    curr_homr_t1 = obs_homr;
-    curr_homc_t1 = obs_homc;
-    lastp1 = (4 * curr_homr_t1 * curr_homc_t1) / (curr_hets_t1 * (curr_hets_t1 - 1));
-    tail1_ceil = tailp1 / (1 - lastp1);
-    if (tail1_ceil + tail2_ceil < exit_thresh) {
-      return 1;
-    }
-    lastp1 *= tailp1;
-    tailp1 += lastp1;
-
-    if (obs_homr > 1) {
-      // het_probs[curr_hets + 2] = het_probs[curr_hets] * 4 * curr_homr * curr_homc / ((curr_hets + 2) * (curr_hets + 1))
-      exit_threshx = exit_thresh - tailp2;
-      do {
-	curr_hets_t1 += 2;
-	curr_homr_t1 -= 1;
-	curr_homc_t1 -= 1;
-	lastp1 *= (4 * curr_homr_t1 * curr_homc_t1) / (curr_hets_t1 * (curr_hets_t1 - 1));
-	preaddp = tailp1;
-	tailp1 += lastp1;
-	if (tailp1 > exit_threshx) {
-	  return 0;
-	}
-	if (tailp1 <= preaddp) {
-	  break;
-	}
-      } while (curr_homr_t1 > 1.5);
-    }
-    if (tailp1 + tail2_ceil < exit_thresh) {
-      return 1;
-    }
-    exit_threshx = exit_thresh - tailp1;
-    while (curr_hets_t2 > 1) {
-      curr_homr_t2 += 1;
-      curr_homc_t2 += 1;
-      lastp2 *= (curr_hets_t2 * (curr_hets_t2 - 1)) / (4 * curr_homr_t2 * curr_homc_t2);
-      preaddp = tailp2;
-      tailp2 += lastp2;
-      if (tailp2 >= exit_threshx) {
-	return 0;
-      }
-      if (tailp2 <= preaddp) {
-	return 1;
-      }
-      curr_hets_t2 -= 2;
-    }
-    return 1;
-  } else {
-    // tail 1 = lower
-    if (!obs_homr) {
-      return 0;
-    }
-    exit_thresh = rare_copies * thresh * EXACT_TEST_BIAS;
-    do {
-      curr_hets_t2 += 2;
-      lastp2 *= (4 * curr_homr_t2 * curr_homc_t2) / (curr_hets_t2 * (curr_hets_t2 - 1));
-      curr_homr_t2 -= 1;
-      curr_homc_t2 -= 1;
-      if (lastp2 < EXACT_TEST_BIAS) {
-	tailp2 = lastp2;
-	break;
-      }
-      centerp += lastp2;
-      if (centerp > exit_thresh) {
-	return 1;
-      }
-    } while (curr_homr_t2 > 0.5);
-    exit_thresh = centerp / thresh;
-    if (tailp1 + tailp2 >= exit_thresh) {
-      return 0;
-    }
-    ratio = (4 * curr_homr_t2 * curr_homc_t2) / ((curr_hets_t2 + 2) * (curr_hets_t2 + 1));
-    tail2_ceil = tailp2 / (1 - ratio);
-    curr_hets_t1 = obs_hets;
-    curr_homr_t1 = obs_homr + 1;
-    curr_homc_t1 = obs_homc + 1;
-    lastp1 = (curr_hets_t1 * (curr_hets_t1 - 1)) / (4 * curr_homr_t1 * curr_homc_t1);
-    tail1_ceil = tailp1 / (1 - lastp1);
-    lastp1 *= tailp1;
-    tailp1 += lastp1;
-
-    if (tail1_ceil + tail2_ceil < exit_thresh) {
-      return 1;
-    }
-    if (obs_hets >= 4) {
-      exit_threshx = exit_thresh - tailp2;
-      do {
-	curr_hets_t1 -= 2;
-	curr_homr_t1 += 1;
-	curr_homc_t1 += 1;
-	lastp1 *= (curr_hets_t1 * (curr_hets_t1 - 1)) / (4 * curr_homr_t1 * curr_homc_t1);
-	preaddp = tailp1;
-        tailp1 += lastp1;
-	if (tailp1 > exit_threshx) {
-	  return 0;
-	}
-	if (tailp1 <= preaddp) {
-	  break;
-	}
-      } while (curr_hets_t1 > 3.5);
-    }
-    if (tailp1 + tail2_ceil < exit_thresh) {
-      return 1;
-    }
-    exit_threshx = exit_thresh - tailp1;
-    while (curr_homr_t2 > 0.5) {
-      curr_hets_t2 += 2;
-      lastp2 *= (4 * curr_homr_t2 * curr_homc_t2) / (curr_hets_t2 * (curr_hets_t2 - 1));
-      curr_homr_t2 -= 1;
-      curr_homc_t2 -= 1;
-      preaddp = tailp2;
-      tailp2 += lastp2;
-      if (tailp2 >= exit_threshx) {
-	return 0;
-      }
-      if (tailp2 <= preaddp) {
-	return 1;
-      }
-    }
-    return 1;
   }
 }
 
@@ -3644,14 +3406,15 @@ int32_t hardy_report_write_line(FILE* outfile, char* prefix_buf, uint32_t prefix
   return fwrite_checked(midbuf_ptr, (cptr - midbuf_ptr), outfile);
 }
 
-int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, int32_t* hwe_lls, int32_t* hwe_lhs, int32_t* hwe_hhs, int32_t* hwe_ll_cases, int32_t* hwe_lh_cases, int32_t* hwe_hh_cases, int32_t* hwe_ll_allfs, int32_t* hwe_lh_allfs, int32_t* hwe_hh_allfs, uint32_t pheno_nm_ct, uintptr_t* pheno_c, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr) {
+int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, int32_t* hwe_lls, int32_t* hwe_lhs, int32_t* hwe_hhs, uint32_t hwe_modifier, int32_t* hwe_ll_cases, int32_t* hwe_lh_cases, int32_t* hwe_hh_cases, int32_t* hwe_ll_allfs, int32_t* hwe_lh_allfs, int32_t* hwe_hh_allfs, uint32_t pheno_nm_ct, uintptr_t* pheno_c, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr) {
   FILE* outfile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t marker_ct = unfiltered_marker_ct - marker_exclude_ct;
-  int32_t retval = 0;
-  uint32_t pct = 0;
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
+  uint32_t hwe_midp = hwe_modifier & HWE_MIDP;
+  int32_t retval = 0;
+  uint32_t pct = 0;
   uint32_t prefix_len;
   uint32_t loop_end;
   uint32_t uii;
@@ -3685,14 +3448,14 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
   if (report_type) {
     for (; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
       next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
-      p_values[marker_idx] = SNPHWE2(hwe_lh_allfs[marker_uidx], hwe_ll_allfs[marker_uidx], hwe_hh_allfs[marker_uidx]);
+      p_values[marker_idx] = SNPHWE2(hwe_lh_allfs[marker_uidx], hwe_ll_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], hwe_midp);
     }
   } else {
     for (; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
       next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
-      p_values[marker_idx * 3] = SNPHWE2(hwe_lh_allfs[marker_uidx], hwe_ll_allfs[marker_uidx], hwe_hh_allfs[marker_uidx]);
-      p_values[marker_idx * 3 + 1] = SNPHWE2(hwe_lh_cases[marker_uidx], hwe_ll_cases[marker_uidx], hwe_hh_cases[marker_uidx]);
-      p_values[marker_idx * 3 + 2] = SNPHWE2(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx]);
+      p_values[marker_idx * 3] = SNPHWE2(hwe_lh_allfs[marker_uidx], hwe_ll_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], hwe_midp);
+      p_values[marker_idx * 3 + 1] = SNPHWE2(hwe_lh_cases[marker_uidx], hwe_ll_cases[marker_uidx], hwe_hh_cases[marker_uidx], hwe_midp);
+      p_values[marker_idx * 3 + 2] = SNPHWE2(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx], hwe_midp);
     }
   }
   marker_uidx = 0;
@@ -3829,10 +3592,12 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
 }
 
 
-uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, int32_t* hwe_lls, int32_t* hwe_lhs, int32_t* hwe_hhs, uint32_t hwe_all, int32_t* hwe_ll_allfs, int32_t* hwe_lh_allfs, int32_t* hwe_hh_allfs) {
+uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, int32_t* hwe_lls, int32_t* hwe_lhs, int32_t* hwe_hhs, uint32_t hwe_modifier, int32_t* hwe_ll_allfs, int32_t* hwe_lh_allfs, int32_t* hwe_hh_allfs) {
   uint32_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
   uint32_t marker_uidx = 0;
   uint32_t removed_ct = 0;
+  uint32_t hwe_all = hwe_modifier & HWE_THRESH_ALL;
+  uint32_t hwe_thresh_midp = hwe_modifier & HWE_THRESH_MIDP;
   uint32_t markers_done;
   hwe_thresh *= 1 + SMALL_EPSILON;
   if (hwe_all) {
@@ -3840,11 +3605,21 @@ uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct
     hwe_lls = hwe_ll_allfs;
     hwe_hhs = hwe_hh_allfs;
   }
-  for (markers_done = 0; markers_done < marker_ct; marker_uidx++, markers_done++) {
-    next_unset_unsafe_ck(marker_exclude, &marker_uidx);
-    if (SNPHWE_t(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx], hwe_thresh)) {
-      SET_BIT(marker_exclude, marker_uidx);
-      removed_ct++;
+  if (hwe_thresh_midp) {
+    for (markers_done = 0; markers_done < marker_ct; marker_uidx++, markers_done++) {
+      next_unset_unsafe_ck(marker_exclude, &marker_uidx);
+      if (SNPHWE_midp_t(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx], hwe_thresh)) {
+	SET_BIT(marker_exclude, marker_uidx);
+	removed_ct++;
+      }
+    }
+  } else {
+    for (markers_done = 0; markers_done < marker_ct; marker_uidx++, markers_done++) {
+      next_unset_unsafe_ck(marker_exclude, &marker_uidx);
+      if (SNPHWE_t(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx], hwe_thresh)) {
+	SET_BIT(marker_exclude, marker_uidx);
+	removed_ct++;
+      }
     }
   }
   if (marker_ct == removed_ct) {
@@ -4189,7 +3964,7 @@ inline int32_t distance_wt_req(uint64_t calculation_type, char* read_dists_fname
   return (((calculation_type & CALC_DISTANCE) || ((!read_dists_fname) && ((calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))))) && (!(dist_calc_type & DISTANCE_FLAT_MISSING)));
 }
 
-int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* cm_map_fname, char* cm_map_chrname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filtervals_flattened, char* condition_mname, char* condition_fname, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_indiv_fname, char* filter_attrib_indiv_liststr, double thin_keep_prob, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t filter_binary, uint32_t fam_cols, int32_t missing_pheno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, double check_sex_fthresh, double check_sex_mthresh, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t calculation_type, uint32_t rel_calc_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uintptr_t regress_rel_iters, uint32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t genome_modifier, double genome_min_pi_hat, double genome_max_pi_hat, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, Set_info* sip, Ld_info* ldip, Epi_info* epi_ip, uint32_t regress_pcs_modifier, uint32_t max_pcs, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t write_covar_modifier, uint32_t write_covar_dummy_max_categories, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, Aperm_info* apip, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, double lasso_h2, double lasso_minlambda, Range_list* lasso_select_covars_range_list_ptr, uint32_t testmiss_modifier, uint32_t testmiss_mperm_val, Ll_str** file_delete_list_ptr) {
+int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* cm_map_fname, char* cm_map_chrname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filtervals_flattened, char* condition_mname, char* condition_fname, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_indiv_fname, char* filter_attrib_indiv_liststr, double thin_keep_prob, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t filter_binary, uint32_t fam_cols, int32_t missing_pheno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, double check_sex_fthresh, double check_sex_mthresh, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t calculation_type, uint32_t rel_calc_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uintptr_t regress_rel_iters, uint32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t hwe_modifier, uint32_t genome_modifier, double genome_min_pi_hat, double genome_max_pi_hat, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, Set_info* sip, Ld_info* ldip, Epi_info* epi_ip, uint32_t regress_pcs_modifier, uint32_t max_pcs, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t write_covar_modifier, uint32_t write_covar_dummy_max_categories, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, Aperm_info* apip, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, double lasso_h2, double lasso_minlambda, Range_list* lasso_select_covars_range_list_ptr, uint32_t testmiss_modifier, uint32_t testmiss_mperm_val, Ll_str** file_delete_list_ptr) {
   FILE* bedfile = NULL;
   FILE* famfile = NULL;
   FILE* phenofile = NULL;
@@ -4976,7 +4751,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
   if (!pheno_nm_ct) {
     logprint("Note: No phenotypes present.\n");
-    misc_flags |= MISC_HWE_ALL;
+    hwe_modifier |= HWE_THRESH_ALL;
   } else if (pheno_c) {
     pheno_ctrl_ct = popcount_longs_exclude(pheno_nm, pheno_c, unfiltered_indiv_ctl);
     if (pheno_nm_ct != g_indiv_ct) {
@@ -4986,7 +4761,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
     logprintb();
     if (!pheno_ctrl_ct) {
-      misc_flags |= MISC_HWE_ALL;
+      hwe_modifier |= HWE_THRESH_ALL;
     }
   } else {
     if (pheno_nm_ct != g_indiv_ct) {
@@ -4995,7 +4770,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       sprintf(logbuf, "%u quantitative phenotype%s present.\n", pheno_nm_ct, (pheno_nm_ct == 1)? "" : "s");
     }
     logprintb();
-    misc_flags |= MISC_HWE_ALL;
+    hwe_modifier |= HWE_THRESH_ALL;
   }
 
   if (unfiltered_marker_ct == marker_exclude_ct) {
@@ -5003,7 +4778,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     logprint("Error: No variants remaining.\n");
     goto plink_ret_ALL_MARKERS_EXCLUDED;
   }
-  retval = calc_freqs_and_hwe(bedfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, founder_info, nonfounders, (misc_flags / MISC_MAF_SUCC) & 1, set_allele_freqs, &marker_reverse, &marker_allele_cts, bed_offset, (hwe_thresh > 0.0) || (calculation_type & CALC_HARDY), (misc_flags / MISC_HWE_ALL) & 1, (pheno_nm_ct && pheno_c)? (calculation_type & CALC_HARDY) : 0, pheno_nm, pheno_nm_ct? pheno_c : NULL, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_cases, &hwe_lh_cases, &hwe_hh_cases, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &indiv_male_ct, &indiv_f_ct, &indiv_f_male_ct, wt_needed, &topsize, &marker_weights, exponent, chrom_info_ptr, sex_nm, sex_male, map_is_unsorted & UNSORTED_SPLIT_CHROM, &hh_exists);
+  retval = calc_freqs_and_hwe(bedfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, founder_info, nonfounders, (misc_flags / MISC_MAF_SUCC) & 1, set_allele_freqs, &marker_reverse, &marker_allele_cts, bed_offset, (hwe_thresh > 0.0) || (calculation_type & CALC_HARDY), hwe_modifier & HWE_THRESH_ALL, (pheno_nm_ct && pheno_c)? (calculation_type & CALC_HARDY) : 0, pheno_nm, pheno_nm_ct? pheno_c : NULL, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_cases, &hwe_lh_cases, &hwe_hh_cases, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &indiv_male_ct, &indiv_f_ct, &indiv_f_male_ct, wt_needed, &topsize, &marker_weights, exponent, chrom_info_ptr, sex_nm, sex_male, map_is_unsorted & UNSORTED_SPLIT_CHROM, &hh_exists);
   if (retval) {
     goto plink_ret_1;
   }
@@ -5067,13 +4842,13 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   wkspace_reset(marker_allele_cts);
   marker_allele_cts = NULL;
   if (calculation_type & CALC_HARDY) {
-    retval = hardy_report(outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, hwe_lls, hwe_lhs, hwe_hhs, hwe_ll_cases, hwe_lh_cases, hwe_hh_cases, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, pheno_nm_ct, pheno_c, zero_extra_chroms, chrom_info_ptr);
+    retval = hardy_report(outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, hwe_lls, hwe_lhs, hwe_hhs, hwe_modifier, hwe_ll_cases, hwe_lh_cases, hwe_hh_cases, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, pheno_nm_ct, pheno_c, zero_extra_chroms, chrom_info_ptr);
     if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER | CALC_FREQ | CALC_HARDY))))) {
       goto plink_ret_1;
     }
   }
   if (hwe_thresh > 0.0) {
-    if (enforce_hwe_threshold(hwe_thresh, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, hwe_lls, hwe_lhs, hwe_hhs, (misc_flags / MISC_HWE_ALL) & 1, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs)) {
+    if (enforce_hwe_threshold(hwe_thresh, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, hwe_lls, hwe_lhs, hwe_hhs, hwe_modifier, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs)) {
       goto plink_ret_ALL_MARKERS_EXCLUDED;
     }
   }
@@ -6483,6 +6258,7 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t parallel_idx = 0;
   uint32_t parallel_tot = 1;
   uint32_t sex_missing_pheno = 0;
+  uint32_t hwe_modifier = 0;
   uint32_t write_covar_modifier = 0;
   uint32_t write_covar_dummy_max_categories = 49;
   uint32_t model_modifier = 0;
@@ -9451,30 +9227,58 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'h':
       if (!memcmp(argptr2, "we", 3)) {
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (param_ct) {
-	  if (scan_double(argv[cur_arg + 1], &hwe_thresh)) {
-	    sprintf(logbuf, "Error: Invalid --hwe parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	uii = 2;
+        if (param_ct) {
+          if (!strcmp(argv[cur_arg + 1], "midp")) {
+	    hwe_modifier |= HWE_THRESH_MIDP;
+	  } else {
+            if (param_ct == 2) {
+              if (strcmp(argv[cur_arg + 2], "midp")) {
+                sprintf(logbuf, "Error: Invalid --hwe parameter sequence.%s", errstr_append);
+                goto main_ret_INVALID_CMDLINE_3;
+	      }
+              hwe_modifier |= HWE_THRESH_MIDP;
+	    }
+            uii = 1;
+	  }
+	}
+	if (uii <= param_ct) {
+	  if (scan_double(argv[cur_arg + uii], &hwe_thresh)) {
+	    sprintf(logbuf, "Error: Invalid --hwe parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	  if ((hwe_thresh < 0.0) || (hwe_thresh >= 1.0)) {
-	    sprintf(logbuf, "Error: Invalid --hwe parameter '%s' (must be between 0 and 1).%s", argv[cur_arg + 1], errstr_append);
+	    sprintf(logbuf, "Error: Invalid --hwe threshold '%s' (must be between 0 and 1).%s", argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  if ((hwe_thresh >= 0.5) && (hwe_modifier & HWE_THRESH_MIDP)) {
+            sprintf(logbuf, "Error: --hwe threshold must be smaller than 0.5 when using mid-p correction.%s", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	} else {
 	  hwe_thresh = 0.001;
 	}
       } else if (!memcmp(argptr2, "we-all", 7)) {
-	misc_flags |= MISC_HWE_ALL;
+	hwe_modifier |= HWE_THRESH_ALL;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "et", 3)) {
 	sprintf(logbuf, "Error: --het provisionally retired.  Contact us if --ibc is unsatisfactory.%s", errstr_append);
 	goto main_ret_INVALID_CMDLINE_3;
       } else if (!memcmp(argptr2, "ardy", 5)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (param_ct) {
+	  if (strcmp(argv[cur_arg + 1], "midp")) {
+            sprintf(logbuf, "Error: Invalid --hardy parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+            goto main_ret_INVALID_CMDLINE_3;
+	  }
+          hwe_modifier |= HWE_MIDP;
+	}
 	calculation_type |= CALC_HARDY;
-	goto main_param_zero;
       } else if (!memcmp(argptr2, "we2", 4)) {
 	sprintf(logbuf, "Error: --hwe2 retired.  Use the --hwe exact test.%s", errstr_append);
 	goto main_ret_INVALID_CMDLINE_3;
@@ -10213,7 +10017,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	ld_info.modifier |= LD_SNP_LIST_FILE;
       } else if (!memcmp(argptr2, "d", 2)) {
-        if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 2)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 3)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (alloc_string(&(epi_info.ld_mkr1), argv[cur_arg + 1])) {
@@ -10221,6 +10025,13 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (alloc_string(&(epi_info.ld_mkr2), argv[cur_arg + 2])) {
 	  goto main_ret_NOMEM;
+	}
+	if (param_ct == 3) {
+	  if (strcmp(argv[cur_arg + 3], "hwe-midp")) {
+	    sprintf(logbuf, "Error: Invalid --ld parameter '%s'.%s", argv[cur_arg + 3], errstr_append);
+            goto main_ret_INVALID_CMDLINE_3;
+	  }
+          epi_info.modifier |= EPI_HWE_MIDP;
 	}
         calculation_type |= CALC_EPI;
       } else {
@@ -13781,7 +13592,7 @@ int32_t main(int32_t argc, char** argv) {
     } else if (!ibc_type) {
       ibc_type = 1;
     }
-    retval = plink(outname, outname_end, pedname, mapname, famname, cm_map_fname, cm_map_chrname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, read_dists_fname, read_dists_id_fname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, update_alleles_fname, read_genome_fname, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, filtervals_flattened, condition_mname, condition_fname, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, thin_keep_prob, min_bp_space, mfilter_col, filter_binary, fam_cols, missing_pheno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, check_sex_fthresh, check_sex_mthresh, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, rel_cutoff, tail_bottom, tail_top, misc_flags, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, parallel_tot, ppc_gap, sex_missing_pheno, genome_modifier, genome_min_pi_hat, genome_max_pi_hat, &homozyg, &cluster, neighbor_n1, neighbor_n2, &set_info, &ld_info, &epi_info, regress_pcs_modifier, max_pcs, recode_modifier, allelexxxx, merge_type, indiv_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, write_covar_modifier, write_covar_dummy_max_categories, mwithin_col, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, &parameters_range_list, &tests_range_list, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, &aperm, mperm_save, ibs_test_perms, perm_batch_size, lasso_h2, lasso_minlambda, &lasso_select_covars_range_list, testmiss_modifier, testmiss_mperm_val, &file_delete_list);
+    retval = plink(outname, outname_end, pedname, mapname, famname, cm_map_fname, cm_map_chrname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, read_dists_fname, read_dists_id_fname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, update_alleles_fname, read_genome_fname, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, filtervals_flattened, condition_mname, condition_fname, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, thin_keep_prob, min_bp_space, mfilter_col, filter_binary, fam_cols, missing_pheno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, check_sex_fthresh, check_sex_mthresh, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, rel_cutoff, tail_bottom, tail_top, misc_flags, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, parallel_tot, ppc_gap, sex_missing_pheno, hwe_modifier, genome_modifier, genome_min_pi_hat, genome_max_pi_hat, &homozyg, &cluster, neighbor_n1, neighbor_n2, &set_info, &ld_info, &epi_info, regress_pcs_modifier, max_pcs, recode_modifier, allelexxxx, merge_type, indiv_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, write_covar_modifier, write_covar_dummy_max_categories, mwithin_col, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, &parameters_range_list, &tests_range_list, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, &aperm, mperm_save, ibs_test_perms, perm_batch_size, lasso_h2, lasso_minlambda, &lasso_select_covars_range_list, testmiss_modifier, testmiss_mperm_val, &file_delete_list);
   }
  main_ret_2:
   free(wkspace_ua);

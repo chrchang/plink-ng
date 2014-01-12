@@ -476,19 +476,21 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
                );
 #endif
     help_print("hardy", &help_ctrl, 1,
-"  --hardy\n"
+"  --hardy <midp>\n"
 "    Generate a Hardy-Weinberg exact test p-value report.  (This does NOT\n"
-"    simultaneously filter on the p-value any more; use --hwe for that.)\n\n"
+"    simultaneously filter on the p-value any more; use --hwe for that.)  With\n"
+"    the 'midp' modifier, the test applies the mid-p correction described in\n"
+"    Graffelman J, Moreno V (2013) The mid p-value in exact tests for\n"
+"    Hardy-Weinberg Equilibrium.\n\n"
 	       );
     help_print("ibc\thet", &help_ctrl, 1,
 "  --ibc\n"
 "    Calculate inbreeding coefficients in three different ways.  (The second is\n"
 "    approximately equal to the excess homozygosity coefficient calculated by\n"
 "    the old --het command.)\n"
-"    * For more details, see Yang J, Lee SH, Goddard ME and Visscher PM.  GCTA:\n"
-"      a tool for Genome-wide Complex Trait Analysis.  Am J Hum Genet. 2011 Jan\n"
-"      88(1): 76-82.  This paper also describes the relationship matrix\n"
-"      computation we implement.\n\n"
+"    * For more details, see Yang J, Lee SH, Goddard ME and Visscher PM (2011)\n"
+"      GCTA: A Tool for Genome-wide Complex Trait Analysis.  This paper also\n"
+"      describes the relationship matrix computation we implement.\n\n"
 	       );
     help_print("check-sex\timpute-sex\tupdate-sex\tsex-check", &help_ctrl, 1,
 "  --check-sex {female max F} {male min F}\n"
@@ -535,7 +537,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      pairs computation on more than 400k variants.\n"
 "    * These computations can be subdivided with --parallel (even when the\n"
 "      'square' modifier is active).\n"
-"  --ld [variant ID] [variant ID]\n"
+"  --ld [variant ID] [variant ID] <hwe-midp>\n"
 "    This displays haplotype frequencies, r^2, and D' for a single pair of\n"
 "    variants.  Het/het genotype pairs are resolved to haplotypes using the\n"
 "    method described in Gaunt T, Rodriguez S, Day I (2007) Cubic exact\n"
@@ -1220,11 +1222,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --read-freq [fn] : Estimate MAFs and heterozygote frequencies from the given\n"
 "                     --freq{x} report, instead of the input fileset.\n"
 	       );
-    help_print("hwe", &help_ctrl, 0,
-"  --hwe {val}      : Exclude variants with Hardy-Weinberg equilibrium exact\n"
+    help_print("hwe\thwe-all", &help_ctrl, 0,
+"  --hwe {v} <midp> : Exclude variants with Hardy-Weinberg equilibrium exact\n"
 "                     test p-values below a threshold (default 0.001).\n"
-	       );
-    help_print("hwe-all\thwe", &help_ctrl, 0,
 "  --hwe-all        : Given case-control data, include noncontrols in HWE test.\n"
 	       );
     help_print("allow-no-sex\tmust-have-sex", &help_ctrl, 0,

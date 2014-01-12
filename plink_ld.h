@@ -46,6 +46,7 @@ typedef struct {
 #define EPI_REG 0x40
 #define EPI_SET_BY_SET 0x80
 #define EPI_SET_BY_ALL 0x100
+#define EPI_HWE_MIDP 0x200
 
 typedef struct {
   uint32_t modifier;

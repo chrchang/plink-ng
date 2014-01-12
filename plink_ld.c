@@ -4781,6 +4781,7 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t ulii = strlen(mkr1) + 1;
   uintptr_t uljj = strlen(mkr2) + 1;
+  uint32_t hwe_midp = epi_ip->modifier & EPI_HWE_MIDP;
   int32_t retval = 0;
   uint32_t counts_all[16];
   uint32_t counts_cc[32];
@@ -5037,9 +5038,9 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
       }
       if (uljj > ulii + 1) {
 	logprint("Multiple haplotype phasing solutions; sample size, HWE, or random mating\nassumption may be violated.\n\nHWE exact test p-values\n-----------------------\n");
-	sprintf(logbuf, "   %s: %g\n", mkr1, SNPHWE2(counts_cc[2] + counts_all[9], counts_cc[0] + counts_all[1], counts_cc[3] + counts_all[13]));
+	sprintf(logbuf, "   %s: %g\n", mkr1, SNPHWE2(counts_cc[2] + counts_all[9], counts_cc[0] + counts_all[1], counts_cc[3] + counts_all[13], hwe_midp));
 	logprintb();
-	sprintf(logbuf, "   %s: %g\n\n", mkr2, SNPHWE2(counts_cc[6] + counts_all[6], counts_cc[4] + counts_all[4], counts_cc[7] + counts_all[7]));
+	sprintf(logbuf, "   %s: %g\n\n", mkr2, SNPHWE2(counts_cc[6] + counts_all[6], counts_cc[4] + counts_all[4], counts_cc[7] + counts_all[7], hwe_midp));
 	logprintb();
       }
     } else {
