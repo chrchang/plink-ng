@@ -732,23 +732,25 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Useful for outlier detection.\n\n"
 	       );
     help_print("assoc\tmodel\tfisher\tperm\tmperm\tperm-count\tcounts\tp2\tset-test\tmodel-dom\tmodel-gen\tmodel-rec\tmodel-trend\tgenedrop\tqt-means\ttrend", &help_ctrl, 1,
-"  --assoc <perm | mperm=[value]> <perm-count> <fisher> <counts> <set-test>\n"
-	       /*
-"  --assoc <perm | mperm=[value]> <genedrop> <perm-count> <fisher> <counts> <p2>\n"
+"  --assoc <perm | mperm=[value]> <perm-count> <fisher | fisher-midp> <counts>\n"
 "          <set-test>\n"
+	       /*
+"  --assoc <perm | mperm=[value]> <genedrop> <perm-count> <fisher | fisher-midp>\n"
+"          <counts> <p2> <set-test>\n"
 	       */
 "  --assoc <perm | mperm=[value]> <perm-count> <qt-means> <lin> <set-test>\n"
       /*
-"  --model <perm | mperm=[value]> <genedrop> <perm-count> <fisher | trend-only>\n"
-"          <set-test> <dom | rec | gen | trend>\n"
+"  --model <perm | mperm=[value]> <genedrop> <perm-count>\n"
       */
-"  --model <perm | mperm=[value]> <perm-count> <fisher | trend-only> <set-test>\n"
+"  --model <perm | mperm=[value]> <perm-count>\n"
+"          <fisher | fisher-midp | trend-only> <set-test>\n"
 "          <dom | rec | gen | trend>\n"
 "    Basic association analysis report.\n"
 "    Given a case/control phenotype, --assoc performs a 1df chi-square allelic\n"
 "    test, while --model performs 4 other tests as well (1df dominant gene\n"
 "    action, 1df recessive gene action, 2df genotypic, Cochran-Armitage trend).\n"
-"    * With 'fisher', Fisher's exact test is used to generate p-values.\n"
+"    * With 'fisher'/'fisher-midp', Fisher's exact test is used to generate\n"
+"      p-values.  'fisher-midp' also applies Lancaster's mid-p correction.\n"
 "    * 'perm' causes an adaptive permutation test to be performed.\n"
 "    * 'mperm=[value]' causes a max(T) permutation test with the specified\n"
 "      number of replications to be performed.\n"
@@ -841,8 +843,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    of thousands) to be effective on complex polygenic traits.\n\n"
 	       );
     help_print("test-missing\tperm\tmperm", &help_ctrl, 1,
-"  --test-missing <perm | mperm=[value]> <perm-count>\n"
-"    Check for association between missingness and case/control status.\n\n"
+"  --test-missing <perm | mperm=[value]> <perm-count> <midp>\n"
+"    Check for association between missingness and case/control status, using\n"
+"    Fisher's exact test.  'midp' invokes Lancaster's mid-p correction.\n\n"
 	       );
 #ifndef STABLE_BUILD
 #ifndef NOLAPACK

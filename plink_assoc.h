@@ -4,6 +4,7 @@
 #define TESTMISS_PERM 1
 #define TESTMISS_MPERM 2
 #define TESTMISS_PERM_COUNT 4
+#define TESTMISS_MIDP 8
 
 #include "plink_set.h"
 

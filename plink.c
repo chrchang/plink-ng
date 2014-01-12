@@ -82,7 +82,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (11 Jan 2014)";
+  " (12 Jan 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -7515,6 +7515,12 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    model_modifier |= MODEL_FISHER;
+	  } else if (!strcmp(argv[cur_arg + uii], "fisher-midp")) {
+            if (model_modifier & MODEL_QMASK) {
+              sprintf(logbuf, "Error: --assoc 'qt-means'/'lin' does not make sense with 'fisher-midp'.%s", errstr_append);
+              goto main_ret_INVALID_CMDLINE_3;
+	    }
+            model_modifier |= MODEL_FISHER | MODEL_FISHER_MIDP;
 	  } else if (!strcmp(argv[cur_arg + uii], "perm")) {
 	    if (model_modifier & MODEL_MPERM) {
 	      sprintf(logbuf, "Error: --assoc 'mperm' and 'perm' cannot be used together.%s", errstr_append);
@@ -10637,6 +10643,12 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    model_modifier |= MODEL_FISHER;
+	  } else if (!strcmp(argv[cur_arg + uii], "fisher-midp")) {
+	    if (model_modifier & MODEL_TRENDONLY) {
+	      sprintf(logbuf, "Error: --model 'fisher-midp' and 'trend-only' cannot be used together.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    model_modifier |= MODEL_FISHER | MODEL_FISHER_MIDP;
 	  } else if (!strcmp(argv[cur_arg + uii], "perm")) {
 	    if (model_modifier & MODEL_MPERM) {
 	      sprintf(logbuf, "Error: --model 'mperm' and 'perm' cannot be used together.%s", errstr_append);
@@ -12742,7 +12754,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
         calculation_type |= CALC_EPI;
       } else if (!memcmp(argptr2, "est-missing", 12)) {
-        if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 3)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
@@ -12770,6 +12782,8 @@ int32_t main(int32_t argc, char** argv) {
             testmiss_modifier |= TESTMISS_MPERM;
 	  } else if (!strcmp(argv[cur_arg + uii], "perm-count")) {
             testmiss_modifier |= TESTMISS_PERM_COUNT;
+	  } else if (!strcmp(argv[cur_arg + uii], "midp")) {
+            testmiss_modifier |= TESTMISS_MIDP;
 	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
             logprint("Error: Improper --test-missing mperm syntax.  (Use\n'--test-missing mperm=[value]'.)\n");
             goto main_ret_INVALID_CMDLINE;

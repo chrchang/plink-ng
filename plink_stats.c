@@ -279,11 +279,12 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2) {
   return tailp / (tailp + centerp);
 }
 
-double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22) {
+double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t midp) {
   // Basic 2x2 Fisher exact test p-value calculation.
   double tprob = (1 - SMALL_EPSILON) * EXACT_TEST_BIAS;
   double cur_prob = tprob;
   double cprob = 0;
+  int32_t tie_ct = 1;
   uint32_t uii;
   double cur11;
   double cur12;
@@ -323,6 +324,9 @@ double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22) {
       return 0;
     }
     if (cur_prob < EXACT_TEST_BIAS) {
+      if (cur_prob > (1 - 2 * SMALL_EPSILON) * EXACT_TEST_BIAS) {
+        tie_ct++;
+      }
       tprob += cur_prob;
       break;
     }
@@ -360,11 +364,19 @@ double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22) {
       preaddp = tprob;
       tprob += cur_prob;
       if (tprob <= preaddp) {
-	return preaddp / (cprob + preaddp);
+        if (!midp) {
+	  return preaddp / (cprob + preaddp);
+	} else {
+          return (preaddp - ((1 - SMALL_EPSILON) * EXACT_TEST_BIAS * 0.5) * tie_ct) / (cprob + preaddp);
+	}
       }
     } while (cur11 > 0.5);
   }
-  return tprob / (cprob + tprob);
+  if (!midp) {
+    return tprob / (cprob + tprob);
+  } else {
+    return (tprob - ((1 - SMALL_EPSILON) * EXACT_TEST_BIAS * 0.5) * tie_ct) / (cprob * tprob);
+  }
 }
 
 double fisher22_tail_pval(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t right_offset, double tot_prob_recip, double right_prob, double tail_sum, uint32_t new_m11) {
@@ -760,7 +772,7 @@ void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_
   tprobs[2] = tail_prob * dxx;
 }
 
-int32_t fisher23_tailsum(double* base_probp, double* saved12p, double* saved13p, double* saved22p, double* saved23p, double *totalp, uint32_t right_side) {
+int32_t fisher23_tailsum(double* base_probp, double* saved12p, double* saved13p, double* saved22p, double* saved23p, double *totalp, uint32_t* tie_ctp, uint32_t right_side) {
   double total = 0;
   double cur_prob = *base_probp;
   double tmp12 = *saved12p;
@@ -807,11 +819,14 @@ int32_t fisher23_tailsum(double* base_probp, double* saved12p, double* saved13p,
 	}
 	tmp12 -= 1;
 	tmp23 -= 1;
-	// throw in extra (1 - SMALL_EPSILON) multiplier to prevent rounding
-	// errors from causing this to keep going when the left-side test
-	// stopped
-	if (cur_prob > (1 - SMALL_EPSILON) * EXACT_TEST_BIAS) {
-	  break;
+	if (cur_prob > (1 - 2 * SMALLISH_EPSILON) * EXACT_TEST_BIAS) {
+	  // throw in extra (1 - SMALL_EPSILON) multiplier to prevent rounding
+	  // errors from causing this to keep going when the left-side test
+	  // stopped
+	  if (cur_prob > (1 - SMALL_EPSILON) * EXACT_TEST_BIAS) {
+	    break;
+	  }
+          *tie_ctp += 1;
 	}
 	total += cur_prob;
       }
@@ -853,8 +868,11 @@ int32_t fisher23_tailsum(double* base_probp, double* saved12p, double* saved13p,
 	}
 	tmp13 -= 1;
 	tmp22 -= 1;
-	if (cur_prob > EXACT_TEST_BIAS) {
-	  break;
+	if (cur_prob > (1 - 2 * SMALLISH_EPSILON) * EXACT_TEST_BIAS) {
+	  if (cur_prob > EXACT_TEST_BIAS) {
+	    break;
+	  }
+          *tie_ctp += 1;
 	}
 	total += cur_prob;
       }
@@ -867,9 +885,13 @@ int32_t fisher23_tailsum(double* base_probp, double* saved12p, double* saved13p,
   *saved13p = tmp13;
   *saved22p = tmp22;
   *saved23p = tmp23;
-  if (cur_prob > EXACT_TEST_BIAS) {
-    *totalp = 0;
-    return 0;
+  if (cur_prob > (1 - 2 * SMALLISH_EPSILON) * EXACT_TEST_BIAS) {
+    if (cur_prob > EXACT_TEST_BIAS) {
+      // even most extreme table on this side is too probable
+      *totalp = 0;
+      return 0;
+    }
+    *tie_ctp += 1;
   }
   // sum tail to floating point precision limit
   if (right_side) {
@@ -901,7 +923,7 @@ int32_t fisher23_tailsum(double* base_probp, double* saved12p, double* saved13p,
   return 0;
 }
 
-double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t m22, uint32_t m23) {
+double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t m22, uint32_t m23, uint32_t midp) {
   // 2x3 Fisher-Freeman-Halton exact test p-value calculation.
   // The number of tables involved here is still small enough that the network
   // algorithm (and the improved variants thereof that I've seen) are
@@ -913,8 +935,9 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
   double cur_prob = (1 - SMALLISH_EPSILON) * EXACT_TEST_BIAS;
   double tprob = cur_prob;
   double cprob = 0;
-  uint32_t dir = 0; // 0 = forwards, 1 = backwards
   double dyy = 0;
+  uint32_t tie_ct = 1;
+  uint32_t dir = 0; // 0 = forwards, 1 = backwards
   double base_probl;
   double base_probr;
   double orig_base_probl;
@@ -1011,6 +1034,9 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
       tmp12 -= 1;
       tmp23 -= 1;
       if (cur_prob <= EXACT_TEST_BIAS) {
+	if (cur_prob > (1 - 2 * SMALLISH_EPSILON) * EXACT_TEST_BIAS) {
+          tie_ct++;
+	}
 	tprob += cur_prob;
 	break;
       }
@@ -1074,6 +1100,9 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
 	tmp13 -= 1;
 	tmp22 -= 1;
 	if (cur_prob <= EXACT_TEST_BIAS) {
+          if (cur_prob > (1 - 2 * SMALLISH_EPSILON) * EXACT_TEST_BIAS) {
+            tie_ct++;
+	  }
 	  tprob += cur_prob;
 	  break;
 	}
@@ -1181,7 +1210,7 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
 	}
 	cur21 -= 1;
       }
-      if (fisher23_tailsum(&base_probl, &savedl12, &savedl13, &savedl22, &savedl23, &dxx, 0)) {
+      if (fisher23_tailsum(&base_probl, &savedl12, &savedl13, &savedl22, &savedl23, &dxx, &tie_ct, 0)) {
 	break;
       }
       tprob += dxx;
@@ -1206,7 +1235,7 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
 	  savedr12 -= 1;
 	}
       }
-      fisher23_tailsum(&base_probr, &savedr12, &savedr13, &savedr22, &savedr23, &dyy, 1);
+      fisher23_tailsum(&base_probr, &savedr12, &savedr13, &savedr22, &savedr23, &dyy, &tie_ct, 1);
       tprob += dyy;
       cprob += row_prob - dxx - dyy;
       if (cprob == INFINITY) {
@@ -1246,7 +1275,11 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
       }
     }
   }
-  return tprob / (tprob + cprob);
+  if (!midp) {
+    return tprob / (tprob + cprob);
+  } else {
+    return (tprob - ((1 - SMALLISH_EPSILON) * EXACT_TEST_BIAS * 0.5) * ((int32_t)tie_ct)) / (tprob + cprob);
+  }
 }
 
 void chi22_get_coeffs(intptr_t row1_sum, intptr_t col1_sum, intptr_t total, double* expm11p, double* recip_sump) {
