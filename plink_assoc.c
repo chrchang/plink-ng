@@ -2717,6 +2717,7 @@ static uint32_t g_block_diff;
 static uint32_t g_perms_done;
 static uint32_t g_first_adapt_check;
 static uint32_t g_pheno_nm_ct;
+static uint32_t g_male_ct;
 static uint32_t g_case_ct;
 static double g_adaptive_intercept;
 static double g_adaptive_slope;
@@ -7055,8 +7056,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	  }
 	}
       }
+      ulii = 0;
       if (model_adapt_nst) {
-	ulii = 0;
 	if (model_assoc) {
 	  if (spawn_threads(threads, &assoc_adapt_thread, g_assoc_thread_ct)) {
 	    goto model_assoc_ret_THREAD_CREATE_FAIL;
@@ -7086,7 +7087,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	join_threads(threads, g_assoc_thread_ct);
       } else {
 	g_maxt_block_base = marker_idx;
-	ulii = 0;
 	if (model_assoc) {
 	  if (spawn_threads(threads, &assoc_maxt_thread, g_assoc_thread_ct)) {
 	    goto model_assoc_ret_THREAD_CREATE_FAIL;
@@ -9263,6 +9263,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
   double dyy;
   double dzz;
   uint32_t missing_ct;
+  uint32_t marker_cidx;
   uint32_t uii;
   uint32_t ujj;
   if ((!case_ct) || (!ctrl_ct)) {
@@ -9503,7 +9504,8 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	}
       }
       if (wkspace_alloc_ul_checked(&g_loadbuf, MODEL_BLOCKSIZE * pheno_nm_ctv * sizeof(intptr_t)) ||
-          wkspace_alloc_ui_checked(&g_perm_2success_ct, marker_ct * sizeof(int32_t))) {
+          wkspace_alloc_ui_checked(&g_perm_2success_ct, marker_ct * sizeof(int32_t)) ||
+          wkspace_alloc_ui_checked(&g_missing_cts, marker_ct * sizeof(int32_t))) {
         goto testmiss_ret_NOMEM;
       }
       for (uii = 1; uii <= MODEL_BLOCKSIZE; uii++) {
@@ -9538,6 +9540,9 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
       marker_unstopped_ct = marker_ct;
       g_is_perm1 = 1;
       g_perms_done = 0;
+      g_pheno_nm_ct = pheno_nm_ct;
+      g_male_ct = male_ct;
+      g_fisher_midp = midp;
       g_mperm_save_all = NULL;
       logprint("Error: --test-missing permutation tests are currently under development.\n");
       retval = RET_CALC_NOT_YET_SUPPORTED;
@@ -9584,7 +9589,6 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
       } else if (!g_perm_vec_ct) {
 	goto testmiss_ret_NOMEM;
       }
-      g_perms_done += g_perm_vec_ct;
       g_perm_vecs = (uintptr_t*)wkspace_alloc(g_perm_vec_ct * pheno_nm_ctv * sizeof(intptr_t));
       if (g_perm_vec_ct > max_thread_ct) {
         g_assoc_thread_ct = max_thread_ct;
@@ -9640,8 +9644,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
       marker_idx = 0;
       marker_idx2 = 0;
       chrom_end = 0;
-      // only forced to terminate block at Y chromosome boundaries (since inner
-      // loop assumes g_pheno_nm_ct does not change within a block)
+      // only forced to terminate block at Y chromosome boundaries
       if (!skip_y) {
 	marker_uidx_end = chrom_info_ptr->chrom_start[(uint32_t)y_code];
 	pheno_male_nm_ctl = (pheno_male_nm_ctl + 1) & (~1);
@@ -9682,15 +9685,6 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	    // exploit overflow
 	    chrom_fo_idx++;
 	    refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &g_is_haploid);
-	    if (!g_is_y) {
-	      cur_pheno_nm2 = pheno_nm2;
-	      g_pheno_nm_ct = pheno_nm_ct;
-	      cur_indiv_ctl = pheno_nm_ctv;
-	    } else {
-	      cur_pheno_nm2 = pheno_male_nm2;
-	      g_pheno_nm_ct = male_ct;
-	      cur_indiv_ctl = pheno_male_nm_ctl;
-	    }
 	  }
 	  if (fread(loadbuf_raw, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	    goto testmiss_ret_READ_FAIL;
@@ -9698,8 +9692,19 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	  if (is_haploid && hh_exists) {
 	    haploid_fix(hh_exists, indiv_hh_include2, indiv_hh_male_include2, unfiltered_indiv_ct, is_x, g_is_y, (unsigned char*)loadbuf_raw);
 	  }
-	  loadbuf_ptr = &(g_loadbuf[block_size * cur_indiv_ctl]);
-	  extract_collapsed_missing_bitfield(loadbuf_raw, unfiltered_indiv_ct, cur_pheno_nm2, g_pheno_nm_ct, loadbuf_ptr);
+	  loadbuf_ptr = &(g_loadbuf[block_size * pheno_nm_ctv]);
+	  extract_collapsed_missing_bitfield(loadbuf_raw, unfiltered_indiv_ct, pheno_nm2, pheno_nm_ct, loadbuf_ptr);
+	  if (g_is_y) {
+            bitfield_and(loadbuf_ptr, sex_male_collapsed, pheno_nm_ctl);
+	  }
+	  if (!g_perms_done) {
+	    missing_ct = popcount_longs(loadbuf_ptr, pheno_nm_ctl);
+	    if (perm_adapt) {
+	      g_missing_cts[marker_idx2] = missing_ct;
+	    } else {
+              g_missing_cts[marker_idx + block_size] = missing_ct;
+	    }
+	  }
 	  if (perm_adapt) {
 	    g_adapt_m_table[block_size] = marker_idx2++;
 	  }
@@ -9735,11 +9740,43 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	  // chromosome, and I won't bother with g_precomp_width just for that
 	  for (uii = 0; uii < block_size; uii++) {
 	    if (perm_adapt) {
+              marker_cidx = g_adapt_m_table[uii];
 	    } else {
+              marker_cidx = marker_idx + uii;
+	    }
+            pval = 1 - g_orig_1mpval[marker_cidx];
+	    missing_ct = g_missing_cts[marker_cidx];
+	    if (perm_adapt) {
+              fisher22_precomp_pval_bounds(pval, case_ct, missing_ct, pheno_nm_ct, &(g_precomp_ui[uii * 4]), NULL);
+	    } else {
+              fisher22_precomp_pval_bounds(pval, case_ct, missing_ct, pheno_nm_ct, &(g_precomp_ui[uii * 6]), NULL);
+              fisher22_precomp_pval_bounds(g_maxt_cur_extreme_stat, case_ct, missing_ct, pheno_nm_ct, uibuf, &(g_precomp_d[uii * 3]));
+	      g_precomp_ui[uii * 6 + 4] = uibuf[2];
+	      g_precomp_ui[uii * 6 + 5] = uibuf[3] - uibuf[2];
 	    }
 	  }
 	}
-      } while (marker_idx < marker_unstopped_ct);      
+	ulii = 0;
+	/*
+	if (perm_adapt) {
+          if (spawn_threads(threads, &testmiss_adapt_thread, g_assoc_thread_ct)) {
+            goto testmiss_ret_THREAD_CREATE_FAIL;
+	  }
+          testmiss_adapt_thread((void*)ulii);
+          join_threads(threads, g_assoc_thread_ct);
+	} else {
+	  g_maxt_block_base = marker_idx;
+          if (spawn_threads(threads, &testmiss_maxt_thread, g_assoc_thread_ct)) {
+            goto testmiss_ret_THREAD_CREATE_FAIL;
+	  }
+          testmiss_maxt_thread((void*)ulii);
+          join_threads(threads, g_assoc_thread_ct);
+	  // ...
+	}
+	*/
+      } while (marker_idx < marker_unstopped_ct);
+      // really should postpone this for --assoc/--model too
+      g_perms_done += g_perm_vec_ct;
       // ...
       if (g_perms_done < perms_total) {
         if (perm_adapt) {

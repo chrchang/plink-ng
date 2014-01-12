@@ -146,14 +146,16 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mi
   // This version was written by Christopher Chang.  It contains the following
   // improvements over the original SNPHWE():
   // - Proper handling of >64k genotypes.  Previously, there was a potential
-  // integer overflow.
+  //   integer overflow.
   // - Detection and efficient handling of floating point overflow and
-  // underflow.  E.g. instead of summing a tail all the way down, the loop
-  // stops once the latest increment underflows the partial sum's 53-bit
-  // precision; this results in a large speedup when max heterozygote count
-  // >1k.
+  //   underflow.  E.g. instead of summing a tail all the way down, the loop
+  //   stops once the latest increment underflows the partial sum's 53-bit
+  //   precision; this results in a large speedup when max heterozygote count
+  //   >1k.
   // - No malloc() call.  It's only necessary to keep track of a few partial
-  // sums.
+  //   sums.
+  // - Support for the mid-p variant of this test.  See Graffelman J, Moreno V
+  //   (2013) The mid p-value in exact tests for Hardy-Weinberg equilibrium.
   //
   // Note that the SNPHWE_t() function below is a lot more efficient for
   // testing against a p-value inclusion threshold.  SNPHWE2() should only be
@@ -182,7 +184,11 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mi
   double curr_homc_t1;
   double preaddp;
   if (!genotypes2) {
-    return 1;
+    if (midp) {
+      return 0.5;
+    } else {
+      return 1;
+    }
   }
 
   if (obs_hets * genotypes2 > rare_copies * (genotypes2 - rare_copies)) {
@@ -826,7 +832,7 @@ double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t
   if (!midp) {
     return tprob / (cprob + tprob);
   } else {
-    return (tprob - ((1 - SMALL_EPSILON) * EXACT_TEST_BIAS * 0.5) * tie_ct) / (cprob * tprob);
+    return (tprob - ((1 - SMALL_EPSILON) * EXACT_TEST_BIAS * 0.5) * tie_ct) / (cprob + tprob);
   }
 }
 
