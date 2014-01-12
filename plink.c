@@ -238,7 +238,6 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t indiv_ctl2 = (indiv_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t x_variant_ct = 0;
-  double nei_multiplier_nm = 4.0 * ((double)((intptr_t)indiv_ct)) / ((double)((intptr_t)(indiv_ct * 2 - 1)));
   double nei_sum = 0.0;
   uint32_t gender_unk_ct = 0;
   uint32_t problem_ct = 0;
@@ -253,6 +252,10 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   //    N/(N-1) term which makes it slightly different from GCTA's Fhat2.
   //    Todo: check whether --ibc Fhat2 calculation should be revised to be
   //    consistent with --het...)
+  // edit: Actually, forget about the 2N/(2N-1) multiplier for now since it
+  // doesn't play well with --freq, and PLINK 1.07 only succeeds in applying it
+  // when N=1 due to use of integer division.  Maybe let it be used with
+  // inferred MAFs/--freqx/--freq counts later.
   uintptr_t* lptr;
   uint32_t* het_cts;
   uint32_t* missing_cts;
@@ -313,16 +316,15 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     }
     cur_missing_ct = count_01(loadbuf, indiv_ctl2);
     allele_obs_ct = 2 * (indiv_ct - cur_missing_ct);
-    set_allele_ct = popcount_longs(loadbuf, indiv_ctl2) - cur_missing_ct;
+    dpp = set_allele_freqs[marker_uidx];
     // skip monomorphic sites
-    if ((!set_allele_ct) || (set_allele_ct == allele_obs_ct)) {
+    if ((!allele_obs_ct) || (dpp < 1e-8) || (dpp > (1 - 1e-8))) {
       continue;
     }
+    set_allele_ct = popcount_longs(loadbuf, indiv_ctl2) - cur_missing_ct;
+    cur_nei = 1.0 - 2 * dpp * (1 - dpp);
     x_variant_ct++;
     if (cur_missing_ct) {
-      dtot = (double)((intptr_t)allele_obs_ct);
-      dpp = set_allele_freqs[marker_uidx];
-      cur_nei = 1.0 - 2 * dpp * (1 - dpp) * dtot / ((double)((intptr_t)((allele_obs_ct - 1))));
       // iterate through missing calls
       lptr = loadbuf;
       for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx += BITCT2) {
@@ -335,9 +337,6 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
           cur_word &= cur_word - 1;
 	}
       }
-    } else {
-      dpp = set_allele_freqs[marker_uidx];
-      cur_nei = 1.0 - dpp * (1 - dpp) * nei_multiplier_nm;
     }
     lptr = loadbuf;
     // iterate through heterozygous calls
@@ -13450,7 +13449,7 @@ int32_t main(int32_t argc, char** argv) {
   GlobalMemoryStatusEx(&memstatus);
   llxx = memstatus.ullTotalPhys / 1048576;
 #else
-  llxx = ((size_t)sysconf(_SC_PHYS_PAGES)) * ((size_t)sysconf(_SC_PAGESIZE)) / 1048576;
+  llxx = ((uint64_t)sysconf(_SC_PHYS_PAGES)) * ((size_t)sysconf(_SC_PAGESIZE)) / 1048576;
 #endif
 #endif
   if (!llxx) {
@@ -13465,6 +13464,11 @@ int32_t main(int32_t argc, char** argv) {
   } else if (malloc_size_mb < WKSPACE_MIN_MB) {
     malloc_size_mb = WKSPACE_MIN_MB;
   }
+#ifndef __LP64__
+  if (malloc_size_mb > 2047) {
+    malloc_size_mb = 2047;
+  }
+#endif
   if (llxx) {
     sprintf(logbuf, "%" PRId64 " MB RAM detected; reserving %" PRIdPTR " MB for main workspace.\n", llxx, malloc_size_mb);
   } else {

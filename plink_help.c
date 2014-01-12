@@ -479,7 +479,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --hardy <midp>\n"
 "    Generate a Hardy-Weinberg exact test p-value report.  (This does NOT\n"
 "    simultaneously filter on the p-value any more; use --hwe for that.)  With\n"
-"    the 'midp' modifier, the test applies the mid-p correction described in\n"
+"    the 'midp' modifier, the test applies the mid-p adjustment described in\n"
 "    Graffelman J, Moreno V (2013) The mid p-value in exact tests for\n"
 "    Hardy-Weinberg Equilibrium.\n\n"
 	       );
@@ -752,7 +752,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    test, while --model performs 4 other tests as well (1df dominant gene\n"
 "    action, 1df recessive gene action, 2df genotypic, Cochran-Armitage trend).\n"
 "    * With 'fisher'/'fisher-midp', Fisher's exact test is used to generate\n"
-"      p-values.  'fisher-midp' also applies Lancaster's mid-p correction.\n"
+"      p-values.  'fisher-midp' also applies Lancaster's mid-p adjustment.\n"
 "    * 'perm' causes an adaptive permutation test to be performed.\n"
 "    * 'mperm=[value]' causes a max(T) permutation test with the specified\n"
 "      number of replications to be performed.\n"
@@ -847,7 +847,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("test-missing\tperm\tmperm", &help_ctrl, 1,
 "  --test-missing <perm | mperm=[value]> <perm-count> <midp>\n"
 "    Check for association between missingness and case/control status, using\n"
-"    Fisher's exact test.  'midp' invokes Lancaster's mid-p correction.\n\n"
+"    Fisher's exact test.  The 'midp' modifier causes Lancaster's mid-p\n"
+"    adjustment to be applied.\n\n"
 	       );
 #ifndef STABLE_BUILD
 #ifndef NOLAPACK
