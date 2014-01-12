@@ -275,7 +275,6 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   uintptr_t indiv_idx;
   uintptr_t cur_missing_ct;
   uintptr_t allele_obs_ct;
-  uintptr_t set_allele_ct;
   uintptr_t cur_word;
   uintptr_t ulii;
   uint32_t orig_sex_code;
@@ -321,7 +320,6 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     if ((!allele_obs_ct) || (dpp < 1e-8) || (dpp > (1 - 1e-8))) {
       continue;
     }
-    set_allele_ct = popcount_longs(loadbuf, indiv_ctl2) - cur_missing_ct;
     cur_nei = 1.0 - 2 * dpp * (1 - dpp);
     x_variant_ct++;
     if (cur_missing_ct) {
