@@ -2408,6 +2408,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   uint32_t is_new_lengths = 1 ^ ((hp->modifier / HOMOZYG_OLD_LENGTHS) & 1);
   uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
   int32_t x_code = chrom_info_ptr->x_code;
+  int32_t mt_code = chrom_info_ptr->mt_code;
   uintptr_t* haploid_mask = chrom_info_ptr->haploid_mask;
   uintptr_t topsize = 0;
   uintptr_t roh_ct = 0;
@@ -2562,7 +2563,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
     roh_list_chrom_starts[chrom_fo_idx] = roh_ct;
     chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
     if ((x_code == -1) || (uii != ((uint32_t)x_code))) {
-      if (IS_SET(haploid_mask, uii)) {
+      if (IS_SET(haploid_mask, uii) || (uii == (uint32_t)mt_code)) {
 	marker_uidx = chrom_end;
 	if (fseeko(bedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
 	  goto calc_homozyg_ret_READ_FAIL;

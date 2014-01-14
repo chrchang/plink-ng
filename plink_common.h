@@ -256,8 +256,6 @@
 #define M23_FEMALE 2
 #define M23_FORCE_MISSING_SEX 4
 #define M23_SEX 7
-#define M23_CONVERT_XY 8
-#define M23_MAKE_XYLIST 0x10
 
 #define MARKER_CMS_OPTIONAL 1
 #define MARKER_CMS_FORCED 2
@@ -1593,7 +1591,7 @@ static inline uintptr_t next_autosomal_unsafe(uintptr_t* marker_exclude, uintptr
   }
 }
 
-void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* is_haploid_ptr);
+void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* is_mt_ptr, uint32_t* is_haploid_ptr);
 
 int32_t single_chrom_start(Chrom_info* chrom_info_ptr, uint32_t unfiltered_marker_ct, uintptr_t* marker_exclude);
 
@@ -1795,7 +1793,7 @@ static inline uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t 
   return (max_idx - min_idx) - ((uint32_t)popcount_bit_idx(marker_exclude, min_idx, max_idx));
 }
 
-uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t count_x);
+uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t count_x, uint32_t count_mt);
 
 uint32_t get_max_chrom_size(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t* last_chrom_fo_idx_ptr);
 

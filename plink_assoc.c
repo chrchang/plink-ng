@@ -5756,8 +5756,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   uint32_t assoc_p2 = model_modifier & MODEL_ASSOC_P2;
   uint32_t display_ci = (ci_size > 0);
   uint32_t perms_total = 0;
-  int32_t x_code = -1;
-  int32_t y_code = -1;
   uint32_t male_ct = 0;
   uint32_t nonmale_ct = 0;
   uint32_t ctrl_male_ct = 0;
@@ -5825,6 +5823,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   uintptr_t* indiv_case_include2;
   uint32_t load_indiv_ct;
   uintptr_t ulii;
+  int32_t x_code;
+  int32_t y_code;
+  int32_t mt_code;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -5944,9 +5945,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       goto model_assoc_ret_WRITE_FAIL;
     }
   } else {
-    uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 0);
+    uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 0, 1);
     if (uii) {
-      sprintf(logbuf, "Excluding %u X/haploid variant%s from --model analysis.\n", uii, (uii == 1)? "" : "s");
+      sprintf(logbuf, "Excluding %u MT/haploid variant%s from --model analysis.\n", uii, (uii == 1)? "" : "s");
       logprintb();
     }
     marker_ct -= uii;
@@ -6004,6 +6005,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   }
   x_code = chrom_info_ptr->x_code;
   y_code = chrom_info_ptr->y_code;
+  mt_code = chrom_info_ptr->mt_code;
   gender_req = ((x_code != -1) && is_set(chrom_info_ptr->chrom_mask, x_code)) || (model_assoc && (((y_code != -1) && is_set(chrom_info_ptr->chrom_mask, y_code))));
   if (gender_req) {
     if (wkspace_alloc_ul_checked(&g_indiv_nonmale_include2, pheno_nm_ctl2 * sizeof(intptr_t)) ||
@@ -6307,7 +6309,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       if (model_assoc) {
 	// exploit overflow
 	chrom_fo_idx++;
-	refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &g_is_haploid);
+	refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &uii, &g_is_haploid);
 	uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	if (g_is_haploid && (!g_is_x)) {
 	  if (g_is_y) {
@@ -6330,7 +6332,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	  } while (marker_uidx >= chrom_end);
 	  uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	  g_is_x = (uii == (uint32_t)x_code);
-	  if ((!IS_SET(haploid_mask, uii)) || g_is_x) {
+	  if (((!IS_SET(haploid_mask, uii)) && (uii != (uint32_t)mt_code)) || g_is_x) {
 	    break;
 	  }
 	  marker_uidx = next_unset_unsafe(marker_exclude, chrom_end);
@@ -7370,7 +7372,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	} while (marker_uidx >= chrom_end);
 	uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	g_is_x = (uii == (uint32_t)x_code);
-	if (model_assoc || ((!IS_SET(haploid_mask, uii)) || g_is_x)) {
+	if (model_assoc || (((!IS_SET(haploid_mask, uii)) && (uii != (uint32_t)mt_code)) || g_is_x)) {
 	  break;
 	}
 	marker_uidx = next_unset_unsafe(marker_exclude, chrom_end);
@@ -7482,6 +7484,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   uint32_t pct = 0;
   uint32_t max_thread_ct = g_thread_ct;
   uint32_t perm_pass_idx = 0;
+  uint32_t mt_exists = (chrom_info_ptr->mt_code != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->mt_code);
   uintptr_t perm_vec_ctcl8m = 0;
   int32_t retval = 0;
   double x11 = 0;
@@ -7637,8 +7640,8 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     fprintf(outfile_qtm, tbuf, "SNP");
     *outname_end2 = '\0';
   }
-  if (haploid_chrom_present(chrom_info_ptr)) {
-    logprint("Warning: QT --assoc doesn't handle X/Y/haploid variants normally (try\n--linear).\n");
+  if (haploid_chrom_present(chrom_info_ptr) || mt_exists) {
+    logprint("Warning: QT --assoc doesn't handle X/Y/MT/haploid variants normally (try\n--linear).\n");
   }
   sprintf(logbuf, "Writing QT --assoc report to %s...", outname);
   logprintb();
@@ -7850,7 +7853,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       g_qblock_start = 0;
       // exploit overflow
       chrom_fo_idx++;
-      refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &g_is_haploid);
+      refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &uii, &g_is_haploid);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       chrom_name_ptr = chrom_name_buf;
       chrom_name_len = 4;
@@ -8559,6 +8562,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
   uintptr_t cur_group1_size = 0;
   uintptr_t cur_group2_size = 0;
   uint32_t y_exists = (chrom_info_ptr->y_code != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->y_code);
+  uint32_t mt_exists = (chrom_info_ptr->mt_code != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->mt_code);
   uint32_t skip_y = 0;
   double pheno_sum_g1 = 0;
   double pheno_ssq_g1 = 0;
@@ -8621,6 +8625,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
 
   uint32_t is_x;
   uint32_t is_y;
+  uint32_t is_mt;
   uint32_t is_haploid;
   uint32_t pct;
 
@@ -8773,8 +8778,8 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
   if (fopen_checked(&outfile, outname, "w")) {
     goto gxe_assoc_ret_OPEN_FAIL;
   }
-  if (haploid_chrom_present(chrom_info_ptr)) {
-    logprint("Warning: --gxe doesn't currently handle X/Y/haploid variants properly.\n");
+  if (haploid_chrom_present(chrom_info_ptr) || mt_exists) {
+    logprint("Warning: --gxe doesn't currently handle X/Y/MT/haploid variants properly.\n");
   }
   sprintf(logbuf, "Writing --gxe report to %s...", outname);
   logprintb();
@@ -8802,7 +8807,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
       }
       if (marker_uidx >= chrom_end) {
 	chrom_fo_idx++;
-	refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+	refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
 	if (!is_y) {
 	  cur_indiv_ct = covar_nm_ct;
 	  cur_group1_size = group1_size;
@@ -9368,7 +9373,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
     if (marker_uidx >= chrom_end) {
       // exploit overflow
       chrom_fo_idx++;
-      refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &g_is_y, &is_haploid);
+      refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &g_is_y, &uii, &is_haploid);
       if (!skip_y) {
         if (!g_is_y) {
           cur_pheno_nm2 = pheno_nm2;
@@ -9684,7 +9689,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	  if (marker_uidx >= chrom_end) {
 	    // exploit overflow
 	    chrom_fo_idx++;
-	    refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &g_is_haploid);
+	    refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &uii, &g_is_haploid);
 	  }
 	  if (fread(loadbuf_raw, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	    goto testmiss_ret_READ_FAIL;

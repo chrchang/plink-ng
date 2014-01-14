@@ -3411,6 +3411,7 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
   uintptr_t marker_idx = 0;
   uint32_t hwe_midp = hwe_modifier & HWE_MIDP;
   int32_t retval = 0;
+  uint32_t skip_chrom = 0;
   uint32_t pct = 0;
   uint32_t prefix_len;
   uint32_t loop_end;
@@ -3418,6 +3419,7 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
   uint32_t report_type;
   uint32_t is_x;
   uint32_t is_y;
+  uint32_t is_mt;
   uint32_t is_haploid;
   uint32_t chrom_fo_idx;
   uint32_t chrom_end;
@@ -3469,7 +3471,8 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
   fprintf(outfile, writebuf, "SNP");
  
   chrom_fo_idx = 0;
-  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
+  skip_chrom = (is_haploid && (!is_x)) || is_mt;
   cptr0 = width_force(4, writebuf, chrom_name_write(writebuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], zero_extra_chroms));
   *cptr0++ = ' ';
   cptr = &(cptr0[10 + plink_maxsnp]);
@@ -3487,7 +3490,8 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
 	next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
-	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
+	  skip_chrom = (is_haploid && (!is_x)) || is_mt;
 	  cptr0 = width_force(4, writebuf, chrom_name_write(writebuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], zero_extra_chroms));
 	  *cptr0++ = ' ';
 	  cptr = &(cptr0[10 + plink_maxsnp]);
@@ -3498,6 +3502,9 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
 	    memcpy(&(cptr0[plink_maxsnp]), "  ALL(NP)           ", 20);
 	  }
 	  cptr2 = &(cptr[18 + 2 * max_marker_allele_len]);
+	}
+        if (skip_chrom) {
+	  continue;
 	}
 	fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), cptr0);
 	reverse = IS_SET(marker_reverse, marker_uidx);
@@ -3529,12 +3536,16 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
 	next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
-	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
+	  skip_chrom = (is_haploid && (!is_x)) || is_mt;
 	  cptr0 = width_force(4, writebuf, chrom_name_write(writebuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], zero_extra_chroms));
           memset(&(cptr0[plink_maxsnp]), 32, 20);
 	  cptr = &(cptr0[10 + plink_maxsnp]);
 	  cptr2 = &(cptr[18 + 2 * max_marker_allele_len]);
 	  prefix_len = 10 + ((uintptr_t)(cptr - writebuf));
+	}
+	if (skip_chrom) {
+	  continue;
 	}
 	fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), cptr0);
 	memcpy(&(cptr0[4 + plink_maxsnp]), "  ALL", 5);
@@ -5976,7 +5987,6 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
       chrom_info_ptr->mt_code = ii + 4;
       set_bit(chrom_info_ptr->haploid_mask, ii + 1);
       set_bit(chrom_info_ptr->haploid_mask, ii + 2);
-      set_bit(chrom_info_ptr->haploid_mask, ii + 4);
       for (param_idx = 2; param_idx <= param_ct; param_idx++) {
 	if (!strcmp(argv[cur_arg + param_idx], "no-x")) {
 	  chrom_info_ptr->x_code = -1;
@@ -5988,7 +5998,6 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
 	  chrom_info_ptr->xy_code = -1;
 	} else if (!strcmp(argv[cur_arg + param_idx], "no-mt")) {
 	  chrom_info_ptr->mt_code = -1;
-	  clear_bit(chrom_info_ptr->haploid_mask, ii + 4);
 	} else {
 	  sprintf(logbuf, "Error: Invalid --chr-set parameter '%s'.%s", argv[cur_arg + param_idx], errstr_append);
 	  goto init_delim_and_species_ret_INVALID_CMDLINE_2;
@@ -6091,7 +6100,7 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
   switch (species_code) {
   case SPECIES_HUMAN:
     chrom_info_ptr->autosome_ct = 22;
-    chrom_info_ptr->haploid_mask[0] = 0x5800000;
+    chrom_info_ptr->haploid_mask[0] = 0x1800000;
     break;
   case SPECIES_COW:
     chrom_info_ptr->autosome_ct = 29;
@@ -6352,7 +6361,6 @@ int32_t main(int32_t argc, char** argv) {
   char* iid_23 = NULL;
   char* paternal_id_23 = NULL;
   char* maternal_id_23 = NULL;
-  char* convert_xy_23 = NULL;
   Ll_str* file_delete_list = NULL;
   uint32_t chrom_flag_present = 0;
   uintptr_t chrom_exclude[CHROM_MASK_INITIAL_WORDS];
@@ -7127,43 +7135,9 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
 	load_rare = LOAD_RARE_23;
-      } else if (!memcmp(argptr2, "3file-convert-xy", 17)) {
-	if (load_rare != LOAD_RARE_23) {
-	  logprint("Error: --23file-convert-xy must be used with --23file.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
-	if (param_ct) {
-	  retval = alloc_fname(&convert_xy_23, argv[cur_arg + 1], argptr, 0);
-	  if (retval) {
-	    goto main_ret_1;
-	  }
-	} else if (modifier_23 & M23_FEMALE) {
-	  sprintf(logbuf, "Error: --23file-convert-xy requires a parameter when used on a nonmale genome.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
-	} else if (!(modifier_23 & M23_SEX)) {
-	  logprint("Note: Inferring male sex because --23file-convert-xy had no parameter.\n");
-	  modifier_23 |= M23_MALE;
-	}
-        modifier_23 |= M23_CONVERT_XY;
-      } else if (!memcmp(argptr2, "3file-make-xylist", 18)) {
-	if (load_rare != LOAD_RARE_23) {
-	  logprint("Error: --23file-make-xylist must be used with --23file.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	} else if (modifier_23 & M23_FEMALE) {
-	  sprintf(logbuf, "Error: --23file-make-xylist cannot be used on a female genome.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
-	} else if (convert_xy_23) {
-	  logprint("Error: --23file-make-xylist cannot be used with a --23file-convert-xy file.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	} else if (!(modifier_23 & M23_SEX)) {
-	  logprint("Note: Inferring male sex due to use of --23file-make-xylist.\n");
-	  modifier_23 |= M23_MALE;
-	}
-	modifier_23 |= M23_MAKE_XYLIST;
-	goto main_param_zero;
+      } else if ((!memcmp(argptr2, "3file-convert-xy", 17)) || (!memcmp(argptr2, "3file-make-xylist", 18))) {
+        sprintf(logbuf, "Error: --%s has been retired due to brain-damaged design.  Use\n--split-x instead.%s", argptr, errstr_append);
+        goto main_ret_INVALID_CMDLINE_3;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -13551,7 +13525,7 @@ int32_t main(int32_t argc, char** argv) {
       } else if (load_rare & LOAD_RARE_BCF) {
 	retval = bcf_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, const_fid, id_delim, vcf_min_qual, vcf_filter_exceptions_flattened, &chrom_info);
       } else if (load_rare == LOAD_RARE_23) {
-        retval = bed_from_23(pedname, outname, sptr, modifier_23, fid_23, iid_23, (pheno_23 == INFINITY)? ((double)missing_pheno) : pheno_23, paternal_id_23, maternal_id_23, convert_xy_23, &chrom_info);
+        retval = bed_from_23(pedname, outname, sptr, modifier_23, fid_23, iid_23, (pheno_23 == INFINITY)? ((double)missing_pheno) : pheno_23, paternal_id_23, maternal_id_23, &chrom_info);
       } else if (load_rare & LOAD_RARE_DUMMY) {
 	retval = generate_dummy(outname, sptr, dummy_flags, dummy_marker_ct, dummy_indiv_ct, dummy_missing_geno, dummy_missing_pheno);
       } else if (load_rare & LOAD_RARE_SIMULATE) {
@@ -13695,7 +13669,6 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(iid_23);
   free_cond(paternal_id_23);
   free_cond(maternal_id_23);
-  free_cond(convert_xy_23);
   free_cond(condition_mname);
   free_cond(condition_fname);
   free_cond(filter_attrib_fname);

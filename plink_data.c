@@ -4461,6 +4461,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   uint32_t is_haploid;
   uint32_t is_x;
   uint32_t is_y;
+  uint32_t is_mt;
   uint32_t pct;
   uint32_t loop_end;
   if (flip_subset_fname) {
@@ -4585,7 +4586,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	}
 	if (marker_uidx >= chrom_end) {
           chrom_fo_idx++;
-	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
 	}
         retval = make_bed_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, IS_SET(marker_reverse, marker_uidx), writebuf);
 	if (retval) {
@@ -9725,12 +9726,6 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   return retval;
 }
 
-void announce_make_xylist_complete(uint32_t markers_left, char* outname, char* outname_end) {
-  *outname_end = '\0';
-  sprintf(logbuf, "--23file-make-xylist: %u variant ID%s written to %s.xylist.\n", markers_left, (markers_left == 1)? "" : "s", outname);
-  logprintb();
-}
-
 uint32_t write_23_cached_chrom(char* write_cache, uint32_t markers_left, char chrom_second_char, FILE* outfile_bed, FILE* outfile_bim) {
   // N.B. must flush writebuf before calling this
   uint32_t uii;
@@ -9751,43 +9746,25 @@ uint32_t write_23_cached_chrom(char* write_cache, uint32_t markers_left, char ch
   return 0;
 }
 
-int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_t modifier_23, char* fid_23, char* iid_23, double pheno_23, char* paternal_id_23, char* maternal_id_23, char* convert_xy_fname, Chrom_info* chrom_info_ptr) {
+int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_t modifier_23, char* fid_23, char* iid_23, double pheno_23, char* paternal_id_23, char* maternal_id_23, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile_23 = NULL;
   FILE* outfile_bed = NULL;
   FILE* outfile_txt = NULL;
-  FILE* xylist_file = NULL;
   uint32_t is_male = modifier_23 & M23_MALE;
   uint32_t is_female = modifier_23 & M23_FEMALE;
-  uint32_t do_convert_xy = modifier_23 & M23_CONVERT_XY;
-  uint32_t make_xylist = modifier_23 & M23_MAKE_XYLIST;
-  char* xylist = NULL;
+  uint32_t x_present = 0;
+  uint32_t haploid_x_present = 0;
   uint32_t y_present = 0;
   uint32_t nonmissing_y_present = 0;
-  uintptr_t xylist_ct = 0;
-  uintptr_t xylist_max_id_len = 0;
-  uint32_t xychrom_written = 0;
   unsigned char* writebuf = (unsigned char*)(&(tbuf[MAXLINELEN]));
   char* writebuf2 = &(tbuf[MAXLINELEN * 2]);
-  // xy_phase:
-  // 0 = start of X chromosome, in initial pseudoautosomal region
-  // 1 = in middle, out of region
-  // 2 = at end, in final pseudoautosomal region
-  uint32_t xy_phase = 0;
   int32_t retval = 0;
   uint32_t cur_chrom = 0;
   uint32_t chrom_mask_23 = (uint32_t)(chrom_info_ptr->chrom_mask[0]);
-  uint32_t keep_x = ((uint32_t)(chrom_mask_23 >> 23)) & 1;
-  uint32_t keep_xy = ((uint32_t)(chrom_mask_23 >> 25)) & 1;
   uint32_t indel_ct = 0;
-  uint32_t xy_marker_ct = 0;
-  uint32_t mid_x_marker_ct = 0;
   unsigned char* writebuf_cur;
   unsigned char* writebuf_end;
-  char* new_xy_buf;
-  char* new_xy_buf_cur;
-  char* new_xy_buf_end;
-  char* last_early_xy;
   char* id_start;
   char* chrom_start;
   char* pos_start;
@@ -9795,7 +9772,6 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   char* writebuf2_cur;
   uintptr_t id_len;
   uint32_t allele_calls;
-  uint32_t is_xy;
   uint32_t uii;
   int32_t ii;
   char cc;
@@ -9812,43 +9788,9 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   if (fopen_checked(&outfile_bed, outname, "wb")) {
     goto bed_from_23_ret_OPEN_FAIL;
   }
-  if (convert_xy_fname) {
-    retval = open_and_size_string_list(convert_xy_fname, &xylist_file, &xylist_ct, &xylist_max_id_len);
-    if (retval) {
-      goto bed_from_23_ret_1;
-    }
-#ifndef __LP64__
-    if (((uint64_t)xylist_ct) * xylist_max_id_len > 0x7fffffffLLU) {
-      goto bed_from_23_ret_NOMEM;
-    }
-#endif
-    if (wkspace_alloc_c_checked(&xylist, xylist_ct * xylist_max_id_len)) {
-      goto bed_from_23_ret_NOMEM;
-    }
-    retval = load_string_list(&xylist_file, xylist_max_id_len, xylist);
-    if (retval) {
-      goto bed_from_23_ret_1;
-    }
-    fclose_null(&xylist_file);
-    qsort(xylist, xylist_ct, xylist_max_id_len, strcmp_casted);
-  } else {
-    if ((do_convert_xy || make_xylist) && (modifier_23 & M23_FORCE_MISSING_SEX)) {
-      is_male = 1;
-    }
-    if (make_xylist) {
-      memcpy(outname_end, ".xylist", 8);
-      if (fopen_checked(&xylist_file, outname, "w")) {
-        goto bed_from_23_ret_OPEN_FAIL;
-      }
-    }
-  }
   if (wkspace_left < MAXLINELEN) {
     goto bed_from_23_ret_NOMEM;
   }
-  new_xy_buf = (char*)wkspace_base;
-  new_xy_buf_cur = new_xy_buf;
-  last_early_xy = new_xy_buf;
-  new_xy_buf_end = (char*)(&(wkspace_base[wkspace_left - MAXLINELEN]));
   writebuf_cur = (unsigned char*)memcpyl3a((char*)writebuf, "l\x1b\x01");
   writebuf_end = &(writebuf[MAXLINELEN]);
   tbuf[MAXLINELEN - 1] = ' ';
@@ -9877,118 +9819,28 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
       logprint("Error: Too many allele calls in --23file line.\n");
       goto bed_from_23_ret_INVALID_FORMAT;
     }
-    ii = get_chrom_code(SPECIES_HUMAN, chrom_start);
+    ii = get_chrom_code(chrom_info_ptr, chrom_start);
     if (ii == -1) {
       logprint("Error: Invalid chromosome code in --23file line.\n");
       goto bed_from_23_ret_INVALID_FORMAT;
     }
     uii = (uint32_t)ii;
-    if ((!(chrom_mask_23 & (1 << uii))) && ((uii != 23) || (!(keep_x || keep_xy)))) {
+    if (!(chrom_mask_23 & (1 << uii))) {
       continue;
     }
-    if (uii == 25) {
-      is_xy = 1;
-      uii = 23;
-      xy_phase = 2;
-    } else {
-      is_xy = 0;
-    }
     if (uii < cur_chrom) {
-      // allow 24 -> XY
-      if ((!is_xy) || (cur_chrom == 26)) {
-        sprintf(logbuf, "Error: Chromosomes in %s are out of order.\n", infile_name);
-        goto bed_from_23_ret_INVALID_FORMAT;
-      }
-      cur_chrom = 25;
+      sprintf(logbuf, "Error: Chromosomes in %s are out of order.\n", infile_name);
+      goto bed_from_23_ret_INVALID_FORMAT;
     } else if (uii > cur_chrom) {
       cur_chrom = uii;
-      if ((uii == 26) && xy_marker_ct) {
-	if (writebuf_cur != writebuf) {
-	  if (fwrite_checked(writebuf, (uintptr_t)(writebuf_cur - writebuf), outfile_bed)) {
-	    goto bed_from_23_ret_WRITE_FAIL;
-	  }
-	  writebuf_cur = writebuf;
-	}
-	if (xylist_file) {
-	  announce_make_xylist_complete(xy_marker_ct, outname, outname_end);
-	}
-	if (do_convert_xy) {
-          if (write_23_cached_chrom(new_xy_buf, xy_marker_ct, '5', outfile_bed, outfile_txt)) {
-	    goto bed_from_23_ret_WRITE_FAIL;
-	  }
-	}
-	xychrom_written = 1;
+      if (cur_chrom == 23) {
+	x_present = 1;
+      } else if (cur_chrom == 24) {
+	y_present = 1;
       }
     }
     cc2 = allele_start[0];
-    if ((cur_chrom == 23) && (!is_xy) && (do_convert_xy || make_xylist)) {
-      if (xylist) {
-	// This should be robust to changes in the 23andMe marker set.
-	// Strategy: We actually only care about the end of the beginning, and
-	// the beginning of the end.  So we just look for the last hit in the
-	// first half or so of the chromosome, and the first hit in the last
-	// half.  While the precise bp length of the X chromosome varies
-	// between reference builds, position 77000000 should be safely in the
-	// middle.
-	is_xy = 1;
-	// if !last_early_xy, then we already saw "first hit in last half" and
-	// force the marker to be on XY.
-	if (last_early_xy) {
-	  if (bsearch_str(id_start, id_len, xylist, xylist_max_id_len, xylist_ct) != -1) {
-	    if (atoiz(pos_start, &ii)) {
-	      pos_start[strlen_se(pos_start)] = '\0';
-	      sprintf(logbuf, "Error: Invalid --23file variant position '%s'.\n", pos_start);
-	      goto bed_from_23_ret_INVALID_FORMAT;
-	    }
-	    if (((uint32_t)ii) > 77000000) {
-	      if (mid_x_marker_ct) {
-		if (xy_marker_ct) {
-		  last_early_xy = &(last_early_xy[strlen(last_early_xy) + 2]);
-		}
-		if (writebuf_cur != writebuf) {
-		  if (fwrite_checked(writebuf, (uintptr_t)(writebuf_cur - writebuf), outfile_bed)) {
-		    goto bed_from_23_ret_WRITE_FAIL;
-		  }
-		  writebuf_cur = writebuf;
-		}
-		if (write_23_cached_chrom(last_early_xy, mid_x_marker_ct, '3', outfile_bed, outfile_txt)) {
-		  goto bed_from_23_ret_WRITE_FAIL;
-		}
-	      }
-	      new_xy_buf_cur = last_early_xy;
-	      last_early_xy = NULL;
-	    } else {
-	      last_early_xy = new_xy_buf_cur;
-	      xy_marker_ct += mid_x_marker_ct;
-	      mid_x_marker_ct = 0;
-	      xy_phase = 0;
-	    }
-	  } else {
-	    is_xy = 0;
-	    mid_x_marker_ct++;
-	  }
-	}
-      } else if (cc2 == '-') {
-	// status quo
-	if (xy_phase != 1) {
-	  is_xy = 1;
-	}
-      } else if (allele_calls == 2) {
-	is_xy = 1;
-      }
-      if (is_xy) {
-        if (xy_phase == 1) {
-	  xy_phase = 2;
-	}
-      } else if (xy_phase != 1) {
-	if (xy_phase == 2) {
-	  logprint("Error: Invalid X chromosome data (more than one haploid component).\n");
-	  goto bed_from_23_ret_INVALID_FORMAT;
-	}
-	xy_phase = 1;
-      }
-    } else if ((cur_chrom == 24) && (!nonmissing_y_present)) {
-      y_present = 1;
+    if ((cur_chrom == 24) && (!nonmissing_y_present)) {
       if (cc2 != '-') {
 	nonmissing_y_present = 1;
       }
@@ -10013,73 +9865,42 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
       indel_ct++;
       cc = (char)(((unsigned char)cc2) ^ 13); // swaps D and I
     }
-    if (is_xy) {
-      if (allele_calls != 2) {
+    if ((cur_chrom == 25) && (allele_calls != 2)) {
+      goto bed_from_23_ret_INVALID_FORMAT_2;
+    }
+    if ((allele_calls == 1) && (cur_chrom <= 23)) {
+      if ((cur_chrom == 23) && (!is_female)) {
+	is_male = 1;
+	haploid_x_present = 1;
+      } else {
 	goto bed_from_23_ret_INVALID_FORMAT_2;
       }
-      if (!keep_xy) {
-	continue;
+    } else if ((cur_chrom == 24) && (cc2 != '0') && (!is_male)) {
+      if (!is_female) {
+	is_male = 1;
+      } else {
+	logprint("Error: Nonmissing female --23file allele call on Y chromosome.\n");
+	goto bed_from_23_ret_INVALID_FORMAT;
       }
-      if (new_xy_buf_cur > new_xy_buf_end) {
-	goto bed_from_23_ret_NOMEM;
-      }
-      if (xylist_file) {
-        fwrite(id_start, 1, id_len, xylist_file);
-        if (putc_checked('\n', xylist_file)) {
-	  goto bed_from_23_ret_WRITE_FAIL;
-	}
-      }
-      xy_marker_ct++;
     }
-    if (do_convert_xy && (cur_chrom == 23) && (xylist || is_xy)) {
-      *new_xy_buf_cur++ = '\t';
-      new_xy_buf_cur = memcpya(new_xy_buf_cur, id_start, id_len);
-      new_xy_buf_cur = memcpyl3a(new_xy_buf_cur, "\t0\t");
-      new_xy_buf_cur = memcpyax(new_xy_buf_cur, pos_start, strlen_se(pos_start), '\t');
-      *new_xy_buf_cur++ = cc;
-      *new_xy_buf_cur++ = '\t';
-      *new_xy_buf_cur++ = cc2;
-      *new_xy_buf_cur++ = '\n';
-      *new_xy_buf_cur++ = '\0';
-      *new_xy_buf_cur++ = (char)ucc;
-    } else {
-      if ((cur_chrom == 23) && (!is_xy) && (!keep_x)) {
-	continue;
-      }
-      if ((allele_calls == 1) && (cur_chrom <= 23) && (!is_xy)) {
-	if ((cur_chrom == 23) && (!is_female)) {
-	  is_male = 1;
-	} else {
-	  logprint("Error: Too few allele calls in --23file line.\n");
-	  goto bed_from_23_ret_INVALID_FORMAT;
-	}
-      } else if ((cur_chrom == 24) && (cc2 != '0') && (!is_male)) {
-	if (!is_female) {
-	  is_male = 1;
-	} else {
-	  logprint("Error: Nonmissing female --23file allele call on Y chromosome.\n");
-	  goto bed_from_23_ret_INVALID_FORMAT;
-	}
-      }
-      writebuf2_cur = uint32_writex(writebuf2, cur_chrom, '\t');
-      writebuf2_cur = memcpya(writebuf2_cur, id_start, id_len);
-      writebuf2_cur = memcpyl3a(writebuf2_cur, "\t0\t");
-      writebuf2_cur = memcpyax(writebuf2_cur, pos_start, strlen_se(pos_start), '\t');
-      *writebuf2_cur++ = cc;
-      *writebuf2_cur++ = '\t';
-      *writebuf2_cur++ = cc2;
-      *writebuf2_cur++ = '\n';
-      if (fwrite_checked(writebuf2, (uintptr_t)(writebuf2_cur - writebuf2), outfile_txt)) {
+    writebuf2_cur = uint32_writex(writebuf2, cur_chrom, '\t');
+    writebuf2_cur = memcpya(writebuf2_cur, id_start, id_len);
+    writebuf2_cur = memcpyl3a(writebuf2_cur, "\t0\t");
+    writebuf2_cur = memcpyax(writebuf2_cur, pos_start, strlen_se(pos_start), '\t');
+    *writebuf2_cur++ = cc;
+    *writebuf2_cur++ = '\t';
+    *writebuf2_cur++ = cc2;
+    *writebuf2_cur++ = '\n';
+    if (fwrite_checked(writebuf2, (uintptr_t)(writebuf2_cur - writebuf2), outfile_txt)) {
+      goto bed_from_23_ret_WRITE_FAIL;
+    }
+    if (writebuf_cur == writebuf_end) {
+      if (fwrite_checked(writebuf, (uintptr_t)(writebuf_cur - writebuf), outfile_bed)) {
 	goto bed_from_23_ret_WRITE_FAIL;
       }
-      if (writebuf_cur == writebuf_end) {
-	if (fwrite_checked(writebuf, (uintptr_t)(writebuf_cur - writebuf), outfile_bed)) {
-	  goto bed_from_23_ret_WRITE_FAIL;
-	}
-	writebuf_cur = writebuf;
-      }
-      *writebuf_cur++ = (char)ucc;
+      writebuf_cur = writebuf;
     }
+    *writebuf_cur++ = (char)ucc;
   }
   if (!feof(infile_23)) {
     goto bed_from_23_ret_READ_FAIL;
@@ -10095,16 +9916,6 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   }
   if (fwrite_checked(writebuf, (uintptr_t)(writebuf_cur - writebuf), outfile_bed)) {
     goto bed_from_23_ret_WRITE_FAIL;
-  }
-  if (xy_marker_ct && (!xychrom_written)) {
-    if (do_convert_xy) {
-      if (write_23_cached_chrom(new_xy_buf_cur, xy_marker_ct, '5', outfile_bed, outfile_txt)) {
-	goto bed_from_23_ret_WRITE_FAIL;
-      }
-    }
-    if (xylist_file) {
-      announce_make_xylist_complete(xy_marker_ct, outname, outname_end);
-    }
   }
   if (fclose_null(&outfile_txt)) {
     goto bed_from_23_ret_WRITE_FAIL;
@@ -10158,13 +9969,15 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
     sprintf(logbuf, "Inferred sex: %smale.\n", is_male? "" : "fe");
     logprintb();
   }
-  if ((modifier_23 & M23_MALE) && y_present && (!nonmissing_y_present)) {
-    if (keep_x && xy_marker_ct) {
-      if (!xy_phase) {
-	logprint("Warning: No explicit haploid calls on X chromosome, and no nonmissing calls on Y\nchromosome.  Double-check whether this is really a male sample.\n");
+  if (modifier_23 & M23_MALE) {
+    if (y_present && (!nonmissing_y_present)) {
+      if (x_present) {
+	if (!haploid_x_present) {
+	  logprint("Warning: No explicit haploid calls on X chromosome, and no nonmissing calls on\nY chromosome.  Double-check whether this is really a male sample.\n");
+	}
+      } else {
+        logprint("Warning: No nonmissing calls on Y chromosome.  Double-check whether this is\nreally a male sample.\n");
       }
-    } else {
-      logprint("Warning: No nonmissing calls on Y chromosome.  Double-check whether this is\nreally a male sample.\n");
     }
   }
   while (0) {
@@ -10189,11 +10002,9 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
     retval = RET_INVALID_FORMAT;
     break;
   }
- bed_from_23_ret_1:
   fclose_cond(infile_23);
   fclose_cond(outfile_bed);
   fclose_cond(outfile_txt);
-  fclose_cond(xylist_file);
   wkspace_reset(wkspace_mark);
   return retval;
 }
@@ -11602,15 +11413,16 @@ int32_t recode_beagle_new_chrom(char* outname, char* outname_end2, uintptr_t* ma
   uint32_t chrom_idx;
   uint32_t is_x;
   uint32_t is_y;
+  uint32_t is_mt;
   uint32_t is_haploid;
   char* wbufptr;
-  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
   chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
   if ((chrom_idx > 22) && (chrom_idx < 27)) {
     do {
       marker_uidx = next_unset_ul_unsafe(marker_exclude, chrom_end);
       chrom_fo_idx++;
-      refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+      refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
       chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
     } while ((chrom_idx > 22) && (chrom_idx < 27));
     if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
@@ -11821,6 +11633,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   struct tm *loctime;
   uint32_t is_x;
   uint32_t is_y;
+  uint32_t is_mt;
   uint32_t is_haploid;
   uint32_t chrom_fo_idx;
   uint32_t chrom_idx;
@@ -12285,7 +12098,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   }
   loadbuf = wkspace_base;
   chrom_fo_idx = 0;
-  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
   chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
   if (recode_modifier & RECODE_TRANSPOSE) {
     strcpy(outname_end, ".tped");
@@ -12318,7 +12131,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	}
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
-	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
 	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	  cptr = chrom_name_write(tbuf, chrom_info_ptr, chrom_idx, zero_extra_chroms);
 	  *cptr++ = delimiter;
@@ -12415,7 +12228,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     fputs("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT", outfile);
 
     chrom_fo_idx = 0;
-    refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+    refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
     indiv_uidx = 0;
     shiftval = 0; // repurposed: underscore seen in ID?
@@ -12460,7 +12273,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	}
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
-	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
 	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	  if (((!hh_exists) || set_hh_missing) && is_haploid && (!is_x)) {
 	    uii = 2;
@@ -12561,7 +12374,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	}
         if (marker_uidx >= chrom_end) {
           chrom_fo_idx++;
-          refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+          refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
 	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	  // not clear from documentation whether anything special should be
 	  // done for Y/haploid chromosomes
@@ -12685,12 +12498,13 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     indiv_uidx = next_unset_unsafe(indiv_exclude, 0);
     ucc = IS_SET(sex_male, indiv_uidx);
     ucc2 = ((chrom_idx == 24) || (chrom_idx == 26) || (ucc && (chrom_idx == 23) && (!xmhh_exists_orig)))? 1 : 0;
-    // todo: add a way to use output of --23file-make-xylist
+    // todo: add a way to force two-allele output for entire male
+    // pseudo-autosomal region
     for (; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
       marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
       if (marker_uidx >= chrom_end) {
 	chrom_fo_idx++;
-	refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+	refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
 	chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
         cptr = chrom_print_human(&(writebuf[1]), chrom_idx);
 	*cptr++ = '\t';
@@ -12727,7 +12541,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	*aptr++ = mk_allele_ptrs[2 * marker_uidx][0];
       }
       fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
-      if (ucc2 && (cur_word != 1)) {
+      if (ucc2 && ((cur_word == 3) || (!cur_word))) {
 	aptr--;
       }
       *aptr++ = '\n';
@@ -12738,7 +12552,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   } else if (recode_modifier & RECODE_BEAGLE) {
     // for backward compatibility, also exclude XY.  don't exclude custom name
     // chromosomes, though, since chromosome 0 was actually processed
-    autosomal_marker_ct = marker_ct - count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1) - count_chrom_markers(chrom_info_ptr, 25, marker_exclude);
+    autosomal_marker_ct = marker_ct - count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1) - count_chrom_markers(chrom_info_ptr, 25, marker_exclude);
     if (!autosomal_marker_ct) {
       logprint("Error: No autosomal variants for --recode beagle.\n");
       goto recode_ret_ALL_MARKERS_EXCLUDED;
@@ -12936,7 +12750,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     marker_uidx = 0;
     marker_idx = 0;
     chrom_fo_idx = 0;
-    refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+    refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
     writebuf2[0] = ',';
     memcpy(&(writebuf2[4]), ",??", 4);
@@ -12953,7 +12767,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
         }
 	if (marker_uidx >= chrom_end) {
           chrom_fo_idx++;
-          refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+          refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
           chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	}
 	if (load_and_collapse(bedfile, (uintptr_t*)loadbuf, unfiltered_indiv_ct, loadbuf_collapsed, indiv_ct, indiv_exclude, IS_SET(marker_reverse, marker_uidx))) {
@@ -13021,7 +12835,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     do {
       chrom_fo_idx++;
       next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
-      refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+      refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
       chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       ulii = count_chrom_markers(chrom_info_ptr, chrom_idx, marker_exclude);
       if (recode_modifier & RECODE_FASTPHASE) {
@@ -13128,7 +12942,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	}
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
-	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
 	}
         if (load_and_collapse(bedfile, (uintptr_t*)loadbuf, unfiltered_indiv_ct, loadbuf_collapsed, indiv_ct, indiv_exclude, IS_SET(marker_reverse, marker_uidx))) {
 	  goto recode_ret_READ_FAIL;
@@ -13350,7 +13164,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	}
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
-	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
 	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	}
 	if (load_and_collapse(bedfile, (uintptr_t*)loadbuf, unfiltered_indiv_ct, loadbuf_collapsed, indiv_ct, indiv_exclude, IS_SET(marker_reverse, marker_uidx))) {
@@ -13491,7 +13305,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     do {
       chrom_fo_idx++;
       marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-      refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+      refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
       chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       ulii = count_chrom_markers(chrom_info_ptr, chrom_idx, marker_exclude);
       if (recode_modifier & RECODE_HV) {

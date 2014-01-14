@@ -1004,13 +1004,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    (alias: --missing_code)            phenotype values for Oxford-formatted\n"
 "                                       filesets (normally 'NA').\n"
 	       );
-    help_print("23file\t23file-convert-xy\t23file-make-xylist", &help_ctrl, 0,
-"  --23file-convert-xy {f}   : Separate out XY pseudo-autosomal region.  A\n"
-"                              variant list (from e.g. --23file-make-xylist) is\n"
-"                              necessary to use this on a female genome.\n"
-"  --23file-make-xylist      : Given a male 23andMe genome, list XY pseudo-\n"
-"                              autosomal region vars in {output prefix}.xylist.\n"
-	       );
     help_print("simulate\tsimulate-ncases\tsimulate-ncontrols\tsimulate-prevalence", &help_ctrl, 0,
 "  --simulate-ncases [num]   : Set --simulate case count (default 1000).\n"
 "  --simulate-ncontrols [n]  : Set --simulate control count (default 1000).\n"
@@ -1260,6 +1253,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("set-hh-missing", &help_ctrl, 0,
 "  --set-hh-missing : Cause --make-bed and --recode to set heterozygous haploid\n"
 "                     genotypes to missing.\n"
+	       );
+    help_print("split-x\tmerge-x\tset-hh-missing\t23file-convert-xy\t23file-make-xylist", &help_ctrl, 0,
+"  --split-x [bp1] [bp2] : Changes chromosome code of all X chromosome sites\n"
+"                          with bp position <= bp1 or >= bp2 to XY.  (For\n"
+"                          GRCh37, the boundaries are 2699520 and 154931044.)\n"
+"  --merge-x             : Merge XY chromosome back with X.\n"
 	       );
     help_print("output-missing-genotype\toutput-missing-phenotype", &help_ctrl, 0,
 "  --output-missing-genotype [ch] : Set the code used to represent missing\n"

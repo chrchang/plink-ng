@@ -2403,7 +2403,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   g_include_sex = 0;
   g_male_x_01 = 0;
   if (!glm_xchr_model) {
-    uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1);
+    uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
     if (uii) {
       sprintf(logbuf, "Excluding %u nonautosomal variant%s from --linear/--logistic analysis\n(--xchr-model 0).\n", uii, (uii == 1)? "" : "s");
       logprintb();
@@ -3429,8 +3429,8 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       // exploit overflow
       do {
         chrom_fo_idx++;
-        refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &g_is_haploid);
-      } while ((!glm_xchr_model) && g_is_haploid);
+        refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &uii, &g_is_haploid);
+      } while ((!glm_xchr_model) && (g_is_haploid || uii));
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       if (uii <= chrom_info_ptr->max_code) {
 	memset(writebuf, 32, 2);

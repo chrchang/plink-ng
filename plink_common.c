@@ -3260,7 +3260,7 @@ int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int3
   return 0;
 }
 
-void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* is_haploid_ptr) {
+void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* is_mt_ptr, uint32_t* is_haploid_ptr) {
   int32_t chrom_idx;
   *chrom_end_ptr = chrom_info_ptr->chrom_file_order_marker_idx[(*chrom_fo_idx_ptr) + 1];
   while (marker_uidx >= (*chrom_end_ptr)) {
@@ -3269,6 +3269,7 @@ void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint3
   chrom_idx = chrom_info_ptr->chrom_file_order[*chrom_fo_idx_ptr];
   *is_x_ptr = (chrom_idx == chrom_info_ptr->x_code);
   *is_y_ptr = (chrom_idx == chrom_info_ptr->y_code);
+  *is_mt_ptr = (chrom_idx == chrom_info_ptr->mt_code);
   *is_haploid_ptr = is_set(chrom_info_ptr->haploid_mask, chrom_idx);
 }
 
@@ -6446,7 +6447,7 @@ int32_t string_range_list_to_bitfield2(char* sorted_ids, uint32_t* id_map, uintp
   return retval;
 }
 
-uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t count_x) {
+uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t count_x, uint32_t count_mt) {
   // for backward compatibility, unplaced markers are considered to be
   // autosomal here
   uint32_t ct = 0;
@@ -6459,7 +6460,7 @@ uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* mark
   if (y_code != -1) {
     ct += count_chrom_markers(chrom_info_ptr, y_code, marker_exclude);
   }
-  if (mt_code != -1) {
+  if (count_mt && (mt_code != -1)) {
     ct += count_chrom_markers(chrom_info_ptr, mt_code, marker_exclude);
   }
   return ct;
@@ -6745,6 +6746,7 @@ uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* mark
   uint32_t cur_chrom;
   uint32_t is_x;
   uint32_t is_y;
+  uint32_t is_mt;
   uint32_t is_haploid;
 
   if (block_max_size > marker_ct_autosomal - marker_idx) {
@@ -6760,7 +6762,7 @@ uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* mark
     if (marker_uidx >= chrom_end) {
       while (1) {
 	chrom_fo_idx++;
-	refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+	refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
 	cur_chrom = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	if ((cur_chrom <= autosome_ct) || (cur_chrom == xy_code) || (cur_chrom > max_code)) {
 	  // for now, unplaced chromosomes are all "autosomal"
