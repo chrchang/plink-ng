@@ -16,7 +16,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define PROG_NAME_STR "plink"
 #define PROG_NAME_CAPS "PLINK"
@@ -199,6 +199,7 @@
 #define MISC_SNPS_ONLY_NO_DI 0x100000000LLU
 #define MISC_ZERO_CMS 0x200000000LLU
 #define MISC_IMPUTE_SEX 0x400000000LLU
+#define MISC_MERGEX 0x800000000LLU
 
 #define CALC_RELATIONSHIP 1LLU
 #define CALC_IBC 2LLU

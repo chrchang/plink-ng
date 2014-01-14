@@ -1105,7 +1105,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	if (is_set(loaded_chrom_mask, jj)) {
 	  if (split_chrom_cmd) {
 	    sprintf(logbuf, "Error: .%s file has a split chromosome.  Use --%s by itself to\nremedy this.\n", extension, split_chrom_cmd);
-	    goto load_bim_ret_INVALID_FORMAT;
+	    goto load_bim_ret_INVALID_FORMAT_2;
 	  }
 	  split_chrom = 1;
 	  *map_is_unsorted_ptr = UNSORTED_CHROM | UNSORTED_BP | UNSORTED_SPLIT_CHROM;
@@ -4154,10 +4154,13 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
   return retval;
 }
 
-void sort_marker_chrom_pos(int64_t* ll_buf, uintptr_t marker_ct, uint32_t* pos_buf, uint32_t* chrom_start, uint32_t* chrom_id, uint32_t* chrom_ct_ptr) {
-  // assumes ll_buf is filled with chromosome idxs in high 32 bits, and
-  // internal marker indices in low 32 bits.  pos_buf is expected to have
-  // base-pair positions.
+void sort_marker_chrom_pos(int64_t* ll_buf, uintptr_t marker_ct, uint32_t* pos_buf, uint32_t* chrom_start, uint32_t* chrom_id, uint32_t* unpack_map, uint32_t* chrom_ct_ptr) {
+  // Assumes ll_buf is initially filled with chromosome idxs in high 32 bits,
+  // and filtered marker indices in low 32 bits.  pos_buf is expected to have
+  // base-pair positions; lookup is by filtered_index iff unpack_map is NULL.
+  // After this is finished, ll_buf has marker positions in high bits and
+  // filtered original indices in low bits, while chrom_start[] tracks
+  // chromosome boundaries.
   uintptr_t marker_idx;
   uint32_t uii;
   uint32_t cur_chrom;
@@ -4172,15 +4175,28 @@ void sort_marker_chrom_pos(int64_t* ll_buf, uintptr_t marker_ct, uint32_t* pos_b
   chrom_start[0] = 0;
   chrom_id[0] = cur_chrom;
   uii = (uint32_t)ll_buf[0];
-  ll_buf[0] = ((uint64_t)uii) | (((uint64_t)pos_buf[uii]) << 32);
-  for (marker_idx = 1; marker_idx < marker_ct; marker_idx++) {
-    if ((ll_buf[marker_idx] >> 32) != cur_chrom) {
-      cur_chrom = ll_buf[marker_idx] >> 32;
-      chrom_start[++chrom_ct] = marker_idx;
-      chrom_id[chrom_ct] = cur_chrom;
+  if (unpack_map) {
+    ll_buf[0] = ((uint64_t)uii) | (((uint64_t)pos_buf[unpack_map[uii]]) << 32);
+    for (marker_idx = 1; marker_idx < marker_ct; marker_idx++) {
+      if ((ll_buf[marker_idx] >> 32) != cur_chrom) {
+	cur_chrom = ll_buf[marker_idx] >> 32;
+	chrom_start[++chrom_ct] = marker_idx;
+	chrom_id[chrom_ct] = cur_chrom;
+      }
+      uii = (uint32_t)ll_buf[marker_idx];
+      ll_buf[marker_idx] = ((uint64_t)uii) | (((uint64_t)pos_buf[unpack_map[uii]]) << 32);
     }
-    uii = (uint32_t)ll_buf[marker_idx];
-    ll_buf[marker_idx] = ((uint64_t)uii) | (((uint64_t)pos_buf[uii]) << 32);
+  } else {
+    ll_buf[0] = ((uint64_t)uii) | (((uint64_t)pos_buf[uii]) << 32);
+    for (marker_idx = 1; marker_idx < marker_ct; marker_idx++) {
+      if ((ll_buf[marker_idx] >> 32) != cur_chrom) {
+	cur_chrom = ll_buf[marker_idx] >> 32;
+	chrom_start[++chrom_ct] = marker_idx;
+	chrom_id[chrom_ct] = cur_chrom;
+      }
+      uii = (uint32_t)ll_buf[marker_idx];
+      ll_buf[marker_idx] = ((uint64_t)uii) | (((uint64_t)pos_buf[uii]) << 32);
+    }
   }
   chrom_start[++chrom_ct] = marker_ct;
   for (uii = 0; uii < chrom_ct; uii++) {
@@ -4206,7 +4222,6 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
   uint32_t* unpack_map;
   uintptr_t marker_uidx;
   uintptr_t marker_idx;
-  uintptr_t marker_idx2;
   char* chrom_ptr;
   char* bufptr;
   uint32_t uii;
@@ -4230,7 +4245,7 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
     goto sort_and_write_bim_ret_NOMEM;
   }
   fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, unpack_map);
-  sort_marker_chrom_pos(ll_buf, marker_ct, marker_pos, chrom_start, chrom_id, &chrom_ct);
+  sort_marker_chrom_pos(ll_buf, marker_ct, marker_pos, chrom_start, chrom_id, unpack_map, &chrom_ct);
   if (fopen_checked(&outfile, outname, "w")) {
     goto sort_and_write_bim_ret_OPEN_FAIL;
   }
@@ -4249,16 +4264,15 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
       chrom_ptr = chrom_info_ptr->nonstd_names[cur_chrom];
     }
     for (; marker_idx < ujj; marker_idx++) {
-      marker_idx2 = (uint32_t)ll_buf[marker_idx];
-      marker_uidx = unpack_map[marker_idx2];
+      marker_uidx = unpack_map[(uint32_t)ll_buf[marker_idx]];
       fputs(chrom_ptr, outfile);
       putc('\t', outfile);
-      fputs(&(marker_ids[marker_idx2 * max_marker_id_len]), outfile);
+      fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
       wbuf[0] = '\t';
       if (!marker_cms) {
         bufptr = memcpya(&(wbuf[1]), "0\t", 2); 
       } else {
-        bufptr = double_g_writewx8x(&(wbuf[1]), marker_cms[marker_idx2], 1, '\t');
+        bufptr = double_g_writewx8x(&(wbuf[1]), marker_cms[marker_uidx], 1, '\t');
       }
       fwrite(wbuf, 1, bufptr - wbuf, outfile);
       bufptr = uint32_write(wbuf, (uint32_t)(ll_buf[marker_idx] >> 32));
@@ -4316,7 +4330,8 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
   uint32_t chrom_id[MAX_POSSIBLE_CHROM];
   uint32_t cur_chrom;
   uint32_t chrom_ct;
-  // See sort_and_write_bim() for discussion.
+  // See sort_and_write_bim() for discussion.  Note that marker_ids and
+  // marker_cms use filtered instead of unfiltered coordinates, though.
   if (wkspace_alloc_ui_checked(map_reverse_ptr, (compact_map_reverse? marker_ct : unfiltered_marker_ct) * sizeof(int32_t)) ||
       wkspace_alloc_ll_checked(&ll_buf, marker_ct * sizeof(int64_t)) ||
       wkspace_alloc_c_checked(&marker_ids, marker_ct * max_marker_id_len) ||
@@ -4348,7 +4363,7 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
     unpack_map[marker_idx] = marker_uidx;
     pos_buf[marker_idx++] = atoi(bufptr);
   }
-  sort_marker_chrom_pos(ll_buf, marker_ct, pos_buf, chrom_start, chrom_id, &chrom_ct);
+  sort_marker_chrom_pos(ll_buf, marker_ct, pos_buf, chrom_start, chrom_id, NULL, &chrom_ct);
 
   strcpy(outname_end, ".map.tmp");
   if (fopen_checked(&map_outfile, outname, "w")) {
@@ -4401,6 +4416,43 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
   return retval;
 }
 
+uint32_t merge_or_split_x(uint32_t mergex, uint32_t splitx_bound1, uint32_t splitx_bound2, uint32_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, uint32_t* marker_pos, Chrom_info* chrom_info_ptr, int64_t* ll_buf) {
+  // If --merge-x, splitx_bound1 and splitx_bound2 are 0; turns out those
+  // settings let --merge-x and --split-x use the same logic.
+  // ll_buf[] has chromosome codes in high 32 bits and filtered indices in low
+  // 32 bits.
+  uint32_t hit_ct = 0;
+  uint32_t marker_uidx = 0;
+  uint32_t match_chrom;
+  uint64_t new_chrom_shifted;
+  uint32_t marker_idx;
+  uint32_t cur_pos;
+  if (mergex) {
+    match_chrom = chrom_info_ptr->xy_code;
+    new_chrom_shifted = ((uint64_t)((uint32_t)chrom_info_ptr->x_code)) << 32;
+  } else {
+    match_chrom = chrom_info_ptr->x_code;
+    new_chrom_shifted = ((uint64_t)((uint32_t)chrom_info_ptr->xy_code)) << 32;
+  }
+
+  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++, marker_uidx++) {
+    next_unset_unsafe_ck(marker_exclude, &marker_uidx);
+    if ((((uint64_t)ll_buf[marker_idx]) >> 32) == match_chrom) {
+      cur_pos = marker_pos[marker_uidx];
+      if ((cur_pos >= splitx_bound2) || (cur_pos <= splitx_bound1)) {
+        ll_buf[marker_idx] = (int64_t)(new_chrom_shifted | ((uint64_t)marker_idx));
+        hit_ct++;
+      }
+    }
+  }
+  if (!hit_ct) {
+    return 1;
+  }
+  sprintf(logbuf, "--%s: %u chromosome code%s changed.\n", mergex? "merge-x" : "split-x", hit_ct, (hit_ct == 1)? "" : "s");
+  logprintb();
+  return 0;
+}
+
 int32_t make_bed_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32_t unfiltered_indiv_ct, uintptr_t unfiltered_indiv_ct4, uintptr_t* indiv_exclude, uint32_t indiv_ct, uint32_t* indiv_sort_map, uint32_t is_reverse, uintptr_t* writebuf) {
   uintptr_t* writeptr = writebuf;
   uintptr_t cur_word = 0;
@@ -4437,7 +4489,7 @@ int32_t make_bed_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32_t unfilter
   return 0;
 }
 
-int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t map_cols, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t map_is_unsorted, uint32_t* indiv_sort_map, uint64_t misc_flags, Two_col_params* update_chr, char* flip_subset_fname, uint32_t hh_exists, Chrom_info* chrom_info_ptr) {
+int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t map_cols, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t map_is_unsorted, uint32_t* indiv_sort_map, uint64_t misc_flags, uint32_t splitx_bound1, uint32_t splitx_bound2, Two_col_params* update_chr, char* flip_subset_fname, uint32_t hh_exists, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + BITCT2 - 1) / BITCT2;
@@ -4450,8 +4502,10 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   uintptr_t* indiv_include2 = NULL;
   uintptr_t* indiv_male_include2 = NULL;
   uint32_t set_hh_missing = (misc_flags / MISC_SET_HH_MISSING) & 1;
+  uint32_t mergex = (misc_flags / MISC_MERGEX) & 1;
   uint32_t allow_extra_chroms = (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1;
   uint32_t zero_extra_chroms = (misc_flags / MISC_ZERO_EXTRA_CHROMS) & 1;
+  uint32_t resort_map = map_is_unsorted || mergex || splitx_bound2 || update_chr;
   uint32_t chrom_end = 0;
   uint32_t chrom_fo_idx = 0xffffffffU; // deliberate overflow
   int32_t retval = 0;
@@ -4486,9 +4540,13 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   if (fseeko(bedfile, bed_offset, SEEK_SET)) {
     goto make_bed_ret_READ_FAIL;
   }
-  if (map_is_unsorted || update_chr) {
+  if (resort_map) {
     if (set_hh_missing) {
-      logprint("\nError: --set-hh-missing cannot currently be used on an unsorted .bim file.  Use\n--make-bed without --set-hh-missing to sort by position first; then run\n--make-bed + --set-hh-missing on the new fileset.\n");
+      if (map_is_unsorted) {
+        logprint("Error: --set-hh-missing cannot be used on an unsorted .bim file.  Use\n--make-bed without --set-hh-missing to sort by position first; then run\n--make-bed + --set-hh-missing on the new fileset.\n");
+      } else {
+        logprint("Error: --set-hh-missing cannot be used with --merge-x/--split-x/--update-chr.\nFinish updating chromosome codes first.\n");
+      }
       retval = RET_CALC_NOT_YET_SUPPORTED;
       goto make_bed_ret_1;
     }
@@ -4496,7 +4554,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
         wkspace_alloc_ll_checked(&ll_buf, marker_ct * sizeof(int64_t))) {
       goto make_bed_ret_NOMEM;
     }
-    if ((map_is_unsorted & UNSORTED_SPLIT_CHROM) || update_chr) {
+    if ((map_is_unsorted & UNSORTED_SPLIT_CHROM) || mergex || splitx_bound2 || update_chr) {
       if (map_is_unsorted & UNSORTED_SPLIT_CHROM) {
         retval = load_bim_split_chrom(bimname, marker_exclude, marker_ct, chrom_info_ptr, ll_buf);
         if (retval) {
@@ -4509,6 +4567,12 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
         retval = update_marker_chroms(update_chr, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, allow_extra_chroms, chrom_info_ptr, ll_buf);
 	if (retval) {
 	  goto make_bed_ret_1;
+	}
+      } else if (mergex || splitx_bound2) {
+        if (merge_or_split_x(mergex, splitx_bound1, splitx_bound2, unfiltered_marker_ct, marker_exclude, marker_ct, marker_pos, chrom_info_ptr, ll_buf)) {
+	  sprintf(logbuf, "Error: No sites affected by --%s.\n", mergex? "merge-x" : "split-x");
+	  logprintb();
+          goto make_bed_ret_INVALID_CMDLINE;
 	}
       }
     } else {
@@ -4527,7 +4591,8 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
       retval = RET_CALC_NOT_YET_SUPPORTED;
       goto make_bed_ret_1;
     }
-    sprintf(logbuf, "--make-bed to %s + .bim + .fam... ", outname);
+    *outname_end = '\0';
+    sprintf(logbuf, "--make-bed to %s.bed + .bim + .fam... ", outname);
     logprintb();
     fputs("0%", stdout);
     for (pct = 1; pct <= 100; pct++) {
@@ -4618,7 +4683,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
     goto make_bed_ret_1;
   }
 
-  if (!map_is_unsorted) {
+  if (!resort_map) {
     memcpy(outname_end, ".bim", 5);
     retval = write_map_or_bim(outname, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_cms, marker_pos, marker_allele_ptrs, '\t', zero_extra_chroms, chrom_info_ptr);
     if (retval) {
@@ -4640,6 +4705,9 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
     break;
   make_bed_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
+    break;
+  make_bed_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
     break;
   }
  make_bed_ret_1:
@@ -8048,7 +8116,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       pos_buf[marker_idx] = (uint32_t)((uint64_t)mapvals[marker_idx]);
       ll_buf[marker_idx] = (mapvals[marker_idx] & 0xffffffff00000000LLU) | marker_idx;
     }
-    sort_marker_chrom_pos(ll_buf, marker_ct, pos_buf, chrom_start, chrom_id, &chrom_ct);
+    sort_marker_chrom_pos(ll_buf, marker_ct, pos_buf, chrom_start, chrom_id, NULL, &chrom_ct);
 
     memcpy(outname_end, ".bim.tmp", 9);
     if (fopen_checked(&infile, outname, "r")) {
@@ -15491,7 +15559,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       } while (ll_ptr2);
     }
   }
-  sort_marker_chrom_pos(ll_buf, tot_marker_ct, pos_buf, chrom_start, chrom_id, &chrom_ct);
+  sort_marker_chrom_pos(ll_buf, tot_marker_ct, pos_buf, chrom_start, chrom_id, NULL, &chrom_ct);
   if (merge_post_msort_update_maps(marker_ids, max_marker_id_len, marker_map, pos_buf, ll_buf, chrom_start, chrom_id, chrom_ct, &dedup_marker_ct, merge_equal_pos, marker_allele_ptrs, chrom_info_ptr)) {
     goto merge_datasets_ret_INVALID_FORMAT;
   }
