@@ -8325,6 +8325,8 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	  }
+	} else {
+	  logprint("Warning: --check-sex will use default 0.2 and 0.8 thresholds.  This is not\nrecommended.\n");
 	}
         calculation_type |= CALC_SEXCHECK;
       } else {
@@ -9639,6 +9641,8 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	  }
+	} else{
+	  logprint("Warning: --impute-sex will use default 0.2 and 0.8 thresholds.  This is not\nrecommended.\n");
 	}
         calculation_type |= CALC_SEXCHECK;
         misc_flags |= MISC_IMPUTE_SEX;
@@ -10874,7 +10878,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	misc_flags |= MISC_MERGEX;
-	break;
+	goto main_param_zero;
       } else if (!memcmp(argptr2, "lma", 4)) {
         logprint("Error: --mlma is not implemented yet.\n");
         goto main_ret_INVALID_CMDLINE;

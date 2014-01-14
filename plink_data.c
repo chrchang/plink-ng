@@ -4569,9 +4569,22 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	  goto make_bed_ret_1;
 	}
       } else if (mergex || splitx_bound2) {
+	if (splitx_bound2 && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xy_code)) {
+          logprint("Error: --split-x cannot be used when the dataset already contains an XY region.\n(Did you mean --merge-x instead?)\n");
+          goto make_bed_ret_INVALID_CMDLINE;
+	}
         if (merge_or_split_x(mergex, splitx_bound1, splitx_bound2, unfiltered_marker_ct, marker_exclude, marker_ct, marker_pos, chrom_info_ptr, ll_buf)) {
-	  sprintf(logbuf, "Error: No sites affected by --%s.\n", mergex? "merge-x" : "split-x");
-	  logprintb();
+	  if (mergex) {
+	    sprintf(logbuf, "Error: --merge-x requires XY pseudo-autosomal region data.%s\n", is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->x_code)? "  (Did you mean\n--split-x instead?)" : "");
+	    logprintb();
+	  } else {
+	    if (!is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->x_code)) {
+              logprint("Error: --split-x requires X chromosome data.\n");
+	    } else {
+              sprintf(logbuf, "Error: No X chromosome sites have bp positions <= %u or >= %u.\n", splitx_bound1, splitx_bound2);
+	      logprintb();
+	    }
+	  }
           goto make_bed_ret_INVALID_CMDLINE;
 	}
       }

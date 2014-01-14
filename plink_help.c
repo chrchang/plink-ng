@@ -498,9 +498,14 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    --check-sex compares sex assignments in the input dataset with those\n"
 "    imputed from X chromosome inbreeding coefficients.  By default, values\n"
 "    smaller than 0.2 yield female calls, and values larger than 0.8 yield male\n"
-"    calls; change these thresholds by passing parameters to --check-sex.\n"
-"    --impute-sex also changes sex assignments to the imputed values, and must\n"
-"    be used with --make-bed/--recode/--write-covar.\n\n"
+"    calls.\n"
+"    You can change these thresholds by passing parameters to --check-sex, and\n"
+"    we strongly recommend that you do this.  We also recommend splitting off\n"
+"    the X chromosome pseudo-autosomal region with --split-x before using this\n"
+"    command.\n"
+"    --impute-sex changes sex assignments to the imputed values, and is\n"
+"    otherwise identical to --check-sex.  It must be used with\n"
+"    --make-bed/--recode/--write-covar.\n\n"
 	       );
     help_print("indep\tindep-pairwise", &help_ctrl, 1,
 "  --indep [window size]<kb> [step size (site ct)] [VIF threshold]\n"
@@ -1254,7 +1259,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --set-hh-missing : Cause --make-bed and --recode to set heterozygous haploid\n"
 "                     genotypes to missing.\n"
 	       );
-    help_print("split-x\tmerge-x\tset-hh-missing\t23file-convert-xy\t23file-make-xylist", &help_ctrl, 0,
+    help_print("split-x\tmerge-x\tset-hh-missing\t23file-convert-xy\t23file-make-xylist\tcheck-sex\timpute-sex", &help_ctrl, 0,
 "  --split-x [bp1] [bp2] : Changes chromosome code of all X chromosome sites\n"
 "                          with bp position <= bp1 or >= bp2 to XY.  (For\n"
 "                          GRCh37, the boundaries are 2699520 and 154931044.)\n"
