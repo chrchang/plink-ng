@@ -86,7 +86,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (12 Jan 2014)";
+  " (14 Jan 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -1843,7 +1843,7 @@ static inline uint32_t nonmissing_present_diff(uintptr_t unfiltered_indiv_ctl2, 
   uintptr_t loader2;
   do {
     loader = *lptr++;
-    loader2 = (*indiv_include2++) & (*indiv_male_include2++);
+    loader2 = (*indiv_include2++) & (~(*indiv_male_include2++));
     // when really bored, check if compiler translates this into andnot
     // operations
     if ((~((~(loader >> 1)) & loader)) & loader2) {
