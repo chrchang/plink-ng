@@ -5033,6 +5033,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   uint32_t shiftval;
   int32_t ii;
   char cc;
+  char cc2;
   bufptr = int32_write(missing_pheno_str, missing_pheno);
   missing_pheno_len = (uintptr_t)(bufptr - missing_pheno_str);
   if (!missing_code) {
@@ -5106,33 +5107,23 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     if (!tbuf[MAXLINELEN - 1]) {
       goto oxford_to_bed_ret_SAMPLE_LONG_LINE;
     }
-    bufptr = tbuf;
-    // enforce no-tabs
-    while (*bufptr == ' ') {
-      bufptr++;
-    }
+    bufptr = skip_initial_spaces(tbuf);
   } while (is_eoln_kns(*bufptr));
-  if (memcmp(bufptr, "ID_1 ", 5)) {
+  bufptr2 = item_endnn(bufptr);
+  if ((((uintptr_t)(bufptr2 - bufptr)) != 4) || memcmp(bufptr, "ID_1", 4)) {
     goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1; 
   }
-  bufptr = &(bufptr[5]);
-  while (*bufptr == ' ') {
-    bufptr++;
-  }
-  if (memcmp(bufptr, "ID_2 ", 5)) {
+  bufptr = skip_initial_spaces(bufptr2);
+  slen = strlen_se(bufptr);
+  if ((slen != 4) || memcmp(bufptr, "ID_2", 4)) {
     goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1; 
   }
-  bufptr = &(bufptr[5]);
-  while (*bufptr == ' ') {
-    bufptr++;
-  }
-  if ((!match_upper_nt(bufptr, "MISSING", 7)) || (bufptr[7] > ' ')) {
+  bufptr = skip_initial_spaces(&(bufptr[4]));
+  slen = strlen_se(bufptr);
+  if ((slen != 7) || (!match_upper_nt(bufptr, "MISSING", 7))) {
     goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1; 
   }
-  bufptr = &(bufptr[7]);
-  while (*bufptr == ' ') {
-    bufptr++;
-  }
+  bufptr = skip_initial_spaces(&(bufptr[7]));
   while (!is_eoln_kns(*bufptr)) {
     bufptr2 = item_endnn(bufptr);
     ulii = (uintptr_t)(bufptr2 - bufptr);
@@ -5144,10 +5135,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
       sex_col = col_ct;
     }
     col_ct++;
-    bufptr = bufptr2;
-    while (*bufptr == ' ') {
-      bufptr++;
-    }
+    bufptr = skip_initial_spaces(bufptr2);
   }
   do {
     if (!fgets(tbuf, MAXLINELEN, infile)) {
@@ -5159,33 +5147,26 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     if (!tbuf[MAXLINELEN - 1]) {
       goto oxford_to_bed_ret_SAMPLE_LONG_LINE;
     }
-    bufptr = tbuf;
-    while (*bufptr == ' ') {
-      bufptr++;
-    }
+    bufptr = skip_initial_spaces(tbuf);
   } while (is_eoln_kns(*bufptr));
-  if (memcmp(bufptr, "0 ", 2)) {
+  bufptr2 = item_endnn(bufptr);
+  if ((((uintptr_t)(bufptr2 - bufptr)) != 1) || (*bufptr != '0')) {
     goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_2;
   }
-  bufptr = &(bufptr[2]);
-  while (*bufptr == ' ') {
-    bufptr++;
-  }
-  if (memcmp(bufptr, "0 ", 2)) {
+  bufptr = skip_initial_spaces(bufptr2);
+  slen = strlen_se(bufptr);
+  if ((slen != 1) || (*bufptr != '0')) {
     goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_2;
   }
-  bufptr = &(bufptr[2]);
-  while (*bufptr == ' ') {
-    bufptr++;
-  }
-  if (*bufptr++ != '0') {
+  bufptr = skip_initial_spaces(&(bufptr[1]));
+  slen = strlen_se(bufptr);
+  if ((slen != 1) || (*bufptr != '0')) {
     goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_2;
   }
+  bufptr++;
   col_idx = 3;
   while (col_idx < col_ct) {
-    while (*bufptr == ' ') {
-      bufptr++;
-    }
+    bufptr = skip_initial_spaces(bufptr);
     if (is_eoln_kns(*bufptr)) {
       logprint("Error: Second .sample header line has fewer tokens than the first.\n");
       goto oxford_to_bed_ret_INVALID_FORMAT;
@@ -5223,42 +5204,31 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     if (!tbuf[MAXLINELEN - 1]) {
       goto oxford_to_bed_ret_SAMPLE_LONG_LINE;
     }
-    bufptr = tbuf;
-    while (*bufptr == ' ') {
-      bufptr++;
-    }
+    bufptr = skip_initial_spaces(tbuf);
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    bufptr2 = strchr(bufptr, ' ');
-    if (!bufptr2) {
-      goto oxford_to_bed_ret_MISSING_TOKENS;
-    }
+    bufptr2 = item_endnn(bufptr);
     wptr = memcpyax(tbuf2, bufptr, bufptr2 - bufptr, '\t');
-    bufptr = &(bufptr2[1]);
-    while (*bufptr == ' ') {
-      bufptr++;
-    }
-    bufptr2 = strchr(bufptr, ' ');
-    if (!bufptr2) {
+    bufptr = skip_initial_spaces(bufptr2);
+    if (is_eoln_kns(*bufptr)) {
       goto oxford_to_bed_ret_MISSING_TOKENS;
     }
+    bufptr2 = item_endnn(bufptr);
     wptr = memcpya(wptr, bufptr, bufptr2 - bufptr);
     wptr = memcpya(wptr, "\t0\t0\t", 5);
     col_idx = 2;
     bufptr = bufptr2;
     if (sex_col) {
       while (1) {
-	while (*bufptr == ' ') {
-	  bufptr++;
+        bufptr = skip_initial_spaces(bufptr);
+        if (is_eoln_kns(*bufptr)) {
+	  goto oxford_to_bed_ret_MISSING_TOKENS;
 	}
 	if (col_idx == sex_col) {
 	  break;
 	}
-        bufptr = strchr(bufptr, ' ');
-        if (!bufptr) {
-	  goto oxford_to_bed_ret_MISSING_TOKENS;
-	}
+	bufptr = item_endnn(bufptr);
 	col_idx++;
       }
       cc = *bufptr++;
@@ -5274,16 +5244,14 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     *wptr++ = '\t';
     if (pheno_col) {
       while (1) {
-        while (*bufptr == ' ') {
-	  bufptr++;
+	bufptr = skip_initial_spaces(bufptr);
+	if (is_eoln_kns(*bufptr)) {
+          goto oxford_to_bed_ret_MISSING_TOKENS;
 	}
 	if (col_idx == pheno_col) {
 	  break;
 	}
-        bufptr = strchr(bufptr, ' ');
-        if (!bufptr) {
-          goto oxford_to_bed_ret_MISSING_TOKENS;
-	}
+        bufptr = item_endnn(bufptr);
 	col_idx++;
       }
       slen = (uintptr_t)(item_endnn(bufptr) - bufptr);
@@ -5398,57 +5366,58 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     if (putc_checked('\n', outfile_bim)) {
       goto oxford_to_bed_ret_WRITE_FAIL;
     }
-    bufptr = bufptr2;
     cur_word = 0;
     shiftval = 0;
     ulptr = writebuf;
-    do {
-      bufptr++;
-    } while (*bufptr == ' ');
+    bufptr = skip_initial_spaces(&(bufptr2[1]));
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+      if (is_eoln_kns(*bufptr)) {
+	goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
+      }
       // fast handling of common cases
-      if (bufptr[1] == ' ') {
-	if (*bufptr == '0') {
-	  bufptr2 = &(bufptr[2]);
-	  if (!memcmp(bufptr2, "0 1 ", 4)) {
-	    ulii = 3;
-	    bufptr = &(bufptr2[4]);
-	  } else if (!memcmp(bufptr2, "1 0 ", 4)) {
-	    ulii = 2;
-	    bufptr = &(bufptr2[4]);
-	  } else if (!memcmp(bufptr2, "0 0 ", 4)) {
-	    ulii = 1;
-	    bufptr = &(bufptr2[4]);
-	  } else {
-	    while (*bufptr2 == ' ') {
-	      bufptr2++;
+      cc = bufptr[1];
+      if ((cc == ' ') || (cc == '\t')) {
+	cc = bufptr[3];
+	cc2 = bufptr[5];
+	if (((cc == ' ') || (cc == '\t')) && ((cc2 == ' ') || (cc2 == '\t'))) {
+	  cc = *bufptr;
+	  if (cc == '0') {
+	    bufptr2 = &(bufptr[2]);
+	    cc = *bufptr2;
+	    cc2 = bufptr2[2];
+	    if (cc == '0') {
+	      if (cc2 == '1') {
+		ulii = 3;
+	      } else if (cc2 == '0') {
+		ulii = 1;
+	      } else {
+		// could be a space...
+                goto oxford_to_bed_full_parse_2;
+	      }
+	    } else if ((cc == '1') && (cc2 == '0')) {
+	      ulii = 2;
+	    } else {
+	      goto oxford_to_bed_full_parse_2;
 	    }
-	    goto oxford_to_bed_full_parse_2;
+	  } else if ((cc == '1') && (bufptr[2] == '0') && (bufptr[4] == '0')) {
+	    ulii = 0;
+	  } else {
+	    goto oxford_to_bed_full_parse;
 	  }
-	} else if (!memcmp(bufptr, "1 0 0 ", 6)) {
-	  ulii = 0;
 	  bufptr = &(bufptr[6]);
 	} else {
 	  goto oxford_to_bed_full_parse;
 	}
       } else {
-      oxford_to_bed_full_parse:
 	// okay, gotta do things the slow way
-	while (*bufptr == ' ') {
-	  bufptr++;
-	}
-	bufptr2 = strchr(bufptr, ' ');
-	if (!bufptr2) {
-	  goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
-	}
-	do {
-	  bufptr2++;
-	} while (*bufptr2 == ' ');
+      oxford_to_bed_full_parse:
+	bufptr2 = item_endnn(bufptr);
       oxford_to_bed_full_parse_2:
-	bufptr3 = strchr(bufptr2, ' ');
-	if (!bufptr3) {
+	bufptr2 = skip_initial_spaces(bufptr2);
+	if (is_eoln_kns(*bufptr2)) {
 	  goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
 	}
+	bufptr3 = item_endnn(bufptr2);
 	dzz = strtod(bufptr3, &bufptr4);
 	if (!is_randomized) {
 	  if (dzz >= hard_call_floor) {
@@ -5514,10 +5483,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	    }
 	  }
 	}
-	bufptr = bufptr4;
-	if (*bufptr == ' ') {
-	  bufptr++;
-	}
+	bufptr = skip_initial_spaces(bufptr4);
       }
       cur_word |= ulii << shiftval;
       shiftval += 2;

@@ -86,7 +86,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (14 Jan 2014)";
+  " (15 Jan 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -12301,21 +12301,36 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --split-x must be used with a chromosome set containing X and XY codes.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 2)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (atoiz(argv[cur_arg + 1], &ii)) {
-	  sprintf(logbuf, "Error: Invalid --split-x parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
+	if (param_ct == 1) {
+          if (!strcmp(argv[cur_arg + 1], "b36")) {
+            splitx_bound1 = 2709521;
+            splitx_bound2 = 154584237;
+	  } else if (!strcmp(argv[cur_arg + 1], "b37")) {
+            splitx_bound1 = 2699520;
+            splitx_bound2 = 154931044;
+	  } else if (!strcmp(argv[cur_arg + 1], "b38")) {
+            splitx_bound1 = 2781479;
+            splitx_bound1 = 155701383;
+	  } else {
+            sprintf(logbuf, "Error: Unrecognized --split-x build code '%s'.%s", argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	} else {
+	  if (atoiz(argv[cur_arg + 1], &ii)) {
+	    sprintf(logbuf, "Error: Invalid --split-x parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  splitx_bound1 = (uint32_t)ii;
+	  ii = atoi(argv[cur_arg + 2]);
+	  if (ii <= ((int32_t)splitx_bound1)) {
+	    sprintf(logbuf, "Error: Invalid --split-x parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  splitx_bound2 = (uint32_t)ii;
 	}
-        splitx_bound1 = (uint32_t)ii;
-        ii = atoi(argv[cur_arg + 2]);
-	if (ii <= ((int32_t)splitx_bound1)) {
-	  sprintf(logbuf, "Error: Invalid --split-x parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
-	}
-        splitx_bound2 = (uint32_t)ii;
       } else if (!memcmp(argptr2, "kato", 5)) {
 	logprint("Error: --skato is not implemented yet.  Use e.g. PLINK/SEQ to perform this test\nfor now.\n");
 	retval = RET_CALC_NOT_YET_SUPPORTED;

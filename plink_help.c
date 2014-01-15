@@ -1255,16 +1255,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --recode-allele [f]  : With --recode A or --recode AD, count alleles named in\n"
 "                         the file (instead of the minor allele).\n"
 	       );
-    help_print("set-hh-missing", &help_ctrl, 0,
-"  --set-hh-missing : Cause --make-bed and --recode to set heterozygous haploid\n"
-"                     genotypes to missing.\n"
-	       );
-    help_print("split-x\tmerge-x\tset-hh-missing\t23file-convert-xy\t23file-make-xylist\tcheck-sex\timpute-sex", &help_ctrl, 0,
-"  --split-x [bp1] [bp2] : Changes chromosome code of all X chromosome sites\n"
-"                          with bp position <= bp1 or >= bp2 to XY.  (For\n"
-"                          GRCh37, the boundaries are 2699520 and 154931044.)\n"
-"  --merge-x             : Merge XY chromosome back with X.\n"
-	       );
     help_print("output-missing-genotype\toutput-missing-phenotype", &help_ctrl, 0,
 "  --output-missing-genotype [ch] : Set the code used to represent missing\n"
 "                                   genotypes in new filesets (normally the\n"
@@ -1272,6 +1262,20 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --output-missing-phenotype [n] : Set the value used to represent missing\n"
 "                                   phenotypes in new filesets (normally the\n"
 "                                   --missing-phenotype value).\n"
+	       );
+    help_print("set-hh-missing", &help_ctrl, 0,
+"  --set-hh-missing : Cause --make-bed and --recode to set heterozygous haploid\n"
+"                     genotypes to missing.\n"
+	       );
+    help_print("split-x\tmerge-x\tset-hh-missing\t23file-convert-xy\t23file-make-xylist\tcheck-sex\timpute-sex", &help_ctrl, 0,
+"  --split-x [bp1] [bp2]  : Changes chromosome code of all X chromosome sites\n"
+"  --split-x [build code]   with bp position <= bp1 or >= bp2 to XY.  As\n"
+"                           shorthand, you can use one of the following build\n"
+"                           codes:\n"
+"                           * 'b36' = NCBI build 36, bounds 2709521 / 154584237\n"
+"                           * 'b37' = GRCh37, bounds 2699520 / 154931044\n"
+"                           * 'b38' = GRCh38, bounds 2781479 / 155701383\n"
+"  --merge-x              : Merge XY chromosome back with X.\n"
 	       );
     help_print("update-chr\tupdate-cm\tupdate-map\tupdate-name", &help_ctrl, 0,
 "  --update-chr  [f] {chrcol} {IDcol}  {skip} : Update variant chromosome codes.\n"
