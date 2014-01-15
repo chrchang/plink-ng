@@ -11246,6 +11246,17 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
+      } else if ((!memcmp(argptr2, "roxy-assoc", 11)) ||
+                 (!memcmp(argptr2, "roxy-drop", 10)) ||
+                 (!memcmp(argptr2, "roxy-impute", 12)) ||
+                 (!memcmp(argptr2, "roxy-impute-threshold", 22)) ||
+                 (!memcmp(argptr2, "roxy-genotypic-concordance", 27)) ||
+                 (!memcmp(argptr2, "roxy-show-proxies", 18)) ||
+                 (!memcmp(argptr2, "roxy-dosage", 12)) ||
+                 (!memcmp(argptr2, "roxy-replace", 13)) ||
+                 (!memcmp(argptr2, "roxy-verbose", 13))) {
+        logprint("Error: PLINK 1 imputation commands have been retired due to poor accuracy.\n(See Nothnagel M et al. (2009) A comprehensive evaluation of SNP genotype\nimputation.)  We suggest using another tool, such as BEAGLE 4 or IMPUTE2, for\nimputation instead.  ('--recode vcf' and --vcf can be used to exchange data\nwith BEAGLE 4, while '--recode oxford' and --data let you work with IMPUTE2.)\n");
+        goto main_ret_INVALID_CMDLINE;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
