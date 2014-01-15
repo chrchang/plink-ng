@@ -849,7 +849,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Note that this method may require a very large sample size (e.g. hundreds\n"
 "    of thousands) to be effective on complex polygenic traits.\n\n"
 	       );
-    help_print("test-missing\tperm\tmperm", &help_ctrl, 1,
+    help_print("test-missing\tmissing\tperm\tmperm", &help_ctrl, 1,
 "  --test-missing <perm | mperm=[value]> <perm-count> <midp>\n"
 "    Check for association between missingness and case/control status, using\n"
 "    Fisher's exact test.  The 'midp' modifier causes Lancaster's mid-p\n"
@@ -1229,8 +1229,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("allow-no-sex\tmust-have-sex", &help_ctrl, 0,
 "  --allow-no-sex   : Do not treat ambiguous-sex individuals as having missing\n"
 "                     phenotypes in analysis commands.  (Automatic /w --no-sex.)\n"
-"  --must-have-sex  : Force ambiguous-sex phenotypes to missing on --make-bed\n"
-"                     and --recode.\n"
+"  --must-have-sex  : Force ambiguous-sex phenotypes to missing on\n"
+"                     --make-bed/--recode/--write-covar.\n"
 	       );
     help_print("filter-cases\tfilter-controls", &help_ctrl, 0,
 "  --filter-cases       : Include only cases in the current analysis.\n"
@@ -1269,12 +1269,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("split-x\tmerge-x\tset-hh-missing\t23file-convert-xy\t23file-make-xylist\tcheck-sex\timpute-sex", &help_ctrl, 0,
 "  --split-x [bp1] [bp2]  : Changes chromosome code of all X chromosome sites\n"
-"  --split-x [build code]   with bp position <= bp1 or >= bp2 to XY.  As\n"
-"                           shorthand, you can use one of the following build\n"
-"                           codes:\n"
-"                           * 'b36' = NCBI build 36, bounds 2709521 / 154584237\n"
-"                           * 'b37' = GRCh37, bounds 2699520 / 154931044\n"
-"                           * 'b38' = GRCh38, bounds 2781479 / 155701383\n"
+"  --split-x [build code]   with bp position <= bp1 or >= bp2 to XY.  The\n"
+"                           following build codes are supported as shorthand:\n"
+"                           * 'b36'/'hg18' = NCBI 36, bounds 2709521 & 154584237\n"
+"                           * 'b37'/'hg19' = GRCh37, bounds 2699520 & 154931044\n"
+"                           * 'b38'/'hg20' = GRCh38, bounds 2781479 & 155701383\n"
 "  --merge-x              : Merge XY chromosome back with X.\n"
 	       );
     help_print("update-chr\tupdate-cm\tupdate-map\tupdate-name", &help_ctrl, 0,

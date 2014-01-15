@@ -12305,18 +12305,22 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct == 1) {
-          if (!strcmp(argv[cur_arg + 1], "b36")) {
+          if ((!strcmp(argv[cur_arg + 1], "b36")) || (!strcmp(argv[cur_arg + 1], "hg18"))) {
             splitx_bound1 = 2709521;
             splitx_bound2 = 154584237;
-	  } else if (!strcmp(argv[cur_arg + 1], "b37")) {
+	  } else if ((!strcmp(argv[cur_arg + 1], "b37")) || (!strcmp(argv[cur_arg + 1], "hg19"))) {
             splitx_bound1 = 2699520;
             splitx_bound2 = 154931044;
-	  } else if (!strcmp(argv[cur_arg + 1], "b38")) {
+	  } else if ((!strcmp(argv[cur_arg + 1], "b38")) || (!strcmp(argv[cur_arg + 1], "hg20"))) {
             splitx_bound1 = 2781479;
             splitx_bound1 = 155701383;
 	  } else {
             sprintf(logbuf, "Error: Unrecognized --split-x build code '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  if (chrom_info.species != SPECIES_HUMAN) {
+	    logprint("Error: --split-x build codes cannot be used with nonhuman chromosome sets.\n");
+	    goto main_ret_INVALID_CMDLINE;
 	  }
 	} else {
 	  if (atoiz(argv[cur_arg + 1], &ii)) {
