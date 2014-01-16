@@ -86,7 +86,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (15 Jan 2014)";
+  " (16 Jan 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -3606,7 +3606,10 @@ uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct
   uint32_t removed_ct = 0;
   uint32_t hwe_all = hwe_modifier & HWE_THRESH_ALL;
   uint32_t hwe_thresh_midp = hwe_modifier & HWE_THRESH_MIDP;
+  uint32_t min_obs = 0xffffffffU;
+  uint32_t max_obs = 0;
   uint32_t markers_done;
+  uint32_t cur_obs;
   hwe_thresh *= 1 + SMALL_EPSILON;
   if (hwe_all) {
     hwe_lhs = hwe_lh_allfs;
@@ -3620,6 +3623,13 @@ uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct
 	SET_BIT(marker_exclude, marker_uidx);
 	removed_ct++;
       }
+      cur_obs = hwe_lhs[marker_uidx] + hwe_lls[marker_uidx] + hwe_hhs[marker_uidx];
+      if (cur_obs < min_obs) {
+	min_obs = cur_obs;
+      }
+      if (cur_obs > max_obs) {
+	max_obs = cur_obs;
+      }
     }
   } else {
     for (markers_done = 0; markers_done < marker_ct; marker_uidx++, markers_done++) {
@@ -3628,7 +3638,17 @@ uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct
 	SET_BIT(marker_exclude, marker_uidx);
 	removed_ct++;
       }
+      cur_obs = hwe_lhs[marker_uidx] + hwe_lls[marker_uidx] + hwe_hhs[marker_uidx];
+      if (cur_obs < min_obs) {
+	min_obs = cur_obs;
+      }
+      if (cur_obs > max_obs) {
+	max_obs = cur_obs;
+      }
     }
+  }
+  if (((uint64_t)max_obs) * 9 > ((uint64_t)min_obs) * 10) {
+    logprint("Warning: --hwe observation counts vary by more than 10%.  Consider using\n--geno, and/or applying different p-value thresholds to distinct subsets of\nyour data.\n");
   }
   if (marker_ct == removed_ct) {
     logprint("Error: All variants removed due to Hardy-Weinberg exact test (--hwe).\n");
@@ -9202,41 +9222,37 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'h':
       if (!memcmp(argptr2, "we", 3)) {
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 3)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	uii = 2;
-        if (param_ct) {
-          if (!strcmp(argv[cur_arg + 1], "midp")) {
+	ujj = 0;
+	for (uii = 1; uii <= param_ct; uii++) {
+	  if (!strcmp(argv[cur_arg + uii], "midp")) {
 	    hwe_modifier |= HWE_THRESH_MIDP;
+	  } else if (!strcmp(argv[cur_arg + uii], "include-nonctrl")) {
+	    hwe_modifier |= HWE_THRESH_ALL;
 	  } else {
-            if (param_ct == 2) {
-              if (strcmp(argv[cur_arg + 2], "midp")) {
-                sprintf(logbuf, "Error: Invalid --hwe parameter sequence.%s", errstr_append);
-                goto main_ret_INVALID_CMDLINE_3;
-	      }
-              hwe_modifier |= HWE_THRESH_MIDP;
+	    if (scan_double(argv[cur_arg + uii], &hwe_thresh) || ujj) {
+	      sprintf(logbuf, "Error: Invalid --hwe parameter sequence.%s", errstr_append);
+              goto main_ret_INVALID_CMDLINE_3;
 	    }
-            uii = 1;
+            ujj = 1;
+            if ((hwe_thresh < 0.0) || (hwe_thresh >= 1.0)) {
+	      sprintf(logbuf, "Error: Invalid --hwe threshold '%s' (must be between 0 and 1).%s", argv[cur_arg + uii], errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
 	  }
 	}
-	if (uii <= param_ct) {
-	  if (scan_double(argv[cur_arg + uii], &hwe_thresh)) {
-	    sprintf(logbuf, "Error: Invalid --hwe parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
-	  }
-	  if ((hwe_thresh < 0.0) || (hwe_thresh >= 1.0)) {
-	    sprintf(logbuf, "Error: Invalid --hwe threshold '%s' (must be between 0 and 1).%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
-	  }
-	  if ((hwe_thresh >= 0.5) && (hwe_modifier & HWE_THRESH_MIDP)) {
-            sprintf(logbuf, "Error: --hwe threshold must be smaller than 0.5 when using mid-p correction.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
-	  }
-	} else {
-	  hwe_thresh = 0.001;
+	if (!ujj) {
+	  sprintf(logbuf, "Error: --hwe now requires a p-value threshold.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if ((hwe_modifier & HWE_THRESH_MIDP) && (hwe_thresh >= 0.5)) {
+	  sprintf(logbuf, "Error: --hwe threshold must be smaller than 0.5 when using mid-p adjustment.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
       } else if (!memcmp(argptr2, "we-all", 7)) {
+	logprint("Note: --hwe-all flag deprecated.  Use '--hwe include-nonctrl'.\n");
 	hwe_modifier |= HWE_THRESH_ALL;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "et", 3)) {
@@ -10011,6 +10027,13 @@ int32_t main(int32_t argc, char** argv) {
           epi_info.modifier |= EPI_HWE_MIDP;
 	}
         calculation_type |= CALC_EPI;
+      } else if ((!memcmp(argptr2, "ookup", 6)) ||
+                 (!memcmp(argptr2, "ookup-list", 11)) ||
+                 (!memcmp(argptr2, "ookup-gene", 11)) ||
+                 (!memcmp(argptr2, "ookup-gene-kb", 14)) ||
+                 (!memcmp(argptr2, "ookup-gene-list", 16))) {
+        logprint("Error: --lookup commands have been retired since the Sullivan Lab web database\nis no longer operational.  Use e.g. PLINK/SEQ's lookup command instead.\n");
+        goto main_ret_INVALID_CMDLINE;
       } else {
         goto main_ret_INVALID_CMDLINE_2;
       }

@@ -1222,9 +1222,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     --freq{x} report, instead of the input fileset.\n"
 	       );
     help_print("hwe\thwe-all", &help_ctrl, 0,
-"  --hwe {v} <midp> : Exclude variants with Hardy-Weinberg equilibrium exact\n"
-"                     test p-values below a threshold (default 0.001).\n"
-"  --hwe-all        : Given case-control data, include noncontrols in HWE test.\n"
+"  --hwe [p] <midp> <include-nonctrl> : Exclude sites with Hardy-Weinberg\n"
+"                                       equilibrium exact test p-values below a\n"
+"                                       threshold.\n"
 	       );
     help_print("allow-no-sex\tmust-have-sex", &help_ctrl, 0,
 "  --allow-no-sex   : Do not treat ambiguous-sex individuals as having missing\n"
