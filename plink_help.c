@@ -452,7 +452,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --list-23-indels\n"
 "    --write-snplist writes a .snplist file listing the names of all variants\n"
 "    which pass the filters and inclusion thresholds you've specified, while\n"
-"    --list-23-indels writes the subset with 23andMe-style indel calls (I/D\n"
+"    --list-23-indels writes the subset with 23andMe-style indel calls (D/I\n"
 "    allele codes).\n\n"
 	       );
     help_print("freq\tfreqx\tfrqx\tcounts", &help_ctrl, 1,

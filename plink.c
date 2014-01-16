@@ -1964,6 +1964,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   uint32_t next_chrom_start = chrom_info_ptr->chrom_file_order_marker_idx[1];
   uint32_t is_x = (ii == chrom_info_ptr->x_code);
   uint32_t is_y = (ii == chrom_info_ptr->y_code);
+  uint32_t is_mt = (ii == chrom_info_ptr->mt_code);
   uint32_t ll_ct = 0;
   uint32_t lh_ct = 0;
   uint32_t hh_ct = 0;
@@ -2218,6 +2219,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
     is_haploid = (chrom_info_ptr->chrom_mask[0]) & 1;
     is_x = 0;
     is_y = 0;
+    is_mt = 0;
     next_chrom_start = unfiltered_marker_ct;
   }
   for (; pct <= 100; pct++) {
@@ -2240,6 +2242,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	is_haploid = is_set(chrom_info_ptr->haploid_mask, ii);
 	is_x = (ii == chrom_info_ptr->x_code);
 	is_y = (ii == chrom_info_ptr->y_code);
+	is_mt = (ii == chrom_info_ptr->mt_code);
       }
       if (!is_haploid) {
 	single_marker_freqs_and_hwe(unfiltered_indiv_ctv2, loadbuf, indiv_include2, founder_include2, founder_ctrl_include2, founder_case_include2, indiv_ct, &ll_ct, &lh_ct, &hh_ct, indiv_f_ct, &ll_ctf, &lh_ctf, &hh_ctf, hwe_needed, indiv_f_ctrl_ct, &ll_hwe, &lh_hwe, &hh_hwe, hardy_needed, indiv_f_case_ct, &ll_case_hwe, &lh_case_hwe, &hh_case_hwe);
@@ -3600,7 +3603,7 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
 }
 
 
-uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, int32_t* hwe_lls, int32_t* hwe_lhs, int32_t* hwe_hhs, uint32_t hwe_modifier, int32_t* hwe_ll_allfs, int32_t* hwe_lh_allfs, int32_t* hwe_hh_allfs) {
+uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, int32_t* hwe_lls, int32_t* hwe_lhs, int32_t* hwe_hhs, uint32_t hwe_modifier, int32_t* hwe_ll_allfs, int32_t* hwe_lh_allfs, int32_t* hwe_hh_allfs, Chrom_info* chrom_info_ptr) {
   uint32_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
   uint32_t marker_uidx = 0;
   uint32_t removed_ct = 0;
@@ -3608,6 +3611,9 @@ uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct
   uint32_t hwe_thresh_midp = hwe_modifier & HWE_THRESH_MIDP;
   uint32_t min_obs = 0xffffffffU;
   uint32_t max_obs = 0;
+  int32_t mt_code = chrom_info_ptr->mt_code;
+  uint32_t mt_start = 0;
+  uint32_t mt_end = 0;
   uint32_t markers_done;
   uint32_t cur_obs;
   hwe_thresh *= 1 + SMALL_EPSILON;
@@ -3616,9 +3622,16 @@ uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct
     hwe_lls = hwe_ll_allfs;
     hwe_hhs = hwe_hh_allfs;
   }
+  if ((mt_code != -1) && is_set(chrom_info_ptr->chrom_mask, mt_code)) {
+    mt_start = chrom_info_ptr->chrom_start[(uint32_t)mt_code];
+    mt_end = chrom_info_ptr->chrom_end[(uint32_t)mt_code];
+  }
   if (hwe_thresh_midp) {
     for (markers_done = 0; markers_done < marker_ct; marker_uidx++, markers_done++) {
       next_unset_unsafe_ck(marker_exclude, &marker_uidx);
+      if ((marker_uidx < mt_end) && (marker_uidx >= mt_start)) {
+        continue;
+      }
       if (SNPHWE_midp_t(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx], hwe_thresh)) {
 	SET_BIT(marker_exclude, marker_uidx);
 	removed_ct++;
@@ -3634,6 +3647,9 @@ uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct
   } else {
     for (markers_done = 0; markers_done < marker_ct; marker_uidx++, markers_done++) {
       next_unset_unsafe_ck(marker_exclude, &marker_uidx);
+      if ((marker_uidx < mt_end) && (marker_uidx >= mt_start)) {
+        continue;
+      }
       if (SNPHWE_t(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx], hwe_thresh)) {
 	SET_BIT(marker_exclude, marker_uidx);
 	removed_ct++;
@@ -4241,6 +4257,12 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   retval = load_bim(mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &set_allele_freqs, &marker_allele_ptrs, &max_marker_allele_len, &marker_ids, chrom_info_ptr, &marker_cms, &marker_pos, freqname, calculation_type, misc_flags, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_range_list_ptr, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, "bim", ((calculation_type == CALC_MAKE_BED) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (!update_map) && (!freqname))? NULL : "make-bed");
   if (retval) {
     goto plink_ret_1;
+  }
+  if (map_is_unsorted & UNSORTED_SPLIT_CHROM) {
+    if ((hwe_thresh > 0.0) || (calculation_type & CALC_HARDY)) {
+      logprint("Error: --hardy/--hwe cannot be used on a .bim file with split chromosome(s).\nRetry this command after using\n--make-bed to sort your data.\n");
+      goto plink_ret_INVALID_FORMAT;
+    }
   }
 
   // load .fam, count indivs
@@ -4876,7 +4898,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
   if (hwe_thresh > 0.0) {
-    if (enforce_hwe_threshold(hwe_thresh, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, hwe_lls, hwe_lhs, hwe_hhs, hwe_modifier, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs)) {
+    if (enforce_hwe_threshold(hwe_thresh, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, hwe_lls, hwe_lhs, hwe_hhs, hwe_modifier, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, chrom_info_ptr)) {
       goto plink_ret_ALL_MARKERS_EXCLUDED;
     }
   }

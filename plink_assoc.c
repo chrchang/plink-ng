@@ -9196,6 +9196,41 @@ void calc_git_missing(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uintptr_t* __r
 #endif
 }
 
+THREAD_RET_TYPE testmiss_adapt_thread(void* arg) {
+  /*
+  intptr_t tidx = (intptr_t)arg;
+  uint32_t marker_bidx = (((uint64_t)tidx) * g_block_diff) / g_assoc_thread_ct;
+  uint32_t marker_bceil = (((uint64_t)tidx + 1) * g_block_diff) / g_assoc_thread_ct;
+  uintptr_t pheno_nm_ct = g_pheno_nm_ct;
+  uintptr_t pheno_nm_ctl = (pheno_nm_ct + (BITCT - 1)) / BITCT;
+  uintptr_t pheno_nm_ctv = (pheno_nm_ctl + 1) & (~1);
+  uintptr_t perm_vec_ct = g_perm_vec_ct;
+  uint32_t pidx_offset = g_perms_done;
+  uint32_t is_midp = g_fisher_midp;
+  uint32_t is_y = 0;
+  uint32_t first_adapt_check = g_first_adapt_check;
+  uint32_t case_ct = g_case_ct;
+  uintptr_t* __restrict__ loadbuf = g_loadbuf;
+  uint32_t valid_obs_ct = pheno_nm_ct;
+  uint32_t* male_case_cts = NULL;
+  if (g_is_y) {
+    valid_obs_ct = g_male_ct;
+    if (valid_obs_ct != pheno_nm_ct) {
+      is_y = 1; // if all male, can pretend as if this isn't Ychr
+      male_case_cts = g_male_case_cts;
+    }
+  }
+  */
+  THREAD_RETURN;
+}
+
+THREAD_RET_TYPE testmiss_maxt_thread(void* arg) {
+  /*
+  intptr_t tidx = (intptr_t)arg;
+  */
+  THREAD_RETURN;
+}
+
 int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t testmiss_mperm_val, uint32_t testmiss_modifier, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_male, uint32_t hh_exists) {
   // Simple variant of model_assoc().
   unsigned char* wkspace_mark = wkspace_base;
@@ -9546,6 +9581,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
       g_is_perm1 = 1;
       g_perms_done = 0;
       g_pheno_nm_ct = pheno_nm_ct;
+      g_case_ct = case_ct;
       g_male_ct = male_ct;
       g_fisher_midp = midp;
       g_mperm_save_all = NULL;
@@ -9690,6 +9726,11 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	    // exploit overflow
 	    chrom_fo_idx++;
 	    refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &uii, &g_is_haploid);
+	    if (!g_is_y) {
+	      g_case_ct = case_ct;
+	    } else {
+	      g_case_ct = case_ct_y;
+	    }
 	  }
 	  if (fread(loadbuf_raw, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	    goto testmiss_ret_READ_FAIL;
@@ -9739,7 +9780,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	    }
 	  }
 	}
-	if ((!mperm_dump_all) && (!g_is_y)) {
+	if ((!mperm_dump_all) && ((!g_is_y) || (male_ct == pheno_nm_ct))) {
 	  // need raw p-values for --mperm-save-all
 	  // valid case/control counts differ between permutations on Y
 	  // chromosome, and I won't bother with g_precomp_width just for that
@@ -9762,7 +9803,6 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	  }
 	}
 	ulii = 0;
-	/*
 	if (perm_adapt) {
           if (spawn_threads(threads, &testmiss_adapt_thread, g_assoc_thread_ct)) {
             goto testmiss_ret_THREAD_CREATE_FAIL;
@@ -9778,7 +9818,6 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
           join_threads(threads, g_assoc_thread_ct);
 	  // ...
 	}
-	*/
       } while (marker_idx < marker_unstopped_ct);
       // really should postpone this for --assoc/--model too
       g_perms_done += g_perm_vec_ct;
