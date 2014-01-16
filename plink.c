@@ -1964,7 +1964,6 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   uint32_t next_chrom_start = chrom_info_ptr->chrom_file_order_marker_idx[1];
   uint32_t is_x = (ii == chrom_info_ptr->x_code);
   uint32_t is_y = (ii == chrom_info_ptr->y_code);
-  uint32_t is_mt = (ii == chrom_info_ptr->mt_code);
   uint32_t ll_ct = 0;
   uint32_t lh_ct = 0;
   uint32_t hh_ct = 0;
@@ -2219,7 +2218,6 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
     is_haploid = (chrom_info_ptr->chrom_mask[0]) & 1;
     is_x = 0;
     is_y = 0;
-    is_mt = 0;
     next_chrom_start = unfiltered_marker_ct;
   }
   for (; pct <= 100; pct++) {
@@ -2242,7 +2240,6 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	is_haploid = is_set(chrom_info_ptr->haploid_mask, ii);
 	is_x = (ii == chrom_info_ptr->x_code);
 	is_y = (ii == chrom_info_ptr->y_code);
-	is_mt = (ii == chrom_info_ptr->mt_code);
       }
       if (!is_haploid) {
 	single_marker_freqs_and_hwe(unfiltered_indiv_ctv2, loadbuf, indiv_include2, founder_include2, founder_ctrl_include2, founder_case_include2, indiv_ct, &ll_ct, &lh_ct, &hh_ct, indiv_f_ct, &ll_ctf, &lh_ctf, &hh_ctf, hwe_needed, indiv_f_ctrl_ct, &ll_hwe, &lh_hwe, &hh_hwe, hardy_needed, indiv_f_case_ct, &ll_case_hwe, &lh_case_hwe, &hh_case_hwe);
