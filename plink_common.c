@@ -20,8 +20,8 @@ sfmt_t sfmt;
 
 FILE* logfile = NULL;
 char logbuf[MAXLINELEN * 2]; // safe sprintf buffer, if one is needed
-int32_t debug_on = 0;
-int32_t log_failed = 0;
+uint32_t g_debug_on = 0;
+uint32_t g_log_failed = 0;
 uintptr_t g_indiv_ct;
 uint32_t g_thread_ct;
 
@@ -38,21 +38,21 @@ uint32_t push_ll_str(Ll_str** ll_stack_ptr, const char* ss) {
 }
 
 void logstr(const char* ss) {
-  if (!debug_on) {
+  if (!g_debug_on) {
     fputs(ss, logfile);
     if (ferror(logfile)) {
       printf("\nWarning: Logging failure on:\n%s\nFurther logging will not be attempted in this run.\n", ss);
-      log_failed = 1;
+      g_log_failed = 1;
     }
   } else {
-    if (log_failed) {
+    if (g_log_failed) {
       fputs(ss, stdout);
       fflush(stdout);
     } else {
       fputs(ss, logfile);
       if (ferror(logfile)) {
         printf("\nError: Debug logging failure.  Dumping to standard output:\n%s", ss);
-	log_failed = 1;
+	g_log_failed = 1;
       } else {
 	fflush(logfile);
       }
@@ -6340,7 +6340,15 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint3
           goto string_range_list_to_bitfield_ret_INVALID_CMDLINE;
 	}
 	fill_bits(bitfield, seen_idxs[((uint32_t)ii) - 1], (item_idx - seen_idxs[((uint32_t)ii) - 1]) + 1);
+	if (g_debug_on) {
+	  sprintf(logbuf, "Debug: Including items #%u through #%u (up to '%s').\n", seen_idxs[((uint32_t)ii) - 1] + 1, item_idx + 1, &(sorted_ids[((uint32_t)ii) * max_id_len]));
+          logprintb();
+	}
       } else if (!(range_list_ptr->starts_range[item_idx])) {
+	if (g_debug_on) {
+	  sprintf(logbuf, "Debug: Including item #%u ('%s').\n", item_idx + 1, &(sorted_ids[((uint32_t)ii) * max_id_len]));
+	  logprintb();
+	}
 	SET_BIT(bitfield, item_idx);
       }
     }

@@ -86,7 +86,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (16 Jan 2014)";
+  " (19 Jan 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -5017,7 +5017,6 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & (CALC_WRITE_COVAR | CALC_MAKE_BED | CALC_RECODE)) {
-    // parentheses needed around ALLOW_NO_SEX | MUST_HAVE_SEX!!
     if (gender_unk_ct && (sex_missing_pheno & MUST_HAVE_SEX)) {
       pheno_nm_datagen = (uintptr_t*)malloc(unfiltered_indiv_ctl * sizeof(intptr_t));
       memcpy(pheno_nm_datagen, pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t));
@@ -6263,6 +6262,8 @@ int32_t main(int32_t argc, char** argv) {
   char* filter_attrib_indiv_liststr = NULL;
   char* const_fid = NULL;
   char* vcf_filter_exceptions_flattened = NULL;
+  char* oblig_missing_marker_fname = NULL;
+  char* oblig_missing_indiv_fname = NULL;
   double vcf_min_qual = -INFINITY;
   char id_delim = '\0';
   int32_t retval = 0;
@@ -8375,7 +8376,7 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'd':
       if (!memcmp(argptr2, "ebug", 5)) {
-	debug_on = 1;
+	g_debug_on = 1;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ata", 4)) {
 	if (load_rare || load_params) {
@@ -11086,6 +11087,37 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	memcpy(output_missing_pheno, argv[cur_arg + 1], jj + 1);
+      } else if (!memcmp(argptr2, "blig-clusters", 14)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_fname(&oblig_missing_indiv_fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
+	logprint("Note: --oblig-clusters flag deprecated.  Use just --oblig-missing.\n");
+      } else if (!memcmp(argptr2, "blig-missing", 13)) {
+	if (!oblig_missing_indiv_fname) {
+          if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 2)) {
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	} else if (param_ct != 1) {
+          sprintf(logbuf, "--oblig-missing requires exactly one parameter when --oblig-clusters is also\npresent.%s", errstr_append);
+          goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_fname(&oblig_missing_marker_fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
+	if (param_ct == 2) {
+	  retval = alloc_fname(&oblig_missing_indiv_fname, argv[cur_arg + 1], argptr, 0);
+	  if (retval) {
+	    goto main_ret_1;
+	  }
+	}
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+	logprint("Error: --oblig-missing is currently under development.\n");
+	goto main_ret_1;
       } else if (memcmp(argptr2, "ut", 3)) {
 	// --out is a special case due to logging
 	goto main_ret_INVALID_CMDLINE_2;
@@ -13155,7 +13187,26 @@ int32_t main(int32_t argc, char** argv) {
       break;
 
     case 'z':
-      if (!memcmp(argptr2, "ero-cms", 8)) {
+      if (!memcmp(argptr2, "ero-cluster", 12)) {
+	if (!cluster.fname) {
+	  sprintf(logbuf, "Error: --zero-cluster must be used with --within.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if ((calculation_type != CALC_MAKE_BED) || (geno_thresh != 1.0) || (mind_thresh != 1.0) || (hwe_thresh != 0.0) || (min_maf != 0.0) || (max_maf != 0.5)) {
+	  // prevent old pipelines from silently breaking
+	  sprintf(logbuf, "Error: --zero-cluster must now be used with --make-bed, no other output\ncommands, and no genotype-based filters.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_fname(&cluster.zerofname, argv[cur_arg + uii], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+	logprint("Error: --zero-cluster is currently under development.\n");
+	goto main_ret_1;
+      } else if (!memcmp(argptr2, "ero-cms", 8)) {
         misc_flags |= MISC_ZERO_CMS;
         goto main_param_zero;
       } else {
@@ -13788,6 +13839,8 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(filter_attrib_indiv_liststr);
   free_cond(const_fid);
   free_cond(vcf_filter_exceptions_flattened);
+  free_cond(oblig_missing_marker_fname);
+  free_cond(oblig_missing_indiv_fname);
 
   cluster_cleanup(&cluster);
   set_cleanup(&set_info);
@@ -13809,7 +13862,7 @@ int32_t main(int32_t argc, char** argv) {
     } while (chrom_info.incl_excl_name_stack);
   }
   if (logfile) {
-    if (!log_failed) {
+    if (!g_log_failed) {
       logstr("\nEnd time: ");
       time(&rawtime);
       logstr(ctime(&rawtime));

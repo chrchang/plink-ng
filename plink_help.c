@@ -1193,7 +1193,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                             value(s).\n"
 "  --mfilter [n]            : Match against (n+2)th column instead.\n"
 	       );
-    help_print("geno\tmind", &help_ctrl, 0,
+    help_print("geno\tmind\toblig-clusters\toblig-missing", &help_ctrl, 0,
 "  --geno {val}     : Exclude variants with missing call frequencies greater\n"
 "                     than a threshold (default 0.1).  (Note that the default\n"
 "                     threshold is only applied if --geno is invoked without a\n"
@@ -1202,6 +1202,14 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     inclusion/exclusion default thresholds work the same way.)\n"
 "  --mind {val}     : Exclude individuals with missing call frequencies greater\n"
 "                     than a threshold (default 0.1).\n"
+	       );
+    help_print("oblig-clusters\toblig-missing", &help_ctrl, 0,
+"  --oblig-missing [f1] [f2] : Specify blocks of missing genotype calls for\n"
+"                              --geno/--mind to ignore.  The first file should\n"
+"                              have variant IDs in the first column and block\n"
+"                              IDs in the second, while the second file should\n"
+"                              have FIDs in the first column, IIDs in the\n"
+"                              second, and block IDs in the third.\n"
 	       );
     help_print("prune", &help_ctrl, 0,
 "  --prune          : Remove individuals with missing phenotypes.\n"
@@ -1262,6 +1270,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --output-missing-phenotype [n] : Set the value used to represent missing\n"
 "                                   phenotypes in new filesets (normally the\n"
 "                                   --missing-phenotype value).\n"
+	       );
+    help_print("zero-cluster", &help_ctrl, 0,
+"  --zero-cluster [f] : In combination with --within, set blocks of genotype\n"
+"                       calls to missing.  The input file should have variant\n"
+"                       IDs in the first column and cluster IDs in the second.\n"
+"                       This must now be used with --make-bed and no other\n"
+"                       output commands.\n"
 	       );
     help_print("set-hh-missing", &help_ctrl, 0,
 "  --set-hh-missing : Cause --make-bed and --recode to set heterozygous haploid\n"

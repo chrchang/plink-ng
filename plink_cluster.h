@@ -23,6 +23,7 @@ typedef struct {
   char* remove_fname;
   char* keep_flattened;
   char* remove_flattened;
+  char* zerofname;
   uint32_t modifier;
   double ppc;
   uint32_t max_size;

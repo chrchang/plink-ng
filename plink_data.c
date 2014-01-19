@@ -3172,6 +3172,10 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
       }
       // deallocate --covar-name support
       topsize -= (uintptr_t)(((unsigned char*)already_seen) - ((unsigned char*)covar_name_flag_seen_idxs));
+      if (g_debug_on) {
+        sprintf(logbuf, "Debug: covars_active[0] = 0x%lx\n", covars_active[0]);
+        logprintb();
+      }
     }
     covar_ct = popcount_longs(covars_active, covar_raw_ctl);
   } else if (covar_range_list_ptr) {
@@ -3267,6 +3271,10 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
     if (retval) {
       goto load_covars_ret_1;
     }
+    if (g_debug_on) {
+      sprintf(logbuf, "Debug: covars_active[0] = 0x%lx\n", covars_active[0]);
+      logprintb();
+    }
     if (covar_range_list_ptr) {
       bufptr2 = item_endnn(next_item(bufptr));
       for (uii = 0; uii < min_covar_col_ct; uii++) {
@@ -3274,6 +3282,10 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
 	bufptr2 = item_endnn(bufptr);
 	if (IS_SET(covars_active, uii)) {
 	  memcpyx(&(covar_names[covar_idx * max_covar_name_len]), bufptr, (uintptr_t)(bufptr2 - bufptr), '\0');
+	  if (g_debug_on) {
+	    sprintf(logbuf, "Debug: Covariate name '%s' registered (position %u).\n", &(covar_names[covar_idx * max_covar_name_len]), uii + 1);
+	    logprintb();
+	  }
 	  covar_idx++;
 	}
       }

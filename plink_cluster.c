@@ -62,6 +62,7 @@ void cluster_init(Cluster_info* cluster_ptr) {
   cluster_ptr->remove_fname = NULL;
   cluster_ptr->keep_flattened = NULL;
   cluster_ptr->remove_flattened = NULL;
+  cluster_ptr->zerofname = NULL;
   cluster_ptr->modifier = 0;
   cluster_ptr->ppc = 0.0;
   cluster_ptr->max_size = 0xffffffffU;
@@ -84,6 +85,7 @@ void cluster_cleanup(Cluster_info* cluster_ptr) {
   free_cond(cluster_ptr->remove_fname);
   free_cond(cluster_ptr->keep_flattened);
   free_cond(cluster_ptr->remove_flattened);
+  free_cond(cluster_ptr->zerofname);
 }
 
 int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, uint32_t mwithin_col, uint32_t keep_na, uintptr_t* cluster_ct_ptr, uint32_t** cluster_map_ptr, uint32_t** cluster_starts_ptr, char** cluster_ids_ptr, uintptr_t* max_cluster_id_len_ptr, char* keep_fname, char* keep_flattened, char* remove_fname, char* remove_flattened) {

@@ -599,8 +599,8 @@ extern const char errstr_phenotype_format[];
 
 extern FILE* logfile;
 extern char logbuf[];
-extern int32_t debug_on;
-extern int32_t log_failed;
+extern uint32_t g_debug_on;
+extern uint32_t g_log_failed;
 
 extern uintptr_t g_indiv_ct;
 extern uint32_t g_thread_ct;
