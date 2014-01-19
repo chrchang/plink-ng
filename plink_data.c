@@ -3173,7 +3173,15 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
       // deallocate --covar-name support
       topsize -= (uintptr_t)(((unsigned char*)already_seen) - ((unsigned char*)covar_name_flag_seen_idxs));
       if (g_debug_on) {
+#ifdef _WIN32
+#ifdef __LP64__
+        sprintf(logbuf, "Debug: covars_active[0] = 0x%llx\n", covars_active[0]);
+#else
         sprintf(logbuf, "Debug: covars_active[0] = 0x%lx\n", covars_active[0]);
+#endif
+#else
+        sprintf(logbuf, "Debug: covars_active[0] = 0x%lx\n", covars_active[0]);
+#endif
         logprintb();
       }
     }
@@ -3272,7 +3280,15 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
       goto load_covars_ret_1;
     }
     if (g_debug_on) {
+#ifdef _WIN32
+#ifdef __LP64__
+      sprintf(logbuf, "Debug: covars_active[0] = 0x%llx\n", covars_active[0]);
+#else
       sprintf(logbuf, "Debug: covars_active[0] = 0x%lx\n", covars_active[0]);
+#endif
+#else
+      sprintf(logbuf, "Debug: covars_active[0] = 0x%lx\n", covars_active[0]);
+#endif
       logprintb();
     }
     if (covar_range_list_ptr) {
