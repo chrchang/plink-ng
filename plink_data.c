@@ -9,7 +9,7 @@
 
 #include <sys/stat.h>
 #include <sys/types.h>
-#include "plink_common.h"
+#include "plink_set.h"
 
 #define PHENO_EPSILON 0.000030517578125
 
@@ -3839,6 +3839,237 @@ int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modi
   return retval;
 }
 
+int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, char* oblig_missing_marker_fname, char* oblig_missing_indiv_fname, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char* marker_ids, uintptr_t max_marker_id_len, char* sorted_person_ids, uintptr_t sorted_indiv_ct, uintptr_t max_person_id_len, uint32_t* indiv_id_map, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t track_markers, uint32_t track_indivs, uint32_t** oblig_missing_marker_cts_ptr, uint32_t** oblig_missing_indiv_cts_ptr) {
+  // 1. load and validate cluster file
+  // 2. load marker file, sort by uidx
+  // 3. check for early exit (no clusters and/or no markers)
+  // 4. scan through .bed sequentially, update oblig_missing_..._cts
+  uint32_t* oblig_missing_marker_cts = NULL;
+  uint32_t* oblig_missing_indiv_cts = NULL;
+  int32_t retval = 0;
+  // todo
+  if (track_markers) {
+    oblig_missing_marker_cts = (uint32_t*)malloc(unfiltered_marker_ct * sizeof(int32_t));
+    if (!oblig_missing_marker_cts) {
+      goto load_oblig_missing_ret_NOMEM;
+    }
+    *oblig_missing_marker_cts_ptr = oblig_missing_marker_cts;
+    fill_uint_zero(oblig_missing_marker_cts, unfiltered_marker_ct);
+  }
+  if (track_indivs) {
+    oblig_missing_indiv_cts = (uint32_t*)malloc(unfiltered_indiv_ct * sizeof(int32_t));
+    if (!oblig_missing_indiv_cts) {
+      goto load_oblig_missing_ret_NOMEM;
+    }
+    *oblig_missing_indiv_cts_ptr = oblig_missing_indiv_cts;
+    fill_uint_zero(oblig_missing_indiv_cts, unfiltered_indiv_ct);
+  }
+  while (0) {
+  load_oblig_missing_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+    /*
+  load_oblig_missing_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  load_oblig_missing_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+    */
+  }
+  return retval;
+}
+
+int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t* indiv_sort_map, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, uint32_t** zcdefs, uintptr_t** cluster_zc_masks_ptr) {
+  // (todo: patch plink() sequence so that marker IDs always need to be sorted
+  // only once?  may want to tune the data structure a bit too: while binary
+  // search on a sorted array already works quite well, packing the "top" of
+  // the "binary tree" into a single page should speed things up.)
+  //
+  // 1. create sorted marker ID and cluster ID lists, regular stack allocation
+  // 2. load .zero file, converting to internal indices.  (lines with
+  //    unrecognized IDs are skipped; we don't want a header line to cause this
+  //    to error out.)  this is top_alloc'd.
+  // 3. free sorted ID lists, sort loaded .zero contents
+  // 4. assemble one block bitfield at a time, use save_set_bitfield() to
+  //    compress each
+  // 5. allocate and initialize cluster_zc_masks
+  FILE* zcfile = NULL;
+  uintptr_t marker_ctp2l = (marker_ct + (BITCT + 1)) / BITCT;
+  uintptr_t indiv_ctv2 = 2 * ((indiv_ct + (BITCT2 - 1)) / BITCT2);
+  uintptr_t topsize = 0;
+  uintptr_t zc_item_ct = 0;
+  uint32_t range_first = marker_ct;
+  uint32_t range_last = 0;
+  int32_t retval = 0;
+  char* sorted_marker_ids;
+  uint32_t* marker_id_map;
+  uint32_t* indiv_uidx_to_idx;
+  uintptr_t* marker_bitfield_tmp;
+  uintptr_t* cluster_zc_mask;
+  char* bufptr;
+  char* bufptr2;
+  int64_t* zc_entries;
+  int64_t* zc_entries_end;
+  uint64_t ullii;
+  uintptr_t topsize_base;
+  uintptr_t max_zc_item_ct;
+  uintptr_t marker_uidx;
+  uint32_t uii;
+  uint32_t cluster_idx;
+  uint32_t cur_cluster;
+  uint32_t cluster_size;
+  uint32_t indiv_uidx;
+  uint32_t indiv_idx;
+  int32_t ii;
+  marker_bitfield_tmp = (uintptr_t*)top_alloc(&topsize, marker_ctp2l * sizeof(intptr_t));
+  if (!marker_bitfield_tmp) {
+    goto zero_cluster_init_ret_NOMEM;
+  }
+#ifdef __LP64__
+  fill_ulong_zero(marker_bitfield_tmp, (marker_ctp2l + 1) & (~1));
+#else
+  fill_ulong_zero(marker_bitfield_tmp, (marker_ctp2l + 3) & (~3));
+#endif
+  zc_entries_end = (int64_t*)marker_bitfield_tmp;
+  zc_entries = &(zc_entries_end[-1]);
+  wkspace_left -= topsize + 16;
+  retval = sort_item_ids(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_ct, marker_ids, max_marker_id_len, 0, 1, strcmp_deref);
+  if (retval) {
+    goto zero_cluster_init_ret_1;
+  }
+  // cluster IDs are already natural-sorted
+
+  if (fopen_checked(&zcfile, zerofname, "r")) {
+    goto zero_cluster_init_ret_OPEN_FAIL;
+  }
+  // simplify cluster_idx loop
+  *zc_entries = (int64_t)(((uint64_t)cluster_ct) << 32);
+  max_zc_item_ct = (wkspace_left + 8) / sizeof(int64_t);
+  tbuf[MAXLINELEN - 1] = ' ';
+  while (fgets(tbuf, MAXLINELEN, zcfile)) {
+    if (!tbuf[MAXLINELEN - 1]) {
+      sprintf(logbuf, "Error: Pathologically long line in %s.\n", zerofname);
+      logprintb();
+      goto zero_cluster_init_ret_INVALID_FORMAT;
+    }
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    bufptr2 = item_endnn(bufptr);
+    ii = bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_marker_ids, max_marker_id_len, marker_ct);
+    if (ii != -1) {
+      marker_uidx = marker_id_map[(uint32_t)ii];
+      bufptr = skip_initial_spaces(bufptr2);
+      if (is_eoln_kns(*bufptr)) {
+        logprint("Error: Fewer tokens than expected in --zero-cluster file line.\n");
+	goto zero_cluster_init_ret_INVALID_FORMAT;
+      }
+      bufptr2 = item_endnn(bufptr);
+      uii = (uintptr_t)(bufptr2 - bufptr);
+      if (uii < max_cluster_id_len) {
+        *bufptr2 = '\0';
+        ii = bsearch_str_natural(bufptr, cluster_ids, max_cluster_id_len, cluster_ct);
+        if (ii != -1) {
+	  if (++zc_item_ct > max_zc_item_ct) {
+	    goto zero_cluster_init_ret_NOMEM;
+	  }
+	  // cluster ID in high bits, marker ID in low bits, so sorting works
+	  *(--zc_entries) = (int64_t)((((uint64_t)((uint32_t)ii)) << 32) | ((uint64_t)marker_uidx));
+	}
+      }
+    }
+  }
+  if (fclose_null(&zcfile)) {
+    goto zero_cluster_init_ret_READ_FAIL;
+  }
+  wkspace_left += topsize;
+  topsize_base = topsize;
+  topsize += ((zc_item_ct + 1) / 2) * 16;
+  wkspace_reset((unsigned char*)marker_id_map);
+  wkspace_left -= topsize;
+#ifdef __cplusplus
+  std::sort(zc_entries, &(zc_entries[zc_item_ct]));
+#else
+  qsort(zc_entries, zc_item_ct, sizeof(int64_t), llcmp);
+#endif
+  ullii = (uint64_t)(*zc_entries++);
+  cur_cluster = (uint32_t)(ullii >> 32);
+  range_first = marker_ct;
+  range_last = 0;
+  for (cluster_idx = 0; cluster_idx < cluster_ct; cluster_idx++) {
+    if (range_first < marker_ct) {
+      fill_ulong_zero(marker_bitfield_tmp, marker_ctp2l);
+      range_first = marker_ct;
+      range_last = 0;
+      wkspace_left += topsize;
+      topsize = topsize_base + ((((uintptr_t)(marker_bitfield_tmp - ((uintptr_t*)zc_entries))) / 2) + 1) * 16;
+      wkspace_left -= topsize;
+    }
+    if (cur_cluster == cluster_idx) {
+      range_first = (uint32_t)ullii;
+      do {
+	range_last = (uint32_t)ullii;
+        SET_BIT(marker_bitfield_tmp, range_last);
+        ullii = (uint64_t)(*zc_entries);
+        cur_cluster = (uint32_t)(ullii >> 32);
+      } while (cur_cluster == cluster_idx);
+    }
+    if (save_set_bitfield(marker_bitfield_tmp, marker_ct, range_first, range_last + 1, 0, &(zcdefs[cluster_idx]))) {
+      goto zero_cluster_init_ret_NOMEM;
+    }
+  }
+  wkspace_left += topsize;
+  topsize = 0;
+  if (wkspace_alloc_ul_checked(cluster_zc_masks_ptr, indiv_ctv2 * cluster_ct * sizeof(intptr_t)) ||
+      wkspace_alloc_ui_checked(&indiv_uidx_to_idx, unfiltered_indiv_ct * sizeof(int32_t))) {
+    goto zero_cluster_init_ret_NOMEM;
+  }
+  cluster_zc_mask = *cluster_zc_masks_ptr;
+  fill_ulong_zero(cluster_zc_mask, indiv_ctv2 * cluster_ct);
+  if (!indiv_sort_map) {
+    fill_uidx_to_idx(indiv_exclude, unfiltered_indiv_ct, indiv_ct, indiv_uidx_to_idx);
+  } else {
+    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+      indiv_uidx_to_idx[indiv_sort_map[indiv_idx]] = indiv_idx;
+    }
+  }
+  for (cluster_idx = 0; cluster_idx < cluster_ct; cluster_idx++) {
+    // 01 if in cluster, 00 otherwise
+    cluster_size = cluster_starts[cluster_idx + 1] - cluster_starts[cluster_idx];
+    for (uii = 0; uii < cluster_size; uii++) {
+      indiv_uidx = *cluster_map++;
+      if (!IS_SET(indiv_exclude, indiv_uidx)) {
+	indiv_idx = indiv_uidx_to_idx[indiv_uidx];
+        SET_BIT_DBL(cluster_zc_mask, indiv_idx);
+      }
+    }
+    cluster_zc_mask = &(cluster_zc_mask[indiv_ctv2]);
+  }
+  wkspace_reset((unsigned char*)indiv_uidx_to_idx);
+  sprintf(logbuf, "--zero-cluster: %" PRIuPTR " line%s processed.", zc_item_ct, (zc_item_ct == 1)? "" : "s");
+  logprintb();
+  while (0) {
+  zero_cluster_init_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  zero_cluster_init_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  zero_cluster_init_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  zero_cluster_init_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ zero_cluster_init_ret_1:
+  wkspace_left += topsize;
+  fclose_cond(zcfile);
+  return retval;
+}
+
 int32_t write_fam(char* outname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, char delim, uint32_t* indiv_sort_map) {
   FILE* outfile = NULL;
   uintptr_t indiv_uidx = 0;
@@ -4509,7 +4740,49 @@ int32_t make_bed_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32_t unfilter
   return 0;
 }
 
-int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t map_cols, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t map_is_unsorted, uint32_t* indiv_sort_map, uint64_t misc_flags, uint32_t splitx_bound1, uint32_t splitx_bound2, Two_col_params* update_chr, char* flip_subset_fname, uint32_t hh_exists, Chrom_info* chrom_info_ptr) {
+void zeropatch(uintptr_t indiv_ctv2, uintptr_t cluster_ct, uintptr_t* cluster_zc_masks, uint32_t** zcdefs, uintptr_t* patchbuf, uintptr_t marker_idx, uintptr_t* writebuf) {
+#ifdef __LP64__
+  __m128i* writevec = (__m128i*)writebuf;
+  __m128i* patchvec = (__m128i*)patchbuf;
+  __m128i* patchvec_end = (__m128i*)(&(patchbuf[indiv_ctv2]));
+  __m128i vec1;
+  __m128i vec2;
+#else
+  uintptr_t* patchbuf_end = &(patchbuf[indiv_ctv2]);
+  uintptr_t ulii;
+#endif
+  uintptr_t cluster_idx;
+  uint32_t at_least_one_cluster = 0;
+  for (cluster_idx = 0; cluster_idx < cluster_ct; cluster_idx++) {
+    if (in_setdef(zcdefs[cluster_idx], marker_idx)) {
+      if (!at_least_one_cluster) {
+	at_least_one_cluster = 1;
+	fill_ulong_zero(patchbuf, indiv_ctv2);
+      }
+      bitfield_or(patchbuf, &(cluster_zc_masks[cluster_idx * indiv_ctv2]), indiv_ctv2);
+    }
+  }
+  if (!at_least_one_cluster) {
+    return;
+  }
+#ifdef __LP64__
+  do {
+    vec1 = *writevec;
+    vec2 = *patchvec++;
+    vec1 = _mm_andnot_si128(_mm_srli_epi64(vec2, 1), vec1);
+    *writevec = _mm_or_si128(vec1, vec2);
+    writevec++;
+  } while (patchvec < patchvec_end);
+#else
+  do {
+    ulii = *patchbuf++;
+    *writebuf = ((*writebuf) & (~(ulii << 1))) | ulii;
+    writebuf++;
+  } while (patchbuf < patchbuf_end);
+#endif
+}
+
+int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t map_cols, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t map_is_unsorted, uint32_t* indiv_sort_map, uint64_t misc_flags, uint32_t splitx_bound1, uint32_t splitx_bound2, Two_col_params* update_chr, char* flip_subset_fname, char* zerofname, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, uint32_t hh_exists, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + BITCT2 - 1) / BITCT2;
@@ -4521,6 +4794,9 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   int64_t* ll_buf = NULL;
   uintptr_t* indiv_include2 = NULL;
   uintptr_t* indiv_male_include2 = NULL;
+  uintptr_t* cluster_zc_masks = NULL;
+  uintptr_t* patchbuf = NULL;
+  uint32_t** zcdefs = NULL;
   uint32_t set_hh_missing = (misc_flags / MISC_SET_HH_MISSING) & 1;
   uint32_t mergex = (misc_flags / MISC_MERGEX) & 1;
   uint32_t allow_extra_chroms = (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1;
@@ -4548,6 +4824,19 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   }
   loadbuf[unfiltered_indiv_ctl2 - 1] = 0;
 
+  if (zerofname && cluster_ct) {
+    zcdefs = (uint32_t**)wkspace_alloc(cluster_ct * sizeof(intptr_t));
+    if (!zcdefs) {
+      goto make_bed_ret_NOMEM;
+    }
+    retval = zero_cluster_init(zerofname, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, unfiltered_indiv_ct, indiv_exclude, indiv_ct, indiv_sort_map, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, zcdefs, &cluster_zc_masks);
+    if (retval) {
+      goto make_bed_ret_1;
+    }
+    if (wkspace_alloc_ul_checked(&patchbuf, indiv_ctv2 * sizeof(intptr_t))) {
+      goto make_bed_ret_NOMEM;
+    }
+  }
   memcpy(outname_end, ".bed", 5);
   if (fopen_checked(&bedoutfile, outname, "wb")) {
     goto make_bed_ret_OPEN_FAIL;
@@ -4641,6 +4930,9 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	if (retval) {
 	  goto make_bed_ret_1;
 	}
+	if (zcdefs) {
+	  zeropatch(indiv_ctv2, cluster_ct, cluster_zc_masks, zcdefs, patchbuf, marker_idx, &(writebuf[indiv_ctv2 * map_reverse[marker_uidx]]));
+	}
       }
       if (pct < 100) {
 	if (pct > 10) {
@@ -4693,6 +4985,10 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	if (is_haploid && set_hh_missing) {
 	  haploid_fix(hh_exists, indiv_include2, indiv_male_include2, indiv_ct, is_x, is_y, (unsigned char*)writebuf);
 	}
+	if (zcdefs) {
+	  zeropatch(indiv_ctv2, cluster_ct, cluster_zc_masks, zcdefs, patchbuf, marker_idx, writebuf);
+	}
+
 	if (fwrite_checked(writebuf, indiv_ct4, bedoutfile)) {
 	  goto make_bed_ret_WRITE_FAIL;
 	}

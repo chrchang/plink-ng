@@ -21,6 +21,23 @@ void set_cleanup(Set_info* sip) {
   free_cond(sip->genekeep_flattened);
 }
 
+uint32_t in_setdef(uint32_t* setdef, uint32_t marker_idx) {
+  uint32_t range_ct = setdef[0];
+  uint32_t idx_base;
+  if (range_ct != 0xffffffffU) {
+    if (!range_ct) {
+      return 0;
+    }
+    return (uint32arr_greater_than(&(setdef[1]), range_ct * 2, marker_idx + 1) & 1);
+  } else {
+    idx_base = setdef[1];
+    if ((marker_idx < idx_base) || (marker_idx >= idx_base + setdef[2])) {
+      return setdef[3];
+    }
+    return is_set((uintptr_t*)(&(setdef[4])), marker_idx - idx_base);
+  }
+}
+
 uint32_t save_set_bitfield(uintptr_t* marker_bitfield_tmp, uint32_t marker_ct, uint32_t range_start, uint32_t range_end, uint32_t complement_sets, uint32_t** set_range_pp) {
   uintptr_t mem_req = ((marker_ct + 255) / 128) * 16;
   uint32_t bound_bottom_d128 = range_start / 128;

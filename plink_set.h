@@ -40,7 +40,7 @@ typedef struct {
   // single range or small list of them (assuming we don't query marker_idx
   // values which have been excluded elsewhere).
 
-  // setdefs[r] oints to a 16-byte-aligned array of uint32_ts.  If the first
+  // setdefs[r] points to a 16-byte-aligned array of uint32_ts.  If the first
   // element is not 0xffffffffU, its contents are
   //   [0]: number of ranges in set #r
   //   [2k+1], [2k+2]: start and end of range k (half-open); sorted
@@ -55,6 +55,10 @@ typedef struct {
 void set_init(Set_info* sip);
 
 void set_cleanup(Set_info* sip);
+
+uint32_t in_setdef(uint32_t* setdef, uint32_t marker_idx);
+
+uint32_t save_set_bitfield(uintptr_t* marker_bitfield_tmp, uint32_t marker_ct, uint32_t range_start, uint32_t range_end, uint32_t complement_sets, uint32_t** set_range_pp);
 
 int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* marker_pos, uintptr_t* marker_exclude_ct_ptr, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr);
 
