@@ -7208,6 +7208,7 @@ int32_t main(int32_t argc, char** argv) {
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
+      break;
 
     case 'K':
       if (*argptr2 == '\0') {
@@ -13222,15 +13223,13 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	logprint("Error: --zero-cluster is currently under development.\n");
-	goto main_ret_1;
       } else if (!memcmp(argptr2, "ero-cms", 8)) {
         misc_flags |= MISC_ZERO_CMS;
         goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
+      break;
 
     default:
       goto main_ret_INVALID_CMDLINE_2;

@@ -3896,7 +3896,7 @@ int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintp
   // 5. allocate and initialize cluster_zc_masks
   FILE* zcfile = NULL;
   uintptr_t marker_ctp2l = (marker_ct + (BITCT + 1)) / BITCT;
-  uintptr_t indiv_ctv2 = 2 * ((indiv_ct + (BITCT2 - 1)) / BITCT2);
+  uintptr_t indiv_ctv2 = 2 * ((indiv_ct + (BITCT - 1)) / BITCT);
   uintptr_t topsize = 0;
   uintptr_t zc_item_ct = 0;
   uint32_t range_first = marker_ct;
@@ -4012,7 +4012,7 @@ int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintp
       do {
 	range_last = (uint32_t)ullii;
         SET_BIT(marker_bitfield_tmp, range_last);
-        ullii = (uint64_t)(*zc_entries);
+        ullii = (uint64_t)(*zc_entries++);
         cur_cluster = (uint32_t)(ullii >> 32);
       } while (cur_cluster == cluster_idx);
     }
@@ -4048,7 +4048,7 @@ int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintp
     cluster_zc_mask = &(cluster_zc_mask[indiv_ctv2]);
   }
   wkspace_reset((unsigned char*)indiv_uidx_to_idx);
-  sprintf(logbuf, "--zero-cluster: %" PRIuPTR " line%s processed.", zc_item_ct, (zc_item_ct == 1)? "" : "s");
+  sprintf(logbuf, "--zero-cluster: %" PRIuPTR " line%s processed.\n", zc_item_ct, (zc_item_ct == 1)? "" : "s");
   logprintb();
   while (0) {
   zero_cluster_init_ret_NOMEM:
@@ -4769,7 +4769,7 @@ void zeropatch(uintptr_t indiv_ctv2, uintptr_t cluster_ct, uintptr_t* cluster_zc
   do {
     vec1 = *writevec;
     vec2 = *patchvec++;
-    vec1 = _mm_andnot_si128(_mm_srli_epi64(vec2, 1), vec1);
+    vec1 = _mm_andnot_si128(_mm_slli_epi64(vec2, 1), vec1);
     *writevec = _mm_or_si128(vec1, vec2);
     writevec++;
   } while (patchvec < patchvec_end);
