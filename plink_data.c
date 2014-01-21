@@ -3861,14 +3861,13 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, char* oblig_miss
   Ll_str* llptr;
   uintptr_t* loadbuf;
   uintptr_t* cluster_zmasks;
-  uint32_t* tmp_cluster_starts;
   uint32_t* cluster_sizes;
   char* cluster_ids;
   char* bufptr;
   char* bufptr2;
   uintptr_t cluster_ct;
-  // uintptr_t indiv_uidx;
   uintptr_t ulii;
+  uint32_t indiv_uidx;
   uint32_t slen;
   int32_t ii;
 
@@ -3937,27 +3936,15 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, char* oblig_miss
   }
   wkspace_left += topsize;
   topsize = 0;
-  tmp_cluster_starts = (uint32_t*)top_alloc(&topsize, (possible_distinct_ct + 1) * sizeof(int32_t));
-  if (!tmp_cluster_starts) {
-    goto load_oblig_missing_ret_NOMEM;
-  }
   qsort(cluster_ids, possible_distinct_ct, max_cluster_id_len, strcmp_casted);
-  cluster_ct = collapse_duplicate_ids(cluster_ids, possible_distinct_ct, max_cluster_id_len, tmp_cluster_starts);
+  cluster_ct = collapse_duplicate_ids(cluster_ids, possible_distinct_ct, max_cluster_id_len, NULL);
   wkspace_reset((unsigned char*)cluster_ids);
   cluster_ids = (char*)wkspace_alloc(cluster_ct * max_cluster_id_len);
-  wkspace_left -= topsize;
-  if (wkspace_alloc_ui_checked(&cluster_sizes, cluster_ct * sizeof(int32_t))) {
-    goto load_oblig_missing_ret_NOMEM2;
-  }
-  wkspace_left += topsize;
-  tmp_cluster_starts[cluster_ct] = popcount_longs(loadbuf, sorted_indiv_ctl);
-  for (ulii = 0; ulii < cluster_ct; ulii++) {
-    cluster_sizes[ulii] = tmp_cluster_starts[ulii + 1] - tmp_cluster_starts[ulii];
-  }
-  // topsize = 0;
-  if (wkspace_alloc_ul_checked(&cluster_zmasks, cluster_ct * unfiltered_indiv_ctv2 * sizeof(intptr_t))) {
+  if (wkspace_alloc_ui_checked(&cluster_sizes, cluster_ct * sizeof(int32_t)) ||
+      wkspace_alloc_ul_checked(&cluster_zmasks, cluster_ct * unfiltered_indiv_ctv2 * sizeof(intptr_t))) {
     goto load_oblig_missing_ret_NOMEM;
   }
+  fill_uint_zero(cluster_sizes, cluster_ct);
   fill_ulong_zero(cluster_zmasks, cluster_ct * unfiltered_indiv_ctv2);
 
   // second pass
@@ -3971,11 +3958,17 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, char* oblig_miss
     if (ii == -1) {
       continue;
     }
-    // todo
+    indiv_uidx = indiv_id_map[(uint32_t)ii];    
+    slen = strlen_se(bufptr2);
+    // guaranteed to succeed
+    ii = bsearch_str(bufptr2, slen, cluster_ids, max_cluster_id_len, cluster_ct);
+    set_bit(&(cluster_zmasks[((uintptr_t)((uint32_t)ii)) * unfiltered_indiv_ctv2]), indiv_uidx * 2);
+    cluster_sizes[(uint32_t)ii] += 1;
   }
   if (fclose_null(&infile)) {
     goto load_oblig_missing_ret_READ_FAIL;
   }
+
   // todo
   if (track_markers) {
     oblig_missing_marker_cts = (uint32_t*)malloc(unfiltered_marker_ct * sizeof(int32_t));

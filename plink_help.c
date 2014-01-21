@@ -553,8 +553,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #ifndef STABLE_BUILD
     help_print("clump", &help_ctrl, 1,
 "  --clump [filename(s)...]\n"
-"    Process a set of existing reports with 'SNP' and p-value columns,\n"
-"    organizing results by LD-based clumps.\n\n"
+"    Process a set of existing association analysis reports with 'SNP' and\n"
+"    p-value columns, organizing results by LD-based clumps.\n\n"
 	       );
 #endif
     help_print("distance", &help_ctrl, 1,

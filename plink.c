@@ -104,9 +104,9 @@ const char null_calc_str[] = "Warning: No output requested.  Exiting.\n";
 const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --hardy, --ibc, --impute-sex, --indep, --r2, --distance, --genome,\n--homozyg, --make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour,\n--ibs-test, --regress-distance, --model, --gxe, --logistic, --lasso, and\n--fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
 #else
   #ifndef NOLAPACK
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --ibc, --impute-sex, --indep, --r2,\n--distance, --genome, --homozyg, --make-rel, --make-grm-gz, --rel-cutoff,\n--cluster, --neighbour, --ibs-test, --regress-distance, --model, --gxe,\n--logistic, --lasso, --test-missing, --unrelated-heritability, and\n--fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --ibc, --impute-sex, --indep, --r2, --clump,\n--distance, --genome, --homozyg, --make-rel, --make-grm-gz, --rel-cutoff,\n--cluster, --neighbour, --ibs-test, --regress-distance, --model, --gxe,\n--logistic, --lasso, --test-missing, --unrelated-heritability, and\n--fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --ibc, --impute-sex, --indep, --r2,\n--distance, --genome, --homozyg, --make-rel, --make-grm-gz, --rel-cutoff,\n--cluster, --neighbour, --ibs-test, --regress-distance, --model, --gxe,\n--logistic, --lasso, --test-missing, and --fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --ibc, --impute-sex, --indep, --r2, --clump,\n--distance, --genome, --homozyg, --make-rel, --make-grm-gz, --rel-cutoff,\n--cluster, --neighbour, --ibs-test, --regress-distance, --model, --gxe,\n--logistic, --lasso, --test-missing, and --fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #endif
 #endif
 
@@ -5435,6 +5435,12 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
     } while (pheno_all || loop_assoc_fname);
   }
+  if (calculation_type & CALC_CLUMP) {
+    retval = clump_reports(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, clump_ip, sex_male, hh_exists);
+    if (retval) {
+      goto plink_ret_1;
+    }
+  }
   while (0) {
   plink_ret_NOMEM:
     retval = RET_NOMEM;
@@ -8396,9 +8402,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	calculation_type |= CALC_CLUMP;
         clump_info.fname_ct = param_ct;
-        logprint("Error: --clump is currently under development.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
       } else if (!memcmp(argptr2, "lump-allow-overlap", 19)) {
         if (!clump_info.fname_ct) {
 	  logprint("Error: --clump-allow-overlap must be used with --clump.\n");
