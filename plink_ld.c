@@ -5,7 +5,7 @@
 #define MULTIPLEX_LD 1920
 #define MULTIPLEX_2LD (MULTIPLEX_LD * 2)
 
-void ld_epi_init(Ld_info* ldip, Epi_info* epi_ip) {
+void ld_epi_init(Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip) {
   ldip->modifier = 0;
   ldip->prune_window_size = 0;
   ldip->prune_window_incr = 0;
@@ -25,9 +25,20 @@ void ld_epi_init(Ld_info* ldip, Epi_info* epi_ip) {
   epi_ip->twolocus_mkr1 = NULL;
   epi_ip->twolocus_mkr2 = NULL;
   epi_ip->summary_merge_prefix = NULL;
+  clump_ip->modifier = 0;
+  clump_ip->fname_ct = 0;
+  clump_ip->bp_radius = 249999;
+  clump_ip->range_border = 0;
+  clump_ip->fnames_flattened = NULL;
+  clump_ip->annotate_flattened = NULL;
+  clump_ip->field_name = NULL;
+  clump_ip->range_fname = NULL;
+  clump_ip->p1 = 1e-4;
+  clump_ip->p2 = 1e-2;
+  clump_ip->r2 = 0.5;
 }
 
-void ld_epi_cleanup(Ld_info* ldip, Epi_info* epi_ip) {
+void ld_epi_cleanup(Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip) {
   free_cond(ldip->snpstr);
   free_range_list(&(ldip->snps_rl));
   free_cond(epi_ip->ld_mkr1);
@@ -35,6 +46,10 @@ void ld_epi_cleanup(Ld_info* ldip, Epi_info* epi_ip) {
   free_cond(epi_ip->twolocus_mkr1);
   free_cond(epi_ip->twolocus_mkr2);
   free_cond(epi_ip->summary_merge_prefix);
+  free_cond(clump_ip->fnames_flattened);
+  free_cond(clump_ip->annotate_flattened);
+  free_cond(clump_ip->field_name);
+  free_cond(clump_ip->range_fname);
 }
 
 #ifdef __LP64__

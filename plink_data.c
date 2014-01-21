@@ -3842,11 +3842,140 @@ int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modi
 int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, char* oblig_missing_marker_fname, char* oblig_missing_indiv_fname, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char* marker_ids, uintptr_t max_marker_id_len, char* sorted_person_ids, uintptr_t sorted_indiv_ct, uintptr_t max_person_id_len, uint32_t* indiv_id_map, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t track_markers, uint32_t track_indivs, uint32_t** oblig_missing_marker_cts_ptr, uint32_t** oblig_missing_indiv_cts_ptr) {
   // 1. load and validate cluster file
   // 2. load marker file, sort by uidx
-  // 3. check for early exit (no clusters and/or no markers)
+  // 3. check for early exit (no clusters and/or no .zero entries)
   // 4. scan through .bed sequentially, update oblig_missing_..._cts
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* infile = NULL;
   uint32_t* oblig_missing_marker_cts = NULL;
   uint32_t* oblig_missing_indiv_cts = NULL;
+  char* idbuf = &(tbuf[MAXLINELEN]);
+  Ll_str* cluster_names = NULL;
+  uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + BITCT2 - 1) / BITCT2;
+  uintptr_t unfiltered_indiv_ctv2 = 2 * ((unfiltered_indiv_ct + BITCT - 1) / BITCT);
+  uintptr_t sorted_indiv_ctl = (sorted_indiv_ct + BITCT - 1) / BITCT;
+  uintptr_t topsize = 0;
+  // uintptr_t zc_item_ct = 0;
+  uintptr_t max_cluster_id_len = 0;
+  uintptr_t possible_distinct_ct = 0;
   int32_t retval = 0;
+  Ll_str* llptr;
+  uintptr_t* loadbuf;
+  uintptr_t* cluster_zmasks;
+  uint32_t* tmp_cluster_starts;
+  uint32_t* cluster_sizes;
+  char* cluster_ids;
+  char* bufptr;
+  char* bufptr2;
+  uintptr_t cluster_ct;
+  // uintptr_t indiv_uidx;
+  uintptr_t ulii;
+  uint32_t slen;
+  int32_t ii;
+
+  if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctl2)) {
+    goto load_oblig_missing_ret_NOMEM;
+  }
+  if (fopen_checked(&infile, oblig_missing_indiv_fname, "r")) {
+    goto load_oblig_missing_ret_OPEN_FAIL;
+  }
+  tbuf[MAXLINELEN - 1] = ' ';
+
+  // two-pass load, same as load_clusters()
+  // use loadbuf as duplicate IID detector
+  fill_ulong_zero(loadbuf, sorted_indiv_ctl);
+  while (fgets(tbuf, MAXLINELEN, infile)) {
+    if (!tbuf[MAXLINELEN - 1]) {
+      sprintf(logbuf, "Error: Pathologically long line in %s.\n", oblig_missing_indiv_fname);
+      goto load_oblig_missing_ret_INVALID_FORMAT_2;
+    }
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    if (bsearch_read_fam_indiv(idbuf, sorted_person_ids, max_person_id_len, sorted_indiv_ct, bufptr, &bufptr2, &ii)) {
+      sprintf(logbuf, "Error: Missing tokens in %s line.\n", oblig_missing_indiv_fname);
+      goto load_oblig_missing_ret_INVALID_FORMAT_2;
+    }
+    if (ii != -1) {
+      if (is_set(loadbuf, ii)) {
+        sprintf(logbuf, "Error: Duplicate individual %s in --oblig-missing file.\n", idbuf);
+	goto load_oblig_missing_ret_INVALID_FORMAT_2;
+      }
+      set_bit(loadbuf, ii);
+      slen = strlen_se(bufptr2);
+      if (slen >= max_cluster_id_len) {
+	max_cluster_id_len = slen + 1;
+      }
+      bufptr2[slen] = '\0';
+      if ((!cluster_names) || (strcmp(cluster_names->ss, bufptr2) && ((!cluster_names->next) || strcmp(cluster_names->next->ss, bufptr2)))) {
+	llptr = top_alloc_llstr(&topsize, slen + 1);
+	if (!llptr) {
+	  goto load_oblig_missing_ret_NOMEM;
+	}
+	llptr->next = cluster_names;
+	memcpy(llptr->ss, bufptr2, slen + 1);
+	cluster_names = llptr;
+	possible_distinct_ct++;
+      }
+    }
+  }
+  if (!feof(infile)) {
+    goto load_oblig_missing_ret_READ_FAIL;
+  }
+  if (!max_cluster_id_len) {
+    sprintf(logbuf, "Warning: --oblig-missing ignored, since no valid blocks were defined in\n%s.", oblig_missing_indiv_fname);
+    logprintb();
+    goto load_oblig_missing_ret_1;
+  }
+  wkspace_left -= topsize;
+  if (wkspace_alloc_c_checked(&cluster_ids, possible_distinct_ct * max_cluster_id_len)) {
+    goto load_oblig_missing_ret_NOMEM2;
+  }
+  for (ulii = 0; ulii < possible_distinct_ct; ulii++) {
+    strcpy(&(cluster_ids[ulii * max_cluster_id_len]), cluster_names->ss);
+    cluster_names = cluster_names->next;
+  }
+  wkspace_left += topsize;
+  topsize = 0;
+  tmp_cluster_starts = (uint32_t*)top_alloc(&topsize, (possible_distinct_ct + 1) * sizeof(int32_t));
+  if (!tmp_cluster_starts) {
+    goto load_oblig_missing_ret_NOMEM;
+  }
+  qsort(cluster_ids, possible_distinct_ct, max_cluster_id_len, strcmp_casted);
+  cluster_ct = collapse_duplicate_ids(cluster_ids, possible_distinct_ct, max_cluster_id_len, tmp_cluster_starts);
+  wkspace_reset((unsigned char*)cluster_ids);
+  cluster_ids = (char*)wkspace_alloc(cluster_ct * max_cluster_id_len);
+  wkspace_left -= topsize;
+  if (wkspace_alloc_ui_checked(&cluster_sizes, cluster_ct * sizeof(int32_t))) {
+    goto load_oblig_missing_ret_NOMEM2;
+  }
+  wkspace_left += topsize;
+  tmp_cluster_starts[cluster_ct] = popcount_longs(loadbuf, sorted_indiv_ctl);
+  for (ulii = 0; ulii < cluster_ct; ulii++) {
+    cluster_sizes[ulii] = tmp_cluster_starts[ulii + 1] - tmp_cluster_starts[ulii];
+  }
+  // topsize = 0;
+  if (wkspace_alloc_ul_checked(&cluster_zmasks, cluster_ct * unfiltered_indiv_ctv2 * sizeof(intptr_t))) {
+    goto load_oblig_missing_ret_NOMEM;
+  }
+  fill_ulong_zero(cluster_zmasks, cluster_ct * unfiltered_indiv_ctv2);
+
+  // second pass
+  rewind(infile);
+  while (fgets(tbuf, MAXLINELEN, infile)) {
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    bsearch_read_fam_indiv(idbuf, sorted_person_ids, max_person_id_len, sorted_indiv_ct, bufptr, &bufptr2, &ii);
+    if (ii == -1) {
+      continue;
+    }
+    // todo
+  }
+  if (fclose_null(&infile)) {
+    goto load_oblig_missing_ret_READ_FAIL;
+  }
   // todo
   if (track_markers) {
     oblig_missing_marker_cts = (uint32_t*)malloc(unfiltered_marker_ct * sizeof(int32_t));
@@ -3865,18 +3994,25 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, char* oblig_miss
     fill_uint_zero(oblig_missing_indiv_cts, unfiltered_indiv_ct);
   }
   while (0) {
+  load_oblig_missing_ret_NOMEM2:
+    wkspace_left += topsize;
   load_oblig_missing_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-    /*
+  load_oblig_missing_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
   load_oblig_missing_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  load_oblig_missing_ret_INVALID_FORMAT:
+  load_oblig_missing_ret_INVALID_FORMAT_2:
+    logprintb();
     retval = RET_INVALID_FORMAT;
     break;
-    */
   }
+ load_oblig_missing_ret_1:
+  wkspace_reset(wkspace_mark);
+  fclose_cond(infile);
   return retval;
 }
 

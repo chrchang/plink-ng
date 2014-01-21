@@ -550,6 +550,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    are multiple biologically possible solutions to the cubic equation, all are\n"
 "    displayed (instead of just the EM solution identified by --r/--r2).\n\n"
 	       );
+#ifndef STABLE_BUILD
+    help_print("clump", &help_ctrl, 1,
+"  --clump [filename(s)...]\n"
+"    Process a set of existing reports with 'SNP' and p-value columns,\n"
+"    organizing results by LD-based clumps.\n\n"
+	       );
+#endif
     help_print("distance", &help_ctrl, 1,
 "  --distance <square | square0 | triangle> <gz | bin> <ibs> <1-ibs> <allele-ct>\n"
 "             <flat-missing>\n"
@@ -1366,6 +1373,37 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --ld-snps [vID...] : Restrict first --r/--r2 variant to the given ranges.\n"
 "  --ld-snp-list [f]  : Restrict first --r/--r2 var. to those named in the file.\n"
 	       );
+#ifndef STABLE_BUILD
+    help_print("clump-p1\tclump-p2\tclump-r2\tclump-kb\tclump-field\tclump", &help_ctrl, 0,
+"  --clump-p1 [pval] : Set --clump index site p-value ceiling (default 0.0001).\n"
+"  --clump-p2 [pval] : Set --clump secondary p-value threshold (default 0.01).\n"
+"  --clump-r2 [r^2]  : Set --clump r^2 threshold (default 0.5).\n"
+"  --clump-kb [kbs]  : Set --clump kb radius (default 250).\n"
+"  --clump-field [s] : Set --clump p-value field name (default 'P').\n"
+	       );
+    help_print("clump-allow-overlap\tclump", &help_ctrl, 0,
+"  --clump-allow-overlap     : Let --clump non-index sites join multiple clumps.\n"
+	       );
+    help_print("clump-verbose\tclump", &help_ctrl, 0,
+"  --clump-verbose           : Request extended --clump report.\n"
+	       );
+    help_print("clump-annotate\tclump-verbose\tclump-best\tclump", &help_ctrl, 0,
+"  --clump-annotate [hdr...] : Include named extra fields in --clump-verbose and\n"
+"                              --clump-best reports.\n"
+	       );
+    help_print("clump-range\tclump-range-border\tclump", &help_ctrl, 0,
+"  --clump-range [filename]  : Report overlaps between clumps and regions.\n"
+"  --clump-range-border [kb] : Stretch regions in --clump-range file.\n"
+	       );
+    help_print("clump-index-first\tclump-replicate\tclump", &help_ctrl, 0,
+"  --clump-index-first       : Extract --clump index sites from only first file.\n"
+"  --clump-replicate         : Force secondary --clump hits to clear p2\n"
+"                              threshold in at least two files.\n"
+	       );
+    help_print("clump-best\tclump", &help_ctrl, 0,
+"  --clump-best              : Report best proxy for each --clump index site.\n"
+	       );
+#endif
     help_print("indep\tindep-pairwise\tld-xchr", &help_ctrl, 0,
 "  --ld-xchr [code]   : Specify Xchr model for --indep{-pairwise}/--r{2}.\n"
 "                       1 (default) = males coded 0/1, females 0/1/2 (A1 dosage)\n"

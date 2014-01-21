@@ -242,6 +242,7 @@
 #define CALC_TESTMISS 0x2000000000LLU
 #define CALC_TESTMISHAP 0x4000000000LLU
 #define CALC_SEXCHECK 0x8000000000LLU
+#define CALC_CLUMP 0x10000000000LLU
 
 // necessary to patch heterozygous haploids/female Y chromosome genotypes
 // during loading?

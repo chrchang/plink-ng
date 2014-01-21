@@ -112,6 +112,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
   char* sorted_remove_ids = NULL;
   uintptr_t max_cluster_id_len = 0;
   uintptr_t assigned_ct = 0;
+  uintptr_t possible_distinct_ct = 0;
   uintptr_t cluster_ct = 0;
   Ll_str* cluster_names = NULL;
   uintptr_t* already_seen;
@@ -398,10 +399,18 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
     if (slen >= max_cluster_id_len) {
       max_cluster_id_len = slen + 1;
     }
-    llptr = top_alloc_llstr(&topsize, slen + 1);
-    llptr->next = cluster_names;
-    memcpyx(llptr->ss, cluster_name_ptr, slen, '\0');
-    cluster_names = llptr;
+    cluster_name_ptr[slen] = '\0';
+    // common cases: same as one of the last two new cluster names
+    if ((!cluster_names) || (strcmp(cluster_names->ss, cluster_name_ptr) && ((!cluster_names->next) || strcmp(cluster_names->next->ss, cluster_name_ptr)))) {
+      llptr = top_alloc_llstr(&topsize, slen + 1);
+      if (!llptr) {
+	goto load_clusters_ret_NOMEM;
+      }
+      llptr->next = cluster_names;
+      memcpy(llptr->ss, cluster_name_ptr, slen + 1);
+      cluster_names = llptr;
+      possible_distinct_ct++;
+    }
     assigned_ct++;
   }
   if (!feof(infile)) {
@@ -410,11 +419,11 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
   if (cluster_names) {
     *max_cluster_id_len_ptr = max_cluster_id_len;
     wkspace_left -= topsize;
-    if (wkspace_alloc_c_checked(cluster_ids_ptr, assigned_ct * max_cluster_id_len)) {
+    if (wkspace_alloc_c_checked(cluster_ids_ptr, possible_distinct_ct * max_cluster_id_len)) {
       goto load_clusters_ret_NOMEM2;
     }
     cluster_ids = *cluster_ids_ptr;
-    for (ulii = 0; ulii < assigned_ct; ulii++) {
+    for (ulii = 0; ulii < possible_distinct_ct; ulii++) {
       strcpy(&(cluster_ids[ulii * max_cluster_id_len]), cluster_names->ss);
       cluster_names = cluster_names->next;
     }
@@ -422,14 +431,14 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
     // top of stack, allocate cluster size tracker
     wkspace_left += topsize;
     topsize = topsize_bak;
-    tmp_cluster_starts = (uint32_t*)top_alloc(&topsize, assigned_ct * sizeof(int32_t));
+    tmp_cluster_starts = (uint32_t*)top_alloc(&topsize, possible_distinct_ct * sizeof(int32_t));
     if (!tmp_cluster_starts) {
       goto load_clusters_ret_NOMEM;
     }
     wkspace_left -= topsize;
     // may as well use natural sort of cluster names
-    qsort(cluster_ids, assigned_ct, max_cluster_id_len, strcmp_natural);
-    cluster_ct = collapse_duplicate_ids(cluster_ids, assigned_ct, max_cluster_id_len, tmp_cluster_starts);
+    qsort(cluster_ids, possible_distinct_ct, max_cluster_id_len, strcmp_natural);
+    cluster_ct = collapse_duplicate_ids(cluster_ids, possible_distinct_ct, max_cluster_id_len, tmp_cluster_starts);
     *cluster_ct_ptr = cluster_ct;
     // shrink
     wkspace_reset(cluster_ids);

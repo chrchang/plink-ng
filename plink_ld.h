@@ -62,9 +62,29 @@ typedef struct {
   uint32_t summary_merge_ct;
 } Epi_info;
 
-void ld_epi_init(Ld_info* ldip, Epi_info* epi_ip);
+#define CLUMP_ALLOW_OVERLAP 1
+#define CLUMP_VERBOSE 2
+#define CLUMP_INDEX_FIRST 4
+#define CLUMP_REPLICATE 8
+#define CLUMP_BEST 0x10
 
-void ld_epi_cleanup(Ld_info* ldip, Epi_info* epi_ip);
+typedef struct {
+  uint32_t modifier;
+  uint32_t fname_ct;
+  uint32_t bp_radius; // distance must be less than or equal to this
+  uint32_t range_border;
+  char* fnames_flattened;
+  char* annotate_flattened;
+  char* field_name;
+  char* range_fname;
+  double p1;
+  double p2;
+  double r2;
+} Clump_info;
+
+void ld_epi_init(Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip);
+
+void ld_epi_cleanup(Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip);
 
 int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists);
 
