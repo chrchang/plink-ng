@@ -3850,30 +3850,48 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, char* oblig_miss
   uint32_t* oblig_missing_indiv_cts = NULL;
   char* idbuf = &(tbuf[MAXLINELEN]);
   Ll_str* cluster_names = NULL;
+  uint64_t tot_missing = 0;
+  uintptr_t marker_ct = unfiltered_marker_ct - marker_exclude_ct;
+  uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + BITCT2 - 1) / BITCT2;
-  uintptr_t unfiltered_indiv_ctv2 = 2 * ((unfiltered_indiv_ct + BITCT - 1) / BITCT);
   uintptr_t sorted_indiv_ctl = (sorted_indiv_ct + BITCT - 1) / BITCT;
   uintptr_t topsize = 0;
-  // uintptr_t zc_item_ct = 0;
+  uintptr_t zc_item_ct = 0;
   uintptr_t max_cluster_id_len = 0;
   uintptr_t possible_distinct_ct = 0;
+  uintptr_t missing_cluster_ct = 0;
   int32_t retval = 0;
   Ll_str* llptr;
   uintptr_t* loadbuf;
+  uintptr_t* loadbuf_end;
   uintptr_t* cluster_zmasks;
+  uintptr_t* loadbuf_ptr;
+  uintptr_t* cur_cluster_zmask;
   uint32_t* cluster_sizes;
+  uint32_t* marker_id_map;
+  uint32_t* cluster_refs;
   char* cluster_ids;
+  char* sorted_marker_ids;
   char* bufptr;
   char* bufptr2;
+  int64_t* zc_entries;
+  int64_t* zc_entries_end;
   uintptr_t cluster_ct;
+  uintptr_t max_zc_item_ct;
+  uintptr_t marker_uidx;
   uintptr_t ulii;
+  uint64_t ullii;
   uint32_t indiv_uidx;
+  uint32_t indiv_idx;
+  uint32_t cluster_idx;
+  uint32_t cur_cluster_size;
   uint32_t slen;
   int32_t ii;
 
-  if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctl2)) {
+  if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
     goto load_oblig_missing_ret_NOMEM;
   }
+  loadbuf_end = &(loadbuf[unfiltered_indiv_ctl2]);
   if (fopen_checked(&infile, oblig_missing_indiv_fname, "r")) {
     goto load_oblig_missing_ret_OPEN_FAIL;
   }
@@ -3922,7 +3940,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, char* oblig_miss
     goto load_oblig_missing_ret_READ_FAIL;
   }
   if (!max_cluster_id_len) {
-    sprintf(logbuf, "Warning: --oblig-missing ignored, since no valid blocks were defined in\n%s.", oblig_missing_indiv_fname);
+    sprintf(logbuf, "Warning: --oblig-missing ignored, since no valid blocks were defined in\n%s.\n", oblig_missing_indiv_fname);
     logprintb();
     goto load_oblig_missing_ret_1;
   }
@@ -3941,11 +3959,11 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, char* oblig_miss
   wkspace_reset((unsigned char*)cluster_ids);
   cluster_ids = (char*)wkspace_alloc(cluster_ct * max_cluster_id_len);
   if (wkspace_alloc_ui_checked(&cluster_sizes, cluster_ct * sizeof(int32_t)) ||
-      wkspace_alloc_ul_checked(&cluster_zmasks, cluster_ct * unfiltered_indiv_ctv2 * sizeof(intptr_t))) {
+      wkspace_alloc_ul_checked(&cluster_zmasks, cluster_ct * unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
     goto load_oblig_missing_ret_NOMEM;
   }
   fill_uint_zero(cluster_sizes, cluster_ct);
-  fill_ulong_zero(cluster_zmasks, cluster_ct * unfiltered_indiv_ctv2);
+  fill_ulong_zero(cluster_zmasks, cluster_ct * unfiltered_indiv_ctl2);
 
   // second pass
   rewind(infile);
@@ -3962,14 +3980,73 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, char* oblig_miss
     slen = strlen_se(bufptr2);
     // guaranteed to succeed
     ii = bsearch_str(bufptr2, slen, cluster_ids, max_cluster_id_len, cluster_ct);
-    set_bit(&(cluster_zmasks[((uintptr_t)((uint32_t)ii)) * unfiltered_indiv_ctv2]), indiv_uidx * 2);
+    set_bit(&(cluster_zmasks[((uintptr_t)((uint32_t)ii)) * unfiltered_indiv_ctl2]), indiv_uidx * 2);
     cluster_sizes[(uint32_t)ii] += 1;
   }
   if (fclose_null(&infile)) {
     goto load_oblig_missing_ret_READ_FAIL;
   }
 
-  // todo
+  if (wkspace_alloc_ui_checked(&cluster_refs, cluster_ct * sizeof(int32_t))) {
+    goto load_oblig_missing_ret_NOMEM;
+  }
+  fill_uint_zero(cluster_refs, cluster_ct);
+  retval = sort_item_ids(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
+  if (retval) {
+    goto load_oblig_missing_ret_1;
+  }
+  max_zc_item_ct = wkspace_left / sizeof(int64_t);
+  zc_entries_end = (int64_t*)(&(wkspace_base[wkspace_left]));
+  zc_entries = zc_entries_end;
+  if (fopen_checked(&infile, oblig_missing_marker_fname, "r")) {
+    goto load_oblig_missing_ret_OPEN_FAIL;
+  }
+  while (fgets(tbuf, MAXLINELEN, infile)) {
+    if (!tbuf[MAXLINELEN - 1]) {
+      sprintf(logbuf, "Error: Pathologically long line in %s.\n", oblig_missing_marker_fname);
+      goto load_oblig_missing_ret_INVALID_FORMAT_2;
+    }
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    bufptr2 = item_endnn(bufptr);
+    ii = bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_marker_ids, max_marker_id_len, marker_ct);
+    if (ii != -1) {
+      marker_uidx = marker_id_map[(uint32_t)ii];
+      bufptr = skip_initial_spaces(bufptr2);
+      if (is_eoln_kns(*bufptr)) {
+        sprintf(logbuf, "Error: Missing tokens in %s line.\n", oblig_missing_marker_fname);
+        goto load_oblig_missing_ret_INVALID_FORMAT_2;
+      }
+      slen = strlen_se(bufptr);
+      ii = bsearch_str(bufptr, slen, cluster_ids, max_cluster_id_len, cluster_ct);
+      if (ii != -1) {
+	if (zc_item_ct >= max_zc_item_ct) {
+          goto load_oblig_missing_ret_NOMEM;
+	}
+        zc_item_ct++;
+	cluster_idx = (uint32_t)ii;
+        *(--zc_entries) = (((uint64_t)marker_uidx) << 32) | ((uint64_t)cluster_idx);
+	cluster_refs[cluster_idx] += 1;
+      } else {
+        missing_cluster_ct++;
+      }
+    }
+  }
+  if (fclose_null(&infile)) {
+    goto load_oblig_missing_ret_READ_FAIL;
+  }
+  if (missing_cluster_ct) {
+    sprintf(logbuf, "Warning: %" PRIuPTR " entr%s in %s had block IDs missing from\n%s.\n", missing_cluster_ct, (missing_cluster_ct == 1)? "y" : "ies", oblig_missing_marker_fname, oblig_missing_indiv_fname);
+    logprintb();
+  }
+  if (!zc_item_ct) {
+    sprintf(logbuf, "Warning: --oblig-missing ignored, since %s had no valid entries.\n", oblig_missing_marker_fname);
+    logprintb();
+    goto load_oblig_missing_ret_1;
+  }
+
   if (track_markers) {
     oblig_missing_marker_cts = (uint32_t*)malloc(unfiltered_marker_ct * sizeof(int32_t));
     if (!oblig_missing_marker_cts) {
@@ -3978,6 +4055,42 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, char* oblig_miss
     *oblig_missing_marker_cts_ptr = oblig_missing_marker_cts;
     fill_uint_zero(oblig_missing_marker_cts, unfiltered_marker_ct);
   }
+
+#ifdef __cplusplus
+  std::sort(zc_entries, &(zc_entries[zc_item_ct]));
+#else
+  qsort(zc_entries, zc_item_ct, sizeof(int64_t), llcmp);
+#endif
+
+  loadbuf[unfiltered_indiv_ctl2 - 1] = 0;
+  marker_uidx = unfiltered_marker_ct; // forces initial load
+  do {
+    ullii = *zc_entries++;
+    if ((ullii >> 32) != marker_uidx) {
+      marker_uidx = (ullii >> 32);
+      if (fseeko(bedfile, bed_offset + marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
+	goto load_oblig_missing_ret_READ_FAIL;
+      }
+      if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+	goto load_oblig_missing_ret_READ_FAIL;
+      }
+      // no need for het haploid handling here
+    }
+    loadbuf_ptr = loadbuf;
+    cluster_idx = (uint32_t)ullii;
+    cur_cluster_zmask = &(cluster_zmasks[cluster_idx * unfiltered_indiv_ctl2]);
+    do {
+      ulii = *cur_cluster_zmask++;
+      if (((*loadbuf_ptr) ^ ulii) & (ulii * 3)) {
+	sprintf(logbuf, "Error: Nonmissing --oblig-missing genotype at marker %s.\n(To force it to missing, use --zero-cluster.)\n", &(marker_ids[marker_uidx * max_marker_id_len]));
+        goto load_oblig_missing_ret_INVALID_FORMAT_2;
+      }
+    } while ((++loadbuf_ptr) < loadbuf_end);
+    tot_missing += cluster_sizes[cluster_idx];
+    if (track_markers) {
+      oblig_missing_marker_cts[marker_uidx] += cluster_sizes[cluster_idx];
+    }
+  } while (zc_entries < zc_entries_end);
   if (track_indivs) {
     oblig_missing_indiv_cts = (uint32_t*)malloc(unfiltered_indiv_ct * sizeof(int32_t));
     if (!oblig_missing_indiv_cts) {
@@ -3985,7 +4098,22 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, char* oblig_miss
     }
     *oblig_missing_indiv_cts_ptr = oblig_missing_indiv_cts;
     fill_uint_zero(oblig_missing_indiv_cts, unfiltered_indiv_ct);
+    cur_cluster_zmask = cluster_zmasks;
+    for (cluster_idx = 0; cluster_idx < cluster_ct; cluster_idx++) {
+      cur_cluster_size = cluster_sizes[cluster_idx];
+      slen = cluster_refs[cluster_idx];
+      indiv_uidx = 0;
+      for (indiv_idx = 0; indiv_idx < cur_cluster_size; indiv_idx++, indiv_uidx++) {
+        if (!IS_SET_DBL(cur_cluster_zmask, indiv_uidx)) {
+          indiv_uidx = next_set_unsafe(cur_cluster_zmask, indiv_uidx * 2) / 2;
+	}
+        oblig_missing_indiv_cts[indiv_uidx] = slen;
+      }
+      cur_cluster_zmask = &(cur_cluster_zmask[unfiltered_indiv_ctl2]);
+    }
   }
+  sprintf(logbuf, "--oblig-missing: %" PRIu64 " call%s confirmed missing.\n", tot_missing, (tot_missing == 1)? "" : "s");
+  logprintb();
   while (0) {
   load_oblig_missing_ret_NOMEM2:
     wkspace_left += topsize;

@@ -309,7 +309,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("vcf\tbcf", &help_ctrl, 1,
 "  --vcf [filename] : Specify full name of .vcf or .vcf.gz file.\n"
-"  --bcf [filename] : Specify full name of .bcf file.\n\n"
+"  --bcf [filename] : Specify full name of BCF2 file.\n\n"
 	       );
     help_print("data\tgen\tsample", &help_ctrl, 1,
 "  --data {prefix}  : Specify Oxford .gen + .sample prefix (default '" PROG_NAME_STR "').\n"
@@ -383,7 +383,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      for loading from R, to be generated.  If you don't want the dominant\n"
 "      component, use 'A' instead.\n"
 "    * The 'beagle' modifier causes per-autosome .dat and .map files, readable\n"
-"      by BEAGLE, to be generated.\n"
+"      by early BEAGLE versions, to be generated.\n"
 "    * The 'bimbam' modifier causes a BIMBAM-formatted fileset to be generated.\n"
 "      If your input data only contains one chromosome, you can use\n"
 "      'bimbam-1chr' instead to write a two-column .pos.txt file.\n"
@@ -401,7 +401,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * 'oxford' causes an Oxford-format .gen + .sample fileset to be generated.\n"
 "    * The 'structure' modifier causes a Structure-format file to be generated.\n"
 "    * 'transpose' creates a transposed text fileset (loadable with --tfile).\n"
-"    * 'vcf', 'vcf-fid', and 'vcf-iid' result in production of a VCFv4.0 file.\n"
+"    * 'vcf', 'vcf-fid', and 'vcf-iid' result in production of a VCFv4.1 file.\n"
 "      'vcf-fid' and 'vcf-iid' cause family IDs or within-family IDs\n"
 "      respectively to be used for the sample IDs in the last header row, while\n"
 "      'vcf' merges both IDs and puts an underscore between them.\n"
@@ -553,8 +553,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #ifndef STABLE_BUILD
     help_print("clump", &help_ctrl, 1,
 "  --clump [filename(s)...]\n"
-"    Process a set of existing association analysis reports with 'SNP' and\n"
-"    p-value columns, organizing results by LD-based clumps.\n\n"
+"    Process association analysis report(s) with 'SNP' and p-value columns,\n"
+"    organizing results by LD-based clumps.\n\n"
 	       );
 #endif
     help_print("distance", &help_ctrl, 1,

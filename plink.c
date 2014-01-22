@@ -86,7 +86,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (21 Jan 2014)";
+  " (22 Jan 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -4899,6 +4899,8 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
   free_cond(oblig_missing_marker_cts);
   free_cond(oblig_missing_indiv_cts);
+  oblig_missing_marker_cts = NULL;
+  oblig_missing_indiv_cts = NULL;
   wkspace_reset(marker_allele_cts);
   marker_allele_cts = NULL;
   if (calculation_type & CALC_HARDY) {
@@ -11291,14 +11293,11 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
 	if (param_ct == 2) {
-	  retval = alloc_fname(&oblig_missing_indiv_fname, argv[cur_arg + 1], argptr, 0);
+	  retval = alloc_fname(&oblig_missing_indiv_fname, argv[cur_arg + 2], argptr, 0);
 	  if (retval) {
 	    goto main_ret_1;
 	  }
 	}
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	logprint("Error: --oblig-missing is currently under development.\n");
-	goto main_ret_1;
       } else if (memcmp(argptr2, "ut", 3)) {
 	// --out is a special case due to logging
 	goto main_ret_INVALID_CMDLINE_2;
