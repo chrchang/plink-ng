@@ -1175,37 +1175,6 @@ void allelexxxx_recode(uint32_t allelexxxx, char** marker_allele_ptrs, uint32_t 
   }
 }
 
-void filter_indivs_bitfields(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, uintptr_t* orfield, int32_t orfield_flip, uintptr_t* ornot) {
-  // indiv_exclude := indiv_exclude | orfield | (~ornot) if !orfield_flip
-  //               := indiv_exclude | (~orfield) | (~ornot) otherwise
-  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
-  uintptr_t* ieptr = indiv_exclude;
-  uintptr_t* ieend = &(indiv_exclude[unfiltered_indiv_ctl]);
-  if (orfield_flip) {
-    if (ornot) {
-      do {
-	*ieptr |= (~(*orfield++)) | (~(*ornot++));
-      } while (++ieptr < ieend);
-    } else {
-      do {
-	*ieptr |= ~(*orfield++);
-      } while (++ieptr < ieend);
-    }
-  } else {
-    if (ornot) {
-      do {
-	*ieptr |= (*orfield++) | (~(*ornot++));
-      } while (++ieptr < ieend);
-    } else {
-      do {
-	*ieptr |= *orfield++;
-      } while (++ieptr < ieend);
-    }
-  }
-  zero_trailing_bits(indiv_exclude, unfiltered_indiv_ct);
-  *indiv_exclude_ct_ptr = popcount_longs(indiv_exclude, unfiltered_indiv_ctl);
-}
-
 void calc_plink_maxfid(uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uint32_t* plink_maxfid_ptr, uint32_t* plink_maxiid_ptr) {
   uintptr_t plink_maxfid = 4;
   uintptr_t plink_maxiid = 4;
@@ -3221,7 +3190,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     if (om_ip->marker_fname) {
       // would rather do this with pre-sorted markers, but that might break
       // order-of-operations assumptions in existing pipelines
-      retval = load_oblig_missing(bedfile, bed_offset, om_ip, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, cptr, ulii, max_person_id_len, uiptr, unfiltered_indiv_ct, indiv_exclude, sex_male, chrom_info_ptr);
+      retval = load_oblig_missing(bedfile, bed_offset, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, cptr, ulii, max_person_id_len, uiptr, unfiltered_indiv_ct, indiv_exclude, sex_male, chrom_info_ptr, om_ip);
       if (retval) {
 	goto plink_ret_1;
       }
@@ -3303,7 +3272,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (mind_thresh < 1.0) {
-    retval = mind_filter(bedfile, bed_offset, mind_thresh, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, chrom_info_ptr, om_ip);
+    retval = mind_filter(bedfile, bed_offset, outname, outname_end, mind_thresh, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, person_ids, max_person_id_len, sex_male, chrom_info_ptr, om_ip);
     if (retval) {
       goto plink_ret_1;
     }
