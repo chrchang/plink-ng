@@ -6524,6 +6524,21 @@ void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_
   *unk_ct_ptr = unk_ct;
 }
 
+double calc_wt_mean_maf(double exponent, double maf) {
+  // assume Hardy-Weinberg equilibrium
+  // homozygote frequencies: maf^2, (1-maf)^2
+  // heterozygote frequency: 2maf(1-maf)
+  double ll_freq = maf * maf;
+  double lh_freq = 2 * maf * (1.0 - maf);
+  double hh_freq = (1.0 - maf) * (1.0 - maf);
+  double weight;
+  if (lh_freq == 0.0) {
+    return 0.0;
+  }
+  weight = pow(lh_freq, -exponent);
+  return (lh_freq * (ll_freq + lh_freq) + 2 * ll_freq * hh_freq) * weight;
+}
+
 void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct) {
   uintptr_t indiv_bidx = 0;
   unsigned char* loadbuf_end = &(loadbuf[(unfiltered_indiv_ct + 3) / 4]);

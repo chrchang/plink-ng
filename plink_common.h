@@ -1801,6 +1801,8 @@ uint32_t get_max_chrom_size(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclud
 
 void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t* male_ct_ptr, uint32_t* female_ct_ptr, uint32_t* unk_ct_ptr);
 
+double calc_wt_mean_maf(double exponent, double maf);
+
 void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct);
 
 // void collapse_copy_2bitarr(uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_exclude);
