@@ -3115,7 +3115,7 @@ uint32_t bsearch_str_idx(const char* sptr, uint32_t slen, char** str_array, uint
   int32_t ii;
   while (start_idx < end_idx) {
     mid_idx = (start_idx + end_idx) / 2;
-    sptr2 = str_array[mid_idx];
+    sptr2 = str_array[str_sorted_idxs[mid_idx]];
     slen2 = strlen(sptr2);
     if (slen2 < slen) {
       ii = memcmp(sptr, sptr2, slen2);
