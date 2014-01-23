@@ -87,7 +87,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (22 Jan 2014)";
+  " (23 Jan 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "

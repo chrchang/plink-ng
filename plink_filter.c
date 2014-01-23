@@ -166,7 +166,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
     goto load_oblig_missing_ret_NOMEM;
   }
   fill_uint_zero(cluster_sizes, cluster_mct);
-  fill_uint_zero(indiv_lookup, unfiltered_indiv_ct);
+  fill_uint_one(indiv_lookup, unfiltered_indiv_ct);
   fill_ulong_zero(cluster_zmasks, cluster_ct * unfiltered_indiv_ct);
   fill_ulong_zero(cluster_zmask2s, cluster_mct * unfiltered_indiv_ctl2);
 
@@ -278,11 +278,12 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
 #else
   qsort(zc_entries, om_ip->entry_ct, sizeof(int64_t), llcmp);
 #endif
-  om_ip->entries = (uint64_t*)malloc(om_ip->entry_ct * sizeof(int64_t));
+  om_ip->entries = (uint64_t*)malloc((om_ip->entry_ct + 1) * sizeof(int64_t));
   if (!om_ip->entries) {
     goto load_oblig_missing_ret_NOMEM;
   }
   memcpy(om_ip->entries, zc_entries, om_ip->entry_ct * sizeof(int64_t));
+  om_ip->entries[om_ip->entry_ct] = ((uint64_t)unfiltered_marker_ct) << 32;
   om_ip->cluster_ct = cluster_ct;
 
   loadbuf[unfiltered_indiv_ctl2 - 1] = 0;
@@ -533,7 +534,6 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   }
   ujj = unfiltered_indiv_ct2l * BITCT2;
   marker_uidx = 0;
-  // todo: chromosome/oblig-missing fixes
   for (; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
     if (IS_SET(marker_exclude, marker_uidx)) {
       marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
@@ -598,7 +598,7 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
 	    cur_marker_ct -= cluster_ref_cts[uii] + cluster_ref_cts[uii + cluster_ct];
 	  }
 	} else {
-          cur_marker_ct = nony_marker_ct;
+	  cur_marker_ct = nony_marker_ct;
 	  if (uii != 0xffffffffU) {
 	    cur_marker_ct -= cluster_ref_cts[uii];
 	  }
@@ -1593,14 +1593,27 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ct2l = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t unfiltered_indiv_ctv2 = (unfiltered_indiv_ct2l + 1) & (~1);
+  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t marker_ct_y = 0;
   uintptr_t* indiv_male_include2 = NULL;
+  uint64_t* om_entry_ptr = NULL;
+  uintptr_t* cur_omidxs = NULL;
   uint32_t* indiv_to_cluster = NULL;
   uint32_t* missing_ct_by_cluster = NULL;
+  uint32_t* oblig_missing_ct_by_cluster = NULL;
   uint32_t* cluster_sizes = NULL;
   uint32_t* cluster_sizes_y = NULL;
+  uint32_t* om_cluster_sizes = NULL;
+  uint32_t* om_indiv_lookup = NULL;
+  uint32_t* om_cluster_ref_cts = NULL;
+  uint64_t cur_om_entry = 0;
+  int32_t y_code = chrom_info_ptr->y_code;
+  uint32_t y_present = (y_code != -1) && is_set(chrom_info_ptr->chrom_mask, y_code);
   uint32_t indiv_uidx = 0;
   uint32_t indiv_idx = 0;
+  uint32_t oblig_ct = 0;
+  uint32_t om_cluster_ct = 0;
+  uint32_t om_cluster_ctl = 0;
   int32_t retval = 0;
   uintptr_t* loadbuf;
   uintptr_t* indiv_include2;
@@ -1614,6 +1627,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   char* cptr2;
   uintptr_t marker_ct_nony;
   uintptr_t marker_uidx;
+  uintptr_t widx;
   uintptr_t ulii;
   uint32_t slen;
   uint32_t indiv_uidx_stop;
@@ -1624,13 +1638,14 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   uint32_t is_x;
   uint32_t is_y;
   uint32_t is_haploid;
+  uint32_t om_ycorr;
   uint32_t clidx;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
   uint32_t umm;
   uint32_t unn;
-  if (wkspace_alloc_ui_checked(&missing_cts, indiv_ct * sizeof(int32_t)) ||
+  if (wkspace_alloc_ui_checked(&missing_cts, unfiltered_indiv_ct * sizeof(int32_t)) ||
       wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctv2 * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&indiv_include2, unfiltered_indiv_ctv2 * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&indiv_male_include2, unfiltered_indiv_ctv2 * sizeof(intptr_t))) {
@@ -1641,12 +1656,11 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   exclude_to_vec_include(unfiltered_indiv_ct, indiv_include2, indiv_exclude);
   memcpy(indiv_male_include2, indiv_include2, unfiltered_indiv_ctv2 * sizeof(intptr_t));
   vec_include_mask_in(unfiltered_indiv_ct, indiv_male_include2, sex_male);
-  if (chrom_info_ptr->y_code != -1) {
+  if (y_present) {
     marker_ct_y = count_chrom_markers(chrom_info_ptr, chrom_info_ptr->y_code, marker_exclude);
   }
   marker_ct_nony = marker_ct - marker_ct_y;
   fill_uint_zero(missing_cts, unfiltered_indiv_ct);
-  ujj = unfiltered_indiv_ct2l * BITCT2;
   if (fseeko(bedfile, bed_offset, SEEK_SET)) {
     goto write_missingness_reports_ret_READ_FAIL;
   }
@@ -1654,16 +1668,52 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   if (fopen_checked(&outfile, outname, "w")) {
     goto write_missingness_reports_ret_WRITE_FAIL;
   }
+  if (om_ip->entry_ct) {
+    om_entry_ptr = om_ip->entries;
+    om_cluster_ref_cts = om_ip->cluster_ref_cts;
+    cur_om_entry = *om_entry_ptr;
+    om_cluster_ct = om_ip->cluster_ct;
+    // divide by BITCT2 instead of BITCT due to Ychr
+    om_cluster_ctl = (om_cluster_ct + BITCT - 1) / BITCT;
+    om_indiv_lookup = om_ip->indiv_lookup;
+    if (wkspace_alloc_ui_checked(&om_cluster_sizes, om_cluster_ct * 2 * sizeof(int32_t))) {
+      goto write_missingness_reports_ret_NOMEM;
+    }
+    cur_nm = om_ip->cluster_zmasks;
+    for (clidx = 0; clidx < om_cluster_ct; clidx++) {
+      // can't use popcount_longs_exclude since 16-byte align not guaranteed
+      uii = 0;
+      ujj = 0;
+      lptr = indiv_exclude;
+      lptr2 = sex_male;
+      for (widx = 0; widx < unfiltered_indiv_ctl; widx++) {
+	ulii = (*cur_nm++) & (~(*lptr++));
+	uii += popcount_long(ulii);
+	ujj += popcount_long(ulii & (*lptr2++));
+      }
+      om_cluster_sizes[clidx] = uii;
+      om_cluster_sizes[clidx + om_cluster_ct] = ujj;
+    }
+    if (cluster_ct) {
+      if (wkspace_alloc_ul_checked(&cur_omidxs, om_cluster_ctl * sizeof(intptr_t))) {
+        goto write_missingness_reports_ret_NOMEM;
+      }
+    }
+  }
+  ujj = unfiltered_indiv_ct2l * BITCT2;
   if (!cluster_ct) {
     sprintf(tbuf, " CHR %%%us   N_MISS   N_GENO   F_MISS\n", plink_maxsnp);
   } else {
     if (wkspace_alloc_ui_checked(&indiv_to_cluster, unfiltered_indiv_ct * sizeof(int32_t)) ||
         wkspace_alloc_ui_checked(&missing_ct_by_cluster, cluster_ct * sizeof(int32_t)) ||
-        wkspace_alloc_ui_checked(&cluster_sizes, cluster_ct * sizeof(int32_t)) ||
-        wkspace_alloc_ui_checked(&cluster_sizes_y, cluster_ct * sizeof(int32_t))) {
+        wkspace_alloc_ui_checked(&oblig_missing_ct_by_cluster, cluster_ct * sizeof(int32_t)) ||
+        wkspace_alloc_ui_checked(&cluster_sizes, cluster_ct * 2 * sizeof(int32_t))) {
       goto write_missingness_reports_ret_NOMEM;
     }
     fill_uint_zero(indiv_to_cluster, unfiltered_indiv_ct);
+    fill_uint_zero(cluster_sizes, cluster_ct * 2);
+    fill_uint_zero(oblig_missing_ct_by_cluster, cluster_ct);
+    cluster_sizes_y = &(cluster_sizes[cluster_ct]);
     for (clidx = 0; clidx < cluster_ct; clidx++) {
       unn = cluster_starts[clidx + 1];
       ukk = clidx + 1;
@@ -1692,10 +1742,12 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
       cur_nm = indiv_include2;
       cur_tot = indiv_ct;
       cur_cluster_sizes = cluster_sizes;
+      om_ycorr = 0;
     } else {
       cur_nm = indiv_male_include2;
       cur_tot = indiv_male_ct;
       cur_cluster_sizes = cluster_sizes_y;
+      om_ycorr = om_cluster_ct;
     }
     cptr = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, chrom_idx, zero_extra_chroms));
     *cptr++ = ' ';
@@ -1714,7 +1766,22 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	lptr2 = cur_nm;
 	cptr2 = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), cptr);
 	*cptr2++ = ' ';
+	if (om_entry_ptr) {
+	  while ((cur_om_entry >> 32) < marker_uidx) {
+	    cur_om_entry = *(++om_entry_ptr);
+	  }
+	  if (cluster_ct) {
+	    fill_uint_zero(oblig_missing_ct_by_cluster, cluster_ct);
+	  }
+	}
 	if (!cluster_ct) {
+	  if (om_entry_ptr) {
+	    oblig_ct = 0;
+	    while ((cur_om_entry >> 32) == marker_uidx) {
+	      oblig_ct += om_cluster_sizes[(uint32_t)cur_om_entry];
+	      cur_om_entry = *(++om_entry_ptr);
+	    }
+	  }
           ukk = 0;
 	  for (uii = 0; uii < ujj; uii += BITCT2) {
 	    ulii = *lptr++;
@@ -1725,25 +1792,50 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	      ulii &= ulii - 1;
 	    }
 	  }
-	  wptr = uint32_writew8x(cptr2, ukk, ' ');
-          wptr = uint32_writew8x(wptr, cur_tot, ' ');
-	  wptr = double_g_writewx4x(wptr, ((double)((int32_t)ukk)) / ((double)((int32_t)cur_tot)), 8, '\n');
+	  wptr = uint32_writew8x(cptr2, ukk - oblig_ct, ' ');
+          wptr = uint32_writew8x(wptr, cur_tot - oblig_ct, ' ');
+	  wptr = double_g_writewx4x(wptr, ((double)((int32_t)(ukk - oblig_ct))) / ((double)((int32_t)(cur_tot - oblig_ct))), 8, '\n');
           if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
 	    goto write_missingness_reports_ret_WRITE_FAIL;
 	  }
 	} else {
 	  fill_uint_zero(missing_ct_by_cluster, cluster_ct);
-	  for (uii = 0; uii < ujj; uii += BITCT2) {
-	    ulii = *lptr++;
-	    ulii = ulii & ((~ulii) >> 1) & (*lptr2++);
-	    while (ulii) {
-	      ukk = uii + (CTZLU(ulii) / 2);
-	      missing_cts[ukk] += 1;
-	      ukk = indiv_to_cluster[ukk];
-	      if (ukk) {
-	        missing_ct_by_cluster[ukk - 1] += 1;
+	  if ((!om_entry_ptr) || ((cur_om_entry >> 32) != marker_uidx)) {
+	    for (uii = 0; uii < ujj; uii += BITCT2) {
+	      ulii = *lptr++;
+	      ulii = ulii & ((~ulii) >> 1) & (*lptr2++);
+	      while (ulii) {
+		ukk = uii + (CTZLU(ulii) / 2);
+		missing_cts[ukk] += 1;
+		ukk = indiv_to_cluster[ukk];
+		if (ukk) {
+		  missing_ct_by_cluster[ukk - 1] += 1;
+		}
+		ulii &= ulii - 1;
 	      }
-	      ulii &= ulii - 1;
+	    }
+	  } else {
+	    fill_ulong_zero(cur_omidxs, om_cluster_ctl);
+	    do {
+              set_bit(cur_omidxs, ((uint32_t)cur_om_entry) - om_ycorr);
+	      cur_om_entry = *(++om_entry_ptr);
+	    } while ((cur_om_entry >> 32) == marker_uidx);
+	    for (uii = 0; uii < ujj; uii += BITCT2) {
+	      ulii = *lptr++;
+	      ulii = ulii & ((~ulii) >> 1) & (*lptr2++);
+	      while (ulii) {
+		ukk = uii + (CTZLU(ulii) / 2);
+		missing_cts[ukk] += 1;
+		umm = indiv_to_cluster[ukk];
+		if (umm) {
+		  if (is_set(cur_omidxs, om_indiv_lookup[ukk])) {
+		    oblig_missing_ct_by_cluster[umm - 1] += 1;
+		  } else {
+		    missing_ct_by_cluster[umm - 1] += 1;
+		  }
+		}
+		ulii &= ulii - 1;
+	      }
 	    }
 	  }
 	  for (clidx = 0; clidx < cluster_ct; clidx++) {
@@ -1752,9 +1844,10 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	    uii = missing_ct_by_cluster[clidx];
             wptr = uint32_writew8x(wptr, uii, ' ');
 	    umm = cur_cluster_sizes[clidx];
+	    unn = umm - oblig_missing_ct_by_cluster[clidx];
+	    wptr = uint32_writew8x(wptr, unn, ' ');
 	    wptr = uint32_writew8x(wptr, umm, ' ');
-	    wptr = uint32_writew8x(wptr, umm, ' ');
-            wptr = double_g_writewx4x(wptr, ((double)((int32_t)uii)) / ((double)((int32_t)umm)), 8, '\n');
+            wptr = double_g_writewx4x(wptr, ((double)((int32_t)uii)) / ((double)((int32_t)unn)), 8, '\n');
 	    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
 	      goto write_missingness_reports_ret_WRITE_FAIL;
 	    }
@@ -1796,8 +1889,17 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
       *wptr++ = 'Y' - (is_set(pheno_nm, indiv_uidx) * 11);
       *wptr++ = ' ';
       uii = missing_cts[indiv_uidx];
+      ukk = is_set(sex_male, indiv_uidx);
+      ujj = marker_ct_nony + (ukk * marker_ct_y);
+      if (om_indiv_lookup) {
+	umm = om_indiv_lookup[indiv_uidx];
+	if (umm != 0xffffffffU) {
+          umm = om_cluster_ref_cts[umm] + ukk * om_cluster_ref_cts[umm + om_cluster_ct];
+	  uii -= umm;
+	  ujj -= umm;
+	}
+      }
       wptr = uint32_writew8x(wptr, uii, ' ');
-      ujj = marker_ct_nony + (is_set(sex_male, indiv_uidx) * marker_ct_y);
       wptr = uint32_writew8x(wptr, ujj, ' ');
       wptr = double_g_writewx4x(wptr, ((double)((int32_t)uii)) / ((double)((int32_t)ujj)), 8, '\n');
       if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {

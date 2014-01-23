@@ -1405,7 +1405,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 #endif
     help_print("indep\tindep-pairwise\tld-xchr", &help_ctrl, 0,
-"  --ld-xchr [code]   : Specify Xchr model for --indep{-pairwise}/--r{2}.\n"
+"  --ld-xchr [code]   : Set Xchr model for --indep{-pairwise}/--r{2}/--clump.\n"
 "                       1 (default) = males coded 0/1, females 0/1/2 (A1 dosage)\n"
 "                       2 = males coded 0/2\n"
 "                       3 = males coded 0/2, but females given double weighting\n"
