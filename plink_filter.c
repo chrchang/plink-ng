@@ -1987,7 +1987,6 @@ int32_t binary_geno_filter(double geno_thresh, uintptr_t unfiltered_marker_ct, u
   uint32_t chrom_fo_idx;
   uint32_t omidx;
   uint32_t cur_ct;
-  uint32_t cur_oblig_missing;
   uint32_t uii;
   uint32_t ujj;
   int32_t chrom_idx;
@@ -2035,7 +2034,6 @@ int32_t binary_geno_filter(double geno_thresh, uintptr_t unfiltered_marker_ct, u
 	while ((cur_om_entry >> 32) < marker_uidx) {
           cur_om_entry = *(++om_entry_ptr);
 	}
-	cur_oblig_missing = 0;
 	uii = hwe_lls[marker_uidx] + hwe_lhs[marker_uidx] + hwe_hhs[marker_uidx];
 	if ((cur_om_entry >> 32) > marker_uidx) {
 	  ujj = geno_int_thresh;
@@ -2073,5 +2071,5 @@ int32_t binary_geno_filter(double geno_thresh, uintptr_t unfiltered_marker_ct, u
     break;
   }
   wkspace_reset(wkspace_mark);
-  return 0;
+  return retval;
 }
