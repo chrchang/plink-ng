@@ -883,11 +883,11 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
   uint64_t* il_small = NULL; // high-order 32 bits = 2x center pos,
                              // low-order 32 bits = interval end - start
   uint64_t* il_large = NULL;
-  uintptr_t il_chrom_start_small[MAX_POSSIBLE_CHROM + 1];
-  uintptr_t il_chrom_start_large[MAX_POSSIBLE_CHROM + 1];
-  uint32_t il_chrom_max_width_small[MAX_POSSIBLE_CHROM];
-  uint32_t il_chrom_max_width_large[MAX_POSSIBLE_CHROM];
-  uint32_t marker_chrom_start[MAX_POSSIBLE_CHROM + 1];
+  uintptr_t* il_chrom_start_small;
+  uintptr_t* il_chrom_start_large;
+  uint32_t* il_chrom_max_width_small;
+  uint32_t* il_chrom_max_width_large;
+  uint32_t* marker_chrom_start;
   uint32_t* marker_pos;
   char* marker_ids;
   uintptr_t max_marker_id_len;
@@ -895,6 +895,13 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
   char* sptr;
   uintptr_t ulii;
   uint32_t uii;
+  if (wkspace_alloc_ul_checked(&il_chrom_start_small, (MAX_POSSIBLE_CHROM + 1) * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&il_chrom_start_large, (MAX_POSSIBLE_CHROM + 1) * sizeof(intptr_t)) ||
+      wkspace_alloc_ui_checked(&il_chrom_max_width_small, MAX_POSSIBLE_CHROM * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&il_chrom_max_width_large, MAX_POSSIBLE_CHROM * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&marker_chrom_start, (MAX_POSSIBLE_CHROM + 1) * sizeof(int32_t))) {
+    goto plink_cnv_ret_NOMEM;
+  }
   if (fopen_checked(&cnvfile, cnvname, "r")) {
     goto plink_cnv_ret_OPEN_FAIL;
   }

@@ -1327,7 +1327,6 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   uint32_t* verbose_indiv_uidx = NULL;
   char* writebuf = NULL;
   int32_t retval = 0;
-  uint32_t chrom_fo_idx_to_pidx[MAX_POSSIBLE_CHROM + 1]; // decreasing order
   char* allele_strs[4];
 
   // Circular lookahead buffer.  This is one of the few analyses which is
@@ -1345,6 +1344,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 
   uintptr_t* pool_size_first_plidx;
   uint32_t* marker_uidx_to_cidx;
+  uint32_t* chrom_fo_idx_to_pidx; // decreasing order
   uintptr_t* roh_slots;
   uintptr_t* roh_slot_occupied; // bitfield marking roh_slots occupancy
 
@@ -1401,6 +1401,9 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
+  if (wkspace_alloc_ui_checked(&chrom_fo_idx_to_pidx, (chrom_info_ptr->chrom_ct + 1) * sizeof(int32_t))) {
+    goto roh_pool_ret_NOMEM;
+  }
   uii = 0; // max chrom len
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
     if (roh_list_chrom_starts[chrom_fo_idx] == roh_list_chrom_starts[chrom_fo_idx + 1]) {
@@ -2421,9 +2424,9 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
 
   uint32_t swhit_min = 0;
   int32_t retval = 0;
-  uintptr_t roh_list_chrom_starts[MAX_POSSIBLE_CHROM + 1];
   char missing_pheno_str[15];
   uint32_t missing_pheno_len;
+  uintptr_t* roh_list_chrom_starts;
   uintptr_t* rawbuf;
   uintptr_t* readbuf; // circular window of actual genotype data
   uintptr_t* swbuf; // circular window of recent scanning window hits
@@ -2475,7 +2478,8 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   wptr = memcpya(wptr, ".000", 4);
   missing_pheno_len = (uintptr_t)(wptr - missing_pheno_str);
 
-  if (wkspace_alloc_ul_checked(&rawbuf, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
+  if (wkspace_alloc_ul_checked(&roh_list_chrom_starts, (chrom_ct + 1) * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&rawbuf, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
     goto calc_homozyg_ret_NOMEM;
   }
 

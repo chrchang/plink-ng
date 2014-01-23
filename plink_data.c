@@ -681,6 +681,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   int32_t exclude_window_start = 0;
   int32_t exclude_window_end = -1;
   char* missing_geno_ptr = (char*)g_missing_geno_ptr;
+  uint32_t* sf_start_idxs = NULL;
   uint32_t* sf_pos = NULL;
   uint32_t* sf_str_chroms = NULL;
   uint32_t* sf_str_pos = NULL;
@@ -690,7 +691,6 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   char** marker_allele_ptrs = NULL;
   uintptr_t loaded_chrom_mask[CHROM_MASK_WORDS];
   uintptr_t sf_mask[CHROM_MASK_WORDS];
-  uint32_t sf_start_idxs[MAX_POSSIBLE_CHROM + 1];
   uintptr_t* marker_exclude;
   char* loadbuf; // on stack, first pass
   uintptr_t loadbuf_size;
@@ -713,7 +713,8 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   int32_t retval;
   fill_ulong_zero(loaded_chrom_mask, CHROM_MASK_WORDS);
   if (sf_ct) {
-    if (wkspace_alloc_ui_checked(&sf_str_chroms, sf_ct * sizeof(int32_t)) ||
+    if (wkspace_alloc_ui_checked(&sf_start_idxs, (MAX_POSSIBLE_CHROM + 1) * sizeof(int32_t)) ||
+        wkspace_alloc_ui_checked(&sf_str_chroms, sf_ct * sizeof(int32_t)) ||
 	wkspace_alloc_ui_checked(&sf_str_pos, sf_ct * sizeof(int32_t)) ||
         wkspace_alloc_ui_checked(&sf_str_lens, sf_ct * sizeof(int32_t)) ||
         wkspace_alloc_ui_checked(&sf_llbuf, 3 * (MAX_POSSIBLE_CHROM + sf_ct) * sizeof(int32_t))) {
@@ -4420,15 +4421,17 @@ void sort_marker_chrom_pos(int64_t* ll_buf, uintptr_t marker_ct, uint32_t* pos_b
 }
 
 int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outname, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, uint32_t* marker_pos, char** marker_allele_ptrs, int64_t* ll_buf, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr) {
+  // caller is expected to pop stuff off stack
   FILE* outfile = NULL;
   uint32_t max_code = chrom_info_ptr->max_code;
+  uint32_t chrom_code_end = max_code + 1 + chrom_info_ptr->name_ct;
   int32_t retval = 0;
   const char* missing_geno_ptr = g_missing_geno_ptr;
   const char* output_missing_geno_ptr = g_output_missing_geno_ptr;
   char cbuf[16];
   char wbuf[16];
-  uint32_t chrom_start[MAX_POSSIBLE_CHROM + 1];
-  uint32_t chrom_id[MAX_POSSIBLE_CHROM];
+  uint32_t* chrom_start;
+  uint32_t* chrom_id;
   uint32_t* unpack_map;
   uintptr_t marker_uidx;
   uintptr_t marker_idx;
@@ -4451,7 +4454,9 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
   // super-common case where all three numbers can be squeezed together in 64
   // bits.  But we care most about performance when this can't be done, so I
   // haven't bothered with that optimization.
-  if (wkspace_alloc_ui_checked(&unpack_map, marker_ct * sizeof(int32_t))) {
+  if (wkspace_alloc_ui_checked(&chrom_start, (chrom_code_end + 1) * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&chrom_id, chrom_code_end * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&unpack_map, marker_ct * sizeof(int32_t))) {
     goto sort_and_write_bim_ret_NOMEM;
   }
   fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, unpack_map);
@@ -4536,8 +4541,8 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
   char* bufptr;
   uint32_t uii;
   uint32_t ujj;
-  uint32_t chrom_start[MAX_POSSIBLE_CHROM + 1];
-  uint32_t chrom_id[MAX_POSSIBLE_CHROM];
+  uint32_t chrom_start[MAX_CHROM_TEXTNUM + 6];
+  uint32_t chrom_id[MAX_CHROM_TEXTNUM + 5];
   uint32_t cur_chrom;
   uint32_t chrom_ct;
   // See sort_and_write_bim() for discussion.  Note that marker_ids and
@@ -7882,8 +7887,6 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   uint32_t alens[4];
   uint32_t allele_cts[4];
   unsigned char writemap[17];
-  uint32_t chrom_start[MAX_POSSIBLE_CHROM + 1];
-  uint32_t chrom_id[MAX_POSSIBLE_CHROM];
   uintptr_t max_markers;
   uintptr_t indiv_ct4;
   uintptr_t indiv_idx;
@@ -7902,6 +7905,8 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   char* cptr3;
   char* cptr4;
   char* axptr;
+  uint32_t* chrom_start;
+  uint32_t* chrom_id;
   uint32_t axlen;
   unsigned char* ucptr;
   unsigned char* ucptr2;
@@ -7918,6 +7923,10 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   uint32_t cur_chrom;
   uint32_t chrom_ct;
   double* marker_cms;
+  if (wkspace_alloc_ui_checked(&chrom_start, (MAX_POSSIBLE_CHROM + 1) * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&chrom_id, MAX_POSSIBLE_CHROM * sizeof(int32_t))) {
+    goto transposed_to_bed_ret_NOMEM;
+  }
 
   logstr("Processing .tped file.\n");
   transposed_to_bed_print_pct(0);
@@ -15386,8 +15395,8 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   char* bufptr4;
   Ll_entry* ll_ptr;
   Ll_entry2* ll_ptr2;
-  uint32_t chrom_start[MAX_POSSIBLE_CHROM + 1];
-  uint32_t chrom_id[MAX_POSSIBLE_CHROM];
+  uint32_t* chrom_start;
+  uint32_t* chrom_id;
   uint32_t chrom_ct;
   unsigned char* readbuf;
   unsigned char* writebuf;
@@ -15395,6 +15404,10 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   char cc;
   unsigned char ucc;
   int32_t retval;
+  if (wkspace_alloc_ui_checked(&chrom_start, (MAX_POSSIBLE_CHROM + 1) * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&chrom_id, MAX_POSSIBLE_CHROM * sizeof(int32_t))) {
+    goto merge_datasets_ret_NOMEM;
+  }
 
   if (!merge_mode) {
     merge_mode = 1;

@@ -4549,7 +4549,7 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
       goto init_delim_and_species_ret_INVALID_CMDLINE_2;
     }
     ii = atoi(argv[cur_arg + 1]);
-    if ((ii < 1) || (ii > 59)) {
+    if ((ii < 1) || (ii > MAX_CHROM_TEXTNUM)) {
       sprintf(logbuf, "Error: Invalid --autosome-num parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
       goto init_delim_and_species_ret_INVALID_CMDLINE_2;
     }
@@ -4571,7 +4571,7 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
       goto init_delim_and_species_ret_INVALID_CMDLINE_2;
     }
     ii = atoi(argv[cur_arg + 1]);
-    if ((!ii) || (ii > 59) || (ii < -59)) {
+    if ((!ii) || (ii > MAX_CHROM_TEXTNUM) || (ii < -MAX_CHROM_TEXTNUM)) {
       sprintf(logbuf, "Error: Invalid --chr-set parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
       goto init_delim_and_species_ret_INVALID_CMDLINE_2;
     }

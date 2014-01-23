@@ -1728,7 +1728,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	}
       }
     }
-    sprintf(tbuf, " CHR %%%us       CLST   N_MISS   N_GENO   N_CLST   F_MISS\n", plink_maxsnp);
+    sprintf(tbuf, " CHR %%%us       CLST   N_MISS   N_CLST   N_GENO   F_MISS\n", plink_maxsnp);
   }
   fprintf(outfile, tbuf, "SNP");
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
@@ -1844,10 +1844,10 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	    uii = missing_ct_by_cluster[clidx];
             wptr = uint32_writew8x(wptr, uii, ' ');
 	    umm = cur_cluster_sizes[clidx];
-	    unn = umm - oblig_missing_ct_by_cluster[clidx];
-	    wptr = uint32_writew8x(wptr, unn, ' ');
 	    wptr = uint32_writew8x(wptr, umm, ' ');
-            wptr = double_g_writewx4x(wptr, ((double)((int32_t)uii)) / ((double)((int32_t)unn)), 8, '\n');
+	    umm -= oblig_missing_ct_by_cluster[clidx];
+	    wptr = uint32_writew8x(wptr, umm, ' ');
+            wptr = double_g_writewx4x(wptr, ((double)((int32_t)uii)) / ((double)((int32_t)umm)), 8, '\n');
 	    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
 	      goto write_missingness_reports_ret_WRITE_FAIL;
 	    }

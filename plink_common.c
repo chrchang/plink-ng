@@ -3132,7 +3132,7 @@ int32_t get_chrom_code_raw(char* sptr) {
     if ((sptr[0] >= '0') && (sptr[0] <= '9')) {
       if ((sptr[1] >= '0') && (sptr[1] <= '9')) {
         ii = ((sptr[0] - '0') * 10 + (sptr[1] - '0'));
-	if (ii < MAX_POSSIBLE_CHROM) {
+	if (ii < MAX_CHROM_TEXTNUM) {
 	  return ii;
 	} else {
 	  return -1;

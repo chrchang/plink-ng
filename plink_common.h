@@ -1471,7 +1471,8 @@ void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
 
 // Maximum accepted chromosome index is this minus 1.  Currently cannot exceed
 // 2^14 due to SMALL_INTERVAL_BITS setting in plink_cnv.c.
-#define MAX_POSSIBLE_CHROM 128
+#define MAX_POSSIBLE_CHROM 2560
+#define MAX_CHROM_TEXTNUM 59
 #define CHROM_X MAX_POSSIBLE_CHROM
 #define CHROM_Y (MAX_POSSIBLE_CHROM + 1)
 #define CHROM_XY (MAX_POSSIBLE_CHROM + 2)
@@ -1479,11 +1480,11 @@ void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
 
 #ifdef __LP64__
   // MAX_POSSIBLE_CHROM / BITCT rounded up
-  #define CHROM_MASK_WORDS 2
+  #define CHROM_MASK_WORDS 40
   // dog requires 42 bits, and other species require less
   #define CHROM_MASK_INITIAL_WORDS 1
 #else
-  #define CHROM_MASK_WORDS 4
+  #define CHROM_MASK_WORDS 80
   #define CHROM_MASK_INITIAL_WORDS 2
 #endif
 
@@ -1520,8 +1521,8 @@ typedef struct {
   uint32_t name_ct;
   Ll_str* incl_excl_name_stack;
   uint32_t is_include_stack;
-  // if we ever have to deal with a very large number of named "chromosomes",
-  // this should be replaced with e.g. a balanced tree
+  // this should be replaced with e.g. a balanced tree that can be searched in
+  // O(log n) time.
   char* nonstd_names[MAX_POSSIBLE_CHROM];
 } Chrom_info;
 

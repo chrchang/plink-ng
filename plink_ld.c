@@ -597,12 +597,11 @@ uint32_t ld_process_load(uintptr_t* geno_buf, uintptr_t* mask_buf, uintptr_t* mi
 }
 
 uint32_t ld_prune_next_valid_chrom_start(uintptr_t* marker_exclude, uint32_t cur_uidx, Chrom_info* chrom_info_ptr, uint32_t unfiltered_marker_ct) {
-  uint32_t max_code = chrom_info_ptr->max_code;
   uint32_t chrom_idx;
   cur_uidx = next_unset(marker_exclude, cur_uidx, unfiltered_marker_ct);
   while (cur_uidx < unfiltered_marker_ct) {
     chrom_idx = get_marker_chrom(chrom_info_ptr, cur_uidx);
-    if (chrom_idx && (chrom_idx <= max_code)) {
+    if (chrom_idx) {
       return cur_uidx;
     }
     cur_uidx = next_unset(marker_exclude, chrom_info_ptr->chrom_end[chrom_idx], unfiltered_marker_ct);
@@ -688,7 +687,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   uint32_t* idx_remap = NULL;
   uint32_t tot_exclude_ct = 0;
   uint32_t at_least_one_prune = 0;
-  uint32_t max_code = chrom_info_ptr->max_code;
+  uint32_t chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
   int32_t retval = 0;
   uintptr_t* geno_masks;
   uintptr_t* geno_mmasks;
@@ -759,7 +758,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 
   if (ldip->prune_window_kb) {
     // determine maximum number of markers that may need to be loaded at once
-    for (cur_chrom = 0; cur_chrom <= max_code; cur_chrom++) {
+    for (cur_chrom = 0; cur_chrom < chrom_code_end; cur_chrom++) {
       if (chrom_exists(chrom_info_ptr, cur_chrom)) {
         uii = chrom_info_ptr->chrom_start[cur_chrom];
 	chrom_end = chrom_info_ptr->chrom_end[cur_chrom];
@@ -1157,7 +1156,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   marker_idx = 0;
   pct = 1;
   uii = 0;
-  for (cur_chrom = 1; cur_chrom <= chrom_info_ptr->max_code; cur_chrom++) {
+  for (cur_chrom = 1; cur_chrom < chrom_code_end; cur_chrom++) {
     if (!IS_SET(chrom_info_ptr->chrom_mask, cur_chrom)) {
       continue;
     }
@@ -1166,7 +1165,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
     }
   }
   pct_thresh = ((int64_t)pct * uii) / 100;
-  for (cur_chrom = 1; cur_chrom <= chrom_info_ptr->max_code; cur_chrom++) {
+  for (cur_chrom = 1; cur_chrom < chrom_code_end; cur_chrom++) {
     chrom_end = chrom_info_ptr->chrom_end[cur_chrom];
     if (!chrom_end) {
       continue;
