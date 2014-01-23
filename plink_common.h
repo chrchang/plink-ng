@@ -1521,9 +1521,8 @@ typedef struct {
   uint32_t name_ct;
   Ll_str* incl_excl_name_stack;
   uint32_t is_include_stack;
-  // this should be replaced with e.g. a balanced tree that can be searched in
-  // O(log n) time.
   char* nonstd_names[MAX_POSSIBLE_CHROM];
+  uint32_t nonstd_name_order[MAX_POSSIBLE_CHROM];
 } Chrom_info;
 
 #define SPECIES_HUMAN 0

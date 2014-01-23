@@ -3103,6 +3103,43 @@ uint32_t haploid_chrom_present(Chrom_info* chrom_info_ptr) {
   return 0;
 }
 
+uint32_t bsearch_str_idx(const char* sptr, uint32_t slen, char** str_array, uint32_t* str_sorted_idxs, uint32_t end_idx, uint32_t* gt_ptr) {
+  // return 0 on success, 1 on failure
+  // *gt_ptr is number of strings current string is lexicographically after
+  // (so, on success, it's the correct index, and on failure, it's the
+  // insertion point)
+  uint32_t start_idx = 0;
+  char* sptr2;
+  uint32_t mid_idx;
+  uint32_t slen2;
+  int32_t ii;
+  while (start_idx < end_idx) {
+    mid_idx = (start_idx + end_idx) / 2;
+    sptr2 = str_array[mid_idx];
+    slen2 = strlen(sptr2);
+    if (slen2 < slen) {
+      ii = memcmp(sptr, sptr2, slen2);
+      if (ii >= 0) {
+	start_idx = mid_idx + 1;
+      } else {
+        end_idx = mid_idx;
+      }
+    } else {
+      ii = memcmp(sptr, sptr2, slen);
+      if (ii > 0) {
+	start_idx = mid_idx + 1;
+      } else if ((ii < 0) || (slen != slen2)) {
+        end_idx = mid_idx;
+      } else {
+	*gt_ptr = mid_idx;
+	return 0;
+      }
+    }
+  }
+  *gt_ptr = start_idx;
+  return 1;
+}
+
 int32_t get_chrom_code_raw(char* sptr) {
   // any character <= ' ' is considered a terminator
   int32_t ii;
@@ -3157,11 +3194,8 @@ int32_t get_chrom_code(Chrom_info* chrom_info_ptr, char* sptr) {
   // does not require string to be null-terminated, and does not perform
   // exhaustive error-checking
   int32_t ii = get_chrom_code_raw(sptr);
-  char** nonstd_names = chrom_info_ptr->nonstd_names;
+  uint32_t max_code_p1;
   uint32_t uii;
-  uint32_t ujj;
-  uint32_t slen;
-  uint32_t slen2;
   if (ii >= MAX_POSSIBLE_CHROM) {
     switch (ii) {
     case CHROM_X:
@@ -3176,18 +3210,16 @@ int32_t get_chrom_code(Chrom_info* chrom_info_ptr, char* sptr) {
     case CHROM_MT:
       ii = chrom_info_ptr->mt_code;
     }
-  } else if (ii == -1) {
-    ujj = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
-    slen = strlen_se(sptr);
-    for (uii = chrom_info_ptr->max_code + 1; uii < ujj; uii++) {
-      slen2 = strlen(nonstd_names[uii]);
-      if ((slen == slen2) && (!memcmp(nonstd_names[uii], sptr, slen))) {
-	return (int32_t)uii;
+  } else {
+    max_code_p1 = chrom_info_ptr->max_code + 1;
+    if (ii == -1) {
+      if (bsearch_str_idx(sptr, strlen_se(sptr), &(chrom_info_ptr->nonstd_names[max_code_p1]), chrom_info_ptr->nonstd_name_order, chrom_info_ptr->name_ct, &uii)) {
+        return -1;
       }
+      return uii + max_code_p1;
+    } else if (((uint32_t)ii) >= max_code_p1) {
+      return -1;
     }
-    return -1;
-  } else if (((uint32_t)ii) > chrom_info_ptr->max_code) {
-    return -1;
   }
   return ii;
 }
@@ -3220,19 +3252,19 @@ uint32_t get_marker_chrom_fo_idx(Chrom_info* chrom_info_ptr, uintptr_t marker_ui
 }
 
 int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int32_t* chrom_idx_ptr) {
-  uint32_t chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
   char** nonstd_names = chrom_info_ptr->nonstd_names;
+  uint32_t* nonstd_name_order = chrom_info_ptr->nonstd_name_order;
+  uint32_t max_code_p1 = chrom_info_ptr->max_code + 1;
+  uint32_t name_ct = chrom_info_ptr->name_ct;
+  uint32_t chrom_code_end = max_code_p1 + name_ct;
   uint32_t slen = strlen_se(bufptr);
   Ll_str* name_stack_ptr = chrom_info_ptr->incl_excl_name_stack;
   uint32_t in_name_stack = 0;
   uint32_t chrom_idx;
   uint32_t slen2;
-  for (chrom_idx = chrom_info_ptr->max_code + 1; chrom_idx < chrom_code_end; chrom_idx++) {
-    slen2 = strlen(nonstd_names[chrom_idx]);
-    if ((slen == slen2) && (!memcmp(bufptr, nonstd_names[chrom_idx], slen))) {
-      *chrom_idx_ptr = (int32_t)chrom_idx;
-      return 0;
-    }
+  if (!bsearch_str_idx(bufptr, slen, &(nonstd_names[max_code_p1]), nonstd_name_order, chrom_info_ptr->name_ct, &chrom_idx)) {
+    *chrom_idx_ptr = (int32_t)(chrom_idx + max_code_p1);
+    return 0;
   }
   if (chrom_code_end == MAX_POSSIBLE_CHROM) {
     logprint("Error: Too many distinct nonstandard chromosome names.\n");
@@ -3243,6 +3275,7 @@ int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int3
     return RET_NOMEM;
   }
   while (name_stack_ptr) {
+    // there shouldn't be many of these, so sorting is unimportant
     slen2 = strlen(name_stack_ptr->ss);
     if ((slen == slen2) && (!memcmp(bufptr, name_stack_ptr->ss, slen))) {
       in_name_stack = 1;
@@ -3256,6 +3289,10 @@ int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int3
   memcpy(nonstd_names[chrom_code_end], bufptr, slen);
   nonstd_names[chrom_code_end][slen] = '\0';
   *chrom_idx_ptr = (int32_t)chrom_code_end;
+  for (slen2 = name_ct; slen2 > chrom_idx; slen2--) {
+    nonstd_name_order[slen2] = nonstd_name_order[slen2 - 1];
+  }
+  nonstd_name_order[chrom_idx] = name_ct;
   chrom_info_ptr->name_ct += 1;
   return 0;
 }

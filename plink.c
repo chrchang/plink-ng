@@ -4205,7 +4205,7 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
 	}
 	fill_bits(chrom_mask, chrom_code_start, chrom_code_end + 1 - chrom_code_start);
       } else {
-        SET_BIT(chrom_mask, chrom_code_start);
+        set_bit(chrom_mask, chrom_code_start);
       }
       argct++;
     }

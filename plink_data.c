@@ -4526,6 +4526,7 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
 
 int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint32_t map_cols, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t max_marker_id_len, int32_t compact_map_reverse, Chrom_info* chrom_info_ptr) {
   // no need to support allow_extra_chroms on .map files
+  // get_chrom_code() cannot fail
   FILE* map_outfile = NULL;
   int64_t* ll_buf = NULL;
   int32_t retval = 0;
