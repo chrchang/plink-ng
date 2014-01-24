@@ -3409,7 +3409,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
     logprintb();
   }
   if (ulii) {
-    sprintf(logbuf, "%" PRIuPTR " %s was not present.\n", ulii, species_str(ulii));
+    sprintf(logbuf, "%" PRIuPTR " %s %s not present.\n", ulii, species_str(ulii), (ulii == 1)? "was" : "were");
     logprintb();
   }
 

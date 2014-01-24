@@ -6361,27 +6361,29 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint3
   uint32_t item_idx = 0;
   int32_t retval = 0;
   char* bufptr;
+  uint32_t cmdline_pos;
   int32_t ii;
   while (1) {
     bufptr = item_endnn(header_line);
     ii = bsearch_str(header_line, (uintptr_t)(bufptr - header_line), sorted_ids, max_id_len, name_ct);
     if (ii != -1) {
-      if (seen_idxs[(uint32_t)ii] != -1) {
+      cmdline_pos = id_map[(uint32_t)ii];
+      if (seen_idxs[cmdline_pos] != -1) {
         sprintf(logbuf, "Error: Duplicate --%s token in %s.\n", range_list_flag, file_descrip);
         goto string_range_list_to_bitfield_ret_INVALID_FORMAT;
       }
-      seen_idxs[(uint32_t)ii] = item_idx;
-      if (item_idx && range_list_ptr->starts_range[item_idx - 1]) {
-        if (seen_idxs[((uint32_t)ii) - 1] == -1) {
+      seen_idxs[cmdline_pos] = item_idx;
+      if (cmdline_pos && range_list_ptr->starts_range[cmdline_pos - 1]) {
+        if (seen_idxs[cmdline_pos - 1] == -1) {
           sprintf(logbuf, "Error: Second element of --%s range appears before first element in\n%s.\n", range_list_flag, file_descrip);
           goto string_range_list_to_bitfield_ret_INVALID_CMDLINE;
 	}
-	fill_bits(bitfield, seen_idxs[((uint32_t)ii) - 1], (item_idx - seen_idxs[((uint32_t)ii) - 1]) + 1);
+	fill_bits(bitfield, seen_idxs[cmdline_pos - 1], (item_idx - seen_idxs[cmdline_pos - 1]) + 1);
 	if (g_debug_on) {
-	  sprintf(logbuf, "Debug: Including items #%u through #%u (up to '%s').\n", seen_idxs[((uint32_t)ii) - 1] + 1, item_idx + 1, &(sorted_ids[((uint32_t)ii) * max_id_len]));
+	  sprintf(logbuf, "Debug: Including items #%u through #%u (up to '%s').\n", seen_idxs[cmdline_pos - 1] + 1, item_idx + 1, &(sorted_ids[((uint32_t)ii) * max_id_len]));
           logprintb();
 	}
-      } else if (!(range_list_ptr->starts_range[item_idx])) {
+      } else if (!(range_list_ptr->starts_range[cmdline_pos])) {
 	if (g_debug_on) {
 	  sprintf(logbuf, "Debug: Including item #%u ('%s').\n", item_idx + 1, &(sorted_ids[((uint32_t)ii) * max_id_len]));
 	  logprintb();
@@ -6398,8 +6400,8 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint3
       header_line = skip_initial_spaces(&(bufptr[1]));
     }
   }
-  for (item_idx = 0; item_idx < name_ct; item_idx++) {
-    if (seen_idxs[item_idx] == -1) {
+  for (cmdline_pos = 0; cmdline_pos < name_ct; cmdline_pos++) {
+    if (seen_idxs[cmdline_pos] == -1) {
       goto string_range_list_to_bitfield_ret_INVALID_CMDLINE_2;
     }
   }
