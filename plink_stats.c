@@ -2,6 +2,9 @@
 #include "ipmpar.h"
 #include "dcdflib.h"
 
+// 2^{-40} for now, since 2^{-44} was too small on real data
+#define FISHER_EPSILON 0.0000000000009094947017729282379150390625
+
 double chiprob_p(double xx, double df) {
   int st = 0;
   int ww = 1;
@@ -738,7 +741,7 @@ int32_t SNPHWE_midp_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, doub
 
 double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t midp) {
   // Basic 2x2 Fisher exact test p-value calculation.
-  double tprob = (1 - SMALL_EPSILON) * EXACT_TEST_BIAS;
+  double tprob = (1 - FISHER_EPSILON) * EXACT_TEST_BIAS;
   double cur_prob = tprob;
   double cprob = 0;
   int32_t tie_ct = 1;
@@ -781,7 +784,7 @@ double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t
       return 0;
     }
     if (cur_prob < EXACT_TEST_BIAS) {
-      if (cur_prob > (1 - 2 * SMALL_EPSILON) * EXACT_TEST_BIAS) {
+      if (cur_prob > (1 - 2 * FISHER_EPSILON) * EXACT_TEST_BIAS) {
         tie_ct++;
       }
       tprob += cur_prob;
@@ -811,7 +814,7 @@ double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t
     cur12 = m12;
     cur21 = m21;
     cur22 = m22;
-    cur_prob = (1 - SMALL_EPSILON) * EXACT_TEST_BIAS;
+    cur_prob = (1 - FISHER_EPSILON) * EXACT_TEST_BIAS;
     do {
       cur12 += 1;
       cur21 += 1;
@@ -824,7 +827,7 @@ double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t
         if (!midp) {
 	  return preaddp / (cprob + preaddp);
 	} else {
-          return (preaddp - ((1 - SMALL_EPSILON) * EXACT_TEST_BIAS * 0.5) * tie_ct) / (cprob + preaddp);
+          return (preaddp - ((1 - FISHER_EPSILON) * EXACT_TEST_BIAS * 0.5) * tie_ct) / (cprob + preaddp);
 	}
       }
     } while (cur11 > 0.5);
@@ -832,11 +835,11 @@ double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t
   if (!midp) {
     return tprob / (cprob + tprob);
   } else {
-    return (tprob - ((1 - SMALL_EPSILON) * EXACT_TEST_BIAS * 0.5) * tie_ct) / (cprob + tprob);
+    return (tprob - ((1 - FISHER_EPSILON) * EXACT_TEST_BIAS * 0.5) * tie_ct) / (cprob + tprob);
   }
 }
 
-double fisher22_tail_pval(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t right_offset, double tot_prob_recip, double right_prob, double tail_sum, uint32_t new_m11) {
+double fisher22_tail_pval(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, int32_t right_offset, double tot_prob_recip, double right_prob, uint32_t midp, uint32_t new_m11) {
   // Given that the left (w.r.t. m11) reference contingency table has
   // likelihood 1/tot_prob, the contingency table with m11 increased by
   // right_offset has likelihood right_prob/tot_prob, and the tails (up to but
@@ -866,8 +869,12 @@ double fisher22_tail_pval(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22
     if (left_prob == 0) {
       return 0;
     }
-    psum = left_prob;
-    thresh = left_prob * (1 + SMALLISH_EPSILON);
+    if (!midp) {
+      psum = left_prob;
+    } else {
+      psum = left_prob * 0.5;
+    }
+    thresh = left_prob * (1 + FISHER_EPSILON);
     do {
       if (cur11 < 0.5) {
 	break;
@@ -892,7 +899,11 @@ double fisher22_tail_pval(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22
       cur21 -= 1;
     }
     if (right_prob > 0) {
-      psum += right_prob;
+      if (midp && (right_prob < thresh * (1 - 2 * FISHER_EPSILON))) {
+	psum += right_prob * 0.5;
+      } else {
+        psum += right_prob;
+      }
       do {
 	cur11 += 1;
 	cur22 += 1;
@@ -919,8 +930,12 @@ double fisher22_tail_pval(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22
     if (right_prob == 0) {
       return 0;
     }
-    psum = right_prob;
-    thresh = right_prob * (1 + SMALLISH_EPSILON);
+    if (!midp) {
+      psum = right_prob;
+    } else {
+      psum = right_prob * 0.5;
+    }
+    thresh = right_prob * (1 + FISHER_EPSILON);
     do {
       if (cur12 < 0.5) {
 	break;
@@ -945,7 +960,11 @@ double fisher22_tail_pval(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22
       cur22 -= 1;
     }
     if (left_prob > 0) {
-      psum += left_prob;
+      if (midp && (left_prob < thresh * (1 - 2 * FISHER_EPSILON))) {
+	psum += left_prob * 0.5;
+      } else {
+        psum += left_prob;
+      }
       do {
 	cur12 += 1;
 	cur21 += 1;
@@ -960,14 +979,14 @@ double fisher22_tail_pval(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22
   return psum * tot_prob_recip;
 }
 
-void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_sum, uint32_t total, uint32_t* bounds, double* tprobs) {
+void fisher22_precomp_pval_bounds(double pval, uint32_t midp, uint32_t row1_sum, uint32_t col1_sum, uint32_t total, uint32_t* bounds, double* tprobs) {
   // bounds[0] = m11 min
   // bounds[1] = m11 (max + 1)
   // bounds[2] = m11 min after including ties
   // bounds[3] = m11 (max + 1) after including ties
   // Treating m11 as the only variable, this returns the minimum and (maximum +
   // 1) values of m11 which are less extreme than the observed result, and
-  // notes ties (2^{-35} tolerance).  Also, returns the values necessary for
+  // notes ties (2^{-40} tolerance).  Also, returns the values necessary for
   // invoking fisher22_tail_pval() with
   //   m11 := bounds[2] and
   //   right_offset := bounds[3] - bounds[2] - 1
@@ -983,6 +1002,7 @@ void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_
   double right_prob = tot_prob;
   intptr_t m11_offset = 0;
   double tail_prob = 0;
+  double cmult = midp? 0.5 : 1.0;
   double dxx;
   double left11;
   double left12;
@@ -1159,29 +1179,45 @@ void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_
     right12 -= 1;
     right21 -= 1;
   }
-  dxx = pval * tot_prob * (1 - SMALLISH_EPSILON / 2);
-  threshold = pval * tot_prob * (1 + SMALLISH_EPSILON / 2);
+  dxx = pval * tot_prob * (1 - FISHER_EPSILON / 2);
+  threshold = pval * tot_prob * (1 + FISHER_EPSILON / 2);
   lii = 0;
   while (1) {
-    if (left_prob < right_prob * (1 - SMALLISH_EPSILON / 2)) {
-      if (tail_prob + left_prob > threshold) {
+    if (left_prob < right_prob * (1 - FISHER_EPSILON / 2)) {
+      cur_prob = tail_prob + left_prob * cmult;
+      if (cur_prob > threshold) {
 	break;
       }
       tail_prob += left_prob;
       uii = 1;
-    } else if (right_prob < left_prob * (1 - SMALLISH_EPSILON / 2)) {
-      if (tail_prob + right_prob > threshold) {
+    } else if (right_prob < left_prob * (1 - FISHER_EPSILON / 2)) {
+      cur_prob = tail_prob + right_prob * cmult;
+      if (cur_prob > threshold) {
 	break;
       }
       tail_prob += right_prob;
       uii = 2;
     } else {
-      if (tail_prob + left_prob + right_prob > threshold) {
+      cur_prob = tail_prob + (left_prob + right_prob) * cmult;
+      if (cur_prob > threshold) {
 	if (left11 == right11) {
-	  // p=1 special case: left and right refer to the same table
-	  if (tail_prob + left_prob < threshold) {
-	    tail_prob += left_prob;
-	    lii = 1;
+	  cur_prob = tail_prob + left_prob * cmult;
+	  // center: left and right refer to same table.  subcases:
+	  // 1. cur_prob > threshold: center table has less extreme pval.
+	  //    lii = 0, both intervals size 1
+	  // 2. dxx < cur_prob < threshold: center table has equal pval.
+	  //    lii = 1, less-than interval size 0 but leq interval size 1
+	  // 3. cur_prob < dxx: even centermost table has more extreme pval
+	  //    (only possible with mid-p adj).
+	  //    lii = 0, we increment left11 so both intervals size 0
+	  if (cur_prob < threshold) {
+	    if (cur_prob > dxx) {
+	      lii = 1;
+	    } else {
+	      left11++;
+	      left22++;
+	      left_prob *= (left12 * left21) / (left11 * left22);
+	    }
 	  }
 	}
 	break;
@@ -1189,7 +1225,7 @@ void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_
       tail_prob += left_prob + right_prob;
       uii = 3;
     }
-    if (tail_prob > dxx) {
+    if (cur_prob > dxx) {
       lii = uii;
       break;
     }
@@ -1220,6 +1256,7 @@ void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_
   dxx = 1.0 / left_prob;
   tprobs[0] = left_prob / tot_prob;
   tprobs[1] = right_prob * dxx;
+  /*
   if (lii & 1) {
     tail_prob -= left_prob;
   }
@@ -1227,6 +1264,7 @@ void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_
     tail_prob -= right_prob;
   }
   tprobs[2] = tail_prob * dxx;
+  */
 }
 
 int32_t fisher23_tailsum(double* base_probp, double* saved12p, double* saved13p, double* saved22p, double* saved23p, double *totalp, uint32_t* tie_ctp, uint32_t right_side) {
@@ -1276,7 +1314,7 @@ int32_t fisher23_tailsum(double* base_probp, double* saved12p, double* saved13p,
 	}
 	tmp12 -= 1;
 	tmp23 -= 1;
-	if (cur_prob > (1 - 2 * SMALLISH_EPSILON) * EXACT_TEST_BIAS) {
+	if (cur_prob > (1 - 2 * FISHER_EPSILON) * EXACT_TEST_BIAS) {
 	  // throw in extra (1 - SMALL_EPSILON) multiplier to prevent rounding
 	  // errors from causing this to keep going when the left-side test
 	  // stopped
@@ -1325,7 +1363,7 @@ int32_t fisher23_tailsum(double* base_probp, double* saved12p, double* saved13p,
 	}
 	tmp13 -= 1;
 	tmp22 -= 1;
-	if (cur_prob > (1 - 2 * SMALLISH_EPSILON) * EXACT_TEST_BIAS) {
+	if (cur_prob > (1 - 2 * FISHER_EPSILON) * EXACT_TEST_BIAS) {
 	  if (cur_prob > EXACT_TEST_BIAS) {
 	    break;
 	  }
@@ -1342,7 +1380,7 @@ int32_t fisher23_tailsum(double* base_probp, double* saved12p, double* saved13p,
   *saved13p = tmp13;
   *saved22p = tmp22;
   *saved23p = tmp23;
-  if (cur_prob > (1 - 2 * SMALLISH_EPSILON) * EXACT_TEST_BIAS) {
+  if (cur_prob > (1 - 2 * FISHER_EPSILON) * EXACT_TEST_BIAS) {
     if (cur_prob > EXACT_TEST_BIAS) {
       // even most extreme table on this side is too probable
       *totalp = 0;
@@ -1389,7 +1427,7 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
   // 2x4, 2x5, and 3x3 should also be practical with this method, but beyond
   // that I doubt it's worth the trouble.
   // Complexity of approach is O(n^{df/2}), where n is number of observations.
-  double cur_prob = (1 - SMALLISH_EPSILON) * EXACT_TEST_BIAS;
+  double cur_prob = (1 - FISHER_EPSILON) * EXACT_TEST_BIAS;
   double tprob = cur_prob;
   double cprob = 0;
   double dyy = 0;
@@ -1491,7 +1529,7 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
       tmp12 -= 1;
       tmp23 -= 1;
       if (cur_prob <= EXACT_TEST_BIAS) {
-	if (cur_prob > (1 - 2 * SMALLISH_EPSILON) * EXACT_TEST_BIAS) {
+	if (cur_prob > (1 - 2 * FISHER_EPSILON) * EXACT_TEST_BIAS) {
           tie_ct++;
 	}
 	tprob += cur_prob;
@@ -1557,7 +1595,7 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
 	tmp13 -= 1;
 	tmp22 -= 1;
 	if (cur_prob <= EXACT_TEST_BIAS) {
-          if (cur_prob > (1 - 2 * SMALLISH_EPSILON) * EXACT_TEST_BIAS) {
+          if (cur_prob > (1 - 2 * FISHER_EPSILON) * EXACT_TEST_BIAS) {
             tie_ct++;
 	  }
 	  tprob += cur_prob;
@@ -1735,7 +1773,7 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
   if (!midp) {
     return tprob / (tprob + cprob);
   } else {
-    return (tprob - ((1 - SMALLISH_EPSILON) * EXACT_TEST_BIAS * 0.5) * ((int32_t)tie_ct)) / (tprob + cprob);
+    return (tprob - ((1 - FISHER_EPSILON) * EXACT_TEST_BIAS * 0.5) * ((int32_t)tie_ct)) / (tprob + cprob);
   }
 }
 
