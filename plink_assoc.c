@@ -9197,7 +9197,6 @@ void calc_git_missing(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uintptr_t* __r
 }
 
 THREAD_RET_TYPE testmiss_adapt_thread(void* arg) {
-  /*
   intptr_t tidx = (intptr_t)arg;
   uint32_t marker_bidx = (((uint64_t)tidx) * g_block_diff) / g_assoc_thread_ct;
   uint32_t marker_bceil = (((uint64_t)tidx + 1) * g_block_diff) / g_assoc_thread_ct;
@@ -9209,10 +9208,37 @@ THREAD_RET_TYPE testmiss_adapt_thread(void* arg) {
   uint32_t is_midp = g_fisher_midp;
   uint32_t is_y = 0;
   uint32_t first_adapt_check = g_first_adapt_check;
-  uint32_t case_ct = g_case_ct;
   uintptr_t* __restrict__ loadbuf = g_loadbuf;
+  uintptr_t* __restrict__ perm_vecs = g_perm_vecs;
+  uint32_t* __restrict__ perm_attempt_ct = g_perm_attempt_ct;
+  uint32_t* __restrict__ perm_2success_ct = g_perm_2success_ct;
+  uint32_t* __restrict__ precomp_ui = g_precomp_ui;
+  uint32_t* __restrict__ missing_cts = g_missing_cts;
+  uint32_t* __restrict__ adapt_m_table = g_adapt_m_table;
+  unsigned char* __restrict__ perm_adapt_stop = g_perm_adapt_stop;
+  double* __restrict__ orig_1mpval = g_orig_1mpval;
+  double adaptive_intercept = g_adaptive_intercept;
+  double adaptive_slope = g_adaptive_slope;
+  double adaptive_ci_zt = g_adaptive_ci_zt;
+  double aperm_alpha = g_aperm_alpha;
   uint32_t valid_obs_ct = pheno_nm_ct;
   uint32_t* male_case_cts = NULL;
+  uintptr_t* loadbuf_ptr;
+  uint32_t* gpui;
+  uintptr_t marker_idx;
+  uintptr_t pidx;
+  uint32_t success_2start;
+  uint32_t success_2incr;
+  uint32_t next_adapt_check;
+  uint32_t missing_sum;
+  uint32_t missing_case_ct;
+  uint32_t uii;
+  double stat_high;
+  double stat_low;
+  double pval;
+  double dxx;
+  double dyy;
+  double dzz;
   if (g_is_y) {
     valid_obs_ct = g_male_ct;
     if (valid_obs_ct != pheno_nm_ct) {
@@ -9220,7 +9246,57 @@ THREAD_RET_TYPE testmiss_adapt_thread(void* arg) {
       male_case_cts = g_male_case_cts;
     }
   }
-  */
+  for (; marker_bidx < marker_bceil; marker_bidx++) {
+    marker_idx = adapt_m_table[marker_bidx];
+    next_adapt_check = first_adapt_check;
+    missing_sum = missing_cts[marker_idx];
+    gpui = &(precomp_ui[4 * marker_bidx]);
+    stat_high = orig_1mpval[marker_idx] + EPSILON;
+    stat_low = orig_1mpval[marker_idx] - EPSILON;
+    success_2start = perm_2success_ct[marker_idx];
+    success_2incr = 0;
+    loadbuf_ptr = &(loadbuf[marker_bidx * pheno_nm_ctv]);
+    for (pidx = 0; pidx < perm_vec_ct;) {
+      if (!is_y) {
+	missing_case_ct = popcount_longs_intersect(loadbuf_ptr, &(perm_vecs[pidx * pheno_nm_ctv]), pheno_nm_ctl);
+	if (missing_case_ct < gpui[0]) {
+	  if (missing_case_ct < gpui[2]) {
+	    success_2incr += 2;
+	  } else {
+	    success_2incr++;
+	  }
+	} else {
+	  if (missing_case_ct >= gpui[1]) {
+	    if (missing_case_ct >= gpui[3]) {
+	      success_2incr += 2;
+	    } else {
+	      success_2incr++;
+	    }
+	  }
+	}
+      } else {
+	// todo
+	uii = is_midp;
+      }
+      if (++pidx == next_adapt_check - pidx_offset) {
+        uii = success_2start + success_2incr;
+        if (uii) {
+          pval = ((double)((int64_t)uii + 2)) / ((double)(2 * ((int32_t)next_adapt_check + 1)));
+          dxx = adaptive_ci_zt * sqrt(pval * (1 - pval) / ((int32_t)next_adapt_check));
+          dyy = pval - dxx;
+          dzz = pval + dxx;
+	  // printf("%u %u %g\n", uii, success_2start + success_2incr, pval);
+          if ((dyy > aperm_alpha) || (dzz < aperm_alpha)) {
+            perm_adapt_stop[marker_idx] = 1;
+            perm_attempt_ct[marker_idx] = next_adapt_check;
+            break;
+	  }
+	}
+        next_adapt_check += (int32_t)(adaptive_intercept + ((int32_t)next_adapt_check) * adaptive_slope);
+      }
+    }
+    perm_2success_ct[marker_idx] += success_2incr;
+  }
   THREAD_RETURN;
 }
 
@@ -9568,7 +9644,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
           goto testmiss_ret_NOMEM;
 	}
 	for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-	  g_perm_attempt_ct[marker_idx] = uii;
+	  g_perm_attempt_ct[marker_idx] = perms_total;
 	}
 	fill_ulong_zero((uintptr_t*)g_perm_adapt_stop, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
         g_adaptive_ci_zt = ltqnorm(1 - apip->beta / (2.0 * ((intptr_t)marker_ct)));
@@ -9585,9 +9661,6 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
       g_male_ct = male_ct;
       g_fisher_midp = midp;
       g_mperm_save_all = NULL;
-      logprint("Error: --test-missing permutation tests are currently under development.\n");
-      retval = RET_CALC_NOT_YET_SUPPORTED;
-      goto testmiss_ret_1;
       // ----- begin main loop -----
     testmiss_more_perms:
       if (perm_adapt) {
@@ -9818,10 +9891,14 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
           join_threads(threads, g_assoc_thread_ct);
 	  // ...
 	}
+        marker_idx += block_size;
       } while (marker_idx < marker_unstopped_ct);
       // really should postpone this for --assoc/--model too
       g_perms_done += g_perm_vec_ct;
-      // ...
+      if (mperm_dump_all) {
+	// ...
+      }
+      wkspace_reset((unsigned char*)g_perm_vecs);
       if (g_perms_done < perms_total) {
         if (perm_adapt) {
 	  marker_unstopped_ct = marker_ct - popcount01_longs((uintptr_t*)g_perm_adapt_stop, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));

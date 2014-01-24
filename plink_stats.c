@@ -1159,17 +1159,17 @@ void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_
     right12 -= 1;
     right21 -= 1;
   }
-  dxx = pval * tot_prob * (1 - SMALL_EPSILON / 2);
-  threshold = pval * tot_prob * (1 + SMALL_EPSILON / 2);
+  dxx = pval * tot_prob * (1 - SMALLISH_EPSILON / 2);
+  threshold = pval * tot_prob * (1 + SMALLISH_EPSILON / 2);
   lii = 0;
   while (1) {
-    if (left_prob < right_prob * (1 - SMALL_EPSILON / 2)) {
+    if (left_prob < right_prob * (1 - SMALLISH_EPSILON / 2)) {
       if (tail_prob + left_prob > threshold) {
 	break;
       }
       tail_prob += left_prob;
       uii = 1;
-    } else if (right_prob < left_prob * (1 - SMALL_EPSILON / 2)) {
+    } else if (right_prob < left_prob * (1 - SMALLISH_EPSILON / 2)) {
       if (tail_prob + right_prob > threshold) {
 	break;
       }
