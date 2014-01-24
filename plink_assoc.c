@@ -9217,7 +9217,11 @@ THREAD_RET_TYPE testmiss_adapt_thread(void* arg) {
   double adaptive_slope = g_adaptive_slope;
   double adaptive_ci_zt = g_adaptive_ci_zt;
   double aperm_alpha = g_aperm_alpha;
+  double stat_high = 0;
+  double stat_low = 0;
   uint32_t valid_obs_ct = pheno_nm_ct;
+  uint32_t missing_sum = 0;
+  uint32_t nm_sum = 0;
   uint32_t* male_case_cts = NULL;
   uintptr_t* loadbuf_ptr;
   uint32_t* gpui;
@@ -9226,11 +9230,9 @@ THREAD_RET_TYPE testmiss_adapt_thread(void* arg) {
   uint32_t success_2start;
   uint32_t success_2incr;
   uint32_t next_adapt_check;
-  uint32_t missing_sum;
   uint32_t missing_case_ct;
+  uint32_t case_ct;
   uint32_t uii;
-  double stat_high;
-  double stat_low;
   double pval;
   double dxx;
   double dyy;
@@ -9245,16 +9247,21 @@ THREAD_RET_TYPE testmiss_adapt_thread(void* arg) {
   for (; marker_bidx < marker_bceil; marker_bidx++) {
     marker_idx = adapt_m_table[marker_bidx];
     next_adapt_check = first_adapt_check;
-    missing_sum = missing_cts[marker_idx];
     gpui = &(precomp_ui[4 * marker_bidx]);
-    stat_high = orig_1mpval[marker_idx] + EPSILON;
-    stat_low = orig_1mpval[marker_idx] - EPSILON;
+    if (is_y) {
+      missing_sum = missing_cts[marker_idx];
+      nm_sum = valid_obs_ct - missing_sum;
+      // don't have to support both fisher and chisq here, so just use p
+      // instead of 1-p
+      stat_high = 1.0 - orig_1mpval[marker_idx] + EPSILON;
+      stat_low = 1.0 - orig_1mpval[marker_idx] - EPSILON;
+    }
     success_2start = perm_2success_ct[marker_idx];
     success_2incr = 0;
     loadbuf_ptr = &(loadbuf[marker_bidx * pheno_nm_ctv]);
     for (pidx = 0; pidx < perm_vec_ct;) {
+      missing_case_ct = popcount_longs_intersect(loadbuf_ptr, &(perm_vecs[pidx * pheno_nm_ctv]), pheno_nm_ctl);
       if (!is_y) {
-	missing_case_ct = popcount_longs_intersect(loadbuf_ptr, &(perm_vecs[pidx * pheno_nm_ctv]), pheno_nm_ctl);
 	if (missing_case_ct < gpui[0]) {
 	  if (missing_case_ct < gpui[2]) {
 	    success_2incr += 2;
@@ -9271,8 +9278,13 @@ THREAD_RET_TYPE testmiss_adapt_thread(void* arg) {
 	  }
 	}
       } else {
-	// todo
-	uii = is_midp;
+        case_ct = male_case_cts[pidx];
+        pval = fisher22(missing_case_ct, case_ct - missing_case_ct, missing_sum - missing_case_ct, nm_sum + missing_case_ct - case_ct, is_midp);
+	if (pval < stat_low) {
+	  success_2incr += 2;
+	} else if (pval < stat_high) {
+	  success_2incr++;
+	}
       }
       if (++pidx == next_adapt_check - pidx_offset) {
         uii = success_2start + success_2incr;
@@ -9281,7 +9293,6 @@ THREAD_RET_TYPE testmiss_adapt_thread(void* arg) {
           dxx = adaptive_ci_zt * sqrt(pval * (1 - pval) / ((int32_t)next_adapt_check));
           dyy = pval - dxx;
           dzz = pval + dxx;
-	  // printf("%u %u %g\n", uii, success_2start + success_2incr, pval);
           if ((dyy > aperm_alpha) || (dzz < aperm_alpha)) {
             perm_adapt_stop[marker_idx] = 1;
             perm_attempt_ct[marker_idx] = next_adapt_check;
@@ -9657,6 +9668,10 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
       g_male_ct = male_ct;
       g_fisher_midp = midp;
       g_mperm_save_all = NULL;
+      if (perm_maxt) {
+	logprint("Error: --test-missing max(T) permutation test is currently under development.\n");
+	goto testmiss_ret_1;
+      }
       // ----- begin main loop -----
     testmiss_more_perms:
       if (perm_adapt) {

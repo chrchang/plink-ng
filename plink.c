@@ -12428,7 +12428,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --bed and --bim cannot be used without --bfile or --fam.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        retval = ped_to_bed(pedname, mapname, outname, sptr, fam_cols, (misc_flags / MISC_AFFECTION_01) & 1, missing_pheno, &chrom_info);
+        retval = ped_to_bed(pedname, mapname, outname, sptr, fam_cols, misc_flags, missing_pheno, &chrom_info);
 	fam_cols |= FAM_COL_1 | FAM_COL_34 | FAM_COL_5;
 	if (!(fam_cols & FAM_COL_6)) {
           fam_cols |= FAM_COL_6;

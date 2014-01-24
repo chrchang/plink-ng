@@ -363,7 +363,7 @@ int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr
 
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 
-int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_len_ptr, uintptr_t** marker_exclude_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, uint32_t** marker_pos_ptr, uint32_t* map_is_unsorted_ptr) {
+int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_len_ptr, uintptr_t** marker_exclude_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, uint32_t** marker_pos_ptr, uint32_t* map_is_unsorted_ptr, uint32_t allow_extra_chroms) {
   // todo: some cleanup
   uintptr_t marker_exclude_ct = *marker_exclude_ct_ptr;
   uintptr_t max_marker_id_len = 0;
@@ -463,8 +463,14 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
     }
     jj = get_chrom_code(chrom_info_ptr, bufptr);
     if (jj == -1) {
-      logprint("Error: Invalid chromosome code in .map file.\n");
-      goto load_map_ret_INVALID_FORMAT;
+      if (!allow_extra_chroms) {
+	logprint("Error: Invalid chromosome code in .map file.  (Use --allow-extra-chr to force\nit to be accepted.\n");
+	goto load_map_ret_INVALID_FORMAT;
+      }
+      retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &jj);
+      if (retval) {
+	goto load_map_ret_1;
+      }
     }
     if (jj != last_chrom) {
       if (last_chrom != -1) {
@@ -542,6 +548,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
     retval = RET_ALL_MARKERS_EXCLUDED;
     break;
   }
+ load_map_ret_1:
   return retval;
 }
 
@@ -4595,7 +4602,8 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
     for (; marker_idx < ujj; marker_idx++) {
       marker_idx2 = (uint32_t)ll_buf[marker_idx];
       marker_uidx = unpack_map[marker_idx2];
-      bufptr = uint32_writex(wbuf, cur_chrom, '\t');
+      bufptr = chrom_name_write(wbuf, chrom_info_ptr, cur_chrom, 0);
+      *bufptr++ = '\t';
       fwrite(wbuf, 1, bufptr - wbuf, map_outfile);
       fputs(&(marker_ids[marker_idx2 * max_marker_id_len]), map_outfile);
       wbuf[0] = '\t';
@@ -6516,7 +6524,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
   return retval;
 }
 
-int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_end, uint32_t fam_cols, uint32_t affection_01, int32_t missing_pheno, Chrom_info* chrom_info_ptr) {
+int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_end, uint32_t fam_cols, uint64_t misc_flags, int32_t missing_pheno, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* mapfile = NULL;
   FILE* pedfile = NULL;
@@ -6526,6 +6534,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   uintptr_t unfiltered_marker_ct = 0;
   uintptr_t marker_exclude_ct = 0;
   uintptr_t marker_ct = 0;
+  uint32_t allow_extra_chroms = (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1;
   uint32_t map_is_unsorted = 0;
   int32_t last_chrom = 0;
   uint32_t last_mpos = 0;
@@ -6598,9 +6607,15 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     }
     ii = get_chrom_code(chrom_info_ptr, col1_ptr);
     if (ii == -1) {
-      // no need to support allow_extra_chroms in .map files
-      logprint("Error: Invalid chromosome index in .map file.\n");
-      goto ped_to_bed_ret_INVALID_FORMAT;
+      // guess it's best to extend .map format too
+      if (!allow_extra_chroms) {
+	logprint("Error: Unrecognized chromosome code in .map file.  (Did you forget\n--allow-extra-chr?)\n");
+	goto ped_to_bed_ret_INVALID_FORMAT;
+      }
+      retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii);
+      if (retval) {
+	goto ped_to_bed_ret_1;
+      }
     }
     if ((*bufptr == '-') || (!is_set(chrom_info_ptr->chrom_mask, ii))) {
       SET_BIT(marker_exclude, unfiltered_marker_ct);
@@ -7191,6 +7206,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   FILE* outfile = NULL;
   char* name_end = (char*)memchr(lgen_namebuf, 0, FNAMESIZE);
   uint32_t lgen_allele_count = lgen_modifier & LGEN_ALLELE_COUNT;
+  uint32_t allow_extra_chroms = (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1;
   uint32_t affection_01 = (misc_flags / MISC_AFFECTION_01) & 1;
   uint32_t map_cols = 3;
   uintptr_t* marker_exclude = NULL;
@@ -7263,7 +7279,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   }
 
   memcpy(name_end, ".map", 5);
-  retval = load_map(&infile, lgen_namebuf, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &marker_ids, chrom_info_ptr, &marker_pos, &map_is_unsorted);
+  retval = load_map(&infile, lgen_namebuf, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &marker_ids, chrom_info_ptr, &marker_pos, &map_is_unsorted, allow_extra_chroms);
   if (retval) {
     goto lgen_to_bed_ret_1;
   }
@@ -8040,7 +8056,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     ii = get_chrom_code(chrom_info_ptr, cptr);
     if (ii == -1) {
       if (!allow_extra_chroms) {
-	logprint("Error: Unrecognized chromosome code in .tped file.  (Did you forget\n--allow-extra-chroms?).\n");
+	logprint("Error: Unrecognized chromosome code in .tped file.  (Did you forget\n--allow-extra-chr?)\n");
 	goto transposed_to_bed_ret_INVALID_FORMAT_2;
       }
       retval = resolve_or_add_chrom_name(chrom_info_ptr, cptr, &ii);

@@ -3216,7 +3216,7 @@ int32_t get_chrom_code(Chrom_info* chrom_info_ptr, char* sptr) {
       if (bsearch_str_idx(sptr, strlen_se(sptr), &(chrom_info_ptr->nonstd_names[max_code_p1]), chrom_info_ptr->nonstd_name_order, chrom_info_ptr->name_ct, &uii)) {
         return -1;
       }
-      return uii + max_code_p1;
+      return chrom_info_ptr->nonstd_name_order[uii] + max_code_p1;
     } else if (((uint32_t)ii) >= max_code_p1) {
       return -1;
     }
