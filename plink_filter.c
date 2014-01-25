@@ -1272,7 +1272,6 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
     goto calc_freqs_and_hwe_ret_NOMEM;
   }
   memcpy(indiv_male_include2, indiv_include2, unfiltered_indiv_ctv2 * sizeof(intptr_t));
-  vec_include_mask_in(unfiltered_indiv_ct, indiv_male_include2, sex_nm);
   vec_include_mask_in(unfiltered_indiv_ct, indiv_male_include2, sex_male);
   indiv_male_ct = popcount01_longs(indiv_male_include2, unfiltered_indiv_ctv2);
   if (indiv_male_ct) {

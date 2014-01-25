@@ -3297,11 +3297,6 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     goto plink_ret_INVALID_CMDLINE_2;
   }
   unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
-  bitfield_andnot(pheno_nm, indiv_exclude, unfiltered_indiv_ctl);
-  if (pheno_c) {
-    bitfield_and(pheno_c, pheno_nm, unfiltered_indiv_ctl);
-  }
-  bitfield_andnot(founder_info, indiv_exclude, unfiltered_indiv_ctl);
 
   if ((parallel_tot > 1) && (parallel_tot > g_indiv_ct / 2)) {
     sprintf(logbuf, "Error: Too many --parallel jobs (maximum %" PRIuPTR "/2 = %" PRIuPTR ").\n", g_indiv_ct, g_indiv_ct / 2);
@@ -3358,6 +3353,13 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
     }
   }
+  bitfield_andnot(pheno_nm, indiv_exclude, unfiltered_indiv_ctl);
+  if (pheno_c) {
+    bitfield_and(pheno_c, pheno_nm, unfiltered_indiv_ctl);
+  }
+  bitfield_andnot(founder_info, indiv_exclude, unfiltered_indiv_ctl);
+  bitfield_andnot(sex_nm, indiv_exclude, unfiltered_indiv_ctl);
+  bitfield_and(sex_male, sex_nm, unfiltered_indiv_ctl);
 
   pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
   if (!pheno_nm_ct) {
@@ -3655,9 +3657,14 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
   if (calculation_type & CALC_TESTMISHAP) {
-    logprint("Error: --test-mishap is currently under development.\n.");
-    retval = RET_CALC_NOT_YET_SUPPORTED;
-    goto plink_ret_1;
+    if (map_is_unsorted & UNSORTED_BP) {
+      logprint("Error: --test-mishap requires a sorted .map/.bim.  Retry this command after\nusing --make-bed to sort your data.\n");
+      goto plink_ret_INVALID_CMDLINE;
+    }
+    retval = test_mishap(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, min_maf, chrom_info_ptr, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct);
+    if (retval) {
+      goto plink_ret_1;
+    }
   }
 
   /*
@@ -3735,6 +3742,20 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       retval = calc_rel_f(threads, parallel_idx, parallel_tot, calculation_type, rel_calc_type, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ct, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, person_ids, max_person_id_len, ibc_type, (float)rel_cutoff, set_allele_freqs, chrom_info_ptr);
     } else {
       retval = calc_rel(threads, parallel_idx, parallel_tot, calculation_type, rel_calc_type, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ct, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, person_ids, max_person_id_len, ibc_type, rel_cutoff, set_allele_freqs, &rel_ibc, chrom_info_ptr);
+    }
+    if (calculation_type & CALC_REL_CUTOFF) {
+      // ugh, probably better to just stop supporting this
+      bitfield_andnot(founder_info, indiv_exclude, unfiltered_indiv_ctl);
+      bitfield_andnot(sex_nm, indiv_exclude, unfiltered_indiv_ctl);
+      bitfield_and(sex_male, sex_nm, unfiltered_indiv_ctl);
+      if (pheno_nm_ct) {
+	bitfield_andnot(pheno_nm, indiv_exclude, unfiltered_indiv_ctl);
+	if (pheno_c) {
+	  bitfield_and(pheno_c, pheno_nm, unfiltered_indiv_ctl);
+          pheno_ctrl_ct = popcount_longs_exclude(pheno_nm, pheno_c, unfiltered_indiv_ctl);
+	}
+        pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
+      }
     }
     if (retval) {
       goto plink_ret_1;
@@ -10154,6 +10175,12 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --parallel cannot be used with --rel-cutoff.  (Use a combination of\n--make-rel, --keep/--remove, and a filtering script.)%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
+	if (covar_fname) {
+	  // corner case: --rel-cutoff screws up covariate filtered indices
+          logprint("Error: --covar cannot be used with --rel-cutoff.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
