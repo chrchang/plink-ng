@@ -1049,7 +1049,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 #ifdef __cplusplus
       std::sort((int64_t*)range_sort_buf, (int64_t*)(&(range_sort_buf[uii])));
 #else
-      qsort((int64_t*), uii, sizeof(int64_t), llcmp);
+      qsort((int64_t*)range_sort_buf, uii, sizeof(int64_t), llcmp);
 #endif
       ukk = 0; // current end of sorted interval list
       range_last = (uint32_t)range_sort_buf[0];

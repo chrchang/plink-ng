@@ -6556,16 +6556,16 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
     } else if (rel_calc_type & REL_CALC_GRM_BIN) {
       memcpy(outname_end, ".grm.N.bin", 11);
       if (parallel_tot > 1) {
-	outname[10] = '.';
-	uint32_writex(&(outname[11]), parallel_idx + 1, '\0');
+	outname_end[10] = '.';
+	uint32_writex(&(outname_end[11]), parallel_idx + 1, '\0');
       }
       if (fopen_checked(&out_bin_nfile, outname, "wb")) {
 	goto calc_rel_f_ret_OPEN_FAIL;
       }
       memcpy(outname_end, ".grm.bin", 9);
       if (parallel_tot > 1) {
-	outname[8] = '.';
-	uint32_writex(&(outname[9]), parallel_idx + 1, '\0');
+	outname_end[8] = '.';
+	uint32_writex(&(outname_end[9]), parallel_idx + 1, '\0');
       }
       if (fopen_checked(&outfile, outname, "wb")) {
 	goto calc_rel_f_ret_OPEN_FAIL;
