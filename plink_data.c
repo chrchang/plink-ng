@@ -6612,7 +6612,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
 	logprint("Error: Unrecognized chromosome code in .map file.  (Did you forget\n--allow-extra-chr?)\n");
 	goto ped_to_bed_ret_INVALID_FORMAT;
       }
-      retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii);
+      retval = resolve_or_add_chrom_name(chrom_info_ptr, col1_ptr, &ii);
       if (retval) {
 	goto ped_to_bed_ret_1;
       }
