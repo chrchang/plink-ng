@@ -87,7 +87,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (26 Jan 2014)";
+  " (27 Jan 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -5352,6 +5352,9 @@ int32_t main(int32_t argc, char** argv) {
 	    memcpy(flagptr, "alleleACGT", 11);
 	    break;
 	  }
+	} else if (!strcmp(argptr, "aec")) {
+	  memcpy(flagptr, "allow-extra-chr", 16);
+	  break;
 	}
 	goto main_flag_copy;
       case 'b':

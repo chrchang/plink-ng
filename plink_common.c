@@ -7123,6 +7123,111 @@ void vec_include_mask_out_intersect(uintptr_t unfiltered_indiv_ct, uintptr_t* in
   } while (--unfiltered_indiv_ctl);
 }
 
+void vec_init_01(uintptr_t unfiltered_indiv_ct, uintptr_t* data_ptr, uintptr_t* result_ptr) {
+  // initializes result_ptr bits 01 iff data_ptr bits are 01
+#ifdef __LP64__
+  const __m128i m1 = {FIVEMASK, FIVEMASK};
+  __m128i* vec2_read = (__m128i*)data_ptr;
+  __m128i* read_end = &(vec2_read[(unfiltered_indiv_ct + (BITCT - 1)) / BITCT]);
+  __m128i* vec2_write = (__m128i*)result_ptr;
+  __m128i loader;
+  do {
+    loader = *vec2_read++;
+    *vec2_write++ = _mm_and_si128(_mm_andnot_si128(_mm_srli_epi64(loader, 1), loader), m1);
+  } while (vec2_read < read_end);
+#else
+  uintptr_t* read_end = &(data_ptr[2 * ((unfiltered_indiv_ct + (BITCT - 1)) / BITCT)]);
+  uintptr_t loader;
+  do {
+    loader = *data_ptr++;
+    *result_ptr++ = loader & (~(loader >> 1)) & FIVEMASK;
+  } while (data_ptr < read_end);
+#endif
+}
+
+void vec_invert(uintptr_t unfiltered_indiv_ct, uintptr_t* vec2) {
+  uintptr_t* vec2_last = &(vec2[unfiltered_indiv_ct / BITCT2]);
+  uint32_t remainder = unfiltered_indiv_ct & (BITCT2 - 1);
+#ifdef __LP64__
+  const __m128i m1 = {FIVEMASK, FIVEMASK};
+  __m128i* vec2_128 = (__m128i*)vec2;
+  __m128i* vec2_last128 = &(vec2_128[unfiltered_indiv_ct / BITCT]);
+  while (vec2_128 < vec2_last128) {
+    *vec2_128 = _mm_xor_si128(*vec2_128, m1);
+    vec2_128++;
+  }
+  vec2 = (uintptr_t*)vec2_128;
+  if (vec2 != vec2_last) {
+    *vec2 = (*vec2) ^ FIVEMASK;
+    vec2++;
+  }
+#else
+  while (vec2 != vec2_last) {
+    *vec2 = (*vec2) ^ FIVEMASK;
+    vec2++;
+  }
+#endif
+  if (remainder) {
+    *vec2_last = *vec2_last ^ (FIVEMASK >> (2 * (BITCT2 - remainder)));
+  }
+}
+
+void vec_datamask(uintptr_t unfiltered_indiv_ct, uint32_t matchval, uintptr_t* data_ptr, uintptr_t* mask_ptr, uintptr_t* result_ptr) {
+  // vec_ptr assumed to be standard 00/01 bit vector
+  // sets result_vec bits to 01 iff data_ptr bits are equal to matchval and
+  // vec_ptr bit is set, 00 otherwise.
+  // currently assumes matchval is not 1.
+#ifdef __LP64__
+  __m128i* data_read = (__m128i*)data_ptr;
+  __m128i* mask_read = (__m128i*)mask_ptr;
+  __m128i* data_read_end = &(data_read[(unfiltered_indiv_ct + (BITCT - 1)) / BITCT]);
+  __m128i* writer = (__m128i*)result_ptr;
+  __m128i loader;
+#else
+  uintptr_t* data_read_end = &(data_ptr[2 * (unfiltered_indiv_ct + (BITCT - 1)) / BITCT]);
+  uintptr_t loader;
+#endif
+  if (matchval) {
+    if (matchval == 2) {
+#ifdef __LP64__
+      do {
+        loader = *data_read++;
+        *writer++ = _mm_and_si128(_mm_andnot_si128(loader, _mm_srli_epi64(loader, 1)), *mask_read++);
+      } while (data_read < data_read_end);
+#else
+      do {
+	loader = *data_ptr++;
+        *result_ptr++ = (~loader) & (loader >> 1) & (*mask_ptr++);
+      } while (data_ptr < data_read_end)
+#endif
+    } else {
+#ifdef __LP64__
+      do {
+        loader = *data_read++;
+        *writer++ = _mm_and_si128(_mm_and_si128(loader, _mm_srli_epi64(loader, 1)), *mask_read++);
+      } while (data_read < data_read_end);
+#else
+      do {
+        loader = *data_ptr++;
+        *result_ptr++ = loader & (loader >> 1) & (*mask_ptr++);
+      } while (data_ptr < data_read_end)
+#endif
+    }
+  } else {
+#ifdef __LP64__
+    do {
+      loader = *data_read++;
+      *writer++ = _mm_andnot_si128(_mm_or_si128(loader, _mm_srli_epi64(loader, 1)), *mask_read++);
+    } while (data_read < data_read_end);
+#else
+    do {
+      loader = *data_ptr++;
+      *result_ptr++ = (~(loader | (loader >> 1))) & (*mask_ptr++);
+    } while (data_ptr < data_read_end)
+#endif
+  }
+}
+
 void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_include2, uintptr_t indiv_ct, uintptr_t* missing_bitfield) {
   uint32_t word_ct = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t indiv_idx;

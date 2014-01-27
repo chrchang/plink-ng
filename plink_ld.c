@@ -3341,6 +3341,100 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   THREAD_RETURN;
 }
 
+uint32_t phase_flanking_haps(uint32_t* counts, double* freq1x_ptr, double* freq2x_ptr, double* freqx1_ptr, double* freqx2_ptr, double* freq11_ptr) {
+  // returns 1 if at least one SNP is monomorphic over all valid observations
+  // otherwise, returns 0, and fills all frequencies using EM phasing
+  uintptr_t base_ct11 = 2 * counts[0] + counts[1] + counts[3];
+  uintptr_t base_ct12 = 2 * counts[2] + counts[1] + counts[5];
+  uintptr_t base_ct21 = 2 * counts[6] + counts[3] + counts[7];
+  uintptr_t base_ct22 = 2 * counts[8] + counts[5] + counts[7];
+  uintptr_t twice_tot = base_ct11 + base_ct12 + base_ct21 + base_ct22 + 2 * counts[4];
+  double twice_tot_recip;
+  double half_hethet_share;
+  double freq11;
+  double freq12;
+  double freq21;
+  double freq22;
+  double prod_1122;
+  double prod_1221;
+  double sum_1122;
+  double prod_1122_cur;
+  double last_incr_1122;
+  double incr_1122;
+  double freq1x;
+  double freq2x;
+  double freqx1;
+  double freqx2;
+  double dxx;
+  if (!twice_tot) {
+    return 1;
+  }
+  twice_tot_recip = 1.0 / ((double)((intptr_t)twice_tot));
+  freq11 = ((intptr_t)base_ct11) * twice_tot_recip;
+  freq12 = ((intptr_t)base_ct12) * twice_tot_recip;
+  freq21 = ((intptr_t)base_ct21) * twice_tot_recip;
+  freq22 = ((intptr_t)base_ct22) * twice_tot_recip;
+  prod_1122 = freq11 * freq22;
+  prod_1221 = freq12 * freq21;
+  half_hethet_share = ((int32_t)counts[4]) * twice_tot_recip;
+  // the following four values should all be guaranteed nonzero except in the
+  // NAN case
+  freq1x = freq11 + freq12 + half_hethet_share;
+  freq2x = 1.0 - freq1x;
+  freqx1 = freq11 + freq21 + half_hethet_share;
+  freqx2 = 1.0 - freqx1;
+  if (counts[4]) {
+    if (prod_1122 != 0.0) {
+      if (prod_1221 != 0.0) {
+	sum_1122 = freq11 + freq22;
+	incr_1122 = half_hethet_share * prod_1122 / (prod_1122 + prod_1221);
+	prod_1221 = (freq12 + half_hethet_share) * (freq21 + half_hethet_share);
+	// todo: compare this EM loop with alternatives such as analytic
+	// solution, Newton-Raphson on cubic (is this effectively
+	// identical?)...
+	do {
+	  last_incr_1122 = incr_1122;
+	  dxx = (sum_1122 + incr_1122) * incr_1122;
+	  prod_1122_cur = prod_1122 + dxx;
+	  incr_1122 = half_hethet_share * prod_1122_cur / (prod_1122_cur + prod_1221 + dxx - incr_1122);
+	} while (fabs(incr_1122 - last_incr_1122) > EPSILON);
+	// only actually need freq11
+	freq11 += incr_1122;
+      } else {
+	freq11 += half_hethet_share;
+      }
+    } else if (prod_1221 == 0.0) {
+      // 0/0, so regular EM initialization doesn't work, but if we reject the
+      // degenerate solutions we're down to a linear equation (assuming WLOG
+      // that f11 and f12 are zero):
+      //
+      //   x(f22 + x)(K - x) = x(K - x)(f21 + K - x)
+      //   f22 + x = f21 + K - x
+      //   2x = f21 + K - f22
+      //   x = (K + f21 - f22) / 2
+
+      // bugfix: when K is out of range, we do actually want to use the 0 or K
+      // solution
+      incr_1122 = (half_hethet_share - freq11 + freq12 + freq21 - freq22) * 0.5;
+      if (incr_1122 > 0.0) {
+	if (incr_1122 < half_hethet_share) {
+	  freq11 += incr_1122;
+	} else {
+	  freq11 += half_hethet_share;
+	}
+      }
+    }
+  } else if ((prod_1122 == 0.0) && (prod_1221 == 0.0)) {
+    return 1;
+  }
+  *freq1x_ptr = freq1x;
+  *freq2x_ptr = freq2x;
+  *freqx1_ptr = freqx1;
+  *freqx2_ptr = freqx2;
+  *freq11_ptr = freq11;
+  return 0;
+}
+
 THREAD_RET_TYPE ld_dprime_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
   uintptr_t block_idx1_start = (tidx * g_ld_idx1_block_size) / g_ld_thread_ct;
@@ -3369,23 +3463,8 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
   uintptr_t block_idx2;
   uintptr_t cur_zmiss2;
   uintptr_t cur_block_idx2_end;
-  uintptr_t base_ct11;
-  uintptr_t base_ct12;
-  uintptr_t base_ct21;
-  uintptr_t base_ct22;
-  uintptr_t twice_tot;
-  double twice_tot_recip;
-  double half_hethet_share;
   double freq11;
-  double freq12;
-  double freq21;
-  double freq22;
-  double prod_1122;
-  double prod_1221;
-  double sum_1122;
-  double prod_1122_cur;
-  double last_incr_1122;
-  double incr_1122;
+  double freq11_expected;
   double freq1x;
   double freq2x;
   double freqx1;
@@ -3438,94 +3517,29 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
           counts[8] = tot1[2] - counts[6] - counts[7];
 	}
       }
-      base_ct11 = 2 * counts[0] + counts[1] + counts[3];
-      base_ct12 = 2 * counts[2] + counts[1] + counts[5];
-      base_ct21 = 2 * counts[6] + counts[3] + counts[7];
-      base_ct22 = 2 * counts[8] + counts[5] + counts[7];
-      twice_tot = base_ct11 + base_ct12 + base_ct21 + base_ct22 + 2 * counts[4];
-      if (!twice_tot) {
-        *rptr++ = NAN;
-	*rptr++ = NAN;
-	continue;
-      }
-      twice_tot_recip = 1.0 / ((double)((intptr_t)twice_tot));
-      freq11 = ((intptr_t)base_ct11) * twice_tot_recip;
-      freq12 = ((intptr_t)base_ct12) * twice_tot_recip;
-      freq21 = ((intptr_t)base_ct21) * twice_tot_recip;
-      freq22 = ((intptr_t)base_ct22) * twice_tot_recip;
-      prod_1122 = freq11 * freq22;
-      prod_1221 = freq12 * freq21;
-      half_hethet_share = ((int32_t)counts[4]) * twice_tot_recip;
-      // the following four values should all be guaranteed nonzero except in
-      // the NAN case
-      freq1x = freq11 + freq12 + half_hethet_share;
-      freq2x = 1.0 - freq1x;
-      freqx1 = freq11 + freq21 + half_hethet_share;
-      freqx2 = 1.0 - freqx1;
-      if (counts[4]) {
-        if (prod_1122 != 0.0) {
-	  if (prod_1221 != 0.0) {
-	    sum_1122 = freq11 + freq22;
-	    incr_1122 = half_hethet_share * prod_1122 / (prod_1122 + prod_1221);
-	    prod_1221 = (freq12 + half_hethet_share) * (freq21 + half_hethet_share);
-	    // todo: compare this EM loop with alternatives such as analytic
-	    // solution, Newton-Raphson on cubic (is this effectively
-	    // identical?)...
-	    do {
-	      last_incr_1122 = incr_1122;
-	      dxx = (sum_1122 + incr_1122) * incr_1122;
-	      prod_1122_cur = prod_1122 + dxx;
-	      incr_1122 = half_hethet_share * prod_1122_cur / (prod_1122_cur + prod_1221 + dxx - incr_1122);
-	    } while (fabs(incr_1122 - last_incr_1122) > EPSILON);
-	    // only actually need freq11
-	    freq11 += incr_1122;
-	  } else {
-            freq11 += half_hethet_share;
-	  }
-	} else if (prod_1221 == 0.0) {
-	  // 0/0, so regular EM initialization doesn't work, but if we reject
-	  // the degenerate solutions we're down to a linear equation (assuming
-	  // WLOG that f11 and f12 are zero):
-	  //
-	  //   x(f22 + x)(K - x) = x(K - x)(f21 + K - x)
-	  //   f22 + x = f21 + K - x
-	  //   2x = f21 + K - f22
-	  //   x = (K + f21 - f22) / 2
-
-	  // bugfix: when K < abs(f21 - f22), we do actually want to use the 0
-	  // or K solution
-	  incr_1122 = (half_hethet_share - freq11 + freq12 + freq21 - freq22) * 0.5;
-	  if (incr_1122 > 0.0) {
-            if (incr_1122 < half_hethet_share) {
-	      freq11 += incr_1122;
-	    } else {
-	      freq11 += half_hethet_share;
-	    }
-	  }
-	}
-      } else if ((prod_1122 == 0.0) && (prod_1221 == 0.0)) {
+      if (phase_flanking_haps(counts, &freq1x, &freq2x, &freqx1, &freqx2, &freq11)) {
 	*rptr++ = NAN;
 	*rptr++ = NAN;
 	continue;
       }
-      last_incr_1122 = freqx1 * freq1x; // fA * fB temp var
+      freq11_expected = freqx1 * freq1x; // fA * fB temp var
       // a bit of numeric instability here, but not tragic since this is the
       // end of the calculation
-      dxx = freq11 - last_incr_1122; // D
+      dxx = freq11 - freq11_expected; // D
       if (fabs(dxx) < SMALL_EPSILON) {
 	*rptr++ = 0;
 	*rptr = 0;
       } else {
 	if (is_r2) {
-	  *rptr = fabs(dxx) * dxx / (last_incr_1122 * freq2x * freqx2);
+	  *rptr = fabs(dxx) * dxx / (freq11_expected * freq2x * freqx2);
 	} else {
-	  *rptr = dxx / sqrt(last_incr_1122 * freq2x * freqx2);
+	  *rptr = dxx / sqrt(freq11_expected * freq2x * freqx2);
 	}
 	rptr++;
 	if (dxx >= 0) {
 	  *rptr = dxx / MINV(freqx1 * freq2x, freqx2 * freq1x);
 	} else {
-	  *rptr = -dxx / MINV(last_incr_1122, freqx2 * freq2x);
+	  *rptr = -dxx / MINV(freq11_expected, freqx2 * freq2x);
 	}
       }
       rptr++;
@@ -4989,8 +5003,8 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
 	if (freq12 * freq21 != 0.0) {
 	  // (f11 + x)(f22 + x)(K - x) = x(f12 + K - x)(f21 + K - x)
 	  // (x - K)(x + f11)(x + f22) + x(x - K - f12)(x - K - f21) = 0
-	  //   x^3 + (f11 + f22 - K)x^2 + (f11*f22 - K*f11 - K*f22)x - K*f11*f22
-	  // + x^3 - (2K + f12 + f21)x^2 + (K + f12)(K + f21)x = 0
+	  //   x^3 + (f11 + f22 - K)x^2 + (f11*f22 - K*f11 - K*f22)x
+	  // - K*f11*f22 + x^3 - (2K + f12 + f21)x^2 + (K + f12)(K + f21)x = 0
 	  uljj = cubic_real_roots(0.5 * (freq11 + freq22 - freq12 - freq21 - 3 * half_hethet_share), 0.5 * (freq11 * freq22 + freq12 * freq21 + half_hethet_share * (freq12 + freq21 - freq11 - freq22 + half_hethet_share)), -0.5 * half_hethet_share * freq11 * freq22, solutions);
 	  if (uljj > 1) {
 	    while (solutions[uljj - 1] > half_hethet_share) {
@@ -6594,6 +6608,169 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
   }
  epi_summary_merge_ret_1:
   fclose_cond(infile);
+  fclose_cond(outfile);
+  wkspace_reset(wkspace_mark);
+  return retval;
+}
+
+int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, double min_maf, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct) {
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* outfile = NULL;
+  uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + BITCT2 - 1) / BITCT2;
+  uintptr_t indiv_ctl2 = (indiv_ct + BITCT2 - 1) / BITCT2;
+  uintptr_t indiv_ctv2 = 2 * ((indiv_ct + BITCT - 1) / BITCT);
+  uintptr_t marker_uidx_prev = 0;
+  uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
+  uint32_t inspected_ct = 0;
+  uint32_t missing_ct_next = 0;
+  int32_t retval = 0;
+  // need following counts:
+  //   all 9 flanking hap combinations | current missing
+  //     [0]: prev = 00, next = 00
+  //     [1]: prev = 00, next = 10
+  //     [2]: prev = 00, next = 11
+  //     [3]: prev = 10, next = 00
+  //     ...
+  //   all 9 flanking hap combinations | current nonmissing [9..17]
+  uint32_t flanking_counts[18];
+  uintptr_t* loadbuf_raw;
+  uintptr_t* loadbuf;
+  uintptr_t* loadbuf_end;
+  uintptr_t* prevsnp_ptr;
+  uintptr_t* cursnp_ptr;
+  uintptr_t* nextsnp_ptr;
+  uintptr_t* maskbuf_mid;
+  uintptr_t* maskbuf;
+  // char* wptr_start;
+  // char* wptr;
+  uint32_t* uiptr;
+  uintptr_t marker_uidx_cur;
+  uintptr_t marker_uidx_next;
+  uint32_t missing_ct_cur;
+  uint32_t chrom_fo_idx;
+  uint32_t chrom_idx;
+  uint32_t chrom_end;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+  uint32_t umm;
+  if (is_set(chrom_info_ptr->haploid_mask, 1)) {
+    logprint("Error: --test-mishap can only be used on diploid genomes.\n");
+    goto test_mishap_ret_INVALID_CMDLINE;
+  }
+  if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&loadbuf, indiv_ctv2 * 3 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&maskbuf_mid, indiv_ctv2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&maskbuf, indiv_ctv2 * sizeof(intptr_t))) {
+    goto test_mishap_ret_NOMEM;
+  }
+  loadbuf_raw[unfiltered_indiv_ctl2 - 1] = 0;
+  loadbuf[indiv_ctv2 - 2] = 0;
+  loadbuf[indiv_ctv2 - 1] = 0;
+  loadbuf[2 * indiv_ctv2 - 2] = 0;
+  loadbuf[2 * indiv_ctv2 - 1] = 0;
+  loadbuf[3 * indiv_ctv2 - 2] = 0;
+  loadbuf[3 * indiv_ctv2 - 1] = 0;
+  loadbuf_end = &(loadbuf[indiv_ctv2 * 3]);
+  memcpy(outname_end, ".missing.hap", 13);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto test_mishap_ret_OPEN_FAIL;
+  }
+  sprintf(tbuf, "%%%us  HAPLOTYPE      F_0      F_1                 M_H1                 M_H2    CHISQ        P FLANKING\t", plink_maxsnp);
+  fprintf(outfile, tbuf, "SNP");
+  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
+    chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+    if (is_set(chrom_info_ptr->haploid_mask, chrom_idx)) {
+      continue;
+    }
+    marker_uidx_cur = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
+    chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+    marker_uidx_cur = next_unset_ul(marker_exclude, marker_uidx_cur, chrom_end);
+    if (marker_uidx_cur == chrom_end) {
+      continue;
+    }
+    marker_uidx_next = next_unset_ul(marker_exclude, marker_uidx_cur + 1, chrom_end);
+    if (marker_uidx_next == chrom_end) {
+      continue;
+    }
+    prevsnp_ptr = loadbuf;
+    fill_ulong_zero(prevsnp_ptr, indiv_ctl2);
+    cursnp_ptr = &(loadbuf[indiv_ctv2]);
+    if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx_cur) * unfiltered_indiv_ct4, SEEK_SET)) {
+      goto test_mishap_ret_READ_FAIL;
+    }
+    if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, cursnp_ptr, indiv_ct, indiv_exclude, IS_SET(marker_reverse, marker_uidx_cur))) {
+      goto test_mishap_ret_READ_FAIL;
+    }
+    missing_ct_cur = count_01(cursnp_ptr, indiv_ctl2);
+    for (; marker_uidx_cur < chrom_end; marker_uidx_prev = marker_uidx_cur, marker_uidx_cur = marker_uidx_next, prevsnp_ptr = cursnp_ptr, cursnp_ptr = nextsnp_ptr, missing_ct_cur = missing_ct_next, marker_uidx_next++) {
+      nextsnp_ptr = &(cursnp_ptr[indiv_ctv2]);
+      if (nextsnp_ptr == loadbuf_end) {
+	nextsnp_ptr = loadbuf;
+      }
+      if (marker_uidx_next < chrom_end) {
+	if (IS_SET(marker_exclude, marker_uidx_next)) {
+	  marker_uidx_next = next_unset_ul(marker_exclude, marker_uidx_next, chrom_end);
+	  if (marker_uidx_next == chrom_end) {
+	    goto test_mishap_last_chrom_snp;
+	  }
+	  if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx_next) * unfiltered_indiv_ct4, SEEK_SET)) {
+	    goto test_mishap_ret_READ_FAIL;
+	  }
+	}
+        if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, nextsnp_ptr, indiv_ct, indiv_exclude, IS_SET(marker_reverse, marker_uidx_next))) {
+          goto test_mishap_ret_READ_FAIL;
+	}
+        missing_ct_next = count_01(nextsnp_ptr, indiv_ctl2);
+      } else {
+      test_mishap_last_chrom_snp:
+        fill_ulong_zero(nextsnp_ptr, indiv_ctl2);
+      }
+      if (missing_ct_cur < 5) {
+	continue;
+      }
+      vec_init_01(unfiltered_indiv_ct, cursnp_ptr, maskbuf_mid);
+      uiptr = flanking_counts;
+      for (uii = 0; uii < 2; uii++) {
+	if (uii) {
+	  vec_invert(unfiltered_indiv_ct, maskbuf_mid);
+	}
+        for (ujj = 0; ujj < 3; ujj++) {
+          vec_datamask(unfiltered_indiv_ct, ujj + (ujj + 1) / 2, prevsnp_ptr, maskbuf_mid, maskbuf);
+	  ukk = popcount01_longs(maskbuf, indiv_ctl2);
+	  vec_3freq(indiv_ctl2, nextsnp_ptr, maskbuf, &umm, &(uiptr[1]), &(uiptr[2]));
+	  uiptr[0] = ukk - umm - uiptr[1] - uiptr[2];
+	  uiptr = &(uiptr[3]);
+	}
+      }
+    }
+    ;;;
+  }
+
+  if (fclose_null(&outfile)) {
+    goto test_mishap_ret_WRITE_FAIL;
+  }
+  sprintf(logbuf, "--test-mishap: %u site%s checked, report written to %s.\n", inspected_ct, (inspected_ct == 1)? "" : "s", outname);
+  logprintb();
+
+  while (0) {
+  test_mishap_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  test_mishap_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  test_mishap_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  test_mishap_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  test_mishap_ret_INVALID_CMDLINE:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
   fclose_cond(outfile);
   wkspace_reset(wkspace_mark);
   return retval;

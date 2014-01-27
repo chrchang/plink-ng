@@ -1831,6 +1831,12 @@ void vec_include_mask_out(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr,
 
 void vec_include_mask_out_intersect(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* mask_arr, uintptr_t* mask2_arr);
 
+void vec_init_01(uintptr_t unfiltered_indiv_ct, uintptr_t* data_ptr, uintptr_t* result_ptr);
+
+void vec_invert(uintptr_t unfiltered_indiv_ct, uintptr_t* vec2);
+
+void vec_datamask(uintptr_t unfiltered_indiv_ct, uint32_t matchval, uintptr_t* data_ptr, uintptr_t* mask_ptr, uintptr_t* result_ptr);
+
 void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_include2, uintptr_t indiv_ct, uintptr_t* missing_bitfield);
 
 void hh_reset(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t unfiltered_indiv_ct);

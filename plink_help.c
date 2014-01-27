@@ -1028,9 +1028,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --simulate-label [prefix] : Set --simulate{-qt} individual name prefix.\n"
 "  --simulate-missing [freq] : Set --simulate{-qt} missing genotype frequency.\n"
 	       );
-    help_print("allow-extra-chr", &help_ctrl, 0,
+    help_print("allow-extra-chr\taec", &help_ctrl, 0,
 "  --allow-extra-chr <0>     : Permit unrecognized chromosome codes.  The '0'\n"
-"                              modifier causes them to be treated as if they had\n"
+"    (alias: --aec)            modifier causes them to be treated as if they had\n"
 "                              been set to zero.\n"
                );
     help_print("chr-set\tcow\tdog\thorse\tmouse\trice\tsheep\tautosome-num", &help_ctrl, 0,
