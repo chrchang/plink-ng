@@ -1075,6 +1075,8 @@ static inline char* width_force(uint32_t min_width, char* startp, char* endp) {
 
 char* double_g_writewx2(char* start, double dxx, uint32_t min_width);
 
+char* double_g_writewx3(char* start, double dxx, uint32_t min_width);
+
 char* double_g_writewx4(char* start, double dxx, uint32_t min_width);
 
 char* double_g_writewx8(char* start, double dxx, uint32_t min_width);

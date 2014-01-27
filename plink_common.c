@@ -836,6 +836,19 @@ static inline char* uint32_write2trunc(char* start, uint32_t uii) {
   return &(start[1]);
 }
 
+static inline char* uint32_write3trunc(char* start, uint32_t uii) {
+  *start++ = '0' + (uii / 100);
+  uii %= 100;
+  if (!uii) {
+    return start;
+  }
+  memcpy(start, &(digit2_table[uii * 2]), 2);
+  if (start[1] != '0') {
+    return &(start[2]);
+  }
+  return &(start[1]);
+}
+
 static inline char* uint32_write4trunc(char* start, uint32_t uii) {
   uint32_t quotient = uii / 100;
   memcpy(start, &(digit2_table[quotient * 2]), 2);
@@ -904,6 +917,19 @@ static inline char* uint32_write1p1(char* start, uint32_t quotient, uint32_t rem
   start[1] = '.';
   start[2] = '0' + remainder;
   return &(start[3]);
+}
+
+static inline char* uint32_write1p2(char* start, uint32_t quotient, uint32_t remainder) {
+  *start++ = '0' + quotient;
+  if (!remainder) {
+    return start;
+  }
+  *start++ = '.';
+  memcpy(start, &(digit2_table[remainder * 2]), 2);
+  if (start[1] != '0') {
+    return &(start[2]);
+  }
+  return &(start[1]);
 }
 
 static inline char* uint32_write1p3(char* start, uint32_t quotient, uint32_t remainder) {
@@ -1170,6 +1196,33 @@ char* double_write2(char* start, double dxx) {
     return uint32_write1p1(start, quotient, ((int32_t)(dxx * 10)) - (quotient * 10));
   }
   return memcpya(start, &(digit2_table[((uint32_t)((int32_t)(dxx + 0.5))) * 2]), 2);
+}
+
+char* double_write3(char* start, double dxx) {
+  // 3 sig fig number, 0.995 <= dxx < 999.5
+  uint32_t uii;
+  uint32_t quotient;
+  if (dxx < 99.95) {
+    if (dxx < 9.995) {
+      dxx += 0.005;
+      quotient = (int32_t)dxx;
+      return uint32_write1p2(start, quotient, ((int32_t)(dxx * 100)) - (quotient * 100));
+    }
+    dxx += 0.05;
+    uii = (int32_t)dxx;
+    start = memcpya(start, &(digit2_table[uii * 2]), 2);
+    uii = ((int32_t)(dxx * 10)) - (uii * 10);
+    if (!uii) {
+      return start;
+    }
+    *start++ = '.';
+  } else {
+    uii = (int32_t)(dxx + 0.5);
+    start = memcpya(start, &(digit2_table[(uii / 10) * 2]), 2);
+    uii %= 10;
+  }
+  *start = '0' + uii;
+  return &(start[1]);
 }
 
 char* double_write4(char* start, double dxx) {
@@ -2146,6 +2199,186 @@ char* double_g_writewx2(char* start, double dxx, uint32_t min_width) {
 	*wpos++ = '0';
       }
       wpos = uint32_write2trunc(wpos, (int32_t)((dxx * 100) + 0.5));
+    }
+    uii = wpos - wbuf;
+    if (uii < min_width) {
+      memcpy(memseta(start, 32, min_width - uii), wbuf, uii);
+      return &(start[min_width]);
+    } else {
+      return memcpya(start, wbuf, uii);
+    }
+  }
+}
+
+char* double_g_writewx3(char* start, double dxx, uint32_t min_width) {
+  // assumes min_width >= 5.
+  uint32_t xp10 = 0;
+  char wbuf[16];
+  char* wpos = wbuf;
+  uint32_t uii;
+  if (dxx != dxx) {
+    memcpy(memseta(start, 32, min_width - 4), " nan", 4);
+    return &(start[min_width]);
+  } else if (dxx < 0) {
+    *wpos++ = '-';
+    dxx = -dxx;
+  }
+  if (dxx < 9.995e-5) {
+    // 3 sig fig exponential notation, small
+    if (dxx < 9.995e-16) {
+      if (dxx < 9.995e-128) {
+	if (dxx == 0.0) {
+          memset(start, 32, min_width - 1);
+	  start[min_width - 1] = '0';
+	  return &(start[min_width]);
+        } else if (dxx < 9.995e-256) {
+	  dxx *= 1.0e256;
+	  xp10 |= 256;
+	} else {
+	  dxx *= 1.0e128;
+	  xp10 |= 128;
+	}
+      }
+      if (dxx < 9.995e-64) {
+	dxx *= 1.0e64;
+	xp10 |= 64;
+      }
+      if (dxx < 9.995e-32) {
+	dxx *= 1.0e32;
+	xp10 |= 32;
+      }
+      if (dxx < 9.995e-16) {
+	dxx *= 1.0e16;
+	xp10 |= 16;
+      }
+    }
+    if (dxx < 9.995e-8) {
+      dxx *= 100000000;
+      xp10 |= 8;
+    }
+    if (dxx < 9.995e-4) {
+      dxx *= 10000;
+      xp10 |= 4;
+    }
+    if (dxx < 9.995e-2) {
+      dxx *= 100;
+      xp10 |= 2;
+    }
+    if (dxx < 9.995e-1) {
+      dxx *= 10;
+      xp10++;
+    }
+    dxx += 0.005;
+    uii = (int32_t)dxx;
+    wpos = uint32_write1p2(wpos, uii, ((int32_t)(dxx * 100)) - (uii * 100));
+    uii = wpos - wbuf;
+    if (xp10 >= 100) {
+      if (uii < min_width - 5) {
+	memcpy(memseta(start, 32, min_width - 5 - uii), wbuf, uii);
+	start = &(start[min_width - 5]);
+      } else {
+	start = memcpya(start, wbuf, uii);
+      }
+      uii = xp10 / 100;
+      start = memcpyax(start, "e-", 2, '0' + uii);
+      xp10 -= 100 * uii;
+    } else {
+      if (uii < min_width - 4) {
+	memcpy(memseta(start, 32, min_width - 4 - uii), wbuf, uii);
+	start = &(start[min_width - 4]);
+      } else {
+	start = memcpya(start, wbuf, uii);
+      }
+      start = memcpya(start, "e-", 2);
+    }
+    return memcpya(start, &(digit2_table[xp10 * 2]), 2);
+  } else if (dxx >= 999.5) {
+    // 3 sig fig exponential notation, large
+    if (dxx >= 9.995e15) {
+      if (dxx >= 9.995e127) {
+	if (dxx == INFINITY) {
+	  start = memseta(start, 32, min_width - 4);
+	  if (wpos == wbuf) {
+	    return memcpya(start, " inf", 4);
+	  } else {
+	    return memcpya(start, "-inf", 4);
+	  }
+	} else if (dxx >= 9.995e255) {
+	  dxx *= 1.0e-256;
+	  xp10 |= 256;
+	} else {
+	  dxx *= 1.0e-128;
+	  xp10 |= 128;
+	}
+      }
+      if (dxx >= 9.995e63) {
+	dxx *= 1.0e-64;
+	xp10 |= 64;
+      }
+      if (dxx >= 9.995e31) {
+	dxx *= 1.0e-32;
+	xp10 |= 32;
+      }
+      if (dxx >= 9.995e15) {
+	dxx *= 1.0e-16;
+	xp10 |= 16;
+      }
+    }
+    if (dxx >= 9.995e7) {
+      dxx *= 1.0e-8;
+      xp10 |= 8;
+    }
+    if (dxx >= 9.995e3) {
+      dxx *= 1.0e-4;
+      xp10 |= 4;
+    }
+    if (dxx >= 9.995e1) {
+      dxx *= 1.0e-2;
+      xp10 |= 2;
+    }
+    if (dxx >= 9.995e0) {
+      dxx *= 1.0e-1;
+      xp10++;
+    }
+    dxx += 0.005;
+    uii = (int32_t)dxx;
+    wpos = uint32_write1p2(wpos, uii, ((int32_t)(dxx * 100)) - (uii * 100));
+    uii = wpos - wbuf;
+    if (xp10 >= 100) {
+      if (uii < min_width - 5) {
+	memcpy(memseta(start, 32, min_width - 5 - uii), wbuf, uii);
+	start = &(start[min_width - 5]);
+      } else {
+	start = memcpya(start, wbuf, uii);
+      }
+      uii = xp10 / 100;
+      start = memcpyax(start, "e+", 2, '0' + uii);
+      xp10 -= 100 * uii;
+    } else {
+      if (uii < min_width - 4) {
+	memcpy(memseta(start, 32, min_width - 4 - uii), wbuf, uii);
+	start = &(start[min_width - 4]);
+      } else {
+	start = memcpya(start, wbuf, uii);
+      }
+      start = memcpya(start, "e+", 2);
+    }
+    return memcpya(start, &(digit2_table[xp10 * 2]), 2);
+  } else {
+    if (dxx >= 0.9995) {
+      wpos = double_write3(wpos, dxx);
+    } else {
+      // 3 sig fig decimal, no less than ~0.001
+      wpos = memcpya(wpos, "0.", 2);
+      if (dxx < 9.995e-3) {
+	dxx *= 100;
+	wpos = memcpya(wpos, "00", 2);
+      }
+      if (dxx < 9.995e-2) {
+	dxx *= 10;
+	*wpos++ = '0';
+      }
+      wpos = uint32_write3trunc(wpos, (int32_t)((dxx * 1000) + 0.5));
     }
     uii = wpos - wbuf;
     if (uii < min_width) {
