@@ -3341,7 +3341,7 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   THREAD_RETURN;
 }
 
-uint32_t phase_flanking_haps(uint32_t* counts, double* freq1x_ptr, double* freq2x_ptr, double* freqx1_ptr, double* freqx2_ptr, double* freq11_ptr, uintptr_t* twice_tot_ptr) {
+uint32_t phase_flanking_haps(uint32_t* counts, double* freq1x_ptr, double* freq2x_ptr, double* freqx1_ptr, double* freqx2_ptr, double* freq11_ptr) {
   // returns 1 if at least one SNP is monomorphic over all valid observations
   // otherwise, returns 0, and fills all frequencies using EM phasing
   uintptr_t base_ct11 = 2 * counts[0] + counts[1] + counts[3];
@@ -3366,7 +3366,6 @@ uint32_t phase_flanking_haps(uint32_t* counts, double* freq1x_ptr, double* freq2
   double freqx1;
   double freqx2;
   double dxx;
-  *twice_tot_ptr = twice_tot;
   if (!twice_tot) {
     return 1;
   }
@@ -3464,7 +3463,6 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
   uintptr_t block_idx2;
   uintptr_t cur_zmiss2;
   uintptr_t cur_block_idx2_end;
-  uintptr_t twice_tot;
   double freq11;
   double freq11_expected;
   double freq1x;
@@ -3519,7 +3517,7 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
           counts[8] = tot1[2] - counts[6] - counts[7];
 	}
       }
-      if (phase_flanking_haps(counts, &freq1x, &freq2x, &freqx1, &freqx2, &freq11, &twice_tot)) {
+      if (phase_flanking_haps(counts, &freq1x, &freq2x, &freqx1, &freqx2, &freq11)) {
 	*rptr++ = NAN;
 	*rptr++ = NAN;
 	continue;
@@ -6615,7 +6613,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
   return retval;
 }
 
-void test_mishap_write_line(FILE* outfile, char* wptr, uint32_t prev_alen, uint32_t next_alen, char* prev_aptr, char* next_aptr, double* total_cts, double* curhap_cts, double tot_recip, char* flankstr, uint32_t flanklen) {
+void test_mishap_write_line(FILE* outfile, char* wptr, uint32_t prev_alen, uint32_t next_alen, const char* prev_aptr, const char* next_aptr, double* total_cts, double* curhap_cts, double tot_recip, char* flankstr, uint32_t flanklen) {
   // total_cts[0] = caseN[0] + caseN[1]
   // total_cts[1] = controlN[0] + controlN[1]
   char* tbuf_cur = tbuf;
@@ -6705,6 +6703,8 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
   uint32_t inspected_ct = 0;
   uint32_t missing_ct_next = 0;
+  uint32_t prev_a1len = 0;
+  uint32_t prev_a2len = 0;
   int32_t retval = 0;
   // need following counts:
   //   all 9 flanking hap combinations | current missing
@@ -6714,7 +6714,7 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   //     [3]: prev = 10, next = 00
   //     ...
   //   all 9 flanking hap combinations | current nonmissing [9..17]
-  uint32_t counts[18];
+  uint32_t counts[27];
   // [0]: central call missing, all haps clearing --maf (caseN[0] + caseN[1])
   // [1]: central call nonmissing, all haps clear --maf (ctrlN[0] + ctrlN[1])
   // [2k], k in 1..4: caseN[0] for current hap
@@ -6734,21 +6734,19 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   uintptr_t marker_uidx_prev;
   uintptr_t marker_uidx_cur;
   uintptr_t marker_uidx_next;
-  uintptr_t twice_tot;
-  double freq1x;
-  double freq2x;
-  double freqx1;
-  double freqx2;
   double freq11;
   double tot_recip;
   double dxx;
+  double dyy;
+  double dzz;
+  double dww;
+  double orig_cmiss_tot;
+  double orig_cnm_tot;
   uint32_t flanklen;
   uint32_t missing_ct_cur;
   uint32_t chrom_fo_idx;
   uint32_t chrom_idx;
   uint32_t chrom_end;
-  uint32_t prev_a1len;
-  uint32_t prev_a2len;
   uint32_t next_a1len;
   uint32_t next_a2len;
   uint32_t uii;
@@ -6862,45 +6860,162 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
 	next_a1len = strlen(marker_allele_ptrs[2 * marker_uidx_next]);
 	next_a2len = strlen(marker_allele_ptrs[2 * marker_uidx_next + 1]);
 	if (marker_uidx_prev != ~ZEROLU) {
+	  hap_ct_table[0] = (int32_t)(2 * (counts[0] + counts[1] + counts[2] + counts[3] + counts[4] + counts[5] + counts[6] + counts[7] + counts[8]));
+	  hap_ct_table[1] = (int32_t)(2 * (counts[9] + counts[10] + counts[11] + counts[12] + counts[13] + counts[14] + counts[15] + counts[16] + counts[17]));
+	  tot_recip = hap_ct_table[0] + hap_ct_table[1];
+	  if (tot_recip == 0.0) {
+	    // minor change: skip markers with zero observations.  (output
+	    // wouldn't match PLINK 1.07 anyway, due to EM phasing differences)
+	    continue;
+	  }
+	  orig_cmiss_tot = hap_ct_table[0];
+	  orig_cnm_tot = hap_ct_table[1];
 	  *wptr2++ = '|';
 	  wptr2 = strcpya(wptr2, &(marker_ids[marker_uidx_next * max_marker_id_len]));
 	  *wptr2++ = '\n';
 	  flanklen = (uintptr_t)(wptr2 - tbuf2);
-	  // phase_flanking_haps(counts, &freq1x, &freq2x, &freqx1, &freqx2, &freq11, &twice_tot);
-
+	  hap_ct_table[2] = (int32_t)(2 * counts[0] + counts[1] + counts[3]);
+	  hap_ct_table[3] = (int32_t)(2 * counts[9] + counts[10] + counts[12]);
+	  hap_ct_table[4] = (int32_t)(2 * counts[2] + counts[1] + counts[5]);
+	  hap_ct_table[5] = (int32_t)(2 * counts[11] + counts[10] + counts[14]);
+	  hap_ct_table[6] = (int32_t)(2 * counts[6] + counts[3] + counts[7]);
+	  hap_ct_table[7] = (int32_t)(2 * counts[15] + counts[12] + counts[16]);
+	  hap_ct_table[8] = (int32_t)(2 * counts[8] + counts[5] + counts[7]);
+	  hap_ct_table[9] = (int32_t)(2 * counts[17] + counts[14] + counts[16]);
+	  if (counts[4] + counts[13]) {
+	    for (uii = 0; uii < 9; uii++) {
+	      counts[18 + uii] = counts[uii] + counts[9 + uii];
+	    }
+	    // no need to check return value
+	    phase_flanking_haps(&(counts[18]), &dxx, &dyy, &dzz, &dww, &freq11);
+	    // share of counts[4]/counts[13] which goes to 11 or 22 haplotype
+	    // (0.5 - dxx) is share which goes to 12/21 haps
+	    // (conveniently, there's a 0.5 and a 2 which cancel out here)
+	    dxx = (freq11 * tot_recip - (hap_ct_table[2] + hap_ct_table[3])) / ((double)((int32_t)(counts[4] + counts[13])));
+	    dyy = ((int32_t)counts[4]) * dxx;
+	    dzz = ((int32_t)counts[13]) * dxx;
+	    hap_ct_table[2] += dyy;
+	    hap_ct_table[3] += dzz;
+	    hap_ct_table[8] += dyy;
+	    hap_ct_table[9] += dzz;
+	    dxx = 1.0 - dxx;
+	    dyy = ((int32_t)counts[4]) * dxx;
+	    dzz = ((int32_t)counts[13]) * dxx;
+	    hap_ct_table[4] += dyy;
+	    hap_ct_table[5] += dzz;
+	    hap_ct_table[6] += dyy;
+	    hap_ct_table[7] += dzz;
+	  }
+	  dxx = min_maf * tot_recip;
+	  if (hap_ct_table[2] + hap_ct_table[3] < dxx) {
+	    hap_ct_table[0] -= hap_ct_table[2];
+	    hap_ct_table[1] -= hap_ct_table[3];
+	    tot_recip -= hap_ct_table[2] + hap_ct_table[3];
+	  }
+	  if (hap_ct_table[4] + hap_ct_table[5] < dxx) {
+	    hap_ct_table[0] -= hap_ct_table[4];
+	    hap_ct_table[1] -= hap_ct_table[5];
+	    tot_recip -= hap_ct_table[4] + hap_ct_table[5];
+	  }
+	  if (hap_ct_table[6] + hap_ct_table[7] < dxx) {
+	    hap_ct_table[0] -= hap_ct_table[6];
+	    hap_ct_table[1] -= hap_ct_table[7];
+	    tot_recip -= hap_ct_table[6] + hap_ct_table[7];
+	  }
+	  if (hap_ct_table[8] + hap_ct_table[9] < dxx) {
+	    hap_ct_table[0] -= hap_ct_table[8];
+	    hap_ct_table[1] -= hap_ct_table[9];
+	    tot_recip -= hap_ct_table[8] + hap_ct_table[9];
+	  }
+	  tot_recip = 1.0 / tot_recip;
+	  if (hap_ct_table[2] + hap_ct_table[3] >= dxx) {
+	    test_mishap_write_line(outfile, wptr, prev_a1len, next_a1len, marker_allele_ptrs[2 * marker_uidx_prev], marker_allele_ptrs[2 * marker_uidx_next], hap_ct_table, &(hap_ct_table[2]), tot_recip, tbuf2, flanklen);
+	  }
+	  if (hap_ct_table[6] + hap_ct_table[7] >= dxx) {
+	    test_mishap_write_line(outfile, wptr, prev_a2len, next_a1len, marker_allele_ptrs[2 * marker_uidx_prev + 1], marker_allele_ptrs[2 * marker_uidx_next], hap_ct_table, &(hap_ct_table[6]), tot_recip, tbuf2, flanklen);
+	  }
+	  if (hap_ct_table[4] + hap_ct_table[5] >= dxx) {
+	    test_mishap_write_line(outfile, wptr, prev_a1len, next_a2len, marker_allele_ptrs[2 * marker_uidx_prev], marker_allele_ptrs[2 * marker_uidx_next + 1], hap_ct_table, &(hap_ct_table[4]), tot_recip, tbuf2, flanklen);
+	  }
+	  if (hap_ct_table[8] + hap_ct_table[9] >= dxx) {
+	    test_mishap_write_line(outfile, wptr, prev_a2len, next_a2len, marker_allele_ptrs[2 * marker_uidx_prev + 1], marker_allele_ptrs[2 * marker_uidx_next + 1], hap_ct_table, &(hap_ct_table[8]), tot_recip, tbuf2, flanklen);
+	  }
 	} else {
-	  wptr2 = strcpya(&(tbuf2[1]), &(marker_ids[marker_uidx_next * max_marker_id_len]));
-	  *wptr2++ = '\n';
-	  flanklen = (uintptr_t)(wptr2 - tbuf2);
 	  hap_ct_table[0] = (int32_t)(2 * (counts[0] + counts[1] + counts[2]));
 	  hap_ct_table[1] = (int32_t)(2 * (counts[9] + counts[10] + counts[11]));
 	  tot_recip = hap_ct_table[0] + hap_ct_table[1];
-	  if (tot_recip > 0.0) {
-	    // reciprocal not taken yet
-	    dxx = min_maf * tot_recip;
-            hap_ct_table[2] = (int32_t)(counts[0] * 2 + counts[1]);
-	    hap_ct_table[3] = (int32_t)(counts[9] * 2 + counts[10]);
-	    hap_ct_table[4] = (int32_t)(counts[2] * 2 + counts[1]);
-            hap_ct_table[5] = (int32_t)(counts[11] * 2 + counts[10]);
-	    if (hap_ct_table[4] + hap_ct_table[5] < dxx) {
-	      hap_ct_table[0] = hap_ct_table[2];
-	      hap_ct_table[1] = hap_ct_table[3];
-              tot_recip = hap_ct_table[2] + hap_ct_table[3];
-	    } else if (hap_ct_table[2] + hap_ct_table[3] < dxx) {
-	      hap_ct_table[0] = hap_ct_table[4];
-	      hap_ct_table[1] = hap_ct_table[5];
-              tot_recip = hap_ct_table[4] + hap_ct_table[5];
-	    }
-	    tot_recip = 1.0 / tot_recip;
-	    if (hap_ct_table[2] + hap_ct_table[3] >= dxx) {
-	      test_mishap_write_line(outfile, wptr, 0, next_a1len, NULL, marker_allele_ptrs[2 * marker_uidx_next], hap_ct_table, &(hap_ct_table[2]), tot_recip, tbuf2, flanklen);
-	    }
-	    if (hap_ct_table[4] + hap_ct_table[5] >= dxx) {
-	      test_mishap_write_line(outfile, wptr, 0, next_a2len, NULL, marker_allele_ptrs[2 * marker_uidx_next + 1], hap_ct_table, &(hap_ct_table[4]), tot_recip, tbuf2, flanklen);
-	    }
+	  if (tot_recip == 0.0) {
+	    continue;
+	  }
+	  orig_cmiss_tot = hap_ct_table[0];
+	  orig_cnm_tot = hap_ct_table[1];
+	  wptr2 = strcpya(&(tbuf2[1]), &(marker_ids[marker_uidx_next * max_marker_id_len]));
+	  *wptr2++ = '\n';
+	  flanklen = (uintptr_t)(wptr2 - tbuf2);
+	  dxx = min_maf * tot_recip;
+	  hap_ct_table[2] = (int32_t)(counts[0] * 2 + counts[1]);
+	  hap_ct_table[3] = (int32_t)(counts[9] * 2 + counts[10]);
+	  hap_ct_table[4] = (int32_t)(counts[2] * 2 + counts[1]);
+	  hap_ct_table[5] = (int32_t)(counts[11] * 2 + counts[10]);
+	  if (hap_ct_table[4] + hap_ct_table[5] < dxx) {
+	    hap_ct_table[0] = hap_ct_table[2];
+	    hap_ct_table[1] = hap_ct_table[3];
+	    tot_recip = hap_ct_table[2] + hap_ct_table[3];
+	  } else if (hap_ct_table[2] + hap_ct_table[3] < dxx) {
+	    hap_ct_table[0] = hap_ct_table[4];
+	    hap_ct_table[1] = hap_ct_table[5];
+	    tot_recip = hap_ct_table[4] + hap_ct_table[5];
+	  }
+	  tot_recip = 1.0 / tot_recip;
+	  if (hap_ct_table[2] + hap_ct_table[3] >= dxx) {
+	    test_mishap_write_line(outfile, wptr, 0, next_a1len, NULL, marker_allele_ptrs[2 * marker_uidx_next], hap_ct_table, &(hap_ct_table[2]), tot_recip, tbuf2, flanklen);
+	  }
+	  if (hap_ct_table[4] + hap_ct_table[5] >= dxx) {
+	    test_mishap_write_line(outfile, wptr, 0, next_a2len, NULL, marker_allele_ptrs[2 * marker_uidx_next + 1], hap_ct_table, &(hap_ct_table[4]), tot_recip, tbuf2, flanklen);
 	  }
 	}
       } else {
+	hap_ct_table[0] = (int32_t)(2 * (counts[0] + counts[3] + counts[6]));
+	hap_ct_table[1] = (int32_t)(2 * (counts[9] + counts[12] + counts[15]));
+	tot_recip = hap_ct_table[0] + hap_ct_table[1];
+	if (tot_recip == 0.0) {
+	  continue;
+	}
+	orig_cmiss_tot = hap_ct_table[0];
+	orig_cnm_tot = hap_ct_table[1];
+	*wptr2++ = '\n';
+	flanklen = (uintptr_t)(wptr2 - tbuf2);
+	dxx = min_maf * tot_recip;
+	hap_ct_table[2] = (int32_t)(counts[0] * 2 + counts[3]);
+	hap_ct_table[3] = (int32_t)(counts[9] * 2 + counts[12]);
+	hap_ct_table[4] = (int32_t)(counts[6] * 2 + counts[3]);
+	hap_ct_table[5] = (int32_t)(counts[15] * 2 + counts[12]);
+	if (hap_ct_table[4] + hap_ct_table[5] < dxx) {
+	  hap_ct_table[0] = hap_ct_table[2];
+	  hap_ct_table[1] = hap_ct_table[3];
+	  tot_recip = hap_ct_table[2] + hap_ct_table[3];
+	} else if (hap_ct_table[2] + hap_ct_table[3] < dxx) {
+	  hap_ct_table[0] = hap_ct_table[4];
+	  hap_ct_table[1] = hap_ct_table[5];
+	  tot_recip = hap_ct_table[4] + hap_ct_table[5];
+	}
+	tot_recip = 1.0 / tot_recip;
+	if (hap_ct_table[2] + hap_ct_table[3] >= dxx) {
+	  test_mishap_write_line(outfile, wptr, prev_a1len, 0, marker_allele_ptrs[2 * marker_uidx_prev], NULL, hap_ct_table, &(hap_ct_table[2]), tot_recip, tbuf2, flanklen);
+	}
+	if (hap_ct_table[4] + hap_ct_table[5] >= dxx) {
+	  test_mishap_write_line(outfile, wptr, prev_a2len, 0, marker_allele_ptrs[2 * marker_uidx_prev + 1], NULL, hap_ct_table, &(hap_ct_table[4]), tot_recip, tbuf2, flanklen);
+	}
+      }
+      hap_ct_table[0] = orig_cmiss_tot * 0.5;
+      hap_ct_table[1] = orig_cnm_tot * 0.5;
+      hap_ct_table[2] = (int32_t)(counts[1] + counts[3] + counts[4] + counts[5] + counts[7]);
+      hap_ct_table[3] = (int32_t)(counts[10] + counts[12] + counts[13] + counts[14] + counts[16]);
+      test_mishap_write_line(outfile, wptr, 6, 0, "HETERO", NULL, hap_ct_table, &(hap_ct_table[2]), 1.0 / (hap_ct_table[0] + hap_ct_table[1]), tbuf2, flanklen);
+      inspected_ct++;
+      if (!(inspected_ct % 1000)) {
+        printf("\r--test-mishap: %uk sites checked.", inspected_ct / 1000);
+        fflush(stdout);
       }
     }
   }
@@ -6908,7 +7023,12 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   if (fclose_null(&outfile)) {
     goto test_mishap_ret_WRITE_FAIL;
   }
-  sprintf(logbuf, "--test-mishap: %u site%s checked, report written to %s.\n", inspected_ct, (inspected_ct == 1)? "" : "s", outname);
+  putchar('\r');
+  if (inspected_ct < marker_ct) {
+    sprintf(logbuf, "--test-mishap: %u site%s checked (%" PRIuPTR " skipped).\nReport written to %s.\n", inspected_ct, (inspected_ct == 1)? "" : "s", marker_ct - inspected_ct, outname);
+  } else {
+    sprintf(logbuf, "--test-mishap: %u site%s checked, report written to %s.\n", inspected_ct, (inspected_ct == 1)? "" : "s", outname);
+  }
   logprintb();
 
   while (0) {
@@ -7000,7 +7120,42 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   */
 }
 
-int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, Clump_info* clump_ip, uintptr_t* sex_male, uint32_t hh_exists) {
+int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, Clump_info* clump_ip, uintptr_t* sex_male, uint32_t hh_exists) {
   logprint("Error: --clump is currently under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
+  // 1. (if necessary) load range file, sort, etc.
+  // 2. sort marker IDs.  also allocate index-tracking bitfield
+  // 3. load file(s) in sequence.  start with array of null pointers, allocate
+  //    from bottom of stack (possibly need to save p-val, file number,
+  //    annotations, and/or pointer to next entry) while updating
+  //    p-val/reverse-lookup array
+  // 4. sort p-val array, greedily form clumps
+  // 5. iterate through clumps, calculate r^2 and write output
+  /*
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* infile = NULL;
+  FILE* outfile = NULL;
+  int32_t retval = 0;
+  while (0) {
+  clump_reports_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  clump_reports_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  clump_reports_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  clump_reports_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  clump_reports_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+  wkspace_reset(wkspace_mark);
+  fclose_cond(infile);
+  fclose_cond(outfile);
+  return retval;
+  */
 }

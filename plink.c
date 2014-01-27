@@ -102,7 +102,7 @@ const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n"
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
 const char null_calc_str[] = "Warning: No output requested.  Exiting.\n";
 #ifdef STABLE_BUILD
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --hardy, --ibc, --impute-sex, --indep, --r2, --distance, --genome,\n--homozyg, --make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour,\n--ibs-test, --regress-distance, --model, --gxe, --logistic, --lasso, and\n--fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --ibc, --impute-sex, --indep, --r2,\n--distance, --genome, --homozyg, --make-rel, --make-grm-gz, --rel-cutoff,\n--cluster, --neighbour, --ibs-test, --regress-distance, --model, --gxe,\n--logistic, --lasso, --test-missing, and --fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
 #else
   #ifndef NOLAPACK
 const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --ibc, --impute-sex, --indep, --r2, --clump,\n--distance, --genome, --homozyg, --make-rel, --make-grm-gz, --rel-cutoff,\n--cluster, --neighbour, --ibs-test, --regress-distance, --model, --gxe,\n--logistic, --lasso, --test-missing, --unrelated-heritability, and\n--fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
@@ -4006,7 +4006,11 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     } while (pheno_all || loop_assoc_fname);
   }
   if (calculation_type & CALC_CLUMP) {
-    retval = clump_reports(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, clump_ip, sex_male, hh_exists);
+    if (map_is_unsorted & UNSORTED_BP) {
+      logprint("Error: --clump requires a sorted .map/.bim.  Retry this command after using\n--make-bed to sort your data.\n");
+      goto plink_ret_INVALID_CMDLINE;
+    }
+    retval = clump_reports(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, clump_ip, sex_male, hh_exists);
     if (retval) {
       goto plink_ret_1;
     }
@@ -8238,6 +8242,12 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "omog", 5)) {
         calculation_type |= CALC_HOMOG;
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "ap-min-phase-prob", 18)) {
+	// Length 3+ haplotypes are not currently supported, so haplotype
+	// pruning is unimportant.  (EM phasing results are slightly different
+	// from PLINK 1.07, but never in a bad way.)
+        logprint("Error: --hap-min-phase-prob is provisionally retired.  Contact the developers\nif you need this function.\n");
+        goto main_ret_INVALID_CMDLINE;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
