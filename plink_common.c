@@ -8436,6 +8436,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
   int32_t ii;
   int32_t jj;
   char* cptr;
+  g_indiv_ct = indiv_ct;
   g_dw_start_offset = ((int64_t)first_indiv_idx * (first_indiv_idx - 1)) / 2;
   indiv_idx_ct = (uintptr_t)(((int64_t)end_indiv_idx * (end_indiv_idx - 1)) / 2 - g_dw_start_offset);
   g_dw_hundredth = 1 + (indiv_idx_ct / 100);
@@ -9445,14 +9446,15 @@ int32_t regress_distance(uint64_t calculation_type, double* dists_local, double*
   double duu;
   pthread_t threads[MAX_THREADS];
 
+  g_indiv_ct = indiv_ct;
   g_dists = dists_local;
 
   // beta = (mean(xy) - mean(x)*mean(y)) / (mean(x^2) - mean(x)^2)
   g_pheno_d = (double*)alloc_and_init_collapsed_arr((char*)pheno_d_local, sizeof(double), unfiltered_indiv_ct, indiv_exclude, indiv_ct, 1);
   if (!(calculation_type & CALC_REGRESS_REL)) {
-    print_pheno_stdev(g_pheno_d, g_indiv_ct);
+    print_pheno_stdev(g_pheno_d, indiv_ct);
   }
-  ulii = g_indiv_ct;
+  ulii = indiv_ct;
   ulii = ulii * (ulii - 1) / 2;
   g_reg_tot_xy = 0.0;
   g_reg_tot_x = 0.0;
@@ -9468,12 +9470,12 @@ int32_t regress_distance(uint64_t calculation_type, double* dists_local, double*
   // Then for each delete-d jackknife iteration, we take the global sums,
   // subtract the partial row sums corresponding to the deleted individuals,
   // and then add back the elements in the intersection of two deletions.
-  g_jackknife_precomp = (double*)wkspace_alloc(g_indiv_ct * JACKKNIFE_VALS_DIST * sizeof(double));
+  g_jackknife_precomp = (double*)wkspace_alloc(indiv_ct * JACKKNIFE_VALS_DIST * sizeof(double));
   if (!g_jackknife_precomp) {
     return RET_NOMEM;
   }
-  fill_double_zero(g_jackknife_precomp, g_indiv_ct * JACKKNIFE_VALS_DIST);
-  for (uii = 1; uii < g_indiv_ct; uii++) {
+  fill_double_zero(g_jackknife_precomp, indiv_ct * JACKKNIFE_VALS_DIST);
+  for (uii = 1; uii < indiv_ct; uii++) {
     dzz = *(++dist_ptr);
     dptr2 = g_pheno_d;
     dptr3 = &(g_jackknife_precomp[uii * JACKKNIFE_VALS_DIST]);
@@ -9517,9 +9519,9 @@ int32_t regress_distance(uint64_t calculation_type, double* dists_local, double*
   if (regress_d) {
     g_jackknife_d = regress_d;
   } else {
-    g_jackknife_d = set_default_jackknife_d(g_indiv_ct);
+    g_jackknife_d = set_default_jackknife_d(indiv_ct);
   }
-  g_generic_buf = wkspace_alloc(thread_ct * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int32_t)));
+  g_generic_buf = wkspace_alloc(thread_ct * CACHEALIGN(indiv_ct + (g_jackknife_d + 1) * sizeof(int32_t)));
   if (!g_generic_buf) {
     return RET_NOMEM;
   }
@@ -9542,9 +9544,9 @@ int32_t regress_distance(uint64_t calculation_type, double* dists_local, double*
   }
   regress_iters = g_jackknife_iters * thread_ct;
   putchar('\r');
-  sprintf(logbuf, "Jackknife s.e.: %g\n", sqrt((g_indiv_ct / ((double)g_jackknife_d)) * (dzz - dyy * dyy / regress_iters) / (regress_iters - 1)));
+  sprintf(logbuf, "Jackknife s.e.: %g\n", sqrt((indiv_ct / ((double)g_jackknife_d)) * (dzz - dyy * dyy / regress_iters) / (regress_iters - 1)));
   logprintb();
-  sprintf(logbuf, "Jackknife s.e. (y = avg phenotype): %g\n", sqrt((g_indiv_ct / ((double)g_jackknife_d)) * (dvv - dww * dww / regress_iters) / (regress_iters - 1)));
+  sprintf(logbuf, "Jackknife s.e. (y = avg phenotype): %g\n", sqrt((indiv_ct / ((double)g_jackknife_d)) * (dvv - dww * dww / regress_iters) / (regress_iters - 1)));
   logprintb();
   wkspace_reset(wkspace_mark);
   return 0;

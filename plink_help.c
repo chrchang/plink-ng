@@ -738,6 +738,21 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      However, to simplify testing, you can use the 'old-tiebreaks' modifier to\n"
 "      force emulation of the old algorithm.\n\n"
 	       );
+#ifndef NOLAPACK
+    help_print("pca\tmake-rel\tmake-grm\tmake-grm-gz\tmake-grm-bin", &help_ctrl, 1,
+"  --pca {count} <header> <tab> <var-wt>\n"
+"    Calculates a variance-standardized relationship matrix (use\n"
+"    --make-rel or --make-grm-gz to dump it), and then extracts the top 20\n"
+"    principal components.\n"
+"    * You can change the number of PCs by passing a numeric parameter.\n"
+"    * The 'header' modifier adds a header line to the .eigenvec output file.\n"
+"      (For compatibility with the GCTA flag of the same name, the default is no\n"
+"      header line.)\n"
+"    * The 'tab' modifier causes the .eigenvec file to be tab-delimited.\n"
+"    * The 'var-wt' modifier requests an additional .eigenvec.var file with PCs\n"
+"      expressed as variant weights instead of sample weights.\n\n"
+	       );
+#endif
     help_print("neighbour\tneighbor", &help_ctrl, 1,
 "  --neighbour [n1] [n2]\n"
 "    (alias: --neighbor)\n"
@@ -1462,6 +1477,16 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     skip).\n"
 	       );
 #ifndef NOLAPACK
+    help_print("pca\tpca-cluster-names\tpca-clusters", &help_ctrl, 0,
+"  --pca-cluster-names [...] : These can be used individually or in combination\n"
+"  --pca-clusters [fname]      to define a list of clusters to use in the basic\n"
+"                              --pca computation.  (--pca-cluster-names expects\n"
+"                              a space/comma-delimited sequence of cluster\n"
+"                              names, while --pca-clusters expects a file with\n"
+"                              one cluster name per line.)  All individuals\n"
+"                              outside those clusters will then be projected on\n"
+"                              to the calculated PCs.\n"
+	       );
     help_print("cluster\tmds-plot\tmds-cluster", &help_ctrl, 0,
 "  --mds-plot [dims] <by-cluster> <eigvals> : Multidimensional scaling analysis.\n"
 "                                             Requires --cluster.\n"
