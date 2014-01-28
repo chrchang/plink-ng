@@ -3906,7 +3906,7 @@ int32_t distance_d_write_ids(char* outname, char* outname_end, uint32_t dist_cal
 }
 
 int32_t relationship_req(uint64_t calculation_type) {
-  return (calculation_type & (CALC_RELATIONSHIP | CALC_UNRELATED_HERITABILITY | CALC_REL_CUTOFF | CALC_REGRESS_REL));
+  return (calculation_type & (CALC_RELATIONSHIP | CALC_UNRELATED_HERITABILITY | CALC_REL_CUTOFF | CALC_REGRESS_REL | CALC_PCA));
 }
 
 int32_t distance_req(uint64_t calculation_type, char* read_dists_fname) {

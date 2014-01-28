@@ -70,6 +70,7 @@
 // but we believe we have beaten down the leading constant by a large enough
 // factor to meaningfully help researchers.
 
+#include "plink_calc.h"
 #include "plink_cluster.h"
 #include "plink_data.h"
 #include "plink_matrix.h"
@@ -94,6 +95,21 @@
 #define GENOME_MULTIPLEX2 (GENOME_MULTIPLEX * 2)
 
 #define MAX_EM_ACCEL 100.0
+
+void rel_init(Rel_info* relip) {
+  relip->modifier = 0;
+  relip->regress_rel_iters = ITERS_DEFAULT;
+  relip->regress_rel_d = 0;
+  relip->unrelated_herit_tol = 0.0000001;
+  relip->unrelated_herit_covg = 0.45;
+  relip->unrelated_herit_covr = 0.55;
+  relip->cutoff = 0.025;
+  relip->ibc_type = 0;
+  relip->pc_ct = 20;
+}
+
+void rel_cleanup(Rel_info* relip) {
+}
 
 void update_rel_ibc(double* rel_ibc, uintptr_t* geno, double* set_allele_freqs, int32_t ibc_type, uint32_t indiv_ct) {
   // first calculate weight array, then loop
@@ -2090,7 +2106,9 @@ THREAD_RET_TYPE regress_rel_jack_thread(void* arg) {
   THREAD_RETURN;
 }
 
-int32_t regress_rel_main(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t regress_rel_iters, uint32_t regress_rel_d, pthread_t* threads, double* pheno_d) {
+int32_t regress_rel_main(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, Rel_info* relip, pthread_t* threads, double* pheno_d) {
+  uintptr_t regress_rel_iters = relip->regress_rel_iters;
+  uint32_t regress_rel_d = relip->regress_rel_d;
   double* rel_ptr;
   double* pheno_ptr;
   double* pheno_ptr2;
@@ -2458,7 +2476,12 @@ void mean_zero_var_one_in_place(uint32_t indiv_ct, double* pheno_d) {
   }
 }
 
-int32_t calc_unrelated_herit(uint64_t calculation_type, int32_t ibc_type, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, double* pheno_d, double* rel_ibc, uint32_t is_strict, double unrelated_herit_covg, double unrelated_herit_covr, double unrelated_herit_tol) {
+int32_t calc_unrelated_herit(uint64_t calculation_type, Rel_info* relip, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, double* pheno_d, double* rel_ibc) {
+  uint32_t is_strict = (relip->modifier / REL_UNRELATED_HERITABILITY_STRICT) & 1;
+  int32_t ibc_type = relip->ibc_type;
+  double unrelated_herit_covg = relip->unrelated_herit_covg;
+  double unrelated_herit_covr = relip->unrelated_herit_covr;
+  double unrelated_herit_tol = relip->unrelated_herit_tol;
   uintptr_t ulii;
   uintptr_t uljj;
   double* pheno_ptr;
@@ -2495,7 +2518,7 @@ int32_t calc_unrelated_herit(uint64_t calculation_type, int32_t ibc_type, uintpt
   return 0;
 }
 
-int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenoname, uint32_t mpheno_col, char* phenoname_str, int32_t missing_pheno, uint32_t is_strict, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr) {
+int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenoname, uint32_t mpheno_col, char* phenoname_str, int32_t missing_pheno, Rel_info* relip) {
   char* grmname_end = (char*)memchr(grmname, 0, FNAMESIZE);
   FILE* infile = NULL;
   FILE* grm_binfile = NULL;
@@ -2505,6 +2528,10 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
   uintptr_t max_person_id_len = 4;
   uintptr_t unfiltered_indiv_ct = 0;
   uintptr_t indiv_uidx = 0;
+  double unrelated_herit_tol = relip->unrelated_herit_tol;
+  double unrelated_herit_covg = relip->unrelated_herit_covg;
+  double unrelated_herit_covr = relip->unrelated_herit_covr;
+  uint32_t is_strict = (relip->modifier / REL_UNRELATED_HERITABILITY_STRICT) & 1;
   uintptr_t* pheno_c = NULL;
   double* pheno_d = NULL;
   uintptr_t cur_person_id_len;
@@ -4809,10 +4836,11 @@ uint32_t rel_cutoff_batch_rbin_emitn(uint32_t overflow_ct, unsigned char* readbu
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
-int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, char* outname_end, double rel_cutoff, uint32_t rel_calc_type) {
+int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, char* outname_end, Rel_info* relip) {
   // Specialized --rel-cutoff usable on larger files.
   char* grmname_end = (char*)memchr(grmname, 0, FNAMESIZE);
   uintptr_t indiv_ct = 0;
+  double rel_cutoff = relip->cutoff;
   FILE* idfile = NULL;
   FILE* outfile = NULL;
   FILE* out_bin_nfile = NULL;
@@ -4820,6 +4848,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   unsigned char* wkspace_mark = wkspace_base;
   uint32_t indivs_excluded = 0;
   uint32_t exactly_one_rel_ct = 0;
+  uint32_t rel_calc_type = relip->modifier & REL_CALC_MASK;
   uintptr_t* compact_rel_table;
   uintptr_t* rtptr;
   char* bufptr;
@@ -5685,13 +5714,16 @@ uint32_t calc_rel_grm_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
-int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, uint64_t calculation_type, uint32_t rel_calc_type, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, uint32_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, int32_t ibc_type, double rel_cutoff, double* set_allele_freqs, double** rel_ibc_ptr, Chrom_info* chrom_info_ptr) {
+int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, uint64_t calculation_type, Rel_info* relip, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, uint32_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, double* set_allele_freqs, double** rel_ibc_ptr, Chrom_info* chrom_info_ptr) {
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
   FILE* outfile = NULL;
+  uint32_t rel_calc_type = relip->modifier & REL_CALC_MASK;
+  int32_t ibc_type = relip->ibc_type;
   int32_t retval = 0;
   int64_t llxx = 0;
+  double rel_cutoff = relip->cutoff;
   double* dist_ptr = NULL;
   double* dptr3 = NULL;
   double* dptr4 = NULL;
@@ -5723,6 +5755,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   uint32_t* giptr;
   uint32_t* giptr2;
   uintptr_t* glptr2;
+  // currently must be bottom allocation, since plink() will free it
   if (wkspace_alloc_ui_checked(&g_indiv_missing_unwt, g_indiv_ct * sizeof(int32_t))) {
     goto calc_rel_ret_NOMEM;
   }
@@ -6251,7 +6284,7 @@ uint32_t calc_rel_f_grm_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
-int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, uint64_t calculation_type, uint32_t rel_calc_type, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, uint32_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, int32_t ibc_type, float rel_cutoff, double* set_allele_freqs, Chrom_info* chrom_info_ptr) {
+int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, uint64_t calculation_type, Rel_info* relip, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, uint32_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, double* set_allele_freqs, Chrom_info* chrom_info_ptr) {
   // N.B. REACTA may currently outperform this when compiled with ICC and run
   // on a heavily multicore 64-bit Linux system.  If it ever gets to the point
   // where it wins when compiled with gcc, on both 32- and 64-bit systems with
@@ -6262,7 +6295,10 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
   uintptr_t marker_idx = 0;
   FILE* outfile = NULL;
   FILE* out_bin_nfile = NULL;
+  uint32_t rel_calc_type = relip->modifier & REL_CALC_MASK;
+  int32_t ibc_type = relip->ibc_type;
   int32_t retval = 0;
+  float rel_cutoff = (float)(relip->cutoff);
   uint64_t ullxx = 0;
   float* dist_ptr = NULL;
   float* dptr3 = NULL;
