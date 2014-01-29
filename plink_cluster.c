@@ -1,54 +1,5 @@
 #include "plink_cluster.h"
-
-#ifdef __APPLE__
-
-#include <Accelerate/Accelerate.h>
-
-#else // not __APPLE__
-
-#ifndef NOLAPACK
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-  typedef double __CLPK_doublereal;
-
-#ifdef _WIN32
-
-#define HAVE_LAPACK_CONFIG_H
-#define LAPACK_COMPLEX_STRUCTURE
-#include "lapack/lapacke/include/lapacke.h"
-
-  typedef int32_t __CLPK_integer;
-  // int dsyevr_(); needed?
-
-#else // not _WIN32
-
-#include <cblas.h>
-#ifdef __LP64__
-  typedef int32_t __CLPK_integer;
-#else
-  typedef long int __CLPK_integer;
-#endif
-  int dsyevr_(char* jobz, char* range, char* uplo, __CLPK_integer* n,
-              __CLPK_doublereal* a, __CLPK_integer* lda, __CLPK_doublereal* vl,
-              __CLPK_doublereal* vu, __CLPK_integer* il, __CLPK_integer* iu,
-              __CLPK_doublereal* abstol, __CLPK_integer* m,
-              __CLPK_doublereal* w, __CLPK_doublereal* z, __CLPK_integer* ldz,
-              __CLPK_integer* isuppz, __CLPK_doublereal* work,
-              __CLPK_integer* lwork, __CLPK_integer* iwork,
-              __CLPK_integer* liwork, __CLPK_integer* info);
-
-#endif
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif // NOLAPACK
-
-#endif // __APPLE__
+#include "plink_matrix.h"
 
 void cluster_init(Cluster_info* cluster_ptr) {
   cluster_ptr->fname = NULL;

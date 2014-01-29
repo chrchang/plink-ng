@@ -76,6 +76,15 @@ extern "C" {
               __CLPK_doublereal* b, __CLPK_integer* ldb,
               __CLPK_doublereal* work, __CLPK_integer* lwork,
               __CLPK_integer* info);
+
+  int dsyevr_(char* jobz, char* range, char* uplo, __CLPK_integer* n,
+              __CLPK_doublereal* a, __CLPK_integer* lda, __CLPK_doublereal* vl,
+              __CLPK_doublereal* vu, __CLPK_integer* il, __CLPK_integer* iu,
+              __CLPK_doublereal* abstol, __CLPK_integer* m,
+              __CLPK_doublereal* w, __CLPK_doublereal* z, __CLPK_integer* ldz,
+              __CLPK_integer* isuppz, __CLPK_doublereal* work,
+              __CLPK_integer* lwork, __CLPK_integer* iwork,
+              __CLPK_integer* liwork, __CLPK_integer* info);
 #endif
 
   void xerbla_(void);

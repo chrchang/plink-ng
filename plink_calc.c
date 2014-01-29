@@ -2501,8 +2501,7 @@ int32_t calc_unrelated_herit(uint64_t calculation_type, Rel_info* relip, uintptr
   rel_base = &(g_rel_dists[ulii]);
   ulii = ulii * 3 + CACHEALIGN_DBL(indiv_ct) * 3;
   wkspace_reset(g_rel_dists);
-  g_rel_dists = (double*)wkspace_alloc(ulii * sizeof(double));
-  if (!g_rel_dists) {
+  if (wkspace_alloc_d_checked(&g_rel_dists, ulii * sizeof(double))) {
     return RET_NOMEM;
   }
   pheno_ptr = &(g_rel_dists[ulii - CACHEALIGN_DBL(indiv_ct)]);
@@ -5776,23 +5775,6 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   fill_int_zero((int32_t*)g_indiv_missing_unwt, indiv_ct);
   g_indiv_ct = indiv_ct;
   triangle_fill(g_thread_start, indiv_ct, g_thread_ct, parallel_idx, parallel_tot, 1, 1);
-  if (relationship_req(calculation_type)) {
-    llxx = g_thread_start[g_thread_ct];
-    llxx = ((llxx * (llxx - 1)) - (int64_t)g_thread_start[0] * (g_thread_start[0] - 1)) / 2;
-    if (!(calculation_type & CALC_UNRELATED_HERITABILITY)) {
-      // if the memory isn't needed for CALC_UNRELATED_HERITABILITY,
-      // positioning the missingness matrix here will let us avoid
-      // recalculating it if --distance-matrix or --matrix is requested
-      if (wkspace_alloc_ui_checked(&g_missing_dbl_excluded, llxx * sizeof(int32_t))) {
-	goto calc_rel_ret_NOMEM;
-      }
-      fill_int_zero((int32_t*)g_missing_dbl_excluded, llxx);
-    }
-    if (wkspace_alloc_d_checked(&g_rel_dists, llxx * sizeof(double))) {
-      goto calc_rel_ret_NOMEM;
-    }
-    fill_double_zero(g_rel_dists, llxx);
-  }
   if (calculation_type & CALC_IBC) {
     uii = indiv_ct * 3;
   } else {
@@ -5803,6 +5785,24 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   }
   rel_ibc = *rel_ibc_ptr;
   fill_double_zero(rel_ibc, uii);
+  if (relationship_req(calculation_type)) {
+    llxx = g_thread_start[g_thread_ct];
+    llxx = ((llxx * (llxx - 1)) - (int64_t)g_thread_start[0] * (g_thread_start[0] - 1)) / 2;
+    if (!(calculation_type & (CALC_PCA | CALC_UNRELATED_HERITABILITY))) {
+      // if the memory isn't needed for CALC_PCA or
+      // CALC_UNRELATED_HERITABILITY, positioning the missingness matrix here
+      // will let us avoid recalculating it if --distance-matrix or --matrix is
+      // requested
+      if (wkspace_alloc_ui_checked(&g_missing_dbl_excluded, llxx * sizeof(int32_t))) {
+	goto calc_rel_ret_NOMEM;
+      }
+      fill_int_zero((int32_t*)g_missing_dbl_excluded, llxx);
+    }
+    if (wkspace_alloc_d_checked(&g_rel_dists, llxx * sizeof(double))) {
+      goto calc_rel_ret_NOMEM;
+    }
+    fill_double_zero(g_rel_dists, llxx);
+  }
   wkspace_mark = wkspace_base;
   if (relationship_req(calculation_type) && (!g_missing_dbl_excluded)) {
     if (wkspace_alloc_ui_checked(&g_missing_dbl_excluded, llxx * sizeof(int32_t))) {
@@ -6765,16 +6765,56 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
 }
 
 #ifndef NOLAPACK
-int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, Rel_info* relip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t* pca_indiv_exclude, uintptr_t pca_indiv_ct, double* set_allele_freqs, Chrom_info* chrom_info_ptr) {
-  unsigned char* wkspace_mark = wkspace_base;
+int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, Rel_info* relip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t* pca_indiv_exclude, uintptr_t pca_indiv_ct, char* person_ids, uintptr_t max_person_id_len, double* set_allele_freqs, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, double* rel_ibc) {
+  // similar to mds_plot() in plink_cluster.c
   FILE* outfile = NULL;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  double nz = 0.0;
+  double zz = -1.0;
   uint32_t write_headers = relip->modifier & REL_PCA_HEADER;
   uint32_t pc_ct = relip->pc_ct;
-  uint32_t var_wt = relip->modifier & REL_PCA_VAR_WTS;
+  uint32_t var_wts = relip->modifier & REL_PCA_VAR_WTS;
+  uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
+  int32_t ibc_type = relip->ibc_type;
+  int32_t mt_code = chrom_info_ptr->mt_code;
   int32_t retval = 0;
+  __CLPK_integer info = 0;
+  __CLPK_integer lwork = -1;
+  __CLPK_integer liwork = -1;
+  char jobz = 'V';
+  char range = 'I';
+  char uplo = 'U';
+  char delimiter = (relip->modifier & REL_PCA_TABS)? '\t' : ' ';
+  double* main_matrix;
+  double* out_w;
+  double* out_z;
+  double* work;
+  double* indiv_loadings;
+  double* dptr;
+  char* cptr;
+  char* wptr_start;
   char* wptr;
+  double optim_lwork;
+  double dxx;
+  uintptr_t chrom_end;
+  uintptr_t marker_uidx;
+  uintptr_t marker_idx;
+  uintptr_t indiv_uidx;
+  uintptr_t indiv_idx;
+  uintptr_t ulii;
+  __CLPK_integer mdim;
+  __CLPK_integer i1;
+  __CLPK_integer i2;
+  __CLPK_integer out_m;
+  __CLPK_integer ldz;
+  __CLPK_integer optim_liwork;
+  __CLPK_integer* iwork;
+  __CLPK_integer* isuppz;
+  uint32_t chrom_fo_idx;
+  int32_t chrom_idx;
   uint32_t pc_idx;
+  g_missing_dbl_excluded = NULL;
+  marker_ct -= count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
   if ((pc_ct > pca_indiv_ct) || (pc_ct > marker_ct)) {
     if (pca_indiv_ct <= marker_ct) {
       pc_ct = pca_indiv_ct;
@@ -6785,9 +6825,86 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     }
     logprintb();
   }
+  ulii = (pca_indiv_ct * (pca_indiv_ct + 1)) / 2;
+  if (ulii < indiv_ct * pc_ct) {
+    ulii = indiv_ct * pc_ct;
+  }
+  wkspace_reset(g_rel_dists);
+  if (wkspace_alloc_d_checked(&g_rel_dists, ulii * sizeof(double)) ||
+      wkspace_alloc_d_checked(&main_matrix, pca_indiv_ct * pca_indiv_ct * sizeof(double))) {
+    goto calc_pca_ret_NOMEM;
+  }
+  ulii = ((pca_indiv_ct - 1) * (pca_indiv_ct - 2)) >> 1;
+  for (indiv_idx = pca_indiv_ct - 1; indiv_idx;) {
+    memcpy(&(main_matrix[indiv_idx * pca_indiv_ct]), &(g_rel_dists[ulii]), indiv_idx * sizeof(double));
+    ulii -= (--indiv_idx);
+  }
+  if (calculation_type & CALC_IBC) {
+    dptr = &(rel_ibc[ibc_type * pca_indiv_ct]);
+  } else {
+    dptr = rel_ibc;
+  }
+  ulii = pca_indiv_ct + 1;
+  for (indiv_idx = 0; indiv_idx < pca_indiv_ct; indiv_idx++) {
+    main_matrix[indiv_idx * ulii] = *dptr++;
+  }
+  ulii = pca_indiv_ct;
+  fputs("[extracting eigenvalues and eigenvectors]", stdout);
+  fflush(stdout);
+  mdim = ulii;
+  i2 = mdim;
+  i1 = i2 + 1 - pc_ct;
+  if (wkspace_alloc_d_checked(&out_w, pc_ct * sizeof(double)) ||
+      wkspace_alloc_d_checked(&out_z, pc_ct * ulii * sizeof(double))) {
+    goto calc_pca_ret_NOMEM;
+  }
+  fill_double_zero(out_w, pc_ct);
+  fill_double_zero(out_z, pc_ct * ulii);
+  isuppz = (__CLPK_integer*)wkspace_alloc(2 * pc_ct * sizeof(__CLPK_integer));
+  if (!isuppz) {
+    goto calc_pca_ret_NOMEM;
+  }
+  fill_int_zero((int32_t*)isuppz, 2 * pc_ct * (sizeof(__CLPK_integer) / sizeof(int32_t)));
+  ldz = mdim;
+
+  dsyevr_(&jobz, &range, &uplo, &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, &optim_lwork, &lwork, &optim_liwork, &liwork, &info);
+  lwork = (int32_t)optim_lwork;
+  if (wkspace_alloc_d_checked(&work, lwork * sizeof(double))) {
+    goto calc_pca_ret_NOMEM;
+  }
+  liwork = optim_liwork;
+  iwork = (__CLPK_integer*)wkspace_alloc(liwork * sizeof(__CLPK_integer));
+  if (!iwork) {
+    goto calc_pca_ret_NOMEM;
+  }
+  fill_double_zero(work, lwork);
+  fill_int_zero((int32_t*)iwork, liwork * (sizeof(__CLPK_integer) / sizeof(int32_t)));
+  dsyevr_(&jobz, &range, &uplo, &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, work, &lwork, iwork, &liwork, &info);
+
+  // * out_w[0..(pc_ct-1)] contains eigenvalues
+  // * out_z[(ii*ulii)..(ii*ulii + ulii - 1)] is eigenvector corresponding to
+  //   out_w[ii]
+  indiv_loadings = g_rel_dists; // PC-major
+  if (pca_indiv_ct == indiv_ct) {
+    memcpy(indiv_loadings, out_z, indiv_ct * pc_ct * sizeof(double));
+  } else {
+    logprint("\nError: --pca-cluster-names/--pca-clusters is currently under development.\n");
+    return RET_CALC_NOT_YET_SUPPORTED;
+  }
+  wkspace_reset((unsigned char*)out_z);
+
   memcpy(outname_end, ".eigenval", 10);
   if (fopen_checked(&outfile, outname, "w")) {
     goto calc_pca_ret_OPEN_FAIL;
+  }
+  wptr = tbuf;
+  pc_idx = pc_ct;
+  do {
+    pc_idx--;
+    wptr = double_g_writex(wptr, out_w[pc_idx], '\n');
+  } while (pc_idx);
+  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+    goto calc_pca_ret_WRITE_FAIL;
   }
   if (fclose_null(&outfile)) {
     goto calc_pca_ret_WRITE_FAIL;
@@ -6797,34 +6914,106 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     goto calc_pca_ret_OPEN_FAIL;
   }
   if (write_headers) {
+    wptr = memcpyl3a(tbuf, "FID");
+    *wptr++ = delimiter;
+    wptr = memcpyl3a(wptr, "IID");
+    for (pc_idx = 1; pc_idx <= pc_ct; pc_idx++) {
+      *wptr++ = delimiter;
+      wptr = memcpya(wptr, "PC", 2);
+      wptr = uint32_write(wptr, pc_idx);
+    }
+    *wptr++ = '\n';
+    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+      goto calc_pca_ret_WRITE_FAIL;
+    }
   }
-  // ...
+  for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++, indiv_uidx++) {
+    next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
+    cptr = &(person_ids[indiv_uidx * max_person_id_len]);
+    if (delimiter == '\t') {
+      wptr = strcpya(tbuf, cptr);
+    } else {
+      wptr_start = (char*)memchr(cptr, '\t', max_person_id_len);
+      wptr = memcpya(tbuf, cptr, wptr_start - cptr);
+      *wptr++ = ' ';
+      wptr = strcpya(wptr, &(wptr_start[1]));
+    }
+    // * indiv_loadings[(ii*ulii)..(ii*ulii + ulii - 1)] is eigenvector
+    //   corresponding to out_w[ii]
+    pc_idx = pc_ct;
+    do {
+      pc_idx--;
+      *wptr++ = delimiter;
+      wptr = double_g_write(wptr, indiv_loadings[pc_idx * indiv_ct + indiv_idx]);
+    } while (pc_idx);
+    *wptr++ = '\n';
+    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+      goto calc_pca_ret_WRITE_FAIL;
+    }
+  }
   if (fclose_null(&outfile)) {
     goto calc_pca_ret_WRITE_FAIL;
   }
-  if (var_wt) {
+  if (var_wts) {
     memcpy(outname_end, ".eigenvec.var", 14);
     if (fopen_checked(&outfile, outname, "w")) {
       goto calc_pca_ret_OPEN_FAIL;
     }
     if (write_headers) {
-
-      if (fputs_checked("VAR\tA1", outfile)) {
-	goto calc_pca_ret_WRITE_FAIL;
-      }
+      wptr = memcpyl3a(tbuf, "CHR");
+      *wptr++ = delimiter;
+      wptr = memcpyl3a(wptr, "VAR");
+      *wptr++ = delimiter;
+      wptr = memcpya(wptr, "A1", 2);
       for (pc_idx = 1; pc_idx <= pc_ct; pc_idx++) {
-
+        *wptr++ = delimiter;
+	wptr = memcpya(wptr, "PC", 2);
+        wptr = uint32_write(wptr, pc_idx);
       }
-
-      if (putc_checked('\n', outfile)) {
-	goto calc_pca_ret_WRITE_FAIL;
+      *wptr++ = '\n';
+      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+        goto calc_pca_ret_WRITE_FAIL;
       }
     }
-    ;;;
+    for (chrom_fo_idx = 0; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
+      chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+      if (is_set(chrom_info_ptr->haploid_mask, chrom_idx) || (chrom_idx == mt_code)) {
+	continue;
+      }
+      marker_uidx = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
+      chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+      wptr_start = chrom_name_write(tbuf, chrom_info_ptr, chrom_idx, zero_extra_chroms);
+      *wptr_start++ = delimiter;
+      while (1) {
+        next_unset_ul_ck(marker_exclude, &marker_uidx, chrom_end);
+	if (marker_uidx == chrom_end) {
+	  break;
+	}
+        wptr = strcpyax(wptr_start, &(marker_ids[marker_uidx * max_marker_id_len]), delimiter);
+	if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	  goto calc_pca_ret_WRITE_FAIL;
+	}
+        fputs(marker_allele_ptrs[2 * marker_uidx], outfile);
+	wptr = wptr_start;
+	for (pc_idx = 0; pc_idx < pc_ct; pc_idx++) {
+	  *wptr++ = delimiter;
+          wptr = double_g_write(wptr, dxx);
+	}
+	*wptr++ = '\n';
+	if (fwrite_checked(wptr_start, wptr - wptr_start, outfile)) {
+	  goto calc_pca_ret_WRITE_FAIL;
+	}
+	marker_uidx++;
+      }
+    }
     if (fclose_null(&outfile)) {
       goto calc_pca_ret_WRITE_FAIL;
     }
   }
+  *outname_end = '\0';
+  putchar('\r');
+  sprintf(logbuf, "--pca: Results saved to %s.eigen{val,vec%s}.\n", outname, var_wts? ",vec.var" : "");
+  logprintb();
   while (0) {
   calc_pca_ret_NOMEM:
     retval = RET_NOMEM;
@@ -6839,7 +7028,6 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     retval = RET_WRITE_FAIL;
     break;
   }
-  wkspace_reset(wkspace_mark);
   return retval;
 }
 #endif

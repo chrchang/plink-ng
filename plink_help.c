@@ -740,7 +740,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 #ifndef NOLAPACK
     help_print("pca\tmake-rel\tmake-grm\tmake-grm-gz\tmake-grm-bin", &help_ctrl, 1,
-"  --pca {count} <header> <tab> <var-wts>\n"
+"  --pca {count} <header> <tabs> <var-wts>\n"
 "    Calculates a variance-standardized relationship matrix (use\n"
 "    --make-rel or --make-grm-gz to dump it), and then extracts the top 20\n"
 "    principal components.\n"
@@ -748,7 +748,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * The 'header' modifier adds a header line to the .eigenvec output file.\n"
 "      (For compatibility with the GCTA flag of the same name, the default is no\n"
 "      header line.)\n"
-"    * The 'tab' modifier causes the .eigenvec file to be tab-delimited.\n"
+"    * The 'tabs' modifier causes the .eigenvec file(s) to be tab-delimited.\n"
 "    * The 'var-wts' modifier requests an additional .eigenvec.var file with PCs\n"
 "      expressed as variant weights instead of sample weights.\n\n"
 	       );

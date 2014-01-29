@@ -3587,18 +3587,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
         pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
       }
     }
-    if (retval) {
-      goto plink_ret_1;
-    }
 
-#ifndef NOLAPACK
-    if (calculation_type & CALC_PCA) {
-      retval = calc_pca(bedfile, bed_offset, outname, outname_end, relip, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_allele_ptrs, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, pca_indiv_exclude, ulii, set_allele_freqs, chrom_info_ptr);
-      if (retval) {
-	goto plink_ret_1;
-      }
-    }
-#endif
     if (calculation_type & CALC_REGRESS_REL) {
       retval = regress_rel_main(unfiltered_indiv_ct, indiv_exclude, indiv_ct, relip, threads, pheno_d);
       if (retval) {
@@ -3606,14 +3595,16 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
     }
 #ifndef NOLAPACK
-    if (calculation_type & CALC_UNRELATED_HERITABILITY) {
+    if (calculation_type & CALC_PCA) {
+      retval = calc_pca(bedfile, bed_offset, outname, outname_end, calculation_type, relip, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_allele_ptrs, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, pca_indiv_exclude? pca_indiv_exclude : indiv_exclude, pca_indiv_exclude? ulii : indiv_ct, person_ids, max_person_id_len, set_allele_freqs, zero_extra_chroms, chrom_info_ptr, rel_ibc);
+    } else if (calculation_type & CALC_UNRELATED_HERITABILITY) {
       retval = calc_unrelated_herit(calculation_type, relip, unfiltered_indiv_ct, indiv_exclude, indiv_ct, pheno_d, rel_ibc);
-      if (retval) {
-	goto plink_ret_1;
-      }
     }
 #endif
     wkspace_reset(g_indiv_missing_unwt);
+    if (retval) {
+      goto plink_ret_1;
+    }
     g_indiv_missing_unwt = NULL;
     g_missing_dbl_excluded = NULL;
   }
@@ -10123,8 +10114,8 @@ int32_t main(int32_t argc, char** argv) {
 	for (uii = 1; uii <= param_ct; uii++) {
 	  if (!strcmp(argv[cur_arg + uii], "header")) {
 	    rel_info.modifier |= REL_PCA_HEADER;
-	  } else if (!strcmp(argv[cur_arg + uii], "tab")) {
-            rel_info.modifier |= REL_PCA_TAB;
+	  } else if (!strcmp(argv[cur_arg + uii], "tabs")) {
+            rel_info.modifier |= REL_PCA_TABS;
 	  } else if (!strcmp(argv[cur_arg + uii], "var-wts")) {
             rel_info.modifier |= REL_PCA_VAR_WTS;
 	  } else {
@@ -10323,6 +10314,9 @@ int32_t main(int32_t argc, char** argv) {
 	if (parallel_tot > 1) {
 	  sprintf(logbuf, "Error: --parallel and --regress-rel flags cannot be used together.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (rel_info.pca_cluster_names_flattened || rel_info.pca_clusters_fname) {
+	  logprint("Error: --pca-cluster-names/--pca-clusters cannot be used with --regress-rel.\n");
+	  goto main_ret_INVALID_CMDLINE;
 	} else if (rel_info.modifier & REL_CALC_SINGLE_PREC) {
 	  sprintf(logbuf, "Error: --regress-rel cannot currently be used with a single-precision\nrelationship matrix.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -11592,8 +11586,8 @@ int32_t main(int32_t argc, char** argv) {
 	} else if (parallel_tot > 1) {
 	  sprintf(logbuf, "Error: --parallel and --unrelated-heritability cannot be used together.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
-	} else if (rel_info.pca_cluster_names_flattened || rel_info.pca_clusters_fname) {
-	  logprint("Error: --pca-cluster-names/--pca-clusters cannot be used with\n--unrelated-heritability.\n");
+	} else if (calculation_type & CALC_PCA) {
+	  logprint("Error: --pca cannot be used with --unrelated-heritability.\n");
           goto main_ret_INVALID_CMDLINE;
 	} else if (rel_info.modifier & REL_CALC_SINGLE_PREC) {
 	  sprintf(logbuf, "Error: --unrelated-heritability flag cannot be used with a single-precision\nrelationship matrix calculation.%s", errstr_append);
