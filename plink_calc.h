@@ -17,7 +17,7 @@
 #define REL_UNRELATED_HERITABILITY_STRICT 0x100
 #define REL_PCA_HEADER 0x200
 #define REL_PCA_TAB 0x400
-#define REL_PCA_VAR_WT 0x800
+#define REL_PCA_VAR_WTS 0x800
 
 typedef struct {
   uint32_t modifier;

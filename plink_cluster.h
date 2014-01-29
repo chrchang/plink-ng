@@ -46,7 +46,7 @@ int32_t fill_indiv_to_cluster(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_ex
 
 int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uint32_t omit_unassigned, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len);
 
-int32_t extract_clusters(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, char* cluster_names_flattened, char* clusters_fname, uintptr_t** new_indiv_exclude_ptr, uintptr_t* new_indiv_ct_ptr);
+int32_t extract_clusters(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, char* cluster_names_flattened, char* clusters_fname, const char* file_descrip, uintptr_t** new_indiv_exclude_ptr, uintptr_t* new_indiv_ct_ptr);
 
 int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_include, uint32_t remove_size1, uintptr_t* pheno_c, uintptr_t indiv_ct, uint32_t is_perm1, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* new_cluster_ct_ptr, uint32_t** new_cluster_map_ptr, uint32_t** new_cluster_starts_ptr, uint32_t** cluster_case_cts_ptr, uintptr_t** cluster_cc_perm_preimage_ptr);
 

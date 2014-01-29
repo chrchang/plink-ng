@@ -656,13 +656,18 @@ int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_in
   return retval;
 }
 
-int32_t extract_clusters(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, char* cluster_names_flattened, char* clusters_fname, uintptr_t** new_indiv_exclude_ptr, uintptr_t* new_indiv_ct_ptr) {
+int32_t extract_clusters(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, char* cluster_names_flattened, char* clusters_fname, const char* file_descrip, uintptr_t** new_indiv_exclude_ptr, uintptr_t* new_indiv_ct_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
-  uintptr_t new_indiv_ct = 0;
   int32_t retval = 0;
+  char* bufptr;
   uintptr_t* new_indiv_exclude;
+  uint32_t* uiptr;
+  uint32_t* cluster_end;
+  uint32_t slen;
+  uint32_t indiv_uidx;
+  int32_t ii;
   if (wkspace_alloc_ul_checked(new_indiv_exclude_ptr, unfiltered_indiv_ctl * sizeof(intptr_t))) {
     goto extract_clusters_ret_NOMEM;
   }
@@ -670,16 +675,61 @@ int32_t extract_clusters(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
   wkspace_mark = wkspace_base;
   fill_all_bits(new_indiv_exclude, unfiltered_indiv_ct);
   if (cluster_names_flattened) {
+    bufptr = cluster_names_flattened;
+    do {
+      slen = strlen(bufptr);
+      if (slen < max_cluster_id_len) {
+        ii = bsearch_str_natural(bufptr, cluster_ids, max_cluster_id_len, cluster_ct);
+        if (ii != -1) {
+	  uiptr = &(cluster_map[cluster_starts[(uint32_t)ii]]);
+	  cluster_end = &(cluster_map[cluster_starts[1 + (uint32_t)ii]]);
+	  while (uiptr < cluster_end) {
+	    indiv_uidx = *uiptr++;
+	    if (!is_set(indiv_exclude, indiv_uidx)) {
+	      clear_bit(new_indiv_exclude, indiv_uidx);
+	    }
+	  }
+	}
+      }
+      bufptr = &(bufptr[slen + 1]);
+    } while (*bufptr);
   }
   if (clusters_fname) {
     if (fopen_checked(&infile, clusters_fname, "r")) {
       goto extract_clusters_ret_OPEN_FAIL;
     }
-    ;;;
+    tbuf[MAXLINELEN - 1] = ' ';
+    while (fgets(tbuf, MAXLINELEN, infile)) {
+      if (!tbuf[MAXLINELEN - 1]) {
+        sprintf(logbuf, "Error: Pathologically long line in --%s file.\n", file_descrip);
+        goto extract_clusters_ret_INVALID_FORMAT_2;
+      }
+      bufptr = skip_initial_spaces(tbuf);
+      if (is_eoln_kns(*bufptr)) {
+        continue;
+      }
+      slen = strlen_se(bufptr);
+      if (slen >= max_cluster_id_len) {
+	continue;
+      }
+      bufptr[slen] = '\0';
+      ii = bsearch_str_natural(bufptr, cluster_ids, max_cluster_id_len, cluster_ct);
+      if (ii != -1) {
+	uiptr = &(cluster_map[cluster_starts[(uint32_t)ii]]);
+	cluster_end = &(cluster_map[cluster_starts[1 + (uint32_t)ii]]);
+	while (uiptr < cluster_end) {
+	  indiv_uidx = *uiptr++;
+	  if (!is_set(indiv_exclude, indiv_uidx)) {
+	    clear_bit(new_indiv_exclude, indiv_uidx);
+	  }
+	}
+      }
+    }
     if (fclose_null(&infile)) {
       goto extract_clusters_ret_READ_FAIL;
     }
   }
+  *new_indiv_ct_ptr = unfiltered_indiv_ct - popcount_longs(new_indiv_exclude, unfiltered_indiv_ctl);
   while (0) {
   extract_clusters_ret_NOMEM:
     retval = RET_NOMEM;
@@ -689,6 +739,10 @@ int32_t extract_clusters(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
     break;
   extract_clusters_ret_READ_FAIL:
     retval = RET_READ_FAIL;
+    break;
+  extract_clusters_ret_INVALID_FORMAT_2:
+    logprintb();
+    retval = RET_INVALID_FORMAT;
     break;
   }
   fclose_cond(infile);

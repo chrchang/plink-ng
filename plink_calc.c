@@ -6771,7 +6771,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uint32_t write_headers = relip->modifier & REL_PCA_HEADER;
   uint32_t pc_ct = relip->pc_ct;
-  uint32_t var_wt = relip->modifier & REL_PCA_VAR_WT;
+  uint32_t var_wt = relip->modifier & REL_PCA_VAR_WTS;
   int32_t retval = 0;
   char* wptr;
   uint32_t pc_idx;

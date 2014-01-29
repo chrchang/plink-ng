@@ -84,7 +84,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (28 Jan 2014)";
+  " (29 Jan 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -2549,7 +2549,7 @@ static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, char* cm
 }
 
 static inline uint32_t are_marker_alleles_needed(uint64_t calculation_type, char* freqname, Homozyg_info* homozyg_ptr, Two_col_params* a1alleles, Two_col_params* a2alleles, uint32_t ld_modifier, uint32_t snp_only, uint32_t clump_modifier, uint32_t rel_modifier) {
-  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || a1alleles || a2alleles || snp_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)) || (rel_modifier & REL_PCA_VAR_WT));
+  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || a1alleles || a2alleles || snp_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)) || (rel_modifier & REL_PCA_VAR_WTS));
 }
 
 inline int32_t relationship_or_ibc_req(uint64_t calculation_type) {
@@ -3554,14 +3554,15 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       retval = calc_rel_f(threads, parallel_idx, parallel_tot, calculation_type, relip, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ct, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, person_ids, max_person_id_len, set_allele_freqs, chrom_info_ptr);
     } else {
       if (relip->pca_cluster_names_flattened || relip->pca_clusters_fname) {
-	retval = extract_clusters(unfiltered_indiv_ct, indiv_exclude, indiv_ct, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, relip->pca_cluster_names_flattened, relip->pca_clusters_fname, &pca_indiv_exclude, &pca_indiv_ct);
+	retval = extract_clusters(unfiltered_indiv_ct, indiv_exclude, indiv_ct, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, relip->pca_cluster_names_flattened, relip->pca_clusters_fname, "pca-clusters", &pca_indiv_exclude, &pca_indiv_ct);
 	if (retval) {
 	  goto plink_ret_1;
 	}
-	if (!pca_indiv_ct) {
-	  logprint("Error: No samples included by --pca-cluster-names/--pca-clusters.\n");
+	if (pca_indiv_ct < 2) {
+	  logprint("Error: Too few samples specified by --pca-cluster-names/--pca-clusters.\n");
 	  goto plink_ret_1;
 	}
+	sprintf(logbuf, "--pca-cluster-names/--pca-clusters: %" PRIuPTR " samples specified.\n", pca_indiv_ct);
         ulii = unfiltered_indiv_ct - pca_indiv_ct;
       }
       retval = calc_rel(threads, parallel_idx, parallel_tot, calculation_type, relip, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ct, unfiltered_indiv_ct, pca_indiv_exclude? pca_indiv_exclude : indiv_exclude, pca_indiv_exclude? (&ulii) : (&indiv_exclude_ct), person_ids, max_person_id_len, set_allele_freqs, &rel_ibc, chrom_info_ptr);
@@ -10124,8 +10125,8 @@ int32_t main(int32_t argc, char** argv) {
 	    rel_info.modifier |= REL_PCA_HEADER;
 	  } else if (!strcmp(argv[cur_arg + uii], "tab")) {
             rel_info.modifier |= REL_PCA_TAB;
-	  } else if (!strcmp(argv[cur_arg + uii], "var-wt")) {
-            rel_info.modifier |= REL_PCA_VAR_WT;
+	  } else if (!strcmp(argv[cur_arg + uii], "var-wts")) {
+            rel_info.modifier |= REL_PCA_VAR_WTS;
 	  } else {
 	    ii = atoi(argv[cur_arg + uii]);
 	    if (ujj || (ii < 1)) {
