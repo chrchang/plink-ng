@@ -861,9 +861,15 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	// safe to clobber buffer contents
         memcpy(poscharbuf, bufptr2, ujj);
         bufptr4 = memcpya(bufptr, missing_marker_id_template, missing_template_seg0_len);
-        bufptr4 = memcpya(bufptr4, bufptr3, ukk);
-	bufptr4 = memcpya(bufptr4, missing_template_seg1, missing_template_seg1_len);
-        bufptr4 = memcpya(bufptr4, poscharbuf, ujj);
+	if (!missing_pos_first) {
+	  bufptr4 = memcpya(bufptr4, bufptr3, ukk);
+	  bufptr4 = memcpya(bufptr4, missing_template_seg1, missing_template_seg1_len);
+	  bufptr4 = memcpya(bufptr4, poscharbuf, ujj);
+	} else {
+	  bufptr4 = memcpya(bufptr4, poscharbuf, ujj);
+	  bufptr4 = memcpya(bufptr4, missing_template_seg1, missing_template_seg1_len);
+	  bufptr4 = memcpya(bufptr4, bufptr3, ukk);
+	}
 	bufptr4 = memcpya(bufptr4, missing_template_seg2, missing_template_seg2_len);
 	ulii = (uintptr_t)(bufptr4 - bufptr);
 	bufptr2 = poscharbuf;
@@ -1234,9 +1240,15 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       if (ujj) {
 	// --set-missing-var-ids
         bufptr4 = memcpya(&((*marker_ids_ptr)[marker_uidx * max_marker_id_len]), missing_marker_id_template, missing_template_seg0_len);
-        bufptr4 = memcpya(bufptr4, bufptr3, strlen_se(bufptr3));
-	bufptr4 = memcpya(bufptr4, missing_template_seg1, missing_template_seg1_len);
-        bufptr4 = memcpya(bufptr4, bufptr, strlen_se(bufptr));
+	if (!missing_pos_first) {
+	  bufptr4 = memcpya(bufptr4, bufptr3, strlen_se(bufptr3));
+	  bufptr4 = memcpya(bufptr4, missing_template_seg1, missing_template_seg1_len);
+	  bufptr4 = memcpya(bufptr4, bufptr, strlen_se(bufptr));
+	} else {
+	  bufptr4 = memcpya(bufptr4, bufptr, strlen_se(bufptr));
+	  bufptr4 = memcpya(bufptr4, missing_template_seg1, missing_template_seg1_len);
+	  bufptr4 = memcpya(bufptr4, bufptr3, strlen_se(bufptr3));
+	}
 	bufptr4 = memcpya(bufptr4, missing_template_seg2, missing_template_seg2_len);
 	*bufptr4 = '\0';
 	missing_ids_set++;
