@@ -6893,6 +6893,8 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   }
   wkspace_reset((unsigned char*)out_z);
   if (var_wts || (pca_indiv_ct < indiv_ct)) {
+    logprint("\nError: --pca var-wts is currently under development.\n");
+    return RET_CALC_NOT_YET_SUPPORTED;
     if (var_wts) {
       memcpy(outname_end, ".eigenvec.var", 14);
       if (fopen_checked(&outfile, outname, "w")) {
