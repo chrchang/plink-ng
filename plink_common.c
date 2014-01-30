@@ -7431,7 +7431,7 @@ void vec_datamask(uintptr_t unfiltered_indiv_ct, uint32_t matchval, uintptr_t* d
       do {
 	loader = *data_ptr++;
         *result_ptr++ = (~loader) & (loader >> 1) & (*mask_ptr++);
-      } while (data_ptr < data_read_end)
+      } while (data_ptr < data_read_end);
 #endif
     } else {
 #ifdef __LP64__
@@ -7443,7 +7443,7 @@ void vec_datamask(uintptr_t unfiltered_indiv_ct, uint32_t matchval, uintptr_t* d
       do {
         loader = *data_ptr++;
         *result_ptr++ = loader & (loader >> 1) & (*mask_ptr++);
-      } while (data_ptr < data_read_end)
+      } while (data_ptr < data_read_end);
 #endif
     }
   } else {
@@ -7456,7 +7456,7 @@ void vec_datamask(uintptr_t unfiltered_indiv_ct, uint32_t matchval, uintptr_t* d
     do {
       loader = *data_ptr++;
       *result_ptr++ = (~(loader | (loader >> 1))) & (*mask_ptr++);
-    } while (data_ptr < data_read_end)
+    } while (data_ptr < data_read_end);
 #endif
   }
 }
