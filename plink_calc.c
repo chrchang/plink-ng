@@ -6795,10 +6795,10 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   char* wptr_start;
   char* wptr;
   double optim_lwork;
-  double dxx;
+  double dxx = 0.0;
   uintptr_t chrom_end;
   uintptr_t marker_uidx;
-  uintptr_t marker_idx;
+  // uintptr_t marker_idx;
   uintptr_t indiv_uidx;
   uintptr_t indiv_idx;
   uintptr_t ulii;
@@ -6892,6 +6892,72 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     return RET_CALC_NOT_YET_SUPPORTED;
   }
   wkspace_reset((unsigned char*)out_z);
+  if (var_wts || (pca_indiv_ct < indiv_ct)) {
+    if (var_wts) {
+      memcpy(outname_end, ".eigenvec.var", 14);
+      if (fopen_checked(&outfile, outname, "w")) {
+	goto calc_pca_ret_OPEN_FAIL;
+      }
+      if (write_headers) {
+	wptr = memcpyl3a(tbuf, "CHR");
+	*wptr++ = delimiter;
+	wptr = memcpyl3a(wptr, "VAR");
+	*wptr++ = delimiter;
+	wptr = memcpya(wptr, "A1", 2);
+	for (pc_idx = 1; pc_idx <= pc_ct; pc_idx++) {
+	  *wptr++ = delimiter;
+	  wptr = memcpya(wptr, "PC", 2);
+	  wptr = uint32_write(wptr, pc_idx);
+	}
+	*wptr++ = '\n';
+	if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	  goto calc_pca_ret_WRITE_FAIL;
+	}
+      }
+    }
+    for (chrom_fo_idx = 0; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
+      chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+      if (is_set(chrom_info_ptr->haploid_mask, chrom_idx) || (chrom_idx == mt_code)) {
+	continue;
+      }
+      marker_uidx = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
+      chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+      wptr_start = chrom_name_write(tbuf, chrom_info_ptr, chrom_idx, zero_extra_chroms);
+      *wptr_start++ = delimiter;
+      while (marker_uidx < chrom_end) {
+	if (IS_SET(marker_exclude, marker_uidx)) {
+	  marker_uidx = next_unset_ul(marker_exclude, marker_uidx, chrom_end);
+	  if (marker_uidx == chrom_end) {
+	    break;
+	  }
+	  if (fseeko(bedfile, ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	    goto calc_pca_ret_READ_FAIL;
+	  }
+	  // load_and_collapse()...
+	}
+	if (var_wts) {
+	  wptr = strcpyax(wptr_start, &(marker_ids[marker_uidx * max_marker_id_len]), delimiter);
+	  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	    goto calc_pca_ret_WRITE_FAIL;
+	  }
+	  fputs(marker_allele_ptrs[2 * marker_uidx], outfile);
+	  wptr = wptr_start;
+	  for (pc_idx = 0; pc_idx < pc_ct; pc_idx++) {
+	    *wptr++ = delimiter;
+	    wptr = double_g_write(wptr, dxx);
+	  }
+	  *wptr++ = '\n';
+	  if (fwrite_checked(wptr_start, wptr - wptr_start, outfile)) {
+	    goto calc_pca_ret_WRITE_FAIL;
+	  }
+	}
+	marker_uidx++;
+      }
+    }
+    if (fclose_null(&outfile)) {
+      goto calc_pca_ret_WRITE_FAIL;
+    }
+  }
 
   memcpy(outname_end, ".eigenval", 10);
   if (fopen_checked(&outfile, outname, "w")) {
@@ -6953,62 +7019,6 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   }
   if (fclose_null(&outfile)) {
     goto calc_pca_ret_WRITE_FAIL;
-  }
-  if (var_wts) {
-    memcpy(outname_end, ".eigenvec.var", 14);
-    if (fopen_checked(&outfile, outname, "w")) {
-      goto calc_pca_ret_OPEN_FAIL;
-    }
-    if (write_headers) {
-      wptr = memcpyl3a(tbuf, "CHR");
-      *wptr++ = delimiter;
-      wptr = memcpyl3a(wptr, "VAR");
-      *wptr++ = delimiter;
-      wptr = memcpya(wptr, "A1", 2);
-      for (pc_idx = 1; pc_idx <= pc_ct; pc_idx++) {
-        *wptr++ = delimiter;
-	wptr = memcpya(wptr, "PC", 2);
-        wptr = uint32_write(wptr, pc_idx);
-      }
-      *wptr++ = '\n';
-      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
-        goto calc_pca_ret_WRITE_FAIL;
-      }
-    }
-    for (chrom_fo_idx = 0; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
-      chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      if (is_set(chrom_info_ptr->haploid_mask, chrom_idx) || (chrom_idx == mt_code)) {
-	continue;
-      }
-      marker_uidx = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
-      chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
-      wptr_start = chrom_name_write(tbuf, chrom_info_ptr, chrom_idx, zero_extra_chroms);
-      *wptr_start++ = delimiter;
-      while (1) {
-        next_unset_ul_ck(marker_exclude, &marker_uidx, chrom_end);
-	if (marker_uidx == chrom_end) {
-	  break;
-	}
-        wptr = strcpyax(wptr_start, &(marker_ids[marker_uidx * max_marker_id_len]), delimiter);
-	if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
-	  goto calc_pca_ret_WRITE_FAIL;
-	}
-        fputs(marker_allele_ptrs[2 * marker_uidx], outfile);
-	wptr = wptr_start;
-	for (pc_idx = 0; pc_idx < pc_ct; pc_idx++) {
-	  *wptr++ = delimiter;
-          wptr = double_g_write(wptr, dxx);
-	}
-	*wptr++ = '\n';
-	if (fwrite_checked(wptr_start, wptr - wptr_start, outfile)) {
-	  goto calc_pca_ret_WRITE_FAIL;
-	}
-	marker_uidx++;
-      }
-    }
-    if (fclose_null(&outfile)) {
-      goto calc_pca_ret_WRITE_FAIL;
-    }
   }
   *outname_end = '\0';
   putchar('\r');

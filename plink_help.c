@@ -741,9 +741,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #ifndef NOLAPACK
     help_print("pca\tmake-rel\tmake-grm\tmake-grm-gz\tmake-grm-bin", &help_ctrl, 1,
 "  --pca {count} <header> <tabs> <var-wts>\n"
-"    Calculates a variance-standardized relationship matrix (use\n"
-"    --make-rel or --make-grm-gz to dump it), and then extracts the top 20\n"
-"    principal components.\n"
+"    Calculates a variance-standardized relationship matrix (use --make-rel or\n"
+"    --make-grm-gz to dump it), and extracts the top 20 principal components.\n"
 "    * You can change the number of PCs by passing a numeric parameter.\n"
 "    * The 'header' modifier adds a header line to the .eigenvec output file.\n"
 "      (For compatibility with the GCTA flag of the same name, the default is no\n"
@@ -1312,6 +1311,16 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                           * 'b37'/'hg19' = GRCh37, bounds 2699520 & 154931044\n"
 "                           * 'b38'/'hg20' = GRCh38, bounds 2781479 & 155701383\n"
 "  --merge-x              : Merge XY chromosome back with X.\n"
+	       );
+    help_print("set-missing-var-ids", &help_ctrl, 0,
+"  --set-missing-var-ids [t] {m} : Given a template string with a '^' where the\n"
+"                                  chromosome code should go and '#' where the\n"
+"                                  bp coordinate belongs, this assigns\n"
+"                                  chromosome-and-bp-based IDs to all unnamed\n"
+"                                  variants.  By default, unnamed variants are\n"
+"                                  assumed to have IDs set to '.'; you can\n"
+"                                  specify a different missing ID string by\n"
+"                                  passing a second parameter.\n"
 	       );
     help_print("update-chr\tupdate-cm\tupdate-map\tupdate-name", &help_ctrl, 0,
 "  --update-chr  [f] {chrcol} {IDcol}  {skip} : Update variant chromosome codes.\n"
