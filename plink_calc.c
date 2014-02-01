@@ -6765,12 +6765,18 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
 }
 
 #ifndef NOLAPACK
-int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, Rel_info* relip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t* pca_indiv_exclude, uintptr_t pca_indiv_ct, char* person_ids, uintptr_t max_person_id_len, double* set_allele_freqs, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, double* rel_ibc) {
+int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, Rel_info* relip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t* pca_indiv_exclude, uintptr_t pca_indiv_ct, char* person_ids, uintptr_t max_person_id_len, double* set_allele_freqs, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, double* rel_ibc) {
   // similar to mds_plot() in plink_cluster.c
   FILE* outfile = NULL;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t pca_indiv_ctl2 = (pca_indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t proj_indiv_ct = indiv_ct - pca_indiv_ct;
+  uintptr_t proj_indiv_ctl = (proj_indiv_ct + (BITCT - 1)) / BITCT;
   double nz = 0.0;
   double zz = -1.0;
+  uintptr_t* loadbuf_proj = NULL;
+  double* proj_indiv_loadings = NULL;
   uint32_t write_headers = relip->modifier & REL_PCA_HEADER;
   uint32_t pc_ct = relip->pc_ct;
   uint32_t var_wts = relip->modifier & REL_PCA_VAR_WTS;
@@ -6785,20 +6791,29 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   char range = 'I';
   char uplo = 'U';
   char delimiter = (relip->modifier & REL_PCA_TABS)? '\t' : ' ';
+  double var_wt_incr[4];
   double* main_matrix;
   double* out_w;
   double* out_z;
   double* work;
   double* indiv_loadings;
+  double* cur_var_wts;
+  double* pc_sums;
+  double* eigval_inv_sqrts;
   double* dptr;
+  double* dptr2;
+  uintptr_t* loadbuf_raw;
+  uintptr_t* loadbuf;
+  uintptr_t* ulptr;
   char* cptr;
   char* wptr_start;
   char* wptr;
   double optim_lwork;
-  double dxx = 0.0;
+  double allhom_adj;
+  double dxx;
+  double dyy;
   uintptr_t chrom_end;
   uintptr_t marker_uidx;
-  // uintptr_t marker_idx;
   uintptr_t indiv_uidx;
   uintptr_t indiv_idx;
   uintptr_t ulii;
@@ -6811,8 +6826,10 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   __CLPK_integer* iwork;
   __CLPK_integer* isuppz;
   uint32_t chrom_fo_idx;
-  int32_t chrom_idx;
   uint32_t pc_idx;
+  uint32_t uii;
+  uint32_t ujj;
+  int32_t chrom_idx;
   g_missing_dbl_excluded = NULL;
   marker_ct -= count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
   if ((pc_ct > pca_indiv_ct) || (pc_ct > marker_ct)) {
@@ -6885,16 +6902,47 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   // * out_z[(ii*ulii)..(ii*ulii + ulii - 1)] is eigenvector corresponding to
   //   out_w[ii]
   indiv_loadings = g_rel_dists; // PC-major
-  if (pca_indiv_ct == indiv_ct) {
-    memcpy(indiv_loadings, out_z, indiv_ct * pc_ct * sizeof(double));
-  } else {
+  dptr = indiv_loadings;
+  // transpose out_z to indiv-major.  eigenvals/vecs still "backwards"
+  for (indiv_idx = 0; indiv_idx < pca_indiv_ct; indiv_idx++) {
+    dptr2 = &(out_z[indiv_idx]);
+    for (pc_idx = 0; pc_idx < pc_ct; pc_idx++) {
+      *dptr++ = dptr2[pc_idx * pca_indiv_ct];
+    }
+  }
+  if (proj_indiv_ct) {
     logprint("\nError: --pca-cluster-names/--pca-clusters is currently under development.\n");
     return RET_CALC_NOT_YET_SUPPORTED;
   }
   wkspace_reset((unsigned char*)out_z);
-  if (var_wts || (pca_indiv_ct < indiv_ct)) {
-    logprint("\nError: --pca var-wts is currently under development.\n");
-    return RET_CALC_NOT_YET_SUPPORTED;
+  if (var_wts || proj_indiv_ct) {
+    if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
+        wkspace_alloc_ul_checked(&loadbuf, pca_indiv_ctl2 * sizeof(intptr_t)) ||
+        wkspace_alloc_d_checked(&cur_var_wts, pc_ct * sizeof(double)) ||
+        wkspace_alloc_d_checked(&pc_sums, pc_ct * sizeof(double)) ||
+        wkspace_alloc_d_checked(&eigval_inv_sqrts, pc_ct * sizeof(double))) {
+      goto calc_pca_ret_NOMEM;
+    }
+    loadbuf_raw[unfiltered_indiv_ctl2 - 1] = 0;
+    loadbuf[pca_indiv_ctl2 - 1] = 0;
+    fill_double_zero(pc_sums, pc_ct);
+    dptr = indiv_loadings;
+    for (indiv_idx = 0; indiv_idx < pca_indiv_ct; indiv_idx++) {
+      for (pc_idx = 0; pc_idx < pc_ct; pc_idx++) {
+	pc_sums[pc_idx] += *dptr++;
+      }
+    }
+    for (pc_idx = 0; pc_idx < pc_ct; pc_idx++) {
+      eigval_inv_sqrts[pc_idx] = sqrt(1 / out_w[pc_idx]);
+    }
+    if (proj_indiv_ct) {
+      if (wkspace_alloc_ul_checked(&loadbuf_proj, proj_indiv_ctl * sizeof(intptr_t)) ||
+          wkspace_alloc_d_checked(&proj_indiv_loadings, proj_indiv_ct * pc_ct * sizeof(double))) {
+	goto calc_pca_ret_NOMEM;
+      }
+      loadbuf_proj[proj_indiv_ct - 1] = 0;
+      fill_double_zero(proj_indiv_loadings, proj_indiv_ct * pc_ct);
+    }
     if (var_wts) {
       memcpy(outname_end, ".eigenvec.var", 14);
       if (fopen_checked(&outfile, outname, "w")) {
@@ -6917,6 +6965,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	}
       }
     }
+    allhom_adj = 0.0;
     for (chrom_fo_idx = 0; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
       chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       if (is_set(chrom_info_ptr->haploid_mask, chrom_idx) || (chrom_idx == mt_code)) {
@@ -6926,34 +6975,78 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
       chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
       wptr_start = chrom_name_write(tbuf, chrom_info_ptr, chrom_idx, zero_extra_chroms);
       *wptr_start++ = delimiter;
-      while (marker_uidx < chrom_end) {
-	if (IS_SET(marker_exclude, marker_uidx)) {
-	  marker_uidx = next_unset_ul(marker_exclude, marker_uidx, chrom_end);
-	  if (marker_uidx == chrom_end) {
-	    break;
+      if (marker_uidx < chrom_end) {
+	if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	  goto calc_pca_ret_READ_FAIL;
+	}
+	do {
+	  if (IS_SET(marker_exclude, marker_uidx)) {
+	    marker_uidx = next_unset_ul(marker_exclude, marker_uidx, chrom_end);
+	    if (marker_uidx == chrom_end) {
+	      break;
+	    }
+	    if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	      goto calc_pca_ret_READ_FAIL;
+	    }
 	  }
-	  if (fseeko(bedfile, ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	  // if projecting, loadbuf_raw contains raw data, so we can just
+	  // follow up with collapse_copy_2bitarr() and reverse_loadbuf()
+	  if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, pca_indiv_ct, pca_indiv_exclude, IS_SET(marker_reverse, marker_uidx))) {
 	    goto calc_pca_ret_READ_FAIL;
 	  }
-	  // load_and_collapse()...
-	}
-	if (var_wts) {
-	  wptr = strcpyax(wptr_start, &(marker_ids[marker_uidx * max_marker_id_len]), delimiter);
-	  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
-	    goto calc_pca_ret_WRITE_FAIL;
-	  }
-	  fputs(marker_allele_ptrs[2 * marker_uidx], outfile);
-	  wptr = wptr_start;
+	  // Variant weight matrix = X^T * S * D^{-1/2}, where X^T is the
+	  // variance-standardized genotype matrix, S is the sample weight
+	  // matrix, and D is a diagonal eigenvalue matrix.
+	  fill_double_zero(cur_var_wts, pc_ct);
+	  dxx = set_allele_freqs[marker_uidx];
+	  dyy = sqrt(1 / (2 * dxx * (1.0 - dxx)));
+	  ulptr = loadbuf;
+
+	  var_wt_incr[1] = dyy; // het
+	  var_wt_incr[2] = 2 * (1.0 - dxx) * dyy; // missing
+	  var_wt_incr[3] = 2 * dyy; // hom minor
+	  indiv_uidx = 0; // using this as an offset here
+	  do {
+	    ulii = ~(*ulptr++);
+	    if (indiv_uidx + BITCT2 > pca_indiv_ct) {
+	      ulii &= (ONELU << ((pca_indiv_ct & (BITCT2 - 1)) * 2)) - ONELU;
+	    }
+	    while (ulii) {
+	      uii = CTZLU(ulii) & (BITCT - 2);
+	      ujj = (ulii >> uii) & 3;
+	      indiv_idx = indiv_uidx + (uii / 2);
+	      dxx = var_wt_incr[ujj];
+	      dptr = cur_var_wts;
+	      dptr2 = &(indiv_loadings[indiv_idx * pc_ct]);
+	      for (pc_idx = 0; pc_idx < pc_ct; pc_idx++) {
+		*dptr += dxx * (*dptr2++);
+		dptr++;
+	      }
+	      ulii &= ~(3 * (ONELU << uii));
+	    }
+	    indiv_uidx += BITCT2;
+	  } while (indiv_uidx < pca_indiv_ct);
 	  for (pc_idx = 0; pc_idx < pc_ct; pc_idx++) {
-	    *wptr++ = delimiter;
-	    wptr = double_g_write(wptr, dxx);
+	    cur_var_wts[pc_idx] -= pc_sums[pc_idx] * var_wt_incr[2];
+	    cur_var_wts[pc_idx] *= eigval_inv_sqrts[pc_idx];
 	  }
-	  *wptr++ = '\n';
-	  if (fwrite_checked(wptr_start, wptr - wptr_start, outfile)) {
-	    goto calc_pca_ret_WRITE_FAIL;
+	  if (proj_indiv_ct) {
+	    // todo
 	  }
-	}
-	marker_uidx++;
+	  if (var_wts) {
+	    wptr = strcpya(wptr_start, &(marker_ids[marker_uidx * max_marker_id_len]));
+	    dptr = &(cur_var_wts[pc_ct]);
+	    dptr2 = cur_var_wts;
+	    do {
+	      *wptr++ = delimiter;
+	      wptr = double_g_write(wptr, *(--dptr));
+	    } while (dptr > dptr2);
+	    *wptr++ = '\n';
+	    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	      goto calc_pca_ret_WRITE_FAIL;
+	    }
+	  }
+	} while (++marker_uidx < chrom_end);
       }
     }
     if (fclose_null(&outfile)) {
@@ -7006,14 +7099,12 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
       *wptr++ = ' ';
       wptr = strcpya(wptr, &(wptr_start[1]));
     }
-    // * indiv_loadings[(ii*ulii)..(ii*ulii + ulii - 1)] is eigenvector
-    //   corresponding to out_w[ii]
-    pc_idx = pc_ct;
+    dptr = &(indiv_loadings[(indiv_idx + 1) * pc_ct]);
+    dptr2 = &(indiv_loadings[indiv_idx * pc_ct]);
     do {
-      pc_idx--;
       *wptr++ = delimiter;
-      wptr = double_g_write(wptr, indiv_loadings[pc_idx * indiv_ct + indiv_idx]);
-    } while (pc_idx);
+      wptr = double_g_write(wptr, *(--dptr));
+    } while (dptr > dptr2);
     *wptr++ = '\n';
     if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
       goto calc_pca_ret_WRITE_FAIL;
