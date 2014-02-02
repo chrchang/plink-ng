@@ -5387,6 +5387,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   double dyy;
   double dzz;
   double drand;
+  uLongf zlib_ulongf;
   uint32_t missing_pheno_len;
   uint32_t raw_marker_ct;
   uint32_t marker_uidx;
@@ -6181,8 +6182,8 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	if (fread(loadbuf, 1, uii, infile) < uii) {
 	  goto oxford_to_bed_ret_READ_FAIL;
 	}
-	ulii = 6 * indiv_ct;
-	if (uncompress((Bytef*)bgen_probs, &ulii, (Bytef*)loadbuf, uii) != Z_OK) {
+        zlib_ulongf = 6 * indiv_ct;
+	if (uncompress((Bytef*)bgen_probs, &zlib_ulongf, (Bytef*)loadbuf, uii) != Z_OK) {
 	  logprint("Error: Invalid compressed SNP block in .bgen file.\n");
 	  goto oxford_to_bed_ret_INVALID_FORMAT;
 	}
