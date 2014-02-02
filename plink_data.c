@@ -5338,14 +5338,16 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
 
 #define D_EPSILON 0.000244140625
 
-int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outname_end, double hard_call_threshold, char* missing_code, int32_t missing_pheno, uint64_t misc_flags, Chrom_info* chrom_info_ptr) {
+int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outname_end, double hard_call_threshold, char* missing_code, int32_t missing_pheno, uint64_t misc_flags, uint32_t is_bgen, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
+  gzFile gz_infile = NULL;
   FILE* outfile = NULL;
   FILE* outfile_bim = NULL;
   uintptr_t mc_ct = 0;
   uintptr_t max_mc_len = 0;
   double hard_call_floor = 1.0 - hard_call_threshold;
+  char* loadbuf = NULL;
   char* sorted_mc = NULL;
   char* tbuf2 = &(tbuf[MAXLINELEN]); // .fam write
 
@@ -5356,15 +5358,17 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   // load first phenotype (not covariate), if present
   uint32_t pheno_col = 0;
 
+  uint32_t snpid_chr = (misc_flags / MISC_OXFORD_SNPID_CHR) & 1;
   uint32_t allow_extra_chroms = (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1;
   uint32_t indiv_ct = 0;
   uint32_t col_ct = 3;
   uint32_t is_binary_pheno = 0;
   uint32_t is_randomized = (hard_call_threshold == -1);
+  uint32_t bgen_hardthresh = 0;
   uint32_t marker_ct = 0;
   int32_t retval = 0;
+  uint32_t uint_arr[4];
   char missing_pheno_str[12];
-  char* loadbuf;
   char* bufptr;
   char* bufptr2;
   char* bufptr3;
@@ -5372,22 +5376,32 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   char* wptr;
   uintptr_t* writebuf;
   uintptr_t* ulptr;
+  uint16_t* bgen_probs;
+  uint16_t* usptr;
   uintptr_t loadbuf_size;
-  uintptr_t ulii;
-  uintptr_t uljj;
   uintptr_t slen;
   uintptr_t cur_word;
+  uintptr_t ulii;
+  uintptr_t uljj;
   double dxx;
   double dyy;
   double dzz;
   double drand;
   uint32_t missing_pheno_len;
+  uint32_t raw_marker_ct;
+  uint32_t marker_uidx;
   uint32_t indiv_ct4;
   uint32_t indiv_ctl2;
   uint32_t indiv_idx;
   uint32_t col_idx;
   uint32_t shiftval;
+  uint32_t bgen_compressed;
+  uint32_t bgen_multichar_alleles;
+  uint32_t uii;
   int32_t ii;
+  uint16_t usii;
+  uint16_t usjj;
+  uint16_t uskk;
   char cc;
   char cc2;
   bufptr = int32_write(missing_pheno_str, missing_pheno);
@@ -5654,16 +5668,6 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   if (wkspace_alloc_ul_checked(&writebuf, indiv_ctl2 * sizeof(intptr_t))) {
     goto oxford_to_bed_ret_NOMEM;
   }
-  loadbuf_size = wkspace_left;
-  if (loadbuf_size > MAXLINEBUFLEN) {
-    loadbuf_size = MAXLINEBUFLEN;
-  } else if (loadbuf_size <= MAXLINELEN) {
-    goto oxford_to_bed_ret_NOMEM;
-  }
-  loadbuf = (char*)wkspace_base;
-  if (fopen_checked(&infile, genname, "r")) {
-    goto oxford_to_bed_ret_OPEN_FAIL;
-  }
   memcpy(outname_end, ".bim", 5);
   if (fopen_checked(&outfile_bim, outname, "w")) {
     goto oxford_to_bed_ret_OPEN_FAIL;
@@ -5675,198 +5679,487 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   if (fwrite_checked("l\x1b\x01", 3, outfile)) {
     goto oxford_to_bed_ret_WRITE_FAIL;
   }
-  loadbuf[loadbuf_size - 1] = ' ';
-  while (fgets(loadbuf, loadbuf_size, infile)) {
-    if (!loadbuf[loadbuf_size - 1]) {
-      if (loadbuf_size == MAXLINEBUFLEN) {
-	sprintf(logbuf, "Error: Pathologically long line in %s.\n", genname);
-        goto oxford_to_bed_ret_INVALID_FORMAT;
-      }
+  if (!is_bgen) {
+    loadbuf_size = wkspace_left;
+    if (loadbuf_size > MAXLINEBUFLEN) {
+      loadbuf_size = MAXLINEBUFLEN;
+    } else if (loadbuf_size <= MAXLINELEN) {
       goto oxford_to_bed_ret_NOMEM;
     }
-    bufptr = skip_initial_spaces(loadbuf);
-    if (is_eoln_kns(*bufptr)) {
-      continue;
+    loadbuf = (char*)wkspace_base;
+    if (gzopen_checked(&gz_infile, genname, "rb")) {
+      goto oxford_to_bed_ret_OPEN_FAIL;
     }
-    ii = get_chrom_code(chrom_info_ptr, bufptr);
-    if (ii == -1) {
-      if (!allow_extra_chroms) {
-	logprint("Error: Unrecognized chromosome code in .gen file.  (Did you forget\n--allow-extra-chr?).\n");
-	goto oxford_to_bed_ret_INVALID_FORMAT;
+    if (gzbuffer(gz_infile, 131072)) {
+      goto oxford_to_bed_ret_NOMEM;
+    }
+    loadbuf[loadbuf_size - 1] = ' ';
+    while (1) {
+      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
+	if (!gzeof(gz_infile)) {
+	  goto oxford_to_bed_ret_READ_FAIL;
+	}
+	break;
       }
-      retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii);
-      if (retval) {
-	goto oxford_to_bed_ret_1;
+      if (!loadbuf[loadbuf_size - 1]) {
+	if (loadbuf_size == MAXLINEBUFLEN) {
+	  sprintf(logbuf, "Error: Pathologically long line in %s.\n", genname);
+	  goto oxford_to_bed_ret_INVALID_FORMAT;
+	}
+	goto oxford_to_bed_ret_NOMEM;
       }
-    }
-    if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
-      continue;
-    }
-    fill_ulong_zero(writebuf, indiv_ctl2);
-    bufptr2 = next_item_mult(bufptr, 2);
-    if (!bufptr2) {
-      goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
-    }
-    fwrite(bufptr, 1, bufptr2 - bufptr, outfile_bim);
-    putc('0', outfile_bim);
-    if (putc_checked(' ', outfile_bim)) {
-      goto oxford_to_bed_ret_WRITE_FAIL;
-    }
-    bufptr = bufptr2;
-    bufptr2 = next_item_mult(bufptr, 2);
-    if (no_more_items_kns(bufptr2)) {
-      goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
-    }
-    bufptr2 = item_endnn(bufptr2);
-    fwrite(bufptr, 1, bufptr2 - bufptr, outfile_bim);
-    if (putc_checked('\n', outfile_bim)) {
-      goto oxford_to_bed_ret_WRITE_FAIL;
-    }
-    cur_word = 0;
-    shiftval = 0;
-    ulptr = writebuf;
-    bufptr = skip_initial_spaces(&(bufptr2[1]));
-    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+      bufptr = skip_initial_spaces(loadbuf);
       if (is_eoln_kns(*bufptr)) {
-	goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
+	continue;
       }
-      // fast handling of common cases
-      cc = bufptr[1];
-      if ((cc == ' ') || (cc == '\t')) {
-	cc = bufptr[3];
-	cc2 = bufptr[5];
-	if (((cc == ' ') || (cc == '\t')) && ((cc2 == ' ') || (cc2 == '\t'))) {
-	  cc = *bufptr;
-	  if (cc == '0') {
-	    bufptr2 = &(bufptr[2]);
-	    cc = *bufptr2;
-	    cc2 = bufptr2[2];
+      ii = get_chrom_code(chrom_info_ptr, bufptr);
+      if (ii == -1) {
+	if (!allow_extra_chroms) {
+	  logprint("Error: Unrecognized chromosome code in .gen file.  (Did you forget\n--allow-extra-chr?).\n");
+	  goto oxford_to_bed_ret_INVALID_FORMAT;
+	}
+	retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii);
+	if (retval) {
+	  goto oxford_to_bed_ret_1;
+	}
+      }
+      if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
+	continue;
+      }
+      fill_ulong_zero(writebuf, indiv_ctl2);
+      bufptr2 = next_item_mult(bufptr, 2);
+      if (!bufptr2) {
+	goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
+      }
+      fwrite(bufptr, 1, bufptr2 - bufptr, outfile_bim);
+      putc('0', outfile_bim);
+      if (putc_checked(' ', outfile_bim)) {
+	goto oxford_to_bed_ret_WRITE_FAIL;
+      }
+      bufptr = bufptr2;
+      bufptr2 = next_item_mult(bufptr, 2);
+      if (no_more_items_kns(bufptr2)) {
+	goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
+      }
+      bufptr2 = item_endnn(bufptr2);
+      fwrite(bufptr, 1, bufptr2 - bufptr, outfile_bim);
+      if (putc_checked('\n', outfile_bim)) {
+	goto oxford_to_bed_ret_WRITE_FAIL;
+      }
+      cur_word = 0;
+      shiftval = 0;
+      ulptr = writebuf;
+      bufptr = skip_initial_spaces(&(bufptr2[1]));
+      for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	if (is_eoln_kns(*bufptr)) {
+	  goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
+	}
+	// fast handling of common cases
+	cc = bufptr[1];
+	if ((cc == ' ') || (cc == '\t')) {
+	  cc = bufptr[3];
+	  cc2 = bufptr[5];
+	  if (((cc == ' ') || (cc == '\t')) && ((cc2 == ' ') || (cc2 == '\t'))) {
+	    cc = *bufptr;
 	    if (cc == '0') {
-	      if (cc2 == '1') {
-		ulii = 3;
-	      } else if (cc2 == '0') {
-		ulii = 1;
+	      bufptr2 = &(bufptr[2]);
+	      cc = *bufptr2;
+	      cc2 = bufptr2[2];
+	      if (cc == '0') {
+		if (cc2 == '1') {
+		  ulii = 3;
+		} else if (cc2 == '0') {
+		  ulii = 1;
+		} else {
+		  // could be a space...
+		  goto oxford_to_bed_full_parse_2;
+		}
+	      } else if ((cc == '1') && (cc2 == '0')) {
+		ulii = 2;
 	      } else {
-		// could be a space...
-                goto oxford_to_bed_full_parse_2;
+		goto oxford_to_bed_full_parse_2;
 	      }
-	    } else if ((cc == '1') && (cc2 == '0')) {
-	      ulii = 2;
+	    } else if ((cc == '1') && (bufptr[2] == '0') && (bufptr[4] == '0')) {
+	      ulii = 0;
 	    } else {
-	      goto oxford_to_bed_full_parse_2;
+	      goto oxford_to_bed_full_parse;
 	    }
-	  } else if ((cc == '1') && (bufptr[2] == '0') && (bufptr[4] == '0')) {
-	    ulii = 0;
+	    bufptr = &(bufptr[6]);
 	  } else {
 	    goto oxford_to_bed_full_parse;
 	  }
-	  bufptr = &(bufptr[6]);
 	} else {
-	  goto oxford_to_bed_full_parse;
-	}
-      } else {
-	// okay, gotta do things the slow way
-      oxford_to_bed_full_parse:
-	bufptr2 = item_endnn(bufptr);
-      oxford_to_bed_full_parse_2:
-	bufptr2 = skip_initial_spaces(bufptr2);
-	if (is_eoln_kns(*bufptr2)) {
-	  goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
-	}
-	bufptr3 = item_endnn(bufptr2);
-	dzz = strtod(bufptr3, &bufptr4);
-	if (!is_randomized) {
-	  if (dzz >= hard_call_floor) {
-	    ulii = 3;
-	  } else {
-	    if (bufptr3 == bufptr4) {
-	      goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
-	    }
-	    dyy = strtod(bufptr2, &bufptr3);
-	    if (dyy >= hard_call_floor) {
-              ulii = 2;
+	  // okay, gotta do things the slow way
+	oxford_to_bed_full_parse:
+	  bufptr2 = item_endnn(bufptr);
+	oxford_to_bed_full_parse_2:
+	  bufptr2 = skip_initial_spaces(bufptr2);
+	  if (is_eoln_kns(*bufptr2)) {
+	    goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
+	  }
+	  bufptr3 = item_endnn(bufptr2);
+	  dzz = strtod(bufptr3, &bufptr4);
+	  if (!is_randomized) {
+	    if (dzz >= hard_call_floor) {
+	      ulii = 3;
 	    } else {
-	      if (bufptr2 == bufptr3) {
+	      if (bufptr3 == bufptr4) {
 		goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
 	      }
-              dxx = strtod(bufptr, &bufptr2);
-	      if (dxx >= hard_call_floor) {
-		ulii = 0;
+	      dyy = strtod(bufptr2, &bufptr3);
+	      if (dyy >= hard_call_floor) {
+		ulii = 2;
 	      } else {
-		if (bufptr == bufptr2) {
+		if (bufptr2 == bufptr3) {
 		  goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
 		}
-		ulii = 1;
-	      }
-	    }
-	  }
-	} else {
-          drand = rand_unif();
-	  if (drand < dzz) {
-	    ulii = 3;
-	  } else {
-	    if (bufptr3 == bufptr4) {
-	      goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
-	    }
-	    dyy = strtod(bufptr2, &bufptr3) + dzz;
-            if (drand < dyy) {
-	      ulii = 2;
-	    } else {
-              if (bufptr2 == bufptr3) {
-	        goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
-	      }
-	      dxx = strtod(bufptr, &bufptr2) + dyy;
-	      if (drand < dyy) {
-		ulii = 0;
-	      } else if (dxx < 1 - D_EPSILON) {
-		ulii = 1;
-	      } else {
-		// fully called genotype probabilities may add up to less than
-		// one due to rounding error.  If this appears to have
-		// happened, do NOT make a missing call; instead rescale
-		// everything to add to one and reinterpret the random number.
-		// (D_EPSILON is currently set to make 4 decimal place
-		// precision safe to use.)
-		drand *= dxx;
-		if (drand < dzz) {
-		  ulii = 3;
-		} else if (drand < dyy) {
-		  ulii = 2;
-		} else {
+		dxx = strtod(bufptr, &bufptr2);
+		if (dxx >= hard_call_floor) {
 		  ulii = 0;
+		} else {
+		  if (bufptr == bufptr2) {
+		    goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
+		  }
+		  ulii = 1;
+		}
+	      }
+	    }
+	  } else {
+	    drand = rand_unif();
+	    if (drand < dzz) {
+	      ulii = 3;
+	    } else {
+	      if (bufptr3 == bufptr4) {
+		goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
+	      }
+	      dyy = strtod(bufptr2, &bufptr3) + dzz;
+	      if (drand < dyy) {
+		ulii = 2;
+	      } else {
+		if (bufptr2 == bufptr3) {
+		  goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
+		}
+		dxx = strtod(bufptr, &bufptr2) + dyy;
+		if (drand < dyy) {
+		  ulii = 0;
+		} else if (dxx < 1 - D_EPSILON) {
+		  ulii = 1;
+		} else {
+		  // fully called genotype probabilities may add up to less
+		  // than one due to rounding error.  If this appears to have
+		  // happened, do NOT make a missing call; instead rescale
+		  // everything to add to one and reinterpret the random
+		  // number.  (D_EPSILON is currently set to make 4 decimal
+		  // place precision safe to use.)
+		  drand *= dxx;
+		  if (drand < dzz) {
+		    ulii = 3;
+		  } else if (drand < dyy) {
+		    ulii = 2;
+		  } else {
+		    ulii = 0;
+		  }
 		}
 	      }
 	    }
 	  }
+	  bufptr = skip_initial_spaces(bufptr4);
 	}
-	bufptr = skip_initial_spaces(bufptr4);
+	cur_word |= ulii << shiftval;
+	shiftval += 2;
+	if (shiftval == BITCT) {
+	  *ulptr++ = cur_word;
+	  cur_word = 0;
+	  shiftval = 0;
+	}
       }
-      cur_word |= ulii << shiftval;
-      shiftval += 2;
-      if (shiftval == BITCT) {
+      if (shiftval) {
 	*ulptr++ = cur_word;
-	cur_word = 0;
-	shiftval = 0;
+      }
+      if (fwrite_checked(writebuf, indiv_ct4, outfile)) {
+	goto oxford_to_bed_ret_WRITE_FAIL;
+      }
+      marker_ct++;
+      if (!(marker_ct % 1000)) {
+	printf("\r--data: %uk variants converted.", marker_ct / 1000);
+	fflush(stdout);
       }
     }
-    if (shiftval) {
-      *ulptr++ = cur_word;
+    if (!marker_ct) {
+      logprint("Error: Empty .gen file.\n");
+      goto oxford_to_bed_ret_INVALID_FORMAT;
     }
-    if (fwrite_checked(writebuf, indiv_ct4, outfile)) {
-      goto oxford_to_bed_ret_WRITE_FAIL;
+  } else {
+    if (fopen_checked(&infile, genname, "rb")) {
+      goto oxford_to_bed_ret_OPEN_FAIL;
     }
-    marker_ct++;
-    if (!(marker_ct % 1000)) {
-      printf("\r--data: %uk variants processed.", marker_ct / 1000);
-      fflush(stdout);
+    // supports BGEN v1.0 and v1.1.  (online documentation seems to have
+    // several errors as of this writing, ugh)
+    bgen_probs = (uint16_t*)wkspace_alloc(6 * indiv_ct);
+    if (!bgen_probs) {
+      goto oxford_to_bed_ret_NOMEM;
     }
-  }
-  if (!marker_ct) {
-    logprint("Error: Empty .gen file.\n");
-    goto oxford_to_bed_ret_INVALID_FORMAT;
-  }
-  if (fclose_null(&infile)) {
-    goto oxford_to_bed_ret_READ_FAIL;
+    loadbuf = (char*)wkspace_base;
+    loadbuf_size = wkspace_left;
+    if (loadbuf_size > MAXLINEBUFLEN / 2) {
+      // halve the limit since there are two alleles
+      loadbuf_size = MAXLINEBUFLEN / 2;
+    } else if (loadbuf_size < 3 * 65536) {
+      goto oxford_to_bed_ret_NOMEM;
+    }
+    if (fread(uint_arr, 1, 16, infile) < 16) {
+      goto oxford_to_bed_ret_READ_FAIL;
+    }
+    if (uint_arr[1] > uint_arr[0]) {
+      logprint("Error: Invalid .bgen header.\n");
+      goto oxford_to_bed_ret_INVALID_FORMAT;
+    }
+    raw_marker_ct = uint_arr[2];
+    if (!raw_marker_ct) {
+      logprint("Error: .bgen file contains no markers.\n");
+      goto oxford_to_bed_ret_INVALID_FORMAT;
+    }
+    if (uint_arr[3] != indiv_ct) {
+      logprint("Error: --bgen and --sample files contain different numbers of samples.\n");
+      goto oxford_to_bed_ret_INVALID_FORMAT;
+    }
+    if (fseeko(infile, uint_arr[1], SEEK_SET)) {
+      goto oxford_to_bed_ret_READ_FAIL;
+    }
+    if (fread(&uii, 1, 4, infile) < 4) {
+      goto oxford_to_bed_ret_READ_FAIL;
+    }
+    if (uii & (~5)) {
+      logprint("Error: Unrecognized flags in .bgen header.  (This PLINK build only supports\nBGEN v1.0 and v1.1.)\n");
+      goto oxford_to_bed_ret_INVALID_FORMAT;
+    }
+    if (fseeko(infile, 4 + uint_arr[0], SEEK_SET)) {
+      goto oxford_to_bed_ret_READ_FAIL;
+    }
+    bgen_compressed = uii & 1;
+    bgen_multichar_alleles = (uii >> 2) & 1;
+    if (!is_randomized) {
+      bgen_hardthresh = 32768 - (int32_t)(hard_call_threshold * 32768);
+    }
+    memcpyl3(tbuf, " 0 ");
+    for (marker_uidx = 0; marker_uidx < raw_marker_ct; marker_uidx++) {
+      if (fread(&uii, 1, 4, infile) < 4) {
+	goto oxford_to_bed_ret_READ_FAIL;
+      }
+      if (uii != indiv_ct) {
+	logprint("Error: Unexpected number of individuals specified in SNP block header.\n");
+	goto oxford_to_bed_ret_INVALID_FORMAT;
+      }
+      if (bgen_multichar_alleles) {
+        if (fread(&usii, 1, 2, infile) < 2) {
+	  goto oxford_to_bed_ret_READ_FAIL;
+	}
+        if (!usii) {
+	  logprint("Error: Length-0 SNP ID in .bgen file.\n");
+	  goto oxford_to_bed_ret_INVALID_FORMAT;
+	}
+	if (!snpid_chr) {
+	  if (fseeko(infile, usii, SEEK_CUR)) {
+	    goto oxford_to_bed_ret_READ_FAIL;
+	  }
+	  bufptr = loadbuf;
+	} else {
+	  if (fread(loadbuf, 1, usii, infile) < usii) {
+	    goto oxford_to_bed_ret_READ_FAIL;
+	  }
+	  loadbuf[usii] = '\0';
+	  bufptr = &(loadbuf[usii + 1]);
+	}
+	if (fread(&usjj, 1, 2, infile) < 2) {
+	  goto oxford_to_bed_ret_READ_FAIL;
+	}
+	if (!usjj) {
+	  logprint("Error: Length-0 rsID in .bgen file.\n");
+	  goto oxford_to_bed_ret_INVALID_FORMAT;
+	}
+	if (fread(bufptr, 1, usjj, infile) < usjj) {
+	  goto oxford_to_bed_ret_READ_FAIL;
+	}
+        bufptr2 = &(bufptr[usjj]);
+	if (fread(&uskk, 1, 2, infile) < 2) {
+	  goto oxford_to_bed_ret_READ_FAIL;
+	}
+	if (!uskk) {
+	  logprint("Error: Length-0 chromosome ID in .bgen file.\n");
+	  goto oxford_to_bed_ret_INVALID_FORMAT;
+	}
+	if (!snpid_chr) {
+	  usii = uskk;
+	  if (fread(bufptr2, 1, usii, infile) < usii) {
+	    goto oxford_to_bed_ret_READ_FAIL;
+	  }
+	  if ((usii == 2) && (!memcmp(bufptr2, "NA", 2))) {
+	    // convert 'NA' to 0
+	    usii = 1;
+	    memcpy(bufptr2, "0", 2);
+	  } else {
+	    bufptr2[usii] = '\0';
+	  }
+	} else {
+	  if (fseeko(infile, uskk, SEEK_CUR)) {
+	    goto oxford_to_bed_ret_READ_FAIL;
+	  }
+	  bufptr2 = loadbuf;
+	}
+	if (fread(uint_arr, 1, 8, infile) < 8) {
+	  goto oxford_to_bed_ret_READ_FAIL;
+	}
+	if (!uint_arr[1]) {
+	  logprint("Error: Length-0 allele ID in .bgen file.\n");
+	  goto oxford_to_bed_ret_INVALID_FORMAT;
+	}
+        ii = get_chrom_code(chrom_info_ptr, bufptr2);
+	if (ii == -1) {
+	  if (!allow_extra_chroms) {
+	    logprint("Error: Unrecognized chromosome code in .bgen file.  (Did you forget --allow-extra-chr?).\n");
+            goto oxford_to_bed_ret_INVALID_FORMAT;
+	  }
+	  retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr2, &ii);
+          if (retval) {
+	    goto oxford_to_bed_ret_1;
+	  }
+	}
+        if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
+	  // skip rest of current SNP
+	  if (fseeko(infile, uint_arr[1], SEEK_CUR)) {
+	    goto oxford_to_bed_ret_READ_FAIL;
+	  }
+	  if (fread(&uii, 1, 4, infile) < 4) {
+	    goto oxford_to_bed_ret_READ_FAIL;
+	  }
+	  if (bgen_compressed) {
+	    if (fseeko(infile, uii, SEEK_CUR)) {
+	      goto oxford_to_bed_ret_READ_FAIL;
+	    }
+	    if (fread(&uii, 1, 4, infile) < 4) {
+	      goto oxford_to_bed_ret_READ_FAIL;
+	    }
+	    if (fseeko(infile, uii, SEEK_CUR)) {
+	      goto oxford_to_bed_ret_READ_FAIL;
+	    }
+	  } else {
+	    if (fseeko(infile, uii + ((uint64_t)indiv_ct) * 6, SEEK_CUR)) {
+	      goto oxford_to_bed_ret_READ_FAIL;
+	    }
+	  }
+	  continue;
+	}
+	fputs(bufptr2, outfile_bim);
+	if (putc_checked(' ', outfile_bim)) {
+	  goto oxford_to_bed_ret_WRITE_FAIL;
+	}
+        fwrite(bufptr, 1, usjj, outfile_bim);
+	bufptr = uint32_writex(&(tbuf[3]), uint_arr[0], ' ');
+	fwrite(tbuf, 1, bufptr - tbuf, outfile_bim);
+        if (uint_arr[1] >= loadbuf_size) {
+	  if (loadbuf_size < MAXLINEBUFLEN / 2) {
+	    goto oxford_to_bed_ret_NOMEM;
+	  }
+	  logprint("Error: Excessively long allele in .bgen file.\n");
+	  goto oxford_to_bed_ret_INVALID_FORMAT;
+	}
+        if (fread(loadbuf, 1, uint_arr[1], infile) < uint_arr[1]) {
+	  goto oxford_to_bed_ret_READ_FAIL;
+	}
+	loadbuf[uint_arr[1]] = ' ';
+        if (fwrite_checked(loadbuf, uint_arr[1] + 1, outfile_bim)) {
+	  goto oxford_to_bed_ret_WRITE_FAIL;
+	}
+	if (fread(&uii, 1, 4, infile) < 4) {
+	  goto oxford_to_bed_ret_READ_FAIL;
+	}
+        if (uii >= loadbuf_size) {
+	  if (loadbuf_size < MAXLINEBUFLEN / 2) {
+	    goto oxford_to_bed_ret_NOMEM;
+	  }
+	  logprint("Error: Excessively long allele in .bgen file.\n");
+	  goto oxford_to_bed_ret_INVALID_FORMAT;
+	}
+        if (fread(loadbuf, 1, uii, infile) < uii) {
+	  goto oxford_to_bed_ret_READ_FAIL;
+	}
+	loadbuf[uii] = '\n';
+        if (fwrite_checked(loadbuf, uii + 1, outfile_bim)) {
+	  goto oxford_to_bed_ret_WRITE_FAIL;
+	}
+      } else {
+	logprint("Error: BGEN v1.0 support is currently under development.\n");
+	goto oxford_to_bed_ret_INVALID_FORMAT;
+      }
+      if (bgen_compressed) {
+	if (fread(&uii, 1, 4, infile) < 4) {
+	  goto oxford_to_bed_ret_READ_FAIL;
+	}
+	if (uii > loadbuf_size) {
+	  if (loadbuf_size < MAXLINEBUFLEN / 2) {
+	    goto oxford_to_bed_ret_NOMEM;
+	  }
+	  logprint("Error: Excessively long compressed SNP block in .bgen file.\n");
+	  goto oxford_to_bed_ret_INVALID_FORMAT;
+	}
+	if (fread(loadbuf, 1, uii, infile) < uii) {
+	  goto oxford_to_bed_ret_READ_FAIL;
+	}
+	ulii = 6 * indiv_ct;
+	if (uncompress((Bytef*)bgen_probs, &ulii, (Bytef*)loadbuf, uii) != Z_OK) {
+	  logprint("Error: Invalid compressed SNP block in .bgen file.\n");
+	  goto oxford_to_bed_ret_INVALID_FORMAT;
+	}
+      } else {
+	if (fread(bgen_probs, 1, 6 * indiv_ct, infile) < 6 * indiv_ct) {
+	  goto oxford_to_bed_ret_READ_FAIL;
+	}
+      }
+      cur_word = 0;
+      shiftval = 0;
+      ulptr = writebuf;
+      if (!is_randomized) {
+        usptr = bgen_probs;
+	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++, usptr = &(usptr[3])) {
+	  if (usptr[2] >= bgen_hardthresh) {
+	    ulii = 3;
+	  } else if (usptr[1] >= bgen_hardthresh) {
+	    ulii = 2;
+	  } else if (usptr[0] >= bgen_hardthresh) {
+	    ulii = 0;
+	  } else {
+	    ulii = 1;
+	  }
+	  cur_word |= ulii << shiftval;
+	  shiftval += 2;
+	  if (shiftval == BITCT) {
+	    *ulptr++ = cur_word;
+	    cur_word = 0;
+	    shiftval = 0;
+	  }
+	}
+      } else {
+	// todo
+      }
+      if (shiftval) {
+	*ulptr++ = cur_word;
+      }
+      if (fwrite_checked(writebuf, indiv_ct4, outfile)) {
+	goto oxford_to_bed_ret_WRITE_FAIL;
+      }
+      marker_ct++;
+      if (!(marker_ct % 1000)) {
+	if (marker_ct == marker_uidx + 1) {
+	  printf("\r--bgen: %uk variants converted.", marker_ct / 1000);
+	} else {
+	  printf("\r--bgen: %uk variants converted (out of %u).", marker_ct / 1000, marker_uidx + 1);
+	}
+	fflush(stdout);
+      }
+    }
+    if (fclose_null(&infile)) {
+      goto oxford_to_bed_ret_READ_FAIL;
+    }
   }
   if (fclose_null(&outfile)) {
     goto oxford_to_bed_ret_WRITE_FAIL;
@@ -5875,7 +6168,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     goto oxford_to_bed_ret_WRITE_FAIL;
   }
   putchar('\r');
-  sprintf(logbuf, "--data: binary fileset written to %s + .bim + .fam.\n", outname);
+  sprintf(logbuf, "--%s: binary fileset written to %s + .bim + .fam.\n", is_bgen? "bgen" : "data", outname);
   logprintb();
   while (0) {
   oxford_to_bed_ret_NOMEM:
@@ -5930,6 +6223,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   }
  oxford_to_bed_ret_1:
   fclose_cond(infile);
+  gzclose_cond(gz_infile);
   fclose_cond(outfile);
   fclose_cond(outfile_bim);
   wkspace_reset(wkspace_mark);

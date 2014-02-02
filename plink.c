@@ -65,6 +65,21 @@
 #define LOAD_RARE_VCF 0x800
 #define LOAD_RARE_BCF 0x1000
 
+#define LOAD_PARAMS_TEXTFILE 1
+#define LOAD_PARAMS_PED 2
+#define LOAD_PARAMS_MAP 4
+#define LOAD_PARAMS_TEXT_ALL 7
+#define LOAD_PARAMS_BFILE 8
+#define LOAD_PARAMS_BED 0x10
+#define LOAD_PARAMS_BIM 0x20
+#define LOAD_PARAMS_FAM 0x40
+#define LOAD_PARAMS_BFILE_ALL 0x78
+#define LOAD_PARAMS_OXDATA 0x80
+#define LOAD_PARAMS_OXGEN 0x100
+#define LOAD_PARAMS_OXBGEN 0x200
+#define LOAD_PARAMS_OXSAMPLE 0x400
+#define LOAD_PARAMS_OX_ALL 0x780
+
 // maximum number of usable cluster computers, this is arbitrary though it
 // shouldn't be larger than 2^31 - 1
 #define PARALLEL_MAX 32768
@@ -6084,7 +6099,10 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'b':
       if (!memcmp(argptr2, "file", 5)) {
-	load_params |= 8;
+	if (load_rare) {
+	  goto main_ret_INVALID_CMDLINE_4;
+	}
+	load_params |= LOAD_PARAMS_BFILE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -6097,13 +6115,16 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
 	  sptr = (char*)PROG_NAME_STR;
 	}
-	if (!(load_params & 16)) {
+	if (!(load_params & LOAD_PARAMS_BED)) {
 	  memcpy(strcpya(pedname, sptr), ".bed", 5);
 	}
 	memcpy(strcpya(mapname, sptr), ".bim", 5);
 	memcpy(strcpya(famname, sptr), ".fam", 5);
       } else if (!memcmp(argptr2, "ed", 3)) {
-	load_params |= 0x10;
+	if (load_rare) {
+	  goto main_ret_INVALID_CMDLINE_4;
+	}
+	load_params |= LOAD_PARAMS_BED;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -6113,7 +6134,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	strcpy(pedname, argv[cur_arg + 1]);
       } else if (!memcmp(argptr2, "im", 3)) {
-	load_params |= 0x20;
+	load_params |= LOAD_PARAMS_BIM;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -6207,6 +6228,26 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	memcpy(pedname, argv[cur_arg + 1], uii + 1);
 	load_rare = LOAD_RARE_BCF;
+      } else if (!memcmp(argptr2, "gen", 4)) {
+	if (load_rare || (load_params & LOAD_PARAMS_BFILE_ALL)) {
+	  goto main_ret_INVALID_CMDLINE_4;
+	}
+	load_params |= LOAD_PARAMS_OXBGEN;
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
+	  logprint("Error: --bgen parameter too long.\n");
+	  goto main_ret_OPEN_FAIL;
+	}
+	strcpy(pedname, argv[cur_arg + 1]);
+	if (param_ct == 2) {
+	  if (strcmp(argv[cur_arg + 2], "snpid-chr")) {
+	    sprintf(logbuf, "Error: Invalid --bgen modifier '%s'.%s", argv[cur_arg + 2], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+          misc_flags |= MISC_OXFORD_SNPID_CHR;
+	}
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -7159,7 +7200,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (load_rare || load_params) {
 	  goto main_ret_INVALID_CMDLINE_4;
 	}
-	load_params |= 0x80;
+	load_params |= LOAD_PARAMS_OXDATA;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -7172,7 +7213,9 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
 	  sptr = (char*)PROG_NAME_STR;
 	}
-	memcpy(strcpya(pedname, sptr), ".gen", 5);
+	if (!(load_params & LOAD_PARAMS_OXBGEN)) {
+	  memcpy(strcpya(pedname, sptr), ".gen", 5);
+	}
 	// cheating: this is of course more like a .fam file
 	memcpy(strcpya(mapname, sptr), ".sample", 8);
       } else if (!memcmp(argptr2, "ecompress", 10)) {
@@ -7490,10 +7533,10 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'f':
       if (!memcmp(argptr2, "ile", 4)) {
-	if (load_params & 0x3f9) {
+	if (load_params & (LOAD_PARAMS_BFILE_ALL | LOAD_PARAMS_OX_ALL)) {
 	  goto main_ret_INVALID_CMDLINE_4;
 	}
-	load_params |= 1;
+	load_params |= LOAD_PARAMS_TEXTFILE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -7502,18 +7545,18 @@ int32_t main(int32_t argc, char** argv) {
 	    logprint("Error: --file parameter too long.\n");
 	    goto main_ret_OPEN_FAIL;
 	  }
-	  if (!(load_params & 2)) {
+	  if (!(load_params & LOAD_PARAMS_PED)) {
 	    memcpy(strcpya(pedname, argv[cur_arg + 1]), ".ped", 5);
 	  }
-	  if (!(load_params & 4)) {
+	  if (!(load_params & LOAD_PARAMS_MAP)) {
 	    memcpy(strcpya(mapname, argv[cur_arg + 1]), ".map", 5);
 	  }
 	}
       } else if (!memcmp(argptr2, "am", 3)) {
-	if (load_params & 0x3c7) {
+	if (load_params & (LOAD_PARAMS_TEXT_ALL | LOAD_PARAMS_OX_ALL)) {
 	  goto main_ret_INVALID_CMDLINE_4;
 	}
-	load_params |= 0x40;
+	load_params |= LOAD_PARAMS_FAM;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -7785,10 +7828,10 @@ int32_t main(int32_t argc, char** argv) {
 	  geno_thresh = 0.1;
 	}
       } else if (!memcmp(argptr2, "en", 3)) {
-	if (load_rare || (load_params & 0x7f)) {
+	if (load_rare || (load_params & (LOAD_PARAMS_TEXT_ALL | LOAD_PARAMS_BFILE_ALL | LOAD_PARAMS_OXBGEN))) {
 	  goto main_ret_INVALID_CMDLINE_4;
 	}
-	load_params |= 0x100;
+	load_params |= LOAD_PARAMS_OXGEN;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -7929,7 +7972,7 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "file", 5)) {
 	UNSTABLE;
-	if (load_rare || (load_params & (~0x40))) {
+	if (load_rare || (load_params & (~LOAD_PARAMS_FAM))) {
 	  goto main_ret_INVALID_CMDLINE_4;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -7942,7 +7985,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_OPEN_FAIL;
 	}
 	memcpy(memcpya(pedname, sptr, uii), ".gvar", 6);
-	if (!(load_params & 0x40)) {
+	if (!(load_params & LOAD_PARAMS_FAM)) {
 	  memcpy(memcpya(famname, sptr, uii), ".fam", 5);
 	}
 	memcpy(memcpya(mapname, sptr, uii), ".map", 5);
@@ -8248,8 +8291,8 @@ int32_t main(int32_t argc, char** argv) {
 	glm_modifier |= GLM_HIDE_COVAR;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ard-call-threshold", 19)) {
-        if (!(load_params & 0x180)) {
-	  sprintf(logbuf, "Error: --hard-call-threshold must be used with --data or --gen.%s", errstr_append);
+        if (!(load_params & (LOAD_PARAMS_OX_ALL))) {
+	  sprintf(logbuf, "Error: --hard-call-threshold must be used with --data, --gen, or --bgen.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -8258,7 +8301,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (!strcmp(argv[cur_arg + 1], "random")) {
 	  hard_call_threshold = -1;
 	} else {
-	  if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0.0) || (dxx > (0.5 - SMALL_EPSILON))) {
+	  if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0.0) || (dxx > (0.5 - SMALLISH_EPSILON))) {
 	    sprintf(logbuf, "Error: Invalid --hard-call-threshold parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -8844,10 +8887,10 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'm':
       if (!memcmp(argptr2, "ap", 3)) {
-	if ((load_params & 0x3fc) || (load_rare & (~(LOAD_RARE_CNV | LOAD_RARE_GVAR)))) {
+	if ((load_params & (LOAD_PARAMS_BFILE_ALL | LOAD_PARAMS_OX_ALL)) || (load_rare & (~(LOAD_RARE_CNV | LOAD_RARE_GVAR)))) {
 	  goto main_ret_INVALID_CMDLINE_4;
 	}
-	load_params |= 4;
+	load_params |= LOAD_PARAMS_MAP;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -9910,10 +9953,10 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'p':
       if (!memcmp(argptr2, "ed", 3)) {
-	if ((load_params & 0x3fa) || load_rare) {
+	if ((load_params & (LOAD_PARAMS_BFILE_ALL | LOAD_PARAMS_OX_ALL)) || load_rare) {
 	  goto main_ret_INVALID_CMDLINE_4;
 	}
-	load_params |= 2;
+	load_params |= LOAD_PARAMS_PED;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -10864,13 +10907,13 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
       } else if (!memcmp(argptr2, "ample", 6)) {
-	if ((load_params & 0x7f) || load_rare) {
+	if ((load_params & (LOAD_PARAMS_TEXT_ALL | LOAD_PARAMS_BFILE_ALL)) || load_rare) {
 	  goto main_ret_INVALID_CMDLINE_4;
-	} else if (!(load_params & 0x180)) {
-	  sprintf(logbuf, "Error: --sample cannot be used without --data or --gen.%s", errstr_append);
+	} else if (!(load_params & LOAD_PARAMS_OX_ALL)) {
+	  sprintf(logbuf, "Error: --sample cannot be used without --data, --gen, or --bgen.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	load_params |= 0x200;
+	load_params |= LOAD_PARAMS_OXSAMPLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -12413,8 +12456,9 @@ int32_t main(int32_t argc, char** argv) {
     }
     goto main_ret_INVALID_CMDLINE_3;
   }
-  if ((load_params & 0x380) == 0x100) {
-    sprintf(logbuf, "Error: --gen cannot be used without --data or --sample.%s", errstr_append);
+  uii = load_params & LOAD_PARAMS_OX_ALL;
+  if ((uii == LOAD_PARAMS_OXGEN) || (uii == LOAD_PARAMS_OXBGEN)) {
+    sprintf(logbuf, "Error: --gen/--bgen cannot be used without --data or --sample.%s", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
   }
   if ((!calculation_type) && (!(load_rare & (LOAD_RARE_LGEN | LOAD_RARE_DUMMY | LOAD_RARE_SIMULATE | LOAD_RARE_TRANSPOSE_MASK | LOAD_RARE_23 | LOAD_RARE_CNV | LOAD_RARE_VCF | LOAD_RARE_BCF))) && (famname[0] || load_rare)) {
@@ -12586,10 +12630,10 @@ int32_t main(int32_t argc, char** argv) {
 	  free(simulate_label);
 	  simulate_label = NULL;
 	}
-      } else if (load_params & 0x380) {
-	retval = oxford_to_bed(pedname, mapname, outname, sptr, hard_call_threshold, missing_code, missing_pheno, misc_flags, &chrom_info);
+      } else if (load_params & LOAD_PARAMS_OX_ALL) {
+	retval = oxford_to_bed(pedname, mapname, outname, sptr, hard_call_threshold, missing_code, missing_pheno, misc_flags, (load_params / LOAD_PARAMS_OXBGEN) & 1, &chrom_info);
       } else {
-	if (load_params & 0x30) {
+	if (load_params & (LOAD_PARAMS_BED | LOAD_PARAMS_BIM)) {
 	  sprintf(logbuf, "Error: --bed and --bim cannot be used without --bfile or --fam.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}

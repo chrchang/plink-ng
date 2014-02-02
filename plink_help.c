@@ -314,7 +314,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("data\tgen\tbgen\tsample", &help_ctrl, 1,
 "  --data {prefix}  : Specify Oxford .gen + .sample prefix (default '" PROG_NAME_STR "').\n"
 "  --gen [filename] : Specify full name of .gen or .gen.gz file.\n"
-"  --bgen [fname]   : Specify full name of .bgen file.\n"
+"  --bgen [f] <snpid-chr> : Specify full name of .bgen file.\n"
 "  --sample [fname] : Specify full name of .sample file.\n\n"
     	       );
     help_print("23file", &help_ctrl, 1,
