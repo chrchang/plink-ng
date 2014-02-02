@@ -311,9 +311,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --vcf [filename] : Specify full name of .vcf or .vcf.gz file.\n"
 "  --bcf [filename] : Specify full name of BCF2 file.\n\n"
 	       );
-    help_print("data\tgen\tsample", &help_ctrl, 1,
+    help_print("data\tgen\tbgen\tsample", &help_ctrl, 1,
 "  --data {prefix}  : Specify Oxford .gen + .sample prefix (default '" PROG_NAME_STR "').\n"
-"  --gen [filename] : Specify full name of .gen file.\n"
+"  --gen [filename] : Specify full name of .gen or .gen.gz file.\n"
+"  --bgen [fname]   : Specify full name of .bgen file.\n"
 "  --sample [fname] : Specify full name of .sample file.\n\n"
     	       );
     help_print("23file", &help_ctrl, 1,
@@ -1241,7 +1242,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --max-maf [val]  : Exclude variants with MAF greater than the threshold.\n"
 	       );
     help_print("maf-succ", &help_ctrl, 0,
-"  --maf-succ       : Rule of succession MAF estimation (used in EIGENSTRAT).\n"
+"  --maf-succ       : Rule of succession MAF estimation (used in EIGENSOFT).\n"
 "                     Given j observations of one allele and k >= j observations\n"
 "                     of the other, infer a MAF of (j+1) / (j+k+2), rather than\n"
 "                     the default j / (j+k).\n"

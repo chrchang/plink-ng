@@ -6769,14 +6769,18 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   // similar to mds_plot() in plink_cluster.c
   FILE* outfile = NULL;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t pca_indiv_ctl2 = (pca_indiv_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t proj_indiv_ct = indiv_ct - pca_indiv_ct;
-  uintptr_t proj_indiv_ctl = (proj_indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t proj_indiv_ctl2 = (proj_indiv_ct + (BITCT2 - 1)) / BITCT2;
   double nz = 0.0;
   double zz = -1.0;
   uintptr_t* loadbuf_proj = NULL;
+  uintptr_t* indiv_exclude_proj = NULL;
   double* proj_indiv_loadings = NULL;
+  double* proj_allhom_wts = NULL;
+  uint32_t* proj_missing_cts = NULL;
   uint32_t write_headers = relip->modifier & REL_PCA_HEADER;
   uint32_t pc_ct = relip->pc_ct;
   uint32_t var_wts = relip->modifier & REL_PCA_VAR_WTS;
@@ -6809,7 +6813,6 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   char* wptr_start;
   char* wptr;
   double optim_lwork;
-  double allhom_adj;
   double dxx;
   double dyy;
   uintptr_t chrom_end;
@@ -6910,10 +6913,6 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
       *dptr++ = dptr2[pc_idx * pca_indiv_ct];
     }
   }
-  if (proj_indiv_ct) {
-    logprint("\nError: --pca-cluster-names/--pca-clusters is currently under development.\n");
-    return RET_CALC_NOT_YET_SUPPORTED;
-  }
   wkspace_reset((unsigned char*)out_z);
   if (var_wts || proj_indiv_ct) {
     if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
@@ -6936,12 +6935,20 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
       eigval_inv_sqrts[pc_idx] = sqrt(1 / out_w[pc_idx]);
     }
     if (proj_indiv_ct) {
-      if (wkspace_alloc_ul_checked(&loadbuf_proj, proj_indiv_ctl * sizeof(intptr_t)) ||
-          wkspace_alloc_d_checked(&proj_indiv_loadings, proj_indiv_ct * pc_ct * sizeof(double))) {
+      if (wkspace_alloc_ul_checked(&indiv_exclude_proj, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
+          wkspace_alloc_ul_checked(&loadbuf_proj, proj_indiv_ctl2 * sizeof(intptr_t)) ||
+          wkspace_alloc_d_checked(&proj_indiv_loadings, proj_indiv_ct * pc_ct * sizeof(double)) ||
+	  wkspace_alloc_d_checked(&proj_allhom_wts, pc_ct * sizeof(double)) ||
+          wkspace_alloc_ui_checked(&proj_missing_cts, proj_indiv_ct * sizeof(int32_t))) {
 	goto calc_pca_ret_NOMEM;
       }
-      loadbuf_proj[proj_indiv_ct - 1] = 0;
+      memcpy(indiv_exclude_proj, indiv_exclude, unfiltered_indiv_ctl * sizeof(intptr_t));
+      bitfield_ornot(indiv_exclude_proj, pca_indiv_exclude, unfiltered_indiv_ctl);
+      zero_trailing_bits(indiv_exclude_proj, unfiltered_indiv_ct);
+      loadbuf_proj[proj_indiv_ctl2 - 1] = 0;
       fill_double_zero(proj_indiv_loadings, proj_indiv_ct * pc_ct);
+      fill_double_zero(proj_allhom_wts, pc_ct);
+      fill_uint_zero(proj_missing_cts, proj_indiv_ct);
     }
     if (var_wts) {
       memcpy(outname_end, ".eigenvec.var", 14);
@@ -6965,7 +6972,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	}
       }
     }
-    allhom_adj = 0.0;
+    var_wt_incr[0] = 0;
     for (chrom_fo_idx = 0; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
       chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       if (is_set(chrom_info_ptr->haploid_mask, chrom_idx) || (chrom_idx == mt_code)) {
@@ -7022,7 +7029,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 		*dptr += dxx * (*dptr2++);
 		dptr++;
 	      }
-	      ulii &= ~(3 * (ONELU << uii));
+	      ulii &= ~((3 * ONELU) << uii);
 	    }
 	    indiv_uidx += BITCT2;
 	  } while (indiv_uidx < pca_indiv_ct);
@@ -7031,7 +7038,41 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	    cur_var_wts[pc_idx] *= eigval_inv_sqrts[pc_idx];
 	  }
 	  if (proj_indiv_ct) {
-	    // todo
+	    collapse_copy_2bitarr(loadbuf_raw, loadbuf_proj, unfiltered_indiv_ct, proj_indiv_ct, indiv_exclude_proj);
+	    if (IS_SET(marker_reverse, marker_uidx)) {
+	      reverse_loadbuf((unsigned char*)loadbuf_proj, proj_indiv_ct);
+	    }
+	    ulptr = loadbuf_proj;
+	    indiv_uidx = 0;
+	    do {
+	      ulii = ~(*ulptr++);
+	      if (indiv_uidx + BITCT2 > proj_indiv_ct) {
+		ulii &= (ONELU << ((proj_indiv_ct & (BITCT2 - 1)) * 2)) - ONELU;
+	      }
+	      while (ulii) {
+		uii = CTZLU(ulii) & (BITCT - 2);
+                ujj = (ulii >> uii) & 3;
+		indiv_idx = indiv_uidx + (uii / 2);
+		dxx = var_wt_incr[ujj];
+		dptr = &(proj_indiv_loadings[indiv_idx * pc_ct]);
+		dptr2 = cur_var_wts;
+	        for (pc_idx = 0; pc_idx < pc_ct; pc_idx++) {
+		  *dptr += dxx * cur_var_wts[pc_idx];
+		  dptr++;
+		}
+		if (ujj == 2) {
+		  proj_missing_cts[indiv_idx] += 1;
+		}
+                ulii &= ~((3 * ONELU) << uii);
+	      }
+	      indiv_uidx += BITCT2;
+	    } while (indiv_uidx < proj_indiv_ct);
+	    dptr = proj_allhom_wts;
+	    dxx = var_wt_incr[2];
+	    for (pc_idx = 0; pc_idx < pc_ct; pc_idx++) {
+	      *dptr += dxx * cur_var_wts[pc_idx];
+	      dptr++;
+	    }
 	  }
 	  if (var_wts) {
 	    wptr = strcpya(wptr_start, &(marker_ids[marker_uidx * max_marker_id_len]));
@@ -7049,8 +7090,39 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	} while (++marker_uidx < chrom_end);
       }
     }
-    if (fclose_null(&outfile)) {
-      goto calc_pca_ret_WRITE_FAIL;
+    if (var_wts) {
+      if (fclose_null(&outfile)) {
+        goto calc_pca_ret_WRITE_FAIL;
+      }
+    }
+    if (proj_indiv_ct) {
+      dptr = proj_indiv_loadings;
+      for (indiv_idx = 0; indiv_idx < proj_indiv_ct; indiv_idx++) {
+	dxx = 1.0 / ((double)((int32_t)(marker_ct - proj_missing_cts[indiv_idx])));
+	for (pc_idx = 0; pc_idx < pc_ct; pc_idx++) {
+	  *dptr = ((*dptr) - proj_allhom_wts[pc_idx]) * eigval_inv_sqrts[pc_idx] * dxx;
+	  dptr++;
+	}
+      }
+      // now fill final indiv_loadings from back to front
+      indiv_uidx = unfiltered_indiv_ct - 1;
+      indiv_idx = indiv_ct - 1;
+      ulii = pca_indiv_ct;
+      while (1) {
+	if (IS_SET(indiv_exclude, indiv_uidx)) {
+	  indiv_uidx = prev_unset_unsafe(indiv_exclude, indiv_uidx);
+	}
+        if (IS_SET(indiv_exclude_proj, indiv_uidx)) {
+	  memcpy(&(indiv_loadings[indiv_idx * pc_ct]), &(indiv_loadings[(--ulii) * pc_ct]), pc_ct * sizeof(double));
+	} else {
+	  memcpy(&(indiv_loadings[indiv_idx * pc_ct]), &(proj_indiv_loadings[(--proj_indiv_ct) * pc_ct]), pc_ct * sizeof(double));
+	  if (!proj_indiv_ct) {
+	    break;
+	  }
+	}
+        indiv_uidx--;
+	indiv_idx--;
+      }
     }
   }
 

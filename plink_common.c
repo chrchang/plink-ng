@@ -6875,8 +6875,7 @@ void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct) {
   }
 }
 
-// this will probably be exported later
-static inline void collapse_copy_2bitarr(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uintptr_t* indiv_exclude) {
+void collapse_copy_2bitarr(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uintptr_t* indiv_exclude) {
   uintptr_t cur_write = 0;
   uint32_t indiv_uidx = 0;
   uint32_t indiv_idx = 0;

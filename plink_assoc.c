@@ -1021,7 +1021,7 @@ void calc_git(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uintptr_t* __restrict_
 	}
       }
 #endif
-      ulii &= ~(3 * (ONELU << ujj));
+      ulii &= ~((3 * ONELU) << ujj);
     }
 #ifdef __LP64__
     permsv = &(permsv[BITCT2 * perm_ct128]);
@@ -1174,7 +1174,7 @@ void calc_qgit(uint32_t pheno_nm_ct, uintptr_t perm_vec_ctcl8m, uint32_t num_per
 	}
       }
 #endif
-      ulii &= ~(3 * (ONELU << ujj));
+      ulii &= ~((3 * ONELU) << ujj);
     }
 #ifdef __LP64__
     permsv = &(permsv[(BITCT2 / 2) * perm_vec_ctcl8m]);
@@ -1260,7 +1260,7 @@ void calc_qgit_lin(uint32_t pheno_nm_ct, uintptr_t perm_vec_ctcl8m, uint32_t num
 	git_write2++;
       }
 #endif
-      ulii &= ~(3 * (ONELU << ujj));
+      ulii &= ~((3 * ONELU) << ujj);
     }
 #ifdef __LP64__
     permsv = &(permsv[(BITCT2 / 2) * perm_vec_ctcl8m]);
@@ -1871,7 +1871,7 @@ void calc_rem(uint32_t pheno_nm_ct, uintptr_t perm_vec_ct, uintptr_t* loadbuf, u
 	}
       }
 #endif
-      ulxor &= ~(3 * (ONELU << ujj));
+      ulxor &= ~((3 * ONELU) << ujj);
     }
 #ifdef __LP64__
     permsv = &(permsv[BITCT2 * perm_ct128]);
@@ -2162,7 +2162,7 @@ void calc_qrem(uint32_t pheno_nm_ct, uintptr_t perm_vec_ct, uintptr_t* loadbuf, 
 	}
       }
 #endif
-      ulxor &= ~(3 * (ONELU << ujj));
+      ulxor &= ~((3 * ONELU) << ujj);
     }
 #ifdef __LP64__
     permsv = &(permsv[(BITCT2 / 2) * perm_vec_ctcl8m]);
@@ -2543,7 +2543,7 @@ void calc_qrem_lin(uint32_t pheno_nm_ct, uintptr_t perm_vec_ct, uintptr_t* loadb
 	rem_write6 = &(outbufs[5 * perm_vec_ctcl8m]);
       }
 #endif
-      ulxor &= ~(3 * (ONELU << ujj));
+      ulxor &= ~((3 * ONELU) << ujj);
     }
 #ifdef __LP64__
     permsv = &(permsv[(BITCT2 / 2) * perm_vec_ctcl8m]);
@@ -7983,7 +7983,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	      qt_sum -= dxx;
 	      qt_ssq -= dxx * dxx;
 	    }
-	    ulii &= ~(3 * (ONELU << ujj));
+	    ulii &= ~((3 * ONELU) << ujj);
 	  }
 	  uii += BITCT2;
 	} while (uii < pheno_nm_ct);
@@ -8916,7 +8916,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
 		qt_sum1 -= dxx;
 		qt_ssq1 -= dxx * dxx;
 	      }
-	      ulii &= ~(3 * (ONELU << uljj));
+	      ulii &= ~((3 * ONELU) << uljj);
 	    }
 	    ulii = ulmm & ulnn;
 	    while (ulii) {
@@ -8932,7 +8932,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
 		qt_sum2 -= dxx;
 		qt_ssq2 -= dxx * dxx;
 	      }
-	      ulii &= ~(3 * (ONELU << uljj));
+	      ulii &= ~((3 * ONELU) << uljj);
 	    }
 	  }
 	  cgr_ptr++;

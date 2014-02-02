@@ -84,7 +84,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (1 Feb 2014) ";
+  " (2 Feb 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -3570,6 +3570,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	  pca_indiv_exclude = NULL;
 	} else {
 	  sprintf(logbuf, "--pca-cluster-names/--pca-clusters: %" PRIuPTR " samples specified.\n", pca_indiv_ct);
+	  logprintb();
 	  ulii = unfiltered_indiv_ct - pca_indiv_ct;
 	}
       }
@@ -3604,7 +3605,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
 #ifndef NOLAPACK
     if (calculation_type & CALC_PCA) {
-      retval = calc_pca(bedfile, bed_offset, outname, outname_end, calculation_type, relip, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, pca_indiv_exclude? pca_indiv_exclude : indiv_exclude, pca_indiv_exclude? ulii : indiv_ct, person_ids, max_person_id_len, set_allele_freqs, zero_extra_chroms, chrom_info_ptr, rel_ibc);
+      retval = calc_pca(bedfile, bed_offset, outname, outname_end, calculation_type, relip, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, pca_indiv_exclude? pca_indiv_exclude : indiv_exclude, pca_indiv_exclude? pca_indiv_ct : indiv_ct, person_ids, max_person_id_len, set_allele_freqs, zero_extra_chroms, chrom_info_ptr, rel_ibc);
     } else if (calculation_type & CALC_UNRELATED_HERITABILITY) {
       retval = calc_unrelated_herit(calculation_type, relip, unfiltered_indiv_ct, indiv_exclude, indiv_ct, pheno_d, rel_ibc);
     }
