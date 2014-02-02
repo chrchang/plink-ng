@@ -5940,6 +5940,10 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     }
     bgen_compressed = uii & 1;
     bgen_multichar_alleles = (uii >> 2) & 1;
+    if ((!bgen_multichar_alleles) && (!snpid_chr) && (chrom_info_ptr->species != SPECIES_HUMAN)) {
+      logprint("Error: BGEN v1.0 files can only support nonhuman genomes if the SNP ID field is\nused for chromosome codes.\n");
+      goto oxford_to_bed_ret_INVALID_CMDLINE;
+    }
     if (!is_randomized) {
       bgen_hardthresh = 32768 - (int32_t)(hard_call_threshold * 32768);
     }
@@ -5956,16 +5960,16 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
         if (fread(&usii, 1, 2, infile) < 2) {
 	  goto oxford_to_bed_ret_READ_FAIL;
 	}
-        if (!usii) {
-	  logprint("Error: Length-0 SNP ID in .bgen file.\n");
-	  goto oxford_to_bed_ret_INVALID_FORMAT;
-	}
 	if (!snpid_chr) {
 	  if (fseeko(infile, usii, SEEK_CUR)) {
 	    goto oxford_to_bed_ret_READ_FAIL;
 	  }
 	  bufptr = loadbuf;
 	} else {
+	  if (!usii) {
+	    logprint("Error: Length-0 SNP ID in .bgen file.\n");
+	    goto oxford_to_bed_ret_INVALID_FORMAT;
+	  }
 	  if (fread(loadbuf, 1, usii, infile) < usii) {
 	    goto oxford_to_bed_ret_READ_FAIL;
 	  }
@@ -5986,11 +5990,11 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	if (fread(&uskk, 1, 2, infile) < 2) {
 	  goto oxford_to_bed_ret_READ_FAIL;
 	}
-	if (!uskk) {
-	  logprint("Error: Length-0 chromosome ID in .bgen file.\n");
-	  goto oxford_to_bed_ret_INVALID_FORMAT;
-	}
 	if (!snpid_chr) {
+	  if (!uskk) {
+	    logprint("Error: Length-0 chromosome ID in .bgen file.\n");
+	    goto oxford_to_bed_ret_INVALID_FORMAT;
+	  }
 	  usii = uskk;
 	  if (fread(bufptr2, 1, usii, infile) < usii) {
 	    goto oxford_to_bed_ret_READ_FAIL;
@@ -6018,7 +6022,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
         ii = get_chrom_code(chrom_info_ptr, bufptr2);
 	if (ii == -1) {
 	  if (!allow_extra_chroms) {
-	    logprint("Error: Unrecognized chromosome code in .bgen file.  (Did you forget --allow-extra-chr?).\n");
+	    logprint("Error: Unrecognized chromosome code in .bgen file.  (Did you forget\n--allow-extra-chr?).\n");
             goto oxford_to_bed_ret_INVALID_FORMAT;
 	  }
 	  retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr2, &ii);
@@ -6090,8 +6094,78 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	  goto oxford_to_bed_ret_WRITE_FAIL;
 	}
       } else {
-	logprint("Error: BGEN v1.0 support is currently under development.\n");
-	goto oxford_to_bed_ret_INVALID_FORMAT;
+	uii = 0;
+	if (fread(&uii, 1, 1, infile) < 1) {
+	  goto oxford_to_bed_ret_READ_FAIL;
+	}
+        if (fread(loadbuf, 1, 2 * uii + 9, infile) < (2 * uii + 9)) {
+	  goto oxford_to_bed_ret_READ_FAIL;
+	}
+	// save marker ID length since we might clobber it
+	ukk = (unsigned char)(loadbuf[uii + 1]);
+        if (!snpid_chr) {
+	  ii = ((unsigned char)(loadbuf[2 * uii + 2]));
+	  if (ii > 24) {
+	    if (ii == 255) {
+	      ii = 0;
+	    } else if (ii > 252) {
+	      ii = ii - 228;
+	    } else {
+	      logprint("Error: Invalid chromosome code in BGEN v1.0 file.\n");
+	      goto oxford_to_bed_ret_INVALID_FORMAT;
+	    }
+	  }
+	  uint32_writex(loadbuf, (uint32_t)ii, '\0');
+	  bufptr = loadbuf;
+	} else {
+	  ujj = (unsigned char)loadbuf[0];
+	  bufptr = &(loadbuf[1]);
+	  if ((ujj == 2) && (!memcmp(bufptr, "NA", 2))) {
+	    *bufptr = '0';
+	    ujj = 1;
+	  }
+	  bufptr[ujj] = '\0';
+	  ii = get_chrom_code(chrom_info_ptr, bufptr);
+	  if (ii == -1) {
+	    if (!allow_extra_chroms) {
+	      logprint("Error: Unrecognized chromosome code in .bgen file.  (Did you forget\n--allow-extra-chr?).\n");
+	      goto oxford_to_bed_ret_INVALID_FORMAT;
+	    }
+	    retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii);
+	    if (retval) {
+	      goto oxford_to_bed_ret_1;
+	    }
+	  }
+	}
+	if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
+	  if (bgen_compressed) {
+	    if (fread(&uii, 1, 4, infile) < 4) {
+	      goto oxford_to_bed_ret_READ_FAIL;
+	    }
+	    if (fseeko(infile, uii, SEEK_CUR)) {
+	      goto oxford_to_bed_ret_READ_FAIL;
+	    }
+	  } else {
+	    if (fseeko(infile, ((uint64_t)indiv_ct) * 6, SEEK_CUR)) {
+	      goto oxford_to_bed_ret_READ_FAIL;
+	    }
+	  }
+	  continue;
+	}
+	fputs(bufptr, outfile_bim);
+	if (putc_checked(' ', outfile_bim)) {
+	  goto oxford_to_bed_ret_WRITE_FAIL;
+	}
+	fwrite(&(loadbuf[uii + 2]), 1, ukk, outfile_bim);
+	memcpy(&ujj, &(loadbuf[2 * uii + 3]), 4);
+	bufptr = uint32_writex(&(tbuf[3]), ujj, ' ');
+	*bufptr++ = loadbuf[2 * uii + 7];
+	*bufptr++ = ' ';
+	*bufptr++ = loadbuf[2 * uii + 8];
+	*bufptr++ = '\n';
+	if (fwrite_checked(tbuf, bufptr - tbuf, outfile_bim)) {
+	  goto oxford_to_bed_ret_WRITE_FAIL;
+	}
       }
       if (bgen_compressed) {
 	if (fread(&uii, 1, 4, infile) < 4) {
@@ -6141,6 +6215,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	  }
 	}
       } else {
+	uii = 0;
 	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++, usptr = &(usptr[3])) {
 	  // fast handling of common cases
 	  ukk = usptr[2];
@@ -6151,8 +6226,11 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	  } else if (usptr[0] >= 32768) {
 	    ulii = 0;
 	  } else {
-	    // could only use 16 bits per iteration
-	    uii = sfmt_genrand_uint32(&sfmt);
+	  oxford_to_bed_bgen_retry:
+	    uii >>= 16;
+	    if (!uii) {
+	      uii = sfmt_genrand_uint32(&sfmt) | 0x80000000U;
+	    }
 	    ujj = uii & 32767;
 	    if (ujj < ukk) {
 	      ulii = 3;
@@ -6167,25 +6245,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 		} else if (ukk < 32766) {
 		  ulii = 1;
 		} else {
-		  if (ukk == 32766) {
-		    // rescale in these cases
-		    while (uii < 16) {
-		      uii = sfmt_genrand_uint32(&sfmt);
-		    }
-		    uii %= 32766;
-		  } else {
-		    while (uii < 4) {
-		      uii = sfmt_genrand_uint32(&sfmt);
-		    }
-		    uii %= 32767;
-		  }
-		  if (uii < usptr[2]) {
-		    ulii = 3;
-		  } else if (uii < usptr[1] + usptr[2]) {
-		    ulii = 2;
-		  } else {
-		    ulii = 0;
-		  }
+		  goto oxford_to_bed_bgen_retry;
 		}
 	      }
 	    }
