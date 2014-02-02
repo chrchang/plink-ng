@@ -5398,6 +5398,8 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   uint32_t bgen_compressed;
   uint32_t bgen_multichar_alleles;
   uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
   int32_t ii;
   uint16_t usii;
   uint16_t usjj;
@@ -6118,8 +6120,8 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
       cur_word = 0;
       shiftval = 0;
       ulptr = writebuf;
+      usptr = bgen_probs;
       if (!is_randomized) {
-        usptr = bgen_probs;
 	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++, usptr = &(usptr[3])) {
 	  if (usptr[2] >= bgen_hardthresh) {
 	    ulii = 3;
@@ -6139,7 +6141,63 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	  }
 	}
       } else {
-	// todo
+	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++, usptr = &(usptr[3])) {
+	  // fast handling of common cases
+	  ukk = usptr[2];
+	  if (ukk >= 32768) {
+	    ulii = 3;
+	  } else if (usptr[1] >= 32768) {
+	    ulii = 2;
+	  } else if (usptr[0] >= 32768) {
+	    ulii = 0;
+	  } else {
+	    // could only use 16 bits per iteration
+	    uii = sfmt_genrand_uint32(&sfmt);
+	    ujj = uii & 32767;
+	    if (ujj < ukk) {
+	      ulii = 3;
+	    } else {
+	      ukk += usptr[1];
+	      if (ujj < ukk) {
+		ulii = 2;
+	      } else {
+		ukk += usptr[0];
+		if (ujj < ukk) {
+		  ulii = 0;
+		} else if (ukk < 32766) {
+		  ulii = 1;
+		} else {
+		  if (ukk == 32766) {
+		    // rescale in these cases
+		    while (uii < 16) {
+		      uii = sfmt_genrand_uint32(&sfmt);
+		    }
+		    uii %= 32766;
+		  } else {
+		    while (uii < 4) {
+		      uii = sfmt_genrand_uint32(&sfmt);
+		    }
+		    uii %= 32767;
+		  }
+		  if (uii < usptr[2]) {
+		    ulii = 3;
+		  } else if (uii < usptr[1] + usptr[2]) {
+		    ulii = 2;
+		  } else {
+		    ulii = 0;
+		  }
+		}
+	      }
+	    }
+	  }
+	  cur_word |= ulii << shiftval;
+	  shiftval += 2;
+	  if (shiftval == BITCT) {
+	    *ulptr++ = cur_word;
+	    cur_word = 0;
+	    shiftval = 0;
+	  }
+	}
       }
       if (shiftval) {
 	*ulptr++ = cur_word;
