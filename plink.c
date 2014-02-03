@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (2 Feb 2014) ";
+  " (3 Feb 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -4492,6 +4492,51 @@ int32_t alloc_and_flatten(char** flattened_buf_ptr, char** sources, uint32_t par
   return 0;
 }
 
+int32_t alloc_and_flatten_comma_delim(char** flattened_buf_ptr, char** sources, uint32_t param_ct) {
+  uint32_t totlen = 1;
+  char* bufptr;
+  char* bufptr2;
+  char* bufptr3;
+  uint32_t param_idx;
+  for (param_idx = 0; param_idx < param_ct; param_idx++) {
+    bufptr = sources[param_idx];
+    while (1) {
+      while (*bufptr == ',') {
+	bufptr++;
+      }
+      bufptr2 = strchr(bufptr, ',');
+      if (!bufptr2) {
+	break;
+      }
+      totlen += 1 + (uintptr_t)(bufptr2 - bufptr);
+      bufptr = &(bufptr2[1]);
+    }
+    totlen += 1 + strlen(bufptr);
+  }
+  bufptr = (char*)malloc(totlen);
+  if (!bufptr) {
+    return RET_NOMEM;
+  }
+  *flattened_buf_ptr = bufptr;
+  for (param_idx = 0; param_idx < param_ct; param_idx++) {
+    bufptr2 = sources[param_idx];
+    while (1) {
+      while (*bufptr2 == ',') {
+	bufptr2++;
+      }
+      bufptr3 = strchr(bufptr2, ',');
+      if (!bufptr3) {
+	break;
+      }
+      bufptr = memcpyax(bufptr, bufptr2, (uintptr_t)(bufptr3 - bufptr2), '\0');
+      bufptr2 = &(bufptr3[1]);
+    }
+    bufptr = strcpyax(bufptr, bufptr2, '\0');
+  }
+  *bufptr = '\0';
+  return 0;
+}
+
 int32_t alloc_2col(Two_col_params** tcbuf, char** params_ptr, char* argptr, uint32_t param_ct) {
   uint32_t slen = strlen(*params_ptr) + 1;
   int32_t ii;
@@ -6134,6 +6179,10 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	strcpy(pedname, argv[cur_arg + 1]);
       } else if (!memcmp(argptr2, "im", 3)) {
+	if (!(load_params & (LOAD_PARAMS_BED | LOAD_PARAMS_BFILE))) {
+	  sprintf(logbuf, "Error: --bim must be used with --bed or --bfile.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
 	load_params |= LOAD_PARAMS_BIM;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -7037,7 +7086,7 @@ int32_t main(int32_t argc, char** argv) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x7fffffff)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	retval = alloc_and_flatten(&clump_info.fnames_flattened, &(argv[cur_arg + 1]), param_ct);
+	retval = alloc_and_flatten_comma_delim(&clump_info.fnames_flattened, &(argv[cur_arg + 1]), param_ct);
 	if (retval) {
 	  goto main_ret_1;
 	}
@@ -7058,7 +7107,7 @@ int32_t main(int32_t argc, char** argv) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x7fffffff)) {
           goto main_ret_INVALID_CMDLINE_3;
 	}
-        retval = alloc_and_flatten(&clump_info.annotate_flattened, &(argv[cur_arg + 1]), param_ct);
+        retval = alloc_and_flatten_comma_delim(&clump_info.annotate_flattened, &(argv[cur_arg + 1]), param_ct);
         if (retval) {
 	  goto main_ret_1;
 	}
@@ -7074,10 +7123,11 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --clump-field must be used with --clump.\n");
           goto main_ret_INVALID_CMDLINE;
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x7fffffff)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if (alloc_string(&clump_info.field_name, argv[cur_arg + 1])) {
+        retval = alloc_and_flatten(&clump_info.pfield_search_order, &(argv[cur_arg + 1]), param_ct);
+	if (retval) {
 	  goto main_ret_NOMEM;
 	}
       } else if (!memcmp(argptr2, "lump-index-first", 17)) {
@@ -7180,6 +7230,18 @@ int32_t main(int32_t argc, char** argv) {
 	}
         clump_info.modifier |= CLUMP_REPLICATE;
         goto main_param_zero;
+      } else if (!memcmp(argptr2, "lump-snp-field", 11)) {
+        if (!clump_info.fname_ct) {
+	  logprint("Error: --clump-snp-field must be used with --clump.\n");
+          goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x7fffffff)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        retval = alloc_and_flatten(&clump_info.snpfield_search_order, &(argv[cur_arg + 1]), param_ct);
+	if (retval) {
+	  goto main_ret_NOMEM;
+	}
       } else if (!memcmp(argptr2, "lump-verbose", 14)) {
         if (!clump_info.fname_ct) {
 	  logprint("Error: --clump-verbose must be used with --clump.\n");
@@ -11005,6 +11067,9 @@ int32_t main(int32_t argc, char** argv) {
 	if (!set_info.fname) {
 	  logprint("Error: --set-names must be used with --set/--make-set.\n");
           goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x7fffffff)) {
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	retval = alloc_and_flatten(&(set_info.setnames_flattened), &(argv[cur_arg + 1]), param_ct);
 	if (retval) {

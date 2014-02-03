@@ -555,7 +555,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("clump", &help_ctrl, 1,
 "  --clump [filename(s)...]\n"
 "    Process association analysis report(s) with 'SNP' and p-value columns,\n"
-"    organizing results by LD-based clumps.\n\n"
+"    organizing results by LD-based clumps.  Multiple filenames can be separated\n"
+"    by spaces or commas.\n\n"
 	       );
 #endif
     help_print("distance", &help_ctrl, 1,
@@ -1120,7 +1121,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("set\tset-names\tsubset\tset-collapse-all\tmake-set-collapse-all\tcomplement-sets\tmake-set-complement-all\tmake-set\tmake-set-border\tborder\tmake-set-collapse-group\t--make-set-complement-group", &help_ctrl, 0,
 "  --set [filename]              : Load sets from a .set file.\n"
-"  --set-names {name(s)...}      : Load only sets named on the command line.\n"
+"  --set-names [name(s)...]      : Load only sets named on the command line.\n"
+"                                  Use spaces to separate multiple names.\n"
 "  --subset [filename]           : Load only sets named in the given text file.\n"
 "  --set-collapse-all [set name] : Merge all sets.\n"
 "  --complement-sets             : Invert all sets.  (Names gain 'C_' prefixes.)\n"
@@ -1152,6 +1154,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("set\tmake-set\tgene\tgene-all", &help_ctrl, 0,
 "  --gene [sets...] : Exclude variants not in a set named on the command line.\n"
+"                     (Separate multiple set names with spaces.)\n"
 "  --gene-all       : Exclude variants which aren't a member of any set.  (PLINK\n"
 "                     1.07 automatically did this under some circumstances.)\n"
 	       );
@@ -1212,7 +1215,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("filter\tmfilter", &help_ctrl, 0,
 "  --filter [f] [val(s)...] : Exclude all individuals without a 3rd column entry\n"
 "                             in the given file matching one of the given\n"
-"                             value(s).\n"
+"                             space-separated value(s).\n"
 "  --mfilter [n]            : Match against (n+2)th column instead.\n"
 	       );
     help_print("geno\tmind\toblig-clusters\toblig-missing", &help_ctrl, 0,
@@ -1399,12 +1402,15 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --ld-snp-list [f]  : Restrict first --r/--r2 var. to those named in the file.\n"
 	       );
 #ifndef STABLE_BUILD
-    help_print("clump-p1\tclump-p2\tclump-r2\tclump-kb\tclump-field\tclump", &help_ctrl, 0,
+    help_print("clump-p1\tclump-p2\tclump-r2\tclump-kb\tclump-snp-field\tclump-field\tclump", &help_ctrl, 0,
 "  --clump-p1 [pval] : Set --clump index site p-value ceiling (default 0.0001).\n"
 "  --clump-p2 [pval] : Set --clump secondary p-value threshold (default 0.01).\n"
 "  --clump-r2 [r^2]  : Set --clump r^2 threshold (default 0.5).\n"
 "  --clump-kb [kbs]  : Set --clump kb radius (default 250).\n"
-"  --clump-field [s] : Set --clump p-value field name (default 'P').\n"
+"  --clump-snp-field [n...]  : Set --clump variant ID field name (default\n"
+"                              'SNP').  With multiple field names, earlier names\n"
+"                              take precedence over later ones.\n"
+"  --clump-field [name...]   : Set --clump p-value field name (default 'P').\n"
 	       );
     help_print("clump-allow-overlap\tclump", &help_ctrl, 0,
 "  --clump-allow-overlap     : Let --clump non-index sites join multiple clumps.\n"
@@ -1414,7 +1420,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("clump-annotate\tclump-verbose\tclump-best\tclump", &help_ctrl, 0,
 "  --clump-annotate [hdr...] : Include named extra fields in --clump-verbose and\n"
-"                              --clump-best reports.\n"
+"                              --clump-best reports.  (Field names can be\n"
+"                              separated with spaces or commas.)\n"
 	       );
     help_print("clump-range\tclump-range-border\tclump", &help_ctrl, 0,
 "  --clump-range [filename]  : Report overlaps between clumps and regions.\n"
@@ -1491,11 +1498,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --pca-cluster-names [...] : These can be used individually or in combination\n"
 "  --pca-clusters [fname]      to define a list of clusters to use in the basic\n"
 "                              --pca computation.  (--pca-cluster-names expects\n"
-"                              a space/comma-delimited sequence of cluster\n"
-"                              names, while --pca-clusters expects a file with\n"
-"                              one cluster name per line.)  All individuals\n"
-"                              outside those clusters will then be projected on\n"
-"                              to the calculated PCs.\n"
+"                              a space-delimited sequence of cluster names,\n"
+"                              while --pca-clusters expects a file with one\n"
+"                              cluster name per line.)  All individuals outside\n"
+"                              those clusters will then be projected on to the\n"
+"                              calculated PCs.\n"
 	       );
     help_print("cluster\tmds-plot\tmds-cluster", &help_ctrl, 0,
 "  --mds-plot [dims] <by-cluster> <eigvals> : Multidimensional scaling analysis.\n"

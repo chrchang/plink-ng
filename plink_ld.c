@@ -31,7 +31,8 @@ void ld_epi_init(Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip) {
   clump_ip->range_border = 0;
   clump_ip->fnames_flattened = NULL;
   clump_ip->annotate_flattened = NULL;
-  clump_ip->field_name = NULL;
+  clump_ip->snpfield_search_order = NULL;
+  clump_ip->pfield_search_order = NULL;
   clump_ip->range_fname = NULL;
   clump_ip->p1 = 1e-4;
   clump_ip->p2 = 1e-2;
@@ -48,7 +49,8 @@ void ld_epi_cleanup(Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip) {
   free_cond(epi_ip->summary_merge_prefix);
   free_cond(clump_ip->fnames_flattened);
   free_cond(clump_ip->annotate_flattened);
-  free_cond(clump_ip->field_name);
+  free_cond(clump_ip->snpfield_search_order);
+  free_cond(clump_ip->pfield_search_order);
   free_cond(clump_ip->range_fname);
 }
 
@@ -7123,20 +7125,188 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, Clump_info* clump_ip, uintptr_t* sex_male, uint32_t hh_exists) {
   logprint("Error: --clump is currently under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
-  // 1. (if necessary) load range file, sort, etc.
-  // 2. sort marker IDs.  also allocate index-tracking bitfield
-  // 3. load file(s) in sequence.  start with array of null pointers, allocate
-  //    from bottom of stack (possibly need to save p-val, file number,
-  //    annotations, and/or pointer to next entry) while updating
-  //    p-val/reverse-lookup array
-  // 4. sort p-val array, greedily form clumps
-  // 5. iterate through clumps, calculate r^2 and write output
   /*
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   FILE* outfile = NULL;
+  uintptr_t marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t topsize = 0;
+  uintptr_t range_group_ct = 0;
+  uintptr_t max_range_group_id_len = 0;
+  Make_set_range** range_group_arr = NULL;
+  char* range_group_names = NULL;
+  uint64_t* range_sort_buf = NULL;
+  uint32_t* marker_uidx_to_idx = NULL;
+  uint32_t** rg_setdefs = NULL;
+  uint32_t clump_index_first = clump_ip->modifier & CLUMP_INDEX_FIRST;
+  uint32_t clump_best = clump_ip->modifier & CLUMP_BEST;
+  uint32_t file_ct = 0;
   int32_t retval = 0;
+  Make_set_range* msr_tmp;
+  uintptr_t* index_bitfield;
+  char* sorted_marker_ids;
+  char* fname_ptr;
+  uint32_t* marker_id_map;
+  uintptr_t rg_idx;
+  uint64_t ullii;
+  uint32_t range_first;
+  uint32_t range_last;
+  uint32_t file_idx;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+  uint32_t umm;
+  if (clump_ip->range_fname) {
+    // 1. load range file, sort, etc.
+    if (fopen_checked(&infile, clump_ip->range_fname, "r")) {
+      goto clump_reports_ret_OPEN_FAIL;
+    }
+    retval = load_range_list(infile, 1, clump_ip->range_border, 0, 0, 0, 0, NULL, 0, marker_pos, chrom_info_ptr, &topsize, &range_group_ct, &range_group_names, &max_range_group_id_len, &range_group_arr, &range_sort_buf, "--clump-range");
+    if (retval) {
+      if (retval == RET_NOMEM) {
+	wkspace_left += topsize;
+      }
+      goto clump_reports_ret_1;
+    }
+    marker_uidx_to_idx = (uint32_t*)top_alloc(&topsize, unfiltered_marker_ct * sizeof(int32_t));
+    if (!marker_uidx_to_idx) {
+      goto clump_reports_ret_NOMEM;
+    }
+    fill_uidx_to_idx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_uidx_to_idx);
+    wkspace_left -= topsize;
+    rg_setdefs = (uint32_t**)wkspace_alloc(range_group_ct * sizeof(intptr_t));
+    if (!rg_setdefs) {
+      goto clump_reports_ret_NOMEM2;
+    }
+    // essentially the same as define_sets()
+    for (rg_idx = 0; rg_idx < range_group_ct; rg_idx++) {
+      msr_tmp = range_group_arr[rg_idx];
+      uii = 0;
+      while (msr_tmp) {
+	range_first = msr_tmp->uidx_start;
+	range_last = msr_tmp->uidx_end;
+	msr_tmp = msr_tmp->next;
+	if (IS_SET(marker_exclude, range_first)) {
+	  range_first = next_unset(marker_exclude, range_first, unfiltered_marker_ct);
+	  if (range_first == unfiltered_marker_ct) {
+	    continue;
+	  }
+	}
+	range_first = marker_uidx_to_idx[range_first];
+	if (IS_SET(marker_exclude, range_last)) {
+          range_last = next_unset(marker_exclude, range_last, unfiltered_marker_ct);
+	}
+	if (range_last == unfiltered_marker_ct) {
+	  range_last = marker_ct;
+	} else {
+          range_last = marker_uidx_to_idx[range_last];
+	  if (range_last == range_first) {
+	    continue;
+	  }
+	}
+	range_sort_buf[uii++] = (((uint64_t)range_first) << 32) | ((uint64_t)range_last);
+      }
+      if (!uii) {
+	if (wkspace_left < 16) {
+	  goto clump_reports_ret_NOMEM;
+	}
+        rg_setdefs[rg_idx] = (uint32_t*)wkspace_base;
+	wkspace_left -= 16;
+	wkspace_base = &(wkspace_base[16]);
+	rg_setdefs[rg_idx][0] = 0;
+	continue;
+      }
+#ifdef __cplusplus
+      std::sort((int64_t*)range_sort_buf, (int64_t*)(&(range_sort_buf[uii])));
+#else
+      qsort((int64_t*)range_sort_buf, uii, sizeof(int64_t), llcmp);
+#endif
+      ukk = 0; // current end of sorted interval list
+      range_last = (uint32_t)range_sort_buf[0];
+      for (ujj = 1; ujj < uii; ujj++) {
+	ullii = range_sort_buf[ujj];
+	range_first = (uint32_t)(ullii >> 32);
+	if (range_first <= range_last) {
+	  umm = (uint32_t)ullii;
+	  if (umm > range_last) {
+	    range_last = umm;
+	    range_sort_buf[ukk] = (range_sort_buf[ukk] & 0xffffffff00000000LLU) | (ullii & 0xffffffffLLU);
+	  }
+	} else {
+	  if (++ukk < ujj) {
+	    range_sort_buf[ukk] = ullii;
+	  }
+	  range_last = (uint32_t)ullii;
+	}
+      }
+      if (save_set_range(range_sort_buf, marker_ct, ukk, 0, &(rg_setdefs[rg_idx]))) {
+	goto clump_reports_ret_NOMEM2;
+      }
+    }
+    wkspace_left += topsize;
+    // topsize = 0;
+    if (fclose_null(&infile)) {
+      goto clump_reports_ret_READ_FAIL;
+    }
+  }
+  // 2. sort marker IDs and allocate index-tracking bitfield
+  retval = sort_item_ids(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_ct, marker_ids, max_marker_id_len, 0, 1, strcmp_deref);
+  if (retval) {
+    goto clump_reports_ret_1;
+  }
+  if (wkspace_alloc_ul_checked(&index_bitfield, marker_ctl)) {
+    goto clump_reports_ret_NOMEM;
+  }
+  fill_ulong_zero(index_bitfield, marker_ctl);
+  // 3. load file(s) in sequence.  start with array of null pointers, allocate
+  //    from bottom of stack (possibly need to save p-val, file number,
+  //    annotations, and/or pointer to next entry) while updating
+  //    p-val/reverse-lookup array
+  fname_ptr = clump_ip->fnames_flattened;
+  while (*fname_ptr) {
+    fname_ptr = strchr(fname_ptr, '\0');
+    fname_ptr++;
+    file_ct++;
+  }
+  if (clump_best) {
+    if ((file_ct == 2) && (!clump_index_first)) {
+      logprint("Error: --clump-best can no longer be used with two --clump files unless\n--clump-index-first is also specified.  (Contact the developers if this is\nproblematic.)\n");
+      goto clump_reports_ret_INVALID_CMDLINE;
+    } else if (file_ct > 2) {
+      logprint("Error: --clump-best can no longer be used with more than two --clump files.\n(Contact the developers if this is problematic.)\n");
+      goto clump_reports_ret_INVALID_CMDLINE;
+    }
+  }
+  fname_ptr = clump_ip->fnames_flattened;
+  for (file_idx = 1; file_idx <= file_ct; file_idx++) {
+    if (fopen_checked(&infile, fname_ptr, "r")) {
+      goto clump_reports_ret_OPEN_FAIL;
+    }
+    retval = load_to_first_token(infile, loadbuf_size, '\0', "--clump", loadbuf, &bufptr);
+    if (retval) {
+      goto clump_reports_ret_1;
+    }
+    // ...
+    if (fclose_null(&infile)) {
+      goto clump_reports_ret_READ_FAIL;
+    }
+    fname_ptr = strchr(fname_ptr, '\0');
+    fname_ptr++;
+  }
+  // 4. sort p-val array, greedily form clumps
+  // 5. iterate through clumps, calculate r^2 and write output
+  memcpy(outname_end, ".clumped", 9);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto clump_reports_ret_OPEN_FAIL;
+  }
+  if (fclose_null(&outfile)) {
+    goto clump_reports_ret_WRITE_FAIL;
+  }
+  sprintf(logbuf, "--clump: LD-clumped association results written to %s.\n", outname);
+  logprintb();
   while (0) {
+  clump_reports_ret_NOMEM2:
+    wkspace_left += topsize;
   clump_reports_ret_NOMEM:
     retval = RET_NOMEM;
     break;
@@ -7149,13 +7319,17 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   clump_reports_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
+  clump_reports_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
   clump_reports_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
   }
+ clump_reports_ret_1:
   wkspace_reset(wkspace_mark);
   fclose_cond(infile);
   fclose_cond(outfile);
   return retval;
-  */
+*/
 }

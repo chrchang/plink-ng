@@ -6227,26 +6227,31 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	  } else if (usptr[0] >= 32768) {
 	    ulii = 0;
 	  } else {
-	  oxford_to_bed_bgen_retry:
-	    uii >>= 16;
-	    if (!uii) {
-	      uii = sfmt_genrand_uint32(&sfmt) | 0x80000000U;
-	    }
-	    ujj = uii & 32767;
-	    if (ujj < ukk) {
-	      ulii = 3;
-	    } else {
-	      ukk += usptr[1];
+	    while (1) {
+	      uii >>= 16;
+	      if (!uii) {
+		uii = sfmt_genrand_uint32(&sfmt) | 0x80000000U;
+	      }
+	      ujj = uii & 32767;
 	      if (ujj < ukk) {
-		ulii = 2;
+		ulii = 3;
+		break;
 	      } else {
-		ukk += usptr[0];
+		ukk += usptr[1];
 		if (ujj < ukk) {
-		  ulii = 0;
-		} else if (ukk < 32766) {
-		  ulii = 1;
+		  ulii = 2;
+		  break;
 		} else {
-		  goto oxford_to_bed_bgen_retry;
+		  ukk += usptr[0];
+		  if (ujj < ukk) {
+		    ulii = 0;
+		    break;
+		  } else if (ukk < 32766) {
+		    ulii = 1;
+		    break;
+		  } else {
+		    ukk = usptr[2];
+		  }
 		}
 	      }
 	    }

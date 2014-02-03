@@ -885,6 +885,7 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
   uint64_t* il_large = NULL;
   uintptr_t* il_chrom_start_small;
   uintptr_t* il_chrom_start_large;
+  unsigned char* wkspace_mark2;
   uint32_t* il_chrom_max_width_small;
   uint32_t* il_chrom_max_width_large;
   uint32_t* marker_chrom_start;
@@ -902,6 +903,7 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
       wkspace_alloc_ui_checked(&marker_chrom_start, (MAX_POSSIBLE_CHROM + 1) * sizeof(int32_t))) {
     goto plink_cnv_ret_NOMEM;
   }
+  wkspace_mark2 = wkspace_base;
   if (fopen_checked(&cnvfile, cnvname, "r")) {
     goto plink_cnv_ret_OPEN_FAIL;
   }
@@ -922,7 +924,7 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
     if (retval) {
       goto plink_cnv_ret_1;
     }
-    wkspace_reset(wkspace_mark);
+    wkspace_reset(wkspace_mark2);
   }
   if (!(cnv_calc_type & CNV_MAKE_MAP)) {
     sptr = (char*)memchr(mapname, 0, FNAMESIZE);

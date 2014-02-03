@@ -75,7 +75,8 @@ typedef struct {
   uint32_t range_border;
   char* fnames_flattened;
   char* annotate_flattened;
-  char* field_name;
+  char* snpfield_search_order;
+  char* pfield_search_order;
   char* range_fname;
   double p1;
   double p2;

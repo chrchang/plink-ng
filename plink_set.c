@@ -38,6 +38,243 @@ uint32_t in_setdef(uint32_t* setdef, uint32_t marker_idx) {
   }
 }
 
+
+int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_extend, uint32_t collapse_group, uint32_t fail_on_no_sets, uint32_t c_prefix, uintptr_t subset_ct, char* sorted_subset_ids, uintptr_t max_subset_id_len, uint32_t* marker_pos, Chrom_info* chrom_info_ptr, uintptr_t* topsize_ptr, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_len_ptr, Make_set_range*** make_set_range_arr_ptr, uint64_t** range_sort_buf_ptr, const char* file_descrip) {
+  // Called by both define_sets() and clump_reports().
+  // Assumes topsize has not been subtracted off wkspace_left.  (This remains
+  // true on exit.)
+  Ll_str* make_set_ll = NULL;
+  char* set_names = NULL;
+  uintptr_t set_ct = 0;
+  uintptr_t max_set_id_len = 0;
+  int32_t retval = 0;
+  Make_set_range** make_set_range_arr;
+  Make_set_range* msr_tmp;
+  Ll_str* ll_tmp;
+  char* bufptr;
+  char* bufptr2;
+  char* bufptr3;
+  uintptr_t set_idx;
+  uintptr_t ulii;
+  uint32_t chrom_idx;
+  uint32_t chrom_start;
+  uint32_t chrom_end;
+  uint32_t range_first;
+  uint32_t range_last;
+  uint32_t uii;
+  uint32_t ujj;
+  int32_t ii;
+  tbuf[MAXLINELEN - 1] = ' ';
+  // if we need to track set names, put together a sorted list
+  if (track_set_names) {
+    while (fgets(tbuf, MAXLINELEN, infile)) {
+      if (!tbuf[MAXLINELEN - 1]) {
+	sprintf(logbuf, "Error: Pathologically long line in %s file.\n", file_descrip);
+	goto load_range_list_ret_INVALID_FORMAT_2;
+      }
+      bufptr = skip_initial_spaces(tbuf);
+      if (is_eoln_kns(*bufptr)) {
+	continue;
+      }
+      bufptr2 = next_item_mult(bufptr, 3);
+      if (!collapse_group) {
+	bufptr3 = bufptr2;
+      } else {
+	bufptr3 = next_item(bufptr2);
+      }
+      if (no_more_items_kns(bufptr3)) {
+	sprintf(logbuf, "Error: Fewer tokens than expected in %s file line.\n", file_descrip);
+	goto load_range_list_ret_INVALID_FORMAT_2;
+      }
+      if (get_chrom_code(chrom_info_ptr, bufptr) == -1) {
+	sprintf(logbuf, "Error: Invalid chromosome code in %s file.\n", file_descrip);
+	goto load_range_list_ret_INVALID_FORMAT_2;
+      }
+      uii = strlen_se(bufptr2);
+      bufptr2[uii] = '\0';
+      if (subset_ct) {
+	if (bsearch_str(bufptr2, uii, sorted_subset_ids, max_subset_id_len, subset_ct) == -1) {
+	  continue;
+	}
+      }
+      if (collapse_group) {
+	uii = strlen_se(bufptr3);
+	bufptr3[uii] = '\0';
+      }
+      // when there are repeats, they are likely to be next to each other
+      if (make_set_ll && (!strcmp(make_set_ll->ss, bufptr3))) {
+	continue;
+      }
+      uii++;
+      if (uii > max_set_id_len) {
+	max_set_id_len = uii;
+      }
+      ll_tmp = top_alloc_llstr(topsize_ptr, uii);
+      ll_tmp->next = make_set_ll;
+      memcpy(ll_tmp->ss, bufptr3, uii);
+      make_set_ll = ll_tmp;
+      set_ct++;
+    }
+    if (!set_ct) {
+      if (fail_on_no_sets) {
+	logprint("Error: All variants excluded by --gene{-all}, since no sets were defined from\n--make-set file.\n");
+	retval = RET_ALL_MARKERS_EXCLUDED;
+	goto load_range_list_ret_1;
+      }
+      sprintf(logbuf, "Warning: No valid ranges in %s file.\n", file_descrip);
+      logprintb();
+      goto load_range_list_ret_1;
+    }
+    max_set_id_len += c_prefix;
+    wkspace_left -= *topsize_ptr;
+    if (wkspace_alloc_c_checked(set_names_ptr, set_ct)) {
+      goto load_range_list_ret_NOMEM2;
+    }
+    wkspace_left += *topsize_ptr;
+    set_names = *set_names_ptr;
+    if (!c_prefix) {
+      for (ulii = 0; ulii < set_ct; ulii++) {
+	strcpy(&(set_names[ulii * max_set_id_len]), make_set_ll->ss);
+	make_set_ll = make_set_ll->next;
+      }
+    } else {
+      for (ulii = 0; ulii < set_ct; ulii++) {
+	memcpy(&(set_names[ulii * max_set_id_len]), "C_", 2);
+	strcpy(&(set_names[ulii * max_set_id_len + 2]), make_set_ll->ss);
+	make_set_ll = make_set_ll->next;
+      }
+    }
+    qsort(set_names, set_ct, max_set_id_len, strcmp_natural);
+    set_ct = collapse_duplicate_ids(set_names, set_ct, max_set_id_len, NULL);
+    wkspace_reset(set_names);
+    set_names = (char*)wkspace_alloc(set_ct * max_set_id_len);
+    rewind(infile);
+  } else {
+    set_ct = 1;
+  }
+  make_set_range_arr = (Make_set_range**)top_alloc(topsize_ptr, set_ct * sizeof(intptr_t));
+  for (set_idx = 0; set_idx < set_ct; set_idx++) {
+    make_set_range_arr[set_idx] = NULL;
+  }
+  while (fgets(tbuf, MAXLINELEN, infile)) {
+    if (!tbuf[MAXLINELEN - 1]) {
+      sprintf(logbuf, "Error: Pathologically long line in %s file.\n", file_descrip);
+      goto load_range_list_ret_INVALID_FORMAT_2;
+    }
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    bufptr2 = next_item_mult(bufptr, 3);
+    if (!collapse_group) {
+      bufptr3 = bufptr2;
+    } else {
+      bufptr3 = next_item(bufptr2);
+    }
+    if (no_more_items_kns(bufptr3)) {
+      sprintf(logbuf, "Error: Fewer tokens than expected in %s file line.\n", file_descrip);
+      goto load_range_list_ret_INVALID_FORMAT_2;
+    }
+    ii = get_chrom_code(chrom_info_ptr, bufptr);
+    if (ii == -1) {
+      sprintf(logbuf, "Error: Invalid chromosome code in %s file.\n", file_descrip);
+      goto load_range_list_ret_INVALID_FORMAT_2;
+    }
+    if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
+      continue;
+    }
+    chrom_idx = ii;
+    chrom_start = chrom_info_ptr->chrom_start[chrom_idx];
+    chrom_end = chrom_info_ptr->chrom_end[chrom_idx];
+    if (chrom_end == chrom_start) {
+      continue;
+    }
+    if (subset_ct && (bsearch_str(bufptr2, strlen_se(bufptr2), sorted_subset_ids, max_subset_id_len, subset_ct) == -1)) {
+      continue;
+    }
+    bufptr = next_item(bufptr);
+    if (atoiz2(bufptr, &ii)) {
+      bufptr[strlen_se(bufptr)] = '\0';
+      sprintf(logbuf, "Error: Invalid range start position '%s' in %s file.\n", bufptr, file_descrip);
+      goto load_range_list_ret_INVALID_FORMAT_2;
+    }
+    range_first = ii;
+    bufptr = next_item(bufptr);
+    if (atoiz2(bufptr, &ii)) {
+      bufptr[strlen_se(bufptr)] = '\0';
+      sprintf(logbuf, "Error: Invalid range end position '%s' in %s file.\n", bufptr, file_descrip);
+      goto load_range_list_ret_INVALID_FORMAT_2;
+    }
+    range_last = ii;
+    if (range_last < range_first) {
+      sprintf(logbuf, "Error: Range end position smaller than range start in %s file.\n", file_descrip);
+      goto load_range_list_ret_INVALID_FORMAT_2;
+    }
+    if (border_extend > range_first) {
+      range_first = 0;
+    } else {
+      range_first -= border_extend;
+    }
+    range_last += border_extend;
+    if (set_ct > 1) {
+      // bugfix: bsearch_str_natural requires null-terminated string
+      uii = strlen_se(bufptr3);
+      bufptr3[uii] = '\0';
+      if (c_prefix) {
+	bufptr3 = &(bufptr3[-2]);
+	memcpy(bufptr3, "C_", 2);
+      }
+      // this should never fail
+      set_idx = (uint32_t)bsearch_str_natural(bufptr3, set_names, max_set_id_len, set_ct);
+    } else {
+      set_idx = 0;
+    }
+    // translate to within-chromosome uidx
+    range_first = uint32arr_greater_than(&(marker_pos[chrom_start]), chrom_end - chrom_start, range_first);
+    range_last = uint32arr_greater_than(&(marker_pos[chrom_start]), chrom_end - chrom_start, range_last + 1);
+    if (range_last > range_first) {
+      msr_tmp = (Make_set_range*)top_alloc(topsize_ptr, sizeof(Make_set_range));
+      msr_tmp->next = make_set_range_arr[set_idx];
+      // normally, I'd keep chrom_idx here since that enables by-chromosome
+      // sorting, but that's probably not worth bloating Make_set_range from
+      // 16 to 32 bytes
+      msr_tmp->uidx_start = chrom_start + range_first;
+      msr_tmp->uidx_end = chrom_start + range_last;
+      make_set_range_arr[set_idx] = msr_tmp;
+    }
+  }
+  // allocate buffer for sorting ranges later
+  uii = 0;
+  for (set_idx = 0; set_idx < set_ct; set_idx++) {
+    ujj = 0;
+    msr_tmp = make_set_range_arr[set_idx];
+    while (msr_tmp) {
+      ujj++;
+      msr_tmp = msr_tmp->next;
+    }
+    if (ujj > uii) {
+      uii = ujj;
+    }
+  }
+  *range_sort_buf_ptr = (uint64_t*)top_alloc(topsize_ptr, uii * sizeof(int64_t));
+  *set_ct_ptr = set_ct;
+  *max_set_id_len_ptr = max_set_id_len;
+  *make_set_range_arr_ptr = make_set_range_arr;
+  while (0) {
+  load_range_list_ret_NOMEM2:
+    wkspace_left += *topsize_ptr;
+    *topsize_ptr = 0;
+    retval = RET_NOMEM;
+    break;
+  load_range_list_ret_INVALID_FORMAT_2:
+    logprintb();
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ load_range_list_ret_1:
+  return retval;
+}
+
 uint32_t save_set_bitfield(uintptr_t* marker_bitfield_tmp, uint32_t marker_ct, uint32_t range_start, uint32_t range_end, uint32_t complement_sets, uint32_t** set_range_pp) {
   uintptr_t mem_req = ((marker_ct + 255) / 128) * 16;
   uint32_t bound_bottom_d128 = range_start / 128;
@@ -372,12 +609,6 @@ uint32_t save_set_range(uint64_t* range_sort_buf, uint32_t marker_ct, uint32_t r
   return 0;
 }
 
-typedef struct make_set_range_struct {
-  struct make_set_range_struct* next;
-  uint32_t uidx_start;
-  uint32_t uidx_end;
-} Make_set_range;
-
 int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* marker_pos, uintptr_t* marker_exclude_ct_ptr, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr) {
   FILE* infile = NULL;
   uintptr_t topsize = 0;
@@ -389,10 +620,8 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   uintptr_t set_ct = 0;
   uint32_t make_set = sip->modifier & SET_MAKE_FROM_RANGES;
   uint32_t complement_sets = (sip->modifier / SET_COMPLEMENTS) & 1;
-  uint32_t collapse_group = sip->modifier & SET_MAKE_COLLAPSE_GROUP;
   uint32_t c_prefix = 2 * ((sip->modifier / SET_C_PREFIX) & 1);
   uint32_t gene_all = sip->modifier & SET_GENE_ALL;
-  uint32_t make_set_border = sip->make_set_border;
   uint32_t curtoklen = 0;
   uint32_t in_set = 0;
   int32_t retval = 0;
@@ -401,7 +630,6 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   uintptr_t genekeep_ct = 0;
   uintptr_t max_genekeep_len = 0;
   uintptr_t max_set_id_len = 0;
-  Ll_str* make_set_ll = NULL;
   Make_set_range** make_set_range_arr = NULL;
   char* midbuf = &(tbuf[MAXLINELEN]);
   char* sorted_subset_ids = NULL;
@@ -411,7 +639,6 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   char* bufptr2;
   char* bufptr3;
   char* buf_end;
-  Ll_str* ll_tmp;
   Make_set_range* msr_tmp;
   uint32_t* marker_id_map;
   uint32_t* marker_uidx_to_idx;
@@ -424,9 +651,6 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   uintptr_t marker_ctp2l;
   uintptr_t ulii;
   uint64_t ullii;
-  uint32_t chrom_idx;
-  uint32_t chrom_start;
-  uint32_t chrom_end;
   uint32_t range_first;
   uint32_t range_last;
   uint32_t slen;
@@ -566,196 +790,10 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   }
   // 3. load --make-set range list
   if (make_set) {
-    tbuf[MAXLINELEN - 1] = ' ';
-    // if we need to track set names, put together a sorted list
-    if (!sip->merged_set_name) {
-      while (fgets(tbuf, MAXLINELEN, infile)) {
-	if (!tbuf[MAXLINELEN - 1]) {
-	  logprint("Error: Pathologically long line in --make-set file.\n");
-	  goto define_sets_ret_INVALID_FORMAT;
-	}
-	bufptr = skip_initial_spaces(tbuf);
-	if (is_eoln_kns(*bufptr)) {
-	  continue;
-	}
-	bufptr2 = next_item_mult(bufptr, 3);
-	if (!collapse_group) {
-	  bufptr3 = bufptr2;
-	} else {
-	  bufptr3 = next_item(bufptr2);
-	}
-	if (no_more_items_kns(bufptr3)) {
-	  logprint("Error: Fewer tokens than expected in --make-set file line.\n");
-	  goto define_sets_ret_INVALID_FORMAT;
-	}
-	if (get_chrom_code(chrom_info_ptr, bufptr) == -1) {
-	  logprint("Error: Invalid chromosome code in --make-set file.\n");
-	  goto define_sets_ret_INVALID_FORMAT;
-	}
-	uii = strlen_se(bufptr2);
-	bufptr2[uii] = '\0';
-	if (subset_ct) {
-          if (bsearch_str(bufptr2, uii, sorted_subset_ids, max_subset_id_len, subset_ct) == -1) {
-	    continue;
-	  }
-	}
-        if (collapse_group) {
-	  uii = strlen_se(bufptr3);
-	  bufptr3[uii] = '\0';
-	}
-	// when there are repeats, they are likely to be next to each other
-	if (make_set_ll && (!strcmp(make_set_ll->ss, bufptr3))) {
-	  continue;
-	}
-	uii++;
-	if (uii > max_set_id_len) {
-	  max_set_id_len = uii;
-	}
-        ll_tmp = top_alloc_llstr(&topsize, uii);
-        ll_tmp->next = make_set_ll;
-	memcpy(ll_tmp->ss, bufptr3, uii);
-	make_set_ll = ll_tmp;
-	set_ct++;
-      }
-      if (!set_ct) {
-        if (gene_all || sip->genekeep_flattened) {
-	  logprint("Error: All variants excluded by --gene{-all}, since no sets were defined from\n--make-set file.\n");
-	  goto define_sets_ret_ALL_MARKERS_EXCLUDED_2;
-	}
-	logprint("Warning: No sets defined from --make-set file.\n");
-	goto define_sets_ret_1;
-      }
-      max_set_id_len += c_prefix;
-      wkspace_left -= topsize;
-      if (wkspace_alloc_c_checked(&set_names, set_ct)) {
-	goto define_sets_ret_NOMEM2;
-      }
-      wkspace_left += topsize;
-      if (!c_prefix) {
-	for (ulii = 0; ulii < set_ct; ulii++) {
-	  strcpy(&(set_names[ulii * max_set_id_len]), make_set_ll->ss);
-	  make_set_ll = make_set_ll->next;
-	}
-      } else {
-	for (ulii = 0; ulii < set_ct; ulii++) {
-	  memcpy(&(set_names[ulii * max_set_id_len]), "C_", 2);
-	  strcpy(&(set_names[ulii * max_set_id_len + 2]), make_set_ll->ss);
-	  make_set_ll = make_set_ll->next;
-	}
-      }
-      qsort(set_names, set_ct, max_set_id_len, strcmp_natural);
-      set_ct = collapse_duplicate_ids(set_names, set_ct, max_set_id_len, NULL);
-      wkspace_reset(set_names);
-      set_names = (char*)wkspace_alloc(set_ct * max_set_id_len);
-      rewind(infile);
-    } else {
-      set_ct = 1;
+    retval = load_range_list(infile, !sip->merged_set_name, sip->make_set_border, sip->modifier & SET_MAKE_COLLAPSE_GROUP, gene_all || sip->genekeep_flattened, c_prefix, subset_ct, sorted_subset_ids, max_subset_id_len, marker_pos, chrom_info_ptr, &topsize, &set_ct, &set_names, &max_set_id_len, &make_set_range_arr, &range_sort_buf, "--make-set");
+    if (retval) {
+      goto define_sets_ret_1;
     }
-    make_set_range_arr = (Make_set_range**)top_alloc(&topsize, set_ct * sizeof(intptr_t));
-    for (set_idx = 0; set_idx < set_ct; set_idx++) {
-      make_set_range_arr[set_idx] = NULL;
-    }
-    while (fgets(tbuf, MAXLINELEN, infile)) {
-      if (!tbuf[MAXLINELEN - 1]) {
-	logprint("Error: Pathologically long line in --make-set file.\n");
-	goto define_sets_ret_INVALID_FORMAT;
-      }
-      bufptr = skip_initial_spaces(tbuf);
-      if (is_eoln_kns(*bufptr)) {
-	continue;
-      }
-      bufptr2 = next_item_mult(bufptr, 3);
-      if (!collapse_group) {
-	bufptr3 = bufptr2;
-      } else {
-	bufptr3 = next_item(bufptr2);
-      }
-      if (no_more_items_kns(bufptr3)) {
-	logprint("Error: Fewer tokens than expected in --make-set file line.\n");
-	goto define_sets_ret_INVALID_FORMAT;
-      }
-      ii = get_chrom_code(chrom_info_ptr, bufptr);
-      if (ii == -1) {
-	logprint("Error: Invalid chromosome code in --make-set file.\n");
-	goto define_sets_ret_INVALID_FORMAT;
-      }
-      if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
-	continue;
-      }
-      chrom_idx = ii;
-      chrom_start = chrom_info_ptr->chrom_start[chrom_idx];
-      chrom_end = chrom_info_ptr->chrom_end[chrom_idx];
-      if (chrom_end == chrom_start) {
-	continue;
-      }
-      if (subset_ct && (bsearch_str(bufptr2, strlen_se(bufptr2), sorted_subset_ids, max_subset_id_len, subset_ct) == -1)) {
-	continue;
-      }
-      bufptr = next_item(bufptr);
-      if (atoiz2(bufptr, &ii)) {
-	bufptr[strlen_se(bufptr)] = '\0';
-	sprintf(logbuf, "Error: Invalid range start position '%s' in --make-set file.\n", bufptr);
-	goto define_sets_ret_INVALID_FORMAT_2;
-      }
-      range_first = ii;
-      bufptr = next_item(bufptr);
-      if (atoiz2(bufptr, &ii)) {
-	bufptr[strlen_se(bufptr)] = '\0';
-	sprintf(logbuf, "Error: Invalid range end position '%s' in --make-set file.\n", bufptr);
-	goto define_sets_ret_INVALID_FORMAT_2;
-      }
-      range_last = ii;
-      if (range_last < range_first) {
-	logprint("Error: Range end position smaller than range start in --make-set file.\n");
-	goto define_sets_ret_INVALID_FORMAT;
-      }
-      if (make_set_border > range_first) {
-	range_first = 0;
-      } else {
-	range_first -= make_set_border;
-      }
-      range_last += make_set_border;
-      if (set_ct > 1) {
-	// bugfix: bsearch_str_natural requires null-terminated string
-	uii = strlen_se(bufptr3);
-	bufptr3[uii] = '\0';
-	if (c_prefix) {
-	  bufptr3 = &(bufptr3[-2]);
-          memcpy(bufptr3, "C_", 2);
-	}
-	// this should never fail
-        set_idx = (uint32_t)bsearch_str_natural(bufptr3, set_names, max_set_id_len, set_ct);
-      } else {
-	set_idx = 0;
-      }
-      // translate to within-chromosome uidx
-      range_first = uint32arr_greater_than(&(marker_pos[chrom_start]), chrom_end - chrom_start, range_first);
-      range_last = uint32arr_greater_than(&(marker_pos[chrom_start]), chrom_end - chrom_start, range_last + 1);
-      if (range_last > range_first) {
-	msr_tmp = (Make_set_range*)top_alloc(&topsize, sizeof(Make_set_range));
-	msr_tmp->next = make_set_range_arr[set_idx];
-        // normally, I'd keep chrom_idx here since that enables by-chromosome
-	// sorting, but that's probably not worth bloating Make_set_range from
-	// 16 to 32 bytes
-	msr_tmp->uidx_start = chrom_start + range_first;
-	msr_tmp->uidx_end = chrom_start + range_last;
-	make_set_range_arr[set_idx] = msr_tmp;
-      }
-    }
-    // allocate buffer for sorting ranges later
-    uii = 0;
-    for (set_idx = 0; set_idx < set_ct; set_idx++) {
-      ujj = 0;
-      msr_tmp = make_set_range_arr[set_idx];
-      while (msr_tmp) {
-	ujj++;
-        msr_tmp = msr_tmp->next;
-      }
-      if (ujj > uii) {
-	uii = ujj;
-      }
-    }
-    range_sort_buf = (uint64_t*)top_alloc(&topsize, uii * sizeof(int64_t));
   }
 
   // 4. if --gene or --gene-all is present, pre-filter variants.
@@ -1199,6 +1237,9 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     }
   }
   wkspace_left += topsize;
+  if (fclose_null(&infile)) {
+    goto define_sets_ret_READ_FAIL;
+  }
   sip->ct = set_ct;
   sip->names = set_names;
   sip->max_name_len = max_set_id_len;
@@ -1254,13 +1295,9 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     logprint("Error: Last token in --set file isn't 'END'.\n");
     retval = RET_INVALID_FORMAT;
     break;
-  define_sets_ret_INVALID_FORMAT_2:
-    logprintb();
-  define_sets_ret_INVALID_FORMAT:
-    retval = RET_INVALID_FORMAT;
-    break;
   }
  define_sets_ret_1:
+  fclose_cond(infile);
   return retval;
 }
 
