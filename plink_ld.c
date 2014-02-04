@@ -7122,6 +7122,13 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   */
 }
 
+typedef struct clump_entry_struct {
+  double pval;
+  struct clump_entry_struct* next;
+  uint32_t fidx;
+  char annot[];
+} Clump_entry;
+
 int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, Clump_info* clump_ip, uintptr_t* sex_male, uint32_t hh_exists) {
   logprint("Error: --clump is currently under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
@@ -7133,6 +7140,11 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uintptr_t topsize = 0;
   uintptr_t range_group_ct = 0;
   uintptr_t max_range_group_id_len = 0;
+  uintptr_t max_header_len = 2;
+  uintptr_t snpfield_search_ct = 1;
+  uintptr_t pfield_search_ct = 1;
+  uintptr_t annot_ct = 0;
+  uintptr_t extra_annot_space = 32;
   Make_set_range** range_group_arr = NULL;
   char* range_group_names = NULL;
   uint64_t* range_sort_buf = NULL;
@@ -7143,15 +7155,27 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uint32_t file_ct = 0;
   int32_t retval = 0;
   Make_set_range* msr_tmp;
+  Clump_entry* clump_entries;
   uintptr_t* index_bitfield;
+  uintptr_t* col_bitfield;
   char* sorted_marker_ids;
+  char* sorted_header_dict;
   char* fname_ptr;
+  char* loadbuf;
+  char* bufptr;
+  uint32_t* header_id_map;
   uint32_t* marker_id_map;
+  uint32_t* cur_parse_info;
+  uintptr_t header_dict_ct;
+  uintptr_t loadbuf_size;
   uintptr_t rg_idx;
+  uintptr_t ulii;
   uint64_t ullii;
   uint32_t range_first;
   uint32_t range_last;
   uint32_t file_idx;
+  uint32_t snp_col;
+  uint32_t p_col;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -7244,7 +7268,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       }
     }
     wkspace_left += topsize;
-    // topsize = 0;
+    topsize = 0;
     if (fclose_null(&infile)) {
       goto clump_reports_ret_READ_FAIL;
     }
@@ -7258,6 +7282,109 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     goto clump_reports_ret_NOMEM;
   }
   fill_ulong_zero(index_bitfield, marker_ctl);
+  if (clump_ip->snpfield_search_order) {
+    bufptr = clump_ip->snpfield_search_order;
+    snpfield_search_ct = 0;
+    do {
+      uii = strlen(bufptr);
+      if (uii >= max_header_len) {
+	max_header_len = uii + 1;
+      }
+      bufptr = &(bufptr[uii + 1]);
+      snpfield_search_ct++;
+    } while (*bufptr);
+  } else {
+    max_header_len = 4; // 'SNP' + null terminator
+  }
+  if (clump_ip->pfield_search_order) {
+    bufptr = clump_ip->pfield_search_order;
+    pfield_search_ct = 0;
+    do {
+      uii = strlen(bufptr);
+      if (uii >= max_header_len) {
+	max_header_len = uii + 1;
+      }
+      bufptr = &(bufptr[uii + 1]);
+      pfield_search_ct++;
+    } while (*bufptr);
+  }
+  if (clump_ip->annotate_flattened) {
+    bufptr = clump_ip->annotate_flattened;
+    do {
+      uii = strlen(bufptr);
+      if (uii >= max_header_len) {
+	max_header_len = uii + 1;
+      }
+      bufptr = &(bufptr[uii + 1]);
+      annot_ct++;
+    } while (*bufptr);
+  }
+  header_dict_ct = snpfield_search_ct + pfield_search_ct + annot_ct;
+  // parse_table[2k] stores raw input field index differences for
+  // next_item_mult().  For example, if variant IDs are in the second column in
+  // the current file, while p-values are in the fifth column, parse_table[0]
+  // is 1 and parse_table[2] = 3.  (Since next_item_mult() requires a positive
+  // count parameter, the very first call has a separate check for the zero
+  // case.)
+  // parse_table[2k + 1] stores the type of field contents (0 = variant ID, 1 =
+  // P-value, 2 or more = annotation).
+  if (wkspace_alloc_c_checked(&sorted_header_dict, max_header_len * header_dict_ct) ||
+      wkspace_alloc_ui_checked(&header_id_map, header_dict_ct * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&parse_table, (2 + annot_ct) * 2 * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&cur_parse_info, (2 + annot_ct) * 2 * sizeof(int32_t))) {
+    goto clump_reports_ret_NOMEM;
+  }
+  ulii = 0; // write position
+  if (clump_ip->snpfield_search_order) {
+    bufptr = clump_ip->snpfield_search_order;
+    uii = 0x40000000;
+    do {
+      ujj = strlen(bufptr) + 1;
+      memcpy(&(sorted_header_dict[ulii * max_header_len]), bufptr, ujj);
+      header_id_map[ulii++] = uii++;
+      bufptr = &(bufptr[ujj]);
+    } while (*bufptr);
+  } else {
+    memcpy(sorted_header_dict, "SNP", 4);
+    header_id_map[0] = 0x40000000;
+    ulii++;
+  }
+  if (clump_ip->pfield_search_order) {
+    uii = 0x20000000;
+    do {
+      ujj = strlen(bufptr) + 1;
+      memcpy(&(sorted_header_dict[ulii * max_header_len]), bufptr, ujj);
+      header_id_map[ulii++] = uii++;
+      bufptr = &(bufptr[ujj]);
+    } while (*bufptr);
+  } else {
+    memcpy(&(sorted_header_dict[ulii * max_header_len]), "P", 2);
+    header_id_map[ulii++] = 0x20000000;
+  }
+  if (clump_ip->annotate_flattened) {
+    bufptr = clump_ip->annotate_flattened;
+    uii = 0;
+    do {
+      ujj = strlen(bufptr) + 1;
+      memcpy(&(sorted_header_dict[ulii * max_header_len]), bufptr, ujj);
+      header_id_map[ulii++] = uii++;
+      bufptr = &(bufptr[ujj]);
+    } while (*bufptr);
+  }
+  if (qsort_ext(sorted_header_dict, header_dict_ct, max_header_len, strcmp_deref, (char*)header_id_map, sizeof(int32_t))) {
+    goto clump_reports_ret_NOMEM;
+  }
+  if (scan_for_duplicate_ids(sorted_header_dict, header_dict_ct, max_header_len)) {
+    logprint("Error: Duplicate --clump-snp-field/--clump-field/--clump-annotate field name.\n");
+    goto clump_reports_ret_INVALID_CMDLINE;
+  }
+  
+  clump_entries = (Clump_entry*)wkspace_alloc(marker_ct * sizeof(intptr_t));
+  if (!clump_entries) {
+    goto clump_reports_ret_NOMEM;
+  }
+  fill_ulong_zero((uintptr_t*)clump_entries, marker_ct);
+  loadbuf = (char*)wkspace_base;
   // 3. load file(s) in sequence.  start with array of null pointers, allocate
   //    from bottom of stack (possibly need to save p-val, file number,
   //    annotations, and/or pointer to next entry) while updating
@@ -7278,15 +7405,38 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     }
   }
   fname_ptr = clump_ip->fnames_flattened;
+  // Suppose the current line has a super-long allele code which must be saved
+  // (since it will go into the ANNOT field).  Then the new allocation may need
+  // to be the size of the entire line.  So, to be safe, we require the current
+  // line to fit in ~half of available workspace.
+  // To reduce the risk of 32-bit integer overflow bugs, we cap line length at
+  // a bit under 2^30 instead of 2^31 here.
+  if (wkspace_left <= 2 * MAXLINELEN + extra_annot_space) {
+    goto clump_reports_ret_NOMEM;
+  } else if (wkspace_left - extra_annot_space >= MAXLINEBUFLEN) {
+    loadbuf[(MAXLINEBUFLEN / 2) - 1] = ' ';
+  }
   for (file_idx = 1; file_idx <= file_ct; file_idx++) {
     if (fopen_checked(&infile, fname_ptr, "r")) {
       goto clump_reports_ret_OPEN_FAIL;
     }
+    loadbuf_size = wkspace_left - topsize;
+    if (loadbuf_size <= 2 * MAXLINELEN + extra_annot_space) {
+      goto clump_reports_ret_NOMEM2;
+    }
+    loadbuf_size = (loadbuf_size - extra_annot_space) / 2;
+    if (loadbuf_size >= MAXLINEBUFLEN / 2) {
+      loadbuf_size = MAXLINEBUFLEN / 2;
+      // no space-termination needed
+    } else {
+      loadbuf[loadbuf_size - 1] = ' ';
+    }
+    snp_col = 0x7fffffff;
+    id_col = 0x7fffffff;
     retval = load_to_first_token(infile, loadbuf_size, '\0', "--clump", loadbuf, &bufptr);
     if (retval) {
       goto clump_reports_ret_1;
     }
-    // ...
     if (fclose_null(&infile)) {
       goto clump_reports_ret_READ_FAIL;
     }
@@ -7331,5 +7481,5 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   fclose_cond(infile);
   fclose_cond(outfile);
   return retval;
-*/
+  */
 }

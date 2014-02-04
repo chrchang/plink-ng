@@ -2231,7 +2231,7 @@ int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids
   return retval;
 }
 
-int32_t update_indiv_sexes(char* update_sex_fname, char* sorted_person_ids, uintptr_t indiv_ct, uintptr_t max_person_id_len, uint32_t* indiv_id_map, uintptr_t* sex_nm, uintptr_t* sex_male) {
+int32_t update_indiv_sexes(char* update_sex_fname, uint32_t update_sex_col, char* sorted_person_ids, uintptr_t indiv_ct, uintptr_t max_person_id_len, uint32_t* indiv_id_map, uintptr_t* sex_nm, uintptr_t* sex_male) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   int32_t retval = 0;
@@ -2245,6 +2245,7 @@ int32_t update_indiv_sexes(char* update_sex_fname, char* sorted_person_ids, uint
   uint32_t indiv_uidx;
   char cc;
   unsigned char ucc;
+  update_sex_col--;
   if (wkspace_alloc_c_checked(&idbuf, max_person_id_len) ||
       wkspace_alloc_ul_checked(&already_seen, indiv_ctl * sizeof(intptr_t))) {
     goto update_indiv_sexes_ret_NOMEM;
@@ -2276,6 +2277,9 @@ int32_t update_indiv_sexes(char* update_sex_fname, char* sorted_person_ids, uint
     }
     set_bit(already_seen, sorted_idx);
     indiv_uidx = indiv_id_map[((uint32_t)sorted_idx)];
+    if (update_sex_col) {
+      bufptr = next_item_mult(bufptr, update_sex_col);
+    }
     if (no_more_items_kns(bufptr)) {
       goto update_indiv_sexes_ret_MISSING_TOKENS;
     }

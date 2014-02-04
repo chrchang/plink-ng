@@ -1344,7 +1344,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("update-ids\tupdate-parents\tupdate-sex\timpute-sex", &help_ctrl, 0,
 "  --update-ids [f]     : Update individual IDs.\n"
 "  --update-parents [f] : Update parental IDs.\n"
-"  --update-sex [f]     : Update individual sexes.\n"
+"  --update-sex [f] {n} : Update sexes.  Sex (1 or M = male, 2 or F = female, 0\n"
+"                         = missing) is loaded from column n+2 (default n is 1).\n"
 	       );
     help_print("flip\tflip-subset", &help_ctrl, 0,
 "  --flip [filename]    : Flip alleles (A<->T, C<->G) for SNP IDs in the file.\n"
