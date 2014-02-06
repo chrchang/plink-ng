@@ -7527,7 +7527,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "--exclude cannot be used with a .cnv fileset.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	uii = 1;
