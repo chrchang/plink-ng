@@ -3387,8 +3387,8 @@ uint32_t bsearch_str_idx(const char* sptr, uint32_t slen, char** str_array, uint
 int32_t get_chrom_code_raw(char* sptr) {
   // any character <= ' ' is considered a terminator
   int32_t ii;
-  if ((*sptr) & 0xdf == 'C') {
-    if ((sptr[1] & 0xdf == 'H') && (sptr[2] & 0xdf == 'R')) {
+  if (((*sptr) & 0xdf) == 'C') {
+    if (((sptr[1] & 0xdf) == 'H') && ((sptr[2] & 0xdf) == 'R')) {
       sptr = &(sptr[3]);
     } else {
       return -1;
