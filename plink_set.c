@@ -40,7 +40,7 @@ uint32_t in_setdef(uint32_t* setdef, uint32_t marker_idx) {
 
 
 int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_extend, uint32_t collapse_group, uint32_t fail_on_no_sets, uint32_t c_prefix, uintptr_t subset_ct, char* sorted_subset_ids, uintptr_t max_subset_id_len, uint32_t* marker_pos, Chrom_info* chrom_info_ptr, uintptr_t* topsize_ptr, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_len_ptr, Make_set_range*** make_set_range_arr_ptr, uint64_t** range_sort_buf_ptr, const char* file_descrip) {
-  // Called by both define_sets() and clump_reports().
+  // Called by extract_exclude_range(), define_sets() and clump_reports().
   // Assumes topsize has not been subtracted off wkspace_left.  (This remains
   // true on exit.)
   Ll_str* make_set_ll = NULL;
@@ -256,9 +256,15 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       uii = ujj;
     }
   }
-  *range_sort_buf_ptr = (uint64_t*)top_alloc(topsize_ptr, uii * sizeof(int64_t));
-  *set_ct_ptr = set_ct;
-  *max_set_id_len_ptr = max_set_id_len;
+  if (range_sort_buf_ptr) {
+    *range_sort_buf_ptr = (uint64_t*)top_alloc(topsize_ptr, uii * sizeof(int64_t));
+  }
+  if (set_ct_ptr) {
+    *set_ct_ptr = set_ct;
+  }
+  if (max_set_id_len_ptr) {
+    *max_set_id_len_ptr = max_set_id_len;
+  }
   *make_set_range_arr_ptr = make_set_range_arr;
   while (0) {
   load_range_list_ret_NOMEM2:
@@ -272,6 +278,74 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
     break;
   }
  load_range_list_ret_1:
+  return retval;
+}
+
+int32_t extract_exclude_range(char* fname, uint32_t* marker_pos, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uint32_t is_exclude, Chrom_info* chrom_info_ptr) {
+  unsigned char* wkspace_mark = wkspace_base;
+  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  FILE* infile = NULL;
+  uintptr_t topsize = 0;
+  uintptr_t orig_marker_exclude_ct = *marker_exclude_ct_ptr;
+  Make_set_range** range_arr = NULL;
+  int32_t retval = 0;
+  Make_set_range* msr_tmp;
+  uintptr_t* marker_exclude_new;
+  if (fopen_checked(&infile, fname, "r")) {
+    goto extract_exclude_range_ret_OPEN_FAIL;
+  }
+  retval = load_range_list(infile, 0, 0, 0, 0, 0, 0, NULL, 0, marker_pos, chrom_info_ptr, &topsize, NULL, NULL, NULL, &range_arr, NULL, is_exclude? "--exclude range" : "--extract range");
+  if (retval) {
+    goto extract_exclude_range_ret_1;
+  }
+  if (fclose_null(&infile)) {
+    goto extract_exclude_range_ret_READ_FAIL;
+  }
+  msr_tmp = range_arr[0];
+  if (is_exclude) {
+    while (msr_tmp) {
+      fill_bits(marker_exclude, msr_tmp->uidx_start, msr_tmp->uidx_end - msr_tmp->uidx_start);
+      msr_tmp = msr_tmp->next;
+    }
+  } else {
+    wkspace_base -= topsize;
+    marker_exclude_new = (uintptr_t*)wkspace_alloc(unfiltered_marker_ctl * sizeof(intptr_t));
+    wkspace_base += topsize;
+    if (!marker_exclude_new) {
+      goto extract_exclude_range_ret_NOMEM;
+    }
+    fill_all_bits(marker_exclude_new, unfiltered_marker_ct);
+    while (msr_tmp) {
+      clear_bits(marker_exclude_new, msr_tmp->uidx_start, msr_tmp->uidx_end - msr_tmp->uidx_start);
+      msr_tmp = msr_tmp->next;
+    }
+    bitfield_or(marker_exclude, marker_exclude_new, unfiltered_marker_ctl);
+  }
+  *marker_exclude_ct_ptr = popcount_longs(marker_exclude, unfiltered_marker_ctl);
+  if (*marker_exclude_ct_ptr == unfiltered_marker_ct) {
+    sprintf(logbuf, "Error: All variants excluded by '--%s range'.\n", is_exclude? "exclude" : "extract");
+    retval = RET_ALL_MARKERS_EXCLUDED;
+  } else if (*marker_exclude_ct_ptr == orig_marker_exclude_ct) {
+    sprintf(logbuf, "Warning: No variants excluded by '--%s range'.\n", is_exclude? "exclude" : "extract");
+  } else {
+    orig_marker_exclude_ct = *marker_exclude_ct_ptr - orig_marker_exclude_ct;
+    sprintf(logbuf, "--%s range: %" PRIuPTR " variant%s excluded.\n", is_exclude? "exclude" : "extract", orig_marker_exclude_ct, (orig_marker_exclude_ct == 1)? "" : "s");
+  }
+  logprintb();
+  while (0) {
+  extract_exclude_range_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  extract_exclude_range_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  extract_exclude_range_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  }
+ extract_exclude_range_ret_1:
+  fclose_cond(infile);
+  wkspace_reset(wkspace_mark);
   return retval;
 }
 

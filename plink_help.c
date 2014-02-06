@@ -1133,14 +1133,14 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                  --make-set file.\n"
 	       );
     help_print("keep\tremove\tkeep-fam\tremove-fam", &help_ctrl, 0,
-"  --keep [fname]   : Exclude all individuals not named in the file.\n"
-"  --remove [fname] : Exclude all individuals named in the file.\n"
-"  --keep-fam [fn]  : Exclude all families not named in the file.\n"
-"  --remove-fam [f] : Exclude all families named in the file.\n"
+"  --keep [filename]     : Exclude all individuals not named in the file.\n"
+"  --remove [filename]   : Exclude all individuals named in the file.\n"
+"  --keep-fam [filename] : Exclude all families not named in the file.\n"
+"  --remove-fam [fname]  : Exclude all families named in the file.\n"
 	       );
-    help_print("extract\texclude", &help_ctrl, 0,
-"  --extract [file] : Exclude all variants not named in the file.\n"
-"  --exclude [file] : Exclude all variants named in the file.\n"
+    help_print("extract\texclude\trange", &help_ctrl, 0,
+"  --extract <range> [f] : Exclude all variants not named in the file.\n"
+"  --exclude <range> [f] : Exclude all variants named in the file.\n"
 	       );
     help_print("keep-clusters\tkeep-cluster-names\tremove-clusters\tremove-cluster-names", &help_ctrl, 0,
 "  --keep-clusters [filename]          : These can be used individually or in\n"

@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (4 Feb 2014) ";
+  " (6 Feb 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -2551,8 +2551,8 @@ int32_t write_snplist(char* outname, char* outname_end, uintptr_t unfiltered_mar
   return retval;
 }
 
-static inline uint32_t are_marker_pos_needed(uint64_t calculation_type, char* cm_map_fname, char* set_fname, uint32_t min_bp_space, uint32_t genome_skip_write, uint32_t ld_modifier, uint32_t epi_modifier) {
-  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_CLUMP)) || cm_map_fname || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || ((calculation_type & CALC_EPI) && (epi_modifier & EPI_FAST_CASE_ONLY));
+static inline uint32_t are_marker_pos_needed(uint64_t calculation_type, uint64_t misc_flags, char* cm_map_fname, char* set_fname, uint32_t min_bp_space, uint32_t genome_skip_write, uint32_t ld_modifier, uint32_t epi_modifier) {
+  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_CLUMP)) || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)) || cm_map_fname || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || ((calculation_type & CALC_EPI) && (epi_modifier & EPI_FAST_CASE_ONLY));
 }
 
 static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, char* cm_map_fname, Two_col_params* update_cm) {
@@ -2597,7 +2597,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uintptr_t* sex_nm = NULL;
   uintptr_t* sex_male = NULL;
   uint32_t genome_skip_write = (cluster_ptr->ppc != 0.0) && (!(calculation_type & CALC_GENOME)) && (!read_genome_fname);
-  uint32_t marker_pos_needed = are_marker_pos_needed(calculation_type, cm_map_fname, sip->fname, min_bp_space, genome_skip_write, ldip->modifier, epi_ip->modifier);
+  uint32_t marker_pos_needed = are_marker_pos_needed(calculation_type, misc_flags, cm_map_fname, sip->fname, min_bp_space, genome_skip_write, ldip->modifier, epi_ip->modifier);
   uint32_t marker_cms_needed = are_marker_cms_needed(calculation_type, cm_map_fname, update_cm);
   uint32_t marker_alleles_needed = are_marker_alleles_needed(calculation_type, freqname, homozyg_ptr, a1alleles, a2alleles, ldip->modifier, (misc_flags / MISC_SNPS_ONLY) & 1, clump_ip->modifier);
   uint32_t zero_extra_chroms = (misc_flags / MISC_ZERO_EXTRA_CHROMS) & 1;
@@ -3066,13 +3066,29 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
     }
     if (extractname) {
-      retval = include_or_exclude(extractname, cptr, ulii, max_marker_id_len, uiptr, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0);
+      if (!(misc_flags & MISC_EXTRACT_RANGE)) {
+        retval = include_or_exclude(extractname, cptr, ulii, max_marker_id_len, uiptr, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0);
+      } else {
+	if (map_is_unsorted & UNSORTED_BP) {
+	  logprint("Error: '--extract range' requires a sorted .map/.bim.  Retry this command after\nusing --make-bed to sort your data.\n");
+	  goto plink_ret_INVALID_CMDLINE;
+	}
+        retval = extract_exclude_range(extractname, marker_pos, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0, chrom_info_ptr);
+      }
       if (retval) {
         goto plink_ret_1;
       }
     }
     if (excludename) {
-      retval = include_or_exclude(excludename, cptr, ulii, max_marker_id_len, uiptr, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 1);
+      if (!(misc_flags & MISC_EXCLUDE_RANGE)) {
+	retval = include_or_exclude(excludename, cptr, ulii, max_marker_id_len, uiptr, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 1);
+      } else {
+	if (map_is_unsorted & UNSORTED_BP) {
+	  logprint("Error: '--exclude range' requires a sorted .map/.bim.  Retry this command after\nusing --make-bed to sort your data.\n");
+	  goto plink_ret_INVALID_CMDLINE;
+	}
+        retval = extract_exclude_range(excludename, marker_pos, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 1, chrom_info_ptr);
+      }
       if (retval) {
         goto plink_ret_1;
       }
@@ -4629,7 +4645,7 @@ uint32_t species_flag(uint32_t* species_code_ptr, uint32_t new_code) {
 
 // these need global scope to stay around on all systems
 const char species_singular_constants[][7] = {"person", "cow", "dog", "horse", "mouse", "plant", "sheep", "sample"};
-const char species_plural_constants[][8] = {"people", "cows", "dogs", "horses", "mice", "plants", "sheep", "samples"};
+const char species_plural_constants[][8] = {"people", "cattle", "dogs", "horses", "mice", "plants", "sheep", "samples"};
 
 int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_map, int32_t argc, char** argv, char* range_delim_ptr, Chrom_info* chrom_info_ptr) {
   // human: 22, X, Y, XY, MT
@@ -7489,10 +7505,20 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "--extract cannot be used with a .cnv fileset.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	retval = alloc_fname(&extractname, argv[cur_arg + 1], argptr, 0);
+	uii = 1;
+	if (param_ct == 2) {
+	  if (!strcmp(argv[cur_arg + 1], "range")) {
+            uii = 2;
+	  } else if (strcmp(argv[cur_arg + 2], "range")) {
+	    sprintf(logbuf, "Error: Invalid --extract parameter sequence.%s", errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+          misc_flags |= MISC_EXTRACT_RANGE;
+	}
+	retval = alloc_fname(&extractname, argv[cur_arg + uii], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
@@ -7504,7 +7530,17 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	retval = alloc_fname(&excludename, argv[cur_arg + 1], argptr, 0);
+	uii = 1;
+	if (param_ct == 2) {
+	  if (!strcmp(argv[cur_arg + 1], "range")) {
+            uii = 2;
+	  } else if (strcmp(argv[cur_arg + 2], "range")) {
+	    sprintf(logbuf, "Error: Invalid --exclude parameter sequence.%s", errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+          misc_flags |= MISC_EXCLUDE_RANGE;
+	}
+	retval = alloc_fname(&excludename, argv[cur_arg + uii], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
@@ -9039,8 +9075,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 #ifndef __LP64__
-	if (malloc_size_mb > 2944) {
-	  logprint("Error: --memory parameter too large for 32-bit version (max 2944).\n");
+	if (malloc_size_mb > 2047) {
+	  logprint("Error: --memory parameter too large for 32-bit version (max 2047).\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 #endif
@@ -10951,6 +10987,18 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	calculation_type |= CALC_LD;
+      } else if (!memcmp(argptr2, "ange", 5)) {
+        if (extractname) {
+	  misc_flags |= MISC_EXTRACT_RANGE;
+	} else if (!excludename) {
+	  sprintf(logbuf, "Error: --range must be used with --extract and/or --exclude.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (excludename) {
+	  misc_flags |= MISC_EXCLUDE_RANGE;
+	}
+	logprint("Note: --range flag deprecated.  Use e.g. '--extract range [filename]'.\n");
+	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }

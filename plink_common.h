@@ -16,7 +16,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define PROG_NAME_STR "plink"
 #define PROG_NAME_CAPS "PLINK"
@@ -200,6 +200,8 @@
 #define MISC_IMPUTE_SEX 0x200000000LLU
 #define MISC_MERGEX 0x400000000LLU
 #define MISC_OXFORD_SNPID_CHR 0x800000000LLU
+#define MISC_EXTRACT_RANGE 0x1000000000LLU
+#define MISC_EXCLUDE_RANGE 0x2000000000LLU
 
 #define CALC_RELATIONSHIP 1LLU
 #define CALC_IBC 2LLU
@@ -651,14 +653,11 @@ static inline int32_t fputs_checked(const char* ss, FILE* outfile) {
   return ferror(outfile);
 }
 
-static inline int32_t fwrite_checked(const void* buf, size_t len, FILE* outfile) {
-  fwrite(buf, 1, len, outfile);
-  return ferror(outfile);
-}
+int32_t fwrite_checked(const void* buf, size_t len, FILE* outfile);
 
 static inline int32_t fwrite_checkedz(const void* buf, size_t len, FILE* outfile) {
   if (len) {
-    fwrite(buf, 1, len, outfile);
+    return fwrite_checked(buf, len, outfile);
   }
   return ferror(outfile);
 }

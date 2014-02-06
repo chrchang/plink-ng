@@ -65,6 +65,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
   while (fgets(loadbuf, loadbuf_size, phenofile) != NULL) {
     if (!loadbuf[loadbuf_size - 1]) {
       if (loadbuf_size == MAXLINEBUFLEN) {
+	logprint("Error: Pathologically long line in --pheno file.\n");
 	goto load_pheno_ret_INVALID_FORMAT;
       } else {
 	goto load_pheno_ret_NOMEM;
@@ -2140,10 +2141,12 @@ int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids
   uintptr_t miss_ct = 0;
   char* idbuf;
   uintptr_t* already_seen;
+  char* loadbuf;
   char* bufptr;
   char* bufptr2;
   char* bufptr3;
   char* wptr;
+  uintptr_t loadbuf_size;
   uintptr_t indiv_uidx;
   uint32_t len;
   uint32_t len2;
@@ -2156,13 +2159,22 @@ int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids
   if (fopen_checked(&infile, update_parents_fname, "r")) {
     goto update_indiv_parents_ret_OPEN_FAIL;
   }
-  tbuf[MAXLINELEN - 1] = ' ';
-  while (fgets(tbuf, MAXLINELEN, infile)) {
-    if (!tbuf[MAXLINELEN - 1]) {
+  // permit very long lines since this can be pointed at .ped files
+  if (wkspace_left > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
+  } else if (wkspace_left > MAXLINELEN) {
+    loadbuf_size = wkspace_left;
+  } else {
+    goto update_indiv_parents_ret_NOMEM;
+  }
+  loadbuf = (char*)wkspace_base;
+  loadbuf[loadbuf_size - 1] = ' ';
+  while (fgets(loadbuf, loadbuf_size, infile)) {
+    if (!loadbuf[MAXLINELEN - 1]) {
       logprint("Error: Pathologically long line in --update-parents file.\n");
       goto update_indiv_parents_ret_INVALID_FORMAT;
     }
-    bufptr = skip_initial_spaces(tbuf);
+    bufptr = skip_initial_spaces(loadbuf);
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
@@ -2240,7 +2252,9 @@ int32_t update_indiv_sexes(char* update_sex_fname, uint32_t update_sex_col, char
   uintptr_t miss_ct = 0;
   char* idbuf;
   uintptr_t* already_seen;
+  char* loadbuf;
   char* bufptr;
+  uintptr_t loadbuf_size;
   int32_t sorted_idx;
   uint32_t indiv_uidx;
   char cc;
@@ -2254,13 +2268,22 @@ int32_t update_indiv_sexes(char* update_sex_fname, uint32_t update_sex_col, char
   if (fopen_checked(&infile, update_sex_fname, "r")) {
     goto update_indiv_sexes_ret_OPEN_FAIL;
   }
-  tbuf[MAXLINELEN - 1] = ' ';
-  while (fgets(tbuf, MAXLINELEN, infile)) {
-    if (!tbuf[MAXLINELEN - 1]) {
+  // permit very long lines since this can be pointed at .ped files
+  if (wkspace_left > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
+  } else if (wkspace_left > MAXLINELEN) {
+    loadbuf_size = wkspace_left;
+  } else {
+    goto update_indiv_sexes_ret_NOMEM;
+  }
+  loadbuf = (char*)wkspace_base;
+  loadbuf[loadbuf_size - 1] = ' ';
+  while (fgets(loadbuf, loadbuf_size, infile)) {
+    if (!loadbuf[loadbuf_size - 1]) {
       logprint("Error: Pathologically long line in --update-sex file.\n");
       goto update_indiv_sexes_ret_INVALID_FORMAT;
     }
-    bufptr = skip_initial_spaces(tbuf);
+    bufptr = skip_initial_spaces(loadbuf);
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
@@ -3867,14 +3890,20 @@ int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modi
 	    uii = uiptr[downcode_idx * indiv_ct];
 	    if (uii) {
 	      if (uii > 1) {
-		fwrite(zbuf, 1, 2 * (uii - 1), outfile);
+		if (fwrite_checked(zbuf, (2 * ONELU) * (uii - 1), outfile)) {
+		  goto write_covars_ret_WRITE_FAIL;
+		}
 	      }
 	      fputs("1 ", outfile);
 	      if (uii < ujj - 1) {
-		fwrite(zbuf, 1, 2 * (ujj - 1 - uii), outfile);
+		if (fwrite_checked(zbuf, (2 * ONELU) * (ujj - 1 - uii), outfile)) {
+		  goto write_covars_ret_WRITE_FAIL;
+		}
 	      }
 	    } else {
-	      fwrite(zbuf, 1, 2 * (ujj - 1), outfile);
+	      if (fwrite_checked(zbuf, (2 * ONELU) * (ujj - 1), outfile)) {
+		goto write_covars_ret_WRITE_FAIL;
+	      }
 	    }
 	    downcode_idx++;
 	  } else {
@@ -3883,7 +3912,9 @@ int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modi
 	  }
 	} else {
 	  if (ujj) {
-            fwrite(out_missing_buf, 1, omplen_p1 * (ujj - 1), outfile);
+	    if (fwrite_checked(out_missing_buf, omplen_p1 * (ujj - 1), outfile)) {
+	      goto write_covars_ret_WRITE_FAIL;
+	    }
 	  } else {
             fputs(output_missing_pheno, outfile);
             putc(' ', outfile);
@@ -13643,10 +13674,10 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  ulptr_end++;
 	  shiftmax = indiv_ct % BITCT2;
 	}
-        fwrite(writebuf, 1, 3 * indiv_ct, outfile);
-        if (putc_checked('\n', outfile)) {
+	if (fwrite_checked(writebuf, 3 * indiv_ct, outfile)) {
 	  goto recode_ret_WRITE_FAIL;
 	}
+	putc('\n', outfile);
       }
       if (pct < 100) {
 	if (pct > 10) {
@@ -14072,15 +14103,21 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  }
 	  if (writebuflp[2] != writebuflps[2]) {
 	    *(writebuflp[2]++) = '\n';
-	    fwrite(writebufl[2], 1, writebuflp[2] - writebufl[2], outfile);
+	    if (fwrite_checked(writebufl[2], writebuflp[2] - writebufl[2], outfile)) {
+	      goto recode_ret_WRITE_FAIL;
+	    }
 	  }
 	  if (writebuflp[0] != writebuflps[0]) {
 	    *(writebuflp[0]++) = '\n';
-	    fwrite(writebufl[0], 1, writebuflp[0] - writebufl[0], outfile);
+	    if (fwrite_checked(writebufl[0], writebuflp[0] - writebufl[0], outfile)) {
+	      goto recode_ret_WRITE_FAIL;
+	    }
 	  }
 	  if (writebuflp[1] != writebuflps[1]) {
 	    *(writebuflp[1]++) = '\n';
-	    fwrite(writebufl[1], 1, writebuflp[1] - writebufl[1], outfile);
+	    if (fwrite_checked(writebufl[1], writebuflp[1] - writebufl[1], outfile)) {
+	      goto recode_ret_WRITE_FAIL;
+	    }
 	  }
 	} else {
 	  while (1) {
@@ -14103,13 +14140,18 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  *(writebuflp[1]++) = '\n';
 	  *(writebuflp[2]++) = '\n';
 	  *(writebuflp[3]++) = '\n';
-	  fwrite(writebufl[0], 1, writebuflp[0] - writebufl[0], outfile);
-	  fwrite(writebufl[2], 1, writebuflp[2] - writebufl[2], outfile);
-	  fwrite(writebufl[3], 1, writebuflp[3] - writebufl[3], outfile);
-	  fwrite(writebufl[1], 1, writebuflp[1] - writebufl[1], outfile);
-	}
-	if (ferror(outfile)) {
-	  goto recode_ret_WRITE_FAIL;
+	  if (fwrite_checked(writebufl[0], writebuflp[0] - writebufl[0], outfile)) {
+	    goto recode_ret_WRITE_FAIL;
+	  }
+	  if (fwrite_checked(writebufl[2], writebuflp[2] - writebufl[2], outfile)) {
+	    goto recode_ret_WRITE_FAIL;
+	  }
+	  if (fwrite_checked(writebufl[3], writebuflp[3] - writebufl[3], outfile)) {
+	    goto recode_ret_WRITE_FAIL;
+	  }
+	  if (fwrite_checked(writebufl[1], writebuflp[1] - writebufl[1], outfile)) {
+	    goto recode_ret_WRITE_FAIL;
+	  }
 	}
       }
       if (pct < 100) {
@@ -14275,10 +14317,10 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
           wbufptr = memcpya(wbufptr, &(writebuf2[4 * ucc]), 4);
 	  bufptr = &(bufptr[unfiltered_indiv_ct4]);
 	}
-	fwrite(writebuf, 1, wbufptr - writebuf, outfile);
-	if (putc_checked('\n', outfile)) {
-          goto recode_ret_WRITE_FAIL;
+	if (fwrite_checked(writebuf, wbufptr - writebuf, outfile)) {
+	  goto recode_ret_WRITE_FAIL;
 	}
+	putc('\n', outfile);
       }
       if (pct < 100) {
 	if (pct > 10) {

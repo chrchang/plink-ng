@@ -80,6 +80,17 @@ int32_t fopen_checked(FILE** target_ptr, const char* fname, const char* mode) {
   return 0;
 }
 
+int32_t fwrite_checked(const void* buf, size_t len, FILE* outfile) {
+  while (len > 0x7ffe0000) {
+    // OS X can't perform >2GB writes
+    fwrite(buf, 1, 0x7ffe0000, outfile);
+    buf = &(((unsigned char*)buf)[0x7ffe0000]);
+    len -= 0x7ffe0000;
+  }
+  fwrite(buf, 1, len, outfile);
+  return ferror(outfile);
+}
+
 int32_t gzopen_checked(gzFile* target_ptr, const char* fname, const char* mode) {
   *target_ptr = gzopen(fname, mode);
   if (!(*target_ptr)) {
@@ -3376,8 +3387,8 @@ uint32_t bsearch_str_idx(const char* sptr, uint32_t slen, char** str_array, uint
 int32_t get_chrom_code_raw(char* sptr) {
   // any character <= ' ' is considered a terminator
   int32_t ii;
-  if (*sptr == 'c') {
-    if ((sptr[1] == 'h') && (sptr[2] == 'r')) {
+  if ((*sptr) & 0xdf == 'C') {
+    if ((sptr[1] & 0xdf == 'H') && (sptr[2] & 0xdf == 'R')) {
       sptr = &(sptr[3]);
     } else {
       return -1;
