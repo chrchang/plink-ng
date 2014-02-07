@@ -2170,7 +2170,7 @@ int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids
   loadbuf = (char*)wkspace_base;
   loadbuf[loadbuf_size - 1] = ' ';
   while (fgets(loadbuf, loadbuf_size, infile)) {
-    if (!loadbuf[MAXLINELEN - 1]) {
+    if (!loadbuf[loadbuf_size - 1]) {
       logprint("Error: Pathologically long line in --update-parents file.\n");
       goto update_indiv_parents_ret_INVALID_FORMAT;
     }
