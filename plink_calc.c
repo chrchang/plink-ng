@@ -3853,7 +3853,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
     g_cg_indiv2idx = g_cg_indiv1idx + 1;
     tbuf[0] = ' ';
   }
-  do {
+  while (g_cg_indiv1idx < g_cg_tstc) {
     if (g_cg_indiv2idx == g_cg_indiv1idx + 1) {
       cptr = &(g_cg_person_ids[g_cg_indiv1uidx * g_cg_max_person_id_len]);
       uii = strlen_se(cptr);
@@ -4037,7 +4037,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
     next_unset_ul_unsafe_ck(indiv_exclude, &g_cg_indiv1uidx);
     g_cg_indiv2idx = g_cg_indiv1idx + 1;
     g_cg_indiv2uidx = g_cg_indiv1uidx + 1;
-  } while (g_cg_indiv1idx < g_cg_tstc);
+  }
  calc_genome_emitn_ret:
   if (g_cg_cur_line * 100 >= g_cg_tot_lines * g_pct) {
     g_pct = (g_cg_cur_line * 100) / g_cg_tot_lines;

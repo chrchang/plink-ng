@@ -7437,6 +7437,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     if (retval) {
       goto clump_reports_ret_1;
     }
+
     if (fclose_null(&infile)) {
       goto clump_reports_ret_READ_FAIL;
     }
