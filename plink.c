@@ -7167,7 +7167,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	dxx *= 1000;
-        if (dxx > 2147483648) {
+        if (dxx > 2147483648.0) {
 	  clump_info.bp_radius = 0x7fffffff;
 	} else {
 	  clump_info.bp_radius = ((int32_t)(dxx * (1 + SMALL_EPSILON) - 1));
