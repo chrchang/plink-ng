@@ -2730,7 +2730,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_MAKE_BED) {
-#if _WIN32
+#ifdef _WIN32
     uii = GetFullPathName(pedname, FNAMESIZE, tbuf, NULL);
     if ((!uii) || (uii > FNAMESIZE))
 #else
@@ -2744,7 +2744,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     memcpy(outname_end, ".bed", 5);
     // if file doesn't exist, realpath returns NULL on Linux instead of what
     // the path would be.
-#if _WIN32
+#ifdef _WIN32
     uii = GetFullPathName(outname, FNAMESIZE, &(tbuf[FNAMESIZE + 64]), NULL);
     if (uii && (uii <= FNAMESIZE) && (!strcmp(tbuf, &(tbuf[FNAMESIZE + 64]))))
 #else
@@ -5156,7 +5156,7 @@ int32_t main(int32_t argc, char** argv) {
   intptr_t default_alloc_mb;
   int64_t llxx;
   Ll_str* ll_str_ptr;
-#if _WIN32
+#ifdef _WIN32
   SYSTEM_INFO sysinfo;
   MEMORYSTATUSEX memstatus;
   DWORD windows_dw; // why the f*** does uint32_t not work?
@@ -5746,7 +5746,7 @@ int32_t main(int32_t argc, char** argv) {
       logstr(argv[ii++]);
     }
   }
-#if _WIN32
+#ifdef _WIN32
   windows_dw = 4 * MAXLINELEN + 256;
   if (GetComputerName(tbuf, &windows_dw))
 #else
@@ -5764,7 +5764,7 @@ int32_t main(int32_t argc, char** argv) {
   logstr(ctime(&rawtime));
   logstr("\n");
 
-#if _WIN32
+#ifdef _WIN32
   GetSystemInfo(&sysinfo);
   g_thread_ct = sysinfo.dwNumberOfProcessors;
 #else
@@ -12638,7 +12638,7 @@ int32_t main(int32_t argc, char** argv) {
   sysctl(mib, 2, &llxx, &sztmp, NULL, 0);
   llxx /= 1048576;
 #else
-#if _WIN32
+#ifdef _WIN32
   memstatus.dwLength = sizeof(memstatus);
   GlobalMemoryStatusEx(&memstatus);
   llxx = memstatus.ullTotalPhys / 1048576;

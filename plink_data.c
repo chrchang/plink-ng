@@ -8251,7 +8251,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   }
   memcpy(name_end, ".fam", 5);
   memcpy(outname_end, ".fam", 5);
-#if _WIN32
+#ifdef _WIN32
   uii = GetFullPathName(lgen_namebuf, FNAMESIZE, tbuf, NULL);
   if ((!uii) || (uii > FNAMESIZE))
 #else
@@ -8262,7 +8262,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
     logprintb();
     goto lgen_to_bed_ret_OPEN_FAIL;
   }
-#if _WIN32
+#ifdef _WIN32
   uii = GetFullPathName(outname, FNAMESIZE, &(tbuf[FNAMESIZE + 64]), NULL);
   if (!(uii && (uii <= FNAMESIZE) && (!strcmp(tbuf, &(tbuf[FNAMESIZE + 64])))))
 #else

@@ -2327,7 +2327,7 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
   double indiv_ct_d = 1 / (double)g_indiv_ct;
   uintptr_t indiv_idx;
   int32_t jj;
-#if _WIN32
+#ifdef _WIN32
   char blas_char;
   int32_t indiv_ct_i32 = g_indiv_ct;
 #endif
@@ -2357,7 +2357,7 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
       dxx += *dptr++;
     }
     dxx = -1 / dxx;
-#if _WIN32
+#ifdef _WIN32
     jj = 1;
     dger_(&indiv_ct_i32, &indiv_ct_i32, &dxx, row, &jj, row, &jj, wkbase, &indiv_ct_i32);
     // todo: test dsymm

@@ -5,7 +5,7 @@
 #include <inttypes.h>
 #include <unistd.h>
 
-#if _WIN32
+#ifdef _WIN32
 #include <windows.h>
 #endif
 
@@ -560,7 +560,7 @@ int32_t main(int32_t argc, char** argv) {
     memcpy(outname, argv[infile_param_idx], uii);
     memcpy(&(outname[uii]), "-temporary", 11);
   } else if (outname) {
-#if _WIN32
+#ifdef _WIN32
     uii = GetFullPathName(argv[infile_param_idx], FNAMESIZE, pathbuf, NULL);
     if ((!uii) || (uii > FNAMESIZE))
 #else
@@ -570,7 +570,7 @@ int32_t main(int32_t argc, char** argv) {
       fprintf(stderr, "Error: Failed to open %s.\n", argv[infile_param_idx]);
       goto main_ret_OPEN_FAIL;
     }
-#if _WIN32
+#ifdef _WIN32
     uii = GetFullPathName(outname, FNAMESIZE, &(pathbuf[FNAMESIZE + 64]), NULL);
     if (uii && (uii <= FNAMESIZE) && (!strcmp(pathbuf, &(pathbuf[FNAMESIZE + 64]))))
 #else

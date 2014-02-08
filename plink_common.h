@@ -491,13 +491,12 @@
 
 #define _FILE_OFFSET_BITS 64
 #if _WIN32
-// normally 63, 64
-  #define MAX_THREADS 23
-  #define MAX_THREADS_P1 24
+  #define MAX_THREADS 63
+  #define MAX_THREADS_P1 64
 #else
 // shouldn't be larger than MODEL_BLOCKSIZE for now
-  #define MAX_THREADS 23
-  #define MAX_THREADS_P1 24
+  #define MAX_THREADS 1023
+  #define MAX_THREADS_P1 1024
 #endif
 
 #ifdef __LP64__
@@ -1934,6 +1933,17 @@ void join_threads(pthread_t* threads, uint32_t ctp1);
 int32_t spawn_threads(pthread_t* threads, unsigned (__stdcall *start_routine)(void*), uintptr_t ct);
 #else
 int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr_t ct);
+#endif
+
+extern volatile uint32_t g_is_last_thread_block;
+#ifdef _WIN32
+extern HANDLE g_thread_start_next_event;
+extern HANDLE g_thread_cur_block_done_event[MAX_THREADS_P1];
+#else
+extern pthread_mutex_t* g_thread_sync_mutex;
+extern pthread_cond_t* g_thread_cur_block_done_condvar;
+extern pthread_cond_t* g_thread_start_next_condvar;
+extern uint32_t g_thread_active_ct;
 #endif
 
 int32_t regress_distance(uint64_t calculation_type, double* dists_local, double* pheno_d_local, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d);
