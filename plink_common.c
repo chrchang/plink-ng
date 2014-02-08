@@ -9373,10 +9373,9 @@ int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr
 // * On all operating systems, g_is_last_thread_block indicates whether all
 //   threads should terminate upon completion of the current block.  It is the
 //   responsibility of the spawn_threads2() caller to initialize this, and then
-//   update it before processing of the last block.  The volatile keyword
-//   sucks, but with gcc it should dependably produce the correct behavior
-//   here (namely, making the threads recheck the memory location's value when
-//   they wake up, instead of just relying on an earlier cached value).
+//   update it before processing of the last block.  (Initially had this
+//   volatile, then realized that the presence of the sync-wait should be
+//   enough to force the global variable to be reread.)
 // * On Linux and OS X, if we aren't dealing with the final block,
 //   spawn_threads2() also reinitializes g_thread_active_ct.
 //   __sync_add_and_fetch(), etc. would be nice, but unfortunately they force
@@ -9394,9 +9393,8 @@ int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr
 //       uintptr_t tidx = (uintptr_t)arg;
 //       ...
 //       while (1) {
-//         is_last_block = g_is_last_thread_block;
 //         ... // process current block
-//         if ((!tidx) || is_last_block) {
+//         if ((!tidx) || g_is_last_thread_block) {
 //           THREAD_RETURN;
 //         }
 //         THREAD_BLOCK_FINISH(tidx);
@@ -9418,7 +9416,7 @@ int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr
 //   too important to use a for loop to handle more objects?... well, we can
 //   add that if anyone wants it, but for now the Windows thread limit is 63.
 
-volatile uint32_t g_is_last_thread_block;
+uint32_t g_is_last_thread_block;
 #ifdef _WIN32
 HANDLE g_thread_start_next_event = NULL;
 HANDLE g_thread_cur_block_done_event[MAX_THREADS];

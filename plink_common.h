@@ -1935,7 +1935,7 @@ int32_t spawn_threads(pthread_t* threads, unsigned (__stdcall *start_routine)(vo
 int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr_t ct);
 #endif
 
-extern volatile uint32_t g_is_last_thread_block;
+extern uint32_t g_is_last_thread_block;
 #ifdef _WIN32
 extern HANDLE g_thread_start_next_event;
 extern HANDLE g_thread_cur_block_done_event[];
