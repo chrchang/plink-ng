@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include "plink_ld.h"
 #include "plink_stats.h"
 #include "pigz.h"
