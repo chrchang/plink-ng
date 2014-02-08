@@ -4346,7 +4346,8 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
       param_ctx++;
     } else {
       constraint_ct = 0;
-      free(joint_test_params);
+      free(joint_test_params_alloc);
+      joint_test_params_alloc = NULL;
       joint_test_params = NULL;
       logprint("Warning: Ignoring --tests since fewer than two parameter indices are in range.\n");
     }

@@ -3710,8 +3710,9 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
         goto plink_ret_1;
       }
     }
-    if (pheno_nm_datagen) {
-      free(pheno_nm_datagen);
+    if (pheno_nm_datagen_alloc) {
+      free(pheno_nm_datagen_alloc);
+      pheno_nm_datagen_alloc = NULL;
       pheno_nm_datagen = NULL;
     }
   }

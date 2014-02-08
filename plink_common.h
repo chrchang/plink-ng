@@ -16,7 +16,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define PROG_NAME_STR "plink"
 #define PROG_NAME_CAPS "PLINK"
@@ -491,12 +491,12 @@
 
 #define _FILE_OFFSET_BITS 64
 #if _WIN32
-  #define MAX_THREADS 63
-  #define MAX_THREADS_P1 64
+  #define MAX_THREADS 23
+  #define MAX_THREADS_P1 24
 #else
 // shouldn't be larger than MODEL_BLOCKSIZE for now
-  #define MAX_THREADS 1023
-  #define MAX_THREADS_P1 1024
+  #define MAX_THREADS 23
+  #define MAX_THREADS_P1 24
 #endif
 
 #ifdef __LP64__
