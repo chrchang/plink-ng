@@ -9428,7 +9428,6 @@ static pthread_cond_t g_thread_start_next_condvar;
 uint32_t g_thread_active_ct;
 static uint32_t g_thread_mutex_initialized = 0;
 static uintptr_t g_thread_spawn_ct = 0;
-#endif
 
 void THREAD_BLOCK_FINISH(uintptr_t tidx) {
   uintptr_t initial_spawn_ct = g_thread_spawn_ct;
@@ -9442,6 +9441,7 @@ void THREAD_BLOCK_FINISH(uintptr_t tidx) {
   }
   pthread_mutex_unlock(&g_thread_sync_mutex);
 }
+#endif
 
 void join_threads2(pthread_t* threads, uint32_t ctp1, uint32_t is_last_block) {
   uint32_t uii;
@@ -9492,7 +9492,6 @@ int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintpt
   if (ct == 1) {
     return 0;
   }
-  g_thread_spawn_ct++;
   if (g_is_last_thread_block != is_last_block) {
     // might save us an unnecessary memory write that confuses the cache
     // coherency logic?
@@ -9515,6 +9514,7 @@ int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintpt
     SetEvent(g_thread_start_next_event);
   }
 #else
+  g_thread_spawn_ct++;
   if (!is_last_block) {
     g_thread_active_ct = ct - 1;
   }
