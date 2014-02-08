@@ -1938,7 +1938,7 @@ int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr
 extern volatile uint32_t g_is_last_thread_block;
 #ifdef _WIN32
 extern HANDLE g_thread_start_next_event;
-extern HANDLE g_thread_cur_block_done_event[MAX_THREADS_P1];
+extern HANDLE g_thread_cur_block_done_event[];
 #else
 extern pthread_mutex_t* g_thread_sync_mutex;
 extern pthread_cond_t* g_thread_cur_block_done_condvar;
