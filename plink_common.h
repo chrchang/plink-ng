@@ -491,12 +491,13 @@
 
 #define _FILE_OFFSET_BITS 64
 #if _WIN32
-  #define MAX_THREADS 63
-  #define MAX_THREADS_P1 64
+// normally 63, 64
+  #define MAX_THREADS 23
+  #define MAX_THREADS_P1 24
 #else
 // shouldn't be larger than MODEL_BLOCKSIZE for now
-  #define MAX_THREADS 63
-  #define MAX_THREADS_P1 64
+  #define MAX_THREADS 23
+  #define MAX_THREADS_P1 24
 #endif
 
 #ifdef __LP64__
