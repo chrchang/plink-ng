@@ -9371,18 +9371,17 @@ int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr
 //
 // New framework:
 // * On all operating systems, g_is_last_thread_block indicates whether all
-//   threads should terminate upon completion of the current block.  It is the
-//   responsibility of the spawn_threads2() caller to initialize this, and then
-//   update it before processing of the last block.  (Initially had this
-//   volatile, then realized that the presence of the sync-wait should be
-//   enough to force the global variable to be reread.)
+//   threads should terminate upon completion of the current block.  (Initially
+//   had this volatile, then realized that the presence of the sync-wait should
+//   be enough to force the global variable to be reread.)
 // * On Linux and OS X, if we aren't dealing with the final block,
 //   spawn_threads2() also reinitializes g_thread_active_ct.
 //   __sync_add_and_fetch(), etc. would be nice, but unfortunately they force
 //   some users to compile from scratch.
-// * On Linux and OS X, spawn_threads2() checks if g_thread_sync_mutex is
-//   initialized.  If not, it, along with g_thread_cur_block_done_condvar and
-//   g_thread_start_next_condvar, are initialized, then threads are launched.
+// * On Linux and OS X, spawn_threads2() checks if g_thread_mutex_initialized
+//   is set.  If not, it, it is set, g_thread_sync_mutex,
+//   g_thread_cur_block_done_condvar and g_thread_start_next_condvar are
+//   initialized, then threads are launched.
 //   If it has, pthread_cond_broadcast() acts on g_thread_start_next_condvar.
 // * On Windows, spawn_threads2() checks if g_thread_start_next_event has been
 //   initialized.  If it has not, it, along with
@@ -9402,30 +9401,142 @@ int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr
 //     }
 // * On Linux and OS X, THREAD_BLOCK_FINISH() acquires a mutex, decrements
 //   g_thread_active_ct, calls pthread_cond_signal() on
-//   g_thread_cur_block_done_condvar iff g_thread_ct is now zero, then
+//   g_thread_cur_block_done_condvar iff g_thread_active_ct is now zero, then
 //   unconditionally calls pthread_cond_wait on g_thread_start_next_condvar and
 //   the mutex.
 // * On Windows, THREAD_BLOCK_FINISH() calls SetEvent() on
-//   g_thread_cur_block_done_event[tidx - 1].
+//   g_thread_cur_block_done_events[tidx - 1], then waits on
+//   g_thread_start_next_event.
 // * If the termination variable is set, join_threads2() waits for all threads
 //   to complete, then cleans up all multithreading objects.  Otherwise, on
 //   Linux and OS X, it acquires the mutex and calls pthread_cond_wait() on
 //   g_thread_cur_block_done_condvar and the mutex; and on Windows, it calls
-//   WaitForMultipleObjects() on g_thread_cur_block_done_event[].
-//   WaitForMultipleObjects has a 63 object limit, and for now it doesn't seem
+//   WaitForMultipleObjects() on g_thread_cur_block_done_events[].
+//   WaitForMultipleObjects has a 64 object limit, and for now it doesn't seem
 //   too important to use a for loop to handle more objects?... well, we can
-//   add that if anyone wants it, but for now the Windows thread limit is 63.
+//   add that if anyone wants it, but for now the Windows thread limit is 65
+//   (the main thread isn't part of the wait).
 
-uint32_t g_is_last_thread_block;
+uint32_t g_is_last_thread_block = 0;
 #ifdef _WIN32
 HANDLE g_thread_start_next_event = NULL;
-HANDLE g_thread_cur_block_done_event[MAX_THREADS];
+HANDLE g_thread_cur_block_done_events[MAX_THREADS];
 #else
-pthread_mutex_t* g_thread_sync_mutex = NULL;
-pthread_cond_t* g_thread_cur_block_done_condvar;
-pthread_cond_t* g_thread_start_next_condvar;
+static pthread_mutex_t g_thread_sync_mutex;
+static pthread_cond_t g_thread_cur_block_done_condvar;
+static pthread_cond_t g_thread_start_next_condvar;
 uint32_t g_thread_active_ct;
+static uint32_t g_thread_mutex_initialized = 0;
+static uintptr_t g_thread_spawn_ct = 0;
 #endif
+
+void THREAD_BLOCK_FINISH(uintptr_t tidx) {
+  uintptr_t initial_spawn_ct = g_thread_spawn_ct;
+  pthread_mutex_lock(&g_thread_sync_mutex);
+  if (!(--g_thread_active_ct)) {
+    pthread_cond_signal(&g_thread_cur_block_done_condvar);
+  }
+  while (g_thread_spawn_ct == initial_spawn_ct) {
+    // spurious wakeup guard
+    pthread_cond_wait(&g_thread_start_next_condvar, &g_thread_sync_mutex);
+  }
+  pthread_mutex_unlock(&g_thread_sync_mutex);
+}
+
+void join_threads2(pthread_t* threads, uint32_t ctp1, uint32_t is_last_block) {
+  uint32_t uii;
+  if (!(--ctp1)) {
+    return;
+  }
+#ifdef _WIN32
+  if (!is_last_block) {
+    WaitForMultipleObjects(ctp1, g_thread_cur_block_done_events, 1, INFINITE);
+  } else {
+    WaitForMultipleObjects(ctp1, threads, 1, INFINITE);
+    CloseHandle(g_thread_start_next_event);
+    g_thread_start_next_event = NULL;
+    for (uii = 0; uii < ctp1; uii++) {
+      CloseHandle(g_thread_cur_block_done_events[uii]);
+      g_thread_cur_block_done_events[uii] = NULL;
+    }
+  }
+#else
+  if (!is_last_block) {
+    pthread_mutex_lock(&g_thread_sync_mutex);
+    while (g_thread_active_ct) {
+      pthread_cond_wait(&g_thread_cur_block_done_condvar, &g_thread_sync_mutex);
+    }
+    pthread_mutex_unlock(&g_thread_sync_mutex);
+  } else {
+    for (uii = 0; uii < ctp1; uii++) {
+      pthread_join(threads[uii], NULL);
+    }
+    // slightly inefficient if there are multiple multithreaded commands being
+    // run, but if different commands require different numbers of threads,
+    // optimizing this sort of thing away could introduce bugs...
+    pthread_mutex_destroy(&g_thread_sync_mutex);
+    pthread_cond_destroy(&g_thread_cur_block_done_condvar);
+    pthread_cond_destroy(&g_thread_start_next_condvar);
+    g_thread_mutex_initialized = 0;
+  }
+#endif
+}
+
+#ifdef _WIN32
+int32_t spawn_threads2(pthread_t* threads, unsigned (__stdcall *start_routine)(void*), uintptr_t ct, uint32_t is_last_block)
+#else
+int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintptr_t ct, uint32_t is_last_block)
+#endif
+{
+  uintptr_t ulii;
+  if (ct == 1) {
+    return 0;
+  }
+  g_thread_spawn_ct++;
+  if (g_is_last_thread_block != is_last_block) {
+    // might save us an unnecessary memory write that confuses the cache
+    // coherency logic?
+    g_is_last_thread_block = is_last_block;
+  }
+#ifdef _WIN32
+  if (!g_thread_start_next_event) {
+    g_thread_start_next_event = CreateEvent(NULL, FALSE, FALSE, NULL);
+    for (ulii = 1; ulii < ct; ulii++) {
+      g_thread_cur_block_done_events[ulii - 1] = CreateEvent(NULL, FALSE, FALSE, NULL);
+    }
+    for (ulii = 1; ulii < ct; ulii++) {
+      threads[ulii - 1] = (HANDLE)_beginthreadex(NULL, 4096, start_routine, (void*)ulii, 0, NULL);
+      if (!threads[ulii - 1]) {
+	join_threads2(threads, ulii, is_last_block);
+	return -1;
+      }
+    }
+  } else {
+    SetEvent(g_thread_start_next_event);
+  }
+#else
+  if (!is_last_block) {
+    g_thread_active_ct = ct - 1;
+  }
+  if (!g_thread_mutex_initialized) {
+    if (pthread_mutex_init(&g_thread_sync_mutex, NULL) ||
+        pthread_cond_init(&g_thread_cur_block_done_condvar, NULL) ||
+        pthread_cond_init(&g_thread_start_next_condvar, NULL)) {
+      return -1;
+    }
+    g_thread_mutex_initialized = 1;
+    for (ulii = 1; ulii < ct; ulii++) {
+      if (pthread_create(&(threads[ulii - 1]), NULL, start_routine, (void*)ulii)) {
+	join_threads2(threads, ulii, is_last_block);
+	return -1;
+      }
+    }
+  } else {
+    pthread_cond_broadcast(&g_thread_start_next_condvar);
+  }
+#endif
+  return 0;
+}
 
 // ----- multithread file-scope globals -----
 static double* g_pheno_d;

@@ -328,8 +328,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --gfile [prefix] : Specify .gvar + .fam + .map (genetic variant) prefix.\n\n"
 	       );
 #endif
-    help_print("grm\tgrm-bin\trel-cutoff\tgrm-cutoff", &help_ctrl, 1,
-"  --grm {prefix}   : Specify .grm.gz + .grm.id (GCTA rel. matrix) prefix.\n"
+    help_print("grm\tgrm-gz\tgrm-bin\trel-cutoff\tgrm-cutoff", &help_ctrl, 1,
+"  --grm-gz {prfx}  : Specify .grm.gz + .grm.id (GCTA rel. matrix) prefix.\n"
 "  --grm-bin {prfx} : Specify .grm.bin + .grm.N.bin + .grm.id (GCTA triangular\n"
 "                     binary relationship matrix) filename prefix.\n\n"
 	       );

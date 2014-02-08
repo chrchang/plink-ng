@@ -958,6 +958,7 @@ uint32_t* g_indiv_missing_unwt = NULL;
 uint32_t* g_missing_dbl_excluded = NULL;
 double* g_dists = NULL;
 
+static uint32_t g_dist_thread_ct;
 static uint32_t g_thread_start[MAX_THREADS_P1];
 static float* g_rel_f_dists = NULL;
 static int32_t* g_idists;
@@ -1787,6 +1788,15 @@ THREAD_RET_TYPE calc_rel_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
   int32_t ii = g_thread_start[tidx];
   int32_t jj = g_thread_start[0];
+  /*
+  while (1) {
+    incr_dists_r(&(g_rel_dists[((int64_t)ii * (ii - 1) - (int64_t)jj * (jj - 1)) / 2]), (uintptr_t*)g_geno, g_masks, (uint32_t)tidx, g_weights);
+    if ((!tidx) || g_is_last_thread_block) {
+      THREAD_RETURN;
+    }
+    THREAD_BLOCK_FINISH(tidx);
+  }
+  */
   incr_dists_r(&(g_rel_dists[((int64_t)ii * (ii - 1) - (int64_t)jj * (jj - 1)) / 2]), (uintptr_t*)g_geno, g_masks, (uint32_t)tidx, g_weights);
   THREAD_RETURN;
 }
@@ -1835,10 +1845,15 @@ void incr_dists_r_f(float* dists_f, uintptr_t* geno, uintptr_t* masks, uint32_t 
 
 THREAD_RET_TYPE calc_rel_f_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
-  int32_t ii = g_thread_start[tidx];
-  int32_t jj = g_thread_start[0];
-  incr_dists_r_f(&(g_rel_f_dists[((int64_t)ii * (ii - 1) - (int64_t)jj * (jj - 1)) / 2]), (uintptr_t*)g_geno, g_masks, (uint32_t)tidx, g_weights_f);
-  THREAD_RETURN;
+  uintptr_t ulii = g_thread_start[tidx];
+  uintptr_t uljj = g_thread_start[0];
+  while (1) {
+    incr_dists_r_f(&(g_rel_f_dists[(((uint64_t)ulii) * (ulii - 1) - ((uint64_t)uljj) * (uljj - 1)) / 2]), (uintptr_t*)g_geno, g_masks, (uint32_t)tidx, g_weights_f);
+    if ((!tidx) || g_is_last_thread_block) {
+      THREAD_RETURN;
+    }
+    THREAD_BLOCK_FINISH(tidx);
+  }
 }
 
 void incr_dists_rm(uint32_t* idists, uint32_t tidx, uint32_t* thread_start) {
@@ -1854,14 +1869,9 @@ void incr_dists_rm(uint32_t* idists, uint32_t tidx, uint32_t* thread_start) {
     if (ulii) {
       for (ujj = 0; ujj < uii; ujj++) {
         uljj = (*mlptr++) & ulii;
-	// if we can't count on sparsity:
-	// if (uljj) {
-	//   idists[ujj] += popcount_long(uljj);
-	// }
-        while (uljj) {
-          idists[ujj] += 1;
-          uljj &= uljj - 1;
-        }
+	if (uljj) {
+	  idists[ujj] += popcount_long(uljj);
+	}
       }
     }
     idists = &(idists[uii]);
@@ -6361,10 +6371,12 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
   uint32_t chrom_fo_idx = 0;
   float* dptr2;
   float set_allele_freq_buf[MULTIPLEX_DIST];
+  uint32_t fake_thread_start[2];
   char wbuf[96];
   char* wptr;
   uint32_t cur_markers_loaded;
   uint32_t win_marker_idx;
+  uint32_t is_last_block;
   uintptr_t indiv_uidx;
   uintptr_t indiv_idx;
   float* rel_ibc;
@@ -6391,9 +6403,15 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
   }
   fill_int_zero((int32_t*)g_indiv_missing_unwt, indiv_ct);
   g_indiv_ct = indiv_ct;
-  triangle_fill(g_thread_start, indiv_ct, g_thread_ct, parallel_idx, parallel_tot, 1, 1);
+  g_dist_thread_ct = g_thread_ct;
+  if (g_dist_thread_ct > indiv_ct / 2) {
+    g_dist_thread_ct = indiv_ct / 2;
+  }
+  triangle_fill(g_thread_start, indiv_ct, g_dist_thread_ct, parallel_idx, parallel_tot, 1, 1);
+  fake_thread_start[0] = 1;
+  fake_thread_start[1] = indiv_ct;
   if (relationship_req(calculation_type)) {
-    ullxx = g_thread_start[g_thread_ct];
+    ullxx = g_thread_start[g_dist_thread_ct];
     ullxx = ((ullxx * (ullxx - 1)) - (int64_t)g_thread_start[0] * (g_thread_start[0] - 1)) / 2;
     if (wkspace_alloc_ui_checked(&g_missing_dbl_excluded, ullxx * sizeof(int32_t)) ||
         wkspace_alloc_f_checked(&g_rel_f_dists, ullxx * sizeof(float))) {
@@ -6453,6 +6471,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
     }
     fill_ulong_zero(g_mmasks, indiv_ct);
 
+    is_last_block = (marker_idx == marker_ct)? 1 : 0;
     for (win_marker_idx = 0; win_marker_idx < cur_markers_loaded; win_marker_idx += MULTIPLEX_REL / 3) {
       fill_ulong_zero(g_masks, indiv_ct);
       indiv_idx = 0;
@@ -6489,24 +6508,23 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
 	update_rel_f_ibc(rel_ibc, (uintptr_t*)g_geno, &(set_allele_freq_buf[win_marker_idx]), ibc_type, indiv_ct);
       }
       if (relationship_req(calculation_type)) {
+	uii = is_last_block && (cur_markers_loaded - win_marker_idx <= MULTIPLEX_REL / 3);
 	fill_weights_r_f(g_weights_f, &(set_allele_freq_buf[win_marker_idx]), (ibc_type != -1)? 1 : 0);
-	if (spawn_threads(threads, &calc_rel_f_thread, g_thread_ct)) {
+	if (spawn_threads2(threads, &calc_rel_f_thread, g_dist_thread_ct, uii)) {
 	  goto calc_rel_f_ret_THREAD_CREATE_FAIL;
 	}
-	incr_dists_r_f(g_rel_f_dists, (uintptr_t*)g_geno, g_masks, 0, g_weights_f);
-	join_threads(threads, g_thread_ct);
+	ulii = 0;
+	calc_rel_f_thread((void*)ulii);
+	join_threads2(threads, g_dist_thread_ct, uii);
       }
     }
     if (relationship_req(calculation_type)) {
-      if (spawn_threads(threads, &calc_missing_thread, g_thread_ct)) {
-	goto calc_rel_f_ret_THREAD_CREATE_FAIL;
-      }
-      incr_dists_rm(g_missing_dbl_excluded, 0, g_thread_start);
-      join_threads(threads, g_thread_ct);
+      // avoid thread creation here for now
+      incr_dists_rm(g_missing_dbl_excluded, 0, fake_thread_start);
     }
     printf("\r%" PRIuPTR " markers complete.", marker_idx);
     fflush(stdout);
-  } while (marker_idx < marker_ct);
+  } while (!is_last_block);
   if (relationship_req(calculation_type)) {
     putchar('\r');
     logprint("Single-precision relationship matrix calculation complete.\n");
@@ -6522,7 +6540,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
   giptr2 = g_missing_dbl_excluded;
   for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
     uii = marker_ct - g_indiv_missing_unwt[indiv_idx];
-    if ((indiv_idx >= g_thread_start[0]) && (indiv_idx < g_thread_start[g_thread_ct])) {
+    if ((indiv_idx >= g_thread_start[0]) && (indiv_idx < g_thread_start[g_dist_thread_ct])) {
       if (relationship_req(calculation_type)) {
 	giptr = g_indiv_missing_unwt;
 	for (ujj = 0; ujj < indiv_idx; ujj++) {
@@ -6584,7 +6602,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
     if (parallel_tot == 1) {
       max_parallel_indiv = indiv_ct;
     } else {
-      max_parallel_indiv = g_thread_start[g_thread_ct];
+      max_parallel_indiv = g_thread_start[g_dist_thread_ct];
     }
     min_indiv = g_thread_start[0];
     if (min_indiv == 1) {

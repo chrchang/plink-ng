@@ -3612,6 +3612,11 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
     if ((!pca_indiv_exclude) && (indiv_ct != unfiltered_indiv_ct + indiv_exclude_ct)) {
       indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
+      if ((indiv_ct < 2) && (distance_req(calculation_type, read_dists_fname) || (calculation_type & (CALC_GENOME | CALC_CLUSTER | CALC_NEIGHBOR)))) {
+	// pathological case
+        sprintf(logbuf, "Error: Too many %s pruned for additional pairwise analysis steps.\n", g_species_plural);
+        goto plink_ret_INVALID_CMDLINE_2;
+      }
     }
     if (calculation_type & CALC_REL_CUTOFF) {
       // ugh, probably better to just stop supporting this
@@ -12643,6 +12648,8 @@ int32_t main(int32_t argc, char** argv) {
   memstatus.dwLength = sizeof(memstatus);
   GlobalMemoryStatusEx(&memstatus);
   llxx = memstatus.ullTotalPhys / 1048576;
+  // may as well put this here too
+  fill_ulong_zero((uintptr_t*)g_thread_cur_block_done_events, g_thread_ct - 1);
 #else
   llxx = ((uint64_t)sysconf(_SC_PHYS_PAGES)) * ((size_t)sysconf(_SC_PAGESIZE)) / 1048576;
 #endif
