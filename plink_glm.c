@@ -4125,7 +4125,9 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   uintptr_t* sex_male_collapsed = NULL;
   uintptr_t* indiv_include2 = NULL;
   uintptr_t* indiv_male_include2 = NULL;
+  uintptr_t* active_params_alloc = NULL;
   uintptr_t* active_params = NULL;
+  uintptr_t* joint_test_params_alloc = NULL;
   uintptr_t* joint_test_params = NULL;
   uintptr_t* perm_fails = NULL;
   uint32_t* perm_2success_ct = NULL;
@@ -4277,8 +4279,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     collapse_copy_bitarr_incl(unfiltered_indiv_ct, sex_male, load_mask, indiv_valid_ct, sex_male_collapsed);
   }
   param_raw_ctl = (param_raw_ct + BITCT - 1) / BITCT;
-  active_params = (uintptr_t*)malloc(param_raw_ctl * sizeof(intptr_t));
-  if (!active_params) {
+  if (safe_malloc(&active_params_alloc, &active_params, param_raw_ctl * sizeof(intptr_t))) {
     goto glm_assoc_nosnp_ret_NOMEM;
   }
   if (parameters_range_list_ptr->name_ct) {
@@ -4325,7 +4326,9 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   param_ctx = param_ct;
   if (tests_range_list_ptr->name_ct || (glm_modifier & GLM_TEST_ALL)) {
     ulii = (param_ct + (BITCT - 1)) / BITCT;
-    joint_test_params = (uintptr_t*)malloc(ulii * sizeof(intptr_t));
+    if (safe_malloc(&joint_test_params_alloc, &joint_test_params, ulii * sizeof(intptr_t))) {
+      goto glm_assoc_nosnp_ret_NOMEM;
+    }
     fill_ulong_zero(joint_test_params, ulii);
     if (tests_range_list_ptr->name_ct) {
       numeric_range_list_to_bitfield(tests_range_list_ptr, param_ct - 1, joint_test_params, 1, 1);
@@ -5172,8 +5175,8 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
  glm_assoc_nosnp_ret_1:
   wkspace_reset(wkspace_mark);
   fclose_cond(outfile);
-  free_cond(active_params);
-  free_cond(joint_test_params);
+  free_cond(active_params_alloc);
+  free_cond(joint_test_params_alloc);
   free_cond(condition_uidxs);
   return retval;
 }

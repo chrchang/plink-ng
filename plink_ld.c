@@ -7531,6 +7531,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     for (uii = cur_read_ct - 1; uii; uii--) {
       parse_table[uii * 2] -= parse_table[(uii - 1) * 2] + 1;
     }
+  clump_reports_load_loop:
     while (fgets(loadbuf, loadbuf_size, infile)) {
       if (!loadbuf[loadbuf_size - 1]) {
 	if (loadbuf_size == MAXLINEBUFLEN / 2) {
@@ -7554,7 +7555,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
         if (no_more_items_kns(bufptr)) {
 	  // PLINK 1.07 --clump just skips the line in this situation, instead
 	  // of erroring out, so we replicate that
-	  break;
+	  goto clump_reports_load_loop;
 	}
 	bufptr2 = item_endnn(bufptr);
 	ujj = parse_table[uii * 2 + 1] * 2;
@@ -7564,9 +7565,6 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	  ukk += cur_parse_info[ujj + 1];
 	}
 	bufptr = skip_initial_spaces(bufptr2);
-      }
-      if (uii < cur_read_ct) {
-	continue;
       }
       ii = bsearch_str(&(loadbuf[cur_parse_info[0]]), cur_parse_info[1], sorted_marker_ids, max_marker_id_len, marker_ct);
       if (ii == -1) {
@@ -7580,7 +7578,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       if (scan_double(&(loadbuf[cur_parse_info[2]]), &pval) || (pval > load_pthresh) || (pval < 0.0)) {
 	continue;
       }
-      clump_entry_ptr = (Clump_entry*)top_alloc(&topsize, sizeof(Clump_entry) + ukk - 1);
+      clump_entry_ptr = (Clump_entry*)top_alloc(&topsize, offsetof(Clump_entry, annot) + ukk - 1);
       if (!clump_entry_ptr) {
 	goto clump_reports_ret_NOMEM;
       }

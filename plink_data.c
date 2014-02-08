@@ -13,8 +13,9 @@
 
 #define PHENO_EPSILON 0.000030517578125
 
-int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_exclude_ct, char* sorted_person_ids, uintptr_t max_person_id_len, uint32_t* id_map, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01, uint32_t mpheno_col, char* phenoname_str, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, char* phenoname_load, uintptr_t max_pheno_name_len) {
+int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_exclude_ct, char* sorted_person_ids, uintptr_t max_person_id_len, uint32_t* id_map, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01, uint32_t mpheno_col, char* phenoname_str, uintptr_t* pheno_nm, uintptr_t** pheno_c_alloc_ptr, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, char* phenoname_load, uintptr_t max_pheno_name_len) {
   uint32_t affection = 1;
+  uintptr_t* pheno_c_alloc = *pheno_c_alloc_ptr;
   uintptr_t* pheno_c = *pheno_c_ptr;
   double* pheno_d = *pheno_d_ptr;
   int32_t header_processed = 0;
@@ -43,12 +44,11 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
     }
     fill_ulong_zero(isz, unfiltered_indiv_ctl);
     if (!pheno_c) {
-      pheno_c = (uintptr_t*)malloc(unfiltered_indiv_ctl * sizeof(intptr_t));
-      if (!pheno_c) {
+      if (safe_malloc(pheno_c_alloc_ptr, pheno_c_ptr, unfiltered_indiv_ctl * sizeof(intptr_t))) {
 	goto load_pheno_ret_NOMEM;
       }
+      pheno_c = *pheno_c_ptr;
       fill_ulong_zero(pheno_c, unfiltered_indiv_ctl);
-      *pheno_c_ptr = pheno_c;
     }
   }
   // ----- phenotype file load -----
@@ -173,7 +173,8 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 		pheno_d[uii] = IS_SET(pheno_c, uii)? dyy : dxx;
 	      }
 	    }
-	    free(pheno_c);
+	    free(pheno_c_alloc);
+	    *pheno_c_alloc_ptr = NULL;
 	    *pheno_c_ptr = NULL;
 	    affection = 0;
 	  }
@@ -5122,7 +5123,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 
 const char errstr_fam_format[] = "Error: Improperly formatted .fam file.\n";
 
-int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01, uintptr_t* unfiltered_indiv_ct_ptr, char** person_ids_ptr, uintptr_t* max_person_id_len_ptr, char** paternal_ids_ptr, uintptr_t* max_paternal_id_len_ptr, char** maternal_ids_ptr, uintptr_t* max_maternal_id_len_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, uint32_t* affection_ptr, uintptr_t** pheno_nm_ptr, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, uintptr_t** founder_info_ptr, uintptr_t** indiv_exclude_ptr) {
+int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01, uintptr_t* unfiltered_indiv_ct_ptr, char** person_ids_ptr, uintptr_t* max_person_id_len_ptr, char** paternal_ids_ptr, uintptr_t* max_paternal_id_len_ptr, char** maternal_ids_ptr, uintptr_t* max_maternal_id_len_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, uint32_t* affection_ptr, uintptr_t** pheno_nm_ptr, uintptr_t** pheno_c_alloc_ptr, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, uintptr_t** founder_info_ptr, uintptr_t** indiv_exclude_ptr) {
   uintptr_t unfiltered_indiv_ct = 0;
   uintptr_t max_person_id_len = *max_person_id_len_ptr;
   uintptr_t max_paternal_id_len = *max_paternal_id_len_ptr;
@@ -5255,12 +5256,11 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
   // force either pheno_c or pheno_d to be allocated even if there is no
   // phenotype data
   if ((!tmp_fam_col_6) || affection) {
-    pheno_c = (uintptr_t*)malloc(unfiltered_indiv_ctl * sizeof(intptr_t));
-    if (!pheno_c) {
+    if (safe_malloc(pheno_c_alloc_ptr, pheno_c_ptr, unfiltered_indiv_ctl * sizeof(intptr_t))) {
       return RET_NOMEM;
     }
+    pheno_c = *pheno_c_ptr;
     fill_ulong_zero(pheno_c, unfiltered_indiv_ctl);
-    *pheno_c_ptr = pheno_c;
   } else {
     pheno_d = (double*)malloc(unfiltered_indiv_ct * sizeof(double));
     if (!pheno_d) {
@@ -7754,6 +7754,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   uint32_t compound_genotypes = 1; // 0 = no, 1 = unresolved, 2 = yes
   char missing_geno = *missing_geno_ptr;
   uintptr_t* pheno_nm = NULL;
+  uintptr_t* pheno_c_alloc = NULL;
   uintptr_t* pheno_c = NULL;
   double* pheno_d = NULL;
   char* sorted_marker_ids;
@@ -7834,7 +7835,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   if (fopen_checked(&infile, lgen_namebuf, "r")) {
     goto lgen_to_bed_ret_OPEN_FAIL;
   }
-  retval = load_fam(infile, MAXLINELEN, FAM_COL_13456, 1, missing_pheno, intlen(missing_pheno), affection_01, &indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_nm, &sex_male, &affection, &pheno_nm, &pheno_c, &pheno_d, &founder_info, &indiv_exclude);
+  retval = load_fam(infile, MAXLINELEN, FAM_COL_13456, 1, missing_pheno, intlen(missing_pheno), affection_01, &indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_nm, &sex_male, &affection, &pheno_nm, &pheno_c_alloc, &pheno_c, &pheno_d, &founder_info, &indiv_exclude);
   if (retval) {
     goto lgen_to_bed_ret_1;
   }
@@ -8349,6 +8350,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
     }
   }
   wkspace_reset(wkspace_mark);
+  free_cond(pheno_c_alloc);
   if (infile) {
     fclose(infile);
   }

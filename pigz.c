@@ -1323,6 +1323,10 @@ void pigz_init(uint32_t setprocs)
     g.procs = 1;
 #else
     g.procs = setprocs;
+    // 1023 threads here failed on the NIH test machine
+    if (g.procs > 127) {
+      g.procs = 127;
+    }
 #endif
     yarn_prefix = g.prog;
     yarn_abort = cut_short;

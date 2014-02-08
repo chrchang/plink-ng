@@ -2539,6 +2539,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
   double unrelated_herit_covg = relip->unrelated_herit_covg;
   double unrelated_herit_covr = relip->unrelated_herit_covr;
   uint32_t is_strict = (relip->modifier / REL_UNRELATED_HERITABILITY_STRICT) & 1;
+  uintptr_t* pheno_c_alloc = NULL;
   uintptr_t* pheno_c = NULL;
   double* pheno_d = NULL;
   uintptr_t cur_person_id_len;
@@ -2643,7 +2644,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
     goto unrelated_herit_batch_ret_OPEN_FAIL;
   }
   wkspace_left -= topsize;
-  retval = load_pheno(infile, unfiltered_indiv_ct, 0, sorted_ids, max_person_id_len, id_map, missing_pheno, intlen(missing_pheno), 0, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d, NULL, 0);
+  retval = load_pheno(infile, unfiltered_indiv_ct, 0, sorted_ids, max_person_id_len, id_map, missing_pheno, intlen(missing_pheno), 0, mpheno_col, phenoname_str, pheno_nm, &pheno_c_alloc, &pheno_c, &pheno_d, NULL, 0);
   wkspace_left += topsize;
   // topsize = 0; (sorted_ids and id_map no longer used)
   fclose_null(&infile);
@@ -2790,6 +2791,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
     break;
   }
  unrelated_herit_batch_ret_1:
+  free_cond(pheno_c_alloc);
   fclose_cond(infile);
   fclose_cond(grm_binfile);
   gzclose_cond(grm_gzfile);

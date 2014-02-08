@@ -25,6 +25,26 @@ uint32_t g_log_failed = 0;
 uintptr_t g_indiv_ct;
 uint32_t g_thread_ct;
 
+uint32_t safe_malloc(uintptr_t** orig_pp, uintptr_t** aligned_pp, uintptr_t size) {
+  // avoid random segfaults on 64-bit machines which don't have 16-byte-aligned
+  // malloc()
+#ifdef __LP64__
+  *orig_pp = (uintptr_t*)malloc(size + 8);
+  if (!(*orig_pp)) {
+    return 1;
+  }
+  *aligned_pp = (uintptr_t*)((((uintptr_t)(*orig_pp)) + 8) & (~(15 * ONELU)));
+#else
+  // no SSE2 concerns here
+  *orig_pp = (uintptr_t*)malloc(size);
+  if (!(*orig_pp)) {
+    return 1;
+  }
+  *aligned_pp = *orig_pp;
+#endif
+  return 0;
+}
+
 uint32_t push_ll_str(Ll_str** ll_stack_ptr, const char* ss) {
   uint32_t slen = strlen(ss);
   Ll_str* new_ll_str = (Ll_str*)malloc(sizeof(Ll_str) + slen + 1);
@@ -9340,6 +9360,91 @@ int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr
   }
   return 0;
 }
+
+// Okay, it's time to bite the bullet and stop creating and destroying threads
+// like crazy, at least in the small-block-size GRM calculation; Intel
+// MKL-powered GCTA 1.24 blew away our code on the NIH 512-core test machine
+// when the maximum number of threads was used.  Mostly because threads were
+// actually costing much more in creation/destruction time than they saved;
+// much better wall-clock times would have resulted from manually setting
+// --threads to a low number.  That's not cool.
+//
+// New framework:
+// * On Linux and OS X, spawn_threads2() resets a volatile global "active
+//   thread table" array (arranged so that threads don't have to write to the
+//   same cacheline), and then checks if a global mutex has been
+//   initialized.  If it has not, it, along with global "current block done"
+//   and "start next block" condition variables for threads to wait on, are
+//   initialized, then the
+//   threads are launched.  If it has, pthread_cond_broadcast() acts on the
+//   "start next block" variable.
+// * On Windows, spawn_threads2() checks if a global "start next block" event
+//   has been initialized.  If it has not, it, along with per-thread "current
+//   block done" events, are initialized, then the threads are launched.  If it
+//   has, SetEvent() acts on the "start next block" event.
+// * On all operating systems, there is a single volatile global variable which
+//   indicates whether all threads should terminate upon completion of the
+//   current block.  It is the responsibility of the spawn_threads2() caller to
+//   initialize this, and then update it right before processing of the last
+//   block.
+// * Thread functions are expected to be of the form
+//     THREAD_RET_TYPE function_name(void* arg) {
+//       uintptr_t tidx = (uintptr_t)arg;
+//       ...
+//       do {
+//         ... // process current block
+//       } while (thread_continue(tidx));
+//       THREAD_RETURN;
+//     }
+//   If tidx is zero or the termination variable is set, thread_continue() does
+//   nothing but return 0.  Otherwise, on Linux and OS X, this function
+//   acquires the mutex, decrements the active thread count, and only if that
+//   count is now zero,
+//   pthread_cond_signal() with the "current block done" condition
+//   variable to wake up the master thread.
+
+/*
+void join_threads2(pthread_t* threads, uint32_t ctp1) {
+  if (!(--ctp1)) {
+    return;
+  }
+#if _WIN32
+  WaitForMultipleObjects(ctp1, threads, 1, INFINITE);
+#else
+  uint32_t uii;
+  for (uii = 0; uii < ctp1; uii++) {
+    pthread_join(threads[uii], NULL);
+  }
+#endif
+}
+
+#if _WIN32
+int32_t spawn_threads2(pthread_t* threads, unsigned (__stdcall *start_routine)(void*), uintptr_t ct)
+#else
+int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintptr_t ct)
+#endif
+{
+  uintptr_t ulii;
+  if (ct == 1) {
+    return 0;
+  }
+  for (ulii = 1; ulii < ct; ulii++) {
+#if _WIN32
+    threads[ulii - 1] = (HANDLE)_beginthreadex(NULL, 4096, start_routine, (void*)ulii, 0, NULL);
+    if (!threads[ulii - 1]) {
+      join_threads(threads, ulii);
+      return -1;
+    }
+#else
+    if (pthread_create(&(threads[ulii - 1]), NULL, start_routine, (void*)ulii)) {
+      join_threads(threads, ulii);
+      return -1;
+    }
+#endif
+  }
+  return 0;
+}
+*/
 
 // ----- multithread globals -----
 static double* g_pheno_d;

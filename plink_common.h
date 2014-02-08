@@ -16,7 +16,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define PROG_NAME_STR "plink"
 #define PROG_NAME_CAPS "PLINK"
@@ -582,6 +582,8 @@ extern char tbuf[];
 extern const char g_one_char_strs[];
 extern const char* g_missing_geno_ptr;
 extern const char* g_output_missing_geno_ptr;
+
+uint32_t safe_malloc(uintptr_t** orig_pp, uintptr_t** aligned_pp, uintptr_t size);
 
 extern sfmt_t sfmt;
 
