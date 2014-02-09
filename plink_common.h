@@ -1949,6 +1949,8 @@ void join_threads2(pthread_t* threads, uint32_t ctp1, uint32_t is_last_block);
 
 int32_t spawn_threads2(pthread_t* threads, unsigned (__stdcall *start_routine)(void*), uintptr_t ct, uint32_t is_last_block);
 #else
+extern uintptr_t g_thread_spawn_ct;
+
 void THREAD_BLOCK_FINISH(uintptr_t tidx);
 
 void join_threads2(pthread_t* threads, uint32_t ctp1, uint32_t is_last_block);

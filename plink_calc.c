@@ -1843,21 +1843,8 @@ void incr_dists_r_f(float* dists_f, uintptr_t* geno, uintptr_t* masks, uint32_t 
   }
 }
 
-THREAD_RET_TYPE calc_rel_f_thread(void* arg) {
-  uintptr_t tidx = (uintptr_t)arg;
-  uintptr_t ulii = g_thread_start[tidx];
-  uintptr_t uljj = g_thread_start[0];
-  while (1) {
-    incr_dists_r_f(&(g_rel_f_dists[(((uint64_t)ulii) * (ulii - 1) - ((uint64_t)uljj) * (uljj - 1)) / 2]), (uintptr_t*)g_geno, g_masks, (uint32_t)tidx, g_weights_f);
-    if ((!tidx) || g_is_last_thread_block) {
-      THREAD_RETURN;
-    }
-    THREAD_BLOCK_FINISH(tidx);
-  }
-}
-
 void incr_dists_rm(uint32_t* idists, uint32_t tidx, uint32_t* thread_start) {
-  // count missing intersection, optimized for sparsity
+  // count missing intersection
   uintptr_t* mlptr;
   uintptr_t ulii;
   uintptr_t uljj;
@@ -1875,6 +1862,25 @@ void incr_dists_rm(uint32_t* idists, uint32_t tidx, uint32_t* thread_start) {
       }
     }
     idists = &(idists[uii]);
+  }
+}
+
+THREAD_RET_TYPE calc_rel_f_thread(void* arg) {
+  uintptr_t tidx = (uintptr_t)arg;
+  uintptr_t ulii = g_thread_start[tidx];
+  uintptr_t uljj = g_thread_start[0];
+  uintptr_t offset = (((uint64_t)ulii) * (ulii - 1) - ((uint64_t)uljj) * (uljj - 1)) / 2;
+  uint32_t is_last_block;
+  while (1) {
+    is_last_block = g_is_last_thread_block;
+    incr_dists_r_f(&(g_rel_f_dists[offset]), (uintptr_t*)g_geno, g_masks, (uint32_t)tidx, g_weights_f);
+    if (is_last_block || ((g_thread_spawn_ct % 3) == 2)) {
+      incr_dists_rm(&(g_missing_dbl_excluded[offset]), (uint32_t)tidx, g_thread_start);
+    }
+    if ((!tidx) || is_last_block) {
+      THREAD_RETURN;
+    }
+    THREAD_BLOCK_FINISH(tidx);
   }
 }
 
@@ -6371,7 +6377,6 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
   uint32_t chrom_fo_idx = 0;
   float* dptr2;
   float set_allele_freq_buf[MULTIPLEX_DIST];
-  uint32_t fake_thread_start[2];
   char wbuf[96];
   char* wptr;
   uint32_t cur_markers_loaded;
@@ -6408,8 +6413,6 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
     g_dist_thread_ct = indiv_ct / 2;
   }
   triangle_fill(g_thread_start, indiv_ct, g_dist_thread_ct, parallel_idx, parallel_tot, 1, 1);
-  fake_thread_start[0] = 1;
-  fake_thread_start[1] = indiv_ct;
   if (relationship_req(calculation_type)) {
     ullxx = g_thread_start[g_dist_thread_ct];
     ullxx = ((ullxx * (ullxx - 1)) - (int64_t)g_thread_start[0] * (g_thread_start[0] - 1)) / 2;
@@ -6474,17 +6477,16 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
     is_last_block = (marker_idx == marker_ct)? 1 : 0;
     for (win_marker_idx = 0; win_marker_idx < cur_markers_loaded; win_marker_idx += MULTIPLEX_REL / 3) {
       fill_ulong_zero(g_masks, indiv_ct);
-      indiv_idx = 0;
       glptr2 = (uintptr_t*)g_geno;
-      for (indiv_uidx = 0; indiv_idx < indiv_ct; indiv_uidx++) {
+      for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
 	next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
 	ulii = 0;
 	gptr2 = &(gptr[indiv_uidx / 4 + win_marker_idx * unfiltered_indiv_ct4]);
 	uii = (indiv_uidx % 4) * 2;
 	umm = 0;
 	unn = 0;
-	for (ukk = 0; ukk < (BITCT / 16); ukk++) {
-	  for (ujj = 0; ujj < 5; ujj++) {
+	for (ukk = 0; ukk < (BITCT / 16); ukk++, unn++) {
+	  for (ujj = 0; ujj < 5; ujj++, umm++, unn += 3) {
 	    uljj = (gptr2[umm * unfiltered_indiv_ct4] >> uii) & 3;
 	    if (uljj == 1) {
 	      g_masks[indiv_idx] |= (7 * ONELU) << unn;
@@ -6492,13 +6494,9 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
 	      g_indiv_missing_unwt[indiv_idx] += 1;
 	    }
 	    ulii |= uljj << unn;
-	    umm++;
-	    unn += 3;
 	  }
-	  unn++;
 	}
 	*glptr2++ = ulii;
-	indiv_idx++;
       }
       if (calculation_type & CALC_IBC) {
 	for (uii = 0; uii < 3; uii++) {
@@ -6517,10 +6515,6 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
 	calc_rel_f_thread((void*)ulii);
 	join_threads2(threads, g_dist_thread_ct, uii);
       }
-    }
-    if (relationship_req(calculation_type)) {
-      // avoid thread creation here for now
-      incr_dists_rm(g_missing_dbl_excluded, 0, fake_thread_start);
     }
     printf("\r%" PRIuPTR " markers complete.", marker_idx);
     fflush(stdout);

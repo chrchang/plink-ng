@@ -9376,8 +9376,6 @@ int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr
 //   be enough to force the global variable to be reread.)
 // * On Linux and OS X, if we aren't dealing with the final block,
 //   spawn_threads2() also reinitializes g_thread_active_ct.
-//   __sync_add_and_fetch(), etc. would be nice, but unfortunately they force
-//   some users to compile from scratch.
 // * On Linux and OS X, spawn_threads2() checks if g_thread_mutex_initialized
 //   is set.  If not, it, it is set, g_thread_sync_mutex,
 //   g_thread_cur_block_done_condvar and g_thread_start_next_condvar are
@@ -9416,6 +9414,15 @@ int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr
 //   too important to use a for loop to handle more objects?... well, we can
 //   add that if anyone wants it, but for now the Windows thread limit is 65
 //   (the main thread isn't part of the wait).
+//
+// This is only very slightly better than the original approach on my old
+// MacBook Pro (since threading overhead was never high to begin with, there
+// being only 2 cores...), but the impact should be more noticeable on heavily
+// multicore machines.
+//
+// The next performance improvement to make is double-buffering; tricky to
+// estimate how much (if any) "consumption" the main I/O thread should be
+// doing, though, so it may want a job queue to go with it.
 
 uint32_t g_is_last_thread_block = 0;
 #ifdef _WIN32
@@ -9427,7 +9434,7 @@ static pthread_cond_t g_thread_cur_block_done_condvar;
 static pthread_cond_t g_thread_start_next_condvar;
 uint32_t g_thread_active_ct;
 static uint32_t g_thread_mutex_initialized = 0;
-static uintptr_t g_thread_spawn_ct = 0;
+uintptr_t g_thread_spawn_ct;
 
 void THREAD_BLOCK_FINISH(uintptr_t tidx) {
   uintptr_t initial_spawn_ct = g_thread_spawn_ct;
@@ -9489,13 +9496,15 @@ int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintpt
 #endif
 {
   uintptr_t ulii;
-  if (ct == 1) {
-    return 0;
-  }
+  // this needs to go before the ct == 1 check since start_routine() might need
+  // it
   if (g_is_last_thread_block != is_last_block) {
     // might save us an unnecessary memory write that confuses the cache
     // coherency logic?
     g_is_last_thread_block = is_last_block;
+  }
+  if (ct == 1) {
+    return 0;
   }
 #ifdef _WIN32
   if (!g_thread_start_next_event) {
@@ -9514,7 +9523,6 @@ int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintpt
     SetEvent(g_thread_start_next_event);
   }
 #else
-  g_thread_spawn_ct++;
   if (!is_last_block) {
     g_thread_active_ct = ct - 1;
   }
@@ -9524,6 +9532,7 @@ int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintpt
         pthread_cond_init(&g_thread_start_next_condvar, NULL)) {
       return -1;
     }
+    g_thread_spawn_ct = 0; // tidx 0 may need to know modulus
     g_thread_mutex_initialized = 1;
     for (ulii = 1; ulii < ct; ulii++) {
       if (pthread_create(&(threads[ulii - 1]), NULL, start_routine, (void*)ulii)) {
@@ -9532,7 +9541,10 @@ int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintpt
       }
     }
   } else {
+    pthread_mutex_lock(&g_thread_sync_mutex);
+    g_thread_spawn_ct++;
     pthread_cond_broadcast(&g_thread_start_next_condvar);
+    pthread_mutex_unlock(&g_thread_sync_mutex);
   }
 #endif
   return 0;
