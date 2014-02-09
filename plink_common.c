@@ -9075,7 +9075,7 @@ double rand_normal(double* secondval_ptr) {
   return dxx * sin(dyy);
 }
 
-void pick_d(unsigned char* cbuf, uint32_t ct, uint32_t dd) {
+void pick_d(unsigned char* cbuf, uint32_t ct, uint32_t dd, sfmt_t* sfmtp) {
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -9088,7 +9088,7 @@ void pick_d(unsigned char* cbuf, uint32_t ct, uint32_t dd) {
   for (uii = 0; uii < dd; uii++) {
     do {
       do {
-        ujj = sfmt_genrand_uint32(&sfmt);
+        ujj = sfmt_genrand_uint32(sfmtp);
       } while (ujj < ukk);
       ujj %= ct;
     } while (cbuf[ujj]);
@@ -9096,9 +9096,9 @@ void pick_d(unsigned char* cbuf, uint32_t ct, uint32_t dd) {
   }
 }
 
-void pick_d_small(unsigned char* tmp_cbuf, uint32_t* uibuf, uint32_t ct, uint32_t dd) {
+void pick_d_small(unsigned char* tmp_cbuf, uint32_t* uibuf, uint32_t ct, uint32_t dd, sfmt_t* sfmtp) {
   uint32_t uii;
-  pick_d(tmp_cbuf, ct, dd);
+  pick_d(tmp_cbuf, ct, dd, sfmtp);
   for (uii = 0; uii < ct; uii++) {
     if (tmp_cbuf[uii]) {
       *uibuf++ = uii;
@@ -9424,6 +9424,7 @@ int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr
 // estimate how much (if any) "consumption" the main I/O thread should be
 // doing, though, so it may want a job queue to go with it.
 
+uintptr_t g_thread_spawn_ct;
 uint32_t g_is_last_thread_block = 0;
 #ifdef _WIN32
 HANDLE g_thread_start_next_event = NULL;
@@ -9434,7 +9435,6 @@ static pthread_cond_t g_thread_cur_block_done_condvar;
 static pthread_cond_t g_thread_start_next_condvar;
 uint32_t g_thread_active_ct;
 static uint32_t g_thread_mutex_initialized = 0;
-uintptr_t g_thread_spawn_ct;
 
 void THREAD_BLOCK_FINISH(uintptr_t tidx) {
   uintptr_t initial_spawn_ct = g_thread_spawn_ct;
@@ -9453,6 +9453,15 @@ void THREAD_BLOCK_FINISH(uintptr_t tidx) {
 void join_threads2(pthread_t* threads, uint32_t ctp1, uint32_t is_last_block) {
   uint32_t uii;
   if (!(--ctp1)) {
+    if (is_last_block) {
+      // allow another multithreaded function to be called later
+#ifdef _WIN32
+      CloseHandle(g_thread_start_next_event);
+      g_thread_start_next_event = NULL;
+#else
+      g_thread_mutex_initialized = 0;
+#endif
+    }
     return;
   }
 #ifdef _WIN32
@@ -9503,12 +9512,16 @@ int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintpt
     // coherency logic?
     g_is_last_thread_block = is_last_block;
   }
+#ifdef _WIN32
   if (ct == 1) {
     return 0;
   }
-#ifdef _WIN32
   if (!g_thread_start_next_event) {
+    g_thread_spawn_ct = 0;
     g_thread_start_next_event = CreateEvent(NULL, FALSE, FALSE, NULL);
+    if (ct == 1) {
+      return 0;
+    }
     for (ulii = 1; ulii < ct; ulii++) {
       g_thread_cur_block_done_events[ulii - 1] = CreateEvent(NULL, FALSE, FALSE, NULL);
     }
@@ -9520,6 +9533,10 @@ int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintpt
       }
     }
   } else {
+    g_thread_spawn_ct++;
+    if (ct == 1) {
+      return 0;
+    }
     SetEvent(g_thread_start_next_event);
   }
 #else
@@ -9527,13 +9544,16 @@ int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintpt
     g_thread_active_ct = ct - 1;
   }
   if (!g_thread_mutex_initialized) {
+    g_thread_spawn_ct = 0; // tidx 0 may need to know modulus
+    g_thread_mutex_initialized = 1;
+    if (ct == 1) {
+      return 0;
+    }
     if (pthread_mutex_init(&g_thread_sync_mutex, NULL) ||
         pthread_cond_init(&g_thread_cur_block_done_condvar, NULL) ||
         pthread_cond_init(&g_thread_start_next_condvar, NULL)) {
       return -1;
     }
-    g_thread_spawn_ct = 0; // tidx 0 may need to know modulus
-    g_thread_mutex_initialized = 1;
     for (ulii = 1; ulii < ct; ulii++) {
       if (pthread_create(&(threads[ulii - 1]), NULL, start_routine, (void*)ulii)) {
 	join_threads2(threads, ulii, is_last_block);
@@ -9543,12 +9563,17 @@ int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintpt
   } else {
     // still holding mutex
     g_thread_spawn_ct++;
+    if (ct == 1) {
+      return 0;
+    }
     pthread_mutex_unlock(&g_thread_sync_mutex);
     pthread_cond_broadcast(&g_thread_start_next_condvar);
   }
 #endif
   return 0;
 }
+
+sfmt_t** g_sfmtp_arr;
 
 // ----- multithread file-scope globals -----
 static double* g_pheno_d;
@@ -9618,27 +9643,28 @@ THREAD_RET_TYPE regress_jack_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
   uint32_t* uibuf = (uint32_t*)(&(g_generic_buf[tidx * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int32_t))]));
   unsigned char* cbuf = &(g_generic_buf[tidx * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int32_t)) + (g_jackknife_d + 1) * sizeof(int32_t)]);
-  uint64_t ulii;
-  uint64_t uljj = g_jackknife_iters / 100;
+  uint64_t ulljj = g_jackknife_iters / 100;
   double sum = 0.0;
   double sum_sq = 0.0;
   double sum2 = 0;
   double sum2_sq = 0.0;
+  sfmt_t* sfmtp = g_sfmtp_arr[tidx];
+  uint64_t ullii;
   double dxx;
   double ret2;
-  for (ulii = 0; ulii < g_jackknife_iters; ulii++) {
-    pick_d_small(cbuf, uibuf, g_indiv_ct, g_jackknife_d);
+  for (ullii = 0; ullii < g_jackknife_iters; ullii++) {
+    pick_d_small(cbuf, uibuf, g_indiv_ct, g_jackknife_d, sfmtp);
     dxx = regress_jack(uibuf, &ret2);
     // dxx = regress_jack(ibuf);
     sum += dxx;
     sum_sq += dxx * dxx;
     sum2 += ret2;
     sum2_sq += ret2 * ret2;
-    if ((!tidx) && (ulii >= uljj)) {
-      uljj = (ulii * 100) / g_jackknife_iters;
-      printf("\r%" PRIu64 "%%", uljj);
+    if ((!tidx) && (ullii >= ulljj)) {
+      ulljj = (ullii * 100) / g_jackknife_iters;
+      printf("\r%" PRIu64 "%%", ulljj);
       fflush(stdout);
-      uljj = ((uljj + 1) * g_jackknife_iters) / 100;
+      ulljj = ((ulljj + 1) * g_jackknife_iters) / 100;
     }
   }
   g_calc_result[0][tidx] = sum;
@@ -9648,8 +9674,33 @@ THREAD_RET_TYPE regress_jack_thread(void* arg) {
   THREAD_RETURN;
 }
 
+uint32_t wkspace_init_sfmtp(uint32_t thread_ct) {
+  uint32_t uibuf[4];
+  uint32_t tidx;
+  uint32_t uii;
+  g_sfmtp_arr = (sfmt_t**)wkspace_alloc(thread_ct * sizeof(intptr_t));
+  if (!g_sfmtp_arr) {
+    return 1;
+  }
+  g_sfmtp_arr[0] = &sfmt;
+  if (thread_ct > 1) {
+    for (tidx = 1; tidx < thread_ct; tidx++) {
+      g_sfmtp_arr[tidx] = (sfmt_t*)wkspace_alloc(sizeof(sfmt_t));
+      if (!g_sfmtp_arr[tidx]) {
+	return 1;
+      }
+      for (uii = 0; uii < 4; uii++) {
+	uibuf[uii] = sfmt_genrand_uint32(&sfmt);
+      }
+      sfmt_init_by_array(g_sfmtp_arr[tidx], uibuf, 4);
+    }
+  }
+  return 0;
+}
+
 int32_t regress_distance(uint64_t calculation_type, double* dists_local, double* pheno_d_local, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d) {
   unsigned char* wkspace_mark = wkspace_base;
+  int32_t retval = 0;
   uintptr_t ulii;
   uint32_t uii;
   double* dist_ptr;
@@ -9689,11 +9740,13 @@ int32_t regress_distance(uint64_t calculation_type, double* dists_local, double*
   // Then for each delete-d jackknife iteration, we take the global sums,
   // subtract the partial row sums corresponding to the deleted individuals,
   // and then add back the elements in the intersection of two deletions.
-  g_jackknife_precomp = (double*)wkspace_alloc(indiv_ct * JACKKNIFE_VALS_DIST * sizeof(double));
-  if (!g_jackknife_precomp) {
-    return RET_NOMEM;
+  if (wkspace_alloc_d_checked(&g_jackknife_precomp, indiv_ct * JACKKNIFE_VALS_DIST * sizeof(double))) {
+    goto regress_distance_ret_NOMEM;
   }
   fill_double_zero(g_jackknife_precomp, indiv_ct * JACKKNIFE_VALS_DIST);
+  if (wkspace_init_sfmtp(g_thread_ct)) {
+    goto regress_distance_ret_NOMEM;
+  }
   for (uii = 1; uii < indiv_ct; uii++) {
     dzz = *(++dist_ptr);
     dptr2 = g_pheno_d;
@@ -9742,11 +9795,10 @@ int32_t regress_distance(uint64_t calculation_type, double* dists_local, double*
   }
   g_generic_buf = wkspace_alloc(thread_ct * CACHEALIGN(indiv_ct + (g_jackknife_d + 1) * sizeof(int32_t)));
   if (!g_generic_buf) {
-    return RET_NOMEM;
+    goto regress_distance_ret_NOMEM;
   }
   if (spawn_threads(threads, &regress_jack_thread, thread_ct)) {
-    logprint(errstr_thread_create);
-    return RET_THREAD_CREATE_FAIL;
+    goto regress_distance_ret_THREAD_CREATE_FAIL;
   }
   ulii = 0;
   regress_jack_thread((void*)ulii);
@@ -9767,6 +9819,14 @@ int32_t regress_distance(uint64_t calculation_type, double* dists_local, double*
   logprintb();
   sprintf(logbuf, "Jackknife s.e. (y = avg phenotype): %g\n", sqrt((indiv_ct / ((double)g_jackknife_d)) * (dvv - dww * dww / regress_iters) / (regress_iters - 1)));
   logprintb();
+  while (0) {
+  regress_distance_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  regress_distance_ret_THREAD_CREATE_FAIL:
+    logprint(errstr_thread_create);
+    retval = RET_THREAD_CREATE_FAIL;
+  }
   wkspace_reset(wkspace_mark);
-  return 0;
+  return retval;
 }

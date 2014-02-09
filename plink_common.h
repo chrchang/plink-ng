@@ -1903,7 +1903,7 @@ double rand_normal(double* secondval_ptr);
 
 // void pick_d(unsigned char* cbuf, uint32_t ct, uint32_t dd);
 
-void pick_d_small(unsigned char* tmp_cbuf, uint32_t* uibuf, uint32_t ct, uint32_t dd);
+void pick_d_small(unsigned char* tmp_cbuf, uint32_t* uibuf, uint32_t ct, uint32_t dd, sfmt_t* sfmtp);
 
 void init_sfmt64_from_sfmt32(sfmt_t* sfmt32, sfmt_t* sfmt64);
 
@@ -1935,6 +1935,7 @@ int32_t spawn_threads(pthread_t* threads, unsigned (__stdcall *start_routine)(vo
 int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr_t ct);
 #endif
 
+extern uintptr_t g_thread_spawn_ct;
 extern uint32_t g_is_last_thread_block;
 #ifdef _WIN32
 extern HANDLE g_thread_start_next_event;
@@ -1949,7 +1950,6 @@ void join_threads2(pthread_t* threads, uint32_t ctp1, uint32_t is_last_block);
 
 int32_t spawn_threads2(pthread_t* threads, unsigned (__stdcall *start_routine)(void*), uintptr_t ct, uint32_t is_last_block);
 #else
-extern uintptr_t g_thread_spawn_ct;
 
 void THREAD_BLOCK_FINISH(uintptr_t tidx);
 
@@ -1957,6 +1957,10 @@ void join_threads2(pthread_t* threads, uint32_t ctp1, uint32_t is_last_block);
 
 int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintptr_t ct, uint32_t is_last_block);
 #endif
+
+extern sfmt_t** g_sfmtp_arr;
+
+uint32_t wkspace_init_sfmtp(uint32_t thread_ct);
 
 int32_t regress_distance(uint64_t calculation_type, double* dists_local, double* pheno_d_local, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d);
 

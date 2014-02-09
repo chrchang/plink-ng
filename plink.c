@@ -3612,7 +3612,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
     if ((!pca_indiv_exclude) && (indiv_ct != unfiltered_indiv_ct + indiv_exclude_ct)) {
       indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
-      if ((indiv_ct < 2) && (distance_req(calculation_type, read_dists_fname) || (calculation_type & (CALC_GENOME | CALC_CLUSTER | CALC_NEIGHBOR)))) {
+      if ((indiv_ct < 2) && (distance_req(calculation_type, read_dists_fname) || (calculation_type & (CALC_REGRESS_REL | CALC_PCA | CALC_GENOME | CALC_CLUSTER | CALC_NEIGHBOR)))) {
 	// pathological case
         sprintf(logbuf, "Error: Too many %s pruned for additional pairwise analysis steps.\n", g_species_plural);
         goto plink_ret_INVALID_CMDLINE_2;

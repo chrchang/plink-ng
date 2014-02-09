@@ -2733,7 +2733,6 @@ static uint64_t g_totq_magic;
 static uint32_t g_totq_preshift;
 static uint32_t g_totq_postshift;
 static uint32_t g_totq_incr;
-static sfmt_t** g_sfmtp_arr;
 
 static uint32_t g_cluster_ct;
 static uint32_t* g_cluster_map;
@@ -6044,23 +6043,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     if (max_thread_ct > perms_total) {
       max_thread_ct = perms_total;
     }
-    g_sfmtp_arr = (sfmt_t**)wkspace_alloc(max_thread_ct * sizeof(intptr_t));
-    if (!g_sfmtp_arr) {
+    if (wkspace_init_sfmtp(max_thread_ct)) {
       goto model_assoc_ret_NOMEM;
-    }
-    g_sfmtp_arr[0] = &sfmt;
-    if (max_thread_ct > 1) {
-      // make the permutation analysis reproducible with --seed + --threads
-      for (uii = 1; uii < max_thread_ct; uii++) {
-	g_sfmtp_arr[uii] = (sfmt_t*)wkspace_alloc(sizeof(sfmt_t));
-	if (!g_sfmtp_arr[uii]) {
-	  goto model_assoc_ret_NOMEM;
-	}
-	for (ujj = 0; ujj < 4; ujj++) {
-	  uibuf[ujj] = sfmt_genrand_uint32(&sfmt);
-	}
-	sfmt_init_by_array(g_sfmtp_arr[uii], uibuf, 4);
-      }
     }
     if (model_perm_best) {
       if (wkspace_alloc_ul_checked(&g_is_invalid, marker_ctl * sizeof(intptr_t))) {
@@ -7494,7 +7478,6 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   uint32_t chrom_name_len = 0;
   char chrom_name_buf[4];
   uint32_t mu_table[MODEL_BLOCKSIZE];
-  uint32_t uibuf[4];
   char spacebuf[8];
   char* outname_end2;
   char* wptr_start;
@@ -7684,22 +7667,8 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       }
       fill_unfiltered_indiv_to_cluster(pheno_nm_ct, g_cluster_ct, g_cluster_map, g_cluster_starts, g_indiv_to_cluster);
     }
-    g_sfmtp_arr = (sfmt_t**)wkspace_alloc(max_thread_ct * sizeof(intptr_t));
-    if (!g_sfmtp_arr) {
+    if (wkspace_init_sfmtp(max_thread_ct)) {
       goto qassoc_ret_NOMEM;
-    }
-    g_sfmtp_arr[0] = &sfmt;
-    if (max_thread_ct > 1) {
-      for (uii = 1; uii < max_thread_ct; uii++) {
-	g_sfmtp_arr[uii] = (sfmt_t*)wkspace_alloc(sizeof(sfmt_t));
-	if (!g_sfmtp_arr[uii]) {
-	  goto qassoc_ret_NOMEM;
-	}
-	for (ujj = 0; ujj < 4; ujj++) {
-	  uibuf[ujj] = sfmt_genrand_uint32(&sfmt);
-	}
-	sfmt_init_by_array(g_sfmtp_arr[uii], uibuf, 4);
-      }
     }
     if (wkspace_alloc_ui_checked(&g_missing_cts, marker_ct * sizeof(int32_t)) ||
         wkspace_alloc_ui_checked(&g_het_cts, marker_ct * sizeof(int32_t)) ||
@@ -9750,22 +9719,8 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
     if (max_thread_ct > perms_total) {
       max_thread_ct = perms_total;
     }
-    g_sfmtp_arr = (sfmt_t**)wkspace_alloc(max_thread_ct * sizeof(intptr_t));
-    if (!g_sfmtp_arr) {
+    if (wkspace_init_sfmtp(max_thread_ct)) {
       goto testmiss_ret_NOMEM;
-    }
-    g_sfmtp_arr[0] = &sfmt;
-    if (max_thread_ct > 1) {
-      for (uii = 1; uii < max_thread_ct; uii++) {
-	g_sfmtp_arr[uii] = (sfmt_t*)wkspace_alloc(sizeof(sfmt_t));
-	if (!g_sfmtp_arr[uii]) {
-	  goto testmiss_ret_NOMEM;
-	}
-	for (ujj = 0; ujj < 4; ujj++) {
-	  uibuf[ujj] = sfmt_genrand_uint32(&sfmt);
-	}
-	sfmt_init_by_array(g_sfmtp_arr[uii], uibuf, 4);
-      }
     }
     if (wkspace_alloc_ul_checked(&g_loadbuf, MODEL_BLOCKSIZE * pheno_nm_ctv * sizeof(intptr_t)) ||
 	wkspace_alloc_ui_checked(&g_perm_2success_ct, marker_ct * sizeof(int32_t)) ||

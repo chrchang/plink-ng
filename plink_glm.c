@@ -62,7 +62,6 @@ static uint64_t g_totq_magic;
 static uint32_t g_totq_preshift;
 static uint32_t g_totq_postshift;
 static uint32_t g_totq_incr;
-static sfmt_t** g_sfmtp_arr;
 
 static uint32_t g_cluster_ct;
 static uint32_t* g_cluster_map;
@@ -2317,7 +2316,6 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   char* wptr_start = NULL;
   double geno_map[12];
   uint32_t mu_table[GLM_BLOCKSIZE];
-  uint32_t uibuf[4];
   double* geno_map_ptr;
   char* param_names;
   const char* main_effect;
@@ -3148,22 +3146,8 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
 #ifndef NOLAPACK
     }
 #endif
-    g_sfmtp_arr = (sfmt_t**)wkspace_alloc(max_thread_ct * sizeof(intptr_t));
-    if (!g_sfmtp_arr) {
+    if (wkspace_init_sfmtp(max_thread_ct)) {
       goto glm_assoc_ret_NOMEM;
-    }
-    g_sfmtp_arr[0] = &sfmt;
-    if (max_thread_ct > 1) {
-      for (uii = 0; uii < max_thread_ct; uii++) {
-        g_sfmtp_arr[uii] = (sfmt_t*)wkspace_alloc(sizeof(sfmt_t));
-        if (!g_sfmtp_arr[uii]) {
-	  goto glm_assoc_ret_NOMEM;
-	}
-        for (ujj = 0; ujj < 4; ujj++) {
-	  uibuf[ujj] = sfmt_genrand_uint32(&sfmt);
-	}
-	sfmt_init_by_array(g_sfmtp_arr[uii], uibuf, 4);
-      }
     }
   }
 #ifndef NOLAPACK
@@ -4136,7 +4120,6 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   uint32_t* cluster_starts1 = NULL;
   uint32_t* indiv_to_cluster1 = NULL;
   double geno_map[12];
-  uint32_t uibuf[4];
   double* geno_map_ptr;
   double* param_2d_buf;
   double* param_2d_buf2;
@@ -4717,22 +4700,8 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
 #endif
     // Note that, for now, the main nosnp regression loop is not multithreaded;
     // only the permutation generation process is.
-    g_sfmtp_arr = (sfmt_t**)wkspace_alloc(max_thread_ct * sizeof(intptr_t));
-    if (!g_sfmtp_arr) {
+    if (wkspace_init_sfmtp(max_thread_ct)) {
       goto glm_assoc_nosnp_ret_NOMEM;
-    }
-    g_sfmtp_arr[0] = &sfmt;
-    if (max_thread_ct > 1) {
-      for (uii = 1; uii < max_thread_ct; uii++) {
-	g_sfmtp_arr[uii] = (sfmt_t*)wkspace_alloc(sizeof(sfmt_t));
-	if (!g_sfmtp_arr[uii]) {
-	  goto glm_assoc_nosnp_ret_NOMEM;
-	}
-	for (ujj = 0; ujj < 4; ujj++) {
-	  uibuf[ujj] = sfmt_genrand_uint32(&sfmt);
-	}
-	sfmt_init_by_array(g_sfmtp_arr[uii], uibuf, 4);
-      }
     }
   }
 
