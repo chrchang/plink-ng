@@ -9473,7 +9473,7 @@ void join_threads2(pthread_t* threads, uint32_t ctp1, uint32_t is_last_block) {
     while (g_thread_active_ct) {
       pthread_cond_wait(&g_thread_cur_block_done_condvar, &g_thread_sync_mutex);
     }
-    pthread_mutex_unlock(&g_thread_sync_mutex);
+    // keep mutex until next block loaded
   } else {
     for (uii = 0; uii < ctp1; uii++) {
       pthread_join(threads[uii], NULL);
@@ -9541,10 +9541,10 @@ int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintpt
       }
     }
   } else {
-    pthread_mutex_lock(&g_thread_sync_mutex);
+    // still holding mutex
     g_thread_spawn_ct++;
-    pthread_cond_broadcast(&g_thread_start_next_condvar);
     pthread_mutex_unlock(&g_thread_sync_mutex);
+    pthread_cond_broadcast(&g_thread_start_next_condvar);
   }
 #endif
   return 0;

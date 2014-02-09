@@ -6412,6 +6412,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
   if (g_dist_thread_ct > indiv_ct / 2) {
     g_dist_thread_ct = indiv_ct / 2;
   }
+  // forcing alignment doesn't seem to be worth it
   triangle_fill(g_thread_start, indiv_ct, g_dist_thread_ct, parallel_idx, parallel_tot, 1, 1);
   if (relationship_req(calculation_type)) {
     ullxx = g_thread_start[g_dist_thread_ct];
