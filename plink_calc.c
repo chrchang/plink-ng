@@ -1207,7 +1207,7 @@ THREAD_RET_TYPE ibs_test_thread(void* arg) {
   THREAD_RETURN;
 }
 
-void incr_dists_i(uint32_t* idists, uintptr_t* geno, int32_t tidx) {
+void incr_dists_i(uint32_t* idists, uintptr_t* geno, uintptr_t* masks, uint32_t start_idx, uint32_t end_idx) {
 #ifdef __LP64__
   __m128i* glptr;
   __m128i* glptr2;
@@ -1223,28 +1223,28 @@ void incr_dists_i(uint32_t* idists, uintptr_t* geno, int32_t tidx) {
   uint32_t uii;
   int32_t jj;
   uintptr_t mask_fixed;
-  for (uii = g_thread_start[tidx]; uii < g_thread_start[tidx + 1]; uii++) {
+  for (uii = start_idx; uii < end_idx; uii++) {
     jj = uii * (MULTIPLEX_2DIST / BITCT);
 #ifdef __LP64__
     glptr = (__m128i*)geno;
     glptr2 = (__m128i*)(&(geno[jj]));
-    lptr = &(g_masks[jj]);
+    lptr = &(masks[jj]);
     mcptr_start = (__m128i*)lptr;
     mask_fixed = *lptr++;
     for (jj = 0; jj < MULTIPLEX_2DIST / BITCT - 1; jj++) {
       mask_fixed &= *lptr++;
     }
-    mptr = (__m128i*)g_masks;
+    mptr = (__m128i*)masks;
 #else
     glptr = geno;
     glptr2 = &(geno[jj]);
-    mcptr_start = &(g_masks[jj]);
+    mcptr_start = &(masks[jj]);
     mptr = mcptr_start;
     mask_fixed = *mptr++;
     for (jj = 0; jj < MULTIPLEX_2DIST / BITCT - 1; jj++) {
       mask_fixed &= *mptr++;
     }
-    mptr = g_masks;
+    mptr = masks;
 #endif
     if (~mask_fixed) {
       while (glptr < glptr2) {
@@ -1260,16 +1260,15 @@ void incr_dists_i(uint32_t* idists, uintptr_t* geno, int32_t tidx) {
   }
 }
 
-void incr_wt_dist_missing(uint32_t* mtw, uint32_t tidx) {
-  uint32_t* weights_i = g_weights_i;
+void incr_wt_dist_missing(uint32_t* mtw, uint32_t* weights_i, uintptr_t* mmasks, uint32_t start_idx, uint32_t end_idx) {
   uintptr_t* glptr;
   uintptr_t ulii;
   uintptr_t uljj;
   uint32_t uii;
   uint32_t ujj;
-  for (uii = g_thread_start[tidx]; uii < g_thread_start[tidx + 1]; uii++) {
-    glptr = g_mmasks;
-    ulii = g_mmasks[uii];
+  for (uii = start_idx; uii < end_idx; uii++) {
+    glptr = mmasks;
+    ulii = mmasks[uii];
     if (ulii) {
       for (ujj = 0; ujj < uii; ujj++) {
 	uljj = (*glptr++) & ulii;
@@ -1283,16 +1282,16 @@ void incr_wt_dist_missing(uint32_t* mtw, uint32_t tidx) {
   }
 }
 
-void incr_dists_rm(uint32_t* idists, uint32_t tidx, uint32_t* thread_start) {
+void incr_dists_rm(uint32_t* idists, uintptr_t* mmasks, uint32_t start_idx, uint32_t end_idx) {
   // count missing intersection
   uintptr_t* mlptr;
   uintptr_t ulii;
   uintptr_t uljj;
   uint32_t uii;
   uint32_t ujj;
-  for (uii = thread_start[tidx]; uii < thread_start[tidx + 1]; uii++) {
-    mlptr = g_mmasks;
-    ulii = g_mmasks[uii];
+  for (uii = start_idx; uii < end_idx; uii++) {
+    mlptr = mmasks;
+    ulii = mmasks[uii];
     if (ulii) {
       for (ujj = 0; ujj < uii; ujj++) {
         uljj = (*mlptr++) & ulii;
@@ -1314,6 +1313,9 @@ THREAD_RET_TYPE calc_ibs_thread(void* arg) {
   uint32_t* flat_missing_ptr = g_missing_dbl_excluded;
   uint32_t* idists_ptr = (uint32_t*)(&(g_idists[offset]));
   uintptr_t* geno_ptr = (uintptr_t*)g_geno;
+  uintptr_t* masks_ptr = g_masks;
+  uintptr_t* mmasks_ptr = g_mmasks;
+  uint32_t end_idx = g_thread_start[tidx + 1];
   uint32_t is_last_block;
   if (weighted_missing_ptr) {
     weighted_missing_ptr = &(weighted_missing_ptr[offset]);
@@ -1324,13 +1326,14 @@ THREAD_RET_TYPE calc_ibs_thread(void* arg) {
   while (1) {
     is_last_block = g_is_last_thread_block;
     if (weighted_missing_ptr) {
-      incr_wt_dist_missing(weighted_missing_ptr, (uint32_t)tidx);
+      // g_weights_i moves around
+      incr_wt_dist_missing(weighted_missing_ptr, g_weights_i, mmasks_ptr, ulii, end_idx);
     }
     if (flat_missing_ptr) {
-      incr_dists_rm(flat_missing_ptr, (uint32_t)tidx, g_thread_start);
+      incr_dists_rm(flat_missing_ptr, mmasks_ptr, ulii, end_idx);
     }
     if (is_last_block || ((g_thread_spawn_ct % (MULTIPLEX_DIST / BITCT)) == ((MULTIPLEX_DIST / BITCT) - 1))) {
-      incr_dists_i(idists_ptr, geno_ptr, (uint32_t)tidx);
+      incr_dists_i(idists_ptr, geno_ptr, masks_ptr, ulii, end_idx);
     }
     if ((!tidx) || is_last_block) {
       THREAD_RETURN;
@@ -1339,7 +1342,7 @@ THREAD_RET_TYPE calc_ibs_thread(void* arg) {
   }
 }
 
-void incr_genome(uint32_t* genome_main, uintptr_t* geno, uint32_t tidx) {
+void incr_genome(uint32_t* genome_main, uintptr_t* geno, uintptr_t* masks, uintptr_t indiv_ct, uint32_t start_idx, uint32_t end_idx) {
 #ifdef __LP64__
   const __m128i m1 = {FIVEMASK, FIVEMASK};
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
@@ -1398,17 +1401,17 @@ void incr_genome(uint32_t* genome_main, uintptr_t* geno, uint32_t tidx) {
   int32_t lowct2 = g_ctrl_ct * 2;
   int32_t highct2 = g_case_ct * 2;
 #ifdef __LP64__
-  glptr_end = (__m128i*)(&(geno[g_indiv_ct * (GENOME_MULTIPLEX2 / BITCT)]));
+  glptr_end = (__m128i*)(&(geno[indiv_ct * (GENOME_MULTIPLEX2 / BITCT)]));
 #else
-  glptr_end = &(geno[g_indiv_ct * (GENOME_MULTIPLEX2 / BITCT)]);
+  glptr_end = &(geno[indiv_ct * (GENOME_MULTIPLEX2 / BITCT)]);
 #endif
-  for (uii = g_thread_start[tidx]; uii < g_thread_start[tidx + 1]; uii++) {
+  for (uii = start_idx; uii < end_idx; uii++) {
     ujj = uii * (GENOME_MULTIPLEX2 / BITCT);
 #ifdef __LP64__
     glptr_fixed = (__m128i*)(&(geno[ujj]));
     glptr = (__m128i*)(&(geno[ujj + (GENOME_MULTIPLEX2 / BITCT)]));
-    lptr = &(g_masks[ujj]);
-    maskptr = (__m128i*)(&(g_masks[ujj + (GENOME_MULTIPLEX2 / BITCT)]));
+    lptr = &(masks[ujj]);
+    maskptr = (__m128i*)(&(masks[ujj + (GENOME_MULTIPLEX2 / BITCT)]));
     maskptr_fixed = (__m128i*)lptr;
     mask_fixed_test = *lptr++;
     for (ujj = 0; ujj < GENOME_MULTIPLEX2 / BITCT - 1; ujj++) {
@@ -1417,7 +1420,7 @@ void incr_genome(uint32_t* genome_main, uintptr_t* geno, uint32_t tidx) {
 #else
     glptr_fixed = &(geno[ujj]);
     glptr = &(geno[ujj + (GENOME_MULTIPLEX2 / BITCT)]);
-    maskptr_fixed = &(g_masks[ujj]);
+    maskptr_fixed = &(masks[ujj]);
     maskptr = maskptr_fixed;
     mask_fixed_test = *maskptr++;
     for (ujj = 0; ujj < GENOME_MULTIPLEX2 / BITCT - 1; ujj++) {
@@ -1725,18 +1728,17 @@ void incr_genome(uint32_t* genome_main, uintptr_t* geno, uint32_t tidx) {
   }
 }
 
-void incr_dists_rm_inv(uint32_t* idists, uint32_t tidx) {
+void incr_dists_rm_inv(uint32_t* idists, uintptr_t* mmasks, uintptr_t indiv_ct_m1, uint32_t start_idx, uint32_t end_idx) {
   // inverted loops for --genome --parallel
   uintptr_t* glptr;
   uintptr_t ulii;
   uintptr_t uljj;
-  uintptr_t indiv_ct_m1 = g_indiv_ct - 1;
   uint32_t uii;
   uint32_t ujj;
-  for (uii = g_thread_start[tidx]; uii < g_thread_start[tidx + 1]; uii++) {
-    ulii = g_mmasks[uii];
+  for (uii = start_idx; uii < end_idx; uii++) {
+    ulii = mmasks[uii];
     if (ulii) {
-      glptr = &(g_mmasks[uii + 1]);
+      glptr = &(mmasks[uii + 1]);
       // ujj is deliberately biased down by 1
       for (ujj = uii; ujj < indiv_ct_m1; ujj++) {
         uljj = (*glptr++) & ulii;
@@ -1752,6 +1754,7 @@ void incr_dists_rm_inv(uint32_t* idists, uint32_t tidx) {
 THREAD_RET_TYPE calc_genome_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
   uintptr_t indiv_ct = g_indiv_ct;
+  uintptr_t indiv_ct_m1 = indiv_ct - 1;
   uintptr_t ulii = g_thread_start[tidx];
   uintptr_t uljj = g_thread_start[0];
   // this is different from the regular offset because incr_dists_rm_inv() has
@@ -1761,12 +1764,15 @@ THREAD_RET_TYPE calc_genome_thread(void* arg) {
   uint32_t* missing_ptr = &(g_missing_dbl_excluded[offsetm]);
   uint32_t* genome_main_ptr = &(g_genome_main[offset]);
   uintptr_t* geno_ptr = (uintptr_t*)g_geno;
+  uintptr_t* masks_ptr = g_masks;
+  uintptr_t* mmasks_ptr = g_mmasks;
+  uint32_t end_idx = g_thread_start[tidx + 1];
   uint32_t is_last_block;
   while (1) {
     is_last_block = g_is_last_thread_block;
-    incr_dists_rm_inv(missing_ptr, (uint32_t)tidx);
+    incr_dists_rm_inv(missing_ptr, mmasks_ptr, indiv_ct_m1, ulii, end_idx);
     if (is_last_block || ((g_thread_spawn_ct % (GENOME_MULTIPLEX / BITCT)) == (GENOME_MULTIPLEX / BITCT) - 1)) {
-      incr_genome(genome_main_ptr, geno_ptr, (uint32_t)tidx);
+      incr_genome(genome_main_ptr, geno_ptr, masks_ptr, indiv_ct, ulii, end_idx);
     }
     if ((!tidx) || is_last_block) {
       THREAD_RETURN;
@@ -1775,36 +1781,36 @@ THREAD_RET_TYPE calc_genome_thread(void* arg) {
   }
 }
 
-void incr_dists(double* dists, uintptr_t* geno, uint32_t tidx) {
+void incr_dists(double* dists, uintptr_t* geno, uintptr_t* masks, double* weights, uint32_t start_idx, uint32_t end_idx) {
   uintptr_t* glptr;
   uintptr_t ulii;
   uintptr_t mask_fixed;
   uintptr_t uljj;
   uintptr_t* mptr;
-  double* weights1 = &(g_weights[16384]);
+  double* weights1 = &(weights[16384]);
 #ifdef __LP64__
-  double* weights2 = &(g_weights[32768]);
-  double* weights3 = &(g_weights[36864]);
-  double* weights4 = &(g_weights[40960]);
+  double* weights2 = &(weights[32768]);
+  double* weights3 = &(weights[36864]);
+  double* weights4 = &(weights[40960]);
 #endif
   uint32_t uii;
   uint32_t ujj;
-  for (uii = g_thread_start[tidx]; uii < g_thread_start[tidx + 1]; uii++) {
+  for (uii = start_idx; uii < end_idx; uii++) {
     glptr = geno;
     ulii = geno[uii];
-    mptr = g_masks;
-    mask_fixed = g_masks[uii];
+    mptr = masks;
+    mask_fixed = masks[uii];
 #ifdef __LP64__
     if (mask_fixed == ~ZEROLU) {
       for (ujj = 0; ujj < uii; ujj++) {
 	uljj = (*glptr++ ^ ulii) & (*mptr++);
-        *dists += weights4[uljj >> 52] + weights3[(uljj >> 40) & 4095] + weights2[(uljj >> 28) & 4095] + weights1[(uljj >> 14) & 16383] + g_weights[uljj & 16383];
+        *dists += weights4[uljj >> 52] + weights3[(uljj >> 40) & 4095] + weights2[(uljj >> 28) & 4095] + weights1[(uljj >> 14) & 16383] + weights[uljj & 16383];
 	dists++;
       }
     } else {
       for (ujj = 0; ujj < uii; ujj++) {
 	uljj = (*glptr++ ^ ulii) & (mask_fixed & (*mptr++));
-        *dists += weights4[uljj >> 52] + weights3[(uljj >> 40) & 4095] + weights2[(uljj >> 28) & 4095] + weights1[(uljj >> 14) & 16383] + g_weights[uljj & 16383];
+        *dists += weights4[uljj >> 52] + weights3[(uljj >> 40) & 4095] + weights2[(uljj >> 28) & 4095] + weights1[(uljj >> 14) & 16383] + weights[uljj & 16383];
 	dists++;
       }
     }
@@ -1812,13 +1818,13 @@ void incr_dists(double* dists, uintptr_t* geno, uint32_t tidx) {
     if (mask_fixed == 0x0fffffff) {
       for (ujj = 0; ujj < uii; ujj++) {
 	uljj = (*glptr++ ^ ulii) & (*mptr++);
-	*dists += weights1[uljj >> 14] + g_weights[uljj & 16383];
+	*dists += weights1[uljj >> 14] + weights[uljj & 16383];
 	dists++;
       }
     } else {
       for (ujj = 0; ujj < uii; ujj++) {
 	uljj = (*glptr++ ^ ulii) & (mask_fixed & (*mptr++));
-	*dists += weights1[uljj >> 14] + g_weights[uljj & 16383];
+	*dists += weights1[uljj >> 14] + weights[uljj & 16383];
 	dists++;
       }
     }
@@ -1833,13 +1839,19 @@ THREAD_RET_TYPE calc_wdist_thread(void* arg) {
   uintptr_t offset = (((uint64_t)ulii) * (ulii - 1) - ((uint64_t)uljj) * (uljj - 1)) / 2;
   double* dists_ptr = &(g_dists[offset]);
   uintptr_t* geno_ptr = (uintptr_t*)g_geno;
+  uintptr_t* masks_ptr = g_masks;
+  uintptr_t* mmasks_ptr = g_mmasks;
+  double* weights_ptr = g_weights;
+  uint32_t* weights_i_ptr = g_weights_i;
   uint32_t* weighted_missing_ptr = &(g_missing_tot_weights[offset]);
+  uint32_t end_idx = g_thread_start[tidx + 1];
   uint32_t is_last_block;
   while (1) {
     is_last_block = g_is_last_thread_block;
-    incr_dists(dists_ptr, geno_ptr, (uint32_t)tidx);
+    incr_dists(dists_ptr, geno_ptr, masks_ptr, weights_ptr, ulii, end_idx);
     if (is_last_block || (g_thread_spawn_ct & 1)) {
-      incr_wt_dist_missing(weighted_missing_ptr, (uint32_t)tidx);
+      // weights_i is stationary here
+      incr_wt_dist_missing(weighted_missing_ptr, weights_i_ptr, mmasks_ptr, ulii, end_idx);
     }
     if ((!tidx) || is_last_block) {
       THREAD_RETURN;
@@ -1898,14 +1910,16 @@ THREAD_RET_TYPE calc_rel_thread(void* arg) {
   double* rel_ptr = &(g_rel_dists[offset]);
   uintptr_t* geno_ptr = (uintptr_t*)g_geno;
   uintptr_t* masks_ptr = g_masks;
+  uintptr_t* mmasks_ptr = g_mmasks;
   uint32_t* missing_ptr = &(g_missing_dbl_excluded[offset]);
   double* weights_ptr = g_weights;
+  uint32_t end_idx = g_thread_start[tidx + 1];
   uint32_t is_last_block;
   while (1) {
     is_last_block = g_is_last_thread_block;
     incr_dists_r(rel_ptr, geno_ptr, masks_ptr, (uint32_t)tidx, weights_ptr);
     if (is_last_block || ((g_thread_spawn_ct % 3) == 2)) {
-      incr_dists_rm(missing_ptr, (uint32_t)tidx, g_thread_start);
+      incr_dists_rm(missing_ptr, mmasks_ptr, ulii, end_idx);
     }
     if ((!tidx) || is_last_block) {
       THREAD_RETURN;
@@ -1914,7 +1928,7 @@ THREAD_RET_TYPE calc_rel_thread(void* arg) {
   }
 }
 
-void incr_dists_r_f(float* dists_f, uintptr_t* geno, uintptr_t* masks, uint32_t tidx, float* weights_f) {
+void incr_dists_r_f(float* dists_f, uintptr_t* geno, uintptr_t* masks, float* weights_f, uint32_t start_idx, uint32_t end_idx) {
   uintptr_t* glptr;
   uintptr_t* maskptr;
   uintptr_t ulii;
@@ -1927,7 +1941,7 @@ void incr_dists_r_f(float* dists_f, uintptr_t* geno, uintptr_t* masks, uint32_t 
 #endif
   uint32_t uii;
   uint32_t ujj;
-  for (uii = g_thread_start[tidx]; uii < g_thread_start[tidx + 1]; uii++) {
+  for (uii = start_idx; uii < end_idx; uii++) {
     glptr = geno;
     ulii = geno[uii];
     maskptr = masks;
@@ -1964,14 +1978,16 @@ THREAD_RET_TYPE calc_rel_f_thread(void* arg) {
   float* rel_ptr = &(g_rel_f_dists[offset]);
   uintptr_t* geno_ptr = (uintptr_t*)g_geno;
   uintptr_t* masks_ptr = g_masks;
+  uintptr_t* mmasks_ptr = g_mmasks;
   uint32_t* missing_ptr = &(g_missing_dbl_excluded[offset]);
   float* weights_ptr = g_weights_f;
+  uint32_t end_idx = g_thread_start[tidx + 1];
   uint32_t is_last_block;
   while (1) {
     is_last_block = g_is_last_thread_block;
-    incr_dists_r_f(rel_ptr, geno_ptr, masks_ptr, (uint32_t)tidx, weights_ptr);
+    incr_dists_r_f(rel_ptr, geno_ptr, masks_ptr, weights_ptr, ulii, end_idx);
     if (is_last_block || ((g_thread_spawn_ct % 3) == 2)) {
-      incr_dists_rm(missing_ptr, (uint32_t)tidx, g_thread_start);
+      incr_dists_rm(missing_ptr, mmasks_ptr, ulii, end_idx);
     }
     if ((!tidx) || is_last_block) {
       THREAD_RETURN;
@@ -1985,9 +2001,11 @@ THREAD_RET_TYPE calc_missing_thread(void* arg) {
   uintptr_t ulii = g_thread_start[tidx];
   uintptr_t uljj = g_thread_start[0];
   uintptr_t offset = (((uint64_t)ulii) * (ulii - 1) - ((uint64_t)uljj) * (uljj - 1)) / 2;
+  uintptr_t* mmasks_ptr = g_mmasks;
   uint32_t* missing_ptr = &(g_missing_dbl_excluded[offset]);
+  uint32_t end_idx = g_thread_start[tidx + 1];
   while (1) {
-    incr_dists_rm(missing_ptr, (uint32_t)tidx, g_thread_start);
+    incr_dists_rm(missing_ptr, mmasks_ptr, ulii, end_idx);
     if ((!tidx) || g_is_last_thread_block) {
       THREAD_RETURN;
     }
@@ -1995,9 +2013,9 @@ THREAD_RET_TYPE calc_missing_thread(void* arg) {
   }
 }
 
-void groupdist_jack(uint32_t* uibuf, double* returns) {
+void groupdist_jack(uint32_t jackknife_d, uint32_t case_ct, uint32_t ctrl_ct, double reg_tot_x, double reg_tot_xy, double reg_tot_y, uint32_t* uibuf, double* jackknife_precomp, double* dists, uintptr_t* pheno_c, double* returns) {
   uint32_t* uiptr = uibuf;
-  uint32_t* uiptr2 = &(uibuf[g_jackknife_d]);
+  uint32_t* uiptr2 = &(uibuf[jackknife_d]);
   double neg_tot_uu = 0.0;
   double neg_tot_au = 0.0;
   double neg_tot_aa = 0.0;
@@ -2008,7 +2026,7 @@ void groupdist_jack(uint32_t* uibuf, double* returns) {
   uintptr_t indiv_idx;
   uint32_t uii;
   while (uiptr < uiptr2) {
-    dptr = &(g_jackknife_precomp[(*uiptr++) * JACKKNIFE_VALS_GROUPDIST]);
+    dptr = &(jackknife_precomp[(*uiptr++) * JACKKNIFE_VALS_GROUPDIST]);
     neg_tot_uu += *dptr++;
     neg_tot_au += *dptr++;
     neg_tot_aa += *dptr++;
@@ -2017,12 +2035,12 @@ void groupdist_jack(uint32_t* uibuf, double* returns) {
   while (uiptr < uiptr2) {
     indiv_idx = *uiptr;
     uiptr3 = uibuf;
-    dptr = &(g_dists[(indiv_idx * (indiv_idx - 1)) / 2]);
-    if (IS_SET(g_pheno_c, indiv_idx)) {
+    dptr = &(dists[(indiv_idx * (indiv_idx - 1)) / 2]);
+    if (IS_SET(pheno_c, indiv_idx)) {
       neg_a++;
       while (uiptr3 < uiptr) {
 	uii = *uiptr3++;
-	if (IS_SET(g_pheno_c, uii)) {
+	if (IS_SET(pheno_c, uii)) {
 	  neg_tot_aa -= dptr[uii];
 	} else {
 	  neg_tot_au -= dptr[uii];
@@ -2032,7 +2050,7 @@ void groupdist_jack(uint32_t* uibuf, double* returns) {
       neg_u++;
       while (uiptr3 < uiptr) {
 	uii = *uiptr3++;
-	if (IS_SET(g_pheno_c, uii)) {
+	if (IS_SET(pheno_c, uii)) {
 	  neg_tot_au -= dptr[uii];
 	} else {
 	  neg_tot_uu -= dptr[uii];
@@ -2041,9 +2059,9 @@ void groupdist_jack(uint32_t* uibuf, double* returns) {
     }
     uiptr++;
   }
-  returns[0] = (g_reg_tot_x - neg_tot_aa) / (double)(((intptr_t)(g_case_ct - neg_a) * (g_case_ct - neg_a - 1)) / 2);
-  returns[1] = (g_reg_tot_xy - neg_tot_au) / (double)((intptr_t)(g_case_ct - neg_a) * (g_ctrl_ct - neg_u));
-  returns[2] = (g_reg_tot_y - neg_tot_uu) / (double)(((intptr_t)(g_ctrl_ct - neg_u) * (g_ctrl_ct - neg_u - 1)) / 2);
+  returns[0] = (reg_tot_x - neg_tot_aa) / (double)(((intptr_t)(case_ct - neg_a) * (case_ct - neg_a - 1)) / 2);
+  returns[1] = (reg_tot_xy - neg_tot_au) / (double)((intptr_t)(case_ct - neg_a) * (ctrl_ct - neg_u));
+  returns[2] = (reg_tot_y - neg_tot_uu) / (double)(((intptr_t)(ctrl_ct - neg_u) * (ctrl_ct - neg_u - 1)) / 2);
 }
 
 void small_remap(uint32_t* uibuf, uint32_t ct, uint32_t dd) {
@@ -2094,28 +2112,39 @@ void pick_d_small(unsigned char* tmp_cbuf, uint32_t* uibuf, uint32_t ct, uint32_
 
 THREAD_RET_TYPE groupdist_jack_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
-  uint32_t* uibuf = (uint32_t*)(&(g_geno[tidx * CACHEALIGN(g_case_ct + g_ctrl_ct + (g_jackknife_d + 1) * sizeof(int32_t))]));
-  unsigned char* cbuf = &(g_geno[tidx * CACHEALIGN(g_case_ct + g_ctrl_ct + (g_jackknife_d + 1) * sizeof(int32_t)) + (g_jackknife_d + 1) * sizeof(int32_t)]);
-  uint64_t ulljj = g_jackknife_iters / 100;
+  uintptr_t indiv_ct = g_indiv_ct;
+  uint32_t case_ct = g_case_ct;
+  uint32_t ctrl_ct = g_ctrl_ct;
+  uint32_t jackknife_d = g_jackknife_d;
+  uint32_t* uibuf = (uint32_t*)(&(g_geno[tidx * CACHEALIGN(case_ct + ctrl_ct + (jackknife_d + 1) * sizeof(int32_t))]));
+  unsigned char* cbuf = &(g_geno[tidx * CACHEALIGN(case_ct + ctrl_ct + (jackknife_d + 1) * sizeof(int32_t)) + (jackknife_d + 1) * sizeof(int32_t)]);
+  uintptr_t jackknife_iters = g_jackknife_iters;
+  uintptr_t uljj = jackknife_iters / 100;
+  double reg_tot_x = g_reg_tot_x;
+  double reg_tot_xy = g_reg_tot_xy;
+  double reg_tot_y = g_reg_tot_y;
+  double* jackknife_precomp = g_jackknife_precomp;
+  double* dists = g_dists;
+  uintptr_t* pheno_c = g_pheno_c;
   sfmt_t* sfmtp = g_sfmtp_arr[tidx];
   double returns[3];
   double results[9];
   double new_old_diff[3];
-  uint64_t ullii;
+  uintptr_t ulii;
   fill_double_zero(results, 9);
-  for (ullii = 0; ullii < g_jackknife_iters; ullii++) {
-    pick_d_small(cbuf, uibuf, g_case_ct + g_ctrl_ct, g_jackknife_d, sfmtp);
-    if (g_case_ct + g_ctrl_ct < g_indiv_ct) {
-      small_remap(uibuf, g_case_ct + g_ctrl_ct, g_jackknife_d);
+  for (ulii = 0; ulii < jackknife_iters; ulii++) {
+    pick_d_small(cbuf, uibuf, case_ct + ctrl_ct, jackknife_d, sfmtp);
+    if (case_ct + ctrl_ct < indiv_ct) {
+      small_remap(uibuf, case_ct + ctrl_ct, jackknife_d);
     }
-    groupdist_jack(uibuf, returns);
-    if (ullii > 0) {
+    groupdist_jack(jackknife_d, case_ct, ctrl_ct, reg_tot_x, reg_tot_xy, reg_tot_y, uibuf, jackknife_precomp, dists, pheno_c, returns);
+    if (ulii > 0) {
       new_old_diff[0] = returns[0] - results[0];
       new_old_diff[1] = returns[1] - results[1];
       new_old_diff[2] = returns[2] - results[2];
-      results[0] += new_old_diff[0] / (ullii + 1); // AA mean
-      results[1] += new_old_diff[1] / (ullii + 1); // AU mean
-      results[2] += new_old_diff[2] / (ullii + 1); // UU mean
+      results[0] += new_old_diff[0] / (ulii + 1); // AA mean
+      results[1] += new_old_diff[1] / (ulii + 1); // AU mean
+      results[2] += new_old_diff[2] / (ulii + 1); // UU mean
       results[3] += (returns[0] - results[0]) * new_old_diff[0]; // AA var
       results[4] += (returns[1] - results[1]) * new_old_diff[1]; // AU var
       results[5] += (returns[2] - results[2]) * new_old_diff[2]; // UU var
@@ -2127,16 +2156,16 @@ THREAD_RET_TYPE groupdist_jack_thread(void* arg) {
       results[1] += returns[1];
       results[2] += returns[2];
     }
-    if ((!tidx) && (ullii >= ulljj)) {
-      ulljj = (ullii * 100) / g_jackknife_iters;
-      printf("\r%" PRIu64 "%%", ulljj);
+    if ((!tidx) && (ulii >= uljj)) {
+      uljj = (ulii * 100LLU) / jackknife_iters;
+      printf("\r%" PRIuPTR "%%", uljj);
       fflush(stdout);
-      ulljj = ((ulljj + 1) * g_jackknife_iters) / 100;
+      uljj = ((uljj + 1LLU) * jackknife_iters) / 100;
     }
   }
   // don't write until end, to avoid false sharing
-  for (ullii = 0; ullii < 9; ullii++) {
-    g_calc_result[tidx][ullii] = results[ullii];
+  for (ulii = 0; ulii < 9; ulii++) {
+    g_calc_result[tidx][ulii] = results[ulii];
   }
   THREAD_RETURN;
 }
@@ -3311,7 +3340,7 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
   if (2 * g_jackknife_d >= (g_case_ct + g_ctrl_ct)) {
     logprint("Delete-d jackknife skipped because d is too large.\n");
   } else {
-    if (wkspace_alloc_d_checked(&g_jackknife_precomp, indiv_ct * JACKKNIFE_VALS_GROUPDIST)) {
+    if (wkspace_alloc_d_checked(&g_jackknife_precomp, indiv_ct * JACKKNIFE_VALS_GROUPDIST * sizeof(double))) {
       goto groupdist_calc_ret_NOMEM;
     }
     fill_double_zero(g_jackknife_precomp, indiv_ct * JACKKNIFE_VALS_GROUPDIST);
