@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (9 Feb 2014) ";
+  " (10 Feb 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -3890,7 +3890,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
   if (calculation_type & CALC_REGRESS_DISTANCE) {
-    retval = regress_distance(calculation_type, g_dists, pheno_d, unfiltered_indiv_ct, indiv_exclude, indiv_ct, g_thread_ct, regress_iters, regress_d);
+    retval = regress_distance(calculation_type, pheno_d, unfiltered_indiv_ct, indiv_exclude, indiv_ct, g_thread_ct, regress_iters, regress_d);
     if (retval) {
       goto plink_ret_1;
     }
@@ -4662,7 +4662,7 @@ const char species_plural_constants[][8] = {"people", "cattle", "dogs", "horses"
 
 int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_map, int32_t argc, char** argv, char* range_delim_ptr, Chrom_info* chrom_info_ptr) {
   // human: 22, X, Y, XY, MT
-  // cow: 29, X, Y
+  // cow: 29, X, Y, MT
   // dog: 38, X, Y, XY
   // horse: 31, X, Y
   // mouse: 19, X, Y
@@ -4671,8 +4671,8 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
   const int32_t species_x_code[] = {23, 30, 39, 32, 20, -1, 27};
   const int32_t species_y_code[] = {24, 31, 40, 33, 21, -1, 28};
   const int32_t species_xy_code[] = {25, -1, 41, -1, -1, -1, -1};
-  const int32_t species_mt_code[] = {26, -1, -1, -1, -1, -1, -1};
-  const uint32_t species_max_code[] = {26, 31, 41, 33, 21, 12, 28};
+  const int32_t species_mt_code[] = {26, 33, -1, -1, -1, -1, -1};
+  const uint32_t species_max_code[] = {26, 33, 41, 33, 21, 12, 28};
   uint32_t species_code = SPECIES_HUMAN;
   uint32_t flag_idx = 0;
   uint32_t retval = 0;

@@ -1613,10 +1613,6 @@ uint32_t triangle_divide(int64_t cur_prod, int32_t modif);
 
 void triangle_fill(uint32_t* target_arr, uint32_t ct, uint32_t pieces, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t start, uint32_t align);
 
-int32_t write_ids(char* outname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len);
-
-int32_t distance_d_write_ids(char* outname, char* outname_end, uint32_t dist_calc_type, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len);
-
 int32_t relationship_req(uint64_t calculation_type);
 
 int32_t distance_req(uint64_t calculation_type, char* read_dists_fname);
@@ -1875,8 +1871,6 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
 
 int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_person_id_len_ptr);
 
-int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, int32_t dist_calc_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, uint32_t indiv_ct, int32_t first_indiv_idx, int32_t end_indiv_idx, int32_t parallel_idx, int32_t parallel_tot, unsigned char* membuf);
-
 char* alloc_and_init_collapsed_arr(char* item_arr, uintptr_t item_len, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t filtered_ct, uint32_t read_only);
 
 void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr);
@@ -1901,15 +1895,7 @@ double normdist(double zz);
 
 double rand_normal(double* secondval_ptr);
 
-// void pick_d(unsigned char* cbuf, uint32_t ct, uint32_t dd);
-
-void pick_d_small(unsigned char* tmp_cbuf, uint32_t* uibuf, uint32_t ct, uint32_t dd, sfmt_t* sfmtp);
-
 void init_sfmt64_from_sfmt32(sfmt_t* sfmt32, sfmt_t* sfmt64);
-
-void print_pheno_stdev(double* pheno_d, uint32_t indiv_ct);
-
-uint32_t set_default_jackknife_d(uint32_t ct);
 
 static inline void precompute_mods(uintptr_t indiv_ct, uint32_t* precomputed_mods) {
   // sets precomputed_mods[n] = 2^32 mod (n-2)
@@ -1920,10 +1906,6 @@ static inline void precompute_mods(uintptr_t indiv_ct, uint32_t* precomputed_mod
 }
 
 void generate_perm1_interleaved(uint32_t tot_ct, uint32_t set_ct, uintptr_t perm_idx, uintptr_t perm_ct, uintptr_t* perm_buf);
-
-void cluster_dist_divide(uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_starts, double* cluster_sdistances);
-
-void cluster_dist_multiply(uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_starts, double* cluster_sdistances);
 
 uint32_t cubic_real_roots(double coef_a, double coef_b, double coef_c, double* solutions);
 
@@ -1961,8 +1943,6 @@ int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintpt
 extern sfmt_t** g_sfmtp_arr;
 
 uint32_t wkspace_init_sfmtp(uint32_t thread_ct);
-
-int32_t regress_distance(uint64_t calculation_type, double* dists_local, double* pheno_d_local, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d);
 
 typedef struct {
   char* family_ids;
