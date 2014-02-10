@@ -5673,7 +5673,8 @@ int32_t do_rel_cutoff(uint64_t calculation_type, double rel_cutoff, double* rel_
   uint32_t exactly_one_rel_ct = 0;
   uintptr_t indiv_ct = unfiltered_indiv_ct - (*indiv_exclude_ct_ptr);
   unsigned char* wkspace_mark = wkspace_base;
-  double* dist_ptr = g_rel_dists;
+  double* rel_dists = g_rel_dists;
+  double* dist_ptr = rel_dists;
   double* dptr2;
   double* dptr3;
   double* dptr4;
@@ -5723,7 +5724,7 @@ int32_t do_rel_cutoff(uint64_t calculation_type, double rel_cutoff, double* rel_
 	kk++;
       }
       // and now find the identity of the other side
-      dist_ptr = &(g_rel_dists[((intptr_t)kk * (kk - 1)) / 2]);
+      dist_ptr = &(rel_dists[((intptr_t)kk * (kk - 1)) / 2]);
       for (mm = 0; mm < kk; mm++) {
 	if (*dist_ptr > rel_cutoff) {
 	  *dist_ptr = 0.0;
@@ -5734,7 +5735,7 @@ int32_t do_rel_cutoff(uint64_t calculation_type, double rel_cutoff, double* rel_
       if (mm == kk) {
 	do {
 	  mm++;
-	  dist_ptr = &(g_rel_dists[tri_coord_no_diag((uint32_t)kk, (uint32_t)mm)]);
+	  dist_ptr = &(rel_dists[tri_coord_no_diag((uint32_t)kk, (uint32_t)mm)]);
 	} while (*dist_ptr <= rel_cutoff);
 	*dist_ptr = 0.0;
       }
@@ -5763,7 +5764,7 @@ int32_t do_rel_cutoff(uint64_t calculation_type, double rel_cutoff, double* rel_
 	break;
       }
     }
-    dist_ptr = &(g_rel_dists[((intptr_t)mm * (mm - 1)) / 2]);
+    dist_ptr = &(rel_dists[((intptr_t)mm * (mm - 1)) / 2]);
     for (kk = 0; kk < mm; kk++) {
       if (*dist_ptr > rel_cutoff) {
 	*dist_ptr = 0.0;
@@ -5772,7 +5773,7 @@ int32_t do_rel_cutoff(uint64_t calculation_type, double rel_cutoff, double* rel_
       dist_ptr++;
     }
     for (ulii = mm + 1; ulii < indiv_ct; ulii++) {
-      dist_ptr = &(g_rel_dists[tri_coord_no_diag((uint32_t)mm, ulii)]);
+      dist_ptr = &(rel_dists[tri_coord_no_diag((uint32_t)mm, ulii)]);
       if (*dist_ptr > rel_cutoff) {
 	*dist_ptr = 0.0;
 	rel_cut_arr_dec(&(rel_ct_arr[ulii]), &exactly_one_rel_ct);
@@ -5783,8 +5784,8 @@ int32_t do_rel_cutoff(uint64_t calculation_type, double rel_cutoff, double* rel_
   }
   exclude_multi(indiv_exclude, rel_ct_arr, unfiltered_indiv_ct, indiv_exclude_ct_ptr);
   if (indivs_excluded) {
-    dist_ptr = g_rel_dists; // write
-    dptr2 = g_rel_dists; // read
+    dist_ptr = rel_dists; // write
+    dptr2 = rel_dists; // read
     dptr3 = rel_ibc; // write
     dptr4 = rel_ibc; // read
     giptr = g_missing_dbl_excluded; // write
@@ -5865,104 +5866,137 @@ int32_t* g_rcb_rel_ct_arr;
 uint32_t rel_cutoff_batch_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
   char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
+  gzFile cur_gzfile = g_rcb_cur_gzfile;
+  uint32_t indiv_ct = g_rcb_indiv_ct;
+  uint32_t row = g_rcb_row;
+  uint32_t col = g_rcb_col;
+  uint32_t new_row = g_rcb_new_row;
+  uint32_t new_col = g_rcb_new_col;
+  uint64_t progress = g_rcb_progress;
+  uint64_t hundredth = g_rcb_hundredth;
+  uint32_t pct = g_pct;
+  int32_t* rel_ct_arr = g_rcb_rel_ct_arr;
   char wbuf[16];
   char* cptr;
   uint32_t wbuf_ct;
   uint32_t uii;
-  while (g_rcb_row < g_rcb_indiv_ct) {
-    if (g_rcb_rel_ct_arr[g_rcb_row] == -1) {
-      for (uii = 0; uii <= g_rcb_row; uii++) {
-	gzgets(g_rcb_cur_gzfile, tbuf, MAXLINELEN);
+  while (row < indiv_ct) {
+    if (rel_ct_arr[row] == -1) {
+      for (uii = 0; uii <= row; uii++) {
+	gzgets(cur_gzfile, tbuf, MAXLINELEN);
       }
     } else {
-      cptr = uint32_writex(wbuf, g_rcb_new_row, '\t');
+      cptr = uint32_writex(wbuf, new_row, '\t');
       wbuf_ct = (uintptr_t)(cptr - wbuf);
-      while (g_rcb_col <= g_rcb_row) {
-        gzgets(g_rcb_cur_gzfile, tbuf, MAXLINELEN);
-	if (g_rcb_rel_ct_arr[g_rcb_col++] != -1) {
+      while (col <= row) {
+        gzgets(cur_gzfile, tbuf, MAXLINELEN);
+	if (rel_ct_arr[col++] != -1) {
 	  cptr = next_item_mult(tbuf, 2);
           uii = strlen(cptr);
-          sptr_cur = memcpya(uint32_writex(memcpya(sptr_cur, wbuf, wbuf_ct), ++g_rcb_new_col, '\t'), cptr, uii);
+          sptr_cur = memcpya(uint32_writex(memcpya(sptr_cur, wbuf, wbuf_ct), ++new_col, '\t'), cptr, uii);
 	  if (sptr_cur >= readbuf_end) {
 	    goto rel_cutoff_batch_emitn_ret;
 	  }
 	}
       }
-      g_rcb_new_row++;
-      g_rcb_new_col = 0;
+      new_row++;
+      new_col = 0;
     }
-    g_rcb_row++;
-    g_rcb_progress += g_rcb_row;
-    if (g_rcb_progress >= g_pct * g_rcb_hundredth) {
-      if (g_pct > 10) {
+    row++;
+    progress += row;
+    if (progress >= pct * hundredth) {
+      if (pct > 10) {
 	putchar('\b');
       }
-      g_pct = 1 + (g_rcb_progress / g_rcb_hundredth);
-      printf("\b\b%u%%", g_pct - 1);
+      pct = 1 + (progress / hundredth);
+      printf("\b\b%u%%", pct - 1);
       fflush(stdout);
     }
-    g_rcb_col = 0;
+    col = 0;
   }  
  rel_cutoff_batch_emitn_ret:
+  g_rcb_row = row;
+  g_rcb_col = col;
+  g_rcb_new_row = new_row;
+  g_rcb_new_col = new_col;
+  g_rcb_progress = progress;
+  g_pct = pct;
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
 uint32_t rel_cutoff_batch_rbin_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
   char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
+  FILE* in_binfile = g_rcb_in_binfile;
+  FILE* in_bin_nfile = g_rcb_in_bin_nfile;
+  uint32_t indiv_ct = g_rcb_indiv_ct;
+  uint32_t row = g_rcb_row;
+  uint32_t col = g_rcb_col;
+  uint32_t new_row = g_rcb_new_row;
+  uint32_t new_col = g_rcb_new_col;
+  uint64_t progress = g_rcb_progress;
+  uint64_t hundredth = g_rcb_hundredth;
+  uint32_t pct = g_pct;
+  int32_t* rel_ct_arr = g_rcb_rel_ct_arr;
   char wbuf[16];
   char* cptr;
   uint32_t wbuf_ct;
   uint32_t uii;
   float fxx;
 
-  while (g_rcb_row < g_rcb_indiv_ct) {
-    if (g_rcb_rel_ct_arr[g_rcb_row] == -1) {
-      fseeko(g_rcb_in_binfile, (g_rcb_row + 1) * sizeof(float), SEEK_CUR);
-      fseeko(g_rcb_in_bin_nfile, (g_rcb_row + 1) * sizeof(float), SEEK_CUR);
+  while (row < indiv_ct) {
+    if (rel_ct_arr[row] == -1) {
+      fseeko(in_binfile, (row + 1) * sizeof(float), SEEK_CUR);
+      fseeko(in_bin_nfile, (row + 1) * sizeof(float), SEEK_CUR);
     } else {
-      cptr = uint32_writex(wbuf, g_rcb_new_row, '\t');
+      cptr = uint32_writex(wbuf, new_row, '\t');
       wbuf_ct = (uintptr_t)(cptr - wbuf);
-      while (g_rcb_col <= g_rcb_row) {
-	if (g_rcb_rel_ct_arr[g_rcb_col] == -1) {
-	  uii = g_rcb_col;
-	  while (++g_rcb_col <= g_rcb_row) {
-	    if (g_rcb_rel_ct_arr[g_rcb_col] != -1) {
+      while (col <= row) {
+	if (rel_ct_arr[col] == -1) {
+	  uii = col;
+	  while (++col <= row) {
+	    if (rel_ct_arr[col] != -1) {
 	      break;
 	    }
 	  }
-	  fseeko(g_rcb_in_binfile, (g_rcb_col - uii) * sizeof(float), SEEK_CUR);
-	  fseeko(g_rcb_in_bin_nfile, (g_rcb_col - uii) * sizeof(float), SEEK_CUR);
-	  if (g_rcb_col > g_rcb_row) {
+	  fseeko(in_binfile, (col - uii) * sizeof(float), SEEK_CUR);
+	  fseeko(in_bin_nfile, (col - uii) * sizeof(float), SEEK_CUR);
+	  if (col > row) {
 	    break;
 	  }
 	}
-	sptr_cur = uint32_writex(memcpya(sptr_cur, wbuf, wbuf_ct), ++g_rcb_new_col, '\t');
-	fread(&fxx, 4, 1, g_rcb_in_bin_nfile);
+	sptr_cur = uint32_writex(memcpya(sptr_cur, wbuf, wbuf_ct), ++new_col, '\t');
+	fread(&fxx, 4, 1, in_bin_nfile);
 	sptr_cur = uint32_writex(sptr_cur, (int32_t)fxx, '\t');
-	fread(&fxx, 4, 1, g_rcb_in_binfile);
+	fread(&fxx, 4, 1, in_binfile);
 	sptr_cur = float_e_writex(sptr_cur, fxx, '\n');
-	g_rcb_col++;
+	col++;
 	if (sptr_cur >= readbuf_end) {
 	  goto rel_cutoff_batch_rbin_emitn_ret;
 	}
       }
-      g_rcb_new_row++;
-      g_rcb_new_col = 0;
+      new_row++;
+      new_col = 0;
     }
-    g_rcb_row++;
-    g_rcb_progress += g_rcb_row;
-    if (g_rcb_progress >= g_pct * g_rcb_hundredth) {
-      if (g_pct > 10) {
+    row++;
+    progress += row;
+    if (progress >= pct * hundredth) {
+      if (pct > 10) {
 	putchar('\b');
       }
-      g_pct = 1 + (g_rcb_progress / g_rcb_hundredth);
-      printf("\b\b%u%%", g_pct - 1);
+      pct = 1 + (progress / hundredth);
+      printf("\b\b%u%%", pct - 1);
       fflush(stdout);
     }
-    g_rcb_col = 0;
+    col = 0;
   }  
  rel_cutoff_batch_rbin_emitn_ret:
+  g_rcb_row = row;
+  g_rcb_col = col;
+  g_rcb_new_row = new_row;
+  g_rcb_new_col = new_col;
+  g_rcb_progress = progress;
+  g_pct = pct;
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
@@ -5974,6 +6008,8 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   FILE* idfile = NULL;
   FILE* outfile = NULL;
   FILE* out_bin_nfile = NULL;
+  FILE* in_binfile = NULL;
+  FILE* in_bin_nfile = NULL;
   gzFile cur_gzfile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
   uint32_t indivs_excluded = 0;
@@ -5984,6 +6020,8 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   char* bufptr;
   uint64_t ullii;
   uint64_t ulljj;
+  uint64_t progress;
+  uint64_t hundredth;
   uintptr_t tot_words;
   uintptr_t words_left;
   uintptr_t wl_floor;
@@ -5996,6 +6034,8 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   uint32_t uii;
   uint32_t row;
   uint32_t col;
+  uint32_t new_row;
+  uint32_t pct;
   uintptr_t indiv_idx;
   int32_t* rel_ct_arr;
   float rel_cutoff_f;
@@ -6012,9 +6052,6 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
     logprintb();
     goto rel_cutoff_batch_ret_INVALID_CMDLINE;
   }
-  g_rcb_in_binfile = NULL;
-  g_rcb_in_bin_nfile = NULL;
-  g_rcb_cur_gzfile = NULL;
   memcpy(grmname_end, ".grm.id", 8);
   if (fopen_checked(&idfile, grmname, "r")) {
     goto rel_cutoff_batch_ret_OPEN_FAIL;
@@ -6059,12 +6096,12 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   col = 0;
   if (load_grm_bin) {
     memcpy(grmname_end, ".grm.bin", 9);
-    if (fopen_checked(&g_rcb_in_binfile, grmname, "rb")) {
+    if (fopen_checked(&in_binfile, grmname, "rb")) {
       goto rel_cutoff_batch_ret_OPEN_FAIL;
     }
     rel_cutoff_f = (float)rel_cutoff;
-    for (g_pct = 1; g_pct <= 100; g_pct++) {
-      wl_floor = (((uint64_t)tot_words) * (100 - g_pct)) / 100;
+    for (pct = 1; pct <= 100; pct++) {
+      wl_floor = (((uint64_t)tot_words) * (100 - pct)) / 100;
       while (words_left > wl_floor) {
 	cur_word = 0;
 	if (--words_left) {
@@ -6078,13 +6115,13 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
 	  }
 	}
 	for (inword_idx = 0; inword_idx < inword_bound; inword_idx++) {
-	  if (!fread(&fxx, 4, 1, g_rcb_in_binfile)) {
+	  if (!fread(&fxx, 4, 1, in_binfile)) {
 	    goto rel_cutoff_batch_ret_READ_FAIL;
 	  }
 	  if (row == col) {
 	    row++;
 	    col = 0;
-	    if (!fread(&fxx, 4, 1, g_rcb_in_binfile)) {
+	    if (!fread(&fxx, 4, 1, in_binfile)) {
 	      goto rel_cutoff_batch_ret_READ_FAIL;
 	    }
 	  }
@@ -6097,15 +6134,15 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
 	}
 	*rtptr++ = cur_word;
       }
-      if (g_pct < 100) {
-	if (g_pct > 10) {
+      if (pct < 100) {
+	if (pct > 10) {
 	  putchar('\b');
 	}
-	printf("\b\b%u%%", g_pct);
+	printf("\b\b%u%%", pct);
 	fflush(stdout);
       }
     }
-    fclose_null(&g_rcb_in_binfile);
+    fclose_null(&in_binfile);
   } else {
     memcpy(grmname_end, ".grm.gz", 8);
     if (gzopen_checked(&cur_gzfile, grmname, "rb")) {
@@ -6114,8 +6151,8 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
     if (gzbuffer(cur_gzfile, 131072)) {
       goto rel_cutoff_batch_ret_NOMEM;
     }
-    for (g_pct = 1; g_pct <= 100; g_pct++) {
-      wl_floor = (((uint64_t)tot_words) * (100 - g_pct)) / 100;
+    for (pct = 1; pct <= 100; pct++) {
+      wl_floor = (((uint64_t)tot_words) * (100 - pct)) / 100;
       while (words_left > wl_floor) {
 	cur_word = 0;
 	if (--words_left) {
@@ -6155,11 +6192,11 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
 	}
 	*rtptr++ = cur_word;
       }
-      if (g_pct < 100) {
-	if (g_pct > 10) {
+      if (pct < 100) {
+	if (pct > 10) {
 	  putchar('\b');
 	}
-	printf("\b\b%u%%", g_pct);
+	printf("\b\b%u%%", pct);
 	fflush(stdout);
       }
     }
@@ -6367,34 +6404,37 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   sprintf(logbuf, "Remaining individual IDs written to %s.\n", outname);
   logprintb();
   if (rel_calc_type & (REL_CALC_GRM | REL_CALC_GRM_BIN)) {
-    g_pct = 1;
-    g_rcb_row = 0;
-    g_rcb_col = 0;
-    g_rcb_new_row = 1;
-    g_rcb_new_col = 0;
-    g_rcb_progress = 0;
-    g_rcb_hundredth = 1 + ((((uint64_t)indiv_ct) * (indiv_ct - 1)) / 200);
     if (load_grm_bin) {
       memcpy(grmname_end, ".grm.bin", 9);
-      if (fopen_checked(&g_rcb_in_binfile, grmname, "rb")) {
+      if (fopen_checked(&in_binfile, grmname, "rb")) {
 	goto rel_cutoff_batch_ret_OPEN_FAIL;
       }
+      g_rcb_in_binfile = in_binfile;
       memcpy(grmname_end, ".grm.N.bin", 11);
-      if (fopen_checked(&g_rcb_in_bin_nfile, grmname, "rb")) {
+      if (fopen_checked(&in_bin_nfile, grmname, "rb")) {
 	goto rel_cutoff_batch_ret_OPEN_FAIL;
       }
+      g_rcb_in_bin_nfile = in_bin_nfile;
     } else {
       memcpy(grmname_end, ".grm.gz", 8);
-      if (gzopen_checked(&g_rcb_cur_gzfile, grmname, "rb")) {
+      if (gzopen_checked(&cur_gzfile, grmname, "rb")) {
 	goto rel_cutoff_batch_ret_OPEN_FAIL;
       }
-      if (gzbuffer(g_rcb_cur_gzfile, 131072)) {
+      g_rcb_cur_gzfile = cur_gzfile;
+      if (gzbuffer(cur_gzfile, 131072)) {
 	goto rel_cutoff_batch_ret_NOMEM;
       }
     }
     fputs("Rewriting matrix... 0%", stdout);
     fflush(stdout);
     if (rel_calc_type & REL_CALC_GRM) {
+      g_pct = 1;
+      g_rcb_row = 0;
+      g_rcb_col = 0;
+      g_rcb_new_row = 1;
+      g_rcb_new_col = 0;
+      g_rcb_progress = 0;
+      g_rcb_hundredth = 1 + ((((uint64_t)indiv_ct) * (indiv_ct - 1)) / 200);
       g_rcb_indiv_ct = indiv_ct;
       g_rcb_rel_ct_arr = rel_ct_arr;
       if (load_grm_bin) {
@@ -6421,6 +6461,12 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
 	}
       }
     } else {
+      pct = 1;
+      row = 0;
+      col = 0;
+      new_row = 1;
+      progress = 0;
+      hundredth = 1 + ((((uint64_t)indiv_ct) * (indiv_ct - 1)) / 200);
       memcpy(outname_end, ".grm.N.bin", 11);
       if (fopen_checked(&out_bin_nfile, outname, "wb")) {
 	goto rel_cutoff_batch_ret_OPEN_FAIL;
@@ -6429,63 +6475,68 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
       if (fopen_checked(&outfile, outname, "wb")) {
 	goto rel_cutoff_batch_ret_OPEN_FAIL;
       }
-      while (g_rcb_row < indiv_ct) {
-	if (rel_ct_arr[g_rcb_row] == -1) {
+      while (row < indiv_ct) {
+	if (rel_ct_arr[row] == -1) {
 	  if (load_grm_bin) {
-	    fseeko(g_rcb_in_binfile, (g_rcb_row + 1) * sizeof(float), SEEK_CUR);
-	    fseeko(g_rcb_in_bin_nfile, (g_rcb_row + 1) * sizeof(float), SEEK_CUR);
+	    fseeko(in_binfile, (row + 1) * sizeof(float), SEEK_CUR);
+	    fseeko(in_bin_nfile, (row + 1) * sizeof(float), SEEK_CUR);
 	  } else {
-	    for (uii = 0; uii <= g_rcb_row; uii++) {
-	      gzgets(g_rcb_cur_gzfile, tbuf, MAXLINELEN);
+	    for (uii = 0; uii <= row; uii++) {
+	      gzgets(cur_gzfile, tbuf, MAXLINELEN);
 	    }
 	  }
 	} else {
 	  if (load_grm_bin) {
-	    while (g_rcb_col <= g_rcb_row) {
-	      if (rel_ct_arr[g_rcb_col] == -1) {
-		uii = g_rcb_col;
-		while (++g_rcb_col <= g_rcb_row) {
-		  if (rel_ct_arr[g_rcb_col] != -1) {
+	    while (col <= row) {
+	      if (rel_ct_arr[col] == -1) {
+		uii = col;
+		while (++col <= row) {
+		  if (rel_ct_arr[col] != -1) {
 		    break;
 		  }
 		}
-		fseeko(g_rcb_in_bin_nfile, (g_rcb_col - uii) * sizeof(float), SEEK_CUR);
-		fseeko(g_rcb_in_bin_nfile, (g_rcb_col - uii) * sizeof(float), SEEK_CUR);
-		if (g_rcb_col > g_rcb_row) {
+		fseeko(in_bin_nfile, (col - uii) * sizeof(float), SEEK_CUR);
+		fseeko(in_bin_nfile, (col - uii) * sizeof(float), SEEK_CUR);
+		if (col > row) {
 		  break;
 		}
 	      }
-	      fread(&fxx, 4, 1, g_rcb_in_bin_nfile);
+	      fread(&fxx, 4, 1, in_bin_nfile);
 	      fwrite(&fxx, 4, 1, out_bin_nfile);
-	      fread(&fxx, 4, 1, g_rcb_in_binfile);
+	      fread(&fxx, 4, 1, in_binfile);
 	      fwrite(&fxx, 4, 1, outfile);
-	      g_rcb_col++;
+	      col++;
 	    }
 	  } else {
-	    while (g_rcb_col <= g_rcb_row) {
-	      gzgets(g_rcb_cur_gzfile, tbuf, MAXLINELEN);
-	      if (rel_ct_arr[g_rcb_col++] != -1) {
+	    while (col <= row) {
+	      gzgets(cur_gzfile, tbuf, MAXLINELEN);
+	      if (rel_ct_arr[col++] != -1) {
 		bufptr = next_item_mult(tbuf, 2);
-		sscanf(bufptr, "%g %e", &fxx, &fyy);
+		if (scan_float(bufptr, &fxx)) {
+		  goto rel_cutoff_batch_ret_INVALID_FORMAT_2;
+		}
+		bufptr = next_item(bufptr);
+		if (scan_float(bufptr, &fyy)) {
+		  goto rel_cutoff_batch_ret_INVALID_FORMAT_2;
+		}
 		fwrite(&fxx, 4, 1, out_bin_nfile);
 		fwrite(&fyy, 4, 1, outfile);
 	      }
 	    }
 	  }
-	  g_rcb_new_row++;
-	  g_rcb_new_col = 0;
+	  new_row++;
 	}
-	g_rcb_row++;
-	g_rcb_progress += g_rcb_row;
-	if (g_rcb_progress >= g_pct * g_rcb_hundredth) {
-	  if (g_pct > 10) {
+	row++;
+	progress += row;
+	if (progress >= pct * hundredth) {
+	  if (pct > 10) {
 	    putchar('\b');
 	  }
-	  g_pct = 1 + (g_rcb_progress / g_rcb_hundredth);
-	  printf("\b\b%u%%", g_pct - 1);
+	  pct = 1 + (progress / hundredth);
+	  printf("\b\b%u%%", pct - 1);
 	  fflush(stdout);
 	}
-	g_rcb_col = 0;
+	col = 0;
       }
     }
     putchar('\r');
@@ -6518,12 +6569,11 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   }
  rel_cutoff_batch_ret_1:
   fclose_cond(idfile);
-  fclose_cond(g_rcb_in_binfile);
-  fclose_cond(g_rcb_in_bin_nfile);
+  fclose_cond(in_binfile);
+  fclose_cond(in_bin_nfile);
   fclose_cond(outfile);
   fclose_cond(out_bin_nfile);
   gzclose_cond(cur_gzfile);
-  gzclose_cond(g_rcb_cur_gzfile);
   wkspace_reset(wkspace_mark);
   return retval;
 }
@@ -6533,7 +6583,8 @@ int32_t do_rel_cutoff_f(uint64_t calculation_type, float rel_cutoff, float* rel_
   uint32_t exactly_one_rel_ct = 0;
   uintptr_t indiv_ct = unfiltered_indiv_ct - (*indiv_exclude_ct_ptr);
   unsigned char* wkspace_mark = wkspace_base;
-  float* dist_ptr = g_rel_f_dists;
+  float* rel_f_dists = g_rel_f_dists;
+  float* dist_ptr = rel_f_dists;
   float* dptr2;
   float* dptr3;
   float* dptr4;
@@ -6574,7 +6625,7 @@ int32_t do_rel_cutoff_f(uint64_t calculation_type, float rel_cutoff, float* rel_
 	kk++;
       }
       // and now find the identity of the other side
-      dist_ptr = &(g_rel_f_dists[((intptr_t)kk * (kk - 1)) / 2]);
+      dist_ptr = &(rel_f_dists[((intptr_t)kk * (kk - 1)) / 2]);
       for (mm = 0; mm < kk; mm++) {
 	if (*dist_ptr > rel_cutoff) {
 	  *dist_ptr = 0.0;
@@ -6585,7 +6636,7 @@ int32_t do_rel_cutoff_f(uint64_t calculation_type, float rel_cutoff, float* rel_
       if (mm == kk) {
 	do {
 	  mm++;
-	  dist_ptr = &(g_rel_f_dists[tri_coord_no_diag((uint32_t)kk, (uint32_t)mm)]);
+	  dist_ptr = &(rel_f_dists[tri_coord_no_diag((uint32_t)kk, (uint32_t)mm)]);
 	} while (*dist_ptr <= rel_cutoff);
 	*dist_ptr = 0.0;
       }
@@ -6614,7 +6665,7 @@ int32_t do_rel_cutoff_f(uint64_t calculation_type, float rel_cutoff, float* rel_
 	break;
       }
     }
-    dist_ptr = &(g_rel_f_dists[((intptr_t)mm * (mm - 1)) / 2]);
+    dist_ptr = &(rel_f_dists[((intptr_t)mm * (mm - 1)) / 2]);
     for (kk = 0; kk < mm; kk++) {
       if (*dist_ptr > rel_cutoff) {
 	*dist_ptr = 0.0;
@@ -6623,7 +6674,7 @@ int32_t do_rel_cutoff_f(uint64_t calculation_type, float rel_cutoff, float* rel_
       dist_ptr++;
     }
     for (ulii = mm + 1; ulii < indiv_ct; ulii++) {
-      dist_ptr = &(g_rel_f_dists[tri_coord_no_diag((uint32_t)mm, ulii)]);
+      dist_ptr = &(rel_f_dists[tri_coord_no_diag((uint32_t)mm, ulii)]);
       if (*dist_ptr > rel_cutoff) {
 	*dist_ptr = 0.0;
 	rel_cut_arr_dec(&(rel_ct_arr[ulii]), &exactly_one_rel_ct);
@@ -6634,8 +6685,8 @@ int32_t do_rel_cutoff_f(uint64_t calculation_type, float rel_cutoff, float* rel_
   }
   exclude_multi(indiv_exclude, rel_ct_arr, unfiltered_indiv_ct, indiv_exclude_ct_ptr);
   if (indivs_excluded) {
-    dist_ptr = g_rel_f_dists; // write
-    dptr2 = g_rel_f_dists; // read
+    dist_ptr = rel_f_dists; // write
+    dptr2 = rel_f_dists; // read
     dptr3 = rel_ibc; // write
     dptr4 = rel_ibc; // read
     giptr = g_missing_dbl_excluded; // write

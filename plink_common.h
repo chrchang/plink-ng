@@ -861,6 +861,12 @@ static inline uint32_t scan_double(char* ss, double* valp) {
   return (ss == ss2)? 1 : 0;
 }
 
+static inline uint32_t scan_float(char* ss, float* valp) {
+  char* ss2;
+  *valp = strtof(ss, &ss2);
+  return (ss == ss2)? 1 : 0;
+}
+
 uint32_t scan_two_doubles(char* ss, double* val1p, double* val2p);
 
 int32_t scan_token_ct_len(FILE* infile, char* buf, uintptr_t half_bufsize, uintptr_t* token_ct_ptr, uintptr_t* max_token_len_ptr);
