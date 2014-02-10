@@ -998,17 +998,17 @@ static double g_half_marker_ct_recip;
 static uint32_t g_load_dists;
 static unsigned char* g_generic_buf;
 
-void ibs_test_init_col_buf(uintptr_t row_idx, uintptr_t* perm_col_buf) {
+void ibs_test_init_col_buf(uintptr_t row_idx, uintptr_t perm_ct, uintptr_t* perm_rows, uintptr_t* perm_col_buf) {
   uintptr_t perm_idx = 0;
   uintptr_t block_size = BITCT;
   uintptr_t rshift_ct = row_idx & (BITCT - 1);
   uintptr_t* gpr_ptr;
   uintptr_t ulii;
   uintptr_t block_pos;
-  gpr_ptr = &(g_perm_rows[(row_idx / BITCT) * g_perm_ct]);
+  gpr_ptr = &(perm_rows[(row_idx / BITCT) * perm_ct]);
   do {
-    if (perm_idx + BITCT > g_perm_ct) {
-      block_size = g_perm_ct - perm_idx;
+    if (perm_idx + BITCT > perm_ct) {
+      block_size = perm_ct - perm_idx;
     }
     ulii = 0;
     block_pos = 0;
@@ -1017,10 +1017,10 @@ void ibs_test_init_col_buf(uintptr_t row_idx, uintptr_t* perm_col_buf) {
     } while (++block_pos < block_size);
     perm_idx += block_size;
     *perm_col_buf++ = ulii;
-  } while (perm_idx < g_perm_ct);
+  } while (perm_idx < perm_ct);
 }
 
-double fill_psbuf(uintptr_t block_size, double* dists, uintptr_t* col_uidxp, double* psbuf, double* ssq0p) {
+double fill_psbuf(uintptr_t block_size, double half_marker_ct_recip, uint32_t load_dists, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* dists, uintptr_t* col_uidxp, double* psbuf, double* ssq0p) {
   // also updates total sum and sums of squares
   double tot = 0.0;
   uintptr_t col_idx = 0;
@@ -1041,15 +1041,15 @@ double fill_psbuf(uintptr_t block_size, double* dists, uintptr_t* col_uidxp, dou
     sub_block_idx = 0;
     subtot = 0.0;
     do {
-      next_set_ul_unsafe_ck(g_pheno_nm, &col_uidx);
-      if (g_load_dists) {
+      next_set_ul_unsafe_ck(pheno_nm, &col_uidx);
+      if (load_dists) {
 	dxx = dists[col_uidx];
       } else {
-	dxx = 1.0 - dists[col_uidx] * g_half_marker_ct_recip;
+	dxx = 1.0 - dists[col_uidx] * half_marker_ct_recip;
       }
       increment[sub_block_idx] = subtot - dxx;
       subtot += dxx;
-      ssq[IS_SET(g_pheno_c, col_uidx)] += dxx * dxx;
+      ssq[IS_SET(pheno_c, col_uidx)] += dxx * dxx;
       col_uidx++;
     } while (++sub_block_idx < sub_block_size);
     tot += subtot;
@@ -1073,7 +1073,7 @@ double fill_psbuf(uintptr_t block_size, double* dists, uintptr_t* col_uidxp, dou
   return tot;
 }
 
-void ibs_test_process_perms(uintptr_t* perm_row_start, uint32_t sub_block_ct, double block_tot, double* psbuf, uintptr_t* perm_col_buf, double* perm_results) {
+void ibs_test_process_perms(uintptr_t* perm_row_start, uintptr_t perm_ct, uint32_t sub_block_ct, double block_tot, double* psbuf, uintptr_t* perm_col_buf, double* perm_results) {
   uintptr_t perm_idx = 0;
   uintptr_t block_size = BITCT;
   double dxx;
@@ -1083,8 +1083,8 @@ void ibs_test_process_perms(uintptr_t* perm_row_start, uint32_t sub_block_ct, do
   uint32_t sub_block_idx;
   do {
     col_bits = *perm_col_buf++;
-    if (perm_idx + BITCT > g_perm_ct) {
-      block_size = g_perm_ct - perm_idx;
+    if (perm_idx + BITCT > perm_ct) {
+      block_size = perm_ct - perm_idx;
     }
     block_pos = 0;
     if (sub_block_ct == BITCT / 8) {
@@ -1123,7 +1123,7 @@ void ibs_test_process_perms(uintptr_t* perm_row_start, uint32_t sub_block_ct, do
     }
     perm_idx += block_size;
     perm_results = &(perm_results[2 * block_size]);
-  } while (perm_idx < g_perm_ct);
+  } while (perm_idx < perm_ct);
 }
 
 void ibs_test_range(uint32_t tidx, uintptr_t* perm_col_buf, double* perm_results) {
@@ -1136,6 +1136,15 @@ void ibs_test_range(uint32_t tidx, uintptr_t* perm_col_buf, double* perm_results
   uintptr_t pct = 0;
   uintptr_t pct_div = 1 + ((g_thread_start[1] * (g_thread_start[1] - 1)) / 100);
   uintptr_t pct_next = pct_div;
+  uintptr_t perm_ct = g_perm_ct;
+  uintptr_t row_bound1 = g_thread_start[tidx];
+  uintptr_t row_bound2 = g_thread_start[tidx + 1];
+  uintptr_t* pheno_nm = g_pheno_nm;
+  uintptr_t* pheno_c = g_pheno_c;
+  uintptr_t* perm_rows = g_perm_rows;
+  double* dists = g_dists;
+  double half_marker_ct_recip = g_half_marker_ct_recip;
+  uint32_t load_dists = g_load_dists;
   double ssq[3];
   double* dptr;
   double block_tot;
@@ -1148,25 +1157,25 @@ void ibs_test_range(uint32_t tidx, uintptr_t* perm_col_buf, double* perm_results
   ssq[0] = 0.0;
   ssq[1] = 0.0;
   ssq[2] = 0.0;
-  for (row_idx = 0; row_idx < g_thread_start[tidx]; row_uidx++, row_idx++) {
-    next_set_ul_unsafe_ck(g_pheno_nm, &row_uidx);
+  for (row_idx = 0; row_idx < row_bound1; row_uidx++, row_idx++) {
+    next_set_ul_unsafe_ck(pheno_nm, &row_uidx);
   }
-  for (; row_idx < g_thread_start[tidx + 1]; row_uidx++, row_idx++) {
-    next_set_ul_unsafe_ck(g_pheno_nm, &row_uidx);
-    dptr = &(g_dists[(row_uidx * (row_uidx - 1)) / 2]);
+  for (; row_idx < row_bound2; row_uidx++, row_idx++) {
+    next_set_ul_unsafe_ck(pheno_nm, &row_uidx);
+    dptr = &(dists[(row_uidx * (row_uidx - 1)) / 2]);
     col_idx = 0;
     col_uidx = 0;
-    row_set = IS_SET(g_pheno_c, row_uidx);
-    ibs_test_init_col_buf(row_idx, perm_col_buf);
+    row_set = IS_SET(pheno_c, row_uidx);
+    ibs_test_init_col_buf(row_idx, perm_ct, perm_rows, perm_col_buf);
     do {
       if (col_idx + BITCT > row_idx) {
 	block_size = row_idx - col_idx;
       } else {
 	block_size = BITCT;
       }
-      block_tot = fill_psbuf(block_size, dptr, &col_uidx, psptr, &(ssq[row_set]));
+      block_tot = fill_psbuf(block_size, half_marker_ct_recip, load_dists, pheno_nm, pheno_c, dptr, &col_uidx, psptr, &(ssq[row_set]));
       dist_tot += block_tot;
-      ibs_test_process_perms(&(g_perm_rows[(col_idx / BITCT) * g_perm_ct]), (block_size + 7) / 8, block_tot, psptr, perm_col_buf, perm_results);
+      ibs_test_process_perms(&(perm_rows[(col_idx / BITCT) * perm_ct]), perm_ct, (block_size + 7) / 8, block_tot, psptr, perm_col_buf, perm_results);
       col_idx += block_size;
     } while (col_idx < row_idx);
     if (!tidx) {
