@@ -3012,8 +3012,16 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
   double dyy;
   double dzz;
   while (1) {
-    marker_bidx = g_block_start + (((uint64_t)tidx) * g_block_diff) / assoc_thread_ct;
-    marker_bceil = g_block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
+    if (g_block_diff < assoc_thread_ct) {
+      if (g_block_diff <= tidx) {
+        goto assoc_adapt_thread_skip_all;
+      }
+      marker_bidx = g_block_start + tidx;
+      marker_bceil = marker_bidx + 1;
+    } else {
+      marker_bidx = g_block_start + (((uint64_t)tidx) * g_block_diff) / assoc_thread_ct;
+      marker_bceil = g_block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
+    }
     is_haploid = g_is_haploid;
     loadbuf = g_loadbuf;
     orig_1mpval = g_orig_1mpval;
@@ -3119,6 +3127,7 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
       }
       perm_2success_ct[marker_idx] += success_2incr;
     }
+  assoc_adapt_thread_skip_all:
     if ((!tidx) || g_is_last_thread_block) {
       THREAD_RETURN;
     }
@@ -3205,13 +3214,21 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
   uint32_t ldref;
   while (1) {
     block_start = g_block_start;
+    if (g_block_diff < assoc_thread_ct) {
+      if (g_block_diff <= tidx) {
+        goto assoc_maxt_thread_skip_all;
+      }
+      marker_bidx_start = block_start + tidx;
+      marker_bceil = marker_bidx_start + 1;
+    } else {
+      marker_bidx_start = block_start + (((uint64_t)tidx) * g_block_diff) / assoc_thread_ct;
+      marker_bceil = block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
+    }
     maxt_block_base = g_maxt_block_base;
     maxt_block_base2 = maxt_block_base + block_start;
-    marker_bidx_start = block_start + (((uint64_t)tidx) * g_block_diff) / assoc_thread_ct;
     maxt_block_base3 = maxt_block_base + marker_bidx_start;
     marker_bidx = marker_bidx_start;
     marker_idx = maxt_block_base3;
-    marker_bceil = block_start + (((uint64_t)tidx + 1) * g_block_diff) / g_assoc_thread_ct;
     is_x = g_is_x;
     is_x_or_y = is_x || g_is_y;
     is_haploid = g_is_haploid;
@@ -3386,6 +3403,7 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
       }
       perm_2success_ct[marker_idx++] += success_2incr;
     }
+  assoc_maxt_thread_skip_all:
     if ((!tidx) || g_is_last_thread_block) {
       THREAD_RETURN;
     }
@@ -4190,8 +4208,16 @@ THREAD_RET_TYPE model_adapt_domrec_thread(void* arg) {
   double dyy;
   double dzz;
   while (1) {
-    marker_bidx = g_block_start + (((uint64_t)tidx) * g_block_diff) / assoc_thread_ct;
-    marker_bceil = g_block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
+    if (g_block_diff < assoc_thread_ct) {
+      if (g_block_diff <= tidx) {
+        goto model_adapt_domrec_thread_skip_all;
+      }
+      marker_bidx = g_block_start + tidx;
+      marker_bceil = marker_bidx + 1;
+    } else {
+      marker_bidx = g_block_start + (((uint64_t)tidx) * g_block_diff) / assoc_thread_ct;
+      marker_bceil = g_block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
+    }
     loadbuf = g_loadbuf;
     orig_1mpval = g_orig_1mpval;
     orig_chisq = g_orig_chisq;
@@ -4286,6 +4312,7 @@ THREAD_RET_TYPE model_adapt_domrec_thread(void* arg) {
       }
       perm_2success_ct[marker_idx] += success_2incr;
     }
+  model_adapt_domrec_thread_skip_all:
     if ((!tidx) || g_is_last_thread_block) {
       THREAD_RETURN;
     }
@@ -4364,13 +4391,21 @@ THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
   uint32_t ldref;
   while (1) {
     block_start = g_block_start;
+    if (g_block_diff < assoc_thread_ct) {
+      if (g_block_diff <= tidx) {
+        goto model_maxt_domrec_thread_skip_all;
+      }
+      marker_bidx_start = block_start + tidx;
+      marker_bceil = marker_bidx_start + 1;
+    } else {
+      marker_bidx_start = block_start + (((uint64_t)tidx) * g_block_diff) / assoc_thread_ct;
+      marker_bceil = block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
+    }
     maxt_block_base = g_maxt_block_base;
     maxt_block_base2 = maxt_block_base + block_start;
-    marker_bidx_start = block_start + (((uint64_t)tidx) * g_block_diff) / assoc_thread_ct;
     maxt_block_base3 = maxt_block_base + marker_bidx_start;
     marker_bidx = marker_bidx_start;
     marker_idx = maxt_block_base3;
-    marker_bceil = block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
     loadbuf = g_loadbuf;
     missing_cts = g_missing_cts;
     het_cts = g_het_cts;
@@ -4521,6 +4556,7 @@ THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
       }
       perm_2success_ct[marker_idx++] += success_2incr;
     }
+  model_maxt_domrec_thread_skip_all:
     if ((!tidx) || g_is_last_thread_block) {
       THREAD_RETURN;
     }
@@ -4576,8 +4612,16 @@ THREAD_RET_TYPE model_adapt_trend_thread(void* arg) {
   double dyy;
   double dzz;
   while (1) {
-    marker_bidx = g_block_start + (((uint64_t)tidx) * g_block_diff) / assoc_thread_ct;
-    marker_bceil = g_block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
+    if (g_block_diff < assoc_thread_ct) {
+      if (g_block_diff <= tidx) {
+        goto model_adapt_trend_thread_skip_all;
+      }
+      marker_bidx = g_block_start + tidx;
+      marker_bceil = marker_bidx + 1;
+    } else {
+      marker_bidx = g_block_start + (((uint64_t)tidx) * g_block_diff) / assoc_thread_ct;
+      marker_bceil = g_block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
+    }
     loadbuf = g_loadbuf;
     orig_1mpval = g_orig_1mpval;
     orig_chisq = g_orig_chisq;
@@ -4651,6 +4695,7 @@ THREAD_RET_TYPE model_adapt_trend_thread(void* arg) {
       }
       perm_2success_ct[marker_idx] += success_2incr;
     }
+  model_adapt_trend_thread_skip_all:
     if ((!tidx) || g_is_last_thread_block) {
       THREAD_RETURN;
     }
@@ -4724,13 +4769,21 @@ THREAD_RET_TYPE model_maxt_trend_thread(void* arg) {
   double chisq;
   while (1) {
     block_start = g_block_start;
+    if (g_block_diff < assoc_thread_ct) {
+      if (g_block_diff <= tidx) {
+        goto model_maxt_trend_thread_skip_all;
+      }
+      marker_bidx_start = block_start + tidx;
+      marker_bceil = marker_bidx_start + 1;
+    } else {
+      marker_bidx_start = block_start + (((uint64_t)tidx) * g_block_diff) / assoc_thread_ct;
+      marker_bceil = block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
+    }
     maxt_block_base = g_maxt_block_base;
     maxt_block_base2 = maxt_block_base + block_start;
-    marker_bidx_start = block_start + (((uint64_t)tidx) * g_block_diff) / assoc_thread_ct;
     maxt_block_base3 = maxt_block_base + marker_bidx_start;
     marker_bidx = marker_bidx_start;
     marker_idx = maxt_block_base3;
-    marker_bceil = block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
     loadbuf = g_loadbuf;
     missing_cts = g_missing_cts;
     het_cts = g_het_cts;
@@ -4835,6 +4888,7 @@ THREAD_RET_TYPE model_maxt_trend_thread(void* arg) {
       }
       perm_2success_ct[marker_idx++] += success_2incr;
     }
+  model_maxt_trend_thread_skip_all:
     if ((!tidx) || g_is_last_thread_block) {
       THREAD_RETURN;
     }
@@ -4890,8 +4944,16 @@ THREAD_RET_TYPE model_adapt_gen_thread(void* arg) {
   double dyy;
   double dzz;
   while (1) {
-    marker_bidx = g_block_start + (((uint64_t)tidx) * g_block_diff) / assoc_thread_ct;
-    marker_bceil = g_block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
+    if (g_block_diff < assoc_thread_ct) {
+      if (g_block_diff <= tidx) {
+        goto model_adapt_gen_thread_skip_all;
+      }
+      marker_bidx = g_block_start + tidx;
+      marker_bceil = marker_bidx + 1;
+    } else {
+      marker_bidx = g_block_start + (((uint64_t)tidx) * g_block_diff) / assoc_thread_ct;
+      marker_bceil = g_block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
+    }
     loadbuf = g_loadbuf;
     orig_1mpval = g_orig_1mpval;
     orig_chisq = g_orig_chisq;
@@ -4975,6 +5037,7 @@ THREAD_RET_TYPE model_adapt_gen_thread(void* arg) {
       }
       perm_2success_ct[marker_idx] += success_2incr;
     }
+  model_adapt_gen_thread_skip_all:
     if ((!tidx) || g_is_last_thread_block) {
       THREAD_RETURN;
     }
@@ -5044,13 +5107,21 @@ THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
   double sval;
   while (1) {
     block_start = g_block_start;
+    if (g_block_diff < assoc_thread_ct) {
+      if (g_block_diff <= tidx) {
+        goto model_maxt_gen_thread_skip_all;
+      }
+      marker_bidx_start = block_start + tidx;
+      marker_bceil = marker_bidx_start + 1;
+    } else {
+      marker_bidx_start = block_start + (((uint64_t)tidx) * g_block_diff) / assoc_thread_ct;
+      marker_bceil = block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
+    }
     maxt_block_base = g_maxt_block_base;
     maxt_block_base2 = maxt_block_base + block_start;
-    marker_bidx_start = block_start + (((uint64_t)tidx) * g_block_diff) / assoc_thread_ct;
     maxt_block_base3 = maxt_block_base + marker_bidx_start;
     marker_bidx = marker_bidx_start;
     marker_idx = maxt_block_base3;
-    marker_bceil = block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
     loadbuf = g_loadbuf;
     missing_cts = g_missing_cts;
     het_cts = g_het_cts;
@@ -5158,6 +5229,7 @@ THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
       }
       perm_2success_ct[marker_idx++] += success_2incr;
     }
+  model_maxt_gen_thread_skip_all:
     if ((!tidx) || g_is_last_thread_block) {
       THREAD_RETURN;
     }
@@ -5224,8 +5296,16 @@ THREAD_RET_TYPE model_adapt_best_thread(void* arg) {
   double dyy;
   double dzz;
   while (1) {
-    marker_bidx = g_block_start + (((uint64_t)tidx) * g_block_diff) / assoc_thread_ct;
-    marker_bceil = g_block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
+    if (g_block_diff < assoc_thread_ct) {
+      if (g_block_diff <= tidx) {
+        goto model_adapt_best_thread_skip_all;
+      }
+      marker_bidx = g_block_start + tidx;
+      marker_bceil = marker_bidx + 1;
+    } else {
+      marker_bidx = g_block_start + (((uint64_t)tidx) * g_block_diff) / assoc_thread_ct;
+      marker_bceil = g_block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
+    }
     loadbuf = g_loadbuf;
     is_invalid = g_is_invalid_bitfield;
     orig_1mpval = g_orig_1mpval;
@@ -5385,6 +5465,7 @@ THREAD_RET_TYPE model_adapt_best_thread(void* arg) {
       }
       perm_2success_ct[marker_idx] += success_2incr;
     }
+  model_adapt_best_thread_skip_all:
     if ((!tidx) || g_is_last_thread_block) {
       THREAD_RETURN;
     }
@@ -5471,13 +5552,21 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
   double default_best_stat;
   while (1) {
     block_start = g_block_start;
+    if (g_block_diff < assoc_thread_ct) {
+      if (g_block_diff <= tidx) {
+        goto model_maxt_best_thread_skip_all;
+      }
+      marker_bidx_start = block_start + tidx;
+      marker_bceil = marker_bidx_start + 1;
+    } else {
+      marker_bidx_start = block_start + (((uint64_t)tidx) * g_block_diff) / assoc_thread_ct;
+      marker_bceil = block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
+    }
     maxt_block_base = g_maxt_block_base;
     maxt_block_base2 = maxt_block_base + block_start;
-    marker_bidx_start = block_start + (((uint64_t)tidx) * g_block_diff) / assoc_thread_ct;
     maxt_block_base3 = maxt_block_base + marker_bidx_start;
     marker_bidx = marker_bidx_start;
     marker_idx = maxt_block_base3;
-    marker_bceil = block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
     loadbuf = g_loadbuf;
     is_invalid = g_is_invalid_bitfield;
     missing_cts = g_missing_cts;
@@ -5713,6 +5802,7 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
       }
       perm_2success_ct[marker_idx++] += success_2incr;
     }
+  model_maxt_best_thread_skip_all:
     if ((!tidx) || g_is_last_thread_block) {
       THREAD_RETURN;
     }
@@ -6505,6 +6595,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       model_assoc_gen_cluster_perms_thread((void*)ulii);
     }
     join_threads(threads, assoc_thread_ct);
+    g_assoc_thread_ct = max_thread_ct;
     if (!model_adapt_nst) {
       ulii = (perm_vec_ct + (CACHELINE_DBL - 1)) / CACHELINE_DBL;
       g_maxt_thread_results = (double*)wkspace_alloc(max_thread_ct * ulii * CACHELINE);
@@ -7307,61 +7398,61 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       ulii = 0;
       if (model_adapt_nst) {
 	if (model_assoc) {
-	  if (spawn_threads2(threads, &assoc_adapt_thread, assoc_thread_ct, is_last_block)) {
+	  if (spawn_threads2(threads, &assoc_adapt_thread, max_thread_ct, is_last_block)) {
 	    goto model_assoc_ret_THREAD_CREATE_FAIL;
 	  }
 	  assoc_adapt_thread((void*)ulii);
 	} else if (model_modifier & (MODEL_PDOM | MODEL_PREC)) {
-	  if (spawn_threads2(threads, &model_adapt_domrec_thread, assoc_thread_ct, is_last_block)) {
+	  if (spawn_threads2(threads, &model_adapt_domrec_thread, max_thread_ct, is_last_block)) {
 	    goto model_assoc_ret_THREAD_CREATE_FAIL;
 	  }
 	  model_adapt_domrec_thread((void*)ulii);
 	} else if (model_modifier & MODEL_PTREND) {
-	  if (spawn_threads2(threads, &model_adapt_trend_thread, assoc_thread_ct, is_last_block)) {
+	  if (spawn_threads2(threads, &model_adapt_trend_thread, max_thread_ct, is_last_block)) {
 	    goto model_assoc_ret_THREAD_CREATE_FAIL;
 	  }
 	  model_adapt_trend_thread((void*)ulii);
 	} else if (model_modifier & MODEL_PGEN) {
-	  if (spawn_threads2(threads, &model_adapt_gen_thread, assoc_thread_ct, is_last_block)) {
+	  if (spawn_threads2(threads, &model_adapt_gen_thread, max_thread_ct, is_last_block)) {
 	    goto model_assoc_ret_THREAD_CREATE_FAIL;
 	  }
 	  model_adapt_gen_thread((void*)ulii);
 	} else {
-	  if (spawn_threads2(threads, &model_adapt_best_thread, assoc_thread_ct, is_last_block)) {
+	  if (spawn_threads2(threads, &model_adapt_best_thread, max_thread_ct, is_last_block)) {
 	    goto model_assoc_ret_THREAD_CREATE_FAIL;
 	  }
 	  model_adapt_best_thread((void*)ulii);
 	}
-	join_threads2(threads, assoc_thread_ct, is_last_block);
+	join_threads2(threads, max_thread_ct, is_last_block);
       } else {
 	g_maxt_block_base = marker_idx;
 	if (model_assoc) {
-	  if (spawn_threads2(threads, &assoc_maxt_thread, assoc_thread_ct, is_last_block)) {
+	  if (spawn_threads2(threads, &assoc_maxt_thread, max_thread_ct, is_last_block)) {
 	    goto model_assoc_ret_THREAD_CREATE_FAIL;
 	  }
 	  assoc_maxt_thread((void*)ulii);
 	} else if (model_modifier & (MODEL_PDOM | MODEL_PREC)) {
-	  if (spawn_threads2(threads, &model_maxt_domrec_thread, assoc_thread_ct, is_last_block)) {
+	  if (spawn_threads2(threads, &model_maxt_domrec_thread, max_thread_ct, is_last_block)) {
 	    goto model_assoc_ret_THREAD_CREATE_FAIL;
 	  }
 	  model_maxt_domrec_thread((void*)ulii);
 	} else if (model_modifier & MODEL_PTREND) {
-	  if (spawn_threads2(threads, &model_maxt_trend_thread, assoc_thread_ct, is_last_block)) {
+	  if (spawn_threads2(threads, &model_maxt_trend_thread, max_thread_ct, is_last_block)) {
 	    goto model_assoc_ret_THREAD_CREATE_FAIL;
 	  }
 	  model_maxt_trend_thread((void*)ulii);
 	} else if (model_modifier & MODEL_PGEN) {
-	  if (spawn_threads2(threads, &model_maxt_gen_thread, assoc_thread_ct, is_last_block)) {
+	  if (spawn_threads2(threads, &model_maxt_gen_thread, max_thread_ct, is_last_block)) {
 	    goto model_assoc_ret_THREAD_CREATE_FAIL;
 	  }
 	  model_maxt_gen_thread((void*)ulii);
 	} else {
-	  if (spawn_threads2(threads, &model_maxt_best_thread, assoc_thread_ct, is_last_block)) {
+	  if (spawn_threads2(threads, &model_maxt_best_thread, max_thread_ct, is_last_block)) {
 	    goto model_assoc_ret_THREAD_CREATE_FAIL;
 	  }
 	  model_maxt_best_thread((void*)ulii);
 	}
-	join_threads2(threads, assoc_thread_ct, is_last_block);
+	join_threads2(threads, max_thread_ct, is_last_block);
 	ulii = (perm_vec_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
 	if (model_fisherx) {
 	  for (uii = 0; uii < assoc_thread_ct; uii++) {
