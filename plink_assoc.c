@@ -2957,7 +2957,7 @@ THREAD_RET_TYPE qassoc_gen_cluster_perms_thread(void* arg) {
 }
 
 THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uintptr_t pheno_nm_ct = g_pheno_nm_ct;
   uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
   uintptr_t perm_vec_ct = g_perm_vec_ct;
@@ -3136,7 +3136,7 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
 }
 
 THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
@@ -3419,7 +3419,7 @@ THREAD_RET_TYPE assoc_set_thread(void* arg) {
   // default --set-r2 value makes LD-exploitation silly here.
   // (possible todo: permit Fisher test, converting p-values into equivalent
   // chi-square stats?)
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
   uint32_t is_x = g_is_x;
   uint32_t is_x_or_y = is_x || g_is_y;
@@ -3524,7 +3524,7 @@ THREAD_RET_TYPE assoc_set_thread(void* arg) {
 }
 
 THREAD_RET_TYPE qassoc_adapt_thread(void* arg) {
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uint32_t pidx_offset = g_perms_done - perm_vec_ct;
@@ -3678,7 +3678,7 @@ THREAD_RET_TYPE qassoc_adapt_thread(void* arg) {
 }
 
 THREAD_RET_TYPE qassoc_adapt_lin_thread(void* arg) {
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uint32_t pidx_offset = g_perms_done - perm_vec_ct;
@@ -3831,7 +3831,7 @@ THREAD_RET_TYPE qassoc_adapt_lin_thread(void* arg) {
 }
 
 THREAD_RET_TYPE qassoc_maxt_thread(void* arg) {
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uint32_t qblock_start = g_qblock_start;
@@ -4007,7 +4007,7 @@ THREAD_RET_TYPE qassoc_maxt_thread(void* arg) {
 }
 
 THREAD_RET_TYPE qassoc_maxt_lin_thread(void* arg) {
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uint32_t qblock_start = g_qblock_start;
@@ -4158,7 +4158,7 @@ THREAD_RET_TYPE qassoc_maxt_lin_thread(void* arg) {
 }
 
 THREAD_RET_TYPE model_adapt_domrec_thread(void* arg) {
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uintptr_t pheno_nm_ct = g_pheno_nm_ct;
   uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
   uintptr_t perm_vec_ct = g_perm_vec_ct;
@@ -4321,7 +4321,7 @@ THREAD_RET_TYPE model_adapt_domrec_thread(void* arg) {
 }
 
 THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
@@ -4565,7 +4565,7 @@ THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
 }
 
 THREAD_RET_TYPE model_adapt_trend_thread(void* arg) {
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uintptr_t pheno_nm_ct = g_pheno_nm_ct;
   uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
   uintptr_t perm_vec_ct = g_perm_vec_ct;
@@ -4704,7 +4704,7 @@ THREAD_RET_TYPE model_adapt_trend_thread(void* arg) {
 }
 
 THREAD_RET_TYPE model_maxt_trend_thread(void* arg) {
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
@@ -4897,7 +4897,7 @@ THREAD_RET_TYPE model_maxt_trend_thread(void* arg) {
 }
 
 THREAD_RET_TYPE model_adapt_gen_thread(void* arg) {
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uintptr_t pheno_nm_ct = g_pheno_nm_ct;
   uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
   uintptr_t perm_vec_ct = g_perm_vec_ct;
@@ -5046,7 +5046,7 @@ THREAD_RET_TYPE model_adapt_gen_thread(void* arg) {
 }
 
 THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
@@ -5238,7 +5238,7 @@ THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
 }
 
 THREAD_RET_TYPE model_adapt_best_thread(void* arg) {
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uintptr_t pheno_nm_ct = g_pheno_nm_ct;
   uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
   uintptr_t perm_vec_ct = g_perm_vec_ct;
@@ -5474,7 +5474,7 @@ THREAD_RET_TYPE model_adapt_best_thread(void* arg) {
 }
 
 THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
@@ -9514,7 +9514,7 @@ void calc_git_missing(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uintptr_t* __r
 }
 
 THREAD_RET_TYPE testmiss_adapt_thread(void* arg) {
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uint32_t marker_bidx = (((uint64_t)tidx) * g_block_diff) / g_assoc_thread_ct;
   uint32_t marker_bceil = (((uint64_t)tidx + 1) * g_block_diff) / g_assoc_thread_ct;
   uintptr_t pheno_nm_ct = g_pheno_nm_ct;
@@ -9628,7 +9628,7 @@ THREAD_RET_TYPE testmiss_adapt_thread(void* arg) {
 }
 
 THREAD_RET_TYPE testmiss_maxt_thread(void* arg) {
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
   uint32_t is_midp = g_fisher_midp;
