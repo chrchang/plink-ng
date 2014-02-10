@@ -2170,9 +2170,9 @@ THREAD_RET_TYPE groupdist_jack_thread(void* arg) {
   THREAD_RETURN;
 }
 
-double regress_rel_jack(uint32_t* uibuf, double* ret2_ptr) {
+double regress_rel_jack(uint32_t jackknife_d, uint32_t indiv_ct, double reg_tot_xy, double reg_tot_x, double reg_tot_y, double reg_tot_xx, double reg_tot_yy, uint32_t* uibuf, double* jackknife_precomp, double* rel_dists, double* pheno_packed, double* ret2_ptr) {
   uint32_t* uiptr = uibuf;
-  uint32_t* uiptr2 = &(uibuf[g_jackknife_d]);
+  uint32_t* uiptr2 = &(uibuf[jackknife_d]);
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -2187,7 +2187,7 @@ double regress_rel_jack(uint32_t* uibuf, double* ret2_ptr) {
   double dxx1;
   double dyy;
   while (uiptr < uiptr2) {
-    dptr2 = &(g_jackknife_precomp[(*uiptr++) * JACKKNIFE_VALS_REL]);
+    dptr2 = &(jackknife_precomp[(*uiptr++) * JACKKNIFE_VALS_REL]);
     neg_tot_xy += *dptr2++;
     neg_tot_x += *dptr2++;
     neg_tot_y += *dptr2++;
@@ -2195,14 +2195,14 @@ double regress_rel_jack(uint32_t* uibuf, double* ret2_ptr) {
     neg_tot_yy += *dptr2++;
   }
   uiptr = uibuf;
-  for (uii = 1; uii < g_jackknife_d; uii++) {
+  for (uii = 1; uii < jackknife_d; uii++) {
     ujj = *(++uiptr);
-    dxx1 = g_pheno_packed[ujj];
+    dxx1 = pheno_packed[ujj];
     uiptr2 = uibuf;
-    dptr = &(g_rel_dists[((uintptr_t)ujj * (ujj - 1)) / 2]);
+    dptr = &(rel_dists[((uintptr_t)ujj * (ujj - 1)) / 2]);
     while (uiptr2 < uiptr) {
       ukk = *uiptr2++;
-      dxx = (dxx1 + g_pheno_packed[ukk]) * 0.5;
+      dxx = (dxx1 + pheno_packed[ukk]) * 0.5;
       dyy = dptr[ukk];
       neg_tot_xy -= dxx * dyy;
       neg_tot_x -= dxx;
@@ -2211,39 +2211,50 @@ double regress_rel_jack(uint32_t* uibuf, double* ret2_ptr) {
       neg_tot_yy -= dyy * dyy;
     }
   }
-  dxx = g_reg_tot_y - neg_tot_y;
-  dyy = g_indiv_ct - g_jackknife_d;
+  dxx = reg_tot_y - neg_tot_y;
+  dyy = ((int32_t)indiv_ct) - ((int32_t)jackknife_d);
   dyy = dyy * (dyy - 1.0) * 0.5;
-  *ret2_ptr = ((g_reg_tot_xy - neg_tot_xy) - dxx * (g_reg_tot_x - neg_tot_x) / dyy) / ((g_reg_tot_yy - neg_tot_yy) - dxx * dxx / dyy);
-  dxx = g_reg_tot_x - neg_tot_x;
-  return ((g_reg_tot_xy - neg_tot_xy) - dxx * (g_reg_tot_y - neg_tot_y) / dyy) / ((g_reg_tot_xx - neg_tot_xx) - dxx * dxx / dyy);
+  *ret2_ptr = ((reg_tot_xy - neg_tot_xy) - dxx * (reg_tot_x - neg_tot_x) / dyy) / ((reg_tot_yy - neg_tot_yy) - dxx * dxx / dyy);
+  dxx = reg_tot_x - neg_tot_x;
+  return ((reg_tot_xy - neg_tot_xy) - dxx * (reg_tot_y - neg_tot_y) / dyy) / ((reg_tot_xx - neg_tot_xx) - dxx * dxx / dyy);
 }
 
 THREAD_RET_TYPE regress_rel_jack_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
-  uint32_t* uibuf = (uint32_t*)(&(g_geno[tidx * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int32_t))]));
-  unsigned char* cbuf = &(g_geno[tidx * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int32_t)) + (g_jackknife_d + 1) * sizeof(int32_t)]);
-  uint64_t ulljj = g_jackknife_iters / 100;
+  uintptr_t indiv_ct = g_indiv_ct;
+  uintptr_t jackknife_iters = g_jackknife_iters;
+  double reg_tot_xy = g_reg_tot_xy;
+  double reg_tot_x = g_reg_tot_x;
+  double reg_tot_y = g_reg_tot_y;
+  double reg_tot_xx = g_reg_tot_xx;
+  double reg_tot_yy = g_reg_tot_yy;
+  uint32_t jackknife_d = g_jackknife_d;
+  uint32_t* uibuf = (uint32_t*)(&(g_geno[tidx * CACHEALIGN(indiv_ct + (jackknife_d + 1) * sizeof(int32_t))]));
+  unsigned char* cbuf = &(g_geno[tidx * CACHEALIGN(indiv_ct + (jackknife_d + 1) * sizeof(int32_t)) + (jackknife_d + 1) * sizeof(int32_t)]);
+  double* jackknife_precomp = g_jackknife_precomp;
+  double* rel_dists = g_rel_dists;
+  double* pheno_packed = g_pheno_packed;
+  uintptr_t uljj = jackknife_iters / 100;
   double sum = 0.0;
   double sum_sq = 0.0;
   double sum2 = 0;
   double sum2_sq = 0.0;
   sfmt_t* sfmtp = g_sfmtp_arr[tidx];
-  uint64_t ullii;
+  uint64_t ulii;
   double dxx;
   double ret2;
-  for (ullii = 0; ullii < g_jackknife_iters; ullii++) {
-    pick_d_small(cbuf, uibuf, g_indiv_ct, g_jackknife_d, sfmtp);
-    dxx = regress_rel_jack(uibuf, &ret2);
+  for (ulii = 0; ulii < jackknife_iters; ulii++) {
+    pick_d_small(cbuf, uibuf, indiv_ct, jackknife_d, sfmtp);
+    dxx = regress_rel_jack(jackknife_d, indiv_ct, reg_tot_xy, reg_tot_x, reg_tot_y, reg_tot_xx, reg_tot_yy, uibuf, jackknife_precomp, rel_dists, pheno_packed, &ret2);
     sum += dxx;
     sum_sq += dxx * dxx;
     sum2 += ret2;
     sum2_sq += ret2 * ret2;
-    if ((!tidx) && (ullii >= ulljj)) {
-      ulljj = (ullii * 100) / g_jackknife_iters;
-      printf("\r%" PRIu64 "%%", ulljj);
+    if ((!tidx) && (ulii >= uljj)) {
+      uljj = (ulii * 100LLU) / jackknife_iters;
+      printf("\r%" PRIuPTR "%%", uljj);
       fflush(stdout);
-      ulljj = ((ulljj + 1) * g_jackknife_iters) / 100;
+      uljj = ((uljj + 1LLU) * jackknife_iters) / 100;
     }
   }
   g_calc_result[tidx][0] = sum;
@@ -2277,6 +2288,11 @@ uint32_t set_default_jackknife_d(uint32_t ct) {
 int32_t regress_rel_main(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, Rel_info* relip, pthread_t* threads, double* pheno_d) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t regress_rel_iters = relip->regress_rel_iters;
+  double reg_tot_xy = 0;
+  double reg_tot_x = 0;
+  double reg_tot_y = 0;
+  double reg_tot_xx = 0;
+  double reg_tot_yy = 0;
   uint32_t regress_rel_d = relip->regress_rel_d;
   double* rel_ptr;
   double* pheno_ptr;
@@ -2301,11 +2317,6 @@ int32_t regress_rel_main(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
   collapse_copy_phenod(g_pheno_packed, pheno_d, indiv_exclude, unfiltered_indiv_ct, indiv_ct);
   print_pheno_stdev(g_pheno_packed, indiv_ct);
   trimatrix_size = ((uintptr_t)indiv_ct * (indiv_ct - 1)) / 2;
-  g_reg_tot_xy = 0.0;
-  g_reg_tot_x = 0.0;
-  g_reg_tot_y = 0.0;
-  g_reg_tot_xx = 0.0;
-  g_reg_tot_yy = 0.0;
   rel_ptr = g_rel_dists;
   pheno_ptr = g_pheno_packed;
   g_jackknife_precomp = (double*)wkspace_alloc(indiv_ct * JACKKNIFE_VALS_REL * sizeof(double));
@@ -2324,32 +2335,37 @@ int32_t regress_rel_main(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
       dxxyy = dxx * dyy;
       dxxsq = dxx * dxx;
       dyysq = dyy * dyy;
-      g_reg_tot_xy += dxxyy;
+      reg_tot_xy += dxxyy;
       jp_fixed_ptr[0] += dxxyy;
       *jp_moving_ptr += dxxyy;
       jp_moving_ptr++;
-      g_reg_tot_x += dxx;
+      reg_tot_x += dxx;
       jp_fixed_ptr[1] += dxx;
       *jp_moving_ptr += dxx;
       jp_moving_ptr++;
-      g_reg_tot_y += dyy;
+      reg_tot_y += dyy;
       jp_fixed_ptr[2] += dyy;
       *jp_moving_ptr += dyy;
       jp_moving_ptr++;
-      g_reg_tot_xx += dxxsq;
+      reg_tot_xx += dxxsq;
       jp_fixed_ptr[3] += dxxsq;
       *jp_moving_ptr += dxxsq;
       jp_moving_ptr++;
-      g_reg_tot_yy += dyysq;
+      reg_tot_yy += dyysq;
       jp_fixed_ptr[4] += dyysq;
       *jp_moving_ptr += dyysq;
       jp_moving_ptr++;
     }
   }
+  g_reg_tot_xy = reg_tot_xy;
+  g_reg_tot_x = reg_tot_x;
+  g_reg_tot_y = reg_tot_y;
+  g_reg_tot_xx = reg_tot_xx;
+  g_reg_tot_yy = reg_tot_yy;
   trimatrix_size_recip = 1.0 / (double)trimatrix_size;
-  sprintf(logbuf, "Regression slope (y = genomic relationship, x = avg phenotype): %g\n", (g_reg_tot_xy - g_reg_tot_x * g_reg_tot_y * trimatrix_size_recip) / (g_reg_tot_xx - g_reg_tot_x * g_reg_tot_x * trimatrix_size_recip));
+  sprintf(logbuf, "Regression slope (y = genomic relationship, x = avg phenotype): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y * trimatrix_size_recip) / (reg_tot_xx - reg_tot_x * reg_tot_x * trimatrix_size_recip));
   logprintb();
-  sprintf(logbuf, "                 (y = avg phenotype, x = genomic relationship): %g\n", (g_reg_tot_xy - g_reg_tot_x * g_reg_tot_y * trimatrix_size_recip) / (g_reg_tot_yy - g_reg_tot_y * g_reg_tot_y * trimatrix_size_recip));
+  sprintf(logbuf, "                 (y = avg phenotype, x = genomic relationship): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y * trimatrix_size_recip) / (reg_tot_yy - reg_tot_y * reg_tot_y * trimatrix_size_recip));
   logprintb();
   g_jackknife_iters = (regress_rel_iters + g_thread_ct - 1) / g_thread_ct;
   if (regress_rel_d) {
@@ -2395,9 +2411,9 @@ int32_t regress_rel_main(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
 
 // Replaces matrix[][] with mult_val * matrix[][] + add_val * I.
 // Multithreading doesn't help here.
-void matrix_const_mult_add(double* matrix, double mult_val, double add_val) {
+void matrix_const_mult_add(uint32_t indiv_ct, double* matrix, double mult_val, double add_val) {
   uint32_t uii;
-  uint32_t loop_end = g_indiv_ct - 1;
+  uint32_t loop_end = indiv_ct - 1;
   uint32_t ujj;
   double* dptr = matrix;
 #ifdef __LP64__
@@ -2422,12 +2438,12 @@ void matrix_const_mult_add(double* matrix, double mult_val, double add_val) {
       ujj += 2;
     }
     dptr = (double*)vptr;
-    if (ujj < g_indiv_ct) {
+    if (ujj < indiv_ct) {
       *dptr *= mult_val;
       dptr++;
     }
 #else
-    for (ujj = 0; ujj < g_indiv_ct; ujj++) {
+    for (ujj = 0; ujj < indiv_ct; ujj++) {
       *dptr *= mult_val;
       dptr++;
     }
@@ -2439,15 +2455,15 @@ void matrix_const_mult_add(double* matrix, double mult_val, double add_val) {
 // sums[idx] = matrix[idx][1] + matrix[idx][2] + ....  Ideally, we can assume
 // the matrix is symmetric and only reference the FORTRAN upper right, but for
 // now we can't.
-void matrix_row_sum_ur(double* sums, double* matrix) {
+void matrix_row_sum_ur(uintptr_t indiv_ct, double* sums, double* matrix) {
   uintptr_t indiv_idx;
   double* dptr;
   double acc;
   double* sptr_end;
   double* sptr;
-  fill_double_zero(sums, g_indiv_ct);
-  for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
-    dptr = &(matrix[indiv_idx * g_indiv_ct]);
+  fill_double_zero(sums, indiv_ct);
+  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+    dptr = &(matrix[indiv_idx * indiv_ct]);
     acc = 0.0;
     sptr_end = &(sums[indiv_idx]);
     sptr = sums;
@@ -2470,7 +2486,8 @@ void matrix_row_sum_ur(double* sums, double* matrix) {
 // g_indiv_ct currently must be set.
 void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* covr_ref, double tol, uint32_t is_strict) {
   double ll_change;
-  int64_t mat_offset = g_indiv_ct;
+  uintptr_t indiv_ct = g_indiv_ct;
+  int64_t mat_offset = indiv_ct;
   double* rel_dists;
   MATRIX_INVERT_BUF1_TYPE* irow;
   __CLPK_integer lwork;
@@ -2480,7 +2497,7 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
   double* dptr;
   double* dptr2;
   double* matrix_pvg;
-  __CLPK_integer indiv_ct_li = g_indiv_ct;
+  __CLPK_integer indiv_ct_li = indiv_ct;
   double dxx;
   double dyy;
   double max_jump;
@@ -2491,18 +2508,18 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
   double covr_cur_change = 1.0;
   double covg_last_change;
   double covr_last_change;
-  double indiv_ct_d = 1 / (double)g_indiv_ct;
+  double indiv_ct_recip = 1 / ((double)((intptr_t)indiv_ct));
   uintptr_t indiv_idx;
   int32_t jj;
 #ifdef _WIN32
   char blas_char;
-  int32_t indiv_ct_i32 = g_indiv_ct;
+  int32_t indiv_ct_i32 = indiv_ct;
 #endif
   mat_offset = CACHEALIGN_DBL(mat_offset * mat_offset);
   rel_dists = &(wkbase[mat_offset]);
   row = &(wkbase[mat_offset * 3]);
   irow = (MATRIX_INVERT_BUF1_TYPE*)row;
-  row2 = &(row[g_indiv_ct]);
+  row2 = &(row[indiv_ct]);
   work = &(wkbase[mat_offset * 2]);
   lwork = mat_offset;
   matrix_pvg = work;
@@ -2510,16 +2527,16 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
     lwork = CACHELINE_DBL;
   }
   fill_double_zero(matrix_pvg, mat_offset);
-  fill_double_zero(row2, g_indiv_ct);
+  fill_double_zero(row2, indiv_ct);
   printf("      ");
   do {
     memcpy(wkbase, rel_dists, mat_offset * sizeof(double));
-    matrix_const_mult_add(wkbase, *covg_ref, *covr_ref);
+    matrix_const_mult_add(indiv_ct, wkbase, *covg_ref, *covr_ref);
     invert_matrix(indiv_ct_li, wkbase, irow, work);
-    matrix_row_sum_ur(row, wkbase);
+    matrix_row_sum_ur(indiv_ct, row, wkbase);
     dxx = 0.0;
     dptr = row;
-    dptr2 = &(row[g_indiv_ct]);
+    dptr2 = &(row[indiv_ct]);
     while (dptr < dptr2) {
       dxx += *dptr++;
     }
@@ -2535,8 +2552,8 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
     // dgemm_(&blas_char, &blas_char, &indiv_ct_i32, &indiv_ct_i32, &indiv_ct_i32, &dyy, wkbase, &indiv_ct_i32, rel_dists, &indiv_ct_i32, &dzz, matrix_pvg, &indiv_ct_i32);
     dlg = 0.0;
     dle = 0.0;
-    jj = g_indiv_ct + 1;
-    for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
+    jj = indiv_ct + 1;
+    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
       dlg -= matrix_pvg[indiv_idx * jj];
       dle -= wkbase[indiv_idx * jj];
     }
@@ -2548,27 +2565,27 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
     dsymv_(&blas_char, &indiv_ct_i32, &dyy, wkbase, &indiv_ct_i32, row2, &jj, &dzz, row, &jj);
     dle += ddot_(&indiv_ct_i32, pheno, &jj, row, &jj);
 #else
-    cblas_dger(CblasColMajor, g_indiv_ct, g_indiv_ct, dxx, row, 1, row, 1, wkbase, g_indiv_ct);
+    cblas_dger(CblasColMajor, indiv_ct, indiv_ct, dxx, row, 1, row, 1, wkbase, indiv_ct);
     // unfortunately, cblas_dsymm is much worse than cblas_dgemm on OS X
-    col_major_matrix_multiply(g_indiv_ct, g_indiv_ct, g_indiv_ct, wkbase, rel_dists, matrix_pvg);
-    // cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, g_indiv_ct, g_indiv_ct, g_indiv_ct, 1.0, wkbase, g_indiv_ct, rel_dists, g_indiv_ct, 0.0, matrix_pvg, g_indiv_ct);
+    col_major_matrix_multiply(indiv_ct, indiv_ct, indiv_ct, wkbase, rel_dists, matrix_pvg);
+    // cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, indiv_ct, indiv_ct, indiv_ct, 1.0, wkbase, indiv_ct, rel_dists, indiv_ct, 0.0, matrix_pvg, indiv_ct);
     dlg = 0.0;
     dle = 0.0;
-    jj = g_indiv_ct + 1;
-    for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
+    jj = indiv_ct + 1;
+    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
       dlg -= matrix_pvg[indiv_idx * jj];
       dle -= wkbase[indiv_idx * jj];
     }
-    cblas_dsymv(CblasColMajor, CblasUpper, g_indiv_ct, 1.0, wkbase, g_indiv_ct, pheno, 1, 0.0, row2, 1);
-    cblas_dsymv(CblasColMajor, CblasUpper, g_indiv_ct, 1.0, matrix_pvg, g_indiv_ct, row2, 1, 0.0, row, 1);
-    dlg += cblas_ddot(g_indiv_ct, pheno, 1, row, 1);
-    cblas_dsymv(CblasColMajor, CblasUpper, g_indiv_ct, 1.0, wkbase, g_indiv_ct, row2, 1, 0.0, row, 1);
-    dle += cblas_ddot(g_indiv_ct, pheno, 1, row, 1);
+    cblas_dsymv(CblasColMajor, CblasUpper, indiv_ct, 1.0, wkbase, indiv_ct, pheno, 1, 0.0, row2, 1);
+    cblas_dsymv(CblasColMajor, CblasUpper, indiv_ct, 1.0, matrix_pvg, indiv_ct, row2, 1, 0.0, row, 1);
+    dlg += cblas_ddot(indiv_ct, pheno, 1, row, 1);
+    cblas_dsymv(CblasColMajor, CblasUpper, indiv_ct, 1.0, wkbase, indiv_ct, row2, 1, 0.0, row, 1);
+    dle += cblas_ddot(indiv_ct, pheno, 1, row, 1);
 #endif
     covg_last_change = covg_cur_change;
     covr_last_change = covr_cur_change;
-    covg_cur_change = (*covg_ref) * (*covg_ref) * dlg * indiv_ct_d;
-    covr_cur_change = (*covr_ref) * (*covr_ref) * dle * indiv_ct_d;
+    covg_cur_change = (*covg_ref) * (*covg_ref) * dlg * indiv_ct_recip;
+    covr_cur_change = (*covr_ref) * (*covr_ref) * dle * indiv_ct_recip;
     if (is_strict) {
       max_jump = 1.0;
     } else {
@@ -2979,6 +2996,8 @@ int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfi
   uint32_t tidx = 1;
   int32_t retval = 0;
   int32_t perm_test[6];
+  uintptr_t* perm_rows;
+  double* perm_results;
   double ctrl_ctrl_ct;
   double ctrl_case_ct;
   double case_case_ct;
@@ -3041,27 +3060,29 @@ int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfi
   collapse_copy_bitarr(unfiltered_indiv_ct, pheno_nm, indiv_exclude, indiv_ct, g_pheno_nm);
   collapse_copy_bitarr(unfiltered_indiv_ct, pheno_c, indiv_exclude, indiv_ct, g_pheno_c);
   if (wkspace_alloc_d_checked(&g_ibs_test_partial_sums, g_thread_ct * 32 * BITCT * sizeof(double)) ||
-      wkspace_alloc_ul_checked(&g_perm_rows, perm_ct * pheno_nm_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&perm_rows, perm_ct * pheno_nm_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&g_perm_col_buf, perm_ctclm * sizeof(intptr_t) * g_thread_ct) ||
-      wkspace_alloc_d_checked(&g_perm_results, 2 * perm_ctcldm * sizeof(double) * g_thread_ct)) {
+      wkspace_alloc_d_checked(&perm_results, 2 * perm_ctcldm * sizeof(double) * g_thread_ct)) {
     goto ibs_test_calc_ret_NOMEM;
   }
-  fill_double_zero(g_perm_results, 2 * perm_ctcldm * g_thread_ct);
+  g_perm_results = perm_results;
+  fill_double_zero(perm_results, 2 * perm_ctcldm * g_thread_ct);
+  g_perm_rows = perm_rows;
 
   // first permutation = original
-  collapse_copy_bitarr_incl(unfiltered_indiv_ct, g_pheno_c, g_pheno_nm, pheno_nm_ct, g_perm_rows);
+  collapse_copy_bitarr_incl(unfiltered_indiv_ct, g_pheno_c, g_pheno_nm, pheno_nm_ct, perm_rows);
   for (ulii = pheno_nm_ctl - 1; ulii; ulii--) {
-    g_perm_rows[ulii * perm_ct] = g_perm_rows[ulii];
+    perm_rows[ulii * perm_ct] = perm_rows[ulii];
   }
 
   printf("--ibs-test (%" PRIuPTR " permutations): [generating permutations]", perm_ct - 1);
   fflush(stdout);
   // minor todo: multithread this
-  generate_perm1_interleaved(pheno_nm_ct, case_ct, 1, perm_ct, g_perm_rows);
+  generate_perm1_interleaved(pheno_nm_ct, case_ct, 1, perm_ct, perm_rows);
   fputs("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b                       \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b0%", stdout);
   fflush(stdout);
   for (ulii = 0; ulii < pheno_nm_ct; ulii++) {
-    uljj += ((g_perm_rows[((ulii / BITCT) * perm_ct)] >> (ulii & (BITCT - 1))) & 1);
+    uljj += ((perm_rows[((ulii / BITCT) * perm_ct)] >> (ulii & (BITCT - 1))) & 1);
   }
   triangle_fill(g_thread_start, pheno_nm_ct, g_thread_ct, 0, 1, 1, 1);
   if (spawn_threads(threads, &ibs_test_thread, g_thread_ct)) {
@@ -3081,23 +3102,23 @@ int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfi
     ctrl_case_ssq += g_calc_result[tidx][2];
     case_case_ssq += g_calc_result[tidx][3];
 #ifdef __LP64__
-    rvptr1 = (__m128d*)g_perm_results;
-    rvptr2 = (__m128d*)(&(g_perm_results[2 * perm_ctcldm * tidx]));
+    rvptr1 = (__m128d*)perm_results;
+    rvptr2 = (__m128d*)(&(perm_results[2 * perm_ctcldm * tidx]));
     for (perm_idx = 0; perm_idx < perm_ct; perm_idx++) {
       *rvptr1 = _mm_add_pd(*rvptr1, *rvptr2++);
       rvptr1++;
     }
 #else
-    rptr1 = g_perm_results;
-    rptr2 = &(g_perm_results[2 * perm_ctcldm * tidx]);
+    rptr1 = perm_results;
+    rptr2 = &(perm_results[2 * perm_ctcldm * tidx]);
     for (perm_idx = 0; perm_idx < perm_ct; perm_idx++) {
       *rptr1++ += *rptr2++;
       *rptr1++ += *rptr2++;
     }
 #endif
   }
-  ctrl_ctrl_tot = g_perm_results[0];
-  ctrl_case_tot = g_perm_results[1];
+  ctrl_ctrl_tot = perm_results[0];
+  ctrl_case_tot = perm_results[1];
   case_case_tot = tot_sum - ctrl_ctrl_tot - ctrl_case_tot;
 
   tot_mean = tot_sum / (ctrl_ctrl_ct + ctrl_case_ct + case_case_ct);
@@ -3118,8 +3139,8 @@ int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfi
   ctrl_ctrl_minus_ctrl_case = ctrl_ctrl_tot - ctrl_case_tot;
 
   for (ulii = 1; ulii < perm_ct; ulii++) {
-    ctrl_ctrl_tot1 = g_perm_results[ulii * 2];
-    ctrl_case_tot1 = g_perm_results[ulii * 2 + 1];
+    ctrl_ctrl_tot1 = perm_results[ulii * 2];
+    ctrl_case_tot1 = perm_results[ulii * 2 + 1];
     case_case_tot1 = tot_sum - ctrl_ctrl_tot1 - ctrl_case_tot1;
     if (ctrl_case_tot1 < ctrl_case_tot) {
       perm_test[0] += 1;
@@ -3202,6 +3223,9 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
   double dhl_ssq = 0.0;
   double dll_ssq = 0.0;
   int32_t retval = 0;
+  uintptr_t* pheno_nm_local;
+  uintptr_t* pheno_c_local;
+  double* jackknife_precomp;
   int32_t ll_size;
   int32_t lh_size;
   int32_t hh_size;
@@ -3238,12 +3262,14 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
   g_ctrl_ct = pheno_ctrl_ct;
   g_indiv_ct = indiv_ct;
   // g_pheno_nm and g_pheno_c should be NULL
-  if (wkspace_alloc_ul_checked(&g_pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&g_pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+  if (wkspace_alloc_ul_checked(&pheno_nm_local, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&pheno_c_local, unfiltered_indiv_ctl * sizeof(intptr_t))) {
     goto groupdist_calc_ret_NOMEM;
   }
-  collapse_copy_bitarr(unfiltered_indiv_ct, pheno_nm, indiv_exclude, indiv_ct, g_pheno_nm);
-  collapse_copy_bitarr(unfiltered_indiv_ct, pheno_c, indiv_exclude, indiv_ct, g_pheno_c);
+  g_pheno_nm = pheno_nm_local;
+  g_pheno_c = pheno_c_local;
+  collapse_copy_bitarr(unfiltered_indiv_ct, pheno_nm, indiv_exclude, indiv_ct, pheno_nm_local);
+  collapse_copy_bitarr(unfiltered_indiv_ct, pheno_c, indiv_exclude, indiv_ct, pheno_c_local);
   ll_size = ((uintptr_t)g_ctrl_ct * (g_ctrl_ct - 1)) / 2;
   lh_size = g_ctrl_ct * g_case_ct;
   hh_size = ((uintptr_t)g_case_ct * (g_case_ct - 1)) / 2;
@@ -3265,12 +3291,12 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
   lh_poolp = lh_pool;
   hh_poolp = hh_pool;
   for (indiv_idx = 1; indiv_idx < indiv_ct; indiv_idx++) {
-    if (IS_SET(g_pheno_nm, indiv_idx)) {
-      if (IS_SET(g_pheno_c, indiv_idx)) {
+    if (IS_SET(pheno_nm_local, indiv_idx)) {
+      if (IS_SET(pheno_c_local, indiv_idx)) {
 	for (uii = 0; uii < indiv_idx; uii++) {
-	  if (IS_SET(g_pheno_nm, uii)) {
+	  if (IS_SET(pheno_nm_local, uii)) {
 	    dxx = *dist_ptr;
-	    if (IS_SET(g_pheno_c, uii)) {
+	    if (IS_SET(pheno_c_local, uii)) {
 	      *hh_poolp++ = dxx;
 	      g_reg_tot_x += dxx;
 	      dhh_ssq += dxx * dxx;
@@ -3284,9 +3310,9 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
 	}
       } else {
 	for (uii = 0; uii < indiv_idx; uii++) {
-	  if (IS_SET(g_pheno_nm, uii)) {
+	  if (IS_SET(pheno_nm_local, uii)) {
 	    dxx = *dist_ptr;
-	    if (IS_SET(g_pheno_c, uii)) {
+	    if (IS_SET(pheno_c_local, uii)) {
 	      *lh_poolp++ = dxx;
 	      g_reg_tot_xy += dxx;
 	      dhl_ssq += dxx * dxx;
@@ -3340,10 +3366,11 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
   if (2 * g_jackknife_d >= (g_case_ct + g_ctrl_ct)) {
     logprint("Delete-d jackknife skipped because d is too large.\n");
   } else {
-    if (wkspace_alloc_d_checked(&g_jackknife_precomp, indiv_ct * JACKKNIFE_VALS_GROUPDIST * sizeof(double))) {
+    if (wkspace_alloc_d_checked(&jackknife_precomp, indiv_ct * JACKKNIFE_VALS_GROUPDIST * sizeof(double))) {
       goto groupdist_calc_ret_NOMEM;
     }
-    fill_double_zero(g_jackknife_precomp, indiv_ct * JACKKNIFE_VALS_GROUPDIST);
+    g_jackknife_precomp = jackknife_precomp;
+    fill_double_zero(jackknife_precomp, indiv_ct * JACKKNIFE_VALS_GROUPDIST);
     if (wkspace_init_sfmtp(g_thread_ct)) {
       goto groupdist_calc_ret_NOMEM;
     }
@@ -3351,25 +3378,25 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
     // tot_uu, tot_au, tot_aa
     dist_ptr = g_dists;
     for (indiv_idx = 1; indiv_idx < indiv_ct; indiv_idx++) {
-      if (IS_SET(g_pheno_nm, indiv_idx)) {
+      if (IS_SET(pheno_nm_local, indiv_idx)) {
 	uii = 0;
-	is_case = IS_SET(g_pheno_c, indiv_idx);
+	is_case = IS_SET(pheno_c_local, indiv_idx);
 	dyy = 0;
 	dzz = 0;
 	do {
-	  if (IS_SET(g_pheno_nm, uii)) {
+	  if (IS_SET(pheno_nm_local, uii)) {
 	    dxx = dist_ptr[uii];
-	    if (IS_SET(g_pheno_c, uii)) {
-	      g_jackknife_precomp[(uii * JACKKNIFE_VALS_GROUPDIST) + is_case + 1] += dxx;
+	    if (IS_SET(pheno_c_local, uii)) {
+	      jackknife_precomp[(uii * JACKKNIFE_VALS_GROUPDIST) + is_case + 1] += dxx;
 	      dzz += dxx;
 	    } else {
-	      g_jackknife_precomp[(uii * JACKKNIFE_VALS_GROUPDIST) + is_case] += dxx;
+	      jackknife_precomp[(uii * JACKKNIFE_VALS_GROUPDIST) + is_case] += dxx;
 	      dyy += dxx;
 	    }
 	  }
 	} while ((++uii) < indiv_idx);
-	g_jackknife_precomp[(indiv_idx * JACKKNIFE_VALS_GROUPDIST) + is_case] += dyy;
-	g_jackknife_precomp[(indiv_idx * JACKKNIFE_VALS_GROUPDIST) + is_case + 1] += dzz;
+	jackknife_precomp[(indiv_idx * JACKKNIFE_VALS_GROUPDIST) + is_case] += dyy;
+	jackknife_precomp[(indiv_idx * JACKKNIFE_VALS_GROUPDIST) + is_case + 1] += dzz;
       }
       dist_ptr = &(dist_ptr[indiv_idx]);
     }
@@ -4105,289 +4132,400 @@ void distance_print_done(int32_t format_code, char* outname, char* outname_end) 
 uint32_t distance_d_write_tri_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
   char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
-  while (g_dw_indiv1idx < g_dw_max_indiv1idx) {
-    while (g_dw_indiv2idx + 1 < g_dw_indiv1idx) {
-      sptr_cur = double_g_writex(sptr_cur, *g_dw_dist_ptr++, '\t');
-      g_dw_indiv2idx++;
+  uint64_t start_offset = g_dw_start_offset;
+  uint64_t hundredth = g_dw_hundredth;
+  uintptr_t max_indiv1idx = g_dw_max_indiv1idx;
+  double* dist_ptr = g_dw_dist_ptr;
+  uintptr_t indiv1idx = g_dw_indiv1idx;
+  uintptr_t indiv2idx = g_dw_indiv2idx;
+  uint32_t pct = g_pct;
+  while (indiv1idx < max_indiv1idx) {
+    while (indiv2idx + 1 < indiv1idx) {
+      sptr_cur = double_g_writex(sptr_cur, *dist_ptr++, '\t');
+      indiv2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_tri_emitn_ret;
       }
     }
-    if (g_dw_indiv2idx + 1 == g_dw_indiv1idx) {
-      sptr_cur = double_g_writex(sptr_cur, *g_dw_dist_ptr++, '\n');
+    if (indiv2idx + 1 == indiv1idx) {
+      sptr_cur = double_g_writex(sptr_cur, *dist_ptr++, '\n');
     }
-    if ((((uint64_t)g_dw_indiv1idx) * (g_dw_indiv1idx + 1) / 2 - g_dw_start_offset) >= g_dw_hundredth * g_pct) {
-      g_pct = (((uint64_t)g_dw_indiv1idx) * (g_dw_indiv1idx + 1) / 2 - g_dw_start_offset) / g_dw_hundredth;
-      printf("\rWriting... %u%%", g_pct++);
+    if ((((uint64_t)indiv1idx) * (indiv1idx + 1) / 2 - start_offset) >= hundredth * pct) {
+      pct = (((uint64_t)indiv1idx) * (indiv1idx + 1) / 2 - start_offset) / hundredth;
+      printf("\rWriting... %u%%", pct++);
       fflush(stdout);
     }
-    g_dw_indiv1idx++;
-    g_dw_indiv2idx = 0;
+    indiv1idx++;
+    indiv2idx = 0;
   }
  distance_d_write_tri_emitn_ret:
+  g_dw_dist_ptr = dist_ptr;
+  g_dw_indiv1idx = indiv1idx;
+  g_dw_indiv2idx = indiv2idx;
+  g_pct = pct;
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
 uint32_t distance_d_write_sq0_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
   char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
+  uintptr_t indiv_ct = g_indiv_ct;
+  uintptr_t max_indiv1idx = g_dw_max_indiv1idx;
+  uintptr_t min_indiv = g_dw_min_indiv;
+  double* dist_ptr = g_dw_dist_ptr;
+  unsigned char* membuf1 = &(g_dw_membuf[1]);
+  uintptr_t indiv1idx = g_dw_indiv1idx;
+  uintptr_t indiv2idx = g_dw_indiv2idx;
+  uint32_t pct = g_pct;
   uintptr_t ulii;
-  while (g_dw_indiv1idx < g_dw_max_indiv1idx) {
-    while (g_dw_indiv2idx < g_dw_indiv1idx) {
-      sptr_cur = double_g_writex(sptr_cur, *g_dw_dist_ptr++, '\t');
-      g_dw_indiv2idx++;
+  while (indiv1idx < max_indiv1idx) {
+    while (indiv2idx < indiv1idx) {
+      sptr_cur = double_g_writex(sptr_cur, *dist_ptr++, '\t');
+      indiv2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_sq0_emitn_ret;
       }
     }
     ulii = 1 + (((uintptr_t)(readbuf_end - sptr_cur)) / 2);
-    if (ulii < (g_indiv_ct - g_dw_indiv2idx)) {
-      sptr_cur = memcpya(sptr_cur, &(g_dw_membuf[1]), 2 * ulii);
-      g_dw_indiv2idx += ulii;
+    if (ulii < (indiv_ct - indiv2idx)) {
+      sptr_cur = memcpya(sptr_cur, membuf1, 2 * ulii);
+      indiv2idx += ulii;
       goto distance_d_write_sq0_emitn_ret;
     }
-    ulii = g_indiv_ct - g_dw_indiv2idx;
-    sptr_cur = memcpyax(sptr_cur, &(g_dw_membuf[1]), 2 * ulii - 1, '\n');
-    g_dw_indiv1idx++;
-    if ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU >= ((uint64_t)g_pct) * (g_dw_max_indiv1idx - g_dw_min_indiv)) {
-      g_pct = ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU) / (g_dw_max_indiv1idx - g_dw_min_indiv);
-      printf("\rWriting... %u%%", g_pct++);
+    ulii = indiv_ct - indiv2idx;
+    sptr_cur = memcpyax(sptr_cur, membuf1, 2 * ulii - 1, '\n');
+    indiv1idx++;
+    if ((indiv1idx - min_indiv) * 100LLU >= ((uint64_t)pct) * (max_indiv1idx - min_indiv)) {
+      pct = ((indiv1idx - min_indiv) * 100LLU) / (max_indiv1idx - min_indiv);
+      printf("\rWriting... %u%%", pct++);
       fflush(stdout);
     }
-    g_dw_indiv2idx = 0;
+    indiv2idx = 0;
   }
  distance_d_write_sq0_emitn_ret:
+  g_dw_dist_ptr = dist_ptr;
+  g_dw_indiv1idx = indiv1idx;
+  g_dw_indiv2idx = indiv2idx;
+  g_pct = pct;
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
 uint32_t distance_d_write_sq_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
   char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
-  while (g_dw_indiv1idx < g_dw_max_indiv1idx) {
-    while (g_dw_indiv2idx < g_dw_indiv1idx) {
-      sptr_cur = double_g_writex(sptr_cur, *g_dw_dist_ptr++, '\t');
-      g_dw_indiv2idx++;
+  uintptr_t indiv_ct = g_indiv_ct;
+  uintptr_t max_indiv1idx = g_dw_max_indiv1idx;
+  uintptr_t min_indiv = g_dw_min_indiv;
+  double* dists = g_dw_dists;
+  double* dist_ptr = g_dw_dist_ptr;
+  uintptr_t indiv1idx = g_dw_indiv1idx;
+  uintptr_t indiv2idx = g_dw_indiv2idx;
+  uint32_t pct = g_pct;
+  while (indiv1idx < max_indiv1idx) {
+    while (indiv2idx < indiv1idx) {
+      sptr_cur = double_g_writex(sptr_cur, *dist_ptr++, '\t');
+      indiv2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_sq_emitn_ret;
       }
     }
-    if (g_dw_indiv2idx == g_dw_indiv1idx) {
+    if (indiv2idx == indiv1idx) {
       *sptr_cur++ = '0';
-      g_dw_indiv2idx++;
+      indiv2idx++;
     }
-    while (g_dw_indiv2idx < g_indiv_ct) {
+    while (indiv2idx < indiv_ct) {
       *sptr_cur = '\t';
-      sptr_cur = double_g_write(&(sptr_cur[1]), g_dw_dists[((g_dw_indiv2idx * (g_dw_indiv2idx - 1)) / 2) + g_dw_indiv1idx]);
-      g_dw_indiv2idx++;
+      sptr_cur = double_g_write(&(sptr_cur[1]), dists[((indiv2idx * (indiv2idx - 1)) / 2) + indiv1idx]);
+      indiv2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_sq_emitn_ret;
       }
     }
     *sptr_cur++ = '\n';
-    g_dw_indiv1idx++;
-    if ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU >= ((uint64_t)g_pct) * (g_dw_max_indiv1idx - g_dw_min_indiv)) {
-      g_pct = ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU) / (g_dw_max_indiv1idx - g_dw_min_indiv);
-      printf("\rWriting... %u%%", g_pct++);
+    indiv1idx++;
+    if ((indiv1idx - min_indiv) * 100LLU >= ((uint64_t)pct) * (max_indiv1idx - min_indiv)) {
+      pct = ((indiv1idx - min_indiv) * 100LLU) / (max_indiv1idx - min_indiv);
+      printf("\rWriting... %u%%", pct++);
       fflush(stdout);
     }
-    g_dw_indiv2idx = 0;
+    indiv2idx = 0;
   }
  distance_d_write_sq_emitn_ret:
+  g_dw_dist_ptr = dist_ptr;
+  g_dw_indiv1idx = indiv1idx;
+  g_dw_indiv2idx = indiv2idx;
+  g_pct = pct;
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
 uint32_t distance_d_write_ibs_tri_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
   char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
-  while (g_dw_indiv1idx < g_dw_max_indiv1idx) {
-    while (g_dw_indiv2idx < g_dw_indiv1idx) {
-      sptr_cur = double_g_writex(sptr_cur, 1.0 - (*g_dw_dist_ptr++) * g_dw_half_marker_ct_recip, '\t');
-      g_dw_indiv2idx++;
+  uint64_t start_offset = g_dw_start_offset;
+  uint64_t hundredth = g_dw_hundredth;
+  double half_marker_ct_recip = g_dw_half_marker_ct_recip;
+  uintptr_t max_indiv1idx = g_dw_max_indiv1idx;
+  double* dist_ptr = g_dw_dist_ptr;
+  uintptr_t indiv1idx = g_dw_indiv1idx;
+  uintptr_t indiv2idx = g_dw_indiv2idx;
+  uint32_t pct = g_pct;
+  while (indiv1idx < max_indiv1idx) {
+    while (indiv2idx < indiv1idx) {
+      sptr_cur = double_g_writex(sptr_cur, 1.0 - (*dist_ptr++) * half_marker_ct_recip, '\t');
+      indiv2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_ibs_tri_emitn_ret;
       }
     }
-    if (g_dw_indiv2idx == g_dw_indiv1idx) {
+    if (indiv2idx == indiv1idx) {
       sptr_cur = memcpya(sptr_cur, "1\n", 2);
     }
-    g_dw_indiv1idx++;
-    if ((((uint64_t)g_dw_indiv1idx) * (g_dw_indiv1idx + 1) / 2 - g_dw_start_offset) >= g_dw_hundredth * g_pct) {
-      g_pct = (((uint64_t)g_dw_indiv1idx) * (g_dw_indiv1idx + 1) / 2 - g_dw_start_offset) / g_dw_hundredth;
-      printf("\rWriting... %u%%", g_pct++);
+    indiv1idx++;
+    if ((((uint64_t)indiv1idx) * (indiv1idx + 1) / 2 - start_offset) >= hundredth * pct) {
+      pct = (((uint64_t)indiv1idx) * (indiv1idx + 1) / 2 - start_offset) / hundredth;
+      printf("\rWriting... %u%%", pct++);
       fflush(stdout);
     }
-    g_dw_indiv2idx = 0;
+    indiv2idx = 0;
   }
  distance_d_write_ibs_tri_emitn_ret:
+  g_dw_dist_ptr = dist_ptr;
+  g_dw_indiv1idx = indiv1idx;
+  g_dw_indiv2idx = indiv2idx;
+  g_pct = pct;
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
 uint32_t distance_d_write_ibs_sq0_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
   char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
+  double half_marker_ct_recip = g_dw_half_marker_ct_recip;
+  uintptr_t indiv_ct = g_indiv_ct;
+  uintptr_t max_indiv1idx = g_dw_max_indiv1idx;
+  uintptr_t min_indiv = g_dw_min_indiv;
+  double* dist_ptr = g_dw_dist_ptr;
+  unsigned char* membuf = g_dw_membuf;
+  uintptr_t indiv1idx = g_dw_indiv1idx;
+  uintptr_t indiv2idx = g_dw_indiv2idx;
+  uint32_t pct = g_pct;
   uintptr_t ulii;
-  while (g_dw_indiv1idx < g_dw_max_indiv1idx) {
-    while (g_dw_indiv2idx < g_dw_indiv1idx) {
-      sptr_cur = double_g_writex(sptr_cur, 1.0 - (*g_dw_dist_ptr++) * g_dw_half_marker_ct_recip, '\t');
-      g_dw_indiv2idx++;
+  while (indiv1idx < max_indiv1idx) {
+    while (indiv2idx < indiv1idx) {
+      sptr_cur = double_g_writex(sptr_cur, 1.0 - (*dist_ptr++) * half_marker_ct_recip, '\t');
+      indiv2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_ibs_sq0_emitn_ret;
       }
     }
-    if (g_dw_indiv2idx == g_dw_indiv1idx) {
+    if (indiv2idx == indiv1idx) {
       *sptr_cur++ = '1';
-      g_dw_indiv2idx++;
+      indiv2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_ibs_sq0_emitn_ret;
       }
     }
     ulii = (1 + ((uintptr_t)(readbuf_end - sptr_cur))) / 2;
-    if (ulii < (g_indiv_ct - g_dw_indiv2idx)) {
-      sptr_cur = memcpya(sptr_cur, g_dw_membuf, 2 * ulii);
-      g_dw_indiv2idx += ulii;
+    if (ulii < (indiv_ct - indiv2idx)) {
+      sptr_cur = memcpya(sptr_cur, membuf, 2 * ulii);
+      indiv2idx += ulii;
       goto distance_d_write_ibs_sq0_emitn_ret;
     }
-    ulii = g_indiv_ct - g_dw_indiv2idx;
-    sptr_cur = memcpyax(sptr_cur, g_dw_membuf, 2 * ulii, '\n');
-    g_dw_indiv1idx++;
-    if ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU >= ((uint64_t)g_pct) * (g_dw_max_indiv1idx - g_dw_min_indiv)) {
-      g_pct = ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU) / (g_dw_max_indiv1idx - g_dw_min_indiv);
-      printf("\rWriting... %u%%", g_pct++);
+    ulii = indiv_ct - indiv2idx;
+    sptr_cur = memcpyax(sptr_cur, membuf, 2 * ulii, '\n');
+    indiv1idx++;
+    if ((indiv1idx - min_indiv) * 100LLU >= ((uint64_t)pct) * (max_indiv1idx - min_indiv)) {
+      pct = ((indiv1idx - min_indiv) * 100LLU) / (max_indiv1idx - min_indiv);
+      printf("\rWriting... %u%%", pct++);
       fflush(stdout);
     }
-    g_dw_indiv2idx = 0;
+    indiv2idx = 0;
   }
  distance_d_write_ibs_sq0_emitn_ret:
+  g_dw_dist_ptr = dist_ptr;
+  g_dw_indiv1idx = indiv1idx;
+  g_dw_indiv2idx = indiv2idx;
+  g_pct = pct;
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
 uint32_t distance_d_write_ibs_sq_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
   char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
-  while (g_dw_indiv1idx < g_dw_max_indiv1idx) {
-    while (g_dw_indiv2idx < g_dw_indiv1idx) {
-      sptr_cur = double_g_writex(sptr_cur, 1.0 - (*g_dw_dist_ptr++) * g_dw_half_marker_ct_recip, '\t');
-      g_dw_indiv2idx++;
+  double half_marker_ct_recip = g_dw_half_marker_ct_recip;
+  uintptr_t indiv_ct = g_indiv_ct;
+  uintptr_t max_indiv1idx = g_dw_max_indiv1idx;
+  uintptr_t min_indiv = g_dw_min_indiv;
+  double* dists = g_dw_dists;
+  double* dist_ptr = g_dw_dist_ptr;
+  uintptr_t indiv1idx = g_dw_indiv1idx;
+  uintptr_t indiv2idx = g_dw_indiv2idx;
+  uint32_t pct = g_pct;
+  while (indiv1idx < max_indiv1idx) {
+    while (indiv2idx < indiv1idx) {
+      sptr_cur = double_g_writex(sptr_cur, 1.0 - (*dist_ptr++) * half_marker_ct_recip, '\t');
+      indiv2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_ibs_sq_emitn_ret;
       }
     }
-    if (g_dw_indiv2idx == g_dw_indiv1idx) {
+    if (indiv2idx == indiv1idx) {
       *sptr_cur++ = '1';
-      g_dw_indiv2idx++;
+      indiv2idx++;
     }
-    while (g_dw_indiv2idx < g_indiv_ct) {
+    while (indiv2idx < indiv_ct) {
       *sptr_cur = '\t';
-      sptr_cur = double_g_write(&(sptr_cur[1]), 1.0 - (g_dw_dists[((g_dw_indiv2idx * (g_dw_indiv2idx - 1)) / 2) + g_dw_indiv1idx]) * g_dw_half_marker_ct_recip);
-      g_dw_indiv2idx++;
+      sptr_cur = double_g_write(&(sptr_cur[1]), 1.0 - (dists[((indiv2idx * (indiv2idx - 1)) / 2) + indiv1idx]) * half_marker_ct_recip);
+      indiv2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_ibs_sq_emitn_ret;
       }
     }
     *sptr_cur++ = '\n';
-    g_dw_indiv1idx++;
-    if ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU >= ((uint64_t)g_pct) * (g_dw_max_indiv1idx - g_dw_min_indiv)) {
-      g_pct = ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU) / (g_dw_max_indiv1idx - g_dw_min_indiv);
-      printf("\rWriting... %u%%", g_pct++);
+    indiv1idx++;
+    if ((indiv1idx - min_indiv) * 100LLU >= ((uint64_t)pct) * (max_indiv1idx - min_indiv)) {
+      pct = ((indiv1idx - min_indiv) * 100LLU) / (max_indiv1idx - min_indiv);
+      printf("\rWriting... %u%%", pct++);
       fflush(stdout);
     }
-    g_dw_indiv2idx = 0;
+    indiv2idx = 0;
   }
  distance_d_write_ibs_sq_emitn_ret:
+  g_dw_dist_ptr = dist_ptr;
+  g_dw_indiv1idx = indiv1idx;
+  g_dw_indiv2idx = indiv2idx;
+  g_pct = pct;
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
 uint32_t distance_d_write_1mibs_tri_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
   char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
-  while (g_dw_indiv1idx < g_dw_max_indiv1idx) {
-    while (g_dw_indiv2idx + 1 < g_dw_indiv1idx) {
-      sptr_cur = double_g_writex(sptr_cur, (*g_dw_dist_ptr++) * g_dw_half_marker_ct_recip, '\t');
-      g_dw_indiv2idx++;
+  uint64_t start_offset = g_dw_start_offset;
+  uint64_t hundredth = g_dw_hundredth;
+  double half_marker_ct_recip = g_dw_half_marker_ct_recip;
+  uintptr_t max_indiv1idx = g_dw_max_indiv1idx;
+  double* dist_ptr = g_dw_dist_ptr;
+  uintptr_t indiv1idx = g_dw_indiv1idx;
+  uintptr_t indiv2idx = g_dw_indiv2idx;
+  uint32_t pct = g_pct;
+  while (indiv1idx < max_indiv1idx) {
+    while (indiv2idx + 1 < indiv1idx) {
+      sptr_cur = double_g_writex(sptr_cur, (*dist_ptr++) * half_marker_ct_recip, '\t');
+      indiv2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_1mibs_tri_emitn_ret;
       }
     }
-    if (g_dw_indiv2idx + 1 == g_dw_indiv1idx) {
-      sptr_cur = double_g_writex(sptr_cur, (*g_dw_dist_ptr++) * g_dw_half_marker_ct_recip, '\n');
+    if (indiv2idx + 1 == indiv1idx) {
+      sptr_cur = double_g_writex(sptr_cur, (*dist_ptr++) * half_marker_ct_recip, '\n');
     }
-    if ((((uint64_t)g_dw_indiv1idx) * (g_dw_indiv1idx + 1) / 2 - g_dw_start_offset) >= g_dw_hundredth * g_pct) {
-      g_pct = (((uint64_t)g_dw_indiv1idx) * (g_dw_indiv1idx + 1) / 2 - g_dw_start_offset) / g_dw_hundredth;
-      printf("\rWriting... %u%%", g_pct++);
+    if ((((uint64_t)indiv1idx) * (indiv1idx + 1) / 2 - start_offset) >= hundredth * pct) {
+      pct = (((uint64_t)indiv1idx) * (indiv1idx + 1) / 2 - start_offset) / hundredth;
+      printf("\rWriting... %u%%", pct++);
       fflush(stdout);
     }
-    g_dw_indiv1idx++;
-    g_dw_indiv2idx = 0;
+    indiv1idx++;
+    indiv2idx = 0;
   }
  distance_d_write_1mibs_tri_emitn_ret:
+  g_dw_dist_ptr = dist_ptr;
+  g_dw_indiv1idx = indiv1idx;
+  g_dw_indiv2idx = indiv2idx;
+  g_pct = pct;
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
 uint32_t distance_d_write_1mibs_sq0_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
   char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
+  double half_marker_ct_recip = g_dw_half_marker_ct_recip;
+  uintptr_t indiv_ct = g_indiv_ct;
+  uintptr_t max_indiv1idx = g_dw_max_indiv1idx;
+  uintptr_t min_indiv = g_dw_min_indiv;
+  double* dist_ptr = g_dw_dist_ptr;
+  unsigned char* membuf1 = &(g_dw_membuf[1]);
+  uintptr_t indiv1idx = g_dw_indiv1idx;
+  uintptr_t indiv2idx = g_dw_indiv2idx;
+  uint32_t pct = g_pct;
   uintptr_t ulii;
-  while (g_dw_indiv1idx < g_dw_max_indiv1idx) {
-    while (g_dw_indiv2idx < g_dw_indiv1idx) {
-      sptr_cur = double_g_writex(sptr_cur, (*g_dw_dist_ptr++) * g_dw_half_marker_ct_recip, '\t');
-      g_dw_indiv2idx++;
+  while (indiv1idx < max_indiv1idx) {
+    while (indiv2idx < indiv1idx) {
+      sptr_cur = double_g_writex(sptr_cur, (*dist_ptr++) * half_marker_ct_recip, '\t');
+      indiv2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_1mibs_sq0_emitn_ret;
       }
     }
     ulii = 1 + (((uintptr_t)(readbuf_end - sptr_cur)) / 2);
-    if (ulii < (g_indiv_ct - g_dw_indiv2idx)) {
-      sptr_cur = memcpya(sptr_cur, &(g_dw_membuf[1]), 2 * ulii);
-      g_dw_indiv2idx += ulii;
+    if (ulii < (indiv_ct - indiv2idx)) {
+      sptr_cur = memcpya(sptr_cur, membuf1, 2 * ulii);
+      indiv2idx += ulii;
       goto distance_d_write_1mibs_sq0_emitn_ret;
     }
-    ulii = g_indiv_ct - g_dw_indiv2idx;
-    sptr_cur = memcpyax(sptr_cur, &(g_dw_membuf[1]), 2 * ulii - 1, '\n');
-    g_dw_indiv1idx++;
-    if ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU >= ((uint64_t)g_pct) * (g_dw_max_indiv1idx - g_dw_min_indiv)) {
-      g_pct = ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU) / (g_dw_max_indiv1idx - g_dw_min_indiv);
-      printf("\rWriting... %u%%", g_pct++);
+    ulii = indiv_ct - indiv2idx;
+    sptr_cur = memcpyax(sptr_cur, membuf1, 2 * ulii - 1, '\n');
+    indiv1idx++;
+    if ((indiv1idx - min_indiv) * 100LLU >= ((uint64_t)pct) * (max_indiv1idx - min_indiv)) {
+      pct = ((indiv1idx - min_indiv) * 100LLU) / (max_indiv1idx - min_indiv);
+      printf("\rWriting... %u%%", pct++);
       fflush(stdout);
     }
-    g_dw_indiv2idx = 0;
+    indiv2idx = 0;
   }
  distance_d_write_1mibs_sq0_emitn_ret:
+  g_dw_dist_ptr = dist_ptr;
+  g_dw_indiv1idx = indiv1idx;
+  g_dw_indiv2idx = indiv2idx;
+  g_pct = pct;
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
 uint32_t distance_d_write_1mibs_sq_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
   char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
-  while (g_dw_indiv1idx < g_dw_max_indiv1idx) {
-    while (g_dw_indiv2idx < g_dw_indiv1idx) {
-      sptr_cur = double_g_writex(sptr_cur, (*g_dw_dist_ptr++) * g_dw_half_marker_ct_recip, '\t');
-      g_dw_indiv2idx++;
+  double half_marker_ct_recip = g_dw_half_marker_ct_recip;
+  uintptr_t indiv_ct = g_indiv_ct;
+  uintptr_t max_indiv1idx = g_dw_max_indiv1idx;
+  uintptr_t min_indiv = g_dw_min_indiv;
+  double* dists = g_dw_dists;
+  double* dist_ptr = g_dw_dist_ptr;
+  uintptr_t indiv1idx = g_dw_indiv1idx;
+  uintptr_t indiv2idx = g_dw_indiv2idx;
+  uint32_t pct = g_pct;
+  while (indiv1idx < max_indiv1idx) {
+    while (indiv2idx < indiv1idx) {
+      sptr_cur = double_g_writex(sptr_cur, (*dist_ptr++) * half_marker_ct_recip, '\t');
+      indiv2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_1mibs_sq_emitn_ret;
       }
     }
-    if (g_dw_indiv2idx == g_dw_indiv1idx) {
+    if (indiv2idx == indiv1idx) {
       *sptr_cur++ = '0';
-      g_dw_indiv2idx++;
+      indiv2idx++;
     }
-    while (g_dw_indiv2idx < g_indiv_ct) {
+    while (indiv2idx < indiv_ct) {
       *sptr_cur = '\t';
-      sptr_cur = double_g_write(&(sptr_cur[1]), (g_dw_dists[((g_dw_indiv2idx * (g_dw_indiv2idx - 1)) / 2) + g_dw_indiv1idx]) * g_dw_half_marker_ct_recip);
-      g_dw_indiv2idx++;
+      sptr_cur = double_g_write(&(sptr_cur[1]), (dists[((indiv2idx * (indiv2idx - 1)) / 2) + indiv1idx]) * half_marker_ct_recip);
+      indiv2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_1mibs_sq_emitn_ret;
       }
     }
     *sptr_cur++ = '\n';
-    g_dw_indiv1idx++;
-    if ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU >= ((uint64_t)g_pct) * (g_dw_max_indiv1idx - g_dw_min_indiv)) {
-      g_pct = ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU) / (g_dw_max_indiv1idx - g_dw_min_indiv);
-      printf("\rWriting... %u%%", g_pct++);
+    indiv1idx++;
+    if ((indiv1idx - min_indiv) * 100LLU >= ((uint64_t)pct) * (max_indiv1idx - min_indiv)) {
+      pct = ((indiv1idx - min_indiv) * 100LLU) / (max_indiv1idx - min_indiv);
+      printf("\rWriting... %u%%", pct++);
       fflush(stdout);
     }
-    g_dw_indiv2idx = 0;
+    indiv2idx = 0;
   }
  distance_d_write_1mibs_sq_emitn_ret:
+  g_dw_dist_ptr = dist_ptr;
+  g_dw_indiv1idx = indiv1idx;
+  g_dw_indiv2idx = indiv2idx;
+  g_pct = pct;
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
