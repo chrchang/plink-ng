@@ -4165,17 +4165,9 @@ int32_t write_fam(char* outname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv
     clen = strlen_se(cptr);
     bufptr = memcpyax(tbuf, cptr, clen, delim);
     bufptr = strcpyax(bufptr, &(cptr[clen + 1]), delim);
-    if (paternal_ids) {
-      bufptr = strcpya(bufptr, &(paternal_ids[indiv_uidx * max_paternal_id_len]));
-    } else {
-      *bufptr++ = '0';
-    }
+    bufptr = strcpya(bufptr, &(paternal_ids[indiv_uidx * max_paternal_id_len]));
     *bufptr++ = delim;
-    if (maternal_ids) {
-      bufptr = strcpya(bufptr, &(maternal_ids[indiv_uidx * max_maternal_id_len]));
-    } else {
-      *bufptr++ = '0';
-    }
+    bufptr = strcpya(bufptr, &(maternal_ids[indiv_uidx * max_maternal_id_len]));
     *bufptr++ = delim;
     *bufptr++ = sexchar(sex_nm, sex_male, indiv_uidx);
     *bufptr++ = delim;
@@ -5134,8 +5126,6 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
   unsigned char* wkspace_mark = wkspace_base;
   double missing_phenod = (double)missing_pheno;
   char case_char = affection_01? '1' : '2';
-  char* paternal_ids = NULL;
-  char* maternal_ids = NULL;
   uintptr_t* pheno_c = NULL;
   double* pheno_d = NULL;
   uintptr_t* sex_nm;
@@ -5146,6 +5136,8 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
   char* bufptr;
   char* linebuf;
   char* person_ids;
+  char* paternal_ids;
+  char* maternal_ids;
   char cc;
   uint64_t* line_locs;
   uint64_t* tmp_ullp;

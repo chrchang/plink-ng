@@ -3995,7 +3995,7 @@ static char* g_cg_maternal_ids;
 static uint32_t g_cg_genome_modifier;
 static Pedigree_rel_info g_cg_pri;
 static uint32_t g_cg_family_id_fixed;
-static int32_t g_cg_is_founder_fixed;
+static uint32_t g_cg_is_founder_fixed;
 static uint32_t g_cg_rel_space_id_fixed;
 static int64_t g_cg_llfct;
 static char* g_cg_sptr_start;
@@ -4867,14 +4867,53 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
   char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
   uintptr_t* indiv_exclude = g_cg_indiv_exclude;
+  uint32_t* indiv_missing_unwt = g_indiv_missing_unwt;
+  uint32_t* missing_dbl_excluded = g_missing_dbl_excluded;
+  uint32_t* genome_main = g_genome_main;
+  uintptr_t indiv_ct = g_indiv_ct;
   uint32_t is_rel_check = g_cg_genome_modifier & GENOME_REL_CHECK;
   uint32_t is_unbounded = g_cg_genome_modifier & GENOME_IBD_UNBOUNDED;
   uint32_t is_nudge = g_cg_genome_modifier & GENOME_NUDGE;
-  double min_pi_hat = g_cg_min_pi_hat;
-  double max_pi_hat = g_cg_max_pi_hat;
   uint32_t filter_pi_hat = g_cg_genome_modifier & GENOME_FILTER_PI_HAT;
-  char* pat2 = NULL;
-  char* mat2 = NULL;
+  uint32_t output_full = g_cg_genome_modifier & GENOME_OUTPUT_FULL;
+  uintptr_t indiv1idx = g_cg_indiv1idx;
+  uintptr_t indiv2idx = g_cg_indiv2idx;
+  uintptr_t indiv1uidx = g_cg_indiv1uidx;
+  uintptr_t indiv2uidx = g_cg_indiv2uidx;
+  uintptr_t tstc = g_cg_tstc;
+  uint32_t marker_ct = g_cg_marker_ct;
+  uintptr_t max_person_id_len = g_cg_max_person_id_len;
+  uint32_t max_person_fid_len = g_cg_max_person_fid_len;
+  uint32_t max_person_iid_len = g_cg_max_person_iid_len;
+  uintptr_t max_paternal_id_len = g_cg_max_paternal_id_len;
+  uintptr_t max_maternal_id_len = g_cg_max_maternal_id_len;
+  uintptr_t* pheno_c = g_cg_pheno_c;
+  uintptr_t* founder_info = g_cg_founder_info;
+  char* person_ids = g_cg_person_ids;
+  char* paternal_ids = g_cg_paternal_ids;
+  char* maternal_ids = g_cg_maternal_ids;
+  uint32_t family_id_fixed = g_cg_family_id_fixed;
+  uint32_t is_founder_fixed = g_cg_is_founder_fixed;
+  uint32_t rel_space_id_fixed = g_cg_rel_space_id_fixed;
+  int64_t llfct = g_cg_llfct;
+  char* sptr_start = g_cg_sptr_start;
+  char* fam1 = g_cg_fam1;
+  char* fam2 = g_cg_fam2;
+  char* indiv1 = g_cg_indiv1;
+  char* pat1 = g_cg_pat1;
+  char* mat1 = g_cg_mat1;
+  int64_t cur_line = g_cg_cur_line;
+  int64_t tot_lines = g_cg_tot_lines;
+  uint32_t pct = g_pct;
+  uintptr_t gmcell = g_cg_gmcell;
+  uintptr_t mdecell = g_cg_mdecell;
+  double e00 = g_cg_e00;
+  double e01 = g_cg_e01;
+  double e02 = g_cg_e02;
+  double e11 = g_cg_e11;
+  double e12 = g_cg_e12;
+  char* pat2;
+  char* mat2;
   char* cptr;
   char* indiv2;
   char* sptr_cur_start;
@@ -4889,64 +4928,58 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   double dyy;
   double dxx1;
   double dxx2;
-  if (!g_cg_indiv2idx) {
+  if (!indiv2idx) {
     // first line, if not 2nd or later part of parallel write
-    if (!g_cg_indiv1idx) {
+    if (!indiv1idx) {
       sptr_cur += sprintf(sptr_cur, tbuf, " FID1", " IID1", " FID2", " IID2");
     }
-    g_cg_indiv1idx = g_thread_start[0];
-    g_cg_indiv2idx = g_cg_indiv1idx + 1;
+    indiv1idx = g_thread_start[0];
+    indiv2idx = indiv1idx + 1;
     tbuf[0] = ' ';
   }
-  while (g_cg_indiv1idx < g_cg_tstc) {
-    if (g_cg_indiv2idx == g_cg_indiv1idx + 1) {
-      cptr = &(g_cg_person_ids[g_cg_indiv1uidx * g_cg_max_person_id_len]);
+  while (indiv1idx < tstc) {
+    if (indiv2idx == indiv1idx + 1) {
+      cptr = &(person_ids[indiv1uidx * max_person_id_len]);
       uii = strlen_se(cptr);
-      memcpyx(g_cg_fam1, cptr, uii, '\0');
-      g_cg_indiv1 = next_item(cptr);
-      if (g_cg_paternal_ids) {
-	g_cg_pat1 = &(g_cg_paternal_ids[g_cg_indiv1uidx * g_cg_max_paternal_id_len]);
-	g_cg_mat1 = &(g_cg_maternal_ids[g_cg_indiv1uidx * g_cg_max_maternal_id_len]);
-	g_cg_is_founder_fixed = IS_SET(g_cg_founder_info, g_cg_indiv1uidx);
-	g_cg_rel_space_id_fixed = g_cg_pri.family_rel_nf_idxs[g_cg_indiv1uidx];
-	g_cg_family_id_fixed = g_cg_pri.family_idxs[g_cg_indiv1uidx];
-	founder_ct = g_cg_pri.family_founder_cts[g_cg_family_id_fixed];
-	g_cg_llfct = ((int64_t)founder_ct * (founder_ct - 1)) - 2 * g_cg_pri.family_rel_space_offsets[g_cg_family_id_fixed];
-      }
-      g_cg_sptr_start = fw_strcpyn(g_cg_max_person_fid_len - 1, uii, g_cg_fam1, &(tbuf[1]));
-      *g_cg_sptr_start++ = ' ';
-      g_cg_sptr_start = fw_strcpy(g_cg_max_person_iid_len - 1, g_cg_indiv1, g_cg_sptr_start);
-      *g_cg_sptr_start++ = ' ';
+      memcpyx(fam1, cptr, uii, '\0');
+      indiv1 = next_item(cptr);
+      pat1 = &(paternal_ids[indiv1uidx * max_paternal_id_len]);
+      mat1 = &(maternal_ids[indiv1uidx * max_maternal_id_len]);
+      is_founder_fixed = IS_SET(founder_info, indiv1uidx);
+      rel_space_id_fixed = g_cg_pri.family_rel_nf_idxs[indiv1uidx];
+      family_id_fixed = g_cg_pri.family_idxs[indiv1uidx];
+      founder_ct = g_cg_pri.family_founder_cts[family_id_fixed];
+      llfct = ((int64_t)founder_ct * (founder_ct - 1)) - 2 * g_cg_pri.family_rel_space_offsets[family_id_fixed];
+      sptr_start = fw_strcpyn(max_person_fid_len - 1, uii, fam1, &(tbuf[1]));
+      *sptr_start++ = ' ';
+      sptr_start = fw_strcpy(max_person_iid_len - 1, indiv1, sptr_start);
+      *sptr_start++ = ' ';
     }
-    while (g_cg_indiv2idx < g_indiv_ct) {
-      next_unset_ul_unsafe_ck(indiv_exclude, &g_cg_indiv2uidx);
+    while (indiv2idx < indiv_ct) {
+      next_unset_ul_unsafe_ck(indiv_exclude, &indiv2uidx);
       sptr_cur_start = sptr_cur;
-      sptr_cur = memcpya(sptr_cur, tbuf, g_cg_sptr_start - tbuf);
-      cptr = &(g_cg_person_ids[g_cg_indiv2uidx * g_cg_max_person_id_len]);
+      sptr_cur = memcpya(sptr_cur, tbuf, sptr_start - tbuf);
+      cptr = &(person_ids[indiv2uidx * max_person_id_len]);
       uii = strlen_se(cptr);
-      memcpyx(g_cg_fam2, cptr, uii, '\0');
+      memcpyx(fam2, cptr, uii, '\0');
       indiv2 = skip_initial_spaces(&(cptr[uii + 1]));
-      if (g_cg_paternal_ids) {
-	pat2 = &(g_cg_paternal_ids[g_cg_indiv2uidx * g_cg_max_paternal_id_len]);
-	mat2 = &(g_cg_maternal_ids[g_cg_indiv2uidx * g_cg_max_maternal_id_len]);
-      }
-      sptr_cur = fw_strcpyn(g_cg_max_person_fid_len - 1, uii, g_cg_fam2, sptr_cur);
+      pat2 = &(paternal_ids[indiv2uidx * max_paternal_id_len]);
+      mat2 = &(maternal_ids[indiv2uidx * max_maternal_id_len]);
+      sptr_cur = fw_strcpyn(max_person_fid_len - 1, uii, fam2, sptr_cur);
       *sptr_cur++ = ' ';
-      sptr_cur = fw_strcpy(g_cg_max_person_iid_len - 1, indiv2, sptr_cur);
+      sptr_cur = fw_strcpy(max_person_iid_len - 1, indiv2, sptr_cur);
       *sptr_cur++ = ' ';
-      if (!strcmp(g_cg_fam1, g_cg_fam2)) {
+      if (!strcmp(fam1, fam2)) {
 	while (1) {
-	  if (g_cg_paternal_ids) {
-	    if (!(g_cg_is_founder_fixed || IS_SET(g_cg_founder_info, g_cg_indiv2uidx))) {
-	      if ((!strcmp(g_cg_pat1, pat2)) && (!strcmp(g_cg_mat1, mat2))) {
-		sptr_cur = memcpyl3a(sptr_cur, "FS ");
-		break;
-	      } else if ((!strcmp(g_cg_pat1, pat2)) || (!strcmp(g_cg_mat1, mat2))) {
-		sptr_cur = memcpyl3a(sptr_cur, "HS ");
-		break;
-	      }
+	  if (!(is_founder_fixed || IS_SET(founder_info, indiv2uidx))) {
+	    if ((!strcmp(pat1, pat2)) && (!strcmp(mat1, mat2))) {
+	      sptr_cur = memcpyl3a(sptr_cur, "FS ");
+	      break;
+	    } else if ((!strcmp(pat1, pat2)) || (!strcmp(mat1, mat2))) {
+	      sptr_cur = memcpyl3a(sptr_cur, "HS ");
+	      break;
 	    }
-	    if ((!strcmp(g_cg_pat1, indiv2)) || (!strcmp(g_cg_mat1, indiv2)) || (!strcmp(pat2, g_cg_indiv1)) || (!strcmp(mat2, g_cg_indiv1))) {
+	    if ((!strcmp(pat1, indiv2)) || (!strcmp(mat1, indiv2)) || (!strcmp(pat2, indiv1)) || (!strcmp(mat2, indiv1))) {
 	      sptr_cur = memcpyl3a(sptr_cur, "PO ");
 	      break;
 	    }
@@ -4955,34 +4988,30 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	  break;
 	}
 	// insert relationship
-	if (!g_cg_paternal_ids) {
-	  sptr_cur = memcpya(sptr_cur, "    0", 5);
+	oo = IS_SET(founder_info, indiv2uidx);
+	if (is_founder_fixed && oo) {
+	  dxx = 0.0;
 	} else {
-	  oo = IS_SET(g_cg_founder_info, g_cg_indiv2uidx);
-	  if (g_cg_is_founder_fixed && oo) {
-	    dxx = 0.0;
+	  // rel_space[] is a sequence of beheaded triangles.
+	  nn = g_cg_pri.family_rel_nf_idxs[indiv2uidx];
+	  if (is_founder_fixed || ((nn > (int32_t)rel_space_id_fixed) && (!oo))) {
+	    dxx = g_cg_pri.rel_space[rel_space_id_fixed + ((int64_t)nn * (nn - 1) - llfct) / 2];
 	  } else {
-	    // rel_space[] is a sequence of beheaded triangles.
-	    nn = g_cg_pri.family_rel_nf_idxs[g_cg_indiv2uidx];
-	    if (g_cg_is_founder_fixed || ((nn > (int32_t)g_cg_rel_space_id_fixed) && (!oo))) {
-	      dxx = g_cg_pri.rel_space[g_cg_rel_space_id_fixed + ((int64_t)nn * (nn - 1) - g_cg_llfct) / 2];
-	    } else {
-	      dxx = g_cg_pri.rel_space[nn + ((int64_t)g_cg_rel_space_id_fixed * (g_cg_rel_space_id_fixed - 1) - g_cg_llfct) / 2];
-	    }
+	    dxx = g_cg_pri.rel_space[nn + ((int64_t)rel_space_id_fixed * (rel_space_id_fixed - 1) - llfct) / 2];
 	  }
-	  sptr_cur = width_force(5, sptr_cur, double_g_write(sptr_cur, dxx));
 	}
+	sptr_cur = width_force(5, sptr_cur, double_g_write(sptr_cur, dxx));
       } else if (!is_rel_check) {
 	sptr_cur = memcpya(sptr_cur, "UN    NA", 8);
       } else {
         sptr_cur = sptr_cur_start;
 	goto calc_genome_emitn_skip_line;
       }
-      nn = g_cg_marker_ct - g_indiv_missing_unwt[g_cg_indiv1idx] - g_indiv_missing_unwt[g_cg_indiv2idx] + g_missing_dbl_excluded[g_cg_mdecell];
-      oo = nn - g_genome_main[g_cg_gmcell] - g_genome_main[g_cg_gmcell + 1];
-      dxx = ((double)((int32_t)g_genome_main[g_cg_gmcell + 1])) / (g_cg_e00 * nn);
-      dyy = (((double)((int32_t)g_genome_main[g_cg_gmcell])) - dxx * g_cg_e01 * nn) / (g_cg_e11 * nn);
-      dxx1 = ((double)oo - nn * (dxx * g_cg_e02 + dyy * g_cg_e12)) / ((double)nn);
+      nn = marker_ct - indiv_missing_unwt[indiv1idx] - indiv_missing_unwt[indiv2idx] + missing_dbl_excluded[mdecell];
+      oo = nn - genome_main[gmcell] - genome_main[gmcell + 1];
+      dxx = ((double)((int32_t)genome_main[gmcell + 1])) / (e00 * nn);
+      dyy = (((double)((int32_t)genome_main[gmcell])) - dxx * e01 * nn) / (e11 * nn);
+      dxx1 = ((double)oo - nn * (dxx * e02 + dyy * e12)) / ((double)nn);
       if (!is_unbounded) {
 	if (dxx > 1) {
 	  dxx = 1;
@@ -5016,7 +5045,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	}
       }
       dxx2 = dyy * 0.5 + dxx1; // PI_HAT
-      if (filter_pi_hat && ((dxx2 < min_pi_hat) || (dxx2 > max_pi_hat))) {
+      if (filter_pi_hat && ((dxx2 < g_cg_min_pi_hat) || (dxx2 > g_cg_max_pi_hat))) {
 	sptr_cur = sptr_cur_start;
         goto calc_genome_emitn_skip_line;
       }
@@ -5028,11 +5057,11 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       *sptr_cur++ = ' ';
       sptr_cur = double_f_writew74(double_f_writew74x(double_f_writew74x(double_f_writew74x(sptr_cur, dxx, ' '), dyy, ' '), dxx1, ' '), dxx2);
 
-      if (g_cg_pheno_c) {
-	uii = IS_SET(g_cg_pheno_nm, g_cg_indiv1uidx);
-	ujj = IS_SET(g_cg_pheno_nm, g_cg_indiv2uidx);
-	ukk = IS_SET(g_cg_pheno_c, g_cg_indiv1uidx);
-	umm = IS_SET(g_cg_pheno_c, g_cg_indiv2uidx);
+      if (pheno_c) {
+	uii = IS_SET(g_cg_pheno_nm, indiv1uidx);
+	ujj = IS_SET(g_cg_pheno_nm, indiv2uidx);
+	ukk = IS_SET(pheno_c, indiv1uidx);
+	umm = IS_SET(pheno_c, indiv2uidx);
 	if (((!uii) || (!ukk)) && ((!ujj) || (!umm))) {
 	  memcpy(sptr_cur, "  -1 ", 5);
 	} else if (uii && ujj && ukk && umm) {
@@ -5044,43 +5073,60 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	memcpy(sptr_cur, "  NA ", 5);
       }
       sptr_cur += 5;
-      dxx = (double)g_genome_main[g_cg_gmcell + 4];
-      dyy = (double)g_genome_main[g_cg_gmcell + 3];
-      dxx1 = 1.0 / ((double)(g_genome_main[g_cg_gmcell + 4] + g_genome_main[g_cg_gmcell + 3]));
+      dxx = (double)genome_main[gmcell + 4];
+      dyy = (double)genome_main[gmcell + 3];
+      dxx1 = 1.0 / ((double)(genome_main[gmcell + 4] + genome_main[gmcell + 3]));
       dxx2 = normdist((dxx * dxx1 - 0.666666) / (sqrt(0.2222222 * dxx1)));
-      sptr_cur = double_f_writew74x(double_f_writew96x(sptr_cur, 1.0 - (g_genome_main[g_cg_gmcell] + 2 * g_genome_main[g_cg_gmcell + 1]) / ((double)(2 * nn)), ' '), dxx2, ' ');
-      if (g_genome_main[g_cg_gmcell + 3]) {
+      sptr_cur = double_f_writew74x(double_f_writew96x(sptr_cur, 1.0 - (genome_main[gmcell] + 2 * genome_main[gmcell + 1]) / ((double)(2 * nn)), ' '), dxx2, ' ');
+      if (genome_main[gmcell + 3]) {
 	sptr_cur = double_f_writew74(sptr_cur, dxx / dyy);
       } else {
 	sptr_cur = memcpya(sptr_cur, "     NA", 7);
       }
-      if (g_cg_genome_modifier & GENOME_OUTPUT_FULL) {
+      if (output_full) {
 	*sptr_cur = ' ';
-	sptr_cur = double_f_writew74(double_f_writew74x(uint32_writew7x(uint32_writew7x(uint32_writew7x(&(sptr_cur[1]), g_genome_main[uii + 1], ' '), g_genome_main[g_cg_gmcell], ' '), oo, ' '), dyy, ' '), dxx);
+	sptr_cur = double_f_writew74(double_f_writew74x(uint32_writew7x(uint32_writew7x(uint32_writew7x(&(sptr_cur[1]), genome_main[uii + 1], ' '), genome_main[gmcell], ' '), oo, ' '), dyy, ' '), dxx);
       }
       *sptr_cur++ = '\n';
     calc_genome_emitn_skip_line:
-      g_cg_gmcell += 5;
-      g_cg_mdecell++;
-      g_cg_indiv2idx++;
-      g_cg_indiv2uidx++;
+      gmcell += 5;
+      mdecell++;
+      indiv2idx++;
+      indiv2uidx++;
       if (sptr_cur >= readbuf_end) {
 	goto calc_genome_emitn_ret;
       }
     }
-    g_cg_cur_line += g_indiv_ct - g_cg_indiv1idx - 1;
-    g_cg_indiv1idx++;
-    g_cg_indiv1uidx++;
-    next_unset_ul_unsafe_ck(indiv_exclude, &g_cg_indiv1uidx);
-    g_cg_indiv2idx = g_cg_indiv1idx + 1;
-    g_cg_indiv2uidx = g_cg_indiv1uidx + 1;
+    cur_line += indiv_ct - indiv1idx - 1;
+    indiv1idx++;
+    indiv1uidx++;
+    next_unset_ul_unsafe_ck(indiv_exclude, &indiv1uidx);
+    indiv2idx = indiv1idx + 1;
+    indiv2uidx = indiv1uidx + 1;
   }
  calc_genome_emitn_ret:
-  if (g_cg_cur_line * 100 >= g_cg_tot_lines * g_pct) {
-    g_pct = (g_cg_cur_line * 100) / g_cg_tot_lines;
-    printf("\rWriting... %u%%", g_pct++);
+  if (cur_line * 100 >= tot_lines * pct) {
+    pct = (cur_line * 100) / tot_lines;
+    printf("\rWriting... %u%%", pct++);
     fflush(stdout);
   }
+  g_cg_indiv1idx = indiv1idx;
+  g_cg_indiv2idx = indiv2idx;
+  g_cg_indiv1uidx = indiv1uidx;
+  g_cg_indiv2uidx = indiv2uidx;
+  g_cg_family_id_fixed = family_id_fixed;
+  g_cg_is_founder_fixed = is_founder_fixed;
+  g_cg_rel_space_id_fixed = rel_space_id_fixed;
+  g_cg_llfct = llfct;
+  g_cg_sptr_start = sptr_start;
+  g_cg_indiv1 = indiv1;
+  g_cg_pat1 = pat1;
+  g_cg_mat1 = mat1;
+  g_cg_cur_line = cur_line;
+  g_cg_tot_lines = tot_lines;
+  g_pct = pct;
+  g_cg_gmcell = gmcell;
+  g_cg_mdecell = mdecell;
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
