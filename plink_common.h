@@ -16,7 +16,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define PROG_NAME_STR "plink"
 #define PROG_NAME_CAPS "PLINK"
@@ -202,6 +202,7 @@
 #define MISC_OXFORD_SNPID_CHR 0x800000000LLU
 #define MISC_EXTRACT_RANGE 0x1000000000LLU
 #define MISC_EXCLUDE_RANGE 0x2000000000LLU
+#define MISC_SET_MISSING_VAR_IDS 0x4000000000LLU
 
 #define CALC_RELATIONSHIP 1LLU
 #define CALC_IBC 2LLU

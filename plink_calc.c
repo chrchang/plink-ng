@@ -2128,7 +2128,6 @@ THREAD_RET_TYPE groupdist_jack_thread(void* arg) {
   sfmt_t* sfmtp = g_sfmtp_arr[tidx];
   double returns[3];
   double results[9];
-  double new_old_diff[3];
   uintptr_t ulii;
   fill_double_zero(results, 9);
   for (ulii = 0; ulii < jackknife_iters; ulii++) {
@@ -2137,24 +2136,15 @@ THREAD_RET_TYPE groupdist_jack_thread(void* arg) {
       small_remap(uibuf, case_ct + ctrl_ct, jackknife_d);
     }
     groupdist_jack(jackknife_d, case_ct, ctrl_ct, reg_tot_x, reg_tot_xy, reg_tot_y, uibuf, jackknife_precomp, dists, pheno_c, returns);
-    if (ulii > 0) {
-      new_old_diff[0] = returns[0] - results[0];
-      new_old_diff[1] = returns[1] - results[1];
-      new_old_diff[2] = returns[2] - results[2];
-      results[0] += new_old_diff[0] / (ulii + 1); // AA mean
-      results[1] += new_old_diff[1] / (ulii + 1); // AU mean
-      results[2] += new_old_diff[2] / (ulii + 1); // UU mean
-      results[3] += (returns[0] - results[0]) * new_old_diff[0]; // AA var
-      results[4] += (returns[1] - results[1]) * new_old_diff[1]; // AU var
-      results[5] += (returns[2] - results[2]) * new_old_diff[2]; // UU var
-      results[6] += (returns[0] - results[0]) * new_old_diff[1]; // AA-AU cov
-      results[7] += (returns[0] - results[0]) * new_old_diff[2]; // AA-UU cov
-      results[8] += (returns[1] - results[1]) * new_old_diff[2]; // AU-UU cov
-    } else {
-      results[0] += returns[0];
-      results[1] += returns[1];
-      results[2] += returns[2];
-    }
+    results[0] += returns[0];
+    results[1] += returns[1];
+    results[2] += returns[2];
+    results[3] += returns[0] * returns[0];
+    results[4] += returns[1] * returns[1];
+    results[5] += returns[2] * returns[2];
+    results[6] += returns[0] * returns[1];
+    results[7] += returns[0] * returns[2];
+    results[8] += returns[1] * returns[2];
     if ((!tidx) && (ulii >= uljj)) {
       uljj = (ulii * 100LLU) / jackknife_iters;
       printf("\r%" PRIuPTR "%%", uljj);
@@ -2400,9 +2390,9 @@ int32_t regress_rel_main(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
   }
   ulii = g_jackknife_iters * g_thread_ct;
   putchar('\r');
-  sprintf(logbuf, "Jackknife s.e. (y = genomic relationship): %g\n", sqrt((indiv_ct / (double)g_jackknife_d) * (dxxsq - dxx * dxx / (double)ulii) / ((double)ulii - 1)));
+  sprintf(logbuf, "Jackknife s.e. (y = genomic relationship): %g\n", sqrt(((indiv_ct - g_jackknife_d) / (double)g_jackknife_d) * (dxxsq - dxx * dxx / (double)ulii) / ((double)ulii - 1)));
   logprintb();
-  sprintf(logbuf, "               (y = phenotype): %g\n", sqrt((indiv_ct / (double)g_jackknife_d) * (dyysq - dyy * dyy / (double)ulii) / ((double)ulii - 1)));
+  sprintf(logbuf, "               (y = phenotype): %g\n", sqrt(((indiv_ct - g_jackknife_d) / (double)g_jackknife_d) * (dyysq - dyy * dyy / (double)ulii) / ((double)ulii - 1)));
   logprintb();
   wkspace_reset(wkspace_mark);
   return 0;
@@ -3401,7 +3391,6 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
     }
 
     g_jackknife_iters = (groupdist_iters + g_thread_ct - 1) / g_thread_ct;
-
     if (spawn_threads(threads, &groupdist_jack_thread, g_thread_ct)) {
       goto groupdist_calc_ret_THREAD_CREATE_FAIL;
     }
@@ -3413,20 +3402,28 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
 	g_calc_result[0][ujj] += g_calc_result[uii][ujj];
       }
     }
-    dxx = 1.0 / g_thread_ct;
-    g_calc_result[0][0] *= dxx;
-    g_calc_result[0][1] *= dxx;
-    g_calc_result[0][2] *= dxx;
-    dxx /= (g_jackknife_iters - 1) * g_thread_ct;
-    for (uii = 3; uii < 9; uii++) {
+    dxx = 1.0 / ((double)(g_jackknife_iters * g_thread_ct));
+    // avg[X-Y] = avg(X) - avg(Y)
+    // Jackknife SE(X-Y) = sqrt(((obs_ct - jackknife_d) / jackknife_d) *
+    //                          avg(([actual X-Y] - [avg X-Y])^2))
+    //                   = sqrt(((obs_ct - jackknife_d) / jackknife_d) *
+    //                          avg(([actual X-Y])^2 - [avg X-Y]^2))
+    //                   = sqrt(((obs_ct - jackknife_d) / jackknife_d) *
+    //                          (avg([actual X-Y]^2) - [avg X-Y]^2))
+    //                   = sqrt(((obs_ct - jackknife_d) / jackknife_d) *
+    //                          (avg(X^2) - avg(2XY) + avg(Y^2) - avg[X-Y]^2))
+    for (uii = 0; uii < 9; uii++) {
       g_calc_result[0][uii] *= dxx;
     }
     putchar('\r');
-    sprintf(logbuf, "  AA mean - AU mean avg difference (s.e.): %g (%g)\n", g_calc_result[0][0] - g_calc_result[0][1], sqrt(((g_case_ct + g_ctrl_ct) / ((double)g_jackknife_d)) * (g_calc_result[0][3] + g_calc_result[0][4] - 2 * g_calc_result[0][6])));
+    dxx = g_calc_result[0][0] - g_calc_result[0][1];
+    sprintf(logbuf, "  AA mean - AU mean avg difference (s.e.): %g (%g)\n", dxx, sqrt(((g_case_ct + g_ctrl_ct - g_jackknife_d) / ((double)g_jackknife_d)) * (g_calc_result[0][3] + g_calc_result[0][4] - 2 * g_calc_result[0][6] - dxx * dxx)));
     logprintb();
-    sprintf(logbuf, "  AA mean - UU mean avg difference (s.e.): %g (%g)\n", g_calc_result[0][0] - g_calc_result[0][2], sqrt(((g_case_ct + g_ctrl_ct) / ((double)g_jackknife_d)) * (g_calc_result[0][3] + g_calc_result[0][5] - 2 * g_calc_result[0][7])));
+    dxx = g_calc_result[0][0] - g_calc_result[0][2];
+    sprintf(logbuf, "  AA mean - UU mean avg difference (s.e.): %g (%g)\n", dxx, sqrt(((g_case_ct + g_ctrl_ct - g_jackknife_d) / ((double)g_jackknife_d)) * (g_calc_result[0][3] + g_calc_result[0][5] - 2 * g_calc_result[0][7] - dxx * dxx)));
     logprintb();
-    sprintf(logbuf, "  AU mean - UU mean avg difference (s.e.): %g (%g)\n", g_calc_result[0][1] - g_calc_result[0][2], sqrt(((g_case_ct + g_ctrl_ct) / ((double)g_jackknife_d)) * (g_calc_result[0][4] + g_calc_result[0][5] - 2 * g_calc_result[0][8])));
+    dxx = g_calc_result[0][1] - g_calc_result[0][2];
+    sprintf(logbuf, "  AU mean - UU mean avg difference (s.e.): %g (%g)\n", dxx, sqrt(((g_case_ct + g_ctrl_ct - g_jackknife_d) / ((double)g_jackknife_d)) * (g_calc_result[0][4] + g_calc_result[0][5] - 2 * g_calc_result[0][8] - dxx * dxx)));
     logprintb();
   }
   while (0) {
@@ -10462,9 +10459,9 @@ int32_t regress_distance(uint64_t calculation_type, double* pheno_d, uintptr_t u
   }
   regress_iters = g_jackknife_iters * thread_ct;
   putchar('\r');
-  sprintf(logbuf, "Jackknife s.e.: %g\n", sqrt((indiv_ct / ((double)g_jackknife_d)) * (dzz - dyy * dyy / regress_iters) / (regress_iters - 1)));
+  sprintf(logbuf, "Jackknife s.e.: %g\n", sqrt(((indiv_ct - g_jackknife_d) / ((double)g_jackknife_d)) * (dzz - dyy * dyy / regress_iters) / (regress_iters - 1)));
   logprintb();
-  sprintf(logbuf, "Jackknife s.e. (y = avg phenotype): %g\n", sqrt((indiv_ct / ((double)g_jackknife_d)) * (dvv - dww * dww / regress_iters) / (regress_iters - 1)));
+  sprintf(logbuf, "Jackknife s.e. (y = avg phenotype): %g\n", sqrt(((indiv_ct - g_jackknife_d) / ((double)g_jackknife_d)) * (dvv - dww * dww / regress_iters) / (regress_iters - 1)));
   logprintb();
   while (0) {
   regress_distance_ret_NOMEM:

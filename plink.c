@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (10 Feb 2014)";
+  " (11 Feb 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -2576,7 +2576,7 @@ inline int32_t distance_wt_req(uint64_t calculation_type, char* read_dists_fname
   return (((calculation_type & CALC_DISTANCE) || ((!read_dists_fname) && ((calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))))) && (!(dist_calc_type & DISTANCE_FLAT_MISSING)));
 }
 
-int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* cm_map_fname, char* cm_map_chrname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* missing_marker_id_template, char* missing_marker_id_match, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filtervals_flattened, char* condition_mname, char* condition_fname, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_indiv_fname, char* filter_attrib_indiv_liststr, double thin_keep_prob, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t filter_binary, uint32_t fam_cols, int32_t missing_pheno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, double check_sex_fthresh, double check_sex_mthresh, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t splitx_bound1, uint32_t splitx_bound2, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t update_sex_col, uint32_t hwe_modifier, uint32_t genome_modifier, double genome_min_pi_hat, double genome_max_pi_hat, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, Set_info* sip, Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip, Rel_info* relip, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t write_covar_modifier, uint32_t write_covar_dummy_max_categories, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, Aperm_info* apip, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, double lasso_h2, double lasso_minlambda, Range_list* lasso_select_covars_range_list_ptr, uint32_t testmiss_modifier, uint32_t testmiss_mperm_val, Ll_str** file_delete_list_ptr) {
+int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* cm_map_fname, char* cm_map_chrname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char** missing_mid_templates, char* missing_marker_id_match, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filtervals_flattened, char* condition_mname, char* condition_fname, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_indiv_fname, char* filter_attrib_indiv_liststr, double thin_keep_prob, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t filter_binary, uint32_t fam_cols, int32_t missing_pheno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, double check_sex_fthresh, double check_sex_mthresh, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t splitx_bound1, uint32_t splitx_bound2, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t update_sex_col, uint32_t hwe_modifier, uint32_t genome_modifier, double genome_min_pi_hat, double genome_max_pi_hat, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, Set_info* sip, Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip, Rel_info* relip, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t write_covar_modifier, uint32_t write_covar_dummy_max_categories, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, Aperm_info* apip, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, double lasso_h2, double lasso_minlambda, Range_list* lasso_select_covars_range_list_ptr, uint32_t testmiss_modifier, uint32_t testmiss_mperm_val, Ll_str** file_delete_list_ptr) {
   FILE* bedfile = NULL;
   FILE* famfile = NULL;
   FILE* phenofile = NULL;
@@ -2829,7 +2829,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   if (!marker_alleles_needed) {
     allelexxxx = 0;
   }
-  retval = load_bim(mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &set_allele_freqs, &marker_allele_ptrs, &max_marker_allele_len, &marker_ids, missing_marker_id_template, missing_marker_id_match, chrom_info_ptr, &marker_cms, &marker_pos, freqname, calculation_type, misc_flags, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_range_list_ptr, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, ((calculation_type == CALC_MAKE_BED) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (!update_map) && (!freqname))? NULL : "make-bed");
+  retval = load_bim(mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &set_allele_freqs, &marker_allele_ptrs, &max_marker_allele_len, &marker_ids, missing_mid_templates, missing_marker_id_match, chrom_info_ptr, &marker_cms, &marker_pos, freqname, calculation_type, misc_flags, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_range_list_ptr, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, ((calculation_type == CALC_MAKE_BED) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (!update_map) && (!freqname))? NULL : "make-bed");
   if (retval) {
     goto plink_ret_1;
   }
@@ -3005,7 +3005,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
   if (cm_map_fname) {
     // need sorted bps, but not marker IDs
-    if (map_is_unsorted & (UNSORTED_BP | UNSORTED_SPLIT_CHROM)) {
+    if (map_is_unsorted & UNSORTED_BP) {
       logprint("Error: --cm-map requires a sorted .bim file.  Retry this command after using\n--make-bed to sort your data.\n");
       goto plink_ret_INVALID_FORMAT;
     }
@@ -3070,7 +3070,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
         retval = include_or_exclude(extractname, cptr, ulii, max_marker_id_len, uiptr, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0);
       } else {
 	if (map_is_unsorted & UNSORTED_BP) {
-	  logprint("Error: '--extract range' requires a sorted .map/.bim.  Retry this command after\nusing --make-bed to sort your data.\n");
+	  logprint("Error: '--extract range' requires a sorted .bim.  Retry this command after\nusing --make-bed to sort your data.\n");
 	  goto plink_ret_INVALID_CMDLINE;
 	}
         retval = extract_exclude_range(extractname, marker_pos, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0, chrom_info_ptr);
@@ -3084,7 +3084,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	retval = include_or_exclude(excludename, cptr, ulii, max_marker_id_len, uiptr, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 1);
       } else {
 	if (map_is_unsorted & UNSORTED_BP) {
-	  logprint("Error: '--exclude range' requires a sorted .map/.bim.  Retry this command after\nusing --make-bed to sort your data.\n");
+	  logprint("Error: '--exclude range' requires a sorted .bim.  Retry this command after\nusing --make-bed to sort your data.\n");
 	  goto plink_ret_INVALID_CMDLINE;
 	}
         retval = extract_exclude_range(excludename, marker_pos, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 1, chrom_info_ptr);
@@ -3429,7 +3429,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     logprint("Error: No variants remaining.\n");
     goto plink_ret_ALL_MARKERS_EXCLUDED;
   }
-  retval = calc_freqs_and_hwe(bedfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, founder_info, nonfounders, (misc_flags / MISC_MAF_SUCC) & 1, set_allele_freqs, &marker_reverse, &marker_allele_cts, bed_offset, (hwe_thresh > 0.0) || (calculation_type & CALC_HARDY) || (geno_thresh < 1.0), hwe_modifier & HWE_THRESH_ALL, (pheno_nm_ct && pheno_c)? (calculation_type & CALC_HARDY) : 0, pheno_nm, pheno_nm_ct? pheno_c : NULL, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_cases, &hwe_lh_cases, &hwe_hh_cases, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &indiv_male_ct, &indiv_f_ct, &indiv_f_male_ct, wt_needed, &topsize, &marker_weights, exponent, chrom_info_ptr, om_ip, sex_nm, sex_male, map_is_unsorted & UNSORTED_SPLIT_CHROM, &hh_exists);
+  retval = calc_freqs_and_hwe(bedfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, founder_info, nonfounders, (misc_flags / MISC_MAF_SUCC) & 1, set_allele_freqs, &marker_reverse, &marker_allele_cts, bed_offset, (hwe_thresh > 0.0) || (calculation_type & CALC_HARDY), hwe_modifier & HWE_THRESH_ALL, (pheno_nm_ct && pheno_c)? (calculation_type & CALC_HARDY) : 0, pheno_nm, pheno_nm_ct? pheno_c : NULL, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_cases, &hwe_lh_cases, &hwe_hh_cases, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &indiv_male_ct, &indiv_f_ct, &indiv_f_male_ct, wt_needed, &topsize, &marker_weights, exponent, chrom_info_ptr, om_ip, sex_nm, sex_male, map_is_unsorted & UNSORTED_SPLIT_CHROM, &hh_exists);
   if (retval) {
     goto plink_ret_1;
   }
@@ -3482,7 +3482,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
   if (geno_thresh < 1.0) {
-    retval = binary_geno_filter(geno_thresh, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, unfiltered_indiv_ct, indiv_exclude, sex_male, indiv_ct, indiv_male_ct, hwe_lls, hwe_lhs, hwe_hhs, chrom_info_ptr, om_ip);
+    retval = binary_geno_filter(geno_thresh, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, unfiltered_indiv_ct, indiv_exclude, sex_male, indiv_ct, indiv_male_ct, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, hwe_hapl_allfs, hwe_haph_allfs, chrom_info_ptr, om_ip);
     if (retval) {
       goto plink_ret_1;
     }
@@ -3507,7 +3507,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
   if (min_bp_space) {
-    if (map_is_unsorted & (UNSORTED_BP | UNSORTED_SPLIT_CHROM)) {
+    if (map_is_unsorted & UNSORTED_BP) {
       logprint("Error: --bp-space requires a sorted .bim file.  Retry this command after using\n--make-bed to sort your data.\n");
       goto plink_ret_INVALID_FORMAT;
     }
@@ -3520,7 +3520,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   wkspace_reset(hwe_lls);
 
   if (sip->fname) {
-    if (map_is_unsorted & (UNSORTED_BP | UNSORTED_SPLIT_CHROM)) {
+    if (map_is_unsorted & UNSORTED_BP) {
       logprint("Error: --set/--make-set requires a sorted .bim file.  Retry this command after\nusing --make-bed to sort your data.\n");
       goto plink_ret_INVALID_FORMAT;
     }
@@ -3731,7 +3731,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
   if (calculation_type & CALC_HOMOZYG) {
     if (map_is_unsorted & UNSORTED_BP) {
-      logprint("Error: Run-of-homozygosity scanning requires a sorted .map/.bim.  Retry this\ncommand after using --make-bed to sort your data.\n");
+      logprint("Error: Run-of-homozygosity scanning requires a sorted .bim.  Retry this command\nafter using --make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
     retval = calc_homozyg(homozyg_ptr, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, zero_extra_chroms, chrom_info_ptr, marker_pos, indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, outname, outname_end, pheno_nm, pheno_c, pheno_d, missing_pheno, sex_male);
@@ -3742,7 +3742,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
   if (calculation_type & CALC_LD_PRUNE) {
     if (map_is_unsorted & UNSORTED_BP) {
-      logprint("Error: LD-based pruning requires a sorted .map/.bim.  Retry this command after\nusing --make-bed to sort your data.\n");
+      logprint("Error: LD-based pruning requires a sorted .bim.  Retry this command after using\n--make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
     retval = ld_prune(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, chrom_info_ptr, set_allele_freqs, marker_pos, unfiltered_indiv_ct, founder_info, sex_male, outname, outname_end, hh_exists);
@@ -3760,7 +3760,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
   if (calculation_type & CALC_LD) {
     if ((!(ldip->modifier & (LD_MATRIX_SHAPEMASK & LD_INTER_CHR))) && (map_is_unsorted & UNSORTED_BP)) {
-      logprint("Error: Windowed --r/--r2 runs require a sorted .map/.bim.  Retry this command\nafter using --make-bed to sort your data.\n");
+      logprint("Error: Windowed --r/--r2 runs require a sorted .bim.  Retry this command after\nusing --make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
     retval = ld_report(threads, ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, set_allele_freqs, zero_extra_chroms, chrom_info_ptr, marker_pos, unfiltered_indiv_ct, founder_info, parallel_idx, parallel_tot, sex_male, outname, outname_end, hh_exists);
@@ -3770,7 +3770,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
   if (calculation_type & CALC_TESTMISHAP) {
     if (map_is_unsorted & UNSORTED_BP) {
-      logprint("Error: --test-mishap requires a sorted .map/.bim.  Retry this command after\nusing --make-bed to sort your data.\n");
+      logprint("Error: --test-mishap requires a sorted .bim.  Retry this command after using\n--make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
     retval = test_mishap(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, min_maf, chrom_info_ptr, unfiltered_indiv_ct, indiv_exclude, indiv_ct);
@@ -3919,7 +3919,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
   if ((calculation_type & CALC_EPI) && (epi_ip->modifier & (EPI_FAST | EPI_REG))) {
     if ((map_is_unsorted & UNSORTED_BP) && (epi_ip->modifier & EPI_FAST_CASE_ONLY)) {
-      logprint("Error: --fast-epistasis case-only requires a sorted .map/.bim.  Retry this\ncommand after using --make-bed to sort your data.\n");
+      logprint("Error: --fast-epistasis case-only requires a sorted .bim.  Retry this command\nafter using --make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
     retval = epistasis_report(threads, epi_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, marker_pos, plink_maxsnp, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm, pheno_nm_ct, pheno_ctrl_ct, pheno_c, pheno_d, parallel_idx, parallel_tot, outname, outname_end, sip);
@@ -4081,7 +4081,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
   if (calculation_type & CALC_CLUMP) {
     if (map_is_unsorted & UNSORTED_BP) {
-      logprint("Error: --clump requires a sorted .map/.bim.  Retry this command after using\n--make-bed to sort your data.\n");
+      logprint("Error: --clump requires a sorted .bim.  Retry this command after using\n--make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
     retval = clump_reports(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, indiv_exclude, indiv_ct, clump_ip, sex_male, hh_exists);
@@ -4148,12 +4148,12 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
 static inline int32_t is_flag(char* param) {
   char cc = param[1];
-  return ((*param == '-') && ((cc > '9') || (cc < '0'))); 
+  return ((*param == '-') && ((cc > '9') || ((cc < '0') && (cc != '.')))); 
 }
 
 static inline char* is_flag_start(char* param) {
   char cc = param[1];
-  if ((*param == '-') && ((cc > '9') || (cc < '0'))) {
+  if ((*param == '-') && ((cc > '9') || ((cc < '0') && (cc != '.')))) {
     return (cc == '-')? (&(param[2])) : (&(param[1]));
   }
   return NULL;
@@ -4177,16 +4177,16 @@ uint32_t param_count(int32_t argc, char** argv, int32_t flag_idx) {
 int32_t enforce_param_ct_range(uint32_t param_ct, char* flag_name, uint32_t min_ct, uint32_t max_ct) {
   if (param_ct > max_ct) {
     if (max_ct > min_ct) {
-      sprintf(logbuf, "Error: %s accepts at most %d parameter%s.%s", flag_name, max_ct, (max_ct == 1)? "" : "s", errstr_append);
+      sprintf(logbuf, "Error: %s accepts at most %u parameter%s.%s", flag_name, max_ct, (max_ct == 1)? "" : "s", errstr_append);
     } else {
-      sprintf(logbuf, "Error: %s only accepts %d parameter%s.%s", flag_name, max_ct, (max_ct == 1)? "" : "s", errstr_append);
+      sprintf(logbuf, "Error: %s only accepts %u parameter%s.%s", flag_name, max_ct, (max_ct == 1)? "" : "s", errstr_append);
     }
     return -1;
   } else if (param_ct < min_ct) {
     if (min_ct == 1) {
       sprintf(logbuf, "Error: Missing %s parameter.%s", flag_name, errstr_append);
     } else {
-      sprintf(logbuf, "Error: %s requires %s%d parameters.%s", flag_name, (min_ct < max_ct)? "at least " : "", min_ct, errstr_append);
+      sprintf(logbuf, "Error: %s requires %s%u parameters.%s", flag_name, (min_ct < max_ct)? "at least " : "", min_ct, errstr_append);
     }
     return -1;
   }
@@ -4968,7 +4968,6 @@ int32_t main(int32_t argc, char** argv) {
   char* read_genome_fname = NULL;
   char* condition_mname = NULL;
   char* condition_fname = NULL;
-  char* missing_marker_id_template = NULL;
   char* missing_marker_id_match = NULL;
   char* filter_attrib_fname = NULL;
   char* filter_attrib_liststr = NULL;
@@ -5118,6 +5117,7 @@ int32_t main(int32_t argc, char** argv) {
   char mergename2[FNAMESIZE];
   char mergename3[FNAMESIZE];
   char output_missing_pheno[32];
+  char* missing_mid_templates[2];
 #ifdef __APPLE__
   int32_t mib[2];
   size_t sztmp;
@@ -5179,6 +5179,8 @@ int32_t main(int32_t argc, char** argv) {
   range_list_init(&lasso_select_covars_range_list);
   range_list_init(&parameters_range_list);
   range_list_init(&tests_range_list);
+  missing_mid_templates[0] = NULL;
+  missing_mid_templates[1] = NULL;
 
   chrom_info.name_ct = 0;
   chrom_info.incl_excl_name_stack = NULL;
@@ -7993,7 +7995,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct) {
 	  groupdist_iters = strtoul(argv[cur_arg + 1], NULL, 10);
-	  if ((groupdist_iters < 2) || (groupdist_iters == ULONG_MAX)) {
+	  if ((groupdist_iters < 2) || (groupdist_iters > (ULONG_MAX - MAX_THREADS))) {
 	    sprintf(logbuf, "Error: Invalid --groupdist jackknife iteration count '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -9860,6 +9862,13 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	misc_flags |= MISC_MERGEX;
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "issing-var-code", 16)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (alloc_string(&missing_marker_id_match, argv[cur_arg + 1])) {
+	  goto main_ret_NOMEM;
+	}
       } else if (!memcmp(argptr2, "lma", 4)) {
         logprint("Error: --mlma is not implemented yet.\n");
         goto main_ret_INVALID_CMDLINE;
@@ -11452,25 +11461,57 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	  splitx_bound2 = (uint32_t)ii;
 	}
-      } else if (!memcmp(argptr2, "et-missing-var-ids", 19)) {
-        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
+      } else if (!memcmp(argptr2, "et-missing-snp-ids", 19)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
           goto main_ret_INVALID_CMDLINE_3;
 	}
 	// must contain exactly one '^' and one '#'
 	sptr = strchr(argv[cur_arg + 1], '^');
 	sptr2 = strchr(argv[cur_arg + 1], '#');
 	if ((!sptr) || (!sptr2) || strchr(&(sptr[1]), '^') || strchr(&(sptr2[1]), '#')) {
+	  sprintf(logbuf, "Error: The --set-missing-snp-ids template string requires exactly one '^' and\none '#'.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (missing_mid_templates[0] && (!strcmp(missing_mid_templates[0], argv[cur_arg + 1]))) {
+	  // users can still shoot themselves in the foot by splitting this
+	  // across two runs, but at least it's harder
+	  sprintf(logbuf, "Error: --set-missing-snp-ids and --set-missing-nonsnp-ids cannot be given the\nsame template string.  Use --set-missing-var-ids if you're sure there are no\nposition overlaps.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (alloc_string(&missing_mid_templates[1], argv[cur_arg + 1])) {
+	  goto main_ret_NOMEM;
+	}
+      } else if (!memcmp(argptr2, "et-missing-nonsnp-ids", 22)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+          goto main_ret_INVALID_CMDLINE_3;
+	}
+	sptr = strchr(argv[cur_arg + 1], '^');
+	sptr2 = strchr(argv[cur_arg + 1], '#');
+	if ((!sptr) || (!sptr2) || strchr(&(sptr[1]), '^') || strchr(&(sptr2[1]), '#')) {
+	  sprintf(logbuf, "Error: The --set-missing-nonsnp-ids template string requires exactly one '^'\nand one '#'.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (alloc_string(&missing_mid_templates[0], argv[cur_arg + 1])) {
+	  goto main_ret_NOMEM;
+	}
+      } else if (!memcmp(argptr2, "et-missing-var-ids", 19)) {
+	if (missing_mid_templates[0] || missing_mid_templates[1]) {
+	  sprintf(logbuf, "Error: --set-missing-var-ids cannot be used with --set-missing-snp-ids or\n--set-missing-nonsnp-ids.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+          goto main_ret_INVALID_CMDLINE_3;
+	}
+	sptr = strchr(argv[cur_arg + 1], '^');
+	sptr2 = strchr(argv[cur_arg + 1], '#');
+	if ((!sptr) || (!sptr2) || strchr(&(sptr[1]), '^') || strchr(&(sptr2[1]), '#')) {
 	  sprintf(logbuf, "Error: The --set-missing-var-ids template string requires exactly one '^' and\none '#'.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (alloc_string(&missing_marker_id_template, argv[cur_arg + 1])) {
+	if (alloc_string(&missing_mid_templates[1], argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
-	if (param_ct == 2) {
-	  if (alloc_string(&missing_marker_id_match, argv[cur_arg + 2])) {
-	    goto main_ret_NOMEM;
-	  }
-	}
+	misc_flags |= MISC_SET_MISSING_VAR_IDS;
       } else if (!memcmp(argptr2, "kato", 5)) {
 	logprint("Error: --skato is not implemented yet.  Use e.g. PLINK/SEQ to perform this test\nfor now.\n");
 	retval = RET_CALC_NOT_YET_SUPPORTED;
@@ -12798,7 +12839,7 @@ int32_t main(int32_t argc, char** argv) {
     } else if (!rel_info.ibc_type) {
       rel_info.ibc_type = 1;
     }
-    retval = plink(outname, outname_end, pedname, mapname, famname, cm_map_fname, cm_map_chrname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, read_dists_fname, read_dists_id_fname, evecname, mergename1, mergename2, mergename3, missing_marker_id_template, missing_marker_id_match, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, update_alleles_fname, read_genome_fname, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, filtervals_flattened, condition_mname, condition_fname, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, thin_keep_prob, min_bp_space, mfilter_col, filter_binary, fam_cols, missing_pheno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, &oblig_missing_info, check_sex_fthresh, check_sex_mthresh, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, tail_bottom, tail_top, misc_flags, calculation_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, parallel_idx, parallel_tot, splitx_bound1, splitx_bound2, ppc_gap, sex_missing_pheno, update_sex_col, hwe_modifier, genome_modifier, genome_min_pi_hat, genome_max_pi_hat, &homozyg, &cluster, neighbor_n1, neighbor_n2, &set_info, &ld_info, &epi_info, &clump_info, &rel_info, recode_modifier, allelexxxx, merge_type, indiv_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, write_covar_modifier, write_covar_dummy_max_categories, mwithin_col, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, &parameters_range_list, &tests_range_list, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, &aperm, mperm_save, ibs_test_perms, perm_batch_size, lasso_h2, lasso_minlambda, &lasso_select_covars_range_list, testmiss_modifier, testmiss_mperm_val, &file_delete_list);
+    retval = plink(outname, outname_end, pedname, mapname, famname, cm_map_fname, cm_map_chrname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, read_dists_fname, read_dists_id_fname, evecname, mergename1, mergename2, mergename3, missing_mid_templates, missing_marker_id_match, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, update_alleles_fname, read_genome_fname, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, filtervals_flattened, condition_mname, condition_fname, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, thin_keep_prob, min_bp_space, mfilter_col, filter_binary, fam_cols, missing_pheno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, &oblig_missing_info, check_sex_fthresh, check_sex_mthresh, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, tail_bottom, tail_top, misc_flags, calculation_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, parallel_idx, parallel_tot, splitx_bound1, splitx_bound2, ppc_gap, sex_missing_pheno, update_sex_col, hwe_modifier, genome_modifier, genome_min_pi_hat, genome_max_pi_hat, &homozyg, &cluster, neighbor_n1, neighbor_n2, &set_info, &ld_info, &epi_info, &clump_info, &rel_info, recode_modifier, allelexxxx, merge_type, indiv_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, write_covar_modifier, write_covar_dummy_max_categories, mwithin_col, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, &parameters_range_list, &tests_range_list, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, &aperm, mperm_save, ibs_test_perms, perm_batch_size, lasso_h2, lasso_minlambda, &lasso_select_covars_range_list, testmiss_modifier, testmiss_mperm_val, &file_delete_list);
   }
  main_ret_2:
   free(wkspace_ua);
@@ -12901,7 +12942,8 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(maternal_id_23);
   free_cond(condition_mname);
   free_cond(condition_fname);
-  free_cond(missing_marker_id_template);
+  free_cond(missing_mid_templates[0]);
+  free_cond(missing_mid_templates[1]);
   free_cond(missing_marker_id_match);
   free_cond(filter_attrib_fname);
   free_cond(filter_attrib_liststr);
