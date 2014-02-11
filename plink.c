@@ -2952,8 +2952,10 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       sprintf(logbuf, "Error: --regress-pcs%s requires a scalar phenotype.\n", (calculation_type & CALC_REGRESS_PCS_DISTANCE)? "-distance" : "");
       goto plink_ret_INVALID_CMDLINE_2;
     */
-    if (calculation_type & (CALC_REGRESS_DISTANCE | CALC_UNRELATED_HERITABILITY | CALC_GXE)) {
-      if (calculation_type & CALC_REGRESS_DISTANCE) {
+    if (calculation_type & (CALC_REGRESS_REL | CALC_REGRESS_DISTANCE | CALC_UNRELATED_HERITABILITY | CALC_GXE)) {
+      if (calculation_type & CALC_REGRESS_REL) {
+        logprint("Error: --regress-rel calculation requires a scalar phenotype.\n");
+      } else if (calculation_type & CALC_REGRESS_DISTANCE) {
         logprint("Error: --regress-distance calculation requires a scalar phenotype.\n");
       } else if (calculation_type & CALC_UNRELATED_HERITABILITY) {
         logprint("Error: --unrelated-heritability requires a scalar phenotype.\n");

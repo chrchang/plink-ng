@@ -6962,6 +6962,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   int32_t ibc_type = relip->ibc_type;
   int32_t retval = 0;
   uint32_t dist_thread_ct = g_thread_ct;
+  uint32_t rel_req = relationship_req(calculation_type);
   int64_t llxx = 0;
   double rel_cutoff = relip->cutoff;
   double* dist_ptr = NULL;
@@ -7025,7 +7026,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   }
   rel_ibc = *rel_ibc_ptr;
   fill_double_zero(rel_ibc, uii);
-  if (relationship_req(calculation_type)) {
+  if (rel_req) {
     llxx = g_thread_start[dist_thread_ct];
     llxx = ((llxx * (llxx - 1)) - (int64_t)g_thread_start[0] * (g_thread_start[0] - 1)) / 2;
     if (!(calculation_type & (CALC_PCA | CALC_UNRELATED_HERITABILITY))) {
@@ -7045,7 +7046,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
     fill_double_zero(rel_dists, llxx);
   }
   wkspace_mark = wkspace_base;
-  if (relationship_req(calculation_type) && (!g_missing_dbl_excluded)) {
+  if (rel_req && (!g_missing_dbl_excluded)) {
     if (wkspace_alloc_ui_checked(&g_missing_dbl_excluded, llxx * sizeof(int32_t))) {
       goto calc_rel_ret_NOMEM;
     }
@@ -7130,7 +7131,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       } else {
 	update_rel_ibc(rel_ibc, geno, &(set_allele_freq_buf[win_marker_idx]), ibc_type, indiv_ct);
       }
-      if (relationship_req(calculation_type)) {
+      if (rel_req) {
 	uii = is_last_block && (cur_markers_loaded - win_marker_idx <= MULTIPLEX_REL / 3);
 	fill_weights_r(weights, &(set_allele_freq_buf[win_marker_idx]), (ibc_type != -1)? 1 : 0);
 	if (spawn_threads2(threads, &calc_rel_thread, dist_thread_ct, uii)) {
@@ -7144,7 +7145,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
     printf("\r%" PRIuPTR " markers complete.", marker_idx);
     fflush(stdout);
   } while (!is_last_block);
-  if (relationship_req(calculation_type)) {
+  if (rel_req) {
     putchar('\r');
     logprint("Relationship matrix calculation complete.\n");
     dist_ptr = rel_dists;
@@ -7162,7 +7163,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
     uii = marker_ct - indiv_missing_unwt[indiv_idx];
     if ((indiv_idx >= min_indiv) && (indiv_idx < max_parallel_indiv)) {
-      if (relationship_req(calculation_type)) {
+      if (rel_req) {
 	giptr = indiv_missing_unwt;
 	for (ujj = 0; ujj < indiv_idx; ujj++) {
 	  *dist_ptr /= uii - (*giptr++) + (*giptr2++);
@@ -7625,6 +7626,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
   float* rel_f_dists = NULL;
   uint32_t chrom_fo_idx = 0;
   uint32_t dist_thread_ct = g_thread_ct;
+  uint32_t rel_req = relationship_req(calculation_type);
   float* dptr2;
   float set_allele_freq_buf[MULTIPLEX_DIST];
   char wbuf[96];
@@ -7672,7 +7674,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
   }
   // forcing alignment doesn't seem to be worth it
   triangle_fill(g_thread_start, indiv_ct, dist_thread_ct, parallel_idx, parallel_tot, 1, 1);
-  if (relationship_req(calculation_type)) {
+  if (rel_req) {
     ullxx = g_thread_start[dist_thread_ct];
     ullxx = ((ullxx * (ullxx - 1)) - (int64_t)g_thread_start[0] * (g_thread_start[0] - 1)) / 2;
     if (wkspace_alloc_ui_checked(&g_missing_dbl_excluded, ullxx * sizeof(int32_t)) ||
@@ -7694,7 +7696,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
   fill_float_zero(rel_ibc, uii);
   wkspace_mark = wkspace_base;
 
-  if (relationship_req(calculation_type) && (!g_missing_dbl_excluded)) {
+  if (rel_req && (!g_missing_dbl_excluded)) {
     if (wkspace_alloc_ui_checked(&g_missing_dbl_excluded, ullxx * sizeof(int32_t))) {
       goto calc_rel_f_ret_NOMEM;
     }
@@ -7769,7 +7771,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
       } else {
 	update_rel_f_ibc(rel_ibc, geno, &(set_allele_freq_buf[win_marker_idx]), ibc_type, indiv_ct);
       }
-      if (relationship_req(calculation_type)) {
+      if (rel_req) {
 	uii = is_last_block && (cur_markers_loaded - win_marker_idx <= MULTIPLEX_REL / 3);
 	fill_weights_r_f(weights_f, &(set_allele_freq_buf[win_marker_idx]), (ibc_type != -1)? 1 : 0);
 	if (spawn_threads2(threads, &calc_rel_f_thread, dist_thread_ct, uii)) {
@@ -7783,7 +7785,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
     printf("\r%" PRIuPTR " markers complete.", marker_idx);
     fflush(stdout);
   } while (!is_last_block);
-  if (relationship_req(calculation_type)) {
+  if (rel_req) {
     putchar('\r');
     logprint("Single-precision relationship matrix calculation complete.\n");
     dist_ptr = rel_f_dists;
@@ -7801,7 +7803,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
   for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
     uii = marker_ct - indiv_missing_unwt[indiv_idx];
     if ((indiv_idx >= min_indiv) && (indiv_idx < max_parallel_indiv)) {
-      if (relationship_req(calculation_type)) {
+      if (rel_req) {
 	giptr = indiv_missing_unwt;
 	for (ujj = 0; ujj < indiv_idx; ujj++) {
 	  *dist_ptr /= uii - (*giptr++) + (*giptr2++);
