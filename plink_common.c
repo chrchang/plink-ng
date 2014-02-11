@@ -8550,10 +8550,13 @@ int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr
 //   g_thread_cur_block_done_condvar and g_thread_start_next_condvar are
 //   initialized, then threads are launched.
 //   If it has, pthread_cond_broadcast() acts on g_thread_start_next_condvar.
-// * On Windows, spawn_threads2() checks if g_thread_start_next_event has been
-//   initialized.  If it has not, it, along with
-//   g_thread_cur_block_done_event[], is initialized, then the threads are
-//   launched.  If it has, SetEvent() acts on g_thread_start_next_event.
+// * On Windows, spawn_threads2() checks if g_thread_mutex_initialized is set.
+//   If it has not, it, along with g_thread_start_next_event[] and
+//   g_thread_cur_block_done_events[], are initialized, then the threads are
+//   launched.  If it has, SetEvent() acts on g_thread_start_next_event[].
+//   (It used to act on only one event; then I realized that safely dealing
+//   with a manual-reset event could be a pain if the first thread finishes
+//   before the last one wakes up...)
 // * Thread functions are expected to be of the form
 //     THREAD_RET_TYPE function_name(void* arg) {
 //       uintptr_t tidx = (uintptr_t)arg;
@@ -8573,7 +8576,7 @@ int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr
 //   the mutex.
 // * On Windows, THREAD_BLOCK_FINISH() calls SetEvent() on
 //   g_thread_cur_block_done_events[tidx - 1], then waits on
-//   g_thread_start_next_event.
+//   g_thread_start_next_event[tidx - 1].
 // * If the termination variable is set, join_threads2() waits for all threads
 //   to complete, then cleans up all multithreading objects.  Otherwise, on
 //   Linux and OS X, it acquires the mutex and calls pthread_cond_wait() on
@@ -8596,14 +8599,13 @@ int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr
 uintptr_t g_thread_spawn_ct;
 uint32_t g_is_last_thread_block = 0;
 #ifdef _WIN32
-HANDLE g_thread_start_next_event = NULL;
+HANDLE g_thread_start_next_event[MAX_THREADS];
 HANDLE g_thread_cur_block_done_events[MAX_THREADS];
 #else
 static pthread_mutex_t g_thread_sync_mutex;
 static pthread_cond_t g_thread_cur_block_done_condvar;
 static pthread_cond_t g_thread_start_next_condvar;
 uint32_t g_thread_active_ct;
-static uint32_t g_thread_mutex_initialized = 0;
 
 void THREAD_BLOCK_FINISH(uintptr_t tidx) {
   uintptr_t initial_spawn_ct = g_thread_spawn_ct;
@@ -8618,18 +8620,14 @@ void THREAD_BLOCK_FINISH(uintptr_t tidx) {
   pthread_mutex_unlock(&g_thread_sync_mutex);
 }
 #endif
+static uint32_t g_thread_mutex_initialized = 0;
 
 void join_threads2(pthread_t* threads, uint32_t ctp1, uint32_t is_last_block) {
   uint32_t uii;
   if (!(--ctp1)) {
     if (is_last_block) {
       // allow another multithreaded function to be called later
-#ifdef _WIN32
-      CloseHandle(g_thread_start_next_event);
-      g_thread_start_next_event = NULL;
-#else
       g_thread_mutex_initialized = 0;
-#endif
     }
     return;
   }
@@ -8638,12 +8636,11 @@ void join_threads2(pthread_t* threads, uint32_t ctp1, uint32_t is_last_block) {
     WaitForMultipleObjects(ctp1, g_thread_cur_block_done_events, 1, INFINITE);
   } else {
     WaitForMultipleObjects(ctp1, threads, 1, INFINITE);
-    CloseHandle(g_thread_start_next_event);
-    g_thread_start_next_event = NULL;
     for (uii = 0; uii < ctp1; uii++) {
+      CloseHandle(g_thread_start_next_event[uii]);
       CloseHandle(g_thread_cur_block_done_events[uii]);
-      g_thread_cur_block_done_events[uii] = NULL;
     }
+    g_thread_mutex_initialized = 0;
   }
 #else
   if (!is_last_block) {
@@ -8682,16 +8679,14 @@ int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintpt
     g_is_last_thread_block = is_last_block;
   }
 #ifdef _WIN32
-  if (ct == 1) {
-    return 0;
-  }
-  if (!g_thread_start_next_event) {
+  if (!g_thread_mutex_initialized) {
     g_thread_spawn_ct = 0;
-    g_thread_start_next_event = CreateEvent(NULL, FALSE, FALSE, NULL);
+    g_thread_mutex_initialized = 1;
     if (ct == 1) {
       return 0;
     }
     for (ulii = 1; ulii < ct; ulii++) {
+      g_thread_start_next_event[ulii - 1] = CreateEvent(NULL, FALSE, FALSE, NULL);
       g_thread_cur_block_done_events[ulii - 1] = CreateEvent(NULL, FALSE, FALSE, NULL);
     }
     for (ulii = 1; ulii < ct; ulii++) {
@@ -8703,10 +8698,9 @@ int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintpt
     }
   } else {
     g_thread_spawn_ct++;
-    if (ct == 1) {
-      return 0;
+    for (ulii = 1; ulii < ct; ulii++) {
+      SetEvent(g_thread_start_next_event[ulii - 1]);
     }
-    SetEvent(g_thread_start_next_event);
   }
 #else
   if (!is_last_block) {

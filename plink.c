@@ -12689,8 +12689,6 @@ int32_t main(int32_t argc, char** argv) {
   memstatus.dwLength = sizeof(memstatus);
   GlobalMemoryStatusEx(&memstatus);
   llxx = memstatus.ullTotalPhys / 1048576;
-  // may as well put this here too
-  fill_ulong_zero((uintptr_t*)g_thread_cur_block_done_events, g_thread_ct - 1);
 #else
   llxx = ((uint64_t)sysconf(_SC_PHYS_PAGES)) * ((size_t)sysconf(_SC_PAGESIZE)) / 1048576;
 #endif

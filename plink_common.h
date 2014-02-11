@@ -1928,12 +1928,12 @@ extern uintptr_t g_thread_spawn_ct;
 extern uint32_t g_is_last_thread_block;
 
 #ifdef _WIN32
-extern HANDLE g_thread_start_next_event;
+extern HANDLE g_thread_start_next_event[];
 extern HANDLE g_thread_cur_block_done_events[];
 
 static inline void THREAD_BLOCK_FINISH(uintptr_t tidx) {
   SetEvent(g_thread_cur_block_done_events[tidx - 1]);
-  WaitForSingleObject(g_thread_start_next_event, INFINITE);
+  WaitForSingleObject(g_thread_start_next_event[tidx - 1], INFINITE);
 }
 
 void join_threads2(pthread_t* threads, uint32_t ctp1, uint32_t is_last_block);
