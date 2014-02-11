@@ -1297,7 +1297,7 @@ int32_t load_one_freq(uint32_t alen1, const char* aptr1, uint32_t alen2, const c
   return 0;
 }
 
-int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, char** marker_allele_ptrs, uint32_t* marker_allele_cts, double* set_allele_freqs, uint32_t maf_succ, double exponent, uint32_t wt_needed, double* marker_weights) {
+int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, char** marker_allele_ptrs, double* set_allele_freqs, uint32_t maf_succ, double exponent, uint32_t wt_needed, double* marker_weights) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* freqfile = NULL;
   uint32_t freq_counts = 0;
@@ -2625,6 +2625,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uintptr_t* pheno_c = NULL;
   uintptr_t* orig_pheno_c_alloc = NULL;
   uintptr_t* orig_pheno_c = NULL;
+  uintptr_t* geno_excl_bitfield = NULL;
   double* pheno_d = NULL;
   double* orig_pheno_d = NULL;
   double* marker_weights = NULL;
@@ -2678,7 +2679,6 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   pthread_t threads[MAX_THREADS];
   uintptr_t unfiltered_indiv_ct4;
   uintptr_t unfiltered_indiv_ctl;
-  uint32_t* marker_allele_cts;
   uint32_t* uiptr;
   double* dptr;
   double* dptr2;
@@ -3429,13 +3429,13 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     logprint("Error: No variants remaining.\n");
     goto plink_ret_ALL_MARKERS_EXCLUDED;
   }
-  retval = calc_freqs_and_hwe(bedfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, founder_info, nonfounders, (misc_flags / MISC_MAF_SUCC) & 1, set_allele_freqs, &marker_reverse, &marker_allele_cts, bed_offset, (hwe_thresh > 0.0) || (calculation_type & CALC_HARDY), hwe_modifier & HWE_THRESH_ALL, (pheno_nm_ct && pheno_c)? (calculation_type & CALC_HARDY) : 0, pheno_nm, pheno_nm_ct? pheno_c : NULL, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_cases, &hwe_lh_cases, &hwe_hh_cases, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &indiv_male_ct, &indiv_f_ct, &indiv_f_male_ct, wt_needed, &topsize, &marker_weights, exponent, chrom_info_ptr, om_ip, sex_nm, sex_male, map_is_unsorted & UNSORTED_SPLIT_CHROM, &hh_exists);
+  retval = calc_freqs_and_hwe(bedfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, founder_info, nonfounders, (misc_flags / MISC_MAF_SUCC) & 1, set_allele_freqs, &marker_reverse, bed_offset, (hwe_thresh > 0.0) || (calculation_type & CALC_HARDY), hwe_modifier & HWE_THRESH_ALL, (pheno_nm_ct && pheno_c)? (calculation_type & CALC_HARDY) : 0, geno_thresh, pheno_nm, pheno_nm_ct? pheno_c : NULL, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_cases, &hwe_lh_cases, &hwe_hh_cases, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &geno_excl_bitfield, &indiv_male_ct, &indiv_f_ct, &indiv_f_male_ct, wt_needed, &topsize, &marker_weights, exponent, chrom_info_ptr, om_ip, sex_nm, sex_male, map_is_unsorted & UNSORTED_SPLIT_CHROM, &hh_exists);
   if (retval) {
     goto plink_ret_1;
   }
 
   if (freqname) {
-    retval = read_external_freqs(freqname, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, chrom_info_ptr, marker_allele_ptrs, marker_allele_cts, set_allele_freqs, (misc_flags / MISC_MAF_SUCC) & 1, exponent, wt_needed, marker_weights);
+    retval = read_external_freqs(freqname, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, chrom_info_ptr, marker_allele_ptrs, set_allele_freqs, (misc_flags / MISC_MAF_SUCC) & 1, exponent, wt_needed, marker_weights);
     if (retval) {
       goto plink_ret_1;
     }
@@ -3481,15 +3481,20 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto plink_ret_1;
     }
   }
-  if (geno_thresh < 1.0) {
-    retval = binary_geno_filter(geno_thresh, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, unfiltered_indiv_ct, indiv_exclude, sex_male, indiv_ct, indiv_male_ct, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, hwe_hapl_allfs, hwe_haph_allfs, chrom_info_ptr, om_ip);
-    if (retval) {
-      goto plink_ret_1;
+  if (geno_excl_bitfield) {
+    ulii = marker_exclude_ct;
+    uljj = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+    bitfield_or(marker_exclude, geno_excl_bitfield, uljj);
+    marker_exclude_ct = popcount_longs(marker_exclude, uljj);
+    if (marker_exclude_ct == unfiltered_marker_ct) {
+      logprint("Error: All variants excluded due to missing genotype data (--geno).\n");
+      goto plink_ret_ALL_MARKERS_EXCLUDED;
     }
+    ulii = marker_exclude_ct - ulii;
+    sprintf(logbuf, "%" PRIuPTR " variant%s removed due to missing genotype data (--geno).\n", ulii, (ulii == 1)? "" : "s");
+    logprintb();
   }
   oblig_missing_cleanup(om_ip);
-  wkspace_reset(marker_allele_cts);
-  marker_allele_cts = NULL;
   if (calculation_type & CALC_HARDY) {
     retval = hardy_report(outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, hwe_lls, hwe_lhs, hwe_hhs, hwe_modifier, hwe_ll_cases, hwe_lh_cases, hwe_hh_cases, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, pheno_nm_ct, pheno_c, zero_extra_chroms, chrom_info_ptr);
     if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER | CALC_FREQ | CALC_HARDY))))) {

@@ -1100,11 +1100,12 @@ static inline void haploid_single_marker_freqs(uintptr_t unfiltered_indiv_ct, ui
   *hethap_incr_ptr = hethap_incr;
 }
 
-int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_exclude_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t* founder_info, int32_t nonfounders, int32_t maf_succ, double* set_allele_freqs, uintptr_t** marker_reverse_ptr, uint32_t** marker_allele_cts_ptr, uintptr_t bed_offset, uint32_t hwe_needed, uint32_t hwe_all, uint32_t hardy_needed, uintptr_t* pheno_nm, uintptr_t* pheno_c, int32_t** hwe_lls_ptr, int32_t** hwe_lhs_ptr, int32_t** hwe_hhs_ptr, int32_t** hwe_ll_cases_ptr, int32_t** hwe_lh_cases_ptr, int32_t** hwe_hh_cases_ptr, int32_t** hwe_ll_allfs_ptr, int32_t** hwe_lh_allfs_ptr, int32_t** hwe_hh_allfs_ptr, int32_t** hwe_hapl_allfs_ptr, int32_t** hwe_haph_allfs_ptr, uint32_t* indiv_male_ct_ptr, uint32_t* indiv_f_ct_ptr, uint32_t* indiv_f_male_ct_ptr, uint32_t wt_needed, uintptr_t* topsize_ptr, double** marker_weights_ptr, double exponent, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t is_split_chrom, uint32_t* hh_exists_ptr) {
+int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_exclude_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t* founder_info, int32_t nonfounders, int32_t maf_succ, double* set_allele_freqs, uintptr_t** marker_reverse_ptr, uintptr_t bed_offset, uint32_t hwe_needed, uint32_t hwe_all, uint32_t hardy_needed, double geno_thresh, uintptr_t* pheno_nm, uintptr_t* pheno_c, int32_t** hwe_lls_ptr, int32_t** hwe_lhs_ptr, int32_t** hwe_hhs_ptr, int32_t** hwe_ll_cases_ptr, int32_t** hwe_lh_cases_ptr, int32_t** hwe_hh_cases_ptr, int32_t** hwe_ll_allfs_ptr, int32_t** hwe_lh_allfs_ptr, int32_t** hwe_hh_allfs_ptr, int32_t** hwe_hapl_allfs_ptr, int32_t** hwe_haph_allfs_ptr, uintptr_t** geno_excl_bitfield_ptr, uint32_t* indiv_male_ct_ptr, uint32_t* indiv_f_ct_ptr, uint32_t* indiv_f_male_ct_ptr, uint32_t wt_needed, uintptr_t* topsize_ptr, double** marker_weights_ptr, double exponent, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t is_split_chrom, uint32_t* hh_exists_ptr) {
   FILE* hhfile = NULL;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + BITCT - 1) / BITCT;
   uintptr_t unfiltered_indiv_ctv2 = 2 * unfiltered_indiv_ctl;
+  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   int32_t retval = 0;
   uint32_t pct = 1;
   uint32_t indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
@@ -1157,6 +1158,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   uintptr_t* founder_male_include2 = NULL;
   uintptr_t* founder_case_include2 = NULL;
   uintptr_t* founder_case_nonmale_include2 = NULL;
+  uintptr_t* geno_excl_bitfield = NULL;
   uint64_t* om_entry_ptr = NULL;
   double* marker_weights = NULL;
   uint32_t indiv_nonmale_ct = 0;
@@ -1188,8 +1190,8 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   uint32_t males_needed;
   uint32_t uii;
   uint32_t ujj;
-  uint32_t* marker_allele_cts;
   double maf;
+  double cur_genotyping_rate;
   uii = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   if (wkspace_alloc_ul_checked(marker_reverse_ptr, uii * sizeof(intptr_t))) {
     goto calc_freqs_and_hwe_ret_NOMEM;
@@ -1235,8 +1237,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
       wkspace_alloc_i_checked(&hwe_lh_allfs, unfiltered_marker_ct * sizeof(int32_t)) ||
       wkspace_alloc_i_checked(&hwe_hh_allfs, unfiltered_marker_ct * sizeof(int32_t)) ||
       wkspace_alloc_i_checked(&hwe_hapl_allfs, unfiltered_marker_ct * sizeof(int32_t)) ||
-      wkspace_alloc_i_checked(&hwe_haph_allfs, unfiltered_marker_ct * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(&marker_allele_cts, 2 * unfiltered_marker_ct * sizeof(int32_t))) {
+      wkspace_alloc_i_checked(&hwe_haph_allfs, unfiltered_marker_ct * sizeof(int32_t))) {
     goto calc_freqs_and_hwe_ret_NOMEM;
   }
   *hwe_ll_allfs_ptr = hwe_ll_allfs;
@@ -1254,8 +1255,15 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   fill_int_zero(hwe_hh_allfs, unfiltered_marker_ct);
   fill_int_zero(hwe_hapl_allfs, unfiltered_marker_ct);
   fill_int_zero(hwe_haph_allfs, unfiltered_marker_ct);
-  fill_uint_zero(marker_allele_cts, 2 * unfiltered_marker_ct);
-  *marker_allele_cts_ptr = marker_allele_cts;
+  if (geno_thresh < 1.0) {
+    if (wkspace_alloc_ul_checked(geno_excl_bitfield_ptr, unfiltered_marker_ctl * sizeof(intptr_t))) {
+      goto calc_freqs_and_hwe_ret_NOMEM;
+    }
+    geno_excl_bitfield = *geno_excl_bitfield_ptr;
+    fill_ulong_zero(geno_excl_bitfield, unfiltered_marker_ctl);
+    // change this to a minimum nonmissing rate
+    geno_thresh = (1.0 - geno_thresh) * (1 - SMALL_EPSILON);
+  }
   wkspace_mark = wkspace_base;
   if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctv2 * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&indiv_include2, unfiltered_indiv_ctv2 * sizeof(intptr_t))) {
@@ -1450,14 +1458,18 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	hwe_ll_allfs[marker_uidx] = ll_ctf;
 	hwe_lh_allfs[marker_uidx] = lh_ctf;
 	hwe_hh_allfs[marker_uidx] = hh_ctf;
-	marker_allele_cts[2 * marker_uidx] += 2 * ll_ct + lh_ct;
-	marker_allele_cts[2 * marker_uidx + 1] += 2 * hh_ct + lh_ct;
-	uii = 2 * (ll_ctf + lh_ctf + hh_ctf + maf_succ);
+	uii = ll_ct + lh_ct + hh_ct;
 	if (!cur_oblig_missing) {
-	  nonmissing_rate_tot += (ll_ct + lh_ct + hh_ct) * indiv_ct_recip;
+	  cur_genotyping_rate = ((int32_t)uii) * indiv_ct_recip;
 	} else {
-	  nonmissing_rate_tot += (ll_ct + lh_ct + hh_ct) / ((double)((int32_t)(indiv_ct - cur_oblig_missing)));
+	  if (indiv_ct - cur_oblig_missing) {
+	    cur_genotyping_rate = ((int32_t)uii) / ((double)((int32_t)(indiv_ct - cur_oblig_missing)));
+	  } else {
+	    cur_genotyping_rate = 0;
+	    nonmissing_rate_tot_max -= 1;
+	  }
 	}
+	uii = 2 * (ll_ctf + lh_ctf + hh_ctf + maf_succ);
 	if (!uii) {
 	  // avoid 0/0 division
 	  set_allele_freqs[marker_uidx] = 0.5;
@@ -1483,8 +1495,6 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	    hwe_ll_allfs[marker_uidx] = ll_ctf;
 	    hwe_lh_allfs[marker_uidx] = lh_ctf;
 	    hwe_hh_allfs[marker_uidx] = hh_ctf;
-	    marker_allele_cts[2 * marker_uidx] += 2 * ll_ct + lh_ct;
-	    marker_allele_cts[2 * marker_uidx + 1] += 2 * hh_ct + lh_ct;
 	    uii = 2 * (ll_ctf + lh_ctf + hh_ctf);
 	    ujj = 2 * hh_ctf + lh_ctf;
 	    ukk = ll_ct + lh_ct + hh_ct;
@@ -1502,27 +1512,35 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	    nonmissing_nonmale_y = nonmissing_present_diff(unfiltered_indiv_ctv2, loadbuf, indiv_include2, indiv_male_include2);
 	  }
 	  haploid_single_marker_freqs(unfiltered_indiv_ct, unfiltered_indiv_ctv2, loadbuf, indiv_male_include2, founder_male_include2, indiv_male_ct, &ll_ct, &hh_ct, indiv_f_male_ct, &ll_ctf, &hh_ctf, &hethap_incr);
-	  if (is_x) {
-	    if (!cur_oblig_missing) {
-	      nonmissing_rate_tot += ((int32_t)(ll_ct + hh_ct + ukk)) * indiv_ct_recip;
+	  if ((is_x || indiv_male_ct) && (indiv_ct - cur_oblig_missing)) {
+	    if (is_x) {
+	      if (!cur_oblig_missing) {
+		cur_genotyping_rate = ((int32_t)(ll_ct + hh_ct + ukk)) * indiv_ct_recip;
+	      } else {
+		cur_genotyping_rate = ((int32_t)(ll_ct + hh_ct + ukk)) / ((double)((int32_t)(indiv_ct - cur_oblig_missing)));
+	      }
 	    } else {
-	      nonmissing_rate_tot += ((int32_t)(ll_ct + hh_ct + ukk)) / ((double)((int32_t)(indiv_ct - cur_oblig_missing)));
-	    }
-	  } else if (indiv_male_ct) {
-	    if (!cur_oblig_missing) {
-	      nonmissing_rate_tot += ((int32_t)(ll_ct + hh_ct)) * male_ct_recip;
-	    } else {
-	      nonmissing_rate_tot += ((int32_t)(ll_ct + hh_ct)) / ((double)((int32_t)(indiv_male_ct - cur_oblig_missing)));
+	      if (!cur_oblig_missing) {
+		cur_genotyping_rate = ((int32_t)(ll_ct + hh_ct)) * male_ct_recip;
+	      } else {
+		cur_genotyping_rate = ((int32_t)(ll_ct + hh_ct)) / ((double)((int32_t)(indiv_male_ct - cur_oblig_missing)));
+	      }
 	    }
 	  } else {
+	    cur_genotyping_rate = 0;
 	    nonmissing_rate_tot_max -= 1;
 	  }
 	} else {
 	  haploid_single_marker_freqs(unfiltered_indiv_ct, unfiltered_indiv_ctv2, loadbuf, indiv_include2, founder_include2, indiv_ct, &ll_ct, &hh_ct, indiv_f_ct, &ll_ctf, &hh_ctf, &hethap_incr);
 	  if (!cur_oblig_missing) {
-	    nonmissing_rate_tot += ((int32_t)(ll_ct + hh_ct)) * indiv_ct_recip;
+	    cur_genotyping_rate = ((int32_t)(ll_ct + hh_ct)) * indiv_ct_recip;
 	  } else {
-	    nonmissing_rate_tot += ((int32_t)(ll_ct + hh_ct)) / ((double)((int32_t)(indiv_ct - cur_oblig_missing)));
+	    if (indiv_ct - cur_oblig_missing) {
+	      cur_genotyping_rate = ((int32_t)(ll_ct + hh_ct)) / ((double)((int32_t)(indiv_ct - cur_oblig_missing)));
+	    } else {
+	      cur_genotyping_rate = 0;
+	      nonmissing_rate_tot_max -= 1;
+	    }
 	  }
 	}
 	if (hethap_incr) {
@@ -1573,8 +1591,6 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	}
 	hwe_hapl_allfs[marker_uidx] = ll_ctf;
 	hwe_haph_allfs[marker_uidx] = hh_ctf;
-	marker_allele_cts[2 * marker_uidx] += ll_ct;
-	marker_allele_cts[2 * marker_uidx + 1] += hh_ct;
 	uii += ll_ctf + hh_ctf + 2 * maf_succ;
 	ujj += hh_ctf + maf_succ;
 	if (!uii) {
@@ -1586,6 +1602,10 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	if (wt_needed) {
 	  marker_weights[marker_uidx] = calc_wt_mean_maf(exponent, maf);
 	}
+      }
+      nonmissing_rate_tot += cur_genotyping_rate;
+      if (geno_excl_bitfield && (cur_genotyping_rate < geno_thresh)) {
+	SET_BIT(geno_excl_bitfield, marker_uidx);
       }
     }
     if (pct < 100) {
@@ -1965,110 +1985,5 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   }
   wkspace_reset(wkspace_mark);
   fclose_cond(outfile);
-  return retval;
-}
-
-int32_t binary_geno_filter(double geno_thresh, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* sex_male, uint32_t indiv_ct, uintptr_t male_ct, int32_t* hwe_ll_allfs, int32_t* hwe_lh_allfs, int32_t* hwe_hh_allfs, int32_t* hwe_hapl_allfs, int32_t* hwe_haph_allfs, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip) {
-  unsigned char* wkspace_mark = wkspace_base;
-  uint64_t* om_entry_ptr = NULL;
-  uint32_t* om_cluster_sizes = NULL;
-  uint64_t cur_om_entry = 0;
-  uint32_t marker_exclude_ct = *marker_exclude_ct_ptr;
-  uint32_t orig_exclude_ct = marker_exclude_ct;
-  uint32_t indiv_uidx = 0;
-  int32_t retval = 0;
-  uint32_t* om_indiv_lookup;
-  uintptr_t om_cluster_ct;
-  uint32_t geno_int_thresh;
-  uint32_t marker_uidx;
-  uint32_t indiv_idx;
-  uint32_t chrom_end;
-  uint32_t chrom_fo_idx;
-  uint32_t omidx;
-  uint32_t cur_ct;
-  uint32_t uii;
-  uint32_t ujj;
-  int32_t chrom_idx;
-  if (om_ip->entry_ct) {
-    om_entry_ptr = om_ip->entries;
-    om_cluster_ct = om_ip->cluster_ct;
-    cur_om_entry = *om_entry_ptr;
-    om_indiv_lookup = om_ip->indiv_lookup;
-    if (wkspace_alloc_ui_checked(&om_cluster_sizes, om_cluster_ct * 2 * sizeof(int32_t))) {
-      goto binary_geno_filter_ret_NOMEM;
-    }
-    fill_uint_zero(om_cluster_sizes, om_cluster_ct * 2);
-    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
-      next_unset_unsafe_ck(indiv_exclude, &indiv_uidx);
-      omidx = om_indiv_lookup[indiv_uidx];
-      if (omidx != 0xffffffffU) {
-        om_cluster_sizes[omidx] += 1;
-        if (is_set(sex_male, indiv_uidx)) {
-	  om_cluster_sizes[omidx + om_cluster_ct] += 1;
-	}
-      }
-    }
-  }
-  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
-    chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-    if (chrom_idx != chrom_info_ptr->y_code) {
-      cur_ct = indiv_ct;
-    } else {
-      cur_ct = male_ct;
-    }
-    chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
-    marker_uidx = next_unset(marker_exclude, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx], chrom_end);
-    geno_int_thresh = cur_ct - (int32_t)(geno_thresh * cur_ct);
-    if (!om_entry_ptr) {
-      while (marker_uidx < chrom_end) {
-	if (((uint32_t)(hwe_ll_allfs[marker_uidx] + hwe_lh_allfs[marker_uidx] + hwe_hh_allfs[marker_uidx] + hwe_hapl_allfs[marker_uidx] + hwe_haph_allfs[marker_uidx])) < geno_int_thresh) {
-	  SET_BIT(marker_exclude, marker_uidx);
-	  marker_exclude_ct++;
-	}
-	marker_uidx++;
-	next_unset_ck(marker_exclude, &marker_uidx, chrom_end);
-      }
-    } else {
-      while (marker_uidx < chrom_end) {
-	while ((cur_om_entry >> 32) < marker_uidx) {
-          cur_om_entry = *(++om_entry_ptr);
-	}
-	uii = hwe_ll_allfs[marker_uidx] + hwe_lh_allfs[marker_uidx] + hwe_hh_allfs[marker_uidx] + hwe_hapl_allfs[marker_uidx] + hwe_haph_allfs[marker_uidx];
-	if ((cur_om_entry >> 32) > marker_uidx) {
-	  ujj = geno_int_thresh;
-	} else {
-	  ujj = cur_ct;
-          do {
-            ujj -= om_cluster_sizes[(uint32_t)cur_om_entry];
-            cur_om_entry = *(++om_entry_ptr);
-	  } while ((cur_om_entry >> 32) == marker_uidx);
-	  ujj = ujj - (int32_t)(geno_thresh * ujj);
-	}
-	if (uii < ujj) {
-	  SET_BIT(marker_exclude, marker_uidx);
-	  marker_exclude_ct++;
-	}
-	marker_uidx++;
-	next_unset_ck(marker_exclude, &marker_uidx, chrom_end);
-      }
-    }
-  }
-  *marker_exclude_ct_ptr = marker_exclude_ct;
-  if (marker_exclude_ct == unfiltered_marker_ct) {
-    logprint("Error: All variants removed due to missing genotype data (--geno).\n");
-    goto binary_geno_filter_ret_ALL_MARKERS_EXCLUDED;
-  }
-  marker_exclude_ct -= orig_exclude_ct;
-  sprintf(logbuf, "%u variant%s removed due to missing genotype data (--geno).\n", marker_exclude_ct, (marker_exclude_ct == 1)? "" : "s");
-  logprintb();
-  while (0) {
-  binary_geno_filter_ret_NOMEM:
-    retval = RET_NOMEM;
-    break;
-  binary_geno_filter_ret_ALL_MARKERS_EXCLUDED:
-    retval = RET_ALL_MARKERS_EXCLUDED;
-    break;
-  }
-  wkspace_reset(wkspace_mark);
   return retval;
 }
