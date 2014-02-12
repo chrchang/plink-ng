@@ -3101,7 +3101,7 @@ int32_t last_clear_bit(uintptr_t* bit_arr, uint32_t ceil) {
 }
 
 uint32_t prev_unset_unsafe(uintptr_t* bit_arr, uint32_t loc) {
-// unlike the next_[un]set family, this always returns a STRICTLY earlier
+// unlike the next_{un}set family, this always returns a STRICTLY earlier
 // position
   uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
   uint32_t remainder = loc % BITCT;
@@ -8759,11 +8759,11 @@ int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintpt
       }
     }
   } else {
-    // still holding mutex
     g_thread_spawn_ct++;
     if (ct == 1) {
       return 0;
     }
+    // still holding mutex
     pthread_mutex_unlock(&g_thread_sync_mutex);
     pthread_cond_broadcast(&g_thread_start_next_condvar);
   }

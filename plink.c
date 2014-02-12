@@ -115,9 +115,9 @@ const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n
 const char null_calc_str[] = "Warning: No output requested.  Exiting.\n";
 #ifdef STABLE_BUILD
   #ifndef NOLAPACK
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --ibc, --impute-sex, --indep, --r2,\n--distance, --genome, --homozyg, --make-rel, --make-grm-gz, --rel-cutoff,\n--cluster, --pca, --neighbour, --ibs-test, --regress-distance, --model, --gxe,\n--logistic, --lasso, --test-missing, and --fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --ibc, --impute-sex, --indep, --r2, --clump,\n--distance, --genome, --homozyg, --make-rel, --make-grm-gz, --rel-cutoff,\n--cluster, --pca, --neighbour, --ibs-test, --regress-distance, --model, --gxe,\n--logistic, --lasso, --test-missing, and --fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --ibc, --impute-sex, --indep, --r2,\n--distance, --genome, --homozyg, --make-rel, --make-grm-gz, --rel-cutoff,\n--cluster, --neighbour, --ibs-test, --regress-distance, --model, --gxe,\n--logistic, --lasso, --test-missing, and --fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --ibc, --impute-sex, --indep, --r2, --clump,\n--distance, --genome, --homozyg, --make-rel, --make-grm-gz, --rel-cutoff,\n--cluster, --neighbour, --ibs-test, --regress-distance, --model, --gxe,\n--logistic, --lasso, --test-missing, and --fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #endif
 #else
   #ifndef NOLAPACK
@@ -3897,7 +3897,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
   if (calculation_type & CALC_REGRESS_DISTANCE) {
-    retval = regress_distance(calculation_type, pheno_d, unfiltered_indiv_ct, indiv_exclude, indiv_ct, g_thread_ct, regress_iters, regress_d);
+    retval = regress_distance(threads, calculation_type, pheno_d, unfiltered_indiv_ct, indiv_exclude, indiv_ct, g_thread_ct, regress_iters, regress_d);
     if (retval) {
       goto plink_ret_1;
     }
@@ -4091,7 +4091,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       logprint("Error: --clump requires a sorted .bim.  Retry this command after using\n--make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
-    retval = clump_reports(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, indiv_exclude, indiv_ct, clump_ip, sex_male, hh_exists);
+    retval = clump_reports(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, founder_info, clump_ip, ldip->modifier, sex_male, hh_exists);
     if (retval) {
       goto plink_ret_1;
     }
@@ -8879,6 +8879,10 @@ int32_t main(int32_t argc, char** argv) {
         if (cc == '2') {
           ld_info.modifier |= LD_IGNORE_X;
 	} else if (cc == '3') {
+	  if (calculation_type & CALC_CLUMP) {
+	    logprint("Error: --clump + --ld-xchr 3 is not currently supported.\n");
+	    goto main_ret_INVALID_CMDLINE;
+	  }
 	  ld_info.modifier |= LD_WEIGHTED_X;
 	}
       } else if (!memcmp(argptr2, "asso", 5)) {
@@ -11021,7 +11025,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --ld-xchr 3 cannot be used with --r/--r2 non-windowed reports.%s", errstr_append);
           goto main_ret_INVALID_CMDLINE_3;
 	} else if (ld_info.modifier & LD_WEIGHTED_X) {
-	  logprint("Error: --r/--r2 + --ld-xchr 3 has not been implemented yet.\n");
+	  logprint("Error: --r/--r2 + --ld-xchr 3 is not currently supported.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	calculation_type |= CALC_LD;

@@ -10335,7 +10335,7 @@ THREAD_RET_TYPE regress_jack_thread(void* arg) {
   THREAD_RETURN;
 }
 
-int32_t regress_distance(uint64_t calculation_type, double* pheno_d, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d) {
+int32_t regress_distance(pthread_t* threads, uint64_t calculation_type, double* pheno_d, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d) {
   unsigned char* wkspace_mark = wkspace_base;
   double reg_tot_xy = 0;
   double reg_tot_x = 0;
@@ -10358,7 +10358,6 @@ int32_t regress_distance(uint64_t calculation_type, double* pheno_d, uintptr_t u
   double dww;
   double dvv;
   double duu;
-  pthread_t threads[MAX_THREADS];
 
   g_indiv_ct = indiv_ct;
 

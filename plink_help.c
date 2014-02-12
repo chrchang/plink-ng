@@ -1412,7 +1412,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --ld-snps [vID...] : Restrict first --r/--r2 variant to the given ranges.\n"
 "  --ld-snp-list [f]  : Restrict first --r/--r2 var. to those named in the file.\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("clump-p1\tclump-p2\tclump-r2\tclump-kb\tclump-snp-field\tclump-field\tclump", &help_ctrl, 0,
 "  --clump-p1 [pval] : Set --clump index site p-value ceiling (default 0.0001).\n"
 "  --clump-p2 [pval] : Set --clump secondary p-value threshold (default 0.01).\n"
@@ -1446,7 +1445,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("clump-best\tclump", &help_ctrl, 0,
 "  --clump-best              : Report best proxy for each --clump index site.\n"
 	       );
-#endif
     help_print("indep\tindep-pairwise\tld-xchr", &help_ctrl, 0,
 "  --ld-xchr [code]   : Set Xchr model for --indep{-pairwise}/--r{2}/--clump.\n"
 "                       1 (default) = males coded 0/1, females 0/1/2 (A1 dosage)\n"
