@@ -7207,7 +7207,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uint32_t bp_radius = clump_ip->bp_radius;
   uint32_t index_eligible = 1;
   uint32_t header1_len = 0;
-  uint32_t header2_len = 0;
+  // uint32_t header2_len = 0;
   uint32_t file_ct = 0;
   int32_t retval = 0;
   // uint32_t counts[16];
@@ -7784,7 +7784,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       bufptr = memcpya(bufptr, "       ANNOT", 12);
     }
     *bufptr++ = '\n';
-    header2_len = (uintptr_t)(bufptr - header2_ptr);
+    // header2_len = (uintptr_t)(bufptr - header2_ptr);
   }
   if (clump_best) {
     memcpy(&(outname_end[8]), ".best", 6);
