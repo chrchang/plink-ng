@@ -4730,7 +4730,9 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
     memcpyx(&(marker_ids[marker_idx * max_marker_id_len]), bufptr, uii, 0);
     bufptr = next_item(bufptr);
     if (map_cols == 4) {
-      scan_double(bufptr, &(marker_cms[marker_idx]));
+      if (scan_double(bufptr, &(marker_cms[marker_idx]))) {
+	marker_cms[marker_idx] = 0.0;
+      }
       bufptr = next_item(bufptr);
     } else {
       marker_cms[marker_idx] = 0.0;
@@ -6858,7 +6860,14 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
       bufptr = skip_initial_spaces(&(bufptr[uii + 1]));
       bufptr = write_item(bufptr, outfile);
       if (gd_col) {
-	bufptr = write_item_nt(bufptr, outfile);
+        ucc = (unsigned char)(*bufptr);
+	// should be good enough at detecting nonnumeric values...
+	if (((ucc >= '0') && (ucc <= '9')) || (ucc == '-') || (ucc == '+')) {
+	  bufptr = write_item_nt(bufptr, outfile);
+	} else {
+	  putc('0', outfile);
+	  bufptr = next_item(bufptr);
+	}
       } else {
 	putc('0', outfile);
       }
@@ -7475,7 +7484,13 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
 	bufptr = write_item(bufptr, outfile);
 	bufptr = write_item(bufptr, outfile);
 	if (cm_col) {
-	  bufptr = write_item_nt(bufptr, outfile);
+	  ucc = (unsigned char)(*bufptr);
+	  if (((ucc >= '0') && (ucc <= '9')) || (ucc == '-') || (ucc == '+')) {
+	    bufptr = write_item_nt(bufptr, outfile);
+	  } else {
+	    putc('0', outfile);
+	    bufptr = next_item(bufptr);
+	  }
 	} else {
 	  putc('0', outfile);
 	}

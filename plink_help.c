@@ -520,9 +520,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 		);
     help_print("r\tr2\tmatrix\tinter-chr\tD\tdprime\twith-freqs\tld", &help_ctrl, 1,
 "  --r <square | square0 | triangle | inter-chr> <gz | bin> <single-prec>\n"
-"      <spaces> <dprime> <with-freqs> <yes-really>\n"
+"      <spaces> <in-phase> <dprime> <with-freqs> <yes-really>\n"
 "  --r2 <square | square0 | triangle | inter-chr> <gz | bin> <single-prec>\n"
-"       <spaces> <dprime> <with-freqs> <yes-really>\n"
+"       <spaces> <in-phase> <dprime> <with-freqs> <yes-really>\n"
 "    LD statistic reports.  --r yields raw inter-variant correlations, while\n"
 "    --r2 reports their squares.  You can request results for all pairs in\n"
 "    matrix format (if you specify 'bin' or one of the shape modifiers), all\n"
@@ -534,6 +534,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * In combination with 'bin', 'single-prec' causes single-precision instead\n"
 "      of double-precision numbers to be written.\n"
 "    * By default, text matrices are tab-delimited; 'spaces' switches this.\n"
+"    * 'in-phase' adds a column with in-phase allele pairs to table-formatted\n"
+"      reports.  (This cannot be used with very long allele codes.)\n"
 "    * 'dprime' adds Lewontin's D-prime statistic to table-formatted reports,\n"
 "      and forces both r/r^2 and D-prime to be based on haplotype frequency\n"
 "      estimates (obtained via the EM algorithm).\n"

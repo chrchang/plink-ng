@@ -3340,6 +3340,41 @@ char* chrom_name_write(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx
   }
 }
 
+uint32_t get_max_chrom_len(Chrom_info* chrom_info_ptr, uint32_t zero_extra_chroms) {
+  // does not include trailing null
+  // if more functions start calling this, it should just be built into
+  // load_bim() instead
+  uint32_t max_chrom_len = 0;
+  int32_t max_chrom_idx = -1;
+  uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
+  uint32_t max_code = chrom_info_ptr->max_code;
+  uint32_t chrom_fo_idx;
+  uint32_t chrom_idx;
+  uint32_t slen;
+  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
+    chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+    if (!is_set(chrom_info_ptr->chrom_mask, chrom_idx)) {
+      continue;
+    }
+    if (chrom_idx <= max_code) {
+      if (((int32_t)chrom_idx) > max_chrom_idx) {
+	max_chrom_idx = chrom_idx;
+      }
+    } else if (!zero_extra_chroms) {
+      slen = strlen(chrom_info_ptr->nonstd_names[chrom_idx]);
+      if (slen > max_chrom_len) {
+	max_chrom_len = slen;
+      }
+    } else if (!max_chrom_len) {
+      max_chrom_idx = 1;
+    }
+  }
+  if ((max_chrom_len < MAX_CHROM_TEXTNUM_LEN) && (max_chrom_idx != -1)) {
+    max_chrom_len = intlen(max_chrom_idx);
+  }
+  return max_chrom_len;
+}
+
 void forget_extra_chrom_names(Chrom_info* chrom_info_ptr) {
   uint32_t name_ct = chrom_info_ptr->name_ct;
   char** nonstd_names;

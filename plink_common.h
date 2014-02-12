@@ -991,10 +991,9 @@ static inline char* fw_strcpy(uint32_t min_width, const char* source, char* dest
   return fw_strcpyn(min_width, strlen(source), source, dest);
 }
 
-static inline void intprint2(char* buf, uint32_t num) {
-  // for regular chromosome codes.  rewrite all code using this function if
-  // chromosome codes >99 are ever possible.
+static inline void chrom_num_write4(char* buf, uint32_t num) {
   uint32_t quotient;
+  buf = memseta(buf, 32, 2);
   if (num < 10) {
     *buf++ = ' ';
     *buf = '0' + num;
@@ -1008,6 +1007,8 @@ static inline void intprint2(char* buf, uint32_t num) {
 char* uint32_write(char* start, uint32_t uii);
 
 char* int32_write(char* start, int32_t ii);
+
+char* uint32_writew4(char* start, uint32_t uii);
 
 char* uint32_writew6(char* start, uint32_t uii);
 
@@ -1474,6 +1475,11 @@ void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
 // 2^14 due to SMALL_INTERVAL_BITS setting in plink_cnv.c.
 #define MAX_POSSIBLE_CHROM 2560
 #define MAX_CHROM_TEXTNUM 59
+// usual PLINK 1.07 chromosome field length is 4.  So it's safe to increase
+// MAX_CHROM_TEXTNUM to 9995, but 9996+ creates problems...
+// (note that n+1, n+2, n+3, and n+4 are reserved for X/Y/XY/MT)
+// chrom_num_write4() needs to be revised if MAX_CHROM_TEXTNUM_LEN is changed.
+#define MAX_CHROM_TEXTNUM_LEN 2
 #define CHROM_X MAX_POSSIBLE_CHROM
 #define CHROM_Y (MAX_POSSIBLE_CHROM + 1)
 #define CHROM_XY (MAX_POSSIBLE_CHROM + 2)
@@ -1525,6 +1531,7 @@ typedef struct {
   char* nonstd_names[MAX_POSSIBLE_CHROM];
   uint32_t nonstd_name_order[MAX_POSSIBLE_CHROM];
 } Chrom_info;
+// er, zero_extra_chroms flag should probably be added to this struct...
 
 #define SPECIES_HUMAN 0
 #define SPECIES_COW 1
@@ -1552,6 +1559,8 @@ static inline uint32_t all_words_zero(uintptr_t* word_arr, uintptr_t word_ct) {
 }
 
 char* chrom_name_write(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t zero_extra_chroms);
+
+uint32_t get_max_chrom_len(Chrom_info* chrom_info_ptr, uint32_t zero_extra_chroms);
 
 void forget_extra_chrom_names(Chrom_info* chrom_info_ptr);
 

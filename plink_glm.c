@@ -3417,8 +3417,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       } while ((!glm_xchr_model) && (g_is_haploid || uii));
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       if (uii <= chrom_info_ptr->max_code) {
-	memset(writebuf, 32, 2);
-	intprint2(&(writebuf[2]), uii);
+	chrom_num_write4(writebuf, uii);
 	wptr_start = &(writebuf[4]);
       } else if (zero_extra_chroms) {
 	wptr_start = memcpya(writebuf, "   0", 4);

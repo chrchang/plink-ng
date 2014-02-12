@@ -1370,6 +1370,7 @@ static Chrom_info* g_ld_chrom_info_ptr;
 static uint32_t* g_ld_marker_pos;
 static uintptr_t* g_ld_marker_exclude_idx1;
 static uintptr_t* g_ld_marker_exclude;
+static char** g_ld_marker_allele_ptrs;
 static uintptr_t g_ld_max_marker_id_len;
 static uintptr_t g_ld_marker_uidx1;
 static uintptr_t g_ld_uidx2_start;
@@ -1979,9 +1980,12 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   uintptr_t* marker_exclude = g_ld_marker_exclude;
   uint32_t* marker_pos = g_ld_marker_pos;
   char* marker_ids = g_ld_marker_ids;
+  char** marker_allele_ptrs = g_ld_marker_allele_ptrs;
   uint32_t* ld_interval1 = g_ld_interval1;
   double* results = g_ld_results;
   double* set_allele_freqs = g_ld_set_allele_freqs;
+  char* fixed_a1 = NULL;
+  char* fixed_a2 = NULL;
   uintptr_t max_marker_id_len = g_ld_max_marker_id_len;
   uintptr_t marker_uidx1 = g_ld_marker_uidx1;
   uintptr_t block_idx1 = g_ld_block_idx1;
@@ -2002,7 +2006,10 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   uint32_t chrom_idx1 = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
   uint32_t chrom_end1 = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
   uint32_t chrom_idx2 = 0;
+  uint32_t fixed_a1_len = 0;
+  uint32_t fixed_a2_len = 0;
   uintptr_t block_end2;
+  uint32_t coupling;
   uint32_t chrom_end2;
   char* sptr2;
   double* dptr;
@@ -2022,6 +2029,9 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
     }
     sptr_cur = memcpya(sptr_cur, "  CHR_B         BP_B ", 21);
     sptr_cur = fw_strcpyn(g_ld_plink_maxsnp, 5, "SNP_B", sptr_cur);
+    if (marker_allele_ptrs) {
+      sptr_cur = memcpya(sptr_cur, "      PHASE", 11);
+    }
     if (set_allele_freqs) {
       sptr_cur = memcpya(sptr_cur, "      MAF_B", 11);
     }
@@ -2063,6 +2073,12 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
     }
     prefix_len = (uintptr_t)(sptr2 - tbuf);
   ld_regular_emitn_start_2:
+    if (marker_allele_ptrs) {
+      fixed_a1 = marker_allele_ptrs[2 * marker_uidx1];
+      fixed_a2 = marker_allele_ptrs[2 * marker_uidx1 + 1];
+      fixed_a1_len = strlen(fixed_a1);
+      fixed_a2_len = strlen(fixed_a2);
+    }
     chrom_end2 = 0;
     block_end2 = ld_interval1[2 * block_idx1 + 1];
     dptr = &(results[(block_idx1 * marker_idx2_maxw + block_idx2 - block_idx2_start) * (1 + is_dprime)]);
@@ -2083,6 +2099,15 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	sptr_cur = uint32_writew10x(sptr_cur, marker_pos[marker_uidx2], ' ');
 	sptr_cur = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), sptr_cur);
 	*sptr_cur++ = ' ';
+	if (marker_allele_ptrs) {
+	  coupling = (dxx > 0)? 1 : 0;
+	  sptr2 = memcpya(sptr_cur, fixed_a1, fixed_a1_len);
+	  sptr2 = strcpyax(sptr2, marker_allele_ptrs[2 * marker_uidx2 + (1 - coupling)], '/');
+	  sptr2 = memcpya(sptr2, fixed_a2, fixed_a2_len);
+          sptr2 = strcpya(sptr2, marker_allele_ptrs[2 * marker_uidx2 + coupling]);
+	  sptr_cur = width_force(10, sptr_cur, sptr2);
+	  *sptr_cur++ = ' ';
+	}
 	if (set_allele_freqs) {
 	  sptr_cur = width_force(10, sptr_cur, double_g_write(sptr_cur, 1.0 - set_allele_freqs[marker_uidx2]));
 	  *sptr_cur++ = ' ';
@@ -3666,7 +3691,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   if (marker_idx1) {
     marker_uidx1 = jump_forward_unset_unsafe(marker_exclude_idx1, marker_uidx1 + 1, marker_idx1);
   }
-  sprintf(logbuf, "--r%s%s dprime%s to %s...", g_ld_is_r2? "2" : "", is_inter_chr? " inter-chr" : "", g_ld_set_allele_freqs? " with-freqs" : "", outname);
+  sprintf(logbuf, "--r%s%s%s dprime%s...", g_ld_is_r2? "2" : "", is_inter_chr? " inter-chr" : "", g_ld_marker_allele_ptrs? " in-phase" : "", g_ld_set_allele_freqs? " with-freqs" : "");
   logprintb();
   fputs(" 0%", stdout);
   while (1) {
@@ -3896,7 +3921,8 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     marker_uidx1 = jump_forward_unset_unsafe(marker_exclude_idx1, marker_uidx1 + 1, idx1_block_size);
   }
   fputs("\b\b\b", stdout);
-  logprint(" done.\n");
+  sprintf(logbuf, " done.\nResults written to %s.\n", outname);
+  logprintb();
 
   while (0) {
   ld_report_dprime_ret_NOMEM:
@@ -4119,6 +4145,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
   g_ld_marker_exclude_idx1 = marker_exclude_idx1;
   g_ld_marker_exclude = marker_exclude;
   g_ld_is_inter_chr = is_inter_chr;
+
   g_ld_is_first_block = (!parallel_idx);
   if (g_ld_is_r2) {
     g_ld_window_r2 = ldip->window_r2;
@@ -4189,7 +4216,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
   if (marker_idx1) {
     marker_uidx1 = jump_forward_unset_unsafe(marker_exclude_idx1, marker_uidx1 + 1, marker_idx1);
   }
-  sprintf(logbuf, "--r%s%s to %s...", g_ld_is_r2? "2" : "", is_inter_chr? " inter-chr" : "", outname);
+  sprintf(logbuf, "--r%s%s%s to %s...", g_ld_is_r2? "2" : "", is_inter_chr? " inter-chr" : "", g_ld_marker_allele_ptrs? " in-phase" : "", outname);
   logprintb();
   fputs(" 0%", stdout);
   while (1) {
@@ -4438,7 +4465,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
   return retval;
 }
 
-int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, double* set_allele_freqs, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
+int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, double* set_allele_freqs, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ctv2 = 2 * ((unfiltered_indiv_ct + (BITCT - 1)) / BITCT);
   uintptr_t founder_ct = popcount_longs(founder_info, unfiltered_indiv_ctv2 / 2);
@@ -4505,6 +4532,15 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
     }
   }
   *bufptr = '\0';
+  if (ld_modifier & LD_INPHASE) {
+    if (max_marker_allele_len * 4 + plink_maxsnp * 2 + get_max_chrom_len(chrom_info_ptr, zero_extra_chroms) * 2 + 256 > MAXLINELEN) {
+      logprint("Error: --r/--r2 in-phase does not support very long allele codes.\n");
+      goto ld_report_ret_INVALID_CMDLINE;
+    }
+    g_ld_marker_allele_ptrs = marker_allele_ptrs;
+  } else {
+    g_ld_marker_allele_ptrs = NULL;
+  }
   if (ld_modifier & (LD_MATRIX_SQ | LD_MATRIX_SQ0 | LD_MATRIX_TRI)) {
     retval = ld_report_matrix(threads, ldip, bedfile, bed_offset, unfiltered_marker_ct, marker_exclude, marker_reverse, unfiltered_indiv_ct, founder_info, parallel_idx, parallel_tot, sex_male, founder_include2, founder_male_include2, loadbuf, outname, hh_exists);
   } else {

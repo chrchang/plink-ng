@@ -6680,8 +6680,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       chrom_name_ptr = chrom_name_buf;
       chrom_name_len = 4;
       if (uii <= chrom_info_ptr->max_code) {
-	memset(chrom_name_buf, 32, 2);
-        intprint2(&(chrom_name_buf[2]), uii);
+	chrom_num_write4(chrom_name_buf, uii);
       } else if (zero_extra_chroms) {
 	memcpy(chrom_name_buf, "   0", 4);
       } else {
@@ -8180,8 +8179,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       chrom_name_ptr = chrom_name_buf;
       chrom_name_len = 4;
       if (uii <= chrom_info_ptr->max_code) {
-	memset(chrom_name_buf, 32, 2);
-        intprint2(&(chrom_name_buf[2]), uii);
+	chrom_num_write4(chrom_name_buf, uii);
       } else if (zero_extra_chroms) {
 	memcpy(chrom_name_buf, "   0", 4);
       } else {
