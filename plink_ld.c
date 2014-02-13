@@ -7232,7 +7232,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uint32_t require_multifile = clump_ip->modifier & CLUMP_REPLICATE;
   uint32_t index_eligible = 1;
   uint32_t header1_len = 0;
-  uint32_t header2_len = 0;
+  // uint32_t header2_len = 0;
   uint32_t file_ct = 0;
   uint32_t final_clump_ct = 0;
   int32_t retval = 0;
@@ -7242,7 +7242,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   Make_set_range* msr_tmp;
   Clump_entry** clump_entries;
   Clump_entry* clump_entry_ptr;
-  Clump_entry* best_entry_ptr;
+  // Clump_entry* best_entry_ptr;
   Cur_clump_info* cur_clump_base;
   Cur_clump_info* cur_clump_ceil;
   Cur_clump_info* cc_ptr;
@@ -7302,7 +7302,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uint32_t clump_uidx_last;
   uint32_t index_fidx;
   uint32_t marker_uidx;
-  uint32_t max_r2_uidx;
+  // uint32_t max_r2_uidx;
   uint32_t is_haploid;
   uint32_t is_x;
   uint32_t is_y;
@@ -7863,7 +7863,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       bufptr = memcpya(bufptr, "       ANNOT", 12);
     }
     *bufptr++ = '\n';
-    header2_len = (uintptr_t)(bufptr - header2_ptr);
+    // header2_len = (uintptr_t)(bufptr - header2_ptr);
   }
   if (clump_best) {
     logprint("Error: --clump-best is currently under development.\n");
@@ -7964,9 +7964,9 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     marker_uidx = clump_uidx_first;
     marker_idx = ivar_idx + popcount_bit_idx(marker_exclude, clump_uidx_first, ivar_uidx) + clump_uidx_first - ivar_uidx;
     max_r2 = -1;
-    max_r2_uidx = 0xffffffffU;
+    // max_r2_uidx = 0xffffffffU;
     fill_ulong_zero(histo, 5);
-    best_entry_ptr = NULL;
+    // best_entry_ptr = NULL;
     for (; marker_idx < ivar_idx; marker_uidx++, marker_idx++) {
       marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
       clump_entry_ptr = clump_entries[marker_idx];
@@ -8005,7 +8005,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	      cc_ptr->fidx = uii;
 	      if ((uii == best_fidx_match) && (cur_r2 > max_r2)) {
 		max_r2 = cur_r2;
-		max_r2_uidx = marker_uidx;
+		// max_r2_uidx = marker_uidx;
 	      }
 	      cc_ptr++;
 	    }
@@ -8055,7 +8055,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	    cc_ptr->fidx = clump_entry_ptr->fidx;
 	    if (clump_best) {
 	      max_r2 = 1;
-	      max_r2_uidx = ivar_uidx;
+	      // max_r2_uidx = ivar_uidx;
 	    }
 	    cc_ptr++;
 	  }
@@ -8121,7 +8121,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	      cc_ptr->fidx = uii;
 	      if ((uii == best_fidx_match) && (cur_r2 > max_r2)) {
 		max_r2 = cur_r2;
-		max_r2_uidx = marker_uidx;
+		// max_r2_uidx = marker_uidx;
 	      }
 	      cc_ptr++;
 	    }
