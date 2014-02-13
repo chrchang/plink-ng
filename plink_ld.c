@@ -7913,7 +7913,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     window_data_ptr = window_data;
     for (; marker_idx < ivar_idx; marker_uidx++, marker_idx++) {
       next_unset_unsafe_ck(marker_exclude, &marker_uidx);
-      if (((!allow_overlap) && is_set(cur_bitfield, marker_idx)) || (!clump_entries[marker_idx]) && (!nsig_arr[marker_idx])) {
+      if (((!allow_overlap) && is_set(cur_bitfield, marker_idx)) || ((!clump_entries[marker_idx]) && (!nsig_arr[marker_idx]))) {
 	continue;
       }
       if (++cur_window_size == max_window_size) {
@@ -7970,7 +7970,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     for (; marker_idx < ivar_idx; marker_uidx++, marker_idx++) {
       marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
       clump_entry_ptr = clump_entries[marker_idx];
-      if (((!allow_overlap) && is_set(cur_bitfield, marker_idx)) || (!clump_entry_ptr) && (!nsig_arr[marker_idx])) {
+      if (((!allow_overlap) && is_set(cur_bitfield, marker_idx)) || ((!clump_entry_ptr) && (!nsig_arr[marker_idx]))) {
 	continue;
       }
       vec_3freq(founder_ctl2, window_data_ptr, index_data, &(counts[0]), &(counts[1]), &(counts[2]));
