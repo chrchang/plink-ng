@@ -1317,7 +1317,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --merge-x              : Merge XY chromosome back with X.\n"
 	       );
     help_print("set-missing-snp-ids\tset-missing-nonsnp-ids\tset-missing-var-ids\tmissing-var-code", &help_ctrl, 0,
-"  --set-missing-snp-ids [tmpl] : Given a template string with a '^' where the\n"
+"  --set-missing-snp-ids [tmpl] : Given a template string with a '@' where the\n"
 "  --set-missing-nonsnp-ids [t]   chromosome code should go and '#' where the bp\n"
 "  --set-missing-var-ids [tmpl]   coordinate belongs, these flags assign\n"
 "                                 chromosome-and-bp-based IDs to unnamed\n"

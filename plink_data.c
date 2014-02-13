@@ -762,7 +762,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       if (!bufptr3) {
 	continue;
       }
-      bufptr = strchr(bufptr3, '^');
+      bufptr = strchr(bufptr3, '@');
       bufptr2 = strchr(bufptr3, '#');
       if (bufptr < bufptr2) {
 	missing_template_seg0_len[uii] = (uintptr_t)(bufptr - bufptr3);

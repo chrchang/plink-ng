@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (13 Feb 2014)";
+  " (14 Feb 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -11484,11 +11484,11 @@ int32_t main(int32_t argc, char** argv) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
           goto main_ret_INVALID_CMDLINE_3;
 	}
-	// must contain exactly one '^' and one '#'
-	sptr = strchr(argv[cur_arg + 1], '^');
+	// must contain exactly one '@' and one '#'
+	sptr = strchr(argv[cur_arg + 1], '@');
 	sptr2 = strchr(argv[cur_arg + 1], '#');
-	if ((!sptr) || (!sptr2) || strchr(&(sptr[1]), '^') || strchr(&(sptr2[1]), '#')) {
-	  sprintf(logbuf, "Error: The --set-missing-snp-ids template string requires exactly one '^' and\none '#'.%s", errstr_append);
+	if ((!sptr) || (!sptr2) || strchr(&(sptr[1]), '@') || strchr(&(sptr2[1]), '#')) {
+	  sprintf(logbuf, "Error: The --set-missing-snp-ids template string requires exactly one '@' and\none '#'.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (missing_mid_templates[0] && (!strcmp(missing_mid_templates[0], argv[cur_arg + 1]))) {
@@ -11504,10 +11504,10 @@ int32_t main(int32_t argc, char** argv) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
           goto main_ret_INVALID_CMDLINE_3;
 	}
-	sptr = strchr(argv[cur_arg + 1], '^');
+	sptr = strchr(argv[cur_arg + 1], '@');
 	sptr2 = strchr(argv[cur_arg + 1], '#');
-	if ((!sptr) || (!sptr2) || strchr(&(sptr[1]), '^') || strchr(&(sptr2[1]), '#')) {
-	  sprintf(logbuf, "Error: The --set-missing-nonsnp-ids template string requires exactly one '^'\nand one '#'.%s", errstr_append);
+	if ((!sptr) || (!sptr2) || strchr(&(sptr[1]), '@') || strchr(&(sptr2[1]), '#')) {
+	  sprintf(logbuf, "Error: The --set-missing-nonsnp-ids template string requires exactly one '@'\nand one '#'.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (alloc_string(&missing_mid_templates[0], argv[cur_arg + 1])) {
@@ -11521,10 +11521,10 @@ int32_t main(int32_t argc, char** argv) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
           goto main_ret_INVALID_CMDLINE_3;
 	}
-	sptr = strchr(argv[cur_arg + 1], '^');
+	sptr = strchr(argv[cur_arg + 1], '@');
 	sptr2 = strchr(argv[cur_arg + 1], '#');
-	if ((!sptr) || (!sptr2) || strchr(&(sptr[1]), '^') || strchr(&(sptr2[1]), '#')) {
-	  sprintf(logbuf, "Error: The --set-missing-var-ids template string requires exactly one '^' and\none '#'.%s", errstr_append);
+	if ((!sptr) || (!sptr2) || strchr(&(sptr[1]), '@') || strchr(&(sptr2[1]), '#')) {
+	  sprintf(logbuf, "Error: The --set-missing-var-ids template string requires exactly one '@' and\none '#'.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (alloc_string(&missing_mid_templates[1], argv[cur_arg + 1])) {
