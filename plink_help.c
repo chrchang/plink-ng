@@ -1582,8 +1582,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("clump-index-first\tclump-replicate\tclump", &help_ctrl, 0,
 "  --clump-index-first       : Extract --clump index sites from only first file.\n"
-"  --clump-replicate         : Force secondary --clump hits to clear p2\n"
-"                              threshold in at least two files.\n"
+"  --clump-replicate         : Exclude clumps which contain secondary results\n"
+"                              from only one file.\n"
 	       );
     help_print("clump-best\tclump", &help_ctrl, 0,
 "  --clump-best              : Report best proxy for each --clump index site.\n"

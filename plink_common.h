@@ -1010,6 +1010,8 @@ char* uint32_write(char* start, uint32_t uii);
 
 char* int32_write(char* start, int32_t ii);
 
+char* int64_write(char* start, int64_t llii);
+
 char* uint32_writew4(char* start, uint32_t uii);
 
 char* uint32_writew6(char* start, uint32_t uii);
@@ -1151,6 +1153,12 @@ static inline char* double_g_writex(char* start, double dxx, const char extra_ch
 
 static inline char* float_g_writex(char* start, float dxx, const char extra_char) {
   char* penult = float_g_write(start, dxx);
+  *penult = extra_char;
+  return &(penult[1]);
+}
+
+static inline char* double_g_writewx3x(char* start, double dxx, uint32_t min_width, const char extra_char) {
+  char* penult = double_g_writewx3(start, dxx, min_width);
   *penult = extra_char;
   return &(penult[1]);
 }

@@ -617,8 +617,29 @@ char* int64_write(char* start, int64_t llii) {
   return &(start[16]);
 }
 
+char* uint32_writew4(char* start, uint32_t uii) {
+  // Minimum field width 4.
+  uint32_t quotient;
+  if (uii < 1000) {
+    if (uii < 10) {
+      memset(start, 32, 3);
+      start[3] = '0' + uii;
+      return &(start[4]);
+    } else if (uii < 100) {
+      memset(start, 32, 2);
+    } else {
+      quotient = uii / 100;
+      *start = ' ';
+      start[1] = '0' + quotient;
+      uii -= quotient * 100;
+    }
+    return memcpya(&(start[2]), &(digit2_table[uii * 2]), 2);
+  } else {
+    return uint32_write(start, uii);
+  }
+}
+
 char* uint32_writew6(char* start, uint32_t uii) {
-  // Minimum field width 6.
   uint32_t quotient;
   if (uii < 1000) {
     if (uii < 10) {

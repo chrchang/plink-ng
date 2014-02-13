@@ -7166,6 +7166,28 @@ typedef struct clump_entry_struct {
   char annot[];
 } Clump_entry;
 
+typedef struct cur_clump_info_struct {
+  double r2;
+  uint32_t marker_idx;
+  uint32_t fidx;
+} Cur_clump_info;
+
+void update_clump_histo(double pval, uintptr_t* histo) {
+  if (pval < 0.001) {
+    if (pval < 0.0001) {
+      histo[4] += 1;
+    } else {
+      histo[3] += 1;
+    }
+  } else if (pval < 0.01) {
+    histo[2] += 1;
+  } else if (pval < 0.05) {
+    histo[1] += 1;
+  } else {
+    histo[0] += 1;
+  }
+}
+
 int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, Clump_info* clump_ip, uintptr_t* sex_male, uint32_t hh_exists) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
@@ -7197,25 +7219,33 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uint64_t* range_sort_buf = NULL;
   uint32_t* marker_uidx_to_idx = NULL;
   uint32_t** rg_setdefs = NULL;
-  double p1 = clump_ip->p1;
-  double p2 = clump_ip->p2;
+  double p1_thresh = clump_ip->p1;
+  double p2_thresh = clump_ip->p2;
   double load_pthresh = 0.05;
-  double r2 = clump_ip->r2;
+  double r2_thresh = clump_ip->r2;
   uint32_t allow_overlap = clump_ip->modifier & CLUMP_ALLOW_OVERLAP;
   uint32_t clump_index_first = clump_ip->modifier & CLUMP_INDEX_FIRST;
   uint32_t clump_best = clump_ip->modifier & CLUMP_BEST;
   uint32_t clump_verbose = clump_ip->modifier & CLUMP_VERBOSE;
   uint32_t bp_radius = clump_ip->bp_radius;
+  uint32_t best_fidx_match = 0xffffffffU;
+  uint32_t require_multifile = clump_ip->modifier & CLUMP_REPLICATE;
   uint32_t index_eligible = 1;
   uint32_t header1_len = 0;
   uint32_t header2_len = 0;
   uint32_t file_ct = 0;
+  uint32_t final_clump_ct = 0;
   int32_t retval = 0;
+  uintptr_t histo[5]; // NSIG, S05, S01, S001, S0001
+  uint32_t index_tots[3];
   uint32_t counts[9];
-  uint32_t histo[4]; // S05, S01, S001, S0001
   Make_set_range* msr_tmp;
   Clump_entry** clump_entries;
   Clump_entry* clump_entry_ptr;
+  Clump_entry* best_entry_ptr;
+  Cur_clump_info* cur_clump_base;
+  Cur_clump_info* cur_clump_ceil;
+  Cur_clump_info* cc_ptr;
   uintptr_t* col_bitfield;
   uintptr_t* cur_bitfield;
   uintptr_t* loadbuf_raw;
@@ -7233,6 +7263,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uint32_t* marker_id_map;
   uint32_t* parse_table;
   uint32_t* cur_parse_info;
+  uint32_t* nsig_arr;
   uint32_t* pval_map;
   uint32_t* marker_idx_to_uidx;
   double* sorted_pvals;
@@ -7241,11 +7272,20 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uintptr_t loadbuft_size;
   uintptr_t rg_idx;
   uintptr_t marker_idx;
-  uintptr_t max_window_size;
+  uintptr_t max_window_size; // universal bound
   uintptr_t cur_window_size;
   uintptr_t ulii;
   uint64_t ullii;
   double pval;
+  double freq1x;
+  double freq2x;
+  double freqx1;
+  double freqx2;
+  double freq11;
+  double freq11_expected;
+  double cur_r2;
+  double max_r2;
+  double dxx;
   uint32_t annot_ct_p2;
   uint32_t annot_ct_p2_ctl;
   uint32_t cur_read_ct;
@@ -7260,7 +7300,9 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uint32_t clump_chrom_idx;
   uint32_t clump_uidx_first;
   uint32_t clump_uidx_last;
+  uint32_t index_fidx;
   uint32_t marker_uidx;
+  uint32_t max_r2_uidx;
   uint32_t is_haploid;
   uint32_t is_x;
   uint32_t is_y;
@@ -7269,6 +7311,10 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uint32_t ukk;
   uint32_t umm;
   int32_t ii;
+  if (annot_flattened && (!clump_verbose) && (!clump_best)) {
+    logprint("Error: --clump-annotate must be used with --clump-verbose or --clump-best.\n");
+    goto clump_reports_ret_INVALID_CMDLINE;
+  }
   if (!founder_ct) {
     logprint("Warning: Skipping --clump since there are no founders.  (--make-founders may\ncome in handy here.)\n");
     goto clump_reports_ret_1;
@@ -7276,13 +7322,13 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   if (clump_best) {
     load_pthresh = 1.0;
   } else {
-    if (p2 > load_pthresh) {
-      load_pthresh = p2;
+    if (p2_thresh > load_pthresh) {
+      load_pthresh = p2_thresh;
     }
-    if (p1 >= load_pthresh) {
+    if (p1_thresh >= load_pthresh) {
       // may as well maximize backwards compatibility re: which comparisons are
       // > vs. >=
-      load_pthresh = p1 * (1 + SMALL_EPSILON);
+      load_pthresh = p1_thresh * (1 + SMALL_EPSILON);
     }
   }
   if (clump_ip->range_fname) {
@@ -7487,7 +7533,11 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     logprint("Error: Duplicate --clump-snp-field/--clump-field/--clump-annotate field name.\n");
     goto clump_reports_ret_INVALID_CMDLINE;
   }
-  
+
+  if (wkspace_alloc_ui_checked(&nsig_arr, marker_ct * sizeof(int32_t))) {
+    goto clump_reports_ret_NOMEM;
+  }
+  fill_uint_zero(nsig_arr, marker_ct);
   clump_entries = (Clump_entry**)wkspace_alloc(marker_ct * sizeof(intptr_t));
   if (!clump_entries) {
     goto clump_reports_ret_NOMEM;
@@ -7513,6 +7563,8 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       logprint("Error: --clump-best can no longer be used with more than two --clump files.\n(Contact the developers if this is problematic.)\n");
       goto clump_reports_ret_INVALID_CMDLINE;
     }
+    // only draw proxies from this file
+    best_fidx_match = file_ct;
   }
   // Suppose the current line has a super-long allele code which must be saved
   // (since it will go into the ANNOT field).  Then the new allocation may need
@@ -7655,8 +7707,21 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	continue;
       }
       marker_idx = marker_id_map[(uint32_t)ii];
-      if (scan_double(&(loadbuft[cur_parse_info[2]]), &pval) || (pval > load_pthresh) || (pval < 0.0)) {
+      if (scan_double(&(loadbuft[cur_parse_info[2]]), &pval)) {
 	continue;
+      }
+      if (pval > load_pthresh) {
+	if (pval >= 0.05) {
+	  if (pval > 1) {
+	    logprint("Error: p-value > 1 in --clump file.\n");
+	    goto clump_reports_ret_INVALID_FORMAT;
+	  }
+	  nsig_arr[marker_idx] += 1;
+	}
+	continue;
+      } else if (pval < 0.0) {
+	logprint("Error: Negative p-value in --clump file.\n");
+	goto clump_reports_ret_INVALID_FORMAT;
       }
       clump_entry_ptr = (Clump_entry*)top_alloc(&topsize, offsetof(Clump_entry, annot) + ukk - 1);
       if (!clump_entry_ptr) {
@@ -7678,7 +7743,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	*bufptr = '\0';
       }
       clump_entries[marker_idx] = clump_entry_ptr;
-      if ((pval <= p1) && index_eligible) {
+      if ((pval <= p1_thresh) && index_eligible) {
 	set_bit(cur_bitfield, marker_idx);
       }
       loadbuft_size = wkspace_left - topsize;
@@ -7737,14 +7802,20 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   }
   if (wkspace_alloc_ui_checked(&marker_idx_to_uidx, marker_ct * sizeof(int32_t)) ||
       wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&index_data, 3 * founder_ctv2 * sizeof(intptr_t))) {
+      wkspace_alloc_ul_checked(&index_data, 3 * founder_ctv2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&founder_include2, founder_ctv2 * sizeof(intptr_t))) {
     goto clump_reports_ret_NOMEM2;
   }
+  fill_vec_55(founder_include2, founder_ct);
   if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, founder_ct, hh_exists, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
-    goto clump_reports_ret_NOMEM; 
+    goto clump_reports_ret_NOMEM2; 
  }
   window_data = (uintptr_t*)wkspace_base;
-  max_window_size = wkspace_left / (founder_ctv2 * sizeof(intptr_t));
+  max_window_size = wkspace_left / (founder_ctv2 * sizeof(intptr_t) + 2 * sizeof(double));
+  if (!max_window_size) {
+    goto clump_reports_ret_NOMEM2;
+  }
+  cur_clump_ceil = (Cur_clump_info*)(&(wkspace_base[wkspace_left]));
   fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_idx_to_uidx);
   loadbuf_raw[unfiltered_indiv_ctl2 - 1] = 0;
   wkspace_left += topsize;
@@ -7755,8 +7826,13 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   if (fopen_checked(&outfile, outname, "w")) {
     goto clump_reports_ret_OPEN_FAIL;
   }
-  bufptr = memcpya(tbuf2, " CHR    F ", 10);
+  bufptr = tbuf2;
+  if (clump_verbose) {
+    *bufptr++ = '\n';
+  }
+  bufptr = memcpya(bufptr, " CHR    F ", 10);
   bufptr = fw_strcpyn(plink_maxsnp, 3, "SNP", bufptr);
+  // replicate the misaligned header for now
   bufptr = strcpya(bufptr, "         BP        P    TOTAL   NSIG    S05    S01   S001  S0001");
   if (!clump_verbose) {
     bufptr = memcpya(bufptr, "    SP2\n", 8);
@@ -7764,6 +7840,9 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       goto clump_reports_ret_WRITE_FAIL;
     }
     if (rg_setdefs) {
+      logprint("Error: --clump-range is currently under development.\n");
+      retval = RET_CALC_NOT_YET_SUPPORTED;
+      goto clump_reports_ret_1;
       memcpy(&(outname_end[8]), ".ranges", 8);
       if (fopen_checked(&outfile_ranges, outname, "w")) {
 	goto clump_reports_ret_OPEN_FAIL;
@@ -7784,9 +7863,12 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       bufptr = memcpya(bufptr, "       ANNOT", 12);
     }
     *bufptr++ = '\n';
-    // header2_len = (uintptr_t)(bufptr - header2_ptr);
+    header2_len = (uintptr_t)(bufptr - header2_ptr);
   }
   if (clump_best) {
+    logprint("Error: --clump-best is currently under development.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto clump_reports_ret_1;
     memcpy(&(outname_end[8]), ".best", 6);
     if (fopen_checked(&outfile_best, outname, "w")) {
       goto clump_reports_ret_OPEN_FAIL;
@@ -7803,11 +7885,6 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     ivar_idx = pval_map[sp_idx];
     if ((!clump_best) && is_set(cur_bitfield, ivar_idx)) {
       continue;
-    }
-    if (clump_verbose) {
-      if (fwrite_checked(tbuf2, header1_len, outfile)) {
-	goto clump_reports_ret_WRITE_FAIL;
-      }
     }
     ivar_uidx = marker_idx_to_uidx[ivar_idx];
     cur_bp = marker_pos[ivar_uidx];
@@ -7829,7 +7906,6 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     // 2. load index variant, compute pairwise r^2s
     // 3. load one clump-inclusion at a time after index variant, compute r^2
     // 4. write main result
-    fill_uint_zero(histo, 4);
     cur_window_size = 0;
     is_haploid = is_set(haploid_mask, clump_chrom_idx);
     is_x = (clump_chrom_idx == (uint32_t)chrom_info_ptr->x_code);
@@ -7837,11 +7913,10 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     window_data_ptr = window_data;
     for (; marker_idx < ivar_idx; marker_uidx++, marker_idx++) {
       next_unset_unsafe_ck(marker_exclude, &marker_uidx);
-      if ((!clump_entries[marker_idx]) || ((!allow_overlap) && is_set(cur_bitfield, marker_idx))) {
+      if (((!allow_overlap) && is_set(cur_bitfield, marker_idx)) || (!clump_entries[marker_idx]) && (!nsig_arr[marker_idx])) {
 	continue;
       }
-      // er, might want to save marker_uidx...
-      if (cur_window_size == max_window_size) {
+      if (++cur_window_size == max_window_size) {
 	goto clump_reports_ret_NOMEM;
       }
       if (fseeko(bedfile, bed_offset + marker_uidx * ((uint64_t)unfiltered_indiv_ct4), SEEK_SET)) {
@@ -7856,29 +7931,288 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)window_data_ptr);
       }
       window_data_ptr = &(window_data_ptr[founder_ctv2]);
-      cur_window_size++;
     }
     if (fseeko(bedfile, bed_offset + marker_uidx * ((uint64_t)unfiltered_indiv_ct4), SEEK_SET)) {
       goto clump_reports_ret_READ_FAIL;
     }
+    window_data_ptr[founder_ctv2 - 2] = 0;
+    window_data_ptr[founder_ctv2 - 1] = 0;
+    if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, window_data_ptr, founder_ct, founder_info, is_set(marker_reverse, marker_uidx))) {
+      goto clump_reports_ret_READ_FAIL;
+    }
+    if (is_haploid) {
+      haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)window_data_ptr);
+    }
+    vec_datamask(founder_ct, 0, window_data_ptr, founder_include2, index_data);
+    index_tots[0] = popcount2_longs(index_data, founder_ctl2);
+    vec_datamask(founder_ct, 2, window_data_ptr, founder_include2, &(index_data[founder_ctv2]));
+    index_tots[1] = popcount2_longs(&(index_data[founder_ctv2]), founder_ctl2);
+    vec_datamask(founder_ct, 3, window_data_ptr, founder_include2, &(index_data[2 * founder_ctv2]));
+    index_tots[2] = popcount2_longs(&(index_data[2 * founder_ctv2]), founder_ctl2);
+    if (!cur_window_size) {
+#ifdef __LP64__
+      cur_clump_base = (Cur_clump_info*)(&(window_data[founder_ctv2]));
+#else
+      // may as well 16-byte align this
+      cur_clump_base = (Cur_clump_info*)(&(window_data[(founder_ctv2 + 2) & (~3)]));
+#endif
+    } else {
+      cur_clump_base = (Cur_clump_info*)window_data_ptr;
+    }
+    cc_ptr = cur_clump_base;
     window_data_ptr = window_data;
-    for (uii = 0; uii < cur_window_size; uii++) {
+    marker_uidx = clump_uidx_first;
+    marker_idx = ivar_idx + popcount_bit_idx(marker_exclude, clump_uidx_first, ivar_uidx) + clump_uidx_first - ivar_uidx;
+    max_r2 = -1;
+    max_r2_uidx = 0xffffffffU;
+    fill_ulong_zero(histo, 5);
+    best_entry_ptr = NULL;
+    for (; marker_idx < ivar_idx; marker_uidx++, marker_idx++) {
+      marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
+      clump_entry_ptr = clump_entries[marker_idx];
+      if (((!allow_overlap) && is_set(cur_bitfield, marker_idx)) || (!clump_entry_ptr) && (!nsig_arr[marker_idx])) {
+	continue;
+      }
       vec_3freq(founder_ctl2, window_data_ptr, index_data, &(counts[0]), &(counts[1]), &(counts[2]));
+      counts[0] = index_tots[0] - counts[0] - counts[1] - counts[2];
       vec_3freq(founder_ctl2, window_data_ptr, &(index_data[founder_ctv2]), &(counts[3]), &(counts[4]), &(counts[5]));
+      counts[3] = index_tots[1] - counts[3] - counts[4] - counts[5];
       vec_3freq(founder_ctl2, window_data_ptr, &(index_data[2 * founder_ctv2]), &(counts[6]), &(counts[7]), &(counts[8]));
-      ;;;
+      counts[6] = index_tots[2] - counts[6] - counts[7] - counts[8];
+      if (!phase_flanking_haps(counts, &freq1x, &freq2x, &freqx1, &freqx2, &freq11)) {
+	freq11_expected = freqx1 * freq1x;
+	dxx = freq11 - freq11_expected;
+	cur_r2 = fabs(dxx);
+        // if r^2 threshold is 0, let everything else through but exclude the
+        // apparent zeroes.  Zeroes *are* included if r2_thresh is negative,
+	// though (only nans are rejected then).
+        if (cur_r2 >= SMALL_EPSILON) {
+	  cur_r2 = cur_r2 * dxx / (freq11_expected * freq2x * freqx2);
+	} else {
+	  cur_r2 = 0;
+	}
+	if (fabs(cur_r2) > r2_thresh) {
+	  while (clump_entry_ptr) {
+	    dxx = clump_entry_ptr->pval;
+	    update_clump_histo(dxx, histo);
+	    if (dxx < p2_thresh) {
+	      if (cc_ptr >= cur_clump_ceil) {
+		goto clump_reports_ret_NOMEM;
+	      }
+	      cc_ptr->r2 = cur_r2;
+	      cc_ptr->marker_idx = marker_idx;
+	      uii = clump_entry_ptr->fidx;
+	      cc_ptr->fidx = uii;
+	      if ((uii == best_fidx_match) && (cur_r2 > max_r2)) {
+		max_r2 = cur_r2;
+		max_r2_uidx = marker_uidx;
+	      }
+	      cc_ptr++;
+	    }
+	    clump_entry_ptr = clump_entry_ptr->next;
+	  }
+	  histo[0] += nsig_arr[marker_idx];
+	  set_bit(cur_bitfield, marker_idx);
+	}
+      }
       window_data_ptr = &(window_data_ptr[founder_ctv2]);
     }
+    pval = sorted_pvals[sp_idx];
+    clump_entry_ptr = clump_entries[ivar_idx];
+    uii = 0;
+    if (clump_entry_ptr->pval != pval) {
+      uii = 1;
+      do {
+	dxx = clump_entry_ptr->pval;
+	update_clump_histo(dxx, histo);
+	if (dxx < p2_thresh) {
+	  if (cc_ptr >= cur_clump_ceil) {
+	    goto clump_reports_ret_NOMEM;
+	  }
+	  cc_ptr->r2 = 1;
+	  cc_ptr->marker_idx = ivar_idx;
+	  cc_ptr->fidx = clump_entry_ptr->fidx;
+	  // clump_best match should be impossible here
+	  cc_ptr++;
+	}
+	clump_entry_ptr = clump_entry_ptr->next;
+      } while (clump_entry_ptr->pval != pval);
+    }
+    index_fidx = clump_entry_ptr->fidx;
+    if ((!clump_best) || allow_overlap || (!is_set(cur_bitfield, ivar_idx))) {
+      if (clump_entry_ptr->next) {
+	uii = 1;
+	do {
+	  clump_entry_ptr = clump_entry_ptr->next;
+	  dxx = clump_entry_ptr->pval;
+	  update_clump_histo(dxx, histo);
+	  if (dxx < p2_thresh) {
+	    if (cc_ptr >= cur_clump_ceil) {
+	      goto clump_reports_ret_NOMEM;
+	    }
+	    cc_ptr->r2 = 1;
+	    cc_ptr->marker_idx = ivar_idx;
+	    cc_ptr->fidx = clump_entry_ptr->fidx;
+	    if (clump_best) {
+	      max_r2 = 1;
+	      max_r2_uidx = ivar_uidx;
+	    }
+	    cc_ptr++;
+	  }
+	} while (clump_entry_ptr->next);
+      }
+    }
+    // include co-located entries in the clump and mark the position as clumped
+    // iff
+    //   i. there were co-located entries in the first place, and either
+    //     ii-a. overlaps are permitted or
+    //     ii-b. index variant position was not previously clumped 
+    if ((uii || nsig_arr[ivar_idx]) && (allow_overlap || (!is_set(cur_bitfield, ivar_idx)))) {
+      histo[0] += nsig_arr[ivar_idx];
+      set_bit(cur_bitfield, ivar_idx);
+    }
+    marker_uidx = ivar_uidx;
+    marker_idx = ivar_idx;
+    while (marker_uidx < clump_uidx_last) {
+      marker_uidx++;
+      next_unset_unsafe_ck(marker_exclude, &marker_uidx);
+      marker_idx++;
+      clump_entry_ptr = clump_entries[marker_idx];
+      if (((!allow_overlap) && is_set(cur_bitfield, marker_idx)) || ((!clump_entry_ptr) && (!nsig_arr[marker_idx]))) {
+	continue;
+      }
+      if (fseeko(bedfile, bed_offset + marker_uidx * ((uint64_t)unfiltered_indiv_ct4), SEEK_SET)) {
+	goto clump_reports_ret_READ_FAIL;
+      }
+      window_data[founder_ctv2 - 2] = 0;
+      window_data[founder_ctv2 - 1] = 0;
+      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, window_data, founder_ct, founder_info, is_set(marker_reverse, marker_uidx))) {
+	goto clump_reports_ret_READ_FAIL;
+      }
+      if (is_haploid) {
+        haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)window_data);
+      }
+      vec_3freq(founder_ctl2, window_data, index_data, &(counts[0]), &(counts[1]), &(counts[2]));
+      counts[0] = index_tots[0] - counts[0] - counts[1] - counts[2];
+      vec_3freq(founder_ctl2, window_data, &(index_data[founder_ctv2]), &(counts[3]), &(counts[4]), &(counts[5]));
+      counts[3] = index_tots[1] - counts[3] - counts[4] - counts[5];
+      vec_3freq(founder_ctl2, window_data, &(index_data[2 * founder_ctv2]), &(counts[6]), &(counts[7]), &(counts[8]));
+      counts[6] = index_tots[2] - counts[6] - counts[7] - counts[8];
+      if (!phase_flanking_haps(counts, &freq1x, &freq2x, &freqx1, &freqx2, &freq11)) {
+        freq11_expected = freqx1 * freq1x;
+	dxx = freq11 - freq11_expected;
+	cur_r2 = fabs(dxx);
+	if (cur_r2 >= SMALL_EPSILON) {
+	  cur_r2 = cur_r2 * dxx / (freq11_expected * freq2x * freqx2);
+	} else {
+	  cur_r2 = 0;
+	}
+	if (fabs(cur_r2) > r2_thresh) {
+	  while (clump_entry_ptr) {
+	    dxx = clump_entry_ptr->pval;
+            update_clump_histo(dxx, histo);
+	    if (dxx < p2_thresh) {
+	      if (cc_ptr >= cur_clump_ceil) {
+		goto clump_reports_ret_NOMEM;
+	      }
+	      cc_ptr->r2 = cur_r2;
+	      cc_ptr->marker_idx = marker_idx;
+	      uii = clump_entry_ptr->fidx;
+	      cc_ptr->fidx = uii;
+	      if ((uii == best_fidx_match) && (cur_r2 > max_r2)) {
+		max_r2 = cur_r2;
+		max_r2_uidx = marker_uidx;
+	      }
+	      cc_ptr++;
+	    }
+	    clump_entry_ptr = clump_entry_ptr->next;
+	  }
+	  histo[0] += nsig_arr[marker_idx];
+	  set_bit(cur_bitfield, marker_idx);
+	}
+      }
+    }
+    cur_window_size = (uintptr_t)(cc_ptr - cur_clump_base);
+    if (require_multifile) {
+      if (cur_window_size < 2) {
+	continue;
+      }
+      uii = cur_clump_base[0].fidx;
+      for (ulii = 1; ulii < cur_window_size; ulii++) {
+        if (uii != cur_clump_base[ulii].fidx) {
+	  break;
+	}
+      }
+      if (ulii == cur_window_size) {
+	continue;
+      }
+    }
+    if (clump_verbose) {
+      if (fwrite_checked(tbuf2, header1_len, outfile)) {
+	goto clump_reports_ret_WRITE_FAIL;
+      }
+    }
+    bufptr = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, clump_chrom_idx, zero_extra_chroms));
+    *bufptr++ = ' ';
+    bufptr = uint32_writew4(bufptr, index_fidx);
+    *bufptr++ = ' ';
+    bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[ivar_uidx * max_marker_id_len]), bufptr);
+    *bufptr++ = ' ';
+    bufptr = uint32_writew10x(bufptr, cur_bp, ' ');
+    bufptr = double_g_writewx3x(bufptr, pval, 10, ' ');
+#ifdef __LP64__
+    // may as well be paranoid
+    bufptr = width_force(8, bufptr, int64_write(bufptr, (int64_t)(histo[0] + histo[1] + histo[2] + histo[3] + histo[4])));
+    *bufptr++ = ' ';
+    for (uii = 0; uii < 5; uii++) {
+      bufptr = width_force(6, bufptr, int64_write(bufptr, (int64_t)((uintptr_t)histo[uii])));
+      *bufptr++ = ' ';
+    }
+#else
+    bufptr = uint32_writew8x(bufptr, histo[0] + histo[1] + histo[2] + histo[3] + histo[4], ' ');
+    for (uii = 0; uii < 5; uii++) {
+      bufptr = uint32_writew6x(bufptr, histo[uii], ' ');
+    }
+#endif
+    final_clump_ct++;
+    if (!clump_verbose) {
+      if (!cur_window_size) {
+	bufptr = memcpya(bufptr, "NONE\n", 5);
+	if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	  goto clump_reports_ret_WRITE_FAIL;
+	}
+      } else {
+	// avoid buffer overflow
+	if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	  goto clump_reports_ret_WRITE_FAIL;
+	}
+	tbuf[0] = '(';
+	for (ulii = 0; ulii < cur_window_size;) {
+          fputs(&(marker_ids[marker_idx_to_uidx[cur_clump_base[ulii].marker_idx] * max_marker_id_len]), outfile);
+	  bufptr = uint32_writex(&(tbuf[1]), cur_clump_base[ulii].fidx, ')');
+	  ulii++;
+	  if (ulii != cur_window_size) {
+	    *bufptr++ = ',';
+	  }
+	  fwrite(tbuf, 1, (uintptr_t)(bufptr - tbuf), outfile);
+	}
+	if (putc_checked('\n', outfile)) {
+	  goto clump_reports_ret_WRITE_FAIL;
+	}
+      }
+    } else {
+      logprint("Error: --clump-verbose is currently under development.\n");
+      retval = RET_CALC_NOT_YET_SUPPORTED;
+      goto clump_reports_ret_1;
+    }
   }
+  fputs("\n\n", outfile);
   if (fclose_null(&outfile)) {
     goto clump_reports_ret_WRITE_FAIL;
   }
   outname_end[8] = '\0';
-  sprintf(logbuf, "--clump: LD-clumped association results written to %s.\n", outname);
+  sprintf(logbuf, "--clump: %u clump%s formed from %u top variant%s.\nResults written to %s.\n", final_clump_ct, (final_clump_ct == 1)? "" : "s", index_ct, (index_ct == 1)? "" : "s", outname);
   logprintb();
-  logprint("Error: --clump is currently under development.\n");
-  retval = RET_CALC_NOT_YET_SUPPORTED;
-  goto clump_reports_ret_1;
   if (missing_variant_ct) {
     printf("Warning: %" PRIu64 " line%s in input files did not match a variant in\nthe current dataset; see the log file.\n", missing_variant_ct, (missing_variant_ct == 1)? "" : "s");
   }
@@ -7905,6 +8239,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     sprintf(logbuf, "Error: Duplicate column header '%s' in %s.\n", bufptr, fname_ptr);
   clump_reports_ret_INVALID_FORMAT_2:
     logprintb();
+  clump_reports_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
   }

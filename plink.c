@@ -7170,11 +7170,14 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_NOMEM;
 	}
       } else if (!memcmp(argptr2, "lump-index-first", 17)) {
-        if (clump_info.fname_ct < 2) {
-	  sprintf(logbuf, "Error: --clump-index-first requires multiple --clump files.%s", errstr_append);
+        if (!clump_info.fname_ct) {
+	  sprintf(logbuf, "Error: --clump-index-first must be used with --clump.%s", errstr_append);
           goto main_ret_INVALID_CMDLINE_3;
+	} else if (clump_info.fname_ct == 1) {
+	  logprint("Warning: --clump-index-first has no effect when there is only one --clump file.\n");
+	} else {
+          clump_info.modifier |= CLUMP_INDEX_FIRST;
 	}
-        clump_info.modifier |= CLUMP_INDEX_FIRST;
         goto main_param_zero;
       } else if (!memcmp(argptr2, "lump-kb", 8)) {
         if (!clump_info.fname_ct) {
