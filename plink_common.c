@@ -4180,29 +4180,6 @@ uintptr_t nonincr_doublearr_leq_stride(double* nonincr_dbl_arr, uintptr_t arr_le
   }
 }
 
-void update_neighbor(uintptr_t indiv_ct, uint32_t neighbor_n2, uintptr_t indiv_idx1, uintptr_t indiv_idx2, double cur_ibs, double* neighbor_quantiles, uint32_t* neighbor_qindices) {
-  uintptr_t exceed_ct;
-  uintptr_t cur_write;
-  exceed_ct = nonincr_doublearr_leq_stride(&(neighbor_quantiles[indiv_idx1]), neighbor_n2, indiv_ct, cur_ibs);
-  if (exceed_ct < neighbor_n2) {
-    for (cur_write = neighbor_n2 - 1; cur_write > exceed_ct; cur_write--) {
-      neighbor_quantiles[cur_write * indiv_ct + indiv_idx1] = neighbor_quantiles[(cur_write - 1) * indiv_ct + indiv_idx1];
-      neighbor_qindices[cur_write * indiv_ct + indiv_idx1] = neighbor_qindices[(cur_write - 1) * indiv_ct + indiv_idx1];
-    }
-    neighbor_quantiles[(exceed_ct * indiv_ct) + indiv_idx1] = cur_ibs;
-    neighbor_qindices[(exceed_ct * indiv_ct) + indiv_idx1] = indiv_idx2;
-  }
-  exceed_ct = nonincr_doublearr_leq_stride(&(neighbor_quantiles[indiv_idx2]), neighbor_n2, indiv_ct, cur_ibs);
-  if (exceed_ct < neighbor_n2) {
-    for (cur_write = neighbor_n2 - 1; cur_write > exceed_ct; cur_write--) {
-      neighbor_quantiles[cur_write * indiv_ct + indiv_idx2] = neighbor_quantiles[(cur_write - 1) * indiv_ct + indiv_idx2];
-      neighbor_qindices[cur_write * indiv_ct + indiv_idx2] = neighbor_qindices[(cur_write - 1) * indiv_ct + indiv_idx2];
-    }
-    neighbor_quantiles[(exceed_ct * indiv_ct) + indiv_idx2] = cur_ibs;
-    neighbor_qindices[(exceed_ct * indiv_ct) + indiv_idx2] = indiv_idx1;
-  }
-}
-
 int32_t bsearch_str(const char* id_buf, uintptr_t cur_id_len, char* lptr, uintptr_t max_id_len, uintptr_t end_idx) {
   // does not assume null-terminated id_buf, or nonempty array.
   // N.B. max_id_len includes null terminator as usual, while cur_id_len does

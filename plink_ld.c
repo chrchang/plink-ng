@@ -863,7 +863,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
     if (cur_window_size > 1) {
       for (ulii = 0; ulii < (uintptr_t)cur_window_size; ulii++) {
 	uii = live_indices[ulii];
-	if (fseeko(bedfile, bed_offset + (uii * unfiltered_indiv_ct4), SEEK_SET)) {
+	if (fseeko(bedfile, bed_offset + (uii * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
 	  goto ld_prune_ret_READ_FAIL;
 	}
 	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, &(geno[ulii * founder_ct_192_long]), founder_ct, founder_info, IS_SET(marker_reverse, uii))) {
@@ -1116,7 +1116,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	if (cur_window_size > prev_end) {
 	  start_arr[cur_window_size - 1] = window_unfiltered_end;
 	}
-	if (fseeko(bedfile, bed_offset + (window_unfiltered_end * unfiltered_indiv_ct4), SEEK_SET)) {
+	if (fseeko(bedfile, bed_offset + (window_unfiltered_end * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
 	  goto ld_prune_ret_READ_FAIL;
 	}
 	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, &(geno[cur_window_size * founder_ct_192_long]), founder_ct, founder_info, IS_SET(marker_reverse, window_unfiltered_end))) {
@@ -1761,14 +1761,14 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     }
     g_ld_idx1_block_size = idx1_block_size;
     marker_uidx1_tmp = marker_uidx1;
-    if (fseeko(bedfile, bed_offset + (marker_uidx1 * unfiltered_indiv_ct4), SEEK_SET)) {
+    if (fseeko(bedfile, bed_offset + (marker_uidx1 * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
       goto ld_report_matrix_ret_READ_FAIL;
     }
     chrom_end = 0;
     for (block_idx1 = 0; block_idx1 < idx1_block_size; marker_uidx1_tmp++, block_idx1++) {
       if (IS_SET(marker_exclude, marker_uidx1_tmp)) {
         marker_uidx1_tmp = next_unset_ul_unsafe(marker_exclude, marker_uidx1_tmp);
-        if (fseeko(bedfile, bed_offset + (marker_uidx1_tmp * unfiltered_indiv_ct4), SEEK_SET)) {
+        if (fseeko(bedfile, bed_offset + (marker_uidx1_tmp * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
 	  goto ld_report_matrix_ret_READ_FAIL;
 	}
       }
@@ -1804,7 +1804,7 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
       g_ld_marker_ctm8 = marker_ctm8;
     }
     chrom_end = 0;
-    if (fseeko(bedfile, bed_offset + (marker_uidx2 * unfiltered_indiv_ct4), SEEK_SET)) {
+    if (fseeko(bedfile, bed_offset + (marker_uidx2 * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
       goto ld_report_matrix_ret_READ_FAIL;
     }
     cur_idx2_block_size = idx2_block_size;
@@ -1815,7 +1815,7 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
       for (block_idx2 = 0; block_idx2 < cur_idx2_block_size; marker_uidx2++, block_idx2++) {
 	if (IS_SET(marker_exclude, marker_uidx2)) {
           marker_uidx2 = next_unset_ul_unsafe(marker_exclude, marker_uidx2);
-	  if (fseeko(bedfile, bed_offset + (marker_uidx2 * unfiltered_indiv_ct4), SEEK_SET)) {
+	  if (fseeko(bedfile, bed_offset + (marker_uidx2 * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
 	    goto ld_report_matrix_ret_READ_FAIL;
 	  }
 	}
@@ -3726,7 +3726,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
       marker_idx2 = marker_idx2_base - 1;
       marker_uidx2_base = next_unset_unsafe(marker_exclude, marker_uidx1 + 1);
     }
-    if (fseeko(bedfile, bed_offset + (marker_uidx1 * unfiltered_indiv_ct4), SEEK_SET)) {
+    if (fseeko(bedfile, bed_offset + (marker_uidx1 * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
       goto ld_report_dprime_ret_READ_FAIL;
     }
     chrom_end = 0;
@@ -3740,7 +3740,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 	  marker_idx2 += uljj;
 	}
 	marker_uidx1_tmp = ulii;
-        if (fseeko(bedfile, bed_offset + (marker_uidx1_tmp * unfiltered_indiv_ct4), SEEK_SET)) {
+        if (fseeko(bedfile, bed_offset + (marker_uidx1_tmp * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
           goto ld_report_dprime_ret_READ_FAIL;
 	}
       }
@@ -3830,7 +3830,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
       }
     }
     marker_uidx2 = marker_uidx2_base;
-    if (fseeko(bedfile, bed_offset + (marker_uidx2 * unfiltered_indiv_ct4), SEEK_SET)) {
+    if (fseeko(bedfile, bed_offset + (marker_uidx2 * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
       goto ld_report_dprime_ret_READ_FAIL;
     }
 
@@ -3850,7 +3850,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
       for (block_idx2 = 0; block_idx2 < cur_idx2_block_size; marker_uidx2++, block_idx2++) {
 	if (IS_SET(marker_exclude, marker_uidx2)) {
           marker_uidx2 = next_unset_ul_unsafe(marker_exclude, marker_uidx2);
-          if (fseeko(bedfile, bed_offset + (marker_uidx2 * unfiltered_indiv_ct4), SEEK_SET)) {
+          if (fseeko(bedfile, bed_offset + (marker_uidx2 * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
 	    goto ld_report_dprime_ret_READ_FAIL;
 	  }
 	}
@@ -4251,7 +4251,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
       marker_idx2 = marker_idx2_base - 1;
       marker_uidx2_base = next_unset_unsafe(marker_exclude, marker_uidx1 + 1);
     }
-    if (fseeko(bedfile, bed_offset + (marker_uidx1 * unfiltered_indiv_ct4), SEEK_SET)) {
+    if (fseeko(bedfile, bed_offset + (marker_uidx1 * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
       goto ld_report_regular_ret_READ_FAIL;
     }
     chrom_end = 0;
@@ -4264,7 +4264,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 	  marker_idx2 += uljj;
 	}
 	marker_uidx1_tmp = ulii;
-        if (fseeko(bedfile, bed_offset + (marker_uidx1_tmp * unfiltered_indiv_ct4), SEEK_SET)) {
+        if (fseeko(bedfile, bed_offset + (marker_uidx1_tmp * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
           goto ld_report_regular_ret_READ_FAIL;
 	}
       }
@@ -4351,7 +4351,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
       ld_process_load2(&(g_ld_geno1[block_idx1 * founder_ct_192_long]), &(g_ld_geno_masks1[block_idx1 * founder_ct_192_long]), &(g_ld_missing_cts1[block_idx1]), founder_ct, is_x && (!ignore_x), founder_male_include2);
     }
     marker_uidx2 = marker_uidx2_base;
-    if (fseeko(bedfile, bed_offset + (marker_uidx2 * unfiltered_indiv_ct4), SEEK_SET)) {
+    if (fseeko(bedfile, bed_offset + (marker_uidx2 * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
       goto ld_report_regular_ret_READ_FAIL;
     }
 
@@ -4372,7 +4372,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 	// todo: when set has big holes in the middle, do not load everything
 	if (IS_SET(marker_exclude, marker_uidx2)) {
           marker_uidx2 = next_unset_ul_unsafe(marker_exclude, marker_uidx2);
-          if (fseeko(bedfile, bed_offset + (marker_uidx2 * unfiltered_indiv_ct4), SEEK_SET)) {
+          if (fseeko(bedfile, bed_offset + (marker_uidx2 * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
 	    goto ld_report_regular_ret_READ_FAIL;
 	  }
 	}
@@ -4533,7 +4533,7 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
   }
   *bufptr = '\0';
   if (ld_modifier & LD_INPHASE) {
-    if (max_marker_allele_len * 4 + plink_maxsnp * 2 + get_max_chrom_len(chrom_info_ptr, zero_extra_chroms) * 2 + 256 > MAXLINELEN) {
+    if (max_marker_allele_len * 4 + plink_maxsnp * 2 + get_max_chrom_len(chrom_info_ptr, zero_extra_chroms) * 2 + 128 > MAXLINELEN) {
       logprint("Error: --r/--r2 in-phase does not support very long allele codes.\n");
       goto ld_report_ret_INVALID_CMDLINE;
     }
@@ -4911,7 +4911,7 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
   }
   for (marker_idx = 0; marker_idx < 2; marker_idx++) {
     marker_uidx = marker_uidxs[marker_idx];
-    if (fseeko(bedfile, bed_offset + (marker_uidx * unfiltered_indiv_ct4), SEEK_SET)) {
+    if (fseeko(bedfile, bed_offset + (marker_uidx * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
       goto twolocus_ret_READ_FAIL;
     }
     if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbufs[marker_idx], indiv_ct, indiv_exclude, IS_SET(marker_reverse, marker_uidx))) {
@@ -5381,7 +5381,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     }
     // may want to keep two window sizes' raw data loaded for marker 1, to
     // halve the number of non-sequential seeks?
-    if (fseeko(bedfile, bed_offset + (marker_uidx * unfiltered_indiv_ct4), SEEK_SET)) {
+    if (fseeko(bedfile, bed_offset + (marker_uidx * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
       goto epistasis_report_ret_READ_FAIL;
     }
     while (marker_uidx < chrom_end) {
@@ -5390,7 +5390,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	if (marker_uidx == chrom_end) {
 	  break;
 	}
-	if (fseeko(bedfile, bed_offset + (marker_uidx * unfiltered_indiv_ct4), SEEK_SET)) {
+	if (fseeko(bedfile, bed_offset + (marker_uidx * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
 	  goto epistasis_report_ret_READ_FAIL;
 	}
       }
@@ -5708,7 +5708,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	*dptr++ = -1;
       } while (dptr < dptr2);
       marker_uidx_tmp = marker_uidx;
-      if (fseeko(bedfile, bed_offset + (marker_uidx * unfiltered_indiv_ct4), SEEK_SET)) {
+      if (fseeko(bedfile, bed_offset + (marker_uidx * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
 	goto epistasis_report_ret_READ_FAIL;
       }
       cur_workload = idx1_block_size * marker_ct2;
@@ -5756,7 +5756,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       for (block_idx1 = 0; block_idx1 < idx1_block_size; marker_uidx_tmp++, block_idx1++) {
         if (IS_SET(marker_exclude1, marker_uidx_tmp)) {
 	  marker_uidx_tmp = next_unset_ul_unsafe(marker_exclude1, marker_uidx_tmp);
-          if (fseeko(bedfile, bed_offset + (marker_uidx_tmp * unfiltered_indiv_ct4), SEEK_SET)) {
+          if (fseeko(bedfile, bed_offset + (marker_uidx_tmp * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
 	    goto epistasis_report_ret_READ_FAIL;
 	  }
 	}
@@ -5856,7 +5856,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       } else {
         marker_idx2 = 0;
       }
-      if (fseeko(bedfile, bed_offset + (marker_uidx2 * unfiltered_indiv_ct4), SEEK_SET)) {
+      if (fseeko(bedfile, bed_offset + (marker_uidx2 * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
 	goto epistasis_report_ret_READ_FAIL;
       }
       cur_idx2_block_size = idx2_block_size;
@@ -5868,7 +5868,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
         for (block_idx2 = 0; block_idx2 < cur_idx2_block_size; marker_uidx2++, block_idx2++) {
           if (IS_SET(marker_exclude2, marker_uidx2)) {
 	    marker_uidx2 = next_unset_ul_unsafe(marker_exclude2, marker_uidx2);
-            if (fseeko(bedfile, bed_offset + (marker_uidx2 * unfiltered_indiv_ct4), SEEK_SET)) {
+            if (fseeko(bedfile, bed_offset + (marker_uidx2 * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
 	      goto epistasis_report_ret_READ_FAIL;
 	    }
 	  }
@@ -6840,7 +6840,7 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
     prevsnp_ptr = loadbuf;
     fill_ulong_zero(prevsnp_ptr, indiv_ctl2);
     cursnp_ptr = &(loadbuf[indiv_ctv2]);
-    if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx_cur) * unfiltered_indiv_ct4, SEEK_SET)) {
+    if (fseeko(bedfile, bed_offset + marker_uidx_cur * ((uint64_t)unfiltered_indiv_ct4), SEEK_SET)) {
       goto test_mishap_ret_READ_FAIL;
     }
     if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, cursnp_ptr, indiv_ct, indiv_exclude, IS_SET(marker_reverse, marker_uidx_cur))) {
@@ -6859,7 +6859,7 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
 	  if (marker_uidx_next == chrom_end) {
 	    goto test_mishap_last_chrom_snp;
 	  }
-	  if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx_next) * unfiltered_indiv_ct4, SEEK_SET)) {
+	  if (fseeko(bedfile, bed_offset + marker_uidx_next * ((uint64_t)unfiltered_indiv_ct4), SEEK_SET)) {
 	    goto test_mishap_ret_READ_FAIL;
 	  }
 	}
@@ -7166,7 +7166,7 @@ typedef struct clump_entry_struct {
   char annot[];
 } Clump_entry;
 
-int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, Clump_info* clump_ip, uint32_t ld_modifier, uintptr_t* sex_male, uint32_t hh_exists) {
+int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, Clump_info* clump_ip, uintptr_t* sex_male, uint32_t hh_exists) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   FILE* outfile = NULL;
@@ -7178,6 +7178,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t founder_ct = popcount_longs(founder_info, unfiltered_indiv_ctl);
   uintptr_t founder_ctl2 = (founder_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t founder_ctv2 = 2 * ((founder_ct + (BITCT - 1)) / BITCT);
   uintptr_t topsize = 0;
   uintptr_t range_group_ct = 0;
   uintptr_t max_range_group_id_len = 0;
@@ -7199,7 +7200,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   double p1 = clump_ip->p1;
   double p2 = clump_ip->p2;
   double load_pthresh = 0.05;
-  // double r2 = clump_ip->r2;
+  double r2 = clump_ip->r2;
   uint32_t allow_overlap = clump_ip->modifier & CLUMP_ALLOW_OVERLAP;
   uint32_t clump_index_first = clump_ip->modifier & CLUMP_INDEX_FIRST;
   uint32_t clump_best = clump_ip->modifier & CLUMP_BEST;
@@ -7207,10 +7208,10 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uint32_t bp_radius = clump_ip->bp_radius;
   uint32_t index_eligible = 1;
   uint32_t header1_len = 0;
-  // uint32_t header2_len = 0;
+  uint32_t header2_len = 0;
   uint32_t file_ct = 0;
   int32_t retval = 0;
-  // uint32_t counts[16];
+  uint32_t counts[9];
   uint32_t histo[4]; // S05, S01, S001, S0001
   Make_set_range* msr_tmp;
   Clump_entry** clump_entries;
@@ -7736,17 +7737,16 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   }
   if (wkspace_alloc_ui_checked(&marker_idx_to_uidx, marker_ct * sizeof(int32_t)) ||
       wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&index_data, founder_ctl2 * sizeof(intptr_t))) {
+      wkspace_alloc_ul_checked(&index_data, 3 * founder_ctv2 * sizeof(intptr_t))) {
     goto clump_reports_ret_NOMEM2;
   }
   if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, founder_ct, hh_exists, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
     goto clump_reports_ret_NOMEM; 
  }
   window_data = (uintptr_t*)wkspace_base;
-  max_window_size = wkspace_left / (founder_ctl2 * sizeof(intptr_t));
+  max_window_size = wkspace_left / (founder_ctv2 * sizeof(intptr_t));
   fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_idx_to_uidx);
   loadbuf_raw[unfiltered_indiv_ctl2 - 1] = 0;
-  index_data[founder_ctl2 - 1] = 0;
   wkspace_left += topsize;
   // now this indicates whether a variant has previously been in a clump
   fill_ulong_zero(cur_bitfield, marker_ctl);
@@ -7799,9 +7799,6 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       goto clump_reports_ret_WRITE_FAIL;
     }
   }
-  logprint("Error: --clump is currently under development.\n");
-  retval = RET_CALC_NOT_YET_SUPPORTED;
-  goto clump_reports_ret_1;
   for (sp_idx = 0; sp_idx < index_ct; sp_idx++) {
     ivar_idx = pval_map[sp_idx];
     if ((!clump_best) && is_set(cur_bitfield, ivar_idx)) {
@@ -7850,15 +7847,27 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       if (fseeko(bedfile, bed_offset + marker_uidx * ((uint64_t)unfiltered_indiv_ct4), SEEK_SET)) {
 	goto clump_reports_ret_READ_FAIL;
       }
-      window_data_ptr[founder_ctl2 - 1] = 0;
+      window_data_ptr[founder_ctv2 - 2] = 0;
+      window_data_ptr[founder_ctv2 - 1] = 0;
       if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, window_data_ptr, founder_ct, founder_info, is_set(marker_reverse, marker_uidx))) {
 	goto clump_reports_ret_READ_FAIL;
       }
       if (is_haploid) {
 	haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)window_data_ptr);
       }
-      window_data_ptr = &(window_data_ptr[founder_ctl2]);
+      window_data_ptr = &(window_data_ptr[founder_ctv2]);
       cur_window_size++;
+    }
+    if (fseeko(bedfile, bed_offset + marker_uidx * ((uint64_t)unfiltered_indiv_ct4), SEEK_SET)) {
+      goto clump_reports_ret_READ_FAIL;
+    }
+    window_data_ptr = window_data;
+    for (uii = 0; uii < cur_window_size; uii++) {
+      vec_3freq(founder_ctl2, window_data_ptr, index_data, &(counts[0]), &(counts[1]), &(counts[2]));
+      vec_3freq(founder_ctl2, window_data_ptr, &(index_data[founder_ctv2]), &(counts[3]), &(counts[4]), &(counts[5]));
+      vec_3freq(founder_ctl2, window_data_ptr, &(index_data[2 * founder_ctv2]), &(counts[6]), &(counts[7]), &(counts[8]));
+      ;;;
+      window_data_ptr = &(window_data_ptr[founder_ctv2]);
     }
   }
   if (fclose_null(&outfile)) {
@@ -7867,6 +7876,9 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   outname_end[8] = '\0';
   sprintf(logbuf, "--clump: LD-clumped association results written to %s.\n", outname);
   logprintb();
+  logprint("Error: --clump is currently under development.\n");
+  retval = RET_CALC_NOT_YET_SUPPORTED;
+  goto clump_reports_ret_1;
   if (missing_variant_ct) {
     printf("Warning: %" PRIu64 " line%s in input files did not match a variant in\nthe current dataset; see the log file.\n", missing_variant_ct, (missing_variant_ct == 1)? "" : "s");
   }

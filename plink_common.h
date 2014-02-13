@@ -492,12 +492,14 @@
 
 #define _FILE_OFFSET_BITS 64
 #if _WIN32
-  #define MAX_THREADS 65
-  #define MAX_THREADS_P1 66
+// if MAX_THREADS > 65, single WaitForMultipleObjects calls must be converted
+// into loops
+  #define MAX_THREADS 64
+  #define MAX_THREADS_P1 65
 #else
 // shouldn't be larger than MODEL_BLOCKSIZE for now
-  #define MAX_THREADS 1023
-  #define MAX_THREADS_P1 1024
+  #define MAX_THREADS 512
+  #define MAX_THREADS_P1 513
 #endif
 
 #ifdef __LP64__
@@ -1661,7 +1663,7 @@ uintptr_t uint64arr_greater_than(uint64_t* sorted_uint64_arr, uintptr_t arr_leng
 
 uintptr_t doublearr_greater_than(double* sorted_dbl_arr, uintptr_t arr_length, double dxx);
 
-void update_neighbor(uintptr_t indiv_ct, uint32_t neighbor_n2, uintptr_t indiv_idx1, uintptr_t indiv_idx2, double cur_ibs, double* neighbor_quantiles, uint32_t* neighbor_qindices);
+uintptr_t nonincr_doublearr_leq_stride(double* nonincr_dbl_arr, uintptr_t arr_length, uintptr_t stride, double dxx);
 
 int32_t bsearch_str(const char* id_buf, uintptr_t cur_id_len, char* lptr, uintptr_t max_id_len, uintptr_t end_idx);
 

@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (12 Feb 2014)";
+  " (13 Feb 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -4091,7 +4091,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       logprint("Error: --clump requires a sorted .bim.  Retry this command after using\n--make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
-    retval = clump_reports(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, founder_info, clump_ip, ldip->modifier, sex_male, hh_exists);
+    retval = clump_reports(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, founder_info, clump_ip, sex_male, hh_exists);
     if (retval) {
       goto plink_ret_1;
     }
@@ -8879,10 +8879,6 @@ int32_t main(int32_t argc, char** argv) {
         if (cc == '2') {
           ld_info.modifier |= LD_IGNORE_X;
 	} else if (cc == '3') {
-	  if (calculation_type & CALC_CLUMP) {
-	    logprint("Error: --clump + --ld-xchr 3 is not currently supported.\n");
-	    goto main_ret_INVALID_CMDLINE;
-	  }
 	  ld_info.modifier |= LD_WEIGHTED_X;
 	}
       } else if (!memcmp(argptr2, "asso", 5)) {
