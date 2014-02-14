@@ -721,7 +721,7 @@ char* uint32_writew7(char* start, uint32_t uii) {
       }
       *start++ = ' ';
       goto uint32_writew7_6;
-    } else if (uii < 100000) {
+    } else if (uii >= 10000) {
       start = memseta(start, 32, 2);
       quotient = uii / 10000;
       *start++ = '0' + quotient;
