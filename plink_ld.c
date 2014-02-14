@@ -7323,8 +7323,8 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uint32_t ivar_idx;
   uint32_t ivar_uidx;
   uint32_t cur_bp;
-  uint32_t min_marker_idx;
-  uint32_t max_marker_idx;
+  uint32_t min_bp;
+  uint32_t max_bp;
   uint32_t clump_chrom_idx;
   uint32_t clump_uidx_first;
   uint32_t clump_uidx_last;
@@ -8217,16 +8217,16 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     }
 #endif
     final_clump_ct++;
-    min_marker_idx = ivar_idx;
-    max_marker_idx = ivar_idx;
+    min_bp = cur_bp;
+    max_bp = cur_bp;
     if (cur_window_size) {
       marker_idx = cur_clump_base[0].marker_idx;
       if (marker_idx < ivar_idx) {
-	min_marker_idx = marker_idx;
+	min_bp = marker_pos[marker_idx_to_uidx[marker_idx]];
       }
       marker_idx = cur_clump_base[cur_window_size - 1].marker_idx;
       if (marker_idx > ivar_idx) {
-	max_marker_idx = marker_idx;
+	max_bp = marker_pos[marker_idx_to_uidx[marker_idx]];
       }
     }
     if (rg_setdefs) {
@@ -8259,6 +8259,45 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	if (putc_checked('\n', outfile)) {
 	  goto clump_reports_ret_WRITE_FAIL;
 	}
+      }
+      if (rg_setdefs) {
+        bufptr = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, clump_chrom_idx, zero_extra_chroms));
+        *bufptr++ = ' ';
+        bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[ivar_uidx * max_marker_id_len]), bufptr);
+        *bufptr++ = ' ';
+        bufptr = double_g_writewx4x(bufptr, pval, 10, ' ');
+        bufptr = uint32_writew6x(bufptr, cur_window_size + 1, ' ');
+	if (clump_chrom_idx <= chrom_info_ptr->max_code) {
+	  bufptr2 = memcpyl3a(bufptr, "chr");
+	  bufptr2 = uint32_write(bufptr2, clump_chrom_idx);
+	} else if (zero_extra_chroms) {
+	  bufptr2 = memcpya(bufptr, "chr0", 4);
+	} else {
+	  bufptr2 = strcpya(bufptr, chrom_info_ptr->nonstd_names[clump_chrom_idx]);
+	}
+        *bufptr2++ = ':';
+        bufptr2 = uint32_write(bufptr2, min_bp);
+        bufptr2 = memcpya(bufptr2, "..", 2);
+        bufptr2 = uint32_write(bufptr2, max_bp);
+        bufptr = width_force(28, bufptr, bufptr2);
+        *bufptr++ = ' ';
+        bufptr = width_force(10, bufptr, double_g_write(bufptr, ((int32_t)(max_bp - min_bp + 1)) * 0.001));
+	bufptr = memcpya(bufptr, " [", 2);
+        if (fwrite_checked(tbuf, bufptr - tbuf, outfile_ranges)) {
+	  goto clump_reports_ret_WRITE_FAIL;
+	}
+	uljj = 0;
+	for (ulii = 0; ulii < cur_rg_ct; ulii++) {
+	  if (interval_in_setdef(cur_rg_setdefs[ulii], min_bp, max_bp)) {
+            if (uljj) {
+	      putc(',', outfile_ranges);
+	    } else {
+	      uljj = 1;
+	    }
+            fputs(&(cur_rg_names[ulii * max_range_group_id_len]), outfile_ranges);
+	  }
+	}
+	fputs("]\n", outfile_ranges);
       }
     } else {
       if (fwrite_checked(tbuf2, header1_len, outfile)) {
@@ -8404,11 +8443,9 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	    bufptr = strcpya(bufptr, chrom_info_ptr->nonstd_names[clump_chrom_idx]);
 	  }
 	  *bufptr++ = ':';
-	  uii = marker_pos[marker_idx_to_uidx[min_marker_idx]];
-	  ujj = marker_pos[marker_idx_to_uidx[max_marker_idx]];
-	  bufptr = uint32_write(bufptr, uii);
+	  bufptr = uint32_write(bufptr, min_bp);
 	  bufptr = memcpya(bufptr, "..", 2);
-	  bufptr = uint32_write(bufptr, ujj);
+	  bufptr = uint32_write(bufptr, max_bp);
 	  bufptr = memcpya(bufptr, "\n           SPAN: ", 18);
 	  bufptr = uint32_write(bufptr, (ujj - uii + 1) / 1000);
 	  bufptr = memcpyl3a(bufptr, "kb\n");
@@ -8440,11 +8477,9 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	  putc('\n', outfile);
 	}
 	fputs("            GENES: ", outfile);
-	uii = marker_pos[marker_idx_to_uidx[min_marker_idx]];
-	ujj = marker_pos[marker_idx_to_uidx[max_marker_idx]] + 1;
 	uljj = 0;
 	for (ulii = 0; ulii < cur_rg_ct; ulii++) {
-	  if (interval_in_setdef(cur_rg_setdefs[ulii], uii, ujj)) {
+	  if (interval_in_setdef(cur_rg_setdefs[ulii], min_bp, max_bp)) {
             if (uljj) {
 	      if (uljj & 7) {
 		putc(',', outfile);
