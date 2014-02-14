@@ -1404,12 +1404,12 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 
 int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* marker_pos, double* marker_cms, Chrom_info* chrom_info_ptr) {
   FILE* shapeitfile = NULL;
-  char* octothorpe_ptr = NULL;
+  char* at_sign_ptr = NULL;
   char* fname_write = NULL;
   char* fname_buf = &(tbuf[MAXLINELEN]);
   double cm_old = 0.0;
   uint32_t autosome_ct = chrom_info_ptr->autosome_ct;
-  uint32_t post_octothorpe_len = 0;
+  uint32_t post_at_sign_len = 0;
   uint32_t updated_chrom_ct = 0;
   int32_t retval = 0;
   char* bufptr;
@@ -1428,10 +1428,10 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
   if (!cm_map_chrname) {
     chrom_fo_idx = 0;
     chrom_ct = chrom_info_ptr->chrom_ct;
-    octothorpe_ptr = strchr(cm_map_fname, '#');
-    fname_write = memcpya(fname_buf, cm_map_fname, (uintptr_t)(octothorpe_ptr - cm_map_fname));
-    octothorpe_ptr++;
-    post_octothorpe_len = strlen(octothorpe_ptr) + 1;
+    at_sign_ptr = strchr(cm_map_fname, '@');
+    fname_write = memcpya(fname_buf, cm_map_fname, (uintptr_t)(at_sign_ptr - cm_map_fname));
+    at_sign_ptr++;
+    post_at_sign_len = strlen(at_sign_ptr) + 1;
   } else {
     ii = get_chrom_code(chrom_info_ptr, cm_map_chrname);
     if (ii == -1) {
@@ -1455,7 +1455,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
         continue;
       }
       bufptr = uint32_write(fname_write, uii);
-      memcpy(bufptr, octothorpe_ptr, post_octothorpe_len);
+      memcpy(bufptr, at_sign_ptr, post_at_sign_len);
       if (fopen_checked(&shapeitfile, fname_buf, "r")) {
 	sprintf(logbuf, "Warning: --cm-map failed to open %s.\n", fname_buf);
 	logprintb();

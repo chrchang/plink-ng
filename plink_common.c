@@ -1061,180 +1061,296 @@ static inline char* uint32_write1p7(char* start, uint32_t quotient, uint32_t rem
   return &(start[1]);
 }
 
+// Okay, time to do banker's rounding.  14 digits of precision are used in
+// judging equality to 0.5 (actual precision of doubles is 15-17 digits); the
+// intention is to capture all directly loaded or exactly computed edge cases
+// (so enough tolerance is needed to survive the internal multiplications by
+// powers of 10, etc.), while rounding a negligible number of honest-to-god
+// 0.4999999s up and 0.5000001s down.
+// To avoid inadvertent printing of an extra digit, there's a deliberate gap
+// between the 99.9994999...-type bounds and the largest numbers that would
+// actually round down.
+static const double banker_round5[] = {0.499995, 0.500005};
+static const double banker_round6[] = {0.4999995, 0.5000005};
+static const double banker_round7[] = {0.49999995, 0.50000005};
+static const double banker_round8[] = {0.499999995, 0.500000005};
+static const double banker_round9[] = {0.4999999995, 0.5000000005};
+static const double banker_round10[] = {0.49999999995, 0.50000000005};
+static const double banker_round11[] = {0.499999999995, 0.500000000005};
+static const double banker_round12[] = {0.4999999999995, 0.5000000000005};
+
+static inline uint32_t double_bround(double dxx, const double* banker_round) {
+  uint32_t result = (int32_t)dxx;
+  return result + (int32_t)((dxx - ((int32_t)result)) + banker_round[result & 1]);
+}
+
+// These are separate functions so the compiler can optimize the integer
+// divisions.
+static inline void double_bround1(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
+  dxx *= 10;
+  uint32_t remainder = (int32_t)dxx;
+  remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
+  *quotientp = remainder / 10;
+  *remainderp = remainder - (*quotientp) * 10; 
+}
+
+static inline void double_bround2(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
+  dxx *= 100;
+  uint32_t remainder = (int32_t)dxx;
+  remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
+  *quotientp = remainder / 100;
+  *remainderp = remainder - (*quotientp) * 100; 
+}
+
+static inline void double_bround3(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
+  dxx *= 1000;
+  uint32_t remainder = (int32_t)dxx;
+  remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
+  *quotientp = remainder / 1000;
+  *remainderp = remainder - (*quotientp) * 1000; 
+}
+
+static inline void double_bround4(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
+  dxx *= 10000;
+  uint32_t remainder = (int32_t)dxx;
+  remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
+  *quotientp = remainder / 10000;
+  *remainderp = remainder - (*quotientp) * 10000; 
+}
+
+static inline void double_bround5(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
+  dxx *= 100000;
+  uint32_t remainder = (int32_t)dxx;
+  remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
+  *quotientp = remainder / 100000;
+  *remainderp = remainder - (*quotientp) * 100000; 
+}
+
+static inline void double_bround6(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
+  dxx *= 1000000;
+  uint32_t remainder = (int32_t)dxx;
+  remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
+  *quotientp = remainder / 1000000;
+  *remainderp = remainder - (*quotientp) * 1000000; 
+}
+
+static inline void double_bround7(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
+  dxx *= 10000000;
+  uint32_t remainder = (int32_t)dxx;
+  remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
+  *quotientp = remainder / 10000000;
+  *remainderp = remainder - (*quotientp) * 10000000; 
+}
+
+// ugh, precision utterly sucks in this case.  Have to go with the
+// weird-looking 0.44/0.56 because 0.45/0.55 are too close together...
+static const float banker_round1f[] = {0.44, 0.56};
+
+static inline uint32_t float_bround(float fxx, const float* banker_round) {
+  uint32_t result = (int32_t)fxx;
+  return result + (int32_t)((fxx - ((int32_t)result)) + banker_round[result & 1]);
+}
+
+static inline void float_bround1(float fxx, const float* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
+  fxx *= 10;
+  uint32_t remainder = (int32_t)fxx;
+  remainder += (int32_t)((fxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
+  *quotientp = remainder / 10;
+  *remainderp = remainder - (*quotientp) * 10; 
+}
+
+static inline void float_bround2(float fxx, const float* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
+  fxx *= 100;
+  uint32_t remainder = (int32_t)fxx;
+  remainder += (int32_t)((fxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
+  *quotientp = remainder / 100;
+  *remainderp = remainder - (*quotientp) * 100; 
+}
+
+static inline void float_bround3(float fxx, const float* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
+  fxx *= 1000;
+  uint32_t remainder = (int32_t)fxx;
+  remainder += (int32_t)((fxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
+  *quotientp = remainder / 1000;
+  *remainderp = remainder - (*quotientp) * 1000; 
+}
+
+static inline void float_bround4(float fxx, const float* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
+  fxx *= 10000;
+  uint32_t remainder = (int32_t)fxx;
+  remainder += (int32_t)((fxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
+  *quotientp = remainder / 10000;
+  *remainderp = remainder - (*quotientp) * 10000; 
+}
+
+static inline void float_bround5(float fxx, const float* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
+  fxx *= 100000;
+  uint32_t remainder = (int32_t)fxx;
+  remainder += (int32_t)((fxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
+  *quotientp = remainder / 100000;
+  *remainderp = remainder - (*quotientp) * 100000; 
+}
+
 char* double_write6(char* start, double dxx) {
   // 6 sig fig number, 0.999995 <= dxx < 999999.5
   // Just hardcoding all six cases, in the absence of a better approach...
   uint32_t uii;
   uint32_t quotient;
   uint32_t remainder;
-  if (dxx < 99.99995) {
-    if (dxx < 9.999995) {
-      dxx += 0.000005;
-      quotient = (int32_t)dxx;
-      return uint32_write1p5(start, quotient, ((int32_t)(dxx * 100000)) - (quotient * 100000));
+  if (dxx < 99.999949999999) {
+    if (dxx < 9.9999949999999) {
+      double_bround5(dxx, banker_round8, &quotient, &remainder);
+      return uint32_write1p5(start, quotient, remainder);
     }
-    dxx += 0.00005;
-    uii = (int32_t)dxx;
-    start = memcpya(start, &(digit2_table[uii * 2]), 2);
-    uii = ((int32_t)(dxx * 10000)) - (uii * 10000);
-    if (!uii) {
+    double_bround4(dxx, banker_round8, &quotient, &remainder);
+    start = memcpya(start, &(digit2_table[quotient * 2]), 2);
+    if (!remainder) {
       return start;
     }
     *start++ = '.';
-    quotient = uii / 100;
+    quotient = remainder / 100;
     memcpy(start, &(digit2_table[quotient * 2]), 2);
-    uii -= 100 * quotient;
-    if (uii) {
+    remainder -= 100 * quotient;
+    if (remainder) {
       start += 2;
     double_write6_pretail:
-      memcpy(start, &(digit2_table[uii * 2]), 2);
+      memcpy(start, &(digit2_table[remainder * 2]), 2);
     }
   double_write6_tail:
     if (start[1] != '0') {
       return &(start[2]);
     }
     return &(start[1]);
-  } else if (dxx < 9999.995) {
-    if (dxx < 999.9995) {
-      dxx += 0.0005;
-      uii = (int32_t)dxx;
+  } else if (dxx < 9999.9949999999) {
+    if (dxx < 999.99949999999) {
+      double_bround3(dxx, banker_round8, &uii, &remainder);
       quotient = uii / 100;
       *start++ = '0' + quotient;
       quotient = uii - 100 * quotient;
       start = memcpya(start, &(digit2_table[quotient * 2]), 2);
-      uii = ((int32_t)(dxx * 1000)) - (uii * 1000);
-      if (!uii) {
+      if (!remainder) {
 	return start;
       }
       *start++ = '.';
-      quotient = uii / 10;
+      quotient = remainder / 10;
       memcpy(start, &(digit2_table[quotient * 2]), 2);
-      uii -= quotient * 10;
-      if (!uii) {
+      remainder -= quotient * 10;
+      if (!remainder) {
         goto double_write6_tail;
       }
-      start[2] = '0' + uii;
+      start[2] = '0' + remainder;
       return &(start[3]);
     }
-    dxx += 0.005;
-    uii = (int32_t)dxx;
+    double_bround2(dxx, banker_round8, &uii, &remainder);
     quotient = uii / 100;
     start = memcpya(start, &(digit2_table[quotient * 2]), 2);
     quotient = uii - (100 * quotient);
     start = memcpya(start, &(digit2_table[quotient * 2]), 2);
-    uii = ((int32_t)(dxx * 100)) - (uii * 100);
-    if (!uii) {
+    if (!remainder) {
       return start;
     }
     *start++ = '.';
     goto double_write6_pretail;
-  } else if (dxx < 99999.95) {
-    dxx += 0.05;
-    uii = (int32_t)dxx;
+  } else if (dxx < 99999.949999999) {
+    double_bround1(dxx, banker_round8, &uii, &remainder);
     quotient = uii / 10000;
     *start = '0' + quotient;
-    remainder = uii - 10000 * quotient;
-    quotient = remainder / 100;
+    uii -= 10000 * quotient;
+    quotient = uii / 100;
     start = memcpya(&(start[1]), &(digit2_table[quotient * 2]), 2);
-    remainder = remainder - 100 * quotient;
-    start = memcpya(start, &(digit2_table[remainder * 2]), 2);
-    uii = ((int32_t)(dxx * 10)) - (uii * 10);
-    if (!uii) {
+    uii = uii - 100 * quotient;
+    start = memcpya(start, &(digit2_table[uii * 2]), 2);
+    if (!remainder) {
       return start;
     }
     *start++ = '.';
-    *start = '0' + uii;
+    *start = '0' + remainder;
     return &(start[1]);
   } else {
-    uint32_write6(start, (int32_t)(dxx + 0.5));
+    uint32_write6(start, double_bround(dxx, banker_round8));
     return &(start[6]);
   }
 }
 
-char* float_write6(char* start, float dxx) {
+char* float_write6(char* start, float fxx) {
   uint32_t uii;
   uint32_t quotient;
   uint32_t remainder;
-  if (dxx < 99.99995) {
-    if (dxx < 9.999995) {
-      dxx += 0.000005;
-      quotient = (int32_t)dxx;
-      return uint32_write1p5(start, quotient, ((int32_t)(dxx * 100000)) - (quotient * 100000));
+  // floats have only 23 bits of precision, and 2^{-23} is just under
+  // 1.2e-7.  So the last digits of these bounds can't be safely higher than
+  // about 32 if we don't want to risk writing an extra digit, since the
+  // rounder adds 44 or 56.
+  if (fxx < 99.999932) {
+    if (fxx < 9.9999932) {
+      float_bround5(fxx, banker_round1f, &quotient, &remainder);
+      return uint32_write1p5(start, quotient, remainder);
     }
-    dxx += 0.00005;
-    uii = (int32_t)dxx;
-    start = memcpya(start, &(digit2_table[uii * 2]), 2);
-    uii = ((int32_t)(dxx * 10000)) - (uii * 10000);
-    if (!uii) {
+    float_bround4(fxx, banker_round1f, &quotient, &remainder);
+    start = memcpya(start, &(digit2_table[quotient * 2]), 2);
+    if (!remainder) {
       return start;
     }
     *start++ = '.';
-    quotient = uii / 100;
+    quotient = remainder / 100;
     memcpy(start, &(digit2_table[quotient * 2]), 2);
-    uii -= 100 * quotient;
-    if (uii) {
+    remainder -= 100 * quotient;
+    if (remainder) {
       start += 2;
     float_write6_pretail:
-      memcpy(start, &(digit2_table[uii * 2]), 2);
+      memcpy(start, &(digit2_table[remainder * 2]), 2);
     }
   float_write6_tail:
     if (start[1] != '0') {
       return &(start[2]);
     }
     return &(start[1]);
-  } else if (dxx < 9999.995) {
-    if (dxx < 999.9995) {
-      dxx += 0.0005;
-      uii = (int32_t)dxx;
+  } else if (fxx < 9999.9932) {
+    if (fxx < 999.99932) {
+      float_bround3(fxx, banker_round1f, &uii, &remainder);
       quotient = uii / 100;
       *start = '0' + quotient;
       quotient = uii - 100 * quotient;
       start = memcpya(&(start[1]), &(digit2_table[quotient * 2]), 2);
-      uii = ((int32_t)(dxx * 1000)) - (uii * 1000);
-      if (!uii) {
+      if (!remainder) {
 	return start;
       }
       *start++ = '.';
-      quotient = uii / 10;
+      quotient = remainder / 10;
       memcpy(start, &(digit2_table[quotient * 2]), 2);
-      uii -= quotient * 10;
-      if (!uii) {
+      remainder -= quotient * 10;
+      if (!remainder) {
         goto float_write6_tail;
       }
-      start[2] = '0' + uii;
+      start[2] = '0' + remainder;
       return &(start[3]);
     }
-    dxx += 0.005;
-    uii = (int32_t)dxx;
+    float_bround2(fxx, banker_round1f, &uii, &remainder);
     quotient = uii / 100;
     start = memcpya(start, &(digit2_table[quotient * 2]), 2);
     quotient = uii - (100 * quotient);
     start = memcpya(start, &(digit2_table[quotient * 2]), 2);
-    uii = ((int32_t)(dxx * 100)) - (uii * 100);
-    if (!uii) {
+    if (!remainder) {
       return start;
     }
     *start++ = '.';
     goto float_write6_pretail;
-  } else if (dxx < 99999.95) {
-    dxx += 0.05;
-    uii = (int32_t)dxx;
+  } else if (fxx < 99999.932) {
+    float_bround1(fxx, banker_round1f, &uii, &remainder);
     quotient = uii / 10000;
     *start = '0' + quotient;
-    remainder = uii - 10000 * quotient;
-    quotient = remainder / 100;
+    uii -= 10000 * quotient;
+    quotient = uii / 100;
     start = memcpya(&(start[1]), &(digit2_table[quotient * 2]), 2);
-    remainder = remainder - 100 * quotient;
-    start = memcpya(start, &(digit2_table[remainder * 2]), 2);
-    uii = ((int32_t)(dxx * 10)) - (uii * 10);
-    if (!uii) {
+    uii = uii - 100 * quotient;
+    start = memcpya(start, &(digit2_table[uii * 2]), 2);
+    if (!remainder) {
       return start;
     }
     *start = '.';
-    start[1] = '0' + uii;
+    start[1] = '0' + remainder;
     return &(start[2]);
   } else {
-    uint32_write6(start, (int32_t)(dxx + 0.5));
+    uint32_write6(start, float_bround(fxx, banker_round1f));
     return &(start[6]);
   }
 }
@@ -1242,38 +1358,35 @@ char* float_write6(char* start, float dxx) {
 char* double_write2(char* start, double dxx) {
   // 2 sig fig number, 0.95 <= dxx < 99.5
   uint32_t quotient;
-  if (dxx < 9.95) {
-    dxx += 0.05;
-    quotient = (int32_t)dxx;
-    return uint32_write1p1(start, quotient, ((int32_t)(dxx * 10)) - (quotient * 10));
+  uint32_t remainder;
+  if (dxx < 9.9499999999999) {
+    double_bround1(dxx, banker_round12, &quotient, &remainder);
+    return uint32_write1p1(start, quotient, remainder);
   }
-  return memcpya(start, &(digit2_table[((uint32_t)((int32_t)(dxx + 0.5))) * 2]), 2);
+  return memcpya(start, &(digit2_table[(double_bround(dxx, banker_round12)) * 2]), 2);
 }
 
 char* double_write3(char* start, double dxx) {
   // 3 sig fig number, 0.995 <= dxx < 999.5
-  uint32_t uii;
   uint32_t quotient;
-  if (dxx < 99.95) {
-    if (dxx < 9.995) {
-      dxx += 0.005;
-      quotient = (int32_t)dxx;
-      return uint32_write1p2(start, quotient, ((int32_t)(dxx * 100)) - (quotient * 100));
+  uint32_t remainder;
+  if (dxx < 99.949999999999) {
+    if (dxx < 9.9949999999999) {
+      double_bround2(dxx, banker_round11, &quotient, &remainder);
+      return uint32_write1p2(start, quotient, remainder);
     }
-    dxx += 0.05;
-    uii = (int32_t)dxx;
-    start = memcpya(start, &(digit2_table[uii * 2]), 2);
-    uii = ((int32_t)(dxx * 10)) - (uii * 10);
-    if (!uii) {
+    double_bround1(dxx, banker_round11, &quotient, &remainder);
+    start = memcpya(start, &(digit2_table[quotient * 2]), 2);
+    if (!remainder) {
       return start;
     }
     *start++ = '.';
   } else {
-    uii = (int32_t)(dxx + 0.5);
-    start = memcpya(start, &(digit2_table[(uii / 10) * 2]), 2);
-    uii %= 10;
+    quotient = double_bround(dxx, banker_round11);
+    start = memcpya(start, &(digit2_table[(quotient / 10) * 2]), 2);
+    remainder = quotient % 10;
   }
-  *start = '0' + uii;
+  *start = '0' + remainder;
   return &(start[1]);
 }
 
@@ -1281,41 +1394,37 @@ char* double_write4(char* start, double dxx) {
   // 4 sig fig number, 0.9995 <= dxx < 9999.5
   uint32_t uii;
   uint32_t quotient;
-  if (dxx < 99.995) {
-    if (dxx < 9.9995) {
-      dxx += 0.0005;
-      quotient = (int32_t)dxx;
-      return uint32_write1p3(start, quotient, ((int32_t)(dxx * 1000)) - (quotient * 1000));
+  uint32_t remainder;
+  if (dxx < 99.994999999999) {
+    if (dxx < 9.9994999999999) {
+      double_bround3(dxx, banker_round10, &quotient, &remainder);
+      return uint32_write1p3(start, quotient, remainder);
     }
-    dxx += 0.005;
-    uii = (int32_t)dxx;
-    start = memcpya(start, &(digit2_table[uii * 2]), 2);
-    uii = ((int32_t)(dxx * 100)) - (uii * 100);
-    if (!uii) {
+    double_bround2(dxx, banker_round10, &quotient, &remainder);
+    start = memcpya(start, &(digit2_table[quotient * 2]), 2);
+    if (!remainder) {
       return start;
     }
     *start++ = '.';
-    memcpy(start, &(digit2_table[uii * 2]), 2);
+    memcpy(start, &(digit2_table[remainder * 2]), 2);
     if (start[1] != '0') {
       return &(start[2]);
     }
     return &(start[1]);
-  } else if (dxx < 999.95) {
-    dxx += 0.05;
-    uii = (int32_t)dxx;
+  } else if (dxx < 999.94999999999) {
+    double_bround1(dxx, banker_round10, &uii, &remainder);
     quotient = uii / 100;
     *start = '0' + quotient;
     quotient = uii - 100 * quotient;
     start = memcpya(&(start[1]), &(digit2_table[quotient * 2]), 2);
-    uii = ((int32_t)(dxx * 10)) - (uii * 10);
-    if (!uii) {
+    if (!remainder) {
       return start;
     }
     *start = '.';
-    start[1] = '0' + uii;
+    start[1] = '0' + remainder;
     return &(start[2]);
   } else {
-    uint32_write4(start, (int32_t)(dxx + 0.5));
+    uint32_write4(start, double_bround(dxx, banker_round10));
     return &(start[4]);
   }
 }
@@ -1325,33 +1434,30 @@ char* double_write8(char* start, double dxx) {
   uint32_t uii;
   uint32_t quotient;
   uint32_t remainder;
-  if (dxx < 99.9999995) {
-    if (dxx < 9.99999995) {
-      dxx += 0.00000005;
-      quotient = (int32_t)dxx;
-      return uint32_write1p7(start, quotient, ((int32_t)(dxx * 10000000)) - (quotient * 10000000));
+  if (dxx < 99.999999499999) {
+    if (dxx < 9.9999999499999) {
+      double_bround7(dxx, banker_round6, &quotient, &remainder);
+      return uint32_write1p7(start, quotient, remainder);
     }
-    dxx += 0.0000005;
-    uii = (int32_t)dxx;
-    start = memcpya(start, &(digit2_table[uii * 2]), 2);
-    uii = ((int32_t)(dxx * 1000000)) - (uii * 1000000);
-    if (!uii) {
+    double_bround6(dxx, banker_round6, &quotient, &remainder);
+    start = memcpya(start, &(digit2_table[quotient * 2]), 2);
+    if (!remainder) {
       return start;
     }
     *start++ = '.';
-    quotient = uii / 10000;
+    quotient = remainder / 10000;
     memcpy(start, &(digit2_table[quotient * 2]), 2);
-    uii -= 10000 * quotient;
-    if (uii) {
+    remainder -= 10000 * quotient;
+    if (remainder) {
       start += 2;
     double_write8_pretail4:
-      quotient = uii / 100;
+      quotient = remainder / 100;
       memcpy(start, &(digit2_table[quotient * 2]), 2);
-      uii -= 100 * quotient;
-      if (uii) {
+      remainder -= 100 * quotient;
+      if (remainder) {
 	start += 2;
       double_write8_pretail2:
-        memcpy(start, &(digit2_table[uii * 2]), 2);
+        memcpy(start, &(digit2_table[remainder * 2]), 2);
       }
     }
   double_write8_tail:
@@ -1359,110 +1465,101 @@ char* double_write8(char* start, double dxx) {
       return &(start[2]);
     }
     return &(start[1]);
-  } else if (dxx < 9999.99995) {
-    if (dxx < 999.999995) {
-      dxx += 0.000005;
-      uii = (int32_t)dxx;
+  } else if (dxx < 9999.9999499999) {
+    if (dxx < 999.99999499999) {
+      double_bround5(dxx, banker_round6, &uii, &remainder);
       quotient = uii / 100;
       *start++ = '0' + quotient;
       quotient = uii - 100 * quotient;
       start = memcpya(start, &(digit2_table[quotient * 2]), 2);
-      uii = ((int32_t)(dxx * 100000)) - (uii * 100000);
-      if (!uii) {
+      if (!remainder) {
 	return start;
       }
       *start++ = '.';
-      quotient = uii / 1000;
+      quotient = remainder / 1000;
       memcpy(start, &(digit2_table[quotient * 2]), 2);
-      uii -= quotient * 1000;
-      if (!uii) {
+      remainder -= quotient * 1000;
+      if (!remainder) {
         goto double_write8_tail;
       }
       start += 2;
     double_write8_pretail3:
-      quotient = uii / 10;
+      quotient = remainder / 10;
       memcpy(start, &(digit2_table[quotient * 2]), 2);
-      uii -= quotient * 10;
-      if (!uii) {
+      remainder -= quotient * 10;
+      if (!remainder) {
 	goto double_write8_tail;
       }
-      start[2] = '0' + uii;
+      start[2] = '0' + remainder;
       return &(start[3]);
     }
-    dxx += 0.00005;
-    uii = (int32_t)dxx;
+    double_bround4(dxx, banker_round6, &uii, &remainder);
     quotient = uii / 100;
     start = memcpya(start, &(digit2_table[quotient * 2]), 2);
     quotient = uii - (100 * quotient);
     start = memcpya(start, &(digit2_table[quotient * 2]), 2);
-    uii = ((int32_t)(dxx * 10000)) - (uii * 10000);
-    if (!uii) {
+    if (!remainder) {
       return start;
     }
     *start++ = '.';
     goto double_write8_pretail4;
-  } else if (dxx < 999999.995) {
-    if (dxx < 99999.9995) {
-      dxx += 0.0005;
-      uii = (int32_t)dxx;
+  } else if (dxx < 999999.99499999) {
+    if (dxx < 99999.999499999) {
+      double_bround3(dxx, banker_round6, &uii, &remainder);
       quotient = uii / 10000;
       *start = '0' + quotient;
-      remainder = uii - 10000 * quotient;
-      quotient = remainder / 100;
+      uii -= 10000 * quotient;
+      quotient = uii / 100;
       start = memcpya(&(start[1]), &(digit2_table[quotient * 2]), 2);
-      remainder = remainder - 100 * quotient;
-      start = memcpya(start, &(digit2_table[remainder * 2]), 2);
-      uii = ((int32_t)(dxx * 1000)) - (uii * 1000);
-      if (!uii) {
+      uii -= 100 * quotient;
+      start = memcpya(start, &(digit2_table[uii * 2]), 2);
+      if (!remainder) {
 	return start;
       }
       *start++ = '.';
       goto double_write8_pretail3;
     }
-    dxx += 0.005;
-    uii = (int32_t)dxx;
+    double_bround2(dxx, banker_round6, &uii, &remainder);
     quotient = uii / 10000;
     start = memcpya(start, &(digit2_table[quotient * 2]), 2);
-    remainder = uii - 10000 * quotient;
-    quotient = remainder / 100;
+    uii -= 10000 * quotient;
+    quotient = uii / 100;
     start = memcpya(start, &(digit2_table[quotient * 2]), 2);
-    remainder = remainder - 100 * quotient;
-    start = memcpya(start, &(digit2_table[remainder * 2]), 2);
-    uii = ((int32_t)(dxx * 100)) - (uii * 100);
-    if (!uii) {
+    uii -= 100 * quotient;
+    start = memcpya(start, &(digit2_table[uii * 2]), 2);
+    if (!remainder) {
       return start;
     }
     *start++ = '.';
     goto double_write8_pretail2;
-  } else if (dxx < 9999999.95) {
-    dxx += 0.05;
-    uii = (int32_t)dxx;
+  } else if (dxx < 9999999.9499999) {
+    double_bround1(dxx, banker_round6, &uii, &remainder);
     quotient = uii / 1000000;
     *start = '0' + quotient;
-    remainder = uii - 1000000 * quotient;
-    quotient = remainder / 10000;
+    uii -= 1000000 * quotient;
+    quotient = uii / 10000;
     start = memcpya(&(start[1]), &(digit2_table[quotient * 2]), 2);
-    remainder = uii - 10000 * quotient;
-    quotient = remainder / 100;
+    uii -= 10000 * quotient;
+    quotient = uii / 100;
     start = memcpya(start, &(digit2_table[quotient * 2]), 2);
-    remainder = remainder - 100 * quotient;
-    start = memcpya(start, &(digit2_table[remainder * 2]), 2);
-    uii = ((int32_t)(dxx * 10)) - (uii * 10);
-    if (!uii) {
+    uii -= 100 * quotient;
+    start = memcpya(start, &(digit2_table[uii * 2]), 2);
+    if (!remainder) {
       return start;
     }
     *start++ = '.';
-    start[1] = '0' + uii;
+    start[1] = '0' + remainder;
     return &(start[2]);
   } else {
-    uint32_write8(start, (int32_t)(dxx + 0.5));
+    uint32_write8(start, double_bround(dxx, banker_round6));
     return &(start[8]);
   }
 }
 
 char* double_e_write(char* start, double dxx) {
   uint32_t xp10 = 0;
-  uint32_t uii;
+  uint32_t quotient;
+  uint32_t remainder;
   char sign;
   if (dxx != dxx) {
     // do this first to avoid generating exception
@@ -1472,13 +1569,13 @@ char* double_e_write(char* start, double dxx) {
     *start++ = '-';
     dxx = -dxx;
   }
-  if (dxx >= 9.9999995e-1) {
-    if (dxx >= 9.9999995e7) {
-      if (dxx >= 9.9999995e127) {
+  if (dxx >= 9.9999994999999e-1) {
+    if (dxx >= 9.9999994999999e7) {
+      if (dxx >= 9.9999994999999e127) {
 	if (dxx == INFINITY) {
 	  *((uint32_t*)start) = *((uint32_t*)"inf");
 	  return &(start[3]);
-	} else if (dxx >= 9.9999995e255) {
+	} else if (dxx >= 9.9999994999999e255) {
 	  dxx *= 1.0e-256;
 	  xp10 |= 256;
 	} else {
@@ -1486,44 +1583,44 @@ char* double_e_write(char* start, double dxx) {
 	  xp10 |= 128;
 	}
       }
-      if (dxx >= 9.9999995e63) {
+      if (dxx >= 9.9999994999999e63) {
 	dxx *= 1.0e-64;
 	xp10 |= 64;
       }
-      if (dxx >= 9.9999995e31) {
+      if (dxx >= 9.9999994999999e31) {
 	dxx *= 1.0e-32;
 	xp10 |= 32;
       }
-      if (dxx >= 9.9999995e15) {
+      if (dxx >= 9.9999994999999e15) {
 	dxx *= 1.0e-16;
 	xp10 |= 16;
       }
-      if (dxx >= 9.9999995e7) {
+      if (dxx >= 9.9999994999999e7) {
 	dxx *= 1.0e-8;
 	xp10 |= 8;
       }
     }
-    if (dxx >= 9.9999995e3) {
+    if (dxx >= 9.9999994999999e3) {
       dxx *= 1.0e-4;
       xp10 |= 4;
     }
-    if (dxx >= 9.9999995e1) {
+    if (dxx >= 9.9999994999999e1) {
       dxx *= 1.0e-2;
       xp10 |= 2;
     }
-    if (dxx >= 9.9999995) {
+    if (dxx >= 9.9999994999999) {
       dxx *= 1.0e-1;
       xp10++;
     }
     sign = '+';
   } else {
-    if (dxx < 9.9999995e-8) {
+    if (dxx < 9.9999994999999e-8) {
       // general case
-      if (dxx < 9.9999995e-128) {
+      if (dxx < 9.9999994999999e-128) {
 	if (dxx == 0.0) {
 	  return memcpya(start, "0.000000e+00", 12);
 	}
-	if (dxx < 9.9999995e-256) {
+	if (dxx < 9.9999994999999e-256) {
 	  dxx *= 1.0e256;
 	  xp10 |= 256;
 	} else {
@@ -1531,131 +1628,130 @@ char* double_e_write(char* start, double dxx) {
 	  xp10 |= 128;
 	}
       }
-      if (dxx < 9.9999995e-64) {
+      if (dxx < 9.9999994999999e-64) {
 	dxx *= 1.0e64;
 	xp10 |= 64;
       }
-      if (dxx < 9.9999995e-32) {
+      if (dxx < 9.9999994999999e-32) {
 	dxx *= 1.0e32;
 	xp10 |= 32;
       }
-      if (dxx < 9.9999995e-16) {
+      if (dxx < 9.9999994999999e-16) {
 	dxx *= 1.0e16;
 	xp10 |= 16;
       }
-      if (dxx < 9.9999995e-8) {
+      if (dxx < 9.9999994999999e-8) {
 	dxx *= 100000000;
 	xp10 |= 8;
       }
     }
-    if (dxx < 9.999995e-4) {
+    if (dxx < 9.999994999999e-4) {
       dxx *= 10000;
       xp10 |= 4;
     }
-    if (dxx < 9.9999995e-2) {
+    if (dxx < 9.9999994999999e-2) {
       dxx *= 100;
       xp10 |= 2;
     }
-    if (dxx < 9.9999995e-1) {
+    if (dxx < 9.9999994999999e-1) {
       dxx *= 10;
       xp10++;
     }
     sign = '-';
   }
-  dxx += 0.0000005;
-  uii = (int32_t)dxx;
-  *start++ = '0' + uii;
+  double_bround6(dxx, banker_round7, &quotient, &remainder);
+  *start++ = '0' + quotient;
   *start++ = '.';
-  uii = ((int32_t)(dxx * 1000000)) - (uii * 1000000);
-  uint32_write6(start, uii);
+  uint32_write6(start, remainder);
   start += 6;
   *start++ = 'e';
   *start++ = sign;
   if (xp10 >= 100) {
-    uii = xp10 / 100;
-    *start++ = '0' + uii;
-    xp10 -= uii * 100;
+    quotient = xp10 / 100;
+    *start++ = '0' + quotient;
+    xp10 -= quotient * 100;
   }
   return memcpya(start, &(digit2_table[xp10 * 2]), 2);
 }
 
-char* float_e_write(char* start, float dxx) {
+char* float_e_write(char* start, float fxx) {
   uint32_t xp10 = 0;
   uint32_t uii;
   char sign;
-  if (dxx != dxx) {
+  if (fxx != fxx) {
     // do this first to avoid generating exception
     *((uint32_t*)start) = *((uint32_t*)"nan");
     return &(start[3]);
-  } else if (dxx < 0) {
+  } else if (fxx < 0) {
     *start++ = '-';
-    dxx = -dxx;
+    fxx = -fxx;
   }
-  if (dxx >= 9.9999995e-1) {
-    if (dxx >= 9.9999995e15) {
-      if (dxx == INFINITY) {
+  if (fxx >= 9.9999995e-1) {
+    if (fxx >= 9.9999995e15) {
+      if (fxx == INFINITY) {
 	*((uint32_t*)start) = *((uint32_t*)"inf");
 	return &(start[3]);
-      } else if (dxx >= 9.9999995e31) {
-	dxx *= 1.0e-32;
+      } else if (fxx >= 9.9999995e31) {
+	fxx *= 1.0e-32;
 	xp10 |= 32;
       } else {
-	dxx *= 1.0e-16;
+	fxx *= 1.0e-16;
 	xp10 |= 16;
       }
     }
-    if (dxx >= 9.9999995e7) {
-      dxx *= 1.0e-8;
+    if (fxx >= 9.9999995e7) {
+      fxx *= 1.0e-8;
       xp10 |= 8;
     }
-    if (dxx >= 9.9999995e3) {
-      dxx *= 1.0e-4;
+    if (fxx >= 9.9999995e3) {
+      fxx *= 1.0e-4;
       xp10 |= 4;
     }
-    if (dxx >= 9.9999995e1) {
-      dxx *= 1.0e-2;
+    if (fxx >= 9.9999995e1) {
+      fxx *= 1.0e-2;
       xp10 |= 2;
     }
-    if (dxx >= 9.9999995) {
-      dxx *= 1.0e-1;
+    if (fxx >= 9.9999995) {
+      fxx *= 1.0e-1;
       xp10++;
     }
     sign = '+';
   } else {
-    if (dxx < 9.9999995e-16) {
-      if (dxx == 0.0) {
+    if (fxx < 9.9999995e-16) {
+      if (fxx == 0.0) {
 	return memcpya(start, "0.000000e+00", 12);
-      } else if (dxx < 9.9999995e-32) {
-	dxx *= 1.0e32;
+      } else if (fxx < 9.9999995e-32) {
+	fxx *= 1.0e32;
 	xp10 |= 32;
       } else {
-	dxx *= 1.0e16;
+	fxx *= 1.0e16;
 	xp10 |= 16;
       }
     }
-    if (dxx < 9.9999995e-8) {
-      dxx *= 100000000;
+    if (fxx < 9.9999995e-8) {
+      fxx *= 100000000;
       xp10 |= 8;
     }
-    if (dxx < 9.999995e-4) {
-      dxx *= 10000;
+    if (fxx < 9.9999995e-4) {
+      fxx *= 10000;
       xp10 |= 4;
     }
-    if (dxx < 9.9999995e-2) {
-      dxx *= 100;
+    if (fxx < 9.9999995e-2) {
+      fxx *= 100;
       xp10 |= 2;
     }
-    if (dxx < 9.9999995e-1) {
-      dxx *= 10;
+    if (fxx < 9.9999995e-1) {
+      fxx *= 10;
       xp10++;
     }
     sign = '-';
   }
-  dxx += 0.0000005;
-  uii = (int32_t)dxx;
+  // not enough precision for rounding mode to matter
+  fxx += 0.0000005;
+  uii = (int32_t)fxx;
   *start++ = '0' + uii;
   *start++ = '.';
-  uii = ((int32_t)(dxx * 1000000)) - (uii * 1000000);
+  uii = ((int32_t)(fxx * 1000000)) - (uii * 1000000);
   uint32_write6(start, uii);
   start += 6;
   *start++ = 'e';
@@ -1664,110 +1760,86 @@ char* float_e_write(char* start, float dxx) {
 }
 
 char* double_f_writew3(char* start, double dxx) {
-  int64_t llii;
-  uint32_t uii;
+  const double* br_ptr;
   uint32_t quotient;
+  uint32_t remainder;
   if (dxx != dxx) {
     *((uint32_t*)start) = *((uint32_t*)"nan");
     return &(start[3]);
-  } else if (dxx < 9.9995) {
+  } else if (dxx < 9.9994999999999) {
     if (dxx < 0) {
       *start++ = '-';
       dxx = -dxx;
-      if (dxx >= 9.9995) {
+      if (dxx >= 9.9994999999999) {
         goto double_f_writew3_10;
       }
     }
-    dxx += 0.0005;
-    uii = ((int32_t)dxx);
-    *start++ = '0' + uii;
-    uii = ((int32_t)(dxx * 1000)) - (uii * 1000);
+    double_bround3(dxx, banker_round10, &quotient, &remainder);
+    *start++ = '0' + quotient;
   double_f_writew3_dec:
     *start++ = '.';
-    quotient = uii / 100;
-    uii -= 100 * quotient;
+    quotient = remainder / 100;
+    remainder -= 100 * quotient;
     *start++ = '0' + quotient;
-    return memcpya(start, &(digit2_table[uii * 2]), 2);
+    return memcpya(start, &(digit2_table[remainder * 2]), 2);
   }
  double_f_writew3_10:
-  dxx += 0.0005;
-#ifndef __LP64__
-  if (dxx <= 2147483.625) {
-    uii = (int32_t)dxx;
-    start = uint32_write(start, uii);
-    uii = ((int32_t)(dxx * 1000)) - (uii * 1000);
-    goto double_f_writew3_dec;
-  }
-#endif
-  // 2 ^ 63 int64_t max, divided by 1000
-  if (dxx <= 9223372036854775.75) {
-    llii = (int64_t)dxx;
-    start = int64_write(start, llii);
-    uii = (uint32_t)(((int64_t)(dxx * 1000)) - (llii * 1000));
-    goto double_f_writew3_dec;
-  } else if (dxx < 9223372036854775808.0) {
-    llii = (int64_t)dxx;
-    start = int64_write(start, llii);
-    // actually, since there are just 53 bits of precision, this should always
-    // be 0, but whatever...
-    uii = (int32_t)((dxx - ((double)llii)) * 1000);
+  if (dxx < 999999.99949999) {
+    if (dxx < 999.99949999999) {
+      if (dxx < 99.999499999999) {
+	br_ptr = banker_round9;
+      } else {
+        br_ptr = banker_round8;
+      }
+    } else if (dxx < 99999.999499999) {
+      if (dxx < 9999.9994999999) {
+	br_ptr = banker_round7;
+      } else {
+	br_ptr = banker_round6;
+      }
+    } else {
+      br_ptr = banker_round5;
+    }
+    double_bround3(dxx, br_ptr, &quotient, &remainder);
+    start = uint32_write(start, quotient);
     goto double_f_writew3_dec;
   }
   if (dxx == INFINITY) {
     *((uint32_t*)start) = *((uint32_t*)"inf");
     return &(start[3]);
   }
-  // don't worry about optimizing %f on huge-ass finite numbers for now, since
-  // it should be irrelevant for what we're doing
+  // just punt larger numbers to glibc for now, this isn't a bottleneck
   start += sprintf(start, "%.3f", dxx);
   return start;
 }
 
 char* double_f_writew96(char* start, double dxx) {
-  int64_t llii;
-  uint32_t uii;
+  uint32_t quotient;
+  uint32_t remainder;
   if (dxx != dxx) {
     *((uint32_t*)start) = *((uint32_t*)"nan");
     return &(start[3]);
-  } else if (dxx < 9.9999995) {
+  } else if (dxx < 9.9999994999999) {
     if (dxx < 0) {
       *start++ = '-';
       dxx = -dxx;
-      if (dxx >= 9.9999995) {
+      if (dxx >= 9.9999994999999) {
 	goto double_f_writew96_10;
       }
     } else {
       *start++ = ' ';
     }
-    dxx += 0.0000005;
-    uii = ((int32_t)dxx);
-    *start++ = '0' + uii;
-    uii = ((int32_t)(dxx * 1000000)) - (uii * 1000000);
+    double_bround6(dxx, banker_round7, &quotient, &remainder);
+    *start++ = '0' + quotient;
   double_f_writew96_dec:
     *start++ = '.';
-    uint32_write6(start, uii);
+    uint32_write6(start, remainder);
     return &(start[6]);
   }
  double_f_writew96_10:
-  dxx += 0.0000005;
-#ifndef __LP64__
-  if (dxx < 2147.375) {
-    uii = (int32_t)dxx;
-    start = uint32_write(start, uii);
-    uii = ((int32_t)(dxx * 1000000)) - (uii * 1000000);
-    goto double_f_writew96_dec;
-  }
-#endif
-  // 2 ^ 63 int64_t max, divided by 1000000
-  if (dxx <= 9223372036854.75) {
-    llii = (int64_t)dxx;
-    start = int64_write(start, llii);
-    uii = (uint32_t)(((int64_t)(dxx * 1000000)) - (llii * 1000000));
-    goto double_f_writew96_dec;
-  } else if (dxx < 9223372036854775808.0) {
-    llii = (int64_t)dxx;
-    start = int64_write(start, llii);
-    uii = (int32_t)((dxx - ((double)llii)) * 1000000);
+  if (dxx < 999.99999949999) {
+    double_bround6(dxx, (dxx < 99.999999499999)? banker_round6 : banker_round5, &quotient, &remainder);
+    start = uint32_write(start, quotient);
     goto double_f_writew96_dec;
   }
   if (dxx == INFINITY) {
@@ -1779,52 +1851,45 @@ char* double_f_writew96(char* start, double dxx) {
 }
 
 char* double_f_writew74(char* start, double dxx) {
-  int64_t llii;
-  uint32_t uii;
+  const double* br_ptr;
   uint32_t quotient;
+  uint32_t remainder;
   if (dxx != dxx) {
     *((uint32_t*)start) = *((uint32_t*)"nan");
     return &(start[3]);
-  } else if (dxx < 9.99995) {
+  } else if (dxx < 9.9999499999999) {
     if (dxx < 0) {
       *start++ = '-';
       dxx = -dxx;
-      if (dxx >= 9.99995) {
+      if (dxx >= 9.9999499999999) {
 	goto double_f_writew74_10;
       }
     } else {
       *start++ = ' ';
     }
-    dxx += 0.00005;
-    uii = ((int32_t)dxx);
-    *start++ = '0' + uii;
-    uii = ((int32_t)(dxx * 10000)) - (uii * 10000);
+    double_bround4(dxx, banker_round9, &quotient, &remainder);
+    *start++ = '0' + quotient;
   double_f_writew74_dec:
     *start++ = '.';
-    quotient = uii / 100;
-    uii -= 100 * quotient;
-    return memcpya(memcpya(start, &(digit2_table[quotient * 2]), 2), &(digit2_table[uii * 2]), 2);
+    quotient = remainder / 100;
+    remainder -= 100 * quotient;
+    return memcpya(memcpya(start, &(digit2_table[quotient * 2]), 2), &(digit2_table[remainder * 2]), 2);
   }
  double_f_writew74_10:
-  dxx += 0.00005;
-#ifndef __LP64__
-  if (dxx < 214748.25) {
-    uii = (int32_t)dxx;
-    start = uint32_write(start, uii);
-    uii = ((int32_t)(dxx * 10000)) - (uii * 10000);
-    goto double_f_writew74_dec;
-  }
-#endif
-  // 2 ^ 63 int64_t max, divided by 10000
-  if (dxx <= 922337203685477.5) {
-    llii = (int64_t)dxx;
-    start = int64_write(start, llii);
-    uii = (uint32_t)(((int64_t)(dxx * 10000)) - (llii * 10000));
-    goto double_f_writew74_dec;
-  } else if (dxx < 9223372036854775808.0) {
-    llii = (int64_t)dxx;
-    start = int64_write(start, llii);
-    uii = (int32_t)((dxx - ((double)llii)) * 10000);
+  if (dxx < 99999.999949999) {
+    if (dxx < 999.99994999999) {
+      if (dxx < 99.999949999999) {
+	br_ptr = banker_round8;
+      } else {
+	br_ptr = banker_round7;
+      }
+    } else if (dxx < 9999.9999499999) {
+      br_ptr = banker_round6;
+    } else {
+      br_ptr = banker_round5;
+    }
+    double_bround4(dxx, br_ptr, &quotient, &remainder);
+    start = uint32_write(start, quotient);
     goto double_f_writew74_dec;
   }
   if (dxx == INFINITY) {
@@ -1860,7 +1925,8 @@ char* double_f_writew96_clipped(char* start, double dxx) {
 
 char* double_g_write(char* start, double dxx) {
   uint32_t xp10 = 0;
-  uint32_t uii;
+  uint32_t quotient;
+  uint32_t remainder;
   if (dxx != dxx) {
     *((uint32_t*)start) = *((uint32_t*)"nan");
     return &(start[3]);
@@ -1868,14 +1934,14 @@ char* double_g_write(char* start, double dxx) {
     *start++ = '-';
     dxx = -dxx;
   }
-  if (dxx < 9.999995e-5) {
+  if (dxx < 9.9999949999999e-5) {
     // 6 sig fig exponential notation, small
-    if (dxx < 9.999995e-16) {
-      if (dxx < 9.999995e-128) {
+    if (dxx < 9.9999949999999e-16) {
+      if (dxx < 9.9999949999999e-128) {
 	if (dxx == 0.0) {
 	  *start = '0';
 	  return &(start[1]);
-	} else if (dxx < 9.999995e-256) {
+	} else if (dxx < 9.9999949999999e-256) {
 	  dxx *= 1.0e256;
 	  xp10 |= 256;
 	} else {
@@ -1883,52 +1949,51 @@ char* double_g_write(char* start, double dxx) {
 	  xp10 |= 128;
 	}
       }
-      if (dxx < 9.999995e-64) {
+      if (dxx < 9.9999949999999e-64) {
 	dxx *= 1.0e64;
 	xp10 |= 64;
       }
-      if (dxx < 9.999995e-32) {
+      if (dxx < 9.9999949999999e-32) {
 	dxx *= 1.0e32;
 	xp10 |= 32;
       }
-      if (dxx < 9.999995e-16) {
+      if (dxx < 9.9999949999999e-16) {
 	dxx *= 1.0e16;
 	xp10 |= 16;
       }
     }
-    if (dxx < 9.999995e-8) {
+    if (dxx < 9.9999949999999e-8) {
       dxx *= 100000000;
       xp10 |= 8;
     }
-    if (dxx < 9.999995e-4) {
+    if (dxx < 9.9999949999999e-4) {
       dxx *= 10000;
       xp10 |= 4;
     }
-    if (dxx < 9.999995e-2) {
+    if (dxx < 9.9999949999999e-2) {
       dxx *= 100;
       xp10 |= 2;
     }
-    if (dxx < 9.999995e-1) {
+    if (dxx < 9.9999949999999e-1) {
       dxx *= 10;
       xp10++;
     }
-    dxx += 0.000005;
-    uii = (int32_t)dxx;
-    start = memcpya(uint32_write1p5(start, uii, ((int32_t)(dxx * 100000)) - (uii * 100000)), "e-", 2);
+    double_bround5(dxx, banker_round8, &quotient, &remainder);
+    start = memcpya(uint32_write1p5(start, quotient, remainder), "e-", 2);
     if (xp10 >= 100) {
-      uii = xp10 / 100;
-      *start++ = '0' + uii;
-      xp10 -= 100 * uii;
+      quotient = xp10 / 100;
+      *start++ = '0' + quotient;
+      xp10 -= 100 * quotient;
     }
     return memcpya(start, &(digit2_table[xp10 * 2]), 2);
-  } else if (dxx >= 999999.5) {
+  } else if (dxx >= 999999.49999999) {
     // 6 sig fig exponential notation, large
-    if (dxx >= 9.999995e15) {
-      if (dxx >= 9.999995e127) {
+    if (dxx >= 9.9999949999999e15) {
+      if (dxx >= 9.9999949999999e127) {
 	if (dxx == INFINITY) {
 	  *((uint32_t*)start) = *((uint32_t*)"inf");
 	  return &(start[3]);
-	} else if (dxx >= 9.999995e255) {
+	} else if (dxx >= 9.9999949999999e255) {
 	  dxx *= 1.0e-256;
 	  xp10 |= 256;
 	} else {
@@ -1936,149 +2001,147 @@ char* double_g_write(char* start, double dxx) {
 	  xp10 |= 128;
 	}
       }
-      if (dxx >= 9.999995e63) {
+      if (dxx >= 9.9999949999999e63) {
 	dxx *= 1.0e-64;
 	xp10 |= 64;
       }
-      if (dxx >= 9.999995e31) {
+      if (dxx >= 9.9999949999999e31) {
 	dxx *= 1.0e-32;
 	xp10 |= 32;
       }
-      if (dxx >= 9.999995e15) {
+      if (dxx >= 9.9999949999999e15) {
 	dxx *= 1.0e-16;
 	xp10 |= 16;
       }
     }
-    if (dxx >= 9.999995e7) {
+    if (dxx >= 9.9999949999999e7) {
       dxx *= 1.0e-8;
       xp10 |= 8;
     }
-    if (dxx >= 9.999995e3) {
+    if (dxx >= 9.9999949999999e3) {
       dxx *= 1.0e-4;
       xp10 |= 4;
     }
-    if (dxx >= 9.999995e1) {
+    if (dxx >= 9.9999949999999e1) {
       dxx *= 1.0e-2;
       xp10 |= 2;
     }
-    if (dxx >= 9.999995e0) {
+    if (dxx >= 9.9999949999999e0) {
       dxx *= 1.0e-1;
       xp10++;
     }
-    dxx += 0.000005;
-    uii = (int32_t)dxx;
-    start = memcpya(uint32_write1p5(start, uii, ((int32_t)(dxx * 100000)) - (uii * 100000)), "e+", 2);
+    double_bround5(dxx, banker_round8, &quotient, &remainder);
+    start = memcpya(uint32_write1p5(start, quotient, remainder), "e+", 2);
     if (xp10 >= 100) {
-      uii = xp10 / 100;
-      *start++ = '0' + uii;
-      xp10 -= 100 * uii;
+      quotient = xp10 / 100;
+      *start++ = '0' + quotient;
+      xp10 -= 100 * quotient;
     }
     return memcpya(start, &(digit2_table[xp10 * 2]), 2);
-  } else if (dxx >= 0.9999995) {
+  } else if (dxx >= 0.99999949999999) {
     return double_write6(start, dxx);
   } else {
     // 6 sig fig decimal, no less than ~0.0001
     start = memcpya(start, "0.", 2);
-    if (dxx < 9.999995e-3) {
+    if (dxx < 9.9999949999999e-3) {
       dxx *= 100;
       start = memcpya(start, "00", 2);
     }
-    if (dxx < 9.999995e-2) {
+    if (dxx < 9.9999949999999e-2) {
       dxx *= 10;
       *start++ = '0';
     }
-    return uint32_write6trunc(start, (int32_t)((dxx * 1000000) + 0.5));
+    return uint32_write6trunc(start, double_bround(dxx * 1000000, banker_round8));
   }
 }
 
-char* float_g_write(char* start, float dxx) {
+char* float_g_write(char* start, float fxx) {
   uint32_t xp10 = 0;
   uint32_t quotient;
-  if (dxx != dxx) {
+  uint32_t remainder;
+  if (fxx != fxx) {
     *((uint32_t*)start) = *((uint32_t*)"nan");
     return &(start[3]);
-  } else if (dxx < 0) {
+  } else if (fxx < 0) {
     *start++ = '-';
-    dxx = -dxx;
+    fxx = -fxx;
   }
-  if (dxx < 9.999995e-5) {
-    if (dxx < 9.999995e-16) {
-      if (dxx == 0.0) {
+  if (fxx < 9.9999932e-5) {
+    if (fxx < 9.9999932e-16) {
+      if (fxx == 0.0) {
 	*start = '0';
 	return &(start[1]);
-      } else if (dxx < 9.999995e-32) {
-	dxx *= 1.0e32;
+      } else if (fxx < 9.9999932e-32) {
+	fxx *= 1.0e32;
 	xp10 |= 32;
       } else {
-	dxx *= 1.0e16;
+	fxx *= 1.0e16;
 	xp10 |= 16;
       }
     }
-    if (dxx < 9.999995e-8) {
-      dxx *= 100000000;
+    if (fxx < 9.9999932e-8) {
+      fxx *= 100000000;
       xp10 |= 8;
     }
-    if (dxx < 9.999995e-4) {
-      dxx *= 10000;
+    if (fxx < 9.9999932e-4) {
+      fxx *= 10000;
       xp10 |= 4;
     }
-    if (dxx < 9.999995e-2) {
-      dxx *= 100;
+    if (fxx < 9.9999932e-2) {
+      fxx *= 100;
       xp10 |= 2;
     }
-    if (dxx < 9.999995e-1) {
-      dxx *= 10;
+    if (fxx < 9.9999932e-1) {
+      fxx *= 10;
       xp10++;
     }
-    dxx += 0.000005;
-    quotient = (int32_t)dxx;
-    return memcpya(memcpya(uint32_write1p5(start, quotient, ((int32_t)(dxx * 100000)) - (quotient * 100000)), "e-", 2), &(digit2_table[xp10 * 2]), 2);
-  } else if (dxx >= 999999.5) {
-    if (dxx >= 9.999995e15) {
-      if (dxx == INFINITY) {
+    float_bround5(fxx, banker_round1f, &quotient, &remainder);
+    return memcpya(memcpya(uint32_write1p5(start, quotient, remainder), "e-", 2), &(digit2_table[xp10 * 2]), 2);
+  } else if (fxx >= 999999.32) {
+    if (fxx >= 9.9999932e15) {
+      if (fxx == INFINITY) {
 	*((uint32_t*)start) = *((uint32_t*)"inf");
 	return &(start[3]);
-      } else if (dxx >= 9.999995e31) {
-	dxx *= 1.0e-32;
+      } else if (fxx >= 9.9999932e31) {
+	fxx *= 1.0e-32;
 	xp10 |= 32;
       } else {
-	dxx *= 1.0e-16;
+	fxx *= 1.0e-16;
 	xp10 |= 16;
       }
     }
-    if (dxx >= 9.999995e7) {
-      dxx *= 1.0e-8;
+    if (fxx >= 9.9999932e7) {
+      fxx *= 1.0e-8;
       xp10 |= 8;
     }
-    if (dxx >= 9.999995e3) {
-      dxx *= 1.0e-4;
+    if (fxx >= 9.9999932e3) {
+      fxx *= 1.0e-4;
       xp10 |= 4;
     }
-    if (dxx >= 9.999995e1) {
-      dxx *= 1.0e-2;
+    if (fxx >= 9.9999932e1) {
+      fxx *= 1.0e-2;
       xp10 |= 2;
     }
-    if (dxx >= 9.999995e0) {
-      dxx *= 1.0e-1;
+    if (fxx >= 9.9999932e0) {
+      fxx *= 1.0e-1;
       xp10++;
     }
-    dxx += 0.000005;
-    quotient = (int32_t)dxx;
-    return memcpya(memcpya(uint32_write1p5(start, quotient, ((int32_t)(dxx * 100000)) - (quotient * 100000)), "e+", 2), &(digit2_table[xp10 * 2]), 2);
-  } else if (dxx >= 0.9999995) {
-    return float_write6(start, dxx);
+    float_bround5(fxx, banker_round1f, &quotient, &remainder);
+    return memcpya(memcpya(uint32_write1p5(start, quotient, remainder), "e+", 2), &(digit2_table[xp10 * 2]), 2);
+  } else if (fxx >= 0.99999932) {
+    return float_write6(start, fxx);
   } else {
     // 6 sig fig decimal, no less than ~0.0001
     start = memcpya(start, "0.", 2);
-    if (dxx < 9.999995e-3) {
-      dxx *= 100;
+    if (fxx < 9.9999932e-3) {
+      fxx *= 100;
       start = memcpya(start, "00", 2);
     }
-    if (dxx < 9.999995e-2) {
-      dxx *= 10;
+    if (fxx < 9.9999932e-2) {
+      fxx *= 10;
       *start++ = '0';
     }
-    return uint32_write6trunc(start, (int32_t)((dxx * 1000000) + 0.5));
+    return uint32_write6trunc(start, float_bround(fxx * 1000000, banker_round1f));
   }
 }
 
@@ -2087,7 +2150,8 @@ char* double_g_writewx2(char* start, double dxx, uint32_t min_width) {
   uint32_t xp10 = 0;
   char wbuf[16];
   char* wpos = wbuf;
-  uint32_t uii;
+  uint32_t quotient;
+  uint32_t remainder;
   if (dxx != dxx) {
     memcpy(memseta(start, 32, min_width - 4), " nan", 4);
     return &(start[min_width]);
@@ -2095,15 +2159,15 @@ char* double_g_writewx2(char* start, double dxx, uint32_t min_width) {
     *wpos++ = '-';
     dxx = -dxx;
   }
-  if (dxx < 9.95e-5) {
+  if (dxx < 9.9499999999999e-5) {
     // 2 sig fig exponential notation, small
-    if (dxx < 9.95e-16) {
-      if (dxx < 9.95e-128) {
+    if (dxx < 9.9499999999999e-16) {
+      if (dxx < 9.9499999999999e-128) {
 	if (dxx == 0.0) {
           memset(start, 32, min_width - 1);
 	  start[min_width - 1] = '0';
 	  return &(start[min_width]);
-        } else if (dxx < 9.95e-256) {
+        } else if (dxx < 9.9499999999999e-256) {
 	  dxx *= 1.0e256;
 	  xp10 |= 256;
 	} else {
@@ -2111,63 +2175,62 @@ char* double_g_writewx2(char* start, double dxx, uint32_t min_width) {
 	  xp10 |= 128;
 	}
       }
-      if (dxx < 9.95e-64) {
+      if (dxx < 9.9499999999999e-64) {
 	dxx *= 1.0e64;
 	xp10 |= 64;
       }
-      if (dxx < 9.95e-32) {
+      if (dxx < 9.9499999999999e-32) {
 	dxx *= 1.0e32;
 	xp10 |= 32;
       }
-      if (dxx < 9.95e-16) {
+      if (dxx < 9.9499999999999e-16) {
 	dxx *= 1.0e16;
 	xp10 |= 16;
       }
     }
-    if (dxx < 9.95e-8) {
+    if (dxx < 9.9499999999999e-8) {
       dxx *= 100000000;
       xp10 |= 8;
     }
-    if (dxx < 9.95e-4) {
+    if (dxx < 9.9499999999999e-4) {
       dxx *= 10000;
       xp10 |= 4;
     }
-    if (dxx < 9.95e-2) {
+    if (dxx < 9.9499999999999e-2) {
       dxx *= 100;
       xp10 |= 2;
     }
-    if (dxx < 9.95e-1) {
+    if (dxx < 9.9499999999999e-1) {
       dxx *= 10;
       xp10++;
     }
-    dxx += 0.05;
-    uii = (int32_t)dxx;
-    wpos = uint32_write1p1(wpos, uii, ((int32_t)(dxx * 10)) - (uii * 10));
-    uii = wpos - wbuf;
+    double_bround1(dxx, banker_round12, &quotient, &remainder);
+    wpos = uint32_write1p1(wpos, quotient, remainder);
+    remainder = wpos - wbuf;
     if (xp10 >= 100) {
-      if (uii < min_width - 5) {
-	memcpy(memseta(start, 32, min_width - 5 - uii), wbuf, uii);
+      if (remainder < min_width - 5) {
+	memcpy(memseta(start, 32, min_width - 5 - remainder), wbuf, remainder);
 	start = &(start[min_width - 5]);
       } else {
-	start = memcpya(start, wbuf, uii);
+	start = memcpya(start, wbuf, remainder);
       }
-      uii = xp10 / 100;
-      start = memcpyax(start, "e-", 2, '0' + uii);
-      xp10 -= 100 * uii;
+      quotient = xp10 / 100;
+      start = memcpyax(start, "e-", 2, '0' + quotient);
+      xp10 -= 100 * quotient;
     } else {
-      if (uii < min_width - 4) {
-	memcpy(memseta(start, 32, min_width - 4 - uii), wbuf, uii);
+      if (remainder < min_width - 4) {
+	memcpy(memseta(start, 32, min_width - 4 - remainder), wbuf, remainder);
 	start = &(start[min_width - 4]);
       } else {
-	start = memcpya(start, wbuf, uii);
+	start = memcpya(start, wbuf, remainder);
       }
       start = memcpya(start, "e-", 2);
     }
     return memcpya(start, &(digit2_table[xp10 * 2]), 2);
-  } else if (dxx >= 99.5) {
+  } else if (dxx >= 99.499999999999) {
     // 2 sig fig exponential notation, large
-    if (dxx >= 9.95e15) {
-      if (dxx >= 9.95e127) {
+    if (dxx >= 9.9499999999999e15) {
+      if (dxx >= 9.9499999999999e127) {
 	if (dxx == INFINITY) {
 	  start = memseta(start, 32, min_width - 4);
 	  if (wpos == wbuf) {
@@ -2175,7 +2238,7 @@ char* double_g_writewx2(char* start, double dxx, uint32_t min_width) {
 	  } else {
 	    return memcpya(start, "-inf", 4);
 	  }
-	} else if (dxx >= 9.95e255) {
+	} else if (dxx >= 9.9499999999999e255) {
 	  dxx *= 1.0e-256;
 	  xp10 |= 256;
 	} else {
@@ -2183,81 +2246,80 @@ char* double_g_writewx2(char* start, double dxx, uint32_t min_width) {
 	  xp10 |= 128;
 	}
       }
-      if (dxx >= 9.95e63) {
+      if (dxx >= 9.9499999999999e63) {
 	dxx *= 1.0e-64;
 	xp10 |= 64;
       }
-      if (dxx >= 9.95e31) {
+      if (dxx >= 9.9499999999999e31) {
 	dxx *= 1.0e-32;
 	xp10 |= 32;
       }
-      if (dxx >= 9.95e15) {
+      if (dxx >= 9.9499999999999e15) {
 	dxx *= 1.0e-16;
 	xp10 |= 16;
       }
     }
-    if (dxx >= 9.95e7) {
+    if (dxx >= 9.9499999999999e7) {
       dxx *= 1.0e-8;
       xp10 |= 8;
     }
-    if (dxx >= 9.95e3) {
+    if (dxx >= 9.9499999999999e3) {
       dxx *= 1.0e-4;
       xp10 |= 4;
     }
-    if (dxx >= 9.95e1) {
+    if (dxx >= 9.9499999999999e1) {
       dxx *= 1.0e-2;
       xp10 |= 2;
     }
-    if (dxx >= 9.95e0) {
+    if (dxx >= 9.9499999999999e0) {
       dxx *= 1.0e-1;
       xp10++;
     }
-    dxx += 0.05;
-    uii = (int32_t)dxx;
-    wpos = uint32_write1p1(wpos, uii, ((int32_t)(dxx * 10)) - (uii * 10));
-    uii = wpos - wbuf;
+    double_bround1(dxx, banker_round12, &quotient, &remainder);
+    wpos = uint32_write1p1(wpos, quotient, remainder);
+    remainder = wpos - wbuf;
     if (xp10 >= 100) {
-      if (uii < min_width - 5) {
-	memcpy(memseta(start, 32, min_width - 5 - uii), wbuf, uii);
+      if (remainder < min_width - 5) {
+	memcpy(memseta(start, 32, min_width - 5 - remainder), wbuf, remainder);
 	start = &(start[min_width - 5]);
       } else {
-	start = memcpya(start, wbuf, uii);
+	start = memcpya(start, wbuf, remainder);
       }
-      uii = xp10 / 100;
-      start = memcpyax(start, "e+", 2, '0' + uii);
-      xp10 -= 100 * uii;
+      quotient = xp10 / 100;
+      start = memcpyax(start, "e+", 2, '0' + quotient);
+      xp10 -= 100 * quotient;
     } else {
-      if (uii < min_width - 4) {
-	memcpy(memseta(start, 32, min_width - 4 - uii), wbuf, uii);
+      if (remainder < min_width - 4) {
+	memcpy(memseta(start, 32, min_width - 4 - remainder), wbuf, remainder);
 	start = &(start[min_width - 4]);
       } else {
-	start = memcpya(start, wbuf, uii);
+	start = memcpya(start, wbuf, remainder);
       }
       start = memcpya(start, "e+", 2);
     }
     return memcpya(start, &(digit2_table[xp10 * 2]), 2);
   } else {
-    if (dxx >= 0.995) {
+    if (dxx >= 0.99499999999999) {
       wpos = double_write2(wpos, dxx);
     } else {
       // 2 sig fig decimal, no less than ~0.0001
       wpos = memcpya(wpos, "0.", 2);
-      if (dxx < 9.95e-3) {
+      if (dxx < 9.9499999999999e-3) {
 	dxx *= 100;
 	wpos = memcpya(wpos, "00", 2);
       }
-      if (dxx < 9.95e-2) {
+      if (dxx < 9.9499999999999e-2) {
 	dxx *= 10;
 	*wpos++ = '0';
       }
-      wpos = uint32_write2trunc(wpos, (int32_t)((dxx * 100) + 0.5));
+      wpos = uint32_write2trunc(wpos, double_bround(dxx * 100, banker_round12));
     }
-    uii = wpos - wbuf;
-    if (uii < min_width) {
-      memcpy(memseta(start, 32, min_width - uii), wbuf, uii);
+    remainder = wpos - wbuf;
+    if (remainder < min_width) {
+      memcpy(memseta(start, 32, min_width - remainder), wbuf, remainder);
       return &(start[min_width]);
     } else {
-      return memcpya(start, wbuf, uii);
+      return memcpya(start, wbuf, remainder);
     }
   }
 }
@@ -2267,7 +2329,8 @@ char* double_g_writewx3(char* start, double dxx, uint32_t min_width) {
   uint32_t xp10 = 0;
   char wbuf[16];
   char* wpos = wbuf;
-  uint32_t uii;
+  uint32_t quotient;
+  uint32_t remainder;
   if (dxx != dxx) {
     memcpy(memseta(start, 32, min_width - 4), " nan", 4);
     return &(start[min_width]);
@@ -2275,15 +2338,15 @@ char* double_g_writewx3(char* start, double dxx, uint32_t min_width) {
     *wpos++ = '-';
     dxx = -dxx;
   }
-  if (dxx < 9.995e-5) {
+  if (dxx < 9.9949999999999e-5) {
     // 3 sig fig exponential notation, small
-    if (dxx < 9.995e-16) {
-      if (dxx < 9.995e-128) {
+    if (dxx < 9.9949999999999e-16) {
+      if (dxx < 9.9949999999999e-128) {
 	if (dxx == 0.0) {
           memset(start, 32, min_width - 1);
 	  start[min_width - 1] = '0';
 	  return &(start[min_width]);
-        } else if (dxx < 9.995e-256) {
+        } else if (dxx < 9.9949999999999e-256) {
 	  dxx *= 1.0e256;
 	  xp10 |= 256;
 	} else {
@@ -2291,63 +2354,62 @@ char* double_g_writewx3(char* start, double dxx, uint32_t min_width) {
 	  xp10 |= 128;
 	}
       }
-      if (dxx < 9.995e-64) {
+      if (dxx < 9.9949999999999e-64) {
 	dxx *= 1.0e64;
 	xp10 |= 64;
       }
-      if (dxx < 9.995e-32) {
+      if (dxx < 9.9949999999999e-32) {
 	dxx *= 1.0e32;
 	xp10 |= 32;
       }
-      if (dxx < 9.995e-16) {
+      if (dxx < 9.9949999999999e-16) {
 	dxx *= 1.0e16;
 	xp10 |= 16;
       }
     }
-    if (dxx < 9.995e-8) {
+    if (dxx < 9.9949999999999e-8) {
       dxx *= 100000000;
       xp10 |= 8;
     }
-    if (dxx < 9.995e-4) {
+    if (dxx < 9.9949999999999e-4) {
       dxx *= 10000;
       xp10 |= 4;
     }
-    if (dxx < 9.995e-2) {
+    if (dxx < 9.9949999999999e-2) {
       dxx *= 100;
       xp10 |= 2;
     }
-    if (dxx < 9.995e-1) {
+    if (dxx < 9.9949999999999e-1) {
       dxx *= 10;
       xp10++;
     }
-    dxx += 0.005;
-    uii = (int32_t)dxx;
-    wpos = uint32_write1p2(wpos, uii, ((int32_t)(dxx * 100)) - (uii * 100));
-    uii = wpos - wbuf;
+    double_bround2(dxx, banker_round11, &quotient, &remainder);
+    wpos = uint32_write1p2(wpos, quotient, remainder);
+    remainder = wpos - wbuf;
     if (xp10 >= 100) {
-      if (uii < min_width - 5) {
-	memcpy(memseta(start, 32, min_width - 5 - uii), wbuf, uii);
+      if (remainder < min_width - 5) {
+	memcpy(memseta(start, 32, min_width - 5 - remainder), wbuf, remainder);
 	start = &(start[min_width - 5]);
       } else {
-	start = memcpya(start, wbuf, uii);
+	start = memcpya(start, wbuf, remainder);
       }
-      uii = xp10 / 100;
-      start = memcpyax(start, "e-", 2, '0' + uii);
-      xp10 -= 100 * uii;
+      quotient = xp10 / 100;
+      start = memcpyax(start, "e-", 2, '0' + quotient);
+      xp10 -= 100 * quotient;
     } else {
-      if (uii < min_width - 4) {
-	memcpy(memseta(start, 32, min_width - 4 - uii), wbuf, uii);
+      if (remainder < min_width - 4) {
+	memcpy(memseta(start, 32, min_width - 4 - remainder), wbuf, remainder);
 	start = &(start[min_width - 4]);
       } else {
-	start = memcpya(start, wbuf, uii);
+	start = memcpya(start, wbuf, remainder);
       }
       start = memcpya(start, "e-", 2);
     }
     return memcpya(start, &(digit2_table[xp10 * 2]), 2);
-  } else if (dxx >= 999.5) {
+  } else if (dxx >= 999.49999999999) {
     // 3 sig fig exponential notation, large
-    if (dxx >= 9.995e15) {
-      if (dxx >= 9.995e127) {
+    if (dxx >= 9.9949999999999e15) {
+      if (dxx >= 9.9949999999999e127) {
 	if (dxx == INFINITY) {
 	  start = memseta(start, 32, min_width - 4);
 	  if (wpos == wbuf) {
@@ -2355,7 +2417,7 @@ char* double_g_writewx3(char* start, double dxx, uint32_t min_width) {
 	  } else {
 	    return memcpya(start, "-inf", 4);
 	  }
-	} else if (dxx >= 9.995e255) {
+	} else if (dxx >= 9.9949999999999e255) {
 	  dxx *= 1.0e-256;
 	  xp10 |= 256;
 	} else {
@@ -2363,81 +2425,80 @@ char* double_g_writewx3(char* start, double dxx, uint32_t min_width) {
 	  xp10 |= 128;
 	}
       }
-      if (dxx >= 9.995e63) {
+      if (dxx >= 9.9949999999999e63) {
 	dxx *= 1.0e-64;
 	xp10 |= 64;
       }
-      if (dxx >= 9.995e31) {
+      if (dxx >= 9.9949999999999e31) {
 	dxx *= 1.0e-32;
 	xp10 |= 32;
       }
-      if (dxx >= 9.995e15) {
+      if (dxx >= 9.9949999999999e15) {
 	dxx *= 1.0e-16;
 	xp10 |= 16;
       }
     }
-    if (dxx >= 9.995e7) {
+    if (dxx >= 9.9949999999999e7) {
       dxx *= 1.0e-8;
       xp10 |= 8;
     }
-    if (dxx >= 9.995e3) {
+    if (dxx >= 9.9949999999999e3) {
       dxx *= 1.0e-4;
       xp10 |= 4;
     }
-    if (dxx >= 9.995e1) {
+    if (dxx >= 9.9949999999999e1) {
       dxx *= 1.0e-2;
       xp10 |= 2;
     }
-    if (dxx >= 9.995e0) {
+    if (dxx >= 9.9949999999999e0) {
       dxx *= 1.0e-1;
       xp10++;
     }
-    dxx += 0.005;
-    uii = (int32_t)dxx;
-    wpos = uint32_write1p2(wpos, uii, ((int32_t)(dxx * 100)) - (uii * 100));
-    uii = wpos - wbuf;
+    double_bround2(dxx, banker_round11, &quotient, &remainder);
+    wpos = uint32_write1p2(wpos, quotient, remainder);
+    remainder = wpos - wbuf;
     if (xp10 >= 100) {
-      if (uii < min_width - 5) {
-	memcpy(memseta(start, 32, min_width - 5 - uii), wbuf, uii);
+      if (remainder < min_width - 5) {
+	memcpy(memseta(start, 32, min_width - 5 - remainder), wbuf, remainder);
 	start = &(start[min_width - 5]);
       } else {
-	start = memcpya(start, wbuf, uii);
+	start = memcpya(start, wbuf, remainder);
       }
-      uii = xp10 / 100;
-      start = memcpyax(start, "e+", 2, '0' + uii);
-      xp10 -= 100 * uii;
+      quotient = xp10 / 100;
+      start = memcpyax(start, "e+", 2, '0' + quotient);
+      xp10 -= 100 * quotient;
     } else {
-      if (uii < min_width - 4) {
-	memcpy(memseta(start, 32, min_width - 4 - uii), wbuf, uii);
+      if (remainder < min_width - 4) {
+	memcpy(memseta(start, 32, min_width - 4 - remainder), wbuf, remainder);
 	start = &(start[min_width - 4]);
       } else {
-	start = memcpya(start, wbuf, uii);
+	start = memcpya(start, wbuf, remainder);
       }
       start = memcpya(start, "e+", 2);
     }
     return memcpya(start, &(digit2_table[xp10 * 2]), 2);
   } else {
-    if (dxx >= 0.9995) {
+    if (dxx >= 0.99949999999999) {
       wpos = double_write3(wpos, dxx);
     } else {
       // 3 sig fig decimal, no less than ~0.001
       wpos = memcpya(wpos, "0.", 2);
-      if (dxx < 9.995e-3) {
+      if (dxx < 9.9949999999999e-3) {
 	dxx *= 100;
 	wpos = memcpya(wpos, "00", 2);
       }
-      if (dxx < 9.995e-2) {
+      if (dxx < 9.9949999999999e-2) {
 	dxx *= 10;
 	*wpos++ = '0';
       }
-      wpos = uint32_write3trunc(wpos, (int32_t)((dxx * 1000) + 0.5));
+      wpos = uint32_write3trunc(wpos, double_bround(dxx * 1000, banker_round11));
     }
-    uii = wpos - wbuf;
-    if (uii < min_width) {
-      memcpy(memseta(start, 32, min_width - uii), wbuf, uii);
+    remainder = wpos - wbuf;
+    if (remainder < min_width) {
+      memcpy(memseta(start, 32, min_width - remainder), wbuf, remainder);
       return &(start[min_width]);
     } else {
-      return memcpya(start, wbuf, uii);
+      return memcpya(start, wbuf, remainder);
     }
   }
 }
@@ -2447,7 +2508,8 @@ char* double_g_writewx4(char* start, double dxx, uint32_t min_width) {
   uint32_t xp10 = 0;
   char wbuf[16];
   char* wpos = wbuf;
-  uint32_t uii;
+  uint32_t quotient;
+  uint32_t remainder;
   if (dxx != dxx) {
     memcpy(memseta(start, 32, min_width - 4), " nan", 4);
     return &(start[min_width]);
@@ -2455,15 +2517,15 @@ char* double_g_writewx4(char* start, double dxx, uint32_t min_width) {
     *wpos++ = '-';
     dxx = -dxx;
   }
-  if (dxx < 9.9995e-5) {
+  if (dxx < 9.9994999999999e-5) {
     // 4 sig fig exponential notation, small
-    if (dxx < 9.9995e-16) {
-      if (dxx < 9.9995e-128) {
+    if (dxx < 9.9994999999999e-16) {
+      if (dxx < 9.9994999999999e-128) {
 	if (dxx == 0.0) {
           memset(start, 32, min_width - 1);
 	  start[min_width - 1] = '0';
 	  return &(start[min_width]);
-        } else if (dxx < 9.9995e-256) {
+        } else if (dxx < 9.9994999999999e-256) {
 	  dxx *= 1.0e256;
 	  xp10 |= 256;
 	} else {
@@ -2471,63 +2533,62 @@ char* double_g_writewx4(char* start, double dxx, uint32_t min_width) {
 	  xp10 |= 128;
 	}
       }
-      if (dxx < 9.9995e-64) {
+      if (dxx < 9.9994999999999e-64) {
 	dxx *= 1.0e64;
 	xp10 |= 64;
       }
-      if (dxx < 9.9995e-32) {
+      if (dxx < 9.9994999999999e-32) {
 	dxx *= 1.0e32;
 	xp10 |= 32;
       }
-      if (dxx < 9.9995e-16) {
+      if (dxx < 9.9994999999999e-16) {
 	dxx *= 1.0e16;
 	xp10 |= 16;
       }
     }
-    if (dxx < 9.9995e-8) {
+    if (dxx < 9.9994999999999e-8) {
       dxx *= 100000000;
       xp10 |= 8;
     }
-    if (dxx < 9.9995e-4) {
+    if (dxx < 9.9994999999999e-4) {
       dxx *= 10000;
       xp10 |= 4;
     }
-    if (dxx < 9.9995e-2) {
+    if (dxx < 9.9994999999999e-2) {
       dxx *= 100;
       xp10 |= 2;
     }
-    if (dxx < 9.9995e-1) {
+    if (dxx < 9.9994999999999e-1) {
       dxx *= 10;
       xp10++;
     }
-    dxx += 0.0005;
-    uii = (int32_t)dxx;
-    wpos = uint32_write1p3(wpos, uii, ((int32_t)(dxx * 1000)) - (uii * 1000));
-    uii = wpos - wbuf;
+    double_bround3(dxx, banker_round10, &quotient, &remainder);
+    wpos = uint32_write1p3(wpos, quotient, remainder);
+    remainder = wpos - wbuf;
     if (xp10 >= 100) {
-      if (uii < min_width - 5) {
-	memcpy(memseta(start, 32, min_width - 5 - uii), wbuf, uii);
+      if (remainder < min_width - 5) {
+	memcpy(memseta(start, 32, min_width - 5 - remainder), wbuf, remainder);
 	start = &(start[min_width - 5]);
       } else {
-	start = memcpya(start, wbuf, uii);
+	start = memcpya(start, wbuf, remainder);
       }
-      uii = xp10 / 100;
-      start = memcpyax(start, "e-", 2, '0' + uii);
-      xp10 -= 100 * uii;
+      quotient = xp10 / 100;
+      start = memcpyax(start, "e-", 2, '0' + quotient);
+      xp10 -= 100 * quotient;
     } else {
-      if (uii < min_width - 4) {
-	memcpy(memseta(start, 32, min_width - 4 - uii), wbuf, uii);
+      if (remainder < min_width - 4) {
+	memcpy(memseta(start, 32, min_width - 4 - remainder), wbuf, remainder);
 	start = &(start[min_width - 4]);
       } else {
-	start = memcpya(start, wbuf, uii);
+	start = memcpya(start, wbuf, remainder);
       }
       start = memcpya(start, "e-", 2);
     }
     return memcpya(start, &(digit2_table[xp10 * 2]), 2);
-  } else if (dxx >= 9999.5) {
+  } else if (dxx >= 9999.4999999999) {
     // 4 sig fig exponential notation, large
-    if (dxx >= 9.9995e15) {
-      if (dxx >= 9.9995e127) {
+    if (dxx >= 9.9994999999999e15) {
+      if (dxx >= 9.9994999999999e127) {
 	if (dxx == INFINITY) {
 	  start = memseta(start, 32, min_width - 4);
 	  if (wpos == wbuf) {
@@ -2535,7 +2596,7 @@ char* double_g_writewx4(char* start, double dxx, uint32_t min_width) {
 	  } else {
 	    return memcpya(start, "-inf", 4);
 	  }
-	} else if (dxx >= 9.9995e255) {
+	} else if (dxx >= 9.9994999999999e255) {
 	  dxx *= 1.0e-256;
 	  xp10 |= 256;
 	} else {
@@ -2543,81 +2604,80 @@ char* double_g_writewx4(char* start, double dxx, uint32_t min_width) {
 	  xp10 |= 128;
 	}
       }
-      if (dxx >= 9.9995e63) {
+      if (dxx >= 9.9994999999999e63) {
 	dxx *= 1.0e-64;
 	xp10 |= 64;
       }
-      if (dxx >= 9.9995e31) {
+      if (dxx >= 9.9994999999999e31) {
 	dxx *= 1.0e-32;
 	xp10 |= 32;
       }
-      if (dxx >= 9.9995e15) {
+      if (dxx >= 9.9994999999999e15) {
 	dxx *= 1.0e-16;
 	xp10 |= 16;
       }
     }
-    if (dxx >= 9.9995e7) {
+    if (dxx >= 9.9994999999999e7) {
       dxx *= 1.0e-8;
       xp10 |= 8;
     }
-    if (dxx >= 9.9995e3) {
+    if (dxx >= 9.9994999999999e3) {
       dxx *= 1.0e-4;
       xp10 |= 4;
     }
-    if (dxx >= 9.9995e1) {
+    if (dxx >= 9.9994999999999e1) {
       dxx *= 1.0e-2;
       xp10 |= 2;
     }
-    if (dxx >= 9.9995e0) {
+    if (dxx >= 9.9994999999999e0) {
       dxx *= 1.0e-1;
       xp10++;
     }
-    dxx += 0.0005;
-    uii = (int32_t)dxx;
-    wpos = uint32_write1p3(wpos, uii, ((int32_t)(dxx * 1000)) - (uii * 1000));
-    uii = wpos - wbuf;
+    double_bround3(dxx, banker_round10, &quotient, &remainder);
+    wpos = uint32_write1p3(wpos, quotient, remainder);
+    remainder = wpos - wbuf;
     if (xp10 >= 100) {
-      if (uii < min_width - 5) {
-	memcpy(memseta(start, 32, min_width - 5 - uii), wbuf, uii);
+      if (remainder < min_width - 5) {
+	memcpy(memseta(start, 32, min_width - 5 - remainder), wbuf, remainder);
 	start = &(start[min_width - 5]);
       } else {
-	start = memcpya(start, wbuf, uii);
+	start = memcpya(start, wbuf, remainder);
       }
-      uii = xp10 / 100;
-      start = memcpyax(start, "e+", 2, '0' + uii);
-      xp10 -= 100 * uii;
+      quotient = xp10 / 100;
+      start = memcpyax(start, "e+", 2, '0' + quotient);
+      xp10 -= 100 * quotient;
     } else {
-      if (uii < min_width - 4) {
-	memcpy(memseta(start, 32, min_width - 4 - uii), wbuf, uii);
+      if (remainder < min_width - 4) {
+	memcpy(memseta(start, 32, min_width - 4 - remainder), wbuf, remainder);
 	start = &(start[min_width - 4]);
       } else {
-	start = memcpya(start, wbuf, uii);
+	start = memcpya(start, wbuf, remainder);
       }
       start = memcpya(start, "e+", 2);
     }
     return memcpya(start, &(digit2_table[xp10 * 2]), 2);
   } else {
-    if (dxx >= 0.99995) {
+    if (dxx >= 0.99994999999999) {
       wpos = double_write4(wpos, dxx);
     } else {
       // 4 sig fig decimal, no less than ~0.0001
       wpos = memcpya(wpos, "0.", 2);
-      if (dxx < 9.9995e-3) {
+      if (dxx < 9.9994999999999e-3) {
 	dxx *= 100;
 	wpos = memcpya(wpos, "00", 2);
       }
-      if (dxx < 9.9995e-2) {
+      if (dxx < 9.9994999999999e-2) {
 	dxx *= 10;
 	*wpos++ = '0';
       }
-      wpos = uint32_write4trunc(wpos, (int32_t)((dxx * 10000) + 0.5));
+      wpos = uint32_write4trunc(wpos, double_bround(dxx * 10000, banker_round10));
     }
-    uii = wpos - wbuf;
-    if (uii < min_width) {
-      memcpy(memseta(start, 32, min_width - uii), wbuf, uii);
+    remainder = wpos - wbuf;
+    if (remainder < min_width) {
+      memcpy(memseta(start, 32, min_width - remainder), wbuf, remainder);
       return &(start[min_width]);
     } else {
-      return memcpya(start, wbuf, uii);
+      return memcpya(start, wbuf, remainder);
     }
   }
 }
@@ -2627,7 +2687,8 @@ char* double_g_writewx8(char* start, double dxx, uint32_t min_width) {
   uint32_t xp10 = 0;
   char wbuf[16];
   char* wpos = wbuf;
-  uint32_t uii;
+  uint32_t quotient;
+  uint32_t remainder;
   if (dxx != dxx) {
     memcpy(memseta(start, 32, min_width - 4), " nan", 4);
     return &(start[min_width]);
@@ -2635,15 +2696,15 @@ char* double_g_writewx8(char* start, double dxx, uint32_t min_width) {
     *wpos++ = '-';
     dxx = -dxx;
   }
-  if (dxx < 9.99999995e-5) {
+  if (dxx < 9.9999999499999e-5) {
     // 8 sig fig exponential notation, small
-    if (dxx < 9.99999995e-16) {
-      if (dxx < 9.99999995e-128) {
+    if (dxx < 9.9999999499999e-16) {
+      if (dxx < 9.9999999499999e-128) {
 	if (dxx == 0.0) {
           memset(start, 32, min_width - 1);
 	  start[min_width - 1] = '0';
 	  return &(start[min_width]);
-        } else if (dxx < 9.99999995e-256) {
+        } else if (dxx < 9.9999999499999e-256) {
 	  dxx *= 1.0e256;
 	  xp10 |= 256;
 	} else {
@@ -2651,63 +2712,62 @@ char* double_g_writewx8(char* start, double dxx, uint32_t min_width) {
 	  xp10 |= 128;
 	}
       }
-      if (dxx < 9.99999995e-64) {
+      if (dxx < 9.9999999499999e-64) {
 	dxx *= 1.0e64;
 	xp10 |= 64;
       }
-      if (dxx < 9.99999995e-32) {
+      if (dxx < 9.9999999499999e-32) {
 	dxx *= 1.0e32;
 	xp10 |= 32;
       }
-      if (dxx < 9.99999995e-16) {
+      if (dxx < 9.9999999499999e-16) {
 	dxx *= 1.0e16;
 	xp10 |= 16;
       }
     }
-    if (dxx < 9.99999995e-8) {
+    if (dxx < 9.9999999499999e-8) {
       dxx *= 100000000;
       xp10 |= 8;
     }
-    if (dxx < 9.99999995e-4) {
+    if (dxx < 9.9999999499999e-4) {
       dxx *= 10000;
       xp10 |= 4;
     }
-    if (dxx < 9.99999995e-2) {
+    if (dxx < 9.9999999499999e-2) {
       dxx *= 100;
       xp10 |= 2;
     }
-    if (dxx < 9.99999995e-1) {
+    if (dxx < 9.9999999499999e-1) {
       dxx *= 10;
       xp10++;
     }
-    dxx += 0.00000005;
-    uii = (int32_t)dxx;
-    wpos = uint32_write1p7(wpos, uii, ((int32_t)(dxx * 10000000)) - (uii * 10000000));
-    uii = wpos - wbuf;
+    double_bround7(dxx, banker_round6, &quotient, &remainder);
+    wpos = uint32_write1p7(wpos, quotient, remainder);
+    remainder = wpos - wbuf;
     if (xp10 >= 100) {
-      if (uii < min_width - 5) {
-	memcpy(memseta(start, 32, min_width - 5 - uii), wbuf, uii);
+      if (remainder < min_width - 5) {
+	memcpy(memseta(start, 32, min_width - 5 - remainder), wbuf, remainder);
 	start = &(start[min_width - 5]);
       } else {
-	start = memcpya(start, wbuf, uii);
+	start = memcpya(start, wbuf, remainder);
       }
-      uii = xp10 / 100;
-      start = memcpyax(start, "e-", 2, '0' + uii);
-      xp10 -= 100 * uii;
+      quotient = xp10 / 100;
+      start = memcpyax(start, "e-", 2, '0' + quotient);
+      xp10 -= 100 * quotient;
     } else {
-      if (uii < min_width - 4) {
-	memcpy(memseta(start, 32, min_width - 4 - uii), wbuf, uii);
+      if (remainder < min_width - 4) {
+	memcpy(memseta(start, 32, min_width - 4 - remainder), wbuf, remainder);
 	start = &(start[min_width - 4]);
       } else {
-	start = memcpya(start, wbuf, uii);
+	start = memcpya(start, wbuf, remainder);
       }
       start = memcpya(start, "e-", 2);
     }
     return memcpya(start, &(digit2_table[xp10 * 2]), 2);
-  } else if (dxx >= 99999999.5) {
+  } else if (dxx >= 99999999.499999) {
     // 8 sig fig exponential notation, large
-    if (dxx >= 9.99999995e15) {
-      if (dxx >= 9.99999995e127) {
+    if (dxx >= 9.9999999499999e15) {
+      if (dxx >= 9.9999999499999e127) {
 	if (dxx == INFINITY) {
 	  start = memseta(start, 32, min_width - 4);
 	  if (wpos == wbuf) {
@@ -2715,7 +2775,7 @@ char* double_g_writewx8(char* start, double dxx, uint32_t min_width) {
 	  } else {
 	    return memcpya(start, "-inf", 4);
 	  }
-	} else if (dxx >= 9.99999995e255) {
+	} else if (dxx >= 9.9999999499999e255) {
 	  dxx *= 1.0e-256;
 	  xp10 |= 256;
 	} else {
@@ -2723,81 +2783,80 @@ char* double_g_writewx8(char* start, double dxx, uint32_t min_width) {
 	  xp10 |= 128;
 	}
       }
-      if (dxx >= 9.99999995e63) {
+      if (dxx >= 9.9999999499999e63) {
 	dxx *= 1.0e-64;
 	xp10 |= 64;
       }
-      if (dxx >= 9.99999995e31) {
+      if (dxx >= 9.9999999499999e31) {
 	dxx *= 1.0e-32;
 	xp10 |= 32;
       }
-      if (dxx >= 9.99999995e15) {
+      if (dxx >= 9.9999999499999e15) {
 	dxx *= 1.0e-16;
 	xp10 |= 16;
       }
     }
-    if (dxx >= 9.99999995e7) {
+    if (dxx >= 9.9999999499999e7) {
       dxx *= 1.0e-8;
       xp10 |= 8;
     }
-    if (dxx >= 9.99999995e3) {
+    if (dxx >= 9.9999999499999e3) {
       dxx *= 1.0e-4;
       xp10 |= 4;
     }
-    if (dxx >= 9.99999995e1) {
+    if (dxx >= 9.9999999499999e1) {
       dxx *= 1.0e-2;
       xp10 |= 2;
     }
-    if (dxx >= 9.99999995e0) {
+    if (dxx >= 9.9999999499999e0) {
       dxx *= 1.0e-1;
       xp10++;
     }
-    dxx += 0.00000005;
-    uii = (int32_t)dxx;
-    wpos = uint32_write1p7(wpos, uii, ((int32_t)(dxx * 10000000)) - (uii * 10000000));
-    uii = wpos - wbuf;
+    double_bround7(dxx, banker_round6, &quotient, &remainder);
+    wpos = uint32_write1p7(wpos, quotient, remainder);
+    remainder = wpos - wbuf;
     if (xp10 >= 100) {
-      if (uii < min_width - 5) {
-	memcpy(memseta(start, 32, min_width - 5 - uii), wbuf, uii);
+      if (remainder < min_width - 5) {
+	memcpy(memseta(start, 32, min_width - 5 - remainder), wbuf, remainder);
 	start = &(start[min_width - 5]);
       } else {
-	start = memcpya(start, wbuf, uii);
+	start = memcpya(start, wbuf, remainder);
       }
-      uii = xp10 / 100;
-      start = memcpyax(start, "e+", 2, '0' + uii);
-      xp10 -= 100 * uii;
+      quotient = xp10 / 100;
+      start = memcpyax(start, "e+", 2, '0' + quotient);
+      xp10 -= 100 * quotient;
     } else {
-      if (uii < min_width - 4) {
-	memcpy(memseta(start, 32, min_width - 4 - uii), wbuf, uii);
+      if (remainder < min_width - 4) {
+	memcpy(memseta(start, 32, min_width - 4 - remainder), wbuf, remainder);
 	start = &(start[min_width - 4]);
       } else {
-	start = memcpya(start, wbuf, uii);
+	start = memcpya(start, wbuf, remainder);
       }
       start = memcpya(start, "e+", 2);
     }
     return memcpya(start, &(digit2_table[xp10 * 2]), 2);
   } else {
-    if (dxx >= 0.999999995) {
+    if (dxx >= 0.99999999499999) {
       wpos = double_write8(wpos, dxx);
     } else {
       // 8 sig fig decimal, no less than ~0.0001
       wpos = memcpya(wpos, "0.", 2);
-      if (dxx < 9.99999995e-3) {
+      if (dxx < 9.9999999499999e-3) {
 	dxx *= 100;
 	wpos = memcpya(wpos, "00", 2);
       }
-      if (dxx < 9.99999995e-2) {
+      if (dxx < 9.9999999499999e-2) {
 	dxx *= 10;
 	*wpos++ = '0';
       }
-      wpos = uint32_write8trunc(wpos, (int32_t)((dxx * 100000000) + 0.5));
+      wpos = uint32_write8trunc(wpos, double_bround(dxx * 100000000, banker_round6));
     }
-    uii = wpos - wbuf;
-    if (uii < min_width) {
-      memcpy(memseta(start, 32, min_width - uii), wbuf, uii);
+    remainder = wpos - wbuf;
+    if (remainder < min_width) {
+      memcpy(memseta(start, 32, min_width - remainder), wbuf, remainder);
       return &(start[min_width]);
     } else {
-      return memcpya(start, wbuf, uii);
+      return memcpya(start, wbuf, remainder);
     }
   }
 }

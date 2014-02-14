@@ -7080,14 +7080,14 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct == 1) {
-	  // must contain exactly one '#'
-          sptr = strchr(argv[cur_arg + 1], '#');
+	  // must contain exactly one '@'
+          sptr = strchr(argv[cur_arg + 1], '@');
 	  if (!sptr) {
-            sprintf(logbuf, "Error: --cm-map requires either a '#' in the filename pattern, or a chromosome\ncode as the second parameter.%s", errstr_append);
+            sprintf(logbuf, "Error: --cm-map requires either a '@' in the filename pattern, or a chromosome\ncode as the second parameter.%s", errstr_append);
             goto main_ret_INVALID_CMDLINE_3;
 	  }
-          if (strchr(&(sptr[1]), '#')) {
-	    sprintf(logbuf, "Error: Multiple '#'s in --cm-map filename pattern.%s", errstr_append);
+          if (strchr(&(sptr[1]), '@')) {
+	    sprintf(logbuf, "Error: Multiple '@'s in --cm-map filename pattern.%s", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
           if (alloc_string(&cm_map_fname, argv[cur_arg + 1])) {

@@ -1061,9 +1061,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("cm-map\tzero-cms\tupdate-cm", &help_ctrl, 0,
 "  --cm-map [fname pattern] {chr} : Use SHAPEIT-format recombination maps to set\n"
 "                                   centimorgan positions.  To process more than\n"
-"                                   one chromosome, include a '#' in the first\n"
+"                                   one chromosome, include a '@' in the first\n"
 "                                   parameter where the chrom. number belongs,\n"
-"                                   e.g. 'genetic_map_chr#_combined_b37.txt'.\n"
+"                                   e.g. 'genetic_map_chr@_combined_b37.txt'.\n"
 "  --zero-cms       : Zero out centimorgan positions.\n"
 	       );
     help_print("pheno\tall-pheno\tmpheno\tpheno-name\tpheno-merge", &help_ctrl, 0,
