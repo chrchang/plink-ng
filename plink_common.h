@@ -1097,6 +1097,12 @@ static inline char* int32_writex(char* start, int32_t ii, const char extra_char)
   return &(penult[1]);
 }
 
+static inline char* uint32_writew4x(char* start, uint32_t uii, const char extra_char) {
+  char* penult = uint32_writew4(start, uii);
+  *penult = extra_char;
+  return &(penult[1]);
+}
+
 static inline char* uint32_writew6x(char* start, uint32_t uii, const char extra_char) {
   char* penult = uint32_writew6(start, uii);
   *penult = extra_char;

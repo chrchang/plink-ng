@@ -7172,6 +7172,12 @@ typedef struct cur_clump_info_struct {
   uint32_t fidx;
 } Cur_clump_info;
 
+typedef struct clump_missing_id_struct {
+  double pval;
+  struct clump_missing_id_struct* next;
+  char idstr[];
+} Clump_missing_id;
+
 void update_clump_histo(double pval, uintptr_t* histo) {
   if (pval < 0.001) {
     if (pval < 0.0001) {
@@ -7208,17 +7214,19 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uintptr_t snpfield_search_ct = 1;
   uintptr_t pfield_search_ct = 1;
   uintptr_t annot_ct = 0;
-  uint64_t missing_variant_ct = 0;
+  uintptr_t missing_variant_ct = 0;
   uintptr_t* haploid_mask = chrom_info_ptr->haploid_mask;
   Make_set_range** range_group_arr = NULL;
   char* range_group_names = NULL;
   char* fname_ptr = NULL;
   char* annot_flattened = clump_ip->annotate_flattened;
   char* tbuf2 = &(tbuf[MAXLINELEN]);
-  char* header2_ptr;
+  char* header2_ptr = NULL;
+  char* annot_ptr = NULL;
   uint64_t* range_sort_buf = NULL;
   uint32_t* marker_uidx_to_idx = NULL;
   uint32_t** rg_setdefs = NULL;
+  Clump_missing_id* not_found_list = NULL;
   double p1_thresh = clump_ip->p1;
   double p2_thresh = clump_ip->p2;
   double load_pthresh = 0.05;
@@ -7232,9 +7240,10 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uint32_t require_multifile = clump_ip->modifier & CLUMP_REPLICATE;
   uint32_t index_eligible = 1;
   uint32_t header1_len = 0;
-  // uint32_t header2_len = 0;
+  uint32_t header2_len = 0;
   uint32_t file_ct = 0;
   uint32_t final_clump_ct = 0;
+  uint32_t max_missing_id_len = 0;
   int32_t retval = 0;
   uintptr_t histo[5]; // NSIG, S05, S01, S001, S0001
   uint32_t index_tots[3];
@@ -7242,7 +7251,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   Make_set_range* msr_tmp;
   Clump_entry** clump_entries;
   Clump_entry* clump_entry_ptr;
-  // Clump_entry* best_entry_ptr;
+  Clump_entry* best_entry_ptr;
   Cur_clump_info* cur_clump_base;
   Cur_clump_info* cur_clump_ceil;
   Cur_clump_info* cc_ptr;
@@ -7257,8 +7266,12 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   char* sorted_marker_ids;
   char* sorted_header_dict;
   char* loadbuft; // t is for text
+  char* cur_a1;
+  char* cur_a2;
   char* bufptr;
   char* bufptr2;
+  char* bufptr3;
+  char* bufptr4;
   uint32_t* header_id_map;
   uint32_t* marker_id_map;
   uint32_t* parse_table;
@@ -7267,14 +7280,17 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uint32_t* pval_map;
   uint32_t* marker_idx_to_uidx;
   double* sorted_pvals;
+  Clump_missing_id* cm_ptr;
   uintptr_t header_dict_ct;
   uintptr_t extra_annot_space;
   uintptr_t loadbuft_size;
   uintptr_t rg_idx;
   uintptr_t marker_idx;
+  uintptr_t last_marker_idx;
   uintptr_t max_window_size; // universal bound
   uintptr_t cur_window_size;
   uintptr_t ulii;
+  uintptr_t uljj;
   uint64_t ullii;
   double pval;
   double freq1x;
@@ -7297,15 +7313,20 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uint32_t ivar_idx;
   uint32_t ivar_uidx;
   uint32_t cur_bp;
+  uint32_t min_bp;
+  uint32_t max_bp;
   uint32_t clump_chrom_idx;
   uint32_t clump_uidx_first;
   uint32_t clump_uidx_last;
   uint32_t index_fidx;
   uint32_t marker_uidx;
-  // uint32_t max_r2_uidx;
+  uint32_t max_r2_uidx;
   uint32_t is_haploid;
   uint32_t is_x;
   uint32_t is_y;
+  uint32_t a1_len;
+  uint32_t a2_len;
+  uint32_t allele_padding;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -7471,14 +7492,14 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     } while (*bufptr);
   }
   header_dict_ct = snpfield_search_ct + pfield_search_ct + annot_ct;
-  // parse_table[2k] stores the number of additional fields to skip before
+  // parse_table[2k + 1] stores the number of additional fields to skip before
   // reading that particular entry.  For example, if variant IDs are in the
   // second column in the current file, while p-values are in the fifth column,
-  // parse_table[0] is 1 and parse_table[2] = 2.
-  // parse_table[2k + 1] stores the type of field contents (0 = variant ID, 1 =
+  // parse_table[1] is 1 and parse_table[3] = 2.
+  // parse_table[2k] stores the type of field contents (0 = variant ID, 1 =
   // P-value, 2 or more = annotation).
   // In the main loop, cur_parse_info[2k] stores the in-loadbuft offset of the
-  // the string with that parse_table[2k + 1] index, and cur_parse_info[2k + 1]
+  // the string with that parse_table[2k] index, and cur_parse_info[2k + 1]
   // stores string length. 
   annot_ct_p2 = 2 + annot_ct;
   annot_ct_p2_ctl = (annot_ct + (BITCT + 1)) / BITCT;
@@ -7543,7 +7564,6 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     goto clump_reports_ret_NOMEM;
   }
   fill_ulong_zero((uintptr_t*)clump_entries, marker_ct);
-  loadbuft = (char*)wkspace_base;
   // 3. load file(s) in sequence.  start with array of null pointers, allocate
   //    from bottom of stack (possibly need to save p-val, file number,
   //    annotations, and/or pointer to next entry) while updating
@@ -7555,6 +7575,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     bufptr++;
     file_ct++;
   } while (*bufptr);
+  loadbuft = (char*)wkspace_base;
   if (clump_best) {
     if ((file_ct == 2) && (!clump_index_first)) {
       logprint("Error: --clump-best can no longer be used with two --clump files unless\n--clump-index-first is also specified.  (Contact the developers if this is\nproblematic.)\n");
@@ -7607,12 +7628,12 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     uii = 0; // current 0-based column number
     // We don't know in advance when the highest-precedence SNP/p-val columns
     // will appear, so we initially populate parse_table with
-    //   [2k]: 0-based column number
-    //   [2k + 1]: header type index (0 = variant ID, 1 = p-val, 2+ = annot)
+    //   [2k]: header type index (0 = variant ID, 1 = p-val, 2+ = annot)
+    //   [2k + 1]: 0-based column number
     // and then sort at the end.
     cur_read_ct = 2;
-    parse_table[1] = 0;
-    parse_table[3] = 1;
+    parse_table[0] = 0;
+    parse_table[2] = 1;
     do {
       bufptr2 = item_endnn(bufptr);
       ii = bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_header_dict, max_header_len, header_dict_ct);
@@ -7623,7 +7644,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	    // ignore title if higher-precedence title already seen
 	    set_bit(col_bitfield, 0);
 	    ukk = ujj;
-	    parse_table[0] = uii; // temporary storage
+	    parse_table[1] = uii; // temporary storage
 	  } else if (ujj == ukk) {
 	    goto clump_reports_ret_DUPLICATE_HEADER_COL;
 	  }
@@ -7631,7 +7652,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	  if (ujj < umm) {
 	    set_bit(col_bitfield, 1);
             umm = ujj;
-	    parse_table[2] = uii;
+	    parse_table[3] = uii;
 	  } else if (ujj == umm) {
 	    goto clump_reports_ret_DUPLICATE_HEADER_COL;
 	  }
@@ -7640,8 +7661,8 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	    goto clump_reports_ret_DUPLICATE_HEADER_COL;
 	  }
 	  set_bit(col_bitfield, ujj);
-          parse_table[cur_read_ct * 2] = uii;
-	  parse_table[cur_read_ct * 2 + 1] = ujj;
+          parse_table[cur_read_ct * 2 + 1] = uii;
+	  parse_table[cur_read_ct * 2] = ujj;
 	  cur_read_ct++;
 	}
       }
@@ -7661,7 +7682,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     qsort((int64_t*)parse_table, cur_read_ct, sizeof(int64_t), llcmp);
 #endif
     for (uii = cur_read_ct - 1; uii; uii--) {
-      parse_table[uii * 2] -= parse_table[(uii - 1) * 2] + 1;
+      parse_table[uii * 2 + 1] -= parse_table[uii * 2 - 1] + 1;
     }
   clump_reports_load_loop:
     while (fgets(loadbuft, loadbuft_size, infile)) {
@@ -7680,7 +7701,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       uii = 0;
       ukk = annot_ct * 2; // annotation string length
       for (; uii < cur_read_ct; uii++) {
-	ujj = parse_table[uii * 2];
+	ujj = parse_table[uii * 2 + 1];
 	if (ujj) {
 	  bufptr = next_item_mult(bufptr, ujj);
 	}
@@ -7690,7 +7711,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	  goto clump_reports_load_loop;
 	}
 	bufptr2 = item_endnn(bufptr);
-	ujj = parse_table[uii * 2 + 1] * 2;
+	ujj = parse_table[uii * 2] * 2;
 	cur_parse_info[ujj] = (uintptr_t)(bufptr - loadbuft);
         cur_parse_info[ujj + 1] = (uintptr_t)(bufptr2 - bufptr);
 	if (ujj > 2) {
@@ -7698,18 +7719,33 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	}
 	bufptr = skip_initial_spaces(bufptr2);
       }
-      ii = bsearch_str(&(loadbuft[cur_parse_info[0]]), cur_parse_info[1], sorted_marker_ids, max_marker_id_len, marker_ct);
-      if (ii == -1) {
-	// variant ID not in current fileset, log and skip
-	sprintf(logbuf, "Warning: %s is not in the current dataset.\n", &(loadbuft[cur_parse_info[0]]));
-	logstr(logbuf);
-	missing_variant_ct++;
-	continue;
-      }
-      marker_idx = marker_id_map[(uint32_t)ii];
       if (scan_double(&(loadbuft[cur_parse_info[2]]), &pval)) {
 	continue;
       }
+      if (pval < 0.0) {
+	logprint("Error: Negative p-value in --clump file.\n");
+	goto clump_reports_ret_INVALID_FORMAT;
+      }
+      ii = bsearch_str(&(loadbuft[cur_parse_info[0]]), cur_parse_info[1], sorted_marker_ids, max_marker_id_len, marker_ct);
+      if (ii == -1) {
+	// variant ID not in current fileset
+	if ((pval <= p1_thresh) && index_eligible) {
+	  // actually a top variant, track it
+	  missing_variant_ct++;
+	  // screw it, just allocate these outside the workspace
+	  uii = cur_parse_info[1];
+	  if (uii >= max_missing_id_len) {
+	    max_missing_id_len = uii + 1;
+	  }
+	  cm_ptr = (Clump_missing_id*)malloc(offsetof(Clump_missing_id, idstr) + uii + 1);
+	  cm_ptr->pval = pval;
+	  cm_ptr->next = not_found_list;
+	  not_found_list = cm_ptr;
+	  memcpyx(cm_ptr->idstr, &(loadbuft[cur_parse_info[0]]), uii, '\0');
+	}
+	continue;
+      }
+      marker_idx = marker_id_map[(uint32_t)ii];
       if (pval > load_pthresh) {
 	if (pval >= 0.05) {
 	  if (pval > 1) {
@@ -7719,9 +7755,6 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	  nsig_arr[marker_idx] += 1;
 	}
 	continue;
-      } else if (pval < 0.0) {
-	logprint("Error: Negative p-value in --clump file.\n");
-	goto clump_reports_ret_INVALID_FORMAT;
       }
       clump_entry_ptr = (Clump_entry*)top_alloc(&topsize, offsetof(Clump_entry, annot) + ukk - 1);
       if (!clump_entry_ptr) {
@@ -7811,7 +7844,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     goto clump_reports_ret_NOMEM2; 
  }
   window_data = (uintptr_t*)wkspace_base;
-  max_window_size = wkspace_left / (founder_ctv2 * sizeof(intptr_t) + 2 * sizeof(double));
+  max_window_size = wkspace_left / (founder_ctv2 * sizeof(intptr_t) + sizeof(Cur_clump_info));
   if (!max_window_size) {
     goto clump_reports_ret_NOMEM2;
   }
@@ -7832,17 +7865,15 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   }
   bufptr = memcpya(bufptr, " CHR    F ", 10);
   bufptr = fw_strcpyn(plink_maxsnp, 3, "SNP", bufptr);
-  // replicate the misaligned header for now
-  bufptr = strcpya(bufptr, "         BP        P    TOTAL   NSIG    S05    S01   S001  S0001");
+  // replicate the misaligned non-verbose header for now
+  bufptr = memcpya(bufptr, "         BP          ", clump_verbose? 21 : 19);
+  bufptr = strcpya(bufptr, "P    TOTAL   NSIG    S05    S01   S001  S0001");
   if (!clump_verbose) {
     bufptr = memcpya(bufptr, "    SP2\n", 8);
     if (fwrite_checked(tbuf2, bufptr - tbuf2, outfile)) {
       goto clump_reports_ret_WRITE_FAIL;
     }
     if (rg_setdefs) {
-      logprint("Error: --clump-range is currently under development.\n");
-      retval = RET_CALC_NOT_YET_SUPPORTED;
-      goto clump_reports_ret_1;
       memcpy(&(outname_end[8]), ".ranges", 8);
       if (fopen_checked(&outfile_ranges, outname, "w")) {
 	goto clump_reports_ret_OPEN_FAIL;
@@ -7857,18 +7888,16 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     *bufptr++ = '\n';
     header2_ptr = bufptr;
     header1_len = (uintptr_t)(header2_ptr - tbuf2);
+    *bufptr++ = '\n';
     bufptr = memseta(bufptr, 32, 19 + plink_maxsnp);
     bufptr = strcpya(bufptr, "KB      RSQ  ALLELES    F            P ");
     if (annot_flattened) {
       bufptr = memcpya(bufptr, "       ANNOT", 12);
     }
-    *bufptr++ = '\n';
-    // header2_len = (uintptr_t)(bufptr - header2_ptr);
+    bufptr = memcpya(bufptr, "\n  (INDEX) ", 11);
+    header2_len = (uintptr_t)(bufptr - header2_ptr);
   }
   if (clump_best) {
-    logprint("Error: --clump-best is currently under development.\n");
-    retval = RET_CALC_NOT_YET_SUPPORTED;
-    goto clump_reports_ret_1;
     memcpy(&(outname_end[8]), ".best", 6);
     if (fopen_checked(&outfile_best, outname, "w")) {
       goto clump_reports_ret_OPEN_FAIL;
@@ -7950,12 +7979,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     vec_datamask(founder_ct, 3, window_data_ptr, founder_include2, &(index_data[2 * founder_ctv2]));
     index_tots[2] = popcount2_longs(&(index_data[2 * founder_ctv2]), founder_ctl2);
     if (!cur_window_size) {
-#ifdef __LP64__
       cur_clump_base = (Cur_clump_info*)(&(window_data[founder_ctv2]));
-#else
-      // may as well 16-byte align this
-      cur_clump_base = (Cur_clump_info*)(&(window_data[(founder_ctv2 + 2) & (~3)]));
-#endif
     } else {
       cur_clump_base = (Cur_clump_info*)window_data_ptr;
     }
@@ -7964,9 +7988,9 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     marker_uidx = clump_uidx_first;
     marker_idx = ivar_idx + popcount_bit_idx(marker_exclude, clump_uidx_first, ivar_uidx) + clump_uidx_first - ivar_uidx;
     max_r2 = -1;
-    // max_r2_uidx = 0xffffffffU;
+    max_r2_uidx = 0xffffffffU;
     fill_ulong_zero(histo, 5);
-    // best_entry_ptr = NULL;
+    best_entry_ptr = NULL;
     for (; marker_idx < ivar_idx; marker_uidx++, marker_idx++) {
       marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
       clump_entry_ptr = clump_entries[marker_idx];
@@ -8005,7 +8029,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	      cc_ptr->fidx = uii;
 	      if ((uii == best_fidx_match) && (cur_r2 > max_r2)) {
 		max_r2 = cur_r2;
-		// max_r2_uidx = marker_uidx;
+		max_r2_uidx = marker_uidx;
 	      }
 	      cc_ptr++;
 	    }
@@ -8039,6 +8063,9 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       } while (clump_entry_ptr->pval != pval);
     }
     index_fidx = clump_entry_ptr->fidx;
+    if (annot_flattened) {
+      annot_ptr = clump_entry_ptr->annot;
+    }
     if ((!clump_best) || allow_overlap || (!is_set(cur_bitfield, ivar_idx))) {
       if (clump_entry_ptr->next) {
 	uii = 1;
@@ -8055,7 +8082,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	    cc_ptr->fidx = clump_entry_ptr->fidx;
 	    if (clump_best) {
 	      max_r2 = 1;
-	      // max_r2_uidx = ivar_uidx;
+	      max_r2_uidx = ivar_uidx;
 	    }
 	    cc_ptr++;
 	  }
@@ -8121,7 +8148,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	      cc_ptr->fidx = uii;
 	      if ((uii == best_fidx_match) && (cur_r2 > max_r2)) {
 		max_r2 = cur_r2;
-		// max_r2_uidx = marker_uidx;
+		max_r2_uidx = marker_uidx;
 	      }
 	      cc_ptr++;
 	    }
@@ -8147,11 +8174,6 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	continue;
       }
     }
-    if (clump_verbose) {
-      if (fwrite_checked(tbuf2, header1_len, outfile)) {
-	goto clump_reports_ret_WRITE_FAIL;
-      }
-    }
     bufptr = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, clump_chrom_idx, zero_extra_chroms));
     *bufptr++ = ' ';
     bufptr = uint32_writew4(bufptr, index_fidx);
@@ -8175,6 +8197,18 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     }
 #endif
     final_clump_ct++;
+    min_bp = cur_bp;
+    max_bp = cur_bp;
+    if (cur_window_size) {
+      marker_idx = cur_clump_base[0].marker_idx;
+      if (marker_idx < ivar_idx) {
+	min_bp = marker_pos[marker_idx_to_uidx[marker_idx]];
+      }
+      marker_idx = cur_clump_base[cur_window_size - 1].marker_idx;
+      if (marker_idx > ivar_idx) {
+	max_bp = marker_pos[marker_idx_to_uidx[marker_idx]];
+      }
+    }
     if (!clump_verbose) {
       if (!cur_window_size) {
 	bufptr = memcpya(bufptr, "NONE\n", 5);
@@ -8201,21 +8235,230 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	}
       }
     } else {
-      logprint("Error: --clump-verbose is currently under development.\n");
-      retval = RET_CALC_NOT_YET_SUPPORTED;
-      goto clump_reports_ret_1;
+      if (fwrite_checked(tbuf2, header1_len, outfile)) {
+	goto clump_reports_ret_WRITE_FAIL;
+      }
+      *bufptr++ = '\n';
+      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	goto clump_reports_ret_WRITE_FAIL;
+      }
+      if (cur_window_size) {
+	if (fwrite_checked(header2_ptr, header2_len, outfile)) {
+	  goto clump_reports_ret_WRITE_FAIL;
+	}
+        bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[ivar_uidx * max_marker_id_len]), tbuf);
+	bufptr = memcpya(bufptr, "          0    1.000 ", 21);
+	cur_a1 = marker_allele_ptrs[2 * ivar_uidx];
+	a1_len = strlen(cur_a1);
+	if (a1_len < 8) {
+	  bufptr = memseta(bufptr, 32, 8 - a1_len);
+	}
+	if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	  goto clump_reports_ret_WRITE_FAIL;
+	}
+	fwrite(cur_a1, 1, a1_len, outfile);
+	cur_a2 = marker_allele_ptrs[2 * ivar_uidx + 1];
+        a2_len = strlen(cur_a2);
+	if (a1_len + a2_len < 5) {
+	  allele_padding = 5 - a1_len - a2_len;
+	} else {
+	  allele_padding = 0;
+	}
+	tbuf[0] = ' ';
+        bufptr = uint32_writew4x(&(tbuf[1]), index_fidx, ' ');
+	bufptr = double_g_writewx3x(bufptr, pval, 12, ' ');
+	if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	  goto clump_reports_ret_WRITE_FAIL;
+	}
+	if (annot_flattened) {
+	  bufptr2 = annot_ptr;
+	  for (uii = 11; uii; uii--) {
+            if (!(*(++bufptr2))) {
+	      fwrite("           ", 1, uii, outfile);
+	      break;
+	    }
+	  }
+	  fputs(annot_ptr, outfile);
+	}
+	fputs("\n\n", outfile);
+	last_marker_idx = ~ZEROLU;
+	for (ulii = 0; ulii < cur_window_size; ulii++) {
+	  bufptr = memseta(tbuf, 32, 10);
+	  marker_idx = cur_clump_base[ulii].marker_idx;
+	  if (last_marker_idx != marker_idx) {
+	    clump_entry_ptr = clump_entries[marker_idx];
+	  }
+	  ukk = cur_clump_base[ulii].fidx;
+	  while (clump_entry_ptr->fidx != ukk) {
+	    clump_entry_ptr = clump_entry_ptr->next;
+	  }
+	  marker_uidx = marker_idx_to_uidx[marker_idx];
+          bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), bufptr);
+          *bufptr++ = ' ';
+          bufptr = double_g_writewx3x(bufptr, ((double)(((int32_t)marker_pos[marker_uidx]) - ((int32_t)cur_bp))) * 0.001, 10, ' ');
+	  cur_r2 = cur_clump_base[ulii].r2;
+	  if (cur_r2 <= 0) {
+	    ujj = 1; // reversed phase?
+	  } else {
+	    ujj = 0;
+	  }
+	  bufptr = double_g_writewx3x(bufptr, cur_r2, 8, ' ');
+	  bufptr2 = marker_allele_ptrs[marker_uidx * 2 + ujj];
+	  bufptr3 = marker_allele_ptrs[marker_uidx * 2 + 1 - ujj];
+	  if (allele_padding) {
+	    bufptr4 = bufptr2;
+	    for (uii = allele_padding; uii; uii--) {
+	      // fast in common case, don't bother to compute strlen for long
+	      // indels
+	      if (!(*(++bufptr4))) {
+		bufptr4 = bufptr3;
+		for (; uii; uii--) {
+		  if (!(*(++bufptr4))) {
+		    bufptr = memseta(bufptr, 32, uii);
+		    break;
+		  }
+		}
+		break;
+	      }
+	    }
+	  }
+	  if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	    goto clump_reports_ret_WRITE_FAIL;
+	  }
+	  fwrite(cur_a1, 1, a1_len, outfile);
+	  fputs(bufptr2, outfile);
+          putc('/', outfile);
+	  fwrite(cur_a2, 1, a2_len, outfile);
+	  fputs(bufptr3, outfile);
+          tbuf[0] = ' ';
+          bufptr = uint32_writew4x(&(tbuf[1]), cur_clump_base[ulii].fidx, ' ');
+          bufptr = double_g_writewx3x(bufptr, clump_entry_ptr->pval, 12, ' ');
+	  if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	    goto clump_reports_ret_WRITE_FAIL;
+	  }
+          if (annot_flattened) {
+	    bufptr2 = clump_entry_ptr->annot;
+	    bufptr3 = bufptr2;
+	    for (uii = 11; uii; uii--) {
+	      if (!(*(++bufptr3))) {
+		fwrite("           ", 1, uii, outfile);
+		break;
+	      }
+	    }
+	    fputs(bufptr2, outfile);
+	  }
+          putc('\n', outfile);
+	  last_marker_idx = marker_idx;
+	}
+	bufptr = memcpya(tbuf, "\n          RANGE: ", 18);
+	if (clump_chrom_idx <= chrom_info_ptr->max_code) {
+	  bufptr = memcpyl3a(bufptr, "chr");
+	  bufptr = uint32_write(bufptr, clump_chrom_idx);
+	} else if (zero_extra_chroms) {
+	  bufptr = memcpya(bufptr, "chr0", 4);
+	} else {
+          bufptr = strcpya(bufptr, chrom_info_ptr->nonstd_names[clump_chrom_idx]);
+	}
+	*bufptr++ = ':';
+        bufptr = uint32_write(bufptr, min_bp);
+	bufptr = memcpya(bufptr, "..", 2);
+        bufptr = uint32_write(bufptr, max_bp);
+        bufptr = memcpya(bufptr, "\n           SPAN: ", 18);
+        bufptr = uint32_write(bufptr, (max_bp - min_bp + 1) / 1000);
+        bufptr = memcpyl3a(bufptr, "kb\n");
+	if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	  goto clump_reports_ret_WRITE_FAIL;
+	}
+      }
+      if (fwrite_checked("\n------------------------------------------------------------------\n\n", 69, outfile)) {
+	goto clump_reports_ret_WRITE_FAIL;
+      }
     }
   }
-  fputs("\n\n", outfile);
+  putc('\n', outfile);
+  if (missing_variant_ct) {
+    // 1. sort by ID
+    // 2. pick smallest pval when duplicates present
+    // 3. sort by pval
+    // 4. write results
+    wkspace_reset(wkspace_mark);
+    if (wkspace_alloc_c_checked(&sorted_marker_ids, missing_variant_ct * max_missing_id_len) ||
+	wkspace_alloc_d_checked(&sorted_pvals, missing_variant_ct * sizeof(double))) {
+      goto clump_reports_ret_NOMEM;
+    }
+    for (ulii = 0; ulii < missing_variant_ct; ulii++) {
+      cm_ptr = not_found_list;
+      strcpy(&(sorted_marker_ids[ulii * max_missing_id_len]), cm_ptr->idstr);
+      sorted_pvals[ulii] = cm_ptr->pval;
+      not_found_list = not_found_list->next;
+      free(cm_ptr);
+    }
+    if (qsort_ext(sorted_marker_ids, missing_variant_ct, max_missing_id_len, strcmp_deref, (char*)sorted_pvals, sizeof(double))) {
+      goto clump_reports_ret_NOMEM;
+    }
+    bufptr = sorted_marker_ids;
+    uii = strlen(sorted_marker_ids);
+    for (ulii = 1; ulii < missing_variant_ct; ulii++) {
+      bufptr2 = &(bufptr[max_missing_id_len]);
+      ujj = strlen(bufptr2);
+      if ((uii == ujj) && (!memcmp(bufptr, bufptr2, uii))) {
+	uljj = ulii - 1; // write index
+	pval = sorted_pvals[uljj];
+	if (pval > sorted_pvals[ulii]) {
+	  pval = sorted_pvals[ulii];
+	}
+        while (++ulii < missing_variant_ct) {
+	  bufptr2 = &(bufptr2[max_missing_id_len]);
+	  ujj = strlen(bufptr2);
+	  if ((uii == ujj) && (!memcmp(bufptr, bufptr2, uii))) {
+	    if (pval > sorted_pvals[ulii]) {
+	      pval = sorted_pvals[ulii];
+	    }
+	  } else {
+	    sorted_pvals[uljj++] = pval;
+	    bufptr = &(bufptr[max_missing_id_len]);
+	    memcpy(bufptr, bufptr2, ujj + 1);
+	    pval = sorted_pvals[ulii];
+	    uii = ujj;
+	  }
+	}
+	sorted_pvals[uljj] = pval;
+	ulii = uljj + 1; // save final array length
+	break;
+      }
+      bufptr = bufptr2;
+      uii = ujj;
+    }
+    missing_variant_ct = ulii;
+    if (qsort_ext((char*)sorted_pvals, missing_variant_ct, sizeof(double), double_cmp_deref, sorted_marker_ids, max_missing_id_len)) {
+      goto clump_reports_ret_NOMEM;
+    }
+    if (clump_verbose) {
+      for (ulii = 0; ulii < missing_variant_ct; ulii++) {
+	fputs(&(sorted_marker_ids[ulii * max_missing_id_len]), outfile);
+	fputs(" not found in dataset\n", outfile);
+      }
+      sprintf(logbuf, "%" PRIuPTR " top variant ID%s missing; see the end of the .clumped file.\n", missing_variant_ct, (missing_variant_ct == 1)? "" : "s");
+      logprintb();
+    } else {
+      uljj = MINV(missing_variant_ct, 3);
+      for (ulii = 0; ulii < uljj; ulii++) {
+	sprintf(logbuf, "Warning: %s is missing from the main dataset, and is a top variant.\n", &(sorted_marker_ids[ulii * max_missing_id_len]));
+	logprintb();
+      }
+      if (missing_variant_ct > 3) {
+        sprintf(logbuf, "%" PRIuPTR " more top variant ID%s missing; --clump-verbose dumps them all.\n", missing_variant_ct - 3, (missing_variant_ct == 4)? "" : "s");
+        logprintb();
+      }
+    }
+  }
+  putc('\n', outfile);
   if (fclose_null(&outfile)) {
     goto clump_reports_ret_WRITE_FAIL;
   }
   outname_end[8] = '\0';
   sprintf(logbuf, "--clump: %u clump%s formed from %u top variant%s.\nResults written to %s.\n", final_clump_ct, (final_clump_ct == 1)? "" : "s", index_ct, (index_ct == 1)? "" : "s", outname);
   logprintb();
-  if (missing_variant_ct) {
-    printf("Warning: %" PRIu64 " line%s in input files did not match a variant in\nthe current dataset; see the log file.\n", missing_variant_ct, (missing_variant_ct == 1)? "" : "s");
-  }
   while (0) {
   clump_reports_ret_NOMEM2:
     wkspace_left += topsize;
@@ -8249,5 +8492,10 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   fclose_cond(outfile);
   fclose_cond(outfile_ranges);
   fclose_cond(outfile_best);
+  while (not_found_list) {
+    cm_ptr = not_found_list;
+    not_found_list = not_found_list->next;
+    free(cm_ptr);
+  }
   return retval;
 }
