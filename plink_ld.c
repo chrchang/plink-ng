@@ -7835,13 +7835,15 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   for (uii = 0; uii < index_ct; uii++, marker_idx++) {
     marker_idx = next_set_unsafe(cur_bitfield, marker_idx);
     clump_entry_ptr = clump_entries[marker_idx];
-    pval = 1;
-    do {
-      if (clump_entry_ptr->pval < pval) {
-	pval = clump_entry_ptr->pval;
+    pval = clump_entry_ptr->pval;
+    if (!clump_index_first) {
+      while (clump_entry_ptr->next) {
+	clump_entry_ptr = clump_entry_ptr->next;
+	if (clump_entry_ptr->pval < pval) {
+	  pval = clump_entry_ptr->pval;
+	}
       }
-      clump_entry_ptr = clump_entry_ptr->next;
-    } while (clump_entry_ptr);
+    }
     sorted_pvals[uii] = pval;
     pval_map[uii] = marker_idx;
   }
@@ -8047,9 +8049,10 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	      cc_ptr->marker_idx = marker_idx;
 	      uii = clump_entry_ptr->fidx;
 	      cc_ptr->fidx = uii;
-	      if ((uii == best_fidx_match) && (cur_r2 > max_r2)) {
+	      if ((uii == best_fidx_match) && (fabs(cur_r2) > max_r2)) {
 		max_r2 = cur_r2;
 		max_r2_uidx = marker_uidx;
+		best_entry_ptr = clump_entry_ptr;
 	      }
 	      cc_ptr++;
 	    }
@@ -8103,6 +8106,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	    if (clump_best) {
 	      max_r2 = 1;
 	      max_r2_uidx = ivar_uidx;
+	      best_entry_ptr = clump_entry_ptr;
 	    }
 	    cc_ptr++;
 	  }
@@ -8166,9 +8170,10 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	      cc_ptr->marker_idx = marker_idx;
 	      uii = clump_entry_ptr->fidx;
 	      cc_ptr->fidx = uii;
-	      if ((uii == best_fidx_match) && (cur_r2 > max_r2)) {
+	      if ((uii == best_fidx_match) && (fabs(cur_r2) > max_r2)) {
 		max_r2 = cur_r2;
 		max_r2_uidx = marker_uidx;
+		best_entry_ptr = clump_entry_ptr;
 	      }
 	      cc_ptr++;
 	    }
@@ -8192,6 +8197,79 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       }
       if (ulii == cur_window_size) {
 	continue;
+      }
+    }
+    if (clump_best) {
+      bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[ivar_uidx * max_marker_id_len]), tbuf);
+      *bufptr++ = ' ';
+      if (best_entry_ptr) {
+	bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[max_r2_uidx * max_marker_id_len]), bufptr);
+	*bufptr++ = ' ';
+        if (max_r2_uidx == ivar_uidx) {
+	  bufptr = memcpya(bufptr, "     *", 6);
+	} else {
+	  bufptr = double_g_writewx3(bufptr, fabs(max_r2), 6);
+	}
+	*bufptr++ = ' ';
+	bufptr = double_g_writewx3x(bufptr, ((double)((int32_t)(marker_pos[max_r2_uidx] - cur_bp))) * 0.001, 8, ' ');
+	bufptr = double_g_writewx3x(bufptr, best_entry_ptr->pval, 8, ' ');
+	if (max_r2 > 0) {
+	  uii = 0;
+	} else {
+	  uii = 1;
+	}
+        cur_a1 = marker_allele_ptrs[2 * ivar_uidx];
+        cur_a2 = marker_allele_ptrs[2 * ivar_uidx + 1];
+        bufptr2 = marker_allele_ptrs[2 * max_r2_uidx + uii];
+        bufptr3 = marker_allele_ptrs[2 * max_r2_uidx + 1 - uii];
+	bufptr4 = cur_a1;
+	for (uii = 3; uii; uii--) {
+	  if (!(*(++bufptr4))) {
+	    bufptr4 = cur_a2;
+	    for (; uii; uii--) {
+	      if (!(*(++bufptr4))) {
+		bufptr4 = bufptr2;
+		for (; uii; uii--) {
+		  if (!(*(++bufptr4))) {
+		    bufptr4 = bufptr3;
+		    for (; uii; uii--) {
+		      if (!(*(++bufptr4))) {
+			bufptr = memseta(bufptr, 32, uii);
+			break;
+		      }
+		    }
+		    break;
+		  }
+		}
+		break;
+	      }
+	    }
+	    break;
+	  }
+	}
+	if (fwrite_checked(tbuf, bufptr - tbuf, outfile_best)) {
+	  goto clump_reports_ret_WRITE_FAIL;
+	}
+        fputs(cur_a1, outfile_best);
+	fputs(bufptr2, outfile_best);
+	putc('/', outfile_best);
+        fputs(cur_a2, outfile_best);
+        fputs(bufptr3, outfile_best);
+        tbuf[0] = ' ';
+        bufptr = uint32_writew8x(&(tbuf[1]), best_entry_ptr->fidx, ' ');
+	if (fwrite_checked(tbuf, bufptr - tbuf, outfile_best)) {
+	  goto clump_reports_ret_WRITE_FAIL;
+	}
+	if (annot_flattened) {
+          fputs(best_entry_ptr->annot, outfile_best);
+	}
+        putc('\n', outfile_best);
+      } else {
+	bufptr = fw_strcpyn(plink_maxsnp, 2, "NA", bufptr);
+        bufptr = memcpya(bufptr, "     NA       NA       NA       NA       NA \n", 45);
+	if (fwrite_checked(tbuf, bufptr - tbuf, outfile_best)) {
+	  goto clump_reports_ret_WRITE_FAIL;
+	}
       }
     }
     bufptr = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, clump_chrom_idx, zero_extra_chroms));
@@ -8380,10 +8458,10 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	    *bufptr++ = ' ';
 	    bufptr = double_g_writewx3x(bufptr, ((double)(((int32_t)marker_pos[marker_uidx]) - ((int32_t)cur_bp))) * 0.001, 10, ' ');
 	    cur_r2 = cur_clump_base[ulii].r2;
-	    if (cur_r2 <= 0) {
-	      ujj = 1; // reversed phase?
-	    } else {
+	    if (cur_r2 > 0) {
 	      ujj = 0;
+	    } else {
+	      ujj = 1; // reversed phase
 	    }
 	    bufptr = double_g_writewx3x(bufptr, cur_r2, 8, ' ');
 	    bufptr2 = marker_allele_ptrs[marker_uidx * 2 + ujj];
@@ -8585,6 +8663,16 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   outname_end[8] = '\0';
   sprintf(logbuf, "--clump: %u clump%s formed from %u top variant%s.\nResults written to %s.\n", final_clump_ct, (final_clump_ct == 1)? "" : "s", index_ct, (index_ct == 1)? "" : "s", outname);
   logprintb();
+  if (rg_setdefs && (!clump_verbose)) {
+    memcpy(&(outname_end[8]), ".ranges", 8);
+    sprintf(logbuf, "--clump-range: Clump/region overlaps reported in %s.\n", outname);
+    logprintb();
+  }
+  if (clump_best) {
+    memcpy(&(outname_end[8]), ".best", 6);
+    sprintf(logbuf, "--clump-best: Best proxies written to %s.\n", outname);
+    logprintb();
+  }
   while (0) {
   clump_reports_ret_NOMEM2:
     wkspace_left += topsize;

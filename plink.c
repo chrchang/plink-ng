@@ -7130,7 +7130,12 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
 	calculation_type |= CALC_CLUMP;
-        clump_info.fname_ct = param_ct;
+	// only needs to distinguish between one and two
+	if ((param_ct > 1) || strchr(argv[cur_arg + 1], ',')) {
+	  clump_info.fname_ct = 2;
+	} else {
+	  clump_info.fname_ct = 1;
+	}
       } else if (!memcmp(argptr2, "lump-allow-overlap", 19)) {
         if (!clump_info.fname_ct) {
 	  logprint("Error: --clump-allow-overlap must be used with --clump.\n");
@@ -7155,6 +7160,9 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --clump-best must be used with --clump.\n");
           goto main_ret_INVALID_CMDLINE;
 	}
+	logprint("Error: --clump-best is currently under development.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+	goto main_ret_1;
         clump_info.modifier |= CLUMP_BEST;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "lump-field", 11)) {
