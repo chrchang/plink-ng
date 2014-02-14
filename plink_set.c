@@ -38,6 +38,48 @@ uint32_t in_setdef(uint32_t* setdef, uint32_t marker_idx) {
   }
 }
 
+uint32_t interval_in_setdef(uint32_t* setdef, uint32_t marker_idx_start, uint32_t marker_idx_end) {
+  // expects half-open interval coordinates as input
+  // assumes interval is nonempty
+  uint32_t range_ct = setdef[0];
+  uint32_t idx_base;
+  uint32_t uii;
+  if (range_ct != 0xffffffffU) {
+    if (!range_ct) {
+      return 0;
+    }
+    uii = uint32arr_greater_than(&(setdef[1]), range_ct * 2, marker_idx_start + 1);
+    if (uii & 1) {
+      return 1;
+    } else if (uii == range_ct * 2) {
+      return 0;
+    }
+    return uint32arr_greater_than(&(setdef[1 + uii]), range_ct * 2 - uii, marker_idx_end);
+  } else {
+    idx_base = setdef[1];
+    if ((marker_idx_end <= idx_base) || (marker_idx_start >= idx_base + setdef[2])) {
+      return setdef[3];
+    }
+    if (marker_idx_start < idx_base) {
+      if (setdef[3]) {
+	return 1;
+      }
+      marker_idx_start = 0;
+    } else {
+      marker_idx_start -= idx_base;
+    }
+    if (marker_idx_end > idx_base + setdef[2]) {
+      if (setdef[3]) {
+	return 1;
+      }
+      marker_idx_end = setdef[2];
+    } else {
+      marker_idx_end -= idx_base;
+    }
+    uii = next_set((uintptr_t*)(&(setdef[4])), marker_idx_start, marker_idx_end);
+    return (uii < marker_idx_end);
+  }
+}
 
 int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_extend, uint32_t collapse_group, uint32_t fail_on_no_sets, uint32_t c_prefix, uintptr_t subset_ct, char* sorted_subset_ids, uintptr_t max_subset_id_len, uint32_t* marker_pos, Chrom_info* chrom_info_ptr, uintptr_t* topsize_ptr, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_len_ptr, Make_set_range*** make_set_range_arr_ptr, uint64_t** range_sort_buf_ptr, const char* file_descrip) {
   // Called by extract_exclude_range(), define_sets() and clump_reports().
@@ -47,6 +89,8 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
   char* set_names = NULL;
   uintptr_t set_ct = 0;
   uintptr_t max_set_id_len = 0;
+  uint32_t chrom_start = 0;
+  uint32_t chrom_end = 0;
   int32_t retval = 0;
   Make_set_range** make_set_range_arr;
   Make_set_range* msr_tmp;
@@ -57,8 +101,6 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
   uintptr_t set_idx;
   uintptr_t ulii;
   uint32_t chrom_idx;
-  uint32_t chrom_start;
-  uint32_t chrom_end;
   uint32_t range_first;
   uint32_t range_last;
   uint32_t uii;
@@ -86,9 +128,13 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	sprintf(logbuf, "Error: Fewer tokens than expected in %s file line.\n", file_descrip);
 	goto load_range_list_ret_INVALID_FORMAT_2;
       }
-      if (get_chrom_code(chrom_info_ptr, bufptr) == -1) {
+      ii = get_chrom_code(chrom_info_ptr, bufptr);
+      if (ii == -1) {
 	sprintf(logbuf, "Error: Invalid chromosome code in %s file.\n", file_descrip);
 	goto load_range_list_ret_INVALID_FORMAT_2;
+      }
+      if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
+	continue;
       }
       uii = strlen_se(bufptr2);
       bufptr2[uii] = '\0';
@@ -106,12 +152,24 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	continue;
       }
       uii++;
+      // argh, --clump counts positional overlaps which don't include any
+      // variants in the dataset.  So we prefix set IDs with a chromosome index
+      // in that case (with leading zeroes) and treat cross-chromosome sets as
+      // distinct.
+      if (!marker_pos) {
+	uii += 4;
+      }
       if (uii > max_set_id_len) {
 	max_set_id_len = uii;
       }
       ll_tmp = top_alloc_llstr(topsize_ptr, uii);
       ll_tmp->next = make_set_ll;
-      memcpy(ll_tmp->ss, bufptr3, uii);
+      if (marker_pos) {
+        memcpy(ll_tmp->ss, bufptr3, uii);
+      } else {
+	uint32_write4(ll_tmp->ss, (uint32_t)ii);
+	memcpy(&(ll_tmp->ss[4]), bufptr3, uii - 4);
+      }
       make_set_ll = ll_tmp;
       set_ct++;
     }
@@ -184,13 +242,16 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       continue;
     }
     chrom_idx = ii;
-    chrom_start = chrom_info_ptr->chrom_start[chrom_idx];
-    chrom_end = chrom_info_ptr->chrom_end[chrom_idx];
-    if (chrom_end == chrom_start) {
-      continue;
-    }
-    if (subset_ct && (bsearch_str(bufptr2, strlen_se(bufptr2), sorted_subset_ids, max_subset_id_len, subset_ct) == -1)) {
-      continue;
+    if (marker_pos) {
+      chrom_start = chrom_info_ptr->chrom_start[chrom_idx];
+      chrom_end = chrom_info_ptr->chrom_end[chrom_idx];
+      if (chrom_end == chrom_start) {
+	continue;
+      }
+      // might need to move this outside the if-statement later
+      if (subset_ct && (bsearch_str(bufptr2, strlen_se(bufptr2), sorted_subset_ids, max_subset_id_len, subset_ct) == -1)) {
+	continue;
+      }
     }
     bufptr = next_item(bufptr);
     if (atoiz2(bufptr, &ii)) {
@@ -223,23 +284,34 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       if (c_prefix) {
 	bufptr3 = &(bufptr3[-2]);
 	memcpy(bufptr3, "C_", 2);
+      } else if (!marker_pos) {
+	bufptr3 = &(bufptr3[-4]);
+        uint32_write4(bufptr3, chrom_idx);
       }
       // this should never fail
       set_idx = (uint32_t)bsearch_str_natural(bufptr3, set_names, max_set_id_len, set_ct);
     } else {
       set_idx = 0;
     }
-    // translate to within-chromosome uidx
-    range_first = uint32arr_greater_than(&(marker_pos[chrom_start]), chrom_end - chrom_start, range_first);
-    range_last = uint32arr_greater_than(&(marker_pos[chrom_start]), chrom_end - chrom_start, range_last + 1);
-    if (range_last > range_first) {
+    if (marker_pos) {
+      // translate to within-chromosome uidx
+      range_first = uint32arr_greater_than(&(marker_pos[chrom_start]), chrom_end - chrom_start, range_first);
+      range_last = uint32arr_greater_than(&(marker_pos[chrom_start]), chrom_end - chrom_start, range_last + 1);
+      if (range_last > range_first) {
+	msr_tmp = (Make_set_range*)top_alloc(topsize_ptr, sizeof(Make_set_range));
+	msr_tmp->next = make_set_range_arr[set_idx];
+	// normally, I'd keep chrom_idx here since that enables by-chromosome
+	// sorting, but that's probably not worth bloating Make_set_range from
+	// 16 to 32 bytes
+	msr_tmp->uidx_start = chrom_start + range_first;
+	msr_tmp->uidx_end = chrom_start + range_last;
+	make_set_range_arr[set_idx] = msr_tmp;
+      }
+    } else {
       msr_tmp = (Make_set_range*)top_alloc(topsize_ptr, sizeof(Make_set_range));
       msr_tmp->next = make_set_range_arr[set_idx];
-      // normally, I'd keep chrom_idx here since that enables by-chromosome
-      // sorting, but that's probably not worth bloating Make_set_range from
-      // 16 to 32 bytes
-      msr_tmp->uidx_start = chrom_start + range_first;
-      msr_tmp->uidx_end = chrom_start + range_last;
+      msr_tmp->uidx_start = range_first;
+      msr_tmp->uidx_end = range_last + 1;
       make_set_range_arr[set_idx] = msr_tmp;
     }
   }

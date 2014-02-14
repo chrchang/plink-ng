@@ -1010,6 +1010,8 @@ char* uint32_write(char* start, uint32_t uii);
 
 char* int32_write(char* start, int32_t ii);
 
+void uint32_write4(char* start, uint32_t uii);
+
 char* int64_write(char* start, int64_t llii);
 
 char* uint32_writew4(char* start, uint32_t uii);

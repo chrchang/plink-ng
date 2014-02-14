@@ -569,7 +569,7 @@ char* int32_write(char* start, int32_t ii) {
   return uint32_write(start, (uint32_t)ii);
 }
 
-static inline void uint32_write4(char* start, uint32_t uii) {
+void uint32_write4(char* start, uint32_t uii) {
   // Write exactly four digits (padding with zeroes if necessary); useful for
   // e.g. floating point encoders.
   uint32_t quotient = uii / 100;
