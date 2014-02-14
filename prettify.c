@@ -604,7 +604,7 @@ int32_t main(int32_t argc, char** argv) {
   while (0) {
   main_ret_HELP:
     fputs(
-"prettify v1.03 (14 Feb 2013)   Christopher Chang (chrchang@alumni.caltech.edu)\n\n"
+"prettify v1.03 (14 Feb 2014)   Christopher Chang (chrchang@alumni.caltech.edu)\n\n"
 "Takes a tab-and/or-space-delimited text table, and generates a space-delimited\n"
 "pretty-printed version.  Multibyte character encodings are not currently\n"
 "supported.\n\n"
