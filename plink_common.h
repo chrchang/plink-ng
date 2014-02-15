@@ -1711,6 +1711,8 @@ void bitfield_or(uintptr_t* vv, uintptr_t* or_vec, uintptr_t word_ct);
 
 void bitfield_ornot(uintptr_t* vv, uintptr_t* inverted_or_vec, uintptr_t word_ct);
 
+void bitfield_xor(uintptr_t* bit_arr, uintptr_t* xor_arr, uintptr_t word_ct);
+
 static inline uint32_t popcount2_long(uintptr_t val) {
 #ifdef __LP64__
   val = (val & 0x3333333333333333LLU) + ((val >> 2) & 0x3333333333333333LLU);

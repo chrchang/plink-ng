@@ -12269,6 +12269,7 @@ uint32_t write_haploview_map(FILE* outfile, uintptr_t* marker_exclude, uintptr_t
 int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, char* recode_allele_name, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uint32_t* marker_pos, uintptr_t* marker_reverse, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t map_is_unsorted, uint64_t misc_flags, uint32_t hh_exists, Chrom_info* chrom_info_ptr) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
+  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t indiv_ctv2 = 2 * ((indiv_ct + (BITCT - 1)) / BITCT);
   uintptr_t topsize = 0;
@@ -12714,13 +12715,12 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	writebuf[max_chrom_size * 3 - 1] = '\n';
       }
       if (recode_allele_name) {
-	ulii = ((unfiltered_marker_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t);
-	if (wkspace_alloc_ul_checked(&recode_allele_reverse, ulii * sizeof(intptr_t))) {
+	if (wkspace_alloc_ul_checked(&recode_allele_reverse, unfiltered_marker_ctl * sizeof(intptr_t))) {
 	  goto recode_ret_NOMEM;
 	}
 	// this indicates when we want to report the A2 allele instead of the
 	// A1.  (potential double negatives, bleah)
-	fill_ulong_zero(recode_allele_reverse, ulii);
+	fill_ulong_zero(recode_allele_reverse, unfiltered_marker_ctl);
 	allele_missing = (char**)wkspace_alloc(unfiltered_marker_ct * sizeof(char**));
 	if (!allele_missing) {
 	  goto recode_ret_NOMEM;
@@ -13747,7 +13747,12 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     marker_uidx = 0;
     sprintf(logbuf, "--recode A%s to %s... ", (recode_modifier & RECODE_AD)? "D" : "", outname);
     logprintb();
-    if (recode_load_to(loadbuf, bedfile, bed_offset, unfiltered_marker_ct, 0, marker_ct, marker_exclude, marker_reverse, &marker_uidx, unfiltered_indiv_ct)) {
+    if (!recode_allele_reverse) {
+      recode_allele_reverse = marker_reverse;
+    } else {
+      bitfield_xor(recode_allele_reverse, marker_reverse, unfiltered_marker_ctl);
+    }
+    if (recode_load_to(loadbuf, bedfile, bed_offset, unfiltered_marker_ct, 0, marker_ct, marker_exclude, recode_allele_reverse, &marker_uidx, unfiltered_indiv_ct)) {
       goto recode_ret_READ_FAIL;
     }
     if (set_hh_missing) {

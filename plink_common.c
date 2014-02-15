@@ -4536,6 +4536,30 @@ void bitfield_ornot(uintptr_t* vv, uintptr_t* inverted_or_vec, uintptr_t word_ct
 #endif
 }
 
+void bitfield_xor(uintptr_t* bit_arr, uintptr_t* xor_arr, uintptr_t word_ct) {
+  // bit_arr := bit_arr XOR xor_arr
+  // on 64-bit systems, assumes bit_arr and xor_arr are 16-byte aligned
+#ifdef __LP64__
+  __m128i* bitv128 = (__m128i*)bit_arr;
+  __m128i* xorv128 = (__m128i*)xor_arr;
+  __m128i* bitv128_end = &(bitv128[word_ct / 2]);
+  while (bitv128 < bitv128_end) {
+    *bitv128 = _mm_xor_si128(*xorv128++, *bitv128);
+    bitv128++;
+  }
+  if (word_ct & 1) {
+    word_ct--;
+    bit_arr[word_ct] ^= xor_arr[word_ct];
+  }
+#else
+  uintptr_t* bit_arr_end = &(bit_arr[word_ct]);
+  do {
+    *bit_arr++ ^= *xor_arr++;
+  } while (bit_arr < bit_arr_end);
+#endif
+
+}
+
 uint32_t is_monomorphic(uintptr_t* lptr, uint32_t indiv_ct) {
   uint32_t indiv_ctd2 = indiv_ct / BITCT2;
   uint32_t indiv_rem = indiv_ct % BITCT2;
