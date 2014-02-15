@@ -1061,12 +1061,12 @@ static inline char* uint32_write1p7(char* start, uint32_t quotient, uint32_t rem
   return &(start[1]);
 }
 
-// Okay, time to do banker's rounding.  14 digits of precision are used in
-// judging equality to 0.5 (actual precision of doubles is 15-17 digits); the
-// intention is to capture all directly loaded or exactly computed edge cases
-// (so enough tolerance is needed to survive the internal multiplications by
-// powers of 10, etc.), while rounding a negligible number of honest-to-god
-// 0.4999999s up and 0.5000001s down.
+// Okay, time to do banker's rounding when printing doubles.  14 digits of
+// precision are used in judging equality to 0.5 (actual precision of doubles
+// is 15-17 digits); the intention is to capture all directly loaded or exactly
+// computed edge cases (so enough tolerance is needed to survive the internal
+// multiplications by powers of 10, etc.), while rounding a negligible number
+// of honest-to-god 0.4999999s up and 0.5000001s down.
 // To avoid inadvertent printing of an extra digit, there's a deliberate gap
 // between the 99.9994999...-type bounds and the largest numbers that would
 // actually round down.
@@ -1140,55 +1140,6 @@ static inline void double_bround7(double dxx, const double* banker_round, uint32
   remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
   *quotientp = remainder / 10000000;
   *remainderp = remainder - (*quotientp) * 10000000; 
-}
-
-// ugh, precision utterly sucks in this case.  Have to go with the
-// weird-looking 0.44/0.56 because 0.45/0.55 are too close together...
-static const float banker_round1f[] = {0.44, 0.56};
-
-static inline uint32_t float_bround(float fxx, const float* banker_round) {
-  uint32_t result = (int32_t)fxx;
-  return result + (int32_t)((fxx - ((int32_t)result)) + banker_round[result & 1]);
-}
-
-static inline void float_bround1(float fxx, const float* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
-  fxx *= 10;
-  uint32_t remainder = (int32_t)fxx;
-  remainder += (int32_t)((fxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
-  *quotientp = remainder / 10;
-  *remainderp = remainder - (*quotientp) * 10; 
-}
-
-static inline void float_bround2(float fxx, const float* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
-  fxx *= 100;
-  uint32_t remainder = (int32_t)fxx;
-  remainder += (int32_t)((fxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
-  *quotientp = remainder / 100;
-  *remainderp = remainder - (*quotientp) * 100; 
-}
-
-static inline void float_bround3(float fxx, const float* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
-  fxx *= 1000;
-  uint32_t remainder = (int32_t)fxx;
-  remainder += (int32_t)((fxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
-  *quotientp = remainder / 1000;
-  *remainderp = remainder - (*quotientp) * 1000; 
-}
-
-static inline void float_bround4(float fxx, const float* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
-  fxx *= 10000;
-  uint32_t remainder = (int32_t)fxx;
-  remainder += (int32_t)((fxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
-  *quotientp = remainder / 10000;
-  *remainderp = remainder - (*quotientp) * 10000; 
-}
-
-static inline void float_bround5(float fxx, const float* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
-  fxx *= 100000;
-  uint32_t remainder = (int32_t)fxx;
-  remainder += (int32_t)((fxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
-  *quotientp = remainder / 100000;
-  *remainderp = remainder - (*quotientp) * 100000; 
 }
 
 char* double_write6(char* start, double dxx) {
@@ -1272,20 +1223,68 @@ char* double_write6(char* start, double dxx) {
   }
 }
 
+// Briefly had banker's rounding for floats, but then I realized that the only
+// float-printing function calls are --make-grm related, they all request 6-7
+// digits of precision, and at that point it's impossible to distinguish exact
+// 0.5-matches in the remainder.  So we just have generic rounding functions
+// here, with similar interfaces to the double-rounding functions to minimize
+// the need for separate reasoning about this code.
+static inline uint32_t float_round(float fxx) {
+  return (uint32_t)((int32_t)(fxx + 0.5));
+}
+
+static inline void float_round1(float fxx, uint32_t* quotientp, uint32_t* remainderp) {
+  uint32_t remainder = float_round(fxx * 10);
+  *quotientp = remainder / 10;
+  *remainderp = remainder - (*quotientp) * 10;
+}
+
+static inline void float_round2(float fxx, uint32_t* quotientp, uint32_t* remainderp) {
+  uint32_t remainder = float_round(fxx * 100);
+  *quotientp = remainder / 100;
+  *remainderp = remainder - (*quotientp) * 100;
+}
+
+static inline void float_round3(float fxx, uint32_t* quotientp, uint32_t* remainderp) {
+  uint32_t remainder = float_round(fxx * 1000);
+  *quotientp = remainder / 1000;
+  *remainderp = remainder - (*quotientp) * 1000;
+}
+
+static inline void float_round4(float fxx, uint32_t* quotientp, uint32_t* remainderp) {
+  uint32_t remainder = float_round(fxx * 10000);
+  *quotientp = remainder / 10000;
+  *remainderp = remainder - (*quotientp) * 10000;
+}
+
+static inline void float_round5(float fxx, uint32_t* quotientp, uint32_t* remainderp) {
+  uint32_t remainder = float_round(fxx * 100000);
+  *quotientp = remainder / 100000;
+  *remainderp = remainder - (*quotientp) * 100000;
+}
+
+static inline void float_round6(float fxx, uint32_t* quotientp, uint32_t* remainderp) {
+  uint32_t remainder = float_round(fxx * 1000000);
+  *quotientp = remainder / 1000000;
+  *remainderp = remainder - (*quotientp) * 1000000;
+}
+
 char* float_write6(char* start, float fxx) {
   uint32_t uii;
   uint32_t quotient;
   uint32_t remainder;
-  // floats have only 23 bits of precision, and 2^{-23} is just under
-  // 1.2e-7.  So the last digits of these bounds can't be safely higher than
-  // about 32 if we don't want to risk writing an extra digit, since the
-  // rounder adds 44 or 56.
-  if (fxx < 99.999932) {
-    if (fxx < 9.9999932) {
-      float_bround5(fxx, banker_round1f, &quotient, &remainder);
+  // difference between consecutive floats near 10 can be as large as
+  // 10 * 2^{-23}, which is just under 1.2e-6.  So, to avoid printing an extra
+  // digit, we have to set this bound to be robust to an addition error of size
+  // 6e-7.
+  // (possible todo: just brute-force test this on all <2^32 possible floats
+  // and look for a better threshold)
+  if (fxx < 99.999944) {
+    if (fxx < 9.9999944) {
+      float_round5(fxx, &quotient, &remainder);
       return uint32_write1p5(start, quotient, remainder);
     }
-    float_bround4(fxx, banker_round1f, &quotient, &remainder);
+    float_round4(fxx, &quotient, &remainder);
     start = memcpya(start, &(digit2_table[quotient * 2]), 2);
     if (!remainder) {
       return start;
@@ -1304,9 +1303,9 @@ char* float_write6(char* start, float fxx) {
       return &(start[2]);
     }
     return &(start[1]);
-  } else if (fxx < 9999.9932) {
-    if (fxx < 999.99932) {
-      float_bround3(fxx, banker_round1f, &uii, &remainder);
+  } else if (fxx < 9999.9944) {
+    if (fxx < 999.99944) {
+      float_round3(fxx, &uii, &remainder);
       quotient = uii / 100;
       *start = '0' + quotient;
       quotient = uii - 100 * quotient;
@@ -1324,7 +1323,7 @@ char* float_write6(char* start, float fxx) {
       start[2] = '0' + remainder;
       return &(start[3]);
     }
-    float_bround2(fxx, banker_round1f, &uii, &remainder);
+    float_round2(fxx, &uii, &remainder);
     quotient = uii / 100;
     start = memcpya(start, &(digit2_table[quotient * 2]), 2);
     quotient = uii - (100 * quotient);
@@ -1334,8 +1333,8 @@ char* float_write6(char* start, float fxx) {
     }
     *start++ = '.';
     goto float_write6_pretail;
-  } else if (fxx < 99999.932) {
-    float_bround1(fxx, banker_round1f, &uii, &remainder);
+  } else if (fxx < 99999.944) {
+    float_round1(fxx, &uii, &remainder);
     quotient = uii / 10000;
     *start = '0' + quotient;
     uii -= 10000 * quotient;
@@ -1350,7 +1349,7 @@ char* float_write6(char* start, float fxx) {
     start[1] = '0' + remainder;
     return &(start[2]);
   } else {
-    uint32_write6(start, float_bround(fxx, banker_round1f));
+    uint32_write6(start, float_round(fxx));
     return &(start[6]);
   }
 }
@@ -1676,7 +1675,8 @@ char* double_e_write(char* start, double dxx) {
 
 char* float_e_write(char* start, float fxx) {
   uint32_t xp10 = 0;
-  uint32_t uii;
+  uint32_t quotient;
+  uint32_t remainder;
   char sign;
   if (fxx != fxx) {
     // do this first to avoid generating exception
@@ -1746,13 +1746,10 @@ char* float_e_write(char* start, float fxx) {
     }
     sign = '-';
   }
-  // not enough precision for rounding mode to matter
-  fxx += 0.0000005;
-  uii = (int32_t)fxx;
-  *start++ = '0' + uii;
+  float_round6(fxx, &quotient, &remainder);
+  *start++ = '0' + quotient;
   *start++ = '.';
-  uii = ((int32_t)(fxx * 1000000)) - (uii * 1000000);
-  uint32_write6(start, uii);
+  uint32_write6(start, remainder);
   start += 6;
   *start++ = 'e';
   *start++ = sign;
@@ -2066,12 +2063,12 @@ char* float_g_write(char* start, float fxx) {
     *start++ = '-';
     fxx = -fxx;
   }
-  if (fxx < 9.9999932e-5) {
-    if (fxx < 9.9999932e-16) {
+  if (fxx < 9.9999944e-5) {
+    if (fxx < 9.9999944e-16) {
       if (fxx == 0.0) {
 	*start = '0';
 	return &(start[1]);
-      } else if (fxx < 9.9999932e-32) {
+      } else if (fxx < 9.9999944e-32) {
 	fxx *= 1.0e32;
 	xp10 |= 32;
       } else {
@@ -2079,30 +2076,30 @@ char* float_g_write(char* start, float fxx) {
 	xp10 |= 16;
       }
     }
-    if (fxx < 9.9999932e-8) {
+    if (fxx < 9.9999944e-8) {
       fxx *= 100000000;
       xp10 |= 8;
     }
-    if (fxx < 9.9999932e-4) {
+    if (fxx < 9.9999944e-4) {
       fxx *= 10000;
       xp10 |= 4;
     }
-    if (fxx < 9.9999932e-2) {
+    if (fxx < 9.9999944e-2) {
       fxx *= 100;
       xp10 |= 2;
     }
-    if (fxx < 9.9999932e-1) {
+    if (fxx < 9.9999944e-1) {
       fxx *= 10;
       xp10++;
     }
-    float_bround5(fxx, banker_round1f, &quotient, &remainder);
+    float_round5(fxx, &quotient, &remainder);
     return memcpya(memcpya(uint32_write1p5(start, quotient, remainder), "e-", 2), &(digit2_table[xp10 * 2]), 2);
-  } else if (fxx >= 999999.32) {
-    if (fxx >= 9.9999932e15) {
+  } else if (fxx >= 999999.44) {
+    if (fxx >= 9.9999944e15) {
       if (fxx == INFINITY) {
 	*((uint32_t*)start) = *((uint32_t*)"inf");
 	return &(start[3]);
-      } else if (fxx >= 9.9999932e31) {
+      } else if (fxx >= 9.9999944e31) {
 	fxx *= 1.0e-32;
 	xp10 |= 32;
       } else {
@@ -2110,38 +2107,38 @@ char* float_g_write(char* start, float fxx) {
 	xp10 |= 16;
       }
     }
-    if (fxx >= 9.9999932e7) {
+    if (fxx >= 9.9999944e7) {
       fxx *= 1.0e-8;
       xp10 |= 8;
     }
-    if (fxx >= 9.9999932e3) {
+    if (fxx >= 9.9999944e3) {
       fxx *= 1.0e-4;
       xp10 |= 4;
     }
-    if (fxx >= 9.9999932e1) {
+    if (fxx >= 9.9999944e1) {
       fxx *= 1.0e-2;
       xp10 |= 2;
     }
-    if (fxx >= 9.9999932e0) {
+    if (fxx >= 9.9999944e0) {
       fxx *= 1.0e-1;
       xp10++;
     }
-    float_bround5(fxx, banker_round1f, &quotient, &remainder);
+    float_round5(fxx, &quotient, &remainder);
     return memcpya(memcpya(uint32_write1p5(start, quotient, remainder), "e+", 2), &(digit2_table[xp10 * 2]), 2);
-  } else if (fxx >= 0.99999932) {
+  } else if (fxx >= 0.99999944) {
     return float_write6(start, fxx);
   } else {
     // 6 sig fig decimal, no less than ~0.0001
     start = memcpya(start, "0.", 2);
-    if (fxx < 9.9999932e-3) {
+    if (fxx < 9.9999944e-3) {
       fxx *= 100;
       start = memcpya(start, "00", 2);
     }
-    if (fxx < 9.9999932e-2) {
+    if (fxx < 9.9999944e-2) {
       fxx *= 10;
       *start++ = '0';
     }
-    return uint32_write6trunc(start, float_bround(fxx * 1000000, banker_round1f));
+    return uint32_write6trunc(start, float_round(fxx * 1000000));
   }
 }
 
