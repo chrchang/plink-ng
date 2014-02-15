@@ -1304,13 +1304,12 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   if (wkspace_alloc_ul_checked(&tmp_indiv_excl_mask, unfiltered_indiv_ctl * sizeof(intptr_t))) {
     goto calc_freqs_and_hwe_ret_NOMEM;
   }
+  memcpy(tmp_indiv_excl_mask, indiv_exclude, unfiltered_indiv_ctl * sizeof(intptr_t));
   if (!nonfounders) {
     if (wkspace_alloc_ul_checked(&founder_include2, unfiltered_indiv_ctv2 * sizeof(intptr_t))) {
       goto calc_freqs_and_hwe_ret_NOMEM;
     }
-    for (uii = 0; uii < unfiltered_indiv_ctl; uii++) {
-      tmp_indiv_excl_mask[uii] = indiv_exclude[uii] | (~founder_info[uii]);
-    }
+    bitfield_ornot(tmp_indiv_excl_mask, founder_info, unfiltered_indiv_ctl);
     zero_trailing_bits(tmp_indiv_excl_mask, unfiltered_indiv_ct);
     exclude_to_vec_include(unfiltered_indiv_ct, founder_include2, tmp_indiv_excl_mask);
     if (males_needed) {
@@ -1330,27 +1329,25 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
       }
     }
     founder_ctrl_include2 = founder_include2;
-    uii = popcount_longs_exclude(founder_info, indiv_exclude, unfiltered_indiv_ctl);
-    indiv_f_ct = uii;
+    indiv_f_ct = popcount_longs_exclude(founder_info, indiv_exclude, unfiltered_indiv_ctl);
     indiv_f_ctrl_ct = indiv_f_ct;
   } else {
-    for (uii = 0; uii < unfiltered_indiv_ctl; uii++) {
-      tmp_indiv_excl_mask[uii] = indiv_exclude[uii];
-    }
     founder_ctrl_include2 = founder_include2;
   }
 
-  if (!hwe_all) {
+  // bugfix: this previously failed to initialize founder_ctrl_include2 and
+  // founder_case_include2 properly if --hardy was used in a situation where
+  // hwe_all would be set (e.g. all-case datasets).
+  if ((!hwe_all) || hardy_needed) {
     if (wkspace_alloc_ul_checked(&founder_ctrl_include2, unfiltered_indiv_ctv2 *  sizeof(intptr_t)) ||
 	wkspace_alloc_ul_checked(&tmp_indiv_excl_mask2, unfiltered_indiv_ctl * sizeof(intptr_t))) {
       goto calc_freqs_and_hwe_ret_NOMEM;
     }
-    indiv_uidx = 0;
-    for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ctl; indiv_uidx++) {
-      tmp_indiv_excl_mask2[indiv_uidx] = tmp_indiv_excl_mask[indiv_uidx] | (~(pheno_nm[indiv_uidx])) | pheno_c[indiv_uidx];
-    }
+    memcpy(tmp_indiv_excl_mask2, tmp_indiv_excl_mask, unfiltered_indiv_ctl);
+    bitfield_ornot(tmp_indiv_excl_mask2, pheno_nm, unfiltered_indiv_ctl);
+    bitfield_or(tmp_indiv_excl_mask2, pheno_c, unfiltered_indiv_ctl);
     zero_trailing_bits(tmp_indiv_excl_mask2, unfiltered_indiv_ct);
-    // tmp_indiv_excl_mask is now set for each indiv who is excluded, or a
+    // tmp_indiv_excl_mask2 is now set for each indiv who is excluded, or a
     // nonfounder, or is noncontrol.
     indiv_f_ctrl_ct = unfiltered_indiv_ct - popcount_longs(tmp_indiv_excl_mask2, unfiltered_indiv_ctl);
     exclude_to_vec_include(unfiltered_indiv_ct, founder_ctrl_include2, tmp_indiv_excl_mask2);
@@ -1366,10 +1363,8 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
       if (wkspace_alloc_ul_checked(&founder_case_include2, unfiltered_indiv_ctv2 *  sizeof(intptr_t))) {
 	goto calc_freqs_and_hwe_ret_NOMEM;
       }
-      indiv_uidx = 0;
-      for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ctl; indiv_uidx++) {
-	tmp_indiv_excl_mask[indiv_uidx] |= (~(pheno_nm[indiv_uidx])) | (~pheno_c[indiv_uidx]);
-      }
+      bitfield_ornot(tmp_indiv_excl_mask, pheno_nm, unfiltered_indiv_ctl);
+      bitfield_ornot(tmp_indiv_excl_mask, pheno_c, unfiltered_indiv_ctl);
       zero_trailing_bits(tmp_indiv_excl_mask, unfiltered_indiv_ct);
       indiv_f_case_ct = unfiltered_indiv_ct - popcount_longs(tmp_indiv_excl_mask, unfiltered_indiv_ctl);
       exclude_to_vec_include(unfiltered_indiv_ct, founder_case_include2, tmp_indiv_excl_mask);
