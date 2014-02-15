@@ -5201,8 +5201,11 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   uint32_t pct;
 
   g_indiv_ct = indiv_ct;
-  if (dist_thread_ct > indiv_ct / 2) {
-    dist_thread_ct = indiv_ct / 2;
+  if (dist_thread_ct > indiv_ct / 64) {
+    dist_thread_ct = indiv_ct / 64;
+    if (!dist_thread_ct) {
+      dist_thread_ct = 1;
+    }
   }
   g_cg_max_person_fid_len = plink_maxfid;
   g_cg_max_person_iid_len = plink_maxiid;
@@ -7005,6 +7008,14 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   uint32_t* giptr;
   uint32_t* giptr2;
   uintptr_t* glptr2;
+  // timing results on the NIH 512-core machine suggest that it's
+  // counterproductive to make thread count exceed about n/64
+  if (dist_thread_ct > indiv_ct / 64) {
+    dist_thread_ct = indiv_ct / 64;
+    if (!dist_thread_ct)  {
+      dist_thread_ct = 1;
+    }
+  }
   // currently must be bottom allocation, since plink() will free it
   if (wkspace_alloc_ui_checked(&indiv_missing_unwt, indiv_ct * sizeof(int32_t))) {
     goto calc_rel_ret_NOMEM;
@@ -7663,6 +7674,12 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
   uint32_t* giptr;
   uint32_t* giptr2;
   uintptr_t* glptr2;
+  if (dist_thread_ct > indiv_ct / 64) {
+    dist_thread_ct = indiv_ct / 64;
+    if (!dist_thread_ct)  {
+      dist_thread_ct = 1;
+    }
+  }
   if (wkspace_alloc_ui_checked(&indiv_missing_unwt, indiv_ct * sizeof(int32_t))) {
     goto calc_rel_f_ret_NOMEM;
   }
@@ -8555,8 +8572,11 @@ int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintpt
   uint32_t marker_ct_autosomal;
   int64_t llxx;
   g_indiv_ct = indiv_ct;
-  if (dist_thread_ct > indiv_ct / 2) {
-    dist_thread_ct = indiv_ct / 2;
+  if (dist_thread_ct > indiv_ct / 64) {
+    dist_thread_ct = indiv_ct / 64;
+    if (!dist_thread_ct)  {
+      dist_thread_ct = 1;
+    }
   }
   triangle_fill(g_thread_start, indiv_ct, dist_thread_ct, 0, 1, 1, 1);
   llxx = g_thread_start[dist_thread_ct];
@@ -8702,8 +8722,11 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   uint32_t chrom_end;
   int64_t llxx;
   g_indiv_ct = indiv_ct;
-  if (dist_thread_ct > indiv_ct / 2) {
-    dist_thread_ct = indiv_ct / 2;
+  if (dist_thread_ct > indiv_ct / 64) {
+    dist_thread_ct = indiv_ct / 64;
+    if (!dist_thread_ct)  {
+      dist_thread_ct = 1;
+    }
   }
   triangle_fill(g_thread_start, indiv_ct, dist_thread_ct, parallel_idx, parallel_tot, 1, 1);
   llxx = g_thread_start[dist_thread_ct];
