@@ -606,13 +606,16 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
     }
   }
 
-  uiptr = family_sizes;
   if (family_id_ct < unfiltered_indiv_ct) {
+    uiptr = family_sizes;
     wkspace_reset(family_ids);
     family_ids = (char*)wkspace_alloc(family_id_ct * max_family_id_len);
     family_sizes = (uint32_t*)wkspace_alloc(family_id_ct * sizeof(int32_t));
-    for (uii = 0; uii < family_id_ct; uii++) {
-      family_sizes[uii] = *uiptr++;
+    if (family_sizes < uiptr) {
+      // copy back
+      for (uii = 0; uii < family_id_ct; uii++) {
+	family_sizes[uii] = *uiptr++;
+      }
     }
   }
   pri_ptr->family_ids = family_ids;
@@ -7273,14 +7276,14 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
 	  clump_info.range_border = (int32_t)(dxx * 1000 * (1 + SMALL_EPSILON));
 	}
-      } else if (!memcmp(argptr2, "lump-replicate", 16)) {
+      } else if (!memcmp(argptr2, "lump-replicate", 15)) {
         if (clump_info.fname_ct < 2) {
 	  sprintf(logbuf, "Error: --clump-replicate requires multiple --clump files.%s", errstr_append);
           goto main_ret_INVALID_CMDLINE_3;
 	}
         clump_info.modifier |= CLUMP_REPLICATE;
         goto main_param_zero;
-      } else if (!memcmp(argptr2, "lump-snp-field", 11)) {
+      } else if (!memcmp(argptr2, "lump-snp-field", 15)) {
         if (!clump_info.fname_ct) {
 	  logprint("Error: --clump-snp-field must be used with --clump.\n");
           goto main_ret_INVALID_CMDLINE;
@@ -7292,7 +7295,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_NOMEM;
 	}
-      } else if (!memcmp(argptr2, "lump-verbose", 14)) {
+      } else if (!memcmp(argptr2, "lump-verbose", 13)) {
         if (!clump_info.fname_ct) {
 	  logprint("Error: --clump-verbose must be used with --clump.\n");
           goto main_ret_INVALID_CMDLINE;
