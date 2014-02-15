@@ -5201,8 +5201,8 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   uint32_t pct;
 
   g_indiv_ct = indiv_ct;
-  if (dist_thread_ct > indiv_ct / 64) {
-    dist_thread_ct = indiv_ct / 64;
+  if (dist_thread_ct > indiv_ct / 32) {
+    dist_thread_ct = indiv_ct / 32;
     if (!dist_thread_ct) {
       dist_thread_ct = 1;
     }
@@ -8572,8 +8572,8 @@ int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintpt
   uint32_t marker_ct_autosomal;
   int64_t llxx;
   g_indiv_ct = indiv_ct;
-  if (dist_thread_ct > indiv_ct / 64) {
-    dist_thread_ct = indiv_ct / 64;
+  if (dist_thread_ct > indiv_ct / 32) {
+    dist_thread_ct = indiv_ct / 32;
     if (!dist_thread_ct)  {
       dist_thread_ct = 1;
     }
@@ -8722,8 +8722,8 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   uint32_t chrom_end;
   int64_t llxx;
   g_indiv_ct = indiv_ct;
-  if (dist_thread_ct > indiv_ct / 64) {
-    dist_thread_ct = indiv_ct / 64;
+  if (dist_thread_ct > indiv_ct / 32) {
+    dist_thread_ct = indiv_ct / 32;
     if (!dist_thread_ct)  {
       dist_thread_ct = 1;
     }
