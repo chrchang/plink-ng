@@ -7163,9 +7163,6 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --clump-best must be used with --clump.\n");
           goto main_ret_INVALID_CMDLINE;
 	}
-	logprint("Error: --clump-best is currently under development.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
         clump_info.modifier |= CLUMP_BEST;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "lump-field", 11)) {
@@ -7281,7 +7278,11 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --clump-replicate requires multiple --clump files.%s", errstr_append);
           goto main_ret_INVALID_CMDLINE_3;
 	}
-        clump_info.modifier |= CLUMP_REPLICATE;
+	if (clump_info.modifier & CLUMP_BEST) {
+	  logprint("Note: --clump-replicate no longer has any effect when used with --clump-best.\n");
+	} else {
+          clump_info.modifier |= CLUMP_REPLICATE;
+	}
         goto main_param_zero;
       } else if (!memcmp(argptr2, "lump-snp-field", 15)) {
         if (!clump_info.fname_ct) {

@@ -7592,9 +7592,11 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   } while (*bufptr);
   loadbuft = (char*)wkspace_base;
   if (clump_best) {
-    if ((file_ct == 2) && (!clump_index_first)) {
-      logprint("Error: --clump-best can no longer be used with two --clump files unless\n--clump-index-first is also specified.  (Contact the developers if this is\nproblematic.)\n");
-      goto clump_reports_ret_INVALID_CMDLINE;
+    if (file_ct == 2) {
+      if (!clump_index_first) {
+        logprint("Error: --clump-best can no longer be used with two --clump files unless\n--clump-index-first is also specified.  (Contact the developers if this is\nproblematic.)\n");
+        goto clump_reports_ret_INVALID_CMDLINE;
+      }
     } else if (file_ct > 2) {
       logprint("Error: --clump-best can no longer be used with more than two --clump files.\n(Contact the developers if this is problematic.)\n");
       goto clump_reports_ret_INVALID_CMDLINE;
@@ -8256,7 +8258,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
         fputs(cur_a2, outfile_best);
         fputs(bufptr3, outfile_best);
         tbuf[0] = ' ';
-        bufptr = uint32_writew8x(&(tbuf[1]), best_entry_ptr->fidx, ' ');
+        bufptr = uint32_writew8x(&(tbuf[1]), best_fidx_match, ' ');
 	if (fwrite_checked(tbuf, bufptr - tbuf, outfile_best)) {
 	  goto clump_reports_ret_WRITE_FAIL;
 	}
