@@ -539,7 +539,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * 'dprime' adds Lewontin's D-prime statistic to table-formatted reports,\n"
 "      and forces both r/r^2 and D-prime to be based on haplotype frequency\n"
 "      estimates (obtained via the EM algorithm).\n"
-"    * You can combine 'dprime' with 'with-freqs' to include MAFs in the report.\n"
+"    * 'with-freqs' adds MAF columns to table-formatted reports.\n"
 "    * Since the resulting file can easily be huge, you're required to add the\n"
 "      'yes-really' modifier when requesting an unfiltered, non-distributed all\n"
 "      pairs computation on more than 400k variants.\n"

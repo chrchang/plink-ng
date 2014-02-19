@@ -33,6 +33,10 @@ typedef struct {
   uint32_t window_bp;
   double window_r2;
   char* snpstr;
+#ifndef STABLE_BUILD
+  char* debug_r2_first;
+  char* debug_r2_second;
+#endif
   Range_list snps_rl;
 } Ld_info;
 

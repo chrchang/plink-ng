@@ -7312,6 +7312,22 @@ int32_t main(int32_t argc, char** argv) {
       if (!memcmp(argptr2, "ebug", 5)) {
 	g_debug_on = 1;
 	goto main_param_zero;
+#ifndef STABLE_BUILD
+      } else if (!memcmp(argptr2, "ebug-r2", 8)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 2)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (!strcmp(argv[cur_arg + 1], argv[cur_arg + 2])) {
+	  logprint("Error: --debug-r2 parameters may not match.\n");
+          goto main_ret_INVALID_CMDLINE;
+	}
+        if (alloc_string(&ld_info.debug_r2_first, argv[cur_arg + 1])) {
+	  goto main_ret_NOMEM;
+	}
+        if (alloc_string(&ld_info.debug_r2_second, argv[cur_arg + 2])) {
+	  goto main_ret_NOMEM;
+	}
+#endif
       } else if (!memcmp(argptr2, "ata", 4)) {
 	if (load_rare || load_params) {
 	  goto main_ret_INVALID_CMDLINE_4;
@@ -10942,9 +10958,9 @@ int32_t main(int32_t argc, char** argv) {
 	    if (ld_info.modifier & LD_MATRIX_SHAPEMASK) {
 	      logprint("Error: Multiple --r/--r2 shape modifiers.\n");
 	      goto main_ret_INVALID_CMDLINE;
-	    } else if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DPRIME)) {
+	    } else if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DPRIME | LD_WITH_FREQS)) {
 	    main_r2_matrix_conflict:
-              sprintf(logbuf, "Error: --r/--r2 '%s' cannot be used with matrix output.%s", (ld_info.modifier & LD_INTER_CHR)? "inter-chr" : "dprime", errstr_append);
+              sprintf(logbuf, "Error: --r/--r2 '%s' cannot be used with matrix output.%s", (ld_info.modifier & LD_INTER_CHR)? "inter-chr" : ((ld_info.modifier & LD_INPHASE)? "in-phase" : ((ld_info.modifier & LD_DPRIME)? "dprime" : "with-freqs")), errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    ld_info.modifier |= LD_MATRIX_SQ;
@@ -10952,7 +10968,7 @@ int32_t main(int32_t argc, char** argv) {
 	    if (ld_info.modifier & LD_MATRIX_SHAPEMASK) {
 	      logprint("Error: Multiple --r/--r2 shape modifiers.\n");
 	      goto main_ret_INVALID_CMDLINE;
-	    } else if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DPRIME)) {
+	    } else if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DPRIME | LD_WITH_FREQS)) {
 	      goto main_r2_matrix_conflict;
 	    }
 	    ld_info.modifier |= LD_MATRIX_SQ0;
@@ -10960,15 +10976,15 @@ int32_t main(int32_t argc, char** argv) {
 	    if (ld_info.modifier & LD_MATRIX_SHAPEMASK) {
 	      logprint("Error: Multiple --r/--r2 shape modifiers.\n");
 	      goto main_ret_INVALID_CMDLINE;
-	    } else if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DPRIME)) {
+	    } else if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DPRIME | LD_WITH_FREQS)) {
 	      goto main_r2_matrix_conflict;
 	    }
 	    ld_info.modifier |= LD_MATRIX_TRI;
 	  } else if (!strcmp(argv[cur_arg + uii], "inter-chr")) {
+            ld_info.modifier |= LD_INTER_CHR;
             if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_SPACES)) {
 	      goto main_r2_matrix_conflict;
 	    }
-            ld_info.modifier |= LD_INTER_CHR;
 	  } else if (!strcmp(argv[cur_arg + uii], "gz")) {
 	    if (ld_info.modifier & LD_MATRIX_BIN) {
 	      logprint("Error: --r/--r2 'gz' and 'bin' modifiers cannot be used together.\n");
@@ -10976,7 +10992,7 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	    ld_info.modifier |= LD_REPORT_GZ;
 	  } else if (!strcmp(argv[cur_arg + uii], "bin")) {
-	    if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DPRIME)) {
+	    if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DPRIME | LD_WITH_FREQS)) {
 	      goto main_r2_matrix_conflict;
 	    } else if (ld_info.modifier & LD_REPORT_GZ) {
 	      logprint("Error: --r/--r2 'gz' and 'bin' modifiers cannot be used together.\n");
@@ -10991,7 +11007,7 @@ int32_t main(int32_t argc, char** argv) {
             // since there are no long chains of floating point calculations...
 	    ld_info.modifier |= LD_SINGLE_PREC;
 	  } else if (!strcmp(argv[cur_arg + uii], "spaces")) {
-	    if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DPRIME)) {
+	    if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DPRIME | LD_WITH_FREQS)) {
 	      goto main_r2_matrix_conflict;
 	    } else if (ld_info.modifier & LD_MATRIX_BIN) {
 	      logprint("Error: --r/--r2 'bin' and 'spaces' modifiers cannot be used together.\n");
@@ -10999,17 +11015,20 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	    ld_info.modifier |= LD_MATRIX_SPACES;
 	  } else if (!strcmp(argv[cur_arg + uii], "in-phase")) {
-            if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_SPACES)) {
-	      goto main_r2_matrix_conflict;
-	    }
 	    ld_info.modifier |= LD_INPHASE;
-	  } else if (!strcmp(argv[cur_arg + uii], "dprime")) {
             if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_SPACES)) {
 	      goto main_r2_matrix_conflict;
 	    }
+	  } else if (!strcmp(argv[cur_arg + uii], "dprime")) {
 	    ld_info.modifier |= LD_DPRIME;
+            if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_SPACES)) {
+	      goto main_r2_matrix_conflict;
+	    }
 	  } else if (!strcmp(argv[cur_arg + uii], "with-freqs")) {
 	    ld_info.modifier |= LD_WITH_FREQS;
+            if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_SPACES)) {
+	      goto main_r2_matrix_conflict;
+	    }
 	  } else if (!strcmp(argv[cur_arg + uii], "yes-really")) {
 	    ld_info.modifier |= LD_YES_REALLY;
 	  } else {
@@ -11028,10 +11047,6 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --r/--r2 'spaces' modifier must be used with a shape modifier.%s", errstr_append);
           goto main_ret_INVALID_CMDLINE_3;
 	}
-        if ((ld_info.modifier & LD_WITH_FREQS) && (!(ld_info.modifier & LD_DPRIME))) {
-          sprintf(logbuf, "Error: --r/--r2 'with-freqs' modifier must be used with 'dprime'.%s", errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
-        }
 	if ((ld_info.modifier & LD_WEIGHTED_X) && (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_INTER_CHR))) {
 	  sprintf(logbuf, "Error: --ld-xchr 3 cannot be used with --r/--r2 non-windowed reports.%s", errstr_append);
           goto main_ret_INVALID_CMDLINE_3;
@@ -12287,10 +12302,18 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
         set_info.modifier |= SET_R2_WRITE;
-        logprint("Note: --write-set-r2 deprecated.  Use '--set-r2 write'.\n");
+        logprint("Note: --write-set-r2 flag deprecated.  Use '--set-r2 write'.\n");
         goto main_param_zero;
       } else if (!memcmp(argptr2, "ith-freqs", 10)) {
+	if (!(calculation_type & CALC_LD)) {
+	  sprintf(logbuf, "Error: --with-freqs must be used with --r/--r2.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
         ld_info.modifier |= LD_WITH_FREQS;
+	if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_SPACES)) {
+	  goto main_r2_matrix_conflict;
+	}
+	logprint("Note: --with-freqs flag deprecated.  Use e.g. '--r2 with-freqs'.\n");
 	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;

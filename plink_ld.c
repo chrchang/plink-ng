@@ -16,6 +16,10 @@ void ld_epi_init(Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip) {
   ldip->window_bp = 1000000;
   ldip->window_r2 = 0.2;
   ldip->snpstr = NULL;
+#ifndef STABLE_BUILD
+  ldip->debug_r2_first = NULL;
+  ldip->debug_r2_second = NULL;
+#endif
   range_list_init(&(ldip->snps_rl));
   epi_ip->modifier = 0;
   epi_ip->case_only_gap = 1000000;
@@ -42,6 +46,10 @@ void ld_epi_init(Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip) {
 
 void ld_epi_cleanup(Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip) {
   free_cond(ldip->snpstr);
+#ifndef STABLE_BUILD
+  free_cond(ldip->debug_r2_first);
+  free_cond(ldip->debug_r2_second);
+#endif
   free_range_list(&(ldip->snps_rl));
   free_cond(epi_ip->ld_mkr1);
   free_cond(epi_ip->ld_mkr2);
@@ -1383,6 +1391,10 @@ static uint32_t g_ld_prefix_len;
 static uint32_t g_ld_zero_extra_chroms;
 static uint32_t g_ld_keep_sign;
 static uint32_t g_ld_modifier;
+#ifndef STABLE_BUILD
+static uint32_t g_ld_debug_idx1;
+static uint32_t g_ld_debug_idx2;
+#endif
 
 THREAD_RET_TYPE ld_block_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
@@ -3534,6 +3546,10 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
   double freqx2;
   double dxx;
   uint32_t nm_fixed;
+#ifndef STABLE_BUILD
+  uint32_t uii;
+  uint32_t debug_idx2;
+#endif
   while (1) {
     idx2_block_size = g_ld_idx2_block_size;
     idx2_block_start = g_ld_idx2_block_start;
@@ -3559,6 +3575,13 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
       if (cur_block_idx2_end > idx2_block_size) {
 	cur_block_idx2_end = idx2_block_size;
       }
+#ifndef STABLE_BUILD
+      if ((block_idx1 == g_ld_debug_idx1) && (g_ld_debug_idx2 < idx2_block_start + cur_block_idx2_end) && (g_ld_debug_idx2 >= idx2_block_start)) {
+	debug_idx2 = g_ld_debug_idx2 - idx2_block_start;
+      } else {
+	debug_idx2 = 0xffffffffU;
+      }
+#endif
       nm_fixed = is_set_ul(zmiss1, block_idx1);
       cur_geno1 = &(geno1[block_idx1 * founder_ctsplit]);
       tot1[0] = popcount_longs(cur_geno1, founder_ctv3);
@@ -3586,6 +3609,40 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
 	    counts[8] = tot1[2] - counts[6] - counts[7];
 	  }
 	}
+#ifndef STABLE_BUILD
+	if (block_idx2 == debug_idx2) {
+          sprintf(logbuf, "\n--debug-r2 counts (should match --twolocus + --filter-founders):\n  %u %u %u\n  %u %u %u\n  %u %u %u\n", counts[0], counts[1], counts[2], counts[3], counts[4], counts[5], counts[6], counts[7], counts[8]);
+	  logstr(logbuf);
+	  sprintf(logbuf, "0-based thread index: %" PRIuPTR " (%u total)\n", tidx, g_ld_thread_ct);
+          logstr(logbuf);
+	  sprintf(logbuf, "Number of founders: %" PRIuPTR "\n", g_ld_founder_ct);
+	  logstr(logbuf);
+	  sprintf(logbuf, "g_ld_idx1_block_size: %" PRIuPTR "\n", g_ld_idx1_block_size);
+	  logstr(logbuf);
+	  sprintf(logbuf, "g_ld_idx2_block_size: %" PRIuPTR "\n", g_ld_idx2_block_size);
+	  logstr(logbuf);
+	  sprintf(logbuf, "block_idx1: %" PRIuPTR "\n", block_idx1);
+	  logstr(logbuf);
+          sprintf(logbuf, "block_idx1_start: %" PRIuPTR "\n", block_idx1_start);
+	  logstr(logbuf);
+          sprintf(logbuf, "block_idx1_end: %" PRIuPTR "\n", block_idx1_end);
+	  logstr(logbuf);
+	  sprintf(logbuf, "block_idx2: %" PRIuPTR "\n", block_idx2);
+	  logstr(logbuf);
+	  sprintf(logbuf, "cur_block_idx2_end: %" PRIuPTR "\n", cur_block_idx2_end);
+	  logstr(logbuf);
+          logstr("Hex genotype 1:\n");
+          for (uii = 0; uii < founder_ct; uii += BITCT) {
+            sprintf(logbuf, "%" PRIxPTR " %" PRIxPTR " %" PRIxPTR "\n", cur_geno1[uii / BITCT], cur_geno1[uii / BITCT + founder_ctv3], cur_geno1[uii / BITCT + 2 * founder_ctv3]);
+	    logstr(logbuf);
+	  }
+          logstr("Hex genotype 2:\n");
+          for (uii = 0; uii < founder_ct; uii += BITCT) {
+            sprintf(logbuf, "%" PRIxPTR " %" PRIxPTR " %" PRIxPTR "\n", cur_geno2[uii / BITCT], cur_geno2[uii / BITCT + founder_ctv3], cur_geno2[uii / BITCT + 2 * founder_ctv3]);
+	    logstr(logbuf);
+	  }
+	}
+#endif
 	if (phase_flanking_haps(counts, &freq1x, &freq2x, &freqx1, &freqx2, &freq11)) {
 	  *rptr++ = NAN;
 	  *rptr++ = NAN;
@@ -3680,6 +3737,57 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   uint32_t cur_marker_pos;
   uint32_t is_last_block;
   uint32_t uii;
+#ifndef STABLE_BUILD
+  uint32_t debug_idx1 = 0xffffffffU;
+  uint32_t debug_idx2 = 0xffffffffU;
+  char* marker_ids = g_ld_marker_ids;
+  uintptr_t max_marker_id_len = g_ld_max_marker_id_len;
+  char* cur_marker_id;
+  if (ldip->debug_r2_first) {
+    marker_uidx1 = next_unset_unsafe(marker_exclude_idx1, 0);
+    if (marker_idx1) {
+      marker_uidx1 = jump_forward_unset_unsafe(marker_exclude_idx1, marker_uidx1 + 1, marker_idx1);
+    }
+    for (; marker_idx1 < marker_idx1_end; marker_idx1++, marker_uidx1++) {
+      next_unset_ul_unsafe_ck(marker_exclude_idx1, &marker_uidx1);
+      cur_marker_id = &(marker_ids[marker_uidx1 * max_marker_id_len]);
+      if (!strcmp(ldip->debug_r2_first, cur_marker_id)) {
+	if (debug_idx1 == 0xffffffffU) {
+          debug_idx1 = marker_idx1;
+	} else {
+	  sprintf(logbuf, "Error: --debug-r2 marker %s appears mutiple times.\n", cur_marker_id);
+	  logprintb();
+          goto ld_report_dprime_ret_INVALID_CMDLINE;
+	}
+      } else if (!strcmp(ldip->debug_r2_second, cur_marker_id)) {
+	if (debug_idx2 == 0xffffffffU) {
+          debug_idx2 = marker_idx1;
+	} else {
+	  sprintf(logbuf, "Error: --debug-r2 marker %s appears mutiple times.\n", cur_marker_id);
+	  logprintb();
+          goto ld_report_dprime_ret_INVALID_CMDLINE;
+	}
+      }
+    }
+    if (debug_idx1 == 0xffffffffU) {
+      sprintf(logbuf, "Error: --debug-r2 marker %s not found.\n", ldip->debug_r2_first);
+      logprintb();
+      goto ld_report_dprime_ret_INVALID_CMDLINE;
+    } else if (debug_idx2 == 0xffffffffU) {
+      sprintf(logbuf, "Error: --debug-r2 marker %s not found.\n", ldip->debug_r2_second);
+      logprintb();
+      goto ld_report_dprime_ret_INVALID_CMDLINE;
+    }
+    if (debug_idx1 > debug_idx2) {
+      uii = debug_idx1;
+      debug_idx1 = debug_idx2;
+      debug_idx2 = uii;
+    }
+    sprintf(logbuf, "--debug-r2: Dumping %s x %s counts to log file.\n", ldip->debug_r2_first, ldip->debug_r2_second);
+    logprintb();
+    marker_idx1 = marker_idx1_start;
+  }
+#endif
   if (wkspace_alloc_ul_checked(&loadbuf2, founder_ctl * 2 * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&dummy_nm, founder_ctl * sizeof(intptr_t))) {
     goto ld_report_dprime_ret_NOMEM;
@@ -3696,12 +3804,12 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   if (idx1_block_size > job_size) {
     idx1_block_size = job_size;
   }
-  g_ld_geno1 = (uintptr_t*)wkspace_alloc(founder_ctsplit * idx1_block_size * sizeof(intptr_t));
-  g_epi_zmiss1 = (uintptr_t*)wkspace_alloc(((idx1_block_size + BITCT - 1) / BITCT) * sizeof(intptr_t));
-  g_ld_interval1 = (uint32_t*)wkspace_alloc(idx1_block_size * 2 * sizeof(int32_t));
-  // double size since both r/r^2 and dprime are needed
-  // (marker_idx2_maxw only needs to be divisible by 4 as a result)
-  if (wkspace_alloc_d_checked(&g_ld_results, marker_idx2_maxw * 2 * idx1_block_size * sizeof(double))) {
+  if (wkspace_alloc_ul_checked(&g_ld_geno1, founder_ctsplit * idx1_block_size * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&g_epi_zmiss1, ((idx1_block_size + BITCT - 1) / BITCT) * sizeof(intptr_t)) ||
+      wkspace_alloc_ui_checked(&g_ld_interval1, idx1_block_size * 2 * sizeof(int32_t)) ||
+      // double size since both r/r^2 and dprime are needed
+      // (marker_idx2_maxw only needs to be divisible by 4 as a result)
+      wkspace_alloc_d_checked(&g_ld_results, marker_idx2_maxw * 2 * idx1_block_size * sizeof(double))) {
     goto ld_report_dprime_ret_NOMEM;
   }
   for (block_idx1 = 0; block_idx1 < idx1_block_size; block_idx1++) {
@@ -3925,6 +4033,14 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
       }
       g_ld_idx2_block_size = cur_idx2_block_size;
       g_ld_idx2_block_start = marker_idx2 - marker_idx2_base;
+#ifndef STABLE_BUILD
+      if ((debug_idx1 != 0xffffffffU) && (debug_idx1 >= marker_idx1) && (debug_idx1 < marker_idx1 + marker_idx1_end)) {
+        g_ld_debug_idx1 = debug_idx1 - marker_idx1;
+        g_ld_debug_idx2 = debug_idx2 - marker_idx2_base;
+      } else {
+        g_ld_debug_idx1 = 0xffffffffU;
+      }
+#endif
       marker_idx2 += cur_idx2_block_size;
       is_last_block = (marker_idx2 >= marker_idx2_end)? 1 : 0;
       if (spawn_threads2(threads, &ld_dprime_thread, thread_ct, is_last_block)) {
@@ -3982,6 +4098,11 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     break;
+#ifndef STABLE_BUILD
+  ld_report_dprime_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+#endif
   }
   return retval;
 }
@@ -4264,7 +4385,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
   if (marker_idx1) {
     marker_uidx1 = jump_forward_unset_unsafe(marker_exclude_idx1, marker_uidx1 + 1, marker_idx1);
   }
-  sprintf(logbuf, "--r%s%s%s to %s...", g_ld_is_r2? "2" : "", is_inter_chr? " inter-chr" : "", g_ld_marker_allele_ptrs? " in-phase" : "", outname);
+  sprintf(logbuf, "--r%s%s%s%s to %s...", g_ld_is_r2? "2" : "", is_inter_chr? " inter-chr" : "", g_ld_marker_allele_ptrs? " in-phase" : "", g_ld_set_allele_freqs? " with-freqs" : "", outname);
   logprintb();
   fputs(" 0%", stdout);
   while (1) {

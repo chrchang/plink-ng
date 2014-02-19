@@ -96,6 +96,7 @@
     #ifndef PRIdPTR
       #define PRIdPTR PRId64
     #endif
+    #define PRIxPTR "016I64x"
 
   #else // not _WIN32
 
@@ -105,6 +106,7 @@
     #ifndef PRIdPTR
       #define PRIdPTR "ld"
     #endif
+    #define PRIxPTR "016lx"
 
   #endif // Win64
 
@@ -119,6 +121,7 @@
   #ifndef PRIdPTR
     #define PRIdPTR "ld"
   #endif
+  #define PRIxPTR "08lx"
 
 #endif // __LP64__
 
