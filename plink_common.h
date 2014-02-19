@@ -16,7 +16,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define PROG_NAME_STR "plink"
 #define PROG_NAME_CAPS "PLINK"
@@ -1583,6 +1583,8 @@ uint32_t get_max_chrom_len(Chrom_info* chrom_info_ptr, uint32_t zero_extra_chrom
 void forget_extra_chrom_names(Chrom_info* chrom_info_ptr);
 
 uint32_t haploid_chrom_present(Chrom_info* chrom_info_ptr);
+
+int32_t get_chrom_code_raw(char* sptr);
 
 int32_t get_chrom_code(Chrom_info* chrom_info_ptr, char* sptr);
 
