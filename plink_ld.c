@@ -3778,7 +3778,6 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     }
     chrom_end = 0;
     fill_ulong_zero(g_epi_zmiss1, (idx1_block_size + (BITCT - 1)) / BITCT);
-    uii = 0;
     for (block_idx1 = 0; block_idx1 < idx1_block_size; marker_uidx1_tmp++, block_idx1++, marker_idx2++) {
       if (IS_SET(marker_exclude_idx1, marker_uidx1_tmp)) {
         ulii = next_unset_ul_unsafe(marker_exclude_idx1, marker_uidx1_tmp);
@@ -4307,7 +4306,6 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
       goto ld_report_regular_ret_READ_FAIL;
     }
     chrom_end = 0;
-    uii = 0;
     for (block_idx1 = 0; block_idx1 < idx1_block_size; marker_uidx1_tmp++, block_idx1++, marker_idx2++) {
       if (IS_SET(marker_exclude_idx1, marker_uidx1_tmp)) {
         ulii = next_unset_ul_unsafe(marker_exclude_idx1, marker_uidx1_tmp);
