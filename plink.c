@@ -2994,7 +2994,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
-  if ((calculation_type & CALC_GLM) && (!(pheno_modifier & PHENO_ALL))) {
+  if ((calculation_type & CALC_GLM) && (!pheno_all)) {
     if (glm_modifier & GLM_LOGISTIC) {
       if (!pheno_c) {
 	logprint("Error: --logistic without --all-pheno requires a case/control phenotype.\n");
@@ -3350,6 +3350,8 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     } else {
       logprint("Using 1 thread (no multithreaded calculations invoked).\n");
     }
+  } else {
+    logprint("Using 1 thread.\n");
   }
 
   if ((calculation_type & (CALC_SEXCHECK | CALC_MISSING_REPORT | CALC_GENOME | CALC_HOMOZYG)) || cluster_ptr->mds_dim_ct) {
@@ -4017,6 +4019,23 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	} else if (retval) {
 	  goto plink_ret_1;
 	}
+#ifndef STABLE_BUILD
+	if (g_debug_on) {
+	  if (!outname_end[1]) {
+	    sprintf(logbuf, "Phenotype name: [unnamed #%u]\n", uii);
+	  } else {
+            sprintf(logbuf, "Phenotype name: %s\n", &(outname_end[1]));
+	  }
+	  logstr(logbuf);
+	  if (pheno_d) {
+            logstr("Type: quantitative\n");
+	  } else {
+            logstr("Type: case/control\n");
+	  }
+	  sprintf(logbuf, "Initial count: %" PRIuPTR "\n", popcount_longs(pheno_nm, unfiltered_indiv_ctl));
+	  logstr(logbuf);
+	}
+#endif
 	bitfield_andnot(pheno_nm, indiv_exclude, unfiltered_indiv_ctl);
 	if (gender_unk_ct && (!(sex_missing_pheno & ALLOW_NO_SEX))) {
 	  bitfield_and(pheno_nm, sex_nm, unfiltered_indiv_ctl);
@@ -4025,6 +4044,12 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	if (!pheno_nm_ct) {
 	  goto plink_skip_empty_pheno;
 	}
+#ifndef STABLE_BUILD
+	if (g_debug_on) {
+	  sprintf(logbuf, "Final count: %u\n", pheno_nm_ct);
+	  logstr(logbuf);
+	}
+#endif
 	if (!outname_end[1]) {
 	  outname_end[1] = 'P';
 	  outname_end2 = uint32_write(&(outname_end[2]), uii);
