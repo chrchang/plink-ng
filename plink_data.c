@@ -166,11 +166,11 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 	      dyy = 2.0;
 	    }
 	    for (uii = 0; uii < unfiltered_indiv_ct; uii++) {
-	      if (IS_SET(isz, uii)) {
+	      if (is_set(isz, uii)) {
 		pheno_d[uii] = 0.0;
-		SET_BIT(pheno_nm, uii);
-	      } else if (IS_SET(pheno_nm, uii)) {
-		pheno_d[uii] = IS_SET(pheno_c, uii)? dyy : dxx;
+		set_bit(pheno_nm, uii);
+	      } else if (is_set(pheno_nm, uii)) {
+		pheno_d[uii] = is_set(pheno_c, uii)? dyy : dxx;
 	      }
 	    }
 	    free(pheno_c_alloc);

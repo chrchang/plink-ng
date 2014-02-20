@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (19 Feb 2014)";
+  " (20 Feb 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -2878,24 +2878,22 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
-  if (pheno_modifier & PHENO_MERGE) {
-    if (pheno_all) {
-      if (safe_malloc(&orig_pheno_nm_alloc, &orig_pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+  if ((pheno_modifier & PHENO_MERGE) && pheno_all) {
+    if (safe_malloc(&orig_pheno_nm_alloc, &orig_pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+      goto plink_ret_NOMEM;
+    }
+    memcpy(orig_pheno_nm, pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t));
+    if (pheno_c) {
+      if (safe_malloc(&orig_pheno_c_alloc, &orig_pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t))) {
 	goto plink_ret_NOMEM;
       }
-      memcpy(orig_pheno_nm, pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t));
-      if (pheno_c) {
-	if (safe_malloc(&orig_pheno_c_alloc, &orig_pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t))) {
-	  goto plink_ret_NOMEM;
-	}
-	memcpy(orig_pheno_c, pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t));
-      } else if (pheno_d) {
-	orig_pheno_d = (double*)malloc(unfiltered_indiv_ct * sizeof(double));
-	if (!orig_pheno_d) {
-	  goto plink_ret_NOMEM;
-	}
-	memcpy(orig_pheno_d, pheno_d, unfiltered_indiv_ct * sizeof(double));
+      memcpy(orig_pheno_c, pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t));
+    } else if (pheno_d) {
+      orig_pheno_d = (double*)malloc(unfiltered_indiv_ct * sizeof(double));
+      if (!orig_pheno_d) {
+	goto plink_ret_NOMEM;
       }
+      memcpy(orig_pheno_d, pheno_d, unfiltered_indiv_ct * sizeof(double));
     }
   }
   count_genders(sex_nm, sex_male, unfiltered_indiv_ct, indiv_exclude, &uii, &ujj, &gender_unk_ct);
@@ -7312,22 +7310,6 @@ int32_t main(int32_t argc, char** argv) {
       if (!memcmp(argptr2, "ebug", 5)) {
 	g_debug_on = 1;
 	goto main_param_zero;
-#ifndef STABLE_BUILD
-      } else if (!memcmp(argptr2, "ebug-r2", 8)) {
-        if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 2)) {
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
-	if (!strcmp(argv[cur_arg + 1], argv[cur_arg + 2])) {
-	  logprint("Error: --debug-r2 parameters may not match.\n");
-          goto main_ret_INVALID_CMDLINE;
-	}
-        if (alloc_string(&ld_info.debug_r2_first, argv[cur_arg + 1])) {
-	  goto main_ret_NOMEM;
-	}
-        if (alloc_string(&ld_info.debug_r2_second, argv[cur_arg + 2])) {
-	  goto main_ret_NOMEM;
-	}
-#endif
       } else if (!memcmp(argptr2, "ata", 4)) {
 	if (load_rare || load_params) {
 	  goto main_ret_INVALID_CMDLINE_4;
