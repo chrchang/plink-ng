@@ -604,18 +604,19 @@ int32_t main(int32_t argc, char** argv) {
   while (0) {
   main_ret_HELP:
     fputs(
-"prettify v1.03 (14 Feb 2014)   Christopher Chang (chrchang@alumni.caltech.edu)\n\n"
+"prettify v1.04 (21 Feb 2014)   Christopher Chang (chrchang@alumni.caltech.edu)\n\n"
 "Takes a tab-and/or-space-delimited text table, and generates a space-delimited\n"
 "pretty-printed version.  Multibyte character encodings are not currently\n"
 "supported.\n\n"
 , stdout);
     disp_usage(stdout);
     fputs(
-"\nTo perform the simplest reverse conversions (spaces to one tab), you can use\n"
-"  cat [input filename] | tr -s ' ' '\\t' > [output filename] or\n"
-"  cat [in] | tr -s ' ' '\\t' | sed -E 's/^[[:space:]]|[[:space:]]$//g' > [out]\n"
-"(The latter strips leading and trailing spaces as well.)\n"
-"And for one-to-one conversion between spaces and tabs, omit the \"-s\".\n"
+"\nTo perform the simplest reverse conversion (multiple spaces to one tab), you\n"
+"can use\n"
+"  cat [input filename] | tr -s ' ' '\\t' > [output filename]\n"
+"For one-to-one conversion between spaces and tabs instead, omit the \"-s\".  And\n"
+"to strip leading and trailing tabs and spaces, try\n"
+"  cat [in] | sed 's/^[[:space:]]*//g' | sed 's/[[:space:]]*$//g' > [out]\n"
 , stdout);
     retval = RET_HELP;
     break;

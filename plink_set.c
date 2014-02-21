@@ -81,6 +81,72 @@ uint32_t interval_in_setdef(uint32_t* setdef, uint32_t marker_idx_start, uint32_
   }
 }
 
+void setdef_iter_init(uint32_t* setdef, uint32_t marker_ct, uint32_t start_idx, uint32_t* cur_idx_ptr, uint32_t* aux_ptr) {
+  uint32_t uii;
+  if (setdef[0] != 0xffffffffU) {
+    for (uii = 0; uii < setdef[0]; uii++) {
+      if (start_idx < setdef[uii * 2 + 2]) {
+	if (start_idx < setdef[uii * 2 + 1]) {
+	  start_idx = setdef[uii * 2 + 1];
+	}
+        *cur_idx_ptr = start_idx;
+        *aux_ptr = uii * 2 + 2;
+	return;
+      }
+    }
+    *cur_idx_ptr = setdef[uii * 2];
+    *aux_ptr = uii * 2;
+  } else {
+    // aux value may be redefined; just needs to be compatible with
+    // setdef_iter()
+    if (setdef[3]) {
+      *cur_idx_ptr = start_idx;
+      *aux_ptr = marker_ct - setdef[1];
+    } else {
+      if (start_idx <= setdef[1]) {
+	*cur_idx_ptr = setdef[1];
+      } else {
+        *cur_idx_ptr = start_idx;
+      }
+      *aux_ptr = setdef[2];
+    }
+  }
+}
+
+uint32_t setdef_iter(uint32_t* setdef, uint32_t* cur_idx_ptr, uint32_t* aux_ptr) {
+  // Iterator.  Returns 0 if end of set, 1 if *not* end.
+  // Assumes cur_idx and aux were initialized with setdef_iter_init(), and
+  // (after the first call) cur_idx is incremented right before this is called.
+  uint32_t cur_idx = *cur_idx_ptr;
+  uint32_t aux = *aux_ptr;
+  if (setdef[0] != 0xffffffffU) {
+    if (cur_idx < setdef[aux]) {
+      return 1;
+    } else if (aux < setdef[0] * 2) {
+      *cur_idx_ptr = setdef[aux + 1];
+      *aux_ptr = aux + 2;
+      return 1;
+    } else {
+      return 0;
+    }
+  } else if (cur_idx < setdef[1]) {
+    return 1; // only possible if setdef[3] set
+  } else {
+    cur_idx -= setdef[1];
+    if (cur_idx < setdef[2]) {
+      if (is_set((uintptr_t*)(&(setdef[4])), cur_idx)) {
+        return 1;
+      }
+      cur_idx = next_set((uintptr_t*)(&(setdef[4])), cur_idx, setdef[2]);
+      *cur_idx_ptr = cur_idx + setdef[1];
+      if (cur_idx < setdef[2]) {
+	return 1;
+      }
+    }
+    return (cur_idx < aux)? 1 : 0;
+  }
+}
+
 int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_extend, uint32_t collapse_group, uint32_t fail_on_no_sets, uint32_t c_prefix, uintptr_t subset_ct, char* sorted_subset_ids, uintptr_t max_subset_id_len, uint32_t* marker_pos, Chrom_info* chrom_info_ptr, uintptr_t* topsize_ptr, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_len_ptr, Make_set_range*** make_set_range_arr_ptr, uint64_t** range_sort_buf_ptr, const char* file_descrip) {
   // Called by extract_exclude_range(), define_sets() and clump_reports().
   // Assumes topsize has not been subtracted off wkspace_left.  (This remains
@@ -1649,6 +1715,41 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
   fclose_cond(outfile);
   wkspace_reset(wkspace_mark);
   return retval;
+}
+
+void unpack_set(uintptr_t marker_ct, uint32_t* setdef, uintptr_t* include_bitfield) {
+  uintptr_t marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
+  uint32_t range_ct = setdef[0];
+  uint32_t keep_outer;
+  uint32_t range_start;
+  uint32_t uii;
+  if (range_ct == 0xffffffffU) {
+    range_start = setdef[1];
+    range_ct = setdef[2];
+    keep_outer = setdef[3];
+    if (range_start) {
+      if (keep_outer) {
+        fill_ulong_one(include_bitfield, range_start / BITCT);
+      } else {
+        fill_ulong_zero(include_bitfield, range_start / BITCT);
+      }
+    }
+    memcpy(&(include_bitfield[range_start / BITCT]), (uintptr_t*)(&(setdef[4])), ((range_ct + 127) / 128) * 16);
+    uii = range_start + range_ct;
+    if (uii < marker_ct) {
+      if (keep_outer) {
+        fill_bits(include_bitfield, uii, marker_ct - uii);
+      } else {
+        fill_ulong_zero(&(include_bitfield[uii / BITCT]), marker_ctl - uii / BITCT);
+      }
+    }
+  } else {
+    fill_ulong_zero(include_bitfield, marker_ctl);
+    for (uii = 0; uii < range_ct; uii++) {
+      range_start = uii * 2 + 1;
+      fill_bits(include_bitfield, range_start, setdef[uii * 2 + 2] - range_start);
+    }
+  }
 }
 
 void unpack_set_unfiltered(uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* setdef, uintptr_t* new_exclude) {

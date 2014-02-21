@@ -123,12 +123,6 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 	goto load_pheno_ret_MISSING_TOKENS;
       }
       if (person_idx != -1) {
-#ifndef STABLE_BUILD
-	if (g_debug_on) {
-	  sprintf(logbuf, "Loading phenotype for sample %d (alphabetical position %d, affection = %u).\n", person_idx, id_map[(uint32_t)person_idx], affection);
-          logstr(logbuf);
-	}
-#endif
 	person_idx = id_map[(uint32_t)person_idx];
 	if (mpheno_col > 1) {
 	  bufptr = next_item_mult(bufptr, mpheno_col - 1);
@@ -137,12 +131,6 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 	  // not always an error
 	  return LOAD_PHENO_LAST_COL;
 	}
-#ifndef STABLE_BUILD
-	if (g_debug_on) {
-	  sprintf(logbuf, "Rest of line: %s", bufptr);
-          logstr(logbuf);
-	}
-#endif
 	if (affection) {
 	  if (eval_affection(bufptr, missing_pheno, missing_pheno_len, affection_01)) {
 	    if (is_missing_pheno(bufptr, missing_pheno, missing_pheno_len, affection_01)) {

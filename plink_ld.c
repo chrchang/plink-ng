@@ -7146,7 +7146,10 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   return retval;
 }
 
-int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_exclude, uintptr_t marker_ct, uint32_t* marker_idx_to_uidx, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, uint32_t** setdefs, char* outname, char* outname_end, char* marker_ids, uintptr_t max_marker_id_len, uint32_t*** ld_map_ptr) {
+uintptr_t* g_ld_union_bitfield;
+uintptr_t* g_ld_result_bitfield;
+
+int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_exclude, uintptr_t marker_ct, uint32_t* marker_idx_to_uidx, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_pnm, Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, uint32_t** setdefs, char* outname, char* outname_end, char* marker_ids, uintptr_t max_marker_id_len, uint32_t*** ld_map_ptr) {
   return 0;
   /*
   // Takes a bunch of set definitions, and determines which pairs of same-set
@@ -7158,20 +7161,167 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   // amount of "random" long-range LD, the memory requirement may be huge.
   FILE* outfile = NULL;
   uintptr_t topsize = 0;
+  uintptr_t marker_ctv = ((marker_ct + 127) / 128) * (128 / BITCT);
+  uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t max_set_id_len = sip->max_name_len;
+  uintptr_t founder_ct = popcount_longs(founder_pnm, unfiltered_indiv_ctl);
+  uintptr_t founder_ctl = (founder_ct + BITCT - 1) / BITCT;
+#ifdef __LP64__
+  uintptr_t founder_ctv = 2 * ((founder_ct + 127) / 128);
+#else
+  uintptr_t founder_ctv = founder_ctl;
+#endif
+  uintptr_t founder_ct_mld = (founder_ct + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
+  uint32_t founder_ct_mld_m1 = ((uint32_t)founder_ct_mld) - 1;
+#ifdef __LP64__
+  uintptr_t founder_ct_mld_rem = (MULTIPLEX_LD / 192) - (founder_ct_mld * MULTIPLEX_LD - founder_ct) / 192;
+#else
+  uintptr_t founder_ct_mld_rem = (MULTIPLEX_LD / 48) - (founder_ct_mld * MULTIPLEX_LD - founder_ct) / 48;
+#endif
+  uintptr_t founder_ct_192_long = founder_ct_mld_m1 * (MULTIPLEX_LD / BITCT2) + founder_ct_mld_rem * (192 / BITCT2);
+  uint32_t founder_trail_ct = founder_ct_192_long - founder_ctl * 2;
+  uint32_t marker_idx = 0;
   int32_t retval = 0;
   char charbuf[8];
+  uintptr_t* loadbuf;
+  uintptr_t* union_bitfield;
+  uintptr_t* geno1;
+  uintptr_t* geno_masks1;
+  uintptr_t* geno2;
+  uintptr_t* geno_masks2;
+  uintptr_t* result_bitfield;
+  uintptr_t* result_bitfield_ptr;
   uint32_t** ld_map;
+  uint32_t* cur_setdef;
+  uint32_t* cur_setdef2;
   char* sptr;
   char* wptr_start;
+  char* wptr;
+  uintptr_t memreq1;
+  uintptr_t memreq2;
+  uintptr_t minmem;
+  uintptr_t topsize_base;
+  uintptr_t idx1_block_size;
+  uintptr_t idx2_block_size;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  uint32_t thread_ct;
+  uint32_t block_idx1;
   uint32_t set_idx;
   uint32_t set_uidx;
+  uint32_t idx1_block_end;
+  uint32_t marker_idx2;
+  uint32_t setdef_incr_aux;
+  uint32_t setdef_incr_aux2;
+  uint32_t is_last_block;
   uint32_t uii;
+  if (!founder_ct) {
+    logprint("Error: Cannot construct LD map, since there are no founders with nonmissing\nphenotypes.  (--make-founders may come in handy here.)\n");
+    goto construct_ld_map_ret_INVALID_CMDLINE;
+  }
   ld_map = (uint32_t**)wkspace_alloc(marker_ct * sizeof(intptr_t));
   if (!ld_map) {
     goto construct_ld_map_ret_NOMEM;
   }
   *ld_map_ptr = ld_map;
+  // To avoid too much back-and-forth disk seeking for large datasets, we
+  // construct the LD map in blocks, using similar logic to the --r/--r2 and
+  // --fast-epistasis computations.
+  // 1. top_alloc space main window markers' raw data, bitfields for them
+  //    listing intersecting markers in front (i.e. we only look at the upper
+  //    right triangle of the LD matrix), and another union bitfield.
+  //    Break the union into secondary windows, and for each secondary window:
+  //    a. top_alloc secondary window markers' raw data
+  //    b. perform multithreaded LD calculations, saving results via in-place
+  //       clearing of the first markers' bitfields
+  //    Memory requirement per main window marker is:
+  //      96 bytes per 192 founders for raw data (rounded up)
+  //      32 bytes per 128 filtered markers (rounded up), for the results (16
+  //      working, 16 final)
+  //      16 extra bytes to ensure enough setdef compression workspace
+  //    Memory req. per secondary window marker is 96 bytes/192 founders.
+  //    To avoid false sharing, the number of markers assigned to each thread
+  //    (except the last one) is forced to a multiple of 4.
+  // 2. populate the bottom left triangle of the result matrix by referring to
+  //    earlier results
+  // 3. save final results for each marker in compressed setdef format at the
+  //    current workspace bottom
+  // 4. dump .ldset file if necessary
+  loadbuf = (uintptr_t*)top_alloc(&topsize, unfiltered_indiv_ct4);
+  if (!loadbuf) {
+    goto construct_ld_map_ret_NOMEM;
+  }
+  union_bitfield = (uintptr_t*)top_alloc(&topsize, marker_ctv * sizeof(intptr_t));
+  if (!union_bitfield) {
+    goto construct_ld_map_ret_NOMEM;
+  }
+  g_ld_union_bitfield = union_bitfield;
+  memreq2 = founder_ct_192_long * sizeof(intptr_t) * 2;
+  memreq1 = memreq2 + marker_ctv * sizeof(intptr_t) * 2 + 16;
+  minmem = memreq2 * BITCT;
+  if (minmem < memreq1 * 4) {
+    minmem = memreq1 * 4;
+  }
+  topsize_base = topsize;
+  do {
+    ulii = (wkspace_left - topsize) / 2;
+    if (ulii < minmem) {
+      goto construct_ld_map_ret_NOMEM;
+    }
+    idx1_block_size = (ulii / memreq1) & (~3);
+    if (idx1_block_size > marker_ct - marker_idx) {
+      idx1_block_size = marker_ct - marker_idx;
+    }
+    thread_ct = g_thread_ct;
+    if (thread_ct > (idx1_block_size + 3) / 4) {
+      thread_ct = (idx1_block_size + 3) / 4;
+    }
+    g_ld_thread_ct = thread_ct;
+    idx2_block_size = (ulii / memreq2) & (~(BITCT - 1));
+    if (idx2_block_size > marker_ct) {
+      idx2_block_size = marker_ct;
+    }
+    g_ld_idx1_block_size = idx1_block_size;
+    g_ld_idx2_block_size = idx2_block_size;
+    geno1 = (uintptr_t*)top_alloc(&topsize, idx1_block_size * founder_ct_192_long * sizeof(intptr_t));
+    geno_masks1 = (uintptr_t*)top_alloc(&topsize, idx1_block_size * founder_ct_192_long * sizeof(intptr_t));
+    geno2 = (uintptr_t*)top_alloc(&topsize, idx2_block_size * founder_ct_192_long * sizeof(intptr_t));
+    geno_masks2 = (uintptr_t*)top_alloc(&topsize, idx2_block_size * founder_ct_192_long * sizeof(intptr_t));
+    result_bitfield = (uintptr_t*)top_alloc(&topsize, idx1_block_size * marker_ctv * sizeof(intptr_t));
+    uljj = founder_trail_ct + 2;
+    for (ulii = 1; ulii <= idx1_block_size; ulii++) {
+      fill_ulong_zero(&(geno1[ulii * founder_ct_192_long - uljj]), uljj);
+      fill_ulong_zero(&(geno_masks1[ulii * founder_ct_192_long - uljj]), uljj);
+    }
+    for (ulii = 1; ulii <= idx2_block_size; ulii++) {
+      fill_ulong_zero(&(geno2[ulii * founder_ct_192_long - uljj]), uljj);
+      fill_ulong_zero(&(geno_masks2[ulii * founder_ct_192_long - uljj]), uljj);
+    }
+    fill_ulong_zero(result_bitfield, idx1_block_size * marker_ctv * sizeof(intptr_t));
+    g_ld_geno1 = geno1;
+    g_ld_geno_masks1 = geno_masks1;
+    g_ld_geno2 = geno2;
+    g_ld_geno_masks2 = geno_masks2;
+    g_ld_result_bitfield = result_bitfield;
+    set_uidx = 0;
+    idx1_block_end = marker_idx + idx1_block_size;
+    fill_ulong_zero(result_bitfield, marker_ctv * sizeof(intptr_t));
+    for (set_idx = 0; set_idx < set_ct; set_uidx++, set_idx++) {
+      next_set_unsafe_ck(set_incl, &set_uidx);
+      cur_setdef = setdefs[set_uidx];
+      setdef_iter_init(cur_setdef, marker_ct, marker_idx, &marker_idx2, &setdef_incr_aux);
+      if (setdef_iter(cur_setdef, &marker_idx2, &setdef_incr_aux) && (marker_idx2 < idx1_block_end)) {
+        fill_ulong_zero(union_bitfield, marker_ctv * sizeof(intptr_t));
+
+        do {
+          marker_idx2++;
+	} while (setdef_iter(cur_setdef, &marker_idx2, &setdef_incr_aux) && (marker_idx2 < idx1_block_end));
+      }
+    }
+    topsize = topsize_base; // "free" previous round of allocations
+    marker_idx = idx1_block_end;
+  } while (marker_idx < marker_ct);
   if (max_marker_id_len) {
     memcpy(charbuf, outname_end, 8);
     memcpy(outname_end, ".ldset", 7);
@@ -7181,13 +7331,29 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     memcpy(outname_end, charbuf, 8);
     set_uidx = 0;
     for (set_idx = 0; set_idx < set_ct; set_uidx++, set_idx++) {
-      next_set_unsafe(set_incl, &set_uidx);
+      next_set_unsafe_ck(set_incl, &set_uidx);
       sptr = &(sip->names[set_uidx * max_set_id_len]);
       uii = strlen(sptr);
-      wptr_start = memcpya(tbuf, sptr, ' ');
-      for () {
+      wptr_start = memcpyax(tbuf, sptr, uii, ' ');
+      cur_setdef = setdefs[set_uidx];
+      setdef_iter_init(cur_setdef, marker_ct, 0, &marker_idx, &setdef_incr_aux);
+      while (setdef_iter(cur_setdef, &marker_idx, &setdef_incr_aux)) {
+        wptr = strcpyax(wptr_start, &(marker_ids[marker_idx_to_uidx[marker_idx] * max_marker_id_len]), ' ');
+	if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	  goto construct_ld_map_ret_WRITE_FAIL;
+	}
+        cur_setdef2 = ld_map[marker_idx];
+        setdef_iter_init(cur_setdef2, marker_ct, 0, &marker_idx2, &setdef_incr_aux2);
+        while (setdef_iter(cur_setdef2, &marker_idx2, &setdef_incr_aux2)) {
+          fputs(&(marker_ids[marker_idx_to_uidx[marker_idx2] * max_marker_id_len]), outfile);
+          putc(' ', outfile);
+          marker_idx2++;
+	}
+        if (putc_checked('\n', outfile)) {
+	  goto construct_ld_map_ret_WRITE_FAIL;
+	}
+        marker_idx++;
       }
-      
     }
     if (fclose_null(&outfile)) {
       goto construct_ld_map_ret_WRITE_FAIL;
@@ -7205,6 +7371,9 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     break;
   construct_ld_map_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
+    break;
+  construct_ld_map_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
     break;
   }
   fclose_cond(outfile);

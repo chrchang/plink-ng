@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (20 Feb 2014)";
+  " (21 Feb 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -3248,8 +3248,9 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     wkspace_reset(wkspace_mark);
   }
 
-  if (gender_unk_ct && popcount_longs_exclude(pheno_nm, sex_nm, unfiltered_indiv_ctl)) {
-    if (!(sex_missing_pheno & ALLOW_NO_SEX)) {
+  if (gender_unk_ct && (!(sex_missing_pheno & ALLOW_NO_SEX))) {
+    uii = popcount_longs_exclude(pheno_nm, sex_nm, unfiltered_indiv_ctl);
+    if (uii) {
       if ((!sex_missing_pheno) && (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_WRITE_COVAR))) {
 	if (calculation_type & (~(CALC_MAKE_BED | CALC_RECODE | CALC_WRITE_COVAR))) {
 	  logprint("Error: When ambiguous-sex samples with phenotype data are present,\n--make-bed/--recode/--write-covar usually cannot be combined with other\ncommands.  Split them across multiple PLINK runs, or use\n--allow-no-sex/--must-have-sex.\n");
@@ -3260,6 +3261,9 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	// command
         bitfield_and(pheno_nm, sex_nm, unfiltered_indiv_ctl);
       }
+    }
+    if (uii || pheno_all || loop_assoc_fname) {
+      logprint("Warning: Ignoring phenotypes of missing-sex samples.  If you don't want those\nphenotypes to be ignored, use the --allow-no-sex flag.\n");
     }
   }
   if (misc_flags & MISC_PRUNE) {
@@ -3402,6 +3406,9 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
   bitfield_andnot(founder_info, indiv_exclude, unfiltered_indiv_ctl);
   bitfield_andnot(sex_nm, indiv_exclude, unfiltered_indiv_ctl);
+  if (gender_unk_ct) {
+    gender_unk_ct = indiv_ct - popcount_longs(sex_nm, unfiltered_indiv_ctl);
+  }
   bitfield_and(sex_male, sex_nm, unfiltered_indiv_ctl);
 
   pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
@@ -4019,23 +4026,6 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	} else if (retval) {
 	  goto plink_ret_1;
 	}
-#ifndef STABLE_BUILD
-	if (g_debug_on) {
-	  if (!outname_end[1]) {
-	    sprintf(logbuf, "Phenotype name: [unnamed #%u]\n", uii);
-	  } else {
-            sprintf(logbuf, "Phenotype name: %s\n", &(outname_end[1]));
-	  }
-	  logstr(logbuf);
-	  if (pheno_d) {
-            logstr("Type: quantitative\n");
-	  } else {
-            logstr("Type: case/control\n");
-	  }
-	  sprintf(logbuf, "Initial count: %" PRIuPTR "\n", popcount_longs(pheno_nm, unfiltered_indiv_ctl));
-	  logstr(logbuf);
-	}
-#endif
 	bitfield_andnot(pheno_nm, indiv_exclude, unfiltered_indiv_ctl);
 	if (gender_unk_ct && (!(sex_missing_pheno & ALLOW_NO_SEX))) {
 	  bitfield_and(pheno_nm, sex_nm, unfiltered_indiv_ctl);
@@ -4044,12 +4034,6 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	if (!pheno_nm_ct) {
 	  goto plink_skip_empty_pheno;
 	}
-#ifndef STABLE_BUILD
-	if (g_debug_on) {
-	  sprintf(logbuf, "Final count: %u\n", pheno_nm_ct);
-	  logstr(logbuf);
-	}
-#endif
 	if (!outname_end[1]) {
 	  outname_end[1] = 'P';
 	  outname_end2 = uint32_write(&(outname_end[2]), uii);
@@ -4063,7 +4047,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	if (pheno_d) {
 	  retval = qassoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_mperm_val, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, sex_male, hh_exists, perm_batch_size, sip);
 	} else {
-	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male, sip);
+	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, founder_info, sex_male, sip);
 	}
 	if (retval) {
 	  goto plink_ret_1;
@@ -11434,6 +11418,9 @@ int32_t main(int32_t argc, char** argv) {
 	    set_info.set_max = 1;
 	  }
 	}
+      } else if (!memcmp(argptr2, "et-r2-phase", 11)) {
+        logprint("Error: --set-r2-phase is provisionally retired.  Contact the developers if you\nneed this function.\n");
+	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "et-max", 5)) {
 	if (!set_info.fname) {
 	  sprintf(logbuf, "Error: --set-max must be used with --set/--make-set.%s", errstr_append);

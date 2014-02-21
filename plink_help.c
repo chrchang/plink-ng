@@ -1546,7 +1546,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --mperm-save     : Save best max(T) permutation test statistics.\n"
 "  --mperm-save-all : Save all max(T) permutation test statistics.\n"
 	       );
-    help_print("set-p\tset-r2\tset-max\tset-test\twrite-set-r2", &help_ctrl, 0,
+    help_print("set-p\tset-r2\tset-max\tset-test\twrite-set-r2\tset-r2-phase", &help_ctrl, 0,
 "  --set-p [p-val]      : Adjust set test significant variant p-value ceiling\n"
 "                         (default 0.05).\n"
 "  --set-r2 {v} <write> : Adjust set test significant variant pairwise r^2\n"
