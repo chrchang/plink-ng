@@ -128,8 +128,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
     goto load_oblig_missing_ret_READ_FAIL;
   }
   if (!max_cluster_id_len) {
-    sprintf(logbuf, "Warning: --oblig-missing ignored, since no valid blocks were defined in\n%s.\n", om_ip->indiv_fname);
-    logprintb();
+    LOGPRINTF("Warning: --oblig-missing ignored, since no valid blocks were defined in\n%s.\n", om_ip->indiv_fname);
     goto load_oblig_missing_ret_1;
   }
   wkspace_left -= topsize;
@@ -252,13 +251,11 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
     goto load_oblig_missing_ret_READ_FAIL;
   }
   if (missing_cluster_ct) {
-    sprintf(logbuf, "Warning: %" PRIuPTR " entr%s in %s had block IDs missing from\n%s.\n", missing_cluster_ct, (missing_cluster_ct == 1)? "y" : "ies", om_ip->marker_fname, om_ip->indiv_fname);
-    logprintb();
+    LOGPRINTF("Warning: %" PRIuPTR " entr%s in %s had block IDs missing from\n%s.\n", missing_cluster_ct, (missing_cluster_ct == 1)? "y" : "ies", om_ip->marker_fname, om_ip->indiv_fname);
   }
   om_ip->entry_ct = (uintptr_t)(zc_entries_end - zc_entries);
   if (!om_ip->entry_ct) {
-    sprintf(logbuf, "Warning: --oblig-missing ignored, since %s had no valid entries.\n", om_ip->marker_fname);
-    logprintb();
+    LOGPRINTF("Warning: --oblig-missing ignored, since %s had no valid entries.\n", om_ip->marker_fname);
     goto load_oblig_missing_ret_1;
   }
 
@@ -301,8 +298,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
     } while ((++loadbuf_ptr) < loadbuf_end);
     tot_missing += cluster_sizes[cluster_idx];
   } while (zc_entries < zc_entries_end);
-  sprintf(logbuf, "--oblig-missing: %" PRIu64 " call%s confirmed missing.\n", tot_missing, (tot_missing == 1)? "" : "s");
-  logprintb();
+  LOGPRINTF("--oblig-missing: %" PRIu64 " call%s confirmed missing.\n", tot_missing, (tot_missing == 1)? "" : "s");
   while (0) {
   load_oblig_missing_ret_NOMEM2:
     wkspace_left += topsize;
@@ -402,12 +398,10 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
     goto filter_indivs_file_ret_READ_FAIL;
   }
   if (!include_ct) {
-    sprintf(logbuf, "Error: All %s excluded by --filter.\n", g_species_plural);
-    logprintb();
+    LOGPRINTF("Error: All %s excluded by --filter.\n", g_species_plural);
     goto filter_indivs_file_ret_ALL_SAMPLES_EXCLUDED;
   }
-  sprintf(logbuf, "--filter: %" PRIuPTR " %s remaining.\n", include_ct, species_str(include_ct));
-  logprintb();
+  LOGPRINTF("--filter: %" PRIuPTR " %s remaining.\n", include_ct, species_str(include_ct));
   memcpy(indiv_exclude, indiv_exclude_new, unfiltered_indiv_ctl * sizeof(intptr_t));
   *indiv_exclude_ct_ptr = unfiltered_indiv_ct - include_ct;
 
@@ -618,15 +612,12 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   }
   *indiv_exclude_ct_ptr += removed_ct;
   if (*indiv_exclude_ct_ptr == unfiltered_indiv_ct) {
-    sprintf(logbuf, "Error: All %s removed due to missing genotype data (--mind).\nIDs written to %s.\n", g_species_plural, outname);
-    logprintb();
+    LOGPRINTF("Error: All %s removed due to missing genotype data (--mind).\nIDs written to %s.\n", g_species_plural, outname);
     goto mind_filter_ret_ALL_SAMPLES_EXCLUDED;
   }
-  sprintf(logbuf, "%u %s removed due to missing genotype data (--mind).\n", removed_ct, species_str(removed_ct));
-  logprintb();
+  LOGPRINTF("%u %s removed due to missing genotype data (--mind).\n", removed_ct, species_str(removed_ct));
   if (removed_ct) {
-    sprintf(logbuf, "ID%s written to %s.\n", (removed_ct == 1)? "" : "s", outname);
-    logprintb();
+    LOGPRINTF("ID%s written to %s.\n", (removed_ct == 1)? "" : "s", outname);
   }
   while (0) {
   mind_filter_ret_NOMEM:
@@ -1615,16 +1606,14 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   logprint(" done.\n");
   if (hethap_ct) {
     *outname_end = '\0';
-    sprintf(logbuf, "Warning: %" PRIu64 " het. haploid genotype%s present (see %s.hh).\n", hethap_ct, (hethap_ct == 1LLU)? "" : "s", outname);
-    logprintb();
+    LOGPRINTF("Warning: %" PRIu64 " het. haploid genotype%s present (see %s.hh).\n", hethap_ct, (hethap_ct == 1LLU)? "" : "s", outname);
   }
   if (nonmissing_nonmale_y) {
     logprint("Warning: Nonmissing nonmale Y chromosome genotype(s) present.\n");
     *hh_exists_ptr |= Y_FIX_NEEDED;
   }
   if (nonmissing_rate_tot <= 0.9999995 * ((double)((intptr_t)nonmissing_rate_tot_max))) {
-    sprintf(logbuf, "Total genotyping rate %sis %g.\n", indiv_exclude_ct? "in remaining individuals " : "", nonmissing_rate_tot / ((double)((intptr_t)nonmissing_rate_tot_max)));
-    logprintb();
+    LOGPRINTF("Total genotyping rate %sis %g.\n", indiv_exclude_ct? "in remaining individuals " : "", nonmissing_rate_tot / ((double)((intptr_t)nonmissing_rate_tot_max)));
   }
   while (0) {
   calc_freqs_and_hwe_ret_NOMEM:
@@ -1965,8 +1954,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
     goto write_missingness_reports_ret_WRITE_FAIL;
   }
   *outname_end = '\0';
-  sprintf(logbuf, "--missing: Individual missing data report written to %s.imiss, and\nvariant-based %smissing data report written to %s.lmiss.\n", outname, cluster_ct? "cluster-stratified " : "", outname);
-  logprintb();
+  LOGPRINTF("--missing: Individual missing data report written to %s.imiss, and\nvariant-based %smissing data report written to %s.lmiss.\n", outname, cluster_ct? "cluster-stratified " : "", outname);
   while (0) {
   write_missingness_reports_ret_NOMEM:
     retval = RET_NOMEM;

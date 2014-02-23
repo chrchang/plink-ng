@@ -93,8 +93,7 @@ void logprintb() {
 int32_t fopen_checked(FILE** target_ptr, const char* fname, const char* mode) {
   *target_ptr = fopen(fname, mode);
   if (!(*target_ptr)) {
-    sprintf(logbuf, errstr_fopen, fname);
-    logprintb();
+    LOGPRINTF(errstr_fopen, fname);
     return -1;
   }
   return 0;
@@ -114,8 +113,7 @@ int32_t fwrite_checked(const void* buf, size_t len, FILE* outfile) {
 int32_t gzopen_checked(gzFile* target_ptr, const char* fname, const char* mode) {
   *target_ptr = gzopen(fname, mode);
   if (!(*target_ptr)) {
-    sprintf(logbuf, errstr_fopen, fname);
-    logprintb();
+    LOGPRINTF(errstr_fopen, fname);
     return -1;
   }
   return 0;
@@ -4152,8 +4150,7 @@ int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfi
       if (tptr) {
         *tptr = ' ';
       }
-      sprintf(logbuf, "Error: Duplicate ID %s.\n", dup_id);
-      logprintb();
+      LOGPRINTF("Error: Duplicate ID %s.\n", dup_id);
       return RET_INVALID_FORMAT;
     }
   }
@@ -6646,24 +6643,16 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint3
       cmdline_pos = id_map[(uint32_t)ii];
       if (seen_idxs[cmdline_pos] != -1) {
         sprintf(logbuf, "Error: Duplicate --%s token in %s.\n", range_list_flag, file_descrip);
-        goto string_range_list_to_bitfield_ret_INVALID_FORMAT;
+        goto string_range_list_to_bitfield_ret_INVALID_FORMAT_2;
       }
       seen_idxs[cmdline_pos] = item_idx;
       if (cmdline_pos && range_list_ptr->starts_range[cmdline_pos - 1]) {
         if (seen_idxs[cmdline_pos - 1] == -1) {
           sprintf(logbuf, "Error: Second element of --%s range appears before first element in\n%s.\n", range_list_flag, file_descrip);
-          goto string_range_list_to_bitfield_ret_INVALID_CMDLINE;
+          goto string_range_list_to_bitfield_ret_INVALID_CMDLINE_2;
 	}
 	fill_bits(bitfield, seen_idxs[cmdline_pos - 1], (item_idx - seen_idxs[cmdline_pos - 1]) + 1);
-	if (g_debug_on) {
-	  sprintf(logbuf, "Debug: Including items #%u through #%u (up to '%s').\n", seen_idxs[cmdline_pos - 1] + 1, item_idx + 1, &(sorted_ids[((uint32_t)ii) * max_id_len]));
-          logprintb();
-	}
       } else if (!(range_list_ptr->starts_range[cmdline_pos])) {
-	if (g_debug_on) {
-	  sprintf(logbuf, "Debug: Including item #%u ('%s').\n", item_idx + 1, &(sorted_ids[((uint32_t)ii) * max_id_len]));
-	  logprintb();
-	}
 	SET_BIT(bitfield, item_idx);
       }
     }
@@ -6678,17 +6667,17 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint3
   }
   for (cmdline_pos = 0; cmdline_pos < name_ct; cmdline_pos++) {
     if (seen_idxs[cmdline_pos] == -1) {
-      goto string_range_list_to_bitfield_ret_INVALID_CMDLINE_2;
+      goto string_range_list_to_bitfield_ret_INVALID_CMDLINE_3;
     }
   }
   while (0) {
-  string_range_list_to_bitfield_ret_INVALID_CMDLINE_2:
+  string_range_list_to_bitfield_ret_INVALID_CMDLINE_3:
     sprintf(logbuf, "Error: Missing --%s token in %s.\n", range_list_flag, file_descrip);
-  string_range_list_to_bitfield_ret_INVALID_CMDLINE:
+  string_range_list_to_bitfield_ret_INVALID_CMDLINE_2:
     logprintb();
     retval = RET_INVALID_CMDLINE;
     break;
-  string_range_list_to_bitfield_ret_INVALID_FORMAT:
+  string_range_list_to_bitfield_ret_INVALID_FORMAT_2:
     logprintb();
     retval = RET_INVALID_FORMAT;
     break;
@@ -6739,7 +6728,7 @@ int32_t string_range_list_to_bitfield2(char* sorted_ids, uint32_t* id_map, uintp
     bufptr = &(names[param_idx * name_max_len]);
     ii = bsearch_str_nl(bufptr, sorted_ids, max_id_len, item_ct);
     if (ii == -1) {
-      goto string_range_list_to_bitfield2_ret_INVALID_CMDLINE_2;
+      goto string_range_list_to_bitfield2_ret_INVALID_CMDLINE_3;
     }
     item_uidx = id_map[(uint32_t)ii];
     if (starts_range[param_idx]) {
@@ -6747,12 +6736,12 @@ int32_t string_range_list_to_bitfield2(char* sorted_ids, uint32_t* id_map, uintp
       bufptr = &(names[param_idx * name_max_len]);
       ii = bsearch_str_nl(bufptr, sorted_ids, max_id_len, item_ct);
       if (ii == -1) {
-        goto string_range_list_to_bitfield2_ret_INVALID_CMDLINE_2;
+        goto string_range_list_to_bitfield2_ret_INVALID_CMDLINE_3;
       }
       item_uidx2 = id_map[(uint32_t)ii];
       if (item_uidx2 < item_uidx) {
 	sprintf(logbuf, "Error: Second element of --%s range appears before first.\n", range_list_flag);
-	goto string_range_list_to_bitfield2_ret_INVALID_CMDLINE;
+	goto string_range_list_to_bitfield2_ret_INVALID_CMDLINE_2;
       }
       clear_bits(bitfield_excl, item_uidx, item_uidx2 - item_uidx + 1);
     } else {
@@ -6760,9 +6749,9 @@ int32_t string_range_list_to_bitfield2(char* sorted_ids, uint32_t* id_map, uintp
     }
   }
   while (0) {
-  string_range_list_to_bitfield2_ret_INVALID_CMDLINE_2:
+  string_range_list_to_bitfield2_ret_INVALID_CMDLINE_3:
     sprintf(logbuf, "Error: --%s ID not found.\n", range_list_flag);
-  string_range_list_to_bitfield2_ret_INVALID_CMDLINE:
+  string_range_list_to_bitfield2_ret_INVALID_CMDLINE_2:
     logprintb();
     retval = RET_INVALID_CMDLINE;
     break;
@@ -7870,8 +7859,7 @@ int32_t open_and_size_string_list(char* fname, FILE** infile_ptr, uintptr_t* lis
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, *infile_ptr)) {
     if (!tbuf[MAXLINELEN - 1]) {
-      sprintf(logbuf, "Error: Pathologically long line in %s.\n", fname);
-      logprintb();
+      LOGPRINTF("Error: Pathologically long line in %s.\n", fname);
       goto open_and_size_string_list_ret_INVALID_FORMAT;
     }
     bufptr = skip_initial_spaces(tbuf);
@@ -7940,8 +7928,7 @@ int32_t open_and_skip_first_lines(FILE** infile_ptr, char* fname, char* loadbuf,
   while (lines_to_skip) {
     if (!fgets(loadbuf, loadbuf_size, *infile_ptr)) {
       if (feof(*infile_ptr)) {
-	sprintf(logbuf, "Error: Fewer lines than expected in %s.\n", fname);
-	logprintb();
+	LOGPRINTF("Error: Fewer lines than expected in %s.\n", fname);
 	return RET_INVALID_FORMAT;
       } else {
 	return RET_READ_FAIL;
@@ -7959,8 +7946,7 @@ int32_t load_to_first_token(FILE* infile, uintptr_t loadbuf_size, char comment_c
   while (fgets(loadbuf, loadbuf_size, infile)) {
     if (!(loadbuf[loadbuf_size - 1])) {
       if ((loadbuf_size == MAXLINELEN) || (loadbuf_size == MAXLINEBUFLEN)) {
-	sprintf(logbuf, "Error: Pathologically long line in %s.", file_descrip);
-	logprintb();
+	LOGPRINTF("Error: Pathologically long line in %s.", file_descrip);
 	return RET_INVALID_FORMAT;
       } else {
 	return RET_NOMEM;
@@ -7976,8 +7962,7 @@ int32_t load_to_first_token(FILE* infile, uintptr_t loadbuf_size, char comment_c
   if (!feof(infile)) {
     return RET_READ_FAIL;
   }
-  sprintf(logbuf, "Error: Empty %s.", file_descrip);
-  logprintb();
+  LOGPRINTF("Error: Empty %s.", file_descrip);
   return RET_INVALID_FORMAT;
 }
 
@@ -8032,7 +8017,7 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
     if (!(loadbuf[loadbuf_size - 1])) {
       if (loadbuf_size == MAXLINEBUFLEN) {
         sprintf(logbuf, "Error: Pathologically long line in %s.\n", fname);
-	goto scan_max_strlen_ret_INVALID_FORMAT;
+	goto scan_max_strlen_ret_INVALID_FORMAT_2;
       } else {
         goto scan_max_strlen_ret_NOMEM;
       }
@@ -8053,7 +8038,7 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
     if (no_more_items_kns(str2_ptr)) {
       // probably want option for letting this slide in the future
       sprintf(logbuf, "Error: Fewer tokens than expected in %s line.\n", fname);
-      goto scan_max_strlen_ret_INVALID_FORMAT;
+      goto scan_max_strlen_ret_INVALID_FORMAT_2;
     }
     cur_str_len = strlen_se(str1_ptr);
     if (cur_str_len >= max_str_len) {
@@ -8085,7 +8070,7 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
   scan_max_strlen_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  scan_max_strlen_ret_INVALID_FORMAT:
+  scan_max_strlen_ret_INVALID_FORMAT_2:
     logprintb();
     retval = RET_INVALID_FORMAT;
     break;
@@ -8131,7 +8116,7 @@ int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_p
     bufptr2 = next_item(bufptr);
     if (no_more_items_kns(bufptr2)) {
       sprintf(logbuf, "Error: Fewer tokens than expected in %s line.\n", fname);
-      goto scan_max_fam_indiv_strlen_ret_INVALID_FORMAT;
+      goto scan_max_fam_indiv_strlen_ret_INVALID_FORMAT_2;
     }
     cur_person_id_len = strlen_se(bufptr) + strlen_se(bufptr2) + 2;
     if (cur_person_id_len > max_person_id_len) {
@@ -8149,7 +8134,7 @@ int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_p
   scan_max_fam_indiv_strlen_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  scan_max_fam_indiv_strlen_ret_INVALID_FORMAT:
+  scan_max_fam_indiv_strlen_ret_INVALID_FORMAT_2:
     logprintb();
     retval = RET_INVALID_FORMAT;
     break;

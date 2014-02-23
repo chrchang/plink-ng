@@ -325,8 +325,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
     }
     if (is_set(already_seen, sorted_idx)) {
       idbuf[strlen_se(fam_id)] = ' ';
-      sprintf(logbuf, "Error: Duplicate individual %s in --within file.\n", idbuf);
-      logprintb();
+      LOGPRINTF("Error: Duplicate individual %s in --within file.\n", idbuf);
       goto load_clusters_ret_INVALID_FORMAT;
     }
     if (mwithin_col > 1) {
@@ -450,16 +449,14 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
 #endif
       }
     }
-    sprintf(logbuf, "--within: %" PRIuPTR " cluster%s loaded, covering a total of %" PRIuPTR " %s.\n", cluster_ct, (cluster_ct == 1)? "" : "s", assigned_ct, species_str(assigned_ct));
-    logprintb();
+    LOGPRINTF("--within: %" PRIuPTR " cluster%s loaded, covering a total of %" PRIuPTR " %s.\n", cluster_ct, (cluster_ct == 1)? "" : "s", assigned_ct, species_str(assigned_ct));
     if (indiv_exclude_new) {
       ulii = popcount_longs(indiv_exclude_new, unfiltered_indiv_ctl);
       if (ulii != indiv_exclude_ct) {
 	memcpy(indiv_exclude, indiv_exclude_new, unfiltered_indiv_ctl * sizeof(intptr_t));
 	*indiv_exclude_ct_ptr = ulii;
 	ulii -= indiv_exclude_ct;
-	sprintf(logbuf, "%" PRIuPTR " %s removed by cluster filter(s).\n", ulii, species_str(ulii));
-        logprintb();
+	LOGPRINTF("%" PRIuPTR " %s removed by cluster filter(s).\n", ulii, species_str(ulii));
       }
     }
   } else {
@@ -589,8 +586,7 @@ int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_in
   if (fclose_null(&outfile)) {
     goto write_cluster_ret_WRITE_FAIL;
   }
-  sprintf(logbuf, "Pruned cluster assignments written to %s.\n", outname);
-  logprintb();
+  LOGPRINTF("Pruned cluster assignments written to %s.\n", outname);
   while (0) {
   write_cluster_ret_NOMEM:
     retval = RET_NOMEM;
@@ -996,8 +992,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
     tbuf[MAXLINELEN - 1] = ' ';
     while (fgets(tbuf, MAXLINELEN, id_file)) {
       if (!tbuf[MAXLINELEN - 1]) {
-        sprintf(logbuf, "Error: Pathologically long line in %s.\n", id_fname);
-        logprintb();
+        LOGPRINTF("Error: Pathologically long line in %s.\n", id_fname);
         goto read_dists_ret_INVALID_FORMAT;
       }
       fam_id = skip_initial_spaces(tbuf);
@@ -1065,8 +1060,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
   }
   fpos = (((uint64_t)id_entry_ct) * (id_entry_ct - 1)) * (sizeof(double) / 2);
   if (ftello(dist_file) != (int64_t)fpos) {
-    sprintf(logbuf, "Error: Invalid --read-dists filesize (%" PRIu64 " bytes expected).\n", fpos);
-    logprintb();
+    LOGPRINTF("Error: Invalid --read-dists filesize (%" PRIu64 " bytes expected).\n", fpos);
     goto read_dists_ret_INVALID_FORMAT;
   }
   rewind(dist_file);
@@ -1166,8 +1160,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
     }
   }
   if (for_cluster_flag != 2) {
-    sprintf(logbuf, "--read-dists: %" PRIuPTR " values loaded%s.\n", (indiv_ct * (indiv_ct - 1)) / 2, for_cluster_flag? " for --cluster/--neighbor" : "");
-    logprintb();
+    LOGPRINTF("--read-dists: %" PRIuPTR " values loaded%s.\n", (indiv_ct * (indiv_ct - 1)) / 2, for_cluster_flag? " for --cluster/--neighbor" : "");
   }
   while (0) {
   read_dists_ret_NOMEM:
@@ -1351,8 +1344,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
     retval = RET_READ_FAIL;
     break;
   read_genome_ret_INVALID_FORMAT_4:
-    sprintf(logbuf, "Error: Fewer tokens than expected in %s line.\n", read_genome_fname);
-    logprintb();
+    LOGPRINTF("Error: Fewer tokens than expected in %s line.\n", read_genome_fname);
     retval = RET_INVALID_FORMAT;
     break;
   read_genome_ret_INVALID_FORMAT_3:
@@ -1831,8 +1823,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       logprint("Warning: Initial cluster assignment violates --qmatch constraint.\n");
     }
   }
-  sprintf(logbuf, "--%smatch constraints applied.\n", cp->match_fname? (cp->qmatch_fname? "match and q" : "") : "q");
-  logprintb();
+  LOGPRINTF("--%smatch constraints applied.\n", cp->match_fname? (cp->qmatch_fname? "match and q" : "") : "q");
   while (0) {
   cluster_enforce_match_ret_NOMEM:
     retval = RET_NOMEM;
@@ -2859,8 +2850,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
     goto mds_plot_ret_NOMEM;
   }
   if ((indiv_ct > 5000) && (!is_mds_cluster) && (final_cluster_ct < indiv_ct) && (final_cluster_ct > 1)) {
-    sprintf(logbuf, "Warning: Per-individual --mds-plot can be very slow with over 5000 %s.\nConsider using the 'by-cluster' modifier.\n", g_species_plural);
-    logprintb();
+    LOGPRINTF("Warning: Per-individual --mds-plot can be very slow with over 5000 %s.\nConsider using the 'by-cluster' modifier.\n", g_species_plural);
   }
   for (clidx1 = 0; clidx1 < cur_cluster_ct; clidx1++) {
     clidx2 = cur_cluster_remap[clidx1];
@@ -2961,8 +2951,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
     dim_ct = ulii;
   }
 
-  sprintf(logbuf, "Performing multidimensional scaling analysis (%u dimension%s)...", dim_ct, (dim_ct == 1)? "" : "s");
-  logprintb();
+  LOGPRINTF("Performing multidimensional scaling analysis (%u dimension%s)...", dim_ct, (dim_ct == 1)? "" : "s");
   fflush(stdout);
 
   // no need to fill upper right

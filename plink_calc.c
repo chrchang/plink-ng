@@ -2263,14 +2263,12 @@ void print_pheno_stdev(double* pheno_d, uint32_t indiv_ct) {
     reg_tot_x += dxx;
     reg_tot_xx += dxx * dxx;
   }
-  sprintf(logbuf, "Phenotype stdev: %g\n", sqrt((reg_tot_xx - reg_tot_x * reg_tot_x / indiv_ct) / (indiv_ct - 1)));
-  logprintb();
+  LOGPRINTF("Phenotype stdev: %g\n", sqrt((reg_tot_xx - reg_tot_x * reg_tot_x / indiv_ct) / (indiv_ct - 1)));
 }
 
 uint32_t set_default_jackknife_d(uint32_t ct) {
   uint32_t dd = (uint32_t)pow((double)ct, 0.600000000001);
-  sprintf(logbuf, "Setting d=%u for jackknife.\n", dd);
-  logprintb();
+  LOGPRINTF("Setting d=%u for jackknife.\n", dd);
   return dd;
 }
 
@@ -2352,10 +2350,8 @@ int32_t regress_rel_main(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
   g_reg_tot_xx = reg_tot_xx;
   g_reg_tot_yy = reg_tot_yy;
   trimatrix_size_recip = 1.0 / (double)trimatrix_size;
-  sprintf(logbuf, "Regression slope (y = genomic relationship, x = avg phenotype): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y * trimatrix_size_recip) / (reg_tot_xx - reg_tot_x * reg_tot_x * trimatrix_size_recip));
-  logprintb();
-  sprintf(logbuf, "                 (y = avg phenotype, x = genomic relationship): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y * trimatrix_size_recip) / (reg_tot_yy - reg_tot_y * reg_tot_y * trimatrix_size_recip));
-  logprintb();
+  LOGPRINTF("Regression slope (y = genomic relationship, x = avg phenotype): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y * trimatrix_size_recip) / (reg_tot_xx - reg_tot_x * reg_tot_x * trimatrix_size_recip));
+  LOGPRINTF("                 (y = avg phenotype, x = genomic relationship): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y * trimatrix_size_recip) / (reg_tot_yy - reg_tot_y * reg_tot_y * trimatrix_size_recip));
   g_jackknife_iters = (regress_rel_iters + g_thread_ct - 1) / g_thread_ct;
   if (regress_rel_d) {
     g_jackknife_d = regress_rel_d;
@@ -2390,10 +2386,8 @@ int32_t regress_rel_main(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
   }
   ulii = g_jackknife_iters * g_thread_ct;
   putchar('\r');
-  sprintf(logbuf, "Jackknife s.e. (y = genomic relationship): %g\n", sqrt(((indiv_ct - g_jackknife_d) / (double)g_jackknife_d) * (dxxsq - dxx * dxx / (double)ulii) / ((double)ulii - 1)));
-  logprintb();
-  sprintf(logbuf, "               (y = phenotype): %g\n", sqrt(((indiv_ct - g_jackknife_d) / (double)g_jackknife_d) * (dyysq - dyy * dyy / (double)ulii) / ((double)ulii - 1)));
-  logprintb();
+  LOGPRINTF("Jackknife s.e. (y = genomic relationship): %g\n", sqrt(((indiv_ct - g_jackknife_d) / (double)g_jackknife_d) * (dxxsq - dxx * dxx / (double)ulii) / ((double)ulii - 1)));
+  LOGPRINTF("               (y = phenotype): %g\n", sqrt(((indiv_ct - g_jackknife_d) / (double)g_jackknife_d) * (dyysq - dyy * dyy / (double)ulii) / ((double)ulii - 1)));
   wkspace_reset(wkspace_mark);
   return 0;
 }
@@ -2693,8 +2687,7 @@ int32_t calc_unrelated_herit(uint64_t calculation_type, Rel_info* relip, uintptr
     }
   }
   reml_em_one_trait(g_rel_dists, pheno_ptr, &unrelated_herit_covg, &unrelated_herit_covr, unrelated_herit_tol, is_strict);
-  sprintf(logbuf, "h^2 estimate: %g\n", unrelated_herit_covg);
-  logprintb();
+  LOGPRINTF("h^2 estimate: %g\n", unrelated_herit_covg);
   return 0;
 }
 
@@ -2933,11 +2926,9 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
       *row_ptr++ = rel_base[uljj * pheno_nm_ct + ulii];
     }
   }
-  sprintf(logbuf, "--unrelated-heritability: %" PRIuPTR " phenotypes loaded.\n", pheno_nm_ct);
-  logprintb();
+  LOGPRINTF("--unrelated-heritability: %" PRIuPTR " phenotypes loaded.\n", pheno_nm_ct);
   reml_em_one_trait(matrix_wkbase, pheno_ptr, &unrelated_herit_covg, &unrelated_herit_covr, unrelated_herit_tol, is_strict);
-  sprintf(logbuf, "h^2 estimate: %g\n", unrelated_herit_covg);
-  logprintb();
+  LOGPRINTF("h^2 estimate: %g\n", unrelated_herit_covg);
   while (0) {
   unrelated_herit_batch_ret_NOMEM2:
     wkspace_left += topsize;
@@ -3153,40 +3144,24 @@ int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfi
 
   fputs("\r                                         \r", stdout);
   logprint("--ibs-test results:\n");
-  sprintf(logbuf, "  Between-group IBS (mean, SD)   = %g, %g\n", ctrl_case_mean, sqrt(ctrl_case_var / (ctrl_case_ct - 1)));
-  logprintb();
-  sprintf(logbuf, "  In-group (case) IBS (mean, SD) = %g, %g\n", case_case_mean, sqrt(case_case_var / (case_case_ct - 1)));
-  logprintb();
-  sprintf(logbuf, "  In-group (ctrl) IBS (mean, SD) = %g, %g\n", ctrl_ctrl_mean, sqrt(ctrl_ctrl_var / (ctrl_ctrl_ct - 1)));
-  logprintb();
-  sprintf(logbuf, "  Approximate proportion of variance between group = %g\n", between_ssq / total_ssq);
-  logprintb();
+  LOGPRINTF("  Between-group IBS (mean, SD)   = %g, %g\n", ctrl_case_mean, sqrt(ctrl_case_var / (ctrl_case_ct - 1)));
+  LOGPRINTF("  In-group (case) IBS (mean, SD) = %g, %g\n", case_case_mean, sqrt(case_case_var / (case_case_ct - 1)));
+  LOGPRINTF("  In-group (ctrl) IBS (mean, SD) = %g, %g\n", ctrl_ctrl_mean, sqrt(ctrl_ctrl_var / (ctrl_ctrl_ct - 1)));
+  LOGPRINTF("  Approximate proportion of variance between group = %g\n", between_ssq / total_ssq);
   perm_ct_recip = 1.0 / ((double)perm_ct);
   fputs("  IBS group-difference empirical p-values:\n", stdout);
-  sprintf(logbuf, "     T1: Case/control less similar                p = %g\n", (perm_test[0]) * perm_ct_recip);
-  logprintb();
-  sprintf(logbuf, "     T2: Case/control more similar                p = %g\n\n", (perm_ct - perm_test[0]) * perm_ct_recip);
-  logprintb();
-  sprintf(logbuf, "     T3: Case/case less similar than ctrl/ctrl    p = %g\n", (perm_test[1]) * perm_ct_recip);
-  logprintb();
-  sprintf(logbuf, "     T4: Case/case more similar than ctrl/ctrl    p = %g\n\n", (perm_ct - perm_test[1]) * perm_ct_recip);
-  logprintb();
-  sprintf(logbuf, "     T5: Case/case less similar                   p = %g\n", (perm_test[2]) * perm_ct_recip);
-  logprintb();
-  sprintf(logbuf, "     T6: Case/case more similar                   p = %g\n\n", (perm_ct - perm_test[2]) * perm_ct_recip);
-  logprintb();
-  sprintf(logbuf, "     T7: Control/control less similar             p = %g\n", (perm_test[3]) * perm_ct_recip);
-  logprintb();
-  sprintf(logbuf, "     T8: Control/control more similar             p = %g\n\n", (perm_ct - perm_test[3]) * perm_ct_recip);
-  logprintb();
-  sprintf(logbuf, "     T9: Case/case less similar than case/ctrl    p = %g\n", (perm_test[4]) * perm_ct_recip);
-  logprintb();
-  sprintf(logbuf, "    T10: Case/case more similar than case/ctrl    p = %g\n\n", (perm_ct - perm_test[4]) * perm_ct_recip);
-  logprintb();
-  sprintf(logbuf, "    T11: Ctrl/ctrl less similar than case/ctrl    p = %g\n", (perm_test[5]) * perm_ct_recip);
-  logprintb();
-  sprintf(logbuf, "    T12: Ctrl/ctrl more similar than case/ctrl    p = %g\n", (perm_ct - perm_test[5]) * perm_ct_recip);
-  logprintb();
+  LOGPRINTF("     T1: Case/control less similar                p = %g\n", (perm_test[0]) * perm_ct_recip);
+  LOGPRINTF("     T2: Case/control more similar                p = %g\n\n", (perm_ct - perm_test[0]) * perm_ct_recip);
+  LOGPRINTF("     T3: Case/case less similar than ctrl/ctrl    p = %g\n", (perm_test[1]) * perm_ct_recip);
+  LOGPRINTF("     T4: Case/case more similar than ctrl/ctrl    p = %g\n\n", (perm_ct - perm_test[1]) * perm_ct_recip);
+  LOGPRINTF("     T5: Case/case less similar                   p = %g\n", (perm_test[2]) * perm_ct_recip);
+  LOGPRINTF("     T6: Case/case more similar                   p = %g\n\n", (perm_ct - perm_test[2]) * perm_ct_recip);
+  LOGPRINTF("     T7: Control/control less similar             p = %g\n", (perm_test[3]) * perm_ct_recip);
+  LOGPRINTF("     T8: Control/control more similar             p = %g\n\n", (perm_ct - perm_test[3]) * perm_ct_recip);
+  LOGPRINTF("     T9: Case/case less similar than case/ctrl    p = %g\n", (perm_test[4]) * perm_ct_recip);
+  LOGPRINTF("    T10: Case/case more similar than case/ctrl    p = %g\n\n", (perm_ct - perm_test[4]) * perm_ct_recip);
+  LOGPRINTF("    T11: Ctrl/ctrl less similar than case/ctrl    p = %g\n", (perm_test[5]) * perm_ct_recip);
+  LOGPRINTF("    T12: Ctrl/ctrl more similar than case/ctrl    p = %g\n", (perm_ct - perm_test[5]) * perm_ct_recip);
 
   while (0) {
   ibs_test_calc_ret_NOMEM:
@@ -3346,12 +3321,9 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
     dzz = g_reg_tot_y / dww;
     dll_sd = sqrt((dll_ssq / dww - dzz * dzz) / (dww - 1.0));
   }
-  sprintf(logbuf, "  Mean (sd), median dists between 2x affected     : %g (%g), %g\n", dxx, dhh_sd, hh_med);
-  logprintb();
-  sprintf(logbuf, "  Mean (sd), median dists between aff. and unaff. : %g (%g), %g\n", dyy, dhl_sd, lh_med);
-  logprintb();
-  sprintf(logbuf, "  Mean (sd), median dists between 2x unaffected   : %g (%g), %g\n\n", dzz, dll_sd, ll_med);
-  logprintb();
+  LOGPRINTF("  Mean (sd), median dists between 2x affected     : %g (%g), %g\n", dxx, dhh_sd, hh_med);
+  LOGPRINTF("  Mean (sd), median dists between aff. and unaff. : %g (%g), %g\n", dyy, dhl_sd, lh_med);
+  LOGPRINTF("  Mean (sd), median dists between 2x unaffected   : %g (%g), %g\n\n", dzz, dll_sd, ll_med);
   if (2 * g_jackknife_d >= (g_case_ct + g_ctrl_ct)) {
     logprint("Delete-d jackknife skipped because d is too large.\n");
   } else {
@@ -3417,14 +3389,11 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
     }
     putchar('\r');
     dxx = g_calc_result[0][0] - g_calc_result[0][1];
-    sprintf(logbuf, "  AA mean - AU mean avg difference (s.e.): %g (%g)\n", dxx, sqrt(((g_case_ct + g_ctrl_ct - g_jackknife_d) / ((double)g_jackknife_d)) * (g_calc_result[0][3] + g_calc_result[0][4] - 2 * g_calc_result[0][6] - dxx * dxx)));
-    logprintb();
+    LOGPRINTF("  AA mean - AU mean avg difference (s.e.): %g (%g)\n", dxx, sqrt(((g_case_ct + g_ctrl_ct - g_jackknife_d) / ((double)g_jackknife_d)) * (g_calc_result[0][3] + g_calc_result[0][4] - 2 * g_calc_result[0][6] - dxx * dxx)));
     dxx = g_calc_result[0][0] - g_calc_result[0][2];
-    sprintf(logbuf, "  AA mean - UU mean avg difference (s.e.): %g (%g)\n", dxx, sqrt(((g_case_ct + g_ctrl_ct - g_jackknife_d) / ((double)g_jackknife_d)) * (g_calc_result[0][3] + g_calc_result[0][5] - 2 * g_calc_result[0][7] - dxx * dxx)));
-    logprintb();
+    LOGPRINTF("  AA mean - UU mean avg difference (s.e.): %g (%g)\n", dxx, sqrt(((g_case_ct + g_ctrl_ct - g_jackknife_d) / ((double)g_jackknife_d)) * (g_calc_result[0][3] + g_calc_result[0][5] - 2 * g_calc_result[0][7] - dxx * dxx)));
     dxx = g_calc_result[0][1] - g_calc_result[0][2];
-    sprintf(logbuf, "  AU mean - UU mean avg difference (s.e.): %g (%g)\n", dxx, sqrt(((g_case_ct + g_ctrl_ct - g_jackknife_d) / ((double)g_jackknife_d)) * (g_calc_result[0][4] + g_calc_result[0][5] - 2 * g_calc_result[0][8] - dxx * dxx)));
-    logprintb();
+    LOGPRINTF("  AU mean - UU mean avg difference (s.e.): %g (%g)\n", dxx, sqrt(((g_case_ct + g_ctrl_ct - g_jackknife_d) / ((double)g_jackknife_d)) * (g_calc_result[0][4] + g_calc_result[0][5] - 2 * g_calc_result[0][8] - dxx * dxx)));
   }
   while (0) {
   groupdist_calc_ret_NOMEM:
@@ -3938,8 +3907,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
   }
   *outname_end = '\0';
   putchar('\r');
-  sprintf(logbuf, "Principal component regression residuals and %sphenotype Z-scores %s%s.gen and %s.sample.\n", regress_pcs_sex_specific? "sex-specific " : "", regress_pcs_sex_specific? "\nwritten to " : "written to\n", outname, outname);
-  logprintb();
+  LOGPRINTF("Principal component regression residuals and %sphenotype Z-scores %s%s.gen and %s.sample.\n", regress_pcs_sex_specific? "sex-specific " : "", regress_pcs_sex_specific? "\nwritten to " : "written to\n", outname, outname);
   wkspace_reset(wkspace_mark);
   while (0) {
   calc_regress_pcs_ret_NOMEM:
@@ -4765,8 +4733,8 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  goto distance_d_write_ret_1;
 	}
       }
-      sprintf(logbuf, "\rDistances (allele counts) written to %s.\n", outname);
-      logprintb();
+      putchar('\r');
+      LOGPRINTF("Distances (allele counts) written to %s.\n", outname);
       g_pct = 1;
     }
     if (write_1mibs_matrix) {
@@ -4803,8 +4771,8 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  goto distance_d_write_ret_1;
 	}
       }
-      sprintf(logbuf, "\rDistances (proportions) written to %s.\n", outname);
-      logprintb();
+      putchar('\r');
+      LOGPRINTF("Distances (proportions) written to %s.\n", outname);
       g_pct = 1;
     }
     if (write_ibs_matrix) {
@@ -4843,8 +4811,8 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  goto distance_d_write_ret_1;
 	}
       }
-      sprintf(logbuf, "\rIBS matrix written to %s.\n", outname);
-      logprintb();
+      putchar('\r');
+      LOGPRINTF("IBS matrix written to %s.\n", outname);
     }
   }
   while (0) {
@@ -5265,8 +5233,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   // subtract X/MT/haploid markers from marker_ct
   ukk = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
   if (ukk) {
-    sprintf(logbuf, "Excluding %u variant%s on non-autosomes from IBD calculation.\n", ukk, (ukk == 1)? "" : "s");
-    logprintb();
+    LOGPRINTF("Excluding %u variant%s on non-autosomes from IBD calculation.\n", ukk, (ukk == 1)? "" : "s");
     marker_ct -= ukk;
   }
   do {
@@ -5523,8 +5490,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
       goto calc_genome_ret_WRITE_FAIL;
     }
     putchar('\r');
-    sprintf(logbuf, "IBS matrix written to %s.\n", outname);
-    logprintb();
+    LOGPRINTF("IBS matrix written to %s.\n", outname);
     strcpy(outname_end, ".mibs.id");
     retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
     if (retval) {
@@ -5570,8 +5536,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
       goto calc_genome_ret_WRITE_FAIL;
     }
     putchar('\r');
-    sprintf(logbuf, "Distances (proportions) written to %s.\n", outname);
-    logprintb();
+    LOGPRINTF("Distances (proportions) written to %s.\n", outname);
     strcpy(outname_end, ".mdist.id");
     retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
     if (retval) {
@@ -5629,8 +5594,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
     }
   }
   putchar('\r');
-  sprintf(logbuf, "Finished writing %s.\n", outname);
-  logprintb();
+  LOGPRINTF("Finished writing %s.\n", outname);
   while (0) {
   calc_genome_ret_NOMEM:
     retval = RET_NOMEM;
@@ -5669,7 +5633,7 @@ inline void rel_cut_arr_dec(int32_t* rel_ct_arr_elem, uint32_t* exactly_one_rel_
 }
 
 int32_t do_rel_cutoff(uint64_t calculation_type, double rel_cutoff, double* rel_ibc, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* outname, char* outname_end, uintptr_t unfiltered_indiv_ct, char* person_ids, uintptr_t max_person_id_len) {
-  int32_t indivs_excluded = 0;
+  uint32_t indivs_excluded = 0;
   uint32_t exactly_one_rel_ct = 0;
   uintptr_t indiv_ct = unfiltered_indiv_ct - (*indiv_exclude_ct_ptr);
   unsigned char* wkspace_mark = wkspace_base;
@@ -5836,16 +5800,14 @@ int32_t do_rel_cutoff(uint64_t calculation_type, double rel_cutoff, double* rel_
       }
     }
   }
-  sprintf(logbuf, "%d %s excluded by --rel-cutoff.\n", indivs_excluded, species_str(indivs_excluded));
-  logprintb();
+  LOGPRINTF("%u %s excluded by --rel-cutoff.\n", indivs_excluded, species_str(indivs_excluded));
   if (!(calculation_type & (CALC_RELATIONSHIP | CALC_GDISTANCE_MASK))) {
     strcpy(outname_end, ".rel.id");
     retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
     if (retval) {
       return retval;
     }
-    sprintf(logbuf, "Remaining individual IDs written to %s.\n", outname);
-    logprintb();
+    LOGPRINTF("Remaining individual IDs written to %s.\n", outname);
   }
   wkspace_reset(wkspace_mark);
   return 0;
@@ -6048,8 +6010,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   int32_t cur_prune;
   ulii = (uintptr_t)(grmname_end - grmname);
   if ((ulii == (uintptr_t)(outname_end - outname)) && (!memcmp(grmname, outname, ulii))) {
-    sprintf(logbuf, "Error: --rel-cutoff input and output ID filenames cannot match.%s\n", strcmp(outname, PROG_NAME_STR)? "" : "  (Use --out.)");
-    logprintb();
+    LOGPRINTF("Error: --rel-cutoff input and output ID filenames cannot match.%s\n", strcmp(outname, PROG_NAME_STR)? "" : "  (Use --out.)");
     goto rel_cutoff_batch_ret_INVALID_CMDLINE;
   }
   memcpy(grmname_end, ".grm.id", 8);
@@ -6210,8 +6171,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
     cur_gzfile = NULL;
   }
   putchar('\r');
-  sprintf(logbuf, "%s read complete.  Pruning.\n", grmname);
-  logprintb();
+  LOGPRINTF("%s read complete.  Pruning.\n", grmname);
 
   // would prefer to just call do_rel_cutoff(), but unfortunately that
   // interferes with the intended "handle extra-large datasets" mission of this
@@ -6399,10 +6359,8 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   fclose_null(&idfile);
   fclose_null(&outfile);
 
-  sprintf(logbuf, "%d %s excluded by --rel-cutoff.\n", indivs_excluded, species_str(indivs_excluded));
-  logprintb();
-  sprintf(logbuf, "Remaining individual IDs written to %s.\n", outname);
-  logprintb();
+  LOGPRINTF("%u %s excluded by --rel-cutoff.\n", indivs_excluded, species_str(indivs_excluded));
+  LOGPRINTF("Remaining individual IDs written to %s.\n", outname);
   if (rel_calc_type & (REL_CALC_GRM | REL_CALC_GRM_BIN)) {
     if (load_grm_bin) {
       memcpy(grmname_end, ".grm.bin", 9);
@@ -6540,8 +6498,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
       }
     }
     putchar('\r');
-    sprintf(logbuf, "Pruned relationship matrix written to %s.\n", outname);
-    logprintb();
+    LOGPRINTF("Pruned relationship matrix written to %s.\n", outname);
   }
   retval = 0;
   while (0) {
@@ -6579,7 +6536,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
 }
 
 int32_t do_rel_cutoff_f(uint64_t calculation_type, float rel_cutoff, float* rel_ibc, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* outname, char* outname_end, uintptr_t unfiltered_indiv_ct, char* person_ids, uintptr_t max_person_id_len) {
-  int32_t indivs_excluded = 0;
+  uint32_t indivs_excluded = 0;
   uint32_t exactly_one_rel_ct = 0;
   uintptr_t indiv_ct = unfiltered_indiv_ct - (*indiv_exclude_ct_ptr);
   unsigned char* wkspace_mark = wkspace_base;
@@ -6737,16 +6694,14 @@ int32_t do_rel_cutoff_f(uint64_t calculation_type, float rel_cutoff, float* rel_
       }
     }
   }
-  sprintf(logbuf, "%d %s excluded by --rel-cutoff.\n", indivs_excluded, species_str(indivs_excluded));
-  logprintb();
+  LOGPRINTF("%u %s excluded by --rel-cutoff.\n", indivs_excluded, species_str(indivs_excluded));
   if (!(calculation_type & (CALC_RELATIONSHIP | CALC_GDISTANCE_MASK))) {
     strcpy(outname_end, ".rel.id");
     retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
     if (retval) {
       return retval;
     }
-    sprintf(logbuf, "Remaining individual IDs written to %s.\n", outname);
-    logprintb();
+    LOGPRINTF("Remaining individual IDs written to %s.\n", outname);
   }
   wkspace_reset(wkspace_mark);
   return 0;
@@ -7086,8 +7041,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       retval = RET_INVALID_CMDLINE;
       goto calc_rel_ret_1;
     }
-    sprintf(logbuf, "Excluding %u variant%s on non-autosomes from relationship matrix calc.\n", uii, (uii == 1)? "" : "s");
-    logprintb();
+    LOGPRINTF("Excluding %u variant%s on non-autosomes from relationship matrix calc.\n", uii, (uii == 1)? "" : "s");
     marker_ct -= uii;
   }
 
@@ -7233,8 +7187,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
     if (fclose_null(&outfile)) {
       goto calc_rel_ret_WRITE_FAIL;
     }
-    sprintf(logbuf, "%s written.\n", outname);
-    logprintb();
+    LOGPRINTF("%s written.\n", outname);
   }
   if (calculation_type & CALC_RELATIONSHIP) {
     rel_shape = rel_calc_type & REL_CALC_SHAPEMASK;
@@ -7394,8 +7347,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       }
     }
     putchar('\r');
-    sprintf(logbuf, "Relationship matrix written to %s.\n", outname);
-    logprintb();
+    LOGPRINTF("Relationship matrix written to %s.\n", outname);
     if (!parallel_idx) {
       strcpy(&(outname_end[4]), ".id");
       retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
@@ -7741,8 +7693,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
       retval = RET_INVALID_CMDLINE;
       goto calc_rel_f_ret_1;
     }
-    sprintf(logbuf, "Excluding %u variant%s on non-autosomes from relationship matrix calc.\n", uii, (uii == 1)? "" : "s");
-    logprintb();
+    LOGPRINTF("Excluding %u variant%s on non-autosomes from relationship matrix calc.\n", uii, (uii == 1)? "" : "s");
     marker_ct -= uii;
   }
 
@@ -7873,8 +7824,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
     if (fclose_null(&outfile)) {
       goto calc_rel_f_ret_WRITE_FAIL;
     }
-    sprintf(logbuf, "%s written.\n", outname);
-    logprintb();
+    LOGPRINTF("%s written.\n", outname);
   }
   if (calculation_type & CALC_RELATIONSHIP) {
     rel_shape = rel_calc_type & REL_CALC_SHAPEMASK;
@@ -8067,8 +8017,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
       }
     }
     putchar('\r');
-    sprintf(logbuf, "Relationship matrix written to %s.\n", outname);
-    logprintb();
+    LOGPRINTF("Relationship matrix written to %s.\n", outname);
     if (!parallel_idx) {
       strcpy(&(outname_end[4]), ".id");
       retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
@@ -8527,8 +8476,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   }
   *outname_end = '\0';
   putchar('\r');
-  sprintf(logbuf, "--pca: Results saved to %s.eigen{val,vec%s}.\n", outname, var_wts? ",vec.var" : "");
-  logprintb();
+  LOGPRINTF("--pca: Results saved to %s.eigen{val,vec%s}.\n", outname, var_wts? ",vec.var" : "");
   while (0) {
   calc_pca_ret_NOMEM:
     retval = RET_NOMEM;
@@ -8599,8 +8547,7 @@ int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintpt
   uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
   marker_ct_autosomal = marker_ct - uii;
   if (uii) {
-    sprintf(logbuf, "Excluding %u variant%s on non-autosomes from IBM calculation.\n", uii, (uii == 1)? "" : "s");
-    logprintb();
+    LOGPRINTF("Excluding %u variant%s on non-autosomes from IBM calculation.\n", uii, (uii == 1)? "" : "s");
   }
   is_last_block = (marker_idx == marker_ct_autosomal);
   while (!is_last_block) {
@@ -8817,8 +8764,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
   marker_ct_autosomal = marker_ct - uii;
   if (uii) {
-    sprintf(logbuf, "Excluding %u variant%s on non-autosomes from distance matrix calc.\n", uii, (uii == 1)? "" : "s");
-    logprintb();
+    LOGPRINTF("Excluding %u variant%s on non-autosomes from distance matrix calc.\n", uii, (uii == 1)? "" : "s");
   }
   is_last_block = (marker_idx == marker_ct_autosomal);
   while (!is_last_block) {
@@ -9059,8 +9005,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
       goto calc_distance_ret_WRITE_FAIL;
     }
     putchar('\r');
-    sprintf(logbuf, "Distances (proportions) written to %s.\n", outname);
-    logprintb();
+    LOGPRINTF("Distances (proportions) written to %s.\n", outname);
     if (!parallel_idx) {
       strcpy(outname_end, ".mdist.id");
       retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
@@ -9104,8 +9049,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
       goto calc_distance_ret_WRITE_FAIL;
     }
     putchar('\r');
-    sprintf(logbuf, "IBS matrix written to %s.\n", outname);
-    logprintb();
+    LOGPRINTF("IBS matrix written to %s.\n", outname);
     strcpy(outname_end, ".mibs.id");
     retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
     if (retval) {
@@ -9644,8 +9588,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     if (fclose_null(&outfile)) {
       goto calc_cluster_neighbor_ret_WRITE_FAIL;
     }
-    sprintf(logbuf, "--neighbour report written to %s.\n", outname);
-    logprintb();
+    LOGPRINTF("--neighbour report written to %s.\n", outname);
     if (!(calculation_type & CALC_CLUSTER)) {
       goto calc_cluster_neighbor_ret_1;
     }
@@ -9831,8 +9774,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	goto calc_cluster_neighbor_ret_WRITE_FAIL;
       }
       putchar('\r');
-      sprintf(logbuf, "IBM matrix written to %s.\n", outname);
-      logprintb();
+      LOGPRINTF("IBM matrix written to %s.\n", outname);
       if (ibm_warning) {
 	logprint("Warning: Initial cluster assignment violates IBM constraint.\n");
       }
@@ -10450,10 +10392,8 @@ int32_t regress_distance(pthread_t* threads, uint64_t calculation_type, double* 
   g_reg_tot_yy = reg_tot_yy;
 
   dxx = ulii;
-  sprintf(logbuf, "Regression slope (y = genomic distance, x = avg phenotype): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y / dxx) / (reg_tot_xx - reg_tot_x * reg_tot_x / dxx));
-  logprintb();
-  sprintf(logbuf, "Regression slope (y = avg phenotype, x = genomic distance): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y / dxx) / (reg_tot_yy - reg_tot_y * reg_tot_y / dxx));
-  logprintb();
+  LOGPRINTF("Regression slope (y = genomic distance, x = avg phenotype): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y / dxx) / (reg_tot_xx - reg_tot_x * reg_tot_x / dxx));
+  LOGPRINTF("Regression slope (y = avg phenotype, x = genomic distance): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y / dxx) / (reg_tot_yy - reg_tot_y * reg_tot_y / dxx));
 
   g_jackknife_iters = (regress_iters + thread_ct - 1) / thread_ct;
   if (regress_d) {
@@ -10483,10 +10423,8 @@ int32_t regress_distance(pthread_t* threads, uint64_t calculation_type, double* 
   }
   regress_iters = g_jackknife_iters * thread_ct;
   putchar('\r');
-  sprintf(logbuf, "Jackknife s.e.: %g\n", sqrt(((indiv_ct - g_jackknife_d) / ((double)g_jackknife_d)) * (dzz - dyy * dyy / regress_iters) / (regress_iters - 1)));
-  logprintb();
-  sprintf(logbuf, "Jackknife s.e. (y = avg phenotype): %g\n", sqrt(((indiv_ct - g_jackknife_d) / ((double)g_jackknife_d)) * (dvv - dww * dww / regress_iters) / (regress_iters - 1)));
-  logprintb();
+  LOGPRINTF("Jackknife s.e.: %g\n", sqrt(((indiv_ct - g_jackknife_d) / ((double)g_jackknife_d)) * (dzz - dyy * dyy / regress_iters) / (regress_iters - 1)));
+  LOGPRINTF("Jackknife s.e. (y = avg phenotype): %g\n", sqrt(((indiv_ct - g_jackknife_d) / ((double)g_jackknife_d)) * (dvv - dww * dww / regress_iters) / (regress_iters - 1)));
   while (0) {
   regress_distance_ret_NOMEM:
     retval = RET_NOMEM;

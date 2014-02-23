@@ -2357,8 +2357,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   }
 
   putchar('\r');
-  sprintf(logbuf, "ROH pool report written to %s.\n", outname);
-  logprintb();
+  LOGPRINTF("ROH pool report written to %s.\n", outname);
   if (is_verbose) {
     wptr = strcpya(logbuf, "Per-pool report");
     if (pool_ct != 1) {
@@ -2698,8 +2697,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
     }
   }
   putchar('\r');
-  sprintf(logbuf, "--homozyg: Scan complete, found %" PRIuPTR " ROH.\n", roh_ct);
-  logprintb();
+  LOGPRINTF("--homozyg: Scan complete, found %" PRIuPTR " ROH.\n", roh_ct);
   roh_list_chrom_starts[chrom_ct] = roh_ct;
   // "truncate" the completed list so we can start making workspace allocations
   // again
@@ -2709,12 +2707,10 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
     goto calc_homozyg_ret_1;
   }
   *outname_end = '\0';
-  sprintf(logbuf, "Results saved to %s.hom{,.indiv,.summary}.\n", outname);
-  logprintb();
+  LOGPRINTF("Results saved to %s.hom{,.indiv,.summary}.\n", outname);
   if (hp->modifier & (HOMOZYG_GROUP | HOMOZYG_GROUP_VERBOSE)) {
     if (max_pool_size < hp->pool_size_min) {
-      sprintf(logbuf, "Warning: Skipping --homozyg group%s report since there are no pools.\n", (hp->modifier & HOMOZYG_GROUP_VERBOSE)? "-verbose" : "");
-      logprintb();
+      LOGPRINTF("Warning: Skipping --homozyg group%s report since there are no pools.\n", (hp->modifier & HOMOZYG_GROUP_VERBOSE)? "-verbose" : "");
 #ifndef __LP64__
     } else if (max_pool_size > 65536) {
       logprint("Error: 32-bit " PROG_NAME_STR "'s --homozyg group cannot handle a pool of size >65536.\n");

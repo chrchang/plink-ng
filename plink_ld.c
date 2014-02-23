@@ -740,8 +740,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   uint32_t window_rem;
   double prune_ld_thresh;
   if (!founder_ct) {
-    sprintf(logbuf, "Warning: Skipping --indep%s since there are no founders.\n(--make-founders may come in handy here.)\n", pairwise? "-pairwise" : "");
-    logprintb();
+    LOGPRINTF("Warning: Skipping --indep%s since there are no founders.\n(--make-founders may come in handy here.)\n", pairwise? "-pairwise" : "");
     goto ld_prune_ret_1;
   }
 
@@ -787,8 +786,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 
   window_unfiltered_start = ld_prune_next_valid_chrom_start(marker_exclude, 0, chrom_info_ptr, unfiltered_marker_ct);
   if (window_unfiltered_start == unfiltered_marker_ct) {
-    sprintf(logbuf, "Error: No valid variants for --indep%s.\n", pairwise? "-pairwise" : "");
-    logprintb();
+    LOGPRINTF("Error: No valid variants for --indep%s.\n", pairwise? "-pairwise" : "");
     goto ld_prune_ret_INVALID_FORMAT;
   }
 
@@ -1137,16 +1135,14 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
     }
     uii = get_marker_chrom(chrom_info_ptr, window_unfiltered_start - 1);
     putchar('\r');
-    sprintf(logbuf, "Pruned %" PRIuPTR " variant%s from chromosome %u, leaving %" PRIuPTR ".\n", cur_exclude_ct, (cur_exclude_ct == 1)? "" : "s", uii, chrom_info_ptr->chrom_end[uii] - chrom_info_ptr->chrom_start[uii] - popcount_bit_idx(marker_exclude, chrom_info_ptr->chrom_start[uii], chrom_info_ptr->chrom_end[uii]) - cur_exclude_ct);
-    logprintb();
+    LOGPRINTF("Pruned %" PRIuPTR " variant%s from chromosome %u, leaving %" PRIuPTR ".\n", cur_exclude_ct, (cur_exclude_ct == 1)? "" : "s", uii, chrom_info_ptr->chrom_end[uii] - chrom_info_ptr->chrom_start[uii] - popcount_bit_idx(marker_exclude, chrom_info_ptr->chrom_start[uii], chrom_info_ptr->chrom_end[uii]) - cur_exclude_ct);
     tot_exclude_ct += cur_exclude_ct;
 
     // advance chromosomes as necessary
     window_unfiltered_start = ld_prune_next_valid_chrom_start(pruned_arr, window_unfiltered_start, chrom_info_ptr, unfiltered_marker_ct);
   } while (window_unfiltered_start < unfiltered_marker_ct);
 
-  sprintf(logbuf, "Pruning complete.  %u of %" PRIuPTR " variants removed.\n", tot_exclude_ct, marker_ct);
-  logprintb();
+  LOGPRINTF("Pruning complete.  %u of %" PRIuPTR " variants removed.\n", tot_exclude_ct, marker_ct);
   strcpy(outname_end, ".prune.in");
   if (fopen_checked(&outfile_in, outname, "w")) {
     goto ld_prune_ret_OPEN_FAIL;
@@ -1200,8 +1196,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   }
   *outname_end = '\0';
   putchar('\r');
-  sprintf(logbuf, "Marker lists written to %s.prune.in and %s.prune.out.\n", outname, outname);
-  logprintb();
+  LOGPRINTF("Marker lists written to %s.prune.in and %s.prune.out.\n", outname, outname);
 
   while (0) {
   ld_prune_ret_NOMEM:
@@ -1648,8 +1643,7 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   }
   idx1_block_size = thread_workload * thread_ct;
   if ((parallel_tot > 1) && (marker_ct < 2 * parallel_tot)) {
-    sprintf(logbuf, "Error: Too few variants in --r%s run for --parallel %u %u.\n", g_ld_is_r2? "2" : "", parallel_idx + 1, parallel_tot);
-    logprintb();
+    LOGPRINTF("Error: Too few variants in --r%s run for --parallel %u %u.\n", g_ld_is_r2? "2" : "", parallel_idx + 1, parallel_tot);
     goto ld_report_matrix_ret_INVALID_CMDLINE;
   }
   if (!is_square) {
@@ -1758,8 +1752,7 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     marker_uidx1 = jump_forward_unset_unsafe(marker_exclude, marker_uidx1 + 1, marker_idx1);
   }
   g_ld_keep_sign = 0;
-  sprintf(logbuf, "--r%s %s%s%s to %s...", g_ld_is_r2? "2" : "", is_square? "square" : (is_square0? "square0" : "triangle"), is_binary? " bin" : (output_gz? " gz" : ""), output_single_prec? " single-prec" : "", outname);
-  logprintb();
+  LOGPRINTF("--r%s %s%s%s to %s...", g_ld_is_r2? "2" : "", is_square? "square" : (is_square0? "square0" : "triangle"), is_binary? " bin" : (output_gz? " gz" : ""), output_single_prec? " single-prec" : "", outname);
   fputs(" 0%", stdout);
   do {
     fputs(" [processing]", stdout);
@@ -3738,8 +3731,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   if (marker_idx1) {
     marker_uidx1 = jump_forward_unset_unsafe(marker_exclude_idx1, marker_uidx1 + 1, marker_idx1);
   }
-  sprintf(logbuf, "--r%s%s%s dprime%s...", g_ld_is_r2? "2" : "", is_inter_chr? " inter-chr" : "", g_ld_marker_allele_ptrs? " in-phase" : "", g_ld_set_allele_freqs? " with-freqs" : "");
-  logprintb();
+  LOGPRINTF("--r%s%s%s dprime%s...", g_ld_is_r2? "2" : "", is_inter_chr? " inter-chr" : "", g_ld_marker_allele_ptrs? " in-phase" : "", g_ld_set_allele_freqs? " with-freqs" : "");
   fputs(" 0%", stdout);
   while (1) {
     fputs(" [processing]", stdout);
@@ -3969,8 +3961,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     marker_uidx1 = jump_forward_unset_unsafe(marker_exclude_idx1, marker_uidx1 + 1, idx1_block_size);
   }
   fputs("\b\b\b", stdout);
-  sprintf(logbuf, " done.\nResults written to %s.\n", outname);
-  logprintb();
+  LOGPRINTF(" done.\nResults written to %s.\n", outname);
 
   while (0) {
   ld_report_dprime_ret_NOMEM:
@@ -4135,8 +4126,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
     }
   }
   if ((parallel_tot > 1) && (marker_ct1 < 2 * parallel_tot)) {
-    sprintf(logbuf, "Error: Too few variants in --r%s run for --parallel %u %u.\n", g_ld_is_r2? "2" : "", parallel_idx + 1, parallel_tot);
-    logprintb();
+    LOGPRINTF("Error: Too few variants in --r%s run for --parallel %u %u.\n", g_ld_is_r2? "2" : "", parallel_idx + 1, parallel_tot);
     goto ld_report_regular_ret_INVALID_CMDLINE;
   }
   // yeah, this is uneven in the inter-chr case
@@ -4267,8 +4257,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
   if (marker_idx1) {
     marker_uidx1 = jump_forward_unset_unsafe(marker_exclude_idx1, marker_uidx1 + 1, marker_idx1);
   }
-  sprintf(logbuf, "--r%s%s%s%s to %s...", g_ld_is_r2? "2" : "", is_inter_chr? " inter-chr" : "", g_ld_marker_allele_ptrs? " in-phase" : "", g_ld_set_allele_freqs? " with-freqs" : "", outname);
-  logprintb();
+  LOGPRINTF("--r%s%s%s%s to %s...", g_ld_is_r2? "2" : "", is_inter_chr? " inter-chr" : "", g_ld_marker_allele_ptrs? " in-phase" : "", g_ld_set_allele_freqs? " with-freqs" : "", outname);
   fputs(" 0%", stdout);
   while (1) {
     fputs(" [processing]", stdout);
@@ -4549,8 +4538,7 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
   g_ld_thread_ct = g_thread_ct;
   g_ld_set_allele_freqs = (ld_modifier & LD_WITH_FREQS)? set_allele_freqs : NULL;
   if (!founder_ct) {
-    sprintf(logbuf, "Warning: Skipping --r%s since there are no founders.  (--make-founders may come\nin handy here.)\n", g_ld_is_r2? "2" : "");
-    logprintb();
+    LOGPRINTF("Warning: Skipping --r%s since there are no founders.  (--make-founders may come\nin handy here.)\n", g_ld_is_r2? "2" : "");
     goto ld_report_ret_1;
   } else if (founder_ct >= 0x20000000) {
     logprint("Error: --r/--r2 does not support >= 2^29 samples.\n");
@@ -5042,8 +5030,7 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
     if (fclose_null(&outfile)) {
       goto twolocus_ret_WRITE_FAIL;
     }
-    sprintf(logbuf, "--twolocus: Report written to %s.\n", outname);
-    logprintb();
+    LOGPRINTF("--twolocus: Report written to %s.\n", outname);
   } else {
     // may as well store marginal counts here
     counts_cc[0] = counts_all[0] + counts_all[2] + counts_all[3];
@@ -5065,13 +5052,12 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
       goto twolocus_ret_INVALID_CMDLINE_2;
     } else if ((alen00 > (MAXLINELEN / 4) - 16) || (alen01 > (MAXLINELEN / 4) - 16)) {
       sprintf(logbuf, "Error: %s has a pathologically long allele code.\n", mkr1);
-      goto twolocus_ret_INVALID_CMDLINE;
+      goto twolocus_ret_INVALID_CMDLINE_2;
     } else if ((alen10 > (MAXLINELEN / 4) - 16) || (alen11 > (MAXLINELEN / 4) - 16)) {
       sprintf(logbuf, "Error: %s has a pathologically long allele code.\n", mkr2);
-      goto twolocus_ret_INVALID_CMDLINE;
+      goto twolocus_ret_INVALID_CMDLINE_2;
     }
-    sprintf(logbuf, "\n--ld %s %s:\n", mkr1, mkr2);
-    logprintb();
+    LOGPRINTF("\n--ld %s %s:\n", mkr1, mkr2);
     ulii = 0;
     // todo: factor out redundancy with ld_dprime_thread()
     base_ct11 = 2 * counts_all[0] + counts_all[2] + counts_all[8];
@@ -5125,10 +5111,8 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
       }
       if (uljj > ulii + 1) {
 	logprint("Multiple haplotype phasing solutions; sample size, HWE, or random mating\nassumption may be violated.\n\nHWE exact test p-values\n-----------------------\n");
-	sprintf(logbuf, "   %s: %g\n", mkr1, SNPHWE2(counts_cc[2] + counts_all[9], counts_cc[0] + counts_all[1], counts_cc[3] + counts_all[13], hwe_midp));
-	logprintb();
-	sprintf(logbuf, "   %s: %g\n\n", mkr2, SNPHWE2(counts_cc[6] + counts_all[6], counts_cc[4] + counts_all[4], counts_cc[7] + counts_all[7], hwe_midp));
-	logprintb();
+	LOGPRINTF("   %s: %g\n", mkr1, SNPHWE2(counts_cc[2] + counts_all[9], counts_cc[0] + counts_all[1], counts_cc[3] + counts_all[13], hwe_midp));
+	LOGPRINTF(logbuf, "   %s: %g\n\n", mkr2, SNPHWE2(counts_cc[6] + counts_all[6], counts_cc[4] + counts_all[4], counts_cc[7] + counts_all[7], hwe_midp));
       }
     } else {
       uljj = 1;
@@ -5139,8 +5123,7 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
     }
     for (ulkk = ulii; ulkk < uljj; ulkk++) {
       if (uljj - ulii > 1) {
-        sprintf(logbuf, "Solution #%" PRIuPTR ":\n", ulkk + 1 - ulii);
-	logprintb();
+        LOGPRINTF("Solution #%" PRIuPTR ":\n", ulkk + 1 - ulii);
       }
       dxx = freq11 + solutions[ulkk] - freqx1 * freq1x; // D
       if (fabs(dxx) < SMALL_EPSILON) {
@@ -5363,8 +5346,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   if (is_custom_set1) {
     if (!sip->ct) {
       sprintf(logbuf, "Error: --%sepistasis set-by-%s requires a variant set to be loaded.\n", is_fast? "fast-" : "", is_set_by_set? "set" : "all");
-      logprintb();
-      goto epistasis_report_ret_INVALID_CMDLINE;
+      goto epistasis_report_ret_INVALID_CMDLINE_2;
     } else if (!is_set_by_set) {
       if (sip->ct > 1) {
 	logprint("Error: --{fast-}epistasis set-by-all requires exactly one set.  (--set-names or\n--set-collapse-all may be handy here.\n");
@@ -5395,8 +5377,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   if (!pheno_d) {
     if ((case_ct < 2) || ((!is_case_only) && (ctrl_ct < 2))) {
       sprintf(logbuf, "Error: --%sepistasis requires at least two cases%s.\n", is_fast? "fast-" : "", is_case_only? "" : " and two controls");
-      logprintb();
-      goto epistasis_report_ret_INVALID_CMDLINE;
+      goto epistasis_report_ret_INVALID_CMDLINE_2;
     }
     if (wkspace_alloc_ul_checked(&casebuf, (case_ctv2 + ctrl_ctl2) * sizeof(intptr_t))) {
       goto epistasis_report_ret_NOMEM;
@@ -5470,8 +5451,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     goto epistasis_report_ret_TOO_FEW_MARKERS;
   }
   if (ulii != marker_ct2) {
-    sprintf(logbuf, "--%sepistasis: Skipping %" PRIuPTR " monomorphic/non-autosomal site%s.\n", is_fast? "fast-" : "", marker_ct2 - ulii, (marker_ct2 - ulii == 1)? "" : "s");
-    logprintb();
+    LOGPRINTF("--%sepistasis: Skipping %" PRIuPTR " monomorphic/non-autosomal site%s.\n", is_fast? "fast-" : "", marker_ct2 - ulii, (marker_ct2 - ulii == 1)? "" : "s");
     marker_uidx_base = next_unset_ul_unsafe(marker_exclude2, marker_uidx_base);
   } else if ((!is_custom_set1) || (!is_set_by_set)) {
     wkspace_reset((unsigned char*)marker_exclude2);
@@ -5507,7 +5487,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   if (parallel_tot > 1) {
     if (marker_ct1 < (1 + is_triangular) * parallel_tot) {
       sprintf(logbuf, "Error: Too few sites remaining for --parallel %u %u + --%sepistasis.\n", parallel_idx + 1, parallel_tot, is_fast? "fast-" : "");
-      goto epistasis_report_ret_INVALID_CMDLINE;
+      goto epistasis_report_ret_INVALID_CMDLINE_2;
     }
     if (is_triangular) {
       // If there are n markers, and we're computing the usual upper right
@@ -6226,8 +6206,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     tests_thrown_out /= 2; // all fails double-counted in triangle case
   }
   fputs("\b\b\b", stdout);
-  sprintf(logbuf, " done.\n%" PRIu64 " valid tests performed, summary written to %s.\n", tests_expected - tests_thrown_out, outname);
-  logprintb();
+  LOGPRINTF(" done.\n%" PRIu64 " valid tests performed, summary written to %s.\n", tests_expected - tests_thrown_out, outname);
 
   while (0) {
   epistasis_report_ret_NOMEM:
@@ -6256,6 +6235,8 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
         logprint("Error: Each --{fast-}epistasis set must contain at least one autosomal diploid\nsite not monomorphic in either cases or controls.\n");
       }
     }
+  epistasis_report_ret_INVALID_CMDLINE_2:
+    logprintb();
   epistasis_report_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
@@ -6395,8 +6376,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
   }
   bufptr = &(inprefix[ulii - 2]);
   if (memcmp(".epi.", &(inprefix[ulii - 7]), 5) || (memcmp("cc", bufptr, 2) && memcmp("co", bufptr, 2) && memcmp("qt", bufptr, 2))) {
-    sprintf(logbuf, "Error: Invalid --epistasis-summary-merge filename prefix '%s'.\n(*.epi.cc, *.epi.co, or *.epi.qt expected.)\n", inprefix);
-    logprintb();
+    LOGPRINTF("Error: Invalid --epistasis-summary-merge filename prefix '%s'.\n(*.epi.cc, *.epi.co, or *.epi.qt expected.)\n", inprefix);
     goto epi_summary_merge_ret_INVALID_CMDLINE;
   }
   inprefix_end = memcpya(inprefix_end, ".summary.", 9);
@@ -6510,7 +6490,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
   }
   if (!list_start) {
     sprintf(logbuf, "Error: %s has no entries.\n", inprefix);
-    goto epi_summary_merge_ret_INVALID_FORMAT;
+    goto epi_summary_merge_ret_INVALID_FORMAT_2;
   }
   last_start = list_start->next;
   for (file_idx = 2; file_idx <= file_ct; file_idx++) {
@@ -6660,8 +6640,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
     // just kidding!  no success
     goto epi_summary_merge_ret_WRITE_FAIL;
   }
-  sprintf(logbuf, "--epistasis-summary-merge: Merged summary written to %s.\n", outname);
-  logprintb();
+  LOGPRINTF("--epistasis-summary-merge: Merged summary written to %s.\n", outname);
   while (0) {
   epi_summary_merge_ret_NOMEM:
     retval = RET_NOMEM;
@@ -6683,18 +6662,16 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
     retval = RET_INVALID_FORMAT;
     break;
   epi_summary_merge_ret_INVALID_LINE:
-    sprintf(logbuf, "Error: Invalid --epistasis-summary-merge line in %s.\n", inprefix);
-    logprintb();
+    LOGPRINTF("Error: Invalid --epistasis-summary-merge line in %s.\n", inprefix);
     retval = RET_INVALID_FORMAT;
     break;
   epi_summary_merge_ret_LONG_LINE:
-    sprintf(logbuf, "Error: Pathologically long line in %s.\n", inprefix);
-    logprintb();
+    LOGPRINTF("Error: Pathologically long line in %s.\n", inprefix);
     retval = RET_INVALID_FORMAT;
     break;
   epi_summary_merge_ret_INVALID_HEADER:
     sprintf(logbuf, "Error: Invalid --epistasis-summary-merge header in %s.\n", inprefix);
-  epi_summary_merge_ret_INVALID_FORMAT:
+  epi_summary_merge_ret_INVALID_FORMAT_2:
     logprintb();
     retval = RET_INVALID_FORMAT;
     break;
@@ -7186,6 +7163,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   char charbuf[8];
   uintptr_t* loadbuf;
   uintptr_t* union_bitfield;
+  uintptr_t* tmp_set_bitfield;
   uintptr_t* geno1;
   uintptr_t* geno_masks1;
   uintptr_t* geno2;
@@ -7256,6 +7234,10 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   if (!union_bitfield) {
     goto construct_ld_map_ret_NOMEM;
   }
+  tmp_set_bitfield = (uintptr_t*)top_alloc(&topsize, marker_ctv * sizeof(intptr_t));
+  if (!union_bitfield) {
+    goto construct_ld_map_ret_NOMEM;
+  }
   g_ld_union_bitfield = union_bitfield;
   memreq2 = founder_ct_192_long * sizeof(intptr_t) * 2;
   memreq1 = memreq2 + marker_ctv * sizeof(intptr_t) * 2 + 16;
@@ -7306,14 +7288,13 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     g_ld_result_bitfield = result_bitfield;
     set_uidx = 0;
     idx1_block_end = marker_idx + idx1_block_size;
-    fill_ulong_zero(result_bitfield, marker_ctv * sizeof(intptr_t));
+    fill_ulong_zero(result_bitfield, idx1_block_size * marker_ctv * sizeof(intptr_t));
     for (set_idx = 0; set_idx < set_ct; set_uidx++, set_idx++) {
       next_set_unsafe_ck(set_incl, &set_uidx);
       cur_setdef = setdefs[set_uidx];
       setdef_iter_init(cur_setdef, marker_ct, marker_idx, &marker_idx2, &setdef_incr_aux);
       if (setdef_iter(cur_setdef, &marker_idx2, &setdef_incr_aux) && (marker_idx2 < idx1_block_end)) {
         fill_ulong_zero(union_bitfield, marker_ctv * sizeof(intptr_t));
-
         do {
           marker_idx2++;
 	} while (setdef_iter(cur_setdef, &marker_idx2, &setdef_incr_aux) && (marker_idx2 < idx1_block_end));
@@ -8864,13 +8845,11 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	fputs(&(sorted_marker_ids[ulii * max_missing_id_len]), outfile);
 	fputs(" not found in dataset\n", outfile);
       }
-      sprintf(logbuf, "%" PRIuPTR " top variant ID%s missing; see the end of the .clumped file.\n", missing_variant_ct, (missing_variant_ct == 1)? "" : "s");
-      logprintb();
+      LOGPRINTF("%" PRIuPTR " top variant ID%s missing; see the end of the .clumped file.\n", missing_variant_ct, (missing_variant_ct == 1)? "" : "s");
     } else {
       uljj = MINV(missing_variant_ct, 3);
       for (ulii = 0; ulii < uljj; ulii++) {
-	sprintf(logbuf, "Warning: %s is missing from the main dataset, and is a top variant.\n", &(sorted_marker_ids[ulii * max_missing_id_len]));
-	logprintb();
+	LOGPRINTF("Warning: %s is missing from the main dataset, and is a top variant.\n", &(sorted_marker_ids[ulii * max_missing_id_len]));
       }
       if (missing_variant_ct > 3) {
         printf("%" PRIuPTR " more top variant ID%s missing; see log file.\n", missing_variant_ct - 3, (missing_variant_ct == 4)? "" : "s");
@@ -8886,17 +8865,14 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     goto clump_reports_ret_WRITE_FAIL;
   }
   outname_end[8] = '\0';
-  sprintf(logbuf, "--clump: %u clump%s formed from %u top variant%s.\nResults written to %s.\n", final_clump_ct, (final_clump_ct == 1)? "" : "s", index_ct, (index_ct == 1)? "" : "s", outname);
-  logprintb();
+  LOGPRINTF("--clump: %u clump%s formed from %u top variant%s.\nResults written to %s.\n", final_clump_ct, (final_clump_ct == 1)? "" : "s", index_ct, (index_ct == 1)? "" : "s", outname);
   if (rg_setdefs && (!clump_verbose)) {
     memcpy(&(outname_end[8]), ".ranges", 8);
-    sprintf(logbuf, "--clump-range: Clump/region overlaps reported in %s.\n", outname);
-    logprintb();
+    LOGPRINTF("--clump-range: Clump/region overlaps reported in %s.\n", outname);
   }
   if (clump_best) {
     memcpy(&(outname_end[8]), ".best", 6);
-    sprintf(logbuf, "--clump-best: Best proxies written to %s.\n", outname);
-    logprintb();
+    LOGPRINTF("--clump-best: Best proxies written to %s.\n", outname);
   }
   while (0) {
   clump_reports_ret_NOMEM2:

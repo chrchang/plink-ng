@@ -193,6 +193,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
   }
   *polymorphic_marker_ct_ptr = polymorphic_marker_ct;
   if (!polymorphic_marker_ct) {
+    putchar('\n');
     logprint("Warning: Skipping --lasso since no polymorphic sites are present.\n");
     return 0;
   }
@@ -234,8 +235,8 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
       misc_arr[ulii] = dxx * zz;
     }
     lambda_min = destructive_get_dmedian(misc_arr, WARM_START_ITERS);
-    sprintf(logbuf, " using min lambda = %g.\n", lambda_min);
-    logprint(logbuf);
+    logstr("--lasso:");
+    LOGPRINTF(" using min lambda = %g.\n", lambda_min);
   } else {
     lambda_min = lasso_minlambda;
     if (lasso_minlambda >= lambda_max) {
@@ -542,8 +543,8 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
       misc_arr[ulii] = dxx * zz;
     }
     lambda_min = destructive_get_dmedian(misc_arr, WARM_START_ITERS);
-    sprintf(logbuf, " using min lambda = %g.\n", lambda_min);
-    logprint(logbuf);
+    logstr("--lasso:");
+    LOGPRINTF(" using min lambda = %g.\n", lambda_min);
   } else {
     lambda_min = lasso_minlambda;
     if (lasso_minlambda >= lambda_max) {
@@ -903,8 +904,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
     goto lasso_ret_WRITE_FAIL;
   }
   putchar('\r');
-  sprintf(logbuf, "--lasso report written to %s.  Total iterations: %" PRIu64 ".\n", outname, iter_tot);
-  logprintb();
+  LOGPRINTF("--lasso report written to %s.  Total iterations: %" PRIu64 ".\n", outname, iter_tot);
 
   while (0) {
   lasso_ret_NOMEM:

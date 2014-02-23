@@ -107,7 +107,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
   while (fgets(tbuf, MAXLINELEN, intersect_file)) {
     if (!tbuf[MAXLINELEN - 1]) {
       sprintf(logbuf, "Error: Pathologically long line in --cnv-%s file.\n", cnv_intersect_filter_type_to_str(intersect_filter_type));
-      goto cnv_intersect_load_ret_INVALID_FORMAT;
+      goto cnv_intersect_load_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(tbuf);
     if (!is_eoln_kns(*bufptr)) {
@@ -115,13 +115,13 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
       bufptr2 = next_item_mult(bufptr, 2);
       if (no_more_items_kns(bufptr2)) {
 	sprintf(logbuf, "Error: Fewer items than expected in --cnv-%s file.\n", cnv_intersect_filter_type_to_str(intersect_filter_type));
-	goto cnv_intersect_load_ret_INVALID_FORMAT;
+	goto cnv_intersect_load_ret_INVALID_FORMAT_2;
       }
       ii = get_chrom_code(chrom_info_ptr, bufptr);
       if (ii == -1) {
 	if (!allow_extra_chroms) {
 	  sprintf(logbuf, "Error: Invalid chromosome code in --cnv-%s file.\n", cnv_intersect_filter_type_to_str(intersect_filter_type));
-	  goto cnv_intersect_load_ret_INVALID_FORMAT;
+	  goto cnv_intersect_load_ret_INVALID_FORMAT_2;
 	}
         retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii);
 	if (retval) {
@@ -136,17 +136,18 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
       ii = atoi(bufptr);
       if (ii < 0) {
 	sprintf(logbuf, "Error: Negative position in --cnv-%s file.\n", cnv_intersect_filter_type_to_str(intersect_filter_type));
-	goto cnv_intersect_load_ret_INVALID_FORMAT;
+	goto cnv_intersect_load_ret_INVALID_FORMAT_2;
       }
       jj = ii;
       ii = atoi(bufptr2);
       if (ii < 0) {
 	sprintf(logbuf, "Error: Negative position in --cnv-%s file.\n", cnv_intersect_filter_type_to_str(intersect_filter_type));
-	goto cnv_intersect_load_ret_INVALID_FORMAT;
+	goto cnv_intersect_load_ret_INVALID_FORMAT_2;
       }
       if (ii < jj) {
 	if (!reverse_warning_given) {
 	  sprintf(logbuf, "Warning: End of range before start of range in --cnv-%s file.\n", cnv_intersect_filter_type_to_str(intersect_filter_type));
+	  logprintb();
 	  reverse_warning_given = 1;
 	}
 	kk = ii;
@@ -193,7 +194,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
       goto cnv_intersect_load_ret_1;
     }
     sprintf(logbuf, "Error: Empty --cnv-%s file.\n", cnv_intersect_filter_type_to_str(intersect_filter_type));
-    goto cnv_intersect_load_ret_INVALID_FORMAT;
+    goto cnv_intersect_load_ret_INVALID_FORMAT_2;
   }
   if (small_interval_ct) {
 #ifdef __cplusplus
@@ -296,9 +297,9 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
   cnv_intersect_load_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  cnv_intersect_load_ret_INVALID_FORMAT:
-    retval = RET_INVALID_FORMAT;
+  cnv_intersect_load_ret_INVALID_FORMAT_2:
     logprintb();
+    retval = RET_INVALID_FORMAT;
     break;
   }
  cnv_intersect_load_ret_1:
@@ -939,8 +940,7 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
 	memcpy(&(mapname[uii]), ".map", 5);
 	sptr = &(mapname[uii + 4]);
 	if (filename_exists(mapname, sptr, "")) {
-	  sprintf(logbuf, "Error: No .cnv.map filename specified, and natural autogeneration target\n(%s) already exists.\n", mapname);
-	  logprintb();
+	  LOGPRINTF("Error: No .cnv.map filename specified, and natural autogeneration target\n(%s) already exists.\n", mapname);
 	  goto plink_cnv_ret_INVALID_CMDLINE;
 	}
       }

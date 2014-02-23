@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (21 Feb 2014)";
+  " (23 Feb 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -169,8 +169,7 @@ uint32_t random_thin_markers(double thin_keep_prob, uintptr_t unfiltered_marker_
     logprint("Error: All variants removed by --thin.  Try a higher probability.\n");
     return 1;
   }
-  sprintf(logbuf, "--thin: %u variant%s removed (%u remaining).\n", removed_ct, (removed_ct == 1)? "" : "s", marker_ct - removed_ct);
-  logprintb();
+  LOGPRINTF("--thin: %u variant%s removed (%u remaining).\n", removed_ct, (removed_ct == 1)? "" : "s", marker_ct - removed_ct);
   *marker_exclude_ct_ptr += removed_ct;
   return 0;
 }
@@ -200,8 +199,7 @@ int32_t write_nosex(char* outname, char* outname_end, uintptr_t unfiltered_indiv
   if (fclose_null(&outfile)) {
     goto write_nosex_ret_WRITE_FAIL;
   }
-  sprintf(logbuf, "Ambiguous sex ID%s written to %s.\n", (gender_unk_ct == 1)? "" : "s", outname);
-  logprintb();
+  LOGPRINTF("Ambiguous sex ID%s written to %s.\n", (gender_unk_ct == 1)? "" : "s", outname);
   while (0) {
   write_nosex_ret_NOMEM:
     retval = RET_NOMEM;
@@ -439,8 +437,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     }
   }
   logprintb();
-  sprintf(logbuf, "Report written to %s.\n", outname);
-  logprintb();
+  LOGPRINTF("Report written to %s.\n", outname);
   while (0) {
   sexcheck_ret_NOMEM:
     retval = RET_NOMEM;
@@ -1008,8 +1005,7 @@ int32_t make_founders(uintptr_t unfiltered_indiv_ct, uintptr_t indiv_ct, char* p
     indiv_uidx++;
     next_set_ul_ck(nf_bitarr, &indiv_uidx, unfiltered_indiv_ct);
   } while (indiv_uidx < unfiltered_indiv_ct);
-  sprintf(logbuf, "--make-founders: %u individual%s affected.\n", new_founder_ct, (new_founder_ct == 1)? "" : "s");
-  logprintb();
+  LOGPRINTF("--make-founders: %u individual%s affected.\n", new_founder_ct, (new_founder_ct == 1)? "" : "s");
   while (0) {
   make_founders_ret_NOMEM:
     retval = RET_NOMEM;
@@ -1538,8 +1534,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
     retval = RET_INVALID_FORMAT;
     break;
   read_external_freqs_ret_ALLELE_MISMATCH:
-    sprintf(logbuf, "Error: Mismatch between .bim/.ped and --read-freq alleles at %s.\n", next_item(skip_initial_spaces(loadbuf)));
-    logprintb();
+    LOGPRINTF("Error: Mismatch between .bim/.ped and --read-freq alleles at %s.\n", next_item(skip_initial_spaces(loadbuf)));
     retval = RET_ALLELE_MISMATCH;
     break;
   }
@@ -1646,8 +1641,7 @@ int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_m
   if (fclose_null(&outfile)) {
     goto write_freqs_ret_WRITE_FAIL;
   }
-  sprintf(logbuf, "Allele frequencies written to %s.\n", outname);
-  logprintb();
+  LOGPRINTF("Allele frequencies written to %s.\n", outname);
   while (0) {
   write_freqs_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
@@ -1909,8 +1903,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
   if (fclose_null(&outfile)) {
     goto write_stratified_freqs_ret_WRITE_FAIL;
   }
-  sprintf(logbuf, "Cluster-stratified allele frequencies written to %s.\n", outname);
-  logprintb();
+  LOGPRINTF("Cluster-stratified allele frequencies written to %s.\n", outname);
   while (0) {
   write_stratified_freqs_ret_NOMEM:
     retval = RET_NOMEM;
@@ -2035,8 +2028,7 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
   if (fopen_checked(&outfile, outname, "w")) {
     goto hardy_report_ret_OPEN_FAIL;
   }
-  sprintf(logbuf, "Writing Hardy-Weinberg report to %s...", outname);
-  logprintb();
+  LOGPRINTF("Writing Hardy-Weinberg report to %s...", outname);
   fputs(" 0%", stdout);
   sprintf(writebuf, " CHR %%%us     TEST   A1   A2                 GENO   O(HET)   E(HET)            P \n", plink_maxsnp);
   fprintf(outfile, writebuf, "SNP");
@@ -2238,8 +2230,7 @@ uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct
     logprint("Error: All variants removed due to Hardy-Weinberg exact test (--hwe).\n");
     return 1;
   }
-  sprintf(logbuf, "%u variant%s removed due to Hardy-Weinberg exact test (--hwe).\n", removed_ct, (removed_ct == 1)? "" : "s");
-  logprintb();
+  LOGPRINTF("%u variant%s removed due to Hardy-Weinberg exact test (--hwe).\n", removed_ct, (removed_ct == 1)? "" : "s");
   *marker_exclude_ct_ptr += removed_ct;
   return 0;
 }
@@ -2269,8 +2260,7 @@ uint32_t enforce_maf_threshold(double min_maf, double max_maf, uintptr_t unfilte
     logprint("Error: All variants removed due to MAF threshold(s) (--maf/--max-maf).\n");
     return 1;
   }
-  sprintf(logbuf, "%u variant%s removed due to MAF threshold(s) (--maf/--max-maf).\n", removed_ct, (removed_ct == 1)? "" : "s");
-  logprintb();
+  LOGPRINTF("%u variant%s removed due to MAF threshold(s) (--maf/--max-maf).\n", removed_ct, (removed_ct == 1)? "" : "s");
   *marker_exclude_ct_ptr += removed_ct;
   return 0;
 }
@@ -2305,8 +2295,7 @@ void enforce_min_bp_space(int32_t min_bp_space, uint32_t unfiltered_marker_ct, u
       marker_uidx = next_unset(marker_exclude, marker_uidx, unfiltered_marker_ct);
     } while (marker_uidx < chrom_end);
   }
-  sprintf(logbuf, "--bp-space: %u variant%s removed (%u remaining).\n", removed_ct, (removed_ct == 1)? "" : "s", marker_ct - removed_ct);
-  logprintb();
+  LOGPRINTF("--bp-space: %u variant%s removed (%u remaining).\n", removed_ct, (removed_ct == 1)? "" : "s", marker_ct - removed_ct);
   *marker_exclude_ct_ptr += removed_ct;
 }
 
@@ -2375,8 +2364,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
   while (fgets(loadbuf, loadbuf_size, infile)) {
     if (!(loadbuf[loadbuf_size - 1])) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-	sprintf(logbuf, "Error: Pathologically long line in %s.\n", axalleles->fname);
-        logprintb();
+	LOGPRINTF("Error: Pathologically long line in %s.\n", axalleles->fname);
 	goto load_ax_alleles_ret_INVALID_FORMAT;
       } else {
         goto load_ax_alleles_ret_NOMEM;
@@ -2406,8 +2394,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
     }
     if (is_set(already_seen, sorted_idx)) {
       colid_ptr[slen] = '\0';
-      sprintf(logbuf, "Error: Duplicate variant %s in --a%c-allele file.\n", colid_ptr, is_a2? '2' : '1');
-      logprintb();
+      LOGPRINTF("Error: Duplicate variant %s in --a%c-allele file.\n", colid_ptr, is_a2? '2' : '1');
       goto load_ax_alleles_ret_INVALID_FORMAT;
     }
     SET_BIT(already_seen, sorted_idx);
@@ -2437,16 +2424,14 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
       }
     } else {
       colid_ptr[slen] = '\0';
-      sprintf(logbuf, "Warning: Impossible A%c allele assignment for variant %s.\n", is_a2? '2' : '1', colid_ptr);
-      logprintb();
+      LOGPRINTF("Warning: Impossible A%c allele assignment for variant %s.\n", is_a2? '2' : '1', colid_ptr);
     }
   }
   if (!feof(infile)) {
     goto load_ax_alleles_ret_READ_FAIL;
   }
   marker_uidx = popcount_longs(already_seen, marker_ctl);
-  sprintf(logbuf, "--a%c-allele: %u assignment%s made.\n", is_a2? '2' : '1', marker_uidx, (marker_uidx == 1)? "" : "s");
-  logprintb();
+  LOGPRINTF("--a%c-allele: %u assignment%s made.\n", is_a2? '2' : '1', marker_uidx, (marker_uidx == 1)? "" : "s");
   *max_marker_allele_len_ptr = max_marker_allele_len;
   while (0) {
   load_ax_alleles_ret_NOMEM:
@@ -2538,8 +2523,7 @@ int32_t write_snplist(char* outname, char* outname_end, uintptr_t unfiltered_mar
   if (fclose_null(&outfile)) {
     goto write_snplist_ret_WRITE_FAIL;
   }
-  sprintf(logbuf, "List of %svariant IDs written to %s.\n", list_23_indels? "indel " : "" , outname);
-  logprintb();
+  LOGPRINTF("List of %svariant IDs written to %s.\n", list_23_indels? "indel " : "" , outname);
   while (0) {
   write_snplist_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
@@ -2718,8 +2702,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uint32_t gender_unk_ct;
 
   if ((cm_map_fname || update_cm) && (!marker_cms_needed)) {
-    sprintf(logbuf, "Error: --%s results would never be used.  (Did you forget --make-bed?)\n", cm_map_fname? "cm-map" : "update-cm");
-    logprintb();
+    LOGPRINTF("Error: --%s results would never be used.  (Did you forget --make-bed?)\n", cm_map_fname? "cm-map" : "update-cm");
     goto plink_ret_INVALID_CMDLINE;
   } else if (update_map && (!marker_pos_needed)) {
     logprint("Error: --update-map results would never be used.  (Did you forget --make-bed?)\n");
@@ -2740,8 +2723,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     if (!realpath(pedname, tbuf))
 #endif
     {
-      sprintf(logbuf, "Error: Failed to open %s.\n", pedname);
-      logprintb();
+      LOGPRINTF("Error: Failed to open %s.\n", pedname);
       goto plink_ret_OPEN_FAIL;
     }
     memcpy(outname_end, ".bed", 5);
@@ -2899,15 +2881,13 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   count_genders(sex_nm, sex_male, unfiltered_indiv_ct, indiv_exclude, &uii, &ujj, &gender_unk_ct);
   marker_ct = unfiltered_marker_ct - marker_exclude_ct;
   if (gender_unk_ct) {
-    sprintf(logbuf, "%" PRIuPTR " variant%s and %" PRIuPTR " %s (%d male%s, %d female%s, %u ambiguous) loaded.\n", marker_ct, (marker_ct == 1)? "" : "s", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), uii, (uii == 1)? "" : "s", ujj, (ujj == 1)? "" : "s", gender_unk_ct);
-    logprintb();
+    LOGPRINTF("%" PRIuPTR " variant%s and %" PRIuPTR " %s (%d male%s, %d female%s, %u ambiguous) loaded.\n", marker_ct, (marker_ct == 1)? "" : "s", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), uii, (uii == 1)? "" : "s", ujj, (ujj == 1)? "" : "s", gender_unk_ct);
     retval = write_nosex(outname, outname_end, unfiltered_indiv_ct, indiv_exclude, sex_nm, gender_unk_ct, person_ids, max_person_id_len);
     if (retval) {
       goto plink_ret_1;
     }
   } else {
-    sprintf(logbuf, "%" PRIuPTR " variant%s and %" PRIuPTR " %s (%d male%s, %d female%s) loaded.\n", marker_ct, (marker_ct == 1)? "" : "s", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), uii, (uii == 1)? "" : "s", ujj, (ujj == 1)? "" : "s");
-    logprintb();
+    LOGPRINTF("%" PRIuPTR " variant%s and %" PRIuPTR " %s (%d male%s, %d female%s) loaded.\n", marker_ct, (marker_ct == 1)? "" : "s", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), uii, (uii == 1)? "" : "s", ujj, (ujj == 1)? "" : "s");
   }
 
   if (phenoname && fopen_checked(&phenofile, phenoname, "r")) {
@@ -3283,37 +3263,31 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     // -> flip on fcc == 1
     filter_indivs_bitfields(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, pheno_c, (filter_binary & FILTER_BINARY_CASES)? 1 : 0, pheno_nm);
     if (indiv_exclude_ct == unfiltered_indiv_ct) {
-      sprintf(logbuf, "Error: All %s removed due to case/control status (--filter-%s).\n", g_species_plural, (filter_binary & FILTER_BINARY_CASES)? "cases" : "controls");
-      logprintb();
+      LOGPRINTF("Error: All %s removed due to case/control status (--filter-%s).\n", g_species_plural, (filter_binary & FILTER_BINARY_CASES)? "cases" : "controls");
       goto plink_ret_ALL_SAMPLES_EXCLUDED;
     }
     ii = indiv_exclude_ct - ii;
-    sprintf(logbuf, "%d %s removed due to case/control status (--filter-%s).\n", ii, species_str(ii), (filter_binary & FILTER_BINARY_CASES)? "cases" : "controls");
-    logprintb();
+    LOGPRINTF("%d %s removed due to case/control status (--filter-%s).\n", ii, species_str(ii), (filter_binary & FILTER_BINARY_CASES)? "cases" : "controls");
   }
   if (filter_binary & (FILTER_BINARY_FEMALES | FILTER_BINARY_MALES)) {
     ii = indiv_exclude_ct;
     filter_indivs_bitfields(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, sex_male, (filter_binary & FILTER_BINARY_MALES)? 1 : 0, sex_nm);
     if (indiv_exclude_ct == unfiltered_indiv_ct) {
-      sprintf(logbuf, "Error: All %s removed due to gender filter (--filter-%s).\n", g_species_plural, (filter_binary & FILTER_BINARY_MALES)? "males" : "females");
-      logprintb();
+      LOGPRINTF("Error: All %s removed due to gender filter (--filter-%s).\n", g_species_plural, (filter_binary & FILTER_BINARY_MALES)? "males" : "females");
       goto plink_ret_ALL_SAMPLES_EXCLUDED;
     }
     ii = indiv_exclude_ct - ii;
-    sprintf(logbuf, "%d %s removed due to gender filter (--filter-%s).\n", ii, species_str(ii), (filter_binary & FILTER_BINARY_MALES)? "males" : "females");
-    logprintb();
+    LOGPRINTF("%d %s removed due to gender filter (--filter-%s).\n", ii, species_str(ii), (filter_binary & FILTER_BINARY_MALES)? "males" : "females");
   }
   if (filter_binary & (FILTER_BINARY_FOUNDERS | FILTER_BINARY_NONFOUNDERS)) {
     ii = indiv_exclude_ct;
     filter_indivs_bitfields(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, founder_info, (filter_binary & FILTER_BINARY_FOUNDERS)? 1 : 0, NULL);
     if (indiv_exclude_ct == unfiltered_indiv_ct) {
-      sprintf(logbuf, "Error: All %s removed due to founder status (--filter-%s).\n", g_species_plural, (filter_binary & FILTER_BINARY_FOUNDERS)? "founders" : "nonfounders");
-      logprintb();
+      LOGPRINTF("Error: All %s removed due to founder status (--filter-%s).\n", g_species_plural, (filter_binary & FILTER_BINARY_FOUNDERS)? "founders" : "nonfounders");
       goto plink_ret_ALL_SAMPLES_EXCLUDED;
     }
     ii = indiv_exclude_ct - ii;
-    sprintf(logbuf, "%d %s removed due to founder status (--filter-%s).\n", ii, species_str(ii), (filter_binary & FILTER_BINARY_FOUNDERS)? "founders" : "nonfounders");
-    logprintb();
+    LOGPRINTF("%d %s removed due to founder status (--filter-%s).\n", ii, species_str(ii), (filter_binary & FILTER_BINARY_FOUNDERS)? "founders" : "nonfounders");
   }
 
   if (mind_thresh < 1.0) {
@@ -3333,8 +3307,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   if (!indiv_ct) {
     // defensive; currently shouldn't happen since we're actually checking at
     // every filter
-    sprintf(logbuf, "Error: No %s pass QC.\n", g_species_plural);
-    logprintb();
+    LOGPRINTF("Error: No %s pass QC.\n", g_species_plural);
     goto plink_ret_ALL_SAMPLES_EXCLUDED;
   }
   if ((indiv_ct == 1) && (relationship_or_ibc_req(calculation_type) || distance_req(calculation_type, read_dists_fname) || (calculation_type & (CALC_GENOME | CALC_CLUSTER | CALC_NEIGHBOR)))) {
@@ -3349,8 +3322,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
   if (g_thread_ct > 1) {
     if ((calculation_type & (CALC_RELATIONSHIP | CALC_REL_CUTOFF | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_LD | CALC_PCA)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_PERM | GLM_MPERM))) || ((calculation_type & CALC_TESTMISS) && (testmiss_modifier & (TESTMISS_PERM | TESTMISS_MPERM))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname))) || ((calculation_type & CALC_EPI) && (epi_ip->modifier & EPI_FAST))) {
-      sprintf(logbuf, "Using up to %u threads (change this with --threads).\n", g_thread_ct);
-      logprintb();
+      LOGPRINTF("Using up to %u threads (change this with --threads).\n", g_thread_ct);
     } else {
       logprint("Using 1 thread (no multithreaded calculations invoked).\n");
     }
@@ -3503,8 +3475,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto plink_ret_ALL_MARKERS_EXCLUDED;
     }
     ulii = marker_exclude_ct - ulii;
-    sprintf(logbuf, "%" PRIuPTR " variant%s removed due to missing genotype data (--geno).\n", ulii, (ulii == 1)? "" : "s");
-    logprintb();
+    LOGPRINTF("%" PRIuPTR " variant%s removed due to missing genotype data (--geno).\n", ulii, (ulii == 1)? "" : "s");
   }
   oblig_missing_cleanup(om_ip);
   if (calculation_type & CALC_HARDY) {
@@ -3553,8 +3524,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     logprint("Error: All variants fail QC.\n");
     goto plink_ret_ALL_MARKERS_EXCLUDED;
   }
-  sprintf(logbuf, "%" PRIuPTR " variant%s and %" PRIuPTR " %s pass filters and QC%s.\n", marker_ct, (marker_ct == 1)? "" : "s", indiv_ct, species_str(indiv_ct), (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
-  logprintb();
+  LOGPRINTF("%" PRIuPTR " variant%s and %" PRIuPTR " %s pass filters and QC%s.\n", marker_ct, (marker_ct == 1)? "" : "s", indiv_ct, species_str(indiv_ct), (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
 
   if (wt_needed) {
     // normalize included marker weights to add to just under 2^32.  (switch to
@@ -3617,8 +3587,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	  logprint("Warning: --pca-cluster-names/--pca-clusters has no effect since all samples are\nin the named clusters.\n");
 	  pca_indiv_exclude = NULL;
 	} else {
-	  sprintf(logbuf, "--pca-cluster-names/--pca-clusters: %" PRIuPTR " samples specified.\n", pca_indiv_ct);
-	  logprintb();
+	  LOGPRINTF("--pca-cluster-names/--pca-clusters: %" PRIuPTR " samples specified.\n", pca_indiv_ct);
 	  ulii = unfiltered_indiv_ct - pca_indiv_ct;
 	}
       }
@@ -4285,7 +4254,7 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
     while (1) {
       if (parse_next_range(param_ct, range_delim, argv, &cur_param_idx, &cur_arg_ptr, &range_start, &rs_len, &range_end, &re_len)) {
 	sprintf(logbuf, "Error: Invalid --%s parameter '%s'.%s", cur_flag_str, argv[cur_param_idx], errstr_append);
-	goto parse_chrom_ranges_ret_INVALID_CMDLINE;
+	goto parse_chrom_ranges_ret_INVALID_CMDLINE_2;
       }
       if (!range_start) {
 	break;
@@ -4295,9 +4264,9 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
 	range_start[rs_len] = '\0';
 	if (!allow_extra_chroms) {
 	  sprintf(logbuf, "Error: Invalid --%s chromosome code '%s'.%s", cur_flag_str, range_start, errstr_append);
-	  goto parse_chrom_ranges_ret_INVALID_CMDLINE;
-	} else if (range_end) {
 	  goto parse_chrom_ranges_ret_INVALID_CMDLINE_2;
+	} else if (range_end) {
+	  goto parse_chrom_ranges_ret_INVALID_CMDLINE_3;
 	}
         if (push_ll_str(&(chrom_info_ptr->incl_excl_name_stack), range_start)) {
 	  goto parse_chrom_ranges_ret_NOMEM;
@@ -4308,16 +4277,16 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
 	  if (!allow_extra_chroms) {
 	    range_end[re_len] = '\0';
 	    sprintf(logbuf, "Error: Invalid --%s chromosome code '%s'.%s", cur_flag_str, range_end, errstr_append);
-	    goto parse_chrom_ranges_ret_INVALID_CMDLINE;
-	  } else {
 	    goto parse_chrom_ranges_ret_INVALID_CMDLINE_2;
+	  } else {
+	    goto parse_chrom_ranges_ret_INVALID_CMDLINE_3;
 	  }
 	}
         if (chrom_code_end <= chrom_code_start) {
 	  range_start[rs_len] = '\0';
 	  range_end[re_len] = '\0';
 	  sprintf(logbuf, "Error: --%s chromosome code '%s' is not greater than '%s'.%s", cur_flag_str, range_end, range_start, errstr_append);
-	  goto parse_chrom_ranges_ret_INVALID_CMDLINE;
+	  goto parse_chrom_ranges_ret_INVALID_CMDLINE_2;
 	}
 	fill_bits(chrom_mask, chrom_code_start, chrom_code_end + 1 - chrom_code_start);
       } else {
@@ -4327,19 +4296,18 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
     }
   }
   if (!argct) {
-    sprintf(logbuf, "Error: --%s requires at least one value.%s", cur_flag_str, errstr_append);
-    logprintb();
+    LOGPRINTF("Error: --%s requires at least one value.%s", cur_flag_str, errstr_append);
     return -1;
   }
   while (0) {
   parse_chrom_ranges_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  parse_chrom_ranges_ret_INVALID_CMDLINE_2:
+  parse_chrom_ranges_ret_INVALID_CMDLINE_3:
     logprint("Error: Chromosome ranges cannot include nonstandard names.\n");
     retval = RET_INVALID_CMDLINE;
     break;
-  parse_chrom_ranges_ret_INVALID_CMDLINE:
+  parse_chrom_ranges_ret_INVALID_CMDLINE_2:
     logprintb();
     retval = RET_INVALID_CMDLINE;
     break;
@@ -4367,8 +4335,7 @@ int32_t parse_name_ranges(uint32_t param_ct, char range_delim, char** argv, Rang
     cur_arg_ptr = argv[1];
     while (1) {
       if (parse_next_range(param_ct, range_delim, argv, &cur_param_idx, &cur_arg_ptr, &range_start, &rs_len, &range_end, &re_len)) {
-	sprintf(logbuf, "Error: Invalid %s parameter '%s'.%s", argv[0], argv[cur_param_idx], errstr_append);
-        logprintb();
+	LOGPRINTF("Error: Invalid %s parameter '%s'.%s", argv[0], argv[cur_param_idx], errstr_append);
         return RET_INVALID_CMDLINE;
       }
       if (!range_start) {
@@ -4387,8 +4354,7 @@ int32_t parse_name_ranges(uint32_t param_ct, char range_delim, char** argv, Rang
     }
   }
   if (!name_ct) {
-    sprintf(logbuf, "Error: %s requires at least one value.%s", argv[0], errstr_append);
-    logprintb();
+    LOGPRINTF("Error: %s requires at least one value.%s", argv[0], errstr_append);
     return RET_INVALID_CMDLINE;
   }
   range_list_ptr->name_max_len = ++name_max_len;
@@ -4415,23 +4381,20 @@ int32_t parse_name_ranges(uint32_t param_ct, char range_delim, char** argv, Rang
 	  dup_check = cur_name_str; // actually a numeric check
 	  do {
 	    if (is_not_digit(*dup_check)) {
-	      sprintf(logbuf, "Error: Invalid %s parameter '%s'.\n", argv[0], cur_name_str);
-	      logprintb();
+	      LOGPRINTF("Error: Invalid %s parameter '%s'.\n", argv[0], cur_name_str);
 	      return RET_INVALID_CMDLINE;
 	    }
 	  } while (*(++dup_check));
 	  cur_val = atoi(cur_name_str);
 	  if (cur_val < 1) {
-	    sprintf(logbuf, "Error: Invalid %s parameter '%s'.\n", argv[0], cur_name_str);
-	    logprintb();
+	    LOGPRINTF("Error: Invalid %s parameter '%s'.\n", argv[0], cur_name_str);
 	    return RET_INVALID_CMDLINE;
 	  }
 	  if (range_list_ptr->starts_range[cur_param_idx]) {
 	    last_val = cur_val;
 	  } else {
 	    if (cur_val <= last_val) {
-	      sprintf(logbuf, "Error: Invalid %s range '%s-%s'.\n", argv[0], &(range_list_ptr->names[(cur_param_idx - 1) * name_max_len]), cur_name_str);
-	      logprintb();
+	      LOGPRINTF("Error: Invalid %s range '%s-%s'.\n", argv[0], &(range_list_ptr->names[(cur_param_idx - 1) * name_max_len]), cur_name_str);
 	      return RET_INVALID_CMDLINE;
 	    }
 	    last_val = 0;
@@ -4444,8 +4407,7 @@ int32_t parse_name_ranges(uint32_t param_ct, char range_delim, char** argv, Rang
     dup_check = range_list_ptr->names;
     while (dup_check < cur_name_str) {
       if (!memcmp(dup_check, cur_name_str, rs_len + 1)) {
-	sprintf(logbuf, "Error: Duplicate %s parameter '%s'.\n", argv[0], cur_name_str);
-	logprintb();
+	LOGPRINTF("Error: Duplicate %s parameter '%s'.\n", argv[0], cur_name_str);
 	return RET_INVALID_CMDLINE;
       }
       dup_check = &(dup_check[name_max_len]);
@@ -4457,8 +4419,7 @@ int32_t parse_name_ranges(uint32_t param_ct, char range_delim, char** argv, Rang
       dup_check = range_list_ptr->names;
       while (dup_check < cur_name_str) {
 	if (!memcmp(dup_check, cur_name_str, rs_len + 1)) {
-	  sprintf(logbuf, "Error: Duplicate %s parameter '%s'.\n", argv[0], cur_name_str);
-	  logprintb();
+	  LOGPRINTF("Error: Duplicate %s parameter '%s'.\n", argv[0], cur_name_str);
 	  return RET_INVALID_CMDLINE;
 	}
         dup_check = &(dup_check[name_max_len]);
@@ -4507,8 +4468,7 @@ int32_t alloc_string(char** sbuf, const char* source) {
 int32_t alloc_fname(char** fnbuf, char* source, char* argptr, uint32_t extra_size) {
   uint32_t slen = strlen(source) + 1;
   if (slen > (FNAMESIZE - extra_size)) {
-    sprintf(logbuf, "Error: --%s filename too long.\n", argptr);
-    logprintb();
+    LOGPRINTF("Error: --%s filename too long.\n", argptr);
     return RET_OPEN_FAIL;
   }
   *fnbuf = (char*)malloc((slen + extra_size) * sizeof(char));
@@ -4588,8 +4548,7 @@ int32_t alloc_2col(Two_col_params** tcbuf, char** params_ptr, char* argptr, uint
   int32_t ii;
   char cc;
   if (slen > FNAMESIZE) {
-    sprintf(logbuf, "Error: --%s filename too long.\n", argptr);
-    logprintb();
+    LOGPRINTF("Error: --%s filename too long.\n", argptr);
     return RET_OPEN_FAIL;
   }
   *tcbuf = (Two_col_params*)malloc(sizeof(Two_col_params) + slen);
@@ -4602,16 +4561,14 @@ int32_t alloc_2col(Two_col_params** tcbuf, char** params_ptr, char* argptr, uint
   if (param_ct > 1) {
     ii = atoi(params_ptr[1]);
     if (ii < 1) {
-      sprintf(logbuf, "Error: Invalid --%s column number.\n", argptr);
-      logprintb();
+      LOGPRINTF("Error: Invalid --%s column number.\n", argptr);
       return RET_INVALID_FORMAT;
     }
     (*tcbuf)->colx = ii;
     if (param_ct > 2) {
       ii = atoi(params_ptr[2]);
       if (ii < 1) {
-	sprintf(logbuf, "Error: Invalid --%s variant ID column number.\n", argptr);
-	logprintb();
+	LOGPRINTF("Error: Invalid --%s variant ID column number.\n", argptr);
 	return RET_INVALID_FORMAT;
       }
       (*tcbuf)->colid = ii;
@@ -4626,8 +4583,7 @@ int32_t alloc_2col(Two_col_params** tcbuf, char** params_ptr, char* argptr, uint
 	} else {
 	  if (atoiz(params_ptr[3], &ii)) {
 	  alloc_2col_invalid_skip:
-	    sprintf(logbuf, "Error: Invalid --%s skip parameter.  This needs to either be a\nsingle character (usually '#') which, when present at the start of a line,\nindicates it should be skipped; or the number of initial lines to skip.  (Note\nthat in shells such as bash, '#' is a special character that must be\nsurrounded by single- or double-quotes to be parsed correctly.)\n", argptr);
-	    logprintb();
+	    LOGPRINTF("Error: Invalid --%s skip parameter.  This needs to either be a\nsingle character (usually '#') which, when present at the start of a line,\nindicates it should be skipped; or the number of initial lines to skip.  (Note\nthat in shells such as bash, '#' is a special character that must be\nsurrounded by single- or double-quotes to be parsed correctly.)\n", argptr);
 	    return RET_INVALID_FORMAT;
 	  }
 	  (*tcbuf)->skip = ii;
@@ -4637,8 +4593,7 @@ int32_t alloc_2col(Two_col_params** tcbuf, char** params_ptr, char* argptr, uint
       (*tcbuf)->colid = 1;
     }
     if ((*tcbuf)->colx == (*tcbuf)->colid) {
-      sprintf(logbuf, "Error: Column numbers for --%s cannot be equal.%s", argptr, errstr_append);
-      logprintb();
+      LOGPRINTF("Error: Column numbers for --%s cannot be equal.%s", argptr, errstr_append);
       return RET_INVALID_FORMAT;
     }
   } else {
@@ -6445,6 +6400,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if ((dxx < 0.01) || (dxx >= 1.0)) {
 	  sprintf(logbuf, "Error: --ci confidence interval size s must satisfy 0.01 <= s < 1.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	ci_size = dxx;
       } else if (!memcmp(argptr2, "luster", 7)) {
@@ -6862,7 +6818,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	} else if (!cnv_intersect_filter_type) {
 	  sprintf(logbuf, "Error: --cnv-subset must be used with --cnv-intersect/-exclude/-count.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -8147,8 +8103,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --cluster 'group-avg' and 'old-tiebreaks' cannot be used together.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        sprintf(logbuf, "Note: --%s flag deprecated.  Use '--cluster group-avg'.\n", argptr);
-	logprintb();
+        LOGPRINTF("Note: --%s flag deprecated.  Use '--cluster group-avg'.\n", argptr);
 	cluster.modifier |= CLUSTER_GROUP_AVG;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "enotypic", 9)) {
@@ -11596,8 +11551,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --threads parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	} else if (ii > MAX_THREADS) {
-	  sprintf(logbuf, "Note: Reducing --threads parameter to %u.  (If this is not large enough,\nrecompile with a larger MAX_THREADS setting.)\n", MAX_THREADS);
-	  logprintb();
+	  LOGPRINTF("Note: Reducing --threads parameter to %u.  (If this is not large enough,\nrecompile with a larger MAX_THREADS setting.)\n", MAX_THREADS);
 	  ii = MAX_THREADS;
 	}
 	g_thread_ct = ii;
@@ -12005,8 +11959,7 @@ int32_t main(int32_t argc, char** argv) {
 	  if (retval) {
 	    goto main_ret_1;
 	  }
-	  sprintf(logbuf, "Note: --update-map [filename] + parameter-free --update-%s deprecated.  Use\n--update-%s [filename] instead.\n", (update_map_modifier == 1)? "chr" : "cm", (update_map_modifier == 1)? "chr" : "cm");
-	  logprintb();
+	  LOGPRINTF("Note: --update-map [filename] + parameter-free --update-%s deprecated.  Use\n--update-%s [filename] instead.\n", (update_map_modifier == 1)? "chr" : "cm", (update_map_modifier == 1)? "chr" : "cm");
 	  update_map_modifier = 0;
 	} else {
 	  retval = alloc_2col(&update_map, &(argv[cur_arg + 1]), argptr, param_ct);
@@ -12081,6 +12034,7 @@ int32_t main(int32_t argc, char** argv) {
 	  ii = atoi(argv[cur_arg + 2]);
 	  if (ii < 1) {
 	    sprintf(logbuf, "Error: Invalid --update-sex column parameter '%s'.  (This must be a positive\ninteger.)%s", argv[cur_arg + 2], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
 	  }
           update_sex_col = ii;
 	}
@@ -12768,8 +12722,7 @@ int32_t main(int32_t argc, char** argv) {
     }
     wkspace_ua = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
     if (wkspace_ua) {
-      sprintf(logbuf, "Allocated %" PRIdPTR " MB successfully, after larger attempt(s) failed.\n", malloc_size_mb);
-      logprintb();
+      LOGPRINTF("Allocated %" PRIdPTR " MB successfully, after larger attempt(s) failed.\n", malloc_size_mb);
     } else if (malloc_size_mb == WKSPACE_MIN_MB) {
       goto main_ret_NOMEM;
     }

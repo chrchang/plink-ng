@@ -245,8 +245,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	retval = RET_ALL_MARKERS_EXCLUDED;
 	goto load_range_list_ret_1;
       }
-      sprintf(logbuf, "Warning: No valid ranges in %s file.\n", file_descrip);
-      logprintb();
+      LOGPRINTF("Warning: No valid ranges in %s file.\n", file_descrip);
       goto load_range_list_ret_1;
     }
     max_set_id_len += c_prefix;
@@ -1456,8 +1455,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   sip->names = set_names;
   sip->max_name_len = max_set_id_len;
   sip->setdefs = all_setdefs;
-  sprintf(logbuf, "--%sset: %" PRIuPTR " set%s defined.\n", make_set? "make-" : "", set_ct, (set_ct == 1)? "" : "s");
-  logprintb();
+  LOGPRINTF("--%sset: %" PRIuPTR " set%s defined.\n", make_set? "make-" : "", set_ct, (set_ct == 1)? "" : "s");
   while (0) {
   define_sets_merge_nothing:
     sip->ct = 1;
@@ -1480,8 +1478,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     } else {
       sip->setdefs[0][0] = 0;
     }
-    sprintf(logbuf, "--%sset: 1 set defined.\n", make_set? "make-" : "");
-    logprintb();
+    LOGPRINTF("--%sset: 1 set defined.\n", make_set? "make-" : "");
     break;
   define_sets_ret_NOMEM2:
     wkspace_left += topsize;
@@ -1639,8 +1636,7 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
     if (fclose_null(&outfile)) {
       goto write_set_ret_WRITE_FAIL;
     }
-    sprintf(logbuf, "--set-table: %s written.\n", outname);
-    logprintb();
+    LOGPRINTF("--set-table: %s written.\n", outname);
   }
   if (sip->modifier & SET_WRITE_LIST) {
     memcpy(outname_end, ".set", 5);
@@ -1698,8 +1694,7 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
     if (fclose_null(&outfile)) {
       goto write_set_ret_WRITE_FAIL;
     }
-    sprintf(logbuf, "--write-set: %s written.\n", outname);
-    logprintb();
+    LOGPRINTF("--write-set: %s written.\n", outname);
   }
   while (0) {
   write_set_ret_NOMEM:

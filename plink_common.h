@@ -649,6 +649,8 @@ void logprint(const char* ss);
 
 void logprintb();
 
+#define LOGPRINTF(...) sprintf(logbuf, __VA_ARGS__); logprintb();
+
 int32_t fopen_checked(FILE** target_ptr, const char* fname, const char* mode);
 
 static inline int32_t putc_checked(int32_t ii, FILE* outfile) {

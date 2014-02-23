@@ -498,8 +498,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
     }
   }
   fputs("\b\b\b", stdout);
-  sprintf(logbuf, "--adjust values (%" PRIuPTR " variant%s) written to %s.\n", chi_ct, (chi_ct == 1)? "" : "s", outname);
-  logprintb();
+  LOGPRINTF("--adjust values (%" PRIuPTR " variant%s) written to %s.\n", chi_ct, (chi_ct == 1)? "" : "s", outname);
 
   while (0) {
   multcomp_ret_NOMEM:
@@ -6366,8 +6365,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       if (fopen_checked(&outfile_msa, outname, "w")) {
 	goto model_assoc_ret_OPEN_FAIL;
       }
-      sprintf(logbuf, "Dumping all permutation %svalues to %s.\n", model_fisherx? "p-" : "chi-square ", outname);
-      logprintb();
+      LOGPRINTF("Dumping all permutation %svalues to %s.\n", model_fisherx? "p-" : "chi-square ", outname);
     }
   } else {
     mperm_save = 0;
@@ -6389,8 +6387,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     if (fopen_checked(&outfile, outname, "w")) {
       goto model_assoc_ret_OPEN_FAIL;
     }
-    sprintf(logbuf, "Writing C/C --assoc report to %s...", outname);
-    logprintb();
+    LOGPRINTF("Writing C/C --assoc report to %s...", outname);
     fflush(stdout);
     sprintf(tbuf, " CHR %%%us         BP   A1 ", plink_maxsnp);
     fprintf(outfile, tbuf, "SNP");
@@ -6419,8 +6416,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   } else {
     uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 0, 1);
     if (uii) {
-      sprintf(logbuf, "Excluding %u MT/haploid variant%s from --model analysis.\n", uii, (uii == 1)? "" : "s");
-      logprintb();
+      LOGPRINTF("Excluding %u MT/haploid variant%s from --model analysis.\n", uii, (uii == 1)? "" : "s");
     }
     marker_ct -= uii;
     if (!marker_ct) {
@@ -6431,8 +6427,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     if (fopen_checked(&outfile, outname, "w")) {
       goto model_assoc_ret_OPEN_FAIL;
     }
-    sprintf(logbuf, "Writing --model report to %s...", outname);
-    logprintb();
+    LOGPRINTF("Writing --model report to %s...", outname);
     fflush(stdout);
     if (model_perm_best && model_perms) {
       outname_end2 = memcpyb(outname_end2, ".best", 6);
@@ -7774,8 +7769,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       }
     }
     putchar('\r');
-    sprintf(logbuf, "%u %s permutation%s complete.\n", perms_done, model_maxt_nst? "max(T)" : "(adaptive)", (perms_done != 1)? "s" : "");
-    logprintb();
+    LOGPRINTF("%u %s permutation%s complete.\n", perms_done, model_maxt_nst? "max(T)" : "(adaptive)", (perms_done != 1)? "s" : "");
     if (model_fisher && (model_modifier & MODEL_PTREND)) {
       outname_end2 -= 7; // remove ".fisher"
     }
@@ -7789,8 +7783,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	ulii = outname_end - outname;
 	memcpy(a1ptr, outname, ulii);
 	memcpy(&(a1ptr[ulii]), ".mperm.dump.best", 17);
-	sprintf(logbuf, "Dumping best permutation %svalues to %s.\n", model_fisherx? "p-" : "chi-square ", a1ptr);
-	logprintb();
+	LOGPRINTF("Dumping best permutation %svalues to %s.\n", model_fisherx? "p-" : "chi-square ", a1ptr);
 	if (fopen_checked(&outfile, a1ptr, "w")) {
 	  goto model_assoc_ret_OPEN_FAIL;
 	}
@@ -7918,8 +7911,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     if (fclose_null(&outfile)) {
       goto model_assoc_ret_WRITE_FAIL;
     }
-    sprintf(logbuf, "Permutation test report written to %s.\n", outname);
-    logprintb();
+    LOGPRINTF("Permutation test report written to %s.\n", outname);
   }
 
   while (0) {
@@ -8079,8 +8071,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       if (putc_checked('0', outfile_msa)) {
 	goto qassoc_ret_WRITE_FAIL;
       }
-      sprintf(logbuf, "Dumping all permutation squared %sstats to %s.\n", do_lin? "Lin " : "Wald t-", outname);
-      logprintb();
+      LOGPRINTF("Dumping all permutation squared %sstats to %s.\n", do_lin? "Lin " : "Wald t-", outname);
     }
   } else {
     mperm_save = 0;
@@ -8129,8 +8120,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   if (haploid_chrom_present(chrom_info_ptr) || mt_exists) {
     logprint("Warning: QT --assoc doesn't handle X/Y/MT/haploid variants normally (try\n--linear).\n");
   }
-  sprintf(logbuf, "Writing QT --assoc report to %s...", outname);
-  logprintb();
+  LOGPRINTF("Writing QT --assoc report to %s...", outname);
   fflush(stdout);
   sprintf(tbuf, " CHR %%%us         BP    NMISS       BETA         SE         R2        T            P ", plink_maxsnp);
   fprintf(outfile, tbuf, "SNP");
@@ -8732,8 +8722,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     fputs("\b\b\b", stdout);
     logprint(" done.\n");
     if (qt_means) {
-      sprintf(logbuf, "QT means report saved to %s.means.\n", outname);
-      logprintb();
+      LOGPRINTF("QT means report saved to %s.means.\n", outname);
       if (fclose_null(&outfile_qtm)) {
 	goto qassoc_ret_WRITE_FAIL;
       }
@@ -8823,16 +8812,14 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       }
     }
     putchar('\r');
-    sprintf(logbuf, "%u %s permutation%s complete.\n", g_perms_done, perm_maxt? "max(T)" : "(adaptive)", (g_perms_done != 1)? "s" : "");
-    logprintb();
+    LOGPRINTF("%u %s permutation%s complete.\n", g_perms_done, perm_maxt? "max(T)" : "(adaptive)", (g_perms_done != 1)? "s" : "");
 
     if (perm_adapt) {
       memcpy(outname_end2, ".perm", 6);
     } else {
       if (mperm_save & MPERM_DUMP_BEST) {
 	memcpy(outname_end, ".mperm.dump.best", 17);
-	sprintf(logbuf, "Dumping best permutation squared %sstats to %s.\n", do_lin? "Lin " : "Wald t-", outname);
-	logprintb();
+	LOGPRINTF("Dumping best permutation squared %sstats to %s.\n", do_lin? "Lin " : "Wald t-", outname);
 	if (fopen_checked(&outfile, outname, "w")) {
 	  goto qassoc_ret_OPEN_FAIL;
 	}
@@ -8955,9 +8942,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     if (fclose_null(&outfile)) {
       goto qassoc_ret_WRITE_FAIL;
     }
-    sprintf(logbuf, "Permutation test report written to %s.\n", outname);
-    logprintb();
-
+    LOGPRINTF("Permutation test report written to %s.\n", outname);
   }
 
   while (0) {
@@ -9248,8 +9233,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
   if (haploid_chrom_present(chrom_info_ptr) || mt_exists) {
     logprint("Warning: --gxe doesn't currently handle X/Y/MT/haploid variants properly.\n");
   }
-  sprintf(logbuf, "Writing --gxe report to %s...", outname);
-  logprintb();
+  LOGPRINTF("Writing --gxe report to %s...", outname);
   fputs(" 0%", stdout);
   fflush(stdout);
   sprintf(tbuf, " CHR %%%us   NMISS1      BETA1        SE1   NMISS2      BETA2        SE2    Z_GXE        P_GXE \n", plink_maxsnp);
@@ -10055,8 +10039,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
       if (fopen_checked(&outfile_msa, outname, "w")) {
         goto testmiss_ret_OPEN_FAIL;
       }
-      sprintf(logbuf, "Dumping all permutation p-values to %s.\n", outname);
-      logprintb();
+      LOGPRINTF("Dumping all permutation p-values to %s.\n", outname);
     }
   } else {
     mperm_save = 0;
@@ -10098,8 +10081,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
   if (fopen_checked(&outfile, outname, "w")) {
     goto testmiss_ret_OPEN_FAIL;
   }
-  sprintf(logbuf, "Writing --test-missing report to %s...", outname);
-  logprintb();
+  LOGPRINTF("Writing --test-missing report to %s...", outname);
   fflush(stdout);
   sprintf(tbuf, " CHR %%%us     F_MISS_A     F_MISS_U            P \n", plink_maxsnp);
   fprintf(outfile, tbuf, "SNP");
@@ -10213,8 +10195,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
       logprint("Skipping --test-missing permutation test since all sites are degenerate.\n");
       goto testmiss_ret_1;
     }
-    sprintf(logbuf, "Including %" PRIuPTR " site%s in --test-missing permutation test.\n", marker_ct, (marker_ct == 1)? "" : "s");
-    logprintb();
+    LOGPRINTF("Including %" PRIuPTR " site%s in --test-missing permutation test.\n", marker_ct, (marker_ct == 1)? "" : "s");
     if (mperm_dump_all) {
       tbuf[0] = '0';
       wptr = &(tbuf[1]);
@@ -10624,16 +10605,14 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
       }
     }
     putchar('\r');
-    sprintf(logbuf, "%u %s permutation%s complete.\n", g_perms_done, perm_maxt? "max(T)" : "(adaptive)", (g_perms_done != 1)? "s" : "");
-    logprintb();
+    LOGPRINTF("%u %s permutation%s complete.\n", g_perms_done, perm_maxt? "max(T)" : "(adaptive)", (g_perms_done != 1)? "s" : "");
     if (perm_adapt) {
       memcpy(outname_end2, ".perm", 6);
     } else {
       if (mperm_save & MPERM_DUMP_BEST) {
 	ulii = outname_end - outname;
 	memcpy(outname_end, ".mperm.dump.best", 17);
-	sprintf(logbuf, "Dumping best permutation p-values to %s.\n", outname);
-	logprintb();
+	LOGPRINTF("Dumping best permutation p-values to %s.\n", outname);
 	if (fopen_checked(&outfile, outname, "w")) {
 	  goto testmiss_ret_OPEN_FAIL;
 	}
@@ -10737,8 +10716,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
     if (fclose_null(&outfile)) {
       goto testmiss_ret_WRITE_FAIL;
     }
-    sprintf(logbuf, "Permutation test report written to %s.\n", outname);
-    logprintb();
+    LOGPRINTF("Permutation test report written to %s.\n", outname);
   }
 
   while (0) {
