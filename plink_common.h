@@ -1494,6 +1494,22 @@ static inline int32_t filename_exists(char* fname, char* fname_end, const char* 
 
 void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char oldc, char newc);
 
+void get_set_wrange(uintptr_t* bitfield, uintptr_t word_ct, uintptr_t* firstw_ptr, uintptr_t* wlen_ptr);
+
+#ifdef __LP64__
+static inline void get_set_wrange_align(uintptr_t* bitfield, uintptr_t word_ct, uintptr_t* firstw_ptr, uintptr_t* wlen_ptr) {
+  get_set_wrange(bitfield, word_ct, firstw_ptr, wlen_ptr);
+  if ((*firstw_ptr) & 1) {
+    *firstw_ptr -= 1;
+    if (*wlen_ptr) {
+      *wlen_ptr += 1;
+    }
+  }
+}
+#else
+#define get_set_wrange_align get_set_wrange
+#endif
+
 // Maximum accepted chromosome index is this minus 1.  Currently cannot exceed
 // 2^14 due to SMALL_INTERVAL_BITS setting in plink_cnv.c.
 #define MAX_POSSIBLE_CHROM 2560

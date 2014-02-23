@@ -3398,6 +3398,22 @@ void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
   }
 }
 
+void get_set_wrange(uintptr_t* bitfield, uintptr_t word_ct, uintptr_t* firstw_ptr, uintptr_t* wlen_ptr) {
+  uintptr_t* bitfield_ptr = bitfield;
+  uintptr_t* bitfield_end = &(bitfield[word_ct]);
+  while (bitfield_ptr < bitfield_end) {
+    if (!(*bitfield_ptr)) {
+      *firstw_ptr = (uintptr_t)(bitfield_ptr - bitfield);
+      while (!(*(--bitfield_end)));
+      *wlen_ptr = 1 + (uintptr_t)(bitfield_end - bitfield_ptr);
+      return;
+    }
+    bitfield_ptr++;
+  }
+  *firstw_ptr = word_ct;
+  *wlen_ptr = 0;
+}
+
 // global since species_str() may be called by functions which don't actually
 // care about Chrom_info
 const char* g_species_singular = NULL;

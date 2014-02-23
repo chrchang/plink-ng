@@ -82,20 +82,25 @@ uint32_t interval_in_setdef(uint32_t* setdef, uint32_t marker_idx_start, uint32_
 }
 
 void setdef_iter_init(uint32_t* setdef, uint32_t marker_ct, uint32_t start_idx, uint32_t* cur_idx_ptr, uint32_t* aux_ptr) {
+  uint32_t range_ct = setdef[0];
   uint32_t uii;
-  if (setdef[0] != 0xffffffffU) {
-    for (uii = 0; uii < setdef[0]; uii++) {
-      if (start_idx < setdef[uii * 2 + 2]) {
-	if (start_idx < setdef[uii * 2 + 1]) {
-	  start_idx = setdef[uii * 2 + 1];
-	}
-        *cur_idx_ptr = start_idx;
-        *aux_ptr = uii * 2 + 2;
-	return;
-      }
+  if (range_ct != 0xffffffffU) {
+    if (!range_ct) {
+      *cur_idx_ptr = 0;
+      *aux_ptr = 0;
+      return;
     }
-    *cur_idx_ptr = setdef[uii * 2];
-    *aux_ptr = uii * 2;
+    uii = uint32arr_greater_than(&(setdef[1]), range_ct * 2, start_idx + 1);
+    if (uii % 2) {
+      *cur_idx_ptr = start_idx;
+      *aux_ptr = uii + 1;
+    } else if (uii < range_ct * 2) {
+      *cur_idx_ptr = setdef[uii + 1];
+      *aux_ptr = uii + 2;
+    } else {
+      *cur_idx_ptr = setdef[uii];
+      *aux_ptr = uii;
+    }
   } else {
     // aux value may be redefined; just needs to be compatible with
     // setdef_iter()
@@ -117,12 +122,13 @@ uint32_t setdef_iter(uint32_t* setdef, uint32_t* cur_idx_ptr, uint32_t* aux_ptr)
   // Iterator.  Returns 0 if end of set, 1 if *not* end.
   // Assumes cur_idx and aux were initialized with setdef_iter_init(), and
   // (after the first call) cur_idx is incremented right before this is called.
+  uint32_t range_ct = setdef[0];
   uint32_t cur_idx = *cur_idx_ptr;
   uint32_t aux = *aux_ptr;
-  if (setdef[0] != 0xffffffffU) {
+  if (range_ct != 0xffffffffU) {
     if (cur_idx < setdef[aux]) {
       return 1;
-    } else if (aux < setdef[0] * 2) {
+    } else if (aux < range_ct * 2) {
       *cur_idx_ptr = setdef[aux + 1];
       *aux_ptr = aux + 2;
       return 1;

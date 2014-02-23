@@ -7184,6 +7184,8 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   uintptr_t topsize_base;
   uintptr_t idx1_block_size;
   uintptr_t idx2_block_size;
+  uintptr_t firstw;
+  uintptr_t wlen;
   uintptr_t ulii;
   uintptr_t uljj;
   uint32_t thread_ct;
@@ -7237,7 +7239,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     goto construct_ld_map_ret_NOMEM;
   }
   tmp_set_bitfield = (uintptr_t*)top_alloc(&topsize, marker_ctv * sizeof(intptr_t));
-  if (!union_bitfield) {
+  if (!tmp_set_bitfield) {
     goto construct_ld_map_ret_NOMEM;
   }
   g_ld_union_bitfield = union_bitfield;
@@ -7290,18 +7292,29 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     g_ld_result_bitfield = result_bitfield;
     set_uidx = 0;
     idx1_block_end = marker_idx + idx1_block_size;
+    fill_ulong_zero(union_bitfield, marker_ctv * sizeof(intptr_t));
     fill_ulong_zero(result_bitfield, idx1_block_size * marker_ctv * sizeof(intptr_t));
     for (set_idx = 0; set_idx < set_ct; set_uidx++, set_idx++) {
       next_set_unsafe_ck(set_incl, &set_uidx);
       cur_setdef = setdefs[set_uidx];
       setdef_iter_init(cur_setdef, marker_ct, marker_idx, &marker_idx2, &setdef_incr_aux);
       if (setdef_iter(cur_setdef, &marker_idx2, &setdef_incr_aux) && (marker_idx2 < idx1_block_end)) {
-        fill_ulong_zero(union_bitfield, marker_ctv * sizeof(intptr_t));
-        do {
-          marker_idx2++;
-	} while (setdef_iter(cur_setdef, &marker_idx2, &setdef_incr_aux) && (marker_idx2 < idx1_block_end));
+	unpack_set(marker_ct, cur_setdef, tmp_set_bitfield);
+	// don't need to load the first intersecting member, since we're only
+	// traversing the upper right triangle
+	clear_bit(tmp_set_bitfield, marker_idx2);
+        get_set_wrange_align(tmp_set_bitfield, marker_ctv, &firstw, &wlen);
+	if (wlen) {
+	  bitfield_or(&(union_bitfield[firstw]), &(tmp_set_bitfield[firstw]), wlen);
+	  do {
+	    bitfield_or(&(result_bitfield[((marker_idx2 - marker_idx) * marker_ctv + firstw) * sizeof(intptr_t)]), &(tmp_set_bitfield[firstw]), wlen);
+	    marker_idx2++;
+	    next_set_ck(tmp_set_bitfield, &marker_idx2, idx1_block_end);
+	  } while (marker_idx2 < idx1_block_end);
+	}
       }
     }
+
     topsize = topsize_base; // "free" previous round of allocations
     marker_idx = idx1_block_end;
   } while (marker_idx < marker_ct);
