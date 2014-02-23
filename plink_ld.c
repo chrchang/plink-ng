@@ -6235,6 +6235,8 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
         logprint("Error: Each --{fast-}epistasis set must contain at least one autosomal diploid\nsite not monomorphic in either cases or controls.\n");
       }
     }
+    retval = RET_INVALID_CMDLINE;
+    break;
   epistasis_report_ret_INVALID_CMDLINE_2:
     logprintb();
   epistasis_report_ret_INVALID_CMDLINE:
