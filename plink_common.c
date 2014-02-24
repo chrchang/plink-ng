@@ -3398,11 +3398,28 @@ void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
   }
 }
 
-void get_set_wrange(uintptr_t* bitfield, uintptr_t word_ct, uintptr_t* firstw_ptr, uintptr_t* wlen_ptr) {
+void get_set_wrange_align(uintptr_t* bitfield, uintptr_t word_ct, uintptr_t* firstw_ptr, uintptr_t* wlen_ptr) {
   uintptr_t* bitfield_ptr = bitfield;
   uintptr_t* bitfield_end = &(bitfield[word_ct]);
+#ifdef __LP64__
+  uintptr_t* bitfield_end2 = &(bitfield[word_ct & (~ONELU)]);
+  while (bitfield_ptr < bitfield_end2) {
+    if (bitfield_ptr[0] || bitfield_ptr[1]) {
+      *firstw_ptr = (uintptr_t)(bitfield_ptr - bitfield);
+      while (!(*(--bitfield_end)));
+      *wlen_ptr = 1 + (uintptr_t)(bitfield_end - bitfield_ptr);
+      return;
+    }
+    bitfield_ptr = &(bitfield_ptr[2]);
+  }
+  if ((bitfield_end2 != bitfield_end) && (*bitfield_end2)) {
+    *firstw_ptr = word_ct - 1;
+    *wlen_ptr = 1;
+    return;
+  }
+#else
   while (bitfield_ptr < bitfield_end) {
-    if (!(*bitfield_ptr)) {
+    if (*bitfield_ptr) {
       *firstw_ptr = (uintptr_t)(bitfield_ptr - bitfield);
       while (!(*(--bitfield_end)));
       *wlen_ptr = 1 + (uintptr_t)(bitfield_end - bitfield_ptr);
@@ -3410,7 +3427,8 @@ void get_set_wrange(uintptr_t* bitfield, uintptr_t word_ct, uintptr_t* firstw_pt
     }
     bitfield_ptr++;
   }
-  *firstw_ptr = word_ct;
+#endif
+  *firstw_ptr = 0;
   *wlen_ptr = 0;
 }
 

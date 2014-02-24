@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (23 Feb 2014)";
+  " (24 Feb 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -10657,6 +10657,10 @@ int32_t main(int32_t argc, char** argv) {
 	    if (recode_modifier & (RECODE_A | RECODE_AD)) {
 	      sprintf(logbuf, "Error: --recode '12' modifier cannot be used with 'A' or 'AD'.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
+	    } else if (recode_modifier & RECODE_VCF) {
+	    main_recode_12_vcf_conflict:
+	      sprintf(logbuf, "Error: --recode '12' modifier cannot be used with VCF output.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    recode_modifier |= RECODE_12;
 	  } else if (!strcmp(argv[cur_arg + uii], "compound-genotypes")) {
@@ -10759,16 +10763,20 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	  } else if (!strcmp(argv[cur_arg + uii], "vcf")) {
 	    if (recode_modifier & RECODE_VCF) {
+	    main_recode_vcf_conflict:
 	      sprintf(logbuf, "Error: Conflicting or redundant --recode modifiers.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
+	    } else if (recode_modifier & RECODE_12) {
+	      goto main_recode_12_vcf_conflict;
 	    }
 	    if (recode_type_set(&recode_modifier, RECODE_VCF)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	  } else if (!strcmp(argv[cur_arg + uii], "vcf-fid")) {
 	    if (recode_modifier & (RECODE_VCF | RECODE_IID)) {
-	      sprintf(logbuf, "Error: Conflicting or redundant --recode modifiers.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      goto main_recode_vcf_conflict;
+	    } else if (recode_modifier & RECODE_12) {
+	      goto main_recode_12_vcf_conflict;
 	    }
 	    if (recode_type_set(&recode_modifier, RECODE_VCF)) {
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -10776,8 +10784,9 @@ int32_t main(int32_t argc, char** argv) {
 	    recode_modifier |= RECODE_FID;
 	  } else if (!strcmp(argv[cur_arg + uii], "vcf-iid")) {
 	    if (recode_modifier & (RECODE_VCF | RECODE_FID)) {
-	      sprintf(logbuf, "Error: Conflicting or redundant --recode modifiers.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      goto main_recode_vcf_conflict;
+	    } else if (recode_modifier & RECODE_12) {
+	      goto main_recode_12_vcf_conflict;
 	    }
 	    if (recode_type_set(&recode_modifier, RECODE_VCF)) {
 	      goto main_ret_INVALID_CMDLINE_3;

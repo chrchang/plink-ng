@@ -8252,7 +8252,6 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   int64_t* mapvals;
   uintptr_t marker_idx;
   uintptr_t marker_uidx;
-  uint32_t* map_reverse;
   int64_t* ll_buf;
   uint32_t* pos_buf;
   char* marker_ids;
@@ -8413,14 +8412,8 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       goto transposed_to_bed_ret_WRITE_FAIL;
     }
     cptr2 = cptr4;
-    alleles[0] = NULL;
-    alleles[1] = NULL;
-    alleles[2] = NULL;
-    alleles[3] = NULL;
-    allele_cts[0] = 0;
-    allele_cts[1] = 0;
-    allele_cts[2] = 0;
-    allele_cts[3] = 0;
+    fill_ulong_zero((uintptr_t*)alleles, 4);
+    fill_uint_zero(allele_cts, 4);
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
       cptr2 = skip_initial_spaces(cptr2);
       while (cptr2 == &(tbuf[MAXLINELEN - 1])) {
@@ -8754,7 +8747,6 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     }
     fclose_null(&infile);
     marker_idx = 0;
-    map_reverse = (uint32_t*)mapvals;
     for (uii = 0; uii < chrom_ct; uii++) {
       cur_chrom = chrom_id[uii];
       ujj = chrom_start[uii + 1];
@@ -8775,15 +8767,12 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
         if (putc_checked('\n', outfile)) {
 	  goto transposed_to_bed_ret_WRITE_FAIL;
 	}
-	map_reverse[marker_uidx] = marker_idx;
       }
     }
     if (fclose_null(&outfile)) {
       goto transposed_to_bed_ret_WRITE_FAIL;
     }
 
-    wkspace_reset((unsigned char*)map_reverse);
-    map_reverse = (uint32_t*)wkspace_alloc(marker_ct * sizeof(int32_t));
     outname_end[4] = '.';
     unlink(outname);
 
@@ -8801,7 +8790,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     }
     uii = 0xfffffffeU; // last marker uidx
     for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-      marker_uidx = map_reverse[marker_idx];
+      marker_uidx = (uint32_t)(ll_buf[marker_idx]);
       if (marker_uidx != uii + 1) {
         if (fseeko(infile, 3 + ((uint64_t)marker_uidx) * indiv_ct4, SEEK_SET)) {
 	  goto transposed_to_bed_ret_READ_FAIL;
@@ -12247,6 +12236,31 @@ uint32_t write_haploview_map(FILE* outfile, uintptr_t* marker_exclude, uintptr_t
   return 0;
 }
 
+uint32_t valid_vcf_allele_code(const char* allele_code) {
+  // returns 1 if probably valid (angle-bracket case is not exhaustively
+  // checked), 0 if definitely not
+  uint32_t uii = (unsigned char)(*allele_code);
+  if (uii == '<') {
+    return 1;
+  }
+  do {
+    uii -= 64;
+    // A = 1, C = 3, G = 7, N = 14, T = 20, so (0x10408a >> ucc) & 1 works as a
+    // set membership test
+#ifdef __LP64__
+    if ((uii > 63) || (!((0x10408a0010408aLLU >> uii) & 1))) {
+      return 0;
+    }
+#else
+    if ((uii > 63) || (!((0x10408a >> (uii % 32)) & 1))) {
+      return 0;
+    }
+#endif
+    uii = (unsigned char)(*(++allele_code));
+  } while (uii);
+  return 1;
+}
+
 int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, char* recode_allele_name, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uint32_t* marker_pos, uintptr_t* marker_reverse, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t map_is_unsorted, uint64_t misc_flags, uint32_t hh_exists, Chrom_info* chrom_info_ptr) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
@@ -12260,6 +12274,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   char** mk_allele_ptrs = marker_allele_ptrs;
   char** allele_missing = NULL;
   char* recode_allele_extra = NULL;
+  const char* missing_geno_ptr = g_missing_geno_ptr;
   char delim2 = delimiter;
   uintptr_t* indiv_include2 = NULL;
   uintptr_t* indiv_male_include2 = NULL;
@@ -12952,9 +12967,24 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	if (fwrite_checked(tbuf, wbufptr - tbuf, outfile)) {
 	  goto recode_ret_WRITE_FAIL;
 	}
-	fputs(mk_allele_ptrs[2 * marker_uidx + 1], outfile);
+	cptr = mk_allele_ptrs[2 * marker_uidx + 1];
+	if (cptr == missing_geno_ptr) {
+	  logprint("\nError: --recode vcf requires all A2 (reference) alleles to be defined.  You can\nhandle this with --a2-allele, or filter out the offending variants with\nsomething like '--geno 0.999999'.\n");
+          goto recode_ret_INVALID_CMDLINE;
+	} else if (!valid_vcf_allele_code(cptr)) {
+	  goto recode_ret_INVALID_FORMAT_3;
+	}
+	fputs(cptr, outfile);
 	putc('\t', outfile);
-	fputs(mk_allele_ptrs[2 * marker_uidx], outfile);
+	cptr = mk_allele_ptrs[2 * marker_uidx];
+	if (cptr != missing_geno_ptr) {
+	  if (!valid_vcf_allele_code(cptr)) {
+	    goto recode_ret_INVALID_FORMAT_3;
+	  }
+	  fputs(cptr, outfile);
+	} else {
+	  putc('.', outfile);
+	}
 	fputs("\t.\t.\t.\tGT", outfile);
 
 	if (load_and_collapse(bedfile, (uintptr_t*)loadbuf, unfiltered_indiv_ct, loadbuf_collapsed, indiv_ct, indiv_exclude, IS_SET(marker_reverse, marker_uidx))) {
@@ -14203,6 +14233,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   recode_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
+  recode_ret_INVALID_FORMAT_3:
+    LOGPRINTF("\nError: '%s' is not a valid VCF allele code.\n(Valid codes must either start with a '<', or only contain characters in\n{A,C,G,T,N,a,c,g,t,n}.\n", cptr);
   recode_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
