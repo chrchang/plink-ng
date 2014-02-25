@@ -9430,6 +9430,9 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     putc('\t', bimfile);
     alt_alleles[-1] = '\n';
     *alt_alleles = '\0';
+    if (!memcmp(bufptr3, "N\t", 2)) {
+      *bufptr3 = missing_geno;
+    }
     if (fputs_checked(bufptr3, bimfile)) {
       goto vcf_to_bed_ret_WRITE_FAIL;
     }
@@ -12969,12 +12972,12 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	}
 	cptr = mk_allele_ptrs[2 * marker_uidx + 1];
 	if (cptr == missing_geno_ptr) {
-	  logprint("\nError: --recode vcf requires all A2 (reference) alleles to be defined.  You can\nhandle this with --a2-allele, or filter out the offending variants with\nsomething like '--geno 0.999999'.\n");
-          goto recode_ret_INVALID_CMDLINE;
-	} else if (!valid_vcf_allele_code(cptr)) {
+	  putc('N', outfile);
+	} else if (valid_vcf_allele_code(cptr)) {
+	  fputs(cptr, outfile);
+	} else {
 	  goto recode_ret_INVALID_FORMAT_3;
 	}
-	fputs(cptr, outfile);
 	putc('\t', outfile);
 	cptr = mk_allele_ptrs[2 * marker_uidx];
 	if (cptr != missing_geno_ptr) {
@@ -14234,7 +14237,11 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     retval = RET_INVALID_CMDLINE;
     break;
   recode_ret_INVALID_FORMAT_3:
-    LOGPRINTF("\nError: '%s' is not a valid VCF allele code.\n(Valid codes must either start with a '<', or only contain characters in\n{A,C,G,T,N,a,c,g,t,n}.\n", cptr);
+    uii = (strlen(cptr) > 32)? 1 : 0;
+    if (uii) {
+      cptr[33] = '\0';
+    }
+    LOGPRINTF("\nError: '%s%s' is an invalid VCF allele code.\n(Valid codes must either start with a '<', or only contain characters in\n{A,C,G,T,N,a,c,g,t,n}.)\n", cptr, uii? "..." : "");
   recode_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
