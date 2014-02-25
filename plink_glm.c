@@ -2265,6 +2265,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   uint32_t hethom = glm_modifier & GLM_HETHOM;
   uint32_t standard_beta = (glm_modifier & GLM_STANDARD_BETA) && pheno_d;
   uint32_t genotypic_or_hethom = (glm_modifier & (GLM_GENOTYPIC | GLM_HETHOM))? 1 : 0;
+  uint32_t linear_intercept = glm_modifier & GLM_INTERCEPT;
   uint32_t marker_initial_ct = marker_ct;
   uint32_t slen_add = 0;
   uint32_t sex_covar_everywhere = glm_modifier & GLM_SEX;
@@ -3624,6 +3625,18 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
 		}
 	      }
 	    }
+	    if (linear_intercept) {
+	      wptr = memcpya(wptr_start2, " INTERCEPT ", 11);
+              wptr = uint32_writew8x(wptr, (uint32_t)cur_indiv_valid_ct, ' ');
+              wptr = double_g_writewx4x(wptr, g_glm_mt[0].dgels_b[0], 10, ' ');
+	      if (display_ci) {
+		wptr = memcpya(wptr, "      NA       NA       NA ", 27);
+	      }
+	      wptr = memcpya(wptr, "          NA           NA\n", 26);
+	      if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
+		goto glm_assoc_ret_WRITE_FAIL;
+	      }
+	    }
 	  } else {
 #endif
 	    for (param_idx = 1; param_idx < cur_param_ct; param_idx++) {
@@ -4054,6 +4067,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   uint32_t do_perms = (glm_modifier & GLM_MPERM)? 1 : 0;
   uint32_t perm_count = glm_modifier & GLM_PERM_COUNT;
   uint32_t hide_covar = glm_modifier & GLM_HIDE_COVAR;
+  uint32_t linear_intercept = glm_modifier & GLM_INTERCEPT;
   uint32_t report_odds = pheno_c && (!(glm_modifier & GLM_BETA));
   uint32_t display_ci = (ci_size > 0);
   uint32_t variation_in_sex = 0; // no need to initialize if no-x-sex specified
@@ -4775,6 +4789,18 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
 	  goto glm_assoc_nosnp_ret_WRITE_FAIL;
 	}
       }      
+    }
+    if (linear_intercept) {
+      wptr = memcpya(tbuf, " INTERCEPT ", 11);
+      wptr = uint32_writew8x(wptr, (uint32_t)indiv_valid_ct, ' ');
+      wptr = double_g_writewx4x(wptr, dgels_b[0], 10, ' ');
+      if (display_ci) {
+	wptr = memcpya(wptr, "      NA       NA       NA ", 27);
+      }
+      wptr = memcpya(wptr, "          NA           NA\n", 26);
+      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	goto glm_assoc_nosnp_ret_WRITE_FAIL;
+      }
     }
   } else {
 #endif

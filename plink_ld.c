@@ -7128,7 +7128,7 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
 uintptr_t* g_ld_union_bitfield;
 uintptr_t* g_ld_result_bitfield;
 
-int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_exclude, uintptr_t marker_ct, uint32_t* marker_idx_to_uidx, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_pnm, Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, uint32_t** setdefs, char* outname, char* outname_end, char* marker_ids, uintptr_t max_marker_id_len, uint32_t*** ld_map_ptr) {
+int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t* marker_reverse, uint32_t* marker_idx_to_uidx, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_pnm, Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, uint32_t** setdefs, char* outname, char* outname_end, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* sex_male, Chrom_info* chrom_info_ptr, uint32_t ignore_x, uint32_t hh_exists, uint32_t*** ld_map_ptr) {
   return 0;
   /*
   // Takes a bunch of set definitions, and determines which pairs of same-set
@@ -7161,6 +7161,11 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   uintptr_t founder_ct_192_long = founder_ct_mld_m1 * (MULTIPLEX_LD / BITCT2) + founder_ct_mld_rem * (192 / BITCT2);
   uint32_t founder_trail_ct = founder_ct_192_long - founder_ctl * 2;
   uint32_t marker_idx = 0;
+  uint32_t chrom_fo_idx = 0;
+  uint32_t chrom_idx = 0;
+  uint32_t is_haploid = 0;
+  uint32_t is_x = 0;
+  uint32_t is_y = 0;
   int32_t retval = 0;
   char charbuf[8];
   uintptr_t* loadbuf;
@@ -7186,6 +7191,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   uintptr_t idx2_block_size;
   uintptr_t firstw;
   uintptr_t wlen;
+  uintptr_t marker_uidx;
   uintptr_t ulii;
   uintptr_t uljj;
   uint32_t thread_ct;
@@ -7312,6 +7318,35 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	    next_set_ck(tmp_set_bitfield, &marker_idx2, idx1_block_end);
 	  } while (marker_idx2 < idx1_block_end);
 	}
+      }
+    }
+    marker_uidx = next_unset_unsafe(marker_exclude, 0);
+    if (marker_idx) {
+      marker_uidx = jump_forward_unset_unsafe(marker_exclude, marker_uidx + 1, marker_idx);
+    }
+    if (fseeko(bedfile, bed_offset + (marker_uidx * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
+      goto construct_ld_map_ret_READ_FAIL;
+    }
+    chrom_end = 0;
+    for (marker_idx2 = marker_idx; marker_idx2 < idx1_block_end; marker_uidx++, marker_idx2++) {
+      if (IS_SET(marker_exclude, marker_uidx)) {
+        marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+        if (fseeko(bedfile, bed_offset + (marker_uidx * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
+          goto construct_ld_map_ret_READ_FAIL;
+	}
+      }
+      if (marker_uidx >= chrom_end) {
+        chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx);
+        chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+        is_haploid = is_set(chrom_info_ptr->haploid_mask, chrom_idx);
+        is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code)? 1 : 0;
+        is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code)? 1 : 0;
+      }
+      if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, &(geno1[(marker_idx2 - marker_idx) * founder_ct_192_long]), founder_ct, founder_pnm, IS_SET(marker_reverse, marker_uidx))) {
+	goto construct_ld_map_ret_READ_FAIL;
+      }
+      if (is_haploid && hh_exists) {
+        haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)(&(geno1[])));
       }
     }
 

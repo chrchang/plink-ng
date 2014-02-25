@@ -4016,7 +4016,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	if (pheno_d) {
 	  retval = qassoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_mperm_val, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, sex_male, hh_exists, perm_batch_size, sip);
 	} else {
-	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, founder_info, sex_male, sip);
+	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, founder_info, sex_male, hh_exists, ldip->modifier & LD_IGNORE_X, sip);
 	}
 	if (retval) {
 	  goto plink_ret_1;
@@ -8741,7 +8741,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 #endif
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 10)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 11)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
@@ -8827,6 +8827,12 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    glm_modifier |= GLM_STANDARD_BETA;
+	  } else if (!strcmp(argv[cur_arg + uii], "intercept")) {
+	    if (glm_modifier & GLM_LOGISTIC) {
+	      sprintf(logbuf, "Error: --logistic does not currently have a 'intercept' modifier.  (Did you\nmean --linear or 'beta'?)%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    glm_modifier |= GLM_INTERCEPT;
 	  } else if (!strcmp(argv[cur_arg + uii], "beta")) {
 	    glm_modifier |= GLM_BETA;
 	  } else if (!strcmp(argv[cur_arg + uii], "set-test")) {

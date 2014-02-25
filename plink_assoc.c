@@ -5952,7 +5952,7 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
   }
 }
 
-int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, char* outname_end2, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, uint32_t mtest_adjust, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude_mid, uintptr_t marker_ct_mid, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, Aperm_info* apip, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_pnm, uint32_t gender_req, Set_info* sip, uintptr_t* loadbuf_raw) {
+int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, char* outname_end2, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, uint32_t mtest_adjust, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude_mid, uintptr_t marker_ct_mid, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* sex_male,Aperm_info* apip, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_pnm, uint32_t gender_req, uint32_t ld_ignore_x, uint32_t hh_exists, Set_info* sip, uintptr_t* loadbuf_raw) {
   logprint("Error: --assoc/--model set-test is currently under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
   /*
@@ -6106,7 +6106,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   } else {
     setdefs = sip->setdefs;
   }
-  if (construct_ld_map(threads, bedfile, bed_offset, marker_exclude, marker_ct, marker_idx_to_uidx, unfiltered_indiv_ct, founder_pnm, sip, set_incl, set_ct, setdefs, outname, outname_end, marker_ids, max_marker_id_len, &ld_map)) {
+  if (construct_ld_map(threads, bedfile, bed_offset, marker_exclude, marker_ct, marker_reverse, marker_idx_to_uidx, unfiltered_indiv_ct, founder_pnm, sip, set_incl, set_ct, setdefs, outname, outname_end, marker_ids, max_marker_id_len, sex_male, chrom_info_ptr, ld_ignore_x, hh_exists, &ld_map)) {
     goto model_assoc_set_test_ret_1;
   }
   while (0) {
@@ -6171,7 +6171,7 @@ void get_model_assoc_precomp_bounds(uint32_t missing_ct, uint32_t is_model, uint
   }
 }
 
-int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_male, Set_info* sip) {
+int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_male, uint32_t hh_exists, uint32_t ld_ignore_x, Set_info* sip) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
@@ -6880,9 +6880,11 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       if (model_adapt_nst) {
 	g_adapt_m_table[block_size] = marker_idx2++;
       }
-      if ((!model_assoc) && is_x) {
+      if (is_x && (!model_assoc)) {
 	force_missing((unsigned char*)(&(loadbuf[block_size * pheno_nm_ctl2])), indiv_male_include2, pheno_nm_ct);
       }
+      // no need for usual haploid_fix since the popcount routines here
+      // interpret het. haploids as missing anyway
       mu_table[block_size++] = marker_uidx;
       if (marker_idx + block_size == marker_unstopped_ct) {
 	break;
@@ -6936,7 +6938,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	    ujj += uoo;
 	    ukk += upp;
 	    umm += uqq;
-	  } else if (is_haploid) {
+	  } else {
 	    haploid_single_marker_cc_freqs(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &uii, &ujj, &ukk, &umm);
 	    *missp = ujj + umm;
 	    *setp = uii + ukk;
@@ -7701,7 +7703,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	}
       }
     } else {
-      retval = model_assoc_set_test(threads, bedfile, bed_offset, outname, outname_end, outname_end2, model_modifier, model_mperm_val, pfilter, mtest_adjust, unfiltered_marker_ct, marker_exclude_orig, marker_ct_orig, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, apip, pheno_nm_ct, pheno_nm, pheno_c, founder_pnm, gender_req, sip, loadbuf_raw);
+      retval = model_assoc_set_test(threads, bedfile, bed_offset, outname, outname_end, outname_end2, model_modifier, model_mperm_val, pfilter, mtest_adjust, unfiltered_marker_ct, marker_exclude_orig, marker_ct_orig, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, sex_male, apip, pheno_nm_ct, pheno_nm, pheno_c, founder_pnm, gender_req, ld_ignore_x, hh_exists, sip, loadbuf_raw);
       if (retval) {
         goto model_assoc_ret_1;
       }

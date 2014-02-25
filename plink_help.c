@@ -818,7 +818,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #ifndef NOLAPACK
 "  --linear <perm | mperm=[value]> <perm-count> <set-test>\n"
 "           <genotypic | hethom | dominant | recessive | no-snp> <hide-covar>\n"
-"           <sex | no-x-sex> <interaction> <beta> <standard-beta>\n"
+"           <sex | no-x-sex> <interaction> <beta> <standard-beta> <intercept>\n"
 #endif
 	       /*
 "  --logistic <perm | mperm=[value]> <genedrop> <perm-count> <set-test>\n"
@@ -857,7 +857,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * For logistic regressions, the 'beta' modifier causes regression\n"
 "      coefficients instead of odds ratios to be reported.\n"
 "    * With --linear, the 'standard-beta' modifier standardizes the phenotype\n"
-"      and all predictors to zero mean and unit variance before regression.\n\n"
+"      and all predictors to zero mean and unit variance before regression, and\n"
+"      the 'intercept' modifier adds intercepts to the main report.\n\n"
 	       );
     help_print("lasso", &help_ctrl, 1,
 "  --lasso [h2 estimate] {min lambda} <report-zeroes>\n"
