@@ -2265,7 +2265,6 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   uint32_t hethom = glm_modifier & GLM_HETHOM;
   uint32_t standard_beta = (glm_modifier & GLM_STANDARD_BETA) && pheno_d;
   uint32_t genotypic_or_hethom = (glm_modifier & (GLM_GENOTYPIC | GLM_HETHOM))? 1 : 0;
-  uint32_t linear_intercept = glm_modifier & GLM_INTERCEPT;
   uint32_t marker_initial_ct = marker_ct;
   uint32_t slen_add = 0;
   uint32_t sex_covar_everywhere = glm_modifier & GLM_SEX;
@@ -2284,6 +2283,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   uint32_t max_thread_ct = g_thread_ct;
   int32_t retval = 0;
 #ifndef NOLAPACK
+  uint32_t linear_intercept = glm_modifier & GLM_INTERCEPT;
   char dgels_trans = 'N';
   __CLPK_integer dgels_m = 0;
   __CLPK_integer dgels_n = 0;
@@ -4074,7 +4074,6 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   uint32_t do_perms = (glm_modifier & GLM_MPERM)? 1 : 0;
   uint32_t perm_count = glm_modifier & GLM_PERM_COUNT;
   uint32_t hide_covar = glm_modifier & GLM_HIDE_COVAR;
-  uint32_t linear_intercept = glm_modifier & GLM_INTERCEPT;
   uint32_t report_odds = pheno_c && (!(glm_modifier & GLM_BETA));
   uint32_t display_ci = (ci_size > 0);
   uint32_t variation_in_sex = 0; // no need to initialize if no-x-sex specified
@@ -4085,6 +4084,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   uint32_t max_thread_ct = g_thread_ct;
   int32_t retval = 0;
 #ifndef NOLAPACK
+  uint32_t linear_intercept = glm_modifier & GLM_INTERCEPT;
   char dgels_trans = 'N';
   __CLPK_integer dgels_m = 0;
   __CLPK_integer dgels_n = 0;
