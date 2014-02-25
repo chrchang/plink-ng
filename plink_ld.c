@@ -7146,11 +7146,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   uintptr_t max_set_id_len = sip->max_name_len;
   uintptr_t founder_ct = popcount_longs(founder_pnm, unfiltered_indiv_ctl);
   uintptr_t founder_ctl = (founder_ct + BITCT - 1) / BITCT;
-#ifdef __LP64__
-  uintptr_t founder_ctv = 2 * ((founder_ct + 127) / 128);
-#else
-  uintptr_t founder_ctv = founder_ctl;
-#endif
+  uintptr_t founder_ctv2 = founder_ctl * 2;
   uintptr_t founder_ct_mld = (founder_ct + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
   uint32_t founder_ct_mld_m1 = ((uint32_t)founder_ct_mld) - 1;
 #ifdef __LP64__
@@ -7170,13 +7166,15 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   char charbuf[8];
   uintptr_t* loadbuf;
   uintptr_t* union_bitfield;
+  uintptr_t* founder_include2;
+  uintptr_t* founder_male_include2;
   uintptr_t* tmp_set_bitfield;
   uintptr_t* geno1;
   uintptr_t* geno_masks1;
   uintptr_t* geno2;
   uintptr_t* geno_masks2;
   uintptr_t* result_bitfield;
-  uintptr_t* result_bitfield_ptr;
+  uintptr_t* loadbuf_ptr;
   uint32_t** ld_map;
   uint32_t* cur_setdef;
   uint32_t* cur_setdef2;
@@ -7189,17 +7187,20 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   uintptr_t topsize_base;
   uintptr_t idx1_block_size;
   uintptr_t idx2_block_size;
+  uintptr_t cur_idx2_block_size;
   uintptr_t firstw;
   uintptr_t wlen;
   uintptr_t marker_uidx;
+  uintptr_t marker_uidx2;
   uintptr_t ulii;
   uintptr_t uljj;
   uint32_t thread_ct;
-  uint32_t block_idx1;
+  uint32_t chrom_end;
   uint32_t set_idx;
   uint32_t set_uidx;
   uint32_t idx1_block_end;
   uint32_t marker_idx2;
+  uint32_t block_idx1;
   uint32_t setdef_incr_aux;
   uint32_t setdef_incr_aux2;
   uint32_t is_last_block;
@@ -7227,8 +7228,9 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   //      96 bytes per 192 founders for raw data (rounded up)
   //      32 bytes per 128 filtered markers (rounded up), for the results (16
   //      working, 16 final)
+  //      4 bytes for missing_ct
   //      16 extra bytes to ensure enough setdef compression workspace
-  //    Memory req. per secondary window marker is 96 bytes/192 founders.
+  //    Memory req. per secondary window marker is 4 + 96 bytes/192 founders.
   //    To avoid false sharing, the number of markers assigned to each thread
   //    (except the last one) is forced to a multiple of 4.
   // 2. populate the bottom left triangle of the result matrix by referring to
@@ -7248,8 +7250,17 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   if (!tmp_set_bitfield) {
     goto construct_ld_map_ret_NOMEM;
   }
+  founder_include2 = (uintptr_t*)top_alloc(&topsize, founder_ctv2 * sizeof(intptr_t));
+  if (!founder_include2) {
+    goto construct_ld_map_ret_NOMEM;
+  }
+  founder_male_include2 = (uintptr_t*)top_alloc(&topsize, founder_ctv2 * sizeof(intptr_t));
+  if (!founder_male_include2) {
+    goto construct_ld_map_ret_NOMEM;
+  }
   g_ld_union_bitfield = union_bitfield;
-  memreq2 = founder_ct_192_long * sizeof(intptr_t) * 2;
+  alloc_collapsed_haploid_filters(unfiltered_indiv_ct, founder_ct, XMHH_EXISTS | hh_exists, 1, founder_pnm, sex_male, &founder_include2, &founder_male_include2);
+  memreq2 = founder_ct_192_long * sizeof(intptr_t) * 2 + 4;
   memreq1 = memreq2 + marker_ctv * sizeof(intptr_t) * 2 + 16;
   minmem = memreq2 * BITCT;
   if (minmem < memreq1 * 4) {
@@ -7278,8 +7289,10 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     g_ld_idx2_block_size = idx2_block_size;
     geno1 = (uintptr_t*)top_alloc(&topsize, idx1_block_size * founder_ct_192_long * sizeof(intptr_t));
     geno_masks1 = (uintptr_t*)top_alloc(&topsize, idx1_block_size * founder_ct_192_long * sizeof(intptr_t));
+    g_ld_missing_cts1 = (uint32_t*)top_alloc(&topsize, idx1_block_size * sizeof(int32_t));
     geno2 = (uintptr_t*)top_alloc(&topsize, idx2_block_size * founder_ct_192_long * sizeof(intptr_t));
     geno_masks2 = (uintptr_t*)top_alloc(&topsize, idx2_block_size * founder_ct_192_long * sizeof(intptr_t));
+    g_ld_missing_cts2 = (uint32_t*)top_alloc(&topsize, idx2_block_size * sizeof(int32_t));
     result_bitfield = (uintptr_t*)top_alloc(&topsize, idx1_block_size * marker_ctv * sizeof(intptr_t));
     uljj = founder_trail_ct + 2;
     for (ulii = 1; ulii <= idx1_block_size; ulii++) {
@@ -7328,7 +7341,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       goto construct_ld_map_ret_READ_FAIL;
     }
     chrom_end = 0;
-    for (marker_idx2 = marker_idx; marker_idx2 < idx1_block_end; marker_uidx++, marker_idx2++) {
+    for (block_idx1 = 0; block_idx1 < idx1_block_size; marker_uidx++, block_idx1++) {
       if (IS_SET(marker_exclude, marker_uidx)) {
         marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
         if (fseeko(bedfile, bed_offset + (marker_uidx * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
@@ -7342,14 +7355,24 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
         is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code)? 1 : 0;
         is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code)? 1 : 0;
       }
-      if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, &(geno1[(marker_idx2 - marker_idx) * founder_ct_192_long]), founder_ct, founder_pnm, IS_SET(marker_reverse, marker_uidx))) {
+      ulii = block_idx1 * founder_ct_192_long;
+      loadbuf_ptr = &(geno1[ulii]);
+      if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, loadbuf_ptr, founder_ct, founder_pnm, IS_SET(marker_reverse, marker_uidx))) {
 	goto construct_ld_map_ret_READ_FAIL;
       }
       if (is_haploid && hh_exists) {
-        haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)(&(geno1[])));
+        haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)loadbuf_ptr);
       }
+      ld_process_load2(loadbuf_ptr, &(geno_masks1[ulii]), &(g_ld_missing_cts1[block_idx1]), founder_ct, is_x && (!ignore_x), founder_male_include2);
     }
-
+    chrom_end = 0;
+    if (fseeko(bedfile, bed_offset + (marker_uidx2 * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
+      goto construct_ld_map_ret_READ_FAIL;
+    }
+    cur_idx2_block_size = idx2_block_size;
+    do {
+      is_last_block = (marker_idx2 >= marker_idx2_end)? 1 : 0;
+    } while (!is_last_block);
     topsize = topsize_base; // "free" previous round of allocations
     marker_idx = idx1_block_end;
   } while (marker_idx < marker_ct);

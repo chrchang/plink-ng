@@ -3615,8 +3615,8 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
                 if (display_ci) {
                   dyy = ci_zt * se;
                   wptr = double_g_writewx4x(wptr, se, 8, ' ');
-                  wptr = double_g_writewx4x(wptr, se - dyy, 8, ' ');
-                  wptr = double_g_writewx4x(wptr, se + dyy, 8, ' ');
+                  wptr = double_g_writewx4x(wptr, dxx - dyy, 8, ' ');
+                  wptr = double_g_writewx4x(wptr, dxx + dyy, 8, ' ');
 		}
                 wptr = double_g_writewx4x(wptr, zval, 12, ' ');
                 wptr = double_g_writewx4x(wptr, pval, 12, '\n');
@@ -3626,11 +3626,18 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
 	      }
 	    }
 	    if (linear_intercept) {
+	      dxx = g_glm_mt[0].dgels_b[0];
 	      wptr = memcpya(wptr_start2, " INTERCEPT ", 11);
               wptr = uint32_writew8x(wptr, (uint32_t)cur_indiv_valid_ct, ' ');
-              wptr = double_g_writewx4x(wptr, g_glm_mt[0].dgels_b[0], 10, ' ');
+              wptr = double_g_writewx4x(wptr, dxx, 10, ' ');
 	      if (display_ci) {
-		wptr = memcpya(wptr, "      NA       NA       NA ", 27);
+		// okay, this should be made more maintainable...
+		se = sqrt(g_glm_mt[0].param_2d_buf2[0]);
+		zval = dxx / se;
+		dyy = ci_zt * se;
+		wptr = double_g_writewx4x(wptr, se, 8, ' ');
+	        wptr = double_g_writewx4x(wptr, dxx - dyy, 8, ' ');
+	        wptr = double_g_writewx4x(wptr, dxx + dyy, 8, ' ');
 	      }
 	      wptr = memcpya(wptr, "          NA           NA\n", 26);
 	      if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
@@ -3664,11 +3671,11 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
 		  dyy = ci_zt * se;
                   wptr = double_g_writewx4x(wptr, se, 8, ' ');
                   if (report_odds) {
-		    wptr = double_g_writewx4x(wptr, exp(se - dyy), 8, ' ');
-                    wptr = double_g_writewx4x(wptr, exp(se + dyy), 8, ' ');
+		    wptr = double_g_writewx4x(wptr, exp(dxx - dyy), 8, ' ');
+                    wptr = double_g_writewx4x(wptr, exp(dxx + dyy), 8, ' ');
 		  } else {
-		    wptr = double_g_writewx4x(wptr, se - dyy, 8, ' ');
-                    wptr = double_g_writewx4x(wptr, se + dyy, 8, ' ');
+		    wptr = double_g_writewx4x(wptr, dxx - dyy, 8, ' ');
+                    wptr = double_g_writewx4x(wptr, dxx + dyy, 8, ' ');
 		  }
 		}
                 wptr = double_g_writewx4x(wptr, zval, 12, ' ');
@@ -4780,8 +4787,8 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
 	if (display_ci) {
 	  dyy = ci_zt * se;
 	  wptr = double_g_writewx4x(wptr, se, 8, ' ');
-	  wptr = double_g_writewx4x(wptr, se - dyy, 8, ' ');
-	  wptr = double_g_writewx4x(wptr, se + dyy, 8, ' ');
+	  wptr = double_g_writewx4x(wptr, dxx - dyy, 8, ' ');
+	  wptr = double_g_writewx4x(wptr, dxx + dyy, 8, ' ');
 	}
         wptr = double_g_writewx4x(wptr, zval, 12, ' ');
 	wptr = double_g_writewx4x(wptr, pval, 12, '\n');
@@ -4795,7 +4802,12 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
       wptr = uint32_writew8x(wptr, (uint32_t)indiv_valid_ct, ' ');
       wptr = double_g_writewx4x(wptr, dgels_b[0], 10, ' ');
       if (display_ci) {
-	wptr = memcpya(wptr, "      NA       NA       NA ", 27);
+	se = sqrt(param_2d_buf2[0]);
+	zval = dgels_b[0] / se;
+	dyy = ci_zt * se;
+	wptr = double_g_writewx4x(wptr, se, 8, ' ');
+	wptr = double_g_writewx4x(wptr, dgels_b[0] - dyy, 8, ' ');
+	wptr = double_g_writewx4x(wptr, dgels_b[0] + dyy, 8, ' ');
       }
       wptr = memcpya(wptr, "          NA           NA\n", 26);
       if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
@@ -4819,11 +4831,11 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
 	  dyy = ci_zt * se;
 	  wptr = double_g_writewx4x(wptr, se, 8, ' ');
 	  if (report_odds) {
-	    wptr = double_g_writewx4x(wptr, exp(se - dyy), 8, ' ');
-	    wptr = double_g_writewx4x(wptr, exp(se + dyy), 8, ' ');
+	    wptr = double_g_writewx4x(wptr, exp(dxx - dyy), 8, ' ');
+	    wptr = double_g_writewx4x(wptr, exp(dxx + dyy), 8, ' ');
 	  } else {
-	    wptr = double_g_writewx4x(wptr, se - dyy, 8, ' ');
-	    wptr = double_g_writewx4x(wptr, se + dyy, 8, ' ');
+	    wptr = double_g_writewx4x(wptr, dxx - dyy, 8, ' ');
+	    wptr = double_g_writewx4x(wptr, dxx + dyy, 8, ' ');
 	  }
 	}
 	wptr = double_g_writewx4x(wptr, zval, 12, ' ');

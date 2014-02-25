@@ -1206,12 +1206,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --snps [var IDs...]  : Use IDs to specify variant range(s) to load or\n"
 "  --exclude-snps [...]   exclude.  E.g. '--snps rs1111-rs2222, rs3333, rs4444'.\n"
 	       );
-    help_print("thin", &help_ctrl, 0,
-"  --thin [p]       : Remove variants at random (p = retention probability).\n"
+    help_print("thin\tthin-count", &help_ctrl, 0,
+"  --thin [p]       : Randomly remove sites, retaining each with probability p.\n"
+"  --thin-count [n] : Randomly remove sites until n of them remain.\n"
 	       );
     help_print("bp-space", &help_ctrl, 0,
-"  --bp-space [bps] : Remove variants so that each pair is no closer than the\n"
-"                     given bp distance.\n"
+"  --bp-space [bps] : Remove sites so that each pair is no closer than the given\n"
+"                     bp distance.\n"
 	       );
     help_print("filter\tmfilter", &help_ctrl, 0,
 "  --filter [f] [val(s)...] : Exclude all individuals without a 3rd column entry\n"
