@@ -9430,7 +9430,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     putc('\t', bimfile);
     alt_alleles[-1] = '\n';
     *alt_alleles = '\0';
-    if (!memcmp(bufptr3, "N\t", 2)) {
+    if (((((unsigned char)bufptr3[0]) & 0xdf) == 'N') && (bufptr3[1] == '\t')) {
       *bufptr3 = missing_geno;
     }
     if (fputs_checked(bufptr3, bimfile)) {
