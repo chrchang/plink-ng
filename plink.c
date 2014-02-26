@@ -2354,6 +2354,7 @@ void calc_marker_weights(double exponent, uint32_t unfiltered_marker_ct, uintptr
 }
 
 int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char** marker_allele_ptrs, uintptr_t* max_marker_allele_len_ptr, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, double* set_allele_freqs, uint32_t is_a2) {
+  // note that swap_reversed_marker_alleles() has NOT been called yet
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   char skipchar = axalleles->skipchar;
