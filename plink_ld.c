@@ -7158,7 +7158,6 @@ THREAD_RET_TYPE ld_map_thread(void* arg) {
   uintptr_t* geno_masks2;
   uintptr_t* rb_cur;
   uint32_t* missing_cts2;
-  uintptr_t idx2_block_size;
   uintptr_t block_idx1;
   uintptr_t block_idx2;
   double non_missing_ctd;
@@ -7173,7 +7172,6 @@ THREAD_RET_TYPE ld_map_thread(void* arg) {
   uint32_t non_missing_ct;
   uint32_t uii;
   while (1) {
-    idx2_block_size = g_ld_idx2_block_size;
     marker_idx2_start = g_ld_idx2_block_start;
     marker_idx2_end = g_ld_marker_ctm8;
     geno2 = g_ld_geno2;
@@ -7411,7 +7409,6 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     }
     g_ld_block_idx1 = marker_idx;
     g_ld_idx1_block_size = idx1_block_size;
-    g_ld_idx2_block_size = idx2_block_size;
     geno1 = (uintptr_t*)top_alloc(&topsize, idx1_block_size * founder_ct_192_long * sizeof(intptr_t));
     geno_masks1 = (uintptr_t*)top_alloc(&topsize, idx1_block_size * founder_ct_192_long * sizeof(intptr_t));
     g_ld_missing_cts1 = (uint32_t*)top_alloc(&topsize, idx1_block_size * sizeof(int32_t));
@@ -7512,11 +7509,9 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     if (fseeko(bedfile, bed_offset + (marker_uidx2 * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
       goto construct_ld_map_ret_READ_FAIL;
     }
-    g_ld_idx2_block_size = cur_idx2_block_size;
     do {
       if (cur_idx2_block_size > load_idx2_tot - marker_load_idx2) {
 	cur_idx2_block_size = load_idx2_tot - marker_load_idx2;
-	g_ld_idx2_block_size = cur_idx2_block_size;
       }
       g_ld_idx2_block_start = marker_idx2;
       block_idx2 = 0;
