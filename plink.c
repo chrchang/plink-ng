@@ -2365,7 +2365,8 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
   uintptr_t* already_seen;
   char* loadbuf;
   uintptr_t loadbuf_size;
-  uint32_t slen;
+  uint32_t idlen;
+  uint32_t alen;
   char* sorted_marker_ids;
   char* colid_ptr;
   char* colx_ptr;
@@ -2425,20 +2426,20 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
       }
       colid_ptr = next_item_mult(colx_ptr, coldiff);
     }
-    slen = strlen_se(colid_ptr);
-    sorted_idx = bsearch_str(colid_ptr, slen, sorted_marker_ids, max_marker_id_len, marker_ct);
+    idlen = strlen_se(colid_ptr);
+    sorted_idx = bsearch_str(colid_ptr, idlen, sorted_marker_ids, max_marker_id_len, marker_ct);
     if (sorted_idx == -1) {
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
-      colid_ptr[slen] = '\0';
+      colid_ptr[idlen] = '\0';
       LOGPRINTF("Error: Duplicate variant %s in --a%c-allele file.\n", colid_ptr, is_a2? '2' : '1');
       goto load_ax_alleles_ret_INVALID_FORMAT;
     }
     SET_BIT(already_seen, sorted_idx);
     marker_uidx = marker_id_map[(uint32_t)sorted_idx];
-    slen = strlen_se(colx_ptr);
-    colx_ptr[slen] = '\0';
+    alen = strlen_se(colx_ptr);
+    colx_ptr[alen] = '\0';
     if (!strcmp(colx_ptr, marker_allele_ptrs[marker_uidx * 2 + is_a2])) {
       if (IS_SET(marker_reverse, marker_uidx)) {
         set_allele_freqs[marker_uidx] = 1.0 - set_allele_freqs[marker_uidx];
@@ -2450,18 +2451,18 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
         SET_BIT(marker_reverse, marker_uidx);
       }
     } else if (marker_allele_ptrs[marker_uidx * 2 + is_a2] == missing_geno_ptr) {
-      if (allele_reset(&(marker_allele_ptrs[marker_uidx * 2 + is_a2]), colx_ptr, slen)) {
+      if (allele_reset(&(marker_allele_ptrs[marker_uidx * 2 + is_a2]), colx_ptr, alen)) {
 	goto load_ax_alleles_ret_NOMEM;
       }
-      if (slen >= max_marker_allele_len) {
-	max_marker_allele_len = slen + 1;
+      if (alen >= max_marker_allele_len) {
+	max_marker_allele_len = alen + 1;
       }
       if (IS_SET(marker_reverse, marker_uidx)) {
         set_allele_freqs[marker_uidx] = 1.0 - set_allele_freqs[marker_uidx];
         CLEAR_BIT(marker_reverse, marker_uidx);
       }
     } else {
-      colid_ptr[slen] = '\0';
+      colid_ptr[idlen] = '\0';
       LOGPRINTF("Warning: Impossible A%c allele assignment for variant %s.\n", is_a2? '2' : '1', colid_ptr);
     }
   }
