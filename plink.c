@@ -2376,6 +2376,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
   int32_t sorted_idx;
   uint32_t marker_uidx;
   char cc;
+  uint32_t replace_other;
   int32_t retval;
   retval = sort_item_ids(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
   if (retval) {
@@ -2450,16 +2451,24 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
         set_allele_freqs[marker_uidx] = 1.0 - set_allele_freqs[marker_uidx];
         SET_BIT(marker_reverse, marker_uidx);
       }
-    } else if (marker_allele_ptrs[marker_uidx * 2 + is_a2] == missing_geno_ptr) {
-      if (allele_reset(&(marker_allele_ptrs[marker_uidx * 2 + is_a2]), colx_ptr, alen)) {
+    } else if ((marker_allele_ptrs[marker_uidx * 2] == missing_geno_ptr) || (marker_allele_ptrs[marker_uidx * 2 + 1] == missing_geno_ptr)) {
+      replace_other = (marker_allele_ptrs[marker_uidx * 2 + is_a2] == missing_geno_ptr)? 0 : 1;
+      if (allele_reset(&(marker_allele_ptrs[marker_uidx * 2 + (is_a2 ^ replace_other)]), colx_ptr, alen)) {
 	goto load_ax_alleles_ret_NOMEM;
       }
       if (alen >= max_marker_allele_len) {
 	max_marker_allele_len = alen + 1;
       }
-      if (IS_SET(marker_reverse, marker_uidx)) {
-        set_allele_freqs[marker_uidx] = 1.0 - set_allele_freqs[marker_uidx];
-        CLEAR_BIT(marker_reverse, marker_uidx);
+      if (!replace_other) {
+	if (IS_SET(marker_reverse, marker_uidx)) {
+	  set_allele_freqs[marker_uidx] = 1.0 - set_allele_freqs[marker_uidx];
+	  CLEAR_BIT(marker_reverse, marker_uidx);
+	}
+      } else {
+	if (!IS_SET(marker_reverse, marker_uidx)) {
+	  set_allele_freqs[marker_uidx] = 1.0 - set_allele_freqs[marker_uidx];
+	  SET_BIT(marker_reverse, marker_uidx);
+	}
       }
     } else {
       colid_ptr[idlen] = '\0';
