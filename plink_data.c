@@ -8277,7 +8277,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   while (fgets(tbuf, MAXLINELEN, infile)) {
     if (!tbuf[MAXLINELEN - 1]) {
       logprint("Error: Pathologically long line in .tfam file.\n");
-      goto transposed_to_bed_ret_INVALID_FORMAT_2;
+      goto transposed_to_bed_ret_INVALID_FORMAT;
     }
     cptr = skip_initial_spaces(tbuf);
     if (is_eoln_kns(*cptr)) {
