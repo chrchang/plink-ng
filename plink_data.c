@@ -374,7 +374,7 @@ uint32_t chrom_error(const char* extension, Chrom_info* chrom_info_ptr, char* ch
   }
   slen = strlen_se(chrom_str);
   chrom_str[slen] = '\0';
-  LOGPRINTF("Error: Invalid chromosome code '%s' in .%s file.\n", chrom_str, extension);
+  LOGPRINTF("\nError: Invalid chromosome code '%s' in .%s file.\n", chrom_str, extension);
   if (raw_code >= MAX_POSSIBLE_CHROM) {
     if (chrom_info_ptr->species != SPECIES_UNKNOWN) {
       logprint("(This is disallowed by the PLINK 1.07 species flag you used.  You can\ntemporarily work around this restriction with --chr-set; contact the developers\nif you want the flag to be permanently redefined.)\n");
@@ -8351,7 +8351,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     cptr = skip_initial_spaces(tbuf);
     if (is_eoln_kns(*cptr)) {
       if (!tbuf[MAXLINELEN - 1]) {
-        goto transposed_to_bed_ret_INVALID_FORMAT;
+        goto transposed_to_bed_ret_INVALID_FORMAT_3;
       }
       continue;
     }
@@ -8359,7 +8359,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     cptr3 = next_item_mult(cptr2, 2);
     cptr4 = next_item(cptr3);
     if (no_more_items_kns(cptr4)) {
-      goto transposed_to_bed_ret_INVALID_FORMAT;
+      goto transposed_to_bed_ret_INVALID_FORMAT_3;
     }
     if (ftello(infile) >= tped_next_thresh) {
       uii = (ftello(infile) * 100) / tped_size;
@@ -8374,7 +8374,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     ii = get_chrom_code(chrom_info_ptr, cptr);
     if (ii == -1) {
       if (chrom_error("tped", chrom_info_ptr, cptr, allow_extra_chroms)) {
-	goto transposed_to_bed_ret_INVALID_FORMAT_2;
+	goto transposed_to_bed_ret_INVALID_FORMAT;
       }
       retval = resolve_or_add_chrom_name(chrom_info_ptr, cptr, &ii);
       if (retval) {
@@ -8418,13 +8418,13 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       cptr2 = skip_initial_spaces(cptr2);
       while (cptr2 == &(tbuf[MAXLINELEN - 1])) {
 	if (cptr2[-1] == '\n') {
-	  goto transposed_to_bed_ret_INVALID_FORMAT;
+	  goto transposed_to_bed_ret_INVALID_FORMAT_3;
 	}
         if (!fgets(tbuf, MAXLINELEN, infile)) {
           if (ferror(infile)) {
 	    goto transposed_to_bed_ret_READ_FAIL;
 	  }
-	  goto transposed_to_bed_ret_INVALID_FORMAT;
+	  goto transposed_to_bed_ret_INVALID_FORMAT_3;
 	}
 	cptr2 = skip_initial_spaces(tbuf);
       }
@@ -8435,7 +8435,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       // at EOF, which is an error anyway
       if (!(*cptr2)) {
 	if (!axlen) {
-	  goto transposed_to_bed_ret_INVALID_FORMAT;
+	  goto transposed_to_bed_ret_INVALID_FORMAT_3;
 	}
 	cptr3 = memcpya(allele_buf, axptr, axlen);
         axptr = allele_buf;
@@ -8444,7 +8444,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
 	    if (ferror(infile)) {
 	      goto transposed_to_bed_ret_READ_FAIL;
 	    }
-            goto transposed_to_bed_ret_INVALID_FORMAT;
+            goto transposed_to_bed_ret_INVALID_FORMAT_3;
 	  }
 	  cptr2 = tbuf;
           if (!is_space_or_eoln(*cptr2)) {
@@ -8471,13 +8471,13 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       cptr2 = skip_initial_spaces(cptr2);
       while (cptr2 == &(tbuf[MAXLINELEN - 1])) {
 	if (cptr2[-1] == '\n') {
-	  goto transposed_to_bed_ret_INVALID_FORMAT;
+	  goto transposed_to_bed_ret_INVALID_FORMAT_3;
 	}
         if (!fgets(tbuf, MAXLINELEN, infile)) {
           if (ferror(infile)) {
 	    goto transposed_to_bed_ret_READ_FAIL;
 	  }
-	  goto transposed_to_bed_ret_INVALID_FORMAT;
+	  goto transposed_to_bed_ret_INVALID_FORMAT_3;
 	}
 	cptr2 = skip_initial_spaces(tbuf);
       }
@@ -8486,7 +8486,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       cptr2 = &(axptr[axlen]);
       if (!(*cptr2)) {
 	if (!axlen) {
-	  goto transposed_to_bed_ret_INVALID_FORMAT;
+	  goto transposed_to_bed_ret_INVALID_FORMAT_3;
 	}
 	cptr3 = memcpya(allele_buf, axptr, axlen);
         axptr = allele_buf;
@@ -8496,7 +8496,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
 	    if (ferror(infile)) {
 	      goto transposed_to_bed_ret_READ_FAIL;
 	    } else if (indiv_idx != indiv_ct - 1) {
-              goto transposed_to_bed_ret_INVALID_FORMAT;
+              goto transposed_to_bed_ret_INVALID_FORMAT_3;
 	    } else {
 	      tbuf[0] = '\0';
 	      break;
@@ -8722,14 +8722,14 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       cptr = next_item(loadbuf);
       cptr2 = item_endl(cptr);
       if (!cptr2) {
-	goto transposed_to_bed_ret_INVALID_FORMAT;
+	goto transposed_to_bed_ret_INVALID_FORMAT_3;
       }
       cptr3 = skip_initial_spaces(cptr2);
       cptr4 = next_item_mult(cptr3, 2);
       uii = cptr2 - cptr;
       memcpyx(&(marker_ids[marker_idx * max_marker_id_len]), cptr, uii, '\0');
       if (scan_double(cptr3, &(marker_cms[marker_idx]))) {
-	goto transposed_to_bed_ret_INVALID_FORMAT;
+	goto transposed_to_bed_ret_INVALID_FORMAT_3;
       }
       uii = strlen_se(cptr4);
       if (allele_set(&(marker_allele_ptrs[2 * marker_idx]), cptr4, uii)) {
@@ -8840,10 +8840,10 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   transposed_to_bed_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
-  transposed_to_bed_ret_INVALID_FORMAT:
+  transposed_to_bed_ret_INVALID_FORMAT_3:
     putchar('\r');
     logprint("Error: Improperly formatted .tped file.\n");
-  transposed_to_bed_ret_INVALID_FORMAT_2:
+  transposed_to_bed_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
   transposed_to_bed_ret_INVALID_FORMAT_4:
@@ -9191,7 +9191,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     ii = get_chrom_code(chrom_info_ptr, bufptr);
     if (ii == -1) {
       if (chrom_error("vcf", chrom_info_ptr, bufptr, allow_extra_chroms)) {
-	goto vcf_to_bed_ret_INVALID_FORMAT_2;
+	goto vcf_to_bed_ret_INVALID_FORMAT;
       }
       retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii);
       if (retval) {
@@ -9841,7 +9841,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     ii = get_chrom_code(chrom_info_ptr, contig_list->ss);
     if (ii == -1) {
       if (chrom_error("bcf", chrom_info_ptr, contig_list->ss, allow_extra_chroms)) {
-	goto bcf_to_bed_ret_INVALID_FORMAT_2;
+	goto bcf_to_bed_ret_INVALID_FORMAT;
       }
       retval = resolve_or_add_chrom_name(chrom_info_ptr, contig_list->ss, &ii);
       if (retval) {
@@ -12252,11 +12252,13 @@ uint32_t valid_vcf_allele_code(const char* allele_code) {
     // set membership test
 #ifdef __LP64__
     if ((uii > 63) || (!((0x10408a0010408aLLU >> uii) & 1))) {
-      return 0;
+      // if '[' or ']', assume breakend
+      return ((uii == 27) || (uii == 29))? 1 : 0;
     }
 #else
     if ((uii > 63) || (!((0x10408a >> (uii % 32)) & 1))) {
-      return 0;
+      // if '[' or ']', assume breakend
+      return ((uii == 27) || (uii == 29))? 1 : 0;
     }
 #endif
     uii = (unsigned char)(*(++allele_code));
@@ -12296,6 +12298,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   uintptr_t fid_ct = 0;
   uint32_t last_chrom_fo_idx = 0;
   uint32_t onechar_max = (chrom_info_ptr->max_code > 9)? 9 : chrom_info_ptr->max_code;
+  uint32_t invalid_allele_code_seen = 0;
   uint32_t last_pos = 0;
   char missing_geno = *g_missing_geno_ptr;
   char output_missing_geno = *g_output_missing_geno_ptr;
@@ -12361,7 +12364,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   if (!hh_exists) {
     set_hh_missing = 0;
   }
-  if (set_hh_missing) {
+  if (set_hh_missing || (recode_modifier & RECODE_VCF)) {
     if (recode_modifier & (RECODE_23 | RECODE_BEAGLE | RECODE_BIMBAM | RECODE_BIMBAM_1CHR | RECODE_LGEN | RECODE_LGEN_REF | RECODE_LIST | RECODE_OXFORD | RECODE_RLIST | RECODE_TRANSPOSE | RECODE_VCF)) {
       // SNP-major and no need for indiv_uidx in inner loop, so we can use
       // collapsed representation
@@ -12973,16 +12976,17 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	cptr = mk_allele_ptrs[2 * marker_uidx + 1];
 	if (cptr == missing_geno_ptr) {
 	  putc('N', outfile);
-	} else if (valid_vcf_allele_code(cptr)) {
-	  fputs(cptr, outfile);
 	} else {
-	  goto recode_ret_INVALID_FORMAT_3;
+          if ((!invalid_allele_code_seen) && (!valid_vcf_allele_code(cptr))) {
+            invalid_allele_code_seen = 1;
+	  }
+	  fputs(cptr, outfile);
 	}
 	putc('\t', outfile);
 	cptr = mk_allele_ptrs[2 * marker_uidx];
 	if (cptr != missing_geno_ptr) {
-	  if (!valid_vcf_allele_code(cptr)) {
-	    goto recode_ret_INVALID_FORMAT_3;
+          if ((!invalid_allele_code_seen) && (!valid_vcf_allele_code(cptr))) {
+	    invalid_allele_code_seen = 1;
 	  }
 	  fputs(cptr, outfile);
 	} else {
@@ -14220,6 +14224,9 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     fputs("\b\b\b", stdout);
   }
   logprint("done.\n");
+  if (invalid_allele_code_seen) {
+    logprint("Warning: At least one VCF allele code violates the official specification;\nother tools may not accept the file.  (Valid codes must either start with a\n'<', only contain characters in {A,C,G,T,N,a,c,g,t,n}, or represent a\nbreakend.)\n");
+  }
   while (0) {
   recode_ret_NOMEM:
     retval = RET_NOMEM;
@@ -14236,12 +14243,6 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   recode_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
-  recode_ret_INVALID_FORMAT_3:
-    uii = (strlen(cptr) > 32)? 1 : 0;
-    if (uii) {
-      cptr[33] = '\0';
-    }
-    LOGPRINTF("\nError: '%s%s' is an invalid VCF allele code.\n(Valid codes must either start with a '<', or only contain characters in\n{A,C,G,T,N,a,c,g,t,n}.)\n", cptr, uii? "..." : "");
   recode_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;

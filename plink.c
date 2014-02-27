@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (26 Feb 2014)";
+  " (27 Feb 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -12490,8 +12490,8 @@ int32_t main(int32_t argc, char** argv) {
     sprintf(logbuf, "Error: Deprecated parameter-free --update-%s cannot be used without\n--update-map.%s", (update_map_modifier == 1)? "chr" : "cm", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
   }
-  if (((misc_flags & MISC_MERGEX) || splitx_bound2 || update_chr) && (((load_rare == LOAD_RARE_CNV) && (cnv_calc_type != CNV_WRITE)) || ((!load_rare) && (calculation_type != CALC_MAKE_BED)))) {
-    sprintf(logbuf, "Error: --merge-x/--split-x/--update-chr must be used with --%s and no\nother commands.%s", load_rare? "cnv-write" : "make-bed", errstr_append);
+  if (((misc_flags & MISC_MERGEX) || splitx_bound2 || update_chr) && (((load_rare == LOAD_RARE_CNV) && (cnv_calc_type != CNV_WRITE)) || ((load_rare != LOAD_RARE_CNV) && (calculation_type != CALC_MAKE_BED)))) {
+    sprintf(logbuf, "Error: --merge-x/--split-x/--update-chr must be used with --%s and no\nother commands.%s", (load_rare == LOAD_RARE_CNV)? "cnv-write" : "make-bed", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
   }
   if (flip_subset_fname && (load_rare || (calculation_type != CALC_MAKE_BED) || (min_maf != 0.0) || (max_maf != 0.5) || (hwe_thresh != 0.0))) {
