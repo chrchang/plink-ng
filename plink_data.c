@@ -9030,8 +9030,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   char* marker_id;
   char* pos_str;
   char* alt_alleles;
-  // will be used for 10+ alt alleles
-  // char* geno_start;
+  char* geno_start;
   uintptr_t* base_bitfields;
   uintptr_t* alt_bitfield;
   uintptr_t* ref_ptr;
@@ -9052,6 +9051,9 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   double dxx;
   uint32_t chrom_len;
   uint32_t marker_id_len;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
   int32_t ii;
   char cc;
   if (gzopen_checked(&gz_infile, vcfname, "rb")) {
@@ -9300,7 +9302,6 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     }
     bufptr = &(bufptr2[1]);
     // okay, finally done with the line header
-    // geno_start = bufptr;
     if (alt_ct < 10) {
       // slightly faster parsing for the usual case
       // note that '.' is interpreted as an alternate allele since that doesn't
@@ -9386,21 +9387,127 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       alt_bitfield = &(base_bitfields[alt_allele_idx * indiv_ctv2]);
     } else {
       // bleah, multi-digit genotype codes
+      // two-pass read: determine most common alt allele, then actually load it
+      fill_ulong_zero(base_bitfields, 2 * indiv_ctv2);
+      alt_bitfield = &(base_bitfields[indiv_ctv2]);
       fill_uint_zero(vcf_alt_cts, alt_ct);
-      logprint("\nError: --vcf does not yet support variants with 10+ alternate alleles.\n");
-      goto vcf_to_bed_ret_1;
+      geno_start = bufptr;
+      for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++, bufptr = &(bufptr2[1])) {
+        bufptr2 = strchr(bufptr, '\t');
+        if (!bufptr2) {
+	  if (indiv_idx != indiv_ct - 1) {
+	    goto vcf_to_bed_ret_INVALID_FORMAT_3;
+	  }
+          bufptr2 = &(bufptr[strlen_se(bufptr)]);
+	}
+	if (*bufptr == '.') {
+	  continue;
+	}
+        uii = (unsigned char)(*bufptr) - '0';
+	while (1) {
+	  ujj = ((unsigned char)(*(++bufptr))) - 48;
+	  if (ujj > 9) {
+	    break;
+	  }
+          uii = uii * 10 + ujj;
+	}
+	// '/' = ascii 47, '|' = ascii 124
+	if ((ujj != 0xffffffffU) && (ujj != 76)) {
+          // haploid, count 2x
+          if (!uii) {
+            set_bit_ul(base_bitfields, indiv_idx * 2 + 1);
+	  } else {
+            vcf_alt_cts[uii - 1] += 2;
+	  }
+	} else {
+          ujj = (unsigned char)(*(++bufptr)) - '0';
+          while (1) {
+            ukk = ((unsigned char)(*(++bufptr))) - 48;
+            if (ukk > 9) {
+	      break;
+	    }
+            ujj = ujj * 10 + ukk;
+	  }
+          if ((ujj != 0xffffffffU) && (ujj != 76)) {
+	    // diploid; triploid+ skipped
+	    if (!uii) {
+	      set_bit_ul(base_bitfields, indiv_idx * 2);
+	    } else {
+              vcf_alt_cts[uii - 1] += 1;
+	    }
+	    if (!ujj) {
+              base_bitfields[indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
+	    } else {
+	      vcf_alt_cts[ujj - 1] += 1;
+	    }
+	  }
+	}
+      }
+      alt_allele_idx = 0;
+      uii = vcf_alt_cts[0];
+      for (alt_idx = 1; alt_idx < alt_ct; alt_idx++) {
+	ujj = vcf_alt_cts[alt_idx];
+	if (biallelic_only && ujj && uii) {
+          goto vcf_to_bed_skip3;
+	}
+        if (ujj > uii) {
+	  alt_allele_idx = alt_idx;
+          uii = vcf_alt_cts[alt_idx];
+	}
+      }
+      alt_allele_idx++;
+      bufptr = geno_start;
+      for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++, bufptr = &(bufptr2[1])) {
+        bufptr2 = strchr(bufptr, '\t');
+        if (!bufptr2) {
+          bufptr2 = &(bufptr[strlen_se(bufptr)]);
+	}
+	if (*bufptr == '.') {
+	  continue;
+	}
+        uii = (unsigned char)(*bufptr) - '0';
+	while (1) {
+	  ujj = ((unsigned char)(*(++bufptr))) - 48;
+	  if (ujj > 9) {
+	    break;
+	  }
+          uii = uii * 10 + ujj;
+	}
+	if ((ujj != 0xffffffffU) && (ujj != 76)) {
+	  if (uii == alt_allele_idx) {
+            set_bit_ul(alt_bitfield, indiv_idx * 2 + 1);
+	  }
+	} else {
+          ujj = (unsigned char)(*(++bufptr)) - '0';
+          while (1) {
+            ukk = ((unsigned char)(*(++bufptr))) - 48;
+            if (ukk > 9) {
+	      break;
+	    }
+            ujj = ujj * 10 + ukk;
+	  }
+          if ((ujj != 0xffffffffU) && (ujj != 76)) {
+	    if (uii == alt_allele_idx) {
+	      set_bit_ul(alt_bitfield, indiv_idx * 2);
+	    }
+	    if (ujj == alt_allele_idx) {
+              alt_bitfield[indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
+	    }
+	  }
+	}
+      }
     }
     ref_ptr = base_bitfields;
     alt_ptr = alt_bitfield;
     for (indiv_idx = 0; indiv_idx < indiv_ctl2; indiv_idx++) {
       // take ref, then:
-      // * if ref is nonzero, add 1
       // * if ref + alt is not two, force to 01
+      // * otherwise, if ref is nonzero, add 1 to match PLINK binary encoding
       ulii = *ref_ptr;
       uljj = *alt_ptr++;
       ulkk = (ulii + uljj) & AAAAMASK;
       uljj = ulii + ((ulii | (ulii >> 1)) & FIVEMASK);
-      ulii = ulkk | (ulkk >> 1); // nonmissing?
+      ulii = ulkk | (ulkk >> 1); // 11 in nonmissing positions
       *ref_ptr++ = (uljj & ulii) | (((~ulkk) >> 1) & FIVEMASK);
     }
     ref_ptr[-1] &= final_mask;
@@ -12252,13 +12359,12 @@ uint32_t valid_vcf_allele_code(const char* allele_code) {
     // set membership test
 #ifdef __LP64__
     if ((uii > 63) || (!((0x10408a0010408aLLU >> uii) & 1))) {
-      // if '[' or ']', assume breakend
-      return ((uii == 27) || (uii == 29))? 1 : 0;
+      // if '[', ']', or '.', assume breakend
+      return ((uii == 27) || (uii == 29) || (uii == 0xffffffeeU))? 1 : 0;
     }
 #else
     if ((uii > 63) || (!((0x10408a >> (uii % 32)) & 1))) {
-      // if '[' or ']', assume breakend
-      return ((uii == 27) || (uii == 29))? 1 : 0;
+      return ((uii == 27) || (uii == 29) || (uii == 0xffffffeeU))? 1 : 0;
     }
 #endif
     uii = (unsigned char)(*(++allele_code));
