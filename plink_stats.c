@@ -795,19 +795,17 @@ double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t
   if ((cprob == 0) && (!midp)) {
     return 1;
   }
-  if (cur12 > 0.5) {
-    do {
-      cur11 += 1;
-      cur22 += 1;
-      cur_prob *= (cur12 * cur21) / (cur11 * cur22);
-      cur12 -= 1;
-      cur21 -= 1;
-      preaddp = tprob;
-      tprob += cur_prob;
-      if (tprob <= preaddp) {
-	break;
-      }
-    } while (cur12 > 0.5);
+  while (cur12 > 0.5) {
+    cur11 += 1;
+    cur22 += 1;
+    cur_prob *= (cur12 * cur21) / (cur11 * cur22);
+    cur12 -= 1;
+    cur21 -= 1;
+    preaddp = tprob;
+    tprob += cur_prob;
+    if (tprob <= preaddp) {
+      break;
+    }
   }
   if (m11) {
     cur11 = m11;
