@@ -4408,7 +4408,7 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
         fputs(output_missing_geno_ptr, outfile);
       }
       putc('\t', outfile);
-      if (marker_allele_ptrs[2 * marker_uidx] != missing_geno_ptr) {
+      if (marker_allele_ptrs[2 * marker_uidx + 1] != missing_geno_ptr) {
         fputs(marker_allele_ptrs[2 * marker_uidx + 1], outfile);
       } else {
 	fputs(output_missing_geno_ptr, outfile);
