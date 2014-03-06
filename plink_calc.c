@@ -4988,7 +4988,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	} else if (dxx1 > 1) {
 	  dxx1 = 1;
 	  dyy = 0;
-	  dxx1 = 0;
+	  dxx = 0;
 	} else if (dxx < 0) {
 	  dxx2 = 1.0 / (dyy + dxx1);
 	  dyy *= dxx2;
