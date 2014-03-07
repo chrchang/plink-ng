@@ -51,12 +51,15 @@
   #define THREAD_RET_TYPE void*
   #define THREAD_RETURN return NULL
   #ifdef __cplusplus
-    #define PRId64 "lld"
+    #ifndef PRId64
+      #define PRId64 "lld"
+    #endif
   #endif
 #endif
 
-#define uint64_t unsigned long long
-#define int64_t long long
+// fix OS X 10.9 build break; might need to do this to some other #defines too
+typedef unsigned long long uint64_t;
+typedef long long int64_t;
 
 #ifdef _WIN64
   #define __LP64__
@@ -66,8 +69,8 @@
   #define CTZLU __builtin_ctzl
   #define CLZLU __builtin_clzl
   #ifndef __LP64__
-    #define uintptr_t unsigned long
-    #define intptr_t long
+    typedef unsigned long uintptr_t;
+    typedef long intptr_t;
   #endif
 #endif
 
