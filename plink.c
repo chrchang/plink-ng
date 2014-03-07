@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (6 Mar 2014) ";
+  " (7 Mar 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -115,15 +115,15 @@ const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n
 const char null_calc_str[] = "Warning: No output requested.  Exiting.\n";
 #ifdef STABLE_BUILD
   #ifndef NOLAPACK
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --ibc, --impute-sex, --indep, --r2,\n--distance, --genome, --homozyg, --make-rel, --make-grm-gz, --rel-cutoff,\n--cluster, --pca, --neighbour, --ibs-test, --regress-distance, --model, --gxe,\n--logistic, --lasso, --test-missing, --clump, and --fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --ibc, --impute-sex, --indep, --r2,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --pca, --neighbour, --ibs-test, --regress-distance,\n--model, --gxe, --logistic, --lasso, --test-missing, --clump, and\n--fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --ibc, --impute-sex, --indep, --r2,\n--distance, --genome, --homozyg, --make-rel, --make-grm-gz, --rel-cutoff,\n--cluster, --neighbour, --ibs-test, --regress-distance, --model, --gxe,\n--logistic, --lasso, --test-missing, --clump, and --fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --ibc, --impute-sex, --indep, --r2,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --neighbour, --ibs-test, --regress-distance, --model,\n--gxe, --logistic, --lasso, --test-missing, --clump, and --fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #endif
 #else
   #ifndef NOLAPACK
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --ibc, --impute-sex, --indep, --r2,\n--distance, --genome, --homozyg, --make-rel, --make-grm-gz, --rel-cutoff,\n--cluster, --pca, --neighbour, --ibs-test, --regress-distance, --model, --gxe,\n--logistic, --lasso, --test-missing, --clump, --unrelated-heritability, and\n--fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --ibc, --impute-sex, --indep, --r2,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --pca, --neighbour, --ibs-test, --regress-distance,\n--model, --gxe, --logistic, --lasso, --test-missing, --clump,\n--unrelated-heritability, and --fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --ibc, --impute-sex, --indep, --r2,\n--distance, --genome, --homozyg, --make-rel, --make-grm-gz, --rel-cutoff,\n--cluster, --neighbour, --ibs-test, --regress-distance, --model, --gxe,\n--logistic, --lasso, --test-missing, --clump and --fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --ibc, --impute-sex, --indep, --r2,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --neighbour, --ibs-test, --regress-distance, --model,\n--gxe, --logistic, --lasso, --test-missing, --clump and --fast-epistasis.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #endif
 #endif
 
@@ -2586,7 +2586,7 @@ int32_t write_snplist(char* outname, char* outname_end, uintptr_t unfiltered_mar
 }
 
 static inline uint32_t are_marker_pos_needed(uint64_t calculation_type, uint64_t misc_flags, char* cm_map_fname, char* set_fname, uint32_t min_bp_space, uint32_t genome_skip_write, uint32_t ld_modifier, uint32_t epi_modifier) {
-  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_CLUMP)) || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)) || cm_map_fname || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || ((calculation_type & CALC_EPI) && (epi_modifier & EPI_FAST_CASE_ONLY));
+  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_CLUMP | CALC_BLOCKS)) || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)) || cm_map_fname || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || ((calculation_type & CALC_EPI) && (epi_modifier & EPI_FAST_CASE_ONLY));
 }
 
 static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, char* cm_map_fname, Two_col_params* update_cm) {
@@ -3769,6 +3769,17 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
+  if (calculation_type & CALC_BLOCKS) {
+    if (map_is_unsorted & UNSORTED_BP) {
+      logprint("Error: --blocks requires a sorted .bim file.  Retry this command after using\n--make-bed to sort your data.\n");
+      goto plink_ret_INVALID_CMDLINE;
+    }
+    retval = haploview_blocks(bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_pos, zero_extra_chroms, chrom_info_ptr, set_allele_freqs, ldip->window_bp, unfiltered_indiv_ct, founder_info, pheno_nm, sex_male, outname, outname_end, hh_exists);
+    if (retval) {
+      goto plink_ret_1;
+    }
+  }
+
   if (calculation_type & CALC_HOMOZYG) {
     if (map_is_unsorted & UNSORTED_BP) {
       logprint("Error: Run-of-homozygosity scanning requires a sorted .bim.  Retry this command\nafter using --make-bed to sort your data.\n");
@@ -4065,6 +4076,16 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	}
       }
       *outname_end2 = '\0';
+      if (pheno_c) {
+        ujj = popcount_longs_intersect(pheno_nm, pheno_c, unfiltered_indiv_ctl);
+	ukk = pheno_nm_ct - ujj;
+	ulii = unfiltered_indiv_ct - indiv_exclude_ct - pheno_nm_ct;
+        if (ulii) {
+          LOGPRINTF("%s has %u case%s, %u control%s, and %" PRIuPTR " missing phenotype%s.\n", &(outname_end[1]), ujj, (ujj == 1)? "" : "s", ukk, (ukk == 1)? "" : "s", ulii, (ulii == 1)? "" : "s");
+	} else {
+          LOGPRINTF("%s has %u case%s and %u control%s.\n", &(outname_end[1]), ujj, (ujj == 1)? "" : "s", ukk, (ukk == 1)? "" : "s");
+	}
+      }
     plink_skip_all_pheno:
       if (calculation_type & CALC_MODEL) {
 	if (pheno_d) {
@@ -6356,6 +6377,10 @@ int32_t main(int32_t argc, char** argv) {
 	  }
           misc_flags |= MISC_OXFORD_SNPID_CHR;
 	}
+      } else if (!memcmp(argptr2, "locks", 6)) {
+	calculation_type |= CALC_BLOCKS;
+	ld_info.window_bp = 200000;
+        goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -10955,6 +10980,11 @@ int32_t main(int32_t argc, char** argv) {
       } else if ((*argptr2 == '\0') || (!memcmp(argptr2, "2", 2))) {
 	if (calculation_type & CALC_LD) {
           logprint("Error: --r and --r2 cannot be used together.\n");
+          goto main_ret_INVALID_CMDLINE;
+	}
+	if (calculation_type & CALC_BLOCKS) {
+	  // prevent --ld-window-r2 conflict
+	  logprint("Error: --r/--r2 cannot be used with --blocks.\n");
           goto main_ret_INVALID_CMDLINE;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 6)) {

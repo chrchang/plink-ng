@@ -4605,6 +4605,165 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
   return retval;
 }
 
+int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t ld_window_bp, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* pheno_nm, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
+  logprint("Error: --blocks is currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
+  /*
+  // See Plink::mkBlks() in blox.cpp (which is, in turn, a straight port from
+  // Haploview).
+  // No unwindowed/inter-chr mode, so little point in bothering with
+  // multithreading.
+  unsigned char* wkspace_mark = wkspace_base;
+  const double cut_high_ci = 0.98;
+  const double cut_low_ci = 0.70;
+  const double cut_low_ci_var[] = {0, 0, 0.80, 0.50, 0.50};
+  const uint32_t max_dist[] = {0, 0, 20000, 30000, 1000000};
+  const double rec_high_ci = 0.90;
+  // a/(a+b) > 0.95
+  // a > 0.95(a+b)
+  // 0.05a > 0.95b
+  // a/19 > b
+  // (32-bit integer math) (a+18)/19 > b
+  const uint32_t inform_ratio = 19;
+  const double four_gamete_cutoff = 0.01;
+  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  FILE* outfile = NULL;
+  FILE* outfile_det = NULL;
+  uintptr_t max_block_size = 1;
+  uintptr_t marker_uidx = 0;
+  uintptr_t block_idx_first = 0;
+  uintptr_t block_uidx_first = 0;
+  uintptr_t block_pos_first = 0;
+  uint32_t block_ct = 0;
+  int32_t retval = 0;
+  uint32_t counts[9];
+  uintptr_t* founder_pnm;
+  uintptr_t* marker_exclude;
+  uintptr_t marker_idx;
+  uintptr_t founder_ct;
+  double dxx;
+  uint32_t chrom_fo_idx;
+  uint32_t chrom_idx;
+  uint32_t chrom_end;
+  uint32_t is_haploid;
+  uint32_t is_x;
+  uint32_t is_y;
+  uint32_t marker_pos_thresh;
+  // 1. Enforce MAF 0.05 minimum.
+  // 2. Determine maximum number of markers that might need to be loaded at
+  //    once, and then allocate memory buffers.
+  // Then, on each chromosome:
+  // a. Find all pairs of markers satisfying the "strong LD" and informative
+  //    fraction criteria.  (The original algorithm deferred the informative
+  //    fraction calculation; we don't do that because it forces nonsequential
+  //    file access.)
+  // b. Sort the pairs by bp distance.
+  // c. Greedily construct blocks starting with the furthest-apart pairs.
+  if (wkspace_alloc_ul_checked(&founder_pnm, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&marker_exclude, unfiltered_marker_ctl * sizeof(intptr_t))) {
+    goto haploview_blocks_ret_NOMEM;
+  }
+  memcpy(founder_pnm, founder_info, unfiltered_indiv_ctl);
+  bitfield_and(founder_pnm, pheno_nm, unfiltered_indiv_ctl);
+  founder_ct = popcount_longs(founder_pnm, unfiltered_indiv_ctl);
+  if (!founder_ct) {
+    // actually nonmissing phenotype count
+    founder_ct = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
+    if (!founder_ct) {
+      logprint("Warning: Skipping --blocks, since there are no founders with nonmissing\nphenotypes.  ('--make-pheno [name of empty file] *' is a quick way to make\neveryone a control.)\n");
+    } else {
+      logprint("Warning: Skipping --blocks, since there are no founders with nonmissing\nphenotypes.  (--make-founders may come in handy here.)\n");
+    }
+    goto haploview_blocks_ret_1;
+  }
+  memcpy(marker_exclude, marker_exclude_orig, unfiltered_marker_ctl * sizeof(intptr_t));
+  for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+    next_unset_ul_unsafe_ck(marker_exclude_orig, &marker_uidx);
+    dxx = set_allele_freqs[marker_uidx];
+    if ((dxx < 0.05) || (dxx > 0.95)) {
+      set_bit_ul(marker_exclude, marker_uidx);
+    }
+  }
+  marker_ct = unfiltered_marker_ct - popcount_longs(marker_exclude, unfiltered_marker_ctl);
+  marker_uidx = 0;
+  chrom_fo_idx = 0xffffffffU; // exploit overflow
+  chrom_end = 0;
+  for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+    next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
+    if (marker_uidx >= chrom_end) {
+      do {
+        chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1];
+      } while (marker_uidx >= chrom_end);
+      block_idx_first = marker_idx;
+      block_uidx_first = marker_uidx;
+      block_pos_first = marker_pos[marker_uidx];
+    }
+    marker_pos_thresh = marker_pos[marker_uidx];
+    if (marker_pos_thresh < ld_window_bp) {
+      marker_pos_thresh = 0;
+    } else {
+      marker_pos_thresh -= ld_window_bp;
+    }
+    if (marker_pos_thresh > block_pos_first) {
+      do {
+        block_uidx_first++;
+	next_unset_ul_unsafe_ck(marker_exclude, &block_uidx_first);
+        block_pos_first = marker_pos[block_uidx_first];
+	block_idx++;
+      } while (marker_pos_thresh > block_pos_first);
+    } else if (marker_idx - block_idx_first == max_block_size) {
+      max_block_size++;
+    }
+  }
+  if (max_block_size < 2) {
+    logprint("Warning: Skipping --blocks since there are too few markers with MAF >= 0.05.\n");
+    goto haploview_blocks_ret_1;
+  }
+  // need to compute full 3x3 count tables, but only for a limited window; more
+  // similar to --clump than --fast-epistasis, so we don't bother with
+  // precomputing 0-only/1-only/2-only bitfields.
+
+  // todo
+  memcpy(outname_end, ".blocks.det", 12);
+  if (fopen_checked(&outfile_det, outname, "w")) {
+    goto haploview_blocks_ret_OPEN_FAIL;
+  }
+  if (fputs_checked(" CHR          BP1          BP2           KB  NSNPS SNPS\n", outfile_det)) {
+    goto haploview_blocks_ret_WRITE_FAIL;
+  }
+  outname_end[7] = '\0';
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto haploview_blocks_ret_OPEN_FAIL;
+  }
+  // process chromosomes one at a time
+  if (fclose_null(&outfile)) {
+    goto haploview_blocks_ret_WRITE_FAIL;
+  }
+  if (fclose_null(&outfile_det)) {
+    goto haploview_blocks_ret_WRITE_FAIL;
+  }
+  LOGPRINTF("--blocks: %u haploblock%s written to %s.\nExtra block details written to %s.det.", block_ct, (block_ct == 1)? "" : "s", outname, outname);
+  while (0) {
+  haploview_blocks_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  haploview_blocks_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  haploview_blocks_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+ haploview_blocks_ret_1:
+  wkspace_reset(wkspace_mark);
+  fclose_cond(outfile);
+  fclose_cond(outfile_det);
+  return retval;
+  */
+}
+
 void twolocus_write_table(FILE* outfile, uint32_t* counts, uint32_t plink_maxsnp, char* mkr1, char* mkr2, char* allele00, char* allele01, char* allele10, char* allele11, uint32_t alen00, uint32_t alen01, uint32_t alen10, uint32_t alen11) {
   // PLINK 1.07's print settings for this function don't handle large numbers
   // well so we break byte-for-byte compatibility.

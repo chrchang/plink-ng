@@ -16,7 +16,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define PROG_NAME_STR "plink"
 #define PROG_NAME_CAPS "PLINK"
@@ -96,7 +96,7 @@
     #ifndef PRIdPTR
       #define PRIdPTR PRId64
     #endif
-    #define PRIxPTR "016I64x"
+    #define PRIxPTR2 "016I64x"
 
   #else // not _WIN32
 
@@ -106,7 +106,7 @@
     #ifndef PRIdPTR
       #define PRIdPTR "ld"
     #endif
-    #define PRIxPTR "016lx"
+    #define PRIxPTR2 "016lx"
 
   #endif // Win64
 
@@ -121,7 +121,7 @@
   #ifndef PRIdPTR
     #define PRIdPTR "ld"
   #endif
-  #define PRIxPTR "08lx"
+  #define PRIxPTR2 "08lx"
 
 #endif // __LP64__
 
@@ -250,6 +250,7 @@
 #define CALC_SEXCHECK 0x8000000000LLU
 #define CALC_CLUMP 0x10000000000LLU
 #define CALC_PCA 0x20000000000LLU
+#define CALC_BLOCKS 0x40000000000LLU
 
 // necessary to patch heterozygous haploids/female Y chromosome genotypes
 // during loading?

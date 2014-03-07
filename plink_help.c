@@ -553,6 +553,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    are multiple biologically possible solutions to the cubic equation, all are\n"
 "    displayed (instead of just the EM solution identified by --r/--r2).\n\n"
 	       );
+    help_print("blocks", &help_ctrl, 1,
+"  --blocks\n"
+"    Estimate haplotype blocks via Haploview's default procedure.\n\n"
+	       );
     help_print("distance", &help_ctrl, 1,
 "  --distance <square | square0 | triangle> <gz | bin> <ibs> <1-ibs> <allele-ct>\n"
 "             <flat-missing>\n"
@@ -1404,9 +1408,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --merge-equal-pos  : Merge variants with different names but identical\n"
 "                       positions.\n"
 	       );
-    help_print("r\tr2\tld-window-r2\tld-window\tld-window-kb\tld-snp\tld-snps\tld-snp-list", &help_ctrl, 0,
+    help_print("r\tr2\tblocks\tld-window-kb", &help_ctrl, 0,
+"  --ld-window-kb [x] : Set --r/--r2/--blocks max kb pairwise distance (usually\n"
+"                       1000 for --r/--r2, and 200 for --blocks).\n"
+	       );
+    help_print("r\tr2\tld-window-r2\tld-window\tld-snp\tld-snps\tld-snp-list", &help_ctrl, 0,
 "  --ld-window [ct+1] : Set --r/--r2 max site ct pairwise distance (usually 10).\n"
-"  --ld-window-kb [x] : Set --r/--r2 max kb pairwise distance (usually 1000).\n"
 "  --ld-window-r2 [x] : Set threshold for --r2 report inclusion (usually 0.2).\n"
 "  --ld-snp [var ID]  : Set first variant in all --r/--r2 pairs.\n"
 "  --ld-snps [vID...] : Restrict first --r/--r2 variant to the given ranges.\n"
