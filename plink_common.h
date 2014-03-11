@@ -77,10 +77,8 @@
   #ifndef __LP64__
     #ifndef uintptr_t
       #define uintptr_t unsigned long
-      // typedef unsigned long uintptr_t;
     #endif
     #ifndef intptr_t
-      // typedef long intptr_t;
       #define intptr_t long
     #endif
   #endif

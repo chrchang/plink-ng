@@ -4961,6 +4961,7 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   uintptr_t prev_rec = 0;
   uintptr_t markers_done = 0;
   uint32_t block_ct = 0;
+  uint32_t pct = 0;
   int32_t retval = 0;
   uint32_t counts[9];
   // [0]: (m, m-1)
@@ -4998,6 +4999,7 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   uintptr_t candidate_ct;
   uintptr_t candidate_idx;
   uintptr_t delta;
+  uintptr_t pct_thresh;
   uintptr_t ulii;
   double dxx;
   uint32_t chrom_fo_idx;
@@ -5042,7 +5044,7 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
     // actually nonmissing phenotype count
     founder_ct = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
     if (!founder_ct) {
-      logprint("Warning: Skipping --blocks, since there are no founders with nonmissing\nphenotypes.  ('--make-pheno [name of empty file] *' is a quick way to make\neveryone a control.)\n");
+      logprint("Warning: Skipping --blocks, since there are no founders with nonmissing\nphenotypes.  (\"--make-pheno [name of empty file] '*'\" is a quick way to make\neveryone a control.)\n");
     } else {
       logprint("Warning: Skipping --blocks, since there are no founders with nonmissing\nphenotypes.  (--make-founders may come in handy here.)\n");
     }
@@ -5058,8 +5060,10 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   }
   marker_ct = unfiltered_marker_ct - popcount_longs(marker_exclude, unfiltered_marker_ctl);
   if (marker_ct < 2) {
-    goto haploview_blocks_too_few_markers;
+    logprint("Warning: Skipping --blocks since there are too few markers with MAF >= 0.05.\n");
+    goto haploview_blocks_ret_1;
   }
+  pct_thresh = marker_ct / 100;
   fill_ulong_zero(in_haploblock, unfiltered_marker_ctl);
   loadbuf_raw[unfiltered_indiv_ctl2 - 1] = 0;
   founder_ctl2 = (founder_ct + (BITCT2 - 1)) / BITCT2;
@@ -5084,11 +5088,12 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
     goto haploview_blocks_ret_OPEN_FAIL;
   }
   wkspace_mark2 = wkspace_base;
-  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
+  fputs("--blocks: 0%", stdout);
+  fflush(stdout);
+  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++, markers_done += cur_marker_ct) {
     chrom_start = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
     chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
     cur_marker_ct = chrom_end - chrom_start - popcount_bit_idx(marker_exclude, chrom_start, chrom_end);
-    markers_done += cur_marker_ct;
     if (cur_marker_ct < 2) {
       continue;
     }
@@ -5122,7 +5127,7 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
     }
 #ifndef __LP64__
     if (max_block_size > 65536) {
-      logprint("Error: 32-bit --blocks cannot analyze potential blocks with more than 65536\nmarkers.  Use a 64-bit PLINK build or a smaller --ld-window-kb value.\n");
+      logprint("\nError: 32-bit --blocks cannot analyze potential blocks with more than 65536\nmarkers.  Use a 64-bit PLINK build or a smaller --ld-window-kb value.\n");
       goto haploview_blocks_ret_INVALID_CMDLINE;
     }
 #endif
@@ -5335,6 +5340,15 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
 	  }
 	}
       }
+      if (markers_done + marker_idx >= pct_thresh) {
+	if (pct > 10) {
+	  putchar('\b');
+	}
+	pct = ((markers_done + marker_idx) * 100LLU) / marker_ct;
+	printf("\b\b%u%%", pct++);
+	fflush(stdout);
+	pct_thresh = (pct * marker_ct) / 100;
+      }
     }
     if (!candidate_ct) {
       continue;
@@ -5390,8 +5404,6 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
       putc('\n', outfile_det);
     }
     block_ct += ulii;
-    printf("\r%" PRIu64 "%%", (markers_done * 100LLU) / marker_ct);
-    fflush(stdout);
   }
   if (fclose_null(&outfile)) {
     goto haploview_blocks_ret_WRITE_FAIL;
@@ -5419,10 +5431,6 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
     retval = RET_INVALID_CMDLINE;
     break;
 #endif
-  haploview_blocks_too_few_markers:
-    logprint("Warning: Skipping --blocks since there are too few markers with MAF >= 0.05.\n");
-    // no error code
-    break;
   }
  haploview_blocks_ret_1:
   wkspace_reset(wkspace_mark);
