@@ -70,10 +70,12 @@ typedef long long int64_t;
   #define CLZLU __builtin_clzl
   #ifndef __LP64__
     #ifndef uintptr_t
-      typedef unsigned long uintptr_t;
+      #define uintptr_t unsigned long
+      // typedef unsigned long uintptr_t;
     #endif
     #ifndef intptr_t
-      typedef long intptr_t;
+      // typedef long intptr_t;
+      #define intptr_t long
     #endif
   #endif
 #endif
