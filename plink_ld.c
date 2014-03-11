@@ -4982,6 +4982,7 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   uintptr_t* window_data_ptr;
   unsigned char* wkspace_mark2;
   uint32_t* block_uidxs;
+  uint32_t* forward_block_sizes;
   uint32_t* candidate_pairs;
   char* wptr_start;
   char* wptr;
@@ -5010,6 +5011,7 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   uint32_t is_x;
   uint32_t is_y;
   uint32_t marker_pos_thresh;
+  uint32_t forward_scan_uidx;
   uint32_t block_cidx;
   uint32_t block_cidx2;
   uint32_t cur_strong;
@@ -5159,6 +5161,7 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
     // blocks in a single pass.  So we can use practically all our memory to
     // track and sort those blocks by bp length.
     if (wkspace_alloc_ui_checked(&block_uidxs, max_block_size * sizeof(int32_t)) ||
+        wkspace_alloc_ui_checked(&forward_block_sizes, max_block_size * sizeof(int32_t)) ||
         wkspace_alloc_ul_checked(&window_data, max_block_size * founder_ctv2 * sizeof(intptr_t))) {
       goto haploview_blocks_ret_NOMEM;
     }
@@ -5171,12 +5174,6 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
       if (wkspace_alloc_ul_checked(&strong_rec_cts, max_block_size * 2 * sizeof(intptr_t))) {
 	goto haploview_blocks_ret_NOMEM;
       }
-      // If numRec ever reaches this value, we can just move on to the next
-      // marker (even skipping the remaining LD/D' evaluations).  (possible
-      // todo: enforce a tighter bound based on maximum local block length.)
-      futility_rec = ((max_block_size * (max_block_size - 1) + 38) / 40);
-    } else {
-      futility_rec = 1;
     }
     window_data_ptr = &(window_data[founder_ctv2 - 2]);
     for (ulii = 0; ulii < max_block_size; ulii++) {
@@ -5195,6 +5192,7 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
     fill_uint_zero(recent_ci_types, 3);
     // count down instead of up so more memory accesses are sequential
     block_cidx = max_block_size;
+    forward_scan_uidx = marker_uidx;
     if (fseeko(bedfile, bed_offset + (marker_uidx * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
       goto haploview_blocks_ret_READ_FAIL;
     }
@@ -5240,9 +5238,39 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
       recent_ci_types[3] = recent_ci_types[1];
       if (cur_block_size > last_block_size) {
 	cur_block_size = last_block_size + 1;
-      } else if (!cur_block_size) {
+      }
+      // now determine maximum local block size, so we can set futility_rec
+      // efficiently.
+      marker_pos_thresh = cur_marker_pos + ld_window_bp;
+      if (forward_scan_uidx < marker_uidx) {
+	forward_scan_uidx = marker_uidx;
+      }
+      while (marker_pos_thresh >= marker_pos[forward_scan_uidx]) {
+	uii = forward_scan_uidx + 1;
+	next_unset_ck(marker_exclude, &uii, chrom_end);
+	if (uii == chrom_end) {
+	  break;
+	}
+        forward_scan_uidx = uii;
+      }
+      uii = forward_scan_uidx + 1 - marker_uidx - popcount_bit_idx(marker_exclude, marker_uidx, forward_scan_uidx);
+      forward_block_sizes[block_cidx] = uii;
+      if (!cur_block_size) {
 	continue;
       }
+      block_cidx2 = block_cidx + 1;
+      for (delta = 1; delta <= cur_block_size; delta++, block_cidx2++) {
+	if (block_cidx2 == max_block_size) {
+	  block_cidx2 = 0;
+	}
+        if (forward_block_sizes[block_cidx2] > uii) {
+	  uii = forward_block_sizes[block_cidx2];
+	}
+      }
+      ulii = uii;
+      // If numRec ever reaches this value, we can just move on to the next
+      // marker (even skipping the remaining LD/D' evaluations).
+      futility_rec = ((ulii * (ulii - 1)) + 38) / 40;
       block_cidx2 = block_cidx + 1;
       cur_strong = 0;
       cur_rec = 0;
