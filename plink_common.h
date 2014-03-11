@@ -57,9 +57,15 @@
   #endif
 #endif
 
-// fix OS X 10.9 build break; might need to do this to some other #defines too
-typedef unsigned long long uint64_t;
-typedef long long int64_t;
+#ifdef __APPLE__
+  // fix OS X 10.9 build break; unfortunately, this doesn't work on some other
+  // systems...
+  typedef unsigned long long uint64_t;
+  typedef long long int64_t;
+#else
+  #define uint64_t unsigned long long
+  #define int64_t long long
+#endif
 
 #ifdef _WIN64
   #define __LP64__
