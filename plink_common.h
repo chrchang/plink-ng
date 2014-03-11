@@ -69,8 +69,12 @@ typedef long long int64_t;
   #define CTZLU __builtin_ctzl
   #define CLZLU __builtin_clzl
   #ifndef __LP64__
-    typedef unsigned long uintptr_t;
-    typedef long intptr_t;
+    #ifndef uintptr_t
+      typedef unsigned long uintptr_t;
+    #endif
+    #ifndef intptr_t
+      typedef long intptr_t;
+    #endif
   #endif
 #endif
 
