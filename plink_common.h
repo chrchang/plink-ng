@@ -136,6 +136,7 @@ typedef long long int64_t;
 
 #define PI 3.1415926535897932
 #define RECIP_2_32 0.00000000023283064365386962890625
+#define RECIP_2_53 0.00000000000000011102230246251565404236316680908203125
 // floating point comparison-to-nonzero tolerance, currently 2^{-30}
 #define EPSILON 0.000000000931322574615478515625
 // less tolerant versions (2^{-35}, 2^{-44}) for some exact calculations
@@ -1674,6 +1675,8 @@ int32_t double_cmp_deref(const void* aa, const void* bb);
 int32_t char_cmp_deref(const void* aa, const void* bb);
 
 int32_t intcmp(const void* aa, const void* bb);
+
+int32_t intcmp2_decr(const void* aa, const void* bb);
 
 #ifndef __cplusplus
 int32_t llcmp(const void* aa, const void* bb);

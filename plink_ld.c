@@ -3397,14 +3397,10 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   }
 }
 
-uint32_t phase_flanking_haps(uint32_t* counts, double* freq1x_ptr, double* freq2x_ptr, double* freqx1_ptr, double* freqx2_ptr, double* freq11_ptr) {
+uint32_t phase_flanking_haps(uintptr_t base_ct11, uintptr_t base_ct12, uintptr_t base_ct21, uintptr_t base_ct22, uint32_t center_ct, double* freq1x_ptr, double* freq2x_ptr, double* freqx1_ptr, double* freqx2_ptr, double* freq11_ptr) {
   // returns 1 if at least one SNP is monomorphic over all valid observations
   // otherwise, returns 0, and fills all frequencies using EM phasing
-  uintptr_t base_ct11 = 2 * counts[0] + counts[1] + counts[3];
-  uintptr_t base_ct12 = 2 * counts[2] + counts[1] + counts[5];
-  uintptr_t base_ct21 = 2 * counts[6] + counts[3] + counts[7];
-  uintptr_t base_ct22 = 2 * counts[8] + counts[5] + counts[7];
-  uintptr_t twice_tot = base_ct11 + base_ct12 + base_ct21 + base_ct22 + 2 * counts[4];
+  uintptr_t twice_tot = base_ct11 + base_ct12 + base_ct21 + base_ct22 + 2 * center_ct;
   double twice_tot_recip;
   double half_hethet_share;
   double freq11;
@@ -3432,14 +3428,14 @@ uint32_t phase_flanking_haps(uint32_t* counts, double* freq1x_ptr, double* freq2
   freq22 = ((intptr_t)base_ct22) * twice_tot_recip;
   prod_1122 = freq11 * freq22;
   prod_1221 = freq12 * freq21;
-  half_hethet_share = ((int32_t)counts[4]) * twice_tot_recip;
+  half_hethet_share = ((int32_t)center_ct) * twice_tot_recip;
   // the following four values should all be guaranteed nonzero except in the
   // NAN case
   freq1x = freq11 + freq12 + half_hethet_share;
   freq2x = 1.0 - freq1x;
   freqx1 = freq11 + freq21 + half_hethet_share;
   freqx2 = 1.0 - freqx1;
-  if (counts[4]) {
+  if (center_ct) {
     if (prod_1122 != 0.0) {
       if (prod_1221 != 0.0) {
 	sum_1122 = freq11 + freq22;
@@ -3453,6 +3449,13 @@ uint32_t phase_flanking_haps(uint32_t* counts, double* freq1x_ptr, double* freq2
 	  dxx = (sum_1122 + incr_1122) * incr_1122;
 	  prod_1122_cur = prod_1122 + dxx;
 	  incr_1122 = half_hethet_share * prod_1122_cur / (prod_1122_cur + prod_1221 + dxx - incr_1122);
+          // Haploview uses an epsilon of 1e-8 for (base 10) log likelihood
+	  // change.  There isn't a perfect isomorphism between their epsilon
+	  // and ours, but using an epsilon in that neighborhood yields roughly
+	  // the same behavior.
+          // (--blocks normally only needs ~1% accuracy here, but it's a bit
+	  // dangerous for our D' estimate to have the wrong sign, so we play
+	  // it safe instead of conditionally using a more aggressive epsilon.)
 	} while (fabs(incr_1122 - last_incr_1122) > EPSILON);
 	// only actually need freq11
 	freq11 += incr_1122;
@@ -3489,6 +3492,14 @@ uint32_t phase_flanking_haps(uint32_t* counts, double* freq1x_ptr, double* freq2
   *freqx2_ptr = freqx2;
   *freq11_ptr = freq11;
   return 0;
+}
+
+uint32_t phase_flanking_haps_nobase(uint32_t* counts, double* freq1x_ptr, double* freq2x_ptr, double* freqx1_ptr, double* freqx2_ptr, double* freq11_ptr) {
+  uintptr_t base_ct11 = 2 * counts[0] + counts[1] + counts[3];
+  uintptr_t base_ct12 = 2 * counts[2] + counts[1] + counts[5];
+  uintptr_t base_ct21 = 2 * counts[6] + counts[3] + counts[7];
+  uintptr_t base_ct22 = 2 * counts[8] + counts[5] + counts[7];
+  return phase_flanking_haps(base_ct11, base_ct12, base_ct21, base_ct22, counts[4], freq1x_ptr, freq2x_ptr, freqx1_ptr, freqx2_ptr, freq11_ptr);
 }
 
 THREAD_RET_TYPE ld_dprime_thread(void* arg) {
@@ -3579,7 +3590,7 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
 	    counts[8] = tot1[2] - counts[6] - counts[7];
 	  }
 	}
-	if (phase_flanking_haps(counts, &freq1x, &freq2x, &freqx1, &freqx2, &freq11)) {
+	if (phase_flanking_haps_nobase(counts, &freq1x, &freq2x, &freqx1, &freqx2, &freq11)) {
 	  *rptr++ = NAN;
 	  *rptr++ = NAN;
 	  continue;
@@ -4605,67 +4616,402 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
   return retval;
 }
 
+double haploview_blocks_lnlike(double known11, double known12, double known21, double known22, double unknown_dh, double freqx1, double freq1x, double freq2x, double freq11_expected, double denom, int32_t quantile) {
+  double tmp11 = quantile * denom + freq11_expected;
+  double tmp12 = freq1x - tmp11;
+  double tmp21 = freqx1 - tmp11;
+  double tmp22 = freq2x - tmp21;
+  if (quantile == 100) {
+    if (tmp11 < 1e-10) {
+      tmp11 = 1e-10;
+    }
+    if (tmp12 < 1e-10) {
+      tmp12 = 1e-10;
+    }
+    if (tmp21 < 1e-10) {
+      tmp21 = 1e-10;
+    }
+    if (tmp22 < 1e-10) {
+      tmp22 = 1e-10;
+    }
+  }
+  return known11 * log(tmp11) + known12 * log(tmp12) + known21 * log(tmp21) + known22 * log(tmp22) + unknown_dh * log(tmp11 * tmp22 + tmp12 * tmp21);
+}
+
+uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_t lowci_min) {
+  uintptr_t base_ct11 = 2 * counts[0] + counts[1] + counts[3];
+  uintptr_t base_ct12 = 2 * counts[2] + counts[1] + counts[5];
+  uintptr_t base_ct21 = 2 * counts[6] + counts[3] + counts[7];
+  uintptr_t base_ct22 = 2 * counts[8] + counts[5] + counts[7];
+  double right_sum[31];
+  double freq1x;
+  double freq2x;
+  double freqx1;
+  double freqx2;
+  double freq11_expected;
+  double freq11;
+  double freq12;
+  double freq21;
+  double freq22;
+  double known11;
+  double known12;
+  double known21;
+  double known22;
+  double unknown_dh;
+  double denom;
+  double lnlike1;
+  double lnsurf_high97_thresh;
+  double lnsurf_high89_thresh;
+  double total_prob;
+  double last_prob;
+  double left_tail_thresh;
+  double dxx;
+  double dyy;
+  double dzz;
+  uint32_t quantile;
+  uint32_t center;
+  if (phase_flanking_haps(base_ct11, base_ct12, base_ct21, base_ct22, counts[4], &freq1x, &freq2x, &freqx1, &freqx2, &freq11)) {
+    return 1;
+  }
+  freq11_expected = freqx1 * freq1x;
+  dxx = freq11 - freq11_expected;
+  if (dxx >= 0.0) {
+    known11 = (double)((intptr_t)base_ct11);
+    known12 = (double)((intptr_t)base_ct12);
+    known21 = (double)((intptr_t)base_ct21);
+    known22 = (double)((intptr_t)base_ct22);
+    freq12 = freqx2 * freq1x - dxx;
+    freq21 = freqx1 * freq2x - dxx;
+    freq22 = freqx2 * freq2x + dxx;
+  } else {
+    // D < 0, flip (1,1)<->(1,2) and (2,1)<->(2,2) to make D positive
+    known11 = (double)((intptr_t)base_ct12);
+    known12 = (double)((intptr_t)base_ct11);
+    known21 = (double)((intptr_t)base_ct22);
+    known22 = (double)((intptr_t)base_ct21);
+    freq11_expected = freqx2 * freq1x;
+    freq12 = freq11;
+    freq11 = freq11_expected - dxx;
+    freq22 = freqx1 * freq2x - dxx;
+    freq21 = freqx2 * freq2x + dxx;
+    dzz = freqx1;
+    freqx1 = freqx2;
+    freqx2 = dzz;
+    dxx = -dxx;
+  }
+  dyy = MINV(freqx1 * freq2x, freqx2 * freq1x);
+  denom = 0.01 * dyy;
+  unknown_dh = (double)((int32_t)counts[4]);
+  // this will always be in a term with a 0.01 multiplier from now on, so may
+  // as well premultiply.
+
+  // force this to an actual likelihood array entry, so we know for sure
+  // total_prob > 1.0 and can use that inequality for both early exit and
+  // determining the "futility threshold" (terms smaller than ~1e-16 are too
+  // small to affect anything).
+  center = (int32_t)(((dxx / dyy) * 100) + 0.5);
+  lnlike1 = haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, center);
+
+  // It's not actually necessary to keep the entire likelihood array in
+  // memory.  This is similar to the HWE and Fisher's exact test calculations:
+  // we can get away with tracking a few partial sums, and exploit (i)
+  // super-geometric likelihood decay away from the center and (ii) knowledge
+  // of the center's location.  (Recall that
+  //   c + cr + cr^2 + ... = c/(1-r) so
+  //   f(0) + ... + f(p) <= f(p)/(1 - f(p)/f(p+0.01))
+  //                     <= f(p)f(p+0.01)/(f(p+0.01)-f(p))
+  //   f(0) + ... + f(p-0.01) <= (f(p)^2)/(f(p+0.01)-f(p))
+  // for p < D - 0.01, and similarly for the upper tail.)
+  //
+  // Specifically, we need to determine the following:
+  // 1. Is highCI >= 0.98?  Or < 0.90?
+  // 2. If highCI >= 0.98, is lowCI >= 0.81?  In [0.71, 0.81)?  Equal to 0.70?
+  //    In [0.51, 0.70)?  In [0.01, 0.51)?  Or < 0.01?
+  //    (Crucially, if highCI < 0.98, we don't actually need to determine lowCI
+  //    at all.)
+  // To make this classification with as few relative likelihood evaluations as
+  // possible (5 logs, an exp call, 7 multiplies, 5 adds... that's kinda heavy
+  // for an inner loop operation), we distinguish the following cases:
+  // a. D' >= 0.41.  We first try to quickly rule out highCI >= 0.98 by
+  //    inspection of f(0.97).  Then,
+  //    * If it's below the futility threshold, jump to case (b).
+  //    * Otherwise, sum f(0.98)..f(1.00), and then sum other likelihoods
+  //      from f(0.96) on down.
+  // b. D' < 0.41.  Goal is to quickly establish highCI < 0.90.  The vast
+  //    majority of the time, this can be accomplished simply by inspecting
+  //    f(0.89); if it's less than 1/21, we're done because we know
+  //    there's a 1 somewhere in the array, the sum of the likelihoods between
+  //    f(0.89) and whatever that 1 entry is is bounded below by the geometric
+  //    series, and the sum of f(0.89)..f(1.00) is bounded above by the series.
+  //    Otherwise, we use f(0.88) to establish a tighter bound on the tail sum,
+  //    and march downward until we resolve which side of 0.895 highCI is on
+  //    one way or the other.  Very rarely, we reach p = 0.00 without
+  //    resolution and have to double back to properly sum the upper tail.
+  //    highCI >= 0.98 is impossible since f(0.41) >= f(0.42) >= ....
+  // This should be good for a ~10x speedup on the larger datasets where it's
+  // most wanted.
+  if (center > 41) {
+    dxx = haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, 97) - lnlike1;
+    // ln(2^{-53}) is about -36.7368
+    if (dxx > -36.7368) {
+      total_prob = exp(dxx);
+      for (quantile = 100; quantile > 97; quantile--) {
+	total_prob += exp(haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+      }
+      if (total_prob > (1.0 / 19.0)) {
+	// branch 1: highCI might be >= 0.98
+        lnsurf_high97_thresh = total_prob * 20;
+	for (quantile = 96; quantile >= 89; quantile--) {
+	  last_prob = exp(haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+	  total_prob += last_prob;
+	}
+	lnsurf_high89_thresh = total_prob * 20;
+	while (1) {
+	  dxx = exp(haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+	  total_prob += dxx;
+	  // see comments on branch 2.  this is more complicated because we
+	  // still have work to do after resolving whether highCI >= 0.98, but
+	  // the reasoning is similar.
+	  if (total_prob >= lnsurf_high97_thresh) {
+	    goto haploview_blocks_classify_no_high98;
+	  }
+	  if ((quantile <= lowci_max) && (quantile >= lowci_min)) {
+	    // We actually only need the [52..100], [71..100], [72..100], and
+	    // [82..100] right sums, but saving a few extra values is probably
+	    // more efficient than making this if-statement more complicated.
+	    // [82 - quantile] rather than e.g. [quantile - 52] is used so
+	    // memory writes go forward.  (okay, this shouldn't matter since
+	    // everything should be in L1 cache, but there's no opportunity
+	    // cost)
+	    right_sum[82 - quantile] = total_prob;
+	  }
+	  dyy = dxx * dxx;
+	  dzz = last_prob - dxx;
+	  if ((!quantile) || (dyy < (lnsurf_high97_thresh - total_prob) * dzz)) {
+	    while (1) {
+	      // Now we want to bound lowCI, optimizing for being able to
+	      // quickly establish lowCI >= 0.71.  We do this by checking when
+	      // 19x the (f(p)^2)/(f(p+0.01)-f(p)) left tail bound drops below
+	      // total_prob; that guarantees f(p-0.01) + f(p-0.02) + ... is
+	      // less than 5% of the total likelihood, hence lowCI >= p-0.01.
+	      // We try to return immediately at that point.  If we cannot, we
+	      // just sum the remaining terms out to either p=0 or incremental
+              // likelihood <= 2^{-53}.
+	      if (dyy * 19 < total_prob * dzz) {
+		if (quantile >= lowci_max) {
+		  return 6;
+		}
+		while (quantile > lowci_min) {
+		  quantile--;
+		  total_prob += exp(haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+		  if (quantile <= lowci_max) {
+		    right_sum[82 - quantile] = total_prob;
+		  }
+		}
+		left_tail_thresh = right_sum[82 - lowci_min] * (20.0 / 19.0);
+		while (total_prob < left_tail_thresh) {
+		  if ((!quantile) || (dxx <= RECIP_2_53)) {
+		    total_prob *= 0.95;
+		    if (total_prob > right_sum[11]) {
+		      // lowCI < 0.70
+		      // -> f(0.00) + f(0.01) + ... + f(0.70) > 0.05 * total
+		      return 3;
+		    } else if (total_prob > right_sum[10]) {
+		      // lowCI < 0.71
+		      // -> f(0.00) + ... + f(0.71) > 0.05 * total
+		      return 4;
+		    }
+		    return 5;
+		  }
+		  quantile--;
+		  dxx = exp(haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+		  total_prob += dxx;
+		}
+		return 2;
+	      }
+	      last_prob = dxx;
+              quantile--;
+	      dxx = exp(haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+	      total_prob += dxx;
+	      if ((quantile <= lowci_max) && (quantile >= lowci_min)) {
+		right_sum[82 - quantile] = total_prob;
+	      }
+	      dyy = dxx * dxx;
+              dzz = last_prob - dxx;
+	    }
+	  }
+	  last_prob = dxx;
+	  quantile--;
+	}
+      }
+    }
+  }
+  // branch 2: highCI guaranteed less than 0.98.  If D' <= 0.875, try to
+  // quickly establish highCI < 0.90.
+  total_prob = 0.0;
+  dxx = haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, 89) - lnlike1;
+  quantile = 96;
+  if (center < 88) {
+    // Suppose the center is at 0.87, so f(0.87) = 1.  Then, if f(0.89) < 1/21,
+    //    (f(0.87) + f(0.88))/21  > f(0.89) + f(0.90) via geometric bound
+    //    (f(0.87) + f(0.88))/441 > f(0.91) + f(0.92)
+    //    etc.
+    // -> (f(0.87) + f(0.88))/20  > f(0.89) + f(0.90) + ...
+    // Similar inequalities involving more terms hold for other center
+    // positions.  So we can use a bound of ln(1/21) here.
+    if (dxx < -3.044522437723423) {
+      return 0;
+    }
+    quantile = 100;
+  }
+  // okay, we'll sum the whole right tail.  May as well sum from the outside
+  // in here for a bit more numerical stability.
+  do {
+    total_prob += exp(haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+  } while (--quantile > 89);
+  last_prob = exp(dxx);
+  total_prob += last_prob;
+  lnsurf_high89_thresh = total_prob * 20;
+  quantile--;
+  if (center <= 88) {
+    // if we know there's a 1.0 ahead in the likelihood array, may as well
+    // take advantage of that
+    lnsurf_high97_thresh = lnsurf_high89_thresh - 1.0;
+    while (quantile > center) {
+      total_prob += exp(haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+      if (total_prob >= lnsurf_high97_thresh) {
+	return 0;
+      }
+      quantile--;
+    }
+    if (!center) {
+      return 1;
+    }
+    total_prob += 1;
+    last_prob = 1;
+    quantile--;
+  }
+  // likelihoods are now declining, try to use geometric series bound to
+  // exit early
+  // (it's okay if the first likelihood does not represent a decline)
+  while (1) {
+    dxx = exp(haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+    total_prob += dxx;
+  haploview_blocks_classify_no_high98:
+    if (total_prob >= lnsurf_high89_thresh) {
+      return 0;
+    }
+    // Using the (f(p)^2)/(f(p+0.01)-f(p)) tail bound:
+    //    total_prob + dxx * dxx / (last_prob - dxx) < lnsurf_high89_thresh
+    // -> dxx * dxx / (last_prob - dxx) < lnsurf_high89_thresh - total_prob
+    // -> dxx * dxx < (high89_thresh - total_prob) * (last_prob - dxx)
+    // This should be true if current likelihood is too small to affect the
+    // sum, so no need for separate futility check.
+    if ((!quantile) || (dxx * dxx < (lnsurf_high89_thresh - total_prob) * (last_prob - dxx))) {
+      return 1;
+    }
+    last_prob = dxx;
+    quantile--;
+  }
+}
+
 int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t ld_window_bp, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* pheno_nm, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
-  logprint("Error: --blocks is currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
-  /*
-  // See Plink::mkBlks() in blox.cpp (which is, in turn, a straight port from
-  // Haploview).
+  // See Plink::mkBlks() in blox.cpp (which is, in turn, a port of doGabriel()
+  // in FindBlocks.java and computeDPrime() in HaploData.java from Haploview).
   // No unwindowed/inter-chr mode, so little point in bothering with
   // multithreading.
   unsigned char* wkspace_mark = wkspace_base;
-  const double cut_high_ci = 0.98;
-  const double cut_low_ci = 0.70;
-  const double cut_low_ci_var[] = {0, 0, 0.80, 0.50, 0.50};
-  const uint32_t max_dist[] = {0, 0, 20000, 30000, 1000000};
-  const double rec_high_ci = 0.90;
   // a/(a+b) > 0.95
   // a > 0.95(a+b)
   // 0.05a > 0.95b
   // a/19 > b
   // (32-bit integer math) (a+18)/19 > b
-  const uint32_t inform_ratio = 19;
-  const double four_gamete_cutoff = 0.01;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   FILE* outfile = NULL;
   FILE* outfile_det = NULL;
-  uintptr_t max_block_size = 1;
+  // circular.  [2n] = numStrong, [2n+1] = numRec
+  uintptr_t* strong_rec_cts = NULL;
   uintptr_t marker_uidx = 0;
   uintptr_t block_idx_first = 0;
   uintptr_t block_uidx_first = 0;
   uintptr_t block_pos_first = 0;
+  uintptr_t prev_strong = 0;
+  uintptr_t prev_rec = 0;
   uint32_t block_ct = 0;
+  uint32_t prev_marker_pos = 0;
   int32_t retval = 0;
   uint32_t counts[9];
+  // [0]: (m-1, m-2)
+  // [1]: (m-1, m-3)
+  // [2]: (m-2, m-3)
+  uint32_t recent_ci_types[3];
+  uint32_t index_tots[3];
   uintptr_t* founder_pnm;
   uintptr_t* marker_exclude;
+  uintptr_t* loadbuf_raw;
+  uintptr_t* founder_include2;
+  uintptr_t* founder_male_include2;
+  uintptr_t* index_data;
+  uintptr_t* window_data;
+  uintptr_t* window_data_ptr;
+  unsigned char* wkspace_mark2;
+  uint32_t* ci_types;
+  uint32_t* block_uidxs;
+  uint32_t* candidate_pairs;
+  uintptr_t max_block_size;
   uintptr_t marker_idx;
+  uintptr_t cur_block_size;
+  uintptr_t last_block_size;
   uintptr_t founder_ct;
+  uintptr_t founder_ctl2;
+  uintptr_t founder_ctv2;
+  uintptr_t futility_rec;
+  uintptr_t max_candidates;
+  uintptr_t candidate_ct;
+  uintptr_t candidate_idx;
+  uintptr_t delta;
+  uintptr_t ulii;
+  uintptr_t uljj;
   double dxx;
   uint32_t chrom_fo_idx;
   uint32_t chrom_idx;
+  uint32_t chrom_start;
   uint32_t chrom_end;
   uint32_t is_haploid;
   uint32_t is_x;
   uint32_t is_y;
   uint32_t marker_pos_thresh;
-  // 1. Enforce MAF 0.05 minimum.
-  // 2. Determine maximum number of markers that might need to be loaded at
-  //    once, and then allocate memory buffers.
-  // Then, on each chromosome:
-  // a. Find all pairs of markers satisfying the "strong LD" and informative
+  uint32_t block_cidx;
+  uint32_t block_cidx2;
+  uint32_t cur_strong;
+  uint32_t cur_rec;
+  uint32_t old_strong_min;
+  uint32_t cur_marker_pos;
+  uint32_t penult_marker_pos;
+  uint32_t lowci_max;
+  uint32_t lowci_min;
+  uint32_t cur_ci_type;
+  uint32_t uii;
+  // First enforce MAF 0.05 minimum; then, on each chromosome:
+  // 1. Determine maximum number of markers that might need to be loaded at
+  //    once on current chromosome, and then (re)allocate memory buffers.
+  // 2. Find all pairs of markers satisfying the "strong LD" and informative
   //    fraction criteria.  (The original algorithm deferred the informative
   //    fraction calculation; we don't do that because it forces nonsequential
   //    file access.)
-  // b. Sort the pairs by bp distance.
-  // c. Greedily construct blocks starting with the furthest-apart pairs.
+  // 3. Sort the pairs in decreasing order primarily by bp distance, and
+  //    secondarily by start uidx.
+  // 4. Greedily construct blocks from the sorted list (i.e. form largest
+  //    blocks first).
   if (wkspace_alloc_ul_checked(&founder_pnm, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&marker_exclude, unfiltered_marker_ctl * sizeof(intptr_t))) {
+      wkspace_alloc_ul_checked(&marker_exclude, unfiltered_marker_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
     goto haploview_blocks_ret_NOMEM;
   }
-  memcpy(founder_pnm, founder_info, unfiltered_indiv_ctl);
+  memcpy(founder_pnm, founder_info, unfiltered_indiv_ctl * sizeof(intptr_t));
   bitfield_and(founder_pnm, pheno_nm, unfiltered_indiv_ctl);
   founder_ct = popcount_longs(founder_pnm, unfiltered_indiv_ctl);
   if (!founder_ct) {
@@ -4682,50 +5028,25 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
     next_unset_ul_unsafe_ck(marker_exclude_orig, &marker_uidx);
     dxx = set_allele_freqs[marker_uidx];
-    if ((dxx < 0.05) || (dxx > 0.95)) {
+    if ((dxx < 0.05 - SMALL_EPSILON) || (dxx > 0.95 + SMALL_EPSILON)) {
       set_bit_ul(marker_exclude, marker_uidx);
     }
   }
   marker_ct = unfiltered_marker_ct - popcount_longs(marker_exclude, unfiltered_marker_ctl);
-  marker_uidx = 0;
-  chrom_fo_idx = 0xffffffffU; // exploit overflow
-  chrom_end = 0;
-  for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-    next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
-    if (marker_uidx >= chrom_end) {
-      do {
-        chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1];
-      } while (marker_uidx >= chrom_end);
-      block_idx_first = marker_idx;
-      block_uidx_first = marker_uidx;
-      block_pos_first = marker_pos[marker_uidx];
-    }
-    marker_pos_thresh = marker_pos[marker_uidx];
-    if (marker_pos_thresh < ld_window_bp) {
-      marker_pos_thresh = 0;
-    } else {
-      marker_pos_thresh -= ld_window_bp;
-    }
-    if (marker_pos_thresh > block_pos_first) {
-      do {
-        block_uidx_first++;
-	next_unset_ul_unsafe_ck(marker_exclude, &block_uidx_first);
-        block_pos_first = marker_pos[block_uidx_first];
-	block_idx++;
-      } while (marker_pos_thresh > block_pos_first);
-    } else if (marker_idx - block_idx_first == max_block_size) {
-      max_block_size++;
-    }
+  if (marker_ct < 2) {
+    goto haploview_blocks_too_few_markers;
   }
-  if (max_block_size < 2) {
-    logprint("Warning: Skipping --blocks since there are too few markers with MAF >= 0.05.\n");
-    goto haploview_blocks_ret_1;
+  loadbuf_raw[unfiltered_indiv_ctl2 - 1] = 0;
+  founder_ctl2 = (founder_ct + (BITCT2 - 1)) / BITCT2;
+  founder_ctv2 = 2 * ((founder_ct + (BITCT - 1)) / BITCT);
+  if (wkspace_alloc_ul_checked(&index_data, 3 * founder_ctv2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&founder_include2, founder_ctv2 * sizeof(intptr_t))) {
+    goto haploview_blocks_ret_NOMEM;
   }
-  // need to compute full 3x3 count tables, but only for a limited window; more
-  // similar to --clump than --fast-epistasis, so we don't bother with
-  // precomputing 0-only/1-only/2-only bitfields.
-
-  // todo
+  fill_vec_55(founder_include2, founder_ct);
+  if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, founder_ct, hh_exists, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
+    goto haploview_blocks_ret_NOMEM;
+  }
   memcpy(outname_end, ".blocks.det", 12);
   if (fopen_checked(&outfile_det, outname, "w")) {
     goto haploview_blocks_ret_OPEN_FAIL;
@@ -4737,14 +5058,243 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   if (fopen_checked(&outfile, outname, "w")) {
     goto haploview_blocks_ret_OPEN_FAIL;
   }
-  // process chromosomes one at a time
+  wkspace_mark2 = wkspace_base;
+  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
+    chrom_start = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
+    chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+    marker_ct = chrom_end - chrom_start - popcount_bit_idx(marker_exclude, chrom_start, chrom_end);
+    if (marker_ct < 2) {
+      continue;
+    }
+    block_idx_first = 0;
+    chrom_start = next_unset_unsafe(marker_exclude, chrom_start);
+    block_uidx_first = chrom_start;
+    marker_uidx = chrom_start;
+    block_pos_first = marker_pos[chrom_start];
+    max_block_size = 1;
+    for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+      next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
+      marker_pos_thresh = marker_pos[marker_uidx];
+      if (marker_pos_thresh < ld_window_bp) {
+	marker_pos_thresh = 0;
+      } else {
+	marker_pos_thresh -= ld_window_bp;
+      }
+      if (marker_pos_thresh > block_pos_first) {
+	do {
+	  block_uidx_first++;
+	  next_unset_ul_unsafe_ck(marker_exclude, &block_uidx_first);
+	  block_pos_first = marker_pos[block_uidx_first];
+	  block_idx_first++;
+	} while (marker_pos_thresh > block_pos_first);
+      } else if (marker_idx - block_idx_first == max_block_size) {
+	max_block_size++;
+      }
+    }
+    if (max_block_size < 2) {
+      continue;
+    }
+#ifndef __LP64__
+    if (max_block_size > 65536) {
+      logprint("Error: 32-bit --blocks cannot analyze potential blocks with more than 65536\nmarkers.  Use a 64-bit PLINK build or a smaller --ld-window-kb value.\n");
+      goto haploview_blocks_ret_INVALID_CMDLINE;
+    }
+#endif
+    chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+    is_haploid = IS_SET(chrom_info_ptr->haploid_mask, chrom_idx);
+    is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code)? 1 : 0;
+    is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code)? 1 : 0;
+    wkspace_reset(wkspace_mark2);
+    // Need to compute full 3x3 count tables, but only for a limited window;
+    // more similar to --clump than --fast-epistasis, so we don't bother with
+    // precomputing 0-only/1-only/2-only bitfields or multithreading for now.
+
+    // For each pair, we just need to know 100x the Haploview lowCI and highCI
+    // values; lod and dp are unnecessary since the CI value also tracks bad
+    // pairs.  More precisely, there are only seven types of CIs worth
+    // distinguishing:
+    // 0. non-bad pair, and highCI < recHighCI (0.90)
+    // 1. "null" (bad pair, or highCI in [0.90, 0.98))
+    // 2. highCI >= 0.98, and lowCI < 0.51
+    // 3. highCI >= 0.98, and lowCI in [0.51, 0.70)
+    // 4. highCI >= 0.98, and lowCI == 0.70
+    //    (turns out (double)70 / 100.0 compares exactly equal to 0.70)
+    // 5. highCI >= 0.98, and lowCI in [0.71, 0.81)
+    // 6. highCI >= 0.98, and lowCI in [0.81, 1]
+    // And it gets better than that: given block size n, we just need to
+    // maintain
+    // #(type 1) and #(type 4/5/6) arrays (and a tiny array with more detailed
+    // information on the most recent blocks) to find all potentially valid
+    // blocks in a single pass.  So we can use practically all our memory to
+    // track and sort those blocks by bp length.
+    if (wkspace_alloc_ui_checked(&block_uidxs, max_block_size * sizeof(int32_t)) ||
+        wkspace_alloc_ul_checked(&window_data, max_block_size * founder_ctv2 * sizeof(intptr_t)) ||
+        wkspace_alloc_ui_checked(&ci_types, max_block_size * sizeof(int32_t))) {
+      goto haploview_blocks_ret_NOMEM;
+    }
+    if (max_block_size > 4) {
+      // After marker m is fully processed,
+      //   strong_rec_cts[(block_cidx + delta) * 2] = numStrong, and
+      //   strong_rec_cts[(block_cidx + delta) * 2 + 1] = numRec
+      // for the potential [m - delta, m] block, taking array indices modulo
+      // max_block_size * 2.
+      if (wkspace_alloc_ul_checked(&strong_rec_cts, max_block_size * 2 * sizeof(intptr_t))) {
+	goto haploview_blocks_ret_NOMEM;
+      }
+      // If numRec ever reaches this value, we can just move on to the next
+      // marker (even skipping the remaining LD/D' evaluations).  (possible
+      // todo: enforce a tighter bound based on maximum local block length.)
+      futility_rec = ((max_block_size * (max_block_size - 1) + 38) / 40);
+    } else {
+      futility_rec = 1;
+    }
+    window_data_ptr = &(window_data[founder_ctv2 - 2]);
+    for (ulii = 0; ulii < max_block_size; ulii++) {
+      window_data_ptr[0] = 0;
+      window_data_ptr[1] = 0;
+      window_data_ptr = &(window_data_ptr[founder_ctv2]);
+    }
+    block_idx_first = 0;
+    block_uidx_first = chrom_start;
+    marker_uidx = chrom_start;
+    block_pos_first = marker_pos[chrom_start];
+    max_candidates = wkspace_left / (3 * sizeof(int32_t));
+    candidate_pairs = (uint32_t*)wkspace_alloc(max_candidates * 3 * sizeof(int32_t));
+    candidate_ct = 0;
+    cur_block_size = 0;
+    fill_uint_zero(recent_ci_types, 2);
+    // count down instead of up so more memory accesses are sequential
+    block_cidx = max_block_size;
+    if (fseeko(bedfile, bed_offset + (marker_uidx * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
+      goto haploview_blocks_ret_READ_FAIL;
+    }
+    for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+      if (block_cidx) {
+        block_cidx--;
+      } else {
+	block_cidx = max_block_size - 1;
+      }
+      window_data_ptr = &(window_data[block_cidx * founder_ctv2]);
+      if (IS_SET(marker_exclude, marker_uidx)) {
+        marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+        if (fseeko(bedfile, bed_offset + (marker_uidx * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
+          goto haploview_blocks_ret_READ_FAIL;
+	}
+      }
+      block_uidxs[block_cidx] = marker_uidx;
+      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, window_data_ptr, founder_ct, founder_pnm, 0)) {
+	goto haploview_blocks_ret_READ_FAIL;
+      }
+      if (is_haploid) {
+	haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)window_data_ptr);
+      }
+      penult_marker_pos = prev_marker_pos;
+      prev_marker_pos = cur_marker_pos;
+      cur_marker_pos = marker_pos[marker_uidx];
+      marker_pos_thresh = cur_marker_pos;
+      if (marker_pos_thresh < ld_window_bp) {
+	marker_pos_thresh = 0;
+      } else {
+	marker_pos_thresh -= ld_window_bp;
+      }
+      if (marker_pos_thresh > block_pos_first) {
+	do {
+	  block_uidx_first++;
+	  next_unset_ul_unsafe_ck(marker_exclude, &block_uidx_first);
+	  block_pos_first = marker_pos[block_uidx_first];
+	  block_idx_first++;
+	} while (marker_pos_thresh > block_pos_first);
+      }
+      last_block_size = cur_block_size;
+      cur_block_size = marker_idx - block_idx_first;
+      recent_ci_types[2] = recent_ci_types[0];
+      recent_ci_types[0] = ci_types[0];
+      recent_ci_types[1] = ci_types[1];
+      if (cur_block_size > last_block_size) {
+	cur_block_size = last_block_size + 1;
+      } else if (!cur_block_size) {
+	continue;
+      }
+      block_cidx2 = block_cidx + 1;
+      cur_strong = 0;
+      cur_rec = 0;
+      vec_datamask(founder_ct, 0, window_data_ptr, founder_include2, index_data);
+      index_tots[0] = popcount2_longs(index_data, founder_ctl2);
+      vec_datamask(founder_ct, 2, window_data_ptr, founder_include2, &(index_data[founder_ctv2]));
+      index_tots[1] = popcount2_longs(&(index_data[founder_ctv2]), founder_ctl2);
+      vec_datamask(founder_ct, 3, window_data_ptr, founder_include2, &(index_data[2 * founder_ctv2]));
+      index_tots[2] = popcount2_longs(&(index_data[2 * founder_ctv2]), founder_ctl2);
+      lowci_max = 82;
+      lowci_min = 71;
+      for (delta = 1; delta <= cur_block_size; delta++, block_cidx2++) {
+	if (block_cidx2 == max_block_size) {
+	  block_cidx2 = 0;
+	}
+	if (delta < 4) {
+	  prev_strong = 0;
+          prev_rec = 0;
+	  if (delta == 1) {
+            old_strong_min = 6;
+	  } else {
+	    lowci_max = 72;
+	    lowci_min = 52;
+	    uljj = 2 * delta - 3;
+	    old_strong_min = 3;
+	    for (ulii = 0; ulii < uljj; ulii++) {
+	      uii = recent_ci_types[ulii];
+	      if (uii >= 3) {
+		prev_strong++;
+	      } else if (!uii) {
+		prev_rec++;
+	      }
+	    }
+	  }
+	} else {
+	  if (delta == 4) {
+	    lowci_min = 71;
+	  }
+	  prev_rec = strong_rec_cts[block_cidx2 * 2 + 1];
+	  if (cur_rec + prev_rec >= futility_rec) {
+	    break;
+	  }
+          prev_strong = strong_rec_cts[block_cidx2 * 2];
+	}
+	window_data_ptr = &(window_data[block_cidx2 * founder_ctv2]);
+	vec_3freq(founder_ctl2, window_data_ptr, index_data, &(counts[0]), &(counts[1]), &(counts[2]));
+	counts[0] = index_tots[0] - counts[0] - counts[1] - counts[2];
+	vec_3freq(founder_ctl2, window_data_ptr, &(index_data[founder_ctv2]), &(counts[3]), &(counts[4]), &(counts[5]));
+	counts[3] = index_tots[1] - counts[3] - counts[4] - counts[5];
+	vec_3freq(founder_ctl2, window_data_ptr, &(index_data[2 * founder_ctv2]), &(counts[6]), &(counts[7]), &(counts[8]));
+	counts[6] = index_tots[2] - counts[6] - counts[7] - counts[8];
+	cur_ci_type = haploview_blocks_classify(counts, lowci_max, lowci_min);
+	// todo
+      }
+    }
+    if (!candidate_ct) {
+      continue;
+    }
+    qsort(candidate_pairs, candidate_ct, 12, intcmp2_decr);
+    ulii = 0; // final haploblock count
+    for (candidate_idx = 0; candidate_idx < candidate_ct; candidate_idx++) {
+
+    }
+#ifdef __cplusplus
+    std::sort((int64_t*)candidate_pairs, (int64_t*)(&(candidate_pairs[ulii * 2])));
+#else
+    qsort(candidate_pairs, ulii, sizeof(int64_t), llcmp);
+#endif
+    for (candidate_idx = 0; candidate_idx < ulii; candidate_idx++) {
+      // now write pairs to disk
+    }
+    block_ct += ulii;
+  }
   if (fclose_null(&outfile)) {
     goto haploview_blocks_ret_WRITE_FAIL;
   }
   if (fclose_null(&outfile_det)) {
     goto haploview_blocks_ret_WRITE_FAIL;
   }
-  LOGPRINTF("--blocks: %u haploblock%s written to %s.\nExtra block details written to %s.det.", block_ct, (block_ct == 1)? "" : "s", outname, outname);
+  LOGPRINTF("--blocks: %u haploblock%s written to %s.\nExtra block details written to %s.det.\n", block_ct, (block_ct == 1)? "" : "s", outname, outname);
   while (0) {
   haploview_blocks_ret_NOMEM:
     retval = RET_NOMEM;
@@ -4752,8 +5302,20 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   haploview_blocks_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;
+  haploview_blocks_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
   haploview_blocks_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
+    break;
+#ifndef __LP64__
+  haploview_blocks_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+#endif
+  haploview_blocks_too_few_markers:
+    logprint("Warning: Skipping --blocks since there are too few markers with MAF >= 0.05.\n");
+    // no error code
     break;
   }
  haploview_blocks_ret_1:
@@ -4761,7 +5323,6 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   fclose_cond(outfile);
   fclose_cond(outfile_det);
   return retval;
-  */
 }
 
 void twolocus_write_table(FILE* outfile, uint32_t* counts, uint32_t plink_maxsnp, char* mkr1, char* mkr2, char* allele00, char* allele01, char* allele10, char* allele11, uint32_t alen00, uint32_t alen01, uint32_t alen10, uint32_t alen11) {
@@ -7118,7 +7679,7 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
 	      counts[18 + uii] = counts[uii] + counts[9 + uii];
 	    }
 	    // no need to check return value
-	    phase_flanking_haps(&(counts[18]), &dxx, &dyy, &dzz, &dww, &freq11);
+	    phase_flanking_haps_nobase(&(counts[18]), &dxx, &dyy, &dzz, &dww, &freq11);
 	    // share of counts[4]/counts[13] which goes to 11 or 22 haplotype
 	    // (0.5 - dxx) is share which goes to 12/21 haps
 	    // (conveniently, there's a 0.5 and a 2 which cancel out here)
@@ -8053,7 +8614,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 #ifdef __cplusplus
       std::sort((int64_t*)range_sort_buf, (int64_t*)(&(range_sort_buf[uii])));
 #else
-      qsort((int64_t*)range_sort_buf, uii, sizeof(int64_t), llcmp);
+      qsort(range_sort_buf, uii, sizeof(int64_t), llcmp);
 #endif
       ukk = 0; // current end of sorted interval list
       range_last = (uint32_t)range_sort_buf[0];
@@ -8668,7 +9229,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       counts[3] = index_tots[1] - counts[3] - counts[4] - counts[5];
       vec_3freq(founder_ctl2, window_data_ptr, &(index_data[2 * founder_ctv2]), &(counts[6]), &(counts[7]), &(counts[8]));
       counts[6] = index_tots[2] - counts[6] - counts[7] - counts[8];
-      if (!phase_flanking_haps(counts, &freq1x, &freq2x, &freqx1, &freqx2, &freq11)) {
+      if (!phase_flanking_haps_nobase(counts, &freq1x, &freq2x, &freqx1, &freqx2, &freq11)) {
 	freq11_expected = freqx1 * freq1x;
 	dxx = freq11 - freq11_expected;
 	cur_r2 = fabs(dxx);
@@ -8792,7 +9353,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       counts[3] = index_tots[1] - counts[3] - counts[4] - counts[5];
       vec_3freq(founder_ctl2, window_data, &(index_data[2 * founder_ctv2]), &(counts[6]), &(counts[7]), &(counts[8]));
       counts[6] = index_tots[2] - counts[6] - counts[7] - counts[8];
-      if (!phase_flanking_haps(counts, &freq1x, &freq2x, &freqx1, &freqx2, &freq11)) {
+      if (!phase_flanking_haps_nobase(counts, &freq1x, &freq2x, &freqx1, &freqx2, &freq11)) {
         freq11_expected = freqx1 * freq1x;
 	dxx = freq11 - freq11_expected;
 	cur_r2 = fabs(dxx);

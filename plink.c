@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (7 Mar 2014) ";
+  " (11 Mar 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -6217,6 +6217,9 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
+      } else if ((!memcmp(argptr2, "lt-group", 9)) ||
+                 (!memcmp(argptr2, "lt-snp", 7))) {
+        goto main_hap_disabled_message;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -7346,6 +7349,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
         clump_info.modifier |= CLUMP_VERBOSE;
         goto main_param_zero;
+      } else if (!memcmp(argptr2, "hap", 4)) {
+        goto main_hap_disabled_message;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -7705,6 +7710,26 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "xclude-before-extract", 22)) {
         logprint("Note: --exclude-before-extract has no effect.\n");
 	goto main_param_zero;
+      } else if ((!memcmp(argptr2, "m-follow", 9)) ||
+                 (!memcmp(argptr2, "m-meta-iter", 12)) ||
+		 // may as well print an appropriate error message when an
+		 // unsupported undocumented flag is used, but I'll draw a line
+		 // at *misspelled* undocumented flags--if anyone was using
+		 // --em-meta-likilood, the misspelling should have been
+		 // caught...
+                 (!memcmp(argptr2, "m-meta-prune-haplotype", 23)) ||
+                 (!memcmp(argptr2, "m-meta-prune-phase", 19)) ||
+                 (!memcmp(argptr2, "m-meta-tol", 11)) ||
+                 (!memcmp(argptr2, "m-meta-window", 14)) ||
+                 (!memcmp(argptr2, "m-overlap", 10)) ||
+                 (!memcmp(argptr2, "m-verbose", 10)) ||
+                 (!memcmp(argptr2, "m-window", 9)) ||
+                 (!memcmp(argptr2, "m-window-iter", 14)) ||
+                 (!memcmp(argptr2, "m-window-likelihood", 20)) ||
+                 (!memcmp(argptr2, "m-window-prune-haplotype", 25)) ||
+                 (!memcmp(argptr2, "m-window-prune-phase", 21)) ||
+                 (!memcmp(argptr2, "m-window-tol", 13))) {
+        goto main_hap_disabled_message;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -8488,12 +8513,29 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "omog", 5)) {
         calculation_type |= CALC_HOMOG;
 	goto main_param_zero;
-      } else if (!memcmp(argptr2, "ap-min-phase-prob", 18)) {
-	// Length 3+ haplotypes are not currently supported, so haplotype
-	// pruning is unimportant.  (EM phasing results are slightly different
-	// from PLINK 1.07, but never in a bad way.)
-        logprint("Error: --hap-min-phase-prob is provisionally retired.  Contact the developers\nif you need this function.\n");
-        goto main_ret_INVALID_CMDLINE;
+      } else if ((!memcmp(argptr2, "ap", 3)) ||
+                 (!memcmp(argptr2, "ap-all", 7)) ||
+                 (!memcmp(argptr2, "ap-assoc", 9)) ||
+                 (!memcmp(argptr2, "ap-freq", 8)) ||
+                 (!memcmp(argptr2, "ap-impute", 10)) ||
+                 (!memcmp(argptr2, "ap-impute-verbose", 18)) ||
+                 (!memcmp(argptr2, "ap-linear", 10)) ||
+                 (!memcmp(argptr2, "ap-logistic", 12)) ||
+                 (!memcmp(argptr2, "ap-max-phase", 13)) ||
+		 (!memcmp(argptr2, "ap-min-phase-prob", 18)) ||
+                 (!memcmp(argptr2, "ap-miss", 8)) ||
+                 (!memcmp(argptr2, "ap-omnibus", 11)) ||
+                 (!memcmp(argptr2, "ap-only", 8)) ||
+                 (!memcmp(argptr2, "ap-phase", 9)) ||
+                 (!memcmp(argptr2, "ap-phase-wide", 14)) ||
+                 (!memcmp(argptr2, "ap-pp", 6)) ||
+                 (!memcmp(argptr2, "ap-snps", 8)) ||
+                 (!memcmp(argptr2, "ap-tdt", 7)) ||
+		 (!memcmp(argptr2, "ap-window", 10)) ||
+                 (!memcmp(argptr2, "omozyg-haplo-track", 19))) {
+      main_hap_disabled_message:
+        logprint("Error: The --hap... family of flags has not been reimplemented in PLINK 1.9 due\nto poor phasing accuracy (and, consequently, inferior haplotype\nlikelihood/frequency estimates) relative to other software; for now, we\nrecommend using BEAGLE instead of PLINK for haplotype association analysis.\n(You can use '--recode beagle' to export data.)  We apologize for the\ninconvenience, and plan to develop variants of the --hap... flags which\nhandle pre-phased data effectively.\n");
+	goto main_ret_INVALID_CMDLINE;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -12377,6 +12419,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	logprint("Note: --with-freqs flag deprecated.  Use e.g. '--r2 with-freqs'.\n");
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "hap", 4)) {
+        goto main_hap_disabled_message;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -12662,10 +12706,11 @@ int32_t main(int32_t argc, char** argv) {
     } else if (ld_info.window_bp != 1000000) {
       if (calculation_type & CALC_LD) {
 	sprintf(logbuf, "Error: --ld-window-kb flag cannot be used with the --r/--r2 'inter-chr' or\nmatrix output modifiers.%s", errstr_append);
-      } else {
-        sprintf(logbuf, "Error: --ld-window-kb flag must be used with --r/--r2.%s", errstr_append);
+        goto main_ret_INVALID_CMDLINE_3;
+      } else if (!(calculation_type & CALC_BLOCKS)) {
+        sprintf(logbuf, "Error: --ld-window-kb flag must be used with --r/--r2/--blocks.%s", errstr_append);
+        goto main_ret_INVALID_CMDLINE_3;
       }
-      goto main_ret_INVALID_CMDLINE_3;
     } else if ((ld_info.window_r2 != 0.2) && (!(ld_info.modifier & LD_INTER_CHR))) {
       if (!(ld_info.modifier & LD_R2)) {
         logprint("Error: --ld-window-r2 flag must be used with --r2.\n");
