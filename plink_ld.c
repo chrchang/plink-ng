@@ -3463,24 +3463,46 @@ uint32_t phase_flanking_haps(uintptr_t base_ct11, uintptr_t base_ct12, uintptr_t
 	freq11 += half_hethet_share;
       }
     } else if (prod_1221 == 0.0) {
-      // 0/0, so regular EM initialization doesn't work, but if we reject the
-      // degenerate solutions we're down to a linear equation (assuming WLOG
-      // that f11 and f12 are zero):
+      // 0/0, so regular EM initialization doesn't work.  We have the following
+      // cubic (assume WLOG that f11 and f12 are zero):
       //
       //   x(f22 + x)(K - x) = x(K - x)(f21 + K - x)
-      //   f22 + x = f21 + K - x
+      //   f22 + x = f21 + K - x, or x = 0, or x = K
       //   2x = f21 + K - f22
-      //   x = (K + f21 - f22) / 2
+      //   x = (K + f21 - f22) / 2, x = 0, x = K
 
-      // bugfix: when K is out of range, we do actually want to use the 0 or K
-      // solution
+      // To make --blocks work properly, we now select the (in-range) solution
+      // that yields the best likelihood statistic (before, we were essentially
+      // ignoring the 0 and K solutions).
+
+      // x = 0 -> tmp11 = freq11
+      //          tmp12 = freq12 + half_hethet_share
+      //          tmp21 = freq21 + half_hethet_share
+      //          tmp22 = freq22
+      // the following expressions make flagrant use of the fact that at least
+      // two of the four counts/frequencies are zero
+      dxx = ((intptr_t)(base_ct12 + base_ct21)) * log(freq12 + freq21 + half_hethet_share) + ((int32_t)center_ct) * log((freq12 + half_hethet_share) * (freq21 + half_hethet_share));
+      if (base_ct11 + base_ct22) {
+        dxx += ((intptr_t)(base_ct11 + base_ct22)) * log(freq11 + freq22);
+      }
+      // x = K
+      last_incr_1122 = ((intptr_t)(base_ct11 + base_ct22)) * log(freq11 + freq22 + half_hethet_share) + ((int32_t)center_ct) * log((freq11 + half_hethet_share) * (freq22 + half_hethet_share));
+      if (base_ct12 + base_ct21) {
+        last_incr_1122 += ((intptr_t)(base_ct12 + base_ct21)) * log(freq12 + freq21);
+      }
       incr_1122 = (half_hethet_share - freq11 + freq12 + freq21 - freq22) * 0.5;
-      if (incr_1122 > 0.0) {
-	if (incr_1122 < half_hethet_share) {
-	  freq11 += incr_1122;
+      if ((incr_1122 > 0.0) && (incr_1122 < half_hethet_share)) {
+        prod_1122_cur = ((intptr_t)(base_ct11 + base_ct22)) * log(freq11 + freq22 + incr_1122) + ((intptr_t)(base_ct12 + base_ct21)) * log(freq12 + freq21 + half_hethet_share - incr_1122) + ((int32_t)center_ct) * log((freq11 + incr_1122) * (freq22 + incr_1122) + (freq12 + half_hethet_share - incr_1122) * (freq21 + half_hethet_share - incr_1122));
+	if (last_incr_1122 > prod_1122_cur) {
+	  incr_1122 = half_hethet_share;
 	} else {
-	  freq11 += half_hethet_share;
+	  last_incr_1122 = prod_1122_cur;
 	}
+      } else {
+	incr_1122 = half_hethet_share;
+      }
+      if (last_incr_1122 > dxx) {
+	freq11 += incr_1122;
       }
     }
   } else if ((prod_1122 == 0.0) && (prod_1221 == 0.0)) {
@@ -4649,10 +4671,6 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
   double freqx1;
   double freqx2;
   double freq11_expected;
-  double freq11;
-  double freq12;
-  double freq21;
-  double freq22;
   double known11;
   double known12;
   double known21;
@@ -4670,19 +4688,16 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
   double dzz;
   uint32_t quantile;
   uint32_t center;
-  if (phase_flanking_haps(base_ct11, base_ct12, base_ct21, base_ct22, counts[4], &freq1x, &freq2x, &freqx1, &freqx2, &freq11)) {
+  if (phase_flanking_haps(base_ct11, base_ct12, base_ct21, base_ct22, counts[4], &freq1x, &freq2x, &freqx1, &freqx2, &dzz)) {
     return 1;
   }
   freq11_expected = freqx1 * freq1x;
-  dxx = freq11 - freq11_expected;
+  dxx = dzz - freq11_expected;
   if (dxx >= 0.0) {
     known11 = (double)((intptr_t)base_ct11);
     known12 = (double)((intptr_t)base_ct12);
     known21 = (double)((intptr_t)base_ct21);
     known22 = (double)((intptr_t)base_ct22);
-    freq12 = freqx2 * freq1x - dxx;
-    freq21 = freqx1 * freq2x - dxx;
-    freq22 = freqx2 * freq2x + dxx;
   } else {
     // D < 0, flip (1,1)<->(1,2) and (2,1)<->(2,2) to make D positive
     known11 = (double)((intptr_t)base_ct12);
@@ -4690,13 +4705,9 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
     known21 = (double)((intptr_t)base_ct22);
     known22 = (double)((intptr_t)base_ct21);
     freq11_expected = freqx2 * freq1x;
-    freq12 = freq11;
-    freq11 = freq11_expected - dxx;
-    freq22 = freqx1 * freq2x - dxx;
-    freq21 = freqx2 * freq2x + dxx;
-    dzz = freqx1;
+    dyy = freqx1;
     freqx1 = freqx2;
-    freqx2 = dzz;
+    freqx2 = dyy;
     dxx = -dxx;
   }
   dyy = MINV(freqx1 * freq2x, freqx2 * freq1x);
@@ -4711,6 +4722,13 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
   // small to affect anything).
   center = (int32_t)(((dxx / dyy) * 100) + 0.5);
   lnlike1 = haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, center);
+  if (center == 100) {
+    dxx = haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, 99);
+    if (dxx > lnlike1) {
+      center = 99;
+      lnlike1 = dxx;
+    }
+  }
 
   // It's not actually necessary to keep the entire likelihood array in
   // memory.  This is similar to the HWE and Fisher's exact test calculations:
@@ -4797,7 +4815,7 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
 	      // We try to return immediately at that point.  If we cannot, we
 	      // just sum the remaining terms out to either p=0 or incremental
               // likelihood <= 2^{-53}.
-	      if (dyy * 19 < total_prob * dzz) {
+	      if ((!quantile) || (dyy * 19 < total_prob * dzz)) {
 		if (quantile >= lowci_max) {
 		  return 6;
 		}
@@ -4820,8 +4838,10 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
 		      // lowCI < 0.71
 		      // -> f(0.00) + ... + f(0.71) > 0.05 * total
 		      return 4;
+		    } else if ((lowci_max == 82) && (total_prob > right_sum[0])) {
+		      return 5;
 		    }
-		    return 5;
+		    return 6;
 		  }
 		  quantile--;
 		  dxx = exp(haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
@@ -4920,12 +4940,11 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   // in FindBlocks.java and computeDPrime() in HaploData.java from Haploview).
   // No unwindowed/inter-chr mode, so little point in bothering with
   // multithreading.
+  //
+  // MAF < 0.05 markers have a minor effect on PLINK 1.07 --blocks's behavior
+  // when present, while Haploview completely ignores them.  We replicate
+  // Haploview's behavior.
   unsigned char* wkspace_mark = wkspace_base;
-  // a/(a+b) > 0.95
-  // a > 0.95(a+b)
-  // 0.05a > 0.95b
-  // a/19 > b
-  // (32-bit integer math) (a+18)/19 > b
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
@@ -4940,17 +4959,20 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   uintptr_t block_pos_first = 0;
   uintptr_t prev_strong = 0;
   uintptr_t prev_rec = 0;
+  uintptr_t markers_done = 0;
   uint32_t block_ct = 0;
-  uint32_t prev_marker_pos = 0;
   int32_t retval = 0;
   uint32_t counts[9];
-  // [0]: (m-1, m-2)
-  // [1]: (m-1, m-3)
-  // [2]: (m-2, m-3)
-  uint32_t recent_ci_types[3];
+  // [0]: (m, m-1)
+  // [1]: (m, m-2)
+  // [2]: (m-1, m-2)
+  // [3]: (m-1, m-3)
+  // [4]: (m-2, m-3)
+  uint32_t recent_ci_types[5];
   uint32_t index_tots[3];
   uintptr_t* founder_pnm;
   uintptr_t* marker_exclude;
+  uintptr_t* in_haploblock;
   uintptr_t* loadbuf_raw;
   uintptr_t* founder_include2;
   uintptr_t* founder_male_include2;
@@ -4958,9 +4980,12 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   uintptr_t* window_data;
   uintptr_t* window_data_ptr;
   unsigned char* wkspace_mark2;
-  uint32_t* ci_types;
   uint32_t* block_uidxs;
   uint32_t* candidate_pairs;
+  char* wptr_start;
+  char* wptr;
+  char* sptr;
+  uintptr_t cur_marker_ct;
   uintptr_t max_block_size;
   uintptr_t marker_idx;
   uintptr_t cur_block_size;
@@ -4974,7 +4999,6 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   uintptr_t candidate_idx;
   uintptr_t delta;
   uintptr_t ulii;
-  uintptr_t uljj;
   double dxx;
   uint32_t chrom_fo_idx;
   uint32_t chrom_idx;
@@ -4988,13 +5012,12 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   uint32_t block_cidx2;
   uint32_t cur_strong;
   uint32_t cur_rec;
-  uint32_t old_strong_min;
-  uint32_t cur_marker_pos;
-  uint32_t penult_marker_pos;
   uint32_t lowci_max;
   uint32_t lowci_min;
   uint32_t cur_ci_type;
+  uint32_t cur_marker_pos;
   uint32_t uii;
+  uint32_t ujj;
   // First enforce MAF 0.05 minimum; then, on each chromosome:
   // 1. Determine maximum number of markers that might need to be loaded at
   //    once on current chromosome, and then (re)allocate memory buffers.
@@ -5008,6 +5031,7 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   //    blocks first).
   if (wkspace_alloc_ul_checked(&founder_pnm, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&marker_exclude, unfiltered_marker_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&in_haploblock, unfiltered_marker_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
     goto haploview_blocks_ret_NOMEM;
   }
@@ -5036,6 +5060,7 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   if (marker_ct < 2) {
     goto haploview_blocks_too_few_markers;
   }
+  fill_ulong_zero(in_haploblock, unfiltered_marker_ctl);
   loadbuf_raw[unfiltered_indiv_ctl2 - 1] = 0;
   founder_ctl2 = (founder_ct + (BITCT2 - 1)) / BITCT2;
   founder_ctv2 = 2 * ((founder_ct + (BITCT - 1)) / BITCT);
@@ -5062,8 +5087,9 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
     chrom_start = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
     chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
-    marker_ct = chrom_end - chrom_start - popcount_bit_idx(marker_exclude, chrom_start, chrom_end);
-    if (marker_ct < 2) {
+    cur_marker_ct = chrom_end - chrom_start - popcount_bit_idx(marker_exclude, chrom_start, chrom_end);
+    markers_done += cur_marker_ct;
+    if (cur_marker_ct < 2) {
       continue;
     }
     block_idx_first = 0;
@@ -5072,7 +5098,7 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
     marker_uidx = chrom_start;
     block_pos_first = marker_pos[chrom_start];
     max_block_size = 1;
-    for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+    for (marker_idx = 0; marker_idx < cur_marker_ct; marker_uidx++, marker_idx++) {
       next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
       marker_pos_thresh = marker_pos[marker_uidx];
       if (marker_pos_thresh < ld_window_bp) {
@@ -5128,11 +5154,10 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
     // blocks in a single pass.  So we can use practically all our memory to
     // track and sort those blocks by bp length.
     if (wkspace_alloc_ui_checked(&block_uidxs, max_block_size * sizeof(int32_t)) ||
-        wkspace_alloc_ul_checked(&window_data, max_block_size * founder_ctv2 * sizeof(intptr_t)) ||
-        wkspace_alloc_ui_checked(&ci_types, max_block_size * sizeof(int32_t))) {
+        wkspace_alloc_ul_checked(&window_data, max_block_size * founder_ctv2 * sizeof(intptr_t))) {
       goto haploview_blocks_ret_NOMEM;
     }
-    if (max_block_size > 4) {
+    if (max_block_size >= 4) {
       // After marker m is fully processed,
       //   strong_rec_cts[(block_cidx + delta) * 2] = numStrong, and
       //   strong_rec_cts[(block_cidx + delta) * 2 + 1] = numRec
@@ -5162,13 +5187,13 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
     candidate_pairs = (uint32_t*)wkspace_alloc(max_candidates * 3 * sizeof(int32_t));
     candidate_ct = 0;
     cur_block_size = 0;
-    fill_uint_zero(recent_ci_types, 2);
+    fill_uint_zero(recent_ci_types, 3);
     // count down instead of up so more memory accesses are sequential
     block_cidx = max_block_size;
     if (fseeko(bedfile, bed_offset + (marker_uidx * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
       goto haploview_blocks_ret_READ_FAIL;
     }
-    for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+    for (marker_idx = 0; marker_idx < cur_marker_ct; marker_uidx++, marker_idx++) {
       if (block_cidx) {
         block_cidx--;
       } else {
@@ -5188,8 +5213,6 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
       if (is_haploid) {
 	haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)window_data_ptr);
       }
-      penult_marker_pos = prev_marker_pos;
-      prev_marker_pos = cur_marker_pos;
       cur_marker_pos = marker_pos[marker_uidx];
       marker_pos_thresh = cur_marker_pos;
       if (marker_pos_thresh < ld_window_bp) {
@@ -5207,9 +5230,9 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
       }
       last_block_size = cur_block_size;
       cur_block_size = marker_idx - block_idx_first;
+      recent_ci_types[4] = recent_ci_types[2];
       recent_ci_types[2] = recent_ci_types[0];
-      recent_ci_types[0] = ci_types[0];
-      recent_ci_types[1] = ci_types[1];
+      recent_ci_types[3] = recent_ci_types[1];
       if (cur_block_size > last_block_size) {
 	cur_block_size = last_block_size + 1;
       } else if (!cur_block_size) {
@@ -5225,36 +5248,15 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
       vec_datamask(founder_ct, 3, window_data_ptr, founder_include2, &(index_data[2 * founder_ctv2]));
       index_tots[2] = popcount2_longs(&(index_data[2 * founder_ctv2]), founder_ctl2);
       lowci_max = 82;
-      lowci_min = 71;
+      lowci_min = 52;
       for (delta = 1; delta <= cur_block_size; delta++, block_cidx2++) {
 	if (block_cidx2 == max_block_size) {
 	  block_cidx2 = 0;
 	}
-	if (delta < 4) {
-	  prev_strong = 0;
-          prev_rec = 0;
-	  if (delta == 1) {
-            old_strong_min = 6;
-	  } else {
-	    lowci_max = 72;
-	    lowci_min = 52;
-	    uljj = 2 * delta - 3;
-	    old_strong_min = 3;
-	    for (ulii = 0; ulii < uljj; ulii++) {
-	      uii = recent_ci_types[ulii];
-	      if (uii >= 3) {
-		prev_strong++;
-	      } else if (!uii) {
-		prev_rec++;
-	      }
-	    }
-	  }
-	} else {
-	  if (delta == 4) {
-	    lowci_min = 71;
-	  }
+	if (delta >= 4) {
 	  prev_rec = strong_rec_cts[block_cidx2 * 2 + 1];
 	  if (cur_rec + prev_rec >= futility_rec) {
+	    cur_block_size = delta - 1;
 	    break;
 	  }
           prev_strong = strong_rec_cts[block_cidx2 * 2];
@@ -5267,7 +5269,71 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
 	vec_3freq(founder_ctl2, window_data_ptr, &(index_data[2 * founder_ctv2]), &(counts[6]), &(counts[7]), &(counts[8]));
 	counts[6] = index_tots[2] - counts[6] - counts[7] - counts[8];
 	cur_ci_type = haploview_blocks_classify(counts, lowci_max, lowci_min);
-	// todo
+	if (cur_ci_type > 4) {
+	  cur_strong++;
+	} else if (!cur_ci_type) {
+	  cur_rec++;
+	}
+	if (delta < 4) {
+	  if (delta == 1) {
+	    lowci_max = 72;
+	    recent_ci_types[0] = cur_ci_type;
+	    if ((cur_ci_type == 6) && (cur_marker_pos - marker_pos[block_uidxs[block_cidx2]] <= 20000)) {
+	      goto haploview_blocks_save_candidate;
+	    }
+	  } else if (delta == 2) {
+	    recent_ci_types[1] = cur_ci_type;
+	    if ((cur_ci_type >= 4) && (recent_ci_types[0] >= 3) && (recent_ci_types[2] >= 3) && (cur_marker_pos - marker_pos[block_uidxs[block_cidx2]] <= 30000)) {
+	      goto haploview_blocks_save_candidate;
+	    }
+	  } else {
+	    lowci_min = 71;
+	    prev_strong = 0; // 5+
+	    uii = 0; // 3+, not counting cur_ci_type
+	    prev_rec = 0;
+	    if (cur_ci_type > 4) {
+	      prev_strong++;
+	    } else if (!cur_ci_type) {
+	      prev_rec++;
+	    }
+	    for (ujj = 0; ujj < 5; ujj++) {
+	      if (recent_ci_types[ujj] >= 3) {
+		uii++;
+		if (recent_ci_types[ujj] > 4) {
+		  prev_strong++;
+		}
+	      } else if (!recent_ci_types[ujj]) {
+		prev_rec++;
+	      }
+	    }
+	    strong_rec_cts[block_cidx2 * 2] = prev_strong;
+	    strong_rec_cts[block_cidx2 * 2 + 1] = prev_rec;
+	    if ((cur_ci_type >= 4) && (uii == 5)) {
+	      goto haploview_blocks_save_candidate;
+	    }
+	  }
+	} else {
+	  prev_strong += cur_strong;
+	  prev_rec += cur_rec;
+	  strong_rec_cts[block_cidx2 * 2] = prev_strong;
+	  strong_rec_cts[block_cidx2 * 2 + 1] = prev_rec;
+	  // a/(a+b) > 0.95
+	  // a > 0.95(a+b)
+	  // 0.05a > 0.95b
+	  // a/19 > b
+	  // (32-bit integer math) (a+18)/19 > b
+	  if ((cur_ci_type >= 4) && (prev_strong + prev_rec >= 6) && ((prev_strong + 18) / 19 > prev_rec)) {
+	  haploview_blocks_save_candidate:
+	    if (candidate_ct == max_candidates) {
+	      goto haploview_blocks_ret_NOMEM;
+	    }
+	    uii = block_uidxs[block_cidx2];
+	    candidate_pairs[3 * candidate_ct] = cur_marker_pos - marker_pos[uii];
+	    candidate_pairs[3 * candidate_ct + 1] = uii;
+	    candidate_pairs[3 * candidate_ct + 2] = marker_uidx;
+	    candidate_ct++;
+	  }
+	}
       }
     }
     if (!candidate_ct) {
@@ -5276,17 +5342,56 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
     qsort(candidate_pairs, candidate_ct, 12, intcmp2_decr);
     ulii = 0; // final haploblock count
     for (candidate_idx = 0; candidate_idx < candidate_ct; candidate_idx++) {
-
+      block_cidx = candidate_pairs[candidate_idx * 3 + 1];
+      if (is_set(in_haploblock, block_cidx)) {
+	continue;
+      }
+      block_cidx2 = candidate_pairs[candidate_idx * 3 + 2];
+      if (is_set(in_haploblock, block_cidx2)) {
+	continue;
+      }
+      candidate_pairs[2 * ulii] = block_cidx;
+      candidate_pairs[2 * ulii + 1] = block_cidx2;
+      fill_bits(in_haploblock, block_cidx, block_cidx2 + 1 - block_cidx);
+      ulii++;
     }
 #ifdef __cplusplus
     std::sort((int64_t*)candidate_pairs, (int64_t*)(&(candidate_pairs[ulii * 2])));
 #else
     qsort(candidate_pairs, ulii, sizeof(int64_t), llcmp);
 #endif
+    wptr_start = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, chrom_idx, zero_extra_chroms));
+    wptr_start = memseta(wptr_start, 32, 3);
     for (candidate_idx = 0; candidate_idx < ulii; candidate_idx++) {
-      // now write pairs to disk
+      putc('*', outfile);
+      block_cidx = candidate_pairs[2 * candidate_idx];
+      block_cidx2 = candidate_pairs[2 * candidate_idx + 1];
+      marker_uidx = block_cidx;
+      wptr = uint32_writew10(wptr_start, marker_pos[block_cidx]);
+      wptr = memseta(wptr, 32, 3);
+      wptr = uint32_writew10x(wptr, marker_pos[block_cidx2], ' ');
+      wptr = width_force(12, wptr, double_g_write(wptr, ((int32_t)(marker_pos[block_cidx2] + 1 - marker_pos[block_cidx])) * 0.001));
+      *wptr++ = ' ';
+      wptr = uint32_writew6x(wptr, block_cidx2 + 1 - block_cidx - popcount_bit_idx(marker_exclude, block_cidx, block_cidx2), ' ');
+      if (fwrite_checked(tbuf, wptr - tbuf, outfile_det)) {
+	goto haploview_blocks_ret_WRITE_FAIL;
+      }
+      for (marker_uidx = block_cidx; marker_uidx <= block_cidx2; marker_uidx++) {
+	next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
+        sptr = &(marker_ids[marker_uidx * max_marker_id_len]);
+        putc(' ', outfile);
+        fputs(sptr, outfile);
+        if (marker_uidx != block_cidx) {
+	  putc('|', outfile_det);
+	}
+	fputs(sptr, outfile_det);
+      }
+      putc('\n', outfile);
+      putc('\n', outfile_det);
     }
     block_ct += ulii;
+    printf("\r%" PRIu64 "%%", (markers_done * 100LLU) / marker_ct);
+    fflush(stdout);
   }
   if (fclose_null(&outfile)) {
     goto haploview_blocks_ret_WRITE_FAIL;
@@ -5294,6 +5399,7 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   if (fclose_null(&outfile_det)) {
     goto haploview_blocks_ret_WRITE_FAIL;
   }
+  putchar('\r');
   LOGPRINTF("--blocks: %u haploblock%s written to %s.\nExtra block details written to %s.det.\n", block_ct, (block_ct == 1)? "" : "s", outname, outname);
   while (0) {
   haploview_blocks_ret_NOMEM:
@@ -5832,7 +5938,7 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
       if (uljj > ulii + 1) {
 	logprint("Multiple haplotype phasing solutions; sample size, HWE, or random mating\nassumption may be violated.\n\nHWE exact test p-values\n-----------------------\n");
 	LOGPRINTF("   %s: %g\n", mkr1, SNPHWE2(counts_cc[2] + counts_all[9], counts_cc[0] + counts_all[1], counts_cc[3] + counts_all[13], hwe_midp));
-	LOGPRINTF(logbuf, "   %s: %g\n\n", mkr2, SNPHWE2(counts_cc[6] + counts_all[6], counts_cc[4] + counts_all[4], counts_cc[7] + counts_all[7], hwe_midp));
+	LOGPRINTF("   %s: %g\n\n", mkr2, SNPHWE2(counts_cc[6] + counts_all[6], counts_cc[4] + counts_all[4], counts_cc[7] + counts_all[7], hwe_midp));
       }
     } else {
       uljj = 1;
