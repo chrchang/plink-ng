@@ -555,14 +555,18 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("blocks\thap\thap-all\thap-assoc\thap-freq\thap-impute\thap-impute-verbose\thap-linear\thap-logistic\thap-max-phase\thap-min-phase-prob\thap-miss\thap-omnibus\thap-only\thap-phase\thap-phase-wide\thap-pp\thap-snps\thap-tdt\thap-window\tchap\twhap", &help_ctrl, 1,
 "  --blocks\n"
-"    Estimate haplotype blocks via Haploview's default procedure.\n"
+"    Estimate haplotype blocks, via Haploview's interpretation of the block\n"
+"    definition suggested by Gabriel S et al. (2002) The Structure of Haplotype\n"
+"    Blocks in the Human Genome.  (At present, maximum block kb length is the\n"
+"    only adjustable parameter; contact the developers if you need to customize\n"
+"    this procedure in other ways.)\n"
 "    The .blocks file is valid input for PLINK 1.07's --hap command.  However,\n"
 "    the --hap... family of flags has not been reimplemented in PLINK 1.9 due to\n"
 "    poor phasing accuracy relative to other software; for now, we recommend\n"
-"    using BEAGLE instead of PLINK for haplotype association analysis.  (You can\n"
-"    use '--recode beagle' to export data to BEAGLE 3.3.)  We apologize for the\n"
-"    inconvenience, and plan to develop variants of the --hap... flags which\n"
-"    handle pre-phased data effectively.\n\n"
+"    using BEAGLE instead of PLINK for case/control haplotype association\n"
+"    analysis.  (You can use '--recode beagle' to export data to BEAGLE 3.3.)\n"
+"    We apologize for the inconvenience, and plan to develop variants of the\n"
+"    --hap... flags which handle pre-phased data effectively.\n\n"
 	       );
     help_print("distance", &help_ctrl, 1,
 "  --distance <square | square0 | triangle> <gz | bin> <ibs> <1-ibs> <allele-ct>\n"
@@ -1623,6 +1627,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("memory", &help_ctrl, 0,
 "  --memory [val]     : Set size, in MB, of initial workspace malloc attempt.\n"
+"                       (Practically mandatory when using GNU parallel.)\n"
 	       );
     help_print("threads\tthread-num\tnum_threads", &help_ctrl, 0,
 "  --threads [val]    : Set maximum number of concurrent threads.\n"

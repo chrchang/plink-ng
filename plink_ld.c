@@ -4644,6 +4644,9 @@ double haploview_blocks_lnlike(double known11, double known12, double known21, d
   double tmp21 = freqx1 - tmp11;
   double tmp22 = freq2x - tmp21;
   if (quantile == 100) {
+    // One of these values will be ~zero, and 0 * log(0) = nan, so something
+    // like this is necessary, and we may as well do it the same way as
+    // Haploview.
     if (tmp11 < 1e-10) {
       tmp11 = 1e-10;
     }
@@ -4661,6 +4664,12 @@ double haploview_blocks_lnlike(double known11, double known12, double known21, d
 }
 
 uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_t lowci_min) {
+  // See comments in the middle of haploview_blocks().  The key insight is that
+  // we only need to classify the D' confidence intervals into a few types, and
+  // this almost never requires evaluation of all 101 log likelihoods.
+
+  // Note that lowCI and highCI are *one-sided* 95% confidence bounds, i.e.
+  // together, they form a 90% confidence interval.
   uintptr_t base_ct11 = 2 * counts[0] + counts[1] + counts[3];
   uintptr_t base_ct12 = 2 * counts[2] + counts[1] + counts[5];
   uintptr_t base_ct21 = 2 * counts[6] + counts[3] + counts[7];
@@ -4711,24 +4720,17 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
     dxx = -dxx;
   }
   dyy = MINV(freqx1 * freq2x, freqx2 * freq1x);
-  denom = 0.01 * dyy;
-  unknown_dh = (double)((int32_t)counts[4]);
   // this will always be in a term with a 0.01 multiplier from now on, so may
   // as well premultiply.
+  denom = 0.01 * dyy;
+  unknown_dh = (double)((int32_t)counts[4]);
 
   // force this to an actual likelihood array entry, so we know for sure
-  // total_prob > 1.0 and can use that inequality for both early exit and
-  // determining the "futility threshold" (terms smaller than ~1e-16 are too
-  // small to affect anything).
+  // total_prob >= 1.0 and can use that inequality for both early exit and
+  // determining the "futility threshold" (terms smaller than 2^{-53} / 19 are
+  // too small to matter).
   center = (int32_t)(((dxx / dyy) * 100) + 0.5);
   lnlike1 = haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, center);
-  if (center == 100) {
-    dxx = haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, 99);
-    if (dxx > lnlike1) {
-      center = 99;
-      lnlike1 = dxx;
-    }
-  }
 
   // It's not actually necessary to keep the entire likelihood array in
   // memory.  This is similar to the HWE and Fisher's exact test calculations:
@@ -4755,23 +4757,20 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
   //    * If it's below the futility threshold, jump to case (b).
   //    * Otherwise, sum f(0.98)..f(1.00), and then sum other likelihoods
   //      from f(0.96) on down.
-  // b. D' < 0.41.  Goal is to quickly establish highCI < 0.90.  The vast
-  //    majority of the time, this can be accomplished simply by inspecting
-  //    f(0.89); if it's less than 1/21, we're done because we know
-  //    there's a 1 somewhere in the array, the sum of the likelihoods between
-  //    f(0.89) and whatever that 1 entry is is bounded below by the geometric
-  //    series, and the sum of f(0.89)..f(1.00) is bounded above by the series.
-  //    Otherwise, we use f(0.88) to establish a tighter bound on the tail sum,
-  //    and march downward until we resolve which side of 0.895 highCI is on
-  //    one way or the other.  Very rarely, we reach p = 0.00 without
-  //    resolution and have to double back to properly sum the upper tail.
-  //    highCI >= 0.98 is impossible since f(0.41) >= f(0.42) >= ....
+  // b. D' < 0.41.  highCI >= 0.98 is impossible since f(0.41) >= f(0.42) >=
+  //    ...; goal is to quickly establish highCI < 0.90.  The vast majority of
+  //    the time, this can be accomplished simply by inspecting f(0.89); if
+  //    it's less than 1/21, we're done because we know there's a 1 somewhere
+  //    in the array, the sum of the likelihoods between f(0.89) and whatever
+  //    that 1 entry is is bounded below by the geometric series, and the sum
+  //    of f(0.89)..f(1.00) is bounded above by the series.  Otherwise, we sum
+  //    from the top down.
   // This should be good for a ~10x speedup on the larger datasets where it's
   // most wanted.
   if (center > 41) {
     dxx = haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, 97) - lnlike1;
-    // ln(2^{-53}) is about -36.7368
-    if (dxx > -36.7368) {
+    // ln(2^{-53} / 19) is just under -39.6812
+    if (dxx > -39.6812) {
       total_prob = exp(dxx);
       for (quantile = 100; quantile > 97; quantile--) {
 	total_prob += exp(haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
@@ -5149,17 +5148,20 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
     // 0. non-bad pair, and highCI < recHighCI (0.90)
     // 1. "null" (bad pair, or highCI in [0.90, 0.98))
     // 2. highCI >= 0.98, and lowCI < 0.51
+    //    (treated the same as type 1, but it takes no additional effort to
+    //    distinguish this case)
     // 3. highCI >= 0.98, and lowCI in [0.51, 0.70)
     // 4. highCI >= 0.98, and lowCI == 0.70
-    //    (turns out (double)70 / 100.0 compares exactly equal to 0.70)
+    //    (turns out (double)70 / 100.0 compares exactly equal to 0.70, so
+    //    Haploview's use of < cutLowCI in its initial "strong LD" check
+    //    actually behaves differently from the later "not > cutLowCI" check)
     // 5. highCI >= 0.98, and lowCI in [0.71, 0.81)
     // 6. highCI >= 0.98, and lowCI in [0.81, 1]
     // And it gets better than that: given block size n, we just need to
-    // maintain
-    // #(type 1) and #(type 4/5/6) arrays (and a tiny array with more detailed
-    // information on the most recent blocks) to find all potentially valid
-    // blocks in a single pass.  So we can use practically all our memory to
-    // track and sort those blocks by bp length.
+    // maintain #(type 0) and #(type 4/5/6) arrays (and a tiny array with more
+    // detailed information on the most recent blocks) to find all potentially
+    // valid blocks in a single pass.  So we can use practically all our memory
+    // to track and sort those blocks by bp length.
     if (wkspace_alloc_ui_checked(&block_uidxs, max_block_size * sizeof(int32_t)) ||
         wkspace_alloc_ui_checked(&forward_block_sizes, max_block_size * sizeof(int32_t)) ||
         wkspace_alloc_ul_checked(&window_data, max_block_size * founder_ctv2 * sizeof(intptr_t))) {
@@ -5269,7 +5271,7 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
       }
       ulii = uii;
       // If numRec ever reaches this value, we can just move on to the next
-      // marker (even skipping the remaining LD/D' evaluations).
+      // marker (even skipping the remaining D' evaluations).
       futility_rec = ((ulii * (ulii - 1)) + 38) / 40;
       block_cidx2 = block_cidx + 1;
       cur_strong = 0;

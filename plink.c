@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (11 Mar 2014)";
+  " (13 Mar 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -8534,7 +8534,7 @@ int32_t main(int32_t argc, char** argv) {
 		 (!memcmp(argptr2, "ap-window", 10)) ||
                  (!memcmp(argptr2, "omozyg-haplo-track", 19))) {
       main_hap_disabled_message:
-        logprint("Error: The --hap... family of flags has not been reimplemented in PLINK 1.9 due\nto poor phasing accuracy (and, consequently, inferior haplotype\nlikelihood/frequency estimates) relative to other software; for now, we\nrecommend using BEAGLE instead of PLINK for haplotype association analysis.\n(You can use '--recode beagle' to export data.)  We apologize for the\ninconvenience, and plan to develop variants of the --hap... flags which\nhandle pre-phased data effectively.\n");
+        logprint("Error: The --hap... family of flags has not been reimplemented in PLINK 1.9 due\nto poor phasing accuracy (and, consequently, inferior haplotype\nlikelihood/frequency estimates) relative to other software; for now, we\nrecommend using BEAGLE instead of PLINK for case/control haplotype association\nanalysis.  (You can use '--recode beagle' to export data.)  We apologize for\nthe inconvenience, and plan to develop variants of the --hap... flags which\nhandle pre-phased data effectively.\n");
 	goto main_ret_INVALID_CMDLINE;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;

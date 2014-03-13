@@ -8906,6 +8906,19 @@ int32_t vcf_sample_line(char* outname, char* outname_end, int32_t missing_pheno,
     double_id = 1;
     id_delim = '_';
   }
+  // treat spaces as if they were id_delim char; or if no id_delim is defined,
+  // error out
+  bufptr2 = strchr(bufptr, ' ');
+  if (bufptr2) {
+    if (!id_delim) {
+      logprint("Error: Sample ID contains space(s), and --id-delim is not active.  (When\n--id-delim is active, spaces in sample IDs are treated as if they are the\ndelimiter character.\n");
+      goto vcf_sample_line_ret_INVALID_FORMAT;
+    }
+    do {
+      *bufptr2 = id_delim;
+      bufptr2 = strchr(&(bufptr2[1]), ' ');
+    } while (bufptr2);
+  }
   do {
     indiv_ct++;
     bufptr2 = strchr(bufptr, '\t');
