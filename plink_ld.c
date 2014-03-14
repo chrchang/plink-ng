@@ -3481,7 +3481,7 @@ uint32_t em_phase_hethet(double known11, double known12, double known21, double 
   if (center_ct) {
     if (prod_1122 != 0.0) {
       if (prod_1221 != 0.0) {
-	sol_end_idx = cubic_real_roots(0.5 * (freq11 + freq22 - freq12 - freq21 - 3 * half_hethet_share), 0.5 * (prod_1122 + prod_1221 + half_hethet_share * (freq12 + freq21 - freq11 - freq22 + half_hethet_share)), -0.5 * half_hethet_share * freq11 * freq22, solutions);
+	sol_end_idx = cubic_real_roots(0.5 * (freq11 + freq22 - freq12 - freq21 - 3 * half_hethet_share), 0.5 * (prod_1122 + prod_1221 + half_hethet_share * (freq12 + freq21 - freq11 - freq22 + half_hethet_share)), -0.5 * half_hethet_share * prod_1122, solutions);
 	if (sol_end_idx > 1) {
 	  while (solutions[sol_end_idx - 1] > half_hethet_share) {
 	    sol_end_idx--;
