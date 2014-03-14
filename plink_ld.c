@@ -1358,6 +1358,19 @@ static uint32_t g_ld_founder_ct_mld_m1;
 static uint32_t g_ld_founder_ct_mld_rem;
 static uint32_t g_ld_is_r2;
 static uint32_t g_ld_thread_ct;
+
+// with '--r2 dprime', males should be downweighted by a factor of 2 when
+// considering two X chromosome variants, and by a factor of sqrt(2) when doing
+// an inter-chromosome evaluation involving a single Xchr variant.  (The
+// sqrt(2) factor is not implemented by PLINK 1.07, but the math compels its
+// use.)
+static uintptr_t* g_ld_sex_male;
+static uintptr_t* g_ld_thread_wkspace;
+static uint32_t g_ld_xstart1;
+static uint32_t g_ld_xend1;
+static uint32_t g_ld_xstart2;
+static uint32_t g_ld_xend2;
+
 static char g_ld_delimiter;
 static uint32_t g_ld_plink_maxsnp;
 static char* g_ld_marker_ids;
@@ -3397,10 +3410,14 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   }
 }
 
-uint32_t phase_flanking_haps(uintptr_t base_ct11, uintptr_t base_ct12, uintptr_t base_ct21, uintptr_t base_ct22, uint32_t center_ct, double* freq1x_ptr, double* freq2x_ptr, double* freqx1_ptr, double* freqx2_ptr, double* freq11_ptr) {
-  // returns 1 if at least one SNP is monomorphic over all valid observations
-  // otherwise, returns 0, and fills all frequencies using EM phasing
-  uintptr_t twice_tot = base_ct11 + base_ct12 + base_ct21 + base_ct22 + 2 * center_ct;
+uint32_t em_phase_hethet(double known11, double known12, double known21, double known22, uint32_t center_ct, double* freq1x_ptr, double* freq2x_ptr, double* freqx1_ptr, double* freqx2_ptr, double* freq11_ptr) {
+  // Returns 1 if at least one SNP is monomorphic over all valid observations;
+  // returns 0 otherwise, and fills all frequencies using EM phasing.
+  // (We're discontinuing most use of EM phasing since better algorithms have
+  // been developed, but the two marker case is mathematically clean and fast
+  // enough that it'll probably remain useful as an input for some of those
+  // better algorithms...)
+  double twice_tot = known11 + known12 + known21 + known22 + 2 * ((double)((int32_t)center_ct));
   double twice_tot_recip;
   double half_hethet_share;
   double freq11;
@@ -3418,14 +3435,15 @@ uint32_t phase_flanking_haps(uintptr_t base_ct11, uintptr_t base_ct12, uintptr_t
   double freqx1;
   double freqx2;
   double dxx;
-  if (!twice_tot) {
+  // shouldn't have to worry about subtractive cancellation problems here
+  if (twice_tot == 0.0) {
     return 1;
   }
-  twice_tot_recip = 1.0 / ((double)((intptr_t)twice_tot));
-  freq11 = ((intptr_t)base_ct11) * twice_tot_recip;
-  freq12 = ((intptr_t)base_ct12) * twice_tot_recip;
-  freq21 = ((intptr_t)base_ct21) * twice_tot_recip;
-  freq22 = ((intptr_t)base_ct22) * twice_tot_recip;
+  twice_tot_recip = 1.0 / twice_tot;
+  freq11 = known11 * twice_tot_recip;
+  freq12 = known12 * twice_tot_recip;
+  freq21 = known21 * twice_tot_recip;
+  freq22 = known22 * twice_tot_recip;
   prod_1122 = freq11 * freq22;
   prod_1221 = freq12 * freq21;
   half_hethet_share = ((int32_t)center_ct) * twice_tot_recip;
@@ -3470,29 +3488,34 @@ uint32_t phase_flanking_haps(uintptr_t base_ct11, uintptr_t base_ct12, uintptr_t
       //   f22 + x = f21 + K - x, or x = 0, or x = K
       //   2x = f21 + K - f22
       //   x = (K + f21 - f22) / 2, x = 0, x = K
-
+      //
       // To make --blocks work properly, we now select the (in-range) solution
-      // that yields the best likelihood statistic (before, we were essentially
+      // that yields the best log likelihood (before, we were essentially
       // ignoring the 0 and K solutions).
+
+      // Make use of the fact that at least one count/frequency in each
+      // diagonal pair is zero, and we don't really care which one it is.
+      known11 += known22;
+      known12 += known21;
+      freq21 += freq12;
+      freq22 += freq11; // freq11 is used later, so don't clobber it
 
       // x = 0 -> tmp11 = freq11
       //          tmp12 = freq12 + half_hethet_share
       //          tmp21 = freq21 + half_hethet_share
       //          tmp22 = freq22
-      // the following expressions make flagrant use of the fact that at least
-      // two of the four counts/frequencies are zero
-      dxx = ((intptr_t)(base_ct12 + base_ct21)) * log(freq12 + freq21 + half_hethet_share) + ((int32_t)center_ct) * log((freq12 + half_hethet_share) * (freq21 + half_hethet_share));
-      if (base_ct11 + base_ct22) {
-        dxx += ((intptr_t)(base_ct11 + base_ct22)) * log(freq11 + freq22);
+      dxx = known12 * log(freq21 + half_hethet_share) + ((int32_t)center_ct) * log(half_hethet_share * (freq21 + half_hethet_share));
+      if (known11 != 0.0) {
+        dxx += known11 * log(freq22);
       }
       // x = K
-      last_incr_1122 = ((intptr_t)(base_ct11 + base_ct22)) * log(freq11 + freq22 + half_hethet_share) + ((int32_t)center_ct) * log((freq11 + half_hethet_share) * (freq22 + half_hethet_share));
-      if (base_ct12 + base_ct21) {
-        last_incr_1122 += ((intptr_t)(base_ct12 + base_ct21)) * log(freq12 + freq21);
+      last_incr_1122 = known11 * log(freq22 + half_hethet_share) + ((int32_t)center_ct) * log(half_hethet_share * (freq22 + half_hethet_share));
+      if (known12 != 0.0) {
+        last_incr_1122 += known12 * log(freq21);
       }
-      incr_1122 = (half_hethet_share - freq11 + freq12 + freq21 - freq22) * 0.5;
+      incr_1122 = (half_hethet_share + freq21 - freq22) * 0.5;
       if ((incr_1122 > 0.0) && (incr_1122 < half_hethet_share)) {
-        prod_1122_cur = ((intptr_t)(base_ct11 + base_ct22)) * log(freq11 + freq22 + incr_1122) + ((intptr_t)(base_ct12 + base_ct21)) * log(freq12 + freq21 + half_hethet_share - incr_1122) + ((int32_t)center_ct) * log((freq11 + incr_1122) * (freq22 + incr_1122) + (freq12 + half_hethet_share - incr_1122) * (freq21 + half_hethet_share - incr_1122));
+        prod_1122_cur = known11 * log(freq22 + incr_1122) + known12 * log(freq21 + half_hethet_share - incr_1122) + ((int32_t)center_ct) * log(incr_1122 * (freq22 + incr_1122) + (half_hethet_share - incr_1122) * (freq21 + half_hethet_share - incr_1122));
 	if (last_incr_1122 > prod_1122_cur) {
 	  incr_1122 = half_hethet_share;
 	} else {
@@ -3516,12 +3539,31 @@ uint32_t phase_flanking_haps(uintptr_t base_ct11, uintptr_t base_ct12, uintptr_t
   return 0;
 }
 
-uint32_t phase_flanking_haps_nobase(uint32_t* counts, double* freq1x_ptr, double* freq2x_ptr, double* freqx1_ptr, double* freqx2_ptr, double* freq11_ptr) {
-  uintptr_t base_ct11 = 2 * counts[0] + counts[1] + counts[3];
-  uintptr_t base_ct12 = 2 * counts[2] + counts[1] + counts[5];
-  uintptr_t base_ct21 = 2 * counts[6] + counts[3] + counts[7];
-  uintptr_t base_ct22 = 2 * counts[8] + counts[5] + counts[7];
-  return phase_flanking_haps(base_ct11, base_ct12, base_ct21, base_ct22, counts[4], freq1x_ptr, freq2x_ptr, freqx1_ptr, freqx2_ptr, freq11_ptr);
+uint32_t em_phase_hethet_nobase(uint32_t* counts, uint32_t is_x1, uint32_t is_x2, double* freq1x_ptr, double* freq2x_ptr, double* freqx1_ptr, double* freqx2_ptr, double* freq11_ptr) {
+  // if is_x1 and/or is_x2 is set, counts[9]..[17] are male-only counts.
+  double known11 = (double)(2 * counts[0] + counts[1] + counts[3]);
+  double known12 = (double)(2 * counts[2] + counts[1] + counts[5]);
+  double known21 = (double)(2 * counts[6] + counts[3] + counts[7]);
+  double known22 = (double)(2 * counts[8] + counts[5] + counts[7]);
+  if (is_x1 || is_x2) {
+    if (is_x1 && is_x2) {
+      known11 -= (double)((int32_t)counts[9]);
+      known12 -= (double)((int32_t)counts[11]);
+      known21 -= (double)((int32_t)counts[15]);
+      known22 -= (double)((int32_t)counts[17]);
+    } else if (is_x1) {
+      known11 -= ((double)(2 * counts[9] + counts[10])) * (1.0 - SQRT_HALF);
+      known12 -= ((double)(2 * counts[11] + counts[10])) * (1.0 - SQRT_HALF);
+      known21 -= ((double)(2 * counts[15] + counts[16])) * (1.0 - SQRT_HALF);
+      known22 -= ((double)(2 * counts[17] + counts[16])) * (1.0 - SQRT_HALF);
+    } else {
+      known11 -= ((double)(2 * counts[9] + counts[12])) * (1.0 - SQRT_HALF);
+      known12 -= ((double)(2 * counts[11] + counts[12])) * (1.0 - SQRT_HALF);
+      known21 -= ((double)(2 * counts[15] + counts[14])) * (1.0 - SQRT_HALF);
+      known22 -= ((double)(2 * counts[17] + counts[14])) * (1.0 - SQRT_HALF);
+    }
+  }
+  return em_phase_hethet(known11, known12, known21, known22, counts[4], freq1x_ptr, freq2x_ptr, freqx1_ptr, freqx2_ptr, freq11_ptr);
 }
 
 THREAD_RET_TYPE ld_dprime_thread(void* arg) {
@@ -3534,11 +3576,15 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
   uint32_t founder_ctsplit = 3 * founder_ctv3;
   uintptr_t* geno1 = g_ld_geno1;
   uintptr_t* zmiss1 = g_epi_zmiss1;
+  uintptr_t* sex_male = g_ld_sex_male;
+  uintptr_t* cur_geno1_male = NULL;
   uint32_t* ld_interval1 = g_ld_interval1;
   uint32_t is_r2 = g_ld_is_r2;
+  uint32_t xstart1 = g_ld_xstart1;
+  uint32_t xend1 = g_ld_xend1;
   double* results = g_ld_results;
-  uint32_t tot1[3];
-  uint32_t counts[9];
+  uint32_t tot1[6];
+  uint32_t counts[18];
   uintptr_t* cur_geno1;
   uintptr_t* cur_geno2;
   uintptr_t* geno2;
@@ -3559,13 +3605,26 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
   double freqx1;
   double freqx2;
   double dxx;
+  uint32_t xstart2;
+  uint32_t xend2;
+  uint32_t x2_present;
+  uint32_t is_x1;
+  uint32_t is_x2;
   uint32_t nm_fixed;
+  if (g_ld_thread_wkspace) {
+    cur_geno1_male = &(g_ld_thread_wkspace[tidx * ((founder_ctsplit + (CACHELINE_WORD - 1)) & (~(CACHELINE_WORD - 1)))]);
+  }
+  // suppress warning
+  fill_uint_zero(&(tot1[3]), 3);
   while (1) {
     idx2_block_size = g_ld_idx2_block_size;
     idx2_block_start = g_ld_idx2_block_start;
     geno2 = g_ld_geno2;
     zmiss2 = g_epi_zmiss2;
     tot2 = g_epi_tot2;
+    xstart2 = g_ld_xstart2;
+    xend2 = g_ld_xend2;
+    x2_present = (g_ld_thread_wkspace && (idx2_block_start < xend2) && (idx2_block_start + idx2_block_size > xstart2))? 1 : 0;
     for (block_idx1 = block_idx1_start; block_idx1 < block_idx1_end; block_idx1++) {
       cur_zmiss2 = ld_interval1[block_idx1 * 2];
       block_idx2 = cur_zmiss2;
@@ -3585,11 +3644,21 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
       if (cur_block_idx2_end > idx2_block_size) {
 	cur_block_idx2_end = idx2_block_size;
       }
+      is_x1 = (block_idx1 >= xstart1) && (block_idx1 < xend1);
       nm_fixed = is_set_ul(zmiss1, block_idx1);
       cur_geno1 = &(geno1[block_idx1 * founder_ctsplit]);
       tot1[0] = popcount_longs(cur_geno1, founder_ctv3);
       tot1[1] = popcount_longs(&(cur_geno1[founder_ctv3]), founder_ctv3);
       tot1[2] = popcount_longs(&(cur_geno1[2 * founder_ctv3]), founder_ctv3);
+      if (is_x1 || x2_present) {
+	memcpy(cur_geno1_male, cur_geno1, founder_ctsplit * sizeof(intptr_t));
+        bitfield_and(cur_geno1_male, sex_male, founder_ctv3);
+        tot1[3] = popcount_longs(cur_geno1_male, founder_ctv3);
+        bitfield_and(&(cur_geno1_male[founder_ctv3]), sex_male, founder_ctv3);
+	tot1[4] = popcount_longs(&(cur_geno1_male[founder_ctv3]), founder_ctv3);
+        bitfield_and(&(cur_geno1_male[2 * founder_ctv3]), sex_male, founder_ctv3);
+	tot1[5] = popcount_longs(&(cur_geno1_male[2 * founder_ctv3]), founder_ctv3);
+      }
       cur_geno2 = &(geno2[block_idx2 * founder_ctsplit]);
       rptr = &(results[2 * block_idx1 * marker_idx2_maxw]);
       for (; block_idx2 < cur_block_idx2_end; block_idx2++, cur_geno2 = &(cur_geno2[founder_ctsplit])) {
@@ -3612,7 +3681,16 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
 	    counts[8] = tot1[2] - counts[6] - counts[7];
 	  }
 	}
-	if (phase_flanking_haps_nobase(counts, &freq1x, &freq2x, &freqx1, &freqx2, &freq11)) {
+	is_x2 = ((block_idx2 < xend2) && (block_idx2 >= xstart2));
+	if (is_x1 || is_x2) {
+	  two_locus_count_table(cur_geno1_male, cur_geno2, &(counts[9]), founder_ctv3, cur_zmiss2);
+	  if (cur_zmiss2) {
+	    counts[11] = tot1[3] - counts[9] - counts[10];
+	    counts[14] = tot1[4] - counts[12] - counts[13];
+	    counts[17] = tot1[5] - counts[15] - counts[16];
+	  }
+	}
+	if (em_phase_hethet_nobase(counts, is_x1, is_x2, &freq1x, &freq2x, &freqx1, &freqx2, &freq11)) {
 	  *rptr++ = NAN;
 	  *rptr++ = NAN;
 	  continue;
@@ -3647,7 +3725,7 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
   }
 }
 
-int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* founder_include2, uintptr_t* founder_male_include2, uintptr_t* loadbuf, char* outname, uint32_t hh_exists, uintptr_t marker_idx1_start, uintptr_t marker_idx1_end) {
+int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* sex_male, uintptr_t* founder_include2, uintptr_t* founder_male_include2, uintptr_t* loadbuf, char* outname, uint32_t hh_exists, uintptr_t marker_idx1_start, uintptr_t marker_idx1_end) {
   Chrom_info* chrom_info_ptr = g_ld_chrom_info_ptr;
   uintptr_t* marker_exclude_idx1 = g_ld_marker_exclude_idx1;
   uintptr_t* marker_exclude = g_ld_marker_exclude;
@@ -3682,7 +3760,11 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   uint32_t marker_uidx2_fwd2 = 0;
   uint32_t window_trail_ct = 0;
   uint32_t window_lead_ct = 0;
-  uint32_t retval = 0;
+  uint32_t x_present = 0;
+  int32_t x_code = chrom_info_ptr->x_code;
+  uint32_t xstart = 0;
+  uint32_t xend = 0;
+  int32_t retval = 0;
   uintptr_t* loadbuf2;
   uintptr_t* dummy_nm;
   uintptr_t* ulptr;
@@ -3714,6 +3796,22 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   loadbuf2[founder_ctl * 2 - 2] = 0;
   loadbuf2[founder_ctl * 2 - 1] = 0;
   fill_all_bits(dummy_nm, founder_ct);
+  g_ld_thread_wkspace = NULL;
+  if ((x_code != -1) && is_set(chrom_info_ptr->chrom_mask, x_code)) {
+    uii = chrom_info_ptr->chrom_start[(uint32_t)x_code];
+    chrom_end = chrom_info_ptr->chrom_end[(uint32_t)x_code];
+    chrom_end = chrom_end - uii - popcount_bit_idx(marker_exclude, uii, chrom_end);
+    if (chrom_end) {
+      x_present = 1;
+      ulii = (founder_ctsplit + (CACHELINE_WORD - 1)) & (~(CACHELINE_WORD - 1));
+      if (wkspace_alloc_ul_checked(&g_ld_thread_wkspace, ulii * thread_ct * sizeof(intptr_t))) {
+	goto ld_report_dprime_ret_NOMEM;
+      }
+      xstart = uii - popcount_bit_idx(marker_exclude, 0, uii);
+      xend = xstart + chrom_end;
+      g_ld_sex_male = sex_male;
+    }
+  }
   idx1_block_size = (wkspace_left - 2 * CACHELINE) / (ulii * 2 + 1);
   thread_workload = idx1_block_size / thread_ct;
   if (!thread_workload) {
@@ -3778,6 +3876,11 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     }
     g_ld_idx1_block_size = idx1_block_size;
     marker_uidx1_tmp = marker_uidx1;
+    if ((marker_idx1 < xend) && (marker_idx1 + idx1_block_size > xstart)) {
+      uii = MAXV(marker_idx1, xstart);
+      g_ld_xstart1 = uii - marker_idx1;
+      g_ld_xend1 = MINV(xend, marker_idx1 + idx1_block_size) - uii;
+    }
 
     if (idx1_subset) {
       if (!is_inter_chr) {
@@ -3917,6 +4020,11 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     do {
       if (cur_idx2_block_size > marker_idx2_end - marker_idx2) {
 	cur_idx2_block_size = marker_idx2_end - marker_idx2;
+      }
+      if ((marker_idx2 < xend) && (marker_idx2 + cur_idx2_block_size > xstart)) {
+	uii = MAXV(marker_idx2, xstart);
+	g_ld_xstart2 = uii - marker_idx2;
+	g_ld_xend2 = MINV(xend, marker_idx2 + cur_idx2_block_size) - uii;
       }
       fill_ulong_zero(g_epi_zmiss2, (cur_idx2_block_size + (BITCT - 1)) / BITCT);
       for (block_idx2 = 0; block_idx2 < cur_idx2_block_size; marker_uidx2++, block_idx2++) {
@@ -4227,7 +4335,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
     // this is more like --fast-epistasis under the hood, since it requires the
     // entire 3x3 table
     g_ld_marker_ctm8 = (marker_idx2_maxw + 3) & (~(3 * ONELU));
-    retval = ld_report_dprime(threads, ldip, bedfile, bed_offset, marker_reverse, unfiltered_indiv_ct, founder_info, founder_include2, founder_male_include2, loadbuf, outname, hh_exists, marker_idx1_start, marker_idx1_end);
+    retval = ld_report_dprime(threads, ldip, bedfile, bed_offset, marker_reverse, unfiltered_indiv_ct, founder_info, sex_male, founder_include2, founder_male_include2, loadbuf, outname, hh_exists, marker_idx1_start, marker_idx1_end);
     goto ld_report_regular_ret_1;
   }
   marker_idx2_maxw = (marker_idx2_maxw + 7) & (~(7 * ONELU));
@@ -4663,27 +4771,23 @@ double haploview_blocks_lnlike(double known11, double known12, double known21, d
   return known11 * log(tmp11) + known12 * log(tmp12) + known21 * log(tmp21) + known22 * log(tmp22) + unknown_dh * log(tmp11 * tmp22 + tmp12 * tmp21);
 }
 
-uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_t lowci_min) {
+uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_t lowci_min, uint32_t is_x) {
   // See comments in the middle of haploview_blocks().  The key insight is that
   // we only need to classify the D' confidence intervals into a few types, and
   // this almost never requires evaluation of all 101 log likelihoods.
 
   // Note that lowCI and highCI are *one-sided* 95% confidence bounds, i.e.
   // together, they form a 90% confidence interval.
-  uintptr_t base_ct11 = 2 * counts[0] + counts[1] + counts[3];
-  uintptr_t base_ct12 = 2 * counts[2] + counts[1] + counts[5];
-  uintptr_t base_ct21 = 2 * counts[6] + counts[3] + counts[7];
-  uintptr_t base_ct22 = 2 * counts[8] + counts[5] + counts[7];
+  double known11 = (double)(2 * counts[0] + counts[1] + counts[3]);
+  double known12 = (double)(2 * counts[2] + counts[1] + counts[5]);
+  double known21 = (double)(2 * counts[6] + counts[3] + counts[7]);
+  double known22 = (double)(2 * counts[8] + counts[5] + counts[7]);
   double right_sum[31];
   double freq1x;
   double freq2x;
   double freqx1;
   double freqx2;
   double freq11_expected;
-  double known11;
-  double known12;
-  double known21;
-  double known22;
   double unknown_dh;
   double denom;
   double lnlike1;
@@ -4697,22 +4801,25 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
   double dzz;
   uint32_t quantile;
   uint32_t center;
-  if (phase_flanking_haps(base_ct11, base_ct12, base_ct21, base_ct22, counts[4], &freq1x, &freq2x, &freqx1, &freqx2, &dzz)) {
+  if (is_x) {
+    known11 -= (double)((int32_t)counts[9]);
+    known12 -= (double)((int32_t)counts[11]);
+    known21 -= (double)((int32_t)counts[12]);
+    known22 -= (double)((int32_t)counts[14]);
+  }
+  if (em_phase_hethet(known11, known12, known21, known22, counts[4], &freq1x, &freq2x, &freqx1, &freqx2, &dzz)) {
     return 1;
   }
   freq11_expected = freqx1 * freq1x;
   dxx = dzz - freq11_expected;
-  if (dxx >= 0.0) {
-    known11 = (double)((intptr_t)base_ct11);
-    known12 = (double)((intptr_t)base_ct12);
-    known21 = (double)((intptr_t)base_ct21);
-    known22 = (double)((intptr_t)base_ct22);
-  } else {
+  if (dxx < 0.0) {
     // D < 0, flip (1,1)<->(1,2) and (2,1)<->(2,2) to make D positive
-    known11 = (double)((intptr_t)base_ct12);
-    known12 = (double)((intptr_t)base_ct11);
-    known21 = (double)((intptr_t)base_ct22);
-    known22 = (double)((intptr_t)base_ct21);
+    dyy = known11;
+    known11 = known12;
+    known12 = dyy;
+    dyy = known21;
+    known21 = known22;
+    known22 = dyy;
     freq11_expected = freqx2 * freq1x;
     dyy = freqx1;
     freqx1 = freqx2;
@@ -4770,7 +4877,7 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
   if (center > 41) {
     dxx = haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, 97) - lnlike1;
     // ln(2^{-53} / 19) is just under -39.6812
-    if (dxx > -39.6812) {
+    if ((center > 97) || (dxx > -39.6812)) {
       total_prob = exp(dxx);
       for (quantile = 100; quantile > 97; quantile--) {
 	total_prob += exp(haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
@@ -4797,7 +4904,8 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
 	    // [82..100] right sums, but saving a few extra values is probably
 	    // more efficient than making this if-statement more complicated.
 	    // [82 - quantile] rather than e.g. [quantile - 52] is used so
-	    // memory writes go forward.  (okay, this shouldn't matter since
+	    // memory writes go to sequentially increasing rather than
+	    // decreasing addresses.  (okay, this shouldn't matter since
 	    // everything should be in L1 cache, but there's no opportunity
 	    // cost)
 	    right_sum[82 - quantile] = total_prob;
@@ -4952,6 +5060,8 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   FILE* outfile_det = NULL;
   // circular.  [2n] = numStrong, [2n+1] = numRec
   uintptr_t* strong_rec_cts = NULL;
+  uintptr_t* founder_include2 = NULL;
+  uintptr_t* founder_male_include2 = NULL;
   uintptr_t marker_uidx = 0;
   uintptr_t block_idx_first = 0;
   uintptr_t block_uidx_first = 0;
@@ -4962,20 +5072,18 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   uint32_t block_ct = 0;
   uint32_t pct = 0;
   int32_t retval = 0;
-  uint32_t counts[9];
+  uint32_t counts[15];
   // [0]: (m, m-1)
   // [1]: (m, m-2)
   // [2]: (m-1, m-2)
   // [3]: (m-1, m-3)
   // [4]: (m-2, m-3)
   uint32_t recent_ci_types[5];
-  uint32_t index_tots[3];
+  uint32_t index_tots[5];
   uintptr_t* founder_pnm;
   uintptr_t* marker_exclude;
   uintptr_t* in_haploblock;
   uintptr_t* loadbuf_raw;
-  uintptr_t* founder_include2;
-  uintptr_t* founder_male_include2;
   uintptr_t* index_data;
   uintptr_t* window_data;
   uintptr_t* window_data_ptr;
@@ -5021,6 +5129,10 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   uint32_t cur_marker_pos;
   uint32_t uii;
   uint32_t ujj;
+  // suppress warning
+  index_tots[3] = 0;
+  index_tots[4] = 0;
+
   // First enforce MAF 0.05 minimum; then, on each chromosome:
   // 1. Determine maximum number of markers that might need to be loaded at
   //    once on current chromosome, and then (re)allocate memory buffers.
@@ -5069,12 +5181,10 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   loadbuf_raw[unfiltered_indiv_ctl2 - 1] = 0;
   founder_ctl2 = (founder_ct + (BITCT2 - 1)) / BITCT2;
   founder_ctv2 = 2 * ((founder_ct + (BITCT - 1)) / BITCT);
-  if (wkspace_alloc_ul_checked(&index_data, 3 * founder_ctv2 * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&founder_include2, founder_ctv2 * sizeof(intptr_t))) {
+  if (wkspace_alloc_ul_checked(&index_data, 5 * founder_ctv2 * sizeof(intptr_t))) {
     goto haploview_blocks_ret_NOMEM;
   }
-  fill_vec_55(founder_include2, founder_ct);
-  if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, founder_ct, hh_exists, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
+  if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, founder_ct, Y_FIX_NEEDED, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
     goto haploview_blocks_ret_NOMEM;
   }
   memcpy(outname_end, ".blocks.det", 12);
@@ -5282,6 +5392,12 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
       index_tots[1] = popcount2_longs(&(index_data[founder_ctv2]), founder_ctl2);
       vec_datamask(founder_ct, 3, window_data_ptr, founder_include2, &(index_data[2 * founder_ctv2]));
       index_tots[2] = popcount2_longs(&(index_data[2 * founder_ctv2]), founder_ctl2);
+      if (is_x) {
+	vec_datamask(founder_ct, 0, window_data_ptr, founder_male_include2, &(index_data[3 * founder_ctv2]));
+	index_tots[3] = popcount2_longs(&(index_data[3 * founder_ctv2]), founder_ctl2);
+	vec_datamask(founder_ct, 3, window_data_ptr, founder_male_include2, &(index_data[4 * founder_ctv2]));
+	index_tots[4] = popcount2_longs(&(index_data[4 * founder_ctv2]), founder_ctl2);
+      }
       lowci_max = 82;
       lowci_min = 52;
       for (delta = 1; delta <= cur_block_size; delta++, block_cidx2++) {
@@ -5303,7 +5419,14 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
 	counts[3] = index_tots[1] - counts[3] - counts[4] - counts[5];
 	vec_3freq(founder_ctl2, window_data_ptr, &(index_data[2 * founder_ctv2]), &(counts[6]), &(counts[7]), &(counts[8]));
 	counts[6] = index_tots[2] - counts[6] - counts[7] - counts[8];
-	cur_ci_type = haploview_blocks_classify(counts, lowci_max, lowci_min);
+	if (is_x) {
+	  vec_3freq(founder_ctl2, window_data_ptr, &(index_data[3 * founder_ctv2]), &(counts[9]), &(counts[10]), &(counts[11]));
+	  // counts[10] should always be zero
+	  counts[9] = index_tots[3] - counts[9] - counts[11];
+	  vec_3freq(founder_ctl2, window_data_ptr, &(index_data[4 * founder_ctv2]), &(counts[12]), &(counts[13]), &(counts[14]));
+	  counts[12] = index_tots[4] - counts[12] - counts[14];
+	}
+	cur_ci_type = haploview_blocks_classify(counts, lowci_max, lowci_min, is_x);
 	if (cur_ci_type > 4) {
 	  cur_strong++;
 	} else if (!cur_ci_type) {
@@ -5350,6 +5473,9 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
 	} else {
 	  prev_strong += cur_strong;
 	  prev_rec += cur_rec;
+	  if (delta == 18) {
+	    printf("%lu %lu\n", prev_strong, prev_rec);
+	  }
 	  strong_rec_cts[block_cidx2 * 2] = prev_strong;
 	  strong_rec_cts[block_cidx2 * 2 + 1] = prev_rec;
 	  // a/(a+b) > 0.95
@@ -5727,6 +5853,8 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
   uintptr_t* loadbufs[2];
   uintptr_t marker_uidxs[2];
   double solutions[3];
+  uint32_t is_haploid[2];
+  uint32_t is_x[2];
   uintptr_t* loadbuf_raw;
   uintptr_t* loadbuf0_ptr;
   uintptr_t* loadbuf1_ptr;
@@ -5753,19 +5881,14 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
   double dxx;
   uint32_t chrom_fo_idx;
   uint32_t chrom_idx;
-  uint32_t is_x;
   uint32_t is_y;
   uint32_t alen00;
   uint32_t alen01;
   uint32_t alen10;
   uint32_t alen11;
   uint32_t count_total;
-  uint32_t base_ct11;
-  uint32_t base_ct12;
-  uint32_t base_ct21;
-  uint32_t base_ct22;
   if (!outname) {
-    indiv_ct = popcount_longs(indiv_exclude, unfiltered_indiv_ctl2 / 2);
+    indiv_ct = popcount_longs(indiv_exclude, (unfiltered_indiv_ctl2 + 1) / 2);
     if (!indiv_ct) {
       logprint("Warning: Skipping --ld since there are no founders.  (--make-founders may come\nin handy here.)\n");
       goto twolocus_ret_1;
@@ -5813,6 +5936,10 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
   if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, indiv_ct, hh_exists, 0, indiv_exclude, sex_male, &indiv_include2, &indiv_male_include2)) {
     goto twolocus_ret_NOMEM;
   }
+  is_haploid[0] = 0;
+  is_haploid[1] = 0;
+  is_x[0] = 0;
+  is_x[1] = 0;
   for (marker_idx = 0; marker_idx < 2; marker_idx++) {
     marker_uidx = marker_uidxs[marker_idx];
     if (fseeko(bedfile, bed_offset + (marker_uidx * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
@@ -5823,10 +5950,21 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
     }
     chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx);
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-    if (IS_SET(chrom_info_ptr->haploid_mask, chrom_idx)) {
-      is_x = (chrom_idx == (uint32_t)chrom_info_ptr->x_code);
+    is_haploid[marker_idx] = IS_SET(chrom_info_ptr->haploid_mask, chrom_idx);
+    if (is_haploid[marker_idx]) {
+      is_x[marker_idx] = (chrom_idx == (uint32_t)chrom_info_ptr->x_code);
       is_y = (chrom_idx == (uint32_t)chrom_info_ptr->y_code);
-      haploid_fix(hh_exists, indiv_include2, indiv_male_include2, indiv_ct, is_x, is_y, (unsigned char*)(loadbufs[marker_idx]));
+      haploid_fix(hh_exists, indiv_include2, indiv_male_include2, indiv_ct, is_x[marker_idx], is_y, (unsigned char*)(loadbufs[marker_idx]));
+    }
+  }
+  if (!outname) {
+    // --ld needs X chromosome sex stratification instead of --twolocus's
+    // case/control stratification
+    if (is_x[0] || is_x[1]) {
+      pheno_c = sex_male;
+      pheno_nm = sex_male;
+    } else {
+      pheno_c = NULL;
     }
   }
   fill_uint_zero(counts_all, 16);
@@ -5896,7 +6034,8 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
     }
     LOGPRINTF("--twolocus: Report written to %s.\n", outname);
   } else {
-    // may as well store marginal counts here
+    // low counts_cc[] values aren't used, so may as well store marginal counts
+    // there
     counts_cc[0] = counts_all[0] + counts_all[2] + counts_all[3];
     counts_cc[2] = counts_all[8] + counts_all[10] + counts_all[11];
     counts_cc[3] = counts_all[12] + counts_all[14] + counts_all[15];
@@ -5923,16 +6062,34 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
     }
     LOGPRINTF("\n--ld %s %s:\n", mkr1, mkr2);
     ulii = 0;
-    // todo: factor out redundancy with ld_dprime_thread()
-    base_ct11 = 2 * counts_all[0] + counts_all[2] + counts_all[8];
-    base_ct12 = 2 * counts_all[3] + counts_all[2] + counts_all[11];
-    base_ct21 = 2 * counts_all[12] + counts_all[8] + counts_all[14];
-    base_ct22 = 2 * counts_all[15] + counts_all[11] + counts_all[14];
-    twice_tot_recip = 0.5 / ((double)((int32_t)count_total));
-    freq11 = ((int32_t)base_ct11) * twice_tot_recip;
-    freq12 = ((int32_t)base_ct12) * twice_tot_recip;
-    freq21 = ((int32_t)base_ct21) * twice_tot_recip;
-    freq22 = ((int32_t)base_ct22) * twice_tot_recip;
+    // possible todo: factor out redundancy with other D-prime calculations
+    freq11 = (double)(2 * counts_all[0] + counts_all[2] + counts_all[8]);
+    freq12 = (double)(2 * counts_all[3] + counts_all[2] + counts_all[11]);
+    freq21 = (double)(2 * counts_all[12] + counts_all[8] + counts_all[14]);
+    freq22 = (double)(2 * counts_all[15] + counts_all[11] + counts_all[14]);
+    if (is_x[0] || is_x[1]) {
+      if (is_x[0] && is_x[1]) {
+        freq11 -= (double)((int32_t)counts_cc[16]);
+        freq12 -= (double)((int32_t)counts_cc[19]);
+        freq21 -= (double)((int32_t)counts_cc[28]);
+        freq22 -= (double)((int32_t)counts_cc[31]);
+      } else if (is_x[0]) {
+        freq11 -= ((double)(2 * counts_cc[16] + counts_cc[18])) * (1.0 - SQRT_HALF);
+        freq12 -= ((double)(2 * counts_cc[19] + counts_cc[18])) * (1.0 - SQRT_HALF);
+        freq21 -= ((double)(2 * counts_cc[28] + counts_cc[30])) * (1.0 - SQRT_HALF);
+        freq22 -= ((double)(2 * counts_cc[31] + counts_cc[30])) * (1.0 - SQRT_HALF);
+      } else {
+        freq11 -= ((double)(2 * counts_cc[16] + counts_cc[24])) * (1.0 - SQRT_HALF);
+        freq12 -= ((double)(2 * counts_cc[19] + counts_cc[27])) * (1.0 - SQRT_HALF);
+        freq21 -= ((double)(2 * counts_cc[28] + counts_cc[24])) * (1.0 - SQRT_HALF);
+        freq22 -= ((double)(2 * counts_cc[31] + counts_cc[27])) * (1.0 - SQRT_HALF);
+      }
+    }
+    twice_tot_recip = 1.0 / (freq11 + freq12 + freq21 + freq22 + 2 * ((int32_t)counts_all[10]));
+    freq11 *= twice_tot_recip;
+    freq12 *= twice_tot_recip;
+    freq21 *= twice_tot_recip;
+    freq22 *= twice_tot_recip;
     half_hethet_share = ((int32_t)counts_all[10]) * twice_tot_recip;
     freq1x = freq11 + freq12 + half_hethet_share;
     freq2x = 1.0 - freq1x;
@@ -5940,6 +6097,8 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
     freqx2 = 1.0 - freqx1;
     if (counts_all[10]) {
       // detect degenerate cases to avoid e-17 ugliness
+      // possible todo: when there are multiple solutions, compute log
+      // likelihood for each and mark the EM solution in some manner
       if (freq11 * freq22 != 0.0) {
 	if (freq12 * freq21 != 0.0) {
 	  // (f11 + x)(f22 + x)(K - x) = x(f12 + K - x)(f21 + K - x)
@@ -5974,9 +6133,18 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
 	solutions[0] = 0;
       }
       if (uljj > ulii + 1) {
+	// not Xchr/haploid-sensitive yet
 	logprint("Multiple haplotype phasing solutions; sample size, HWE, or random mating\nassumption may be violated.\n\nHWE exact test p-values\n-----------------------\n");
-	LOGPRINTF("   %s: %g\n", mkr1, SNPHWE2(counts_cc[2] + counts_all[9], counts_cc[0] + counts_all[1], counts_cc[3] + counts_all[13], hwe_midp));
-	LOGPRINTF("   %s: %g\n\n", mkr2, SNPHWE2(counts_cc[6] + counts_all[6], counts_cc[4] + counts_all[4], counts_cc[7] + counts_all[7], hwe_midp));
+	if (is_haploid[0] && (!is_x[0])) {
+          LOGPRINTF("   %s: n/a\n", mkr1);
+	} else {
+	  LOGPRINTF("   %s: %g\n", mkr1, SNPHWE2(counts_cc[2] + counts_all[9], counts_cc[0] + counts_all[1] - 2 * (counts_cc[16] + counts_cc[19]), counts_cc[3] + counts_all[13] - 2 * (counts_cc[28] + counts_cc[31]), hwe_midp));
+	}
+	if (is_haploid[1] && (!is_x[1])) {
+	  LOGPRINTF("   %s: n/a\n", mkr2);
+	} else {
+	  LOGPRINTF("   %s: %g\n\n", mkr2, SNPHWE2(counts_cc[6] + counts_all[6], counts_cc[4] + counts_all[4] - 2 * (counts_cc[16] + counts_cc[28]), counts_cc[7] + counts_all[7] - 2 * (counts_cc[19] + counts_cc[31]), hwe_midp));
+	}
       }
     } else {
       uljj = 1;
@@ -7823,7 +7991,7 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
 	      counts[18 + uii] = counts[uii] + counts[9 + uii];
 	    }
 	    // no need to check return value
-	    phase_flanking_haps_nobase(&(counts[18]), &dxx, &dyy, &dzz, &dww, &freq11);
+	    em_phase_hethet_nobase(&(counts[18]), 0, 0, &dxx, &dyy, &dzz, &dww, &freq11);
 	    // share of counts[4]/counts[13] which goes to 11 or 22 haplotype
 	    // (0.5 - dxx) is share which goes to 12/21 haps
 	    // (conveniently, there's a 0.5 and a 2 which cancel out here)
@@ -8574,6 +8742,8 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   char* annot_ptr = NULL;
   char* cur_rg_names = NULL;
   uint64_t* range_sort_buf = NULL;
+  uintptr_t* founder_include2 = NULL;
+  uintptr_t* founder_male_include2 = NULL;
   uintptr_t* rg_chrom_bounds = NULL;
   uint32_t** rg_setdefs = NULL;
   uint32_t** cur_rg_setdefs = NULL;
@@ -8599,8 +8769,8 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uint32_t chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
   int32_t retval = 0;
   uintptr_t histo[5]; // NSIG, S05, S01, S001, S0001
-  uint32_t index_tots[3];
-  uint32_t counts[9];
+  uint32_t index_tots[5];
+  uint32_t counts[18];
   Make_set_range* msr_tmp;
   Clump_entry** clump_entries;
   Clump_entry* clump_entry_ptr;
@@ -8612,8 +8782,6 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uintptr_t* cur_bitfield;
   uintptr_t* loadbuf_raw;
   uintptr_t* index_data;
-  uintptr_t* founder_include2;
-  uintptr_t* founder_male_include2;
   uintptr_t* window_data;
   uintptr_t* window_data_ptr;
   char* sorted_marker_ids;
@@ -8688,6 +8856,10 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uint32_t ukk;
   uint32_t umm;
   int32_t ii;
+  // suppress warning
+  index_tots[3] = 0;
+  index_tots[4] = 0;
+
   if (annot_flattened && (!clump_verbose) && (!clump_best)) {
     logprint("Error: --clump-annotate must be used with --clump-verbose or --clump-best.\n");
     goto clump_reports_ret_INVALID_CMDLINE;
@@ -9200,12 +9372,13 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   }
   if (wkspace_alloc_ui_checked(&marker_idx_to_uidx, marker_ct * sizeof(int32_t)) ||
       wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&index_data, 3 * founder_ctv2 * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&founder_include2, founder_ctv2 * sizeof(intptr_t))) {
+      wkspace_alloc_ul_checked(&index_data, 5 * founder_ctv2 * sizeof(intptr_t))) {
     goto clump_reports_ret_NOMEM2;
   }
-  fill_vec_55(founder_include2, founder_ct);
-  if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, founder_ct, hh_exists, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
+  for (uii = 1; uii <= 5; uii++) {
+    index_data[uii * founder_ctv2 - 1] = 0;
+  }
+  if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, founder_ct, Y_FIX_NEEDED, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
     goto clump_reports_ret_NOMEM2; 
  }
   window_data = (uintptr_t*)wkspace_base;
@@ -9348,6 +9521,12 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     index_tots[1] = popcount2_longs(&(index_data[founder_ctv2]), founder_ctl2);
     vec_datamask(founder_ct, 3, window_data_ptr, founder_include2, &(index_data[2 * founder_ctv2]));
     index_tots[2] = popcount2_longs(&(index_data[2 * founder_ctv2]), founder_ctl2);
+    if (is_x) {
+      vec_datamask(founder_ct, 0, window_data_ptr, founder_male_include2, &(index_data[3 * founder_ctv2]));
+      index_tots[3] = popcount2_longs(&(index_data[3 * founder_ctv2]), founder_ctl2);
+      vec_datamask(founder_ct, 3, window_data_ptr, founder_male_include2, &(index_data[4 * founder_ctv2]));
+      index_tots[4] = popcount2_longs(&(index_data[4 * founder_ctv2]), founder_ctl2);
+    }
     if (!cur_window_size) {
       cur_clump_base = (Cur_clump_info*)(&(window_data[founder_ctv2]));
     } else {
@@ -9373,7 +9552,13 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       counts[3] = index_tots[1] - counts[3] - counts[4] - counts[5];
       vec_3freq(founder_ctl2, window_data_ptr, &(index_data[2 * founder_ctv2]), &(counts[6]), &(counts[7]), &(counts[8]));
       counts[6] = index_tots[2] - counts[6] - counts[7] - counts[8];
-      if (!phase_flanking_haps_nobase(counts, &freq1x, &freq2x, &freqx1, &freqx2, &freq11)) {
+      if (is_x) {
+        vec_3freq(founder_ctl2, window_data_ptr, &(index_data[3 * founder_ctv2]), &(counts[9]), &(counts[10]), &(counts[11]));
+        counts[9] = index_tots[3] - counts[9] - counts[11];
+        vec_3freq(founder_ctl2, window_data_ptr, &(index_data[4 * founder_ctv2]), &(counts[15]), &(counts[16]), &(counts[17]));
+        counts[15] = index_tots[4] - counts[15] - counts[17];
+      }
+      if (!em_phase_hethet_nobase(counts, is_x, is_x, &freq1x, &freq2x, &freqx1, &freqx2, &freq11)) {
 	freq11_expected = freqx1 * freq1x;
 	dxx = freq11 - freq11_expected;
 	cur_r2 = fabs(dxx);
@@ -9497,7 +9682,13 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       counts[3] = index_tots[1] - counts[3] - counts[4] - counts[5];
       vec_3freq(founder_ctl2, window_data, &(index_data[2 * founder_ctv2]), &(counts[6]), &(counts[7]), &(counts[8]));
       counts[6] = index_tots[2] - counts[6] - counts[7] - counts[8];
-      if (!phase_flanking_haps_nobase(counts, &freq1x, &freq2x, &freqx1, &freqx2, &freq11)) {
+      if (is_x) {
+        vec_3freq(founder_ctl2, window_data, &(index_data[3 * founder_ctv2]), &(counts[9]), &(counts[10]), &(counts[11]));
+        counts[9] = index_tots[3] - counts[9] - counts[11];
+        vec_3freq(founder_ctl2, window_data, &(index_data[4 * founder_ctv2]), &(counts[15]), &(counts[16]), &(counts[17]));
+        counts[15] = index_tots[4] - counts[15] - counts[17];
+      }
+      if (!em_phase_hethet_nobase(counts, is_x, is_x, &freq1x, &freq2x, &freqx1, &freqx2, &freq11)) {
         freq11_expected = freqx1 * freq1x;
 	dxx = freq11 - freq11_expected;
 	cur_r2 = fabs(dxx);

@@ -157,6 +157,7 @@
 // 53-bit double precision limit
 #define DOUBLE_PREC_LIMIT 0.00000000000000011102230246251565404236316680908203125
 #define TWO_63 9223372036854775808.0
+#define SQRT_HALF 0.70710678118654746
 
 // 2^{-83} bias to give exact tests maximum ability to determine tiny p-values.
 // (~2^{-53} is necessary to take advantage of denormalized small numbers, then
@@ -502,6 +503,7 @@
 #define CACHELINE 64 // assumed number of bytes per cache line, for alignment
 #define CACHELINE_INT32 (CACHELINE / sizeof(int32_t))
 #define CACHELINE_INT64 (CACHELINE / sizeof(int64_t))
+#define CACHELINE_WORD (CACHELINE / sizeof(intptr_t))
 #define CACHELINE_DBL (CACHELINE / sizeof(double))
 
 #define CACHEALIGN(val) ((val + (CACHELINE - 1)) & (~(CACHELINE - 1)))

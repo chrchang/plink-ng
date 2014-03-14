@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (13 Mar 2014)";
+  " (14 Mar 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -2863,15 +2863,9 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   if (!marker_alleles_needed) {
     allelexxxx = 0;
   }
-  retval = load_bim(mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &set_allele_freqs, &marker_allele_ptrs, &max_marker_allele_len, &marker_ids, missing_mid_templates, missing_marker_id_match, chrom_info_ptr, &marker_cms, &marker_pos, freqname, calculation_type, misc_flags, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_range_list_ptr, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, ((calculation_type == CALC_MAKE_BED) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (!update_map) && (!freqname))? NULL : "make-bed");
+  retval = load_bim(mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &set_allele_freqs, &marker_allele_ptrs, &max_marker_allele_len, &marker_ids, missing_mid_templates, missing_marker_id_match, chrom_info_ptr, &marker_cms, &marker_pos, freqname, calculation_type, misc_flags, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_range_list_ptr, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, ((calculation_type == CALC_MAKE_BED) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (hwe_thresh == 0.0) && (!update_map) && (!freqname))? NULL : "make-bed");
   if (retval) {
     goto plink_ret_1;
-  }
-  if (map_is_unsorted & UNSORTED_SPLIT_CHROM) {
-    if ((hwe_thresh > 0.0) || (calculation_type & CALC_HARDY)) {
-      logprint("Error: --hardy/--hwe cannot be used on a .bim file with split chromosome(s).\nRetry this command after using\n--make-bed to sort your data.\n");
-      goto plink_ret_INVALID_FORMAT;
-    }
   }
 
   // load .fam, count indivs
