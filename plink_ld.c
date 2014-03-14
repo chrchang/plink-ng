@@ -3410,6 +3410,28 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   }
 }
 
+double calc_lnlike(double known11, double known12, double known21, double known22, double center_ct_d, double freq11, double freq12, double freq21, double freq22, double half_hethet_share, double freq11_incr) {
+  double lnlike;
+  freq11 += freq11_incr;
+  freq22 += freq11_incr;
+  freq12 += half_hethet_share - freq11_incr;
+  freq21 += half_hethet_share - freq11_incr;
+  lnlike = center_ct_d * log(freq11 * freq22 + freq12 * freq21);
+  if (known11 != 0.0) {
+    lnlike += known11 * log(freq11);
+  }
+  if (known12 != 0.0) {
+    lnlike += known12 * log(freq12);
+  }
+  if (known21 != 0.0) {
+    lnlike += known21 * log(freq21);
+  }
+  if (known22 != 0.0) {
+    lnlike += known22 * log(freq22);
+  }
+  return lnlike;
+}
+
 uint32_t em_phase_hethet(double known11, double known12, double known21, double known22, uint32_t center_ct, double* freq1x_ptr, double* freq2x_ptr, double* freqx1_ptr, double* freqx2_ptr, double* freq11_ptr) {
   // Returns 1 if at least one SNP is monomorphic over all valid observations;
   // returns 0 otherwise, and fills all frequencies using EM phasing.
@@ -3417,7 +3439,10 @@ uint32_t em_phase_hethet(double known11, double known12, double known21, double 
   // been developed, but the two marker case is mathematically clean and fast
   // enough that it'll probably remain useful as an input for some of those
   // better algorithms...)
-  double twice_tot = known11 + known12 + known21 + known22 + 2 * ((double)((int32_t)center_ct));
+  double center_ct_d = (int32_t)center_ct;
+  double twice_tot = known11 + known12 + known21 + known22 + 2 * center_ct_d;
+  uintptr_t sol_start_idx = 0;
+  double solutions[3];
   double twice_tot_recip;
   double half_hethet_share;
   double freq11;
@@ -3426,15 +3451,15 @@ uint32_t em_phase_hethet(double known11, double known12, double known21, double 
   double freq22;
   double prod_1122;
   double prod_1221;
-  double sum_1122;
-  double prod_1122_cur;
-  double last_incr_1122;
-  double incr_1122;
+  double best_sol;
+  double best_lnlike;
+  double cur_sol;
+  double cur_lnlike;
   double freq1x;
   double freq2x;
   double freqx1;
   double freqx2;
-  double dxx;
+  uintptr_t sol_end_idx;
   // shouldn't have to worry about subtractive cancellation problems here
   if (twice_tot == 0.0) {
     return 1;
@@ -3446,7 +3471,7 @@ uint32_t em_phase_hethet(double known11, double known12, double known21, double 
   freq22 = known22 * twice_tot_recip;
   prod_1122 = freq11 * freq22;
   prod_1221 = freq12 * freq21;
-  half_hethet_share = ((int32_t)center_ct) * twice_tot_recip;
+  half_hethet_share = center_ct_d * twice_tot_recip;
   // the following four values should all be guaranteed nonzero except in the
   // NAN case
   freq1x = freq11 + freq12 + half_hethet_share;
@@ -3456,78 +3481,47 @@ uint32_t em_phase_hethet(double known11, double known12, double known21, double 
   if (center_ct) {
     if (prod_1122 != 0.0) {
       if (prod_1221 != 0.0) {
-	sum_1122 = freq11 + freq22;
-	incr_1122 = half_hethet_share * prod_1122 / (prod_1122 + prod_1221);
-	prod_1221 = (freq12 + half_hethet_share) * (freq21 + half_hethet_share);
-	// todo: compare this EM loop with alternatives such as analytic
-	// solution, Newton-Raphson on cubic (is this effectively
-	// identical?)...
-	do {
-	  last_incr_1122 = incr_1122;
-	  dxx = (sum_1122 + incr_1122) * incr_1122;
-	  prod_1122_cur = prod_1122 + dxx;
-	  incr_1122 = half_hethet_share * prod_1122_cur / (prod_1122_cur + prod_1221 + dxx - incr_1122);
-          // Haploview uses an epsilon of 1e-8 for (base 10) log likelihood
-	  // change.  There isn't a perfect isomorphism between their epsilon
-	  // and ours, but using an epsilon in that neighborhood yields roughly
-	  // the same behavior.
-          // (--blocks normally only needs ~1% accuracy here, but it's a bit
-	  // dangerous for our D' estimate to have the wrong sign, so we play
-	  // it safe instead of conditionally using a more aggressive epsilon.)
-	} while (fabs(incr_1122 - last_incr_1122) > EPSILON);
-	// only actually need freq11
-	freq11 += incr_1122;
-      } else {
-	freq11 += half_hethet_share;
-      }
-    } else if (prod_1221 == 0.0) {
-      // 0/0, so regular EM initialization doesn't work.  We have the following
-      // cubic (assume WLOG that f11 and f12 are zero):
-      //
-      //   x(f22 + x)(K - x) = x(K - x)(f21 + K - x)
-      //   f22 + x = f21 + K - x, or x = 0, or x = K
-      //   2x = f21 + K - f22
-      //   x = (K + f21 - f22) / 2, x = 0, x = K
-      //
-      // To make --blocks work properly, we now select the (in-range) solution
-      // that yields the best log likelihood (before, we were essentially
-      // ignoring the 0 and K solutions).
-
-      // Make use of the fact that at least one count/frequency in each
-      // diagonal pair is zero, and we don't really care which one it is.
-      known11 += known22;
-      known12 += known21;
-      freq21 += freq12;
-      freq22 += freq11; // freq11 is used later, so don't clobber it
-
-      // x = 0 -> tmp11 = freq11
-      //          tmp12 = freq12 + half_hethet_share
-      //          tmp21 = freq21 + half_hethet_share
-      //          tmp22 = freq22
-      dxx = known12 * log(freq21 + half_hethet_share) + ((int32_t)center_ct) * log(half_hethet_share * (freq21 + half_hethet_share));
-      if (known11 != 0.0) {
-        dxx += known11 * log(freq22);
-      }
-      // x = K
-      last_incr_1122 = known11 * log(freq22 + half_hethet_share) + ((int32_t)center_ct) * log(half_hethet_share * (freq22 + half_hethet_share));
-      if (known12 != 0.0) {
-        last_incr_1122 += known12 * log(freq21);
-      }
-      incr_1122 = (half_hethet_share + freq21 - freq22) * 0.5;
-      if ((incr_1122 > 0.0) && (incr_1122 < half_hethet_share)) {
-        prod_1122_cur = known11 * log(freq22 + incr_1122) + known12 * log(freq21 + half_hethet_share - incr_1122) + ((int32_t)center_ct) * log(incr_1122 * (freq22 + incr_1122) + (half_hethet_share - incr_1122) * (freq21 + half_hethet_share - incr_1122));
-	if (last_incr_1122 > prod_1122_cur) {
-	  incr_1122 = half_hethet_share;
-	} else {
-	  last_incr_1122 = prod_1122_cur;
+	sol_end_idx = cubic_real_roots(0.5 * (freq11 + freq22 - freq12 - freq21 - 3 * half_hethet_share), 0.5 * (prod_1122 + prod_1221 + half_hethet_share * (freq12 + freq21 - freq11 - freq22 + half_hethet_share)), -0.5 * half_hethet_share * freq11 * freq22, solutions);
+	if (sol_end_idx > 1) {
+	  while (solutions[sol_end_idx - 1] > half_hethet_share) {
+	    sol_end_idx--;
+	  }
+	  while (solutions[sol_start_idx] < 0.0) {
+	    sol_start_idx++;
+	  }
 	}
       } else {
-	incr_1122 = half_hethet_share;
+	sol_end_idx = 1;
+	solutions[0] = half_hethet_share;
       }
-      if (last_incr_1122 > dxx) {
-	freq11 += incr_1122;
+    } else if (prod_1221 == 0.0) {
+      solutions[0] = 0;
+      if ((freq22 + EPSILON < half_hethet_share + freq21) && (freq21 + EPSILON < half_hethet_share + freq22)) {
+	sol_end_idx = 3;
+	solutions[1] = (half_hethet_share + freq21 - freq22) * 0.5;
+	solutions[2] = half_hethet_share;
+      } else {
+	sol_end_idx = 2;
+	solutions[1] = half_hethet_share;
       }
+    } else {
+      sol_end_idx = 1;
+      solutions[0] = 0;
     }
+    best_sol = solutions[sol_start_idx];
+    if (sol_end_idx > sol_start_idx + 1) {
+      // select largest log likelihood
+      best_lnlike = calc_lnlike(known11, known12, known21, known22, center_ct_d, freq11, freq12, freq21, freq22, half_hethet_share, best_sol);
+      do {
+	cur_sol = solutions[++sol_start_idx];
+        cur_lnlike = calc_lnlike(known11, known12, known21, known22, center_ct_d, freq11, freq12, freq21, freq22, half_hethet_share, cur_sol);
+	if (cur_lnlike > best_lnlike) {
+          cur_lnlike = best_lnlike;
+          best_sol = cur_sol;
+	}
+      } while (sol_start_idx + 1 < sol_end_idx);
+    }
+    freq11 += best_sol;
   } else if ((prod_1122 == 0.0) && (prod_1221 == 0.0)) {
     return 1;
   }
@@ -4746,7 +4740,9 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
   return retval;
 }
 
-double haploview_blocks_lnlike(double known11, double known12, double known21, double known22, double unknown_dh, double freqx1, double freq1x, double freq2x, double freq11_expected, double denom, int32_t quantile) {
+double calc_lnlike_quantile(double known11, double known12, double known21, double known22, double unknown_dh, double freqx1, double freq1x, double freq2x, double freq11_expected, double denom, int32_t quantile) {
+  // almost identical to calc_lnlike, but we can skip the equal-to-zero checks
+  // when quantile isn't 100
   double tmp11 = quantile * denom + freq11_expected;
   double tmp12 = freq1x - tmp11;
   double tmp21 = freqx1 - tmp11;
@@ -4837,7 +4833,7 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
   // determining the "futility threshold" (terms smaller than 2^{-53} / 19 are
   // too small to matter).
   center = (int32_t)(((dxx / dyy) * 100) + 0.5);
-  lnlike1 = haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, center);
+  lnlike1 = calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, center);
 
   // It's not actually necessary to keep the entire likelihood array in
   // memory.  This is similar to the HWE and Fisher's exact test calculations:
@@ -4875,23 +4871,23 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
   // This should be good for a ~10x speedup on the larger datasets where it's
   // most wanted.
   if (center > 41) {
-    dxx = haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, 97) - lnlike1;
+    dxx = calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, 97) - lnlike1;
     // ln(2^{-53} / 19) is just under -39.6812
     if ((center > 97) || (dxx > -39.6812)) {
       total_prob = exp(dxx);
       for (quantile = 100; quantile > 97; quantile--) {
-	total_prob += exp(haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+	total_prob += exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
       }
       if (total_prob > (1.0 / 19.0)) {
 	// branch 1: highCI might be >= 0.98
         lnsurf_high97_thresh = total_prob * 20;
 	for (quantile = 96; quantile >= 89; quantile--) {
-	  last_prob = exp(haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+	  last_prob = exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
 	  total_prob += last_prob;
 	}
 	lnsurf_high89_thresh = total_prob * 20;
 	while (1) {
-	  dxx = exp(haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+	  dxx = exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
 	  total_prob += dxx;
 	  // see comments on branch 2.  this is more complicated because we
 	  // still have work to do after resolving whether highCI >= 0.98, but
@@ -4928,7 +4924,7 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
 		}
 		while (quantile > lowci_min) {
 		  quantile--;
-		  total_prob += exp(haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+		  total_prob += exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
 		  if (quantile <= lowci_max) {
 		    right_sum[82 - quantile] = total_prob;
 		  }
@@ -4951,14 +4947,14 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
 		    return 6;
 		  }
 		  quantile--;
-		  dxx = exp(haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+		  dxx = exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
 		  total_prob += dxx;
 		}
 		return 2;
 	      }
 	      last_prob = dxx;
               quantile--;
-	      dxx = exp(haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+	      dxx = exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
 	      total_prob += dxx;
 	      if ((quantile <= lowci_max) && (quantile >= lowci_min)) {
 		right_sum[82 - quantile] = total_prob;
@@ -4976,7 +4972,7 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
   // branch 2: highCI guaranteed less than 0.98.  If D' <= 0.875, try to
   // quickly establish highCI < 0.90.
   total_prob = 0.0;
-  dxx = haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, 89) - lnlike1;
+  dxx = calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, 89) - lnlike1;
   quantile = 96;
   if (center < 88) {
     // Suppose the center is at 0.87, so f(0.87) = 1.  Then, if f(0.89) < 1/21,
@@ -4994,7 +4990,7 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
   // okay, we'll sum the whole right tail.  May as well sum from the outside
   // in here for a bit more numerical stability.
   do {
-    total_prob += exp(haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+    total_prob += exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
   } while (--quantile > 89);
   last_prob = exp(dxx);
   total_prob += last_prob;
@@ -5005,7 +5001,7 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
     // take advantage of that
     lnsurf_high97_thresh = lnsurf_high89_thresh - 1.0;
     while (quantile > center) {
-      total_prob += exp(haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+      total_prob += exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
       if (total_prob >= lnsurf_high97_thresh) {
 	return 0;
       }
@@ -5022,7 +5018,7 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
   // exit early
   // (it's okay if the first likelihood does not represent a decline)
   while (1) {
-    dxx = exp(haploview_blocks_lnlike(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+    dxx = exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
     total_prob += dxx;
   haploview_blocks_classify_no_high98:
     if (total_prob >= lnsurf_high89_thresh) {
