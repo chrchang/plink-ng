@@ -3754,7 +3754,6 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   uint32_t marker_uidx2_fwd2 = 0;
   uint32_t window_trail_ct = 0;
   uint32_t window_lead_ct = 0;
-  uint32_t x_present = 0;
   int32_t x_code = chrom_info_ptr->x_code;
   uint32_t xstart = 0;
   uint32_t xend = 0;
@@ -3796,7 +3795,6 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     chrom_end = chrom_info_ptr->chrom_end[(uint32_t)x_code];
     chrom_end = chrom_end - uii - popcount_bit_idx(marker_exclude, uii, chrom_end);
     if (chrom_end) {
-      x_present = 1;
       ulii = (founder_ctsplit + (CACHELINE_WORD - 1)) & (~(CACHELINE_WORD - 1));
       if (wkspace_alloc_ul_checked(&g_ld_thread_wkspace, ulii * thread_ct * sizeof(intptr_t))) {
 	goto ld_report_dprime_ret_NOMEM;
