@@ -5473,9 +5473,6 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
 	} else {
 	  prev_strong += cur_strong;
 	  prev_rec += cur_rec;
-	  if (delta == 18) {
-	    printf("%lu %lu\n", prev_strong, prev_rec);
-	  }
 	  strong_rec_cts[block_cidx2 * 2] = prev_strong;
 	  strong_rec_cts[block_cidx2 * 2 + 1] = prev_rec;
 	  // a/(a+b) > 0.95
