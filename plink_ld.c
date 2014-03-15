@@ -3479,24 +3479,25 @@ uint32_t em_phase_hethet(double known11, double known12, double known21, double 
   freqx1 = freq11 + freq21 + half_hethet_share;
   freqx2 = 1.0 - freqx1;
   if (center_ct) {
-    if (prod_1122 != 0.0) {
-      if (prod_1221 != 0.0) {
-	sol_end_idx = cubic_real_roots(0.5 * (freq11 + freq22 - freq12 - freq21 - 3 * half_hethet_share), 0.5 * (prod_1122 + prod_1221 + half_hethet_share * (freq12 + freq21 - freq11 - freq22 + half_hethet_share)), -0.5 * half_hethet_share * prod_1122, solutions);
-	if (sol_end_idx > 1) {
-	  while (solutions[sol_end_idx - 1] > half_hethet_share) {
-	    sol_end_idx--;
-	  }
-	  while (solutions[sol_start_idx] < 0.0) {
-	    sol_start_idx++;
-	  }
+    if ((prod_1122 != 0.0) || (prod_1221 != 0.0)) {
+      sol_end_idx = cubic_real_roots(0.5 * (freq11 + freq22 - freq12 - freq21 - 3 * half_hethet_share), 0.5 * (prod_1122 + prod_1221 + half_hethet_share * (freq12 + freq21 - freq11 - freq22 + half_hethet_share)), -0.5 * half_hethet_share * prod_1122, solutions);
+      if (sol_end_idx > 1) {
+	while (solutions[sol_end_idx - 1] > half_hethet_share + SMALLISH_EPSILON) {
+	  sol_end_idx--;
 	}
-      } else {
-	sol_end_idx = 1;
-	solutions[0] = half_hethet_share;
+	if (solutions[sol_end_idx - 1] > half_hethet_share - SMALLISH_EPSILON) {
+	  solutions[sol_end_idx - 1] = half_hethet_share;
+	}
+	while (solutions[sol_start_idx] < -SMALLISH_EPSILON) {
+	  sol_start_idx++;
+	}
+	if (solutions[sol_start_idx] < SMALLISH_EPSILON) {
+	  solutions[sol_start_idx] = 0;
+	}
       }
-    } else if (prod_1221 == 0.0) {
+    } else {
       solutions[0] = 0;
-      if ((freq22 + EPSILON < half_hethet_share + freq21) && (freq21 + EPSILON < half_hethet_share + freq22)) {
+      if ((freq22 + SMALLISH_EPSILON < half_hethet_share + freq21) && (freq21 + SMALLISH_EPSILON < half_hethet_share + freq22)) {
 	sol_end_idx = 3;
 	solutions[1] = (half_hethet_share + freq21 - freq22) * 0.5;
 	solutions[2] = half_hethet_share;
@@ -3504,9 +3505,6 @@ uint32_t em_phase_hethet(double known11, double known12, double known21, double 
 	sol_end_idx = 2;
 	solutions[1] = half_hethet_share;
       }
-    } else {
-      sol_end_idx = 1;
-      solutions[0] = 0;
     }
     best_sol = solutions[sol_start_idx];
     if (sol_end_idx > sol_start_idx + 1) {
@@ -6090,28 +6088,29 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
       // detect degenerate cases to avoid e-17 ugliness
       // possible todo: when there are multiple solutions, compute log
       // likelihood for each and mark the EM solution in some manner
-      if (freq11 * freq22 != 0.0) {
-	if (freq12 * freq21 != 0.0) {
-	  // (f11 + x)(f22 + x)(K - x) = x(f12 + K - x)(f21 + K - x)
-	  // (x - K)(x + f11)(x + f22) + x(x - K - f12)(x - K - f21) = 0
-	  //   x^3 + (f11 + f22 - K)x^2 + (f11*f22 - K*f11 - K*f22)x
-	  // - K*f11*f22 + x^3 - (2K + f12 + f21)x^2 + (K + f12)(K + f21)x = 0
-	  uljj = cubic_real_roots(0.5 * (freq11 + freq22 - freq12 - freq21 - 3 * half_hethet_share), 0.5 * (freq11 * freq22 + freq12 * freq21 + half_hethet_share * (freq12 + freq21 - freq11 - freq22 + half_hethet_share)), -0.5 * half_hethet_share * freq11 * freq22, solutions);
-	  if (uljj > 1) {
-	    while (solutions[uljj - 1] > half_hethet_share) {
-	      uljj--;
-	    }
-	    while (solutions[ulii] < 0.0) {
-	      ulii++;
-	    }
+      if ((freq11 * freq22 != 0.0) || (freq12 * freq21 != 0.0)) {
+	// (f11 + x)(f22 + x)(K - x) = x(f12 + K - x)(f21 + K - x)
+	// (x - K)(x + f11)(x + f22) + x(x - K - f12)(x - K - f21) = 0
+	//   x^3 + (f11 + f22 - K)x^2 + (f11*f22 - K*f11 - K*f22)x
+	// - K*f11*f22 + x^3 - (2K + f12 + f21)x^2 + (K + f12)(K + f21)x = 0
+	uljj = cubic_real_roots(0.5 * (freq11 + freq22 - freq12 - freq21 - 3 * half_hethet_share), 0.5 * (freq11 * freq22 + freq12 * freq21 + half_hethet_share * (freq12 + freq21 - freq11 - freq22 + half_hethet_share)), -0.5 * half_hethet_share * freq11 * freq22, solutions);
+	if (uljj > 1) {
+	  while (solutions[uljj - 1] > half_hethet_share + SMALLISH_EPSILON) {
+	    uljj--;
 	  }
-	} else {
-	  uljj = 1;
-          solutions[0] = half_hethet_share;
+	  if (solutions[uljj - 1] > half_hethet_share - SMALLISH_EPSILON) {
+	    solutions[uljj - 1] = half_hethet_share;
+	  }
+	  while (solutions[ulii] < -SMALLISH_EPSILON) {
+	    ulii++;
+	  }
+	  if (solutions[ulii] < SMALLISH_EPSILON) {
+	    solutions[ulii] = 0;
+	  }
 	}
-      } else if (freq12 * freq21 == 0.0) {
+      } else {
 	solutions[0] = 0;
-	if ((freq22 + EPSILON < half_hethet_share + freq21) && (freq21 + EPSILON < half_hethet_share + freq22)) {
+	if ((freq22 + SMALLISH_EPSILON < half_hethet_share + freq21) && (freq21 + SMALLISH_EPSILON < half_hethet_share + freq22)) {
 	  uljj = 3;
 	  solutions[1] = (half_hethet_share + freq21 - freq22) * 0.5;
 	  solutions[2] = half_hethet_share;
@@ -6119,9 +6118,6 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
 	  uljj = 2;
 	  solutions[1] = half_hethet_share;
 	}
-      } else {
-        uljj = 1;
-	solutions[0] = 0;
       }
       if (uljj > ulii + 1) {
 	// not Xchr/haploid-sensitive yet
