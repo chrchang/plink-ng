@@ -8621,7 +8621,8 @@ uint32_t cubic_real_roots(double coef_a, double coef_b, double coef_c, double* s
     sq = qq / dxx;
   }
   solutions[0] = dxx + sq - adiv3;
-  if (fabs(dxx - sq) < EPSILON) {
+  // use of regular epsilon here has actually burned us
+  if (fabs(dxx - sq) < (EPSILON * 8)) {
     if (dxx >= 0.0) {
       solutions[1] = solutions[0];
       solutions[0] = -dxx - adiv3;

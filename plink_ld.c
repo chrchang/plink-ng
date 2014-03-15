@@ -3432,16 +3432,18 @@ double calc_lnlike(double known11, double known12, double known21, double known2
   return lnlike;
 }
 
-uint32_t em_phase_hethet(double known11, double known12, double known21, double known22, uint32_t center_ct, double* freq1x_ptr, double* freq2x_ptr, double* freqx1_ptr, double* freqx2_ptr, double* freq11_ptr) {
+uint32_t em_phase_hethet(double known11, double known12, double known21, double known22, uint32_t center_ct, double* freq1x_ptr, double* freq2x_ptr, double* freqx1_ptr, double* freqx2_ptr, double* freq11_ptr, uint32_t* onside_sol_ct_ptr) {
   // Returns 1 if at least one SNP is monomorphic over all valid observations;
-  // returns 0 otherwise, and fills all frequencies using EM phasing.
+  // returns 0 otherwise, and fills all frequencies using the maximum
+  // likelihood solution to the cubic equation.
   // (We're discontinuing most use of EM phasing since better algorithms have
   // been developed, but the two marker case is mathematically clean and fast
   // enough that it'll probably remain useful as an input for some of those
   // better algorithms...)
   double center_ct_d = (int32_t)center_ct;
   double twice_tot = known11 + known12 + known21 + known22 + 2 * center_ct_d;
-  uintptr_t sol_start_idx = 0;
+  uint32_t sol_start_idx = 0;
+  uint32_t sol_end_idx = 1;
   double solutions[3];
   double twice_tot_recip;
   double half_hethet_share;
@@ -3451,15 +3453,17 @@ uint32_t em_phase_hethet(double known11, double known12, double known21, double 
   double freq22;
   double prod_1122;
   double prod_1221;
+  double incr_1122;
   double best_sol;
   double best_lnlike;
-  double cur_sol;
   double cur_lnlike;
   double freq1x;
   double freq2x;
   double freqx1;
   double freqx2;
-  uintptr_t sol_end_idx;
+  double lbound;
+  double dxx;
+  uint32_t cur_sol_idx;
   // shouldn't have to worry about subtractive cancellation problems here
   if (twice_tot == 0.0) {
     return 1;
@@ -3481,18 +3485,26 @@ uint32_t em_phase_hethet(double known11, double known12, double known21, double 
   if (center_ct) {
     if ((prod_1122 != 0.0) || (prod_1221 != 0.0)) {
       sol_end_idx = cubic_real_roots(0.5 * (freq11 + freq22 - freq12 - freq21 - 3 * half_hethet_share), 0.5 * (prod_1122 + prod_1221 + half_hethet_share * (freq12 + freq21 - freq11 - freq22 + half_hethet_share)), -0.5 * half_hethet_share * prod_1122, solutions);
-      if (sol_end_idx > 1) {
-	while (solutions[sol_end_idx - 1] > half_hethet_share + SMALLISH_EPSILON) {
-	  sol_end_idx--;
-	}
-	if (solutions[sol_end_idx - 1] > half_hethet_share - SMALLISH_EPSILON) {
-	  solutions[sol_end_idx - 1] = half_hethet_share;
-	}
-	while (solutions[sol_start_idx] < -SMALLISH_EPSILON) {
-	  sol_start_idx++;
-	}
-	if (solutions[sol_start_idx] < SMALLISH_EPSILON) {
+      while (sol_end_idx && (solutions[sol_end_idx - 1] > half_hethet_share + SMALLISH_EPSILON)) {
+	sol_end_idx--;
+      }
+      while ((sol_start_idx < sol_end_idx) && (solutions[sol_start_idx] < -SMALLISH_EPSILON)) {
+	sol_start_idx++;
+      }
+      if (sol_start_idx == sol_end_idx) {
+	// Lost a planet Master Obi-Wan has.  How embarrassing...
+	// lost root must be one of the boundary points, just check their
+	// likelihoods
+	sol_start_idx = 0;
+	sol_end_idx = 2;
+	solutions[0] = 0;
+	solutions[1] = half_hethet_share;
+      } else {
+	if (solutions[sol_start_idx] < 0) {
 	  solutions[sol_start_idx] = 0;
+	}
+	if (solutions[sol_end_idx] > half_hethet_share) {
+	  solutions[sol_end_idx] = half_hethet_share;
 	}
       }
     } else {
@@ -3510,14 +3522,46 @@ uint32_t em_phase_hethet(double known11, double known12, double known21, double 
     if (sol_end_idx > sol_start_idx + 1) {
       // select largest log likelihood
       best_lnlike = calc_lnlike(known11, known12, known21, known22, center_ct_d, freq11, freq12, freq21, freq22, half_hethet_share, best_sol);
+      cur_sol_idx = sol_start_idx + 1;
       do {
-	cur_sol = solutions[++sol_start_idx];
-        cur_lnlike = calc_lnlike(known11, known12, known21, known22, center_ct_d, freq11, freq12, freq21, freq22, half_hethet_share, cur_sol);
+	incr_1122 = solutions[cur_sol_idx];
+        cur_lnlike = calc_lnlike(known11, known12, known21, known22, center_ct_d, freq11, freq12, freq21, freq22, half_hethet_share, incr_1122);
 	if (cur_lnlike > best_lnlike) {
           cur_lnlike = best_lnlike;
-          best_sol = cur_sol;
+          best_sol = incr_1122;
 	}
-      } while (sol_start_idx + 1 < sol_end_idx);
+      } while (++cur_sol_idx < sol_end_idx);
+    }
+    if (onside_sol_ct_ptr && (sol_end_idx > sol_start_idx + 1)) {
+      if (freqx1 * freq1x >= freq11) {
+	dxx = freq1x * freqx1 - freq11;
+	if (dxx > half_hethet_share) {
+	  dxx = half_hethet_share;
+	}
+      } else {
+	dxx = 0.0;
+      }
+      // okay to NOT count the boundary points because they don't permit
+      // direction changes within the main interval
+      // this should exactly match haploview_blocks_classify()'s D sign check
+      if ((freq11 + best_sol) - freqx1 * freq1x >= 0.0) {
+	lbound = dxx + SMALLISH_EPSILON;
+	half_hethet_share -= SMALLISH_EPSILON;
+      } else {
+	lbound = SMALLISH_EPSILON;
+	half_hethet_share = dxx - SMALLISH_EPSILON; // upper bound
+      }
+      for (cur_sol_idx = sol_start_idx; cur_sol_idx < sol_end_idx; cur_sol_idx++) {
+	if (solutions[cur_sol_idx] < lbound) {
+	  sol_start_idx++;
+	}
+	if (solutions[cur_sol_idx] > half_hethet_share) {
+	  break;
+	}
+      }
+      if (cur_sol_idx >= sol_start_idx + 2) {
+	*onside_sol_ct_ptr = cur_sol_idx - sol_start_idx;
+      }
     }
     freq11 += best_sol;
   } else if ((prod_1122 == 0.0) && (prod_1221 == 0.0)) {
@@ -3555,7 +3599,7 @@ uint32_t em_phase_hethet_nobase(uint32_t* counts, uint32_t is_x1, uint32_t is_x2
       known22 -= ((double)(2 * counts[17] + counts[14])) * (1.0 - SQRT_HALF);
     }
   }
-  return em_phase_hethet(known11, known12, known21, known22, counts[4], freq1x_ptr, freq2x_ptr, freqx1_ptr, freqx2_ptr, freq11_ptr);
+  return em_phase_hethet(known11, known12, known21, known22, counts[4], freq1x_ptr, freq2x_ptr, freqx1_ptr, freqx2_ptr, freq11_ptr, NULL);
 }
 
 THREAD_RET_TYPE ld_dprime_thread(void* arg) {
@@ -4774,6 +4818,9 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
   double known12 = (double)(2 * counts[2] + counts[1] + counts[5]);
   double known21 = (double)(2 * counts[6] + counts[3] + counts[7]);
   double known22 = (double)(2 * counts[8] + counts[5] + counts[7]);
+  double total_prob = 0.0;
+  double lnsurf_high97_thresh = 0.0;
+  uint32_t onside_sol_ct = 1;
   double right_sum[31];
   double freq1x;
   double freq2x;
@@ -4783,11 +4830,7 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
   double unknown_dh;
   double denom;
   double lnlike1;
-  double lnsurf_high97_thresh;
   double lnsurf_high89_thresh;
-  double total_prob;
-  double last_prob;
-  double left_tail_thresh;
   double dxx;
   double dyy;
   double dzz;
@@ -4799,7 +4842,7 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
     known21 -= (double)((int32_t)counts[12]);
     known22 -= (double)((int32_t)counts[14]);
   }
-  if (em_phase_hethet(known11, known12, known21, known22, counts[4], &freq1x, &freq2x, &freqx1, &freqx2, &dzz)) {
+  if (em_phase_hethet(known11, known12, known21, known22, counts[4], &freq1x, &freq2x, &freqx1, &freqx2, &dzz, &onside_sol_ct)) {
     return 1;
   }
   freq11_expected = freqx1 * freq1x;
@@ -4829,209 +4872,231 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
   // determining the "futility threshold" (terms smaller than 2^{-53} / 19 are
   // too small to matter).
   center = (int32_t)(((dxx / dyy) * 100) + 0.5);
+
   lnlike1 = calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, center);
 
-  // It's not actually necessary to keep the entire likelihood array in
-  // memory.  This is similar to the HWE and Fisher's exact test calculations:
-  // we can get away with tracking a few partial sums, and exploit (i)
-  // super-geometric likelihood decay away from the center and (ii) knowledge
-  // of the center's location.  (Recall that
-  //   c + cr + cr^2 + ... = c/(1-r) so
-  //   f(0) + ... + f(p) <= f(p)/(1 - f(p)/f(p+0.01))
-  //                     <= f(p)f(p+0.01)/(f(p+0.01)-f(p))
-  //   f(0) + ... + f(p-0.01) <= (f(p)^2)/(f(p+0.01)-f(p))
-  // for p < D - 0.01, and similarly for the upper tail.)
-  //
-  // Specifically, we need to determine the following:
-  // 1. Is highCI >= 0.98?  Or < 0.90?
-  // 2. If highCI >= 0.98, is lowCI >= 0.81?  In [0.71, 0.81)?  Equal to 0.70?
-  //    In [0.51, 0.70)?  In [0.01, 0.51)?  Or < 0.01?
-  //    (Crucially, if highCI < 0.98, we don't actually need to determine lowCI
-  //    at all.)
-  // To make this classification with as few relative likelihood evaluations as
-  // possible (5 logs, an exp call, 7 multiplies, 5 adds... that's kinda heavy
-  // for an inner loop operation), we distinguish the following cases:
-  // a. D' >= 0.41.  We first try to quickly rule out highCI >= 0.98 by
-  //    inspection of f(0.97).  Then,
-  //    * If it's below the futility threshold, jump to case (b).
-  //    * Otherwise, sum f(0.98)..f(1.00), and then sum other likelihoods
-  //      from f(0.96) on down.
-  // b. D' < 0.41.  highCI >= 0.98 is impossible since f(0.41) >= f(0.42) >=
-  //    ...; goal is to quickly establish highCI < 0.90.  The vast majority of
-  //    the time, this can be accomplished simply by inspecting f(0.89); if
-  //    it's less than 1/21, we're done because we know there's a 1 somewhere
-  //    in the array, the sum of the likelihoods between f(0.89) and whatever
-  //    that 1 entry is is bounded below by the geometric series, and the sum
-  //    of f(0.89)..f(1.00) is bounded above by the series.  Otherwise, we sum
-  //    from the top down.
-  // This should be good for a ~10x speedup on the larger datasets where it's
-  // most wanted.
-  if (center > 41) {
-    dxx = calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, 97) - lnlike1;
-    // ln(2^{-53} / 19) is just under -39.6812
-    if ((center > 97) || (dxx > -39.6812)) {
-      total_prob = exp(dxx);
-      for (quantile = 100; quantile > 97; quantile--) {
-	total_prob += exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
-      }
-      if (total_prob > (1.0 / 19.0)) {
-	// branch 1: highCI might be >= 0.98
-        lnsurf_high97_thresh = total_prob * 20;
-	for (quantile = 96; quantile >= 89; quantile--) {
-	  last_prob = exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
-	  total_prob += last_prob;
+  // Previously assumed log likelihood was always concave, and used geometric
+  // series bounds... then I realized this was NOT a safe assumption to make.
+  // See e.g. rs9435793 and rs7531410 in 1000 Genomes phase 1.
+  // So, instead, we only use an aggressive approach when onside_sol_ct == 1
+  // (fortunately, that is almost always the case).
+  if (onside_sol_ct == 1) {
+    // It's not actually necessary to keep the entire likelihood array in
+    // memory.  This is similar to the HWE and Fisher's exact test
+    // calculations: we can get away with tracking a few partial sums, and
+    // exploit unimodality, fixed direction on both sides of the center,
+    // knowledge of the center's location, and the fact that we only need to
+    // classify the CI rather than fully evaluate it.
+    //
+    // Specifically, we need to determine the following:
+    // 1. Is highCI >= 0.98?  Or < 0.90?
+    // 2. If highCI >= 0.98, is lowCI >= 0.81?  In [0.71, 0.81)?  Equal to
+    //    0.70?  In [0.51, 0.70)?  In [0.01, 0.51)?  Or < 0.01?
+    //    (Crucially, if highCI < 0.98, we don't actually need to determine
+    //    lowCI at all.)
+    // To make this classification with as few relative likelihood evaluations
+    // as possible (5 logs, an exp call, 8 multiplies, 9 adds... that's kinda
+    // heavy for an inner loop operation), we distinguish the following cases:
+    // a. D' >= 0.41.  We first try to quickly rule out highCI >= 0.98 by
+    //    inspection of f(0.97).  Then,
+    //    * If it's below the futility threshold, jump to case (b).
+    //    * Otherwise, sum f(0.98)..f(1.00), and then sum other likelihoods
+    //      from f(0.96) on down.
+    // b. D' < 0.41.  highCI >= 0.98 is impossible since f(0.41) >= f(0.42) >=
+    //    ...; goal is to quickly establish highCI < 0.90.  A large fraction of
+    //    the time, this can be accomplished simply by inspecting f(0.89); if
+    //    it's less than 1/220, we're done because we know there's a 1
+    //    somewhere in the array, and the sum of the likelihoods between
+    //    f(0.89) and whatever that 1 entry is is bounded above by 12 * (1/220)
+    //    due to fixed direction.  Otherwise, we sum from the top down.
+    // This should be good for a ~10x speedup on the larger datasets where it's
+    // most wanted.
+    if (center > 41) {
+      dxx = calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, 97) - lnlike1;
+      // ln(2^{-53} / 19) is just under -39.6812
+      if ((center > 97) || (dxx > -39.6812)) {
+	total_prob = exp(dxx);
+	for (quantile = 100; quantile > 97; quantile--) {
+	  total_prob += exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
 	}
-	lnsurf_high89_thresh = total_prob * 20;
-	while (1) {
-	  dxx = exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
-	  total_prob += dxx;
-	  // see comments on branch 2.  this is more complicated because we
-	  // still have work to do after resolving whether highCI >= 0.98, but
-	  // the reasoning is similar.
-	  if (total_prob >= lnsurf_high97_thresh) {
-	    goto haploview_blocks_classify_no_high98;
+	if (total_prob > (1.0 / 19.0)) {
+	  // branch 1: highCI might be >= 0.98
+	  lnsurf_high97_thresh = total_prob * 20;
+	  for (quantile = 96; quantile >= 89; quantile--) {
+	    total_prob += exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
 	  }
-	  if ((quantile <= lowci_max) && (quantile >= lowci_min)) {
-	    // We actually only need the [52..100], [71..100], [72..100], and
-	    // [82..100] right sums, but saving a few extra values is probably
-	    // more efficient than making this if-statement more complicated.
-	    // [82 - quantile] rather than e.g. [quantile - 52] is used so
-	    // memory writes go to sequentially increasing rather than
-	    // decreasing addresses.  (okay, this shouldn't matter since
-	    // everything should be in L1 cache, but there's no opportunity
-	    // cost)
-	    right_sum[82 - quantile] = total_prob;
-	  }
-	  dyy = dxx * dxx;
-	  dzz = last_prob - dxx;
-	  if ((!quantile) || (dyy < (lnsurf_high97_thresh - total_prob) * dzz)) {
-	    while (1) {
-	      // Now we want to bound lowCI, optimizing for being able to
-	      // quickly establish lowCI >= 0.71.  We do this by checking when
-	      // 19x the (f(p)^2)/(f(p+0.01)-f(p)) left tail bound drops below
-	      // total_prob; that guarantees f(p-0.01) + f(p-0.02) + ... is
-	      // less than 5% of the total likelihood, hence lowCI >= p-0.01.
-	      // We try to return immediately at that point.  If we cannot, we
-	      // just sum the remaining terms out to either p=0 or incremental
-              // likelihood <= 2^{-53}.
-	      if ((!quantile) || (dyy * 19 < total_prob * dzz)) {
-		if (quantile >= lowci_max) {
-		  return 6;
-		}
-		while (quantile > lowci_min) {
-		  quantile--;
-		  total_prob += exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
-		  if (quantile <= lowci_max) {
-		    right_sum[82 - quantile] = total_prob;
-		  }
-		}
-		left_tail_thresh = right_sum[82 - lowci_min] * (20.0 / 19.0);
-		while (total_prob < left_tail_thresh) {
-		  if ((!quantile) || (dxx <= RECIP_2_53)) {
-		    total_prob *= 0.95;
-		    if (total_prob > right_sum[11]) {
-		      // lowCI < 0.70
-		      // -> f(0.00) + f(0.01) + ... + f(0.70) > 0.05 * total
-		      return 3;
-		    } else if (total_prob > right_sum[10]) {
-		      // lowCI < 0.71
-		      // -> f(0.00) + ... + f(0.71) > 0.05 * total
-		      return 4;
-		    } else if ((lowci_max == 82) && (total_prob > right_sum[0])) {
-		      return 5;
-		    }
+	  lnsurf_high89_thresh = total_prob * 20;
+	  while (1) {
+	    dxx = exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+	    total_prob += dxx;
+	    // see comments on branch 2.  this is more complicated because we
+	    // still have work to do after resolving whether highCI >= 0.98,
+	    // but the reasoning is similar.
+	    if (total_prob >= lnsurf_high97_thresh) {
+	      if (quantile >= center) {
+	        goto haploview_blocks_classify_no_high98_1;
+	      }
+	      goto haploview_blocks_classify_no_high98_2;
+	    }
+	    if ((quantile <= lowci_max) && (quantile >= lowci_min)) {
+	      // We actually only need the [52..100], [71..100], [72..100], and
+	      // [82..100] right sums, but saving a few extra values is
+	      // probably more efficient than making this if-statement more
+	      // complicated.  [82 - quantile] rather than e.g. [quantile - 52]
+	      // is used so memory writes go to sequentially increasing rather
+	      // than decreasing addresses.  (okay, this shouldn't matter since
+	      // everything should be in L1 cache, but there's no opportunity
+	      // cost)
+	      right_sum[82 - quantile] = total_prob;
+	    }
+	    dxx *= ((int32_t)quantile);
+	    if (total_prob + dxx < lnsurf_high97_thresh) {
+	      while (1) {
+		// Now we want to bound lowCI, optimizing for being able to
+		// quickly establish lowCI >= 0.71.
+		if (dxx * 19 < total_prob) {
+		  // less than 5% remaining on left tail
+		  if (quantile >= lowci_max) {
 		    return 6;
 		  }
-		  quantile--;
-		  dxx = exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
-		  total_prob += dxx;
+		  while (quantile > lowci_min) {
+		    quantile--;
+		    total_prob += exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+		    if (quantile <= lowci_max) {
+		      right_sum[82 - quantile] = total_prob;
+		    }
+		  }
+		  dyy = right_sum[82 - lowci_min] * (20.0 / 19.0);
+		  while (total_prob < dyy) {
+		    if ((!quantile) || (dxx <= RECIP_2_53)) {
+		      total_prob *= 0.95;
+		      if (total_prob > right_sum[11]) {
+			// lowCI < 0.70
+			// -> f(0.00) + f(0.01) + ... + f(0.70) > 0.05 * total
+			return 3;
+		      } else if (total_prob > right_sum[10]) {
+			// lowCI < 0.71
+			// -> f(0.00) + ... + f(0.71) > 0.05 * total
+			return 4;
+		      } else if ((lowci_max == 82) && (total_prob > right_sum[0])) {
+			return 5;
+		      }
+		      return 6;
+		    }
+		    quantile--;
+		    dxx = exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+		    total_prob += dxx;
+		  }
+		  return 2;
 		}
-		return 2;
+		quantile--;
+		dxx = exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+		total_prob += dxx;
+		if ((quantile <= lowci_max) && (quantile >= lowci_min)) {
+		  right_sum[82 - quantile] = total_prob;
+		}
+		dxx *= ((int32_t)quantile);
 	      }
-	      last_prob = dxx;
-              quantile--;
-	      dxx = exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
-	      total_prob += dxx;
-	      if ((quantile <= lowci_max) && (quantile >= lowci_min)) {
-		right_sum[82 - quantile] = total_prob;
-	      }
-	      dyy = dxx * dxx;
-              dzz = last_prob - dxx;
 	    }
+	    quantile--;
 	  }
-	  last_prob = dxx;
-	  quantile--;
 	}
       }
+      quantile = 96;
+    } else {
+      quantile = 100;
     }
-  }
-  // branch 2: highCI guaranteed less than 0.98.  If D' <= 0.875, try to
-  // quickly establish highCI < 0.90.
-  total_prob = 0.0;
-  dxx = calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, 89) - lnlike1;
-  quantile = 96;
-  if (center < 88) {
-    // Suppose the center is at 0.87, so f(0.87) = 1.  Then, if f(0.89) < 1/21,
-    //    (f(0.87) + f(0.88))/21  > f(0.89) + f(0.90) via geometric bound
-    //    (f(0.87) + f(0.88))/441 > f(0.91) + f(0.92)
-    //    etc.
-    // -> (f(0.87) + f(0.88))/20  > f(0.89) + f(0.90) + ...
-    // Similar inequalities involving more terms hold for other center
-    // positions.  So we can use a bound of ln(1/21) here.
-    if (dxx < -3.044522437723423) {
+    // branch 2: highCI guaranteed less than 0.98.  If D' <= 0.875, try to
+    // quickly establish highCI < 0.90.
+    dxx = calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, 89) - lnlike1;
+    // ln(1/220)
+    if ((center < 88) && (dxx < -5.393627546352362)) {
       return 0;
     }
-    quantile = 100;
-  }
-  // okay, we'll sum the whole right tail.  May as well sum from the outside
-  // in here for a bit more numerical stability.
-  do {
-    total_prob += exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
-  } while (--quantile > 89);
-  last_prob = exp(dxx);
-  total_prob += last_prob;
-  lnsurf_high89_thresh = total_prob * 20;
-  quantile--;
-  if (center <= 88) {
-    // if we know there's a 1.0 ahead in the likelihood array, may as well
-    // take advantage of that
-    lnsurf_high97_thresh = lnsurf_high89_thresh - 1.0;
-    while (quantile > center) {
+    // okay, we'll sum the whole right tail.  May as well sum from the outside
+    // in here for a bit more numerical stability, instead of adding exp(dxx)
+    // first.
+    do {
       total_prob += exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
-      if (total_prob >= lnsurf_high97_thresh) {
+    } while (--quantile > 89);
+    total_prob += exp(dxx);
+    lnsurf_high89_thresh = total_prob * 20;
+  haploview_blocks_classify_no_high98_1:
+    quantile--;
+    if (center <= 88) {
+      // if we know there's a 1.0 ahead in the likelihood array, may as well
+      // take advantage of that
+      lnsurf_high97_thresh = lnsurf_high89_thresh - 1.0;
+      while (quantile > center) {
+	total_prob += exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+	if (total_prob >= lnsurf_high97_thresh) {
+	  return 0;
+	}
+	quantile--;
+      }
+      if (!center) {
+	return 1;
+      }
+      total_prob += 1;
+      quantile--;
+    }
+    // likelihoods are now declining, try to exploit that to exit early
+    // (it's okay if the first likelihood does not represent a decline)
+    while (1) {
+      dxx = exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+      total_prob += dxx;
+    haploview_blocks_classify_no_high98_2:
+      if (total_prob >= lnsurf_high89_thresh) {
 	return 0;
+      }
+      if (total_prob + ((int32_t)quantile) * dxx < lnsurf_high89_thresh) {
+	// guaranteed to catch quantile == 0
+	return 1;
       }
       quantile--;
     }
-    if (!center) {
-      return 1;
-    }
-    total_prob += 1;
-    last_prob = 1;
-    quantile--;
   }
-  // likelihoods are now declining, try to use geometric series bound to
-  // exit early
-  // (it's okay if the first likelihood does not represent a decline)
+  for (quantile = 100; quantile >= 89; quantile--) {
+    total_prob += exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
+    if (quantile == 97) {
+      lnsurf_high97_thresh = total_prob * 20;
+    }
+  }
+  if (total_prob < (1.0 / 19.0)) {
+    return 0;
+  }
+  lnsurf_high89_thresh = total_prob * 20;
   while (1) {
-    dxx = exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
-    total_prob += dxx;
-  haploview_blocks_classify_no_high98:
+    total_prob += exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
     if (total_prob >= lnsurf_high89_thresh) {
       return 0;
     }
-    // Using the (f(p)^2)/(f(p+0.01)-f(p)) tail bound:
-    //    total_prob + dxx * dxx / (last_prob - dxx) < lnsurf_high89_thresh
-    // -> dxx * dxx / (last_prob - dxx) < lnsurf_high89_thresh - total_prob
-    // -> dxx * dxx < (high89_thresh - total_prob) * (last_prob - dxx)
-    // This should be true if current likelihood is too small to affect the
-    // sum, so no need for separate futility check.
-    if ((!quantile) || (dxx * dxx < (lnsurf_high89_thresh - total_prob) * (last_prob - dxx))) {
-      return 1;
+    if (quantile <= lowci_max) {
+      if (quantile >= lowci_min) {
+        right_sum[82 - quantile] = total_prob;
+      } else if (!quantile) {
+	break;
+      }
     }
-    last_prob = dxx;
     quantile--;
   }
+  if (total_prob >= lnsurf_high97_thresh) {
+    return 1;
+  }
+  total_prob *= 0.95;
+  if (total_prob < right_sum[10]) {
+    if ((lowci_max == 82) && (total_prob >= right_sum[0])) {
+      return 5;
+    }
+    return 6;
+  }
+  if (total_prob >= right_sum[11]) {
+    if ((lowci_min == 52) && (total_prob >= right_sum[30])) {
+      return 2;
+    }
+    return 3;
+  }
+  return 4;
 }
 
 int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t ld_window_bp, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* pheno_nm, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
