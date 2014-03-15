@@ -4746,9 +4746,9 @@ double calc_lnlike_quantile(double known11, double known12, double known21, doub
   double tmp21 = freqx1 - tmp11;
   double tmp22 = freq2x - tmp21;
   if (quantile == 100) {
-    // One of these values will be ~zero, and 0 * log(0) = nan, so something
-    // like this is necessary, and we may as well do it the same way as
-    // Haploview.
+    // One of these values will be ~zero, and we want to ensure its logarithm
+    // is treated as a very negative number instead of nan.  May as well do it
+    // the same way as Haploview.
     if (tmp11 < 1e-10) {
       tmp11 = 1e-10;
     }
@@ -5500,7 +5500,7 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
     if (!candidate_ct) {
       continue;
     }
-    qsort(candidate_pairs, candidate_ct, 12, intcmp2_decr);
+    qsort(candidate_pairs, candidate_ct, 12, intcmp3_decr);
     ulii = 0; // final haploblock count
     for (candidate_idx = 0; candidate_idx < candidate_ct; candidate_idx++) {
       block_cidx = candidate_pairs[candidate_idx * 3 + 1];

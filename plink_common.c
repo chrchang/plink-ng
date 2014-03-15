@@ -4080,12 +4080,16 @@ int32_t intcmp(const void* aa, const void* bb) {
   return *((const int32_t*)aa) - *((const int32_t*)bb);
 }
 
-int32_t intcmp2_decr(const void* aa, const void* bb) {
+int32_t intcmp3_decr(const void* aa, const void* bb) {
   int32_t ii = *((const int32_t*)bb) - *((const int32_t*)aa);
   if (ii) {
     return ii;
   }
-  return ((const int32_t*)bb)[1] - ((const int32_t*)aa)[1];
+  ii = ((const int32_t*)bb)[1] - ((const int32_t*)aa)[1];
+  if (ii) {
+    return ii;
+  }
+  return ((const int32_t*)bb)[2] - ((const int32_t*)aa)[2];
 }
 
 #ifndef __cplusplus

@@ -1688,7 +1688,7 @@ int32_t char_cmp_deref(const void* aa, const void* bb);
 
 int32_t intcmp(const void* aa, const void* bb);
 
-int32_t intcmp2_decr(const void* aa, const void* bb);
+int32_t intcmp3_decr(const void* aa, const void* bb);
 
 #ifndef __cplusplus
 int32_t llcmp(const void* aa, const void* bb);
