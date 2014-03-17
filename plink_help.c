@@ -555,12 +555,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    test statistics.\n\n"
 	       );
     help_print("blocks\thap\thap-all\thap-assoc\thap-freq\thap-impute\thap-impute-verbose\thap-linear\thap-logistic\thap-max-phase\thap-min-phase-prob\thap-miss\thap-omnibus\thap-only\thap-phase\thap-phase-wide\thap-pp\thap-snps\thap-tdt\thap-window\tchap\twhap", &help_ctrl, 1,
-"  --blocks\n"
+"  --blocks <no-small-max-span>\n"
 "    Estimate haplotype blocks, via Haploview's interpretation of the block\n"
 "    definition suggested by Gabriel S et al. (2002) The Structure of Haplotype\n"
-"    Blocks in the Human Genome.  (At present, maximum block kb length is the\n"
-"    only adjustable parameter; contact the developers if you need to customize\n"
-"    this procedure in other ways.)\n"
+"    Blocks in the Human Genome.\n"
+"    * Normally, size-2 blocks may not span more than 20kb, and size-3 blocks\n"
+"      are limited to 30kb.  The 'no-small-max-span' modifier removes these\n"
+"      limits.\n"
 "    The .blocks file is valid input for PLINK 1.07's --hap command.  However,\n"
 "    the --hap... family of flags has not been reimplemented in PLINK 1.9 due to\n"
 "    poor phasing accuracy relative to other software; for now, we recommend\n"
@@ -1029,9 +1030,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --missing-genotype [char] : Set missing genotype code (normally '0').\n"
 	       );
     help_print("vcf\tbcf\tdouble-id\tconst-fid\tid-delim", &help_ctrl, 0,
-"  --double-id      : Set both family and individual IDs to the VCF sample ID.\n"
-"  --const-fid {ID} : Set all FIDs to the given constant (default '0').\n"
-"  --id-delim {d}   : Parse sample IDs as [FID][d][IID] (default delim '_').\n"
+"  --double-id          : Set both FIDs and IIDs to the VCF sample ID.\n"
+"  --const-fid {ID}     : Set all FIDs to the given constant (default '0').\n"
+"  --id-delim {d}       : Parse sample IDs as [FID][d][IID] (default delim '_').\n"
+	       );
+    help_print("vcf\tbcf\tid-delim\tvcf-idspace-to", &help_ctrl, 0,
+"  --vcf-idspace-to [d] : Convert spaces in sample IDs to the given character.\n"
 	       );
     help_print("vcf\tbcf\tbiallelic-only\tvcf-min-qual\tvcf-filter", &help_ctrl, 0,
 "  --biallelic-only <strict> <list> : Skip VCF variants with 2+ alt. alleles.\n"
@@ -1420,12 +1424,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --merge-equal-pos  : Merge variants with different names but identical\n"
 "                       positions.\n"
 	       );
-    help_print("r\tr2\tblocks\tld-window-kb", &help_ctrl, 0,
-"  --ld-window-kb [x] : Set --r/--r2/--blocks max kb pairwise distance (usually\n"
-"                       1000 for --r/--r2, and 200 for --blocks).\n"
-	       );
-    help_print("r\tr2\tld-window-r2\tld-window\tld-snp\tld-snps\tld-snp-list", &help_ctrl, 0,
+    help_print("r\tr2\tld-window-kb\tld-window-r2\tld-window\tld-snp\tld-snps\tld-snp-list", &help_ctrl, 0,
 "  --ld-window [ct+1] : Set --r/--r2 max site ct pairwise distance (usually 10).\n"
+"  --ld-window-kb [x] : Set --r/--r2 max kb pairwise distance (usually 1000).\n"
 "  --ld-window-r2 [x] : Set threshold for --r2 report inclusion (usually 0.2).\n"
 "  --ld-snp [var ID]  : Set first variant in all --r/--r2 pairs.\n"
 "  --ld-snps [vID...] : Restrict first --r/--r2 variant to the given ranges.\n"
@@ -1436,6 +1437,16 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                       1 (default) = males coded 0/1, females 0/1/2 (A1 dosage)\n"
 "                       2 = males coded 0/2\n"
 "                       3 = males coded 0/2, but females given double weighting\n"
+	       );
+    help_print("blocks\tblocks-max-kb\tblocks-min-maf\tblocks-strong-lowci\tblocks-strong-highci\tblocks-recomb-highci\tblocks-inform-frac\tld-window-kb", &help_ctrl, 0,
+"  --blocks-max-kb [kbs]      : Set --blocks maximum haploblock span (def. 200).\n"
+"  --blocks-min-maf [cutoff]  : Adjust --blocks MAF minimum (default 0.05).\n"
+"  --blocks-strong-lowci [x]  : Set --blocks 'strong LD' CI thresholds (defaults\n"
+"  --blocks-strong-highci [x]   0.70 and 0.98).\n"
+"  --blocks-recomb-highci [x] : Set 'recombination' CI threshold (default 0.90).\n"
+"  --blocks-inform-frac [x]   : Force haploblock [strong LD pairs]:[total\n"
+"                               informative pairs] ratios to be larger than this\n"
+"                               value (default 0.95).\n"
 	       );
     help_print("distance-exp\texponent\tdistance", &help_ctrl, 0,
 "  --distance-exp [x] : When computing genomic distances, assign each variant a\n"

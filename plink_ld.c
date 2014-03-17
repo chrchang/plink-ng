@@ -13,8 +13,15 @@ void ld_epi_init(Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip) {
   ldip->prune_window_kb = 0;
   ldip->prune_last_param = 0.0;
   ldip->window_size = 10;
-  ldip->window_bp = 1000000;
+  ldip->window_bp = 0xffffffffU;
   ldip->window_r2 = 0.2;
+  ldip->blocks_max_bp = 0xffffffffU;
+  ldip->blocks_min_maf = 0.05;
+  ldip->blocks_strong_lowci_outer = 71;
+  ldip->blocks_strong_lowci = 72;
+  ldip->blocks_strong_highci = 97;
+  ldip->blocks_recomb_highci = 89;
+  ldip->blocks_inform_frac = 0.95;
   ldip->snpstr = NULL;
   range_list_init(&(ldip->snps_rl));
   epi_ip->modifier = 0;
@@ -4807,7 +4814,7 @@ double calc_lnlike_quantile(double known11, double known12, double known21, doub
   return known11 * log(tmp11) + known12 * log(tmp12) + known21 * log(tmp21) + known22 * log(tmp22) + unknown_dh * log(tmp11 * tmp22 + tmp12 * tmp21);
 }
 
-uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_t lowci_min, uint32_t is_x) {
+uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_t lowci_min, uint32_t recomb_highci, uint32_t strong_highci, uint32_t strong_lowci, uint32_t strong_lowci_outer, uint32_t is_x, double recomb_fast_ln_thresh) {
   // See comments in the middle of haploview_blocks().  The key insight is that
   // we only need to classify the D' confidence intervals into a few types, and
   // this almost never requires evaluation of all 101 log likelihoods.
@@ -4819,9 +4826,9 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
   double known21 = (double)(2 * counts[6] + counts[3] + counts[7]);
   double known22 = (double)(2 * counts[8] + counts[5] + counts[7]);
   double total_prob = 0.0;
-  double lnsurf_high97_thresh = 0.0;
+  double lnsurf_highstrong_thresh = 0.0;
   uint32_t onside_sol_ct = 1;
-  double right_sum[31];
+  double right_sum[100];
   double freq1x;
   double freq2x;
   double freqx1;
@@ -4830,7 +4837,7 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
   double unknown_dh;
   double denom;
   double lnlike1;
-  double lnsurf_high89_thresh;
+  double lnsurf_highindiff_thresh;
   double dxx;
   double dyy;
   double dzz;
@@ -4911,46 +4918,46 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
     //    due to fixed direction.  Otherwise, we sum from the top down.
     // This should be good for a ~10x speedup on the larger datasets where it's
     // most wanted.
-    if (center > 41) {
-      dxx = calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, 97) - lnlike1;
+    if (100 - center < 20 * (100 - strong_highci)) {
+      dxx = calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, strong_highci) - lnlike1;
       // ln(2^{-53} / 19) is just under -39.6812
-      if ((center > 97) || (dxx > -39.6812)) {
+      if ((center > strong_highci) || (dxx > -39.6812)) {
 	total_prob = exp(dxx);
-	for (quantile = 100; quantile > 97; quantile--) {
+	for (quantile = 100; quantile > strong_highci; quantile--) {
 	  total_prob += exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
 	}
 	if (total_prob > (1.0 / 19.0)) {
 	  // branch 1: highCI might be >= 0.98
-	  lnsurf_high97_thresh = total_prob * 20;
-	  for (quantile = 96; quantile >= 89; quantile--) {
+	  lnsurf_highstrong_thresh = total_prob * 20;
+	  for (quantile = strong_highci - 1; quantile >= recomb_highci; quantile--) {
 	    total_prob += exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
 	  }
-	  lnsurf_high89_thresh = total_prob * 20;
+	  lnsurf_highindiff_thresh = total_prob * 20;
 	  while (1) {
 	    dxx = exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
 	    total_prob += dxx;
 	    // see comments on branch 2.  this is more complicated because we
 	    // still have work to do after resolving whether highCI >= 0.98,
 	    // but the reasoning is similar.
-	    if (total_prob >= lnsurf_high97_thresh) {
+	    if (total_prob >= lnsurf_highstrong_thresh) {
 	      if (quantile >= center) {
-	        goto haploview_blocks_classify_no_high98_1;
+	        goto haploview_blocks_classify_no_highstrong_1;
 	      }
-	      goto haploview_blocks_classify_no_high98_2;
+	      goto haploview_blocks_classify_no_highstrong_2;
 	    }
 	    if ((quantile <= lowci_max) && (quantile >= lowci_min)) {
 	      // We actually only need the [52..100], [71..100], [72..100], and
 	      // [82..100] right sums, but saving a few extra values is
 	      // probably more efficient than making this if-statement more
-	      // complicated.  [82 - quantile] rather than e.g. [quantile - 52]
+	      // complicated.  [99 - quantile] rather than e.g. [quantile]
 	      // is used so memory writes go to sequentially increasing rather
 	      // than decreasing addresses.  (okay, this shouldn't matter since
-	      // everything should be in L1 cache, but there's no opportunity
-	      // cost)
-	      right_sum[82 - quantile] = total_prob;
+	      // everything should be in L1 cache, but there's negligible
+	      // opportunity cost)
+	      right_sum[quantile] = total_prob;
 	    }
 	    dxx *= ((int32_t)quantile);
-	    if (total_prob + dxx < lnsurf_high97_thresh) {
+	    if (total_prob + dxx < lnsurf_highstrong_thresh) {
 	      while (1) {
 		// Now we want to bound lowCI, optimizing for being able to
 		// quickly establish lowCI >= 0.71.
@@ -4963,25 +4970,23 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
 		    quantile--;
 		    total_prob += exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
 		    if (quantile <= lowci_max) {
-		      right_sum[82 - quantile] = total_prob;
+		      right_sum[quantile] = total_prob;
 		    }
 		  }
-		  dyy = right_sum[82 - lowci_min] * (20.0 / 19.0);
+		  dyy = right_sum[lowci_min] * (20.0 / 19.0);
 		  while (total_prob < dyy) {
 		    if ((!quantile) || (dxx <= RECIP_2_53)) {
 		      total_prob *= 0.95;
-		      if (total_prob > right_sum[11]) {
+		      if (total_prob >= right_sum[strong_lowci_outer]) {
 			// lowCI < 0.70
 			// -> f(0.00) + f(0.01) + ... + f(0.70) > 0.05 * total
 			return 3;
-		      } else if (total_prob > right_sum[10]) {
-			// lowCI < 0.71
-			// -> f(0.00) + ... + f(0.71) > 0.05 * total
-			return 4;
-		      } else if ((lowci_max == 82) && (total_prob > right_sum[0])) {
+		      } else if (total_prob < right_sum[lowci_max]) {
+			return 6;
+		      } else if ((lowci_max > strong_lowci) && (total_prob < right_sum[strong_lowci])) {
 			return 5;
 		      }
-		      return 6;
+		      return 4;
 		    }
 		    quantile--;
 		    dxx = exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
@@ -4993,7 +4998,7 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
 		dxx = exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
 		total_prob += dxx;
 		if ((quantile <= lowci_max) && (quantile >= lowci_min)) {
-		  right_sum[82 - quantile] = total_prob;
+		  right_sum[quantile] = total_prob;
 		}
 		dxx *= ((int32_t)quantile);
 	      }
@@ -5002,15 +5007,14 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
 	  }
 	}
       }
-      quantile = 96;
+      quantile = strong_highci - 1;
     } else {
       quantile = 100;
     }
     // branch 2: highCI guaranteed less than 0.98.  If D' <= 0.875, try to
     // quickly establish highCI < 0.90.
-    dxx = calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, 89) - lnlike1;
-    // ln(1/220)
-    if ((center < 88) && (dxx < -5.393627546352362)) {
+    dxx = calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, recomb_highci) - lnlike1;
+    if ((center < recomb_highci) && (dxx < recomb_fast_ln_thresh)) {
       return 0;
     }
     // okay, we'll sum the whole right tail.  May as well sum from the outside
@@ -5018,18 +5022,18 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
     // first.
     do {
       total_prob += exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
-    } while (--quantile > 89);
+    } while (--quantile > recomb_highci);
     total_prob += exp(dxx);
-    lnsurf_high89_thresh = total_prob * 20;
-  haploview_blocks_classify_no_high98_1:
+    lnsurf_highindiff_thresh = total_prob * 20;
+  haploview_blocks_classify_no_highstrong_1:
     quantile--;
-    if (center <= 88) {
+    if (center < recomb_highci) {
       // if we know there's a 1.0 ahead in the likelihood array, may as well
       // take advantage of that
-      lnsurf_high97_thresh = lnsurf_high89_thresh - 1.0;
+      lnsurf_highstrong_thresh = lnsurf_highindiff_thresh - 1.0;
       while (quantile > center) {
 	total_prob += exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
-	if (total_prob >= lnsurf_high97_thresh) {
+	if (total_prob >= lnsurf_highstrong_thresh) {
 	  return 0;
 	}
 	quantile--;
@@ -5045,53 +5049,53 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
     while (1) {
       dxx = exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
       total_prob += dxx;
-    haploview_blocks_classify_no_high98_2:
-      if (total_prob >= lnsurf_high89_thresh) {
+    haploview_blocks_classify_no_highstrong_2:
+      if (total_prob >= lnsurf_highindiff_thresh) {
 	return 0;
       }
-      if (total_prob + ((int32_t)quantile) * dxx < lnsurf_high89_thresh) {
+      if (total_prob + ((int32_t)quantile) * dxx < lnsurf_highindiff_thresh) {
 	// guaranteed to catch quantile == 0
 	return 1;
       }
       quantile--;
     }
   }
-  for (quantile = 100; quantile >= 89; quantile--) {
+  for (quantile = 100; quantile >= recomb_highci; quantile--) {
     total_prob += exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
-    if (quantile == 97) {
-      lnsurf_high97_thresh = total_prob * 20;
+    if (quantile == strong_highci) {
+      lnsurf_highstrong_thresh = total_prob * 20;
     }
   }
   if (total_prob < (1.0 / 19.0)) {
     return 0;
   }
-  lnsurf_high89_thresh = total_prob * 20;
+  lnsurf_highindiff_thresh = total_prob * 20;
   while (1) {
     total_prob += exp(calc_lnlike_quantile(known11, known12, known21, known22, unknown_dh, freqx1, freq1x, freq2x, freq11_expected, denom, quantile) - lnlike1);
-    if (total_prob >= lnsurf_high89_thresh) {
+    if (total_prob >= lnsurf_highindiff_thresh) {
       return 0;
     }
     if (quantile <= lowci_max) {
       if (quantile >= lowci_min) {
-        right_sum[82 - quantile] = total_prob;
+        right_sum[quantile] = total_prob;
       } else if (!quantile) {
 	break;
       }
     }
     quantile--;
   }
-  if (total_prob >= lnsurf_high97_thresh) {
+  if (total_prob >= lnsurf_highstrong_thresh) {
     return 1;
   }
   total_prob *= 0.95;
-  if (total_prob < right_sum[10]) {
-    if ((lowci_max == 82) && (total_prob >= right_sum[0])) {
+  if (total_prob < right_sum[strong_lowci]) {
+    if ((lowci_max > strong_lowci) && (total_prob >= right_sum[lowci_max])) {
       return 5;
     }
     return 6;
   }
-  if (total_prob >= right_sum[11]) {
-    if ((lowci_min == 52) && (total_prob >= right_sum[30])) {
+  if (total_prob >= right_sum[strong_lowci_outer]) {
+    if ((lowci_min < strong_lowci_outer) && (total_prob >= right_sum[lowci_min])) {
       return 2;
     }
     return 3;
@@ -5099,7 +5103,7 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
   return 4;
 }
 
-int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t ld_window_bp, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* pheno_nm, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
+int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* pheno_nm, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
   // See Plink::mkBlks() in blox.cpp (which is, in turn, a port of doGabriel()
   // in FindBlocks.java and computeDPrime() in HaploData.java from Haploview).
   // No unwindowed/inter-chr mode, so little point in bothering with
@@ -5126,9 +5130,21 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   uintptr_t prev_strong = 0;
   uintptr_t prev_rec = 0;
   uintptr_t markers_done = 0;
+  uint32_t max_window_bp = ldip->blocks_max_bp;
+  uint32_t max_window_bp1 = 20000;
+  uint32_t max_window_bp2 = 30000;
+  uint32_t recomb_highci = ldip->blocks_recomb_highci;
+  uint32_t strong_highci = ldip->blocks_strong_highci;
+  uint32_t strong_lowci = ldip->blocks_strong_lowci;
+  uint32_t strong_lowci_outer = ldip->blocks_strong_lowci_outer;
   uint32_t block_ct = 0;
+  uint32_t maxspan = 0;
   uint32_t pct = 0;
   int32_t retval = 0;
+  double recomb_fast_ln_thresh = -log((int32_t)((100 - recomb_highci) * 20));
+  double inform_frac = ldip->blocks_inform_frac + SMALLISH_EPSILON;
+  uint32_t inform_thresh_two = 1 + ((int32_t)(3 * inform_frac));
+  uint32_t inform_thresh_three = (int32_t)(6 * inform_frac);
   uint32_t counts[15];
   // [0]: (m, m-1)
   // [1]: (m, m-2)
@@ -5166,6 +5182,8 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   uintptr_t delta;
   uintptr_t pct_thresh;
   uintptr_t ulii;
+  double min_maf;
+  double max_maf;
   double dxx;
   uint32_t chrom_fo_idx;
   uint32_t chrom_idx;
@@ -5189,6 +5207,10 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   // suppress warning
   index_tots[3] = 0;
   index_tots[4] = 0;
+  if (ldip->modifier & LD_BLOCKS_NO_SMALL_MAX_SPAN) {
+    max_window_bp1 = 0x7fffffff;
+    max_window_bp2 = 0x7fffffff;
+  }
 
   // First enforce MAF 0.05 minimum; then, on each chromosome:
   // 1. Determine maximum number of markers that might need to be loaded at
@@ -5221,14 +5243,18 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
     goto haploview_blocks_ret_1;
   }
   memcpy(marker_exclude, marker_exclude_orig, unfiltered_marker_ctl * sizeof(intptr_t));
-  for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-    next_unset_ul_unsafe_ck(marker_exclude_orig, &marker_uidx);
-    dxx = set_allele_freqs[marker_uidx];
-    if ((dxx < 0.05 - SMALL_EPSILON) || (dxx > 0.95 + SMALL_EPSILON)) {
-      set_bit_ul(marker_exclude, marker_uidx);
+  if (ldip->blocks_min_maf > 0.0) {
+    min_maf = ldip->blocks_min_maf * (1 - SMALL_EPSILON);
+    max_maf = 1 - min_maf;
+    for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+      next_unset_ul_unsafe_ck(marker_exclude_orig, &marker_uidx);
+      dxx = set_allele_freqs[marker_uidx];
+      if ((dxx < min_maf) || (dxx > max_maf)) {
+	set_bit_ul(marker_exclude, marker_uidx);
+      }
     }
+    marker_ct = unfiltered_marker_ct - popcount_longs(marker_exclude, unfiltered_marker_ctl);
   }
-  marker_ct = unfiltered_marker_ct - popcount_longs(marker_exclude, unfiltered_marker_ctl);
   if (marker_ct < 2) {
     logprint("Warning: Skipping --blocks since there are too few markers with MAF >= 0.05.\n");
     goto haploview_blocks_ret_1;
@@ -5274,10 +5300,10 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
     for (marker_idx = 0; marker_idx < cur_marker_ct; marker_uidx++, marker_idx++) {
       next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
       marker_pos_thresh = marker_pos[marker_uidx];
-      if (marker_pos_thresh < ld_window_bp) {
+      if (marker_pos_thresh < max_window_bp) {
 	marker_pos_thresh = 0;
       } else {
-	marker_pos_thresh -= ld_window_bp;
+	marker_pos_thresh -= max_window_bp;
       }
       if (marker_pos_thresh > block_pos_first) {
 	do {
@@ -5387,10 +5413,10 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
       }
       cur_marker_pos = marker_pos[marker_uidx];
       marker_pos_thresh = cur_marker_pos;
-      if (marker_pos_thresh < ld_window_bp) {
+      if (marker_pos_thresh < max_window_bp) {
 	marker_pos_thresh = 0;
       } else {
-	marker_pos_thresh -= ld_window_bp;
+	marker_pos_thresh -= max_window_bp;
       }
       if (marker_pos_thresh > block_pos_first) {
 	do {
@@ -5410,7 +5436,7 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
       }
       // now determine maximum local block size, so we can set futility_rec
       // efficiently.
-      marker_pos_thresh = cur_marker_pos + ld_window_bp;
+      marker_pos_thresh = cur_marker_pos + max_window_bp;
       if (forward_scan_uidx < marker_uidx) {
 	forward_scan_uidx = marker_uidx;
       }
@@ -5439,7 +5465,7 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
       ulii = uii;
       // If numRec ever reaches this value, we can just move on to the next
       // marker (even skipping the remaining D' evaluations).
-      futility_rec = ((ulii * (ulii - 1)) + 38) / 40;
+      futility_rec = 1 + (((double)((intptr_t)((ulii * (ulii - 1)) / 2))) * (1.0 - inform_frac));
       block_cidx2 = block_cidx + 1;
       cur_strong = 0;
       cur_rec = 0;
@@ -5483,7 +5509,7 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
 	  vec_3freq(founder_ctl2, window_data_ptr, &(index_data[4 * founder_ctv2]), &(counts[12]), &(counts[13]), &(counts[14]));
 	  counts[12] = index_tots[4] - counts[12] - counts[14];
 	}
-	cur_ci_type = haploview_blocks_classify(counts, lowci_max, lowci_min, is_x);
+	cur_ci_type = haploview_blocks_classify(counts, lowci_max, lowci_min, recomb_highci, strong_highci, strong_lowci, strong_lowci_outer, is_x, recomb_fast_ln_thresh);
 	if (cur_ci_type > 4) {
 	  cur_strong++;
 	} else if (!cur_ci_type) {
@@ -5491,18 +5517,27 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
 	}
 	if (delta < 4) {
 	  if (delta == 1) {
-	    lowci_max = 72;
+	    lowci_max = strong_lowci;
 	    recent_ci_types[0] = cur_ci_type;
-	    if ((cur_ci_type == 6) && (cur_marker_pos - marker_pos[block_uidxs[block_cidx2]] <= 20000)) {
+	    if ((cur_ci_type == 6) && (cur_marker_pos - marker_pos[block_uidxs[block_cidx2]] <= max_window_bp1)) {
 	      goto haploview_blocks_save_candidate;
 	    }
 	  } else if (delta == 2) {
 	    recent_ci_types[1] = cur_ci_type;
-	    if ((cur_ci_type >= 4) && (recent_ci_types[0] >= 3) && (recent_ci_types[2] >= 3) && (cur_marker_pos - marker_pos[block_uidxs[block_cidx2]] <= 30000)) {
-	      goto haploview_blocks_save_candidate;
+	    if ((cur_ci_type >= 4) && (cur_marker_pos - marker_pos[block_uidxs[block_cidx2]] <= max_window_bp2)) {
+	      uii = 1;
+	      if (recent_ci_types[0] >= 3) {
+		uii++;
+	      }
+	      if (recent_ci_types[2] >= 3) {
+		uii++;
+	      }
+	      if (uii >= inform_thresh_two) {
+	        goto haploview_blocks_save_candidate;
+	      }
 	    }
 	  } else {
-	    lowci_min = 71;
+	    lowci_min = strong_lowci_outer;
 	    prev_strong = 0; // 5+
 	    uii = 0; // 3+, not counting cur_ci_type
 	    prev_rec = 0;
@@ -5523,7 +5558,7 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
 	    }
 	    strong_rec_cts[block_cidx2 * 2] = prev_strong;
 	    strong_rec_cts[block_cidx2 * 2 + 1] = prev_rec;
-	    if ((cur_ci_type >= 4) && (uii == 5)) {
+	    if ((cur_ci_type >= 4) && (uii >= inform_thresh_three)) {
 	      goto haploview_blocks_save_candidate;
 	    }
 	  }
@@ -5532,12 +5567,8 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
 	  prev_rec += cur_rec;
 	  strong_rec_cts[block_cidx2 * 2] = prev_strong;
 	  strong_rec_cts[block_cidx2 * 2 + 1] = prev_rec;
-	  // a/(a+b) > 0.95
-	  // a > 0.95(a+b)
-	  // 0.05a > 0.95b
-	  // a/19 > b
-	  // (32-bit integer math) (a+18)/19 > b
-	  if ((cur_ci_type >= 4) && (prev_strong + prev_rec >= 6) && ((prev_strong + 18) / 19 > prev_rec)) {
+	  ulii = prev_strong + prev_rec;
+	  if ((cur_ci_type >= 4) && (ulii >= 6) && (((intptr_t)ulii) * inform_frac < ((double)((intptr_t)prev_strong)))) {
 	  haploview_blocks_save_candidate:
 	    if (candidate_ct == max_candidates) {
 	      goto haploview_blocks_ret_NOMEM;
@@ -5564,6 +5595,9 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
       continue;
     }
     qsort(candidate_pairs, candidate_ct, 12, intcmp3_decr);
+    if (candidate_pairs[0] > maxspan) {
+      maxspan = candidate_pairs[0];
+    }
     ulii = 0; // final haploblock count
     for (candidate_idx = 0; candidate_idx < candidate_ct; candidate_idx++) {
       block_cidx = candidate_pairs[candidate_idx * 3 + 1];
@@ -5623,6 +5657,9 @@ int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_c
   }
   putchar('\r');
   LOGPRINTF("--blocks: %u haploblock%s written to %s.\nExtra block details written to %s.det.\n", block_ct, (block_ct == 1)? "" : "s", outname, outname);
+  if (block_ct) {
+    LOGPRINTF("Longest span: %gkb.\n", ((double)(maxspan + 1)) * 0.001);
+  }
   while (0) {
   haploview_blocks_ret_NOMEM:
     retval = RET_NOMEM;

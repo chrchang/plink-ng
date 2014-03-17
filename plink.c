@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (15 Mar 2014)";
+  " (17 Mar 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -3768,7 +3768,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       logprint("Error: --blocks requires a sorted .bim file.  Retry this command after using\n--make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
-    retval = haploview_blocks(bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_pos, zero_extra_chroms, chrom_info_ptr, set_allele_freqs, ldip->window_bp, unfiltered_indiv_ct, founder_info, pheno_nm, sex_male, outname, outname_end, hh_exists);
+    retval = haploview_blocks(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_pos, zero_extra_chroms, chrom_info_ptr, set_allele_freqs, unfiltered_indiv_ct, founder_info, pheno_nm, sex_male, outname, outname_end, hh_exists);
     if (retval) {
       goto plink_ret_1;
     }
@@ -5018,6 +5018,7 @@ int32_t main(int32_t argc, char** argv) {
   char* vcf_filter_exceptions_flattened = NULL;
   double vcf_min_qual = -INFINITY;
   char id_delim = '\0';
+  char vcf_idspace_to = '\0';
   int32_t retval = 0;
   uint32_t load_params = 0; // describes what file parameters have been provided
   uint32_t load_rare = 0;
@@ -6375,9 +6376,114 @@ int32_t main(int32_t argc, char** argv) {
           misc_flags |= MISC_OXFORD_SNPID_CHR;
 	}
       } else if (!memcmp(argptr2, "locks", 6)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (param_ct) {
+	  if (strcmp(argv[cur_arg + 1], "no-small-max-span")) {
+	    sprintf(logbuf, "Error: Invalid --blocks parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+            goto main_ret_INVALID_CMDLINE_3;
+	  }
+          ld_info.modifier |= LD_BLOCKS_NO_SMALL_MAX_SPAN;
+	}
 	calculation_type |= CALC_BLOCKS;
-	ld_info.window_bp = 200000;
-        goto main_param_zero;
+      } else if (!memcmp(argptr2,"locks-inform-frac", 17)) {
+	if (!(calculation_type & CALC_BLOCKS)) {
+	  logprint("Error: --blocks-inform-frac must be used with --blocks.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0) || (dxx > 1.0 - SMALL_EPSILON)) {
+	  sprintf(logbuf, "Error: Invalid --blocks-inform-frac parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	ld_info.blocks_inform_frac = dxx;
+      } else if (!memcmp(argptr2, "locks-max-kb", 13)) {
+	if (!(calculation_type & CALC_BLOCKS)) {
+	  logprint("Error: --blocks-max-kb must be used with --blocks.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0)) {
+	  sprintf(logbuf, "Error: Invalid --blocks-max-kb parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (dxx > 2147483.647) {
+	  ld_info.blocks_max_bp = 2147483647;
+	} else {
+	  ld_info.blocks_max_bp = ((int32_t)(dxx * 1000 * (1 + SMALL_EPSILON)));
+	}
+      } else if (!memcmp(argptr2, "locks-min-maf", 14)) {
+        if (!(calculation_type & CALC_BLOCKS)) {
+	  logprint("Error: --blocks-min-maf must be used with --blocks.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0) || (dxx > 0.5)) {
+	  sprintf(logbuf, "Error: Invalid --blocks-min-maf parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        ld_info.blocks_min_maf = dxx;
+      } else if (!memcmp(argptr2, "locks-recomb-highci", 20)) {
+        if (!(calculation_type & CALC_BLOCKS)) {
+	  logprint("Error: --blocks-recomb-highci must be used with --blocks.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < SMALL_EPSILON) || (dxx > 1.0)) {
+	  sprintf(logbuf, "Error: Invalid --blocks-recomb-highci parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        ld_info.blocks_recomb_highci = (int32_t)((dxx + SMALL_EPSILON) * 100);
+	if (!ld_info.blocks_recomb_highci) {
+	  sprintf(logbuf, "Error: --blocks-recomb-highci parameter must be larger than 0.01.%s", errstr_append);
+          goto main_ret_INVALID_CMDLINE_3;
+	}
+      } else if (!memcmp(argptr2, "locks-strong-highci", 20)) {
+        if (!(calculation_type & CALC_BLOCKS)) {
+	  logprint("Error: --blocks-strong-highci must be used with --blocks.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < SMALL_EPSILON) || (dxx > 1.0)) {
+	  sprintf(logbuf, "Error: Invalid --blocks-strong-highci parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        ld_info.blocks_strong_highci = (int32_t)((dxx + SMALL_EPSILON) * 100);
+	// 0.83 lower bound is needed for now for sane handling of size-2
+	// special case
+	if (ld_info.blocks_strong_highci < 83) {
+	  logprint("Error: --blocks-strong-highci parameter currently must be larger than 0.83.\nContact the developers if this is problematic.\n");
+          goto main_ret_INVALID_CMDLINE;
+	}
+      } else if (!memcmp(argptr2, "locks-strong-lowci", 19)) {
+        if (!(calculation_type & CALC_BLOCKS)) {
+	  logprint("Error: --blocks-strong-lowci must be used with --blocks.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < SMALL_EPSILON) || (dxx >= 1)) {
+	  sprintf(logbuf, "Error: Invalid --blocks-strong-lowci parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	ld_info.blocks_strong_lowci_outer = 2 + (int32_t)((dxx + SMALL_EPSILON) * 100);
+	ld_info.blocks_strong_lowci = 2 + (int32_t)((dxx + SMALL_EPSILON) * 100);
+	if ((ld_info.blocks_strong_lowci_outer < 52) || (ld_info.blocks_strong_lowci > 82)) {
+	  logprint("Error: --blocks-strong-lowci parameter currently must be in (0.5, 0.81).\nContact the developers if this is problematic.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -8685,8 +8791,8 @@ int32_t main(int32_t argc, char** argv) {
 	  if (!id_delim) {
 	    sprintf(logbuf, "Error: --id-delim parameter must be a single character.%s", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
-	  } else if (((unsigned char)id_delim) <= ' ') {
-	    logprint("Error: --id-delim parameter must be a nonspace character.\n");
+	  } else if (((unsigned char)id_delim) < ' ') {
+	    logprint("Error: --id-delim parameter cannot be tab, newline, or a nonprinting character.\n");
             goto main_ret_INVALID_CMDLINE;
 	  }
 	} else {
@@ -10803,7 +10909,7 @@ int32_t main(int32_t argc, char** argv) {
 	    if (recode_type_set(&recode_modifier, RECODE_AD)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	  } else if (match_upper(argv[cur_arg + uii], "HV")) {
+	  } else if (match_upper_nt(argv[cur_arg + uii], "HV", 2)) {
 	    if (!argv[cur_arg + uii][2]) {
 	      if (recode_type_set(&recode_modifier, RECODE_HV)) {
 	        goto main_ret_INVALID_CMDLINE_3;
@@ -12266,6 +12372,26 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
 	misc_flags |= MISC_VCF_FILTER;
+      } else if (!memcmp(argptr2, "cf-idspace-to", 14)) {
+	if (!(load_rare & (LOAD_RARE_VCF | LOAD_RARE_BCF))) {
+	  logprint("Error: --vcf-idspace-to must be used with --vcf/--bcf.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (id_delim == ' ') {
+	  logprint("Error: --vcf-idspace-to cannot be used when the --id-delim character is space.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	vcf_idspace_to = extract_char_param(argv[cur_arg + 1]);
+	if (!vcf_idspace_to) {
+	  sprintf(logbuf, "Error: --vcf-idspace-to parameter must be a single character.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (((unsigned char)vcf_idspace_to) <= ' ') {
+	  logprint("Error: --vcf-idspace-to parameter must be a nonspace character.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -12697,14 +12823,16 @@ int32_t main(int32_t argc, char** argv) {
         sprintf(logbuf, "Error: --ld-window flag must be used with --r/--r2.%s", errstr_append);
       }
       goto main_ret_INVALID_CMDLINE_3;
-    } else if (ld_info.window_bp != 1000000) {
+    } else if (ld_info.window_bp != 0xffffffffU) {
       if (calculation_type & CALC_LD) {
 	sprintf(logbuf, "Error: --ld-window-kb flag cannot be used with the --r/--r2 'inter-chr' or\nmatrix output modifiers.%s", errstr_append);
         goto main_ret_INVALID_CMDLINE_3;
-      } else if (!(calculation_type & CALC_BLOCKS)) {
-        sprintf(logbuf, "Error: --ld-window-kb flag must be used with --r/--r2/--blocks.%s", errstr_append);
+      } else if ((!(calculation_type & CALC_BLOCKS)) || (ld_info.blocks_max_bp != 0xffffffffU)) {
+        sprintf(logbuf, "Error: --ld-window-kb flag must be used with --r/--r2.%s", errstr_append);
         goto main_ret_INVALID_CMDLINE_3;
       }
+      logprint("Note: --ld-window-kb + --blocks combination deprecated.  Use --blocks-max-kb\nwith --blocks instead.\n");
+      ld_info.blocks_max_bp = ld_info.window_bp;
     } else if ((ld_info.window_r2 != 0.2) && (!(ld_info.modifier & LD_INTER_CHR))) {
       if (!(ld_info.modifier & LD_R2)) {
         logprint("Error: --ld-window-r2 flag must be used with --r2.\n");
@@ -12713,6 +12841,17 @@ int32_t main(int32_t argc, char** argv) {
 	sprintf(logbuf, "Error: --ld-window-r2 flag cannot be used with the --r2 matrix output modifiers.%s", errstr_append);
 	goto main_ret_INVALID_CMDLINE_3;
       }
+    }
+  } else if (ld_info.window_bp == 0xffffffffU) {
+    ld_info.window_bp = 1000000;
+  }
+  if (calculation_type & CALC_BLOCKS) {
+    if (ld_info.blocks_recomb_highci > ld_info.blocks_strong_highci) {
+      logprint("Error: --blocks-recomb-highci value cannot be larger than\n--blocks-strong-highci value.\n");
+      goto main_ret_INVALID_CMDLINE;
+    }
+    if (ld_info.blocks_max_bp == 0xffffffffU) {
+      ld_info.blocks_max_bp = 200000;
     }
   }
   if ((ld_info.modifier & LD_DPRIME) && (!(calculation_type & CALC_LD))) {
@@ -12940,9 +13079,9 @@ int32_t main(int32_t argc, char** argv) {
       } else if (load_rare & LOAD_RARE_TRANSPOSE_MASK) {
         retval = transposed_to_bed(pedname, famname, outname, sptr, misc_flags, &chrom_info);
       } else if (load_rare & LOAD_RARE_VCF) {
-	retval = vcf_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, const_fid, id_delim, vcf_min_qual, vcf_filter_exceptions_flattened, &chrom_info);
+	retval = vcf_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, const_fid, id_delim, vcf_idspace_to, vcf_min_qual, vcf_filter_exceptions_flattened, &chrom_info);
       } else if (load_rare & LOAD_RARE_BCF) {
-	retval = bcf_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, const_fid, id_delim, vcf_min_qual, vcf_filter_exceptions_flattened, &chrom_info);
+	retval = bcf_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, const_fid, id_delim, vcf_idspace_to, vcf_min_qual, vcf_filter_exceptions_flattened, &chrom_info);
       } else if (load_rare == LOAD_RARE_23) {
         retval = bed_from_23(pedname, outname, sptr, modifier_23, fid_23, iid_23, (pheno_23 == INFINITY)? ((double)missing_pheno) : pheno_23, paternal_id_23, maternal_id_23, &chrom_info);
       } else if (load_rare & LOAD_RARE_DUMMY) {

@@ -22,18 +22,27 @@
 #define LD_IGNORE_X 0x2000
 #define LD_WEIGHTED_X 0x4000
 #define LD_SNP_LIST_FILE 0x8000
+#define LD_BLOCKS_NO_SMALL_MAX_SPAN 0x10000
 
 typedef struct {
+  double prune_last_param; // VIF or r^2 threshold
+  double window_r2;
+  double blocks_min_maf;
+  double blocks_inform_frac;
+  char* snpstr;
+  Range_list snps_rl;
   uint32_t modifier;
   uint32_t prune_window_size;
   uint32_t prune_window_incr;
   uint32_t prune_window_kb;
-  double prune_last_param; // VIF or r^2 threshold
   uint32_t window_size;
   uint32_t window_bp;
-  double window_r2;
-  char* snpstr;
-  Range_list snps_rl;
+  uint32_t blocks_max_bp;
+  // need two values here to replicate > vs. >= inconsistency in Haploview
+  uint32_t blocks_strong_lowci_outer;
+  uint32_t blocks_strong_lowci;
+  uint32_t blocks_strong_highci;
+  uint32_t blocks_recomb_highci;
 } Ld_info;
 
 // fast epistasis test is really similar to LD scan so we put it in the same
@@ -92,7 +101,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 
 int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, double* set_allele_freqs, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists);
 
-int32_t haploview_blocks(FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t ld_window_bp, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* pheno_nm, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists);
+int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* pheno_nm, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists);
 
 int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uint32_t pheno_ctrl_ct, uintptr_t* pheno_c, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists);
 

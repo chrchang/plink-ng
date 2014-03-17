@@ -8880,7 +8880,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   return retval;
 }
 
-int32_t vcf_sample_line(char* outname, char* outname_end, int32_t missing_pheno, char* bufptr, char* const_fid, uint32_t double_id, char id_delim, char flag_char, uintptr_t* indiv_ct_ptr) {
+int32_t vcf_sample_line(char* outname, char* outname_end, int32_t missing_pheno, char* bufptr, char* const_fid, uint32_t double_id, char id_delim, char vcf_idspace_to, char flag_char, uintptr_t* indiv_ct_ptr) {
   FILE* outfile = NULL;
   uintptr_t const_fid_len = 0;
   uintptr_t indiv_ct = 0;
@@ -8906,18 +8906,18 @@ int32_t vcf_sample_line(char* outname, char* outname_end, int32_t missing_pheno,
     double_id = 1;
     id_delim = '_';
   }
-  // treat spaces as if they were id_delim char; or if no id_delim is defined,
-  // error out
-  bufptr2 = strchr(bufptr, ' ');
-  if (bufptr2) {
-    if (!id_delim) {
-      logprint("Error: Sample ID contains space(s), and --id-delim is not active.  (When\n--id-delim is active, spaces in sample IDs are treated as if they are the\ndelimiter character.\n");
-      goto vcf_sample_line_ret_INVALID_FORMAT;
+  if (id_delim != ' ') {
+    bufptr2 = strchr(bufptr, ' ');
+    if (bufptr2) {
+      if (!vcf_idspace_to) {
+	logprint("Error: VCF/BCF2 sample ID contains space(s).  Use --vcf-idspace-to to convert\nthem to another character, or \"--id-delim ' '\" to interpret the spaces as\nFID/IID delimiters.\n");
+	goto vcf_sample_line_ret_INVALID_FORMAT;
+      }
+      do {
+	*bufptr2 = vcf_idspace_to;
+	bufptr2 = strchr(&(bufptr2[1]), ' ');
+      } while (bufptr2);
     }
-    do {
-      *bufptr2 = id_delim;
-      bufptr2 = strchr(&(bufptr2[1]), ' ');
-    } while (bufptr2);
   }
   do {
     indiv_ct++;
@@ -9014,7 +9014,7 @@ int32_t vcf_sample_line(char* outname, char* outname_end, int32_t missing_pheno,
 // than this)
 #define MAX_VCF_ALT 65534
 
-int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t missing_pheno, uint64_t misc_flags, char* const_fid, char id_delim, double vcf_min_qual, char* vcf_filter_exceptions_flattened, Chrom_info* chrom_info_ptr) {
+int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t missing_pheno, uint64_t misc_flags, char* const_fid, char id_delim, char vcf_idspace_to, double vcf_min_qual, char* vcf_filter_exceptions_flattened, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   gzFile gz_infile = NULL;
   FILE* outfile = NULL;
@@ -9149,7 +9149,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     logprint("Error: No genotype data in .vcf file.\n");
     goto vcf_to_bed_ret_INVALID_FORMAT;
   }
-  retval = vcf_sample_line(outname, outname_end, missing_pheno, &(bufptr[8]), const_fid, double_id, id_delim, 'v', &indiv_ct);
+  retval = vcf_sample_line(outname, outname_end, missing_pheno, &(bufptr[8]), const_fid, double_id, id_delim, vcf_idspace_to, 'v', &indiv_ct);
   if (retval) {
     goto vcf_to_bed_ret_1;
   }
@@ -9713,7 +9713,7 @@ int32_t read_bcf_typed_string(gzFile gz_infile, char* readbuf, uint32_t maxlen, 
   return retval;
 }
 
-int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t missing_pheno, uint64_t misc_flags, char* const_fid, char id_delim, double vcf_min_qual, char* vcf_filter_exceptions_flattened, Chrom_info* chrom_info_ptr) {
+int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t missing_pheno, uint64_t misc_flags, char* const_fid, char id_delim, char vcf_idspace_to, double vcf_min_qual, char* vcf_filter_exceptions_flattened, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   gzFile gz_infile = NULL;
   FILE* outfile = NULL;
@@ -9939,7 +9939,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
   }
   *linebuf_end = '\0';
-  retval = vcf_sample_line(outname, outname_end, missing_pheno, &(linebuf[46]), const_fid, double_id, id_delim, 'b', &ulii);
+  retval = vcf_sample_line(outname, outname_end, missing_pheno, &(linebuf[46]), const_fid, double_id, id_delim, vcf_idspace_to, 'b', &ulii);
   if (retval) {
     goto bcf_to_bed_ret_1;
   }
