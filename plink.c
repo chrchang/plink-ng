@@ -6438,15 +6438,16 @@ int32_t main(int32_t argc, char** argv) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < SMALL_EPSILON) || (dxx > 1.0)) {
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0) || (dxx > 1.0)) {
 	  sprintf(logbuf, "Error: Invalid --blocks-recomb-highci parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        ld_info.blocks_recomb_highci = (int32_t)((dxx + SMALL_EPSILON) * 100);
-	if (!ld_info.blocks_recomb_highci) {
-	  sprintf(logbuf, "Error: --blocks-recomb-highci parameter must be larger than 0.01.%s", errstr_append);
+        ld_info.blocks_recomb_highci = ((int32_t)((dxx + SMALL_EPSILON) * 100));
+	if (ld_info.blocks_recomb_highci < 2) {
+	  sprintf(logbuf, "Error: --blocks-recomb-highci parameter must be at least 0.02.%s", errstr_append);
           goto main_ret_INVALID_CMDLINE_3;
 	}
+	ld_info.blocks_recomb_highci--;
       } else if (!memcmp(argptr2, "locks-strong-highci", 20)) {
         if (!(calculation_type & CALC_BLOCKS)) {
 	  logprint("Error: --blocks-strong-highci must be used with --blocks.\n");
@@ -6459,7 +6460,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --blocks-strong-highci parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        ld_info.blocks_strong_highci = (int32_t)((dxx + SMALL_EPSILON) * 100);
+        ld_info.blocks_strong_highci = (int32_t)((dxx - SMALL_EPSILON) * 100);
 	// 0.83 lower bound is needed for now for sane handling of size-2
 	// special case
 	if (ld_info.blocks_strong_highci < 83) {
