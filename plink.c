@@ -6478,7 +6478,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --blocks-strong-lowci parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	ld_info.blocks_strong_lowci_outer = 2 + (int32_t)((dxx + SMALL_EPSILON) * 100);
+	ld_info.blocks_strong_lowci_outer = 2 + (int32_t)((dxx - SMALL_EPSILON) * 100);
 	ld_info.blocks_strong_lowci = 2 + (int32_t)((dxx + SMALL_EPSILON) * 100);
 	if ((ld_info.blocks_strong_lowci_outer < 52) || (ld_info.blocks_strong_lowci > 82)) {
 	  logprint("Error: --blocks-strong-lowci parameter currently must be in (0.5, 0.81).\nContact the developers if this is problematic.\n");
