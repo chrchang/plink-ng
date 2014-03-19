@@ -1626,6 +1626,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     0.000005 for 'boost', 0.0001 otherwise).\n"
 "  --epi2 [p-value] : Set threshold for contributing to SIG_E count (def. 0.01).\n"
 	       );
+    help_print("fast-epistasis\tje-cellmin", &help_ctrl, 0,
+"  --je-cellmin [n] : Set required number of observations per 3x3x2 contingency\n"
+"                     table cell for joint-effects test (default 5).\n"
+	       );
     help_print("parallel\tgenome-lists", &help_ctrl, 0,
 "  --parallel [k] [n] : Divide the output matrix into n pieces, and only compute\n"
 "                       the kth piece.  The primary output file will have the\n"

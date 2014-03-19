@@ -28,6 +28,7 @@ void ld_epi_init(Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip) {
   epi_ip->case_only_gap = 1000000;
   epi_ip->epi1 = 0.0;
   epi_ip->epi2 = 0.01;
+  epi_ip->je_cellmin = 5;
   epi_ip->ld_mkr1 = NULL;
   epi_ip->ld_mkr2 = NULL;
   epi_ip->twolocus_mkr1 = NULL;
@@ -2816,6 +2817,7 @@ static uint32_t g_epi_thread_ct;
 static uint32_t g_epi_case_ct;
 static uint32_t g_epi_ctrl_ct;
 static uint32_t g_epi_flag;
+static uint32_t g_epi_cellmin;
 static uintptr_t g_epi_marker_ct;
 static uintptr_t g_epi_marker_idx1;
 static uintptr_t g_epi_idx2_block_size;
@@ -3148,6 +3150,7 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   uint32_t no_ueki = (g_epi_flag / EPI_FAST_NO_UEKI) & 1;
   uint32_t is_boost = (g_epi_flag / EPI_FAST_BOOST) & 1;
   uint32_t do_joint_effects = (g_epi_flag / EPI_FAST_JOINT_EFFECTS) & 1;
+  uint32_t cellmin = g_epi_cellmin;
   uint32_t best_id_fixed = 0;
   uint32_t is_first_half = 0;
   uintptr_t* geno1 = g_epi_geno1;
@@ -3330,6 +3333,16 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
 	      dxx -= ctrl_or;
 	    }
 	  } else {
+	    if (cellmin) {
+	      if ((counts[0] < cellmin) || (counts[1] < cellmin) || (counts[2] < cellmin) || (counts[3] < cellmin) || (counts[4] < cellmin) || (counts[5] < cellmin) || (counts[6] < cellmin) || (counts[7] < cellmin) || (counts[8] < cellmin)) {
+		goto fast_epi_thread_fail;
+	      }
+	      if (!is_case_only) {
+		if ((counts[9] < cellmin) || (counts[10] < cellmin) || (counts[11] < cellmin) || (counts[12] < cellmin) || (counts[13] < cellmin) || (counts[14] < cellmin) || (counts[15] < cellmin) || (counts[16] < cellmin) || (counts[17] < cellmin)) {
+		  goto fast_epi_thread_fail;
+		}
+	      }
+	    }
 	    fepi_counts_to_joint_effects_stats(group_ct, counts, &dxx, &case_var, &ctrl_var);
 	  }
 	  zsq = dxx * dxx / (case_var + ctrl_var);
@@ -3500,8 +3513,8 @@ uint32_t em_phase_hethet(double known11, double known12, double known21, double 
       }
       if (sol_start_idx == sol_end_idx) {
 	// Lost a planet Master Obi-Wan has.  How embarrassing...
-	// lost root must be one of the boundary points, just check their
-	// likelihoods
+	// lost root must be a double root one of the boundary points, just
+	// check their likelihoods
 	sol_start_idx = 0;
 	sol_end_idx = 2;
 	solutions[0] = 0;
@@ -6390,6 +6403,8 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   uint32_t case_only_gap = epi_ip->case_only_gap;
   uint32_t is_case_only_window = (is_case_only && case_only_gap)? 1 : 0;
   uint32_t case_ct = pheno_nm_ct - ctrl_ct;
+  uint32_t cellminx3 = 0;
+  uintptr_t case_ctl2 = (case_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t case_ctv2 = 2 * ((case_ct + (BITCT - 1)) / BITCT);
   uintptr_t ctrl_ctl2 = (ctrl_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t case_ctv3 = 2 * ((case_ct + (2 * BITCT - 1)) / (2 * BITCT));
@@ -6413,10 +6428,10 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   uint32_t* gap_cts = NULL;
   uintptr_t* ctrlbuf = NULL;
   uintptr_t* marker_exclude1 = NULL;
+  uintptr_t* ulptr = NULL;
   uintptr_t* casebuf;
   uintptr_t* loadbuf;
   uintptr_t* marker_exclude2;
-  uintptr_t* ulptr;
   double* best_chisq;
   uint32_t* best_ids;
   uint32_t* n_sig_cts;
@@ -6461,6 +6476,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   uint32_t chrom_idx2;
   uint32_t cur_window_end;
   uint32_t is_last_block;
+  uint32_t missing_ct;
   uint32_t ujj;
   // common initialization between --epistasis and --fast-epistasis: remove
   // monomorphic and non-autosomal diploid sites
@@ -6525,6 +6541,21 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   } else {
     memcpy(marker_exclude2, marker_exclude1, unfiltered_marker_ctl * sizeof(intptr_t));
   }
+  if (do_joint_effects && epi_ip->je_cellmin) {
+    cellminx3 = epi_ip->je_cellmin * 3;
+    if ((case_ct < cellminx3 * 3) || ((!is_case_only) && (ctrl_ct < cellminx3 * 3))) {
+      sprintf(logbuf, "Error: Too few cases or controls for --je-cellmin %u.\n", epi_ip->je_cellmin);
+      goto epistasis_report_ret_INVALID_CMDLINE_2;
+    }
+    ulii = case_ctl2;
+    if ((!is_case_only) && (ctrl_ctl2 > case_ctl2)) {
+      ulii = ctrl_ctl2;
+    }
+    if (wkspace_alloc_ul_checked(&ulptr, ulii * sizeof(intptr_t))) {
+      goto epistasis_report_ret_NOMEM;
+    }
+    fill_vec_55(ulptr, ulii * BITCT2);
+  }
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
     chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
@@ -6549,9 +6580,9 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	  goto epistasis_report_ret_READ_FAIL;
 	}
       }
-      if (!no_ueki) {
+      if ((!no_ueki) && (!cellminx3)) {
 	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, casebuf, pheno_nm_ct, pheno_nm, 0)) {
-          goto epistasis_report_ret_READ_FAIL;
+	  goto epistasis_report_ret_READ_FAIL;
 	}
 	if (is_monomorphic(casebuf, pheno_nm_ct)) {
 	  SET_BIT(marker_exclude2, marker_uidx);
@@ -6560,8 +6591,20 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
         if (load_and_split(bedfile, loadbuf, unfiltered_indiv_ct, casebuf, ctrlbuf, pheno_nm, pheno_c)) {
           goto epistasis_report_ret_READ_FAIL;
 	}
-	if (is_monomorphic(casebuf, case_ct) || ((!is_case_only) && is_monomorphic(ctrlbuf, ctrl_ct))) {
-	  SET_BIT(marker_exclude2, marker_uidx);
+	if (no_ueki) {
+	  if (is_monomorphic(casebuf, case_ct) || ((!is_case_only) && is_monomorphic(ctrlbuf, ctrl_ct))) {
+	    SET_BIT(marker_exclude2, marker_uidx);
+	  }
+	} else {
+	  vec_3freq(case_ctl2, casebuf, ulptr, &missing_ct, &uii, &ujj);
+	  if ((uii < cellminx3) || (ujj < cellminx3) || (case_ct - uii - ujj - missing_ct < cellminx3)) {
+	    SET_BIT(marker_exclude2, marker_uidx);
+	  } else if (!is_case_only) {
+	    vec_3freq(ctrl_ctl2, ctrlbuf, ulptr, &missing_ct, &uii, &ujj);
+	    if ((uii < cellminx3) || (ujj < cellminx3) || (ctrl_ct - uii - ujj - missing_ct < cellminx3)) {
+	      SET_BIT(marker_exclude2, marker_uidx);
+	    }
+	  }
 	}
       }
       marker_uidx++;
@@ -6572,7 +6615,12 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     goto epistasis_report_ret_TOO_FEW_MARKERS;
   }
   if (ulii != marker_ct2) {
-    LOGPRINTF("--%sepistasis: Skipping %" PRIuPTR " monomorphic/non-autosomal site%s.\n", is_fast? "fast-" : "", marker_ct2 - ulii, (marker_ct2 - ulii == 1)? "" : "s");
+    if (!cellminx3) {
+      LOGPRINTF("--%sepistasis: Skipping %" PRIuPTR " monomorphic/non-autosomal site%s.\n", is_fast? "fast-" : "", marker_ct2 - ulii, (marker_ct2 - ulii == 1)? "" : "s");
+    } else {
+      LOGPRINTF("--%sepistasis: Skipping %" PRIuPTR " site%s due to --je-cellmin setting.\n", is_fast? "fast-" : "", marker_ct2 - ulii, (marker_ct2 - ulii == 1)? "" : "s");
+      wkspace_reset((unsigned char*)ulptr);
+    }
     marker_uidx_base = next_unset_ul_unsafe(marker_exclude2, marker_uidx_base);
   } else if ((!is_custom_set1) || (!is_set_by_set)) {
     wkspace_reset((unsigned char*)marker_exclude2);
@@ -6666,6 +6714,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   g_epi_case_ct = case_ct;
   g_epi_flag = modifier;
   g_epi_marker_ct = marker_ct2;
+  g_epi_cellmin = cellminx3 / 3;
   // might want to provide a Bonferroni correction interface...
   if (is_boost) {
     if (epi_ip->epi1 == 0.0) {

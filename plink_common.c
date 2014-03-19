@@ -8614,24 +8614,23 @@ uint32_t cubic_real_roots(double coef_a, double coef_b, double coef_c, double* s
   if (dxx == 0.0) {
     solutions[0] = -adiv3;
     return 1;
-  } else {
-    if (rr < 0.0) {
-      dxx = -dxx;
-    }
-    sq = qq / dxx;
   }
+  if (rr < 0.0) {
+    dxx = -dxx;
+  }
+  sq = qq / dxx;
   solutions[0] = dxx + sq - adiv3;
   // use of regular epsilon here has actually burned us
-  if (fabs(dxx - sq) < (EPSILON * 8)) {
-    if (dxx >= 0.0) {
-      solutions[1] = solutions[0];
-      solutions[0] = -dxx - adiv3;
-    } else {
-      solutions[1] = -dxx - adiv3;
-    }
-    return 2;
+  if (fabs(dxx - sq) >= (EPSILON * 8)) {
+    return 1;
   }
-  return 1;
+  if (dxx >= 0.0) {
+    solutions[1] = solutions[0];
+    solutions[0] = -dxx - adiv3;
+  } else {
+    solutions[1] = -dxx - adiv3;
+  }
+  return 2;
 }
 
 void join_threads(pthread_t* threads, uint32_t ctp1) {

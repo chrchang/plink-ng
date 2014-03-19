@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (17 Mar 2014)";
+  " (19 Mar 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -8830,6 +8830,27 @@ int32_t main(int32_t argc, char** argv) {
         calculation_type |= CALC_SEXCHECK;
         misc_flags |= MISC_IMPUTE_SEX;
 	sex_missing_pheno |= ALLOW_NO_SEX;
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
+      }
+      break;
+
+    case 'j':
+      if (!memcmp(argptr2, "e-cellmin", 10)) {
+	// epi_info.modifier & (EPI_FAST_BOOST | EPI_FAST_JOINT_EFFECTS
+        if (!(epi_info.modifier & EPI_FAST_JOINT_EFFECTS)) {
+	  sprintf(logbuf, "Error: --je-cellmin must be used with '--fast-epistasis joint-effects'.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+          goto main_ret_INVALID_CMDLINE_3;
+	}
+	// may as well enforce 2^29 / 18 limit...
+	if (atoiz(argv[cur_arg + 1], &ii) || (ii > 29826161)) {
+	  sprintf(logbuf, "Error: Invalid --je-cellmin parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	epi_info.je_cellmin = ii;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }

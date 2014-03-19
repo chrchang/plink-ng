@@ -63,6 +63,7 @@ typedef struct {
   uint32_t case_only_gap;
   double epi1;
   double epi2;
+  uint32_t je_cellmin;
   // twolocus() handles --ld too
   char* ld_mkr1;
   char* ld_mkr2;
