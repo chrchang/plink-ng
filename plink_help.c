@@ -950,6 +950,28 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --twolocus [variant ID] [variant ID]\n"
 "    Two-locus joint genotype count report.\n\n"
 	       );
+    help_print("score\tscore-no-mean-imputation", &help_ctrl, 1,
+"  --score [filename] {variant ID col.} {allele col.} {effect col.} <header>\n"
+"          <sum> <no-mean-imputation | center>\n"
+"    Apply a linear scoring system to each sample.\n"
+"    * The input file should have one line per scored variant.  By default, the\n"
+"      variant ID is read from column 1, an allele code is read from column 2,\n"
+"      and the score associated with the named allele is read from column 3; you\n"
+"      can change these positions by passing extra numeric parameters to\n"
+"      --score.\n"
+"    * The 'header' modifier causes the first nonempty line of the input file to\n"
+"      be ignored; otherwise, --score assumes there is no header line.\n"
+"    * By default, final scores are averages of the valid per-variant scores.\n"
+"      The 'sum' modifier causes sums to be reported instead.  (This cannot be\n"
+"      used with 'no-mean-imputation'.)\n"
+"    * By default, copies of the unnamed allele contribute zero to score, while\n"
+"      missing genotypes contribute an amount proportional to the loaded (via\n"
+"      --read-freq) or imputed allele frequency.  To throw out missing\n"
+"      observations instead (decreasing the denominator in the final average\n"
+"      when this happens), use the 'no-mean-imputation' modifier.\n"
+"    * Alternatively, you can use the 'center' modifier to shift all scores to\n"
+"      mean zero.\n\n"
+	       );
     /*
     help_print("regress-pcs\tregress-pcs-distance", &help_ctrl, 1,
 "  --regress-pcs [.evec or .eigenvec filename] <normalize-pheno> <sex-specific>\n"
@@ -1629,6 +1651,21 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("fast-epistasis\tje-cellmin", &help_ctrl, 0,
 "  --je-cellmin [n] : Set required number of observations per 3x3x2 contingency\n"
 "                     table cell for joint-effects test (default 5).\n"
+	       );
+    help_print("score\tq-score-file\tq-score-range", &help_ctrl, 0,
+"  --q-score-range [range file] [data file] {var ID col} {data col} <header> :\n"
+"    Apply --score to subset(s) of variants in the primary score list based\n"
+"    on e.g. p-value ranges.\n"
+"    * The first file should have range labels in the first column, p-value\n"
+"      lower bounds in the second column, and upper bounds in the third column.\n"
+"      Lines with too few entries, or nonnumeric values in the second or third\n"
+"      column, are ignored.\n"
+"    * The second file should contain a variant ID and a p-value on each\n"
+"      nonempty line (excpet possibly the first).  By default, variant IDs are\n"
+"      assumed to be in column 1 and p-values in column 2; you can change these\n"
+"      positions by passing extra numeric parameters to --q-score-range.  The\n"
+"      'header' modifier causes the first nonempty line of this file to be\n"
+"      skipped.\n"
 	       );
     help_print("parallel\tgenome-lists", &help_ctrl, 0,
 "  --parallel [k] [n] : Divide the output matrix into n pieces, and only compute\n"
