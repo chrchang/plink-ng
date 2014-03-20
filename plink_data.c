@@ -13378,6 +13378,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     memcpy(outname_end, ".chr-", 6);
     LOGPRINTF("--recode beagle to %s*.dat + %s*.map... ", outname, outname);
     fputs("0%", stdout);
+    marker_uidx = next_unset_unsafe(marker_exclude, 0);
     retval = recode_beagle_new_chrom(outname, &(outname_end[5]), marker_exclude, chrom_info_ptr, &marker_uidx, &chrom_fo_idx, &chrom_idx, &chrom_end, bedfile, bed_offset, unfiltered_indiv_ct4, &outfile, &outfile2, writebuf2, header_len);
     if (retval) {
       goto recode_ret_1;
