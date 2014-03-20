@@ -85,6 +85,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   uint32_t ukk;
   int32_t delta1;
   int32_t delta2;
+  int32_t deltam;
   int32_t sorted_idx;
   sorted_marker_ids = (char*)top_alloc(&topsize, marker_ct * max_marker_id_len);
   if (!sorted_marker_ids) {
@@ -303,21 +304,30 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
       haploid_fix(hh_exists, indiv_include2, indiv_male_include2, indiv_ct, is_x, is_y, (unsigned char*)loadbuf);
     }
     cur_effect_size = (*dptr++) * ploidy_d;
-    if (!IS_SET(a2_effect, marker_uidx)) {
-      dxx = 1.0 - set_allele_freqs[marker_uidx];
+    uii = IS_SET(a2_effect, marker_uidx);
+    if (!uii) {
       delta1 = 1;
       delta2 = ploidy;
+      deltam = 0;
     } else {
-      dxx = set_allele_freqs[marker_uidx];
-      score_base += cur_effect_size;
+      if (!center) {
+        score_base += cur_effect_size;
+      }
       cur_effect_size = -cur_effect_size;
       delta1 = -1;
       delta2 = -((int32_t)ploidy);
+      deltam = delta2;
       named_allele_ct_expected += ploidy;
     }
-    dxx *= cur_effect_size;
+    dxx = (1.0 - set_allele_freqs[marker_uidx]) * cur_effect_size;
     if (center) {
       score_base -= dxx;
+    } else if (!mean_impute) {
+      if (!uii) {
+	dxx = 0;
+      } else {
+        dxx = cur_effect_size;
+      }
     }
     half_effect_size = cur_effect_size * 0.5;
     obs_expected += ploidy;
@@ -340,9 +350,8 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
 	  named_allele_ct_deltas[indiv_idx] += delta2;
 	} else {
 	  miss_cts[indiv_idx] += ploidy;
-	  if (mean_impute) {
-	    score_deltas[indiv_idx] += dxx;
-	  }
+	  named_allele_ct_deltas[indiv_idx] += deltam;
+	  score_deltas[indiv_idx] += dxx;
 	}
         ulii &= ~((3 * ONELU) << ujj);
       }
@@ -391,6 +400,9 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
       *bufptr++ = ' ';
       uii = obs_expected - miss_cts[indiv_idx];
       bufptr = uint32_writew6x(bufptr, uii, ' ');
+      if (mean_impute) {
+	uii = obs_expected;
+      }
       bufptr = uint32_writew6x(bufptr, ((int32_t)named_allele_ct_expected) + named_allele_ct_deltas[indiv_idx], ' ');
       if (report_average) {
         bufptr = width_force(8, bufptr, double_g_write(bufptr, (score_base + score_deltas[indiv_idx]) / ((double)((int32_t)uii))));
