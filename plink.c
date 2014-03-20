@@ -2602,7 +2602,7 @@ static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, char* cm
 }
 
 static inline uint32_t are_marker_alleles_needed(uint64_t calculation_type, char* freqname, Homozyg_info* homozyg_ptr, Two_col_params* a1alleles, Two_col_params* a2alleles, uint32_t ld_modifier, uint32_t snp_only, uint32_t clump_modifier) {
-  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (ld_modifier & LD_INPHASE)) || a1alleles || a2alleles || snp_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)));
+  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP | CALC_SCORE)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (ld_modifier & LD_INPHASE)) || a1alleles || a2alleles || snp_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)));
 }
 
 inline int32_t relationship_or_ibc_req(uint64_t calculation_type) {
@@ -2613,7 +2613,7 @@ inline int32_t distance_wt_req(uint64_t calculation_type, char* read_dists_fname
   return (((calculation_type & CALC_DISTANCE) || ((!read_dists_fname) && ((calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))))) && (!(dist_calc_type & DISTANCE_FLAT_MISSING)));
 }
 
-int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* cm_map_fname, char* cm_map_chrname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char** missing_mid_templates, char* missing_marker_id_match, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filtervals_flattened, char* condition_mname, char* condition_fname, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_indiv_fname, char* filter_attrib_indiv_liststr, double thin_keep_prob, uint32_t thin_keep_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t filter_binary, uint32_t fam_cols, int32_t missing_pheno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, double check_sex_fthresh, double check_sex_mthresh, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t splitx_bound1, uint32_t splitx_bound2, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t update_sex_col, uint32_t hwe_modifier, uint32_t genome_modifier, double genome_min_pi_hat, double genome_max_pi_hat, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, Set_info* sip, Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip, Rel_info* relip, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t write_covar_modifier, uint32_t write_covar_dummy_max_categories, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, Aperm_info* apip, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, double lasso_h2, double lasso_minlambda, Range_list* lasso_select_covars_range_list_ptr, uint32_t testmiss_modifier, uint32_t testmiss_mperm_val, Ll_str** file_delete_list_ptr) {
+int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* cm_map_fname, char* cm_map_chrname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char** missing_mid_templates, char* missing_marker_id_match, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filtervals_flattened, char* condition_mname, char* condition_fname, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_indiv_fname, char* filter_attrib_indiv_liststr, double thin_keep_prob, uint32_t thin_keep_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t filter_binary, uint32_t fam_cols, int32_t missing_pheno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, double check_sex_fthresh, double check_sex_mthresh, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t splitx_bound1, uint32_t splitx_bound2, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t update_sex_col, uint32_t hwe_modifier, uint32_t genome_modifier, double genome_min_pi_hat, double genome_max_pi_hat, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, Set_info* sip, Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip, Rel_info* relip, Score_info* sc_ip, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t write_covar_modifier, uint32_t write_covar_dummy_max_categories, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, Aperm_info* apip, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, double lasso_h2, double lasso_minlambda, Range_list* lasso_select_covars_range_list_ptr, uint32_t testmiss_modifier, uint32_t testmiss_mperm_val, Ll_str** file_delete_list_ptr) {
   FILE* bedfile = NULL;
   FILE* famfile = NULL;
   FILE* phenofile = NULL;
@@ -3379,7 +3379,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     logprint("Using 1 thread.\n");
   }
 
-  if ((calculation_type & (CALC_SEXCHECK | CALC_MISSING_REPORT | CALC_GENOME | CALC_HOMOZYG)) || cluster_ptr->mds_dim_ct) {
+  if ((calculation_type & (CALC_SEXCHECK | CALC_MISSING_REPORT | CALC_GENOME | CALC_HOMOZYG | CALC_SCORE)) || cluster_ptr->mds_dim_ct) {
     calc_plink_maxfid(unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, &plink_maxfid, &plink_maxiid);
   }
   plink_maxsnp = calc_plink_maxsnp(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len);
@@ -3969,6 +3969,13 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto plink_ret_INVALID_CMDLINE;
     }
     retval = epistasis_report(threads, epi_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, marker_pos, plink_maxsnp, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm, pheno_nm_ct, pheno_ctrl_ct, pheno_c, pheno_d, parallel_idx, parallel_tot, outname, outname_end, sip);
+    if (retval) {
+      goto plink_ret_1;
+    }
+  }
+
+  if (calculation_type & CALC_SCORE) {
+    retval = score_report(sc_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, marker_allele_ptrs, set_allele_freqs, indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, sex_male, pheno_nm, pheno_c, pheno_d, missing_pheno, missing_pheno_len, hh_exists, chrom_info_ptr, outname, outname_end);
     if (retval) {
       goto plink_ret_1;
     }
@@ -5189,6 +5196,7 @@ int32_t main(int32_t argc, char** argv) {
   Epi_info epi_info;
   Clump_info clump_info;
   Rel_info rel_info;
+  Score_info score_info;
   Range_list snps_range_list;
   Range_list covar_range_list;
   Range_list lasso_select_covars_range_list;
@@ -5218,6 +5226,7 @@ int32_t main(int32_t argc, char** argv) {
   homozyg_init(&homozyg);
   ld_epi_init(&ld_info, &epi_info, &clump_info);
   rel_init(&rel_info);
+  misc_init(&score_info);
   range_list_init(&snps_range_list);
   range_list_init(&covar_range_list);
   range_list_init(&lasso_select_covars_range_list);
@@ -10637,13 +10646,61 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "-score-file", 12)) {
-	logprint("Error: --q-score-file is currently under development.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        retval = alloc_fname(&score_info.data_fname, argv[cur_arg + 1], argptr, 0);
+        if (retval) {
+	  goto main_ret_1;
+	}
+        logprint("Note: --q-score-file flag deprecated.  Pass multiple parameters to\n--q-score-range instead.\n");
       } else if (!memcmp(argptr2, "-score-range", 13)) {
-	logprint("Error: --q-score-range is currently under development.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
+	if (score_info.data_fname) {
+	  if (param_ct != 1) {
+	    logprint("Error: --q-score-range must be given exactly one parameter when --q-score-file\nis present.\n");
+	    goto main_ret_INVALID_CMDLINE;
+	  }
+	  retval = alloc_fname(&score_info.range_fname, argv[cur_arg + 1], argptr, 0);
+	  if (retval) {
+	    goto main_ret_1;
+	  }
+	  // no need for separate deprecation message
+	} else {
+	  if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 5)) {
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  retval = alloc_fname(&score_info.range_fname, argv[cur_arg + 1], argptr, 0);
+	  if (retval) {
+	    goto main_ret_1;
+	  }
+          retval = alloc_fname(&score_info.data_fname, argv[cur_arg + 2], argptr, 0);
+	  ujj = 0; // number of numeric parameters
+	  for (uii = 3; uii <= param_ct; uii++) {
+	    if (!strcmp(argv[cur_arg + uii], "header")) {
+	      score_info.modifier |= SCORE_DATA_HEADER;
+	    } else if (ujj == 2) {
+              sprintf(logbuf, "Error: --q-score-range takes at most two numeric parameters.%s", errstr_append);
+              goto main_ret_INVALID_CMDLINE_3;
+	    } else {
+	      ii = atoi(argv[cur_arg + uii]);
+	      if ((ii < 1) || (ii > (MAXLINEBUFLEN / 2))) {
+                sprintf(logbuf, "Error: Invalid --q-score-range parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
+                goto main_ret_INVALID_CMDLINE_3;
+	      }
+              if (!ujj) {
+                score_info.data_varid_col = ii;
+                score_info.data_col = ii + 1;
+	      } else {
+		if ((uint32_t)ii == score_info.data_varid_col) {
+	          sprintf(logbuf, "Error: --q-score-range variant ID and data column numbers cannot match.%s", errstr_append);
+	          goto main_ret_INVALID_CMDLINE_3;
+		}
+		score_info.data_col = ii;
+	      }
+	      ujj++;
+	    }
+	  }
+	}
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -11782,17 +11839,82 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	misc_flags |= MISC_SET_MISSING_VAR_IDS;
       } else if (!memcmp(argptr2, "core", 5)) {
-        logprint("Error: --score is currently under development.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 7)) {
+          goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_fname(&score_info.fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
+	ujj = 0; // number of numeric parameters so far
+        for (uii = 2; uii <= param_ct; uii++) {
+          if (!strcmp(argv[cur_arg + uii], "header")) {
+            score_info.modifier |= SCORE_HEADER;
+	  } else if (!strcmp(argv[cur_arg + uii], "sum")) {
+	    if (score_info.modifier & SCORE_NO_MEAN_IMPUTATION) {
+	      sprintf(logbuf, "Error: --score 'sum' and 'no-mean-imputation' modifiers cannot be used\ntogether.%s", errstr_append);
+              goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    score_info.modifier |= SCORE_SUM;
+	  } else if (!strcmp(argv[cur_arg + uii], "no-mean-imputation")) {
+	    if (score_info.modifier & SCORE_SUM) {
+	      sprintf(logbuf, "Error: --score 'sum' and 'no-mean-imputation' modifiers cannot be used\ntogether.%s", errstr_append);
+              goto main_ret_INVALID_CMDLINE_3;
+	    } else if (score_info.modifier & SCORE_CENTER) {
+	      sprintf(logbuf, "Error: --score 'center' and 'no-mean-imputation' modifiers cannot be used\ntogether.%s", errstr_append);
+              goto main_ret_INVALID_CMDLINE_3;
+	    }
+            score_info.modifier |= SCORE_NO_MEAN_IMPUTATION;
+	  } else if (!strcmp(argv[cur_arg + uii], "center")) {
+	    if (score_info.modifier & SCORE_NO_MEAN_IMPUTATION) {
+	      sprintf(logbuf, "Error: --score 'center' and 'no-mean-imputation' modifiers cannot be used\ntogether.%s", errstr_append);
+              goto main_ret_INVALID_CMDLINE_3;
+	    }
+            score_info.modifier |= SCORE_CENTER;
+	  } else if (ujj == 3) {
+            sprintf(logbuf, "Error: --score takes at most three numeric parameters.%s", errstr_append);
+            goto main_ret_INVALID_CMDLINE_3;
+	  } else {
+            ii = atoi(argv[cur_arg + uii]);
+	    if ((ii < 1) || (ii > (MAXLINEBUFLEN / 2))) {
+              sprintf(logbuf, "Error: Invalid --score parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
+              goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    if (!ujj) {
+              score_info.varid_col = ii;
+	      score_info.allele_col = ii + 1;
+	      score_info.effect_col = ii + 2;
+	    } else if (ujj == 1) {
+	      if ((uint32_t)ii == score_info.varid_col) {
+	        sprintf(logbuf, "Error: --score variant ID and allele column numbers cannot match.%s", errstr_append);
+	        goto main_ret_INVALID_CMDLINE_3;
+	      }
+              score_info.allele_col = ii;
+              score_info.effect_col = ii + 1;
+	    } else {
+	      if ((uint32_t)ii == score_info.varid_col) {
+	        sprintf(logbuf, "Error: --score variant ID and effect column numbers cannot match.%s", errstr_append);
+	        goto main_ret_INVALID_CMDLINE_3;
+	      } else if ((uint32_t)ii == score_info.allele_col) {
+	        sprintf(logbuf, "Error: --score allele and effect column numbers cannot match.%s", errstr_append);
+	        goto main_ret_INVALID_CMDLINE_3;
+	      }
+              score_info.effect_col = ii;
+	    }
+            ujj++;
+	  }
+	}
+        calculation_type |= CALC_SCORE;
       } else if (!memcmp(argptr2, "core-no-mean-imputation", 24)) {
 	if (!(calculation_type & CALC_SCORE)) {
 	  logprint("Error: --score-no-mean-imputation must be used with --score.\n");
 	  goto main_ret_INVALID_CMDLINE;
+	} else if (score_info.modifier & SCORE_CENTER) {
+	  sprintf(logbuf, "Error: --score-no-mean-imputation cannot be used with --score 'center'\nmodifier.%s", errstr_append);
+          goto main_ret_INVALID_CMDLINE_3;
 	}
 	logprint("Note: --score-no-mean-imputation flag deprecated.  Use e.g.\n'--score ... no-mean-imputation'.\n");
-	// ...
-	;;;
+        score_info.modifier |= SCORE_NO_MEAN_IMPUTATION;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "kato", 5)) {
 	logprint("Error: --skato is not implemented yet.  Use e.g. PLINK/SEQ to perform this test\nfor now.\n");
@@ -12966,6 +13088,16 @@ int32_t main(int32_t argc, char** argv) {
     }
     goto main_ret_INVALID_CMDLINE_3;
   }
+  if (score_info.data_fname) {
+    if (!score_info.range_fname) {
+      logprint("Error: --q-score-file cannot be used without --q-score-range.\n");
+      goto main_ret_INVALID_CMDLINE;
+    } else if (!(calculation_type & CALC_SCORE)) {
+      sprintf(logbuf, "Error: --q-score-range must be used with --score.%s", errstr_append);
+      goto main_ret_INVALID_CMDLINE_3;
+    }
+  }
+
   uii = load_params & LOAD_PARAMS_OX_ALL;
   if ((uii == LOAD_PARAMS_OXGEN) || (uii == LOAD_PARAMS_OXBGEN)) {
     sprintf(logbuf, "Error: --gen/--bgen cannot be used without --data or --sample.%s", errstr_append);
@@ -13171,7 +13303,7 @@ int32_t main(int32_t argc, char** argv) {
     } else if (!rel_info.ibc_type) {
       rel_info.ibc_type = 1;
     }
-    retval = plink(outname, outname_end, pedname, mapname, famname, cm_map_fname, cm_map_chrname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, read_dists_fname, read_dists_id_fname, evecname, mergename1, mergename2, mergename3, missing_mid_templates, missing_marker_id_match, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, update_alleles_fname, read_genome_fname, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, filtervals_flattened, condition_mname, condition_fname, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, filter_binary, fam_cols, missing_pheno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, &oblig_missing_info, check_sex_fthresh, check_sex_mthresh, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, tail_bottom, tail_top, misc_flags, calculation_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, parallel_idx, parallel_tot, splitx_bound1, splitx_bound2, ppc_gap, sex_missing_pheno, update_sex_col, hwe_modifier, genome_modifier, genome_min_pi_hat, genome_max_pi_hat, &homozyg, &cluster, neighbor_n1, neighbor_n2, &set_info, &ld_info, &epi_info, &clump_info, &rel_info, recode_modifier, allelexxxx, merge_type, indiv_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, write_covar_modifier, write_covar_dummy_max_categories, mwithin_col, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, &parameters_range_list, &tests_range_list, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, &aperm, mperm_save, ibs_test_perms, perm_batch_size, lasso_h2, lasso_minlambda, &lasso_select_covars_range_list, testmiss_modifier, testmiss_mperm_val, &file_delete_list);
+    retval = plink(outname, outname_end, pedname, mapname, famname, cm_map_fname, cm_map_chrname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, read_dists_fname, read_dists_id_fname, evecname, mergename1, mergename2, mergename3, missing_mid_templates, missing_marker_id_match, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, update_alleles_fname, read_genome_fname, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, filtervals_flattened, condition_mname, condition_fname, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, filter_binary, fam_cols, missing_pheno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, &oblig_missing_info, check_sex_fthresh, check_sex_mthresh, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, tail_bottom, tail_top, misc_flags, calculation_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, parallel_idx, parallel_tot, splitx_bound1, splitx_bound2, ppc_gap, sex_missing_pheno, update_sex_col, hwe_modifier, genome_modifier, genome_min_pi_hat, genome_max_pi_hat, &homozyg, &cluster, neighbor_n1, neighbor_n2, &set_info, &ld_info, &epi_info, &clump_info, &rel_info, &score_info, recode_modifier, allelexxxx, merge_type, indiv_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, write_covar_modifier, write_covar_dummy_max_categories, mwithin_col, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, &parameters_range_list, &tests_range_list, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, &aperm, mperm_save, ibs_test_perms, perm_batch_size, lasso_h2, lasso_minlambda, &lasso_select_covars_range_list, testmiss_modifier, testmiss_mperm_val, &file_delete_list);
   }
  main_ret_2:
   free(wkspace_ua);
@@ -13289,6 +13421,7 @@ int32_t main(int32_t argc, char** argv) {
   set_cleanup(&set_info);
   ld_epi_cleanup(&ld_info, &epi_info, &clump_info);
   rel_cleanup(&rel_info);
+  misc_cleanup(&score_info);
   if (file_delete_list) {
     do {
       ll_str_ptr = file_delete_list->next;

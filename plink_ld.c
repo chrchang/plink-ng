@@ -4841,7 +4841,7 @@ uint32_t haploview_blocks_classify(uint32_t* counts, uint32_t lowci_max, uint32_
   double total_prob = 0.0;
   double lnsurf_highstrong_thresh = 0.0;
   uint32_t onside_sol_ct = 1;
-  double right_sum[100];
+  double right_sum[83];
   double freq1x;
   double freq2x;
   double freqx1;

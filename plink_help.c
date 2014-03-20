@@ -951,14 +951,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Two-locus joint genotype count report.\n\n"
 	       );
     help_print("score\tscore-no-mean-imputation", &help_ctrl, 1,
-"  --score [filename] {variant ID col.} {allele col.} {effect col.} <header>\n"
-"          <sum> <no-mean-imputation | center>\n"
+"  --score [filename] {i} {j} {k} <header> <sum> <no-mean-imputation | center>\n"
 "    Apply a linear scoring system to each sample.\n"
-"    * The input file should have one line per scored variant.  By default, the\n"
-"      variant ID is read from column 1, an allele code is read from column 2,\n"
-"      and the score associated with the named allele is read from column 3; you\n"
-"      can change these positions by passing extra numeric parameters to\n"
-"      --score.\n"
+"    The input file should have one line per scored variant.  Variant IDs are\n"
+"    read from column #i, allele codes are read from column #j, and scores are\n"
+"    read from column #k, where i defaults to 1, j defaults to i+1, and k\n"
+"    defaults to j+1.\n"
 "    * The 'header' modifier causes the first nonempty line of the input file to\n"
 "      be ignored; otherwise, --score assumes there is no header line.\n"
 "    * By default, final scores are averages of the valid per-variant scores.\n"
@@ -1653,7 +1651,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     table cell for joint-effects test (default 5).\n"
 	       );
     help_print("score\tq-score-file\tq-score-range", &help_ctrl, 0,
-"  --q-score-range [range file] [data file] {var ID col} {data col} <header> :\n"
+"  --q-score-range [range file] [data file] {i} {j} <header> :\n"
 "    Apply --score to subset(s) of variants in the primary score list based\n"
 "    on e.g. p-value ranges.\n"
 "    * The first file should have range labels in the first column, p-value\n"
@@ -1661,11 +1659,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      Lines with too few entries, or nonnumeric values in the second or third\n"
 "      column, are ignored.\n"
 "    * The second file should contain a variant ID and a p-value on each\n"
-"      nonempty line (excpet possibly the first).  By default, variant IDs are\n"
-"      assumed to be in column 1 and p-values in column 2; you can change these\n"
-"      positions by passing extra numeric parameters to --q-score-range.  The\n"
-"      'header' modifier causes the first nonempty line of this file to be\n"
-"      skipped.\n"
+"      nonempty line (except possibly the first).  Variant IDs are read from\n"
+"      column #i and p-values are read from column #j, where i defaults to 1 and\n"
+"      j defaults to i+1.  The 'header' modifier causes the first nonempty line\n"
+"      of this file to be skipped.\n"
 	       );
     help_print("parallel\tgenome-lists", &help_ctrl, 0,
 "  --parallel [k] [n] : Divide the output matrix into n pieces, and only compute\n"

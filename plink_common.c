@@ -7992,7 +7992,7 @@ int32_t load_to_first_token(FILE* infile, uintptr_t loadbuf_size, char comment_c
   while (fgets(loadbuf, loadbuf_size, infile)) {
     if (!(loadbuf[loadbuf_size - 1])) {
       if ((loadbuf_size == MAXLINELEN) || (loadbuf_size == MAXLINEBUFLEN)) {
-	LOGPRINTF("Error: Pathologically long line in %s.", file_descrip);
+	LOGPRINTF("Error: Pathologically long line in %s.\n", file_descrip);
 	return RET_INVALID_FORMAT;
       } else {
 	return RET_NOMEM;
@@ -8008,7 +8008,7 @@ int32_t load_to_first_token(FILE* infile, uintptr_t loadbuf_size, char comment_c
   if (!feof(infile)) {
     return RET_READ_FAIL;
   }
-  LOGPRINTF("Error: Empty %s.", file_descrip);
+  LOGPRINTF("Error: Empty %s.\n", file_descrip);
   return RET_INVALID_FORMAT;
 }
 
