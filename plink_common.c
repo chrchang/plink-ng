@@ -8205,7 +8205,7 @@ char* alloc_and_init_collapsed_arr(char* item_arr, uintptr_t item_len, uintptr_t
     return NULL;
   }
   wptr = new_arr;
-  wptr_end = &(new_arr[filtered_ct]);
+  wptr_end = &(new_arr[filtered_ct * item_len]);
   do {
     item_uidx = next_unset_ul_unsafe(exclude_arr, item_uidx);
     item_uidx_stop = next_set_ul(exclude_arr, item_uidx, unfiltered_ct);

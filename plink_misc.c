@@ -29,13 +29,22 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   uintptr_t range_ct = 1;
   uintptr_t topsize = 0;
   uintptr_t miss_ct = 0;
+  uintptr_t* indiv_include2 = NULL;
+  uintptr_t* indiv_male_include2 = NULL;
   double score_base = 0.0;
+  double ploidy_d = 0.0;
   uint32_t modifier = sc_ip->modifier;
+  uint32_t center = modifier & SCORE_CENTER;
+  uint32_t report_average = !(modifier & SCORE_SUM);
+  uint32_t mean_impute = !(modifier & SCORE_NO_MEAN_IMPUTATION);
+  uint32_t obs_expected = 0;
+  uint32_t named_allele_ct_expected = 0;
   uint32_t chrom_fo_idx = 0xffffffffU; // deliberate overflow
   uint32_t chrom_end = 0;
   uint32_t is_haploid = 0;
   uint32_t is_x = 0;
   uint32_t is_y = 0;
+  uint32_t ploidy = 0;
   int32_t retval = 0;
   char missing_pheno_str[12];
   char* bufptr_arr[3];
@@ -43,15 +52,19 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   uintptr_t* a2_effect;
   uintptr_t* loadbuf_raw;
   uintptr_t* loadbuf;
+  uintptr_t* lbptr;
   char* bufptr;
   char* loadbuf_c;
   char* sorted_marker_ids;
   uint32_t* marker_id_map;
-  uint32_t* nonmiss_cts;
-  uint32_t* named_allele_cts;
+  uint32_t* miss_cts;
+  int32_t* named_allele_ct_deltas;
   double* score_deltas;
   double* effect_sizes;
   double* dptr;
+  double cur_effect_size;
+  double half_effect_size;
+  double dxx;
   uintptr_t topsize_bak;
   uintptr_t loadbuf_size;
   uintptr_t marker_uidx;
@@ -59,6 +72,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   uintptr_t range_idx;
   uintptr_t indiv_uidx;
   uintptr_t indiv_idx;
+  uintptr_t ulii;
   uint32_t cur_marker_ct;
   uint32_t first_col_m1;
   uint32_t col_01_delta;
@@ -67,6 +81,10 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   uint32_t allele_idx;
   uint32_t effect_idx;
   uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+  int32_t delta1;
+  int32_t delta2;
   int32_t sorted_idx;
   sorted_marker_ids = (char*)top_alloc(&topsize, marker_ct * max_marker_id_len);
   if (!sorted_marker_ids) {
@@ -77,7 +95,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
     goto score_report_ret_NOMEM;
   }
   topsize_bak = topsize;
-  dptr = (double*)top_alloc(&topsize, unfiltered_marker_ct * sizeof(int32_t));
+  dptr = (double*)top_alloc(&topsize, unfiltered_marker_ct * sizeof(double));
   if (!dptr) {
     goto score_report_ret_NOMEM;
   }
@@ -211,9 +229,12 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   if (fclose_null(&infile)) {
     goto score_report_ret_READ_FAIL;
   }
-  cur_marker_ct = unfiltered_marker_ct - popcount_longs(marker_exclude_orig, unfiltered_marker_ctl);
+  cur_marker_ct = unfiltered_marker_ct - popcount_longs(marker_exclude, unfiltered_marker_ctl);
   if (!cur_marker_ct) {
     logprint("Error: No valid entries in --score file.\n");
+    goto score_report_ret_INVALID_FORMAT;
+  } else if (cur_marker_ct >= 0x40000000) {
+    logprint("Error: --score does not support >= 2^30 markers.\n");
     goto score_report_ret_INVALID_FORMAT;
   }
   if (miss_ct) {
@@ -233,8 +254,8 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   }
   // topsize = 0;
   if (wkspace_alloc_d_checked(&score_deltas, indiv_ct * sizeof(double)) ||
-      wkspace_alloc_ui_checked(&nonmiss_cts, indiv_ct * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(&named_allele_cts, indiv_ct * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&miss_cts, indiv_ct * sizeof(int32_t)) ||
+      wkspace_alloc_i_checked(&named_allele_ct_deltas, indiv_ct * sizeof(int32_t)) ||
       wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&loadbuf, indiv_ctl2 * sizeof(intptr_t))) {
     goto score_report_ret_NOMEM;
@@ -242,12 +263,16 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   loadbuf_raw[unfiltered_indiv_ctl2 - 1] = 0;
   loadbuf[indiv_ctl2 - 1] = 0;
   fill_double_zero(score_deltas, indiv_ct);
-  fill_uint_zero(nonmiss_cts, indiv_ct);
-  fill_uint_zero(named_allele_cts, indiv_ct);
+  fill_uint_zero(miss_cts, indiv_ct);
+  fill_int_zero(named_allele_ct_deltas, indiv_ct);
+  if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, indiv_ct, hh_exists, 0, indiv_exclude, sex_male, &indiv_include2, &indiv_male_include2)) {
+    goto score_report_ret_NOMEM;
+  }
   marker_uidx = next_unset_unsafe(marker_exclude, 0);
   if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
     goto score_report_ret_READ_FAIL;
   }
+  dptr = effect_sizes;
   for (marker_idx = 0; marker_idx < cur_marker_ct; marker_uidx++, marker_idx++) {
     if (IS_SET(marker_exclude, marker_uidx)) {
       marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
@@ -262,12 +287,67 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       is_haploid = IS_SET(chrom_info_ptr->haploid_mask, uii);
       is_x = ((int32_t)uii == chrom_info_ptr->x_code)? 1 : 0;
+      if (is_x) {
+	logprint("Error: --score X chromosome handling is currently under development.\n");
+        retval = RET_CALC_NOT_YET_SUPPORTED;
+        goto score_report_ret_1;
+      }
       is_y = ((int32_t)uii == chrom_info_ptr->y_code)? 1 : 0;
+      ploidy = 2 - is_haploid;
+      ploidy_d = (double)((int32_t)ploidy);
     }
-    /*
-    if (load_and_collapse()) {
+    if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, indiv_ct, indiv_exclude, IS_SET(marker_reverse, marker_uidx))) {
+      goto score_report_ret_READ_FAIL;
     }
-    */
+    if (is_haploid && hh_exists) {
+      haploid_fix(hh_exists, indiv_include2, indiv_male_include2, indiv_ct, is_x, is_y, (unsigned char*)loadbuf);
+    }
+    cur_effect_size = (*dptr++) * ploidy_d;
+    if (!IS_SET(a2_effect, marker_uidx)) {
+      dxx = 1.0 - set_allele_freqs[marker_uidx];
+      delta1 = 1;
+      delta2 = ploidy;
+    } else {
+      dxx = set_allele_freqs[marker_uidx];
+      score_base += cur_effect_size;
+      cur_effect_size = -cur_effect_size;
+      delta1 = -1;
+      delta2 = -((int32_t)ploidy);
+      named_allele_ct_expected += ploidy;
+    }
+    dxx *= cur_effect_size;
+    if (center) {
+      score_base -= dxx;
+    }
+    half_effect_size = cur_effect_size * 0.5;
+    obs_expected += ploidy;
+    lbptr = loadbuf;
+    uii = 0;
+    do {
+      ulii = ~(*lbptr++);
+      if (uii + BITCT2 > indiv_ct) {
+        ulii &= (ONELU << ((indiv_ct & (BITCT2 - 1)) * 2)) - ONELU;
+      }
+      while (ulii) {
+        ujj = CTZLU(ulii) & (BITCT - 2);
+        ukk = (ulii >> ujj) & 3;
+        indiv_idx = uii + (ujj / 2);
+	if (ukk == 1) {
+	  score_deltas[indiv_idx] += half_effect_size;
+	  named_allele_ct_deltas[indiv_idx] += delta1;
+	} else if (ukk == 3) {
+	  score_deltas[indiv_idx] += cur_effect_size;
+	  named_allele_ct_deltas[indiv_idx] += delta2;
+	} else {
+	  miss_cts[indiv_idx] += ploidy;
+	  if (mean_impute) {
+	    score_deltas[indiv_idx] += dxx;
+	  }
+	}
+        ulii &= ~((3 * ONELU) << ujj);
+      }
+      uii += BITCT2;
+    } while (uii < indiv_ct);
   }
   if (missing_pheno_len < 6) {
     bufptr = memseta(missing_pheno_str, 32, 6 - missing_pheno_len);
@@ -284,8 +364,12 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
     if (fopen_checked(&outfile, outname, "w")) {
       goto score_report_ret_OPEN_FAIL;
     }
-    sprintf(tbuf, "%%%us %%%us  PHENO    CNT   CNT2    SCORE\n", plink_maxfid, plink_maxiid);
+    sprintf(tbuf, "%%%us %%%us  PHENO    CNT   CNT2    SCORE", plink_maxfid, plink_maxiid);
     fprintf(outfile, tbuf, "FID", "IID");
+    if (!report_average) {
+      fputs("SUM", outfile);
+    }
+    putc('\n', outfile);
     for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
       next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
       bufptr_arr[0] = &(person_ids[indiv_uidx * max_person_id_len]);
@@ -305,11 +389,26 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
         bufptr = memcpya(bufptr, missing_pheno_str, missing_pheno_len);
       }
       *bufptr++ = ' ';
-      // bufptr = uint32_write();
+      uii = obs_expected - miss_cts[indiv_idx];
+      bufptr = uint32_writew6x(bufptr, uii, ' ');
+      bufptr = uint32_writew6x(bufptr, ((int32_t)named_allele_ct_expected) + named_allele_ct_deltas[indiv_idx], ' ');
+      if (report_average) {
+        bufptr = width_force(8, bufptr, double_g_write(bufptr, (score_base + score_deltas[indiv_idx]) / ((double)((int32_t)uii))));
+      } else {
+        bufptr = width_force(8, bufptr, double_g_write(bufptr, score_base + score_deltas[indiv_idx]));
+      }
+      *bufptr++ = '\n';
+      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	goto score_report_ret_WRITE_FAIL;
+      }
     }
     if (fclose_null(&outfile)) {
       goto score_report_ret_WRITE_FAIL;
     }
+  }
+  if (0) {
+  } else {
+    LOGPRINTF("--score: Results written to %s.\n", outname);
   }
   while (0) {
   score_report_ret_OPEN_FAIL:

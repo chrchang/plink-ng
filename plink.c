@@ -2620,8 +2620,8 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uintptr_t unfiltered_marker_ct = 0;
   uintptr_t* marker_exclude = NULL;
   uintptr_t max_marker_id_len = 0;
-  // set_allele_freqs = frequency of allele corresponding to set bits in .bed
-  //   (i.e. A2), or frequency of MAJOR allele in middle of text loading.
+  // set_allele_freqs = .bed set bit frequency in middle of loading process, A2
+  //   allele frequency later.
   double* set_allele_freqs = NULL;
   uintptr_t topsize = 0;
   uintptr_t unfiltered_indiv_ct = 0;
