@@ -29,10 +29,12 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   uintptr_t range_ct = 1;
   uintptr_t topsize = 0;
   uintptr_t miss_ct = 0;
+  uintptr_t ulii = 0;
   uintptr_t* indiv_include2 = NULL;
   uintptr_t* indiv_male_include2 = NULL;
   double score_base = 0.0;
   double ploidy_d = 0.0;
+  double female_y_offset = 0.0;
   uint32_t modifier = sc_ip->modifier;
   uint32_t center = modifier & SCORE_CENTER;
   uint32_t report_average = !(modifier & SCORE_SUM);
@@ -45,7 +47,11 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   uint32_t is_x = 0;
   uint32_t is_y = 0;
   uint32_t ploidy = 0;
+  uint32_t named_allele_ct_female_delta = 0;
+  int32_t obs_expected_female_delta = 0;
   int32_t retval = 0;
+  double female_effect_size[4];
+  int32_t female_allele_ct_delta[4];
   char missing_pheno_str[12];
   char* bufptr_arr[3];
   uintptr_t* marker_exclude;
@@ -64,6 +70,8 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   double* dptr;
   double cur_effect_size;
   double half_effect_size;
+  double missing_effect;
+  double cur_effect_offset;
   double dxx;
   uintptr_t topsize_bak;
   uintptr_t loadbuf_size;
@@ -72,7 +80,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   uintptr_t range_idx;
   uintptr_t indiv_uidx;
   uintptr_t indiv_idx;
-  uintptr_t ulii;
+  uintptr_t uljj;
   uint32_t cur_marker_ct;
   uint32_t first_col_m1;
   uint32_t col_01_delta;
@@ -266,7 +274,8 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   fill_double_zero(score_deltas, indiv_ct);
   fill_uint_zero(miss_cts, indiv_ct);
   fill_int_zero(named_allele_ct_deltas, indiv_ct);
-  if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, indiv_ct, hh_exists, 0, indiv_exclude, sex_male, &indiv_include2, &indiv_male_include2)) {
+  // force indiv_male_include2 allocation
+  if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, indiv_ct, hh_exists | XMHH_EXISTS, 0, indiv_exclude, sex_male, &indiv_include2, &indiv_male_include2)) {
     goto score_report_ret_NOMEM;
   }
   marker_uidx = next_unset_unsafe(marker_exclude, 0);
@@ -288,11 +297,6 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       is_haploid = IS_SET(chrom_info_ptr->haploid_mask, uii);
       is_x = ((int32_t)uii == chrom_info_ptr->x_code)? 1 : 0;
-      if (is_x) {
-	logprint("Error: --score X chromosome handling is currently under development.\n");
-        retval = RET_CALC_NOT_YET_SUPPORTED;
-        goto score_report_ret_1;
-      }
       is_y = ((int32_t)uii == chrom_info_ptr->y_code)? 1 : 0;
       ploidy = 2 - is_haploid;
       ploidy_d = (double)((int32_t)ploidy);
@@ -320,43 +324,110 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
       named_allele_ct_expected += ploidy;
     }
     dxx = (1.0 - set_allele_freqs[marker_uidx]) * cur_effect_size;
+    missing_effect = dxx;
     if (center) {
       score_base -= dxx;
     } else if (!mean_impute) {
       if (!uii) {
-	dxx = 0;
+	missing_effect = 0;
       } else {
-        dxx = cur_effect_size;
+        missing_effect = cur_effect_size;
       }
     }
     half_effect_size = cur_effect_size * 0.5;
     obs_expected += ploidy;
     lbptr = loadbuf;
-    uii = 0;
-    do {
-      ulii = ~(*lbptr++);
-      if (uii + BITCT2 > indiv_ct) {
-        ulii &= (ONELU << ((indiv_ct & (BITCT2 - 1)) * 2)) - ONELU;
-      }
-      while (ulii) {
-        ujj = CTZLU(ulii) & (BITCT - 2);
-        ukk = (ulii >> ujj) & 3;
-        indiv_idx = uii + (ujj / 2);
-	if (ukk == 1) {
-	  score_deltas[indiv_idx] += half_effect_size;
-	  named_allele_ct_deltas[indiv_idx] += delta1;
-	} else if (ukk == 3) {
-	  score_deltas[indiv_idx] += cur_effect_size;
-	  named_allele_ct_deltas[indiv_idx] += delta2;
-	} else {
-	  miss_cts[indiv_idx] += ploidy;
-	  named_allele_ct_deltas[indiv_idx] += deltam;
-	  score_deltas[indiv_idx] += dxx;
+    if ((!is_x) && (!is_y)) {
+      uii = 0;
+      do {
+	ulii = ~(*lbptr++);
+	if (uii + BITCT2 > indiv_ct) {
+	  ulii &= (ONELU << ((indiv_ct & (BITCT2 - 1)) * 2)) - ONELU;
 	}
-        ulii &= ~((3 * ONELU) << ujj);
+	while (ulii) {
+	  ujj = CTZLU(ulii) & (BITCT - 2);
+	  ukk = (ulii >> ujj) & 3;
+	  indiv_idx = uii + (ujj / 2);
+	  if (ukk == 1) {
+	    score_deltas[indiv_idx] += half_effect_size;
+	    named_allele_ct_deltas[indiv_idx] += delta1;
+	  } else if (ukk == 3) {
+	    score_deltas[indiv_idx] += cur_effect_size;
+	    named_allele_ct_deltas[indiv_idx] += delta2;
+	  } else {
+	    miss_cts[indiv_idx] += ploidy;
+	    named_allele_ct_deltas[indiv_idx] += deltam;
+	    score_deltas[indiv_idx] += missing_effect;
+	  }
+	  ulii &= ~((3 * ONELU) << ujj);
+	}
+	uii += BITCT2;
+      } while (uii < indiv_ct);
+    } else {
+      // This could be more efficient if we kept male and female versions of
+      // score_base, but not really worth the trouble.
+      // deltas and effect_size variables are currently configured for males,
+      // so we need to compute female versions here.
+      if (center) {
+	// this value is positive if A2 named, negative if A1 named (assuming
+	// positive effect size)
+	cur_effect_offset = -dxx;
+      } else if (!uii) {
+	cur_effect_offset = 0;
+      } else {
+	// this value is positive
+	cur_effect_offset = -cur_effect_size;
       }
-      uii += BITCT2;
-    } while (uii < indiv_ct);
+      if (is_x) {
+	obs_expected_female_delta += 1;
+	female_effect_size[0] = cur_effect_offset;
+	female_effect_size[1] = cur_effect_offset + cur_effect_size;
+	female_effect_size[2] = cur_effect_offset + 2 * missing_effect;
+	female_effect_size[3] = cur_effect_offset + 2 * cur_effect_size;
+	if (!uii) {
+	  female_allele_ct_delta[0] = 0;
+	  female_allele_ct_delta[1] = 1;
+	  female_allele_ct_delta[2] = 0;
+	  female_allele_ct_delta[3] = 2;
+	} else {
+	  female_allele_ct_delta[0] = 1;
+	  female_allele_ct_delta[1] = 0;
+	  female_allele_ct_delta[2] = -1;
+	  female_allele_ct_delta[3] = -1;
+	}
+      } else {
+	obs_expected_female_delta -= 1;
+	female_y_offset -= cur_effect_offset;
+	if (uii) {
+	  named_allele_ct_female_delta += 1;
+	}
+      }
+      for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	if (!(indiv_idx & (BITCT2 - 1))) {
+	  ulii = ~(*lbptr++);
+	}
+	uljj = ulii & 3;
+	if (IS_SET_DBL(indiv_male_include2, indiv_idx)) {
+	  if (uljj) {
+	    if (uljj == 3) {
+	      score_deltas[indiv_idx] += cur_effect_size;
+	      named_allele_ct_deltas[indiv_idx] += delta2;
+	    } else {
+	      miss_cts[indiv_idx] += 1;
+	      named_allele_ct_deltas[indiv_idx] += deltam;
+	      score_deltas[indiv_idx] += missing_effect;
+	    }
+	  }
+	} else if (is_x) {
+          score_deltas[indiv_idx] += female_effect_size[uljj];
+	  named_allele_ct_deltas[indiv_idx] += female_allele_ct_delta[uljj];
+	  if (uljj == 2) {
+	    miss_cts[indiv_idx] += 2;
+	  }
+	}
+	ulii >>= 2;
+      }
+    }
   }
   if (missing_pheno_len < 6) {
     bufptr = memseta(missing_pheno_str, 32, 6 - missing_pheno_len);
@@ -373,12 +444,8 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
     if (fopen_checked(&outfile, outname, "w")) {
       goto score_report_ret_OPEN_FAIL;
     }
-    sprintf(tbuf, "%%%us %%%us  PHENO    CNT   CNT2    SCORE", plink_maxfid, plink_maxiid);
+    sprintf(tbuf, "%%%us %%%us  PHENO    CNT   CNT2 %s\n", plink_maxfid, plink_maxiid, report_average? "   SCORE" : "SCORESUM");
     fprintf(outfile, tbuf, "FID", "IID");
-    if (!report_average) {
-      fputs("SUM", outfile);
-    }
-    putc('\n', outfile);
     for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
       next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
       bufptr_arr[0] = &(person_ids[indiv_uidx * max_person_id_len]);
@@ -398,17 +465,20 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
         bufptr = memcpya(bufptr, missing_pheno_str, missing_pheno_len);
       }
       *bufptr++ = ' ';
-      uii = obs_expected - miss_cts[indiv_idx];
+      ujj = 1 - IS_SET_DBL(indiv_male_include2, indiv_idx); // female?
+      uii = obs_expected + ((int32_t)ujj) * obs_expected_female_delta - miss_cts[indiv_idx];
       bufptr = uint32_writew6x(bufptr, uii, ' ');
       if (mean_impute) {
-	uii = obs_expected;
+	uii += miss_cts[indiv_idx];
       }
-      bufptr = uint32_writew6x(bufptr, ((int32_t)named_allele_ct_expected) + named_allele_ct_deltas[indiv_idx], ' ');
-      if (report_average) {
-        bufptr = width_force(8, bufptr, double_g_write(bufptr, (score_base + score_deltas[indiv_idx]) / ((double)((int32_t)uii))));
-      } else {
-        bufptr = width_force(8, bufptr, double_g_write(bufptr, score_base + score_deltas[indiv_idx]));
+      bufptr = uint32_writew6x(bufptr, ((int32_t)named_allele_ct_expected) - ujj * named_allele_ct_female_delta + named_allele_ct_deltas[indiv_idx], ' ');
+      dxx = (score_base + ((int32_t)ujj) * female_y_offset + score_deltas[indiv_idx]);
+      if (fabs(dxx) < SMALL_EPSILON) {
+	dxx = 0;
+      } else if (report_average) {
+	dxx /= ((double)((int32_t)uii));
       }
+      bufptr = width_force(8, bufptr, double_g_write(bufptr, dxx));
       *bufptr++ = '\n';
       if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
 	goto score_report_ret_WRITE_FAIL;
