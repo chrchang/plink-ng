@@ -470,12 +470,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Generate individual- and variant-based missing data reports.  If clusters\n"
 "    are defined, the variant-based report is cluster-stratified.\n\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("test-mishap", &help_ctrl, 1,
 "  --test-mishap\n"
 "    Check for association between missing calls and flanking haplotypes.\n\n"
                );
-#endif
     help_print("hardy", &help_ctrl, 1,
 "  --hardy <midp>\n"
 "    Generate a Hardy-Weinberg exact test p-value report.  (This does NOT\n"
@@ -484,6 +482,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Graffelman J, Moreno V (2013) The mid p-value in exact tests for\n"
 "    Hardy-Weinberg Equilibrium.\n\n"
 	       );
+#ifndef STABLE_BUILD
+    help_print("mendel", &help_ctrl, 1,
+"  --mendel\n"
+"    Generate a Mendel error report.\n\n"
+	       );
+#endif
     help_print("ibc\thet", &help_ctrl, 1,
 "  --ibc\n"
 "    Calculate inbreeding coefficients in three different ways.  (The second is\n"
@@ -1301,6 +1305,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                       equilibrium exact test p-values below a\n"
 "                                       threshold.\n"
 	       );
+#ifndef STABLE_BUILD
+    help_print("me\tme-exclude-one", &help_ctrl, 0,
+"  --me [t] [v] <var-first> : Filter out trios and variants with Mendel error\n"
+"                             rates exceeding the given thresholds.\n"
+"  --me-exclude-one {ratio} : Make --me exclude only one individual per trio.\n"
+	       );
+#endif
     help_print("allow-no-sex\tmust-have-sex", &help_ctrl, 0,
 "  --allow-no-sex   : Do not treat ambiguous-sex individuals as having missing\n"
 "                     phenotypes in analysis commands.  (Automatic /w --no-sex.)\n"

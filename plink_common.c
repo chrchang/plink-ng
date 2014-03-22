@@ -332,6 +332,7 @@ int32_t read_tokens(FILE* infile, char* buf, uintptr_t half_bufsize, uintptr_t t
       }
       if (bufptr >= buf_end) {
         curtoklen = 0;
+	bufptr = midbuf;
 	break;
       }
       bufptr2 = &(bufptr[1]);

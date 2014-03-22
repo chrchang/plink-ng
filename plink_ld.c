@@ -4294,6 +4294,9 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 	}
 	rewind(infile);
 	retval = read_tokens(infile, tbuf, MAXLINELEN, snplist_ct, max_snplist_id_len, bufptr);
+	if (retval) {
+	  goto ld_report_regular_ret_1;
+	}
         if (fclose_null(&infile)) {
           goto ld_report_regular_ret_READ_FAIL;
 	}

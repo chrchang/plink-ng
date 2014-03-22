@@ -100,7 +100,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (21 Mar 2014)";
+  " (22 Mar 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -267,716 +267,6 @@ double calc_wt_mean(double exponent, int32_t lhi, int32_t lli, int32_t hhi) {
   weight = pow(2 * lcount * (dtot - lcount) / (dtot * dtot), -exponent);
   subcount = lhi * (subcount + hhi) + 2 * subcount * hhi;
   return (subcount * weight * 2) / (double)(tot * tot);
-}
-
-int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t do_impute, double check_sex_fthresh, double check_sex_mthresh, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* gender_unk_ct_ptr) {
-  unsigned char* wkspace_mark = wkspace_base;
-  FILE* outfile = NULL;
-  uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
-  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
-  uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
-  uintptr_t indiv_ctl2 = (indiv_ct + (BITCT2 - 1)) / BITCT2;
-  uintptr_t x_variant_ct = 0;
-  double nei_sum = 0.0;
-  uint32_t gender_unk_ct = 0;
-  uint32_t problem_ct = 0;
-  int32_t x_code = chrom_info_ptr->x_code;
-  int32_t retval = 0;
-  uintptr_t* loadbuf_raw;
-  uintptr_t* loadbuf;
-  // We wish to compute three quantities for each individual:
-  // 1. Observed homozygous polymorphic Xchr sites.
-  // 2. Observed nonmissing polymorphic Xchr sites.
-  // 3. Nei's unbiased estimator of the expected quantity #1.  (This has an
-  //    N/(N-1) term which makes it slightly different from GCTA's Fhat2.
-  //    Todo: check whether --ibc Fhat2 calculation should be revised to be
-  //    consistent with --het...)
-  // edit: Actually, forget about the 2N/(2N-1) multiplier for now since it
-  // doesn't play well with --freq, and PLINK 1.07 only succeeds in applying it
-  // when N=1 due to use of integer division.  Maybe let it be used with
-  // inferred MAFs/--freqx/--freq counts later.
-  uintptr_t* lptr;
-  uint32_t* het_cts;
-  uint32_t* missing_cts;
-  double* nei_offsets;
-  char* fid_ptr;
-  char* iid_ptr;
-  char* wptr;
-  double dpp;
-  double dtot;
-  double cur_nei;
-  double dff;
-  double dee;
-  uintptr_t marker_uidx;
-  uintptr_t marker_uidx_end;
-  uintptr_t marker_idxs_left;
-  uintptr_t indiv_uidx;
-  uintptr_t indiv_idx;
-  uintptr_t cur_missing_ct;
-  uintptr_t allele_obs_ct;
-  uintptr_t cur_word;
-  uintptr_t ulii;
-  uint32_t orig_sex_code;
-  uint32_t imputed_sex_code;
-  if ((x_code == -1) || (!is_set(chrom_info_ptr->chrom_mask, (uint32_t)x_code))) {
-    goto sexcheck_ret_INVALID_CMDLINE;
-  }
-  marker_uidx_end = chrom_info_ptr->chrom_end[(uint32_t)x_code];
-  marker_uidx = next_unset_ul(marker_exclude, chrom_info_ptr->chrom_start[(uint32_t)x_code], marker_uidx_end);
-  if (marker_uidx == marker_uidx_end) {
-    goto sexcheck_ret_INVALID_CMDLINE;
-  }
-  marker_idxs_left = marker_uidx_end - marker_uidx - popcount_bit_idx(marker_exclude, marker_uidx, marker_uidx_end);
-  if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&loadbuf, indiv_ctl2 * sizeof(intptr_t)) ||
-      wkspace_alloc_ui_checked(&het_cts, indiv_ct * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(&missing_cts, indiv_ct * sizeof(int32_t)) ||
-      wkspace_alloc_d_checked(&nei_offsets, indiv_ct * sizeof(double))) {
-    goto sexcheck_ret_NOMEM;
-  }
-  loadbuf_raw[unfiltered_indiv_ctl2 - 1] = 0;
-  loadbuf[indiv_ctl2 - 1] = 0;
-  fill_uint_zero(het_cts, indiv_ct);
-  fill_uint_zero(missing_cts, indiv_ct);
-  fill_double_zero(nei_offsets, indiv_ct);
-  if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
-    goto sexcheck_ret_READ_FAIL;
-  }
-  for (; marker_idxs_left; marker_idxs_left--, marker_uidx++) {
-    if (IS_SET(marker_exclude, marker_uidx)) {
-      marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-      if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
-        goto sexcheck_ret_READ_FAIL;
-      }
-    }
-    if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, indiv_ct, indiv_exclude, 0)) {
-      goto sexcheck_ret_READ_FAIL;
-    }
-    cur_missing_ct = count_01(loadbuf, indiv_ctl2);
-    allele_obs_ct = 2 * (indiv_ct - cur_missing_ct);
-    dpp = set_allele_freqs[marker_uidx];
-    // skip monomorphic sites
-    if ((!allele_obs_ct) || (dpp < 1e-8) || (dpp > (1 - 1e-8))) {
-      continue;
-    }
-    cur_nei = 1.0 - 2 * dpp * (1 - dpp);
-    x_variant_ct++;
-    if (cur_missing_ct) {
-      // iterate through missing calls
-      lptr = loadbuf;
-      for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx += BITCT2) {
-        cur_word = *lptr++;
-        cur_word = (~(cur_word >> 1)) & cur_word & FIVEMASK;
-        while (cur_word) {
-          ulii = indiv_idx + CTZLU(cur_word) / 2;
-          missing_cts[ulii] += 1;
-          nei_offsets[ulii] += cur_nei;
-          cur_word &= cur_word - 1;
-	}
-      }
-    }
-    lptr = loadbuf;
-    // iterate through heterozygous calls
-    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx += BITCT2) {
-      cur_word = *lptr++;
-      cur_word = (cur_word >> 1) & (~cur_word) & FIVEMASK;
-      while (cur_word) {
-        het_cts[indiv_idx + CTZLU(cur_word) / 2] += 1;
-        cur_word &= cur_word - 1;
-      }
-    }
-    nei_sum += cur_nei;
-  }
-  if (!x_variant_ct) {
-    goto sexcheck_ret_INVALID_CMDLINE;
-  }
-  memcpy(outname_end, ".sexcheck", 10);
-  if (fopen_checked(&outfile, outname, "w")) {
-    goto sexcheck_ret_OPEN_FAIL;
-  }
-  sprintf(tbuf, "%%%us %%%us       PEDSEX       SNPSEX       STATUS            F\n", plink_maxfid, plink_maxiid);
-  fprintf(outfile, tbuf, "FID", "IID");
-  indiv_uidx = 0;
-  if (do_impute) {
-    bitfield_andnot(sex_nm, indiv_exclude, unfiltered_indiv_ctl);
-  }
-  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++, indiv_uidx++) {
-    next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
-    fid_ptr = &(person_ids[indiv_uidx * max_person_id_len]);
-    iid_ptr = (char*)memchr(fid_ptr, '\t', max_person_id_len);
-    wptr = fw_strcpyn(plink_maxfid, (uintptr_t)(iid_ptr - fid_ptr), fid_ptr, tbuf);
-    *wptr++ = ' ';
-    wptr = fw_strcpy(plink_maxiid, &(iid_ptr[1]), wptr);
-    if (!IS_SET(sex_nm, indiv_uidx)) {
-      orig_sex_code = 0;
-    } else {
-      orig_sex_code = 2 - IS_SET(sex_male, indiv_uidx);
-    }
-    wptr = memseta(wptr, 32, 12);
-    *wptr++ = '0' + orig_sex_code;
-    wptr = memseta(wptr, 32, 12);
-    ulii = x_variant_ct - missing_cts[indiv_idx];
-    if (ulii) {
-      dee = nei_sum - nei_offsets[indiv_idx];
-      dtot = (double)((intptr_t)ulii) - dee;
-      dff = (dtot - ((double)((intptr_t)(het_cts[indiv_idx])))) / dtot;
-      if (dff > check_sex_mthresh) {
-        imputed_sex_code = 1;
-      } else if (dff < check_sex_fthresh) {
-        imputed_sex_code = 2;
-      } else {
-        imputed_sex_code = 0;
-      }
-      *wptr++ = '0' + imputed_sex_code;
-      if (orig_sex_code && (orig_sex_code == imputed_sex_code)) {
-        wptr = memcpya(wptr, "           OK ", 14);
-      } else {
-        wptr = memcpya(wptr, "      PROBLEM ", 14);
-	problem_ct++;
-      }
-      wptr = double_g_writewx4x(wptr, dff, 12, '\n');
-    } else {
-      imputed_sex_code = 0;
-      wptr = memcpya(wptr, "0      PROBLEM          nan\n", 28);
-      problem_ct++;
-    }
-    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
-      goto sexcheck_ret_WRITE_FAIL;
-    }
-    if (do_impute) {
-      if (imputed_sex_code) {
-	SET_BIT(sex_nm, indiv_uidx);
-	if (imputed_sex_code == 1) {
-	  SET_BIT(sex_male, indiv_uidx);
-	} else {
-	  CLEAR_BIT(sex_male, indiv_uidx);
-	}
-      } else {
-	CLEAR_BIT(sex_nm, indiv_uidx);
-      }
-    }
-  }
-  if (fclose_null(&outfile)) {
-    goto sexcheck_ret_WRITE_FAIL;
-  }
-  if (do_impute) {
-    bitfield_and(sex_male, sex_nm, unfiltered_indiv_ctl);
-    gender_unk_ct = indiv_ct - popcount_longs(sex_nm, unfiltered_indiv_ctl);
-    if (!gender_unk_ct) {
-      sprintf(logbuf, "--impute-sex: %" PRIuPTR " Xchr variant%s scanned, all sexes imputed.\n", x_variant_ct, (x_variant_ct == 1)? "" : "s");
-    } else {
-      sprintf(logbuf, "--impute-sex: %" PRIuPTR " Xchr variant%s scanned, %" PRIuPTR "/%" PRIuPTR " sex%s imputed.\n", x_variant_ct, (x_variant_ct == 1)? "" : "s", (indiv_ct - gender_unk_ct), indiv_ct, (indiv_ct == 1)? "" : "es");
-    }
-    *gender_unk_ct_ptr = gender_unk_ct;
-  } else {
-    if (!problem_ct) {
-      sprintf(logbuf, "--check-sex: %" PRIuPTR " Xchr variant%s scanned, no problems detected.\n", x_variant_ct, (x_variant_ct == 1)? "" : "s");
-    } else {
-      sprintf(logbuf, "--check-sex: %" PRIuPTR " Xchr variant%s scanned, %u problem%s detected.\n", x_variant_ct, (x_variant_ct == 1)? "" : "s", problem_ct, (problem_ct == 1)? "" : "s");
-    }
-  }
-  logprintb();
-  LOGPRINTF("Report written to %s.\n", outname);
-  while (0) {
-  sexcheck_ret_NOMEM:
-    retval = RET_NOMEM;
-    break;
-  sexcheck_ret_OPEN_FAIL:
-    retval = RET_OPEN_FAIL;
-    break;
-  sexcheck_ret_READ_FAIL:
-    retval = RET_READ_FAIL;
-    break;
-  sexcheck_ret_WRITE_FAIL:
-    retval = RET_WRITE_FAIL;
-    break;
-  sexcheck_ret_INVALID_CMDLINE:
-    logprint("Error: --check-sex/--impute-sex requires at least one polymorphic X chromosome\nsite.\n");
-    retval = RET_INVALID_CMDLINE;
-    break;
-  }
-  wkspace_reset(wkspace_mark);
-  fclose_cond(outfile);
-  return retval;
-}
-
-int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfiltered_indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info) {
-  // possible todo: if any families have been entirely filtered out, don't
-  // construct pedigree for them
-  unsigned char* wkspace_mark;
-  unsigned char* wkspace_mark2;
-  int32_t ii;
-  int32_t jj;
-  int32_t kk;
-  int32_t mm;
-  uint32_t uii;
-  uint32_t ujj;
-  uint32_t ukk;
-  uint32_t initial_family_blocks;
-  uintptr_t ulii;
-  uintptr_t indiv_uidx;
-  uint64_t ullii;
-  char* family_ids;
-  char* cur_person_id;
-  char* last_family_id = NULL;
-  char* cur_family_id;
-  char* id_ptr;
-  uint32_t* family_sizes;
-  uint32_t* uiptr;
-  uint32_t* uiptr2 = NULL;
-  uint32_t fidx;
-  int32_t family_size;
-  uint32_t* remaining_indiv_idxs;
-  int32_t* remaining_indiv_parent_idxs; // -1 = no parent (or nonshared)
-  uint32_t remaining_indiv_ct;
-  uint32_t indiv_idx_write;
-  uintptr_t max_family_id_len = 0;
-  char* indiv_ids;
-  uint32_t* indiv_id_lookup;
-  uintptr_t max_indiv_id_len = 0;
-  uintptr_t max_pm_id_len;
-  uint32_t family_id_ct;
-  uint32_t* fis_ptr;
-  char* stray_parent_ids;
-  intptr_t stray_parent_ct;
-  uintptr_t* processed_indivs;
-  uint32_t founder_ct;
-  int32_t max_family_nf = 0;
-  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
-  uintptr_t unfiltered_indiv_ctlm = unfiltered_indiv_ctl * BITCT;
-  uint32_t* complete_indiv_idxs;
-  uintptr_t complete_indiv_idx_ct;
-  double* rs_ptr;
-  double* rel_writer;
-  double dxx;
-  double* tmp_rel_space = NULL;
-  double* tmp_rel_writer = NULL;
-
-  for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
-    ujj = strlen_se(&(person_ids[indiv_uidx * max_person_id_len])) + 1;
-    if (ujj > max_family_id_len) {
-      max_family_id_len = ujj;
-    }
-    ujj = strlen(&(person_ids[indiv_uidx * max_person_id_len + ujj]));
-    if (ujj >= max_indiv_id_len) {
-      max_indiv_id_len = ujj + 1;
-    }
-  }
-  if (max_paternal_id_len > max_maternal_id_len) {
-    max_pm_id_len = max_paternal_id_len;
-  } else {
-    max_pm_id_len = max_maternal_id_len;
-  }
-  if (wkspace_alloc_ui_checked(&(pri_ptr->family_info_space), unfiltered_indiv_ct * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(&(pri_ptr->family_rel_nf_idxs), unfiltered_indiv_ct * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(&(pri_ptr->family_idxs), unfiltered_indiv_ct * sizeof(int32_t)) ||
-      wkspace_alloc_c_checked(&family_ids, unfiltered_indiv_ct * max_family_id_len) ||
-      wkspace_alloc_ui_checked(&family_sizes, unfiltered_indiv_ct * sizeof(int32_t))) {
-    return RET_NOMEM;
-  }
-
-  // copy all the items over in order, then qsort, then eliminate duplicates
-  // and count family sizes.
-  cur_family_id = family_ids;
-  cur_person_id = person_ids;
-  uiptr = family_sizes;
-  *uiptr = 1;
-  jj = strlen_se(cur_person_id);
-  memcpyx(cur_family_id, cur_person_id, jj, 0);
-  for (indiv_uidx = 1; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
-    cur_person_id = &(cur_person_id[max_person_id_len]);
-    mm = strlen_se(cur_person_id);
-    if ((jj != mm) || memcmp(cur_family_id, cur_person_id, mm)) {
-      cur_family_id = &(cur_family_id[max_family_id_len]);
-      memcpyx(cur_family_id, cur_person_id, mm, 0);
-      jj = mm;
-      *(++uiptr) = 1;
-    } else {
-      *uiptr += 1;
-    }
-  }
-  initial_family_blocks = 1 + (uint32_t)(uiptr - family_sizes);
-  if (qsort_ext(family_ids, initial_family_blocks, max_family_id_len, strcmp_deref, (char*)family_sizes, sizeof(int32_t))) {
-    return RET_NOMEM;
-  }
-
-  last_family_id = family_ids;
-  cur_family_id = &(family_ids[max_family_id_len]);
-  family_id_ct = 1;
-  uii = 1; // read idx
-  if (initial_family_blocks != 1) {
-    uiptr = family_sizes;
-    while (strcmp(cur_family_id, last_family_id)) {
-      family_id_ct++;
-      uiptr++;
-      last_family_id = cur_family_id;
-      cur_family_id = &(cur_family_id[max_family_id_len]);
-      uii++;
-      if (uii == initial_family_blocks) {
-	break;
-      }
-    }
-    if (uii < initial_family_blocks) {
-      uiptr2 = uiptr; // family_sizes read pointer
-      *uiptr += *(++uiptr2);
-      uii++;
-      cur_family_id = &(cur_family_id[max_family_id_len]); // read pointer
-      while (uii < initial_family_blocks) {
-	while (!strcmp(cur_family_id, last_family_id)) {
-	  *uiptr += *(++uiptr2);
-	  uii++;
-	  if (uii == initial_family_blocks) {
-	    break;
-	  }
-	  cur_family_id = &(cur_family_id[max_family_id_len]);
-	}
-	if (uii < initial_family_blocks) {
-	  *(++uiptr) = *(++uiptr2);
-	  last_family_id = &(last_family_id[max_family_id_len]);
-	  strcpy(last_family_id, cur_family_id);
-	  family_id_ct++;
-	  uii++;
-	  cur_family_id = &(cur_family_id[max_family_id_len]);
-	}
-      }
-    }
-  }
-
-  if (family_id_ct < unfiltered_indiv_ct) {
-    uiptr = family_sizes;
-    wkspace_reset(family_ids);
-    family_ids = (char*)wkspace_alloc(family_id_ct * max_family_id_len);
-    family_sizes = (uint32_t*)wkspace_alloc(family_id_ct * sizeof(int32_t));
-    if (family_sizes < uiptr) {
-      // copy back
-      for (uii = 0; uii < family_id_ct; uii++) {
-	family_sizes[uii] = *uiptr++;
-      }
-    }
-  }
-  pri_ptr->family_ids = family_ids;
-  pri_ptr->family_id_ct = family_id_ct;
-  pri_ptr->max_family_id_len = max_family_id_len;
-  pri_ptr->family_sizes = family_sizes;
-
-  if (wkspace_alloc_ui_checked(&(pri_ptr->family_info_offsets), (family_id_ct + 1) * sizeof(int32_t)) ||
-      wkspace_alloc_ul_checked(&(pri_ptr->family_rel_space_offsets), (family_id_ct + 1) * sizeof(intptr_t)) ||
-      wkspace_alloc_ui_checked(&(pri_ptr->family_founder_cts), family_id_ct * sizeof(int32_t))) {
-    return RET_NOMEM;
-  }
-  fill_int_zero((int32_t*)(pri_ptr->family_founder_cts), family_id_ct);
-
-  ii = 0; // running family_info offset
-  for (fidx = 0; fidx < family_id_ct; fidx++) {
-    family_size = pri_ptr->family_sizes[fidx];
-    pri_ptr->family_info_offsets[fidx] = ii;
-    ii += family_size;
-  }
-
-  if (wkspace_alloc_ui_checked(&uiptr, family_id_ct * sizeof(int32_t))) {
-    return RET_NOMEM;
-  }
-  fill_uint_zero(uiptr, family_id_ct);
-
-  // Fill family_idxs, family_founder_cts, and founder portion of
-  // family_rel_nf_idxs.
-  cur_person_id = person_ids;
-  for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
-    kk = bsearch_str(cur_person_id, strlen_se(cur_person_id), family_ids, max_family_id_len, family_id_ct);
-    pri_ptr->family_idxs[indiv_uidx] = kk;
-    if (IS_SET(founder_info, indiv_uidx)) {
-      pri_ptr->family_founder_cts[(uint32_t)kk] += 1;
-      pri_ptr->family_rel_nf_idxs[indiv_uidx] = uiptr[(uint32_t)kk];
-      uiptr[kk] += 1;
-    }
-    cur_person_id = &(cur_person_id[max_person_id_len]);
-  }
-  wkspace_reset(uiptr);
-  ulii = 0; // running rel_space offset
-  for (fidx = 0; fidx < family_id_ct; fidx++) {
-    family_size = pri_ptr->family_sizes[fidx];
-    pri_ptr->family_rel_space_offsets[fidx] = ulii;
-    kk = pri_ptr->family_founder_cts[fidx];
-    if (family_size - kk > max_family_nf) {
-      max_family_nf = family_size - kk;
-    }
-    // No need to explicitly store the (kk * (kk - 1)) / 2 founder-founder
-    // relationships.
-    ulii += (((int64_t)family_size) * (family_size - 1) - ((int64_t)kk) * (kk - 1)) / 2;
-  }
-
-  // make it safe to determine size of blocks by subtracting from the next
-  // offset, even if we're at the last family
-  pri_ptr->family_info_offsets[family_id_ct] = unfiltered_indiv_ct;
-  pri_ptr->family_rel_space_offsets[family_id_ct] = ulii;
-  if (wkspace_alloc_d_checked(&(pri_ptr->rel_space), ulii * sizeof(double))) {
-    return RET_NOMEM;
-  }
-
-  wkspace_mark = wkspace_base;
-  if (wkspace_alloc_ui_checked(&uiptr, family_id_ct * sizeof(int32_t))) {
-    return RET_NOMEM;
-  }
-  // populate family_info_space
-  for (fidx = 0; fidx < family_id_ct; fidx++) {
-    uiptr[fidx] = pri_ptr->family_info_offsets[fidx];
-  }
-  for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
-    fidx = pri_ptr->family_idxs[indiv_uidx];
-    pri_ptr->family_info_space[uiptr[fidx]] = indiv_uidx;
-    uiptr[fidx] += 1;
-  }
-  wkspace_reset(wkspace_mark);
-
-  if (wkspace_alloc_ul_checked(&processed_indivs, (unfiltered_indiv_ctl + (max_family_nf + (BITCT2 - 1)) / BITCT2) * sizeof(intptr_t))) {
-    return RET_NOMEM;
-  }
-  fill_ulong_one(&(processed_indivs[unfiltered_indiv_ctl]), (max_family_nf + (BITCT2 - 1)) / BITCT2);
-
-  wkspace_mark2 = wkspace_base;
-  for (fidx = 0; fidx < family_id_ct; fidx++) {
-    family_size = family_sizes[fidx];
-    founder_ct = pri_ptr->family_founder_cts[fidx];
-    remaining_indiv_ct = family_size - founder_ct;
-    stray_parent_ct = 0;
-    if (remaining_indiv_ct) {
-      memcpy(processed_indivs, founder_info, unfiltered_indiv_ctl * sizeof(intptr_t));
-      if (wkspace_alloc_ui_checked(&complete_indiv_idxs, family_size * sizeof(int32_t)) ||
-          wkspace_alloc_ui_checked(&remaining_indiv_idxs, remaining_indiv_ct * sizeof(int32_t)) ||
-          wkspace_alloc_c_checked(&indiv_ids, family_size * max_indiv_id_len) ||
-          wkspace_alloc_ui_checked(&indiv_id_lookup, family_size * sizeof(int32_t)) ||
-          wkspace_alloc_i_checked(&remaining_indiv_parent_idxs, remaining_indiv_ct * 2 * sizeof(int32_t)) ||
-          wkspace_alloc_c_checked(&stray_parent_ids, remaining_indiv_ct * 2 * max_pm_id_len)) {
-	return RET_NOMEM;
-      }
-      ii = pri_ptr->family_info_offsets[fidx];
-      fis_ptr = &(pri_ptr->family_info_space[ii]);
-      rs_ptr = &(pri_ptr->rel_space[pri_ptr->family_rel_space_offsets[fidx]]);
-      rel_writer = rs_ptr;
-      cur_person_id = indiv_ids;
-      for (ii = 0; ii < family_size; ii++) {
-	kk = fis_ptr[(uint32_t)ii];
-	jj = strlen_se(&(person_ids[kk * max_person_id_len])) + 1;
-	strcpy(cur_person_id, &(person_ids[kk * max_person_id_len + jj]));
-	cur_person_id = &(cur_person_id[max_indiv_id_len]);
-	indiv_id_lookup[(uint32_t)ii] = ii;
-      }
-
-      if (qsort_ext(indiv_ids, family_size, max_indiv_id_len, strcmp_deref, (char*)indiv_id_lookup, sizeof(int32_t))) {
-	return RET_NOMEM;
-      }
-      // Compile list of non-founder family member indices, and identify
-      // parents who are referred to by individual ID but are NOT in the
-      // dataset.
-      ii = 0; // family_info_space index
-      complete_indiv_idx_ct = 0;
-      cur_person_id = stray_parent_ids;
-      for (uii = 0; uii < remaining_indiv_ct; uii++) {
-	while (IS_SET(founder_info, fis_ptr[ii])) {
-	  complete_indiv_idxs[complete_indiv_idx_ct++] = fis_ptr[ii];
-	  ii++;
-	}
-	kk = fis_ptr[ii++];
-
-	// does not track sex for now
-	id_ptr = &(paternal_ids[((uint32_t)kk) * max_paternal_id_len]);
-	if (memcmp("0", id_ptr, 2)) {
-	  ujj = strlen(id_ptr);
-	  mm = bsearch_str(id_ptr, ujj, indiv_ids, max_indiv_id_len, family_size);
-	  if (mm == -1) {
-	    memcpy(cur_person_id, id_ptr, ujj + 1);
-	    cur_person_id = &(cur_person_id[max_pm_id_len]);
-	    stray_parent_ct++;
-	    remaining_indiv_parent_idxs[uii * 2] = -2;
-	  } else {
-            remaining_indiv_parent_idxs[uii * 2] = fis_ptr[indiv_id_lookup[(uint32_t)mm]];
-	  }
-	} else {
-          remaining_indiv_parent_idxs[uii * 2] = -1;
-	}
-	id_ptr = &(maternal_ids[((uint32_t)kk) * max_maternal_id_len]);
-	if (memcmp("0", id_ptr, 2)) {
-	  ujj = strlen(id_ptr);
-          mm = bsearch_str(id_ptr, ujj, indiv_ids, max_indiv_id_len, family_size);
-	  if (mm == -1) {
-	    memcpy(cur_person_id, id_ptr, ujj + 1);
-	    cur_person_id = &(cur_person_id[max_pm_id_len]);
-	    stray_parent_ct++;
-	    remaining_indiv_parent_idxs[uii * 2 + 1] = -2;
-	  } else {
-	    remaining_indiv_parent_idxs[uii * 2 + 1] = fis_ptr[indiv_id_lookup[(uint32_t)mm]];
-	  }
-	} else {
-	  remaining_indiv_parent_idxs[uii * 2 + 1] = -1;
-	}
-        remaining_indiv_idxs[uii] = kk;
-      }
-      while (ii < family_size) {
-	complete_indiv_idxs[complete_indiv_idx_ct++] = fis_ptr[(uint32_t)ii];
-	ii++;
-      }
-      qsort(stray_parent_ids, stray_parent_ct, max_pm_id_len, strcmp_casted);
-      cur_person_id = stray_parent_ids;
-      ii = 0; // read idx
-      jj = 0; // write idx
-
-      // Now filter out all such parents who aren't referenced at least twice.
-      while (ii + 1 < stray_parent_ct) {
-        if (strcmp(&(stray_parent_ids[ii * max_pm_id_len]), &(stray_parent_ids[(ii + 1) * max_pm_id_len]))) {
-	  ii++;
-	  continue;
-	}
-	ii++;
-	strcpy(cur_person_id, &(stray_parent_ids[ii * max_pm_id_len]));
-	do {
-	  ii++;
-        } while (!(strcmp(cur_person_id, &(stray_parent_ids[ii * max_pm_id_len])) || (ii > stray_parent_ct)));
-        cur_person_id = &(cur_person_id[max_pm_id_len]);
-	jj++;
-      }
-      stray_parent_ct = jj;
-
-      // Now allocate temporary relatedness table between nonfounders and
-      // stray parents with multiple references.
-      if (stray_parent_ct) {
-        if (wkspace_alloc_d_checked(&tmp_rel_space, (family_size - founder_ct) * stray_parent_ct * sizeof(double))) {
-	  return RET_NOMEM;
-        }
-	tmp_rel_writer = tmp_rel_space;
-      }
-
-      // Now fill in remainder of remaining_indiv_parent_idxs.
-      for (uii = 0; uii < remaining_indiv_ct; uii++) {
-	jj = remaining_indiv_idxs[uii];
-	if (remaining_indiv_parent_idxs[uii * 2] == -2) {
-	  kk = bsearch_str_nl(&(paternal_ids[((uint32_t)jj) * max_paternal_id_len]), stray_parent_ids, max_pm_id_len, stray_parent_ct);
-	  if (kk != -1) {
-	    kk += unfiltered_indiv_ctlm;
-	  }
-	  remaining_indiv_parent_idxs[uii * 2] = kk;
-	}
-	if (remaining_indiv_parent_idxs[uii * 2 + 1] == -2) {
-	  kk = bsearch_str_nl(&(maternal_ids[((uint32_t)jj) * max_maternal_id_len]), stray_parent_ids, max_pm_id_len, stray_parent_ct);
-	  if (kk != -1) {
-	    kk += unfiltered_indiv_ctlm;
-	  }
-	  remaining_indiv_parent_idxs[uii * 2 + 1] = kk;
-	}
-      }
-      ullii = ((uint64_t)founder_ct) * (founder_ct - 1);
-      while (remaining_indiv_ct) {
-	indiv_idx_write = 0;
-	for (uii = 0; uii < remaining_indiv_ct; uii++) {
-	  kk = remaining_indiv_parent_idxs[uii * 2];
-	  mm = remaining_indiv_parent_idxs[uii * 2 + 1];
-	  jj = remaining_indiv_idxs[uii];
-	  if (((kk == -1) || is_set(processed_indivs, kk)) && ((mm == -1) || is_set(processed_indivs, mm))) {
-	    for (ujj = 0; ujj < founder_ct; ujj++) {
-	      // relationship between kk and ujjth founder
-	      if ((kk >= (int32_t)unfiltered_indiv_ct) || (kk == -1)) {
-		dxx = 0.0;
-	      } else if (is_set(founder_info, kk)) {
-		if (kk == (int32_t)complete_indiv_idxs[ujj]) {
-		  dxx = 0.5;
-		} else {
-		  dxx = 0.0;
-		}
-	      } else {
-		ukk = pri_ptr->family_rel_nf_idxs[(uint32_t)kk];
-                dxx = 0.5 * rs_ptr[((uint64_t)ukk * (ukk - 1) - ullii) / 2 + ujj];
-	      }
-	      if (is_set(founder_info, mm)) {
-		if (mm == (int32_t)complete_indiv_idxs[ujj]) {
-		  dxx += 0.5;
-		}
-	      } else if ((mm != -1) && (mm < (int32_t)unfiltered_indiv_ct)) {
-		ukk = pri_ptr->family_rel_nf_idxs[(uint32_t)mm];
-		dxx += 0.5 * rs_ptr[((uint64_t)ukk * (ukk - 1) - ullii) / 2 + ujj];
-	      }
-	      *rel_writer++ = dxx;
-	    }
-	    for (; ujj < complete_indiv_idx_ct; ujj++) {
-	      if (kk == -1) {
-		dxx = 0.0;
-	      } else if (kk >= (int32_t)unfiltered_indiv_ct) {
-		dxx = 0.5 * tmp_rel_space[(ujj - founder_ct) * stray_parent_ct + kk - unfiltered_indiv_ctlm];
-	      } else if (is_set(founder_info, kk)) {
-                dxx = 0.5 * rs_ptr[((uint64_t)ujj * (ujj - 1) - ullii) / 2 + pri_ptr->family_rel_nf_idxs[kk]];
-	      } else {
-		ukk = pri_ptr->family_rel_nf_idxs[kk];
-		if (ukk == ujj) {
-		  dxx = 0.5;
-		} else if (ukk < ujj) {
-		  dxx = 0.5 * rs_ptr[((uint64_t)ujj * (ujj - 1) - ullii) / 2 + ukk];
-		} else {
-		  dxx = 0.5 * rs_ptr[((uint64_t)ukk * (ukk - 1) - ullii) / 2 + ujj];
-		}
-	      }
-	      if (mm >= (int32_t)unfiltered_indiv_ct) {
-		dxx += 0.5 * tmp_rel_space[(ujj - founder_ct) * stray_parent_ct + mm - unfiltered_indiv_ctlm];
-	      } else if (is_set(founder_info, mm)) {
-		dxx += 0.5 * rs_ptr[((uint64_t)ujj * (ujj - 1) - ullii) / 2 + pri_ptr->family_rel_nf_idxs[mm]];
-	      } else if (mm != -1) {
-		ukk = pri_ptr->family_rel_nf_idxs[mm];
-		if (ukk == ujj) {
-		  dxx += 0.5;
-		} else if (ukk < ujj) {
-		  dxx += 0.5 * rs_ptr[((uint64_t)ujj * (ujj - 1) - ullii) / 2 + ukk];
-		} else {
-		  dxx += 0.5 * rs_ptr[((uint64_t)ukk * (ukk - 1) - ullii) / 2 + ujj];
-		}
-	      }
-	      *rel_writer++ = dxx;
-	    }
-	    for (ujj = 0; ujj < (uintptr_t)stray_parent_ct; ujj++) {
-	      if (kk >= (int32_t)unfiltered_indiv_ct) {
-		if ((uint32_t)kk == ujj + unfiltered_indiv_ctlm) {
-		  dxx = 0.5;
-		} else {
-		  dxx = 0.0;
-		}
-	      } else if (kk == -1) {
-                dxx = 0.0;
-	      } else {
-		ukk = pri_ptr->family_rel_nf_idxs[kk];
-		if (ukk < founder_ct) {
-		  dxx = 0.0;
-		} else {
-                  dxx = 0.5 * tmp_rel_space[(ukk - founder_ct) * stray_parent_ct + ujj];
-		}
-	      }
-	      if (mm >= (int32_t)unfiltered_indiv_ct) {
-		if ((uint32_t)mm == ujj + unfiltered_indiv_ctlm) {
-		  dxx += 0.5;
-		}
-	      } else if (mm != -1) {
-		ukk = pri_ptr->family_rel_nf_idxs[mm];
-		if (ukk >= founder_ct) {
-		  dxx += 0.5 * tmp_rel_space[(ukk - founder_ct) * stray_parent_ct + ujj];
-		}
-	      }
-	      *tmp_rel_writer++ = dxx;
-	    }
-	    pri_ptr->family_rel_nf_idxs[jj] = complete_indiv_idx_ct;
-	    complete_indiv_idxs[complete_indiv_idx_ct++] = jj;
-	    set_bit(processed_indivs, jj);
-	  } else {
-            remaining_indiv_parent_idxs[indiv_idx_write * 2] = kk;
-	    remaining_indiv_parent_idxs[indiv_idx_write * 2 + 1] = mm;
-	    remaining_indiv_idxs[indiv_idx_write++] = jj;
-	  }
-	}
-	if (indiv_idx_write == remaining_indiv_ct) {
-	  logprint("Error: Pedigree graph is cyclic.  Check for evidence of time travel abuse in\nyour cohort.\n");
-	  return RET_INVALID_FORMAT;
-	}
-	remaining_indiv_ct = indiv_idx_write;
-      }
-      wkspace_reset(wkspace_mark2);
-    }
-  }
-  wkspace_reset(wkspace_mark);
-  return 0;
 }
 
 int32_t make_founders(uintptr_t unfiltered_indiv_ct, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t require_two, uintptr_t* indiv_exclude, uintptr_t* founder_info) {
@@ -2602,18 +1892,18 @@ static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, char* cm
 }
 
 static inline uint32_t are_marker_alleles_needed(uint64_t calculation_type, char* freqname, Homozyg_info* homozyg_ptr, Two_col_params* a1alleles, Two_col_params* a2alleles, uint32_t ld_modifier, uint32_t snp_only, uint32_t clump_modifier) {
-  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP | CALC_SCORE)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (ld_modifier & LD_INPHASE)) || a1alleles || a2alleles || snp_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)));
+  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP | CALC_SCORE | CALC_MENDEL)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (ld_modifier & LD_INPHASE)) || a1alleles || a2alleles || snp_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)));
 }
 
-inline int32_t relationship_or_ibc_req(uint64_t calculation_type) {
+static inline int32_t relationship_or_ibc_req(uint64_t calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-inline int32_t distance_wt_req(uint64_t calculation_type, char* read_dists_fname, uint32_t dist_calc_type) {
+static inline int32_t distance_wt_req(uint64_t calculation_type, char* read_dists_fname, uint32_t dist_calc_type) {
   return (((calculation_type & CALC_DISTANCE) || ((!read_dists_fname) && ((calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))))) && (!(dist_calc_type & DISTANCE_FLAT_MISSING)));
 }
 
-int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* cm_map_fname, char* cm_map_chrname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char** missing_mid_templates, char* missing_marker_id_match, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filtervals_flattened, char* condition_mname, char* condition_fname, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_indiv_fname, char* filter_attrib_indiv_liststr, double thin_keep_prob, uint32_t thin_keep_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t filter_binary, uint32_t fam_cols, int32_t missing_pheno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, double check_sex_fthresh, double check_sex_mthresh, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t splitx_bound1, uint32_t splitx_bound2, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t update_sex_col, uint32_t hwe_modifier, uint32_t genome_modifier, double genome_min_pi_hat, double genome_max_pi_hat, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, Set_info* sip, Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip, Rel_info* relip, Score_info* sc_ip, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t write_covar_modifier, uint32_t write_covar_dummy_max_categories, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, Aperm_info* apip, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, double lasso_h2, double lasso_minlambda, Range_list* lasso_select_covars_range_list_ptr, uint32_t testmiss_modifier, uint32_t testmiss_mperm_val, Ll_str** file_delete_list_ptr) {
+int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* cm_map_fname, char* cm_map_chrname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char** missing_mid_templates, char* missing_marker_id_match, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filtervals_flattened, char* condition_mname, char* condition_fname, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_indiv_fname, char* filter_attrib_indiv_liststr, double thin_keep_prob, uint32_t thin_keep_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t filter_binary, uint32_t fam_cols, int32_t missing_pheno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, double check_sex_fthresh, double check_sex_mthresh, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double tail_bottom, double tail_top, double mendel_ind, double mendel_snp, double mendel_exclude_parent_ratio, uint64_t misc_flags, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t splitx_bound1, uint32_t splitx_bound2, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t update_sex_col, uint32_t hwe_modifier, uint32_t genome_modifier, double genome_min_pi_hat, double genome_max_pi_hat, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, Set_info* sip, Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip, Rel_info* relip, Score_info* sc_ip, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t write_covar_modifier, uint32_t write_covar_dummy_max_categories, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, Aperm_info* apip, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, double lasso_h2, double lasso_minlambda, Range_list* lasso_select_covars_range_list_ptr, uint32_t testmiss_modifier, uint32_t testmiss_mperm_val, Ll_str** file_delete_list_ptr) {
   FILE* bedfile = NULL;
   FILE* famfile = NULL;
   FILE* phenofile = NULL;
@@ -3379,7 +2669,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     logprint("Using 1 thread.\n");
   }
 
-  if ((calculation_type & (CALC_SEXCHECK | CALC_MISSING_REPORT | CALC_GENOME | CALC_HOMOZYG | CALC_SCORE)) || cluster_ptr->mds_dim_ct) {
+  if ((calculation_type & (CALC_SEXCHECK | CALC_MISSING_REPORT | CALC_GENOME | CALC_HOMOZYG | CALC_SCORE | CALC_MENDEL)) || cluster_ptr->mds_dim_ct) {
     calc_plink_maxfid(unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, &plink_maxfid, &plink_maxiid);
   }
   plink_maxsnp = calc_plink_maxsnp(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len);
@@ -3549,6 +2839,14 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto plink_ret_INVALID_FORMAT;
     }
     enforce_min_bp_space(min_bp_space, unfiltered_marker_ct, marker_exclude, marker_pos, &marker_exclude_ct, chrom_info_ptr);
+  }
+
+  if ((calculation_type & CALC_MENDEL) || (mendel_ind < 1.0) || (mendel_snp < 1.0)) {
+    retval = mendel_error_scan(bedfile, bed_offset, outname, outname_end, plink_maxfid, plink_maxiid, plink_maxsnp, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, marker_reverse, marker_ids, max_marker_id_len, marker_allele_ptrs, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, hh_exists, chrom_info_ptr, (calculation_type / CALC_MENDEL) & 1, (misc_flags / MISC_ME_VAR_FIRST) & 1, mendel_ind, mendel_snp, mendel_exclude_parent_ratio);
+    if (retval) {
+      goto plink_ret_1;
+    }
+    indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
   }
 
   if (wt_needed) {
@@ -5045,6 +4343,9 @@ int32_t main(int32_t argc, char** argv) {
   double geno_thresh = 1.0;
   double mind_thresh = 1.0;
   double hwe_thresh = 0.0;
+  double mendel_ind = 1.0;
+  double mendel_snp = 1.0;
+  double mendel_exclude_parent_ratio = 0.0;
   uint32_t cur_arg = 1;
   uint64_t calculation_type = 0;
   uint32_t dist_calc_type = 0;
@@ -9130,10 +8431,6 @@ int32_t main(int32_t argc, char** argv) {
 	for (uii = 2; uii <= param_ct; uii++) {
 	  if (!strcmp(argv[cur_arg + uii], "report-zeroes")) {
 	    misc_flags |= MISC_LASSO_REPORT_ZEROES;
-#ifndef STABLE_BUILD
-	  } else if (!strcmp(argv[cur_arg + uii], "no-geno-std")) {
-	    misc_flags |= MISC_LASSO_NO_GENO_STD;
-#endif
 	  } else if (lasso_minlambda > 0) {
             sprintf(logbuf, "Error: Invalid --lasso parameter sequence.%s", errstr_append);
             goto main_ret_INVALID_CMDLINE_3;
@@ -10114,6 +9411,44 @@ int32_t main(int32_t argc, char** argv) {
 	if (alloc_string(&missing_marker_id_match, argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
+      } else if (!memcmp(argptr2, "e", 2)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 3)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (scan_double(argv[cur_arg + 1], &mendel_ind) || (mendel_ind < 0.0) || (mendel_ind > 1.0)) {
+	  sprintf(logbuf, "Error: Invalid --me maximum per-trio error rate '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (scan_double(argv[cur_arg + 2], &mendel_snp) || (mendel_snp < 0.0) || (mendel_snp > 1.0)) {
+	  sprintf(logbuf, "Error: Invalid --me maximum per-variant error rate '%s'.%s", argv[cur_arg + 2], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (param_ct == 3) {
+	  if (strcmp(argv[cur_arg + 3], "var-first")) {
+	    sprintf(logbuf, "Error: Invalid --me parameter '%s'.%s", argv[cur_arg + 3], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+          misc_flags |= MISC_ME_VAR_FIRST;
+	}
+      } else if (!memcmp(argptr2, "e-exclude-one", 14)) {
+	if ((mendel_ind == 1.0) && (mendel_snp == 1.0)) {
+	  sprintf(logbuf, "Error: --me-exclude-one must be used with a --me parameter smaller than one.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (param_ct) {
+	  if (scan_double(argv[cur_arg + 1], &mendel_exclude_parent_ratio) || (mendel_exclude_parent_ratio < 1.0)) {
+	    sprintf(logbuf, "Error: Invalid --me-exclude-one ratio '%s'.%s", argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	} else {
+	  mendel_exclude_parent_ratio = INFINITY;
+	}
+      } else if (!memcmp(argptr2, "endel", 6)) {
+	calculation_type |= CALC_MENDEL;
+        goto main_param_zero;
       } else if (!memcmp(argptr2, "lma", 4)) {
         logprint("Error: --mlma is not implemented yet.\n");
         goto main_ret_INVALID_CMDLINE;
@@ -13303,7 +12638,7 @@ int32_t main(int32_t argc, char** argv) {
     } else if (!rel_info.ibc_type) {
       rel_info.ibc_type = 1;
     }
-    retval = plink(outname, outname_end, pedname, mapname, famname, cm_map_fname, cm_map_chrname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, read_dists_fname, read_dists_id_fname, evecname, mergename1, mergename2, mergename3, missing_mid_templates, missing_marker_id_match, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, update_alleles_fname, read_genome_fname, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, filtervals_flattened, condition_mname, condition_fname, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, filter_binary, fam_cols, missing_pheno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, &oblig_missing_info, check_sex_fthresh, check_sex_mthresh, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, tail_bottom, tail_top, misc_flags, calculation_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, parallel_idx, parallel_tot, splitx_bound1, splitx_bound2, ppc_gap, sex_missing_pheno, update_sex_col, hwe_modifier, genome_modifier, genome_min_pi_hat, genome_max_pi_hat, &homozyg, &cluster, neighbor_n1, neighbor_n2, &set_info, &ld_info, &epi_info, &clump_info, &rel_info, &score_info, recode_modifier, allelexxxx, merge_type, indiv_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, write_covar_modifier, write_covar_dummy_max_categories, mwithin_col, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, &parameters_range_list, &tests_range_list, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, &aperm, mperm_save, ibs_test_perms, perm_batch_size, lasso_h2, lasso_minlambda, &lasso_select_covars_range_list, testmiss_modifier, testmiss_mperm_val, &file_delete_list);
+    retval = plink(outname, outname_end, pedname, mapname, famname, cm_map_fname, cm_map_chrname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, read_dists_fname, read_dists_id_fname, evecname, mergename1, mergename2, mergename3, missing_mid_templates, missing_marker_id_match, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, update_alleles_fname, read_genome_fname, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, filtervals_flattened, condition_mname, condition_fname, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, filter_binary, fam_cols, missing_pheno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, &oblig_missing_info, check_sex_fthresh, check_sex_mthresh, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, tail_bottom, tail_top, mendel_ind, mendel_snp, mendel_exclude_parent_ratio, misc_flags, calculation_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, parallel_idx, parallel_tot, splitx_bound1, splitx_bound2, ppc_gap, sex_missing_pheno, update_sex_col, hwe_modifier, genome_modifier, genome_min_pi_hat, genome_max_pi_hat, &homozyg, &cluster, neighbor_n1, neighbor_n2, &set_info, &ld_info, &epi_info, &clump_info, &rel_info, &score_info, recode_modifier, allelexxxx, merge_type, indiv_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, write_covar_modifier, write_covar_dummy_max_categories, mwithin_col, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, &parameters_range_list, &tests_range_list, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, &aperm, mperm_save, ibs_test_perms, perm_batch_size, lasso_h2, lasso_minlambda, &lasso_select_covars_range_list, testmiss_modifier, testmiss_mperm_val, &file_delete_list);
   }
  main_ret_2:
   free(wkspace_ua);
