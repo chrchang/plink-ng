@@ -1455,6 +1455,15 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --merge-equal-pos  : Merge variants with different names but identical\n"
 "                       positions.\n"
 	       );
+#ifndef STABLE_BUILD
+    help_print("mendel-duos\tmendel-multigen\tme\tmendel", &help_ctrl, 0,
+"  --mendel-duos      : Make --me/--mendel consider individuals with only one\n"
+
+"                       parent in the dataset.\n"
+"  --mendel-multigen  : Make --me/--mendel consider (great-)grandparental\n"
+"                       genotypes when parental genotype data is missing.\n"
+	       );
+#endif
     help_print("r\tr2\tld-window-kb\tld-window-r2\tld-window\tld-snp\tld-snps\tld-snp-list", &help_ctrl, 0,
 "  --ld-window [ct+1] : Set --r/--r2 max site ct pairwise distance (usually 10).\n"
 "  --ld-window-kb [x] : Set --r/--r2 max kb pairwise distance (usually 1000).\n"

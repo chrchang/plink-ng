@@ -3513,7 +3513,7 @@ uint32_t em_phase_hethet(double known11, double known12, double known21, double 
       }
       if (sol_start_idx == sol_end_idx) {
 	// Lost a planet Master Obi-Wan has.  How embarrassing...
-	// lost root must be a double root one of the boundary points, just
+	// lost root must be a double root at one of the boundary points, just
 	// check their likelihoods
 	sol_start_idx = 0;
 	sol_end_idx = 2;
@@ -3561,15 +3561,29 @@ uint32_t em_phase_hethet(double known11, double known12, double known21, double 
       } else {
 	dxx = 0.0;
       }
-      // okay to NOT count the boundary points because they don't permit
+      // okay to NOT count suboptimal boundary points because they don't permit
       // direction changes within the main interval
       // this should exactly match haploview_blocks_classify()'s D sign check
       if ((freq11 + best_sol) - freqx1 * freq1x >= 0.0) {
-	lbound = dxx + SMALLISH_EPSILON;
-	half_hethet_share -= SMALLISH_EPSILON;
+	if (best_sol > dxx + SMALLISH_EPSILON) {
+          lbound = dxx + SMALLISH_EPSILON;
+	} else {
+	  lbound = dxx;
+	}
+	if (best_sol < half_hethet_share - SMALLISH_EPSILON) {
+	  half_hethet_share -= SMALLISH_EPSILON;
+	}
       } else {
-	lbound = SMALLISH_EPSILON;
-	half_hethet_share = dxx - SMALLISH_EPSILON; // upper bound
+	if (best_sol > SMALLISH_EPSILON) {
+	  lbound = SMALLISH_EPSILON;
+	} else {
+	  lbound = 0.0;
+	}
+	if (best_sol < dxx - SMALLISH_EPSILON) {
+	  half_hethet_share = dxx - SMALLISH_EPSILON;
+	} else {
+	  half_hethet_share = dxx;
+	}
       }
       for (cur_sol_idx = sol_start_idx; cur_sol_idx < sol_end_idx; cur_sol_idx++) {
 	if (solutions[cur_sol_idx] < lbound) {

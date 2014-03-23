@@ -1,6 +1,6 @@
 #include "plink_filter.h"
 
-void oblig_missing_init(Oblig_missing_info* om_ip) {
+void filter_init(Oblig_missing_info* om_ip, Mendel_info* me_ip) {
   om_ip->cluster_ct = 0;
   om_ip->entry_ct = 0;
   om_ip->entries = NULL;
@@ -8,9 +8,13 @@ void oblig_missing_init(Oblig_missing_info* om_ip) {
   om_ip->indiv_lookup = NULL;
   om_ip->marker_fname = NULL;
   om_ip->indiv_fname = NULL;
+  me_ip->modifier = 0;
+  me_ip->max_trio_error = 1.0;
+  me_ip->max_var_error = 1.0;
+  me_ip->exclude_one_ratio = 0.0;
 }
 
-void oblig_missing_cleanup(Oblig_missing_info* om_ip) {
+void filter_cleanup(Oblig_missing_info* om_ip) {
   if (om_ip->marker_fname) {
     free_cond(om_ip->entries);
     free_cond(om_ip->cluster_ref_cts);
@@ -1971,7 +1975,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   return retval;
 }
 
-int32_t mendel_error_scan(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t plink_maxfid, uint32_t plink_maxiid, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t hh_exists, Chrom_info* chrom_info_ptr, uint32_t calc_mendel, uint32_t var_first, double mendel_ind, double mendel_snp, double mendel_exclude_parent_ratio) {
+int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t plink_maxfid, uint32_t plink_maxiid, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t hh_exists, Chrom_info* chrom_info_ptr, uint32_t calc_mendel) {
   logprint("Error: --me and --mendel are currently under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
 }
