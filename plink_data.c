@@ -666,7 +666,7 @@ static inline uint32_t sf_out_of_range(uint32_t cur_pos, uint32_t chrom_idx, uin
   return 1;
 }
 
-int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_len_ptr, uintptr_t** marker_exclude_ptr, double** set_allele_freqs_ptr, char*** marker_allele_pp, uintptr_t* max_marker_allele_len_ptr, char** marker_ids_ptr, char** missing_mid_templates, const char* missing_marker_id_match, Chrom_info* chrom_info_ptr, double** marker_cms_ptr, uint32_t** marker_pos_ptr, char* freqname, uint64_t calculation_type, uint64_t misc_flags, uint32_t recode_modifier, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* sf_range_list_ptr, uint32_t* map_is_unsorted_ptr, uint32_t marker_pos_needed, uint32_t marker_cms_needed, uint32_t marker_alleles_needed, const char* split_chrom_cmd) {
+int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_len_ptr, uintptr_t** marker_exclude_ptr, double** set_allele_freqs_ptr, char*** marker_allele_pp, uintptr_t* max_marker_allele_len_ptr, char** marker_ids_ptr, char** missing_mid_templates, const char* missing_marker_id_match, Chrom_info* chrom_info_ptr, double** marker_cms_ptr, uint32_t** marker_pos_ptr, char* freqname, uint64_t calculation_type, uint64_t misc_flags, uint64_t filter_flags, uint32_t recode_modifier, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* sf_range_list_ptr, uint32_t* map_is_unsorted_ptr, uint32_t marker_pos_needed, uint32_t marker_cms_needed, uint32_t marker_alleles_needed, const char* split_chrom_cmd) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* bimfile = NULL;
   uintptr_t unfiltered_marker_ct = 0;
@@ -676,10 +676,10 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   int32_t prev_chrom = -1;
   uint32_t last_pos = 0;
   uint32_t allow_extra_chroms = (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1;
-  uint32_t exclude_snp = (misc_flags / MISC_EXCLUDE_MARKERNAME_SNP) & 1;
-  uint32_t snps_only = (misc_flags / MISC_SNPS_ONLY) & 1;
+  uint32_t exclude_snp = (filter_flags / FILTER_EXCLUDE_MARKERNAME_SNP) & 1;
+  uint32_t snps_only = (filter_flags / FILTER_SNPS_ONLY) & 1;
   uint32_t snps_only_no_di = (misc_flags / MISC_SNPS_ONLY_NO_DI) & 1;
-  uint32_t set_all_missing_ids = (misc_flags / MISC_SET_MISSING_VAR_IDS) & 1;
+  uint32_t set_all_missing_ids = (filter_flags / FILTER_SET_MISSING_VAR_IDS) & 1;
   uint32_t from_slen = markername_from? strlen(markername_from) : 0;
   uint32_t to_slen = markername_to? strlen(markername_to) : 0;
   uint32_t snp_slen = markername_snp? strlen(markername_snp) : 0;
@@ -1196,7 +1196,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     }
     fill_double_zero(*marker_cms_ptr, unfiltered_marker_ct);
   }
-  if (misc_flags & MISC_ZERO_CMS) {
+  if (filter_flags & FILTER_ZERO_CMS) {
     marker_cms_needed = 0;
   }
 
@@ -4658,7 +4658,7 @@ void zeropatch(uintptr_t indiv_ctv2, uintptr_t cluster_ct, uintptr_t* cluster_zc
 #endif
 }
 
-int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t map_cols, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t map_is_unsorted, uint32_t* indiv_sort_map, uint64_t misc_flags, uint32_t splitx_bound1, uint32_t splitx_bound2, Two_col_params* update_chr, char* flip_subset_fname, char* zerofname, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, uint32_t hh_exists, Chrom_info* chrom_info_ptr) {
+int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t map_cols, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t map_is_unsorted, uint32_t* indiv_sort_map, uint64_t misc_flags, uint64_t filter_flags, uint32_t splitx_bound1, uint32_t splitx_bound2, Two_col_params* update_chr, char* flip_subset_fname, char* zerofname, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, uint32_t hh_exists, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + BITCT2 - 1) / BITCT2;
@@ -4674,7 +4674,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   uintptr_t* patchbuf = NULL;
   uint32_t** zcdefs = NULL;
   uint32_t set_hh_missing = (misc_flags / MISC_SET_HH_MISSING) & 1;
-  uint32_t mergex = (misc_flags / MISC_MERGEX) & 1;
+  uint32_t mergex = (filter_flags / FILTER_MERGEX) & 1;
   uint32_t allow_extra_chroms = (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1;
   uint32_t zero_extra_chroms = (misc_flags / MISC_ZERO_EXTRA_CHROMS) & 1;
   uint32_t resort_map = map_is_unsorted || mergex || splitx_bound2 || update_chr;
