@@ -2195,8 +2195,8 @@ int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offse
 #ifdef __LP64__
   __m128i* vptr;
   __m128i* vptr2;
-  uintptr_t trio_ct4;
 #endif
+  uintptr_t trio_ct4;
   uintptr_t max_fid_len;
   uintptr_t max_iid_len;
   uintptr_t trio_ct;

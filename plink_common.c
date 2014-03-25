@@ -9021,7 +9021,6 @@ int32_t get_trios_and_families(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_e
   uint64_t family_code = 0;
   uint32_t family_ct = 0;
   uint32_t edge_ct = 0;
-  uint32_t edge_ctl = 0;
   uint32_t remaining_edge_ct = 0;
   uint32_t tqueue_start = 0;
   uint32_t tqueue_end = 0;
@@ -9282,7 +9281,6 @@ int32_t get_trios_and_families(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_e
     }
     wkspace_reset((unsigned char*)edge_list);
     edge_list = (uint64_t*)wkspace_alloc(edge_ct * sizeof(int64_t));
-    edge_ctl = (edge_ct + (BITCT - 1)) / BITCT;
     if (wkspace_alloc_ui_checked(&toposort_queue, trio_ct * sizeof(int32_t))) {
       goto get_trios_and_families_ret_NOMEM2;
     }
