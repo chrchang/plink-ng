@@ -9892,7 +9892,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	    logprint("Error: Duplicate GT format specifier in .bcf file.\n");
 	    goto bcf_to_bed_ret_INVALID_FORMAT;
 	  }
-	  if (memcmp(&(linebuf[16]), "Number=1,Type=String,Description=\"Genotype\">", 44) || (linebuf[60] > ' ')) {
+	  if (memcmp(&(linebuf[16]), "Number=1,Type=String,Description=", 33)) {
 	    logprint("Error: Unrecognized GT field format in .bcf file.\n");
 	    goto bcf_to_bed_ret_INVALID_FORMAT;
 	  }
