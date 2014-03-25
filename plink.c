@@ -100,7 +100,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (23 Mar 2014)";
+  " (25 Mar 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -2842,11 +2842,25 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if ((calculation_type & CALC_MENDEL) || (me_ip->modifier & MENDEL_FILTER)) {
-    retval = mendel_error_scan(me_ip, bedfile, bed_offset, outname, outname_end, plink_maxfid, plink_maxiid, plink_maxsnp, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, marker_reverse, marker_ids, max_marker_id_len, marker_allele_ptrs, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, hh_exists, chrom_info_ptr, (calculation_type / CALC_MENDEL) & 1);
+    retval = mendel_error_scan(me_ip, bedfile, bed_offset, outname, outname_end, plink_maxfid, plink_maxiid, plink_maxsnp, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, marker_reverse, marker_ids, max_marker_id_len, marker_allele_ptrs, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, hh_exists, chrom_info_ptr, (calculation_type / CALC_MENDEL) & 1);
     if (retval) {
       goto plink_ret_1;
     }
-    indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
+    if (me_ip->modifier & MENDEL_FILTER) {
+      // gah
+      indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
+      bitfield_andnot(founder_info, indiv_exclude, unfiltered_indiv_ctl);
+      bitfield_andnot(sex_nm, indiv_exclude, unfiltered_indiv_ctl);
+      bitfield_and(sex_male, sex_nm, unfiltered_indiv_ctl);
+      if (pheno_nm_ct) {
+	bitfield_andnot(pheno_nm, indiv_exclude, unfiltered_indiv_ctl);
+	if (pheno_c) {
+	  bitfield_and(pheno_c, pheno_nm, unfiltered_indiv_ctl);
+          pheno_ctrl_ct = popcount_longs_exclude(pheno_nm, pheno_c, unfiltered_indiv_ctl);
+	}
+        pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
+      }
+    }
   }
 
   if (wt_needed) {
@@ -3037,7 +3051,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
     }
     if (calculation_type & CALC_MAKE_BED) {
-      retval = make_bed(bedfile, bed_offset, mapname, map_cols, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_cms, marker_pos, marker_allele_ptrs, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm_datagen? pheno_nm_datagen : pheno_nm, pheno_c, pheno_d, output_missing_pheno, map_is_unsorted, indiv_sort_map, misc_flags, filter_flags, splitx_bound1, splitx_bound2, update_chr, flip_subset_fname, cluster_ptr->zerofname, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, hh_exists, chrom_info_ptr);
+      retval = make_bed(bedfile, bed_offset, mapname, map_cols, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_cms, marker_pos, marker_allele_ptrs, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm_datagen? pheno_nm_datagen : pheno_nm, pheno_c, pheno_d, output_missing_pheno, map_is_unsorted, indiv_sort_map, misc_flags, splitx_bound1, splitx_bound2, update_chr, flip_subset_fname, cluster_ptr->zerofname, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, hh_exists, chrom_info_ptr);
       if (retval) {
         goto plink_ret_1;
       }
@@ -8630,6 +8644,10 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	mpheno_col = ii;
       } else if (!memcmp(argptr2, "filter", 7)) {
+	if (!filtername) {
+	  logprint("Error: --mfilter must be used with --filter.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -9426,7 +9444,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --merge-x must be used with a chromosome set containing X and XY codes.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	filter_flags |= FILTER_MERGEX;
+	misc_flags |= MISC_MERGEX;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "issing-var-code", 16)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -9462,11 +9480,16 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if ((mendel_info.max_trio_error < 1.0) || (mendel_info.max_var_error < 1.0)) {
+	  if (covar_fname && (mendel_info.max_trio_error < 1.0)) {
+	    // corner case: --me screws up covariate filtered indices
+	    logprint("Error: --covar cannot be used with --me.\n");
+	    goto main_ret_INVALID_CMDLINE;
+	  }
 	  // silently skip if both parameters are one, for backward
 	  // compatibility
 	  mendel_info.modifier |= MENDEL_FILTER;
+	  filter_flags |= FILTER_GENERIC;
 	}
-	filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "e-exclude-one", 14)) {
 	if (!(mendel_info.modifier & MENDEL_FILTER)) {
 	  sprintf(logbuf, "Error: --me-exclude-one must be used with a --me parameter smaller than one.%s", errstr_append);
@@ -9488,14 +9511,14 @@ int32_t main(int32_t argc, char** argv) {
         goto main_param_zero;
       } else if (!memcmp(argptr2, "endel-duos", 11)) {
 	if ((!(calculation_type & CALC_MENDEL)) && (!(mendel_info.modifier & MENDEL_FILTER))) {
-	  logprint("Error: --mendel-duos must be used with --me and/or --mendel.\n");
+	  logprint("Error: --mendel-duos must be used with --me/--mendel.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	mendel_info.modifier |= MENDEL_DUOS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "endel-multigen", 14)) {
 	if ((!(calculation_type & CALC_MENDEL)) && (!(mendel_info.modifier & MENDEL_FILTER))) {
-	  logprint("Error: --mendel-multigen must be used with --me and/or --mendel.\n");
+	  logprint("Error: --mendel-multigen must be used with --me/--mendel.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	mendel_info.modifier |= MENDEL_MULTIGEN;
@@ -11147,7 +11170,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	filter_flags |= FILTER_SNPS_ONLY;
       } else if (!memcmp(argptr2, "plit-x", 7)) {
-	if (filter_flags & FILTER_MERGEX) {
+	if (misc_flags & MISC_MERGEX) {
           sprintf(logbuf, "Error: --split-x cannot be used with --merge-x.%s", errstr_append);
           goto main_ret_INVALID_CMDLINE_3;
 	} else if ((chrom_info.x_code == -1) || (chrom_info.xy_code == -1)) {
@@ -11724,7 +11747,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (cnv_calc_type & CNV_MAKE_MAP) {
 	  sprintf(logbuf, "--update-chr cannot be used with --cnv-make-map.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
-	} else if ((filter_flags & FILTER_MERGEX) || splitx_bound2) {
+	} else if ((misc_flags & MISC_MERGEX) || splitx_bound2) {
           sprintf(logbuf, "--update-chr cannot be used with --split-x or --merge-x.%s", errstr_append);
           goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -12264,7 +12287,7 @@ int32_t main(int32_t argc, char** argv) {
     sprintf(logbuf, "Error: Deprecated parameter-free --update-%s cannot be used without\n--update-map.%s", (update_map_modifier == 1)? "chr" : "cm", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
   }
-  if (((filter_flags & FILTER_MERGEX) || splitx_bound2 || update_chr) && (((load_rare == LOAD_RARE_CNV) && (cnv_calc_type != CNV_WRITE)) || ((load_rare != LOAD_RARE_CNV) && (calculation_type != CALC_MAKE_BED)))) {
+  if (((misc_flags & MISC_MERGEX) || splitx_bound2 || update_chr) && (((load_rare == LOAD_RARE_CNV) && (cnv_calc_type != CNV_WRITE)) || ((load_rare != LOAD_RARE_CNV) && (calculation_type != CALC_MAKE_BED)))) {
     sprintf(logbuf, "Error: --merge-x/--split-x/--update-chr must be used with --%s and no\nother commands.%s", (load_rare == LOAD_RARE_CNV)? "cnv-write" : "make-bed", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
   }

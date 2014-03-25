@@ -977,9 +977,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
     if (wkspace_alloc_ull_checked(&fidx_to_memidx, indiv_ct * sizeof(int64_t))) {
       goto read_dists_ret_NOMEM;
     }
-    for (ulii = 0; ulii < indiv_ct; ulii++) {
-      fidx_to_memidx[ulii] = 0xffffffffffffffffLLU;
-    }
+    fill_ull_one(fidx_to_memidx, indiv_ct);
     if (fopen_checked(&id_file, id_fname, "r")) {
       goto read_dists_ret_OPEN_FAIL;
     }

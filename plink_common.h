@@ -209,6 +209,7 @@
 #define MISC_OXFORD_SNPID_CHR 0x4000000LLU
 #define MISC_EXTRACT_RANGE 0x8000000LLU
 #define MISC_EXCLUDE_RANGE 0x10000000LLU
+#define MISC_MERGEX 0x20000000LLU
 
 #define FILTER_GENERIC 1LLU
 #define FILTER_EXCLUDE_MARKERNAME_SNP 2LLU
@@ -219,7 +220,6 @@
 #define FILTER_BINARY_FOUNDERS 0x40LLU
 #define FILTER_BINARY_NONFOUNDERS 0x80LLU
 #define FILTER_MAKE_FOUNDERS 0x100LLU
-#define FILTER_MERGEX 0x200LLU
 #define FILTER_PRUNE 0x400LLU
 #define FILTER_SNPS_ONLY 0x800LLU
 #define FILTER_SET_MISSING_VAR_IDS 0x1000LLU
@@ -1394,6 +1394,16 @@ static inline void fill_ulong_zero(uintptr_t* ularr, size_t size) {
   }
 }
 
+#ifdef __LP64__
+static inline void fill_ull_zero(uint64_t* ullarr, size_t size) {
+  fill_ulong_zero((uintptr_t*)ullarr, size);
+}
+#else
+static inline void fill_ull_zero(uint64_t* ullarr, size_t size) {
+  fill_ulong_zero((uintptr_t*)ullarr, size * 2);
+}
+#endif
+
 static inline void fill_long_one(intptr_t* larr, size_t size) {
   intptr_t* lptr = &(larr[size]);
   while (larr < lptr) {
@@ -1407,6 +1417,16 @@ static inline void fill_ulong_one(uintptr_t* ularr, size_t size) {
     *ularr++ = ~ZEROLU;
   }
 }
+
+#ifdef __LP64__
+static inline void fill_ull_one(uint64_t* ullarr, size_t size) {
+  fill_ulong_one((uintptr_t*)ullarr, size);
+}
+#else
+static inline void fill_ull_one(uint64_t* ullarr, size_t size) {
+  fill_ulong_one((uintptr_t*)ullarr, size * 2);
+}
+#endif
 
 static inline void fill_int_zero(int32_t* iarr, size_t size) {
 #ifdef __LP64__
@@ -2032,5 +2052,11 @@ typedef struct {
   uint32_t* family_info_space;
   uint32_t* family_info_offsets; // offset in family_info_space
 } Pedigree_rel_info;
+
+void heapmax64_down(uint32_t cur_pos, uint32_t heap_size, uint64_t* heapmax64);
+
+void heapmax64_up_then_down(uint32_t orig_pos, uint64_t* heapmax64, uint32_t heap_size);
+
+int32_t get_trios_and_families(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, char** fids_ptr, uintptr_t* max_fid_len_ptr, char** iids_ptr, uintptr_t* max_iid_len_ptr, uint64_t** family_list_ptr, uint32_t* family_ct_ptr, uint64_t** trio_list_ptr, uintptr_t* trio_ct_ptr, uint32_t** trio_lookup_ptr, uint32_t include_duos, uint32_t toposort);
 
 #endif // __PLINK_COMMON_H__

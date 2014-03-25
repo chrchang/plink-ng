@@ -635,49 +635,6 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
   return retval;
 }
 
-// heap of 64-bit integers with maximum on top
-// root at element 1, heap_size offset by 1
-// slightly more complicated variant of this in plink_cluster.c
-
-void heapmax64_down(uint32_t cur_pos, uint32_t heap_size, uint64_t* heapmax64) {
-  uint64_t cur_val = heapmax64[cur_pos];
-  uint32_t child_pos = cur_pos * 2;
-  uint64_t tmp_val;
-  while (child_pos < heap_size) {
-    tmp_val = heapmax64[child_pos];
-    if ((child_pos + 1 < heap_size) && (heapmax64[child_pos + 1] > tmp_val)) {
-      tmp_val = heapmax64[++child_pos];
-    }
-    if (cur_val >= tmp_val) {
-      break;
-    }
-    heapmax64[cur_pos] = tmp_val;
-    cur_pos = child_pos;
-    child_pos *= 2;
-  }
-  heapmax64[cur_pos] = cur_val;
-}
-
-void heapmax64_up_then_down(uint32_t orig_pos, uint64_t* heapmax64, uint32_t heap_size) {
-  uint32_t cur_pos = orig_pos;
-  uint64_t cur_val = heapmax64[orig_pos];
-  uint32_t parent_pos = orig_pos / 2;
-  uint64_t tmp_val;
-  while (parent_pos) {
-    tmp_val = heapmax64[parent_pos];
-    if (cur_val <= tmp_val) {
-      break;
-    }
-    heapmax64[cur_pos] = tmp_val;
-    cur_pos = parent_pos;
-    parent_pos /= 2;
-  }
-  if (cur_pos != orig_pos) {
-    heapmax64[cur_pos] = cur_val;
-  }
-  heapmax64_down(cur_pos, heap_size, heapmax64);
-}
-
 void cur_roh_heap_removemax(uintptr_t* roh_slot_occupied, uint64_t* cur_roh_heap, uint32_t* cur_roh_heap_top_ptr, uint32_t* cur_roh_heap_max_ptr) {
   uint32_t cur_roh_heap_top = *cur_roh_heap_top_ptr;
   uint32_t initial_heap_max = *cur_roh_heap_max_ptr;

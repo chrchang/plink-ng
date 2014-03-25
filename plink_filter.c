@@ -1975,7 +1975,26 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   return retval;
 }
 
-int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t plink_maxfid, uint32_t plink_maxiid, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t hh_exists, Chrom_info* chrom_info_ptr, uint32_t calc_mendel) {
-  logprint("Error: --me and --mendel are currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
+int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t plink_maxfid, uint32_t plink_maxiid, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t hh_exists, Chrom_info* chrom_info_ptr, uint32_t calc_mendel) {
+  unsigned char* wkspace_mark = wkspace_base;
+  uintptr_t indiv_ct = unfiltered_indiv_ct - *indiv_exclude_ct_ptr;
+  uint32_t include_duos = (me_ip->modifier / MENDEL_DUOS) & 1;
+  uint32_t multigen = (me_ip->modifier / MENDEL_MULTIGEN) & 1;
+  char* fids;
+  char* iids;
+  uint64_t* family_list;
+  uint64_t* trio_list;
+  uint32_t* trio_lookup;
+  uintptr_t max_fid_len;
+  uintptr_t max_iid_len;
+  uintptr_t trio_ct;
+  uint32_t family_ct;
+  int32_t retval;
+  retval = get_trios_and_families(unfiltered_indiv_ct, indiv_exclude, indiv_ct, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, &fids, &max_fid_len, &iids, &max_iid_len, &family_list, &family_ct, &trio_list, &trio_ct, &trio_lookup, include_duos, multigen);
+  if (retval) {
+    goto mendel_error_scan_ret_1;
+  }
+ mendel_error_scan_ret_1:
+  wkspace_reset(wkspace_mark);
+  return retval;
 }

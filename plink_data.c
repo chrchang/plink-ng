@@ -2168,7 +2168,12 @@ int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintpt
     bufptr2 = &(bufptr[len]);
     wptr = memcpyax(wptr, bufptr, len, '\t');
     bufptr = skip_initial_spaces(&(bufptr2[1]));
-    memcpyx(wptr, bufptr, strlen_se(bufptr), '\0');
+    len = strlen_se(bufptr);
+    if ((len == 1) && (*bufptr == '0')) {
+      logprint("Error: Invalid IID '0' in --update-ids file.\n");
+      goto update_indiv_ids_ret_INVALID_FORMAT;
+    }
+    memcpyx(wptr, bufptr, len, '\0');
     hit_ct++;
   }
   if (!feof(infile)) {
@@ -4658,7 +4663,7 @@ void zeropatch(uintptr_t indiv_ctv2, uintptr_t cluster_ct, uintptr_t* cluster_zc
 #endif
 }
 
-int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t map_cols, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t map_is_unsorted, uint32_t* indiv_sort_map, uint64_t misc_flags, uint64_t filter_flags, uint32_t splitx_bound1, uint32_t splitx_bound2, Two_col_params* update_chr, char* flip_subset_fname, char* zerofname, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, uint32_t hh_exists, Chrom_info* chrom_info_ptr) {
+int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t map_cols, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t map_is_unsorted, uint32_t* indiv_sort_map, uint64_t misc_flags, uint32_t splitx_bound1, uint32_t splitx_bound2, Two_col_params* update_chr, char* flip_subset_fname, char* zerofname, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, uint32_t hh_exists, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + BITCT2 - 1) / BITCT2;
@@ -4674,7 +4679,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   uintptr_t* patchbuf = NULL;
   uint32_t** zcdefs = NULL;
   uint32_t set_hh_missing = (misc_flags / MISC_SET_HH_MISSING) & 1;
-  uint32_t mergex = (filter_flags / FILTER_MERGEX) & 1;
+  uint32_t mergex = (misc_flags / MISC_MERGEX) & 1;
   uint32_t allow_extra_chroms = (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1;
   uint32_t zero_extra_chroms = (misc_flags / MISC_ZERO_EXTRA_CHROMS) & 1;
   uint32_t resort_map = map_is_unsorted || mergex || splitx_bound2 || update_chr;
@@ -4970,6 +4975,11 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
 	bufptr = next_item(bufptr0);
       } else {
 	bufptr = bufptr0;
+      }
+      tmp_len = strlen_se(bufptr);
+      if ((tmp_len == 1) && (*bufptr == '0')) {
+	logprint("Error: Invalid IID '0' in .fam file.\n");
+	return RET_INVALID_FORMAT;
       }
       tmp_len = strlen_se(bufptr0) + strlen_se(bufptr) + 2;
       if (tmp_len > max_person_id_len) {
