@@ -2125,7 +2125,6 @@ int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offse
   uint32_t varlen = 0;
   uint32_t chrom_name_len = 0;
   uint32_t new_marker_exclude_ct = 0;
-  uint32_t new_indiv_exclude_ct = 0;
   uint32_t error_ct_fill = 0;
   int32_t retval = 0;
 
@@ -2201,6 +2200,9 @@ int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offse
   uintptr_t trio_ct;
   uintptr_t trio_idx;
   uintptr_t ulii;
+  double exclude_one_ratio;
+  double dxx;
+  double dyy;
   uint64_t trio_code;
   uint64_t family_code;
   uint32_t family_ct;
@@ -2561,12 +2563,50 @@ int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offse
       logprint("Error: All variants excluded by --me.\n");
       goto mendel_error_scan_ret_ALL_MARKERS_EXCLUDED;
     }
-    *indiv_exclude_ct_ptr += new_indiv_exclude_ct;
-    if (unfiltered_indiv_ct == *indiv_exclude_ct_ptr) {
+    if (var_first) {
+      marker_ct -= new_marker_exclude_ct;
+    }
+    uii = (int32_t)(me_ip->max_trio_error * (1 + SMALL_EPSILON) * ((intptr_t)marker_ct));
+    if (uii < marker_ct) {
+      exclude_one_ratio = me_ip->exclude_one_ratio;
+      for (trio_idx = 0; trio_idx < trio_ct; trio_idx++) {
+	if (error_cts[trio_idx * 3] > uii) {
+	  trio_code = trio_list[trio_idx];
+	  family_code = family_list[(uintptr_t)(trio_code >> 32)];
+	  ujj = (uint32_t)family_code;
+	  ukk = (uint32_t)(family_code >> 32);
+          if (exclude_one_ratio == 0.0) {
+	    set_bit(indiv_exclude, (uint32_t)trio_code);
+	    if (ujj < unfiltered_indiv_ct) {
+	      set_bit(indiv_exclude, ujj);
+	    }
+	    if (ukk < unfiltered_indiv_ct) {
+	      set_bit(indiv_exclude, ukk);
+	    }
+	  } else if ((exclude_one_ratio == INFINITY) || (ujj == unfiltered_indiv_ct) || (ukk == unfiltered_indiv_ct)) {
+            set_bit(indiv_exclude, (uint32_t)trio_code);
+	  } else {
+	    dxx = (double)((int32_t)trio_list[trio_idx * 3 + 1]);
+	    dyy = (double)((int32_t)trio_list[trio_idx * 3 + 2]);
+	    if (dxx > exclude_one_ratio * dyy) {
+	      set_bit(indiv_exclude, ujj);
+	    } else if (dyy > exclude_one_ratio * dxx) {
+	      set_bit(indiv_exclude, ukk);
+	    } else {
+	      set_bit(indiv_exclude, (uint32_t)trio_code);
+	    }
+	  }
+	}
+      }
+    }
+    ulii = popcount_longs(indiv_exclude, (unfiltered_indiv_ct + (BITCT - 1)) / BITCT);
+    if (unfiltered_indiv_ct == ulii) {
       LOGPRINTF("Error: All %s excluded by --me.\n", g_species_plural);
       goto mendel_error_scan_ret_ALL_SAMPLES_EXCLUDED;
     }
-    LOGPRINTF("%u variant%s and %u %s excluded.\n", new_marker_exclude_ct, (new_marker_exclude_ct == 1)? "" : "s", new_indiv_exclude_ct, species_str(new_indiv_exclude_ct));
+    *indiv_exclude_ct_ptr = ulii;
+    ulii -= unfiltered_indiv_ct - indiv_ct;
+    LOGPRINTF("%u variant%s and %" PRIuPTR " %s excluded.\n", new_marker_exclude_ct, (new_marker_exclude_ct == 1)? "" : "s", ulii, species_str(ulii));
   }
   while (0) {
   mendel_error_scan_ret_NOMEM:
