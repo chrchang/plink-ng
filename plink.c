@@ -2842,8 +2842,8 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if ((calculation_type & CALC_MENDEL) || (me_ip->modifier & MENDEL_FILTER)) {
-    retval = mendel_error_scan(me_ip, bedfile, bed_offset, outname, outname_end, plink_maxfid, plink_maxiid, plink_maxsnp, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, marker_reverse, marker_ids, max_marker_id_len, marker_allele_ptrs, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, hh_exists, chrom_info_ptr, (calculation_type / CALC_MENDEL) & 1);
-    if (retval) {
+    retval = mendel_error_scan(me_ip, bedfile, bed_offset, outname, outname_end, plink_maxfid, plink_maxiid, plink_maxsnp, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, marker_reverse, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_len, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, hh_exists, zero_extra_chroms, chrom_info_ptr, (calculation_type / CALC_MENDEL) & 1);
+    if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER | CALC_FREQ | CALC_MISSING_REPORT | CALC_MENDEL))))) {
       goto plink_ret_1;
     }
     if (me_ip->modifier & MENDEL_FILTER) {
@@ -11340,6 +11340,13 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --score-no-mean-imputation flag deprecated.  Use e.g.\n'--score ... no-mean-imputation'.\n");
         score_info.modifier |= SCORE_NO_MEAN_IMPUTATION;
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "et-me-missing", 14)) {
+	if (load_rare == LOAD_RARE_CNV) {
+	  logprint("Error: --set-me-missing cannot be used with a .cnv fileset.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	misc_flags |= MISC_SET_ME_MISSING;
+	goto main_param_zero;
       } else if (!memcmp(argptr2, "kato", 5)) {
 	logprint("Error: --skato is not implemented yet.  Use e.g. PLINK/SEQ to perform this test\nfor now.\n");
 	retval = RET_CALC_NOT_YET_SUPPORTED;
@@ -12287,9 +12294,14 @@ int32_t main(int32_t argc, char** argv) {
     sprintf(logbuf, "Error: Deprecated parameter-free --update-%s cannot be used without\n--update-map.%s", (update_map_modifier == 1)? "chr" : "cm", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
   }
-  if (((misc_flags & MISC_MERGEX) || splitx_bound2 || update_chr) && (((load_rare == LOAD_RARE_CNV) && (cnv_calc_type != CNV_WRITE)) || ((load_rare != LOAD_RARE_CNV) && (calculation_type != CALC_MAKE_BED)))) {
-    sprintf(logbuf, "Error: --merge-x/--split-x/--update-chr must be used with --%s and no\nother commands.%s", (load_rare == LOAD_RARE_CNV)? "cnv-write" : "make-bed", errstr_append);
+  if (((misc_flags & (MISC_MERGEX | MISC_SET_ME_MISSING)) || splitx_bound2 || update_chr) && (((load_rare == LOAD_RARE_CNV) && (cnv_calc_type != CNV_WRITE)) || ((load_rare != LOAD_RARE_CNV) && (calculation_type != CALC_MAKE_BED)))) {
+    sprintf(logbuf, "Error: --merge-x/--split-x/--update-chr/--set-me-missing must be used with\n--%s and no other commands.%s", (load_rare == LOAD_RARE_CNV)? "cnv-write" : "make-bed", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
+  }
+  if (misc_flags & MISC_SET_ME_MISSING) {
+    logprint("Error: --set-me-missing is currently under development.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto main_ret_1;
   }
   if (flip_subset_fname && (load_rare || (calculation_type != CALC_MAKE_BED) || (min_maf != 0.0) || (max_maf != 0.5) || (hwe_thresh != 0.0))) {
     sprintf(logbuf, "Error: --flip-subset must be used with --flip, --make-bed, and no other\ncommands or MAF-based filters.%s", errstr_append);

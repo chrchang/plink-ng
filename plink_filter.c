@@ -1975,26 +1975,622 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   return retval;
 }
 
-int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t plink_maxfid, uint32_t plink_maxiid, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t hh_exists, Chrom_info* chrom_info_ptr, uint32_t calc_mendel) {
+void fill_mendel_errstr(uint32_t error_code, char** allele_ptrs, uint32_t* alens, char* wbuf, uint32_t* len_ptr) {
+  char* wptr;
+  uint32_t len;
+  if (error_code < 10) {
+    wbuf[0] = ' ';
+    wbuf[1] = error_code + '0';
+  } else {
+    memcpy(wbuf, "10", 2);
+  }
+  if (!alens[0]) {
+    // lazy fill
+    alens[0] = strlen(allele_ptrs[0]);
+    alens[1] = strlen(allele_ptrs[1]);
+  }
+  // PLINK 1.07 may fail to put space here when there are long allele codes; we
+  // don't replicate that.  (We actually force two spaces here since the error
+  // column itself contains spaces.)
+  wptr = memseta(&(wbuf[2]), 32, 2);
+  switch (error_code) {
+  case 1:
+    len = 5 * alens[0] + alens[1] + 10;
+    if (len < 20) {
+      wptr = memseta(wptr, 32, 20 - len);
+    }
+    wptr = memcpyax(wptr, allele_ptrs[0], alens[0], '/');
+    wptr = memcpya(wptr, allele_ptrs[0], alens[0]);
+    wptr = memcpyl3a(wptr, " x ");
+    wptr = memcpyax(wptr, allele_ptrs[0], alens[0], '/');
+    wptr = memcpya(wptr, allele_ptrs[0], alens[0]);
+    wptr = memcpya(wptr, " -> ", 4);
+    wptr = memcpyax(wptr, allele_ptrs[0], alens[0], '/');
+    wptr = memcpya(wptr, allele_ptrs[1], alens[1]);
+    break;
+  case 2:
+    len = alens[0] + 5 * alens[1] + 10;
+    if (len < 20) {
+      wptr = memseta(wptr, 32, 20 - len);
+    }
+    wptr = memcpyax(wptr, allele_ptrs[1], alens[1], '/');
+    wptr = memcpya(wptr, allele_ptrs[1], alens[1]);
+    wptr = memcpyl3a(wptr, " x ");
+    wptr = memcpyax(wptr, allele_ptrs[1], alens[1], '/');
+    wptr = memcpya(wptr, allele_ptrs[1], alens[1]);
+    wptr = memcpya(wptr, " -> ", 4);
+    wptr = memcpyax(wptr, allele_ptrs[0], alens[0], '/');
+    wptr = memcpya(wptr, allele_ptrs[1], alens[1]);
+    break;
+  case 3:
+    len = 2 * alens[0] + 2 * alens[1] + 12;
+    if (len < 20) {
+      wptr = memseta(wptr, 32, 20 - len);
+    }
+    wptr = memcpyax(wptr, allele_ptrs[1], alens[1], '/');
+    wptr = memcpya(wptr, allele_ptrs[1], alens[1]);
+    wptr = memcpya(wptr, " x */* -> ", 10);
+    wptr = memcpyax(wptr, allele_ptrs[0], alens[0], '/');
+    wptr = memcpya(wptr, allele_ptrs[0], alens[0]);
+    break;
+  case 4:
+  case 10:
+    len = 2 * alens[0] + 2 * alens[1] + 12;
+    if (len < 20) {
+      wptr = memseta(wptr, 32, 20 - len);
+    }
+    wptr = memcpya(wptr, "*/* x ", 6);
+    wptr = memcpyax(wptr, allele_ptrs[1], alens[1], '/');
+    wptr = memcpya(wptr, allele_ptrs[1], alens[1]);
+    wptr = memcpya(wptr, " -> ", 4);
+    wptr = memcpyax(wptr, allele_ptrs[0], alens[0], '/');
+    wptr = memcpya(wptr, allele_ptrs[0], alens[0]);
+    break;
+  case 5:
+    len = 2 * alens[0] + 4 * alens[1] + 10;
+    if (len < 20) {
+      wptr = memseta(wptr, 32, 20 - len);
+    }
+    wptr = memcpyax(wptr, allele_ptrs[1], alens[1], '/');
+    wptr = memcpya(wptr, allele_ptrs[1], alens[1]);
+    wptr = memcpyl3a(wptr, " x ");
+    wptr = memcpyax(wptr, allele_ptrs[1], alens[1], '/');
+    wptr = memcpya(wptr, allele_ptrs[1], alens[1]);
+    wptr = memcpya(wptr, " -> ", 4);
+    wptr = memcpyax(wptr, allele_ptrs[0], alens[0], '/');
+    wptr = memcpya(wptr, allele_ptrs[0], alens[0]);
+    break;
+  case 6:
+    len = 2 * alens[0] + 2 * alens[1] + 12;
+    if (len < 20) {
+      wptr = memseta(wptr, 32, 20 - len);
+    }
+    wptr = memcpyax(wptr, allele_ptrs[0], alens[0], '/');
+    wptr = memcpya(wptr, allele_ptrs[0], alens[0]);
+    wptr = memcpya(wptr, " x */* -> ", 10);
+    wptr = memcpyax(wptr, allele_ptrs[1], alens[1], '/');
+    wptr = memcpya(wptr, allele_ptrs[1], alens[1]);
+    break;
+  case 7:
+  case 9:
+    len = 2 * alens[0] + 2 * alens[1] + 12;
+    if (len < 20) {
+      wptr = memseta(wptr, 32, 20 - len);
+    }
+    wptr = memcpya(wptr, "*/* x ", 6);
+    wptr = memcpyax(wptr, allele_ptrs[0], alens[0], '/');
+    wptr = memcpya(wptr, allele_ptrs[0], alens[0]);
+    wptr = memcpya(wptr, " -> ", 4);
+    wptr = memcpyax(wptr, allele_ptrs[1], alens[1], '/');
+    wptr = memcpya(wptr, allele_ptrs[1], alens[1]);
+    break;
+  case 8:
+    len = 4 * alens[0] + 2 * alens[1] + 10;
+    if (len < 20) {
+      wptr = memseta(wptr, 32, 20 - len);
+    }
+    wptr = memcpyax(wptr, allele_ptrs[0], alens[0], '/');
+    wptr = memcpya(wptr, allele_ptrs[0], alens[0]);
+    wptr = memcpyl3a(wptr, " x ");
+    wptr = memcpyax(wptr, allele_ptrs[0], alens[0], '/');
+    wptr = memcpya(wptr, allele_ptrs[0], alens[0]);
+    wptr = memcpya(wptr, " -> ", 4);
+    wptr = memcpyax(wptr, allele_ptrs[1], alens[1], '/');
+    wptr = memcpya(wptr, allele_ptrs[1], alens[1]);
+    break;
+  }
+  *wptr++ = '\n';
+  *len_ptr = (uintptr_t)(wptr - wbuf);
+}
+
+int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t plink_maxfid, uint32_t plink_maxiid, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t hh_exists, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t calc_mendel) {
   unsigned char* wkspace_mark = wkspace_base;
+  FILE* outfile = NULL;
+  FILE* outfile_l = NULL;
+  uintptr_t* indiv_male_include2 = NULL;
+  char* varptr = NULL;
+  char* chrom_name_ptr = NULL;
+  uint64_t* family_error_cts = NULL;
+  uint32_t* child_cts = NULL;
+  uintptr_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
+  uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uintptr_t unfiltered_indiv_ctp1l2 = 1 + (unfiltered_indiv_ct / BITCT2);
   uintptr_t indiv_ct = unfiltered_indiv_ct - *indiv_exclude_ct_ptr;
+  uintptr_t marker_uidx = 0xffffffffLU;
+  uint64_t tot_error_ct = 0;
+  uint32_t do_filter = me_ip->modifier & MENDEL_FILTER;
   uint32_t include_duos = (me_ip->modifier / MENDEL_DUOS) & 1;
   uint32_t multigen = (me_ip->modifier / MENDEL_MULTIGEN) & 1;
+  uint32_t var_first = me_ip->modifier & MENDEL_FILTER_VAR_FIRST;
+  uint32_t varlen = 0;
+  uint32_t chrom_name_len = 0;
+  uint32_t new_marker_exclude_ct = 0;
+  uint32_t new_indiv_exclude_ct = 0;
+  uint32_t error_ct_fill = 0;
+  int32_t retval = 0;
+
+  // bottom 2 bits of index = child genotype
+  // middle 2 bits of index = paternal genotype
+  // top 2 bits of index = maternal genotype
+
+  // bits 0-7 = child increment (always 1)
+  // bits 8-15 = father increment
+  // bits 16-23 = mother increment
+  // bits 24-31 = error code
+
+  // note that \xx is octal, not decimal.
+  const uint32_t error_table[] =
+{0, 0, 0x1010101, 0x8000001,
+ 0, 0, 0, 0x7010001,
+ 0, 0, 0, 0x7010001,
+ 0x3000101, 0, 0, 0x7010001,
+ 0, 0, 0, 0x6000101,
+ 0, 0, 0, 0,
+ 0, 0, 0, 0,
+ 0x3000101, 0, 0, 0,
+ 0, 0, 0, 0x6000101,
+ 0, 0, 0, 0,
+ 0, 0, 0, 0,
+ 0x3000101, 0, 0, 0,
+ 0x4010001, 0, 0, 0x6000101,
+ 0x4010001, 0, 0, 0,
+ 0x4010001, 0, 0, 0,
+ 0x5000001, 0, 0x2010101, 0};
+  // necessary to check child gender when dealing with error 9/10
+  const uint32_t error_table_x[] =
+{0, 0, 0x1010101, 0x8000001,
+ 0, 0, 0, 0x9010001,
+ 0, 0, 0, 0x7010001,
+ 0x3000101, 0, 0, 0x7010001,
+ 0, 0, 0, 0x6000101,
+ 0, 0, 0, 0,
+ 0, 0, 0, 0,
+ 0x3000101, 0, 0, 0,
+ 0, 0, 0, 0x6000101,
+ 0, 0, 0, 0,
+ 0, 0, 0, 0,
+ 0x3000101, 0, 0, 0,
+ 0x4010001, 0, 0, 0x6000101,
+ 0xa010001, 0, 0, 0,
+ 0x4010001, 0, 0, 0,
+ 0x5000001, 0, 0x2010101, 0};
+  char chrom_name_buf[4];
+  char* errstrs[10];
+  uint32_t errstr_lens[11];
+  uint32_t alens[2];
+  const uint32_t* error_table_ptr;
   char* fids;
   char* iids;
+  char* wptr;
+  char* cptr;
   uint64_t* family_list;
   uint64_t* trio_list;
+  uintptr_t* loadbuf;
   uint32_t* trio_lookup;
+  uint32_t* error_cts;
+  uint32_t* error_cts_tmp;
+  uint32_t* error_cts_tmp2;
+  uint32_t* uiptr;
+#ifdef __LP64__
+  __m128i* vptr;
+  __m128i* vptr2;
+  uintptr_t trio_ct4;
+#endif
   uintptr_t max_fid_len;
   uintptr_t max_iid_len;
   uintptr_t trio_ct;
+  uintptr_t trio_idx;
+  uintptr_t ulii;
+  uint64_t trio_code;
+  uint64_t family_code;
   uint32_t family_ct;
-  int32_t retval;
+  uint32_t var_error_max;
+  uint32_t cur_error_ct;
+  uint32_t chrom_fo_idx;
+  uint32_t chrom_idx;
+  uint32_t chrom_end;
+  uint32_t is_x;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+  uint32_t umm;
+  marker_ct -= count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 0, 1);
+  if ((!marker_ct) || IS_SET(chrom_info_ptr->haploid_mask, 0)) {
+    logprint("Warning: Skipping --me/--mendel since there is no autosomal or Xchr data.\n");
+    goto mendel_error_scan_ret_1;
+  }
   retval = get_trios_and_families(unfiltered_indiv_ct, indiv_exclude, indiv_ct, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, &fids, &max_fid_len, &iids, &max_iid_len, &family_list, &family_ct, &trio_list, &trio_ct, &trio_lookup, include_duos, multigen);
   if (retval) {
     goto mendel_error_scan_ret_1;
   }
+  if (!trio_ct) {
+    LOGPRINTF("Warning: Skipping --me/--mendel since there are no %strios.\n", include_duos? "duos or " : "");
+    goto mendel_error_scan_ret_1;
+  }
+  trio_ct4 = (trio_ct + 3) / 4;
+  var_error_max = (int32_t)(me_ip->max_var_error * (1 + SMALL_EPSILON) * ((intptr_t)trio_ct));
+  if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctp1l2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ui_checked(&error_cts, trio_ct * 3 * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&error_cts_tmp, trio_ct4 * 4 * sizeof(int32_t))) {
+    goto mendel_error_scan_ret_NOMEM;
+  }
+  if (!var_first) {
+    error_cts_tmp2 = error_cts_tmp;
+  } else {
+    if (wkspace_alloc_ui_checked(&error_cts_tmp2, trio_ct4 * 4 * sizeof(int32_t))) {
+      goto mendel_error_scan_ret_NOMEM;
+    }
+    fill_uint_zero(error_cts_tmp2, trio_ct4 * 4);
+  }
+  loadbuf[unfiltered_indiv_ctp1l2 - 1] = 0;
+  fill_uint_zero(error_cts, trio_ct * 3);
+  fill_uint_zero(error_cts_tmp, trio_ct4 * 4);
+  hh_exists &= XMHH_EXISTS;
+  if (alloc_raw_haploid_filters(unfiltered_indiv_ct, hh_exists, 0, indiv_exclude, sex_male, NULL, &indiv_male_include2)) {
+    goto mendel_error_scan_ret_NOMEM;
+  }
+  alens[0] = 0;
+  alens[1] = 0;
+  if (calc_mendel) {
+    ulii = max_marker_allele_len * 6 + 10;
+    if (ulii < 21) {
+      ulii = 21;
+    }
+    if (wkspace_alloc_ull_checked(&family_error_cts, family_ct * 3 * sizeof(int64_t)) ||
+        wkspace_alloc_ui_checked(&child_cts, family_ct * sizeof(int32_t)) ||
+        wkspace_alloc_c_checked(&(errstrs[0]), ulii * 10)) {
+      goto mendel_error_scan_ret_NOMEM;
+    }
+    for (uii = 1; uii < 10; uii++) {
+      errstrs[uii] = &(errstrs[0][uii * ulii]);
+    }
+    memcpy(outname_end, ".mendel", 8);
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto mendel_error_scan_ret_OPEN_FAIL;
+    }
+    sprintf(tbuf, "%%%us %%%us  CHR %%%us   CODE                 ERROR\n", plink_maxfid, plink_maxiid, plink_maxsnp);
+    fprintf(outfile, tbuf, "FID", "KID", "SNP");
+    memcpy(outname_end, ".lmendel", 9);
+    if (fopen_checked(&outfile_l, outname, "w")) {
+      goto mendel_error_scan_ret_OPEN_FAIL;
+    }
+    // replicate harmless 'N' misalignment bug
+    sprintf(tbuf, " CHR %%%us   N\n", plink_maxsnp);
+    fprintf(outfile_l, tbuf, "SNP");
+  } else {
+    // suppress warning
+    fill_ulong_zero((uintptr_t*)errstrs, 10);
+  }
+  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
+    chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+    is_x = (((uint32_t)chrom_info_ptr->x_code) == chrom_idx)? 1 : 0;
+    if ((IS_SET(chrom_info_ptr->haploid_mask, chrom_idx) && (!is_x)) || (((uint32_t)chrom_info_ptr->mt_code) == chrom_idx)) {
+      continue;
+    }
+    chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+    uii = next_unset(marker_exclude, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx], chrom_end);
+    if (uii == chrom_end) {
+      continue;
+    }
+    if (!is_x) {
+      error_table_ptr = error_table;
+    } else {
+      error_table_ptr = error_table_x;
+    }
+    if (calc_mendel) {
+      chrom_name_ptr = chrom_name_buf;
+      chrom_name_len = 4;
+      if (chrom_idx <= chrom_info_ptr->max_code) {
+	chrom_num_write4(chrom_name_buf, chrom_idx);
+      } else if (zero_extra_chroms) {
+	memcpy(chrom_name_buf, "   0", 4);
+      } else {
+	ujj = strlen(chrom_info_ptr->nonstd_names[chrom_idx]);
+	if (ujj < 4) {
+	  fw_strcpyn(4, ujj, chrom_info_ptr->nonstd_names[chrom_idx], chrom_name_buf);
+	} else {
+	  chrom_name_ptr = chrom_info_ptr->nonstd_names[chrom_idx];
+	  chrom_name_len = ujj;
+	}
+      }
+    }
+    if (uii != marker_uidx) {
+      marker_uidx = uii;
+      goto mendel_error_scan_seek;
+    }
+    while (1) {
+      if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+	goto mendel_error_scan_ret_READ_FAIL;
+      }
+      if (IS_SET(marker_reverse, marker_uidx)) {
+        reverse_loadbuf((unsigned char*)loadbuf, unfiltered_indiv_ct);
+      }
+      if (is_x && hh_exists) {
+	hh_reset((unsigned char*)loadbuf, indiv_male_include2, unfiltered_indiv_ct);
+      }
+      // missing parents are treated as having uidx equal to
+      // unfiltered_indiv_ct, and we set the corresponding genotype to always
+      // be missing.  This lets us avoid special-casing duos.
+      SET_BIT_DBL(loadbuf, unfiltered_indiv_ct);
+      uiptr = trio_lookup;
+      cur_error_ct = 0;
+      if (calc_mendel) {
+	varptr = &(marker_ids[marker_uidx * max_marker_id_len]);
+	varlen = strlen(varptr);
+	alens[0] = 0;
+	alens[1] = 0;
+	fill_uint_zero(errstr_lens, 11);
+      }
+      if (!multigen) {
+	for (trio_idx = 0; trio_idx < trio_ct; trio_idx++) {
+	  uii = *uiptr++;
+	  ujj = *uiptr++;
+	  ukk = *uiptr++;
+          umm = error_table_ptr[((loadbuf[uii / BITCT2] >> (2 * (uii % BITCT2))) & 3) | (((loadbuf[ujj / BITCT2] >> (2 * (ujj % BITCT2))) & 3) << 2) | (((loadbuf[ukk / BITCT2] >> (2 * (ukk % BITCT2))) & 3) << 4)];
+	  if (umm) {
+	    error_cts_tmp2[trio_idx] += umm & 0xffffff;
+	    cur_error_ct++;
+	    if (calc_mendel) {
+	      umm >>= 24;
+	      if ((umm > 8) && (!is_set(sex_male, uii))) {
+		umm = 34 - 3 * umm; // 9 -> 7, 10 -> 4
+	      }
+	      wptr = fw_strcpy(plink_maxfid, &(fids[trio_idx * max_fid_len]), tbuf);
+	      *wptr++ = ' ';
+	      wptr = fw_strcpy(plink_maxiid, &(iids[uii * max_iid_len]), wptr);
+	      *wptr++ = ' ';
+	      wptr = memcpyax(wptr, chrom_name_ptr, chrom_name_len, ' ');
+	      wptr = fw_strcpyn(plink_maxsnp, varlen, varptr, wptr);
+	      wptr = memseta(wptr, 32, 5);
+	      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+		goto mendel_error_scan_ret_WRITE_FAIL;
+	      }
+	      if (!errstr_lens[umm]) {
+		fill_mendel_errstr(umm, &(marker_allele_ptrs[2 * marker_uidx]), alens, errstrs[umm - 1], &(errstr_lens[umm]));
+	      }
+	      if (fwrite_checked(errstrs[umm - 1], errstr_lens[umm], outfile)) {
+		goto mendel_error_scan_ret_WRITE_FAIL;
+	      }
+	    }
+	  }
+	}
+      } else {
+	logprint("Error: --mendel-multigen is currently under development.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+	goto mendel_error_scan_ret_1;
+      }
+      if (calc_mendel) {
+	if (fwrite_checked(chrom_name_ptr, chrom_name_len, outfile_l)) {
+	  goto mendel_error_scan_ret_WRITE_FAIL;
+	}
+	tbuf[0] = ' ';
+	wptr = fw_strcpyn(plink_maxsnp, varlen, varptr, &(tbuf[1]));
+        *wptr++ = ' ';
+        wptr = uint32_writew4x(wptr, cur_error_ct, '\n');
+	if (fwrite_checked(tbuf, wptr - tbuf, outfile_l)) {
+	  goto mendel_error_scan_ret_WRITE_FAIL;
+	}
+      }
+      if (cur_error_ct) {
+	if (cur_error_ct > var_error_max) {
+	  SET_BIT(marker_exclude, marker_uidx);
+	  new_marker_exclude_ct++;
+	}
+	if ((cur_error_ct <= var_error_max) || (!var_first)) {
+	  if (var_first) {
+#ifdef __LP64__
+	    vptr = (__m128i*)error_cts_tmp;
+	    vptr2 = (__m128i*)error_cts_tmp2;
+	    for (trio_idx = 0; trio_idx < trio_ct4; trio_idx++) {
+	      *vptr = _mm_add_epi64(*vptr, *vptr2++);
+	      vptr++;
+	    }
+#else
+            for (trio_idx = 0; trio_idx < trio_ct; trio_idx++) {
+	      error_cts_tmp[trio_idx] += error_cts_tmp2[trio_idx];
+	    }
+#endif
+	    fill_uint_zero(error_cts_tmp2, trio_ct);
+	  }
+	  error_ct_fill++;
+	  if (error_ct_fill == 255) {
+	    uiptr = error_cts;
+            for (trio_idx = 0; trio_idx < trio_ct; trio_idx++) {
+	      uii = error_cts_tmp[trio_idx];
+	      *uiptr += (unsigned char)uii;
+	      uiptr++;
+	      *uiptr += (unsigned char)(uii >> 8);
+	      uiptr++;
+	      *uiptr += uii >> 16;
+	      uiptr++;
+	    }
+	    fill_uint_zero(error_cts_tmp, trio_ct);
+	    error_ct_fill = 0;
+	  }
+	}
+      }
+      tot_error_ct += cur_error_ct;
+      if (++marker_uidx == chrom_end) {
+	break;
+      }
+      if (IS_SET(marker_exclude, marker_uidx)) {
+        marker_uidx = next_unset_ul(marker_exclude, marker_uidx, chrom_end);
+	if (marker_uidx == chrom_end) {
+	  break;
+	}
+      mendel_error_scan_seek:
+        if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	  goto mendel_error_scan_ret_READ_FAIL;
+	}
+      }
+    }
+  }
+  if (error_ct_fill) {
+    uiptr = error_cts;
+    for (trio_idx = 0; trio_idx < trio_ct; trio_idx++) {
+      uii = error_cts_tmp[trio_idx];
+      *uiptr += (unsigned char)uii;
+      uiptr++;
+      *uiptr += (unsigned char)(uii >> 8);
+      uiptr++;
+      *uiptr += uii >> 16;
+      uiptr++;
+    }
+  }
+  LOGPRINTF("--me/--mendel: %" PRIu64 " Mendel error%s detected.\n", tot_error_ct, (tot_error_ct == 1)? "" : "s");
+  if (calc_mendel) {
+    if (fclose_null(&outfile)) {
+      goto mendel_error_scan_ret_WRITE_FAIL;
+    }
+    if (fclose_null(&outfile_l)) {
+      goto mendel_error_scan_ret_WRITE_FAIL;
+    }
+    outname_end[1] = 'f';
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto mendel_error_scan_ret_OPEN_FAIL;
+    }
+    sprintf(tbuf, "%%%us %%%us %%%us   CHLD    N\n", plink_maxfid, plink_maxiid, plink_maxiid);
+    fprintf(outfile, tbuf, "FID", "PAT", "MAT");
+    fill_ull_zero(family_error_cts, family_ct * 3);
+    fill_uint_zero(child_cts, family_ct);
+    for (trio_idx = 0; trio_idx < trio_ct; trio_idx++) {
+      uii = (uint32_t)(trio_list[trio_idx] >> 32);
+      child_cts[uii] += 1;
+      family_error_cts[uii * 3] += error_cts[trio_idx * 3];
+      family_error_cts[uii * 3 + 1] += error_cts[trio_idx * 3 + 1];
+      family_error_cts[uii * 3 + 2] += error_cts[trio_idx * 3 + 2];
+    }
+    for (uii = 0; uii < family_ct; uii++) {
+      family_code = family_list[uii];
+      ujj = (uint32_t)family_code; // paternal uidx
+      if (ujj < unfiltered_indiv_ct) {
+	// bleah, fids[] isn't in right order for this lookup
+	cptr = &(person_ids[ujj * max_person_id_len]);
+	wptr = fw_strcpyn(plink_maxfid, (uintptr_t)(((char*)memchr(cptr, '\t', max_person_id_len)) - cptr), cptr, tbuf);
+      } else {
+	wptr = memseta(tbuf, 32, plink_maxfid - 1);
+	*wptr++ = '0';
+      }
+      *wptr++ = ' ';
+      wptr = fw_strcpy(plink_maxiid, &(iids[ujj * max_iid_len]), wptr);
+      *wptr++ = ' ';
+      wptr = fw_strcpy(plink_maxiid, &(iids[((uintptr_t)(family_code >> 32)) * max_iid_len]), wptr);
+      *wptr++ = ' ';
+      wptr = uint32_writew6x(wptr, child_cts[uii], ' ');
+      wptr = int64_write(wptr, family_error_cts[uii * 3]);
+      *wptr++ = '\n';
+      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	goto mendel_error_scan_ret_WRITE_FAIL;
+      }
+    }
+    if (fclose_null(&outfile)) {
+      goto mendel_error_scan_ret_WRITE_FAIL;
+    }
+    outname_end[1] = 'i';
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto mendel_error_scan_ret_OPEN_FAIL;
+    }
+    sprintf(tbuf, "%%%us %%%us   N\n", plink_maxfid, plink_maxiid);
+    fprintf(outfile, tbuf, "FID", "IID");
+    uii = 0xffffffffU; // family idx
+    for (trio_idx = 0; trio_idx < trio_ct; trio_idx++) {
+      trio_code = trio_list[trio_idx];
+      ujj = (uint32_t)(trio_code >> 32);
+      if (ujj != uii) {
+	uii = ujj;
+        family_code = family_list[uii];
+	wptr = fw_strcpy(plink_maxfid, &(fids[trio_idx * max_fid_len]), tbuf);
+	*wptr++ = ' ';
+	ujj = (uint32_t)family_code;
+	if (ujj != unfiltered_indiv_ct) {
+	  wptr = fw_strcpy(plink_maxiid, &(iids[ujj * max_iid_len]), wptr);
+	  *wptr++ = ' ';
+	  wptr = int64_write(wptr, family_error_cts[3 * uii + 1]);
+	  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	    goto mendel_error_scan_ret_WRITE_FAIL;
+	  }
+	}
+	ukk = (uint32_t)(family_code >> 32);
+	if (ukk != unfiltered_indiv_ct) {
+	  if (ujj != unfiltered_indiv_ct) {
+	    putc('\n', outfile);
+	  }
+	  wptr = fw_strcpy(plink_maxiid, &(iids[ukk * max_iid_len]), &(tbuf[plink_maxfid + 1]));
+	  *wptr++ = ' ';
+	  wptr = int64_write(wptr, family_error_cts[3 * uii + 2]);
+	  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	    goto mendel_error_scan_ret_WRITE_FAIL;
+	  }
+	}
+	putc(' ', outfile); // PLINK 1.07 formatting quirk
+	putc('\n', outfile);
+      }
+      wptr = fw_strcpy(plink_maxiid, &(iids[((uint32_t)trio_code) * max_iid_len]), &(tbuf[plink_maxfid + 1]));
+      *wptr++ = ' ';
+      wptr = uint32_writew4x(wptr, error_cts[trio_idx * 3], '\n');
+      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	goto mendel_error_scan_ret_WRITE_FAIL;
+      }
+    }
+    *outname_end = '\0';
+    LOGPRINTF("Report written to %s.{mendel,imendel,fmendel,lmendel}.\n", outname);
+  }
+  if (do_filter) {
+    *marker_exclude_ct_ptr += new_marker_exclude_ct;
+    if (unfiltered_marker_ct == *marker_exclude_ct_ptr) {
+      logprint("Error: All variants excluded by --me.\n");
+      goto mendel_error_scan_ret_ALL_MARKERS_EXCLUDED;
+    }
+    *indiv_exclude_ct_ptr += new_indiv_exclude_ct;
+    if (unfiltered_indiv_ct == *indiv_exclude_ct_ptr) {
+      LOGPRINTF("Error: All %s excluded by --me.\n", g_species_plural);
+      goto mendel_error_scan_ret_ALL_SAMPLES_EXCLUDED;
+    }
+    LOGPRINTF("%u variant%s and %u %s excluded.\n", new_marker_exclude_ct, (new_marker_exclude_ct == 1)? "" : "s", new_indiv_exclude_ct, species_str(new_indiv_exclude_ct));
+  }
+  while (0) {
+  mendel_error_scan_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  mendel_error_scan_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  mendel_error_scan_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  mendel_error_scan_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  mendel_error_scan_ret_ALL_MARKERS_EXCLUDED:
+    retval = RET_ALL_MARKERS_EXCLUDED;
+    break;
+  mendel_error_scan_ret_ALL_SAMPLES_EXCLUDED:
+    retval = RET_ALL_SAMPLES_EXCLUDED;
+    break;
+  }
  mendel_error_scan_ret_1:
   wkspace_reset(wkspace_mark);
+  fclose_cond(outfile);
+  fclose_cond(outfile_l);
   return retval;
 }

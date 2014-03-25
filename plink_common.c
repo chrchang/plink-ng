@@ -9127,7 +9127,7 @@ int32_t get_trios_and_families(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_e
     }
     slen = strlen(iidptr);
     if (slen >= max_iid_len) {
-      slen = max_iid_len + 1;
+      max_iid_len = slen + 1;
     }
     if (IS_SET(founder_info, indiv_uidx)) {
       continue;
@@ -9198,9 +9198,9 @@ int32_t get_trios_and_families(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_e
 	goto get_trios_and_families_ret_INVALID_FORMAT;
       }
       if (uii) {
-        family_code = (((uint64_t)uidx2) << 32) | ((uint64_t)uidx1);
-      } else {
         family_code = (((uint64_t)uidx1) << 32) | ((uint64_t)uidx2);
+      } else {
+        family_code = (((uint64_t)uidx2) << 32) | ((uint64_t)uidx1);
       }
       next_probe_incr = uidx1 + uidx2;
       if (uidx1 > uidx2) {
