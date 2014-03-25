@@ -2108,8 +2108,10 @@ int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offse
   FILE* outfile = NULL;
   FILE* outfile_l = NULL;
   uintptr_t* indiv_male_include2 = NULL;
+  uintptr_t* error_locs = NULL;
   char* varptr = NULL;
   char* chrom_name_ptr = NULL;
+  unsigned char* cur_errors = NULL;
   uint64_t* family_error_cts = NULL;
   uint32_t* child_cts = NULL;
   uintptr_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
@@ -2198,8 +2200,11 @@ int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offse
   uintptr_t max_fid_len;
   uintptr_t max_iid_len;
   uintptr_t trio_ct;
+  uintptr_t trio_ctl;
   uintptr_t trio_idx;
+  uintptr_t lookup_idx;
   uintptr_t ulii;
+  uintptr_t uljj;
   double exclude_one_ratio;
   double dxx;
   double dyy;
@@ -2230,6 +2235,7 @@ int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offse
     goto mendel_error_scan_ret_1;
   }
   trio_ct4 = (trio_ct + 3) / 4;
+  trio_ctl = (trio_ct + (BITCT - 1)) / BITCT;
   var_error_max = (int32_t)(me_ip->max_var_error * (1 + SMALL_EPSILON) * ((intptr_t)trio_ct));
   if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctp1l2 * sizeof(intptr_t)) ||
       wkspace_alloc_ui_checked(&error_cts, trio_ct * 3 * sizeof(int32_t)) ||
@@ -2265,6 +2271,13 @@ int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offse
     }
     for (uii = 1; uii < 10; uii++) {
       errstrs[uii] = &(errstrs[0][uii * ulii]);
+    }
+    if (multigen) {
+      if (wkspace_alloc_ul_checked(&error_locs, trio_ctl * sizeof(intptr_t)) ||
+          wkspace_alloc_uc_checked(&cur_errors, trio_ct)) {
+	goto mendel_error_scan_ret_NOMEM;
+      }
+      fill_ulong_zero(error_locs, trio_ctl);
     }
     memcpy(outname_end, ".mendel", 8);
     if (fopen_checked(&outfile, outname, "w")) {
@@ -2377,9 +2390,59 @@ int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offse
 	  }
 	}
       } else {
-	logprint("Error: --mendel-multigen is currently under development.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto mendel_error_scan_ret_1;
+	for (lookup_idx = 0; lookup_idx < trio_ct; lookup_idx++) {
+	  uii = *uiptr++;
+	  ujj = *uiptr++;
+	  ukk = *uiptr++;
+          trio_idx = *uiptr++;
+          uljj = ((loadbuf[ujj / BITCT2] >> (2 * (ujj % BITCT2))) & 3) | (((loadbuf[ukk / BITCT2] >> (2 * (ukk % BITCT2))) & 3) << 2);
+	  umm = uii / BITCT2;
+	  ujj = 2 * (uii % BITCT2);
+	  ulii = (loadbuf[umm] >> ujj) & 3;
+	  if (ulii != 1) {
+	    umm = error_table_ptr[ulii | (uljj << 2)];
+	    if (umm) {
+	      error_cts_tmp2[trio_idx] += umm & 0xffffff;
+	      cur_error_ct++;
+	      if (calc_mendel) {
+	        set_bit(error_locs, trio_idx);
+		umm >>= 24;
+		if ((umm > 8) && (!is_set(sex_male, uii))) {
+		  umm = 34 - 3 * umm;
+		}
+                cur_errors[trio_idx] = (unsigned char)umm;
+	      }
+	    }
+	  } else if (uljj == 0) {
+	    loadbuf[umm] &= ~(ONELU << ujj);
+          } else if (uljj == 15) {
+	    loadbuf[umm] |= (2 * ONELU) << ujj;
+	  }
+	}
+	if (calc_mendel && cur_error_ct) {
+          trio_idx = 0;
+	  for (uii = 0; uii < cur_error_ct; trio_idx++, uii++) {
+            next_set_ul_unsafe_ck(error_locs, &trio_idx);
+	    wptr = fw_strcpy(plink_maxfid, &(fids[trio_idx * max_fid_len]), tbuf);
+	    *wptr++ = ' ';
+	    wptr = fw_strcpy(plink_maxiid, &(iids[((uint32_t)trio_list[trio_idx]) * max_iid_len]), wptr);
+	    *wptr++ = ' ';
+	    wptr = memcpyax(wptr, chrom_name_ptr, chrom_name_len, ' ');
+	    wptr = fw_strcpyn(plink_maxsnp, varlen, varptr, wptr);
+	    wptr = memseta(wptr, 32, 5);
+	    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	      goto mendel_error_scan_ret_WRITE_FAIL;
+	    }
+	    umm = cur_errors[trio_idx];
+	    if (!errstr_lens[umm]) {
+	      fill_mendel_errstr(umm, &(marker_allele_ptrs[2 * marker_uidx]), alens, errstrs[umm - 1], &(errstr_lens[umm]));
+	    }
+	    if (fwrite_checked(errstrs[umm - 1], errstr_lens[umm], outfile)) {
+	      goto mendel_error_scan_ret_WRITE_FAIL;
+	    }
+	  }
+          fill_ulong_zero(error_locs, trio_ctl);
+	}
       }
       if (calc_mendel) {
 	if (fwrite_checked(chrom_name_ptr, chrom_name_len, outfile_l)) {
