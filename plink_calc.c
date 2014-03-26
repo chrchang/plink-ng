@@ -72,8 +72,8 @@
 
 #include "plink_calc.h"
 #include "plink_cluster.h"
-#include "plink_data.h"
 #include "plink_matrix.h"
+#include "plink_misc.h"
 #include "plink_stats.h"
 #include "pigz.h"
 
