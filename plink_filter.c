@@ -26,6 +26,71 @@ void filter_cleanup(Oblig_missing_info* om_ip) {
   }
 }
 
+uint32_t random_thin_markers(double thin_keep_prob, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr) {
+  uint32_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
+  uint32_t marker_uidx = 0;
+  uint32_t markers_done = 0;
+  uint32_t removed_ct = 0;
+  uint32_t uint32_thresh = (uint32_t)(thin_keep_prob * 4294967296.0 + 0.5);
+  uint32_t marker_uidx_stop;
+  while (markers_done < marker_ct) {
+    marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
+    marker_uidx_stop = next_set(marker_exclude, marker_uidx, unfiltered_marker_ct);
+    markers_done += marker_uidx_stop - marker_uidx;
+    do {
+      if (sfmt_genrand_uint32(&sfmt) >= uint32_thresh) {
+	SET_BIT(marker_exclude, marker_uidx);
+	removed_ct++;
+      }
+    } while (++marker_uidx < marker_uidx_stop);
+  }
+  if (marker_ct == removed_ct) {
+    logprint("Error: All variants removed by --thin.  Try a higher probability.\n");
+    return 1;
+  }
+  LOGPRINTF("--thin: %u variant%s removed (%u remaining).\n", removed_ct, (removed_ct == 1)? "" : "s", marker_ct - removed_ct);
+  *marker_exclude_ct_ptr += removed_ct;
+  return 0;
+}
+
+int32_t random_thin_markers_ct(uint32_t thin_keep_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr) {
+  unsigned char* wkspace_mark = wkspace_base;
+  uint32_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
+  uint32_t marker_uidx = 0;
+  uintptr_t marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
+  int32_t retval = 0;
+  uintptr_t* perm_buf;
+  uint32_t marker_idx;
+  if (thin_keep_ct > marker_ct) {
+    LOGPRINTF("Error: --thin-count parameter exceeds number of remaining variants.\n");
+    goto random_thin_markers_ct_ret_INVALID_CMDLINE;
+  }
+  if (wkspace_alloc_ul_checked(&perm_buf, marker_ctl * sizeof(intptr_t))) {
+    goto random_thin_markers_ct_ret_NOMEM;
+  }
+  // no actual interleaving here, but may as well use this function
+  generate_perm1_interleaved(marker_ct, marker_ct - thin_keep_ct, 0, 1, perm_buf);
+  marker_uidx = 0;
+  for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+    next_unset_unsafe_ck(marker_exclude, &marker_uidx);
+    if (is_set(perm_buf, marker_idx)) {
+      set_bit(marker_exclude, marker_uidx);
+    }
+  }
+  LOGPRINTF("--thin-count: %u variant%s removed (%u remaining).\n", marker_ct - thin_keep_ct, (marker_ct - thin_keep_ct == 1)? "" : "s", thin_keep_ct);
+  *marker_exclude_ct_ptr = unfiltered_marker_ct - thin_keep_ct;
+  while (0) {
+  random_thin_markers_ct_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  random_thin_markers_ct_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+  }
+  wkspace_reset(wkspace_mark);
+  return retval;
+}
+
 int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char* marker_ids, uintptr_t max_marker_id_len, char* sorted_person_ids, uintptr_t sorted_indiv_ct, uintptr_t max_person_id_len, uint32_t* indiv_id_map, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* sex_male, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip) {
   // 1. load and validate cluster file
   // 2. load marker file, sort by uidx

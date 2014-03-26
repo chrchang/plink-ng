@@ -1097,7 +1097,11 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	    bufptr2++;
 	  }
           curtoklen = (uintptr_t)(bufptr2 - bufptr);
-          if ((bufptr2 == buf_end) && (buf_end == &(tbuf[MAXLINELEN * 2]))) {
+          if (bufptr2 == &(tbuf[MAXLINELEN * 2])) {
+	    if (curtoklen > MAXLINELEN) {
+	      logprint("Error: Excessively long token in --set file.\n");
+	      goto define_sets_ret_INVALID_FORMAT;
+	    }
             bufptr3 = &(tbuf[MAXLINELEN - curtoklen]);
             memcpy(bufptr3, bufptr, curtoklen);
             bufptr = bufptr3;
@@ -1197,7 +1201,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	  bufptr2++;
 	}
         curtoklen = (uintptr_t)(bufptr2 - bufptr);
-        if ((bufptr2 == buf_end) && (buf_end == &(tbuf[MAXLINELEN * 2]))) {
+        if (bufptr2 == &(tbuf[MAXLINELEN * 2])) {
           bufptr3 = &(tbuf[MAXLINELEN - curtoklen]);
           memcpy(bufptr3, bufptr, curtoklen);
 	  bufptr = bufptr3;
@@ -1508,6 +1512,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     break;
   define_sets_ret_INVALID_FORMAT_NO_END:
     logprint("Error: Last token in --set file isn't 'END'.\n");
+  define_sets_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
   }

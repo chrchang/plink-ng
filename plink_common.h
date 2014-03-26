@@ -273,6 +273,7 @@
 #define CALC_BLOCKS 0x40000000000LLU
 #define CALC_SCORE 0x80000000000LLU
 #define CALC_MENDEL 0x100000000000LLU
+#define CALC_HET 0x200000000000LLU
 
 // necessary to patch heterozygous haploids/female Y chromosome genotypes
 // during loading?

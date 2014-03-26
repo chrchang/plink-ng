@@ -6222,8 +6222,11 @@ int32_t main(int32_t argc, char** argv) {
 	hwe_modifier |= HWE_THRESH_ALL;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "et", 3)) {
-	sprintf(logbuf, "Error: --het provisionally retired.  Contact us if --ibc is unsatisfactory.%s", errstr_append);
-	goto main_ret_INVALID_CMDLINE_3;
+	logprint("Error: --het is currently under development.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+	goto main_ret_1;
+        // calculation_type |= CALC_HET;
+	// goto main_param_zero;
       } else if (!memcmp(argptr2, "ardy", 5)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;

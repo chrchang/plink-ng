@@ -1217,21 +1217,43 @@ const char* include_or_exclude_flag_str(uint32_t flags) {
   return NULL;
 }
 
+void exclude_extract_process_token(char* tok_start, char* sorted_ids, uint32_t* id_map, uintptr_t max_id_len, uintptr_t sorted_ids_ct, uintptr_t* exclude_arr, uintptr_t* exclude_arr_new, uint32_t do_exclude, uint32_t curtoklen) {
+  uintptr_t ulii = bsearch_str_lb(tok_start, curtoklen, sorted_ids, max_id_len, sorted_ids_ct);
+  uintptr_t uljj;
+  uint32_t unfiltered_idx;
+  if (ulii != sorted_ids_ct) {
+    tok_start[curtoklen] = ' ';
+    uljj = bsearch_str_lb(tok_start, curtoklen + 1, sorted_ids, max_id_len, sorted_ids_ct);
+    if (uljj > ulii) {
+      do {
+	unfiltered_idx = id_map[ulii];
+	if (do_exclude) {
+	  SET_BIT(exclude_arr, unfiltered_idx);
+	} else if (!IS_SET(exclude_arr, unfiltered_idx)) {
+	  CLEAR_BIT(exclude_arr_new, unfiltered_idx);
+	}
+      } while (++ulii < uljj);
+    }
+  }
+}
+
 int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_ct, uintptr_t max_id_len, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* exclude_ct_ptr, uint32_t flags) {
   FILE* infile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t* exclude_arr_new = NULL;
-  uintptr_t include_ct = 0;
   uintptr_t unfiltered_ctl = (unfiltered_ct + (BITCT - 1)) / BITCT;
   uint32_t do_exclude = flags & 1;
   // flags & 2 = indivs
   uint32_t families_only = flags & 4;
+  uint32_t curtoklen = 0;
   int32_t retval = 0;
+  char* midbuf = &(tbuf[MAXLINELEN]);
   char* id_buf;
   char* bufptr0;
   char* bufptr;
-  uintptr_t ulii;
-  uintptr_t uljj;
+  char* bufptr2;
+  char* bufptr3;
+  uintptr_t bufsize;
   int32_t ii;
   uint32_t unfiltered_idx;
   uint32_t cur_idx;
@@ -1246,8 +1268,8 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
   if (fopen_checked(&infile, fname, "r")) {
     goto include_or_exclude_ret_OPEN_FAIL;
   }
-  tbuf[MAXLINELEN - 1] = ' ';
   if (flags & 2) {
+    tbuf[MAXLINELEN - 1] = ' ';
     if (wkspace_alloc_c_checked(&id_buf, max_id_len)) {
       goto include_or_exclude_ret_NOMEM;
     }
@@ -1272,13 +1294,11 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
 	      goto include_or_exclude_ret_INVALID_FORMAT_3;
 	    }
 	    SET_BIT(exclude_arr, unfiltered_idx);
-	    *exclude_ct_ptr += 1;
 	  } else if (!IS_SET(exclude_arr, unfiltered_idx)) {
 	    if (!IS_SET(exclude_arr_new, unfiltered_idx)) {
 	      goto include_or_exclude_ret_INVALID_FORMAT_3;
 	    }
 	    CLEAR_BIT(exclude_arr_new, unfiltered_idx);
-	    include_ct++;
 	  }
 	}
       } else {
@@ -1290,48 +1310,60 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
 	      goto include_or_exclude_ret_INVALID_FORMAT_3;
 	    }
 	    SET_BIT(exclude_arr, unfiltered_idx);
-	    *exclude_ct_ptr += 1;
 	  } else {
 	    if (!IS_SET(exclude_arr_new, unfiltered_idx)) {
 	      goto include_or_exclude_ret_INVALID_FORMAT_3;
 	    }
 	    CLEAR_BIT(exclude_arr_new, unfiltered_idx);
-	    include_ct++;
 	  }
 	}
       }
     }
   } else {
-    while (fgets(tbuf, MAXLINELEN, infile) != NULL) {
-      if (!tbuf[MAXLINELEN - 1]) {
-	sprintf(logbuf, "Error: Excessively long line in --%s file (max %u chars).\n", flags? "exclude" : "extract", MAXLINELEN - 3);
-	goto include_or_exclude_ret_INVALID_FORMAT_2;
+    // use token- instead of line-based loader here
+    while (1) {
+      if (fread_checked(midbuf, MAXLINELEN, infile, &bufsize)) {
+	goto include_or_exclude_ret_READ_FAIL;
       }
-      bufptr0 = skip_initial_spaces(tbuf);
-      if (is_eoln_kns(*bufptr0)) {
-	continue;
-      }
-      bufptr = item_endnn(bufptr0);
-      ulii = bsearch_str_lb(bufptr0, (uintptr_t)(bufptr - bufptr0), sorted_ids, max_id_len, sorted_ids_ct);
-      if (ulii != sorted_ids_ct) {
-        *bufptr = ' ';
-        uljj = bsearch_str_lb(bufptr0, (uintptr_t)((&(bufptr[1])) - bufptr0), sorted_ids, max_id_len, sorted_ids_ct);
-        if (uljj > ulii) {
-          do {
-	    unfiltered_idx = id_map[ulii];
-	    if (do_exclude) {
-	      if (!IS_SET(exclude_arr, unfiltered_idx)) {
-	        SET_BIT(exclude_arr, unfiltered_idx);
-		*exclude_ct_ptr += 1;
-	      }
-	    } else if (!IS_SET(exclude_arr, unfiltered_idx)) {
-	      if (IS_SET(exclude_arr_new, unfiltered_idx)) {
-		CLEAR_BIT(exclude_arr_new, unfiltered_idx);
-                include_ct++;
-	      }
-	    }
-	  } while (++ulii < uljj);
+      if (!bufsize) {
+        if (curtoklen) {
+          exclude_extract_process_token(&(tbuf[MAXLINELEN - curtoklen]), sorted_ids, id_map, max_id_len, sorted_ids_ct, exclude_arr, exclude_arr_new, do_exclude, curtoklen);
 	}
+	break;
+      }
+      bufptr0 = &(midbuf[bufsize]);
+      *bufptr0 = ' ';
+      bufptr0[1] = '0';
+      bufptr = &(tbuf[MAXLINELEN - curtoklen]);
+      bufptr2 = midbuf;
+      if (curtoklen) {
+	goto include_or_exclude_tok_start;
+      }
+      while (1) {
+	while (*bufptr <= ' ') {
+	  bufptr++;
+	}
+        if (bufptr >= bufptr0) {
+	  curtoklen = 0;
+	  break;
+	}
+        bufptr2 = &(bufptr[1]);
+      include_or_exclude_tok_start:
+        while (*bufptr2 > ' ') {
+	  bufptr2++;
+	}
+        curtoklen = (uintptr_t)(bufptr2 - bufptr);
+        if (bufptr2 == &(tbuf[MAXLINELEN * 2])) {
+	  if (curtoklen > MAXLINELEN) {
+	    sprintf(logbuf, "Error: Excessively long ID in --%s file.\n", include_or_exclude_flag_str(flags));
+	    goto include_or_exclude_ret_INVALID_FORMAT_2;
+	  }
+	  bufptr3 = &(tbuf[MAXLINELEN - curtoklen]);
+          memcpy(bufptr3, bufptr, curtoklen);
+	  break;
+	}
+        exclude_extract_process_token(bufptr, sorted_ids, id_map, max_id_len, sorted_ids_ct, exclude_arr, exclude_arr_new, do_exclude, curtoklen);
+	bufptr = &(bufptr2[1]);
       }
     }
   }
@@ -1340,8 +1372,8 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
   }
   if (!do_exclude) {
     memcpy(exclude_arr, exclude_arr_new, unfiltered_ctl * sizeof(intptr_t));
-    *exclude_ct_ptr = unfiltered_ct - include_ct;
   }
+  *exclude_ct_ptr = popcount_longs(exclude_arr, unfiltered_ctl);
   if (*exclude_ct_ptr == unfiltered_ct) {
     LOGPRINTF("Error: No %s remaining after --%s.\n", (flags & 2)? g_species_plural : "variants", include_or_exclude_flag_str(flags));
     goto include_or_exclude_ret_ALL_SAMPLES_EXCLUDED;
@@ -1938,71 +1970,6 @@ int32_t update_indiv_sexes(char* update_sex_fname, uint32_t update_sex_col, char
     break;
   }
   fclose_cond(infile);
-  wkspace_reset(wkspace_mark);
-  return retval;
-}
-
-uint32_t random_thin_markers(double thin_keep_prob, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr) {
-  uint32_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
-  uint32_t marker_uidx = 0;
-  uint32_t markers_done = 0;
-  uint32_t removed_ct = 0;
-  uint32_t uint32_thresh = (uint32_t)(thin_keep_prob * 4294967296.0 + 0.5);
-  uint32_t marker_uidx_stop;
-  while (markers_done < marker_ct) {
-    marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
-    marker_uidx_stop = next_set(marker_exclude, marker_uidx, unfiltered_marker_ct);
-    markers_done += marker_uidx_stop - marker_uidx;
-    do {
-      if (sfmt_genrand_uint32(&sfmt) >= uint32_thresh) {
-	SET_BIT(marker_exclude, marker_uidx);
-	removed_ct++;
-      }
-    } while (++marker_uidx < marker_uidx_stop);
-  }
-  if (marker_ct == removed_ct) {
-    logprint("Error: All variants removed by --thin.  Try a higher probability.\n");
-    return 1;
-  }
-  LOGPRINTF("--thin: %u variant%s removed (%u remaining).\n", removed_ct, (removed_ct == 1)? "" : "s", marker_ct - removed_ct);
-  *marker_exclude_ct_ptr += removed_ct;
-  return 0;
-}
-
-int32_t random_thin_markers_ct(uint32_t thin_keep_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr) {
-  unsigned char* wkspace_mark = wkspace_base;
-  uint32_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
-  uint32_t marker_uidx = 0;
-  uintptr_t marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
-  int32_t retval = 0;
-  uintptr_t* perm_buf;
-  uint32_t marker_idx;
-  if (thin_keep_ct > marker_ct) {
-    LOGPRINTF("Error: --thin-count parameter exceeds number of remaining variants.\n");
-    goto random_thin_markers_ct_ret_INVALID_CMDLINE;
-  }
-  if (wkspace_alloc_ul_checked(&perm_buf, marker_ctl * sizeof(intptr_t))) {
-    goto random_thin_markers_ct_ret_NOMEM;
-  }
-  // no actual interleaving here, but may as well use this function
-  generate_perm1_interleaved(marker_ct, marker_ct - thin_keep_ct, 0, 1, perm_buf);
-  marker_uidx = 0;
-  for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-    next_unset_unsafe_ck(marker_exclude, &marker_uidx);
-    if (is_set(perm_buf, marker_idx)) {
-      set_bit(marker_exclude, marker_uidx);
-    }
-  }
-  LOGPRINTF("--thin-count: %u variant%s removed (%u remaining).\n", marker_ct - thin_keep_ct, (marker_ct - thin_keep_ct == 1)? "" : "s", thin_keep_ct);
-  *marker_exclude_ct_ptr = unfiltered_marker_ct - thin_keep_ct;
-  while (0) {
-  random_thin_markers_ct_ret_NOMEM:
-    retval = RET_NOMEM;
-    break;
-  random_thin_markers_ct_ret_INVALID_CMDLINE:
-    retval = RET_INVALID_CMDLINE;
-    break;
-  }
   wkspace_reset(wkspace_mark);
   return retval;
 }
