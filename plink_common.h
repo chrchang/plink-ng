@@ -16,7 +16,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define PROG_NAME_STR "plink"
 #define PROG_NAME_CAPS "PLINK"
@@ -382,6 +382,10 @@
 #define REGRESS_PCS_NORMALIZE_PHENO 1
 #define REGRESS_PCS_SEX_SPECIFIC 2
 #define REGRESS_PCS_CLIP 4
+
+#define HWE_MIDP 1
+#define HWE_THRESH_MIDP 2
+#define HWE_THRESH_ALL 4
 
 #define DUMMY_MISSING_GENO 1
 #define DUMMY_MISSING_PHENO 2

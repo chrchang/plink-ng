@@ -1,4 +1,5 @@
 #include "plink_filter.h"
+#include "plink_stats.h"
 
 void filter_init(Oblig_missing_info* om_ip, Mendel_info* me_ip) {
   om_ip->cluster_ct = 0;
@@ -1369,7 +1370,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	}
 	memcpy(founder_case_nonmale_include2, indiv_nonmale_include2, unfiltered_indiv_ctv2 * sizeof(intptr_t));
 	vec_include_mask_out(unfiltered_indiv_ct, founder_case_nonmale_include2, tmp_indiv_excl_mask);
-	indiv_f_ctl_nonmale_ct = popcount01_longs(founder_case_nonmale_include2, unfiltered_indiv_ctv2);
+	indiv_f_case_nonmale_ct = popcount01_longs(founder_case_nonmale_include2, unfiltered_indiv_ctv2);
       }
     }
   }
@@ -1973,6 +1974,362 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   wkspace_reset(wkspace_mark);
   fclose_cond(outfile);
   return retval;
+}
+
+int32_t hardy_report_write_line(FILE* outfile, char* prefix_buf, uint32_t prefix_len, uint32_t reverse, uint32_t ll_ct, uint32_t lh_ct, uint32_t hh_ct, char* midbuf_ptr, double pvalue) {
+  char wbuf[48];
+  char* cptr;
+  uint32_t denom;
+  double drecip;
+  double minor_freq;
+  fwrite(prefix_buf, 1, prefix_len, outfile);
+  if (reverse) {
+    cptr = uint32_write(uint32_writex(uint32_writex(wbuf, hh_ct, '/'), lh_ct, '/'), ll_ct);
+  } else {
+    cptr = uint32_write(uint32_writex(uint32_writex(wbuf, ll_ct, '/'), lh_ct, '/'), hh_ct);
+  }
+  cptr = fw_strcpyn(20, cptr - wbuf, wbuf, midbuf_ptr);
+  *cptr++ = ' ';
+  denom = (ll_ct + lh_ct + hh_ct) * 2;
+  if (denom) {
+    drecip = 1.0 / ((double)denom);
+    minor_freq = (2 * ll_ct + lh_ct) * drecip;
+    cptr = double_g_writewx4x(double_g_writewx4x(double_g_writewx4x(cptr, (lh_ct * 2) * drecip, 8, ' '), minor_freq * (2 * hh_ct + lh_ct) * drecip * 2, 8, ' '), pvalue, 12, '\n');
+  } else {
+    cptr = memcpya(cptr, "     nan      nan           NA\n", 31);
+  }
+  return fwrite_checked(midbuf_ptr, (cptr - midbuf_ptr), outfile);
+}
+
+int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, int32_t* hwe_lls, int32_t* hwe_lhs, int32_t* hwe_hhs, uint32_t hwe_modifier, int32_t* hwe_ll_cases, int32_t* hwe_lh_cases, int32_t* hwe_hh_cases, int32_t* hwe_ll_allfs, int32_t* hwe_lh_allfs, int32_t* hwe_hh_allfs, uint32_t pheno_nm_ct, uintptr_t* pheno_c, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr) {
+  FILE* outfile = NULL;
+  unsigned char* wkspace_mark = wkspace_base;
+  uintptr_t marker_ct = unfiltered_marker_ct - marker_exclude_ct;
+  uintptr_t marker_uidx = 0;
+  uintptr_t marker_idx = 0;
+  uint32_t hwe_midp = hwe_modifier & HWE_MIDP;
+  int32_t retval = 0;
+  uint32_t skip_chrom = 0;
+  uint32_t pct = 0;
+  uint32_t prefix_len;
+  uint32_t loop_end;
+  uint32_t uii;
+  uint32_t report_type;
+  uint32_t is_x;
+  uint32_t is_y;
+  uint32_t is_mt;
+  uint32_t is_haploid;
+  uint32_t chrom_fo_idx;
+  uint32_t chrom_end;
+  uint32_t reverse;
+  double* p_values;
+  char* writebuf;
+  char* cptr0;
+  char* cptr;
+  char* cptr2;
+  char* cptr3;
+  char* cptr4;
+  char* cptr5;
+  if (pheno_nm_ct) {
+    report_type = pheno_c? 0 : 1;
+  } else {
+    report_type = 2;
+  }
+  uii = report_type? 1 : 3;
+  if (wkspace_alloc_d_checked(&p_values, uii * marker_ct * sizeof(double)) ||
+      wkspace_alloc_c_checked(&writebuf, 2 * max_marker_allele_len + MAXLINELEN)) {
+    goto hardy_report_ret_NOMEM;
+  }
+
+  // todo: multithread?
+  if (report_type) {
+    for (; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+      next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
+      p_values[marker_idx] = SNPHWE2(hwe_lh_allfs[marker_uidx], hwe_ll_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], hwe_midp);
+    }
+  } else {
+    for (; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+      next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
+      p_values[marker_idx * 3] = SNPHWE2(hwe_lh_allfs[marker_uidx], hwe_ll_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], hwe_midp);
+      p_values[marker_idx * 3 + 1] = SNPHWE2(hwe_lh_cases[marker_uidx], hwe_ll_cases[marker_uidx], hwe_hh_cases[marker_uidx], hwe_midp);
+      p_values[marker_idx * 3 + 2] = SNPHWE2(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx], hwe_midp);
+    }
+  }
+  marker_uidx = 0;
+  marker_idx = 0;
+
+  memcpy(outname_end, ".hwe", 5);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto hardy_report_ret_OPEN_FAIL;
+  }
+  LOGPRINTF("Writing Hardy-Weinberg report to %s...", outname);
+  fputs(" 0%", stdout);
+  sprintf(writebuf, " CHR %%%us     TEST   A1   A2                 GENO   O(HET)   E(HET)            P \n", plink_maxsnp);
+  fprintf(outfile, writebuf, "SNP");
+ 
+  chrom_fo_idx = 0;
+  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
+  skip_chrom = (is_haploid && (!is_x)) || is_mt;
+  cptr0 = width_force(4, writebuf, chrom_name_write(writebuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], zero_extra_chroms));
+  *cptr0++ = ' ';
+  cptr = &(cptr0[10 + plink_maxsnp]);
+  prefix_len = 10 + ((uintptr_t)(cptr - writebuf));
+  if (report_type) {
+    if (report_type == 1) {
+      memcpy(&(cptr0[plink_maxsnp]), "  ALL(QT)           ", 20);
+    } else {
+      memcpy(&(cptr0[plink_maxsnp]), "  ALL(NP)           ", 20);
+    }
+    cptr2 = &(cptr[18 + 2 * max_marker_allele_len]);
+    for (; pct <= 100; pct++) {
+      loop_end = (((uint64_t)pct) * marker_ct) / 100LLU;
+      for (; marker_idx < loop_end; marker_uidx++, marker_idx++) {
+	next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
+	if (marker_uidx >= chrom_end) {
+	  chrom_fo_idx++;
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
+	  skip_chrom = (is_haploid && (!is_x)) || is_mt;
+	  cptr0 = width_force(4, writebuf, chrom_name_write(writebuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], zero_extra_chroms));
+	  *cptr0++ = ' ';
+	  cptr = &(cptr0[10 + plink_maxsnp]);
+	  prefix_len = 10 + ((uintptr_t)(cptr - writebuf));
+	  if (report_type == 1) {
+	    memcpy(&(cptr0[plink_maxsnp]), "  ALL(QT)           ", 20);
+	  } else {
+	    memcpy(&(cptr0[plink_maxsnp]), "  ALL(NP)           ", 20);
+	  }
+	  cptr2 = &(cptr[18 + 2 * max_marker_allele_len]);
+	}
+        if (skip_chrom) {
+	  continue;
+	}
+	fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), cptr0);
+	reverse = IS_SET(marker_reverse, marker_uidx);
+	cptr3 = marker_allele_ptrs[2 * marker_uidx];
+	cptr4 = marker_allele_ptrs[2 * marker_uidx + 1];
+	cptr5 = fw_strcpy(4, cptr3, cptr);
+	*cptr5 = ' ';
+	cptr5 = fw_strcpy(4, cptr4, &(cptr5[1]));
+	*cptr5 = ' ';
+	prefix_len = 1 + (cptr5 - writebuf);
+	if (hardy_report_write_line(outfile, writebuf, prefix_len, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], cptr2, p_values[marker_idx])) {
+	  goto hardy_report_ret_WRITE_FAIL;
+	}
+      }
+      if (pct < 100) {
+	if (pct > 10) {
+	  putchar('\b');
+	}
+	printf("\b\b%u%%", pct);
+	fflush(stdout);
+      }
+    }
+  } else {
+    memset(&(cptr0[plink_maxsnp]), 32, 20);
+    cptr2 = &(cptr[18 + 2 * max_marker_allele_len]);
+    for (; pct <= 100; pct++) {
+      loop_end = (((uint64_t)pct) * marker_ct) / 100LLU;
+      for (; marker_idx < loop_end; marker_uidx++, marker_idx++) {
+	next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
+	if (marker_uidx >= chrom_end) {
+	  chrom_fo_idx++;
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
+	  skip_chrom = (is_haploid && (!is_x)) || is_mt;
+	  cptr0 = width_force(4, writebuf, chrom_name_write(writebuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], zero_extra_chroms));
+          memset(&(cptr0[plink_maxsnp]), 32, 20);
+	  cptr = &(cptr0[10 + plink_maxsnp]);
+	  cptr2 = &(cptr[18 + 2 * max_marker_allele_len]);
+	  prefix_len = 10 + ((uintptr_t)(cptr - writebuf));
+	}
+	if (skip_chrom) {
+	  continue;
+	}
+	fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), cptr0);
+	memcpy(&(cptr0[4 + plink_maxsnp]), "  ALL", 5);
+	reverse = IS_SET(marker_reverse, marker_uidx);
+	cptr3 = marker_allele_ptrs[2 * marker_uidx];
+	cptr4 = marker_allele_ptrs[2 * marker_uidx + 1];
+	cptr5 = fw_strcpy(4, cptr3, cptr);
+	*cptr5 = ' ';
+	cptr5 = fw_strcpy(4, cptr4, &(cptr5[1]));
+	*cptr5 = ' ';
+	prefix_len = 1 + (cptr5 - writebuf);
+	if (hardy_report_write_line(outfile, writebuf, prefix_len, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], cptr2, p_values[3 * marker_idx])) {
+	  goto hardy_report_ret_WRITE_FAIL;
+	}
+
+	memcpy(&(cptr0[7 + plink_maxsnp]), "FF", 2);
+	if (hardy_report_write_line(outfile, writebuf, prefix_len, reverse, hwe_ll_cases[marker_uidx], hwe_lh_cases[marker_uidx], hwe_hh_cases[marker_uidx], cptr2, p_values[3 * marker_idx + 1])) {
+	  goto hardy_report_ret_WRITE_FAIL;
+	}
+
+	memcpy(&(cptr0[4 + plink_maxsnp]), "UN", 2);
+	if (hardy_report_write_line(outfile, writebuf, prefix_len, reverse, hwe_lls[marker_uidx], hwe_lhs[marker_uidx], hwe_hhs[marker_uidx], cptr2, p_values[3 * marker_idx + 2])) {
+	  goto hardy_report_ret_WRITE_FAIL;
+	}
+      }
+      if (pct < 100) {
+	if (pct > 10) {
+	  putchar('\b');
+	}
+	printf("\b\b%u%%", pct);
+	fflush(stdout);
+      }
+    }
+  }
+  fputs("\b\b\b\b", stdout);
+  logprint(" done.\n");
+
+  while (0) {
+  hardy_report_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  hardy_report_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  hardy_report_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+  fclose_cond(outfile);
+  wkspace_reset(wkspace_mark);
+  return retval;
+}
+
+uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, int32_t* hwe_lls, int32_t* hwe_lhs, int32_t* hwe_hhs, uint32_t hwe_modifier, int32_t* hwe_ll_allfs, int32_t* hwe_lh_allfs, int32_t* hwe_hh_allfs, Chrom_info* chrom_info_ptr) {
+  uint32_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
+  uint32_t marker_uidx = 0;
+  uint32_t removed_ct = 0;
+  uint32_t hwe_all = hwe_modifier & HWE_THRESH_ALL;
+  uint32_t hwe_thresh_midp = hwe_modifier & HWE_THRESH_MIDP;
+  uint32_t min_obs = 0xffffffffU;
+  uint32_t max_obs = 0;
+  int32_t mt_code = chrom_info_ptr->mt_code;
+  uint32_t mt_start = 0;
+  uint32_t mt_end = 0;
+  uint32_t markers_done;
+  uint32_t cur_obs;
+  hwe_thresh *= 1 + SMALL_EPSILON;
+  if (hwe_all) {
+    hwe_lhs = hwe_lh_allfs;
+    hwe_lls = hwe_ll_allfs;
+    hwe_hhs = hwe_hh_allfs;
+  }
+  if ((mt_code != -1) && is_set(chrom_info_ptr->chrom_mask, mt_code)) {
+    mt_start = chrom_info_ptr->chrom_start[(uint32_t)mt_code];
+    mt_end = chrom_info_ptr->chrom_end[(uint32_t)mt_code];
+  }
+  if (hwe_thresh_midp) {
+    for (markers_done = 0; markers_done < marker_ct; marker_uidx++, markers_done++) {
+      next_unset_unsafe_ck(marker_exclude, &marker_uidx);
+      if ((marker_uidx < mt_end) && (marker_uidx >= mt_start)) {
+        continue;
+      }
+      if (SNPHWE_midp_t(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx], hwe_thresh)) {
+	SET_BIT(marker_exclude, marker_uidx);
+	removed_ct++;
+      }
+      cur_obs = hwe_lhs[marker_uidx] + hwe_lls[marker_uidx] + hwe_hhs[marker_uidx];
+      if (cur_obs < min_obs) {
+	min_obs = cur_obs;
+      }
+      if (cur_obs > max_obs) {
+	max_obs = cur_obs;
+      }
+    }
+  } else {
+    for (markers_done = 0; markers_done < marker_ct; marker_uidx++, markers_done++) {
+      next_unset_unsafe_ck(marker_exclude, &marker_uidx);
+      if ((marker_uidx < mt_end) && (marker_uidx >= mt_start)) {
+        continue;
+      }
+      if (SNPHWE_t(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx], hwe_thresh)) {
+	SET_BIT(marker_exclude, marker_uidx);
+	removed_ct++;
+      }
+      cur_obs = hwe_lhs[marker_uidx] + hwe_lls[marker_uidx] + hwe_hhs[marker_uidx];
+      if (cur_obs < min_obs) {
+	min_obs = cur_obs;
+      }
+      if (cur_obs > max_obs) {
+	max_obs = cur_obs;
+      }
+    }
+  }
+  if (((uint64_t)max_obs) * 9 > ((uint64_t)min_obs) * 10) {
+    logprint("Warning: --hwe observation counts vary by more than 10%.  Consider using\n--geno, and/or applying different p-value thresholds to distinct subsets of\nyour data.\n");
+  }
+  if (marker_ct == removed_ct) {
+    logprint("Error: All variants removed due to Hardy-Weinberg exact test (--hwe).\n");
+    return 1;
+  }
+  LOGPRINTF("%u variant%s removed due to Hardy-Weinberg exact test (--hwe).\n", removed_ct, (removed_ct == 1)? "" : "s");
+  *marker_exclude_ct_ptr += removed_ct;
+  return 0;
+}
+
+uint32_t enforce_maf_threshold(double min_maf, double max_maf, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, double* set_allele_freqs) {
+  uint32_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
+  uint32_t marker_uidx = 0;
+  uint32_t removed_ct = 0;
+  uint32_t markers_done = 0;
+  uint32_t marker_uidx_stop;
+  double dxx;
+  min_maf *= 1 - SMALL_EPSILON;
+  max_maf *= 1 + SMALL_EPSILON;
+  while (markers_done < marker_ct) {
+    marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
+    marker_uidx_stop = next_set(marker_exclude, marker_uidx, unfiltered_marker_ct);
+    markers_done += marker_uidx_stop - marker_uidx;
+    do {
+      dxx = get_maf(set_allele_freqs[marker_uidx]);
+      if ((dxx < min_maf) || (dxx > max_maf)) {
+        SET_BIT(marker_exclude, marker_uidx);
+        removed_ct++;
+      }
+    } while (++marker_uidx < marker_uidx_stop);
+  }
+  if (marker_ct == removed_ct) {
+    logprint("Error: All variants removed due to MAF threshold(s) (--maf/--max-maf).\n");
+    return 1;
+  }
+  LOGPRINTF("%u variant%s removed due to MAF threshold(s) (--maf/--max-maf).\n", removed_ct, (removed_ct == 1)? "" : "s");
+  *marker_exclude_ct_ptr += removed_ct;
+  return 0;
+}
+
+void enforce_min_bp_space(int32_t min_bp_space, uint32_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* marker_pos, uintptr_t* marker_exclude_ct_ptr, Chrom_info* chrom_info_ptr) {
+  uint32_t marker_ct = unfiltered_marker_ct - (uint32_t)(*marker_exclude_ct_ptr);
+  uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
+  uint32_t removed_ct = 0;
+  uint32_t chrom_end = 0;
+  uint32_t marker_uidx = next_unset(marker_exclude, 0, unfiltered_marker_ct);
+  uint32_t chrom_fo_idx_p1 = 0;
+  uint32_t marker_uidx_stop;
+  int32_t last_pos;
+  int32_t cur_pos;
+  for (chrom_fo_idx_p1 = 1; chrom_fo_idx_p1 <= chrom_ct; chrom_fo_idx_p1++) {
+    chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx_p1];
+    if (marker_uidx >= chrom_end) {
+      continue;
+    }
+    last_pos = -2147483647;
+    do {
+      marker_uidx_stop = next_set(marker_exclude, marker_uidx, chrom_end);
+      do {
+        cur_pos = marker_pos[marker_uidx];
+        if (cur_pos < last_pos + min_bp_space) {
+          SET_BIT(marker_exclude, marker_uidx);
+	  removed_ct++;
+	} else {
+	  last_pos = cur_pos;
+	}
+      } while (++marker_uidx < marker_uidx_stop);
+      marker_uidx = next_unset(marker_exclude, marker_uidx, unfiltered_marker_ct);
+    } while (marker_uidx < chrom_end);
+  }
+  LOGPRINTF("--bp-space: %u variant%s removed (%u remaining).\n", removed_ct, (removed_ct == 1)? "" : "s", marker_ct - removed_ct);
+  *marker_exclude_ct_ptr += removed_ct;
 }
 
 void fill_mendel_errstr(uint32_t error_code, char** allele_ptrs, uint32_t* alens, char* wbuf, uint32_t* len_ptr) {
