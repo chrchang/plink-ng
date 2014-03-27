@@ -1149,7 +1149,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     logprint("Using 1 thread.\n");
   }
 
-  if ((calculation_type & (CALC_SEXCHECK | CALC_MISSING_REPORT | CALC_GENOME | CALC_HOMOZYG | CALC_SCORE | CALC_MENDEL)) || cluster_ptr->mds_dim_ct) {
+  if ((calculation_type & (CALC_SEXCHECK | CALC_MISSING_REPORT | CALC_GENOME | CALC_HOMOZYG | CALC_SCORE | CALC_MENDEL | CALC_HET)) || cluster_ptr->mds_dim_ct) {
     calc_plink_maxfid(unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, &plink_maxfid, &plink_maxiid);
   }
   plink_maxsnp = calc_plink_maxsnp(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len);
