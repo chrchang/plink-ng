@@ -3040,6 +3040,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + BITCT2 - 1) / BITCT2;
+  uintptr_t unfiltered_indiv_ctp1l2 = 1 + (unfiltered_indiv_ct / BITCT2);
   uintptr_t indiv_ct4 = (indiv_ct + 3) / 4;
   uintptr_t indiv_ctv2 = 2 * ((indiv_ct + (BITCT - 1)) / BITCT);
   uintptr_t marker_uidx = 0;
@@ -3074,7 +3075,6 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   uintptr_t* writebuf;
   uint32_t* map_reverse;
   const char* errptr;
-  uintptr_t ulii;
   uint32_t is_haploid;
   uint32_t is_x;
   uint32_t is_y;
@@ -3230,11 +3230,10 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	goto make_bed_ret_1;
       }
       if (trio_ct) {
-	ulii = 1 + (unfiltered_indiv_ct / BITCT2);
-	if (wkspace_alloc_ul_checked(&workbuf, ulii * sizeof(intptr_t))) {
+	if (wkspace_alloc_ul_checked(&workbuf, unfiltered_indiv_ctp1l2 * sizeof(intptr_t))) {
 	  goto make_bed_ret_NOMEM;
 	}
-	workbuf[ulii - 1] = 0;
+	workbuf[unfiltered_indiv_ctp1l2 - 1] = 0;
 	if (set_hh_missing) {
           if (wkspace_alloc_ul_checked(&indiv_raw_male_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
 	    goto make_bed_ret_NOMEM;

@@ -115,7 +115,7 @@ void rel_cleanup(Rel_info* relip) {
   free_cond(relip->pca_clusters_fname);
 }
 
-void update_rel_ibc(double* rel_ibc, uintptr_t* geno, double* set_allele_freqs, int32_t ibc_type, uint32_t indiv_ct) {
+void update_rel_ibc(double* rel_ibc, uintptr_t* geno, double* set_allele_freqs, int32_t ibc_type, uint32_t indiv_ct, uint32_t window_size) {
   // first calculate weight array, then loop
   uint32_t uii;
   uint32_t ujj;
@@ -140,7 +140,7 @@ void update_rel_ibc(double* rel_ibc, uintptr_t* geno, double* set_allele_freqs, 
   double wtarr[BITCT2 * 5];
   double *wptr = weights;
   fill_double_zero(wtarr, BITCT2 * 5);
-  for (uii = 0; uii < MULTIPLEX_REL / 3; uii += 1) {
+  for (uii = 0; uii < window_size; uii++) {
     if ((set_allele_freqs[uii] != 0.0) && (set_allele_freqs[uii] < (1.0 - EPSILON))) {
       if (ibc_type) {
         if (ibc_type == 2) {
@@ -244,7 +244,7 @@ void update_rel_ibc(double* rel_ibc, uintptr_t* geno, double* set_allele_freqs, 
   }
 }
 
-void update_rel_f_ibc(float* rel_ibc, uintptr_t* geno, float* set_allele_freqs, int32_t ibc_type, uint32_t indiv_ct) {
+void update_rel_f_ibc(float* rel_ibc, uintptr_t* geno, float* set_allele_freqs, int32_t ibc_type, uint32_t indiv_ct, uint32_t window_size) {
   // first calculate weight array, then loop
   uint32_t uii;
   uint32_t ujj;
@@ -269,7 +269,7 @@ void update_rel_f_ibc(float* rel_ibc, uintptr_t* geno, float* set_allele_freqs, 
   float wtarr[BITCT2 * 5];
   float *wptr = weights;
   fill_float_zero(wtarr, BITCT2 * 5);
-  for (uii = 0; uii < MULTIPLEX_REL / 3; uii += 1) {
+  for (uii = 0; uii < window_size; uii += 1) {
     if ((set_allele_freqs[uii] != 0.0) && (set_allele_freqs[uii] < (1.0 - EPSILON))) {
       if (ibc_type) {
         if (ibc_type == 2) {
@@ -7089,22 +7089,27 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	}
 	*glptr2++ = ulii;
       }
+      ujj = is_last_block && (cur_markers_loaded - win_marker_idx <= MULTIPLEX_REL / 3);
+      if (!ujj) {
+	ukk = MULTIPLEX_REL / 3;
+      } else {
+	ukk = cur_markers_loaded - win_marker_idx;
+      }
       if (calculation_type & CALC_IBC) {
 	for (uii = 0; uii < 3; uii++) {
-	  update_rel_ibc(&(rel_ibc[uii * indiv_ct]), geno, &(set_allele_freq_buf[win_marker_idx]), uii, indiv_ct);
+	  update_rel_ibc(&(rel_ibc[uii * indiv_ct]), geno, &(set_allele_freq_buf[win_marker_idx]), uii, indiv_ct, ukk);
 	}
       } else {
-	update_rel_ibc(rel_ibc, geno, &(set_allele_freq_buf[win_marker_idx]), ibc_type, indiv_ct);
+	update_rel_ibc(rel_ibc, geno, &(set_allele_freq_buf[win_marker_idx]), ibc_type, indiv_ct, ukk);
       }
       if (rel_req) {
-	uii = is_last_block && (cur_markers_loaded - win_marker_idx <= MULTIPLEX_REL / 3);
 	fill_weights_r(weights, &(set_allele_freq_buf[win_marker_idx]), (ibc_type != -1)? 1 : 0);
-	if (spawn_threads2(threads, &calc_rel_thread, dist_thread_ct, uii)) {
+	if (spawn_threads2(threads, &calc_rel_thread, dist_thread_ct, ujj)) {
 	  goto calc_rel_ret_THREAD_CREATE_FAIL;
 	}
 	ulii = 0;
 	calc_rel_thread((void*)ulii);
-	join_threads2(threads, dist_thread_ct, uii);
+	join_threads2(threads, dist_thread_ct, ujj);
       }
     }
     printf("\r%" PRIuPTR " markers complete.", marker_idx);
@@ -7732,22 +7737,27 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
 	}
 	*glptr2++ = ulii;
       }
+      ujj = is_last_block && (cur_markers_loaded - win_marker_idx <= MULTIPLEX_REL / 3);
+      if (!ujj) {
+	ukk = MULTIPLEX_REL / 3;
+      } else {
+	ukk = cur_markers_loaded - win_marker_idx;
+      }
       if (calculation_type & CALC_IBC) {
 	for (uii = 0; uii < 3; uii++) {
-	  update_rel_f_ibc(&(rel_ibc[uii * indiv_ct]), geno, &(set_allele_freq_buf[win_marker_idx]), uii, indiv_ct);
+	  update_rel_f_ibc(&(rel_ibc[uii * indiv_ct]), geno, &(set_allele_freq_buf[win_marker_idx]), uii, indiv_ct, ukk);
 	}
       } else {
-	update_rel_f_ibc(rel_ibc, geno, &(set_allele_freq_buf[win_marker_idx]), ibc_type, indiv_ct);
+	update_rel_f_ibc(rel_ibc, geno, &(set_allele_freq_buf[win_marker_idx]), ibc_type, indiv_ct, ukk);
       }
       if (rel_req) {
-	uii = is_last_block && (cur_markers_loaded - win_marker_idx <= MULTIPLEX_REL / 3);
 	fill_weights_r_f(weights_f, &(set_allele_freq_buf[win_marker_idx]), (ibc_type != -1)? 1 : 0);
-	if (spawn_threads2(threads, &calc_rel_f_thread, dist_thread_ct, uii)) {
+	if (spawn_threads2(threads, &calc_rel_f_thread, dist_thread_ct, ujj)) {
 	  goto calc_rel_f_ret_THREAD_CREATE_FAIL;
 	}
 	ulii = 0;
 	calc_rel_f_thread((void*)ulii);
-	join_threads2(threads, dist_thread_ct, uii);
+	join_threads2(threads, dist_thread_ct, ujj);
       }
     }
     printf("\r%" PRIuPTR " markers complete.", marker_idx);

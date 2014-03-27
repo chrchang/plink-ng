@@ -2839,9 +2839,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   // 1. Observed homozygous polymorphic Xchr sites.
   // 2. Observed nonmissing polymorphic Xchr sites.
   // 3. Nei's unbiased estimator of the expected quantity #1.  (This has an
-  //    N/(N-1) term which makes it slightly different from GCTA's Fhat2.
-  //    Todo: check whether --ibc Fhat2 calculation should be revised to be
-  //    consistent with --het...)
+  //    N/(N-1) term which makes it slightly different from GCTA's Fhat2.)
   // edit: Actually, forget about the 2N/(2N-1) multiplier for now since it
   // doesn't play well with --freq, and PLINK 1.07 only succeeds in applying it
   // when N=1 due to use of integer division.  Maybe let it be used with
@@ -3598,6 +3596,10 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
     }
   }
   wkspace_reset(wkspace_mark);
+  return 0;
+}
+
+int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs) {
   return 0;
 }
 

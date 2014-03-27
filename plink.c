@@ -1489,6 +1489,8 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if ((calculation_type & CALC_GENOME) || genome_skip_write) {
+    // er, this probably should be moved inside calc_genome(), since we're
+    // using get_trios_and_families() instead of pri elsewhere
     retval = populate_pedigree_rel_info(&pri, unfiltered_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, founder_info);
     if (retval) {
       goto plink_ret_1;
@@ -1743,6 +1745,13 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     wkspace_reset(wkspace_mark2);
     g_dists = NULL;
     retval = calc_genome(threads, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, marker_pos, set_allele_freqs, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, founder_info, parallel_idx, parallel_tot, outname, outname_end, nonfounders, calculation_type, genome_modifier, ppc_gap, genome_min_pi_hat, genome_max_pi_hat, pheno_nm, pheno_c, pri, genome_skip_write);
+    if (retval) {
+      goto plink_ret_1;
+    }
+  }
+
+  if (calculation_type & CALC_HET) {
+    retval = het_report(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, chrom_info_ptr, set_allele_freqs);
     if (retval) {
       goto plink_ret_1;
     }
@@ -6222,11 +6231,8 @@ int32_t main(int32_t argc, char** argv) {
 	hwe_modifier |= HWE_THRESH_ALL;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "et", 3)) {
-	logprint("Error: --het is currently under development.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
-        // calculation_type |= CALC_HET;
-	// goto main_param_zero;
+        calculation_type |= CALC_HET;
+	goto main_param_zero;
       } else if (!memcmp(argptr2, "ardy", 5)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -7993,17 +7999,9 @@ int32_t main(int32_t argc, char** argv) {
 	calculation_type |= CALC_MENDEL;
         goto main_param_zero;
       } else if (!memcmp(argptr2, "endel-duos", 11)) {
-	if ((!(calculation_type & CALC_MENDEL)) && (!(mendel_info.modifier & MENDEL_FILTER))) {
-	  logprint("Error: --mendel-duos must be used with --me/--mendel.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	mendel_info.modifier |= MENDEL_DUOS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "endel-multigen", 14)) {
-	if ((!(calculation_type & CALC_MENDEL)) && (!(mendel_info.modifier & MENDEL_FILTER))) {
-	  logprint("Error: --mendel-multigen must be used with --me/--mendel.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	mendel_info.modifier |= MENDEL_MULTIGEN;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "lma", 4)) {
@@ -10780,6 +10778,10 @@ int32_t main(int32_t argc, char** argv) {
   if (((misc_flags & (MISC_MERGEX | MISC_SET_ME_MISSING)) || splitx_bound2 || update_chr) && (((load_rare == LOAD_RARE_CNV) && (cnv_calc_type != CNV_WRITE)) || ((load_rare != LOAD_RARE_CNV) && (calculation_type != CALC_MAKE_BED)))) {
     sprintf(logbuf, "Error: --merge-x/--split-x/--update-chr/--set-me-missing must be used with\n--%s and no other commands.%s", (load_rare == LOAD_RARE_CNV)? "cnv-write" : "make-bed", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
+  }
+  if ((mendel_info.modifier & (MENDEL_DUOS | MENDEL_MULTIGEN)) && (!(calculation_type & CALC_MENDEL)) && (!(mendel_info.modifier & MENDEL_FILTER)) && (!(misc_flags & MISC_SET_ME_MISSING))) {
+    logprint("Error: --mendel-duos/--mendel-multigen must be used with\n--me/--mendel/--set-me-missing.\n");
+    goto main_ret_INVALID_CMDLINE;
   }
   if (flip_subset_fname && (load_rare || (calculation_type != CALC_MAKE_BED) || (min_maf != 0.0) || (max_maf != 0.5) || (hwe_thresh != 0.0))) {
     sprintf(logbuf, "Error: --flip-subset must be used with --flip, --make-bed, and no other\ncommands or MAF-based filters.%s", errstr_append);

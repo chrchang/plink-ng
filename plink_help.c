@@ -486,14 +486,14 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --mendel\n"
 "    Generate a Mendel error report.\n\n"
 	       );
-    help_print("ibc\thet", &help_ctrl, 1,
+    help_print("het\tibc", &help_ctrl, 1,
+"  --het\n"
 "  --ibc\n"
-"    Calculate inbreeding coefficients in three different ways.  (The second is\n"
-"    approximately equal to the excess homozygosity coefficient calculated by\n"
-"    the old --het command.)\n"
-"    * For more details, see Yang J, Lee SH, Goddard ME and Visscher PM (2011)\n"
-"      GCTA: A Tool for Genome-wide Complex Trait Analysis.  This paper also\n"
-"      describes the relationship matrix computation we implement.\n\n"
+"    Estimate inbreeding coefficients.  --het reports method-of-moments\n"
+"    estimates, while --ibc calculates all three values described in Yang J, Lee\n"
+"    SH, Goddard ME and Visscher PM (2011) GCTA: A Tool for Genome-wide Complex\n"
+"    Trait Analysis.  (That paper also describes the relationship matrix\n"
+"    computation we implement.)\n\n"
 	       );
     help_print("check-sex\timpute-sex\tupdate-sex\tsex-check", &help_ctrl, 1,
 "  --check-sex {female max F} {male min F}\n"
