@@ -2789,7 +2789,7 @@ int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offse
                 cur_errors[trio_idx] = (unsigned char)umm;
 	      }
 	    }
-	  } else if (uljj == 0) {
+	  } else if (!uljj) {
 	    loadbuf[umm] &= ~(ONELU << ujj);
           } else if (uljj == 15) {
 	    loadbuf[umm] |= (2 * ONELU) << ujj;

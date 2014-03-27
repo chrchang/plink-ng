@@ -482,12 +482,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Graffelman J, Moreno V (2013) The mid p-value in exact tests for\n"
 "    Hardy-Weinberg Equilibrium.\n\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("mendel", &help_ctrl, 1,
 "  --mendel\n"
 "    Generate a Mendel error report.\n\n"
 	       );
-#endif
     help_print("ibc\thet", &help_ctrl, 1,
 "  --ibc\n"
 "    Calculate inbreeding coefficients in three different ways.  (The second is\n"
@@ -1305,13 +1303,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                       equilibrium exact test p-values below a\n"
 "                                       threshold.\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("me\tme-exclude-one", &help_ctrl, 0,
 "  --me [t] [v] <var-first> : Filter out trios and variants with Mendel error\n"
 "                             rates exceeding the given thresholds.\n"
 "  --me-exclude-one {ratio} : Make --me exclude only one individual per trio.\n"
 	       );
-#endif
     help_print("allow-no-sex\tmust-have-sex", &help_ctrl, 0,
 "  --allow-no-sex   : Do not treat ambiguous-sex individuals as having missing\n"
 "                     phenotypes in analysis commands.  (Automatic /w --no-sex.)\n"
@@ -1458,7 +1454,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --merge-equal-pos  : Merge variants with different names but identical\n"
 "                       positions.\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("mendel-duos\tmendel-multigen\tme\tmendel", &help_ctrl, 0,
 "  --mendel-duos      : Make --me/--mendel consider individuals with only one\n"
 
@@ -1466,7 +1461,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --mendel-multigen  : Make --me/--mendel consider (great-)grandparental\n"
 "                       genotypes when parental genotype data is missing.\n"
 	       );
-#endif
     help_print("r\tr2\tld-window-kb\tld-window-r2\tld-window\tld-snp\tld-snps\tld-snp-list", &help_ctrl, 0,
 "  --ld-window [ct+1] : Set --r/--r2 max site ct pairwise distance (usually 10).\n"
 "  --ld-window-kb [x] : Set --r/--r2 max kb pairwise distance (usually 1000).\n"

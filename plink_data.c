@@ -2877,19 +2877,25 @@ int32_t make_bed_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32_t unfilter
   return 0;
 }
 
-/*
-int32_t make_bed_me_missing_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32_t unfiltered_indiv_ct, uintptr_t unfiltered_indiv_ct4, uintptr_t* indiv_exclude, uint32_t indiv_ct, uint32_t* indiv_sort_map, uint32_t is_reverse, uintptr_t* writebuf, uintptr_t* workbuf) {
+int32_t make_bed_me_missing_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32_t unfiltered_indiv_ct, uintptr_t unfiltered_indiv_ct4, uintptr_t* indiv_exclude, uint32_t indiv_ct, uint32_t* indiv_sort_map, uint32_t is_reverse, uintptr_t* writebuf, uintptr_t* workbuf, uintptr_t* indiv_raw_male_include2, uint32_t* trio_lookup, uint32_t trio_ct, uint32_t set_x_hh_missing, uint32_t multigen) {
   uintptr_t* writeptr = writebuf;
   uintptr_t cur_word = 0;
   uint32_t indiv_uidx = 0;
   uint32_t ii_rem = 0;
   uint32_t indiv_idx = 0;
   uint32_t* uiptr;
+  uintptr_t ulii;
+  uintptr_t uljj;
   uint32_t indiv_uidx2;
+  uint32_t trio_idx;
+  uint32_t lookup_idx;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
   uint32_t umm;
+  uint32_t unn;
+  uint32_t uoo;
+  uint32_t upp;
   if ((!indiv_sort_map) && (unfiltered_indiv_ct == indiv_ct)) {
     loadbuf = writebuf;
   }
@@ -2899,7 +2905,10 @@ int32_t make_bed_me_missing_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32
   // do NOT treat males differently from females on Xchr if --set-hh-missing
   // not specified, since user may be procrastinating on fixing gender errors.
   if (set_x_hh_missing) {
-    hh_reset(loadbuf, indiv_male_raw_include2, unfiltered_indiv_ct);
+    hh_reset((unsigned char*)loadbuf, indiv_raw_male_include2, unfiltered_indiv_ct);
+  }
+  if (is_reverse) {
+    reverse_loadbuf((unsigned char*)loadbuf, unfiltered_indiv_ct);
   }
   memcpy(workbuf, loadbuf, unfiltered_indiv_ct4);
   SET_BIT_DBL(workbuf, unfiltered_indiv_ct);
@@ -2909,12 +2918,60 @@ int32_t make_bed_me_missing_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32
       uii = *uiptr++;
       ujj = *uiptr++;
       ukk = *uiptr++;
-      umm = mendel_error_table[((loadbuf[uii / BITCT2] >> (2 * (uii % BITCT2))) & 3) | (((loadbuf[ujj / BITCT2] >> (2 * (ujj % BITCT2))) & 3) << 2) | (((loadbuf[ukk / BITCT2] >> (2 * (ukk % BITCT2))) & 3) << 4)];
+      umm = mendel_error_table[((workbuf[uii / BITCT2] >> (2 * (uii % BITCT2))) & 3) | (((workbuf[ujj / BITCT2] >> (2 * (ujj % BITCT2))) & 3) << 2) | (((workbuf[ukk / BITCT2] >> (2 * (ukk % BITCT2))) & 3) << 4)];
       if (umm) {
-
+	ulii = loadbuf[uii / BITCT2];
+	uljj = ONELU << (2 * (uii % BITCT2));
+        loadbuf[uii / BITCT2] = (ulii & (~(3 * uljj))) | uljj;
+	if (umm & 0x100) {
+	  ulii = loadbuf[ujj / BITCT2];
+	  uljj = ONELU << (2 * (ujj % BITCT2));
+	  loadbuf[ujj / BITCT2] = (ulii & (~(3 * uljj))) | uljj;
+	}
+	if (umm & 0x10000) {
+	  ulii = loadbuf[ukk / BITCT2];
+	  uljj = ONELU << (2 * (ukk % BITCT2));
+	  loadbuf[ukk / BITCT2] = (ulii & (~(3 * uljj))) | uljj;
+	}
       }
     }
   } else {
+    for (lookup_idx = 0; lookup_idx < trio_ct; lookup_idx++) {
+      uii = *uiptr++;
+      ujj = *uiptr++;
+      ukk = *uiptr++;
+      trio_idx = *uiptr++;
+      unn = uii / BITCT2;
+      uoo = ujj / BITCT2;
+      upp = ukk / BITCT2;
+      uii = 2 * (uii % BITCT2);
+      ujj = 2 * (ujj % BITCT2);
+      ukk = 2 * (ukk % BITCT2);
+      ulii = (workbuf[unn] >> uii) & 3;
+      uljj = ((workbuf[uoo] >> ujj) & 3) | (((workbuf[upp] >> ukk) & 3) << 2);
+      if (ulii != 1) {
+        umm = mendel_error_table[ulii | (uljj << 2)];
+        if (umm) {
+	  ulii = loadbuf[unn];
+	  uljj = ONELU << uii;
+	  loadbuf[unn] = (ulii & (~(3 * uljj))) | uljj;
+	  if (umm & 0x100) {
+	    ulii = loadbuf[uoo];
+	    uljj = ONELU << ujj;
+	    loadbuf[uoo] = (ulii & (~(3 * uljj))) | uljj;
+	  }
+	  if (umm & 0x10000) {
+	    ulii = loadbuf[upp];
+	    uljj = ONELU << ukk;
+	    loadbuf[upp] = (ulii & (~(3 * uljj))) | uljj;
+	  }
+	}
+      } else if (!uljj) {
+	workbuf[unn] &= ~(ONELU << uii);
+      } else if (uljj == 15) {
+	workbuf[unn] |= (2 * ONELU) << uii;
+      }
+    }
   }
   if (indiv_sort_map) {
     for (; indiv_idx < indiv_ct; indiv_idx++) {
@@ -2934,12 +2991,8 @@ int32_t make_bed_me_missing_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32
   } else if (unfiltered_indiv_ct != indiv_ct) {
     collapse_copy_2bitarr(loadbuf, writebuf, unfiltered_indiv_ct, indiv_ct, indiv_exclude);
   }
-  if (is_reverse) {
-    reverse_loadbuf((unsigned char*)writebuf, indiv_ct);
-  }
   return 0;
 }
-*/
 
 void zeropatch(uintptr_t indiv_ctv2, uintptr_t cluster_ct, uintptr_t* cluster_zc_masks, uint32_t** zcdefs, uintptr_t* patchbuf, uintptr_t marker_idx, uintptr_t* writebuf) {
 #ifdef __LP64__
@@ -2991,21 +3044,19 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   uintptr_t indiv_ctv2 = 2 * ((indiv_ct + (BITCT - 1)) / BITCT);
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
-  uintptr_t max_fid_len = 0;
-  uintptr_t max_iid_len = 0;
   uintptr_t trio_ct = 0;
   FILE* bedoutfile = NULL;
   int64_t* ll_buf = NULL;
   uintptr_t* indiv_include2 = NULL;
   uintptr_t* indiv_male_include2 = NULL;
+  uintptr_t* indiv_raw_male_include2 = NULL;
+  uintptr_t* workbuf = NULL;
   uintptr_t* cluster_zc_masks = NULL;
   uintptr_t* patchbuf = NULL;
   uint64_t* family_list = NULL;
   uint64_t* trio_list = NULL;
   uint32_t* trio_lookup = NULL;
   uint32_t** zcdefs = NULL;
-  char* fids = NULL;
-  char* iids = NULL;
   uint32_t family_ct = 0;
   uint32_t set_hh_missing = (misc_flags / MISC_SET_HH_MISSING) & 1;
   uint32_t set_me_missing = (misc_flags / MISC_SET_ME_MISSING) & 1;
@@ -3023,6 +3074,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   uintptr_t* writebuf;
   uint32_t* map_reverse;
   const char* errptr;
+  uintptr_t ulii;
   uint32_t is_haploid;
   uint32_t is_x;
   uint32_t is_y;
@@ -3173,16 +3225,25 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
       goto make_bed_ret_NOMEM;
     }
     if (set_me_missing) {
-      /*
-      retval = get_trios_and_families(unfiltered_indiv_ct, indiv_exclude, indiv_ct, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, &fids, &max_fid_len, &iids, &max_iid_len, &family_list, &family_ct, &trio_list, &trio_ct, &trio_lookup, mendel_include_duos, mendel_multigen);
+      retval = get_trios_and_families(unfiltered_indiv_ct, indiv_exclude, indiv_ct, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, NULL, NULL, NULL, NULL, &family_list, &family_ct, &trio_list, &trio_ct, &trio_lookup, mendel_include_duos, mendel_multigen);
       if (retval) {
 	goto make_bed_ret_1;
       }
       if (trio_ct) {
+	ulii = 1 + (unfiltered_indiv_ct / BITCT2);
+	if (wkspace_alloc_ul_checked(&workbuf, ulii * sizeof(intptr_t))) {
+	  goto make_bed_ret_NOMEM;
+	}
+	workbuf[ulii - 1] = 0;
+	if (set_hh_missing) {
+          if (wkspace_alloc_ul_checked(&indiv_raw_male_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
+	    goto make_bed_ret_NOMEM;
+	  }
+	  exclude_to_vec_include(unfiltered_indiv_ct, indiv_raw_male_include2, sex_male);
+	}
       } else {
 	set_me_missing = 0;
       }
-      */
     }
 
     if (wkspace_alloc_ul_checked(&writebuf, indiv_ctv2)) {
@@ -3210,7 +3271,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	    haploid_fix(hh_exists, indiv_include2, indiv_male_include2, indiv_ct, is_x, is_y, (unsigned char*)writebuf);
 	  }
 	} else {
-	  // retval = make_bed_me_missing_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, IS_SET(marker_reverse, marker_uidx), writebuf);
+	  retval = make_bed_me_missing_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, IS_SET(marker_reverse, marker_uidx), writebuf, workbuf, indiv_raw_male_include2, trio_lookup, trio_ct, set_hh_missing && is_x, mendel_multigen);
 	}
 	if (retval) {
 	  goto make_bed_ret_1;

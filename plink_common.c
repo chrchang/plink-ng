@@ -9045,7 +9045,8 @@ int32_t get_trios_and_families(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_e
   //
   // fids is a list of null-terminated FIDs using trio_list indices, and iids
   // is a list of IIDs using regular unfiltered indices.  If include_duos is
-  // set, iids has a trailing entry set to '0'.
+  // set, iids has a trailing entry set to '0'.  (fids_ptr, iids_ptr, and the
+  // corresponding lengths can be NULL.)
   //
   // PLINK 1.07 enforces <= 1 father and <= 1 mother per individual (and
   // ambiguous sex parents are not permitted), but the IDs CAN be reversed in
@@ -9057,6 +9058,8 @@ int32_t get_trios_and_families(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_e
   unsigned char* wkspace_mark = wkspace_base;
   uint64_t* edge_list = NULL;
   uint32_t* toposort_queue = NULL;
+  char* fids = NULL;
+  char* iids = NULL;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_indiv_ctp1l = 1 + (unfiltered_indiv_ct / BITCT);
   uintptr_t indiv_uidx = next_unset_unsafe(indiv_exclude, 0);
@@ -9091,8 +9094,6 @@ int32_t get_trios_and_families(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_e
   uint32_t* person_id_map;
   uint32_t* trio_lookup;
   uint32_t* uiptr;
-  char* fids;
-  char* iids;
   char* sorted_person_ids;
   char* idbuf;
   char* idptr;
@@ -9296,10 +9297,14 @@ int32_t get_trios_and_families(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_e
   qsort(trio_write, trio_ct, sizeof(int64_t), llcmp);
 #endif
   wkspace_left -= topsize;
-  if (wkspace_alloc_c_checked(&fids, trio_ct * max_fid_len) ||
-      wkspace_alloc_c_checked(&iids, (unfiltered_indiv_ct + include_duos) * max_iid_len) ||
-      wkspace_alloc_ui_checked(&trio_lookup, trio_ct * (3 + toposort) * sizeof(int32_t))) {
+  if (wkspace_alloc_ui_checked(&trio_lookup, trio_ct * (3 + toposort) * sizeof(int32_t))) {
     goto get_trios_and_families_ret_NOMEM2;
+  }
+  if (fids_ptr) {
+    if (wkspace_alloc_c_checked(&fids, trio_ct * max_fid_len) ||
+	wkspace_alloc_c_checked(&iids, (unfiltered_indiv_ct + include_duos) * max_iid_len)) {
+      goto get_trios_and_families_ret_NOMEM2;
+    }
   }
   if (toposort) {
     if (wkspace_alloc_ull_checked(&edge_list, trio_ct * 2 * sizeof(int64_t))) {
@@ -9333,30 +9338,37 @@ int32_t get_trios_and_families(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_e
     remaining_edge_ct = edge_ct;
   }
   wkspace_left += topsize;
-  *fids_ptr = fids;
-  *iids_ptr = iids;
   *family_list_ptr = family_list;
   *family_ct_ptr = family_ct;
-  *max_fid_len_ptr = max_fid_len;
-  *max_iid_len_ptr = max_iid_len;
   *trio_list_ptr = trio_write;
   *trio_ct_ptr = trio_ct;
   *trio_lookup_ptr = trio_lookup;
-  indiv_uidx = next_unset_unsafe(indiv_exclude, 0);
-  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
-    next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
-    idptr = &(person_ids[indiv_uidx * max_person_id_len]);
-    iidptr = (char*)memchr(idptr, '\t', max_fid_len);
-    strcpy(&(iids[indiv_uidx * max_iid_len]), &(iidptr[1]));
+  if (fids_ptr) {
+    *fids_ptr = fids;
+    *iids_ptr = iids;
+    *max_fid_len_ptr = max_fid_len;
+    *max_iid_len_ptr = max_iid_len;
+    indiv_uidx = next_unset_unsafe(indiv_exclude, 0);
+    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
+      next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
+      idptr = &(person_ids[indiv_uidx * max_person_id_len]);
+      iidptr = (char*)memchr(idptr, '\t', max_fid_len);
+      strcpy(&(iids[indiv_uidx * max_iid_len]), &(iidptr[1]));
+    }
+    if (include_duos) {
+      memcpy(&(iids[unfiltered_indiv_ct * max_iid_len]), "0", 2);
+    }
   }
   uiptr = trio_lookup;
   for (trio_idx = 0; trio_idx < trio_ct; trio_idx++) {
     trio_code = trio_write[trio_idx];
     indiv_uidx = (uint32_t)trio_code;
-    idptr = &(person_ids[indiv_uidx * max_person_id_len]);
-    iidptr = (char*)memchr(idptr, '\t', max_fid_len);
-    fidlen = (uintptr_t)(iidptr - idptr);
-    memcpyx(&(fids[trio_idx * max_fid_len]), idptr, fidlen, '\0');
+    if (fids_ptr) {
+      idptr = &(person_ids[indiv_uidx * max_person_id_len]);
+      iidptr = (char*)memchr(idptr, '\t', max_fid_len);
+      fidlen = (uintptr_t)(iidptr - idptr);
+      memcpyx(&(fids[trio_idx * max_fid_len]), idptr, fidlen, '\0');
+    }
     family_code = family_list[(uintptr_t)(trio_code >> 32)];
     if (!toposort) {
       *uiptr++ = indiv_uidx;
@@ -9366,9 +9378,6 @@ int32_t get_trios_and_families(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_e
       // Just populate the "no incoming edges" queue here.
       toposort_queue[tqueue_end++] = trio_idx;
     }
-  }
-  if (include_duos) {
-    memcpy(&(iids[unfiltered_indiv_ct * max_iid_len]), "0", 2);
   }
   if (toposort) {
     // Kahn A. B. (1962) Topological sorting of large networks.
