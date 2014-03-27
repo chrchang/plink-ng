@@ -2400,6 +2400,10 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   g_include_sex = 0;
   g_male_x_01 = 0;
   if (!glm_xchr_model) {
+    if (is_set(chrom_info_ptr->haploid_mask, 0)) {
+      logprint("Error: --xchr-model 0 cannot be used with haploid genomes.\n");
+      goto glm_assoc_ret_INVALID_CMDLINE;
+    }
     uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
     if (uii) {
       LOGPRINTF("Excluding %u nonautosomal variant%s from --linear/--logistic analysis\n(--xchr-model 0).\n", uii, (uii == 1)? "" : "s");

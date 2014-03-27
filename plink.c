@@ -1751,7 +1751,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_HET) {
-    retval = het_report(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, chrom_info_ptr, set_allele_freqs);
+    retval = het_report(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, chrom_info_ptr, set_allele_freqs);
     if (retval) {
       goto plink_ret_1;
     }

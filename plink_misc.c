@@ -3599,7 +3599,198 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   return 0;
 }
 
-int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs) {
+int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs) {
+  /*
+  // Same F coefficient computation as sexcheck().
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* outfile = NULL;
+  uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t indiv_ctl2 = (indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t monomorphic_ct = 0;
+  uintptr_t marker_uidx = 0;
+  double nei_sum = 0.0;
+  uint32_t chrom_fo_idx = 0xffffffffU; // deliberate overflow
+  uint32_t chrom_end = 0;
+  int32_t retval = 0;
+  uintptr_t* loadbuf_raw;
+  uintptr_t* loadbuf;
+  uintptr_t* lptr;
+  uint32_t* het_cts;
+  uint32_t* missing_cts;
+  double* nei_offsets;
+  char* fid_ptr;
+  char* iid_ptr;
+  char* wptr;
+  double dpp;
+  double dtot;
+  double cur_nei;
+  double dff;
+  double dee;
+  uintptr_t marker_idx;
+  uintptr_t indiv_uidx;
+  uintptr_t indiv_idx;
+  uintptr_t cur_missing_ct;
+  uintptr_t allele_obs_ct;
+  uintptr_t cur_word;
+  uintptr_t ulii;
+  if (is_set(chrom_info_ptr->haploid_mask, 0)) {
+    logprint("Error: --het cannot be used on haploid genomes.\n");
+    goto het_report_ret_INVALID_CMDLINE;
+  }
+  if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&loadbuf, indiv_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ui_checked(&het_cts, indiv_ct * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&missing_cts, indiv_ct * sizeof(int32_t)) ||
+      wkspace_alloc_d_checked(&nei_offsets, indiv_ct * sizeof(double))) {
+    goto het_report_ret_NOMEM;
+  }
+  loadbuf_raw[unfiltered_indiv_ctl2 - 1] = 0;
+  loadbuf[indiv_ctl2 - 1] = 0;
+  fill_uint_zero(het_cts, indiv_ct);
+  fill_uint_zero(missing_cts, indiv_ct);
+  fill_double_zero(nei_offsets, indiv_ct);
+  marker_ct -= count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
+  if (!marker_ct) {
+    goto het_report_ret_INVALID_CMDLINE;
+  }
+  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+    if (IS_SET(marker_exclude, marker_uidx)) {
+      marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+      if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+        goto sexcheck_ret_READ_FAIL;
+      }
+    }
+    if (marker_uidx >= chrom_end) {
+      while (1) {
+	chrom_idx = chrom_info_ptr->chrom_file_order[++chrom_fo_idx];
+        if (is_set(chrom_info_ptr->haploid_mask, )) {
+	  continue;
+	}
+      }
+    }
+    if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, indiv_ct, indiv_exclude, 0)) {
+      goto sexcheck_ret_READ_FAIL;
+    }
+    cur_missing_ct = count_01(loadbuf, indiv_ctl2);
+    allele_obs_ct = 2 * (indiv_ct - cur_missing_ct);
+    dpp = set_allele_freqs[marker_uidx];
+    if ((!allele_obs_ct) || (dpp < 1e-8) || (dpp > (1 - 1e-8))) {
+      monomorphic_ct++;
+      continue;
+    }
+    cur_nei = 1.0 - 2 * dpp * (1 - dpp);
+    if (cur_missing_ct) {
+      // iterate through missing calls
+      lptr = loadbuf;
+      for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx += BITCT2) {
+        cur_word = *lptr++;
+        cur_word = (~(cur_word >> 1)) & cur_word & FIVEMASK;
+        while (cur_word) {
+          ulii = indiv_idx + CTZLU(cur_word) / 2;
+          missing_cts[ulii] += 1;
+          nei_offsets[ulii] += cur_nei;
+          cur_word &= cur_word - 1;
+	}
+      }
+    }
+    lptr = loadbuf;
+    // iterate through heterozygous calls
+    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx += BITCT2) {
+      cur_word = *lptr++;
+      cur_word = (cur_word >> 1) & (~cur_word) & FIVEMASK;
+      while (cur_word) {
+        het_cts[indiv_idx + CTZLU(cur_word) / 2] += 1;
+        cur_word &= cur_word - 1;
+      }
+    }
+    nei_sum += cur_nei;
+  }
+  marker_ct -= monomorphic_ct;
+  if (!marker_ct) {
+    goto het_report_ret_INVALID_CMDLINE;
+  }
+  memcpy(outname_end, ".het", 5);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto het_report_ret_OPEN_FAIL;
+  }
+  sprintf(tbuf, "%%%us %%%us       PEDSEX       SNPSEX       STATUS            F\n", plink_maxfid, plink_maxiid);
+  fprintf(outfile, tbuf, "FID", "IID");
+  indiv_uidx = 0;
+  if (do_impute) {
+    bitfield_andnot(sex_nm, indiv_exclude, unfiltered_indiv_ctl);
+  }
+  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++, indiv_uidx++) {
+    next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
+    fid_ptr = &(person_ids[indiv_uidx * max_person_id_len]);
+    iid_ptr = (char*)memchr(fid_ptr, '\t', max_person_id_len);
+    wptr = fw_strcpyn(plink_maxfid, (uintptr_t)(iid_ptr - fid_ptr), fid_ptr, tbuf);
+    *wptr++ = ' ';
+    wptr = fw_strcpy(plink_maxiid, &(iid_ptr[1]), wptr);
+    if (!IS_SET(sex_nm, indiv_uidx)) {
+      orig_sex_code = 0;
+    } else {
+      orig_sex_code = 2 - IS_SET(sex_male, indiv_uidx);
+    }
+    wptr = memseta(wptr, 32, 12);
+    *wptr++ = '0' + orig_sex_code;
+    wptr = memseta(wptr, 32, 12);
+    ulii = x_variant_ct - missing_cts[indiv_idx];
+    if (ulii) {
+      dee = nei_sum - nei_offsets[indiv_idx];
+      dtot = (double)((intptr_t)ulii) - dee;
+      dff = (dtot - ((double)((intptr_t)(het_cts[indiv_idx])))) / dtot;
+      if (dff > check_sex_mthresh) {
+        imputed_sex_code = 1;
+      } else if (dff < check_sex_fthresh) {
+        imputed_sex_code = 2;
+      } else {
+        imputed_sex_code = 0;
+      }
+      *wptr++ = '0' + imputed_sex_code;
+      if (orig_sex_code && (orig_sex_code == imputed_sex_code)) {
+        wptr = memcpya(wptr, "           OK ", 14);
+      } else {
+        wptr = memcpya(wptr, "      PROBLEM ", 14);
+	problem_ct++;
+      }
+      wptr = double_g_writewx4x(wptr, dff, 12, '\n');
+    } else {
+      imputed_sex_code = 0;
+      wptr = memcpya(wptr, "0      PROBLEM          nan\n", 28);
+      problem_ct++;
+    }
+    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+      goto sexcheck_ret_WRITE_FAIL;
+    }
+  }
+  if (fclose_null(&outfile)) {
+    goto het_report_ret_WRITE_FAIL;
+  }
+  LOGPRINTF("--het: %" PRIuPTR " variant%s scanned, report written to %s.\n", autosomal_variant_ct, (autosomal_variant_ct == 1)? "" : "s", outname);
+  while (0) {
+  het_report_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  het_report_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  het_report_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  het_report_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  het_report_ret_INVALID_CMDLINE:
+    logprint("Error: --check-sex/--impute-sex requires at least one polymorphic autosomal\nmarker.\n");
+    retval = RET_INVALID_CMDLINE;
+    break;
+  }
+  wkspace_reset(wkspace_mark);
+  fclose_cond(outfile);
+  return retval;
+  */
   return 0;
 }
 

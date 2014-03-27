@@ -2598,7 +2598,7 @@ int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offse
   uint32_t ukk;
   uint32_t umm;
   marker_ct -= count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 0, 1);
-  if ((!marker_ct) || IS_SET(chrom_info_ptr->haploid_mask, 0)) {
+  if ((!marker_ct) || is_set(chrom_info_ptr->haploid_mask, 0)) {
     logprint("Warning: Skipping --me/--mendel since there is no autosomal or Xchr data.\n");
     goto mendel_error_scan_ret_1;
   }

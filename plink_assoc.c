@@ -6415,6 +6415,10 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       goto model_assoc_ret_WRITE_FAIL;
     }
   } else {
+    if (is_set(chrom_info_ptr->haploid_mask, 0)) {
+      logprint("Error: --model cannot be used on haploid genomes.\n");
+      goto model_assoc_ret_INVALID_CMDLINE;
+    }
     uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 0, 1);
     if (uii) {
       LOGPRINTF("Excluding %u MT/haploid variant%s from --model analysis.\n", uii, (uii == 1)? "" : "s");

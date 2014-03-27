@@ -11797,6 +11797,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     // for backward compatibility, also exclude XY.  don't exclude custom name
     // chromosomes, though, since chromosome 0 was actually processed
     autosomal_marker_ct = marker_ct - count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1) - count_chrom_markers(chrom_info_ptr, 25, marker_exclude);
+    // no need to verify genome is diploid since we already know it has to be
+    // human
     if (!autosomal_marker_ct) {
       logprint("Error: No autosomal variants for --recode beagle.\n");
       goto recode_ret_ALL_MARKERS_EXCLUDED;

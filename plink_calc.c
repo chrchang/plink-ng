@@ -5168,6 +5168,10 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   uint32_t marker_idx;
   uint32_t pct;
 
+  if (is_set(chrom_info_ptr->haploid_mask, 0)) {
+    logprint("Error: --genome cannot be used on haploid genomes.\n");
+    goto calc_genome_ret_INVALID_CMDLINE;
+  }
   g_indiv_ct = indiv_ct;
   if (dist_thread_ct > indiv_ct / 32) {
     dist_thread_ct = indiv_ct / 32;
@@ -5604,6 +5608,9 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
     break;
   calc_genome_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
+    break;
+  calc_genome_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
     break;
   calc_genome_ret_THREAD_CREATE_FAIL:
     logprint(errstr_thread_create);
@@ -6963,6 +6970,10 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   uint32_t* giptr;
   uint32_t* giptr2;
   uintptr_t* glptr2;
+  if (is_set(chrom_info_ptr->haploid_mask, 0)) {
+    logprint("Error: --make-rel/--make-grm-... cannot be used on haploid genomes.\n");
+    goto calc_rel_ret_INVALID_CMDLINE;
+  }
   // timing results on the NIH 512-core machine suggest that it's
   // counterproductive to make thread count exceed about n/64
   if (dist_thread_ct > indiv_ct / 64) {
@@ -7038,8 +7049,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   if (uii) {
     if (uii == marker_ct) {
       logprint("Error: No autosomal variants for relationship matrix calculation.\n");
-      retval = RET_INVALID_CMDLINE;
-      goto calc_rel_ret_1;
+      goto calc_rel_ret_INVALID_CMDLINE;
     }
     LOGPRINTF("Excluding %u variant%s on non-autosomes from relationship matrix calc.\n", uii, (uii == 1)? "" : "s");
     marker_ct -= uii;
@@ -7374,6 +7384,9 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   calc_rel_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
+  calc_rel_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
   calc_rel_ret_THREAD_CREATE_FAIL:
     logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
@@ -7631,6 +7644,10 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
   uint32_t* giptr;
   uint32_t* giptr2;
   uintptr_t* glptr2;
+  if (is_set(chrom_info_ptr->haploid_mask, 0)) {
+    logprint("Error: --make-rel/--make-grm-... cannot be used on haploid genomes.\n");
+    goto calc_rel_f_ret_INVALID_CMDLINE;
+  }
   if (dist_thread_ct > indiv_ct / 64) {
     dist_thread_ct = indiv_ct / 64;
     if (!dist_thread_ct)  {
@@ -7695,8 +7712,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
   if (uii) {
     if (uii == marker_ct) {
       logprint("Error: No autosomal variants for relationship matrix calculation.\n");
-      retval = RET_INVALID_CMDLINE;
-      goto calc_rel_f_ret_1;
+      goto calc_rel_f_ret_INVALID_CMDLINE;
     }
     LOGPRINTF("Excluding %u variant%s on non-autosomes from relationship matrix calc.\n", uii, (uii == 1)? "" : "s");
     marker_ct -= uii;
@@ -8050,6 +8066,9 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
   calc_rel_f_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
+  calc_rel_f_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
   calc_rel_f_ret_THREAD_CREATE_FAIL:
     logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
@@ -8131,6 +8150,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   uint32_t uii;
   uint32_t ujj;
   int32_t chrom_idx;
+  // calc_rel() already verified that diploid data is present
   g_missing_dbl_excluded = NULL;
   marker_ct -= count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
   if ((pc_ct > pca_indiv_ct) || (pc_ct > marker_ct)) {
@@ -8529,6 +8549,10 @@ int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintpt
   uintptr_t* glptr;
   uint32_t marker_ct_autosomal;
   int64_t llxx;
+  if (is_set(chrom_info_ptr->haploid_mask, 0)) {
+    logprint("Error: '--cluster missing' cannot currently be used on haploid genomes.\n");
+    goto calc_ibm_ret_INVALID_CMDLINE;
+  }
   g_indiv_ct = indiv_ct;
   if (dist_thread_ct > indiv_ct / 32) {
     dist_thread_ct = indiv_ct / 32;
@@ -8615,6 +8639,9 @@ int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintpt
   calc_ibm_ret_NOMEM:
     retval = RET_NOMEM;
     break;
+  calc_ibm_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
   calc_ibm_ret_THREAD_CREATE_FAIL:
     logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
@@ -8678,6 +8705,10 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   uint32_t multiplex;
   uint32_t chrom_end;
   int64_t llxx;
+  if (is_set(chrom_info_ptr->haploid_mask, 0)) {
+    logprint("Error: --distance/--ibs-matrix/--distance-matrix cannot be used on haploid\ngenomes.\n");
+    goto calc_distance_ret_INVALID_CMDLINE;
+  }
   g_indiv_ct = indiv_ct;
   if (dist_thread_ct > indiv_ct / 32) {
     dist_thread_ct = indiv_ct / 32;
@@ -9167,6 +9198,9 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     break;
   calc_distance_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
+    break;
+  calc_distance_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
     break;
   calc_distance_ret_THREAD_CREATE_FAIL:
     logprint(errstr_thread_create);
