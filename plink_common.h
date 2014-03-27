@@ -16,7 +16,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define PROG_NAME_STR "plink"
 #define PROG_NAME_CAPS "PLINK"
@@ -387,6 +387,11 @@
 #define HWE_MIDP 1
 #define HWE_THRESH_MIDP 2
 #define HWE_THRESH_ALL 4
+
+#define MENDEL_FILTER 1
+#define MENDEL_FILTER_VAR_FIRST 2
+#define MENDEL_DUOS 4
+#define MENDEL_MULTIGEN 8
 
 #define DUMMY_MISSING_GENO 1
 #define DUMMY_MISSING_PHENO 2

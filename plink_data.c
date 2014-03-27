@@ -2877,6 +2877,44 @@ int32_t make_bed_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32_t unfilter
   return 0;
 }
 
+int32_t make_bed_me_missing_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32_t unfiltered_indiv_ct, uintptr_t unfiltered_indiv_ct4, uintptr_t* indiv_exclude, uint32_t indiv_ct, uint32_t* indiv_sort_map, uint32_t is_reverse, uintptr_t* writebuf) {
+  uintptr_t* writeptr = writebuf;
+  uintptr_t cur_word = 0;
+  uint32_t indiv_uidx = 0;
+  uint32_t ii_rem = 0;
+  uint32_t indiv_idx = 0;
+  uint32_t indiv_uidx2;
+  if ((!indiv_sort_map) && (unfiltered_indiv_ct == indiv_ct)) {
+    loadbuf = writebuf;
+  }
+  if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+    return RET_READ_FAIL;
+  }
+  //
+  if (indiv_sort_map) {
+    for (; indiv_idx < indiv_ct; indiv_idx++) {
+      do {
+	indiv_uidx2 = indiv_sort_map[indiv_uidx++];
+      } while (IS_SET(indiv_exclude, indiv_uidx2));
+      cur_word |= (((loadbuf[indiv_uidx2 / BITCT2] >> ((indiv_uidx2 % BITCT2) * 2)) & 3) << (ii_rem * 2));
+      if (++ii_rem == BITCT2) {
+	*writeptr++ = cur_word;
+	cur_word = 0;
+	ii_rem = 0;
+      }
+    }
+    if (ii_rem) {
+      *writeptr = cur_word;
+    }
+  } else if (unfiltered_indiv_ct != indiv_ct) {
+    collapse_copy_2bitarr(loadbuf, writebuf, unfiltered_indiv_ct, indiv_ct, indiv_exclude);
+  }
+  if (is_reverse) {
+    reverse_loadbuf((unsigned char*)writebuf, indiv_ct);
+  }
+  return 0;
+}
+
 void zeropatch(uintptr_t indiv_ctv2, uintptr_t cluster_ct, uintptr_t* cluster_zc_masks, uint32_t** zcdefs, uintptr_t* patchbuf, uintptr_t marker_idx, uintptr_t* writebuf) {
 #ifdef __LP64__
   __m128i* writevec = (__m128i*)writebuf;
@@ -2919,7 +2957,7 @@ void zeropatch(uintptr_t indiv_ctv2, uintptr_t cluster_ct, uintptr_t* cluster_zc
 #endif
 }
 
-int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t map_cols, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t map_is_unsorted, uint32_t* indiv_sort_map, uint64_t misc_flags, uint32_t splitx_bound1, uint32_t splitx_bound2, Two_col_params* update_chr, char* flip_subset_fname, char* zerofname, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, uint32_t hh_exists, Chrom_info* chrom_info_ptr) {
+int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t map_cols, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t map_is_unsorted, uint32_t* indiv_sort_map, uint64_t misc_flags, uint32_t splitx_bound1, uint32_t splitx_bound2, Two_col_params* update_chr, char* flip_subset_fname, char* zerofname, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, uint32_t hh_exists, Chrom_info* chrom_info_ptr, uint32_t mendel_modifier) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + BITCT2 - 1) / BITCT2;
@@ -2927,14 +2965,26 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   uintptr_t indiv_ctv2 = 2 * ((indiv_ct + (BITCT - 1)) / BITCT);
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
+  uintptr_t max_fid_len = 0;
+  uintptr_t max_iid_len = 0;
+  uintptr_t trio_ct = 0;
   FILE* bedoutfile = NULL;
   int64_t* ll_buf = NULL;
   uintptr_t* indiv_include2 = NULL;
   uintptr_t* indiv_male_include2 = NULL;
   uintptr_t* cluster_zc_masks = NULL;
   uintptr_t* patchbuf = NULL;
+  uint64_t* family_list = NULL;
+  uint64_t* trio_list = NULL;
+  uint32_t* trio_lookup = NULL;
   uint32_t** zcdefs = NULL;
+  char* fids = NULL;
+  char* iids = NULL;
+  uint32_t family_ct = 0;
   uint32_t set_hh_missing = (misc_flags / MISC_SET_HH_MISSING) & 1;
+  uint32_t set_me_missing = (misc_flags / MISC_SET_ME_MISSING) & 1;
+  uint32_t mendel_include_duos = (mendel_modifier / MENDEL_DUOS) & 1;
+  uint32_t mendel_multigen = (mendel_modifier / MENDEL_MULTIGEN) & 1;
   uint32_t mergex = (misc_flags / MISC_MERGEX) & 1;
   uint32_t allow_extra_chroms = (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1;
   uint32_t zero_extra_chroms = (misc_flags / MISC_ZERO_EXTRA_CHROMS) & 1;
@@ -2942,9 +2992,11 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   uint32_t chrom_end = 0;
   uint32_t chrom_fo_idx = 0xffffffffU; // deliberate overflow
   int32_t retval = 0;
+  const char errmids[][3] = {"me", "hh"};
   uintptr_t* loadbuf;
   uintptr_t* writebuf;
   uint32_t* map_reverse;
+  const char* errptr;
   uint32_t is_haploid;
   uint32_t is_x;
   uint32_t is_y;
@@ -2987,11 +3039,14 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
     goto make_bed_ret_READ_FAIL;
   }
   if (resort_map) {
-    if (set_hh_missing) {
+    if (set_hh_missing || set_me_missing) {
+      // could remove this restriction if we added a chromosome check to the
+      // main loop, but no real need to bother.
+      errptr = errmids[set_hh_missing];
       if (map_is_unsorted) {
-        logprint("Error: --set-hh-missing cannot be used on an unsorted .bim file.  Use\n--make-bed without --set-hh-missing to sort by position first; then run\n--make-bed + --set-hh-missing on the new fileset.\n");
+        LOGPRINTF("Error: --set-%s-missing cannot be used on an unsorted .bim file.  Use\n--make-bed without --set-%s-missing to sort by position first; then run\n--make-bed + --set-%s-missing on the new fileset.\n", errptr, errptr, errptr);
       } else {
-        logprint("Error: --set-hh-missing cannot be used with --merge-x/--split-x/--update-chr.\nFinish updating chromosome codes first.\n");
+        LOGPRINTF("Error: --set-%s-missing cannot be used with --merge-x/--split-x/--update-chr.\nFinish updating chromosome codes first.\n", errptr);
       }
       retval = RET_CALC_NOT_YET_SUPPORTED;
       goto make_bed_ret_1;
@@ -3060,7 +3115,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	    goto make_bed_ret_READ_FAIL;
 	  }
 	}
-        retval = make_bed_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, IS_SET(marker_reverse, marker_uidx), &(writebuf[indiv_ctv2 * map_reverse[marker_uidx]]));
+	retval = make_bed_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, IS_SET(marker_reverse, marker_uidx), &(writebuf[indiv_ctv2 * map_reverse[marker_uidx]]));
 	if (retval) {
 	  goto make_bed_ret_1;
 	}
@@ -3091,6 +3146,16 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
     if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, indiv_ct, hh_exists, 0, indiv_exclude, sex_male, &indiv_include2, &indiv_male_include2)) {
       goto make_bed_ret_NOMEM;
     }
+    if (set_me_missing) {
+      retval = get_trios_and_families(unfiltered_indiv_ct, indiv_exclude, indiv_ct, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, &fids, &max_fid_len, &iids, &max_iid_len, &family_list, &family_ct, &trio_list, &trio_ct, &trio_lookup, mendel_include_duos, mendel_multigen);
+      if (retval) {
+	goto make_bed_ret_1;
+      }
+      if (trio_ct) {
+      } else {
+	set_me_missing = 0;
+      }
+    }
 
     if (wkspace_alloc_ul_checked(&writebuf, indiv_ctv2)) {
       goto make_bed_ret_NOMEM;
@@ -3111,7 +3176,12 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
           chrom_fo_idx++;
 	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
 	}
-        retval = make_bed_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, IS_SET(marker_reverse, marker_uidx), writebuf);
+	if ((!set_me_missing) || (is_haploid && (!is_x))) {
+	  retval = make_bed_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, IS_SET(marker_reverse, marker_uidx), writebuf);
+	} else {
+	  retval = make_bed_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, IS_SET(marker_reverse, marker_uidx), writebuf);
+	  // retval = make_bed_me_missing_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, IS_SET(marker_reverse, marker_uidx), writebuf);
+	}
 	if (retval) {
 	  goto make_bed_ret_1;
 	}
@@ -8002,8 +8072,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   uint32_t biallelic_strict = (misc_flags / MISC_BIALLELIC_ONLY_STRICT) & 1;
   uint32_t skip3_list = (misc_flags / MISC_BIALLELIC_ONLY_LIST) & 1;
   uint32_t vcf_filter = (misc_flags / MISC_VCF_FILTER) & 1;
-  uint32_t filter_ct = 0;
-  uint32_t format_ct = 0;
+  uint32_t stringdict_ct = 1;
   uint32_t gt_idx = 0;
   uint32_t marker_ct = 0;
   uint32_t marker_skip_ct = 0;
@@ -8104,8 +8173,6 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     fexcept_idxs = (uint32_t*)top_alloc(&topsize, fexcept_ct * sizeof(int32_t));
     fill_uint_zero(fexcept_idxs, fexcept_ct);
   }
-  uii = 0; // genotype field present?
-  filter_ct = 1; // FILTER string dictionary index
   if (wkspace_left - topsize <= header_size) {
     goto bcf_to_bed_ret_NOMEM;
   }
@@ -8142,9 +8209,8 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     }
     if (linebuf[2] == 'F') {
       if (!memcmp(&(linebuf[3]), "ORMAT=<ID=", 10)) {
-	format_ct++;
 	if (!memcmp(&(linebuf[13]), "GT,", 3)) {
-	  if (uii) {
+	  if (gt_idx) {
 	    logprint("Error: Duplicate GT format specifier in .bcf file.\n");
 	    goto bcf_to_bed_ret_INVALID_FORMAT;
 	  }
@@ -8152,23 +8218,30 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	    logprint("Error: Unrecognized GT field format in .bcf file.\n");
 	    goto bcf_to_bed_ret_INVALID_FORMAT;
 	  }
-	  gt_idx = format_ct;
+	  gt_idx = stringdict_ct;
 	}
-      } else if (fexcept_ct && (!memcmp(&(linebuf[3]), "ILTER=<ID=", 10))) {
+	stringdict_ct++;
+      } else if (!memcmp(&(linebuf[3]), "ILTER=<ID=", 10)) {
 	bufptr = &(linebuf[13]);
 	bufptr2 = (char*)memchr(bufptr, ',', linebuf_end - bufptr);
 	if (bufptr2 == linebuf_end) {
 	  goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
 	}
-	ii = bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_fexcepts, max_fexcept_len, fexcept_ct);
-        if (ii != -1) {
-          if (fexcept_idxs[(uint32_t)ii]) {
-	    goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
+	if (memcmp(bufptr, "PASS,", 5)) {
+	  if (fexcept_ct) {
+	    ii = bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_fexcepts, max_fexcept_len, fexcept_ct);
+	    if (ii != -1) {
+	      if (fexcept_idxs[(uint32_t)ii]) {
+		goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
+	      }
+	      fexcept_idxs[(uint32_t)ii] = stringdict_ct;
+	    }
 	  }
-          fexcept_idxs[(uint32_t)ii] = filter_ct;
+	  stringdict_ct++;
 	}
-	filter_ct++;
       }
+    } else if (!memcmp(&(linebuf[2]), "INFO=<ID=", 9)) {
+      stringdict_ct++;
     } else if (!memcmp(&(linebuf[2]), "contig=<ID=", 11)) {
       bufptr = &(linebuf[13]);
       bufptr2 = (char*)memchr(bufptr, ',', linebuf_end - bufptr);
@@ -8241,7 +8314,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     contig_list = contig_list->next;
   } while (ulii);
   if (vcf_filter) {
-    uii = (filter_ct + (BITCT - 1)) / BITCT;
+    uii = (stringdict_ct + (BITCT - 1)) / BITCT;
     if (wkspace_alloc_ul_checked(&fexcept_bitfield, uii * sizeof(intptr_t))) {
       goto bcf_to_bed_ret_NOMEM2;
     }
@@ -8366,7 +8439,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	      goto bcf_to_bed_ret_READ_OR_FORMAT_FAIL;
 	    }
 	    for (ukk = 0; ukk < ujj; ukk++) {
-	      if (ucptr[ukk] >= filter_ct) {
+	      if (ucptr[ukk] >= stringdict_ct) {
 		goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
 	      }
 	      if (!is_set(fexcept_bitfield, ucptr[ukk])) {
@@ -8382,7 +8455,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	      goto bcf_to_bed_ret_READ_OR_FORMAT_FAIL;
 	    }
 	    for (ukk = 0; ukk < ujj; ukk++) {
-	      if (ui16ptr[ukk] >= filter_ct) {
+	      if (ui16ptr[ukk] >= stringdict_ct) {
 		goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
 	      }
 	      if (!is_set(fexcept_bitfield, ui16ptr[ukk])) {
@@ -8403,7 +8476,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 		goto bcf_to_bed_ret_READ_OR_FORMAT_FAIL;
 	      }
               for (umm = 0; umm < ukk; umm++) {
-		if (uiptr[umm] >= filter_ct) {
+		if (uiptr[umm] >= stringdict_ct) {
 		  goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
 		}
                 if (!is_set(fexcept_bitfield, uiptr[umm])) {

@@ -1366,7 +1366,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                           following build codes are supported as shorthand:\n"
 "                           * 'b36'/'hg18' = NCBI 36, bounds 2709521 & 154584237\n"
 "                           * 'b37'/'hg19' = GRCh37, bounds 2699520 & 154931044\n"
-"                           * 'b38'/'hg20' = GRCh38, bounds 2781479 & 155701383\n"
+"                           * 'b38'/'hg38' = GRCh38, bounds 2781479 & 155701383\n"
 "  --merge-x              : Merge XY chromosome back with X.\n"
 	       );
     help_print("set-me-missing", &help_ctrl, 0,

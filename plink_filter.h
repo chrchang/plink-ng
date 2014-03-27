@@ -13,11 +13,6 @@ typedef struct {
   char* indiv_fname;
 } Oblig_missing_info;
 
-#define MENDEL_FILTER 1
-#define MENDEL_FILTER_VAR_FIRST 2
-#define MENDEL_DUOS 4
-#define MENDEL_MULTIGEN 8
-
 typedef struct {
   uint32_t modifier;
   double max_trio_error;
