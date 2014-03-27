@@ -2877,7 +2877,7 @@ int32_t make_bed_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32_t unfilter
   return 0;
 }
 
-int32_t make_bed_me_missing_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32_t unfiltered_indiv_ct, uintptr_t unfiltered_indiv_ct4, uintptr_t* indiv_exclude, uint32_t indiv_ct, uint32_t* indiv_sort_map, uint32_t is_reverse, uintptr_t* writebuf, uintptr_t* workbuf, uintptr_t* indiv_raw_male_include2, uint32_t* trio_lookup, uint32_t trio_ct, uint32_t set_x_hh_missing, uint32_t multigen) {
+int32_t make_bed_me_missing_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32_t unfiltered_indiv_ct, uintptr_t unfiltered_indiv_ct4, uintptr_t* indiv_exclude, uint32_t indiv_ct, uint32_t* indiv_sort_map, uint32_t is_reverse, uintptr_t* writebuf, uintptr_t* workbuf, uintptr_t* indiv_raw_male_include2, uint32_t* trio_lookup, uint32_t trio_ct, uint32_t set_x_hh_missing, uint32_t multigen, uint64_t* error_ct_ptr) {
   uintptr_t* writeptr = writebuf;
   uintptr_t cur_word = 0;
   uint32_t indiv_uidx = 0;
@@ -2933,6 +2933,7 @@ int32_t make_bed_me_missing_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32
 	  uljj = ONELU << (2 * (ukk % BITCT2));
 	  loadbuf[ukk / BITCT2] = (ulii & (~(3 * uljj))) | uljj;
 	}
+	*error_ct_ptr += 1;
       }
     }
   } else {
@@ -2965,6 +2966,7 @@ int32_t make_bed_me_missing_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32
 	    uljj = ONELU << ukk;
 	    loadbuf[upp] = (ulii & (~(3 * uljj))) | uljj;
 	  }
+	  *error_ct_ptr += 1;
 	}
       } else if (!uljj) {
 	workbuf[unn] &= ~(ONELU << uii);
@@ -3058,6 +3060,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   uint64_t* trio_list = NULL;
   uint32_t* trio_lookup = NULL;
   uint32_t** zcdefs = NULL;
+  uint64_t mendel_error_ct = 0;
   uint32_t family_ct = 0;
   uint32_t set_hh_missing = (misc_flags / MISC_SET_HH_MISSING) & 1;
   uint32_t set_me_missing = (misc_flags / MISC_SET_ME_MISSING) & 1;
@@ -3270,7 +3273,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	    haploid_fix(hh_exists, indiv_include2, indiv_male_include2, indiv_ct, is_x, is_y, (unsigned char*)writebuf);
 	  }
 	} else {
-	  retval = make_bed_me_missing_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, IS_SET(marker_reverse, marker_uidx), writebuf, workbuf, indiv_raw_male_include2, trio_lookup, trio_ct, set_hh_missing && is_x, mendel_multigen);
+	  retval = make_bed_me_missing_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, IS_SET(marker_reverse, marker_uidx), writebuf, workbuf, indiv_raw_male_include2, trio_lookup, trio_ct, set_hh_missing && is_x, mendel_multigen, &mendel_error_ct);
 	}
 	if (retval) {
 	  goto make_bed_ret_1;
@@ -3312,6 +3315,9 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 
   fputs("\b\b\b", stdout);
   logprint("done.\n");
+  if (set_me_missing) {
+    LOGPRINTF("--set-me-missing: %" PRIu64 " error%s addressed.\n", mendel_error_ct, (mendel_error_ct == 1)? "" : "s");
+  }
   while (0) {
   make_bed_ret_NOMEM:
     retval = RET_NOMEM;
