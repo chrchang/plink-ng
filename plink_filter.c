@@ -2551,52 +2551,6 @@ int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offse
   uint32_t new_marker_exclude_ct = 0;
   uint32_t error_ct_fill = 0;
   int32_t retval = 0;
-
-  // bottom 2 bits of index = child genotype
-  // middle 2 bits of index = paternal genotype
-  // top 2 bits of index = maternal genotype
-
-  // bits 0-7 = child increment (always 1)
-  // bits 8-15 = father increment
-  // bits 16-23 = mother increment
-  // bits 24-31 = error code
-
-  // note that \xx is octal, not decimal.
-  const uint32_t error_table[] =
-{0, 0, 0x1010101, 0x8000001,
- 0, 0, 0, 0x7010001,
- 0, 0, 0, 0x7010001,
- 0x3000101, 0, 0, 0x7010001,
- 0, 0, 0, 0x6000101,
- 0, 0, 0, 0,
- 0, 0, 0, 0,
- 0x3000101, 0, 0, 0,
- 0, 0, 0, 0x6000101,
- 0, 0, 0, 0,
- 0, 0, 0, 0,
- 0x3000101, 0, 0, 0,
- 0x4010001, 0, 0, 0x6000101,
- 0x4010001, 0, 0, 0,
- 0x4010001, 0, 0, 0,
- 0x5000001, 0, 0x2010101, 0};
-  // necessary to check child gender when dealing with error 9/10
-  const uint32_t error_table_x[] =
-{0, 0, 0x1010101, 0x8000001,
- 0, 0, 0, 0x9010001,
- 0, 0, 0, 0x7010001,
- 0x3000101, 0, 0, 0x7010001,
- 0, 0, 0, 0x6000101,
- 0, 0, 0, 0,
- 0, 0, 0, 0,
- 0x3000101, 0, 0, 0,
- 0, 0, 0, 0x6000101,
- 0, 0, 0, 0,
- 0, 0, 0, 0,
- 0x3000101, 0, 0, 0,
- 0x4010001, 0, 0, 0x6000101,
- 0xa010001, 0, 0, 0,
- 0x4010001, 0, 0, 0,
- 0x5000001, 0, 0x2010101, 0};
   char chrom_name_buf[4];
   char* errstrs[10];
   uint32_t errstr_lens[11];
@@ -2730,9 +2684,9 @@ int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offse
       continue;
     }
     if (!is_x) {
-      error_table_ptr = error_table;
+      error_table_ptr = mendel_error_table;
     } else {
-      error_table_ptr = error_table_x;
+      error_table_ptr = mendel_error_table_x;
     }
     if (calc_mendel) {
       chrom_name_ptr = chrom_name_buf;
@@ -2984,7 +2938,11 @@ int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offse
       wptr = fw_strcpy(plink_maxiid, &(iids[((uintptr_t)(family_code >> 32)) * max_iid_len]), wptr);
       *wptr++ = ' ';
       wptr = uint32_writew6x(wptr, child_cts[uii], ' ');
-      wptr = int64_write(wptr, family_error_cts[uii * 3]);
+      if (family_error_cts[uii * 3] < 10000) {
+	wptr = uint32_writew4(wptr, (uint32_t)family_error_cts[uii * 3]);
+      } else {
+        wptr = int64_write(wptr, family_error_cts[uii * 3]);
+      }
       *wptr++ = '\n';
       if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
 	goto mendel_error_scan_ret_WRITE_FAIL;
@@ -3012,7 +2970,11 @@ int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offse
 	if (ujj != unfiltered_indiv_ct) {
 	  wptr = fw_strcpy(plink_maxiid, &(iids[ujj * max_iid_len]), wptr);
 	  *wptr++ = ' ';
-	  wptr = int64_write(wptr, family_error_cts[3 * uii + 1]);
+	  if (family_error_cts[3 * uii + 1] < 10000) {
+	    wptr = uint32_writew4(wptr, (uint32_t)family_error_cts[3 * uii + 1]);
+	  } else {
+	    wptr = int64_write(wptr, family_error_cts[3 * uii + 1]);
+	  }
 	  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
 	    goto mendel_error_scan_ret_WRITE_FAIL;
 	  }
@@ -3024,7 +2986,11 @@ int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offse
 	  }
 	  wptr = fw_strcpy(plink_maxiid, &(iids[ukk * max_iid_len]), &(tbuf[plink_maxfid + 1]));
 	  *wptr++ = ' ';
-	  wptr = int64_write(wptr, family_error_cts[3 * uii + 2]);
+	  if (family_error_cts[3 * uii + 2] < 10000) {
+	    wptr = uint32_writew4(wptr, (uint32_t)family_error_cts[3 * uii + 2]);
+	  } else {
+	    wptr = int64_write(wptr, family_error_cts[3 * uii + 2]);
+	  }
 	  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
 	    goto mendel_error_scan_ret_WRITE_FAIL;
 	  }

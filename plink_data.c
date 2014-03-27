@@ -2877,20 +2877,45 @@ int32_t make_bed_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32_t unfilter
   return 0;
 }
 
-int32_t make_bed_me_missing_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32_t unfiltered_indiv_ct, uintptr_t unfiltered_indiv_ct4, uintptr_t* indiv_exclude, uint32_t indiv_ct, uint32_t* indiv_sort_map, uint32_t is_reverse, uintptr_t* writebuf) {
+/*
+int32_t make_bed_me_missing_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32_t unfiltered_indiv_ct, uintptr_t unfiltered_indiv_ct4, uintptr_t* indiv_exclude, uint32_t indiv_ct, uint32_t* indiv_sort_map, uint32_t is_reverse, uintptr_t* writebuf, uintptr_t* workbuf) {
   uintptr_t* writeptr = writebuf;
   uintptr_t cur_word = 0;
   uint32_t indiv_uidx = 0;
   uint32_t ii_rem = 0;
   uint32_t indiv_idx = 0;
+  uint32_t* uiptr;
   uint32_t indiv_uidx2;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+  uint32_t umm;
   if ((!indiv_sort_map) && (unfiltered_indiv_ct == indiv_ct)) {
     loadbuf = writebuf;
   }
   if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
     return RET_READ_FAIL;
   }
-  //
+  // do NOT treat males differently from females on Xchr if --set-hh-missing
+  // not specified, since user may be procrastinating on fixing gender errors.
+  if (set_x_hh_missing) {
+    hh_reset(loadbuf, indiv_male_raw_include2, unfiltered_indiv_ct);
+  }
+  memcpy(workbuf, loadbuf, unfiltered_indiv_ct4);
+  SET_BIT_DBL(workbuf, unfiltered_indiv_ct);
+  uiptr = trio_lookup;
+  if (!multigen) {
+    for (trio_idx = 0; trio_idx < trio_ct; trio_idx++) {
+      uii = *uiptr++;
+      ujj = *uiptr++;
+      ukk = *uiptr++;
+      umm = mendel_error_table[((loadbuf[uii / BITCT2] >> (2 * (uii % BITCT2))) & 3) | (((loadbuf[ujj / BITCT2] >> (2 * (ujj % BITCT2))) & 3) << 2) | (((loadbuf[ukk / BITCT2] >> (2 * (ukk % BITCT2))) & 3) << 4)];
+      if (umm) {
+
+      }
+    }
+  } else {
+  }
   if (indiv_sort_map) {
     for (; indiv_idx < indiv_ct; indiv_idx++) {
       do {
@@ -2914,6 +2939,7 @@ int32_t make_bed_me_missing_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32
   }
   return 0;
 }
+*/
 
 void zeropatch(uintptr_t indiv_ctv2, uintptr_t cluster_ct, uintptr_t* cluster_zc_masks, uint32_t** zcdefs, uintptr_t* patchbuf, uintptr_t marker_idx, uintptr_t* writebuf) {
 #ifdef __LP64__
@@ -3147,6 +3173,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
       goto make_bed_ret_NOMEM;
     }
     if (set_me_missing) {
+      /*
       retval = get_trios_and_families(unfiltered_indiv_ct, indiv_exclude, indiv_ct, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, &fids, &max_fid_len, &iids, &max_iid_len, &family_list, &family_ct, &trio_list, &trio_ct, &trio_lookup, mendel_include_duos, mendel_multigen);
       if (retval) {
 	goto make_bed_ret_1;
@@ -3155,6 +3182,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
       } else {
 	set_me_missing = 0;
       }
+      */
     }
 
     if (wkspace_alloc_ul_checked(&writebuf, indiv_ctv2)) {
@@ -3178,15 +3206,14 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	}
 	if ((!set_me_missing) || (is_haploid && (!is_x))) {
 	  retval = make_bed_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, IS_SET(marker_reverse, marker_uidx), writebuf);
+	  if (is_haploid && set_hh_missing) {
+	    haploid_fix(hh_exists, indiv_include2, indiv_male_include2, indiv_ct, is_x, is_y, (unsigned char*)writebuf);
+	  }
 	} else {
-	  retval = make_bed_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, IS_SET(marker_reverse, marker_uidx), writebuf);
 	  // retval = make_bed_me_missing_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, IS_SET(marker_reverse, marker_uidx), writebuf);
 	}
 	if (retval) {
 	  goto make_bed_ret_1;
-	}
-	if (is_haploid && set_hh_missing) {
-	  haploid_fix(hh_exists, indiv_include2, indiv_male_include2, indiv_ct, is_x, is_y, (unsigned char*)writebuf);
 	}
 	if (zcdefs) {
 	  zeropatch(indiv_ctv2, cluster_ct, cluster_zc_masks, zcdefs, patchbuf, marker_idx, writebuf);

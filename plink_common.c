@@ -8986,6 +8986,52 @@ uintptr_t geqprime(uintptr_t floor) {
   return floor;
 }
 
+// bottom 2 bits of index = child genotype
+// middle 2 bits of index = paternal genotype
+// top 2 bits of index = maternal genotype
+
+// bits 0-7 = child increment (always 1)
+// bits 8-15 = father increment
+// bits 16-23 = mother increment
+// bits 24-31 = error code
+
+// note that \xx is octal, not decimal.
+const uint32_t mendel_error_table[] =
+{0, 0, 0x1010101, 0x8000001,
+ 0, 0, 0, 0x7010001,
+ 0, 0, 0, 0x7010001,
+ 0x3000101, 0, 0, 0x7010001,
+ 0, 0, 0, 0x6000101,
+ 0, 0, 0, 0,
+ 0, 0, 0, 0,
+ 0x3000101, 0, 0, 0,
+ 0, 0, 0, 0x6000101,
+ 0, 0, 0, 0,
+ 0, 0, 0, 0,
+ 0x3000101, 0, 0, 0,
+ 0x4010001, 0, 0, 0x6000101,
+ 0x4010001, 0, 0, 0,
+ 0x4010001, 0, 0, 0,
+ 0x5000001, 0, 0x2010101, 0};
+// necessary to check child gender when dealing with error 9/10
+const uint32_t mendel_error_table_x[] =
+{0, 0, 0x1010101, 0x8000001,
+ 0, 0, 0, 0x9010001,
+ 0, 0, 0, 0x7010001,
+ 0x3000101, 0, 0, 0x7010001,
+ 0, 0, 0, 0x6000101,
+ 0, 0, 0, 0,
+ 0, 0, 0, 0,
+ 0x3000101, 0, 0, 0,
+ 0, 0, 0, 0x6000101,
+ 0, 0, 0, 0,
+ 0, 0, 0, 0,
+ 0x3000101, 0, 0, 0,
+ 0x4010001, 0, 0, 0x6000101,
+ 0xa010001, 0, 0, 0,
+ 0x4010001, 0, 0, 0,
+ 0x5000001, 0, 0x2010101, 0};
+
 int32_t get_trios_and_families(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, char** fids_ptr, uintptr_t* max_fid_len_ptr, char** iids_ptr, uintptr_t* max_iid_len_ptr, uint64_t** family_list_ptr, uint32_t* family_ct_ptr, uint64_t** trio_list_ptr, uintptr_t* trio_ct_ptr, uint32_t** trio_lookup_ptr, uint32_t include_duos, uint32_t toposort) {
   // family_list has paternal indices in low 32 bits, maternal indices in high
   // 32, sorted in child ID order.
