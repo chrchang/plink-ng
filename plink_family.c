@@ -1663,3 +1663,8 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   wkspace_reset(wkspace_mark);
   return 0;
 }
+
+int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t unfiltered_indiv_ct, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t hh_exists, Family_info* fam_ip) {
+  logprint("Error: --tdt is currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
+}

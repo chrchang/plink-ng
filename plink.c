@@ -373,7 +373,7 @@ static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, char* cm
 }
 
 static inline uint32_t are_marker_alleles_needed(uint64_t calculation_type, char* freqname, Homozyg_info* homozyg_ptr, Two_col_params* a1alleles, Two_col_params* a2alleles, uint32_t ld_modifier, uint32_t snp_only, uint32_t clump_modifier) {
-  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP | CALC_SCORE | CALC_MENDEL)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (ld_modifier & LD_INPHASE)) || a1alleles || a2alleles || snp_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)));
+  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP | CALC_SCORE | CALC_MENDEL | CALC_TDT)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (ld_modifier & LD_INPHASE)) || a1alleles || a2alleles || snp_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)));
 }
 
 static inline int32_t relationship_or_ibc_req(uint64_t calculation_type) {
@@ -775,15 +775,17 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     } else if ((calculation_type & CALC_EPI) && (epi_ip->modifier & EPI_FAST)) {
       logprint("Error: --fast-epistasis requires a case/control phenotype.\n");
       goto plink_ret_INVALID_CMDLINE;
-    } else if (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_CMH | CALC_HOMOG | CALC_TESTMISS)) {
+    } else if (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_CMH | CALC_HOMOG | CALC_TESTMISS | CALC_TDT)) {
       if (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST)) {
         logprint("Error: --ibs-test and --groupdist calculations require a case/control\nphenotype.\n");
       } else if (calculation_type & CALC_CMH) {
         logprint("Error: --mh and --mh2 require a case/control phenotype.\n");
       } else if (calculation_type & CALC_HOMOG) {
         logprint("Error: --homog requires a case/control phenotype.\n");
-      } else {
+      } else if (calculation_type & CALC_TESTMISS) {
         logprint("Error: --test-missing requires a case/control phenotype.\n");
+      } else {
+	logprint("Error: --tdt requires a case/control phenotype.\n");
       }
       goto plink_ret_INVALID_CMDLINE;
     }
@@ -1141,7 +1143,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     goto plink_ret_INVALID_CMDLINE_2;
   }
   if (g_thread_ct > 1) {
-    if ((calculation_type & (CALC_RELATIONSHIP | CALC_REL_CUTOFF | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_LD | CALC_PCA)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_PERM | GLM_MPERM))) || ((calculation_type & CALC_TESTMISS) && (testmiss_modifier & (TESTMISS_PERM | TESTMISS_MPERM))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname))) || ((calculation_type & CALC_EPI) && (epi_ip->modifier & EPI_FAST))) {
+    if ((calculation_type & (CALC_RELATIONSHIP | CALC_REL_CUTOFF | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_LD | CALC_PCA)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_PERM | GLM_MPERM))) || ((calculation_type & CALC_TESTMISS) && (testmiss_modifier & (TESTMISS_PERM | TESTMISS_MPERM))) || ((calculation_type & CALC_TDT) && (fam_ip->tdt_modifier & (TDT_PERM | TDT_MPERM))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname))) || ((calculation_type & CALC_EPI) && (epi_ip->modifier & EPI_FAST))) {
       LOGPRINTF("Using up to %u threads (change this with --threads).\n", g_thread_ct);
     } else {
       logprint("Using 1 thread (no multithreaded calculations invoked).\n");
@@ -1783,7 +1785,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
-  if (calculation_type & (CALC_MODEL | CALC_GXE | CALC_GLM | CALC_LASSO | CALC_CMH | CALC_HOMOG | CALC_TESTMISS)) {
+  if (calculation_type & (CALC_MODEL | CALC_GXE | CALC_GLM | CALC_LASSO | CALC_CMH | CALC_HOMOG | CALC_TESTMISS | CALC_TDT)) {
     // can't use pheno_ctrl_ct in here since new phenotypes may be loaded, and
     // we don't bother updating it...
     if ((!pheno_all) && (!loop_assoc_fname)) {
@@ -1939,6 +1941,12 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       if ((calculation_type & CALC_TESTMISS) && pheno_c) {
         retval = testmiss(threads, bedfile, bed_offset, outname, outname_end, testmiss_mperm_val, testmiss_modifier, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists);
         if (retval) {
+	  goto plink_ret_1;
+	}
+      }
+      if ((calculation_type & CALC_TDT) && pheno_c) {
+	retval = tdt(threads, bedfile, bed_offset, outname, outname_end, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, unfiltered_indiv_ct, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, zero_extra_chroms, chrom_info_ptr, hh_exists, fam_ip);
+	if (retval) {
 	  goto plink_ret_1;
 	}
       }
@@ -7664,6 +7672,8 @@ int32_t main(int32_t argc, char** argv) {
 	  glm_modifier |= GLM_MPERM;
           testmiss_mperm_val = mperm_val;
           testmiss_modifier |= TESTMISS_MPERM;
+	  family_info.tdt_mperm_val = mperm_val;
+	  family_info.tdt_modifier |= TDT_MPERM;
 	}
       } else if (!memcmp(argptr2, "perm-save", 10)) {
 	if (glm_modifier & GLM_NO_SNP) {
@@ -7997,6 +8007,10 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
 	  family_info.mendel_exclude_one_ratio = -1;
 	}
+      } else if (!memcmp(argptr2, "at", 3)) {
+	logprint("Note: --mat flag deprecated.  Use e.g. '--tdt poo mperm=[value] mat'.\n");
+	family_info.tdt_modifier |= TDT_POOPERM_MAT;
+	goto main_param_zero;
       } else if (!memcmp(argptr2, "endel", 6)) {
 	calculation_type |= CALC_MENDEL;
         goto main_param_zero;
@@ -8332,6 +8346,7 @@ int32_t main(int32_t argc, char** argv) {
 	model_modifier |= MODEL_PERM;
         glm_modifier |= GLM_PERM;
         testmiss_modifier |= TESTMISS_PERM;
+	family_info.tdt_modifier |= TDT_PERM;
 	logprint("Note: --perm flag deprecated.  Use e.g. '--model perm'.\n");
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "erm-count", 10)) {
@@ -8480,6 +8495,21 @@ int32_t main(int32_t argc, char** argv) {
         if (retval) {
 	  goto main_ret_1;
 	}
+      } else if (!memcmp(argptr2, "oo", 3)) {
+	logprint("Note: --poo flag deprecated.  Use '--tdt poo'.\n");
+	goto main_param_zero;
+      } else if (!memcmp(argptr2, "arentdt1", 9)) {
+	logprint("Note: --parentdt1 flag deprecated.  Use e.g.\n'--tdt exact mperm=[value] parentdt1'.\n");
+	family_info.tdt_modifier |= TDT_PARENPERM1;
+	goto main_param_zero;
+      } else if (!memcmp(argptr2, "arentdt2", 9)) {
+	logprint("Note: --parentdt2 flag deprecated.  Use e.g.\n'--tdt exact mperm=[value] parentdt2'.\n");
+	family_info.tdt_modifier |= TDT_PARENPERM2;
+	goto main_param_zero;
+      } else if (!memcmp(argptr2, "at", 3)) {
+	logprint("Note: --pat flag deprecated.  Use e.g. '--tdt poo mperm=[value] pat'.\n");
+	family_info.tdt_modifier |= TDT_POOPERM_PAT;
+	goto main_param_zero;
       } else if ((!memcmp(argptr2, "roxy-assoc", 11)) ||
                  (!memcmp(argptr2, "roxy-drop", 10)) ||
                  (!memcmp(argptr2, "roxy-impute", 12)) ||
@@ -10146,7 +10176,7 @@ int32_t main(int32_t argc, char** argv) {
         calculation_type |= CALC_TESTMISHAP;
         goto main_param_zero;
       } else if (!memcmp(argptr2, "dt", 3)) {
-        if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 5)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
@@ -10154,26 +10184,98 @@ int32_t main(int32_t argc, char** argv) {
 	    if (family_info.tdt_modifier & TDT_MIDP) {
 	      logprint("Error: --tdt 'exact' modifier cannot be used with 'exact-midp'.\n");
 	      goto main_ret_INVALID_CMDLINE;
+	    } else if (family_info.tdt_modifier & TDT_POO) {
+	      sprintf(logbuf, "Error: --tdt parent-of-origin analysis does not currently support exact tests.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    family_info.tdt_modifier |= TDT_EXACT;
 	  } else if (!strcmp(argv[cur_arg + uii], "exact-midp")) {
 	    if ((family_info.tdt_modifier & (TDT_EXACT | TDT_MIDP)) == TDT_EXACT) {
 	      logprint("Error: --tdt 'exact' modifier cannot be used with 'exact-midp'.\n");
 	      goto main_ret_INVALID_CMDLINE;
+	    } else if (family_info.tdt_modifier & TDT_POO) {
+	      sprintf(logbuf, "Error: --tdt parent-of-origin analysis does not currently support exact tests.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    family_info.tdt_modifier |= TDT_EXACT | TDT_MIDP;
+	  } else if (!strcmp(argv[cur_arg + uii], "poo")) {
+	    if (family_info.tdt_modifier & TDT_EXACT) {
+	      sprintf(logbuf, "Error: --tdt parent-of-origin analysis does not currently support exact tests.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    family_info.tdt_modifier |= TDT_POO;
+	  } else if (!strcmp(argv[cur_arg + uii], "perm")) {
+	    if (family_info.tdt_modifier & TDT_MPERM) {
+	      sprintf(logbuf, "Error: --tdt 'mperm' and 'perm' cannot be used together.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    family_info.tdt_modifier |= TDT_PERM;
 	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
+	    if (family_info.tdt_modifier & TDT_PERM) {
+	      sprintf(logbuf, "Error: --tdt 'mperm' and 'perm' cannot be used together.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    } else if (family_info.tdt_modifier & TDT_MPERM) {
+	      sprintf(logbuf, "Error: Duplicate --tdt 'mperm' modifier.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
 	    ii = atoi(&(argv[cur_arg + uii][6]));
 	    if (ii < 1) {
 	      sprintf(logbuf, "Error: Invalid --tdt mperm parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
               goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    family_info.tdt_mperm_val = (uint32_t)ii;
+            family_info.tdt_modifier |= TDT_MPERM;
+	  } else if (!strcmp(argv[cur_arg + uii], "parentdt1")) {
+	    if (family_info.tdt_modifier & TDT_PARENPERM2) {
+	      sprintf(logbuf, "Error: --tdt 'parentdt1' and 'parentdt2' modifiers cannot be used together.%s", errstr_append);
+              goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    family_info.tdt_modifier |= TDT_PARENPERM1;
+	  } else if (!strcmp(argv[cur_arg + uii], "parentdt2")) {
+	    if (family_info.tdt_modifier & TDT_PARENPERM1) {
+	      sprintf(logbuf, "Error: --tdt 'parentdt1' and 'parentdt2' modifiers cannot be used together.%s", errstr_append);
+              goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    family_info.tdt_modifier |= TDT_PARENPERM2;
+	  } else if (!strcmp(argv[cur_arg + uii], "pat")) {
+	    if (family_info.tdt_modifier & TDT_POOPERM_MAT) {
+	      sprintf(logbuf, "Error: --tdt 'pat' and 'mat' modifiers cannot be used together.%s", errstr_append);
+              goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    family_info.tdt_modifier |= TDT_POOPERM_PAT;
+	  } else if (!strcmp(argv[cur_arg + uii], "parentdt2")) {
+	    if (family_info.tdt_modifier & TDT_POOPERM_PAT) {
+	      sprintf(logbuf, "Error: --tdt 'pat' and 'mat' modifiers cannot be used together.%s", errstr_append);
+              goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    family_info.tdt_modifier |= TDT_POOPERM_MAT;
+	  } else if (!strcmp(argv[cur_arg + uii], "set-test")) {
+            family_info.tdt_modifier |= TDT_SET_TEST;
 	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
 	    logprint("Error: Improper --tdt mperm syntax.  (Use '--tdt mperm=[value]'.)\n");
 	    goto main_ret_INVALID_CMDLINE;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --tdt parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	}
+	if (!(family_info.tdt_modifier & TDT_POO)) {
+	  if (family_info.tdt_modifier & TDT_PERM) {
+	    sprintf(logbuf, "Error: Regular --tdt analysis no longer supports adaptive permutation.  Use an\nexact test instead.%s", errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  } else if (family_info.tdt_modifier & (TDT_POOPERM_PAT | TDT_POOPERM_MAT)) {
+	    sprintf(logbuf, "Error: --tdt 'pat'/'mat' must be used with parent-of-origin analysis.%s", errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  } else if ((family_info.tdt_modifier & (TDT_PARENPERM1 | TDT_PARENPERM2 | TDT_SET_TEST)) && (!(family_info.tdt_modifier & TDT_MPERM))) {
+	    sprintf(logbuf, "Error: --tdt 'parentdt1'/'parentdt2'/'set-test' requires permutation.%s", errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	} else {
+	  if (family_info.tdt_modifier & (TDT_PARENPERM1 | TDT_PARENPERM2)) {
+	    sprintf(logbuf, "Error: --tdt 'parentdt1'/'parentdt2' cannot be used with parent-of-origin\nanalysis.%s", errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  } else if ((family_info.tdt_modifier & (TDT_POOPERM_PAT | TDT_POOPERM_MAT | TDT_SET_TEST)) && (!(family_info.tdt_modifier & (TDT_PERM | TDT_MPERM)))) {
+	    sprintf(logbuf, "Error: --tdt poo 'pat'/'mat'/'set-test' requires permutation.%s", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	}
@@ -10911,6 +11013,9 @@ int32_t main(int32_t argc, char** argv) {
     } else if (glm_modifier & GLM_SET_TEST) {
       logprint("Error: --linear/--logistic set-test must be used with --set/--make-set.\n");
       goto main_ret_INVALID_CMDLINE;
+    } else if (family_info.tdt_modifier & TDT_SET_TEST) {
+      logprint("Error: --tdt set-test must be used with --set/--make-set.\n");
+      goto main_ret_INVALID_CMDLINE;
     }
   } else {
     if (model_modifier & MODEL_SET_TEST) {
@@ -10937,6 +11042,22 @@ int32_t main(int32_t argc, char** argv) {
       retval = RET_CALC_NOT_YET_SUPPORTED;
       goto main_ret_1;
     }
+    if (family_info.tdt_modifier & TDT_SET_TEST) {
+      if (!(family_info.tdt_modifier & (TDT_PERM | TDT_MPERM))) {
+        sprintf(logbuf, "Error: --tdt set-test requires permutation.%s", errstr_append);
+        goto main_ret_INVALID_CMDLINE_3;
+      } else if ((mtest_adjust & ADJUST_GC) || (adjust_lambda != 0.0)) {
+        sprintf(logbuf, "Error: --adjust 'gc' modifier and --lambda do not make sense with\n--tdt set-test.%s", errstr_append);
+        goto main_ret_INVALID_CMDLINE_3;
+      }
+      logprint("Error: --tdt set-test is currently under development.\n");
+      retval = RET_CALC_NOT_YET_SUPPORTED;
+      goto main_ret_1;
+    }
+  }
+  if ((family_info.tdt_modifier & (TDT_POO | TDT_PARENPERM1 | TDT_PARENPERM2 | TDT_POOPERM_PAT | TDT_POOPERM_MAT)) && (!(calculation_type & CALC_TDT))) {
+    sprintf(logbuf, "Error: --poo/--parentdt1/--parentdt2/--pat/--mat must be used with --tdt.%s", errstr_append);
+    goto main_ret_INVALID_CMDLINE_3;
   }
   if ((!(calculation_type & CALC_LD)) || ((calculation_type & CALC_LD) && (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_INTER_CHR)))) {
     if ((ld_info.snpstr || ld_info.snps_rl.name_ct) && (!(ld_info.modifier & LD_INTER_CHR))) {
@@ -11021,6 +11142,9 @@ int32_t main(int32_t argc, char** argv) {
       uii++;
     }
     if ((calculation_type & CALC_TESTMISS) && (testmiss_modifier & TESTMISS_MPERM)) {
+      uii++;
+    }
+    if ((calculation_type & CALC_TDT) && (family_info.tdt_modifier & TDT_MPERM)) {
       uii++;
     }
     if (uii != 1) {

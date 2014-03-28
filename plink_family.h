@@ -6,11 +6,13 @@
 #define TDT_EXACT 1
 #define TDT_MIDP 2
 #define TDT_POO 4
-#define TDT_PARENPERM1 8
-#define TDT_PARENPERM2 0x10
-#define TDT_POOPERM_PAT 0x20
-#define TDT_POOPERM_MAT 0x40
-#define TDT_SET_TEST 0x80
+#define TDT_PERM 8
+#define TDT_MPERM 0x10
+#define TDT_PARENPERM1 0x20
+#define TDT_PARENPERM2 0x40
+#define TDT_POOPERM_PAT 0x80
+#define TDT_POOPERM_MAT 0x100
+#define TDT_SET_TEST 0x200
 
 extern const uint32_t mendel_error_table[];
 extern const uint32_t mendel_error_table_x[];
@@ -56,5 +58,7 @@ typedef struct {
 } Pedigree_rel_info;
 
 int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfiltered_indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info);
+
+int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t unfiltered_indiv_ct, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t hh_exists, Family_info* fam_ip);
 
 #endif // __PLINK_FAMILY_H__

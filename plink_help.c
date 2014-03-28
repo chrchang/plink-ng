@@ -915,6 +915,29 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      Metabolic Syndrome Traits.\n\n"
 	       );
 #endif
+    help_print("tdt\tpoo\tperm\tmperm\tparentdt1\tparentdt2\tpat\tmat\tset-test", &help_ctrl, 1,
+"  --tdt <exact | exact-midp | poo> <perm | mperm=[value]\n"
+"        <parentdt1 | parentdt2 | pat | mat> <set-test>\n"
+"    Report transmission disequilibrium test statistics, given case/control\n"
+"    phenotypes and pedigree information.\n"
+"    * A basic Mendel error check is performed before the main tests; offending\n"
+"      genotypes are treated as missing by this analysis.\n"
+"    * By default, p-values are currently based on 1df chi-square tests unless\n"
+"      you request the exact binomial test with 'exact' or 'exact-midp'.\n"
+"    * 'perm'/'mperm=[value]' requests a family-based adaptive or max(T)\n"
+"      permutation test.  By default, the permutation test statistic is the\n"
+"      basic TDT p-value; 'parentdt1'/'parentdt2' cause parenTDT or combined\n"
+"      test p-values, respectively, to be considered instead.\n"
+"    * 'set-test' tests the significance of variant sets.  This cannot be used\n"
+"      with exact tests for now.\n"
+"    The 'poo' modifier causes a parent-of-origin analysis to be performed\n"
+"    instead, with transmissions from heterozygous fathers and heterozygous\n"
+"    mothers considered separately.\n"
+"    * The parent-of-origin analysis does not currently support exact tests.\n"
+"    * By default, the permutation test statistic is the absolute\n"
+"      parent-of-origin test Z score; 'pat'/'mat' cause paternal or maternal TDT\n"
+"      chi-square statistics, respectively, to be considered instead.\n\n"
+	       );
 #endif
     help_print("fast-epistasis\tepistasis\tset-test\tset-by-all\tcase-only\tnop\tepistasis-summary-merge", &help_ctrl, 1,
 "  --fast-epistasis <boost | joint-effects | no-ueki> <case-only>\n"
@@ -1454,11 +1477,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --merge-equal-pos  : Merge variants with different names but identical\n"
 "                       positions.\n"
 	       );
-    help_print("mendel-duos\tmendel-multigen\tme\tmendel", &help_ctrl, 0,
-"  --mendel-duos      : Make --me/--mendel consider individuals with only one\n"
-
-"                       parent in the dataset.\n"
-"  --mendel-multigen  : Make --me/--mendel consider (great-)grandparental\n"
+    help_print("mendel-duos\tmendel-multigen\tme\tmendel\tset-me-missing", &help_ctrl, 0,
+"  --mendel-duos      : Make --me/--mendel/--set-me-missing consider individuals\n"
+"                       with only one parent in the dataset.\n"
+	       );
+    help_print("mendel-duos\tmendel-multigen\tme\tmendel\tset-me-missing\ttdt", &help_ctrl, 0,
+"  --mendel-multigen  : Make Mendel error checks consider (great-)grandparental\n"
 "                       genotypes when parental genotype data is missing.\n"
 	       );
     help_print("r\tr2\tld-window-kb\tld-window-r2\tld-window\tld-snp\tld-snps\tld-snp-list", &help_ctrl, 0,
