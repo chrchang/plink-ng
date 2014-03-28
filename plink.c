@@ -31,6 +31,7 @@
 #include "plink_cnv.h"
 #include "plink_data.h"
 // #include "plink_dosage.h"
+#include "plink_family.h"
 #include "plink_filter.h"
 #include "plink_glm.h"
 #include "plink_help.h"
@@ -2909,6 +2910,8 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t update_map_modifier = 0;
   uint32_t model_mperm_val = 0;
   uint32_t glm_mperm_val = 0;
+  uint32_t tdt_modifier = 0;
+  uint32_t tdt_mperm_val = 0;
   uint32_t mperm_save = 0;
   uint32_t mperm_val = 0;
   double ci_size = 0.0;
@@ -3021,7 +3024,8 @@ int32_t main(int32_t argc, char** argv) {
   MEMORYSTATUSEX memstatus;
   DWORD windows_dw; // why the f*** does uint32_t not work?
 #endif
-  filter_init(&oblig_missing_info, &mendel_info);
+  family_init(&mendel_info);
+  filter_init(&oblig_missing_info);
   aperm_init(&aperm);
   cluster_init(&cluster);
   set_init(&set_info);
@@ -10147,7 +10151,6 @@ int32_t main(int32_t argc, char** argv) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 5)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	/*
 	for (uii = 1; uii <= param_ct; uii++) {
 	  if (!strcmp(argv[cur_arg + uii], "exact")) {
 	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
@@ -10167,7 +10170,6 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
 	calculation_type |= CALC_TDT;
-	*/
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }

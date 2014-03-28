@@ -9,6 +9,7 @@
 
 #include <sys/stat.h>
 #include <sys/types.h>
+#include "plink_family.h"
 #include "plink_set.h"
 
 #define PHENO_EPSILON 0.000030517578125

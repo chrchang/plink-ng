@@ -2040,38 +2040,4 @@ extern sfmt_t** g_sfmtp_arr;
 
 uint32_t wkspace_init_sfmtp(uint32_t thread_ct);
 
-typedef struct {
-  char* family_ids;
-  uintptr_t max_family_id_len; // includes trailing null
-  uint32_t* family_sizes;
-
-  uintptr_t* family_rel_space_offsets; // offset for rel_space lookup
-  uint32_t* family_founder_cts;
-  // direct indiv uidx -> family idx lookup, to reduce number of bsearches
-  uint32_t* family_idxs;
-
-  // truncated triangular arrays of pedigree coefficient of relationship
-  double* rel_space;
-
-  // direct indiv idx -> rel_space idx lookup
-  uint32_t* family_rel_nf_idxs;
-
-  // following three variables are technically unnecessary for --genome, but we
-  // get them for "free" in the process of calculating everything else, and
-  // they'll be nice to use if we ever need to iterate by family in the future.
-  uint32_t family_id_ct;
-  // list of idxs of all individuals in first family, then second family, etc.
-  uint32_t* family_info_space;
-  uint32_t* family_info_offsets; // offset in family_info_space
-} Pedigree_rel_info;
-
-void heapmax64_down(uint32_t cur_pos, uint32_t heap_size, uint64_t* heapmax64);
-
-void heapmax64_up_then_down(uint32_t orig_pos, uint64_t* heapmax64, uint32_t heap_size);
-
-extern const uint32_t mendel_error_table[];
-extern const uint32_t mendel_error_table_x[];
-
-int32_t get_trios_and_families(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, char** fids_ptr, uintptr_t* max_fid_len_ptr, char** iids_ptr, uintptr_t* max_iid_len_ptr, uint64_t** family_list_ptr, uint32_t* family_ct_ptr, uint64_t** trio_list_ptr, uintptr_t* trio_ct_ptr, uint32_t** trio_lookup_ptr, uint32_t include_duos, uint32_t toposort);
-
 #endif // __PLINK_COMMON_H__

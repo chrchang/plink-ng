@@ -2,6 +2,7 @@
 #define __PLINK_CALC_H__
 
 #include "plink_cluster.h"
+#include "plink_family.h"
 
 #define REL_CALC_COV 1
 #define REL_CALC_SQ 2
