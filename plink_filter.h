@@ -13,9 +13,9 @@ typedef struct {
   char* indiv_fname;
 } Oblig_missing_info;
 
-void filter_init(Oblig_missing_info* om_ip);
+void oblig_missing_init(Oblig_missing_info* om_ip);
 
-void filter_cleanup(Oblig_missing_info* om_ip);
+void oblig_missing_cleanup(Oblig_missing_info* om_ip);
 
 uint32_t random_thin_markers(double thin_keep_prob, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr);
 

@@ -8848,7 +8848,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       printf("\r--bcf: %uk variants complete.", marker_ct / 1000);
       fflush(stdout);
     }
-    if (((uint64_t)gztell(gz_infile)) < ullii) {
+    if (ulljj < ullii) {
       if (gzseek(gz_infile, ullii, SEEK_SET) == -1) {
 	goto bcf_to_bed_ret_READ_FAIL;
       }
@@ -13386,7 +13386,7 @@ int32_t report_non_biallelics(char* outname, char* outname_end, Ll_str* non_bial
   if (fclose_null(&outfile)) {
     goto report_non_biallelics_ret_WRITE_FAIL;
   }
-  LOGPRINTF("Error: %" PRIuPTR " variant%s with 3+ alleles present.  Use --flip with\n%s for now.\n", nbmarker_ct, (nbmarker_ct == 1)? "" : "s", outname);
+  LOGPRINTF("Error: %" PRIuPTR " variant%s with 3+ alleles present.  If you believe this is\ndue to strand error, try --flip with %s.\nHowever, if you have actual multiallelic data, we recommend exporting to VCF\n(via '--recode vcf/vcf-fid/vcf-iid', merging with another tool, and then\nimporting the result, since PLINK is not yet able to properly handle this case.\n", nbmarker_ct, (nbmarker_ct == 1)? "" : "s", outname);
   while (0) {
   report_non_biallelics_ret_NOMEM:
     retval = RET_NOMEM;

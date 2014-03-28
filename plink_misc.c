@@ -3679,6 +3679,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   } else {
     bufptr = missing_pheno_str;
   }
+  int32_write(bufptr, missing_pheno);
   do {
     if (marker_exclude_main) {
       while (1) {

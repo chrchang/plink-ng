@@ -1,7 +1,7 @@
 #include "plink_filter.h"
 #include "plink_stats.h"
 
-void filter_init(Oblig_missing_info* om_ip) {
+void oblig_missing_init(Oblig_missing_info* om_ip) {
   om_ip->cluster_ct = 0;
   om_ip->entry_ct = 0;
   om_ip->entries = NULL;
@@ -11,7 +11,7 @@ void filter_init(Oblig_missing_info* om_ip) {
   om_ip->indiv_fname = NULL;
 }
 
-void filter_cleanup(Oblig_missing_info* om_ip) {
+void oblig_missing_cleanup(Oblig_missing_info* om_ip) {
   if (om_ip->marker_fname) {
     free_cond(om_ip->entries);
     free_cond(om_ip->cluster_ref_cts);

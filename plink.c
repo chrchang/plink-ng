@@ -1297,7 +1297,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     ulii = marker_exclude_ct - ulii;
     LOGPRINTF("%" PRIuPTR " variant%s removed due to missing genotype data (--geno).\n", ulii, (ulii == 1)? "" : "s");
   }
-  filter_cleanup(om_ip);
+  oblig_missing_cleanup(om_ip);
   if (calculation_type & CALC_HARDY) {
     retval = hardy_report(outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, hwe_lls, hwe_lhs, hwe_hhs, hwe_modifier, hwe_ll_cases, hwe_lh_cases, hwe_hh_cases, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, pheno_nm_ct, pheno_c, zero_extra_chroms, chrom_info_ptr);
     if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER | CALC_FREQ | CALC_HARDY))))) {
@@ -3023,7 +3023,7 @@ int32_t main(int32_t argc, char** argv) {
   DWORD windows_dw; // why the f*** does uint32_t not work?
 #endif
   family_init(&family_info);
-  filter_init(&oblig_missing_info);
+  oblig_missing_init(&oblig_missing_info);
   aperm_init(&aperm);
   cluster_init(&cluster);
   set_init(&set_info);
@@ -10151,6 +10151,17 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
 	  if (!strcmp(argv[cur_arg + uii], "exact")) {
+	    if (family_info.tdt_modifier & TDT_MIDP) {
+	      logprint("Error: --tdt 'exact' modifier cannot be used with 'exact-midp'.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    family_info.tdt_modifier |= TDT_EXACT;
+	  } else if (!strcmp(argv[cur_arg + uii], "exact-midp")) {
+	    if ((family_info.tdt_modifier & (TDT_EXACT | TDT_MIDP)) == TDT_EXACT) {
+	      logprint("Error: --tdt 'exact' modifier cannot be used with 'exact-midp'.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    family_info.tdt_modifier |= TDT_EXACT | TDT_MIDP;
 	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
 	    ii = atoi(&(argv[cur_arg + uii][6]));
 	    if (ii < 1) {
@@ -11372,7 +11383,7 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(const_fid);
   free_cond(vcf_filter_exceptions_flattened);
 
-  filter_cleanup(&oblig_missing_info);
+  oblig_missing_cleanup(&oblig_missing_info);
   cluster_cleanup(&cluster);
   set_cleanup(&set_info);
   ld_epi_cleanup(&ld_info, &epi_info, &clump_info);
