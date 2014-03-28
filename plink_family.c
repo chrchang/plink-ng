@@ -1,10 +1,12 @@
 #include "plink_family.h"
 
-void family_init(Mendel_info* me_ip) {
-  me_ip->modifier = 0;
-  me_ip->max_trio_error = 1.0;
-  me_ip->max_var_error = 1.0;
-  me_ip->exclude_one_ratio = 0.0;
+void family_init(Family_info* fam_ip) {
+  fam_ip->mendel_max_trio_error = 1.0;
+  fam_ip->mendel_max_var_error = 1.0;
+  fam_ip->mendel_exclude_one_ratio = 0.0;
+  fam_ip->mendel_modifier = 0;
+  fam_ip->tdt_modifier = 0;
+  fam_ip->tdt_mperm_val = 0;
 }
 
 uint32_t is_composite6(uintptr_t num) {
@@ -622,7 +624,7 @@ void fill_mendel_errstr(uint32_t error_code, char** allele_ptrs, uint32_t* alens
   *len_ptr = (uintptr_t)(wptr - wbuf);
 }
 
-int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t plink_maxfid, uint32_t plink_maxiid, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t hh_exists, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t calc_mendel) {
+int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t plink_maxfid, uint32_t plink_maxiid, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t hh_exists, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t calc_mendel) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   FILE* outfile_l = NULL;
@@ -639,10 +641,10 @@ int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offse
   uintptr_t indiv_ct = unfiltered_indiv_ct - *indiv_exclude_ct_ptr;
   uintptr_t marker_uidx = 0xffffffffLU;
   uint64_t tot_error_ct = 0;
-  uint32_t do_filter = me_ip->modifier & MENDEL_FILTER;
-  uint32_t include_duos = (me_ip->modifier / MENDEL_DUOS) & 1;
-  uint32_t multigen = (me_ip->modifier / MENDEL_MULTIGEN) & 1;
-  uint32_t var_first = me_ip->modifier & MENDEL_FILTER_VAR_FIRST;
+  uint32_t do_filter = fam_ip->mendel_modifier & MENDEL_FILTER;
+  uint32_t include_duos = (fam_ip->mendel_modifier / MENDEL_DUOS) & 1;
+  uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
+  uint32_t var_first = fam_ip->mendel_modifier & MENDEL_FILTER_VAR_FIRST;
   uint32_t varlen = 0;
   uint32_t chrom_name_len = 0;
   uint32_t new_marker_exclude_ct = 0;
@@ -709,7 +711,7 @@ int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offse
   }
   trio_ct4 = (trio_ct + 3) / 4;
   trio_ctl = (trio_ct + (BITCT - 1)) / BITCT;
-  var_error_max = (int32_t)(me_ip->max_var_error * (1 + SMALL_EPSILON) * ((intptr_t)trio_ct));
+  var_error_max = (int32_t)(fam_ip->mendel_max_var_error * (1 + SMALL_EPSILON) * ((intptr_t)trio_ct));
   if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctp1l2 * sizeof(intptr_t)) ||
       wkspace_alloc_ui_checked(&error_cts, trio_ct * 3 * sizeof(int32_t)) ||
       wkspace_alloc_ui_checked(&error_cts_tmp, trio_ct4 * 4 * sizeof(int32_t))) {
@@ -1114,9 +1116,9 @@ int32_t mendel_error_scan(Mendel_info* me_ip, FILE* bedfile, uintptr_t bed_offse
     if (var_first) {
       marker_ct -= new_marker_exclude_ct;
     }
-    uii = (int32_t)(me_ip->max_trio_error * (1 + SMALL_EPSILON) * ((intptr_t)marker_ct));
+    uii = (int32_t)(fam_ip->mendel_max_trio_error * (1 + SMALL_EPSILON) * ((intptr_t)marker_ct));
     if (uii < marker_ct) {
-      exclude_one_ratio = me_ip->exclude_one_ratio;
+      exclude_one_ratio = fam_ip->mendel_exclude_one_ratio;
       for (trio_idx = 0; trio_idx < trio_ct; trio_idx++) {
 	if (error_cts[trio_idx * 3] > uii) {
 	  trio_code = trio_list[trio_idx];
