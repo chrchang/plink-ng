@@ -96,7 +96,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (27 Mar 2014)";
+  " (28 Mar 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -117,9 +117,9 @@ const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merg
   #endif
 #else
   #ifndef NOLAPACK
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --mendel, --ibc, --impute-sex, --indep,\n--r2, --blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --pca, --neighbour, --ibs-test, --regress-distance,\n--model, --gxe, --logistic, --lasso, --test-missing, --clump,\n--unrelated-heritability, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --mendel, --ibc, --impute-sex, --indep,\n--r2, --blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --pca, --neighbour, --ibs-test, --regress-distance,\n--model, --gxe, --logistic, --lasso, --test-missing, --clump,\n--unrelated-heritability, --tdt, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --mendel, --ibc, --impute-sex, --indep,\n--r2, --blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --neighbour, --ibs-test, --regress-distance, --model,\n--gxe, --logistic, --lasso, --test-missing, --clump, --fast-epistasis, and\n--score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --mendel, --ibc, --impute-sex, --indep,\n--r2, --blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --neighbour, --ibs-test, --regress-distance, --model,\n--gxe, --logistic, --lasso, --test-missing, --clump, --tdt, --fast-epistasis,\nand --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #endif
 #endif
 
@@ -10143,6 +10143,31 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "est-mishap", 11)) {
         calculation_type |= CALC_TESTMISHAP;
         goto main_param_zero;
+      } else if (!memcmp(argptr2, "dt", 3)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 5)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	/*
+	for (uii = 1; uii <= param_ct; uii++) {
+	  if (!strcmp(argv[cur_arg + uii], "exact")) {
+	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
+	    ii = atoi(&(argv[cur_arg + uii][6]));
+	    if (ii < 1) {
+	      sprintf(logbuf, "Error: Invalid --tdt mperm parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
+              goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    tdt_mperm_val = (uint32_t)ii;
+	    tdt_modifier |= TDT_MPERM;
+	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
+	    logprint("Error: Improper --tdt mperm syntax.  (Use '--tdt mperm=[value]'.)\n");
+	    goto main_ret_INVALID_CMDLINE;
+	  } else {
+	    sprintf(logbuf, "Error: Invalid --tdt parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	}
+	calculation_type |= CALC_TDT;
+	*/
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }

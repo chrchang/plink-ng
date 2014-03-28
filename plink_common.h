@@ -16,7 +16,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define PROG_NAME_STR "plink"
 #define PROG_NAME_CAPS "PLINK"
@@ -274,6 +274,7 @@
 #define CALC_SCORE 0x80000000000LLU
 #define CALC_MENDEL 0x100000000000LLU
 #define CALC_HET 0x200000000000LLU
+#define CALC_TDT 0x400000000000LLU
 
 // necessary to patch heterozygous haploids/female Y chromosome genotypes
 // during loading?

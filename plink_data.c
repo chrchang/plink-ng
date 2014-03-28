@@ -8847,6 +8847,11 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       printf("\r--bcf: %uk variants complete.", marker_ct / 1000);
       fflush(stdout);
     }
+    if (((uint64_t)gztell(gz_infile)) < ullii) {
+      if (gzseek(gz_infile, ullii, SEEK_SET) == -1) {
+	goto bcf_to_bed_ret_READ_FAIL;
+      }
+    }
     continue;
   bcf_to_bed_skip3:
     if (skip3_list) {
