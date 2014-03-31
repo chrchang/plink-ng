@@ -19,22 +19,24 @@
 #define LD_WITH_FREQS 0x400
 #define LD_YES_REALLY 0x800
 #define LD_PRUNE_PAIRWISE 0x1000
-#define LD_IGNORE_X 0x2000
-#define LD_WEIGHTED_X 0x4000
-#define LD_SNP_LIST_FILE 0x8000
-#define LD_BLOCKS_NO_SMALL_MAX_SPAN 0x10000
+#define LD_PRUNE_KB_WINDOW 0x2000
+#define LD_IGNORE_X 0x4000
+#define LD_WEIGHTED_X 0x8000
+#define LD_SNP_LIST_FILE 0x10000
+#define LD_BLOCKS_NO_SMALL_MAX_SPAN 0x20000
+#define LD_FLIPSCAN_VERBOSE 0x40000
 
 typedef struct {
   double prune_last_param; // VIF or r^2 threshold
   double window_r2;
   double blocks_min_maf;
   double blocks_inform_frac;
+  double flipscan_thresh;
   char* snpstr;
   Range_list snps_rl;
   uint32_t modifier;
   uint32_t prune_window_size;
   uint32_t prune_window_incr;
-  uint32_t prune_window_kb;
   uint32_t window_size;
   uint32_t window_bp;
   uint32_t blocks_max_bp;
@@ -43,6 +45,8 @@ typedef struct {
   uint32_t blocks_strong_lowci;
   uint32_t blocks_strong_highci;
   uint32_t blocks_recomb_highci;
+  uint32_t flipscan_window_size;
+  uint32_t flipscan_window_bp;
 } Ld_info;
 
 // fast epistasis test is really similar to LD scan so we put it in the same
@@ -99,6 +103,8 @@ void ld_epi_init(Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip);
 void ld_epi_cleanup(Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip);
 
 int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists);
+
+int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists);
 
 int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, double* set_allele_freqs, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists);
 

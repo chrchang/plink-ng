@@ -410,8 +410,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      mostly space-delimited.  'tabx' and 'spacex' force all tabs and all\n"
 "      spaces, respectively.\n\n"
 	       );
-    help_print("flip-scan", &help_ctrl, 1,
+    help_print("flip-scan\tflip-scan-verbose\tflipscan", &help_ctrl, 1,
 "  --flip-scan <verbose>\n"
+"    (alias: --flipscan)\n"
 "    LD-based scan for case/control strand inconsistency.\n\n"
 	       );
     help_print("write-covar", &help_ctrl, 1,
@@ -510,9 +511,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    we strongly recommend that you do this.  We also recommend splitting off\n"
 "    the X chromosome pseudo-autosomal region with --split-x before using this\n"
 "    command.\n"
-"    The Y chromosome is now scanned as well, but only to rule out female calls\n"
-"    when genotype data is present.  To include nonmissing Y genotype counts in\n"
-"    the report, add the 'ycount' modifier.\n"
+"    The Y chromosome, if present, is now scanned as well; female calls are\n"
+"    converted to ambiguous whenever Ychr genotypes are present.  To include\n"
+"    nonmissing Y genotype counts in the report, add the 'ycount' modifier.\n"
 "    --impute-sex changes sex assignments to the imputed values, and is\n"
 "    otherwise identical to --check-sex.  It must be used with\n"
 "    --make-bed/--recode/--write-covar.\n\n"
@@ -1441,6 +1442,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --flip [filename]    : Flip alleles (A<->T, C<->G) for SNP IDs in the file.\n"
 "  --flip-subset [fn]   : Only apply --flip to indivs in the --flip-subset file.\n"
 	       );
+    help_print("flip-scan\tflip-scan-window\tflip-scan-window-kb\tflip-scan-threshold\tld-window\tld-window-kb\tflipscan\tflipscan-window\tflipscan-window-kb\tflipscan-threshold", &help_ctrl, 0,
+"  --flip-scan-window [ct+1] : Set --flip-scan max site ct distance (def. 10).\n"
+"  --flip-scan-window-kb [x] : Set --flip-scan max kb distance (default 1000).\n"
+"  --flip-scan-threshold [x] : Set --flip-scan min correlation (default 0.5).\n"
+	       );
     help_print("keep-allele-order\tmake-bed\tmerge\tbmerge\tmerge-list", &help_ctrl, 0,
 "  --keep-allele-order  : Keep the allele order defined in the .bim file,\n"
 "                         instead of forcing A2 to be the major allele.\n"
@@ -1498,8 +1504,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --ld-snps [vID...] : Restrict first --r/--r2 variant to the given ranges.\n"
 "  --ld-snp-list [f]  : Restrict first --r/--r2 var. to those named in the file.\n"
 	       );
-    help_print("indep\tindep-pairwise\tld-xchr", &help_ctrl, 0,
-"  --ld-xchr [code]   : Set Xchr model for --indep{-pairwise} and --r{2}.\n"
+    help_print("indep\tindep-pairwise\tr\tr2\tflip-scan\tflipscan\tld-xchr", &help_ctrl, 0,
+"  --ld-xchr [code]   : Set Xchr model for --indep{-pairwise}, --r/--r2, and\n"
+"                       --flip-scan.\n"
 "                       1 (default) = males coded 0/1, females 0/1/2 (A1 dosage)\n"
 "                       2 = males coded 0/2\n"
 "                       3 = males coded 0/2, but females given double weighting\n"

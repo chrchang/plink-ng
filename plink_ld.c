@@ -10,9 +10,8 @@ void ld_epi_init(Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip) {
   ldip->modifier = 0;
   ldip->prune_window_size = 0;
   ldip->prune_window_incr = 0;
-  ldip->prune_window_kb = 0;
   ldip->prune_last_param = 0.0;
-  ldip->window_size = 10;
+  ldip->window_size = 0xffffffffU;
   ldip->window_bp = 0xffffffffU;
   ldip->window_r2 = 0.2;
   ldip->blocks_max_bp = 0xffffffffU;
@@ -22,6 +21,9 @@ void ld_epi_init(Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip) {
   ldip->blocks_strong_highci = 97;
   ldip->blocks_recomb_highci = 89;
   ldip->blocks_inform_frac = 0.95;
+  ldip->flipscan_window_size = 10;
+  ldip->flipscan_window_bp = 0xffffffffU;
+  ldip->flipscan_thresh = 0.5;
   ldip->snpstr = NULL;
   range_list_init(&(ldip->snps_rl));
   epi_ip->modifier = 0;
@@ -681,6 +683,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   uint32_t pairwise = (ldip->modifier / LD_PRUNE_PAIRWISE) & 1;
   uint32_t ignore_x = (ldip->modifier / LD_IGNORE_X) & 1;
   uint32_t weighted_x = (ldip->modifier / LD_WEIGHTED_X) & 1;
+  uint32_t window_is_kb = (ldip->modifier / LD_PRUNE_KB_WINDOW) & 1;
   uint32_t ld_window_size = ldip->prune_window_size;
   uint32_t ld_window_incr = ldip->prune_window_incr;
   double ld_last_param = ldip->prune_last_param;
@@ -766,7 +769,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
     }
   }
 
-  if (ldip->prune_window_kb) {
+  if (window_is_kb) {
     // determine maximum number of markers that may need to be loaded at once
     for (cur_chrom = 0; cur_chrom < chrom_code_end; cur_chrom++) {
       if (chrom_exists(chrom_info_ptr, cur_chrom)) {
@@ -804,7 +807,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 
   memcpy(pruned_arr, marker_exclude, unfiltered_marker_ctl * sizeof(intptr_t));
 
-  if (!ldip->prune_window_kb) {
+  if (!window_is_kb) {
     window_max = ld_window_size;
   }
   ulii = window_max;
@@ -856,7 +859,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   }
   do {
     prev_end = 0;
-    ld_prune_start_chrom(ldip->prune_window_kb, &cur_chrom, &chrom_end, window_unfiltered_start, live_indices, start_arr, &window_unfiltered_end, ld_window_size, &cur_window_size, unfiltered_marker_ct, pruned_arr, chrom_info_ptr, marker_pos, &is_haploid, &is_x, &is_y);
+    ld_prune_start_chrom(window_is_kb, &cur_chrom, &chrom_end, window_unfiltered_start, live_indices, start_arr, &window_unfiltered_end, ld_window_size, &cur_window_size, unfiltered_marker_ct, pruned_arr, chrom_info_ptr, marker_pos, &is_haploid, &is_x, &is_y);
     if (weighted_x) {
       if (is_x) {
 	weighted_founder_ct = 2 * founder_ct;
@@ -1104,7 +1107,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 
       prev_end = uii;
       cur_window_size = uii;
-      if (ldip->prune_window_kb) {
+      if (window_is_kb) {
 	ujj = 0;
 	while ((window_unfiltered_end + ujj < chrom_end) && (marker_pos[window_unfiltered_end + ujj] <= marker_pos[window_unfiltered_start] + (1000 * ld_window_size))) {
 	  ujj++;
@@ -1341,6 +1344,11 @@ uint32_t ld_missing_ct_intersect(uintptr_t* lptr1, uintptr_t* lptr2, uintptr_t w
     tot += popcount2_long(((~((*lptr1) | (*lptr2))) & FIVEMASK) << lshift_last);
   }
   return tot;
+}
+
+int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
+  logprint("Error: --flip-scan is currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
 }
 
 // LD multithread globals

@@ -112,15 +112,15 @@ const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n"
 const char null_calc_str[] = "Warning: No output requested.  Exiting.\n";
 #ifdef STABLE_BUILD
   #ifndef NOLAPACK
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --mendel, --ibc, --impute-sex, --indep,\n--r2, --blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --pca, --neighbour, --ibs-test, --regress-distance,\n--model, --gxe, --logistic, --lasso, --test-missing, --clump, --fast-epistasis,\nand --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --pca, --neighbour,\n--ibs-test, --regress-distance, --model, --gxe, --logistic, --lasso,\n--test-missing, --clump, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --mendel, --ibc, --impute-sex, --indep,\n--r2, --blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --neighbour, --ibs-test, --regress-distance, --model,\n--gxe, --logistic, --lasso, --test-missing, --clump, --fast-epistasis, and\n--score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour, --ibs-test,\n--regress-distance, --model, --gxe, --logistic, --lasso, --test-missing,\n--clump, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #endif
 #else
   #ifndef NOLAPACK
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --mendel, --ibc, --impute-sex, --indep,\n--r2, --blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --pca, --neighbour, --ibs-test, --regress-distance,\n--model, --gxe, --logistic, --lasso, --test-missing, --clump,\n--unrelated-heritability, --tdt, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --pca, --neighbour,\n--ibs-test, --regress-distance, --model, --gxe, --logistic, --lasso,\n--test-missing, --clump, --unrelated-heritability, --tdt, --fast-epistasis, and\n--score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --test-mishap, --hardy, --mendel, --ibc, --impute-sex, --indep,\n--r2, --blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --neighbour, --ibs-test, --regress-distance, --model,\n--gxe, --logistic, --lasso, --test-missing, --clump, --tdt, --fast-epistasis,\nand --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour, --ibs-test,\n--regress-distance, --model, --gxe, --logistic, --lasso, --test-missing,\n--clump, --tdt, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #endif
 #endif
 
@@ -358,7 +358,7 @@ void swap_reversed_marker_alleles(uintptr_t unfiltered_marker_ct, uintptr_t* mar
 }
 
 static inline uint32_t are_marker_pos_needed(uint64_t calculation_type, uint64_t misc_flags, char* cm_map_fname, char* set_fname, uint32_t min_bp_space, uint32_t genome_skip_write, uint32_t ld_modifier, uint32_t epi_modifier) {
-  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_CLUMP | CALC_BLOCKS)) || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)) || cm_map_fname || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || ((calculation_type & CALC_EPI) && (epi_modifier & EPI_FAST_CASE_ONLY));
+  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_CLUMP | CALC_BLOCKS | CALC_FLIPSCAN)) || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)) || cm_map_fname || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || ((calculation_type & CALC_EPI) && (epi_modifier & EPI_FAST_CASE_ONLY));
 }
 
 static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, char* cm_map_fname, Two_col_params* update_cm) {
@@ -1589,6 +1589,17 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto plink_ret_INVALID_CMDLINE;
     }
     retval = ld_prune(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, chrom_info_ptr, set_allele_freqs, marker_pos, unfiltered_indiv_ct, founder_info, sex_male, outname, outname_end, hh_exists);
+    if (retval) {
+      goto plink_ret_1;
+    }
+  }
+
+  if (calculation_type & CALC_FLIPSCAN) {
+    if (map_is_unsorted & UNSORTED_BP) {
+      logprint("Error: LD-based strand flip scanning requires a sorted .bim.  Retry this\ncommand after using --make-bed to sort your data.\n");
+      goto plink_ret_INVALID_CMDLINE;
+    }
+    retval = flipscan(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, chrom_info_ptr, marker_pos, unfiltered_indiv_ct, founder_info, sex_male, outname, outname_end, hh_exists);
     if (retval) {
       goto plink_ret_1;
     }
@@ -3372,6 +3383,18 @@ int32_t main(int32_t argc, char** argv) {
       case 'f':
 	if (!strcmp(argptr, "frqx")) {
 	  memcpy(flagptr, "freqx", 6);
+	  break;
+	} else if (!strcmp(argptr, "flipscan")) {
+	  memcpy(flagptr, "flip-scan", 10);
+	  break;
+	} else if (!strcmp(argptr, "flipscan-window")) {
+	  memcpy(flagptr, "flip-scan-window", 17);
+	  break;
+	} else if (!strcmp(argptr, "flipscan-window-kb")) {
+	  memcpy(flagptr, "flip-scan-window-kb", 20);
+	  break;
+	} else if (!strcmp(argptr, "flipscan-threshold")) {
+	  memcpy(flagptr, "flip-scan-threshold", 20);
 	  break;
 	}
 	goto main_flag_copy;
@@ -5960,6 +5983,68 @@ int32_t main(int32_t argc, char** argv) {
 	}
         epi_info.modifier |= EPI_FAST;
 	calculation_type |= CALC_EPI;
+      } else if (!memcmp(argptr2, "lip-scan", 9)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (param_ct) {
+          if (strcmp(argv[cur_arg + 1], "verbose")) {
+	    sprintf(logbuf, "Error: Invalid --flip-scan parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	}
+        calculation_type |= CALC_FLIPSCAN;
+      } else if (!memcmp(argptr2, "lip-scan-window", 16)) {
+        if (!(calculation_type & CALC_FLIPSCAN)) {
+	  logprint("Error: --flip-scan-window must be used with --flip-scan.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	ii = atoi(argv[cur_arg + 1]);
+        if (ii < 2) {
+	  sprintf(logbuf, "Error: Invalid --flip-scan-window size '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        ld_info.flipscan_window_size = ii;
+      } else if (!memcmp(argptr2, "lip-scan-window-kb", 22)) {
+        if (!(calculation_type & CALC_FLIPSCAN)) {
+	  logprint("Error: --flip-scan-window-kb must be used with --flip-scan.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0)) {
+	  sprintf(logbuf, "Error: Invalid --flip-scan-window-kb parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (dxx > 2147483.647) {
+	  ld_info.flipscan_window_bp = 2147483647;
+	} else {
+	  ld_info.flipscan_window_bp = ((int32_t)(dxx * 1000 * (1 + SMALL_EPSILON)));
+	}
+      } else if (!memcmp(argptr2, "lip-scan-threshold", 19)) {
+        if (!(calculation_type & CALC_FLIPSCAN)) {
+	  logprint("Error: --flip-scan-threshold must be used with --flip-scan.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx <= 0.0) || (dxx > 1.0)) {
+	  sprintf(logbuf, "Error: Invalid --flip-scan-threshold parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        ld_info.flipscan_thresh = dxx;
+      } else if (!memcmp(argptr2, "lip-scan-verbose", 17)) {
+	if (!(calculation_type & CALC_FLIPSCAN)) {
+	  sprintf(logbuf, "Error: --flip-scan-verbose must be used with --flip-scan.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	logprint("Note: --flip-scan-verbose flag deprecated.  Use '--flip-scan verbose'.\n");
+        ld_info.modifier |= LD_FLIPSCAN_VERBOSE;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -6519,11 +6604,11 @@ int32_t main(int32_t argc, char** argv) {
 	    sprintf(logbuf, "Error: Invalid --indep-pairwise parameter sequence.%s", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
-	  ld_info.prune_window_kb = 1;
+	  ld_info.modifier |= LD_PRUNE_KB_WINDOW;
 	} else {
 	  jj = strlen(argv[cur_arg + 1]);
 	  if ((jj > 2) && match_upper(&(argv[cur_arg + 1][jj - 2]), "KB")) {
-	    ld_info.prune_window_kb = 1;
+	    ld_info.modifier |= LD_PRUNE_KB_WINDOW;
 	  }
 	}
 	ii = atoi(argv[cur_arg + param_ct - 1]);
@@ -6553,11 +6638,11 @@ int32_t main(int32_t argc, char** argv) {
 	    sprintf(logbuf, "Error: Invalid --indep parameter sequence.%s", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
-	  ld_info.prune_window_kb = 1;
+	  ld_info.modifier |= LD_PRUNE_KB_WINDOW;
 	} else {
 	  jj = strlen(argv[cur_arg + 1]);
 	  if ((jj > 2) && match_upper(&(argv[cur_arg + 1][jj - 2]), "KB")) {
-	    ld_info.prune_window_kb = 1;
+	    ld_info.modifier |= LD_PRUNE_KB_WINDOW;
 	  }
 	}
 	ii = atoi(argv[cur_arg + param_ct - 1]);
@@ -11086,6 +11171,38 @@ int32_t main(int32_t argc, char** argv) {
     sprintf(logbuf, "Error: --poo/--parentdt1/--parentdt2/--pat/--mat must be used with --tdt.%s", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
   }
+  if (calculation_type & CALC_FLIPSCAN) {
+    if (ld_info.flipscan_window_size == 0xffffffffU) {
+      if (ld_info.window_size != 0xffffffffU) {
+	logprint("Note: --ld-window + --flip-scan combination deprecated.  Use --flip-scan-window\nwith --flip-scan instead.\n");
+	ld_info.flipscan_window_size = ld_info.window_size;
+      } else {
+	ld_info.flipscan_window_size = 10;
+      }
+    }
+    if (ld_info.flipscan_window_bp == 0xffffffffU) {
+      if (ld_info.window_bp != 0xffffffffU) {
+        logprint("Note: --ld-window-kb + --flip-scan combination deprecated.  Use\n--flip-scan-window-kb with --flip-scan instead.\n");
+        ld_info.flipscan_window_bp = ld_info.window_bp;
+      } else {
+	ld_info.flipscan_window_bp = 1000000;
+      }
+    }
+  }
+  if (calculation_type & CALC_BLOCKS) {
+    if (ld_info.blocks_recomb_highci > ld_info.blocks_strong_highci) {
+      logprint("Error: --blocks-recomb-highci value cannot be larger than\n--blocks-strong-highci value.\n");
+      goto main_ret_INVALID_CMDLINE;
+    }
+    if (ld_info.blocks_max_bp == 0xffffffffU) {
+      if (ld_info.window_bp != 0xffffffffU) {
+        logprint("Note: --ld-window-kb + --blocks combination deprecated.  Use --blocks-max-kb\nwith --blocks instead.\n");
+        ld_info.blocks_max_bp = ld_info.window_bp;
+      } else {
+        ld_info.blocks_max_bp = 200000;
+      }
+    }
+  }
   if ((!(calculation_type & CALC_LD)) || ((calculation_type & CALC_LD) && (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_INTER_CHR)))) {
     if ((ld_info.snpstr || ld_info.snps_rl.name_ct) && (!(ld_info.modifier & LD_INTER_CHR))) {
       if (calculation_type & CALC_LD) {
@@ -11094,23 +11211,21 @@ int32_t main(int32_t argc, char** argv) {
         sprintf(logbuf, "Error: --ld-snp/--ld-snps/--ld-snp-list must be used with --r/--r2.%s", errstr_append);
       }
       goto main_ret_INVALID_CMDLINE_3;
-    } else if (ld_info.window_size != 10) {
+    } else if (ld_info.window_size != 0xffffffffU) {
       if (calculation_type & CALC_LD) {
 	sprintf(logbuf, "Error: --ld-window flag cannot be used with the --r/--r2 'inter-chr' or matrix\noutput modifiers.%s", errstr_append);
-      } else {
+      } else if (!(calculation_type & (CALC_BLOCKS | CALC_FLIPSCAN))) {
         sprintf(logbuf, "Error: --ld-window flag must be used with --r/--r2.%s", errstr_append);
+        goto main_ret_INVALID_CMDLINE_3;
       }
-      goto main_ret_INVALID_CMDLINE_3;
     } else if (ld_info.window_bp != 0xffffffffU) {
       if (calculation_type & CALC_LD) {
 	sprintf(logbuf, "Error: --ld-window-kb flag cannot be used with the --r/--r2 'inter-chr' or\nmatrix output modifiers.%s", errstr_append);
         goto main_ret_INVALID_CMDLINE_3;
-      } else if ((!(calculation_type & CALC_BLOCKS)) || (ld_info.blocks_max_bp != 0xffffffffU)) {
+      } else if (!(calculation_type & CALC_BLOCKS)) {
         sprintf(logbuf, "Error: --ld-window-kb flag must be used with --r/--r2.%s", errstr_append);
         goto main_ret_INVALID_CMDLINE_3;
       }
-      logprint("Note: --ld-window-kb + --blocks combination deprecated.  Use --blocks-max-kb\nwith --blocks instead.\n");
-      ld_info.blocks_max_bp = ld_info.window_bp;
     } else if ((ld_info.window_r2 != 0.2) && (!(ld_info.modifier & LD_INTER_CHR))) {
       if (!(ld_info.modifier & LD_R2)) {
         logprint("Error: --ld-window-r2 flag must be used with --r2.\n");
@@ -11120,16 +11235,12 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_ret_INVALID_CMDLINE_3;
       }
     }
-  } else if (ld_info.window_bp == 0xffffffffU) {
-    ld_info.window_bp = 1000000;
-  }
-  if (calculation_type & CALC_BLOCKS) {
-    if (ld_info.blocks_recomb_highci > ld_info.blocks_strong_highci) {
-      logprint("Error: --blocks-recomb-highci value cannot be larger than\n--blocks-strong-highci value.\n");
-      goto main_ret_INVALID_CMDLINE;
+  } else {
+    if (ld_info.window_size == 0xffffffffU) {
+      ld_info.window_size = 10;
     }
-    if (ld_info.blocks_max_bp == 0xffffffffU) {
-      ld_info.blocks_max_bp = 200000;
+    if (ld_info.window_bp == 0xffffffffU) {
+      ld_info.window_bp = 1000000;
     }
   }
   if ((ld_info.modifier & LD_DPRIME) && (!(calculation_type & CALC_LD))) {
