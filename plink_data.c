@@ -13042,14 +13042,14 @@ int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_person_id
   return retval;
 }
 
-int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_id_len_ptr, Ll_entry2** htable2, uintptr_t* topsize_ptr, uint32_t* max_bim_linelen_ptr, uint64_t* tot_marker_ct_ptr, uint32_t* cur_marker_ct_ptr, uint32_t* position_warning_ct_ptr, Ll_str** non_biallelics_ptr, uint32_t allow_extra_chroms, Chrom_info* chrom_info_ptr) {
+int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_id_len_ptr, Ll_entry2** htable2, uintptr_t* topsize_ptr, uint32_t* max_bim_linelen_ptr, uint64_t* tot_marker_ct_ptr, uint32_t* cur_marker_ct_ptr, uint64_t* position_warning_ct_ptr, Ll_str** non_biallelics_ptr, uint32_t allow_extra_chroms, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t max_marker_id_len = *max_marker_id_len_ptr;
   uintptr_t topsize = *topsize_ptr;
   uint32_t max_bim_linelen = *max_bim_linelen_ptr;
   uint64_t tot_marker_ct = *tot_marker_ct_ptr;
+  uint64_t position_warning_ct = *position_warning_ct_ptr;
   uint32_t cur_marker_ct = *cur_marker_ct_ptr;
-  uint32_t position_warning_ct = *position_warning_ct_ptr;
   uint32_t loadbuf_size = MAXLINELEN;
   double cm = 0.0;
   FILE* infile = NULL;
@@ -13240,16 +13240,11 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
 	    if ((ll_ptr->pos >> 32) == (llxx >> 32)) {
 	      sprintf(logbuf, "Warning: Multiple positions seen for variant %s.\n", bufptr);
 	      if (position_warning_ct < 3) {
-		position_warning_ct++;
-		if (position_warning_ct < 3) {
-		  logprintb();
-		} else {
-		  logstr(logbuf);
-		  printf("More position warnings: see log file.\n");
-		}
+		logprintb();
 	      } else {
 		logstr(logbuf);
 	      }
+	      position_warning_ct++;
 	    } else {
 	      LOGPRINTF("Warning: Multiple chromosomes seen for variant %s.\n", bufptr);
 	    }
@@ -13386,7 +13381,7 @@ int32_t report_non_biallelics(char* outname, char* outname_end, Ll_str* non_bial
   if (fclose_null(&outfile)) {
     goto report_non_biallelics_ret_WRITE_FAIL;
   }
-  LOGPRINTF("Error: %" PRIuPTR " variant%s with 3+ alleles present.  If you believe this is\ndue to strand error, try --flip with %s.\nHowever, if you have actual multiallelic data, we recommend exporting to VCF\n(via '--recode vcf/vcf-fid/vcf-iid', merging with another tool, and then\nimporting the result, since PLINK is not yet able to properly handle this case.\n", nbmarker_ct, (nbmarker_ct == 1)? "" : "s", outname);
+  LOGPRINTF("Error: %" PRIuPTR " variant%s with 3+ alleles present.\n* If you believe this is due to strand inconsistency, try --flip with\n  %s.\n  (Warning: if this seems to work, strand errors involving SNPs with A/T or C/G\n  alleles probably remain in your data.  If LD between nearby SNPs is high,\n  --flip-scan should detect them.)\n* If you are dealing with genuine multiallelic variants, we recommend exporting\n  that subset of the data to VCF (via e.g. '--recode vcf'), merging with\n  another tool/script, and then importing the result; PLINK is not yet suited\n  to handling them.\n", nbmarker_ct, (nbmarker_ct == 1)? "" : "s", outname);
   while (0) {
   report_non_biallelics_ret_NOMEM:
     retval = RET_NOMEM;
@@ -13461,6 +13456,7 @@ static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t 
   uintptr_t* chrom_mask = chrom_info_ptr->chrom_mask;
   uint32_t read_pos = 0;
   uint32_t write_pos = 0; // may be lower than read_pos due to dups
+  uint32_t position_warning_ct = 0;
   uint32_t chrom_idx;
   uint32_t chrom_read_end_idx;
   int64_t llxx;
@@ -13489,7 +13485,13 @@ static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t 
 	  LOGPRINTF("Error: --merge-equal-pos failure.  Variants %s and %s\nhave the same position, but do not share the same alleles.\n", &(marker_ids[max_marker_id_len * presort_idx]), &(marker_ids[max_marker_id_len * ((uint32_t)ll_buf[read_pos - 1])]));
 	  return 1;
 	}
-	LOGPRINTF("Warning: Variants %s and %s have the same position.\n", &(marker_ids[max_marker_id_len * presort_idx]), &(marker_ids[max_marker_id_len * ((uint32_t)ll_buf[read_pos - 1])]));
+	sprintf(logbuf, "Warning: Variants %s and %s have the same position.\n", &(marker_ids[max_marker_id_len * presort_idx]), &(marker_ids[max_marker_id_len * ((uint32_t)ll_buf[read_pos - 1])]));
+	if (position_warning_ct < 3) {
+	  logprintb();          
+	} else {
+	  logstr(logbuf);
+	}
+	position_warning_ct++;
 	if (merge_equal_pos) {
 	  marker_map[presort_idx] = write_pos - 1;
 	  continue;
@@ -13502,6 +13504,9 @@ static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t 
     }
     read_pos = chrom_start[chrom_idx + 1];
     chrom_start[chrom_idx + 1] = write_pos;
+  }
+  if (position_warning_ct > 3) {
+    printf("%u more same-position warning%s: see log file.\n", position_warning_ct - 3, (position_warning_ct == 4)? "" : "s");
   }
   *dedup_marker_ct_ptr = write_pos;
   return 0;
@@ -14276,8 +14281,8 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   uint64_t diff_total_overlap = 0;
   uint64_t diff_not_both_genotyped = 0;
   uint64_t diff_discordant = 0;
+  uint64_t position_warning_ct = 0;
   uint32_t orig_idx = 0;
-  uint32_t position_warning_ct = 0;
   uint32_t cur_marker_ct = 0;
   uint32_t tot_marker_ct = 0;
   uint32_t* map_reverse = NULL;
@@ -14667,6 +14672,9 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       }
     }
   } while (++mlpos < merge_ct);
+  if (position_warning_ct > 3) {
+    printf("%" PRIu64 " more multiple-position warning%s: see log file.\n", position_warning_ct - 3, (position_warning_ct == 4)? "" : "s");
+  }
 #ifdef __LP64__
   if (ullxx > 0x7fffffff) {
     logprint("Error: Too many variants (max 2147483647).\n");

@@ -97,7 +97,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (28 Mar 2014)";
+  " (31 Mar 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -1485,7 +1485,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_SEXCHECK) {
-    retval = sexcheck(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, sex_nm, sex_male, (misc_flags / MISC_IMPUTE_SEX) & 1, check_sex_fthresh, check_sex_mthresh, chrom_info_ptr, set_allele_freqs, &gender_unk_ct);
+    retval = sexcheck(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, sex_nm, sex_male, misc_flags, check_sex_fthresh, check_sex_mthresh, chrom_info_ptr, set_allele_freqs, &gender_unk_ct);
     if (retval) {
       goto plink_ret_1;
     }
@@ -5082,22 +5082,36 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "heck-sex", 9)) {
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 3)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if (param_ct) {
-          if (scan_double(argv[cur_arg + 1], &check_sex_fthresh) || (check_sex_fthresh <= 0.0) || ((param_ct == 1) && (check_sex_fthresh > check_sex_mthresh))) {
-	    sprintf(logbuf, "Error: Invalid --check-sex female F-statistic ceiling '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
-	  }
-	  if (param_ct == 2) {
-	    if (scan_double(argv[cur_arg + 2], &check_sex_mthresh) || (check_sex_mthresh < check_sex_fthresh) || (check_sex_mthresh >= 1.0)) {
-	      sprintf(logbuf, "Error: Invalid --check-sex male F-statistic floor '%s'.%s", argv[cur_arg + 1], errstr_append);
+        ujj = 0; // number of numeric parameters read
+	for (uii = 1; uii <= param_ct; uii++) {
+          if (!strcmp(argv[cur_arg + uii], "ycount")) {
+            misc_flags |= MISC_SEXCHECK_YCOUNT;
+	  } else {
+            if (!ujj) {
+	      if (scan_double(argv[cur_arg + uii], &check_sex_fthresh) || (check_sex_fthresh <= 0.0)) {
+	        sprintf(logbuf, "Error: Invalid --check-sex female F-statistic estimate ceiling '%s'.%s", argv[cur_arg + uii], errstr_append);
+	        goto main_ret_INVALID_CMDLINE_3;
+	      }
+	    } else if (ujj == 1) {
+	      if (scan_double(argv[cur_arg + uii], &check_sex_mthresh) || (check_sex_mthresh >= 1.0)) {
+	        sprintf(logbuf, "Error: Invalid --check-sex male F-statistic estimate floor '%s'.%s", argv[cur_arg + uii], errstr_append);
+	        goto main_ret_INVALID_CMDLINE_3;
+	      }
+	    } else {
+	      sprintf(logbuf, "Error: Invalid --check-sex parameter sequence.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
+	    ujj++;
 	  }
-	} else {
+	}
+	if (!ujj) {
 	  logprint("Warning: --check-sex will use default 0.2 and 0.8 thresholds.  This is not\nrecommended.\n");
+	} else if (check_sex_fthresh > check_sex_mthresh) {
+          sprintf(logbuf, "Error: --check-sex female F estimate ceiling cannot be larger than male floor.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
         calculation_type |= CALC_SEXCHECK;
       } else if (!memcmp(argptr2, "lump", 5)) {
@@ -5839,7 +5853,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "lip-subset", 11)) {
-	UNSTABLE;
 	if (!flip_fname) {
           sprintf(logbuf, "Error: --flip-subset must be used with --flip.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -6651,22 +6664,36 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --check-sex is redundant with --impute-sex.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 3)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if (param_ct) {
-          if (scan_double(argv[cur_arg + 1], &check_sex_fthresh) || (check_sex_fthresh <= 0.0) || ((param_ct == 1) && (check_sex_fthresh > check_sex_mthresh))) {
-	    sprintf(logbuf, "Error: Invalid --impute-sex female F-statistic ceiling '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
-	  }
-	  if (param_ct == 2) {
-	    if (scan_double(argv[cur_arg + 2], &check_sex_mthresh) || (check_sex_mthresh < check_sex_fthresh) || (check_sex_mthresh >= 1.0)) {
-	      sprintf(logbuf, "Error: Invalid --impute-sex male F-statistic floor '%s'.%s", argv[cur_arg + 1], errstr_append);
+        ujj = 0;
+	for (uii = 1; uii <= param_ct; uii++) {
+          if (!strcmp(argv[cur_arg + uii], "ycount")) {
+            misc_flags |= MISC_SEXCHECK_YCOUNT;
+	  } else {
+            if (!ujj) {
+	      if (scan_double(argv[cur_arg + uii], &check_sex_fthresh) || (check_sex_fthresh <= 0.0)) {
+	        sprintf(logbuf, "Error: Invalid --impute-sex female F-statistic estimate ceiling '%s'.%s", argv[cur_arg + uii], errstr_append);
+	        goto main_ret_INVALID_CMDLINE_3;
+	      }
+	    } else if (ujj == 1) {
+	      if (scan_double(argv[cur_arg + uii], &check_sex_mthresh) || (check_sex_mthresh >= 1.0)) {
+	        sprintf(logbuf, "Error: Invalid --impute-sex male F-statistic estimate floor '%s'.%s", argv[cur_arg + uii], errstr_append);
+	        goto main_ret_INVALID_CMDLINE_3;
+	      }
+	    } else {
+	      sprintf(logbuf, "Error: Invalid --impute-sex parameter sequence.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
+	    ujj++;
 	  }
-	} else{
+	}
+	if (!ujj) {
 	  logprint("Warning: --impute-sex will use default 0.2 and 0.8 thresholds.  This is not\nrecommended.\n");
+	} else if (check_sex_fthresh > check_sex_mthresh) {
+          sprintf(logbuf, "Error: --impute-sex female F estimate ceiling cannot be larger than male floor.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
         calculation_type |= CALC_SEXCHECK;
         misc_flags |= MISC_IMPUTE_SEX;

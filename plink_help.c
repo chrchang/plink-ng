@@ -410,6 +410,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      mostly space-delimited.  'tabx' and 'spacex' force all tabs and all\n"
 "      spaces, respectively.\n\n"
 	       );
+    help_print("flip-scan", &help_ctrl, 1,
+"  --flip-scan <verbose>\n"
+"    LD-based scan for case/control strand inconsistency.\n\n"
+	       );
     help_print("write-covar", &help_ctrl, 1,
 "  --write-covar\n"
 "    If a --covar file is loaded, --make-bed and --recode automatically generate\n"
@@ -496,8 +500,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    computation we implement.)\n\n"
 	       );
     help_print("check-sex\timpute-sex\tupdate-sex\tsex-check", &help_ctrl, 1,
-"  --check-sex {female max F} {male min F}\n"
-"  --impute-sex {female max F} {male min F}\n"
+"  --check-sex {female max F} {male min F} <ycount>\n"
+"  --impute-sex {female max F} {male min F} <ycount>\n"
 "    --check-sex compares sex assignments in the input dataset with those\n"
 "    imputed from X chromosome inbreeding coefficients.  By default, values\n"
 "    smaller than 0.2 yield female calls, and values larger than 0.8 yield male\n"
@@ -506,6 +510,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    we strongly recommend that you do this.  We also recommend splitting off\n"
 "    the X chromosome pseudo-autosomal region with --split-x before using this\n"
 "    command.\n"
+"    The Y chromosome is now scanned as well, but only to rule out female calls\n"
+"    when genotype data is present.  To include nonmissing Y genotype counts in\n"
+"    the report, add the 'ycount' modifier.\n"
 "    --impute-sex changes sex assignments to the imputed values, and is\n"
 "    otherwise identical to --check-sex.  It must be used with\n"
 "    --make-bed/--recode/--write-covar.\n\n"
@@ -1432,9 +1439,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("flip\tflip-subset", &help_ctrl, 0,
 "  --flip [filename]    : Flip alleles (A<->T, C<->G) for SNP IDs in the file.\n"
-#ifndef STABLE_BUILD
 "  --flip-subset [fn]   : Only apply --flip to indivs in the --flip-subset file.\n"
-#endif
 	       );
     help_print("keep-allele-order\tmake-bed\tmerge\tbmerge\tmerge-list", &help_ctrl, 0,
 "  --keep-allele-order  : Keep the allele order defined in the .bim file,\n"

@@ -2820,7 +2820,7 @@ void calc_marker_weights(double exponent, uint32_t unfiltered_marker_ct, uintptr
   } while (markers_done < marker_ct);
 }
 
-int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t do_impute, double check_sex_fthresh, double check_sex_mthresh, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* gender_unk_ct_ptr) {
+int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uint64_t misc_flags, double check_sex_fthresh, double check_sex_mthresh, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* gender_unk_ct_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
@@ -2828,17 +2828,22 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t indiv_ctl2 = (indiv_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t x_variant_ct = 0;
+  uintptr_t ytotal = 0;
   double nei_sum = 0.0;
+  uint32_t do_impute = (misc_flags / MISC_IMPUTE_SEX) & 1;
+  uint32_t report_ycounts = (misc_flags / MISC_SEXCHECK_YCOUNT) & 1;
   uint32_t gender_unk_ct = 0;
   uint32_t problem_ct = 0;
   int32_t x_code = chrom_info_ptr->x_code;
+  int32_t y_code = chrom_info_ptr->y_code;
   int32_t retval = 0;
   uintptr_t* loadbuf_raw;
   uintptr_t* loadbuf;
-  // We wish to compute three quantities for each individual:
+  // We wish to compute four quantities for each individual:
   // 1. Observed homozygous polymorphic Xchr sites.
   // 2. Observed nonmissing polymorphic Xchr sites.
-  // 3. Nei's unbiased estimator of the expected quantity #1.  (This has an
+  // 3. Number of nonmissing calls on Ychr.
+  // 4. Nei's unbiased estimator of the expected quantity #1.  (This has an
   //    N/(N-1) term which makes it slightly different from GCTA's Fhat2.)
   // edit: Actually, forget about the 2N/(2N-1) multiplier for now since it
   // doesn't play well with --freq, and PLINK 1.07 only succeeds in applying it
@@ -2847,6 +2852,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   uintptr_t* lptr;
   uint32_t* het_cts;
   uint32_t* missing_cts;
+  uint32_t* ymiss_cts;
   double* nei_offsets;
   char* fid_ptr;
   char* iid_ptr;
@@ -2880,6 +2886,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
       wkspace_alloc_ul_checked(&loadbuf, indiv_ctl2 * sizeof(intptr_t)) ||
       wkspace_alloc_ui_checked(&het_cts, indiv_ct * sizeof(int32_t)) ||
       wkspace_alloc_ui_checked(&missing_cts, indiv_ct * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&ymiss_cts, indiv_ct * sizeof(int32_t)) ||
       wkspace_alloc_d_checked(&nei_offsets, indiv_ct * sizeof(double))) {
     goto sexcheck_ret_NOMEM;
   }
@@ -2887,6 +2894,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   loadbuf[indiv_ctl2 - 1] = 0;
   fill_uint_zero(het_cts, indiv_ct);
   fill_uint_zero(missing_cts, indiv_ct);
+  fill_uint_zero(ymiss_cts, indiv_ct);
   fill_double_zero(nei_offsets, indiv_ct);
   if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
     goto sexcheck_ret_READ_FAIL;
@@ -2939,11 +2947,43 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   if (!x_variant_ct) {
     goto sexcheck_ret_INVALID_CMDLINE;
   }
+  if ((y_code != -1) && (is_set(chrom_info_ptr->chrom_mask, (uint32_t)y_code))) {
+    marker_uidx_end = chrom_info_ptr->chrom_end[(uint32_t)y_code];
+    marker_uidx = next_unset_ul(marker_exclude, chrom_info_ptr->chrom_start[(uint32_t)y_code], marker_uidx_end);
+    if (marker_uidx < marker_uidx_end) {
+      if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	goto sexcheck_ret_READ_FAIL;
+      }
+      ytotal = marker_uidx_end - marker_uidx - popcount_bit_idx(marker_exclude, marker_uidx, marker_uidx_end);
+      for (ulii = 0; ulii < ytotal; ulii++, marker_uidx++) {
+	if (IS_SET(marker_exclude, marker_uidx)) {
+	  marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+          if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+            goto sexcheck_ret_READ_FAIL;
+	  }
+	}
+        if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, indiv_ct, indiv_exclude, 0)) {
+          goto sexcheck_ret_READ_FAIL;
+	}
+        lptr = loadbuf;
+        for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx += BITCT2) {
+	  // iterate through missing calls
+	  // vertical popcount would be faster, but we don't really care
+	  cur_word = *lptr++;
+	  cur_word = (~(cur_word >> 1)) & cur_word & FIVEMASK;
+          while (cur_word) {
+            ymiss_cts[indiv_idx + CTZLU(cur_word) / 2] += 1;
+            cur_word &= cur_word - 1;
+	  }
+	}
+      }
+    }
+  }
   memcpy(outname_end, ".sexcheck", 10);
   if (fopen_checked(&outfile, outname, "w")) {
     goto sexcheck_ret_OPEN_FAIL;
   }
-  sprintf(tbuf, "%%%us %%%us       PEDSEX       SNPSEX       STATUS            F\n", plink_maxfid, plink_maxiid);
+  sprintf(tbuf, "%%%us %%%us       PEDSEX       SNPSEX       STATUS            F%s\n", plink_maxfid, plink_maxiid, report_ycounts? "   YCOUNT" : "");
   fprintf(outfile, tbuf, "FID", "IID");
   indiv_uidx = 0;
   if (do_impute) {
@@ -2971,7 +3011,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
       dff = (dtot - ((double)((int32_t)(het_cts[indiv_idx])))) / dtot;
       if (dff > check_sex_mthresh) {
         imputed_sex_code = 1;
-      } else if (dff < check_sex_fthresh) {
+      } else if ((dff < check_sex_fthresh) && (ymiss_cts[indiv_idx] == ytotal)) {
         imputed_sex_code = 2;
       } else {
         imputed_sex_code = 0;
@@ -2983,12 +3023,17 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
         wptr = memcpya(wptr, "      PROBLEM ", 14);
 	problem_ct++;
       }
-      wptr = double_g_writewx4x(wptr, dff, 12, '\n');
+      wptr = double_g_writewx4(wptr, dff, 12);
     } else {
       imputed_sex_code = 0;
-      wptr = memcpya(wptr, "0      PROBLEM          nan\n", 28);
+      wptr = memcpya(wptr, "0      PROBLEM          nan", 27);
       problem_ct++;
     }
+    if (report_ycounts) {
+      *wptr++ = ' ';
+      wptr = uint32_writew8(wptr, ytotal - ymiss_cts[indiv_idx]);
+    }
+    *wptr++ = '\n';
     if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
       goto sexcheck_ret_WRITE_FAIL;
     }
@@ -3012,20 +3057,20 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     bitfield_and(sex_male, sex_nm, unfiltered_indiv_ctl);
     gender_unk_ct = indiv_ct - popcount_longs(sex_nm, unfiltered_indiv_ctl);
     if (!gender_unk_ct) {
-      sprintf(logbuf, "--impute-sex: %" PRIuPTR " Xchr variant%s scanned, all sexes imputed.\n", x_variant_ct, (x_variant_ct == 1)? "" : "s");
+      sprintf(logbuf, "--impute-sex: %" PRIuPTR " Xchr and %" PRIuPTR " Ychr variant(s) scanned,\nall sexes imputed.", x_variant_ct, ytotal);
     } else {
-      sprintf(logbuf, "--impute-sex: %" PRIuPTR " Xchr variant%s scanned, %" PRIuPTR "/%" PRIuPTR " sex%s imputed.\n", x_variant_ct, (x_variant_ct == 1)? "" : "s", (indiv_ct - gender_unk_ct), indiv_ct, (indiv_ct == 1)? "" : "es");
+      sprintf(logbuf, "--impute-sex: %" PRIuPTR " Xchr and %" PRIuPTR " Ychr variant(s) scanned,\n%" PRIuPTR "/%" PRIuPTR " sex%s imputed.", x_variant_ct, ytotal, (indiv_ct - gender_unk_ct), indiv_ct, (indiv_ct == 1)? "" : "es");
     }
     *gender_unk_ct_ptr = gender_unk_ct;
   } else {
     if (!problem_ct) {
-      sprintf(logbuf, "--check-sex: %" PRIuPTR " Xchr variant%s scanned, no problems detected.\n", x_variant_ct, (x_variant_ct == 1)? "" : "s");
+      sprintf(logbuf, "--check-sex: %" PRIuPTR " Xchr and %" PRIuPTR " Ychr variant(s) scanned,\nno problems detected.", x_variant_ct, ytotal);
     } else {
-      sprintf(logbuf, "--check-sex: %" PRIuPTR " Xchr variant%s scanned, %u problem%s detected.\n", x_variant_ct, (x_variant_ct == 1)? "" : "s", problem_ct, (problem_ct == 1)? "" : "s");
+      sprintf(logbuf, "--check-sex: %" PRIuPTR " Xchr and %" PRIuPTR " Ychr variant(s) scanned,\n%u problem%s detected.", x_variant_ct, ytotal, problem_ct, (problem_ct == 1)? "" : "s");
     }
   }
   logprintb();
-  LOGPRINTF("Report written to %s.\n", outname);
+  LOGPRINTF("  Report written to %s.\n", outname);
   while (0) {
   sexcheck_ret_NOMEM:
     retval = RET_NOMEM;
