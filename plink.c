@@ -775,9 +775,11 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     } else if ((calculation_type & CALC_EPI) && (epi_ip->modifier & EPI_FAST)) {
       logprint("Error: --fast-epistasis requires a case/control phenotype.\n");
       goto plink_ret_INVALID_CMDLINE;
-    } else if (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_CMH | CALC_HOMOG | CALC_TESTMISS | CALC_TDT)) {
+    } else if (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_FLIPSCAN | CALC_CMH | CALC_HOMOG | CALC_TESTMISS | CALC_TDT)) {
       if (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST)) {
         logprint("Error: --ibs-test and --groupdist calculations require a case/control\nphenotype.\n");
+      } else if (calculation_type & CALC_FLIPSCAN) {
+	logprint("Error: --flip-scan requires a case/control phenotype.\n");
       } else if (calculation_type & CALC_CMH) {
         logprint("Error: --mh and --mh2 require a case/control phenotype.\n");
       } else if (calculation_type & CALC_HOMOG) {
@@ -1599,7 +1601,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       logprint("Error: LD-based strand flip scanning requires a sorted .bim.  Retry this\ncommand after using --make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
-    retval = flipscan(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, chrom_info_ptr, marker_pos, unfiltered_indiv_ct, founder_info, sex_male, outname, outname_end, hh_exists);
+    retval = flipscan(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, chrom_info_ptr, marker_pos, unfiltered_indiv_ct, pheno_nm, pheno_c, founder_info, sex_male, outname, outname_end, hh_exists);
     if (retval) {
       goto plink_ret_1;
     }

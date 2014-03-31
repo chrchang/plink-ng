@@ -5022,6 +5022,51 @@ uintptr_t popcount_bit_idx(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_i
   return ct;
 }
 
+uint32_t chrom_window_max(uint32_t* marker_pos, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t ct_max, uint32_t bp_max, uint32_t cur_window_max) {
+  // okay, it's absurd to keep rewriting this from scratch, especially given
+  // that makes it likely that some reimplementations suck (--indep{-pairwise}
+  // version was O(n^2) instead of O(n); sure, it didn't really matter because
+  // the main calculation was more expensive, but still, ugh).
+
+  if (cur_window_max >= ct_max) {
+    return ct_max;
+  }
+  // assumes chrom_idx exists
+  uint32_t chrom_end = chrom_info_ptr->chrom_end[chrom_idx];
+  uint32_t marker_uidx = next_unset(marker_exclude, chrom_info_ptr->chrom_start[chrom_idx], chrom_end);
+  uint32_t marker_ct = chrom_end - marker_uidx - popcount_bit_idx(marker_exclude, marker_uidx, chrom_end);
+  if (marker_ct <= cur_window_max) {
+    return cur_window_max;
+  }
+  uint32_t window_idx_first = 0;
+  uint32_t window_uidx_first = marker_uidx;
+  uint32_t window_pos_first = marker_pos[marker_uidx];
+  uint32_t marker_idx;
+  uint32_t marker_pos_thresh;
+  for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+    next_unset_unsafe_ck(marker_exclude, &marker_uidx);
+    marker_pos_thresh = marker_pos[marker_uidx];
+    if (marker_pos_thresh < bp_max) {
+      marker_pos_thresh = 0;
+    } else {
+      marker_pos_thresh -= bp_max;
+    }
+    if (marker_pos_thresh > window_pos_first) {
+      do {
+        window_uidx_first++;
+        next_unset_unsafe_ck(marker_exclude, &window_uidx_first);
+        window_pos_first = marker_pos[window_uidx_first];
+        window_idx_first++;
+      } while (marker_pos_thresh > window_pos_first);
+    } else if (marker_idx - window_idx_first == cur_window_max) {
+      if (++cur_window_max == ct_max) {
+	return cur_window_max;
+      }
+    }
+  }
+  return cur_window_max;
+}
+
 uint32_t window_back(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t marker_uidx_min, uint32_t marker_uidx_start, uint32_t count_max, uint32_t bp_max, uint32_t* window_trail_ct_ptr) {
   // finds the earliest location which is within count_max sites and bp_max bps
   // count_max must be positive
