@@ -1156,11 +1156,11 @@ int32_t flip_strand(char* flip_fname, char* sorted_marker_ids, uintptr_t marker_
     }
     if (is_set(already_seen, sorted_idx)) {
       bufptr[slen] = '\0';
-      LOGPRINTF("Error: Duplicate SNP %s in --flip file.\n", bufptr);
+      LOGPRINTF("Error: Duplicate marker ID %s in --flip file.\n", bufptr);
       goto flip_strand_ret_INVALID_FORMAT;
     }
     set_bit(already_seen, sorted_idx);
-    marker_uidx = marker_id_map[((uint32_t)sorted_idx)];
+    marker_uidx = marker_id_map[(uint32_t)sorted_idx];
     cur_non_acgt0 = 0;
     cur_non_acgt0 |= flip_str(&(marker_allele_ptrs[2 * marker_uidx]));
     cur_non_acgt0 |= flip_str(&(marker_allele_ptrs[2 * marker_uidx + 1]));

@@ -2806,6 +2806,144 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
   return retval;
 }
 
+int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t* indiv_sort_map, char* person_ids, uintptr_t max_person_id_len, uintptr_t* flip_subset_markers, uintptr_t* flip_subset_vec2) {
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* infile = NULL;
+  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t indiv_ctv2 = 2 * ((indiv_ct + (BITCT - 1)) / BITCT);
+  uintptr_t miss_ct = 0;
+  uint32_t* indiv_uidx_to_idx = NULL;
+  uint32_t flip_marker_ct = 0;
+  uint32_t flip_indiv_ct = 0;
+  int32_t retval = 0;
+  const char reverse_complements[] = "T\0G\0\0\0C\0\0\0\0\0\0\0\0\0\0\0\0A";
+  char* sorted_ids;
+  uint32_t* id_map;
+  char* bufptr;
+  char* a1ptr;
+  char* a2ptr;
+  char* id_buf;
+  uint32_t slen;
+  uint32_t marker_uidx;
+  uint32_t indiv_idx_write;
+  int32_t sorted_idx;
+  unsigned char ucc;
+  // load --flip file, then --flip-subset
+  fill_ulong_zero(flip_subset_markers, unfiltered_marker_ctl);
+  retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
+  if (retval) {
+    goto flip_subset_init_ret_1;
+  }
+  if (fopen_checked(&infile, flip_fname, "r")) {
+    goto flip_subset_init_ret_OPEN_FAIL;
+  }
+  tbuf[MAXLINELEN - 1] = ' ';
+  while (fgets(tbuf, MAXLINELEN, infile)) {
+    if (!tbuf[MAXLINELEN - 1]) {
+      sprintf(logbuf, "Error: Pathologically long line in %s.\n", flip_fname);
+      goto flip_subset_init_ret_INVALID_FORMAT_2;
+    }
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    slen = strlen_se(bufptr);
+    sorted_idx = bsearch_str(bufptr, slen, sorted_ids, max_marker_id_len, marker_ct);
+    if (sorted_idx == -1) {
+      continue;
+    }
+    marker_uidx = id_map[(uint32_t)sorted_idx];
+    a1ptr = marker_allele_ptrs[2 * marker_uidx];
+    a2ptr = marker_allele_ptrs[2 * marker_uidx + 1];
+    ucc = a1ptr[0];
+    if (a1ptr[1] || a2ptr[1] || (ucc < 'A') || (ucc > 'T') || (reverse_complements[ucc - 'A'] != a2ptr[0])) {
+      bufptr[slen] = '\0';
+      sprintf(logbuf, "Error: Alleles for marker %s are not reverse complement single bases.\n", bufptr);
+      goto flip_subset_init_ret_INVALID_FORMAT_2;
+    }
+    if (is_set(flip_subset_markers, marker_uidx)) {
+      bufptr[slen] = '\0';
+      sprintf(logbuf, "Error: Duplicate marker ID %s in --flip file.\n", bufptr);
+      goto flip_subset_init_ret_INVALID_FORMAT_2;
+    }
+    set_bit(flip_subset_markers, marker_uidx);
+    flip_marker_ct++;
+  }
+  if (fclose_null(&infile)) {
+    goto flip_subset_init_ret_READ_FAIL;
+  }
+  wkspace_reset(wkspace_mark);
+  retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_indiv_ct, indiv_exclude, unfiltered_indiv_ct - indiv_ct, person_ids, max_person_id_len, 0, 1, strcmp_deref);
+  if (retval) {
+    goto flip_subset_init_ret_1;
+  }
+  if (wkspace_alloc_c_checked(&id_buf, max_person_id_len)) {
+    goto flip_subset_init_ret_NOMEM;
+  }
+  if (indiv_sort_map) {
+    if (wkspace_alloc_ui_checked(&indiv_uidx_to_idx, unfiltered_indiv_ct * sizeof(int32_t))) {
+      goto flip_subset_init_ret_NOMEM;
+    }
+    fill_uidx_to_idx(indiv_exclude, unfiltered_indiv_ct, indiv_ct, indiv_uidx_to_idx);
+  }
+  if (fopen_checked(&infile, flip_subset_fname, "r")) {
+    goto flip_subset_init_ret_OPEN_FAIL;
+  }
+  fill_ulong_zero(flip_subset_vec2, indiv_ctv2);
+  while (fgets(tbuf, MAXLINELEN, infile)) {
+    if (!tbuf[MAXLINELEN - 1]) {
+      sprintf(logbuf, "Error: Pathologically long line in %s.\n", flip_subset_fname);
+      goto flip_subset_init_ret_INVALID_FORMAT_2;
+    }
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_person_id_len, indiv_ct, bufptr, NULL, &sorted_idx) || (sorted_idx == -1)) {
+      miss_ct++;
+      continue;
+    }
+    if (!indiv_sort_map) {
+      indiv_idx_write = id_map[(uint32_t)sorted_idx];
+    } else {
+      indiv_idx_write = indiv_uidx_to_idx[indiv_sort_map[id_map[(uint32_t)sorted_idx]]];
+    }
+    if (IS_SET_DBL(flip_subset_vec2, indiv_idx_write)) {
+      logprint("Error: Duplicate individual ID in --flip-subset file.\n");
+      goto flip_subset_init_ret_INVALID_FORMAT;
+    }
+    SET_BIT_DBL(flip_subset_vec2, indiv_idx_write);
+    flip_indiv_ct++;
+  }
+  if (fclose_null(&infile)) {
+    goto flip_subset_init_ret_READ_FAIL;
+  }
+  LOGPRINTF("--flip-subset: Flipping %u SNP%s for %u %s.\n", flip_marker_ct, (flip_marker_ct == 1)? "" : "s", flip_indiv_ct, species_str(flip_indiv_ct));
+  if (miss_ct) {
+    LOGPRINTF("Warning: %" PRIuPTR " --flip-subset line%s skipped.\n", miss_ct, (miss_ct == 1)? "" : "s");
+  }
+  while (0) {
+  flip_subset_init_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  flip_subset_init_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  flip_subset_init_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  flip_subset_init_ret_INVALID_FORMAT_2:
+    logprintb();
+  flip_subset_init_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ flip_subset_init_ret_1:
+  wkspace_reset(wkspace_mark);
+  fclose_cond(infile);
+  return retval;
+}
+
 uint32_t merge_or_split_x(uint32_t mergex, uint32_t splitx_bound1, uint32_t splitx_bound2, uint32_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, uint32_t* marker_pos, Chrom_info* chrom_info_ptr, int64_t* ll_buf) {
   // If --merge-x, splitx_bound1 and splitx_bound2 are 0; turns out those
   // settings let --merge-x and --split-x use the same logic.
@@ -3039,8 +3177,36 @@ void zeropatch(uintptr_t indiv_ctv2, uintptr_t cluster_ct, uintptr_t* cluster_zc
 #endif
 }
 
-int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t map_cols, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t map_is_unsorted, uint32_t* indiv_sort_map, uint64_t misc_flags, uint32_t splitx_bound1, uint32_t splitx_bound2, Two_col_params* update_chr, char* flip_subset_fname, char* zerofname, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, uint32_t hh_exists, Chrom_info* chrom_info_ptr, uint32_t mendel_modifier) {
+void reverse_subset(uintptr_t* writebuf, uintptr_t* subset_vec2, uintptr_t word_ct) {
+  // reverse_loadbuf() variant that requires subset_vec2 bit to be set
+#ifdef __LP64__
+  __m128i* wvec = (__m128i*)writebuf;
+  __m128i* svec = (__m128i*)subset_vec2;
+  __m128i* wvec_end = (__m128i*)(&(writebuf[word_ct]));
+  __m128i vii;
+  __m128i vjj;
+  do {
+    vii = *wvec;
+    vjj = _mm_andnot_si128(_mm_xor_si128(vii, _mm_srli_epi64(vii, 1)), *svec++);
+    vjj = _mm_or_si128(vjj, _mm_slli_epi64(vjj, 1));
+    *wvec++ = _mm_xor_si128(vii, vjj);
+  } while (wvec < wvec_end);
+#else
+  uintptr_t* writebuf_end = &(writebuf[word_ct]);
+  uintptr_t ulii;
+  uintptr_t uljj;
+  do {
+    ulii = *writebuf;
+    uljj = (*subset_vec2++) & (~(ulii ^ (ulii >> 1)));
+    uljj *= 3;
+    *writebuf++ = ulii ^ uljj;
+  } while (writebuf < writebuf_end);
+#endif
+}
+
+int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t map_cols, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t map_is_unsorted, uint32_t* indiv_sort_map, uint64_t misc_flags, uint32_t splitx_bound1, uint32_t splitx_bound2, Two_col_params* update_chr, char* flip_fname, char* flip_subset_fname, char* zerofname, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, uint32_t hh_exists, Chrom_info* chrom_info_ptr, uint32_t mendel_modifier) {
   unsigned char* wkspace_mark = wkspace_base;
+  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + BITCT2 - 1) / BITCT2;
   uintptr_t unfiltered_indiv_ctp1l2 = 1 + (unfiltered_indiv_ct / BITCT2);
@@ -3057,6 +3223,8 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   uintptr_t* workbuf = NULL;
   uintptr_t* cluster_zc_masks = NULL;
   uintptr_t* patchbuf = NULL;
+  uintptr_t* flip_subset_markers = NULL;
+  uintptr_t* flip_subset_vec2 = NULL;
   uint64_t* family_list = NULL;
   uint64_t* trio_list = NULL;
   uint32_t* trio_lookup = NULL;
@@ -3077,6 +3245,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   const char errmids[][3] = {"me", "hh"};
   uintptr_t* loadbuf;
   uintptr_t* writebuf;
+  uintptr_t* writebuf_ptr;
   uint32_t* map_reverse;
   const char* errptr;
   uint32_t is_haploid;
@@ -3086,9 +3255,14 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   uint32_t pct;
   uint32_t loop_end;
   if (flip_subset_fname) {
-    logprint("Error: --flip-subset is not implemented yet.\n");
-    retval = RET_CALC_NOT_YET_SUPPORTED;
-    goto make_bed_ret_1;
+    if (wkspace_alloc_ul_checked(&flip_subset_markers, unfiltered_marker_ctl * sizeof(intptr_t)) ||
+        wkspace_alloc_ul_checked(&flip_subset_vec2, indiv_ctv2 * sizeof(intptr_t))) {
+      goto make_bed_ret_NOMEM;
+    }
+    retval = flip_subset_init(flip_fname, flip_subset_fname, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_allele_ptrs, unfiltered_indiv_ct, indiv_exclude, indiv_ct, indiv_sort_map, person_ids, max_person_id_len, flip_subset_markers, flip_subset_vec2);
+    if (retval) {
+      goto make_bed_ret_1;
+    }
   }
   if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
     goto make_bed_ret_NOMEM;
@@ -3197,12 +3371,16 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	    goto make_bed_ret_READ_FAIL;
 	  }
 	}
-	retval = make_bed_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, IS_SET(marker_reverse, marker_uidx), &(writebuf[indiv_ctv2 * map_reverse[marker_uidx]]));
+	writebuf_ptr = &(writebuf[indiv_ctv2 * map_reverse[marker_uidx]]);
+	retval = make_bed_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, IS_SET(marker_reverse, marker_uidx), writebuf_ptr);
 	if (retval) {
 	  goto make_bed_ret_1;
 	}
 	if (zcdefs) {
-	  zeropatch(indiv_ctv2, cluster_ct, cluster_zc_masks, zcdefs, patchbuf, marker_idx, &(writebuf[indiv_ctv2 * map_reverse[marker_uidx]]));
+	  zeropatch(indiv_ctv2, cluster_ct, cluster_zc_masks, zcdefs, patchbuf, marker_idx, writebuf_ptr);
+	}
+	if (flip_subset_markers && is_set(flip_subset_markers, marker_uidx)) {
+          reverse_subset(writebuf_ptr, flip_subset_vec2, indiv_ctv2);
 	}
       }
       if (pct < 100) {
@@ -3281,6 +3459,9 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	}
 	if (zcdefs) {
 	  zeropatch(indiv_ctv2, cluster_ct, cluster_zc_masks, zcdefs, patchbuf, marker_idx, writebuf);
+	}
+	if (flip_subset_markers && is_set(flip_subset_markers, marker_uidx)) {
+          reverse_subset(writebuf, flip_subset_vec2, indiv_ctv2);
 	}
 
 	if (fwrite_checked(writebuf, indiv_ct4, bedoutfile)) {

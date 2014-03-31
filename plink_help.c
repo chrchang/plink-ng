@@ -924,7 +924,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 #endif
     help_print("tdt\tpoo\tperm\tmperm\tparentdt1\tparentdt2\tpat\tmat\tset-test", &help_ctrl, 1,
-"  --tdt <exact | exact-midp | poo> <perm | mperm=[value]\n"
+"  --tdt <exact | exact-midp | poo> <perm | mperm=[value]>\n"
 "        <parentdt1 | parentdt2 | pat | mat> <set-test>\n"
 "    Report transmission disequilibrium test statistics, given case/control\n"
 "    phenotypes and pedigree information.\n"
