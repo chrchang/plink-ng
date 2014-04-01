@@ -170,6 +170,9 @@ void update_rel_ibc(double* rel_ibc, uintptr_t* geno, double* set_allele_freqs, 
           wtarr[uii * 8 + 2] = (1.0 - twt) * (1.0 - twt);
           wtarr[uii * 8 + 3] = (2.0 - twt) * (2.0 - twt);
         } else if (ibc_type == 1) {
+	  // infinities are useful here for calling out inaccurate zero MAFs,
+	  // but those markers should just be automatically filtered out
+	  // instead?
 	  wtarr[uii * 8 + 2] = INFINITY;
           if (set_allele_freqs[uii] == 0.0) {
             wtarr[uii * 8] = 0;
@@ -7071,7 +7074,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
     }
     fill_ulong_zero(mmasks, indiv_ct);
 
-    is_last_block = (marker_idx == marker_ct)? 1 : 0;
+    is_last_block = (marker_idx == marker_ct);
     for (win_marker_idx = 0; win_marker_idx < cur_markers_loaded; win_marker_idx += MULTIPLEX_REL / 3) {
       fill_ulong_zero(masks, indiv_ct);
       indiv_idx = 0;
@@ -7113,7 +7116,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	update_rel_ibc(rel_ibc, geno, &(set_allele_freq_buf[win_marker_idx]), ibc_type, indiv_ct, ukk);
       }
       if (rel_req) {
-	fill_weights_r(weights, &(set_allele_freq_buf[win_marker_idx]), (ibc_type != -1)? 1 : 0);
+	fill_weights_r(weights, &(set_allele_freq_buf[win_marker_idx]), (ibc_type != -1));
 	if (spawn_threads2(threads, &calc_rel_thread, dist_thread_ct, ujj)) {
 	  goto calc_rel_ret_THREAD_CREATE_FAIL;
 	}
@@ -7729,7 +7732,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
     }
     fill_ulong_zero(mmasks, indiv_ct);
 
-    is_last_block = (marker_idx == marker_ct)? 1 : 0;
+    is_last_block = (marker_idx == marker_ct);
     for (win_marker_idx = 0; win_marker_idx < cur_markers_loaded; win_marker_idx += MULTIPLEX_REL / 3) {
       fill_ulong_zero(masks, indiv_ct);
       glptr2 = geno;
@@ -7767,7 +7770,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
 	update_rel_f_ibc(rel_ibc, geno, &(set_allele_freq_buf[win_marker_idx]), ibc_type, indiv_ct, ukk);
       }
       if (rel_req) {
-	fill_weights_r_f(weights_f, &(set_allele_freq_buf[win_marker_idx]), (ibc_type != -1)? 1 : 0);
+	fill_weights_r_f(weights_f, &(set_allele_freq_buf[win_marker_idx]), (ibc_type != -1));
 	if (spawn_threads2(threads, &calc_rel_f_thread, dist_thread_ct, ujj)) {
 	  goto calc_rel_f_ret_THREAD_CREATE_FAIL;
 	}
@@ -9294,7 +9297,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   double min_ppc = cp->ppc;
   double min_ibm = cp->min_ibm;
   double min_zx = 0.0;
-  uint32_t ibm_constraint = (min_ibm != 0.0)? 1 : 0;
+  uint32_t ibm_constraint = (min_ibm != 0.0);
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
   double indiv_ct_recip = 1.0 / ((double)((intptr_t)indiv_ct));

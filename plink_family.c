@@ -773,7 +773,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
   }
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-    is_x = (((uint32_t)chrom_info_ptr->x_code) == chrom_idx)? 1 : 0;
+    is_x = (((uint32_t)chrom_info_ptr->x_code) == chrom_idx);
     if ((IS_SET(chrom_info_ptr->haploid_mask, chrom_idx) && (!is_x)) || (((uint32_t)chrom_info_ptr->mt_code) == chrom_idx)) {
       continue;
     }

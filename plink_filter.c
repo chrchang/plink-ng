@@ -108,7 +108,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
   uintptr_t y_start = 0;
   uintptr_t y_end = 0;
   int32_t y_code = chrom_info_ptr->y_code;
-  uint32_t y_present = ((y_code != -1) && is_set(chrom_info_ptr->chrom_mask, y_code))? 1 : 0;
+  uint32_t y_present = ((y_code != -1) && is_set(chrom_info_ptr->chrom_mask, y_code));
   int32_t retval = 0;
   Ll_str* llptr;
   uintptr_t* loadbuf;

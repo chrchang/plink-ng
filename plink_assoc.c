@@ -6330,7 +6330,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   g_fisher_midp = fisher_midp;
   g_pheno_nm_ct = pheno_nm_ct;
   perms_done = 0;
-  g_is_model_prec = (model_modifier & MODEL_PREC)? 1 : 0;
+  g_is_model_prec = model_modifier / MODEL_PREC;
   g_is_perm1 = 0;
   g_mperm_save_all = NULL;
   if (is_set_test) {
@@ -7545,7 +7545,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	  }
 	}
       }
-      is_last_block = (marker_idx + block_size == marker_unstopped_ct)? 1 : 0;
+      is_last_block = (marker_idx + block_size == marker_unstopped_ct);
       ulii = 0;
       if (model_adapt_nst) {
 	if (model_assoc) {
@@ -8660,7 +8660,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       }
     }
     if (do_perms) {
-      is_last_block = (marker_idx + block_size >= marker_unstopped_ct)? 1 : 0;
+      is_last_block = (marker_idx + block_size >= marker_unstopped_ct);
       g_block_diff = block_size - g_qblock_start;
       ulii = 0;
       if (perm_maxt) {
@@ -10517,7 +10517,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	}
       }
       ulii = 0;
-      is_last_block = (marker_idx + block_size >= marker_unstopped_ct)? 1 : 0;
+      is_last_block = (marker_idx + block_size >= marker_unstopped_ct);
       if (perm_adapt) {
 	if (spawn_threads2(threads, &testmiss_adapt_thread, max_thread_ct, is_last_block)) {
 	  goto testmiss_ret_THREAD_CREATE_FAIL;

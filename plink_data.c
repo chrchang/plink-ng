@@ -7633,7 +7633,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   FILE* skip3file = NULL;
   char* sorted_fexcepts = NULL;
   uint32_t double_id = (misc_flags / MISC_DOUBLE_ID) & 1;
-  uint32_t check_qual = (vcf_min_qual == -INFINITY)? 0 : 1;
+  uint32_t check_qual = (vcf_min_qual != -1);
   uint32_t allow_extra_chroms = (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1;
   uint32_t biallelic_only = (misc_flags / MISC_BIALLELIC_ONLY) & 1;
   uint32_t biallelic_strict = (misc_flags / MISC_BIALLELIC_ONLY_STRICT) & 1;
@@ -8341,7 +8341,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   uintptr_t fexcept_ct = 0;
   uintptr_t topsize = 0;
   uint32_t double_id = (misc_flags / MISC_DOUBLE_ID) & 1;
-  uint32_t check_qual = (vcf_min_qual == -INFINITY)? 0 : 1;
+  uint32_t check_qual = (vcf_min_qual != -1);
   uint32_t allow_extra_chroms = (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1;
   uint32_t biallelic_only = (misc_flags / MISC_BIALLELIC_ONLY) & 1;
   uint32_t biallelic_strict = (misc_flags / MISC_BIALLELIC_ONLY_STRICT) & 1;

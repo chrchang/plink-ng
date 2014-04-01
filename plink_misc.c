@@ -2379,7 +2379,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
         SET_BIT(marker_reverse, marker_uidx);
       }
     } else if ((marker_allele_ptrs[marker_uidx * 2] == missing_geno_ptr) || (marker_allele_ptrs[marker_uidx * 2 + 1] == missing_geno_ptr)) {
-      replace_other = (marker_allele_ptrs[marker_uidx * 2 + is_a2] == missing_geno_ptr)? 0 : 1;
+      replace_other = (marker_allele_ptrs[marker_uidx * 2 + is_a2] != missing_geno_ptr);
       if (allele_reset(&(marker_allele_ptrs[marker_uidx * 2 + (is_a2 ^ replace_other)]), colx_ptr, alen)) {
 	goto load_ax_alleles_ret_NOMEM;
       }

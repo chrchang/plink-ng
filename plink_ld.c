@@ -651,8 +651,8 @@ void ld_prune_start_chrom(uint32_t ld_window_kb, uint32_t* cur_chrom_ptr, uint32
   *chrom_end_ptr = chrom_end;
   *window_unfiltered_end_ptr = window_unfiltered_end;
   *is_haploid_ptr = IS_SET(chrom_info_ptr->haploid_mask, cur_chrom);
-  *is_x_ptr = (((int32_t)cur_chrom) == chrom_info_ptr->x_code)? 1 : 0;
-  *is_y_ptr = (((int32_t)cur_chrom) == chrom_info_ptr->y_code)? 1 : 0;
+  *is_x_ptr = (((int32_t)cur_chrom) == chrom_info_ptr->x_code);
+  *is_y_ptr = (((int32_t)cur_chrom) == chrom_info_ptr->y_code);
 }
 
 int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
@@ -1348,7 +1348,8 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   uint32_t verbose = (ldip->modifier / LD_FLIPSCAN_VERBOSE) & 1;
-  uint32_t max_window_size = ldip->flipscan_window_size;
+  uint32_t max_window_size = 1;
+  uint32_t window_bp = ldip->flipscan_window_bp;
   int32_t retval = 0;
   uintptr_t* founder_cases;
   uintptr_t* founder_ctrls;
@@ -1397,23 +1398,9 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   }
   case_ctv2 = 2 * ((case_ct + (BITCT - 1)) / BITCT);
   ctrl_ctv2 = 2 * ((ctrl_ct + (BITCT - 1)) / BITCT);
-  // if user specified a large --flip-scan-window parameter, check if it can be
-  // optimized
-  if (max_window_size > 16) {
-    uii = 1;
-    for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
-      chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
-      marker_uidx = next_unset(marker_exclude, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx], chrom_end);
-      chrom_marker_ct = chrom_end - marker_uidx - popcount_bit_idx(marker_exclude, marker_uidx, chrom_end);
-      if (chrom_marker_ct <= uii) {
-	continue;
-      }
-      window_start_idx = 0;      
-      window_start_pos = marker_pos[marker_uidx++];
-      ;;;
-    }
-    max_window_size = uii;
+  max_window_size = 1;
+  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom-ct; chrom_fo_idx++) {
+    max_window_size = chrom_window_max(marker_pos, marker_exclude, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], ldip->flipscan_window_size, window_bp, max_window_size);
   }
   // todo: get max window size
   if (wkspace_alloc_ul_checked(&) ||
@@ -1453,8 +1440,8 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
       continue;
     }
     is_haploid = is_set(chrom_info_ptr->haploid_mask, chrom_idx);
-    is_x = (chrom_idx == ((uint32_t)chrom_info_ptr->x_code))? 1 : 0;
-    is_y = (chrom_idx == ((uint32_t)chrom_info_ptr->y_code))? 1 : 0;    
+    is_x = (chrom_idx == ((uint32_t)chrom_info_ptr->x_code));
+    is_y = (chrom_idx == ((uint32_t)chrom_info_ptr->y_code));    
     if (fseeko(bedfile, bed_offset + (marker_uidx * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
       goto flipscan_ret_READ_FAIL;
     }
@@ -1710,8 +1697,8 @@ uint32_t ld_matrix_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   uintptr_t block_idx1 = g_ld_block_idx1;
   uintptr_t marker_idx = g_ld_idx2_block_start;
   uintptr_t marker_idx_end = g_ld_idx2_block_size;
-  uint32_t is_square = ((g_ld_modifier & LD_MATRIX_SHAPEMASK) == LD_MATRIX_SQ)? 1 : 0;
-  uint32_t is_square0 = ((g_ld_modifier & LD_MATRIX_SHAPEMASK) == LD_MATRIX_SQ0)? 1 : 0;
+  uint32_t is_square = ((g_ld_modifier & LD_MATRIX_SHAPEMASK) == LD_MATRIX_SQ);
+  uint32_t is_square0 = ((g_ld_modifier & LD_MATRIX_SHAPEMASK) == LD_MATRIX_SQ0);
   char delimiter = g_ld_delimiter;
   double* results = g_ld_results;
   double* dptr;
@@ -1759,8 +1746,8 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   FILE* outfile = NULL;
   uint32_t ld_modifier = ldip->modifier;
   uint32_t is_binary = ld_modifier & LD_MATRIX_BIN;
-  uint32_t is_square = ((ld_modifier & LD_MATRIX_SHAPEMASK) == LD_MATRIX_SQ)? 1 : 0;
-  uint32_t is_square0 = ((ld_modifier & LD_MATRIX_SHAPEMASK) == LD_MATRIX_SQ0)? 1 : 0;
+  uint32_t is_square = ((ld_modifier & LD_MATRIX_SHAPEMASK) == LD_MATRIX_SQ);
+  uint32_t is_square0 = ((ld_modifier & LD_MATRIX_SHAPEMASK) == LD_MATRIX_SQ0);
   uint32_t output_single_prec = (ld_modifier / LD_SINGLE_PREC) & 1;
   uint32_t output_gz = ld_modifier & LD_REPORT_GZ;
   uint32_t ignore_x = (ld_modifier / LD_IGNORE_X) & 1;
@@ -1969,8 +1956,8 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
         chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx1_tmp);
         chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
         is_haploid = IS_SET(chrom_info_ptr->haploid_mask, chrom_idx);
-	is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code)? 1 : 0;
-	is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code)? 1 : 0;
+	is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code);
+	is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code);
       }
       if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, &(g_ld_geno1[block_idx1 * founder_ct_192_long]), founder_ct, founder_info, IS_SET(marker_reverse, marker_uidx1_tmp))) {
 	goto ld_report_matrix_ret_READ_FAIL;
@@ -2016,8 +2003,8 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 	  chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx2);
 	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	  is_haploid = IS_SET(chrom_info_ptr->haploid_mask, chrom_idx);
-	  is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code)? 1 : 0;
-	  is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code)? 1 : 0;
+	  is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code);
+	  is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code);
 	}
 	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, &(g_ld_geno2[block_idx2 * founder_ct_192_long]), founder_ct, founder_info, IS_SET(marker_reverse, marker_uidx2))) {
 	  goto ld_report_matrix_ret_READ_FAIL;
@@ -2030,7 +2017,7 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
       g_ld_idx2_block_size = cur_idx2_block_size;
       g_ld_idx2_block_start = marker_idx2;
       marker_idx2 += cur_idx2_block_size;
-      is_last_block = (marker_idx2 >= marker_idx2_end)? 1 : 0;
+      is_last_block = (marker_idx2 >= marker_idx2_end);
       if (spawn_threads2(threads, &ld_block_thread, thread_ct, is_last_block)) {
 	goto ld_report_matrix_ret_THREAD_CREATE_FAIL;
       }
@@ -2294,7 +2281,7 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	sptr_cur = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), sptr_cur);
 	*sptr_cur++ = ' ';
 	if (marker_allele_ptrs) {
-	  coupling = (dxx > 0)? 1 : 0;
+	  coupling = (dxx > 0);
 	  sptr2 = memcpya(sptr_cur, fixed_a1, fixed_a1_len);
 	  sptr2 = strcpyax(sptr2, marker_allele_ptrs[2 * marker_uidx2 + (1 - coupling)], '/');
 	  sptr2 = memcpya(sptr2, fixed_a2, fixed_a2_len);
@@ -3861,7 +3848,7 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
     tot2 = g_epi_tot2;
     xstart2 = g_ld_xstart2;
     xend2 = g_ld_xend2;
-    x2_present = (g_ld_thread_wkspace && (idx2_block_start < xend2) && (idx2_block_start + idx2_block_size > xstart2))? 1 : 0;
+    x2_present = (g_ld_thread_wkspace && (idx2_block_start < xend2) && (idx2_block_start + idx2_block_size > xstart2));
     for (block_idx1 = block_idx1_start; block_idx1 < block_idx1_end; block_idx1++) {
       cur_zmiss2 = ld_interval1[block_idx1 * 2];
       block_idx2 = cur_zmiss2;
@@ -3982,7 +3969,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   uintptr_t ulii = founder_ctsplit * sizeof(intptr_t) + 2 * sizeof(int32_t) + marker_idx2_maxw * 2 * sizeof(double);
   uint32_t output_gz = ldip->modifier & LD_REPORT_GZ;
   uint32_t is_inter_chr = g_ld_is_inter_chr;
-  uint32_t idx1_subset = (ldip->snpstr || ldip->snps_rl.name_ct)? 1 : 0;
+  uint32_t idx1_subset = (ldip->snpstr || ldip->snps_rl.name_ct);
   uint32_t window_size_m1 = ldip->window_size - 1;
   uint32_t window_bp = ldip->window_bp;
   uint32_t thread_ct = g_ld_thread_ct;
@@ -4160,8 +4147,8 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
         chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
 	chrom_last = prev_unset_unsafe(marker_exclude, chrom_end);
         is_haploid = IS_SET(chrom_info_ptr->haploid_mask, chrom_idx);
-	is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code)? 1 : 0;
-	is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code)? 1 : 0;
+	is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code);
+	is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code);
 	uii = 1;
       }
       if (!is_inter_chr) {
@@ -4273,8 +4260,8 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 	  chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx2);
 	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	  is_haploid = IS_SET(chrom_info_ptr->haploid_mask, chrom_idx);
-	  is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code)? 1 : 0;
-	  is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code)? 1 : 0;
+	  is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code);
+	  is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code);
 	}
 	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, loadbuf2, founder_ct, founder_info, IS_SET(marker_reverse, marker_uidx2))) {
 	  goto ld_report_dprime_ret_READ_FAIL;
@@ -4295,7 +4282,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
       g_ld_idx2_block_size = cur_idx2_block_size;
       g_ld_idx2_block_start = marker_idx2 - marker_idx2_base;
       marker_idx2 += cur_idx2_block_size;
-      is_last_block = (marker_idx2 >= marker_idx2_end)? 1 : 0;
+      is_last_block = (marker_idx2 >= marker_idx2_end);
       if (spawn_threads2(threads, &ld_dprime_thread, thread_ct, is_last_block)) {
 	goto ld_report_dprime_ret_THREAD_CREATE_FAIL;
       }
@@ -4377,7 +4364,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
   uintptr_t* marker_exclude_idx1 = marker_exclude;
   uint32_t* marker_pos = g_ld_marker_pos;
   uint32_t founder_trail_ct = founder_ct_192_long - founder_ctl * 2;
-  uint32_t idx1_subset = (ldip->snpstr || ldip->snps_rl.name_ct)? 1 : 0;
+  uint32_t idx1_subset = (ldip->snpstr || ldip->snps_rl.name_ct);
   uint32_t window_size_m1 = ldip->window_size - 1;
   uint32_t window_bp = ldip->window_bp;
   uint32_t thread_ct = g_ld_thread_ct;
@@ -4658,8 +4645,8 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
         chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
 	chrom_last = prev_unset_unsafe(marker_exclude, chrom_end);
         is_haploid = IS_SET(chrom_info_ptr->haploid_mask, chrom_idx);
-	is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code)? 1 : 0;
-	is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code)? 1 : 0;
+	is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code);
+	is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code);
 	uii = 1;
       }
       if (!is_inter_chr) {
@@ -4764,8 +4751,8 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 	  chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx2);
 	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	  is_haploid = IS_SET(chrom_info_ptr->haploid_mask, chrom_idx);
-	  is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code)? 1 : 0;
-	  is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code)? 1 : 0;
+	  is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code);
+	  is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code);
 	}
 	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, &(g_ld_geno2[block_idx2 * founder_ct_192_long]), founder_ct, founder_info, IS_SET(marker_reverse, marker_uidx2))) {
 	  goto ld_report_regular_ret_READ_FAIL;
@@ -4778,7 +4765,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
       g_ld_idx2_block_size = cur_idx2_block_size;
       g_ld_idx2_block_start = marker_idx2 - marker_idx2_base;
       marker_idx2 += cur_idx2_block_size;
-      is_last_block = (marker_idx2 >= marker_idx2_end)? 1 : 0;
+      is_last_block = (marker_idx2 >= marker_idx2_end);
       if (spawn_threads2(threads, &ld_block_thread, thread_ct, is_last_block)) {
 	goto ld_report_regular_ret_THREAD_CREATE_FAIL;
       }
@@ -5466,8 +5453,8 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
     }
 #endif
     is_haploid = IS_SET(chrom_info_ptr->haploid_mask, chrom_idx);
-    is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code)? 1 : 0;
-    is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code)? 1 : 0;
+    is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code);
+    is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code);
     wkspace_reset(wkspace_mark2);
     // Need to compute full 3x3 count tables, but only for a limited window;
     // more similar to --clump than --fast-epistasis, so we don't bother with
@@ -6527,7 +6514,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   uint32_t tot_stride = 6 - 3 * is_case_only;
   uint32_t no_p_value = modifier & EPI_FAST_NO_P_VALUE;
   uint32_t case_only_gap = epi_ip->case_only_gap;
-  uint32_t is_case_only_window = (is_case_only && case_only_gap)? 1 : 0;
+  uint32_t is_case_only_window = (is_case_only && case_only_gap);
   uint32_t case_ct = pheno_nm_ct - ctrl_ct;
   uint32_t cellminx3 = 0;
   uintptr_t case_ctl2 = (case_ct + (BITCT2 - 1)) / BITCT2;
@@ -7246,7 +7233,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	  // higher chisq value is present, and when that happens an ID is
           // always written
 	}
-	is_last_block = (marker_idx2 + cur_idx2_block_size >= marker_ct2)? 1 : 0;
+	is_last_block = (marker_idx2 + cur_idx2_block_size >= marker_ct2);
 	if (spawn_threads2(threads, &fast_epi_thread, max_thread_ct, is_last_block)) {
 	  goto epistasis_report_ret_THREAD_CREATE_FAIL;
 	}
@@ -8785,8 +8772,8 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
         chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
         is_haploid = is_set(chrom_info_ptr->haploid_mask, chrom_idx);
-        is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code)? 1 : 0;
-        is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code)? 1 : 0;
+        is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code);
+        is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code);
       }
       ulii = block_idx1 * founder_ct_192_long;
       loadbuf_ptr = &(geno1[ulii]);
@@ -8818,8 +8805,8 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	  chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
 	  is_haploid = is_set(chrom_info_ptr->haploid_mask, chrom_idx);
-	  is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code)? 1 : 0;
-	  is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code)? 1 : 0;
+	  is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code);
+	  is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code);
 	}
 	ulii = block_idx2 * founder_ct_192_long;
 	loadbuf_ptr = &(geno2[ulii]);
@@ -8849,7 +8836,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       }
       g_ld_marker_ctm8 = marker_idx2 + 1; // repurposed
       marker_load_idx2 += cur_idx2_block_size;
-      is_last_block = (marker_load_idx2 == load_idx2_tot)? 1 : 0;
+      is_last_block = (marker_load_idx2 == load_idx2_tot);
       if (spawn_threads2(threads, &ld_map_thread, thread_ct, is_last_block)) {
 	goto construct_ld_map_ret_THREAD_CREATE_FAIL;
       }

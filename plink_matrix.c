@@ -279,7 +279,7 @@ int32_t invert_matrix_trunc_singular_svd(__CLPK_integer dim, double* matrix, dou
   }
   double wmin = wmax * eps;
   for (i=0; i<dim; i++) {
-    dbl_1d_buf[i] = dbl_1d_buf[i] < wmin ? 0 : 1/dbl_1d_buf[i];
+    dbl_1d_buf[i] = dbl_1d_buf[i] < wmin ? 0 : (1 / dbl_1d_buf[i]);
   }
 
   for (i=0; i<dim; i++) {
@@ -328,7 +328,7 @@ int32_t invert_matrix(int32_t dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* dbl_
   }
   double wmin = wmax * eps;
   for (i=0; i<dim; i++) {
-    dbl_1d_buf[i] = dbl_1d_buf[i] < wmin ? 0 : 1/dbl_1d_buf[i];
+    dbl_1d_buf[i] = dbl_1d_buf[i] < wmin ? 0 : (1 / dbl_1d_buf[i]);
   }
   
   for (i=0; i<dim; i++) {

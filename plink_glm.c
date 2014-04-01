@@ -2268,7 +2268,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   uint32_t marker_initial_ct = marker_ct;
   uint32_t slen_add = 0;
   uint32_t sex_covar_everywhere = glm_modifier & GLM_SEX;
-  uint32_t x_sex_interaction = (glm_xchr_model == 3)? 1 : 0;
+  uint32_t x_sex_interaction = (glm_xchr_model == 3);
   uint32_t x_present = (chrom_info_ptr->x_code != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->x_code);
   uint32_t do_perms = perm_adapt | perm_maxt;
   uint32_t perm_count = glm_modifier & GLM_PERM_COUNT;
@@ -4075,7 +4075,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   uintptr_t ulii = 0;
   uint32_t cur_batch_size = 1;
   uint32_t cluster_ct1 = 0;
-  uint32_t do_perms = (glm_modifier & GLM_MPERM)? 1 : 0;
+  uint32_t do_perms = (glm_modifier / GLM_MPERM) & 1;
   uint32_t perm_count = glm_modifier & GLM_PERM_COUNT;
   uint32_t hide_covar = glm_modifier & GLM_HIDE_COVAR;
   uint32_t report_odds = pheno_c && (!(glm_modifier & GLM_BETA));

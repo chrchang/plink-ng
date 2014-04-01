@@ -1103,7 +1103,7 @@ static inline uint32_t is_allelic_match(double mismatch_max, uintptr_t* roh_slot
     joint_homozyg_ct += popcount2_long(joint_word);
     joint_homozyg_mismatch_ct += popcount2_long(joint_word & (wloader_l ^ wloader_s));
   }
-  return (((double)((int32_t)joint_homozyg_mismatch_ct)) <= mismatch_max * ((int32_t)joint_homozyg_ct))? 1 : 0;
+  return (((double)((int32_t)joint_homozyg_mismatch_ct)) <= mismatch_max * ((int32_t)joint_homozyg_ct));
 }
 
 void compute_allelic_match_matrix(double mismatch_max, uintptr_t roh_slot_wsize, uint32_t pool_size, uintptr_t* roh_slots, uintptr_t* roh_slot_occupied, uintptr_t* roh_slot_uncached, uint32_t* roh_slot_cidx_start, uint32_t* roh_slot_cidx_end, uint64_t* roh_slot_map, uint32_t overlap_cidx_start, uint32_t overlap_cidx_end, uint32_t* allelic_match_cts, uintptr_t* allelic_match_matrix) {
@@ -1938,7 +1938,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	  allele_strs[1] = allele_strs[3 - IS_SET(marker_reverse, marker_uidx1)];
 	  for (slot_idx1 = 0; slot_idx1 < pool_size; slot_idx1++) {
 	    indiv_uidx1 = verbose_indiv_uidx[slot_idx1];
-	    ujj = ((marker_uidx1 >= verbose_uidx_bounds[slot_idx1 * 2]) && (marker_uidx1 <= verbose_uidx_bounds[slot_idx1 * 2 + 1]))? 1 : 0;
+	    ujj = ((marker_uidx1 >= verbose_uidx_bounds[slot_idx1 * 2]) && (marker_uidx1 <= verbose_uidx_bounds[slot_idx1 * 2 + 1]));
 	    if (ujj) {
 	      writebuf[0] = '[';
 	    } else {
@@ -2080,7 +2080,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	    }
 	    for (slot_idx2 = slot_idx1; slot_idx2 < group_slot_end; slot_idx2++) {
 	      indiv_uidx1 = verbose_indiv_uidx[slot_idx2];
-	      ujj = ((marker_uidx1 >= verbose_uidx_bounds[slot_idx2 * 2]) && (marker_uidx1 <= verbose_uidx_bounds[slot_idx2 * 2 + 1]))? 1 : 0;
+	      ujj = ((marker_uidx1 >= verbose_uidx_bounds[slot_idx2 * 2]) && (marker_uidx1 <= verbose_uidx_bounds[slot_idx2 * 2 + 1]));
 	      if (ujj) {
 		writebuf[0] = '[';
 	      } else {

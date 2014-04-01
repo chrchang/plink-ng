@@ -97,7 +97,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (31 Mar 2014)";
+  " (1 Apr 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -1085,7 +1085,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     // fcc == 1: exclude all zeroes in pheno_c
     // fcc == 2: exclude all ones in pheno_c
     // -> flip on fcc == 1
-    filter_indivs_bitfields(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, pheno_c, (filter_flags & FILTER_BINARY_CASES)? 1 : 0, pheno_nm);
+    filter_indivs_bitfields(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, pheno_c, (filter_flags / FILTER_BINARY_CASES) & 1, pheno_nm);
     if (indiv_exclude_ct == unfiltered_indiv_ct) {
       LOGPRINTF("Error: All %s removed due to case/control status (--filter-%s).\n", g_species_plural, (filter_flags & FILTER_BINARY_CASES)? "cases" : "controls");
       goto plink_ret_ALL_SAMPLES_EXCLUDED;
@@ -1095,7 +1095,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
   if (filter_flags & (FILTER_BINARY_FEMALES | FILTER_BINARY_MALES)) {
     ii = indiv_exclude_ct;
-    filter_indivs_bitfields(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, sex_male, (filter_flags & FILTER_BINARY_MALES)? 1 : 0, sex_nm);
+    filter_indivs_bitfields(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, sex_male, (filter_flags / FILTER_BINARY_MALES) & 1, sex_nm);
     if (indiv_exclude_ct == unfiltered_indiv_ct) {
       LOGPRINTF("Error: All %s removed due to gender filter (--filter-%s).\n", g_species_plural, (filter_flags & FILTER_BINARY_MALES)? "males" : "females");
       goto plink_ret_ALL_SAMPLES_EXCLUDED;
@@ -1105,7 +1105,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
   if (filter_flags & (FILTER_BINARY_FOUNDERS | FILTER_BINARY_NONFOUNDERS)) {
     ii = indiv_exclude_ct;
-    filter_indivs_bitfields(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, founder_info, (filter_flags & FILTER_BINARY_FOUNDERS)? 1 : 0, NULL);
+    filter_indivs_bitfields(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, founder_info, (filter_flags / FILTER_BINARY_FOUNDERS) & 1, NULL);
     if (indiv_exclude_ct == unfiltered_indiv_ct) {
       LOGPRINTF("Error: All %s removed due to founder status (--filter-%s).\n", g_species_plural, (filter_flags & FILTER_BINARY_FOUNDERS)? "founders" : "nonfounders");
       goto plink_ret_ALL_SAMPLES_EXCLUDED;
@@ -2847,7 +2847,7 @@ int32_t main(int32_t argc, char** argv) {
   char* filter_attrib_indiv_liststr = NULL;
   char* const_fid = NULL;
   char* vcf_filter_exceptions_flattened = NULL;
-  double vcf_min_qual = -INFINITY;
+  double vcf_min_qual = -1;
   char id_delim = '\0';
   char vcf_idspace_to = '\0';
   int32_t retval = 0;
@@ -5132,9 +5132,7 @@ int32_t main(int32_t argc, char** argv) {
 	    ujj++;
 	  }
 	}
-	if (!ujj) {
-	  logprint("Warning: --check-sex will use default 0.2 and 0.8 thresholds.  This is not\nrecommended.\n");
-	} else if (check_sex_fthresh > check_sex_mthresh) {
+	if (check_sex_fthresh > check_sex_mthresh) {
           sprintf(logbuf, "Error: --check-sex female F estimate ceiling cannot be larger than male floor.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -6776,9 +6774,7 @@ int32_t main(int32_t argc, char** argv) {
 	    ujj++;
 	  }
 	}
-	if (!ujj) {
-	  logprint("Warning: --impute-sex will use default 0.2 and 0.8 thresholds.  This is not\nrecommended.\n");
-	} else if (check_sex_fthresh > check_sex_mthresh) {
+	if (check_sex_fthresh > check_sex_mthresh) {
           sprintf(logbuf, "Error: --impute-sex female F estimate ceiling cannot be larger than male floor.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -10696,7 +10692,7 @@ int32_t main(int32_t argc, char** argv) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if (scan_double(argv[cur_arg + 1], &vcf_min_qual)) {
+        if (scan_double(argv[cur_arg + 1], &vcf_min_qual) || (vcf_min_qual < 0.0)) {
 	  sprintf(logbuf, "Error: Invalid --vcf-min-qual parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}

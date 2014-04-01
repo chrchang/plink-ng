@@ -49,7 +49,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
   uintptr_t indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t topsize = 0;
   uintptr_t max_cluster_kr_len = 0;
-  uint32_t cluster_filter = (keep_fname || keep_flattened || remove_fname || remove_flattened)? 1 : 0;
+  uint32_t cluster_filter = (keep_fname || keep_flattened || remove_fname || remove_flattened);
   uint32_t cluster_kr_ct = 0;
   int32_t retval = 0;
   char* idbuf = &(tbuf[MAXLINELEN]);
@@ -828,7 +828,7 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
     goto cluster_include_and_reindex_ret_NOMEM;
   }
   new_cluster_map = *new_cluster_map_ptr;
-  shrink_map = (assigned_ct < old_assigned_ct)? 1 : 0;
+  shrink_map = (assigned_ct < old_assigned_ct);
   if (shrink_map) {
     if (wkspace_alloc_ui_checked(new_cluster_starts_ptr, (new_cluster_ct + 1) * sizeof(int32_t))) {
       goto cluster_include_and_reindex_ret_NOMEM;
@@ -1283,7 +1283,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
 	logprint("Error: Invalid PPC test value in --read-genome input file.\n");
 	goto read_genome_ret_INVALID_FORMAT;
       }
-      ppc_fail = (cur_ppc < min_ppc)? 1 : 0;
+      ppc_fail = (cur_ppc < min_ppc);
       if (ppc_fail && ppc_fail_counts) {
 	ppc_fail_counts[indiv_idx1] += 1;
 	ppc_fail_counts[indiv_idx2] += 1;
@@ -1860,9 +1860,9 @@ uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_
   uint32_t max_size = cp->max_size;
   uint32_t max_cases = cp->max_cases;
   uint32_t max_ctrls = cp->max_ctrls;
-  uint32_t size_restriction = (max_size < indiv_ct)? 1 : 0;
-  uint32_t case_restriction = (max_cases < case_ct)? 1 : 0;
-  uint32_t ctrl_restriction = (max_ctrls < ctrl_ct)? 1 : 0;
+  uint32_t size_restriction = (max_size < indiv_ct);
+  uint32_t case_restriction = (max_cases < case_ct);
+  uint32_t ctrl_restriction = (max_ctrls < ctrl_ct);
   uint32_t sccr = size_restriction || case_restriction || ctrl_restriction;
   uint32_t case_ctrl_only = 0;
   uint32_t merge_ct = 0;
@@ -2291,9 +2291,9 @@ uint32_t cluster_group_avg_main(uint32_t cluster_ct, uintptr_t* merge_prevented,
   uint32_t max_size = cp->max_size;
   uint32_t max_cases = cp->max_cases;
   uint32_t max_ctrls = cp->max_ctrls;
-  uint32_t size_restriction = (max_size < indiv_ct)? 1 : 0;
-  uint32_t case_restriction = (max_cases < case_ct)? 1 : 0;
-  uint32_t ctrl_restriction = (max_ctrls < ctrl_ct)? 1 : 0;
+  uint32_t size_restriction = (max_size < indiv_ct);
+  uint32_t case_restriction = (max_cases < case_ct);
+  uint32_t ctrl_restriction = (max_ctrls < ctrl_ct);
   uint32_t sccr = size_restriction || case_restriction || ctrl_restriction;
   uint32_t cluster_cc = 0;
   uint32_t top_index = heap_size - 1;
