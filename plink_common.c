@@ -4556,10 +4556,10 @@ void bitfield_ornot(uintptr_t* vv, uintptr_t* inverted_or_vec, uintptr_t word_ct
   // vv := vv OR (~inverted_or_vec)
   // on 64-bit systems, assumes vv and inverted_or_vec are 16-byte aligned
 #ifdef __LP64__
-#ifdef _WIN32
-  const __m128i all1 = {-1LL, -1LL};
-#else
+#ifdef __APPLE__
   const __m128i all1 = {0xffffffffffffffffLLU, 0xffffffffffffffffLLU};
+#else
+  const __m128i all1 = {-1LL, -1LL};
 #endif
   __m128i* vv128 = (__m128i*)vv;
   __m128i* ev128 = (__m128i*)inverted_or_vec;
