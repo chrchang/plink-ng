@@ -8609,6 +8609,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "oo", 3)) {
 	logprint("Note: --poo flag deprecated.  Use '--tdt poo'.\n");
+	family_info.tdt_modifier |= TDT_POO;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "arentdt1", 9)) {
 	logprint("Note: --parentdt1 flag deprecated.  Use e.g.\n'--tdt exact mperm=[value] parentdt1'.\n");

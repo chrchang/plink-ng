@@ -1,4 +1,5 @@
 #include "plink_family.h"
+#include "plink_stats.h"
 
 void family_init(Family_info* fam_ip) {
   fam_ip->mendel_max_trio_error = 1.0;
@@ -11,6 +12,8 @@ void family_init(Family_info* fam_ip) {
 
 uint32_t is_composite6(uintptr_t num) {
   // assumes num is congruent to 1 or 5 mod 6.
+  // can speed this up by ~50% by hardcoding avoidance of multiples of 5/7,
+  // but this isn't currently a bottleneck so I'll keep this simple
   uintptr_t divisor = 5;
   while (divisor * divisor <= num) {
     if (!(num % divisor)) {
@@ -92,7 +95,7 @@ const uint32_t mendel_error_table_x[] =
  0x4010001, 0, 0, 0,
  0x5000001, 0, 0x2010101, 0};
 
-int32_t get_trios_and_families(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, char** fids_ptr, uintptr_t* max_fid_len_ptr, char** iids_ptr, uintptr_t* max_iid_len_ptr, uint64_t** family_list_ptr, uint32_t* family_ct_ptr, uint64_t** trio_list_ptr, uintptr_t* trio_ct_ptr, uint32_t** trio_lookup_ptr, uint32_t include_duos, uint32_t toposort) {
+int32_t get_trios_and_families(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_bitarr, uintptr_t indiv_ct, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, char** fids_ptr, uintptr_t* max_fid_len_ptr, char** iids_ptr, uintptr_t* max_iid_len_ptr, uint64_t** family_list_ptr, uint32_t* family_ct_ptr, uint64_t** trio_list_ptr, uintptr_t* trio_ct_ptr, uint32_t** trio_lookup_ptr, uint32_t include_duos, uint32_t toposort, uint32_t is_include) {
   // family_list has paternal indices in low 32 bits, maternal indices in high
   // 32, sorted in child ID order.
   // trio_list has child IDs in low 32 bits, family_list indices in high 32
@@ -112,11 +115,9 @@ int32_t get_trios_and_families(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_e
   // ambiguous sex parents are not permitted), but the IDs CAN be reversed in
   // the .fam with no adverse consequences.  For backward compatibility, we
   // replicate this.  (Todo: report a warning exactly once when this happens.)
-  //
-  // This will probably be extended to enforce some phenotype constraint (for
-  // e.g. TDT).
   unsigned char* wkspace_mark = wkspace_base;
   uint64_t* edge_list = NULL;
+  uintptr_t* indiv_exclude = indiv_bitarr;
   uint32_t* toposort_queue = NULL;
   char* fids = NULL;
   char* iids = NULL;
@@ -178,6 +179,14 @@ int32_t get_trios_and_families(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_e
   uint32_t first_sex;
   uint32_t uii;
   int32_t sorted_idx;
+  if (is_include) {
+    indiv_exclude = (uintptr_t*)top_alloc(&topsize, unfiltered_indiv_ctl * sizeof(intptr_t));
+    if (!indiv_exclude) {
+      goto get_trios_and_families_ret_NOMEM;
+    }
+    memcpy(indiv_exclude, indiv_bitarr, unfiltered_indiv_ctl * sizeof(intptr_t));
+    bitfield_invert(indiv_exclude, unfiltered_indiv_ct);
+  }
   founder_info2 = (uintptr_t*)top_alloc(&topsize, unfiltered_indiv_ctp1l * sizeof(intptr_t));
   if (!founder_info2) {
     goto get_trios_and_families_ret_NOMEM;
@@ -639,9 +648,8 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctp1l2 = 1 + (unfiltered_indiv_ct / BITCT2);
   uintptr_t indiv_ct = unfiltered_indiv_ct - *indiv_exclude_ct_ptr;
-  uintptr_t marker_uidx = 0xffffffffLU;
+  uintptr_t marker_uidx = ~ZEROLU;
   uint64_t tot_error_ct = 0;
-  uint32_t do_filter = fam_ip->mendel_modifier & MENDEL_FILTER;
   uint32_t include_duos = (fam_ip->mendel_modifier / MENDEL_DUOS) & 1;
   uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
   uint32_t var_first = fam_ip->mendel_modifier & MENDEL_FILTER_VAR_FIRST;
@@ -701,7 +709,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
     logprint("Warning: Skipping --me/--mendel since there is no autosomal or Xchr data.\n");
     goto mendel_error_scan_ret_1;
   }
-  retval = get_trios_and_families(unfiltered_indiv_ct, indiv_exclude, indiv_ct, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, &fids, &max_fid_len, &iids, &max_iid_len, &family_list, &family_ct, &trio_list, &trio_ct, &trio_lookup, include_duos, multigen);
+  retval = get_trios_and_families(unfiltered_indiv_ct, indiv_exclude, indiv_ct, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, &fids, &max_fid_len, &iids, &max_iid_len, &family_list, &family_ct, &trio_list, &trio_ct, &trio_lookup, include_duos, multigen, 0);
   if (retval) {
     goto mendel_error_scan_ret_1;
   }
@@ -1107,7 +1115,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
     *outname_end = '\0';
     LOGPRINTF("Report written to %s.{mendel,imendel,fmendel,lmendel}.\n", outname);
   }
-  if (do_filter) {
+  if (fam_ip->mendel_modifier & MENDEL_FILTER) {
     *marker_exclude_ct_ptr += new_marker_exclude_ct;
     if (unfiltered_marker_ct == *marker_exclude_ct_ptr) {
       logprint("Error: All variants excluded by --me.\n");
@@ -1664,7 +1672,140 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   return 0;
 }
 
+int32_t tdt_poo() {
+  logprint("Error: Parent-of-origin analysis is currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
+}
+
 int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t unfiltered_indiv_ct, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t hh_exists, Family_info* fam_ip) {
   logprint("Error: --tdt is currently under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
+  /*
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* outfile = NULL;
+  uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t marker_uidx = ~ZEROLU;
+  uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
+  uint32_t chrom_end = 0;
+  uint32_t is_x = 0;
+  int32_t retval = 0;
+  char* fids;
+  char* iids;
+  uint64_t* family_list;
+  uint64_t* trio_list;
+  uintptr_t* loadbuf;
+  uintptr_t* indiv_include2;
+  uintptr_t* indiv_male_include2;
+  uint32_t* trio_lookup;
+  uintptr_t max_fid_len;
+  uintptr_t max_iid_len;
+  uintptr_t trio_ct;
+  uintptr_t marker_uidx;
+  uintptr_t marker_idx;
+  uint32_t chrom_fo_idx;
+  uint32_t family_ct;
+  marker_ct -= count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 0, 1);
+  if (!marker_ct) {
+    logprint("Warning: Skipping --tdt since there is no autosomal or Xchr data.\n");
+    goto tdt_ret_1;
+  }
+  retval = get_trios_and_families(unfiltered_indiv_ct, pheno_nm, pheno_nm_ct, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, &fids, &max_fid_len, &iids, &max_iid_len, &family_list, &family_ct, &trio_list, &trio_ct, &trio_lookup, 0, multigen, 1);
+  if (retval) {
+    goto tdt_ret_1;
+  }
+  if (!trio_ct) {
+    logprint("Warning: Skipping --tdt since there are no trios.\n");
+    goto tdt_ret_1;
+  }
+  // now assemble list of nuclear families with at least one case child
+  
+
+  if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
+    goto tdt_ret_NOMEM;
+  }
+  loadbuf[unfiltered_indiv_ctl2 - 1] = 0;
+  hh_exists &= XMHH_EXISTS;
+  if (alloc_raw_haploid_filters(unfiltered_indiv_ct, hh_exists, 1, pheno_nm, sex_male, NULL, &indiv_male_include2)) {
+    goto tdt_ret_NOMEM;
+  }
+  if (fam_ip->tdt_modifier & (TDT_PERM | TDT_MPERM)) {
+    logprint("Error: --tdt permutation tests are currently under development.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto tdt_ret_1;
+  }
+  if (fam_ip->tdt_modifier & TDT_POO) {
+    retval = tdt_poo();
+    goto tdt_ret_1;
+  }
+  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
+    chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+    is_x = (((uint32_t)chrom_info_ptr->x_code) == chrom_idx);
+    if ((IS_SET(chrom_info_ptr->haploid_mask, chrom_idx) && (!is_x)) || (((uint32_t)chrom_info_ptr->mt_code) == chrom_idx)) {
+      continue;
+    }
+    chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+    uii = next_unset(marker_exclude, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx], chrom_end);
+    if (uii == chrom_end) {
+      continue;
+    }
+    if (uii != marker_uidx) {
+      marker_uidx = uii;
+      goto tdt_scan_seek;
+    }
+    while (1) {
+      if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+	goto tdt_ret_READ_FAIL;
+      }
+      if (IS_SET(marker_reverse, marker_uidx)) {
+	reverse_loadbuf((unsigned char*)loadbuf, unfiltered_indiv_ct);
+      }
+      if (is_x && hh_exists) {
+        hh_reset((unsigned char*)loadbuf, indiv_male_include2, unfiltered_indiv_ct);
+      }
+      // 1. iterate through all trios, setting Mendel errors to missing
+      // 2. iterate through nuclear families where both parents are genotyped,
+      //    and at least one is het:
+      //    a.
+      // (All nuclear families in the list have at least one case kid.)
+      if (++marker_uidx == chrom_end) {
+	break;
+      }
+      if (IS_SET(marker_exclude, marker_uidx)) {
+        marker_uidx = next_unset_ul(marker_exclude, marker_uidx, chrom_end);
+      tdt_scan_seek:
+	if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	  goto tdt_ret_READ_FAIL;
+	}
+      }
+    }
+  }
+  for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+    if (IS_SET(marker_exclude, marker_uidx)) {
+      marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+      if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	goto tdt_ret_READ_FAIL;
+      }
+    }
+    ;;;
+  }
+  while (0) {
+  tdt_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  tdt_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  tdt_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  tdt_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+ tdt_ret_1:
+  wkspace_reset(wkspace_mark);
+  fclose_cond(outfile);
+  return retval;
+  */
 }
