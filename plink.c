@@ -1250,6 +1250,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (!(misc_flags & MISC_KEEP_ALLELE_ORDER)) {
+    // after this, set_allele_freqs[] has A2 freqs
     calc_marker_reverse_bin(marker_reverse, marker_exclude, unfiltered_marker_ct, unfiltered_marker_ct - marker_exclude_ct, set_allele_freqs);
   }
   if (a1alleles || a2alleles) {
@@ -1601,7 +1602,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       logprint("Error: LD-based strand flip scanning requires a sorted .bim.  Retry this\ncommand after using --make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
-    retval = flipscan(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, chrom_info_ptr, marker_pos, unfiltered_indiv_ct, pheno_nm, pheno_c, founder_info, sex_male, outname, outname_end, hh_exists);
+    retval = flipscan(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, zero_extra_chroms, chrom_info_ptr, set_allele_freqs, marker_pos, unfiltered_indiv_ct, pheno_nm, pheno_c, founder_info, sex_male, outname, outname_end, hh_exists);
     if (retval) {
       goto plink_ret_1;
     }

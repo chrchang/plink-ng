@@ -909,7 +909,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 		dp_result[0] = weighted_founder_ct;
 		// reversed from what I initially thought because I'm passing
 		// the ujj-associated buffers before the uii-associated ones.
-		dp_result[1] = -fixed_non_missing_ct;
+		dp_result[1] = -((int32_t)fixed_non_missing_ct);
 		dp_result[2] = missing_cts[ujj] - weighted_founder_ct;
 		dp_result[3] = dp_result[1];
 		dp_result[4] = dp_result[2];
@@ -1335,56 +1335,117 @@ uint32_t ld_missing_ct_intersect(uintptr_t* lptr1, uintptr_t* lptr2, uintptr_t w
   return tot;
 }
 
-int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
-  logprint("Error: --flip-scan is currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
-  /*
+int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
+  // logprint("Error: --flip-scan is currently under development.\n");
+  // return RET_CALC_NOT_YET_SUPPORTED;
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   FILE* outfile_verbose = NULL;
   uintptr_t* indiv_include2 = NULL;
   uintptr_t* indiv_male_include2 = NULL;
+  double min_corr = ldip->flipscan_thresh * (1 - SMALL_EPSILON);
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t max_window_size = 1;
   uint32_t verbose = (ldip->modifier / LD_FLIPSCAN_VERBOSE) & 1;
-  uint32_t max_window_size = 1;
+  uint32_t ignore_x = (ldip->modifier / LD_IGNORE_X) & 1;
+  uint32_t max_window_site_ct = ldip->flipscan_window_size - 1;
   uint32_t window_bp = ldip->flipscan_window_bp;
   int32_t retval = 0;
-  uintptr_t* founder_cases;
-  uintptr_t* founder_ctrls;
+  uintptr_t* founder_phenos[2];
+  uintptr_t* pheno_male_include2[2];
+  uintptr_t* window_geno[2];
+  uintptr_t* window_mask[2];
+  uintptr_t pheno_ct[2];
+  uintptr_t pheno_ct_192_long[2];
+  uint32_t pheno_ctl[2];
+  uint32_t pheno_ct_mld_m1[2];
+  uint32_t pheno_ct_mld_rem[2];
+  int32_t dp_result[5];
+  double* r_matrix;
+  double* r_matrix_ptr;
+  double* r_row_ptr;
   uintptr_t* loadbuf_raw;
-  uintptr_t* window_data;
-  uintptr_t* window_data_ptr;
+  uintptr_t* window_geno_ptr;
+  uintptr_t* window_mask_ptr;
+  uintptr_t* geno_fixed_vec_ptr;
+  uintptr_t* mask_fixed_vec_ptr;
+  uintptr_t* geno_var_vec_ptr;
+  uintptr_t* mask_var_vec_ptr;
+  uint32_t* window_uidxs;
+  uint32_t* window_cidx_starts;
+  uint32_t* neg_uidx_buf;
+  uint32_t* missing_cts;
+  uint32_t* missing_cts_ptr;
+  char* textbuf;
   char* wptr;
   char* wptr_start;
-  uintptr_t case_ct;
-  uintptr_t ctrl_ct;
-  uintptr_t case_ctv2;
-  uintptr_t ctrl_ctv2;
+  char* wptr_start2;
+  double pos_r_tot;
+  double neg_r_tot;
+  double ctrl_pheno;
+  double case_pheno;
+  double non_missing_ctd;
+  double cov12;
+  double dxx;
+  double dyy;
+  uintptr_t marker_uidx;
+  uintptr_t cur_pheno_ct;
+  uintptr_t window_cidx;
+  uintptr_t window_cidx2;
+  uintptr_t window_cidx3;
+  uintptr_t marker_uidx2;
+  uintptr_t marker_uidx3;
+  uintptr_t cur_192_long;
+  uintptr_t cur_ctwd12;
+  uintptr_t cur_ctwd12_rem;
+  uintptr_t lshift_last;
+  uintptr_t ulii;
+  uintptr_t uljj;
   uint32_t chrom_fo_idx;
   uint32_t chrom_idx;
   uint32_t chrom_end;
   uint32_t chrom_marker_ct;
-  uint32_t chrom_marker_idx;
-  uint32_t window_start_idx;
-  uint32_t window_start_pos;
+  uint32_t marker_idx;
   uint32_t is_haploid;
   uint32_t is_x;
   uint32_t is_y;
-  if (wkspace_alloc_ul_checked(&founder_cases, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&founder_ctrls, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
+  uint32_t is_case;
+  uint32_t marker_pos_thresh;
+  uint32_t pos_r_ct;
+  uint32_t neg_r_ct;
+  uint32_t fixed_missing_ct;
+  uint32_t fixed_non_missing_ct;
+  uint32_t non_missing_ct;
+  uint32_t cur_mld_m1;
+  uint32_t cur_mld_rem;
+  uint32_t uii;
+  ulii = 2 * (max_marker_allele_len + plink_maxsnp) + 256;
+  if (ulii <= MAXLINELEN) {
+    textbuf = tbuf;
+  } else {
+    if (wkspace_alloc_c_checked(&textbuf, ulii)) {
+      goto flipscan_ret_NOMEM;
+    }
+  }
+  if (wkspace_alloc_ul_checked(&(founder_phenos[0]), unfiltered_indiv_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&(founder_phenos[1]), unfiltered_indiv_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
     goto flipscan_ret_NOMEM;
   }
-  memcpy(founder_cases, founder_info, unfiltered_indiv_ctl * sizeof(intptr_t));
-  bitfield_and(founder_cases, pheno_nm, unfiltered_indiv_ctl);
-  memcpy(founder_ctrls, founder_cases, unfiltered_indiv_ctl * sizeof(intptr_t));
-  bitfield_and(founder_cases, pheno_c, unfiltered_indiv_ctl);
-  bitfield_andnot(founder_ctrls, pheno_c, unfiltered_indiv_ctl);
-  case_ct = popcount_longs(founder_cases, unfiltered_indiv_ctl);
-  ctrl_ct = popcount_longs(founder_ctrls, unfiltered_indiv_ctl);
-  if ((!case_ct) || (!ctrl_ct)) {
+  loadbuf_raw[unfiltered_indiv_ctl2 - 1] = 0;
+  memcpy(founder_phenos[0], founder_info, unfiltered_indiv_ctl * sizeof(intptr_t));
+  bitfield_and(founder_phenos[0], pheno_nm, unfiltered_indiv_ctl);
+  if (alloc_raw_haploid_filters(unfiltered_indiv_ct, hh_exists, 0, founder_phenos[0], sex_male, &indiv_include2, &indiv_male_include2)) {
+    goto flipscan_ret_NOMEM;
+  }
+  memcpy(founder_phenos[1], founder_phenos[0], unfiltered_indiv_ctl * sizeof(intptr_t));
+  bitfield_and(founder_phenos[1], pheno_c, unfiltered_indiv_ctl);
+  bitfield_andnot(founder_phenos[0], pheno_c, unfiltered_indiv_ctl);
+  pheno_ct[0] = popcount_longs(founder_phenos[0], unfiltered_indiv_ctl);
+  pheno_ct[1] = popcount_longs(founder_phenos[1], unfiltered_indiv_ctl);
+  if ((!pheno_ct[0]) || (!pheno_ct[1])) {
     if (popcount_longs(founder_info, unfiltered_indiv_ctl)) {
       logprint("Error: --flip-scan requires at least one case and one control, and only\nconsiders founders.\n");
     } else {
@@ -1392,29 +1453,61 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
     }
     goto flipscan_ret_INVALID_CMDLINE;
   }
-  loadbuf_raw[unfiltered_indiv_ctl2 - 1] = 0;
-  if (alloc_raw_haploid_filters(unfiltered_indiv_ct, hh_exists, 0, indiv_exclude, sex_male, &indiv_include2, &indiv_male_include2)) {
+  for (is_case = 0; is_case < 2; is_case++) {
+    pheno_ctl[is_case] = (pheno_ct[is_case] + (BITCT - 1)) / BITCT;
+    ulii = (pheno_ct[is_case] + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
+    pheno_ct_mld_m1[is_case] = ulii - 1;
+#ifdef __LP64__
+    pheno_ct_mld_rem[is_case] = (MULTIPLEX_LD / 192) - (ulii * MULTIPLEX_LD - pheno_ct[is_case]) / 192;
+#else
+    pheno_ct_mld_rem[is_case] = (MULTIPLEX_LD / 48) - (ulii * MULTIPLEX_LD - pheno_ct[is_case]) / 48;
+#endif
+    pheno_ct_192_long[is_case] = pheno_ct_mld_m1[is_case] * (MULTIPLEX_LD / BITCT2) + pheno_ct_mld_rem[is_case] * (192 / BITCT2);
+  }
+  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
+    max_window_size = chrom_window_max(marker_pos, marker_exclude, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], max_window_site_ct * 2 + 1, window_bp * 2, max_window_size);
+  }
+  if (wkspace_alloc_ui_checked(&window_uidxs, max_window_size * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&window_cidx_starts, max_window_size * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&neg_uidx_buf, max_window_size * sizeof(int32_t)) ||
+      wkspace_alloc_ul_checked(&(pheno_male_include2[0]), pheno_ctl[0] * 2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&(pheno_male_include2[1]), pheno_ctl[1] * 2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ui_checked(&missing_cts, max_window_size * 2 * sizeof(int32_t)) ||
+      wkspace_alloc_ul_checked(&(window_geno[0]), max_window_size * pheno_ct_192_long[0] * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&(window_mask[0]), max_window_size * pheno_ct_192_long[0] * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&(window_geno[1]), max_window_size * pheno_ct_192_long[1] * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&(window_mask[1]), max_window_size * pheno_ct_192_long[1] * sizeof(intptr_t)) ||
+      // not advantageous to choose a very large block size here, so O(n^2)
+      // memory is fine (though it can be avoided by calculating each
+      // correlation twice).
+      wkspace_alloc_d_checked(&r_matrix, max_window_size * max_window_size * 2 * sizeof(double))) {
     goto flipscan_ret_NOMEM;
   }
-  case_ctv2 = 2 * ((case_ct + (BITCT - 1)) / BITCT);
-  ctrl_ctv2 = 2 * ((ctrl_ct + (BITCT - 1)) / BITCT);
-  max_window_size = 1;
-  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom-ct; chrom_fo_idx++) {
-    max_window_size = chrom_window_max(marker_pos, marker_exclude, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], ldip->flipscan_window_size, window_bp, max_window_size);
+  ulii = (max_window_size + 1) * 2;
+  for (uljj = 0; uljj < max_window_size; uljj++) {
+    neg_uidx_buf[uljj * ulii] = 0.0;
+    neg_uidx_buf[uljj * ulii + 1] = 0.0;
   }
-  // todo: get max window size
-  if (wkspace_alloc_ul_checked(&) ||
-      wkspace_alloc_ul_checked(&)) {
-    goto flipscan_ret_NOMEM;
+  for (is_case = 0; is_case < 2; is_case++) {
+    vec_collapse_init(sex_male, unfiltered_indiv_ct, founder_phenos[is_case], pheno_ct[is_case], pheno_male_include2[is_case]);
+    window_geno_ptr = window_geno[is_case];
+    window_mask_ptr = window_mask[is_case];
+    cur_192_long = pheno_ct_192_long[is_case];
+    ulii = 2 + pheno_ct_192_long[is_case] - pheno_ctl[is_case] * 2;
+    for (uljj = 1; uljj <= max_window_size; uljj++) {
+      fill_ulong_zero(&(window_geno_ptr[uljj * cur_192_long - ulii]), ulii);
+      fill_ulong_zero(&(window_mask_ptr[uljj * cur_192_long - ulii]), ulii);
+    }
   }
+
   memcpy(outname_end, ".flipscan", 10);
   if (fopen_checked(&outfile, outname, "w")) {
     goto flipscan_ret_OPEN_FAIL;
   }
-  wptr = memcpya(tbuf, "   CHR ", 7);
+  wptr = memcpya(textbuf, "   CHR ", 7);
   wptr = fw_strcpyn(plink_maxsnp, 3, "SNP", wptr);
   wptr = strcpya(wptr, "           BP   A1   A2        F    POS    R_POS    NEG    R_NEG NEGSNPS\n");
-  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+  if (fwrite_checked(textbuf, wptr - textbuf, outfile)) {
     goto flipscan_ret_WRITE_FAIL;
   }
   if (verbose) {
@@ -1423,12 +1516,12 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
       goto flipscan_ret_OPEN_FAIL;
     }
     // er, this is a misalignment disaster
-    wptr = memcpya(tbuf, "CHR_INDX ", 9);
+    wptr = memcpya(textbuf, "CHR_INDX ", 9);
     wptr = fw_strcpyn(plink_maxsnp, 8, "SNP_INDX", wptr);
     wptr = memcpya(wptr, "      BP_INDX A1_INDX ", 22);
     wptr = fw_strcpyn(plink_maxsnp, 8, "SNP_PAIR", wptr);
     wptr = strcpya(wptr, "      BP_PAIR A1_PAIR      R_A      R_U\n");
-    if (fwrite_checked(tbuf, wptr - tbuf, outfile_verbose)) {
+    if (fwrite_checked(textbuf, wptr - textbuf, outfile_verbose)) {
       goto flipscan_ret_WRITE_FAIL;
     }
   }
@@ -1436,25 +1529,29 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
     chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
     marker_uidx = next_unset(marker_exclude, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx], chrom_end);
-    if (marker_uidx == chrom_end) {
+    chrom_marker_ct = chrom_end - marker_uidx - popcount_bit_idx(marker_exclude, marker_uidx, chrom_end);
+    if (chrom_marker_ct < 2) {
       continue;
     }
+    wptr_start = width_force(6, textbuf, chrom_name_write(textbuf, chrom_info_ptr, chrom_idx, zero_extra_chroms));
+    *wptr_start++ = ' ';
     is_haploid = is_set(chrom_info_ptr->haploid_mask, chrom_idx);
     is_x = (chrom_idx == ((uint32_t)chrom_info_ptr->x_code));
     is_y = (chrom_idx == ((uint32_t)chrom_info_ptr->y_code));    
     if (fseeko(bedfile, bed_offset + (marker_uidx * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
       goto flipscan_ret_READ_FAIL;
     }
+    marker_idx = 0;
+    window_cidx = max_window_size - 1;
+    window_cidx2 = 0;
     do {
-      if (IS_SET(marker_exclude, marker_uidx)) {
-	marker_uidx = next_unset_ul(marker_exclude, marker_uidx, chrom_end);
-	if (marker_uidx == chrom_end) {
-	  break;
-	}
-	if (fseeko(bedfile, bed_offset + (marker_uidx * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
-	  goto flipscan_ret_READ_FAIL;
-	}
+      if (++window_cidx == max_window_size) {
+	window_cidx = 0;
       }
+      window_uidxs[window_cidx] = marker_uidx;
+
+      // circular index of beginning of window starting at current marker
+      window_cidx_starts[window_cidx] = window_cidx2;
       if (fread(loadbuf_raw, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	goto flipscan_ret_READ_FAIL;
       }
@@ -1464,9 +1561,178 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
       if (is_haploid && hh_exists) {
         haploid_fix(hh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, is_x, is_y, (unsigned char*)loadbuf_raw);
       }
+      for (is_case = 0; is_case < 2; is_case++) {
+	// similar to ld_block_thread() below
+	cur_pheno_ct = pheno_ct[is_case];
+	uii = cur_pheno_ct / BITCT2;
+        cur_ctwd12 = uii / 12;
+	cur_ctwd12_rem = uii - (12 * cur_ctwd12);
+	lshift_last = 2 * ((0x7fffffc0 - cur_pheno_ct) % BITCT2);
+	cur_mld_m1 = pheno_ct_mld_m1[is_case];
+        cur_mld_rem = pheno_ct_mld_rem[is_case];
+	cur_192_long = pheno_ct_192_long[is_case];
+	window_geno_ptr = window_geno[is_case];
+	window_mask_ptr = window_mask[is_case];
+	missing_cts_ptr = &(missing_cts[is_case * max_window_size]);
+	r_matrix_ptr = &(r_matrix[is_case]);
+	geno_fixed_vec_ptr = &(window_geno_ptr[window_cidx * cur_192_long]);
+	mask_fixed_vec_ptr = &(window_mask_ptr[window_cidx * cur_192_long]);
+        collapse_copy_2bitarr_incl(loadbuf_raw, window_geno_ptr, unfiltered_indiv_ct, cur_pheno_ct, founder_phenos[is_case]);
+        ld_process_load2(window_geno_ptr, window_mask_ptr, &fixed_missing_ct, unfiltered_indiv_ct, is_x && (!ignore_x), pheno_male_include2[is_case]);
+	fixed_non_missing_ct = cur_pheno_ct - fixed_missing_ct;
+        missing_cts_ptr[window_cidx] = fixed_missing_ct;
+	window_cidx3 = window_cidx2;
+	while (window_cidx3 != window_cidx) {
+	  geno_var_vec_ptr = &(window_geno_ptr[window_cidx3 * cur_192_long]);
+	  mask_var_vec_ptr = &(window_mask_ptr[window_cidx3 * cur_192_long]);
+	  non_missing_ct = fixed_non_missing_ct - missing_cts_ptr[window_cidx3];
+	  if (fixed_missing_ct && missing_cts_ptr[window_cidx3]) {
+            non_missing_ct += ld_missing_ct_intersect(mask_var_vec_ptr, mask_fixed_vec_ptr, cur_ctwd12, cur_ctwd12_rem, lshift_last);
+	  }
+	  if (non_missing_ct) {
+	    dp_result[0] = cur_pheno_ct;
+	    dp_result[1] = -((int32_t)fixed_non_missing_ct);
+	    dp_result[2] = missing_cts_ptr[window_cidx3] - cur_pheno_ct;
+	    dp_result[3] = dp_result[1];
+	    dp_result[4] = dp_result[2];
+	    ld_dot_prod(geno_var_vec_ptr, geno_fixed_vec_ptr, mask_var_vec_ptr, mask_fixed_vec_ptr, dp_result, cur_mld_m1, cur_mld_rem);
+	    non_missing_ctd = (double)((int32_t)non_missing_ct);
+            dxx = dp_result[1];
+            dyy = dp_result[2];
+            cov12 = dp_result[0] * non_missing_ctd - dxx * dyy;
+            dxx = (dp_result[3] * non_missing_ctd + dxx * dxx) * (dp_result[4] * non_missing_ctd + dyy * dyy);
+	    dxx = cov12 / sqrt(dxx);
+	  } else {
+	    dxx = 0.0;
+	  }
+	  r_matrix_ptr[2 * (window_cidx3 * max_window_size + window_cidx)] = dxx;
+	  r_matrix_ptr[2 * (window_cidx * max_window_size + window_cidx3)] = dxx;
+          if (++window_cidx3 == max_window_size) {
+            window_cidx3 = 0;
+	  }
+	}
+      }
 
-      ;;;
-    } while (marker_uidx < chrom_end);
+      if (++marker_idx < chrom_marker_ct) {
+        marker_uidx++;
+	if (IS_SET(marker_exclude, marker_uidx)) {
+	  marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+	  if (fseeko(bedfile, bed_offset + (marker_uidx * ((uint64_t)unfiltered_indiv_ct4)), SEEK_SET)) {
+	    goto flipscan_ret_READ_FAIL;
+	  }
+	}
+        marker_pos_thresh = marker_pos[marker_uidx];
+	if (marker_pos_thresh < window_bp) {
+	  marker_pos_thresh = 0;
+	} else {
+	  marker_pos_thresh -= window_bp;
+	}
+      } else {
+	// close out the chromosome
+        marker_pos_thresh = 0x80000000U;
+      }
+      // only need to enforce window site count constraint during first loop
+      // iteration
+      ulii = window_cidx2 + max_window_site_ct;
+      if (ulii >= max_window_size) {
+	ulii -= max_window_size;
+      }
+      marker_uidx2 = window_uidxs[window_cidx2];
+      if ((ulii == window_cidx) || (marker_pos[marker_uidx2] < marker_pos_thresh)) {
+	do {
+	  pos_r_tot = 0.0;
+	  neg_r_tot = 0.0;
+	  pos_r_ct = 0;
+	  neg_r_ct = 0;
+          r_row_ptr = &(r_matrix[2 * max_window_size * window_cidx2]);
+	  window_cidx3 = window_cidx_starts[window_cidx2];
+          while (1) {
+	    ctrl_pheno = r_row_ptr[2 * window_cidx3];
+	    case_pheno = r_row_ptr[2 * window_cidx3 + 1];
+	    if ((fabs(ctrl_pheno) >= min_corr) || (fabs(case_pheno) >= min_corr)) {
+	      dxx = fabs(ctrl_pheno) + fabs(case_pheno);
+	      if (case_pheno * ctrl_pheno >= 0.0) {
+                pos_r_ct++;
+		pos_r_tot += dxx;
+	      } else {
+		neg_uidx_buf[neg_r_ct++] = window_uidxs[window_cidx3];
+		neg_r_tot += dxx;
+	      }
+	    }
+	    if (window_cidx3 == window_cidx) {
+	      break;
+	    }
+	    if (++window_cidx3 == max_window_size) {
+              window_cidx3 = 0;
+	    }
+	  }
+	  wptr_start2 = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), wptr_start);
+	  wptr_start2 = memseta(wptr_start2, 32, 3);
+          wptr_start2 = uint32_writew10x(wptr_start2, marker_pos[marker_uidx2], ' ');
+	  wptr_start2 = fw_strcpy(4, marker_allele_ptrs[2 * marker_uidx2], wptr_start2);
+	  *wptr_start2++ = ' ';
+	  wptr = fw_strcpy(4, marker_allele_ptrs[2 * marker_uidx2 + 1], wptr_start2);
+	  *wptr++ = ' ';
+	  wptr = double_g_writewx3x(wptr, set_allele_freqs[marker_uidx2], 8, ' ');
+          wptr = uint32_writew6x(wptr, pos_r_ct, ' ');
+	  if (!pos_r_ct) {
+	    wptr = memcpya(wptr, "      NA", 8);
+	  } else {
+            wptr = double_g_writewx3(wptr, pos_r_tot / ((int32_t)(pos_r_ct * 2)), 8);
+	  }
+          *wptr++ = ' ';
+          wptr = uint32_writew6x(wptr, neg_r_ct, ' ');
+	  if (!neg_r_ct) {
+	    wptr = memcpya(wptr, "      NA", 8);
+	  } else {
+	    wptr = double_g_writewx3(wptr, neg_r_tot / ((int32_t)(neg_r_ct * 2)), 8);
+	  }
+	  *wptr++ = ' ';
+          if (fwrite_checked(textbuf, wptr - textbuf, outfile)) {
+	    goto flipscan_ret_WRITE_FAIL;
+	  }
+	  if (neg_r_ct) {
+	    for (ulii = 0; ulii < neg_r_ct; ulii++) {
+	      if (ulii) {
+		putc('|', outfile);
+	      }
+              fputs(&(marker_ids[neg_uidx_buf[ulii] * max_marker_id_len]), outfile);
+	    }
+	    if (verbose) {
+	      window_cidx3 = window_cidx_starts[window_cidx2];
+	      while (1) {
+		ctrl_pheno = r_row_ptr[2 * window_cidx3];
+		case_pheno = r_row_ptr[2 * window_cidx3 + 1];
+		if ((fabs(ctrl_pheno) >= min_corr) || (fabs(case_pheno) >= min_corr)) {
+		  marker_uidx3 = window_uidxs[window_cidx3];
+		  wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx3 * max_marker_id_len]), wptr_start2);
+		  wptr = memseta(wptr, 32, 3);
+		  wptr = uint32_writew10x(wptr, marker_pos[marker_uidx3], ' ');
+		  wptr = fw_strcpy(4, marker_allele_ptrs[2 * marker_uidx3], wptr);
+                  *wptr++ = ' ';
+		  wptr = double_g_writewx3x(wptr, case_pheno, 8, ' ');
+		  wptr = double_g_writewx3x(wptr, ctrl_pheno, 8, '\n');
+		  if (fwrite_checked(textbuf, wptr - textbuf, outfile_verbose)) {
+		    goto flipscan_ret_WRITE_FAIL;
+		  }
+		}
+		if (window_cidx3 == window_cidx) {
+		  break;
+		}
+		if (++window_cidx3 == max_window_size) {
+		  window_cidx3 = 0;
+		}
+	      }
+	    }
+	  }
+	  putc('\n', outfile);
+	  if (++window_cidx2 == max_window_size) {
+	    window_cidx2 = 0;
+	  }
+	  marker_uidx2 = window_uidxs[window_cidx2];
+	} while ((marker_pos[marker_uidx2] < marker_pos_thresh) && (window_cidx2 != window_cidx));
+      }
+    } while (marker_idx < chrom_marker_ct);
   }
   if (fclose_null(&outfile)) {
     goto flipscan_ret_WRITE_FAIL;
@@ -1489,12 +1755,14 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   flipscan_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
+  flipscan_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
   }
   wkspace_reset(wkspace_mark);
   fclose_cond(outfile);
   fclose_cond(outfile_verbose);
   return retval;
-  */
 }
 
 // LD multithread globals
