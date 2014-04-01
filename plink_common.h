@@ -164,6 +164,10 @@
 // allow tail sum to be up to 2^30.)
 #define EXACT_TEST_BIAS 0.00000000000000000000000010339757656912845935892608650874535669572651386260986328125
 
+// sometimes an infinity substitute that avoids the 32-bit Windows performance
+// penalty
+#define HUGE_DOUBLE 1.7976931348623157e308
+
 #define RET_SUCCESS 0
 #define RET_NOMEM 1
 #define RET_OPEN_FAIL 2

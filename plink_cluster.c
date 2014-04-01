@@ -1727,7 +1727,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	}
         if (tol_arr[cov_idx] != -1) {
 	  if ((!memcmp(bufptr, missing_str, missing_len)) && (((unsigned char)bufptr[missing_len]) <= ' ')) {
-	    *dptr++ = -INFINITY;
+	    *dptr++ = -HUGE_DOUBLE;
 	  } else {
             if (scan_double(bufptr, dptr++)) {
               logprint("Error: Non-numeric covariate in --qmatch file.\n");
@@ -1804,7 +1804,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	for (cov_idx = 0; cov_idx < non_null_cov_ct; cov_idx++) {
 	  dxx = *dptr++;
 	  dyy = *dptr2++;
-	  if ((dxx != -INFINITY) && (dyy != -INFINITY) && (tol_arr[cov_idx] < fabs(dxx - dyy))) {
+	  if ((dxx != -HUGE_DOUBLE) && (dyy != -HUGE_DOUBLE) && (tol_arr[cov_idx] < fabs(dxx - dyy))) {
             break;
 	  }
 	}

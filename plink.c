@@ -2948,8 +2948,8 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t cnv_enrichment_test_mperms = 0;
   uint32_t cnv_min_seglen = 0;
   uint32_t cnv_max_seglen = 0xffffffffU;
-  double cnv_min_score = -INFINITY;
-  double cnv_max_score = INFINITY;
+  double cnv_min_score = -HUGE_DOUBLE;
+  double cnv_max_score = HUGE_DOUBLE;
   uint32_t cnv_min_sites = 0;
   uint32_t cnv_max_sites = 0xffffffffU;
   uint32_t cnv_intersect_filter_type = 0;
@@ -2967,14 +2967,14 @@ int32_t main(int32_t argc, char** argv) {
   double tail_bottom = 0.0;
   double tail_top = 0.0;
   double lasso_h2 = 0.0;
-  double lasso_minlambda = -INFINITY;
+  double lasso_minlambda = -1;
   uint32_t testmiss_modifier = 0;
   uint32_t testmiss_mperm_val = 0;
   char* segment_spanning_fname = NULL;
   char* missing_code = NULL;
   char range_delim = '-';
   uint32_t modifier_23 = 0;
-  double pheno_23 = INFINITY;
+  double pheno_23 = HUGE_DOUBLE;
   char* fid_23 = NULL;
   char* iid_23 = NULL;
   char* paternal_id_23 = NULL;
@@ -11487,7 +11487,7 @@ int32_t main(int32_t argc, char** argv) {
       } else if (load_rare & LOAD_RARE_BCF) {
 	retval = bcf_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, const_fid, id_delim, vcf_idspace_to, vcf_min_qual, vcf_filter_exceptions_flattened, &chrom_info);
       } else if (load_rare == LOAD_RARE_23) {
-        retval = bed_from_23(pedname, outname, sptr, modifier_23, fid_23, iid_23, (pheno_23 == INFINITY)? ((double)missing_pheno) : pheno_23, paternal_id_23, maternal_id_23, &chrom_info);
+        retval = bed_from_23(pedname, outname, sptr, modifier_23, fid_23, iid_23, (pheno_23 == HUGE_DOUBLE)? ((double)missing_pheno) : pheno_23, paternal_id_23, maternal_id_23, &chrom_info);
       } else if (load_rare & LOAD_RARE_DUMMY) {
 	retval = generate_dummy(outname, sptr, dummy_flags, dummy_marker_ct, dummy_indiv_ct, dummy_missing_geno, dummy_missing_pheno);
       } else if (load_rare & LOAD_RARE_SIMULATE) {

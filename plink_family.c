@@ -1133,7 +1133,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	    if (ukk < unfiltered_indiv_ct) {
 	      set_bit(indiv_exclude, ukk);
 	    }
-	  } else if ((exclude_one_ratio == INFINITY) || (ujj == unfiltered_indiv_ct) || (ukk == unfiltered_indiv_ct)) {
+	  } else if ((exclude_one_ratio == -1) || (ujj == unfiltered_indiv_ct) || (ukk == unfiltered_indiv_ct)) {
             set_bit(indiv_exclude, (uint32_t)trio_code);
 	  } else {
 	    dxx = (double)((int32_t)trio_list[trio_idx * 3 + 1]);

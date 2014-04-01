@@ -744,7 +744,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
       wkspace_alloc_d_checked(&residuals, indiv_valid_ct * sizeof(double))) {
     goto lasso_ret_NOMEM;
   }
-  if (lasso_minlambda == -INFINITY) {
+  if (lasso_minlambda == -1) {
     if (wkspace_alloc_d_checked(&rand_matrix, indiv_valid_ct * WARM_START_ITERS * sizeof(double)) ||
         wkspace_alloc_d_checked(&misc_arr, WARM_START_ITERS * sizeof(double))) {
       goto lasso_ret_NOMEM;
