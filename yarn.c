@@ -5,14 +5,6 @@
  */
 
 #ifndef _WIN32
-  #ifndef __APPLE__
-// ARGH
-__asm__(".symver memcpy,memcpy@@GLIBC_2.2.5");
-__asm__(".symver secure_getenv,secure_getenv@@GLIBC_2.0");
-  #endif
-#endif
-
-#ifndef _WIN32
 
 /* Basic thread operations implemented using the POSIX pthread library.  All
    pthread references are isolated within this module to allow alternate
