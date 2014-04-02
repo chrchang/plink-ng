@@ -1890,8 +1890,7 @@ int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modi
 	}
       }
     }
-    wkspace_reset((unsigned char*)downcoding_values);
-    downcoding_values = (uint32_t*)wkspace_alloc(downcoding_covar_ct * indiv_ct * sizeof(int32_t));
+    wkspace_shrink_top(downcoding_values, downcoding_covar_ct * indiv_ct * sizeof(int32_t));
     // topsize = 0;
 
     // (write_covar_dummy_max_categories - 1) columns, then divide by two
@@ -2131,7 +2130,7 @@ int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintp
   wkspace_left += topsize;
   topsize_base = topsize;
   topsize += ((zc_item_ct + 1) / 2) * 16;
-  wkspace_reset((unsigned char*)marker_id_map);
+  wkspace_reset(marker_id_map);
   wkspace_left -= topsize;
 #ifdef __cplusplus
   std::sort(zc_entries, &(zc_entries[zc_item_ct]));
@@ -2191,7 +2190,7 @@ int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintp
     }
     cluster_zc_mask = &(cluster_zc_mask[indiv_ctv2]);
   }
-  wkspace_reset((unsigned char*)indiv_uidx_to_idx);
+  wkspace_reset(indiv_uidx_to_idx);
   LOGPRINTF("--zero-cluster: %" PRIuPTR " line%s processed.\n", zc_item_ct, (zc_item_ct == 1)? "" : "s");
   while (0) {
   zero_cluster_init_ret_NOMEM:
@@ -2803,7 +2802,7 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
     break;
   }
   if (ll_buf) {
-    wkspace_reset((unsigned char*)ll_buf);
+    wkspace_reset(ll_buf);
   }
   return retval;
 }
@@ -3277,7 +3276,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
     if (retval) {
       goto make_bed_ret_1;
     }
-    wkspace_reset((unsigned char*)ll_buf);
+    wkspace_reset(ll_buf);
 
     if (wkspace_alloc_ul_checked(&writebuf, marker_ct * indiv_ctv2)) {
       // todo: implement multipass.  should now be a minimal change
@@ -4903,7 +4902,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
   uint32_t ii_shift;
   unsigned char* writebuf;
   unsigned char* wbufptr;
-  wkspace_reset((unsigned char*)marker_alleles_f);
+  wkspace_reset(marker_alleles_f);
   if ((wkspace_left / (4LU * sizeof(int32_t) + 16)) <= marker_ct) {
     goto ped_to_bed_multichar_allele_ret_NOMEM;
   }
@@ -5781,7 +5780,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       marker_uidx++;
     }
     indiv_ct4 = (indiv_ct + 3) / 4;
-    wkspace_reset((unsigned char*)marker_alleles);
+    wkspace_reset(marker_alleles);
     fclose_null(&mapfile);
     if (map_is_unsorted) {
       unlink(outname);
@@ -6166,7 +6165,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   }
   fclose_null(&infile);
   memcpy(marker_ids, sorted_marker_ids, marker_ct * max_marker_id_len);
-  wkspace_reset((unsigned char*)sorted_marker_ids);
+  wkspace_reset(sorted_marker_ids);
 
   memcpy(name_end, ".fam", 5);
   if (fopen_checked(&infile, lgen_namebuf, "r")) {
@@ -8487,7 +8486,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   indiv_ct4 = (indiv_ct + 3) / 4;
   indiv_ctl2 = (indiv_ct + (BITCT2 - 1)) / BITCT2;
   indiv_ctv2 = 2 * ((indiv_ct + (BITCT - 1)) / BITCT);
-  wkspace_reset((unsigned char*)loadbuf);
+  wkspace_reset(loadbuf);
   wkspace_left -= topsize;
   ulii = (contig_ct + (BITCT - 1)) / BITCT;
   if (wkspace_alloc_ul_checked(&contig_bitfield, ulii * sizeof(intptr_t)) ||
@@ -10572,7 +10571,7 @@ int32_t recode_allele_load(char* loadbuf, uintptr_t loadbuf_size, char* recode_a
   if (missing_allele) {
     recode_allele_extra = (char*)wkspace_alloc(rae_size);
   } else {
-    wkspace_reset((unsigned char*)(*allele_missing_ptr));
+    wkspace_reset(*allele_missing_ptr);
     *allele_missing_ptr = NULL;
   }
   return retval;
@@ -11147,8 +11146,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     *wbufptr++ = '\n';
     // free unused space, and save header length
     header_len = (uintptr_t)(wbufptr - writebuf2);
-    wkspace_reset((unsigned char*)writebuf2);
-    writebuf2 = (char*)wkspace_alloc(header_len);
+    wkspace_shrink_top(writebuf2, header_len);
     cmalen[1] = 4;
     ulii = 2 * max_marker_allele_len;
     if (wkspace_alloc_c_checked(&cur_mk_allelesx_buf, 4 * max_marker_allele_len)) {
@@ -11294,8 +11292,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	fid_ct++;
       }
     }
-    wkspace_reset((unsigned char*)writebuf3);
-    writebuf3 = (char*)wkspace_alloc(fid_ct * max_fid_len);
+    wkspace_shrink_top(writebuf3, fid_ct * max_fid_len);
     if (wkspace_alloc_ui_checked(&fid_map, fid_ct * sizeof(int32_t)) ||
         wkspace_alloc_c_checked(&writebuf, 4 * marker_ct) ||
         wkspace_alloc_c_checked(&writebuf2, 16)) {
@@ -14760,7 +14757,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       goto merge_datasets_ret_WRITE_FAIL;
     }
   }
-  wkspace_reset((unsigned char*)person_fids);
+  wkspace_reset(person_fids);
   for (uii = 0; uii < HASHSIZE; uii++) {
     htable2[uii] = NULL;
   }
@@ -14882,7 +14879,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     logprint("Error: No variants in merged file.\n");
     goto merge_datasets_ret_INVALID_FORMAT;
   }
-  wkspace_reset((unsigned char*)ll_buf);
+  wkspace_reset(ll_buf);
 
   tot_indiv_ct4 = (tot_indiv_ct + 3) / 4;
 
@@ -15013,7 +15010,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   if (fclose_null(&outfile)) {
     goto merge_datasets_ret_WRITE_FAIL;
   }
-  wkspace_reset((unsigned char*)flex_map);
+  wkspace_reset(flex_map);
   if (wkspace_alloc_ui_checked(&map_reverse, dedup_marker_ct * sizeof(int32_t))) {
     goto merge_datasets_ret_NOMEM;
   }

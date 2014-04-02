@@ -2672,6 +2672,7 @@ int32_t calc_unrelated_herit(uint64_t calculation_type, Rel_info* relip, uintptr
   ulii = CACHEALIGN_DBL(ulii * ulii);
   rel_base = &(g_rel_dists[ulii]);
   ulii = ulii * 3 + CACHEALIGN_DBL(indiv_ct) * 3;
+  // no wkspace_shrink_top here since this actually grows the allocation...
   wkspace_reset(g_rel_dists);
   if (wkspace_alloc_d_checked(&g_rel_dists, ulii * sizeof(double))) {
     return RET_NOMEM;
@@ -8237,7 +8238,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
       *dptr++ = dptr2[pc_idx * pca_indiv_ct];
     }
   }
-  wkspace_reset((unsigned char*)out_z);
+  wkspace_reset(out_z);
   if (var_wts || proj_indiv_ct) {
     if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
         wkspace_alloc_ul_checked(&loadbuf, pca_indiv_ctl2 * sizeof(intptr_t)) ||
@@ -9009,7 +9010,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   }
   putchar('\r');
   logprint("Distance matrix calculation complete.\n");
-  wkspace_reset((unsigned char*)masks);
+  wkspace_reset(masks);
   if (calculation_type & (CALC_PLINK1_DISTANCE_MATRIX | CALC_PLINK1_IBS_MATRIX)) {
     if (wkspace_alloc_c_checked(&writebuf, 16 * indiv_ct)) {
       goto calc_distance_ret_NOMEM;
@@ -9500,7 +9501,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	  ulii += 5;
 	}
       }
-      wkspace_reset((unsigned char*)genome_main);
+      wkspace_reset(genome_main);
     }
   } else if (((!cluster_missing) || do_neighbor) && (!read_dists_fname)) {
     // calculate entire distance matrix, or use already-calculated matrix in
@@ -9562,7 +9563,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	  }
 	}
       }
-      wkspace_reset((unsigned char*)g_dists);
+      wkspace_reset(g_dists);
     }
   }
   if (read_dists_fname) {
@@ -9654,7 +9655,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
         logprint("\n");
       }
       // N.B. this is still used until the end of the block
-      wkspace_reset((unsigned char*)g_missing_dbl_excluded);
+      wkspace_reset(g_missing_dbl_excluded);
     }
     dxx1 = 1.0 / ((double)((int32_t)marker_ct));
     if (cluster_missing) {
@@ -9864,7 +9865,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	  }
 	}
       }
-      wkspace_reset((unsigned char*)collapsed_pheno_c);
+      wkspace_reset(collapsed_pheno_c);
     }
   }
   if (cur_cluster_case_cts || is_group_avg || (cp->max_size < indiv_ct)) {
@@ -10054,7 +10055,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       logprint("Error: No cluster merges possible.\n");
       goto calc_cluster_neighbor_ret_INVALID_CMDLINE;
     }
-    wkspace_reset((unsigned char*)cluster_sorted_ibs);
+    wkspace_reset(cluster_sorted_ibs);
     if (wkspace_alloc_ui_checked(&cluster_sorted_ibs_indices, ((is_group_avg? 4 : 3) * heap_size * sizeof(int32_t)) + CACHELINE)) {
       goto calc_cluster_neighbor_ret_NOMEM;
     }
@@ -10118,7 +10119,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	// this guarantees write_cluster_solution() has enough space
 	ulii = cur_cluster_ct;
       }
-      wkspace_reset((unsigned char*)(&(cluster_sorted_ibs_indices[(ulii + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1))])));
+      wkspace_reset((&(cluster_sorted_ibs_indices[(ulii + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1))])));
     } else {
       uiptr = &(cluster_sorted_ibs_indices[CACHELINE_INT32 + 3 * heap_size]);
       for (ulii = 0; ulii < heap_size; ulii++) {
@@ -10129,8 +10130,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
         *uiptr++ = cluster_sorted_ibs_indices[CACHELINE_INT32 + ulii * 3];
         *uiptr++ = cluster_sorted_ibs_indices[CACHELINE_INT32 + ulii * 3 + 1];
       }
-      wkspace_reset((unsigned char*)cluster_sorted_ibs);
-      cluster_sorted_ibs = (double*)wkspace_alloc(heap_size * sizeof(double));
+      wkspace_shrink_top(cluster_sorted_ibs, heap_size * sizeof(double));
       memcpy(wkspace_base, &(cluster_sorted_ibs_indices[CACHELINE_INT32 + 3 * heap_size]), heap_size * sizeof(int32_t));
       ulii = heap_size;
       if (ulii < cur_cluster_ct) {
@@ -10212,7 +10212,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	goto calc_cluster_neighbor_ret_1;
       }
     } else {
-      wkspace_reset((unsigned char*)cluster_merge_prevented);
+      wkspace_reset(cluster_merge_prevented);
       if (is_mds_cluster) {
         cluster_dist_multiply(indiv_ct, cluster_ct, cluster_starts, mds_plot_dmatrix_copy);
       }

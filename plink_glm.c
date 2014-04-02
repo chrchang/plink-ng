@@ -2781,7 +2781,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       }
       param_ctx_max++;
     } else {
-      wkspace_reset((unsigned char*)g_joint_test_params);
+      wkspace_reset(g_joint_test_params);
       g_joint_test_params = NULL;
       constraint_ct_max = 0;
       logprint("Warning: Ignoring --tests since too few parameter indices are in range.\n");

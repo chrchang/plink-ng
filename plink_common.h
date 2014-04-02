@@ -790,6 +790,8 @@ static inline int32_t wkspace_alloc_ull_checked(uint64_t** ullp_ptr, uintptr_t s
 
 void wkspace_reset(void* new_base);
 
+void wkspace_shrink_top(void* rebase, uintptr_t new_size);
+
 static inline uint32_t hashval2(char* idstr, uint32_t idlen) {
   unsigned char* ucptr = (unsigned char*)idstr;
   unsigned char* ucp_end = &(ucptr[idlen]);

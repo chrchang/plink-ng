@@ -277,8 +277,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
     }
     qsort(set_names, set_ct, max_set_id_len, strcmp_natural);
     set_ct = collapse_duplicate_ids(set_names, set_ct, max_set_id_len, NULL);
-    wkspace_reset(set_names);
-    set_names = (char*)wkspace_alloc(set_ct * max_set_id_len);
+    wkspace_shrink_top(set_names, set_ct * max_set_id_len);
     rewind(infile);
   } else {
     set_ct = 1;
@@ -1953,11 +1952,11 @@ uint32_t extract_set_union_unfiltered(Set_info* sip, uintptr_t* set_incl, uintpt
     return 1;
   }
   if ((*union_marker_ct_ptr) == orig_marker_ct) {
-    wkspace_reset((unsigned char*)union_marker_exclude);
+    wkspace_reset(union_marker_exclude);
     *union_marker_exclude_ptr = marker_exclude;
   } else {
     uncollapse_copy_flip_include_arr(filtered_union, unfiltered_marker_ct, marker_exclude, union_marker_exclude);
-    wkspace_reset((unsigned char*)filtered_union);
+    wkspace_reset(filtered_union);
     *union_marker_exclude_ptr = union_marker_exclude;
   }
   return 0;

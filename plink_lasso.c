@@ -197,8 +197,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
   }
   col_ct = covar_ct + polymorphic_marker_ct;
   col_ctl = (col_ct + (BITCT - 1)) / BITCT;
-  wkspace_reset((unsigned char*)data_arr);
-  data_arr = (double*)wkspace_alloc(col_ct * indiv_valid_ct * sizeof(double));
+  wkspace_shrink_top(data_arr, col_ct * indiv_valid_ct * sizeof(double));
   xhat = (double*)wkspace_alloc(col_ct * sizeof(double));
   active_set = (uintptr_t*)wkspace_alloc(col_ctl * sizeof(intptr_t));
   *xhat_ptr = xhat;
@@ -505,8 +504,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
   }
   col_ct = covar_ct + polymorphic_marker_ct;
   col_ctl = (col_ct + (BITCT - 1)) / BITCT;
-  wkspace_reset((unsigned char*)data_arr);
-  data_arr = (double*)wkspace_alloc(col_ct * indiv_valid_ct * sizeof(double));
+  wkspace_shrink_top(data_arr, col_ct * indiv_valid_ct * sizeof(double));
   xhat = (double*)wkspace_alloc(col_ct * sizeof(double));
   active_set = (uintptr_t*)wkspace_alloc(col_ctl * sizeof(intptr_t));
   *xhat_ptr = xhat;

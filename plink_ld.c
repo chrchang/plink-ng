@@ -4786,7 +4786,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
       if (!marker_ct1) {
 	goto ld_report_regular_ret_EMPTY_SET1;
       }
-      wkspace_reset((unsigned char*)id_map);
+      wkspace_reset(id_map);
     }
   }
   if ((parallel_tot > 1) && (marker_ct1 < 2 * parallel_tot)) {
@@ -7031,11 +7031,11 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       LOGPRINTF("--%sepistasis: Skipping %" PRIuPTR " monomorphic/non-autosomal site%s.\n", is_fast? "fast-" : "", marker_ct2 - ulii, (marker_ct2 - ulii == 1)? "" : "s");
     } else {
       LOGPRINTF("--%sepistasis: Skipping %" PRIuPTR " site%s due to --je-cellmin setting.\n", is_fast? "fast-" : "", marker_ct2 - ulii, (marker_ct2 - ulii == 1)? "" : "s");
-      wkspace_reset((unsigned char*)ulptr);
+      wkspace_reset(ulptr);
     }
     marker_uidx_base = next_unset_ul_unsafe(marker_exclude2, marker_uidx_base);
   } else if ((!is_custom_set1) || (!is_set_by_set)) {
-    wkspace_reset((unsigned char*)marker_exclude2);
+    wkspace_reset(marker_exclude2);
     marker_exclude2 = marker_exclude;
   }
   if (is_triangular) {
@@ -7055,7 +7055,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       memcpy(ulptr, marker_exclude2, unfiltered_marker_ctl * sizeof(intptr_t));
       unpack_set_unfiltered(marker_ct2, unfiltered_marker_ct, marker_exclude, sip->setdefs[1], marker_exclude2);
       bitfield_or(marker_exclude2, ulptr, unfiltered_marker_ctl);
-      wkspace_reset((unsigned char*)ulptr);
+      wkspace_reset(ulptr);
       marker_ct2 = unfiltered_marker_ct - popcount_longs(marker_exclude2, unfiltered_marker_ctl);
     } else {
       marker_ct2 = ulii;

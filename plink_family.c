@@ -392,8 +392,7 @@ int32_t get_trios_and_families(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_e
       qsort(edge_list, edge_ct, sizeof(int64_t), llcmp);
 #endif
     }
-    wkspace_reset((unsigned char*)edge_list);
-    edge_list = (uint64_t*)wkspace_alloc(edge_ct * sizeof(int64_t));
+    wkspace_shrink_top(edge_list, edge_ct * sizeof(int64_t));
     if (wkspace_alloc_ui_checked(&toposort_queue, trio_ct * sizeof(int32_t))) {
       goto get_trios_and_families_ret_NOMEM2;
     }
@@ -479,7 +478,7 @@ int32_t get_trios_and_families(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_e
       logprint("Error: Pedigree graph is cyclic.  Check for evidence of time travel abuse in\nyour cohort.\n");
       goto get_trios_and_families_ret_INVALID_FORMAT;
     }
-    wkspace_reset((unsigned char*)edge_list);
+    wkspace_reset(edge_list);
   }
   while (0) {
   get_trios_and_families_ret_NOMEM2:
@@ -1411,8 +1410,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 
   if (family_id_ct < unfiltered_indiv_ct) {
     uiptr = family_sizes;
-    wkspace_reset(family_ids);
-    family_ids = (char*)wkspace_alloc(family_id_ct * max_family_id_len);
+    wkspace_shrink_top(family_ids, family_id_ct * max_family_id_len);
     family_sizes = (uint32_t*)wkspace_alloc(family_id_ct * sizeof(int32_t));
     if (family_sizes < uiptr) {
       // copy back
@@ -1763,6 +1761,9 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
   uint32_t chrom_end = 0;
   uint32_t is_x = 0;
+  uint32_t family_write_idx = 0;
+  uint32_t trio_write_idx = 0;
+  uint32_t case_trio_ct = 0;
   int32_t retval = 0;
   char* fids;
   char* iids;
@@ -1772,8 +1773,17 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   uintptr_t* loadbuf;
   uintptr_t* indiv_include2;
   uintptr_t* indiv_male_include2;
-  uint32_t* trio_error_lookup; // optimized for Mendel error correction
-  uint32_t* trio_tdt_lookup; // optimized for actual TDT
+  uint32_t* trio_error_lookup;
+
+  // a sequence of variable-length nuclear family records.
+  // [0]: father uidx
+  // [1]: mother uidx
+  // [2]: number of children (n)
+  // [3..(2+n)]: child uidxs
+  // [3+n]: father uidx for next record
+  // etc.
+  uint32_t* trio_nuclear_lookup;
+  uint32_t* lookup_ptr;
   uint64_t cur_trio;
   uintptr_t max_fid_len;
   uintptr_t max_iid_len;
@@ -1797,15 +1807,23 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
     goto tdt_ret_1;
   }
   // now assemble list of nuclear families with at least one case child
-  if (wkspace_alloc(, )) {
+  if (wkspace_alloc_ui_checked(&trio_nuclear_lookup, (3 * family_ct + trio_ct) sizeof(int32_t))) {
     goto tdt_ret_NOMEM;
   }
   trio_list_ptr = trio_list;
-  // note that trio_list is already sorted by family
+  lookup_ptr = trio_nuclear_lookup;
+  family_idx = 0;
+  // note that trio_list is already sorted by family, so we can just traverse
+  // it in order to generate a collapsed list.
   for (trio_idx = 0; trio_idx < trio_ct; trio_idx++) {
     cur_trio = *trio_list_ptr++;
-
+    ;;;
   }
+  if (!case_trio_ct) {
+    logprint("Warning: Skipping --tdt since there are no trios with an affected child.\n");
+    goto tdt_ret_1;
+  }
+  wkspace_shrink_top(trio_nuclear_lookup, ((uintptr_t)(lookup_ptr - trio_nuclear_lookup)) * sizeof(int32_t));
 
   if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
     goto tdt_ret_NOMEM;

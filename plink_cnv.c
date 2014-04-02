@@ -669,7 +669,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
   }
  cnv_make_map_ret_1:
   fclose_cond(new_mapfile);
-  wkspace_reset((unsigned char*)marker_pos_arr);
+  wkspace_reset(marker_pos_arr);
   return retval;
 }
 

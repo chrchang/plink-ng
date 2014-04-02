@@ -7650,7 +7650,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     fputs("\b\b\b", stdout);
     logprint(" done.\n");
     if (model_perms_nst) {
-      wkspace_reset((unsigned char*)g_perm_vecs);
+      wkspace_reset(g_perm_vecs);
     }
     if (fclose_null(&outfile)) {
       goto model_assoc_ret_WRITE_FAIL;
@@ -7665,7 +7665,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
         if (retval) {
 	  goto model_assoc_ret_1;
         }
-        wkspace_reset((unsigned char*)marker_idx_to_uidx);
+        wkspace_reset(marker_idx_to_uidx);
       }
       if (mperm_save & MPERM_DUMP_ALL) {
 	tbuf[0] = '0';
@@ -7752,7 +7752,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       }
       fputs("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b               ", stdout);
     }
-    wkspace_reset((unsigned char*)g_perm_vecs);
+    wkspace_reset(g_perm_vecs);
     if (perms_done < perms_total) {
       if (model_adapt_nst) {
 	marker_unstopped_ct = marker_ct - popcount01_longs((uintptr_t*)perm_adapt_stop, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
@@ -8737,7 +8737,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       }
     }
     if (do_perms) {
-      wkspace_reset((unsigned char*)g_perm_vecstd);
+      wkspace_reset(g_perm_vecstd);
     }
     if (fclose_null(&outfile)) {
       goto qassoc_ret_WRITE_FAIL;
@@ -8795,7 +8795,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       }
       fputs("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b               ", stdout);
     }
-    wkspace_reset((unsigned char*)g_perm_vecstd);
+    wkspace_reset(g_perm_vecstd);
     if (g_perms_done < perms_total) {
       if (perm_adapt) {
 	marker_unstopped_ct = marker_ct - popcount_longs((uintptr_t*)g_perm_adapt_stop, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
@@ -10183,8 +10183,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
   }
   logprint(" done.\n");
   marker_ct = (uintptr_t)(dptr - g_orig_1mpval);
-  wkspace_reset((unsigned char*)g_orig_1mpval);
-  g_orig_1mpval = (double*)wkspace_alloc(marker_ct * sizeof(double));
+  wkspace_shrink_top(g_orig_1mpval, marker_ct * sizeof(double));
   if (mtest_adjust) {
     if (adjust_lambda != 0.0) {
       logprint("Ignoring 'gc'/--lambda for --test-missing multiple-test correction.\n");
@@ -10589,7 +10588,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
     }
     // really should postpone this for --assoc/--model too
     g_perms_done += g_perm_vec_ct;
-    wkspace_reset((unsigned char*)g_perm_vecs);
+    wkspace_reset(g_perm_vecs);
     if (g_perms_done < perms_total) {
       if (perm_adapt) {
 	marker_unstopped_ct = marker_ct - popcount01_longs((uintptr_t*)g_perm_adapt_stop, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));

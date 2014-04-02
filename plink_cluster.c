@@ -389,9 +389,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
     qsort(cluster_ids, assigned_ct, max_cluster_id_len, strcmp_natural);
     cluster_ct = collapse_duplicate_ids(cluster_ids, assigned_ct, max_cluster_id_len, tmp_cluster_starts);
     *cluster_ct_ptr = cluster_ct;
-    // shrink
-    wkspace_reset(cluster_ids);
-    wkspace_alloc_c_checked(cluster_ids_ptr, cluster_ct * max_cluster_id_len);
+    wkspace_shrink_top(cluster_ids, cluster_ct * max_cluster_id_len);
     if (wkspace_alloc_ui_checked(cluster_map_ptr, assigned_ct * sizeof(int32_t)) ||
         wkspace_alloc_ui_checked(cluster_starts_ptr, (cluster_ct + 1) * sizeof(int32_t))) {
       goto load_clusters_ret_NOMEM2;
@@ -903,7 +901,7 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
   if (pheno_c && new_cluster_ct) {
     adjust_cc_perm_preimage(new_cluster_ct, new_cluster_map, new_cluster_starts, cluster_case_cts, cluster_cc_perm_preimage, is_perm1);
   }
-  wkspace_reset((unsigned char*)uidx_to_idx);
+  wkspace_reset(uidx_to_idx);
   return 0;
  cluster_include_and_reindex_ret_NOMEM:
   wkspace_reset(wkspace_mark);
@@ -2893,7 +2891,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
     }
     ulii = final_cluster_ct;
   } else {
-    wkspace_reset((unsigned char*)dists);
+    wkspace_reset(dists);
     if (wkspace_alloc_d_checked(&main_matrix, indiv_ct * indiv_ct * sizeof(double))) {
       goto mds_plot_ret_NOMEM;
     }
@@ -2991,7 +2989,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
   // * out_w[0..(dim_ct-1)] contains eigenvalues
   // * out_z[(ii*ulii)..(ii*ulii + ulii - 1)] is eigenvector corresponding to
   //   out_w[ii]
-  wkspace_reset((unsigned char*)isuppz);
+  wkspace_reset(isuppz);
   if (wkspace_alloc_d_checked(&sqrt_eigvals, dim_ct * sizeof(double))) {
     goto mds_plot_ret_NOMEM;
   }
@@ -3112,7 +3110,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
   }
   fclose_cond(outfile);
   free_cond(final_cluster_remap);
-  wkspace_reset((unsigned char*)dists);
+  wkspace_reset(dists);
   return retval;
 }
 #endif

@@ -142,6 +142,12 @@ void wkspace_reset(void* new_base) {
   wkspace_left += freed_bytes;
 }
 
+void wkspace_shrink_top(void* rebase, uintptr_t new_size) {
+  uintptr_t freed_bytes = ((uintptr_t)(wkspace_base - ((unsigned char*)rebase))) - CACHEALIGN(new_size);
+  wkspace_base -= freed_bytes;
+  wkspace_left += freed_bytes;
+}
+
 uint32_t match_upper(char* ss, const char* fixed_str) {
   // Returns whether uppercased ss matches nonempty fixed_str.  Assumes
   // fixed_str contains nothing but letters and a null terminator.
@@ -6799,7 +6805,7 @@ int32_t string_range_list_to_bitfield_alloc(char* header_line, uint32_t item_ct,
   }
   fill_int_one(seen_idxs, name_ct);
   retval = string_range_list_to_bitfield(header_line, item_ct, fixed_len, range_list_ptr, sorted_ids, id_map, seen_idxs, range_list_flag, file_descrip, *bitfield_ptr);
-  wkspace_reset((unsigned char*)seen_idxs);
+  wkspace_reset(seen_idxs);
   return retval;
 }
 

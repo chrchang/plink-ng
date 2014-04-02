@@ -211,8 +211,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
   topsize = 0;
   qsort(cluster_ids, possible_distinct_ct, max_cluster_id_len, strcmp_casted);
   cluster_ct = collapse_duplicate_ids(cluster_ids, possible_distinct_ct, max_cluster_id_len, NULL);
-  wkspace_reset((unsigned char*)cluster_ids);
-  cluster_ids = (char*)wkspace_alloc(cluster_ct * max_cluster_id_len);
+  wkspace_shrink_top(cluster_ids, cluster_ct * max_cluster_id_len);
   cluster_mct = cluster_ct * (y_present + 1);
   indiv_lookup = (uint32_t*)malloc(unfiltered_indiv_ct * sizeof(int32_t));
   if (!indiv_lookup) {

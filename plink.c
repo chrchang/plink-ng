@@ -1165,7 +1165,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto plink_ret_1;
     }
     indiv_sort_map = uiptr;
-    wkspace_reset((unsigned char*)cptr);
+    wkspace_reset(cptr);
   }
 
   if ((filter_flags & FILTER_MAKE_FOUNDERS) && (!(misc_flags & MISC_MAKE_FOUNDERS_FIRST))) {
@@ -1754,7 +1754,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (read_dists_fname && (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))) {
-    wkspace_reset((unsigned char*)g_dists);
+    wkspace_reset(g_dists);
     g_dists = NULL;
   }
 
