@@ -928,7 +928,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "        <parentdt1 | parentdt2 | pat | mat> <set-test>\n"
 "    Report transmission disequilibrium test statistics, given case/control\n"
 "    phenotypes and pedigree information.\n"
-"    * A basic Mendel error check is performed before the main tests; offending\n"
+"    * A Mendel error check is performed before the main tests; offending\n"
 "      genotypes are treated as missing by this analysis.\n"
 "    * By default, p-values are currently based on 1df chi-square tests unless\n"
 "      you request the exact binomial test with 'exact' or 'exact-midp'.\n"

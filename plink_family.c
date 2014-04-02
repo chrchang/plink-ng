@@ -59,8 +59,6 @@ uintptr_t geqprime(uintptr_t floor) {
 // bits 8-15 = father increment
 // bits 16-23 = mother increment
 // bits 24-31 = error code
-
-// note that \xx is octal, not decimal.
 const uint32_t mendel_error_table[] =
 {0, 0, 0x1010101, 0x8000001,
  0, 0, 0, 0x7010001,
@@ -896,7 +894,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
       if (IS_SET(marker_reverse, marker_uidx)) {
         reverse_loadbuf((unsigned char*)loadbuf, unfiltered_indiv_ct);
       }
-      if (is_x && hh_exists) {
+      if (hh_exists && is_x) {
 	hh_reset((unsigned char*)loadbuf, indiv_male_include2, unfiltered_indiv_ct);
       }
       // missing parents are treated as having uidx equal to
@@ -1056,12 +1054,12 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
       }
       if (IS_SET(marker_exclude, marker_uidx)) {
         marker_uidx = next_unset_ul(marker_exclude, marker_uidx, chrom_end);
-	if (marker_uidx == chrom_end) {
-	  break;
-	}
       mendel_error_scan_seek:
         if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
 	  goto mendel_error_scan_ret_READ_FAIL;
+	}
+	if (marker_uidx == chrom_end) {
+	  break;
 	}
       }
     }
@@ -1749,22 +1747,64 @@ int32_t tdt_poo() {
   return RET_CALC_NOT_YET_SUPPORTED;
 }
 
-int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t mperm_save, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t hh_exists, Family_info* fam_ip) {
-  logprint("Error: --tdt is currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
-  /*
+int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t mperm_save, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t hh_exists, Family_info* fam_ip) {
+  // logprint("Error: --tdt is currently under development.\n");
+  // return RET_CALC_NOT_YET_SUPPORTED;
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
+  uint64_t last_parents = 0;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t marker_uidx = ~ZEROLU;
   uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
-  uint32_t chrom_end = 0;
-  uint32_t is_x = 0;
+  uint32_t display_ci = (ci_size > 0);
+  uint32_t is_exact = fam_ip->tdt_modifier & TDT_EXACT;
+  uint32_t is_midp = fam_ip->tdt_modifier & TDT_MIDP;
   uint32_t family_write_idx = 0;
   uint32_t trio_write_idx = 0;
   uint32_t case_trio_ct = 0;
+  uint32_t discordant_par = 0;
+  uint32_t cur_child_ct = 0;
   int32_t retval = 0;
+  // index bits 0-1: child genotype
+  // index bits 2-3: one parental genotype (cannot assume father or mother)
+  // index bits 4-5: another parental genotype
+  // entry bits 0-15: observation count increment
+  // entry bits 16-31: A1 transmission increment
+  // het + hom A1 parents, hom A2 child (or vice versa) is assumed to be on X;
+  // fortunately, no other special-casing is needed
+
+  // (0x4d04 >> parental_genotypes) & 1 detects 1+ het(s), no missing
+  const uint32_t tdt_table[] =
+    {0, 0, 0, 0,
+     0, 0, 0, 0,
+     0x10001, 0, 1, 1,
+     0, 0, 0, 0,
+
+     0, 0, 0, 0,
+     0, 0, 0, 0,
+     0, 0, 0, 0,
+     0, 0, 0, 0,
+
+     0x10001, 0, 1, 1,
+     0, 0, 0, 0,
+     0x20002, 0, 0x10002, 2,
+     0x10001, 0, 0x10001, 0x10001,
+
+     0, 0, 0, 0,
+     0, 0, 0, 0,
+     0x10001, 0, 0x10001, 1,
+     0, 0, 0, 0};
+  // index bits 0-1: case genotype
+  // index bits 2-3: ctrl genotype
+  // entries same as tdt_table
+
+  // (0x22f2 >> parental_genotypes) & 1 detects missing
+  const uint32_t parentdt_table[] =
+    {0, 0, 0x10001, 0x20002,
+     0, 0, 0, 0,
+     1, 0, 0, 0x10001,
+     2, 0, 1, 0};
   char* fids;
   char* iids;
   uint64_t* family_list;
@@ -1775,7 +1815,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   uintptr_t* indiv_male_include2;
   uint32_t* trio_error_lookup;
 
-  // a sequence of variable-length nuclear family records.
+  // sequences of variable-length nuclear family records.
   // [0]: father uidx
   // [1]: mother uidx
   // [2]: number of children (n)
@@ -1785,16 +1825,28 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   uint32_t* trio_nuclear_lookup;
   uint32_t* lookup_ptr;
   uint64_t cur_trio;
+  uint64_t cur_parents;
   uintptr_t max_fid_len;
   uintptr_t max_iid_len;
   uintptr_t trio_ct;
-  uintptr_t marker_uidx;
   uintptr_t marker_idx;
   uintptr_t trio_idx;
   uint32_t chrom_fo_idx;
+  uint32_t chrom_idx;
+  uint32_t chrom_end;
+  uint32_t is_x;
   uint32_t family_ct;
-  marker_ct -= count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 0, 1);
-  if (!marker_ct) {
+  uint32_t is_discordant;
+  uint32_t tdt_obs_ct;
+  uint32_t tdt_a1_trans_ct;
+  uint32_t parentdt_obs_ct;
+  uint32_t parentdt_case_a2_excess_ct;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+  uint32_t umm;
+  marker_ct -= count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
+  if ((!marker_ct) || is_set(chrom_info_ptr->haploid_mask, 0)) {
     logprint("Warning: Skipping --tdt since there is no autosomal or Xchr data.\n");
     goto tdt_ret_1;
   }
@@ -1807,22 +1859,61 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
     goto tdt_ret_1;
   }
   // now assemble list of nuclear families with at least one case child
-  if (wkspace_alloc_ui_checked(&trio_nuclear_lookup, (3 * family_ct + trio_ct) sizeof(int32_t))) {
+  if (wkspace_alloc_ui_checked(&trio_nuclear_lookup, (3 * family_ct + trio_ct) * sizeof(int32_t))) {
     goto tdt_ret_NOMEM;
   }
-  trio_list_ptr = trio_list;
   lookup_ptr = trio_nuclear_lookup;
-  family_idx = 0;
+  family_ct = 0;
   // note that trio_list is already sorted by family, so we can just traverse
-  // it in order to generate a collapsed list.
+  // it in order.
   for (trio_idx = 0; trio_idx < trio_ct; trio_idx++) {
-    cur_trio = *trio_list_ptr++;
-    ;;;
+    cur_trio = trio_list[trio_idx];
+    ukk = (uint32_t)cur_trio;
+    // both parents must have nonmissing phenotypes, and child must be case
+    if (is_set(pheno_c, ukk)) {
+      cur_parents = family_list[(uintptr_t)(cur_trio >> 32)];
+      if (cur_parents != last_parents) {
+        uii = (uint32_t)cur_parents;
+        ujj = (uint32_t)(cur_parents >> 32);
+        if ((uii < unfiltered_indiv_ct) && (ujj < unfiltered_indiv_ct) && is_set(pheno_nm, uii) && is_set(pheno_nm, ujj)) {
+	  umm = is_set(pheno_c, uii);
+	  is_discordant = umm ^ is_set(pheno_c, ujj);
+	  if (!is_discordant) {
+	    *lookup_ptr++ = uii;
+	    *lookup_ptr++ = ujj;
+	    *lookup_ptr = 1;
+	  } else {
+	    discordant_par = 1;
+	    // safe to reverse order of parents so that case parent comes first
+	    if (umm) {
+              *lookup_ptr++ = uii;
+	      *lookup_ptr++ = ujj;
+	    } else {
+	      *lookup_ptr++ = ujj;
+	      *lookup_ptr++ = uii;
+	    }
+	    *lookup_ptr = 0x80000001;
+	  }
+	  lookup_ptr++;
+	  cur_child_ct = 1;
+	  family_ct++;
+	} else {
+	  cur_child_ct = 0; // indicates missing parent phenotype
+	}
+	last_parents = cur_parents;
+      } else if (cur_child_ct) {
+        cur_child_ct++;
+        lookup_ptr[-((int32_t)cur_child_ct)] += 1;
+	*lookup_ptr++ = ukk;
+	case_trio_ct++;
+      }
+    }
   }
-  if (!case_trio_ct) {
+  if (!family_ct) {
     logprint("Warning: Skipping --tdt since there are no trios with an affected child.\n");
     goto tdt_ret_1;
   }
+  case_trio_ct += family_ct;
   wkspace_shrink_top(trio_nuclear_lookup, ((uintptr_t)(lookup_ptr - trio_nuclear_lookup)) * sizeof(int32_t));
 
   if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
@@ -1842,9 +1933,33 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
     retval = tdt_poo();
     goto tdt_ret_1;
   }
+  memcpy(outname_end, ".tdt", 5);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto tdt_ret_OPEN_FAIL;
+  }
+  sprintf(tbuf, " CHR %%%us           BP  A1  A2      T      U           OR ", plink_maxsnp);
+  fprintf(outfile, tbuf, "SNP");
+  if (display_ci) {
+    uii = (uint32_t)((int32_t)(ci_size * 100));
+    if (uii >= 10) {
+      fprintf(outfile, "         L%u          U%u ", uii, uii);
+    } else {
+      fprintf(outfile, "          L%u           U%u ", uii, uii);
+    }
+  }
+  if (!is_exact) {
+    fputs("       CHISQ ", outfile);
+  }
+  fputs("           P ", outfile);
+  if (discordant_par) {
+    fputs("     A:U_PAR    CHISQ_PAR        P_PAR    CHISQ_COM        P_COM ", outfile);
+  }
+  if (putc_checked('\n', outfile)) {
+    goto tdt_ret_WRITE_FAIL;
+  }
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-    is_x = (((uint32_t)chrom_info_ptr->x_code) == chrom_idx);
+    is_x = ((int32_t)chrom_idx == chrom_info_ptr->x_code);
     if ((IS_SET(chrom_info_ptr->haploid_mask, chrom_idx) && (!is_x)) || (((uint32_t)chrom_info_ptr->mt_code) == chrom_idx)) {
       continue;
     }
@@ -1864,14 +1979,16 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
       if (IS_SET(marker_reverse, marker_uidx)) {
 	reverse_loadbuf((unsigned char*)loadbuf, unfiltered_indiv_ct);
       }
-      if (is_x && hh_exists) {
-        hh_reset((unsigned char*)loadbuf, indiv_male_include2, unfiltered_indiv_ct);
+      if (hh_exists && is_x) {
+	hh_reset((unsigned char*)loadbuf, indiv_male_include2, unfiltered_indiv_ct);
       }
       // 1. iterate through all trios, setting Mendel errors to missing
-      // 2. iterate through nuclear families where both parents are genotyped,
-      //    and at least one is het:
-      //    a.
-      // (All nuclear families in the list have at least one case kid.)
+      // 2. iterate through trio_nuclear_lookup:
+      //    a. if either parent isn't genotyped, skip the family
+      //    b. if parents are discordant, increment parenTDT counts
+      //    c. if at least one het parent, iterate through genotyped children,
+      //       incrementing regular TDT counts.
+
       if (++marker_uidx == chrom_end) {
 	break;
       }
@@ -1881,17 +1998,11 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
 	if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
 	  goto tdt_ret_READ_FAIL;
 	}
+	if (marker_uidx == chrom_end) {
+	  break;
+	}
       }
     }
-  }
-  for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-    if (IS_SET(marker_exclude, marker_uidx)) {
-      marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-      if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
-	goto tdt_ret_READ_FAIL;
-      }
-    }
-    ;;;
   }
   while (0) {
   tdt_ret_NOMEM:
@@ -1911,5 +2022,4 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   wkspace_reset(wkspace_mark);
   fclose_cond(outfile);
   return retval;
-  */
 }
