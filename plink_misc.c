@@ -1,3 +1,5 @@
+#include "plink_common.h"
+
 #include "plink_misc.h"
 
 void misc_init(Score_info* sc_ip) {

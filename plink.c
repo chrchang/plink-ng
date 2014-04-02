@@ -16,10 +16,10 @@
 
 // Uncomment "#define NOLAPACK" in plink_common.h to build without LAPACK.
 
+#include "plink_common.h"
 #include <ctype.h>
 #include <time.h>
 #include <unistd.h>
-#include "plink_common.h"
 
 #ifdef __APPLE__
   #include <sys/types.h>

@@ -1,3 +1,5 @@
+#include "plink_common.h"
+
 #include <ctype.h>
 #include <fcntl.h>
 #include <time.h>

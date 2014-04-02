@@ -1,4 +1,5 @@
 #include "plink_common.h"
+
 #include "pigz.h"
 
 const char errstr_fopen[] = "Error: Failed to open %s.\n";

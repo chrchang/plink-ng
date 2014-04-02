@@ -70,6 +70,8 @@
 // but we believe we have beaten down the leading constant by a large enough
 // factor to meaningfully help researchers.
 
+#include "plink_common.h"
+
 #include "plink_calc.h"
 #include "plink_cluster.h"
 #include "plink_matrix.h"

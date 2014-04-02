@@ -1,3 +1,5 @@
+#include "plink_common.h"
+
 #include "plink_lasso.h"
 #include "plink_matrix.h"
 

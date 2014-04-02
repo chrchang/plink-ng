@@ -1,3 +1,5 @@
+#include "plink_common.h"
+
 #include "plink_homozyg.h"
 
 void homozyg_init(Homozyg_info* homozyg_ptr) {

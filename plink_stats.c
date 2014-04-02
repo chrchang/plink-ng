@@ -1,3 +1,5 @@
+#include "plink_common.h"
+
 #include "plink_stats.h"
 #include "ipmpar.h"
 #include "dcdflib.h"

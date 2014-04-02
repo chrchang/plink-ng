@@ -1,3 +1,5 @@
+#include "plink_common.h"
+
 #include "plink_set.h"
 
 void set_init(Set_info* sip) {

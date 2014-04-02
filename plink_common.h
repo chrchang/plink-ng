@@ -3,6 +3,14 @@
 #ifndef __PLINK_COMMON_H__
 #define __PLINK_COMMON_H__
 
+#ifndef _WIN32
+  #ifndef __APPLE__
+// ARGH
+__asm__(".symver memcpy,memcpy@GLIBC_2.2.5")
+__asm__(".symver secure_getenv,secure_getenv@GLIBC_2.0")
+  #endif
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

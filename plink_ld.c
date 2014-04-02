@@ -1,3 +1,5 @@
+#include "plink_common.h"
+
 #include <stddef.h>
 #include "plink_ld.h"
 #include "plink_stats.h"
