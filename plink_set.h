@@ -1,8 +1,6 @@
 #ifndef __PLINK_SET_H__
 #define __PLINK_SET_H__
 
-#include "plink_common.h"
-
 #define SET_MAKE_FROM_RANGES 1
 #define SET_COMPLEMENTS 2
 #define SET_MAKE_COLLAPSE_GROUP 4

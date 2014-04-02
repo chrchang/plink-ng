@@ -97,7 +97,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (1 Apr 2014) ";
+  " (2 Apr 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -1959,7 +1959,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	}
       }
       if ((calculation_type & CALC_TDT) && pheno_c) {
-	retval = tdt(threads, bedfile, bed_offset, outname, outname_end, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, unfiltered_indiv_ct, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, zero_extra_chroms, chrom_info_ptr, hh_exists, fam_ip);
+	retval = tdt(threads, bedfile, bed_offset, outname, outname_end, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, unfiltered_indiv_ct, indiv_exclude, indiv_ct, mperm_save, pheno_nm, pheno_c, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, zero_extra_chroms, chrom_info_ptr, hh_exists, fam_ip);
 	if (retval) {
 	  goto plink_ret_1;
 	}

@@ -5,8 +5,6 @@
 // May want to make this comprehensive to make linking with Intel MKL practical
 // in the future.
 
-#include "plink_common.h"
-
 #ifdef __APPLE__
 #include <Accelerate/Accelerate.h>
 #endif

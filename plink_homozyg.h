@@ -1,8 +1,6 @@
 #ifndef __PLINK_HOMOZYG_H__
 #define __PLINK_HOMOZYG_H__
 
-#include "plink_common.h"
-
 typedef struct {
   uint32_t modifier;
   uint32_t min_snp;

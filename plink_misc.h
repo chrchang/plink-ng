@@ -1,8 +1,6 @@
 #ifndef __PLINK_MISC_H__
 #define __PLINK_MISC_H__
 
-#include "plink_common.h"
-
 #define SCORE_HEADER 1
 #define SCORE_SUM 2
 #define SCORE_NO_MEAN_IMPUTATION 4

@@ -1488,11 +1488,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --merge-equal-pos  : Merge variants with different names but identical\n"
 "                       positions.\n"
 	       );
-    help_print("mendel-duos\tmendel-multigen\tme\tmendel\tset-me-missing", &help_ctrl, 0,
-"  --mendel-duos      : Make --me/--mendel/--set-me-missing consider individuals\n"
-"                       with only one parent in the dataset.\n"
+    help_print("mendel-duos\tmendel-multigen\tme\tmendel\ttdt\tset-me-missing", &help_ctrl, 0,
+"  --mendel-duos      : Make Mendel error checks consider individuals with only\n"
+"                       one parent in the dataset.\n"
 	       );
-    help_print("mendel-duos\tmendel-multigen\tme\tmendel\tset-me-missing\ttdt", &help_ctrl, 0,
+    help_print("mendel-duos\tmendel-multigen\tme\tmendel\ttdt\tset-me-missing\ttdt", &help_ctrl, 0,
 "  --mendel-multigen  : Make Mendel error checks consider (great-)grandparental\n"
 "                       genotypes when parental genotype data is missing.\n"
 	       );

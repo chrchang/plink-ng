@@ -3024,19 +3024,7 @@ int32_t make_bed_me_missing_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32
   uint32_t indiv_uidx = 0;
   uint32_t ii_rem = 0;
   uint32_t indiv_idx = 0;
-  uint32_t* uiptr;
-  uintptr_t ulii;
-  uintptr_t uljj;
   uint32_t indiv_uidx2;
-  uint32_t trio_idx;
-  uint32_t lookup_idx;
-  uint32_t uii;
-  uint32_t ujj;
-  uint32_t ukk;
-  uint32_t umm;
-  uint32_t unn;
-  uint32_t uoo;
-  uint32_t upp;
   if ((!indiv_sort_map) && (unfiltered_indiv_ct == indiv_ct)) {
     loadbuf = writebuf;
   }
@@ -3051,71 +3039,7 @@ int32_t make_bed_me_missing_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32
   if (is_reverse) {
     reverse_loadbuf((unsigned char*)loadbuf, unfiltered_indiv_ct);
   }
-  memcpy(workbuf, loadbuf, unfiltered_indiv_ct4);
-  SET_BIT_DBL(workbuf, unfiltered_indiv_ct);
-  uiptr = trio_lookup;
-  if (!multigen) {
-    for (trio_idx = 0; trio_idx < trio_ct; trio_idx++) {
-      uii = *uiptr++;
-      ujj = *uiptr++;
-      ukk = *uiptr++;
-      umm = mendel_error_table[((workbuf[uii / BITCT2] >> (2 * (uii % BITCT2))) & 3) | (((workbuf[ujj / BITCT2] >> (2 * (ujj % BITCT2))) & 3) << 2) | (((workbuf[ukk / BITCT2] >> (2 * (ukk % BITCT2))) & 3) << 4)];
-      if (umm) {
-	ulii = loadbuf[uii / BITCT2];
-	uljj = ONELU << (2 * (uii % BITCT2));
-        loadbuf[uii / BITCT2] = (ulii & (~(3 * uljj))) | uljj;
-	if (umm & 0x100) {
-	  ulii = loadbuf[ujj / BITCT2];
-	  uljj = ONELU << (2 * (ujj % BITCT2));
-	  loadbuf[ujj / BITCT2] = (ulii & (~(3 * uljj))) | uljj;
-	}
-	if (umm & 0x10000) {
-	  ulii = loadbuf[ukk / BITCT2];
-	  uljj = ONELU << (2 * (ukk % BITCT2));
-	  loadbuf[ukk / BITCT2] = (ulii & (~(3 * uljj))) | uljj;
-	}
-	*error_ct_ptr += 1;
-      }
-    }
-  } else {
-    for (lookup_idx = 0; lookup_idx < trio_ct; lookup_idx++) {
-      uii = *uiptr++;
-      ujj = *uiptr++;
-      ukk = *uiptr++;
-      trio_idx = *uiptr++;
-      unn = uii / BITCT2;
-      uoo = ujj / BITCT2;
-      upp = ukk / BITCT2;
-      uii = 2 * (uii % BITCT2);
-      ujj = 2 * (ujj % BITCT2);
-      ukk = 2 * (ukk % BITCT2);
-      ulii = (workbuf[unn] >> uii) & 3;
-      uljj = ((workbuf[uoo] >> ujj) & 3) | (((workbuf[upp] >> ukk) & 3) << 2);
-      if (ulii != 1) {
-        umm = mendel_error_table[ulii | (uljj << 2)];
-        if (umm) {
-	  ulii = loadbuf[unn];
-	  uljj = ONELU << uii;
-	  loadbuf[unn] = (ulii & (~(3 * uljj))) | uljj;
-	  if (umm & 0x100) {
-	    ulii = loadbuf[uoo];
-	    uljj = ONELU << ujj;
-	    loadbuf[uoo] = (ulii & (~(3 * uljj))) | uljj;
-	  }
-	  if (umm & 0x10000) {
-	    ulii = loadbuf[upp];
-	    uljj = ONELU << ukk;
-	    loadbuf[upp] = (ulii & (~(3 * uljj))) | uljj;
-	  }
-	  *error_ct_ptr += 1;
-	}
-      } else if (!uljj) {
-	workbuf[unn] &= ~(ONELU << uii);
-      } else if (uljj == 15) {
-	workbuf[unn] |= (2 * ONELU) << uii;
-      }
-    }
-  }
+  *error_ct_ptr += erase_mendel_errors(unfiltered_indiv_ct, loadbuf, workbuf, trio_lookup, trio_ct, multigen);
   if (indiv_sort_map) {
     for (; indiv_idx < indiv_ct; indiv_idx++) {
       do {
@@ -3409,7 +3333,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
       goto make_bed_ret_NOMEM;
     }
     if (set_me_missing) {
-      retval = get_trios_and_families(unfiltered_indiv_ct, indiv_exclude, indiv_ct, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, NULL, NULL, NULL, NULL, &family_list, &family_ct, &trio_list, &trio_ct, &trio_lookup, mendel_include_duos, mendel_multigen, 0);
+      retval = get_trios_and_families(unfiltered_indiv_ct, indiv_exclude, indiv_ct, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, NULL, NULL, NULL, NULL, &family_list, &family_ct, &trio_list, &trio_ct, &trio_lookup, mendel_include_duos, mendel_multigen);
       if (retval) {
 	goto make_bed_ret_1;
       }

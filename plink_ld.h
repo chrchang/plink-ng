@@ -1,7 +1,6 @@
 #ifndef __PLINK_LD_H__
 #define __PLINK_LD_H__
 
-#include "plink_common.h"
 #include "plink_set.h"
 
 #define LD_MATRIX_SQ 1

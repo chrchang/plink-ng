@@ -1,8 +1,6 @@
 #ifndef __PLINK_CLUSTER_H__
 #define __PLINK_CLUSTER_H__
 
-#include "plink_common.h"
-
 #define CLUSTER_CC 1
 #define CLUSTER_GROUP_AVG 2
 #define CLUSTER_MISSING 4
