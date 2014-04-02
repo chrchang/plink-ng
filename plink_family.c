@@ -1770,33 +1770,16 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   uint32_t cur_child_ct = 0xffffffffU;
   int32_t retval = 0;
   // index bits 0-1: child genotype
-  // index bits 2-3: one parental genotype (cannot assume father or mother)
-  // index bits 4-5: another parental genotype
+  // index bits 2-3: XOR of parental genotypes
   // entry bits 0-15: observation count increment
   // entry bits 16-31: A1 transmission increment
   // het + hom A1 parents, hom A2 child (or vice versa) needs to be in the
   // table because of Xchr; fortunately, that's actually all that's necessary
   // to handle X properly.
   const uint32_t tdt_table[] =
-    {0, 0, 0, 0,
-     0, 0, 0, 0,
-     0x10001, 0, 1, 1,
-     0, 0, 0, 0,
-
-     0, 0, 0, 0,
-     0, 0, 0, 0,
-     0, 0, 0, 0,
-     0, 0, 0, 0,
-
-     0x10001, 0, 1, 1,
-     0, 0, 0, 0,
-     0x20002, 0, 0x10002, 2,
-     0x10001, 0, 0x10001, 0x10001,
-
-     0, 0, 0, 0,
-     0, 0, 0, 0,
+    {0x20002, 0, 0x10002, 2,
      0x10001, 0, 0x10001, 1,
-     0, 0, 0, 0};
+     0x10001, 0, 1, 1};
   // index bits 0-1: case genotype
   // index bits 2-3: ctrl genotype
   // entries same as tdt_table
@@ -1833,6 +1816,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   uintptr_t trio_ct;
   uintptr_t trio_idx;
   uintptr_t ulii;
+  uintptr_t uljj;
   double pval;
   double odds_ratio;
   double untransmitted_recip;
@@ -2036,11 +2020,13 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
 	uii = *lookup_ptr++;
 	ujj = *lookup_ptr++;
 	cur_child_ct = *lookup_ptr++;
-        ulii = ((loadbuf[uii / BITCT2] >> (2 * (uii % BITCT2))) & 3) | (((loadbuf[ujj / BITCT2] >> (2 * (ujj % BITCT2))) & 3) << 2);
+        ulii = (loadbuf[uii / BITCT2] >> (2 * (uii % BITCT2))) & 3;
+        uljj = (loadbuf[ujj / BITCT2] >> (2 * (ujj % BITCT2))) & 3;
+        ukk = ulii | (uljj << 2);
 	if (cur_child_ct & 0x80000000U) {
           // discordant
 	  cur_child_ct ^= 0x80000000U;
-	  if ((0x22f2 >> ulii) & 1) {
+	  if ((0x22f2 >> ukk) & 1) {
 	    // at least one missing parent, skip both parenTDT and regular TDT
 	    lookup_ptr = &(lookup_ptr[cur_child_ct]);
 	    continue;
@@ -2052,9 +2038,9 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
 	    continue;
 	  }
 	}
-        if ((0x4d04 >> ulii) & 1) {
+        if ((0x4d04 >> ukk) & 1) {
 	  // 1+ het parents, no missing
-          tdt_table_ptr = &(tdt_table[4 * ulii]);
+          tdt_table_ptr = &(tdt_table[4 * (ulii ^ uljj)]);
           for (child_idx = 0; child_idx < cur_child_ct; child_idx++) {
             ukk = *lookup_ptr++;
 	    umm = tdt_table_ptr[(loadbuf[ukk / BITCT2] >> (2 * (ukk % BITCT2))) & 3];
@@ -2065,6 +2051,8 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
       }
       if (is_exact) {
 	pval = binom_2sided(tdt_a1_trans_ct, tdt_obs_ct, is_midp);
+      } else if (!tdt_obs_ct) {
+	pval = -9;
       } else {
 	dxx = (double)(((int32_t)tdt_obs_ct) - 2 * ((int32_t)tdt_a1_trans_ct));
 	chisq = dxx * dxx / ((double)((int32_t)tdt_obs_ct));
@@ -2105,7 +2093,6 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
 	    wptr = double_g_writewx4x(wptr, chisq, 12, ' ');
             wptr = double_g_writewx4x(wptr, pval, 12, ' ');
 	  } else {
-	    // chiprob_p returns -9 on failure
 	    wptr = memcpya(wptr, "          NA           NA ", 26);
 	  }
 	}
