@@ -1357,6 +1357,7 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   uint32_t ignore_x = (ldip->modifier / LD_IGNORE_X) & 1;
   uint32_t max_window_site_ct = ldip->flipscan_window_size - 1;
   uint32_t window_bp = ldip->flipscan_window_bp;
+  uint32_t problem_ct = 0;
   int32_t retval = 0;
   uintptr_t* founder_phenos[2];
   uintptr_t* pheno_male_include2[2];
@@ -1707,6 +1708,7 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	      }
               fputs(&(marker_ids[neg_uidx_buf[ulii] * max_marker_id_len]), outfile);
 	    }
+	    problem_ct++;
 	    if (verbose) {
 	      window_cidx3 = window_cidx_starts[window_cidx2];
 	      while (1) {
@@ -1772,7 +1774,11 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
     }
   }
   putchar('\r');
-  LOGPRINTF("--flip-scan%seport written to %s.\n", verbose? " verbose: Main r" : ": R", outname);
+  // not actually possible to have exactly one problem variant, heh
+  LOGPRINTF("--flip-scan%s: %u variants with at least one negative LD match.\nReport written to %s%s", verbose? " verbose" : "", problem_ct, outname, verbose? "; neg-match details written to\n" : ".\n");
+  if (verbose) {
+    LOGPRINTF("%s.verbose.\n", outname);
+  }
   while (0) {
   flipscan_ret_NOMEM:
     retval = RET_NOMEM;
