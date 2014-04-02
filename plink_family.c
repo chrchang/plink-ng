@@ -1747,34 +1747,36 @@ int32_t tdt_poo() {
   return RET_CALC_NOT_YET_SUPPORTED;
 }
 
-int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t mperm_save, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t hh_exists, Family_info* fam_ip) {
+int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t mperm_save, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t hh_exists, Family_info* fam_ip) {
   // logprint("Error: --tdt is currently under development.\n");
   // return RET_CALC_NOT_YET_SUPPORTED;
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
+  char* textbuf = tbuf;
   uint64_t last_parents = 0;
+  uint64_t mendel_error_ct = 0;
+  double chisq = 0;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t unfiltered_indiv_ctp1l2 = 1 + (unfiltered_indiv_ct / BITCT2);
   uintptr_t marker_uidx = ~ZEROLU;
   uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
   uint32_t display_ci = (ci_size > 0);
   uint32_t is_exact = fam_ip->tdt_modifier & TDT_EXACT;
   uint32_t is_midp = fam_ip->tdt_modifier & TDT_MIDP;
-  uint32_t family_write_idx = 0;
-  uint32_t trio_write_idx = 0;
   uint32_t case_trio_ct = 0;
-  uint32_t discordant_par = 0;
-  uint32_t cur_child_ct = 0;
+  uint32_t is_discordant = 0; // current
+  uint32_t discordant_par = 0; // does at least one exist
+  uint32_t cur_child_ct = 0xffffffffU;
   int32_t retval = 0;
   // index bits 0-1: child genotype
   // index bits 2-3: one parental genotype (cannot assume father or mother)
   // index bits 4-5: another parental genotype
   // entry bits 0-15: observation count increment
   // entry bits 16-31: A1 transmission increment
-  // het + hom A1 parents, hom A2 child (or vice versa) is assumed to be on X;
-  // fortunately, no other special-casing is needed
-
-  // (0x4d04 >> parental_genotypes) & 1 detects 1+ het(s), no missing
+  // het + hom A1 parents, hom A2 child (or vice versa) needs to be in the
+  // table because of Xchr; fortunately, that's actually all that's necessary
+  // to handle X properly.
   const uint32_t tdt_table[] =
     {0, 0, 0, 0,
      0, 0, 0, 0,
@@ -1798,8 +1800,6 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   // index bits 0-1: case genotype
   // index bits 2-3: ctrl genotype
   // entries same as tdt_table
-
-  // (0x22f2 >> parental_genotypes) & 1 detects missing
   const uint32_t parentdt_table[] =
     {0, 0, 0x10001, 0x20002,
      0, 0, 0, 0,
@@ -1807,11 +1807,12 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
      2, 0, 1, 0};
   char* fids;
   char* iids;
+  char* wptr_start;
+  char* wptr;
   uint64_t* family_list;
   uint64_t* trio_list;
-  uint64_t* trio_list_ptr;
   uintptr_t* loadbuf;
-  uintptr_t* indiv_include2;
+  uintptr_t* workbuf;
   uintptr_t* indiv_male_include2;
   uint32_t* trio_error_lookup;
 
@@ -1824,23 +1825,29 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   // etc.
   uint32_t* trio_nuclear_lookup;
   uint32_t* lookup_ptr;
+  const uint32_t* tdt_table_ptr;
   uint64_t cur_trio;
   uint64_t cur_parents;
   uintptr_t max_fid_len;
   uintptr_t max_iid_len;
   uintptr_t trio_ct;
-  uintptr_t marker_idx;
   uintptr_t trio_idx;
+  uintptr_t ulii;
+  double pval;
+  double odds_ratio;
+  double untransmitted_recip;
+  double dxx;
   uint32_t chrom_fo_idx;
   uint32_t chrom_idx;
   uint32_t chrom_end;
   uint32_t is_x;
   uint32_t family_ct;
-  uint32_t is_discordant;
+  uint32_t family_idx;
+  uint32_t child_idx;
+  uint32_t parentdt_obs_ct;
+  uint32_t parentdt_case_a2_excess;
   uint32_t tdt_obs_ct;
   uint32_t tdt_a1_trans_ct;
-  uint32_t parentdt_obs_ct;
-  uint32_t parentdt_case_a2_excess_ct;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -1869,57 +1876,80 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   for (trio_idx = 0; trio_idx < trio_ct; trio_idx++) {
     cur_trio = trio_list[trio_idx];
     ukk = (uint32_t)cur_trio;
-    // both parents must have nonmissing phenotypes, and child must be case
-    if (is_set(pheno_c, ukk)) {
-      cur_parents = family_list[(uintptr_t)(cur_trio >> 32)];
-      if (cur_parents != last_parents) {
-        uii = (uint32_t)cur_parents;
-        ujj = (uint32_t)(cur_parents >> 32);
-        if ((uii < unfiltered_indiv_ct) && (ujj < unfiltered_indiv_ct) && is_set(pheno_nm, uii) && is_set(pheno_nm, ujj)) {
-	  umm = is_set(pheno_c, uii);
-	  is_discordant = umm ^ is_set(pheno_c, ujj);
-	  if (!is_discordant) {
+    cur_parents = family_list[(uintptr_t)(cur_trio >> 32)];
+    if (cur_parents != last_parents) {
+      // cur_child_ct initialized to maxint instead of 0 to prevent this from
+      // triggering on the first family
+      if (!cur_child_ct) {
+        if (!is_discordant) {
+	  // don't need to track previous family after all
+          lookup_ptr = &(lookup_ptr[-3]);
+	} else {
+	  family_ct++;
+	}
+      } else if (cur_child_ct != 0xffffffffU) {
+	case_trio_ct += cur_child_ct;
+        lookup_ptr[-(1 + (int32_t)cur_child_ct)] = cur_child_ct | (is_discordant << 31);
+	family_ct++;
+      }
+      last_parents = cur_parents;
+      uii = (uint32_t)cur_parents;
+      ujj = (uint32_t)(cur_parents >> 32);
+      if ((uii < unfiltered_indiv_ct) && (ujj < unfiltered_indiv_ct)) {
+	umm = is_set(pheno_c, uii);
+	is_discordant = is_set(pheno_nm, uii) && is_set(pheno_nm, ujj) && (umm ^ is_set(pheno_c, ujj));
+	if (!is_discordant) {
+	  *lookup_ptr++ = uii;
+	  *lookup_ptr++ = ujj;
+	} else {
+	  discordant_par = 1;
+	  // safe to reverse order of parents so that case parent comes first
+	  if (umm) {
 	    *lookup_ptr++ = uii;
 	    *lookup_ptr++ = ujj;
-	    *lookup_ptr = 1;
 	  } else {
-	    discordant_par = 1;
-	    // safe to reverse order of parents so that case parent comes first
-	    if (umm) {
-              *lookup_ptr++ = uii;
-	      *lookup_ptr++ = ujj;
-	    } else {
-	      *lookup_ptr++ = ujj;
-	      *lookup_ptr++ = uii;
-	    }
-	    *lookup_ptr = 0x80000001;
+	    *lookup_ptr++ = ujj;
+	    *lookup_ptr++ = uii;
 	  }
-	  lookup_ptr++;
-	  cur_child_ct = 1;
-	  family_ct++;
-	} else {
-	  cur_child_ct = 0; // indicates missing parent phenotype
+	  *lookup_ptr = 0x80000000;
 	}
-	last_parents = cur_parents;
-      } else if (cur_child_ct) {
-        cur_child_ct++;
-        lookup_ptr[-((int32_t)cur_child_ct)] += 1;
+	lookup_ptr++;
+	cur_child_ct = 0;
+	goto tdt_get_case_children;
+      } else {
+	cur_child_ct = 0xffffffffU;
+      }
+    } else if (cur_child_ct != 0xffffffffU) {
+    tdt_get_case_children:
+      if (is_set(pheno_c, ukk)) {
+	cur_child_ct++;
 	*lookup_ptr++ = ukk;
-	case_trio_ct++;
       }
     }
   }
-  if (!family_ct) {
-    logprint("Warning: Skipping --tdt since there are no trios with an affected child.\n");
+  if (!cur_child_ct) {
+    if (!is_discordant) {
+      lookup_ptr = &(lookup_ptr[-3]);
+    } else {
+      family_ct++;
+    }
+  } else if (cur_child_ct != 0xffffffffU) {
+    case_trio_ct += cur_child_ct;
+    lookup_ptr[-(1 + (int32_t)cur_child_ct)] = cur_child_ct | (is_discordant << 31);
+    family_ct++;
+  }
+  if (lookup_ptr == trio_nuclear_lookup) {
+    logprint("Warning: Skipping --tdt since there are no trios with an affected child, and no\ndiscordant parent pairs.\n");
     goto tdt_ret_1;
   }
-  case_trio_ct += family_ct;
   wkspace_shrink_top(trio_nuclear_lookup, ((uintptr_t)(lookup_ptr - trio_nuclear_lookup)) * sizeof(int32_t));
 
-  if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
+  if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&workbuf, unfiltered_indiv_ctp1l2 * sizeof(intptr_t))) {
     goto tdt_ret_NOMEM;
   }
   loadbuf[unfiltered_indiv_ctl2 - 1] = 0;
+  workbuf[unfiltered_indiv_ctp1l2 - 1] = 0;
   hh_exists &= XMHH_EXISTS;
   if (alloc_raw_haploid_filters(unfiltered_indiv_ct, hh_exists, 1, indiv_exclude, sex_male, NULL, &indiv_male_include2)) {
     goto tdt_ret_NOMEM;
@@ -1937,8 +1967,14 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   if (fopen_checked(&outfile, outname, "w")) {
     goto tdt_ret_OPEN_FAIL;
   }
-  sprintf(tbuf, " CHR %%%us           BP  A1  A2      T      U           OR ", plink_maxsnp);
-  fprintf(outfile, tbuf, "SNP");
+  ulii = 2 * max_marker_allele_len + plink_maxsnp + 256;
+  if (ulii > MAXLINELEN) {
+    if (wkspace_alloc_c_checked(&textbuf, ulii)) {
+      goto tdt_ret_NOMEM;
+    }
+  }
+  sprintf(textbuf, " CHR %%%us           BP  A1  A2      T      U           OR ", plink_maxsnp);
+  fprintf(outfile, textbuf, "SNP");
   if (display_ci) {
     uii = (uint32_t)((int32_t)(ci_size * 100));
     if (uii >= 10) {
@@ -1968,6 +2004,8 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
     if (uii == chrom_end) {
       continue;
     }
+    wptr_start = width_force(4, textbuf, chrom_name_write(textbuf, chrom_info_ptr, chrom_idx, zero_extra_chroms));
+    *wptr_start++ = ' ';
     if (uii != marker_uidx) {
       marker_uidx = uii;
       goto tdt_scan_seek;
@@ -1988,6 +2026,94 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
       //    b. if parents are discordant, increment parenTDT counts
       //    c. if at least one het parent, iterate through genotyped children,
       //       incrementing regular TDT counts.
+      mendel_error_ct += erase_mendel_errors(unfiltered_indiv_ct, loadbuf, workbuf, trio_error_lookup, trio_ct, multigen);
+      lookup_ptr = trio_nuclear_lookup;
+      parentdt_obs_ct = 0;
+      parentdt_case_a2_excess = 0;
+      tdt_obs_ct = 0;
+      tdt_a1_trans_ct = 0;
+      for (family_idx = 0; family_idx < family_ct; family_idx++) {
+	uii = *lookup_ptr++;
+	ujj = *lookup_ptr++;
+	cur_child_ct = *lookup_ptr++;
+        ulii = ((loadbuf[uii / BITCT2] >> (2 * (uii % BITCT2))) & 3) | (((loadbuf[ujj / BITCT2] >> (2 * (ujj % BITCT2))) & 3) << 2);
+	if (cur_child_ct & 0x80000000U) {
+          // discordant
+	  cur_child_ct ^= 0x80000000U;
+	  if ((0x22f2 >> ulii) & 1) {
+	    // at least one missing parent, skip both parenTDT and regular TDT
+	    lookup_ptr = &(lookup_ptr[cur_child_ct]);
+	    continue;
+	  }
+	  umm = parentdt_table[ulii];
+	  parentdt_obs_ct += (uint16_t)umm;
+          parentdt_case_a2_excess += umm >> 16;
+	  if (!cur_child_ct) {
+	    continue;
+	  }
+	}
+        if ((0x4d04 >> ulii) & 1) {
+	  // 1+ het parents, no missing
+          tdt_table_ptr = &(tdt_table[4 * ulii]);
+          for (child_idx = 0; child_idx < cur_child_ct; child_idx++) {
+            ukk = *lookup_ptr++;
+	    umm = tdt_table_ptr[(loadbuf[ukk / BITCT2] >> (2 * (ukk % BITCT2))) & 3];
+	    tdt_obs_ct += (uint16_t)umm;
+            tdt_a1_trans_ct += umm >> 16;
+	  }
+	}
+      }
+      if (is_exact) {
+	pval = binom_2sided(tdt_a1_trans_ct, tdt_obs_ct, is_midp);
+      } else {
+	dxx = (double)(((int32_t)tdt_obs_ct) - 2 * ((int32_t)tdt_a1_trans_ct));
+	chisq = dxx * dxx / ((double)((int32_t)tdt_obs_ct));
+	pval = chiprob_p(chisq, 1);
+      }
+      if (pval <= pfilter) {
+	wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr_start);
+	wptr = memseta(wptr, 32, 3);
+	wptr = uint32_writew10x(wptr, marker_pos[marker_uidx], ' ');
+	wptr = fw_strcpy(3, marker_allele_ptrs[2 * marker_uidx], wptr);
+	*wptr++ = ' ';
+	wptr = fw_strcpy(3, marker_allele_ptrs[2 * marker_uidx + 1], wptr);
+	*wptr++ = ' ';
+	wptr = uint32_writew6x(wptr, tdt_a1_trans_ct, ' ');
+	uii = tdt_obs_ct - tdt_a1_trans_ct; // untransmitted
+	wptr = uint32_writew6x(wptr, uii, ' ');
+	if (uii) {
+	  untransmitted_recip = 1.0 / ((double)((int32_t)uii));
+	  dxx = (double)((int32_t)tdt_a1_trans_ct);
+	  odds_ratio = dxx * untransmitted_recip;
+	  wptr = double_g_writewx4x(wptr, odds_ratio, 12, ' ');
+	  if (display_ci) {
+	    odds_ratio = log(odds_ratio);
+	    dxx = ci_zt * sqrt(1.0 / dxx + untransmitted_recip);
+	    wptr = double_g_writewx4x(wptr, exp(odds_ratio - dxx), 12, ' ');
+	    wptr = double_g_writewx4x(wptr, exp(odds_ratio + dxx), 12, ' ');
+	  }
+	} else {
+	  wptr = memcpya(wptr, "          NA ", 13);
+	  if (display_ci) {
+	    wptr = memcpya(wptr, "          NA           NA ", 26);
+	  }
+	}
+        if (is_exact) {
+	  wptr = double_g_writewx4x(wptr, pval, 12, ' ');
+	} else {
+	  if (pval >= 0) {
+	    wptr = double_g_writewx4x(wptr, chisq, 12, ' ');
+            wptr = double_g_writewx4x(wptr, pval, 12, ' ');
+	  } else {
+	    // chiprob_p returns -9 on failure
+	    wptr = memcpya(wptr, "          NA           NA ", 26);
+	  }
+	}
+        *wptr++ = '\n';
+        if (fwrite_checked(textbuf, wptr - textbuf, outfile)) {
+	  goto tdt_ret_WRITE_FAIL;
+	}
+      }
 
       if (++marker_uidx == chrom_end) {
 	break;
