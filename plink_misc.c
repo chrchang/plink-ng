@@ -2822,7 +2822,7 @@ void calc_marker_weights(double exponent, uint32_t unfiltered_marker_ct, uintptr
   } while (markers_done < marker_ct);
 }
 
-int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uint64_t misc_flags, double check_sex_fthresh, double check_sex_mthresh, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* gender_unk_ct_ptr) {
+int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uint64_t misc_flags, double check_sex_fthresh, double check_sex_mthresh, uint32_t max_f_yobs, uint32_t min_m_yobs, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* gender_unk_ct_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
@@ -3011,12 +3011,13 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
       dee = nei_sum - nei_offsets[indiv_idx];
       dtot = (double)((intptr_t)ulii) - dee;
       dff = (dtot - ((double)((int32_t)(het_cts[indiv_idx])))) / dtot;
+      imputed_sex_code = 0;
       if (dff > check_sex_mthresh) {
-        imputed_sex_code = 1;
-      } else if ((dff < check_sex_fthresh) && (ymiss_cts[indiv_idx] == ytotal)) {
+	if (ymiss_cts[indiv_idx] + min_m_yobs <= ytotal) {
+          imputed_sex_code = 1;
+	}
+      } else if ((dff < check_sex_fthresh) && (ymiss_cts[indiv_idx] + max_f_yobs >= ytotal)) {
         imputed_sex_code = 2;
-      } else {
-        imputed_sex_code = 0;
       }
       *wptr++ = '0' + imputed_sex_code;
       if (orig_sex_code && (orig_sex_code == imputed_sex_code)) {
