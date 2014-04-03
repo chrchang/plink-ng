@@ -1765,8 +1765,8 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   uint32_t is_exact = fam_ip->tdt_modifier & TDT_EXACT;
   uint32_t is_midp = fam_ip->tdt_modifier & TDT_MIDP;
   uint32_t case_trio_ct = 0;
-  uint32_t is_discordant = 0; // current
-  uint32_t discordant_par = 0; // does at least one exist
+  uint32_t is_discordant = 0;
+  uint32_t discord_exists = 0;
   uint32_t cur_child_ct = 0xffffffffU;
   int32_t retval = 0;
   // index bits 0-1: child genotype
@@ -1782,16 +1782,20 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
      0x10001, 0, 1, 1};
   // index bits 0-1: case genotype
   // index bits 2-3: ctrl genotype
-  // entries same as tdt_table
+  // entry bit 0: single-observation?
+  // entry bit 8: double-observation?
+  // entry bit 16: single-obs = case A2 excess?
+  // entry bit 24: double-obs = case A2 excess?
   const uint32_t parentdt_table[] =
-    {0, 0, 0x10001, 0x20002,
+    {0, 0, 1, 0x100,
      0, 0, 0, 0,
-     1, 0, 0, 0x10001,
-     2, 0, 1, 0};
+     0x10001, 0, 0, 1,
+     0x1000100, 0, 0x10001, 0};
   char* fids;
   char* iids;
   char* wptr_start;
   char* wptr;
+  char* wptr2;
   uint64_t* family_list;
   uint64_t* trio_list;
   uintptr_t* loadbuf;
@@ -1828,8 +1832,15 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   uint32_t family_ct;
   uint32_t family_idx;
   uint32_t child_idx;
-  uint32_t parentdt_obs_ct;
-  uint32_t parentdt_case_a2_excess;
+
+  // use a vertical popcount-like strategy here
+  uint32_t parentdt_acc;
+  uint32_t parentdt_acc_ct;
+  uint32_t parentdt_obs_ct1;
+  uint32_t parentdt_obs_ct2;
+  uint32_t parentdt_case_a2_excess1;
+  uint32_t parentdt_case_a2_excess2;
+
   uint32_t tdt_obs_ct;
   uint32_t tdt_a1_trans_ct;
   uint32_t uii;
@@ -1886,7 +1897,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
 	  *lookup_ptr++ = uii;
 	  *lookup_ptr++ = ujj;
 	} else {
-	  discordant_par = 1;
+	  discord_exists = 1;
 	  // safe to reverse order of parents so that case parent comes first
 	  if (umm) {
 	    *lookup_ptr++ = uii;
@@ -1971,7 +1982,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
     fputs("       CHISQ ", outfile);
   }
   fputs("           P ", outfile);
-  if (discordant_par) {
+  if (discord_exists) {
     fputs("     A:U_PAR    CHISQ_PAR        P_PAR    CHISQ_COM        P_COM ", outfile);
   }
   if (putc_checked('\n', outfile)) {
@@ -2012,8 +2023,12 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
       //       incrementing regular TDT counts.
       mendel_error_ct += erase_mendel_errors(unfiltered_indiv_ct, loadbuf, workbuf, trio_error_lookup, trio_ct, multigen);
       lookup_ptr = trio_nuclear_lookup;
-      parentdt_obs_ct = 0;
-      parentdt_case_a2_excess = 0;
+      parentdt_acc = 0;
+      parentdt_acc_ct = 0;
+      parentdt_obs_ct1 = 0;
+      parentdt_obs_ct2 = 0;
+      parentdt_case_a2_excess1 = 0;
+      parentdt_case_a2_excess2 = 0;
       tdt_obs_ct = 0;
       tdt_a1_trans_ct = 0;
       for (family_idx = 0; family_idx < family_ct; family_idx++) {
@@ -2031,9 +2046,16 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
 	    lookup_ptr = &(lookup_ptr[cur_child_ct]);
 	    continue;
 	  }
-	  umm = parentdt_table[ulii];
-	  parentdt_obs_ct += (uint16_t)umm;
-          parentdt_case_a2_excess += umm >> 16;
+	  parentdt_acc += parentdt_table[ukk];
+	  if (++parentdt_acc_ct == 255) {
+	    // accumulator about to overflow, unpack it
+	    parentdt_obs_ct1 += (unsigned char)parentdt_acc;
+	    parentdt_obs_ct2 += (unsigned char)(parentdt_acc >> 8);
+	    parentdt_case_a2_excess1 += (unsigned char)(parentdt_acc >> 16);
+	    parentdt_case_a2_excess2 += parentdt_acc >> 24;
+	    parentdt_acc = 0;
+	    parentdt_acc_ct = 0;
+	  }
 	  if (!cur_child_ct) {
 	    continue;
 	  }
@@ -2047,6 +2069,8 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
 	    tdt_obs_ct += (uint16_t)umm;
             tdt_a1_trans_ct += umm >> 16;
 	  }
+	} else {
+	  lookup_ptr = &(lookup_ptr[cur_child_ct]);
 	}
       }
       if (is_exact) {
@@ -2096,7 +2120,72 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
 	    wptr = memcpya(wptr, "          NA           NA ", 26);
 	  }
 	}
-        *wptr++ = '\n';
+	if (discord_exists) {
+	  if (parentdt_acc_ct) {
+	    parentdt_obs_ct1 += (unsigned char)parentdt_acc;
+	    parentdt_obs_ct2 += (unsigned char)(parentdt_acc >> 8);
+	    parentdt_case_a2_excess1 += (unsigned char)(parentdt_acc >> 16);
+	    parentdt_case_a2_excess2 += parentdt_acc >> 24;
+	  }
+	  uii = parentdt_case_a2_excess1 + 2 * parentdt_case_a2_excess2;
+	  ujj = parentdt_obs_ct1 + 2 * parentdt_obs_ct2;
+	  wptr2 = uint32_writex(wptr, uii, ':');
+	  wptr2 = uint32_write(wptr2, ujj - uii);
+          wptr = width_force(12, wptr, wptr2);
+          *wptr++ = ' ';
+	  // No exact test for now since we're dealing with a sum of step-1 and
+	  // step-2 binomial distributions.  If anyone wants it, though, it can
+	  // be implemented as follows:
+	  // 1. Preallocate a size-O(n) buffer; it'll actually be useful here.
+	  // 2. Compute actual (not just relative) likelihoods for both
+	  //    component binomial distributions, and save them in the buffer.
+	  //    Note futility thresholds.  (It may be worthwhile to cache the
+	  //    most common distributions, especially since that also enables a
+	  //    faster binom_2sided() variant.)
+	  // 3. The likelihood of sum k is then
+	  //      p1(k) * p2(0) + p1(k-2) * p2(1) + ... + p1(0) * p2(k/2)
+	  //    if k is even, and
+	  //      p1(k) * p2(0) + ... + p1(1) * p2((k-1)/2)
+	  //    if k is odd.
+	  //    These sums are unimodal, so evaluation should start from the
+	  //    center and employ the usual early-termination logic to bring
+	  //    complexity down to O(sqrt(n)).
+	  //    Because there's no unknown scaling factor to worry about, we
+	  //    can simply guess where the start of the other tail is and
+	  //    examine adjacent likelihoods until we've verified where the
+	  //    crossover point is.
+	  //    Then, we can use a heuristic to decide between summing tail or
+	  //    summing central likelihoods for determination of the final
+	  //    p-value.  (Due to catastrophic cancellation, we should always
+	  //    use the tail approach if our point likelihood is smaller than,
+	  //    say, 10^{-6}.  But there are at least a few common cases, e.g.
+	  //    pval=1, where the central approach is much better.)
+	  //    General-case computational complexity is O(n), and the most
+	  //    common cases are O(sqrt(n)).
+	  if (!ujj) {
+	    wptr = memcpya(wptr, "          NA           NA", 25);
+	  } else {
+	    dxx = (double)(((int32_t)ujj) - 2 * ((int32_t)uii));
+	    chisq = dxx * dxx / ((double)((intptr_t)((uintptr_t)(ujj + 2 * parentdt_obs_ct2))));
+	    wptr = double_g_writewx4x(wptr, chisq, 12, ' ');
+	    wptr = double_g_writewx4(wptr, chiprob_p(chisq, 1), 12);
+	  }
+	  *wptr++ = ' ';
+	  uii += tdt_a1_trans_ct;
+	  ujj += tdt_obs_ct;
+	  if (!ujj) {
+	    wptr = memcpya(wptr, "          NA           NA", 25);
+	  } else {
+	    // okay, these casting choices, which are only relevant if there
+	    // are close to a billion samples, are silly, but may as well make
+	    // them consistent with each other.
+            dxx = (double)((intptr_t)((uintptr_t)ujj) - 2 * ((intptr_t)((uintptr_t)uii)));
+	    chisq = dxx * dxx / ((double)((intptr_t)(((uintptr_t)ujj) + 2 * parentdt_obs_ct2)));
+	    wptr = double_g_writewx4x(wptr, chisq, 12, ' ');
+	    wptr = double_g_writewx4(wptr, chiprob_p(chisq, 1), 12);
+	  }
+	}
+	wptr = memcpya(wptr, " \n", 2);
         if (fwrite_checked(textbuf, wptr - textbuf, outfile)) {
 	  goto tdt_ret_WRITE_FAIL;
 	}

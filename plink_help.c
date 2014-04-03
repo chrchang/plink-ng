@@ -949,7 +949,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    phenotypes and pedigree information.\n"
 "    * A Mendel error check is performed before the main tests; offending\n"
 "      genotypes are treated as missing by this analysis.\n"
-"    * By default, p-values are currently based on 1df chi-square tests unless\n"
+"    * By default, the basic TDT p-value is based on a chi-square test unless\n"
 "      you request the exact binomial test with 'exact' or 'exact-midp'.\n"
 "    * 'perm'/'mperm=[value]' requests a family-based adaptive or max(T)\n"
 "      permutation test.  By default, the permutation test statistic is the\n"
