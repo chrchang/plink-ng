@@ -1,5 +1,6 @@
 #include "plink_common.h"
 
+#include "plink_assoc.h"
 #include "plink_family.h"
 #include "plink_stats.h"
 
@@ -1753,6 +1754,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   char* textbuf = tbuf;
+  double* orig_chisq = NULL; // pval if exact test
   uint64_t last_parents = 0;
   uint64_t mendel_error_ct = 0;
   double chisq = 0;
@@ -1803,6 +1805,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   uintptr_t* loadbuf;
   uintptr_t* workbuf;
   uintptr_t* indiv_male_include2;
+  uintptr_t* marker_exclude_tmp;
   uint32_t* trio_error_lookup;
 
   // sequences of variable-length nuclear family records.
@@ -1814,6 +1817,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   // etc.
   uint32_t* trio_nuclear_lookup;
   uint32_t* lookup_ptr;
+  uint32_t* marker_idx_to_uidx;
   const uint32_t* tdt_table_ptr;
   uint64_t cur_trio;
   uint64_t cur_parents;
@@ -1850,7 +1854,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   uint32_t ujj;
   uint32_t ukk;
   uint32_t umm;
-  marker_ct -= count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
+  marker_ct -= count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 0, 1);
   if ((!marker_ct) || is_set(chrom_info_ptr->haploid_mask, 0)) {
     logprint("Warning: Skipping --tdt since there is no autosomal or Xchr data.\n");
     goto tdt_ret_1;
@@ -1942,6 +1946,11 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   }
   wkspace_shrink_top(trio_nuclear_lookup, ((uintptr_t)(lookup_ptr - trio_nuclear_lookup)) * sizeof(int32_t));
 
+  if (mtest_adjust) {
+    if (wkspace_alloc_d_checked(&orig_chisq, marker_ct * sizeof(double))) {
+      goto tdt_ret_NOMEM;
+    }
+  }
   if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&workbuf, unfiltered_indiv_ctp1l2 * sizeof(intptr_t))) {
     goto tdt_ret_NOMEM;
@@ -2081,11 +2090,20 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
       }
       if (is_exact) {
 	pval = binom_2sided(tdt_a1_trans_ct, tdt_obs_ct, is_midp);
+	if (mtest_adjust) {
+	  orig_chisq[markers_done] = pval;
+	}
       } else if (!tdt_obs_ct) {
 	pval = -9;
+	if (mtest_adjust) {
+	  orig_chisq[markers_done] = -9;
+	}
       } else {
 	dxx = (double)(((int32_t)tdt_obs_ct) - 2 * ((int32_t)tdt_a1_trans_ct));
 	chisq = dxx * dxx / ((double)((int32_t)tdt_obs_ct));
+	if (mtest_adjust) {
+	  orig_chisq[markers_done] = chisq;
+	}
 	pval = chiprob_p(chisq, 1);
       }
       if (pval <= pfilter) {
@@ -2225,6 +2243,27 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   }
   putchar('\r');
   LOGPRINTF("--tdt: Report written to %s.\n", outname);
+  if (mtest_adjust) {
+    ulii = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+    if (wkspace_alloc_ui_checked(&marker_idx_to_uidx, marker_ct * sizeof(int32_t)) ||
+        wkspace_alloc_ul_checked(&marker_exclude_tmp, ulii * sizeof(intptr_t))) {
+      goto tdt_ret_NOMEM;
+    }
+    // need a custom marker_exclude that's set at Y/haploid/MT
+    memcpy(marker_exclude_tmp, marker_exclude, ulii * sizeof(intptr_t));
+    for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
+      chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+      if ((is_set(chrom_info_ptr->haploid_mask, chrom_idx) && ((int32_t)chrom_idx != chrom_info_ptr->x_code)) || ((int32_t)chrom_idx == chrom_info_ptr->mt_code)) {
+	uii = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
+	fill_bits(marker_exclude_tmp, uii, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1] - uii);
+      }
+    }
+    fill_idx_to_uidx(marker_exclude_tmp, unfiltered_marker_ct, marker_ct, marker_idx_to_uidx);
+    retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, zero_extra_chroms, chrom_info_ptr, orig_chisq, pfilter, mtest_adjust, adjust_lambda, is_exact, NULL);
+    if (retval) {
+      goto tdt_ret_1;
+    }
+  }
   while (0) {
   tdt_ret_NOMEM:
     retval = RET_NOMEM;
