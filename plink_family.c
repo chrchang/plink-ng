@@ -1760,6 +1760,8 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t unfiltered_indiv_ctp1l2 = 1 + (unfiltered_indiv_ct / BITCT2);
   uintptr_t marker_uidx = ~ZEROLU;
+  uintptr_t markers_done = 0;
+  uintptr_t pct = 1;
   uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
   uint32_t display_ci = (ci_size > 0);
   uint32_t is_exact = fam_ip->tdt_modifier & TDT_EXACT;
@@ -1819,6 +1821,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   uintptr_t max_iid_len;
   uintptr_t trio_ct;
   uintptr_t trio_idx;
+  uintptr_t pct_thresh;
   uintptr_t ulii;
   uintptr_t uljj;
   double pval;
@@ -1958,6 +1961,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
     retval = tdt_poo();
     goto tdt_ret_1;
   }
+  pct_thresh = marker_ct / 100;
   memcpy(outname_end, ".tdt", 5);
   if (fopen_checked(&outfile, outname, "w")) {
     goto tdt_ret_OPEN_FAIL;
@@ -1988,6 +1992,8 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   if (putc_checked('\n', outfile)) {
     goto tdt_ret_WRITE_FAIL;
   }
+  fputs("--tdt: 0%", stdout);
+  fflush(stdout);
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
     is_x = ((int32_t)chrom_idx == chrom_info_ptr->x_code);
@@ -2191,6 +2197,17 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
 	}
       }
 
+      if (++markers_done >= pct_thresh) {
+        if (pct > 10) {
+	  putchar('\b');
+	}
+	pct = (markers_done * 100LLU) / marker_ct;
+        if (pct < 100) {
+	  printf("\b\b%" PRIuPTR "%%", pct);
+          fflush(stdout);
+          pct_thresh = ((++pct) * ((uint64_t)markers_done)) / 100;
+	}
+      }
       if (++marker_uidx == chrom_end) {
 	break;
       }
@@ -2206,6 +2223,8 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
       }
     }
   }
+  putchar('\r');
+  LOGPRINTF("--tdt: Report written to %s.\n", outname);
   while (0) {
   tdt_ret_NOMEM:
     retval = RET_NOMEM;

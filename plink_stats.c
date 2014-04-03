@@ -2246,6 +2246,9 @@ double binom_2sided(uint32_t succ, uint32_t obs, uint32_t midp) {
       // lastp2 *= rate_mult_incr * cur_fail_t2 / cur_succ_t2;
       cur_fail_t2--;
       if (lastp2 < EXACT_TEST_BIAS) {
+	if (lastp2 > (1 - 2 * SMALL_EPSILON) * EXACT_TEST_BIAS) {
+	  tie_ct++;
+	}
 	tailp += lastp2;
 	break;
       }
