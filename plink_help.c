@@ -942,6 +942,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      Metabolic Syndrome Traits.\n\n"
 	       );
 #endif
+#endif
     help_print("tdt\tpoo\tperm\tmperm\tparentdt1\tparentdt2\tpat\tmat\tset-test", &help_ctrl, 1,
 "  --tdt <exact | exact-midp | poo> <perm | mperm=[value]>\n"
 "        <parentdt1 | parentdt2 | pat | mat> <set-test>\n"
@@ -965,7 +966,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      parent-of-origin test Z score; 'pat'/'mat' cause paternal or maternal TDT\n"
 "      chi-square statistics, respectively, to be considered instead.\n\n"
 	       );
-#endif
     help_print("fast-epistasis\tepistasis\tset-test\tset-by-all\tcase-only\tnop\tepistasis-summary-merge", &help_ctrl, 1,
 "  --fast-epistasis <boost | joint-effects | no-ueki> <case-only>\n"
 "                   <set-by-set | set-by-all> <nop>\n"

@@ -2198,6 +2198,7 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
 	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
 	  skip_chrom = (is_haploid && (!is_x)) || is_mt;
 	  cptr0 = width_force(4, writebuf, chrom_name_write(writebuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], zero_extra_chroms));
+	  *cptr0++ = ' ';
           memset(&(cptr0[plink_maxsnp]), 32, 20);
 	  cptr = &(cptr0[10 + plink_maxsnp]);
 	  cptr2 = &(cptr[18 + 2 * max_marker_allele_len]);
