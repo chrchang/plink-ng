@@ -3409,6 +3409,18 @@ int32_t main(int32_t argc, char** argv) {
 	  break;
 	}
 	goto main_flag_copy;
+      case 'h':
+        if (!strcmp(argptr, "hwe2")) {
+	  fputs("Warning: --hwe2 flag is obsolete, and now treated as an alias for --hwe.\n", stdout);
+	  memcpy(flagptr, "hwe", 4);
+	  break;
+        } else if (!strcmp(argptr, "hardy2")) {
+	  fputs("Warning: --hardy2 flag is obsolete, and now treated as an alias for --hardy.\n", stdout);
+	  memcpy(flagptr, "hardy", 6);
+	  break;
+	}
+	goto main_flag_copy;
+
       case 'k':
 	if (!memcmp(argptr, "k", 2)) {
 	  memcpy(flagptr, "K", 2);
@@ -3418,13 +3430,13 @@ int32_t main(int32_t argc, char** argv) {
       case 'l':
 	if (!strcmp(argptr, "list")) {
 	  memcpy(flagptr, "recode list", 12);
-	  printf("Note: --list flag deprecated.  Use '--recode list' instead.\n");
+	  fputs("Note: --list flag deprecated.  Use '--recode list' instead.\n", stdout);
 	  recode_modifier |= RECODE_LIST;
 	  misc_flags |= MISC_SET_HH_MISSING;
 	  break;
 	} else if (!strcmp(argptr, "load-dists")) {
           memcpy(flagptr, "read-dists", 11);
-          printf("Note: --load-dists flag has been renamed to --read-dists.\n");
+          fputs("Note: --load-dists flag has been renamed to --read-dists.\n", stdout);
           break;
 	}
 	goto main_flag_copy;
@@ -3473,7 +3485,7 @@ int32_t main(int32_t argc, char** argv) {
 	    } else if (match_upper(argptr2, "HV")) {
 	      memcpy(flagptr, "recode HV-1chr", 15);
 	      recode_modifier |= RECODE_HV_1CHR;
-              printf("Note: --recodeHV flag deprecated.  Use '--recode HV' or '--recode HV-1chr'.\n");
+              fputs("Note: --recodeHV flag deprecated.  Use '--recode HV' or '--recode HV-1chr'.\n", stdout);
 	      ujj = 2;
 	    }
 	    break;
@@ -3510,7 +3522,7 @@ int32_t main(int32_t argc, char** argv) {
 	      memcpy(flagptr, "recode bimbam-1chr", 19);
 	      recode_modifier |= RECODE_BIMBAM_1CHR;
 	      misc_flags |= MISC_SET_HH_MISSING;
-	      printf("Note: --recode-bimbam flag deprecated.  Use '--recode bimbam' or\n'--recode bimbam-1chr'.\n");
+	      fputs("Note: --recode-bimbam flag deprecated.  Use '--recode bimbam' or\n'--recode bimbam-1chr'.\n", stdout);
 	      ujj = 2;
 	    }
 	    break;
@@ -3519,7 +3531,7 @@ int32_t main(int32_t argc, char** argv) {
 	      memcpy(flagptr, "recode fastphase-1chr", 22);
 	      recode_modifier |= RECODE_FASTPHASE_1CHR;
 	      misc_flags |= MISC_SET_HH_MISSING;
-	      printf("Note: --recode-fastphase flag deprecated.  Use '--recode fastphase' or\n'--recode fastphase-1chr'.\n");
+	      fputs("Note: --recode-fastphase flag deprecated.  Use '--recode fastphase' or\n'--recode fastphase-1chr'.\n", stdout);
 	      ujj = 2;
 	    } else if (!memcmp(argptr2, "-structure", 10)) {
 	      memcpy(flagptr, "recode structure", 17);
@@ -6368,12 +6380,6 @@ int32_t main(int32_t argc, char** argv) {
           hwe_modifier |= HWE_MIDP;
 	}
 	calculation_type |= CALC_HARDY;
-      } else if (!memcmp(argptr2, "we2", 4)) {
-	sprintf(logbuf, "Error: --hwe2 retired.  Use the --hwe exact test.%s", errstr_append);
-	goto main_ret_INVALID_CMDLINE_3;
-      } else if (!memcmp(argptr2, "ardy2", 6)) {
-	sprintf(logbuf, "Error: --hardy2 retired.  Use the exact test-based --hardy report.%s", errstr_append);
-	goto main_ret_INVALID_CMDLINE_3;
       } else if (!memcmp(argptr2, "omozyg", 7)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4)) {
 	  goto main_ret_INVALID_CMDLINE_3;
