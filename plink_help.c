@@ -479,7 +479,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --test-mishap\n"
 "    Check for association between missing calls and flanking haplotypes.\n\n"
                );
-    help_print("hardy", &help_ctrl, 1,
+    help_print("hardy\thardy2", &help_ctrl, 1,
 "  --hardy <midp>\n"
 "    Generate a Hardy-Weinberg exact test p-value report.  (This does NOT\n"
 "    simultaneously filter on the p-value any more; use --hwe for that.)  With\n"
@@ -1348,7 +1348,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --read-freq [fn] : Estimate MAFs and heterozygote frequencies from the given\n"
 "                     --freq{x} report, instead of the input fileset.\n"
 	       );
-    help_print("hwe\thwe-all", &help_ctrl, 0,
+    help_print("hwe\thwe-all\thwe2", &help_ctrl, 0,
 "  --hwe [p] <midp> <include-nonctrl> : Exclude sites with Hardy-Weinberg\n"
 "                                       equilibrium exact test p-values below a\n"
 "                                       threshold.\n"

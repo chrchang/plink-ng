@@ -3367,7 +3367,7 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_flag_copy;
       case 'c':
         if (!strcmp(argptr, "chr-excl")) {
-          logprint("Note: --chr-excl flag has been renamed to --not-chr.\n");
+          fputs("Note: --chr-excl flag has been renamed to --not-chr.\n", stdout);
 	  memcpy(flagptr, "not-chr", 8);
 	  break;
 	} else if (!strcmp(argptr, "cmh")) {
@@ -3380,7 +3380,7 @@ int32_t main(int32_t argc, char** argv) {
 	  memcpy(flagptr, "snp", 4);
 	  break;
 	} else if (!strcmp(argptr, "exponent")) {
-	  logprint("Note: --exponent flag has been renamed to --distance-exp.\n");
+	  fputs("Note: --exponent flag has been renamed to --distance-exp.\n", stdout);
 	  memcpy(flagptr, "distance-exp", 13);
 	  break;
 	}
@@ -3411,12 +3411,12 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_flag_copy;
       case 'h':
         if (!strcmp(argptr, "hwe2")) {
-	  fputs("Warning: --hwe2 flag is obsolete, and now treated as an alias for --hwe.\n", stdout);
-	  memcpy(flagptr, "hwe", 4);
+	  fputs("Warning: --hwe2 flag is obsolete, and now treated as an alias for '--hwe midp'.\n", stdout);
+	  memcpy(flagptr, "hwe midp", 9);
 	  break;
         } else if (!strcmp(argptr, "hardy2")) {
-	  fputs("Warning: --hardy2 flag is obsolete, and now treated as an alias for --hardy.\n", stdout);
-	  memcpy(flagptr, "hardy", 6);
+	  fputs("Warning: --hardy2 flag is obsolete, and now treated as an alias for\n'--hardy midp'.\n", stdout);
+	  memcpy(flagptr, "hardy midp", 11);
 	  break;
 	}
 	goto main_flag_copy;
@@ -6330,9 +6330,12 @@ int32_t main(int32_t argc, char** argv) {
       break;
 
     case 'h':
-      if (!memcmp(argptr2, "we", 3)) {
+      if ((!memcmp(argptr2, "we", 3)) || (!memcmp(argptr2, "we midp", 8))) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 3)) {
 	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (argptr2[2]) {
+	  hwe_modifier |= HWE_THRESH_MIDP;
 	}
 	ujj = 0;
 	for (uii = 1; uii <= param_ct; uii++) {
@@ -6368,9 +6371,12 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "et", 3)) {
         calculation_type |= CALC_HET;
 	goto main_param_zero;
-      } else if (!memcmp(argptr2, "ardy", 5)) {
+      } else if ((!memcmp(argptr2, "ardy", 5)) || (!memcmp(argptr2, "ardy midp", 10))) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (argptr2[4]) {
+	  hwe_modifier |= HWE_MIDP;
 	}
         if (param_ct) {
 	  if (strcmp(argv[cur_arg + 1], "midp")) {
