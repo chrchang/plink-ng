@@ -112,9 +112,9 @@ const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n"
 const char null_calc_str[] = "Warning: No output requested.  Exiting.\n";
 #ifdef STABLE_BUILD
   #ifndef NOLAPACK
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --pca, --neighbour,\n--ibs-test, --regress-distance, --model, --gxe, --logistic, --lasso,\n--test-missing, --clump, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --pca, --neighbour,\n--ibs-test, --regress-distance, --model, --gxe, --logistic, --lasso,\n--test-missing, --clump, --tdt, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour, --ibs-test,\n--regress-distance, --model, --gxe, --logistic, --lasso, --test-missing,\n--clump, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour, --ibs-test,\n--regress-distance, --model, --gxe, --logistic, --lasso, --test-missing,\n--clump, --tdt, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #endif
 #else
   #ifndef NOLAPACK
@@ -128,7 +128,7 @@ intptr_t malloc_size_mb = 0;
 
 unsigned char* wkspace;
 
-void dispmsg(int32_t retval) {
+void disp_exit_msg(int32_t retval) {
   switch (retval) {
   case RET_NOMEM:
     logprint("\nError: Out of memory.  Try the --memory and/or --parallel flags.\n");
@@ -2034,14 +2034,14 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 #define MAX_FLAG_LEN 25
 
 static inline int32_t is_flag(char* param) {
-  char cc = param[1];
-  return ((*param == '-') && ((cc > '9') || ((cc < '0') && (cc != '.')))); 
+  unsigned char ucc = param[1];
+  return ((*param == '-') && ((ucc > '9') || ((ucc < '0') && (ucc != '.')))); 
 }
 
 static inline char* is_flag_start(char* param) {
-  char cc = param[1];
-  if ((*param == '-') && ((cc > '9') || ((cc < '0') && (cc != '.')))) {
-    return (cc == '-')? (&(param[2])) : (&(param[1]));
+  unsigned char ucc = param[1];
+  if ((*param == '-') && ((ucc > '9') || ((ucc < '0') && (ucc != '.')))) {
+    return (ucc == '-')? (&(param[2])) : (&(param[1]));
   }
   return NULL;
 }
@@ -3281,6 +3281,10 @@ int32_t main(int32_t argc, char** argv) {
     goto main_ret_INVALID_CMDLINE;
   }
   flag_ct = 0;
+  // (these aren't resolved immediately since we want --help to take
+  // precedence)
+  ujj = 0; // --version?
+  ukk = 0; // silence?
   for (uii = cur_arg; uii < (uint32_t)argc; uii++) {
     argptr = is_flag_start(argv[uii]);
     if (argptr) {
@@ -3303,6 +3307,11 @@ int32_t main(int32_t argc, char** argv) {
         retval = RET_HELP;
 	goto main_ret_1;
       }
+      if (!strcmp("version", argptr)) {
+	ujj = 1;
+      } else if ((!strcmp("silent", argptr)) || (!strcmp("gplink", argptr))) {
+	ukk = 1;
+      }
       if (strlen(argptr) >= MAX_FLAG_LEN) {
 	print_ver();
 	invalid_arg(argv[uii]);
@@ -3319,10 +3328,18 @@ int32_t main(int32_t argc, char** argv) {
     retval = RET_NULL_CALC;
     goto main_ret_1;
   }
+  if (ujj) {
+    fputs(ver_str, stdout);
+    putchar('\n');
+    goto main_ret_1;
+  }
+  if (ukk) {
+    freopen("/dev/null", "w", stdout);
+  }
+  print_ver();
   flag_buf = (char*)malloc(flag_ct * MAX_FLAG_LEN * sizeof(char));
   flag_map = (uint32_t*)malloc(flag_ct * sizeof(int32_t));
   if ((!flag_buf) || (!flag_map)) {
-    print_ver();
     goto main_ret_NOMEM;
   }
   flagptr = flag_buf;
@@ -3533,6 +3550,7 @@ int32_t main(int32_t argc, char** argv) {
 	      misc_flags |= MISC_SET_HH_MISSING;
 	      fputs("Note: --recode-fastphase flag deprecated.  Use e.g. '--recode 01 fastphase-1chr'.\n", stdout);
 	      ujj = 2;
+	      umm++;
 	    } else if (!memcmp(argptr2, "-structure", 10)) {
 	      memcpy(flagptr, "recode structure", 17);
 	      recode_modifier |= RECODE_STRUCTURE;
@@ -3569,13 +3587,6 @@ int32_t main(int32_t argc, char** argv) {
 	  break;
 	}
 	goto main_flag_copy;
-      case 'v':
-	if (!strcmp(argptr, "version")) {
-	  fputs(ver_str, stdout);
-	  putchar('\n');
-          goto main_ret_1;
-	}
-	// fall through
       default:
       main_flag_copy:
 	memcpy(flagptr, argptr, ukk);
@@ -3586,7 +3597,6 @@ int32_t main(int32_t argc, char** argv) {
   }
   sptr = (char*)malloc(flag_ct * MAX_FLAG_LEN);
   if (!sptr) {
-    print_ver();
     goto main_ret_NOMEM;
   }
   qsort_ext2(flag_buf, flag_ct, MAX_FLAG_LEN, strcmp_deref, (char*)flag_map, sizeof(int32_t), sptr, MAX_FLAG_LEN);
@@ -3596,20 +3606,12 @@ int32_t main(int32_t argc, char** argv) {
     ukk = strlen_se(&(flag_buf[cur_flag * MAX_FLAG_LEN]));
     if ((ujj == ukk) && (!memcmp(&(flag_buf[(cur_flag - 1) * MAX_FLAG_LEN]), &(flag_buf[cur_flag * MAX_FLAG_LEN]), ukk))) {
       flag_buf[cur_flag * MAX_FLAG_LEN + ukk] = '\0'; // just in case of aliases
-      print_ver();
       printf("Error: Duplicate --%s flag.\n", &(flag_buf[cur_flag * MAX_FLAG_LEN]));
       goto main_ret_INVALID_CMDLINE;
     }
     ujj = ukk;
   }
 
-  for (cur_flag = 0; cur_flag < flag_ct; cur_flag++) {
-    if ((!memcmp("silent", &(flag_buf[cur_flag * MAX_FLAG_LEN]), 7)) || (!memcmp("gplink", &(flag_buf[cur_flag * MAX_FLAG_LEN]), 7))) {
-      freopen("/dev/null", "w", stdout);
-      break;
-    }
-  }
-  print_ver();
   uii = 5;
   memcpy(outname, PROG_NAME_STR, 6);
   for (cur_flag = 0; cur_flag < flag_ct; cur_flag++) {
@@ -8244,7 +8246,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	if (chrom_info.is_include_stack) {
+	if (chrom_info.is_include_stack || (!chrom_flag_present)) {
 	  fill_chrom_mask(&chrom_info);
 	}
 	for (uii = 0; uii < CHROM_MASK_INITIAL_WORDS; uii++) {
@@ -11623,7 +11625,7 @@ int32_t main(int32_t argc, char** argv) {
   }
  main_ret_1:
   fclose_cond(scriptfile);
-  dispmsg(retval);
+  disp_exit_msg(retval);
   free_cond(subst_argv);
   free_cond(script_buf);
   free_cond(rerun_buf);
