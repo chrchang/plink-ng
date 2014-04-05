@@ -369,13 +369,14 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    " PROG_NAME_CAPS "'s filtering flags.\n"
 	       );
     help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele\tlist\twith-reference\trecode-vcf\tfid\tiid\trecode-beagle\trecode-bimbam\trecode-fastphase\trecodeHV\trecodehv\trecode-structure", &help_ctrl, 1,
-"  --recode <12> <compound-genotypes> <23 | A | AD | beagle | bimbam |\n"
+"  --recode <01 | 12> <compound-genotypes> <23 | A | AD | beagle | bimbam |\n"
 "           bimbam-1chr | fastphase | fastphase-1chr | HV | HV-1chr | lgen |\n"
 "           lgen-ref | list | oxford | rlist | structure | transpose | vcf |\n"
 "           vcf-fid | vcf-iid> <tab | tabx | spacex>\n"
 "    Create a new text fileset with all filters applied.  By default, the\n"
 "    fileset consists of a .ped and a .map file, readable with --file.\n"
-"    * The '12' modifier causes all alleles to be coded as 1s and 2s.\n"
+"    * The '12' modifier causes A1 (usually minor) alleles to be coded as '1'\n"
+"      and A2 alleles to be coded as '2', while '01' maps A1 -> 0 and A2 -> 1.\n"
 "    * The 'compound-genotypes' modifier removes the space between pairs of\n"
 "      genotype codes for the same variant.\n"
 "    * The '23' modifier causes a 23andMe-formatted file to be generated.  This\n"

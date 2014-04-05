@@ -10951,7 +10951,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   uint32_t vcf_not_fid = (recode_modifier & RECODE_VCF) && (!(recode_modifier & RECODE_FID));
   uint32_t vcf_not_iid = (recode_modifier & RECODE_VCF) && (!(recode_modifier & RECODE_IID));
   uint32_t vcf_two_ids = vcf_not_fid && vcf_not_iid;
-  uint32_t recode_12 = recode_modifier & RECODE_12;
+  uint32_t recode_012 = recode_modifier & (RECODE_01 | RECODE_12);
   uint32_t set_hh_missing = (misc_flags / MISC_SET_HH_MISSING) & 1;
   uint32_t zero_extra_chroms = (misc_flags / MISC_ZERO_EXTRA_CHROMS) & 1;
   uint32_t xmhh_exists_orig = hh_exists & XMHH_EXISTS;
@@ -11042,14 +11042,20 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       }
     }
   }
-  if (recode_12) {
+  if (recode_012) {
+    // may as well prevent user from shooting themselves in the foot here
+    if ((recode_modifier & RECODE_01) && (output_missing_geno == '0') && (!(recode_modifier & (RECODE_A | RECODE_AD | RECODE_BIMBAM | RECODE_FASTPHASE | RECODE_FASTPHASE_1CHR | RECODE_STRUCTURE)))) {
+      logprint("Error: The --recode '01' modifier normally has to be used with a nonzero\n--output-missing-genotype setting.\n");
+      goto recode_ret_INVALID_CMDLINE;
+    }
     mk_allele_ptrs = (char**)wkspace_alloc(unfiltered_marker_ct * 2 * sizeof(intptr_t));
     if (!mk_allele_ptrs) {
       goto recode_ret_NOMEM;
     }
+    uii = 96 + (recode_modifier & RECODE_12);
     for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
-      mk_allele_ptrs[2 * marker_uidx] = (char*)(&(g_one_char_strs[98])); // "1"
-      mk_allele_ptrs[2 * marker_uidx + 1] = (char*)(&(g_one_char_strs[100])); // "2"
+      mk_allele_ptrs[2 * marker_uidx] = (char*)(&(g_one_char_strs[uii])); // "0" or "1"
+      mk_allele_ptrs[2 * marker_uidx + 1] = (char*)(&(g_one_char_strs[uii + 2])); // "1" or "2"
     }
     max_marker_allele_len = 2;
   }
@@ -11191,6 +11197,24 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     if ((recode_modifier & RECODE_FASTPHASE_1CHR) && (max_chrom_size != marker_ct)) {
       logprint("Error: --recode fastphase-1chr requires a single-chromosome dataset.  Did you\nmean '--recode fastphase'?  (Note the lack of a dash in the middle.)\n");
       goto recode_ret_INVALID_CMDLINE;
+    }
+    if (max_marker_allele_len != 2) {
+      logprint("Error: --recode fastphase cannot be used with multi-character allele names.\n(Use the '01' or '12' modifier to work around this.)\n");
+      goto recode_ret_INVALID_CMDLINE;
+    }
+    if (recode_012) {
+      if (wkspace_alloc_c_checked(&writebuf3, 8)) {
+        goto recode_ret_NOMEM;
+      }
+      if (recode_modifier & RECODE_01) {
+	memcpy(writebuf3, "0?010?11", 8);
+      } else {
+	memcpy(writebuf3, "1?121?22", 8);
+      }
+    } else {
+      if (wkspace_alloc_c_checked(&writebuf3, max_chrom_size * 2)) {
+	goto recode_ret_NOMEM;
+      }
     }
     if (wkspace_left < ((uint64_t)unfiltered_indiv_ct4) * max_chrom_size + 2 * ((max_chrom_size + 63) & (~(63 * ONELU)))) {
       goto recode_ret_NO_MULTIPASS_YET;
@@ -12192,6 +12216,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     if (recode_modifier & RECODE_FASTPHASE) {
       fputs("[chromosome   ", stdout);
     }
+    writebuf3[1] = '?';
+    writebuf3[5] = '?';
     do {
       chrom_fo_idx++;
       next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
@@ -12223,6 +12249,15 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	haploid_fix_multiple(marker_exclude, marker_uidx_start, ulii, chrom_info_ptr, hh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, unfiltered_indiv_ct4, loadbuf);
       }
       indiv_uidx = 0;
+      if (!recode_012) {
+	uidx_cur = marker_uidx_start;
+	cptr = writebuf3;
+	for (marker_idx = 0; marker_idx < ulii; uidx_cur++, marker_idx++) {
+          next_unset_unsafe_ck(marker_exclude, &uidx_cur);
+	  *cptr++ = marker_allele_ptrs[2 * uidx_cur][0];
+	  *cptr++ = marker_allele_ptrs[2 * uidx_cur + 1][0];
+	}
+      }
       for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
         next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
 	if (fputs_checked("# ID ", outfile)) {
@@ -12239,14 +12274,33 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	marker_idx = 0;
         do {
           uidx_cur = next_unset_unsafe(marker_exclude, uidx_cur);
-          uidx_stop = next_set(marker_exclude, marker_uidx, chrom_end);
-	  marker_idx += uidx_stop - uidx_cur;
-	  do {
-            ucc = ((*bufptr) >> shiftval) & 3;
-            *aptr++ = "0?01"[ucc];
-	    *aptr2++ = "0?11"[ucc];
-	    bufptr = &(bufptr[unfiltered_indiv_ct4]);
-	  } while (++uidx_cur < uidx_stop);
+	  uidx_stop = next_set(marker_exclude, marker_uidx, chrom_end);
+	  if (recode_012) {
+	    marker_idx += uidx_stop - uidx_cur;
+	    do {
+	      ucc = ((*bufptr) >> shiftval) & 3;
+	      *aptr++ = writebuf3[ucc];
+	      *aptr2++ = writebuf3[ucc + 4];
+	      bufptr = &(bufptr[unfiltered_indiv_ct4]);
+	    } while (++uidx_cur < uidx_stop);
+	  } else {
+	    uljj = marker_idx + uidx_stop - uidx_cur;
+	    uidx_cur = uidx_stop;
+	    do {
+              ucc = ((*bufptr) >> shiftval) & 3;
+	      // I'm sure there's a better way to do this, but at least this is
+	      // better than derefencing marker_allele_ptrs in the innermost
+	      // loop
+	      if (ucc != 1) {
+		*aptr++ = writebuf3[marker_idx * 2 + (ucc % 2)];
+		*aptr2++ = writebuf3[marker_idx * 2 + (ucc / 2)];
+	      } else {
+		*aptr++ = '?';
+		*aptr2++ = '?';
+	      }
+              bufptr = &(bufptr[unfiltered_indiv_ct4]);
+	    } while (++marker_idx < uljj);
+	  }
 	} while (marker_idx < ulii);
 	fwrite(writebuf, 1, ulii, outfile);
 	putc('\n', outfile);

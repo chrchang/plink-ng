@@ -97,7 +97,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (4 Apr 2014) ";
+  " (5 Apr 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -2030,7 +2030,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   return retval;
 }
 
-// output-missing-phenotype + terminating null
+// output-missing-phenotype + terminating null, or 'recode 01 fastphase-1chr'
 #define MAX_FLAG_LEN 25
 
 static inline int32_t is_flag(char* param) {
@@ -3528,10 +3528,10 @@ int32_t main(int32_t argc, char** argv) {
 	    break;
 	  case 17:
 	    if (!memcmp(argptr2, "-fastphase", 10)) {
-	      memcpy(flagptr, "recode fastphase-1chr", 22);
-	      recode_modifier |= RECODE_FASTPHASE_1CHR;
+	      memcpy(flagptr, "recode 01 fastphase-1chr", 25);
+	      recode_modifier |= RECODE_01 | RECODE_FASTPHASE_1CHR;
 	      misc_flags |= MISC_SET_HH_MISSING;
-	      fputs("Note: --recode-fastphase flag deprecated.  Use '--recode fastphase' or\n'--recode fastphase-1chr'.\n", stdout);
+	      fputs("Note: --recode-fastphase flag deprecated.  Use e.g. '--recode 01 fastphase-1chr'.\n", stdout);
 	      ujj = 2;
 	    } else if (!memcmp(argptr2, "-structure", 10)) {
 	      memcpy(flagptr, "recode structure", 17);
@@ -9053,16 +9053,28 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
-	  if (!strcmp(argv[cur_arg + uii], "12")) {
+	  if ((!strcmp(argv[cur_arg + uii], "01")) || (!strcmp(argv[cur_arg + uii], "12"))) {
 	    if (recode_modifier & (RECODE_A | RECODE_AD)) {
-	      sprintf(logbuf, "Error: --recode '12' modifier cannot be used with 'A' or 'AD'.%s", errstr_append);
+	      sprintf(logbuf, "Error: --recode '01' and '12' modifiers cannot be used with 'A' or 'AD'.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    } else if (recode_modifier & RECODE_VCF) {
-	    main_recode_12_vcf_conflict:
-	      sprintf(logbuf, "Error: --recode '12' modifier cannot be used with VCF output.%s", errstr_append);
+	    main_recode_012_vcf_conflict:
+	      sprintf(logbuf, "Error: --recode '01' and '12' modifiers cannot be used with VCF output.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	    recode_modifier |= RECODE_12;
+	    if (argv[cur_arg + uii][0] == '0') {
+	      if (recode_modifier & RECODE_12) {
+		logprint("Error: --recode '01' and '12' modifiers cannot be used together.\n");
+		goto main_ret_INVALID_CMDLINE;
+	      }
+	      recode_modifier |= RECODE_01;
+	    } else {
+	      if (recode_modifier & RECODE_01) {
+		logprint("Error: --recode '01' and '12' modifiers cannot be used together.\n");
+		goto main_ret_INVALID_CMDLINE;
+	      }
+	      recode_modifier |= RECODE_12;
+	    }
 	  } else if (!strcmp(argv[cur_arg + uii], "compound-genotypes")) {
 	    if (recode_modifier & RECODE_STRUCTURE) {
               logprint("Error: --recode 'compound-genotypes' modifier cannot be used with 'structure'.\n");
@@ -9166,8 +9178,8 @@ int32_t main(int32_t argc, char** argv) {
 	    main_recode_vcf_conflict:
 	      sprintf(logbuf, "Error: Conflicting or redundant --recode modifiers.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
-	    } else if (recode_modifier & RECODE_12) {
-	      goto main_recode_12_vcf_conflict;
+	    } else if (recode_modifier & (RECODE_01 | RECODE_12)) {
+	      goto main_recode_012_vcf_conflict;
 	    }
 	    if (recode_type_set(&recode_modifier, RECODE_VCF)) {
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -9175,8 +9187,8 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "vcf-fid")) {
 	    if (recode_modifier & (RECODE_VCF | RECODE_IID)) {
 	      goto main_recode_vcf_conflict;
-	    } else if (recode_modifier & RECODE_12) {
-	      goto main_recode_12_vcf_conflict;
+	    } else if (recode_modifier & (RECODE_01 | RECODE_12)) {
+	      goto main_recode_012_vcf_conflict;
 	    }
 	    if (recode_type_set(&recode_modifier, RECODE_VCF)) {
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -9185,8 +9197,8 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "vcf-iid")) {
 	    if (recode_modifier & (RECODE_VCF | RECODE_FID)) {
 	      goto main_recode_vcf_conflict;
-	    } else if (recode_modifier & RECODE_12) {
-	      goto main_recode_12_vcf_conflict;
+	    } else if (recode_modifier & (RECODE_01 | RECODE_12)) {
+	      goto main_recode_012_vcf_conflict;
 	    }
 	    if (recode_type_set(&recode_modifier, RECODE_VCF)) {
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -9206,8 +9218,8 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --recode-allele must be used with --recode A or --recode AD.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if (recode_modifier & RECODE_12) {
-	  sprintf(logbuf, "Error: --recode-allele cannot be used with --recode 12.%s", errstr_append);
+        if (recode_modifier & (RECODE_01 | RECODE_12)) {
+	  sprintf(logbuf, "Error: --recode-allele cannot be used with --recode 01/12.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
