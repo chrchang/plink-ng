@@ -11199,7 +11199,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       goto recode_ret_INVALID_CMDLINE;
     }
     if (max_marker_allele_len != 2) {
-      logprint("Error: --recode fastphase cannot be used with multi-character allele names.\n(Use the '01' or '12' modifier to work around this.)\n");
+      logprint("Error: --recode fastphase cannot be used with multi-character allele names.\n(You can use the '01' or '12' modifier to work around this.)\n");
       goto recode_ret_INVALID_CMDLINE;
     }
     if (recode_012) {
