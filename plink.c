@@ -97,7 +97,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (5 Apr 2014) ";
+  " (6 Apr 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -3350,13 +3350,6 @@ int32_t main(int32_t argc, char** argv) {
       ukk = strlen(argptr) + 1;
       // handle aliases now, so sorting will have the desired effects
       switch (*argptr) {
-      case 'Z':
-	if (!strcmp(argptr, "Z-genome")) {
-	  memcpy(flagptr, "genome gz", 10);
-	  umm++;
-	  break;
-	}
-	goto main_flag_copy;
       case 'a':
 	if ((ukk == 11) && (!memcmp(argptr, "allele", 6))) {
 	  if (match_upper(&(argptr[6]), "ACGT")) {
@@ -3831,6 +3824,15 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_ret_INVALID_CMDLINE_2;
       }
       break;
+
+    case 'Z':
+      if (!memcmp(argptr2, "-genome", 8)) {
+	kk = 1;
+	genome_modifier |= GENOME_OUTPUT_GZ;
+	goto main_genome_flag;
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
+      }
 
     case 'a':
       if (!memcmp(argptr2, "utosome", 8)) {
@@ -6110,13 +6112,12 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_OPEN_FAIL;
 	}
 	strcpy(pedname, argv[cur_arg + 1]);
-      } else if ((!memcmp(argptr2, "enome", 6)) || (!memcmp(argptr2, "enome gz", 9))) {
-	if (argptr2[5] == ' ') {
-	  kk = 1;
-	  genome_modifier |= GENOME_OUTPUT_GZ;
-	} else {
-	  kk = 0;
+      } else if (!memcmp(argptr2, "enome", 6)) {
+	if (genome_modifier & GENOME_OUTPUT_GZ) {
+          logprint("Warning: Duplicate --genome flag.  (--Z-genome is treated as '--genome gz'.)\n");
 	}
+	kk = 0;
+      main_genome_flag:
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 5 - kk)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
