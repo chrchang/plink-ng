@@ -257,6 +257,10 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       goto load_range_list_ret_1;
     }
     max_set_id_len += c_prefix;
+    if (max_set_id_len > MAX_ID_LEN_P1) {
+      logprint("Error: Set IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+      goto load_range_list_ret_INVALID_FORMAT;
+    }
     wkspace_left -= *topsize_ptr;
     if (wkspace_alloc_c_checked(set_names_ptr, set_ct)) {
       goto load_range_list_ret_NOMEM2;
@@ -418,6 +422,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
     break;
   load_range_list_ret_INVALID_FORMAT_2:
     logprintb();
+  load_range_list_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -975,6 +980,10 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
         goto define_sets_ret_1;
       }
     }
+    if (max_subset_id_len > MAX_ID_LEN_P1) {
+      logprint("Error: Subset IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+      goto define_sets_ret_INVALID_FORMAT;
+    }
     sorted_subset_ids = (char*)top_alloc(&topsize, subset_ct * max_subset_id_len);
     if (!sorted_subset_ids) {
       goto define_sets_ret_NOMEM;
@@ -1245,11 +1254,19 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     if (sip->merged_set_name) {
       set_ct = 1;
       max_set_id_len = strlen(sip->merged_set_name) + 1;
+      if (max_set_id_len > MAX_ID_LEN_P1) {
+	logprint("Error: Set IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+	goto define_sets_ret_INVALID_FORMAT;
+      }
       if (wkspace_alloc_c_checked(&set_names, max_set_id_len)) {
 	goto define_sets_ret_NOMEM2;
       }
       memcpy(set_names, sip->merged_set_name, max_set_id_len);
     } else {
+      if (max_set_id_len > MAX_ID_LEN_P1) {
+	logprint("Error: Set IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+	goto define_sets_ret_INVALID_FORMAT;
+      }
       if (wkspace_alloc_c_checked(&set_names, set_ct * max_set_id_len)) {
 	goto define_sets_ret_NOMEM2;
       }

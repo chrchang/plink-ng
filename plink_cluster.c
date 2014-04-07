@@ -366,6 +366,10 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
     goto load_clusters_ret_READ_FAIL;
   }
   if (cluster_names) {
+    if (max_cluster_id_len > MAX_ID_LEN_P1) {
+      logprint("Error: Cluster IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+      goto load_clusters_ret_INVALID_FORMAT;
+    }
     *max_cluster_id_len_ptr = max_cluster_id_len;
     wkspace_left -= topsize;
     if (wkspace_alloc_c_checked(cluster_ids_ptr, assigned_ct * max_cluster_id_len)) {

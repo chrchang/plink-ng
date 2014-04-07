@@ -8,7 +8,7 @@ const char errstr_thread_create[] = "\nError: Failed to create thread.\n";
 const char cmdline_format_str[] = "\n  " PROG_NAME_STR " [input flag(s)...] {command flag(s)...} {other flag(s)...}\n  " PROG_NAME_STR " --help {flag name(s)...}\n\n";
 const char errstr_phenotype_format[] = "Error: Improperly formatted phenotype file.\n";
 
-char tbuf[MAXLINELEN * 4 + 256];
+char tbuf[TBUF_SIZE];
 
 // note that \xxx character constants are interpreted in octal.
 // technically no need to represent 0-31, but 64 extra bytes of data is
@@ -3681,6 +3681,10 @@ int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int3
   if (!bsearch_str_idx(bufptr, slen, &(nonstd_names[max_code_p1]), nonstd_name_order, chrom_info_ptr->name_ct, &chrom_idx)) {
     *chrom_idx_ptr = (int32_t)(chrom_idx + max_code_p1);
     return 0;
+  }
+  if (slen > MAX_ID_LEN) {
+    logprint("Error: Chromosome/contig names are limited to " MAX_ID_LEN_STR " characters.\n");
+    return RET_INVALID_FORMAT;
   }
   if (chrom_code_end == MAX_POSSIBLE_CHROM) {
     logprint("Error: Too many distinct nonstandard chromosome names.\n");

@@ -549,11 +549,22 @@
 
 #define BITCT2 (BITCT / 2)
 
-// size of generic text line load buffer.  .ped lines can of course be longer
+// generic maximum line length.  .ped/.vcf/etc. lines can of course be longer
 #define MAXLINELEN 131072
 
-// maximum size of dynamically allocated line load buffer.  (this is the limit
-// that applies to .ped and similar files)
+// must be at least 2 * MAXLINELEN + 2 to support generic token loader.
+#define TBUF_SIZE (2 * MAXLINELEN + 256)
+
+// Maximum length of chromosome, variant, FID, IID, cluster, and set IDs (not
+// including terminating null, that's what _P1 is for).  This value supports up
+// to 8 IDs per line (maximum so far is 5, for e.g. --hom).
+#define MAX_ID_LEN 16000
+
+#define MAX_ID_LEN_P1 (MAX_ID_LEN + 1)
+#define MAX_ID_LEN_STR "16000"
+
+// maximum size of "dynamically" allocated line load buffer.  (this is the
+// limit that applies to .vcf and similar files)
 #define MAXLINEBUFLEN 0x7fffffc0
 
 // note that this is NOT foolproof: see e.g.
@@ -746,47 +757,47 @@ unsigned char* wkspace_alloc(uintptr_t size);
 
 static inline int32_t wkspace_alloc_c_checked(char** dc_ptr, uintptr_t size) {
   *dc_ptr = (char*)wkspace_alloc(size);
-  return (*dc_ptr)? 0 : 1;
+  return !(*dc_ptr);
 }
 
 static inline int32_t wkspace_alloc_d_checked(double** dp_ptr, uintptr_t size) {
   *dp_ptr = (double*)wkspace_alloc(size);
-  return (*dp_ptr)? 0 : 1;
+  return !(*dp_ptr);
 }
 
 static inline int32_t wkspace_alloc_f_checked(float** fp_ptr, uintptr_t size) {
   *fp_ptr = (float*)wkspace_alloc(size);
-  return (*fp_ptr)? 0 : 1;
+  return !(*fp_ptr);
 }
 
 static inline int32_t wkspace_alloc_i_checked(int32_t** ip_ptr, uintptr_t size) {
   *ip_ptr = (int32_t*)wkspace_alloc(size);
-  return (*ip_ptr)? 0 : 1;
+  return !(*ip_ptr);
 }
 
 static inline int32_t wkspace_alloc_uc_checked(unsigned char** ucp_ptr, uintptr_t size) {
   *ucp_ptr = wkspace_alloc(size);
-  return (*ucp_ptr)? 0 : 1;
+  return !(*ucp_ptr);
 }
 
 static inline int32_t wkspace_alloc_ui_checked(uint32_t** uip_ptr, uintptr_t size) {
   *uip_ptr = (uint32_t*)wkspace_alloc(size);
-  return (*uip_ptr)? 0 : 1;
+  return !(*uip_ptr);
 }
 
 static inline int32_t wkspace_alloc_ul_checked(uintptr_t** ulp_ptr, uintptr_t size) {
   *ulp_ptr = (uintptr_t*)wkspace_alloc(size);
-  return (*ulp_ptr)? 0 : 1;
+  return !(*ulp_ptr);
 }
 
 static inline int32_t wkspace_alloc_ll_checked(int64_t** llp_ptr, uintptr_t size) {
   *llp_ptr = (int64_t*)wkspace_alloc(size);
-  return (*llp_ptr)? 0 : 1;
+  return !(*llp_ptr);
 }
 
 static inline int32_t wkspace_alloc_ull_checked(uint64_t** ullp_ptr, uintptr_t size) {
   *ullp_ptr = (uint64_t*)wkspace_alloc(size);
-  return (*ullp_ptr)? 0 : 1;
+  return !(*ullp_ptr);
 }
 
 void wkspace_reset(void* new_base);
@@ -904,13 +915,13 @@ static inline const char* replace_if_zstr(char* ss, const char* replacement) {
 static inline uint32_t scan_double(char* ss, double* valp) {
   char* ss2;
   *valp = strtod(ss, &ss2);
-  return (ss == ss2)? 1 : 0;
+  return (ss == ss2);
 }
 
 static inline uint32_t scan_float(char* ss, float* valp) {
   char* ss2;
   *valp = strtof(ss, &ss2);
-  return (ss == ss2)? 1 : 0;
+  return (ss == ss2);
 }
 
 uint32_t scan_two_doubles(char* ss, double* val1p, double* val2p);

@@ -97,7 +97,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (6 Apr 2014) ";
+  " (7 Apr 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -3655,10 +3655,10 @@ int32_t main(int32_t argc, char** argv) {
     }
   }
 #ifdef _WIN32
-  windows_dw = 4 * MAXLINELEN + 256;
+  windows_dw = TBUF_SIZE;
   if (GetComputerName(tbuf, &windows_dw))
 #else
-  if (gethostname(tbuf, 4 * MAXLINELEN + 256) != -1)
+  if (gethostname(tbuf, TBUF_SIZE) != -1)
 #endif
   {
     logstr("\nHostname: ");

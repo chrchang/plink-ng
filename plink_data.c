@@ -945,6 +945,10 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     }
   }
 
+  if (max_marker_id_len > MAX_ID_LEN_P1) {
+    logprint("Error: Variant names are limited to " MAX_ID_LEN_STR " characters.\n");
+    goto load_bim_ret_INVALID_FORMAT;
+  }
   *unfiltered_marker_ct_ptr = unfiltered_marker_ct;
   *max_marker_id_len_ptr = max_marker_id_len;
   rewind(bimfile);
@@ -1414,6 +1418,10 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
   //   aren't (missing covariates are represented as the --missing-phenotype
   //   value).
   if (covar_range_list_ptr) {
+    if (max_covar_name_len > MAX_ID_LEN_P1) {
+      logprint("Error: Covariate names are limited to " MAX_ID_LEN_STR " characters.\n");
+      goto load_covars_ret_INVALID_FORMAT;
+    }
     // not only --gxe
     *covar_ct_ptr = covar_ct;
     *max_covar_name_len_ptr = max_covar_name_len;
@@ -3566,6 +3574,12 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
   }
   if (!unfiltered_indiv_ct) {
     logprint("Error: Nobody in .fam file.\n");
+    return RET_INVALID_FORMAT;
+  }
+  // don't yet need to enforce separate FID and IID limits, but in theory this
+  // may change
+  if ((max_person_id_len > 2 * MAX_ID_LEN_P1) || (max_paternal_id_len > MAX_ID_LEN_P1) || (max_maternal_id_len > MAX_ID_LEN_P1)) {
+    logprint("Error: FIDs and IIDs are limited to " MAX_ID_LEN_STR " characters.\n");
     return RET_INVALID_FORMAT;
   }
   wkspace_reset(wkspace_mark);
@@ -9071,7 +9085,6 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   uint32_t y_present = 0;
   uint32_t nonmissing_y_present = 0;
   unsigned char* writebuf = (unsigned char*)(&(tbuf[MAXLINELEN]));
-  char* writebuf2 = &(tbuf[MAXLINELEN * 2]);
   int32_t retval = 0;
   uint32_t cur_chrom = 0;
   uint32_t chrom_mask_23 = (uint32_t)(chrom_info_ptr->chrom_mask[0]);
@@ -9082,6 +9095,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   char* chrom_start;
   char* pos_start;
   char* allele_start;
+  char* writebuf2;
   char* writebuf2_cur;
   uintptr_t id_len;
   uint32_t allele_calls;
@@ -9091,6 +9105,9 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   char cc;
   char cc2;
   unsigned char ucc;
+  if (wkspace_alloc_c_checked(&writebuf2, MAXLINELEN * sizeof(char))) {
+    goto bed_from_23_ret_NOMEM;
+  }
   if (fopen_checked(&infile_23, infile_name, "r")) {
     goto bed_from_23_ret_OPEN_FAIL;
   }
