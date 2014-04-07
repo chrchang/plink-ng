@@ -343,7 +343,7 @@ int32_t get_trios_and_families(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_e
   }
   trio_ct = (uintptr_t)(trio_write - trio_list_tmp);
   wkspace_reset(wkspace_mark);
-  family_list = (uint64_t*)wkspace_alloc(family_ct * sizeof(int64_t));
+  wkspace_alloc(family_ct * sizeof(int64_t)); // family_list
   topsize = topsize_bak2;
   wkspace_left -= topsize;
   if (wkspace_alloc_ull_checked(&trio_write, trio_ct * sizeof(int64_t))) {

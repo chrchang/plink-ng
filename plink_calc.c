@@ -2302,8 +2302,7 @@ int32_t regress_rel_main(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
   double dxxsq;
   double dyysq;
   g_indiv_ct = indiv_ct;
-  g_pheno_packed = (double*)wkspace_alloc(indiv_ct * sizeof(double));
-  if (!g_pheno_packed) {
+  if (wkspace_alloc_d_checked(&g_pheno_packed, indiv_ct * sizeof(double))) {
     return RET_NOMEM;
   }
   collapse_copy_phenod(g_pheno_packed, pheno_d, indiv_exclude, unfiltered_indiv_ct, indiv_ct);
@@ -2311,8 +2310,7 @@ int32_t regress_rel_main(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
   trimatrix_size = ((uintptr_t)indiv_ct * (indiv_ct - 1)) / 2;
   rel_ptr = g_rel_dists;
   pheno_ptr = g_pheno_packed;
-  g_jackknife_precomp = (double*)wkspace_alloc(indiv_ct * JACKKNIFE_VALS_REL * sizeof(double));
-  if (!g_jackknife_precomp) {
+  if (wkspace_alloc_d_checked(&g_jackknife_precomp, indiv_ct * JACKKNIFE_VALS_REL * sizeof(double))) {
     return RET_NOMEM;
   }
   fill_double_zero(g_jackknife_precomp, indiv_ct * JACKKNIFE_VALS_REL);
@@ -2363,8 +2361,7 @@ int32_t regress_rel_main(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
   } else {
     g_jackknife_d = set_default_jackknife_d(indiv_ct);
   }
-  g_geno = wkspace_alloc(g_thread_ct * CACHEALIGN(indiv_ct + (g_jackknife_d + 1) * sizeof(int32_t)));
-  if (!g_geno) {
+  if (wkspace_alloc_uc_checked(&g_geno, g_thread_ct * CACHEALIGN(indiv_ct * (g_jackknife_d + 1) * sizeof(int32_t)))) {
     return RET_NOMEM;
   }
   if (wkspace_init_sfmtp(g_thread_ct)) {
@@ -10450,8 +10447,7 @@ int32_t regress_distance(pthread_t* threads, uint64_t calculation_type, double* 
   } else {
     g_jackknife_d = set_default_jackknife_d(indiv_ct);
   }
-  g_generic_buf = wkspace_alloc(thread_ct * CACHEALIGN(indiv_ct + (g_jackknife_d + 1) * sizeof(int32_t)));
-  if (!g_generic_buf) {
+  if (wkspace_alloc_uc_checked(&g_generic_buf, thread_ct * CACHEALIGN(indiv_ct + (g_jackknife_d + 1) * sizeof(int32_t)))) {
     goto regress_distance_ret_NOMEM;
   }
   if (spawn_threads(threads, &regress_jack_thread, thread_ct)) {

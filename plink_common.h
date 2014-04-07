@@ -27,7 +27,7 @@
   #define UNSTABLE
 #endif
 
-#if _WIN32
+#ifdef _WIN32
   // needed for MEMORYSTATUSEX
   #ifndef _WIN64
     #define WINVER 0x0500
@@ -36,7 +36,7 @@
   #include <sys/stat.h>
 #endif
 
-#if _WIN32
+#ifdef _WIN32
   #define PRId64 "I64d"
   #define PRIu64 "I64u"
   #define fseeko fseeko64
@@ -101,7 +101,7 @@
   #define ZEROLU 0LLU
   #define ONELU 1LLU
 
-  #if _WIN32 // i.e. Win64
+  #ifdef _WIN32 // i.e. Win64
 
     #ifndef PRIuPTR
       #define PRIuPTR PRIu64
@@ -530,7 +530,7 @@
 #define MINV(aa, bb) (((aa) > (bb))? (bb) : (aa))
 
 #define _FILE_OFFSET_BITS 64
-#if _WIN32
+#ifdef _WIN32
 // if MAX_THREADS > 65, single WaitForMultipleObjects calls must be converted
 // into loops
   #define MAX_THREADS 64
@@ -1549,7 +1549,7 @@ static inline double get_maf(double allele_freq) {
 }
 
 static inline int32_t filename_exists(char* fname, char* fname_end, const char* fname_append) {
-#if _WIN32
+#ifdef _WIN32
   DWORD file_attr;
   strcpy(fname_end, fname_append);
   file_attr = GetFileAttributes(fname);
@@ -2029,7 +2029,7 @@ uint32_t cubic_real_roots(double coef_a, double coef_b, double coef_c, double* s
 
 void join_threads(pthread_t* threads, uint32_t ctp1);
 
-#if _WIN32
+#ifdef _WIN32
 int32_t spawn_threads(pthread_t* threads, unsigned (__stdcall *start_routine)(void*), uintptr_t ct);
 #else
 int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr_t ct);

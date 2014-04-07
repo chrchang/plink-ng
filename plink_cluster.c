@@ -1476,7 +1476,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       while (!cov_type_arr[cov_ct - 1]) {
 	cov_ct--;
       }
-      cov_type_arr = (unsigned char*)wkspace_alloc(cov_ct);
+      wkspace_alloc(cov_ct * sizeof(char)); // cov_type_arr
     }
     retval = open_and_load_to_first_token(&matchfile, cp->match_fname, MAXLINELEN, '\0', "--match file", tbuf, &bufptr);
     if (retval) {
@@ -1491,7 +1491,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	bufptr2 = next_item(bufptr2);
 	cov_ct++;
       } while (!no_more_items(bufptr2));
-      cov_type_arr = (unsigned char*)wkspace_alloc(cov_ct);
+      wkspace_alloc(cov_ct * sizeof(char)); // cov_type_arr
       memset(cov_type_arr, 2, cov_ct);
       non_null_cov_ct = cov_ct;
     }
@@ -1695,7 +1695,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       logprint("Error: Empty --qt file.\n");
       goto cluster_enforce_match_ret_INVALID_FORMAT;
     }
-    tol_arr = (double*)wkspace_alloc(cov_ct * sizeof(double));
+    wkspace_alloc(cov_ct * sizeof(double)); // tol_arr
     if (wkspace_left < non_null_cov_ct * sizeof(double)) {
       goto cluster_enforce_match_ret_NOMEM;
     }

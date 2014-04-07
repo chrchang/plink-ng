@@ -8248,8 +8248,8 @@ int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_p
 }
 
 char* alloc_and_init_collapsed_arr(char* item_arr, uintptr_t item_len, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t filtered_ct, uint32_t read_only) {
-  char* new_arr = NULL;
   uint32_t item_uidx = 0;
+  char* new_arr;
   char* wptr;
   char* wptr_end;
   uintptr_t item_uidx_stop;
@@ -8257,8 +8257,7 @@ char* alloc_and_init_collapsed_arr(char* item_arr, uintptr_t item_len, uintptr_t
   if (read_only && (unfiltered_ct == filtered_ct)) {
     return item_arr;
   }
-  new_arr = (char*)wkspace_alloc(filtered_ct * item_len);
-  if (!new_arr) {
+  if (wkspace_alloc_c_checked(&new_arr, filtered_ct * item_len)) {
     return NULL;
   }
   wptr = new_arr;

@@ -1590,7 +1590,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 
   // Now we know how much memory the pools require, so we can assign the rest
   // to a lookahead buffer.
-  pool_list = (uintptr_t*)wkspace_alloc(pool_list_size * sizeof(intptr_t));
+  wkspace_alloc(pool_list_size * sizeof(intptr_t)); // pool_list
   max_lookahead = wkspace_left / (unfiltered_indiv_ctl2 * sizeof(intptr_t));
   lookahead_buf = (uintptr_t*)wkspace_base;
 
@@ -2703,7 +2703,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   roh_list_chrom_starts[chrom_ct] = roh_ct;
   // "truncate" the completed list so we can start making workspace allocations
   // again
-  roh_list = (uint32_t*)wkspace_alloc(roh_ct * ROH_ENTRY_INTS * sizeof(int32_t));
+  wkspace_alloc(roh_ct * ROH_ENTRY_INTS * sizeof(int32_t)); // roh_list
   retval = write_main_roh_reports(outname, outname_end, marker_exclude, marker_ids, max_marker_id_len, plink_maxsnp, zero_extra_chroms, chrom_info_ptr, marker_pos, indiv_ct, indiv_exclude, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, pheno_nm, pheno_c, pheno_d, missing_pheno_str, missing_pheno_len, is_new_lengths, roh_ct, roh_list, roh_list_chrom_starts, indiv_to_last_roh, &max_pool_size, &max_roh_len);
   if (retval) {
     goto calc_homozyg_ret_1;

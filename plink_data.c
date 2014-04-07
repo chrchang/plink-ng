@@ -18,19 +18,16 @@
 
 int32_t sort_item_ids_nx(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t item_ct, char* item_ids, uintptr_t max_id_len) {
   // Version of sort_item_ids() with no exclusion.
+  // (Currently does NOT put id_map on the bottom.)
   uintptr_t ulii;
   char* sorted_ids;
   char* dup_id;
   char* tptr;
-  sorted_ids = (char*)wkspace_alloc(item_ct * max_id_len);
-  if (!sorted_ids) {
+  if (wkspace_alloc_c_checked(sorted_ids_ptr, item_ct * max_id_len) ||
+      wkspace_alloc_ui_checked(id_map_ptr, item_ct * sizeof(int32_t))) {
     return RET_NOMEM;
   }
-  *sorted_ids_ptr = sorted_ids;
-  *id_map_ptr = (uint32_t*)wkspace_alloc(item_ct * sizeof(int32_t));
-  if (!(*id_map_ptr)) {
-    return RET_NOMEM;
-  }
+  sorted_ids = *sorted_ids_ptr;
   if (!item_ct) {
     return 0;
   }
@@ -273,13 +270,11 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
   fill_uint_zero(chrom_info_ptr->chrom_end, MAX_POSSIBLE_CHROM);
   // permanent stack allocation #3, if needed: marker_pos
   if (marker_pos_needed) {
-    *marker_pos_ptr = (uint32_t*)wkspace_alloc(unfiltered_marker_ct * sizeof(int32_t));
-    if (!(*marker_pos_ptr)) {
+    if (wkspace_alloc_ui_checked(marker_pos_ptr, unfiltered_marker_ct * sizeof(int32_t))) {
       goto load_map_ret_NOMEM;
     }
   }
-  *marker_ids_ptr = (char*)wkspace_alloc(unfiltered_marker_ct * max_marker_id_len);
-  if (!(*marker_ids_ptr)) {
+  if (wkspace_alloc_c_checked(marker_ids_ptr, unfiltered_marker_ct * max_marker_id_len)) {
     goto load_map_ret_NOMEM;
   }
 
@@ -7233,10 +7228,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
 
   if (map_is_unsorted) {
     loadbuf_size = 2 * max_marker_allele_len + MAXLINELEN;
-
-    // mapvals is already positioned here, this just updates wkspace_base and
-    // wkspace_left
-    mapvals = (int64_t*)wkspace_alloc(marker_ct * sizeof(int64_t));
+    wkspace_alloc(marker_ct * sizeof(int64_t)); // mapvals
 
     if (wkspace_alloc_ll_checked(&ll_buf, marker_ct * sizeof(int64_t)) ||
         wkspace_alloc_ui_checked(&pos_buf, marker_ct * sizeof(int32_t)) ||
@@ -9105,7 +9097,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   char cc;
   char cc2;
   unsigned char ucc;
-  if (wkspace_alloc_c_checked(&writebuf2, MAXLINELEN * sizeof(char))) {
+  if (wkspace_alloc_c_checked(&writebuf2, MAXLINELEN)) {
     goto bed_from_23_ret_NOMEM;
   }
   if (fopen_checked(&infile_23, infile_name, "r")) {

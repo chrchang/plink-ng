@@ -7310,7 +7310,8 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	malloc_size_mb = atoi(argv[cur_arg + 1]);
+	// may as well support systems with >2 PB RAM...
+	malloc_size_mb = strtoul(argv[cur_arg + 1], NULL, 10);
 	if (malloc_size_mb < WKSPACE_MIN_MB) {
 	  if (malloc_size_mb > 0) {
 	    sprintf(logbuf, "Error: Invalid --memory parameter '%s' (minimum %u).%s", argv[cur_arg + 1], WKSPACE_MIN_MB, errstr_append);
