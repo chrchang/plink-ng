@@ -1058,7 +1058,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	if (no_more_items_kns(bufptr)) {
 	  goto load_bim_ret_INVALID_FORMAT_5;
 	}
-	if ((*bufptr != '0') || (bufptr2[1] > ' ')) {
+	if ((*bufptr != '0') || (bufptr[1] > ' ')) {
 	  if (!(*marker_cms_ptr)) {
 	    if (wkspace_alloc_d_checked(marker_cms_ptr, unfiltered_marker_ct * sizeof(double))) {
 	      goto load_bim_ret_NOMEM;

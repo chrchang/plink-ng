@@ -47,6 +47,8 @@
 
 #define DEFAULT_IBS_TEST_PERMS 100000
 
+// should switch this to IMPORT_... and make it include .ped/Oxford too; only
+// .bed and future .pgen format don't require an import step
 #define LOAD_RARE_GRM 1
 #define LOAD_RARE_GRM_BIN 2
 #define LOAD_RARE_LGEN 4
@@ -97,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (7 Apr 2014) ";
+  " (8 Apr 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
