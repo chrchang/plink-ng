@@ -815,9 +815,15 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
   alens[0] = 0;
   alens[1] = 0;
   if (calc_mendel) {
-    ulii = max_marker_allele_len * 6 + 10;
-    if (ulii < 21) {
-      ulii = 21;
+    // ugh, this calculation was totally off before.
+    // * max_marker_allele_len includes trailing null (though forgetting this
+    //   was harmless)
+    // * minimum buffer size was 25, not 21, due to inclusion of error code and
+    //   following double-space in the string (forgetting this was NOT
+    //   harmless)
+    ulii = max_marker_allele_len * 6 + 9;
+    if (ulii < 25) {
+      ulii = 25;
     }
     if (wkspace_alloc_ull_checked(&family_error_cts, family_ct * 3 * sizeof(int64_t)) ||
         wkspace_alloc_ui_checked(&child_cts, family_ct * sizeof(int32_t)) ||

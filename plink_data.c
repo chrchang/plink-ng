@@ -5405,7 +5405,10 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   uint32_t ped_col_skip = 1 + ((fam_cols & FAM_COL_1) / FAM_COL_1) + 2 * ((fam_cols & FAM_COL_34) / FAM_COL_34) + ((fam_cols & FAM_COL_5) / FAM_COL_5) + ((fam_cols & FAM_COL_6) / FAM_COL_6);
   uint32_t last_pass = 0;
   int64_t* line_starts = NULL;
+
+  // actually a single-char vs. multichar flag.  should rename this...
   uintptr_t max_marker_allele_len = 1;
+
   uint32_t pass_ct;
   uintptr_t indiv_ct4;
   uint32_t pct;
