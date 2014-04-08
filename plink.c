@@ -5131,43 +5131,90 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 5)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        ujj = 0; // number of numeric parameters read
-	for (uii = 1; uii <= param_ct; uii++) {
-          if (!strcmp(argv[cur_arg + uii], "ycount")) {
-            misc_flags |= MISC_SEXCHECK_YCOUNT;
-	  } else {
-            if (!ujj) {
-	      if (scan_double(argv[cur_arg + uii], &check_sex_fthresh) || (check_sex_fthresh <= 0.0)) {
-	        sprintf(logbuf, "Error: Invalid --check-sex female F-statistic estimate ceiling '%s'.%s", argv[cur_arg + uii], errstr_append);
-	        goto main_ret_INVALID_CMDLINE_3;
+	// pre-scan for 'y-only'
+	ujj = 0;
+	if (param_ct) {
+	  for (uii = 1; uii <= param_ct; uii++) {
+            if (!strcmp(argv[cur_arg + uii], "y-only")) {
+	      ujj = uii;
+	      break;
+	    }
+	  }
+	}
+	if (!ujj) {
+	  // now ujj is number of numeric parameters read
+	  for (uii = 1; uii <= param_ct; uii++) {
+	    if (!strcmp(argv[cur_arg + uii], "ycount")) {
+	      misc_flags |= MISC_SEXCHECK_YCOUNT;
+	    } else {
+	      if (!ujj) {
+		if (scan_double(argv[cur_arg + uii], &check_sex_fthresh) || (check_sex_fthresh <= 0.0)) {
+		  sprintf(logbuf, "Error: Invalid --check-sex female F-statistic estimate ceiling '%s'.%s", argv[cur_arg + uii], errstr_append);
+		  goto main_ret_INVALID_CMDLINE_3;
+		}
+	      } else if (ujj == 1) {
+		if (scan_double(argv[cur_arg + uii], &check_sex_mthresh) || (check_sex_mthresh >= 1.0)) {
+		  sprintf(logbuf, "Error: Invalid --check-sex male F-statistic estimate floor '%s'.%s", argv[cur_arg + uii], errstr_append);
+		  goto main_ret_INVALID_CMDLINE_3;
+		}
+	      } else if (ujj == 2) {
+		if (atoiz(argv[cur_arg + uii], (int32_t*)(&check_sex_f_yobs))) {
+		  sprintf(logbuf, "Error: Invalid --check-sex female Ychr maximum nonmissing genotype count.%s", errstr_append);
+		  goto main_ret_INVALID_CMDLINE_3;
+		}
+	      } else if (ujj == 3) {
+		if (atoiz(argv[cur_arg + uii], (int32_t*)(&check_sex_m_yobs))) {
+		  sprintf(logbuf, "Error: Invalid --check-sex male Ychr minimum nonmissing genotype count.%s", errstr_append);
+		  goto main_ret_INVALID_CMDLINE_3;
+		}
+	      } else {
+		sprintf(logbuf, "Error: Invalid --check-sex parameter sequence.%s", errstr_append);
+		goto main_ret_INVALID_CMDLINE_3;
 	      }
-	    } else if (ujj == 1) {
-	      if (scan_double(argv[cur_arg + uii], &check_sex_mthresh) || (check_sex_mthresh >= 1.0)) {
-	        sprintf(logbuf, "Error: Invalid --check-sex male F-statistic estimate floor '%s'.%s", argv[cur_arg + uii], errstr_append);
-	        goto main_ret_INVALID_CMDLINE_3;
-	      }
-	    } else if (ujj == 2) {
+	      ujj++;
+	    }
+	  }
+	  if (check_sex_fthresh > check_sex_mthresh) {
+	    sprintf(logbuf, "Error: --check-sex female F estimate ceiling cannot be larger than male floor.%s", errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  // actually fine if check_sex_f_yobs > check_sex_m_yobs
+	} else {
+	  check_sex_m_yobs = 1;
+	  ukk = 0; // number of numeric parameters
+	  // in practice, second numeric parameter is not really optional if
+	  // first is provided...
+	  for (uii = 1; uii <= param_ct; uii++) {
+	    if (uii == ujj) {
+	      continue;
+	    }
+	    // may as well print a more informative error message in this case
+	    if (!strcmp(argv[cur_arg + uii], "ycount")) {
+	      sprintf(logbuf, "Error: --check-sex 'ycount' modifier has no effect with 'y-only'.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    if (!ukk) {
 	      if (atoiz(argv[cur_arg + uii], (int32_t*)(&check_sex_f_yobs))) {
 		sprintf(logbuf, "Error: Invalid --check-sex female Ychr maximum nonmissing genotype count.%s", errstr_append);
 		goto main_ret_INVALID_CMDLINE_3;
 	      }
-	    } else if (ujj == 3) {
+	    } else if (ukk == 1) {
 	      if (atoiz(argv[cur_arg + uii], (int32_t*)(&check_sex_m_yobs))) {
 		sprintf(logbuf, "Error: Invalid --check-sex male Ychr minimum nonmissing genotype count.%s", errstr_append);
 		goto main_ret_INVALID_CMDLINE_3;
 	      }
 	    } else {
-	      sprintf(logbuf, "Error: Invalid --check-sex parameter sequence.%s", errstr_append);
+	      sprintf(logbuf, "Error: Invalid --check-sex y-only parameter sequence.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	    ujj++;
+	    ukk++;
 	  }
+	  if (check_sex_f_yobs >= check_sex_m_yobs) {
+	    sprintf(logbuf, "Error: In y-only mode, --check-sex female Y observation threshold must be\nsmaller than male threshold.%s", errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  misc_flags |= MISC_SEXCHECK_YCOUNT | MISC_SEXCHECK_YONLY;
 	}
-	if (check_sex_fthresh > check_sex_mthresh) {
-          sprintf(logbuf, "Error: --check-sex female F estimate ceiling cannot be larger than male floor.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
-	// actually fine if check_sex_f_yobs > check_sex_m_yobs
         calculation_type |= CALC_SEXCHECK;
       } else if (!memcmp(argptr2, "lump", 5)) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x7fffffff)) {
@@ -6784,41 +6831,83 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 5)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        ujj = 0;
-	for (uii = 1; uii <= param_ct; uii++) {
-          if (!strcmp(argv[cur_arg + uii], "ycount")) {
-            misc_flags |= MISC_SEXCHECK_YCOUNT;
-	  } else {
-            if (!ujj) {
-	      if (scan_double(argv[cur_arg + uii], &check_sex_fthresh) || (check_sex_fthresh <= 0.0)) {
-	        sprintf(logbuf, "Error: Invalid --impute-sex female F-statistic estimate ceiling '%s'.%s", argv[cur_arg + uii], errstr_append);
-	        goto main_ret_INVALID_CMDLINE_3;
+	ujj = 0;
+	if (param_ct) {
+	  for (uii = 1; uii <= param_ct; uii++) {
+            if (!strcmp(argv[cur_arg + uii], "y-only")) {
+	      ujj = uii;
+	      break;
+	    }
+	  }
+	}
+	if (!ujj) {
+	  for (uii = 1; uii <= param_ct; uii++) {
+	    if (!strcmp(argv[cur_arg + uii], "ycount")) {
+	      misc_flags |= MISC_SEXCHECK_YCOUNT;
+	    } else {
+	      if (!ujj) {
+		if (scan_double(argv[cur_arg + uii], &check_sex_fthresh) || (check_sex_fthresh <= 0.0)) {
+		  sprintf(logbuf, "Error: Invalid --impute-sex female F-statistic estimate ceiling '%s'.%s", argv[cur_arg + uii], errstr_append);
+		  goto main_ret_INVALID_CMDLINE_3;
+		}
+	      } else if (ujj == 1) {
+		if (scan_double(argv[cur_arg + uii], &check_sex_mthresh) || (check_sex_mthresh >= 1.0)) {
+		  sprintf(logbuf, "Error: Invalid --impute-sex male F-statistic estimate floor '%s'.%s", argv[cur_arg + uii], errstr_append);
+		  goto main_ret_INVALID_CMDLINE_3;
+		}
+	      } else if (ujj == 2) {
+		if (atoiz(argv[cur_arg + uii], (int32_t*)(&check_sex_f_yobs))) {
+		  sprintf(logbuf, "Error: Invalid --impute-sex female Ychr maximum nonmissing genotype count.%s", errstr_append);
+		  goto main_ret_INVALID_CMDLINE_3;
+		}
+	      } else if (ujj == 3) {
+		if (atoiz(argv[cur_arg + uii], (int32_t*)(&check_sex_m_yobs))) {
+		  sprintf(logbuf, "Error: Invalid --impute-sex male Ychr minimum nonmissing genotype count.%s", errstr_append);
+		  goto main_ret_INVALID_CMDLINE_3;
+		}
+	      } else {
+		sprintf(logbuf, "Error: Invalid --impute-sex parameter sequence.%s", errstr_append);
+		goto main_ret_INVALID_CMDLINE_3;
 	      }
-	    } else if (ujj == 1) {
-	      if (scan_double(argv[cur_arg + uii], &check_sex_mthresh) || (check_sex_mthresh >= 1.0)) {
-	        sprintf(logbuf, "Error: Invalid --impute-sex male F-statistic estimate floor '%s'.%s", argv[cur_arg + uii], errstr_append);
-	        goto main_ret_INVALID_CMDLINE_3;
-	      }
-	    } else if (ujj == 2) {
+	      ujj++;
+	    }
+	  }
+	  if (check_sex_fthresh > check_sex_mthresh) {
+	    sprintf(logbuf, "Error: --impute-sex female F estimate ceiling cannot be larger than male floor.%s", errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	} else {
+	  check_sex_m_yobs = 1;
+	  ukk = 0;
+	  for (uii = 1; uii <= param_ct; uii++) {
+	    if (uii == ujj) {
+	      continue;
+	    }
+	    if (!strcmp(argv[cur_arg + uii], "ycount")) {
+	      sprintf(logbuf, "Error: --impute-sex 'ycount' modifier has no effect with 'y-only'.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    if (!ukk) {
 	      if (atoiz(argv[cur_arg + uii], (int32_t*)(&check_sex_f_yobs))) {
 		sprintf(logbuf, "Error: Invalid --impute-sex female Ychr maximum nonmissing genotype count.%s", errstr_append);
 		goto main_ret_INVALID_CMDLINE_3;
 	      }
-	    } else if (ujj == 3) {
+	    } else if (ukk == 1) {
 	      if (atoiz(argv[cur_arg + uii], (int32_t*)(&check_sex_m_yobs))) {
 		sprintf(logbuf, "Error: Invalid --impute-sex male Ychr minimum nonmissing genotype count.%s", errstr_append);
 		goto main_ret_INVALID_CMDLINE_3;
 	      }
 	    } else {
-	      sprintf(logbuf, "Error: Invalid --impute-sex parameter sequence.%s", errstr_append);
+	      sprintf(logbuf, "Error: Invalid --impute-sex y-only parameter sequence.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	    ujj++;
+	    ukk++;
 	  }
-	}
-	if (check_sex_fthresh > check_sex_mthresh) {
-          sprintf(logbuf, "Error: --impute-sex female F estimate ceiling cannot be larger than male floor.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  if (check_sex_f_yobs >= check_sex_m_yobs) {
+	    sprintf(logbuf, "Error: In y-only mode, --impute-sex female Y observation threshold must be\nsmaller than male threshold.%s", errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  misc_flags |= MISC_SEXCHECK_YCOUNT | MISC_SEXCHECK_YONLY;
 	}
         calculation_type |= CALC_SEXCHECK;
         misc_flags |= MISC_IMPUTE_SEX;
