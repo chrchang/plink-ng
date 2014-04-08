@@ -335,11 +335,13 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
       lambda = (schi[chi_ct / 2 - 1] + schi[chi_ct / 2]) / 2.0;
     }
     lambda = lambda / 0.456;
-    if (lambda < 1) {
+    if (lambda < 1.0) {
       lambda = 1.0;
-    } else {
-      lambda = 1.0 / lambda;
     }
+    LOGPRINTF("--adjust: Genomic inflation est. lambda (based on median chisq) = %g.\n", lambda);
+  }
+  if (lambda > 1.0) {
+    lambda = 1.0 / lambda;
   }
 
   // handle reverse-order calculations
