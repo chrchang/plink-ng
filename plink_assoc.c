@@ -248,7 +248,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
   double dct;
   double pval;
   double* pv_gc;
-  double lambda;
+  double lambda_recip;
   double bonf;
   double pv_sidak_ss;
   char* bufptr;
@@ -324,24 +324,26 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
   }
   dct = chi_ct;
 
+  // get lambda...
   if (is_set_test) {
-    lambda = 1.0;
+    lambda_recip = 1.0;
   } else if (mtest_adjust & ADJUST_LAMBDA) {
-    lambda = adjust_lambda;
+    lambda_recip = adjust_lambda;
   } else {
     if (chi_ct & 1) {
-      lambda = schi[(chi_ct - 1) / 2];
+      lambda_recip = schi[(chi_ct - 1) / 2];
     } else {
-      lambda = (schi[chi_ct / 2 - 1] + schi[chi_ct / 2]) / 2.0;
+      lambda_recip = (schi[chi_ct / 2 - 1] + schi[chi_ct / 2]) / 2.0;
     }
-    lambda = lambda / 0.456;
-    if (lambda < 1.0) {
-      lambda = 1.0;
+    lambda_recip = lambda_recip / 0.456;
+    if (lambda_recip < 1.0) {
+      lambda_recip = 1.0;
     }
-    LOGPRINTF("--adjust: Genomic inflation est. lambda (based on median chisq) = %g.\n", lambda);
+    LOGPRINTF("--adjust: Genomic inflation est. lambda (based on median chisq) = %g.\n", lambda_recip);
   }
-  if (lambda > 1.0) {
-    lambda = 1.0 / lambda;
+  // ...now take the reciprocal (bugfix: forgot to do this with --lambda)
+  if (lambda_recip > 1.0) {
+    lambda_recip = 1.0 / lambda_recip;
   }
 
   // handle reverse-order calculations
@@ -360,11 +362,11 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
   if (tcnt) {
     for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
       uii--;
-      pv_gc[cur_idx] = calc_tprob(sqrt(schi[uii] * lambda), new_tcnt[uii]);
+      pv_gc[cur_idx] = calc_tprob(sqrt(schi[uii] * lambda_recip), new_tcnt[uii]);
     }
   } else {
     for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
-      pv_gc[cur_idx] = chiprob_p(schi[--uii] * lambda, 1);
+      pv_gc[cur_idx] = chiprob_p(schi[--uii] * lambda_recip, 1);
     }
   }
 
