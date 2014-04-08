@@ -6919,7 +6919,6 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'j':
       if (!memcmp(argptr2, "e-cellmin", 10)) {
-	// epi_info.modifier & (EPI_FAST_BOOST | EPI_FAST_JOINT_EFFECTS
         if (!(epi_info.modifier & EPI_FAST_JOINT_EFFECTS)) {
 	  sprintf(logbuf, "Error: --je-cellmin must be used with '--fast-epistasis joint-effects'.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;

@@ -1200,6 +1200,8 @@ int32_t flip_strand(char* flip_fname, char* sorted_marker_ids, uintptr_t marker_
   return retval;
 }
 
+const char extract_str[] = "extract";
+const char exclude_str[] = "exclude";
 const char keep_str[] = "keep";
 const char keep_fam_str[] = "keep-fam";
 const char remove_str[] = "remove";
@@ -1207,6 +1209,10 @@ const char remove_fam_str[] = "remove-fam";
 
 const char* include_or_exclude_flag_str(uint32_t flags) {
   switch (flags) {
+  case 0:
+    return extract_str;
+  case 1:
+    return exclude_str;
   case 2:
     return keep_str;
   case 3:
@@ -1219,8 +1225,9 @@ const char* include_or_exclude_flag_str(uint32_t flags) {
   return NULL;
 }
 
-void exclude_extract_process_token(char* tok_start, char* sorted_ids, uint32_t* id_map, uintptr_t max_id_len, uintptr_t sorted_ids_ct, uintptr_t* exclude_arr, uintptr_t* exclude_arr_new, uint32_t do_exclude, uint32_t curtoklen) {
+void exclude_extract_process_token(char* tok_start, char* sorted_ids, uint32_t* id_map, uintptr_t max_id_len, uintptr_t sorted_ids_ct, uintptr_t* exclude_arr, uintptr_t* exclude_arr_new, uintptr_t* duplicate_ct_ptr, uint32_t do_exclude, uint32_t curtoklen) {
   uintptr_t ulii = bsearch_str_lb(tok_start, curtoklen, sorted_ids, max_id_len, sorted_ids_ct);
+  uintptr_t is_duplicate = 0;
   uintptr_t uljj;
   uint32_t unfiltered_idx;
   if (ulii != sorted_ids_ct) {
@@ -1229,12 +1236,23 @@ void exclude_extract_process_token(char* tok_start, char* sorted_ids, uint32_t* 
     if (uljj > ulii) {
       do {
 	unfiltered_idx = id_map[ulii];
-	if (do_exclude) {
-	  SET_BIT(exclude_arr, unfiltered_idx);
-	} else if (!IS_SET(exclude_arr, unfiltered_idx)) {
-	  CLEAR_BIT(exclude_arr_new, unfiltered_idx);
+	if (!IS_SET(exclude_arr, unfiltered_idx)) {
+	  if (do_exclude) {
+	    if (IS_SET(exclude_arr_new, unfiltered_idx)) {
+	      is_duplicate = 1;
+	    } else {
+	      SET_BIT(exclude_arr_new, unfiltered_idx);
+	    }
+	  } else {
+	    if (!IS_SET(exclude_arr_new, unfiltered_idx)) {
+	      is_duplicate = 1;
+	    } else {
+	      CLEAR_BIT(exclude_arr_new, unfiltered_idx);
+	    }
+	  }
 	}
       } while (++ulii < uljj);
+      *duplicate_ct_ptr += is_duplicate;
     }
   }
 }
@@ -1244,6 +1262,7 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t* exclude_arr_new = NULL;
   uintptr_t unfiltered_ctl = (unfiltered_ct + (BITCT - 1)) / BITCT;
+  uintptr_t duplicate_ct = 0;
   uint32_t do_exclude = flags & 1;
   // flags & 2 = indivs
   uint32_t families_only = flags & 4;
@@ -1261,10 +1280,14 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
   uint32_t cur_idx;
   uint32_t last_idx;
 
-  if (!do_exclude) {
-    if (wkspace_alloc_ul_checked(&exclude_arr_new, unfiltered_ctl * sizeof(intptr_t))) {
-      goto include_or_exclude_ret_NOMEM;
-    }
+  if (wkspace_alloc_ul_checked(&exclude_arr_new, unfiltered_ctl * sizeof(intptr_t))) {
+    goto include_or_exclude_ret_NOMEM;
+  }
+  if (do_exclude) {
+    // need this to avoid spurious duplicate warnings (ID could have been
+    // removed by an earlier step)
+    memcpy(exclude_arr_new, exclude_arr, unfiltered_ctl * sizeof(intptr_t));
+  } else {
     fill_all_bits(exclude_arr_new, unfiltered_ct);
   }
   if (fopen_checked(&infile, fname, "r")) {
@@ -1291,34 +1314,45 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
 	}
 	if (ii != -1) {
 	  unfiltered_idx = id_map[(uint32_t)ii];
-	  if (do_exclude) {
-	    if (IS_SET(exclude_arr, unfiltered_idx)) {
-	      goto include_or_exclude_ret_INVALID_FORMAT_3;
+	  if (!IS_SET(exclude_arr, unfiltered_idx)) {
+	    if (do_exclude) {
+	      if (IS_SET(exclude_arr_new, unfiltered_idx)) {
+		duplicate_ct++;
+	      } else {
+		SET_BIT(exclude_arr_new, unfiltered_idx);
+	      }
+	    } else {
+	      if (!IS_SET(exclude_arr_new, unfiltered_idx)) {
+		duplicate_ct++;
+	      } else {
+		CLEAR_BIT(exclude_arr_new, unfiltered_idx);
+	      }
 	    }
-	    SET_BIT(exclude_arr, unfiltered_idx);
-	  } else if (!IS_SET(exclude_arr, unfiltered_idx)) {
-	    if (!IS_SET(exclude_arr_new, unfiltered_idx)) {
-	      goto include_or_exclude_ret_INVALID_FORMAT_3;
-	    }
-	    CLEAR_BIT(exclude_arr_new, unfiltered_idx);
 	  }
 	}
       } else {
 	bsearch_fam(id_buf, sorted_ids, max_id_len, sorted_ids_ct, bufptr0, &cur_idx, &last_idx);
+	ii = 0;
 	while (cur_idx < last_idx) {
 	  unfiltered_idx = id_map[cur_idx++];
-	  if (do_exclude) {
-	    if (IS_SET(exclude_arr, unfiltered_idx)) {
-	      goto include_or_exclude_ret_INVALID_FORMAT_3;
+	  if (!IS_SET(exclude_arr, unfiltered_idx)) {
+	    if (do_exclude) {
+	      if (IS_SET(exclude_arr_new, unfiltered_idx)) {
+		ii = 1;
+	      } else {
+		SET_BIT(exclude_arr_new, unfiltered_idx);
+	      }
+	    } else {
+	      if (!IS_SET(exclude_arr_new, unfiltered_idx)) {
+		ii = 1;
+	      } else {
+		CLEAR_BIT(exclude_arr_new, unfiltered_idx);
+	      }
 	    }
-	    SET_BIT(exclude_arr, unfiltered_idx);
-	  } else {
-	    if (!IS_SET(exclude_arr_new, unfiltered_idx)) {
-	      goto include_or_exclude_ret_INVALID_FORMAT_3;
-	    }
-	    CLEAR_BIT(exclude_arr_new, unfiltered_idx);
 	  }
 	}
+	// only add one to duplicate_ct, instead of one per family member
+	duplicate_ct += (uint32_t)ii;
       }
     }
   } else {
@@ -1329,7 +1363,7 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
       }
       if (!bufsize) {
         if (curtoklen && (curtoklen < max_id_len)) {
-          exclude_extract_process_token(&(tbuf[MAXLINELEN - curtoklen]), sorted_ids, id_map, max_id_len, sorted_ids_ct, exclude_arr, exclude_arr_new, do_exclude, curtoklen);
+          exclude_extract_process_token(&(tbuf[MAXLINELEN - curtoklen]), sorted_ids, id_map, max_id_len, sorted_ids_ct, exclude_arr, exclude_arr_new, &duplicate_ct, do_exclude, curtoklen);
 	}
 	break;
       }
@@ -1365,7 +1399,7 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
 	  break;
 	}
 	if (curtoklen < max_id_len) {
-          exclude_extract_process_token(bufptr, sorted_ids, id_map, max_id_len, sorted_ids_ct, exclude_arr, exclude_arr_new, do_exclude, curtoklen);
+          exclude_extract_process_token(bufptr, sorted_ids, id_map, max_id_len, sorted_ids_ct, exclude_arr, exclude_arr_new, &duplicate_ct, do_exclude, curtoklen);
 	}
 	bufptr = &(bufptr2[1]);
       }
@@ -1374,13 +1408,21 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
   if (!feof(infile)) {
     goto include_or_exclude_ret_READ_FAIL;
   }
-  if (!do_exclude) {
-    memcpy(exclude_arr, exclude_arr_new, unfiltered_ctl * sizeof(intptr_t));
-  }
+  memcpy(exclude_arr, exclude_arr_new, unfiltered_ctl * sizeof(intptr_t));
   *exclude_ct_ptr = popcount_longs(exclude_arr, unfiltered_ctl);
   if (*exclude_ct_ptr == unfiltered_ct) {
     LOGPRINTF("Error: No %s remaining after --%s.\n", (flags & 2)? g_species_plural : "variants", include_or_exclude_flag_str(flags));
     goto include_or_exclude_ret_ALL_SAMPLES_EXCLUDED;
+  }
+  unfiltered_ct -= *exclude_ct_ptr; // now filtered count
+  if (flags & 2) {
+    LOGPRINTF("--%s: %" PRIuPTR " %s remaining.\n", include_or_exclude_flag_str(flags), unfiltered_ct, species_str(unfiltered_ct));
+  } else {
+    LOGPRINTF("--%s: %" PRIuPTR " variant%s remaining.\n", include_or_exclude_flag_str(flags), unfiltered_ct, (unfiltered_ct == 1)? "" : "s");
+  }
+  if (duplicate_ct) {
+    // "At least" since this does not count duplicate IDs absent from the .bim.
+    LOGPRINTF("Warning: At least %" PRIuPTR " duplicate ID%s in --%s file.\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", include_or_exclude_flag_str(flags));
   }
   while (0) {
   include_or_exclude_ret_NOMEM:
@@ -1392,8 +1434,6 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
   include_or_exclude_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  include_or_exclude_ret_INVALID_FORMAT_3:
-    sprintf(logbuf, "Error: Duplicate ID in --%s file.\n", include_or_exclude_flag_str(flags));
   include_or_exclude_ret_INVALID_FORMAT_2:
     logprintb();
     retval = RET_INVALID_FORMAT;
