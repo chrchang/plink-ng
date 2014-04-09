@@ -596,7 +596,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     if (ulii) {
       memcpy(outname_end, "-merge", 7);
     }
-    retval = merge_datasets(pedname, mapname, famname, outname, ulii? &(outname_end[6]) : outname_end, mergename1, mergename2, mergename3, calculation_type, merge_type, indiv_sort, misc_flags, chrom_info_ptr);
+    retval = merge_datasets(pedname, mapname, famname, outname, ulii? &(outname_end[6]) : outname_end, mergename1, mergename2, mergename3, indiv_sort_fname, calculation_type, merge_type, indiv_sort, misc_flags, chrom_info_ptr);
     if (retval || (!(calculation_type & (~CALC_MERGE)))) {
       goto plink_ret_1;
     }
@@ -1168,6 +1168,11 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
     indiv_sort_map = uiptr;
     wkspace_reset(cptr);
+  } else if (indiv_sort == INDIV_SORT_FILE) {
+    retval = indiv_sort_file_map(indiv_sort_fname, unfiltered_indiv_ct, indiv_exclude, unfiltered_indiv_ct - indiv_exclude_ct, person_ids, max_person_id_len, &indiv_sort_map);
+    if (retval) {
+      goto plink_ret_1;
+    }
   }
 
   if ((filter_flags & FILTER_MAKE_FOUNDERS) && (!(misc_flags & MISC_MAKE_FOUNDERS_FIRST))) {
@@ -6754,15 +6759,13 @@ int32_t main(int32_t argc, char** argv) {
 	} else if ((!strcmp(argv[cur_arg + 1], "file")) || ((tolower(argv[cur_arg + 1][0]) == 'f') && jj)) {
 	  if (param_ct == 1) {
 	    sprintf(logbuf, "Error: Missing '--indiv-sort %s' filename.%s", argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	  indiv_sort = INDIV_SORT_FILE;
 	  retval = alloc_fname(&indiv_sort_fname, argv[cur_arg + 2], argptr, 0);
 	  if (retval) {
 	    goto main_ret_1;
 	  }
-	  logprint("Error: '--indiv-sort file' is currently under development.\n");
-          retval = RET_CALC_NOT_YET_SUPPORTED;
-	  goto main_ret_1;
 	} else {
 	  sprintf(logbuf, "Error: '%s' is not a valid mode for --indiv-sort.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;

@@ -2179,7 +2179,10 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
 	  //    if k is odd.
 	  //    These sums are unimodal, so evaluation should start from the
 	  //    center and employ the usual early-termination logic to bring
-	  //    complexity down to O(sqrt(n)).
+	  //    complexity down to O(sqrt(n)).  (To check: is the distribution
+	  //    of final likelihoods also unimodal?  Poisson binomial
+	  //    distribution is still unimodal, but that's variable p, not
+	  //    variable step size.)
 	  //    Because there's no unknown scaling factor to worry about, we
 	  //    can simply guess where the start of the other tail is and
 	  //    examine adjacent likelihoods until we've verified where the

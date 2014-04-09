@@ -171,7 +171,8 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
     }
     if (ii != -1) {
       if (is_set(loadbuf, ii)) {
-        sprintf(logbuf, "Error: Duplicate individual %s in --oblig-missing file.\n", idbuf);
+        strchr(idbuf, '\t')[0] = ' ';
+        sprintf(logbuf, "Error: Duplicate individual ID %s in --oblig-missing file.\n", idbuf);
 	goto load_oblig_missing_ret_INVALID_FORMAT_2;
       }
       set_bit(loadbuf, ii);

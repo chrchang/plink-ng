@@ -12992,6 +12992,94 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   return retval;
 }
 
+int32_t indiv_sort_file_map(char* indiv_sort_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uint32_t** indiv_sort_map_ptr) {
+  unsigned char* wkspace_mark = wkspace_base;
+  uintptr_t indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
+  FILE* infile = NULL;
+  uint32_t cur_seq = 0;
+  int32_t retval = 0;
+  uintptr_t* already_seen;
+
+  // return map: indiv_sort_map[final uidx] = uidx in input fileset
+  uint32_t* indiv_sort_map;
+
+  // temporary: person_id_map[ascii-sorted idx] = uidx in input fileset
+  uint32_t* person_id_map;
+  char* sorted_person_ids;
+  char* bufptr;
+  char* idbuf;
+  int32_t ii;
+  if (wkspace_alloc_ui_checked(&indiv_sort_map, indiv_ct * sizeof(int32_t)) ||
+      wkspace_alloc_c_checked(&idbuf, max_person_id_len) ||
+      wkspace_alloc_ul_checked(&already_seen, indiv_ctl * sizeof(intptr_t))) {
+    goto indiv_sort_file_map_ret_NOMEM;
+  }
+  fill_ulong_zero(already_seen, indiv_ctl);
+  retval = sort_item_ids(&sorted_person_ids, &person_id_map, unfiltered_indiv_ct, indiv_exclude, unfiltered_indiv_ct - indiv_ct, person_ids, max_person_id_len, 0, 0, strcmp_deref);
+  if (retval) {
+    goto indiv_sort_file_map_ret_1;
+  }
+  if (fopen_checked(&infile, indiv_sort_fname, "r")) {
+    goto indiv_sort_file_map_ret_OPEN_FAIL;
+  }
+  tbuf[MAXLINELEN - 1] = ' ';
+  while (fgets(tbuf, MAXLINELEN, infile)) {
+    if (!tbuf[MAXLINELEN - 1]) {
+      logprint("Error: Pathologically long line in --indiv-sort file.\n");
+      goto indiv_sort_file_map_ret_INVALID_FORMAT;
+    }
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    if (bsearch_read_fam_indiv(idbuf, sorted_person_ids, max_person_id_len, indiv_ct, bufptr, NULL, &ii)) {
+      logprint("Error: --indiv-sort file line has only one token.\n");
+      goto indiv_sort_file_map_ret_INVALID_FORMAT;
+    }
+    if (ii != -1) {
+      if (is_set(already_seen, ii)) {
+        strchr(idbuf, '\t')[0] = ' ';
+        sprintf(logbuf, "Error: Duplicate ID %s in --indiv-sort file.\n", idbuf);
+        goto indiv_sort_file_map_ret_INVALID_FORMAT_2;
+      }
+      set_bit(already_seen, ii);
+      indiv_sort_map[cur_seq++] = person_id_map[(uint32_t)ii];
+    }
+  }
+  if (fclose_null(&infile)) {
+    goto indiv_sort_file_map_ret_READ_FAIL;
+  }
+  if (cur_seq != indiv_ct) {
+    logprint("Error: --indiv-sort does not contain all loaded sample IDs.\n");
+    goto indiv_sort_file_map_ret_INVALID_CMDLINE;
+  }
+  *indiv_sort_map_ptr = indiv_sort_map;
+  wkspace_mark = (unsigned char*)idbuf;
+  while (0) {
+  indiv_sort_file_map_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  indiv_sort_file_map_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  indiv_sort_file_map_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  indiv_sort_file_map_ret_INVALID_FORMAT_2:
+    logprintb();
+  indiv_sort_file_map_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  indiv_sort_file_map_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+  }
+ indiv_sort_file_map_ret_1:
+  wkspace_reset(wkspace_mark);
+  fclose_cond(infile);
+  return retval;
+}
+
 // .fam
 typedef struct ll_entry_struct {
   struct ll_entry_struct* next;
@@ -14421,7 +14509,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
   return retval;
 }
 
-int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outname, char* outname_end, char* mergename1, char* mergename2, char* mergename3, uint64_t calculation_type, uint32_t merge_type, uint32_t indiv_sort, uint64_t misc_flags, Chrom_info* chrom_info_ptr) {
+int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outname, char* outname_end, char* mergename1, char* mergename2, char* mergename3, char* indiv_sort_fname, uint64_t calculation_type, uint32_t merge_type, uint32_t indiv_sort, uint64_t misc_flags, Chrom_info* chrom_info_ptr) {
   FILE* mergelistfile = NULL;
   FILE* outfile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
@@ -14762,7 +14850,9 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       }
     }
   } else {
-    // todo
+    logprint("Error: File merge doesn't yet support '--indiv-sort file'.  Merge first, then\nuse '--indiv-sort file' with --make-bed afterward.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto merge_datasets_ret_1;
   }
   wkspace_left += topsize; // deallocate first hash table
   if (merge_mode < 6) {
