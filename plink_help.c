@@ -1481,16 +1481,18 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --a2-allele [f] {a2col} {IDcol} {skip} : Force alleles in the file to A2.\n"
 	       );
     help_print("indiv-sort\tmerge\tbmerge\tmerge-list", &help_ctrl, 0,
-"  --indiv-sort [m] : Specify family/individual ID sort order.  The following\n"
-"                     three modes are currently supported:\n"
-"                     * 'none'/'0' keeps individuals in the order they were\n"
-"                       loaded.  This is the default for non-merge operations.\n"
-"                     * 'natural'/'n' invokes 'natural sort', e.g. 'id2' < 'ID3'\n"
-"                       < 'id10'.  This is the default when merging.\n"
-"                     * 'ascii'/'a' sorts in ASCII order, e.g. 'ID3' < 'id10' <\n"
-"                       'id2'.\n"
-"                     For now, only --make-bed and --merge/--bmerge/--merge-list\n"
-"                     respect this flag.\n"
+"  --indiv-sort [m] {f} : Specify family/individual ID sort order.  The\n"
+"                         following four modes are supported:\n"
+"                         * 'none'/'0' keeps individuals in the order they were\n"
+"                           loaded.  Default for non-merge operations.\n"
+"                         * 'natural'/'n' invokes 'natural sort', e.g.\n"
+"                           'id2' < 'ID3' < 'id10'.  Default when merging.\n"
+"                         * 'ascii'/'a' sorts in ASCII order, e.g.\n"
+"                           'ID3' < 'id10' < 'id2'.\n"
+"                         * 'file'/'f' uses the order in the given file (named\n"
+"                           in the second parameter).\n"
+"                         For now, only --merge/--bmerge/--merge-list and\n"
+"                         --make-bed respect this flag.\n"
 	       );
     help_print("with-phenotype\tdummy-coding\twrite-covar", &help_ctrl, 0,
 "  --with-phenotype <no-parents> <no-sex | female-2> : Include more individual\n"

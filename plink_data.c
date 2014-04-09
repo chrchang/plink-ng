@@ -14211,7 +14211,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
       for (marker_in_idx = 0; marker_in_idx < last_marker_in_idx; marker_in_idx++) {
 	if (!is_ped_compound) {
 	  if (is_eoln_kns(*bufptr3)) {
-	    goto merge_main_ret_INVALID_FORMAT_2;
+	    goto merge_main_ret_MISSING_TOKENS;
 	  }
 	  aptr1 = bufptr3;
 	  bufptr3 = item_endnn(bufptr3);
@@ -14219,7 +14219,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	  bufptr3 = skip_initial_spaces(bufptr3);
 	  aptr1[alen1] = '\0';
 	  if (is_eoln_kns(*bufptr3)) {
-	    goto merge_main_ret_INVALID_FORMAT_2;
+	    goto merge_main_ret_MISSING_TOKENS;
 	  }
 	  aptr2 = bufptr3;
 	  bufptr3 = item_endnn(bufptr3);
@@ -14229,13 +14229,13 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	} else {
 	  cc = *bufptr3;
 	  if (is_eoln_kns(cc)) {
-	    goto merge_main_ret_INVALID_FORMAT_2;
+	    goto merge_main_ret_MISSING_TOKENS;
 	  }
           aptr1 = (char*)(&(g_one_char_strs[((unsigned char)cc) * 2]));
           bufptr3 = skip_initial_spaces(&(bufptr3[1]));
           cc = *bufptr3;
           if (is_eoln_kns(cc)) {
-	    goto merge_main_ret_INVALID_FORMAT_2;
+	    goto merge_main_ret_MISSING_TOKENS;
 	  }
 	  aptr2 = (char*)(&(g_one_char_strs[((unsigned char)cc) * 2]));
 	  bufptr3 = skip_initial_spaces(&(bufptr3[1]));
@@ -14251,11 +14251,11 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 
 	if ((*aptr1 == '0') && (alen1 == 1)) {
           if ((*aptr2 != '0') || (alen2 != 1)) {
-	    goto merge_main_ret_INVALID_FORMAT_3;
+	    goto merge_main_ret_HALF_MISSING;
 	  }
 	  ucc2 = 1; // final PLINK encoding
 	} else if ((*aptr2 == '0') && (alen2 == 1)) {
-	  goto merge_main_ret_INVALID_FORMAT_3;
+	  goto merge_main_ret_HALF_MISSING;
 	} else {
 	  ucc2 = 0; // A2 count
 	  if (!strcmp(aptr1, marker_allele_ptrs[uii * 2 + 1])) {
@@ -14269,8 +14269,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	    } else if (marker_allele_ptrs[uii * 2] == missing_geno_ptr) {
 	      ukk = uii * 2;
 	    } else {
-	      printf("%s %s %s\n", marker_allele_ptrs[uii * 2 + 1], marker_allele_ptrs[uii * 2], aptr1);
-	      goto merge_main_ret_INVALID_FORMAT;
+	      goto merge_main_ret_NOT_BIALLELIC;
 	    }
 	    if (allele_set(&(marker_allele_ptrs[ukk]), aptr1, alen1)) {
 	      goto merge_main_ret_NOMEM;
@@ -14287,7 +14286,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	    } else if (marker_allele_ptrs[uii * 2 + 1] == missing_geno_ptr) {
               ukk = uii * 2 + 1;
 	    } else {
-	      goto merge_main_ret_INVALID_FORMAT;
+	      goto merge_main_ret_NOT_BIALLELIC;
 	    }
 	    if (allele_set(&(marker_allele_ptrs[ukk]), aptr2, alen2)) {
 	      goto merge_main_ret_NOMEM;
@@ -14397,18 +14396,18 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
   merge_main_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
-  merge_main_ret_INVALID_FORMAT:
+  merge_main_ret_NOT_BIALLELIC:
     putchar('\n');
-    LOGPRINTF("Error: Variant %s is not biallelic.\n", &(marker_ids[uii * max_marker_id_len]));
+    LOGPRINTF("Error: Variant %s is not biallelic.\nTo obtain a full list of merge failures, convert your data to binary format and\nretry the merge.\n", &(marker_ids[uii * max_marker_id_len]));
     retval = RET_INVALID_FORMAT;
     break;
-  merge_main_ret_INVALID_FORMAT_3:
+  merge_main_ret_HALF_MISSING:
     fill_idbuf_fam_indiv(idbuf, bufptr, ' ');
     putchar('\n');
     LOGPRINTF("Error: Half-missing call in %s (indiv id %s, variant %s).\n", bedname, idbuf, &(marker_ids[uii * max_marker_id_len]));
     retval = RET_INVALID_FORMAT;
     break;
-  merge_main_ret_INVALID_FORMAT_2:
+  merge_main_ret_MISSING_TOKENS:
     fill_idbuf_fam_indiv(idbuf, bufptr, ' ');
     sprintf(logbuf, "Error: Line too short in %s (indiv id %s).\n", bedname, idbuf);
   merge_main_ret_INVALID_FORMAT_4:
@@ -14683,7 +14682,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   // "allocate" first hash table off far side of stack before making regular
   // stack allocations
   wkspace_left -= topsize;
-  if (indiv_sort == INDIV_SORT_NONE) {
+  if (indiv_sort & (INDIV_SORT_NONE | INDIV_SORT_FILE)) {
     if (wkspace_alloc_ui_checked(&indiv_nsmap, tot_indiv_ct * sizeof(int32_t))) {
       goto merge_datasets_ret_NOMEM2;
     }
@@ -14730,7 +14729,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     if (qsort_ext(person_fids, tot_indiv_ct, max_person_full_len, strcmp_deref, (char*)indiv_nsmap, sizeof(int32_t))) {
       goto merge_datasets_ret_NOMEM2;
     }
-  } else {
+  } else if (indiv_sort != INDIV_SORT_FILE) {
     ulii = 0;
     bufptr = person_fids;
     for (uii = 0; uii < HASHSIZE_S; uii++) {
@@ -14762,6 +14761,8 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
 	goto merge_datasets_ret_NOMEM2;
       }
     }
+  } else {
+    // todo
   }
   wkspace_left += topsize; // deallocate first hash table
   if (merge_mode < 6) {
@@ -14780,7 +14781,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       bufptr3 = &(person_ids[ujj * max_person_id_len]);
       bufptr2 = next_item_mult(bufptr, 2);
       uii = (bufptr2 - bufptr) - 1;
-      memcpyx(bufptr3, bufptr, uii, 0);
+      memcpyx(bufptr3, bufptr, uii, '\0');
       if (merge_mode < 6) {
 	uii += strlen(bufptr2) + 1;
 	if (fwrite_checked(bufptr, uii, outfile)) {
@@ -14794,13 +14795,13 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
 	}
       }
     }
-  } else {
+  } else if (indiv_sort != INDIV_SORT_FILE) {
     bufptr = person_fids;
     bufptr3 = person_ids;
     for (ulii = 0; ulii < tot_indiv_ct; ulii++) {
       bufptr2 = next_item_mult(bufptr, 2);
       uii = (bufptr2 - bufptr) - 1;
-      memcpyx(bufptr3, bufptr, uii, 0);
+      memcpyx(bufptr3, bufptr, uii, '\0');
       bufptr3 = &(bufptr3[max_person_id_len]);
       if (merge_mode < 6) {
 	uii += strlen(bufptr2) + 1;
@@ -14814,6 +14815,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       }
       bufptr = &(bufptr[max_person_full_len]);
     }
+  } else {
   }
   if (merge_mode < 6) {
     if (ferror(outfile)) {
