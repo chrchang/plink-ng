@@ -8592,10 +8592,6 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     if (retval) {
       goto bcf_to_bed_ret_1;
     }
-    if (!marker_id_len) {
-      logprint("Error: Missing variant ID.\n");
-      goto bcf_to_bed_ret_INVALID_FORMAT;
-    }
     n_allele = bcf_var_header[6] >> 16;
     if (!n_allele) {
       // skip instead of error out on zero alleles?
@@ -8943,7 +8939,11 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     }
     fputs(&(contigdict[bcf_var_header[2] * max_contig_len]), bimfile);
     putc('\t', bimfile);
-    fwrite(marker_id, 1, marker_id_len, bimfile);
+    if (marker_id_len) {
+      fwrite(marker_id, 1, marker_id_len, bimfile);
+    } else {
+      putc('.', bimfile);
+    }
     bufptr = uint32_writex(&(tbuf2[3]), bcf_var_header[3], '\t');
     if (fwrite_checked(tbuf2, bufptr - tbuf2, bimfile)) {
       goto bcf_to_bed_ret_WRITE_FAIL;
@@ -8978,7 +8978,12 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	}
 	memcpy(outname_end, ".bed", 5);
       }
-      fwrite(marker_id, 1, marker_id_len, skip3file);
+      if (marker_id_len) {
+        fwrite(marker_id, 1, marker_id_len, skip3file);
+      } else {
+        // up to the user to figure this out...
+	putc('.', skip3file);
+      }
       if (putc_checked('\n', skip3file)) {
 	goto bcf_to_bed_ret_OPEN_FAIL;
       }
