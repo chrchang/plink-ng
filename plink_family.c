@@ -1749,14 +1749,256 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   return 0;
 }
 
-int32_t tdt_poo() {
-  logprint("Error: Parent-of-origin analysis is currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
+int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct_ax, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_male_include2, uint32_t* trio_nuclear_lookup, uint32_t family_ct, uint32_t mperm_save, char* person_ids, uintptr_t max_person_id_len, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t hh_exists, Family_info* fam_ip, uintptr_t* loadbuf, uintptr_t* workbuf, char* textbuf, double* orig_chisq, uint32_t* trio_error_lookup, uintptr_t trio_ct) {
+  FILE* outfile = NULL;
+  uint64_t mendel_error_ct = 0;
+  double pat_a2transmit_recip = 0.0;
+  double mat_a1transmit_recip = 0.0;
+  uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uintptr_t marker_uidx = ~ZEROLU;
+  uintptr_t markers_done = 0;
+  uintptr_t pct = 1;
+  uintptr_t pct_thresh = marker_ct_ax / 100;
+  uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
+  int32_t retval = 0;
+  // index bits 0-1: child genotype
+  // index bits 2-3: paternal genotype
+  // index bits 4-5: maternal genotype
+  // entry bit 1: paternal observation?
+  // entry bit 9: maternal observation?
+  // entry bit 16 & 24: hhh?
+  // entry bit 17: paternal A1 transmitted?
+  // entry bit 25: maternal A1 transmitted?
+  const uint32_t poo_table[] =
+    {0, 0, 0, 0,
+     0, 0, 0, 0,
+     0x20002, 0, 2, 0,
+     0, 0, 0, 0,
+     0, 0, 0, 0,
+     0, 0, 0, 0,
+     0, 0, 0, 0,
+     0, 0, 0, 0,
+     0x2000200, 0, 0x200, 0,
+     0, 0, 0, 0,
+     0x2020202, 0, 0x1010202, 0x202,
+     0, 0, 0x2000200, 0x200,
+     0, 0, 0, 0,
+     0, 0, 0, 0,
+     0, 0, 0x20002, 2};
+  char* wptr_start;
+  char* wptr;
+  char* wptr2;
+  uint32_t* lookup_ptr;
+  const uint32_t* poo_table_ptr;
+  double chisq;
+  double pat_a1transmit;
+  double cur_a2transmit;
+  double dxx;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  uint32_t chrom_fo_idx;
+  uint32_t chrom_idx;
+  uint32_t chrom_end;
+  uint32_t family_idx;
+  uint32_t cur_child_ct;
+  uint32_t child_idx;
+  uint32_t is_x;
+
+  // use a vertical popcount-like strategy here
+  uint32_t poo_acc;
+  uint32_t poo_acc_ct;
+  uint32_t poo_obs_pat_x2;
+  uint32_t poo_obs_mat_x2;
+  uint32_t poo_pat_a1transmit_x2;
+  uint32_t poo_mat_a1transmit_x2;
+
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+  memcpy(outname_end, ".tdt.poo", 9);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto tdt_poo_ret_OPEN_FAIL;
+  }
+  sprintf(textbuf, " CHR %%%us  A1:A2      T:U_PAT    CHISQ_PAT        P_PAT      T:U_MAT    CHISQ_MAT        P_MAT        Z_POO        P_POO \n", plink_maxsnp);
+  fprintf(outfile, textbuf, "SNP");
+  fputs("--tdt poo: 0%", stdout);
+  fflush(stdout);
+  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
+    chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+    is_x = ((int32_t)chrom_idx == chrom_info_ptr->x_code);
+    if ((IS_SET(chrom_info_ptr->haploid_mask, chrom_idx) && (!is_x)) || (((uint32_t)chrom_info_ptr->mt_code) == chrom_idx)) {
+      continue;
+    }
+    chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+    uii = next_unset(marker_exclude, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx], chrom_end);
+    if (uii == chrom_end) {
+      continue;
+    }
+    wptr_start = width_force(4, textbuf, chrom_name_write(textbuf, chrom_info_ptr, chrom_idx, zero_extra_chroms));
+    *wptr_start++ = ' ';
+    if (uii != marker_uidx) {
+      marker_uidx = uii;
+      goto tdt_poo_scan_seek;
+    }
+    while (1) {
+      if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+	goto tdt_poo_ret_READ_FAIL;
+      }
+      if (IS_SET(marker_reverse, marker_uidx)) {
+	reverse_loadbuf((unsigned char*)loadbuf, unfiltered_indiv_ct);
+      }
+      if (hh_exists && is_x) {
+        hh_reset((unsigned char*)loadbuf, indiv_male_include2, unfiltered_indiv_ct);
+      }
+      mendel_error_ct += erase_mendel_errors(unfiltered_indiv_ct, loadbuf, workbuf, trio_error_lookup, trio_ct, multigen);
+      lookup_ptr = trio_nuclear_lookup;
+      poo_acc = 0;
+      poo_acc_ct = 0;
+      poo_obs_pat_x2 = 0;
+      poo_obs_mat_x2 = 0;
+      poo_pat_a1transmit_x2 = 0;
+      poo_mat_a1transmit_x2 = 0;
+      for (family_idx = 0; family_idx < family_ct; family_idx++) {
+        uii = *lookup_ptr++;
+        ujj = *lookup_ptr++;
+        cur_child_ct = *lookup_ptr++;
+        ulii = (loadbuf[uii / BITCT2] >> (2 * (uii % BITCT2))) & 3;
+        uljj = (loadbuf[ujj / BITCT2] >> (2 * (ujj % BITCT2))) & 3;
+        ukk = ulii | (uljj << 2);
+	if ((0x4d04 >> ukk) & 1) {
+	  // 1+ het parents, no missing
+	  // xor doesn't work here since we need to track fathers and mothers
+	  // separately
+	  poo_table_ptr = &(poo_table[4 * ukk]);
+          for (child_idx = 0; child_idx < cur_child_ct; child_idx++) {
+            ukk = *lookup_ptr++;
+            poo_acc += poo_table_ptr[(loadbuf[ukk / BITCT2] >> (2 * (ukk % BITCT2))) & 3];
+	    if (++poo_acc_ct == 127) {
+	      // accumulator about to overflow, unpack it
+              poo_obs_pat_x2 += (unsigned char)poo_acc;
+              poo_obs_mat_x2 += (unsigned char)(poo_acc >> 8);
+              poo_pat_a1transmit_x2 += (unsigned char)(poo_acc >> 16);
+              poo_mat_a1transmit_x2 += poo_acc >> 24;
+              poo_acc = 0;
+              poo_acc_ct = 0;
+	    }
+	  }
+	} else {
+          lookup_ptr = &(lookup_ptr[cur_child_ct]);
+	}
+      }
+      if (poo_acc_ct) {
+	poo_obs_pat_x2 += (unsigned char)poo_acc;
+	poo_obs_mat_x2 += (unsigned char)(poo_acc >> 8);
+	poo_pat_a1transmit_x2 += (unsigned char)(poo_acc >> 16);
+	poo_mat_a1transmit_x2 += poo_acc >> 24;
+      }
+      wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr_start);
+      *wptr++ = ' ';
+      wptr2 = strcpyax(wptr, marker_allele_ptrs[2 * marker_uidx], ':');
+      wptr2 = strcpya(wptr2, marker_allele_ptrs[2 * marker_uidx + 1]);
+      wptr = width_force(6, wptr, wptr2);
+      *wptr++ = ' ';
+      pat_a1transmit = 0.5 * ((double)poo_pat_a1transmit_x2);
+      cur_a2transmit = 0.5 * ((double)(poo_obs_pat_x2 - poo_pat_a1transmit_x2));
+      wptr2 = double_g_writewx4x(wptr, pat_a1transmit, 1, ':');
+      wptr2 = double_g_writewx4(wptr2, cur_a2transmit, 1);
+      wptr = width_force(12, wptr, wptr2);
+      *wptr++ = ' ';
+      if (poo_obs_pat_x2) {
+	pat_a2transmit_recip = 1.0 / cur_a2transmit;
+	dxx = pat_a1transmit - cur_a2transmit;
+	chisq = dxx * dxx / (pat_a1transmit + cur_a2transmit);
+	wptr = double_g_writewx4x(wptr, chisq, 12, ' ');
+	wptr = double_g_writewx4(wptr, chiprob_p(chisq, 1), 12);
+      } else {
+	wptr = memcpya(wptr, "          NA           NA", 25);
+      }
+      *wptr++ = ' ';
+      dxx = 0.5 * ((double)poo_mat_a1transmit_x2);
+      cur_a2transmit = 0.5 * ((double)(poo_obs_mat_x2 - poo_mat_a1transmit_x2));
+      wptr2 = double_g_writewx4x(wptr, dxx, 1, ':');
+      wptr2 = double_g_writewx4(wptr2, cur_a2transmit, 1);
+      wptr = width_force(12, wptr, wptr2);
+      *wptr++ = ' ';
+      if (poo_obs_mat_x2) {
+	mat_a1transmit_recip = 1.0 / dxx;
+	chisq = dxx - cur_a2transmit;
+	chisq = chisq * chisq / (dxx + cur_a2transmit);
+	wptr = double_g_writewx4x(wptr, chisq, 12, ' ');
+	wptr = double_g_writewx4(wptr, chiprob_p(chisq, 1), 12);
+      } else {
+	wptr = memcpya(wptr, "          NA           NA", 25);
+      }
+      *wptr++ = ' ';
+      if (poo_pat_a1transmit_x2 && poo_mat_a1transmit_x2 && (poo_obs_pat_x2 > poo_pat_a1transmit_x2) && (poo_obs_mat_x2 > poo_mat_a1transmit_x2)) {
+	// Z-score
+	dxx = (log(pat_a1transmit * pat_a2transmit_recip * mat_a1transmit_recip * cur_a2transmit) / sqrt(1.0 / pat_a1transmit + pat_a2transmit_recip + mat_a1transmit_recip + 1.0 / cur_a2transmit));
+
+        wptr = double_g_writewx4x(wptr, dxx, 12, ' ');
+	wptr = double_g_writewx4(wptr, normdist(-fabs(dxx)) * 2, 12);
+	if (orig_chisq) {
+	  // todo: --pat/--mat support
+	  orig_chisq[markers_done] = dxx * dxx;
+	}
+      } else {
+	wptr = memcpya(wptr, "          NA           NA", 25);
+	if (orig_chisq) {
+	  orig_chisq[markers_done] = -1;
+	}
+      }
+      wptr = memcpya(wptr, " \n", 2);
+      // 1.07 implementation does not support pfilter; we might want to add it
+      if (fwrite_checked(textbuf, wptr - textbuf, outfile)) {
+	goto tdt_poo_ret_WRITE_FAIL;
+      }
+      if (++markers_done >= pct_thresh) {
+	if (pct > 10) {
+	  putchar('\b');
+	}
+	pct = (markers_done * 100LLU) / marker_ct_ax;
+	if (pct < 100) {
+	  printf("\b\b%" PRIuPTR "%%", pct);
+	  fflush(stdout);
+	  pct_thresh = ((++pct) * ((uint64_t)markers_done)) / 100;
+	}
+      }
+      if (++marker_uidx == chrom_end) {
+	break;
+      }
+      if (IS_SET(marker_exclude, marker_uidx)) {
+	marker_uidx = next_unset_ul(marker_exclude, marker_uidx, chrom_end);
+      tdt_poo_scan_seek:
+	if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	  goto tdt_poo_ret_READ_FAIL;
+	}
+	if (marker_uidx == chrom_end) {
+	  break;
+	}
+      }
+    }
+  }
+  if (fclose_null(&outfile)) {
+    goto tdt_poo_ret_WRITE_FAIL;
+  }
+  putchar('\r');
+  LOGPRINTF("--tdt poo: Report written to %s.\n", outname);
+  while (0) {
+  tdt_poo_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  tdt_poo_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  tdt_poo_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+  fclose_cond(outfile);
+  return retval;
 }
 
 int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t mperm_save, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t hh_exists, Family_info* fam_ip) {
-  // logprint("Error: --tdt is currently under development.\n");
-  // return RET_CALC_NOT_YET_SUPPORTED;
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   char* textbuf = tbuf;
@@ -1774,6 +2016,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   uint32_t display_ci = (ci_size > 0);
   uint32_t is_exact = fam_ip->tdt_modifier & TDT_EXACT;
   uint32_t is_midp = fam_ip->tdt_modifier & TDT_MIDP;
+  uint32_t poo_test = fam_ip->tdt_modifier & TDT_POO;
   uint32_t case_trio_ct = 0;
   uint32_t is_discordant = 0;
   uint32_t discord_exists = 0;
@@ -1905,7 +2148,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
       ujj = (uint32_t)(cur_parents >> 32);
       if ((uii < unfiltered_indiv_ct) && (ujj < unfiltered_indiv_ct)) {
 	umm = is_set(pheno_c, uii);
-	is_discordant = is_set(pheno_nm, uii) && is_set(pheno_nm, ujj) && (umm ^ is_set(pheno_c, ujj));
+	is_discordant = (!poo_test) && is_set(pheno_nm, uii) && is_set(pheno_nm, ujj) && (umm ^ is_set(pheno_c, ujj));
 	if (!is_discordant) {
 	  *lookup_ptr++ = uii;
 	  *lookup_ptr++ = ujj;
@@ -1947,7 +2190,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
     family_ct++;
   }
   if (lookup_ptr == trio_nuclear_lookup) {
-    logprint("Warning: Skipping --tdt since there are no trios with an affected child, and no\ndiscordant parent pairs.\n");
+    LOGPRINTF("Warning: Skipping --tdt%s since there are no trios with an affected child%s.\n", poo_test? " poo" : "", poo_test? "" : ", and no\ndiscordant parent pairs");
     goto tdt_ret_1;
   }
   wkspace_shrink_top(trio_nuclear_lookup, ((uintptr_t)(lookup_ptr - trio_nuclear_lookup)) * sizeof(int32_t));
@@ -1972,20 +2215,27 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
     retval = RET_CALC_NOT_YET_SUPPORTED;
     goto tdt_ret_1;
   }
-  if (fam_ip->tdt_modifier & TDT_POO) {
-    retval = tdt_poo();
+  ulii = 2 * max_marker_allele_len + plink_maxsnp + MAX_ID_LEN + 256;
+  if (ulii > MAXLINELEN) {
+    if (wkspace_alloc_c_checked(&textbuf, ulii)) {
+      goto tdt_ret_NOMEM;
+    }
+  }
+  if (poo_test) {
+    retval = tdt_poo(threads, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, unfiltered_indiv_ct, indiv_male_include2, trio_nuclear_lookup, family_ct, mperm_save, person_ids, max_person_id_len, zero_extra_chroms, chrom_info_ptr, hh_exists, fam_ip, loadbuf, workbuf, textbuf, orig_chisq, trio_error_lookup, trio_ct);
+    if (retval) {
+      goto tdt_ret_1;
+    }
+    if (mtest_adjust) {
+      outname_end[4] = '\0';
+      goto tdt_multcomp;
+    }
     goto tdt_ret_1;
   }
   pct_thresh = marker_ct / 100;
   memcpy(outname_end, ".tdt", 5);
   if (fopen_checked(&outfile, outname, "w")) {
     goto tdt_ret_OPEN_FAIL;
-  }
-  ulii = 2 * max_marker_allele_len + plink_maxsnp + 256;
-  if (ulii > MAXLINELEN) {
-    if (wkspace_alloc_c_checked(&textbuf, ulii)) {
-      goto tdt_ret_NOMEM;
-    }
   }
   sprintf(textbuf, " CHR %%%us           BP  A1  A2      T      U           OR ", plink_maxsnp);
   fprintf(outfile, textbuf, "SNP");
@@ -2253,6 +2503,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   putchar('\r');
   LOGPRINTF("--tdt: Report written to %s.\n", outname);
   if (mtest_adjust) {
+  tdt_multcomp:
     ulii = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
     if (wkspace_alloc_ui_checked(&marker_idx_to_uidx, marker_ct * sizeof(int32_t)) ||
         wkspace_alloc_ul_checked(&marker_exclude_tmp, ulii * sizeof(intptr_t))) {
