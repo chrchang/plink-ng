@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (13 Apr 2014)";
+  " (14 Apr 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -5137,7 +5137,8 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 5)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	// pre-scan for 'y-only'
+	// pre-scan for 'y-only', since that changes interpretation of the
+	// first two numeric parameters
 	ujj = 0;
 	if (param_ct) {
 	  for (uii = 1; uii <= param_ct; uii++) {
@@ -5180,6 +5181,10 @@ int32_t main(int32_t argc, char** argv) {
 	      ujj++;
 	    }
 	  }
+	  if ((ujj > 2) && (!(misc_flags & MISC_SEXCHECK_YCOUNT))) {
+	    sprintf(logbuf, "Error: --check-sex only accepts >2 numeric parameters in 'ycount' mode.%s", errstr_append);
+            goto main_ret_INVALID_CMDLINE_3;
+	  }
 	  if (check_sex_fthresh > check_sex_mthresh) {
 	    sprintf(logbuf, "Error: --check-sex female F estimate ceiling cannot be larger than male floor.%s", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
@@ -5196,17 +5201,17 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	    // may as well print a more informative error message in this case
 	    if (!strcmp(argv[cur_arg + uii], "ycount")) {
-	      sprintf(logbuf, "Error: --check-sex 'ycount' modifier has no effect with 'y-only'.%s", errstr_append);
+	      sprintf(logbuf, "Error: Conflicting --check-sex modes.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    if (!ukk) {
 	      if (atoiz(argv[cur_arg + uii], (int32_t*)(&check_sex_f_yobs))) {
-		sprintf(logbuf, "Error: Invalid --check-sex female Ychr maximum nonmissing genotype count.%s", errstr_append);
+		sprintf(logbuf, "Error: Invalid --check-sex y-only female Ychr maximum nonmissing genotype count.%s", errstr_append);
 		goto main_ret_INVALID_CMDLINE_3;
 	      }
 	    } else if (ukk == 1) {
 	      if (atoiz(argv[cur_arg + uii], (int32_t*)(&check_sex_m_yobs))) {
-		sprintf(logbuf, "Error: Invalid --check-sex male Ychr minimum nonmissing genotype count.%s", errstr_append);
+		sprintf(logbuf, "Error: Invalid --check-sex y-only male Ychr minimum nonmissing genotype count.%s", errstr_append);
 		goto main_ret_INVALID_CMDLINE_3;
 	      }
 	    } else {
@@ -6892,6 +6897,10 @@ int32_t main(int32_t argc, char** argv) {
 	      ujj++;
 	    }
 	  }
+	  if ((ujj > 2) && (!(misc_flags & MISC_SEXCHECK_YCOUNT))) {
+	    sprintf(logbuf, "Error: --impute-sex only accepts >2 numeric parameters in 'ycount' mode.%s", errstr_append);
+            goto main_ret_INVALID_CMDLINE_3;
+	  }
 	  if (check_sex_fthresh > check_sex_mthresh) {
 	    sprintf(logbuf, "Error: --impute-sex female F estimate ceiling cannot be larger than male floor.%s", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
@@ -6904,17 +6913,17 @@ int32_t main(int32_t argc, char** argv) {
 	      continue;
 	    }
 	    if (!strcmp(argv[cur_arg + uii], "ycount")) {
-	      sprintf(logbuf, "Error: --impute-sex 'ycount' modifier has no effect with 'y-only'.%s", errstr_append);
+	      sprintf(logbuf, "Error: Conflicting --impute-sex modes.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    if (!ukk) {
 	      if (atoiz(argv[cur_arg + uii], (int32_t*)(&check_sex_f_yobs))) {
-		sprintf(logbuf, "Error: Invalid --impute-sex female Ychr maximum nonmissing genotype count.%s", errstr_append);
+		sprintf(logbuf, "Error: Invalid --impute-sex y-only female Ychr maximum nonmissing genotype\ncount.%s", errstr_append);
 		goto main_ret_INVALID_CMDLINE_3;
 	      }
 	    } else if (ukk == 1) {
 	      if (atoiz(argv[cur_arg + uii], (int32_t*)(&check_sex_m_yobs))) {
-		sprintf(logbuf, "Error: Invalid --impute-sex male Ychr minimum nonmissing genotype count.%s", errstr_append);
+		sprintf(logbuf, "Error: Invalid --impute-sex y-only male Ychr minimum nonmissing genotype count.%s", errstr_append);
 		goto main_ret_INVALID_CMDLINE_3;
 	      }
 	    } else {

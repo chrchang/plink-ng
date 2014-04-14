@@ -2868,6 +2868,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   uint32_t* het_cts = NULL;
   uint32_t* missing_cts = NULL;
   double* nei_offsets = NULL;
+  uint32_t* ymiss_cts = NULL;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
@@ -2876,7 +2877,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   uintptr_t ytotal = 0;
   double nei_sum = 0.0;
   uint32_t do_impute = (misc_flags / MISC_IMPUTE_SEX) & 1;
-  uint32_t report_ycounts = (misc_flags / MISC_SEXCHECK_YCOUNT) & 1;
+  uint32_t check_y = (misc_flags / MISC_SEXCHECK_YCOUNT) & 1;
   uint32_t yonly = (misc_flags / MISC_SEXCHECK_YONLY) & 1;
   uint32_t gender_unk_ct = 0;
   uint32_t problem_ct = 0;
@@ -2896,7 +2897,6 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   // when N=1 due to use of integer division.  Maybe let it be used with
   // inferred MAFs/--freqx/--freq counts later.
   uintptr_t* lptr;
-  uint32_t* ymiss_cts;
   char* fid_ptr;
   char* iid_ptr;
   char* wptr;
@@ -2917,21 +2917,25 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   uint32_t orig_sex_code;
   uint32_t imputed_sex_code;
   if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&loadbuf, indiv_ctl2 * sizeof(intptr_t)) ||
-      wkspace_alloc_ui_checked(&ymiss_cts, indiv_ct * sizeof(int32_t))) {
+      wkspace_alloc_ul_checked(&loadbuf, indiv_ctl2 * sizeof(intptr_t))) {
     goto sexcheck_ret_NOMEM;
   }
   loadbuf_raw[unfiltered_indiv_ctl2 - 1] = 0;
   loadbuf[indiv_ctl2 - 1] = 0;
-  fill_uint_zero(ymiss_cts, indiv_ct);
+  if (check_y) {
+    if (wkspace_alloc_ui_checked(&ymiss_cts, indiv_ct * sizeof(int32_t))) {
+      goto sexcheck_ret_NOMEM;
+    }
+    fill_uint_zero(ymiss_cts, indiv_ct);
+  }
   if (!yonly) {
     if ((x_code == -1) || (!is_set(chrom_info_ptr->chrom_mask, (uint32_t)x_code))) {
-      goto sexcheck_ret_INVALID_CMDLINE;
+      goto sexcheck_ret_NO_X_VAR;
     }
     marker_uidx_end = chrom_info_ptr->chrom_end[(uint32_t)x_code];
     marker_uidx = next_unset_ul(marker_exclude, chrom_info_ptr->chrom_start[(uint32_t)x_code], marker_uidx_end);
     if (marker_uidx == marker_uidx_end) {
-      goto sexcheck_ret_INVALID_CMDLINE;
+      goto sexcheck_ret_NO_X_VAR;
     }
     marker_idxs_left = marker_uidx_end - marker_uidx - popcount_bit_idx(marker_exclude, marker_uidx, marker_uidx_end);
     if (wkspace_alloc_ui_checked(&het_cts, indiv_ct * sizeof(int32_t)) ||
@@ -2991,46 +2995,53 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
       nei_sum += cur_nei;
     }
     if (!x_variant_ct) {
-      goto sexcheck_ret_INVALID_CMDLINE;
+      goto sexcheck_ret_NO_X_VAR;
     }
   }
-  if ((y_code != -1) && (is_set(chrom_info_ptr->chrom_mask, (uint32_t)y_code))) {
-    marker_uidx_end = chrom_info_ptr->chrom_end[(uint32_t)y_code];
-    marker_uidx = next_unset_ul(marker_exclude, chrom_info_ptr->chrom_start[(uint32_t)y_code], marker_uidx_end);
-    if (marker_uidx < marker_uidx_end) {
+  if (check_y) {
+    if ((y_code != -1) && is_set(chrom_info_ptr->chrom_mask, (uint32_t)y_code)) {
+      marker_uidx_end = chrom_info_ptr->chrom_end[(uint32_t)y_code];
+      marker_uidx = next_unset_ul(marker_exclude, chrom_info_ptr->chrom_start[(uint32_t)y_code], marker_uidx_end);
+      ytotal = marker_uidx_end - marker_uidx - popcount_bit_idx(marker_exclude, marker_uidx, marker_uidx_end);
+    }
+    if (ytotal) {
       if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
 	goto sexcheck_ret_READ_FAIL;
       }
-      ytotal = marker_uidx_end - marker_uidx - popcount_bit_idx(marker_exclude, marker_uidx, marker_uidx_end);
       for (ulii = 0; ulii < ytotal; ulii++, marker_uidx++) {
 	if (IS_SET(marker_exclude, marker_uidx)) {
 	  marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-          if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
-            goto sexcheck_ret_READ_FAIL;
+	  if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	    goto sexcheck_ret_READ_FAIL;
 	  }
 	}
-        if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, indiv_ct, indiv_exclude, 0)) {
-          goto sexcheck_ret_READ_FAIL;
+	if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, indiv_ct, indiv_exclude, 0)) {
+	  goto sexcheck_ret_READ_FAIL;
 	}
-        lptr = loadbuf;
-        for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx += BITCT2) {
+	lptr = loadbuf;
+	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx += BITCT2) {
 	  // iterate through missing calls
 	  // vertical popcount would be faster, but we don't really care
 	  cur_word = *lptr++;
 	  cur_word = (~(cur_word >> 1)) & cur_word & FIVEMASK;
-          while (cur_word) {
-            ymiss_cts[indiv_idx + CTZLU(cur_word) / 2] += 1;
-            cur_word &= cur_word - 1;
+	  while (cur_word) {
+	    ymiss_cts[indiv_idx + CTZLU(cur_word) / 2] += 1;
+	    cur_word &= cur_word - 1;
 	  }
 	}
       }
+    } else if (yonly) {
+      logprint("Error: --check-sex/--impute-sex y-only requires Y chromosome data.\n");
+      goto sexcheck_ret_INVALID_CMDLINE;
+    } else {
+      LOGPRINTF("Warning: No Y chromosome data for --%s-sex ycount.\n", do_impute? "impute" : "check");
     }
   }
   memcpy(outname_end, ".sexcheck", 10);
   if (fopen_checked(&outfile, outname, "w")) {
     goto sexcheck_ret_OPEN_FAIL;
   }
-  sprintf(tbuf, "%%%us %%%us       PEDSEX       SNPSEX       STATUS%s%s\n", plink_maxfid, plink_maxiid, yonly? "" : "            F", report_ycounts? "   YCOUNT" : "");
+  sprintf(tbuf, "%%%us %%%us       PEDSEX       SNPSEX       STATUS%s%s\n", plink_maxfid, plink_maxiid, yonly? "" : "            F", check_y? "   YCOUNT" : "");
   fprintf(outfile, tbuf, "FID", "IID");
   indiv_uidx = 0;
   if (do_impute) {
@@ -3059,10 +3070,10 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	dtot = (double)((intptr_t)ulii) - dee;
 	dff = (dtot - ((double)((int32_t)(het_cts[indiv_idx])))) / dtot;
 	if (dff > check_sex_mthresh) {
-	  if (ymiss_cts[indiv_idx] + min_m_yobs <= ytotal) {
+	  if ((!check_y) || (ymiss_cts[indiv_idx] + min_m_yobs <= ytotal)) {
 	    imputed_sex_code = 1;
 	  }
-	} else if ((dff < check_sex_fthresh) && (ymiss_cts[indiv_idx] + max_f_yobs >= ytotal)) {
+	} else if ((dff < check_sex_fthresh) && ((!check_y) || (ymiss_cts[indiv_idx] + max_f_yobs >= ytotal))) {
 	  imputed_sex_code = 2;
 	}
         *wptr++ = '0' + imputed_sex_code;
@@ -3077,7 +3088,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
         wptr = memcpya(wptr, "0      PROBLEM          nan", 27);
         problem_ct++;
       }
-      if (report_ycounts) {
+      if (check_y) {
 	*wptr++ = ' ';
 	wptr = uint32_writew8(wptr, ytotal - ymiss_cts[indiv_idx]);
       }
@@ -3147,8 +3158,9 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   sexcheck_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
-  sexcheck_ret_INVALID_CMDLINE:
+  sexcheck_ret_NO_X_VAR:
     logprint("Error: --check-sex/--impute-sex requires at least one polymorphic X chromosome\nsite.\n");
+  sexcheck_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
   }
