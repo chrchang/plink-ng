@@ -8944,7 +8944,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     } else {
       putc('.', bimfile);
     }
-    bufptr = uint32_writex(&(tbuf2[3]), bcf_var_header[3], '\t');
+    bufptr = uint32_writex(&(tbuf2[3]), bcf_var_header[3] + 1, '\t');
     if (fwrite_checked(tbuf2, bufptr - tbuf2, bimfile)) {
       goto bcf_to_bed_ret_WRITE_FAIL;
     }
