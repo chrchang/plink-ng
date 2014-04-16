@@ -2743,7 +2743,7 @@ int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_m
   uint32_t freqx = (misc_flags / MISC_FREQX) & 1;
   uint32_t maf_succ = (misc_flags / MISC_MAF_SUCC) & 1;
   int32_t chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
-  char* textbuf = &(tbuf[MAXLINELEN]);
+  char* textbuf = tbuf;
   uint32_t uii = 2 * max_marker_allele_len + MAX_ID_LEN + max_marker_id_len + 256;
   int32_t retval = 0;
   char* minor_ptr;
@@ -2773,19 +2773,17 @@ int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_m
       if (fputs_checked(" CHR  SNP   A1   A2     C1     C2     G0\n", outfile)) {
 	goto write_freqs_ret_WRITE_FAIL;
       }
-      strcpy(tbuf, " %4s %4s %4s %6u %6u %6u\n");
     } else {
       if (fputs_checked(" CHR  SNP   A1   A2          MAF  NCHROBS\n", outfile)) {
         goto write_freqs_ret_WRITE_FAIL;
       }
     }
   } else if (freq_counts) {
-    sprintf(tbuf, " CHR %%%us   A1   A2     C1     C2     G0\n", plink_maxsnp);
-    fprintf(outfile, tbuf, "SNP");
-    sprintf(tbuf, " %%%us %%4s %%4s %%6u %%6u %%6u\n", plink_maxsnp);
+    sprintf(textbuf, " CHR %%%us   A1   A2     C1     C2     G0\n", plink_maxsnp);
+    fprintf(outfile, textbuf, "SNP");
   } else {
-    sprintf(tbuf, " CHR %%%us   A1   A2          MAF  NCHROBS\n", plink_maxsnp);
-    fprintf(outfile, tbuf, "SNP");
+    sprintf(textbuf, " CHR %%%us   A1   A2          MAF  NCHROBS\n", plink_maxsnp);
+    fprintf(outfile, textbuf, "SNP");
   }
   if (ferror(outfile)) {
     goto write_freqs_ret_WRITE_FAIL;
@@ -2817,12 +2815,30 @@ int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_m
 	}
 	if (freqx) {
 	  bufptr = chrom_name_write(textbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx), zero_extra_chroms);
+	  *bufptr++ = '\t';
+	  bufptr = strcpyax(bufptr, &(marker_ids[marker_uidx * max_marker_id_len]), '\t');
+          bufptr = strcpyax(bufptr, minor_ptr, '\t');
+	  bufptr = strcpyax(bufptr, major_ptr, '\t');
+          bufptr = uint32_writex(bufptr, reverse? hh_cts[marker_uidx] : ll_cts[marker_uidx], '\t');
+	  bufptr = uint32_writex(bufptr, lh_cts[marker_uidx], '\t');
+          bufptr = uint32_writex(bufptr, reverse? ll_cts[marker_uidx] : hh_cts[marker_uidx], '\t');
+          bufptr = uint32_writex(bufptr, reverse? haph_cts[marker_uidx] : hapl_cts[marker_uidx], '\t');
+          bufptr = uint32_writex(bufptr, reverse? hapl_cts[marker_uidx] : haph_cts[marker_uidx], '\t');
+          bufptr = uint32_writex(bufptr, missing_ct, '\n');
 	  fwrite(textbuf, 1, bufptr - textbuf, outfile);
-	  fprintf(outfile, "\t%s\t%s\t%s\t%u\t%u\t%u\t%u\t%u\t%u\n", &(marker_ids[marker_uidx * max_marker_id_len]), minor_ptr, major_ptr, reverse? hh_cts[marker_uidx] : ll_cts[marker_uidx], lh_cts[marker_uidx], reverse? ll_cts[marker_uidx] : hh_cts[marker_uidx], reverse? haph_cts[marker_uidx] : hapl_cts[marker_uidx], reverse? hapl_cts[marker_uidx] : haph_cts[marker_uidx], missing_ct);
 	} else {
 	  bufptr = width_force(4, textbuf, chrom_name_write(textbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx), zero_extra_chroms));
+	  *bufptr++ = ' ';
+	  bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), bufptr);
+	  *bufptr++ = ' ';
+	  bufptr = fw_strcpy(4, minor_ptr, bufptr);
+          *bufptr++ = ' ';
+          bufptr = fw_strcpy(4, major_ptr, bufptr);
+          *bufptr++ = ' ';
+          bufptr = uint32_writew6x(bufptr, 2 * ll_cts[marker_uidx] + lh_cts[marker_uidx] + hapl_cts[marker_uidx], ' ');
+	  bufptr = uint32_writew6x(bufptr, 2 * hh_cts[marker_uidx] + lh_cts[marker_uidx] + haph_cts[marker_uidx], ' ');
+	  bufptr = uint32_writew6x(bufptr, missing_ct, '\n');
 	  fwrite(textbuf, 1, bufptr - textbuf, outfile);
-	  fprintf(outfile, tbuf, &(marker_ids[marker_uidx * max_marker_id_len]), minor_ptr, major_ptr, 2 * ll_cts[marker_uidx] + lh_cts[marker_uidx] + hapl_cts[marker_uidx], 2 * hh_cts[marker_uidx] + lh_cts[marker_uidx] + haph_cts[marker_uidx], missing_ct);
 	}
       } else {
 	bufptr = width_force(4, textbuf, chrom_name_write(textbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx), zero_extra_chroms));

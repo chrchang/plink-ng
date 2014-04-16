@@ -669,7 +669,7 @@ char* uint32_writew6(char* start, uint32_t uii) {
 	goto uint32_writew6_6b;
       }
       goto uint32_writew6_6;
-    } else if (uii < 100000) {
+    } else if (uii >= 10000) {
       *start++ = ' ';
       quotient = uii / 10000;
       *start++ = '0' + quotient;
