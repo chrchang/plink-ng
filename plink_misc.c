@@ -2736,13 +2736,15 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
   return retval;
 }
 
-int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, double* set_allele_freqs, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, int32_t* ll_cts, int32_t* lh_cts, int32_t* hh_cts, int32_t* hapl_cts, int32_t* haph_cts, uint32_t indiv_f_ct, uint32_t indiv_f_male_ct, uint64_t misc_flags, uintptr_t* marker_reverse) {
+int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, double* set_allele_freqs, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, int32_t* ll_cts, int32_t* lh_cts, int32_t* hh_cts, int32_t* hapl_cts, int32_t* haph_cts, uint32_t indiv_f_ct, uint32_t indiv_f_male_ct, uint64_t misc_flags, uintptr_t* marker_reverse) {
   FILE* outfile = NULL;
   uint32_t reverse = 0;
   uint32_t freq_counts = (misc_flags / MISC_FREQ_COUNTS) & 1;
   uint32_t freqx = (misc_flags / MISC_FREQX) & 1;
+  uint32_t maf_succ = (misc_flags / MISC_MAF_SUCC) & 1;
   int32_t chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
-  char* tbuf2 = &(tbuf[MAXLINELEN]);
+  char* textbuf = &(tbuf[MAXLINELEN]);
+  uint32_t uii = 2 * max_marker_allele_len + MAX_ID_LEN + max_marker_id_len + 256;
   int32_t retval = 0;
   char* minor_ptr;
   char* major_ptr;
@@ -2754,6 +2756,11 @@ int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_m
   uint32_t is_haploid;
   uint32_t missing_ct;
   int32_t chrom_idx;
+  if (uii > MAXLINELEN) {
+    if (wkspace_alloc_c_checked(&textbuf, uii)) {
+      goto write_freqs_ret_NOMEM;
+    }
+  }
   if (fopen_checked(&outfile, outname, "w")) {
     goto write_freqs_ret_OPEN_FAIL;
   }
@@ -2771,7 +2778,6 @@ int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_m
       if (fputs_checked(" CHR  SNP   A1   A2          MAF  NCHROBS\n", outfile)) {
         goto write_freqs_ret_WRITE_FAIL;
       }
-      strcpy(tbuf, " %4s %4s %4s %12.4g %8d\n");
     }
   } else if (freq_counts) {
     sprintf(tbuf, " CHR %%%us   A1   A2     C1     C2     G0\n", plink_maxsnp);
@@ -2780,7 +2786,6 @@ int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_m
   } else {
     sprintf(tbuf, " CHR %%%us   A1   A2          MAF  NCHROBS\n", plink_maxsnp);
     fprintf(outfile, tbuf, "SNP");
-    sprintf(tbuf, " %%%us %%4s %%4s %%12.4g %%8d\n", plink_maxsnp);
   }
   if (ferror(outfile)) {
     goto write_freqs_ret_WRITE_FAIL;
@@ -2811,18 +2816,32 @@ int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_m
 	  missing_ct = indiv_f_ct - (ll_cts[marker_uidx] + lh_cts[marker_uidx] + hh_cts[marker_uidx]);
 	}
 	if (freqx) {
-	  bufptr = chrom_name_write(tbuf2, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx), zero_extra_chroms);
-	  fwrite(tbuf2, 1, bufptr - tbuf2, outfile);
+	  bufptr = chrom_name_write(textbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx), zero_extra_chroms);
+	  fwrite(textbuf, 1, bufptr - textbuf, outfile);
 	  fprintf(outfile, "\t%s\t%s\t%s\t%u\t%u\t%u\t%u\t%u\t%u\n", &(marker_ids[marker_uidx * max_marker_id_len]), minor_ptr, major_ptr, reverse? hh_cts[marker_uidx] : ll_cts[marker_uidx], lh_cts[marker_uidx], reverse? ll_cts[marker_uidx] : hh_cts[marker_uidx], reverse? haph_cts[marker_uidx] : hapl_cts[marker_uidx], reverse? hapl_cts[marker_uidx] : haph_cts[marker_uidx], missing_ct);
 	} else {
-	  bufptr = width_force(4, tbuf2, chrom_name_write(tbuf2, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx), zero_extra_chroms));
-	  fwrite(tbuf2, 1, bufptr - tbuf2, outfile);
+	  bufptr = width_force(4, textbuf, chrom_name_write(textbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx), zero_extra_chroms));
+	  fwrite(textbuf, 1, bufptr - textbuf, outfile);
 	  fprintf(outfile, tbuf, &(marker_ids[marker_uidx * max_marker_id_len]), minor_ptr, major_ptr, 2 * ll_cts[marker_uidx] + lh_cts[marker_uidx] + hapl_cts[marker_uidx], 2 * hh_cts[marker_uidx] + lh_cts[marker_uidx] + haph_cts[marker_uidx], missing_ct);
 	}
       } else {
-	bufptr = width_force(4, tbuf2, chrom_name_write(tbuf2, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx), zero_extra_chroms));
-	fwrite(tbuf2, 1, bufptr - tbuf2, outfile);
-	fprintf(outfile, tbuf, &(marker_ids[marker_uidx * max_marker_id_len]), minor_ptr, major_ptr, (1.0 - set_allele_freqs[marker_uidx]) * (1 + SMALL_EPSILON), 2 * (ll_cts[marker_uidx] + lh_cts[marker_uidx] + hh_cts[marker_uidx]) + hapl_cts[marker_uidx] + haph_cts[marker_uidx]);
+	bufptr = width_force(4, textbuf, chrom_name_write(textbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx), zero_extra_chroms));
+	*bufptr++ = ' ';
+	bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), bufptr);
+        *bufptr++ = ' ';
+        bufptr = fw_strcpy(4, minor_ptr, bufptr);
+	*bufptr++ = ' ';
+        bufptr = fw_strcpy(4, major_ptr, bufptr);
+        *bufptr++ = ' ';
+	uii = 2 * (ll_cts[marker_uidx] + lh_cts[marker_uidx] + hh_cts[marker_uidx]) + hapl_cts[marker_uidx] + haph_cts[marker_uidx];
+	if (maf_succ || uii || (set_allele_freqs[marker_uidx] != 0.5)) {
+          bufptr = double_g_writewx4(bufptr, 1.0 - set_allele_freqs[marker_uidx], 12);
+	} else {
+	  bufptr = memcpya(bufptr, "          NA", 12);
+	}
+	*bufptr++ = ' ';
+        bufptr = uint32_writew8x(bufptr, uii, '\n');
+	fwrite(textbuf, 1, bufptr - textbuf, outfile);
       }
       if (ferror(outfile)) {
 	goto write_freqs_ret_WRITE_FAIL;
@@ -2835,6 +2854,9 @@ int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_m
   }
   LOGPRINTF("Allele frequencies written to %s.\n", outname);
   while (0) {
+  write_freqs_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
   write_freqs_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;

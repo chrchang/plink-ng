@@ -8944,6 +8944,9 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     } else {
       putc('.', bimfile);
     }
+    // bcf2 coordinates are 0-based while vcf is 1-based... (seriously, whose
+    // idea was this?  this is basically a bug in the spec, but we have to play
+    // along)
     bufptr = uint32_writex(&(tbuf2[3]), bcf_var_header[3] + 1, '\t');
     if (fwrite_checked(tbuf2, bufptr - tbuf2, bimfile)) {
       goto bcf_to_bed_ret_WRITE_FAIL;
