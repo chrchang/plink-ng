@@ -40,7 +40,7 @@ plinkw: $(SRC)
 	gfortran -O2 $(OBJ) -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
 
 plinkc: $(SRC)
-	gcc $(CFLAGS) $(SRC) -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
+	gcc $(CFLAGS) $(SRC) -o plink $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
 
 plinks: $(SRC)
 	g++ $(CFLAGS) $(SRC) -o plink_linux_s -Wl,-Bstatic $(BLASFLAGS) -Wl,-Bdynamic $(LINKFLAGS) -L. $(ZLIB)

@@ -26,24 +26,33 @@ uint32_t g_log_failed = 0;
 uintptr_t g_indiv_ct;
 uint32_t g_thread_ct;
 
-uint32_t safe_malloc(uintptr_t** orig_pp, uintptr_t** aligned_pp, uintptr_t size) {
-  // avoid random segfaults on 64-bit machines which don't have 16-byte-aligned
-  // malloc()
+uint32_t aligned_malloc(uintptr_t** aligned_pp, uintptr_t size) {
 #ifdef __LP64__
-  *orig_pp = (uintptr_t*)malloc(size + 8);
-  if (!(*orig_pp)) {
+  // Avoid random segfaults on 64-bit machines which have 8-byte- instead of
+  // 16-byte-aligned malloc().  (Slightly different code is needed if malloc()
+  // does not even guarantee 8-byte alignment.)
+  uintptr_t* malloc_ptr = (uintptr_t*)malloc(size + 16);
+  if (!malloc_ptr) {
     return 1;
   }
-  *aligned_pp = (uintptr_t*)((((uintptr_t)(*orig_pp)) + 8) & (~(15 * ONELU)));
+  *aligned_pp = (uintptr_t*)((((uintptr_t)malloc_ptr) + 16) & (~(15 * ONELU)));
+  (*aligned_pp)[-1] = (uintptr_t)malloc_ptr;
 #else
   // no SSE2 concerns here
-  *orig_pp = (uintptr_t*)malloc(size);
-  if (!(*orig_pp)) {
+  *aligned_pp = (uintptr_t*)malloc(size);
+  if (!(*aligned_pp)) {
     return 1;
   }
-  *aligned_pp = *orig_pp;
 #endif
   return 0;
+}
+
+void aligned_free(uintptr_t* aligned_pp) {
+#ifdef __LP64__
+  free((uintptr_t*)(aligned_pp[-1]));
+#else
+  free(aligned_pp);
+#endif
 }
 
 uint32_t push_ll_str(Ll_str** ll_stack_ptr, const char* ss) {

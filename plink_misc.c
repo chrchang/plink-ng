@@ -140,7 +140,7 @@ int32_t write_nosex(char* outname, char* outname_end, uintptr_t unfiltered_indiv
   return retval;
 }
 
-int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltered_indiv_ct, char* sorted_person_ids, uintptr_t max_person_id_len, uint32_t* id_map, uintptr_t* pheno_nm, uintptr_t** pheno_c_alloc_ptr, uintptr_t** pheno_c_ptr) {
+int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltered_indiv_ct, char* sorted_person_ids, uintptr_t max_person_id_len, uint32_t* id_map, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr) {
   uint32_t mp_strlen = strlen(makepheno_str);
   uint32_t makepheno_all = ((mp_strlen == 1) && (makepheno_str[0] == '*'));
   unsigned char* wkspace_mark = wkspace_base;
@@ -156,7 +156,7 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
     return RET_NOMEM;
   }
   if (!pheno_c) {
-    if (safe_malloc(pheno_c_alloc_ptr, pheno_c_ptr, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+    if (aligned_malloc(pheno_c_ptr, unfiltered_indiv_ctl * sizeof(intptr_t))) {
       return RET_NOMEM;
     }
     pheno_c = *pheno_c_ptr;
@@ -200,9 +200,8 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
   return 0;
 }
 
-int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_exclude_ct, char* sorted_person_ids, uintptr_t max_person_id_len, uint32_t* id_map, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01, uint32_t mpheno_col, char* phenoname_str, uintptr_t* pheno_nm, uintptr_t** pheno_c_alloc_ptr, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, char* phenoname_load, uintptr_t max_pheno_name_len) {
+int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_exclude_ct, char* sorted_person_ids, uintptr_t max_person_id_len, uint32_t* id_map, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01, uint32_t mpheno_col, char* phenoname_str, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, char* phenoname_load, uintptr_t max_pheno_name_len) {
   uint32_t affection = 1;
-  uintptr_t* pheno_c_alloc = *pheno_c_alloc_ptr;
   uintptr_t* pheno_c = *pheno_c_ptr;
   double* pheno_d = *pheno_d_ptr;
   int32_t header_processed = 0;
@@ -231,7 +230,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
     }
     fill_ulong_zero(isz, unfiltered_indiv_ctl);
     if (!pheno_c) {
-      if (safe_malloc(pheno_c_alloc_ptr, pheno_c_ptr, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+      if (aligned_malloc(pheno_c_ptr, unfiltered_indiv_ctl * sizeof(intptr_t))) {
 	goto load_pheno_ret_NOMEM;
       }
       pheno_c = *pheno_c_ptr;
@@ -359,9 +358,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 		pheno_d[uii] = is_set(pheno_c, uii)? dyy : dxx;
 	      }
 	    }
-	    free(pheno_c_alloc);
-	    *pheno_c_alloc_ptr = NULL;
-	    *pheno_c_ptr = NULL;
+	    aligned_free_null(pheno_c_ptr);
 	    affection = 0;
 	  }
 	}

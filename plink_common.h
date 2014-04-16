@@ -638,7 +638,27 @@ extern const char g_one_char_strs[];
 extern const char* g_missing_geno_ptr;
 extern const char* g_output_missing_geno_ptr;
 
-uint32_t safe_malloc(uintptr_t** orig_pp, uintptr_t** aligned_pp, uintptr_t size);
+uint32_t aligned_malloc(uintptr_t** aligned_pp, uintptr_t size);
+
+void aligned_free(uintptr_t* aligned_ptr);
+
+static inline void aligned_free_cond(uintptr_t* aligned_ptr) {
+  if (aligned_ptr) {
+    aligned_free(aligned_ptr);
+  }
+}
+
+static inline void aligned_free_null(uintptr_t** aligned_pp) {
+  aligned_free(*aligned_pp);
+  *aligned_pp = NULL;
+}
+
+static inline void aligned_free_cond_null(uintptr_t** aligned_pp) {
+  if (*aligned_pp) {
+    aligned_free(*aligned_pp);
+    *aligned_pp = NULL;
+  }
+}
 
 extern sfmt_t sfmt;
 

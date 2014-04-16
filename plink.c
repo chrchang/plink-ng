@@ -146,7 +146,7 @@ void disp_exit_msg(int32_t retval) {
 
 // back to our regular program
 
-int32_t convert_tail_pheno(uint32_t unfiltered_indiv_ct, uintptr_t* pheno_nm, uintptr_t** pheno_c_alloc_ptr, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, double tail_bottom, double tail_top, double missing_phenod) {
+int32_t convert_tail_pheno(uint32_t unfiltered_indiv_ct, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, double tail_bottom, double tail_top, double missing_phenod) {
   uintptr_t* pheno_c = *pheno_c_ptr;
   double* pheno_d = *pheno_d_ptr;
   uint32_t indiv_uidx;
@@ -158,7 +158,7 @@ int32_t convert_tail_pheno(uint32_t unfiltered_indiv_ct, uintptr_t* pheno_nm, ui
   }
   indiv_uidx = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   if (!pheno_c) {
-    if (safe_malloc(pheno_c_alloc_ptr, pheno_c_ptr, indiv_uidx * sizeof(intptr_t))) {
+    if (aligned_malloc(pheno_c_ptr, indiv_uidx * sizeof(intptr_t))) {
       return RET_NOMEM;
     }
     pheno_c = *pheno_c_ptr;
@@ -427,13 +427,9 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uint32_t map_cols = 3;
   uint32_t affection = 0;
   uintptr_t* pheno_nm = NULL;
-  uintptr_t* pheno_nm_datagen_alloc = NULL;
   uintptr_t* pheno_nm_datagen = NULL; // --make-bed/--recode/--write-covar only
-  uintptr_t* orig_pheno_nm_alloc = NULL;
   uintptr_t* orig_pheno_nm = NULL; // --all-pheno + --pheno-merge
-  uintptr_t* pheno_c_alloc = NULL;
   uintptr_t* pheno_c = NULL;
-  uintptr_t* orig_pheno_c_alloc = NULL;
   uintptr_t* orig_pheno_c = NULL;
   uintptr_t* geno_excl_bitfield = NULL;
   double* pheno_d = NULL;
@@ -663,7 +659,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
-  retval = load_fam(famfile, MAXLINELEN, fam_cols, uii, missing_pheno, missing_pheno_len, (misc_flags / MISC_AFFECTION_01) & 1, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_nm, &sex_male, &affection, &pheno_nm, &pheno_c_alloc, &pheno_c, &pheno_d, &founder_info, &indiv_exclude);
+  retval = load_fam(famfile, MAXLINELEN, fam_cols, uii, missing_pheno, missing_pheno_len, (misc_flags / MISC_AFFECTION_01) & 1, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_nm, &sex_male, &affection, &pheno_nm, &pheno_c, &pheno_d, &founder_info, &indiv_exclude);
   if (retval) {
     goto plink_ret_1;
   }
@@ -678,12 +674,12 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if ((pheno_modifier & PHENO_MERGE) && pheno_all) {
-    if (safe_malloc(&orig_pheno_nm_alloc, &orig_pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+    if (aligned_malloc(&orig_pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t))) {
       goto plink_ret_NOMEM;
     }
     memcpy(orig_pheno_nm, pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t));
     if (pheno_c) {
-      if (safe_malloc(&orig_pheno_c_alloc, &orig_pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+      if (aligned_malloc(&orig_pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t))) {
 	goto plink_ret_NOMEM;
       }
       memcpy(orig_pheno_c, pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t));
@@ -719,12 +715,12 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
 
     if (makepheno_str) {
-      retval = makepheno_load(phenofile, makepheno_str, unfiltered_indiv_ct, cptr, max_person_id_len, uiptr, pheno_nm, &pheno_c_alloc, &pheno_c);
+      retval = makepheno_load(phenofile, makepheno_str, unfiltered_indiv_ct, cptr, max_person_id_len, uiptr, pheno_nm, &pheno_c);
       if (retval) {
 	goto plink_ret_1;
       }
     } else if (phenofile) {
-      retval = load_pheno(phenofile, unfiltered_indiv_ct, 0, cptr, max_person_id_len, uiptr, missing_pheno, missing_pheno_len, (misc_flags / MISC_AFFECTION_01) & 1, mpheno_col, phenoname_str, pheno_nm, &pheno_c_alloc, &pheno_c, &pheno_d, NULL, 0);
+      retval = load_pheno(phenofile, unfiltered_indiv_ct, 0, cptr, max_person_id_len, uiptr, missing_pheno, missing_pheno_len, (misc_flags / MISC_AFFECTION_01) & 1, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d, NULL, 0);
       if (retval) {
 	if (retval == LOAD_PHENO_LAST_COL) {
 	  logprint(errstr_phenotype_format);
@@ -736,7 +732,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
     }
     if (filter_flags & FILTER_TAIL_PHENO) {
-      retval = convert_tail_pheno(unfiltered_indiv_ct, pheno_nm, &pheno_c_alloc, &pheno_c, &pheno_d, tail_bottom, tail_top, missing_phenod);
+      retval = convert_tail_pheno(unfiltered_indiv_ct, pheno_nm, &pheno_c, &pheno_d, tail_bottom, tail_top, missing_phenod);
       if (retval) {
 	goto plink_ret_1;
       }
@@ -1533,7 +1529,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
   if (calculation_type & (CALC_WRITE_COVAR | CALC_MAKE_BED | CALC_RECODE)) {
     if (gender_unk_ct && (sex_missing_pheno & MUST_HAVE_SEX)) {
-      if (safe_malloc(&pheno_nm_datagen_alloc, &pheno_nm_datagen, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+      if (aligned_malloc(&pheno_nm_datagen, unfiltered_indiv_ctl * sizeof(intptr_t))) {
 	goto plink_ret_NOMEM;
       }
       memcpy(pheno_nm_datagen, pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t));
@@ -1557,11 +1553,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
         goto plink_ret_1;
       }
     }
-    if (pheno_nm_datagen_alloc) {
-      free(pheno_nm_datagen_alloc);
-      pheno_nm_datagen_alloc = NULL;
-      pheno_nm_datagen = NULL;
-    }
+    aligned_free_cond_null(&pheno_nm_datagen);
   }
 
   if ((calculation_type & CALC_EPI) && epi_ip->twolocus_mkr1) {
@@ -1825,7 +1817,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	pheno_d = NULL;
       }
       if (!pheno_c) {
-	if (safe_malloc(&pheno_c_alloc, &pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+	if (aligned_malloc(&pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t))) {
 	  goto plink_ret_NOMEM;
 	}
       }
@@ -1856,7 +1848,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	    if (!pheno_c) {
 	      free(pheno_d);
 	      pheno_d = NULL;
-	      if (safe_malloc(&pheno_c_alloc, &pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+	      if (aligned_malloc(&pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t))) {
 		goto plink_ret_NOMEM;
 	      }
 	    }
@@ -1866,11 +1858,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	  }
 	} else {
 	  fill_ulong_zero(pheno_nm, unfiltered_indiv_ctl);
-	  if (pheno_c_alloc) {
-	    free(pheno_c_alloc);
-	    pheno_c_alloc = NULL;
-	    pheno_c = NULL;
-	  }
+	  aligned_free_cond_null(&pheno_c);
 	  if (pheno_d) {
 	    free(pheno_d);
 	    pheno_d = NULL;
@@ -1880,7 +1868,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       plink_skip_empty_pheno:
 	rewind(phenofile);
 	outname_end[1] = '\0';
-	retval = load_pheno(phenofile, unfiltered_indiv_ct, indiv_exclude_ct, cptr, max_person_id_len, uiptr, missing_pheno, missing_pheno_len, (misc_flags / MISC_AFFECTION_01) & 1, uii, NULL, pheno_nm, &pheno_c_alloc, &pheno_c, &pheno_d, &(outname_end[1]), (uintptr_t)((&(outname[FNAMESIZE - 32])) - outname_end));
+	retval = load_pheno(phenofile, unfiltered_indiv_ct, indiv_exclude_ct, cptr, max_person_id_len, uiptr, missing_pheno, missing_pheno_len, (misc_flags / MISC_AFFECTION_01) & 1, uii, NULL, pheno_nm, &pheno_c, &pheno_d, &(outname_end[1]), (uintptr_t)((&(outname[FNAMESIZE - 32])) - outname_end));
 	if (retval == LOAD_PHENO_LAST_COL) {
 	  wkspace_reset(wkspace_mark);
 	  break;
@@ -2014,12 +2002,12 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   if (topsize) {
     wkspace_left += topsize;
   }
-  free_cond(pheno_nm_datagen_alloc);
+  aligned_free_cond(pheno_nm_datagen);
   free_cond(orig_pheno_d);
-  free_cond(orig_pheno_c_alloc);
-  free_cond(orig_pheno_nm_alloc);
+  aligned_free_cond(orig_pheno_c);
+  aligned_free_cond(orig_pheno_nm);
   free_cond(pheno_d);
-  free_cond(pheno_c_alloc);
+  aligned_free_cond(pheno_c);
   free_cond(id_list);
   free_cond(pid_list);
   fclose_cond(phenofile);
