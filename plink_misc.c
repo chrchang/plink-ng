@@ -2743,8 +2743,6 @@ int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_m
   uint32_t freqx = (misc_flags / MISC_FREQX) & 1;
   uint32_t maf_succ = (misc_flags / MISC_MAF_SUCC) & 1;
   int32_t chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
-  char* textbuf = tbuf;
-  uint32_t uii = 2 * max_marker_allele_len + MAX_ID_LEN + max_marker_id_len + 256;
   int32_t retval = 0;
   char* minor_ptr;
   char* major_ptr;
@@ -2756,11 +2754,7 @@ int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_m
   uint32_t is_haploid;
   uint32_t missing_ct;
   int32_t chrom_idx;
-  if (uii > MAXLINELEN) {
-    if (wkspace_alloc_c_checked(&textbuf, uii)) {
-      goto write_freqs_ret_NOMEM;
-    }
-  }
+  uint32_t uii;
   if (fopen_checked(&outfile, outname, "w")) {
     goto write_freqs_ret_OPEN_FAIL;
   }
@@ -2779,11 +2773,11 @@ int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_m
       }
     }
   } else if (freq_counts) {
-    sprintf(textbuf, " CHR %%%us   A1   A2     C1     C2     G0\n", plink_maxsnp);
-    fprintf(outfile, textbuf, "SNP");
+    sprintf(tbuf, " CHR %%%us   A1   A2     C1     C2     G0\n", plink_maxsnp);
+    fprintf(outfile, tbuf, "SNP");
   } else {
-    sprintf(textbuf, " CHR %%%us   A1   A2          MAF  NCHROBS\n", plink_maxsnp);
-    fprintf(outfile, textbuf, "SNP");
+    sprintf(tbuf, " CHR %%%us   A1   A2          MAF  NCHROBS\n", plink_maxsnp);
+    fprintf(outfile, tbuf, "SNP");
   }
   if (ferror(outfile)) {
     goto write_freqs_ret_WRITE_FAIL;
@@ -2814,50 +2808,55 @@ int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_m
 	  missing_ct = indiv_f_ct - (ll_cts[marker_uidx] + lh_cts[marker_uidx] + hh_cts[marker_uidx]);
 	}
 	if (freqx) {
-	  bufptr = chrom_name_write(textbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx), zero_extra_chroms);
+	  bufptr = chrom_name_write(tbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx), zero_extra_chroms);
 	  *bufptr++ = '\t';
 	  bufptr = strcpyax(bufptr, &(marker_ids[marker_uidx * max_marker_id_len]), '\t');
-          bufptr = strcpyax(bufptr, minor_ptr, '\t');
-	  bufptr = strcpyax(bufptr, major_ptr, '\t');
-          bufptr = uint32_writex(bufptr, reverse? hh_cts[marker_uidx] : ll_cts[marker_uidx], '\t');
+	  fwrite(tbuf, 1, bufptr - tbuf, outfile);
+          fputs(minor_ptr, outfile);
+	  putc('\t', outfile);
+          fputs(major_ptr, outfile);
+	  tbuf[0] = '\t';
+          bufptr = uint32_writex(&(tbuf[1]), reverse? hh_cts[marker_uidx] : ll_cts[marker_uidx], '\t');
 	  bufptr = uint32_writex(bufptr, lh_cts[marker_uidx], '\t');
           bufptr = uint32_writex(bufptr, reverse? ll_cts[marker_uidx] : hh_cts[marker_uidx], '\t');
           bufptr = uint32_writex(bufptr, reverse? haph_cts[marker_uidx] : hapl_cts[marker_uidx], '\t');
           bufptr = uint32_writex(bufptr, reverse? hapl_cts[marker_uidx] : haph_cts[marker_uidx], '\t');
           bufptr = uint32_writex(bufptr, missing_ct, '\n');
-	  fwrite(textbuf, 1, bufptr - textbuf, outfile);
+	  fwrite(tbuf, 1, bufptr - tbuf, outfile);
 	} else {
-	  bufptr = width_force(4, textbuf, chrom_name_write(textbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx), zero_extra_chroms));
+	  bufptr = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx), zero_extra_chroms));
 	  *bufptr++ = ' ';
 	  bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), bufptr);
 	  *bufptr++ = ' ';
-	  bufptr = fw_strcpy(4, minor_ptr, bufptr);
-          *bufptr++ = ' ';
-          bufptr = fw_strcpy(4, major_ptr, bufptr);
-          *bufptr++ = ' ';
-          bufptr = uint32_writew6x(bufptr, 2 * ll_cts[marker_uidx] + lh_cts[marker_uidx] + hapl_cts[marker_uidx], ' ');
+	  fwrite(tbuf, 1, bufptr - tbuf, outfile);
+	  fputs_w4(minor_ptr, outfile);
+          putc(' ', outfile);
+          fputs_w4(major_ptr, outfile);
+	  tbuf[0] = ' ';
+          bufptr = uint32_writew6x(&(tbuf[1]), 2 * ll_cts[marker_uidx] + lh_cts[marker_uidx] + hapl_cts[marker_uidx], ' ');
 	  bufptr = uint32_writew6x(bufptr, 2 * hh_cts[marker_uidx] + lh_cts[marker_uidx] + haph_cts[marker_uidx], ' ');
 	  bufptr = uint32_writew6x(bufptr, missing_ct, '\n');
-	  fwrite(textbuf, 1, bufptr - textbuf, outfile);
+	  fwrite(tbuf, 1, bufptr - tbuf, outfile);
 	}
       } else {
-	bufptr = width_force(4, textbuf, chrom_name_write(textbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx), zero_extra_chroms));
+	bufptr = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx), zero_extra_chroms));
 	*bufptr++ = ' ';
 	bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), bufptr);
         *bufptr++ = ' ';
-        bufptr = fw_strcpy(4, minor_ptr, bufptr);
-	*bufptr++ = ' ';
-        bufptr = fw_strcpy(4, major_ptr, bufptr);
-        *bufptr++ = ' ';
+	fwrite(tbuf, 1, bufptr - tbuf, outfile);
+	fputs_w4(minor_ptr, outfile);
+	putc(' ', outfile);
+        fputs_w4(major_ptr, outfile);
+        tbuf[0] = ' ';
 	uii = 2 * (ll_cts[marker_uidx] + lh_cts[marker_uidx] + hh_cts[marker_uidx]) + hapl_cts[marker_uidx] + haph_cts[marker_uidx];
 	if (maf_succ || uii || (set_allele_freqs[marker_uidx] != 0.5)) {
-          bufptr = double_g_writewx4(bufptr, 1.0 - set_allele_freqs[marker_uidx], 12);
+          bufptr = double_g_writewx4(&(tbuf[1]), 1.0 - set_allele_freqs[marker_uidx], 12);
 	} else {
-	  bufptr = memcpya(bufptr, "          NA", 12);
+	  bufptr = memcpya(&(tbuf[1]), "          NA", 12);
 	}
 	*bufptr++ = ' ';
         bufptr = uint32_writew8x(bufptr, uii, '\n');
-	fwrite(textbuf, 1, bufptr - textbuf, outfile);
+	fwrite(tbuf, 1, bufptr - tbuf, outfile);
       }
       if (ferror(outfile)) {
 	goto write_freqs_ret_WRITE_FAIL;
@@ -2870,9 +2869,6 @@ int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_m
   }
   LOGPRINTF("Allele frequencies written to %s.\n", outname);
   while (0) {
-  write_freqs_ret_NOMEM:
-    retval = RET_NOMEM;
-    break;
   write_freqs_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;

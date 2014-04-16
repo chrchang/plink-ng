@@ -984,6 +984,23 @@ static inline char* strcpyax(char* target, const void* source, const char extra_
   return &(target[slen + 1]);
 }
 
+static inline void fputs_w4(char* ss, FILE* outfile) {
+  // for efficient handling of width-4 allele columns; don't want to call
+  // strlen() since that's redundant with fputs
+  if (!ss[1]) {
+    fputs("   ", outfile);
+    putc(ss[0], outfile);
+  } else {
+    if (!ss[2]) {
+      putc(' ', outfile);
+      putc(' ', outfile);
+    } else if (!ss[3]) {
+      putc(' ', outfile);
+    }
+    fputs(ss, outfile);
+  }
+}
+
 int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr);
 
 int32_t get_next_noncomment_excl(FILE* fptr, char** lptr_ptr, uintptr_t* marker_exclude, uintptr_t* marker_uidx_ptr);
