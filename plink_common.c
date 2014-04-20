@@ -199,32 +199,179 @@ int32_t atoiz2(char* ss, int32_t* sval) {
   return 0;
 }
 
-uint32_t strtoui32(char* ss, uint32_t* valp) {
-  // one way to wrap strtoul() in a way that handles "0" and "4294967295"
-  // nicely.  not high-performance; we probably want to write our own
-  // string-to-number conversion routines at some point.
-  uintptr_t ulii = strtoul(ss, NULL, 10);
-  if (!ulii) {
-    if (!memcmp(ss, "0", 2)) {
-      *valp = 0;
-      return 0;
+uint32_t scan_posint_capped(char* ss, uint32_t* valp, uint32_t cap_div_10, uint32_t cap_mod_10) {
+  // Reads an integer in [1, cap].  Assumes first character is nonspace.  Has
+  // the overflow detection atoi() lacks.
+  // A funny-looking div_10/mod_10 interface is used since the cap will usually
+  // be a constant, and we want the integer division/modulus to occur at
+  // compile time.
+
+  // '0' has ascii code 48
+  uint32_t val = (uint32_t)((unsigned char)*ss) - 48;
+  uint32_t cur_digit;
+  if (val < 10) {
+    while (1) {
+    scan_posint_capped_main_loop:
+      cur_digit = (uint32_t)((unsigned char)(*(++ss))) - 48;
+      if (cur_digit >= 10) {
+	if (val) {
+	  *valp = val;
+	  return 0;
+	}
+	return 1;
+      }
+      // avoid integer overflow in middle of computation
+      if ((val >= cap_div_10) && ((val > cap_div_10) || (cur_digit > cap_mod_10))) {
+	return 1;
+      }
+      val = val * 10 + cur_digit;
     }
-    return 1;
-#ifdef __LP64__
-  } else if (ulii > 0xffffffffLLU) {
-#else
-  } else if (ulii == ULONG_MAX) {
-    if (!memcmp(ss, "4294967295", 11)) {
-      *valp = 0xffffffffU;
-      return 0;
+  } else if (val == 0xfffffffbU) {
+    // permit leading '+' (ascii 43), but not '++' or '+-'
+    val = (uint32_t)((unsigned char)(*(++ss))) - 48;
+    if (val < 10) {
+      goto scan_posint_capped_main_loop;
     }
-#endif
-    return 1;
-  } else {
-    *valp = ulii;
-    return 0;
   }
+  return 1;
 }
+
+uint32_t scan_uint_capped(char* ss, uint32_t* valp, uint32_t cap_div_10, uint32_t cap_mod_10) {
+  // Reads an integer in [0, cap].  Assumes first character is nonspace. 
+  uint32_t val = (uint32_t)((unsigned char)*ss) - 48;
+  uint32_t cur_digit;
+  if (val < 10) {
+    while (1) {
+    scan_uint_capped_main_loop:
+      cur_digit = (uint32_t)((unsigned char)(*(++ss))) - 48;
+      if (cur_digit >= 10) {
+	*valp = val;
+	return 0;
+      }
+      if ((val >= cap_div_10) && ((val > cap_div_10) || (cur_digit > cap_mod_10))) {
+	return 1;
+      }
+      val = val * 10 + cur_digit;
+    }
+  }
+  // '-' has ascii code 45, so unsigned 45 - 48 = 0xfffffffdU
+  ss++;
+  if (val != 0xfffffffdU) {
+    if (val == 0xfffffffbU) {
+      val = (uint32_t)((unsigned char)(*ss)) - 48;
+      if (val < 10) {
+	goto scan_uint_capped_main_loop;
+      }
+    }
+    return 1;
+  }
+  // accept "-0", "-00", etc.
+  if (*ss != '0') {
+    return 1;
+  }
+  while (*(++ss) == '0');
+  *valp = 0;
+  return ((uint32_t)((unsigned char)(*ss)) - 48) < 10;
+}
+
+uint32_t scan_int_abs_bounded(char* ss, int32_t* valp, uint32_t bound_div_10, uint32_t bound_mod_10) {
+  // Reads an integer in [-bound, bound].  Assumes first character is nonspace.
+  uint32_t val = (uint32_t)((unsigned char)*ss) - 48;
+  int32_t sign = 1;
+  uint32_t cur_digit;
+  if (val < 10) {
+    while (1) {
+    scan_int_abs_bounded_main_loop:
+      cur_digit = (uint32_t)((unsigned char)(*(++ss))) - 48;
+      if (cur_digit >= 10) {
+	*valp = sign * ((int32_t)val);
+	return 0;
+      }
+      if ((val >= bound_div_10) && ((val > bound_div_10) || (cur_digit > bound_mod_10))) {
+	return 1;
+      }
+      val = val * 10 + cur_digit;
+    }
+  }
+  if (val == 0xfffffffdU) {
+    sign = -1;
+  } else if (val != 0xfffffffbU) {
+    return 1;
+  }
+  val = (uint32_t)((unsigned char)(*(++ss))) - 48;
+  if (val < 10) {
+    goto scan_int_abs_bounded_main_loop;
+  }
+  return 1;
+}
+
+uint32_t scan_posintptr(char* ss, uintptr_t* valp) {
+  // Reads an integer in [1, 2^BITCT - 1].  Assumes first character is
+  // nonspace. 
+  uintptr_t val = (uint32_t)((unsigned char)*ss) - 48;
+  uintptr_t cur_digit;
+  if (val < 10) {
+    while (1) {
+    scan_uintptr_pos_main_loop:
+      cur_digit = (uint32_t)((unsigned char)(*(++ss))) - 48;
+      if (cur_digit >= 10) {
+	if (val) {
+	  *valp = val;
+	  return 0;
+	}
+	return 1;
+      }
+      if ((val >= (~ZEROLU) / 10) && ((val > (~ZEROLU) / 10) || (cur_digit > (~ZEROLU) % 10))) {
+	return 1;
+      }
+      val = val * 10 + cur_digit;
+    }
+  } else if (val == 0xfffffffbU) {
+    val = (uint32_t)((unsigned char)(*(++ss))) - 48;
+    if (val < 10) {
+      goto scan_uintptr_pos_main_loop;
+    }
+  }
+  return 1;
+}
+
+/*
+uint32_t scan_uintptr(char* ss, uintptr_t* valp) {
+  // [0, 2^BITCT - 1].
+  uintptr_t val = (uint32_t)((unsigned char)*ss) - 48;
+  uintptr_t cur_digit;
+  if (val < 10) {
+    while (1) {
+    scan_uintptr_main_loop:
+      cur_digit = (uint32_t)((unsigned char)(*(++ss))) - 48;
+      if (cur_digit >= 10) {
+	*valp = val;
+	return 0;
+      }
+      if ((val >= (~ZEROLU) / 10) && ((val > (~ZEROLU) / 10) || (cur_digit > (~ZEROLU) % 10))) {
+	return 1;
+      }
+      val = val * 10 + cur_digit;
+    }
+  }
+  ss++;
+  if (val != 0xfffffffdU) {
+    if (val == 0xfffffffbU) {
+      val = (uint32_t)((unsigned char)(*ss)) - 48;
+      if (val < 10) {
+	goto scan_uintptr_main_loop;
+      }
+    }
+    return 1;
+  }
+  if (*ss != '0') {
+    return 1;
+  }
+  while (*(++ss) == '0');
+  *valp = 0;
+  return ((uint32_t)((unsigned char)(*ss)) - 48) < 10;
+}
+*/
 
 uint32_t scan_two_doubles(char* ss, double* val1p, double* val2p) {
   char* ss2;
@@ -7965,6 +8112,7 @@ void force_missing(unsigned char* loadbuf, uintptr_t* force_missing_include2, ui
 int32_t open_and_size_string_list(char* fname, FILE** infile_ptr, uintptr_t* list_len_ptr, uintptr_t* max_str_len_ptr) {
   // assumes file is not open yet, and tbuf is safe to clobber
   uint32_t max_len = 0;
+  uintptr_t line_idx = 0;
   uintptr_t list_len = 0;
   int32_t retval = 0;
   char* bufptr;
@@ -7974,8 +8122,9 @@ int32_t open_and_size_string_list(char* fname, FILE** infile_ptr, uintptr_t* lis
   }
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, *infile_ptr)) {
+    line_idx++;
     if (!tbuf[MAXLINELEN - 1]) {
-      LOGPRINTF("Error: Pathologically long line in %s.\n", fname);
+      LOGPRINTF("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname);
       goto open_and_size_string_list_ret_INVALID_FORMAT;
     }
     bufptr = skip_initial_spaces(tbuf);
@@ -8037,11 +8186,12 @@ int32_t load_string_list(FILE** infile_ptr, uintptr_t max_str_len, char* str_lis
 }
 
 int32_t open_and_skip_first_lines(FILE** infile_ptr, char* fname, char* loadbuf, uintptr_t loadbuf_size, uint32_t lines_to_skip) {
+  uintptr_t line_idx;
   loadbuf[loadbuf_size - 1] = ' ';
   if (fopen_checked(infile_ptr, fname, "r")) {
     return RET_OPEN_FAIL;
   }
-  while (lines_to_skip) {
+  for (line_idx = 1; line_idx <= lines_to_skip; line_idx++) {
     if (!fgets(loadbuf, loadbuf_size, *infile_ptr)) {
       if (feof(*infile_ptr)) {
 	LOGPRINTF("Error: Fewer lines than expected in %s.\n", fname);
@@ -8051,18 +8201,24 @@ int32_t open_and_skip_first_lines(FILE** infile_ptr, char* fname, char* loadbuf,
       }
     }
     if (!(loadbuf[loadbuf_size - 1])) {
-      return RET_NOMEM;
+      if ((loadbuf_size == MAXLINELEN) || (loadbuf_size == MAXLINEBUFLEN)) {
+	LOGPRINTF("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname);
+	return RET_INVALID_FORMAT;
+      } else {
+        return RET_NOMEM;
+      }
     }
-    lines_to_skip--;
   }
   return 0;
 }
 
 int32_t load_to_first_token(FILE* infile, uintptr_t loadbuf_size, char comment_char, const char* file_descrip, char* loadbuf, char** bufptr_ptr) {
+  uintptr_t line_idx = 0;
   while (fgets(loadbuf, loadbuf_size, infile)) {
+    line_idx++;
     if (!(loadbuf[loadbuf_size - 1])) {
       if ((loadbuf_size == MAXLINELEN) || (loadbuf_size == MAXLINEBUFLEN)) {
-	LOGPRINTF("Error: Pathologically long line in %s.\n", file_descrip);
+	LOGPRINTF("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, file_descrip);
 	return RET_INVALID_FORMAT;
       } else {
 	return RET_NOMEM;
@@ -8105,6 +8261,7 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
   char* str2_ptr;
   char cc;
   uintptr_t cur_str_len;
+  uintptr_t line_idx;
   int32_t retval;
   if (loadbuf_size > MAXLINEBUFLEN) {
     loadbuf_size = MAXLINEBUFLEN;
@@ -8129,10 +8286,12 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
     coldiff = 0;
     colnum2 = 0xffffffffU;
   }
+  line_idx = headerskip;
   while (fgets(loadbuf, loadbuf_size, infile)) {
+    line_idx++;
     if (!(loadbuf[loadbuf_size - 1])) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-        sprintf(logbuf, "Error: Pathologically long line in %s.\n", fname);
+        sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname);
 	goto scan_max_strlen_ret_INVALID_FORMAT_2;
       } else {
         goto scan_max_strlen_ret_NOMEM;
@@ -8153,7 +8312,7 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
     }
     if (no_more_items_kns(str2_ptr)) {
       // probably want option for letting this slide in the future
-      sprintf(logbuf, "Error: Fewer tokens than expected in %s line.\n", fname);
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, fname);
       goto scan_max_strlen_ret_INVALID_FORMAT_2;
     }
     cur_str_len = strlen_se(str1_ptr);
@@ -8203,6 +8362,7 @@ int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_p
   FILE* infile = NULL;
   uintptr_t loadbuf_size = wkspace_left;
   uintptr_t max_person_id_len = *max_person_id_len_ptr;
+  uintptr_t line_idx = 0;
   char* loadbuf = (char*)wkspace_base;
   char* bufptr;
   char* bufptr2;
@@ -8219,8 +8379,14 @@ int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_p
     goto scan_max_fam_indiv_strlen_ret_1;
   }
   while (fgets(loadbuf, loadbuf_size, infile)) {
+    line_idx++;
     if (!(loadbuf[loadbuf_size - 1])) {
-      goto scan_max_fam_indiv_strlen_ret_NOMEM;
+      if (loadbuf_size == MAXLINEBUFLEN) {
+	sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname);
+	goto scan_max_fam_indiv_strlen_ret_INVALID_FORMAT_2;
+      } else {
+        goto scan_max_fam_indiv_strlen_ret_NOMEM;
+      }
     }
     bufptr = skip_initial_spaces(loadbuf);
     if (is_eoln_kns(*bufptr)) {
@@ -8231,7 +8397,7 @@ int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_p
     }
     bufptr2 = next_item(bufptr);
     if (no_more_items_kns(bufptr2)) {
-      sprintf(logbuf, "Error: Fewer tokens than expected in %s line.\n", fname);
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, fname);
       goto scan_max_fam_indiv_strlen_ret_INVALID_FORMAT_2;
     }
     cur_person_id_len = strlen_se(bufptr) + strlen_se(bufptr2) + 2;

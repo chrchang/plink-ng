@@ -165,8 +165,6 @@ int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr
 }
 #endif
 
-const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
-
 uint32_t chrom_error(const char* extension, Chrom_info* chrom_info_ptr, char* chrom_str, uint32_t allow_extra_chroms) {
   int32_t raw_code = get_chrom_code_raw(chrom_str);
   uint32_t slen;
@@ -193,8 +191,8 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
   uintptr_t marker_exclude_ct = *marker_exclude_ct_ptr;
   uintptr_t max_marker_id_len = 0;
   uintptr_t unfiltered_marker_ct = 0;
+  uint32_t last_pos = 0;
   int32_t last_chrom = -1;
-  int32_t last_pos = 0;
   int32_t marker_pos_needed = 0;
   int32_t chroms_encountered_m1 = -1;
   int32_t retval = 0;
@@ -204,8 +202,8 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
   char* bufptr;
   uintptr_t marker_uidx;
   uintptr_t ulii;
+  uint32_t cur_pos;
   int32_t jj;
-  int32_t cur_pos;
   fill_ulong_zero(loaded_chrom_mask, CHROM_MASK_WORDS);
   if (fopen_checked(mapfile_ptr, mapname, "r")) {
     goto load_map_ret_OPEN_FAIL;
@@ -224,8 +222,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
     }
     bufptr = next_item(bufptr);
     if (no_more_items_kns(bufptr)) {
-      logprint(errstr_map_format);
-      goto load_map_ret_INVALID_FORMAT;
+      goto load_map_ret_INVALID_FORMAT_GENERIC;
     }
     ulii = strlen_se(bufptr) + 1;
     if (ulii > max_marker_id_len) {
@@ -234,8 +231,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
     if (!unfiltered_marker_ct) {
       bufptr = next_item_mult(bufptr, 2);
       if (!bufptr) {
-	logprint(errstr_map_format);
-        goto load_map_ret_INVALID_FORMAT;
+        goto load_map_ret_INVALID_FORMAT_GENERIC;
       }
       if (*bufptr > ' ') {
 	*map_cols_ptr = 4;
@@ -318,21 +314,21 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
     } else {
       bufptr = next_item(bufptr);
       if (no_more_items_kns(bufptr)) {
-	logprint(errstr_map_format);
-	goto load_map_ret_INVALID_FORMAT;
+	goto load_map_ret_INVALID_FORMAT_GENERIC;
       }
       read_next_terminate(&((*marker_ids_ptr)[marker_uidx * max_marker_id_len]), bufptr);
       bufptr = next_item_mult(bufptr, *map_cols_ptr - 2);
       if (no_more_items_kns(bufptr)) {
-        logprint(errstr_map_format);
-	goto load_map_ret_INVALID_FORMAT;
+	goto load_map_ret_INVALID_FORMAT_GENERIC;
       }
-      if (*bufptr == '-') {
+      if (scan_uint_defcap(bufptr, &cur_pos)) {
 	// negative marker positions now have same effect in .bim as .map
+	if ((*bufptr != '-') || (((uint32_t)((unsigned char)bufptr[1]) - 48) >= 10)) {
+	  goto load_map_ret_INVALID_FORMAT_GENERIC;
+	}
 	SET_BIT(marker_exclude, marker_uidx);
 	marker_exclude_ct++;
       } else {
-	cur_pos = atoi(bufptr);
 	if (cur_pos < last_pos) {
 	  *map_is_unsorted_ptr |= UNSORTED_BP;
 	} else {
@@ -362,6 +358,8 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
   load_map_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
+  load_map_ret_INVALID_FORMAT_GENERIC:
+    logprint("Error: Improperly formatted .map file.\n");
   load_map_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -1077,11 +1075,14 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       if (no_more_items_kns(bufptr)) {
 	goto load_bim_ret_INVALID_FORMAT_5;
       }
-      if (*bufptr == '-') {
+      if (scan_uint_defcap(bufptr, &cur_pos)) {
 	// negative marker positions now have same effect in .bim as .map
+	// we now treat -0 like 0, though
+	if ((*bufptr != '-') || (((uint32_t)((unsigned char)bufptr[1]) - 48) >= 10)) {
+	  goto load_bim_ret_INVALID_FORMAT_5;
+	}
 	goto load_bim_skip_marker;
       }
-      cur_pos = atoi(bufptr);
       if (cur_pos < last_pos) {
 	*map_is_unsorted_ptr |= UNSORTED_BP;
       } else {

@@ -2704,6 +2704,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
   uintptr_t max_person_id_len = 4;
   uintptr_t unfiltered_indiv_ct = 0;
   uintptr_t indiv_uidx = 0;
+  uintptr_t line_idx = 0;
   double unrelated_herit_tol = relip->unrelated_herit_tol;
   double unrelated_herit_covg = relip->unrelated_herit_covg;
   double unrelated_herit_covr = relip->unrelated_herit_covr;
@@ -2739,9 +2740,10 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
   }
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, infile)) {
+    line_idx++;
     if (!tbuf[MAXLINELEN - 1]) {
-      logprint("Error: Pathologically long line in .grm.id file.\n");
-      goto unrelated_herit_batch_ret_INVALID_FORMAT;
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, grmname);
+      goto unrelated_herit_batch_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(tbuf);
     if (is_eoln_kns(*bufptr)) {
@@ -2751,8 +2753,8 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
     cur_person_id_len = bufptr2 - bufptr;
     bufptr2 = skip_initial_spaces(bufptr2);
     if (is_eoln_kns(*bufptr2)) {
-      logprint("Error: Fewer tokens than expected in .grm.id line.\n");
-      goto unrelated_herit_batch_ret_INVALID_FORMAT;
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, grmname);
+      goto unrelated_herit_batch_ret_INVALID_FORMAT_2;
     }
     cur_person_id_len += strlen_se(bufptr2) + 2;
     if (cur_person_id_len > max_person_id_len) {
@@ -2847,9 +2849,10 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
     if (fseeko(grm_binfile, 0, SEEK_END)) {
       goto unrelated_herit_batch_ret_READ_FAIL;
     }
-    fpos = ftello(grm_binfile);
     // n(n+1)/2 * 4 bytes per float
-    if (fpos != ((uint64_t)unfiltered_indiv_ct) * (unfiltered_indiv_ct + 1) * 2) {
+    fpos = ((uint64_t)unfiltered_indiv_ct) * (unfiltered_indiv_ct + 1) * 2;
+    if (((int64_t)fpos) != ftello(grm_binfile)) {
+      sprintf(logbuf, "Error: --grm-bin expects size of %s to be %" PRIu64 " bytes.\n", grmname, fpos);
       goto unrelated_herit_batch_ret_INVALID_FORMAT_2;
     }
     rewind(grm_binfile);
@@ -2951,7 +2954,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
     retval = RET_INVALID_FORMAT;
     break;
   unrelated_herit_batch_ret_INVALID_FORMAT_2:
-    logprint("Error: Invalid .grm.bin file (impossible file size).\n");
+    logprintb();
   unrelated_herit_batch_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -5975,6 +5978,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   // Specialized --rel-cutoff usable on larger files.
   char* grmname_end = (char*)memchr(grmname, 0, FNAMESIZE);
   uintptr_t indiv_ct = 0;
+  uintptr_t line_idx = 0;
   double rel_cutoff = relip->cutoff;
   FILE* idfile = NULL;
   FILE* outfile = NULL;
@@ -6028,9 +6032,10 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   }
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, idfile)) {
+    line_idx++;
     if (!tbuf[MAXLINELEN - 1]) {
-      logprint("Error: Pathologically long line in .grm.id file.\n");
-      goto rel_cutoff_batch_ret_INVALID_FORMAT_1;
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, grmname);
+      goto rel_cutoff_batch_ret_INVALID_FORMAT_2;
     }
     if (is_eoln_kns(*(skip_initial_spaces(tbuf)))) {
       continue;
@@ -6148,10 +6153,10 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
 	  }
 	  bufptr = next_item_mult(tbuf, 3);
 	  if (no_more_items_kns(bufptr)) {
-	    goto rel_cutoff_batch_ret_INVALID_FORMAT_2;
+	    goto rel_cutoff_batch_ret_INVALID_FORMAT_GENERIC;
 	  }
 	  if (scan_double(bufptr, &dxx)) {
-	    goto rel_cutoff_batch_ret_INVALID_FORMAT_2;
+	    goto rel_cutoff_batch_ret_INVALID_FORMAT_GENERIC;
 	  }
 	  if (dxx > rel_cutoff) {
 	    rel_ct_arr[row] += 1;
@@ -6174,7 +6179,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
       goto rel_cutoff_batch_ret_READ_FAIL;
     }
     if (gzgets(cur_gzfile, tbuf, MAXLINELEN)) {
-      goto rel_cutoff_batch_ret_INVALID_FORMAT_2;
+      goto rel_cutoff_batch_ret_INVALID_FORMAT_GENERIC;
     }
     gzclose(cur_gzfile);
     cur_gzfile = NULL;
@@ -6480,11 +6485,11 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
 	      if (rel_ct_arr[col++] != -1) {
 		bufptr = next_item_mult(tbuf, 2);
 		if (scan_float(bufptr, &fxx)) {
-		  goto rel_cutoff_batch_ret_INVALID_FORMAT_2;
+		  goto rel_cutoff_batch_ret_INVALID_FORMAT_GENERIC;
 		}
 		bufptr = next_item(bufptr);
 		if (scan_float(bufptr, &fyy)) {
-		  goto rel_cutoff_batch_ret_INVALID_FORMAT_2;
+		  goto rel_cutoff_batch_ret_INVALID_FORMAT_GENERIC;
 		}
 		fwrite(&fxx, 4, 1, out_bin_nfile);
 		fwrite(&fyy, 4, 1, outfile);
@@ -6523,10 +6528,13 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   rel_cutoff_batch_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
-  rel_cutoff_batch_ret_INVALID_FORMAT_2:
+  rel_cutoff_batch_ret_INVALID_FORMAT_GENERIC:
     putchar('\n');
     logprint("Error: Improperly formatted .grm.gz file.\n");
-  rel_cutoff_batch_ret_INVALID_FORMAT_1:
+    retval = RET_INVALID_FORMAT;
+    break;
+  rel_cutoff_batch_ret_INVALID_FORMAT_2:
+    logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   rel_cutoff_batch_ret_INVALID_CMDLINE:

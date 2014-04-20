@@ -7,7 +7,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <limits.h>
 #include <stdint.h>
 #include <inttypes.h>
 
@@ -917,7 +916,22 @@ int32_t atoiz(char* ss, int32_t* sval);
 
 int32_t atoiz2(char* ss, int32_t* sval);
 
-uint32_t strtoui32(char* ss, uint32_t* valp);
+uint32_t scan_posint_capped(char* ss, uint32_t* valp, uint32_t cap_div_10, uint32_t cap_mod_10);
+
+uint32_t scan_uint_capped(char* ss, uint32_t* valp, uint32_t cap_div_10, uint32_t cap_mod_10);
+
+uint32_t scan_int_abs_bounded(char* ss, int32_t* valp, uint32_t bound_div_10, uint32_t bound_mod_10);
+
+// default cap = 0x7ffffffe
+static inline uint32_t scan_posint_defcap(char* ss, uint32_t* valp) {
+  return scan_posint_capped(ss, valp, 0x7ffffffe / 10, 0x7ffffffe % 10);
+}
+
+static inline uint32_t scan_uint_defcap(char* ss, uint32_t* valp) {
+  return scan_uint_capped(ss, valp, 0x7ffffffe / 10, 0x7ffffffe % 10);
+}
+
+uint32_t scan_posintptr(char* ss, uintptr_t* valp);
 
 static inline char replace_if_zero(char cc, char replacement) {
   if (cc != '0') {
