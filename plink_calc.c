@@ -2814,7 +2814,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
     goto unrelated_herit_batch_ret_OPEN_FAIL;
   }
   wkspace_left -= topsize;
-  retval = load_pheno(infile, unfiltered_indiv_ct, 0, sorted_ids, max_person_id_len, id_map, missing_pheno, intlen(missing_pheno), 0, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d, NULL, 0);
+  retval = load_pheno(infile, unfiltered_indiv_ct, 0, sorted_ids, max_person_id_len, id_map, missing_pheno, 0, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d, NULL, 0);
   wkspace_left += topsize;
   // topsize = 0; (sorted_ids and id_map no longer used)
   fclose_null(&infile);

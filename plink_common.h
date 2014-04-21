@@ -912,15 +912,16 @@ uint32_t match_upper(char* ss, const char* fixed_str);
 
 uint32_t match_upper_nt(char* ss, const char* fixed_str, uint32_t ct);
 
-int32_t atoiz(char* ss, int32_t* sval);
-
-int32_t atoiz2(char* ss, int32_t* sval);
-
 uint32_t scan_posint_capped(char* ss, uint32_t* valp, uint32_t cap_div_10, uint32_t cap_mod_10);
 
 uint32_t scan_uint_capped(char* ss, uint32_t* valp, uint32_t cap_div_10, uint32_t cap_mod_10);
 
 uint32_t scan_int_abs_bounded(char* ss, int32_t* valp, uint32_t bound_div_10, uint32_t bound_mod_10);
+
+// intentionally rejects -2^31 for now
+static inline uint32_t scan_int32(char* ss, int32_t* valp) {
+  return scan_int_abs_bounded(ss, valp, 0x7fffffff / 10, 0x7fffffff % 10);
+}
 
 // default cap = 0x7ffffffe
 static inline uint32_t scan_posint_defcap(char* ss, uint32_t* valp) {
@@ -929,6 +930,14 @@ static inline uint32_t scan_posint_defcap(char* ss, uint32_t* valp) {
 
 static inline uint32_t scan_uint_defcap(char* ss, uint32_t* valp) {
   return scan_uint_capped(ss, valp, 0x7ffffffe / 10, 0x7ffffffe % 10);
+}
+
+static inline uint32_t scan_int_abs_defcap(char* ss, int32_t* valp) {
+  return scan_int_abs_bounded(ss, valp, 0x7ffffffe / 10, 0x7ffffffe % 10);
+}
+
+static inline uint32_t scan_uint_icap(char* ss, uint32_t* valp) {
+  return scan_uint_capped(ss, valp, 0x7fffffff / 10, 0x7fffffff % 10);
 }
 
 uint32_t scan_posintptr(char* ss, uintptr_t* valp);
@@ -1035,9 +1044,9 @@ static inline void fputs_w4(char* ss, FILE* outfile) {
   }
 }
 
-int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr);
+int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr, uintptr_t* line_idx_ptr);
 
-int32_t get_next_noncomment_excl(FILE* fptr, char** lptr_ptr, uintptr_t* marker_exclude, uintptr_t* marker_uidx_ptr);
+int32_t get_next_noncomment_excl(FILE* fptr, char** lptr_ptr, uintptr_t* line_idx_ptr, uintptr_t* marker_exclude, uintptr_t* marker_uidx_ptr);
 
 char* item_end(char* sptr);
 
@@ -1729,7 +1738,7 @@ static inline int32_t chrom_exists(Chrom_info* chrom_info_ptr, uint32_t chrom_id
   return is_set(chrom_info_ptr->chrom_mask, chrom_idx);
 }
 
-int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int32_t* chrom_idx_ptr);
+int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int32_t* chrom_idx_ptr, uintptr_t line_idx, const char* file_descrip);
 
 static inline uintptr_t next_autosomal_unsafe(uintptr_t* marker_exclude, uintptr_t marker_uidx, Chrom_info* chrom_info_ptr, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr) {
   // assumes we are at an autosomal marker if marker_uidx < *chrom_end_ptr
@@ -1770,9 +1779,9 @@ int32_t get_uidx_from_unsorted(char* idstr, uintptr_t* exclude_arr, uint32_t id_
 
 char* scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len);
 
-int32_t is_missing_pheno(char* bufptr, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01);
+int32_t is_missing_pheno(char* bufptr, int32_t missing_pheno, uint32_t affection_01);
 
-int32_t eval_affection(char* bufptr, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01);
+int32_t eval_affection(char* bufptr, int32_t missing_pheno, uint32_t affection_01);
 
 uint32_t triangle_divide(int64_t cur_prod, int32_t modif);
 
@@ -1823,8 +1832,6 @@ static inline int32_t bsearch_str_nl(const char* id_buf, char* lptr, uintptr_t m
 int32_t bsearch_str_natural(char* id_buf, char* lptr, uintptr_t max_id_len, uintptr_t end_idx);
 
 uintptr_t bsearch_str_lb(const char* id_buf, uintptr_t cur_id_len, char* lptr, uintptr_t max_id_len, uintptr_t end_idx);
-
-void fill_idbuf_fam_indiv(char* id_buf, char* fam_indiv, char fillchar);
 
 uint32_t bsearch_read_fam_indiv(char* id_buf, char* lptr, uintptr_t max_id_len, uintptr_t filter_line_ct, char* read_ptr, char** read_pp_new, int32_t* retval_ptr);
 
@@ -2034,9 +2041,9 @@ int32_t load_string_list(FILE** infile_ptr, uintptr_t max_str_len, char* str_lis
 
 int32_t open_and_skip_first_lines(FILE** infile_ptr, char* fname, char* loadbuf, uintptr_t loadbuf_size, uint32_t lines_to_skip);
 
-int32_t load_to_first_token(FILE* infile, uintptr_t loadbuf_size, char comment_char, const char* file_descrip, char* loadbuf, char** bufptr_ptr);
+int32_t load_to_first_token(FILE* infile, uintptr_t loadbuf_size, char comment_char, const char* file_descrip, char* loadbuf, char** bufptr_ptr, uintptr_t* line_idx_ptr);
 
-int32_t open_and_load_to_first_token(FILE** infile_ptr, char* fname, uintptr_t loadbuf_size, char comment_char, const char* file_descrip, char* loadbuf, char** bufptr_ptr);
+int32_t open_and_load_to_first_token(FILE** infile_ptr, char* fname, uintptr_t loadbuf_size, char comment_char, const char* file_descrip, char* loadbuf, char** bufptr_ptr, uintptr_t* line_idx_ptr);
 
 int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t headerskip, char skipchar, uintptr_t* max_str_len_ptr, uintptr_t* max_str2_len_ptr);
 

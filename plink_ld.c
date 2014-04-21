@@ -7947,6 +7947,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
   char* best_chr_ptr;
   char* best_marker_ptr;
   Ll_epi_summary* lle_ptr; // traverser for remaining files
+  uintptr_t line_idx;
   uintptr_t ulii;
   double cur_chisq;
   uint32_t plink_maxsnp;
@@ -7986,7 +7987,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
   if (fopen_checked(&infile, inprefix, "r")) {
     goto epi_summary_merge_ret_OPEN_FAIL;
   }
-  retval = load_to_first_token(infile, MAXLINELEN, '\0', "--epistasis-summary-merge file", tbuf, &bufptr);
+  retval = load_to_first_token(infile, MAXLINELEN, '\0', "--epistasis-summary-merge file", tbuf, &bufptr, &line_idx);
   if (retval) {
     goto epi_summary_merge_ret_1;
   }
@@ -8025,6 +8026,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
   bufptr2 = next_item(bufptr);
   plink_maxsnp = ((uintptr_t)(bufptr2 - bufptr)) - 1;
   while (fgets(tbuf, MAXLINELEN, infile)) {
+    line_idx++;
     if (!tbuf[MAXLINELEN - 1]) {
       goto epi_summary_merge_ret_LONG_LINE;
     }
@@ -8039,12 +8041,18 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
     ntot_ptr = next_item(nsig_ptr);
     best_chisq_ptr = next_item(ntot_ptr);
     best_chr_ptr = next_item(best_chisq_ptr);
-    if (no_more_items_kns(best_chr_ptr) || atoiz2(nsig_ptr, &nsig) || atoiz2(ntot_ptr, &ntot)) {
-      goto epi_summary_merge_ret_INVALID_LINE;
+    if (no_more_items_kns(best_chr_ptr)) {
+      goto epi_summary_merge_ret_MISSING_TOKENS;
+    }
+    if (scan_uint_icap(nsig_ptr, (uint32_t*)&nsig)) {
+      goto epi_summary_merge_ret_INVALID_NSIG;
+    }
+    if (scan_uint_icap(ntot_ptr, (uint32_t*)&ntot)) {
+      goto epi_summary_merge_ret_INVALID_NTOT;
     }
     if (ntot) {
       if (scan_double(best_chisq_ptr, &cur_chisq)) {
-	goto epi_summary_merge_ret_INVALID_LINE;
+	goto epi_summary_merge_ret_INVALID_CHISQ;
       }
     } else {
       cur_chisq = 0;
@@ -8057,7 +8065,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
     best_marker_ptr = skip_initial_spaces(&(best_chr_ptr[chrom_len]));
     id_len = strlen_se(best_marker_ptr);
     if (!id_len) {
-      goto epi_summary_merge_ret_INVALID_LINE;
+      goto epi_summary_merge_ret_MISSING_TOKENS;
     }
     // throw in an extra word, to reduce the need for reallocation
     ulii = (chrom_len + id_len + 1 + 2 * sizeof(intptr_t)) & (~(sizeof(intptr_t) - 1));
@@ -8088,7 +8096,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
     if (fopen_checked(&infile, inprefix, "r")) {
       goto epi_summary_merge_ret_OPEN_FAIL;
     }
-    retval = load_to_first_token(infile, MAXLINELEN, '\0', "--epistasis-summary-merge file", tbuf, &bufptr);
+    retval = load_to_first_token(infile, MAXLINELEN, '\0', "--epistasis-summary-merge file", tbuf, &bufptr, &line_idx);
     if (retval) {
       goto epi_summary_merge_ret_1;
     }
@@ -8099,6 +8107,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
     lle_ptr = last_start;
     is_first_entry = 1;
     while (fgets(tbuf, MAXLINELEN, infile)) {
+      line_idx++;
       if (!tbuf[MAXLINELEN - 1]) {
 	goto epi_summary_merge_ret_LONG_LINE;
       }
@@ -8107,7 +8116,8 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
 	continue;
       }
       if (!lle_ptr) {
-	goto epi_summary_merge_ret_INVALID_LINE;
+        sprintf(logbuf, "Error: More lines than expected in %s.\n", inprefix);
+	goto epi_summary_merge_ret_INVALID_FORMAT_2;
       }
       chrom_len = strlen_se(bufptr);
       id_ptr = skip_initial_spaces(&(bufptr[chrom_len]));
@@ -8116,8 +8126,14 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
       ntot_ptr = next_item(nsig_ptr);
       best_chisq_ptr = next_item(ntot_ptr);
       best_chr_ptr = next_item(best_chisq_ptr);
-      if (no_more_items_kns(best_chr_ptr) || atoiz2(nsig_ptr, &nsig) || atoiz2(ntot_ptr, &ntot)) {
-	goto epi_summary_merge_ret_INVALID_LINE;
+      if (no_more_items_kns(best_chr_ptr)) {
+	goto epi_summary_merge_ret_MISSING_TOKENS;
+      }
+      if (scan_uint_icap(nsig_ptr, (uint32_t*)&nsig)) {
+	goto epi_summary_merge_ret_INVALID_NSIG;
+      }
+      if (scan_uint_icap(ntot_ptr, (uint32_t*)&ntot)) {
+	goto epi_summary_merge_ret_INVALID_NTOT;
       }
       if (!is_first_entry) {
 	if ((lle_ptr->id_len != id_len) || memcmp(lle_ptr->strbuf, id_ptr, id_len) || (strlen(&(lle_ptr->strbuf[id_len])) != chrom_len) || memcmp(&(lle_ptr->strbuf[id_len]), bufptr, chrom_len)) {
@@ -8141,7 +8157,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
       }
       if (ntot) {
 	if (scan_double(best_chisq_ptr, &cur_chisq)) {
-	  goto epi_summary_merge_ret_INVALID_LINE;
+	  goto epi_summary_merge_ret_INVALID_CHISQ;
 	}
 	lle_ptr->n_sig += nsig;
 	lle_ptr->n_tot += ntot;
@@ -8150,7 +8166,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
           best_marker_ptr = skip_initial_spaces(&(best_chr_ptr[chrom_len]));
           id_len = strlen_se(best_marker_ptr);
 	  if (!id_len) {
-	    goto epi_summary_merge_ret_INVALID_LINE;
+	    goto epi_summary_merge_ret_MISSING_TOKENS;
 	  }
           lle_ptr->best_chisq = cur_chisq;
 	  bufptr = lle_ptr->best_chr_and_snp;
@@ -8251,12 +8267,24 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
     logprint("Error: --epistasis-summary-merge files were generated from different datasets\nand/or settings.\n");
     retval = RET_INVALID_FORMAT;
     break;
-  epi_summary_merge_ret_INVALID_LINE:
-    LOGPRINTF("Error: Invalid --epistasis-summary-merge line in %s.\n", inprefix);
+  epi_summary_merge_ret_INVALID_NSIG:
+    LOGPRINTF("Error: Invalid N_SIG value on line %" PRIuPTR " of %s.\n", line_idx, inprefix);
+    retval = RET_INVALID_FORMAT;
+    break;
+  epi_summary_merge_ret_INVALID_NTOT:
+    LOGPRINTF("Error: Invalid N_SIG value on line %" PRIuPTR " of %s.\n", line_idx, inprefix);
+    retval = RET_INVALID_FORMAT;
+    break;
+  epi_summary_merge_ret_INVALID_CHISQ:
+    LOGPRINTF("Error: Invalid BEST_CHISQ value on line %" PRIuPTR " of %s.\n", line_idx, inprefix);
+    retval = RET_INVALID_FORMAT;
+    break;
+  epi_summary_merge_ret_MISSING_TOKENS:
+    LOGPRINTF("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, inprefix);
     retval = RET_INVALID_FORMAT;
     break;
   epi_summary_merge_ret_LONG_LINE:
-    LOGPRINTF("Error: Pathologically long line in %s.\n", inprefix);
+    LOGPRINTF("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, inprefix);
     retval = RET_INVALID_FORMAT;
     break;
   epi_summary_merge_ret_INVALID_HEADER:
@@ -9369,6 +9397,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uintptr_t last_marker_idx;
   uintptr_t max_window_size; // universal bound
   uintptr_t cur_window_size;
+  uintptr_t line_idx;
   uintptr_t ulii;
   uintptr_t uljj;
   uintptr_t ulkk;
@@ -9713,7 +9742,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     }
     ukk = 0x7fffffff; // highest-precedence variant ID header seen so far
     umm = 0x7fffffff; // highest-precedence p-value header seen so far
-    retval = load_to_first_token(infile, loadbuft_size, '\0', "--clump", loadbuft, &bufptr);
+    retval = load_to_first_token(infile, loadbuft_size, '\0', "--clump", loadbuft, &bufptr, &line_idx);
     if (retval) {
       goto clump_reports_ret_1;
     }
@@ -9779,9 +9808,10 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     }
   clump_reports_load_loop:
     while (fgets(loadbuft, loadbuft_size, infile)) {
+      line_idx++;
       if (!loadbuft[loadbuft_size - 1]) {
 	if (loadbuft_size == MAXLINEBUFLEN / 2) {
-	  sprintf(logbuf, "Error: Pathologically long line in %s.\n", fname_ptr);
+	  sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname_ptr);
 	  goto clump_reports_ret_INVALID_FORMAT_2;
 	}
 	goto clump_reports_ret_NOMEM;
@@ -9816,8 +9846,8 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	continue;
       }
       if (pval < 0.0) {
-	logprint("Error: Negative p-value in --clump file.\n");
-	goto clump_reports_ret_INVALID_FORMAT;
+	sprintf(logbuf, "Error: Negative p-value on line %" PRIuPTR " of %s.\n", line_idx, fname_ptr);
+	goto clump_reports_ret_INVALID_FORMAT_2;
       }
       ii = bsearch_str(&(loadbuft[cur_parse_info[0]]), cur_parse_info[1], sorted_marker_ids, max_marker_id_len, marker_ct);
       if (ii == -1) {
@@ -9842,8 +9872,8 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       if (pval > load_pthresh) {
 	if (pval >= 0.05) {
 	  if (pval > 1) {
-	    logprint("Error: p-value > 1 in --clump file.\n");
-	    goto clump_reports_ret_INVALID_FORMAT;
+	    sprintf(logbuf, "Error: p-value > 1 on line %" PRIuPTR " of %s.\n", line_idx, fname_ptr);
+	    goto clump_reports_ret_INVALID_FORMAT_2;
 	  }
 	  nsig_arr[marker_idx] += 1;
 	}
@@ -10788,7 +10818,6 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     sprintf(logbuf, "Error: Duplicate column header '%s' in %s.\n", bufptr, fname_ptr);
   clump_reports_ret_INVALID_FORMAT_2:
     logprintb();
-  clump_reports_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
   }

@@ -1501,7 +1501,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       }
       wkspace_alloc(cov_ct * sizeof(char)); // cov_type_arr
     }
-    retval = open_and_load_to_first_token(&matchfile, cp->match_fname, MAXLINELEN, '\0', "--match file", tbuf, &bufptr);
+    retval = open_and_load_to_first_token(&matchfile, cp->match_fname, MAXLINELEN, '\0', "--match file", tbuf, &bufptr, &line_idx);
     if (retval) {
       goto cluster_enforce_match_ret_1;
     }
@@ -1517,7 +1517,6 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       non_null_cov_ct = cov_ct;
     }
     wptr = (char*)wkspace_base;
-    line_idx = 0;
     do {
       line_idx++;
       if (!tbuf[MAXLINELEN - 1]) {

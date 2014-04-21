@@ -39,11 +39,11 @@ int32_t cnv_subset_load(char* subset_fname, char** subset_list_ptr, uintptr_t* s
 
 const char* cnv_intersect_filter_type_to_str(uint32_t intersect_filter_type) {
   if (intersect_filter_type & CNV_INTERSECT) {
-    return "intersect";
+    return "--cnv-intersect file";
   } else if (intersect_filter_type & CNV_EXCLUDE) {
-    return "exclude";
+    return "--cnv-exclude file";
   } else {
-    return "count";
+    return "--cnv-count file";
   }
 }
 
@@ -85,6 +85,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
   uint64_t* tmp_il_small = (uint64_t*)(&(tmp_il_large_chroms[(max_interval_ct + 7) & (~(7 * ONELU))])); // grows up
   uint64_t* il_large = (uint64_t*)(&(wkspace_base[wkspace_left])); // grows down
   uintptr_t* chrom_mask = chrom_info_ptr->chrom_mask;
+  const char* cift_str = cnv_intersect_filter_type_to_str(intersect_filter_type);
   int32_t retval = 0;
   uint64_t* il_small;
   char* bufptr;
@@ -108,7 +109,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
   while (fgets(tbuf, MAXLINELEN, intersect_file)) {
     line_idx++;
     if (!tbuf[MAXLINELEN - 1]) {
-      sprintf(logbuf, "Error: Line %" PRIuPTR " of --cnv-%s file is pathologically long.\n", line_idx, cnv_intersect_filter_type_to_str(intersect_filter_type));
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, cift_str);
       goto cnv_intersect_load_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(tbuf);
@@ -116,16 +117,16 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
       // CHR, BP1, BP2, subset name
       bufptr2 = next_item_mult(bufptr, 2);
       if (no_more_items_kns(bufptr2)) {
-	sprintf(logbuf, "Error: Line %" PRIuPTR " of --cnv-%s file has fewer tokens than expected.\n", line_idx, cnv_intersect_filter_type_to_str(intersect_filter_type));
+	sprintf(logbuf, "Error: Line %" PRIuPTR " of %s file has fewer tokens than expected.\n", line_idx, cift_str);
 	goto cnv_intersect_load_ret_INVALID_FORMAT_2;
       }
       ii = get_chrom_code(chrom_info_ptr, bufptr);
       if (ii == -1) {
 	if (!allow_extra_chroms) {
-	  sprintf(logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of --cnv-%s file.\n", line_idx, cnv_intersect_filter_type_to_str(intersect_filter_type));
+	  sprintf(logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, cift_str);
 	  goto cnv_intersect_load_ret_INVALID_FORMAT_2;
 	}
-        retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii);
+        retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii, line_idx, cift_str);
 	if (retval) {
 	  goto cnv_intersect_load_ret_1;
 	}
@@ -136,16 +137,16 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
       }
       bufptr = next_item(bufptr);
       if (scan_uint_defcap(bufptr, (uint32_t*)&jj)) {
-	sprintf(logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of --cnv-%s file.\n", line_idx, cnv_intersect_filter_type_to_str(intersect_filter_type));
+	sprintf(logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, cift_str);
 	goto cnv_intersect_load_ret_INVALID_FORMAT_2;
       }
       if (scan_uint_defcap(bufptr2, (uint32_t*)&ii)) {
-	sprintf(logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of --cnv-%s file.\n", line_idx, cnv_intersect_filter_type_to_str(intersect_filter_type));
+	sprintf(logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, cift_str);
 	goto cnv_intersect_load_ret_INVALID_FORMAT_2;
       }
       if (ii < jj) {
 	if (!reverse_warning_ct) {
-	  LOGPRINTF("Warning: End of range before start of range on line %" PRIuPTR " of\n--cnv-%s file.\n", line_idx, cnv_intersect_filter_type_to_str(intersect_filter_type));
+	  LOGPRINTF("Warning: End of range before start of range on line %" PRIuPTR " of\n%s.\n", line_idx, cift_str);
 	}
 	reverse_warning_ct++;
 	kk = ii;
@@ -194,7 +195,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
       logprint("Warning: All intervals filtered out by --cnv-subset.\n");
       goto cnv_intersect_load_ret_1;
     }
-    sprintf(logbuf, "Error: Empty --cnv-%s file.\n", cnv_intersect_filter_type_to_str(intersect_filter_type));
+    sprintf(logbuf, "Error: Empty %s.\n", cift_str);
     goto cnv_intersect_load_ret_INVALID_FORMAT_2;
   }
   if (small_interval_ct) {
@@ -512,7 +513,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
 	  sprintf(logbuf, "\nError: Invalid chromosome code on line %" PRIuPTR " of .cnv file.\n", line_idx);
           goto cnv_make_map_ret_INVALID_FORMAT_2;
 	}
-        retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii);
+        retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii, line_idx, ".cnv file");
 	if (retval) {
 	  goto cnv_make_map_ret_1;
 	}
@@ -741,7 +742,7 @@ int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, int32_t* marker_pos_
 	sprintf(logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of .cnv.map file.\n", line_idx);
 	goto validate_cnv_map_ret_INVALID_FORMAT_2;
       }
-      retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii);
+      retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii, line_idx, ".cnv.map file");
       if (retval) {
 	goto validate_cnv_map_ret_1;
       }
@@ -807,7 +808,7 @@ int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, int32_t* marker_pos_
     retval = RET_INVALID_FORMAT;
     break;
   validate_cnv_map_ret_MISSING_TOKENS:
-    LOGPRINTF(logbuf, "Error: Line %" PRIuPTR " of .cnv.map file has fewer tokens than expected.\n", line_idx);
+    LOGPRINTF("Error: Line %" PRIuPTR " of .cnv.map file has fewer tokens than expected.\n", line_idx);
     retval = RET_INVALID_FORMAT;
     break;
   validate_cnv_map_ret_LONG_LINE:

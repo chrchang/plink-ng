@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (20 Apr 2014)";
+  " (21 Apr 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -659,7 +659,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
-  retval = load_fam(famfile, MAXLINELEN, fam_cols, uii, missing_pheno, missing_pheno_len, (misc_flags / MISC_AFFECTION_01) & 1, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_nm, &sex_male, &affection, &pheno_nm, &pheno_c, &pheno_d, &founder_info, &indiv_exclude);
+  retval = load_fam(famfile, MAXLINELEN, fam_cols, uii, missing_pheno, (misc_flags / MISC_AFFECTION_01) & 1, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_nm, &sex_male, &affection, &pheno_nm, &pheno_c, &pheno_d, &founder_info, &indiv_exclude);
   if (retval) {
     goto plink_ret_1;
   }
@@ -720,7 +720,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	goto plink_ret_1;
       }
     } else if (phenofile) {
-      retval = load_pheno(phenofile, unfiltered_indiv_ct, 0, cptr, max_person_id_len, uiptr, missing_pheno, missing_pheno_len, (misc_flags / MISC_AFFECTION_01) & 1, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d, NULL, 0);
+      retval = load_pheno(phenofile, unfiltered_indiv_ct, 0, cptr, max_person_id_len, uiptr, missing_pheno, (misc_flags / MISC_AFFECTION_01) & 1, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d, NULL, 0);
       if (retval) {
 	if (retval == LOAD_PHENO_LAST_COL) {
 	  logprint(errstr_phenotype_format);
@@ -1868,7 +1868,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       plink_skip_empty_pheno:
 	rewind(phenofile);
 	outname_end[1] = '\0';
-	retval = load_pheno(phenofile, unfiltered_indiv_ct, indiv_exclude_ct, cptr, max_person_id_len, uiptr, missing_pheno, missing_pheno_len, (misc_flags / MISC_AFFECTION_01) & 1, uii, NULL, pheno_nm, &pheno_c, &pheno_d, &(outname_end[1]), (uintptr_t)((&(outname[FNAMESIZE - 32])) - outname_end));
+	retval = load_pheno(phenofile, unfiltered_indiv_ct, indiv_exclude_ct, cptr, max_person_id_len, uiptr, missing_pheno, (misc_flags / MISC_AFFECTION_01) & 1, uii, NULL, pheno_nm, &pheno_c, &pheno_d, &(outname_end[1]), (uintptr_t)((&(outname[FNAMESIZE - 32])) - outname_end));
 	if (retval == LOAD_PHENO_LAST_COL) {
 	  wkspace_reset(wkspace_mark);
 	  break;
@@ -7301,7 +7301,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	// if anyone is using a missing pheno value of -2^31, they should be
 	// flogged with wet noodles
-	if (scan_int_abs_bounded(argv[cur_arg + 1], &missing_pheno, 0x7fffffff / 10, 0x7fffffff % 10) || (!missing_pheno) || (missing_pheno == 1)) {
+	if (scan_int32(argv[cur_arg + 1], &missing_pheno) || (!missing_pheno) || (missing_pheno == 1)) {
 	  sprintf(logbuf, "Error: Invalid --missing-phenotype parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}

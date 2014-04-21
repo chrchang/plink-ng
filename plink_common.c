@@ -179,26 +179,6 @@ uint32_t match_upper_nt(char* ss, const char* fixed_str, uint32_t ct) {
   return 1;
 }
 
-int32_t atoiz(char* ss, int32_t* sval) {
-  // accepts nonnegative integers
-  int32_t ii = atoi(ss);
-  if ((ii < 1) && ((*ss != '0') || (ss[1] != '\0'))) {
-    return -1;
-  }
-  *sval = ii;
-  return 0;
-}
-
-int32_t atoiz2(char* ss, int32_t* sval) {
-  // version of atoiz which does not require the number to be null-terminated
-  int32_t ii = atoi(ss);
-  if ((ii < 1) && ((*ss != '0') || (ss[1] > ' '))) {
-    return -1;
-  }
-  *sval = ii;
-  return 0;
-}
-
 uint32_t scan_posint_capped(char* ss, uint32_t* valp, uint32_t cap_div_10, uint32_t cap_mod_10) {
   // Reads an integer in [1, cap].  Assumes first character is nonspace.  Has
   // the overflow detection atoi() lacks.
@@ -519,20 +499,21 @@ int32_t read_tokens(FILE* infile, char* buf, uintptr_t half_bufsize, uintptr_t t
   }
 }
 
-int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr) {
+int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr, uintptr_t* line_idx_ptr) {
   char* lptr;
   do {
     if (!fgets(tbuf, MAXLINELEN, fptr)) {
       return -1;
     }
+    *line_idx_ptr += 1;
     lptr = skip_initial_spaces(tbuf);
   } while (is_eoln_or_comment(*lptr));
   *lptr_ptr = lptr;
   return 0;
 }
 
-int32_t get_next_noncomment_excl(FILE* fptr, char** lptr_ptr, uintptr_t* marker_exclude, uintptr_t* marker_uidx_ptr) {
-  while (!get_next_noncomment(fptr, lptr_ptr)) {
+int32_t get_next_noncomment_excl(FILE* fptr, char** lptr_ptr, uintptr_t* line_idx_ptr, uintptr_t* marker_exclude, uintptr_t* marker_uidx_ptr) {
+  while (!get_next_noncomment(fptr, lptr_ptr, line_idx_ptr)) {
     if (!is_set_ul(marker_exclude, *marker_uidx_ptr)) {
       return 0;
     }
@@ -3827,7 +3808,7 @@ uint32_t get_marker_chrom_fo_idx(Chrom_info* chrom_info_ptr, uintptr_t marker_ui
   return chrom_fo_min;
 }
 
-int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int32_t* chrom_idx_ptr) {
+int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int32_t* chrom_idx_ptr, uintptr_t line_idx, const char* file_descrip) {
   char** nonstd_names = chrom_info_ptr->nonstd_names;
   uint32_t* nonstd_name_order = chrom_info_ptr->nonstd_name_order;
   uint32_t max_code_p1 = chrom_info_ptr->max_code + 1;
@@ -3843,11 +3824,15 @@ int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int3
     return 0;
   }
   if (slen > MAX_ID_LEN) {
-    logprint("Error: Chromosome/contig names are limited to " MAX_ID_LEN_STR " characters.\n");
+    if (line_idx) {
+      LOGPRINTF("Error: Line %" PRIuPTR " of %s has an excessively long chromosome/contig\nname.  (The " PROG_NAME_CAPS " limit is " MAX_ID_LEN_STR " characters.)\n", line_idx, file_descrip);
+    } else {
+      LOGPRINTF("Error: Excessively long chromosome/contig name in %s.\n(The " PROG_NAME_CAPS " limit is " MAX_ID_LEN_STR " characters.)\n", file_descrip);
+    }
     return RET_INVALID_FORMAT;
   }
   if (chrom_code_end == MAX_POSSIBLE_CHROM) {
-    logprint("Error: Too many distinct nonstandard chromosome names.\n");
+    logprint("Error: Too many distinct nonstandard chromosome/contig names.\n");
     return RET_INVALID_FORMAT;
   }
   nonstd_names[chrom_code_end] = (char*)malloc(slen + 1);
@@ -4122,17 +4107,19 @@ char* scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id
   return NULL;
 }
 
-int32_t is_missing_pheno(char* bufptr, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01) {
-  if ((atoi(bufptr) == missing_pheno) && is_space_or_eoln(bufptr[missing_pheno_len])) {
-    return 1;
-  } else if ((!affection_01) && (*bufptr == '0') && is_space_or_eoln(bufptr[1])) {
-    return 1;
+int32_t is_missing_pheno(char* bufptr, int32_t missing_pheno, uint32_t affection_01) {
+  int32_t bufval;
+  if (scan_int32(bufptr, &bufval) || (bufval != missing_pheno)) {
+    if ((!affection_01) && (*bufptr == '0') && is_space_or_eoln(bufptr[1])) {
+      return 1;
+    }
+    return 0;
   }
-  return 0;
+  return 1;
 }
 
-int32_t eval_affection(char* bufptr, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01) {
-  if (is_missing_pheno(bufptr, missing_pheno, missing_pheno_len, affection_01)) {
+int32_t eval_affection(char* bufptr, int32_t missing_pheno, uint32_t affection_01) {
+  if (is_missing_pheno(bufptr, missing_pheno, affection_01)) {
     return 1;
   } else if (((*bufptr == '0') || (*bufptr == '1') || ((*bufptr == '2') && (!affection_01))) && is_space_or_eoln(bufptr[1])) {
     return 1;
@@ -4532,18 +4519,6 @@ uintptr_t bsearch_str_lb(const char* id_buf, uintptr_t cur_id_len, char* lptr, u
     }
   }
   return start_idx;
-}
-
-void fill_idbuf_fam_indiv(char* idbuf, char* fam_indiv, char fillchar) {
-  char* iend_ptr = item_endnn(fam_indiv);
-  uint32_t slen = (iend_ptr - fam_indiv);
-  uint32_t slen2;
-  memcpy(idbuf, fam_indiv, slen);
-  idbuf[slen] = fillchar;
-  fam_indiv = skip_initial_spaces(iend_ptr);
-  iend_ptr = item_endnn(fam_indiv);
-  slen2 = (iend_ptr - fam_indiv);
-  memcpyx(&(idbuf[slen + 1]), fam_indiv, slen2, '\0');
 }
 
 uint32_t bsearch_read_fam_indiv(char* id_buf, char* lptr, uintptr_t max_id_len, uintptr_t filter_line_ct, char* read_ptr, char** read_pp_new, int32_t* retval_ptr) {
@@ -6865,8 +6840,7 @@ uint32_t numeric_range_list_to_bitfield(Range_list* range_list_ptr, uint32_t ite
   uint32_t idx1;
   uint32_t idx2;
   for (name_idx = 0; name_idx < name_ct; name_idx++) {
-    idx1 = atoi(&(names[name_idx * name_max_len]));
-    if (idx1 >= idx_max) {
+    if (scan_uint_capped(&(names[name_idx * name_max_len]), &idx1, idx_max / 10, idx_max % 10)) {
       if (ignore_overflow) {
 	continue;
       }
@@ -6874,8 +6848,7 @@ uint32_t numeric_range_list_to_bitfield(Range_list* range_list_ptr, uint32_t ite
     }
     if (starts_range[name_idx]) {
       name_idx++;
-      idx2 = atoi(&(names[name_idx * name_max_len]));
-      if (idx2 >= idx_max) {
+      if (scan_uint_capped(&(names[name_idx * name_max_len]), &idx2, idx_max / 10, idx_max % 10)) {
 	if (!ignore_overflow) {
 	  return 1;
 	}
@@ -6905,7 +6878,7 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint3
     if (ii != -1) {
       cmdline_pos = id_map[(uint32_t)ii];
       if (seen_idxs[cmdline_pos] != -1) {
-        sprintf(logbuf, "Error: Duplicate --%s token in %s.\n", range_list_flag, file_descrip);
+	sprintf(logbuf, "Error: Duplicate --%s token in %s.\n", range_list_flag, file_descrip);
         goto string_range_list_to_bitfield_ret_INVALID_FORMAT_2;
       }
       seen_idxs[cmdline_pos] = item_idx;
@@ -8186,7 +8159,7 @@ int32_t load_string_list(FILE** infile_ptr, uintptr_t max_str_len, char* str_lis
 }
 
 int32_t open_and_skip_first_lines(FILE** infile_ptr, char* fname, char* loadbuf, uintptr_t loadbuf_size, uint32_t lines_to_skip) {
-  uintptr_t line_idx;
+  uint32_t line_idx;
   loadbuf[loadbuf_size - 1] = ' ';
   if (fopen_checked(infile_ptr, fname, "r")) {
     return RET_OPEN_FAIL;
@@ -8202,7 +8175,7 @@ int32_t open_and_skip_first_lines(FILE** infile_ptr, char* fname, char* loadbuf,
     }
     if (!(loadbuf[loadbuf_size - 1])) {
       if ((loadbuf_size == MAXLINELEN) || (loadbuf_size == MAXLINEBUFLEN)) {
-	LOGPRINTF("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname);
+	LOGPRINTF("Error: Line %u of %s is pathologically long.\n", line_idx, fname);
 	return RET_INVALID_FORMAT;
       } else {
         return RET_NOMEM;
@@ -8212,7 +8185,7 @@ int32_t open_and_skip_first_lines(FILE** infile_ptr, char* fname, char* loadbuf,
   return 0;
 }
 
-int32_t load_to_first_token(FILE* infile, uintptr_t loadbuf_size, char comment_char, const char* file_descrip, char* loadbuf, char** bufptr_ptr) {
+int32_t load_to_first_token(FILE* infile, uintptr_t loadbuf_size, char comment_char, const char* file_descrip, char* loadbuf, char** bufptr_ptr, uintptr_t* line_idx_ptr) {
   uintptr_t line_idx = 0;
   while (fgets(loadbuf, loadbuf_size, infile)) {
     line_idx++;
@@ -8227,6 +8200,7 @@ int32_t load_to_first_token(FILE* infile, uintptr_t loadbuf_size, char comment_c
     *bufptr_ptr = skip_initial_spaces(loadbuf);
     if (!is_eoln_kns(**bufptr_ptr)) {
       if ((**bufptr_ptr) != comment_char) {
+	*line_idx_ptr = line_idx;
         return 0;
       }
     }
@@ -8238,12 +8212,12 @@ int32_t load_to_first_token(FILE* infile, uintptr_t loadbuf_size, char comment_c
   return RET_INVALID_FORMAT;
 }
 
-int32_t open_and_load_to_first_token(FILE** infile_ptr, char* fname, uintptr_t loadbuf_size, char comment_char, const char* file_descrip, char* loadbuf, char** bufptr_ptr) {
+int32_t open_and_load_to_first_token(FILE** infile_ptr, char* fname, uintptr_t loadbuf_size, char comment_char, const char* file_descrip, char* loadbuf, char** bufptr_ptr, uintptr_t* line_idx_ptr) {
   loadbuf[loadbuf_size - 1] = ' ';
   if (fopen_checked(infile_ptr, fname, "r")) {
     return RET_OPEN_FAIL;
   }
-  return load_to_first_token(*infile_ptr, loadbuf_size, comment_char, file_descrip, loadbuf, bufptr_ptr);
+  return load_to_first_token(*infile_ptr, loadbuf_size, comment_char, file_descrip, loadbuf, bufptr_ptr, line_idx_ptr);
 }
 
 int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t headerskip, char skipchar, uintptr_t* max_str_len_ptr, uintptr_t* max_str2_len_ptr) {

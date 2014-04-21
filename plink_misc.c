@@ -20,8 +20,6 @@ void misc_cleanup(Score_info* sc_ip) {
   free_cond(sc_ip->data_fname);
 }
 
-const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
-
 int32_t make_founders(uintptr_t unfiltered_indiv_ct, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t require_two, uintptr_t* indiv_exclude, uintptr_t* founder_info) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
@@ -200,7 +198,7 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
   return 0;
 }
 
-int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_exclude_ct, char* sorted_person_ids, uintptr_t max_person_id_len, uint32_t* id_map, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01, uint32_t mpheno_col, char* phenoname_str, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, char* phenoname_load, uintptr_t max_pheno_name_len) {
+int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_exclude_ct, char* sorted_person_ids, uintptr_t max_person_id_len, uint32_t* id_map, int32_t missing_pheno, uint32_t affection_01, uint32_t mpheno_col, char* phenoname_str, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, char* phenoname_load, uintptr_t max_pheno_name_len) {
   uint32_t affection = 1;
   uintptr_t* pheno_c = *pheno_c_ptr;
   double* pheno_d = *pheno_d_ptr;
@@ -318,8 +316,8 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 	  return LOAD_PHENO_LAST_COL;
 	}
 	if (affection) {
-	  if (eval_affection(bufptr, missing_pheno, missing_pheno_len, affection_01)) {
-	    if (is_missing_pheno(bufptr, missing_pheno, missing_pheno_len, affection_01)) {
+	  if (eval_affection(bufptr, missing_pheno, affection_01)) {
+	    if (is_missing_pheno(bufptr, missing_pheno, affection_01)) {
 	      // Since we're only making one pass through the file, we don't
 	      // have the luxury of knowing in advance whether the phenotype is
 	      // binary or scalar.  If there is a '0' entry that occurs before
@@ -410,12 +408,13 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
   char* bufptr2;
   double cm_new;
   double dxx;
+  uintptr_t line_idx;
+  uintptr_t irreg_line_ct;
   uint32_t chrom_fo_idx;
   uint32_t chrom_ct;
   uint32_t chrom_end;
   uint32_t marker_uidx;
   uint32_t uii;
-  uint32_t irreg_line_ct;
   int32_t bp_old;
   int32_t bp_new;
   int32_t ii;
@@ -468,54 +467,56 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
     //   3. current cM position
     // We mostly ignore field 2, since depending just on fields 1 and 3
     // maximizes accuracy.  The one exception is the very first nonheader line.
-    retval = load_to_first_token(shapeitfile, MAXLINELEN, '\0', "--cm-map file", tbuf, &bufptr);
+    retval = load_to_first_token(shapeitfile, MAXLINELEN, '\0', "--cm-map file", tbuf, &bufptr, &line_idx);
     if (retval) {
       goto apply_cm_map_ret_1;
     }
     bufptr = next_item_mult(bufptr, 2);
     if (no_more_items_kns(bufptr)) {
-      goto apply_cm_map_ret_INVALID_FORMAT_2;
+      goto apply_cm_map_ret_MISSING_TOKENS;
     }
     bufptr = next_item(bufptr);
     if (!no_more_items_kns(bufptr)) {
-      goto apply_cm_map_ret_INVALID_FORMAT_2;
+      goto apply_cm_map_ret_MISSING_TOKENS;
     }
     bp_old = -1;
     while (fgets(tbuf, MAXLINELEN, shapeitfile)) {
+      line_idx++;
       if (!tbuf[MAXLINELEN - 1]) {
-        logprint("Error: Pathologically long line in --cm-map file.\n");
-        goto apply_cm_map_ret_INVALID_FORMAT;
+        sprintf(logbuf, "Error: Line %" PRIuPTR " of --cm-map file is pathologically long.\n", line_idx);
+        goto apply_cm_map_ret_INVALID_FORMAT_2;
       }
       bufptr = skip_initial_spaces(tbuf);
       if ((*bufptr < '+') || (*bufptr > '9')) {
 	// warning instead of error if text line found, since as of 8 Jan 2014
         // the posted chromosome 19 map has such a line
 	if (*bufptr > ' ') {
-	  if (++irreg_line_ct == 0xffffffffU) {
-	    goto apply_cm_map_ret_INVALID_FORMAT_3;
-	  }
+	  irreg_line_ct++;
 	}
         continue;
       }
-      if (atoiz2(bufptr, &bp_new)) {
-        goto apply_cm_map_ret_INVALID_FORMAT_3;
+      if (scan_uint_defcap(bufptr, (uint32_t*)&bp_new)) {
+	sprintf(logbuf, "Error: Invalid bp coordinate on %" PRIuPTR " of --cm-mcap file.\n", line_idx);
+        goto apply_cm_map_ret_INVALID_FORMAT_2;
       }
       if (bp_new <= bp_old) {
-        logprint("Error: bp positions in --cm-map file are not in increasing order.\n");
+        logprint("Error: bp coordinates in --cm-map file are not in increasing order.\n");
         goto apply_cm_map_ret_INVALID_FORMAT;
       }
       bufptr2 = next_item_mult(bufptr, 2);
       if (no_more_items_kns(bufptr2)) {
-	goto apply_cm_map_ret_INVALID_FORMAT_3;
+	goto apply_cm_map_ret_MISSING_TOKENS;
       }
       if (scan_double(bufptr2, &cm_new)) {
-	goto apply_cm_map_ret_INVALID_FORMAT_3;
+	sprintf(logbuf, "Error: Invalid centimorgan position on line %" PRIuPTR " of --cm-map file.\n", line_idx);
+	goto apply_cm_map_ret_INVALID_FORMAT_2;
       }
       if (bp_old == -1) {
 	// parse field 2 only in this case
         bufptr = next_item(bufptr);
         if (scan_double(bufptr, &dxx)) {
-	  goto apply_cm_map_ret_INVALID_FORMAT_3;
+	  sprintf(logbuf, "Error: Invalid recombination rate on line %" PRIuPTR " of --cm-map file.\n", line_idx);
+	  goto apply_cm_map_ret_INVALID_FORMAT_2;
 	}
         cm_old = cm_new - dxx * 0.000001 * ((double)(bp_new + 1));
       }
@@ -539,7 +540,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
       goto apply_cm_map_ret_READ_FAIL;
     }
     if (irreg_line_ct) {
-      LOGPRINTF("Warning: %u irregular line%s skipped in %s.\n", irreg_line_ct, (irreg_line_ct == 1)? "" : "s", fname_buf);
+      LOGPRINTF("Warning: %" PRIuPTR " irregular line%s skipped in %s.\n", irreg_line_ct, (irreg_line_ct == 1)? "" : "s", fname_buf);
     }
   }
   LOGPRINTF("--cm-map: %u chromosome%s updated.\n", updated_chrom_ct, (updated_chrom_ct == 1)? "" : "s");
@@ -554,12 +555,10 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
     logprintb();
     retval = RET_INVALID_CMDLINE;
     break;
-  apply_cm_map_ret_INVALID_FORMAT_3:
-    logprint("Error: Improperly formatted --cm-map file.\n");
-    retval = RET_INVALID_FORMAT;
-    break;
+  apply_cm_map_ret_MISSING_TOKENS:
+    sprintf(logbuf, "Error: Line %" PRIuPTR " of --cm-map file has fewer tokens than expected.\n", line_idx);
   apply_cm_map_ret_INVALID_FORMAT_2:
-    logprint("Error: Unrecognized --cm-map file header line.\n");
+    logprintb();
   apply_cm_map_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -703,6 +702,7 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
   uintptr_t* already_seen;
   char* loadbuf;
   uintptr_t loadbuf_size;
+  uintptr_t line_idx;
   uintptr_t slen;
   uint32_t colmin;
   uint32_t coldiff;
@@ -737,9 +737,16 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
     colmin = update_map->colx - 1;
     coldiff = update_map->colid - update_map->colx;
   }
+  line_idx = update_map->skip;
   while (fgets(loadbuf, loadbuf_size, infile)) {
+    line_idx++;
     if (!(loadbuf[loadbuf_size - 1])) {
-      goto update_marker_pos_ret_NOMEM;
+      if (loadbuf_size == MAXLINEBUFLEN) {
+        sprintf(logbuf, "Error: Line %" PRIuPTR " of --update-map file is pathologically long.\n", line_idx);
+	goto update_marker_pos_ret_INVALID_FORMAT_2;
+      } else {
+        goto update_marker_pos_ret_NOMEM;
+      }
     }
     colid_ptr = skip_initial_spaces(loadbuf);
     cc = *colid_ptr;
@@ -752,7 +759,7 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
       }
       colx_ptr = next_item_mult(colid_ptr, coldiff);
       if (no_more_items_kns(colx_ptr)) {
-	goto update_marker_pos_ret_INVALID_FORMAT_2;
+	goto update_marker_pos_ret_MISSING_TOKENS;
       }
     } else {
       colx_ptr = colid_ptr;
@@ -761,7 +768,7 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
       }
       colid_ptr = next_item_mult(colx_ptr, coldiff);
       if (no_more_items_kns(colid_ptr)) {
-	goto update_marker_pos_ret_INVALID_FORMAT_2;
+	goto update_marker_pos_ret_MISSING_TOKENS;
       }
     }
     slen = strlen_se(colid_ptr);
@@ -772,15 +779,14 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
     }
     if (is_set(already_seen, sorted_idx)) {
       colid_ptr[slen] = '\0';
-      LOGPRINTF("Error: Duplicate variant %s in --update-map file.\n", colid_ptr);
-      goto update_marker_pos_ret_INVALID_FORMAT;
+      sprintf(logbuf, "Error: Duplicate variant '%s' in --update-map file.\n", colid_ptr);
+      goto update_marker_pos_ret_INVALID_FORMAT_2;
     }
     set_bit(already_seen, sorted_idx);
     marker_uidx = marker_id_map[(uint32_t)sorted_idx];
-    sorted_idx = atoi(colx_ptr);
-    if (!(sorted_idx || ((colx_ptr[0] == '0') && (colx_ptr[1] == '\0')))) {
-      logprint("Error: Invalid bp position value in --update-map file.\n");
-      goto update_marker_pos_ret_INVALID_FORMAT;
+    if (scan_int_abs_defcap(colx_ptr, &sorted_idx)) {
+      sprintf(logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of --update-map file.\n", line_idx);
+      goto update_marker_pos_ret_INVALID_FORMAT_2;
     }
     if (sorted_idx < 0) {
       SET_BIT(marker_exclude, marker_uidx);
@@ -831,9 +837,10 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
   update_marker_pos_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
+  update_marker_pos_ret_MISSING_TOKENS:
+    sprintf(logbuf, "Error: Line %" PRIuPTR " of --update-map file has fewer tokens than expected.\n", line_idx);
   update_marker_pos_ret_INVALID_FORMAT_2:
-    logprint("Error: Fewer tokens than expected in --update-map file line.\n");
-  update_marker_pos_ret_INVALID_FORMAT:
+    logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   update_marker_pos_ret_ALL_MARKERS_EXCLUDED:
@@ -2073,6 +2080,7 @@ int32_t load_one_freq(uint32_t alen1, const char* aptr1, uint32_t alen2, const c
 int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, char** marker_allele_ptrs, double* set_allele_freqs, uint32_t maf_succ, double exponent, uint32_t wt_needed, double* marker_weights) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* freqfile = NULL;
+  uintptr_t line_idx = 1;
   uint32_t freq_counts = 0;
   uint32_t alen1 = 0;
   uint32_t alen2 = 0;
@@ -2084,16 +2092,16 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
   char* loadbuf;
   char* sorted_ids;
   uint32_t* id_map;
-  uintptr_t loadbuf_size;
-  uint32_t chrom_idx;
-  uint32_t marker_uidx;
-  uint32_t uii;
   char* bufptr;
   char* bufptr2;
   char* bufptr3;
   char* bufptr4;
   char* bufptr5;
   double maf;
+  uintptr_t loadbuf_size;
+  uint32_t chrom_idx;
+  uint32_t marker_uidx;
+  uint32_t uii;
   int32_t c_hom_a1;
   int32_t c_het;
   int32_t c_hom_a2;
@@ -2115,31 +2123,33 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
   }
   loadbuf = (char*)wkspace_base;
   loadbuf[loadbuf_size - 1] = ' ';
-  if (fgets(loadbuf, loadbuf_size, freqfile) == NULL) {
+  if (!fgets(loadbuf, loadbuf_size, freqfile)) {
     logprint("Error: Empty --read-freq file.\n");
-    goto read_external_freqs_ret_INVALID_FORMAT_2;
+    goto read_external_freqs_ret_INVALID_FORMAT;
   }
   if (!memcmp(loadbuf, " CHR  ", 6)) {
     uii = strlen(loadbuf);
     if (loadbuf[uii - 2] == '0') { // --counts makes G0 the last column header
       freq_counts = 1;
     } else if (loadbuf[uii - 2] != 'S') { // NCHROBS
+      logprint("Error: Invalid --read-freq file header.\n");
       goto read_external_freqs_ret_INVALID_FORMAT;
     }
     while (fgets(loadbuf, loadbuf_size, freqfile) != NULL) {
+      line_idx++;
       if (!loadbuf[loadbuf_size - 1]) {
 	goto read_external_freqs_ret_TOO_LONG_LINE;
       }
       bufptr = skip_initial_spaces(loadbuf);
       ii = get_chrom_code(chrom_info_ptr, bufptr);
       if (ii == -1) {
-	goto read_external_freqs_ret_INVALID_FORMAT;
+	goto read_external_freqs_ret_INVALID_CHROM;
       }
       chrom_idx = ii;
       bufptr = next_item(bufptr); // now at beginning of marker name
       bufptr2 = next_item(bufptr);
       if (!bufptr2) {
-        goto read_external_freqs_ret_INVALID_FORMAT;
+        goto read_external_freqs_ret_MISSING_TOKENS;
       }
       ii = bsearch_str(bufptr, strlen_se(bufptr), sorted_ids, max_marker_id_len, unfiltered_marker_ct - marker_exclude_ct);
       if (ii != -1) {
@@ -2149,27 +2159,31 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	  aptr1 = bufptr2;
 	  bufptr2 = next_item(bufptr2);
 	  if (no_more_items_kns(bufptr2)) {
-	    goto read_external_freqs_ret_INVALID_FORMAT;
+	    goto read_external_freqs_ret_MISSING_TOKENS;
 	  }
 	  alen2 = strlen_se(bufptr2);
 	  aptr2 = bufptr2;
 	  if ((alen1 == alen2) && (!memcmp(aptr1, aptr2, alen1))) {
-	    goto read_external_freqs_ret_INVALID_FORMAT;
+	    goto read_external_freqs_ret_A1_A2_SAME;
 	  }
 	  bufptr = next_item(bufptr2);
 	  if (no_more_items_kns(bufptr)) {
-	    goto read_external_freqs_ret_INVALID_FORMAT;
+	    goto read_external_freqs_ret_MISSING_TOKENS;
 	  }
 	  if (freq_counts) {
 	    if (no_more_items_kns(next_item(bufptr))) {
-	      goto read_external_freqs_ret_INVALID_FORMAT;
+	      goto read_external_freqs_ret_MISSING_TOKENS;
 	    }
-	    c_hom_a1 = atoi(bufptr);
-	    c_hom_a2 = atoi(next_item(bufptr));
+	    if (scan_uint_icap(bufptr, (uint32_t*)&c_hom_a1)) {
+	      goto read_external_freqs_ret_INVALID_HOM_A1;
+	    }
+	    if (scan_uint_icap(next_item(bufptr), (uint32_t*)&c_hom_a2)) {
+	      goto read_external_freqs_ret_INVALID_HOM_A2;
+	    }
 	    maf = ((double)c_hom_a1 + maf_succ) / ((double)(c_hom_a1 + c_hom_a2 + 2 * maf_succ));
 	  } else {
 	    if (scan_double(bufptr, &maf)) {
-	      goto read_external_freqs_ret_INVALID_FORMAT;
+	      goto read_external_freqs_ret_INVALID_MAF;
 	    }
 	  }
 	  if (load_one_freq(alen1, aptr1, alen2, aptr2, maf, &(set_allele_freqs[marker_uidx]), marker_allele_ptrs[marker_uidx * 2], marker_allele_ptrs[marker_uidx * 2 + 1], missing_geno)) {
@@ -2188,20 +2202,21 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
     }
   } else if (!memcmp(loadbuf, "CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(HAP A1)\tC(HAP A2)\tC(MISSING)", 71)) {
     // changed from strcmp to avoid eoln problems
-    // known --freqx format, v0.15.3 or later
+    // known --freqx format, WDIST v0.15.3 or later
     while (fgets(loadbuf, loadbuf_size, freqfile) != NULL) {
+      line_idx++;
       if (!loadbuf[loadbuf_size - 1]) {
 	goto read_external_freqs_ret_TOO_LONG_LINE;
       }
       ii = get_chrom_code(chrom_info_ptr, loadbuf);
       if (ii == -1) {
-	goto read_external_freqs_ret_INVALID_FORMAT;
+	goto read_external_freqs_ret_INVALID_CHROM;
       }
       chrom_idx = ii;
       bufptr = next_item(loadbuf); // now at beginning of marker name
       bufptr2 = next_item(bufptr);
       if (!bufptr2) {
-        goto read_external_freqs_ret_INVALID_FORMAT;
+        goto read_external_freqs_ret_MISSING_TOKENS;
       }
       ii = bsearch_str(bufptr, strlen_se(bufptr), sorted_ids, max_marker_id_len, unfiltered_marker_ct - marker_exclude_ct);
       if (ii != -1) {
@@ -2211,12 +2226,12 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	  aptr1 = bufptr2;
 	  bufptr2 = next_item(bufptr2);
 	  if (no_more_items_kns(bufptr2)) {
-	    goto read_external_freqs_ret_INVALID_FORMAT;
+	    goto read_external_freqs_ret_MISSING_TOKENS;
 	  }
 	  alen2 = strlen_se(bufptr2);
 	  aptr2 = bufptr2;
 	  if ((alen1 == alen2) && (!memcmp(aptr1, aptr2, alen1))) {
-	    goto read_external_freqs_ret_INVALID_FORMAT;
+	    goto read_external_freqs_ret_A1_A2_SAME;
 	  }
 	  bufptr = next_item(bufptr2);
 	  bufptr2 = next_item(bufptr);
@@ -2224,13 +2239,26 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	  bufptr4 = next_item(bufptr3);
 	  bufptr5 = next_item(bufptr4);
 	  if (no_more_items_kns(bufptr5)) {
-	    goto read_external_freqs_ret_INVALID_FORMAT;
+	    goto read_external_freqs_ret_MISSING_TOKENS;
 	  }
-	  c_hom_a1 = atoi(bufptr);
-	  c_het = atoi(bufptr2);
-	  c_hom_a2 = atoi(bufptr3);
-	  c_hap_a1 = atoi(bufptr4);
-	  c_hap_a2 = atoi(bufptr5);
+	  if (scan_uint_icap(bufptr, (uint32_t*)&c_hom_a1)) {
+	    goto read_external_freqs_ret_INVALID_HOM_A1;
+	  }
+	  if (scan_uint_icap(bufptr2, (uint32_t*)&c_het)) {
+	    sprintf(logbuf, "Error: Invalid het count on line %" PRIuPTR " of --read-freq file.\n", line_idx);
+	    goto read_external_freqs_ret_INVALID_FORMAT_2;
+	  }
+	  if (scan_uint_icap(bufptr3, (uint32_t*)&c_hom_a2)) {
+	    goto read_external_freqs_ret_INVALID_HOM_A2;
+	  }
+	  if (scan_uint_icap(bufptr4, (uint32_t*)&c_hap_a1)) {
+	    sprintf(logbuf, "Error: Invalid hap. A1 count on line %" PRIuPTR " of --read-freq file.\n", line_idx);
+	    goto read_external_freqs_ret_INVALID_FORMAT_2;
+	  }
+	  if (scan_uint_icap(bufptr5, (uint32_t*)&c_hap_a2)) {
+	    sprintf(logbuf, "Error: Invalid hap. A2 count on line %" PRIuPTR " of --read-freq file.\n", line_idx);
+	    goto read_external_freqs_ret_INVALID_FORMAT_2;
+	  }
 	  maf = ((double)(c_hom_a1 * 2 + c_het + c_hap_a1 + maf_succ)) / ((double)(2 * (c_hom_a1 + c_het + c_hom_a2 + maf_succ) + c_hap_a1 + c_hap_a2));
 	  if (load_one_freq(alen1, aptr1, alen2, aptr2, maf, &(set_allele_freqs[marker_uidx]), marker_allele_ptrs[marker_uidx * 2], marker_allele_ptrs[marker_uidx * 2 + 1], missing_geno)) {
 	    goto read_external_freqs_ret_ALLELE_MISMATCH;
@@ -2249,6 +2277,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
   } else {
     // Also support GCTA-style frequency files:
     // [marker ID]\t[reference allele]\t[frequency of reference allele]\n
+    line_idx = 0; // no header line here
     do {
       if (!loadbuf[loadbuf_size - 1]) {
 	goto read_external_freqs_ret_TOO_LONG_LINE;
@@ -2259,7 +2288,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
       }
       bufptr = next_item(bufptr);
       if (!bufptr) {
-        goto read_external_freqs_ret_INVALID_FORMAT;
+        goto read_external_freqs_ret_MISSING_TOKENS;
       }
       ii = bsearch_str(loadbuf, strlen_se(loadbuf), sorted_ids, max_marker_id_len, unfiltered_marker_ct - marker_exclude_ct);
       if (ii != -1) {
@@ -2268,10 +2297,10 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	aptr1 = bufptr;
         bufptr = next_item(bufptr);
 	if (no_more_items_kns(bufptr)) {
-          goto read_external_freqs_ret_INVALID_FORMAT;
+          goto read_external_freqs_ret_MISSING_TOKENS;
 	}
 	if (scan_double(bufptr, &maf)) {
-          goto read_external_freqs_ret_INVALID_FORMAT;
+          goto read_external_freqs_ret_INVALID_MAF;
         }
 	if (load_one_freq(1, missing_geno_ptr, alen1, aptr1, maf, &(set_allele_freqs[marker_uidx]), marker_allele_ptrs[marker_uidx * 2], marker_allele_ptrs[marker_uidx * 2 + 1], missing_geno)) {
 	  goto read_external_freqs_ret_ALLELE_MISMATCH;
@@ -2282,8 +2311,12 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
       } else {
 	// if there aren't exactly 3 columns, this isn't a GCTA .freq file
 	bufptr = next_item(bufptr);
-	if (no_more_items_kns(bufptr) || (!no_more_items_kns(next_item(bufptr)))) {
-	  goto read_external_freqs_ret_INVALID_FORMAT;
+	if (no_more_items_kns(bufptr)) {
+	  goto read_external_freqs_ret_MISSING_TOKENS;
+	}
+        if (!no_more_items_kns(next_item(bufptr))) {
+	  sprintf(logbuf, "Error: Line %" PRIuPTR " of --read-freq has more tokens than expected.\n", line_idx);
+	  goto read_external_freqs_ret_INVALID_FORMAT_2;
 	}
       }
     } while (fgets(loadbuf, loadbuf_size, freqfile) != NULL);
@@ -2292,7 +2325,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
   while (0) {
   read_external_freqs_ret_TOO_LONG_LINE:
     if (loadbuf_size == MAXLINEBUFLEN) {
-      logprint("Error: Pathologically long line in --freq{x} file.\n");
+      LOGPRINTF("Error: Line %" PRIuPTR " of --read-freq file is pathologically long.\n", line_idx);
       retval = RET_INVALID_FORMAT;
       break;
     }
@@ -2302,13 +2335,35 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
   read_external_freqs_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;
-  read_external_freqs_ret_INVALID_FORMAT:
-    logprint(errstr_freq_format);
+  read_external_freqs_ret_INVALID_HOM_A1:
+    LOGPRINTF("Error: Invalid hom. A1 count on line %" PRIuPTR " of --read-freq file.\n", line_idx);
+    retval = RET_INVALID_FORMAT;
+    break;
+  read_external_freqs_ret_INVALID_HOM_A2:
+    LOGPRINTF("Error: Invalid hom. A2 count on line %" PRIuPTR " of --read-freq file.\n", line_idx);
+    retval = RET_INVALID_FORMAT;
+    break;
+  read_external_freqs_ret_INVALID_MAF:
+    LOGPRINTF("Error: Invalid MAF on line %" PRIuPTR " of --read-freq file.\n", line_idx);
+    retval = RET_INVALID_FORMAT;
+    break;
+  read_external_freqs_ret_A1_A2_SAME:
+    LOGPRINTF("Error: A1 and A2 alleles match on line %" PRIuPTR " of --read-freq file.\n", line_idx);
+    retval = RET_INVALID_FORMAT;
+    break;
+  read_external_freqs_ret_INVALID_CHROM:
+    sprintf(logbuf, "Error: Invalid chromosome code on line %" PRIuPTR" of --read-freq file.\n", line_idx);
   read_external_freqs_ret_INVALID_FORMAT_2:
+    logprintb();
+  read_external_freqs_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  read_external_freqs_ret_MISSING_TOKENS:
+    LOGPRINTF("Error: Line %" PRIuPTR " of --read-freq file has fewer tokens than expected.\n", line_idx);
     retval = RET_INVALID_FORMAT;
     break;
   read_external_freqs_ret_ALLELE_MISMATCH:
-    LOGPRINTF("Error: Mismatch between .bim/.ped and --read-freq alleles at %s.\n", next_item(skip_initial_spaces(loadbuf)));
+    LOGPRINTF("Error: Allele(s) on line %" PRIuPTR " of --read-freq file don't match loaded\nvalues.\n", line_idx);
     retval = RET_ALLELE_MISMATCH;
     break;
   }
@@ -3508,6 +3563,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   uintptr_t marker_idx;
   uintptr_t indiv_uidx;
   uintptr_t indiv_idx;
+  uintptr_t line_idx;
   uintptr_t uljj;
   uint32_t chrom_fo_idx;
   uint32_t chrom_end;
@@ -3561,7 +3617,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
     goto score_report_ret_NOMEM;
   }
   loadbuf_c = (char*)wkspace_base;
-  retval = open_and_load_to_first_token(&infile, sc_ip->fname, loadbuf_size, '\0', "--score file", loadbuf_c, &bufptr);
+  retval = open_and_load_to_first_token(&infile, sc_ip->fname, loadbuf_size, '\0', "--score file", loadbuf_c, &bufptr, &line_idx);
   if (retval) {
     goto score_report_ret_1;
   }
@@ -3624,8 +3680,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
     bufptr_arr[1] = next_item_mult(bufptr_arr[0], col_01_delta);
     bufptr_arr[2] = next_item_mult(bufptr_arr[1], col_12_delta);
     if (!bufptr_arr[2]) {
-      logprint("Error: Missing token(s) in --score file.\n");
-      goto score_report_ret_INVALID_FORMAT;
+      goto score_report_ret_MISSING_TOKENS;
     }
     sorted_idx = bsearch_str(bufptr_arr[varid_idx], strlen_se(bufptr_arr[varid_idx]), sorted_marker_ids, max_marker_id_len, marker_ct);
     if (sorted_idx != -1) {
@@ -3653,13 +3708,14 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
       miss_ct++;
     }
   score_report_load_next:
+    line_idx++;
     if (!fgets(loadbuf_c, loadbuf_size, infile)) {
       break;
     }
     if (!(loadbuf_c[loadbuf_size - 1])) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-        logprint("Error: Pathologically long line in --score file.\n");
-        goto score_report_ret_INVALID_FORMAT;
+        sprintf(logbuf, "Error: Line %" PRIuPTR " of --score file is pathologically long.\n", line_idx);
+        goto score_report_ret_INVALID_FORMAT_2;
       }
       goto score_report_ret_NOMEM;
     }
@@ -3702,7 +3758,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
       goto score_report_ret_NOMEM;
     }
     loadbuf_c = (char*)wkspace_base;
-    retval = open_and_load_to_first_token(&infile, sc_ip->data_fname, loadbuf_size, '\0', "--q-score-range data file", loadbuf_c, &bufptr);
+    retval = open_and_load_to_first_token(&infile, sc_ip->data_fname, loadbuf_size, '\0', "--q-score-range data file", loadbuf_c, &bufptr, &line_idx);
     if (retval) {
       goto score_report_ret_1;
     }
@@ -3728,8 +3784,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
       }
       bufptr_arr[1] = next_item_mult(bufptr_arr[0], col_01_delta);
       if (!bufptr_arr[1]) {
-	logprint("Error: Missing token(s) in --q-score-range data file.\n");
-        goto score_report_ret_INVALID_FORMAT;
+        goto score_report_ret_MISSING_TOKENS_Q;
       }
       sorted_idx = bsearch_str(bufptr_arr[varid_idx], strlen_se(bufptr_arr[varid_idx]), sorted_marker_ids, max_marker_id_len, marker_ct);
       if (sorted_idx != -1) {
@@ -3753,13 +3808,14 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
 	miss_ct++;
       }
     score_report_qrange_load_next:
+      line_idx++;
       if (!fgets(loadbuf_c, loadbuf_size, infile)) {
 	break;
       }
       if (!(loadbuf_c[loadbuf_size - 1])) {
 	if (loadbuf_size == MAXLINEBUFLEN) {
-	  logprint("Error: Pathologically long line in --q-score-range data file.\n");
-	  goto score_report_ret_INVALID_FORMAT;
+	  sprintf(logbuf, "Error: Line %" PRIuPTR " of --q-score-range data file is pathologically long.\n", line_idx);
+	  goto score_report_ret_INVALID_FORMAT_2;
 	}
 	goto score_report_ret_NOMEM;
       }
@@ -3831,9 +3887,11 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
     bufptr = missing_pheno_str;
   }
   int32_write(bufptr, missing_pheno);
+  line_idx = 0;
   do {
     if (marker_exclude_main) {
       while (1) {
+	line_idx++;
         if (!fgets(tbuf, MAXLINELEN, infile)) {
 	  if (fclose_null(&infile)) {
 	    goto score_report_ret_READ_FAIL;
@@ -3847,8 +3905,8 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
 	  goto score_report_ret_1;
 	}
 	if (!tbuf[MAXLINELEN - 1]) {
-	  logprint("Error: Pathologically long line in --q-score-range range file.\n");
-	  goto score_report_ret_INVALID_FORMAT;
+	  sprintf(logbuf, "Error: Line %" PRIuPTR " of --q-score-range range file is pathologically long.\n", line_idx);
+	  goto score_report_ret_INVALID_FORMAT_2;
 	}
         bufptr = skip_initial_spaces(tbuf);
 	if (is_eoln_kns(*bufptr)) {
@@ -3861,8 +3919,8 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
 	  continue;
 	}
 	if (rangename_len > max_rangename_len) {
-	  logprint("Error: Excessively long range name in --q-score-range range file.\n");
-	  goto score_report_ret_INVALID_FORMAT;
+	  sprintf(logbuf, "Error: Excessively long range name on line %" PRIuPTR " of --q-score-range range\nfile.\n", line_idx);
+	  goto score_report_ret_INVALID_FORMAT_2;
 	}
 	bufptr_arr[0] = bufptr;
 	break;
@@ -4118,6 +4176,12 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   score_report_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
+  score_report_ret_MISSING_TOKENS_Q:
+    LOGPRINTF("Error: Line %" PRIuPTR " of --q-score-range data file has fewer tokens than\nexpected.\n", line_idx);
+    retval = RET_INVALID_FORMAT;
+    break;
+  score_report_ret_MISSING_TOKENS:
+    sprintf(logbuf, "Error: Line %" PRIuPTR " of --score file has fewer tokens than expected.\n", line_idx);
   score_report_ret_INVALID_FORMAT_2:
     logprintb();
   score_report_ret_INVALID_FORMAT:

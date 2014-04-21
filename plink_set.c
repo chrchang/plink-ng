@@ -163,6 +163,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
   char* set_names = NULL;
   uintptr_t set_ct = 0;
   uintptr_t max_set_id_len = 0;
+  uintptr_t line_idx = 0;
   uint32_t chrom_start = 0;
   uint32_t chrom_end = 0;
   int32_t retval = 0;
@@ -184,8 +185,9 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
   // if we need to track set names, put together a sorted list
   if (track_set_names) {
     while (fgets(tbuf, MAXLINELEN, infile)) {
+      line_idx++;
       if (!tbuf[MAXLINELEN - 1]) {
-	sprintf(logbuf, "Error: Pathologically long line in %s file.\n", file_descrip);
+	sprintf(logbuf, "Error: Line %" PRIuPTR " of %s file is pathologically long.\n", line_idx, file_descrip);
 	goto load_range_list_ret_INVALID_FORMAT_2;
       }
       bufptr = skip_initial_spaces(tbuf);
@@ -199,12 +201,12 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	bufptr3 = next_item(bufptr2);
       }
       if (no_more_items_kns(bufptr3)) {
-	sprintf(logbuf, "Error: Fewer tokens than expected in %s file line.\n", file_descrip);
+	sprintf(logbuf, "Error: Line %" PRIuPTR " of %s file has fewer tokens than expected.\n", line_idx, file_descrip);
 	goto load_range_list_ret_INVALID_FORMAT_2;
       }
       ii = get_chrom_code(chrom_info_ptr, bufptr);
       if (ii == -1) {
-	sprintf(logbuf, "Error: Invalid chromosome code in %s file.\n", file_descrip);
+	sprintf(logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of  %s file.\n", line_idx, file_descrip);
 	goto load_range_list_ret_INVALID_FORMAT_2;
       }
       if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
@@ -290,9 +292,11 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
   for (set_idx = 0; set_idx < set_ct; set_idx++) {
     make_set_range_arr[set_idx] = NULL;
   }
+  line_idx = 0;
   while (fgets(tbuf, MAXLINELEN, infile)) {
+    line_idx++;
     if (!tbuf[MAXLINELEN - 1]) {
-      sprintf(logbuf, "Error: Pathologically long line in %s file.\n", file_descrip);
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of %s file is pathologically long.\n", line_idx, file_descrip);
       goto load_range_list_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(tbuf);
@@ -306,12 +310,12 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       bufptr3 = next_item(bufptr2);
     }
     if (no_more_items_kns(bufptr3)) {
-      sprintf(logbuf, "Error: Fewer tokens than expected in %s file line.\n", file_descrip);
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of %s file has fewer tokens than expected.\n", line_idx, file_descrip);
       goto load_range_list_ret_INVALID_FORMAT_2;
     }
     ii = get_chrom_code(chrom_info_ptr, bufptr);
     if (ii == -1) {
-      sprintf(logbuf, "Error: Invalid chromosome code in %s file.\n", file_descrip);
+      sprintf(logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
       goto load_range_list_ret_INVALID_FORMAT_2;
     }
     if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
@@ -330,21 +334,17 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       }
     }
     bufptr = next_item(bufptr);
-    if (atoiz2(bufptr, &ii)) {
-      bufptr[strlen_se(bufptr)] = '\0';
-      sprintf(logbuf, "Error: Invalid range start position '%s' in %s file.\n", bufptr, file_descrip);
+    if (scan_uint_defcap(bufptr, &range_first)) {
+      sprintf(logbuf, "Error: Invalid range start position on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
       goto load_range_list_ret_INVALID_FORMAT_2;
     }
-    range_first = ii;
     bufptr = next_item(bufptr);
-    if (atoiz2(bufptr, &ii)) {
-      bufptr[strlen_se(bufptr)] = '\0';
-      sprintf(logbuf, "Error: Invalid range end position '%s' in %s file.\n", bufptr, file_descrip);
+    if (scan_uint_defcap(bufptr, &range_last)) {
+      sprintf(logbuf, "Error: Invalid range end position on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
       goto load_range_list_ret_INVALID_FORMAT_2;
     }
-    range_last = ii;
     if (range_last < range_first) {
-      sprintf(logbuf, "Error: Range end position smaller than range start in %s file.\n", file_descrip);
+      sprintf(logbuf, "Error: Range end position smaller than range start on line %" PRIuPTR " of\n%s file.\n", line_idx, file_descrip);
       goto load_range_list_ret_INVALID_FORMAT_2;
     }
     if (border_extend > range_first) {
