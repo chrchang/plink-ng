@@ -144,6 +144,8 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t* pheno_c = *pheno_c_ptr;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t line_idx = 0;
+  int32_t retval = 0;
   char* id_buf;
   char* bufptr0;
   char* bufptr;
@@ -151,11 +153,11 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
   uint32_t person_idx;
   uint32_t tmp_len;
   if (wkspace_alloc_c_checked(&id_buf, max_person_id_len)) {
-    return RET_NOMEM;
+    goto makepheno_load_ret_NOMEM;
   }
   if (!pheno_c) {
     if (aligned_malloc(pheno_c_ptr, unfiltered_indiv_ctl * sizeof(intptr_t))) {
-      return RET_NOMEM;
+      goto makepheno_load_ret_NOMEM;
     }
     pheno_c = *pheno_c_ptr;
     fill_ulong_zero(pheno_c, unfiltered_indiv_ctl);
@@ -166,17 +168,18 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
   // probably want to permit long lines here
   tbuf[MAXLINELEN - 1] = ' '; 
   while (fgets(tbuf, MAXLINELEN, phenofile) != NULL) {
+    line_idx++;
     if (!tbuf[MAXLINELEN - 1]) {
-      logprint("Error: Pathologically long line in phenotype file.\n");
-      return RET_INVALID_FORMAT;
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of --make-pheno file is pathologically long.\n", line_idx);
+      goto makepheno_load_ret_INVALID_FORMAT_2;
     }
     bufptr0 = skip_initial_spaces(tbuf);
     if (is_eoln_kns(*bufptr0)) {
       continue;
     }
     if (bsearch_read_fam_indiv(id_buf, sorted_person_ids, max_person_id_len, unfiltered_indiv_ct, bufptr0, &bufptr, &ii)) {
-      logprint(errstr_phenotype_format);
-      return RET_INVALID_FORMAT;
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of --make-pheno file has fewer tokens than expected.\n", line_idx);
+      goto makepheno_load_ret_INVALID_FORMAT_2;
     }
     if (ii != -1) {
       person_idx = id_map[(uint32_t)ii];
@@ -192,10 +195,22 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
     }
   }
   if (!feof(phenofile)) {
-    return RET_READ_FAIL;
+    goto makepheno_load_ret_READ_FAIL;
+  }
+  while (0) {
+  makepheno_load_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  makepheno_load_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  makepheno_load_ret_INVALID_FORMAT_2:
+    logprintb();
+    retval = RET_INVALID_FORMAT;
+    break;
   }
   wkspace_reset(wkspace_mark);
-  return 0;
+  return retval;
 }
 
 int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_exclude_ct, char* sorted_person_ids, uintptr_t max_person_id_len, uint32_t* id_map, int32_t missing_pheno, uint32_t affection_01, uint32_t mpheno_col, char* phenoname_str, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, char* phenoname_load, uintptr_t max_pheno_name_len) {
@@ -206,6 +221,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
+  uintptr_t line_idx = 0;
   char case_char = affection_01? '1' : '2';
   uintptr_t* isz = NULL;
   double missing_phenod = (double)missing_pheno;
@@ -247,10 +263,11 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
   loadbuf = (char*)wkspace_base;
   loadbuf[loadbuf_size - 1] = ' ';
   while (fgets(loadbuf, loadbuf_size, phenofile) != NULL) {
+    line_idx++;
     if (!loadbuf[loadbuf_size - 1]) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-	logprint("Error: Pathologically long line in --pheno file.\n");
-	goto load_pheno_ret_INVALID_FORMAT;
+	sprintf(logbuf, "Error: Line %" PRIuPTR " of --pheno file is pathologically long.\n", line_idx);
+	goto load_pheno_ret_INVALID_FORMAT_2;
       } else {
 	goto load_pheno_ret_NOMEM;
       }
@@ -312,7 +329,9 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 	  bufptr = next_item_mult(bufptr, mpheno_col - 1);
 	}
 	if (no_more_items_kns(bufptr)) {
-	  // not always an error
+	  // Sometimes, but not always, an error.  So we populate logbuf but
+	  // let the caller decide whether to actually log it.
+          sprintf(logbuf, "Error: Line %" PRIuPTR " of --pheno file has fewer tokens than expected.\n", line_idx);
 	  return LOAD_PHENO_LAST_COL;
 	}
 	if (affection) {
@@ -366,11 +385,6 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 	    set_bit(pheno_nm, person_idx);
 	  }
 	}
-#ifndef STABLE_BUILD
-      } else if (g_debug_on) {
-        sprintf(logbuf, "Sample not found for line: %s", bufptr0);
-        logstr(logbuf);
-#endif
       }
     }
   }
@@ -385,7 +399,9 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
     retval = RET_READ_FAIL;
     break;
   load_pheno_ret_MISSING_TOKENS:
-    logprint(errstr_phenotype_format);
+    sprintf(logbuf, "Error: Line %" PRIuPTR " of --pheno file has fewer tokens than expected.\n", line_idx);
+  load_pheno_ret_INVALID_FORMAT_2:
+    logprintb();
   load_pheno_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -580,6 +596,7 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
   char* loadbuf;
   uintptr_t loadbuf_size;
   uintptr_t slen;
+  uintptr_t line_idx;
   uint32_t colmin;
   uint32_t coldiff;
   char* colid_ptr;
@@ -612,9 +629,16 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
     colmin = update_cm->colx - 1;
     coldiff = update_cm->colid - update_cm->colx;
   }
+  line_idx = update_cm->skip;
   while (fgets(loadbuf, loadbuf_size, infile)) {
+    line_idx++;
     if (!(loadbuf[loadbuf_size - 1])) {
-      goto update_marker_cms_ret_NOMEM;
+      if (loadbuf_size == MAXLINEBUFLEN) {
+	sprintf(logbuf, "Error: Line %" PRIuPTR " of --update-cm file is pathologically long.\n", line_idx);
+	goto update_marker_cms_ret_INVALID_FORMAT_2;
+      } else {
+        goto update_marker_cms_ret_NOMEM;
+      }
     }
     colid_ptr = skip_initial_spaces(loadbuf);
     cc = *colid_ptr;
@@ -627,7 +651,7 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
       }
       colx_ptr = next_item_mult(colid_ptr, coldiff);
       if (no_more_items_kns(colx_ptr)) {
-	goto update_marker_cms_ret_INVALID_FORMAT_2;
+	goto update_marker_cms_ret_MISSING_TOKENS;
       }
     } else {
       colx_ptr = colid_ptr;
@@ -636,7 +660,7 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
       }
       colid_ptr = next_item_mult(colx_ptr, coldiff);
       if (no_more_items_kns(colid_ptr)) {
-	goto update_marker_cms_ret_INVALID_FORMAT_2;
+	goto update_marker_cms_ret_MISSING_TOKENS;
       }
     }
     slen = strlen_se(colid_ptr);
@@ -647,14 +671,14 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
     }
     if (is_set(already_seen, sorted_idx)) {
       colid_ptr[slen] = '\0';
-      LOGPRINTF("Error: Duplicate variant %s in --update-cm file.\n", colid_ptr);
-      goto update_marker_cms_ret_INVALID_FORMAT;
+      sprintf(logbuf, "Error: Duplicate variant '%s' in --update-cm file.\n", colid_ptr);
+      goto update_marker_cms_ret_INVALID_FORMAT_2;
     }
     set_bit(already_seen, sorted_idx);
     marker_uidx = marker_id_map[(uint32_t)sorted_idx];
     if (scan_double(colx_ptr, &(marker_cms[marker_uidx]))) {
-      logprint("Error: Invalid centimorgan value in --update-cm file.\n");
-      goto update_marker_cms_ret_INVALID_FORMAT;
+      sprintf(logbuf, "Error: Invalid centimorgan position on line %" PRIuPTR " of --update-cm file.\n", line_idx);
+      goto update_marker_cms_ret_INVALID_FORMAT_2;
     }
     hit_ct++;
   }
@@ -674,9 +698,10 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
   update_marker_cms_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
+  update_marker_cms_ret_MISSING_TOKENS:
+    sprintf(logbuf, "Error: Line %" PRIuPTR " of --update-cm file has fewer tokens than expected.\n", line_idx);
   update_marker_cms_ret_INVALID_FORMAT_2:
-    logprint("Error: Fewer tokens than expected in --update-cm file line.\n");
-  update_marker_cms_ret_INVALID_FORMAT:
+    logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -897,6 +922,7 @@ int32_t update_marker_names(Two_col_params* update_name, char* sorted_marker_ids
     coldiff = update_name->colid - update_name->colx;
   }
   while (fgets(loadbuf, loadbuf_size, infile)) {
+    // no need for line_idx since all validation happened earlier
     if (!(loadbuf[loadbuf_size - 1])) {
       goto update_marker_names_ret_NOMEM;
     }
@@ -925,8 +951,8 @@ int32_t update_marker_names(Two_col_params* update_name, char* sorted_marker_ids
     }
     if (is_set(already_seen, sorted_idx)) {
       colold_ptr[slen] = '\0';
-      LOGPRINTF("Error: Duplicate variant %s in --update-name file.\n", colold_ptr);
-      goto update_marker_names_ret_INVALID_FORMAT;
+      sprintf(logbuf, "Error: Duplicate variant ID '%s' in --update-name file.\n", colold_ptr);
+      goto update_marker_names_ret_INVALID_FORMAT_2;
     }
     set_bit(already_seen, sorted_idx);
     marker_uidx = marker_id_map[((uint32_t)sorted_idx)];
@@ -951,7 +977,8 @@ int32_t update_marker_names(Two_col_params* update_name, char* sorted_marker_ids
   update_marker_names_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  update_marker_names_ret_INVALID_FORMAT:
+  update_marker_names_ret_INVALID_FORMAT_2:
+    logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -971,6 +998,7 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
   uintptr_t hit_ct = 0;
   uintptr_t miss_ct = 0;
   uintptr_t err_ct = 0;
+  uintptr_t line_idx = 0;
   uintptr_t* already_seen;
   char* loadbuf;
   char* bufptr;
@@ -997,10 +1025,11 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
   loadbuf = (char*)wkspace_alloc(loadbuf_size);
   loadbuf[loadbuf_size - 1] = ' ';
   while (fgets(loadbuf, loadbuf_size, infile)) {
+    line_idx++;
     if (!loadbuf[loadbuf_size - 1]) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-	logprint("Error: Pathologically long line in --update-alleles file.\n");
-	goto update_marker_alleles_ret_INVALID_FORMAT;
+	sprintf(logbuf, "Error: Line %" PRIuPTR " of --update-alleles file is pathologically long.\n", line_idx);
+	goto update_marker_alleles_ret_INVALID_FORMAT_2;
       } else {
 	goto update_marker_alleles_ret_NOMEM;
       }
@@ -1017,8 +1046,8 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
     }
     if (is_set(already_seen, sorted_idx)) {
       *bufptr2 = '\0';
-      LOGPRINTF("Error: Duplicate variant %s in --update-alleles file.\n", bufptr3);
-      goto update_marker_alleles_ret_INVALID_FORMAT;
+      sprintf(logbuf, "Error: Duplicate variant ID '%s' in --update-alleles file.\n", bufptr3);
+      goto update_marker_alleles_ret_INVALID_FORMAT_2;
     }
     set_bit(already_seen, sorted_idx);
     marker_uidx = marker_id_map[((uint32_t)sorted_idx)];
@@ -1093,7 +1122,8 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
   update_marker_alleles_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
-  update_marker_alleles_ret_INVALID_FORMAT:
+  update_marker_alleles_ret_INVALID_FORMAT_2:
+    logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -1132,6 +1162,7 @@ int32_t flip_strand(char* flip_fname, char* sorted_marker_ids, uintptr_t marker_
   uintptr_t marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t hit_ct = 0;
   uintptr_t miss_ct = 0;
+  uintptr_t line_idx = 0;
   uintptr_t* already_seen;
   char* bufptr;
   uint32_t slen;
@@ -1147,9 +1178,10 @@ int32_t flip_strand(char* flip_fname, char* sorted_marker_ids, uintptr_t marker_
   }
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, flipfile)) {
+    line_idx++;
     if (!tbuf[MAXLINELEN - 1]) {
-      logprint("Error: Pathologically long line in --flip file.\n");
-      goto flip_strand_ret_INVALID_FORMAT;
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of --flip file is pathologically long.\n", line_idx);
+      goto flip_strand_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(tbuf);
     if (is_eoln_kns(*bufptr)) {
@@ -1162,8 +1194,8 @@ int32_t flip_strand(char* flip_fname, char* sorted_marker_ids, uintptr_t marker_
     }
     if (is_set(already_seen, sorted_idx)) {
       bufptr[slen] = '\0';
-      LOGPRINTF("Error: Duplicate marker ID %s in --flip file.\n", bufptr);
-      goto flip_strand_ret_INVALID_FORMAT;
+      sprintf(logbuf, "Error: Duplicate variant ID '%s' in --flip file.\n", bufptr);
+      goto flip_strand_ret_INVALID_FORMAT_2;
     }
     set_bit(already_seen, sorted_idx);
     marker_uidx = marker_id_map[(uint32_t)sorted_idx];
@@ -1195,7 +1227,8 @@ int32_t flip_strand(char* flip_fname, char* sorted_marker_ids, uintptr_t marker_
   flip_strand_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  flip_strand_ret_INVALID_FORMAT:
+  flip_strand_ret_INVALID_FORMAT_2:
+    logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -1267,6 +1300,7 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
   uintptr_t* exclude_arr_new = NULL;
   uintptr_t unfiltered_ctl = (unfiltered_ct + (BITCT - 1)) / BITCT;
   uintptr_t duplicate_ct = 0;
+  uintptr_t line_idx = 0;
   uint32_t do_exclude = flags & 1;
   // flags & 2 = indivs
   uint32_t families_only = flags & 4;
@@ -1303,8 +1337,9 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
       goto include_or_exclude_ret_NOMEM;
     }
     while (fgets(tbuf, MAXLINELEN, infile) != NULL) {
+      line_idx++;
       if (!tbuf[MAXLINELEN - 1]) {
-	sprintf(logbuf, "Error: Excessively long line in --%s file (max %u chars).\n", include_or_exclude_flag_str(flags), MAXLINELEN - 3);
+	sprintf(logbuf, "Error: Line %" PRIuPTR " of --%s file is pathologically long.\n", line_idx, include_or_exclude_flag_str(flags));
 	goto include_or_exclude_ret_INVALID_FORMAT_2;
       }
       bufptr0 = skip_initial_spaces(tbuf);
@@ -1313,7 +1348,7 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
       }
       if (!families_only) {
 	if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_ct, bufptr0, NULL, &ii)) {
-	  sprintf(logbuf, "Error: Fewer tokens than expected in --%s line.\n", include_or_exclude_flag_str(flags));
+	  sprintf(logbuf, "Error: Line %" PRIuPTR " of --%s file has fewer tokens than expected.\n", line_idx, include_or_exclude_flag_str(flags));
 	  goto include_or_exclude_ret_INVALID_FORMAT_2;
 	}
 	if (ii != -1) {
@@ -1466,6 +1501,7 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
   uint32_t neg_match_ctl = 0;
   uintptr_t max_pos_match_len = 0;
   uintptr_t max_neg_match_len = 0;
+  uintptr_t line_idx = 0;
   uint32_t is_neg = 0;
   int32_t retval = 0;
   uintptr_t* exclude_arr_new;
@@ -1599,9 +1635,10 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
   loadbuf = (char*)wkspace_base;
   loadbuf[loadbuf_size - 1] = ' ';
   while (fgets(loadbuf, loadbuf_size, infile)) {
+    line_idx++;
     if (!loadbuf[loadbuf_size - 1]) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-	sprintf(logbuf, "Error: Pathologically long line in --filter-attrib%s file.\n", is_indiv? "-indiv" : "");
+	sprintf(logbuf, "Error: Line %" PRIuPTR" of --filter-attrib%s file is pathologically long.\n", line_idx, is_indiv? "-indiv" : "");
         goto filter_attrib_ret_INVALID_FORMAT_2;
       }
       goto filter_attrib_ret_NOMEM;
@@ -1612,8 +1649,8 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
     }
     if (is_indiv) {
       if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_ct, bufptr, &cond_ptr, &sorted_idx)) {
-        logprint("Error: --filter-attrib-indiv line has only one token.\n");
-        goto filter_attrib_ret_INVALID_FORMAT;
+        sprintf(logbuf, "Error: Line %" PRIuPTR " of --filter-attrib-indiv file has fewer tokens than\nexpected.\n", line_idx);
+        goto filter_attrib_ret_INVALID_FORMAT_2;
       }
     } else {
       bufptr2 = item_endnn(bufptr);
@@ -1625,12 +1662,11 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
     }
     if (is_set(already_seen, sorted_idx)) {
       if (is_indiv) {
-        bufptr = (char*)memchr(id_buf, '\t', max_id_len);
-	*bufptr = ' ';
-        sprintf(logbuf, "Error: Duplicate individual %s in --filter-attrib-indiv file.\n", id_buf);
+	*strchr(id_buf, '\t') = ' ';
+        sprintf(logbuf, "Error: Duplicate individual ID '%s' in --filter-attrib-indiv file.\n", id_buf);
       } else {
 	*bufptr2 = '\0';
-	sprintf(logbuf, "Error: Duplicate variant %s in --filter-attrib file.\n", bufptr);
+	sprintf(logbuf, "Error: Duplicate variant ID '%s' in --filter-attrib file.\n", bufptr);
       }
       goto filter_attrib_ret_INVALID_FORMAT_2;
     }
@@ -1701,7 +1737,6 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
     break;
   filter_attrib_ret_INVALID_FORMAT_2:
     logprintb();
-  filter_attrib_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -1719,6 +1754,7 @@ int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintpt
   uintptr_t indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t hit_ct = 0;
   uintptr_t miss_ct = 0;
+  uintptr_t line_idx = 0;
   char* idbuf;
   uintptr_t* already_seen;
   char* bufptr;
@@ -1737,9 +1773,12 @@ int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintpt
   }
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, infile)) {
+    line_idx++;
     if (!tbuf[MAXLINELEN - 1]) {
-      logprint("Error: Pathologically long line in --update-ids file.\n");
-      goto update_indiv_ids_ret_INVALID_FORMAT;
+      // er, either this buffer should be extended, or the
+      // scan_max_fam_indiv_strlen() should use this length...
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of --update-ids file is pathologically long.\n", line_idx);
+      goto update_indiv_ids_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(tbuf);
     if (is_eoln_kns(*bufptr)) {
@@ -1751,8 +1790,9 @@ int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintpt
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
-      logprint("Error: Duplicate individual in --update-ids file.\n");
-      goto update_indiv_ids_ret_INVALID_FORMAT;
+      *strchr(idbuf, '\t') = ' ';
+      sprintf(logbuf, "Error: Duplicate individual ID '%s' in --update-ids file.\n", idbuf);
+      goto update_indiv_ids_ret_INVALID_FORMAT_2;
     }
     set_bit(already_seen, sorted_idx);
     indiv_uidx = indiv_id_map[((uint32_t)sorted_idx)];
@@ -1763,8 +1803,8 @@ int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintpt
     bufptr = skip_initial_spaces(&(bufptr2[1]));
     len = strlen_se(bufptr);
     if ((len == 1) && (*bufptr == '0')) {
-      logprint("Error: Invalid IID '0' in --update-ids file.\n");
-      goto update_indiv_ids_ret_INVALID_FORMAT;
+      sprintf(logbuf, "Error: Invalid IID '0' on line %" PRIuPTR " of --update-ids file.\n", line_idx);
+      goto update_indiv_ids_ret_INVALID_FORMAT_2;
     }
     memcpyx(wptr, bufptr, len, '\0');
     hit_ct++;
@@ -1789,7 +1829,8 @@ int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintpt
   update_indiv_ids_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  update_indiv_ids_ret_INVALID_FORMAT:
+  update_indiv_ids_ret_INVALID_FORMAT_2:
+    logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -1836,40 +1877,33 @@ int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids
   loadbuf = (char*)wkspace_base;
   loadbuf[loadbuf_size - 1] = ' ';
   while (fgets(loadbuf, loadbuf_size, infile)) {
+    // no line_idx since all the validation happened earlier
     if (!loadbuf[loadbuf_size - 1]) {
-      logprint("Error: Pathologically long line in --update-parents file.\n");
-      goto update_indiv_parents_ret_INVALID_FORMAT;
+      goto update_indiv_parents_ret_NOMEM;
     }
     bufptr = skip_initial_spaces(loadbuf);
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    if (bsearch_read_fam_indiv(idbuf, sorted_person_ids, max_person_id_len, indiv_ct, bufptr, &bufptr, &sorted_idx)) {
-      goto update_indiv_parents_ret_MISSING_TOKENS;
-    }
+    bsearch_read_fam_indiv(idbuf, sorted_person_ids, max_person_id_len, indiv_ct, bufptr, &bufptr, &sorted_idx);
     if (sorted_idx == -1) {
       miss_ct++;
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
-      logprint("Error: Duplicate individual in --update-parents file.\n");
-      goto update_indiv_parents_ret_INVALID_FORMAT;
+      *strchr(idbuf, '\t') = ' ';
+      sprintf(logbuf, "Error: Duplicate individual ID '%s' in --update-parents file.\n", idbuf);
+      goto update_indiv_parents_ret_INVALID_FORMAT_2;
     }
     set_bit(already_seen, sorted_idx);
     indiv_uidx = indiv_id_map[((uint32_t)sorted_idx)];
     wptr = &(paternal_ids[indiv_uidx * max_paternal_id_len]);
     len = strlen_se(bufptr);
-    if (!len) {
-      goto update_indiv_parents_ret_MISSING_TOKENS;
-    }
     bufptr2 = &(bufptr[len]);
     memcpyx(wptr, bufptr, len, '\0');
     wptr = &(maternal_ids[indiv_uidx * max_maternal_id_len]);
     bufptr3 = skip_initial_spaces(&(bufptr2[1]));
     len2 = strlen_se(bufptr3);
-    if (!len2) {
-      goto update_indiv_parents_ret_MISSING_TOKENS;
-    }
     memcpyx(wptr, bufptr3, len2, '\0');
     if ((len == 1) && (*bufptr == '0') && (len2 == 1) && (*bufptr3 == '0')) {
       SET_BIT(founder_info, indiv_uidx);
@@ -1898,9 +1932,8 @@ int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids
   update_indiv_parents_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  update_indiv_parents_ret_MISSING_TOKENS:
-    logprint("Error: Missing token(s) in --update-parents file.\n");
-  update_indiv_parents_ret_INVALID_FORMAT:
+  update_indiv_parents_ret_INVALID_FORMAT_2:
+    logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -1916,6 +1949,7 @@ int32_t update_indiv_sexes(char* update_sex_fname, uint32_t update_sex_col, char
   uintptr_t indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t hit_ct = 0;
   uintptr_t miss_ct = 0;
+  uintptr_t line_idx = 0;
   char* idbuf;
   uintptr_t* already_seen;
   char* loadbuf;
@@ -1945,9 +1979,14 @@ int32_t update_indiv_sexes(char* update_sex_fname, uint32_t update_sex_col, char
   loadbuf = (char*)wkspace_base;
   loadbuf[loadbuf_size - 1] = ' ';
   while (fgets(loadbuf, loadbuf_size, infile)) {
+    line_idx++;
     if (!loadbuf[loadbuf_size - 1]) {
-      logprint("Error: Pathologically long line in --update-sex file.\n");
-      goto update_indiv_sexes_ret_INVALID_FORMAT;
+      if (loadbuf_size == MAXLINEBUFLEN) {
+	sprintf(logbuf, "Error: Line %" PRIuPTR " of --update-sex file is pathologically long.\n", line_idx);
+	goto update_indiv_sexes_ret_INVALID_FORMAT_2;
+      } else {
+	goto update_indiv_sexes_ret_NOMEM;
+      }
     }
     bufptr = skip_initial_spaces(loadbuf);
     if (is_eoln_kns(*bufptr)) {
@@ -1961,8 +2000,9 @@ int32_t update_indiv_sexes(char* update_sex_fname, uint32_t update_sex_col, char
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
-      logprint("Error: Duplicate individual in --update-sex file.\n");
-      goto update_indiv_sexes_ret_INVALID_FORMAT;
+      *strchr(idbuf, '\t') = ' ';
+      sprintf(logbuf, "Error: Duplicate individual ID '%s' in --update-sex file.\n", idbuf);
+      goto update_indiv_sexes_ret_INVALID_FORMAT_2;
     }
     set_bit(already_seen, sorted_idx);
     indiv_uidx = indiv_id_map[((uint32_t)sorted_idx)];
@@ -1975,8 +2015,8 @@ int32_t update_indiv_sexes(char* update_sex_fname, uint32_t update_sex_col, char
     cc = *bufptr;
     ucc = ((unsigned char)cc) & 0xdfU;
     if ((cc < '0') || ((cc > '2') && (ucc != 'M') && (ucc != 'F')) || (bufptr[1] > ' ')) {
-      logprint("Error: Invalid sex value in --update-sex line.  (Acceptable values: 1/M = male,\n2/F = female, 0 = missing.)\n");
-      goto update_indiv_sexes_ret_INVALID_FORMAT;
+      sprintf(logbuf, "Error: Invalid sex value on line %" PRIuPTR " of --update-sex file.\n(Acceptable values: 1/M = male,\n2/F = female, 0 = missing.)\n", line_idx);
+      goto update_indiv_sexes_ret_INVALID_FORMAT_2;
     }
     if (cc == '0') {
       CLEAR_BIT(sex_nm, indiv_uidx);
@@ -2012,8 +2052,9 @@ int32_t update_indiv_sexes(char* update_sex_fname, uint32_t update_sex_col, char
     retval = RET_READ_FAIL;
     break;
   update_indiv_sexes_ret_MISSING_TOKENS:
-    logprint("Error: Fewer tokens than expected in --update-sex line.\n");
-  update_indiv_sexes_ret_INVALID_FORMAT:
+    sprintf(logbuf, "Error: Line %" PRIuPTR " of --update-sex file has fewer tokens than expected.\n", line_idx);
+  update_indiv_sexes_ret_INVALID_FORMAT_2:
+    logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -2279,6 +2320,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
     // [marker ID]\t[reference allele]\t[frequency of reference allele]\n
     line_idx = 0; // no header line here
     do {
+      line_idx++;
       if (!loadbuf[loadbuf_size - 1]) {
 	goto read_external_freqs_ret_TOO_LONG_LINE;
       }
@@ -2319,7 +2361,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	  goto read_external_freqs_ret_INVALID_FORMAT_2;
 	}
       }
-    } while (fgets(loadbuf, loadbuf_size, freqfile) != NULL);
+    } while (fgets(loadbuf, loadbuf_size, freqfile));
     logprint("GCTA-formatted .freq file loaded.\n");
   }
   while (0) {
@@ -2386,6 +2428,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
   uintptr_t* already_seen;
   char* loadbuf;
   uintptr_t loadbuf_size;
+  uintptr_t line_idx;
   uint32_t idlen;
   uint32_t alen;
   char* sorted_marker_ids;
@@ -2422,11 +2465,13 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
     colmin = axalleles->colx - 1;
     coldiff = axalleles->colid - axalleles->colx;
   }
+  line_idx = axalleles->skip;
   while (fgets(loadbuf, loadbuf_size, infile)) {
+    line_idx++;
     if (!(loadbuf[loadbuf_size - 1])) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-	LOGPRINTF("Error: Pathologically long line in %s.\n", axalleles->fname);
-	goto load_ax_alleles_ret_INVALID_FORMAT;
+	sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, axalleles->fname);
+	goto load_ax_alleles_ret_INVALID_FORMAT_2;
       } else {
         goto load_ax_alleles_ret_NOMEM;
       }
@@ -2455,8 +2500,8 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
     }
     if (is_set(already_seen, sorted_idx)) {
       colid_ptr[idlen] = '\0';
-      LOGPRINTF("Error: Duplicate variant %s in --a%c-allele file.\n", colid_ptr, is_a2? '2' : '1');
-      goto load_ax_alleles_ret_INVALID_FORMAT;
+      sprintf(logbuf, "Error: Duplicate variant ID '%s' in --a%c-allele file.\n", colid_ptr, is_a2? '2' : '1');
+      goto load_ax_alleles_ret_INVALID_FORMAT_2;
     }
     SET_BIT(already_seen, sorted_idx);
     marker_uidx = marker_id_map[(uint32_t)sorted_idx];
@@ -2509,7 +2554,8 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
   load_ax_alleles_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  load_ax_alleles_ret_INVALID_FORMAT:
+  load_ax_alleles_ret_INVALID_FORMAT_2:
+    logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }

@@ -109,6 +109,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
   uintptr_t missing_cluster_ct = 0;
   uintptr_t y_start = 0;
   uintptr_t y_end = 0;
+  uintptr_t line_idx = 0;
   int32_t y_code = chrom_info_ptr->y_code;
   uint32_t y_present = ((y_code != -1) && is_set(chrom_info_ptr->chrom_mask, y_code));
   int32_t retval = 0;
@@ -157,8 +158,9 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
   // use loadbuf as duplicate IID detector
   fill_ulong_zero(loadbuf, sorted_indiv_ctl);
   while (fgets(tbuf, MAXLINELEN, infile)) {
+    line_idx++;
     if (!tbuf[MAXLINELEN - 1]) {
-      sprintf(logbuf, "Error: Pathologically long line in %s.\n", om_ip->indiv_fname);
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, om_ip->indiv_fname);
       goto load_oblig_missing_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(tbuf);
@@ -166,13 +168,13 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
       continue;
     }
     if (bsearch_read_fam_indiv(idbuf, sorted_person_ids, max_person_id_len, sorted_indiv_ct, bufptr, &bufptr2, &ii)) {
-      sprintf(logbuf, "Error: Missing tokens in %s line.\n", om_ip->indiv_fname);
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, om_ip->indiv_fname);
       goto load_oblig_missing_ret_INVALID_FORMAT_2;
     }
     if (ii != -1) {
       if (is_set(loadbuf, ii)) {
         strchr(idbuf, '\t')[0] = ' ';
-        sprintf(logbuf, "Error: Duplicate individual ID %s in --oblig-missing file.\n", idbuf);
+        sprintf(logbuf, "Error: Duplicate individual ID '%s' in %s.\n", idbuf, om_ip->indiv_fname);
 	goto load_oblig_missing_ret_INVALID_FORMAT_2;
       }
       set_bit(loadbuf, ii);
@@ -280,9 +282,11 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
   if (fopen_checked(&infile, om_ip->marker_fname, "r")) {
     goto load_oblig_missing_ret_OPEN_FAIL;
   }
+  line_idx = 0;
   while (fgets(tbuf, MAXLINELEN, infile)) {
+    line_idx++;
     if (!tbuf[MAXLINELEN - 1]) {
-      sprintf(logbuf, "Error: Pathologically long line in %s.\n", om_ip->marker_fname);
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, om_ip->marker_fname);
       goto load_oblig_missing_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(tbuf);
@@ -295,7 +299,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
       marker_uidx = marker_id_map[(uint32_t)ii];
       bufptr = skip_initial_spaces(bufptr2);
       if (is_eoln_kns(*bufptr)) {
-        sprintf(logbuf, "Error: Missing tokens in %s line.\n", om_ip->marker_fname);
+        sprintf(logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, om_ip->marker_fname);
         goto load_oblig_missing_ret_INVALID_FORMAT_2;
       }
       slen = strlen_se(bufptr);
@@ -396,6 +400,7 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t include_ct = 0;
   uintptr_t max_filterval_len = 0;
+  uintptr_t line_idx = 0;
   uint32_t filterval_ct = 0;
   int32_t retval = 0;
   char* sorted_filtervals;
@@ -433,8 +438,9 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
   }
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, infile)) {
+    line_idx++;
     if (!tbuf[MAXLINELEN - 1]) {
-      logprint("Error: Pathologically long line in --keep/--remove file.\n");
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of --filter file is pathologically long.\n", line_idx);
       goto filter_indivs_file_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(tbuf);
@@ -442,7 +448,7 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
       continue;
     }
     if (bsearch_read_fam_indiv(id_buf, sorted_person_ids, max_person_id_len, sorted_ids_len, bufptr, &bufptr, &person_idx)) {
-      goto filter_indivs_file_ret_INVALID_FORMAT;
+      goto filter_indivs_file_ret_MISSING_TOKENS;
     }
     if (person_idx != -1) {
       person_idx = id_map[(uint32_t)person_idx];
@@ -451,7 +457,7 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
 	  bufptr = next_item_mult(bufptr, mfilter_col - 1);
 	}
 	if (no_more_items_kns(bufptr)) {
-	  goto filter_indivs_file_ret_INVALID_FORMAT;
+	  goto filter_indivs_file_ret_MISSING_TOKENS;
 	}
 	if (bsearch_str(bufptr, strlen_se(bufptr), sorted_filtervals, max_filterval_len, filterval_ct) != -1) {
 	  if (is_set(indiv_exclude_new, person_idx)) {
@@ -483,9 +489,10 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
   filter_indivs_file_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  filter_indivs_file_ret_INVALID_FORMAT:
-    logprint("Error: Too few columns in --filter file line.\n");
+  filter_indivs_file_ret_MISSING_TOKENS:
+    sprintf(logbuf, "Error: Line %" PRIuPTR " of --filter file has fewer tokens than expected.\n", line_idx);
   filter_indivs_file_ret_INVALID_FORMAT_2:
+    logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   filter_indivs_file_ret_ALL_SAMPLES_EXCLUDED:

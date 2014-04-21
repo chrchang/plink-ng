@@ -266,6 +266,7 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
   uintptr_t indiv_valid_ct = *indiv_valid_ct_ptr;
   uintptr_t miss_ct = 0;
   uintptr_t condition_ct = 0;
+  uintptr_t line_idx = 0;
   int32_t retval = 0;
 #ifdef __LP64__
   __m128i* loadbuf_vptr;
@@ -330,9 +331,10 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
     }
     tbuf[MAXLINELEN - 1] = ' ';
     while (fgets(tbuf, MAXLINELEN, condition_file)) {
+      line_idx++;
       if (!tbuf[MAXLINELEN - 1]) {
-        logprint("Error: Pathologically long line in --condition-list file.\n");
-        goto glm_scan_conditions_ret_INVALID_FORMAT;
+        sprintf(logbuf, "Error: Line %" PRIuPTR " of --condition-list file is pathologically long.\n", line_idx);
+        goto glm_scan_conditions_ret_INVALID_FORMAT_2;
       }
       bufptr = skip_initial_spaces(tbuf);
       while (!is_eoln_kns(*bufptr)) {
@@ -342,7 +344,7 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
 	  miss_ct++;
 	} else {
 	  if (is_set(already_seen, ii)) {
-	    LOGPRINTF("Error: Duplicate variant %s in --condition-list file.\n", bufptr);
+	    LOGPRINTF("Error: Duplicate variant '%s' in --condition-list file.\n", bufptr);
 	    goto glm_scan_conditions_ret_INVALID_FORMAT;
 	  }
 	  if (condition_ct == condition_ct_max) {
@@ -445,6 +447,8 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
   glm_scan_conditions_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
+  glm_scan_conditions_ret_INVALID_FORMAT_2:
+    logprintb();
   glm_scan_conditions_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
