@@ -217,7 +217,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
   // first pass: count columns, determine raw marker count, determine maximum
   // marker ID length if necessary.
   tbuf[MAXLINELEN - 6] = ' ';
-  while (fgets(tbuf, MAXLINELEN - 5, *mapfile_ptr) != NULL) {
+  while (fgets(tbuf, MAXLINELEN - 5, *mapfile_ptr)) {
     line_idx++;
     if (!tbuf[MAXLINELEN - 6]) {
       sprintf(logbuf, "Error: Line %" PRIuPTR " of .map file is pathologically long.\n", line_idx);
@@ -623,7 +623,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   }
   loadbuf = (char*)wkspace_base;
   loadbuf[loadbuf_size - 1] = ' ';
-  while (fgets(loadbuf, loadbuf_size, bimfile) != NULL) {
+  while (fgets(loadbuf, loadbuf_size, bimfile)) {
     line_idx++;
     if (!loadbuf[loadbuf_size - 1]) {
       if (loadbuf_size == MAXLINEBUFLEN) {
@@ -2059,6 +2059,7 @@ int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintp
   uintptr_t indiv_ctv2 = 2 * ((indiv_ct + (BITCT - 1)) / BITCT);
   uintptr_t topsize = 0;
   uintptr_t zc_item_ct = 0;
+  uintptr_t line_idx = 0;
   uint32_t range_first = marker_ct;
   uint32_t range_last = 0;
   int32_t retval = 0;
@@ -2108,9 +2109,10 @@ int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintp
   max_zc_item_ct = (wkspace_left + 8) / sizeof(int64_t);
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, zcfile)) {
+    line_idx++;
     if (!tbuf[MAXLINELEN - 1]) {
-      LOGPRINTF("Error: Pathologically long line in %s.\n", zerofname);
-      goto zero_cluster_init_ret_INVALID_FORMAT;
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of --zero-cluster file is pathologically long.\n", line_idx);
+      goto zero_cluster_init_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(tbuf);
     if (is_eoln_kns(*bufptr)) {
@@ -2122,8 +2124,7 @@ int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintp
       marker_uidx = marker_id_map[(uint32_t)ii];
       bufptr = skip_initial_spaces(bufptr2);
       if (is_eoln_kns(*bufptr)) {
-        logprint("Error: Fewer tokens than expected in --zero-cluster file line.\n");
-	goto zero_cluster_init_ret_INVALID_FORMAT;
+	goto zero_cluster_init_ret_MISSING_TOKENS;
       }
       bufptr2 = item_endnn(bufptr);
       uii = (uintptr_t)(bufptr2 - bufptr);
@@ -2218,7 +2219,10 @@ int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintp
   zero_cluster_init_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  zero_cluster_init_ret_INVALID_FORMAT:
+  zero_cluster_init_ret_MISSING_TOKENS:
+    sprintf(logbuf, "Error: Line %" PRIuPTR " of --zero-cluster file has fewer tokens than expected.\n", line_idx);
+  zero_cluster_init_ret_INVALID_FORMAT_2:
+    logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -2839,6 +2843,7 @@ int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t un
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t indiv_ctv2 = 2 * ((indiv_ct + (BITCT - 1)) / BITCT);
   uintptr_t miss_ct = 0;
+  uintptr_t line_idx = 0;
   uint32_t* indiv_uidx_to_idx = NULL;
   uint32_t flip_marker_ct = 0;
   uint32_t flip_indiv_ct = 0;
@@ -2866,8 +2871,9 @@ int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t un
   }
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, infile)) {
+    line_idx++;
     if (!tbuf[MAXLINELEN - 1]) {
-      sprintf(logbuf, "Error: Pathologically long line in %s.\n", flip_fname);
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of --flip file is pathologically long.\n", line_idx);
       goto flip_subset_init_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(tbuf);
@@ -2884,13 +2890,12 @@ int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t un
     a2ptr = marker_allele_ptrs[2 * marker_uidx + 1];
     ucc = a1ptr[0];
     if (a1ptr[1] || a2ptr[1] || (ucc < 'A') || (ucc > 'T') || (reverse_complements[ucc - 'A'] != a2ptr[0])) {
-      bufptr[slen] = '\0';
-      sprintf(logbuf, "Error: Alleles for marker %s are not reverse complement single bases.\n", bufptr);
+      sprintf(logbuf, "Error: Invalid alleles (not reverse complement single bases) on line\n%" PRIuPTR " of --flip file.\n", line_idx);
       goto flip_subset_init_ret_INVALID_FORMAT_2;
     }
     if (is_set(flip_subset_markers, marker_uidx)) {
       bufptr[slen] = '\0';
-      sprintf(logbuf, "Error: Duplicate marker ID %s in --flip file.\n", bufptr);
+      sprintf(logbuf, "Error: Duplicate marker ID '%s' in --flip file.\n", bufptr);
       goto flip_subset_init_ret_INVALID_FORMAT_2;
     }
     set_bit(flip_subset_markers, marker_uidx);
@@ -2917,9 +2922,11 @@ int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t un
     goto flip_subset_init_ret_OPEN_FAIL;
   }
   fill_ulong_zero(flip_subset_vec2, indiv_ctv2);
+  line_idx = 0;
   while (fgets(tbuf, MAXLINELEN, infile)) {
+    line_idx++;
     if (!tbuf[MAXLINELEN - 1]) {
-      sprintf(logbuf, "Error: Pathologically long line in %s.\n", flip_subset_fname);
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of --flip-subset file is pathologically long.\n", line_idx);
       goto flip_subset_init_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(tbuf);
@@ -2936,8 +2943,9 @@ int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t un
       indiv_idx_write = indiv_uidx_to_idx[indiv_sort_map[id_map[(uint32_t)sorted_idx]]];
     }
     if (IS_SET_DBL(flip_subset_vec2, indiv_idx_write)) {
-      logprint("Error: Duplicate individual ID in --flip-subset file.\n");
-      goto flip_subset_init_ret_INVALID_FORMAT;
+      *strchr(id_buf, '\t') = ' ';
+      sprintf(logbuf, "Error: Duplicate individual ID '%s' in --flip-subset file.\n", id_buf);
+      goto flip_subset_init_ret_INVALID_FORMAT_2;
     }
     SET_BIT_DBL(flip_subset_vec2, indiv_idx_write);
     flip_indiv_ct++;
@@ -2961,7 +2969,6 @@ int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t un
     break;
   flip_subset_init_ret_INVALID_FORMAT_2:
     logprintb();
-  flip_subset_init_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -3474,76 +3481,93 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   return retval;
 }
 
-const char errstr_fam_format[] = "Error: Improperly formatted .fam file.\n";
-
-int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32_t missing_pheno, uint32_t affection_01, uintptr_t* unfiltered_indiv_ct_ptr, char** person_ids_ptr, uintptr_t* max_person_id_len_ptr, char** paternal_ids_ptr, uintptr_t* max_paternal_id_len_ptr, char** maternal_ids_ptr, uintptr_t* max_maternal_id_len_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, uint32_t* affection_ptr, uintptr_t** pheno_nm_ptr, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, uintptr_t** founder_info_ptr, uintptr_t** indiv_exclude_ptr) {
+int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32_t missing_pheno, uint32_t affection_01, uintptr_t* unfiltered_indiv_ct_ptr, char** person_ids_ptr, uintptr_t* max_person_id_len_ptr, char** paternal_ids_ptr, uintptr_t* max_paternal_id_len_ptr, char** maternal_ids_ptr, uintptr_t* max_maternal_id_len_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, uint32_t* affection_ptr, uintptr_t** pheno_nm_ptr, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, uintptr_t** founder_info_ptr, uintptr_t** indiv_exclude_ptr) {
+  unsigned char* wkspace_mark = wkspace_base;
+  double missing_phenod = (double)missing_pheno;
+  uintptr_t* pheno_c = NULL;
+  double* pheno_d = NULL;
+  FILE* famfile = NULL;
   uintptr_t unfiltered_indiv_ct = 0;
   uintptr_t max_person_id_len = *max_person_id_len_ptr;
   uintptr_t max_paternal_id_len = *max_paternal_id_len_ptr;
   uintptr_t max_maternal_id_len = *max_maternal_id_len_ptr;
+  uintptr_t line_idx = 0;
   uint32_t affection = 1;
-  uint64_t last_tell = 0;
-  uint32_t new_buflen = 0;
-  unsigned char* wkspace_mark = wkspace_base;
-  double missing_phenod = (double)missing_pheno;
+  int32_t retval = 0;
   char case_char = affection_01? '1' : '2';
-  uintptr_t* pheno_c = NULL;
-  double* pheno_d = NULL;
   uintptr_t* sex_nm;
   uintptr_t* sex_male;
   uintptr_t* pheno_nm;
   uintptr_t* founder_info;
   char* bufptr0;
   char* bufptr;
-  char* linebuf;
+  char* loadbuf;
   char* person_ids;
   char* paternal_ids;
   char* maternal_ids;
   char cc;
-  uint64_t* line_locs;
-  uint64_t* tmp_ullp;
-  uint32_t max_people;
+  uintptr_t loadbuf_size;
   uintptr_t tmp_len;
   uintptr_t tmp_len2;
   uintptr_t indiv_uidx;
   uintptr_t unfiltered_indiv_ctl;
   double dxx;
-  int32_t ii;
-  char* fgets_return;
 
-  if (wkspace_alloc_c_checked(&linebuf, buflen)) {
-    return RET_NOMEM;
+  // we want this to work when the file is actually a .ped
+  if (wkspace_left > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
+  } else if (wkspace_left <= MAXLINELEN) {
+    goto load_fam_ret_NOMEM;
+  } else {
+    loadbuf_size = wkspace_left;
   }
-  linebuf[buflen - 1] = ' ';
-  line_locs = (uint64_t*)wkspace_base;
-  max_people = wkspace_left / sizeof(int64_t);
+  loadbuf = (char*)wkspace_base;
+  loadbuf[loadbuf_size - 1] = ' ';
+  if (fopen_checked(&famfile, famname, "r")) {
+    goto load_fam_ret_OPEN_FAIL;
+  }
   // ----- .fam read, first pass -----
   // count number of people, determine maximum person/father/mother ID lengths,
   // affection status, verify all floating point phenotype values are valid
-  while (fgets(linebuf, buflen, famfile) != NULL) {
-    bufptr0 = skip_initial_spaces(linebuf);
+  while (fgets(loadbuf, loadbuf_size, famfile)) {
+    line_idx++;
+    if (!loadbuf[loadbuf_size - 1]) {
+      if (loadbuf_size == MAXLINEBUFLEN) {
+	sprintf(logbuf, "Error: Line %" PRIuPTR " of .fam file is pathologically long.\n", line_idx);
+	goto load_fam_ret_INVALID_FORMAT_2;
+      } else {
+	goto load_fam_ret_NOMEM;
+      }
+    }
+    bufptr0 = skip_initial_spaces(loadbuf);
     if (!is_eoln_kns(*bufptr0)) {
       if (fam_cols & FAM_COL_1) {
 	bufptr = next_item(bufptr0);
+	if (!bufptr) {
+	  goto load_fam_ret_MISSING_TOKENS;
+	}
       } else {
 	bufptr = bufptr0;
       }
       tmp_len = strlen_se(bufptr);
       if ((tmp_len == 1) && (*bufptr == '0')) {
-	logprint("Error: Invalid IID '0' in .fam file.\n");
-	return RET_INVALID_FORMAT;
+	sprintf(logbuf, "Error: Invalid IID '0' on line %" PRIuPTR " of .fam file.\n", line_idx);
+	goto load_fam_ret_INVALID_FORMAT_2;
       }
       tmp_len = strlen_se(bufptr0) + strlen_se(bufptr) + 2;
       if (tmp_len > max_person_id_len) {
 	max_person_id_len = tmp_len;
       }
       if (fam_cols & FAM_COL_34) {
-	bufptr = next_item(bufptr);
-	tmp_len = strlen_se(bufptr) + 1;
+	bufptr0 = next_item(bufptr);
+	bufptr = next_item(bufptr0);
+	if (!bufptr) {
+	  goto load_fam_ret_MISSING_TOKENS;
+	}
+	tmp_len = strlen_se(bufptr0) + 1;
 	if (tmp_len > max_paternal_id_len) {
 	  max_paternal_id_len = tmp_len;
 	}
-	bufptr = next_item(bufptr);
 	tmp_len = strlen_se(bufptr) + 1;
 	if (tmp_len > max_maternal_id_len) {
 	  max_maternal_id_len = tmp_len;
@@ -3555,50 +3579,27 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
       if (tmp_fam_col_6) {
 	bufptr = next_item(bufptr);
 	if (no_more_items_kns(bufptr)) {
-	  logprint(errstr_fam_format);
-	  return RET_INVALID_FORMAT;
+	  goto load_fam_ret_MISSING_TOKENS;
 	}
 	if (affection) {
 	  affection = eval_affection(bufptr, missing_pheno, affection_01);
 	}
       }
-      if (unfiltered_indiv_ct == max_people) {
-	return RET_NOMEM;
-      }
-      line_locs[unfiltered_indiv_ct++] = last_tell;
+      unfiltered_indiv_ct++;
     }
-    if (!linebuf[buflen - 1]) {
-      // determine extended read buffer length needed to handle unexpectedly
-      // long line
-      linebuf[buflen - 1] = ' ';
-      if (linebuf[buflen - 2] != '\n') {
-	tmp_len = 0;
-	do {
-	  tmp_len += buflen - 1;
-	  linebuf[buflen - 1] = ' ';
-	  fgets_return = fgets(linebuf, buflen, famfile);
-	} while (fgets_return && (!linebuf[buflen - 1]) && (linebuf[buflen - 2] != '\n'));
-	tmp_len += strlen(linebuf) + 1;
-	linebuf[buflen - 1] = ' ';
-	if (tmp_len > new_buflen) {
-	  new_buflen = tmp_len;
-	}
-      }
-    }
-    last_tell = ftello(famfile);
   }
   if (ferror(famfile)) {
-    return RET_READ_FAIL;
+    goto load_fam_ret_READ_FAIL;
   }
   if (!unfiltered_indiv_ct) {
     logprint("Error: Nobody in .fam file.\n");
-    return RET_INVALID_FORMAT;
+    goto load_fam_ret_INVALID_FORMAT;
   }
   // don't yet need to enforce separate FID and IID limits, but in theory this
   // may change
   if ((max_person_id_len > 2 * MAX_ID_LEN_P1) || (max_paternal_id_len > MAX_ID_LEN_P1) || (max_maternal_id_len > MAX_ID_LEN_P1)) {
     logprint("Error: FIDs and IIDs are limited to " MAX_ID_LEN_STR " characters.\n");
-    return RET_INVALID_FORMAT;
+    goto load_fam_ret_INVALID_FORMAT;
   }
   wkspace_reset(wkspace_mark);
   unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
@@ -3612,39 +3613,35 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
       wkspace_alloc_ul_checked(founder_info_ptr, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(indiv_exclude_ptr, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(pheno_nm_ptr, unfiltered_indiv_ctl * sizeof(intptr_t))) {
-    return RET_NOMEM;
+    goto load_fam_ret_NOMEM;
   }
-  // currently NOT safe to initialize any of the above until line_locs has been
-  // copied to tmp_ullp
 
   // force either pheno_c or pheno_d to be allocated even if there is no
   // phenotype data
   if ((!tmp_fam_col_6) || affection) {
     if (aligned_malloc(pheno_c_ptr, unfiltered_indiv_ctl * sizeof(intptr_t))) {
-      return RET_NOMEM;
+      goto load_fam_ret_NOMEM;
     }
     pheno_c = *pheno_c_ptr;
     fill_ulong_zero(pheno_c, unfiltered_indiv_ctl);
   } else {
     pheno_d = (double*)malloc(unfiltered_indiv_ct * sizeof(double));
     if (!pheno_d) {
-      return RET_NOMEM;
+      goto load_fam_ret_NOMEM;
     }
     fill_double_zero(pheno_d, unfiltered_indiv_ct);
     *pheno_d_ptr = pheno_d;
   }
   wkspace_mark = wkspace_base;
-  if (new_buflen) {
-    buflen = new_buflen;
+  if (wkspace_left > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
+  } else if (wkspace_left <= MAXLINELEN) {
+    goto load_fam_ret_NOMEM;
+  } else {
+    loadbuf_size = wkspace_left;
   }
-  if (wkspace_alloc_c_checked(&linebuf, buflen) ||
-      wkspace_alloc_ull_checked(&tmp_ullp, unfiltered_indiv_ct * sizeof(int64_t))) {
-    return RET_NOMEM;
-  }
-  for (ii = unfiltered_indiv_ct - 1; ii >= 0; ii--) {
-    tmp_ullp[(uint32_t)ii] = line_locs[(uint32_t)ii];
-  }
-  line_locs = tmp_ullp;
+  loadbuf = (char*)wkspace_base;
+  loadbuf[loadbuf_size - 1] = ' ';
   person_ids = *person_ids_ptr;
   paternal_ids = *paternal_ids_ptr;
   maternal_ids = *maternal_ids_ptr;
@@ -3671,20 +3668,25 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
   fill_ulong_zero(pheno_nm, unfiltered_indiv_ctl);
 
   // ----- .fam read, second pass -----
-  for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
-    if (fseeko(famfile, line_locs[indiv_uidx], SEEK_SET)) {
-      return RET_READ_FAIL;
+  rewind(famfile);
+  indiv_uidx = 0;
+  while (fgets(loadbuf, loadbuf_size, famfile)) {
+    // no need to track line_idx here for now
+    if (!loadbuf[loadbuf_size - 1]) {
+      // should have been caught on first pass if loadbuf_size is still maximal
+      goto load_fam_ret_NOMEM;
     }
-    if (fgets(linebuf, buflen, famfile) == NULL) {
-      return RET_READ_FAIL;
+    bufptr0 = skip_initial_spaces(loadbuf);
+    if (is_eoln_kns(*bufptr0)) {
+      continue;
     }
     if (fam_cols & FAM_COL_1) {
-      bufptr = next_item(linebuf);
+      bufptr = next_item(bufptr0);
     } else {
-      bufptr = linebuf;
+      bufptr = bufptr0;
     }
-    tmp_len = strlen_se(linebuf);
-    memcpyx(memcpyax(&(person_ids[indiv_uidx * max_person_id_len]), linebuf, tmp_len, '\t'), bufptr, strlen_se(bufptr), '\0');
+    tmp_len = strlen_se(bufptr0);
+    memcpyx(memcpyax(&(person_ids[indiv_uidx * max_person_id_len]), bufptr0, tmp_len, '\t'), bufptr, strlen_se(bufptr), '\0');
     if (fam_cols & FAM_COL_34) {
       bufptr = next_item(bufptr);
       cc = *bufptr;
@@ -3724,6 +3726,7 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
 	}
       }
     }
+    indiv_uidx++;
   }
 
   *unfiltered_indiv_ct_ptr = unfiltered_indiv_ct;
@@ -3731,8 +3734,30 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
   *max_paternal_id_len_ptr = max_paternal_id_len;
   *max_maternal_id_len_ptr = max_maternal_id_len;
   *affection_ptr = affection;
+  if (fclose_null(&famfile)) {
+    goto load_fam_ret_READ_FAIL;
+  }
+  while (0) {
+  load_fam_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  load_fam_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  load_fam_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  load_fam_ret_MISSING_TOKENS:
+    sprintf(logbuf, "Error: Line %" PRIuPTR " of .fam file has fewer tokens than expected.\n", line_idx);
+  load_fam_ret_INVALID_FORMAT_2:
+    logprintb();
+  load_fam_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
   wkspace_reset(wkspace_mark);
-  return 0;
+  fclose_cond(famfile);
+  return retval;
 }
 
 #define D_EPSILON 0.000244140625
@@ -6223,14 +6248,10 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   wkspace_reset(sorted_marker_ids);
 
   memcpy(name_end, ".fam", 5);
-  if (fopen_checked(&infile, lgen_namebuf, "r")) {
-    goto lgen_to_bed_ret_OPEN_FAIL;
-  }
-  retval = load_fam(infile, MAXLINELEN, FAM_COL_13456, 1, missing_pheno, affection_01, &indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_nm, &sex_male, &affection, &pheno_nm, &pheno_c, &pheno_d, &founder_info, &indiv_exclude);
+  retval = load_fam(lgen_namebuf, FAM_COL_13456, 1, missing_pheno, affection_01, &indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_nm, &sex_male, &affection, &pheno_nm, &pheno_c, &pheno_d, &founder_info, &indiv_exclude);
   if (retval) {
     goto lgen_to_bed_ret_1;
   }
-  fclose_null(&infile);
   retval = sort_item_ids_nx(&sorted_indiv_ids, &indiv_id_map, indiv_ct, person_ids, max_person_id_len);
   if (retval) {
     goto lgen_to_bed_ret_1;
