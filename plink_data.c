@@ -6196,20 +6196,21 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   char* sptr;
   char* sptr2;
   char** ma_end;
-  uint32_t a1len;
-  uint32_t a2len;
+  int64_t lgen_size;
+  int64_t lgen_next_thresh;
   uintptr_t loadbuf_size;
+  uintptr_t line_idx;
   uintptr_t indiv_idx;
   uintptr_t ulii;
+  uint32_t a1len;
+  uint32_t a2len;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
   uint32_t umm;
-  int64_t lgen_size;
   uint32_t pct;
-  int64_t lgen_next_thresh;
-  int32_t ii;
   int32_t retval;
+  int32_t ii;
   if (lgen_modifier == LGEN_ALLELE_COUNT) {
     logprint("Error: --allele-count must be used with --reference.\n");
     goto lgen_to_bed_ret_INVALID_CMDLINE;
@@ -6290,11 +6291,13 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
     if (fopen_checked(&infile, lgen_reference_fname, "r")) {
       goto lgen_to_bed_ret_OPEN_FAIL;
     }
+    line_idx = 0;
     while (fgets(loadbuf, loadbuf_size, infile)) {
+      line_idx++;
       if (!loadbuf[loadbuf_size - 1]) {
 	if (loadbuf_size == MAXLINEBUFLEN) {
-	  logprint("Error: Pathologically long line in .ref file.\n");
-	  goto lgen_to_bed_ret_INVALID_FORMAT_6;
+	  sprintf(logbuf, "Error: Line %" PRIuPTR " of .ref file is pathologically long.\n", line_idx);
+	  goto lgen_to_bed_ret_INVALID_FORMAT_2;
 	}
 	goto lgen_to_bed_ret_NOMEM;
       }
@@ -6305,14 +6308,17 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
       cptr2 = item_endnn(cptr);
       a1ptr = skip_initial_spaces(cptr2);
       if (no_more_items_kns(a1ptr)) {
-	goto lgen_to_bed_ret_INVALID_FORMAT_4;
+	sprintf(logbuf, "Error: Line %" PRIuPTR " of .ref file has fewer tokens than expected.\n", line_idx);
+	goto lgen_to_bed_ret_INVALID_FORMAT_2;
       }
       a1len = strlen_se(cptr);
       ii = bsearch_str(cptr, a1len, marker_ids, max_marker_id_len, marker_ct);
       if (ii != -1) {
 	marker_idx = marker_id_map[(uint32_t)ii];
 	if (marker_allele_ptrs[2 * marker_idx + 1]) {
-	  goto lgen_to_bed_ret_INVALID_FORMAT_4;
+	  cptr[a1len] = '\0';
+	  sprintf(logbuf, "Error: Duplicate variant ID '%s' in .ref file.\n", cptr);
+	  goto lgen_to_bed_ret_INVALID_FORMAT_2;
 	}
 	sptr = item_endnn(a1ptr);
 	a2ptr = skip_initial_spaces(sptr);
@@ -6373,11 +6379,12 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   lgen_next_thresh = lgen_size / 100;
   pct = 0;
   if (!lgen_allele_count) {
+    line_idx = 0;
     while (fgets(loadbuf, loadbuf_size, infile)) {
+      line_idx++;
       if (!loadbuf[loadbuf_size - 1]) {
 	if (loadbuf_size == MAXLINEBUFLEN) {
-	  logprint("Error: Pathologically long line in .lgen file.\n");
-	  goto lgen_to_bed_ret_INVALID_FORMAT_6;
+	  goto lgen_to_bed_ret_LONG_LINE;
 	}
 	goto lgen_to_bed_ret_NOMEM;
       }
@@ -6386,15 +6393,15 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
 	continue;
       }
       if (bsearch_read_fam_indiv(id_buf, sorted_indiv_ids, max_person_id_len, indiv_ct, cptr, &cptr3, &ii)) {
-	goto lgen_to_bed_ret_INVALID_FORMAT;
+	goto lgen_to_bed_ret_MISSING_TOKENS;
       }
       if (ii == -1) {
-	goto lgen_to_bed_ret_INVALID_FORMAT_2;
+	goto lgen_to_bed_ret_MISSING_IID;
       }
       indiv_idx = indiv_id_map[(uint32_t)ii];
       cptr4 = item_end(cptr3);
       if (!cptr4) {
-	goto lgen_to_bed_ret_INVALID_FORMAT;
+	goto lgen_to_bed_ret_MISSING_TOKENS;
       }
       a1ptr = skip_initial_spaces(cptr4);
       sptr = item_end(a1ptr);
@@ -6408,13 +6415,17 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
       }
       if (!compound_genotypes) {
 	if (no_more_items_kns(a2ptr)) {
-	  goto lgen_to_bed_ret_INVALID_FORMAT;
+	  goto lgen_to_bed_ret_MISSING_TOKENS;
 	}
         a1len = (uintptr_t)(sptr - a1ptr);
 	a2len = strlen_se(a2ptr);
       } else {
-	if ((!sptr) || ((uintptr_t)(sptr - a1ptr) != 2)) {
-	  goto lgen_to_bed_ret_INVALID_FORMAT;
+	if (!sptr) {
+	  goto lgen_to_bed_ret_MISSING_TOKENS;
+	}
+	if ((uintptr_t)(sptr - a1ptr) != 2) {
+	  sprintf(logbuf, "Error: Invalid compound genotype on line %" PRIuPTR " of .lgen file.\n", line_idx);
+	  goto lgen_to_bed_ret_INVALID_FORMAT_2;
 	}
 	a1len = 1;
 	a2ptr = &(a1ptr[2]);
@@ -6431,10 +6442,10 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
 	  if ((*a2ptr == missing_geno) && (a2len == 1)) {
 	    uii = 1;
 	  } else {
-	    goto lgen_to_bed_ret_INVALID_FORMAT_5;
+	    goto lgen_to_bed_ret_HALF_MISSING;
 	  }
 	} else if ((*a2ptr == missing_geno) && (a2len == 1)) {
-	  goto lgen_to_bed_ret_INVALID_FORMAT_5;
+	  goto lgen_to_bed_ret_HALF_MISSING;
         } else {
           if (!sptr) {
 	    if (allele_set(&(marker_allele_ptrs[2 * marker_idx + 1]), a1ptr, a1len)) {
@@ -6469,7 +6480,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
 		} else if (!strcmp(a2ptr, a1ptr)) {
 		  uii = 0;
 		} else {
-		  goto lgen_to_bed_ret_INVALID_FORMAT_3;
+		  goto lgen_to_bed_ret_NOT_BIALLELIC;
 		}
 	      }
 	    } else {
@@ -6478,12 +6489,12 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
 	      } else if (!strcmp(a1ptr, sptr2)) {
 		uii = 0;
 	      } else {
-		goto lgen_to_bed_ret_INVALID_FORMAT_3;
+		goto lgen_to_bed_ret_NOT_BIALLELIC;
 	      }
 	      if (!strcmp(a2ptr, sptr)) {
 		uii++;
 	      } else if (strcmp(a2ptr, sptr2)) {
-		goto lgen_to_bed_ret_INVALID_FORMAT_3;
+		goto lgen_to_bed_ret_NOT_BIALLELIC;
 	      }
 	    }
 	  }
@@ -6507,11 +6518,12 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
       }
     }
   } else {
+    line_idx = 0;
     while (fgets(loadbuf, loadbuf_size, infile)) {
+      line_idx++;
       if (!loadbuf[loadbuf_size - 1]) {
 	if (loadbuf_size == MAXLINEBUFLEN) {
-	  logprint("Error: Pathologically long line in .lgen file.\n");
-	  goto lgen_to_bed_ret_INVALID_FORMAT_6;
+	  goto lgen_to_bed_ret_LONG_LINE;
 	}
 	goto lgen_to_bed_ret_NOMEM;
       }
@@ -6520,19 +6532,19 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
 	continue;
       }
       if (bsearch_read_fam_indiv(id_buf, sorted_indiv_ids, max_person_id_len, indiv_ct, cptr, &cptr3, &ii)) {
-	goto lgen_to_bed_ret_INVALID_FORMAT;
+	goto lgen_to_bed_ret_MISSING_TOKENS;
       }
       if (ii == -1) {
-	goto lgen_to_bed_ret_INVALID_FORMAT_2;
+	goto lgen_to_bed_ret_MISSING_IID;
       }
       indiv_idx = indiv_id_map[(uint32_t)ii];
       cptr4 = item_end(cptr3);
       if (!cptr4) {
-	goto lgen_to_bed_ret_INVALID_FORMAT;
+	goto lgen_to_bed_ret_MISSING_TOKENS;
       }
       a1ptr = skip_initial_spaces(cptr4);
       if (no_more_items_kns(a1ptr)) {
-	goto lgen_to_bed_ret_INVALID_FORMAT;
+	goto lgen_to_bed_ret_MISSING_TOKENS;
       }
       ii = bsearch_str(cptr3, (uintptr_t)(cptr4 - cptr3), marker_ids, max_marker_id_len, marker_ct);
       if (ii != -1) {
@@ -6723,25 +6735,26 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   lgen_to_bed_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
+  lgen_to_bed_ret_LONG_LINE:
+    LOGPRINTF("Error: Line %" PRIuPTR " of .lgen file is pathologically long.\n", line_idx);
+    retval = RET_INVALID_FORMAT;
+    break;
+  lgen_to_bed_ret_HALF_MISSING:
+    LOGPRINTF("Error: Half-missing genotype on line %" PRIuPTR " of .lgen file.\n", line_idx);
+    retval = RET_INVALID_FORMAT;
+    break;
+  lgen_to_bed_ret_MISSING_IID:
+    LOGPRINTF("Error: Individual ID on line %" PRIuPTR " of .lgen file is missing from .fam\nfile.\n", line_idx);
+    retval = RET_INVALID_FORMAT;
+    break;
+  lgen_to_bed_ret_MISSING_TOKENS:
+    sprintf(logbuf, "Error: Line %" PRIuPTR " of .lgen file has fewer tokens than expected.\n", line_idx);
   lgen_to_bed_ret_INVALID_FORMAT_2:
-    logprint("Error: .fam file does not contain all individual IDs mentioned in .lgen file.\n");
+    logprintb();
     retval = RET_INVALID_FORMAT;
     break;
-  lgen_to_bed_ret_INVALID_FORMAT_5:
-    logprint("Error: Half-missing call in .lgen file.\n");
-    retval = RET_INVALID_FORMAT;
-    break;
-  lgen_to_bed_ret_INVALID_FORMAT_4:
-    logprint("Error: Improperly formatted --reference file.\n");
-    retval = RET_INVALID_FORMAT;
-    break;
-  lgen_to_bed_ret_INVALID_FORMAT:
-    logprint("Error: Improperly formatted .lgen file.\n");
-  lgen_to_bed_ret_INVALID_FORMAT_6:
-    retval = RET_INVALID_FORMAT;
-    break;
-  lgen_to_bed_ret_INVALID_FORMAT_3:
-    LOGPRINTF("Error: Variant %s in .lgen file has 3+ different alleles.\n", id_buf);
+  lgen_to_bed_ret_NOT_BIALLELIC:
+    LOGPRINTF("Error: Variant '%s' in .lgen file has 3+ different alleles.\n", id_buf);
     retval = RET_INVALID_FORMAT;
     break;
   lgen_to_bed_ret_INVALID_CMDLINE:
@@ -9169,6 +9182,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   FILE* infile_23 = NULL;
   FILE* outfile_bed = NULL;
   FILE* outfile_txt = NULL;
+  uintptr_t line_idx = 0;
   uint32_t is_male = modifier_23 & M23_MALE;
   uint32_t is_female = modifier_23 & M23_FEMALE;
   uint32_t x_present = 0;
@@ -9217,9 +9231,10 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   writebuf_end = &(writebuf[MAXLINELEN]);
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, infile_23)) {
+    line_idx++;
     if (!tbuf[MAXLINELEN - 1]) {
-      LOGPRINTF("Error: Pathologically long line in %s.\n", infile_name);
-      goto bed_from_23_ret_INVALID_FORMAT;
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, infile_name);
+      goto bed_from_23_ret_INVALID_FORMAT_2;
     }
     id_start = skip_initial_spaces(tbuf);
     cc = *id_start;
@@ -9232,18 +9247,17 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
     pos_start = next_item(chrom_start);
     allele_start = next_item(pos_start);
     if (no_more_items_kns(allele_start)) {
-      logprint("Error: Fewer tokens than expected in --23file line.\n");
-      goto bed_from_23_ret_INVALID_FORMAT;
+      goto bed_from_23_ret_MISSING_TOKENS;
     }
     allele_calls = strlen_se(allele_start);
     if (allele_calls > 2) {
-      logprint("Error: Too many allele calls in --23file line.\n");
-      goto bed_from_23_ret_INVALID_FORMAT;
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of %s has more allele calls than expected.\n", line_idx, infile_name);
+      goto bed_from_23_ret_INVALID_FORMAT_2;
     }
     ii = get_chrom_code(chrom_info_ptr, chrom_start);
     if (ii == -1) {
-      logprint("Error: Invalid chromosome code in --23file line.\n");
-      goto bed_from_23_ret_INVALID_FORMAT;
+      sprintf(logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, infile_name);
+      goto bed_from_23_ret_INVALID_FORMAT_2;
     }
     uii = (uint32_t)ii;
     if (!(chrom_mask_23 & (1 << uii))) {
@@ -9253,8 +9267,8 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
       null_chrom = 1;
     } else {
       if (uii < cur_chrom) {
-	LOGPRINTF("Error: Chromosomes in %s are out of order.\n", infile_name);
-	goto bed_from_23_ret_INVALID_FORMAT;
+	sprintf(logbuf, "Error: Chromosomes in %s are out of order.\n", infile_name);
+	goto bed_from_23_ret_INVALID_FORMAT_2;
       } else if (uii > cur_chrom) {
 	cur_chrom = uii;
 	if (cur_chrom == 23) {
@@ -9293,25 +9307,25 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
     }
     if (!null_chrom) {
       if ((cur_chrom == 25) && (allele_calls != 2)) {
-	goto bed_from_23_ret_INVALID_FORMAT_2;
+	goto bed_from_23_ret_MISSING_ALLELE_CALLS;
       }
       if ((allele_calls == 1) && (cur_chrom <= 23)) {
 	if ((cur_chrom == 23) && (!is_female)) {
 	  is_male = 1;
 	  haploid_x_present = 1;
 	} else {
-	  goto bed_from_23_ret_INVALID_FORMAT_2;
+	  goto bed_from_23_ret_MISSING_ALLELE_CALLS;
 	}
       } else if ((cur_chrom == 24) && (cc2 != '0') && (!is_male)) {
 	if (!is_female) {
 	  is_male = 1;
 	} else {
-	  logprint("Error: Nonmissing female --23file allele call on Y chromosome.\n");
-	  goto bed_from_23_ret_INVALID_FORMAT;
+	  sprintf(logbuf, "Error: Nonmissing female allele call on line %" PRIuPTR " of %s.\n", line_idx, infile_name);
+	  goto bed_from_23_ret_INVALID_FORMAT_2;
 	}
       }
     } else if (allele_calls == 1) {
-      goto bed_from_23_ret_INVALID_FORMAT_2;
+      goto bed_from_23_ret_MISSING_ALLELE_CALLS;
     }
     if (!null_chrom) {
       writebuf2_cur = uint32_write(writebuf2, cur_chrom);
@@ -9429,8 +9443,14 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   bed_from_23_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
+  bed_from_23_ret_MISSING_TOKENS:
+    LOGPRINTF("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, infile_name);
+    retval = RET_INVALID_FORMAT;
+    break;
+  bed_from_23_ret_MISSING_ALLELE_CALLS:
+    sprintf(logbuf, "Error: Line %" PRIuPTR " of %s has fewer allele calls than expected.\n", line_idx, infile_name);
   bed_from_23_ret_INVALID_FORMAT_2:
-    logprint("Error: Too few allele calls in --23file line.\n");
+    logprintb();
   bed_from_23_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -10161,6 +10181,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
   line_idx = 0;
   while (fgets(tbuf, MAXLINELEN, infile)) {
     line_idx++;
+    // already checked for long lines, don't need to repeat
     cptr = skip_initial_spaces(tbuf);
     if (is_eoln_kns(*cptr)) {
       continue;
@@ -10609,6 +10630,7 @@ int32_t recode_allele_load(char* loadbuf, uintptr_t loadbuf_size, char* recode_a
   FILE* rafile = NULL;
   uint32_t missing_allele = 0;
   uintptr_t rae_size = 0;
+  uintptr_t line_idx = 0;
   char* sorted_ids;
   uint32_t* id_map;
   char* bufptr;
@@ -10627,9 +10649,10 @@ int32_t recode_allele_load(char* loadbuf, uintptr_t loadbuf_size, char* recode_a
   }
   loadbuf[loadbuf_size - 1] = ' ';
   while (fgets(loadbuf, loadbuf_size, rafile)) {
+    line_idx++;
     if (!loadbuf[loadbuf_size - 1]) {
-      logprint("Error: Pathologically long line in --recode-allele file.\n");
-      goto recode_allele_load_ret_INVALID_FORMAT;
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of --recode-allele file is pathologically long.\n", line_idx);
+      goto recode_allele_load_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(loadbuf);
     if (is_eoln_kns(*bufptr)) {
@@ -10638,8 +10661,8 @@ int32_t recode_allele_load(char* loadbuf, uintptr_t loadbuf_size, char* recode_a
     slen = strlen_se(bufptr);
     bufptr2 = skip_initial_spaces(&(bufptr[slen]));
     if (is_eoln_kns(*bufptr2)) {
-      logprint("Error: --recode-allele line has only one token.\n");
-      goto recode_allele_load_ret_INVALID_FORMAT;
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of --recode-allele file has fewer tokens than expected.\n", line_idx);
+      goto recode_allele_load_ret_INVALID_FORMAT_2;
     }
     alen = strlen_se(bufptr2);
     ii = bsearch_str(bufptr, slen, sorted_ids, max_marker_id_len, marker_ct);
@@ -10674,7 +10697,8 @@ int32_t recode_allele_load(char* loadbuf, uintptr_t loadbuf_size, char* recode_a
   recode_allele_load_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  recode_allele_load_ret_INVALID_FORMAT:
+  recode_allele_load_ret_INVALID_FORMAT_2:
+    logprintb();
     retval = RET_INVALID_FORMAT;
   }
  recode_allele_load_ret_1:
@@ -13097,6 +13121,7 @@ int32_t indiv_sort_file_map(char* indiv_sort_fname, uintptr_t unfiltered_indiv_c
   FILE* infile = NULL;
   // temporary: person_id_map[ascii-sorted idx] = uidx in input fileset
   uint32_t* person_id_map = NULL;
+  uintptr_t line_idx = 0;
   uint32_t cur_seq = 0;
   int32_t retval = 0;
   uintptr_t* already_seen;
@@ -13134,22 +13159,23 @@ int32_t indiv_sort_file_map(char* indiv_sort_fname, uintptr_t unfiltered_indiv_c
   }
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, infile)) {
+    line_idx++;
     if (!tbuf[MAXLINELEN - 1]) {
-      logprint("Error: Pathologically long line in --indiv-sort file.\n");
-      goto indiv_sort_file_map_ret_INVALID_FORMAT;
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of --indiv-sort file is pathologically long.\n", line_idx);
+      goto indiv_sort_file_map_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(tbuf);
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
     if (bsearch_read_fam_indiv(idbuf, sorted_person_ids, max_person_id_len, indiv_ct, bufptr, NULL, &ii)) {
-      logprint("Error: --indiv-sort file line has only one token.\n");
-      goto indiv_sort_file_map_ret_INVALID_FORMAT;
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of --indiv-sort file has fewer tokens than expected.\n", line_idx);
+      goto indiv_sort_file_map_ret_INVALID_FORMAT_2;
     }
     if (ii != -1) {
       if (is_set(already_seen, ii)) {
         strchr(idbuf, '\t')[0] = ' ';
-        sprintf(logbuf, "Error: Duplicate ID %s in --indiv-sort file.\n", idbuf);
+        sprintf(logbuf, "Error: Duplicate ID '%s' in --indiv-sort file.\n", idbuf);
         goto indiv_sort_file_map_ret_INVALID_FORMAT_2;
       }
       set_bit(already_seen, ii);
@@ -13182,7 +13208,6 @@ int32_t indiv_sort_file_map(char* indiv_sort_fname, uintptr_t unfiltered_indiv_c
     break;
   indiv_sort_file_map_ret_INVALID_FORMAT_2:
     logprintb();
-  indiv_sort_file_map_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
   indiv_sort_file_map_ret_INVALID_CMDLINE:
@@ -13243,14 +13268,15 @@ static inline Ll_entry2* top_alloc_ll2(uintptr_t* topsize_ptr, uint32_t size) {
 }
 
 int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_person_id_len_ptr, uint32_t* max_person_full_len_ptr, uint32_t* is_dichot_pheno_ptr, Ll_entry** htable, uintptr_t* topsize_ptr, uint64_t* tot_indiv_ct_ptr, uint32_t* ped_buflen_ptr, uint32_t* cur_indiv_ct_ptr, uint32_t* orig_idx_ptr) {
+  uint64_t tot_indiv_ct = *tot_indiv_ct_ptr;
   uintptr_t max_person_id_len = *max_person_id_len_ptr;
+  uintptr_t topsize = *topsize_ptr;
+  uintptr_t line_idx = 0;
+  FILE* infile = NULL;
   uint32_t max_person_full_len = *max_person_full_len_ptr;
   uint32_t is_dichot_pheno = *is_dichot_pheno_ptr;
-  uintptr_t topsize = *topsize_ptr;
-  uint64_t tot_indiv_ct = *tot_indiv_ct_ptr;
   uint32_t orig_idx = *orig_idx_ptr;
   uint32_t cur_indiv_ct = 0;
-  FILE* infile = NULL;
   uint32_t text_file = 0;
   int32_t retval = 0;
   uint32_t col1_len;
@@ -13282,6 +13308,7 @@ int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_person_id
   }
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, infile)) {
+    line_idx++;
     col1_start_ptr = skip_initial_spaces(tbuf);
     cc = *col1_start_ptr;
     if (!is_eoln_or_comment(cc)) {
@@ -13298,6 +13325,7 @@ int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_person_id
       uii = strlen_se(col5_start_ptr);
       col6_start_ptr = skip_initial_spaces(&(col5_start_ptr[uii]));
       if (no_more_items_kns(col6_start_ptr)) {
+	sprintf(logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, famname);
 	goto merge_fam_id_scan_ret_INVALID_FORMAT_2;
       }
       if (uii != 1) {
@@ -13360,8 +13388,7 @@ int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_person_id
     }
     if (!tbuf[MAXLINELEN - 1]) {
       if (!text_file) {
-	sprintf(logbuf, "Error: .fam line too long in %s.\n", famname);
-	goto merge_fam_id_scan_ret_INVALID_FORMAT_2;
+	goto merge_fam_id_scan_ret_LONG_LINE;
       }
       ulii = 0;
       do {
@@ -13370,12 +13397,9 @@ int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_person_id
 	  break;
 	}
 	ulii += MAXLINELEN - 1;
-#ifndef __LP64__
-	if (ulii > 0x7fffffff) {
-	  sprintf(logbuf, "Error: .ped line too long (>= 2GB) in %s for 32-bit " PROG_NAME_CAPS ".\n", famname);
-	  goto merge_fam_id_scan_ret_INVALID_FORMAT_2;
+	if (ulii >= MAXLINEBUFLEN) {
+	  goto merge_fam_id_scan_ret_LONG_LINE;
 	}
-#endif
         if (!fgets(tbuf, MAXLINELEN, infile)) {
 	  goto merge_fam_id_scan_ret_READ_FAIL;
 	}
@@ -13407,6 +13431,8 @@ int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_person_id
   merge_fam_id_scan_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
+  merge_fam_id_scan_ret_LONG_LINE:
+    sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, famname);
   merge_fam_id_scan_ret_INVALID_FORMAT_2:
     logprintb();
     retval = RET_INVALID_FORMAT;
@@ -13485,7 +13511,9 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
   if (check_cm_col(infile, loadbuf, is_binary, loadbuf_size, &cm_col, &line_idx)) {
     goto merge_bim_scan_ret_MISSING_TOKENS;
   }
+  line_idx--;
   do {
+    line_idx++;
     if (!loadbuf[loadbuf_size - 1]) {
       if ((loadbuf_size == 0x3fffffc0) || ((!is_binary) && (loadbuf_size == MAXLINELEN))) {
 	sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, bimname);
