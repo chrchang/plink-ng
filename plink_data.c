@@ -13556,7 +13556,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
 	goto merge_bim_scan_ret_MISSING_TOKENS;
       }
     }
-    if (scan_int_abs_defcap(bufptr, &jj)) {
+    if (scan_int_abs_defcap(bufptr2, &jj)) {
       sprintf(logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, bimname);
       goto merge_bim_scan_ret_INVALID_FORMAT_2;
     }
