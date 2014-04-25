@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (21 Apr 2014)";
+  " (25 Apr 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -498,6 +498,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uint32_t plink_maxsnp;
   int32_t ii;
   int64_t llyy;
+  int64_t llzz;
   int32_t* hwe_lls;
   int32_t* hwe_lhs;
   int32_t* hwe_hhs;
@@ -916,44 +917,49 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     goto plink_ret_READ_FAIL;
   }
   llxx = ftello(bedfile);
-  llyy = llxx - ((uint64_t)unfiltered_indiv_ct4) * unfiltered_marker_ct;
+  llyy = ((uint64_t)unfiltered_indiv_ct4) * unfiltered_marker_ct;
+  llzz = ((uint64_t)unfiltered_indiv_ct) * ((unfiltered_marker_ct + 3) / 4);
+  if (!llxx) {
+    logprint("Error: Empty .bed file.\n");
+    goto plink_ret_INVALID_FORMAT;
+  }
   rewind(bedfile);
-  if (llyy == 3LL) {
-    // v1.00 or later
-    if (fread(tbuf, 1, 3, bedfile) < 3) {
-      goto plink_ret_READ_FAIL;
-    }
-    if (memcmp(tbuf, "l\x1b\x01", 3)) {
-      if (memcmp(tbuf, "l\x1b", 3)) {
-	if ((tbuf[0] == '#') || (!memcmp(tbuf, "chr", 3))) {
-          logprint("Error: Invalid header bytes in PLINK 1 .bed file.  (Is this a UCSC Genome\nBrowser BED file instead?)\n");
-	} else {
-	  logprint("Error: Invalid header bytes in PLINK 1 .bed file.\n");
-	}
-	goto plink_ret_INVALID_FORMAT;
-      }
-      bed_offset = 2;
-    }
-  } else if (llyy == 1LL) {
-    // v0.99
-    if (fread(tbuf, 1, 1, bedfile) != 1) {
-      goto plink_ret_READ_FAIL;
-    }
-    if (*tbuf == '\x01') {
-      bed_offset = 1;
-    } else if (*tbuf == '\0') {
-      bed_offset = 2;
-    } else {
+  uii = fread(tbuf, 1, 3, bedfile);
+  if ((uii == 3) && (!memcmp(tbuf, "l\x1b\x01", 3))) {
+    llyy += 3;
+  } else if ((uii == 3) && (!memcmp(tbuf, "l\x1b", 2))) {
+    // v1.00 indiv-major
+    llyy = llzz + 3;
+    bed_offset = 2;
+  } else if (uii && (*tbuf == '\x01')) {
+    // v0.99 SNP-major
+    llyy += 1;
+    bed_offset = 1;
+  } else if (uii && (!(*tbuf))) {
+    // v0.99 indiv-major
+    llyy = llzz + 1;
+    bed_offset = 2;
+  } else {
+    // pre-v0.99, indiv-major, no header bytes
+    llyy = llzz;
+    if (llxx != llyy) {
+      // probably not PLINK-format at all, so give this error instead of
+      // "invalid file size"
       logprint("Error: Invalid header bytes in .bed file.\n");
       goto plink_ret_INVALID_FORMAT;
     }
-  } else if (llyy != 0LL) {
-    sprintf(logbuf, "Error: Invalid .bed file size (expected %" PRIu64 " bytes).\n", 3LLU + ((uint64_t)unfiltered_indiv_ct4) * unfiltered_marker_ct);
-    goto plink_ret_INVALID_FORMAT_2;
-  } else {
-    // pre-0.99, no magic number, indiv-major
     bed_offset = 2;
   }
+  if (llxx != llyy) {
+    if ((*tbuf == '#') || ((uii == 3) && (!memcmp(tbuf, "chr", 3)))) {
+      logprint("Error: Invalid header bytes in PLINK 1 .bed file.  (Is this a UCSC Genome\nBrowser BED file instead?)\n");
+      goto plink_ret_INVALID_FORMAT;
+    } else {
+      sprintf(logbuf, "Error: Invalid .bed file size (expected %" PRId64 " bytes).\n", llyy);
+      goto plink_ret_INVALID_FORMAT_2;
+    }
+  }
+
   if (bed_offset == 2) {
     strcpy(outname_end, ".bed.tmp"); // not really temporary
     logprint("Individual-major .bed file detected.  Transposing to SNP-major form.\n");
@@ -3574,6 +3580,7 @@ int32_t main(int32_t argc, char** argv) {
       flag_map[cur_flag++] = uii;
     }
   }
+  // requires MAX_FLAG_LEN to be at least sizeof(void*) + sizeof(int32_t)
   sptr = (char*)malloc(flag_ct * MAX_FLAG_LEN);
   if (!sptr) {
     goto main_ret_NOMEM;
