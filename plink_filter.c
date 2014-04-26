@@ -2132,7 +2132,7 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
   if (fopen_checked(&outfile, outname, "w")) {
     goto hardy_report_ret_OPEN_FAIL;
   }
-  LOGPRINTF("Writing Hardy-Weinberg report to %s...", outname);
+  LOGPRINTF("--hardy: Writing Hardy-Weinberg report to %s...", outname);
   fputs(" 0%", stdout);
   sprintf(writebuf, " CHR %%%us     TEST   A1   A2                 GENO   O(HET)   E(HET)            P \n", plink_maxsnp);
   fprintf(outfile, writebuf, "SNP");
@@ -2334,7 +2334,7 @@ uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct
     logprint("Error: All variants removed due to Hardy-Weinberg exact test (--hwe).\n");
     return 1;
   }
-  LOGPRINTF("%u variant%s removed due to Hardy-Weinberg exact test (--hwe).\n", removed_ct, (removed_ct == 1)? "" : "s");
+  LOGPRINTF("--hwe: %u variant%s removed due to Hardy-Weinberg exact test.\n", removed_ct, (removed_ct == 1)? "" : "s");
   *marker_exclude_ct_ptr += removed_ct;
   return 0;
 }

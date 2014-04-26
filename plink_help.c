@@ -1189,9 +1189,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                            the given file are cases, and everyone else is a\n"
 "                            control.  (Note that, in some shells, it is\n"
 "                            necessary to surround the * with quotes.)\n"
-"                            Otherwise, only individuals both listed in the file\n"
-"                            and with third column entry identical to the val\n"
-"                            parameter are cases.\n"
+"                            Otherwise, all individuals with third column entry\n"
+"                            equal to the val parameter are cases, and all other\n"
+"                            individuals mentioned in the file are controls.\n"
 	       );
     help_print("tail-pheno\tgroupdist\tpheno", &help_ctrl, 0,
 "  --tail-pheno [Lt] {Hbt} : Downcode a scalar phenotype to a case/control\n"

@@ -197,6 +197,8 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
   if (!feof(phenofile)) {
     goto makepheno_load_ret_READ_FAIL;
   }
+  tmp_len = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
+  LOGPRINTF("--make-pheno: %u phenotype value%s set.\n", tmp_len, (tmp_len == 1)? "" : "s");
   while (0) {
   makepheno_load_ret_NOMEM:
     retval = RET_NOMEM;
@@ -391,6 +393,8 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
   if (!feof(phenofile)) {
     goto load_pheno_ret_READ_FAIL;
   }
+  uii = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
+  LOGPRINTF("%u phenotype value%s present after --pheno.\n", uii, (uii == 1)? "" : "s");
   while (0) {
   load_pheno_ret_NOMEM:
     retval = RET_NOMEM;
@@ -2237,9 +2241,9 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
       }
     }
     if (freq_counts) {
-      logprint(".frq.count file loaded.\n");
+      logprint("--read-freq: .frq.count file loaded.\n");
     } else {
-      logprint(".frq file loaded.\n");
+      logprint("--read-freq: .frq file loaded.\n");
     }
   } else if (!memcmp(loadbuf, "CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(HAP A1)\tC(HAP A2)\tC(MISSING)", 71)) {
     // changed from strcmp to avoid eoln problems
@@ -2314,7 +2318,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
         }
       }
     }
-    logprint(".frqx file loaded.\n");
+    logprint("--read-freq: .frqx file loaded.\n");
   } else {
     // Also support GCTA-style frequency files:
     // [marker ID]\t[reference allele]\t[frequency of reference allele]\n
@@ -2362,7 +2366,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	}
       }
     } while (fgets(loadbuf, loadbuf_size, freqfile));
-    logprint("GCTA-formatted .freq file loaded.\n");
+    logprint("--read-freq: GCTA-formatted .freq file loaded.\n");
   }
   while (0) {
   read_external_freqs_ret_TOO_LONG_LINE:
@@ -2814,7 +2818,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
   if (fclose_null(&outfile)) {
     goto write_stratified_freqs_ret_WRITE_FAIL;
   }
-  LOGPRINTF("Cluster-stratified allele frequencies written to %s.\n", outname);
+  LOGPRINTF("--freq: Cluster-stratified allele frequencies written to %s.\n", outname);
   while (0) {
   write_stratified_freqs_ret_NOMEM:
     retval = RET_NOMEM;
@@ -2965,7 +2969,7 @@ int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_m
   if (fclose_null(&outfile)) {
     goto write_freqs_ret_WRITE_FAIL;
   }
-  LOGPRINTF("Allele frequencies written to %s.\n", outname);
+  LOGPRINTF("--freq%s: Allele frequencies written to %s.\n", freqx? "x" : "", outname);
   while (0) {
   write_freqs_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;

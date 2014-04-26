@@ -1186,6 +1186,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   chrom_info_ptr->chrom_ct = ++chroms_encountered_m1;
   chrom_info_ptr->chrom_file_order_marker_idx[chroms_encountered_m1] = marker_uidx;
   *marker_exclude_ct_ptr = marker_exclude_ct;
+  LOGPRINTF("%" PRIuPTR " variant%s loaded from .bim file.\n", unfiltered_marker_ct - marker_exclude_ct, (unfiltered_marker_ct == marker_exclude_ct + 1)? "" : "s");
   if (missing_ids_set) {
     LOGPRINTF("%u missing ID%s set.\n", missing_ids_set, (missing_ids_set == 1)? "" : "s");
   }

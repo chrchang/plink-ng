@@ -181,6 +181,8 @@ int32_t convert_tail_pheno(uint32_t unfiltered_indiv_ct, uintptr_t* pheno_nm, ui
   } while (indiv_uidx_stop < unfiltered_indiv_ct);
   free(pheno_d);
   *pheno_d_ptr = NULL;
+  indiv_uidx = popcount_longs(pheno_nm, (unfiltered_indiv_ct + (BITCT - 1)) / BITCT);
+  LOGPRINTF("--tail-pheno: %u phenotype value%s remaining.\n", indiv_uidx, (indiv_uidx == 1)? "" : "s");
   return 0;
 }
 
@@ -691,13 +693,17 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   count_genders(sex_nm, sex_male, unfiltered_indiv_ct, indiv_exclude, &uii, &ujj, &gender_unk_ct);
   marker_ct = unfiltered_marker_ct - marker_exclude_ct;
   if (gender_unk_ct) {
-    LOGPRINTF("%" PRIuPTR " variant%s and %" PRIuPTR " %s (%d male%s, %d female%s, %u ambiguous) loaded.\n", marker_ct, (marker_ct == 1)? "" : "s", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), uii, (uii == 1)? "" : "s", ujj, (ujj == 1)? "" : "s", gender_unk_ct);
+    LOGPRINTF("%" PRIuPTR " %s (%u male%s, %u female%s, %u ambiguous) loaded from .fam.\n", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), uii, (uii == 1)? "" : "s", ujj, (ujj == 1)? "" : "s", gender_unk_ct);
     retval = write_nosex(outname, outname_end, unfiltered_indiv_ct, indiv_exclude, sex_nm, gender_unk_ct, person_ids, max_person_id_len);
     if (retval) {
       goto plink_ret_1;
     }
   } else {
-    LOGPRINTF("%" PRIuPTR " variant%s and %" PRIuPTR " %s (%d male%s, %d female%s) loaded.\n", marker_ct, (marker_ct == 1)? "" : "s", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), uii, (uii == 1)? "" : "s", ujj, (ujj == 1)? "" : "s");
+    LOGPRINTF("%" PRIuPTR " %s (%d male%s, %d female%s) loaded from .fam.\n", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), uii, (uii == 1)? "" : "s", ujj, (ujj == 1)? "" : "s");
+  }
+  uii = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
+  if (uii) {
+    LOGPRINTF("%u phenotype value%s loaded from .fam.\n", uii, (uii == 1)? "" : "s");
   }
 
   if (phenoname && fopen_checked(&phenofile, phenoname, "r")) {
@@ -864,29 +870,39 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     if (extractname) {
       if (!(misc_flags & MISC_EXTRACT_RANGE)) {
         retval = include_or_exclude(extractname, cptr, ulii, max_marker_id_len, uiptr, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0);
+	if (retval) {
+	  goto plink_ret_1;
+	}
       } else {
 	if (map_is_unsorted & UNSORTED_BP) {
 	  logprint("Error: '--extract range' requires a sorted .bim.  Retry this command after\nusing --make-bed to sort your data.\n");
 	  goto plink_ret_INVALID_CMDLINE;
 	}
         retval = extract_exclude_range(extractname, marker_pos, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0, chrom_info_ptr);
-      }
-      if (retval) {
-        goto plink_ret_1;
+	if (retval) {
+	  goto plink_ret_1;
+	}
+	ulii = unfiltered_marker_ct - marker_exclude_ct;
+	LOGPRINTF("--extract range: %" PRIuPTR " variant%s remaining.\n", ulii, (ulii == 1)? "" : "s");
       }
     }
     if (excludename) {
       if (!(misc_flags & MISC_EXCLUDE_RANGE)) {
 	retval = include_or_exclude(excludename, cptr, ulii, max_marker_id_len, uiptr, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 1);
+	if (retval) {
+	  goto plink_ret_1;
+	}
       } else {
 	if (map_is_unsorted & UNSORTED_BP) {
 	  logprint("Error: '--exclude range' requires a sorted .bim.  Retry this command after\nusing --make-bed to sort your data.\n");
 	  goto plink_ret_INVALID_CMDLINE;
 	}
         retval = extract_exclude_range(excludename, marker_pos, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 1, chrom_info_ptr);
-      }
-      if (retval) {
-        goto plink_ret_1;
+	if (retval) {
+	  goto plink_ret_1;
+	}
+	ulii = unfiltered_marker_ct - marker_exclude_ct;
+	LOGPRINTF("--exclude range: %" PRIuPTR " variant%s remaining.\n", ulii, (ulii == 1)? "" : "s");
       }
     }
     if (filter_attrib_fname) {
@@ -1073,6 +1089,11 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     bitfield_ornot(indiv_exclude, pheno_nm, unfiltered_indiv_ctl);
     zero_trailing_bits(indiv_exclude, unfiltered_indiv_ct);
     indiv_exclude_ct = popcount_longs(indiv_exclude, unfiltered_indiv_ctl);
+    if (indiv_exclude_ct == unfiltered_indiv_ct) {
+      LOGPRINTF("Error: All %s removed by --prune.\n", g_species_plural);
+      goto plink_ret_ALL_SAMPLES_EXCLUDED;
+    }
+    LOGPRINTF("--prune: %" PRIuPTR " %s remaining.\n", unfiltered_indiv_ct - indiv_exclude_ct, species_str(unfiltered_indiv_ct == indiv_exclude_ct + 1));
   }
 
   if (filter_flags & (FILTER_BINARY_CASES | FILTER_BINARY_CONTROLS)) {
@@ -1218,9 +1239,9 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   } else if (pheno_c) {
     pheno_ctrl_ct = popcount_longs_exclude(pheno_nm, pheno_c, unfiltered_indiv_ctl);
     if (pheno_nm_ct != indiv_ct) {
-      sprintf(logbuf, "%u case%s, %u control%s, and %" PRIuPTR " missing phenotype%s present.\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "" : "s", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "" : "s", indiv_ct - pheno_nm_ct, (indiv_ct - pheno_nm_ct == 1)? "" : "s");
+      sprintf(logbuf, "%u case%s, %u control%s, and %" PRIuPTR " missing phenotype%s now present.\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "" : "s", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "" : "s", indiv_ct - pheno_nm_ct, (indiv_ct - pheno_nm_ct == 1)? "" : "s");
     } else {
-      sprintf(logbuf, "%u case%s and %u control%s present.\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "" : "s", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "" : "s");
+      sprintf(logbuf, "%u case%s and %u control%s now present.\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "" : "s", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "" : "s");
     }
     logprintb();
     if (!pheno_ctrl_ct) {
@@ -1228,9 +1249,9 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   } else {
     if (pheno_nm_ct != indiv_ct) {
-      sprintf(logbuf, "%u quantitative phenotype%s present (%" PRIuPTR " missing).\n", pheno_nm_ct, (pheno_nm_ct == 1)? "" : "s", indiv_ct - pheno_nm_ct);
+      sprintf(logbuf, "%u quantitative phenotype%s now present (%" PRIuPTR " missing).\n", pheno_nm_ct, (pheno_nm_ct == 1)? "" : "s", indiv_ct - pheno_nm_ct);
     } else {
-      sprintf(logbuf, "%u quantitative phenotype%s present.\n", pheno_nm_ct, (pheno_nm_ct == 1)? "" : "s");
+      sprintf(logbuf, "%u quantitative phenotype%s now present.\n", pheno_nm_ct, (pheno_nm_ct == 1)? "" : "s");
     }
     logprintb();
     hwe_modifier |= HWE_THRESH_ALL;

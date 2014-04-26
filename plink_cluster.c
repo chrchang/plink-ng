@@ -601,7 +601,7 @@ int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_in
   if (fclose_null(&outfile)) {
     goto write_cluster_ret_WRITE_FAIL;
   }
-  LOGPRINTF("Pruned cluster assignments written to %s.\n", outname);
+  LOGPRINTF("--write-cluster: Pruned cluster assignments written to %s.\n", outname);
   while (0) {
   write_cluster_ret_NOMEM:
     retval = RET_NOMEM;
