@@ -4099,6 +4099,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   if (retval) {
     goto glm_logistic_assoc_ret_1;
   }
+  indiv_valid_ctv2 = 2 * ((indiv_valid_ct + BITCT - 1) / BITCT);
   param_ctx_max_m1 = param_ctx_max - 1;
   if (wkspace_alloc_d_checked(&g_orig_stats, marker_initial_ct * sizeof(double)) ||
       wkspace_alloc_c_checked(&param_names, param_ctx_max * max_param_name_len) ||
