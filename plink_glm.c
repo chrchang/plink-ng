@@ -1383,8 +1383,8 @@ static inline void compute_v_and_p_minus_y(float* pp, float* vv, const float* yy
 }
 
 static inline void mult_tmatrix_nxd_vect_d(float* tm, const float* vect, float* dest, uint32_t col_ct, uint32_t row_ct) {
-  uintptr_t col_cta4 = (indiv_ct + 3) & (~3);
-  float* tm_ptr = &(tm[row_idx * col_cta4]);
+  uintptr_t col_cta4 = (col_ct + 3) & (~3);
+  float* tm_ptr;
   float vect_val;
   uint32_t col_idx;
   uint32_t row_idx;
