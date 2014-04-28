@@ -911,7 +911,6 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
 // #####
 
 #ifdef __LP64__
-
 // exp_ps is a C port of Shigeo Mitsunari's fast math library posted at
 // http://homepage1.nifty.com/herumi/ .  License is
 // http://opensource.org/licenses/BSD-3-Clause .
@@ -1616,6 +1615,12 @@ void cholesky_decomposition(const float* aa, float* ll, uint32_t dd) {
     }
   }
 }
+
+/*
+uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, uint32_t missing_ct, uintptr_t* loadbuf, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
+  ;;;
+}
+*/
 
 uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, uint32_t missing_ct, uintptr_t* loadbuf, double* covars_cov_major, double* covars_indiv_major, uintptr_t* perm_vecs, double* coef, double* vbuf, double* initial_t2_buf, double* t2_buf, double* t3_buf, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, uint32_t cluster_ct1, uint32_t* indiv_to_cluster1, double* cluster_param_buf, double* cluster_param_buf2, double* indiv_1d_buf, double* logistic_results, uintptr_t constraint_ct, double* constraints_con_major, double* df_df_buf, double* df_buf, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
   // See PLINK 1.07 logistic.cpp fitLM().

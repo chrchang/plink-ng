@@ -9476,6 +9476,11 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     if (retval) {
       goto clump_reports_ret_1;
     }
+#ifndef STABLE_BUILD
+    if (g_debug_on) {
+      logstr("load_range_list complete\n");
+    }
+#endif
     wkspace_left -= topsize;
     if (wkspace_alloc_ul_checked(&rg_chrom_bounds, (chrom_code_end + 1) * sizeof(intptr_t))) {
       goto clump_reports_ret_NOMEM2;
@@ -9559,6 +9564,11 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     while (clump_chrom_idx < chrom_code_end) {
       rg_chrom_bounds[++clump_chrom_idx] = range_group_ct;
     }
+#ifndef STABLE_BUILD
+    if (g_debug_on) {
+      logstr("rg_chrom_bounds populated\n");
+    }
+#endif
     wkspace_left += topsize;
     topsize = 0;
     if (fclose_null(&infile)) {
@@ -9958,6 +9968,11 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   if (qsort_ext((char*)sorted_pvals, index_ct, sizeof(double), double_cmp_deref, (char*)pval_map, sizeof(int32_t))) {
     goto clump_reports_ret_NOMEM2;
   }
+#ifndef STABLE_BUILD
+  if (g_debug_on) {
+    logstr("p-values sorted\n");
+  }
+#endif
   if (wkspace_alloc_ui_checked(&marker_idx_to_uidx, marker_ct * sizeof(int32_t)) ||
       wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&index_data, 5 * founder_ctv2 * sizeof(intptr_t))) {

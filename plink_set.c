@@ -249,6 +249,11 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       make_set_ll = ll_tmp;
       set_ct++;
     }
+#ifndef STABLE_BUILD
+    if (g_debug_on) {
+      logstr("load_range_list pre-scan complete\n");
+    }
+#endif
     if (!set_ct) {
       if (fail_on_no_sets) {
 	logprint("Error: All variants excluded by --gene{-all}, since no sets were defined from\n--make-set file.\n");
@@ -293,6 +298,11 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
     make_set_range_arr[set_idx] = NULL;
   }
   line_idx = 0;
+#ifndef STABLE_BUILD
+  if (g_debug_on) {
+    logstr("starting load_range_list main scan\n");
+  }
+#endif
   while (fgets(tbuf, MAXLINELEN, infile)) {
     line_idx++;
     if (!tbuf[MAXLINELEN - 1]) {
@@ -391,6 +401,11 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       make_set_range_arr[set_idx] = msr_tmp;
     }
   }
+#ifndef STABLE_BUILD
+  if (g_debug_on) {
+    logstr("load_range_list main scan complete\n");
+  }
+#endif
   // allocate buffer for sorting ranges later
   uii = 0;
   for (set_idx = 0; set_idx < set_ct; set_idx++) {
