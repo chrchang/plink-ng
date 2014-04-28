@@ -910,6 +910,7 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
 // Lakhani and Eva Guinan.
 // #####
 
+/*
 #ifdef __LP64__
 // exp_ps is a C port of Shigeo Mitsunari's fast math library posted at
 // http://homepage1.nifty.com/herumi/ .  License is
@@ -1197,7 +1198,7 @@ static inline __m128 fmath_exp_ps(__m128 xx) {
   // 88
   const __m128i max_x = {0x42b0000042b00000LLU, 0x42b0000042b00000LLU};
   // -88
-  const __m128i min_x = {0xc2b00000c2b00000LLU, 0xc2b00000c2b00000LLU};
+  const __m128i min_x = {0xc2b00000c2b00000LL, 0xc2b00000c2b00000LL};
   // 2^10 / log(2)
   const __m128i const_aa = {0x44b8aa3b44b8aa3bLLU, 0x44b8aa3b44b8aa3bLLU};
   // log(2) / 2^10
@@ -1616,7 +1617,6 @@ void cholesky_decomposition(const float* aa, float* ll, uint32_t dd) {
   }
 }
 
-/*
 uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, uint32_t missing_ct, uintptr_t* loadbuf, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
   ;;;
 }
