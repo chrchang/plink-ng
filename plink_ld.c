@@ -9476,11 +9476,6 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     if (retval) {
       goto clump_reports_ret_1;
     }
-#ifndef STABLE_BUILD
-    if (g_debug_on) {
-      logstr("load_range_list complete\n");
-    }
-#endif
     wkspace_left -= topsize;
     if (wkspace_alloc_ul_checked(&rg_chrom_bounds, (chrom_code_end + 1) * sizeof(intptr_t))) {
       goto clump_reports_ret_NOMEM2;
@@ -9564,11 +9559,6 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     while (clump_chrom_idx < chrom_code_end) {
       rg_chrom_bounds[++clump_chrom_idx] = range_group_ct;
     }
-#ifndef STABLE_BUILD
-    if (g_debug_on) {
-      logstr("rg_chrom_bounds populated\n");
-    }
-#endif
     wkspace_left += topsize;
     topsize = 0;
     if (fclose_null(&infile)) {
@@ -10057,8 +10047,19 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     }
   }
   for (sp_idx = 0; sp_idx < index_ct; sp_idx++) {
+#ifndef STABLE_BUILD
+    if (g_debug_on) {
+      sprintf(logbuf, "Processing index variant %u.\n", sp_idx);
+      logstr(logbuf);
+    }
+#endif
     ivar_idx = pval_map[sp_idx];
     if ((!clump_best) && is_set(cur_bitfield, ivar_idx)) {
+#ifndef STABLE_BUILD
+      if (g_debug_on) {
+	logstr("(skipped)\n");
+      }
+#endif
       continue;
     }
     ivar_uidx = marker_idx_to_uidx[ivar_idx];
@@ -10449,12 +10450,25 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	max_bp = marker_pos[marker_idx_to_uidx[marker_idx]];
       }
     }
+#ifndef STABLE_BUILD
+    if (g_debug_on) {
+      logstr("initializing chromosome-specific pointers/values\n");
+    }
+#endif
     if (rg_setdefs) {
       ulii = rg_chrom_bounds[clump_chrom_idx];
       cur_rg_setdefs = &(rg_setdefs[ulii]);
       cur_rg_names = &(range_group_names[ulii * max_range_group_id_len + 4]);
       cur_rg_ct = rg_chrom_bounds[clump_chrom_idx + 1] - ulii;
     }
+#ifndef STABLE_BUILD
+    if (g_debug_on) {
+      logstr("on chromosome ");
+      bufptr = chrom_name_write(logbuf, chrom_info_ptr, clump_chrom_idx, zero_extra_chroms);
+      sprintf(bufptr, ", cur_rg_ct = %" PRIuPTR "\n", cur_rg_ct);
+      logstr(logbuf);
+    }
+#endif
     if (!clump_verbose) {
       if (!cur_window_size) {
 	bufptr = memcpya(bufptr, "NONE\n", 5);
@@ -10567,131 +10581,144 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	}
 	fputs("\n\n", outfile);
 	last_marker_idx = ~ZEROLU;
-	if (cur_window_size) {
-	  if (rg_setdefs) {
-	    fill_ulong_zero(rangematch_bitfield, (cur_rg_ct + (BITCT - 1)) / BITCT);
-	    unmatched_group_ct = cur_rg_ct;
+#ifndef STABLE_BUILD
+        if (g_debug_on) {
+	  logstr("writing main --clump-verbose block\n");
+        }
+#endif
+	if (rg_setdefs) {
+	  fill_ulong_zero(rangematch_bitfield, (cur_rg_ct + (BITCT - 1)) / BITCT);
+	  unmatched_group_ct = cur_rg_ct;
+	}
+	for (ulii = 0; ulii < cur_window_size; ulii++) {
+	  bufptr = memseta(tbuf, 32, 10);
+	  marker_idx = cur_clump_base[ulii].marker_idx;
+	  if (last_marker_idx != marker_idx) {
+	    marker_uidx = marker_idx_to_uidx[marker_idx];
+	    clump_entry_ptr = clump_entries[marker_idx];
+	    if (rg_setdefs) {
+	      uii = marker_pos[marker_uidx];
+	      uljj = 0; // range group idx
+	      ulkk = 0; // number of new matches
+	      for (ulmm = 0; ulmm < unmatched_group_ct; uljj++, ulmm++) {
+		next_unset_ul_unsafe_ck(rangematch_bitfield, &uljj);
+		if (interval_in_setdef(cur_rg_setdefs[uljj], uii, uii + 1)) {
+		  set_bit(rangematch_bitfield, uljj);
+		  ulkk++;
+		}
+	      }
+	      unmatched_group_ct -= ulkk;
+	    }
 	  }
-	  for (ulii = 0; ulii < cur_window_size; ulii++) {
-	    bufptr = memseta(tbuf, 32, 10);
-	    marker_idx = cur_clump_base[ulii].marker_idx;
-	    if (last_marker_idx != marker_idx) {
-	      marker_uidx = marker_idx_to_uidx[marker_idx];
-	      clump_entry_ptr = clump_entries[marker_idx];
-	      if (rg_setdefs) {
-		uii = marker_pos[marker_uidx];
-		uljj = 0; // range group idx
-		ulkk = 0; // number of new matches
-		for (ulmm = 0; ulmm < unmatched_group_ct; uljj++, ulmm++) {
-		  next_unset_ul_unsafe_ck(rangematch_bitfield, &uljj);
-		  if (interval_in_setdef(cur_rg_setdefs[uljj], uii, uii + 1)) {
-		    set_bit(rangematch_bitfield, uljj);
-		    ulkk++;
-		  }
-		}
-		unmatched_group_ct -= ulkk;
-	      }
-	    }
-	    ukk = cur_clump_base[ulii].fidx;
-	    while (clump_entry_ptr->fidx != ukk) {
-	      clump_entry_ptr = clump_entry_ptr->next;
-	    }
-	    bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), bufptr);
-	    *bufptr++ = ' ';
-	    bufptr = double_g_writewx3x(bufptr, ((double)(((int32_t)marker_pos[marker_uidx]) - ((int32_t)cur_bp))) * 0.001, 10, ' ');
-	    cur_r2 = cur_clump_base[ulii].r2;
-	    if (cur_r2 > 0) {
-	      ujj = 0;
-	    } else {
-	      ujj = 1; // reversed phase
-	    }
-	    bufptr = double_g_writewx3x(bufptr, cur_r2, 8, ' ');
-	    bufptr2 = marker_allele_ptrs[marker_uidx * 2 + ujj];
-	    bufptr3 = marker_allele_ptrs[marker_uidx * 2 + 1 - ujj];
-	    if (allele_padding) {
-	      bufptr4 = bufptr2;
-	      for (uii = allele_padding; uii; uii--) {
-		// fast in common case, don't bother to compute strlen for long
-		// indels
-		if (!(*(++bufptr4))) {
-		  bufptr4 = bufptr3;
-		  for (; uii; uii--) {
-		    if (!(*(++bufptr4))) {
-		      bufptr = memseta(bufptr, 32, uii);
-		      break;
-		    }
-		  }
-		  break;
-		}
-	      }
-	    }
-	    if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
-	      goto clump_reports_ret_WRITE_FAIL;
-	    }
-	    fwrite(cur_a1, 1, a1_len, outfile);
-	    fputs(bufptr2, outfile);
-	    putc('/', outfile);
-	    fwrite(cur_a2, 1, a2_len, outfile);
-	    fputs(bufptr3, outfile);
-	    tbuf[0] = ' ';
-	    bufptr = uint32_writew4x(&(tbuf[1]), cur_clump_base[ulii].fidx, ' ');
-	    bufptr = double_g_writewx3x(bufptr, clump_entry_ptr->pval, 12, ' ');
-	    if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
-	      goto clump_reports_ret_WRITE_FAIL;
-	    }
-	    if (annot_flattened) {
-	      bufptr2 = clump_entry_ptr->annot;
-	      bufptr3 = bufptr2;
-	      for (uii = 11; uii; uii--) {
-		if (!(*(++bufptr3))) {
-		  fwrite("           ", 1, uii, outfile);
-		  break;
-		}
-	      }
-	      fputs(bufptr2, outfile);
-	    }
-	    putc('\n', outfile);
-	    last_marker_idx = marker_idx;
+	  ukk = cur_clump_base[ulii].fidx;
+	  while (clump_entry_ptr->fidx != ukk) {
+	    clump_entry_ptr = clump_entry_ptr->next;
 	  }
-	  bufptr = memcpya(tbuf, "\n          RANGE: ", 18);
-	  if (clump_chrom_idx <= chrom_info_ptr->max_code) {
-	    bufptr = memcpyl3a(bufptr, "chr");
-	    bufptr = uint32_write(bufptr, clump_chrom_idx);
-	  } else if (zero_extra_chroms) {
-	    bufptr = memcpya(bufptr, "chr0", 4);
+	  bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), bufptr);
+	  *bufptr++ = ' ';
+	  bufptr = double_g_writewx3x(bufptr, ((double)(((int32_t)marker_pos[marker_uidx]) - ((int32_t)cur_bp))) * 0.001, 10, ' ');
+	  cur_r2 = cur_clump_base[ulii].r2;
+	  if (cur_r2 > 0) {
+	    ujj = 0;
 	  } else {
-	    bufptr = strcpya(bufptr, chrom_info_ptr->nonstd_names[clump_chrom_idx]);
+	    ujj = 1; // reversed phase
 	  }
-	  *bufptr++ = ':';
-	  bufptr = uint32_write(bufptr, min_bp);
-	  bufptr = memcpya(bufptr, "..", 2);
-	  bufptr = uint32_write(bufptr, max_bp);
-	  bufptr = memcpya(bufptr, "\n           SPAN: ", 18);
-	  bufptr = uint32_write(bufptr, (ujj - uii + 1) / 1000);
-	  bufptr = memcpyl3a(bufptr, "kb\n");
+	  bufptr = double_g_writewx3x(bufptr, cur_r2, 8, ' ');
+	  bufptr2 = marker_allele_ptrs[marker_uidx * 2 + ujj];
+	  bufptr3 = marker_allele_ptrs[marker_uidx * 2 + 1 - ujj];
+	  if (allele_padding) {
+	    bufptr4 = bufptr2;
+	    for (uii = allele_padding; uii; uii--) {
+	      // fast in common case, don't bother to compute strlen for long
+	      // indels
+	      if (!(*(++bufptr4))) {
+		bufptr4 = bufptr3;
+		for (; uii; uii--) {
+		  if (!(*(++bufptr4))) {
+		    bufptr = memseta(bufptr, 32, uii);
+		    break;
+		  }
+		}
+		break;
+	      }
+	    }
+	  }
 	  if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
 	    goto clump_reports_ret_WRITE_FAIL;
 	  }
-	  if (rg_setdefs) {
-	    fputs("     GENES w/SNPs: ", outfile);
-	    ulii = 0;
-	    uljj = 0;
-	    unmatched_group_ct = cur_rg_ct - unmatched_group_ct;
-	    if (unmatched_group_ct) {
-	      while (1) {
-		uljj = next_set_ul_unsafe(rangematch_bitfield, uljj);
-		fputs(&(cur_rg_names[uljj * max_range_group_id_len]), outfile);
-		if (!(--unmatched_group_ct)) {
-		  break;
-		}
-		uljj++;
-		putc(',', outfile);
+	  fwrite(cur_a1, 1, a1_len, outfile);
+	  fputs(bufptr2, outfile);
+	  putc('/', outfile);
+	  fwrite(cur_a2, 1, a2_len, outfile);
+	  fputs(bufptr3, outfile);
+	  tbuf[0] = ' ';
+	  bufptr = uint32_writew4x(&(tbuf[1]), cur_clump_base[ulii].fidx, ' ');
+	  bufptr = double_g_writewx3x(bufptr, clump_entry_ptr->pval, 12, ' ');
+	  if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	    goto clump_reports_ret_WRITE_FAIL;
+	  }
+	  if (annot_flattened) {
+	    bufptr2 = clump_entry_ptr->annot;
+	    bufptr3 = bufptr2;
+	    for (uii = 11; uii; uii--) {
+	      if (!(*(++bufptr3))) {
+		fwrite("           ", 1, uii, outfile);
+		break;
 	      }
 	    }
-	    putc('\n', outfile);
+	    fputs(bufptr2, outfile);
 	  }
+	  putc('\n', outfile);
+	  last_marker_idx = marker_idx;
+	}
+	bufptr = memcpya(tbuf, "\n          RANGE: ", 18);
+	if (clump_chrom_idx <= chrom_info_ptr->max_code) {
+	  bufptr = memcpyl3a(bufptr, "chr");
+	  bufptr = uint32_write(bufptr, clump_chrom_idx);
+	} else if (zero_extra_chroms) {
+	  bufptr = memcpya(bufptr, "chr0", 4);
+	} else {
+	  bufptr = strcpya(bufptr, chrom_info_ptr->nonstd_names[clump_chrom_idx]);
+	}
+	*bufptr++ = ':';
+	bufptr = uint32_write(bufptr, min_bp);
+	bufptr = memcpya(bufptr, "..", 2);
+	bufptr = uint32_write(bufptr, max_bp);
+	bufptr = memcpya(bufptr, "\n           SPAN: ", 18);
+	bufptr = uint32_write(bufptr, (ujj - uii + 1) / 1000);
+	bufptr = memcpyl3a(bufptr, "kb\n");
+	if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	  goto clump_reports_ret_WRITE_FAIL;
+	}
+#ifndef STABLE_BUILD
+        if (g_debug_on) {
+	  logstr("writing GENES w/SNPs line\n");
+        }
+#endif
+	if (rg_setdefs) {
+	  fputs("     GENES w/SNPs: ", outfile);
+	  ulii = 0;
+	  uljj = 0;
+	  unmatched_group_ct = cur_rg_ct - unmatched_group_ct;
+	  if (unmatched_group_ct) {
+	    while (1) {
+	      uljj = next_set_ul_unsafe(rangematch_bitfield, uljj);
+	      fputs(&(cur_rg_names[uljj * max_range_group_id_len]), outfile);
+	      if (!(--unmatched_group_ct)) {
+		break;
+	      }
+	      uljj++;
+	      putc(',', outfile);
+	    }
+	  }
+	  putc('\n', outfile);
 	}
       }
+#ifndef STABLE_BUILD
+      if (g_debug_on) {
+	logstr("writing GENES footer line\n");
+      }
+#endif
       if (rg_setdefs) {
 	if (!cur_window_size) {
 	  putc('\n', outfile);
