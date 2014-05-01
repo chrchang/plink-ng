@@ -910,7 +910,6 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
 // Lakhani and Eva Guinan.
 // #####
 
-/*
 #ifdef __LP64__
 // exp_ps is a C port of Shigeo Mitsunari's fast math library posted at
 // http://homepage1.nifty.com/herumi/ .  License is
@@ -933,7 +932,7 @@ typedef union {
 //     printf(",\n");
 //   }
 // }
-const uint32_t float_exp_lookup[] __attribute__((aligned(16))) = {
+const uint32_t float_exp_lookup_int[] __attribute__((aligned(16))) = {
 0x00000000, 0x00001630, 0x00002c64, 0x0000429c,
 0x000058d8, 0x00006f17, 0x0000855b, 0x00009ba2,
 0x0000b1ed, 0x0000c83c, 0x0000de8f, 0x0000f4e6,
@@ -1192,13 +1191,17 @@ const uint32_t float_exp_lookup[] __attribute__((aligned(16))) = {
 0x007f4ecb, 0x007f7b0d, 0x007fa756, 0x007fd3a7
 };
 
+const float* const float_exp_lookup = (const float*)float_exp_lookup_int;
+
 static inline __m128 fmath_exp_ps(__m128 xx) {
   const __m128i mask7ff = {0x7fffffff7fffffffLLU, 0x7fffffff7fffffffLLU};
 
   // 88
   const __m128i max_x = {0x42b0000042b00000LLU, 0x42b0000042b00000LLU};
   // -88
-  const __m128i min_x = {0xc2b00000c2b00000LL, 0xc2b00000c2b00000LL};
+  // more sensible 0xc2b00000... not used here due to "narrowing conversion"
+  // warning
+  const __m128i min_x = {-0x3d4fffff3d500000LL, -0x3d4fffff3d500000LL};
   // 2^10 / log(2)
   const __m128i const_aa = {0x44b8aa3b44b8aa3bLLU, 0x44b8aa3b44b8aa3bLLU};
   // log(2) / 2^10
@@ -1224,10 +1227,10 @@ static inline __m128 fmath_exp_ps(__m128 xx) {
   uint32_t v1 = ((int32_t)(uint16_t)__builtin_ia32_vec_ext_v8hi((__v8hi)(__m128i)(v4), (int32_t)(2)));
   uint32_t v2 = ((int32_t)(uint16_t)__builtin_ia32_vec_ext_v8hi((__v8hi)(__m128i)(v4), (int32_t)(4)));
   uint32_t v3 = ((int32_t)(uint16_t)__builtin_ia32_vec_ext_v8hi((__v8hi)(__m128i)(v4), (int32_t)(6)));
-  __m128 t0 = _mm_set_ss(*(const float*)&float_exp_lookup[v0]);
-  __m128 t1 = _mm_set_ss(*(const float*)&float_exp_lookup[v1]);
-  __m128 t2 = _mm_set_ss(*(const float*)&float_exp_lookup[v2]);
-  __m128 t3 = _mm_set_ss(*(const float*)&float_exp_lookup[v3]);
+  __m128 t0 = _mm_set_ss(float_exp_lookup[v0]);
+  __m128 t1 = _mm_set_ss(float_exp_lookup[v1]);
+  __m128 t2 = _mm_set_ss(float_exp_lookup[v2]);
+  __m128 t3 = _mm_set_ss(float_exp_lookup[v3]);
   t1 = _mm_movelh_ps(t1, t3);
   t1 = _mm_castsi128_ps(_mm_slli_epi64(_mm_castps_si128(t1), 32));
   t0 = _mm_movelh_ps(t0, t2);
@@ -1617,8 +1620,27 @@ void cholesky_decomposition(const float* aa, float* ll, uint32_t dd) {
   }
 }
 
-uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, uint32_t missing_ct, uintptr_t* loadbuf, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
-  ;;;
+/*
+uint32_t glm_logistic_regression() {
+  // Similar to first part of logistic.cpp fitLM(), but incorporates changes
+  // from Pascal Pons et al.'s TopCoder code, as well as some ideas from his
+  // high-level algorithm description
+  // (http://apps.topcoder.com/forums/?module=Thread&threadID=788385, user
+  // doudouille) that didn't make it into the specially modified PLINK 1.07
+  // code I received for one reason or another.
+
+  // This is used to both generate a good initial starting point when
+  // covariates are present, and for the real regression.
+  
+}
+
+uint32_t glm_logistic_robust_cluster_covar_new(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, uint32_t missing_ct, uintptr_t* loadbuf, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
+  // Similar to logistic.cpp fitLM(), but incorporates changes from the
+  // postprocessed TopCoder contest code.
+  uintptr_t param_ct_p1 = param_ct + 1;
+  uintptr_t param_ct_m1 = param_ct - 1;
+  fill_ulong_zero(perm_fails, ((cur_batch_size + (BITCT - 1)) / BITCT) * sizeof(intptr_t));
+  ;;;  
 }
 */
 
@@ -2238,6 +2260,388 @@ uint32_t glm_fill_design(uintptr_t* loadbuf_collapsed, double* fixed_covars_cov_
   }
 
   transpose_copy(cur_param_ct, cur_indiv_valid_ct, cur_covars_cov_major, cur_covars_indiv_major);
+  return missing_ct;
+}
+
+uint32_t glm_fill_design_float(uintptr_t* loadbuf_collapsed, float* fixed_covars_cov_major, uintptr_t indiv_valid_ct, uint32_t* indiv_to_cluster1, uint32_t cur_param_ct, uint32_t standard_beta, uint32_t hethom, uint32_t xchr_model, uintptr_t condition_list_start_idx, uintptr_t interaction_start_idx, uintptr_t sex_start_idx, uintptr_t* active_params, uintptr_t* haploid_params, uint32_t include_sex, uint32_t male_x_01, uintptr_t* sex_male_collapsed, uint32_t is_nonx_haploid, float* cur_covars_cov_major, float* cur_covars_indiv_major, uint32_t* cur_indiv_to_cluster1_buf, uint32_t** cur_indiv_to_cluster1_ptr) {
+  float* fptr = cur_covars_cov_major;
+  uintptr_t* ulptr_end_init = &(loadbuf_collapsed[indiv_valid_ct / BITCT2]);
+  uintptr_t fixed_covar_nonsex_ct = interaction_start_idx - condition_list_start_idx;
+  uintptr_t interactions_present = sex_start_idx - interaction_start_idx;
+  uint32_t genotypic_or_hethom = condition_list_start_idx - 2;
+  uint32_t missing_ct = 0;
+  float* fptr2;
+  uintptr_t* ulptr;
+  uintptr_t* ulptr_end;
+  uintptr_t fixed_covar_idx;
+  uintptr_t cur_indiv_valid_ct;
+  uintptr_t cur_indiv_valid_cta4;
+  uintptr_t indiv_idx;
+  uintptr_t indiv_idx_stop;
+  uintptr_t cur_word;
+  uintptr_t cur_genotype;
+  uintptr_t param_idx;
+  float fxx;
+  float fyy;
+  float fzz;
+  // don't need to recompute this during permutations, but it's so cheap that
+  // it hardly matters
+  missing_ct = count_01(loadbuf_collapsed, (indiv_valid_ct + BITCT2 - 1) / BITCT2);
+  if (missing_ct >= indiv_valid_ct - 1) {
+    // regression will be skipped in this case
+    return missing_ct;
+  }
+  cur_indiv_valid_ct = indiv_valid_ct - missing_ct;
+  cur_indiv_valid_cta4 = (cur_indiv_valid_ct + 3) & (~3);
+  for (indiv_idx = 0; indiv_idx < cur_indiv_valid_ct; indiv_idx++) {
+    *fptr++ = 1;
+  }
+  if (IS_SET(active_params, 1)) {
+    ulptr = loadbuf_collapsed;
+    ulptr_end = ulptr_end_init;
+    indiv_idx = 0;
+    indiv_idx_stop = BITCT2;
+    if ((!hethom) && (!is_nonx_haploid)) {
+      if (!male_x_01) {
+	while (1) {
+	  while (ulptr < ulptr_end) {
+	    cur_word = *ulptr++;
+	    for (; indiv_idx < indiv_idx_stop; indiv_idx++, cur_word >>= 2) {
+	      cur_genotype = cur_word & 3;
+	      if (cur_genotype != 1) {
+		// 0/1/2, i.e.
+		//   3 = hom A2 -> 0
+		//   2 = het -> 1
+		//   0 = hom A1 -> 2
+		*fptr++ = (float)((intptr_t)(2 + (cur_genotype / 2) - cur_genotype));
+	      }
+	    }
+	    indiv_idx_stop += BITCT2;
+	  }
+	  if (indiv_idx == indiv_valid_ct) {
+	    break;
+	  }
+	  ulptr_end++;
+	  indiv_idx_stop = indiv_valid_ct;
+	}
+      } else {
+	while (1) {
+	  while (ulptr < ulptr_end) {
+	    cur_word = *ulptr++;
+	    for (; indiv_idx < indiv_idx_stop; indiv_idx++, cur_word >>= 2) {
+	      cur_genotype = cur_word & 3;
+	      if (cur_genotype != 1) {
+		// 0/1/2, but downshifted for males
+		*fptr++ = (float)((intptr_t)((2 + (cur_genotype / 2) - cur_genotype) >> IS_SET(sex_male_collapsed, indiv_idx)));
+	      }
+	    }
+	    indiv_idx_stop += BITCT2;
+	  }
+	  if (indiv_idx == indiv_valid_ct) {
+	    break;
+	  }
+	  ulptr_end++;
+	  indiv_idx_stop = indiv_valid_ct;
+	}
+      }
+    } else {
+      while (1) {
+	while (ulptr < ulptr_end) {
+	  cur_word = *ulptr++;
+	  for (; indiv_idx < indiv_idx_stop; indiv_idx++, cur_word >>= 2) {
+	    cur_genotype = cur_word & 3;
+	    if (cur_genotype != 1) {
+	      // 0/0/1
+	      *fptr++ = (float)((intptr_t)(1 - (cur_genotype >> 1)));
+	    }
+	  }
+          indiv_idx_stop += BITCT2;
+	}
+        if (indiv_idx == indiv_valid_ct) {
+          break;
+	}
+        ulptr_end++;
+	indiv_idx_stop = indiv_valid_ct;
+      }
+    }
+  }
+  if (genotypic_or_hethom && (!is_nonx_haploid) && IS_SET(active_params, 2)) {
+    ulptr = loadbuf_collapsed;
+    ulptr_end = ulptr_end_init;
+    indiv_idx = 0;
+    indiv_idx_stop = BITCT2;
+    while (1) {
+      while (ulptr < ulptr_end) {
+	cur_word = *ulptr++;
+	for (; indiv_idx < indiv_idx_stop; indiv_idx++, cur_word >>= 2) {
+	  cur_genotype = cur_word & 3;
+	  if (cur_genotype != 1) {
+	    // 0/1/0
+            *fptr++ = (float)((intptr_t)((cur_genotype ^ (cur_genotype >> 1)) & 1));
+	  }
+	}
+	indiv_idx_stop += BITCT2;
+      }
+      if (indiv_idx == indiv_valid_ct) {
+	break;
+      }
+      ulptr_end++;
+      indiv_idx_stop = indiv_valid_ct;
+    }
+  }
+  for (fixed_covar_idx = 0; fixed_covar_idx < fixed_covar_nonsex_ct; fixed_covar_idx++) {
+    if (!is_set(active_params, fixed_covar_idx + condition_list_start_idx)) {
+      continue;
+    }
+    copy_when_nonmissing(loadbuf_collapsed, (char*)(&(fixed_covars_cov_major[fixed_covar_idx * indiv_valid_ct])), sizeof(float), indiv_valid_ct, missing_ct, (char*)fptr);
+    fptr = &(fptr[cur_indiv_valid_cta4]);
+  }
+  if (interactions_present) {
+    param_idx = interaction_start_idx;
+    for (fixed_covar_idx = 0; fixed_covar_idx < fixed_covar_nonsex_ct; fixed_covar_idx++, param_idx++) {
+      if (IS_SET(active_params, param_idx)) {
+	ulptr = loadbuf_collapsed;
+	ulptr_end = ulptr_end_init;
+	indiv_idx = 0;
+	indiv_idx_stop = BITCT2;
+	fptr2 = &(fixed_covars_cov_major[fixed_covar_idx * indiv_valid_ct]);
+	if (!hethom) {
+	  if (!male_x_01) {
+	    while (1) {
+	      while (ulptr < ulptr_end) {
+		cur_word = *ulptr++;
+		for (; indiv_idx < indiv_idx_stop; indiv_idx++, cur_word >>= 2) {
+		  cur_genotype = cur_word & 3;
+		  if (cur_genotype != 1) {
+		    // 0/1/2
+		    *fptr++ = ((float)((intptr_t)(2 + (cur_genotype / 2) - cur_genotype))) * (*fptr2);
+		  }
+		  fptr2++;
+		}
+		indiv_idx_stop += BITCT2;
+	      }
+	      if (indiv_idx == indiv_valid_ct) {
+		break;
+	      }
+	      ulptr_end++;
+	      indiv_idx_stop = indiv_valid_ct;
+	    }
+	  } else {
+	    while (1) {
+	      while (ulptr < ulptr_end) {
+		cur_word = *ulptr++;
+		for (; indiv_idx < indiv_idx_stop; indiv_idx++, cur_word >>= 2) {
+		  cur_genotype = cur_word & 3;
+		  if (cur_genotype != 1) {
+		    // 0/1/2
+		    *fptr++ = ((float)((intptr_t)((2 + (cur_genotype / 2) - cur_genotype) >> IS_SET(sex_male_collapsed, indiv_idx)))) * (*fptr2);
+		  }
+		  fptr2++;
+		}
+		indiv_idx_stop += BITCT2;
+	      }
+	      if (indiv_idx == indiv_valid_ct) {
+		break;
+	      }
+	      ulptr_end++;
+	      indiv_idx_stop = indiv_valid_ct;
+	    }
+	  }
+	} else {
+	  while (1) {
+	    while (ulptr < ulptr_end) {
+	      cur_word = *ulptr++;
+	      for (; indiv_idx < indiv_idx_stop; indiv_idx++, cur_word >>= 2) {
+		cur_genotype = cur_word & 3;
+		if (cur_genotype != 1) {
+		  // 0/0/1
+	          *fptr++ = ((float)((intptr_t)(1 - (cur_genotype >> 1)))) * (*fptr2);
+		}
+		fptr2++;
+	      }
+	      indiv_idx_stop += BITCT2;
+	    }
+	    if (indiv_idx == indiv_valid_ct) {
+	      break;
+	    }
+	    ulptr_end++;
+	    indiv_idx_stop = indiv_valid_ct;
+	  }
+	}
+      }
+      if (genotypic_or_hethom) {
+	param_idx++;
+	if ((!is_nonx_haploid) && IS_SET(active_params, param_idx)) {
+	  ulptr = loadbuf_collapsed;
+	  ulptr_end = ulptr_end_init;
+	  indiv_idx = 0;
+	  indiv_idx_stop = BITCT2;
+	  fptr2 = &(fixed_covars_cov_major[fixed_covar_idx * indiv_valid_ct]);
+	  while (1) {
+	    while (ulptr < ulptr_end) {
+	      cur_word = *ulptr++;
+	      for (; indiv_idx < indiv_idx_stop; indiv_idx++, cur_word >>= 2) {
+		cur_genotype = cur_word & 3;
+		if (cur_genotype != 1) {
+		  // 0/1/0
+                  *fptr++ = ((float)((intptr_t)((cur_genotype ^ (cur_genotype >> 1)) & 1))) * (*fptr2);
+		}
+		fptr2++;
+	      }
+	      indiv_idx_stop += BITCT2;
+	    }
+	    if (indiv_idx == indiv_valid_ct) {
+	      break;
+	    }
+	    ulptr_end++;
+	    indiv_idx_stop = indiv_valid_ct;
+	  }
+	}
+      }
+    }
+  }
+  if (include_sex) {
+    if (IS_SET(active_params, sex_start_idx)) {
+      copy_when_nonmissing(loadbuf_collapsed, (char*)(&(fixed_covars_cov_major[fixed_covar_nonsex_ct * indiv_valid_ct])), sizeof(double), indiv_valid_ct, missing_ct, (char*)fptr);
+      fptr = &(fptr[cur_indiv_valid_cta4]);
+    }
+    if (interactions_present) {
+      if (is_set(active_params, sex_start_idx + 1)) {
+	ulptr = loadbuf_collapsed;
+	ulptr_end = ulptr_end_init;
+	indiv_idx = 0;
+	indiv_idx_stop = BITCT2;
+	fptr2 = &(fixed_covars_cov_major[fixed_covar_nonsex_ct * indiv_valid_ct]);
+	if (!hethom) {
+	  if (!male_x_01) {
+	    while (1) {
+	      while (ulptr < ulptr_end) {
+		cur_word = *ulptr++;
+		for (; indiv_idx < indiv_idx_stop; indiv_idx++, cur_word >>= 2) {
+		  cur_genotype = cur_word & 3;
+		  if (cur_genotype != 1) {
+		    // 0/1/2
+		    *fptr++ = ((float)((intptr_t)(2 + (cur_genotype / 2) - cur_genotype))) * (*fptr2);
+		  }
+		  fptr2++;
+		}
+		indiv_idx_stop += BITCT2;
+	      }
+	      if (indiv_idx == indiv_valid_ct) {
+		break;
+	      }
+	      ulptr_end++;
+	      indiv_idx_stop = indiv_valid_ct;
+	    }
+	  } else {
+	    while (1) {
+	      while (ulptr < ulptr_end) {
+		cur_word = *ulptr++;
+		for (; indiv_idx < indiv_idx_stop; indiv_idx++, cur_word >>= 2) {
+		  cur_genotype = cur_word & 3;
+		  if (cur_genotype != 1) {
+		    // 0/1/2
+		    *fptr++ = ((float)((intptr_t)((2 + (cur_genotype / 2) - cur_genotype) >> IS_SET(sex_male_collapsed, indiv_idx)))) * (*fptr2);
+		  }
+		  fptr2++;
+		}
+		indiv_idx_stop += BITCT2;
+	      }
+	      if (indiv_idx == indiv_valid_ct) {
+		break;
+	      }
+	      ulptr_end++;
+	      indiv_idx_stop = indiv_valid_ct;
+	    }
+	  }
+	} else {
+	  while (1) {
+	    while (ulptr < ulptr_end) {
+	      cur_word = *ulptr++;
+	      for (; indiv_idx < indiv_idx_stop; indiv_idx++, cur_word >>= 2) {
+		cur_genotype = cur_word & 3;
+		if (cur_genotype != 1) {
+		  // 0/0/1
+	          *fptr++ = ((double)((intptr_t)(1 - (cur_genotype >> 1)))) * (*fptr2);
+		}
+		fptr2++;
+	      }
+	      indiv_idx_stop += BITCT2;
+	    }
+	    if (indiv_idx == indiv_valid_ct) {
+	      break;
+	    }
+	    ulptr_end++;
+	    indiv_idx_stop = indiv_valid_ct;
+	  }
+	}
+      }
+      if (genotypic_or_hethom && (!is_nonx_haploid) && is_set(active_params, sex_start_idx + 2)) {
+	ulptr = loadbuf_collapsed;
+	ulptr_end = ulptr_end_init;
+	indiv_idx = 0;
+	indiv_idx_stop = BITCT2;
+	fptr2 = &(fixed_covars_cov_major[fixed_covar_nonsex_ct * indiv_valid_ct]);
+	while (1) {
+	  while (ulptr < ulptr_end) {
+	    cur_word = *ulptr++;
+	    for (; indiv_idx < indiv_idx_stop; indiv_idx++, cur_word >>= 2) {
+	      cur_genotype = cur_word & 3;
+	      if (cur_genotype != 1) {
+		// 0/1/0
+		*fptr++ = ((float)((intptr_t)((cur_genotype ^ (cur_genotype >> 1)) & 1))) * (*fptr2);
+	      }
+	      fptr2++;
+	    }
+	    indiv_idx_stop += BITCT2;
+	  }
+	  if (indiv_idx == indiv_valid_ct) {
+	    break;
+	  }
+	  ulptr_end++;
+	  indiv_idx_stop = indiv_valid_ct;
+	}
+      }
+    }
+  }
+  // if (fptr != &(cur_covars_cov_major[cur_param_ct * cur_indiv_valid_cta4])) {
+  //   printf("assert failure:\n  cur_param_ct = %u\n  cur_indiv_valid_cta4 = %" PRIuPTR "\n  fptr - cur_covars_cov_major = %" PRIuPTR "\n", cur_param_ct, cur_indiv_valid_cta4, (uintptr_t)(fptr - cur_covars_cov_major));
+  //   exit(1);
+  // }
+  if (indiv_to_cluster1) {
+    if (!missing_ct) {
+      *cur_indiv_to_cluster1_ptr = indiv_to_cluster1;
+    } else {
+      copy_when_nonmissing(loadbuf_collapsed, (char*)indiv_to_cluster1, sizeof(int32_t), indiv_valid_ct, missing_ct, (char*)cur_indiv_to_cluster1_buf);
+      *cur_indiv_to_cluster1_ptr = cur_indiv_to_cluster1_buf;
+    }
+  }
+  if (standard_beta) {
+    for (param_idx = 1; param_idx < cur_param_ct; param_idx++) {
+      fxx = 0; // sum
+      fyy = 0; // ssq
+      fptr = &(cur_covars_cov_major[param_idx * cur_indiv_valid_cta4]);
+      for (indiv_idx = 0; indiv_idx < cur_indiv_valid_ct; indiv_idx++) {
+	fzz = *fptr++;
+	fxx += fzz;
+	fyy += fzz * fzz;
+      }
+      fptr = &(cur_covars_cov_major[param_idx * cur_indiv_valid_cta4]);
+      fzz = fxx / ((float)((intptr_t)cur_indiv_valid_ct));
+      fyy = sqrt((fyy - fxx * fzz) / ((float)((intptr_t)(cur_indiv_valid_ct - 1))));
+      if (fyy == 0) {
+	fill_float_zero(fptr, cur_indiv_valid_ct);
+      } else {
+	fyy = 1.0 / fyy;
+	for (indiv_idx = 0; indiv_idx < cur_indiv_valid_ct; indiv_idx++) {
+	  *fptr = ((*fptr) - fzz) * fyy;
+	  fptr++;
+	}
+      }
+    }
+  }
+
+  transpose_copy_float(cur_param_ct, cur_indiv_valid_ct, cur_covars_cov_major, cur_covars_indiv_major);
   return missing_ct;
 }
 

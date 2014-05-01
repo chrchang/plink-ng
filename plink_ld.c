@@ -9958,11 +9958,6 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   if (qsort_ext((char*)sorted_pvals, index_ct, sizeof(double), double_cmp_deref, (char*)pval_map, sizeof(int32_t))) {
     goto clump_reports_ret_NOMEM2;
   }
-#ifndef STABLE_BUILD
-  if (g_debug_on) {
-    logstr("p-values sorted\n");
-  }
-#endif
   if (wkspace_alloc_ui_checked(&marker_idx_to_uidx, marker_ct * sizeof(int32_t)) ||
       wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&index_data, 5 * founder_ctv2 * sizeof(intptr_t))) {
@@ -9974,6 +9969,11 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, founder_ct, Y_FIX_NEEDED, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
     goto clump_reports_ret_NOMEM2; 
  }
+  if (clump_verbose && rg_setdefs) {
+    if (wkspace_alloc_ul_checked(&rangematch_bitfield, ((range_chrom_max + (BITCT - 1)) / BITCT) * sizeof(intptr_t))) {
+      goto clump_reports_ret_NOMEM2;
+    }
+  }
   window_data = (uintptr_t*)wkspace_base;
   max_window_size = wkspace_left / (founder_ctv2 * sizeof(intptr_t) + sizeof(Cur_clump_info));
   if (!max_window_size) {
@@ -9982,11 +9982,6 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   cur_clump_ceil = (Cur_clump_info*)(&(wkspace_base[wkspace_left]));
   fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_idx_to_uidx);
   loadbuf_raw[unfiltered_indiv_ctl2 - 1] = 0;
-  if (clump_verbose && rg_setdefs) {
-    if (wkspace_alloc_ul_checked(&rangematch_bitfield, (range_chrom_max + (BITCT - 1)) / BITCT)) {
-      goto clump_reports_ret_NOMEM2;
-    }
-  }
   wkspace_left += topsize;
   // now this indicates whether a variant has previously been in a clump
   fill_ulong_zero(cur_bitfield, marker_ctl);
@@ -10047,19 +10042,8 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     }
   }
   for (sp_idx = 0; sp_idx < index_ct; sp_idx++) {
-#ifndef STABLE_BUILD
-    if (g_debug_on) {
-      sprintf(logbuf, "Processing index variant %u.\n", sp_idx);
-      logstr(logbuf);
-    }
-#endif
     ivar_idx = pval_map[sp_idx];
     if ((!clump_best) && is_set(cur_bitfield, ivar_idx)) {
-#ifndef STABLE_BUILD
-      if (g_debug_on) {
-	logstr("(skipped)\n");
-      }
-#endif
       continue;
     }
     ivar_uidx = marker_idx_to_uidx[ivar_idx];
@@ -10450,11 +10434,6 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	max_bp = marker_pos[marker_idx_to_uidx[marker_idx]];
       }
     }
-#ifndef STABLE_BUILD
-    if (g_debug_on) {
-      logstr("initializing chromosome-specific pointers/values\n");
-    }
-#endif
     if (rg_setdefs) {
       ulii = rg_chrom_bounds[clump_chrom_idx];
       cur_rg_setdefs = &(rg_setdefs[ulii]);
@@ -10464,8 +10443,8 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 #ifndef STABLE_BUILD
     if (g_debug_on) {
       logstr("on chromosome ");
-      bufptr = chrom_name_write(logbuf, chrom_info_ptr, clump_chrom_idx, zero_extra_chroms);
-      sprintf(bufptr, ", cur_rg_ct = %" PRIuPTR "\n", cur_rg_ct);
+      // argh, *logging* was bugged because it used bufptr...
+      sprintf(chrom_name_write(logbuf, chrom_info_ptr, clump_chrom_idx, zero_extra_chroms), ", cur_rg_ct = %" PRIuPTR "\n", cur_rg_ct);
       logstr(logbuf);
     }
 #endif
@@ -10685,16 +10664,11 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	bufptr = memcpya(bufptr, "..", 2);
 	bufptr = uint32_write(bufptr, max_bp);
 	bufptr = memcpya(bufptr, "\n           SPAN: ", 18);
-	bufptr = uint32_write(bufptr, (ujj - uii + 1) / 1000);
+	bufptr = uint32_write(bufptr, (max_bp - min_bp + 1) / 1000);
 	bufptr = memcpyl3a(bufptr, "kb\n");
 	if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
 	  goto clump_reports_ret_WRITE_FAIL;
 	}
-#ifndef STABLE_BUILD
-        if (g_debug_on) {
-	  logstr("writing GENES w/SNPs line\n");
-        }
-#endif
 	if (rg_setdefs) {
 	  fputs("     GENES w/SNPs: ", outfile);
 	  ulii = 0;

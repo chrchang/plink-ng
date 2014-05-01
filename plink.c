@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (29 Apr 2014)";
+  " (1 May 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -11432,7 +11432,10 @@ int32_t main(int32_t argc, char** argv) {
   flag_buf = NULL;
   flag_map = NULL;
   if (!rseeds) {
-    sfmt_init_gen_rand(&sfmt, (uint32_t)time(NULL));
+    ujj = (uint32_t)time(NULL);
+    sprintf(logbuf, "Random number seed: %u\n", ujj);
+    logstr(logbuf);
+    sfmt_init_gen_rand(&sfmt, ujj);
   } else {
     if (rseed_ct == 1) {
       sfmt_init_gen_rand(&sfmt, rseeds[0]);

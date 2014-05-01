@@ -107,4 +107,6 @@ void col_major_matrix_multiply(__CLPK_integer row1_ct, __CLPK_integer col2_ct, _
 
 void transpose_copy(uintptr_t old_maj, uintptr_t new_maj, double* old_matrix, double* new_matrix);
 
+void transpose_copy_float(uintptr_t old_maj, uintptr_t new_maj, float* old_matrix, float* new_matrix);
+
 #endif // __PLINK_MATRIX_H__
