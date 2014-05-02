@@ -10440,14 +10440,6 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       cur_rg_names = &(range_group_names[ulii * max_range_group_id_len + 4]);
       cur_rg_ct = rg_chrom_bounds[clump_chrom_idx + 1] - ulii;
     }
-#ifndef STABLE_BUILD
-    if (g_debug_on) {
-      logstr("on chromosome ");
-      // argh, *logging* was bugged because it used bufptr...
-      sprintf(chrom_name_write(logbuf, chrom_info_ptr, clump_chrom_idx, zero_extra_chroms), ", cur_rg_ct = %" PRIuPTR "\n", cur_rg_ct);
-      logstr(logbuf);
-    }
-#endif
     if (!clump_verbose) {
       if (!cur_window_size) {
 	bufptr = memcpya(bufptr, "NONE\n", 5);
@@ -10560,11 +10552,6 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	}
 	fputs("\n\n", outfile);
 	last_marker_idx = ~ZEROLU;
-#ifndef STABLE_BUILD
-        if (g_debug_on) {
-	  logstr("writing main --clump-verbose block\n");
-        }
-#endif
 	if (rg_setdefs) {
 	  fill_ulong_zero(rangematch_bitfield, (cur_rg_ct + (BITCT - 1)) / BITCT);
 	  unmatched_group_ct = cur_rg_ct;
@@ -10602,7 +10589,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	  } else {
 	    ujj = 1; // reversed phase
 	  }
-	  bufptr = double_g_writewx3x(bufptr, cur_r2, 8, ' ');
+	  bufptr = double_g_writewx3x(bufptr, fabs(cur_r2), 8, ' ');
 	  bufptr2 = marker_allele_ptrs[marker_uidx * 2 + ujj];
 	  bufptr3 = marker_allele_ptrs[marker_uidx * 2 + 1 - ujj];
 	  if (allele_padding) {
@@ -10688,11 +10675,6 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	  putc('\n', outfile);
 	}
       }
-#ifndef STABLE_BUILD
-      if (g_debug_on) {
-	logstr("writing GENES footer line\n");
-      }
-#endif
       if (rg_setdefs) {
 	if (!cur_window_size) {
 	  putc('\n', outfile);
