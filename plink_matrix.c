@@ -439,6 +439,39 @@ void col_major_matrix_multiply(__CLPK_integer row1_ct, __CLPK_integer col2_ct, _
 #endif // NOLAPACK
 }
 
+void col_major_fmatrix_multiply(__CLPK_integer row1_ct, __CLPK_integer col2_ct, __CLPK_integer common_ct, float* inmatrix1, float* inmatrix2, float* outmatrix) {
+#ifdef NOLAPACK
+  uintptr_t row1_ct_l = row1_ct;
+  uintptr_t col2_ct_l = col2_ct;
+  uintptr_t common_ct_l = common_ct;
+  uintptr_t row_idx;
+  uintptr_t col_idx;
+  uintptr_t com_idx;
+  float* dptr;
+  float fxx;
+  // not optimized
+  for (col_idx = 0; col_idx < col2_ct_l; col_idx++) {
+    for (row_idx = 0; row_idx < row1_ct_l; row_idx++) {
+      fxx = 0;
+      fptr = &(inmatrix2[col_idx * common_ct]);
+      for (com_idx = 0; com_idx < common_ct_l; com_idx++) {
+        fxx += (*fptr++) * inmatrix1[com_idx * common_ct + row_idx];
+      }
+      *outmatrix++ = fxx;
+    }
+  }
+#else
+#ifdef _WIN32
+  char blas_char = 'N';
+  float fyy = 1;
+  float fzz = 0;
+  sgemm_(&blas_char, &blas_char, &row1_ct, &col2_ct, &common_ct, &fyy, inmatrix1, &row1_ct, inmatrix2, &common_ct, &fzz, outmatrix, &row1_ct);
+#else
+  cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, row1_ct, col2_ct, common_ct, 1.0, inmatrix1, row1_ct, inmatrix2, common_ct, 0.0, outmatrix, row1_ct);
+#endif // _WIN32
+#endif // NOLAPACK
+}
+
 void transpose_copy(uintptr_t old_maj, uintptr_t new_maj, double* old_matrix, double* new_matrix) {
   double* dptr;
   uintptr_t new_maj_idx;

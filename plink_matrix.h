@@ -44,6 +44,10 @@ extern "C" {
                __CLPK_doublereal* a, __CLPK_integer* lda,
                __CLPK_integer* ipiv, __CLPK_integer* info);
 
+  void sgemm_(char* transa, char* transb, int* m, int* n, int* k,
+              float* alpha, float* a, int* lda, float* b, int* ldb,
+              float* beta, float* c, int* ldc);
+
 #else // not _WIN32
 #include <cblas.h>
 #ifdef __LP64__
@@ -104,6 +108,8 @@ int32_t invert_matrix(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYP
 int32_t invert_matrix_trunc_singular(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* int_1d_buf, double* dbl_2d_buf, __CLPK_integer min_dim);
 
 void col_major_matrix_multiply(__CLPK_integer row1_ct, __CLPK_integer col2_ct, __CLPK_integer common_ct, double* inmatrix1, double* inmatrix2, double* outmatrix);
+
+void col_major_fmatrix_multiply(__CLPK_integer row1_ct, __CLPK_integer col2_ct, __CLPK_integer common_ct, float* inmatrix1, float* inmatrix2, float* outmatrix);
 
 void transpose_copy(uintptr_t old_maj, uintptr_t new_maj, double* old_matrix, double* new_matrix);
 
