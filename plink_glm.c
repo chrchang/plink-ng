@@ -3242,7 +3242,6 @@ THREAD_RET_TYPE glm_logistic_adapt_thread(void* arg) {
   uint32_t success_2incr;
   uint32_t attempts;
   uint32_t cur_attempts;
-  uint32_t perm_fail_ct;
   uint32_t cur_fail_ct;
   double stat_high;
   double stat_low;
@@ -3275,7 +3274,7 @@ THREAD_RET_TYPE glm_logistic_adapt_thread(void* arg) {
     cur_fail_ct = 0;
     // todo: try better starting position
     fill_float_zero(coef, ((cur_param_ct + 3) & (~3)) * perm_vec_ct);
-    perm_fail_ct = glm_logistic_robust_cluster_covar(perm_vec_ct, cur_param_ct, cur_indiv_valid_ct, cur_missing_ct, loadbuf_ptr, cur_covars_cov_major, cur_covars_indiv_major, perm_vecs, coef, pp, indiv_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, cluster_ct1, cur_indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, cur_constraint_ct, constraints_con_major, param_1d_dbuf, param_2d_dbuf, param_2d_dbuf2, param_df_dbuf, df_df_dbuf, mi_buf, df_dbuf, perm_fails);
+    glm_logistic_robust_cluster_covar(perm_vec_ct, cur_param_ct, cur_indiv_valid_ct, cur_missing_ct, loadbuf_ptr, cur_covars_cov_major, cur_covars_indiv_major, perm_vecs, coef, pp, indiv_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, cluster_ct1, cur_indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, cur_constraint_ct, constraints_con_major, param_1d_dbuf, param_2d_dbuf, param_2d_dbuf2, param_df_dbuf, df_df_dbuf, mi_buf, df_dbuf, perm_fails);
     for (pidx = 0; pidx < perm_vec_ct;) {
       if (!IS_SET(perm_fails, pidx)) {
 	if (!joint_test_params) {
