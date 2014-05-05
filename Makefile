@@ -33,7 +33,7 @@ OBJ = $(SRC:.c=.o)
 	g++ -c $(CFLAGS) $(ARCH64) -o $@ $<
 
 plink: $(SRC)
-	g++ $(CFLAGS) $(SRC) -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
+	g++ $(CFLAGS) $(SRC) -m32 -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
 
 plinkw: $(SRC)
 	g++ $(CFLAGS) $(SRC) -c

@@ -1406,7 +1406,7 @@ static inline void mult_tmatrix_nxd_vect_d(const float* tm, const float* vect, f
   case 2:
     w1 = _mm_load1_ps(&(vect[row_idx]));
     w2 = _mm_load1_ps(&(vect[row_idx + 1]));
-    for (col_idx = 0; col_idx < col_ct; col_idx++) {
+    for (col_idx = 0; col_idx < col_ct; col_idx += 4) {
       r1 = _mm_load_ps(&(tm[col_idx + row_idx * col_cta4]));
       r2 = _mm_load_ps(&(tm[col_idx + (row_idx + 1) * col_cta4]));
       r1 = _mm_mul_ps(r1, w1);
@@ -1560,6 +1560,7 @@ static inline void compute_two_plus_one_triple_product(const float* bb, const fl
 }
 
 static inline void compute_hessian(const float* mm, const float* vv, float* dest, uint32_t col_ct, uint32_t row_ct) {
+  uintptr_t col_cta4 = (col_ct + 3) & (~3);
   uintptr_t row_cta4 = (row_ct + 3) & (~3);
   uintptr_t row_cta4p1 = row_cta4 + 1;
   const float* mm_cur;
@@ -1569,23 +1570,23 @@ static inline void compute_hessian(const float* mm, const float* vv, float* dest
   if (row_ct >= 3) {
     row_ctm3 = row_ct - 3;
     for (row_idx = 0; row_idx < row_ctm3; row_idx += 3) {
-      mm_cur = &(mm[row_idx * row_cta4]);
-      compute_two_diag_triple_product(mm_cur, &(mm_cur[row_cta4]), vv, &(dest[row_idx * row_cta4p1]), &(dest[(row_idx + 1) * row_cta4p1 - 1]), &(dest[(row_idx + 1)* row_cta4p1]), col_ct);
-      compute_two_plus_one_triple_product(&(mm_cur[2 * row_cta4]), &(mm_cur[row_cta4]), mm_cur, vv, &(dest[(row_idx + 2) * row_cta4p1]), &(dest[(row_idx + 2) * row_cta4p1 - 1]), &(dest[(row_idx + 2) * row_cta4p1 - 2]), col_ct);
+      mm_cur = &(mm[row_idx * col_cta4]);
+      compute_two_diag_triple_product(mm_cur, &(mm_cur[col_cta4]), vv, &(dest[row_idx * row_cta4p1]), &(dest[(row_idx + 1) * row_cta4p1 - 1]), &(dest[(row_idx + 1) * row_cta4p1]), col_ct);
+      compute_two_plus_one_triple_product(&(mm_cur[2 * col_cta4]), &(mm_cur[col_cta4]), mm_cur, vv, &(dest[(row_idx + 2) * row_cta4p1]), &(dest[(row_idx + 2) * row_cta4p1 - 1]), &(dest[(row_idx + 2) * row_cta4p1 - 2]), col_ct);
       for (row_idx2 = row_idx + 3; row_idx2 < row_ct; row_idx2++) {
-        compute_three_triple_product(&(mm[row_idx2 * row_cta4]), mm_cur, &(mm_cur[row_cta4]), &(mm_cur[2 * row_cta4]), vv, &(dest[row_idx2 * row_cta4 + row_idx]), &(dest[row_idx2 * row_cta4 + row_idx + 1]), &(dest[row_idx2 * row_cta4 + row_idx + 2]), col_ct);
+        compute_three_triple_product(&(mm[row_idx2 * col_cta4]), mm_cur, &(mm_cur[col_cta4]), &(mm_cur[2 * col_cta4]), vv, &(dest[row_idx2 * row_cta4 + row_idx]), &(dest[row_idx2 * row_cta4 + row_idx + 1]), &(dest[row_idx2 * row_cta4 + row_idx + 2]), col_ct);
       }
     }
   }
   switch (row_ct % 3) {
   case 0:
-    compute_two_plus_one_triple_product(&(mm[(row_ct - 3) * row_cta4]), &(mm[(row_ct - 2) * row_cta4]), &(mm[(row_ct - 1) * row_cta4]), vv, &(dest[(row_ct - 3) * row_cta4p1]), &(dest[(row_ct - 2) * row_cta4p1 - 1]), &(dest[(row_ct - 1) * row_cta4p1 - 2]), col_ct);
+    compute_two_plus_one_triple_product(&(mm[(row_ct - 3) * col_cta4]), &(mm[(row_ct - 2) * col_cta4]), &(mm[(row_ct - 1) * col_cta4]), vv, &(dest[(row_ct - 3) * row_cta4p1]), &(dest[(row_ct - 2) * row_cta4p1 - 1]), &(dest[(row_ct - 1) * row_cta4p1 - 2]), col_ct);
     // fall through
   case 2:
-    compute_two_diag_triple_product(&(mm[(row_ct - 2) * row_cta4]), &(mm[(row_ct - 1) * row_cta4]), vv, &(dest[(row_ct - 2) * row_cta4p1]), &(dest[(row_ct - 1) * row_cta4p1 - 1]), &(dest[(row_ct - 1) * row_cta4p1]), col_ct);
+    compute_two_diag_triple_product(&(mm[(row_ct - 2) * col_cta4]), &(mm[(row_ct - 1) * col_cta4]), vv, &(dest[(row_ct - 2) * row_cta4p1]), &(dest[(row_ct - 1) * row_cta4p1 - 1]), &(dest[(row_ct - 1) * row_cta4p1]), col_ct);
     break;
   case 1:
-    dest[(row_ct - 1) * row_cta4p1] = triple_product(&(mm[(row_ct - 1) * row_cta4]), &(mm[(row_ct - 1) * row_cta4]), vv, col_ct);
+    dest[(row_ct - 1) * row_cta4p1] = triple_product(&(mm[(row_ct - 1) * col_cta4]), &(mm[(row_ct - 1) * col_cta4]), vv, col_ct);
   }
 }
 
@@ -1703,7 +1704,7 @@ uint32_t logistic_regression(uint32_t indiv_ct, uint32_t param_ct, float* vv, fl
   // coef  = starting point, overwritten with logistic regression result
   //
   // Output:
-  // pp    = final likelihoods
+  // pp    = final likelihoods minus Y[]
   //
   // Returns 0 on success, 1 on convergence failure.
   uintptr_t param_cta4 = (param_ct + 3) & (~3);
@@ -1712,6 +1713,7 @@ uint32_t logistic_regression(uint32_t indiv_ct, uint32_t param_ct, float* vv, fl
   float delta_coef;
   float fxx;
   uint32_t param_idx;
+
   fill_float_zero(ll, param_ct * param_cta4);
   while (1) {
     iteration++;
@@ -1748,7 +1750,7 @@ uint32_t logistic_regression(uint32_t indiv_ct, uint32_t param_ct, float* vv, fl
       return 1;
     }
     if (iteration > 4) {
-      if (((delta_coef > 20.0) && (delta_coef > 2 * min_delta_coef)) || ((iteration >= 8) && abs(1.0 - delta_coef) < 1e-3)) {
+      if (((delta_coef > 20.0) && (delta_coef > 2 * min_delta_coef)) || ((iteration >= 8) && fabsf(1.0 - delta_coef) < 1e-3)) {
 	return 1;
       }
       if (iteration >= 15) {
@@ -1839,6 +1841,9 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
     }
 
     if (cluster_ct1) {
+      for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
+	pp[indiv_idx] += pheno_buf[indiv_idx];
+      }
       // HuberWhite()
       fill_float_zero(cluster_param_buf, cluster_ct1_p1 * param_ct);
       if (!missing_ct) {
@@ -5238,6 +5243,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   uintptr_t np_sex;
   uintptr_t param_idx_end;
   uintptr_t indiv_valid_ct;
+  uintptr_t indiv_valid_cta4;
   uintptr_t indiv_valid_ctv2;
   uintptr_t indiv_idx;
   uintptr_t param_ctx_max;
@@ -5249,6 +5255,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   uintptr_t sex_start_idx;
   uintptr_t np_base;
   uintptr_t param_ct_max;
+  uintptr_t param_ct_maxa4;
   uintptr_t cur_missing_ct;
   uintptr_t cur_indiv_valid_ct;
   uintptr_t param_idx;
@@ -5291,8 +5298,10 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   if (retval) {
     goto glm_logistic_assoc_ret_1;
   }
+  indiv_valid_cta4 = (indiv_valid_ct + 3) & (~3);
   indiv_valid_ctv2 = 2 * ((indiv_valid_ct + BITCT - 1) / BITCT);
   param_ctx_max_m1 = param_ctx_max - 1;
+  param_ct_maxa4 = (param_ct_max + 3) & (~3);
   if (wkspace_alloc_d_checked(&g_orig_stats, marker_initial_ct * sizeof(double)) ||
       wkspace_alloc_c_checked(&param_names, param_ctx_max * max_param_name_len) ||
       wkspace_alloc_f_checked(&g_fixed_covars_cov_major_f, (variation_in_sex + interaction_start_idx - condition_list_start_idx) * indiv_valid_ct * sizeof(float)) ||
@@ -5609,15 +5618,17 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     // (no need to worry about 1D 16-byte alignment requirements since
     // wkspace_alloc actually forces 64-byte alignment, and allocation sizes
     // are automatically rounded up)
-    if (wkspace_alloc_f_checked(&(g_logistic_mt[tidx].cur_covars_cov_major), param_ct_max * ((indiv_valid_ct + 3) / 4) * 16) ||
-        wkspace_alloc_ul_checked(&(g_logistic_mt[tidx].perm_fails), ulii * sizeof(intptr_t)) ||
+    if (wkspace_alloc_f_checked(&(g_logistic_mt[tidx].cur_covars_cov_major), param_ct_max * indiv_valid_cta4 * sizeof(float)) ||
+	wkspace_alloc_f_checked(&(g_logistic_mt[tidx].coef), param_ct_maxa4 * sizeof(float)) ||
+	wkspace_alloc_f_checked(&(g_logistic_mt[tidx].pp), indiv_valid_cta4 * sizeof(float)) ||
         wkspace_alloc_f_checked(&(g_logistic_mt[tidx].indiv_1d_buf), indiv_valid_ct * sizeof(float)) ||
         wkspace_alloc_f_checked(&(g_logistic_mt[tidx].pheno_buf), indiv_valid_ct * sizeof(float)) ||
         wkspace_alloc_f_checked(&(g_logistic_mt[tidx].param_1d_buf), param_ct_max * sizeof(float)) ||
         wkspace_alloc_f_checked(&(g_logistic_mt[tidx].param_1d_buf2), param_ct_max * sizeof(float)) ||
-        wkspace_alloc_f_checked(&(g_logistic_mt[tidx].param_2d_buf), param_ct_max * ((param_ct_max + 3) / 4) * 16) ||
-        wkspace_alloc_f_checked(&(g_logistic_mt[tidx].param_2d_buf2), param_ct_max * ((param_ct_max + 3) / 4) * 16) ||
-        wkspace_alloc_f_checked(&(g_logistic_mt[tidx].regression_results), perm_batch_size * param_ctx_max_m1 * sizeof(float))) {
+        wkspace_alloc_f_checked(&(g_logistic_mt[tidx].param_2d_buf), param_ct_max * param_ct_maxa4 * sizeof(float)) ||
+        wkspace_alloc_f_checked(&(g_logistic_mt[tidx].param_2d_buf2), param_ct_max * param_ct_maxa4 * sizeof(float)) ||
+        wkspace_alloc_f_checked(&(g_logistic_mt[tidx].regression_results), perm_batch_size * param_ctx_max_m1 * sizeof(float)) ||
+        wkspace_alloc_ul_checked(&(g_logistic_mt[tidx].perm_fails), ulii * sizeof(intptr_t))) {
       goto glm_logistic_assoc_ret_NOMEM;
     }
     if (cluster_ct1) {
