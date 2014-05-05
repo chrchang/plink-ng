@@ -447,7 +447,7 @@ void col_major_fmatrix_multiply(__CLPK_integer row1_ct, __CLPK_integer col2_ct, 
   uintptr_t row_idx;
   uintptr_t col_idx;
   uintptr_t com_idx;
-  float* dptr;
+  float* fptr;
   float fxx;
   // not optimized
   for (col_idx = 0; col_idx < col2_ct_l; col_idx++) {

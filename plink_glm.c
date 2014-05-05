@@ -2950,7 +2950,9 @@ typedef struct logistic_multithread_struct {
 static Logistic_multithread* g_logistic_mt;
 static uintptr_t* g_joint_test_params;
 static double* g_orig_stats;
+#ifndef NOLAPACK
 static double* g_fixed_covars_cov_major;
+#endif
 static uint32_t* g_indiv_to_cluster1;
 static uintptr_t g_cur_param_ct;
 static uintptr_t g_cur_constraint_ct;
