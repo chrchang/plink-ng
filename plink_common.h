@@ -91,10 +91,12 @@
   #include <emmintrin.h>
   #define FIVEMASK 0x5555555555555555LLU
   typedef union {
+    __m128 vf;
     __m128i vi;
     __m128d vd;
     uintptr_t u8[2];
     double d8[2];
+    float f4[4];
     uint32_t u4[4];
   } __uni16;
   #define ZEROLU 0LLU
