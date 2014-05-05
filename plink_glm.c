@@ -1467,6 +1467,7 @@ static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, fl
         s3 = _mm_add_ps(s3, a3);
         s4 = _mm_add_ps(s4, a4);
       }
+      // refrain from using SSE3 _mm_hadd_ps() for now
       u16.vf = s1;
       *dest++ = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
       u16.vf = s2;
@@ -1530,6 +1531,52 @@ static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, fl
     break;
   }
 }
+
+static inline float triple_product(const float* v1, const float* v2, const float* v3, uint32_t nn) {
+  __m128 sum = _mm_setzero_ps();
+  __m128 aa;
+  __m128 bb;
+  __m128 cc;
+  __uni16 u16;
+  uint32_t uii;
+  for (uii = 0; uii < nn; uii += 4) {
+    aa = _mm_load_ps(&(v1[uii]));
+    bb = _mm_load_ps(&(v2[uii]));
+    cc = _mm_load_ps(&(v3[uii]));
+    sum = _mm_add_ps(sum, _mm_mul_ps(_mm_mul_ps(aa, bb), cc));
+  }
+  u16.vf = sum;
+  return u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
+}
+
+static inline void compute_two_diag_triple_product(const float* aa, const float* bb, const float* vv, float* raa_ptr, float* rab_ptr, float* rbb_ptr, uint32_t nn) {
+  __m128 saa = _mm_setzero_ps();
+  __m128 sab = _mm_setzero_ps();
+  __m128 sbb = _mm_setzero_ps();
+  __m128 vtmp;
+  __m128 atmp;
+  __m128 btmp;
+  __m128 av;
+  __m128 bv;
+  uint32_t uii;
+  __uni16 u16;
+  for (uii = 0; uii < nn; uii += 4) {
+    vtmp = _mm_load_ps(&(vv[uii]));
+    atmp = _mm_load_ps(&(aa[uii]));
+    btmp = _mm_load_ps(&(bb[uii]));
+    av = _mm_mul_ps(atmp, vtmp);
+    bv = _mm_mul_ps(btmp, vtmp);
+    saa = _mm_add_ps(saa, _mm_mul_ps(atmp, av));
+    sab = _mm_add_ps(sab, _mm_mul_ps(atmp, bv));
+    sbb = _mm_add_ps(sbb, _mm_mul_ps(btmp, bv));
+  }
+  u16.vf = saa;
+  *raa_ptr = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
+  u16.vf = sab;
+  *rab_ptr = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
+  u16.vf = sbb;
+  *rbb_ptr = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
+}
 #else // no __LP64__ (and hence, unsafe to assume presence of SSE2)
 static inline void logistic_sse(float* vect, uint32_t nn) {
   uint32_t uii;
@@ -1579,22 +1626,6 @@ static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, fl
     *dest++ = fxx;
   }
 }
-#endif
-
-// I'll trust the compiler to perform the appropriate vector optimizations on
-// the following six functions for now, since the memory accesses are nice and
-// sequential (now that I've swapped the row/col loop order when appropriate),
-// and the Pons et al. code used _mm_hadd_ps() which requires SSE3.  May be
-// worth revisiting these later, though.
-
-static inline float dot_product(float* v1, float* v2, uint32_t nn) {
-  float fxx = 0.0;
-  uint32_t uii;
-  for (uii = 0; uii < nn; uii++) {
-    fxx += (*v1++) * (*v2++);
-  }
-  return fxx;
-}
 
 static inline float triple_product(const float* v1, const float* v2, const float* v3, uint32_t nn) {
   float fxx = 0.0;
@@ -1605,36 +1636,6 @@ static inline float triple_product(const float* v1, const float* v2, const float
   return fxx;
 }
 
-#ifdef __LP64__
-static inline void compute_two_diag_triple_product(const float* aa, const float* bb, const float* vv, float* raa_ptr, float* rab_ptr, float* rbb_ptr, uint32_t nn) {
-  __m128 saa = _mm_setzero_ps();
-  __m128 sab = _mm_setzero_ps();
-  __m128 sbb = _mm_setzero_ps();
-  __m128 vtmp;
-  __m128 atmp;
-  __m128 btmp;
-  __m128 av;
-  __m128 bv;
-  uint32_t uii;
-  __uni16 u16;
-  for (uii = 0; uii < nn; uii += 4) {
-    vtmp = _mm_load_ps(&(vv[uii]));
-    atmp = _mm_load_ps(&(aa[uii]));
-    btmp = _mm_load_ps(&(bb[uii]));
-    av = _mm_mul_ps(atmp, vtmp);
-    bv = _mm_mul_ps(btmp, vtmp);
-    saa = _mm_add_ps(saa, _mm_mul_ps(atmp, av));
-    sab = _mm_add_ps(sab, _mm_mul_ps(atmp, bv));
-    sbb = _mm_add_ps(sbb, _mm_mul_ps(btmp, bv));
-  }
-  u16.vf = saa;
-  *raa_ptr = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
-  u16.vf = sab;
-  *rab_ptr = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
-  u16.vf = sbb;
-  *rbb_ptr = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
-}
-#else
 static inline void compute_two_diag_triple_product(const float* aa, const float* bb, const float* vv, float* raa_ptr, float* rab_ptr, float* rbb_ptr, uint32_t nn) {
   float raa = 0.0;
   float rab = 0.0;
@@ -1832,11 +1833,12 @@ uint32_t logistic_regression(uint32_t indiv_ct, uint32_t param_ct, float* vv, fl
   // 
   // Inputs:
   // xx    = covariate (and usually genotype) matrix, covariate-major, rows are
-  //         16-byte aligned
+  //         16-byte aligned, trailing row elements must be zeroed out
   // yy    = case/control phenotype
   //
   // Input/output:
-  // coef  = starting point, overwritten with logistic regression result
+  // coef  = starting point, overwritten with logistic regression result.  Must
+  //         be 16-byte aligned.
   //
   // Output:
   // pp    = final likelihoods minus Y[]
@@ -3469,6 +3471,7 @@ THREAD_RET_TYPE glm_logistic_maxt_thread(void* arg) {
   uintptr_t* joint_test_params = g_joint_test_params;
   double* __restrict__ orig_stats = g_orig_stats;
   uintptr_t cur_param_ct = g_cur_param_ct;
+  uintptr_t cur_param_cta4 = (cur_param_ct + 3) & (~3);
   uintptr_t cur_constraint_ct = g_cur_constraint_ct;
   uint32_t hethom = g_hethom;
   uint32_t glm_xchr_model = g_glm_xchr_model;
@@ -3552,12 +3555,12 @@ THREAD_RET_TYPE glm_logistic_maxt_thread(void* arg) {
     cur_indiv_valid_ct = indiv_valid_ct - cur_missing_ct;
     success_2incr = 0;
     // todo: try better starting position
-    fill_float_zero(coef, ((cur_param_ct + 3) & (~3)) * perm_vec_ct);
+    fill_float_zero(coef, cur_param_cta4 * perm_vec_ct);
     perm_fail_ct = glm_logistic_robust_cluster_covar(perm_vec_ct, cur_param_ct, cur_indiv_valid_ct, cur_missing_ct, loadbuf_ptr, cur_covars_cov_major, cur_covars_indiv_major, perm_vecs, coef, pp, indiv_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, cluster_ct1, cur_indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, cur_constraint_ct, constraints_con_major, param_1d_dbuf, param_2d_dbuf, param_2d_dbuf2, param_df_dbuf, df_df_dbuf, mi_buf, df_dbuf, perm_fails);
     for (pidx = 0; pidx < perm_vec_ct; pidx++) {
       if (!IS_SET(perm_fails, pidx)) {
 	if (!joint_test_params) {
-	  dxx = (double)coef[pidx * cur_param_ct + 1];
+	  dxx = (double)coef[pidx * cur_param_cta4 + 1];
 	  dyy = sqrt((double)regression_results[pidx * param_ctx_m1]);
 	  dxx /= dyy;
 	  dxx *= dxx;
@@ -5754,7 +5757,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     // wkspace_alloc actually forces 64-byte alignment, and allocation sizes
     // are automatically rounded up)
     if (wkspace_alloc_f_checked(&(g_logistic_mt[tidx].cur_covars_cov_major), param_ct_max * indiv_valid_cta4 * sizeof(float)) ||
-	wkspace_alloc_f_checked(&(g_logistic_mt[tidx].coef), param_ct_maxa4 * sizeof(float)) ||
+	wkspace_alloc_f_checked(&(g_logistic_mt[tidx].coef), param_ct_maxa4 * perm_batch_size * sizeof(float)) ||
 	wkspace_alloc_f_checked(&(g_logistic_mt[tidx].pp), indiv_valid_cta4 * sizeof(float)) ||
         wkspace_alloc_f_checked(&(g_logistic_mt[tidx].indiv_1d_buf), indiv_valid_ct * sizeof(float)) ||
         wkspace_alloc_f_checked(&(g_logistic_mt[tidx].pheno_buf), indiv_valid_ct * sizeof(float)) ||
