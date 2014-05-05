@@ -2037,15 +2037,12 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
     }
 
     if (cluster_ct1) {
-      for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
-	pp[indiv_idx] += pheno_buf[indiv_idx];
-      }
       // HuberWhite()
       fill_float_zero(cluster_param_buf, cluster_ct1_p1 * param_ct);
       if (!missing_ct) {
 	for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
           cluster_idx_p1 = indiv_to_cluster1[indiv_idx] + 1;
-          fxx = (float)((int32_t)is_set_ul(perm_vecs, indiv_idx * 2)) - pp[indiv_idx];
+          fxx = -pp[indiv_idx];
 	  fptr = &(cluster_param_buf[cluster_idx_p1 * param_ct]);
 	  fptr2 = &(covars_indiv_major[indiv_idx * param_ct]);
 	  for (param_idx = 0; param_idx < param_ct; param_idx++) {
@@ -2068,7 +2065,7 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
 	    }
 	    indiv_uidx++;
 	  }
-          fxx = (float)((int32_t)is_set_ul(perm_vecs, indiv_uidx * 2)) - pp[indiv_idx];
+          fxx = -pp[indiv_idx];
           fptr = &(cluster_param_buf[cluster_idx_p1 * param_ct]);
 	  fptr2 = &(covars_indiv_major[indiv_idx * param_ct]);
 	  for (param_idx = 0; param_idx < param_ct; param_idx++) {
@@ -2077,7 +2074,7 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
 	  }
 	}
       }
-      transpose_copy_float(cluster_ct1_p1, param_ct, cluster_param_buf, cluster_param_buf2);
+      transpose_copy_float(cluster_ct1_p1, param_ct, param_ct, cluster_param_buf, cluster_param_buf2);
       col_major_fmatrix_multiply(param_ct, param_ct, cluster_ct1_p1, cluster_param_buf, cluster_param_buf2, param_2d_buf2);
       col_major_fmatrix_multiply(param_ct, param_ct, param_ct, param_2d_buf, param_2d_buf2, cluster_param_buf);
       col_major_fmatrix_multiply(param_ct, param_ct, param_ct, cluster_param_buf, param_2d_buf, param_2d_buf2);
@@ -2892,7 +2889,7 @@ uint32_t glm_fill_design_float(uintptr_t* loadbuf_collapsed, float* fixed_covars
       copy_when_nonmissing(loadbuf_collapsed, (char*)indiv_to_cluster1, sizeof(int32_t), indiv_valid_ct, missing_ct, (char*)cur_indiv_to_cluster1_buf);
       *cur_indiv_to_cluster1_ptr = cur_indiv_to_cluster1_buf;
     }
-    transpose_copy_float(cur_param_ct, cur_indiv_valid_ct, cur_covars_cov_major, cur_covars_indiv_major);
+    transpose_copy_float(cur_param_ct, cur_indiv_valid_cta4, cur_indiv_valid_ct, cur_covars_cov_major, cur_covars_indiv_major);
   }
 
   return missing_ct;

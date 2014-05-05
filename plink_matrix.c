@@ -484,11 +484,14 @@ void transpose_copy(uintptr_t old_maj, uintptr_t new_maj, double* old_matrix, do
   }
 }
 
-void transpose_copy_float(uintptr_t old_maj, uintptr_t new_maj, float* old_matrix, float* new_matrix) {
+void transpose_copy_float(uintptr_t old_maj, uintptr_t new_maj, uint32_t new_maj_max, float* old_matrix, float* new_matrix) {
+  // new_maj = in-memory stride of old_matrix rows
+  // new_maj_max = actual number of rows in new_matrix
+  // (distinction is necessary for SSE alignment)
   float* fptr;
   uintptr_t new_maj_idx;
   uintptr_t old_maj_idx;
-  for (new_maj_idx = 0; new_maj_idx < new_maj; new_maj_idx++) {
+  for (new_maj_idx = 0; new_maj_idx < new_maj_max; new_maj_idx++) {
     fptr = &(old_matrix[new_maj_idx]);
     for (old_maj_idx = 0; old_maj_idx < old_maj; old_maj_idx++) {
       *new_matrix++ = fptr[old_maj_idx * new_maj];
