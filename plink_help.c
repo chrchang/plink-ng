@@ -924,12 +924,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Fisher's exact test.  The 'midp' modifier causes Lancaster's mid-p\n"
 "    adjustment to be applied.\n\n"
 	       );
-    help_print("clump", &help_ctrl, 1,
-"  --clump [filename(s)...]\n"
-"    Process association analysis report(s) with 'SNP' and p-value columns,\n"
-"    organizing results by LD-based clumps.  Multiple filenames can be separated\n"
-"    by spaces or commas.\n\n"
-	       );
 #ifndef STABLE_BUILD
 #ifndef NOLAPACK
     help_print("unrelated-heritability", &help_ctrl, 1,
@@ -971,6 +965,46 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      parent-of-origin test Z score; 'pat'/'mat' cause paternal or maternal TDT\n"
 "      chi-square statistics, respectively, to be considered instead.\n\n"
 	       );
+#ifndef STABLE_BUILD
+    help_print("annotate", &help_ctrl, 1,
+"  --annotate [PLINK report] <attrib=[file]> <ranges=[file]> <filter=[file]>\n"
+"             <snps=[file]> <subset=[file]> <NA | prune> <block> <minimal>\n"
+"             <distance>\n"
+"    Add annotations to a variant-based report.\n"
+"    * 'attrib=[file]' causes variant attributes in the given file to be\n"
+"      included in the annotations.\n"
+"    * 'ranges=[file]' causes interval annotations in the given file to be\n"
+"      included.  Either 'attrib' or 'ranges' must be present.\n"
+"    * 'filter=[file]' causes only variants within one of the ranges in the file\n"
+"      to be included in the final report.\n"
+"    * 'snps=[file]' causes only variants named in the file to be included in\n"
+"      the final report.\n"
+"    * In combination with 'ranges', 'subset=[file]' causes only intervals named\n"
+"      in the subset file to be loaded from the ranges file.\n"
+"    * The 'NA' modifier causes unannotated variants to have 'NA' instead of '.'\n"
+"      in the final report's ANNOT column, while the 'prune' modifier excludes\n"
+"      them entirely.\n"
+"    * The 'block' modifier replaces the single ANNOT column with a 0/1-coded\n"
+"      column for each possible annotation.\n"
+"    * With 'ranges', the ANNOT column normally includes distances with\n"
+"      gene/interval IDs.  You can exclude them with the 'minimal' modifier.\n"
+"    * You can use the 'distance' modifier to add a column with distance to the\n"
+"      nearest gene/interval (this also requires 'ranges').\n\n"
+	       );
+#endif
+    help_print("clump", &help_ctrl, 1,
+"  --clump [PLINK report filename(s)...]\n"
+"    Process association analysis report(s) with 'SNP' and p-value columns,\n"
+"    organizing results by LD-based clumps.  Multiple filenames can be separated\n"
+"    by spaces or commas.\n\n"
+	       );
+#ifndef STABLE_BUILD
+    help_print("gene-report\tgene-list", &help_ctrl, 1,
+"  --gene-report [PLINK report] [gene range file]\n"
+"    Convert a report with variant-based results into a report with gene-based\n"
+"    results.\n\n"
+	       );
+#endif
     help_print("fast-epistasis\tepistasis\tset-test\tset-by-all\tcase-only\tnop\tepistasis-summary-merge", &help_ctrl, 1,
 "  --fast-epistasis <boost | joint-effects | no-ueki> <case-only>\n"
 "                   <set-by-set | set-by-all> <nop>\n"
@@ -1101,7 +1135,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("silent\tgplink", &help_ctrl, 0,
 "  --silent         : Suppress output to console.\n"
-"  --gplink         : Reserved for interoperation with gPLINK.\n"
+"  --gplink         : Reserved for interoperation with gPLINK.  (Incomplete.)\n"
 	       );
     help_print("missing-genotype", &help_ctrl, 0,
 "  --missing-genotype [char] : Set missing genotype code (normally '0').\n"
@@ -1686,6 +1720,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --set-max [ct]       : Adjust set test maximum # of significant variants\n"
 "                         considered per set (default 5).\n"
 	       );
+#ifndef STABLE_BUILD
+    help_print("annotate\tborder", &help_ctrl, 0,
+"  --border [kbs]    : Extend --annotate range intervals by the given # of kbs.\n"
+	       );
+#endif
     help_print("clump-p1\tclump-p2\tclump-r2\tclump-kb\tclump-snp-field\tclump-field\tclump", &help_ctrl, 0,
 "  --clump-p1 [pval] : Set --clump index site p-value ceiling (default 0.0001).\n"
 "  --clump-p2 [pval] : Set --clump secondary p-value threshold (default 0.01).\n"
@@ -1719,6 +1758,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("clump-best\tclump", &help_ctrl, 0,
 "  --clump-best              : Report best proxy for each --clump index site.\n"
 	       );
+#ifndef STABLE_BUILD
+    help_print("gene-list-border\tgene-report\tgene-subset\tgene-list", &help_ctrl, 0,
+"  --gene-list-border [kbs] : Extend --gene-report intervals by given # of kbs.\n"
+"  --gene-subset [filename] : Specify subset of genes to use for --gene-report.\n"
+	       );
+#endif
     help_print("fast-epistasis\tepistasis\tgap\tepi1\tepi2", &help_ctrl, 0,
 "  --gap [kbs]      : Set '--fast-epistasis case-only' min. gap (default 1000).\n"
 "  --epi1 [p-value] : Set --{fast-}epistasis reporting threshold (default\n"

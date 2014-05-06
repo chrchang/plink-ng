@@ -114,15 +114,15 @@ const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n"
 const char null_calc_str[] = "Warning: No output requested.  Exiting.\n";
 #ifdef STABLE_BUILD
   #ifndef NOLAPACK
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --pca, --neighbour,\n--ibs-test, --regress-distance, --model, --gxe, --logistic, --lasso,\n--test-missing, --clump, --tdt, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --pca, --neighbour,\n--ibs-test, --regress-distance, --model, --gxe, --logistic, --lasso,\n--test-missing, --tdt, --clump, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour, --ibs-test,\n--regress-distance, --model, --gxe, --logistic, --lasso, --test-missing,\n--clump, --tdt, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour, --ibs-test,\n--regress-distance, --model, --gxe, --logistic, --lasso, --test-missing, --tdt,\n--clump, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #endif
 #else
   #ifndef NOLAPACK
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --pca, --neighbour,\n--ibs-test, --regress-distance, --model, --gxe, --logistic, --lasso,\n--test-missing, --clump, --unrelated-heritability, --tdt, --fast-epistasis, and\n--score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --pca, --neighbour,\n--ibs-test, --regress-distance, --model, --gxe, --logistic, --lasso,\n--test-missing, --unrelated-heritability, --tdt, --clump, --fast-epistasis, and\n--score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour, --ibs-test,\n--regress-distance, --model, --gxe, --logistic, --lasso, --test-missing,\n--clump, --tdt, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour, --ibs-test,\n--regress-distance, --model, --gxe, --logistic, --lasso, --test-missing, --tdt,\n--clump, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #endif
 #endif
 
@@ -2873,6 +2873,10 @@ int32_t main(int32_t argc, char** argv) {
   char* filter_attrib_indiv_liststr = NULL;
   char* const_fid = NULL;
   char* vcf_filter_exceptions_flattened = NULL;
+  char* gene_report_fname = NULL;
+  char* gene_report_glist = NULL;
+  char* gene_report_subset = NULL;
+  uint32_t gene_report_border = 0;
   double vcf_min_qual = -1;
   char id_delim = '\0';
   char vcf_idspace_to = '\0';
@@ -4110,6 +4114,10 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
 	filter_flags |= FILTER_GENERIC;
+      } else if (!memcmp(argptr2, "nnotate", 8)) {
+        logprint("Error: --annotate is currently under development.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+	goto main_ret_1;
       } else if ((!memcmp(argptr2, "lt-group", 9)) ||
                  (!memcmp(argptr2, "lt-snp", 7))) {
         goto main_hap_disabled_message;
@@ -4381,6 +4389,11 @@ int32_t main(int32_t argc, char** argv) {
 	if ((ld_info.blocks_strong_lowci_outer < 52) || (ld_info.blocks_strong_lowci > 82)) {
 	  logprint("Error: --blocks-strong-lowci parameter currently must be in (0.5, 0.81).\nContact the developers if this is problematic.\n");
 	  goto main_ret_INVALID_CMDLINE;
+	}
+      } else if (!memcmp(argptr2, "order", 6)) {
+	if (1) {
+	  sprintf(logbuf, "Error: --border must be used with --annotate.%s", errstr_append);
+          goto main_ret_INVALID_CMDLINE_3;
 	}
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
@@ -6367,6 +6380,58 @@ int32_t main(int32_t argc, char** argv) {
 	  epi_info.case_only_gap = 2147483646;
 	} else {
           epi_info.case_only_gap = (int32_t)(dxx * 1000 * (1 + SMALL_EPSILON));
+	}
+      } else if (!memcmp(argptr2, "ene-report", 11)) {
+	uii = gene_report_glist? 1 : 2;
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], uii, uii)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_fname(&gene_report_fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
+	if (uii == 2) {
+	  retval = alloc_fname(&gene_report_glist, argv[cur_arg + 1], argptr, 0);
+	  if (retval) {
+	    goto main_ret_1;
+	  }
+	}
+	logprint("Error: --gene-report is currently under development.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+	goto main_ret_1;
+      } else if (!memcmp(argptr2, "ene-list", 9)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        retval = alloc_fname(&gene_report_glist, argv[cur_arg + 1], argptr, 0);
+        if (retval) {
+	  goto main_ret_1;
+	}
+        logprint("Note: --gene-list flag deprecated.  Pass two parameters to --gene-report\ninstead.\n");
+      } else if (!memcmp(argptr2, "ene-list-border", 16)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0)) {
+	  sprintf(logbuf, "Error: Invalid --gene-list-border parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (dxx > 2147483.646) {
+	  gene_report_border = 0x7ffffffe;
+	} else {
+	  gene_report_border = (int32_t)(dxx * 1000 * (1 + SMALL_EPSILON));
+	}
+      } else if (!memcmp(argptr2, "ene-subset", 11)) {
+	if (!gene_report_fname) {
+	  sprintf(logbuf, "Error: --gene-subset must be used with --gene-report.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        retval = alloc_fname(&gene_report_subset, argv[cur_arg + 1], argptr, 0);
+        if (retval) {
+	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "plink", 6)) {
         misc_flags |= MISC_GPLINK;
@@ -11398,6 +11463,10 @@ int32_t main(int32_t argc, char** argv) {
       goto main_ret_INVALID_CMDLINE_3;
     }
   }
+  if (gene_report_border && (!gene_report_fname)) {
+    sprintf(logbuf, "Error: --gene-list-border must be used with --gene-report.%s", errstr_append);
+    goto main_ret_INVALID_CMDLINE_3;
+  }
 
   uii = load_params & LOAD_PARAMS_OX_ALL;
   if ((uii == LOAD_PARAMS_OXGEN) || (uii == LOAD_PARAMS_OXBGEN)) {
@@ -11724,6 +11793,9 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(filter_attrib_indiv_liststr);
   free_cond(const_fid);
   free_cond(vcf_filter_exceptions_flattened);
+  free_cond(gene_report_fname);
+  free_cond(gene_report_glist);
+  free_cond(gene_report_subset);
 
   oblig_missing_cleanup(&oblig_missing_info);
   cluster_cleanup(&cluster);
