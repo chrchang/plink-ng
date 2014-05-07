@@ -4087,13 +4087,13 @@ void distance_print_done(int32_t format_code, char* outname, char* outname_end) 
   putchar('\r');
   if (!format_code) {
     strcpy(outname_end, tbuf);
-    sprintf(logbuf, "Distances (allele counts) written to %s.\n", outname);
+    sprintf(logbuf, "Distances (allele counts) written to %s .\n", outname);
   } else if (format_code == 1) {
     strcpy(outname_end, &(tbuf[MAX_POST_EXT]));
-    sprintf(logbuf, "IBS matrix written to %s.\n", outname);
+    sprintf(logbuf, "IBS matrix written to %s .\n", outname);
   } else if (format_code == 2) {
     strcpy(outname_end, &(tbuf[MAX_POST_EXT * 2]));
-    sprintf(logbuf, "Distances (proportions) written to %s.\n", outname);
+    sprintf(logbuf, "Distances (proportions) written to %s .\n", outname);
   }
   logprintb();
 }
@@ -4739,7 +4739,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	}
       }
       putchar('\r');
-      LOGPRINTF("Distances (allele counts) written to %s.\n", outname);
+      LOGPRINTF("Distances (allele counts) written to %s .\n", outname);
       g_pct = 1;
     }
     if (write_1mibs_matrix) {
@@ -4777,7 +4777,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	}
       }
       putchar('\r');
-      LOGPRINTF("Distances (proportions) written to %s.\n", outname);
+      LOGPRINTF("Distances (proportions) written to %s .\n", outname);
       g_pct = 1;
     }
     if (write_ibs_matrix) {
@@ -4817,7 +4817,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	}
       }
       putchar('\r');
-      LOGPRINTF("IBS matrix written to %s.\n", outname);
+      LOGPRINTF("IBS matrix written to %s .\n", outname);
     }
   }
   while (0) {
@@ -5499,7 +5499,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
       goto calc_genome_ret_WRITE_FAIL;
     }
     putchar('\r');
-    LOGPRINTF("IBS matrix written to %s.\n", outname);
+    LOGPRINTF("IBS matrix written to %s .\n", outname);
     strcpy(outname_end, ".mibs.id");
     retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
     if (retval) {
@@ -5545,7 +5545,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
       goto calc_genome_ret_WRITE_FAIL;
     }
     putchar('\r');
-    LOGPRINTF("Distances (proportions) written to %s.\n", outname);
+    LOGPRINTF("Distances (proportions) written to %s .\n", outname);
     strcpy(outname_end, ".mdist.id");
     retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
     if (retval) {
@@ -5603,7 +5603,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
     }
   }
   putchar('\r');
-  LOGPRINTF("Finished writing %s.\n", outname);
+  LOGPRINTF("Finished writing %s .\n", outname);
   while (0) {
   calc_genome_ret_NOMEM:
     retval = RET_NOMEM;
@@ -5819,7 +5819,7 @@ int32_t do_rel_cutoff(uint64_t calculation_type, double rel_cutoff, double* rel_
     if (retval) {
       return retval;
     }
-    LOGPRINTF("Remaining individual IDs written to %s.\n", outname);
+    LOGPRINTF("Remaining individual IDs written to %s .\n", outname);
   }
   wkspace_reset(wkspace_mark);
   return 0;
@@ -6374,7 +6374,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   fclose_null(&outfile);
 
   LOGPRINTF("%u %s excluded by --rel-cutoff.\n", indivs_excluded, species_str(indivs_excluded));
-  LOGPRINTF("Remaining individual IDs written to %s.\n", outname);
+  LOGPRINTF("Remaining individual IDs written to %s .\n", outname);
   if (rel_calc_type & (REL_CALC_GRM | REL_CALC_GRM_BIN)) {
     if (load_grm_bin) {
       memcpy(grmname_end, ".grm.bin", 9);
@@ -6512,7 +6512,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
       }
     }
     putchar('\r');
-    LOGPRINTF("Pruned relationship matrix written to %s.\n", outname);
+    LOGPRINTF("Pruned relationship matrix written to %s .\n", outname);
   }
   retval = 0;
   while (0) {
@@ -6718,7 +6718,7 @@ int32_t do_rel_cutoff_f(uint64_t calculation_type, float rel_cutoff, float* rel_
     if (retval) {
       return retval;
     }
-    LOGPRINTF("Remaining individual IDs written to %s.\n", outname);
+    LOGPRINTF("Remaining individual IDs written to %s .\n", outname);
   }
   wkspace_reset(wkspace_mark);
   return 0;
@@ -7372,7 +7372,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       }
     }
     putchar('\r');
-    LOGPRINTF("Relationship matrix written to %s.\n", outname);
+    LOGPRINTF("Relationship matrix written to %s .\n", outname);
     if (!parallel_idx) {
       strcpy(&(outname_end[4]), ".id");
       retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
@@ -8053,7 +8053,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
       }
     }
     putchar('\r');
-    LOGPRINTF("Relationship matrix written to %s.\n", outname);
+    LOGPRINTF("Relationship matrix written to %s .\n", outname);
     if (!parallel_idx) {
       strcpy(&(outname_end[4]), ".id");
       retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
@@ -8516,7 +8516,11 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   }
   *outname_end = '\0';
   putchar('\r');
-  LOGPRINTF("--pca: Results saved to %s.eigen{val,vec%s}.\n", outname, var_wts? ",vec.var" : "");
+  if (var_wts) {
+    LOGPRINTF("--pca: Results saved to %s.eigenval , %s.eigenvec , and\n%s.eigenvec.var .\n", outname, outname, outname);
+  } else {
+    LOGPRINTF("--pca: Results saved to %s.eigenval and %s.eigenvec .\n", outname, outname);
+  }
   while (0) {
   calc_pca_ret_NOMEM:
     retval = RET_NOMEM;
@@ -9056,7 +9060,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
       goto calc_distance_ret_WRITE_FAIL;
     }
     putchar('\r');
-    LOGPRINTF("Distances (proportions) written to %s.\n", outname);
+    LOGPRINTF("Distances (proportions) written to %s .\n", outname);
     if (!parallel_idx) {
       strcpy(outname_end, ".mdist.id");
       retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
@@ -9100,7 +9104,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
       goto calc_distance_ret_WRITE_FAIL;
     }
     putchar('\r');
-    LOGPRINTF("IBS matrix written to %s.\n", outname);
+    LOGPRINTF("IBS matrix written to %s .\n", outname);
     strcpy(outname_end, ".mibs.id");
     retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
     if (retval) {
@@ -9642,7 +9646,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     if (fclose_null(&outfile)) {
       goto calc_cluster_neighbor_ret_WRITE_FAIL;
     }
-    LOGPRINTF("--neighbour report written to %s.\n", outname);
+    LOGPRINTF("--neighbour report written to %s .\n", outname);
     if (!(calculation_type & CALC_CLUSTER)) {
       goto calc_cluster_neighbor_ret_1;
     }
@@ -9828,7 +9832,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	goto calc_cluster_neighbor_ret_WRITE_FAIL;
       }
       putchar('\r');
-      LOGPRINTF("IBM matrix written to %s.\n", outname);
+      LOGPRINTF("IBM matrix written to %s .\n", outname);
       if (ibm_warning) {
 	logprint("Warning: Initial cluster assignment violates IBM constraint.\n");
       }

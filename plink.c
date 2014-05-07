@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (6 May 2014) ";
+  " (7 May 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   " "
@@ -1239,21 +1239,17 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   } else if (pheno_c) {
     pheno_ctrl_ct = popcount_longs_exclude(pheno_nm, pheno_c, unfiltered_indiv_ctl);
     if (pheno_nm_ct != indiv_ct) {
-      sprintf(logbuf, "%u case%s, %u control%s, and %" PRIuPTR " missing phenotype%s now present.\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "" : "s", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "" : "s", indiv_ct - pheno_nm_ct, (indiv_ct - pheno_nm_ct == 1)? "" : "s");
+      sprintf(logbuf, "Among remaining phenotypes, %u %s and %u %s.  (%" PRIuPTR " %s %s no phenotype data.)\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "is a case" : "are cases", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "is a control" : "are controls", indiv_ct - pheno_nm_ct, species_str(indiv_ct - pheno_nm_ct), (indiv_ct - pheno_nm_ct == 1)? "has" : "have");
     } else {
-      sprintf(logbuf, "%u case%s and %u control%s now present.\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "" : "s", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "" : "s");
+      sprintf(logbuf, "Among remaining phenotypes, %u %s and %u %s.\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "is a case" : "are cases", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "is a control" : "are controls");
     }
+    wordwrap(logbuf, 0);
     logprintb();
     if (!pheno_ctrl_ct) {
       hwe_modifier |= HWE_THRESH_ALL;
     }
   } else {
-    if (pheno_nm_ct != indiv_ct) {
-      sprintf(logbuf, "%u quantitative phenotype%s now present (%" PRIuPTR " missing).\n", pheno_nm_ct, (pheno_nm_ct == 1)? "" : "s", indiv_ct - pheno_nm_ct);
-    } else {
-      sprintf(logbuf, "%u quantitative phenotype%s now present.\n", pheno_nm_ct, (pheno_nm_ct == 1)? "" : "s");
-    }
-    logprintb();
+    logprint("Phenotype data is quantitative.\n");
     hwe_modifier |= HWE_THRESH_ALL;
   }
 
@@ -1396,8 +1392,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     logprint("Error: All variants fail QC.\n");
     goto plink_ret_ALL_MARKERS_EXCLUDED;
   }
-  LOGPRINTF("%" PRIuPTR " variant%s and %" PRIuPTR " %s pass filters and QC%s.\n", marker_ct, (marker_ct == 1)? "" : "s", indiv_ct, species_str(indiv_ct), (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
-
+  LOGPRINTFWW("%" PRIuPTR " variant%s and %" PRIuPTR " %s pass filters and QC%s.\n", marker_ct, (marker_ct == 1)? "" : "s", indiv_ct, species_str(indiv_ct), (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
   if (wt_needed) {
     // normalize included marker weights to add to just under 2^32.  (switch to
     // 2^64 if/when 32-bit performance becomes less important than accuracy on
@@ -2366,7 +2361,7 @@ int32_t parse_name_ranges(uint32_t param_ct, char range_delim, char** argv, Rang
 }
 
 void invalid_arg(char* argv) {
-  sprintf(logbuf, "Error: Unrecognized flag ('%s').%s%s", argv, (argv[0] == '-')? "" : "  All flags must be preceded by 1-2 dashes.", errstr_append);
+  sprintf(logbuf, "Error: Unrecognized flag ('%s').%s", argv, errstr_append);
 }
 
 void print_ver() {

@@ -100,6 +100,72 @@ void logprintb() {
   fputs(logbuf, stdout);
 }
 
+void wordwrap(char* ss, uint32_t suffix_len) {
+  // This should have been written eons ago.
+
+  // Input: A null-terminated string with no intermediate newlines.  If
+  //        suffix_len is zero, there should be a terminating \n; otherwise,
+  //        the last character should be a space.
+  // Effect: Spaces are replaced with newlines in a manner that plays well with
+  //         80 column terminal windows.  (Multi-space blocks are never
+  //         collapsed.)
+  char* token_start = ss;
+  char* line_end = &(ss[79]);
+  char* token_end;
+  while (1) {
+    while (*token_start == ' ') {
+      token_start++;
+    }
+    if (token_start > line_end) {
+      do {
+	*line_end = '\n';
+	line_end = &(line_end[80]);
+      } while (token_start > line_end);
+    }
+    token_end = strchr(token_start, ' ');
+    if (!token_end) {
+      if (&(token_start[79]) == line_end) {
+	return;
+      }
+      token_end = strchr(token_start, '\0');
+      if (!suffix_len) {
+	if (token_end <= &(line_end[1])) {
+	  // okay if end-of-string is one past the end, because function
+	  // assumes last character is \n in suffix_len == 0 case (might want
+	  // to add a debug option to enforce that)
+	  return;
+	}
+      } else {
+        if (&(token_end[suffix_len]) <= line_end) {
+	  return;
+	}
+	// because of terminal space assumption, token_start actually points
+	// to the end of the string
+      }
+      token_start[-1] = '\n';
+      return;
+    }
+    if (token_end > line_end) {
+      if (&(token_start[79]) != line_end) {
+	token_start[-1] = '\n';
+        line_end = &(token_start[79]);
+	if (token_end > line_end) {
+	  // single really long token, can't do anything beyond putting it on
+	  // its own line
+          *token_end = '\n';
+	  line_end = &(token_end[80]);
+	}
+      } else {
+	// single really long token, *and* previous token was either
+	// nonexistent or long
+	*token_end = '\n';
+	line_end = &(token_end[80]);
+      }
+    }
+    token_start = &(token_end[1]);
+  }
+}
+
 int32_t fopen_checked(FILE** target_ptr, const char* fname, const char* mode) {
   *target_ptr = fopen(fname, mode);
   if (!(*target_ptr)) {
@@ -4355,7 +4421,7 @@ int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfi
       if (tptr) {
         *tptr = ' ';
       }
-      LOGPRINTF("Error: Duplicate ID %s.\n", dup_id);
+      LOGPRINTF("Error: Duplicate ID '%s'.\n", dup_id);
       return RET_INVALID_FORMAT;
     }
   }

@@ -44,7 +44,7 @@ int32_t sort_item_ids_nx(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t
     if (tptr) {
       *tptr = ' ';
     }
-    LOGPRINTF("Error: Duplicate ID %s.\n", dup_id);
+    LOGPRINTF("Error: Duplicate ID '%s'.\n", dup_id);
     return RET_INVALID_FORMAT;
   }
   return 0;
@@ -2025,7 +2025,7 @@ int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modi
       goto write_covars_ret_WRITE_FAIL;
     }
   }
-  LOGPRINTF("Covariates written to %s.\n", outname);
+  LOGPRINTF("Covariates written to %s .\n", outname);
   while (0) {
   write_covars_ret_NOMEM:
     retval = RET_NOMEM;
@@ -3319,7 +3319,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
       goto make_bed_ret_1;
     }
     *outname_end = '\0';
-    LOGPRINTF("--make-bed to %s.bed + .bim + .fam... ", outname);
+    LOGPRINTF("--make-bed to %s.bed + %s.bim + %s.fam ... ", outname, outname, outname);
     fputs("0%", stdout);
     for (pct = 1; pct <= 100; pct++) {
       loop_end = (pct * ((uint64_t)marker_ct)) / 100;
@@ -3389,7 +3389,8 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
     if (wkspace_alloc_ul_checked(&writebuf, indiv_ctv2)) {
       goto make_bed_ret_NOMEM;
     }
-    LOGPRINTF("--make-bed to %s + .bim + .fam... ", outname);
+    *outname_end = '\0';
+    LOGPRINTF("--make-bed to %s.bed + %s.bim + %s.fam ... ", outname, outname, outname);
     fputs("0%", stdout);
     marker_uidx = 0;
     for (pct = 1; pct <= 100; pct++) {
@@ -4721,7 +4722,8 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     goto oxford_to_bed_ret_WRITE_FAIL;
   }
   putchar('\r');
-  LOGPRINTF("--%s: binary fileset written to %s + .bim + .fam.\n", is_bgen? "bgen" : "data", outname);
+  *outname_end = '\0';
+  LOGPRINTF("--%s: %s.bed + %s.bim + %s.fam written.\n", is_bgen? "bgen" : "data", outname, outname, outname);
   while (0) {
   oxford_to_bed_ret_NOMEM:
     retval = RET_NOMEM;
@@ -6034,7 +6036,8 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     goto ped_to_bed_ret_WRITE_FAIL_2;
   }
   putchar('\r');
-  LOGPRINTF("--file: binary fileset written to %s + .bim + .fam.\n", outname);
+  *outname_end = '\0';
+  LOGPRINTF("--file: %s.bed + %s.bim + %s.fam written.\n", outname, outname, outname);
 
   while (0) {
   ped_to_bed_ret_NOMEM:
@@ -6717,8 +6720,8 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
       goto lgen_to_bed_ret_READ_FAIL;
     }
   }
-  memcpy(outname_end, ".bed", 5);
-  LOGPRINTF("Binary fileset written to %s + .bim + .fam.\n", outname);
+  *outname_end = '\0';
+  LOGPRINTF("--lfile: %s.bed + %s.bim + %s.fam written.\n", outname, outname, outname);
 
   while (0) {
   lgen_to_bed_ret_NOMEM:
@@ -7476,7 +7479,8 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     }
   }
   fputs("\rProcessing .tped file... done.\n", stdout);
-  LOGPRINTF("%s + .bim + .fam written.\n", outname);
+  *outname_end = '\0';
+  LOGPRINTF("%s.bed + %s.bim + %s.fam written.\n", outname, outname, outname);
 
   while (0) {
   transposed_to_bed_ret_NOMEM:
@@ -8229,7 +8233,8 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     marker_skip_ct++;
   }
   putchar('\r');
-  LOGPRINTF("--vcf: %s + .bim + .fam written.\n", outname);
+  *outname_end = '\0';
+  LOGPRINTF("--vcf: %s.bed + %s.bim + %s.fam written.\n", outname, outname, outname);
   if (marker_skip_ct) {
     LOGPRINTF("(%u variant%s skipped.)\n", marker_skip_ct, (marker_skip_ct == 1)? "" : "s");
   }
@@ -9116,7 +9121,8 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     goto bcf_to_bed_ret_WRITE_FAIL;
   }
   putchar('\r');
-  LOGPRINTF("--bcf: %s + .bim + .fam written.\n", outname);
+  *outname_end = '\0';
+  LOGPRINTF("--bcf: %s.bed + %s.bim + %s.fam written.\n", outname, outname, outname);
   if (marker_skip_ct) {
     LOGPRINTF("(%u variant%s skipped.)\n", marker_skip_ct, (marker_skip_ct == 1)? "" : "s");
   }
@@ -9410,9 +9416,9 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
     goto bed_from_23_ret_WRITE_FAIL;
   }
   *outname_end = '\0';
-  LOGPRINTF("--23file: binary fileset written to %s.bed + .bim + .fam.\n", outname);
+  LOGPRINTF("--23file: %s.bed + %s.bim + %s.fam written.\n", outname, outname, outname);
   if (indel_ct) {
-    LOGPRINTF("%u variants with indel calls present.  --list-23-indels may be useful here.\n", indel_ct);
+    LOGPRINTF("%u variants with indel calls present.  '--snps-only no-DI' or\n--list-23-indels may be useful here.\n", indel_ct);
   }
   if (!(modifier_23 & M23_SEX)) {
     LOGPRINTF("Inferred sex: %smale.\n", is_male? "" : "fe");
@@ -9669,7 +9675,8 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
     }
   }
   putchar('\r');
-  LOGPRINTF("Dummy data generated (%" PRIuPTR " %s, %" PRIuPTR " SNP%s).\n", indiv_ct, species_str(indiv_ct), marker_ct, (marker_ct == 1)? "" : "s");
+  *outname_end = '\0';
+  LOGPRINTFWW("Dummy data (%" PRIuPTR " %s, %" PRIuPTR " SNP%s) written to %s.bed + %s.bim + %s.fam .\n", indiv_ct, species_str(indiv_ct), marker_ct, (marker_ct == 1)? "" : "s", outname, outname, outname);
   while (0) {
   generate_dummy_ret_NOMEM:
     retval = RET_NOMEM;

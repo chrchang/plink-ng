@@ -957,7 +957,7 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
 	  goto plink_cnv_ret_INVALID_CMDLINE;
 	}
       }
-      sprintf(logbuf, "Autogenerating missing %s...", mapname);
+      sprintf(logbuf, "Autogenerating missing %s ...", mapname);
       retval = cnv_make_map(cnvfile, mapname, 0, 0, 0xffffffffU, -HUGE_DOUBLE, HUGE_DOUBLE, 0, 0xffffffffU, NULL, NULL, NULL, NULL, NULL, NULL, 0, 0, 0.0, -1, -1, allow_extra_chroms, 0, chrom_info_ptr, &max_marker_id_len, marker_chrom_start);
     } else {
       retval = validate_cnv_map(&mapfile, mapname, &marker_pos_start, &marker_pos_end, allow_extra_chroms, chrom_info_ptr, &max_marker_id_len, marker_chrom_start);
@@ -967,7 +967,7 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
     }
   } else {
     memcpy(outname_end, ".cnv.map", 9);
-    sprintf(logbuf, "Generating %s...", outname);
+    sprintf(logbuf, "Generating %s ...", outname);
     retval = cnv_make_map(cnvfile, outname, cnv_calc_type, min_seglen, max_seglen, min_score, max_score, min_sites, max_sites, il_chrom_start_small, il_chrom_start_large, il_chrom_max_width_small, il_chrom_max_width_large, il_small, il_large, intersect_filter_type, overlap_type, overlap_val, marker_pos_start, marker_pos_end, allow_extra_chroms, 0, chrom_info_ptr, &max_marker_id_len, marker_chrom_start);
     if (retval || (!(cnv_calc_type & (CNV_MAKE_MAP | CNV_DEL | CNV_DUP)))) {
       goto plink_cnv_ret_1;

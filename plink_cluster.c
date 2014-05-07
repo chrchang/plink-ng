@@ -601,7 +601,7 @@ int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_in
   if (fclose_null(&outfile)) {
     goto write_cluster_ret_WRITE_FAIL;
   }
-  LOGPRINTF("--write-cluster: Pruned cluster assignments written to %s.\n", outname);
+  LOGPRINTF("--write-cluster: Pruned cluster assignments written to %s .\n", outname);
   while (0) {
   write_cluster_ret_NOMEM:
     retval = RET_NOMEM;
@@ -2810,11 +2810,11 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
     }
     *outname_end = '\0';
     putchar('\r');
-    sprintf(logbuf, "Cluster solution written to %s.cluster{1,2,3%s}.\n", outname, (cp->modifier & CLUSTER_MISSING)? ".missing" : "");
+    sprintf(logbuf, "Cluster solution written to %s.cluster1 , %s.cluster2 ,\nand %s.cluster3%s .\n", outname, outname, outname, (cp->modifier & CLUSTER_MISSING)? ".missing" : "");
   } else {
     *outname_end = '\0';
     putchar('\r');
-    sprintf(logbuf, "Cluster solution written to %s.cluster2.\n", outname);
+    sprintf(logbuf, "Cluster solution written to %s.cluster2 .\n", outname);
   }
   logprintb();
   while (0) {
@@ -3111,9 +3111,9 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
     goto mds_plot_ret_WRITE_FAIL;
   }
   if (!dump_eigvals) {
-    sprintf(logbuf, "MDS solution written to %s.\n", outname);
+    sprintf(logbuf, "MDS solution written to %s .\n", outname);
   } else {
-    sprintf(logbuf, "MDS solution written to %s (eigenvalues in %s.eigvals).\n", outname, outname);
+    sprintf(logbuf, "MDS solution written to %s (eigenvalues in %s.eigvals ).\n", outname, outname);
     memcpy(&(outname_end[4]), ".eigvals", 9);
     if (fopen_checked(&outfile, outname, "w")) {
       goto mds_plot_ret_OPEN_FAIL;

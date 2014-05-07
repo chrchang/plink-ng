@@ -1135,7 +1135,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("silent\tgplink", &help_ctrl, 0,
 "  --silent         : Suppress output to console.\n"
-"  --gplink         : Reserved for interoperation with gPLINK.  (Incomplete.)\n"
+"  --gplink         : Reserved for interoperation with gPLINK.\n"
 	       );
     help_print("missing-genotype", &help_ctrl, 0,
 "  --missing-genotype [char] : Set missing genotype code (normally '0').\n"

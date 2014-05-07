@@ -721,6 +721,15 @@ void logprintb();
 
 #define LOGPRINTF(...) sprintf(logbuf, __VA_ARGS__); logprintb();
 
+// input for wordwrap/LOGPRINTFWW should have no intermediate '\n's.  If
+// suffix_len is 0, there should be a terminating \n.
+void wordwrap(char* ss, uint32_t suffix_len);
+
+#define LOGPRINTFWW(...) sprintf(logbuf, __VA_ARGS__); wordwrap(logbuf, 0); logprintb();
+
+// 5 = length of "done." suffix, which is commonly used
+#define LOGPRINTFWW5(...) sprintf(logbuf, __VA_ARGS__); wordwrap(logbuf, 5); logprintb();
+
 int32_t fopen_checked(FILE** target_ptr, const char* fname, const char* mode);
 
 static inline int32_t putc_checked(int32_t ii, FILE* outfile) {

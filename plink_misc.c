@@ -1110,7 +1110,7 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
   }
   logprintb();
   if (err_ct) {
-    LOGPRINTF("%" PRIuPTR " update failure%s logged to %s.\n", err_ct, (err_ct == 1)? "" : "s", outname);
+    LOGPRINTF("%" PRIuPTR " update failure%s logged to %s .\n", err_ct, (err_ct == 1)? "" : "s", outname);
   }
 
   while (0) {
