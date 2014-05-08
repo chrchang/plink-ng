@@ -6253,7 +6253,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   char* writebuf = tbuf;
   char* chrom_name_ptr = NULL;
   uint32_t chrom_name_len = 0;
-  char chrom_name_buf[4];
+  char chrom_name_buf[3 + MAX_CHROM_TEXTNUM_LEN];
   uint32_t mu_table[MODEL_BLOCKSIZE];
   uint32_t uibuf[4];
   char wbuf[48];
@@ -6837,21 +6837,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	}
       }
       g_is_x = is_x;
-      chrom_name_ptr = chrom_name_buf;
-      chrom_name_len = 4;
-      if (uii <= chrom_info_ptr->max_code) {
-	chrom_num_write4(chrom_name_buf, uii);
-      } else if (zero_extra_chroms) {
-	memcpy(chrom_name_buf, "   0", 4);
-      } else {
-	ujj = strlen(chrom_info_ptr->nonstd_names[uii]);
-	if (ujj < 4) {
-	  fw_strcpyn(4, ujj, chrom_info_ptr->nonstd_names[uii], chrom_name_buf);
-	} else {
-	  chrom_name_ptr = chrom_info_ptr->nonstd_names[uii];
-	  chrom_name_len = ujj;
-	}
-      }
+      chrom_name_ptr = chrom_name_buf5w4write(chrom_name_buf, chrom_info_ptr, uii, zero_extra_chroms, &chrom_name_len);
     } else if (model_maxt_nst) {
       marker_idx -= MODEL_BLOCKKEEP;
       if (marker_idx) { // max(T) initial block special case, see below
@@ -7989,7 +7975,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   uint32_t* tcnt = NULL;
   char* chrom_name_ptr = NULL;
   uint32_t chrom_name_len = 0;
-  char chrom_name_buf[4];
+  char chrom_name_buf[5];
   uint32_t mu_table[MODEL_BLOCKSIZE];
   char spacebuf[8];
   char* outname_end2;
@@ -8335,21 +8321,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       chrom_fo_idx++;
       refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &uii, &g_is_haploid);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      chrom_name_ptr = chrom_name_buf;
-      chrom_name_len = 4;
-      if (uii <= chrom_info_ptr->max_code) {
-	chrom_num_write4(chrom_name_buf, uii);
-      } else if (zero_extra_chroms) {
-	memcpy(chrom_name_buf, "   0", 4);
-      } else {
-	ujj = strlen(chrom_info_ptr->nonstd_names[uii]);
-	if (ujj < 4) {
-	  fw_strcpyn(4, ujj, chrom_info_ptr->nonstd_names[uii], chrom_name_buf);
-	} else {
-	  chrom_name_ptr = chrom_info_ptr->nonstd_names[uii];
-	  chrom_name_len = ujj;
-	}
-      }
+      chrom_name_ptr = chrom_name_buf5w4write(chrom_name_buf, chrom_info_ptr, uii, zero_extra_chroms, &chrom_name_len);
     } else if (perm_maxt) {
       marker_idx -= MODEL_BLOCKKEEP;
       memcpy(g_loadbuf, &(g_loadbuf[(MODEL_BLOCKSIZE - MODEL_BLOCKKEEP) * pheno_nm_ctv2]), MODEL_BLOCKKEEP * pheno_nm_ctv2 * sizeof(intptr_t));

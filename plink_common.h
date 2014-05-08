@@ -1122,19 +1122,6 @@ static inline char* fw_strcpy(uint32_t min_width, const char* source, char* dest
   return fw_strcpyn(min_width, strlen(source), source, dest);
 }
 
-static inline void chrom_num_write4(char* buf, uint32_t num) {
-  uint32_t quotient;
-  buf = memseta(buf, 32, 2);
-  if (num < 10) {
-    *buf++ = ' ';
-    *buf = '0' + num;
-    return;
-  }
-  quotient = num / 10;
-  *buf++ = '0' + quotient;
-  *buf = '0' + num - (quotient * 10);
-}
-
 char* uint32_write(char* start, uint32_t uii);
 
 char* int32_write(char* start, int32_t ii);
@@ -1647,7 +1634,6 @@ void get_set_wrange_align(uintptr_t* bitfield, uintptr_t word_ct, uintptr_t* fir
 // usual PLINK 1.07 chromosome field length is 4.  So it's safe to increase
 // MAX_CHROM_TEXTNUM to 9995, but 9996+ creates problems...
 // (note that n+1, n+2, n+3, and n+4 are reserved for X/Y/XY/MT)
-// chrom_num_write4() needs to be revised if MAX_CHROM_TEXTNUM_LEN is changed.
 #define MAX_CHROM_TEXTNUM_LEN 2
 #define CHROM_X MAX_POSSIBLE_CHROM
 #define CHROM_Y (MAX_POSSIBLE_CHROM + 1)
@@ -1697,6 +1683,7 @@ typedef struct {
   uint32_t name_ct;
   Ll_str* incl_excl_name_stack;
   uint32_t is_include_stack;
+  uint32_t output_encoding;
   char* nonstd_names[MAX_POSSIBLE_CHROM];
   uint32_t nonstd_name_order[MAX_POSSIBLE_CHROM];
 } Chrom_info;
@@ -1718,6 +1705,10 @@ static inline const char* species_str(uintptr_t ct) {
   return (ct == ONELU)? g_species_singular : g_species_plural;
 }
 
+#define CHR_OUTPUT_PREFIX 1
+#define CHR_OUTPUT_M 2
+#define CHR_OUTPUT_MT 4
+
 static inline uint32_t all_words_zero(uintptr_t* word_arr, uintptr_t word_ct) {
   while (word_ct--) {
     if (*word_arr++) {
@@ -1728,6 +1719,8 @@ static inline uint32_t all_words_zero(uintptr_t* word_arr, uintptr_t word_ct) {
 }
 
 char* chrom_name_write(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t zero_extra_chroms);
+
+char* chrom_name_buf5w4write(char* buf5, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t zero_extra_chroms, uint32_t* chrom_name_len_ptr);
 
 uint32_t get_max_chrom_len(Chrom_info* chrom_info_ptr, uint32_t zero_extra_chroms);
 

@@ -2580,6 +2580,7 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
   uint32_t param_idx;
   fill_ulong_zero(chrom_info_ptr->haploid_mask, CHROM_MASK_WORDS);
   fill_ulong_zero(chrom_info_ptr->chrom_mask, CHROM_MASK_WORDS);
+  chrom_info_ptr->output_encoding = 0;
   if (flag_match("autosome-num", &flag_idx, flag_ct, flag_buf)) {
     species_code = SPECIES_UNKNOWN;
     cur_arg = flag_map[flag_idx - 1];
@@ -5421,6 +5422,24 @@ int32_t main(int32_t argc, char** argv) {
 	}
         clump_info.modifier |= CLUMP_VERBOSE;
         goto main_param_zero;
+      } else if (!memcmp(argptr2, "hr-output", 10)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (!strcmp(argv[cur_arg + 1], "M")) {
+          chrom_info.output_encoding = CHR_OUTPUT_M;
+	} else if (!strcmp(argv[cur_arg + 1], "MT")) {
+          chrom_info.output_encoding = CHR_OUTPUT_MT;
+	} else if (!strcmp(argv[cur_arg + 1], "chr26")) {
+          chrom_info.output_encoding = CHR_OUTPUT_PREFIX;
+	} else if (!strcmp(argv[cur_arg + 1], "chrM")) {
+          chrom_info.output_encoding = CHR_OUTPUT_PREFIX | CHR_OUTPUT_M;
+	} else if (!strcmp(argv[cur_arg + 1], "chrMT")) {
+          chrom_info.output_encoding = CHR_OUTPUT_PREFIX | CHR_OUTPUT_MT;
+	} else if (strcmp(argv[cur_arg + 1], "26")) {
+	  sprintf(logbuf, "Error: Invalid --chr-output parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+          goto main_ret_INVALID_CMDLINE_3;
+	}
       } else if (!memcmp(argptr2, "hap", 4)) {
         goto main_hap_disabled_message;
       } else {

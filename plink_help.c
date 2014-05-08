@@ -1426,6 +1426,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --recode-allele [f]  : With --recode A or --recode AD, count alleles named in\n"
 "                         the file (instead of the minor allele).\n"
 	       );
+    help_print("chr-output", &help_ctrl, 0,
+"  --chr-output [MT code] : Set chromosome coding scheme in output files by\n"
+"                           providing the desired human mitochondrial code.\n"
+"                           (Options are '26', 'M', 'MT', 'chr26', 'chrM', and\n"
+"                           'chrMT'.)\n"
+	       );
     help_print("output-missing-genotype\toutput-missing-phenotype", &help_ctrl, 0,
 "  --output-missing-genotype [ch] : Set the code used to represent missing\n"
 "                                   genotypes in new filesets (normally the\n"

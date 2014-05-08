@@ -1682,7 +1682,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   logprint(" done.\n");
   if (hethap_ct) {
     *outname_end = '\0';
-    LOGPRINTFWW("Warning: %" PRIu64 " het. haploid genotype%s present (see %s.hh).\n", hethap_ct, (hethap_ct == 1LLU)? "" : "s", outname);
+    LOGPRINTFWW("Warning: %" PRIu64 " het. haploid genotype%s present (see %s.hh ).\n", hethap_ct, (hethap_ct == 1LLU)? "" : "s", outname);
   }
   if (nonmissing_nonmale_y) {
     logprint("Warning: Nonmissing nonmale Y chromosome genotype(s) present.\n");

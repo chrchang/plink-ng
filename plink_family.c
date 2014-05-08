@@ -732,7 +732,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
   uint32_t new_marker_exclude_ct = 0;
   uint32_t error_ct_fill = 0;
   int32_t retval = 0;
-  char chrom_name_buf[4];
+  char chrom_name_buf[5];
   char* errstrs[10];
   uint32_t errstr_lens[11];
   uint32_t alens[2];
@@ -876,21 +876,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
       error_table_ptr = mendel_error_table_x;
     }
     if (calc_mendel) {
-      chrom_name_ptr = chrom_name_buf;
-      chrom_name_len = 4;
-      if (chrom_idx <= chrom_info_ptr->max_code) {
-	chrom_num_write4(chrom_name_buf, chrom_idx);
-      } else if (zero_extra_chroms) {
-	memcpy(chrom_name_buf, "   0", 4);
-      } else {
-	ujj = strlen(chrom_info_ptr->nonstd_names[chrom_idx]);
-	if (ujj < 4) {
-	  fw_strcpyn(4, ujj, chrom_info_ptr->nonstd_names[chrom_idx], chrom_name_buf);
-	} else {
-	  chrom_name_ptr = chrom_info_ptr->nonstd_names[chrom_idx];
-	  chrom_name_len = ujj;
-	}
-      }
+      chrom_name_ptr = chrom_name_buf5w4write(chrom_name_buf, chrom_info_ptr, uii, zero_extra_chroms, &chrom_name_len);
     }
     if (uii != marker_uidx) {
       marker_uidx = uii;

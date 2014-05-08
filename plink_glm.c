@@ -4799,14 +4799,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
         refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &uii, &g_is_haploid);
       } while ((!glm_xchr_model) && (g_is_haploid || uii));
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      if (uii <= chrom_info_ptr->max_code) {
-	chrom_num_write4(writebuf, uii);
-	wptr_start = &(writebuf[4]);
-      } else if (zero_extra_chroms) {
-	wptr_start = memcpya(writebuf, "   0", 4);
-      } else {
-	wptr_start = fw_strcpy(4, chrom_info_ptr->nonstd_names[uii], writebuf);
-      }
+      wptr_start = width_force(4, writebuf, chrom_name_write(writebuf, chrom_info_ptr, uii, zero_extra_chroms));
       *wptr_start++ = ' ';
       fill_double_zero(constraints_con_major, constraint_ct_max * param_ct_max);
       g_male_x_01 = 0;
@@ -5966,14 +5959,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
         refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &uii, &g_is_haploid);
       } while ((!glm_xchr_model) && (g_is_haploid || uii));
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      if (uii <= chrom_info_ptr->max_code) {
-	chrom_num_write4(writebuf, uii);
-	wptr_start = &(writebuf[4]);
-      } else if (zero_extra_chroms) {
-	wptr_start = memcpya(writebuf, "   0", 4);
-      } else {
-	wptr_start = fw_strcpy(4, chrom_info_ptr->nonstd_names[uii], writebuf);
-      }
+      wptr_start = width_force(4, writebuf, chrom_name_write(writebuf, chrom_info_ptr, uii, zero_extra_chroms));
       *wptr_start++ = ' ';
       fill_double_zero(constraints_con_major, constraint_ct_max * param_ct_max);
       g_male_x_01 = 0;

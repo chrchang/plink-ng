@@ -3654,8 +3654,30 @@ const char* g_species_plural = NULL;
 
 char* chrom_name_write(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t zero_extra_chroms) {
   // assumes chrom_idx is valid
-  if (chrom_idx <= chrom_info_ptr->max_code) {
-    return uint32_write(buf, chrom_idx);
+  uint32_t output_encoding;
+  if (!chrom_idx) {
+    *buf++ = '0';
+    return buf;
+  } else if (chrom_idx <= chrom_info_ptr->max_code) {
+    output_encoding = chrom_info_ptr->output_encoding;
+    if (output_encoding & CHR_OUTPUT_PREFIX) {
+      buf = memcpyl3a(buf, "chr");
+    }
+    if ((!(output_encoding & (CHR_OUTPUT_M | CHR_OUTPUT_MT))) || (chrom_idx <= chrom_info_ptr->autosome_ct)) {
+      return uint32_write(buf, chrom_idx);
+    } else if ((int32_t)chrom_idx == chrom_info_ptr->x_code) {
+      *buf++ = 'X';
+    } else if ((int32_t)chrom_idx == chrom_info_ptr->y_code) {
+      *buf++ = 'Y';
+    } else if ((int32_t)chrom_idx == chrom_info_ptr->xy_code) {
+      buf = memcpya(buf, "XY", 2);
+    } else {
+      *buf++ = 'M';
+      if (output_encoding & CHR_OUTPUT_MT) {
+	*buf++ = 'T';
+      }
+    }
+    return buf;
   } else if (zero_extra_chroms) {
     *buf++ = '0';
     return buf;
@@ -3664,12 +3686,40 @@ char* chrom_name_write(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx
   }
 }
 
+char* chrom_name_buf5w4write(char* buf5, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t zero_extra_chroms, uint32_t* chrom_name_len_ptr) {
+  uint32_t slen;
+  *chrom_name_len_ptr = 4;
+  if (!chrom_idx) {
+    memcpy(buf5, "   0", 4);
+  } else if (chrom_idx <= chrom_info_ptr->max_code) {
+    if (chrom_info_ptr->output_encoding & CHR_OUTPUT_PREFIX) {
+      *chrom_name_len_ptr = (uintptr_t)(chrom_name_write(buf5, chrom_info_ptr, chrom_idx, zero_extra_chroms) - buf5);
+    } else {
+      width_force(4, buf5, chrom_name_write(buf5, chrom_info_ptr, chrom_idx, zero_extra_chroms));
+    }
+  } else if (zero_extra_chroms) {
+    memcpy(buf5, "   0", 4);
+  } else {
+    slen = strlen(chrom_info_ptr->nonstd_names[chrom_idx]);
+    if (slen < 4) {
+      fw_strcpyn(4, slen, chrom_info_ptr->nonstd_names[chrom_idx], buf5);
+    } else {
+      *chrom_name_len_ptr = slen;
+      return chrom_info_ptr->nonstd_names[chrom_idx];
+    }
+  }
+  return buf5;
+}
+
 uint32_t get_max_chrom_len(Chrom_info* chrom_info_ptr, uint32_t zero_extra_chroms) {
   // does not include trailing null
+  // can be overestimate
   // if more functions start calling this, it should just be built into
   // load_bim() instead
-  uint32_t max_chrom_len = 0;
-  int32_t max_chrom_idx = -1;
+  if (zero_extra_chroms) {
+    return 3 + MAX_CHROM_TEXTNUM_LEN;
+  }
+  uint32_t max_chrom_len = 3 + MAX_CHROM_TEXTNUM_LEN;
   uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
   uint32_t max_code = chrom_info_ptr->max_code;
   uint32_t chrom_fo_idx;
@@ -3680,21 +3730,12 @@ uint32_t get_max_chrom_len(Chrom_info* chrom_info_ptr, uint32_t zero_extra_chrom
     if (!is_set(chrom_info_ptr->chrom_mask, chrom_idx)) {
       continue;
     }
-    if (chrom_idx <= max_code) {
-      if (((int32_t)chrom_idx) > max_chrom_idx) {
-	max_chrom_idx = chrom_idx;
-      }
-    } else if (!zero_extra_chroms) {
+    if (chrom_idx > max_code) {
       slen = strlen(chrom_info_ptr->nonstd_names[chrom_idx]);
       if (slen > max_chrom_len) {
 	max_chrom_len = slen;
       }
-    } else if (!max_chrom_len) {
-      max_chrom_idx = 1;
     }
-  }
-  if ((max_chrom_len < MAX_CHROM_TEXTNUM_LEN) && (max_chrom_idx != -1)) {
-    max_chrom_len = intlen(max_chrom_idx);
   }
   return max_chrom_len;
 }
