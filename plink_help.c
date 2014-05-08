@@ -1895,6 +1895,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     printf("\nNo help entr%s for", (help_ctrl.unmatched_ct == 1)? "y" : "ies");
     col_num = (help_ctrl.unmatched_ct == 1)? 17 : 19;
     arg_uidx = 0;
+    // er, should replace the \n logic with a wordwrap() call
     while (help_ctrl.unmatched_ct) {
       arg_uidx = next_unset_unsafe(help_ctrl.all_match_arr, arg_uidx);
       help_ctrl.unmatched_ct--;

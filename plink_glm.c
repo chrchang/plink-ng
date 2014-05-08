@@ -301,7 +301,7 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
   if (condition_mname) {
     ii = get_uidx_from_unsorted(condition_mname, marker_exclude, marker_ct, marker_ids, max_marker_id_len);
     if (ii == -1) {
-      LOGPRINTF("Warning: --condition variant ID '%s' not found.\n", condition_mname);
+      LOGPRINTFWW("Warning: --condition variant ID '%s' not found.\n", condition_mname);
       return 0;
     }
     condition_ct = 1;
@@ -344,7 +344,7 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
 	  miss_ct++;
 	} else {
 	  if (is_set(already_seen, ii)) {
-	    LOGPRINTF("Error: Duplicate variant '%s' in --condition-list file.\n", bufptr);
+	    LOGPRINTFWW("Error: Duplicate variant '%s' in --condition-list file.\n", bufptr);
 	    goto glm_scan_conditions_ret_INVALID_FORMAT;
 	  }
 	  if (condition_ct == condition_ct_max) {
@@ -4555,7 +4555,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	  if (putc_checked('0', outfile_msa)) {
 	    goto glm_linear_assoc_ret_WRITE_FAIL;
 	  }
-	  LOGPRINTF("Dumping all permutation %s to %s.\n", (!constraint_ct_max)? "absolute t-stats" : "chi-square values", outname);
+	  LOGPRINTF("Dumping all permutation %s to %s .\n", (!constraint_ct_max)? "absolute t-stats" : "chi-square values", outname);
 	}
       }
       g_perm_batch_max = perm_batch_size;
@@ -4706,7 +4706,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   if (fopen_checked(&outfile, outname, "w")) {
     goto glm_linear_assoc_ret_OPEN_FAIL;
   }
-  LOGPRINTF("Writing linear model association results to %s ...", outname);
+  LOGPRINTFWW5("Writing linear model association results to %s ... ", outname);
   fflush(stdout);
   sprintf(tbuf, " CHR %%%us         BP   A1       TEST    NMISS       BETA ", plink_maxsnp);
   fprintf(outfile, tbuf, "SNP");
@@ -4785,7 +4785,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     goto glm_linear_assoc_ret_READ_FAIL;
   }
   if (!perm_pass_idx) {
-    fputs(" 0%", stdout);
+    fputs("0%", stdout);
     fflush(stdout);
   }
   marker_idx = 0;
@@ -5138,8 +5138,8 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     if (pct >= 10) {
       putchar('\b');
     }
-    fputs("\b\b\b", stdout);
-    logprint(" done.\n");
+    fputs("\b\b", stdout);
+    logprint("done.\n");
     if (fclose_null(&outfile)) {
       goto glm_linear_assoc_ret_WRITE_FAIL;
     }
@@ -5224,7 +5224,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     } else {
       if (mperm_save & MPERM_DUMP_BEST) {
 	memcpy(outname_end, ".mperm.dump.best", 17);
-	LOGPRINTF("Dumping best permutation %s to %s.\n", (!constraint_ct_max)? "absolute t-stats" : "chi-square values", outname);
+	LOGPRINTFWW("Dumping best permutation %s to %s .\n", (!constraint_ct_max)? "absolute t-stats" : "chi-square values", outname);
 	if (fopen_checked(&outfile, outname, "w")) {
 	  goto glm_linear_assoc_ret_OPEN_FAIL;
 	}
@@ -5325,7 +5325,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     if (fclose_null(&outfile)) {
       goto glm_linear_assoc_ret_WRITE_FAIL;
     }
-    LOGPRINTF("Permutation test report written to %s .\n", outname);
+    LOGPRINTFWW("Permutation test report written to %s .\n", outname);
   }
 
   while (0) {
@@ -5750,7 +5750,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	  if (putc_checked('0', outfile_msa)) {
 	    goto glm_logistic_assoc_ret_WRITE_FAIL;
 	  }
-	  LOGPRINTF("Dumping all permutation chi-square values to %s .\n", outname);
+	  LOGPRINTFWW("Dumping all permutation chi-square values to %s .\n", outname);
 	}
       }
       g_perm_batch_max = perm_batch_size;
@@ -5876,7 +5876,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   if (fopen_checked(&outfile, outname, "w")) {
     goto glm_logistic_assoc_ret_OPEN_FAIL;
   }
-  LOGPRINTF("Writing logistic model association results to %s...", outname);
+  LOGPRINTFWW5("Writing logistic model association results to %s ... ", outname);
   fflush(stdout);
   sprintf(tbuf, " CHR %%%us         BP   A1       TEST    NMISS       %s ", plink_maxsnp, report_odds? "  OR" : "BETA");
   fprintf(outfile, tbuf, "SNP");
@@ -5952,7 +5952,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     goto glm_logistic_assoc_ret_READ_FAIL;
   }
   if (!perm_pass_idx) {
-    fputs(" 0%", stdout);
+    fputs("0%", stdout);
     fflush(stdout);
   }
   marker_idx = 0;
@@ -6254,8 +6254,8 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     if (pct >= 10) {
       putchar('\b');
     }
-    fputs("\b\b\b", stdout);
-    logprint(" done.\n");
+    fputs("\b\b", stdout);
+    logprint("done.\n");
     if (fclose_null(&outfile)) {
       goto glm_logistic_assoc_ret_WRITE_FAIL;
     }
@@ -6340,7 +6340,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     } else {
       if (mperm_save & MPERM_DUMP_BEST) {
 	memcpy(outname_end, ".mperm.dump.best", 17);
-	LOGPRINTF("Dumping best permutation chi-square values to %s.\n", outname);
+	LOGPRINTF("Dumping best permutation chi-square values to %s .\n", outname);
 	if (fopen_checked(&outfile, outname, "w")) {
 	  goto glm_logistic_assoc_ret_OPEN_FAIL;
 	}
@@ -6441,7 +6441,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     if (fclose_null(&outfile)) {
       goto glm_logistic_assoc_ret_WRITE_FAIL;
     }
-    LOGPRINTF("Permutation test report written to %s.\n", outname);
+    LOGPRINTF("Permutation test report written to %s .\n", outname);
   }
 
   while (0) {
@@ -7070,7 +7070,8 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       goto glm_linear_nosnp_ret_NOMEM;
     }
     *outname_end = '\0';
-    LOGPRINTF("Dumping all permutation absolute t-stats to %s.[test ID].mperm.dump.all.\n", outname);
+    LOGPREPRINTFWW(logbuf, "Dumping all permutation absolute t-stats to %s.[testID].mperm.dump.all.\n", outname);
+    fputs(logbuf, stdout);
     if (constraint_ct) {
       logprint("(exception: chi-square values will be dumped for joint test)\n");
     }
@@ -7079,7 +7080,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   if (fopen_checked(&outfile, outname, "w")) {
     goto glm_linear_nosnp_ret_OPEN_FAIL;
   }
-  LOGPRINTF("Writing linear model association results to %s...", outname);
+  LOGPRINTFWW5("Writing linear model association results to %s ... ", outname);
   fflush(stdout);
   fputs("      TEST    NMISS       BETA ", outfile);
   if (display_ci) {
@@ -7157,7 +7158,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   if (fclose_null(&outfile)) {
     goto glm_linear_nosnp_ret_WRITE_FAIL;
   }
-  logprint(" done.\n");
+  logprint("done.\n");
 
   msa_ptr = mperm_save_stats;
   while (perms_done < glm_mperm_val) {
@@ -7302,7 +7303,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     if (fclose_null(&outfile)) {
       goto glm_linear_nosnp_ret_WRITE_FAIL;
     }
-    LOGPRINTF("Permutation test report written to %s.\n", outname);
+    LOGPRINTFWW("Permutation test report written to %s .\n", outname);
     if (mperm_save) {
       *outname_end = '.';
       if ((param_ct != param_ctx) && constraint_ct) {
@@ -7342,6 +7343,8 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	if (fclose_null(&outfile)) {
 	  goto glm_linear_nosnp_ret_WRITE_FAIL;
 	}
+	LOGPREPRINTFWW("%s written.\n", outname);
+	logstr(logbuf);
       }
     }
   }
@@ -7893,13 +7896,14 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       goto glm_logistic_nosnp_ret_NOMEM;
     }
     *outname_end = '\0';
-    LOGPRINTF("Dumping all permutation chi-square values to %s.[test ID].mperm.dump.all.\n", outname);
+    LOGPREPRINTFWW("Dumping all permutation chi-square values to %s.[testID].mperm.dump.all.\n", outname);
+    fputs(logbuf, stdout);
   }
   outname_end2 = memcpyb(outname_end, ".assoc.logistic", 16);
   if (fopen_checked(&outfile, outname, "w")) {
     goto glm_logistic_nosnp_ret_OPEN_FAIL;
   }
-  LOGPRINTF("Writing logistic model association results to %s ...", outname);
+  LOGPRINTFWW5("Writing logistic model association results to %s ... ", outname);
   fflush(stdout);
   fprintf(outfile, "      TEST    NMISS       %s ", report_odds? "  OR" : "BETA");
   if (display_ci) {
@@ -7965,7 +7969,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   if (fclose_null(&outfile)) {
     goto glm_logistic_nosnp_ret_WRITE_FAIL;
   }
-  logprint(" done.\n");
+  logprint("done.\n");
 
   msa_ptr = mperm_save_stats;
   while (perms_done < glm_mperm_val) {
@@ -8098,7 +8102,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     if (fclose_null(&outfile)) {
       goto glm_logistic_nosnp_ret_WRITE_FAIL;
     }
-    LOGPRINTF("Permutation test report written to %s.\n", outname);
+    LOGPRINTFWW("Permutation test report written to %s .\n", outname);
     if (mperm_save) {
       *outname_end = '.';
       if ((param_ct != param_ctx) && constraint_ct) {
@@ -8138,6 +8142,8 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	if (fclose_null(&outfile)) {
 	  goto glm_logistic_nosnp_ret_WRITE_FAIL;
 	}
+	LOGPREPRINTFWW("%s written.\n", outname);
+	logstr(logbuf);
       }
     }
   }

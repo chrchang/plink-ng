@@ -121,7 +121,7 @@ int32_t write_nosex(char* outname, char* outname_end, uintptr_t unfiltered_indiv
   if (fclose_null(&outfile)) {
     goto write_nosex_ret_WRITE_FAIL;
   }
-  LOGPRINTF("Ambiguous sex ID%s written to %s.\n", (gender_unk_ct == 1)? "" : "s", outname);
+  LOGPRINTFWW("Ambiguous sex ID%s written to %s .\n", (gender_unk_ct == 1)? "" : "s", outname);
   while (0) {
   write_nosex_ret_NOMEM:
     retval = RET_NOMEM;
@@ -448,7 +448,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
   } else {
     ii = get_chrom_code(chrom_info_ptr, cm_map_chrname);
     if (ii == -1) {
-      sprintf(logbuf, "Error: --cm-map chromosome code '%s' not found in dataset.\n", cm_map_chrname);
+      LOGPREPRINTFWW("Error: --cm-map chromosome code '%s' not found in dataset.\n", cm_map_chrname);
       goto apply_cm_map_ret_INVALID_CMDLINE_2;
     }
     chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, chrom_info_ptr->chrom_start[(uint32_t)ii]);
@@ -470,7 +470,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
       bufptr = uint32_write(fname_write, uii);
       memcpy(bufptr, at_sign_ptr, post_at_sign_len);
       if (fopen_checked(&shapeitfile, fname_buf, "r")) {
-	LOGPRINTF("Warning: --cm-map failed to open %s.\n", fname_buf);
+	LOGPRINTFWW("Warning: --cm-map failed to open %s.\n", fname_buf);
         continue;
       }
     } else {
@@ -516,7 +516,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
         continue;
       }
       if (scan_uint_defcap(bufptr, (uint32_t*)&bp_new)) {
-	sprintf(logbuf, "Error: Invalid bp coordinate on %" PRIuPTR " of --cm-mcap file.\n", line_idx);
+	sprintf(logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of --cm-map file.\n", line_idx);
         goto apply_cm_map_ret_INVALID_FORMAT_2;
       }
       if (bp_new <= bp_old) {
@@ -560,7 +560,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
       goto apply_cm_map_ret_READ_FAIL;
     }
     if (irreg_line_ct) {
-      LOGPRINTF("Warning: %" PRIuPTR " irregular line%s skipped in %s.\n", irreg_line_ct, (irreg_line_ct == 1)? "" : "s", fname_buf);
+      LOGPRINTFWW("Warning: %" PRIuPTR " irregular line%s skipped in %s.\n", irreg_line_ct, (irreg_line_ct == 1)? "" : "s", fname_buf);
     }
   }
   LOGPRINTF("--cm-map: %u chromosome%s updated.\n", updated_chrom_ct, (updated_chrom_ct == 1)? "" : "s");
@@ -675,7 +675,7 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
     }
     if (is_set(already_seen, sorted_idx)) {
       colid_ptr[slen] = '\0';
-      sprintf(logbuf, "Error: Duplicate variant '%s' in --update-cm file.\n", colid_ptr);
+      LOGPREPRINTFWW("Error: Duplicate variant '%s' in --update-cm file.\n", colid_ptr);
       goto update_marker_cms_ret_INVALID_FORMAT_2;
     }
     set_bit(already_seen, sorted_idx);
@@ -808,7 +808,7 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
     }
     if (is_set(already_seen, sorted_idx)) {
       colid_ptr[slen] = '\0';
-      sprintf(logbuf, "Error: Duplicate variant '%s' in --update-map file.\n", colid_ptr);
+      LOGPREPRINTFWW("Error: Duplicate variant '%s' in --update-map file.\n", colid_ptr);
       goto update_marker_pos_ret_INVALID_FORMAT_2;
     }
     set_bit(already_seen, sorted_idx);
@@ -955,7 +955,7 @@ int32_t update_marker_names(Two_col_params* update_name, char* sorted_marker_ids
     }
     if (is_set(already_seen, sorted_idx)) {
       colold_ptr[slen] = '\0';
-      sprintf(logbuf, "Error: Duplicate variant ID '%s' in --update-name file.\n", colold_ptr);
+      LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --update-name file.\n", colold_ptr);
       goto update_marker_names_ret_INVALID_FORMAT_2;
     }
     set_bit(already_seen, sorted_idx);
@@ -1050,7 +1050,7 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
     }
     if (is_set(already_seen, sorted_idx)) {
       *bufptr2 = '\0';
-      sprintf(logbuf, "Error: Duplicate variant ID '%s' in --update-alleles file.\n", bufptr3);
+      LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --update-alleles file.\n", bufptr3);
       goto update_marker_alleles_ret_INVALID_FORMAT_2;
     }
     set_bit(already_seen, sorted_idx);
@@ -1110,7 +1110,7 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
   }
   logprintb();
   if (err_ct) {
-    LOGPRINTF("%" PRIuPTR " update failure%s logged to %s .\n", err_ct, (err_ct == 1)? "" : "s", outname);
+    LOGPRINTFWW("%" PRIuPTR " update failure%s logged to %s .\n", err_ct, (err_ct == 1)? "" : "s", outname);
   }
 
   while (0) {
@@ -1198,7 +1198,7 @@ int32_t flip_strand(char* flip_fname, char* sorted_marker_ids, uintptr_t marker_
     }
     if (is_set(already_seen, sorted_idx)) {
       bufptr[slen] = '\0';
-      sprintf(logbuf, "Error: Duplicate variant ID '%s' in --flip file.\n", bufptr);
+      LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --flip file.\n", bufptr);
       goto flip_strand_ret_INVALID_FORMAT_2;
     }
     set_bit(already_seen, sorted_idx);
@@ -1612,7 +1612,7 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
       qsort(sorted_pos_match, pos_match_ct, max_pos_match_len, strcmp_casted);
       bufptr = scan_for_duplicate_ids(sorted_pos_match, pos_match_ct, max_pos_match_len);
       if (bufptr) {
-	sprintf(logbuf, "Error: Duplicate attribute '%s' in --filter-attrib%s argument.\n", bufptr, is_indiv? "-indiv" : "");
+	LOGPREPRINTFWW("Error: Duplicate attribute '%s' in --filter-attrib%s argument.\n", bufptr, is_indiv? "-indiv" : "");
 	goto filter_attrib_ret_INVALID_CMDLINE_2;
       }
     }
@@ -1620,7 +1620,7 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
       qsort(sorted_neg_match, neg_match_ct, max_neg_match_len, strcmp_casted);
       bufptr = scan_for_duplicate_ids(sorted_neg_match, neg_match_ct, max_neg_match_len);
       if (bufptr) {
-	sprintf(logbuf, "Error: Duplicate attribute '%s' in --filter-attrib%s argument.\n", bufptr, is_indiv? "-indiv" : "");
+	LOGPREPRINTFWW("Error: Duplicate attribute '%s' in --filter-attrib%s argument.\n", bufptr, is_indiv? "-indiv" : "");
 	goto filter_attrib_ret_INVALID_CMDLINE_2;
       }
       // actually may make sense to have same attribute as a positive and
@@ -1667,10 +1667,10 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
     if (is_set(already_seen, sorted_idx)) {
       if (is_indiv) {
 	*strchr(id_buf, '\t') = ' ';
-        sprintf(logbuf, "Error: Duplicate individual ID '%s' in --filter-attrib-indiv file.\n", id_buf);
+        LOGPREPRINTFWW("Error: Duplicate individual ID '%s' in --filter-attrib-indiv file.\n", id_buf);
       } else {
 	*bufptr2 = '\0';
-	sprintf(logbuf, "Error: Duplicate variant ID '%s' in --filter-attrib file.\n", bufptr);
+	LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --filter-attrib file.\n", bufptr);
       }
       goto filter_attrib_ret_INVALID_FORMAT_2;
     }
@@ -1795,7 +1795,7 @@ int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintpt
     }
     if (is_set(already_seen, sorted_idx)) {
       *strchr(idbuf, '\t') = ' ';
-      sprintf(logbuf, "Error: Duplicate individual ID '%s' in --update-ids file.\n", idbuf);
+      LOGPREPRINTFWW("Error: Duplicate individual ID '%s' in --update-ids file.\n", idbuf);
       goto update_indiv_ids_ret_INVALID_FORMAT_2;
     }
     set_bit(already_seen, sorted_idx);
@@ -1896,7 +1896,7 @@ int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids
     }
     if (is_set(already_seen, sorted_idx)) {
       *strchr(idbuf, '\t') = ' ';
-      sprintf(logbuf, "Error: Duplicate individual ID '%s' in --update-parents file.\n", idbuf);
+      LOGPREPRINTFWW("Error: Duplicate individual ID '%s' in --update-parents file.\n", idbuf);
       goto update_indiv_parents_ret_INVALID_FORMAT_2;
     }
     set_bit(already_seen, sorted_idx);
@@ -2005,7 +2005,7 @@ int32_t update_indiv_sexes(char* update_sex_fname, uint32_t update_sex_col, char
     }
     if (is_set(already_seen, sorted_idx)) {
       *strchr(idbuf, '\t') = ' ';
-      sprintf(logbuf, "Error: Duplicate individual ID '%s' in --update-sex file.\n", idbuf);
+      LOGPREPRINTFWW("Error: Duplicate individual ID '%s' in --update-sex file.\n", idbuf);
       goto update_indiv_sexes_ret_INVALID_FORMAT_2;
     }
     set_bit(already_seen, sorted_idx);
@@ -2019,7 +2019,7 @@ int32_t update_indiv_sexes(char* update_sex_fname, uint32_t update_sex_col, char
     cc = *bufptr;
     ucc = ((unsigned char)cc) & 0xdfU;
     if ((cc < '0') || ((cc > '2') && (ucc != 'M') && (ucc != 'F')) || (bufptr[1] > ' ')) {
-      sprintf(logbuf, "Error: Invalid sex value on line %" PRIuPTR " of --update-sex file.\n(Acceptable values: 1/M = male,\n2/F = female, 0 = missing.)\n", line_idx);
+      sprintf(logbuf, "Error: Invalid sex value on line %" PRIuPTR " of --update-sex file.\n(Acceptable values: 1/M = male, 2/F = female, 0 = missing.)\n", line_idx);
       goto update_indiv_sexes_ret_INVALID_FORMAT_2;
     }
     if (cc == '0') {
@@ -2474,7 +2474,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
     line_idx++;
     if (!(loadbuf[loadbuf_size - 1])) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-	sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, axalleles->fname);
+	LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, axalleles->fname);
 	goto load_ax_alleles_ret_INVALID_FORMAT_2;
       } else {
         goto load_ax_alleles_ret_NOMEM;
@@ -2504,7 +2504,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
     }
     if (is_set(already_seen, sorted_idx)) {
       colid_ptr[idlen] = '\0';
-      sprintf(logbuf, "Error: Duplicate variant ID '%s' in --a%c-allele file.\n", colid_ptr, is_a2? '2' : '1');
+      LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --a%c-allele file.\n", colid_ptr, is_a2? '2' : '1');
       goto load_ax_alleles_ret_INVALID_FORMAT_2;
     }
     SET_BIT(already_seen, sorted_idx);
@@ -2818,7 +2818,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
   if (fclose_null(&outfile)) {
     goto write_stratified_freqs_ret_WRITE_FAIL;
   }
-  LOGPRINTF("--freq: Cluster-stratified allele frequencies written to %s.\n", outname);
+  LOGPRINTFWW("--freq: Cluster-stratified allele frequencies written to %s .\n", outname);
   while (0) {
   write_stratified_freqs_ret_NOMEM:
     retval = RET_NOMEM;
@@ -2969,7 +2969,7 @@ int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_m
   if (fclose_null(&outfile)) {
     goto write_freqs_ret_WRITE_FAIL;
   }
-  LOGPRINTF("--freq%s: Allele frequencies written to %s.\n", freqx? "x" : "", outname);
+  LOGPRINTFWW("--freq%s: Allele frequencies written to %s .\n", freqx? "x" : "", outname);
   while (0) {
   write_freqs_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
@@ -3267,20 +3267,19 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     bitfield_and(sex_male, sex_nm, unfiltered_indiv_ctl);
     gender_unk_ct = indiv_ct - popcount_longs(sex_nm, unfiltered_indiv_ctl);
     if (!gender_unk_ct) {
-      sprintf(logbuf, "--impute-sex: %" PRIuPTR " Xchr and %" PRIuPTR " Ychr variant(s) scanned,\nall sexes imputed.", x_variant_ct, ytotal);
+      LOGPREPRINTFWW("--impute-sex: %" PRIuPTR " Xchr and %" PRIuPTR " Ychr variant(s) scanned, all sexes imputed. Report written to %s .\n", x_variant_ct, ytotal, outname);
     } else {
-      sprintf(logbuf, "--impute-sex: %" PRIuPTR " Xchr and %" PRIuPTR " Ychr variant(s) scanned,\n%" PRIuPTR "/%" PRIuPTR " sex%s imputed.", x_variant_ct, ytotal, (indiv_ct - gender_unk_ct), indiv_ct, (indiv_ct == 1)? "" : "es");
+      LOGPREPRINTFWW("--impute-sex: %" PRIuPTR " Xchr and %" PRIuPTR " Ychr variant(s) scanned, %" PRIuPTR "/%" PRIuPTR " sex%s imputed. Report written to %s .\n", x_variant_ct, ytotal, (indiv_ct - gender_unk_ct), indiv_ct, (indiv_ct == 1)? "" : "es", outname);
     }
     *gender_unk_ct_ptr = gender_unk_ct;
   } else {
     if (!problem_ct) {
-      sprintf(logbuf, "--check-sex: %" PRIuPTR " Xchr and %" PRIuPTR " Ychr variant(s) scanned,\nno problems detected.", x_variant_ct, ytotal);
+      LOGPREPRINTFWW("--check-sex: %" PRIuPTR " Xchr and %" PRIuPTR " Ychr variant(s) scanned, no problems detected. Report written to %s .\n", x_variant_ct, ytotal, outname);
     } else {
-      sprintf(logbuf, "--check-sex: %" PRIuPTR " Xchr and %" PRIuPTR " Ychr variant(s) scanned,\n%u problem%s detected.", x_variant_ct, ytotal, problem_ct, (problem_ct == 1)? "" : "s");
+      LOGPREPRINTFWW("--check-sex: %" PRIuPTR " Xchr and %" PRIuPTR " Ychr variant(s) scanned, %u problem%s detected. Report written to %s .\n", x_variant_ct, ytotal, problem_ct, (problem_ct == 1)? "" : "s", outname);
     }
   }
   logprintb();
-  LOGPRINTF("  Report written to %s.\n", outname);
   while (0) {
   sexcheck_ret_NOMEM:
     retval = RET_NOMEM;
@@ -3363,7 +3362,7 @@ int32_t write_snplist(char* outname, char* outname_end, uintptr_t unfiltered_mar
   if (fclose_null(&outfile)) {
     goto write_snplist_ret_WRITE_FAIL;
   }
-  LOGPRINTF("List of %svariant IDs written to %s.\n", list_23_indels? "indel " : "" , outname);
+  LOGPRINTFWW("List of %svariant IDs written to %s .\n", list_23_indels? "indel " : "" , outname);
   while (0) {
   write_snplist_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
@@ -3526,7 +3525,7 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
   if (fclose_null(&outfile)) {
     goto het_report_ret_WRITE_FAIL;
   }
-  LOGPRINTF("--het: %" PRIuPTR " variant%s scanned, report written to %s.\n", marker_ct, (marker_ct == 1)? "" : "s", outname);
+  LOGPRINTFWW("--het: %" PRIuPTR " variant%s scanned, report written to %s .\n", marker_ct, (marker_ct == 1)? "" : "s", outname);
   while (0) {
   het_report_ret_NOMEM:
     retval = RET_NOMEM;
@@ -3743,7 +3742,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
 	} else {
 	  if (!IS_SET(marker_exclude, marker_uidx)) {
             bufptr_arr[varid_idx][strlen_se(bufptr_arr[varid_idx])] = '\0';
-            sprintf(logbuf, "Error: Duplicate variant '%s' in --score file.\n", bufptr_arr[varid_idx]);
+            LOGPREPRINTFWW("Error: Duplicate variant '%s' in --score file.\n", bufptr_arr[varid_idx]);
             goto score_report_ret_INVALID_FORMAT_2;
 	  }
           CLEAR_BIT(marker_exclude, marker_uidx);
@@ -3846,7 +3845,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
 	    dptr[marker_uidx] = dxx;
 	    if (!IS_SET(marker_exclude_main, marker_uidx)) {
 	      bufptr_arr[varid_idx][strlen_se(bufptr_arr[varid_idx])] = '\0';
-	      sprintf(logbuf, "Error: Duplicate variant '%s' in --q-score-range data file.\n", bufptr_arr[varid_idx]);
+	      LOGPREPRINTFWW("Error: Duplicate variant '%s' in --q-score-range data file.\n", bufptr_arr[varid_idx]);
 	      goto score_report_ret_INVALID_FORMAT_2;
 	    }
             CLEAR_BIT(marker_exclude_main, marker_uidx);
@@ -3938,279 +3937,285 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   }
   int32_write(bufptr, missing_pheno);
   line_idx = 0;
-  do {
-    if (marker_exclude_main) {
-      while (1) {
-	line_idx++;
-        if (!fgets(tbuf, MAXLINELEN, infile)) {
-	  if (fclose_null(&infile)) {
-	    goto score_report_ret_READ_FAIL;
-	  }
-	  *outname_end = '\0';
-          LOGPRINTF("--score: %" PRIuPTR " range%s processed", range_ct, (range_ct == 1)? "" : "s");
-          if (range_skip) {
-	    LOGPRINTF(" (%" PRIuPTR " empty range%s skipped)", range_skip, (range_skip == 1)? "" : "s");
-	  }
-          LOGPRINTF(".\nResults written to %s.*.profile.\n", outname);
-	  goto score_report_ret_1;
-	}
-	if (!tbuf[MAXLINELEN - 1]) {
-	  sprintf(logbuf, "Error: Line %" PRIuPTR " of --q-score-range range file is pathologically long.\n", line_idx);
-	  goto score_report_ret_INVALID_FORMAT_2;
-	}
-        bufptr = skip_initial_spaces(tbuf);
-	if (is_eoln_kns(*bufptr)) {
-	  continue;
-	}
-	rangename_len = strlen_se(bufptr);
-	bufptr_arr[1] = skip_initial_spaces(&(bufptr[rangename_len]));
-	bufptr_arr[2] = next_item(bufptr_arr[1]);
-        if ((!bufptr_arr[2]) || scan_double(bufptr_arr[1], &lbound) || scan_double(bufptr_arr[2], &ubound) || (lbound != lbound) || (ubound != ubound) || (lbound > ubound)) {
-	  continue;
-	}
-	if (rangename_len > max_rangename_len) {
-	  sprintf(logbuf, "Error: Excessively long range name on line %" PRIuPTR " of --q-score-range range\nfile.\n", line_idx);
-	  goto score_report_ret_INVALID_FORMAT_2;
-	}
-	bufptr_arr[0] = bufptr;
-	break;
-      }
-      fill_all_bits(marker_exclude, unfiltered_marker_ct);
-      marker_uidx = next_unset_unsafe(marker_exclude_main, 0);
-      dptr = effect_sizes_cur;
-      for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-        next_unset_ul_unsafe_ck(marker_exclude_main, &marker_uidx);
-	dxx = qrange_keys[marker_idx];
-	if ((dxx >= lbound) && (dxx <= ubound)) {
-	  CLEAR_BIT(marker_exclude, marker_uidx);
-	  *dptr++ = effect_sizes[marker_idx];
-	}
-      }
-      cur_marker_ct = unfiltered_marker_ct - popcount_longs(marker_exclude, unfiltered_marker_ctl);
-      if (!cur_marker_ct) {
-	range_skip++;
-	continue;
-      }
-      range_ct++;
-      dptr = effect_sizes_cur;
-    } else {
-      dptr = effect_sizes;
-    }
-    marker_uidx = next_unset_unsafe(marker_exclude, 0);
-    if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
-      goto score_report_ret_READ_FAIL;
-    }
-    fill_double_zero(score_deltas, indiv_ct);
-    fill_uint_zero(miss_cts, indiv_ct);
-    fill_int_zero(named_allele_ct_deltas, indiv_ct);
-    score_base = 0.0;
-    female_y_offset = 0.0;
-    obs_expected = 0;
-    named_allele_ct_expected = 0;
-    named_allele_ct_female_delta = 0;
-    obs_expected_female_delta = 0;
-    chrom_fo_idx = 0xffffffffU;
-    chrom_end = 0;
-    for (marker_idx = 0; marker_idx < cur_marker_ct; marker_uidx++, marker_idx++) {
-      if (IS_SET(marker_exclude, marker_uidx)) {
-	marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-	if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+  if (marker_exclude_main) {
+  score_report_qrange_next:
+    while (1) {
+      line_idx++;
+      if (!fgets(tbuf, MAXLINELEN, infile)) {
+	if (fclose_null(&infile)) {
 	  goto score_report_ret_READ_FAIL;
 	}
+	*outname_end = '\0';
+	LOGPRINTF("--score: %" PRIuPTR " range%s processed", range_ct, (range_ct == 1)? "" : "s");
+	if (range_skip) {
+	  LOGPRINTF(" (%" PRIuPTR " empty range%s skipped)", range_skip, (range_skip == 1)? "" : "s");
+	}
+	logprint(".\n");
+	LOGPREPRINTFWW("Results written to %s.*.profile.\n", outname);
+	fputs(logbuf, stdout);
+	goto score_report_ret_1;
       }
-      if (marker_uidx >= chrom_end) {
-	do {
-	  chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1];
-	} while (marker_uidx >= chrom_end);
-	uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-	is_haploid = IS_SET(chrom_info_ptr->haploid_mask, uii);
-	is_x = ((int32_t)uii == chrom_info_ptr->x_code)? 1 : 0;
-	is_y = ((int32_t)uii == chrom_info_ptr->y_code)? 1 : 0;
-	ploidy = 2 - is_haploid;
-	ploidy_d = (double)((int32_t)ploidy);
+      if (!tbuf[MAXLINELEN - 1]) {
+	sprintf(logbuf, "Error: Line %" PRIuPTR " of --q-score-range range file is pathologically long.\n", line_idx);
+	goto score_report_ret_INVALID_FORMAT_2;
       }
-      if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, indiv_ct, indiv_exclude, IS_SET(marker_reverse, marker_uidx))) {
+      bufptr = skip_initial_spaces(tbuf);
+      if (is_eoln_kns(*bufptr)) {
+	continue;
+      }
+      rangename_len = strlen_se(bufptr);
+      bufptr_arr[1] = skip_initial_spaces(&(bufptr[rangename_len]));
+      bufptr_arr[2] = next_item(bufptr_arr[1]);
+      if ((!bufptr_arr[2]) || scan_double(bufptr_arr[1], &lbound) || scan_double(bufptr_arr[2], &ubound) || (lbound != lbound) || (ubound != ubound) || (lbound > ubound)) {
+	continue;
+      }
+      if (rangename_len > max_rangename_len) {
+	sprintf(logbuf, "Error: Excessively long range name on line %" PRIuPTR " of --q-score-range range\nfile.\n", line_idx);
+	goto score_report_ret_INVALID_FORMAT_2;
+      }
+      bufptr_arr[0] = bufptr;
+      break;
+    }
+    fill_all_bits(marker_exclude, unfiltered_marker_ct);
+    marker_uidx = next_unset_unsafe(marker_exclude_main, 0);
+    dptr = effect_sizes_cur;
+    for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+      next_unset_ul_unsafe_ck(marker_exclude_main, &marker_uidx);
+      dxx = qrange_keys[marker_idx];
+      if ((dxx >= lbound) && (dxx <= ubound)) {
+	CLEAR_BIT(marker_exclude, marker_uidx);
+	*dptr++ = effect_sizes[marker_idx];
+      }
+    }
+    cur_marker_ct = unfiltered_marker_ct - popcount_longs(marker_exclude, unfiltered_marker_ctl);
+    if (!cur_marker_ct) {
+      range_skip++;
+      goto score_report_qrange_next;
+    }
+    range_ct++;
+    dptr = effect_sizes_cur;
+  } else {
+    dptr = effect_sizes;
+  }
+  marker_uidx = next_unset_unsafe(marker_exclude, 0);
+  if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+    goto score_report_ret_READ_FAIL;
+  }
+  fill_double_zero(score_deltas, indiv_ct);
+  fill_uint_zero(miss_cts, indiv_ct);
+  fill_int_zero(named_allele_ct_deltas, indiv_ct);
+  score_base = 0.0;
+  female_y_offset = 0.0;
+  obs_expected = 0;
+  named_allele_ct_expected = 0;
+  named_allele_ct_female_delta = 0;
+  obs_expected_female_delta = 0;
+  chrom_fo_idx = 0xffffffffU;
+  chrom_end = 0;
+  for (marker_idx = 0; marker_idx < cur_marker_ct; marker_uidx++, marker_idx++) {
+    if (IS_SET(marker_exclude, marker_uidx)) {
+      marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+      if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
 	goto score_report_ret_READ_FAIL;
       }
-      if (is_haploid && hh_exists) {
-	haploid_fix(hh_exists, indiv_include2, indiv_male_include2, indiv_ct, is_x, is_y, (unsigned char*)loadbuf);
+    }
+    if (marker_uidx >= chrom_end) {
+      do {
+	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1];
+      } while (marker_uidx >= chrom_end);
+      uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+      is_haploid = IS_SET(chrom_info_ptr->haploid_mask, uii);
+      is_x = ((int32_t)uii == chrom_info_ptr->x_code)? 1 : 0;
+      is_y = ((int32_t)uii == chrom_info_ptr->y_code)? 1 : 0;
+      ploidy = 2 - is_haploid;
+      ploidy_d = (double)((int32_t)ploidy);
+    }
+    if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, indiv_ct, indiv_exclude, IS_SET(marker_reverse, marker_uidx))) {
+      goto score_report_ret_READ_FAIL;
+    }
+    if (is_haploid && hh_exists) {
+      haploid_fix(hh_exists, indiv_include2, indiv_male_include2, indiv_ct, is_x, is_y, (unsigned char*)loadbuf);
+    }
+    cur_effect_size = (*dptr++) * ploidy_d;
+    uii = IS_SET(a2_effect, marker_uidx);
+    if (!uii) {
+      delta1 = 1;
+      delta2 = ploidy;
+      deltam = 0;
+    } else {
+      if (!center) {
+	score_base += cur_effect_size;
       }
-      cur_effect_size = (*dptr++) * ploidy_d;
-      uii = IS_SET(a2_effect, marker_uidx);
+      cur_effect_size = -cur_effect_size;
+      delta1 = -1;
+      delta2 = -((int32_t)ploidy);
+      deltam = delta2;
+      named_allele_ct_expected += ploidy;
+    }
+    dxx = (1.0 - set_allele_freqs[marker_uidx]) * cur_effect_size;
+    missing_effect = dxx;
+    if (center) {
+      score_base -= dxx;
+    } else if (!mean_impute) {
       if (!uii) {
-	delta1 = 1;
-	delta2 = ploidy;
-	deltam = 0;
+	missing_effect = 0;
       } else {
-	if (!center) {
-	  score_base += cur_effect_size;
-	}
-	cur_effect_size = -cur_effect_size;
-	delta1 = -1;
-	delta2 = -((int32_t)ploidy);
-	deltam = delta2;
-	named_allele_ct_expected += ploidy;
+	missing_effect = cur_effect_size;
       }
-      dxx = (1.0 - set_allele_freqs[marker_uidx]) * cur_effect_size;
-      missing_effect = dxx;
-      if (center) {
-	score_base -= dxx;
-      } else if (!mean_impute) {
-	if (!uii) {
-	  missing_effect = 0;
-	} else {
-	  missing_effect = cur_effect_size;
+    }
+    half_effect_size = cur_effect_size * 0.5;
+    obs_expected += ploidy;
+    lbptr = loadbuf;
+    if ((!is_x) && (!is_y)) {
+      uii = 0;
+      do {
+	ulii = ~(*lbptr++);
+	if (uii + BITCT2 > indiv_ct) {
+	  ulii &= (ONELU << ((indiv_ct & (BITCT2 - 1)) * 2)) - ONELU;
 	}
-      }
-      half_effect_size = cur_effect_size * 0.5;
-      obs_expected += ploidy;
-      lbptr = loadbuf;
-      if ((!is_x) && (!is_y)) {
-	uii = 0;
-	do {
-	  ulii = ~(*lbptr++);
-	  if (uii + BITCT2 > indiv_ct) {
-	    ulii &= (ONELU << ((indiv_ct & (BITCT2 - 1)) * 2)) - ONELU;
+	while (ulii) {
+	  ujj = CTZLU(ulii) & (BITCT - 2);
+	  ukk = (ulii >> ujj) & 3;
+	  indiv_idx = uii + (ujj / 2);
+	  if (ukk == 1) {
+	    score_deltas[indiv_idx] += half_effect_size;
+	    named_allele_ct_deltas[indiv_idx] += delta1;
+	  } else if (ukk == 3) {
+	    score_deltas[indiv_idx] += cur_effect_size;
+	    named_allele_ct_deltas[indiv_idx] += delta2;
+	  } else {
+	    miss_cts[indiv_idx] += ploidy;
+	    named_allele_ct_deltas[indiv_idx] += deltam;
+	    score_deltas[indiv_idx] += missing_effect;
 	  }
-	  while (ulii) {
-	    ujj = CTZLU(ulii) & (BITCT - 2);
-	    ukk = (ulii >> ujj) & 3;
-	    indiv_idx = uii + (ujj / 2);
-	    if (ukk == 1) {
-	      score_deltas[indiv_idx] += half_effect_size;
-	      named_allele_ct_deltas[indiv_idx] += delta1;
-	    } else if (ukk == 3) {
+	  ulii &= ~((3 * ONELU) << ujj);
+	}
+	uii += BITCT2;
+      } while (uii < indiv_ct);
+    } else {
+      // This could be more efficient if we kept male and female versions of
+      // score_base, but not really worth the trouble.
+      // deltas and effect_size variables are currently configured for males,
+      // so we need to compute female versions here.
+      if (center) {
+	// this value is positive if A2 named, negative if A1 named (assuming
+	// positive effect size)
+	cur_effect_offset = -dxx;
+      } else if (!uii) {
+	cur_effect_offset = 0;
+      } else {
+	// this value is positive
+	cur_effect_offset = -cur_effect_size;
+      }
+      if (is_x) {
+	obs_expected_female_delta += 1;
+	female_effect_size[0] = cur_effect_offset;
+	female_effect_size[1] = cur_effect_offset + cur_effect_size;
+	female_effect_size[2] = cur_effect_offset + 2 * missing_effect;
+	female_effect_size[3] = cur_effect_offset + 2 * cur_effect_size;
+	if (!uii) {
+	  female_allele_ct_delta[0] = 0;
+	  female_allele_ct_delta[1] = 1;
+	  female_allele_ct_delta[2] = 0;
+	  female_allele_ct_delta[3] = 2;
+	} else {
+	  female_allele_ct_delta[0] = 1;
+	  female_allele_ct_delta[1] = 0;
+	  female_allele_ct_delta[2] = -1;
+	  female_allele_ct_delta[3] = -1;
+	}
+      } else {
+	obs_expected_female_delta -= 1;
+	female_y_offset -= cur_effect_offset;
+	if (uii) {
+	  named_allele_ct_female_delta += 1;
+	}
+      }
+      for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	if (!(indiv_idx & (BITCT2 - 1))) {
+	  ulii = ~(*lbptr++);
+	}
+	uljj = ulii & 3;
+	if (IS_SET_DBL(indiv_male_include2, indiv_idx)) {
+	  if (uljj) {
+	    if (uljj == 3) {
 	      score_deltas[indiv_idx] += cur_effect_size;
 	      named_allele_ct_deltas[indiv_idx] += delta2;
 	    } else {
-	      miss_cts[indiv_idx] += ploidy;
+	      miss_cts[indiv_idx] += 1;
 	      named_allele_ct_deltas[indiv_idx] += deltam;
 	      score_deltas[indiv_idx] += missing_effect;
 	    }
-	    ulii &= ~((3 * ONELU) << ujj);
 	  }
-	  uii += BITCT2;
-	} while (uii < indiv_ct);
-      } else {
-	// This could be more efficient if we kept male and female versions of
-	// score_base, but not really worth the trouble.
-	// deltas and effect_size variables are currently configured for males,
-	// so we need to compute female versions here.
-	if (center) {
-	  // this value is positive if A2 named, negative if A1 named (assuming
-	  // positive effect size)
-	  cur_effect_offset = -dxx;
-	} else if (!uii) {
-	  cur_effect_offset = 0;
-	} else {
-	  // this value is positive
-	  cur_effect_offset = -cur_effect_size;
-	}
-	if (is_x) {
-	  obs_expected_female_delta += 1;
-	  female_effect_size[0] = cur_effect_offset;
-	  female_effect_size[1] = cur_effect_offset + cur_effect_size;
-	  female_effect_size[2] = cur_effect_offset + 2 * missing_effect;
-	  female_effect_size[3] = cur_effect_offset + 2 * cur_effect_size;
-	  if (!uii) {
-	    female_allele_ct_delta[0] = 0;
-	    female_allele_ct_delta[1] = 1;
-	    female_allele_ct_delta[2] = 0;
-	    female_allele_ct_delta[3] = 2;
-	  } else {
-	    female_allele_ct_delta[0] = 1;
-	    female_allele_ct_delta[1] = 0;
-	    female_allele_ct_delta[2] = -1;
-	    female_allele_ct_delta[3] = -1;
-	  }
-	} else {
-	  obs_expected_female_delta -= 1;
-	  female_y_offset -= cur_effect_offset;
-	  if (uii) {
-	    named_allele_ct_female_delta += 1;
+	} else if (is_x) {
+	  score_deltas[indiv_idx] += female_effect_size[uljj];
+	  named_allele_ct_deltas[indiv_idx] += female_allele_ct_delta[uljj];
+	  if (uljj == 2) {
+	    miss_cts[indiv_idx] += 2;
 	  }
 	}
-	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-	  if (!(indiv_idx & (BITCT2 - 1))) {
-	    ulii = ~(*lbptr++);
-	  }
-	  uljj = ulii & 3;
-	  if (IS_SET_DBL(indiv_male_include2, indiv_idx)) {
-	    if (uljj) {
-	      if (uljj == 3) {
-		score_deltas[indiv_idx] += cur_effect_size;
-		named_allele_ct_deltas[indiv_idx] += delta2;
-	      } else {
-		miss_cts[indiv_idx] += 1;
-		named_allele_ct_deltas[indiv_idx] += deltam;
-		score_deltas[indiv_idx] += missing_effect;
-	      }
-	    }
-	  } else if (is_x) {
-	    score_deltas[indiv_idx] += female_effect_size[uljj];
-	    named_allele_ct_deltas[indiv_idx] += female_allele_ct_delta[uljj];
-	    if (uljj == 2) {
-	      miss_cts[indiv_idx] += 2;
-	    }
-	  }
-	  ulii >>= 2;
-	}
+	ulii >>= 2;
       }
     }
-    if (marker_exclude_main) {
-      bufptr = memcpya(&(outname_end[1]), bufptr_arr[0], rangename_len);
-      memcpy(bufptr, ".profile", 9);
+  }
+  if (marker_exclude_main) {
+    bufptr = memcpya(&(outname_end[1]), bufptr_arr[0], rangename_len);
+    memcpy(bufptr, ".profile", 9);
+  } else {
+    memcpy(outname_end, ".profile", 9);
+  }
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto score_report_ret_OPEN_FAIL;
+  }
+  sprintf(tbuf2, "%%%us %%%us  PHENO    CNT   CNT2 %s\n", plink_maxfid, plink_maxiid, report_average? "   SCORE" : "SCORESUM");
+  fprintf(outfile, tbuf2, "FID", "IID");
+  for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
+    next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
+    bufptr_arr[0] = &(person_ids[indiv_uidx * max_person_id_len]);
+    uii = strlen_se(bufptr_arr[0]);
+    bufptr = fw_strcpyn(plink_maxfid, uii, bufptr_arr[0], tbuf2);
+    *bufptr++ = ' ';
+    bufptr = fw_strcpy(plink_maxiid, &(bufptr_arr[0][uii + 1]), bufptr);
+    *bufptr++ = ' ';
+    if (IS_SET(pheno_nm, indiv_uidx)) {
+      if (pheno_c) {
+	bufptr = memseta(bufptr, 32, 5);
+	*bufptr++ = '1' + IS_SET(pheno_c, indiv_uidx);
+      } else {
+	bufptr = width_force(6, bufptr, double_g_write(bufptr, pheno_d[indiv_uidx]));
+      }
     } else {
-      memcpy(outname_end, ".profile", 9);
+      bufptr = memcpya(bufptr, missing_pheno_str, missing_pheno_len);
     }
-    if (fopen_checked(&outfile, outname, "w")) {
-      goto score_report_ret_OPEN_FAIL;
+    *bufptr++ = ' ';
+    ujj = 1 - IS_SET_DBL(indiv_male_include2, indiv_idx); // female?
+    uii = obs_expected + ((int32_t)ujj) * obs_expected_female_delta - miss_cts[indiv_idx];
+    bufptr = uint32_writew6x(bufptr, uii, ' ');
+    if (mean_impute) {
+      uii += miss_cts[indiv_idx];
     }
-    sprintf(tbuf2, "%%%us %%%us  PHENO    CNT   CNT2 %s\n", plink_maxfid, plink_maxiid, report_average? "   SCORE" : "SCORESUM");
-    fprintf(outfile, tbuf2, "FID", "IID");
-    for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
-      next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
-      bufptr_arr[0] = &(person_ids[indiv_uidx * max_person_id_len]);
-      uii = strlen_se(bufptr_arr[0]);
-      bufptr = fw_strcpyn(plink_maxfid, uii, bufptr_arr[0], tbuf2);
-      *bufptr++ = ' ';
-      bufptr = fw_strcpy(plink_maxiid, &(bufptr_arr[0][uii + 1]), bufptr);
-      *bufptr++ = ' ';
-      if (IS_SET(pheno_nm, indiv_uidx)) {
-	if (pheno_c) {
-	  bufptr = memseta(bufptr, 32, 5);
-	  *bufptr++ = '1' + IS_SET(pheno_c, indiv_uidx);
-	} else {
-          bufptr = width_force(6, bufptr, double_g_write(bufptr, pheno_d[indiv_uidx]));
-	}
-      } else {
-        bufptr = memcpya(bufptr, missing_pheno_str, missing_pheno_len);
-      }
-      *bufptr++ = ' ';
-      ujj = 1 - IS_SET_DBL(indiv_male_include2, indiv_idx); // female?
-      uii = obs_expected + ((int32_t)ujj) * obs_expected_female_delta - miss_cts[indiv_idx];
-      bufptr = uint32_writew6x(bufptr, uii, ' ');
-      if (mean_impute) {
-	uii += miss_cts[indiv_idx];
-      }
-      bufptr = uint32_writew6x(bufptr, ((int32_t)named_allele_ct_expected) - ujj * named_allele_ct_female_delta + named_allele_ct_deltas[indiv_idx], ' ');
-      dxx = (score_base + ((int32_t)ujj) * female_y_offset + score_deltas[indiv_idx]);
-      if (fabs(dxx) < SMALL_EPSILON) {
-	dxx = 0;
-      } else if (report_average) {
-	dxx /= ((double)((int32_t)uii));
-      }
-      bufptr = width_force(8, bufptr, double_g_write(bufptr, dxx));
-      *bufptr++ = '\n';
-      if (fwrite_checked(tbuf2, bufptr - tbuf2, outfile)) {
-	goto score_report_ret_WRITE_FAIL;
-      }
+    bufptr = uint32_writew6x(bufptr, ((int32_t)named_allele_ct_expected) - ujj * named_allele_ct_female_delta + named_allele_ct_deltas[indiv_idx], ' ');
+    dxx = (score_base + ((int32_t)ujj) * female_y_offset + score_deltas[indiv_idx]);
+    if (fabs(dxx) < SMALL_EPSILON) {
+      dxx = 0;
+    } else if (report_average) {
+      dxx /= ((double)((int32_t)uii));
     }
-    if (fclose_null(&outfile)) {
+    bufptr = width_force(8, bufptr, double_g_write(bufptr, dxx));
+    *bufptr++ = '\n';
+    if (fwrite_checked(tbuf2, bufptr - tbuf2, outfile)) {
       goto score_report_ret_WRITE_FAIL;
     }
-  } while (marker_exclude_main);
-  LOGPRINTF("--score: Results written to %s.\n", outname);
+  }
+  if (fclose_null(&outfile)) {
+    goto score_report_ret_WRITE_FAIL;
+  }
+  if (marker_exclude_main) {
+    LOGPREPRINTFWW("%s written.\n", outname);
+    logstr(logbuf);
+    goto score_report_qrange_next;
+  }
+  LOGPRINTFWW("--score: Results written to %s .\n", outname);
   while (0) {
   score_report_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;

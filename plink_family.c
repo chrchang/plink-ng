@@ -260,12 +260,12 @@ int32_t get_trios_and_families(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_e
       uidx1 = person_id_map[(uint32_t)sorted_idx];
       if (uidx1 == indiv_uidx) {
         idbuf[fidlen - 1] = ' ';
-	LOGPRINTF("Error: %s is his/her own parent.\n", idbuf);
-	goto get_trios_and_families_ret_INVALID_FORMAT;
+	LOGPREPRINTFWW("Error: '%s' is his/her own parent.\n", idbuf);
+	goto get_trios_and_families_ret_INVALID_FORMAT_2;
       } else if (!IS_SET(sex_nm, uidx1)) {
         idbuf[fidlen - 1] = ' ';
-	LOGPRINTF("Error: Parent %s has unspecified sex.\n", idbuf);
-	goto get_trios_and_families_ret_INVALID_FORMAT;
+	LOGPREPRINTFWW("Error: Parent '%s' has unspecified sex.\n", idbuf);
+	goto get_trios_and_families_ret_INVALID_FORMAT_2;
       }
       first_sex = 2 - IS_SET(sex_male, uidx1);
     }
@@ -291,18 +291,18 @@ int32_t get_trios_and_families(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_e
       uidx2 = person_id_map[(uint32_t)sorted_idx];
       if (uidx2 == indiv_uidx) {
         idbuf[fidlen - 1] = ' ';
-	LOGPRINTF("Error: %s is their own parent.\n", idbuf);
-	goto get_trios_and_families_ret_INVALID_FORMAT;
+	LOGPREPRINTFWW("Error: '%s' is their own parent.\n", idbuf);
+	goto get_trios_and_families_ret_INVALID_FORMAT_2;
       } else if (!IS_SET(sex_nm, uidx2)) {
         idbuf[fidlen - 1] = ' ';
-	LOGPRINTF("Error: Parent %s has unspecified sex.\n", idbuf);
-	goto get_trios_and_families_ret_INVALID_FORMAT;
+	LOGPREPRINTFWW("Error: Parent '%s' has unspecified sex.\n", idbuf);
+	goto get_trios_and_families_ret_INVALID_FORMAT_2;
       }
       uii = IS_SET(sex_male, uidx2);
       if (2 - uii == first_sex) {
 	idptr[fidlen - 1] = ' ';
-	LOGPRINTF("Error: %s has two %sies.\n", idptr, (first_sex == 1)? "dadd" : "momm");
-	goto get_trios_and_families_ret_INVALID_FORMAT;
+	LOGPREPRINTFWW("Error: '%s' has two %sies.\n", idptr, (first_sex == 1)? "dadd" : "momm");
+	goto get_trios_and_families_ret_INVALID_FORMAT_2;
       }
       if (uii) {
         family_code = (((uint64_t)uidx1) << 32) | ((uint64_t)uidx2);
@@ -485,6 +485,8 @@ int32_t get_trios_and_families(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_e
   get_trios_and_families_ret_NOMEM:
     retval = RET_NOMEM;
     break;
+  get_trios_and_families_ret_INVALID_FORMAT_2:
+    logprintb();
   get_trios_and_families_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -1191,7 +1193,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
       }
     }
     *outname_end = '\0';
-    LOGPRINTF("Report written to %s.{mendel,imendel,fmendel,lmendel}.\n", outname);
+    LOGPRINTFWW("Reports written to %s.mendel + %s.imendel + %s.fmendel + %s.lmendel .\n", outname, outname, outname, outname);
   }
   if (fam_ip->mendel_modifier & MENDEL_FILTER) {
     *marker_exclude_ct_ptr += new_marker_exclude_ct;
@@ -1982,7 +1984,7 @@ int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* o
     goto tdt_poo_ret_WRITE_FAIL;
   }
   putchar('\r');
-  LOGPRINTF("--tdt poo: Report written to %s.\n", outname);
+  LOGPRINTF("--tdt poo: Report written to %s .\n", outname);
   while (0) {
   tdt_poo_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
@@ -2501,7 +2503,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
     }
   }
   putchar('\r');
-  LOGPRINTF("--tdt: Report written to %s.\n", outname);
+  LOGPRINTF("--tdt: Report written to %s .\n", outname);
   if (mtest_adjust) {
   tdt_multcomp:
     ulii = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;

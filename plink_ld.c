@@ -1198,7 +1198,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   }
   *outname_end = '\0';
   putchar('\r');
-  LOGPRINTF("Marker lists written to %s.prune.in and %s.prune.out.\n", outname, outname);
+  LOGPRINTFWW("Marker lists written to %s.prune.in and %s.prune.out .\n", outname, outname);
 
   while (0) {
   ld_prune_ret_NOMEM:
@@ -1775,9 +1775,11 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   }
   putchar('\r');
   // not actually possible to have exactly one problem variant, heh
-  LOGPRINTF("--flip-scan%s: %u variants with at least one negative LD match.\nReport written to %s%s", verbose? " verbose" : "", problem_ct, outname, verbose? "; neg-match details written to\n" : ".\n");
+  LOGPRINTF("--flip-scan%s: %u variants with at least one negative LD match.\n", verbose? " verbose" : "", problem_ct);
   if (verbose) {
-    LOGPRINTF("%s.verbose.\n", outname);
+    LOGPRINTFWW("Report written to %s ; neg-match details written to %s.verbose .\n", outname, outname);
+  } else {
+    LOGPRINTFWW("Report written to %s .\n", outname);
   }
   while (0) {
   flipscan_ret_NOMEM:
@@ -2232,8 +2234,10 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     marker_uidx1 = jump_forward_unset_unsafe(marker_exclude, marker_uidx1 + 1, marker_idx1);
   }
   g_ld_keep_sign = 0;
-  LOGPRINTF("--r%s %s%s%s to %s...", g_ld_is_r2? "2" : "", is_square? "square" : (is_square0? "square0" : "triangle"), is_binary? " bin" : (output_gz? " gz" : ""), output_single_prec? " single-prec" : "", outname);
-  fputs(" 0%", stdout);
+  sprintf(logbuf, "--r%s %s%s%s to %s ... ", g_ld_is_r2? "2" : "", is_square? "square" : (is_square0? "square0" : "triangle"), is_binary? " bin" : (output_gz? " gz" : ""), output_single_prec? " single-prec" : "", outname);
+  wordwrap(logbuf, 16); // strlen("99% [processing]")
+  logprintb();
+  fputs("0%", stdout);
   do {
     fputs(" [processing]", stdout);
     fflush(stdout);
@@ -2425,8 +2429,8 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
       }
     }
   } while (marker_idx1 < marker_idx1_end);
-  fputs("\b\b\b", stdout);
-  logprint(" done.\n");
+  fputs("\b\b", stdout);
+  logprint("done.\n");
   if (is_binary) {
     if (fclose_null(&outfile)) {
       goto ld_report_matrix_ret_WRITE_FAIL;
@@ -4629,7 +4633,8 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     marker_uidx1 = jump_forward_unset_unsafe(marker_exclude_idx1, marker_uidx1 + 1, idx1_block_size);
   }
   fputs("\b\b\b", stdout);
-  LOGPRINTF(" done.\nResults written to %s.\n", outname);
+  logprint(" done.\n");
+  LOGPRINTFWW("Results written to %s .\n", outname);
 
   while (0) {
   ld_report_dprime_ret_NOMEM:
@@ -4893,8 +4898,10 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
   if (marker_idx1) {
     marker_uidx1 = jump_forward_unset_unsafe(marker_exclude_idx1, marker_uidx1 + 1, marker_idx1);
   }
-  LOGPRINTF("--r%s%s%s%s to %s...", g_ld_is_r2? "2" : "", is_inter_chr? " inter-chr" : "", g_ld_marker_allele_ptrs? " in-phase" : "", g_ld_set_allele_freqs? " with-freqs" : "", outname);
-  fputs(" 0%", stdout);
+  sprintf(logbuf, "--r%s%s%s%s to %s ... ", g_ld_is_r2? "2" : "", is_inter_chr? " inter-chr" : "", g_ld_marker_allele_ptrs? " in-phase" : "", g_ld_set_allele_freqs? " with-freqs" : "", outname);
+  wordwrap(logbuf, 16); // strlen("99% [processing]")
+  logprintb();
+  fputs("0%", stdout);
   while (1) {
     fputs(" [processing]", stdout);
     fflush(stdout);
@@ -5111,8 +5118,8 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
     }
     marker_uidx1 = jump_forward_unset_unsafe(marker_exclude_idx1, marker_uidx1 + 1, idx1_block_size);
   }
-  fputs("\b\b\b", stdout);
-  logprint(" done.\n");
+  fputs("\b\b", stdout);
+  logprint("done.\n");
   while (0) {
   ld_report_regular_ret_NOMEM:
     retval = RET_NOMEM;
@@ -6087,7 +6094,8 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
     goto haploview_blocks_ret_WRITE_FAIL;
   }
   putchar('\r');
-  LOGPRINTF("--blocks: %u haploblock%s written to %s.\nExtra block details written to %s.det.\n", block_ct, (block_ct == 1)? "" : "s", outname, outname);
+  LOGPRINTFWW("--blocks: %u haploblock%s written to %s .\n", block_ct, (block_ct == 1)? "" : "s", outname);
+  LOGPRINTFWW("Extra block details written to %s.det .\n", outname);
   if (block_ct) {
     LOGPRINTF("Longest span: %gkb.\n", ((double)(maxspan + 1)) * 0.001);
   }
@@ -6554,7 +6562,7 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
     if (fclose_null(&outfile)) {
       goto twolocus_ret_WRITE_FAIL;
     }
-    LOGPRINTF("--twolocus: Report written to %s.\n", outname);
+    LOGPRINTFWW("--twolocus: Report written to %s .\n", outname);
   } else {
     // low counts_cc[] values aren't used, so may as well store marginal counts
     // there
@@ -6570,16 +6578,16 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
       goto twolocus_ret_INVALID_CMDLINE;
     }
     if ((!counts_cc[2]) && ((!counts_cc[0]) || (!counts_cc[3]))) {
-      sprintf(logbuf, "Error: %s is monomorphic across all valid observations.\n", mkr1);
+      LOGPREPRINTFWW("Error: %s is monomorphic across all valid observations.\n", mkr1);
       goto twolocus_ret_INVALID_CMDLINE_2;
     } else if ((!counts_cc[6]) && ((!counts_cc[4]) || (!counts_cc[7]))) {
-      sprintf(logbuf, "Error: %s is monomorphic across all valid observations.\n", mkr2);
+      LOGPREPRINTFWW("Error: %s is monomorphic across all valid observations.\n", mkr2);
       goto twolocus_ret_INVALID_CMDLINE_2;
     } else if ((alen00 > (MAXLINELEN / 4) - 16) || (alen01 > (MAXLINELEN / 4) - 16)) {
-      sprintf(logbuf, "Error: %s has a pathologically long allele code.\n", mkr1);
+      LOGPREPRINTFWW("Error: %s has a pathologically long allele code.\n", mkr1);
       goto twolocus_ret_INVALID_CMDLINE_2;
     } else if ((alen10 > (MAXLINELEN / 4) - 16) || (alen11 > (MAXLINELEN / 4) - 16)) {
-      sprintf(logbuf, "Error: %s has a pathologically long allele code.\n", mkr2);
+      LOGPREPRINTFWW("Error: %s has a pathologically long allele code.\n", mkr2);
       goto twolocus_ret_INVALID_CMDLINE_2;
     }
     LOGPRINTF("\n--ld %s %s:\n", mkr1, mkr2);
@@ -7794,7 +7802,8 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     tests_thrown_out /= 2; // all fails double-counted in triangle case
   }
   fputs("\b\b\b", stdout);
-  LOGPRINTF(" done.\n%" PRIu64 " valid tests performed, summary written to %s.\n", tests_expected - tests_thrown_out, outname);
+  LOGPRINTF(" done.\n");
+  LOGPRINTFWW("%" PRIu64 " valid tests performed, summary written to %s .\n", tests_expected - tests_thrown_out, outname);
 
   while (0) {
   epistasis_report_ret_NOMEM:
@@ -7967,7 +7976,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
   }
   bufptr = &(inprefix[ulii - 2]);
   if (memcmp(".epi.", &(inprefix[ulii - 7]), 5) || (memcmp("cc", bufptr, 2) && memcmp("co", bufptr, 2) && memcmp("qt", bufptr, 2))) {
-    LOGPRINTF("Error: Invalid --epistasis-summary-merge filename prefix '%s'.\n(*.epi.cc, *.epi.co, or *.epi.qt expected.)\n", inprefix);
+    LOGPRINTFWW("Error: Invalid --epistasis-summary-merge filename prefix '%s'. (*.epi.cc, *.epi.co, or *.epi.qt expected.)\n", inprefix);
     goto epi_summary_merge_ret_INVALID_CMDLINE;
   }
   inprefix_end = memcpya(inprefix_end, ".summary.", 9);
@@ -8087,7 +8096,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
     goto epi_summary_merge_ret_READ_FAIL;
   }
   if (!list_start) {
-    sprintf(logbuf, "Error: %s has no entries.\n", inprefix);
+    LOGPREPRINTFWW("Error: %s has no entries.\n", inprefix);
     goto epi_summary_merge_ret_INVALID_FORMAT_2;
   }
   last_start = list_start->next;
@@ -8116,7 +8125,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
 	continue;
       }
       if (!lle_ptr) {
-        sprintf(logbuf, "Error: More lines than expected in %s.\n", inprefix);
+        LOGPREPRINTFWW("Error: More lines than expected in %s.\n", inprefix);
 	goto epi_summary_merge_ret_INVALID_FORMAT_2;
       }
       chrom_len = strlen_se(bufptr);
@@ -8246,7 +8255,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
     // just kidding!  no success
     goto epi_summary_merge_ret_WRITE_FAIL;
   }
-  LOGPRINTF("--epistasis-summary-merge: Merged summary written to %s.\n", outname);
+  LOGPRINTFWW("--epistasis-summary-merge: Merged summary written to %s .\n", outname);
   while (0) {
   epi_summary_merge_ret_NOMEM:
     retval = RET_NOMEM;
@@ -8268,27 +8277,27 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
     retval = RET_INVALID_FORMAT;
     break;
   epi_summary_merge_ret_INVALID_NSIG:
-    LOGPRINTF("Error: Invalid N_SIG value on line %" PRIuPTR " of %s.\n", line_idx, inprefix);
+    LOGPRINTFWW("Error: Invalid N_SIG value on line %" PRIuPTR " of %s .\n", line_idx, inprefix);
     retval = RET_INVALID_FORMAT;
     break;
   epi_summary_merge_ret_INVALID_NTOT:
-    LOGPRINTF("Error: Invalid N_SIG value on line %" PRIuPTR " of %s.\n", line_idx, inprefix);
+    LOGPRINTFWW("Error: Invalid N_SIG value on line %" PRIuPTR " of %s .\n", line_idx, inprefix);
     retval = RET_INVALID_FORMAT;
     break;
   epi_summary_merge_ret_INVALID_CHISQ:
-    LOGPRINTF("Error: Invalid BEST_CHISQ value on line %" PRIuPTR " of %s.\n", line_idx, inprefix);
+    LOGPRINTFWW("Error: Invalid BEST_CHISQ value on line %" PRIuPTR " of %s .\n", line_idx, inprefix);
     retval = RET_INVALID_FORMAT;
     break;
   epi_summary_merge_ret_MISSING_TOKENS:
-    LOGPRINTF("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, inprefix);
+    LOGPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, inprefix);
     retval = RET_INVALID_FORMAT;
     break;
   epi_summary_merge_ret_LONG_LINE:
-    LOGPRINTF("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, inprefix);
+    LOGPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, inprefix);
     retval = RET_INVALID_FORMAT;
     break;
   epi_summary_merge_ret_INVALID_HEADER:
-    sprintf(logbuf, "Error: Invalid --epistasis-summary-merge header in %s.\n", inprefix);
+    LOGPREPRINTFWW(logbuf, "Error: Invalid --epistasis-summary-merge header in %s.\n", inprefix);
   epi_summary_merge_ret_INVALID_FORMAT_2:
     logprintb();
     retval = RET_INVALID_FORMAT;
@@ -8713,9 +8722,10 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   }
   putchar('\r');
   if (inspected_ct < marker_ct) {
-    sprintf(logbuf, "--test-mishap: %u site%s checked (%" PRIuPTR " skipped).\nReport written to %s.\n", inspected_ct, (inspected_ct == 1)? "" : "s", marker_ct - inspected_ct, outname);
+    LOGPRINTF("--test-mishap: %u site%s checked (%" PRIuPTR " skipped).\n", inspected_ct, (inspected_ct == 1)? "" : "s", marker_ct - inspected_ct);
+    LOGPREPRINTFWW("Report written to %s .\n", outname);
   } else {
-    sprintf(logbuf, "--test-mishap: %u site%s checked, report written to %s.\n", inspected_ct, (inspected_ct == 1)? "" : "s", outname);
+    LOGPREPRINTFWW("--test-mishap: %u site%s checked, report written to %s .\n", inspected_ct, (inspected_ct == 1)? "" : "s", outname);
   }
   logprintb();
 
@@ -9792,10 +9802,10 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       uii++;
     } while (!is_eoln_kns(*bufptr));
     if (!is_set(col_bitfield, 0)) {
-      sprintf(logbuf, "Error: No variant ID field found in %s.\n", fname_ptr);
+      LOGPREPRINTFWW("Error: No variant ID field found in %s.\n", fname_ptr);
       goto clump_reports_ret_INVALID_FORMAT_2;
     } else if (!is_set(col_bitfield, 1)) {
-      sprintf(logbuf, "Error: No p-value field found in %s.\n", fname_ptr);
+      LOGPREPRINTFWW("Error: No p-value field found in %s.\n", fname_ptr);
       goto clump_reports_ret_INVALID_FORMAT_2;
     }
 #ifdef __cplusplus
@@ -9811,7 +9821,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       line_idx++;
       if (!loadbuft[loadbuft_size - 1]) {
 	if (loadbuft_size == MAXLINEBUFLEN / 2) {
-	  sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname_ptr);
+	  LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname_ptr);
 	  goto clump_reports_ret_INVALID_FORMAT_2;
 	}
 	goto clump_reports_ret_NOMEM;
@@ -9846,7 +9856,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	continue;
       }
       if (pval < 0.0) {
-	sprintf(logbuf, "Error: Negative p-value on line %" PRIuPTR " of %s.\n", line_idx, fname_ptr);
+	LOGPREPRINTFWW("Error: Negative p-value on line %" PRIuPTR " of %s.\n", line_idx, fname_ptr);
 	goto clump_reports_ret_INVALID_FORMAT_2;
       }
       ii = bsearch_str(&(loadbuft[cur_parse_info[0]]), cur_parse_info[1], sorted_marker_ids, max_marker_id_len, marker_ct);
@@ -9872,7 +9882,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       if (pval > load_pthresh) {
 	if (pval >= 0.05) {
 	  if (pval > 1) {
-	    sprintf(logbuf, "Error: p-value > 1 on line %" PRIuPTR " of %s.\n", line_idx, fname_ptr);
+	    LOGPREPRINTFWW("Error: p-value > 1 on line %" PRIuPTR " of %s.\n", line_idx, fname_ptr);
 	    goto clump_reports_ret_INVALID_FORMAT_2;
 	  }
 	  nsig_arr[marker_idx] += 1;
@@ -10768,12 +10778,12 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     } else {
       uljj = MINV(missing_variant_ct, 3);
       for (ulii = 0; ulii < uljj; ulii++) {
-	LOGPRINTF("Warning: %s is missing from the main dataset, and is a top variant.\n", &(sorted_marker_ids[ulii * max_missing_id_len]));
+	LOGPRINTFWW("Warning: '%s' is missing from the main dataset, and is a top variant.\n", &(sorted_marker_ids[ulii * max_missing_id_len]));
       }
       if (missing_variant_ct > 3) {
         printf("%" PRIuPTR " more top variant ID%s missing; see log file.\n", missing_variant_ct - 3, (missing_variant_ct == 4)? "" : "s");
 	for (ulii = 3; ulii < missing_variant_ct; ulii++) {
-	  sprintf(logbuf, "Warning: %s is missing from the main dataset, and is a top variant.\n", &(sorted_marker_ids[ulii * max_missing_id_len]));
+	  LOGPREPRINTFWW("Warning: '%s' is missing from the main dataset, and is a top variant.\n", &(sorted_marker_ids[ulii * max_missing_id_len]));
 	  logstr(logbuf);
 	}
       }
@@ -10784,14 +10794,15 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     goto clump_reports_ret_WRITE_FAIL;
   }
   outname_end[8] = '\0';
-  LOGPRINTF("--clump: %u clump%s formed from %u top variant%s.\nResults written to %s.\n", final_clump_ct, (final_clump_ct == 1)? "" : "s", index_ct, (index_ct == 1)? "" : "s", outname);
+  LOGPRINTF("--clump: %u clump%s formed from %u top variant%s.\n", final_clump_ct, (final_clump_ct == 1)? "" : "s", index_ct, (index_ct == 1)? "" : "s");
+  LOGPRINTFWW("Results written to %s .\n", outname);
   if (rg_setdefs && (!clump_verbose)) {
     memcpy(&(outname_end[8]), ".ranges", 8);
-    LOGPRINTF("--clump-range: Clump/region overlaps reported in %s.\n", outname);
+    LOGPRINTFWW("--clump-range: Clump/region overlaps reported in %s .\n", outname);
   }
   if (clump_best) {
     memcpy(&(outname_end[8]), ".best", 6);
-    LOGPRINTF("--clump-best: Best proxies written to %s.\n", outname);
+    LOGPRINTFWW("--clump-best: Best proxies written to %s .\n", outname);
   }
   while (0) {
   clump_reports_ret_NOMEM2:
@@ -10813,7 +10824,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     break;
   clump_reports_ret_DUPLICATE_HEADER_COL:
     *bufptr2 = '\0';
-    sprintf(logbuf, "Error: Duplicate column header '%s' in %s.\n", bufptr, fname_ptr);
+    LOGPREPRINTFWW("Error: Duplicate column header '%s' in %s.\n", bufptr, fname_ptr);
   clump_reports_ret_INVALID_FORMAT_2:
     logprintb();
     retval = RET_INVALID_FORMAT;

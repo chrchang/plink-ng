@@ -10911,8 +10911,7 @@ int32_t recode_beagle_new_chrom(char* outname, char* outname_end2, uintptr_t* ma
     return RET_WRITE_FAIL;
   }
   *wbufptr = '\0';
-  sprintf(logbuf, "%s.dat + %s.map created.\n", outname, outname);
-  wordwrap(logbuf, 0);
+  LOGPREPRINTFWW("%s.dat + %s.map created.\n", outname, outname);
   logstr(logbuf);
   *marker_uidx_ptr = marker_uidx;
   *chrom_fo_idx_ptr = chrom_fo_idx;
@@ -10943,8 +10942,7 @@ int32_t open_and_write_fastphase_header(FILE** outfile_ptr, char* outname, uintp
   if (putc_checked('\n', *outfile_ptr)) {
     return RET_WRITE_FAIL;
   }
-  sprintf(logbuf, "%s created.\n", outname);
-  wordwrap(logbuf, 0);
+  LOGPREPRINTFWW("%s created.\n", outname);
   logstr(logbuf);
   return 0;
 }
@@ -12956,8 +12954,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
           putchar('\b');
 	}
 	*wbufptr = '\0';
-	sprintf(logbuf, "%s.ped + %s.info created.\n", outname, outname);
-        wordwrap(logbuf, 0);
+	LOGPREPRINTFWW("%s.ped + %s.info created.\n", outname, outname);
         logstr(logbuf);
       }
     } while (chrom_fo_idx < last_chrom_fo_idx);

@@ -1620,8 +1620,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   // in forward order), i.e. traverse pool_list[] in reverse order.
   memcpy(outname_end, ".hom.overlap.S", 14);
   pool_list_idx = pool_list_size;
-  logprint("Determining within-pool allelic similarity... ");
-  fputs("[chromosome   ", stdout);
+  fputs("Determining within-pool allelic similarity... [chromosome   ", stdout);
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
     if (chrom_fo_idx_to_pidx[chrom_fo_idx] == chrom_fo_idx_to_pidx[chrom_fo_idx + 1]) {
       continue;
@@ -2190,14 +2189,15 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	if (fclose_null(&outfile)) {
 	  goto roh_pool_ret_WRITE_FAIL;
 	}
+	LOGPREPRINTFWW("%s written.\n", outname);
+        logstr(logbuf);
       }
     }
     if (chrom_info_ptr->chrom_file_order[chrom_fo_idx] > onechar_max) {
       putchar('\b');
     }
   }
-  fputs("\b\b\b\b\b\b\b\b\b\b\b\b\b\b               \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b", stdout);
-  logprint("done.\n");
+  fputs("\b\b\b\b\b\b\b\b\b\b\b\b\b\b               \b\b\b\b\b\b\b\b\b\b\b\b\b\b\bdone.\n", stdout);
 
   outname_end[12] = '\0';
   if (fopen_checked(&outfile, outname, "w")) {
@@ -2359,7 +2359,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   }
 
   putchar('\r');
-  LOGPRINTF("ROH pool report written to %s.\n", outname);
+  LOGPRINTFWW("ROH pool report written to %s .\n", outname);
   if (is_verbose) {
     wptr = strcpya(logbuf, "Per-pool report");
     if (pool_ct != 1) {
@@ -2378,7 +2378,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
       *wptr++ = '}';
     }
     wptr = memcpya(wptr, ".verbose.\n", 11);
-    logprintb();
+    fputs(logbuf, stdout);
   }
 
   while (0) {
@@ -2709,7 +2709,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
     goto calc_homozyg_ret_1;
   }
   *outname_end = '\0';
-  LOGPRINTF("Results saved to %s.hom{,.indiv,.summary}.\n", outname);
+  LOGPRINTFWW("Results saved to %s.hom.indiv + %s.hom.summary .\n", outname, outname);
   if (hp->modifier & (HOMOZYG_GROUP | HOMOZYG_GROUP_VERBOSE)) {
     if (max_pool_size < hp->pool_size_min) {
       LOGPRINTF("Warning: Skipping --homozyg group%s report since there are no pools.\n", (hp->modifier & HOMOZYG_GROUP_VERBOSE)? "-verbose" : "");

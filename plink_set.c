@@ -1665,7 +1665,7 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
     if (fclose_null(&outfile)) {
       goto write_set_ret_WRITE_FAIL;
     }
-    LOGPRINTF("--set-table: %s written.\n", outname);
+    LOGPRINTFWW("--set-table: %s written.\n", outname);
   }
   if (sip->modifier & SET_WRITE_LIST) {
     memcpy(outname_end, ".set", 5);
@@ -1723,7 +1723,7 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
     if (fclose_null(&outfile)) {
       goto write_set_ret_WRITE_FAIL;
     }
-    LOGPRINTF("--write-set: %s written.\n", outname);
+    LOGPRINTFWW("--write-set: %s written.\n", outname);
   }
   while (0) {
   write_set_ret_NOMEM:
