@@ -725,6 +725,8 @@ void logprintb();
 // suffix_len is 0, there should be a terminating \n.
 void wordwrap(char* ss, uint32_t suffix_len);
 
+#define LOGPREPRINTFWW(...) sprintf(logbuf, __VA_ARGS__); wordwrap(logbuf, 0);
+
 #define LOGPRINTFWW(...) sprintf(logbuf, __VA_ARGS__); wordwrap(logbuf, 0); logprintb();
 
 // 5 = length of "done." suffix, which is commonly used

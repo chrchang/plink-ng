@@ -169,7 +169,7 @@ void wordwrap(char* ss, uint32_t suffix_len) {
 int32_t fopen_checked(FILE** target_ptr, const char* fname, const char* mode) {
   *target_ptr = fopen(fname, mode);
   if (!(*target_ptr)) {
-    LOGPRINTF(errstr_fopen, fname);
+    LOGPRINTFWW(errstr_fopen, fname);
     return -1;
   }
   return 0;
@@ -189,7 +189,7 @@ int32_t fwrite_checked(const void* buf, size_t len, FILE* outfile) {
 int32_t gzopen_checked(gzFile* target_ptr, const char* fname, const char* mode) {
   *target_ptr = gzopen(fname, mode);
   if (!(*target_ptr)) {
-    LOGPRINTF(errstr_fopen, fname);
+    LOGPRINTFWW(errstr_fopen, fname);
     return -1;
   }
   return 0;
@@ -3891,9 +3891,9 @@ int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int3
   }
   if (slen > MAX_ID_LEN) {
     if (line_idx) {
-      LOGPRINTF("Error: Line %" PRIuPTR " of %s has an excessively long chromosome/contig\nname.  (The " PROG_NAME_CAPS " limit is " MAX_ID_LEN_STR " characters.)\n", line_idx, file_descrip);
+      LOGPRINTFWW("Error: Line %" PRIuPTR " of %s has an excessively long chromosome/contig name.  (The " PROG_NAME_CAPS " limit is " MAX_ID_LEN_STR " characters.)\n", line_idx, file_descrip);
     } else {
-      LOGPRINTF("Error: Excessively long chromosome/contig name in %s.\n(The " PROG_NAME_CAPS " limit is " MAX_ID_LEN_STR " characters.)\n", file_descrip);
+      LOGPRINTFWW("Error: Excessively long chromosome/contig name in %s. (The " PROG_NAME_CAPS " limit is " MAX_ID_LEN_STR " characters.)\n", file_descrip);
     }
     return RET_INVALID_FORMAT;
   }
@@ -4421,7 +4421,7 @@ int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfi
       if (tptr) {
         *tptr = ' ';
       }
-      LOGPRINTF("Error: Duplicate ID '%s'.\n", dup_id);
+      LOGPRINTFWW("Error: Duplicate ID '%s'.\n", dup_id);
       return RET_INVALID_FORMAT;
     }
   }
@@ -6950,7 +6950,7 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint3
       seen_idxs[cmdline_pos] = item_idx;
       if (cmdline_pos && range_list_ptr->starts_range[cmdline_pos - 1]) {
         if (seen_idxs[cmdline_pos - 1] == -1) {
-          sprintf(logbuf, "Error: Second element of --%s range appears before first element in\n%s.\n", range_list_flag, file_descrip);
+          LOGPREPRINTFWW("Error: Second element of --%s range appears before first element in %s.\n", range_list_flag, file_descrip);
           goto string_range_list_to_bitfield_ret_INVALID_CMDLINE_2;
 	}
 	fill_bits(bitfield, seen_idxs[cmdline_pos - 1], (item_idx - seen_idxs[cmdline_pos - 1]) + 1);
@@ -8163,7 +8163,7 @@ int32_t open_and_size_string_list(char* fname, FILE** infile_ptr, uintptr_t* lis
   while (fgets(tbuf, MAXLINELEN, *infile_ptr)) {
     line_idx++;
     if (!tbuf[MAXLINELEN - 1]) {
-      LOGPRINTF("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname);
+      LOGPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname);
       goto open_and_size_string_list_ret_INVALID_FORMAT;
     }
     bufptr = skip_initial_spaces(tbuf);
@@ -8233,7 +8233,7 @@ int32_t open_and_skip_first_lines(FILE** infile_ptr, char* fname, char* loadbuf,
   for (line_idx = 1; line_idx <= lines_to_skip; line_idx++) {
     if (!fgets(loadbuf, loadbuf_size, *infile_ptr)) {
       if (feof(*infile_ptr)) {
-	LOGPRINTF("Error: Fewer lines than expected in %s.\n", fname);
+	LOGPRINTFWW("Error: Fewer lines than expected in %s.\n", fname);
 	return RET_INVALID_FORMAT;
       } else {
 	return RET_READ_FAIL;
@@ -8241,7 +8241,7 @@ int32_t open_and_skip_first_lines(FILE** infile_ptr, char* fname, char* loadbuf,
     }
     if (!(loadbuf[loadbuf_size - 1])) {
       if ((loadbuf_size == MAXLINELEN) || (loadbuf_size == MAXLINEBUFLEN)) {
-	LOGPRINTF("Error: Line %u of %s is pathologically long.\n", line_idx, fname);
+	LOGPRINTFWW("Error: Line %u of %s is pathologically long.\n", line_idx, fname);
 	return RET_INVALID_FORMAT;
       } else {
         return RET_NOMEM;
@@ -8331,7 +8331,7 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
     line_idx++;
     if (!(loadbuf[loadbuf_size - 1])) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-        sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname);
+        LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname);
 	goto scan_max_strlen_ret_INVALID_FORMAT_2;
       } else {
         goto scan_max_strlen_ret_NOMEM;
@@ -8352,7 +8352,7 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
     }
     if (no_more_items_kns(str2_ptr)) {
       // probably want option for letting this slide in the future
-      sprintf(logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, fname);
+      LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, fname);
       goto scan_max_strlen_ret_INVALID_FORMAT_2;
     }
     cur_str_len = strlen_se(str1_ptr);
@@ -8422,7 +8422,7 @@ int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_p
     line_idx++;
     if (!(loadbuf[loadbuf_size - 1])) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-	sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname);
+	LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname);
 	goto scan_max_fam_indiv_strlen_ret_INVALID_FORMAT_2;
       } else {
         goto scan_max_fam_indiv_strlen_ret_NOMEM;
@@ -8437,7 +8437,7 @@ int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_p
     }
     bufptr2 = next_item(bufptr);
     if (no_more_items_kns(bufptr2)) {
-      sprintf(logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, fname);
+      LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, fname);
       goto scan_max_fam_indiv_strlen_ret_INVALID_FORMAT_2;
     }
     cur_person_id_len = strlen_se(bufptr) + strlen_se(bufptr2) + 2;

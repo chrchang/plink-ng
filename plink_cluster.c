@@ -336,7 +336,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
     }
     if (is_set(already_seen, sorted_idx)) {
       *strchr(idbuf, '\t') = ' ';
-      sprintf(logbuf, "Error: ID '%s' appears multiple times in --within file.\n", idbuf);
+      LOGPREPRINTFWW("Error: ID '%s' appears multiple times in --within file.\n", idbuf);
       goto load_clusters_ret_INVALID_FORMAT_2;
     }
     if (mwithin_col > 1) {
@@ -601,7 +601,7 @@ int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_in
   if (fclose_null(&outfile)) {
     goto write_cluster_ret_WRITE_FAIL;
   }
-  LOGPRINTF("--write-cluster: Pruned cluster assignments written to %s .\n", outname);
+  LOGPRINTFWW("--write-cluster: Pruned cluster assignments written to %s .\n", outname);
   while (0) {
   write_cluster_ret_NOMEM:
     retval = RET_NOMEM;
@@ -665,7 +665,7 @@ int32_t extract_clusters(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
     while (fgets(tbuf, MAXLINELEN, infile)) {
       line_idx++;
       if (!tbuf[MAXLINELEN - 1]) {
-	sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, clusters_fname);
+	LOGPREPRINTFWW(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, clusters_fname);
         goto extract_clusters_ret_INVALID_FORMAT_2;
       }
       bufptr = skip_initial_spaces(tbuf);
@@ -1009,7 +1009,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
     while (fgets(tbuf, MAXLINELEN, id_file)) {
       line_idx++;
       if (!tbuf[MAXLINELEN - 1]) {
-	sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, id_fname);
+	LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, id_fname);
         goto read_dists_ret_INVALID_FORMAT_2;
       }
       fam_id = skip_initial_spaces(tbuf);
@@ -1017,7 +1017,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
         continue;
       }
       if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_person_id_len, indiv_ct, fam_id, NULL, &ii)) {
-	sprintf(logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, id_fname);
+	LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, id_fname);
         goto read_dists_ret_INVALID_FORMAT_2;
       }
       if (ii == -1) {
@@ -1031,7 +1031,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
       }
       if (fidx_to_memidx[uii] != 0xffffffffffffffffLLU) {
 	*strchr(id_buf, '\t') = ' ';
-        sprintf(logbuf, "Error: ID '%s' appears multiple times in %s.\n", id_buf, id_fname);
+        LOGPREPRINTFWW("Error: ID '%s' appears multiple times in %s.\n", id_buf, id_fname);
         goto read_dists_ret_INVALID_FORMAT_2;
       }
       if (cluster_ct && (!neighbor_n2)) {
@@ -1078,7 +1078,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
   }
   fpos = (((uint64_t)id_entry_ct) * (id_entry_ct - 1)) * (sizeof(double) / 2);
   if (ftello(dist_file) != (int64_t)fpos) {
-    sprintf(logbuf, "Error: --read-dists expects size of %s to be %" PRIu64 " bytes.\n", dist_fname, fpos);
+    LOGPREPRINTFWW("Error: --read-dists expects size of %s to be %" PRIu64 " bytes.\n", dist_fname, fpos);
     goto read_dists_ret_INVALID_FORMAT_2;
   }
   rewind(dist_file);
@@ -1355,7 +1355,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
     goto read_genome_ret_READ_FAIL;
   }
   if (loaded_entry_ct != (indiv_ct * (indiv_ct - 1)) / 2) {
-    sprintf(logbuf, "Error: %s does not include all individual pairs.\n", read_genome_fname);
+    LOGPREPRINTFWW("Error: %s does not include all individual pairs.\n", read_genome_fname);
     goto read_genome_ret_INVALID_FORMAT_2;
   }
   while (0) {
@@ -1536,7 +1536,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       indiv_idx1 = id_map[(uint32_t)ii];
       if (indiv_idx_to_match_str[indiv_idx1]) {
 	*strchr(id_buf, '\t') = ' ';
-        sprintf(logbuf, "Error: ID '%s' appears multiple times in --match file.\n", id_buf);
+        LOGPREPRINTFWW("Error: ID '%s' appears multiple times in --match file.\n", id_buf);
 	goto cluster_enforce_match_ret_INVALID_FORMAT_2;
       }
       indiv_idx_to_match_str[indiv_idx1] = wptr;
@@ -1749,7 +1749,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       indiv_idx1 = id_map[(uint32_t)ii];
       if (indiv_idx_to_dvals[indiv_idx1]) {
 	*strchr(id_buf, '\t') = ' ';
-        sprintf(logbuf, "Error: ID '%s' appears multiple times in --qmatch file.\n", id_buf);
+        LOGPREPRINTFWW("Error: ID '%s' appears multiple times in --qmatch file.\n", id_buf);
         goto cluster_enforce_match_ret_INVALID_FORMAT_2;
       }
       indiv_idx_to_dvals[indiv_idx1] = dptr;
@@ -2810,11 +2810,11 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
     }
     *outname_end = '\0';
     putchar('\r');
-    sprintf(logbuf, "Cluster solution written to %s.cluster1 , %s.cluster2 ,\nand %s.cluster3%s .\n", outname, outname, outname, (cp->modifier & CLUSTER_MISSING)? ".missing" : "");
+    LOGPREPRINTFWW("Cluster solution written to %s.cluster1 , %s.cluster2 ,\nand %s.cluster3%s .\n", outname, outname, outname, (cp->modifier & CLUSTER_MISSING)? ".missing" : "");
   } else {
     *outname_end = '\0';
     putchar('\r');
-    sprintf(logbuf, "Cluster solution written to %s.cluster2 .\n", outname);
+    LOGPREPRINTFWW("Cluster solution written to %s.cluster2 .\n", outname);
   }
   logprintb();
   while (0) {
@@ -3111,9 +3111,9 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
     goto mds_plot_ret_WRITE_FAIL;
   }
   if (!dump_eigvals) {
-    sprintf(logbuf, "MDS solution written to %s .\n", outname);
+    LOGPREPRINTFWW("MDS solution written to %s .\n", outname);
   } else {
-    sprintf(logbuf, "MDS solution written to %s (eigenvalues in %s.eigvals ).\n", outname, outname);
+    LOGPREPRINTFWW("MDS solution written to %s (eigenvalues in %s.eigvals ).\n", outname, outname);
     memcpy(&(outname_end[4]), ".eigvals", 9);
     if (fopen_checked(&outfile, outname, "w")) {
       goto mds_plot_ret_OPEN_FAIL;

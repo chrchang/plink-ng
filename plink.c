@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (7 May 2014) ";
+  " (8 May 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   " "
@@ -1234,22 +1234,13 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
   pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
   if (!pheno_nm_ct) {
-    logprint("Note: No phenotypes present.\n");
     hwe_modifier |= HWE_THRESH_ALL;
   } else if (pheno_c) {
     pheno_ctrl_ct = popcount_longs_exclude(pheno_nm, pheno_c, unfiltered_indiv_ctl);
-    if (pheno_nm_ct != indiv_ct) {
-      sprintf(logbuf, "Among remaining phenotypes, %u %s and %u %s.  (%" PRIuPTR " %s %s no phenotype data.)\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "is a case" : "are cases", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "is a control" : "are controls", indiv_ct - pheno_nm_ct, species_str(indiv_ct - pheno_nm_ct), (indiv_ct - pheno_nm_ct == 1)? "has" : "have");
-    } else {
-      sprintf(logbuf, "Among remaining phenotypes, %u %s and %u %s.\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "is a case" : "are cases", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "is a control" : "are controls");
-    }
-    wordwrap(logbuf, 0);
-    logprintb();
     if (!pheno_ctrl_ct) {
       hwe_modifier |= HWE_THRESH_ALL;
     }
   } else {
-    logprint("Phenotype data is quantitative.\n");
     hwe_modifier |= HWE_THRESH_ALL;
   }
 
@@ -1393,6 +1384,19 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     goto plink_ret_ALL_MARKERS_EXCLUDED;
   }
   LOGPRINTFWW("%" PRIuPTR " variant%s and %" PRIuPTR " %s pass filters and QC%s.\n", marker_ct, (marker_ct == 1)? "" : "s", indiv_ct, species_str(indiv_ct), (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
+  if (!pheno_nm_ct) {
+    logprint("Note: No phenotypes present.\n");
+  } else if (pheno_c) {
+    if (pheno_nm_ct != indiv_ct) {
+      sprintf(logbuf, "Among remaining phenotypes, %u %s and %u %s.  (%" PRIuPTR " %s %s no phenotype data.)\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "is a case" : "are cases", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "is a control" : "are controls", indiv_ct - pheno_nm_ct, species_str(indiv_ct - pheno_nm_ct), (indiv_ct - pheno_nm_ct == 1)? "has" : "have");
+    } else {
+      sprintf(logbuf, "Among remaining phenotypes, %u %s and %u %s.\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "is a case" : "are cases", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "is a control" : "are controls");
+    }
+    wordwrap(logbuf, 0);
+    logprintb();
+  } else {
+    logprint("Phenotype data is quantitative.\n");
+  }
   if (wt_needed) {
     // normalize included marker weights to add to just under 2^32.  (switch to
     // 2^64 if/when 32-bit performance becomes less important than accuracy on
@@ -2641,6 +2645,7 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
 	} else if (!strcmp(argv[cur_arg + param_idx], "no-mt")) {
 	  chrom_info_ptr->mt_code = -1;
 	} else {
+	  ;;;
 	  sprintf(logbuf, "Error: Invalid --chr-set parameter '%s'.%s", argv[cur_arg + param_idx], errstr_append);
 	  goto init_delim_and_species_ret_INVALID_CMDLINE_2;
 	}
