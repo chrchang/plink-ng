@@ -218,6 +218,7 @@
 #define MISC_SET_ME_MISSING 0x40000000LLU
 #define MISC_SEXCHECK_YCOUNT 0x80000000LLU
 #define MISC_SEXCHECK_YONLY 0x100000000LLU
+#define MISC_FAMILY_CLUSTERS 0x200000000LLU
 
 #define FILTER_GENERIC 1LLU
 #define FILTER_EXCLUDE_MARKERNAME_SNP 2LLU
@@ -664,7 +665,6 @@ static inline void aligned_free_cond_null(uintptr_t** aligned_pp) {
 extern sfmt_t sfmt;
 
 extern const char errstr_fopen[];
-extern const char errstr_append[];
 extern const char errstr_thread_create[];
 extern const char cmdline_format_str[];
 extern const char errstr_phenotype_format[];

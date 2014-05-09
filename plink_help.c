@@ -425,9 +425,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("write-cluster", &help_ctrl, 1,
 "  --write-cluster <omit-unassigned>\n"
-"    If a --within file is loaded, this generates another cluster file (with all\n"
-"    filters applied).  The 'omit-unassigned' modifier causes unclustered\n"
-"    individuals to be omitted from the file; otherwise their cluster is 'NA'.\n\n"
+"    If clusters are specified with --within/--family, this generates a new\n"
+"    cluster file (with all filters applied).  The 'omit-unassigned' modifier\n"
+"    causes unclustered individuals to be omitted from the file; otherwise their\n"
+"    cluster is 'NA'.\n\n"
 	       );
     help_print("write-set\tset-table", &help_ctrl, 1,
 "  --write-set\n"
@@ -466,8 +467,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --freq <counts>\n"
 "  --freqx\n"
 "    --freq generates a basic allele frequency (or count, if the 'counts'\n"
-"    modifier is present) report.  This can be combined with --within to produce\n"
-"    a cluster-stratified allele frequency/count report instead.\n"
+"    modifier is present) report.  This can be combined with --within/--family\n"
+"    to produce a cluster-stratified allele frequency/count report instead.\n"
 "    --freqx generates a more detailed genotype count report, designed for use\n"
 "    with --read-freq.\n\n"
 		);
@@ -1001,8 +1002,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #ifndef STABLE_BUILD
     help_print("gene-report\tgene-list", &help_ctrl, 1,
 "  --gene-report [PLINK report] [gene range file]\n"
-"    Convert a report with variant-based results into a report with gene-based\n"
-"    results.\n\n"
+"    Generate a gene-based report from a variant-based report.\n\n"
 	       );
 #endif
     help_print("fast-epistasis\tepistasis\tset-test\tset-by-all\tcase-only\tnop\tepistasis-summary-merge", &help_ctrl, 1,
@@ -1242,9 +1242,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                            use dashes to designate ranges.\n"
 "  --covar-number [...]    : Specify covariate(s) in --covar file by index.\n"
 	       );
-    help_print("within\tmwithin", &help_ctrl, 0,
+    help_print("within\tmwithin\tfamily", &help_ctrl, 0,
 "  --within [f] <keep-NA>  : Specify initial cluster assignments.\n"
 "  --mwithin [n]           : Load cluster assignments from column n+2.\n"
+"  --family                : Create a cluster for each family ID.\n"
 	       );
     help_print("loop-assoc", &help_ctrl, 0,
 "  --loop-assoc [f] <keep-NA>    : Run specified case/control association\n"
@@ -1441,11 +1442,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                   --missing-phenotype value).\n"
 	       );
     help_print("zero-cluster", &help_ctrl, 0,
-"  --zero-cluster [f] : In combination with --within, set blocks of genotype\n"
-"                       calls to missing.  The input file should have variant\n"
-"                       IDs in the first column and cluster IDs in the second.\n"
-"                       This must now be used with --make-bed and no other\n"
-"                       output commands.\n"
+"  --zero-cluster [f] : In combination with --within/--family, set blocks of\n"
+"                       genotype calls to missing.  The input file should have\n"
+"                       variant IDs in the first column and cluster IDs in the\n"
+"                       second.  This must now be used with --make-bed and no\n"
+"                       other output commands.\n"
 	       );
     help_print("set-hh-missing", &help_ctrl, 0,
 "  --set-hh-missing : Cause --make-bed and --recode to set heterozygous haploid\n"

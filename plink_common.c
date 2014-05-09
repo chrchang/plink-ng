@@ -3,7 +3,6 @@
 #include "pigz.h"
 
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
-const char errstr_append[] = "\nFor more information, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
 const char errstr_thread_create[] = "\nError: Failed to create thread.\n";
 const char cmdline_format_str[] = "\n  " PROG_NAME_STR " [input flag(s)...] {command flag(s)...} {other flag(s)...}\n  " PROG_NAME_STR " --help {flag name(s)...}\n\n";
 const char errstr_phenotype_format[] = "Error: Improperly formatted phenotype file.\n";
@@ -3652,32 +3651,35 @@ void get_set_wrange_align(uintptr_t* bitfield, uintptr_t word_ct, uintptr_t* fir
 const char* g_species_singular = NULL;
 const char* g_species_plural = NULL;
 
+char* chrom_name_std(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx) {
+  uint32_t output_encoding = chrom_info_ptr->output_encoding;
+  if (output_encoding & CHR_OUTPUT_PREFIX) {
+    buf = memcpyl3a(buf, "chr");
+  }
+  if ((!(output_encoding & (CHR_OUTPUT_M | CHR_OUTPUT_MT))) || (chrom_idx <= chrom_info_ptr->autosome_ct)) {
+    return uint32_write(buf, chrom_idx);
+  } else if ((int32_t)chrom_idx == chrom_info_ptr->x_code) {
+    *buf++ = 'X';
+  } else if ((int32_t)chrom_idx == chrom_info_ptr->y_code) {
+    *buf++ = 'Y';
+  } else if ((int32_t)chrom_idx == chrom_info_ptr->xy_code) {
+    buf = memcpya(buf, "XY", 2);
+  } else {
+    *buf++ = 'M';
+    if (output_encoding & CHR_OUTPUT_MT) {
+      *buf++ = 'T';
+    }
+  }
+  return buf;
+}
+
 char* chrom_name_write(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t zero_extra_chroms) {
   // assumes chrom_idx is valid
-  uint32_t output_encoding;
   if (!chrom_idx) {
     *buf++ = '0';
     return buf;
   } else if (chrom_idx <= chrom_info_ptr->max_code) {
-    output_encoding = chrom_info_ptr->output_encoding;
-    if (output_encoding & CHR_OUTPUT_PREFIX) {
-      buf = memcpyl3a(buf, "chr");
-    }
-    if ((!(output_encoding & (CHR_OUTPUT_M | CHR_OUTPUT_MT))) || (chrom_idx <= chrom_info_ptr->autosome_ct)) {
-      return uint32_write(buf, chrom_idx);
-    } else if ((int32_t)chrom_idx == chrom_info_ptr->x_code) {
-      *buf++ = 'X';
-    } else if ((int32_t)chrom_idx == chrom_info_ptr->y_code) {
-      *buf++ = 'Y';
-    } else if ((int32_t)chrom_idx == chrom_info_ptr->xy_code) {
-      buf = memcpya(buf, "XY", 2);
-    } else {
-      *buf++ = 'M';
-      if (output_encoding & CHR_OUTPUT_MT) {
-	*buf++ = 'T';
-      }
-    }
-    return buf;
+    return chrom_name_std(buf, chrom_info_ptr, chrom_idx);
   } else if (zero_extra_chroms) {
     *buf++ = '0';
     return buf;
@@ -3693,9 +3695,9 @@ char* chrom_name_buf5w4write(char* buf5, Chrom_info* chrom_info_ptr, uint32_t ch
     memcpy(buf5, "   0", 4);
   } else if (chrom_idx <= chrom_info_ptr->max_code) {
     if (chrom_info_ptr->output_encoding & CHR_OUTPUT_PREFIX) {
-      *chrom_name_len_ptr = (uintptr_t)(chrom_name_write(buf5, chrom_info_ptr, chrom_idx, zero_extra_chroms) - buf5);
+      *chrom_name_len_ptr = (uintptr_t)(chrom_name_std(buf5, chrom_info_ptr, chrom_idx) - buf5);
     } else {
-      width_force(4, buf5, chrom_name_write(buf5, chrom_info_ptr, chrom_idx, zero_extra_chroms));
+      width_force(4, buf5, chrom_name_std(buf5, chrom_info_ptr, chrom_idx));
     }
   } else if (zero_extra_chroms) {
     memcpy(buf5, "   0", 4);
