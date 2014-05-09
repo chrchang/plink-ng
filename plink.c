@@ -88,7 +88,7 @@ const char ver_str[] =
 #ifdef STABLE_BUILD
   "PLINK v1.90b1"
 #else
-  "PLINK v1.90b1p"
+  "PLINK v1.90b2p"
 #endif
 #ifdef NOLAPACK
   "NL"
@@ -109,11 +109,8 @@ const char ver_str2[] =
 #endif
   "      https://www.cog-genomics.org/plink2\n"
   "(C) 2005-2014 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
-const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
-const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n";
-const char errstr_append[] = "For more information, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
+const char errstr_append[] = "\nFor more information, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
 const char* errstr_append2 = &(errstr_append[1]);
-const char null_calc_str[] = "Warning: No output requested.  Exiting.\n";
 #ifdef STABLE_BUILD
   #ifndef NOLAPACK
 const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --pca, --neighbour,\n--ibs-test, --regress-distance, --model, --gxe, --logistic, --lasso,\n--test-missing, --tdt, --clump, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
@@ -2201,7 +2198,7 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
 	  sprintf(logbuf, "Error: Invalid --%s chromosome code '%s'.\n", cur_flag_str, range_start);
 	  goto parse_chrom_ranges_ret_INVALID_CMDLINE_WWA;
 	} else if (range_end) {
-	  goto parse_chrom_ranges_ret_INVALID_CMDLINE_3;
+	  goto parse_chrom_ranges_ret_INVALID_CMDLINE_NONSTD;
 	}
         if (push_ll_str(&(chrom_info_ptr->incl_excl_name_stack), range_start)) {
 	  goto parse_chrom_ranges_ret_NOMEM;
@@ -2214,7 +2211,7 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
 	    sprintf(logbuf, "Error: Invalid --%s chromosome code '%s'.\n", cur_flag_str, range_end);
 	    goto parse_chrom_ranges_ret_INVALID_CMDLINE_WWA;
 	  } else {
-	    goto parse_chrom_ranges_ret_INVALID_CMDLINE_3;
+	    goto parse_chrom_ranges_ret_INVALID_CMDLINE_NONSTD;
 	  }
 	}
         if (chrom_code_end <= chrom_code_start) {
@@ -2238,7 +2235,7 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
   parse_chrom_ranges_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  parse_chrom_ranges_ret_INVALID_CMDLINE_3:
+  parse_chrom_ranges_ret_INVALID_CMDLINE_NONSTD:
     logprint("Error: Chromosome ranges cannot include nonstandard names.\n");
     retval = RET_INVALID_CMDLINE;
     break;
@@ -3816,8 +3813,8 @@ int32_t main(int32_t argc, char** argv) {
 	      }
 	      if (param_ct > 4) {
 		if (scan_double(argv[cur_arg + 5], &pheno_23)) {
-		  sprintf(logbuf, "Error: Invalid --23file phenotype '%s'.%s", argv[cur_arg + 5], errstr_append);
-		  goto main_ret_INVALID_CMDLINE_3;
+		  sprintf(logbuf, "Error: Invalid --23file phenotype '%s'.\n", argv[cur_arg + 5]);
+		  goto main_ret_INVALID_CMDLINE_WWA;
 		}
 		if (param_ct > 5) {
 		  if (strchr(argv[cur_arg + 6], ' ')) {
@@ -3843,8 +3840,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	load_rare = LOAD_RARE_23;
       } else if ((!memcmp(argptr2, "3file-convert-xy", 17)) || (!memcmp(argptr2, "3file-make-xylist", 18))) {
-        sprintf(logbuf, "Error: --%s has been retired due to brain-damaged design.  Use\n--split-x instead.%s", argptr, errstr_append);
-        goto main_ret_INVALID_CMDLINE_3;
+        sprintf(logbuf, "Error: --%s has been retired due to brain-damaged design.  Use\n--split-x instead.\n", argptr);
+        goto main_ret_INVALID_CMDLINE_2A;
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
       }
@@ -3866,8 +3863,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &cluster.min_ct)) {
-          sprintf(logbuf, "Error: Invalid --K cluster count '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+          sprintf(logbuf, "Error: Invalid --K cluster count '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
@@ -3895,8 +3892,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (chrom_info.xy_code == -1) {
-	  sprintf(logbuf, "Error: --autosome-xy used with a species lacking an XY region.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --autosome-xy used with a species lacking an XY region.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	fill_bits(chrom_info.chrom_mask, 1, chrom_info.autosome_ct);
 	set_bit(chrom_info.chrom_mask, chrom_info.xy_code);
@@ -3912,8 +3909,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
         if (param_ct) {
 	  if (memcmp("0", argv[cur_arg + 1], 2)) {
-            sprintf(logbuf, "Error: Invalid --allow-extra-chr parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+            sprintf(logbuf, "Error: Invalid --allow-extra-chr parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
           misc_flags |= MISC_ZERO_EXTRA_CHROMS;
 	}
@@ -3930,8 +3927,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct == 1) {
 	  if (strcmp("multichar", argv[cur_arg + 1])) {
-	    sprintf(logbuf, "Error: Invalid --allele1234 parameter '%s'.%s\n", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --allele1234 parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	  allelexxxx = ALLELE_RECODE_MULTICHAR;
 	} else {
@@ -3948,8 +3945,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct == 1) {
 	  if (strcmp("multichar", argv[cur_arg + 1])) {
-	    sprintf(logbuf, "Error: Invalid --alleleACGT parameter '%s'.%s\n", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --alleleACGT parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	  allelexxxx = ALLELE_RECODE_ACGT | ALLELE_RECODE_MULTICHAR;
 	} else {
@@ -3969,32 +3966,32 @@ int32_t main(int32_t argc, char** argv) {
 	for (uii = 1; uii <= param_ct; uii++) {
 	  if (!strcmp(argv[cur_arg + uii], "counts")) {
 	    if (model_modifier & MODEL_QMASK) {
-	      sprintf(logbuf, "Error: --assoc 'qt-means' modifier does not make sense with 'counts'.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --assoc 'qt-means' modifier does not make sense with 'counts'.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    model_modifier |= MODEL_ASSOC_COUNTS;
 	  } else if (!strcmp(argv[cur_arg + uii], "fisher")) {
 	    if (model_modifier & MODEL_QMASK) {
-	      sprintf(logbuf, "Error: --assoc 'qt-means'/'lin' does not make sense with 'fisher'.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --assoc 'qt-means'/'lin' does not make sense with 'fisher'.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    model_modifier |= MODEL_FISHER;
 	  } else if (!strcmp(argv[cur_arg + uii], "fisher-midp")) {
             if (model_modifier & MODEL_QMASK) {
-              sprintf(logbuf, "Error: --assoc 'qt-means'/'lin' does not make sense with 'fisher-midp'.%s", errstr_append);
-              goto main_ret_INVALID_CMDLINE_3;
+              logprint("Error: --assoc 'qt-means'/'lin' does not make sense with 'fisher-midp'.\n");
+              goto main_ret_INVALID_CMDLINE_A;
 	    }
             model_modifier |= MODEL_FISHER | MODEL_FISHER_MIDP;
 	  } else if (!strcmp(argv[cur_arg + uii], "perm")) {
 	    if (model_modifier & MODEL_MPERM) {
-	      sprintf(logbuf, "Error: --assoc 'mperm' and 'perm' cannot be used together.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --assoc 'mperm' and 'perm' cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    model_modifier |= MODEL_PERM;
 	  } else if (!strcmp(argv[cur_arg + uii], "genedrop")) {
 	    if (model_modifier & MODEL_QMASK) {
-	      sprintf(logbuf, "Error: --assoc 'qt-means'/'lin' does not make sense with 'genedrop'.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --assoc 'qt-means'/'lin' does not make sense with 'genedrop'.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    model_modifier |= MODEL_GENEDROP;
 	  } else if (!strcmp(argv[cur_arg + uii], "perm-count")) {
@@ -4003,27 +4000,27 @@ int32_t main(int32_t argc, char** argv) {
 	    model_modifier |= MODEL_ASSOC_P2;
 	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
 	    if (model_modifier & MODEL_PERM) {
-	      sprintf(logbuf, "Error: --assoc 'mperm' and 'perm' cannot be used together.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --assoc 'mperm' and 'perm' cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    } else if (model_modifier & MODEL_MPERM) {
-	      sprintf(logbuf, "Error: Duplicate --assoc 'mperm' modifier.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: Duplicate --assoc 'mperm' modifier.\n");
+	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    if (scan_posint_defcap(&(argv[cur_arg + uii][6]), &model_mperm_val)) {
-	      sprintf(logbuf, "Error: Invalid --assoc mperm parameter '%s'.%s", &(argv[cur_arg + uii][6]), errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: Invalid --assoc mperm parameter '%s'.\n", &(argv[cur_arg + uii][6]));
+	      goto main_ret_INVALID_CMDLINE_WWA;
 	    }
 	    model_modifier |= MODEL_MPERM;
 	  } else if (!strcmp(argv[cur_arg + uii], "qt-means")) {
 	    if (model_modifier & MODEL_DMASK) {
-	      sprintf(logbuf, "Error: --assoc 'qt-means' does not make sense with a case/control-specific\nmodifier.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --assoc 'qt-means' does not make sense with a case/control-specific\nmodifier.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    model_modifier |= MODEL_QT_MEANS;
 	  } else if (!strcmp(argv[cur_arg + uii], "lin")) {
 	    if (model_modifier & MODEL_DMASK) {
-	      sprintf(logbuf, "Error: --assoc 'lin' does not make sense with a case/control-specific modifier.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --assoc 'lin' does not make sense with a case/control-specific modifier.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    model_modifier |= MODEL_LIN;
 	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
@@ -4032,8 +4029,8 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "set-test")) {
 	    model_modifier |= MODEL_SET_TEST;
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --assoc parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --assoc parameter '%s'.\n", argv[cur_arg + uii]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	model_modifier |= MODEL_ASSOC;
@@ -4051,8 +4048,8 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "qq-plot")) {
 	    mtest_adjust |= ADJUST_QQ;
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --adjust parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --adjust parameter '%s'.\n", argv[cur_arg + uii]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
       } else if (!memcmp(argptr2, "perm", 5)) {
@@ -4060,49 +4057,49 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &aperm.min)) {
-	  sprintf(logbuf, "Error: Invalid --aperm min permutation count '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --aperm min permutation count '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	aperm.min++;
 	if (param_ct > 1) {
 	  if (scan_posint_capped(argv[cur_arg + 2], &aperm.max, APERM_MAX / 10, APERM_MAX % 10)) {
-	    sprintf(logbuf, "Error: Invalid --aperm max permutation count '%s'.%s", argv[cur_arg + 2], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --aperm max permutation count '%s'.\n", argv[cur_arg + 2]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	// may as well disallow equality since there's no reason not to use
 	// max(T) then...
 	if (aperm.min >= aperm.max) {
-	  sprintf(logbuf, "Error: --aperm min permutation count must be smaller than max.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --aperm min permutation count must be smaller than max.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (param_ct > 2) {
 	  if (scan_double(argv[cur_arg + 3], &aperm.alpha)) {
-	    sprintf(logbuf, "Error: Invalid --aperm alpha threshold '%s'.%s", argv[cur_arg + 3], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --aperm alpha threshold '%s'.\n", argv[cur_arg + 3]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	  if (param_ct > 3) {
 	    if (scan_double(argv[cur_arg + 4], &aperm.beta) || (aperm.beta <= 0)) {
-	      sprintf(logbuf, "Error: Invalid --aperm beta '%s'.%s", argv[cur_arg + 4], errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: Invalid --aperm beta '%s'.\n", argv[cur_arg + 4]);
+	      goto main_ret_INVALID_CMDLINE_WWA;
 	    }
 	    if (param_ct > 4) {
 	      if (scan_double(argv[cur_arg + 5], &aperm.init_interval)) {
-		sprintf(logbuf, "Error: Invalid --aperm initial pruning interval '%s'.%s", argv[cur_arg + 5], errstr_append);
-		goto main_ret_INVALID_CMDLINE_3;
+		sprintf(logbuf, "Error: Invalid --aperm initial pruning interval '%s'.\n", argv[cur_arg + 5]);
+		goto main_ret_INVALID_CMDLINE_WWA;
 	      }
 	      if ((aperm.init_interval < 1) || (aperm.init_interval > 1000000)) {
-		sprintf(logbuf, "Error: Invalid --aperm initial pruning interval '%s'.%s", argv[cur_arg + 5], errstr_append);
-		goto main_ret_INVALID_CMDLINE_3;
+		sprintf(logbuf, "Error: Invalid --aperm initial pruning interval '%s'.\n", argv[cur_arg + 5]);
+		goto main_ret_INVALID_CMDLINE_WWA;
 	      }
 	      if (param_ct == 6) {
 		if (scan_double(argv[cur_arg + 6], &aperm.interval_slope)) {
-		  sprintf(logbuf, "Error: Invalid --aperm pruning interval slope '%s'.%s", argv[cur_arg + 6], errstr_append);
-		  goto main_ret_INVALID_CMDLINE_3;
+		  sprintf(logbuf, "Error: Invalid --aperm pruning interval slope '%s'.\n", argv[cur_arg + 6]);
+		  goto main_ret_INVALID_CMDLINE_WWA;
 		}
 		if ((aperm.interval_slope < 0) || (aperm.interval_slope > 1)) {
-		  sprintf(logbuf, "Error: Invalid --aperm pruning interval slope '%s'.%s", argv[cur_arg + 6], errstr_append);
-		  goto main_ret_INVALID_CMDLINE_3;
+		  sprintf(logbuf, "Error: Invalid --aperm pruning interval slope '%s'.\n", argv[cur_arg + 6]);
+		  goto main_ret_INVALID_CMDLINE_WWA;
 		}
 	      }
 	    }
@@ -4180,8 +4177,8 @@ int32_t main(int32_t argc, char** argv) {
 	strcpy(pedname, argv[cur_arg + 1]);
       } else if (!memcmp(argptr2, "im", 3)) {
 	if (!(load_params & (LOAD_PARAMS_BED | LOAD_PARAMS_BFILE))) {
-	  sprintf(logbuf, "Error: --bim must be used with --bed or --bfile.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --bim must be used with --bed or --bfile.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	load_params |= LOAD_PARAMS_BIM;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -4197,8 +4194,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (param_ct == 2) {
-	  sprintf(logbuf, "Error: --bmerge must have exactly 1 or 3 parameters.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --bmerge must have exactly 1 or 3 parameters.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	jj = strlen(argv[cur_arg + 1]);
 	if (param_ct == 3) {
@@ -4235,8 +4232,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &min_bp_space)) {
-	  sprintf(logbuf, "Error: Invalid --bp-space minimum bp distance '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --bp-space minimum bp distance '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "eta", 4)) {
@@ -4257,8 +4254,8 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "list")) {
 	    misc_flags |= MISC_BIALLELIC_ONLY_LIST;
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --biallelic-only modifier '%s'.%s", argv[cur_arg + uii], errstr_append);
-            goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --biallelic-only modifier '%s'.\n", argv[cur_arg + uii]);
+            goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
         misc_flags |= MISC_BIALLELIC_ONLY;
@@ -4291,8 +4288,8 @@ int32_t main(int32_t argc, char** argv) {
 	strcpy(pedname, argv[cur_arg + 1]);
 	if (param_ct == 2) {
 	  if (strcmp(argv[cur_arg + 2], "snpid-chr")) {
-	    sprintf(logbuf, "Error: Invalid --bgen modifier '%s'.%s", argv[cur_arg + 2], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --bgen modifier '%s'.\n", argv[cur_arg + 2]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
           misc_flags |= MISC_OXFORD_SNPID_CHR;
 	}
@@ -4302,8 +4299,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
         if (param_ct) {
 	  if (strcmp(argv[cur_arg + 1], "no-small-max-span")) {
-	    sprintf(logbuf, "Error: Invalid --blocks parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-            goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --blocks parameter '%s'.\n", argv[cur_arg + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
 	  }
           ld_info.modifier |= LD_BLOCKS_NO_SMALL_MAX_SPAN;
 	}
@@ -4317,8 +4314,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0) || (dxx > 1.0 - SMALL_EPSILON)) {
-	  sprintf(logbuf, "Error: Invalid --blocks-inform-frac parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --blocks-inform-frac parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	ld_info.blocks_inform_frac = dxx;
       } else if (!memcmp(argptr2, "locks-max-kb", 13)) {
@@ -4330,8 +4327,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0)) {
-	  sprintf(logbuf, "Error: Invalid --blocks-max-kb parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --blocks-max-kb parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (dxx > 2147483.646) {
 	  ld_info.blocks_max_bp = 2147483646;
@@ -4347,8 +4344,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0) || (dxx > 0.5)) {
-	  sprintf(logbuf, "Error: Invalid --blocks-min-maf parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --blocks-min-maf parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
         ld_info.blocks_min_maf = dxx;
       } else if (!memcmp(argptr2, "locks-recomb-highci", 20)) {
@@ -4360,13 +4357,13 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0) || (dxx > 1.0)) {
-	  sprintf(logbuf, "Error: Invalid --blocks-recomb-highci parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --blocks-recomb-highci parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
         ld_info.blocks_recomb_highci = ((int32_t)((dxx + SMALL_EPSILON) * 100));
 	if (ld_info.blocks_recomb_highci < 2) {
-	  sprintf(logbuf, "Error: --blocks-recomb-highci parameter must be at least 0.02.%s", errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --blocks-recomb-highci parameter must be at least 0.02.\n");
+          goto main_ret_INVALID_CMDLINE_A;
 	}
 	ld_info.blocks_recomb_highci--;
       } else if (!memcmp(argptr2, "locks-strong-highci", 20)) {
@@ -4378,8 +4375,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < SMALL_EPSILON) || (dxx > 1.0)) {
-	  sprintf(logbuf, "Error: Invalid --blocks-strong-highci parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --blocks-strong-highci parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
         ld_info.blocks_strong_highci = (int32_t)((dxx - SMALL_EPSILON) * 100);
 	// 0.83 lower bound is needed for now for sane handling of size-2
@@ -4397,8 +4394,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < SMALL_EPSILON) || (dxx >= 1)) {
-	  sprintf(logbuf, "Error: Invalid --blocks-strong-lowci parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --blocks-strong-lowci parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	ld_info.blocks_strong_lowci_outer = 2 + (int32_t)((dxx - SMALL_EPSILON) * 100);
 	ld_info.blocks_strong_lowci = 2 + (int32_t)((dxx + SMALL_EPSILON) * 100);
@@ -4408,8 +4405,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "order", 6)) {
 	if (1) {
-	  sprintf(logbuf, "Error: --border must be used with --annotate.%s", errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --border must be used with --annotate.\n");
+          goto main_ret_INVALID_CMDLINE_A;
 	}
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
@@ -4419,8 +4416,8 @@ int32_t main(int32_t argc, char** argv) {
     case 'c':
       if (!memcmp(argptr2, "hr", 3)) {
 	if (chrom_flag_present) {
-	  sprintf(logbuf, "Error: --chr cannot be used with --autosome{-xy}.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --chr cannot be used with --autosome{-xy}.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         retval = parse_chrom_ranges(param_ct, '-', &(argv[cur_arg]), chrom_info.chrom_mask, &chrom_info, (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1, argptr);
 	if (retval) {
@@ -4437,8 +4434,8 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "ounts", 6)) {
 	if (model_modifier & MODEL_ASSOC) {
 	  if (model_modifier & MODEL_QMASK) {
-	    sprintf(logbuf, "Error: --assoc 'qt-means'/'lin' does not make sense with --counts.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    logprint("Error: --assoc 'qt-means'/'lin' does not make sense with --counts.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  }
 	  logprint("Note: --counts flag deprecated.  Use '--assoc counts' instead.\n");
           model_modifier |= MODEL_ASSOC_COUNTS;
@@ -4456,8 +4453,8 @@ int32_t main(int32_t argc, char** argv) {
 	  if (!strcmp(argv[cur_arg + 1], "keep-pheno-on-missing-cov")) {
 	    uii = 2;
 	  } else if (strcmp(argv[cur_arg + 2], "keep-pheno-on-missing-cov")) {
-	    sprintf(logbuf, "Error: Invalid --covar parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
-            goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --covar parameter '%s'.\n", argv[cur_arg + 2]);
+            goto main_ret_INVALID_CMDLINE_WWA;
 	  }
           covar_modifier |= COVAR_KEEP_PHENO_ON_MISSING_COV;
 	}
@@ -4497,20 +4494,20 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_uint_defcap(argv[cur_arg + 1], (uint32_t*)&model_cell_ct)) {
-	  sprintf(logbuf, "Error: Invalid --cell parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --cell parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "i", 2)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx)) {
-	  sprintf(logbuf, "Error: Invalid --ci parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --ci parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if ((dxx < 0.01) || (dxx >= 1.0)) {
-	  sprintf(logbuf, "Error: --ci confidence interval size s must satisfy 0.01 <= s < 1.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --ci confidence interval size s must satisfy 0.01 <= s < 1.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	ci_size = dxx;
       } else if (!memcmp(argptr2, "luster", 7)) {
@@ -4522,8 +4519,8 @@ int32_t main(int32_t argc, char** argv) {
             cluster.modifier |= CLUSTER_CC;
 	  } else if (!strcmp(argv[cur_arg + uii], "group-avg")) {
 	    if (cluster.modifier & CLUSTER_OLD_TIEBREAKS) {
-              sprintf(logbuf, "Error: --cluster 'group-avg' and 'old-tiebreaks' cannot be used together.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+              logprint("Error: --cluster 'group-avg' and 'old-tiebreaks' cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    cluster.modifier |= CLUSTER_GROUP_AVG;
 	  } else if (!strcmp(argv[cur_arg + uii], "missing")) {
@@ -4532,13 +4529,13 @@ int32_t main(int32_t argc, char** argv) {
 	    cluster.modifier |= CLUSTER_ONLY2;
 	  } else if (!strcmp(argv[cur_arg + uii], "old-tiebreaks")) {
 	    if (cluster.modifier & CLUSTER_GROUP_AVG) {
-              sprintf(logbuf, "Error: --cluster 'group-avg' and 'old-tiebreaks' cannot be used together.%s", errstr_append);
-              goto main_ret_INVALID_CMDLINE_3;
+              logprint("Error: --cluster 'group-avg' and 'old-tiebreaks' cannot be used together.\n");
+              goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    cluster.modifier |= CLUSTER_OLD_TIEBREAKS;
 	  } else {
-            sprintf(logbuf, "Error: Invalid --cluster parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+            sprintf(logbuf, "Error: Invalid --cluster parameter '%s'.\n", argv[cur_arg + uii]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
         calculation_type |= CALC_CLUSTER;
@@ -4548,8 +4545,8 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "luster-missing", 15)) {
 	if (calculation_type & CALC_CLUSTER) {
-	  sprintf(logbuf, "Error: --cluster-missing cannot be used with --cluster.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --cluster-missing cannot be used with --cluster.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --cluster-missing flag deprecated.  Use '--cluster missing'.\n");
         calculation_type |= CALC_CLUSTER;
@@ -4594,24 +4591,24 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "nv-dup", 7)) {
 	UNSTABLE;
 	if (cnv_calc_type & CNV_DEL) {
-	  sprintf(logbuf, "Error: --cnv-dup cannot be used with --cnv-del.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --cnv-dup cannot be used with --cnv-del.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	cnv_calc_type |= CNV_DUP;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "nv-enrichment-test", 19)) {
 	UNSTABLE;
 	if (!cnv_intersect_filter_type) {
-	  sprintf(logbuf, "Error: --cnv-enrichment-test must be used with --cnv-count.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --cnv-enrichment-test must be used with --cnv-count.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (param_ct) {
 	  if (scan_posint_defcap(argv[cur_arg + 1], &cnv_enrichment_test_mperms)) {
-	    sprintf(logbuf, "Error: Invalid --cnv-enrichment-test permutation count '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --cnv-enrichment-test permutation count '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	cnv_calc_type |= CNV_ENRICHMENT_TEST;
@@ -4621,8 +4618,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (cnv_intersect_filter_type) {
-	  sprintf(logbuf, "Error: --cnv-exclude cannot be used with --cnv-count.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --cnv-exclude cannot be used with --cnv-count.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	retval = alloc_fname(&cnv_intersect_filter_fname, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
@@ -4639,8 +4636,8 @@ int32_t main(int32_t argc, char** argv) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &cnv_freq_val)) {
-	  sprintf(logbuf, "Error: Invalid --cnv-freq-exclude-above parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --cnv-freq-exclude-above parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	cnv_freq_type = CNV_FREQ_EXCLUDE_ABOVE;
       } else if (!memcmp(argptr2, "nv-freq-exclude-below", 22)) {
@@ -4653,8 +4650,8 @@ int32_t main(int32_t argc, char** argv) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &cnv_freq_val) || (cnv_freq_val == 1)) {
-	  sprintf(logbuf, "Error: Invalid --cnv-freq-exclude-below parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --cnv-freq-exclude-below parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	cnv_freq_type = CNV_FREQ_EXCLUDE_BELOW;
       } else if (!memcmp(argptr2, "nv-freq-exclude-exact", 22)) {
@@ -4667,8 +4664,8 @@ int32_t main(int32_t argc, char** argv) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &cnv_freq_val)) {
-	  sprintf(logbuf, "Error: Invalid --cnv-freq-exclude-exact parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --cnv-freq-exclude-exact parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	cnv_freq_type = CNV_FREQ_EXCLUDE_EXACT;
       } else if (!memcmp(argptr2, "nv-freq-include-exact", 22)) {
@@ -4681,8 +4678,8 @@ int32_t main(int32_t argc, char** argv) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &cnv_freq_val)) {
-	  sprintf(logbuf, "Error: Invalid --cnv-freq-include-exact parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --cnv-freq-include-exact parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	cnv_freq_type = CNV_FREQ_INCLUDE_EXACT;
       } else if (!memcmp(argptr2, "nv-freq-method2", 16)) {
@@ -4692,8 +4689,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct) {
 	  if (scan_double(argv[cur_arg + 1], &cnv_freq_val2) || (cnv_freq_val2 < 0) || (cnv_freq_val2 > 1)) {
-	    sprintf(logbuf, "Error: Invalid --cnv-freq-method2 parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --cnv-freq-method2 parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	cnv_freq_type |= CNV_FREQ_METHOD2;
@@ -4715,8 +4712,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct) {
 	  if (scan_double(argv[cur_arg + 1], &cnv_freq_val2) || (cnv_freq_val2 < 0) || (cnv_freq_val2 > 1)) {
-	    sprintf(logbuf, "Error: Invalid --cnv-freq-overlap parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --cnv-freq-overlap parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	if (cnv_freq_val2 == 0) {
@@ -4730,8 +4727,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct) {
 	  if (scan_posint_defcap(argv[cur_arg + 1], &cnv_indiv_mperms)) {
-	    sprintf(logbuf, "Error: Invalid --cnv-indiv-perm permutation count '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --cnv-indiv-perm permutation count '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	cnv_calc_type |= CNV_INDIV_PERM;
@@ -4741,8 +4738,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (cnv_intersect_filter_type) {
-	  sprintf(logbuf, "Error: --cnv-intersect cannot be used with --cnv-count/--cnv-exclude.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --cnv-intersect cannot be used with --cnv-count/--cnv-exclude.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	retval = alloc_fname(&cnv_intersect_filter_fname, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
@@ -4755,8 +4752,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0.001) || (dxx > 2147483.646)) {
-	  sprintf(logbuf, "Error: Invalid --cnv-kb size '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --cnv-kb size '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	cnv_min_seglen = (int32_t)(dxx * 1000 * (1 + SMALL_EPSILON));
       } else if (!memcmp(argptr2, "nv-list", 8)) {
@@ -4780,8 +4777,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct) {
 	  if (strcmp(argv[cur_arg + 1], "short")) {
-            sprintf(logbuf, "Error: Invalid --cnv-make-map parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+            sprintf(logbuf, "Error: Invalid --cnv-make-map parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	  cnv_calc_type |= CNV_MAKE_MAP;
 	} else {
@@ -4797,8 +4794,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0.001) || (dxx > 2147483.646)) {
-	  sprintf(logbuf, "Error: Invalid --cnv-max-kb size '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --cnv-max-kb size '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	cnv_max_seglen = (int32_t)(dxx * 1000 * (1 + SMALL_EPSILON));
 	if (cnv_min_seglen > cnv_max_seglen) {
@@ -4815,8 +4812,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &cnv_max_score)) {
-	  sprintf(logbuf, "Error: Invalid --cnv-max-score value '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --cnv-max-score value '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "nv-max-sites", 13)) {
 	UNSTABLE;
@@ -4828,8 +4825,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_uint_defcap(argv[cur_arg + 1], &cnv_max_sites)) {
-	  sprintf(logbuf, "Error: Invalid --cnv-max-sites parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --cnv-max-sites parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "nv-overlap", 11)) {
 	UNSTABLE;
@@ -4837,15 +4834,15 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --cnv-overlap cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	} else if (cnv_overlap_type == CNV_DISRUPT) {
-	  sprintf(logbuf, "Error: --cnv-overlap cannot be used with --cnv-disrupt.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --cnv-overlap cannot be used with --cnv-disrupt.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &cnv_overlap_val) || (cnv_overlap_val < 0) || (cnv_overlap_val > 1))  {
-	  sprintf(logbuf, "Error: Invalid --cnv-overlap value '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --cnv-overlap value '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (cnv_overlap_val != 0) {
 	  // ignore --cnv-overlap 0
@@ -4864,15 +4861,15 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --cnv-region-overlap cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	} else if (cnv_overlap_type) {
-	  sprintf(logbuf, "Error: --cnv-region-overlap cannot be used with --cnv-overlap/-disrupt.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --cnv-region-overlap cannot be used with --cnv-overlap/-disrupt.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &cnv_overlap_val) || (cnv_overlap_val <= 0) || (cnv_overlap_val > 1))  {
-	  sprintf(logbuf, "Error: Invalid --cnv-region-overlap value '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --cnv-region-overlap value '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	cnv_overlap_type = CNV_OVERLAP_REGION;
       } else if (!memcmp(argptr2, "nv-score", 9)) {
@@ -4885,8 +4882,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &cnv_min_score)) {
-	  sprintf(logbuf, "Error: Invalid --cnv-score value '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --cnv-score value '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (cnv_min_score > cnv_max_score) {
 	  logprint("Error: --cnv-score value cannot be greater than --cnv-max-score value.\n");
@@ -4902,8 +4899,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_uint_defcap(argv[cur_arg + 1], &cnv_min_sites)) {
-	  sprintf(logbuf, "Error: Invalid --cnv-sites parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --cnv-sites parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (cnv_min_sites > cnv_max_sites) {
 	  logprint("Error: --cnv-sites value cannot be greater than --cnv-max-sites value.\n");
@@ -4915,8 +4912,8 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --cnv-subset cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	} else if (!cnv_intersect_filter_type) {
-	  sprintf(logbuf, "Error: --cnv-subset must be used with --cnv-intersect/-exclude/-count.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --cnv-subset must be used with --cnv-intersect/-exclude/-count.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -4948,16 +4945,16 @@ int32_t main(int32_t argc, char** argv) {
 	    } else if (!strcmp(argv[cur_arg + 2], "2sided")) {
 	      cnv_calc_type |= CNV_TEST_FORCE_2SIDED;
 	    } else {
-	      sprintf(logbuf, "Error: Invalid --cnv-test parameter sequence.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: Invalid --cnv-test parameter sequence.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	  }
 	} else {
 	  uii = 1;
 	}
 	if (scan_posint_defcap(argv[cur_arg + uii], &cnv_test_mperms)) {
-	  sprintf(logbuf, "Error: Invalid --cnv-test permutation count '%s'.%s", argv[cur_arg + uii], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --cnv-test permutation count '%s'.\n", argv[cur_arg + uii]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	cnv_calc_type |= CNV_TEST;
       } else if (!memcmp(argptr2, "nv-test-1sided", 15)) {
@@ -4987,8 +4984,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct) {
 	  if (scan_posint_defcap(argv[cur_arg + 1], &cnv_test_region_mperms)) {
-	    sprintf(logbuf, "Error: Invalid --cnv-test-region permutation count '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --cnv-test-region permutation count '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	cnv_calc_type |= CNV_TEST_REGION;
@@ -5002,8 +4999,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0.001)) {
-	  sprintf(logbuf, "Error: Invalid --cnv-test-window size '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --cnv-test-window size '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	dxx *= 1000;
 	if (dxx > 2147483646) {
@@ -5017,15 +5014,15 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --cnv-union-overlap cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	} else if (cnv_overlap_type) {
-	  sprintf(logbuf, "Error: --cnv-union-overlap cannot be used with --cnv-{region-}overlap/-disrupt.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --cnv-union-overlap cannot be used with --cnv-{region-}overlap/-disrupt.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &cnv_overlap_val) || (cnv_overlap_val <= 0) || (cnv_overlap_val > 1)) {
-	  sprintf(logbuf, "Error: Invalid --cnv-union-overlap value '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --cnv-union-overlap value '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	cnv_overlap_type = CNV_OVERLAP_UNION;
       } else if (!memcmp(argptr2, "nv-write", 9)) {
@@ -5039,12 +5036,12 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct) {
 	  if (strcmp(argv[cur_arg + 1], "freq")) {
-            sprintf(logbuf, "Error: Invalid --cnv-write parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+            sprintf(logbuf, "Error: Invalid --cnv-write parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	  if (!(cnv_freq_val & CNV_FREQ_METHOD2)) {
-	    sprintf(logbuf, "Error: --cnv-write 'freq' modifier must be used with --cnv-freq-method2.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    logprint("Error: --cnv-write 'freq' modifier must be used with --cnv-freq-method2.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  }
 	  cnv_calc_type |= CNV_WRITE_FREQ;
 	}
@@ -5055,11 +5052,11 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --cnv-write freq cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	} else if (!(cnv_freq_val & CNV_FREQ_METHOD2)) {
-	  sprintf(logbuf, "Error: --cnv-write 'freq' modifier must be used with --cnv-freq-method2.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --cnv-write 'freq' modifier must be used with --cnv-freq-method2.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (!(cnv_calc_type & CNV_WRITE)) {
-	  sprintf(logbuf, "Error: --cnv-write-freq must be used with --cnv-write.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --cnv-write-freq must be used with --cnv-write.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --cnv-write-freq flag deprecated.  Use '--cnv-write freq'.\n");
 	cnv_calc_type |= CNV_WRITE_FREQ;
@@ -5084,8 +5081,8 @@ int32_t main(int32_t argc, char** argv) {
 	    } else if (!strcmp("recessive", argv[cur_arg + 1])) {
 	      glm_modifier |= GLM_CONDITION_RECESSIVE;
 	    } else {
-	      sprintf(logbuf, "Error: Invalid --condition parameter sequence.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: Invalid --condition parameter sequence.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	  }
 	}
@@ -5113,8 +5110,8 @@ int32_t main(int32_t argc, char** argv) {
 	    } else if (!strcmp("recessive", argv[cur_arg + 1])) {
 	      glm_modifier |= GLM_CONDITION_RECESSIVE;
 	    } else {
-	      sprintf(logbuf, "Error: Invalid --condition-list parameter sequence.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: Invalid --condition-list parameter sequence.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	  }
 	}
@@ -5144,12 +5141,12 @@ int32_t main(int32_t argc, char** argv) {
 	  // must contain exactly one '@'
           sptr = strchr(argv[cur_arg + 1], '@');
 	  if (!sptr) {
-            sprintf(logbuf, "Error: --cm-map requires either a '@' in the filename pattern, or a chromosome\ncode as the second parameter.%s", errstr_append);
-            goto main_ret_INVALID_CMDLINE_3;
+            logprint("Error: --cm-map requires either a '@' in the filename pattern, or a chromosome\ncode as the second parameter.\n");
+            goto main_ret_INVALID_CMDLINE_A;
 	  }
           if (strchr(&(sptr[1]), '@')) {
-	    sprintf(logbuf, "Error: Multiple '@'s in --cm-map filename pattern.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    logprint("Error: Multiple '@'s in --cm-map filename pattern.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  }
           if (alloc_string(&cm_map_fname, argv[cur_arg + 1])) {
 	    goto main_ret_NOMEM;
@@ -5187,38 +5184,38 @@ int32_t main(int32_t argc, char** argv) {
 	    } else {
 	      if (!ujj) {
 		if (scan_double(argv[cur_arg + uii], &check_sex_fthresh) || (check_sex_fthresh <= 0.0)) {
-		  sprintf(logbuf, "Error: Invalid --check-sex female F-statistic estimate ceiling '%s'.%s", argv[cur_arg + uii], errstr_append);
-		  goto main_ret_INVALID_CMDLINE_3;
+		  sprintf(logbuf, "Error: Invalid --check-sex female F-statistic estimate ceiling '%s'.\n", argv[cur_arg + uii]);
+		  goto main_ret_INVALID_CMDLINE_WWA;
 		}
 	      } else if (ujj == 1) {
 		if (scan_double(argv[cur_arg + uii], &check_sex_mthresh) || (check_sex_mthresh >= 1.0)) {
-		  sprintf(logbuf, "Error: Invalid --check-sex male F-statistic estimate floor '%s'.%s", argv[cur_arg + uii], errstr_append);
-		  goto main_ret_INVALID_CMDLINE_3;
+		  sprintf(logbuf, "Error: Invalid --check-sex male F-statistic estimate floor '%s'.\n", argv[cur_arg + uii]);
+		  goto main_ret_INVALID_CMDLINE_WWA;
 		}
 	      } else if (ujj == 2) {
 		if (scan_uint_defcap(argv[cur_arg + uii], &check_sex_f_yobs)) {
-		  sprintf(logbuf, "Error: Invalid --check-sex female Ychr maximum nonmissing genotype count.%s", errstr_append);
-		  goto main_ret_INVALID_CMDLINE_3;
+		  logprint("Error: Invalid --check-sex female Ychr maximum nonmissing genotype count.\n");
+		  goto main_ret_INVALID_CMDLINE_A;
 		}
 	      } else if (ujj == 3) {
 		if (scan_uint_defcap(argv[cur_arg + uii], &check_sex_m_yobs)) {
-		  sprintf(logbuf, "Error: Invalid --check-sex male Ychr minimum nonmissing genotype count.%s", errstr_append);
-		  goto main_ret_INVALID_CMDLINE_3;
+		  logprint("Error: Invalid --check-sex male Ychr minimum nonmissing genotype count.\n");
+		  goto main_ret_INVALID_CMDLINE_A;
 		}
 	      } else {
-		sprintf(logbuf, "Error: Invalid --check-sex parameter sequence.%s", errstr_append);
-		goto main_ret_INVALID_CMDLINE_3;
+		logprint("Error: Invalid --check-sex parameter sequence.\n");
+		goto main_ret_INVALID_CMDLINE_A;
 	      }
 	      ujj++;
 	    }
 	  }
 	  if ((ujj > 2) && (!(misc_flags & MISC_SEXCHECK_YCOUNT))) {
-	    sprintf(logbuf, "Error: --check-sex only accepts >2 numeric parameters in 'ycount' mode.%s", errstr_append);
-            goto main_ret_INVALID_CMDLINE_3;
+	    logprint("Error: --check-sex only accepts >2 numeric parameters in 'ycount' mode.\n");
+            goto main_ret_INVALID_CMDLINE_A;
 	  }
 	  if (check_sex_fthresh > check_sex_mthresh) {
-	    sprintf(logbuf, "Error: --check-sex female F estimate ceiling cannot be larger than male floor.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    logprint("Error: --check-sex female F estimate ceiling cannot be larger than male floor.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  }
 	  // actually fine if check_sex_f_yobs > check_sex_m_yobs
 	} else {
@@ -5232,28 +5229,28 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	    // may as well print a more informative error message in this case
 	    if (!strcmp(argv[cur_arg + uii], "ycount")) {
-	      sprintf(logbuf, "Error: Conflicting --check-sex modes.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: Conflicting --check-sex modes.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    if (!ukk) {
 	      if (scan_uint_defcap(argv[cur_arg + uii], &check_sex_f_yobs)) {
-		sprintf(logbuf, "Error: Invalid --check-sex y-only female Ychr maximum nonmissing genotype count.%s", errstr_append);
-		goto main_ret_INVALID_CMDLINE_3;
+		logprint("Error: Invalid --check-sex y-only female Ychr maximum nonmissing genotype\ncount.\n");
+		goto main_ret_INVALID_CMDLINE_A;
 	      }
 	    } else if (ukk == 1) {
 	      if (scan_uint_defcap(argv[cur_arg + uii], &check_sex_m_yobs)) {
-		sprintf(logbuf, "Error: Invalid --check-sex y-only male Ychr minimum nonmissing genotype count.%s", errstr_append);
-		goto main_ret_INVALID_CMDLINE_3;
+		logprint("Error: Invalid --check-sex y-only male Ychr minimum nonmissing genotype count.\n");
+		goto main_ret_INVALID_CMDLINE_A;
 	      }
 	    } else {
-	      sprintf(logbuf, "Error: Invalid --check-sex y-only parameter sequence.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: Invalid --check-sex y-only parameter sequence.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    ukk++;
 	  }
 	  if (check_sex_f_yobs >= check_sex_m_yobs) {
-	    sprintf(logbuf, "Error: In y-only mode, --check-sex female Y observation threshold must be\nsmaller than male threshold.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    logprint("Error: In y-only mode, --check-sex female Y observation threshold must be\nsmaller than male threshold.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  }
 	  misc_flags |= MISC_SEXCHECK_YCOUNT | MISC_SEXCHECK_YONLY;
 	}
@@ -5313,8 +5310,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "lump-index-first", 17)) {
         if (!clump_info.fname_ct) {
-	  sprintf(logbuf, "Error: --clump-index-first must be used with --clump.%s", errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --clump-index-first must be used with --clump.\n");
+          goto main_ret_INVALID_CMDLINE_A;
 	} else if (clump_info.fname_ct == 1) {
 	  logprint("Warning: --clump-index-first has no effect when there is only one --clump file.\n");
 	} else {
@@ -5331,7 +5328,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0.001)) {
 	  sprintf(logbuf, "Error: Invalid --clump-kb parameter '%s'.\n", argv[cur_arg + 1]);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  goto main_ret_INVALID_CMDLINE_WW;
 	}
 	dxx *= 1000;
         if (dxx > 2147483647.0) {
@@ -5349,7 +5346,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx <= 0) || (dxx > 1)) {
 	  sprintf(logbuf, "Error: Invalid --clump-p1 parameter '%s'.\n", argv[cur_arg + 1]);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  goto main_ret_INVALID_CMDLINE_WW;
 	}
 	clump_info.p1 = dxx;
       } else if (!memcmp(argptr2, "lump-p2", 8)) {
@@ -5362,7 +5359,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < clump_info.p1) || (dxx > 1)) {
 	  sprintf(logbuf, "Error: Invalid --clump-p2 parameter '%s'.\n", argv[cur_arg + 1]);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  goto main_ret_INVALID_CMDLINE_WW;
 	}
 	clump_info.p2 = dxx;
       } else if (!memcmp(argptr2, "lump-r2", 8)) {
@@ -5375,7 +5372,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx >= 1)) {
 	  sprintf(logbuf, "Error: Invalid --clump-r2 parameter '%s'.\n", argv[cur_arg + 1]);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  goto main_ret_INVALID_CMDLINE_WW;
 	}
 	clump_info.r2 = dxx;
       } else if (!memcmp(argptr2, "lump-range", 11)) {
@@ -5400,7 +5397,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0)) {
 	  sprintf(logbuf, "Error: Invalid --clump-range-border parameter '%s'.\n", argv[cur_arg + 1]);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  goto main_ret_INVALID_CMDLINE_WW;
 	}
 	if (dxx > 2147483.646) {
 	  clump_info.range_border = 0x7ffffffe;
@@ -5409,8 +5406,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "lump-replicate", 15)) {
         if (clump_info.fname_ct < 2) {
-	  sprintf(logbuf, "Error: --clump-replicate requires multiple --clump files.%s", errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --clump-replicate requires multiple --clump files.\n");
+          goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (clump_info.modifier & CLUMP_BEST) {
 	  logprint("Note: --clump-replicate no longer has any effect when used with --clump-best.\n");
@@ -5452,8 +5449,8 @@ int32_t main(int32_t argc, char** argv) {
 	} else if (!strcmp(argv[cur_arg + 1], "chrMT")) {
           chrom_info.output_encoding = CHR_OUTPUT_PREFIX | CHR_OUTPUT_MT;
 	} else if (strcmp(argv[cur_arg + 1], "26")) {
-	  sprintf(logbuf, "Error: Invalid --chr-output parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --chr-output parameter '%s'.\n", argv[cur_arg + 1]);
+          goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "hap", 4)) {
         goto main_hap_disabled_message;
@@ -5498,41 +5495,41 @@ int32_t main(int32_t argc, char** argv) {
 	for (uii = 1; uii <= param_ct; uii++) {
 	  if (!strcmp(argv[cur_arg + uii], "square")) {
 	    if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ0) {
-	      sprintf(logbuf, "Error: --distance 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --distance 'square' and 'square0' modifiers cannot coexist.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    } else if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_TRI) {
-	      sprintf(logbuf, "Error: --distance 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --distance 'square' and 'triangle' modifiers cannot coexist.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    dist_calc_type |= DISTANCE_SQ;
 	  } else if (!strcmp(argv[cur_arg + uii], "square0")) {
 	    if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ) {
-	      sprintf(logbuf, "Error: --distance 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --distance 'square' and 'square0' modifiers cannot coexist.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    } else if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_TRI) {
-	      sprintf(logbuf, "Error: --distance 'square0' and 'triangle' modifiers cannot coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --distance 'square0' and 'triangle' modifiers cannot coexist.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    dist_calc_type |= DISTANCE_SQ0;
 	  } else if (!strcmp(argv[cur_arg + uii], "triangle")) {
 	    if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ) {
-	      sprintf(logbuf, "Error: --distance 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --distance 'square' and 'triangle' modifiers cannot coexist.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    } else if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ0) {
-	      sprintf(logbuf, "Error: --distance 'square0' and 'triangle' modifiers cannot coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --distance 'square0' and 'triangle' modifiers cannot coexist.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    dist_calc_type |= DISTANCE_TRI;
 	  } else if (!strcmp(argv[cur_arg + uii], "gz")) {
 	    if (dist_calc_type & DISTANCE_BIN) {
-	      sprintf(logbuf, "Error: --distance 'gz' and 'bin' flags cannot coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --distance 'gz' and 'bin' flags cannot coexist.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    dist_calc_type |= DISTANCE_GZ;
 	  } else if (!strcmp(argv[cur_arg + uii], "bin")) {
 	    if (dist_calc_type & DISTANCE_GZ) {
-	      sprintf(logbuf, "Error: --distance 'gz' and 'bin' flags cannot coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --distance 'gz' and 'bin' flags cannot coexist.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    dist_calc_type |= DISTANCE_BIN;
 	  } else if (!strcmp(argv[cur_arg + uii], "ibs")) {
@@ -5556,8 +5553,8 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "flat-missing")) {
 	    dist_calc_type |= DISTANCE_FLAT_MISSING;
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --distance parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --distance parameter '%s'.\n", argv[cur_arg + uii]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	if (!(dist_calc_type & DISTANCE_TYPEMASK)) {
@@ -5570,7 +5567,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (scan_double(argv[cur_arg + 1], &exponent)) {
 	  sprintf(logbuf, "Error: Invalid --distance-exp parameter '%s'.\n", argv[cur_arg + 1]);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  goto main_ret_INVALID_CMDLINE_WW;
 	}
       } else if (!memcmp(argptr2, "istance-matrix", 15)) {
 	if (exponent != 0.0) {
@@ -5578,8 +5575,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (dist_calc_type & DISTANCE_1_MINUS_IBS) {
-	  sprintf(logbuf, "Error: --distance-matrix flag cannot be used with '--distance 1-ibs'.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --distance-matrix flag cannot be used with '--distance 1-ibs'.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	calculation_type |= CALC_PLINK1_DISTANCE_MATRIX;
 	goto main_param_zero;
@@ -5591,38 +5588,38 @@ int32_t main(int32_t argc, char** argv) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &dummy_indiv_ct)) {
-	  sprintf(logbuf, "Error: Invalid --dummy individual count.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: Invalid --dummy individual count.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 2], &dummy_marker_ct)) {
-	  sprintf(logbuf, "Error: Invalid --dummy variant count.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: Invalid --dummy variant count.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         for (uii = 3; uii <= param_ct; uii++) {
 	  if (match_upper(argv[cur_arg + uii], "ACGT")) {
 	    if (dummy_flags & (DUMMY_1234 | DUMMY_12)) {
-	      sprintf(logbuf, "Error: --dummy 'acgt' modifier cannot be used with '1234' or '12'.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --dummy 'acgt' modifier cannot be used with '1234' or '12'.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
             dummy_flags |= DUMMY_ACGT;
 	  } else if (!strcmp(argv[cur_arg + uii], "1234")) {
 	    if (dummy_flags & (DUMMY_ACGT | DUMMY_12)) {
-	      sprintf(logbuf, "Error: --dummy '1234' modifier cannot be used with 'acgt' or '12'.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --dummy '1234' modifier cannot be used with 'acgt' or '12'.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
             dummy_flags |= DUMMY_1234;
 	  } else if (!strcmp(argv[cur_arg + uii], "12")) {
 	    if (dummy_flags & (DUMMY_ACGT | DUMMY_1234)) {
-	      sprintf(logbuf, "Error: --dummy '12' modifier cannot be used with 'acgt' or '1234'.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --dummy '12' modifier cannot be used with 'acgt' or '1234'.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
             dummy_flags |= DUMMY_12;
 	  } else if (!strcmp(argv[cur_arg + uii], "scalar-pheno")) {
 	    dummy_flags |= DUMMY_SCALAR_PHENO;
 	  } else {
 	    if ((dummy_flags & DUMMY_MISSING_PHENO) || scan_double(argv[cur_arg + uii], &dxx) || (dxx < 0.0) || (dxx > 1.0)) {
-	      sprintf(logbuf, "Error: Invalid --dummy parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: Invalid --dummy parameter '%s'.\n", argv[cur_arg + uii]);
+	      goto main_ret_INVALID_CMDLINE_WWA;
 	    } else if (dummy_flags & DUMMY_MISSING_GENO) {
 	      dummy_missing_pheno = dxx;
 	      dummy_flags |= DUMMY_MISSING_PHENO;
@@ -5635,8 +5632,8 @@ int32_t main(int32_t argc, char** argv) {
 	load_rare = LOAD_RARE_DUMMY;
       } else if (!memcmp(argptr2, "ummy-coding", 12)) {
 	if (!covar_fname) {
-	  sprintf(logbuf, "Error: --dummy-coding cannot be used without --covar.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --dummy-coding cannot be used without --covar.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -5648,8 +5645,8 @@ int32_t main(int32_t argc, char** argv) {
 	  } else {
 	    if (param_ct == 2) {
               if (strcmp(argv[cur_arg + 2], "no-round")) {
-		sprintf(logbuf, "Error: Invalid --dummy-coding parameter sequence.%s", errstr_append);
-		goto main_ret_INVALID_CMDLINE_3;
+		logprint("Error: Invalid --dummy-coding parameter sequence.\n");
+		goto main_ret_INVALID_CMDLINE_A;
 	      }
 	      write_covar_modifier |= WRITE_COVAR_DUMMY_NO_ROUND;
 	    }
@@ -5657,8 +5654,8 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	  if (uii <= param_ct) {
 	    if (scan_posint_defcap(argv[cur_arg + uii], &write_covar_dummy_max_categories) || (write_covar_dummy_max_categories < 3)) {
-	      sprintf(logbuf, "Error: Invalid --dummy-coding max categories parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: Invalid --dummy-coding max categories parameter '%s'.\n", argv[cur_arg + uii]);
+	      goto main_ret_INVALID_CMDLINE_WWA;
 	    }
 	  }
 	}
@@ -5670,8 +5667,8 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ouble-id", 9)) {
         if (const_fid) {
-	  sprintf(logbuf, "Error: --double-id cannot be used with --const-fid.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --double-id cannot be used with --const-fid.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         misc_flags |= MISC_DOUBLE_ID;
         goto main_param_zero;
@@ -5687,8 +5684,8 @@ int32_t main(int32_t argc, char** argv) {
     case 'e':
       if (!memcmp(argptr2, "xtract", 7)) {
 	if (load_rare == LOAD_RARE_CNV) {
-	  sprintf(logbuf, "--extract cannot be used with a .cnv fileset.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("--extract cannot be used with a .cnv fileset.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -5698,8 +5695,8 @@ int32_t main(int32_t argc, char** argv) {
 	  if (!strcmp(argv[cur_arg + 1], "range")) {
             uii = 2;
 	  } else if (strcmp(argv[cur_arg + 2], "range")) {
-	    sprintf(logbuf, "Error: Invalid --extract parameter sequence.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    logprint("Error: Invalid --extract parameter sequence.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  }
           misc_flags |= MISC_EXTRACT_RANGE;
 	}
@@ -5710,8 +5707,8 @@ int32_t main(int32_t argc, char** argv) {
 	filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "xclude", 7)) {
 	if (load_rare == LOAD_RARE_CNV) {
-	  sprintf(logbuf, "--exclude cannot be used with a .cnv fileset.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("--exclude cannot be used with a .cnv fileset.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -5721,8 +5718,8 @@ int32_t main(int32_t argc, char** argv) {
 	  if (!strcmp(argv[cur_arg + 1], "range")) {
             uii = 2;
 	  } else if (strcmp(argv[cur_arg + 2], "range")) {
-	    sprintf(logbuf, "Error: Invalid --exclude parameter sequence.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    logprint("Error: Invalid --exclude parameter sequence.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  }
           misc_flags |= MISC_EXCLUDE_RANGE;
 	}
@@ -5733,8 +5730,8 @@ int32_t main(int32_t argc, char** argv) {
 	filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "xclude-snp", 11)) {
 	if (load_rare == LOAD_RARE_CNV) {
-	  sprintf(logbuf, "Error: --exclude-snp cannot be used with a .cnv fileset.  Use --from-bp/-kb/-mb\nand --to-bp/-kb/-mb instead.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --exclude-snp cannot be used with a .cnv fileset.  Use --from-bp/-kb/-mb\nand --to-bp/-kb/-mb instead.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -5745,11 +5742,11 @@ int32_t main(int32_t argc, char** argv) {
         filter_flags |= FILTER_EXCLUDE_MARKERNAME_SNP;
       } else if (!memcmp(argptr2, "xclude-snps", 12)) {
 	if (markername_snp) {
-	  sprintf(logbuf, "Error: --exclude-snps cannot be used with --exclude-snp.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --exclude-snps cannot be used with --exclude-snp.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (load_rare == LOAD_RARE_CNV) {
-	  sprintf(logbuf, "Error: --exclude-snps cannot be used with a .cnv fileset.  Use\n--from-bp/-kb/-mb and --to-bp/-kb/-mb instead.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --exclude-snps cannot be used with a .cnv fileset.  Use\n--from-bp/-kb/-mb and --to-bp/-kb/-mb instead.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	retval = parse_name_ranges(param_ct, range_delim, &(argv[cur_arg]), &snps_range_list, 0);
 	if (retval) {
@@ -5758,8 +5755,8 @@ int32_t main(int32_t argc, char** argv) {
         filter_flags |= FILTER_EXCLUDE_MARKERNAME_SNP;
       } else if (!memcmp(argptr2, "pistasis", 9)) {
 	if (epi_info.modifier & EPI_FAST_CASE_ONLY) {
-	  sprintf(logbuf, "Error: --epistasis cannot be used with --case-only.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --epistasis cannot be used with --case-only.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
           goto main_ret_INVALID_CMDLINE_2A;
@@ -5770,8 +5767,8 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + 1], "set-by-all")) {
 	    epi_info.modifier |= EPI_SET_BY_ALL;
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --epistasis modifier '%s'.%s", argv[cur_arg + 1], errstr_append);
-            goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --epistasis modifier '%s'.\n", argv[cur_arg + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
         epi_info.modifier |= EPI_REG;
@@ -5786,16 +5783,16 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
 	if (scan_posint_capped(argv[cur_arg + 2], &epi_info.summary_merge_ct, PARALLEL_MAX / 10, PARALLEL_MAX % 10) || (epi_info.summary_merge_ct == 1)) {
-	  sprintf(logbuf, "Error: Invalid --epistasis-summary-merge job count '%s'.%s", argv[cur_arg + 2], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --epistasis-summary-merge job count '%s'.\n", argv[cur_arg + 2]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "pi1", 4)) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx <= 0)) {
-	  sprintf(logbuf, "Error: Invalid --epi1 parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --epi1 parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	epi_info.epi1 = dxx;
       } else if (!memcmp(argptr2, "pi2", 4)) {
@@ -5803,8 +5800,8 @@ int32_t main(int32_t argc, char** argv) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx <= 0) || (dxx >= 1)) {
-	  sprintf(logbuf, "Error: Invalid --epi2 parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --epi2 parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	epi_info.epi2 = dxx;
       } else if (!memcmp(argptr2, "xclude-before-extract", 22)) {
@@ -5918,8 +5915,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct) {
 	  if (strcmp(argv[cur_arg + 1], "counts")) {
-            sprintf(logbuf, "Error: Invalid --freq parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+            sprintf(logbuf, "Error: Invalid --freq parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	  misc_flags |= MISC_FREQ_COUNTS;
 	}
@@ -5930,19 +5927,19 @@ int32_t main(int32_t argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "reqx", 5)) {
 	if (calculation_type & CALC_FREQ) {
-	  sprintf(logbuf, "Error: --freqx cannot be used with --freq.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --freqx cannot be used with --freq.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	calculation_type |= CALC_FREQ;
 	misc_flags |= MISC_FREQX;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "rom", 4)) {
 	if (chrom_flag_present) {
-	  sprintf(logbuf, "Error: --from cannot be used with --autosome{-xy} or --{not-}chr.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --from cannot be used with --autosome{-xy} or --{not-}chr.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (load_rare == LOAD_RARE_CNV) {
-	  sprintf(logbuf, "Error: --from cannot be used with a .cnv fileset.  Use --from-bp/-kb/-mb\ninstead.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --from cannot be used with a .cnv fileset.  Use --from-bp/-kb/-mb\ninstead.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -5953,8 +5950,8 @@ int32_t main(int32_t argc, char** argv) {
 	filter_flags |= FILTER_GENERIC;
       } else if ((!memcmp(argptr2, "rom-bp", 7)) || (!memcmp(argptr2, "rom-kb", 7)) || (!memcmp(argptr2, "rom-mb", 7))) {
 	if (markername_from) {
-	  sprintf(logbuf, "Error: --from-bp/-kb/-mb cannot be used with --from.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --from-bp/-kb/-mb cannot be used with --from.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -5962,8 +5959,8 @@ int32_t main(int32_t argc, char** argv) {
 	cc = argptr2[4];
 	if (cc == 'b') {
 	  if (scan_uint_defcap(argv[cur_arg + 1], (uint32_t*)&marker_pos_start)) {
-	    sprintf(logbuf, "Error: Invalid --from-bp parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --from-bp parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	} else {
 	  if (marker_pos_start != -1) {
@@ -5971,8 +5968,8 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_INVALID_CMDLINE;
 	  }
 	  if (scan_double(argv[cur_arg + 1], &dxx)) {
-	    sprintf(logbuf, "Error: Invalid --from-kb/-mb parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --from-kb/-mb parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	  dxx *= (cc == 'k')? 1000 : 1000000;
 	  if (dxx < 0) {
@@ -6008,8 +6005,8 @@ int32_t main(int32_t argc, char** argv) {
 	filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "lip-subset", 11)) {
 	if (!flip_fname) {
-          sprintf(logbuf, "Error: --flip-subset must be used with --flip.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+          logprint("Error: --flip-subset must be used with --flip.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (allelexxxx) {
 	  // fix for this is too messy to be worthwhile
 	  logprint("Error: --flip-subset cannot be used with --allele1234/ACGT.\n");
@@ -6070,14 +6067,14 @@ int32_t main(int32_t argc, char** argv) {
         for (uii = 1; uii <= param_ct; uii++) {
 	  if (!strcmp(argv[cur_arg + uii], "no-ueki")) {
 	    if (epi_info.modifier & (EPI_FAST_BOOST | EPI_FAST_JOINT_EFFECTS)) {
-	      sprintf(logbuf, "Error: --fast-epistasis 'no-ueki' modifier cannot be used with '%s'.%s", (epi_info.modifier & EPI_FAST_BOOST)? "boost" : "joint-effects", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: --fast-epistasis 'no-ueki' modifier cannot be used with '%s'.\n", (epi_info.modifier & EPI_FAST_BOOST)? "boost" : "joint-effects");
+	      goto main_ret_INVALID_CMDLINE_2A;
 	    }
 	    epi_info.modifier |= EPI_FAST_NO_UEKI;
 	  } else if (!strcmp(argv[cur_arg + uii], "boost")) {
 	    if (epi_info.modifier & (EPI_FAST_NO_UEKI | EPI_FAST_JOINT_EFFECTS)) {
-	      sprintf(logbuf, "Error: --fast-epistasis 'boost' modifier cannot be used with '%s'.%s", (epi_info.modifier & EPI_FAST_NO_UEKI)? "no-ueki" : "joint-effects", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: --fast-epistasis 'boost' modifier cannot be used with '%s'.\n", (epi_info.modifier & EPI_FAST_NO_UEKI)? "no-ueki" : "joint-effects");
+	      goto main_ret_INVALID_CMDLINE_2A;
 	    }
 	    if (epi_info.modifier & EPI_FAST_CASE_ONLY) {
 	      logprint("Error: --fast-epistasis boost does not have a case-only mode.\n");
@@ -6086,8 +6083,8 @@ int32_t main(int32_t argc, char** argv) {
 	    epi_info.modifier |= EPI_FAST_BOOST;
 	  } else if (!strcmp(argv[cur_arg + uii], "joint-effects")) {
 	    if (epi_info.modifier & (EPI_FAST_NO_UEKI | EPI_FAST_BOOST)) {
-	      sprintf(logbuf, "Error: --fast-epistasis 'joint-effects' modifier cannot be used with '%s'.%s", (epi_info.modifier & EPI_FAST_NO_UEKI)? "no-ueki" : "boost", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: --fast-epistasis 'joint-effects' modifier cannot be used with '%s'.\n", (epi_info.modifier & EPI_FAST_NO_UEKI)? "no-ueki" : "boost");
+	      goto main_ret_INVALID_CMDLINE_2A;
 	    }
 	    epi_info.modifier |= EPI_FAST_JOINT_EFFECTS;
 	  } else if (!strcmp(argv[cur_arg + uii], "case-only")) {
@@ -6108,8 +6105,8 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "nop")) {
 	    epi_info.modifier |= EPI_FAST_NO_P_VALUE;
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --fast-epistasis modifier '%s'.%s", argv[cur_arg + uii], errstr_append);
-            goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --fast-epistasis modifier '%s'.\n", argv[cur_arg + uii]);
+            goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
         epi_info.modifier |= EPI_FAST;
@@ -6120,8 +6117,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
         if (param_ct) {
           if (strcmp(argv[cur_arg + 1], "verbose")) {
-	    sprintf(logbuf, "Error: Invalid --flip-scan parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --flip-scan parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
           ld_info.modifier |= LD_FLIPSCAN_VERBOSE;
 	}
@@ -6135,8 +6132,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &ld_info.flipscan_window_size) || (ld_info.flipscan_window_size == 1)) {
-	  sprintf(logbuf, "Error: Invalid --flip-scan-window size '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --flip-scan-window size '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "lip-scan-window-kb", 22)) {
         if (!(calculation_type & CALC_FLIPSCAN)) {
@@ -6147,8 +6144,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0)) {
-	  sprintf(logbuf, "Error: Invalid --flip-scan-window-kb parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --flip-scan-window-kb parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (dxx > 2147483.646) {
 	  ld_info.flipscan_window_bp = 2147483646;
@@ -6164,14 +6161,14 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx <= 0.0) || (dxx > 1.0)) {
-	  sprintf(logbuf, "Error: Invalid --flip-scan-threshold parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --flip-scan-threshold parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
         ld_info.flipscan_thresh = dxx;
       } else if (!memcmp(argptr2, "lip-scan-verbose", 17)) {
 	if (!(calculation_type & CALC_FLIPSCAN)) {
-	  sprintf(logbuf, "Error: --flip-scan-verbose must be used with --flip-scan.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --flip-scan-verbose must be used with --flip-scan.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --flip-scan-verbose flag deprecated.  Use '--flip-scan verbose'.\n");
         ld_info.modifier |= LD_FLIPSCAN_VERBOSE;
@@ -6190,12 +6187,12 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct) {
 	  if (scan_double(argv[cur_arg + 1], &geno_thresh)) {
-	    sprintf(logbuf, "Error: Invalid --geno parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --geno parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	  if ((geno_thresh < 0.0) || (geno_thresh > 1.0)) {
-	    sprintf(logbuf, "Error: Invalid --geno parameter '%s' (must be between 0 and 1).%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --geno parameter '%s' (must be between 0 and 1).\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	} else {
 	  geno_thresh = 0.1;
@@ -6235,15 +6232,15 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "nudge")) {
             genome_modifier |= GENOME_NUDGE;
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --genome parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --genome parameter '%s'.\n", argv[cur_arg + uii]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	calculation_type |= CALC_GENOME;
       } else if (!memcmp(argptr2, "enome-full", 11)) {
 	if (!(calculation_type & CALC_GENOME)) {
-	  sprintf(logbuf, "Error: --genome-full must be used with --genome.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --genome-full must be used with --genome.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --genome-full flag deprecated.  Use '--genome full'.\n");
 	genome_modifier |= GENOME_OUTPUT_FULL;
@@ -6254,13 +6251,13 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct) {
 	  if (scan_posintptr(argv[cur_arg + 1], &groupdist_iters) || (groupdist_iters < 2) || (groupdist_iters > ((~ZEROLU) - MAX_THREADS))) {
-	    sprintf(logbuf, "Error: Invalid --groupdist jackknife iteration count '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --groupdist jackknife iteration count '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	  if (param_ct == 2) {
 	    if (scan_posint_defcap(argv[cur_arg + 2], &groupdist_d)) {
-	      sprintf(logbuf, "Error: Invalid --groupdist jackknife delete parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: Invalid --groupdist jackknife delete parameter '%s'.\n", argv[cur_arg + 2]);
+	      goto main_ret_INVALID_CMDLINE_WWA;
 	    }
 	  }
 	}
@@ -6314,8 +6311,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct) {
 	  if (scan_posint_defcap(argv[cur_arg + 1], &gxe_mcovar)) {
-	    sprintf(logbuf, "Error: Invalid --gxe parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --gxe parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	} else {
 	  gxe_mcovar = 1;
@@ -6323,8 +6320,8 @@ int32_t main(int32_t argc, char** argv) {
 	calculation_type |= CALC_GXE;
       } else if (!memcmp(argptr2, "enedrop", 8)) {
 	if (model_modifier & MODEL_QMASK) {
-	  sprintf(logbuf, "Error: --assoc 'qt-means'/'lin' does not make sense with --genedrop.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --assoc 'qt-means'/'lin' does not make sense with --genedrop.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --genedrop flag deprecated.  Use e.g. '--model genedrop'.\n");
 	model_modifier |= MODEL_GENEDROP;
@@ -6332,8 +6329,8 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "c", 2)) {
         if (!mtest_adjust) {
-	  sprintf(logbuf, "Error: --gc must be used with --adjust.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --gc must be used with --adjust.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --gc flag deprecated.  Use '--adjust gc'.\n");
 	mtest_adjust |= ADJUST_GC;
@@ -6366,11 +6363,11 @@ int32_t main(int32_t argc, char** argv) {
         goto main_ret_INVALID_CMDLINE;
       } else if ((!memcmp(argptr2, "roup-avg", 9)) || (!memcmp(argptr2, "roup-average", 13))) {
         if (!(calculation_type & CALC_CLUSTER)) {
-	  sprintf(logbuf, "Error: --group-avg must be used with --cluster.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --group-avg must be used with --cluster.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (cluster.modifier & CLUSTER_OLD_TIEBREAKS) {
-	  sprintf(logbuf, "Error: --cluster 'group-avg' and 'old-tiebreaks' cannot be used together.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --cluster 'group-avg' and 'old-tiebreaks' cannot be used together.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         LOGPRINTF("Note: --%s flag deprecated.  Use '--cluster group-avg'.\n", argptr);
 	cluster.modifier |= CLUSTER_GROUP_AVG;
@@ -6395,23 +6392,23 @@ int32_t main(int32_t argc, char** argv) {
 	filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "ene-all", 8)) {
 	if (set_info.genekeep_flattened) {
-          sprintf(logbuf, "Error: --gene-all cannot be used with --gene.%s", errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
+          logprint("Error: --gene-all cannot be used with --gene.\n");
+          goto main_ret_INVALID_CMDLINE_A;
 	}
         set_info.modifier |= SET_GENE_ALL;
 	filter_flags |= FILTER_GENERIC;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ap", 3)) {
 	if ((epi_info.modifier & (EPI_FAST | EPI_FAST_CASE_ONLY)) != (EPI_FAST | EPI_FAST_CASE_ONLY)) {
-	  sprintf(logbuf, "Error: --gap must be used with '--fast-epistasis case-only'.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --gap must be used with '--fast-epistasis case-only'.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0)) {
-	  sprintf(logbuf, "Error: Invalid --gap parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --gap parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (dxx > 2147483.646) {
 	  epi_info.case_only_gap = 2147483646;
@@ -6451,7 +6448,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0)) {
 	  sprintf(logbuf, "Error: Invalid --gene-list-border parameter '%s'.\n", argv[cur_arg + 1]);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  goto main_ret_INVALID_CMDLINE_WW;
 	}
 	if (dxx > 2147483.646) {
 	  gene_report_border = 0x7ffffffe;
@@ -6460,8 +6457,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "ene-subset", 11)) {
 	if (!gene_report_fname) {
-	  sprintf(logbuf, "Error: --gene-subset must be used with --gene-report.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --gene-subset must be used with --gene-report.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -6497,23 +6494,23 @@ int32_t main(int32_t argc, char** argv) {
 	    hwe_modifier |= HWE_THRESH_ALL;
 	  } else {
 	    if (scan_double(argv[cur_arg + uii], &hwe_thresh) || ujj) {
-	      sprintf(logbuf, "Error: Invalid --hwe parameter sequence.%s", errstr_append);
-              goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: Invalid --hwe parameter sequence.\n");
+              goto main_ret_INVALID_CMDLINE_A;
 	    }
             ujj = 1;
             if ((hwe_thresh < 0.0) || (hwe_thresh >= 1.0)) {
-	      sprintf(logbuf, "Error: Invalid --hwe threshold '%s' (must be between 0 and 1).%s", argv[cur_arg + uii], errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: Invalid --hwe threshold '%s' (must be between 0 and 1).\n", argv[cur_arg + uii]);
+	      goto main_ret_INVALID_CMDLINE_WWA;
 	    }
 	  }
 	}
 	if (!ujj) {
-	  sprintf(logbuf, "Error: --hwe now requires a p-value threshold.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --hwe now requires a p-value threshold.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if ((hwe_modifier & HWE_THRESH_MIDP) && (hwe_thresh >= 0.5)) {
-	  sprintf(logbuf, "Error: --hwe threshold must be smaller than 0.5 when using mid-p adjustment.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --hwe threshold must be smaller than 0.5 when using mid-p adjustment.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "we-all", 7)) {
@@ -6532,8 +6529,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
         if (param_ct) {
 	  if (strcmp(argv[cur_arg + 1], "midp")) {
-            sprintf(logbuf, "Error: Invalid --hardy parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-            goto main_ret_INVALID_CMDLINE_3;
+            sprintf(logbuf, "Error: Invalid --hardy parameter '%s'.\n", argv[cur_arg + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
 	  }
           hwe_modifier |= HWE_MIDP;
 	}
@@ -6562,8 +6559,8 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "subtract-1-from-lengths")) {
             homozyg.modifier |= HOMOZYG_OLD_LENGTHS;
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --homozyg parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --homozyg parameter '%s'.\n", argv[cur_arg + uii]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	calculation_type |= CALC_HOMOZYG;
@@ -6572,8 +6569,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &homozyg.min_snp) || (homozyg.min_snp == 1)) {
-	  sprintf(logbuf, "Error: Invalid --homozyg-snp parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --homozyg-snp parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	calculation_type |= CALC_HOMOZYG;
       } else if (!memcmp(argptr2, "omozyg-kb", 10)) {
@@ -6581,8 +6578,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
         if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < SMALL_EPSILON) || (dxx >= (2147483.646 * (1 + SMALL_EPSILON)))) {
-	  sprintf(logbuf, "Error: Invalid --homozyg-kb parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --homozyg-kb parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	calculation_type |= CALC_HOMOZYG;
 	// round up
@@ -6592,8 +6589,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
         if (scan_double(argv[cur_arg + 1], &dxx) || (dxx <= 0.0) || (dxx >= 2147483.646)) {
-	  sprintf(logbuf, "Error: Invalid --homozyg-density parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --homozyg-density parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
         calculation_type |= CALC_HOMOZYG;
 	homozyg.max_bases_per_snp = ((int32_t)(dxx * 1000 * (1 + SMALL_EPSILON)));
@@ -6602,8 +6599,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
         if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0.001) || (dxx >= 2147483.646)) {
-	  sprintf(logbuf, "Error: Invalid --homozyg-gap parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --homozyg-gap parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
         calculation_type |= CALC_HOMOZYG;
 	homozyg.max_gap = ((int32_t)(dxx * 1000 * (1 + SMALL_EPSILON)));
@@ -6612,12 +6609,12 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_uint_defcap(argv[cur_arg + 1], &homozyg.max_hets)) {
-	  sprintf(logbuf, "Error: Invalid --homozyg-het parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --homozyg-het parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (homozyg.max_hets && (homozyg.modifier & HOMOZYG_EXTEND)) {
-	  sprintf(logbuf, "Error: --homozyg-het with a nonzero parameter cannot be used with --homozyg\nextend.  For fine-grained control over heterozygote frequency, use\n--homozyg-window-snp and --homozyg-window-het instead.%s", errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --homozyg-het with a nonzero parameter cannot be used with --homozyg\nextend.  For fine-grained control over heterozygote frequency, use\n--homozyg-window-snp and --homozyg-window-het instead.\n");
+          goto main_ret_INVALID_CMDLINE_A;
 	}
 	calculation_type |= CALC_HOMOZYG;
       } else if (!memcmp(argptr2, "omozyg-window-snp", 18)) {
@@ -6625,8 +6622,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &homozyg.window_size) || (homozyg.window_size == 1)) {
-	  sprintf(logbuf, "Error: Invalid --homozyg-window-snp parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --homozyg-window-snp parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
         calculation_type |= CALC_HOMOZYG;
       } else if (!memcmp(argptr2, "omozyg-window-kb", 17)) {
@@ -6637,8 +6634,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_uint_defcap(argv[cur_arg + 1], &homozyg.window_max_hets)) {
-	  sprintf(logbuf, "Error: Invalid --homozyg-window-het parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --homozyg-window-het parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
         calculation_type |= CALC_HOMOZYG;
       } else if (!memcmp(argptr2, "omozyg-window-missing", 22)) {
@@ -6646,8 +6643,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_uint_defcap(argv[cur_arg + 1], &homozyg.window_max_missing)) {
-	  sprintf(logbuf, "Error: Invalid --homozyg-window-missing parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --homozyg-window-missing parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
         calculation_type |= CALC_HOMOZYG;
       } else if (!memcmp(argptr2, "omozyg-window-threshold", 24)) {
@@ -6655,8 +6652,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx <= 0.0) || (dxx > 1.0)) {
-	  sprintf(logbuf, "Error: Invalid --homozyg-window-threshold parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --homozyg-window-threshold parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
         calculation_type |= CALC_HOMOZYG;
 	homozyg.hit_threshold = dxx;
@@ -6668,8 +6665,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx <= 0.0) || (dxx > 1.0)) {
-	  sprintf(logbuf, "Error: Invalid --homozyg-match parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --homozyg-match parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	homozyg.overlap_min = dxx;
       } else if (!memcmp(argptr2, "omozyg-group", 13)) {
@@ -6707,8 +6704,8 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ard-call-threshold", 19)) {
         if (!(load_params & (LOAD_PARAMS_OX_ALL))) {
-	  sprintf(logbuf, "Error: --hard-call-threshold must be used with --data, --gen, or --bgen.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --hard-call-threshold must be used with --data, --gen, or --bgen.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -6717,8 +6714,8 @@ int32_t main(int32_t argc, char** argv) {
 	  hard_call_threshold = -1;
 	} else {
 	  if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0.0) || (dxx > (0.5 - SMALLISH_EPSILON))) {
-	    sprintf(logbuf, "Error: Invalid --hard-call-threshold parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --hard-call-threshold parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	  hard_call_threshold = dxx * (1 + SMALL_EPSILON);
 	}
@@ -6766,13 +6763,13 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &ld_info.prune_window_size) || ((ld_info.prune_window_size == 1) && (param_ct == 3))) {
-	  sprintf(logbuf, "Error: Invalid --indep-pairwise window size '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --indep-pairwise window size '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (param_ct == 4) {
 	  if (!match_upper(argv[cur_arg + 2], "KB")) {
-	    sprintf(logbuf, "Error: Invalid --indep-pairwise parameter sequence.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    logprint("Error: Invalid --indep-pairwise parameter sequence.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  }
 	  ld_info.modifier |= LD_PRUNE_KB_WINDOW;
 	} else {
@@ -6782,12 +6779,12 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
 	if (scan_posint_defcap(argv[cur_arg + param_ct - 1], &ld_info.prune_window_incr)) {
-	  sprintf(logbuf, "Error: Invalid increment '%s' for --indep-pairwise.%s", argv[cur_arg + param_ct - 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid increment '%s' for --indep-pairwise.\n", argv[cur_arg + param_ct - 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (scan_double(argv[cur_arg + param_ct], &ld_info.prune_last_param) || (ld_info.prune_last_param < 0.0) || (ld_info.prune_last_param >= 1.0)) {
-	  sprintf(logbuf, "Error: Invalid --indep-pairwise r^2 threshold '%s'.%s", argv[cur_arg + param_ct], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --indep-pairwise r^2 threshold '%s'.\n", argv[cur_arg + param_ct]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	calculation_type |= CALC_LD_PRUNE;
         ld_info.modifier |= LD_PRUNE_PAIRWISE;
@@ -6796,13 +6793,13 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &ld_info.prune_window_size) || ((ld_info.prune_window_size == 1) && (param_ct == 3))) {
-	  sprintf(logbuf, "Error: Invalid --indep window size '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --indep window size '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (param_ct == 4) {
 	  if (!match_upper(argv[cur_arg + 2], "KB")) {
-	    sprintf(logbuf, "Error: Invalid --indep parameter sequence.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    logprint("Error: Invalid --indep parameter sequence.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  }
 	  ld_info.modifier |= LD_PRUNE_KB_WINDOW;
 	} else {
@@ -6812,16 +6809,16 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
 	if (scan_posint_defcap(argv[cur_arg + param_ct - 1], &ld_info.prune_window_incr)) {
-	  sprintf(logbuf, "Error: Invalid increment '%s' for --indep.%s", argv[cur_arg + param_ct - 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid increment '%s' for --indep.\n", argv[cur_arg + param_ct - 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (scan_double(argv[cur_arg + param_ct], &ld_info.prune_last_param)) {
-	  sprintf(logbuf, "Error: Invalid --indep VIF threshold '%s'.%s", argv[cur_arg + param_ct], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --indep VIF threshold '%s'.\n", argv[cur_arg + param_ct]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (ld_info.prune_last_param < 1.0) {
-	  sprintf(logbuf, "Error: --indep VIF threshold '%s' too small (must be >= 1).%s", argv[cur_arg + param_ct], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: --indep VIF threshold '%s' too small (must be >= 1).\n", argv[cur_arg + param_ct]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	calculation_type |= CALC_LD_PRUNE;
       } else if (!memcmp(argptr2, "ndiv-sort", 10)) {
@@ -6837,8 +6834,8 @@ int32_t main(int32_t argc, char** argv) {
 	  indiv_sort = INDIV_SORT_ASCII;
 	} else if ((!strcmp(argv[cur_arg + 1], "file")) || ((tolower(argv[cur_arg + 1][0]) == 'f') && jj)) {
 	  if (param_ct == 1) {
-	    sprintf(logbuf, "Error: Missing '--indiv-sort %s' filename.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Missing '--indiv-sort %s' filename.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_2A;
 	  }
 	  indiv_sort = INDIV_SORT_FILE;
 	  retval = alloc_fname(&indiv_sort_fname, argv[cur_arg + 2], argptr, 0);
@@ -6846,12 +6843,12 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_1;
 	  }
 	} else {
-	  sprintf(logbuf, "Error: '%s' is not a valid mode for --indiv-sort.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: '%s' is not a valid mode for --indiv-sort.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if ((param_ct == 2) && (indiv_sort != INDIV_SORT_FILE)) {
-          sprintf(logbuf, "Error: '--indiv-sort %s' does not accept a second parameter.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+          sprintf(logbuf, "Error: '--indiv-sort %s' does not accept a second parameter.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_2A;
 	}
       } else if (!memcmp(argptr2, "bs-test", 8)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
@@ -6859,12 +6856,12 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct) {
 	  if (scan_posintptr(argv[cur_arg + 1], &ibs_test_perms)) {
-	    sprintf(logbuf, "Error: Invalid --ibs-test permutation count '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --ibs-test permutation count '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
           if (ibs_test_perms < MAX_THREADS * 2) {
-	    sprintf(logbuf, "Error: --ibs-test permutation count '%s' too small (min %u).%s", argv[cur_arg + 1], MAX_THREADS * 2, errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: --ibs-test permutation count '%s' too small (min %u).\n", argv[cur_arg + 1], MAX_THREADS * 2);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	calculation_type |= CALC_IBS_TEST;
@@ -6874,19 +6871,19 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "bm", 3)) {
         if (!(calculation_type & CALC_CLUSTER)) {
-	  sprintf(logbuf, "Error: --ibm must be used with --cluster.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --ibm must be used with --cluster.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
         if (scan_double(argv[cur_arg + 1], &dxx)) {
-	  sprintf(logbuf, "Error: Invalid --ibm parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --ibm parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if ((dxx <= 0.0) || (dxx > 1.0)) {
-	  sprintf(logbuf, "Error: --ibm threshold must be in (0, 1].%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --ibm threshold must be in (0, 1].\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         cluster.min_ibm = dxx;
       } else if (!memcmp(argptr2, "mpossible", 10)) {
@@ -6906,8 +6903,8 @@ int32_t main(int32_t argc, char** argv) {
         if (param_ct) {
           id_delim = extract_char_param(argv[cur_arg + 1]);
 	  if (!id_delim) {
-	    sprintf(logbuf, "Error: --id-delim parameter must be a single character.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    logprint("Error: --id-delim parameter must be a single character.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  } else if (((unsigned char)id_delim) < ' ') {
 	    logprint("Error: --id-delim parameter cannot be tab, newline, or a nonprinting character.\n");
             goto main_ret_INVALID_CMDLINE;
@@ -6945,38 +6942,38 @@ int32_t main(int32_t argc, char** argv) {
 	    } else {
 	      if (!ujj) {
 		if (scan_double(argv[cur_arg + uii], &check_sex_fthresh) || (check_sex_fthresh <= 0.0)) {
-		  sprintf(logbuf, "Error: Invalid --impute-sex female F-statistic estimate ceiling '%s'.%s", argv[cur_arg + uii], errstr_append);
-		  goto main_ret_INVALID_CMDLINE_3;
+		  sprintf(logbuf, "Error: Invalid --impute-sex female F-statistic estimate ceiling '%s'.\n", argv[cur_arg + uii]);
+		  goto main_ret_INVALID_CMDLINE_WWA;
 		}
 	      } else if (ujj == 1) {
 		if (scan_double(argv[cur_arg + uii], &check_sex_mthresh) || (check_sex_mthresh >= 1.0)) {
-		  sprintf(logbuf, "Error: Invalid --impute-sex male F-statistic estimate floor '%s'.%s", argv[cur_arg + uii], errstr_append);
-		  goto main_ret_INVALID_CMDLINE_3;
+		  sprintf(logbuf, "Error: Invalid --impute-sex male F-statistic estimate floor '%s'.\n", argv[cur_arg + uii]);
+		  goto main_ret_INVALID_CMDLINE_WWA;
 		}
 	      } else if (ujj == 2) {
 		if (scan_uint_defcap(argv[cur_arg + uii], &check_sex_f_yobs)) {
-		  sprintf(logbuf, "Error: Invalid --impute-sex female Ychr maximum nonmissing genotype count.%s", errstr_append);
-		  goto main_ret_INVALID_CMDLINE_3;
+		  logprint("Error: Invalid --impute-sex female Ychr maximum nonmissing genotype count.\n");
+		  goto main_ret_INVALID_CMDLINE_A;
 		}
 	      } else if (ujj == 3) {
 		if (scan_uint_defcap(argv[cur_arg + uii], &check_sex_m_yobs)) {
-		  sprintf(logbuf, "Error: Invalid --impute-sex male Ychr minimum nonmissing genotype count.%s", errstr_append);
-		  goto main_ret_INVALID_CMDLINE_3;
+		  logprint("Error: Invalid --impute-sex male Ychr minimum nonmissing genotype count.\n");
+		  goto main_ret_INVALID_CMDLINE_A;
 		}
 	      } else {
-		sprintf(logbuf, "Error: Invalid --impute-sex parameter sequence.%s", errstr_append);
-		goto main_ret_INVALID_CMDLINE_3;
+		logprint("Error: Invalid --impute-sex parameter sequence.\n");
+		goto main_ret_INVALID_CMDLINE_A;
 	      }
 	      ujj++;
 	    }
 	  }
 	  if ((ujj > 2) && (!(misc_flags & MISC_SEXCHECK_YCOUNT))) {
-	    sprintf(logbuf, "Error: --impute-sex only accepts >2 numeric parameters in 'ycount' mode.%s", errstr_append);
-            goto main_ret_INVALID_CMDLINE_3;
+	    logprint("Error: --impute-sex only accepts >2 numeric parameters in 'ycount' mode.\n");
+            goto main_ret_INVALID_CMDLINE_A;
 	  }
 	  if (check_sex_fthresh > check_sex_mthresh) {
-	    sprintf(logbuf, "Error: --impute-sex female F estimate ceiling cannot be larger than male floor.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    logprint("Error: --impute-sex female F estimate ceiling cannot be larger than male floor.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  }
 	} else {
 	  check_sex_m_yobs = 1;
@@ -6986,28 +6983,28 @@ int32_t main(int32_t argc, char** argv) {
 	      continue;
 	    }
 	    if (!strcmp(argv[cur_arg + uii], "ycount")) {
-	      sprintf(logbuf, "Error: Conflicting --impute-sex modes.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: Conflicting --impute-sex modes.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    if (!ukk) {
 	      if (scan_uint_defcap(argv[cur_arg + uii], &check_sex_f_yobs)) {
-		sprintf(logbuf, "Error: Invalid --impute-sex y-only female Ychr maximum nonmissing genotype\ncount.%s", errstr_append);
-		goto main_ret_INVALID_CMDLINE_3;
+		logprint("Error: Invalid --impute-sex y-only female Ychr maximum nonmissing genotype\ncount.\n");
+		goto main_ret_INVALID_CMDLINE_A;
 	      }
 	    } else if (ukk == 1) {
 	      if (scan_uint_defcap(argv[cur_arg + uii], &check_sex_m_yobs)) {
-		sprintf(logbuf, "Error: Invalid --impute-sex y-only male Ychr minimum nonmissing genotype count.%s", errstr_append);
-		goto main_ret_INVALID_CMDLINE_3;
+		logprint("Error: Invalid --impute-sex y-only male Ychr minimum nonmissing genotype count.\n");
+		goto main_ret_INVALID_CMDLINE_A;
 	      }
 	    } else {
-	      sprintf(logbuf, "Error: Invalid --impute-sex y-only parameter sequence.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: Invalid --impute-sex y-only parameter sequence.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    ukk++;
 	  }
 	  if (check_sex_f_yobs >= check_sex_m_yobs) {
-	    sprintf(logbuf, "Error: In y-only mode, --impute-sex female Y observation threshold must be\nsmaller than male threshold.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    logprint("Error: In y-only mode, --impute-sex female Y observation threshold must be\nsmaller than male threshold.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  }
 	  misc_flags |= MISC_SEXCHECK_YCOUNT | MISC_SEXCHECK_YONLY;
 	}
@@ -7022,16 +7019,16 @@ int32_t main(int32_t argc, char** argv) {
     case 'j':
       if (!memcmp(argptr2, "e-cellmin", 10)) {
         if (!(epi_info.modifier & EPI_FAST_JOINT_EFFECTS)) {
-	  sprintf(logbuf, "Error: --je-cellmin must be used with '--fast-epistasis joint-effects'.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --je-cellmin must be used with '--fast-epistasis joint-effects'.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
 	// may as well enforce 2^29 / 18 limit...
 	if (scan_uint_capped(argv[cur_arg + 1], &epi_info.je_cellmin, 29826161 / 10, 29826161 % 10)) {
-	  sprintf(logbuf, "Error: Invalid --je-cellmin parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --je-cellmin parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
@@ -7109,11 +7106,11 @@ int32_t main(int32_t argc, char** argv) {
 	load_rare = LOAD_RARE_LGEN;
       } else if (!memcmp(argptr2, "oop-assoc", 10)) {
 	if (pheno_modifier & PHENO_ALL) {
-	  sprintf(logbuf, "Error: --loop-assoc cannot be used with --all-pheno.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --loop-assoc cannot be used with --all-pheno.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (misc_flags & MISC_FAMILY_CLUSTERS) {
-	  sprintf(logbuf, "Error: --loop-assoc cannot be used with --family.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --loop-assoc cannot be used with --family.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -7123,8 +7120,8 @@ int32_t main(int32_t argc, char** argv) {
 	  if ((strlen(argv[cur_arg + 1]) == 7) && (!memcmp(argv[cur_arg + 1], "keep-", 5)) && match_upper(&(argv[cur_arg + 1][5]), "NA")) {
 	    uii = 2;
 	  } else if ((strlen(argv[cur_arg + 2]) != 7) || memcmp(argv[cur_arg + 2], "keep-", 5) || (!match_upper(&(argv[cur_arg + 2][5]), "NA"))) {
-            sprintf(logbuf, "Error: Invalid --loop-assoc parameter sequence.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+            logprint("Error: Invalid --loop-assoc parameter sequence.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  }
           misc_flags |= MISC_LOAD_CLUSTER_KEEP_NA;
 	}
@@ -7134,8 +7131,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "og10", 5)) {
         if (!mtest_adjust) {
-	  sprintf(logbuf, "Error: --log10 must be used with --adjust.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --log10 must be used with --adjust.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --log10 flag deprecated.  Use '--adjust log10'.\n");
 	mtest_adjust |= ADJUST_LOG10;
@@ -7145,12 +7142,12 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (!mtest_adjust) {
-	  sprintf(logbuf, "Error: --lambda must be used with --adjust.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --lambda must be used with --adjust.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (scan_double(argv[cur_arg + 1], &adjust_lambda)) {
-	  sprintf(logbuf, "Error: Invalid --lambda parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --lambda parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (adjust_lambda < 1) {
 	  logprint("Note: --lambda parameter set to 1.\n");
@@ -7180,21 +7177,21 @@ int32_t main(int32_t argc, char** argv) {
 	for (uii = 1; uii <= param_ct; uii++) {
 	  if (!strcmp(argv[cur_arg + uii], "perm")) {
 	    if (glm_modifier & GLM_MPERM) {
-	      sprintf(logbuf, "Error: --%s 'mperm' and 'perm' cannot be used together.%s", argptr, errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: --%s 'mperm' and 'perm' cannot be used together.\n", argptr);
+	      goto main_ret_INVALID_CMDLINE_2A;
 	    }
             glm_modifier |= GLM_PERM;
 	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
             if (glm_modifier & GLM_PERM) {
-	      sprintf(logbuf, "Error: --%s 'mperm' and 'perm' cannot be used together.%s", argptr, errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: --%s 'mperm' and 'perm' cannot be used together.\n", argptr);
+	      goto main_ret_INVALID_CMDLINE_2A;
 	    } else if (glm_modifier & GLM_MPERM) {
-	      sprintf(logbuf, "Error: Duplicate --%s 'mperm' modifier.%s", argptr, errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: Duplicate --%s 'mperm' modifier.\n", argptr);
+	      goto main_ret_INVALID_CMDLINE_2;
 	    }
 	    if (scan_posint_defcap(&(argv[cur_arg + uii][6]), &glm_mperm_val)) {
-	      sprintf(logbuf, "Error: Invalid --%s mperm parameter '%s'.%s", argptr, &(argv[cur_arg + uii][6]), errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: Invalid --%s mperm parameter '%s'.\n", argptr, &(argv[cur_arg + uii][6]));
+	      goto main_ret_INVALID_CMDLINE_WWA;
 	    }
             glm_modifier |= GLM_MPERM;
 	  } else if (!strcmp(argv[cur_arg + uii], "genedrop")) {
@@ -7204,35 +7201,35 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "genotypic")) {
 	    if (glm_modifier & (GLM_HETHOM | GLM_DOMINANT | GLM_RECESSIVE)) {
 	      sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      goto main_ret_INVALID_CMDLINE_2;
 	    }
 	    glm_modifier |= GLM_GENOTYPIC;
 	    glm_xchr_model = 0;
 	  } else if (!strcmp(argv[cur_arg + uii], "hethom")) {
 	    if (glm_modifier & (GLM_GENOTYPIC | GLM_DOMINANT | GLM_RECESSIVE)) {
 	      sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      goto main_ret_INVALID_CMDLINE_2;
 	    }
 	    glm_modifier |= GLM_HETHOM;
 	    glm_xchr_model = 0;
 	  } else if (!strcmp(argv[cur_arg + uii], "dominant")) {
 	    if (glm_modifier & (GLM_GENOTYPIC | GLM_HETHOM | GLM_RECESSIVE)) {
 	      sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      goto main_ret_INVALID_CMDLINE_2;
 	    }
 	    glm_modifier |= GLM_DOMINANT;
 	    glm_xchr_model = 0;
 	  } else if (!strcmp(argv[cur_arg + uii], "recessive")) {
 	    if (glm_modifier & (GLM_GENOTYPIC | GLM_HETHOM | GLM_DOMINANT)) {
 	      sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      goto main_ret_INVALID_CMDLINE_2;
 	    }
 	    glm_modifier |= GLM_RECESSIVE;
 	    glm_xchr_model = 0;
 	  } else if (!strcmp(argv[cur_arg + uii], "no-snp")) {
 	    if (mtest_adjust) {
-	      sprintf(logbuf, "Error: --%s no-snp cannot be used with --adjust.%s", argptr, errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: --%s no-snp cannot be used with --adjust.\n", argptr);
+	      goto main_ret_INVALID_CMDLINE_2A;
 	    }
 	    // defer the rest of the check
 	    glm_modifier |= GLM_NO_SNP;
@@ -7240,28 +7237,28 @@ int32_t main(int32_t argc, char** argv) {
 	    glm_modifier |= GLM_HIDE_COVAR;
 	  } else if (!strcmp(argv[cur_arg + uii], "sex")) {
 	    if (glm_modifier & GLM_NO_X_SEX) {
-	      sprintf(logbuf, "Error: --%s 'sex' and 'no-x-sex' cannot be used together.%s", argptr, errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: --%s 'sex' and 'no-x-sex' cannot be used together.\n", argptr);
+	      goto main_ret_INVALID_CMDLINE_2A;
 	    }
 	    glm_modifier |= GLM_SEX;
 	  } else if (!strcmp(argv[cur_arg + uii], "no-x-sex")) {
 	    if (glm_modifier & GLM_SEX) {
-	      sprintf(logbuf, "Error: --%s 'sex' and 'no-x-sex' cannot be used together.%s", argptr, errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: --%s 'sex' and 'no-x-sex' cannot be used together.\n", argptr);
+	      goto main_ret_INVALID_CMDLINE_2A;
 	    }
 	    glm_modifier |= GLM_NO_X_SEX;
 	  } else if (!strcmp(argv[cur_arg + uii], "interaction")) {
 	    glm_modifier |= GLM_INTERACTION;
 	  } else if (!strcmp(argv[cur_arg + uii], "standard-beta")) {
 	    if (glm_modifier & GLM_LOGISTIC) {
-	      sprintf(logbuf, "Error: --logistic does not have a 'standard-beta' modifier.  (Did you mean\n--linear or 'beta'?)%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --logistic does not have a 'standard-beta' modifier.  (Did you mean\n--linear or 'beta'?)\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    glm_modifier |= GLM_STANDARD_BETA;
 	  } else if (!strcmp(argv[cur_arg + uii], "intercept")) {
 	    if (glm_modifier & GLM_LOGISTIC) {
-	      sprintf(logbuf, "Error: --logistic does not currently have a 'intercept' modifier.  (Did you\nmean --linear or 'beta'?)%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --logistic does not currently have a 'intercept' modifier.  (Did you\nmean --linear or 'beta'?)\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    glm_modifier |= GLM_INTERCEPT;
 	  } else if (!strcmp(argv[cur_arg + uii], "beta")) {
@@ -7270,15 +7267,15 @@ int32_t main(int32_t argc, char** argv) {
 	    glm_modifier |= GLM_SET_TEST;
 	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
 	    sprintf(logbuf, "Error: Improper --%s mperm syntax.  (Use '--%s mperm=[value]'.)\n", argptr, argptr);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    goto main_ret_INVALID_CMDLINE_2;
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --%s parameter '%s'.%s", argptr, argv[cur_arg + uii], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --%s parameter '%s'.\n", argptr, argv[cur_arg + uii]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	if ((glm_modifier & GLM_NO_SNP) && (glm_modifier & GLM_NO_SNP_EXCL)) {
-	  sprintf(logbuf, "Error: --%s 'no-snp' modifier conflicts with another modifier.%s", argptr, errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: --%s 'no-snp' modifier conflicts with another modifier.\n", argptr);
+	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	calculation_type |= CALC_GLM;
       } else if (!memcmp(argptr2, "d-xchr", 7)) {
@@ -7287,8 +7284,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	cc = argv[cur_arg + 1][0];
 	if ((cc < '1') || (cc > '3') || (argv[cur_arg + 1][1] != '\0')) {
-	  sprintf(logbuf, "Error: Invalid --ld-xchr parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --ld-xchr parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
         if (cc == '2') {
           ld_info.modifier |= LD_IGNORE_X;
@@ -7300,18 +7297,18 @@ int32_t main(int32_t argc, char** argv) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &lasso_h2) || (lasso_h2 > 1) || (lasso_h2 <= 0)) {
-	  sprintf(logbuf, "Error: Invalid --lasso heritability estimate '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --lasso heritability estimate '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	for (uii = 2; uii <= param_ct; uii++) {
 	  if (!strcmp(argv[cur_arg + uii], "report-zeroes")) {
 	    misc_flags |= MISC_LASSO_REPORT_ZEROES;
 	  } else if (lasso_minlambda > 0) {
-            sprintf(logbuf, "Error: Invalid --lasso parameter sequence.%s", errstr_append);
-            goto main_ret_INVALID_CMDLINE_3;
+            logprint("Error: Invalid --lasso parameter sequence.\n");
+            goto main_ret_INVALID_CMDLINE_A;
 	  } else if (scan_double(argv[cur_arg + uii], &lasso_minlambda) || (lasso_minlambda <= 0)) {
-	    sprintf(logbuf, "Error: Invalid --lasso minimum lambda '%s'.%s", argv[cur_arg + uii], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --lasso minimum lambda '%s'.\n", argv[cur_arg + uii]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
         calculation_type |= CALC_LASSO;
@@ -7335,16 +7332,16 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &ld_info.window_size) || (ld_info.window_size == 1)) {
-	  sprintf(logbuf, "Error: Invalid --ld-window window size '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --ld-window window size '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "d-window-kb", 12)) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0)) {
-	  sprintf(logbuf, "Error: Invalid --ld-window-kb parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --ld-window-kb parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (dxx > 2147483.646) {
 	  ld_info.window_bp = 2147483646;
@@ -7356,8 +7353,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0) || (dxx > 1)) {
-	  sprintf(logbuf, "Error: Invalid --ld-window-r2 parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --ld-window-r2 parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
         ld_info.window_r2 = dxx;
       } else if (!memcmp(argptr2, "d-snp", 6)) {
@@ -7396,8 +7393,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct == 3) {
 	  if (strcmp(argv[cur_arg + 3], "hwe-midp")) {
-	    sprintf(logbuf, "Error: Invalid --ld parameter '%s'.%s", argv[cur_arg + 3], errstr_append);
-            goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --ld parameter '%s'.\n", argv[cur_arg + 3]);
+            goto main_ret_INVALID_CMDLINE_WWA;
 	  }
           epi_info.modifier |= EPI_HWE_MIDP;
 	}
@@ -7434,8 +7431,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	cc = argv[cur_arg + 1][0];
 	if ((argv[cur_arg + 1][1] != '\0') || (((unsigned char)cc) <= ' ') || ((cc > '0') && (cc <= '4')) || (cc == 'A') || (cc == 'C') || (cc == 'G') || (cc == 'T')) {
-	  sprintf(logbuf, "Error: Invalid --missing-genotype parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --missing-genotype parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	g_missing_geno_ptr = &(g_one_char_strs[((unsigned char)cc) * 2]);
 	g_output_missing_geno_ptr = g_missing_geno_ptr;
@@ -7446,8 +7443,8 @@ int32_t main(int32_t argc, char** argv) {
 	// if anyone is using a missing pheno value of -2^31, they should be
 	// flogged with wet noodles
 	if (scan_int32(argv[cur_arg + 1], &missing_pheno) || (!missing_pheno) || (missing_pheno == 1)) {
-	  sprintf(logbuf, "Error: Invalid --missing-phenotype parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --missing-phenotype parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if ((!memcmp(argptr2, "issing-code", 12))) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
@@ -7478,8 +7475,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &mpheno_col)) {
-	  sprintf(logbuf, "Error: Invalid --mpheno parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --mpheno parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "filter", 7)) {
 	if (!filtername) {
@@ -7490,8 +7487,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &mfilter_col)) {
-	  sprintf(logbuf, "Error: Invalid --mfilter parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --mfilter parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "emory", 6)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -7499,12 +7496,12 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	// may as well support systems with >2 PB RAM...
 	if (scan_posintptr(argv[cur_arg + 1], (uintptr_t*)&malloc_size_mb)) {
-	  sprintf(logbuf, "Error: Invalid --memory parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --memory parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (malloc_size_mb < WKSPACE_MIN_MB) {
-	  sprintf(logbuf, "Error: Invalid --memory parameter '%s' (minimum %u).%s", argv[cur_arg + 1], WKSPACE_MIN_MB, errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --memory parameter '%s' (minimum %u).\n", argv[cur_arg + 1], WKSPACE_MIN_MB);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 #ifndef __LP64__
 	if (malloc_size_mb > 2047) {
@@ -7518,15 +7515,15 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct) {
 	  if (scan_double(argv[cur_arg + 1], &min_maf)) {
-	    sprintf(logbuf, "Error: Invalid --maf parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --maf parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	  if (min_maf <= 0.0) {
-	    sprintf(logbuf, "Error: --maf parameter '%s' too small (must be > 0).%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: --maf parameter '%s' too small (must be > 0).\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  } else if (min_maf > max_maf) {
-	    sprintf(logbuf, "Error: --maf parameter '%s' too large (must be <= %g).%s", argv[cur_arg + 1], max_maf, errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: --maf parameter '%s' too large (must be <= %g).\n", argv[cur_arg + 1], max_maf);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	} else {
 	  min_maf = 0.01;
@@ -7537,15 +7534,15 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &max_maf)) {
-	  sprintf(logbuf, "Error: Invalid --max-maf parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --max-maf parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (max_maf < min_maf) {
-	  sprintf(logbuf, "Error: --max-maf parameter '%s' too small (must be >= %g).%s", argv[cur_arg + 1], min_maf, errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: --max-maf parameter '%s' too small (must be >= %g).\n", argv[cur_arg + 1], min_maf);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	} else if (max_maf >= 0.5) {
-	  sprintf(logbuf, "Error: --max-maf parameter '%s' too large (must be < 0.5).%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: --max-maf parameter '%s' too large (must be < 0.5).\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "ind", 4)) {
@@ -7554,12 +7551,12 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct) {
 	  if (scan_double(argv[cur_arg + 1], &mind_thresh)) {
-	    sprintf(logbuf, "Error: Invalid --mind parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --mind parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	  if ((mind_thresh < 0.0) || (mind_thresh > 1.0)) {
-	    sprintf(logbuf, "Error: Invalid --mind parameter '%s' (must be between 0 and 1).%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --mind parameter '%s' (must be between 0 and 1).\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	} else {
 	  mind_thresh = 0.1;
@@ -7576,38 +7573,38 @@ int32_t main(int32_t argc, char** argv) {
 	for (uii = 1; uii <= param_ct; uii++) {
 	  if (!strcmp(argv[cur_arg + uii], "cov")) {
 	    if (calculation_type & CALC_IBC) {
-	      sprintf(logbuf, "Error: --make-grm-gz 'cov' modifier cannot coexist with --ibc flag.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --make-grm-gz 'cov' modifier cannot coexist with --ibc flag.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    if (rel_info.ibc_type) {
-	      sprintf(logbuf, "Error: --make-grm-gz 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --make-grm-gz 'cov' modifier cannot coexist with an IBC modifier.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    rel_info.modifier |= REL_CALC_COV;
 	  } else if (!strcmp(argv[cur_arg + uii], "no-gz")) {
 	    rel_info.modifier &= ~REL_CALC_GZ;
 	  } else if ((!strcmp(argv[cur_arg + uii], "ibc2")) || (!strcmp(argv[cur_arg + uii], "ibc3"))) {
 	    if (rel_info.modifier & REL_CALC_COV) {
-	      sprintf(logbuf, "Error: --make-grm-gz 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --make-grm-gz 'cov' modifier cannot coexist with an IBC modifier.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    if (rel_info.ibc_type) {
-	      sprintf(logbuf, "Error: --make-grm-gz '%s' modifier cannot coexist with another IBC modifier.%s", argv[cur_arg + uii], errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: --make-grm-gz '%s' modifier cannot coexist with another IBC modifier.\n", argv[cur_arg + uii]);
+	      goto main_ret_INVALID_CMDLINE_2A;
 	    }
 	    rel_info.ibc_type = argv[cur_arg + uii][3] - '0';
 	  } else if (!strcmp(argv[cur_arg + uii], "single-prec")) {
 	    rel_info.modifier |= REL_CALC_SINGLE_PREC;
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --make-grm-gz parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --make-grm-gz parameter '%s'.\n", argv[cur_arg + uii]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	calculation_type |= CALC_RELATIONSHIP;
       } else if (!memcmp(argptr2, "ake-grm-bin", 12)) {
 	if (calculation_type & CALC_RELATIONSHIP) {
-	  sprintf(logbuf, "Error: --make-grm-bin cannot be used with --make-grm-gz.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --make-grm-bin cannot be used with --make-grm-gz.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -7616,22 +7613,22 @@ int32_t main(int32_t argc, char** argv) {
 	if (param_ct) {
 	  if (!strcmp(argv[cur_arg + 1], "cov")) {
 	    if (calculation_type & CALC_IBC) {
-	      sprintf(logbuf, "Error: --make-grm-bin 'cov' modifier cannot coexist with --ibc flag.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --make-grm-bin 'cov' modifier cannot coexist with --ibc flag.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    rel_info.modifier |= REL_CALC_COV;
 	  } else if ((!strcmp(argv[cur_arg + 1], "ibc2")) || (!strcmp(argv[cur_arg + 1], "ibc3"))) {
 	    rel_info.ibc_type = argv[cur_arg + 1][3] - '0';
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --make-grm-bin parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --make-grm-bin parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	calculation_type |= CALC_RELATIONSHIP;
       } else if (!memcmp(argptr2, "ake-rel", 8)) {
 	if (calculation_type & CALC_RELATIONSHIP) {
-	  sprintf(logbuf, "Error: --make-rel cannot be used with --make-grm-gz/--make-grm-bin.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --make-rel cannot be used with --make-grm-gz/--make-grm-bin.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 3)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -7639,68 +7636,68 @@ int32_t main(int32_t argc, char** argv) {
 	for (uii = 1; uii <= param_ct; uii++) {
 	  if (!strcmp(argv[cur_arg + uii], "cov")) {
 	    if (calculation_type & CALC_IBC) {
-	      sprintf(logbuf, "Error: --make-rel 'cov' modifier cannot coexist with --ibc flag.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --make-rel 'cov' modifier cannot coexist with --ibc flag.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    if (rel_info.ibc_type) {
-	      sprintf(logbuf, "Error: --make-rel 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --make-rel 'cov' modifier cannot coexist with an IBC modifier.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    rel_info.modifier |= REL_CALC_COV;
 	  } else if (!strcmp(argv[cur_arg + uii], "gz")) {
 	    if (rel_info.modifier & REL_CALC_BIN) {
-	      sprintf(logbuf, "Error: --make-rel 'gz' and 'bin' modifiers cannot coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --make-rel 'gz' and 'bin' modifiers cannot coexist.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    rel_info.modifier |= REL_CALC_GZ;
 	  } else if (!strcmp(argv[cur_arg + uii], "bin")) {
 	    if (rel_info.modifier & REL_CALC_GZ) {
-	      sprintf(logbuf, "Error: --make-rel 'gz' and 'bin' modifiers cannot coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --make-rel 'gz' and 'bin' modifiers cannot coexist.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    rel_info.modifier |= REL_CALC_BIN;
 	  } else if (!strcmp(argv[cur_arg + uii], "square")) {
 	    if ((rel_info.modifier & REL_CALC_SHAPEMASK) == REL_CALC_SQ0) {
-	      sprintf(logbuf, "Error: --make-rel 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --make-rel 'square' and 'square0' modifiers cannot coexist.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    } else if ((rel_info.modifier & REL_CALC_SHAPEMASK) == REL_CALC_TRI) {
-	      sprintf(logbuf, "Error: --make-rel 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --make-rel 'square' and 'triangle' modifiers cannot coexist.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    rel_info.modifier |= REL_CALC_SQ;
 	  } else if (!strcmp(argv[cur_arg + uii], "square0")) {
 	    if ((rel_info.modifier & REL_CALC_SHAPEMASK) == REL_CALC_SQ) {
-	      sprintf(logbuf, "Error: --make-rel 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --make-rel 'square' and 'square0' modifiers cannot coexist.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    } else if ((rel_info.modifier & REL_CALC_SHAPEMASK) == REL_CALC_TRI) {
-	      sprintf(logbuf, "Error: --make-rel 'square0' and 'triangle' modifiers cannot coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --make-rel 'square0' and 'triangle' modifiers cannot coexist.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    rel_info.modifier |= REL_CALC_SQ0;
 	  } else if (!strcmp(argv[cur_arg + uii], "triangle")) {
 	    if ((rel_info.modifier & REL_CALC_SHAPEMASK) == REL_CALC_SQ) {
-	      sprintf(logbuf, "Error: --make-rel 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --make-rel 'square' and 'triangle' modifiers cannot coexist.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    } else if ((rel_info.modifier & REL_CALC_SHAPEMASK) == REL_CALC_SQ0) {
-	      sprintf(logbuf, "Error: --make-rel 'square0' and 'triangle' modifiers cannot coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --make-rel 'square0' and 'triangle' modifiers cannot coexist.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    rel_info.modifier |= REL_CALC_TRI;
 	  } else if ((!strcmp(argv[cur_arg + uii], "ibc2")) || (!strcmp(argv[cur_arg + uii], "ibc3"))) {
 	    if (rel_info.modifier & REL_CALC_COV) {
-	      sprintf(logbuf, "Error: --make-rel 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --make-rel 'cov' modifier cannot coexist with an IBC modifier.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    if (rel_info.ibc_type) {
-	      sprintf(logbuf, "Error: --make-rel '%s' modifier cannot coexist with another IBC modifier.%s", argv[cur_arg + uii], errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: --make-rel '%s' modifier cannot coexist with another IBC modifier.\n", argv[cur_arg + uii]);
+	      goto main_ret_INVALID_CMDLINE_2A;
 	    }
 	    rel_info.ibc_type = argv[cur_arg + uii][3] - '0';
 	  } else if (!strcmp(argv[cur_arg + uii], "single-prec")) {
 	    rel_info.modifier |= REL_CALC_SINGLE_PREC;
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --make-rel parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --make-rel parameter '%s'.\n", argv[cur_arg + uii]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	if (!(rel_info.modifier & REL_CALC_SHAPEMASK)) {
@@ -7722,21 +7719,21 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ake-bed", 8)) {
         if (misc_flags & MISC_KEEP_AUTOCONV) {
-	  sprintf(logbuf, "Error: --make-bed cannot be used with --keep-autoconv.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --make-bed cannot be used with --keep-autoconv.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (param_ct) {
-	  sprintf(logbuf, "Error: --%s doesn't accept parameters.%s%s", argptr, ((param_ct == 1) && (!outname_end))? "  (Did you forget '--out'?)" : "", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: --make-bed doesn't accept parameters.%s\n", ((param_ct == 1) && (!outname_end))? "  (Did you forget '--out'?)" : "");
+	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	calculation_type |= CALC_MAKE_BED;
       } else if (!memcmp(argptr2, "erge", 5)) {
 	if (calculation_type & CALC_MERGE) {
-	  sprintf(logbuf, "Error: --merge cannot be used with --bmerge.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --merge cannot be used with --bmerge.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (load_rare & LOAD_RARE_CNV) {
-	  sprintf(logbuf, "Error: --merge does not currently support .cnv filesets.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --merge does not currently support .cnv filesets.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -7785,12 +7782,12 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	cc = argv[cur_arg + 1][0];
 	if ((cc < '1') || (cc > '7') || (argv[cur_arg + 1][1] != '\0')) {
-          sprintf(logbuf, "Error: Invalid --merge-mode parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+          sprintf(logbuf, "Error: Invalid --merge-mode parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if ((merge_type & MERGE_LIST) && (cc > '5')) {
-	  sprintf(logbuf, "Error: --merge-mode 6-7 cannot be used with --merge-list.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --merge-mode 6-7 cannot be used with --merge-list.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         merge_type |= cc - '0';
       } else if (!memcmp(argptr2, "erge-equal-pos", 15)) {
@@ -7811,8 +7808,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &gxe_mcovar)) {
-	  sprintf(logbuf, "Error: Invalid --mcovar parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --mcovar parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
         logprint("Note: --mcovar flag deprecated.  Use '--gxe [covariate index]'.\n");
       } else if (!memcmp(argptr2, "odel", 5)) {
@@ -7828,20 +7825,20 @@ int32_t main(int32_t argc, char** argv) {
 	for (uii = 1; uii <= param_ct; uii++) {
 	  if (!strcmp(argv[cur_arg + uii], "fisher")) {
 	    if (model_modifier & MODEL_TRENDONLY) {
-	      sprintf(logbuf, "Error: --model 'fisher' and 'trend-only' cannot be used together.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --model 'fisher' and 'trend-only' cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    model_modifier |= MODEL_FISHER;
 	  } else if (!strcmp(argv[cur_arg + uii], "fisher-midp")) {
 	    if (model_modifier & MODEL_TRENDONLY) {
-	      sprintf(logbuf, "Error: --model 'fisher-midp' and 'trend-only' cannot be used together.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --model 'fisher-midp' and 'trend-only' cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    model_modifier |= MODEL_FISHER | MODEL_FISHER_MIDP;
 	  } else if (!strcmp(argv[cur_arg + uii], "perm")) {
 	    if (model_modifier & MODEL_MPERM) {
-	      sprintf(logbuf, "Error: --model 'mperm' and 'perm' cannot be used together.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --model 'mperm' and 'perm' cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    model_modifier |= MODEL_PERM;
 	  } else if (!strcmp(argv[cur_arg + uii], "genedrop")) {
@@ -7851,48 +7848,48 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "dom")) {
 	    if (model_modifier & (MODEL_PREC | MODEL_PGEN | MODEL_PTREND | MODEL_TRENDONLY)) {
 	      logprint("Error: Conflicting --model parameters.\n");
-	      goto main_ret_INVALID_CMDLINE;
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    model_modifier |= MODEL_PDOM;
 	  } else if (!strcmp(argv[cur_arg + uii], "rec")) {
 	    if (model_modifier & (MODEL_PDOM | MODEL_PGEN | MODEL_PTREND | MODEL_TRENDONLY)) {
 	      logprint("Error: Conflicting --model parameters.\n");
-	      goto main_ret_INVALID_CMDLINE;
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    model_modifier |= MODEL_PREC;
 	  } else if (!strcmp(argv[cur_arg + uii], "gen")) {
 	    if (model_modifier & (MODEL_PDOM | MODEL_PREC | MODEL_PTREND | MODEL_TRENDONLY)) {
 	      logprint("Error: Conflicting --model parameters.\n");
-	      goto main_ret_INVALID_CMDLINE;
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    if (mtest_adjust) {
-	      sprintf(logbuf, "Error: --model perm-gen cannot be used with --adjust.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --model perm-gen cannot be used with --adjust.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    model_modifier |= MODEL_PGEN;
 	  } else if (!strcmp(argv[cur_arg + uii], "trend")) {
 	    if (model_modifier & (MODEL_PDOM | MODEL_PREC | MODEL_PGEN)) {
 	      logprint("Error: Conflicting --model parameters.\n");
-	      goto main_ret_INVALID_CMDLINE;
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    model_modifier |= MODEL_PTREND;
 	  } else if (!strcmp(argv[cur_arg + uii], "trend-only")) {
 	    if (model_modifier & (MODEL_FISHER | MODEL_PDOM | MODEL_PREC | MODEL_PGEN)) {
 	      logprint("Error: Conflicting --model parameters.\n");
-	      goto main_ret_INVALID_CMDLINE;
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    model_modifier |= MODEL_PTREND | MODEL_TRENDONLY;
 	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
 	    if (model_modifier & MODEL_PERM) {
-	      sprintf(logbuf, "Error: --model 'mperm' and 'perm' cannot be used together.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --model 'mperm' and 'perm' cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    } else if (model_modifier & MODEL_MPERM) {
-	      sprintf(logbuf, "Error: Duplicate --model 'mperm' modifier.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: Duplicate --model 'mperm' modifier.\n");
+	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    if (scan_posint_defcap(&(argv[cur_arg + uii][6]), &model_mperm_val)) {
-	      sprintf(logbuf, "Error: Invalid --model mperm parameter '%s'.%s", &(argv[cur_arg + uii][6]), errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: Invalid --model mperm parameter '%s'.\n", &(argv[cur_arg + uii][6]));
+	      goto main_ret_INVALID_CMDLINE_WWA;
 	    }
 	    model_modifier |= MODEL_MPERM;
 	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
@@ -7901,8 +7898,8 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "set-test")) {
 	    model_modifier |= MODEL_SET_TEST;
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --model parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --model parameter '%s'.\n", argv[cur_arg + uii]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	calculation_type |= CALC_MODEL;
@@ -7913,7 +7910,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (model_modifier & (MODEL_PREC | MODEL_PGEN | MODEL_PTREND)) {
 	  logprint("Error: Conflicting --model parameters.\n");
-	  goto main_ret_INVALID_CMDLINE;
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --model-dom flag deprecated.  Use '--model dom'.\n");
 	model_modifier |= MODEL_PDOM;
@@ -7926,7 +7923,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (model_modifier & (MODEL_PDOM | MODEL_PREC | MODEL_PTREND)) {
 	  logprint("Error: Conflicting --model parameters.\n");
-	  goto main_ret_INVALID_CMDLINE;
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --model-gen flag deprecated.  Use '--model gen'.\n");
 	model_modifier |= MODEL_PGEN;
@@ -7939,7 +7936,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (model_modifier & (MODEL_PDOM | MODEL_PGEN | MODEL_PTREND)) {
 	  logprint("Error: Conflicting --model parameters.\n");
-	  goto main_ret_INVALID_CMDLINE;
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --model-rec flag deprecated.  Use '--model rec'.\n");
 	model_modifier |= MODEL_PREC;
@@ -7952,7 +7949,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (model_modifier & (MODEL_PDOM | MODEL_PGEN | MODEL_PREC)) {
 	  logprint("Error: Conflicting --model parameters.\n");
-	  goto main_ret_INVALID_CMDLINE;
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --model-trend flag deprecated.  Use '--model trend'.\n");
 	model_modifier |= MODEL_PTREND;
@@ -7960,18 +7957,18 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "perm", 5)) {
 	if (model_modifier & (MODEL_PERM | MODEL_MPERM)) {
-	  sprintf(logbuf, "Error: --mperm cannot be used with --%s %sperm.%s", (model_modifier & MODEL_ASSOC)? "assoc" : "model", (model_modifier & MODEL_PERM)? "" : "m", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: --mperm cannot be used with --%s %sperm.\n", (model_modifier & MODEL_ASSOC)? "assoc" : "model", (model_modifier & MODEL_PERM)? "" : "m");
+	  goto main_ret_INVALID_CMDLINE_2A;
 	} else if (glm_modifier & (GLM_PERM | GLM_MPERM)) {
-	  sprintf(logbuf, "Error: --mperm cannot be used with --%s %sperm.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", (glm_modifier & GLM_PERM)? "" : "m", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: --mperm cannot be used with --%s %sperm.\n", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", (glm_modifier & GLM_PERM)? "" : "m");
+	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &mperm_val)) {
-	  sprintf(logbuf, "Error: Invalid --mperm parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --mperm parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (load_rare & LOAD_RARE_CNV) {
 	  if ((cnv_calc_type & CNV_INDIV_PERM) && (!cnv_indiv_mperms)) {
@@ -8008,8 +8005,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "perm-save", 10)) {
 	if (glm_modifier & GLM_NO_SNP) {
-          sprintf(logbuf, "Error: --mperm-save cannot be used with --linear/--logistic no-snp.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+          logprint("Error: --mperm-save cannot be used with --linear/--logistic no-snp.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	mperm_save |= MPERM_DUMP_BEST;
 	goto main_param_zero;
@@ -8018,44 +8015,44 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "c", 2)) {
 	if (!(calculation_type & CALC_CLUSTER)) {
-	  sprintf(logbuf, "Error: --mc must be used with --cluster.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --mc must be used with --cluster.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &cluster.max_size) || (cluster.max_size == 1)) {
-	  sprintf(logbuf, "Error: Invalid --mc parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --mc parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "cc", 2)) {
 	if (!(calculation_type & CALC_CLUSTER)) {
-	  sprintf(logbuf, "Error: --mcc must be used with --cluster.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --mcc must be used with --cluster.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &cluster.max_cases)) {
-	  sprintf(logbuf, "Error: Invalid --mcc parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --mcc parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (cluster.max_cases > cluster.max_size) {
           logprint("Error: --mcc parameter exceeds --mc parameter.\n");
-	  goto main_ret_INVALID_CMDLINE_3;
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 2], &cluster.max_ctrls)) {
-	  sprintf(logbuf, "Error: Invalid --mcc parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --mcc parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (cluster.max_ctrls > cluster.max_size) {
           logprint("Error: --mcc parameter exceeds --mc parameter.\n");
-	  goto main_ret_INVALID_CMDLINE_3;
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
       } else if (!memcmp(argptr2, "atch", 5)) {
 	if (!(calculation_type & CALC_CLUSTER)) {
-	  sprintf(logbuf, "Error: --match must be used with --cluster.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --match must be used with --cluster.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -8071,8 +8068,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "atch-type", 10)) {
 	if (!cluster.match_fname) {
-	  sprintf(logbuf, "Error: --match-type must be used with --match.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --match-type must be used with --match.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -8089,8 +8086,8 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_ret_INVALID_CMDLINE;
 #else
 	if (!(calculation_type & CALC_CLUSTER)) {
-	  sprintf(logbuf, "Error: --mds-plot must be used with --cluster.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --mds-plot must be used with --cluster.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 3)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -8103,20 +8100,20 @@ int32_t main(int32_t argc, char** argv) {
 	    cluster.modifier |= CLUSTER_MDS_EIGVALS;
 	  } else {
 	    if (cluster.mds_dim_ct) {
-	      sprintf(logbuf, "Error: Invalid --mds-plot parameter sequence.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: Invalid --mds-plot parameter sequence.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    if (scan_posint_defcap(argv[cur_arg + uii], &cluster.mds_dim_ct)) {
-	      sprintf(logbuf, "Error: Invalid --mds-plot parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-              goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: Invalid --mds-plot parameter '%s'.\n", argv[cur_arg + uii]);
+              goto main_ret_INVALID_CMDLINE_WWA;
 	    }
 	  }
 	}
 #endif
       } else if (!memcmp(argptr2, "ds-cluster", 11)) {
 	if (!(calculation_type & CALC_CLUSTER)) {
-	  sprintf(logbuf, "Error: --mds-cluster must be used with --cluster.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --mds-cluster must be used with --cluster.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         logprint("Note: --mds-cluster flag deprecated.  Use '--mds-plot by-cluster'.\n");
         cluster.modifier |= CLUSTER_MDS;
@@ -8125,24 +8122,24 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &mwithin_col)) {
-	  sprintf(logbuf, "Error: Invalid --mwithin parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --mwithin parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "in", 3)) {
         if (!(calculation_type & CALC_GENOME)) {
-	  sprintf(logbuf, "Error: --min must be used with --genome.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --min must be used with --genome.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
         if (scan_double(argv[cur_arg + 1], &dxx)) {
-	  sprintf(logbuf, "Error: Invalid --min parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --min parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if ((dxx < -1.0) || (dxx > 1.0)) {
-          sprintf(logbuf, "Error: --min threshold must be between -1 and 1 inclusive.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+          logprint("Error: --min threshold must be between -1 and 1 inclusive.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (dxx > genome_max_pi_hat) {
 	  logprint("Error: --min value cannot be greater than --max value.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -8151,19 +8148,19 @@ int32_t main(int32_t argc, char** argv) {
 	genome_min_pi_hat = dxx;
       } else if (!memcmp(argptr2, "ax", 3)) {
         if (!(calculation_type & CALC_GENOME)) {
-	  sprintf(logbuf, "Error: --max must be used with --genome.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --max must be used with --genome.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
         if (scan_double(argv[cur_arg + 1], &dxx)) {
-	  sprintf(logbuf, "Error: Invalid --max parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --max parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if ((dxx < -1.0) || (dxx > 1.0)) {
-          sprintf(logbuf, "Error: --max threshold must be between -1 and 1 inclusive.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+          logprint("Error: --max threshold must be between -1 and 1 inclusive.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	genome_modifier |= GENOME_FILTER_PI_HAT;
 	genome_max_pi_hat = dxx;
@@ -8177,8 +8174,8 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "first")) {
 	    misc_flags |= MISC_MAKE_FOUNDERS_FIRST;
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --make-founders parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --make-founders parameter '%s'.\n", argv[cur_arg + uii]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	filter_flags |= FILTER_MAKE_FOUNDERS;
@@ -8191,8 +8188,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct) {
 	  if (strcmp(argv[cur_arg + 1], "bd")) {
-	    sprintf(logbuf, "Error: Invalid --mh parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --mh parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	  misc_flags |= MISC_CMH_BD;
 	}
@@ -8218,15 +8215,15 @@ int32_t main(int32_t argc, char** argv) {
         set_info.modifier |= SET_MAKE_FROM_RANGES;
       } else if (!memcmp(argptr2, "ake-set-border", 15)) {
 	if (!set_info.fname) {
-	  sprintf(logbuf, "Error: --make-set-border must be used with --make-set.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --make-set-border must be used with --make-set.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
         if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0)) {
-	  sprintf(logbuf, "Error: Invalid --make-set-border parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --make-set-border parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (dxx > 2147483.646) {
 	  set_info.make_set_border = 2147483646;
@@ -8235,15 +8232,15 @@ int32_t main(int32_t argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "ake-set-collapse-group", 23)) {
         if (!set_info.fname) {
-	  sprintf(logbuf, "Error: --make-set-collapse-group must be used with --make-set.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --make-set-collapse-group must be used with --make-set.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         set_info.modifier |= SET_MAKE_COLLAPSE_GROUP;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ake-set-complement-all", 23)) {
 	if (set_info.modifier & SET_COMPLEMENTS) {
-	  sprintf(logbuf, "Error: --make-set-complement-all cannot be used with --complement-sets.%s", errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --make-set-complement-all cannot be used with --complement-sets.\n");
+          goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -8254,18 +8251,18 @@ int32_t main(int32_t argc, char** argv) {
 	set_info.modifier |= SET_COMPLEMENTS;
       } else if (!memcmp(argptr2, "ake-set-complement-group", 25)) {
         if (!set_info.fname) {
-	  sprintf(logbuf, "Error: --make-set-complement-group must be used with --make-set.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --make-set-complement-group must be used with --make-set.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (set_info.modifier & (SET_COMPLEMENTS | SET_MAKE_COLLAPSE_GROUP)) {
-	  sprintf(logbuf, "Error: --make-set-complement-group cannot be used with --complement-sets,\n--make-set-collapse-group, or --make-set-complement-all.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --make-set-complement-group cannot be used with --complement-sets,\n--make-set-collapse-group, or --make-set-complement-all.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         set_info.modifier |= SET_COMPLEMENTS | SET_C_PREFIX | SET_MAKE_COLLAPSE_GROUP;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "erge-x", 7)) {
 	if ((chrom_info.x_code == -1) || (chrom_info.xy_code == -1)) {
-	  sprintf(logbuf, "Error: --merge-x must be used with a chromosome set containing X and XY codes.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --merge-x must be used with a chromosome set containing X and XY codes.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	misc_flags |= MISC_MERGEX;
 	goto main_param_zero;
@@ -8289,18 +8286,18 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + 2], "var-first")) {
 	    ujj = 3;
 	  } else if (strcmp(argv[cur_arg + 3], "var-first")) {
-	    sprintf(logbuf, "Error: Invalid --me parameter '%s'.%s", argv[cur_arg + 3], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --me parameter '%s'.\n", argv[cur_arg + 3]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	  family_info.mendel_modifier |= MENDEL_FILTER_VAR_FIRST;
 	}
 	if (scan_double(argv[cur_arg + uii], &family_info.mendel_max_trio_error) || (family_info.mendel_max_trio_error < 0.0) || (family_info.mendel_max_trio_error > 1.0)) {
-	  sprintf(logbuf, "Error: Invalid --me maximum per-trio error rate '%s'.%s", argv[cur_arg + uii], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --me maximum per-trio error rate '%s'.\n", argv[cur_arg + uii]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (scan_double(argv[cur_arg + ujj], &family_info.mendel_max_var_error) || (family_info.mendel_max_var_error < 0.0) || (family_info.mendel_max_var_error > 1.0)) {
-	  sprintf(logbuf, "Error: Invalid --me maximum per-variant error rate '%s'.%s", argv[cur_arg + ujj], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --me maximum per-variant error rate '%s'.\n", argv[cur_arg + ujj]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if ((family_info.mendel_max_trio_error < 1.0) || (family_info.mendel_max_var_error < 1.0)) {
 	  if (covar_fname && (family_info.mendel_max_trio_error < 1.0)) {
@@ -8315,16 +8312,16 @@ int32_t main(int32_t argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "e-exclude-one", 14)) {
 	if (!(family_info.mendel_modifier & MENDEL_FILTER)) {
-	  sprintf(logbuf, "Error: --me-exclude-one must be used with a --me parameter smaller than one.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --me-exclude-one must be used with a --me parameter smaller than one.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
         if (param_ct) {
 	  if (scan_double(argv[cur_arg + 1], &family_info.mendel_exclude_one_ratio) || (family_info.mendel_exclude_one_ratio < 1.0)) {
-	    sprintf(logbuf, "Error: Invalid --me-exclude-one ratio '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --me-exclude-one ratio '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	} else {
 	  family_info.mendel_exclude_one_ratio = -1;
@@ -8385,22 +8382,22 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &neighbor_n1)) {
-	  sprintf(logbuf, "Error: Invalid --neighbour parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --neighbour parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &neighbor_n2)) {
-	  sprintf(logbuf, "Error: Invalid --neighbour parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --neighbour parameter '%s'.\n", argv[cur_arg + 2]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (neighbor_n2 < neighbor_n1) {
-	  sprintf(logbuf, "Error: Second --neighbour parameter cannot be smaller than first parameter.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: Second --neighbour parameter cannot be smaller than first parameter.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         calculation_type |= CALC_NEIGHBOR;
       } else if (!memcmp(argptr2, "ot-chr", 7)) {
 	if (markername_from) {
-	  sprintf(logbuf, "Error: --from cannot be used with --autosome{-xy} or --{not-}chr.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --from cannot be used with --autosome{-xy} or --{not-}chr.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	// allowed:
 	//   --allow-extra-chr --chr 5-22 bobs_chrom --not-chr 17
@@ -8422,50 +8419,50 @@ int32_t main(int32_t argc, char** argv) {
 	  chrom_info.chrom_mask[uii] &= ~chrom_exclude[uii];
 	}
 	if (all_words_zero(chrom_info.chrom_mask, CHROM_MASK_INITIAL_WORDS) && ((!((misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1)) || (chrom_info.is_include_stack && (!chrom_info.incl_excl_name_stack)))) {
-	  sprintf(logbuf, "Error: All chromosomes excluded.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: All chromosomes excluded.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	chrom_flag_present = 1;
       } else if (!memcmp(argptr2, "udge", 5)) {
         if (!(calculation_type & CALC_GENOME)) {
-	  sprintf(logbuf, "Error: --nudge must be used with --genome.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --nudge must be used with --genome.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         logprint("Note: --nudge flag deprecated.  Use '--genome nudge'.\n");
         genome_modifier |= GENOME_NUDGE;
         goto main_param_zero;
       } else if (!memcmp(argptr2, "o-snp", 6)) {
 	if (!(calculation_type & CALC_GLM)) {
-	  sprintf(logbuf, "Error: --no-snp must be used with --linear or --logistic.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --no-snp must be used with --linear or --logistic.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (mtest_adjust) {
-	  sprintf(logbuf, "Error: --no-snp cannot be used with --adjust.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --no-snp cannot be used with --adjust.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (mperm_save & MPERM_DUMP_BEST) {
-	  sprintf(logbuf, "Error: --no-snp cannot be used with --mperm-save.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --no-snp cannot be used with --mperm-save.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if ((glm_modifier & (GLM_NO_SNP_EXCL - GLM_HETHOM - GLM_DOMINANT)) || ((glm_modifier & (GLM_HETHOM | GLM_DOMINANT)) && (!(glm_modifier & (GLM_CONDITION_DOMINANT | GLM_CONDITION_RECESSIVE))))) {
-	  sprintf(logbuf, "Error: --no-snp conflicts with a --%s modifier.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: --no-snp conflicts with a --%s modifier.\n", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear");
+	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	logprint("Note: --no-snp flag deprecated.  Use e.g. '--linear no-snp'.\n");
         glm_modifier |= GLM_NO_SNP;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "o-x-sex", 8)) {
 	if (!(calculation_type & CALC_GLM)) {
-	  sprintf(logbuf, "Error: --no-x-sex must be used with --linear or --logistic.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --no-x-sex must be used with --linear or --logistic.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (glm_modifier & (GLM_NO_SNP | GLM_SEX)) {
-	  sprintf(logbuf, "Error: --no-x-sex conflicts with a --%s modifier.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: --no-x-sex conflicts with a --%s modifier.\n", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear");
+	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	logprint("Note: --no-x-sex flag deprecated.  Use e.g. '--linear no-x-sex'.\n");
 	glm_modifier |= GLM_NO_X_SEX;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "op", 3)) {
 	if (!(epi_info.modifier & EPI_FAST)) {
-	  sprintf(logbuf, "Error: --nop must be used with --fast-epistasis.%s", errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --nop must be used with --fast-epistasis.\n");
+          goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --nop flag deprecated.  Use '--fast-epistasis nop'.\n");
         epi_info.modifier |= EPI_FAST_NO_P_VALUE;
@@ -8485,8 +8482,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	cc = argv[cur_arg + 1][0];
 	if ((argv[cur_arg + 1][1] != '\0') || (((unsigned char)cc) <= ' ')) {
-	  sprintf(logbuf, "Error: Invalid --output-missing-genotype parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --output-missing-genotype parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	g_output_missing_geno_ptr = &(g_one_char_strs[((unsigned char)cc) * 2]);
       } else if (!memcmp(argptr2, "utput-missing-phenotype", 24)) {
@@ -8514,16 +8511,16 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --oblig-clusters flag deprecated.  Use just --oblig-missing.\n");
       } else if (!memcmp(argptr2, "blig-missing", 13)) {
 	if ((geno_thresh == 1.0) && (mind_thresh == 1.0) && (!(calculation_type & CALC_MISSING_REPORT))) {
-	  sprintf(logbuf, "Error: --oblig-missing must be used with --geno, --mind, or --missing.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --oblig-missing must be used with --geno, --mind, or --missing.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (!oblig_missing_info.indiv_fname) {
           if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 2)) {
 	    goto main_ret_INVALID_CMDLINE_2A;
 	  }
 	} else if (param_ct != 1) {
-          sprintf(logbuf, "Error: --oblig-missing requires exactly one parameter when --oblig-clusters is\nalso present.%s", errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
+          logprint("Error: --oblig-missing requires exactly one parameter when --oblig-clusters is\nalso present.\n");
+          goto main_ret_INVALID_CMDLINE_A;
 	}
 	retval = alloc_fname(&oblig_missing_info.marker_fname, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
@@ -8595,49 +8592,49 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "arallel", 8)) {
 	if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ) {
-	  sprintf(logbuf, "Error: --parallel cannot be used with '--distance square'.  Use '--distance\nsquare0' or plain --distance instead.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --parallel cannot be used with '--distance square'.  Use '--distance\nsquare0' or plain --distance instead.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if ((dist_calc_type & DISTANCE_BIN) && (!(dist_calc_type & DISTANCE_SHAPEMASK))) {
-	  sprintf(logbuf, "Error: --parallel cannot be used with plain '--distance bin'.  Use '--distance\nbin square0' or '--distance bin triangle' instead.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --parallel cannot be used with plain '--distance bin'.  Use '--distance\nbin square0' or '--distance bin triangle' instead.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if ((rel_info.modifier & REL_CALC_SHAPEMASK) == REL_CALC_SQ) {
-	  sprintf(logbuf, "Error: --parallel cannot be used with '--make-rel square'.  Use '--make-rel\nsquare0' or plain '--make-rel' instead.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --parallel cannot be used with '--make-rel square'.  Use '--make-rel\nsquare0' or plain '--make-rel' instead.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if ((rel_info.modifier & REL_CALC_BIN) && (!(rel_info.modifier & REL_CALC_SHAPEMASK))) {
-	  sprintf(logbuf, "Error: --parallel cannot be used with plain '--make-rel bin'.  Use '--make-rel\nbin square0' or '--make-rel bin triangle' instead.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --parallel cannot be used with plain '--make-rel bin'.  Use '--make-rel\nbin square0' or '--make-rel bin triangle' instead.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (calculation_type & CALC_PLINK1_DISTANCE_MATRIX) {
-	  sprintf(logbuf, "Error: --parallel and --distance-matrix cannot be used together.  Use\n--distance instead.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --parallel and --distance-matrix cannot be used together.  Use\n--distance instead.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (calculation_type & CALC_GROUPDIST) {
-	  sprintf(logbuf, "Error: --parallel and --groupdist cannot be used together.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --parallel and --groupdist cannot be used together.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (calculation_type & CALC_CLUSTER) {
-	  sprintf(logbuf, "Error: --parallel and --cluster cannot be used together.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --parallel and --cluster cannot be used together.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (calculation_type & CALC_NEIGHBOR) {
-	  sprintf(logbuf, "Error: --parallel and --neighbour cannot be used together.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --parallel and --neighbour cannot be used together.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_capped(argv[cur_arg + 1], &parallel_idx, PARALLEL_MAX / 10, PARALLEL_MAX % 10)) {
-	  sprintf(logbuf, "Error: Invalid --parallel job index '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --parallel job index '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	parallel_idx--; // internal 0..(n-1) indexing
 	if (scan_posint_capped(argv[cur_arg + 2], &parallel_tot, PARALLEL_MAX / 10, PARALLEL_MAX % 10) || (parallel_tot == 1) || (parallel_tot < parallel_idx)) {
-	  sprintf(logbuf, "Error: Invalid --parallel total job count '%s'.%s", argv[cur_arg + 2], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --parallel total job count '%s'.\n", argv[cur_arg + 2]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "pc-gap", 7)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx)) {
-	  sprintf(logbuf, "Error: Invalid --ppc-gap parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --ppc-gap parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	dxx *= 1000;
 	if (dxx < 0) {
@@ -8649,14 +8646,14 @@ int32_t main(int32_t argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "erm", 4)) {
 	if ((model_modifier & MODEL_MPERM) && (calculation_type & CALC_MODEL)) {
-	  sprintf(logbuf, "Error: --perm cannot be used with --%s mperm.%s", (model_modifier & MODEL_ASSOC)? "assoc" : "model", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: --perm cannot be used with --%s mperm.\n", (model_modifier & MODEL_ASSOC)? "assoc" : "model");
+	  goto main_ret_INVALID_CMDLINE_2A;
 	} else if ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_MPERM + GLM_NO_SNP))) {
-	  sprintf(logbuf, "Error: --perm cannot be used with --%s %s.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", (glm_modifier & GLM_MPERM)? "mperm" : "no-snp", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: --perm cannot be used with --%s %s.\n", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", (glm_modifier & GLM_MPERM)? "mperm" : "no-snp");
+	  goto main_ret_INVALID_CMDLINE_2A;
 	} else if (model_modifier & MODEL_MPERM) {
-	  sprintf(logbuf, "Error: --perm cannot be used with --mperm.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --perm cannot be used with --mperm.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	model_modifier |= MODEL_PERM;
         glm_modifier |= GLM_PERM;
@@ -8676,8 +8673,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (model_modifier & MODEL_QMASK) {
-	  sprintf(logbuf, "Error: --assoc 'qt-means'/'lin' does not make sense with --p2.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --assoc 'qt-means'/'lin' does not make sense with --p2.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --p2 flag deprecated.  Use '--assoc p2 ...'.\n");
 	model_modifier |= MODEL_ASSOC_P2;
@@ -8687,12 +8684,12 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
         if (scan_double(argv[cur_arg + 1], &dxx)) {
-	  sprintf(logbuf, "Error: Invalid --pfilter parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --pfilter parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if ((dxx <= 0.0) || (dxx >= 1.0)) {
-	  sprintf(logbuf, "Error: --pfilter threshold must be between 0 and 1 exclusive.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --pfilter threshold must be between 0 and 1 exclusive.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	pfilter = dxx;
       } else if (!memcmp(argptr2, "erm-batch-size", 1)) {
@@ -8700,24 +8697,24 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &perm_batch_size)) {
-	  sprintf(logbuf, "Error: Invalid --perm-batch-size parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --perm-batch-size parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "pc", 3)) {
 	if (!(calculation_type & (CALC_NEIGHBOR | CALC_CLUSTER))) {
-          sprintf(logbuf, "Error: --ppc must be used with --cluster or --neigbour.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+          logprint("Error: --ppc must be used with --cluster or --neigbour.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
         if (scan_double(argv[cur_arg + 1], &dxx)) {
-	  sprintf(logbuf, "Error: Invalid --ppc parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --ppc parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if ((dxx <= 0.0) || (dxx >= 1.0)) {
-	  sprintf(logbuf, "Error: --ppc threshold must be between 0 and 1 exclusive.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --ppc threshold must be between 0 and 1 exclusive.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         cluster.ppc = dxx;
       } else if (!memcmp(argptr2, "ool-size", 9)) {
@@ -8729,13 +8726,13 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &homozyg.pool_size_min) || (homozyg.pool_size_min == 1)) {
-	  sprintf(logbuf, "Error: Invalid --pool-size parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --pool-size parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "arameters", 10)) {
 	if (!(calculation_type & CALC_GLM)) {
-	  sprintf(logbuf, "Error: --parameters must be used with --linear or --logistic.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --parameters must be used with --linear or --logistic.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	retval = parse_name_ranges(param_ct, '-', &(argv[cur_arg]), &parameters_range_list, 1);
 	if (retval) {
@@ -8747,14 +8744,14 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_ret_INVALID_CMDLINE;
 #else
 	if (rel_info.modifier & REL_CALC_COV) {
-	  sprintf(logbuf, "Error: --pca flag cannot coexist with a covariance matrix calculation.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --pca flag cannot coexist with a covariance matrix calculation.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (parallel_tot > 1) {
-	  sprintf(logbuf, "Error: --parallel and --pca cannot be used together.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --parallel and --pca cannot be used together.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (rel_info.modifier & REL_CALC_SINGLE_PREC) {
-	  sprintf(logbuf, "Error: --pca flag cannot be used with a single-precision relationship matrix\ncalculation.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --pca flag cannot be used with a single-precision relationship matrix\ncalculation.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4)) {
           goto main_ret_INVALID_CMDLINE_2A;
@@ -8769,8 +8766,8 @@ int32_t main(int32_t argc, char** argv) {
             rel_info.modifier |= REL_PCA_VAR_WTS;
 	  } else {
 	    if (ujj || scan_posint_defcap(argv[cur_arg + uii], &rel_info.pc_ct)) {
-	      sprintf(logbuf, "Error: Invalid --pca parameter sequence.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: Invalid --pca parameter sequence.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    if (rel_info.pc_ct > 8000) {
 	      logprint("Error: --pca does not support more than 8000 PCs.\n");
@@ -8783,8 +8780,8 @@ int32_t main(int32_t argc, char** argv) {
 #endif
       } else if (!memcmp(argptr2, "ca-cluster-names", 17)) {
 	if (!(calculation_type & CALC_PCA)) {
-	  sprintf(logbuf, "Error: --pca-cluster-names must be used with --pca.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --pca-cluster-names must be used with --pca.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x7fffffff)) {
           goto main_ret_INVALID_CMDLINE_2A;
@@ -8795,8 +8792,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "ca-clusters", 12)) {
 	if (!(calculation_type & CALC_PCA)) {
-	  sprintf(logbuf, "Error: --pca-clusters must be used with --pca.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --pca-clusters must be used with --pca.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
           goto main_ret_INVALID_CMDLINE_2A;
@@ -8840,28 +8837,28 @@ int32_t main(int32_t argc, char** argv) {
     case 'q':
       if (!memcmp(argptr2, "t-means", 8)) {
 	if ((!(calculation_type & CALC_MODEL)) || (!(model_modifier & MODEL_ASSOC))) {
-	  sprintf(logbuf, "Error: --qt-means must be used with --assoc.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --qt-means must be used with --assoc.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (model_modifier & MODEL_DMASK) {
-	  sprintf(logbuf, "Error: --qt-means does not make sense with a case/control-specific --assoc\nmodifier.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --qt-means does not make sense with a case/control-specific --assoc\nmodifier.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --qt-means flag deprecated.  Use '--assoc qt-means ...'.\n");
 	model_modifier |= MODEL_QT_MEANS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "q-plot", 7)) {
         if (!mtest_adjust) {
-	  sprintf(logbuf, "Error: --qq-plot must be used with --adjust.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --qq-plot must be used with --adjust.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --qq-plot flag deprecated.  Use '--adjust qq-plot'.\n");
 	mtest_adjust |= ADJUST_QQ;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "match", 6)) {
         if (!(calculation_type & CALC_CLUSTER)) {
-          sprintf(logbuf, "Error: --qmatch must be used with --cluster.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+          logprint("Error: --qmatch must be used with --cluster.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -8877,8 +8874,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "t", 2)) {
         if (!cluster.qmatch_fname) {
-          sprintf(logbuf, "Error: --qt must be used with --qmatch.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+          logprint("Error: --qt must be used with --qmatch.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -8921,20 +8918,20 @@ int32_t main(int32_t argc, char** argv) {
 	    if (!strcmp(argv[cur_arg + uii], "header")) {
 	      score_info.modifier |= SCORE_DATA_HEADER;
 	    } else if (ujj == 2) {
-              sprintf(logbuf, "Error: --q-score-range takes at most two numeric parameters.%s", errstr_append);
-              goto main_ret_INVALID_CMDLINE_3;
+              logprint("Error: --q-score-range takes at most two numeric parameters.\n");
+              goto main_ret_INVALID_CMDLINE_A;
 	    } else {
 	      if (scan_posint_capped(argv[cur_arg + uii], (uint32_t*)&ii, (MAXLINEBUFLEN / 2) / 10, (MAXLINEBUFLEN / 2) % 10)) {
-                sprintf(logbuf, "Error: Invalid --q-score-range parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-                goto main_ret_INVALID_CMDLINE_3;
+                sprintf(logbuf, "Error: Invalid --q-score-range parameter '%s'.\n", argv[cur_arg + uii]);
+                goto main_ret_INVALID_CMDLINE_WWA;
 	      }
               if (!ujj) {
                 score_info.data_varid_col = ii;
                 score_info.data_col = ii + 1;
 	      } else {
 		if ((uint32_t)ii == score_info.data_varid_col) {
-	          sprintf(logbuf, "Error: --q-score-range variant ID and data column numbers cannot match.%s", errstr_append);
-	          goto main_ret_INVALID_CMDLINE_3;
+	          logprint("Error: --q-score-range variant ID and data column numbers cannot match.\n");
+	          goto main_ret_INVALID_CMDLINE_A;
 		}
 		score_info.data_col = ii;
 	      }
@@ -8986,8 +8983,8 @@ int32_t main(int32_t argc, char** argv) {
         filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "el-cutoff", 10)) {
 	if (parallel_tot > 1) {
-	  sprintf(logbuf, "Error: --parallel cannot be used with --rel-cutoff.  (Use a combination of\n--make-rel, --keep/--remove, and a filtering script.)%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --parallel cannot be used with --rel-cutoff.  (Use a combination of\n--make-rel, --keep/--remove, and a filtering script.)\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (rel_info.pca_cluster_names_flattened || rel_info.pca_clusters_fname) {
 	  logprint("Error: --pca-cluster-names/--pca-clusters cannot be used with --rel-cutoff.\n");
           goto main_ret_INVALID_CMDLINE;
@@ -9003,55 +9000,55 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct) {
 	  if (scan_double(argv[cur_arg + 1], &rel_info.cutoff) || (rel_info.cutoff <= 0.0) || (rel_info.cutoff >= 1.0)) {
-	    sprintf(logbuf, "Error: Invalid --rel-cutoff parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --rel-cutoff parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	calculation_type |= CALC_REL_CUTOFF;
       } else if (!memcmp(argptr2, "egress-distance", 16)) {
 	if (parallel_tot > 1) {
-	  sprintf(logbuf, "Error: --parallel and --regress-distance cannot be used together.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --parallel and --regress-distance cannot be used together.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (param_ct) {
 	  if (scan_posintptr(argv[cur_arg + 1], &regress_iters) || (regress_iters == 1)) {
-	    sprintf(logbuf, "Error: Invalid --regress-distance jackknife iteration count '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --regress-distance jackknife iteration count '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	  if (param_ct == 2) {
 	    if (scan_posint_defcap(argv[cur_arg + 2], &regress_d)) {
-	      sprintf(logbuf, "Error: Invalid --regress-distance jackknife delete parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: Invalid --regress-distance jackknife delete parameter '%s'.\n", argv[cur_arg + 2]);
+	      goto main_ret_INVALID_CMDLINE_WWA;
 	    }
 	  }
 	}
 	calculation_type |= CALC_REGRESS_DISTANCE;
       } else if (!memcmp(argptr2, "egress-rel", 11)) {
 	if (parallel_tot > 1) {
-	  sprintf(logbuf, "Error: --parallel and --regress-rel flags cannot be used together.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --parallel and --regress-rel flags cannot be used together.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (rel_info.pca_cluster_names_flattened || rel_info.pca_clusters_fname) {
 	  logprint("Error: --pca-cluster-names/--pca-clusters cannot be used with --regress-rel.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	} else if (rel_info.modifier & REL_CALC_SINGLE_PREC) {
-	  sprintf(logbuf, "Error: --regress-rel cannot currently be used with a single-precision\nrelationship matrix.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --regress-rel cannot currently be used with a single-precision\nrelationship matrix.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (param_ct) {
 	  if (scan_posintptr(argv[cur_arg + 1], &rel_info.regress_rel_iters) || (rel_info.regress_rel_iters == 1)) {
-	    sprintf(logbuf, "Error: Invalid --regress-rel jackknife iteration count '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --regress-rel jackknife iteration count '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	  if (param_ct == 2) {
 	    if (scan_posint_defcap(argv[cur_arg + 2], &rel_info.regress_rel_d)) {
-	      sprintf(logbuf, "Error: Invalid --regress-rel jackknife delete parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: Invalid --regress-rel jackknife delete parameter '%s'.\n", argv[cur_arg + 2]);
+	      goto main_ret_INVALID_CMDLINE_WWA;
 	    }
 	  }
 	}
@@ -9185,8 +9182,8 @@ int32_t main(int32_t argc, char** argv) {
 	*/
       } else if (!memcmp(argptr2, "ead-freq", 9)) {
 	if (calculation_type & CALC_FREQ) {
-	  sprintf(logbuf, "Error: --freq and --read-freq flags cannot coexist.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --freq and --read-freq flags cannot coexist.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -9207,12 +9204,12 @@ int32_t main(int32_t argc, char** argv) {
 	for (uii = 1; uii <= param_ct; uii++) {
 	  if ((!strcmp(argv[cur_arg + uii], "01")) || (!strcmp(argv[cur_arg + uii], "12"))) {
 	    if (recode_modifier & (RECODE_A | RECODE_AD)) {
-	      sprintf(logbuf, "Error: --recode '01' and '12' modifiers cannot be used with 'A' or 'AD'.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --recode '01' and '12' modifiers cannot be used with 'A' or 'AD'.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    } else if (recode_modifier & RECODE_VCF) {
 	    main_recode_012_vcf_conflict:
-	      sprintf(logbuf, "Error: --recode '01' and '12' modifiers cannot be used with VCF output.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --recode '01' and '12' modifiers cannot be used with VCF output.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    if (argv[cur_arg + uii][0] == '0') {
 	      if (recode_modifier & RECODE_12) {
@@ -9257,20 +9254,20 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	  } else if (!strcmp(argv[cur_arg + uii], "tab")) {
 	    if (recode_modifier & (RECODE_TAB | RECODE_DELIMX)) {
-	      sprintf(logbuf, "Error: Multiple --recode delimiter modifiers.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: Multiple --recode delimiter modifiers.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    recode_modifier |= RECODE_TAB;
 	  } else if (!strcmp(argv[cur_arg + uii], "tabx")) {
 	    if (recode_modifier & (RECODE_TAB | RECODE_DELIMX)) {
-	      sprintf(logbuf, "Error: Multiple --recode delimiter modifiers.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: Multiple --recode delimiter modifiers.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    recode_modifier |= RECODE_TAB | RECODE_DELIMX;
 	  } else if (!strcmp(argv[cur_arg + uii], "spacex")) {
 	    if (recode_modifier & (RECODE_TAB | RECODE_DELIMX)) {
-	      sprintf(logbuf, "Error: Multiple --recode delimiter modifiers.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: Multiple --recode delimiter modifiers.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    recode_modifier |= RECODE_DELIMX;
 	  } else if (!strcmp(argv[cur_arg + uii], "beagle")) {
@@ -9328,8 +9325,8 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "vcf")) {
 	    if (recode_modifier & RECODE_VCF) {
 	    main_recode_vcf_conflict:
-	      sprintf(logbuf, "Error: Conflicting or redundant --recode modifiers.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: Conflicting or redundant --recode modifiers.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    } else if (recode_modifier & (RECODE_01 | RECODE_12)) {
 	      goto main_recode_012_vcf_conflict;
 	    }
@@ -9357,8 +9354,8 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	    recode_modifier |= RECODE_IID;
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --recode parameter '%s'.%s%s", argv[cur_arg + uii], ((uii == param_ct) && (!outname_end))? "  (Did you forget '--out'?)" : "", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --recode parameter '%s'.%s\n", argv[cur_arg + uii], ((uii == param_ct) && (!outname_end))? "  (Did you forget '--out'?)" : "");
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	calculation_type |= CALC_RECODE;
@@ -9367,12 +9364,12 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "ecode-allele", 13)) {
 	if (!(recode_modifier & (RECODE_A | RECODE_AD))) {
-	  sprintf(logbuf, "Error: --recode-allele must be used with --recode A or --recode AD.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --recode-allele must be used with --recode A or --recode AD.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (recode_modifier & (RECODE_01 | RECODE_12)) {
-	  sprintf(logbuf, "Error: --recode-allele cannot be used with --recode 01/12.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --recode-allele cannot be used with --recode 01/12.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -9392,14 +9389,14 @@ int32_t main(int32_t argc, char** argv) {
 	lgen_modifier |= LGEN_REFERENCE;
       } else if (!memcmp(argptr2, "ead-genome", 11)) {
 	if (calculation_type & CALC_GENOME) {
-          sprintf(logbuf, "Error: --read-genome cannot be used with --genome.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+          logprint("Error: --read-genome cannot be used with --genome.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (!(calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR))) {
-          sprintf(logbuf, "Error: --read-genome cannot be used without --cluster or --neighbour.%s", errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
+          logprint("Error: --read-genome cannot be used without --cluster or --neighbour.\n");
+          goto main_ret_INVALID_CMDLINE_A;
 	} else if ((cluster.ppc == 0.0) && ((calculation_type & (CALC_DISTANCE | CALC_PLINK1_DISTANCE_MATRIX)) || read_dists_fname)) {
-          sprintf(logbuf, "Error: --read-genome is pointless with --distance, --distance-matrix, and\n--read-dists unless --ppc is also present.%s", errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
+          logprint("Error: --read-genome is pointless with --distance, --distance-matrix, and\n--read-dists unless --ppc is also present.\n");
+          goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -9416,11 +9413,11 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "ead-dists", 10)) {
 	if (calculation_type & (CALC_DISTANCE | CALC_PLINK1_DISTANCE_MATRIX)) {
-	  sprintf(logbuf, "Error: --read-dists cannot be used with a distance matrix calculation.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --read-dists cannot be used with a distance matrix calculation.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (cluster.modifier & CLUSTER_MISSING) {
-          sprintf(logbuf, "Error: --read-dists cannot be used with '--cluster missing'.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+          logprint("Error: --read-dists cannot be used with '--cluster missing'.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -9437,19 +9434,19 @@ int32_t main(int32_t argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "el-check", 9)) {
         if (!(calculation_type & CALC_GENOME)) {
-          sprintf(logbuf, "Error: --rel-check must be used with --genome.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+          logprint("Error: --rel-check must be used with --genome.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         logprint("Note: --rel-check flag deprecated.  Use '--genome rel-check'.\n");
         genome_modifier |= GENOME_REL_CHECK;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ecessive", 9)) {
 	if (!(calculation_type & CALC_GLM)) {
-	  sprintf(logbuf, "Error: --recessive must be used with --linear or --logistic.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --recessive must be used with --linear or --logistic.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (glm_modifier & (GLM_GENOTYPIC | GLM_HETHOM | GLM_DOMINANT)) {
-	  sprintf(logbuf, "Error: --recessive conflicts with a --%s modifier.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: --recessive conflicts with a --%s modifier.\n", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear");
+	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	logprint("Note: --recessive flag deprecated.  Use e.g. '--linear recessive' (and\n'--condition-list [filename] recessive' to change covariate coding).\n");
 	glm_modifier |= GLM_RECESSIVE | GLM_CONDITION_RECESSIVE;
@@ -9484,8 +9481,8 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE;
 	    } else if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DPRIME | LD_WITH_FREQS)) {
 	    main_r2_matrix_conflict:
-              sprintf(logbuf, "Error: --r/--r2 '%s' cannot be used with matrix output.%s", (ld_info.modifier & LD_INTER_CHR)? "inter-chr" : ((ld_info.modifier & LD_INPHASE)? "in-phase" : ((ld_info.modifier & LD_DPRIME)? "dprime" : "with-freqs")), errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+              sprintf(logbuf, "Error: --r/--r2 '%s' cannot be used with matrix output.\n", (ld_info.modifier & LD_INTER_CHR)? "inter-chr" : ((ld_info.modifier & LD_INPHASE)? "in-phase" : ((ld_info.modifier & LD_DPRIME)? "dprime" : "with-freqs")));
+	      goto main_ret_INVALID_CMDLINE_2A;
 	    }
 	    ld_info.modifier |= LD_MATRIX_SQ;
 	  } else if (!strcmp(argv[cur_arg + uii], "square0")) {
@@ -9556,24 +9553,24 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "yes-really")) {
 	    ld_info.modifier |= LD_YES_REALLY;
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --r/--r2 parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --r/--r2 parameter '%s'.\n", argv[cur_arg + uii]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	if ((ld_info.modifier & (LD_SINGLE_PREC | LD_MATRIX_BIN)) == LD_SINGLE_PREC) {
-	  sprintf(logbuf, "Error: --r/--r2 'single-prec' modifier currently must be used with 'bin'.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --r/--r2 'single-prec' modifier currently must be used with 'bin'.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if ((ld_info.modifier & LD_MATRIX_BIN) && (!(ld_info.modifier & LD_MATRIX_SHAPEMASK))) {
           ld_info.modifier |= LD_MATRIX_SQ;
 	}
 	if ((ld_info.modifier & LD_MATRIX_SPACES) && (!(ld_info.modifier & LD_MATRIX_SHAPEMASK))) {
-	  sprintf(logbuf, "Error: --r/--r2 'spaces' modifier must be used with a shape modifier.%s", errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --r/--r2 'spaces' modifier must be used with a shape modifier.\n");
+          goto main_ret_INVALID_CMDLINE_A;
 	}
 	if ((ld_info.modifier & LD_WEIGHTED_X) && (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_INTER_CHR))) {
-	  sprintf(logbuf, "Error: --ld-xchr 3 cannot be used with --r/--r2 non-windowed reports.%s", errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --ld-xchr 3 cannot be used with --r/--r2 non-windowed reports.\n");
+          goto main_ret_INVALID_CMDLINE_A;
 	} else if (ld_info.modifier & LD_WEIGHTED_X) {
 	  logprint("Error: --r/--r2 + --ld-xchr 3 is not currently supported.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -9583,8 +9580,8 @@ int32_t main(int32_t argc, char** argv) {
         if (extractname) {
 	  misc_flags |= MISC_EXTRACT_RANGE;
 	} else if (!excludename) {
-	  sprintf(logbuf, "Error: --range must be used with --extract and/or --exclude.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --range must be used with --extract and/or --exclude.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (excludename) {
 	  misc_flags |= MISC_EXCLUDE_RANGE;
@@ -9605,16 +9602,16 @@ int32_t main(int32_t argc, char** argv) {
 	rseeds = (uint32_t*)malloc(param_ct * sizeof(int32_t));
 	for (uii = 1; uii <= param_ct; uii++) {
 	  if (scan_uint_capped(argv[cur_arg + uii], &(rseeds[uii - 1]), 0xffffffffU / 10, 0xffffffffU % 10)) {
-	    sprintf(logbuf, "Error: Invalid --seed parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --seed parameter '%s'.\n", argv[cur_arg + uii]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
       } else if (!memcmp(argptr2, "ample", 6)) {
 	if ((load_params & (LOAD_PARAMS_TEXT_ALL | LOAD_PARAMS_BFILE_ALL)) || load_rare) {
 	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
 	} else if (!(load_params & LOAD_PARAMS_OX_ALL)) {
-	  sprintf(logbuf, "Error: --sample cannot be used without --data, --gen, or --bgen.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --sample cannot be used without --data, --gen, or --bgen.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	load_params |= LOAD_PARAMS_OXSAMPLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -9627,23 +9624,23 @@ int32_t main(int32_t argc, char** argv) {
 	strcpy(mapname, argv[cur_arg + 1]);
       } else if (!memcmp(argptr2, "np", 3)) {
         if (markername_from) {
-	  sprintf(logbuf, "Error: --snp cannot be used with --from.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --snp cannot be used with --from.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (marker_pos_start != -1) {
-	  sprintf(logbuf, "Error: --snp cannot be used with --from-bp/-kb/-mb.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --snp cannot be used with --from-bp/-kb/-mb.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if ((!all_words_zero(chrom_info.chrom_mask, CHROM_MASK_INITIAL_WORDS)) || chrom_info.incl_excl_name_stack) {
-	  sprintf(logbuf, "Error: --snp cannot be used with --autosome{-xy} or --{not-}chr.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --snp cannot be used with --autosome{-xy} or --{not-}chr.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (markername_snp) {
-          sprintf(logbuf, "Error: --snp cannot be used with --exclude-snp.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+          logprint("Error: --snp cannot be used with --exclude-snp.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (snps_range_list.names) {
-          sprintf(logbuf, "Error: --snp cannot be used with --exclude-snps.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+          logprint("Error: --snp cannot be used with --exclude-snps.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (load_rare == LOAD_RARE_CNV) {
-	  sprintf(logbuf, "Error: --snp cannot be used with a .cnv fileset.  Use --from-bp/-kb/-mb and\n--to-bp/-kb/-mb instead.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --snp cannot be used with a .cnv fileset.  Use --from-bp/-kb/-mb and\n--to-bp/-kb/-mb instead.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -9654,19 +9651,20 @@ int32_t main(int32_t argc, char** argv) {
         filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "nps", 4)) {
 	if (markername_from) {
-	  sprintf(logbuf, "Error: --snps cannot be used with --from.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --snps cannot be used with --from.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (marker_pos_start != -1) {
-	  sprintf(logbuf, "Error: --snps cannot be used with --from-bp/-kb/-mb.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --snps cannot be used with --from-bp/-kb/-mb.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (markername_snp) {
-	  sprintf(logbuf, "Error: --snps cannot be used with --snp or --exclude-snp.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --snps cannot be used with --snp or --exclude-snp.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (snps_range_list.names) {
-	  sprintf(logbuf, "Error: --snps cannot be used with --exclude-snps.%s", errstr_append);
+	  logprint("Error: --snps cannot be used with --exclude-snps.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (load_rare == LOAD_RARE_CNV) {
-	  sprintf(logbuf, "Error: --snps cannot be used with a .cnv fileset.  Use --from-bp/-kb/-mb and\n--to-bp/-kb/-mb instead.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --snps cannot be used with a .cnv fileset.  Use --from-bp/-kb/-mb and\n--to-bp/-kb/-mb instead.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	// mise well allow --snps + --autosome/--autosome-xy/--chr/--not-chr
 	retval = parse_name_ranges(param_ct, range_delim, &(argv[cur_arg]), &snps_range_list, 0);
@@ -9679,8 +9677,8 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "et", 3)) {
 	if (set_info.fname) {
-	  sprintf(logbuf, "Error: --set cannot be used with --make-set.%s", errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --set cannot be used with --make-set.\n");
+          goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -9747,37 +9745,37 @@ int32_t main(int32_t argc, char** argv) {
 	for (uii = 2; uii <= param_ct; uii++) {
 	  if (!strcmp(argv[cur_arg + uii], "tags")) {
 	    if (simulate_flags & SIMULATE_HAPS) {
-	      sprintf(logbuf, "Error: --%s 'tags' and 'haps' modifiers cannot be used together.%s", argptr, errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: --%s 'tags' and 'haps' modifiers cannot be used together.\n", argptr);
+	      goto main_ret_INVALID_CMDLINE_2A;
 	    }
 	    simulate_flags |= SIMULATE_TAGS;
 	  } else if (!strcmp(argv[cur_arg + uii], "haps")) {
 	    if (simulate_flags & SIMULATE_TAGS) {
-	      sprintf(logbuf, "Error: --%s 'tags' and 'haps' modifiers cannot be used together.%s", argptr, errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: --%s 'tags' and 'haps' modifiers cannot be used together.\n", argptr);
+	      goto main_ret_INVALID_CMDLINE_2A;
 	    }
 	    simulate_flags |= SIMULATE_HAPS;
 	  } else if (match_upper(argv[cur_arg + uii], "ACGT")) {
 	    if (simulate_flags & (SIMULATE_1234 | SIMULATE_12)) {
-	      sprintf(logbuf, "Error: --%s 'acgt' modifier cannot be used with '1234' or '12'.%s", argptr, errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: --%s 'acgt' modifier cannot be used with '1234' or '12'.\n", argptr);
+	      goto main_ret_INVALID_CMDLINE_2A;
 	    }
             simulate_flags |= SIMULATE_ACGT;
 	  } else if (!strcmp(argv[cur_arg + uii], "1234")) {
 	    if (simulate_flags & (SIMULATE_ACGT | SIMULATE_12)) {
-	      sprintf(logbuf, "Error: --%s '1234' modifier cannot be used with 'acgt' or '12'.%s", argptr, errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: --%s '1234' modifier cannot be used with 'acgt' or '12'.\n", argptr);
+	      goto main_ret_INVALID_CMDLINE_2A;
 	    }
             simulate_flags |= SIMULATE_1234;
 	  } else if (!strcmp(argv[cur_arg + uii], "12")) {
 	    if (simulate_flags & (SIMULATE_ACGT | SIMULATE_1234)) {
-	      sprintf(logbuf, "Error: --%s '12' modifier cannot be used with 'acgt' or '1234'.%s", argptr, errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: --%s '12' modifier cannot be used with 'acgt' or '1234'.\n", argptr);
+	      goto main_ret_INVALID_CMDLINE_2A;
 	    }
             simulate_flags |= SIMULATE_12;
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --%s parameter '%s'.%s", argptr, argv[cur_arg + uii], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --%s parameter '%s'.\n", argptr, argv[cur_arg + uii]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	load_rare = LOAD_RARE_SIMULATE;
@@ -9786,24 +9784,24 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (load_rare != LOAD_RARE_SIMULATE) {
-	  sprintf(logbuf, "Error: --simulate-ncases must be used with --simulate.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --simulate-ncases must be used with --simulate.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (scan_uint_defcap(argv[cur_arg + 1], &simulate_cases)) {
-	  sprintf(logbuf, "Error: Invalid --simulate-ncases parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --simulate-ncases parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "imulate-ncontrols", 18)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (load_rare != LOAD_RARE_SIMULATE) {
-	  sprintf(logbuf, "Error: --simulate-ncontrols must be used with --simulate.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: --simulate-ncontrols must be used with --simulate.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (scan_uint_defcap(argv[cur_arg + 1], &simulate_controls)) {
-	  sprintf(logbuf, "Error: Invalid --simulate-ncontrols parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --simulate-ncontrols parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if ((!simulate_controls) && (!simulate_cases)) {
 	  logprint("Error: '--simulate-ncases 0' cannot be used with '--simulate-ncontrols 0'.\n");
@@ -9814,8 +9812,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &simulate_prevalence) || (simulate_prevalence < 0) || (simulate_prevalence > 1)) {
-	  sprintf(logbuf, "Error: Invalid --simulate-prevalence parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --simulate-prevalence parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "imulate-label", 14)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -9829,68 +9827,68 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &simulate_missing) || (simulate_missing < 0) || (simulate_missing > 1)) {
-	  sprintf(logbuf, "Error: Invalid --simulate-missing parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --simulate-missing parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "imulate-n", 10)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (load_rare == LOAD_RARE_SIMULATE) {
-	  sprintf(logbuf, "Error: --simulate-n must be used with --simulate-qt, not --simulate.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --simulate-n must be used with --simulate-qt, not --simulate.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &simulate_qt_indivs)) {
-	  sprintf(logbuf, "Error: Invalid --simulate-n parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --simulate-n parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "imulate-haps", 13)) {
 	if (simulate_flags & SIMULATE_TAGS) {
-	  sprintf(logbuf, "Error: --simulate-tags cannot be used with --simulate-haps.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --simulate-tags cannot be used with --simulate-haps.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --simulate-haps flag deprecated.  Use e.g. '--simulate haps'.\n");
 	simulate_flags |= SIMULATE_HAPS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "imulate-tags", 13)) {
 	if (simulate_flags & SIMULATE_HAPS) {
-	  sprintf(logbuf, "Error: --simulate-tags cannot be used with --simulate-haps.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --simulate-tags cannot be used with --simulate-haps.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --simulate-tags flag deprecated.  Use e.g. '--simulate tags'.\n");
 	simulate_flags |= SIMULATE_TAGS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ex", 3)) {
 	if (!(calculation_type & CALC_GLM)) {
-	  sprintf(logbuf, "Error: --sex must be used with --linear or --logistic.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --sex must be used with --linear or --logistic.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (glm_modifier & GLM_NO_X_SEX) {
-	  sprintf(logbuf, "Error: --sex conflicts with a --%s modifier.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: --sex conflicts with a --%s modifier.\n", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear");
+	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	logprint("Note: --sex flag deprecated.  Use e.g. '--linear sex'.\n");
 	glm_modifier |= GLM_SEX;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "tandard-beta", 13)) {
 	if ((!(calculation_type & CALC_GLM)) || (glm_modifier & GLM_LOGISTIC)) {
-	  sprintf(logbuf, "Error: --standard-beta must be used wtih --linear.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --standard-beta must be used wtih --linear.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --standard-beta flag deprecated.  Use '--linear standard-beta'.\n");
 	glm_modifier |= GLM_STANDARD_BETA;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "et-table", 9)) {
 	if (!set_info.fname) {
-	  sprintf(logbuf, "Error: --set-table must be used with --set/--make-set.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --set-table must be used with --set/--make-set.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         calculation_type |= CALC_WRITE_SET;
 	set_info.modifier |= SET_WRITE_TABLE;
         goto main_param_zero;
       } else if (!memcmp(argptr2, "et-test", 8)) {
 	if (!set_info.fname) {
-	  sprintf(logbuf, "Error: --set-test must be used with --set/--make-set.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --set-test must be used with --set/--make-set.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --set-test flag deprecated.  Use e.g. '--assoc perm set-test'.\n");
 	if (calculation_type & CALC_MODEL) {
@@ -9905,21 +9903,21 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "et-p", 5)) {
 	if (!set_info.fname) {
-	  sprintf(logbuf, "Error: --set-p must be used with --set/--make-set.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --set-p must be used with --set/--make-set.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx <= 0) || (dxx > 1)) {
-	  sprintf(logbuf, "Error: Invalid --set-p parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --set-p parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	set_info.set_p = dxx;
       } else if (!memcmp(argptr2, "et-r2", 5)) {
 	if (!set_info.fname) {
-	  sprintf(logbuf, "Error: --set-r2 must be used with --set/--make-set.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --set-r2 must be used with --set/--make-set.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -9932,14 +9930,14 @@ int32_t main(int32_t argc, char** argv) {
           if (!strcmp(argv[cur_arg + 2], "write")) {
             set_info.modifier |= SET_R2_WRITE;
 	  } else {
-            sprintf(logbuf, "Error: Invalid --set-r2 parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
-            goto main_ret_INVALID_CMDLINE_3;
+            sprintf(logbuf, "Error: Invalid --set-r2 parameter '%s'.\n", argv[cur_arg + 2]);
+            goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
         if (uii <= param_ct) {
 	  if (scan_double(argv[cur_arg + uii], &dxx) || (dxx < 0.0)) {
-	    sprintf(logbuf, "Error: Invalid --set-r2 parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --set-r2 parameter '%s'.\n", argv[cur_arg + uii]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	  if (dxx > 0.0) {
 	    // greater than 1 = no LD check.  (it still happens with a
@@ -9954,24 +9952,24 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "et-max", 5)) {
 	if (!set_info.fname) {
-	  sprintf(logbuf, "Error: --set-max must be used with --set/--make-set.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --set-max must be used with --set/--make-set.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &set_info.set_max)) {
-	  sprintf(logbuf, "Error: Invalid --set-max parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --set-max parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "et-by-all", 10)) {
 	if (!set_info.fname) {
-	  sprintf(logbuf, "Error: --set-by-all must be used with --set/--make-set.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --set-by-all must be used with --set/--make-set.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (!(epi_info.modifier & (EPI_FAST | EPI_REG))) {
-	  sprintf(logbuf, "Error: --set-by-all must be used with --{fast-}epistasis.%s", errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --set-by-all must be used with --{fast-}epistasis.\n");
+          goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --set-by-all flag deprecated.  Use e.g. '--fast-epistasis set-by-all'.\n");
         epi_info.modifier |= EPI_SET_BY_ALL;
@@ -9982,19 +9980,19 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct) {
 	  if ((strlen(argv[cur_arg + 1]) != 5) || (memcmp(argv[cur_arg + 1], "no-", 3)) || (!match_upper(&(argv[cur_arg + 1][3]), "DI"))) {
-	    sprintf(logbuf, "Error: Invalid --snps-only parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --snps-only parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
           misc_flags |= MISC_SNPS_ONLY_NO_DI;
 	}
 	filter_flags |= FILTER_SNPS_ONLY;
       } else if (!memcmp(argptr2, "plit-x", 7)) {
 	if (misc_flags & MISC_MERGEX) {
-          sprintf(logbuf, "Error: --split-x cannot be used with --merge-x.%s", errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
+          logprint("Error: --split-x cannot be used with --merge-x.\n");
+          goto main_ret_INVALID_CMDLINE_A;
 	} else if ((chrom_info.x_code == -1) || (chrom_info.xy_code == -1)) {
-	  sprintf(logbuf, "Error: --split-x must be used with a chromosome set containing X and XY codes.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --split-x must be used with a chromosome set containing X and XY codes.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -10010,8 +10008,8 @@ int32_t main(int32_t argc, char** argv) {
             splitx_bound1 = 2781479;
             splitx_bound1 = 155701383;
 	  } else {
-            sprintf(logbuf, "Error: Unrecognized --split-x build code '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+            sprintf(logbuf, "Error: Unrecognized --split-x build code '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	  if (chrom_info.species != SPECIES_HUMAN) {
 	    logprint("Error: --split-x build codes cannot be used with nonhuman chromosome sets.\n");
@@ -10019,12 +10017,12 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	} else {
 	  if (scan_uint_defcap(argv[cur_arg + 1], &splitx_bound1)) {
-	    sprintf(logbuf, "Error: Invalid --split-x parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --split-x parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	  if (scan_posint_defcap(argv[cur_arg + 2], &splitx_bound2) || (splitx_bound2 <= splitx_bound1)) {
-	    sprintf(logbuf, "Error: Invalid --split-x parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --split-x parameter '%s'.\n", argv[cur_arg + 2]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
       } else if (!memcmp(argptr2, "et-missing-snp-ids", 19)) {
@@ -10035,14 +10033,14 @@ int32_t main(int32_t argc, char** argv) {
 	sptr = strchr(argv[cur_arg + 1], '@');
 	sptr2 = strchr(argv[cur_arg + 1], '#');
 	if ((!sptr) || (!sptr2) || strchr(&(sptr[1]), '@') || strchr(&(sptr2[1]), '#')) {
-	  sprintf(logbuf, "Error: The --set-missing-snp-ids template string requires exactly one '@' and\none '#'.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: The --set-missing-snp-ids template string requires exactly one '@' and\none '#'.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (missing_mid_templates[0] && (!strcmp(missing_mid_templates[0], argv[cur_arg + 1]))) {
 	  // users can still shoot themselves in the foot by splitting this
 	  // across two runs, but at least it's harder
-	  sprintf(logbuf, "Error: --set-missing-snp-ids and --set-missing-nonsnp-ids cannot be given the\nsame template string.  Use --set-missing-var-ids if you're sure there are no\nposition overlaps.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --set-missing-snp-ids and --set-missing-nonsnp-ids cannot be given the\nsame template string.  Use --set-missing-var-ids if you're sure there are no\nposition overlaps.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (alloc_string(&missing_mid_templates[1], argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
@@ -10054,16 +10052,16 @@ int32_t main(int32_t argc, char** argv) {
 	sptr = strchr(argv[cur_arg + 1], '@');
 	sptr2 = strchr(argv[cur_arg + 1], '#');
 	if ((!sptr) || (!sptr2) || strchr(&(sptr[1]), '@') || strchr(&(sptr2[1]), '#')) {
-	  sprintf(logbuf, "Error: The --set-missing-nonsnp-ids template string requires exactly one '@'\nand one '#'.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: The --set-missing-nonsnp-ids template string requires exactly one '@'\nand one '#'.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (alloc_string(&missing_mid_templates[0], argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
       } else if (!memcmp(argptr2, "et-missing-var-ids", 19)) {
 	if (missing_mid_templates[0] || missing_mid_templates[1]) {
-	  sprintf(logbuf, "Error: --set-missing-var-ids cannot be used with --set-missing-snp-ids or\n--set-missing-nonsnp-ids.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --set-missing-var-ids cannot be used with --set-missing-snp-ids or\n--set-missing-nonsnp-ids.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
           goto main_ret_INVALID_CMDLINE_2A;
@@ -10071,8 +10069,8 @@ int32_t main(int32_t argc, char** argv) {
 	sptr = strchr(argv[cur_arg + 1], '@');
 	sptr2 = strchr(argv[cur_arg + 1], '#');
 	if ((!sptr) || (!sptr2) || strchr(&(sptr[1]), '@') || strchr(&(sptr2[1]), '#')) {
-	  sprintf(logbuf, "Error: The --set-missing-var-ids template string requires exactly one '@' and\none '#'.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: The --set-missing-var-ids template string requires exactly one '@' and\none '#'.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (alloc_string(&missing_mid_templates[1], argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
@@ -10092,32 +10090,32 @@ int32_t main(int32_t argc, char** argv) {
             score_info.modifier |= SCORE_HEADER;
 	  } else if (!strcmp(argv[cur_arg + uii], "sum")) {
 	    if (score_info.modifier & SCORE_NO_MEAN_IMPUTATION) {
-	      sprintf(logbuf, "Error: --score 'sum' and 'no-mean-imputation' modifiers cannot be used\ntogether.%s", errstr_append);
-              goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --score 'sum' and 'no-mean-imputation' modifiers cannot be used\ntogether.\n");
+              goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    score_info.modifier |= SCORE_SUM;
 	  } else if (!strcmp(argv[cur_arg + uii], "no-mean-imputation")) {
 	    if (score_info.modifier & SCORE_SUM) {
-	      sprintf(logbuf, "Error: --score 'sum' and 'no-mean-imputation' modifiers cannot be used\ntogether.%s", errstr_append);
-              goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --score 'sum' and 'no-mean-imputation' modifiers cannot be used\ntogether.\n");
+              goto main_ret_INVALID_CMDLINE_A;
 	    } else if (score_info.modifier & SCORE_CENTER) {
-	      sprintf(logbuf, "Error: --score 'center' and 'no-mean-imputation' modifiers cannot be used\ntogether.%s", errstr_append);
-              goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --score 'center' and 'no-mean-imputation' modifiers cannot be used\ntogether.\n");
+              goto main_ret_INVALID_CMDLINE_A;
 	    }
             score_info.modifier |= SCORE_NO_MEAN_IMPUTATION;
 	  } else if (!strcmp(argv[cur_arg + uii], "center")) {
 	    if (score_info.modifier & SCORE_NO_MEAN_IMPUTATION) {
-	      sprintf(logbuf, "Error: --score 'center' and 'no-mean-imputation' modifiers cannot be used\ntogether.%s", errstr_append);
-              goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --score 'center' and 'no-mean-imputation' modifiers cannot be used\ntogether.\n");
+              goto main_ret_INVALID_CMDLINE_A;
 	    }
             score_info.modifier |= SCORE_CENTER;
 	  } else if (ujj == 3) {
-            sprintf(logbuf, "Error: --score takes at most three numeric parameters.%s", errstr_append);
-            goto main_ret_INVALID_CMDLINE_3;
+            logprint("Error: --score takes at most three numeric parameters.\n");
+            goto main_ret_INVALID_CMDLINE_A;
 	  } else {
 	    if (scan_posint_capped(argv[cur_arg + uii], (uint32_t*)&ii, (MAXLINEBUFLEN / 2) / 10, (MAXLINEBUFLEN / 2) % 10)) {
-              sprintf(logbuf, "Error: Invalid --score parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-              goto main_ret_INVALID_CMDLINE_3;
+              sprintf(logbuf, "Error: Invalid --score parameter '%s'.\n", argv[cur_arg + uii]);
+              goto main_ret_INVALID_CMDLINE_WWA;
 	    }
 	    if (!ujj) {
               score_info.varid_col = ii;
@@ -10125,18 +10123,18 @@ int32_t main(int32_t argc, char** argv) {
 	      score_info.effect_col = ii + 2;
 	    } else if (ujj == 1) {
 	      if ((uint32_t)ii == score_info.varid_col) {
-	        sprintf(logbuf, "Error: --score variant ID and allele column numbers cannot match.%s", errstr_append);
-	        goto main_ret_INVALID_CMDLINE_3;
+	        logprint("Error: --score variant ID and allele column numbers cannot match.\n");
+	        goto main_ret_INVALID_CMDLINE_A;
 	      }
               score_info.allele_col = ii;
               score_info.effect_col = ii + 1;
 	    } else {
 	      if ((uint32_t)ii == score_info.varid_col) {
-	        sprintf(logbuf, "Error: --score variant ID and effect column numbers cannot match.%s", errstr_append);
-	        goto main_ret_INVALID_CMDLINE_3;
+	        logprint("Error: --score variant ID and effect column numbers cannot match.\n");
+	        goto main_ret_INVALID_CMDLINE_A;
 	      } else if ((uint32_t)ii == score_info.allele_col) {
-	        sprintf(logbuf, "Error: --score allele and effect column numbers cannot match.%s", errstr_append);
-	        goto main_ret_INVALID_CMDLINE_3;
+	        logprint("Error: --score allele and effect column numbers cannot match.\n");
+	        goto main_ret_INVALID_CMDLINE_A;
 	      }
               score_info.effect_col = ii;
 	    }
@@ -10149,8 +10147,8 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --score-no-mean-imputation must be used with --score.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	} else if (score_info.modifier & SCORE_CENTER) {
-	  sprintf(logbuf, "Error: --score-no-mean-imputation cannot be used with --score 'center'\nmodifier.%s", errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --score-no-mean-imputation cannot be used with --score 'center'\nmodifier.\n");
+          goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --score-no-mean-imputation flag deprecated.  Use e.g.\n'--score ... no-mean-imputation'.\n");
         score_info.modifier |= SCORE_NO_MEAN_IMPUTATION;
@@ -10177,24 +10175,24 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (makepheno_str) {
-	  sprintf(logbuf, "Error: --tail-pheno cannot be used with --make-pheno.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --tail-pheno cannot be used with --make-pheno.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (scan_double(argv[cur_arg + 1], &tail_bottom)) {
-	  sprintf(logbuf, "Error: Invalid --tail-pheno parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --tail-pheno parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (param_ct == 1) {
 	  tail_top = tail_bottom;
 	} else {
 	  if (scan_double(argv[cur_arg + 2], &tail_top)) {
-	    sprintf(logbuf, "Error: Invalid --tail-pheno parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --tail-pheno parameter '%s'.\n", argv[cur_arg + 2]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	if (tail_bottom > tail_top) {
-	  sprintf(logbuf, "Error: Ltop cannot be larger than Hbottom for --tail-pheno.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: Ltop cannot be larger than Hbottom for --tail-pheno.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         filter_flags |= FILTER_TAIL_PHENO;
       } else if (!memcmp(argptr2, "hreads", 7)) {
@@ -10202,8 +10200,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &g_thread_ct)) {
-	  sprintf(logbuf, "Error: Invalid --threads parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --threads parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (g_thread_ct > MAX_THREADS) {
 	  LOGPRINTF("Note: Reducing --threads parameter to %u.  (If this is not large enough,\nrecompile with a larger MAX_THREADS setting.)\n", MAX_THREADS);
@@ -10212,16 +10210,16 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "ab", 3)) {
 	logprint("Note: --tab flag deprecated.  Use '--recode tab ...'.\n");
 	if (recode_modifier & RECODE_DELIMX) {
-	  sprintf(logbuf, "Error: Multiple --recode delimiter modifiers.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: Multiple --recode delimiter modifiers.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	recode_modifier |= RECODE_TAB;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ranspose", 9)) {
 	logprint("Note: --transpose flag deprecated.  Use '--recode transpose ...'.\n");
 	if (recode_modifier & RECODE_LGEN) {
-	  sprintf(logbuf, "Error: --recode 'transpose' and 'lgen' modifiers cannot be used together.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --recode 'transpose' and 'lgen' modifiers cannot be used together.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	recode_modifier |= RECODE_TRANSPOSE;
 	goto main_param_zero;
@@ -10279,17 +10277,17 @@ int32_t main(int32_t argc, char** argv) {
 	load_rare |= LOAD_RARE_TPED;
       } else if (!memcmp(argptr2, "o", 2)) {
 	if ((!all_words_zero(chrom_info.chrom_mask, CHROM_MASK_INITIAL_WORDS)) || chrom_info.incl_excl_name_stack) {
-	  sprintf(logbuf, "Error: --to cannot be used with --autosome{-xy} or --{not-}chr.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --to cannot be used with --autosome{-xy} or --{not-}chr.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (markername_snp) {
-	  sprintf(logbuf, "Error: --to cannot be used with --snp.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --to cannot be used with --snp.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (snps_range_list.names) {
-	  sprintf(logbuf, "Error: --to cannot be used with --snps.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --to cannot be used with --snps.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (cnv_calc_type & CNV_MAKE_MAP) {
-	  sprintf(logbuf, "Error: --to cannot be used with a .cnv fileset.  Use --to-bp/-kb/-mb instead.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --to cannot be used with a .cnv fileset.  Use --to-bp/-kb/-mb instead.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -10300,14 +10298,14 @@ int32_t main(int32_t argc, char** argv) {
 	filter_flags |= FILTER_GENERIC;
       } else if ((!memcmp(argptr2, "o-bp", 5)) || (!memcmp(argptr2, "o-kb", 5)) || (!memcmp(argptr2, "o-mb", 5))) {
 	if (markername_snp && (!(filter_flags & FILTER_EXCLUDE_MARKERNAME_SNP))) {
-	  sprintf(logbuf, "Error: --to-bp/-kb/-mb cannot be used with --snp.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --to-bp/-kb/-mb cannot be used with --snp.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (snps_range_list.names) {
-	  sprintf(logbuf, "Error: --to-bp/-kb/-mb cannot be used with --snps.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --to-bp/-kb/-mb cannot be used with --snps.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (markername_to) {
-	  sprintf(logbuf, "Error: --to-bp/-kb/-mb cannot be used with --to.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --to-bp/-kb/-mb cannot be used with --to.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if ((!markername_from) && (marker_pos_start == -1)) {
 	  marker_pos_start = 0;
@@ -10318,8 +10316,8 @@ int32_t main(int32_t argc, char** argv) {
 	cc = argptr2[2];
 	if (cc == 'b') {
 	  if (scan_uint_defcap(argv[cur_arg + 1], (uint32_t*)&ii)) {
-	    sprintf(logbuf, "Error: Invalid --to-bp parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --to-bp parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	} else {
 	  if (marker_pos_end != -1) {
@@ -10327,8 +10325,8 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_INVALID_CMDLINE;
 	  }
 	  if (scan_double(argv[cur_arg + 1], &dxx)) {
-	    sprintf(logbuf, "Error: Invalid --to-kb/-mb parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --to-kb/-mb parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	  dxx *= (cc == 'k')? 1000 : 1000000;
 	  if (dxx < 0) {
@@ -10348,15 +10346,15 @@ int32_t main(int32_t argc, char** argv) {
 	filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "rend", 5)) {
 	if (model_modifier & MODEL_ASSOC) {
-	  sprintf(logbuf, "Error: --trend cannot be used with --assoc.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --trend cannot be used with --assoc.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (model_modifier & MODEL_FISHER) {
-	  sprintf(logbuf, "Error: --trend cannot be used with --model fisher.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --trend cannot be used with --model fisher.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (model_modifier & (MODEL_PDOM | MODEL_PREC | MODEL_PGEN)) {
-	  sprintf(logbuf, "Error: --trend cannot be used with --model dom/rec/gen.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --trend cannot be used with --model dom/rec/gen.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --trend flag deprecated.  Use '--model trend ...'.\n");
 	model_modifier |= MODEL_PTREND | MODEL_TRENDONLY;
@@ -10367,41 +10365,41 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &thin_keep_prob)) {
-	  sprintf(logbuf, "Error: Invalid --thin variant retention probability '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --thin variant retention probability '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
         if (thin_keep_prob < (0.5 / 4294967296.0)) {
-	  sprintf(logbuf, "Error: --thin variant retention probability too small.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --thin variant retention probability too small.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (thin_keep_prob >= (4294967295.5 / 4294967296.0)) {
-	  sprintf(logbuf, "Error: --thin variant retention probability too large.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --thin variant retention probability too large.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "hin-count", 10)) {
 	if (thin_keep_prob != 1.0) {
-	  sprintf(logbuf, "Error: --thin cannot be used with --thin-count.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --thin cannot be used with --thin-count.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &thin_keep_ct)) {
-	  sprintf(logbuf, "Error: Invalid --thin-count parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --thin-count parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "ests", 5)) {
 	if (!(calculation_type & CALC_GLM)) {
-	  sprintf(logbuf, "Error: --tests must be used with --linear or --logistic.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --tests must be used with --linear or --logistic.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if ((param_ct == 1) && (!strcmp(argv[cur_arg + 1], "all"))) {
 	  glm_modifier |= GLM_TEST_ALL;
 	} else {
 	  if (glm_modifier & GLM_TEST_ALL) {
-	    sprintf(logbuf, "Error: --test-all cannot be used with --tests.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    logprint("Error: --test-all cannot be used with --tests.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  }
 	  retval = parse_name_ranges(param_ct, '-', &(argv[cur_arg]), &tests_range_list, 1);
 	  if (retval) {
@@ -10410,8 +10408,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "est-all", 8)) {
 	if (!(calculation_type & CALC_GLM)) {
-	  sprintf(logbuf, "Error: --test-all must be used with --linear or --logistic.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --test-all must be used with --linear or --logistic.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --test-all flag deprecated.  Use '--tests all'.\n");
 	glm_modifier |= GLM_TEST_ALL;
@@ -10438,22 +10436,22 @@ int32_t main(int32_t argc, char** argv) {
 	for (uii = 1; uii <= param_ct; uii++) {
           if (!strcmp(argv[cur_arg + uii], "perm")) {
             if (testmiss_modifier & TESTMISS_MPERM) {
-              sprintf(logbuf, "Error: --test-missing 'mperm' and 'perm' cannot be used together.%s", errstr_append);
-              goto main_ret_INVALID_CMDLINE_3;
+              logprint("Error: --test-missing 'mperm' and 'perm' cannot be used together.\n");
+              goto main_ret_INVALID_CMDLINE_A;
 	    }
             testmiss_modifier |= TESTMISS_PERM;
 	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
             if (testmiss_modifier & TESTMISS_PERM) {
-              sprintf(logbuf, "Error: --test-missing 'mperm' and 'perm' cannot be used together.%s", errstr_append);
-              goto main_ret_INVALID_CMDLINE_3;
+              logprint("Error: --test-missing 'mperm' and 'perm' cannot be used together.\n");
+              goto main_ret_INVALID_CMDLINE_A;
 	    } else if (testmiss_modifier & TESTMISS_MPERM) {
 	      // when --mperm and --test-missing mperm=[] are used together
-              sprintf(logbuf, "Error: Duplicate --test-missing 'mperm' modifier.%s", errstr_append);
-              goto main_ret_INVALID_CMDLINE_3;
+              logprint("Error: Duplicate --test-missing 'mperm' modifier.\n");
+              goto main_ret_INVALID_CMDLINE;
 	    }
 	    if (scan_posint_defcap(&(argv[cur_arg + uii][6]), &testmiss_mperm_val)) {
-	      sprintf(logbuf, "Error: Invalid --test-missing mperm parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-              goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: Invalid --test-missing mperm parameter '%s'.\n", argv[cur_arg + uii]);
+              goto main_ret_INVALID_CMDLINE_WWA;
 	    }
             testmiss_modifier |= TESTMISS_MPERM;
 	  } else if (!strcmp(argv[cur_arg + uii], "perm-count")) {
@@ -10465,7 +10463,7 @@ int32_t main(int32_t argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
 	  } else {
             sprintf(logbuf, "Error: Invalid --test-missing parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-            goto main_ret_INVALID_CMDLINE_3;
+            goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
         calculation_type |= CALC_TESTMISS;
@@ -10482,8 +10480,8 @@ int32_t main(int32_t argc, char** argv) {
 	      logprint("Error: --tdt 'exact' modifier cannot be used with 'exact-midp'.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    } else if (family_info.tdt_modifier & TDT_POO) {
-	      sprintf(logbuf, "Error: --tdt parent-of-origin analysis does not currently support exact tests.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --tdt parent-of-origin analysis does not currently support exact tests.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    family_info.tdt_modifier |= TDT_EXACT;
 	  } else if (!strcmp(argv[cur_arg + uii], "exact-midp")) {
@@ -10491,57 +10489,57 @@ int32_t main(int32_t argc, char** argv) {
 	      logprint("Error: --tdt 'exact' modifier cannot be used with 'exact-midp'.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    } else if (family_info.tdt_modifier & TDT_POO) {
-	      sprintf(logbuf, "Error: --tdt parent-of-origin analysis does not currently support exact tests.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --tdt parent-of-origin analysis does not currently support exact tests.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    family_info.tdt_modifier |= TDT_EXACT | TDT_MIDP;
 	  } else if (!strcmp(argv[cur_arg + uii], "poo")) {
 	    if (family_info.tdt_modifier & TDT_EXACT) {
-	      sprintf(logbuf, "Error: --tdt parent-of-origin analysis does not currently support exact tests.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --tdt parent-of-origin analysis does not currently support exact tests.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    family_info.tdt_modifier |= TDT_POO;
 	  } else if (!strcmp(argv[cur_arg + uii], "perm")) {
 	    if (family_info.tdt_modifier & TDT_MPERM) {
-	      sprintf(logbuf, "Error: --tdt 'mperm' and 'perm' cannot be used together.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --tdt 'mperm' and 'perm' cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    family_info.tdt_modifier |= TDT_PERM;
 	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
 	    if (family_info.tdt_modifier & TDT_PERM) {
-	      sprintf(logbuf, "Error: --tdt 'mperm' and 'perm' cannot be used together.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --tdt 'mperm' and 'perm' cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    } else if (family_info.tdt_modifier & TDT_MPERM) {
-	      sprintf(logbuf, "Error: Duplicate --tdt 'mperm' modifier.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: Duplicate --tdt 'mperm' modifier.\n");
+	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    if (scan_posint_defcap(&(argv[cur_arg + uii][6]), &family_info.tdt_mperm_val)) {
-	      sprintf(logbuf, "Error: Invalid --tdt mperm parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-              goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: Invalid --tdt mperm parameter '%s'.\n", argv[cur_arg + uii]);
+              goto main_ret_INVALID_CMDLINE_WWA;
 	    }
             family_info.tdt_modifier |= TDT_MPERM;
 	  } else if (!strcmp(argv[cur_arg + uii], "parentdt1")) {
 	    if (family_info.tdt_modifier & TDT_PARENPERM2) {
-	      sprintf(logbuf, "Error: --tdt 'parentdt1' and 'parentdt2' modifiers cannot be used together.%s", errstr_append);
-              goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --tdt 'parentdt1' and 'parentdt2' modifiers cannot be used together.\n");
+              goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    family_info.tdt_modifier |= TDT_PARENPERM1;
 	  } else if (!strcmp(argv[cur_arg + uii], "parentdt2")) {
 	    if (family_info.tdt_modifier & TDT_PARENPERM1) {
-	      sprintf(logbuf, "Error: --tdt 'parentdt1' and 'parentdt2' modifiers cannot be used together.%s", errstr_append);
-              goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --tdt 'parentdt1' and 'parentdt2' modifiers cannot be used together.\n");
+              goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    family_info.tdt_modifier |= TDT_PARENPERM2;
 	  } else if (!strcmp(argv[cur_arg + uii], "pat")) {
 	    if (family_info.tdt_modifier & TDT_POOPERM_MAT) {
-	      sprintf(logbuf, "Error: --tdt 'pat' and 'mat' modifiers cannot be used together.%s", errstr_append);
-              goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --tdt 'pat' and 'mat' modifiers cannot be used together.\n");
+              goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    family_info.tdt_modifier |= TDT_POOPERM_PAT;
 	  } else if (!strcmp(argv[cur_arg + uii], "parentdt2")) {
 	    if (family_info.tdt_modifier & TDT_POOPERM_PAT) {
-	      sprintf(logbuf, "Error: --tdt 'pat' and 'mat' modifiers cannot be used together.%s", errstr_append);
-              goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --tdt 'pat' and 'mat' modifiers cannot be used together.\n");
+              goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    family_info.tdt_modifier |= TDT_POOPERM_MAT;
 	  } else if (!strcmp(argv[cur_arg + uii], "set-test")) {
@@ -10550,28 +10548,28 @@ int32_t main(int32_t argc, char** argv) {
 	    logprint("Error: Improper --tdt mperm syntax.  (Use '--tdt mperm=[value]'.)\n");
 	    goto main_ret_INVALID_CMDLINE;
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --tdt parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --tdt parameter '%s'.\n", argv[cur_arg + uii]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	if (!(family_info.tdt_modifier & TDT_POO)) {
 	  if (family_info.tdt_modifier & TDT_PERM) {
-	    sprintf(logbuf, "Error: Regular --tdt analysis no longer supports adaptive permutation.  Use an\nexact test instead.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    logprint("Error: Regular --tdt analysis no longer supports adaptive permutation.  Use an\nexact test instead.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  } else if (family_info.tdt_modifier & (TDT_POOPERM_PAT | TDT_POOPERM_MAT)) {
-	    sprintf(logbuf, "Error: --tdt 'pat'/'mat' must be used with parent-of-origin analysis.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    logprint("Error: --tdt 'pat'/'mat' must be used with parent-of-origin analysis.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  } else if ((family_info.tdt_modifier & (TDT_PARENPERM1 | TDT_PARENPERM2 | TDT_SET_TEST)) && (!(family_info.tdt_modifier & TDT_MPERM))) {
-	    sprintf(logbuf, "Error: --tdt 'parentdt1'/'parentdt2'/'set-test' requires permutation.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    logprint("Error: --tdt 'parentdt1'/'parentdt2'/'set-test' requires permutation.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  }
 	} else {
 	  if (family_info.tdt_modifier & (TDT_PARENPERM1 | TDT_PARENPERM2)) {
-	    sprintf(logbuf, "Error: --tdt 'parentdt1'/'parentdt2' cannot be used with parent-of-origin\nanalysis.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    logprint("Error: --tdt 'parentdt1'/'parentdt2' cannot be used with parent-of-origin\nanalysis.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  } else if ((family_info.tdt_modifier & (TDT_POOPERM_PAT | TDT_POOPERM_MAT | TDT_SET_TEST)) && (!(family_info.tdt_modifier & (TDT_PERM | TDT_MPERM)))) {
-	    sprintf(logbuf, "Error: --tdt poo 'pat'/'mat'/'set-test' requires permutation.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    logprint("Error: --tdt poo 'pat'/'mat'/'set-test' requires permutation.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  }
 	}
 	calculation_type |= CALC_TDT;
@@ -10588,25 +10586,25 @@ int32_t main(int32_t argc, char** argv) {
 #else
 	UNSTABLE;
 	if (rel_info.modifier & REL_CALC_COV) {
-	  sprintf(logbuf, "Error: --unrelated-heritability flag cannot coexist with a covariance\nmatrix calculation.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --unrelated-heritability flag cannot coexist with a covariance\nmatrix calculation.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (parallel_tot > 1) {
-	  sprintf(logbuf, "Error: --parallel and --unrelated-heritability cannot be used together.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --parallel and --unrelated-heritability cannot be used together.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (calculation_type & CALC_PCA) {
 	  logprint("Error: --pca cannot be used with --unrelated-heritability.\n");
           goto main_ret_INVALID_CMDLINE;
 	} else if (rel_info.modifier & REL_CALC_SINGLE_PREC) {
-	  sprintf(logbuf, "Error: --unrelated-heritability flag cannot be used with a single-precision\nrelationship matrix calculation.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --unrelated-heritability flag cannot be used with a single-precision\nrelationship matrix calculation.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (load_rare & (LOAD_RARE_GRM | LOAD_RARE_GRM_BIN)) {
 	  if (calculation_type & CALC_REL_CUTOFF) {
-	    sprintf(logbuf, "Error: --unrelated-heritability + --grm-gz/--grm-bin cannot be used with\n--rel-cutoff.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    logprint("Error: --unrelated-heritability + --grm-gz/--grm-bin cannot be used with\n--rel-cutoff.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  } else if (!phenoname) {
-	    sprintf(logbuf, "Error: --unrelated-heritability + --grm-gz/--grm-bin requires --pheno as well.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    logprint("Error: --unrelated-heritability + --grm-gz/--grm-bin requires --pheno as well.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  }
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4)) {
@@ -10621,30 +10619,30 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	  if (param_ct >= uii) {
 	    if (scan_double(argv[cur_arg + uii], &rel_info.unrelated_herit_tol)) {
-	      sprintf(logbuf, "Error: Invalid --unrelated-heritability EM tolerance parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: Invalid --unrelated-heritability EM tolerance parameter '%s'.\n", argv[cur_arg + uii]);
+	      goto main_ret_INVALID_CMDLINE_WWA;
 	    }
 	    if (rel_info.unrelated_herit_tol <= 0.0) {
-	      sprintf(logbuf, "Error: Invalid --unrelated-heritability EM tolerance parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      sprintf(logbuf, "Error: Invalid --unrelated-heritability EM tolerance parameter '%s'.\n", argv[cur_arg + uii]);
+	      goto main_ret_INVALID_CMDLINE_WWA;
 	    }
 	    if (param_ct > uii) {
 	      if (scan_double(argv[cur_arg + uii + 1], &rel_info.unrelated_herit_covg)) {
-		sprintf(logbuf, "Error: Invalid --unrelated-heritability genomic covariance prior '%s'.%s", argv[cur_arg + uii + 1], errstr_append);
-		goto main_ret_INVALID_CMDLINE_3;
+		sprintf(logbuf, "Error: Invalid --unrelated-heritability genomic covariance prior '%s'.\n", argv[cur_arg + uii + 1]);
+		goto main_ret_INVALID_CMDLINE_WWA;
 	      }
 	      if ((rel_info.unrelated_herit_covg <= 0.0) || (rel_info.unrelated_herit_covg > 1.0)) {
-		sprintf(logbuf, "Error: Invalid --unrelated-heritability genomic covariance prior '%s'.%s", argv[cur_arg + uii + 1], errstr_append);
-		goto main_ret_INVALID_CMDLINE_3;
+		sprintf(logbuf, "Error: Invalid --unrelated-heritability genomic covariance prior '%s'.\n", argv[cur_arg + uii + 1]);
+		goto main_ret_INVALID_CMDLINE_WWA;
 	      }
 	      if (param_ct == uii + 2) {
 		if (scan_double(argv[cur_arg + uii + 2], &rel_info.unrelated_herit_covr)) {
-		  sprintf(logbuf, "Error: Invalid --unrelated-heritability residual covariance prior '%s'.%s", argv[cur_arg + uii + 2], errstr_append);
-		  goto main_ret_INVALID_CMDLINE_3;
+		  sprintf(logbuf, "Error: Invalid --unrelated-heritability residual covariance prior '%s'.\n", argv[cur_arg + uii + 2]);
+		  goto main_ret_INVALID_CMDLINE_WWA;
 		}
 		if ((rel_info.unrelated_herit_covr <= 0.0) || (rel_info.unrelated_herit_covr > 1.0)) {
-		  sprintf(logbuf, "Error: Invalid --unrelated-heritability residual covariance prior '%s'.%s", argv[cur_arg + uii + 2], errstr_append);
-		  goto main_ret_INVALID_CMDLINE_3;
+		  sprintf(logbuf, "Error: Invalid --unrelated-heritability residual covariance prior '%s'.\n", argv[cur_arg + uii + 2]);
+		  goto main_ret_INVALID_CMDLINE_WWA;
 		}
 	      } else {
 		rel_info.unrelated_herit_covr = 1.0 - rel_info.unrelated_herit_covg;
@@ -10665,11 +10663,11 @@ int32_t main(int32_t argc, char** argv) {
 	filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "pdate-chr", 10)) {
 	if (cnv_calc_type & CNV_MAKE_MAP) {
-	  sprintf(logbuf, "--update-chr cannot be used with --cnv-make-map.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("--update-chr cannot be used with --cnv-make-map.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if ((misc_flags & MISC_MERGEX) || splitx_bound2) {
-          sprintf(logbuf, "--update-chr cannot be used with --split-x or --merge-x.%s", errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
+          logprint("--update-chr cannot be used with --split-x or --merge-x.\n");
+          goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -10684,12 +10682,12 @@ int32_t main(int32_t argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "pdate-cm", 9)) {
 	if (cnv_calc_type & CNV_MAKE_MAP) {
-	  sprintf(logbuf, "Error: --update-cm cannot be used with --cnv-make-map.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --update-cm cannot be used with --cnv-make-map.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (cm_map_fname) {
-	  sprintf(logbuf, "Error: --update-cm cannot be used with --cm-map.%s", errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --update-cm cannot be used with --cm-map.\n");
+          goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (update_map_modifier) {
 	  logprint("Error: --update-map 'cm' modifier cannot be used with 'chr'.\n");
@@ -10718,8 +10716,8 @@ int32_t main(int32_t argc, char** argv) {
         filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "pdate-map", 10)) {
 	if (cnv_calc_type & CNV_MAKE_MAP) {
-	  sprintf(logbuf, "--update-map cannot be used with --cnv-make-map.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("--update-map cannot be used with --cnv-make-map.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 4)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -10727,7 +10725,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (update_map_modifier) {
 	  if (param_ct != 1) {
 	    sprintf(logbuf, "Error: Multi-parameter --update-map cannot be used with deprecated\nparameter-free --update-%s.\n", (update_map_modifier == 1)? "chr" : "cm");
-	    goto main_ret_INVALID_CMDLINE_3;
+	    goto main_ret_INVALID_CMDLINE_2;
 	  }
 	  retval = alloc_2col((update_map_modifier == 1)? (&update_chr) : (&update_cm), &(argv[cur_arg + 1]), argptr, 1);
 	  if (retval) {
@@ -10744,8 +10742,8 @@ int32_t main(int32_t argc, char** argv) {
 	filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "pdate-name", 11)) {
 	if (cnv_calc_type & CNV_MAKE_MAP) {
-	  sprintf(logbuf, "--update-name cannot be used with --cnv-make-map.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("--update-name cannot be used with --cnv-make-map.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (update_chr) {
 	  logprint("Error: --update-name cannot be used with --update-chr.\n");
@@ -10759,8 +10757,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (!param_ct) {
 	  if (!update_map) {
-	    sprintf(logbuf, "Error: Deprecated parameter-free --update-name cannot be used without\n--update-map.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    logprint("Error: Deprecated parameter-free --update-name cannot be used without\n--update-map.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  }
 	  if ((update_map->colx != 2) || (update_map->colid != 1) || (update_map->skip) || (update_map->skipchar)) {
 	    logprint("Error: Multi-parameter --update-map cannot be used with deprecated\nparameter-free --update-name.\n");
@@ -10809,15 +10807,15 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct == 2) {
 	  if (scan_posint_defcap(argv[cur_arg + 2], &update_sex_col)) {
-	    sprintf(logbuf, "Error: Invalid --update-sex column parameter '%s'.  (This must be a positive\ninteger.)%s", argv[cur_arg + 2], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --update-sex column parameter '%s'.  (This must be a positive integer.)\n", argv[cur_arg + 2]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "nbounded", 9)) {
 	if (!(calculation_type & CALC_GENOME)) {
-	  sprintf(logbuf, "Error: --unbounded must be used with --genome.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --unbounded must be used with --genome.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --unbounded flag deprecated.  Use '--genome unbounded'.\n");
 	genome_modifier |= GENOME_IBD_UNBOUNDED;
@@ -10830,24 +10828,24 @@ int32_t main(int32_t argc, char** argv) {
     case 'v':
       if (!memcmp(argptr2, "if", 3)) {
 	if (!(calculation_type & CALC_GLM)) {
-	  sprintf(logbuf, "Error: --vif must be used with --linear or --logistic.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --vif must be used with --linear or --logistic.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &glm_vif_thresh)) {
-	  sprintf(logbuf, "Error: Invalid --linear/--logistic VIF threshold '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --linear/--logistic VIF threshold '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (glm_vif_thresh < 1.0) {
-	  sprintf(logbuf, "Error: --linear/--logistic VIF threshold '%s' too small (must be >= 1).%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: --linear/--logistic VIF threshold '%s' too small (must be >= 1).\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "egas", 5)) {
 	if (!set_info.fname) {
-	  sprintf(logbuf, "Error: --vegas must be used with --set.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --vegas must be used with --set.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Error: --vegas is currently under development.\n");
 	retval = RET_CALC_NOT_YET_SUPPORTED;
@@ -10876,8 +10874,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
         if (scan_double(argv[cur_arg + 1], &vcf_min_qual) || (vcf_min_qual < 0.0)) {
-	  sprintf(logbuf, "Error: Invalid --vcf-min-qual parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --vcf-min-qual parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	vcf_min_qual *= 1 - SMALL_EPSILON;
       } else if (!memcmp(argptr2, "cf-filter", 10)) {
@@ -10906,8 +10904,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	vcf_idspace_to = extract_char_param(argv[cur_arg + 1]);
 	if (!vcf_idspace_to) {
-	  sprintf(logbuf, "Error: --vcf-idspace-to parameter must be a single character.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --vcf-idspace-to parameter must be a single character.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (((unsigned char)vcf_idspace_to) <= ' ') {
 	  logprint("Error: --vcf-idspace-to parameter must be a nonspace character.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -10923,20 +10921,20 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "indow", 6)) {
         if (!markername_snp) {
-	  sprintf(logbuf, "Error: --window must be used with --snp or --exclude-snp.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --window must be used with --snp or --exclude-snp.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &dxx)) {
-	  sprintf(logbuf, "Error: Invalid --window parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --window parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
         dxx *= 500;
 	if (dxx < 1) {
-	  sprintf(logbuf, "Error: --window parameter '%s' too small.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: --window parameter '%s' too small.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	} else if (dxx > 2147483646) {
 	  snp_window_size = 0x7ffffffe;
 	} else {
@@ -10945,16 +10943,16 @@ int32_t main(int32_t argc, char** argv) {
 	// no need to set filter_flags due to --snp/--exclude-snp req.
       } else if (!memcmp(argptr2, "ithin", 6)) {
         if (loop_assoc_fname) {
-	  sprintf(logbuf, "Error: --within cannot be used with --loop-assoc.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --within cannot be used with --loop-assoc.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (misc_flags & MISC_FAMILY_CLUSTERS) {
-          sprintf(logbuf, "Error: --within cannot be used with --family.%s", errstr_append);
-          goto main_ret_INVALID_CMDLINE_3;
+          logprint("Error: --within cannot be used with --family.\n");
+          goto main_ret_INVALID_CMDLINE_A;
 	}
 	if ((calculation_type & CALC_FREQ) && (misc_flags & MISC_FREQ_COUNTS)) {
-	  sprintf(logbuf, "Error: --within cannot be used with '--freq counts'.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --within cannot be used with '--freq counts'.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -10964,8 +10962,8 @@ int32_t main(int32_t argc, char** argv) {
 	  if ((strlen(argv[cur_arg + 1]) == 7) && (!memcmp(argv[cur_arg + 1], "keep-", 5)) && match_upper(&(argv[cur_arg + 1][5]), "NA")) {
 	    uii = 2;
 	  } else if ((strlen(argv[cur_arg + 2]) != 7) || memcmp(argv[cur_arg + 2], "keep-", 5) || (!match_upper(&(argv[cur_arg + 2][5]), "NA"))) {
-            sprintf(logbuf, "Error: Invalid --within parameter sequence.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+            logprint("Error: Invalid --within parameter sequence.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  }
           misc_flags |= MISC_LOAD_CLUSTER_KEEP_NA;
 	}
@@ -10975,8 +10973,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "ith-phenotype", 14)) {
 	if (!covar_fname) {
-	  sprintf(logbuf, "Error: --with-phenotype cannot be used without --covar.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --with-phenotype cannot be used without --covar.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -10986,19 +10984,19 @@ int32_t main(int32_t argc, char** argv) {
 	    write_covar_modifier |= WRITE_COVAR_NO_PARENTS;
 	  } else if (!strcmp(argv[cur_arg + uii], "no-sex")) {
 	    if (write_covar_modifier & WRITE_COVAR_FEMALE_2) {
-	      sprintf(logbuf, "Error: --with-phenotype 'female-2' modifier cannot be used with 'no-sex'.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --with-phenotype 'female-2' modifier cannot be used with 'no-sex'.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    write_covar_modifier |= WRITE_COVAR_NO_SEX;
 	  } else if (!strcmp(argv[cur_arg + uii], "female-2")) {
 	    if (write_covar_modifier & WRITE_COVAR_NO_SEX) {
-	      sprintf(logbuf, "Error: --with-phenotype 'female-2' modifier cannot be used with 'no-sex'.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
+	      logprint("Error: --with-phenotype 'female-2' modifier cannot be used with 'no-sex'.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    write_covar_modifier |= WRITE_COVAR_FEMALE_2;
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --with-phenotype parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --with-phenotype parameter '%s'.\n", argv[cur_arg + uii]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	write_covar_modifier |= WRITE_COVAR_PHENO;
@@ -11012,51 +11010,51 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "rite-covar", 11)) {
 	if (calculation_type & (CALC_MAKE_BED | CALC_RECODE)) {
-	  sprintf(logbuf, "Error: --write-covar cannot be used with --make-bed or --recode.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --write-covar cannot be used with --make-bed or --recode.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (!covar_fname) {
-	  sprintf(logbuf, "Error: --write-covar cannot be used without --covar.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --write-covar cannot be used without --covar.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         calculation_type |= CALC_WRITE_COVAR;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "rite-cluster", 13)) {
 	if (!cluster.fname) {
-	  sprintf(logbuf, "Error: --write-cluster must be used with --within.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --write-cluster must be used with --within.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (param_ct) {
 	  if (strcmp(argv[cur_arg + 1], "omit-unassigned")) {
-	    sprintf(logbuf, "Error: Invalid --write-cluster parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	    sprintf(logbuf, "Error: Invalid --write-cluster parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
           misc_flags |= MISC_WRITE_CLUSTER_OMIT_UNASSIGNED;
 	}
         calculation_type |= CALC_WRITE_CLUSTER;
       } else if (!memcmp(argptr2, "rite-set", 9)) {
 	if (!set_info.fname) {
-	  sprintf(logbuf, "Error: --write-set must be used with --set/--make-set.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --write-set must be used with --set/--make-set.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         calculation_type |= CALC_WRITE_SET;
 	set_info.modifier |= SET_WRITE_LIST;
         goto main_param_zero;
       } else if (!memcmp(argptr2, "rite-set-r2", 11)) {
         if (!set_info.fname) {
-	  sprintf(logbuf, "Error: --write-set-r2 must be used with --set/--make-set.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --write-set-r2 must be used with --set/--make-set.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         set_info.modifier |= SET_R2_WRITE;
         logprint("Note: --write-set-r2 flag deprecated.  Use '--set-r2 write'.\n");
         goto main_param_zero;
       } else if (!memcmp(argptr2, "ith-freqs", 10)) {
 	if (!(calculation_type & CALC_LD)) {
-	  sprintf(logbuf, "Error: --with-freqs must be used with --r/--r2.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --with-freqs must be used with --r/--r2.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         ld_info.modifier |= LD_WITH_FREQS;
 	if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_SPACES)) {
@@ -11074,18 +11072,18 @@ int32_t main(int32_t argc, char** argv) {
     case 'x':
       if (!memcmp(argptr2, "chr-model", 10)) {
 	if (!(calculation_type & CALC_GLM)) {
-	  sprintf(logbuf, "Error: --xchr-model must be used with --linear or --logistic.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --xchr-model must be used with --linear or --logistic.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (glm_modifier & (GLM_GENOTYPIC | GLM_HETHOM | GLM_DOMINANT | GLM_RECESSIVE)) {
-	  sprintf(logbuf, "Error: --xchr-model cannot be used with --%s %s.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", (glm_modifier & GLM_GENOTYPIC)? "genotypic" : ((glm_modifier & GLM_HETHOM)? "hethom" : ((glm_modifier & GLM_DOMINANT)? "dominant" : "recessive")), errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: --xchr-model cannot be used with --%s %s.\n", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", (glm_modifier & GLM_GENOTYPIC)? "genotypic" : ((glm_modifier & GLM_HETHOM)? "hethom" : ((glm_modifier & GLM_DOMINANT)? "dominant" : "recessive")));
+	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if ((argv[cur_arg + 1][1] != '\0') || (argv[cur_arg + 1][0] < '0') || (argv[cur_arg + 1][0] > '3')) {
-	  sprintf(logbuf, "Error: Invalid --xchr-model parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  sprintf(logbuf, "Error: Invalid --xchr-model parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	glm_xchr_model = (uint32_t)(argv[cur_arg + 1][0] - '0');
       } else {
@@ -11096,12 +11094,12 @@ int32_t main(int32_t argc, char** argv) {
     case 'z':
       if (!memcmp(argptr2, "ero-cluster", 12)) {
 	if (!cluster.fname) {
-	  sprintf(logbuf, "Error: --zero-cluster must be used with --within.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --zero-cluster must be used with --within.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	} else if ((calculation_type != CALC_MAKE_BED) || (geno_thresh != 1.0) || (mind_thresh != 1.0) || (hwe_thresh != 0.0) || (min_maf != 0.0) || (max_maf != 0.5)) {
 	  // prevent old pipelines from silently breaking
-	  sprintf(logbuf, "Error: --zero-cluster must now be used with --make-bed, no other output\ncommands, and no genotype-based filters.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --zero-cluster must now be used with --make-bed, no other output\ncommands, and no genotype-based filters.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -11123,8 +11121,8 @@ int32_t main(int32_t argc, char** argv) {
 
     main_param_zero:
       if (param_ct) {
-        sprintf(logbuf, "Error: --%s doesn't accept parameters.%s", argptr, errstr_append);
-	goto main_ret_INVALID_CMDLINE_3;
+        sprintf(logbuf, "Error: --%s doesn't accept parameters.\n", argptr);
+	goto main_ret_INVALID_CMDLINE_2A;
       }
     }
   } while ((++cur_flag) < flag_ct);
@@ -11137,48 +11135,48 @@ int32_t main(int32_t argc, char** argv) {
     if (load_rare & (LOAD_RARE_GRM | LOAD_RARE_GRM_BIN)) {
       if ((!(calculation_type & (CALC_REL_CUTOFF | CALC_UNRELATED_HERITABILITY))) || (calculation_type & (~(CALC_REL_CUTOFF | CALC_RELATIONSHIP | CALC_UNRELATED_HERITABILITY)))) {
 	if (load_rare == LOAD_RARE_GRM) {
-	  sprintf(logbuf, "Error: --grm-gz currently must be used with --rel-cutoff (possibly combined\nwith --make-grm-gz/--make-grm-bin) or --unrelated-heritability.%s", errstr_append);
+	  logprint("Error: --grm-gz currently must be used with --rel-cutoff (possibly combined\nwith --make-grm-gz/--make-grm-bin) or --unrelated-heritability.\n");
 	} else {
-	  sprintf(logbuf, "Error: --grm-bin currently must be used with --rel-cutoff (possibly combined\nwith --make-grm-gz/--make-grm-bin) or --unrelated-heritability.%s", errstr_append);
+	  logprint("Error: --grm-bin currently must be used with --rel-cutoff (possibly combined\nwith --make-grm-gz/--make-grm-bin) or --unrelated-heritability.\n");
 	}
-	goto main_ret_INVALID_CMDLINE_3;
+	goto main_ret_INVALID_CMDLINE_A;
       }
     }
     if (!mperm_val) {
       if ((cnv_calc_type & CNV_INDIV_PERM) && (!cnv_indiv_mperms)) {
-	sprintf(logbuf, "Error: --cnv-indiv-perm requires a permutation count.%s", errstr_append);
-	goto main_ret_INVALID_CMDLINE_3;
+	logprint("Error: --cnv-indiv-perm requires a permutation count.\n");
+	goto main_ret_INVALID_CMDLINE_A;
       } else if ((cnv_calc_type & CNV_TEST_REGION) && (!cnv_test_region_mperms)) {
-	sprintf(logbuf, "Error: --cnv-test-region requires a permutation count.%s", errstr_append);
-	goto main_ret_INVALID_CMDLINE_3;
+	logprint("Error: --cnv-test-region requires a permutation count.\n");
+	goto main_ret_INVALID_CMDLINE_A;
       }
     }
   }
   if ((cnv_intersect_filter_type & CNV_COUNT) && (!(cnv_calc_type & (CNV_INDIV_PERM | CNV_ENRICHMENT_TEST)))) {
-    sprintf(logbuf, "Error: --cnv-count must be used with --cnv-indiv-perm or --cnv-enrichment-test.%s", errstr_append);
-    goto main_ret_INVALID_CMDLINE_3;
+    logprint("Error: --cnv-count must be used with --cnv-indiv-perm or --cnv-enrichment-test.\n");
+    goto main_ret_INVALID_CMDLINE;
   }
   if (!phenoname) {
     if ((filter_flags & FILTER_PRUNE) && (!(fam_cols & FAM_COL_6))) {
-      sprintf(logbuf, "Error: --prune and --no-pheno cannot coexist without an alternate phenotype\nfile.%s", errstr_append);
-      goto main_ret_INVALID_CMDLINE_3;
+      logprint("Error: --prune and --no-pheno cannot coexist without an alternate phenotype\nfile.\n");
+      goto main_ret_INVALID_CMDLINE_A;
     } else if (pheno_modifier & PHENO_ALL) {
-      sprintf(logbuf, "Error: --all-pheno must be used with --pheno.%s", errstr_append);
-      goto main_ret_INVALID_CMDLINE_3;
+      logprint("Error: --all-pheno must be used with --pheno.\n");
+      goto main_ret_INVALID_CMDLINE_A;
     }
   } else if (read_dists_fname && (!(calculation_type & (CALC_CLUSTER | CALC_IBS_TEST | CALC_GROUPDIST | CALC_NEIGHBOR | CALC_REGRESS_DISTANCE)))) {
-    sprintf(logbuf, "Error: --read-dists cannot be used without --cluster, --ibs-test/--groupdist,\n--neighbour, or --regress-distance.%s", errstr_append);
-    goto main_ret_INVALID_CMDLINE_3;
+    logprint("Error: --read-dists cannot be used without --cluster, --ibs-test/--groupdist,\n--neighbour, or --regress-distance.\n");
+    goto main_ret_INVALID_CMDLINE_A;
   }
   if ((cluster.ppc != 0.0) && (!read_genome_fname) && (calculation_type & (CALC_DISTANCE))) {
-    sprintf(logbuf, "Error: --ppc cannot be used with --distance without --read-genome.%s", errstr_append);
-    goto main_ret_INVALID_CMDLINE_3;
+    logprint("Error: --ppc cannot be used with --distance without --read-genome.\n");
+    goto main_ret_INVALID_CMDLINE_A;
   }
   if ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (((calculation_type & CALC_DISTANCE) && (dist_calc_type & (DISTANCE_1_MINUS_IBS | DISTANCE_ALCT))) || (calculation_type & CALC_PLINK1_DISTANCE_MATRIX)) && (!(calculation_type & CALC_GENOME))) {
     // actually allow this for now if --genome present, since it auto-clobbers
     // the wrong-unit distance matrix
-    sprintf(logbuf, "Error: --cluster and --neighbour cannot be used with non-IBS distance matrix\ncalculations.%s", errstr_append);
-    goto main_ret_INVALID_CMDLINE_3;
+    logprint("Error: --cluster and --neighbour cannot be used with non-IBS distance matrix\ncalculations.\n");
+    goto main_ret_INVALID_CMDLINE_A;
   }
   if (matrix_flag_state == 1) {
     calculation_type |= CALC_PLINK1_IBS_MATRIX;
@@ -11189,43 +11187,43 @@ int32_t main(int32_t argc, char** argv) {
       goto main_ret_INVALID_CMDLINE;
     }
     if (dist_calc_type & DISTANCE_IBS) {
-      sprintf(logbuf, "Error: --ibs-matrix cannot be used with '--distance ibs'.%s", errstr_append);
-      goto main_ret_INVALID_CMDLINE_3;
+      logprint("Error: --ibs-matrix cannot be used with '--distance ibs'.\n");
+      goto main_ret_INVALID_CMDLINE_A;
     }
     if (read_genome_fname && (cluster.ppc == 0.0)) {
-      sprintf(logbuf, "Error: --read-genome is pointless with --ibs-matrix unless --ppc is also\npresent.%s", errstr_append);
-      goto main_ret_INVALID_CMDLINE_3;
+      logprint("Error: --read-genome is pointless with --ibs-matrix unless --ppc is also\npresent.\n");
+      goto main_ret_INVALID_CMDLINE_A;
     }
     if (read_dists_fname) {
-      sprintf(logbuf, "Error: --read-dists cannot be used with a distance matrix calculation.%s", errstr_append);
-      goto main_ret_INVALID_CMDLINE_3;
+      logprint("Error: --read-dists cannot be used with a distance matrix calculation.\n");
+      goto main_ret_INVALID_CMDLINE_A;
     }
     if (parallel_tot > 1) {
-      sprintf(logbuf, "Error: --parallel and --ibs-matrix cannot be used together.  Use --distance\ninstead.%s", errstr_append);
-      goto main_ret_INVALID_CMDLINE_3;
+      logprint("Error: --parallel and --ibs-matrix cannot be used together.  Use --distance\ninstead.\n");
+      goto main_ret_INVALID_CMDLINE_A;
     }
   }
   if (update_map_modifier) {
-    sprintf(logbuf, "Error: Deprecated parameter-free --update-%s cannot be used without\n--update-map.%s", (update_map_modifier == 1)? "chr" : "cm", errstr_append);
-    goto main_ret_INVALID_CMDLINE_3;
+    sprintf(logbuf, "Error: Deprecated parameter-free --update-%s cannot be used without\n--update-map.\n", (update_map_modifier == 1)? "chr" : "cm");
+    goto main_ret_INVALID_CMDLINE_2A;
   }
   if (((misc_flags & (MISC_MERGEX | MISC_SET_ME_MISSING)) || splitx_bound2 || update_chr) && (((load_rare == LOAD_RARE_CNV) && (cnv_calc_type != CNV_WRITE)) || ((load_rare != LOAD_RARE_CNV) && (calculation_type != CALC_MAKE_BED)))) {
-    sprintf(logbuf, "Error: --merge-x/--split-x/--update-chr/--set-me-missing must be used with\n--%s and no other commands.%s", (load_rare == LOAD_RARE_CNV)? "cnv-write" : "make-bed", errstr_append);
-    goto main_ret_INVALID_CMDLINE_3;
+    sprintf(logbuf, "Error: --merge-x/--split-x/--update-chr/--set-me-missing must be used with\n--%s and no other commands.\n", (load_rare == LOAD_RARE_CNV)? "cnv-write" : "make-bed");
+    goto main_ret_INVALID_CMDLINE_2A;
   }
   if ((family_info.mendel_modifier & (MENDEL_DUOS | MENDEL_MULTIGEN)) && (!(calculation_type & CALC_MENDEL)) && (!(family_info.mendel_modifier & MENDEL_FILTER)) && (!(misc_flags & MISC_SET_ME_MISSING))) {
     logprint("Error: --mendel-duos/--mendel-multigen must be used with\n--me/--mendel/--set-me-missing.\n");
     goto main_ret_INVALID_CMDLINE;
   }
   if (flip_subset_fname && (load_rare || (calculation_type != CALC_MAKE_BED) || (min_maf != 0.0) || (max_maf != 0.5) || (hwe_thresh != 0.0))) {
-    sprintf(logbuf, "Error: --flip-subset must be used with --flip, --make-bed, and no other\ncommands or MAF-based filters.%s", errstr_append);
-    goto main_ret_INVALID_CMDLINE_3;
+    logprint("Error: --flip-subset must be used with --flip, --make-bed, and no other\ncommands or MAF-based filters.\n");
+    goto main_ret_INVALID_CMDLINE_A;
   }
   if (calculation_type & CALC_RECODE) {
     if (recode_modifier & (RECODE_23 | RECODE_BEAGLE)) {
       if (chrom_info.species != SPECIES_HUMAN) {
 	sprintf(logbuf, "Error: --recode %s can only be used on human data.\n", (recode_modifier & RECODE_23)? "23" : "beagle");
-	goto main_ret_INVALID_CMDLINE_3;
+	goto main_ret_INVALID_CMDLINE_2;
       }
       if ((recode_modifier & RECODE_23) && ((misc_flags & (MISC_ALLOW_EXTRA_CHROMS | MISC_ZERO_EXTRA_CHROMS)) == MISC_ALLOW_EXTRA_CHROMS)) {
 	logprint("Error: --allow-extra-chr requires the '0' modifier when used with --recode 23.\n");
@@ -11254,21 +11252,21 @@ int32_t main(int32_t argc, char** argv) {
   }
   if (misc_flags & MISC_IMPUTE_SEX) {
     if (!(calculation_type & (CALC_WRITE_COVAR | CALC_MAKE_BED | CALC_RECODE))) {
-      sprintf(logbuf, "Error: --impute-sex must be used with --make-bed/--recode/--write-covar.%s", errstr_append);
-      goto main_ret_INVALID_CMDLINE_3;
+      logprint("Error: --impute-sex must be used with --make-bed/--recode/--write-covar.\n");
+      goto main_ret_INVALID_CMDLINE_A;
     } else if (calculation_type & (~(CALC_WRITE_COVAR | CALC_MAKE_BED | CALC_RECODE | CALC_SEXCHECK))) {
-      sprintf(logbuf, "Error: --impute-sex cannot be used with any commands other than\n--make-bed/--recode/--write-covar.%s", errstr_append);
-      goto main_ret_INVALID_CMDLINE_3;
+      logprint("Error: --impute-sex cannot be used with any commands other than\n--make-bed/--recode/--write-covar.\n");
+      goto main_ret_INVALID_CMDLINE_A;
     }
   }
   if (cluster.qmatch_fname && (!cluster.qt_fname)) {
-    sprintf(logbuf, "Error: --qt must be used with --qmatch.%s", errstr_append);
-    goto main_ret_INVALID_CMDLINE_3;
+    logprint("Error: --qt must be used with --qmatch.\n");
+    goto main_ret_INVALID_CMDLINE_A;
   }
   if (!cluster.fname) {
     if (mwithin_col && (!loop_assoc_fname)) {
-      sprintf(logbuf, "Error: --mwithin must be used with --within.%s", errstr_append);
-      goto main_ret_INVALID_CMDLINE_3;
+      logprint("Error: --mwithin must be used with --within.\n");
+      goto main_ret_INVALID_CMDLINE_A;
     } else if (cluster.keep_fname) {
       logprint("Error: --keep-clusters must be used with --within.\n");
       goto main_ret_INVALID_CMDLINE;
@@ -11317,23 +11315,23 @@ int32_t main(int32_t argc, char** argv) {
   } else {
     if (model_modifier & MODEL_SET_TEST) {
       if ((!(model_modifier & MODEL_PERM)) && (!model_mperm_val)) {
-        sprintf(logbuf, "Error: --assoc/--model set-test requires permutation.%s", errstr_append);
-        goto main_ret_INVALID_CMDLINE_3;
+        logprint("Error: --assoc/--model set-test requires permutation.\n");
+        goto main_ret_INVALID_CMDLINE_A;
       } else if (model_modifier & MODEL_FISHER) {
-	sprintf(logbuf, "Error: --assoc/--model set-test cannot be used with Fisher's exact test.%s", errstr_append);
-        goto main_ret_INVALID_CMDLINE_3;
+	logprint("Error: --assoc/--model set-test cannot be used with Fisher's exact test.\n");
+        goto main_ret_INVALID_CMDLINE_A;
       } else if ((mtest_adjust & ADJUST_GC) || (adjust_lambda != 0.0)) {
-        sprintf(logbuf, "Error: --adjust 'gc' modifier and --lambda do not make sense with\n--assoc/--model set-test.%s", errstr_append);
-        goto main_ret_INVALID_CMDLINE_3;
+        logprint("Error: --adjust 'gc' modifier and --lambda do not make sense with\n--assoc/--model set-test.\n");
+        goto main_ret_INVALID_CMDLINE_A;
       }
     }
     if (glm_modifier & GLM_SET_TEST) {
       if ((!(glm_modifier & GLM_PERM)) && (!glm_mperm_val)) {
-        sprintf(logbuf, "Error: --linear/--logistic set-test requires permutation.%s", errstr_append);
-        goto main_ret_INVALID_CMDLINE_3;
+        logprint("Error: --linear/--logistic set-test requires permutation.\n");
+        goto main_ret_INVALID_CMDLINE_A;
       } else if ((mtest_adjust & ADJUST_GC) || (adjust_lambda != 0.0)) {
-        sprintf(logbuf, "Error: --adjust 'gc' modifier and --lambda do not make sense with\n--linear/--logistic set-test.%s", errstr_append);
-        goto main_ret_INVALID_CMDLINE_3;
+        logprint("Error: --adjust 'gc' modifier and --lambda do not make sense with\n--linear/--logistic set-test.\n");
+        goto main_ret_INVALID_CMDLINE_A;
       }
       logprint("Error: --linear/--logistic set-test is currently under development.\n");
       retval = RET_CALC_NOT_YET_SUPPORTED;
@@ -11341,11 +11339,11 @@ int32_t main(int32_t argc, char** argv) {
     }
     if (family_info.tdt_modifier & TDT_SET_TEST) {
       if (!(family_info.tdt_modifier & (TDT_PERM | TDT_MPERM))) {
-        sprintf(logbuf, "Error: --tdt set-test requires permutation.%s", errstr_append);
-        goto main_ret_INVALID_CMDLINE_3;
+        logprint("Error: --tdt set-test requires permutation.\n");
+        goto main_ret_INVALID_CMDLINE_A;
       } else if ((mtest_adjust & ADJUST_GC) || (adjust_lambda != 0.0)) {
-        sprintf(logbuf, "Error: --adjust 'gc' modifier and --lambda do not make sense with\n--tdt set-test.%s", errstr_append);
-        goto main_ret_INVALID_CMDLINE_3;
+        logprint("Error: --adjust 'gc' modifier and --lambda do not make sense with\n--tdt set-test.\n");
+        goto main_ret_INVALID_CMDLINE_A;
       }
       logprint("Error: --tdt set-test is currently under development.\n");
       retval = RET_CALC_NOT_YET_SUPPORTED;
@@ -11353,8 +11351,8 @@ int32_t main(int32_t argc, char** argv) {
     }
   }
   if ((family_info.tdt_modifier & (TDT_POO | TDT_PARENPERM1 | TDT_PARENPERM2 | TDT_POOPERM_PAT | TDT_POOPERM_MAT)) && (!(calculation_type & CALC_TDT))) {
-    sprintf(logbuf, "Error: --poo/--parentdt1/--parentdt2/--pat/--mat must be used with --tdt.%s", errstr_append);
-    goto main_ret_INVALID_CMDLINE_3;
+    logprint("Error: --poo/--parentdt1/--parentdt2/--pat/--mat must be used with --tdt.\n");
+    goto main_ret_INVALID_CMDLINE_A;
   }
   if (calculation_type & CALC_FLIPSCAN) {
     if (ld_info.flipscan_window_size == 0xffffffffU) {
@@ -11391,33 +11389,34 @@ int32_t main(int32_t argc, char** argv) {
   if ((!(calculation_type & CALC_LD)) || ((calculation_type & CALC_LD) && (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_INTER_CHR)))) {
     if ((ld_info.snpstr || ld_info.snps_rl.name_ct) && (!(ld_info.modifier & LD_INTER_CHR))) {
       if (calculation_type & CALC_LD) {
-	sprintf(logbuf, "Error: --ld-snp/--ld-snps/--ld-snp-list cannot be used with the --r/--r2 matrix\noutput modifiers.%s", errstr_append);
+	logprint("Error: --ld-snp/--ld-snps/--ld-snp-list cannot be used with the --r/--r2 matrix\noutput modifiers.\n");
       } else {
-        sprintf(logbuf, "Error: --ld-snp/--ld-snps/--ld-snp-list must be used with --r/--r2.%s", errstr_append);
+        logprint("Error: --ld-snp/--ld-snps/--ld-snp-list must be used with --r/--r2.\n");
       }
-      goto main_ret_INVALID_CMDLINE_3;
+      goto main_ret_INVALID_CMDLINE_A;
     } else if (ld_info.window_size != 0xffffffffU) {
       if (calculation_type & CALC_LD) {
-	sprintf(logbuf, "Error: --ld-window flag cannot be used with the --r/--r2 'inter-chr' or matrix\noutput modifiers.%s", errstr_append);
+	logprint("Error: --ld-window flag cannot be used with the --r/--r2 'inter-chr' or matrix\noutput modifiers.\n");
+        goto main_ret_INVALID_CMDLINE_A;
       } else if (!(calculation_type & (CALC_BLOCKS | CALC_FLIPSCAN))) {
-        sprintf(logbuf, "Error: --ld-window flag must be used with --r/--r2.%s", errstr_append);
-        goto main_ret_INVALID_CMDLINE_3;
+        logprint("Error: --ld-window flag must be used with --r/--r2.\n");
+        goto main_ret_INVALID_CMDLINE_A;
       }
     } else if (ld_info.window_bp != 0xffffffffU) {
       if (calculation_type & CALC_LD) {
-	sprintf(logbuf, "Error: --ld-window-kb flag cannot be used with the --r/--r2 'inter-chr' or\nmatrix output modifiers.%s", errstr_append);
-        goto main_ret_INVALID_CMDLINE_3;
+	logprint("Error: --ld-window-kb flag cannot be used with the --r/--r2 'inter-chr' or\nmatrix output modifiers.\n");
+        goto main_ret_INVALID_CMDLINE_A;
       } else if (!(calculation_type & CALC_BLOCKS)) {
-        sprintf(logbuf, "Error: --ld-window-kb flag must be used with --r/--r2.%s", errstr_append);
-        goto main_ret_INVALID_CMDLINE_3;
+        logprint("Error: --ld-window-kb flag must be used with --r/--r2.\n");
+        goto main_ret_INVALID_CMDLINE_A;
       }
     } else if ((ld_info.window_r2 != 0.2) && (!(ld_info.modifier & LD_INTER_CHR))) {
       if (!(ld_info.modifier & LD_R2)) {
         logprint("Error: --ld-window-r2 flag must be used with --r2.\n");
         goto main_ret_INVALID_CMDLINE;
       } else {
-	sprintf(logbuf, "Error: --ld-window-r2 flag cannot be used with the --r2 matrix output modifiers.%s", errstr_append);
-	goto main_ret_INVALID_CMDLINE_3;
+	logprint("Error: --ld-window-r2 flag cannot be used with the --r2 matrix output modifiers.\n");
+	goto main_ret_INVALID_CMDLINE_A;
       }
     }
   } else {
@@ -11429,8 +11428,8 @@ int32_t main(int32_t argc, char** argv) {
     }
   }
   if ((ld_info.modifier & LD_DPRIME) && (!(calculation_type & CALC_LD))) {
-    sprintf(logbuf, "Error: --D/--dprime must be used with --r/--r2.%s", errstr_append);
-    goto main_ret_INVALID_CMDLINE_3;
+    logprint("Error: --D/--dprime must be used with --r/--r2.\n");
+    goto main_ret_INVALID_CMDLINE_A;
   }
 
   // --from-bp/-kb/-mb without any --to/--to-bp/...: include to end of
@@ -11451,8 +11450,8 @@ int32_t main(int32_t argc, char** argv) {
       uii = next_set(chrom_info.chrom_mask, uii + 1, CHROM_MASK_INITIAL_WORDS * BITCT);
     }
     if (((uii == CHROM_MASK_INITIAL_WORDS * BITCT) && chrom_info.incl_excl_name_stack) || ((uii != CHROM_MASK_INITIAL_WORDS * BITCT) && (uii || (!chrom_info.incl_excl_name_stack) || chrom_info.incl_excl_name_stack->next))) {
-      sprintf(logbuf, "Error: --from-bp/-kb/-mb and --to-bp/-kb/-mb require a single chromosome to be\nidentified (either explicitly with --chr, or implicitly with --from/--to).%s", errstr_append);
-      goto main_ret_INVALID_CMDLINE_3;
+      logprint("Error: --from-bp/-kb/-mb and --to-bp/-kb/-mb require a single chromosome to be\nidentified (either explicitly with --chr, or implicitly with --from/--to).\n");
+      goto main_ret_INVALID_CMDLINE_A;
     }
   }
 
@@ -11479,8 +11478,8 @@ int32_t main(int32_t argc, char** argv) {
   if (calculation_type & CALC_MODEL) {
     if (!(model_modifier & (MODEL_ASSOC | MODEL_PDOM | MODEL_PREC | MODEL_PTREND))) {
       if (mtest_adjust) {
-	sprintf(logbuf, "Error: In order to use --model with --adjust, you must include the 'trend',\n'trend-only', 'dom', or 'rec' modifier.%s", errstr_append);
-	goto main_ret_INVALID_CMDLINE_3;
+	logprint("Error: In order to use --model with --adjust, you must include the 'trend',\n'trend-only', 'dom', or 'rec' modifier.\n");
+	goto main_ret_INVALID_CMDLINE;
       }
     }
     if (model_cell_ct == -1) {
@@ -11492,30 +11491,30 @@ int32_t main(int32_t argc, char** argv) {
   }
   if ((homozyg.modifier & (HOMOZYG_GROUP | HOMOZYG_GROUP_VERBOSE)) && (!(calculation_type & CALC_HOMOZYG))) {
     if (homozyg.overlap_min == 0.95) {
-      sprintf(logbuf, "Error: --homozyg-group must be used with another --homozyg... flag.%s", errstr_append);
+      logprint("Error: --homozyg-group must be used with another --homozyg... flag.\n");
     } else {
-      sprintf(logbuf, "Error: --homozyg-match must be used with another --homozyg... flag.%s", errstr_append);
+      logprint("Error: --homozyg-match must be used with another --homozyg... flag.\n");
     }
-    goto main_ret_INVALID_CMDLINE_3;
+    goto main_ret_INVALID_CMDLINE_A;
   }
   if (score_info.data_fname) {
     if (!score_info.range_fname) {
       logprint("Error: --q-score-file cannot be used without --q-score-range.\n");
       goto main_ret_INVALID_CMDLINE;
     } else if (!(calculation_type & CALC_SCORE)) {
-      sprintf(logbuf, "Error: --q-score-range must be used with --score.%s", errstr_append);
-      goto main_ret_INVALID_CMDLINE_3;
+      logprint("Error: --q-score-range must be used with --score.\n");
+      goto main_ret_INVALID_CMDLINE_A;
     }
   }
   if (gene_report_border && (!gene_report_fname)) {
-    sprintf(logbuf, "Error: --gene-list-border must be used with --gene-report.%s", errstr_append);
-    goto main_ret_INVALID_CMDLINE_3;
+    logprint("Error: --gene-list-border must be used with --gene-report.\n");
+    goto main_ret_INVALID_CMDLINE_A;
   }
 
   uii = load_params & LOAD_PARAMS_OX_ALL;
   if ((uii == LOAD_PARAMS_OXGEN) || (uii == LOAD_PARAMS_OXBGEN)) {
-    sprintf(logbuf, "Error: --gen/--bgen cannot be used without --data or --sample.%s", errstr_append);
-    goto main_ret_INVALID_CMDLINE_3;
+    logprint("Error: --gen/--bgen cannot be used without --data or --sample.\n");
+    goto main_ret_INVALID_CMDLINE_A;
   }
   if ((!calculation_type) && (!(load_rare & (LOAD_RARE_LGEN | LOAD_RARE_DUMMY | LOAD_RARE_SIMULATE | LOAD_RARE_TRANSPOSE_MASK | LOAD_RARE_23 | LOAD_RARE_CNV | LOAD_RARE_VCF | LOAD_RARE_BCF))) && (famname[0] || load_rare)) {
     goto main_ret_NULL_CALC;
@@ -11523,8 +11522,8 @@ int32_t main(int32_t argc, char** argv) {
   uii = 0; // short batch job?
   if (!(load_params || load_rare)) {
     if (!epi_info.summary_merge_prefix) {
-      sprintf(logbuf, "Error: No input dataset.%s", errstr_append);
-      goto main_ret_INVALID_CMDLINE_3;
+      logprint("Error: No input dataset.\n");
+      goto main_ret_INVALID_CMDLINE_A;
     }
     // no input dataset needed in this case
     uii = 1;
@@ -11696,8 +11695,8 @@ int32_t main(int32_t argc, char** argv) {
 	retval = oxford_to_bed(pedname, mapname, outname, sptr, hard_call_threshold, missing_code, missing_pheno, misc_flags, (load_params / LOAD_PARAMS_OXBGEN) & 1, &chrom_info);
       } else {
 	if (load_params & (LOAD_PARAMS_BED | LOAD_PARAMS_BIM)) {
-	  sprintf(logbuf, "Error: --bed and --bim cannot be used without --bfile or --fam.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  logprint("Error: --bed and --bim cannot be used without --bfile or --fam.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         retval = ped_to_bed(pedname, mapname, outname, sptr, fam_cols, misc_flags, missing_pheno, &chrom_info);
 	fam_cols |= FAM_COL_1 | FAM_COL_34 | FAM_COL_5;
@@ -11751,21 +11750,23 @@ int32_t main(int32_t argc, char** argv) {
     LOGPRINTF("Error: --%s conflicts with another input flag.%s", argptr, errstr_append);
     retval = RET_INVALID_CMDLINE;
     break;
-    // main_ret_INVALID_CMDLINE_WWA:
-    // wordwrap(logbuf, 0);
+  main_ret_INVALID_CMDLINE_WWA:
+    wordwrap(logbuf, 0);
   main_ret_INVALID_CMDLINE_2A:
     logprintb();
   main_ret_INVALID_CMDLINE_A:
     logprint(errstr_append2);
     retval = RET_INVALID_CMDLINE;
     break;
-  main_ret_INVALID_CMDLINE_3:
+  main_ret_INVALID_CMDLINE_WW:
+    wordwrap(logbuf, 0);
+  main_ret_INVALID_CMDLINE_2:
     logprintb();
   main_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
   main_ret_NULL_CALC:
-    logprint(null_calc_str);
+    logprint("Warning: No output requested.  Exiting.\n");
     fputs(cmdline_format_str, stdout);
     fputs(notestr_null_calc2, stdout);
     retval = RET_NULL_CALC;
