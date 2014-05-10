@@ -2817,7 +2817,7 @@ THREAD_RET_TYPE model_assoc_gen_cluster_perms_thread(void* arg) {
 }
 
 THREAD_RET_TYPE qassoc_gen_perms_thread(void* arg) {
-  // Used by QT --assoc.
+  // Used by QT --assoc and --make-perm-pheno.
   //
   // Takes an array of phenotype values in g_pheno_d2 of length g_pheno_nm_ct,
   // and populates g_perm_vecstd[] with permutations of those values.  Also
@@ -10741,8 +10741,12 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t pheno_nm_ctl = (pheno_nm_ct + (BITCT - 1)) / BITCT;
   uintptr_t pheno_nm_ctv = (pheno_nm_ctl + 1) & (~1);
+  uintptr_t perm_vec_ctcl8m = 0;
+  char* writebuf = NULL;
   int32_t retval = 0;
   uintptr_t* ulptr;
+  double* dptr;
+  char* wptr;
   uintptr_t indiv_uidx;
   uintptr_t indiv_idx;
   uintptr_t perm_idx;
@@ -10753,21 +10757,21 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
     logprint("Error: --make-perm-pheno requires phenotype data.\n");
     goto make_perm_pheno_ret_INVALID_CMDLINE;
   }
+  g_assoc_thread_ct = MINV(g_thread_ct, permphe_ct);
+  if (wkspace_init_sfmtp(g_assoc_thread_ct)) {
+    goto make_perm_pheno_ret_NOMEM;
+  }
+  g_pheno_nm_ct = pheno_nm_ct;
+  g_perm_vec_ct = permphe_ct;
+  ulii = 0;
   if (pheno_c) {
     g_is_perm1 = 1;
-    g_pheno_nm_ct = pheno_nm_ct;
     g_case_ct = popcount_longs(pheno_c, unfiltered_indiv_ctl);
-    g_assoc_thread_ct = MINV(g_thread_ct, permphe_ct);
-    if (wkspace_init_sfmtp(g_assoc_thread_ct)) {
-      goto make_perm_pheno_ret_NOMEM;
-    }
     // could seamlessly support multipass by using different permutation logic,
     // but pointless in practice; better to just generate multiple files
     if (wkspace_alloc_ul_checked(&g_perm_vecs, permphe_ct * pheno_nm_ctv * sizeof(intptr_t))) {
       goto make_perm_pheno_ret_NOMEM;
     }
-    g_perm_vec_ct = permphe_ct;
-    ulii = 0;
     if (cluster_starts) {
       // most similar to testmiss()
       retval = cluster_include_and_reindex(unfiltered_indiv_ct, pheno_nm, 1, pheno_c, pheno_nm_ct, 1, cluster_ct, cluster_map, cluster_starts, &g_cluster_ct, &g_cluster_map, &g_cluster_starts, &g_cluster_case_cts, &g_cluster_cc_perm_preimage);
@@ -10798,12 +10802,44 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
       }
       model_assoc_gen_perms_thread((void*)ulii);
     }
-    join_threads(threads, g_assoc_thread_ct);
   } else {
+    g_pheno_d2 = (double*)alloc_and_init_collapsed_arr_incl((char*)pheno_d, sizeof(double), unfiltered_indiv_ct, pheno_nm, pheno_nm_ct, 1);
+    if (!g_pheno_d2) {
+      goto make_perm_pheno_ret_NOMEM;
+    }
+    perm_vec_ctcl8m = (permphe_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+    if (wkspace_alloc_d_checked(&g_perm_vecstd, perm_vec_ctcl8m * sizeof(double) * pheno_nm_ct)) {
+      goto make_perm_pheno_ret_NOMEM;
+    }
     if (cluster_starts) {
+      retval = cluster_include_and_reindex(unfiltered_indiv_ct, pheno_nm, 1, NULL, pheno_nm_ct, 0, cluster_ct, cluster_map, cluster_starts, &g_cluster_ct, &g_cluster_map, &g_cluster_starts, NULL, NULL);
+      if (retval) {
+	goto make_perm_pheno_ret_1;
+      }
+      if (!g_cluster_ct) {
+        logprint("Error: Degenerate --make-perm-pheno invocation (no size 2+ clusters).\n");
+        goto make_perm_pheno_ret_INVALID_CMDLINE;
+      }
+      if (wkspace_alloc_ui_checked(&g_indiv_to_cluster, pheno_nm_ct * sizeof(int32_t)) ||
+          wkspace_alloc_ui_checked(&g_qassoc_cluster_thread_wkspace, g_assoc_thread_ct * ((g_cluster_ct + (CACHELINE_INT32 - 1)) / CACHELINE_INT32) * CACHELINE)) {
+	goto make_perm_pheno_ret_NOMEM;
+      }
+      fill_unfiltered_indiv_to_cluster(pheno_nm_ct, g_cluster_ct, g_cluster_map, g_cluster_starts, g_indiv_to_cluster);
+      if (spawn_threads(threads, &qassoc_gen_cluster_perms_thread, g_assoc_thread_ct)) {
+	goto make_perm_pheno_ret_THREAD_CREATE_FAIL;
+      }
+      qassoc_gen_cluster_perms_thread((void*)ulii);
     } else {
+      if (spawn_threads(threads, &qassoc_gen_perms_thread, g_assoc_thread_ct)) {
+	goto make_perm_pheno_ret_THREAD_CREATE_FAIL;
+      }
+      qassoc_gen_perms_thread((void*)ulii);
+    }
+    if (wkspace_alloc_c_checked(&writebuf, permphe_ct * 16)) {
+      goto make_perm_pheno_ret_NOMEM;
     }
   }
+  join_threads(threads, g_assoc_thread_ct);
   memcpy(outname_end, ".pphe", 6);
   if (fopen_checked(&outfile, outname, "w")) {
     goto make_perm_pheno_ret_OPEN_FAIL;
@@ -10826,6 +10862,15 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
       }
       indiv_nmidx++;
     } else {
+      wptr = writebuf;
+      dptr = &(g_perm_vecstd[indiv_nmidx * perm_vec_ctcl8m]);
+      for (perm_idx = 0; perm_idx < permphe_ct; perm_idx++) {
+	*wptr++ = '\t';
+        wptr = double_g_write(wptr, *dptr++);
+      }
+      if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
+	goto make_perm_pheno_ret_WRITE_FAIL;
+      }
       indiv_nmidx++;
     }
     if (putc_checked('\n', outfile)) {

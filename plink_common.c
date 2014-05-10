@@ -8535,6 +8535,32 @@ char* alloc_and_init_collapsed_arr(char* item_arr, uintptr_t item_len, uintptr_t
   return new_arr;
 }
 
+char* alloc_and_init_collapsed_arr_incl(char* item_arr, uintptr_t item_len, uintptr_t unfiltered_ct, uintptr_t* include_arr, uintptr_t filtered_ct, uint32_t read_only) {
+  uint32_t item_uidx = 0;
+  char* new_arr;
+  char* wptr;
+  char* wptr_end;
+  uintptr_t item_uidx_stop;
+  uintptr_t delta;
+  if (read_only && (unfiltered_ct == filtered_ct)) {
+    return item_arr;
+  }
+  if (wkspace_alloc_c_checked(&new_arr, filtered_ct * item_len)) {
+    return NULL;
+  }
+  wptr = new_arr;
+  wptr_end = &(new_arr[filtered_ct * item_len]);
+  do {
+    item_uidx = next_set_ul_unsafe(include_arr, item_uidx);
+    item_uidx_stop = next_unset_ul(include_arr, item_uidx, unfiltered_ct);
+    delta = item_uidx_stop - item_uidx;
+    memcpy(wptr, &(item_arr[item_uidx * item_len]), delta * item_len);
+    wptr = &(wptr[delta * item_len]);
+    item_uidx = item_uidx_stop;
+  } while (wptr < wptr_end);
+  return new_arr;
+}
+
 /*
 void inplace_delta_collapse_arr(char* item_arr, uintptr_t item_len, uintptr_t filtered_ct_orig, uintptr_t filtered_ct_new, uintptr_t* exclude_orig, uintptr_t* exclude_new) {
   uintptr_t* exclude_orig_start = exclude_orig;

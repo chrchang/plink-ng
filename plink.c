@@ -1776,6 +1776,10 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
   if (calculation_type & CALC_REGRESS_DISTANCE) {
+    if (indiv_ct != pheno_nm_ct) {
+      logprint("Error: --regress-distance requires phenotype data for all samples.  (--prune\nshould help.)\n");
+      goto plink_ret_INVALID_CMDLINE;
+    }
     retval = regress_distance(threads, calculation_type, pheno_d, unfiltered_indiv_ct, indiv_exclude, indiv_ct, g_thread_ct, regress_iters, regress_d);
     if (retval) {
       goto plink_ret_1;
