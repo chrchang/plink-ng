@@ -963,6 +963,11 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
   cluster_idx = 0;
   cluster_end = 0;
   last_case_ct_incr = 0;
+  // walk through cluster_map and:
+  // * skip excluded sample indices, and reindex the rest when copying to
+  //   new_cluster_map[]
+  // * update new_cluster_starts[] if necessary
+  // * if remove_size1, also delete clusters that are now size 1
   for (map_read_idx = 0; map_read_idx < old_assigned_ct; map_read_idx++) {
     indiv_uidx = cluster_map[map_read_idx];
     if (!IS_SET(indiv_include, indiv_uidx)) {
@@ -970,7 +975,7 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
     }
     if (map_read_idx >= cluster_end) {
       if (cluster_idx) {
-        if ((!remove_size1) || (map_idx - new_cluster_starts[cluster_idx] > 1)) {
+        if ((!remove_size1) || (map_idx - new_cluster_starts[cluster_idx - 1] > 1)) {
 	  if (pheno_c) {
 	    cluster_case_cts[cluster_idx - 1] = case_ct + last_case_ct_incr;
 	  }
