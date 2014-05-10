@@ -925,6 +925,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Fisher's exact test.  The 'midp' modifier causes Lancaster's mid-p\n"
 "    adjustment to be applied.\n\n"
 	       );
+    help_print("make-perm-pheno", &help_ctrl, 1,
+"  --make-perm-pheno [ct]\n"
+"    Generate phenotype permutations and write them to disk, without invoking an\n"
+"    association test.\n\n"
+	       );
 #ifndef STABLE_BUILD
 #ifndef NOLAPACK
     help_print("unrelated-heritability", &help_ctrl, 1,
@@ -1427,8 +1432,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --recode-allele [f]  : With --recode A or --recode AD, count alleles named in\n"
 "                         the file (instead of the minor allele).\n"
 	       );
-    help_print("chr-output", &help_ctrl, 0,
-"  --chr-output [MT code] : Set chromosome coding scheme in output files by\n"
+    help_print("output-chr\tchr-output", &help_ctrl, 0,
+"  --output-chr [MT code] : Set chromosome coding scheme in output files by\n"
 "                           providing the desired human mitochondrial code.\n"
 "                           (Options are '26', 'M', 'MT', 'chr26', 'chrM', and\n"
 "                           'chrMT'.)\n"

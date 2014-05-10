@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (9 May 2014) ";
+  " (10 May 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   " "
@@ -109,19 +109,18 @@ const char ver_str2[] =
 #endif
   "      https://www.cog-genomics.org/plink2\n"
   "(C) 2005-2014 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
-const char errstr_append[] = "\nFor more information, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
-const char* errstr_append2 = &(errstr_append[1]);
+const char errstr_append[] = "For more information, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
 #ifdef STABLE_BUILD
   #ifndef NOLAPACK
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --pca, --neighbour,\n--ibs-test, --regress-distance, --model, --gxe, --logistic, --lasso,\n--test-missing, --tdt, --clump, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --pca, --neighbour,\n--ibs-test, --regress-distance, --model, --gxe, --logistic, --lasso,\n--test-missing, --make-perm-pheno, --tdt, --clump, --fast-epistasis, and\n--score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour, --ibs-test,\n--regress-distance, --model, --gxe, --logistic, --lasso, --test-missing, --tdt,\n--clump, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour, --ibs-test,\n--regress-distance, --model, --gxe, --logistic, --lasso, --test-missing,\n--make-perm-pheno, --tdt, --clump, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #endif
 #else
   #ifndef NOLAPACK
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --pca, --neighbour,\n--ibs-test, --regress-distance, --model, --gxe, --logistic, --lasso,\n--test-missing, --unrelated-heritability, --tdt, --clump, --fast-epistasis, and\n--score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --pca, --neighbour,\n--ibs-test, --regress-distance, --model, --gxe, --logistic, --lasso,\n--test-missing, --make-perm-pheno, --unrelated-heritability, --tdt, --clump,\n--fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour, --ibs-test,\n--regress-distance, --model, --gxe, --logistic, --lasso, --test-missing, --tdt,\n--clump, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour, --ibs-test,\n--regress-distance, --model, --gxe, --logistic, --lasso, --test-missing,\n--make-perm-pheno, --tdt, --clump, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #endif
 #endif
 
@@ -387,7 +386,7 @@ static inline int32_t distance_wt_req(uint64_t calculation_type, char* read_dist
   return (((calculation_type & CALC_DISTANCE) || ((!read_dists_fname) && ((calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))))) && (!(dist_calc_type & DISTANCE_FLAT_MISSING)));
 }
 
-int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* cm_map_fname, char* cm_map_chrname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char** missing_mid_templates, char* missing_marker_id_match, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* indiv_sort_fname, char* filtervals_flattened, char* condition_mname, char* condition_fname, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_indiv_fname, char* filter_attrib_indiv_liststr, double thin_keep_prob, uint32_t thin_keep_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t fam_cols, int32_t missing_pheno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, Family_info* fam_ip, double check_sex_fthresh, double check_sex_mthresh, uint32_t check_sex_f_yobs, uint32_t check_sex_m_yobs, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t filter_flags, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t splitx_bound1, uint32_t splitx_bound2, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t update_sex_col, uint32_t hwe_modifier, uint32_t genome_modifier, double genome_min_pi_hat, double genome_max_pi_hat, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, Set_info* sip, Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip, Rel_info* relip, Score_info* sc_ip, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t write_covar_modifier, uint32_t write_covar_dummy_max_categories, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, Aperm_info* apip, uint32_t mperm_save, uintptr_t ibs_test_perms, uint32_t perm_batch_size, double lasso_h2, double lasso_minlambda, Range_list* lasso_select_covars_range_list_ptr, uint32_t testmiss_modifier, uint32_t testmiss_mperm_val, Ll_str** file_delete_list_ptr) {
+int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* cm_map_fname, char* cm_map_chrname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char** missing_mid_templates, char* missing_marker_id_match, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* indiv_sort_fname, char* filtervals_flattened, char* condition_mname, char* condition_fname, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_indiv_fname, char* filter_attrib_indiv_liststr, double thin_keep_prob, uint32_t thin_keep_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t fam_cols, int32_t missing_pheno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, Family_info* fam_ip, double check_sex_fthresh, double check_sex_mthresh, uint32_t check_sex_f_yobs, uint32_t check_sex_m_yobs, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t filter_flags, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t splitx_bound1, uint32_t splitx_bound2, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t update_sex_col, uint32_t hwe_modifier, uint32_t genome_modifier, double genome_min_pi_hat, double genome_max_pi_hat, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, Set_info* sip, Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip, Rel_info* relip, Score_info* sc_ip, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t write_covar_modifier, uint32_t write_covar_dummy_max_categories, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, Aperm_info* apip, uint32_t mperm_save, uintptr_t ibs_test_perms, uint32_t perm_batch_size, double lasso_h2, double lasso_minlambda, Range_list* lasso_select_covars_range_list_ptr, uint32_t testmiss_modifier, uint32_t testmiss_mperm_val, uint32_t permphe_ct, Ll_str** file_delete_list_ptr) {
   FILE* bedfile = NULL;
   FILE* phenofile = NULL;
   uintptr_t unfiltered_marker_ct = 0;
@@ -461,7 +460,6 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   char* id_list = NULL;
   double missing_phenod = (double)missing_pheno;
   double ci_zt = 0.0;
-  uint32_t missing_pheno_len = intlen(missing_pheno);
   uint32_t wt_needed = distance_wt_req(calculation_type, read_dists_fname, dist_calc_type);
   uintptr_t bed_offset = 3;
   uint32_t* marker_pos = NULL;
@@ -1517,6 +1515,13 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
+  if (calculation_type & CALC_MAKE_PERM_PHENO) {
+    retval = make_perm_pheno(outname, outname_end, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, cluster_ct, cluster_map, cluster_starts, pheno_nm_ct, pheno_nm, pheno_c, pheno_d, output_missing_pheno, permphe_ct);
+    if (retval) {
+      goto plink_ret_1;
+    }
+  }
+
   if ((calculation_type & CALC_GENOME) || genome_skip_write) {
     // er, this probably should be moved inside calc_genome(), since we're
     // using get_trios_and_families() instead of pri elsewhere
@@ -1599,7 +1604,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       logprint("Error: Run-of-homozygosity scanning requires a sorted .bim.  Retry this command\nafter using --make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
-    retval = calc_homozyg(homozyg_ptr, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, zero_extra_chroms, chrom_info_ptr, marker_pos, indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, outname, outname_end, pheno_nm, pheno_c, pheno_d, missing_pheno, sex_male);
+    retval = calc_homozyg(homozyg_ptr, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, zero_extra_chroms, chrom_info_ptr, marker_pos, indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, outname, outname_end, pheno_nm, pheno_c, pheno_d, output_missing_pheno, sex_male);
     if (retval) {
       goto plink_ret_1;
     }
@@ -1812,7 +1817,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_SCORE) {
-    retval = score_report(sc_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, marker_allele_ptrs, set_allele_freqs, indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, sex_male, pheno_nm, pheno_c, pheno_d, missing_pheno, missing_pheno_len, hh_exists, chrom_info_ptr, outname, outname_end);
+    retval = score_report(sc_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, marker_allele_ptrs, set_allele_freqs, indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, sex_male, pheno_nm, pheno_c, pheno_d, output_missing_pheno, hh_exists, chrom_info_ptr, outname, outname_end);
     if (retval) {
       goto plink_ret_1;
     }
@@ -2228,7 +2233,7 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
     }
   }
   if (!argct) {
-    LOGPRINTF("Error: --%s requires at least one value.%s", cur_flag_str, errstr_append);
+    LOGPRINTF("Error: --%s requires at least one value.\n%s", cur_flag_str, errstr_append);
     return RET_INVALID_CMDLINE;
   }
   while (0) {
@@ -2242,7 +2247,7 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
   parse_chrom_ranges_ret_INVALID_CMDLINE_WWA:
     wordwrap(logbuf, 0);
     logprintb();
-    logprint(errstr_append2);
+    logprint(errstr_append);
     retval = RET_INVALID_CMDLINE;
     break;
   }
@@ -2270,7 +2275,7 @@ int32_t parse_name_ranges(uint32_t param_ct, char range_delim, char** argv, Rang
     while (1) {
       if (parse_next_range(param_ct, range_delim, argv, &cur_param_idx, &cur_arg_ptr, &range_start, &rs_len, &range_end, &re_len)) {
 	LOGPRINTFWW("Error: Invalid %s parameter '%s'.\n", argv[0], argv[cur_param_idx]);
-	logprint(errstr_append2);
+	logprint(errstr_append);
         return RET_INVALID_CMDLINE;
       }
       if (!range_start) {
@@ -2289,8 +2294,7 @@ int32_t parse_name_ranges(uint32_t param_ct, char range_delim, char** argv, Rang
     }
   }
   if (!name_ct) {
-    LOGPRINTFWW("Error: %s requires at least one value.\n", argv[0]);
-    logprint(errstr_append2);
+    LOGPRINTF("Error: %s requires at least one value.\n%s", argv[0], errstr_append);
     return RET_INVALID_CMDLINE;
   }
   range_list_ptr->name_max_len = ++name_max_len;
@@ -2522,7 +2526,7 @@ int32_t alloc_2col(Two_col_params** tcbuf, char** params_ptr, char* argptr, uint
       (*tcbuf)->colid = 1;
     }
     if ((*tcbuf)->colx == (*tcbuf)->colid) {
-      LOGPRINTF("Error: Column numbers for --%s cannot be equal.%s", argptr, errstr_append);
+      LOGPRINTF("Error: Column numbers for --%s cannot be equal.\n%s", argptr, errstr_append);
       return RET_INVALID_FORMAT;
     }
   } else {
@@ -2791,7 +2795,7 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
   init_delim_and_species_ret_INVALID_CMDLINE_2A:
     logprintb();
   init_delim_and_species_ret_INVALID_CMDLINE_A:
-    logprint(errstr_append2);
+    logprint(errstr_append);
     retval = RET_INVALID_CMDLINE;
     break;
   init_delim_and_species_ret_INVALID_CMDLINE:
@@ -3003,6 +3007,7 @@ int32_t main(int32_t argc, char** argv) {
   double cnv_freq_val2 = 0.0;
   uint32_t cnv_test_window = 0;
   uint32_t segment_modifier = 0;
+  uint32_t permphe_ct = 0;
   uint32_t matrix_flag_state = 0; // 1 = present and unclaimed, 2 = claimed
   double hard_call_threshold = 0.1;
   double tail_bottom = 0.0;
@@ -3109,13 +3114,14 @@ int32_t main(int32_t argc, char** argv) {
       if (enforce_param_ct_range(ujj, argv[uii], 1, 1)) {
 	print_ver();
 	fputs(logbuf, stdout);
-	fputs(errstr_append2, stdout);
+	fputs(errstr_append, stdout);
 	goto main_ret_INVALID_CMDLINE;
       }
       for (ujj = uii + 2; ujj < (uint32_t)argc; ujj++) {
 	if ((!strcmp("-script", argv[ujj])) || (!strcmp("--script", argv[ujj]))) {
 	  print_ver();
-	  printf("Error: Multiple --script flags.  Merge the files into one.%s", errstr_append);
+	  fputs("Error: Multiple --script flags.  Merge the files into one.\n", stdout);
+	  fputs(errstr_append, stdout);
 	  goto main_ret_INVALID_CMDLINE;
 	}
       }
@@ -3195,7 +3201,7 @@ int32_t main(int32_t argc, char** argv) {
       if (enforce_param_ct_range(ujj, argv[uii], 0, 1)) {
 	print_ver();
 	fputs(logbuf, stdout);
-	fputs(errstr_append2, stdout);
+	fputs(errstr_append, stdout);
 	goto main_ret_INVALID_CMDLINE;
       }
       for (ukk = uii + ujj + 1; ukk < (uint32_t)argc; ukk++) {
@@ -3322,7 +3328,8 @@ int32_t main(int32_t argc, char** argv) {
   }
   if ((cur_arg < (uint32_t)argc) && (!is_flag(argv[cur_arg]))) {
     print_ver();
-    printf("Error: First parameter must be a flag.%s", errstr_append);
+    fputs("Error: First parameter must be a flag.\n", stdout);
+    fputs(errstr_append, stdout);
     goto main_ret_INVALID_CMDLINE;
   }
   flag_ct = 0;
@@ -3361,7 +3368,7 @@ int32_t main(int32_t argc, char** argv) {
 	print_ver();
 	invalid_arg(argv[uii]);
 	fputs(logbuf, stdout);
-	fputs(errstr_append2, stdout);
+	fputs(errstr_append, stdout);
         goto main_ret_INVALID_CMDLINE;
       }
       flag_ct++;
@@ -3428,6 +3435,10 @@ int32_t main(int32_t argc, char** argv) {
 	  break;
 	} else if (!strcmp(argptr, "cmh")) {
 	  memcpy(flagptr, "mh", 3);
+	  break;
+	} else if (!strcmp(argptr, "chr-output")) {
+	  fputs("Note: --chr-output flag has been renamed to --output-chr, for consistency with\n--output-missing-{genotype/phenotype}.\n", stdout);
+	  memcpy(flagptr, "output-chr", 11);
 	  break;
 	}
 	goto main_flag_copy;
@@ -3661,7 +3672,7 @@ int32_t main(int32_t argc, char** argv) {
       ukk = param_count(argc, argv, ujj);
       if (enforce_param_ct_range(ukk, argv[ujj], 1, 1)) {
 	fputs(logbuf, stdout);
-	fputs(errstr_append2, stdout);
+	fputs(errstr_append, stdout);
 	goto main_ret_INVALID_CMDLINE;
       }
       if (strlen(argv[ujj + 1]) > (FNAMESIZE - MAX_POST_EXT)) {
@@ -5434,24 +5445,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
         clump_info.modifier |= CLUMP_VERBOSE;
         goto main_param_zero;
-      } else if (!memcmp(argptr2, "hr-output", 10)) {
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
-	  goto main_ret_INVALID_CMDLINE_2A;
-	}
-        if (!strcmp(argv[cur_arg + 1], "M")) {
-          chrom_info.output_encoding = CHR_OUTPUT_M;
-	} else if (!strcmp(argv[cur_arg + 1], "MT")) {
-          chrom_info.output_encoding = CHR_OUTPUT_MT;
-	} else if (!strcmp(argv[cur_arg + 1], "chr26")) {
-          chrom_info.output_encoding = CHR_OUTPUT_PREFIX;
-	} else if (!strcmp(argv[cur_arg + 1], "chrM")) {
-          chrom_info.output_encoding = CHR_OUTPUT_PREFIX | CHR_OUTPUT_M;
-	} else if (!strcmp(argv[cur_arg + 1], "chrMT")) {
-          chrom_info.output_encoding = CHR_OUTPUT_PREFIX | CHR_OUTPUT_MT;
-	} else if (strcmp(argv[cur_arg + 1], "26")) {
-	  sprintf(logbuf, "Error: Invalid --chr-output parameter '%s'.\n", argv[cur_arg + 1]);
-          goto main_ret_INVALID_CMDLINE_WWA;
-	}
       } else if (!memcmp(argptr2, "hap", 4)) {
         goto main_hap_disabled_message;
       } else {
@@ -7440,12 +7433,14 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
+	jj = strlen(argv[cur_arg + 1]);
 	// if anyone is using a missing pheno value of -2^31, they should be
 	// flogged with wet noodles
-	if (scan_int32(argv[cur_arg + 1], &missing_pheno) || (!missing_pheno) || (missing_pheno == 1)) {
+	if (scan_int32(argv[cur_arg + 1], &missing_pheno) || (!missing_pheno) || (missing_pheno == 1) || (jj > 31)) {
 	  sprintf(logbuf, "Error: Invalid --missing-phenotype parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
+	memcpy(output_missing_pheno, argv[cur_arg + 1], jj + 1);
       } else if ((!memcmp(argptr2, "issing-code", 12))) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -8336,9 +8331,18 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "endel-duos", 11)) {
 	family_info.mendel_modifier |= MENDEL_DUOS;
 	goto main_param_zero;
-      } else if (!memcmp(argptr2, "endel-multigen", 14)) {
+      } else if (!memcmp(argptr2, "endel-multigen", 15)) {
 	family_info.mendel_modifier |= MENDEL_MULTIGEN;
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "ake-perm-pheno", 15)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+	if (scan_posint_defcap(argv[cur_arg + 1], &permphe_ct)) {
+	  sprintf(logbuf, "Error: Invalid --make-perm-pheno parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
+	}
+	calculation_type |= CALC_MAKE_PERM_PHENO;
       } else if (!memcmp(argptr2, "lma", 4)) {
         logprint("Error: --mlma is not implemented yet.\n");
         goto main_ret_INVALID_CMDLINE;
@@ -8476,7 +8480,25 @@ int32_t main(int32_t argc, char** argv) {
       break;
 
     case 'o':
-      if (!memcmp(argptr2, "utput-missing-genotype", 23)) {
+      if (!memcmp(argptr2, "utput-chr", 10)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+        if (!strcmp(argv[cur_arg + 1], "M")) {
+          chrom_info.output_encoding = CHR_OUTPUT_M;
+	} else if (!strcmp(argv[cur_arg + 1], "MT")) {
+          chrom_info.output_encoding = CHR_OUTPUT_MT;
+	} else if (!strcmp(argv[cur_arg + 1], "chr26")) {
+          chrom_info.output_encoding = CHR_OUTPUT_PREFIX;
+	} else if (!strcmp(argv[cur_arg + 1], "chrM")) {
+          chrom_info.output_encoding = CHR_OUTPUT_PREFIX | CHR_OUTPUT_M;
+	} else if (!strcmp(argv[cur_arg + 1], "chrMT")) {
+          chrom_info.output_encoding = CHR_OUTPUT_PREFIX | CHR_OUTPUT_MT;
+	} else if (strcmp(argv[cur_arg + 1], "26")) {
+	  sprintf(logbuf, "Error: Invalid --output-chr parameter '%s'.\n", argv[cur_arg + 1]);
+          goto main_ret_INVALID_CMDLINE_WWA;
+	}
+      } else if (!memcmp(argptr2, "utput-missing-genotype", 23)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -8827,7 +8849,7 @@ int32_t main(int32_t argc, char** argv) {
                  (!memcmp(argptr2, "roxy-dosage", 12)) ||
                  (!memcmp(argptr2, "roxy-replace", 13)) ||
                  (!memcmp(argptr2, "roxy-verbose", 13))) {
-        logprint("Error: PLINK 1 imputation commands have been retired due to poor accuracy.\n(See Nothnagel M et al. (2009) A comprehensive evaluation of SNP genotype\nimputation.)  We suggest using another tool, such as BEAGLE 4 or IMPUTE2, for\nimputation instead.  ('--recode vcf' and --vcf can be used to exchange data\nwith BEAGLE 4, while '--recode oxford' and --data let you work with IMPUTE2.)\n");
+        logprint("Error: PLINK 1 proxy association and imputation commands have been retired due\nto poor accuracy.  (See Nothnagel M et al. (2009) A comprehensive evaluation of\nSNP genotype imputation.)  We suggest using another tool, such as BEAGLE 4 or\nIMPUTE2, for imputation instead, and performing association analysis on those\nresults.  ('--recode vcf' and --vcf can be used to exchange data with BEAGLE 4,\nwhile '--recode oxford' and --data let you work with IMPUTE2.)\n");
         goto main_ret_INVALID_CMDLINE;
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
@@ -10462,7 +10484,7 @@ int32_t main(int32_t argc, char** argv) {
             logprint("Error: Improper --test-missing mperm syntax.  (Use\n'--test-missing mperm=[value]'.)\n");
             goto main_ret_INVALID_CMDLINE;
 	  } else {
-            sprintf(logbuf, "Error: Invalid --test-missing parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
+            sprintf(logbuf, "Error: Invalid --test-missing parameter '%s'.\n", argv[cur_arg + uii]);
             goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
@@ -11723,7 +11745,7 @@ int32_t main(int32_t argc, char** argv) {
     } else if (!rel_info.ibc_type) {
       rel_info.ibc_type = 1;
     }
-    retval = plink(outname, outname_end, pedname, mapname, famname, cm_map_fname, cm_map_chrname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, read_dists_fname, read_dists_id_fname, evecname, mergename1, mergename2, mergename3, missing_mid_templates, missing_marker_id_match, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, update_alleles_fname, read_genome_fname, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, indiv_sort_fname, filtervals_flattened, condition_mname, condition_fname, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, &oblig_missing_info, &family_info, check_sex_fthresh, check_sex_mthresh, check_sex_f_yobs, check_sex_m_yobs, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, tail_bottom, tail_top, misc_flags, filter_flags, calculation_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, parallel_idx, parallel_tot, splitx_bound1, splitx_bound2, ppc_gap, sex_missing_pheno, update_sex_col, hwe_modifier, genome_modifier, genome_min_pi_hat, genome_max_pi_hat, &homozyg, &cluster, neighbor_n1, neighbor_n2, &set_info, &ld_info, &epi_info, &clump_info, &rel_info, &score_info, recode_modifier, allelexxxx, merge_type, indiv_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, write_covar_modifier, write_covar_dummy_max_categories, mwithin_col, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, &parameters_range_list, &tests_range_list, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, &aperm, mperm_save, ibs_test_perms, perm_batch_size, lasso_h2, lasso_minlambda, &lasso_select_covars_range_list, testmiss_modifier, testmiss_mperm_val, &file_delete_list);
+    retval = plink(outname, outname_end, pedname, mapname, famname, cm_map_fname, cm_map_chrname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, read_dists_fname, read_dists_id_fname, evecname, mergename1, mergename2, mergename3, missing_mid_templates, missing_marker_id_match, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, update_alleles_fname, read_genome_fname, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, indiv_sort_fname, filtervals_flattened, condition_mname, condition_fname, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, &oblig_missing_info, &family_info, check_sex_fthresh, check_sex_mthresh, check_sex_f_yobs, check_sex_m_yobs, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, tail_bottom, tail_top, misc_flags, filter_flags, calculation_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, parallel_idx, parallel_tot, splitx_bound1, splitx_bound2, ppc_gap, sex_missing_pheno, update_sex_col, hwe_modifier, genome_modifier, genome_min_pi_hat, genome_max_pi_hat, &homozyg, &cluster, neighbor_n1, neighbor_n2, &set_info, &ld_info, &epi_info, &clump_info, &rel_info, &score_info, recode_modifier, allelexxxx, merge_type, indiv_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, write_covar_modifier, write_covar_dummy_max_categories, mwithin_col, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, &parameters_range_list, &tests_range_list, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, &aperm, mperm_save, ibs_test_perms, perm_batch_size, lasso_h2, lasso_minlambda, &lasso_select_covars_range_list, testmiss_modifier, testmiss_mperm_val, permphe_ct, &file_delete_list);
   }
  main_ret_2:
   free(wkspace_ua);
@@ -11743,11 +11765,11 @@ int32_t main(int32_t argc, char** argv) {
   main_ret_INVALID_CMDLINE_UNRECOGNIZED:
     invalid_arg(argv[cur_arg]);
     logprintb();
-    logprint(errstr_append2);
+    logprint(errstr_append);
     retval = RET_INVALID_CMDLINE;
     break;
   main_ret_INVALID_CMDLINE_INPUT_CONFLICT:
-    LOGPRINTF("Error: --%s conflicts with another input flag.%s", argptr, errstr_append);
+    LOGPRINTF("Error: --%s conflicts with another input flag.\n%s", argptr, errstr_append);
     retval = RET_INVALID_CMDLINE;
     break;
   main_ret_INVALID_CMDLINE_WWA:
@@ -11755,7 +11777,7 @@ int32_t main(int32_t argc, char** argv) {
   main_ret_INVALID_CMDLINE_2A:
     logprintb();
   main_ret_INVALID_CMDLINE_A:
-    logprint(errstr_append2);
+    logprint(errstr_append);
     retval = RET_INVALID_CMDLINE;
     break;
   main_ret_INVALID_CMDLINE_WW:

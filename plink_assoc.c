@@ -10735,6 +10735,72 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
   return retval;
 }
 
+int32_t make_perm_pheno(char* outname, char* outname_end, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t permphe_ct) {
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* outfile = NULL;
+  int32_t retval = 0;
+  uintptr_t indiv_uidx;
+  uintptr_t indiv_idx;
+  uintptr_t perm_idx;
+  if (!pheno_nm_ct) {
+    logprint("Error: --make-perm-pheno requires phenotype data.\n");
+    goto make_perm_pheno_ret_INVALID_CMDLINE;
+  }
+  if (pheno_c) {
+    if (cluster_starts) {
+      // retval = cluster_include_and_reindex(unfiltered_indiv_ct, pheno_nm, 
+    } else {
+    }
+  } else {
+    if (cluster_starts) {
+    } else {
+    }
+  }
+  memcpy(outname_end, ".pphe", 6);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto make_perm_pheno_ret_OPEN_FAIL;
+  }
+  for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
+    next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
+    fputs(&(person_ids[indiv_uidx * max_person_id_len]), outfile);
+    if (!IS_SET(pheno_nm, indiv_uidx)) {
+      /*
+      for (perm_idx = 0; perm_idx < permphe_ct; perm_idx++) {
+	putc('\t', outfile);
+	fputs(, outfile);
+        ;
+      }
+      */
+    } else if (pheno_c) {
+    } else {
+    }
+    if (putc_checked('\n', outfile)) {
+      goto make_perm_pheno_ret_WRITE_FAIL;
+    }
+  }
+  if (fclose_null(&outfile)) {
+    goto make_perm_pheno_ret_WRITE_FAIL;
+  }
+  LOGPRINTFWW("--make-perm-pheno: Permuted phenotypes written to %s .\n", outname);
+  while (0) {
+  make_perm_pheno_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  make_perm_pheno_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  make_perm_pheno_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  make_perm_pheno_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+  }
+  wkspace_reset(wkspace_mark);
+  fclose_cond(outfile);
+  return retval;
+}
+
 int32_t cmh_assoc() {
   logprint("Error: --mh and --mh2 are currently under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;

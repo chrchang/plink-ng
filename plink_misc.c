@@ -3549,7 +3549,7 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
   return retval;
 }
 
-int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, double* set_allele_freqs, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t hh_exists, Chrom_info* chrom_info_ptr, char* outname, char* outname_end) {
+int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, double* set_allele_freqs, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t hh_exists, Chrom_info* chrom_info_ptr, char* outname, char* outname_end) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   FILE* outfile = NULL;
@@ -3584,7 +3584,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   int32_t retval = 0;
   double female_effect_size[4];
   int32_t female_allele_ct_delta[4];
-  char missing_pheno_str[12];
+  char missing_pheno_str[32];
   char* bufptr_arr[3];
   uintptr_t* marker_exclude;
   uintptr_t* a2_effect;
@@ -3614,6 +3614,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   uintptr_t indiv_idx;
   uintptr_t line_idx;
   uintptr_t uljj;
+  uint32_t missing_pheno_len;
   uint32_t chrom_fo_idx;
   uint32_t chrom_end;
   uint32_t obs_expected;
@@ -3929,13 +3930,14 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, indiv_ct, hh_exists | XMHH_EXISTS, 0, indiv_exclude, sex_male, &indiv_include2, &indiv_male_include2)) {
     goto score_report_ret_NOMEM;
   }
+  missing_pheno_len = strlen(output_missing_pheno);
   if (missing_pheno_len < 6) {
-    bufptr = memseta(missing_pheno_str, 32, 6 - missing_pheno_len);
+    memset(missing_pheno_str, 32, 6 - missing_pheno_len);
+    memcpy(&(missing_pheno_str[6 - missing_pheno_len]), output_missing_pheno, missing_pheno_len);
     missing_pheno_len = 6;
   } else {
-    bufptr = missing_pheno_str;
+    memcpy(missing_pheno_str, output_missing_pheno, missing_pheno_len);
   }
-  int32_write(bufptr, missing_pheno);
   line_idx = 0;
   if (marker_exclude_main) {
   score_report_qrange_next:

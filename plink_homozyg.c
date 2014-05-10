@@ -2401,7 +2401,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   return retval;
 }
 
-int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, char* outname, char* outname_end, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, int32_t missing_pheno, uintptr_t* sex_male) {
+int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, char* outname, char* outname_end, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uintptr_t* sex_male) {
   unsigned char* wkspace_mark = wkspace_base;
   uint64_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
@@ -2425,7 +2425,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
 
   uint32_t swhit_min = 0;
   int32_t retval = 0;
-  char missing_pheno_str[15];
+  char missing_pheno_str[35];
   uint32_t missing_pheno_len;
   uintptr_t* roh_list_chrom_starts;
   uintptr_t* rawbuf;
@@ -2455,18 +2455,19 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   uint32_t* roh_list;
 
   uint32_t* uidx_buf; // circular buffer tracking most recent marker_uidxs
-  uintptr_t max_roh_ct;
-  uint32_t chrom_fo_idx;
-  uintptr_t marker_uidx;
-  uintptr_t chrom_end;
   uintptr_t* readbuf_cur;
   uintptr_t* swbuf_cur;
   uintptr_t* cur_indiv_male;
   char* wptr;
-  uintptr_t ulii;
+  uintptr_t max_roh_ct;
+  uintptr_t marker_uidx;
+  uintptr_t chrom_end;
   uintptr_t widx;
   uintptr_t widx_next;
   uintptr_t indiv_idx;
+  uintptr_t ulii;
+  double dxx;
+  uint32_t chrom_fo_idx;
   uint32_t old_uidx;
   uint32_t older_uidx;
   uint32_t marker_cidx;
@@ -2475,9 +2476,21 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   uint32_t uii;
   uint32_t max_pool_size;
   uint32_t max_roh_len;
-  wptr = int32_write(missing_pheno_str, missing_pheno);
-  wptr = memcpya(wptr, ".000", 4);
-  missing_pheno_len = (uintptr_t)(wptr - missing_pheno_str);
+  missing_pheno_len = strlen(output_missing_pheno);
+  memcpy(missing_pheno_str, output_missing_pheno, missing_pheno_len);
+  wptr = strchr(output_missing_pheno, '.');
+  if (!wptr) {
+    memcpy(&(missing_pheno_str[missing_pheno_len]), ".000", 4);
+    missing_pheno_len += 4;
+  } else {
+    // enforce 3 decimal places
+    uii = (uintptr_t)(wptr - output_missing_pheno);
+    if (missing_pheno_len - uii < 4) {
+      memset(&(missing_pheno_str[missing_pheno_len]), '0', uii + 4 - missing_pheno_len);
+    } else {
+      missing_pheno_len = uii + 4;
+    }
+  }
 
   if (wkspace_alloc_ul_checked(&roh_list_chrom_starts, (chrom_ct + 1) * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&rawbuf, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
@@ -2719,7 +2732,8 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
       goto calc_homozyg_ret_NOMEM;
 #endif
     } else {
-      wptr = double_g_writewx4(missing_pheno_str, (double)missing_pheno, 8);
+      scan_double(output_missing_pheno, &dxx);
+      wptr = double_g_writewx4(missing_pheno_str, dxx, 8);
       missing_pheno_len = (uintptr_t)(wptr - missing_pheno_str);
       retval = roh_pool(hp, bedfile, bed_offset, outname, outname_end, rawbuf, marker_exclude, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, zero_extra_chroms, chrom_info_ptr, marker_pos, indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, pheno_nm, pheno_c, pheno_d, missing_pheno_str, missing_pheno_len, is_new_lengths, roh_ct, roh_list, roh_list_chrom_starts, max_pool_size, max_roh_len);
       if (retval) {
