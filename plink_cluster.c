@@ -68,6 +68,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
   uintptr_t cluster_ct = 0;
   Ll_str* cluster_names = NULL;
   uintptr_t* already_seen;
+  uintptr_t* ulptr;
   char* cluster_ids;
   uint32_t* cluster_map;
   uint32_t* cluster_starts;
@@ -83,6 +84,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
   int32_t sorted_idx;
   uint32_t read_idx;
   uint32_t indiv_uidx;
+  uint32_t indiv_idx;
   uint32_t slen;
   uint32_t uii;
   tbuf[MAXLINELEN - 1] = ' ';
@@ -284,99 +286,232 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
       }
     }
   }
-  sorted_ids = (char*)top_alloc(&topsize, indiv_ct * max_person_id_len);
-  if (!sorted_ids) {
-    goto load_clusters_ret_NOMEM;
-  }
-  id_map = (uint32_t*)top_alloc(&topsize, indiv_ct * sizeof(int32_t));
-  if (!id_map) {
-    goto load_clusters_ret_NOMEM;
-  }
-  topsize_bak = topsize;
-  already_seen = (uintptr_t*)top_alloc(&topsize, indiv_ctl * sizeof(intptr_t));
-  if (!already_seen) {
-    goto load_clusters_ret_NOMEM;
-  }
-  fill_ulong_zero(already_seen, indiv_ctl);
-  wkspace_left -= topsize;
-  retval = sort_item_ids_noalloc(sorted_ids, id_map, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, 0, 0, strcmp_deref);
-  wkspace_left += topsize;
-  if (retval) {
-    goto load_clusters_ret_1;
-  }
 
-  // two-pass load
-  // 1. load cluster names, track longest length, validate format, verify no
-  //    individual ID appears multiple times
-  // intermission. sort cluster names, purge duplicates, allocate memory for
-  //               return values
-  // 2. populate return arrays
-  if (fopen_checked(&infile, fname, "r")) {
-    goto load_clusters_ret_OPEN_FAIL;
-  }
-  if (!mwithin_col) {
-    mwithin_col = 1;
-  }
-  line_idx = 0;
-  while (fgets(tbuf, MAXLINELEN, infile)) {
-    line_idx++;
-    if (!tbuf[MAXLINELEN - 1]) {
-      sprintf(logbuf, "Error: Line %" PRIuPTR " of --within file is pathologically long.\n", line_idx);
-      goto load_clusters_ret_INVALID_FORMAT_2;
-    }
-    fam_id = skip_initial_spaces(tbuf);
-    if (is_eoln_kns(*fam_id)) {
-      continue;
-    }
-    if (bsearch_read_fam_indiv(idbuf, sorted_ids, max_person_id_len, indiv_ct, fam_id, &cluster_name_ptr, &sorted_idx)) {
-      goto load_clusters_ret_MISSING_TOKENS;
-    }
-    if (sorted_idx == -1) {
-      continue;
-    }
-    if (is_set(already_seen, sorted_idx)) {
-      *strchr(idbuf, '\t') = ' ';
-      LOGPREPRINTFWW("Error: ID '%s' appears multiple times in --within file.\n", idbuf);
-      goto load_clusters_ret_INVALID_FORMAT_2;
-    }
-    if (mwithin_col > 1) {
-      cluster_name_ptr = next_item_mult(cluster_name_ptr, mwithin_col - 1);
-    }
-    if (no_more_items_kns(cluster_name_ptr)) {
-      goto load_clusters_ret_MISSING_TOKENS;
-    }
-    set_bit(already_seen, sorted_idx);
-    slen = strlen_se(cluster_name_ptr);
-    if ((!keep_na) && (slen == 2) && (!memcmp(cluster_name_ptr, "NA", 2))) {
-      // postponed to here because, even without 'keep-NA', we do not want to
-      // ignore cluster=NA lines for the purpose of detecting duplicate indivs
-      continue;
-    }
-    // cluster won't exist because of --keep-clusters/--remove-clusters?
-    if ((sorted_keep_ids && (bsearch_str(cluster_name_ptr, slen, sorted_keep_ids, max_cluster_kr_len, cluster_kr_ct) == -1)) || (sorted_remove_ids && (bsearch_str(cluster_name_ptr, slen, sorted_remove_ids, max_cluster_kr_len, cluster_kr_ct) != -1))) {
-      continue;
-    }
-    if (slen >= max_cluster_id_len) {
-      max_cluster_id_len = slen + 1;
-    }
-    cluster_name_ptr[slen] = '\0';
-    // do NOT optimize common case because current logic uses
-    // collapse_duplicate_ids() last parameter to determine cluster sizes
-    llptr = top_alloc_llstr(&topsize, slen + 1);
-    if (!llptr) {
+  if (fname) {
+    sorted_ids = (char*)top_alloc(&topsize, indiv_ct * max_person_id_len);
+    if (!sorted_ids) {
       goto load_clusters_ret_NOMEM;
     }
-    llptr->next = cluster_names;
-    memcpy(llptr->ss, cluster_name_ptr, slen + 1);
-    cluster_names = llptr;
-    assigned_ct++;
-  }
-  if (!feof(infile)) {
-    goto load_clusters_ret_READ_FAIL;
-  }
-  if (cluster_names) {
+    id_map = (uint32_t*)top_alloc(&topsize, indiv_ct * sizeof(int32_t));
+    if (!id_map) {
+      goto load_clusters_ret_NOMEM;
+    }
+    topsize_bak = topsize;
+    already_seen = (uintptr_t*)top_alloc(&topsize, indiv_ctl * sizeof(intptr_t));
+    if (!already_seen) {
+      goto load_clusters_ret_NOMEM;
+    }
+    fill_ulong_zero(already_seen, indiv_ctl);
+    wkspace_left -= topsize;
+    retval = sort_item_ids_noalloc(sorted_ids, id_map, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, 0, 0, strcmp_deref);
+    wkspace_left += topsize;
+    if (retval) {
+      goto load_clusters_ret_1;
+    }
+
+    // two-pass load
+    // 1. load cluster names, track longest length, validate format, verify no
+    //    individual ID appears multiple times
+    // intermission. sort cluster names, purge duplicates, allocate memory for
+    //               return values
+    // 2. populate return arrays
+    if (fopen_checked(&infile, fname, "r")) {
+      goto load_clusters_ret_OPEN_FAIL;
+    }
+    if (!mwithin_col) {
+      mwithin_col = 1;
+    }
+    line_idx = 0;
+    while (fgets(tbuf, MAXLINELEN, infile)) {
+      line_idx++;
+      if (!tbuf[MAXLINELEN - 1]) {
+	sprintf(logbuf, "Error: Line %" PRIuPTR " of --within file is pathologically long.\n", line_idx);
+	goto load_clusters_ret_INVALID_FORMAT_2;
+      }
+      fam_id = skip_initial_spaces(tbuf);
+      if (is_eoln_kns(*fam_id)) {
+	continue;
+      }
+      if (bsearch_read_fam_indiv(idbuf, sorted_ids, max_person_id_len, indiv_ct, fam_id, &cluster_name_ptr, &sorted_idx)) {
+	goto load_clusters_ret_MISSING_TOKENS;
+      }
+      if (sorted_idx == -1) {
+	continue;
+      }
+      if (is_set(already_seen, sorted_idx)) {
+	*strchr(idbuf, '\t') = ' ';
+	LOGPREPRINTFWW("Error: ID '%s' appears multiple times in --within file.\n", idbuf);
+	goto load_clusters_ret_INVALID_FORMAT_2;
+      }
+      if (mwithin_col > 1) {
+	cluster_name_ptr = next_item_mult(cluster_name_ptr, mwithin_col - 1);
+      }
+      if (no_more_items_kns(cluster_name_ptr)) {
+	goto load_clusters_ret_MISSING_TOKENS;
+      }
+      set_bit(already_seen, sorted_idx);
+      slen = strlen_se(cluster_name_ptr);
+      if ((!keep_na) && (slen == 2) && (!memcmp(cluster_name_ptr, "NA", 2))) {
+	// postponed to here because, even without 'keep-NA', we do not want to
+	// ignore cluster=NA lines for the purpose of detecting duplicate indivs
+	continue;
+      }
+      // cluster won't exist because of --keep-clusters/--remove-clusters?
+      if ((sorted_keep_ids && (bsearch_str(cluster_name_ptr, slen, sorted_keep_ids, max_cluster_kr_len, cluster_kr_ct) == -1)) || (sorted_remove_ids && (bsearch_str(cluster_name_ptr, slen, sorted_remove_ids, max_cluster_kr_len, cluster_kr_ct) != -1))) {
+	continue;
+      }
+      if (slen >= max_cluster_id_len) {
+	max_cluster_id_len = slen + 1;
+      }
+      cluster_name_ptr[slen] = '\0';
+      // do NOT optimize common case because current logic uses
+      // collapse_duplicate_ids() last parameter to determine cluster sizes
+      llptr = top_alloc_llstr(&topsize, slen + 1);
+      if (!llptr) {
+	goto load_clusters_ret_NOMEM;
+      }
+      llptr->next = cluster_names;
+      memcpy(llptr->ss, cluster_name_ptr, slen + 1);
+      cluster_names = llptr;
+      assigned_ct++;
+    }
+    if (!feof(infile)) {
+      goto load_clusters_ret_READ_FAIL;
+    }
+    if (cluster_names) {
+      if (max_cluster_id_len > MAX_ID_LEN_P1) {
+	logprint("Error: Cluster IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+	goto load_clusters_ret_INVALID_FORMAT;
+      }
+      *max_cluster_id_len_ptr = max_cluster_id_len;
+      wkspace_left -= topsize;
+      if (wkspace_alloc_c_checked(cluster_ids_ptr, assigned_ct * max_cluster_id_len)) {
+	goto load_clusters_ret_NOMEM2;
+      }
+      cluster_ids = *cluster_ids_ptr;
+      for (ulii = 0; ulii < assigned_ct; ulii++) {
+	strcpy(&(cluster_ids[ulii * max_cluster_id_len]), cluster_names->ss);
+	cluster_names = cluster_names->next;
+      }
+      // deallocate cluster ID linked list and duplicate indiv ID detector from
+      // top of stack, allocate cluster size tracker
+      wkspace_left += topsize;
+      topsize = topsize_bak;
+      tmp_cluster_starts = (uint32_t*)top_alloc(&topsize, assigned_ct * sizeof(int32_t));
+      if (!tmp_cluster_starts) {
+	goto load_clusters_ret_NOMEM;
+      }
+      wkspace_left -= topsize;
+      // may as well use natural sort of cluster names
+      qsort(cluster_ids, assigned_ct, max_cluster_id_len, strcmp_natural);
+      cluster_ct = collapse_duplicate_ids(cluster_ids, assigned_ct, max_cluster_id_len, tmp_cluster_starts);
+      *cluster_ct_ptr = cluster_ct;
+      wkspace_shrink_top(cluster_ids, cluster_ct * max_cluster_id_len);
+      if (wkspace_alloc_ui_checked(cluster_map_ptr, assigned_ct * sizeof(int32_t)) ||
+	  wkspace_alloc_ui_checked(cluster_starts_ptr, (cluster_ct + 1) * sizeof(int32_t))) {
+	goto load_clusters_ret_NOMEM2;
+      }
+      wkspace_left += topsize;
+      cluster_map = *cluster_map_ptr;
+      cluster_starts = *cluster_starts_ptr;
+      memcpy(cluster_starts, tmp_cluster_starts, cluster_ct * sizeof(int32_t));
+      cluster_starts[cluster_ct] = assigned_ct;
+      rewind(infile);
+      // second pass
+      while (fgets(tbuf, MAXLINELEN, infile)) {
+	fam_id = skip_initial_spaces(tbuf);
+	if (is_eoln_kns(*fam_id)) {
+	  continue;
+	}
+	bsearch_read_fam_indiv(idbuf, sorted_ids, max_person_id_len, indiv_ct, fam_id, &cluster_name_ptr, &sorted_idx);
+	if (sorted_idx == -1) {
+	  continue;
+	}
+	if (mwithin_col > 1) {
+	  cluster_name_ptr = next_item_mult(cluster_name_ptr, mwithin_col - 1);
+	}
+	slen = strlen_se(cluster_name_ptr);
+	if ((!keep_na) && (slen == 2) && (!memcmp(cluster_name_ptr, "NA", 2))) {
+	  continue;
+	}
+	indiv_uidx = id_map[(uint32_t)sorted_idx];
+	if (sorted_keep_ids) {
+	  sorted_idx = bsearch_str(cluster_name_ptr, slen, sorted_keep_ids, max_cluster_kr_len, cluster_kr_ct);
+	  if (sorted_idx == -1) {
+	    continue;
+	  }
+	  clear_bit(indiv_exclude_new, indiv_uidx);
+	} else if (sorted_remove_ids) {
+	  sorted_idx = bsearch_str(cluster_name_ptr, slen, sorted_remove_ids, max_cluster_kr_len, cluster_kr_ct);
+	  if (sorted_idx != -1) {
+	    set_bit(indiv_exclude_new, indiv_uidx);
+	    continue;
+	  }
+	}
+	cluster_name_ptr[slen] = '\0';
+	sorted_idx = bsearch_str_natural(cluster_name_ptr, cluster_ids, max_cluster_id_len, cluster_ct);
+	uii = tmp_cluster_starts[(uint32_t)sorted_idx];
+	tmp_cluster_starts[(uint32_t)sorted_idx] += 1;
+	cluster_map[uii] = indiv_uidx;
+      }
+      if (!feof(infile)) {
+	goto load_clusters_ret_READ_FAIL;
+      }
+      for (ulii = 0; ulii < cluster_ct; ulii++) {
+	if (cluster_starts[ulii + 1] - cluster_starts[ulii] > 1) {
+#ifdef __cplusplus
+	  std::sort(&(cluster_map[cluster_starts[ulii]]), &(cluster_map[cluster_starts[ulii + 1]]));
+#else
+	  qsort(&(cluster_map[cluster_starts[ulii]]), cluster_starts[ulii + 1] - cluster_starts[ulii], sizeof(int32_t), intcmp);
+#endif
+	}
+      }
+      LOGPRINTF("--within: %" PRIuPTR " cluster%s loaded, covering a total of %" PRIuPTR " %s.\n", cluster_ct, (cluster_ct == 1)? "" : "s", assigned_ct, species_str(assigned_ct));
+    } else {
+      if (sorted_keep_ids) {
+	logprint("Error: No individuals named in --within file remain in the current analysis, so\n--keep-clusters/--keep-cluster-names excludes everyone.\n");
+	goto load_clusters_ret_INVALID_FORMAT;
+      }
+      logprint("Warning: No individuals named in --within file remain in the current analysis.\n");
+      goto load_clusters_ret_1;
+    }
+  } else {
+    // --family
+    // 1. determine max FID len (might be overestimate if
+    //    --keep-clusters/--remove-clusters names FIDs that aren't actually
+    //    present, but that isn't a big deal)
+    // 2. allocate buffer, copy over
+    // 3. natural sort, remove duplicates, shrink buffer
+    // 4. initialize other data structures
     if (max_cluster_id_len > MAX_ID_LEN_P1) {
+      // max FID len was previously checked
       logprint("Error: Cluster IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+      goto load_clusters_ret_INVALID_FORMAT;
+    }
+
+    for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
+      next_unset_unsafe_ck(indiv_exclude, &indiv_uidx);
+      cluster_name_ptr = &(person_ids[indiv_uidx * max_person_id_len]);
+      slen = (uintptr_t)((char*)memchr(cluster_name_ptr, '\t', max_person_id_len) - cluster_name_ptr);
+      if (sorted_keep_ids) {
+	sorted_idx = bsearch_str(cluster_name_ptr, slen, sorted_keep_ids, max_cluster_kr_len, cluster_kr_ct);
+	if (sorted_idx == -1) {
+	  continue;
+	}
+	clear_bit(indiv_exclude_new, indiv_uidx);
+      } else if (sorted_remove_ids) {
+	sorted_idx = bsearch_str(cluster_name_ptr, slen, sorted_remove_ids, max_cluster_kr_len, cluster_kr_ct);
+	if (sorted_idx != -1) {
+	  set_bit(indiv_exclude_new, indiv_uidx);
+	}
+      }
+      if (slen >= max_cluster_id_len) {
+	max_cluster_id_len = slen + 1;
+      }
+      assigned_ct++;
+    }
+    if (!assigned_ct) {
+      logprint("Error: --keep-clusters/--keep-cluster-names excludes everyone.\n");
       goto load_clusters_ret_INVALID_FORMAT;
     }
     *max_cluster_id_len_ptr = max_cluster_id_len;
@@ -385,20 +520,23 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
       goto load_clusters_ret_NOMEM2;
     }
     cluster_ids = *cluster_ids_ptr;
-    for (ulii = 0; ulii < assigned_ct; ulii++) {
-      strcpy(&(cluster_ids[ulii * max_cluster_id_len]), cluster_names->ss);
-      cluster_names = cluster_names->next;
+    if (indiv_exclude_new) {
+      ulptr = indiv_exclude_new;
+    } else {
+      ulptr = indiv_exclude;
     }
-    // deallocate cluster ID linked list and duplicate indiv ID detector from
-    // top of stack, allocate cluster size tracker
+    for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < assigned_ct; indiv_uidx++, indiv_idx++) {
+      next_unset_unsafe_ck(ulptr, &indiv_uidx);
+      cluster_name_ptr = &(person_ids[indiv_uidx * max_person_id_len]);
+      slen = (uintptr_t)((char*)memchr(cluster_name_ptr, '\t', max_person_id_len) - cluster_name_ptr);
+      memcpyx(&(cluster_ids[indiv_idx * max_cluster_id_len]), cluster_name_ptr, slen, '\0');
+    }
     wkspace_left += topsize;
-    topsize = topsize_bak;
     tmp_cluster_starts = (uint32_t*)top_alloc(&topsize, assigned_ct * sizeof(int32_t));
     if (!tmp_cluster_starts) {
       goto load_clusters_ret_NOMEM;
     }
     wkspace_left -= topsize;
-    // may as well use natural sort of cluster names
     qsort(cluster_ids, assigned_ct, max_cluster_id_len, strcmp_natural);
     cluster_ct = collapse_duplicate_ids(cluster_ids, assigned_ct, max_cluster_id_len, tmp_cluster_starts);
     *cluster_ct_ptr = cluster_ct;
@@ -412,72 +550,25 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
     cluster_starts = *cluster_starts_ptr;
     memcpy(cluster_starts, tmp_cluster_starts, cluster_ct * sizeof(int32_t));
     cluster_starts[cluster_ct] = assigned_ct;
-    rewind(infile);
-    // second pass
-    while (fgets(tbuf, MAXLINELEN, infile)) {
-      fam_id = skip_initial_spaces(tbuf);
-      if (is_eoln_kns(*fam_id)) {
-	continue;
-      }
-      bsearch_read_fam_indiv(idbuf, sorted_ids, max_person_id_len, indiv_ct, fam_id, &cluster_name_ptr, &sorted_idx);
-      if (sorted_idx == -1) {
-	continue;
-      }
-      if (mwithin_col > 1) {
-	cluster_name_ptr = next_item_mult(cluster_name_ptr, mwithin_col - 1);
-      }
-      slen = strlen_se(cluster_name_ptr);
-      if ((!keep_na) && (slen == 2) && (!memcmp(cluster_name_ptr, "NA", 2))) {
-	continue;
-      }
-      indiv_uidx = id_map[(uint32_t)sorted_idx];
-      if (sorted_keep_ids) {
-        sorted_idx = bsearch_str(cluster_name_ptr, slen, sorted_keep_ids, max_cluster_kr_len, cluster_kr_ct);
-	if (sorted_idx == -1) {
-	  continue;
-	}
-        clear_bit(indiv_exclude_new, indiv_uidx);
-      } else if (sorted_remove_ids) {
-        sorted_idx = bsearch_str(cluster_name_ptr, slen, sorted_remove_ids, max_cluster_kr_len, cluster_kr_ct);
-        if (sorted_idx != -1) {
-	  set_bit(indiv_exclude_new, indiv_uidx);
-	  continue;
-	}
-      }
-      cluster_name_ptr[slen] = '\0';
-      sorted_idx = bsearch_str_natural(cluster_name_ptr, cluster_ids, max_cluster_id_len, cluster_ct);
+    for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < assigned_ct; indiv_uidx++, indiv_idx++) {
+      next_unset_unsafe_ck(ulptr, &indiv_uidx);
+      cluster_name_ptr = &(person_ids[indiv_uidx * max_person_id_len]);
+      memcpyx(tbuf, cluster_name_ptr, (uintptr_t)((char*)memchr(cluster_name_ptr, '\t', max_cluster_id_len) - cluster_name_ptr), '\0');
+      sorted_idx = bsearch_str_natural(tbuf, cluster_ids, max_cluster_id_len, cluster_ct);
       uii = tmp_cluster_starts[(uint32_t)sorted_idx];
       tmp_cluster_starts[(uint32_t)sorted_idx] += 1;
       cluster_map[uii] = indiv_uidx;
     }
-    if (!feof(infile)) {
-      goto load_clusters_ret_READ_FAIL;
+    LOGPRINTF("--family: %" PRIuPTR " cluster%s defined.\n", cluster_ct, (cluster_ct == 1)? "" : "s");
+  }
+  if (indiv_exclude_new) {
+    ulii = popcount_longs(indiv_exclude_new, unfiltered_indiv_ctl);
+    if (ulii != indiv_exclude_ct) {
+      memcpy(indiv_exclude, indiv_exclude_new, unfiltered_indiv_ctl * sizeof(intptr_t));
+      *indiv_exclude_ct_ptr = ulii;
+      ulii -= indiv_exclude_ct;
+      LOGPRINTF("%" PRIuPTR " %s removed by cluster filter(s).\n", ulii, species_str(ulii));
     }
-    for (ulii = 0; ulii < cluster_ct; ulii++) {
-      if (cluster_starts[ulii + 1] - cluster_starts[ulii] > 1) {
-#ifdef __cplusplus
-	std::sort(&(cluster_map[cluster_starts[ulii]]), &(cluster_map[cluster_starts[ulii + 1]]));
-#else
-	qsort(&(cluster_map[cluster_starts[ulii]]), cluster_starts[ulii + 1] - cluster_starts[ulii], sizeof(int32_t), intcmp);
-#endif
-      }
-    }
-    LOGPRINTF("--within: %" PRIuPTR " cluster%s loaded, covering a total of %" PRIuPTR " %s.\n", cluster_ct, (cluster_ct == 1)? "" : "s", assigned_ct, species_str(assigned_ct));
-    if (indiv_exclude_new) {
-      ulii = popcount_longs(indiv_exclude_new, unfiltered_indiv_ctl);
-      if (ulii != indiv_exclude_ct) {
-	memcpy(indiv_exclude, indiv_exclude_new, unfiltered_indiv_ctl * sizeof(intptr_t));
-	*indiv_exclude_ct_ptr = ulii;
-	ulii -= indiv_exclude_ct;
-	LOGPRINTF("%" PRIuPTR " %s removed by cluster filter(s).\n", ulii, species_str(ulii));
-      }
-    }
-  } else {
-    if (sorted_keep_ids) {
-      logprint("Error: No individuals named in --within file remain in the current analysis, so\n--keep-clusters/--keep-cluster-names excludes everyone.\n");
-      goto load_clusters_ret_INVALID_FORMAT;
-    }
-    logprint("Warning: No individuals named in --within file remain in the current analysis.\n");
   }
 
   while (0) {

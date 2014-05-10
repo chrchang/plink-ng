@@ -1137,7 +1137,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto plink_ret_1;
     }
   }
-  if (cluster_ptr->fname) {
+  if (cluster_ptr->fname || (misc_flags & MISC_FAMILY_CLUSTERS)) {
     retval = load_clusters(cluster_ptr->fname, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, person_ids, max_person_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len, cluster_ptr->keep_fname, cluster_ptr->keep_flattened, cluster_ptr->remove_fname, cluster_ptr->remove_flattened);
     if (retval) {
       goto plink_ret_1;
@@ -1497,6 +1497,10 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     if (calculation_type & CALC_PCA) {
       retval = calc_pca(bedfile, bed_offset, outname, outname_end, calculation_type, relip, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, pca_indiv_exclude? pca_indiv_exclude : indiv_exclude, pca_indiv_exclude? pca_indiv_ct : indiv_ct, person_ids, max_person_id_len, set_allele_freqs, zero_extra_chroms, chrom_info_ptr, rel_ibc);
     } else if (calculation_type & CALC_UNRELATED_HERITABILITY) {
+      if (indiv_ct != pheno_nm_ct) {
+	logprint("Error: --unrelated-heritability requires phenotype data for all samples.\n(--prune should help.)\n");
+	goto plink_ret_INVALID_CMDLINE;
+      }
       retval = calc_unrelated_herit(calculation_type, relip, unfiltered_indiv_ct, indiv_exclude, indiv_ct, pheno_d, rel_ibc);
     }
 #endif
@@ -11051,8 +11055,8 @@ int32_t main(int32_t argc, char** argv) {
         calculation_type |= CALC_WRITE_COVAR;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "rite-cluster", 13)) {
-	if (!cluster.fname) {
-	  logprint("Error: --write-cluster must be used with --within.\n");
+	if ((!cluster.fname) && (!(misc_flags & MISC_FAMILY_CLUSTERS))) {
+	  logprint("Error: --write-cluster must be used with --within/--family.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
@@ -11124,8 +11128,8 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'z':
       if (!memcmp(argptr2, "ero-cluster", 12)) {
-	if (!cluster.fname) {
-	  logprint("Error: --zero-cluster must be used with --within.\n");
+	if ((!cluster.fname) && (!(misc_flags & MISC_FAMILY_CLUSTERS))) {
+	  logprint("Error: --zero-cluster must be used with --within/--family.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if ((calculation_type != CALC_MAKE_BED) || (geno_thresh != 1.0) || (mind_thresh != 1.0) || (hwe_thresh != 0.0) || (min_maf != 0.0) || (max_maf != 0.5)) {
 	  // prevent old pipelines from silently breaking
@@ -11294,27 +11298,28 @@ int32_t main(int32_t argc, char** argv) {
     logprint("Error: --qt must be used with --qmatch.\n");
     goto main_ret_INVALID_CMDLINE_A;
   }
-  if (!cluster.fname) {
-    if (mwithin_col && (!loop_assoc_fname)) {
-      logprint("Error: --mwithin must be used with --within.\n");
-      goto main_ret_INVALID_CMDLINE_A;
-    } else if (cluster.keep_fname) {
-      logprint("Error: --keep-clusters must be used with --within.\n");
+  if (mwithin_col && (!loop_assoc_fname) && (!cluster.fname)) {
+    logprint("Error: --mwithin must be used with --within/--loop-assoc.\n");
+    goto main_ret_INVALID_CMDLINE_A;
+  }
+  if ((!cluster.fname) && (!(misc_flags & MISC_FAMILY_CLUSTERS))) {
+    if (cluster.keep_fname) {
+      logprint("Error: --keep-clusters must be used with --within/--family.\n");
       goto main_ret_INVALID_CMDLINE;
     } else if (cluster.keep_flattened) {
-      logprint("Error: --keep-cluster-names must be used with --within.\n");
+      logprint("Error: --keep-cluster-names must be used with --within/--family.\n");
       goto main_ret_INVALID_CMDLINE;
     } else if (cluster.remove_fname) {
-      logprint("Error: --remove-clusters must be used with --within.\n");
+      logprint("Error: --remove-clusters must be used with --within/--family.\n");
       goto main_ret_INVALID_CMDLINE;
     } else if (cluster.remove_flattened) {
-      logprint("Error: --remove-cluster-names must be used with --within.\n");
+      logprint("Error: --remove-cluster-names must be used with --within/--family.\n");
       goto main_ret_INVALID_CMDLINE;
     } else if (rel_info.pca_cluster_names_flattened) {
-      logprint("Error: --pca-cluster-names must be used with --within.\n");
+      logprint("Error: --pca-cluster-names must be used with --within/--family.\n");
       goto main_ret_INVALID_CMDLINE;
     } else if (rel_info.pca_clusters_fname) {
-      logprint("Error: --pca-clusters must be used with --within.\n");
+      logprint("Error: --pca-clusters must be used with --within/--family.\n");
       goto main_ret_INVALID_CMDLINE;
     }
   }
