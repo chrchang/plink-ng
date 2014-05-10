@@ -10735,22 +10735,70 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
   return retval;
 }
 
-int32_t make_perm_pheno(char* outname, char* outname_end, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t permphe_ct) {
+int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t permphe_ct) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
+  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t pheno_nm_ctl = (pheno_nm_ct + (BITCT - 1)) / BITCT;
+  uintptr_t pheno_nm_ctv = (pheno_nm_ctl + 1) & (~1);
   int32_t retval = 0;
+  uintptr_t* ulptr;
   uintptr_t indiv_uidx;
   uintptr_t indiv_idx;
   uintptr_t perm_idx;
+  uintptr_t ulii;
+  uint32_t indiv_nmidx;
+  uint32_t rshift;
   if (!pheno_nm_ct) {
     logprint("Error: --make-perm-pheno requires phenotype data.\n");
     goto make_perm_pheno_ret_INVALID_CMDLINE;
   }
   if (pheno_c) {
-    if (cluster_starts) {
-      // retval = cluster_include_and_reindex(unfiltered_indiv_ct, pheno_nm, 
-    } else {
+    g_is_perm1 = 1;
+    g_pheno_nm_ct = pheno_nm_ct;
+    g_case_ct = popcount_longs(pheno_c, unfiltered_indiv_ctl);
+    g_assoc_thread_ct = MINV(g_thread_ct, permphe_ct);
+    if (wkspace_init_sfmtp(g_assoc_thread_ct)) {
+      goto make_perm_pheno_ret_NOMEM;
     }
+    // could seamlessly support multipass by using different permutation logic,
+    // but pointless in practice; better to just generate multiple files
+    if (wkspace_alloc_ul_checked(&g_perm_vecs, permphe_ct * pheno_nm_ctv * sizeof(intptr_t))) {
+      goto make_perm_pheno_ret_NOMEM;
+    }
+    g_perm_vec_ct = permphe_ct;
+    ulii = 0;
+    if (cluster_starts) {
+      // most similar to testmiss()
+      retval = cluster_include_and_reindex(unfiltered_indiv_ct, pheno_nm, 1, pheno_c, pheno_nm_ct, 1, cluster_ct, cluster_map, cluster_starts, &g_cluster_ct, &g_cluster_map, &g_cluster_starts, &g_cluster_case_cts, &g_cluster_cc_perm_preimage);
+      if (retval) {
+	goto make_perm_pheno_ret_1;
+      }
+      if (!g_cluster_ct) {
+        logprint("Error: Degenerate --make-perm-pheno invocation (no size 2+ clusters).\n");
+        goto make_perm_pheno_ret_INVALID_CMDLINE;
+      }
+      retval = cluster_alloc_and_populate_magic_nums(g_cluster_ct, g_cluster_map, g_cluster_starts, &g_tot_quotients, &g_totq_magics, &g_totq_preshifts, &g_totq_postshifts, &g_totq_incrs);
+      if (retval) {
+        goto make_perm_pheno_ret_1;
+      }
+      // not actually much of a point to multithreading since this is I/O
+      // bound, but what the hell, the permutation generators already support
+      // it
+      if (spawn_threads(threads, &model_assoc_gen_cluster_perms_thread, g_assoc_thread_ct)) {
+	goto make_perm_pheno_ret_THREAD_CREATE_FAIL;
+      }
+      model_assoc_gen_cluster_perms_thread((void*)ulii);
+    } else {
+      g_cluster_starts = NULL;
+      g_tot_quotient = 0x100000000LLU / pheno_nm_ct;
+      magic_num(g_tot_quotient, &g_totq_magic, &g_totq_preshift, &g_totq_postshift, &g_totq_incr);
+      if (spawn_threads(threads, &model_assoc_gen_perms_thread, g_assoc_thread_ct)) {
+	goto make_perm_pheno_ret_THREAD_CREATE_FAIL;
+      }
+      model_assoc_gen_perms_thread((void*)ulii);
+    }
+    join_threads(threads, g_assoc_thread_ct);
   } else {
     if (cluster_starts) {
     } else {
@@ -10760,19 +10808,25 @@ int32_t make_perm_pheno(char* outname, char* outname_end, uintptr_t unfiltered_i
   if (fopen_checked(&outfile, outname, "w")) {
     goto make_perm_pheno_ret_OPEN_FAIL;
   }
+  indiv_nmidx = 0;
   for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
     next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
     fputs(&(person_ids[indiv_uidx * max_person_id_len]), outfile);
     if (!IS_SET(pheno_nm, indiv_uidx)) {
-      /*
       for (perm_idx = 0; perm_idx < permphe_ct; perm_idx++) {
 	putc('\t', outfile);
-	fputs(, outfile);
-        ;
+	fputs(output_missing_pheno, outfile);
       }
-      */
     } else if (pheno_c) {
+      ulptr = &(g_perm_vecs[indiv_nmidx / BITCT]);
+      rshift = indiv_nmidx % BITCT;
+      for (perm_idx = 0; perm_idx < permphe_ct; perm_idx++) {
+	putc('\t', outfile);
+        putc('1' + ((ulptr[perm_idx * pheno_nm_ctv] >> rshift) & 1), outfile);
+      }
+      indiv_nmidx++;
     } else {
+      indiv_nmidx++;
     }
     if (putc_checked('\n', outfile)) {
       goto make_perm_pheno_ret_WRITE_FAIL;
@@ -10795,7 +10849,12 @@ int32_t make_perm_pheno(char* outname, char* outname_end, uintptr_t unfiltered_i
   make_perm_pheno_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
+  make_perm_pheno_ret_THREAD_CREATE_FAIL:
+    logprint(errstr_thread_create);
+    retval = RET_THREAD_CREATE_FAIL;
+    break;
   }
+ make_perm_pheno_ret_1:
   wkspace_reset(wkspace_mark);
   fclose_cond(outfile);
   return retval;

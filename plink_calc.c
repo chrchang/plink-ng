@@ -3063,6 +3063,7 @@ int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfi
   printf("--ibs-test (%" PRIuPTR " permutations): [generating permutations]", perm_ct - 1);
   fflush(stdout);
   // minor todo: multithread this
+  // less minor: cluster support
   generate_perm1_interleaved(pheno_nm_ct, case_ct, 1, perm_ct, perm_rows);
   fputs("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b                       \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b0%", stdout);
   fflush(stdout);
