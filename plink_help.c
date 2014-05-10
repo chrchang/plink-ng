@@ -1440,10 +1440,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("output-missing-genotype\toutput-missing-phenotype", &help_ctrl, 0,
 "  --output-missing-genotype [ch] : Set the code used to represent missing\n"
-"                                   genotypes in new filesets (normally the\n"
+"                                   genotypes in output files (normally the\n"
 "                                   --missing-genotype value).\n"
 "  --output-missing-phenotype [n] : Set the value used to represent missing\n"
-"                                   phenotypes in new filesets (normally the\n"
+"                                   phenotypes in output files (normally the\n"
 "                                   --missing-phenotype value).\n"
 	       );
     help_print("zero-cluster", &help_ctrl, 0,

@@ -2722,7 +2722,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
     goto calc_homozyg_ret_1;
   }
   *outname_end = '\0';
-  LOGPRINTFWW("Results saved to %s.hom.indiv + %s.hom.summary .\n", outname, outname);
+  LOGPRINTFWW("Results saved to %s.hom + %s.hom.indiv + %s.hom.summary .\n", outname, outname, outname);
   if (hp->modifier & (HOMOZYG_GROUP | HOMOZYG_GROUP_VERBOSE)) {
     if (max_pool_size < hp->pool_size_min) {
       LOGPRINTF("Warning: Skipping --homozyg group%s report since there are no pools.\n", (hp->modifier & HOMOZYG_GROUP_VERBOSE)? "-verbose" : "");

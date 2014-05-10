@@ -641,6 +641,14 @@ extern const char g_one_char_strs[];
 extern const char* g_missing_geno_ptr;
 extern const char* g_output_missing_geno_ptr;
 
+static inline const char* cond_replace(const char* ss, const char* match_str, const char* replace_str) {
+  if (ss != match_str) {
+    return ss;
+  } else {
+    return replace_str;
+  }
+}
+
 uint32_t aligned_malloc(uintptr_t** aligned_pp, uintptr_t size);
 
 void aligned_free(uintptr_t* aligned_ptr);

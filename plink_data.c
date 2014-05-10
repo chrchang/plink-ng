@@ -2695,17 +2695,9 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
       bufptr = uint32_write(wbuf, (uint32_t)(ll_buf[marker_idx] >> 32));
       fwrite(wbuf, 1, bufptr - wbuf, outfile);
       putc('\t', outfile);
-      if (marker_allele_ptrs[2 * marker_uidx] != missing_geno_ptr) {
-        fputs(marker_allele_ptrs[2 * marker_uidx], outfile);
-      } else {
-        fputs(output_missing_geno_ptr, outfile);
-      }
+      fputs(cond_replace(marker_allele_ptrs[2 * marker_uidx], missing_geno_ptr, output_missing_geno_ptr), outfile);
       putc('\t', outfile);
-      if (marker_allele_ptrs[2 * marker_uidx + 1] != missing_geno_ptr) {
-        fputs(marker_allele_ptrs[2 * marker_uidx + 1], outfile);
-      } else {
-	fputs(output_missing_geno_ptr, outfile);
-      }
+      fputs(cond_replace(marker_allele_ptrs[2 * marker_uidx + 1], missing_geno_ptr, output_missing_geno_ptr), outfile);
       if (putc_checked('\n', outfile)) {
 	goto sort_and_write_bim_ret_WRITE_FAIL;
       }
@@ -4940,6 +4932,8 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
   uint32_t last_pass = 0;
   int64_t* line_starts = NULL;
   char* missing_geno_ptr = (char*)g_missing_geno_ptr;
+  // do NOT convert missing -> output_missing when autoconverting, since the
+  // .bim/.fam files are usually read right back in.
   char** marker_allele_ptrs = NULL;
   FILE* outfile;
   uint32_t pass_ct;
@@ -13999,8 +13993,8 @@ static inline int32_t merge_first_mode(int32_t mm, uint32_t merge_equal_pos) {
 int32_t merge_diff_print(FILE* outfile, char* idbuf, char* marker_id, char* person_id, unsigned char newval, unsigned char oldval, char** marker_allele_ptrs) {
   char* bufptr = item_endnn(person_id);
   uint32_t slen = strlen_se(marker_id);
-  char* ma1p[4];
-  char* ma2p[4];
+  const char* ma1p[4];
+  const char* ma2p[4];
   char wbuf[8];
   uint32_t slen2;
   memcpyx(idbuf, marker_id, slen, 0);
@@ -14009,7 +14003,7 @@ int32_t merge_diff_print(FILE* outfile, char* idbuf, char* marker_id, char* pers
   memcpyx(idbuf, person_id, slen, 0);
   fprintf(outfile, " %20s %20s", idbuf, bufptr);
   ma1p[0] = marker_allele_ptrs[0];
-  ma1p[1] = (char*)g_missing_geno_ptr;
+  ma1p[1] = g_output_missing_geno_ptr;
   ma1p[2] = marker_allele_ptrs[0];
   ma1p[3] = marker_allele_ptrs[1];
   ma2p[0] = marker_allele_ptrs[0];
@@ -14741,6 +14735,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   uint32_t ped_buflen = MAXLINELEN;
   uint32_t max_bim_linelen = 0;
   char* missing_geno_ptr = (char*)g_missing_geno_ptr;
+  char* output_missing_geno_ptr = (char*)g_output_missing_geno_ptr;
   char* pheno_c_char = NULL;
   double* pheno_d = NULL;
   uint32_t* indiv_nsmap = NULL;
@@ -15438,7 +15433,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
 	  bufptr = marker_allele_ptrs[2 * umm + 1];
 	  bufptr2 = marker_allele_ptrs[2 * umm];
 	}
-	fprintf(outfile, "\t%s\t%g\t%u\t%s\t%s\n", &(marker_ids[map_reverse[ujj] * max_marker_id_len]), marker_cms[ujj], pos_buf[ujj], bufptr, bufptr2);
+	fprintf(outfile, "\t%s\t%g\t%u\t%s\t%s\n", &(marker_ids[map_reverse[ujj] * max_marker_id_len]), marker_cms[ujj], pos_buf[ujj], cond_replace(bufptr, missing_geno_ptr, output_missing_geno_ptr), cond_replace(bufptr2, missing_geno_ptr, output_missing_geno_ptr));
       }
       if (ferror(outfile)) {
 	goto merge_datasets_ret_WRITE_FAIL;
