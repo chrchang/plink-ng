@@ -6082,7 +6082,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       } else if ((!g_is_haploid) || (!genotypic_or_hethom)) {
 	cur_param_ct = np_base + np_diploid;
 	if (constraint_ct_max) {
-          cur_constraint_ct = popcount_bit_idx(g_joint_test_params, 0, constraint_ct_max - np_sex);
+          cur_constraint_ct = popcount_bit_idx(g_joint_test_params, 0, cur_param_ct);
 	} else {
 	  cur_constraint_ct = 0;
 	}
