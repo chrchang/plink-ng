@@ -1378,9 +1378,10 @@ static inline void mult_tmatrix_nxd_vect_d(const float* tm, const float* vect, f
         r2 = _mm_mul_ps(r2, w2);
         r3 = _mm_mul_ps(r3, w3);
         r4 = _mm_mul_ps(r4, w4);
-        r1 = _mm_mul_ps(r1, w2);
-        r3 = _mm_mul_ps(r3, w4);
-        r1 = _mm_mul_ps(r1, r3);
+        r1 = _mm_add_ps(r1, r2);
+        r3 = _mm_add_ps(r3, r4);
+        r1 = _mm_add_ps(r1, r3);
+	r1 = _mm_add_ps(r1, _mm_load_ps(&(dest[col_idx])));
 	_mm_store_ps(&(dest[col_idx]), r1);
       }
     }
@@ -1918,6 +1919,18 @@ uint32_t logistic_regression(uint32_t indiv_ct, uint32_t param_ct, float* vv, fl
     compute_v_and_p_minus_y(pp, vv, yy, indiv_ct);
 
     compute_hessian(xx, vv, hh, indiv_ct, param_ct);
+    /*
+    printf("\n");
+    for (uii = 0; uii < param_ct; uii++) {
+      for (ujj = 0; ujj < param_ct; ujj++) {
+	printf("%g ", hh[uii * param_cta4 + ujj]);
+      }
+      printf("\n");
+    }
+    if (iteration == 2) {
+      exit(1);
+    }
+    */
 
     mult_matrix_dxn_vect_n(xx, pp, grad, indiv_ct, param_ct);
 
@@ -1988,6 +2001,7 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
   // 32-bit since that -1 is actually 0xffffffffU
   uint32_t cluster_idx_p1;
   float fxx;
+
   fill_ulong_zero(perm_fails, ((cur_batch_size + (BITCT - 1)) / BITCT) * sizeof(intptr_t));
   for (perm_idx = 0; perm_idx < cur_batch_size; perm_idx++) {
     fptr = pheno_buf;
@@ -2095,7 +2109,12 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
     fptr = &(logistic_results[perm_idx * param_ctx_m1]);
     for (param_idx = 1; param_idx < param_ct; param_idx++) {
       *fptr++ = param_2d_buf[param_idx * param_ct_p1];
+      // printf("%g ", coef[param_idx] / sqrtf(fptr[-1]));
     }
+    /*
+    printf("\n");
+    exit(1);
+    */
     if (joint_test_requested) {
       // ugly to do this with doubles while doing everything else with floats,
       // but unless I need to write a float matrix inversion later for some
