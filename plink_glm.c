@@ -1429,6 +1429,7 @@ static inline void mult_tmatrix_nxd_vect_d(const float* tm, const float* vect, f
 
 static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, float* dest, uint32_t col_ct, uint32_t row_ct) {
   uintptr_t col_cta4 = (col_ct + 3) & (~3);
+  uint32_t row_idx = 0;
   const float* mm_ptr;
   __m128 s1;
   __m128 s2;
@@ -1441,17 +1442,16 @@ static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, fl
   __m128 a4;
   __uni16 u16;
   uint32_t row_ctm3;
-  uint32_t row_idx;
   uint32_t col_idx;
   if (row_ct > 3) {
     row_ctm3 = row_ct - 3;
-    for (row_idx = 0; row_idx < row_ctm3; row_idx += 4) {
+    for (; row_idx < row_ctm3; row_idx += 4) {
       s1 = _mm_setzero_ps();
       s2 = _mm_setzero_ps();
       s3 = _mm_setzero_ps();
       s4 = _mm_setzero_ps();
       for (col_idx = 0; col_idx < col_ct; col_idx += 4) {
-	mm_ptr = &(mm[col_idx]);
+	mm_ptr = &(mm[row_idx * col_cta4 + col_idx]);
         vv = _mm_load_ps(&(vect[col_idx]));
         a1 = _mm_load_ps(mm_ptr);
         a2 = _mm_load_ps(&(mm_ptr[col_cta4]));
@@ -1475,7 +1475,7 @@ static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, fl
       u16.vf = s3;
       *dest++ = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
       u16.vf = s4;
-      *dest = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
+      *dest++ = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
     }
   }
   s1 = _mm_setzero_ps();
@@ -1484,7 +1484,7 @@ static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, fl
   switch (row_ct % 4) {
   case 3:
     for (col_idx = 0; col_idx < col_ct; col_idx += 4) {
-      mm_ptr = &(mm[col_idx]);
+      mm_ptr = &(mm[row_idx * col_cta4 + col_idx]);
       vv = _mm_load_ps(&(vect[col_idx]));
       a1 = _mm_load_ps(mm_ptr);
       a2 = _mm_load_ps(&(mm_ptr[col_cta4]));
@@ -1505,7 +1505,7 @@ static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, fl
     break;
   case 2:
     for (col_idx = 0; col_idx < col_ct; col_idx += 4) {
-      mm_ptr = &(mm[col_idx]);
+      mm_ptr = &(mm[row_idx * col_cta4 + col_idx]);
       vv = _mm_load_ps(&(vect[col_idx]));
       a1 = _mm_load_ps(mm_ptr);
       a2 = _mm_load_ps(&(mm_ptr[col_cta4]));
@@ -1522,7 +1522,7 @@ static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, fl
   case 1:
     for (col_idx = 0; col_idx < col_ct; col_idx += 4) {
       vv = _mm_load_ps(&(vect[col_idx]));
-      a1 = _mm_load_ps(&(mm[col_idx]));
+      a1 = _mm_load_ps(&(mm[row_idx * col_cta4 + col_idx]));
       a1 = _mm_mul_ps(a1, vv);
       s1 = _mm_add_ps(s1, a1);
     }
