@@ -2300,7 +2300,27 @@ uint32_t glm_fill_design(uintptr_t* loadbuf_collapsed, double* fixed_covars_cov_
 	indiv_idx = 0;
 	indiv_idx_stop = BITCT2;
 	dptr2 = &(fixed_covars_cov_major[fixed_covar_idx * indiv_valid_ct]);
-	if (!(coding_flags & GLM_HETHOM)) {
+        if (coding_flags & GLM_DOMINANT) {
+	  while (1) {
+	    while (ulptr < ulptr_end) {
+	      cur_word = *ulptr++;
+	      for (; indiv_idx < indiv_idx_stop; indiv_idx++, cur_word >>= 2) {
+		cur_genotype = cur_word & 3;
+		if (cur_genotype != 1) {
+		  // 0/1/1
+		  *dptr++ = ((double)(cur_genotype != 3)) * (*dptr2);
+		}
+		dptr2++;
+	      }
+	      indiv_idx_stop += BITCT2;
+	    }
+	    if (indiv_idx == indiv_valid_ct) {
+	      break;
+	    }
+	    ulptr_end++;
+	    indiv_idx_stop = indiv_valid_ct;
+	  }
+	} else if (!(coding_flags & (GLM_HETHOM | GLM_RECESSIVE))) {
 	  if (!male_x_01) {
 	    while (1) {
 	      while (ulptr < ulptr_end) {
@@ -2350,7 +2370,7 @@ uint32_t glm_fill_design(uintptr_t* loadbuf_collapsed, double* fixed_covars_cov_
 		cur_genotype = cur_word & 3;
 		if (cur_genotype != 1) {
 		  // 0/0/1
-	          *dptr++ = ((double)((intptr_t)(1 - (cur_genotype >> 1)))) * (*dptr2);
+	          *dptr++ = ((double)(cur_genotype == 0)) * (*dptr2);
 		}
 		dptr2++;
 	      }
@@ -2711,7 +2731,27 @@ uint32_t glm_fill_design_float(uintptr_t* loadbuf_collapsed, float* fixed_covars
 	indiv_idx = 0;
 	indiv_idx_stop = BITCT2;
 	fptr2 = &(fixed_covars_cov_major[fixed_covar_idx * indiv_valid_ct]);
-	if (!(coding_flags & GLM_HETHOM)) {
+	if (coding_flags & GLM_DOMINANT) {
+	  while (1) {
+	    while (ulptr < ulptr_end) {
+	      cur_word = *ulptr++;
+	      for (; indiv_idx < indiv_idx_stop; indiv_idx++, cur_word >>= 2) {
+		cur_genotype = cur_word & 3;
+		if (cur_genotype != 1) {
+		  // 0/1/1
+		  *fptr++ = ((float)(cur_genotype != 3)) * (*fptr2);
+		}
+		fptr2++;
+	      }
+	      indiv_idx_stop += BITCT2;
+	    }
+	    if (indiv_idx == indiv_valid_ct) {
+	      break;
+	    }
+	    ulptr_end++;
+	    indiv_idx_stop = indiv_valid_ct;
+	  }
+	} else if (!(coding_flags & (GLM_HETHOM | GLM_RECESSIVE))) {
 	  if (!male_x_01) {
 	    while (1) {
 	      while (ulptr < ulptr_end) {
@@ -2823,7 +2863,27 @@ uint32_t glm_fill_design_float(uintptr_t* loadbuf_collapsed, float* fixed_covars
 	indiv_idx = 0;
 	indiv_idx_stop = BITCT2;
 	fptr2 = &(fixed_covars_cov_major[fixed_covar_nonsex_ct * indiv_valid_ct]);
-	if (!(coding_flags & GLM_HETHOM)) {
+	if (coding_flags & GLM_DOMINANT) {
+	  while (1) {
+	    while (ulptr < ulptr_end) {
+	      cur_word = *ulptr++;
+	      for (; indiv_idx < indiv_idx_stop; indiv_idx++, cur_word >>= 2) {
+		cur_genotype = cur_word & 3;
+		if (cur_genotype != 1) {
+		  // 0/1/1
+		  *fptr++ = ((float)(cur_genotype != 3)) * (*fptr2);
+		}
+		fptr2++;
+	      }
+	      indiv_idx_stop += BITCT2;
+	    }
+	    if (indiv_idx == indiv_valid_ct) {
+	      break;
+	    }
+	    ulptr_end++;
+	    indiv_idx_stop = indiv_valid_ct;
+	  }
+	} else if (!(coding_flags & (GLM_HETHOM | GLM_RECESSIVE))) {
 	  if (!male_x_01) {
 	    while (1) {
 	      while (ulptr < ulptr_end) {
@@ -3870,7 +3930,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
       }
     } else {
       if (sex_covar_everywhere) {
-        LOGPRINTF("Warning: Ignoring --linear 'sex' modifier%s since sex is%cinvariant.\n", x_sex_interaction? " and --xchr-model 3" : "", x_sex_interaction? '\n' : ' ');
+        LOGPRINTFWW("Warning: Ignoring --linear/--logistic 'sex' modifier%s since sex is%cinvariant.\n", x_sex_interaction? " and --xchr-model 3" : "", x_sex_interaction? '\n' : ' ');
         sex_covar_everywhere = 0;
       } else if (x_sex_interaction) {
         logprint("Warning: Ignoring --xchr-model 3 since sex is invariant.\n");
