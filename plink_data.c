@@ -475,7 +475,7 @@ static inline uint32_t sf_out_of_range(uint32_t cur_pos, uint32_t chrom_idx, uin
   return 1;
 }
 
-int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_len_ptr, uintptr_t** marker_exclude_ptr, double** set_allele_freqs_ptr, char*** marker_allele_pp, uintptr_t* max_marker_allele_len_ptr, char** marker_ids_ptr, char** missing_mid_templates, const char* missing_marker_id_match, Chrom_info* chrom_info_ptr, double** marker_cms_ptr, uint32_t** marker_pos_ptr, char* freqname, uint64_t calculation_type, uint64_t misc_flags, uint64_t filter_flags, uint32_t recode_modifier, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* sf_range_list_ptr, uint32_t* map_is_unsorted_ptr, uint32_t marker_pos_needed, uint32_t marker_cms_needed, uint32_t marker_alleles_needed, const char* split_chrom_cmd) {
+int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_len_ptr, uintptr_t** marker_exclude_ptr, double** set_allele_freqs_ptr, char*** marker_allele_pp, uintptr_t* max_marker_allele_len_ptr, char** marker_ids_ptr, char** missing_mid_templates, const char* missing_marker_id_match, Chrom_info* chrom_info_ptr, double** marker_cms_ptr, uint32_t** marker_pos_ptr, char* freqname, uint64_t calculation_type, uint64_t misc_flags, uint64_t filter_flags, uint32_t recode_modifier, int32_t marker_pos_start, int32_t marker_pos_end, int32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* sf_range_list_ptr, uint32_t* map_is_unsorted_ptr, uint32_t marker_pos_needed, uint32_t marker_cms_needed, uint32_t marker_alleles_needed, const char* split_chrom_cmd) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* bimfile = NULL;
   uintptr_t unfiltered_marker_ct = 0;
@@ -926,24 +926,30 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       goto load_bim_ret_INVALID_FORMAT_2;
     }
     if (!exclude_snp) {
-      if (snp_window_size > snp_pos) {
+      if (snp_window_size == -1) {
+	// no harm in screening on position before variant ID
+	uii = 0;
+      } else {
+	uii = snp_window_size;
+      }
+      if (uii > snp_pos) {
 	marker_pos_start = 0;
       } else {
-	marker_pos_start = snp_pos - snp_window_size;
+	marker_pos_start = snp_pos - uii;
       }
-      if (snp_window_size > (0x7fffffff - snp_pos)) {
+      if (uii > (0x7fffffff - snp_pos)) {
 	marker_pos_end = 0x7fffffff;
       } else {
-	marker_pos_end = snp_pos + snp_window_size;
+	marker_pos_end = snp_pos + uii;
       }
-    } else {
-      if (snp_window_size <= snp_pos) {
-        exclude_window_start = snp_pos - snp_window_size;
+    } else if (snp_window_size != -1) {
+      if ((uint32_t)snp_window_size <= snp_pos) {
+	exclude_window_start = snp_pos - snp_window_size;
       }
-      if (snp_window_size > (0x7fffffff - snp_pos)) {
+      if ((uint32_t)snp_window_size > (0x7fffffff - snp_pos)) {
 	exclude_window_end = 0x7fffffff;
       } else {
-        exclude_window_end = snp_pos + snp_window_size;
+	exclude_window_end = snp_pos + snp_window_size;
       }
     }
   }
@@ -1054,17 +1060,17 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     }
 
     if (is_set(chrom_info_ptr->chrom_mask, jj)) {
-      bufptr = next_item(bufptr3);
-      if (no_more_items_kns(bufptr)) {
+      bufptr2 = next_item(bufptr3);
+      if (no_more_items_kns(bufptr2)) {
 	goto load_bim_ret_MISSING_TOKENS;
       }
-      uii = strlen_se(bufptr);
-      ujj = (uii == missing_marker_id_match_len) && (!memcmp(bufptr, missing_marker_id_match, missing_marker_id_match_len));
+      uii = strlen_se(bufptr2);
+      ujj = (uii == missing_marker_id_match_len) && (!memcmp(bufptr2, missing_marker_id_match, missing_marker_id_match_len));
       if (!ujj) {
-        memcpyx(&((*marker_ids_ptr)[marker_uidx * max_marker_id_len]), bufptr, uii, '\0');
+        memcpyx(&((*marker_ids_ptr)[marker_uidx * max_marker_id_len]), bufptr2, uii, '\0');
       }
       if (marker_cms_needed) {
-	bufptr = next_item(bufptr);
+	bufptr = next_item(bufptr2);
 	if (no_more_items_kns(bufptr)) {
 	  goto load_bim_ret_MISSING_TOKENS;
 	}
@@ -1082,7 +1088,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	}
 	bufptr = next_item(bufptr);
       } else {
-        bufptr = next_item_mult(bufptr, mcm2);
+        bufptr = next_item_mult(bufptr2, mcm2);
       }
       if (no_more_items_kns(bufptr)) {
 	goto load_bim_ret_MISSING_TOKENS;
@@ -1099,8 +1105,21 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       } else {
 	last_pos = cur_pos;
       }
-      if ((sf_ct && (exclude_snp ^ sf_out_of_range(cur_pos, (uint32_t)jj, sf_start_idxs, sf_pos))) || ((marker_pos_start != -1) && ((((int32_t)cur_pos) < marker_pos_start) || (((int32_t)cur_pos) > marker_pos_end))) || (exclude_snp && (((int32_t)cur_pos) <= exclude_window_end) && (((int32_t)cur_pos) >= exclude_window_start) && ((uint32_t)jj == snp_chrom))) {
+      if ((sf_ct && (exclude_snp ^ sf_out_of_range(cur_pos, (uint32_t)jj, sf_start_idxs, sf_pos))) || ((marker_pos_start != -1) && ((((int32_t)cur_pos) < marker_pos_start) || (((int32_t)cur_pos) > marker_pos_end)))) {
 	goto load_bim_skip_marker;
+      }
+      if (snp_slen) {
+	if (snp_window_size == -1) {
+	  if ((uii == snp_slen) && (!memcmp(bufptr2, markername_snp, snp_slen))) {
+	    if (exclude_snp) {
+	      goto load_bim_skip_marker;
+	    }
+	  } else if (!exclude_snp) {
+	    goto load_bim_skip_marker;
+	  }
+	} else if (exclude_snp && ((((int32_t)cur_pos) <= exclude_window_end) && (((int32_t)cur_pos) >= exclude_window_start) && ((uint32_t)jj == snp_chrom))) {
+	  goto load_bim_skip_marker;
+	}
       }
       if (marker_pos_needed) {
 	(*marker_pos_ptr)[marker_uidx] = cur_pos;
