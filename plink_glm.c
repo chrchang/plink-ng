@@ -2852,7 +2852,7 @@ uint32_t glm_fill_design_float(uintptr_t* loadbuf_collapsed, float* fixed_covars
   }
   if (include_sex) {
     if (IS_SET(active_params, sex_start_idx)) {
-      copy_when_nonmissing(loadbuf_collapsed, (char*)(&(fixed_covars_cov_major[fixed_covar_nonsex_ct * indiv_valid_ct])), sizeof(double), indiv_valid_ct, missing_ct, (char*)fptr);
+      copy_when_nonmissing(loadbuf_collapsed, (char*)(&(fixed_covars_cov_major[fixed_covar_nonsex_ct * indiv_valid_ct])), sizeof(float), indiv_valid_ct, missing_ct, (char*)fptr);
       fill_float_zero(&(fptr[cur_indiv_valid_ct]), align_skip);
       fptr = &(fptr[cur_indiv_valid_cta4]);
     }
