@@ -86,7 +86,7 @@
 
 const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b1"
+  "PLINK v1.90b1a"
 #else
   "PLINK v1.90b2p"
 #endif
@@ -102,7 +102,7 @@ const char ver_str[] =
   " (13 May 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
-  " "
+  //  " " (don't actually want this when version number has a trailing letter)
 #endif
 #ifndef NOLAPACK
   "  "

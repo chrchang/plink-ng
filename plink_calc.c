@@ -5501,12 +5501,13 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
       goto calc_genome_ret_WRITE_FAIL;
     }
     putchar('\r');
-    LOGPRINTFWW("IBS matrix written to %s .\n", outname);
     strcpy(outname_end, ".mibs.id");
     retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
     if (retval) {
       goto calc_genome_ret_1;
     }
+    *outname_end = '\0';
+    LOGPRINTFWW("IBS matrix written to %s.mibs , and IDs written to %s.mibs.id .\n", outname, outname);
   }
 
   if (calculation_type & CALC_PLINK1_DISTANCE_MATRIX) {
@@ -5547,12 +5548,13 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
       goto calc_genome_ret_WRITE_FAIL;
     }
     putchar('\r');
-    LOGPRINTFWW("Distances (proportions) written to %s .\n", outname);
     strcpy(outname_end, ".mdist.id");
     retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
     if (retval) {
       goto calc_genome_ret_1;
     }
+    *outname_end = '\0';
+    LOGPRINTFWW("Distances (proportions) written to %s.mdist , and IDs written to %s.mdist.id .\n", outname, outname);
   }
 
   if (!parallel_idx) {
@@ -6940,6 +6942,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   int32_t retval = 0;
   uint32_t dist_thread_ct = g_thread_ct;
   uint32_t rel_req = relationship_req(calculation_type);
+  uint32_t all_missing_warning = 0;
   int64_t llxx = 0;
   double rel_cutoff = relip->cutoff;
   double* dist_ptr = NULL;
@@ -7154,6 +7157,9 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   max_parallel_indiv = g_thread_start[dist_thread_ct];
   for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
     uii = marker_ct - indiv_missing_unwt[indiv_idx];
+    if ((!all_missing_warning) && (!uii)) {
+      all_missing_warning = 1;
+    }
     if ((indiv_idx >= min_indiv) && (indiv_idx < max_parallel_indiv)) {
       if (rel_req) {
 	giptr = indiv_missing_unwt;
@@ -7374,13 +7380,34 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       }
     }
     putchar('\r');
-    LOGPRINTFWW("Relationship matrix written to %s .\n", outname);
     if (!parallel_idx) {
+      wptr = strcpya(logbuf, "Relationship matrix ");
+      if (parallel_tot > 1) {
+	wptr = strcpya(wptr, "component ");
+      }
+      wptr = strcpya(wptr, "written to ");
+      wptr = strcpya(wptr, outname);
       strcpy(&(outname_end[4]), ".id");
       retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
       if (retval) {
 	goto calc_rel_ret_1;
       }
+      sprintf(wptr, " , and IDs written to %s .\n", outname);
+    } else {
+      sprintf(logbuf, "Relationship matrix component written to %s .\n", outname);
+    }
+    wordwrap(logbuf, 0);
+    logprintb();
+  }
+  if (all_missing_warning) {
+    // note that it's still possible for the relationship matrix to have nans
+    // even if this isn't true (empty intersection, or inaccurate 0 MAF), but
+    // at least this catches the common case
+    if (calculation_type & (CALC_REGRESS_REL | CALC_PCA | CALC_UNRELATED_HERITABILITY)) {
+      logprint("Error: Sample(s) present with no genotype data.  Use --mind to filter them out.\n");
+      retval = RET_INVALID_FORMAT;
+    } else {
+      logprint("Warning: Sample(s) present with no genotype data.  Use --mind to filter them\nout.\n");
     }
   }
   while (0) {
@@ -7609,6 +7636,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
   FILE* outfile = NULL;
   FILE* out_bin_nfile = NULL;
   uint32_t rel_calc_type = relip->modifier & REL_CALC_MASK;
+  uint32_t all_missing_warning = 0;
   int32_t ibc_type = relip->ibc_type;
   int32_t retval = 0;
   float rel_cutoff = (float)(relip->cutoff);
@@ -7808,6 +7836,9 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
   max_parallel_indiv = g_thread_start[dist_thread_ct];
   for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
     uii = marker_ct - indiv_missing_unwt[indiv_idx];
+    if ((!all_missing_warning) && (!uii)) {
+      all_missing_warning = 1;
+    }
     if ((indiv_idx >= min_indiv) && (indiv_idx < max_parallel_indiv)) {
       if (rel_req) {
 	giptr = indiv_missing_unwt;
@@ -8055,16 +8086,30 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
       }
     }
     putchar('\r');
-    LOGPRINTFWW("Relationship matrix written to %s .\n", outname);
     if (!parallel_idx) {
+      wptr = strcpya(logbuf, "Relationship matrix ");
+      if (parallel_tot > 1) {
+	wptr = strcpya(wptr, "component ");
+      }
+      wptr = strcpya(wptr, "written to ");
+      wptr = strcpya(wptr, outname);
       strcpy(&(outname_end[4]), ".id");
       retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
       if (retval) {
 	goto calc_rel_f_ret_1;
       }
+      sprintf(wptr, " and IDs written to %s .\n", outname);
+    } else {
+      sprintf(logbuf, "Relationship matrix component written to %s .\n", outname);
     }
+    wordwrap(logbuf, 0);
+    logprintb();
   }
   wkspace_reset(wkspace_mark);
+  if (all_missing_warning) {
+    logprint("Warning: Sample(s) present with no genotype data.  Use --mind to filter them\nout.\n");
+  }
+
   while (0) {
   calc_rel_f_ret_NOMEM:
     retval = RET_NOMEM;
@@ -9062,14 +9107,20 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
       goto calc_distance_ret_WRITE_FAIL;
     }
     putchar('\r');
-    LOGPRINTFWW("Distances (proportions) written to %s .\n", outname);
     if (!parallel_idx) {
+      wptr = strcpya(logbuf, "Distances (proportions) written to ");
+      wptr = strcpya(wptr, outname);
       strcpy(outname_end, ".mdist.id");
       retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
       if (retval) {
 	goto calc_distance_ret_1;
       }
+      sprintf(wptr, " , and IDs to %s .\n", outname);
+    } else {
+      sprintf(logbuf, "Distances (proportions) written to %s .\n", outname);
     }
+    wordwrap(logbuf, 0);
+    logprintb();
   }
   if (calculation_type & CALC_PLINK1_IBS_MATRIX) {
     strcpy(outname_end, ".mibs");
@@ -9106,12 +9157,13 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
       goto calc_distance_ret_WRITE_FAIL;
     }
     putchar('\r');
-    LOGPRINTFWW("IBS matrix written to %s .\n", outname);
     strcpy(outname_end, ".mibs.id");
     retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
     if (retval) {
       goto calc_distance_ret_1;
     }
+    outname_end[5] = '\0';
+    LOGPRINTFWW("IBS matrix written to %s , and IDs to %s.id .\n", outname, outname);
   }
   tstc = g_thread_start[dist_thread_ct];
   if (wt_needed) {
@@ -9196,6 +9248,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	if (retval) {
 	  goto calc_distance_ret_1;
 	}
+        LOGPRINTFWW("IDs written to %s .\n", outname);
       }
       retval = distance_d_write(&outfile, &outfile2, &outfile3, dist_calc_type, outname, outname_end, g_dists, g_half_marker_ct_recip, indiv_ct, g_thread_start[0], g_thread_start[dist_thread_ct], parallel_idx, parallel_tot, (unsigned char*)geno);
       if (retval) {
