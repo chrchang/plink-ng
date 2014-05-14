@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (13 May 2014)";
+  " (14 May 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   //  " " (don't actually want this when version number has a trailing letter)
@@ -10082,6 +10082,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (alloc_string(&missing_mid_templates[1], argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
+	filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "et-missing-nonsnp-ids", 22)) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
           goto main_ret_INVALID_CMDLINE_2A;
@@ -10095,6 +10096,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (alloc_string(&missing_mid_templates[0], argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
+	filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "et-missing-var-ids", 19)) {
 	if (missing_mid_templates[0] || missing_mid_templates[1]) {
 	  logprint("Error: --set-missing-var-ids cannot be used with --set-missing-snp-ids or\n--set-missing-nonsnp-ids.\n");
