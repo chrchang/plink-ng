@@ -1403,6 +1403,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                             rates exceeding the given thresholds.\n"
 "  --me-exclude-one {ratio} : Make --me exclude only one individual per trio.\n"
 	       );
+    help_print("qual-scores\tqual-threshold\tqual-max-threshold", &help_ctrl, 0,
+"  --qual-scores [f] {qcol} {IDcol} {skip} : Filter out variants with\n"
+"                                            out-of-range quality scores.\n"
+"                                            Default range is now [0, \\infty ).\n"
+"  --qual-threshold [min qual score]       : Set --qual-scores range floor.\n"
+"  --qual-max-threshold [max qual score]   : Set --qual-scores range ceiling.\n"
+	       );
     help_print("allow-no-sex\tmust-have-sex", &help_ctrl, 0,
 "  --allow-no-sex   : Do not treat ambiguous-sex individuals as having missing\n"
 "                     phenotypes in analysis commands.  (Automatic /w --no-sex.)\n"

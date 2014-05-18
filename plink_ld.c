@@ -1182,8 +1182,8 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	}
       }
       marker_idx++;
-      if (marker_idx == pct_thresh) {
-	printf("\rWriting... %d%%", pct);
+      if (marker_idx >= pct_thresh) {
+	printf("\rWriting... %u%%", pct);
 	fflush(stdout);
 	pct = ((int64_t)marker_idx * 100) / uii + 1;
         pct_thresh = ((int64_t)pct * uii) / 100;

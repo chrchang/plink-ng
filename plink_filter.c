@@ -24,6 +24,643 @@ void oblig_missing_cleanup(Oblig_missing_info* om_ip) {
   }
 }
 
+const char extract_str[] = "extract";
+const char exclude_str[] = "exclude";
+const char keep_str[] = "keep";
+const char keep_fam_str[] = "keep-fam";
+const char remove_str[] = "remove";
+const char remove_fam_str[] = "remove-fam";
+
+const char* include_or_exclude_flag_str(uint32_t flags) {
+  switch (flags) {
+  case 0:
+    return extract_str;
+  case 1:
+    return exclude_str;
+  case 2:
+    return keep_str;
+  case 3:
+    return remove_str;
+  case 6:
+    return keep_fam_str;
+  case 7:
+    return remove_fam_str;
+  }
+  return NULL;
+}
+
+void exclude_extract_process_token(char* tok_start, char* sorted_ids, uint32_t* id_map, uintptr_t max_id_len, uintptr_t sorted_ids_ct, uintptr_t* exclude_arr, uintptr_t* exclude_arr_new, uintptr_t* duplicate_ct_ptr, uint32_t do_exclude, uint32_t curtoklen) {
+  uintptr_t ulii = bsearch_str_lb(tok_start, curtoklen, sorted_ids, max_id_len, sorted_ids_ct);
+  uintptr_t is_duplicate = 0;
+  uintptr_t uljj;
+  uint32_t unfiltered_idx;
+  if (ulii != sorted_ids_ct) {
+    tok_start[curtoklen] = ' ';
+    uljj = bsearch_str_lb(tok_start, curtoklen + 1, sorted_ids, max_id_len, sorted_ids_ct);
+    if (uljj > ulii) {
+      do {
+	unfiltered_idx = id_map[ulii];
+	if (!IS_SET(exclude_arr, unfiltered_idx)) {
+	  if (do_exclude) {
+	    if (IS_SET(exclude_arr_new, unfiltered_idx)) {
+	      is_duplicate = 1;
+	    } else {
+	      SET_BIT(exclude_arr_new, unfiltered_idx);
+	    }
+	  } else {
+	    if (!IS_SET(exclude_arr_new, unfiltered_idx)) {
+	      is_duplicate = 1;
+	    } else {
+	      CLEAR_BIT(exclude_arr_new, unfiltered_idx);
+	    }
+	  }
+	}
+      } while (++ulii < uljj);
+      *duplicate_ct_ptr += is_duplicate;
+    }
+  }
+}
+
+int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_ct, uintptr_t max_id_len, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* exclude_ct_ptr, uint32_t flags) {
+  FILE* infile = NULL;
+  unsigned char* wkspace_mark = wkspace_base;
+  uintptr_t* exclude_arr_new = NULL;
+  uintptr_t unfiltered_ctl = (unfiltered_ct + (BITCT - 1)) / BITCT;
+  uintptr_t duplicate_ct = 0;
+  uintptr_t line_idx = 0;
+  uint32_t do_exclude = flags & 1;
+  // flags & 2 = indivs
+  uint32_t families_only = flags & 4;
+  uint32_t curtoklen = 0;
+  int32_t retval = 0;
+  char* midbuf = &(tbuf[MAXLINELEN]);
+  char* id_buf;
+  char* bufptr0;
+  char* bufptr;
+  char* bufptr2;
+  char* bufptr3;
+  uintptr_t bufsize;
+  int32_t ii;
+  uint32_t unfiltered_idx;
+  uint32_t cur_idx;
+  uint32_t last_idx;
+
+  if (wkspace_alloc_ul_checked(&exclude_arr_new, unfiltered_ctl * sizeof(intptr_t))) {
+    goto include_or_exclude_ret_NOMEM;
+  }
+  if (do_exclude) {
+    // need this to avoid spurious duplicate warnings (ID could have been
+    // removed by an earlier step)
+    memcpy(exclude_arr_new, exclude_arr, unfiltered_ctl * sizeof(intptr_t));
+  } else {
+    fill_all_bits(exclude_arr_new, unfiltered_ct);
+  }
+  if (fopen_checked(&infile, fname, "r")) {
+    goto include_or_exclude_ret_OPEN_FAIL;
+  }
+  if (flags & 2) {
+    tbuf[MAXLINELEN - 1] = ' ';
+    if (wkspace_alloc_c_checked(&id_buf, max_id_len)) {
+      goto include_or_exclude_ret_NOMEM;
+    }
+    while (fgets(tbuf, MAXLINELEN, infile) != NULL) {
+      line_idx++;
+      if (!tbuf[MAXLINELEN - 1]) {
+	sprintf(logbuf, "Error: Line %" PRIuPTR " of --%s file is pathologically long.\n", line_idx, include_or_exclude_flag_str(flags));
+	goto include_or_exclude_ret_INVALID_FORMAT_2;
+      }
+      bufptr0 = skip_initial_spaces(tbuf);
+      if (is_eoln_kns(*bufptr0)) {
+	continue;
+      }
+      if (!families_only) {
+	if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_ct, bufptr0, NULL, &ii)) {
+	  sprintf(logbuf, "Error: Line %" PRIuPTR " of --%s file has fewer tokens than expected.\n", line_idx, include_or_exclude_flag_str(flags));
+	  goto include_or_exclude_ret_INVALID_FORMAT_2;
+	}
+	if (ii != -1) {
+	  unfiltered_idx = id_map[(uint32_t)ii];
+	  if (!IS_SET(exclude_arr, unfiltered_idx)) {
+	    if (do_exclude) {
+	      if (IS_SET(exclude_arr_new, unfiltered_idx)) {
+		duplicate_ct++;
+	      } else {
+		SET_BIT(exclude_arr_new, unfiltered_idx);
+	      }
+	    } else {
+	      if (!IS_SET(exclude_arr_new, unfiltered_idx)) {
+		duplicate_ct++;
+	      } else {
+		CLEAR_BIT(exclude_arr_new, unfiltered_idx);
+	      }
+	    }
+	  }
+	}
+      } else {
+	bsearch_fam(id_buf, sorted_ids, max_id_len, sorted_ids_ct, bufptr0, &cur_idx, &last_idx);
+	ii = 0;
+	while (cur_idx < last_idx) {
+	  unfiltered_idx = id_map[cur_idx++];
+	  if (!IS_SET(exclude_arr, unfiltered_idx)) {
+	    if (do_exclude) {
+	      if (IS_SET(exclude_arr_new, unfiltered_idx)) {
+		ii = 1;
+	      } else {
+		SET_BIT(exclude_arr_new, unfiltered_idx);
+	      }
+	    } else {
+	      if (!IS_SET(exclude_arr_new, unfiltered_idx)) {
+		ii = 1;
+	      } else {
+		CLEAR_BIT(exclude_arr_new, unfiltered_idx);
+	      }
+	    }
+	  }
+	}
+	// only add one to duplicate_ct, instead of one per family member
+	duplicate_ct += (uint32_t)ii;
+      }
+    }
+  } else {
+    // use token- instead of line-based loader here
+    while (1) {
+      if (fread_checked(midbuf, MAXLINELEN, infile, &bufsize)) {
+	goto include_or_exclude_ret_READ_FAIL;
+      }
+      if (!bufsize) {
+        if (curtoklen && (curtoklen < max_id_len)) {
+          exclude_extract_process_token(&(tbuf[MAXLINELEN - curtoklen]), sorted_ids, id_map, max_id_len, sorted_ids_ct, exclude_arr, exclude_arr_new, &duplicate_ct, do_exclude, curtoklen);
+	}
+	break;
+      }
+      bufptr0 = &(midbuf[bufsize]);
+      *bufptr0 = ' ';
+      bufptr0[1] = '0';
+      bufptr = &(tbuf[MAXLINELEN - curtoklen]);
+      bufptr2 = midbuf;
+      if (curtoklen) {
+	goto include_or_exclude_tok_start;
+      }
+      while (1) {
+	while (*bufptr <= ' ') {
+	  bufptr++;
+	}
+        if (bufptr >= bufptr0) {
+	  curtoklen = 0;
+	  break;
+	}
+        bufptr2 = &(bufptr[1]);
+      include_or_exclude_tok_start:
+        while (*bufptr2 > ' ') {
+	  bufptr2++;
+	}
+        curtoklen = (uintptr_t)(bufptr2 - bufptr);
+        if (bufptr2 == &(tbuf[MAXLINELEN * 2])) {
+	  if (curtoklen > MAXLINELEN) {
+	    sprintf(logbuf, "Error: Excessively long ID in --%s file.\n", include_or_exclude_flag_str(flags));
+	    goto include_or_exclude_ret_INVALID_FORMAT_2;
+	  }
+	  bufptr3 = &(tbuf[MAXLINELEN - curtoklen]);
+          memcpy(bufptr3, bufptr, curtoklen);
+	  break;
+	}
+	if (curtoklen < max_id_len) {
+          exclude_extract_process_token(bufptr, sorted_ids, id_map, max_id_len, sorted_ids_ct, exclude_arr, exclude_arr_new, &duplicate_ct, do_exclude, curtoklen);
+	}
+	bufptr = &(bufptr2[1]);
+      }
+    }
+  }
+  if (!feof(infile)) {
+    goto include_or_exclude_ret_READ_FAIL;
+  }
+  memcpy(exclude_arr, exclude_arr_new, unfiltered_ctl * sizeof(intptr_t));
+  *exclude_ct_ptr = popcount_longs(exclude_arr, unfiltered_ctl);
+  if (*exclude_ct_ptr == unfiltered_ct) {
+    LOGPRINTF("Error: No %s remaining after --%s.\n", (flags & 2)? g_species_plural : "variants", include_or_exclude_flag_str(flags));
+    goto include_or_exclude_ret_ALL_SAMPLES_EXCLUDED;
+  }
+  unfiltered_ct -= *exclude_ct_ptr; // now filtered count
+  if (flags & 2) {
+    LOGPRINTF("--%s: %" PRIuPTR " %s remaining.\n", include_or_exclude_flag_str(flags), unfiltered_ct, species_str(unfiltered_ct));
+  } else {
+    LOGPRINTF("--%s: %" PRIuPTR " variant%s remaining.\n", include_or_exclude_flag_str(flags), unfiltered_ct, (unfiltered_ct == 1)? "" : "s");
+  }
+  if (duplicate_ct) {
+    // "At least" since this does not count duplicate IDs absent from the .bim.
+    LOGPRINTF("Warning: At least %" PRIuPTR " duplicate ID%s in --%s file.\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", include_or_exclude_flag_str(flags));
+  }
+  while (0) {
+  include_or_exclude_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  include_or_exclude_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  include_or_exclude_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  include_or_exclude_ret_INVALID_FORMAT_2:
+    logprintb();
+    retval = RET_INVALID_FORMAT;
+    break;
+  include_or_exclude_ret_ALL_SAMPLES_EXCLUDED:
+    retval = RET_ALL_SAMPLES_EXCLUDED;
+    break;
+  }
+  wkspace_reset(wkspace_mark);
+  fclose_cond(infile);
+  return retval;
+}
+
+int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintptr_t sorted_ids_ct, uintptr_t max_id_len, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* exclude_ct_ptr, uint32_t is_indiv) {
+  FILE* infile = NULL;
+  unsigned char* wkspace_mark = wkspace_base;
+  uintptr_t include_ct = 0;
+  uintptr_t unfiltered_ctl = (unfiltered_ct + (BITCT - 1)) / BITCT;
+  uintptr_t* cur_neg_matches = NULL;
+  char* sorted_pos_match = NULL;
+  char* sorted_neg_match = NULL;
+  char* id_buf = NULL;
+  char* bufptr2 = NULL;
+  uint32_t pos_match_ct = 0;
+  uint32_t neg_match_ct = 0;
+  uint32_t neg_match_ctl = 0;
+  uintptr_t max_pos_match_len = 0;
+  uintptr_t max_neg_match_len = 0;
+  uintptr_t line_idx = 0;
+  uint32_t is_neg = 0;
+  int32_t retval = 0;
+  uintptr_t* exclude_arr_new;
+  uintptr_t* already_seen;
+  char* loadbuf;
+  char* cond_ptr;
+  char* bufptr;
+  uintptr_t loadbuf_size;
+  uintptr_t pos_match_idx;
+  uintptr_t neg_match_idx;
+  uintptr_t ulii;
+  uint32_t unfiltered_idx;
+  uint32_t pos_match_needed;
+  uint32_t cur_neg_match_ct;
+  int32_t sorted_idx;
+  
+  if (wkspace_alloc_ul_checked(&exclude_arr_new, unfiltered_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&already_seen, unfiltered_ctl * sizeof(intptr_t)) ||
+      (is_indiv && wkspace_alloc_c_checked(&id_buf, max_id_len))) { 
+    goto filter_attrib_ret_NOMEM;
+  }
+  fill_all_bits(exclude_arr_new, unfiltered_ct);
+  fill_ulong_zero(already_seen, unfiltered_ctl);
+  if (condition_str) {
+    // allow NULL condition_str; this means all indivs/variants named in the
+    // file are included
+    cond_ptr = condition_str;
+    while (1) {
+      while (*cond_ptr == ',') {
+	cond_ptr++;
+      }
+      if (*cond_ptr == '-') {
+	cond_ptr++;
+	if (*cond_ptr == ',') {
+	  continue;
+	} else if (*cond_ptr == '-') {
+	  sprintf(logbuf, "Error: --filter-attrib%s condition cannot contain consecutive dashes.\n", is_indiv? "-indiv" : "");
+	  goto filter_attrib_ret_INVALID_CMDLINE_2;
+	}
+	is_neg = 1;
+      } else if (!(*cond_ptr)) {
+        // command-line parser actually comma-terminates the string for us, so
+        // no need to check for null elsewhere
+	break;
+      }
+      bufptr = strchr(cond_ptr, ',');
+      ulii = (uintptr_t)(bufptr - cond_ptr);
+      if (is_neg) {
+	neg_match_ct++;
+	if (ulii >= max_neg_match_len) {
+	  max_neg_match_len = ulii + 1;
+	}
+      } else {
+        pos_match_ct++;
+	if (ulii >= max_pos_match_len) {
+          max_pos_match_len = ulii + 1;
+	}
+      }
+      cond_ptr = bufptr;
+      is_neg = 0;
+    }
+    if (pos_match_ct) {
+      if (wkspace_alloc_c_checked(&sorted_pos_match, max_pos_match_len * pos_match_ct)) {
+	goto filter_attrib_ret_NOMEM;
+      }
+    }
+    if (neg_match_ct) {
+      neg_match_ctl = (neg_match_ct + (BITCT - 1)) / BITCT;
+      if (wkspace_alloc_c_checked(&sorted_neg_match, max_neg_match_len * neg_match_ct) ||
+	  wkspace_alloc_ul_checked(&cur_neg_matches, neg_match_ctl * sizeof(intptr_t))) {
+        goto filter_attrib_ret_NOMEM;
+      }
+    }
+    pos_match_idx = 0;
+    neg_match_idx = 0;
+    cond_ptr = condition_str;
+    is_neg = 0;
+    while (1) {
+      while (*cond_ptr == ',') {
+	cond_ptr++;
+      }
+      if (*cond_ptr == '-') {
+	cond_ptr++;
+	if (*cond_ptr == ',') {
+	  continue;
+	}
+	is_neg = 1;
+      } else if (!(*cond_ptr)) {
+	break;
+      }
+      bufptr = strchr(cond_ptr, ',');
+      ulii = (uintptr_t)(bufptr - cond_ptr);
+      if (is_neg) {
+	memcpyx(&(sorted_neg_match[neg_match_idx * max_neg_match_len]), cond_ptr, ulii, '\0');
+	neg_match_idx++;
+      } else {
+	memcpyx(&(sorted_pos_match[pos_match_idx * max_pos_match_len]), cond_ptr, ulii, '\0');
+        pos_match_idx++;
+      }
+      cond_ptr = bufptr;
+      is_neg = 0;
+    }
+    if (pos_match_ct) {
+      qsort(sorted_pos_match, pos_match_ct, max_pos_match_len, strcmp_casted);
+      bufptr = scan_for_duplicate_ids(sorted_pos_match, pos_match_ct, max_pos_match_len);
+      if (bufptr) {
+	LOGPREPRINTFWW("Error: Duplicate attribute '%s' in --filter-attrib%s argument.\n", bufptr, is_indiv? "-indiv" : "");
+	goto filter_attrib_ret_INVALID_CMDLINE_2;
+      }
+    }
+    if (neg_match_ct) {
+      qsort(sorted_neg_match, neg_match_ct, max_neg_match_len, strcmp_casted);
+      bufptr = scan_for_duplicate_ids(sorted_neg_match, neg_match_ct, max_neg_match_len);
+      if (bufptr) {
+	LOGPREPRINTFWW("Error: Duplicate attribute '%s' in --filter-attrib%s argument.\n", bufptr, is_indiv? "-indiv" : "");
+	goto filter_attrib_ret_INVALID_CMDLINE_2;
+      }
+      // actually may make sense to have same attribute as a positive and
+      // negative condition, so we don't check for that
+    }
+  }
+  loadbuf_size = wkspace_left;
+  if (loadbuf_size > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
+  } else if (loadbuf_size <= MAXLINELEN) {
+    goto filter_attrib_ret_NOMEM;
+  }
+  if (fopen_checked(&infile, fname, "r")) {
+    goto filter_attrib_ret_OPEN_FAIL;
+  }
+  loadbuf = (char*)wkspace_base;
+  loadbuf[loadbuf_size - 1] = ' ';
+  while (fgets(loadbuf, loadbuf_size, infile)) {
+    line_idx++;
+    if (!loadbuf[loadbuf_size - 1]) {
+      if (loadbuf_size == MAXLINEBUFLEN) {
+	sprintf(logbuf, "Error: Line %" PRIuPTR" of --filter-attrib%s file is pathologically long.\n", line_idx, is_indiv? "-indiv" : "");
+        goto filter_attrib_ret_INVALID_FORMAT_2;
+      }
+      goto filter_attrib_ret_NOMEM;
+    }
+    bufptr = skip_initial_spaces(loadbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    if (is_indiv) {
+      if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_ct, bufptr, &cond_ptr, &sorted_idx)) {
+        sprintf(logbuf, "Error: Line %" PRIuPTR " of --filter-attrib-indiv file has fewer tokens than\nexpected.\n", line_idx);
+        goto filter_attrib_ret_INVALID_FORMAT_2;
+      }
+    } else {
+      bufptr2 = item_endnn(bufptr);
+      cond_ptr = skip_initial_spaces(bufptr2);
+      sorted_idx = bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_ids, max_id_len, sorted_ids_ct);
+    }
+    if (sorted_idx == -1) {
+      continue;
+    }
+    if (is_set(already_seen, sorted_idx)) {
+      if (is_indiv) {
+	*strchr(id_buf, '\t') = ' ';
+        LOGPREPRINTFWW("Error: Duplicate individual ID '%s' in --filter-attrib-indiv file.\n", id_buf);
+      } else {
+	*bufptr2 = '\0';
+	LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --filter-attrib file.\n", bufptr);
+      }
+      goto filter_attrib_ret_INVALID_FORMAT_2;
+    }
+    set_bit(already_seen, sorted_idx);
+    unfiltered_idx = id_map[(uint32_t)sorted_idx];
+    pos_match_needed = pos_match_ct;
+    cur_neg_match_ct = 0;
+    if (neg_match_ct) {
+      fill_ulong_zero(cur_neg_matches, neg_match_ctl);
+    }
+    while (!is_eoln_kns(*cond_ptr)) {
+      bufptr2 = cond_ptr;
+      bufptr = item_endnn(cond_ptr);
+      ulii = (uintptr_t)(bufptr - bufptr2);
+      cond_ptr = skip_initial_spaces(bufptr);
+      if (pos_match_needed && (bsearch_str(bufptr2, ulii, sorted_pos_match, max_pos_match_len, pos_match_ct) == -1)) {
+	pos_match_needed = 0;
+      }
+      if (cur_neg_match_ct < neg_match_ct) {
+	sorted_idx = bsearch_str(bufptr2, ulii, sorted_neg_match, max_neg_match_len, neg_match_ct);
+	if ((sorted_idx != -1) && (!is_set(cur_neg_matches, sorted_idx))) {
+          cur_neg_match_ct++;
+	  if (cur_neg_match_ct == neg_match_ct) {
+	    // fail
+	    pos_match_needed = 1;
+            break;
+	  }
+          set_bit(cur_neg_matches, sorted_idx);
+	}
+      }
+    }
+    if (pos_match_needed) {
+      continue;
+    }
+    // full negative match causes pos_match_needed to be set, so no further
+    // check required
+    clear_bit(exclude_arr_new, unfiltered_idx);
+    include_ct++;
+  }
+  if (!feof(infile)) {
+    goto filter_attrib_ret_READ_FAIL;
+  }
+  if (!include_ct) {
+    LOGPRINTF("Error: No %s remaining after --filter-attrib%s.\n", is_indiv? g_species_plural : "variants", is_indiv? "-indiv" : "");
+    if (is_indiv) {
+      retval = RET_ALL_SAMPLES_EXCLUDED;
+    } else {
+      retval = RET_ALL_MARKERS_EXCLUDED;
+    }
+    goto filter_attrib_ret_1;
+  }
+  LOGPRINTF("--filter-attrib%s: %" PRIuPTR " %s remaining.\n", is_indiv? "-indiv" : "", include_ct, is_indiv? species_str(include_ct) : "variants");
+  memcpy(exclude_arr, exclude_arr_new, unfiltered_ctl * sizeof(intptr_t));
+  *exclude_ct_ptr = unfiltered_ct - include_ct;
+  while (0) {
+  filter_attrib_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  filter_attrib_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  filter_attrib_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  filter_attrib_ret_INVALID_CMDLINE_2:
+    logprintb();
+    retval = RET_INVALID_CMDLINE;
+    break;
+  filter_attrib_ret_INVALID_FORMAT_2:
+    logprintb();
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ filter_attrib_ret_1:
+  wkspace_reset(wkspace_mark);
+  fclose_cond(infile);
+  return retval;
+}
+
+int32_t filter_qual_scores(Two_col_params* qual_filter, double qual_min_thresh, double qual_max_thresh, char* sorted_marker_ids, uintptr_t sorted_ids_ct, uintptr_t max_marker_id_len, uint32_t* marker_id_map, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr) {
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* infile = NULL;
+  uintptr_t sorted_ids_ctl = (sorted_ids_ct + (BITCT - 1)) / BITCT;
+  uintptr_t miss_ct = 0;
+  uint32_t varid_first = (qual_filter->colid < qual_filter->colx);
+  char skipchar = qual_filter->skipchar;
+  uintptr_t* already_seen;
+  char* loadbuf;
+  uintptr_t loadbuf_size;
+  uintptr_t slen;
+  uintptr_t line_idx;
+  uintptr_t marker_ct;
+  char* colid_ptr; // variant ID
+  char* colx_ptr; // quality score
+  double dxx;
+  uint32_t colmin;
+  uint32_t coldiff;
+  uint32_t marker_uidx;
+  int32_t sorted_idx;
+  int32_t retval;
+  char cc;
+  if (wkspace_alloc_ul_checked(&already_seen, sorted_ids_ctl * sizeof(intptr_t))) {
+    goto filter_qual_scores_ret_NOMEM;
+  }
+  fill_ulong_zero(already_seen, sorted_ids_ctl);
+
+  loadbuf = (char*)wkspace_base;
+  loadbuf_size = wkspace_left;
+  if (loadbuf_size > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
+  }
+  if (loadbuf_size <= MAXLINELEN) {
+    goto filter_qual_scores_ret_NOMEM;
+  }
+  retval = open_and_skip_first_lines(&infile, qual_filter->fname, loadbuf, loadbuf_size, qual_filter->skip);
+  if (retval) {
+    goto filter_qual_scores_ret_1;
+  }
+  if (varid_first) {
+    colmin = qual_filter->colid - 1;
+    coldiff = qual_filter->colx - qual_filter->colid;
+  } else {
+    colmin = qual_filter->colx - 1;
+    coldiff = qual_filter->colid - qual_filter->colx;
+  }
+  line_idx = qual_filter->skip;
+  while (fgets(loadbuf, loadbuf_size, infile)) {
+    line_idx++;
+    if (!loadbuf[loadbuf_size - 1]) {
+      if (loadbuf_size == MAXLINEBUFLEN) {
+        sprintf(logbuf, "Error: Line %" PRIuPTR " of --qual-scores file is pathologically long.\n", line_idx);
+        goto filter_qual_scores_ret_INVALID_FORMAT_2;
+      } else {
+	goto filter_qual_scores_ret_NOMEM;
+      }
+    }
+    colid_ptr = skip_initial_spaces(loadbuf);
+    cc = *colid_ptr;
+    if (is_eoln_kns(cc) || (cc == skipchar)) {
+      continue;
+    }
+    if (varid_first) {
+      if (colmin) {
+	colid_ptr = next_item_mult(colid_ptr, colmin);
+      }
+      colx_ptr = next_item_mult(colid_ptr, coldiff);
+      if (no_more_items_kns(colx_ptr)) {
+        goto filter_qual_scores_ret_MISSING_TOKENS;
+      }
+    } else {
+      colx_ptr = colid_ptr;
+      if (colmin) {
+	colx_ptr = next_item_mult(colx_ptr, colmin);
+      }
+      colid_ptr = next_item_mult(colx_ptr, coldiff);
+      if (no_more_items_kns(colid_ptr)) {
+        goto filter_qual_scores_ret_MISSING_TOKENS;
+      }
+    }
+    slen = strlen_se(colid_ptr);
+    sorted_idx = bsearch_str(colid_ptr, slen, sorted_marker_ids, max_marker_id_len, sorted_ids_ct);
+    if (sorted_idx == -1) {
+      miss_ct++;
+      continue;
+    }
+    if (is_set(already_seen, sorted_idx)) {
+      colid_ptr[slen] = '\0';
+      LOGPREPRINTFWW("Error: Duplicate variant '%s' in --qual-scores file.\n", colid_ptr);
+      goto filter_qual_scores_ret_INVALID_FORMAT_2;
+    }
+    set_bit(already_seen, sorted_idx);
+    marker_uidx = marker_id_map[(uint32_t)sorted_idx];
+    if (scan_double(colx_ptr, &dxx) || (dxx < qual_min_thresh) || (dxx > qual_max_thresh)) {
+      set_bit(marker_exclude, marker_uidx);
+    }
+  }
+  if (!feof(infile)) {
+    goto filter_qual_scores_ret_READ_FAIL;
+  }
+  *marker_exclude_ct_ptr = popcount_longs(marker_exclude, (unfiltered_marker_ct + (BITCT - 1)) / BITCT);
+  marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
+  if (miss_ct) {
+    sprintf(logbuf, "--qual-scores: %" PRIuPTR " variant%s remaining, %" PRIuPTR " ID%s missing.\n", marker_ct, (marker_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+  } else {
+    sprintf(logbuf, "--qual-scores: %" PRIuPTR " variant%s remaining.\n", marker_ct, (marker_ct == 1)? "" : "s");
+  }
+  logprintb();
+  while (0) {
+  filter_qual_scores_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  filter_qual_scores_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  filter_qual_scores_ret_MISSING_TOKENS:
+    sprintf(logbuf, "Error: Line %" PRIuPTR " of --qual-scores file has fewer tokens than expected.\n", line_idx);
+  filter_qual_scores_ret_INVALID_FORMAT_2:
+    logprintb();
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ filter_qual_scores_ret_1:
+  wkspace_reset(wkspace_mark);
+  fclose_cond(infile);
+  return retval;
+}
+
 uint32_t random_thin_markers(double thin_keep_prob, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr) {
   uint32_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
   uint32_t marker_uidx = 0;
