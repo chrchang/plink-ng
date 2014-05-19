@@ -1452,7 +1452,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
 
   loader = *lptr++;
   loader3 = loader >> 1;
-  loader2 = loader & (~loader3);
+  loader2 = loader ^ (~loader3);
   loader &= loader3;
   loader3 = *maskp++;
   to_ct_nm1 += loader2 & loader3;
@@ -1460,7 +1460,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
 
   loader = *lptr++;
   loader3 = loader >> 1;
-  loader2 = loader & (~loader3);
+  loader2 = loader ^ (~loader3);
   loader &= loader3;
   loader3 = *maskp++;
   to_ct_nm1 += loader2 & loader3;
@@ -1468,7 +1468,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
 
   loader = *lptr++;
   loader3 = loader >> 1;
-  loader2 = loader & (~loader3);
+  loader2 = loader ^ (~loader3);
   loader &= loader3;
   loader3 = *maskp++;
   to_ct_nm2 = loader2 & loader3;
@@ -1476,7 +1476,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
 
   loader = *lptr++;
   loader3 = loader >> 1;
-  loader2 = loader & (~loader3);
+  loader2 = loader ^ (~loader3);
   loader &= loader3;
   loader3 = *maskp++;
   to_ct_nm2 += loader2 & loader3;
@@ -1484,7 +1484,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
 
   loader = *lptr++;
   loader3 = loader >> 1;
-  loader2 = loader & (~loader3);
+  loader2 = loader ^ (~loader3);
   loader &= loader3;
   loader3 = *maskp++;
   to_ct_nm2 += loader2 & loader3;
@@ -1499,7 +1499,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
 
   loader = *lptr++;
   loader3 = loader >> 1;
-  loader2 = loader & (~loader3);
+  loader2 = loader ^ (~loader3);
   loader &= loader3;
   loader3 = *maskp++;
   to_ct_nm1 = loader2 & loader3;
@@ -1507,7 +1507,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
 
   loader = *lptr++;
   loader3 = loader >> 1;
-  loader2 = loader & (~loader3);
+  loader2 = loader ^ (~loader3);
   loader &= loader3;
   loader3 = *maskp++;
   to_ct_nm1 += loader2 & loader3;
@@ -1515,7 +1515,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
 
   loader = *lptr++;
   loader3 = loader >> 1;
-  loader2 = loader & (~loader3);
+  loader2 = loader ^ (~loader3);
   loader &= loader3;
   loader3 = *maskp++;
   to_ct_nm1 += loader2 & loader3;
@@ -1523,7 +1523,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
 
   loader = *lptr++;
   loader3 = loader >> 1;
-  loader2 = loader & (~loader3);
+  loader2 = loader ^ (~loader3);
   loader &= loader3;
   loader3 = *maskp++;
   to_ct_nm2 = loader2 & loader3;
@@ -1531,7 +1531,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
 
   loader = *lptr++;
   loader3 = loader >> 1;
-  loader2 = loader & (~loader3);
+  loader2 = loader ^ (~loader3);
   loader &= loader3;
   loader3 = *maskp++;
   to_ct_nm2 += loader2 & loader3;
@@ -1539,7 +1539,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
 
   loader = *lptr;
   loader3 = loader >> 1;
-  loader2 = loader & (~loader3);
+  loader2 = loader ^ (~loader3);
   loader &= loader3;
   loader3 = *maskp;
   to_ct_nm2 += loader2 & loader3;
