@@ -251,8 +251,18 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
     }
     if (!set_ct) {
       if (fail_on_no_sets) {
-	logprint("Error: All variants excluded by --gene{-all}, since no sets were defined from\n--make-set file.\n");
-	retval = RET_ALL_MARKERS_EXCLUDED;
+	if (marker_pos) {
+	  // okay, this is a kludge
+	  logprint("Error: All variants excluded by --gene{-all}, since no sets were defined from\n--make-set file.\n");
+	  retval = RET_ALL_MARKERS_EXCLUDED;
+	} else {
+	  if (subset_ct) {
+	    logprint("Error: No --gene-subset genes present in --gene-report file.\n");
+	  } else {
+	    logprint("Error: Empty --gene-report file.\n");
+	  }
+	  retval = RET_INVALID_FORMAT;
+	}
 	goto load_range_list_ret_1;
       }
       LOGPRINTF("Warning: No valid ranges in %s file.\n", file_descrip);
@@ -2066,4 +2076,93 @@ uint32_t setdefs_compress(Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, 
  setdefs_compress_fail_and_free_top:
   wkspace_left += topsize;
   return 1;
+}
+
+int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t border, char* extractname, char* snp_field, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr) {
+  // similar to define_sets() and --clump
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* infile = NULL;
+  FILE* outfile = NULL;
+  uintptr_t topsize = 0;
+  uintptr_t gene_ct = 0;
+  uintptr_t max_gene_name_len = 0;
+  uintptr_t subset_ct = 0;
+  uintptr_t max_subset_id_len = 0;
+  char* sorted_subset_ids = NULL;
+  char* gene_names = NULL;
+  Make_set_range** gene_range_arr = NULL;
+  int32_t retval = 0;
+  if (subset_fname) {
+    if (fopen_checked(&infile, subset_fname, "r")) {
+      goto gene_report_ret_OPEN_FAIL;
+    }
+    retval = scan_token_ct_len(infile, tbuf, MAXLINELEN, &subset_ct, &max_subset_id_len);
+    if (retval) {
+      if (retval == RET_INVALID_FORMAT) {
+	logprint("Error: Pathologically long token in --gene-subset file.\n");
+      }
+      goto gene_report_ret_1;
+    }
+    if (!subset_ct) {
+      logprint("Error: --gene-subset file is empty.\n");
+      goto gene_report_ret_INVALID_FORMAT;
+    }
+    if (max_subset_id_len > MAX_ID_LEN_P1) {
+      logprint("Error: --gene-subset IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+      goto gene_report_ret_INVALID_FORMAT;
+    }
+    sorted_subset_ids = (char*)top_alloc(&topsize, subset_ct * max_subset_id_len);
+    if (!sorted_subset_ids) {
+      goto gene_report_ret_NOMEM;
+    }
+    rewind(infile);
+    retval = read_tokens(infile, tbuf, MAXLINELEN, subset_ct, max_subset_id_len, sorted_subset_ids);
+    if (retval) {
+      goto gene_report_ret_1;
+    }
+    if (fclose_null(&infile)) {
+      goto gene_report_ret_READ_FAIL;
+    }
+    qsort(sorted_subset_ids, subset_ct, max_subset_id_len, strcmp_casted);
+    subset_ct = collapse_duplicate_ids(sorted_subset_ids, subset_ct, max_subset_id_len, NULL);
+  }
+  if (fopen_checked(&infile, fname, "r")) {
+    goto gene_report_ret_READ_FAIL;
+  }
+  retval = load_range_list(infile, 1, border, 0, 0, 0, subset_ct, sorted_subset_ids, max_subset_id_len, NULL, chrom_info_ptr, &topsize, &gene_ct, &gene_names, &max_gene_name_len, &gene_range_arr, NULL, "--gene-report");
+  if (retval) {
+    goto gene_report_ret_1;
+  }
+  // topsize = 0;
+  ;;;
+  memcpy(outname_end, ".range.report", 14);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto gene_report_ret_OPEN_FAIL;
+  }
+  ;;;
+  if (fclose_null(&outfile)) {
+    goto gene_report_ret_WRITE_FAIL;
+  }
+  while (0) {
+  gene_report_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  gene_report_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  gene_report_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  gene_report_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  gene_report_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ gene_report_ret_1:
+  wkspace_reset(wkspace_mark);
+  fclose_cond(infile);
+  fclose_cond(outfile);
+  return retval;
 }

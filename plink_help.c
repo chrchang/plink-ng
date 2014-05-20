@@ -1007,7 +1007,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #ifndef STABLE_BUILD
     help_print("gene-report\tgene-list", &help_ctrl, 1,
 "  --gene-report [PLINK report] [gene range file]\n"
-"    Generate a gene-based report from a variant-based report.\n\n"
+"    Generate a gene-based report from a variant-based report.\n"
+"    * When --pfilter is present, high p-values are filtered out.\n"
+"    * When --extract (without 'range') is present, only variants named in the\n"
+"      --extract file are considered.\n\n"
 	       );
 #endif
     help_print("fast-epistasis\tepistasis\tset-test\tset-by-all\tcase-only\tnop\tepistasis-summary-merge", &help_ctrl, 1,
@@ -1403,6 +1406,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                             rates exceeding the given thresholds.\n"
 "  --me-exclude-one {ratio} : Make --me exclude only one individual per trio.\n"
 	       );
+#ifndef STABLE_BUILD
     help_print("qual-scores\tqual-threshold\tqual-max-threshold", &help_ctrl, 0,
 "  --qual-scores [f] {qcol} {IDcol} {skip} : Filter out variants with\n"
 "                                            out-of-range quality scores.\n"
@@ -1410,6 +1414,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --qual-threshold [min qual score]       : Set --qual-scores range floor.\n"
 "  --qual-max-threshold [max qual score]   : Set --qual-scores range ceiling.\n"
 	       );
+#endif
     help_print("allow-no-sex\tmust-have-sex", &help_ctrl, 0,
 "  --allow-no-sex   : Do not treat ambiguous-sex individuals as having missing\n"
 "                     phenotypes in analysis commands.  (Automatic /w --no-sex.)\n"
@@ -1778,9 +1783,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --clump-best              : Report best proxy for each --clump index site.\n"
 	       );
 #ifndef STABLE_BUILD
-    help_print("gene-list-border\tgene-report\tgene-subset\tgene-list", &help_ctrl, 0,
-"  --gene-list-border [kbs] : Extend --gene-report intervals by given # of kbs.\n"
-"  --gene-subset [filename] : Specify subset of genes to use for --gene-report.\n"
+    help_print("gene-list-border\tgene-report\tgene-subset\tgene-list\tgene-report-snp-field", &help_ctrl, 0,
+"  --gene-list-border [kbs]   : Extend --gene-report regions by given # of kbs.\n"
+"  --gene-subset [filename]   : Specify gene name subset for --gene-report.\n"
+"  --gene-report-snp-field [] : Set --gene-report variant ID field name (default\n"
+"                               'SNP').  Only relevant with --extract.\n"
 	       );
 #endif
     help_print("fast-epistasis\tepistasis\tgap\tepi1\tepi2", &help_ctrl, 0,

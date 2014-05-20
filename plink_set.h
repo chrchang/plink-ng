@@ -88,4 +88,6 @@ uint32_t extract_set_union_unfiltered(Set_info* sip, uintptr_t* set_incl, uintpt
 
 uint32_t setdefs_compress(Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude, uintptr_t marker_ct, uint32_t*** new_setdefs_ptr);
 
+int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t border, char* extractname, char* snp_field, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr);
+
 #endif // __PLINK_SET_H__

@@ -2908,6 +2908,7 @@ int32_t main(int32_t argc, char** argv) {
   char* gene_report_fname = NULL;
   char* gene_report_glist = NULL;
   char* gene_report_subset = NULL;
+  char* gene_report_snp_field = NULL;
   uint32_t gene_report_border = 0;
   double vcf_min_qual = -1;
   double qual_min_thresh = 0.0;
@@ -4162,6 +4163,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "nnotate", 8)) {
+	UNSTABLE;
         logprint("Error: --annotate is currently under development.\n");
 	retval = RET_CALC_NOT_YET_SUPPORTED;
 	goto main_ret_1;
@@ -6432,6 +6434,7 @@ int32_t main(int32_t argc, char** argv) {
           epi_info.case_only_gap = (int32_t)(dxx * 1000 * (1 + SMALL_EPSILON));
 	}
       } else if (!memcmp(argptr2, "ene-report", 11)) {
+	UNSTABLE;
 	uii = gene_report_glist? 1 : 2;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], uii, uii)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -6446,9 +6449,6 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_1;
 	  }
 	}
-	logprint("Error: --gene-report is currently under development.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
       } else if (!memcmp(argptr2, "ene-list", 9)) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -6482,6 +6482,20 @@ int32_t main(int32_t argc, char** argv) {
         retval = alloc_fname(&gene_report_subset, argv[cur_arg + 1], argptr, 0);
         if (retval) {
 	  goto main_ret_1;
+	}
+      } else if (!memcmp(argptr2, "ene-report-snp-field", 21)) {
+	if (!extractname) {
+	  logprint("Error: --gene-report-snp-field must be used with --extract.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	} else if (misc_flags & MISC_EXTRACT_RANGE) {
+	  logprint("Error: --gene-report-snp-field cannot be used with '--extract range'.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+        if (alloc_string(&gene_report_snp_field, argv[cur_arg + 1])) {
+	  goto main_ret_NOMEM;
 	}
       } else if (!memcmp(argptr2, "plink", 6)) {
         misc_flags |= MISC_GPLINK;
@@ -11614,12 +11628,12 @@ int32_t main(int32_t argc, char** argv) {
     logprint("Error: --gen/--bgen cannot be used without --data or --sample.\n");
     goto main_ret_INVALID_CMDLINE_A;
   }
-  if ((!calculation_type) && (!(load_rare & (LOAD_RARE_LGEN | LOAD_RARE_DUMMY | LOAD_RARE_SIMULATE | LOAD_RARE_TRANSPOSE_MASK | LOAD_RARE_23 | LOAD_RARE_CNV | LOAD_RARE_VCF | LOAD_RARE_BCF))) && (famname[0] || load_rare)) {
+  if ((!calculation_type) && (!(load_rare & (LOAD_RARE_LGEN | LOAD_RARE_DUMMY | LOAD_RARE_SIMULATE | LOAD_RARE_TRANSPOSE_MASK | LOAD_RARE_23 | LOAD_RARE_CNV | LOAD_RARE_VCF | LOAD_RARE_BCF))) && (famname[0] || load_rare) && (!epi_info.summary_merge_prefix) && (!gene_report_fname)) {
     goto main_ret_NULL_CALC;
   }
   uii = 0; // short batch job?
   if (!(load_params || load_rare)) {
-    if (!epi_info.summary_merge_prefix) {
+    if ((!epi_info.summary_merge_prefix) && (!gene_report_fname)) {
       logprint("Error: No input dataset.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
@@ -11716,12 +11730,22 @@ int32_t main(int32_t argc, char** argv) {
   wkspace_left = (malloc_size_mb * 1048576 - (uintptr_t)(wkspace - wkspace_ua)) & (~(CACHELINE - ONELU));
   free(bubble);
 
+  // standalone stuff
   if (epi_info.summary_merge_prefix) {
     retval = epi_summary_merge(&epi_info, outname, outname_end);
-    // quit if there's nothing else to do
-    if (retval || uii) {
+    if (retval) {
       goto main_ret_1;
     }
+  }
+  if (gene_report_fname) {
+    retval = gene_report(gene_report_fname, gene_report_glist, gene_report_subset, gene_report_border, (misc_flags & MISC_EXTRACT_RANGE)? NULL : extractname, gene_report_snp_field, outname, outname_end, pfilter, &chrom_info);
+    if (retval) {
+      goto main_ret_1;
+    }
+  }
+  // quit if there's nothing else to do
+  if (uii) {
+    goto main_ret_1;
   }
 
   pigz_init(g_thread_ct);
@@ -11951,6 +11975,7 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(gene_report_fname);
   free_cond(gene_report_glist);
   free_cond(gene_report_subset);
+  free_cond(gene_report_snp_field);
 
   oblig_missing_cleanup(&oblig_missing_info);
   cluster_cleanup(&cluster);
