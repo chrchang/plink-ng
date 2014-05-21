@@ -156,7 +156,8 @@ uint32_t setdef_iter(uint32_t* setdef, uint32_t* cur_idx_ptr, uint32_t* aux_ptr)
 }
 
 int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_extend, uint32_t collapse_group, uint32_t fail_on_no_sets, uint32_t c_prefix, uintptr_t subset_ct, char* sorted_subset_ids, uintptr_t max_subset_id_len, uint32_t* marker_pos, Chrom_info* chrom_info_ptr, uintptr_t* topsize_ptr, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_len_ptr, Make_set_range*** make_set_range_arr_ptr, uint64_t** range_sort_buf_ptr, const char* file_descrip) {
-  // Called by extract_exclude_range(), define_sets() and clump_reports().
+  // Called by extract_exclude_range(), define_sets(), gene_report(), and
+  // clump_reports().
   // Assumes topsize has not been subtracted off wkspace_left.  (This remains
   // true on exit.)
   Ll_str* make_set_ll = NULL;
@@ -232,6 +233,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       // variants in the dataset.  So we prefix set IDs with a chromosome index
       // in that case (with leading zeroes) and treat cross-chromosome sets as
       // distinct.
+      // ...and --gene-report gets its own special treatment
       if (!marker_pos) {
 	uii += 4;
       }
@@ -372,7 +374,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	memcpy(bufptr3, "C_", 2);
       } else if (!marker_pos) {
 	bufptr3 = &(bufptr3[-4]);
-        uint32_write4(bufptr3, chrom_idx);
+	uint32_write4(bufptr3, chrom_idx);
       }
       // this should never fail
       set_idx = (uint32_t)bsearch_str_natural(bufptr3, set_names, max_set_id_len, set_ct);
@@ -2079,6 +2081,9 @@ uint32_t setdefs_compress(Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, 
 }
 
 int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t border, char* extractname, char* snp_field, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr) {
+  logprint("Error: --gene-report is currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
+  /*
   // similar to define_sets() and --clump
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
@@ -2091,7 +2096,12 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   char* sorted_subset_ids = NULL;
   char* gene_names = NULL;
   Make_set_range** gene_range_arr = NULL;
+  uintptr_t* rg_chrom_bounds = NULL;
+  uint32_t** rg_setdefs = NULL;
+  uint32_t** cur_rg_setdefs = NULL;
+  uint64_t* sort_buf_64 = NULL;
   int32_t retval = 0;
+  uint32_t chrom_idx;
   if (subset_fname) {
     if (fopen_checked(&infile, subset_fname, "r")) {
       goto gene_report_ret_OPEN_FAIL;
@@ -2129,12 +2139,23 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   if (fopen_checked(&infile, fname, "r")) {
     goto gene_report_ret_READ_FAIL;
   }
-  retval = load_range_list(infile, 1, border, 0, 0, 0, subset_ct, sorted_subset_ids, max_subset_id_len, NULL, chrom_info_ptr, &topsize, &gene_ct, &gene_names, &max_gene_name_len, &gene_range_arr, NULL, "--gene-report");
+  retval = load_range_list(infile, 1, border, 0, 0, 0, subset_ct, sorted_subset_ids, max_subset_id_len, NULL, chrom_info_ptr, &topsize, &gene_ct, &gene_names, &max_gene_name_len, &gene_range_arr, &sort_buf_64, "--gene-report");
   if (retval) {
     goto gene_report_ret_1;
   }
-  // topsize = 0;
-  ;;;
+  wkspace_left -= topsize;
+  if (wkspace_alloc_ul_checked(&rg_chrom_bounds, (chrom_code_end + 1) * sizeof(intptr_t))) {
+    goto gene_report_ret_NOMEM;
+  }
+  rg_setdefs = (uint32_t**)wkspace_alloc(gene_ct * sizeof(intptr_t));
+  if (!rg_setdefs) {
+    goto gene_report_ret_NOMEM;
+  }
+  for (rg_idx = 0; rg_idx < gene_ct; rg_idx++) {
+    bufptr = &(gene_names[rg_idx * max_gene_name_len]);
+    ;;;
+  }
+  topsize = 0;
   memcpy(outname_end, ".range.report", 14);
   if (fopen_checked(&outfile, outname, "w")) {
     goto gene_report_ret_OPEN_FAIL;
@@ -2165,4 +2186,5 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   fclose_cond(infile);
   fclose_cond(outfile);
   return retval;
+  */
 }

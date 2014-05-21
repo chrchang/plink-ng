@@ -106,11 +106,12 @@ int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr
   if (fwrite_checked("l\x1b\x01", 3, outfile)) {
     goto indiv_major_to_snp_major_ret_WRITE_FAIL;
   }
-  indiv_ct = sb.st_size / unfiltered_marker_ct4;
+  indiv_ct = (sb.st_size - uii) / unfiltered_marker_ct4;
   indiv_ct4l = indiv_ct / 4;
   indiv_ct4 = (indiv_ct + 3) / 4;
   // 4 * indiv_ct4 bytes needed per 4-marker block
   max_4blocks_in_mem = wkspace_left / (4 * indiv_ct4);
+  printf("indiv_ct, indiv_ct4l: %lu %lu\n", indiv_ct, indiv_ct4l);
   superblock_offset = 0;
   while (superblock_offset < unfiltered_marker_ct4) {
     block_last_marker = unfiltered_marker_ct - (superblock_offset * 4);
@@ -127,7 +128,7 @@ int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr
       if (indiv_ct % 4) {
 	*write_ptr = 0;
 	for (ujj = 0; ujj < (indiv_ct % 4); ujj++) {
-	  *write_ptr |= ((icoff[(ujj + indiv_ct) * unfiltered_marker_ct4 + add_val] >> rshift_val) & 3) << (ujj * 2);
+	  *write_ptr |= ((icoff[(ujj + indiv_ct4l * 4) * unfiltered_marker_ct4 + add_val] >> rshift_val) & 3) << (ujj * 2);
 	}
 	write_ptr++;
       }
@@ -13968,13 +13969,16 @@ static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t 
 	  LOGPRINTFWW("Error: --merge-equal-pos failure.  Variants '%s' and '%s' have the same position, but do not share the same alleles.\n", &(marker_ids[max_marker_id_len * presort_idx]), &(marker_ids[max_marker_id_len * ((uint32_t)ll_buf[read_pos - 1])]));
 	  return 1;
 	}
-	LOGPREPRINTFWW("Warning: Variants '%s' and '%s' have the same position.\n", &(marker_ids[max_marker_id_len * presort_idx]), &(marker_ids[max_marker_id_len * ((uint32_t)ll_buf[read_pos - 1])]));
-	if (position_warning_ct < 3) {
-	  logprintb();          
-	} else {
-	  logstr(logbuf);
+	if (prev_bp) {
+	  // no warning if prev_bp is 0
+	  LOGPREPRINTFWW("Warning: Variants '%s' and '%s' have the same position.\n", &(marker_ids[max_marker_id_len * presort_idx]), &(marker_ids[max_marker_id_len * ((uint32_t)ll_buf[read_pos - 1])]));
+	  if (position_warning_ct < 3) {
+	    logprintb();          
+	  } else {
+	    logstr(logbuf);
+	  }
+	  position_warning_ct++;
 	}
-	position_warning_ct++;
 	if (merge_equal_pos) {
 	  marker_map[presort_idx] = write_pos - 1;
 	  continue;
@@ -14154,6 +14158,19 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
   }
   if (fopen_checked(&bedfile, bedname, is_binary? "rb" : "r")) {
     goto merge_main_ret_OPEN_FAIL;
+  }
+  if (is_binary && (!start_marker_idx)) {
+    if (fread(readbuf, 1, 3, bedfile) < 3) {
+      goto merge_main_ret_READ_FAIL;
+    }
+    if (memcmp(readbuf, "l\x1b\x01", 3)) {
+      if (!memcmp(readbuf, "l\x1b", 3)) {
+        LOGPREPRINTFWW("Error: %s is an individual-major binary file. Convert to variant-major (with e.g. --make-bed) and then reattempt the merge.\n", bedname);
+      } else {
+        LOGPREPRINTFWW("Error: %s is not a PLINK 1 binary file.\n", bedname);
+      }
+      goto merge_main_ret_INVALID_FORMAT_2N;
+    }
   }
   do {
     bufptr = skip_initial_spaces(bim_loadbuf);
@@ -15314,6 +15331,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   } else {
     ulii = ped_buflen;
   }
+  // don't need to enforce >= 3 since wkspace_alloc guarantees >= 64
   if (wkspace_alloc_uc_checked(&readbuf, ulii)) {
     goto merge_datasets_ret_NOMEM;
   }
