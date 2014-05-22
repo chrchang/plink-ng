@@ -2116,7 +2116,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   fflush(stdout);
   if (is_split_chrom) {
     // only set is_haploid if all chromosomes are haploid
-    is_haploid = (chrom_info_ptr->chrom_mask[0]) & 1;
+    is_haploid = (chrom_info_ptr->haploid_mask[0]) & 1;
     is_x = 0;
     is_y = 0;
     next_chrom_start = unfiltered_marker_ct;

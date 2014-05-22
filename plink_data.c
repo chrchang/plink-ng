@@ -111,7 +111,6 @@ int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr
   indiv_ct4 = (indiv_ct + 3) / 4;
   // 4 * indiv_ct4 bytes needed per 4-marker block
   max_4blocks_in_mem = wkspace_left / (4 * indiv_ct4);
-  printf("indiv_ct, indiv_ct4l: %lu %lu\n", indiv_ct, indiv_ct4l);
   superblock_offset = 0;
   while (superblock_offset < unfiltered_marker_ct4) {
     block_last_marker = unfiltered_marker_ct - (superblock_offset * 4);
