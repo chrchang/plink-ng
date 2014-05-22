@@ -2892,15 +2892,17 @@ char* double_g_writewx4(char* start, double dxx, uint32_t min_width) {
 }
 
 char* double_g_writewx8(char* start, double dxx, uint32_t min_width) {
-  // assumes min_width >= 8.
+  // only requires min_width to be positive; less than 8 is ok
   uint32_t xp10 = 0;
   char wbuf[16];
   char* wpos = wbuf;
   uint32_t quotient;
   uint32_t remainder;
   if (dxx != dxx) {
-    memcpy(memseta(start, 32, min_width - 4), " nan", 4);
-    return &(start[min_width]);
+    if (min_width > 3) {
+      start = memseta(start, 32, min_width - 3);
+    }
+    return memcpyl3a(start, "nan");
   } else if (dxx < 0) {
     *wpos++ = '-';
     dxx = -dxx;
@@ -2954,8 +2956,8 @@ char* double_g_writewx8(char* start, double dxx, uint32_t min_width) {
     wpos = uint32_write1p7(wpos, quotient, remainder);
     remainder = wpos - wbuf;
     if (xp10 >= 100) {
-      if (remainder < min_width - 5) {
-	memcpy(memseta(start, 32, min_width - 5 - remainder), wbuf, remainder);
+      if (remainder + 5 < min_width) {
+	memcpy(memseta(start, 32, min_width - (remainder + 5)), wbuf, remainder);
 	start = &(start[min_width - 5]);
       } else {
 	start = memcpya(start, wbuf, remainder);
@@ -2964,8 +2966,8 @@ char* double_g_writewx8(char* start, double dxx, uint32_t min_width) {
       start = memcpyax(start, "e-", 2, '0' + quotient);
       xp10 -= 100 * quotient;
     } else {
-      if (remainder < min_width - 4) {
-	memcpy(memseta(start, 32, min_width - 4 - remainder), wbuf, remainder);
+      if (remainder + 4 < min_width) {
+	memcpy(memseta(start, 32, min_width - (remainder + 4)), wbuf, remainder);
 	start = &(start[min_width - 4]);
       } else {
 	start = memcpya(start, wbuf, remainder);
@@ -2978,7 +2980,9 @@ char* double_g_writewx8(char* start, double dxx, uint32_t min_width) {
     if (dxx >= 9.9999999499999e15) {
       if (dxx >= 9.9999999499999e127) {
 	if (dxx == INFINITY) {
-	  start = memseta(start, 32, min_width - 4);
+	  if (min_width > 4) {
+	    start = memseta(start, 32, min_width - 4);
+	  }
 	  if (wpos == wbuf) {
 	    return memcpya(start, " inf", 4);
 	  } else {
@@ -3025,8 +3029,8 @@ char* double_g_writewx8(char* start, double dxx, uint32_t min_width) {
     wpos = uint32_write1p7(wpos, quotient, remainder);
     remainder = wpos - wbuf;
     if (xp10 >= 100) {
-      if (remainder < min_width - 5) {
-	memcpy(memseta(start, 32, min_width - 5 - remainder), wbuf, remainder);
+      if (remainder + 5 < min_width) {
+	memcpy(memseta(start, 32, min_width - (remainder + 5)), wbuf, remainder);
 	start = &(start[min_width - 5]);
       } else {
 	start = memcpya(start, wbuf, remainder);
@@ -3035,8 +3039,8 @@ char* double_g_writewx8(char* start, double dxx, uint32_t min_width) {
       start = memcpyax(start, "e+", 2, '0' + quotient);
       xp10 -= 100 * quotient;
     } else {
-      if (remainder < min_width - 4) {
-	memcpy(memseta(start, 32, min_width - 4 - remainder), wbuf, remainder);
+      if (remainder + 4 < min_width) {
+	memcpy(memseta(start, 32, min_width - (remainder + 4)), wbuf, remainder);
 	start = &(start[min_width - 4]);
       } else {
 	start = memcpya(start, wbuf, remainder);
