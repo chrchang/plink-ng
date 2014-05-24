@@ -165,13 +165,12 @@ int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr
 }
 #endif
 
-uint32_t chrom_error(const char* extension, Chrom_info* chrom_info_ptr, char* chrom_str, uintptr_t line_idx, uint32_t allow_extra_chroms) {
-  int32_t raw_code = get_chrom_code_raw(chrom_str);
-  uint32_t slen;
-  if (allow_extra_chroms && (raw_code < MAX_POSSIBLE_CHROM)) {
+uint32_t chrom_error(const char* extension, Chrom_info* chrom_info_ptr, char* chrom_str, uintptr_t line_idx, int32_t error_code, uint32_t allow_extra_chroms) {
+  if (allow_extra_chroms && (error_code == -2)) {
     return 0;
   }
-  slen = strlen_se(chrom_str);
+  int32_t raw_code = get_chrom_code_raw(chrom_str);
+  uint32_t slen = strlen_se(chrom_str);
   chrom_str[slen] = '\0';
   logprint("\n");
   if (line_idx) {
@@ -179,13 +178,17 @@ uint32_t chrom_error(const char* extension, Chrom_info* chrom_info_ptr, char* ch
   } else {
     LOGPRINTFWW("Error: Invalid chromosome code '%s' in %s.\n", chrom_str, extension);
   }
-  if (raw_code >= MAX_POSSIBLE_CHROM) {
+  if ((raw_code > ((int32_t)chrom_info_ptr->max_code)) && ((raw_code <= MAX_CHROM_TEXTNUM + 4) || (raw_code >= MAX_POSSIBLE_CHROM))) {
     if (chrom_info_ptr->species != SPECIES_UNKNOWN) {
-      logprint("(This is disallowed by the PLINK 1.07 species flag you used.  You can\ntemporarily work around this restriction with --chr-set; contact the developers\nif you want the flag to be permanently redefined.)\n");
+      if (chrom_info_ptr->species == SPECIES_HUMAN) {
+	logprint("(This is disallowed for humans.  Check if the problem is with your data, or if\nyou forgot to define a different chromosome set with e.g. --chr-set.).\n");
+      } else {
+	logprint("(This is disallowed by the PLINK 1.07 species flag you used.  You can\ntemporarily work around this restriction with --chr-set; contact the developers\nif you want the flag to be permanently redefined.)\n");
+      }
     } else {
       logprint("(This is disallowed by your --chr-set/--autosome-num parameters.  Check if the\nproblem is with your data, or your command line.)\n");
     }
-  } else {
+  } else if (error_code == -2) {
     logprint("(Use --allow-extra-chr to force it to be accepted.)\n");
   }
   return 1;
@@ -289,8 +292,8 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
       goto load_map_ret_READ_FAIL;
     }
     jj = get_chrom_code(chrom_info_ptr, bufptr);
-    if (jj == -1) {
-      if (chrom_error(".map file", chrom_info_ptr, bufptr, line_idx, allow_extra_chroms)) {
+    if (jj < 0) {
+      if (chrom_error(".map file", chrom_info_ptr, bufptr, line_idx, jj, allow_extra_chroms)) {
         goto load_map_ret_INVALID_FORMAT;
       }
       retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &jj, line_idx, ".map file");
@@ -644,8 +647,8 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       continue;
     }
     jj = get_chrom_code(chrom_info_ptr, bufptr3);
-    if (jj == -1) {
-      if (chrom_error(".bim file", chrom_info_ptr, bufptr3, line_idx, allow_extra_chroms)) {
+    if (jj < 0) {
+      if (chrom_error(".bim file", chrom_info_ptr, bufptr3, line_idx, jj, allow_extra_chroms)) {
         goto load_bim_ret_INVALID_FORMAT;
       }
       retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr3, &jj, line_idx, ".bim file");
@@ -2544,8 +2547,8 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
     set_bit(already_seen, sorted_idx);
     marker_idx = marker_id_map[((uint32_t)sorted_idx)];
     sorted_idx = get_chrom_code(chrom_info_ptr, colx_ptr);
-    if (sorted_idx == -1) {
-      if (!allow_extra_chroms) {
+    if (sorted_idx < 0) {
+      if ((!allow_extra_chroms) || (sorted_idx == -1)) {
 	sprintf(logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of --update-chr file.\n", line_idx);
 	goto update_marker_chroms_ret_INVALID_FORMAT_2;
       }
@@ -2756,8 +2759,8 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
   char* bufptr;
   uint32_t uii;
   uint32_t ujj;
-  uint32_t chrom_start[MAX_CHROM_TEXTNUM + 6];
-  uint32_t chrom_id[MAX_CHROM_TEXTNUM + 5];
+  uint32_t chrom_start[MAX_POSSIBLE_CHROM + 6];
+  uint32_t chrom_id[MAX_POSSIBLE_CHROM + 5];
   uint32_t cur_chrom;
   uint32_t chrom_ct;
   // See sort_and_write_bim() for discussion.  Note that marker_ids and
@@ -4164,8 +4167,8 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	continue;
       }
       ii = get_chrom_code(chrom_info_ptr, bufptr);
-      if (ii == -1) {
-	if (chrom_error(".gen file", chrom_info_ptr, bufptr, line_idx, allow_extra_chroms)) {
+      if (ii < 0) {
+	if (chrom_error(".gen file", chrom_info_ptr, bufptr, line_idx, ii, allow_extra_chroms)) {
 	  goto oxford_to_bed_ret_INVALID_FORMAT;
 	}
 	retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii, line_idx, ".gen file");
@@ -4468,8 +4471,8 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	  goto oxford_to_bed_ret_INVALID_FORMAT;
 	}
         ii = get_chrom_code(chrom_info_ptr, bufptr2);
-	if (ii == -1) {
-	  if (chrom_error(".bgen file", chrom_info_ptr, bufptr2, 0, allow_extra_chroms)) {
+	if (ii < 0) {
+	  if (chrom_error(".bgen file", chrom_info_ptr, bufptr2, 0, ii, allow_extra_chroms)) {
             goto oxford_to_bed_ret_INVALID_FORMAT;
 	  }
 	  retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr2, &ii, 0, ".bgen file");
@@ -4573,8 +4576,8 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	  }
 	  bufptr[ujj] = '\0';
 	  ii = get_chrom_code(chrom_info_ptr, bufptr);
-	  if (ii == -1) {
-	    if (chrom_error(".bgen file", chrom_info_ptr, bufptr, 0, allow_extra_chroms)) {
+	  if (ii < 0) {
+	    if (chrom_error(".bgen file", chrom_info_ptr, bufptr, 0, ii, allow_extra_chroms)) {
 	      goto oxford_to_bed_ret_INVALID_FORMAT;
 	    }
 	    retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii, 0, ".bgen file");
@@ -5553,9 +5556,9 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       goto ped_to_bed_ret_MISSING_TOKENS;
     }
     ii = get_chrom_code(chrom_info_ptr, col1_ptr);
-    if (ii == -1) {
+    if (ii < 0) {
       // guess it's best to extend .map format too
-      if (chrom_error(".map file", chrom_info_ptr, col1_ptr, line_idx, allow_extra_chroms)) {
+      if (chrom_error(".map file", chrom_info_ptr, col1_ptr, line_idx, ii, allow_extra_chroms)) {
 	goto ped_to_bed_ret_INVALID_FORMAT;
       }
       retval = resolve_or_add_chrom_name(chrom_info_ptr, col1_ptr, &ii, line_idx, ".map file");
@@ -7042,8 +7045,8 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       tped_next_thresh = ((pct + 1) * tped_size) / 100;
     }
     ii = get_chrom_code(chrom_info_ptr, cptr);
-    if (ii == -1) {
-      if (chrom_error(".tped file", chrom_info_ptr, cptr, line_idx, allow_extra_chroms)) {
+    if (ii < 0) {
+      if (chrom_error(".tped file", chrom_info_ptr, cptr, line_idx, ii, allow_extra_chroms)) {
 	goto transposed_to_bed_ret_INVALID_FORMAT;
       }
       retval = resolve_or_add_chrom_name(chrom_info_ptr, cptr, &ii, line_idx, ".tped file");
@@ -7879,8 +7882,8 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       goto vcf_to_bed_ret_MISSING_TOKENS;
     }
     ii = get_chrom_code(chrom_info_ptr, bufptr);
-    if (ii == -1) {
-      if (chrom_error(".vcf file", chrom_info_ptr, bufptr, line_idx, allow_extra_chroms)) {
+    if (ii < 0) {
+      if (chrom_error(".vcf file", chrom_info_ptr, bufptr, line_idx, ii, allow_extra_chroms)) {
 	goto vcf_to_bed_ret_INVALID_FORMAT;
       }
       retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii, line_idx, ".vcf file");
@@ -8631,8 +8634,8 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   do {
     ulii--;
     ii = get_chrom_code(chrom_info_ptr, contig_list->ss);
-    if (ii == -1) {
-      if (chrom_error(".bcf file", chrom_info_ptr, contig_list->ss, 0, allow_extra_chroms)) {
+    if (ii < 0) {
+      if (chrom_error(".bcf file", chrom_info_ptr, contig_list->ss, 0, ii, allow_extra_chroms)) {
 	goto bcf_to_bed_ret_INVALID_FORMAT;
       }
       retval = resolve_or_add_chrom_name(chrom_info_ptr, contig_list->ss, &ii, 0, ".bcf file");
@@ -9279,7 +9282,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
       goto bed_from_23_ret_INVALID_FORMAT_2;
     }
     ii = get_chrom_code(chrom_info_ptr, chrom_start);
-    if (ii == -1) {
+    if (ii < 0) {
       sprintf(logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, infile_name);
       goto bed_from_23_ret_INVALID_FORMAT_2;
     }
@@ -13593,8 +13596,8 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
       continue;
     }
     ii = get_chrom_code(chrom_info_ptr, bufptr);
-    if (ii == -1) {
-      if (chrom_error(bimname, chrom_info_ptr, bufptr, line_idx, allow_extra_chroms)) {
+    if (ii < 0) {
+      if (chrom_error(bimname, chrom_info_ptr, bufptr, line_idx, ii, allow_extra_chroms)) {
 	goto merge_bim_scan_ret_INVALID_FORMAT;
       }
       retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii, line_idx, bimname);

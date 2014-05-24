@@ -206,7 +206,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	goto load_range_list_ret_INVALID_FORMAT_2;
       }
       ii = get_chrom_code(chrom_info_ptr, bufptr);
-      if (ii == -1) {
+      if (ii < 0) {
 	sprintf(logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
 	goto load_range_list_ret_INVALID_FORMAT_2;
       }
@@ -328,7 +328,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       goto load_range_list_ret_INVALID_FORMAT_2;
     }
     ii = get_chrom_code(chrom_info_ptr, bufptr);
-    if (ii == -1) {
+    if (ii < 0) {
       sprintf(logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
       goto load_range_list_ret_INVALID_FORMAT_2;
     }
@@ -2543,7 +2543,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     }
     // CHR
     chrom_idx = get_chrom_code(chrom_info_ptr, token_ptrs[col_sequence[0]]);
-    if (chrom_idx == -1) {
+    if (chrom_idx < 0) {
       // todo: log warning?
       goto gene_report_load_loop;
     }

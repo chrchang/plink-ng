@@ -121,8 +121,8 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
 	goto cnv_intersect_load_ret_INVALID_FORMAT_2;
       }
       ii = get_chrom_code(chrom_info_ptr, bufptr);
-      if (ii == -1) {
-	if (!allow_extra_chroms) {
+      if (ii < 0) {
+	if ((!allow_extra_chroms) || (ii == -1)) {
 	  sprintf(logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, cift_str);
 	  goto cnv_intersect_load_ret_INVALID_FORMAT_2;
 	}
@@ -508,8 +508,8 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
 	goto cnv_make_map_ret_INVALID_FORMAT_2;
       }
       ii = get_chrom_code(chrom_info_ptr, bufptr);
-      if (ii == -1) {
-	if (!allow_extra_chroms) {
+      if (ii < 0) {
+	if ((!allow_extra_chroms) || (ii == -1)) {
 	  sprintf(logbuf, "\nError: Invalid chromosome code on line %" PRIuPTR " of .cnv file.\n", line_idx);
           goto cnv_make_map_ret_INVALID_FORMAT_2;
 	}
@@ -737,8 +737,8 @@ int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, int32_t* marker_pos_
       continue;
     }
     ii = get_chrom_code(chrom_info_ptr, bufptr);
-    if (ii == -1) {
-      if (!allow_extra_chroms) {
+    if (ii < 0) {
+      if ((!allow_extra_chroms) || (ii == -1)) {
 	sprintf(logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of .cnv.map file.\n", line_idx);
 	goto validate_cnv_map_ret_INVALID_FORMAT_2;
       }

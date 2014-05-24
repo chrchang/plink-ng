@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (24 May 2014)";
+  " (25 May 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   //  " " (don't actually want this when version number has a trailing letter)
@@ -2215,7 +2215,7 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
 	break;
       }
       chrom_code_start = get_chrom_code2(chrom_info_ptr, range_start, rs_len);
-      if (chrom_code_start == -1) {
+      if (chrom_code_start < 0) {
 	range_start[rs_len] = '\0';
 	if (!allow_extra_chroms) {
 	  sprintf(logbuf, "Error: Invalid --%s chromosome code '%s'.\n", cur_flag_str, range_start);
@@ -2228,7 +2228,7 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
 	}
       } else if (range_end) {
         chrom_code_end = get_chrom_code2(chrom_info_ptr, range_end, re_len);
-	if (chrom_code_end == -1) {
+	if (chrom_code_end < 0) {
 	  if (!allow_extra_chroms) {
 	    range_end[re_len] = '\0';
 	    sprintf(logbuf, "Error: Invalid --%s chromosome code '%s'.\n", cur_flag_str, range_end);

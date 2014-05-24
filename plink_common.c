@@ -3812,9 +3812,10 @@ uint32_t bsearch_str_idx(const char* sptr, uint32_t slen, char** str_array, uint
 
 int32_t get_chrom_code_raw(char* sptr) {
   // any character <= ' ' is considered a terminator
-  int32_t ii;
-  if (((*sptr) & 0xdf) == 'C') {
-    if (((sptr[1] & 0xdf) == 'H') && ((sptr[2] & 0xdf) == 'R')) {
+  uint32_t uii;
+  uint32_t ujj;
+  if ((((unsigned char)(*sptr)) & 0xdf) == 'C') {
+    if (((((unsigned char)sptr[1]) & 0xdf) == 'H') && ((((unsigned char)sptr[2]) & 0xdf) == 'R')) {
       sptr = &(sptr[3]);
     } else {
       return -1;
@@ -3824,38 +3825,40 @@ int32_t get_chrom_code_raw(char* sptr) {
     if (sptr[2] > ' ') {
       return -1;
     }
-    if ((sptr[0] == 'X') || (sptr[0] == 'x')) {
-      if ((sptr[1] == 'Y') || (sptr[1] == 'y')) {
+    if ((((unsigned char)sptr[0]) & 0xdf) == 'X') {
+      if ((((unsigned char)sptr[1]) & 0xdf) == 'Y') {
 	return CHROM_XY;
       }
       return -1;
     }
-    if ((sptr[0] == 'M') || (sptr[0] == 'm')) {
-      if ((sptr[1] == 'T') || (sptr[1] == 't')) {
+    if ((((unsigned char)sptr[0]) & 0xdf) == 'M') {
+      if ((((unsigned char)sptr[1]) & 0xdf) == 'T') {
 	return CHROM_MT;
       }
       return -1;
     }
-    if ((sptr[0] >= '0') && (sptr[0] <= '9')) {
-      if ((sptr[1] >= '0') && (sptr[1] <= '9')) {
-        ii = ((sptr[0] - '0') * 10 + (sptr[1] - '0'));
-	if (ii < MAX_CHROM_TEXTNUM) {
-	  return ii;
-	} else {
-	  return -1;
-	}
-      } else {
-	return -1;
+    uii = ((unsigned char)sptr[0]) - '0';
+    if (uii < 10) {
+      ujj = ((unsigned char)sptr[1]) - '0';
+      if (ujj < 10) {
+	return uii * 10 + ujj;
       }
     }
-  } else if ((sptr[0] >= '0') && (sptr[0] <= '9')) {
-    return (sptr[0] - '0');
-  } else if ((sptr[0] == 'X') || (sptr[0] == 'x')) {
-    return CHROM_X;
-  } else if ((sptr[0] == 'Y') || (sptr[0] == 'y')) {
-    return CHROM_Y;
-  } else if ((sptr[0] == 'M') || (sptr[0] == 'm')) {
-    return CHROM_MT;
+  } else {
+    uii = ((unsigned char)sptr[0]);
+    ujj = uii - 48;
+    if (ujj < 10) {
+      return ujj;
+    } else {
+      uii &= 0xdf;
+      if (uii == 88) {
+	return CHROM_X;
+      } else if (uii == 89) {
+	return CHROM_Y;
+      } else if (uii == 77) {
+	return CHROM_MT;
+      }
+    }
   }
   return -1;
 }
@@ -3863,6 +3866,7 @@ int32_t get_chrom_code_raw(char* sptr) {
 int32_t get_chrom_code(Chrom_info* chrom_info_ptr, char* sptr) {
   // does not require string to be null-terminated, and does not perform
   // exhaustive error-checking
+  // -1 = total fail, -2 = --allow-extra-chr ok
   int32_t ii = get_chrom_code_raw(sptr);
   uint32_t max_code_p1;
   uint32_t uii;
@@ -3884,7 +3888,7 @@ int32_t get_chrom_code(Chrom_info* chrom_info_ptr, char* sptr) {
     max_code_p1 = chrom_info_ptr->max_code + 1;
     if (ii == -1) {
       if (bsearch_str_idx(sptr, strlen_se(sptr), &(chrom_info_ptr->nonstd_names[max_code_p1]), chrom_info_ptr->nonstd_name_order, chrom_info_ptr->name_ct, &uii)) {
-        return -1;
+        return -2;
       }
       return chrom_info_ptr->nonstd_name_order[uii] + max_code_p1;
     } else if (((uint32_t)ii) >= max_code_p1) {

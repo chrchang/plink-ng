@@ -447,7 +447,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
     post_at_sign_len = strlen(at_sign_ptr) + 1;
   } else {
     ii = get_chrom_code(chrom_info_ptr, cm_map_chrname);
-    if (ii == -1) {
+    if (ii < 0) {
       LOGPREPRINTFWW("Error: --cm-map chromosome code '%s' not found in dataset.\n", cm_map_chrname);
       goto apply_cm_map_ret_INVALID_CMDLINE_2;
     }
@@ -1680,7 +1680,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
       }
       bufptr = skip_initial_spaces(loadbuf);
       ii = get_chrom_code(chrom_info_ptr, bufptr);
-      if (ii == -1) {
+      if (ii < 0) {
 	goto read_external_freqs_ret_INVALID_CHROM;
       }
       chrom_idx = ii;
@@ -1747,7 +1747,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	goto read_external_freqs_ret_TOO_LONG_LINE;
       }
       ii = get_chrom_code(chrom_info_ptr, loadbuf);
-      if (ii == -1) {
+      if (ii < 0) {
 	goto read_external_freqs_ret_INVALID_CHROM;
       }
       chrom_idx = ii;
