@@ -11629,9 +11629,13 @@ int32_t main(int32_t argc, char** argv) {
     goto main_ret_INVALID_CMDLINE_A;
   }
   // short batch job?
-  uii = ((!calculation_type) && (epi_info.summary_merge_prefix || gene_report_fname));
-  if ((!calculation_type) && (!uii) && (!(load_rare & (LOAD_RARE_LGEN | LOAD_RARE_DUMMY | LOAD_RARE_SIMULATE | LOAD_RARE_TRANSPOSE_MASK | LOAD_RARE_23 | LOAD_RARE_CNV | LOAD_RARE_VCF | LOAD_RARE_BCF))) && (famname[0] || load_rare)) {
-    goto main_ret_NULL_CALC;
+  uii = 0;
+  if ((!calculation_type) && (!(load_rare & (LOAD_RARE_LGEN | LOAD_RARE_DUMMY | LOAD_RARE_SIMULATE | LOAD_RARE_TRANSPOSE_MASK | LOAD_RARE_23 | LOAD_RARE_CNV | LOAD_RARE_VCF | LOAD_RARE_BCF)))) {
+    if (epi_info.summary_merge_prefix || gene_report_fname) {
+      uii = 1;
+    } else if (famname[0] || load_rare) {
+      goto main_ret_NULL_CALC;
+    }
   }
   if (!(load_params || load_rare || uii)) {
     logprint("Error: No input dataset.\n");
