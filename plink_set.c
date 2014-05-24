@@ -207,7 +207,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       }
       ii = get_chrom_code(chrom_info_ptr, bufptr);
       if (ii == -1) {
-	sprintf(logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of  %s file.\n", line_idx, file_descrip);
+	sprintf(logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
 	goto load_range_list_ret_INVALID_FORMAT_2;
       }
       if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
@@ -245,6 +245,9 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
         memcpy(ll_tmp->ss, bufptr3, uii);
       } else {
 	uint32_write4(ll_tmp->ss, (uint32_t)ii);
+	// if first character of gene name is a digit, natural sort has strange
+	// effects unless we force [3] to be nonnumeric...
+	ll_tmp->ss[3] -= 15;
 	memcpy(&(ll_tmp->ss[4]), bufptr3, uii - 4);
       }
       make_set_ll = ll_tmp;
@@ -374,6 +377,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       } else if (!marker_pos) {
 	bufptr3 = &(bufptr3[-4]);
 	uint32_write4(bufptr3, chrom_idx);
+	bufptr3[3] -= 15;
       }
       // this should never fail
       set_idx = (uint32_t)bsearch_str_natural(bufptr3, set_names, max_set_id_len, set_ct);
@@ -2126,9 +2130,12 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
   }
   for (gene_idx = 0; gene_idx < gene_ct; gene_idx++) {
     bufptr = &(gene_names[gene_idx * max_gene_id_len]);
-    // instead of subtracting '0' (= ascii code 48) separately from each
-    // character, just subtract 48 * (1000 + 100 + 10 + 1) once at the end
-    uii = (((unsigned char)bufptr[0]) * 1000) + (((unsigned char)bufptr[1]) * 100) + (((unsigned char)bufptr[2]) * 10) + ((unsigned char)bufptr[3]) - 53328;
+    // instead of subtracting 33/48 separately from each character, just
+    // subtract
+    // 48 * (1000 + 100 + 10) + 33 once at the end.
+    // (last prefix character must be nonnumeric to prevent weird natural sort
+    // interaction)
+    uii = (((unsigned char)bufptr[0]) * 1000) + (((unsigned char)bufptr[1]) * 100) + (((unsigned char)bufptr[2]) * 10) + ((unsigned char)bufptr[3]) - 53313;
     if (chrom_idx < uii) {
       ulii = gene_idx - chrom_bounds[chrom_idx];
       if (ulii > chrom_max_gene_ct) {
@@ -2225,8 +2232,6 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
 }
 
 int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t border, char* extractname, const char* snp_field, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr) {
-  // logprint("Error: --gene-report is currently under development.\n");
-  // return RET_CALC_NOT_YET_SUPPORTED;
   // similar to define_sets() and --clump
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
@@ -2236,16 +2241,59 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   uintptr_t max_subset_id_len = 0;
   uintptr_t extract_ct = 0;
   uintptr_t max_extract_id_len = 0;
+  uintptr_t line_idx = 0;
+  const char constsnpstr[] = "SNP";
   char* sorted_subset_ids = NULL;
   char* sorted_extract_ids = NULL;
-  char* gene_names = NULL;
   uintptr_t* chrom_bounds = NULL;
   uint32_t** genedefs = NULL;
+  uint64_t saved_line_ct = 0;
+  uint32_t do_pfilter = (pfilter != 1.0);
+  uint32_t token_ct = 2 + (extractname != NULL) + do_pfilter;
+  uint32_t snp_field_len = 0;
+  uint32_t col_idx = 0;
+  uint32_t seq_idx = 0;
+  uint32_t cur_bp = 0;
   int32_t retval = 0;
+
+  // col_skips[0..(token_ct - 1)] stores deltas between adjacent column indices
+  // ([0] = 0-based index of first column), and token_ptrs[0..(token_ct - 1)]
+  // points to those token start positions in the current line.
+  // Since the order of the columns may vary, col_sequence[0] = token_ptrs[]
+  // CHR index, [1] = BP index, [2] = SNP index, and [3] = P index.
+  char* token_ptrs[4];
+  uint32_t col_skips[4];
+  uint32_t col_sequence[4];
+  uint64_t* gene_match_list_end;
+  uint64_t* gene_match_list;
+  uint64_t* gene_match_list_ptr;
+  uint32_t* gene_chridx_to_nameidx;
+  uint32_t* gene_nameidx_to_chridx;
+  uint32_t* uiptr;
+  char** line_lookup;
+  char* gene_names;
+  char* loadbuf;
+  char* header_ptr;
+  char* first_line_ptr;
+  char* linebuf_top;
+  char* bufptr;
+  char* bufptr2;
   uintptr_t gene_ct;
   uintptr_t max_gene_name_len;
   uintptr_t chrom_max_gene_ct;
+  uintptr_t loadbuf_size;
+  uintptr_t gene_idx;
+  uintptr_t linebuf_left;
   uintptr_t ulii;
+  uint64_t ullii;
+  double pval;
+  uint32_t slen;
+  uint32_t header_len;
+  uint32_t range_idx;
+  uint32_t range_ct;
+  uint32_t uii;
+  uint32_t ujj;
+  int32_t chrom_idx;
   if (subset_fname) {
     if (fopen_checked(&infile, subset_fname, "rb")) {
       goto gene_report_ret_OPEN_FAIL;
@@ -2316,23 +2364,329 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       wkspace_shrink_top(sorted_extract_ids, extract_ct * max_extract_id_len);
     }
   }
-  retval = load_range_list_sortpos(fname, border, subset_ct, sorted_subset_ids, max_subset_id_len, chrom_info_ptr, &gene_ct, &gene_names, &max_gene_name_len, &chrom_bounds, &genedefs, &chrom_max_gene_ct, "--gene-report");
+  retval = load_range_list_sortpos(glist, border, subset_ct, sorted_subset_ids, max_subset_id_len, chrom_info_ptr, &gene_ct, &gene_names, &max_gene_name_len, &chrom_bounds, &genedefs, &chrom_max_gene_ct, "--gene-report");
   wkspace_left += topsize;
-  // topsize = 0;
   if (retval) {
     goto gene_report_ret_1;
   }
+#ifdef __LP64__
+  if (gene_ct > 0x80000000LLU) {
+    LOGPREPRINTFWW("Error: Too many genes in %s (max 2147483648).\n", glist);
+    goto gene_report_ret_INVALID_FORMAT_2;
+  }
+#endif
+
+  topsize = 0;
+  // gene_names is sorted primarily by chromosome index, and secondarily by
+  // gene name.  Final output will be the other way around, so we need a
+  // remapping table.
+  // This logic needs to change a bit if support for unplaced contigs is added
+  // or MAX_CHROM_TEXTNUM_LEN changes.
+  if (wkspace_alloc_ui_checked(&gene_chridx_to_nameidx, gene_ct * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&gene_nameidx_to_chridx, gene_ct * sizeof(int32_t)) ||
+      wkspace_alloc_c_checked(&loadbuf, gene_ct * max_gene_name_len)) {
+    goto gene_report_ret_NOMEM;
+  }
+  for (gene_idx = 0; gene_idx < gene_ct; gene_idx++) {
+    gene_nameidx_to_chridx[gene_idx] = gene_idx;
+  }
+  for (gene_idx = 0; gene_idx < gene_ct; gene_idx++) {
+    bufptr = &(gene_names[gene_idx * max_gene_name_len]);
+    slen = strlen(&(bufptr[4]));
+    bufptr2 = memcpyax(&(loadbuf[gene_idx * max_gene_name_len]), &(bufptr[4]), slen, ' ');
+    memcpyx(bufptr2, &(bufptr[2]), 2, '\0');
+  }
+  if (qsort_ext(loadbuf, gene_ct, max_gene_name_len, strcmp_natural_deref, (char*)gene_nameidx_to_chridx, sizeof(int32_t))) {
+    goto gene_report_ret_NOMEM;
+  }
+  // We also need to perform the reverse lookup.
+  for (gene_idx = 0; gene_idx < gene_ct; gene_idx++) {
+    gene_chridx_to_nameidx[gene_nameidx_to_chridx[gene_idx]] = gene_idx;
+  }
+  wkspace_reset((unsigned char*)loadbuf);
+
+  if (fopen_checked(&infile, fname, "r")) {
+    goto gene_report_ret_OPEN_FAIL;
+  }
+  if (wkspace_left < MAXLINELEN + 64) {
+    goto gene_report_ret_NOMEM;
+  }
+  // mirror wkspace_base/wkspace_base since we'll be doing nonstandard-size
+  // allocations
+  linebuf_top = (char*)wkspace_base;
+  linebuf_left = wkspace_left;
+  gene_match_list_end = (uint64_t*)(&(wkspace_base[wkspace_left]));
+  gene_match_list = gene_match_list_end;
+
+  header_ptr = linebuf_top;
+  loadbuf = memcpya(header_ptr, "kb ) ", 5);
+  if (border) {
+    loadbuf = memcpya(loadbuf, " including ", 11);
+    loadbuf = double_g_write(loadbuf, ((double)((int32_t)border)) * 0.001);
+    loadbuf = memcpya(loadbuf, "kb border ", 10);
+  }
+  loadbuf = memcpya(loadbuf, "\n\n        DIST ", 15);
+  linebuf_left -= (loadbuf - header_ptr);
+  loadbuf_size = linebuf_left;
+  if (loadbuf_size > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
+  }
+  loadbuf[loadbuf_size - 1] = ' ';
+  uii = 3; // maximum relevant header length
+  col_idx = 0;
+  if (extractname) {
+    if (snp_field) {
+      snp_field_len = strlen(snp_field);
+      if (snp_field_len > uii) {
+	uii = snp_field_len;
+      }
+    } else {
+      snp_field = constsnpstr;
+      snp_field_len = 3;
+    }
+  }
+  fill_uint_one(col_sequence, token_ct);
+  do {
+    if (!fgets(loadbuf, loadbuf_size, infile)) {
+      if (ferror(infile)) {
+	goto gene_report_ret_READ_FAIL;
+      }
+      LOGPREPRINTFWW("Error: %s is empty.\n", fname);
+      goto gene_report_ret_INVALID_FORMAT_2;
+    }
+    line_idx++;
+    if (!loadbuf[loadbuf_size - 1]) {
+      goto gene_report_ret_LONG_LINE;
+    }
+    bufptr = skip_initial_spaces(loadbuf);
+  } while (is_eoln_kns(*bufptr));
+  do {
+    bufptr2 = item_endnn(bufptr);
+    slen = (uintptr_t)(bufptr2 - bufptr);
+    if (slen <= uii) {
+      if ((slen == 3) && (!memcmp(bufptr, "CHR", 3))) {
+	ujj = 0;
+      } else if ((slen == 2) && (!memcmp(bufptr, "BP", 2))) {
+	ujj = 1;
+      } else if ((slen == snp_field_len) && (!memcmp(bufptr, snp_field, snp_field_len))) {
+	ujj = 2;
+      } else if ((slen == do_pfilter) && (*bufptr == 'P')) {
+	ujj = 3;
+      } else {
+	ujj = 4;
+      }
+      if (ujj != 4) {
+	if (col_sequence[ujj] != 0xffffffffU) {
+	  *bufptr2 = '\0';
+	  LOGPREPRINTFWW("Error: Duplicate column header '%s' in %s.\n", bufptr, fname);
+	  goto gene_report_ret_INVALID_FORMAT_2;
+	}
+	if (!seq_idx) {
+	  col_skips[0] = col_idx;
+	} else {
+	  col_skips[seq_idx] = col_idx - col_skips[seq_idx - 1];
+	}
+	col_sequence[ujj] = seq_idx++;
+      }
+    }
+    bufptr = skip_initial_spaces(bufptr2);
+    col_idx++;
+  } while (!is_eoln_kns(*bufptr));
+  if (seq_idx != token_ct) {
+    LOGPREPRINTFWW("Error: Missing column header%s in %s.\n", (seq_idx + 1 == token_ct)? "" : "s", fname);
+    goto gene_report_ret_INVALID_FORMAT_2;
+  }
+  // assume *bufptr is now \n (if it isn't, header line is never written to
+  // output anyway)
+  header_len = 1 + (uintptr_t)(bufptr - header_ptr);
+  linebuf_left -= header_len;
+  linebuf_top = &(linebuf_top[header_len]);
+  first_line_ptr = linebuf_top;
+  while (1) {
+    // store raw line contents at bottom of stack (growing upwards), and gene
+    // matches at top of stack (8 byte entries, growing downwards).  Worst
+    // case, a line matches chrom_max_gene_ct genes, so we prevent the text
+    // loading buffer from using the last chrom_max_gene_ct * 8 bytes of
+    // workspace memory.
+    if (linebuf_left <= chrom_max_gene_ct * 8 + 8 + (uintptr_t)(((char*)gene_match_list_end) - ((char*)gene_match_list)) + MAXLINELEN) {
+      goto gene_report_ret_NOMEM;
+    }
+    loadbuf_size = linebuf_left - (chrom_max_gene_ct * 8) - 8 - (uintptr_t)(((char*)gene_match_list_end) - ((char*)gene_match_list));
+    if (loadbuf_size > MAXLINEBUFLEN) {
+      loadbuf_size = MAXLINEBUFLEN;
+    }
+    // leave 8 bytes to save line length and parsed position
+    loadbuf = &(linebuf_top[8]);
+    loadbuf[loadbuf_size - 1] = ' ';
+  gene_report_load_loop:
+    if (!fgets(loadbuf, loadbuf_size, infile)) {
+      break;
+    }
+    line_idx++;
+    if (!loadbuf[loadbuf_size - 1]) {
+      goto gene_report_ret_LONG_LINE;
+    }
+    bufptr = skip_initial_spaces(loadbuf);
+    if (is_eoln_kns(*bufptr)) {
+      goto gene_report_load_loop;
+    }
+    if (col_skips[0]) {
+      bufptr = next_item_mult(bufptr, col_skips[0]);
+    }
+    token_ptrs[0] = bufptr;
+    for (seq_idx = 1; seq_idx < token_ct; seq_idx++) {
+      bufptr = next_item_mult(bufptr, col_skips[seq_idx]);
+      token_ptrs[seq_idx] = bufptr;
+    }
+    if (!bufptr) {
+      goto gene_report_load_loop;
+    }
+    // CHR
+    chrom_idx = get_chrom_code(chrom_info_ptr, token_ptrs[col_sequence[0]]);
+    if (chrom_idx == -1) {
+      // todo: log warning?
+      goto gene_report_load_loop;
+    }
+
+    // BP
+    if (scan_uint_defcap(token_ptrs[col_sequence[1]], &cur_bp)) {
+      goto gene_report_load_loop;
+    }
+
+    // variant ID
+    if (sorted_extract_ids) {
+      bufptr2 = token_ptrs[col_sequence[2]];
+      if (bsearch_str(bufptr2, strlen_se(bufptr2), sorted_extract_ids, max_extract_id_len, extract_ct) == -1) {
+	goto gene_report_load_loop;
+      }
+    }
+
+    // P
+    if (do_pfilter) {
+      if (scan_double(token_ptrs[col_sequence[3]], &pval) || (pval > pfilter)) {
+        goto gene_report_load_loop;
+      }
+    }
+
+    ulii = chrom_bounds[((uint32_t)chrom_idx) + 1];
+    gene_match_list_ptr = gene_match_list;
+    for (gene_idx = chrom_bounds[(uint32_t)chrom_idx]; gene_idx < ulii; gene_idx++) {
+      if (interval_in_setdef(genedefs[gene_idx], cur_bp, cur_bp)) {
+	*(--gene_match_list) = (((uint64_t)gene_chridx_to_nameidx[gene_idx]) << 32) | saved_line_ct;
+      }
+    }
+    if (gene_match_list_ptr == gene_match_list) {
+      goto gene_report_load_loop;
+    }
+
+    slen = strlen(bufptr);
+    // this could be a non-\n-terminated last line...
+    if (bufptr[slen - 1] != '\n') {
+      bufptr[slen++] = '\n';
+    }
+    slen += (uintptr_t)(bufptr - loadbuf);
+    *((uint32_t*)linebuf_top) = slen;
+    ((uint32_t*)linebuf_top)[1] = cur_bp;
+    linebuf_left -= slen + 8;
+    linebuf_top = &(linebuf_top[slen + 8]);
+#ifdef __LP64__
+    if (saved_line_ct == 0x100000000LLU) {
+      LOGPREPRINTFWW("Error: Too many valid lines in %s (--gene-report can only handle 4294967296).\n", fname);
+      goto gene_report_ret_INVALID_FORMAT_2;
+    }
+#endif
+    saved_line_ct++;
+  }
+  if (fclose_null(&infile)) {
+    goto gene_report_ret_READ_FAIL;
+  }
+  // saved line index -> line contents lookup
+  // allocate off far end since linebuf_top is not aligned at all
+  if (linebuf_left < saved_line_ct * sizeof(intptr_t) + (uintptr_t)(((char*)gene_match_list_end) - ((char*)gene_match_list))) {
+    goto gene_report_ret_NOMEM;
+  }
+  line_lookup = (char**)(&(((uintptr_t*)gene_match_list)[-((intptr_t)((uintptr_t)saved_line_ct))]));
+  bufptr = first_line_ptr;
+  for (uii = 0; uii < saved_line_ct; uii++) {
+    line_lookup[uii] = bufptr;
+    bufptr = &(bufptr[(*((uint32_t*)bufptr)) + 8]);
+  }
+#ifdef __cplusplus
+  std::sort((int64_t*)gene_match_list, (int64_t*)gene_match_list_end);
+#else
+  qsort((int64_t*)gene_match_list, (uintptr_t)(gene_match_list_end - gene_match_list), sizeof(int64_t), llcmp);
+#endif
 
   memcpy(outname_end, ".range.report", 14);
   if (fopen_checked(&outfile, outname, "w")) {
     goto gene_report_ret_OPEN_FAIL;
   }
-  // need to resort by gene name first, chromosome number second
-  ;;;
+  ulii = ~ZEROLU; // current gene index
+  while (gene_match_list < gene_match_list_end) {
+    ullii = *gene_match_list++;
+    if ((uintptr_t)(ullii >> 32) != ulii) {
+      // new gene
+      if (ulii != ~ZEROLU) {
+        fputs("\n\n", outfile);
+      }
+      ulii = (uintptr_t)(ullii >> 32);
+      gene_idx = gene_nameidx_to_chridx[ulii];
+      bufptr = &(gene_names[gene_idx * max_gene_name_len]);
+      fputs(&(bufptr[4]), outfile);
+      fputs(" -- chr", outfile);
+      if (bufptr[2] != '0') {
+	putc(bufptr[2], outfile);
+      }
+      putc(bufptr[3] + 15, outfile);
+      putc(':', outfile);
+      uiptr = genedefs[gene_idx];
+      range_ct = *uiptr++;
+      ujj = 0; // gene length
+      for (range_idx = 0; range_idx < range_ct; range_idx++) {
+	if (range_idx) {
+	  fputs(", ", outfile);
+	}
+        cur_bp = *uiptr++;
+        bufptr = uint32_write(tbuf, cur_bp);
+	bufptr = memcpya(bufptr, "..", 2);
+        uii = *uiptr++;
+        bufptr = uint32_write(bufptr, uii - 1);
+        fwrite(tbuf, 1, bufptr - tbuf, outfile);
+	ujj += uii - cur_bp;
+      }
+      bufptr = memcpyl3a(tbuf, " ( ");
+      bufptr = double_g_write(bufptr, ((double)((int32_t)ujj)) * 0.001);
+      fwrite(tbuf, 1, bufptr - tbuf, outfile);
+      if (fwrite_checked(header_ptr, header_len, outfile)) {
+	goto gene_report_ret_WRITE_FAIL;
+      }
+      // this doesn't really work properly if border > start coordinate, but
+      // it's not really worth the trouble of fixing unless someone depends on
+      // the "correct" behavior there
+      cur_bp = genedefs[gene_idx][1] + border;
+    }
+    bufptr = line_lookup[(uint32_t)ullii];
+    uii = *((uint32_t*)bufptr); // line length
+    ujj = ((uint32_t*)bufptr)[1]; // bp
+    bufptr2 = double_g_writewx4(tbuf, ((double)((int32_t)(ujj - cur_bp))) * 0.001, 10);
+    bufptr2 = memcpyl3a(bufptr2, "kb ");
+    fwrite(tbuf, 1, bufptr2 - tbuf, outfile);
+    fwrite(&(bufptr[8]), 1, uii, outfile);
+  }
+  if (ulii != ~ZEROLU) {
+    fputs("\n\n", outfile);
+  }
   if (fclose_null(&outfile)) {
     goto gene_report_ret_WRITE_FAIL;
   }
+  LOGPRINTFWW("--gene-report: gene-based report written to %s .\n", outname);
   while (0) {
+  gene_report_ret_LONG_LINE:
+    if (loadbuf_size == MAXLINEBUFLEN) {
+      LOGPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname);
+      retval = RET_INVALID_FORMAT;
+      break;
+    }
   gene_report_ret_NOMEM2:
     wkspace_left += topsize;
   gene_report_ret_NOMEM:
@@ -2347,6 +2701,8 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   gene_report_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
+  gene_report_ret_INVALID_FORMAT_2:
+    logprintb();
   gene_report_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;

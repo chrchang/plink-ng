@@ -6444,7 +6444,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
 	if (uii == 2) {
-	  retval = alloc_fname(&gene_report_glist, argv[cur_arg + 1], argptr, 0);
+	  retval = alloc_fname(&gene_report_glist, argv[cur_arg + 2], argptr, 0);
 	  if (retval) {
 	    goto main_ret_1;
 	  }
@@ -11628,17 +11628,14 @@ int32_t main(int32_t argc, char** argv) {
     logprint("Error: --gen/--bgen cannot be used without --data or --sample.\n");
     goto main_ret_INVALID_CMDLINE_A;
   }
-  if ((!calculation_type) && (!(load_rare & (LOAD_RARE_LGEN | LOAD_RARE_DUMMY | LOAD_RARE_SIMULATE | LOAD_RARE_TRANSPOSE_MASK | LOAD_RARE_23 | LOAD_RARE_CNV | LOAD_RARE_VCF | LOAD_RARE_BCF))) && (famname[0] || load_rare)) {
+  // short batch job?
+  uii = ((!calculation_type) && (epi_info.summary_merge_prefix || gene_report_fname));
+  if ((!calculation_type) && (!uii) && (!(load_rare & (LOAD_RARE_LGEN | LOAD_RARE_DUMMY | LOAD_RARE_SIMULATE | LOAD_RARE_TRANSPOSE_MASK | LOAD_RARE_23 | LOAD_RARE_CNV | LOAD_RARE_VCF | LOAD_RARE_BCF))) && (famname[0] || load_rare)) {
     goto main_ret_NULL_CALC;
   }
-  uii = 0; // short batch job?
-  if (!(load_params || load_rare)) {
-    if ((!epi_info.summary_merge_prefix) && (!gene_report_fname)) {
-      logprint("Error: No input dataset.\n");
-      goto main_ret_INVALID_CMDLINE_A;
-    }
-    // no input dataset needed in this case
-    uii = 1;
+  if (!(load_params || load_rare || uii)) {
+    logprint("Error: No input dataset.\n");
+    goto main_ret_INVALID_CMDLINE_A;
   }
 
   free_cond(subst_argv);
