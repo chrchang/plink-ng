@@ -2753,14 +2753,14 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
   double* marker_cms;
   uint32_t* pos_buf;
   uint32_t* unpack_map;
+  uint32_t* chrom_start;
+  uint32_t* chrom_id;
   uintptr_t marker_uidx;
   uintptr_t marker_idx;
   uintptr_t marker_idx2;
   char* bufptr;
   uint32_t uii;
   uint32_t ujj;
-  uint32_t chrom_start[MAX_POSSIBLE_CHROM + 6];
-  uint32_t chrom_id[MAX_POSSIBLE_CHROM + 5];
   uint32_t cur_chrom;
   uint32_t chrom_ct;
   // See sort_and_write_bim() for discussion.  Note that marker_ids and
@@ -2770,7 +2770,9 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
       wkspace_alloc_c_checked(&marker_ids, marker_ct * max_marker_id_len) ||
       wkspace_alloc_d_checked(&marker_cms, marker_ct * sizeof(double)) ||
       wkspace_alloc_ui_checked(&pos_buf, marker_ct * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(&unpack_map, marker_ct * sizeof(int32_t))) {
+      wkspace_alloc_ui_checked(&unpack_map, marker_ct * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&chrom_start, (MAX_POSSIBLE_CHROM + 6) * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&chrom_id, (MAX_POSSIBLE_CHROM + 5) * sizeof(int32_t))) {
     goto load_sort_and_write_map_ret_NOMEM;
   }
   rewind(mapfile);
