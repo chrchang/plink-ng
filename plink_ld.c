@@ -9329,7 +9329,6 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uintptr_t range_chrom_max = 0;
   uintptr_t unmatched_group_ct = 0;
   uintptr_t* haploid_mask = chrom_info_ptr->haploid_mask;
-  Make_set_range** range_group_arr = NULL;
   char* range_group_names = NULL;
   char* fname_ptr = NULL;
   char* annot_flattened = clump_ip->annotate_flattened;
@@ -9337,7 +9336,6 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   char* header2_ptr = NULL;
   char* annot_ptr = NULL;
   char* cur_rg_names = NULL;
-  uint64_t* range_sort_buf = NULL;
   uintptr_t* founder_include2 = NULL;
   uintptr_t* founder_male_include2 = NULL;
   uintptr_t* rg_chrom_bounds = NULL;
@@ -9362,12 +9360,10 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uint32_t file_ct = 0;
   uint32_t final_clump_ct = 0;
   uint32_t max_missing_id_len = 0;
-  uint32_t chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
   int32_t retval = 0;
   uintptr_t histo[5]; // NSIG, S05, S01, S001, S0001
   uint32_t index_tots[5];
   uint32_t counts[18];
-  Make_set_range* msr_tmp;
   Clump_entry** clump_entries;
   Clump_entry* clump_entry_ptr;
   Clump_entry* best_entry_ptr;
@@ -9396,13 +9392,11 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uint32_t* nsig_arr;
   uint32_t* pval_map;
   uint32_t* marker_idx_to_uidx;
-  uint32_t* uiptr;
   double* sorted_pvals;
   Clump_missing_id* cm_ptr;
   uintptr_t header_dict_ct;
   uintptr_t extra_annot_space;
   uintptr_t loadbuft_size;
-  uintptr_t rg_idx;
   uintptr_t marker_idx;
   uintptr_t last_marker_idx;
   uintptr_t max_window_size; // universal bound
@@ -9412,7 +9406,6 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uintptr_t uljj;
   uintptr_t ulkk;
   uintptr_t ulmm;
-  uint64_t ullii;
   double pval;
   double freq1x;
   double freq2x;
@@ -9428,8 +9421,6 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uint32_t cur_read_ct;
   uint32_t index_ct;
   uint32_t sp_idx;
-  uint32_t range_first;
-  uint32_t range_last;
   uint32_t file_idx;
   uint32_t ivar_idx;
   uint32_t ivar_uidx;
@@ -9479,100 +9470,9 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   }
   if (clump_ip->range_fname) {
     // 1. load range file, sort, etc.
-    if (fopen_checked(&infile, clump_ip->range_fname, "r")) {
-      goto clump_reports_ret_OPEN_FAIL;
-    }
-    retval = load_range_list(infile, 1, clump_ip->range_border, 0, 0, 0, 0, NULL, 0, NULL, chrom_info_ptr, &topsize, &range_group_ct, &range_group_names, &max_range_group_id_len, &range_group_arr, &range_sort_buf, "--clump-range");
+    retval = load_range_list_sortpos(clump_ip->range_fname, clump_ip->range_border, 0, NULL, 0, chrom_info_ptr, &range_group_ct, &range_group_names, &max_range_group_id_len, &rg_chrom_bounds, &rg_setdefs, &range_chrom_max, "--clump-range");
     if (retval) {
       goto clump_reports_ret_1;
-    }
-    wkspace_left -= topsize;
-    if (wkspace_alloc_ul_checked(&rg_chrom_bounds, (chrom_code_end + 1) * sizeof(intptr_t))) {
-      goto clump_reports_ret_NOMEM2;
-    }
-    rg_chrom_bounds[0] = 0;
-    clump_chrom_idx = 0;
-    rg_setdefs = (uint32_t**)wkspace_alloc(range_group_ct * sizeof(intptr_t));
-    if (!rg_setdefs) {
-      goto clump_reports_ret_NOMEM2;
-    }
-    for (rg_idx = 0; rg_idx < range_group_ct; rg_idx++) {
-      bufptr = &(range_group_names[rg_idx * max_range_group_id_len]);
-      uii = (((unsigned char)bufptr[0]) - '0') * 1000 + (((unsigned char)bufptr[1]) - '0') * 100 + (((unsigned char)bufptr[2]) - '0') * 10 + (((unsigned char)bufptr[3]) - '0');
-      if (clump_chrom_idx < uii) {
-	ulii = rg_idx - rg_chrom_bounds[clump_chrom_idx];
-	if (ulii > range_chrom_max) {
-	  range_chrom_max = ulii;
-	}
-	do {
-          rg_chrom_bounds[++clump_chrom_idx] = rg_idx;
-	} while (clump_chrom_idx < uii);
-      }
-      msr_tmp = range_group_arr[rg_idx];
-      uii = 0;
-      while (msr_tmp) {
-	range_sort_buf[uii++] = (((uint64_t)(msr_tmp->uidx_start)) << 32) | ((uint64_t)(msr_tmp->uidx_end));
-	msr_tmp = msr_tmp->next;
-      }
-      if (!uii) {
-	if (wkspace_left < 16) {
-	  goto clump_reports_ret_NOMEM2;
-	}
-        rg_setdefs[rg_idx] = (uint32_t*)wkspace_base;
-	wkspace_left -= 16;
-	wkspace_base = &(wkspace_base[16]);
-	rg_setdefs[rg_idx][0] = 0;
-	continue;
-      }
-#ifdef __cplusplus
-      std::sort((int64_t*)range_sort_buf, (int64_t*)(&(range_sort_buf[uii])));
-#else
-      qsort(range_sort_buf, uii, sizeof(int64_t), llcmp);
-#endif
-      ukk = 0; // current end of sorted interval list
-      range_last = (uint32_t)range_sort_buf[0];
-      for (ujj = 1; ujj < uii; ujj++) {
-	ullii = range_sort_buf[ujj];
-	range_first = (uint32_t)(ullii >> 32);
-	if (range_first <= range_last) {
-	  umm = (uint32_t)ullii;
-	  if (umm > range_last) {
-	    range_last = umm;
-	    range_sort_buf[ukk] = (range_sort_buf[ukk] & 0xffffffff00000000LLU) | (ullii & 0xffffffffLLU);
-	  }
-	} else {
-	  if (++ukk < ujj) {
-	    range_sort_buf[ukk] = ullii;
-	  }
-	  range_last = (uint32_t)ullii;
-	}
-      }
-      ulii = (((++ukk) * 2 + 4) * sizeof(int32_t)) & (~(15 * ONELU));
-      if (wkspace_left < ulii) {
-	goto clump_reports_ret_NOMEM2;
-      }
-      rg_setdefs[rg_idx] = (uint32_t*)wkspace_base;
-      wkspace_left -= ulii;
-      wkspace_base = &(wkspace_base[ulii]);
-      uiptr = rg_setdefs[rg_idx];
-      *uiptr++ = ukk;
-      for (uii = 0; uii < ukk; uii++) {
-	ullii = range_sort_buf[uii];
-	*uiptr++ = (uint32_t)(ullii >> 32);
-	*uiptr++ = (uint32_t)ullii;
-      }
-    }
-    ulii = range_group_ct - rg_chrom_bounds[clump_chrom_idx];
-    if (ulii > range_chrom_max) {
-      range_chrom_max = ulii;
-    }
-    while (clump_chrom_idx < chrom_code_end) {
-      rg_chrom_bounds[++clump_chrom_idx] = range_group_ct;
-    }
-    wkspace_left += topsize;
-    topsize = 0;
-    if (fclose_null(&infile)) {
-      goto clump_reports_ret_READ_FAIL;
     }
   }
   // 2. sort marker IDs and allocate index-tracking bitfield

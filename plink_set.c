@@ -233,7 +233,6 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       // variants in the dataset.  So we prefix set IDs with a chromosome index
       // in that case (with leading zeroes) and treat cross-chromosome sets as
       // distinct.
-      // ...and --gene-report gets its own special treatment
       if (!marker_pos) {
 	uii += 4;
       }
@@ -2080,30 +2079,175 @@ uint32_t setdefs_compress(Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, 
   return 1;
 }
 
-int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t border, char* extractname, char* snp_field, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr) {
-  logprint("Error: --gene-report is currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
-  /*
+int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t subset_ct, char* sorted_subset_ids, uintptr_t max_subset_id_len, Chrom_info* chrom_info_ptr, uintptr_t* gene_ct_ptr, char** gene_names_ptr, uintptr_t* max_gene_id_len_ptr, uintptr_t** chrom_bounds_ptr, uint32_t*** genedefs_ptr, uintptr_t* chrom_max_gene_ct_ptr, const char* file_descrip) {
+  // --clump-range, --gene-report
+  FILE* infile = NULL;
+  uintptr_t gene_ct = 0;
+  uintptr_t max_gene_id_len = 0;
+  uintptr_t chrom_max_gene_ct = 0;
+  uintptr_t topsize = 0;
+  uint32_t chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
+  uint32_t chrom_idx = 0;
+  Make_set_range** gene_arr;
+  Make_set_range* msr_tmp;
+  uint64_t* range_sort_buf;
+  uintptr_t* chrom_bounds;
+  uint32_t** genedefs;
+  char* gene_names;
+  char* bufptr;
+  uint32_t* uiptr;
+  uint64_t ullii;
+  uintptr_t gene_idx;
+  uintptr_t ulii;
+  uint32_t range_first;
+  uint32_t range_last;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+  uint32_t umm;
+  int32_t retval;
+  if (fopen_checked(&infile, fname, "r")) {
+    goto load_range_list_sortpos_ret_OPEN_FAIL;
+  }
+  retval = load_range_list(infile, 1, border_extend, 0, 0, 0, subset_ct, sorted_subset_ids, 0, NULL, chrom_info_ptr, &topsize, &gene_ct, gene_names_ptr, &max_gene_id_len, &gene_arr, &range_sort_buf, file_descrip);
+  if (retval) {
+    goto load_range_list_sortpos_ret_1;
+  }
+  gene_names = *gene_names_ptr;
+  wkspace_left -= topsize;
+  if (wkspace_alloc_ul_checked(chrom_bounds_ptr, (chrom_code_end + 1) * sizeof(intptr_t))) {
+    goto load_range_list_sortpos_ret_NOMEM2;
+  }
+  chrom_bounds = *chrom_bounds_ptr;
+  chrom_bounds[0] = 0;
+  genedefs = (uint32_t**)wkspace_alloc(gene_ct * sizeof(intptr_t));
+  if (!genedefs) {
+    goto load_range_list_sortpos_ret_NOMEM2;
+  }
+  for (gene_idx = 0; gene_idx < gene_ct; gene_idx++) {
+    bufptr = &(gene_names[gene_idx * max_gene_id_len]);
+    // instead of subtracting '0' (= ascii code 48) separately from each
+    // character, just subtract 48 * (1000 + 100 + 10 + 1) once at the end
+    uii = (((unsigned char)bufptr[0]) * 1000) + (((unsigned char)bufptr[1]) * 100) + (((unsigned char)bufptr[2]) * 10) + ((unsigned char)bufptr[3]) - 53328;
+    if (chrom_idx < uii) {
+      ulii = gene_idx - chrom_bounds[chrom_idx];
+      if (ulii > chrom_max_gene_ct) {
+	chrom_max_gene_ct = ulii;
+      }
+      do {
+	chrom_bounds[++chrom_idx] = gene_idx;
+      } while (chrom_idx < uii);
+    }
+    msr_tmp = gene_arr[gene_idx];
+    uii = 0;
+    while (msr_tmp) {
+      range_sort_buf[uii++] = (((uint64_t)(msr_tmp->uidx_start)) << 32) | ((uint64_t)(msr_tmp->uidx_end));
+      msr_tmp = msr_tmp->next;
+    }
+    if (!uii) {
+      if (wkspace_left < 16) {
+	goto load_range_list_sortpos_ret_NOMEM2;
+      }
+      genedefs[gene_idx] = (uint32_t*)wkspace_base;
+      wkspace_left -= 16;
+      wkspace_base = &(wkspace_base[16]);
+      genedefs[gene_idx][0] = 0;
+      continue;
+    }
+#ifdef __cplusplus
+    std::sort((int64_t*)range_sort_buf, (int64_t*)(&(range_sort_buf[uii])));
+#else
+    qsort(range_sort_buf, uii, sizeof(int64_t), llcmp);
+#endif
+    ukk = 0; // current end of sorted interval list
+    range_last = (uint32_t)range_sort_buf[0];
+    for (ujj = 1; ujj < uii; ujj++) {
+      ullii = range_sort_buf[ujj];
+      range_first = (uint32_t)(ullii >> 32);
+      if (range_first <= range_last) {
+	umm = (uint32_t)ullii;
+	if (umm > range_last) {
+	  range_last = umm;
+	  range_sort_buf[ukk] = (range_sort_buf[ukk] & 0xffffffff00000000LLU) | (ullii & 0xffffffffLLU);
+	}
+      } else {
+	if (++ukk < ujj) {
+	  range_sort_buf[ukk] = ullii;
+	}
+	range_last = (uint32_t)ullii;
+      }
+    }
+    ulii = (((++ukk) * 2 + 4) * sizeof(int32_t)) & (~(15 * ONELU));
+    if (wkspace_left < ulii) {
+      goto load_range_list_sortpos_ret_NOMEM2;
+    }
+    genedefs[gene_idx] = (uint32_t*)wkspace_base;
+    wkspace_left -= ulii;
+    wkspace_base = &(wkspace_base[ulii]);
+    uiptr = genedefs[gene_idx];
+    *uiptr++ = ukk;
+    for (uii = 0; uii < ukk; uii++) {
+      ullii = range_sort_buf[uii];
+      *uiptr++ = (uint32_t)(ullii >> 32);
+      *uiptr++ = (uint32_t)ullii;
+    }
+  }
+  ulii = gene_ct - chrom_bounds[chrom_idx];
+  if (ulii > chrom_max_gene_ct) {
+    chrom_max_gene_ct = ulii;
+  }
+  while (chrom_idx < chrom_code_end) {
+    chrom_bounds[++chrom_idx] = gene_ct;
+  }
+  wkspace_left += topsize;
+  if (fclose_null(&infile)) {
+    goto load_range_list_sortpos_ret_READ_FAIL;
+  }
+  *gene_ct_ptr = gene_ct;
+  *max_gene_id_len_ptr = max_gene_id_len;
+  *chrom_max_gene_ct_ptr = chrom_max_gene_ct;
+  *genedefs_ptr = genedefs;
+  while (0) {
+  load_range_list_sortpos_ret_NOMEM2:
+    wkspace_left += topsize;
+    retval = RET_NOMEM;
+    break;
+  load_range_list_sortpos_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  load_range_list_sortpos_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  }
+ load_range_list_sortpos_ret_1:
+  fclose_cond(infile);
+  return retval;
+}
+
+int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t border, char* extractname, const char* snp_field, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr) {
+  // logprint("Error: --gene-report is currently under development.\n");
+  // return RET_CALC_NOT_YET_SUPPORTED;
   // similar to define_sets() and --clump
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   FILE* outfile = NULL;
   uintptr_t topsize = 0;
-  uintptr_t gene_ct = 0;
-  uintptr_t max_gene_name_len = 0;
   uintptr_t subset_ct = 0;
   uintptr_t max_subset_id_len = 0;
+  uintptr_t extract_ct = 0;
+  uintptr_t max_extract_id_len = 0;
   char* sorted_subset_ids = NULL;
+  char* sorted_extract_ids = NULL;
   char* gene_names = NULL;
-  Make_set_range** gene_range_arr = NULL;
-  uintptr_t* rg_chrom_bounds = NULL;
-  uint32_t** rg_setdefs = NULL;
-  uint32_t** cur_rg_setdefs = NULL;
-  uint64_t* sort_buf_64 = NULL;
+  uintptr_t* chrom_bounds = NULL;
+  uint32_t** genedefs = NULL;
   int32_t retval = 0;
-  uint32_t chrom_idx;
+  uintptr_t gene_ct;
+  uintptr_t max_gene_name_len;
+  uintptr_t chrom_max_gene_ct;
+  uintptr_t ulii;
   if (subset_fname) {
-    if (fopen_checked(&infile, subset_fname, "r")) {
+    if (fopen_checked(&infile, subset_fname, "rb")) {
       goto gene_report_ret_OPEN_FAIL;
     }
     retval = scan_token_ct_len(infile, tbuf, MAXLINELEN, &subset_ct, &max_subset_id_len);
@@ -2136,35 +2280,61 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     qsort(sorted_subset_ids, subset_ct, max_subset_id_len, strcmp_casted);
     subset_ct = collapse_duplicate_ids(sorted_subset_ids, subset_ct, max_subset_id_len, NULL);
   }
-  if (fopen_checked(&infile, fname, "r")) {
-    goto gene_report_ret_READ_FAIL;
+  if (extractname) {
+    if (fopen_checked(&infile, extractname, "rb")) {
+      goto gene_report_ret_OPEN_FAIL;
+    }
+    retval = scan_token_ct_len(infile, tbuf, MAXLINELEN, &extract_ct, &max_extract_id_len);
+    if (retval) {
+      goto gene_report_ret_1;
+    }
+    if (!extract_ct) {
+      logprint("Error: Empty --extract file.\n");
+      goto gene_report_ret_INVALID_FORMAT;
+    }
+    if (max_extract_id_len > MAX_ID_LEN_P1) {
+      logprint("Error: --extract IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+      goto gene_report_ret_INVALID_FORMAT;
+    }
+    wkspace_left -= topsize;
+    if (wkspace_alloc_c_checked(&sorted_extract_ids, extract_ct * max_extract_id_len)) {
+      goto gene_report_ret_NOMEM2;
+    }
+    wkspace_left += topsize;
+    rewind(infile);
+    retval = read_tokens(infile, tbuf, MAXLINELEN, extract_ct, max_extract_id_len, sorted_extract_ids);
+    if (retval) {
+      goto gene_report_ret_1;
+    }
+    if (fclose_null(&infile)) {
+      goto gene_report_ret_READ_FAIL;
+    }
+    qsort(sorted_extract_ids, extract_ct, max_extract_id_len, strcmp_casted);
+    ulii = collapse_duplicate_ids(sorted_extract_ids, extract_ct, max_extract_id_len, NULL);
+    if (ulii < extract_ct) {
+      extract_ct = ulii;
+      wkspace_shrink_top(sorted_extract_ids, extract_ct * max_extract_id_len);
+    }
   }
-  retval = load_range_list(infile, 1, border, 0, 0, 0, subset_ct, sorted_subset_ids, max_subset_id_len, NULL, chrom_info_ptr, &topsize, &gene_ct, &gene_names, &max_gene_name_len, &gene_range_arr, &sort_buf_64, "--gene-report");
+  retval = load_range_list_sortpos(fname, border, subset_ct, sorted_subset_ids, max_subset_id_len, chrom_info_ptr, &gene_ct, &gene_names, &max_gene_name_len, &chrom_bounds, &genedefs, &chrom_max_gene_ct, "--gene-report");
+  wkspace_left += topsize;
+  // topsize = 0;
   if (retval) {
     goto gene_report_ret_1;
   }
-  wkspace_left -= topsize;
-  if (wkspace_alloc_ul_checked(&rg_chrom_bounds, (chrom_code_end + 1) * sizeof(intptr_t))) {
-    goto gene_report_ret_NOMEM;
-  }
-  rg_setdefs = (uint32_t**)wkspace_alloc(gene_ct * sizeof(intptr_t));
-  if (!rg_setdefs) {
-    goto gene_report_ret_NOMEM;
-  }
-  for (rg_idx = 0; rg_idx < gene_ct; rg_idx++) {
-    bufptr = &(gene_names[rg_idx * max_gene_name_len]);
-    ;;;
-  }
-  topsize = 0;
+
   memcpy(outname_end, ".range.report", 14);
   if (fopen_checked(&outfile, outname, "w")) {
     goto gene_report_ret_OPEN_FAIL;
   }
+  // need to resort by gene name first, chromosome number second
   ;;;
   if (fclose_null(&outfile)) {
     goto gene_report_ret_WRITE_FAIL;
   }
   while (0) {
+  gene_report_ret_NOMEM2:
+    wkspace_left += topsize;
   gene_report_ret_NOMEM:
     retval = RET_NOMEM;
     break;
@@ -2186,5 +2356,4 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   fclose_cond(infile);
   fclose_cond(outfile);
   return retval;
-  */
 }

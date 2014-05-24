@@ -86,7 +86,7 @@
 
 const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b1b"
+  "PLINK v1.90b1c"
 #else
   "PLINK v1.90b2p"
 #endif
@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (22 May 2014)";
+  " (24 May 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   //  " " (don't actually want this when version number has a trailing letter)

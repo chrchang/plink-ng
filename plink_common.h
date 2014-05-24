@@ -1638,7 +1638,7 @@ void get_set_wrange_align(uintptr_t* bitfield, uintptr_t word_ct, uintptr_t* fir
 
 // Maximum accepted chromosome index is this minus 1.  Currently cannot exceed
 // 2^14 due to SMALL_INTERVAL_BITS setting in plink_cnv.c.
-#define MAX_POSSIBLE_CHROM 2560
+#define MAX_POSSIBLE_CHROM 5120
 #define MAX_CHROM_TEXTNUM 59
 // usual PLINK 1.07 chromosome field length is 4.  So it's safe to increase
 // MAX_CHROM_TEXTNUM to 9995, but 9996+ creates problems...
@@ -1651,11 +1651,11 @@ void get_set_wrange_align(uintptr_t* bitfield, uintptr_t word_ct, uintptr_t* fir
 
 #ifdef __LP64__
   // MAX_POSSIBLE_CHROM / BITCT rounded up
-  #define CHROM_MASK_WORDS 40
+  #define CHROM_MASK_WORDS 80
   // dog requires 42 bits, and other species require less
   #define CHROM_MASK_INITIAL_WORDS 1
 #else
-  #define CHROM_MASK_WORDS 80
+  #define CHROM_MASK_WORDS 160
   #define CHROM_MASK_INITIAL_WORDS 2
 #endif
 
