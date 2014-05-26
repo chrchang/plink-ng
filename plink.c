@@ -4252,6 +4252,43 @@ int32_t main(int32_t argc, char** argv) {
         if (alloc_string(&annot_info.snpfield, argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
+      } else if (!memcmp(argptr2, "ttrib", 6)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
+          goto main_ret_INVALID_CMDLINE_2A;
+	}
+        retval = alloc_fname(&filter_attrib_fname, argv[cur_arg + 1], argptr, 0);
+        if (retval) {
+          goto main_ret_1;
+	}
+	if (param_ct == 2) {
+	  // force comma-terminated string to simplify parsing
+	  uii = strlen(argv[cur_arg + 2]);
+	  filter_attrib_liststr = (char*)malloc(uii + 2);
+	  if (!filter_attrib_liststr) {
+	    goto main_ret_NOMEM;
+	  }
+          memcpy(filter_attrib_liststr, argv[cur_arg + 2], uii);
+	  memcpy(&(filter_attrib_liststr[uii]), ",", 2);
+	}
+	filter_flags |= FILTER_GENERIC;
+      } else if (!memcmp(argptr2, "ttrib-indiv", 12)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
+          goto main_ret_INVALID_CMDLINE_2A;
+	}
+        retval = alloc_fname(&filter_attrib_indiv_fname, argv[cur_arg + 1], argptr, 0);
+        if (retval) {
+          goto main_ret_1;
+	}
+	if (param_ct == 2) {
+	  uii = strlen(argv[cur_arg + 2]);
+	  filter_attrib_indiv_liststr = (char*)malloc(uii + 2);
+	  if (!filter_attrib_indiv_liststr) {
+	    goto main_ret_NOMEM;
+	  }
+          memcpy(filter_attrib_indiv_liststr, argv[cur_arg + 2], uii);
+	  memcpy(&(filter_attrib_indiv_liststr[uii]), ",", 2);
+	}
+	filter_flags |= FILTER_GENERIC;
       } else if ((!memcmp(argptr2, "lt-group", 9)) ||
                  (!memcmp(argptr2, "lt-snp", 7))) {
         goto main_hap_disabled_message;
@@ -6140,43 +6177,6 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-      } else if (!memcmp(argptr2, "ttrib", 6)) {
-        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
-          goto main_ret_INVALID_CMDLINE_2A;
-	}
-        retval = alloc_fname(&filter_attrib_fname, argv[cur_arg + 1], argptr, 0);
-        if (retval) {
-          goto main_ret_1;
-	}
-	if (param_ct == 2) {
-	  // force comma-terminated string to simplify parsing
-	  uii = strlen(argv[cur_arg + 2]);
-	  filter_attrib_liststr = (char*)malloc(uii + 2);
-	  if (!filter_attrib_liststr) {
-	    goto main_ret_NOMEM;
-	  }
-          memcpy(filter_attrib_liststr, argv[cur_arg + 2], uii);
-	  memcpy(&(filter_attrib_liststr[uii]), ",", 2);
-	}
-	filter_flags |= FILTER_GENERIC;
-      } else if (!memcmp(argptr2, "ttrib-indiv", 12)) {
-        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
-          goto main_ret_INVALID_CMDLINE_2A;
-	}
-        retval = alloc_fname(&filter_attrib_indiv_fname, argv[cur_arg + 1], argptr, 0);
-        if (retval) {
-          goto main_ret_1;
-	}
-	if (param_ct == 2) {
-	  uii = strlen(argv[cur_arg + 2]);
-	  filter_attrib_indiv_liststr = (char*)malloc(uii + 2);
-	  if (!filter_attrib_indiv_liststr) {
-	    goto main_ret_NOMEM;
-	  }
-          memcpy(filter_attrib_indiv_liststr, argv[cur_arg + 2], uii);
-	  memcpy(&(filter_attrib_indiv_liststr[uii]), ",", 2);
-	}
-	filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "ast-epistasis", 14)) {
 	if (epi_info.modifier & EPI_REG) {
 	  logprint("Error: --fast-epistasis cannot be used with --epistasis.\n");

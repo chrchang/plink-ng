@@ -274,7 +274,7 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
 }
 
 int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintptr_t sorted_ids_ct, uintptr_t max_id_len, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* exclude_ct_ptr, uint32_t is_indiv) {
-  FILE* infile = NULL;
+  gzFile gz_infile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t include_ct = 0;
   uintptr_t unfiltered_ctl = (unfiltered_ct + (BITCT - 1)) / BITCT;
@@ -416,13 +416,22 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
   } else if (loadbuf_size <= MAXLINELEN) {
     goto filter_attrib_ret_NOMEM;
   }
-  if (fopen_checked(&infile, fname, "r")) {
+  if (gzopen_checked(&gz_infile, fname, "rb")) {
     goto filter_attrib_ret_OPEN_FAIL;
+  }
+  if (gzbuffer(gz_infile, 131072)) {
+    goto filter_attrib_ret_NOMEM;
   }
   loadbuf = (char*)wkspace_base;
   loadbuf[loadbuf_size - 1] = ' ';
-  while (fgets(loadbuf, loadbuf_size, infile)) {
+  while (1) {
     line_idx++;
+    if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
+      if (!gzeof(gz_infile)) {
+	goto filter_attrib_ret_READ_FAIL;
+      }
+      break;
+    }
     if (!loadbuf[loadbuf_size - 1]) {
       if (loadbuf_size == MAXLINEBUFLEN) {
 	sprintf(logbuf, "Error: Line %" PRIuPTR" of --attrib%s file is pathologically long.\n", line_idx, is_indiv? "-indiv" : "");
@@ -469,7 +478,7 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
       bufptr = item_endnn(cond_ptr);
       ulii = (uintptr_t)(bufptr - bufptr2);
       cond_ptr = skip_initial_spaces(bufptr);
-      if (pos_match_needed && (bsearch_str(bufptr2, ulii, sorted_pos_match, max_pos_match_len, pos_match_ct) == -1)) {
+      if (pos_match_needed && (bsearch_str(bufptr2, ulii, sorted_pos_match, max_pos_match_len, pos_match_ct) != -1)) {
 	pos_match_needed = 0;
       }
       if (cur_neg_match_ct < neg_match_ct) {
@@ -492,9 +501,6 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
     // check required
     clear_bit(exclude_arr_new, unfiltered_idx);
     include_ct++;
-  }
-  if (!feof(infile)) {
-    goto filter_attrib_ret_READ_FAIL;
   }
   if (!include_ct) {
     LOGPRINTF("Error: No %s remaining after --attrib%s.\n", is_indiv? g_species_plural : "variants", is_indiv? "-indiv" : "");
@@ -529,7 +535,7 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
   }
  filter_attrib_ret_1:
   wkspace_reset(wkspace_mark);
-  fclose_cond(infile);
+  gzclose_cond(gz_infile);
   return retval;
 }
 
