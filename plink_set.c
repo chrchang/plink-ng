@@ -2,7 +2,7 @@
 
 #include "plink_set.h"
 
-void set_init(Set_info* sip) {
+void set_init(Set_info* sip, Annot_info* aip) {
   sip->fname = NULL;
   sip->setnames_flattened = NULL;
   sip->subset_fname = NULL;
@@ -13,14 +13,30 @@ void set_init(Set_info* sip) {
   sip->set_r2 = 0.5;
   sip->set_p = 0.05;
   sip->set_max = 5;
+  aip->fname = NULL;
+  aip->attrib_fname = NULL;
+  aip->ranges_fname = NULL;
+  aip->filter_fname = NULL;
+  aip->snps_fname = NULL;
+  aip->subset_fname = NULL;
+  aip->snpfield = NULL;
+  aip->modifier = 0;
+  aip->border = 0;
 }
 
-void set_cleanup(Set_info* sip) {
+void set_cleanup(Set_info* sip, Annot_info* aip) {
   free_cond(sip->fname);
   free_cond(sip->setnames_flattened);
   free_cond(sip->subset_fname);
   free_cond(sip->merged_set_name);
   free_cond(sip->genekeep_flattened);
+  free_cond(aip->fname);
+  free_cond(aip->attrib_fname);
+  free_cond(aip->ranges_fname);
+  free_cond(aip->filter_fname);
+  free_cond(aip->snps_fname);
+  free_cond(aip->subset_fname);
+  free_cond(aip->snpfield);
 }
 
 uint32_t in_setdef(uint32_t* setdef, uint32_t marker_idx) {
@@ -2229,6 +2245,11 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
  load_range_list_sortpos_ret_1:
   fclose_cond(infile);
   return retval;
+}
+
+int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr) {
+  logprint("Error: --annotate is currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
 }
 
 int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t border, char* extractname, const char* snp_field, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr) {

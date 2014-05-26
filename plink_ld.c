@@ -5591,6 +5591,7 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
   uintptr_t prev_strong = 0;
   uintptr_t prev_rec = 0;
   uintptr_t markers_done = 0;
+  uint32_t no_pheno_req = ldip->modifier & LD_BLOCKS_NO_PHENO_REQ;
   uint32_t max_window_bp = ldip->blocks_max_bp;
   uint32_t max_window_bp1 = 20000;
   uint32_t max_window_bp2 = 30000;
@@ -5691,13 +5692,13 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
     goto haploview_blocks_ret_NOMEM;
   }
   memcpy(founder_pnm, founder_info, unfiltered_indiv_ctl * sizeof(intptr_t));
-  bitfield_and(founder_pnm, pheno_nm, unfiltered_indiv_ctl);
+  if (!no_pheno_req) {
+    bitfield_and(founder_pnm, pheno_nm, unfiltered_indiv_ctl);
+  }
   founder_ct = popcount_longs(founder_pnm, unfiltered_indiv_ctl);
   if (!founder_ct) {
-    // actually nonmissing phenotype count
-    founder_ct = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
-    if (!founder_ct) {
-      logprint("Warning: Skipping --blocks, since there are no founders with nonmissing\nphenotypes.  (\"--make-pheno [name of empty file] '*'\" is a quick way to make\neveryone a control.)\n");
+    if ((!no_pheno_req) && (!popcount_longs(pheno_nm, unfiltered_indiv_ctl))) {
+      logprint("Warning: Skipping --blocks, since there are no founders with nonmissing\nphenotypes.  (The 'no-pheno-req' modifier removes the phenotype restriction.)\n");
     } else {
       logprint("Warning: Skipping --blocks, since there are no founders with nonmissing\nphenotypes.  (--make-founders may come in handy here.)\n");
     }

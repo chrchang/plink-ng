@@ -875,6 +875,7 @@ static inline int32_t is_letter(char cc) {
   return (((((unsigned char)cc) & 192) == 64) && (((((unsigned char)cc) - 1) & 31) < 26));
 }
 
+// if we need the digit value, better to use (unsigned char)cc - '0'...
 static inline int32_t is_digit(char cc) {
   return (cc <= '9') && (cc >= '0');
 }

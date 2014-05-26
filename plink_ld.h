@@ -22,8 +22,9 @@
 #define LD_IGNORE_X 0x4000
 #define LD_WEIGHTED_X 0x8000
 #define LD_SNP_LIST_FILE 0x10000
-#define LD_BLOCKS_NO_SMALL_MAX_SPAN 0x20000
-#define LD_FLIPSCAN_VERBOSE 0x40000
+#define LD_BLOCKS_NO_PHENO_REQ 0x20000
+#define LD_BLOCKS_NO_SMALL_MAX_SPAN 0x40000
+#define LD_FLIPSCAN_VERBOSE 0x80000
 
 typedef struct {
   double prune_last_param; // VIF or r^2 threshold

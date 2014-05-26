@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (25 May 2014)";
+  " (26 May 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   //  " " (don't actually want this when version number has a trailing letter)
@@ -118,9 +118,9 @@ const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip
   #endif
 #else
   #ifndef NOLAPACK
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --pca, --neighbour,\n--ibs-test, --regress-distance, --model, --gxe, --logistic, --lasso,\n--test-missing, --make-perm-pheno, --unrelated-heritability, --tdt, --clump,\n--fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --pca, --neighbour,\n--ibs-test, --regress-distance, --model, --gxe, --logistic, --lasso,\n--test-missing, --make-perm-pheno, --unrelated-heritability, --tdt, --clump,\n--gene-report, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour, --ibs-test,\n--regress-distance, --model, --gxe, --logistic, --lasso, --test-missing,\n--make-perm-pheno, --tdt, --clump, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour, --ibs-test,\n--regress-distance, --model, --gxe, --logistic, --lasso, --test-missing,\n--make-perm-pheno, --tdt, --clump, --gene-report, --fast-epistasis, and\n--score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #endif
 #endif
 
@@ -935,14 +935,14 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     goto plink_ret_READ_FAIL;
   }
   llxx = ftello(bedfile);
-  llyy = ((uint64_t)unfiltered_indiv_ct4) * unfiltered_marker_ct;
-  llzz = ((uint64_t)unfiltered_indiv_ct) * ((unfiltered_marker_ct + 3) / 4);
   if (!llxx) {
     logprint("Error: Empty .bed file.\n");
     goto plink_ret_INVALID_FORMAT;
   }
   rewind(bedfile);
   uii = fread(tbuf, 1, 3, bedfile);
+  llyy = ((uint64_t)unfiltered_indiv_ct4) * unfiltered_marker_ct;
+  llzz = ((uint64_t)unfiltered_indiv_ct) * ((unfiltered_marker_ct + 3) / 4);
   if ((uii == 3) && (!memcmp(tbuf, "l\x1b\x01", 3))) {
     llyy += 3;
   } else if ((uii == 3) && (!memcmp(tbuf, "l\x1b", 2))) {
@@ -979,13 +979,14 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (bed_offset == 2) {
-    strcpy(outname_end, ".bed.tmp"); // not really temporary
-    logprint("Individual-major .bed file detected.  Transposing to SNP-major form.\n");
+    strcpy(outname_end, ".bed.vmaj"); // not really temporary
+    logprint("Individual-major .bed file detected.  Transposing...\n");
     fclose(bedfile);
-    retval = indiv_major_to_snp_major(pedname, outname, unfiltered_marker_ct);
+    retval = indiv_major_to_snp_major(pedname, outname, unfiltered_marker_ct, unfiltered_indiv_ct, llxx);
     if (retval) {
       goto plink_ret_1;
     }
+    LOGPRINTFWW("Variant-major .bed written to %s .\n", outname);
     strcpy(pedname, outname);
     if (fopen_checked(&bedfile, pedname, "rb")) {
       goto plink_ret_OPEN_FAIL;
@@ -3088,6 +3089,7 @@ int32_t main(int32_t argc, char** argv) {
   Homozyg_info homozyg;
   Ld_info ld_info;
   Epi_info epi_info;
+  Annot_info annot_info;
   Clump_info clump_info;
   Rel_info rel_info;
   Score_info score_info;
@@ -3117,7 +3119,7 @@ int32_t main(int32_t argc, char** argv) {
   oblig_missing_init(&oblig_missing_info);
   aperm_init(&aperm);
   cluster_init(&cluster);
-  set_init(&set_info);
+  set_init(&set_info, &annot_info);
   homozyg_init(&homozyg);
   ld_epi_init(&ld_info, &epi_info, &clump_info);
   rel_init(&rel_info);
@@ -4164,9 +4166,92 @@ int32_t main(int32_t argc, char** argv) {
 	filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "nnotate", 8)) {
 	UNSTABLE;
-        logprint("Error: --annotate is currently under development.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 10)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+	retval = alloc_fname(&annot_info.fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
+	for (uii = 2; uii <= param_ct; uii++) {
+	  ujj = strlen(argv[cur_arg + uii]);
+	  if ((ujj > 7) && (!memcmp(argv[cur_arg + uii], "attrib=", 7))) {
+            retval = alloc_fname(&annot_info.attrib_fname, &(argv[cur_arg + uii][7]), argptr, 0);
+	    if (retval) {
+	      goto main_ret_1;
+	    }
+	  } else if ((ujj > 7) && (!memcmp(argv[cur_arg + uii], "ranges=", 7))) {
+            retval = alloc_fname(&annot_info.ranges_fname, &(argv[cur_arg + uii][7]), argptr, 0);
+	    if (retval) {
+	      goto main_ret_1;
+	    }
+	  } else if ((ujj > 7) && (!memcmp(argv[cur_arg + uii], "filter=", 7))) {
+            retval = alloc_fname(&annot_info.filter_fname, &(argv[cur_arg + uii][7]), argptr, 0);
+	    if (retval) {
+	      goto main_ret_1;
+	    }
+	  } else if ((ujj > 7) && (!memcmp(argv[cur_arg + uii], "subset=", 7))) {
+            retval = alloc_fname(&annot_info.subset_fname, &(argv[cur_arg + uii][7]), argptr, 0);
+	    if (retval) {
+	      goto main_ret_1;
+	    }
+	  } else if ((ujj > 5) && (!memcmp(argv[cur_arg + uii], "snps=", 5))) {
+            retval = alloc_fname(&annot_info.snps_fname, &(argv[cur_arg + uii][5]), argptr, 0);
+	    if (retval) {
+	      goto main_ret_1;
+	    }
+	  } else if ((ujj == 2) && (!memcmp(argv[cur_arg + uii], "NA", 2))) {
+	    if (annot_info.modifier & ANNOT_PRUNE) {
+              logprint("Error: --annotate 'NA' and 'prune' cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    }
+	    annot_info.modifier |= ANNOT_NA;
+	  } else if ((ujj == 5) && (!memcmp(argv[cur_arg + uii], "prune", 5))) {
+	    if (annot_info.modifier & ANNOT_NA) {
+              logprint("Error: --annotate 'NA' and 'prune' cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    }
+	    annot_info.modifier |= ANNOT_PRUNE;
+	  } else if ((ujj == 5) && (!memcmp(argv[cur_arg + uii], "block", 5))) {
+            annot_info.modifier |= ANNOT_BLOCK;
+	  } else if ((ujj == 7) && (!memcmp(argv[cur_arg + uii], "minimal", 7))) {
+	    annot_info.modifier |= ANNOT_MINIMAL;
+	  } else if ((ujj == 8) && (!memcmp(argv[cur_arg + uii], "distance", 8))) {
+	    annot_info.modifier |= ANNOT_DISTANCE;
+	  } else {
+	    sprintf(logbuf, "Error: Invalid --annotate parameter '%s'.\n", argv[cur_arg + uii]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+	  }
+	}
+	if (!annot_info.attrib_fname) {
+	  if (!annot_info.ranges_fname) {
+	    logprint("Error: --annotate must be used with 'attrib' and/or 'ranges'.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
+	  }
+          if (annot_info.modifier & ANNOT_BLOCK) {
+	    logprint("Error: --annotate 'block' modifier must be used with 'attrib'.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+	  }
+	} else if (!annot_info.ranges_fname) {
+	  if (annot_info.subset_fname) {
+	    logprint("Error: --annotate 'subset' modifier must be used with 'ranges'.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
+	  } else if (annot_info.modifier & (ANNOT_MINIMAL | ANNOT_DISTANCE)) {
+	    sprintf(logbuf, "Error: --annotate '%s' modifier must be used with 'ranges'.\n", (annot_info.modifier & ANNOT_MINIMAL)? "minimal" : "distance");
+            goto main_ret_INVALID_CMDLINE_2A;
+	  }
+	}
+      } else if (!memcmp(argptr2, "nnotate-snp-field", 18)) {
+	if (!annot_info.attrib_fname) {
+	  logprint("Error: --annotate-snp-field must be used with --annotate + 'attrib'.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+        if (alloc_string(&annot_info.snpfield, argv[cur_arg + 1])) {
+	  goto main_ret_NOMEM;
+	}
       } else if ((!memcmp(argptr2, "lt-group", 9)) ||
                  (!memcmp(argptr2, "lt-snp", 7))) {
         goto main_hap_disabled_message;
@@ -4330,15 +4415,18 @@ int32_t main(int32_t argc, char** argv) {
           misc_flags |= MISC_OXFORD_SNPID_CHR;
 	}
       } else if (!memcmp(argptr2, "locks", 6)) {
-        if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-        if (param_ct) {
-	  if (strcmp(argv[cur_arg + 1], "no-small-max-span")) {
-	    sprintf(logbuf, "Error: Invalid --blocks parameter '%s'.\n", argv[cur_arg + 1]);
+	for (uii = 1; uii <= param_ct; uii++) {
+	  if (!strcmp(argv[cur_arg + uii], "no-pheno-req")) {
+            ld_info.modifier |= LD_BLOCKS_NO_PHENO_REQ;
+	  } else if (!strcmp(argv[cur_arg + uii], "no-small-max-span")) {
+            ld_info.modifier |= LD_BLOCKS_NO_SMALL_MAX_SPAN;
+	  } else {
+	    sprintf(logbuf, "Error: Invalid --blocks parameter '%s'.\n", argv[cur_arg + uii]);
             goto main_ret_INVALID_CMDLINE_WWA;
 	  }
-          ld_info.modifier |= LD_BLOCKS_NO_SMALL_MAX_SPAN;
 	}
 	calculation_type |= CALC_BLOCKS;
       } else if (!memcmp(argptr2,"locks-inform-frac", 17)) {
@@ -4440,9 +4528,24 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
       } else if (!memcmp(argptr2, "order", 6)) {
-	if (1) {
-	  logprint("Error: --border must be used with --annotate.\n");
+	if (!annot_info.ranges_fname) {
+	  logprint("Error: --border now must be used with --annotate + 'ranges'.\n");
+	  if (!annot_info.fname) {
+            logprint("Use --make-set-border with --make-set, etc.)\n");
+	  }
           goto main_ret_INVALID_CMDLINE_A;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0)) {
+	  sprintf(logbuf, "Error: Invalid --border parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WW;
+	}
+	if (dxx > 2147483.646) {
+	  annot_info.border = 0x7ffffffe;
+	} else {
+	  annot_info.border = (int32_t)(dxx * 1000 * (1 + SMALL_EPSILON));
 	}
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
@@ -6037,7 +6140,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-      } else if (!memcmp(argptr2, "ilter-attrib", 13)) {
+      } else if (!memcmp(argptr2, "ttrib", 6)) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -6056,7 +6159,7 @@ int32_t main(int32_t argc, char** argv) {
 	  memcpy(&(filter_attrib_liststr[uii]), ",", 2);
 	}
 	filter_flags |= FILTER_GENERIC;
-      } else if (!memcmp(argptr2, "ilter-attrib-indiv", 19)) {
+      } else if (!memcmp(argptr2, "ttrib-indiv", 12)) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -11631,11 +11734,12 @@ int32_t main(int32_t argc, char** argv) {
   // short batch job?
   uii = 0;
   if ((!calculation_type) && (!(load_rare & (LOAD_RARE_LGEN | LOAD_RARE_DUMMY | LOAD_RARE_SIMULATE | LOAD_RARE_TRANSPOSE_MASK | LOAD_RARE_23 | LOAD_RARE_CNV | LOAD_RARE_VCF | LOAD_RARE_BCF)))) {
-    if (epi_info.summary_merge_prefix || gene_report_fname) {
+    if (epi_info.summary_merge_prefix || annot_info.fname || gene_report_fname) {
       uii = 1;
     } else if (famname[0] || load_rare) {
       goto main_ret_NULL_CALC;
     }
+    // otherwise, autoconversion job
   }
   if (!(load_params || load_rare || uii)) {
     logprint("Error: No input dataset.\n");
@@ -11737,6 +11841,9 @@ int32_t main(int32_t argc, char** argv) {
     if (retval) {
       goto main_ret_1;
     }
+  }
+  if (annot_info.fname) {
+    retval = annotate(&annot_info, outname, outname_end, pfilter, &chrom_info);
   }
   if (gene_report_fname) {
     retval = gene_report(gene_report_fname, gene_report_glist, gene_report_subset, gene_report_border, (misc_flags & MISC_EXTRACT_RANGE)? NULL : extractname, gene_report_snp_field, outname, outname_end, pfilter, &chrom_info);
@@ -11980,7 +12087,7 @@ int32_t main(int32_t argc, char** argv) {
 
   oblig_missing_cleanup(&oblig_missing_info);
   cluster_cleanup(&cluster);
-  set_cleanup(&set_info);
+  set_cleanup(&set_info, &annot_info);
   ld_epi_cleanup(&ld_info, &epi_info, &clump_info);
   rel_cleanup(&rel_info);
   misc_cleanup(&score_info);

@@ -325,7 +325,7 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
 	if (*cond_ptr == ',') {
 	  continue;
 	} else if (*cond_ptr == '-') {
-	  sprintf(logbuf, "Error: --filter-attrib%s condition cannot contain consecutive dashes.\n", is_indiv? "-indiv" : "");
+	  sprintf(logbuf, "Error: --attrib%s condition cannot contain consecutive dashes.\n", is_indiv? "-indiv" : "");
 	  goto filter_attrib_ret_INVALID_CMDLINE_2;
 	}
 	is_neg = 1;
@@ -395,7 +395,7 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
       qsort(sorted_pos_match, pos_match_ct, max_pos_match_len, strcmp_casted);
       bufptr = scan_for_duplicate_ids(sorted_pos_match, pos_match_ct, max_pos_match_len);
       if (bufptr) {
-	LOGPREPRINTFWW("Error: Duplicate attribute '%s' in --filter-attrib%s argument.\n", bufptr, is_indiv? "-indiv" : "");
+	LOGPREPRINTFWW("Error: Duplicate attribute '%s' in --attrib%s argument.\n", bufptr, is_indiv? "-indiv" : "");
 	goto filter_attrib_ret_INVALID_CMDLINE_2;
       }
     }
@@ -403,7 +403,7 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
       qsort(sorted_neg_match, neg_match_ct, max_neg_match_len, strcmp_casted);
       bufptr = scan_for_duplicate_ids(sorted_neg_match, neg_match_ct, max_neg_match_len);
       if (bufptr) {
-	LOGPREPRINTFWW("Error: Duplicate attribute '%s' in --filter-attrib%s argument.\n", bufptr, is_indiv? "-indiv" : "");
+	LOGPREPRINTFWW("Error: Duplicate attribute '%s' in --attrib%s argument.\n", bufptr, is_indiv? "-indiv" : "");
 	goto filter_attrib_ret_INVALID_CMDLINE_2;
       }
       // actually may make sense to have same attribute as a positive and
@@ -425,7 +425,7 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
     line_idx++;
     if (!loadbuf[loadbuf_size - 1]) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-	sprintf(logbuf, "Error: Line %" PRIuPTR" of --filter-attrib%s file is pathologically long.\n", line_idx, is_indiv? "-indiv" : "");
+	sprintf(logbuf, "Error: Line %" PRIuPTR" of --attrib%s file is pathologically long.\n", line_idx, is_indiv? "-indiv" : "");
         goto filter_attrib_ret_INVALID_FORMAT_2;
       }
       goto filter_attrib_ret_NOMEM;
@@ -436,7 +436,7 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
     }
     if (is_indiv) {
       if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_ct, bufptr, &cond_ptr, &sorted_idx)) {
-        sprintf(logbuf, "Error: Line %" PRIuPTR " of --filter-attrib-indiv file has fewer tokens than\nexpected.\n", line_idx);
+        sprintf(logbuf, "Error: Line %" PRIuPTR " of --attrib-indiv file has fewer tokens than\nexpected.\n", line_idx);
         goto filter_attrib_ret_INVALID_FORMAT_2;
       }
     } else {
@@ -450,10 +450,10 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
     if (is_set(already_seen, sorted_idx)) {
       if (is_indiv) {
 	*strchr(id_buf, '\t') = ' ';
-        LOGPREPRINTFWW("Error: Duplicate individual ID '%s' in --filter-attrib-indiv file.\n", id_buf);
+        LOGPREPRINTFWW("Error: Duplicate individual ID '%s' in --attrib-indiv file.\n", id_buf);
       } else {
 	*bufptr2 = '\0';
-	LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --filter-attrib file.\n", bufptr);
+	LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --attrib file.\n", bufptr);
       }
       goto filter_attrib_ret_INVALID_FORMAT_2;
     }
@@ -497,7 +497,7 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
     goto filter_attrib_ret_READ_FAIL;
   }
   if (!include_ct) {
-    LOGPRINTF("Error: No %s remaining after --filter-attrib%s.\n", is_indiv? g_species_plural : "variants", is_indiv? "-indiv" : "");
+    LOGPRINTF("Error: No %s remaining after --attrib%s.\n", is_indiv? g_species_plural : "variants", is_indiv? "-indiv" : "");
     if (is_indiv) {
       retval = RET_ALL_SAMPLES_EXCLUDED;
     } else {
@@ -505,7 +505,7 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
     }
     goto filter_attrib_ret_1;
   }
-  LOGPRINTF("--filter-attrib%s: %" PRIuPTR " %s remaining.\n", is_indiv? "-indiv" : "", include_ct, is_indiv? species_str(include_ct) : "variants");
+  LOGPRINTF("--attrib%s: %" PRIuPTR " %s remaining.\n", is_indiv? "-indiv" : "", include_ct, is_indiv? species_str(include_ct) : "variants");
   memcpy(exclude_arr, exclude_arr_new, unfiltered_ctl * sizeof(intptr_t));
   *exclude_ct_ptr = unfiltered_ct - include_ct;
   while (0) {

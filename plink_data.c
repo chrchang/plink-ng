@@ -1,15 +1,16 @@
 #include "plink_common.h"
 
 #include <ctype.h>
-#include <fcntl.h>
 #include <time.h>
+// no more mmap() dependency
+// #include <fcntl.h>
 
 #ifndef _WIN32
-#include <sys/mman.h>
+// #include <sys/mman.h>
 #include <unistd.h>
 #endif
 
-#include <sys/stat.h>
+// #include <sys/stat.h>
 #include <sys/types.h>
 #include "plink_family.h"
 #include "plink_set.h"
@@ -50,25 +51,141 @@ int32_t sort_item_ids_nx(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t
   return 0;
 }
 
-#ifdef _WIN32
-int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr_t unfiltered_marker_ct) {
-  logprint("Error: Win32 " PROG_NAME_CAPS " does not yet support transposition of individual-major .bed\nfiles.  Contact the developers if you need this.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
+int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr_t unfiltered_marker_ct, uintptr_t indiv_ct, uint64_t fsize) {
+  // See below for old mmap() code.  Turns out this is more portable without
+  // being noticeably slower.
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* infile = NULL;
+  FILE* outfile = NULL;
+  uintptr_t unfiltered_marker_ct4 = (unfiltered_marker_ct + 3) / 4;
+  uintptr_t unfiltered_marker_ctl2 = (unfiltered_marker_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t unfiltered_indiv_ct4 = (indiv_ct + 3) / 4;
+  uintptr_t marker_idx_end = 0;
+  uint32_t bed_offset = fsize - indiv_ct * ((uint64_t)unfiltered_marker_ct4);
+  int32_t retval = 0;
+  uintptr_t* loadbuf;
+  uintptr_t* lptr;
+  unsigned char* writebuf;
+  unsigned char* ucptr;
+  uintptr_t write_marker_ct;
+  uintptr_t marker_idx_base;
+  uintptr_t marker_idx_block_end;
+  uintptr_t marker_idx;
+  uintptr_t indiv_idx_base;
+  uintptr_t indiv_idx_end;
+  uintptr_t indiv_idx;
+  uintptr_t cur_word0;
+  uintptr_t cur_word1;
+  uintptr_t cur_word2;
+  uintptr_t cur_word3;
+  // could make this allocation a bit smaller in multipass case, but whatever
+  if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_marker_ctl2 * 4 * sizeof(intptr_t))) {
+    goto indiv_major_to_snp_major_ret_NOMEM;
+  }
+  if (wkspace_left < unfiltered_indiv_ct4) {
+    goto indiv_major_to_snp_major_ret_NOMEM;
+  }
+  writebuf = (unsigned char*)wkspace_base;
+  write_marker_ct = BITCT2 * (wkspace_left / (unfiltered_indiv_ct4 * BITCT2));
+  loadbuf[unfiltered_marker_ctl2 - 1] = 0;
+  loadbuf[2 * unfiltered_marker_ctl2 - 1] = 0;
+  loadbuf[3 * unfiltered_marker_ctl2 - 1] = 0;
+  loadbuf[4 * unfiltered_marker_ctl2 - 1] = 0;
+  if (fopen_checked(&infile, indiv_major_fname, "rb")) {
+    goto indiv_major_to_snp_major_ret_OPEN_FAIL;
+  }
+  if (fopen_checked(&outfile, outname, "wb")) {
+    goto indiv_major_to_snp_major_ret_OPEN_FAIL;
+  }
+  if (fwrite_checked("l\x1b\x01", 3, outfile)) {
+    goto indiv_major_to_snp_major_ret_WRITE_FAIL;
+  }
+  do {
+    marker_idx_base = marker_idx_end;
+    marker_idx_end += write_marker_ct;
+    if (marker_idx_end > unfiltered_marker_ct) {
+      marker_idx_end = unfiltered_marker_ct;
+    }
+    if (fseeko(infile, bed_offset, SEEK_SET)) {
+      goto indiv_major_to_snp_major_ret_READ_FAIL;
+    }
+    for (indiv_idx_end = 0; indiv_idx_end < indiv_ct;) {
+      indiv_idx_base = indiv_idx_end;
+      indiv_idx_end = indiv_idx_base + 4;
+      if (indiv_idx_end > indiv_ct) {
+	fill_ulong_zero(&(loadbuf[(indiv_ct % 4) * unfiltered_marker_ctl2]), (4 - (indiv_ct % 4)) * unfiltered_marker_ctl2);
+	indiv_idx_end = indiv_ct;
+      }
+      lptr = loadbuf;
+      for (indiv_idx = indiv_idx_base; indiv_idx < indiv_idx_end; indiv_idx++) {
+        if (fread(lptr, 1, unfiltered_marker_ct4, infile) < unfiltered_marker_ct4) {
+	  goto indiv_major_to_snp_major_ret_READ_FAIL;
+        }
+	lptr = &(lptr[unfiltered_marker_ctl2]);
+      }
+      lptr = &(loadbuf[marker_idx_base / BITCT2]);
+      for (marker_idx_block_end = marker_idx_base; marker_idx_block_end < marker_idx_end; lptr++) {
+	marker_idx = marker_idx_block_end;
+        cur_word0 = *lptr;
+	cur_word1 = lptr[unfiltered_marker_ctl2];
+	cur_word2 = lptr[2 * unfiltered_marker_ctl2];
+	cur_word3 = lptr[3 * unfiltered_marker_ctl2];
+	marker_idx_block_end = marker_idx + BITCT2;
+	if (marker_idx_block_end > marker_idx_end) {
+          marker_idx_block_end = marker_idx_end;
+	}
+	ucptr = &(writebuf[(marker_idx - marker_idx_base) * unfiltered_indiv_ct4 + (indiv_idx_base / 4)]);
+	while (1) {
+	  *ucptr = (unsigned char)((cur_word0 & 3) | ((cur_word1 & 3) << 2) | ((cur_word2 & 3) << 4) | ((cur_word3 & 3) << 6));
+	  if (++marker_idx == marker_idx_block_end) {
+	    break;
+	  }
+	  cur_word0 >>= 2;
+	  cur_word1 >>= 2;
+	  cur_word2 >>= 2;
+	  cur_word3 >>= 2;
+	  ucptr = &(ucptr[unfiltered_indiv_ct4]);
+	}
+      }
+    }
+    if (fwrite_checked(writebuf, (marker_idx_end - marker_idx_base) * unfiltered_indiv_ct4, outfile)) {
+      goto indiv_major_to_snp_major_ret_WRITE_FAIL;
+    }
+  } while (marker_idx_end < unfiltered_marker_ct);
+  if (fclose_null(&outfile)) {
+    goto indiv_major_to_snp_major_ret_WRITE_FAIL;
+  }
+
+  while (0) {
+  indiv_major_to_snp_major_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  indiv_major_to_snp_major_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  indiv_major_to_snp_major_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  indiv_major_to_snp_major_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+  wkspace_reset(wkspace_mark);
+  fclose_cond(infile);
+  fclose_cond(outfile);
+  return retval;
 }
-#else
-int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr_t unfiltered_marker_ct) {
-  // This implementation only handles large files on 64-bit Unix systems; a
-  // more portable version needs to be written for Windows and 32-bit Unix.
+
+/*
+int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr_t unfiltered_marker_ct, uintptr_t indiv_ct, uint64_t fsize) {
   FILE* outfile = NULL;
   int32_t in_fd = open(indiv_major_fname, O_RDONLY);
   unsigned char* in_contents = (unsigned char*)MAP_FAILED;
   uintptr_t unfiltered_marker_ct4 = (unfiltered_marker_ct + 3) / 4;
-  struct stat sb;
+  uintptr_t indiv_ct4l = indiv_ct / 4;
+  uintptr_t indiv_ct4 = (indiv_ct + 3) / 4;
   unsigned char* icoff;
   int32_t retval;
-  uintptr_t indiv_ct;
-  uintptr_t indiv_ct4;
-  uintptr_t indiv_ct4l;
   uintptr_t max_4blocks_in_mem;
   uintptr_t superblock_offset;
   uint32_t block_last_marker;
@@ -79,37 +196,23 @@ int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr
   unsigned char* write_ptr;
   if (in_fd == -1) {
     LOGPRINTFWW(errstr_fopen, indiv_major_fname);
+    // immediate return since we don't want to close(in_fd)
     return RET_OPEN_FAIL;
   }
-  // obtain file size, see example in OS X mmap() documentation
-  if (fstat(in_fd, &sb) == -1) {
-    goto indiv_major_to_snp_major_ret_READ_FAIL;
-  }
-  in_contents = (unsigned char*)mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, in_fd, 0);
+  in_contents = (unsigned char*)mmap(NULL, (size_t)fsize, PROT_READ, MAP_PRIVATE, in_fd, 0);
   if (in_contents == MAP_FAILED) {
     goto indiv_major_to_snp_major_ret_READ_FAIL;
   }
   if (fopen_checked(&outfile, outname, "wb")) {
     goto indiv_major_to_snp_major_ret_OPEN_FAIL;
   }
-  if ((in_contents[0] == 'l') && (in_contents[1] == '\x1b') && (!in_contents[2])) {
-    uii = 3;
-  } else if ((!in_contents[0]) && (!((sb.st_size - 1) % unfiltered_marker_ct4))) {
-    uii = 1;
-  } else {
-    uii = 0;
-  }
+  // assume header has already been validated, etc.
+  uii = fsize - indiv_ct * unfiltered_marker_ct4;
   icoff = &(in_contents[uii]);
-  if ((sb.st_size - uii) % unfiltered_marker_ct4) {
-    goto indiv_major_to_snp_major_ret_INVALID_FORMAT;
-  }
   if (fwrite_checked("l\x1b\x01", 3, outfile)) {
     goto indiv_major_to_snp_major_ret_WRITE_FAIL;
   }
-  indiv_ct = (sb.st_size - uii) / unfiltered_marker_ct4;
-  indiv_ct4l = indiv_ct / 4;
-  indiv_ct4 = (indiv_ct + 3) / 4;
-  // 4 * indiv_ct4 bytes needed per 4-marker block
+  // 4 * indiv_ct4 bytes needed per 4-marker output block
   max_4blocks_in_mem = wkspace_left / (4 * indiv_ct4);
   superblock_offset = 0;
   while (superblock_offset < unfiltered_marker_ct4) {
@@ -142,28 +245,24 @@ int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr
   }
   retval = 0;
   while (0) {
-  indiv_major_to_snp_major_ret_INVALID_FORMAT:
-    LOGPRINTFWW("Error: %s's file size is inconsistent with the variant count.\n", indiv_major_fname);
-    retval = RET_INVALID_FORMAT;
-    break;
-  indiv_major_to_snp_major_ret_WRITE_FAIL:
-    retval = RET_WRITE_FAIL;
-    break;
   indiv_major_to_snp_major_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;
   indiv_major_to_snp_major_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
+  indiv_major_to_snp_major_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
   }
   fclose_cond(outfile);
   if (in_contents != MAP_FAILED) {
-    munmap(in_contents, sb.st_size);
+    munmap(in_contents, fsize);
   }
   close(in_fd);
   return retval;
 }
-#endif
+*/
 
 uint32_t chrom_error(const char* extension, Chrom_info* chrom_info_ptr, char* chrom_str, uintptr_t line_idx, int32_t error_code, uint32_t allow_extra_chroms) {
   if (allow_extra_chroms && (error_code == -2)) {
@@ -2771,8 +2870,8 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
       wkspace_alloc_d_checked(&marker_cms, marker_ct * sizeof(double)) ||
       wkspace_alloc_ui_checked(&pos_buf, marker_ct * sizeof(int32_t)) ||
       wkspace_alloc_ui_checked(&unpack_map, marker_ct * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(&chrom_start, (MAX_POSSIBLE_CHROM + 6) * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(&chrom_id, (MAX_POSSIBLE_CHROM + 5) * sizeof(int32_t))) {
+      wkspace_alloc_ui_checked(&chrom_start, (MAX_POSSIBLE_CHROM + 2) * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&chrom_id, (MAX_POSSIBLE_CHROM + 1) * sizeof(int32_t))) {
     goto load_sort_and_write_map_ret_NOMEM;
   }
   rewind(mapfile);

@@ -582,10 +582,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    test statistics.\n\n"
 	       );
     help_print("blocks\thap\thap-all\thap-assoc\thap-freq\thap-impute\thap-impute-verbose\thap-linear\thap-logistic\thap-max-phase\thap-min-phase-prob\thap-miss\thap-omnibus\thap-only\thap-phase\thap-phase-wide\thap-pp\thap-snps\thap-tdt\thap-window\tchap\twhap", &help_ctrl, 1,
-"  --blocks <no-small-max-span>\n"
+"  --blocks <no-pheno-req> <no-small-max-span>\n"
 "    Estimate haplotype blocks, via Haploview's interpretation of the block\n"
 "    definition suggested by Gabriel S et al. (2002) The Structure of Haplotype\n"
 "    Blocks in the Human Genome.\n"
+"    * Normally, individuals with missing phenotypes are not considered by this\n"
+"      computation; the 'no-pheno-req' modifier lifts this restriction.\n"
 "    * Normally, size-2 blocks may not span more than 20kb, and size-3 blocks\n"
 "      are limited to 30kb.  The 'no-small-max-span' modifier removes these\n"
 "      limits.\n"
@@ -974,28 +976,30 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #ifndef STABLE_BUILD
     help_print("annotate", &help_ctrl, 1,
 "  --annotate [PLINK report] <attrib=[file]> <ranges=[file]> <filter=[file]>\n"
-"             <snps=[file]> <subset=[file]> <NA | prune> <block> <minimal>\n"
+"             <snps=[file]> <NA | prune> <block> <subset=[file]> <minimal>\n"
 "             <distance>\n"
-"    Add annotations to a variant-based report.\n"
-"    * 'attrib=[file]' causes variant attributes in the given file to be\n"
-"      included in the annotations.\n"
-"    * 'ranges=[file]' causes interval annotations in the given file to be\n"
-"      included.  Either 'attrib' or 'ranges' must be present.\n"
+"    Add annotations to a variant-based PLINK report.\n"
+"    * 'attrib=[file]' adds variant ID-based annotations, based on the (possibly\n"
+"      gzipped) given attribute file.\n"
+"    * 'ranges=[file]' adds containing interval annotations, based on the given\n"
+"      range list file.  Either 'attrib' or 'ranges' must be present.\n"
 "    * 'filter=[file]' causes only variants within one of the ranges in the file\n"
-"      to be included in the final report.\n"
+"      to be included in the new report.\n"
 "    * 'snps=[file]' causes only variants named in the file to be included in\n"
-"      the final report.\n"
-"    * In combination with 'ranges', 'subset=[file]' causes only intervals named\n"
-"      in the subset file to be loaded from the ranges file.\n"
+"      the new report.\n"
 "    * The 'NA' modifier causes unannotated variants to have 'NA' instead of '.'\n"
-"      in the final report's ANNOT column, while the 'prune' modifier excludes\n"
+"      in the new report's ANNOT column, while the 'prune' modifier excludes\n"
 "      them entirely.\n"
-"    * The 'block' modifier replaces the single ANNOT column with a 0/1-coded\n"
-"      column for each possible annotation.\n"
-"    * With 'ranges', the ANNOT column normally includes distances with\n"
-"      gene/interval IDs.  You can exclude them with the 'minimal' modifier.\n"
-"    * You can use the 'distance' modifier to add a column with distance to the\n"
-"      nearest gene/interval (this also requires 'ranges').\n\n"
+"    * With 'attrib', the 'block' modifier replaces the single ANNOT column with\n"
+"      a 0/1-coded column for each possible attribute.\n"
+"    * With 'ranges',\n"
+"      * 'subset=[file]' causes only intervals named in the subset file to be\n"
+"        loaded from the ranges file.\n"
+"      * the ANNOT column normally includes signed distances with gene/interval\n"
+"        IDs; they can be excluded with the 'minimal' modifier.\n"
+"      * the 'distance' modifier adds 'DISTANCE' and 'SGN' columns describing\n"
+"        signed distance to the nearest interval.\n"
+"    * When --pfilter is present, high p-values are filtered out.\n\n"
 	       );
 #endif
     help_print("clump", &help_ctrl, 1,
@@ -1154,7 +1158,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --id-delim {d}       : Parse sample IDs as [FID][d][IID] (default delim '_').\n"
 	       );
     help_print("vcf\tbcf\tid-delim\tvcf-idspace-to", &help_ctrl, 0,
-"  --vcf-idspace-to [d] : Convert spaces in sample IDs to the given character.\n"
+"  --vcf-idspace-to [c] : Convert spaces in sample IDs to the given character.\n"
 	       );
     help_print("vcf\tbcf\tbiallelic-only\tvcf-min-qual\tvcf-filter", &help_ctrl, 0,
 "  --biallelic-only <strict> <list> : Skip VCF variants with 2+ alt. alleles.\n"
@@ -1299,20 +1303,18 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --gene-all       : Exclude variants which aren't a member of any set.  (PLINK\n"
 "                     1.07 automatically did this under some circumstances.)\n"
 	       );
-    help_print("filter-attrib\tfilter-attrib-indiv", &help_ctrl, 0,
-"  --filter-attrib [f] {att lst} : Given a file assigning attributes to\n"
-"  --filter-attrib-indiv [f] {a}   variants, and a comma-delimited list (with no\n"
-"                                  whitespace) of attribute names, remove\n"
-"                                  variants/individuals which are either missing\n"
-"                                  from the file or don't have any of the listed\n"
-"                                  attributes.  If some attribute names in the\n"
-"                                  list are preceded by '-', they are treated as\n"
-"                                  'negative match conditions' instead: variants\n"
-"                                  with all the negative match attributes are\n"
-"                                  removed.\n"
-"                                  The first character in the list cannot be a\n"
-"                                  '-', due to how command-line parsing works;\n"
-"                                  add a comma in front to get around this.\n"
+    help_print("attrib\tattrib-indiv", &help_ctrl, 0,
+"  --attrib [f] {att lst} : Given a file assigning attributes to variants, and a\n"
+"  --attrib-indiv [f] {a}   comma-delimited list (with no whitespace) of\n"
+"                           attribute names, remove variants/individuals which\n"
+"                           are either missing from the file or don't have any\n"
+"                           of the listed attributes.  If some attribute names\n"
+"                           in the list are preceded by '-', they are treated as\n"
+"                           'negative match conditions' instead: variants with\n"
+"                           all the negative match attributes are removed.\n"
+"                           The first character in the list cannot be a '-', due\n"
+"                           to how command-line parsing works; add a comma in\n"
+"                           front to get around this.\n"
 	       );
     help_print("chr\tnot-chr\tchr-excl\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb", &help_ctrl, 0,
 "  --chr [chrs...]  : Exclude all variants not on the given chromosome(s).\n"
@@ -1745,8 +1747,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                         considered per set (default 5).\n"
 	       );
 #ifndef STABLE_BUILD
-    help_print("annotate\tborder", &help_ctrl, 0,
-"  --border [kbs]    : Extend --annotate range intervals by the given # of kbs.\n"
+    help_print("annotate\tborder\tannotate-snp-field", &help_ctrl, 0,
+"  --border [kbs]            : Extend --annotate range intervals by given # kbs.\n"
+"  --annotate-snp-field [nm] : Set --annotate variant ID field name.\n"
 	       );
 #endif
     help_print("clump-p1\tclump-p2\tclump-r2\tclump-kb\tclump-snp-field\tclump-field\tclump", &help_ctrl, 0,

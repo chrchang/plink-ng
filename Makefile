@@ -77,5 +77,11 @@ prettifyw: prettify.c
 dbl2txt: dbl2txt.c
 	gcc -Wall -arch x86_64 -O2 dbl2txt.c -o dbl2txt
 
+nsort: nsort.c
+	gcc -Wall -O2 nsort.c -o nsort
+
+interval_merge: interval_merge.c
+	gcc -Wall -O2 interval_merge.c -o interval_merge
+
 clobber:
 	rm -f *.o
