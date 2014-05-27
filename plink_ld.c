@@ -4531,7 +4531,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
         haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)loadbuf2);
       }
       load_and_split3(NULL, loadbuf2, unfiltered_indiv_ct, &(g_ld_geno1[block_idx1 * founder_ctsplit]), dummy_nm, dummy_nm, founder_ctv3, 0, 0, 1, &ulii);
-      if (ulii) {
+      if (ulii == 3) {
         SET_BIT(g_epi_zmiss1, block_idx1);
       }
     }
@@ -4584,7 +4584,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 	uiptr[0] = popcount_longs(ulptr, founder_ctv3);
 	uiptr[1] = popcount_longs(&(ulptr[founder_ctv3]), founder_ctv3);
         uiptr[2] = popcount_longs(&(ulptr[2 * founder_ctv3]), founder_ctv3);
-	if (ulii) {
+	if (ulii == 3) {
 	  SET_BIT(g_epi_zmiss2, block_idx2);
 	}
       }
@@ -6419,12 +6419,14 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
   uint32_t alen11;
   uint32_t count_total;
   if (!outname) {
-    indiv_ct = popcount_longs(indiv_exclude, (unfiltered_indiv_ctl2 + 1) / 2);
+    ulkk = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+    // ulkk = (unfiltered_indiv_ctl2 + 1) / 2;
+    indiv_ct = popcount_longs(indiv_exclude, ulkk);
     if (!indiv_ct) {
       logprint("Warning: Skipping --ld since there are no founders.  (--make-founders may come\nin handy here.)\n");
       goto twolocus_ret_1;
     }
-    if (wkspace_alloc_ul_checked(&loadbuf_raw, ((unfiltered_indiv_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t))) {
+    if (wkspace_alloc_ul_checked(&loadbuf_raw, ulkk * sizeof(intptr_t))) {
       goto twolocus_ret_NOMEM;
     }
     bitfield_exclude_to_include(indiv_exclude, loadbuf_raw, unfiltered_indiv_ct);
