@@ -7982,7 +7982,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
   }
   inprefix_end = memcpya(inprefix_end, ".summary.", 9);
   memcpyx(outname_end, &(inprefix[ulii - 7]), 15, '\0');
-  // Start out using a hash table, but on second thought, it's unnecessary
+  // Started out using a hash table, but on second thought, it's unnecessary
   // given the possibilities for distributed .summary files.
   // 1. ALL x ALL, SET x SET: First file lists all marker IDs in the final
   //    order; first entry in remaining files should match an entry in the

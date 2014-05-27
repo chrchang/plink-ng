@@ -115,7 +115,7 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
   } else {
     fill_all_bits(exclude_arr_new, unfiltered_ct);
   }
-  if (fopen_checked(&infile, fname, "r")) {
+  if (fopen_checked(&infile, fname, (flags & 2)? "r" : "rb")) {
     goto include_or_exclude_ret_OPEN_FAIL;
   }
   if (flags & 2) {

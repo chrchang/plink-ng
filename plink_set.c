@@ -2,7 +2,7 @@
 
 #include "plink_set.h"
 
-void set_init(Set_info* sip, Annot_info* aip) {
+void set_init(Set_info* sip) {
   sip->fname = NULL;
   sip->setnames_flattened = NULL;
   sip->subset_fname = NULL;
@@ -13,30 +13,14 @@ void set_init(Set_info* sip, Annot_info* aip) {
   sip->set_r2 = 0.5;
   sip->set_p = 0.05;
   sip->set_max = 5;
-  aip->fname = NULL;
-  aip->attrib_fname = NULL;
-  aip->ranges_fname = NULL;
-  aip->filter_fname = NULL;
-  aip->snps_fname = NULL;
-  aip->subset_fname = NULL;
-  aip->snpfield = NULL;
-  aip->modifier = 0;
-  aip->border = 0;
 }
 
-void set_cleanup(Set_info* sip, Annot_info* aip) {
+void set_cleanup(Set_info* sip) {
   free_cond(sip->fname);
   free_cond(sip->setnames_flattened);
   free_cond(sip->subset_fname);
   free_cond(sip->merged_set_name);
   free_cond(sip->genekeep_flattened);
-  free_cond(aip->fname);
-  free_cond(aip->attrib_fname);
-  free_cond(aip->ranges_fname);
-  free_cond(aip->filter_fname);
-  free_cond(aip->snps_fname);
-  free_cond(aip->subset_fname);
-  free_cond(aip->snpfield);
 }
 
 uint32_t in_setdef(uint32_t* setdef, uint32_t marker_idx) {
@@ -1043,7 +1027,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     qsort(sorted_subset_ids, subset_ct, max_subset_id_len, strcmp_casted);
     subset_ct = collapse_duplicate_ids(sorted_subset_ids, subset_ct, max_subset_id_len, NULL);
   }
-  if (fopen_checked(&infile, sip->fname, "r")) {
+  if (fopen_checked(&infile, sip->fname, make_set? "r" : "rb")) {
     goto define_sets_ret_OPEN_FAIL;
   }
   // 3. load --make-set range list
@@ -2245,140 +2229,6 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
  load_range_list_sortpos_ret_1:
   fclose_cond(infile);
   return retval;
-}
-
-int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr) {
-  logprint("Error: --annotate is currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
-  /*
-  unsigned char* wkspace_mark = wkspace_base;
-  gzFile gz_attribfile = NULL;
-  FILE* infile = NULL;
-  FILE* outfile = NULL;
-  char* sorted_attr_ids = NULL;
-  char* sorted_marker_ids = NULL;
-  uintptr_t* marker_attrs = NULL;
-  uintptr_t topsize = 0;
-  uintptr_t attr_id_ct = 0;
-  uintptr_t max_attr_id_len = 0;
-  uintptr_t line_idx = 0;
-  int32_t retval = 0;
-  char* loadbuf;
-  char* sort_buf;
-  char* attr_names_top;
-  char* bufptr;
-  uintptr_t loadbuf_size;
-  uintptr_t line_idx;
-  uintptr_t attr_idx;
-  uintptr_t ulii;
-  uint32_t slen;
-  if (aip->snps_fname) {
-  }
-  if (aip->attrib_fname) {
-    if (gzopen_checked(&gz_attribfile, aip->attrib_fname, "rb")) {
-      goto annotate_ret_OPEN_FAIL;
-    }
-    if (gzbuffer(gz_attribfile, 131072)) {
-      goto annotate_ret_NOMEM;
-    }
-    line_idx = 0;
-    tbuf[MAXLINELEN - 1] = ' ';
-    // use hash tables here
-    while (1) {
-      line_idx++;
-      if (!gzgets(gz_attribfile, tbuf, MAXLINELEN)) {
-        if (!gzeof(gz_attribfile)) {
-          goto annotate_ret_READ_FAIL;
-	}
-	break;
-      }
-      if (!tbuf[MAXLINELEN - 1]) {
-        sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, aip->attrib_fname);
-	goto annotate_ret_INVALID_FORMAT_WW;
-      }
-      bufptr = skip_initial_spaces(tbuf);
-      if (is_eoln_kns(*bufptr)) {
-	continue;
-      }
-    }
-    if (!attr_id_ct) {
-      sprintf(logbuf, "Error: No attributes in %s.\n", aip->attrib_fname);
-      goto annotate_ret_INVALID_FORMAT_WW;
-    }
-  }
-  if (aip->ranges_fname) {
-  }
-  if (aip->filter_fname) {
-  }
-  // drop undocumented support for gzipped PLINK report input files, since it
-  // came with conditional gzipping of output, and that's a pain to do right if
-  // we want to support lines longer than 128K
-  if (fopen_checked(&infile, aip->fname, "r")) {
-    goto annotate_ret_OPEN_FAIL;
-  }
-  line_idx = 0;
-  // load header
-  // ...
-  memcpy(outname_end, ".annot", 7);
-  if (fopen_checked(&outfile, outname, "w")) {
-    goto annotate_ret_OPEN_FAIL;
-  }
-  loadbuf = (char*)wkspace_base;
-  loadbuf_size = wkspace_left;
-  if (loadbuf_size > MAXLINEBUFLEN) {
-    loadbuf_size = MAXLINEBUFLEN;
-  } else if (loadbuf_size <= MAXLINELEN) {
-    goto annotate_ret_NOMEM;
-  }
-  loadbuf[loadbuf_size - 1] = ' ';
-  while (fgets(loadbuf, loadbuf_size, infile)) {
-    line_idx++;
-    if (!loadbuf[loadbuf_size - 1]) {
-      if (loadbuf_size == MAXLINEBUFLEN) {
-        sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, aip->fname);
-	goto annotate_ret_INVALID_FORMAT_WW;
-      } else {
-        goto annotate_ret_NOMEM;
-      }
-    }
-    bufptr = skip_initial_spaces(loadbuf);
-    if (is_eoln_kns(*bufptr)) {
-      continue;
-    }
-    ;;;
-  }
-  if (fclose_null(&infile)) {
-    goto annotate_ret_READ_FAIL;
-  }
-  if (fclose_null(&outfile)) {
-    goto annotate_ret_WRITE_FAIL;
-  }
-  LOGPRINTFWW("--annotate: Annotated report written to %s .\n", outname);
-  while (0) {
-  annotate_ret_NOMEM:
-    retval = RET_NOMEM;
-    break;
-  annotate_ret_OPEN_FAIL:
-    retval = RET_OPEN_FAIL;
-    break;
-  annotate_ret_READ_FAIL:
-    retval = RET_READ_FAIL;
-    break;
-  annotate_ret_WRITE_FAIL:
-    retval = RET_WRITE_FAIL;
-    break;
-  annotate_ret_INVALID_FORMAT_WW:
-    wordwrap(logbuf, 0);
-    logprintb();
-    retval = RET_INVALID_FORMAT;
-    break;
-  }
-  wkspace_reset(wkspace_mark);
-  fclose_cond(infile);
-  gzclose_cond(gz_attribfile);
-  fclose_cond(outfile);
-  return retval;
-  */
 }
 
 int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t border, char* extractname, const char* snp_field, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr) {

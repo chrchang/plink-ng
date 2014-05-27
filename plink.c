@@ -581,8 +581,8 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_MERGE) {
-    if (!(((fam_cols & FAM_COL_13456) == FAM_COL_13456) && (!(misc_flags & MISC_AFFECTION_01)) && (missing_pheno == -9))) {
-      logprint("Error: --merge/--bmerge/--merge-list cannot be used with an irregularly\nformatted reference fileset (--no-fid, --no-parents, --no-sex, --no-pheno,\n--1).  Use --make-bed first.\n");
+    if (((fam_cols & FAM_COL_13456) != FAM_COL_13456) || (misc_flags & MISC_AFFECTION_01) || (missing_pheno != -9)) {
+      logprint("Error: --merge/--bmerge/--merge-list cannot be used with an irregularly\nformatted reference fileset (--no-fid, --no-parents, --no-sex, --no-pheno,\n--1, --missing-pheno).  Use --make-bed first.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
     // Only append -merge to the filename stem if --make-bed or --recode lgen
@@ -3119,7 +3119,8 @@ int32_t main(int32_t argc, char** argv) {
   oblig_missing_init(&oblig_missing_info);
   aperm_init(&aperm);
   cluster_init(&cluster);
-  set_init(&set_info, &annot_info);
+  set_init(&set_info);
+  annot_init(&annot_info);
   homozyg_init(&homozyg);
   ld_epi_init(&ld_info, &epi_info, &clump_info);
   rel_init(&rel_info);
@@ -11912,7 +11913,7 @@ int32_t main(int32_t argc, char** argv) {
       } else if (load_rare == LOAD_RARE_23) {
         retval = bed_from_23(pedname, outname, sptr, modifier_23, fid_23, iid_23, (pheno_23 == HUGE_DOUBLE)? ((double)missing_pheno) : pheno_23, paternal_id_23, maternal_id_23, &chrom_info);
       } else if (load_rare & LOAD_RARE_DUMMY) {
-	retval = generate_dummy(outname, sptr, dummy_flags, dummy_marker_ct, dummy_indiv_ct, dummy_missing_geno, dummy_missing_pheno);
+	retval = generate_dummy(outname, sptr, dummy_flags, dummy_marker_ct, dummy_indiv_ct, dummy_missing_geno, dummy_missing_pheno, missing_pheno);
       } else if (load_rare & LOAD_RARE_SIMULATE) {
 	retval = simulate_dataset(outname, sptr, simulate_flags, simulate_fname, simulate_cases, simulate_controls, simulate_prevalence, simulate_qt_indivs, simulate_missing, simulate_label);
 	free(simulate_fname);
@@ -12087,7 +12088,8 @@ int32_t main(int32_t argc, char** argv) {
 
   oblig_missing_cleanup(&oblig_missing_info);
   cluster_cleanup(&cluster);
-  set_cleanup(&set_info, &annot_info);
+  set_cleanup(&set_info);
+  annot_cleanup(&annot_info);
   ld_epi_cleanup(&ld_info, &epi_info, &clump_info);
   rel_cleanup(&rel_info);
   misc_cleanup(&score_info);
