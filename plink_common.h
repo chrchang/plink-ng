@@ -635,24 +635,6 @@ typedef struct {
   double interval_slope;
 } Aperm_info;
 
-#define ANNOT_NA 1
-#define ANNOT_PRUNE 2
-#define ANNOT_BLOCK 4
-#define ANNOT_MINIMAL 8
-#define ANNOT_DISTANCE 0x10
-
-typedef struct {
-  char* fname;
-  char* attrib_fname;
-  char* ranges_fname;
-  char* filter_fname;
-  char* snps_fname;
-  char* subset_fname;
-  char* snpfield;
-  uint32_t modifier;
-  uint32_t border;
-} Annot_info;
-
 // fit 4 pathologically long IDs plus a bit extra
 extern char tbuf[];
 

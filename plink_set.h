@@ -56,9 +56,27 @@ typedef struct {
   uint32_t** setdefs;
 } Set_info;
 
-void set_init(Set_info* sip);
+#define ANNOT_NA 1
+#define ANNOT_PRUNE 2
+#define ANNOT_BLOCK 4
+#define ANNOT_MINIMAL 8
+#define ANNOT_DISTANCE 0x10
 
-void set_cleanup(Set_info* sip);
+typedef struct {
+  char* fname;
+  char* attrib_fname;
+  char* ranges_fname;
+  char* filter_fname;
+  char* snps_fname;
+  char* subset_fname;
+  char* snpfield;
+  uint32_t modifier;
+  uint32_t border;
+} Annot_info;
+
+void set_init(Set_info* sip, Annot_info* aip);
+
+void set_cleanup(Set_info* sip, Annot_info* aip);
 
 uint32_t in_setdef(uint32_t* setdef, uint32_t marker_idx);
 
@@ -87,6 +105,8 @@ uint32_t extract_set_union_unfiltered(Set_info* sip, uintptr_t* set_incl, uintpt
 uint32_t setdefs_compress(Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude, uintptr_t marker_ct, uint32_t*** new_setdefs_ptr);
 
 int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t subset_ct, char* sorted_subset_ids, uintptr_t max_subset_id_len, Chrom_info* chrom_info_ptr, uintptr_t* gene_ct_ptr, char** gene_names_ptr, uintptr_t* max_gene_id_len_ptr, uintptr_t** chrom_bounds_ptr, uint32_t*** genedefs_ptr, uintptr_t* chrom_max_gene_ct_ptr, const char* file_descrip);
+
+int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr);
 
 int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t border, char* extractname, const char* snp_field, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr);
 

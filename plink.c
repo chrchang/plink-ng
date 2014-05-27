@@ -3119,8 +3119,7 @@ int32_t main(int32_t argc, char** argv) {
   oblig_missing_init(&oblig_missing_info);
   aperm_init(&aperm);
   cluster_init(&cluster);
-  set_init(&set_info);
-  annot_init(&annot_info);
+  set_init(&set_info, &annot_info);
   homozyg_init(&homozyg);
   ld_epi_init(&ld_info, &epi_info, &clump_info);
   rel_init(&rel_info);
@@ -4224,14 +4223,14 @@ int32_t main(int32_t argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
+	if ((annot_info.modifier & ANNOT_BLOCK) && (annot_info.modifier & (ANNOT_NA | ANNOT_MINIMAL | ANNOT_DISTANCE))) {
+	  logprint("Error: --annotate 'block' cannot be used with 'NA'/'minimal'/'distance'.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
 	if (!annot_info.attrib_fname) {
 	  if (!annot_info.ranges_fname) {
 	    logprint("Error: --annotate must be used with 'attrib' and/or 'ranges'.\n");
 	    goto main_ret_INVALID_CMDLINE_A;
-	  }
-          if (annot_info.modifier & ANNOT_BLOCK) {
-	    logprint("Error: --annotate 'block' modifier must be used with 'attrib'.\n");
-            goto main_ret_INVALID_CMDLINE_A;
 	  }
 	} else if (!annot_info.ranges_fname) {
 	  if (annot_info.subset_fname) {
@@ -12088,8 +12087,7 @@ int32_t main(int32_t argc, char** argv) {
 
   oblig_missing_cleanup(&oblig_missing_info);
   cluster_cleanup(&cluster);
-  set_cleanup(&set_info);
-  annot_cleanup(&annot_info);
+  set_cleanup(&set_info, &annot_info);
   ld_epi_cleanup(&ld_info, &epi_info, &clump_info);
   rel_cleanup(&rel_info);
   misc_cleanup(&score_info);

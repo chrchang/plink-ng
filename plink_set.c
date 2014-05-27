@@ -2,7 +2,7 @@
 
 #include "plink_set.h"
 
-void set_init(Set_info* sip) {
+void set_init(Set_info* sip, Annot_info* aip) {
   sip->fname = NULL;
   sip->setnames_flattened = NULL;
   sip->subset_fname = NULL;
@@ -13,14 +13,30 @@ void set_init(Set_info* sip) {
   sip->set_r2 = 0.5;
   sip->set_p = 0.05;
   sip->set_max = 5;
+  aip->fname = NULL;
+  aip->attrib_fname = NULL;
+  aip->ranges_fname = NULL;
+  aip->filter_fname = NULL;
+  aip->snps_fname = NULL;
+  aip->subset_fname = NULL;
+  aip->snpfield = NULL;
+  aip->modifier = 0;
+  aip->border = 0;
 }
 
-void set_cleanup(Set_info* sip) {
+void set_cleanup(Set_info* sip, Annot_info* aip) {
   free_cond(sip->fname);
   free_cond(sip->setnames_flattened);
   free_cond(sip->subset_fname);
   free_cond(sip->merged_set_name);
   free_cond(sip->genekeep_flattened);
+  free_cond(aip->fname);
+  free_cond(aip->attrib_fname);
+  free_cond(aip->ranges_fname);
+  free_cond(aip->filter_fname);
+  free_cond(aip->snps_fname);
+  free_cond(aip->subset_fname);
+  free_cond(aip->snpfield);
 }
 
 uint32_t in_setdef(uint32_t* setdef, uint32_t marker_idx) {
@@ -358,7 +374,8 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       goto load_range_list_ret_INVALID_FORMAT_2;
     }
     if (range_last < range_first) {
-      sprintf(logbuf, "Error: Range end position smaller than range start on line %" PRIuPTR " of\n%s file.\n", line_idx, file_descrip);
+      sprintf(logbuf, "Error: Range end position smaller than range start on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
+      wordwrap(logbuf, 0);
       goto load_range_list_ret_INVALID_FORMAT_2;
     }
     if (border_extend > range_first) {
@@ -2231,6 +2248,551 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
   return retval;
 }
 
+int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr) {
+  logprint("Error: --annotate is currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
+  /*
+  unsigned char* wkspace_mark = wkspace_base;
+  gzFile gz_attribfile = NULL;
+  FILE* infile = NULL;
+  FILE* outfile = NULL;
+  char* sorted_snplist = NULL;
+  char* sorted_attr_ids = NULL; // natural-sorted
+  char* sorted_snplist_attr_ids = NULL;
+  char* sorted_subset_ids = NULL;
+  char* range_names = NULL;
+  char* filter_range_names = NULL;
+  char* block01_buf = NULL;
+  const char* snp_field = NULL;
+  uintptr_t* attr_bitfields = NULL;
+  uintptr_t* chrom_bounds = NULL;
+  uintptr_t* chrom_filter_bounds = NULL;
+  uint32_t** rangedefs = NULL;
+  uint32_t** filter_rangedefs = NULL;
+  uint32_t* range_idx_lookup = NULL;
+  uint32_t* attr_id_remap = NULL;
+  const char constsnpstr[] = "SNP";
+  const char constdotstr[] = ".";
+  const char constnastr[] = "NA";
+  const char* no_annot_str = (aip->modifier & ANNOT_NA)? constnastr : constdotstr;
+  uintptr_t topsize = 0;
+  uintptr_t snplist_ct = 0;
+  uintptr_t max_snplist_id_len = 0;
+  uintptr_t snplist_attr_ct = 0;
+  uintptr_t max_snplist_attr_id_len = 0;
+  uintptr_t attr_id_ct = 0;
+  uintptr_t attr_id_ctl = 0;
+  uintptr_t max_attr_id_len = 0;
+  uintptr_t subset_ct = 0;
+  uintptr_t max_subset_id_len = 0;
+  uintptr_t range_ct = 0;
+  uintptr_t max_range_name_len = 0;
+  uintptr_t filter_range_ct = 0;
+  uintptr_t max_filter_range_name_len = 0;
+  uintptr_t chrom_max_range_ct = 0;
+  uintptr_t chrom_max_filter_range_ct = 0;
+  uint32_t snp_field_len = 0;
+  uint32_t border = aip->border;
+  uint32_t need_var_id = (aip->attrib_fname || aip->snps_fname);
+  uint32_t need_pos = (aip->ranges_fname || aip->filter_fname);
+  uint32_t do_pfilter = (pfilter != 1.0);
+  uint32_t token_ct = need_var_id + 2 * need_pos + do_pfilter;
+  uint32_t block01 = (aip->modifier & ANNOT_BLOCK);
+  uint32_t prune = (aip->modifier & ANNOT_PRUNE);
+  uint32_t minimal = (aip->modifier & ANNOT_MINIMAL);
+  uint32_t distance = (aip->modifier & ANNOT_DISTANCE);
+  uint32_t col_idx = 0;
+  uint32_t seq_idx = 0;
+  uint32_t max_header_len = 3;
+  int32_t retval = 0;
+
+  // col_skips[0..(token_ct - 1)] stores deltas between adjacent column indices
+  // ([0] = 0-based index of first column), and token_ptrs[0..(token_ct - 1)]
+  // points to those token start positions in the current line.
+  // Since the order of the columns may vary, col_sequence[0] = token_ptrs[]
+  // CHR index, [1] = BP index, [2] = SNP index, and [3] = P index.
+  char* token_ptrs[4];
+  uint32_t col_skips[4];
+  uint32_t col_sequence[4];
+
+  Ll_str** attr_id_htable;
+  Ll_str** ll_pptr;
+  Ll_str* ll_ptr;
+  char* loadbuf;
+  char* bufptr;
+  char* bufptr2;
+  uintptr_t* ulptr;
+  uint32_t* uiptr;
+  uint32_t* uiptr2;
+  uint32_t* uiptr3;
+  uintptr_t loadbuf_size;
+  uintptr_t line_idx;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  uint32_t slen;
+  uint32_t uii;
+  uint32_t ujj;
+  int32_t sorted_idx;
+  if (need_var_id) {
+    if (aip->snpfield) {
+      snp_field = aip->snpfield;
+      snp_field_len = strlen(snp_field);
+      if (snp_field_len > 3) {
+        max_header_len = 3;
+      }
+    } else {
+      snp_field = constsnpstr;
+      snp_field_len = 3;
+    }
+    if (aip->snps_fname) {
+      if (fopen_checked(&infile, aip->snps_fname, "rb")) {
+	goto annotate_ret_OPEN_FAIL;
+      }
+      retval = scan_token_ct_len(infile, tbuf, MAXLINELEN, &snplist_ct, &max_snplist_id_len);
+      if (retval) {
+	if (retval == RET_INVALID_FORMAT) {
+	  logprint("Error: Pathologically long token in --annotate snps file.\n");
+	}
+	goto annotate_ret_1;
+      }
+      if (!snplist_ct) {
+	sprintf(logbuf, "Error: %s is empty.\n", aip->snps_fname);
+	goto annotate_ret_INVALID_FORMAT_WW;
+      }
+      if (wkspace_alloc_c_checked(&sorted_snplist, snplist_ct * max_snplist_id_len)) {
+	goto annotate_ret_NOMEM;
+      }
+      rewind(infile);
+      retval = read_tokens(infile, tbuf, MAXLINELEN, snplist_ct, max_snplist_id_len, sorted_snplist);
+      if (retval) {
+	goto annotate_ret_1;
+      }
+      if (fclose_null(&infile)) {
+	goto annotate_ret_READ_FAIL;
+      }
+      qsort(sorted_snplist, snplist_ct, max_snplist_id_len, strcmp_casted);
+      ulii = collapse_duplicate_ids(sorted_snplist, snplist_ct, max_snplist_id_len, NULL);
+      if (ulii < snplist_ct) {
+	snplist_ct = ulii;
+	wkspace_shrink_top(sorted_snplist, snplist_ct * max_snplist_id_len);
+      }
+    }
+    if (aip->attrib_fname) {
+      if (gzopen_checked(&gz_attribfile, aip->attrib_fname, "rb")) {
+	goto annotate_ret_OPEN_FAIL;
+      }
+      if (gzbuffer(gz_attribfile, 131072)) {
+	goto annotate_ret_NOMEM;
+      }
+      line_idx = 0;
+      tbuf[MAXLINELEN - 1] = ' ';
+      // two-pass load.
+      // 1. determine attribute set, as well as relevant variant ID count and max
+      //    length
+      // intermission. extract attribute names from hash table, natural sort,
+      //               deallocate hash table
+      // 2. save relevant variant IDs and attribute bitfields, then qsort_ext()
+      attr_id_htable = (Ll_str**)top_alloc(&topsize, HASHMEM);
+      for (uii = 0; uii < HASHSIZE; uii++) {
+	attr_id_htable[uii] = NULL;
+      }
+      while (1) {
+	line_idx++;
+	if (!gzgets(gz_attribfile, tbuf, MAXLINELEN)) {
+	  if (!gzeof(gz_attribfile)) {
+	    goto annotate_ret_READ_FAIL;
+	  }
+	  break;
+	}
+	if (!tbuf[MAXLINELEN - 1]) {
+	  sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, aip->attrib_fname);
+	  goto annotate_ret_INVALID_FORMAT_WW;
+	}
+	bufptr = skip_initial_spaces(tbuf);
+	if (is_eoln_kns(*bufptr)) {
+	  continue;
+	}
+	bufptr2 = token_endnn(bufptr);
+	slen = (uintptr_t)(bufptr2 - bufptr);
+	bufptr2 = skip_initial_spaces(bufptr2);
+	if (is_eoln_kns(*bufptr2) || (sorted_snplist && (bsearch_str(bufptr, slen, sorted_snplist, max_snplist_id_len, snplist_ct) == -1))) {
+	  continue;
+	}
+	snplist_attr_ct++;
+	if (slen >= max_snplist_attr_id_len) {
+	  max_snplist_attr_id_len = slen + 1;
+	}
+	do {
+	  bufptr = token_endnn(bufptr2);
+	  slen = (uintptr_t)(bufptr - bufptr2);
+	  bufptr = skip_initial_spaces(bufptr);
+	  bufptr2[slen] = '\0';
+	  uii = hashval2(bufptr2, slen++);
+	  ll_pptr = &(attr_id_htable[uii]);
+	  ll_ptr = *ll_pptr;
+	  while (ll_ptr) {
+	    if (!strcmp(ll_ptr->ss, bufptr2)) {
+	      goto annotate_repeated_attrib;
+	    }
+	    ll_pptr = &(ll_ptr->next);
+	    ll_ptr = *ll_pptr;
+	  }
+#ifdef __LP64__
+	  // we'll run out of memory way earlier in 32-bit mode
+	  if (attr_id_ct == 0x80000000LLU) {
+	    sprintf(logbuf, "Error: Too many unique attributes in %s (max 2147483648).\n", aip->attrib_fname);
+	    goto annotate_ret_INVALID_FORMAT_WW;
+	  }
+#endif
+	  attr_id_ct++;
+	  ll_ptr = top_alloc_llstr(&topsize, slen);
+	  if (!ll_ptr) {
+	    goto annotate_ret_NOMEM;
+	  }
+	  ll_ptr->next = NULL;
+	  memcpy(ll_ptr->ss, bufptr2, slen);
+	  if (slen > max_attr_id_len) {
+	    max_attr_id_len = slen;
+	  }
+	  *ll_pptr = ll_ptr;
+	annotate_repeated_attrib:
+	  bufptr2 = bufptr;
+	} while (!is_eoln_kns(*bufptr2));
+      }
+      if (!attr_id_ct) {
+	sprintf(logbuf, "Error: No attributes in %s.\n", aip->attrib_fname);
+	goto annotate_ret_INVALID_FORMAT_WW;
+      }
+      wkspace_left -= topsize;
+      if (wkspace_alloc_c_checked(&sorted_attr_ids, attr_id_ct * max_attr_id_len)) {
+	goto annotate_ret_NOMEM2;
+      }
+      wkspace_left += topsize;
+      ulii = 0;
+      for (uii = 0; uii < HASHSIZE; uii++) {
+	ll_ptr = attr_id_htable[uii];
+	while (ll_ptr) {
+	  strcpy(&(sorted_attr_ids[ulii * max_attr_id_len]), ll_ptr->ss);
+	  ulii++;
+	  ll_ptr = ll_ptr->next;
+	}
+      }
+      qsort(sorted_attr_ids, attr_id_ct, max_attr_id_len, strcmp_natural);
+      topsize = 0;
+      gzrewind(gz_attribfile);
+      attr_id_ctl = (attr_id_ct + (BITCT - 1)) / BITCT;
+      if (wkspace_alloc_c_checked(&sorted_snplist_attr_ids, snplist_attr_ct * max_snplist_attr_id_len) ||
+	  wkspace_alloc_ul_checked(&attr_bitfields, snplist_attr_ct * attr_id_ctl * sizeof(intptr_t))) {
+	goto annotate_ret_NOMEM;
+      }
+      fill_ulong_zero(attr_bitfields, snplist_attr_ct * attr_id_ctl);
+      for (ulii = 0; ulii < snplist_attr_ct; ulii++) {
+      annotate_skip_line:
+	if (!gzgets(gz_attribfile, tbuf, MAXLINELEN)) {
+	  goto annotate_ret_READ_FAIL;
+	}
+	bufptr = skip_initial_spaces(tbuf);
+	if (is_eoln_kns(*bufptr)) {
+	  goto annotate_skip_line;
+	}
+	bufptr2 = token_endnn(bufptr);
+	slen = (uintptr_t)(bufptr2 - bufptr);
+	bufptr2 = skip_initial_spaces(bufptr2);
+	if (is_eoln_kns(*bufptr2) || (sorted_snplist && (bsearch_str(bufptr, slen, sorted_snplist, max_snplist_id_len, snplist_ct) == -1))) {
+	  goto annotate_skip_line;
+	}
+	memcpyx(&(sorted_snplist_attr_ids[ulii * max_snplist_attr_id_len]), bufptr, slen, '\0');
+	ulptr = &(attr_bitfields[ulii * attr_id_ctl]);
+	do {
+	  bufptr = token_endnn(bufptr2);
+	  slen = (uintptr_t)(bufptr - bufptr2);
+	  bufptr = skip_initial_spaces(bufptr);
+	  bufptr2[slen] = '\0';
+	  sorted_idx = bsearch_str_natural(bufptr2, sorted_attr_ids, max_attr_id_len, attr_id_ct);
+	  set_bit(ulptr, sorted_idx);
+	  bufptr2 = bufptr;
+	} while (!is_eoln_kns(*bufptr2));
+      }
+      gzclose(gz_attribfile);
+      gz_attribfile = NULL;
+      if (qsort_ext(sorted_snplist_attr_ids, snplist_attr_ct, max_snplist_attr_id_len, strcmp_deref, (char*)attr_bitfields, attr_id_ctl * sizeof(intptr_t))) {
+	goto annotate_ret_NOMEM;
+      }
+      LOGPRINTFWW("--annotate attrib: %" PRIuPTR " variant ID%s and %" PRIuPTR " unique attribute%s loaded.\n", snplist_attr_ct, (snplist_attr_ct == 1)? "" : "s", attr_id_ct, (attr_id_ct == 1)? "" : "s");
+    }
+  }
+  if (need_pos) {
+    if (aip->ranges_fname) {
+      if (aip->subset_fname) {
+	if (fopen_checked(&infile, aip->subset_fname, "rb")) {
+	  goto annotate_ret_OPEN_FAIL;
+	}
+	retval = scan_token_ct_len(infile, tbuf, MAXLINELEN, &subset_ct, &max_subset_id_len);
+	if (retval) {
+	  if (retval == RET_INVALID_FORMAT) {
+	    logprint("Error: Pathologically long token in --annotate subset file.\n");
+	  }
+	  goto annotate_ret_1;
+	}
+	if (!subset_ct) {
+	  logprint("Error: --annotate subset file is empty.\n");
+	  goto annotate_ret_INVALID_FORMAT;
+	}
+	if (max_subset_id_len > MAX_ID_LEN_P1) {
+	  logprint("Error: --annotate subset IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+	  goto annotate_ret_INVALID_FORMAT;
+	}
+	sorted_subset_ids = (char*)top_alloc(&topsize, subset_ct * max_subset_id_len);
+	if (!sorted_subset_ids) {
+	  goto annotate_ret_NOMEM;
+	}
+	rewind(infile);
+	retval = read_tokens(infile, tbuf, MAXLINELEN, subset_ct, max_subset_id_len, sorted_subset_ids);
+	if (retval) {
+	  goto annotate_ret_1;
+	}
+	if (fclose_null(&infile)) {
+	  goto annotate_ret_READ_FAIL;
+	}
+	qsort(sorted_subset_ids, subset_ct, max_subset_id_len, strcmp_casted);
+	subset_ct = collapse_duplicate_ids(sorted_subset_ids, subset_ct, max_subset_id_len, NULL);
+      }
+      retval = load_range_list_sortpos(aip->ranges_fname, border, subset_ct, sorted_subset_ids, max_subset_id_len, chrom_info_ptr, &range_ct, &range_names, &max_range_name_len, &chrom_bounds, &rangedefs, &chrom_max_range_ct, "--annotate ranges");
+      if (retval) {
+	goto annotate_ret_1;
+      }
+#ifdef __LP64__
+      if (range_ct > 0x80000000LLU) {
+	sprintf(logbuf, "Error: Too many ranges in %s (max 2147483648).\n", aip->ranges_fname);
+	goto annotate_ret_INVALID_FORMAT_WW;
+      }
+#endif
+      LOGPRINTFWW("--annotate ranges: %" PRIuPTR " range%s loaded.\n", range_ct, (range_ct == 1)? "" : "s");
+    }
+    topsize = 0;
+    if (aip->filter_fname) {
+      retval = load_range_list_sortpos(aip->filter_fname, border, 0, NULL, 0, chrom_info_ptr, &filter_range_ct, &filter_range_names, &max_filter_range_name_len, &chrom_filter_bounds, &filter_rangedefs, &chrom_max_filter_range_ct, "--annotate filter");
+      if (retval) {
+	goto annotate_ret_1;
+      }
+    }
+  }
+  if (block01) {
+    ulii = attr_id_ct + range_ct;
+    if (range_names) {
+      // need [range_names idx -> merged natural sort order] and
+      // [attribute idx -> merged natural sort order] lookup tables
+      if (ulii > 0x3fffffff) {
+	logprint("Error: Too many unique attributes for --annotate block (max 1073741823).\n");
+        goto annotate_ret_INVALID_FORMAT;
+      }
+      if (wkspace_alloc_ui_checked(&range_idx_lookup, ulii * sizeof(int32_t))) {
+	goto annotate_ret_NOMEM;
+      }
+      if (attr_id_ct) {
+	attr_id_remap = &(range_idx_lookup[range_ct]);
+      }
+      // create a master sorted ID list
+      uii = MAXV((max_range_name_len - 4), max_attr_id_len);
+      bufptr2 = (char*)top_alloc(&topsize, ulii * uii);
+      if (!bufptr2) {
+	goto annotate_ret_NOMEM;
+      }
+      uiptr = (uint32_t*)top_alloc(&topsize, ulii * sizeof(int32_t));
+      if (!uiptr) {
+	goto annotate_ret_NOMEM;
+      }
+      uiptr2 = uiptr;
+      for (uljj = 0; uljj < range_ct; uljj++) {
+	strcpy(&(bufptr2[uljj * uii]), &(range_names[uljj * max_range_name_len + 4]));
+	*uiptr2++ = uljj;
+      }
+      if (attr_id_ct) {
+	if (uii == max_attr_id_len) {
+	  memcpy(&(bufptr2[range_ct * max_attr_id_len]), sorted_attr_ids, attr_id_ct * max_attr_id_len);
+	} else {
+	  for (uljj = range_ct; uljj < ulii; uljj++) {
+	    strcpy(&(bufptr2[uljj * uii]), &(sorted_attr_ids[uljj * max_attr_id_len]));
+	  }
+	}
+	ujj = 0x80000000U;
+	uiptr3 = &(uiptr2[attr_id_ct]);
+	do {
+	  *uiptr2 = ujj++;
+	} while (++uiptr2 < uiptr3);
+      }
+      wkspace_left -= topsize;
+      if (qsort_ext(bufptr2, ulii, uii, strcmp_natural_deref, (char*)uiptr, ulii * sizeof(int32_t))) {
+	goto annotate_ret_NOMEM2;
+      }
+      wkspace_left += topsize;
+      // topsize = 0;
+
+      // similar to collapse_duplicate_ids(), except we need to save lookup
+      // info
+      // uljj = read idx
+      uljj = 0;
+      write_idx = 0;
+      while (1) {
+	ujj = uiptr[uljj];
+	if (ujj < 0x80000000U) {
+	  range_idx_lookup[ujj] = write_idx;
+	} else {
+          attr_id_remap[ujj & 0x7fffffff] = write_idx;
+	}
+	if (++uljj == uljj) {
+	  break;
+	}
+        if (strcmp()) {
+	}
+      }
+    }
+    if (wkspace_alloc_c_checked(&block01_buf, 2 * ulii)) {
+      goto annotate_ret_NOMEM;
+    }
+  }
+
+  loadbuf = (char*)wkspace_base;
+  loadbuf_size = wkspace_left;
+  if (loadbuf_size > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
+  } else if (loadbuf_size <= MAXLINELEN) {
+    goto annotate_ret_NOMEM;
+  }
+  // drop undocumented support for gzipped PLINK report input files, since it
+  // came with conditional gzipping of output, and that's a pain to do right if
+  // we want to support lines longer than 128K
+  retval = open_and_load_to_first_token(&infile, aip->fname, loadbuf_size, '\0', "--annotate file", loadbuf, &bufptr, &line_idx);
+  if (retval) {
+    goto annotate_ret_1;
+  }
+  fill_uint_one(col_sequence, token_ct);
+  do {
+    bufptr2 = token_endnn(bufptr);
+    slen = (uintptr_t)(bufptr2 - bufptr);
+    if (slen <= max_header_len) {
+      if (need_pos && (slen == 3) && (!memcmp(bufptr, "CHR", 3))) {
+	uii = 0;
+      } else if (need_pos && (slen == 2) && (!memcmp(bufptr, "BP", 2))) {
+	uii = 1;
+      } else if (need_var_id && (slen == snp_field_len) && (!memcmp(bufptr, snp_field, snp_field_len))) {
+        uii = 2;
+      } else if ((slen == do_pfilter) && (*bufptr == 'P')) {
+        uii = 3;
+      } else {
+	uii = 4;
+      }
+      if (uii != 4) {
+        if (col_sequence[uii] != 0xffffffffU) {
+	  *bufptr2 = '\0';
+          sprintf(logbuf, "Error: Duplicate column header '%s' in %s.\n", bufptr, aip->fname);
+          goto annotate_ret_INVALID_FORMAT_WW;
+	}
+        if (!seq_idx) {
+	  col_skips[0] = col_idx;
+	} else {
+	  col_skips[seq_idx] = col_idx - col_skips[seq_idx - 1];
+	}
+	col_sequence[uii] = seq_idx++;
+      }
+    }
+    bufptr = skip_initial_spaces(bufptr2);
+    col_idx++;
+  } while (!is_eoln_kns(*bufptr));
+  if (seq_idx != token_ct) {
+    sprintf(logbuf, "Error: Missing column header%s in %s.\n", (seq_idx + 1 == token_ct)? "" : "s", aip->fname);
+    goto annotate_ret_INVALID_FORMAT_WW;
+  }
+  memcpy(outname_end, ".annot", 7);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto annotate_ret_OPEN_FAIL;
+  }
+  if (fwrite_checked(loadbuf, (uintptr_t)(bufptr - loadbuf), outfile)) {
+    goto annotate_ret_WRITE_FAIL;
+  }
+  if (distance) {
+    fputs("        DIST         SGN", outfile);
+  }
+  if (block01) {
+    if (!range_ct) {
+      for (ulii = 0; ulii < attr_id_ct; ulii++) {
+	putc(' ', outfile);
+	fputs(&(sorted_attr_ids[ulii * max_attr_id_len]), outfile);
+      }
+    } else {
+      // bleah, temporarily reconstruct this array.  at least we know we have
+      // enough memory
+      uiptr = (uint32_t*)wkspace_base;
+      for () {
+      }
+      for () {
+      }
+      for () {
+	putc(' ', outfile);
+	if () {
+	} else {
+	}
+      }
+    }
+  } else {
+    fputs(" ANNOT", outfile);
+  }
+  putc('\n', outfile);
+  exit(1);
+  while (fgets(loadbuf, loadbuf_size, infile)) {
+    line_idx++;
+    if (!loadbuf[loadbuf_size - 1]) {
+      if (loadbuf_size == MAXLINEBUFLEN) {
+        sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, aip->fname);
+	goto annotate_ret_INVALID_FORMAT_WW;
+      } else {
+        goto annotate_ret_NOMEM;
+      }
+    }
+    bufptr = skip_initial_spaces(loadbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    ;;;
+  }
+  if (fclose_null(&infile)) {
+    goto annotate_ret_READ_FAIL;
+  }
+  if (fclose_null(&outfile)) {
+    goto annotate_ret_WRITE_FAIL;
+  }
+  LOGPRINTFWW("--annotate: Annotated report written to %s .\n", outname);
+  while (0) {
+  annotate_ret_NOMEM2:
+    wkspace_left += topsize;
+  annotate_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  annotate_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  annotate_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  annotate_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  annotate_ret_INVALID_FORMAT_WW:
+    wordwrap(logbuf, 0);
+    logprintb();
+  annotate_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ annotate_ret_1:
+  wkspace_reset(wkspace_mark);
+  fclose_cond(infile);
+  gzclose_cond(gz_attribfile);
+  fclose_cond(outfile);
+  return retval;
+  */
+}
+
 int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t border, char* extractname, const char* snp_field, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr) {
   // similar to define_sets() and --clump
   unsigned char* wkspace_mark = wkspace_base;
@@ -2241,7 +2803,6 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   uintptr_t max_subset_id_len = 0;
   uintptr_t extract_ct = 0;
   uintptr_t max_extract_id_len = 0;
-  uintptr_t line_idx = 0;
   const char constsnpstr[] = "SNP";
   char* sorted_subset_ids = NULL;
   char* sorted_extract_ids = NULL;
@@ -2256,11 +2817,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   uint32_t cur_bp = 0;
   int32_t retval = 0;
 
-  // col_skips[0..(token_ct - 1)] stores deltas between adjacent column indices
-  // ([0] = 0-based index of first column), and token_ptrs[0..(token_ct - 1)]
-  // points to those token start positions in the current line.
-  // Since the order of the columns may vary, col_sequence[0] = token_ptrs[]
-  // CHR index, [1] = BP index, [2] = SNP index, and [3] = P index.
+  // see --annotate comment on col_skips.
   char* token_ptrs[4];
   uint32_t col_skips[4];
   uint32_t col_sequence[4];
@@ -2284,6 +2841,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   uintptr_t loadbuf_size;
   uintptr_t gene_idx;
   uintptr_t linebuf_left;
+  uintptr_t line_idx;
   uintptr_t ulii;
   uint64_t ullii;
   double pval;
@@ -2371,8 +2929,8 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   }
 #ifdef __LP64__
   if (gene_ct > 0x80000000LLU) {
-    LOGPREPRINTFWW("Error: Too many genes in %s (max 2147483648).\n", glist);
-    goto gene_report_ret_INVALID_FORMAT_2;
+    sprintf(logbuf, "Error: Too many genes in %s (max 2147483648).\n", glist);
+    goto gene_report_ret_INVALID_FORMAT_WW;
   }
 #endif
 
@@ -2405,9 +2963,6 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   }
   wkspace_reset((unsigned char*)loadbuf);
 
-  if (fopen_checked(&infile, fname, "r")) {
-    goto gene_report_ret_OPEN_FAIL;
-  }
   if (wkspace_left < MAXLINELEN + 64) {
     goto gene_report_ret_NOMEM;
   }
@@ -2431,7 +2986,6 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   if (loadbuf_size > MAXLINEBUFLEN) {
     loadbuf_size = MAXLINEBUFLEN;
   }
-  loadbuf[loadbuf_size - 1] = ' ';
   uii = 3; // maximum relevant header length
   col_idx = 0;
   if (extractname) {
@@ -2446,20 +3000,10 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     }
   }
   fill_uint_one(col_sequence, token_ct);
-  do {
-    if (!fgets(loadbuf, loadbuf_size, infile)) {
-      if (ferror(infile)) {
-	goto gene_report_ret_READ_FAIL;
-      }
-      LOGPREPRINTFWW("Error: %s is empty.\n", fname);
-      goto gene_report_ret_INVALID_FORMAT_2;
-    }
-    line_idx++;
-    if (!loadbuf[loadbuf_size - 1]) {
-      goto gene_report_ret_LONG_LINE;
-    }
-    bufptr = skip_initial_spaces(loadbuf);
-  } while (is_eoln_kns(*bufptr));
+  retval = open_and_load_to_first_token(&infile, fname, loadbuf_size, '\0', "--gene-report file", loadbuf, &bufptr, &line_idx);
+  if (retval) {
+    goto gene_report_ret_1;
+  }
   do {
     bufptr2 = token_endnn(bufptr);
     slen = (uintptr_t)(bufptr2 - bufptr);
@@ -2478,8 +3022,8 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       if (ujj != 4) {
 	if (col_sequence[ujj] != 0xffffffffU) {
 	  *bufptr2 = '\0';
-	  LOGPREPRINTFWW("Error: Duplicate column header '%s' in %s.\n", bufptr, fname);
-	  goto gene_report_ret_INVALID_FORMAT_2;
+	  sprintf(logbuf, "Error: Duplicate column header '%s' in %s.\n", bufptr, fname);
+	  goto gene_report_ret_INVALID_FORMAT_WW;
 	}
 	if (!seq_idx) {
 	  col_skips[0] = col_idx;
@@ -2493,8 +3037,8 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     col_idx++;
   } while (!is_eoln_kns(*bufptr));
   if (seq_idx != token_ct) {
-    LOGPREPRINTFWW("Error: Missing column header%s in %s.\n", (seq_idx + 1 == token_ct)? "" : "s", fname);
-    goto gene_report_ret_INVALID_FORMAT_2;
+    sprintf(logbuf, "Error: Missing column header%s in %s.\n", (seq_idx + 1 == token_ct)? "" : "s", fname);
+    goto gene_report_ret_INVALID_FORMAT_WW;
   }
   // assume *bufptr is now \n (if it isn't, header line is never written to
   // output anyway)
@@ -2591,8 +3135,8 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     linebuf_top = &(linebuf_top[slen + 8]);
 #ifdef __LP64__
     if (saved_line_ct == 0x100000000LLU) {
-      LOGPREPRINTFWW("Error: Too many valid lines in %s (--gene-report can only handle 4294967296).\n", fname);
-      goto gene_report_ret_INVALID_FORMAT_2;
+      sprintf(logbuf, "Error: Too many valid lines in %s (--gene-report can only handle 4294967296).\n", fname);
+      goto gene_report_ret_INVALID_FORMAT_WW;
     }
 #endif
     saved_line_ct++;
@@ -2701,7 +3245,8 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   gene_report_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
-  gene_report_ret_INVALID_FORMAT_2:
+  gene_report_ret_INVALID_FORMAT_WW:
+    wordwrap(logbuf, 0);
     logprintb();
   gene_report_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
