@@ -587,7 +587,7 @@ int32_t get_next_noncomment_excl(FILE* fptr, char** lptr_ptr, uintptr_t* line_id
   return -1;
 }
 
-char* item_end(char* sptr) {
+char* token_end(char* sptr) {
   char cc;
   if (!sptr) {
     return NULL;
@@ -599,7 +599,7 @@ char* item_end(char* sptr) {
   return cc? sptr : NULL;
 }
 
-char* item_endl(char* sptr) {
+char* token_endl(char* sptr) {
   if (!sptr) {
     return NULL;
   }
@@ -661,7 +661,7 @@ int32_t strcmp_se(char* s_read, const char* s_const, uint32_t len) {
   return memcmp(s_read, s_const, len) || (!is_space_or_eoln(s_read[len]));
 }
 
-char* next_item(char* sptr) {
+char* next_token(char* sptr) {
   if (!sptr) {
     return NULL;
   }
@@ -674,7 +674,7 @@ char* next_item(char* sptr) {
   return skip_initial_spaces(sptr);
 }
 
-char* next_item_mult(char* sptr, uint32_t ct) {
+char* next_token_mult(char* sptr, uint32_t ct) {
   if (!sptr) {
     return NULL;
   }
@@ -695,7 +695,7 @@ uint32_t count_tokens(char* bufptr) {
   bufptr = skip_initial_spaces(bufptr);
   while (!is_eoln_kns(*bufptr)) {
     token_ct++;
-    bufptr = skip_initial_spaces(item_endnn(bufptr));
+    bufptr = skip_initial_spaces(token_endnn(bufptr));
   }
   return token_ct;
 }
@@ -6990,7 +6990,7 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint3
   uint32_t cmdline_pos;
   int32_t ii;
   while (1) {
-    bufptr = item_endnn(header_line);
+    bufptr = token_endnn(header_line);
     ii = bsearch_str(header_line, (uintptr_t)(bufptr - header_line), sorted_ids, max_id_len, name_ct);
     if (ii != -1) {
       cmdline_pos = id_map[(uint32_t)ii];
@@ -8394,14 +8394,14 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
       continue;
     }
     if (colmin) {
-      str1_ptr = next_item_mult(str1_ptr, colmin);
+      str1_ptr = next_token_mult(str1_ptr, colmin);
     }
     if (coldiff) {
-      str2_ptr = next_item_mult(str1_ptr, coldiff);
+      str2_ptr = next_token_mult(str1_ptr, coldiff);
     } else {
       str2_ptr = str1_ptr;
     }
-    if (no_more_items_kns(str2_ptr)) {
+    if (no_more_tokens_kns(str2_ptr)) {
       // probably want option for letting this slide in the future
       LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, fname);
       goto scan_max_strlen_ret_INVALID_FORMAT_2;
@@ -8484,10 +8484,10 @@ int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_p
       continue;
     }
     if (colnum) {
-      bufptr = next_item_mult(bufptr, colnum);
+      bufptr = next_token_mult(bufptr, colnum);
     }
-    bufptr2 = next_item(bufptr);
-    if (no_more_items_kns(bufptr2)) {
+    bufptr2 = next_token(bufptr);
+    if (no_more_tokens_kns(bufptr2)) {
       LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, fname);
       goto scan_max_fam_indiv_strlen_ret_INVALID_FORMAT_2;
     }

@@ -8032,8 +8032,8 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
     }
     goto epi_summary_merge_ret_INVALID_HEADER;
   }
-  bufptr = next_item(bufptr);
-  bufptr2 = next_item(bufptr);
+  bufptr = next_token(bufptr);
+  bufptr2 = next_token(bufptr);
   plink_maxsnp = ((uintptr_t)(bufptr2 - bufptr)) - 1;
   while (fgets(tbuf, MAXLINELEN, infile)) {
     line_idx++;
@@ -8048,10 +8048,10 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
     id_ptr = skip_initial_spaces(&(bufptr[chrom_len]));
     id_len = strlen_se(id_ptr);
     nsig_ptr = skip_initial_spaces(&(id_ptr[id_len]));
-    ntot_ptr = next_item(nsig_ptr);
-    best_chisq_ptr = next_item(ntot_ptr);
-    best_chr_ptr = next_item(best_chisq_ptr);
-    if (no_more_items_kns(best_chr_ptr)) {
+    ntot_ptr = next_token(nsig_ptr);
+    best_chisq_ptr = next_token(ntot_ptr);
+    best_chr_ptr = next_token(best_chisq_ptr);
+    if (no_more_tokens_kns(best_chr_ptr)) {
       goto epi_summary_merge_ret_MISSING_TOKENS;
     }
     if (scan_uint_icap(nsig_ptr, (uint32_t*)&nsig)) {
@@ -8133,10 +8133,10 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
       id_ptr = skip_initial_spaces(&(bufptr[chrom_len]));
       id_len = strlen_se(id_ptr);
       nsig_ptr = skip_initial_spaces(&(id_ptr[id_len]));
-      ntot_ptr = next_item(nsig_ptr);
-      best_chisq_ptr = next_item(ntot_ptr);
-      best_chr_ptr = next_item(best_chisq_ptr);
-      if (no_more_items_kns(best_chr_ptr)) {
+      ntot_ptr = next_token(nsig_ptr);
+      best_chisq_ptr = next_token(ntot_ptr);
+      best_chr_ptr = next_token(best_chisq_ptr);
+      if (no_more_tokens_kns(best_chr_ptr)) {
 	goto epi_summary_merge_ret_MISSING_TOKENS;
       }
       if (scan_uint_icap(nsig_ptr, (uint32_t*)&nsig)) {
@@ -9668,7 +9668,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     parse_table[0] = 0;
     parse_table[2] = 1;
     do {
-      bufptr2 = item_endnn(bufptr);
+      bufptr2 = token_endnn(bufptr);
       ii = bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_header_dict, max_header_len, header_dict_ct);
       if (ii != -1) {
 	ujj = header_id_map[(uint32_t)ii];
@@ -9737,14 +9737,14 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       for (; uii < cur_read_ct; uii++) {
 	ujj = parse_table[uii * 2 + 1];
 	if (ujj) {
-	  bufptr = next_item_mult(bufptr, ujj);
+	  bufptr = next_token_mult(bufptr, ujj);
 	}
-        if (no_more_items_kns(bufptr)) {
+        if (no_more_tokens_kns(bufptr)) {
 	  // PLINK 1.07 --clump just skips the line in this situation, instead
 	  // of erroring out, so we replicate that
 	  goto clump_reports_load_loop;
 	}
-	bufptr2 = item_endnn(bufptr);
+	bufptr2 = token_endnn(bufptr);
 	ujj = parse_table[uii * 2] * 2;
 	cur_parse_info[ujj] = (uintptr_t)(bufptr - loadbuft);
         cur_parse_info[ujj + 1] = (uintptr_t)(bufptr2 - bufptr);

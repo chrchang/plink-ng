@@ -338,7 +338,7 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
       }
       bufptr = skip_initial_spaces(tbuf);
       while (!is_eoln_kns(*bufptr)) {
-        bufptr2 = item_endnn(bufptr);
+        bufptr2 = token_endnn(bufptr);
 	ii = bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_ids, max_marker_id_len, marker_ct);
 	if (ii == -1) {
 	  miss_ct++;

@@ -211,13 +211,13 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       if (is_eoln_kns(*bufptr)) {
 	continue;
       }
-      bufptr2 = next_item_mult(bufptr, 3);
+      bufptr2 = next_token_mult(bufptr, 3);
       if (!collapse_group) {
 	bufptr3 = bufptr2;
       } else {
-	bufptr3 = next_item(bufptr2);
+	bufptr3 = next_token(bufptr2);
       }
-      if (no_more_items_kns(bufptr3)) {
+      if (no_more_tokens_kns(bufptr3)) {
 	sprintf(logbuf, "Error: Line %" PRIuPTR " of %s file has fewer tokens than expected.\n", line_idx, file_descrip);
 	goto load_range_list_ret_INVALID_FORMAT_2;
       }
@@ -333,13 +333,13 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    bufptr2 = next_item_mult(bufptr, 3);
+    bufptr2 = next_token_mult(bufptr, 3);
     if (!collapse_group) {
       bufptr3 = bufptr2;
     } else {
-      bufptr3 = next_item(bufptr2);
+      bufptr3 = next_token(bufptr2);
     }
-    if (no_more_items_kns(bufptr3)) {
+    if (no_more_tokens_kns(bufptr3)) {
       sprintf(logbuf, "Error: Line %" PRIuPTR " of %s file has fewer tokens than expected.\n", line_idx, file_descrip);
       goto load_range_list_ret_INVALID_FORMAT_2;
     }
@@ -363,12 +363,12 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	continue;
       }
     }
-    bufptr = next_item(bufptr);
+    bufptr = next_token(bufptr);
     if (scan_uint_defcap(bufptr, &range_first)) {
       sprintf(logbuf, "Error: Invalid range start position on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
       goto load_range_list_ret_INVALID_FORMAT_2;
     }
-    bufptr = next_item(bufptr);
+    bufptr = next_token(bufptr);
     if (scan_uint_defcap(bufptr, &range_last)) {
       sprintf(logbuf, "Error: Invalid range end position on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
       goto load_range_list_ret_INVALID_FORMAT_2;
@@ -2611,7 +2611,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     bufptr = skip_initial_spaces(loadbuf);
   } while (is_eoln_kns(*bufptr));
   do {
-    bufptr2 = item_endnn(bufptr);
+    bufptr2 = token_endnn(bufptr);
     slen = (uintptr_t)(bufptr2 - bufptr);
     if (slen <= uii) {
       if ((slen == 3) && (!memcmp(bufptr, "CHR", 3))) {
@@ -2681,11 +2681,11 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       goto gene_report_load_loop;
     }
     if (col_skips[0]) {
-      bufptr = next_item_mult(bufptr, col_skips[0]);
+      bufptr = next_token_mult(bufptr, col_skips[0]);
     }
     token_ptrs[0] = bufptr;
     for (seq_idx = 1; seq_idx < token_ct; seq_idx++) {
-      bufptr = next_item_mult(bufptr, col_skips[seq_idx]);
+      bufptr = next_token_mult(bufptr, col_skips[seq_idx]);
       token_ptrs[seq_idx] = bufptr;
     }
     if (!bufptr) {

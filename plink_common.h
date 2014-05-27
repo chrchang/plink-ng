@@ -902,11 +902,11 @@ static inline int32_t is_eoln_or_comment(char cc) {
   return (((unsigned char)cc) < 32) || (cc == '#');
 }
 
-static inline int32_t no_more_items(char* sptr) {
+static inline int32_t no_more_tokens(char* sptr) {
   return ((!sptr) || is_eoln(*sptr));
 }
 
-static inline int32_t no_more_items_kns(char* sptr) {
+static inline int32_t no_more_tokens_kns(char* sptr) {
   return ((!sptr) || is_eoln_kns(*sptr));
 }
 
@@ -1071,14 +1071,14 @@ int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr, uintptr_t* line_idx_ptr
 
 int32_t get_next_noncomment_excl(FILE* fptr, char** lptr_ptr, uintptr_t* line_idx_ptr, uintptr_t* marker_exclude, uintptr_t* marker_uidx_ptr);
 
-char* item_end(char* sptr);
+char* token_end(char* sptr);
 
-// does not return NULL if item ends with null char
-char* item_endl(char* sptr);
+// does not return NULL if token ends with null char
+char* token_endl(char* sptr);
 
-// item_endl without checking if sptr == NULL
-// also assumes we are currently in an item -- UNSAFE OTHERWISE
-static inline char* item_endnn(char* sptr) {
+// token_endl without checking if sptr == NULL
+// also assumes we are currently in a token -- UNSAFE OTHERWISE
+static inline char* token_endnn(char* sptr) {
   while (!is_space_or_eoln(*(++sptr)));
   return sptr;
 }
@@ -1087,7 +1087,7 @@ void get_top_two(uint32_t* uint_arr, uintptr_t uia_size, uintptr_t* top_idx_ptr,
 
 int32_t intlen(int32_t num);
 
-// safer than item_endnn(), since it handles length zero
+// safer than token_endnn(), since it handles length zero
 static inline uintptr_t strlen_se(char* ss) {
   char* ss2 = ss;
   while (!is_space_or_eoln(*ss2)) {
@@ -1098,25 +1098,11 @@ static inline uintptr_t strlen_se(char* ss) {
 
 int32_t strcmp_se(char* s_read, const char* s_const, uint32_t len);
 
-char* next_item(char* sptr);
+char* next_token(char* sptr);
 
-char* next_item_mult(char* sptr, uint32_t ct);
+char* next_token_mult(char* sptr, uint32_t ct);
 
 uint32_t count_tokens(char* bufptr);
-
-static inline char* write_item_nt(char* read_ptr, FILE* outfile) {
-  // assumes read_ptr is at the beginning of an item to write
-  uint32_t slen = strlen_se(read_ptr);
-  fwrite(read_ptr, 1, slen, outfile);
-  return skip_initial_spaces(&(read_ptr[slen + 1]));
-}
-
-static inline char* write_item(char* read_ptr, FILE* outfile) {
-  uint32_t slen = strlen_se(read_ptr);
-  fwrite(read_ptr, 1, slen, outfile);
-  putc('\t', outfile);
-  return skip_initial_spaces(&(read_ptr[slen + 1]));
-}
 
 static inline char* fw_strcpyn(uint32_t min_width, uint32_t source_len, const char* source, char* dest) {
   // right-justified strcpy with known source length

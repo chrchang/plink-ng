@@ -115,8 +115,8 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
     bufptr = skip_initial_spaces(tbuf);
     if (!is_eoln_kns(*bufptr)) {
       // CHR, BP1, BP2, subset name
-      bufptr2 = next_item_mult(bufptr, 2);
-      if (no_more_items_kns(bufptr2)) {
+      bufptr2 = next_token_mult(bufptr, 2);
+      if (no_more_tokens_kns(bufptr2)) {
 	sprintf(logbuf, "Error: Line %" PRIuPTR " of %s file has fewer tokens than expected.\n", line_idx, cift_str);
 	goto cnv_intersect_load_ret_INVALID_FORMAT_2;
       }
@@ -135,7 +135,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
       if (!IS_SET(chrom_mask, uljj)) {
 	continue;
       }
-      bufptr = next_item(bufptr);
+      bufptr = next_token(bufptr);
       if (scan_uint_defcap(bufptr, (uint32_t*)&jj)) {
 	sprintf(logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, cift_str);
 	goto cnv_intersect_load_ret_INVALID_FORMAT_2;
@@ -157,8 +157,8 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
 	continue;
       }
       if (subset_ct) {
-	bufptr = next_item(bufptr2);
-	if (no_more_items_kns(bufptr)) {
+	bufptr = next_token(bufptr2);
+	if (no_more_tokens_kns(bufptr)) {
 	  continue;
 	}
 	if (bsearch_str(bufptr, strlen_se(bufptr), subset_list, max_subset_name_len, subset_ct) == -1) {
@@ -501,9 +501,9 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
     bufptr = skip_initial_spaces(tbuf);
     if (!is_eoln_kns(*bufptr)) {
       // FID, IID, CHR, BP1, BP2, TYPE, SCORE, SITES
-      bufptr = next_item_mult(bufptr, 2);
-      bufptr2 = next_item_mult(bufptr, req_fields);
-      if (no_more_items_kns(bufptr2)) {
+      bufptr = next_token_mult(bufptr, 2);
+      bufptr2 = next_token_mult(bufptr, req_fields);
+      if (no_more_tokens_kns(bufptr2)) {
 	sprintf(logbuf, "\nError: Line %" PRIuPTR " of .cnv file has fewer tokens than expected.\n", line_idx);
 	goto cnv_make_map_ret_INVALID_FORMAT_2;
       }
@@ -523,8 +523,8 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
 	continue;
       }
       ullii = ((uint64_t)chrom_idx) << 32;
-      bufptr2 = next_item(bufptr);
-      bufptr = next_item(bufptr2);
+      bufptr2 = next_token(bufptr);
+      bufptr = next_token(bufptr2);
       if (scan_uint_defcap(bufptr2, &seg_start) || scan_uint_defcap(bufptr, &seg_end)) {
 	sprintf(logbuf, "\nError: Invalid bp coordinate on line %" PRIuPTR " of .cnv file.\n", line_idx);
         goto cnv_make_map_ret_INVALID_FORMAT_2;
@@ -545,7 +545,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
 	}
       }
       if (cnv_calc_type & (CNV_DEL | CNV_DUP)) {
-	bufptr2 = next_item(bufptr);
+	bufptr2 = next_token(bufptr);
 	if (scan_uint_defcap(bufptr2, (uint32_t*)&ii)) {
 	  sprintf(logbuf, "\nError: Invalid variant copy count on line %" PRIuPTR " of .cnv file.\n", line_idx);
 	  goto cnv_make_map_ret_INVALID_FORMAT_2;
@@ -559,7 +559,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
 	}
       }
       if (filter_score) {
-	bufptr2 = next_item_mult(bufptr, 2);
+	bufptr2 = next_token_mult(bufptr, 2);
 	if (scan_double(bufptr2, &dxx)) {
           sprintf(logbuf, "\nError: Invalid confidence score on line %" PRIuPTR " of .cnv file.\n", line_idx);
 	  goto cnv_make_map_ret_INVALID_FORMAT_2;
@@ -569,7 +569,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
 	}
       }
       if (filter_sites) {
-	bufptr2 = next_item_mult(bufptr, 3);
+	bufptr2 = next_token_mult(bufptr, 3);
 	if (scan_posint_defcap(bufptr2, (uint32_t*)&ii)) {
 	  sprintf(logbuf, "\nError: Invalid probe count on line %" PRIuPTR " of .cnv file.\n", line_idx);
 	  goto cnv_make_map_ret_INVALID_FORMAT_2;
@@ -715,11 +715,11 @@ int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, int32_t* marker_pos_
     }
     bufptr = skip_initial_spaces(tbuf);
   } while (is_eoln_kns(*bufptr));
-  bufptr2 = next_item_mult(bufptr, 2);
+  bufptr2 = next_token_mult(bufptr, 2);
   if (is_eoln_kns(*bufptr2)) {
     goto validate_cnv_map_ret_MISSING_TOKENS;
   }
-  bufptr2 = next_item(bufptr2);
+  bufptr2 = next_token(bufptr2);
   if (is_eoln_kns(*bufptr2)) {
     // --map3 autodetect
     colskip = 1;
@@ -750,8 +750,8 @@ int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, int32_t* marker_pos_
     if (((uint32_t)ii) < chrom_idx) {
       goto validate_cnv_map_ret_UNSORTED;
     }
-    bufptr = next_item(bufptr);
-    bufptr2 = next_item_mult(bufptr, colskip);
+    bufptr = next_token(bufptr);
+    bufptr2 = next_token_mult(bufptr, colskip);
     if (is_eoln_kns(*bufptr2)) {
       goto validate_cnv_map_ret_MISSING_TOKENS;
     }
@@ -842,7 +842,7 @@ int32_t load_cnv_map(FILE* mapfile, int32_t marker_pos_start, int32_t marker_pos
     }
     bufptr = skip_initial_spaces(tbuf);
   } while (is_eoln_kns(*bufptr));
-  bufptr = next_item_mult(bufptr, 3);
+  bufptr = next_token_mult(bufptr, 3);
   if (is_eoln_kns(*bufptr)) {
     colskip = 1;
   } else {
@@ -857,8 +857,8 @@ int32_t load_cnv_map(FILE* mapfile, int32_t marker_pos_start, int32_t marker_pos
     if (!IS_SET(chrom_mask, chrom_idx)) {
       continue;
     }
-    bufptr = next_item(bufptr);
-    bufptr2 = next_item_mult(bufptr, colskip);
+    bufptr = next_token(bufptr);
+    bufptr2 = next_token_mult(bufptr, colskip);
     if (*bufptr2 == '-') {
       continue;
     }

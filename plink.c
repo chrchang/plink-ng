@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (26 May 2014)";
+  " (27 May 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   //  " " (don't actually want this when version number has a trailing letter)
@@ -3278,11 +3278,11 @@ int32_t main(int32_t argc, char** argv) {
       memcpy(rerun_buf, tbuf, ukk);
 
       memset(tbuf, 1, (uint32_t)kk);
-      sptr = next_item_mult(rerun_buf, 2);
+      sptr = next_token_mult(rerun_buf, 2);
       umm = 0;
       ukk = 0;
       do {
-	if (no_more_items_kns(sptr)) {
+	if (no_more_tokens_kns(sptr)) {
 	  print_ver();
 	  fputs("Error: Line 2 of --rerun log file has fewer tokens than expected.\n", stdout);
 	  goto main_ret_INVALID_FORMAT;
@@ -3306,15 +3306,15 @@ int32_t main(int32_t argc, char** argv) {
 	      if (umm == (uint32_t)kk) {
 		break;
 	      }
-	      sptr = next_item(sptr);
+	      sptr = next_token(sptr);
 	    } while (!is_flag(sptr));
 	  } else {
 	    umm++;
-	    sptr = next_item(sptr);
+	    sptr = next_token(sptr);
 	  }
 	} else {
 	  umm++;
-          sptr = next_item(sptr);
+          sptr = next_token(sptr);
 	}
       } while (umm < (uint32_t)kk);
       subst_argv2 = (char**)malloc((argc + kk - ukk - ujj - 1 - cur_arg) * sizeof(char*));
@@ -3326,7 +3326,7 @@ int32_t main(int32_t argc, char** argv) {
       for (umm = cur_arg; umm < uii; umm++) {
 	subst_argv2[unn++] = argv[umm];
       }
-      sptr = next_item_mult(rerun_buf, 2);
+      sptr = next_token_mult(rerun_buf, 2);
       for (umm = 0; umm < (uint32_t)kk; umm++) {
         if (tbuf[umm]) {
 	  ukk = strlen_se(sptr);
@@ -3336,7 +3336,7 @@ int32_t main(int32_t argc, char** argv) {
 	    sptr = skip_initial_spaces(&(sptr[ukk + 1]));
 	  }
 	} else {
-	  sptr = next_item(sptr);
+	  sptr = next_token(sptr);
 	}
       }
       for (umm = uii + ujj + 1; umm < (uint32_t)argc; umm++) {

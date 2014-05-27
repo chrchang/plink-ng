@@ -2749,7 +2749,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    bufptr2 = item_endnn(bufptr);
+    bufptr2 = token_endnn(bufptr);
     cur_person_id_len = bufptr2 - bufptr;
     bufptr2 = skip_initial_spaces(bufptr2);
     if (is_eoln_kns(*bufptr2)) {
@@ -2788,7 +2788,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    bufptr2 = item_endnn(bufptr);
+    bufptr2 = token_endnn(bufptr);
     cur_person_id_len = bufptr2 - bufptr;
     memcpy(&(sorted_ids[indiv_uidx * max_person_id_len]), bufptr, cur_person_id_len);
     sorted_ids[indiv_uidx * max_person_id_len + (cur_person_id_len++)] = '\t';
@@ -2908,8 +2908,8 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
 	    goto unrelated_herit_batch_ret_INVALID_FORMAT_3;
 	  }
 	  if (IS_SET(pheno_nm, indiv_uidx2)) {
-	    bufptr = next_item_mult(tbuf, 3);
-	    if (no_more_items_kns(bufptr)) {
+	    bufptr = next_token_mult(tbuf, 3);
+	    if (no_more_tokens_kns(bufptr)) {
 	      goto unrelated_herit_batch_ret_INVALID_FORMAT_3;
 	    }
 	    if (scan_double(bufptr, &dxx)) {
@@ -3574,17 +3574,17 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     goto calc_regress_pcs_ret_INVALID_FORMAT2;
   }
   bufptr = skip_initial_spaces(tbuf);
-  if (no_more_items_kns(bufptr)) {
+  if (no_more_tokens_kns(bufptr)) {
     goto calc_regress_pcs_ret_INVALID_FORMAT;
   }
   if (memcmp(bufptr, "#eigvals:", 9)) {
     is_eigenvec = 1;
-    bufptr = next_item(bufptr);
+    bufptr = next_token(bufptr);
   }
-  bufptr = next_item(bufptr);
-  while ((!no_more_items_kns(bufptr)) && ((*bufptr == '-') || ((*bufptr >= '0') && (*bufptr <= '9')))) {
+  bufptr = next_token(bufptr);
+  while ((!no_more_tokens_kns(bufptr)) && ((*bufptr == '-') || ((*bufptr >= '0') && (*bufptr <= '9')))) {
     pc_ct++;
-    bufptr = next_item(bufptr);
+    bufptr = next_token(bufptr);
   }
   if (!pc_ct) {
     goto calc_regress_pcs_ret_INVALID_FORMAT;
@@ -3617,15 +3617,15 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     indiv_idx = 0;
     while (1) {
       // todo: validate, and perhaps permute, family/indiv IDs
-      bufptr = next_item_mult(skip_initial_spaces(tbuf), 2);
+      bufptr = next_token_mult(skip_initial_spaces(tbuf), 2);
       for (uii = 0; uii < pc_ct; uii++) {
-	if (no_more_items_kns(bufptr)) {
+	if (no_more_tokens_kns(bufptr)) {
 	  goto calc_regress_pcs_ret_INVALID_FORMAT;
 	}
 	if (scan_double(bufptr, &(pc_matrix[uii * indiv_ct + indiv_idx]))) {
 	  goto calc_regress_pcs_ret_INVALID_FORMAT;
 	}
-	bufptr = next_item(bufptr);
+	bufptr = next_token(bufptr);
       }
       pc_matrix[pc_ct * indiv_ct + indiv_idx] = 1.0; // intercept
       if (++indiv_idx >= indiv_ct) {
@@ -3650,21 +3650,21 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
 	  goto calc_regress_pcs_ret_READ_FAIL;
 	}
       }
-      bufptr = next_item(skip_initial_spaces(tbuf));
+      bufptr = next_token(skip_initial_spaces(tbuf));
       for (uii = 0; uii < pc_ct; uii++) {
-	if (no_more_items_kns(bufptr)) {
+	if (no_more_tokens_kns(bufptr)) {
 	  goto calc_regress_pcs_ret_INVALID_FORMAT;
 	}
 	if (scan_double(bufptr, &(pc_matrix[uii * indiv_ct + indiv_idx]))) {
 	  goto calc_regress_pcs_ret_INVALID_FORMAT;
 	}
-	bufptr = next_item(bufptr);
+	bufptr = next_token(bufptr);
       }
       pc_matrix[pc_ct * indiv_ct + indiv_idx] = 1.0;
     }
   }
   if (fgets(tbuf, MAXLINELEN, evecfile)) {
-    if (!no_more_items_kns(skip_initial_spaces(tbuf))) {
+    if (!no_more_tokens_kns(skip_initial_spaces(tbuf))) {
       sprintf(logbuf, "Error: More %s in .e%svec file than expected.\n", g_species_plural, is_eigenvec? "igen" : "");
       goto calc_regress_pcs_ret_INVALID_FORMAT_3;
     }
@@ -4913,7 +4913,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       cptr = &(person_ids[indiv1uidx * max_person_id_len]);
       uii = strlen_se(cptr);
       memcpyx(fam1, cptr, uii, '\0');
-      indiv1 = next_item(cptr);
+      indiv1 = next_token(cptr);
       pat1 = &(paternal_ids[indiv1uidx * max_paternal_id_len]);
       mat1 = &(maternal_ids[indiv1uidx * max_maternal_id_len]);
       is_founder_fixed = IS_SET(founder_info, indiv1uidx);
@@ -5869,7 +5869,7 @@ uint32_t rel_cutoff_batch_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       while (col <= row) {
         gzgets(cur_gzfile, tbuf, MAXLINELEN);
 	if (rel_ct_arr[col++] != -1) {
-	  cptr = next_item_mult(tbuf, 2);
+	  cptr = next_token_mult(tbuf, 2);
           uii = strlen(cptr);
           sptr_cur = memcpya(uint32_writex(memcpya(sptr_cur, wbuf, wbuf_ct), ++new_col, '\t'), cptr, uii);
 	  if (sptr_cur >= readbuf_end) {
@@ -6155,8 +6155,8 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
 	      goto rel_cutoff_batch_ret_READ_FAIL;
 	    }
 	  }
-	  bufptr = next_item_mult(tbuf, 3);
-	  if (no_more_items_kns(bufptr)) {
+	  bufptr = next_token_mult(tbuf, 3);
+	  if (no_more_tokens_kns(bufptr)) {
 	    goto rel_cutoff_batch_ret_INVALID_FORMAT_GENERIC;
 	  }
 	  if (scan_double(bufptr, &dxx)) {
@@ -6487,11 +6487,11 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
 	    while (col <= row) {
 	      gzgets(cur_gzfile, tbuf, MAXLINELEN);
 	      if (rel_ct_arr[col++] != -1) {
-		bufptr = next_item_mult(tbuf, 2);
+		bufptr = next_token_mult(tbuf, 2);
 		if (scan_float(bufptr, &fxx)) {
 		  goto rel_cutoff_batch_ret_INVALID_FORMAT_GENERIC;
 		}
-		bufptr = next_item(bufptr);
+		bufptr = next_token(bufptr);
 		if (scan_float(bufptr, &fyy)) {
 		  goto rel_cutoff_batch_ret_INVALID_FORMAT_GENERIC;
 		}

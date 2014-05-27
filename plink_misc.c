@@ -289,8 +289,8 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 	if (phenoname_str) {
 	  tmp_len = strlen(phenoname_str);
 	  do {
-	    bufptr = next_item(bufptr);
-	    if (no_more_items_kns(bufptr)) {
+	    bufptr = next_token(bufptr);
+	    if (no_more_tokens_kns(bufptr)) {
 	      logprint("Error: --pheno-name column not found.\n");
               goto load_pheno_ret_INVALID_FORMAT;
 	    }
@@ -298,8 +298,8 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 	    tmp_len2 = strlen_se(bufptr);
 	  } while ((tmp_len2 != tmp_len) || memcmp(bufptr, phenoname_str, tmp_len));
 	} else if (phenoname_load) {
-          bufptr = next_item_mult(bufptr, mpheno_col);
-	  if (no_more_items_kns(bufptr)) {
+          bufptr = next_token_mult(bufptr, mpheno_col);
+	  if (no_more_tokens_kns(bufptr)) {
 	    return LOAD_PHENO_LAST_COL;
 	  }
 	  tmp_len = strlen_se(bufptr);
@@ -328,9 +328,9 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
       if (person_idx != -1) {
 	person_idx = id_map[(uint32_t)person_idx];
 	if (mpheno_col > 1) {
-	  bufptr = next_item_mult(bufptr, mpheno_col - 1);
+	  bufptr = next_token_mult(bufptr, mpheno_col - 1);
 	}
-	if (no_more_items_kns(bufptr)) {
+	if (no_more_tokens_kns(bufptr)) {
 	  // Sometimes, but not always, an error.  So we populate logbuf but
 	  // let the caller decide whether to actually log it.
           sprintf(logbuf, "Error: Line %" PRIuPTR " of --pheno file has fewer tokens than expected.\n", line_idx);
@@ -491,12 +491,12 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
     if (retval) {
       goto apply_cm_map_ret_1;
     }
-    bufptr = next_item_mult(bufptr, 2);
-    if (no_more_items_kns(bufptr)) {
+    bufptr = next_token_mult(bufptr, 2);
+    if (no_more_tokens_kns(bufptr)) {
       goto apply_cm_map_ret_MISSING_TOKENS;
     }
-    bufptr = next_item(bufptr);
-    if (!no_more_items_kns(bufptr)) {
+    bufptr = next_token(bufptr);
+    if (!no_more_tokens_kns(bufptr)) {
       goto apply_cm_map_ret_MISSING_TOKENS;
     }
     bp_old = -1;
@@ -523,8 +523,8 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
         logprint("Error: bp coordinates in --cm-map file are not in increasing order.\n");
         goto apply_cm_map_ret_INVALID_FORMAT;
       }
-      bufptr2 = next_item_mult(bufptr, 2);
-      if (no_more_items_kns(bufptr2)) {
+      bufptr2 = next_token_mult(bufptr, 2);
+      if (no_more_tokens_kns(bufptr2)) {
 	goto apply_cm_map_ret_MISSING_TOKENS;
       }
       if (scan_double(bufptr2, &cm_new)) {
@@ -533,7 +533,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
       }
       if (bp_old == -1) {
 	// parse field 2 only in this case
-        bufptr = next_item(bufptr);
+        bufptr = next_token(bufptr);
         if (scan_double(bufptr, &dxx)) {
 	  sprintf(logbuf, "Error: Invalid recombination rate on line %" PRIuPTR " of --cm-map file.\n", line_idx);
 	  goto apply_cm_map_ret_INVALID_FORMAT_2;
@@ -651,19 +651,19 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
     }
     if (colid_first) {
       if (colmin) {
-        colid_ptr = next_item_mult(colid_ptr, colmin);
+        colid_ptr = next_token_mult(colid_ptr, colmin);
       }
-      colx_ptr = next_item_mult(colid_ptr, coldiff);
-      if (no_more_items_kns(colx_ptr)) {
+      colx_ptr = next_token_mult(colid_ptr, coldiff);
+      if (no_more_tokens_kns(colx_ptr)) {
 	goto update_marker_cms_ret_MISSING_TOKENS;
       }
     } else {
       colx_ptr = colid_ptr;
       if (colmin) {
-	colx_ptr = next_item_mult(colx_ptr, colmin);
+	colx_ptr = next_token_mult(colx_ptr, colmin);
       }
-      colid_ptr = next_item_mult(colx_ptr, coldiff);
-      if (no_more_items_kns(colid_ptr)) {
+      colid_ptr = next_token_mult(colx_ptr, coldiff);
+      if (no_more_tokens_kns(colid_ptr)) {
 	goto update_marker_cms_ret_MISSING_TOKENS;
       }
     }
@@ -785,19 +785,19 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
     }
     if (colid_first) {
       if (colmin) {
-        colid_ptr = next_item_mult(colid_ptr, colmin);
+        colid_ptr = next_token_mult(colid_ptr, colmin);
       }
-      colx_ptr = next_item_mult(colid_ptr, coldiff);
-      if (no_more_items_kns(colx_ptr)) {
+      colx_ptr = next_token_mult(colid_ptr, coldiff);
+      if (no_more_tokens_kns(colx_ptr)) {
 	goto update_marker_pos_ret_MISSING_TOKENS;
       }
     } else {
       colx_ptr = colid_ptr;
       if (colmin) {
-	colx_ptr = next_item_mult(colx_ptr, colmin);
+	colx_ptr = next_token_mult(colx_ptr, colmin);
       }
-      colid_ptr = next_item_mult(colx_ptr, coldiff);
-      if (no_more_items_kns(colid_ptr)) {
+      colid_ptr = next_token_mult(colx_ptr, coldiff);
+      if (no_more_tokens_kns(colid_ptr)) {
 	goto update_marker_pos_ret_MISSING_TOKENS;
       }
     }
@@ -939,15 +939,15 @@ int32_t update_marker_names(Two_col_params* update_name, char* sorted_marker_ids
     }
     if (colold_first) {
       if (colmin) {
-        colold_ptr = next_item_mult(colold_ptr, colmin);
+        colold_ptr = next_token_mult(colold_ptr, colmin);
       }
-      colnew_ptr = next_item_mult(colold_ptr, coldiff);
+      colnew_ptr = next_token_mult(colold_ptr, coldiff);
     } else {
       colnew_ptr = colold_ptr;
       if (colmin) {
-	colnew_ptr = next_item_mult(colnew_ptr, colmin);
+	colnew_ptr = next_token_mult(colnew_ptr, colmin);
       }
-      colold_ptr = next_item_mult(colnew_ptr, coldiff);
+      colold_ptr = next_token_mult(colnew_ptr, coldiff);
     }
     slen = strlen_se(colold_ptr);
     sorted_idx = bsearch_str(colold_ptr, slen, sorted_marker_ids, max_marker_id_len, marker_ct);
@@ -1044,7 +1044,7 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
     if (is_eoln_kns(*bufptr3)) {
       continue;
     }
-    bufptr2 = item_endnn(bufptr3);
+    bufptr2 = token_endnn(bufptr3);
     sorted_idx = bsearch_str(bufptr3, (uintptr_t)(bufptr2 - bufptr3), sorted_marker_ids, max_marker_id_len, sorted_ids_ct);
     if (sorted_idx == -1) {
       miss_ct++;
@@ -1066,11 +1066,11 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
     bufptr[len] = '\0';
     if ((!strcmp(bufptr2, marker_allele_ptrs[2 * marker_uidx])) && (!strcmp(bufptr, marker_allele_ptrs[2 * marker_uidx + 1]))) {
       bufptr2 = skip_initial_spaces(&(bufptr[len + 1]));
-      bufptr = next_item(bufptr2);
+      bufptr = next_token(bufptr2);
       goto update_marker_alleles_match;
     } else if ((!strcmp(bufptr, marker_allele_ptrs[2 * marker_uidx])) && (!strcmp(bufptr2, marker_allele_ptrs[2 * marker_uidx + 1]))) {
       bufptr = skip_initial_spaces(&(bufptr[len + 1]));
-      bufptr2 = next_item(bufptr);
+      bufptr2 = next_token(bufptr);
     update_marker_alleles_match:
       len = strlen_se(bufptr);
       len2 = strlen_se(bufptr2);
@@ -1504,9 +1504,9 @@ int32_t update_indiv_sexes(char* update_sex_fname, uint32_t update_sex_col, char
     set_bit(already_seen, sorted_idx);
     indiv_uidx = indiv_id_map[((uint32_t)sorted_idx)];
     if (update_sex_col) {
-      bufptr = next_item_mult(bufptr, update_sex_col);
+      bufptr = next_token_mult(bufptr, update_sex_col);
     }
-    if (no_more_items_kns(bufptr)) {
+    if (no_more_tokens_kns(bufptr)) {
       goto update_indiv_sexes_ret_MISSING_TOKENS;
     }
     cc = *bufptr;
@@ -1684,8 +1684,8 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	goto read_external_freqs_ret_INVALID_CHROM;
       }
       chrom_idx = ii;
-      bufptr = next_item(bufptr); // now at beginning of marker name
-      bufptr2 = next_item(bufptr);
+      bufptr = next_token(bufptr); // now at beginning of marker name
+      bufptr2 = next_token(bufptr);
       if (!bufptr2) {
         goto read_external_freqs_ret_MISSING_TOKENS;
       }
@@ -1695,8 +1695,8 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
         if ((chrom_idx == get_marker_chrom(chrom_info_ptr, marker_uidx)) || (!chrom_idx) || (!get_marker_chrom(chrom_info_ptr, marker_uidx))) {
 	  alen1 = strlen_se(bufptr2);
 	  aptr1 = bufptr2;
-	  bufptr2 = next_item(bufptr2);
-	  if (no_more_items_kns(bufptr2)) {
+	  bufptr2 = next_token(bufptr2);
+	  if (no_more_tokens_kns(bufptr2)) {
 	    goto read_external_freqs_ret_MISSING_TOKENS;
 	  }
 	  alen2 = strlen_se(bufptr2);
@@ -1704,18 +1704,18 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	  if ((alen1 == alen2) && (!memcmp(aptr1, aptr2, alen1))) {
 	    goto read_external_freqs_ret_A1_A2_SAME;
 	  }
-	  bufptr = next_item(bufptr2);
-	  if (no_more_items_kns(bufptr)) {
+	  bufptr = next_token(bufptr2);
+	  if (no_more_tokens_kns(bufptr)) {
 	    goto read_external_freqs_ret_MISSING_TOKENS;
 	  }
 	  if (freq_counts) {
-	    if (no_more_items_kns(next_item(bufptr))) {
+	    if (no_more_tokens_kns(next_token(bufptr))) {
 	      goto read_external_freqs_ret_MISSING_TOKENS;
 	    }
 	    if (scan_uint_icap(bufptr, (uint32_t*)&c_hom_a1)) {
 	      goto read_external_freqs_ret_INVALID_HOM_A1;
 	    }
-	    if (scan_uint_icap(next_item(bufptr), (uint32_t*)&c_hom_a2)) {
+	    if (scan_uint_icap(next_token(bufptr), (uint32_t*)&c_hom_a2)) {
 	      goto read_external_freqs_ret_INVALID_HOM_A2;
 	    }
 	    maf = ((double)c_hom_a1 + maf_succ) / ((double)(c_hom_a1 + c_hom_a2 + 2 * maf_succ));
@@ -1751,8 +1751,8 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	goto read_external_freqs_ret_INVALID_CHROM;
       }
       chrom_idx = ii;
-      bufptr = next_item(loadbuf); // now at beginning of marker name
-      bufptr2 = next_item(bufptr);
+      bufptr = next_token(loadbuf); // now at beginning of marker name
+      bufptr2 = next_token(bufptr);
       if (!bufptr2) {
         goto read_external_freqs_ret_MISSING_TOKENS;
       }
@@ -1762,8 +1762,8 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
         if ((chrom_idx == get_marker_chrom(chrom_info_ptr, marker_uidx)) || (!chrom_idx) || (!get_marker_chrom(chrom_info_ptr, marker_uidx))) {
 	  alen1 = strlen_se(bufptr2);
 	  aptr1 = bufptr2;
-	  bufptr2 = next_item(bufptr2);
-	  if (no_more_items_kns(bufptr2)) {
+	  bufptr2 = next_token(bufptr2);
+	  if (no_more_tokens_kns(bufptr2)) {
 	    goto read_external_freqs_ret_MISSING_TOKENS;
 	  }
 	  alen2 = strlen_se(bufptr2);
@@ -1771,12 +1771,12 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	  if ((alen1 == alen2) && (!memcmp(aptr1, aptr2, alen1))) {
 	    goto read_external_freqs_ret_A1_A2_SAME;
 	  }
-	  bufptr = next_item(bufptr2);
-	  bufptr2 = next_item(bufptr);
-	  bufptr3 = next_item(bufptr2);
-	  bufptr4 = next_item(bufptr3);
-	  bufptr5 = next_item(bufptr4);
-	  if (no_more_items_kns(bufptr5)) {
+	  bufptr = next_token(bufptr2);
+	  bufptr2 = next_token(bufptr);
+	  bufptr3 = next_token(bufptr2);
+	  bufptr4 = next_token(bufptr3);
+	  bufptr5 = next_token(bufptr4);
+	  if (no_more_tokens_kns(bufptr5)) {
 	    goto read_external_freqs_ret_MISSING_TOKENS;
 	  }
 	  if (scan_uint_icap(bufptr, (uint32_t*)&c_hom_a1)) {
@@ -1825,7 +1825,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
       if (is_eoln_kns(*bufptr)) {
 	continue;
       }
-      bufptr = next_item(bufptr);
+      bufptr = next_token(bufptr);
       if (!bufptr) {
         goto read_external_freqs_ret_MISSING_TOKENS;
       }
@@ -1834,8 +1834,8 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
         marker_uidx = id_map[(uint32_t)ii];
 	alen1 = strlen_se(bufptr);
 	aptr1 = bufptr;
-        bufptr = next_item(bufptr);
-	if (no_more_items_kns(bufptr)) {
+        bufptr = next_token(bufptr);
+	if (no_more_tokens_kns(bufptr)) {
           goto read_external_freqs_ret_MISSING_TOKENS;
 	}
 	if (scan_double(bufptr, &maf)) {
@@ -1849,11 +1849,11 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	}
       } else {
 	// if there aren't exactly 3 columns, this isn't a GCTA .freq file
-	bufptr = next_item(bufptr);
-	if (no_more_items_kns(bufptr)) {
+	bufptr = next_token(bufptr);
+	if (no_more_tokens_kns(bufptr)) {
 	  goto read_external_freqs_ret_MISSING_TOKENS;
 	}
-        if (!no_more_items_kns(next_item(bufptr))) {
+        if (!no_more_tokens_kns(next_token(bufptr))) {
 	  sprintf(logbuf, "Error: Line %" PRIuPTR " of --read-freq has more tokens than expected.\n", line_idx);
 	  goto read_external_freqs_ret_INVALID_FORMAT_2;
 	}
@@ -1980,15 +1980,15 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
     }
     if (colid_first) {
       if (colmin) {
-        colid_ptr = next_item_mult(colid_ptr, colmin);
+        colid_ptr = next_token_mult(colid_ptr, colmin);
       }
-      colx_ptr = next_item_mult(colid_ptr, coldiff);
+      colx_ptr = next_token_mult(colid_ptr, coldiff);
     } else {
       colx_ptr = colid_ptr;
       if (colmin) {
-	colx_ptr = next_item_mult(colx_ptr, colmin);
+	colx_ptr = next_token_mult(colx_ptr, colmin);
       }
-      colid_ptr = next_item_mult(colx_ptr, coldiff);
+      colid_ptr = next_token_mult(colx_ptr, coldiff);
     }
     idlen = strlen_se(colid_ptr);
     sorted_idx = bsearch_str(colid_ptr, idlen, sorted_marker_ids, max_marker_id_len, marker_ct);
@@ -3216,12 +3216,12 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   }
   while (1) {
     if (first_col_m1) {
-      bufptr_arr[0] = next_item_mult(bufptr, first_col_m1);
+      bufptr_arr[0] = next_token_mult(bufptr, first_col_m1);
     } else {
       bufptr_arr[0] = bufptr;
     }
-    bufptr_arr[1] = next_item_mult(bufptr_arr[0], col_01_delta);
-    bufptr_arr[2] = next_item_mult(bufptr_arr[1], col_12_delta);
+    bufptr_arr[1] = next_token_mult(bufptr_arr[0], col_01_delta);
+    bufptr_arr[2] = next_token_mult(bufptr_arr[1], col_12_delta);
     if (!bufptr_arr[2]) {
       goto score_report_ret_MISSING_TOKENS;
     }
@@ -3321,11 +3321,11 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
     }
     while (1) {
       if (first_col_m1) {
-	bufptr_arr[0] = next_item_mult(bufptr, first_col_m1);
+	bufptr_arr[0] = next_token_mult(bufptr, first_col_m1);
       } else {
         bufptr_arr[0] = bufptr;
       }
-      bufptr_arr[1] = next_item_mult(bufptr_arr[0], col_01_delta);
+      bufptr_arr[1] = next_token_mult(bufptr_arr[0], col_01_delta);
       if (!bufptr_arr[1]) {
         goto score_report_ret_MISSING_TOKENS_Q;
       }
@@ -3460,7 +3460,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
       }
       rangename_len = strlen_se(bufptr);
       bufptr_arr[1] = skip_initial_spaces(&(bufptr[rangename_len]));
-      bufptr_arr[2] = next_item(bufptr_arr[1]);
+      bufptr_arr[2] = next_token(bufptr_arr[1]);
       if ((!bufptr_arr[2]) || scan_double(bufptr_arr[1], &lbound) || scan_double(bufptr_arr[2], &ubound) || (lbound != lbound) || (ubound != ubound) || (lbound > ubound)) {
 	continue;
       }

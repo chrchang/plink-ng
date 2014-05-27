@@ -344,9 +344,9 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
 	goto load_clusters_ret_INVALID_FORMAT_2;
       }
       if (mwithin_col > 1) {
-	cluster_name_ptr = next_item_mult(cluster_name_ptr, mwithin_col - 1);
+	cluster_name_ptr = next_token_mult(cluster_name_ptr, mwithin_col - 1);
       }
-      if (no_more_items_kns(cluster_name_ptr)) {
+      if (no_more_tokens_kns(cluster_name_ptr)) {
 	goto load_clusters_ret_MISSING_TOKENS;
       }
       set_bit(already_seen, sorted_idx);
@@ -428,7 +428,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
 	  continue;
 	}
 	if (mwithin_col > 1) {
-	  cluster_name_ptr = next_item_mult(cluster_name_ptr, mwithin_col - 1);
+	  cluster_name_ptr = next_token_mult(cluster_name_ptr, mwithin_col - 1);
 	}
 	slen = strlen_se(cluster_name_ptr);
 	if ((!keep_na) && (slen == 2) && (!memcmp(cluster_name_ptr, "NA", 2))) {
@@ -1393,9 +1393,9 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
       sprintf(logbuf, "Error: FID1/IID1 matches FID2/IID2 on line %" PRIuPTR " of --read-genome file.\n", line_idx);
       goto read_genome_ret_INVALID_FORMAT_2;
     }
-    bufptr = next_item_mult(bufptr, 7); // distance
-    fam_id = next_item(bufptr); // repurposed to PPC test value
-    if (no_more_items(fam_id)) {
+    bufptr = next_token_mult(bufptr, 7); // distance
+    fam_id = next_token(bufptr); // repurposed to PPC test value
+    if (no_more_tokens(fam_id)) {
       goto read_genome_ret_MISSING_TOKENS;
     }
     if (min_ppc != 0.0) {
@@ -1641,7 +1641,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	if (is_eoln_kns(*bufptr)) {
           goto cluster_enforce_match_ret_MISSING_TOKENS;
 	}
-        bufptr2 = item_endnn(bufptr);
+        bufptr2 = token_endnn(bufptr);
 	if (cov_type_arr[cov_idx]) {
 	  uii = bufptr2 - bufptr;
 	  if ((uii == missing_len) && (!memcmp(bufptr, missing_str, uii))) {
@@ -1802,7 +1802,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	  non_null_cov_ct++;
 	}
 	tol_arr[cov_ct++] = dxx;
-	bufptr = skip_initial_spaces(item_endnn(bufptr));
+	bufptr = skip_initial_spaces(token_endnn(bufptr));
 	if (cov_ct > 65536) {
           logprint("Error: Too many values in --qt file (max 65536).\n");
 	  goto cluster_enforce_match_ret_INVALID_FORMAT;
@@ -1864,7 +1864,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	    }
 	  }
 	}
-	bufptr = item_endnn(bufptr);
+	bufptr = token_endnn(bufptr);
       }
 
       if (wkspace_left < (uintptr_t)(((unsigned char*)(&(dptr[non_null_cov_ct]))) - wkspace_base)) {

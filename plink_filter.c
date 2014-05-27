@@ -449,7 +449,7 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
         goto filter_attrib_ret_INVALID_FORMAT_2;
       }
     } else {
-      bufptr2 = item_endnn(bufptr);
+      bufptr2 = token_endnn(bufptr);
       cond_ptr = skip_initial_spaces(bufptr2);
       sorted_idx = bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_ids, max_id_len, sorted_ids_ct);
     }
@@ -475,7 +475,7 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
     }
     while (!is_eoln_kns(*cond_ptr)) {
       bufptr2 = cond_ptr;
-      bufptr = item_endnn(cond_ptr);
+      bufptr = token_endnn(cond_ptr);
       ulii = (uintptr_t)(bufptr - bufptr2);
       cond_ptr = skip_initial_spaces(bufptr);
       if (pos_match_needed && (bsearch_str(bufptr2, ulii, sorted_pos_match, max_pos_match_len, pos_match_ct) != -1)) {
@@ -603,19 +603,19 @@ int32_t filter_qual_scores(Two_col_params* qual_filter, double qual_min_thresh, 
     }
     if (varid_first) {
       if (colmin) {
-	colid_ptr = next_item_mult(colid_ptr, colmin);
+	colid_ptr = next_token_mult(colid_ptr, colmin);
       }
-      colx_ptr = next_item_mult(colid_ptr, coldiff);
-      if (no_more_items_kns(colx_ptr)) {
+      colx_ptr = next_token_mult(colid_ptr, coldiff);
+      if (no_more_tokens_kns(colx_ptr)) {
         goto filter_qual_scores_ret_MISSING_TOKENS;
       }
     } else {
       colx_ptr = colid_ptr;
       if (colmin) {
-	colx_ptr = next_item_mult(colx_ptr, colmin);
+	colx_ptr = next_token_mult(colx_ptr, colmin);
       }
-      colid_ptr = next_item_mult(colx_ptr, coldiff);
-      if (no_more_items_kns(colid_ptr)) {
+      colid_ptr = next_token_mult(colx_ptr, coldiff);
+      if (no_more_tokens_kns(colid_ptr)) {
         goto filter_qual_scores_ret_MISSING_TOKENS;
       }
     }
@@ -936,7 +936,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    bufptr2 = item_endnn(bufptr);
+    bufptr2 = token_endnn(bufptr);
     ii = bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_marker_ids, max_marker_id_len, marker_ct);
     if (ii != -1) {
       marker_uidx = marker_id_map[(uint32_t)ii];
@@ -1097,9 +1097,9 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
       person_idx = id_map[(uint32_t)person_idx];
       if (!is_set(indiv_exclude, person_idx)) {
 	if (mfilter_col > 1) {
-	  bufptr = next_item_mult(bufptr, mfilter_col - 1);
+	  bufptr = next_token_mult(bufptr, mfilter_col - 1);
 	}
-	if (no_more_items_kns(bufptr)) {
+	if (no_more_tokens_kns(bufptr)) {
 	  goto filter_indivs_file_ret_MISSING_TOKENS;
 	}
 	if (bsearch_str(bufptr, strlen_se(bufptr), sorted_filtervals, max_filterval_len, filterval_ct) != -1) {
