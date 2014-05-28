@@ -56,6 +56,46 @@ uint32_t in_setdef(uint32_t* setdef, uint32_t marker_idx) {
   }
 }
 
+uint32_t in_setdef_dist(uint32_t* setdef, uint32_t pos, uint32_t border, int32_t* dist_ptr) {
+  uint32_t range_ct = setdef[0];
+  uint32_t uii;
+  int32_t ii;
+  uii = uint32arr_greater_than(&(setdef[1]), range_ct * 2, pos + 1);
+  if (uii & 1) {
+    *dist_ptr = 0;
+    return 1;
+  }
+  // check distance from two nearest interval boundaries
+  if (!uii) {
+    if (pos + border >= setdef[1]) {
+      *dist_ptr = ((int32_t)pos) - ((int32_t)setdef[1]);
+      return 1;
+    }
+    return 0;
+  } else if (uii == range_ct * 2) {
+    if (setdef[uii] + border > pos) {
+      *dist_ptr = pos + 1 - setdef[uii];
+      return 1;
+    }
+    return 0;
+  } else {
+    // this is actually the uncommon case, since range_ct is usually 1
+    // ties broken in favor of negative numbers, to match PLINK 1.07 annot.cpp
+    if (setdef[uii] + border > pos) {
+      ii = pos + 1 - setdef[uii];
+      if (pos + ((uint32_t)ii) > setdef[uii + 1]) {
+	ii = ((int32_t)pos) - ((int32_t)setdef[uii + 1]);
+      }
+      *dist_ptr = ii;
+      return 1;
+    } else if (pos + border >= setdef[uii + 1]) {
+      *dist_ptr = ((int32_t)pos) - ((int32_t)setdef[uii + 1]);
+      return 1;
+    }
+    return 0;
+  }
+}
+
 uint32_t interval_in_setdef(uint32_t* setdef, uint32_t marker_idx_start, uint32_t marker_idx_end) {
   // expects half-open interval coordinates as input
   // assumes interval is nonempty
@@ -2249,9 +2289,8 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
 }
 
 int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr) {
-  logprint("Error: --annotate is currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
-  /*
+  // logprint("Error: --annotate is currently under development.\n");
+  // return RET_CALC_NOT_YET_SUPPORTED;
   unsigned char* wkspace_mark = wkspace_base;
   gzFile gz_attribfile = NULL;
   FILE* infile = NULL;
@@ -2262,7 +2301,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
   char* sorted_subset_ids = NULL;
   char* range_names = NULL;
   char* filter_range_names = NULL;
-  char* block01_buf = NULL;
+  char* wptr = NULL;
   const char* snp_field = NULL;
   uintptr_t* attr_bitfields = NULL;
   uintptr_t* chrom_bounds = NULL;
@@ -2271,10 +2310,14 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
   uint32_t** filter_rangedefs = NULL;
   uint32_t* range_idx_lookup = NULL;
   uint32_t* attr_id_remap = NULL;
+  uint32_t* merged_attr_idx_buf = NULL;
   const char constsnpstr[] = "SNP";
   const char constdotstr[] = ".";
   const char constnastr[] = "NA";
+  const char constdot4str[] = "   .";
+  const char constna4str[] = "  NA";
   const char* no_annot_str = (aip->modifier & ANNOT_NA)? constnastr : constdotstr;
+  const char* no_sign_str = (aip->modifier & ANNOT_NA)? constna4str : constdot4str;
   uintptr_t topsize = 0;
   uintptr_t snplist_ct = 0;
   uintptr_t max_snplist_id_len = 0;
@@ -2291,6 +2334,9 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
   uintptr_t max_filter_range_name_len = 0;
   uintptr_t chrom_max_range_ct = 0;
   uintptr_t chrom_max_filter_range_ct = 0;
+  uintptr_t annot_row_ct = 0;
+  uintptr_t total_row_ct = 0;
+  uint32_t max_onevar_attr_ct = 0;
   uint32_t snp_field_len = 0;
   uint32_t border = aip->border;
   uint32_t need_var_id = (aip->attrib_fname || aip->snps_fname);
@@ -2299,11 +2345,15 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
   uint32_t token_ct = need_var_id + 2 * need_pos + do_pfilter;
   uint32_t block01 = (aip->modifier & ANNOT_BLOCK);
   uint32_t prune = (aip->modifier & ANNOT_PRUNE);
-  uint32_t minimal = (aip->modifier & ANNOT_MINIMAL);
-  uint32_t distance = (aip->modifier & ANNOT_DISTANCE);
+  uint32_t range_dist = !(aip->modifier & ANNOT_MINIMAL);
+  uint32_t track_distance = (aip->modifier & ANNOT_DISTANCE);
   uint32_t col_idx = 0;
   uint32_t seq_idx = 0;
   uint32_t max_header_len = 3;
+  uint32_t unique_annot_ct = 0;
+  uint32_t unique_annot_ctlw = 0;
+  int32_t chrom_idx = 0;
+  int32_t min_dist = 0;
   int32_t retval = 0;
 
   // col_skips[0..(token_ct - 1)] stores deltas between adjacent column indices
@@ -2319,20 +2369,28 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
   Ll_str** ll_pptr;
   Ll_str* ll_ptr;
   char* loadbuf;
+  char* merged_attr_ids;
+  char* writebuf;
   char* bufptr;
   char* bufptr2;
   uintptr_t* ulptr;
   uint32_t* uiptr;
-  uint32_t* uiptr2;
-  uint32_t* uiptr3;
   uintptr_t loadbuf_size;
+  uintptr_t topsize_bak;
   uintptr_t line_idx;
+  uintptr_t range_idx;
   uintptr_t ulii;
   uintptr_t uljj;
+  double pval;
   uint32_t slen;
+  uint32_t write_idx;
+  uint32_t cur_bp;
+  uint32_t abs_min_dist;
+  uint32_t at_least_one_annot;
   uint32_t uii;
   uint32_t ujj;
   int32_t sorted_idx;
+  int32_t ii;
   if (need_var_id) {
     if (aip->snpfield) {
       snp_field = aip->snpfield;
@@ -2387,8 +2445,8 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
       line_idx = 0;
       tbuf[MAXLINELEN - 1] = ' ';
       // two-pass load.
-      // 1. determine attribute set, as well as relevant variant ID count and max
-      //    length
+      // 1. determine attribute set, as well as relevant variant ID count and
+      //    max length
       // intermission. extract attribute names from hash table, natural sort,
       //               deallocate hash table
       // 2. save relevant variant IDs and attribute bitfields, then qsort_ext()
@@ -2422,7 +2480,9 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	if (slen >= max_snplist_attr_id_len) {
 	  max_snplist_attr_id_len = slen + 1;
 	}
+	ujj = 0;
 	do {
+	  ujj++;
 	  bufptr = token_endnn(bufptr2);
 	  slen = (uintptr_t)(bufptr - bufptr2);
 	  bufptr = skip_initial_spaces(bufptr);
@@ -2458,10 +2518,18 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	annotate_repeated_attrib:
 	  bufptr2 = bufptr;
 	} while (!is_eoln_kns(*bufptr2));
+	if (ujj > max_onevar_attr_ct) {
+	  max_onevar_attr_ct = ujj;
+	}
       }
       if (!attr_id_ct) {
 	sprintf(logbuf, "Error: No attributes in %s.\n", aip->attrib_fname);
 	goto annotate_ret_INVALID_FORMAT_WW;
+      }
+      if (max_onevar_attr_ct > attr_id_ct) {
+	// pathological case: a line of the attribute file has the same
+	// attribute repeated over and over again for some reason
+	max_onevar_attr_ct = attr_id_ct;
       }
       wkspace_left -= topsize;
       if (wkspace_alloc_c_checked(&sorted_attr_ids, attr_id_ct * max_attr_id_len)) {
@@ -2518,7 +2586,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
       if (qsort_ext(sorted_snplist_attr_ids, snplist_attr_ct, max_snplist_attr_id_len, strcmp_deref, (char*)attr_bitfields, attr_id_ctl * sizeof(intptr_t))) {
 	goto annotate_ret_NOMEM;
       }
-      LOGPRINTFWW("--annotate attrib: %" PRIuPTR " variant ID%s and %" PRIuPTR " unique attribute%s loaded.\n", snplist_attr_ct, (snplist_attr_ct == 1)? "" : "s", attr_id_ct, (attr_id_ct == 1)? "" : "s");
+      LOGPRINTFWW("--annotate attrib: %" PRIuPTR " variant ID%s and %" PRIuPTR " unique attribute%s loaded from %s.\n", snplist_attr_ct, (snplist_attr_ct == 1)? "" : "s", attr_id_ct, (attr_id_ct == 1)? "" : "s", aip->attrib_fname);
     }
   }
   if (need_pos) {
@@ -2557,17 +2625,22 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	qsort(sorted_subset_ids, subset_ct, max_subset_id_len, strcmp_casted);
 	subset_ct = collapse_duplicate_ids(sorted_subset_ids, subset_ct, max_subset_id_len, NULL);
       }
-      retval = load_range_list_sortpos(aip->ranges_fname, border, subset_ct, sorted_subset_ids, max_subset_id_len, chrom_info_ptr, &range_ct, &range_names, &max_range_name_len, &chrom_bounds, &rangedefs, &chrom_max_range_ct, "--annotate ranges");
+      // normally can't use border here because we need nearest distance
+      retval = load_range_list_sortpos(aip->ranges_fname, (block01 && (!track_distance))? border : 0, subset_ct, sorted_subset_ids, max_subset_id_len, chrom_info_ptr, &range_ct, &range_names, &max_range_name_len, &chrom_bounds, &rangedefs, &chrom_max_range_ct, "--annotate ranges");
       if (retval) {
 	goto annotate_ret_1;
       }
 #ifdef __LP64__
       if (range_ct > 0x80000000LLU) {
-	sprintf(logbuf, "Error: Too many ranges in %s (max 2147483648).\n", aip->ranges_fname);
+	sprintf(logbuf, "Error: Too many annotations in %s (max 2147483648, counting multi-chromosome annotations once per spanned chromosome).\n", aip->ranges_fname);
 	goto annotate_ret_INVALID_FORMAT_WW;
       }
 #endif
-      LOGPRINTFWW("--annotate ranges: %" PRIuPTR " range%s loaded.\n", range_ct, (range_ct == 1)? "" : "s");
+      if (range_ct != 1) {
+        LOGPRINTFWW("--annotate ranges: %" PRIuPTR " annotations loaded from %s (counting multi-chromosome annotations once per spanned chromosome).\n", range_ct, aip->ranges_fname);
+      } else {
+	LOGPRINTFWW("--annotate ranges: 1 annotation loaded from %s.\n", aip->ranges_fname);
+      }
     }
     topsize = 0;
     if (aip->filter_fname) {
@@ -2583,7 +2656,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
       // need [range_names idx -> merged natural sort order] and
       // [attribute idx -> merged natural sort order] lookup tables
       if (ulii > 0x3fffffff) {
-	logprint("Error: Too many unique attributes for --annotate block (max 1073741823).\n");
+	logprint("Error: Too many unique annotations for '--annotate block' (max 1073741823).\n");
         goto annotate_ret_INVALID_FORMAT;
       }
       if (wkspace_alloc_ui_checked(&range_idx_lookup, ulii * sizeof(int32_t))) {
@@ -2592,68 +2665,100 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
       if (attr_id_ct) {
 	attr_id_remap = &(range_idx_lookup[range_ct]);
       }
-      // create a master sorted ID list
+      // create a master natural-sorted annotation ID list
+
+      // this must persist until the output header line has been written
+      merged_attr_idx_buf = (uint32_t*)top_alloc(&topsize, ulii * sizeof(int32_t));
+      if (!merged_attr_idx_buf) {
+	goto annotate_ret_NOMEM;
+      }
       uii = MAXV((max_range_name_len - 4), max_attr_id_len);
-      bufptr2 = (char*)top_alloc(&topsize, ulii * uii);
-      if (!bufptr2) {
+      // this is larger and doesn't need to persist
+      topsize_bak = topsize;
+      merged_attr_ids = (char*)top_alloc(&topsize, ulii * uii);
+      if (!merged_attr_ids) {
 	goto annotate_ret_NOMEM;
       }
-      uiptr = (uint32_t*)top_alloc(&topsize, ulii * sizeof(int32_t));
-      if (!uiptr) {
-	goto annotate_ret_NOMEM;
-      }
-      uiptr2 = uiptr;
+      uiptr = merged_attr_idx_buf;
       for (uljj = 0; uljj < range_ct; uljj++) {
-	strcpy(&(bufptr2[uljj * uii]), &(range_names[uljj * max_range_name_len + 4]));
-	*uiptr2++ = uljj;
+	strcpy(&(merged_attr_ids[uljj * uii]), &(range_names[uljj * max_range_name_len + 4]));
+	*uiptr++ = uljj;
       }
       if (attr_id_ct) {
-	if (uii == max_attr_id_len) {
-	  memcpy(&(bufptr2[range_ct * max_attr_id_len]), sorted_attr_ids, attr_id_ct * max_attr_id_len);
-	} else {
-	  for (uljj = range_ct; uljj < ulii; uljj++) {
-	    strcpy(&(bufptr2[uljj * uii]), &(sorted_attr_ids[uljj * max_attr_id_len]));
-	  }
+	for (ujj = 0, uljj = range_ct; uljj < ulii; uljj++, ujj++) {
+	  strcpy(&(merged_attr_ids[uljj * uii]), &(sorted_attr_ids[ujj * max_attr_id_len]));
+	  *uiptr++ = ujj + 0x80000000U;
 	}
-	ujj = 0x80000000U;
-	uiptr3 = &(uiptr2[attr_id_ct]);
-	do {
-	  *uiptr2 = ujj++;
-	} while (++uiptr2 < uiptr3);
       }
       wkspace_left -= topsize;
-      if (qsort_ext(bufptr2, ulii, uii, strcmp_natural_deref, (char*)uiptr, ulii * sizeof(int32_t))) {
+      if (qsort_ext(merged_attr_ids, ulii, uii, strcmp_natural_deref, (char*)merged_attr_idx_buf, sizeof(int32_t))) {
 	goto annotate_ret_NOMEM2;
       }
       wkspace_left += topsize;
-      // topsize = 0;
+      topsize = topsize_bak;
 
       // similar to collapse_duplicate_ids(), except we need to save lookup
       // info
       // uljj = read idx
       uljj = 0;
       write_idx = 0;
+      bufptr = merged_attr_ids; // write pointer
+      ujj = merged_attr_idx_buf[0];
       while (1) {
-	ujj = uiptr[uljj];
 	if (ujj < 0x80000000U) {
-	  range_idx_lookup[ujj] = write_idx;
+	  range_idx_lookup[ujj] = 2 * write_idx + 1;
 	} else {
-          attr_id_remap[ujj & 0x7fffffff] = write_idx;
+          attr_id_remap[ujj & 0x7fffffff] = 2 * write_idx + 1;
 	}
-	if (++uljj == uljj) {
+	if (++uljj == ulii) {
 	  break;
 	}
-        if (strcmp()) {
+	ujj = merged_attr_idx_buf[uljj];
+        if (strcmp(bufptr, &(merged_attr_ids[uljj * uii]))) {
+          bufptr = &(bufptr[uii]);
+	  if (++write_idx != uljj) {
+	    merged_attr_idx_buf[write_idx] = ujj;
+	    strcpy(bufptr, &(merged_attr_ids[uljj * uii]));
+	  }
 	}
       }
+      unique_annot_ct = write_idx + 1;
+    } else {
+      unique_annot_ct = attr_id_ct;
     }
-    if (wkspace_alloc_c_checked(&block01_buf, 2 * ulii)) {
+#ifdef __LP64__
+    unique_annot_ctlw = (unique_annot_ct + 3) / 4;
+#else
+    unique_annot_ctlw = (unique_annot_ct + 1) / 2;
+#endif
+    LOGPRINTF("--annotate block: %u unique annotation%s present.\n", unique_annot_ct, (unique_annot_ct == 1)? "" : "s");
+    if (unique_annot_ct > 1000) {
+      logprint("Warning: Output file may be very large.  Are you sure you want >1000 additional\ncolumns per line?  If not, restart without 'block'.\n");
+    }
+    wkspace_left -= topsize;
+    if (wkspace_alloc_c_checked(&writebuf, unique_annot_ctlw * sizeof(intptr_t))) {
+      goto annotate_ret_NOMEM2;
+    }
+    ulptr = (uintptr_t*)writebuf;
+    for (ulii = 0; ulii < unique_annot_ctlw; ulii++) {
+      // fill with repeated " 0"
+#ifdef __LP64__
+      *ulptr++ = 0x3020302030203020LLU;
+#else
+      *ulptr++ = 0x30203020;
+#endif
+    }
+    wptr = &(writebuf[unique_annot_ct * 2]);
+  } else {
+    // worst case: max_onevar_attr_ct attributes and chrom_max_range_ct range
+    // annotations
+    if (wkspace_alloc_c_checked(&writebuf, (max_onevar_attr_ct * max_attr_id_len) + (chrom_max_range_ct * (max_range_name_len + (3 + 16 * (border != 0)) * range_dist)))) {
       goto annotate_ret_NOMEM;
     }
   }
-
   loadbuf = (char*)wkspace_base;
   loadbuf_size = wkspace_left;
+  wkspace_left += topsize;
   if (loadbuf_size > MAXLINEBUFLEN) {
     loadbuf_size = MAXLINEBUFLEN;
   } else if (loadbuf_size <= MAXLINELEN) {
@@ -2666,7 +2771,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
   if (retval) {
     goto annotate_ret_1;
   }
-  fill_uint_one(col_sequence, token_ct);
+  fill_uint_one(col_sequence, 4);
   do {
     bufptr2 = token_endnn(bufptr);
     slen = (uintptr_t)(bufptr2 - bufptr);
@@ -2710,7 +2815,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
   if (fwrite_checked(loadbuf, (uintptr_t)(bufptr - loadbuf), outfile)) {
     goto annotate_ret_WRITE_FAIL;
   }
-  if (distance) {
+  if (track_distance) {
     fputs("        DIST         SGN", outfile);
   }
   if (block01) {
@@ -2720,25 +2825,26 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	fputs(&(sorted_attr_ids[ulii * max_attr_id_len]), outfile);
       }
     } else {
-      // bleah, temporarily reconstruct this array.  at least we know we have
-      // enough memory
-      uiptr = (uint32_t*)wkspace_base;
-      for () {
-      }
-      for () {
-      }
-      for () {
+      for (uii = 0; uii < unique_annot_ct; uii++) {
 	putc(' ', outfile);
-	if () {
+	ujj = merged_attr_idx_buf[uii];
+	if (ujj < 0x80000000U) {
+	  fputs(&(range_names[ujj * max_range_name_len + 4]), outfile);
 	} else {
+	  fputs(&(sorted_attr_ids[(ujj & 0x7fffffff) * max_attr_id_len]), outfile);
 	}
       }
+      loadbuf_size += topsize;
+      topsize = 0;
+      if (loadbuf_size > MAXLINEBUFLEN) {
+	loadbuf_size = MAXLINEBUFLEN;
+      }
+      loadbuf[loadbuf_size - 1] = ' ';
     }
   } else {
     fputs(" ANNOT", outfile);
   }
   putc('\n', outfile);
-  exit(1);
   while (fgets(loadbuf, loadbuf_size, infile)) {
     line_idx++;
     if (!loadbuf[loadbuf_size - 1]) {
@@ -2753,7 +2859,238 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    ;;;
+    if (col_skips[0]) {
+      bufptr = next_token_mult(bufptr, col_skips[0]);
+    }
+    token_ptrs[0] = bufptr;
+    for (seq_idx = 1; seq_idx < token_ct; seq_idx++) {
+      bufptr = next_token_mult(bufptr, col_skips[seq_idx]);
+      token_ptrs[seq_idx] = bufptr;
+    }
+    if (!bufptr) {
+      continue;
+    }
+    if (need_pos) {
+      // CHR
+      chrom_idx = get_chrom_code(chrom_info_ptr, token_ptrs[col_sequence[0]]);
+      if (chrom_idx < 0) {
+        continue;
+      }
+
+      // BP
+      if (scan_uint_defcap(token_ptrs[col_sequence[1]], &cur_bp)) {
+	continue;
+      }
+
+      if (chrom_filter_bounds) {
+	ulii = chrom_filter_bounds[((uint32_t)chrom_idx) + 1];
+	for (range_idx = chrom_filter_bounds[(uint32_t)chrom_idx]; range_idx < ulii; range_idx++) {
+          if (in_setdef(filter_rangedefs[range_idx], cur_bp)) {
+	    break;
+	  }
+	}
+	if (range_idx == ulii) {
+	  continue;
+	}
+      }
+    }
+
+    if (sorted_snplist) {
+      if (bsearch_str(token_ptrs[col_sequence[2]], strlen_se(token_ptrs[col_sequence[2]]), sorted_snplist, max_snplist_id_len, snplist_ct) == -1) {
+	continue;
+      }
+    }
+
+    // P
+    if (do_pfilter) {
+      if (scan_double(token_ptrs[col_sequence[3]], &pval) || (pval > pfilter)) {
+	continue;
+      }
+    }
+
+    abs_min_dist = 0x80000000U;
+    if (!block01) {
+      wptr = writebuf;
+      if (chrom_bounds) {
+	ulii = chrom_bounds[((uint32_t)chrom_idx) + 1];
+	if (!border) {
+	  for (range_idx = chrom_bounds[(uint32_t)chrom_idx]; range_idx < ulii; range_idx++) {
+	    if (in_setdef(rangedefs[range_idx], cur_bp)) {
+	      wptr = strcpya(wptr, &(range_names[range_idx * max_range_name_len + 4]));
+	      if (range_dist) {
+		wptr = memcpya(wptr, "(0)|", 4);
+	      } else {
+		*wptr++ = '|';
+	      }
+	    }
+	  }
+	  if (wptr != writebuf) {
+	    abs_min_dist = 0;
+	  }
+	} else {
+	  for (range_idx = chrom_bounds[(uint32_t)chrom_idx]; range_idx < ulii; range_idx++) {
+	    if (in_setdef_dist(rangedefs[range_idx], cur_bp, border, &ii)) {
+	      ujj = abs(ii);
+	      if (ujj < abs_min_dist) {
+		abs_min_dist = ujj;
+		min_dist = ii;
+	      }
+	      wptr = strcpya(wptr, &(range_names[range_idx * max_range_name_len + 4]));
+	      if (range_dist) {
+		if (ii == 0) {
+		  wptr = memcpya(wptr, "(0)|", 4);
+		} else {
+		  *wptr++ = '(';
+		  if (ii > 0) {
+		    *wptr++ = '+';
+		  }
+		  wptr = double_g_writewx4(wptr, ((double)ii) * 0.001, 1);
+		  wptr = memcpya(wptr, "kb)|", 4);
+		}
+	      } else {
+		*wptr++ = '|';
+	      }
+	    }
+	  }
+	}
+      }
+      if (sorted_snplist_attr_ids) {
+	bufptr2 = token_ptrs[col_sequence[2]];
+	slen = (uintptr_t)(token_endnn(bufptr2) - bufptr2);
+	sorted_idx = bsearch_str(bufptr2, slen, sorted_snplist_attr_ids, max_snplist_attr_id_len, snplist_attr_ct);
+	if (sorted_idx != -1) {
+	  ulptr = &(attr_bitfields[((uint32_t)sorted_idx) * attr_id_ctl]);
+	  for (uii = 0; uii < attr_id_ct; uii += BITCT) {
+	    ulii = *ulptr++;
+	    while (ulii) {
+	      ujj = CTZLU(ulii);
+	      wptr = strcpyax(wptr, &(sorted_attr_ids[(uii + ujj) * max_attr_id_len]), '|');
+	      ulii &= ulii - 1;
+	    }
+	  }
+	}
+      }
+      at_least_one_annot = (wptr != writebuf);
+      if (at_least_one_annot) {
+	wptr--;
+	annot_row_ct++;
+      } else {
+	if (prune) {
+	  continue;
+	}
+	wptr = strcpya(wptr, no_annot_str);
+      }
+    } else {
+      at_least_one_annot = 0;
+      if (chrom_bounds) {
+	ulii = chrom_bounds[((uint32_t)chrom_idx) + 1];
+	if (!border) {
+	  for (range_idx = chrom_bounds[(uint32_t)chrom_idx]; range_idx < ulii; range_idx++) {
+	    if (in_setdef(rangedefs[range_idx], cur_bp)) {
+	      writebuf[range_idx_lookup[range_idx]] = '1';
+	      at_least_one_annot = 1;
+	    }
+	  }
+	  if (at_least_one_annot) {
+	    abs_min_dist = 0;
+	  }
+	} else if (!track_distance) {
+	  for (range_idx = chrom_bounds[(uint32_t)chrom_idx]; range_idx < ulii; range_idx++) {
+	    if (in_setdef(rangedefs[range_idx], cur_bp)) {
+	      writebuf[range_idx_lookup[range_idx]] = '1';
+	      at_least_one_annot = 1;
+	    }
+	  }
+	} else {
+	  for (range_idx = chrom_bounds[(uint32_t)chrom_idx]; range_idx < ulii; range_idx++) {
+	    if (in_setdef_dist(rangedefs[range_idx], cur_bp, border, &ii)) {
+	      ujj = abs(ii);
+	      if (ujj < abs_min_dist) {
+		abs_min_dist = ujj;
+		min_dist = ii;
+	      }
+	      writebuf[range_idx_lookup[range_idx]] = '1';
+	      at_least_one_annot = 1;
+	    }
+	  }
+	}
+      }
+      if (sorted_snplist_attr_ids) {
+	bufptr2 = token_ptrs[col_sequence[2]];
+	slen = (uintptr_t)(token_endnn(bufptr2) - bufptr2);
+	sorted_idx = bsearch_str(bufptr2, slen, sorted_snplist_attr_ids, max_snplist_attr_id_len, snplist_attr_ct);
+	if (sorted_idx != -1) {
+	  ulptr = &(attr_bitfields[((uint32_t)sorted_idx) * attr_id_ctl]);
+	  for (uii = 0; uii < attr_id_ct; uii += BITCT) {
+	    ulii = *ulptr++;
+	    if (ulii) {
+	      do {
+		ujj = CTZLU(ulii);
+		writebuf[attr_id_remap[uii + ujj]] = '1';
+		ulii &= ulii - 1;
+	      } while (ulii);
+	      at_least_one_annot = 1;
+	    }
+	  }
+	}
+      }
+
+      if (at_least_one_annot) {
+	annot_row_ct++;
+      } else if (prune) {
+	continue;
+      }
+    }
+    bufptr = strchr(bufptr, '\0');
+    if (bufptr[-1] == '\n') {
+      bufptr--;
+      if (bufptr[-1] == '\r') {
+	bufptr--;
+      }
+    }
+    total_row_ct++;
+    if (fwrite_checked(loadbuf, bufptr - loadbuf, outfile)) {
+      goto annotate_ret_WRITE_FAIL;
+    }
+    if (track_distance) {
+      if (abs_min_dist != 0x80000000U) {
+	bufptr2 = width_force(12, tbuf, double_g_write(tbuf, ((double)((int32_t)abs_min_dist)) * 0.001));
+	if (!abs_min_dist) {
+          bufptr2 = memcpya(bufptr2, no_sign_str, 4);
+	} else {
+          bufptr2 = memcpyl3a(bufptr2, "   ");
+          if (min_dist > 0) {
+	    *bufptr2++ = '+';
+	  } else {
+	    *bufptr2++ = '-';
+	  }
+	}
+      } else {
+	bufptr2 = memseta(tbuf, 32, 8);
+	bufptr2 = memcpya(bufptr2, no_sign_str, 4);
+	bufptr2 = memcpya(bufptr2, no_sign_str, 4);
+      }
+      if (fwrite_checked(tbuf, bufptr2 - tbuf, outfile)) {
+	goto annotate_ret_WRITE_FAIL;
+      }
+    }
+    putc(' ', outfile);
+    if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
+      goto annotate_ret_WRITE_FAIL;
+    }
+
+    putc('\n', outfile);
+    if (block01 && at_least_one_annot) {
+      // reinitialize
+      ulptr = (uintptr_t*)writebuf;
+      for (ulii = 0; ulii < unique_annot_ctlw; ulii++) {
+#ifdef __LP64__
+	*ulptr++ = 0x3020302030203020LLU;
+#else
+	*ulptr++ = 0x30203020;
+#endif
+      }
+    }
   }
   if (fclose_null(&infile)) {
     goto annotate_ret_READ_FAIL;
@@ -2761,7 +3098,11 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
   if (fclose_null(&outfile)) {
     goto annotate_ret_WRITE_FAIL;
   }
-  LOGPRINTFWW("--annotate: Annotated report written to %s .\n", outname);
+  if (!prune) {
+    LOGPRINTFWW("--annotate: %" PRIuPTR " out of %" PRIuPTR " row%s annotated; new report written to %s .\n", annot_row_ct, total_row_ct, (total_row_ct == 1)? "" : "s", outname);
+  } else {
+    LOGPRINTFWW("--annotate: %" PRIuPTR " row%s annotated; new report written to %s .\n", total_row_ct, (total_row_ct == 1)? "" : "s", outname);
+  }
   while (0) {
   annotate_ret_NOMEM2:
     wkspace_left += topsize;
@@ -2790,7 +3131,6 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
   gzclose_cond(gz_attribfile);
   fclose_cond(outfile);
   return retval;
-  */
 }
 
 int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t border, char* extractname, const char* snp_field, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr) {
@@ -2922,7 +3262,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       wkspace_shrink_top(sorted_extract_ids, extract_ct * max_extract_id_len);
     }
   }
-  retval = load_range_list_sortpos(glist, border, subset_ct, sorted_subset_ids, max_subset_id_len, chrom_info_ptr, &gene_ct, &gene_names, &max_gene_name_len, &chrom_bounds, &genedefs, &chrom_max_gene_ct, "--gene-report");
+  retval = load_range_list_sortpos(glist, 0, subset_ct, sorted_subset_ids, max_subset_id_len, chrom_info_ptr, &gene_ct, &gene_names, &max_gene_name_len, &chrom_bounds, &genedefs, &chrom_max_gene_ct, "--gene-report");
   wkspace_left += topsize;
   if (retval) {
     goto gene_report_ret_1;
@@ -2976,7 +3316,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   header_ptr = linebuf_top;
   loadbuf = memcpya(header_ptr, "kb ) ", 5);
   if (border) {
-    loadbuf = memcpya(loadbuf, " including ", 11);
+    loadbuf = memcpya(loadbuf, " plus ", 6);
     loadbuf = double_g_write(loadbuf, ((double)((int32_t)border)) * 0.001);
     loadbuf = memcpya(loadbuf, "kb border ", 10);
   }
@@ -3114,8 +3454,14 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
 
     ulii = chrom_bounds[((uint32_t)chrom_idx) + 1];
     gene_match_list_ptr = gene_match_list;
+    if (cur_bp > border) {
+      uii = cur_bp - border;
+    } else {
+      uii = 0;
+    }
+    ujj = cur_bp + border;
     for (gene_idx = chrom_bounds[(uint32_t)chrom_idx]; gene_idx < ulii; gene_idx++) {
-      if (interval_in_setdef(genedefs[gene_idx], cur_bp, cur_bp)) {
+      if (interval_in_setdef(genedefs[gene_idx], uii, ujj)) {
 	*(--gene_match_list) = (((uint64_t)gene_chridx_to_nameidx[gene_idx]) << 32) | saved_line_ct;
       }
     }
@@ -3204,10 +3550,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       if (fwrite_checked(header_ptr, header_len, outfile)) {
 	goto gene_report_ret_WRITE_FAIL;
       }
-      // this doesn't really work properly if border > start coordinate, but
-      // it's not really worth the trouble of fixing unless someone depends on
-      // the "correct" behavior there
-      cur_bp = genedefs[gene_idx][1] + border;
+      cur_bp = genedefs[gene_idx][1];
     }
     bufptr = line_lookup[(uint32_t)ullii];
     uii = *((uint32_t*)bufptr); // line length

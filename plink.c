@@ -86,7 +86,7 @@
 
 const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b1c"
+  "PLINK v1.90b1d"
 #else
   "PLINK v1.90b2p"
 #endif
@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (27 May 2014)";
+  " (28 May 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   //  " " (don't actually want this when version number has a trailing letter)
@@ -3448,12 +3448,6 @@ int32_t main(int32_t argc, char** argv) {
 	  break;
 	}
 	goto main_flag_copy;
-      case 'b':
-        if (!strcmp(argptr, "border")) {
-          memcpy(flagptr, "make-set-border", 16);
-	  break;
-	}
-	goto main_flag_copy;
       case 'c':
         if (!strcmp(argptr, "chr-excl")) {
           fputs("Note: --chr-excl flag has been renamed to --not-chr.\n", stdout);
@@ -4223,8 +4217,8 @@ int32_t main(int32_t argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
-	if ((annot_info.modifier & ANNOT_BLOCK) && (annot_info.modifier & (ANNOT_NA | ANNOT_MINIMAL | ANNOT_DISTANCE))) {
-	  logprint("Error: --annotate 'block' cannot be used with 'NA'/'minimal'/'distance'.\n");
+	if ((annot_info.modifier & ANNOT_BLOCK) && (annot_info.modifier & (ANNOT_NA | ANNOT_MINIMAL))) {
+	  logprint("Error: --annotate 'block' cannot be used with 'NA' or 'minimal'.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (!annot_info.attrib_fname) {
