@@ -2906,7 +2906,7 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
     }
     *outname_end = '\0';
     putchar('\r');
-    LOGPREPRINTFWW("Cluster solution written to %s.cluster1 , %s.cluster2 ,\nand %s.cluster3%s .\n", outname, outname, outname, (cp->modifier & CLUSTER_MISSING)? ".missing" : "");
+    LOGPREPRINTFWW("Cluster solution written to %s.cluster1 , %s.cluster2 , and %s.cluster3%s .\n", outname, outname, outname, (cp->modifier & CLUSTER_MISSING)? ".missing" : "");
   } else {
     *outname_end = '\0';
     putchar('\r');

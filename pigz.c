@@ -1205,7 +1205,7 @@ void parallel_compress(char* out_fname, uint32_t do_append, uint32_t(* emitn)(ui
     size_t len;                     /* for various length computations */
 
     g.outf = out_fname;
-    g.outd = open(g.outf, O_CREAT | O_TRUNC | O_WRONLY | (do_append? O_APPEND : 0), 0644);
+    g.outd = open(g.outf, O_WRONLY | (do_append? O_APPEND : (O_CREAT | O_TRUNC)), 0644);
 
     /* if first time or after an option change, setup the job lists */
     setup_jobs();

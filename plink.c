@@ -65,6 +65,8 @@
 #define LOAD_RARE_VCF 0x800
 #define LOAD_RARE_BCF 0x1000
 
+#define LOAD_RARE_DOSAGE 0x2000
+
 #define LOAD_PARAMS_TEXTFILE 1
 #define LOAD_PARAMS_PED 2
 #define LOAD_PARAMS_MAP 4
@@ -99,7 +101,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (28 May 2014)";
+  " (31 May 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   //  " " (don't actually want this when version number has a trailing letter)
@@ -3965,7 +3967,7 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
 	  allelexxxx = ALLELE_RECODE;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "lleleACGT", 9)) {
 	if (allelexxxx) {
 	  logprint("Error: --allele1234 and --alleleACGT cannot be used together.\n");
@@ -3983,7 +3985,7 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
 	  allelexxxx = ALLELE_RECODE_ACGT;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "llele-count", 12)) {
 	lgen_modifier |= LGEN_ALLELE_COUNT;
 	goto main_param_zero;
@@ -4144,7 +4146,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "2-allele", 9)) {
 	if (a1alleles) {
 	  logprint("Error: --a2-allele cannot be used with --a1-allele.\n");
@@ -4157,7 +4159,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "nnotate", 8)) {
 	UNSTABLE;
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 10)) {
@@ -4264,7 +4266,7 @@ int32_t main(int32_t argc, char** argv) {
           memcpy(filter_attrib_liststr, argv[cur_arg + 2], uii);
 	  memcpy(&(filter_attrib_liststr[uii]), ",", 2);
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "ttrib-indiv", 12)) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
           goto main_ret_INVALID_CMDLINE_2A;
@@ -4387,7 +4389,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --bp-space minimum bp distance '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "eta", 4)) {
 	logprint("Note: --beta flag deprecated.  Use e.g. '--logistic beta'.\n");
 	glm_modifier |= GLM_BETA;
@@ -4727,6 +4729,10 @@ int32_t main(int32_t argc, char** argv) {
 	if (load_rare || load_params) {
 	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
 	}
+	if (calculation_type & CALC_MERGE) {
+	  logprint("Error: --cfile cannot be used with --bmerge.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -4930,6 +4936,10 @@ int32_t main(int32_t argc, char** argv) {
 	UNSTABLE;
 	if ((load_rare & (~LOAD_RARE_CNV)) || load_params) {
 	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
+	}
+	if (calculation_type & CALC_MERGE) {
+	  logprint("Error: --cnv-list cannot be used with --bmerge.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -5330,7 +5340,7 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_NOMEM;
 	  }
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "heck-sex", 9)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 5)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -5824,6 +5834,18 @@ int32_t main(int32_t argc, char** argv) {
 	}
         misc_flags |= MISC_DOUBLE_ID;
         goto main_param_zero;
+      } else if (!memcmp(argptr2, "osage", 6)) {
+	UNSTABLE;
+	if (load_rare || load_params) {
+	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 16)) {
+          goto main_ret_INVALID_CMDLINE_2A;
+	}
+        logprint("Error: --dosage is currently under development.\n");
+	goto main_ret_INVALID_CMDLINE;
+	load_rare = LOAD_RARE_DOSAGE;
+	mapname[0] = '\0';
       } else if (!memcmp(argptr2, "prime", 6)) {
 	logprint("Note: --dprime flag deprecated.  Use e.g. '--r2 dprime'.\n");
 	ld_info.modifier |= LD_DPRIME;
@@ -5835,10 +5857,6 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'e':
       if (!memcmp(argptr2, "xtract", 7)) {
-	if (load_rare == LOAD_RARE_CNV) {
-	  logprint("--extract cannot be used with a .cnv fileset.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
-	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -5856,12 +5874,8 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "xclude", 7)) {
-	if (load_rare == LOAD_RARE_CNV) {
-	  logprint("--exclude cannot be used with a .cnv fileset.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
-	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -5879,32 +5893,25 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "xclude-snp", 11)) {
-	if (load_rare == LOAD_RARE_CNV) {
-	  logprint("Error: --exclude-snp cannot be used with a .cnv fileset.  Use --from-bp/-kb/-mb\nand --to-bp/-kb/-mb instead.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
-	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
         if (alloc_string(&markername_snp, argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
-        filter_flags |= FILTER_EXCLUDE_MARKERNAME_SNP;
+        filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV | FILTER_EXCLUDE_MARKERNAME_SNP;
       } else if (!memcmp(argptr2, "xclude-snps", 12)) {
 	if (markername_snp) {
 	  logprint("Error: --exclude-snps cannot be used with --exclude-snp.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
-	} else if (load_rare == LOAD_RARE_CNV) {
-	  logprint("Error: --exclude-snps cannot be used with a .cnv fileset.  Use\n--from-bp/-kb/-mb and --to-bp/-kb/-mb instead.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	retval = parse_name_ranges(param_ct, range_delim, &(argv[cur_arg]), &snps_range_list, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
-        filter_flags |= FILTER_EXCLUDE_MARKERNAME_SNP;
+        filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV | FILTER_EXCLUDE_MARKERNAME_SNP;
       } else if (!memcmp(argptr2, "pistasis", 9)) {
 	if (epi_info.modifier & EPI_FAST_CASE_ONLY) {
 	  logprint("Error: --epistasis cannot be used with --case-only.\n");
@@ -6089,9 +6096,6 @@ int32_t main(int32_t argc, char** argv) {
 	if (chrom_flag_present) {
 	  logprint("Error: --from cannot be used with --autosome{-xy} or --{not-}chr.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
-	} else if (load_rare == LOAD_RARE_CNV) {
-	  logprint("Error: --from cannot be used with a .cnv fileset.  Use --from-bp/-kb/-mb\ninstead.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -6099,7 +6103,7 @@ int32_t main(int32_t argc, char** argv) {
         if (alloc_string(&markername_from, argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if ((!memcmp(argptr2, "rom-bp", 7)) || (!memcmp(argptr2, "rom-kb", 7)) || (!memcmp(argptr2, "rom-mb", 7))) {
 	if (markername_from) {
 	  logprint("Error: --from-bp/-kb/-mb cannot be used with --from.\n");
@@ -6132,7 +6136,7 @@ int32_t main(int32_t argc, char** argv) {
 	    marker_pos_start = (int32_t)(dxx * (1 + SMALL_EPSILON));
 	  }
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_DOSAGEMAP;
       } else if (!memcmp(argptr2, "isher", 6)) {
 	if (model_modifier & MODEL_ASSOC) {
 	  logprint("Error: --fisher cannot be used with --assoc.\n");
@@ -6154,7 +6158,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "lip-subset", 11)) {
 	if (!flip_fname) {
           logprint("Error: --flip-subset must be used with --flip.\n");
@@ -6312,7 +6316,7 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
 	  geno_thresh = 0.1;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "en", 3)) {
 	if (load_rare || (load_params & (LOAD_PARAMS_TEXT_ALL | LOAD_PARAMS_BFILE_ALL | LOAD_PARAMS_OXBGEN))) {
 	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
@@ -6504,14 +6508,14 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "ene-all", 8)) {
 	if (set_info.genekeep_flattened) {
           logprint("Error: --gene-all cannot be used with --gene.\n");
           goto main_ret_INVALID_CMDLINE_A;
 	}
         set_info.modifier |= SET_GENE_ALL;
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ap", 3)) {
 	if ((epi_info.modifier & (EPI_FAST | EPI_FAST_CASE_ONLY)) != (EPI_FAST | EPI_FAST_CASE_ONLY)) {
@@ -6639,7 +6643,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --hwe threshold must be smaller than 0.5 when using mid-p adjustment.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "we-all", 7)) {
 	logprint("Note: --hwe-all flag deprecated.  Use '--hwe include-nonctrl'.\n");
 	hwe_modifier |= HWE_THRESH_ALL;
@@ -7138,6 +7142,9 @@ int32_t main(int32_t argc, char** argv) {
         calculation_type |= CALC_SEXCHECK;
         misc_flags |= MISC_IMPUTE_SEX;
 	sex_missing_pheno |= ALLOW_NO_SEX;
+      } else if (!memcmp(argptr2, "ard-call", 9)) {
+	logprint("Error: The undocumented --hard-call flag has been retired.  (The\n--hard-call-threshold flag, supported by both PLINK and PLINK/SEQ, has similar\nfunctionality.)\n");
+	goto main_ret_INVALID_CMDLINE;
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
       }
@@ -7182,12 +7189,20 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	filter_flags |= FILTER_GENERIC;
       } else if (!memcmp(argptr2, "eep-allele-order", 17)) {
+	if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
+	  sprintf(logbuf, "Error: --keep-allele-order has no effect with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
 	misc_flags |= MISC_KEEP_ALLELE_ORDER;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "eep-before-remove", 18)) {
         logprint("Note: --keep-before-remove has no effect.\n");
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "eep-autoconv", 13)) {
+	if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
+	  sprintf(logbuf, "Error: --keep-autoconv has no effect with %s.\n", (load_rare == LOAD_RARE_CNV)? "--cfile/--cnv-list" : "--dosage");
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
         misc_flags |= MISC_KEEP_AUTOCONV;
         goto main_param_zero;
       } else if (!memcmp(argptr2, "eep-cluster-names", 18)) {
@@ -7543,7 +7558,7 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'm':
       if (!memcmp(argptr2, "ap", 3)) {
-	if ((load_params & (LOAD_PARAMS_BFILE_ALL | LOAD_PARAMS_OX_ALL)) || (load_rare & (~(LOAD_RARE_CNV | LOAD_RARE_GVAR)))) {
+	if ((load_params & (LOAD_PARAMS_BFILE_ALL | LOAD_PARAMS_OX_ALL)) || (load_rare & (~(LOAD_RARE_CNV | LOAD_RARE_GVAR | LOAD_RARE_DOSAGE)))) {
 	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
 	}
 	load_params |= LOAD_PARAMS_MAP;
@@ -7660,7 +7675,7 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
 	  min_maf = 0.01;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "ax-maf", 7)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -7676,7 +7691,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --max-maf parameter '%s' too large (must be < 0.5).\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "ind", 4)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -7693,7 +7708,7 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
 	  mind_thresh = 0.1;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "ake-grm", 8)) {
 	logprint("Error: --make-grm has been retired due to inconsistent meaning across GCTA\nversions.  Use --make-grm-gz or --make-grm-bin.\n");
 	goto main_ret_INVALID_CMDLINE;
@@ -7863,9 +7878,9 @@ int32_t main(int32_t argc, char** argv) {
 	if (calculation_type & CALC_MERGE) {
 	  logprint("Error: --merge cannot be used with --bmerge.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
-	} else if (load_rare & LOAD_RARE_CNV) {
-	  logprint("Error: --merge does not currently support .cnv filesets.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
+	} else if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
+	  sprintf(logbuf, "Error: --merge cannot be used with %s.\n", (load_rare == LOAD_RARE_CNV)? ".cnv filesets" : "--dosage");
+	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -7896,6 +7911,9 @@ int32_t main(int32_t argc, char** argv) {
 	if (calculation_type & CALC_MERGE) {
 	  logprint("Error: --merge-list cannot be used with --merge or --bmerge.\n");
 	  goto main_ret_INVALID_CMDLINE;
+	} else if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
+	  sprintf(logbuf, "Error: --merge-list cannot be used with %s.\n", (load_rare == LOAD_RARE_CNV)? ".cnv filesets" : "--dosage");
+	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -8337,6 +8355,10 @@ int32_t main(int32_t argc, char** argv) {
         misc_flags |= MISC_CMH2;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ake-set", 8)) {
+	if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
+	  sprintf(logbuf, "Error: --make-set cannot be used with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -8440,7 +8462,7 @@ int32_t main(int32_t argc, char** argv) {
 	  // silently skip if both parameters are one, for backward
 	  // compatibility
 	  family_info.mendel_modifier |= MENDEL_FILTER;
-	  filter_flags |= FILTER_GENERIC;
+	  filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
 	}
       } else if (!memcmp(argptr2, "e-exclude-one", 14)) {
 	if (!(family_info.mendel_modifier & MENDEL_FILTER)) {
@@ -9107,7 +9129,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "ual-threshold", 14)) {
 	UNSTABLE;
 	if (!qual_filter) {
@@ -9838,9 +9860,6 @@ int32_t main(int32_t argc, char** argv) {
 	} else if (snps_range_list.names) {
           logprint("Error: --snp cannot be used with --exclude-snps.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
-	} else if (load_rare == LOAD_RARE_CNV) {
-	  logprint("Error: --snp cannot be used with a .cnv fileset.  Use --from-bp/-kb/-mb and\n--to-bp/-kb/-mb instead.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -9848,7 +9867,7 @@ int32_t main(int32_t argc, char** argv) {
         if (alloc_string(&markername_snp, argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
-        filter_flags |= FILTER_GENERIC;
+        filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "nps", 4)) {
 	if (markername_from) {
 	  logprint("Error: --snps cannot be used with --from.\n");
@@ -9862,16 +9881,13 @@ int32_t main(int32_t argc, char** argv) {
 	} else if (snps_range_list.names) {
 	  logprint("Error: --snps cannot be used with --exclude-snps.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
-	} else if (load_rare == LOAD_RARE_CNV) {
-	  logprint("Error: --snps cannot be used with a .cnv fileset.  Use --from-bp/-kb/-mb and\n--to-bp/-kb/-mb instead.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	// mise well allow --snps + --autosome/--autosome-xy/--chr/--not-chr
 	retval = parse_name_ranges(param_ct, range_delim, &(argv[cur_arg]), &snps_range_list, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
-        filter_flags |= FILTER_GENERIC;
+        filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "et-hh-missing", 14)) {
 	misc_flags |= MISC_SET_HH_MISSING;
 	goto main_param_zero;
@@ -9879,6 +9895,10 @@ int32_t main(int32_t argc, char** argv) {
 	if (set_info.fname) {
 	  logprint("Error: --set cannot be used with --make-set.\n");
           goto main_ret_INVALID_CMDLINE_A;
+	}
+	if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
+	  sprintf(logbuf, "Error: --set cannot be used with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
+	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -10059,8 +10079,8 @@ int32_t main(int32_t argc, char** argv) {
 	simulate_flags |= SIMULATE_TAGS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ex", 3)) {
-	if (!(calculation_type & CALC_GLM)) {
-	  logprint("Error: --sex must be used with --linear or --logistic.\n");
+	if ((!(calculation_type & CALC_GLM)) && (load_rare != LOAD_RARE_DOSAGE)) {
+	  logprint("Error: --sex must be used with --linear, --logistic, or --dosage.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (glm_modifier & GLM_NO_X_SEX) {
 	  sprintf(logbuf, "Error: --sex conflicts with a --%s modifier.\n", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear");
@@ -10185,7 +10205,7 @@ int32_t main(int32_t argc, char** argv) {
 	  }
           misc_flags |= MISC_SNPS_ONLY_NO_DI;
 	}
-	filter_flags |= FILTER_SNPS_ONLY;
+	filter_flags |= FILTER_SNPS_ONLY | FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "plit-x", 7)) {
 	if (misc_flags & MISC_MERGEX) {
           logprint("Error: --split-x cannot be used with --merge-x.\n");
@@ -10245,7 +10265,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (alloc_string(&missing_mid_templates[1], argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "et-missing-nonsnp-ids", 22)) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
           goto main_ret_INVALID_CMDLINE_2A;
@@ -10259,7 +10279,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (alloc_string(&missing_mid_templates[0], argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "et-missing-var-ids", 19)) {
 	if (missing_mid_templates[0] || missing_mid_templates[1]) {
 	  logprint("Error: --set-missing-var-ids cannot be used with --set-missing-snp-ids or\n--set-missing-nonsnp-ids.\n");
@@ -10277,7 +10297,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (alloc_string(&missing_mid_templates[1], argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
-	filter_flags |= FILTER_SET_MISSING_VAR_IDS;
+	filter_flags |= FILTER_SET_MISSING_VAR_IDS | FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "core", 5)) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 7)) {
           goto main_ret_INVALID_CMDLINE_2A;
@@ -10356,9 +10376,9 @@ int32_t main(int32_t argc, char** argv) {
         score_info.modifier |= SCORE_NO_MEAN_IMPUTATION;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "et-me-missing", 14)) {
-	if (load_rare == LOAD_RARE_CNV) {
-	  logprint("Error: --set-me-missing cannot be used with a .cnv fileset.\n");
-	  goto main_ret_INVALID_CMDLINE;
+	if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
+	  sprintf(logbuf, "Error: --set-me-missing cannot be used with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
+	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	misc_flags |= MISC_SET_ME_MISSING;
 	goto main_param_zero;
@@ -10487,9 +10507,6 @@ int32_t main(int32_t argc, char** argv) {
 	} else if (snps_range_list.names) {
 	  logprint("Error: --to cannot be used with --snps.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
-	} else if (cnv_calc_type & CNV_MAKE_MAP) {
-	  logprint("Error: --to cannot be used with a .cnv fileset.  Use --to-bp/-kb/-mb instead.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -10497,7 +10514,7 @@ int32_t main(int32_t argc, char** argv) {
         if (alloc_string(&markername_to, argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if ((!memcmp(argptr2, "o-bp", 5)) || (!memcmp(argptr2, "o-kb", 5)) || (!memcmp(argptr2, "o-mb", 5))) {
 	if (markername_snp && (!(filter_flags & FILTER_EXCLUDE_MARKERNAME_SNP))) {
 	  logprint("Error: --to-bp/-kb/-mb cannot be used with --snp.\n");
@@ -10545,7 +10562,7 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
 	  marker_pos_end = ii;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_DOSAGEMAP;
       } else if (!memcmp(argptr2, "rend", 5)) {
 	if (model_modifier & MODEL_ASSOC) {
 	  logprint("Error: --trend cannot be used with --assoc.\n");
@@ -10577,7 +10594,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --thin variant retention probability too large.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "hin-count", 10)) {
 	if (thin_keep_prob != 1.0) {
 	  logprint("Error: --thin cannot be used with --thin-count.\n");
@@ -10590,7 +10607,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --thin-count parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "ests", 5)) {
 	if (!(calculation_type & CALC_GLM)) {
 	  logprint("Error: --tests must be used with --linear or --logistic.\n");
@@ -10862,7 +10879,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "pdate-chr", 10)) {
 	if (cnv_calc_type & CNV_MAKE_MAP) {
 	  logprint("--update-chr cannot be used with --cnv-make-map.\n");
@@ -10906,7 +10923,7 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_1;
 	  }
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_DOSAGEMAP;
       } else if (!memcmp(argptr2, "pdate-ids", 10)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -10941,7 +10958,7 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_1;
 	  }
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_DOSAGEMAP;
       } else if (!memcmp(argptr2, "pdate-name", 11)) {
 	if (cnv_calc_type & CNV_MAKE_MAP) {
 	  logprint("--update-name cannot be used with --cnv-make-map.\n");
@@ -10981,7 +10998,7 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_1;
 	  }
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_DOSAGEMAP;
       } else if (!memcmp(argptr2, "pdate-parents", 14)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -11029,8 +11046,8 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'v':
       if (!memcmp(argptr2, "if", 3)) {
-	if (!(calculation_type & CALC_GLM)) {
-	  logprint("Error: --vif must be used with --linear or --logistic.\n");
+	if ((!(calculation_type & CALC_GLM)) || (glm_modifier & GLM_LOGISTIC)) {
+	  logprint("Error: --vif must be used with --linear.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -11308,7 +11325,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "ero-cms", 8)) {
-	filter_flags |= FILTER_ZERO_CMS;
+	filter_flags |= FILTER_ZERO_CMS | FILTER_NODOSAGE | FILTER_NOCNV;
         goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
@@ -11409,6 +11426,20 @@ int32_t main(int32_t argc, char** argv) {
   if (((misc_flags & (MISC_MERGEX | MISC_SET_ME_MISSING)) || splitx_bound2 || update_chr) && (((load_rare == LOAD_RARE_CNV) && (cnv_calc_type != CNV_WRITE)) || ((load_rare != LOAD_RARE_CNV) && (calculation_type != CALC_MAKE_BED)))) {
     sprintf(logbuf, "Error: --merge-x/--split-x/--update-chr/--set-me-missing must be used with\n--%s and no other commands.\n", (load_rare == LOAD_RARE_CNV)? "cnv-write" : "make-bed");
     goto main_ret_INVALID_CMDLINE_2A;
+  }
+  if (load_rare == LOAD_RARE_CNV) {
+    if (filter_flags & FILTER_NOCNV) {
+      logprint("Error: .cnv fileset specified with incompatible filtering flag(s).  (Check if\nthere is a --cnv-... flag with the functionality you're looking for.)\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
+  } else if (load_rare == LOAD_RARE_DOSAGE) {
+    if (filter_flags & FILTER_NODOSAGE) {
+      logprint("Error: --dosage used with incompatible filtering flag(s).\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    } else if ((!mapname[0]) && (filter_flags & FILTER_DOSAGEMAP)) {
+      logprint("Error: --dosage cannot be used with variant filters unless a .map file is\nspecified.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
   }
   if ((family_info.mendel_modifier & (MENDEL_DUOS | MENDEL_MULTIGEN)) && (!(calculation_type & CALC_MENDEL)) && (!(family_info.mendel_modifier & MENDEL_FILTER)) && (!(misc_flags & MISC_SET_ME_MISSING))) {
     logprint("Error: --mendel-duos/--mendel-multigen must be used with\n--me/--mendel/--set-me-missing.\n");
@@ -11728,7 +11759,7 @@ int32_t main(int32_t argc, char** argv) {
   // short batch job?
   uii = 0;
   if ((!calculation_type) && (!(load_rare & (LOAD_RARE_LGEN | LOAD_RARE_DUMMY | LOAD_RARE_SIMULATE | LOAD_RARE_TRANSPOSE_MASK | LOAD_RARE_23 | LOAD_RARE_CNV | LOAD_RARE_VCF | LOAD_RARE_BCF)))) {
-    if (epi_info.summary_merge_prefix || annot_info.fname || gene_report_fname) {
+    if (epi_info.summary_merge_prefix || annot_info.fname || gene_report_fname || (load_rare == LOAD_RARE_DOSAGE)) {
       uii = 1;
     } else if (famname[0] || load_rare) {
       goto main_ret_NULL_CALC;
@@ -11845,6 +11876,13 @@ int32_t main(int32_t argc, char** argv) {
       goto main_ret_1;
     }
   }
+  if (load_rare == LOAD_RARE_DOSAGE) {
+    if (calculation_type) {
+      // with --dosage, there *can't* be anything else to do
+      logprint("Error: --dosage cannot be used with other PLINK computations.\n");
+      goto main_ret_INVALID_CMDLINE;
+    }
+  }
   // quit if there's nothing else to do
   if (uii) {
     goto main_ret_1;
@@ -11862,18 +11900,6 @@ int32_t main(int32_t argc, char** argv) {
 #ifndef NOLAPACK
     }
 #endif
-    /*
-  } else if (genname[0]) {
-    if (calculation_type & (~(CALC_DISTANCE | CALC_REGRESS_DISTANCE))) {
-      logprint("Error: Only --distance calculations are currently supported with --data.\n");
-      retval = RET_CALC_NOT_YET_SUPPORTED;
-    } else {
-      if (!missing_code) {
-	missing_code = (char*)"NA";
-      }
-      retval = plink_dosage(calculation_type, dist_calc_type, genname, samplename, outname, outname_end, missing_code, exponent, (misc_flags / MISC_MAF_SUCC) & 1, regress_iters, regress_d, g_thread_ct, parallel_idx, parallel_tot);
-    }
-    */
   } else if (load_rare & LOAD_RARE_CNV) {
     retval = plink_cnv(outname, outname_end, pedname, mapname, famname, phenoname, keepname, removename, filtername, misc_flags, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, filtervals_flattened, filter_flags, cnv_calc_type, cnv_min_seglen, cnv_max_seglen, cnv_min_score, cnv_max_score, cnv_min_sites, cnv_max_sites, cnv_intersect_filter_type, cnv_intersect_filter_fname, cnv_subset_fname, cnv_overlap_type, cnv_overlap_val, cnv_freq_type, cnv_freq_val, cnv_freq_val2, cnv_test_window, segment_modifier, segment_spanning_fname, cnv_indiv_mperms, cnv_test_mperms, cnv_test_region_mperms, cnv_enrichment_test_mperms, marker_pos_start, marker_pos_end, &chrom_info);
   } else if (load_rare & LOAD_RARE_GVAR) {

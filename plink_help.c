@@ -381,9 +381,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      genotype codes for the same variant.\n"
 "    * The '23' modifier causes a 23andMe-formatted file to be generated.  This\n"
 "      can only be used on a single individual's data (--keep may be handy).\n"
-"    * The 'AD' modifier causes an additive (0/1/2) + dominant component file,\n"
-"      suitable for loading from R, to be generated.  If you don't want the\n"
-"      dominant component, use 'A' instead.\n"
+"    * The 'AD' modifier causes an additive (0/1/2) + dominant (het = 1,\n"
+"      otherwise 0) component file, suitable for loading from R, to be\n"
+"      generated.  If you don't want the dominant component, use 'A' instead.\n"
 "    * The 'beagle' modifier causes per-autosome .dat and .map files, readable\n"
 "      by early BEAGLE versions, to be generated.\n"
 "    * The 'bimbam' modifier causes a BIMBAM-formatted fileset to be generated.\n"
@@ -536,10 +536,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    --make-bed/--recode/--write-covar.\n\n"
 	       );
     help_print("indep\tindep-pairwise", &help_ctrl, 1,
-"  --indep [window size]<kb> [step size (site ct)] [VIF threshold]\n"
-"  --indep-pairwise [window size]<kb> [step size (site ct)] [r^2 threshold]\n"
+"  --indep [window size]<kb> [step size (locus ct)] [VIF threshold]\n"
+"  --indep-pairwise [window size]<kb> [step size (locus ct)] [r^2 threshold]\n"
 "    Generate a list of markers in approximate linkage equilibrium.  With the\n"
-"    'kb' modifier, the window size is in kilobase instead of site count units.\n"
+"    'kb' modifier, the window size is in kilobase instead of locus count units.\n"
 "    (Pre-'kb' space is optional, i.e. '--indep-pairwise 500 kb 5 0.5' and\n"
 "    '--indep-pairwise 500kb 5 0.5' have the same effect.)\n"
 "    Note that you need to rerun " PROG_NAME_CAPS " using --extract or --exclude on the\n"
@@ -914,6 +914,54 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      and all predictors to zero mean and unit variance before regression, and\n"
 "      the 'intercept' modifier adds intercepts to the main report.\n\n"
 	       );
+#ifndef STABLE_BUILD
+    help_print("dosage\twrite-dosage", &help_ctrl, 1,
+"  --dosage [allele dosage file] <noheader> <skip0=[i]> <skip1=[j]> <skip2=[k]>\n"
+"           <dose1> <format=[m]> <Zout> <occur | hide-covar> <sex | no-x-sex>\n"
+"           <interaction> <beta> <standard-beta> <intercept>\n"
+"  --dosage [list file] list <sepheader | noheader> <skip0=[i]> <skip1=[j]>\n"
+"           <skip2=[k]> <dose1> <format=[m]> <Zout> <occur | hide-covar>\n"
+"           <sex | no-x-sex> <interaction> <beta> <standard-beta> <intercept>\n"
+"  --write-dosage\n"
+"    Process (possibly gzipped) text files with variant-major allelic dosage\n"
+"    data.  This cannot be used with a regular input fileset; instead, you must\n"
+"    *only* specify a .fam and possibly a .map file, and you can't specify any\n"
+"    other commands.\n"
+"    * PLINK 2.0 will have first-class support for genotype probabilities.  An\n"
+"      equivalent data import flag will be provided then, and --dosage will be\n"
+"      retired.\n"
+"    * By default, --dosage assumes that only one allelic dosage file should be\n"
+"      loaded.  To specify multiple files,\n"
+"      1. create a master list with one entry per line.  There are normally two\n"
+"         supported formats for this list: just a filename per line, or variant\n"
+"         batch numbers in the first column and filenames in the second.\n"
+"      2. Provide the name of that list as the first --dosage parameter.\n"
+"      3. Add the 'list' modifier.\n"
+"    * By default, --dosage assumes the allelic dosage file(s) contain a header\n"
+"      line, which has 'SNP' in column i+1, 'A1' in column i+j+2, 'A2' in column\n"
+"      i+j+3, and sample FID/IIDs starting from column i+j+k+4.  (i/j/k are\n"
+"      normally zero, but can be changed with 'skip0', 'skip1', and 'skip2'\n"
+"      respectively.)  If such a header line is not present,\n"
+"      * when all samples appear in the same order as they do in the .fam file,\n"
+"        you can use the 'noheader' modiifer.\n"
+"      * Otherwise, use the 'sepheader' modifier, and append sample ID filenames\n"
+"        to your 'list' file entries.\n"
+"    * The 'format' modifier lets you specify the number of values used to\n"
+"      represent each dosage.  'format=1' normally indicates a single 0..2 A1\n"
+"      expected count; 'dose1' modifies this to a 0..1 frequency.  'format=2'\n"
+"      (the default) indicates a 0..1 homozygous A1 likelihood followed by a\n"
+"      0..1 het likelihood, while 'format=3' indicates 0..1 hom A1, 0..1 het,\n"
+"      0..1 hom A2.\n"
+"    * 'Zout' causes the output file to be gzipped.\n"
+"    * Normally, an association analysis is performed.  'hide-covar', 'sex',\n"
+"      'no-x-sex', 'interaction', 'beta', 'standard-beta', and 'intercept'\n"
+"      behave as they do with --linear/--logistic.\n"
+"    * There are two alternate modes which cause the association analysis to be\n"
+"      skipped.  'occur' requests a simple variant occurrence report, while\n"
+"      --write-dosage causes a simple merged file matching the 'format'\n"
+"      specification (not including 'dose1') to be generated.\n\n"
+	       );
+#endif
     help_print("lasso", &help_ctrl, 1,
 "  --lasso [h2 estimate] {min lambda} <report-zeroes>\n"
 "    Estimate variant effect sizes via LASSO regression.  You must provide an\n"
@@ -978,11 +1026,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --annotate [PLINK report] <attrib=[file]> <ranges=[file]> <filter=[file]>\n"
 "             <snps=[file]> <NA | prune> <block> <subset=[file]> <minimal>\n"
 "             <distance>\n"
-"    Add annotations to a variant-based PLINK report.\n"
-"    * 'attrib=[file]' adds variant ID-based annotations, based on the (possibly\n"
-"      gzipped) given attribute file.\n"
-"    * 'ranges=[file]' adds containing interval annotations, based on the given\n"
-"      range list file.  'attrib' and/or 'ranges' must be present.\n"
+"    Add annotations to a variant-based PLINK report.  This requires an\n"
+"    annotation source:\n"
+"    * 'attrib=[file]' specifies a (possibly gzipped) attribute file.\n"
+"    * 'ranges=[file]' specifies a gene/range list file.\n"
+"    (Both source types can be specified simultaneously.)  The following options\n"
+"    are also supported:\n"
 "    * 'filter=[file]' causes only variants within one of the ranges in the file\n"
 "      to be included in the new report.\n"
 "    * 'snps=[file]' causes only variants named in the file to be included in\n"
@@ -1332,7 +1381,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     chromosome code XY (pseudo-autosomal region of X).\n"
 	       );
     help_print("snps-only", &help_ctrl, 0,
-"  --snps-only <no-DI> : Exclude sites with multi-character allele codes.\n"
+"  --snps-only <no-DI> : Exclude loci with multi-character allele codes.\n"
 	       );
     help_print("from\tto\tsnp\twindow\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb\texclude-snp\textract-snp", &help_ctrl, 0,
 "  --from [var ID]  : Use ID(s) to specify a variant range to load.  When used\n"
@@ -1351,11 +1400,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --exclude-snps [...]   exclude.  E.g. '--snps rs1111-rs2222, rs3333, rs4444'.\n"
 	       );
     help_print("thin\tthin-count", &help_ctrl, 0,
-"  --thin [p]       : Randomly remove sites, retaining each with probability p.\n"
-"  --thin-count [n] : Randomly remove sites until n of them remain.\n"
+"  --thin [p]       : Randomly remove loci, retaining each with probability p.\n"
+"  --thin-count [n] : Randomly remove loci until n of them remain.\n"
 	       );
     help_print("bp-space", &help_ctrl, 0,
-"  --bp-space [bps] : Remove sites so that each pair is no closer than the given\n"
+"  --bp-space [bps] : Remove loci so that each pair is no closer than the given\n"
 "                     bp distance.\n"
 	       );
     help_print("filter\tmfilter", &help_ctrl, 0,
@@ -1401,7 +1450,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     --freq{x} report, instead of the input fileset.\n"
 	       );
     help_print("hwe\thwe-all\thwe2", &help_ctrl, 0,
-"  --hwe [p] <midp> <include-nonctrl> : Exclude sites with Hardy-Weinberg\n"
+"  --hwe [p] <midp> <include-nonctrl> : Exclude variants with Hardy-Weinberg\n"
 "                                       equilibrium exact test p-values below a\n"
 "                                       threshold.\n"
 	       );
@@ -1474,7 +1523,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     genotypes to missing.\n"
 	       );
     help_print("split-x\tmerge-x\tset-hh-missing\t23file-convert-xy\t23file-make-xylist\tcheck-sex\timpute-sex", &help_ctrl, 0,
-"  --split-x [bp1] [bp2]  : Changes chromosome code of all X chromosome sites\n"
+"  --split-x [bp1] [bp2]  : Changes chromosome code of all X chromosome loci\n"
 "  --split-x [build code]   with bp position <= bp1 or >= bp2 to XY.  The\n"
 "                           following build codes are supported as shorthand:\n"
 "                           * 'b36'/'hg18' = NCBI 36, bounds 2709521 & 154584237\n"
@@ -1529,7 +1578,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --flip-subset [fn]   : Only apply --flip to indivs in the --flip-subset file.\n"
 	       );
     help_print("flip-scan\tflip-scan-window\tflip-scan-window-kb\tflip-scan-threshold\tld-window\tld-window-kb\tflipscan\tflipscan-window\tflipscan-window-kb\tflipscan-threshold", &help_ctrl, 0,
-"  --flip-scan-window [ct+1] : Set --flip-scan max site ct distance (def. 10).\n"
+"  --flip-scan-window [ct+1] : Set --flip-scan max locus ct distance (def. 10).\n"
 "  --flip-scan-window-kb [x] : Set --flip-scan max kb distance (default 1000).\n"
 "  --flip-scan-threshold [x] : Set --flip-scan min correlation (default 0.5).\n"
 	       );
@@ -1585,7 +1634,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                       genotypes when parental genotype data is missing.\n"
 	       );
     help_print("r\tr2\tld-window-kb\tld-window-r2\tld-window\tld-snp\tld-snps\tld-snp-list", &help_ctrl, 0,
-"  --ld-window [ct+1] : Set --r/--r2 max site ct pairwise distance (usually 10).\n"
+"  --ld-window [ct+1] : Set --r/--r2 max locus ct pairwise distance (usu. 10).\n"
 "  --ld-window-kb [x] : Set --r/--r2 max kb pairwise distance (usually 1000).\n"
 "  --ld-window-r2 [x] : Set threshold for --r2 report inclusion (usually 0.2).\n"
 "  --ld-snp [var ID]  : Set first variant in all --r/--r2 pairs.\n"
@@ -1627,7 +1676,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --max [cutoff]     : Specify maximum PI_HAT for inclusion in --genome report.\n"
 	       );
     help_print("homozyg\thomozyg-match\tpool-size", &help_ctrl, 0,
-"  --homozyg-match [] : Set minimum concordance across jointly homozygous sites\n"
+"  --homozyg-match [] : Set minimum concordance across jointly homozygous loci\n"
 "                       for a pairwise allelic match to be declared.\n"
 "  --pool-size [ct]   : Set minimum size of pools in '--homozyg group' report.\n"
 	       );
@@ -1680,14 +1729,18 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --cell [thresh]  : Skip some --model tests when a contingency table entry is\n"
 "                     smaller than the given threshold.\n"
 	       );
-    help_print("linear\tlogistic\tcondition\tcondition-list\tparameters\ttests\ttest-all\tvif\txchr-model", &help_ctrl, 0,
+    help_print("linear\tlogistic\tcondition\tcondition-list", &help_ctrl, 0,
 "  --condition [var ID] <dominant | recessive> : Add one variant as a --linear\n"
 "                                                or --logistic covariate.\n"
 "  --condition-list [f] <dominant | recessive> : Add variants named in the file\n"
 "                                                as --linear/--logistic covs.\n"
+	       );
+    help_print("linear\tlogistic\tdosage\tparameters", &help_ctrl, 0,
 "  --parameters [...]  : Include only the given covariates/interactions in the\n"
 "                        --linear/--logistic models, identified by a list of\n"
 "                        1-based indices and/or ranges of them.\n"
+	       );
+    help_print("linear\tlogistic\ttests\ttest-all", &help_ctrl, 0,
 "  --tests <all> {...} : Perform a (joint) test on the specified term(s) in the\n"
 "                        --linear/--logistic model, identified by 1-based\n"
 "                        indices and/or ranges of them.  If permutation was\n"
@@ -1696,6 +1749,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                          indices refer to the terms remaining AFTER pruning by\n"
 "                          --parameters.\n"
 "                        * You can use '--tests all' to include all terms.\n"
+	       );
+    help_print("linear\tlogistic\tdosage\tvif\txchr-model", &help_ctrl, 0,
 "  --vif [max VIF]     : Set VIF threshold for --linear/--logistic\n"
 "                        multicollinearity check (default 50).\n"
 "  --xchr-model [code] : Set the X chromosome --linear/--logistic model.\n"
@@ -1755,7 +1810,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 #endif
     help_print("clump-p1\tclump-p2\tclump-r2\tclump-kb\tclump-snp-field\tclump-field\tclump", &help_ctrl, 0,
-"  --clump-p1 [pval] : Set --clump index site p-value ceiling (default 0.0001).\n"
+"  --clump-p1 [pval] : Set --clump index var. p-value ceiling (default 0.0001).\n"
 "  --clump-p2 [pval] : Set --clump secondary p-value threshold (default 0.01).\n"
 "  --clump-r2 [r^2]  : Set --clump r^2 threshold (default 0.5).\n"
 "  --clump-kb [kbs]  : Set --clump kb radius (default 250).\n"
@@ -1765,7 +1820,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --clump-field [name...]   : Set --clump p-value field name (default 'P').\n"
 	       );
     help_print("clump-allow-overlap\tclump", &help_ctrl, 0,
-"  --clump-allow-overlap     : Let --clump non-index sites join multiple clumps.\n"
+"  --clump-allow-overlap     : Let --clump non-index vars. join multiple clumps.\n"
 	       );
     help_print("clump-verbose\tclump", &help_ctrl, 0,
 "  --clump-verbose           : Request extended --clump report.\n"
@@ -1780,12 +1835,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --clump-range-border [kb] : Stretch regions in --clump-range file.\n"
 	       );
     help_print("clump-index-first\tclump-replicate\tclump", &help_ctrl, 0,
-"  --clump-index-first       : Extract --clump index sites from only first file.\n"
+"  --clump-index-first       : Extract --clump index vars. from only first file.\n"
 "  --clump-replicate         : Exclude clumps which contain secondary results\n"
 "                              from only one file.\n"
 	       );
     help_print("clump-best\tclump", &help_ctrl, 0,
-"  --clump-best              : Report best proxy for each --clump index site.\n"
+"  --clump-best              : Report best proxy for each --clump index var.\n"
 	       );
 #ifndef STABLE_BUILD
     help_print("gene-list-border\tgene-report\tgene-subset\tgene-list\tgene-report-snp-field", &help_ctrl, 0,
