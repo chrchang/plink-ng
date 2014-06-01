@@ -577,7 +577,8 @@ static inline uint32_t sf_out_of_range(uint32_t cur_pos, uint32_t chrom_idx, uin
   return 1;
 }
 
-int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_len_ptr, uintptr_t** marker_exclude_ptr, double** set_allele_freqs_ptr, char*** marker_allele_pp, uintptr_t* max_marker_allele_len_ptr, char** marker_ids_ptr, char** missing_mid_templates, const char* missing_marker_id_match, Chrom_info* chrom_info_ptr, double** marker_cms_ptr, uint32_t** marker_pos_ptr, char* freqname, uint64_t calculation_type, uint64_t misc_flags, uint64_t filter_flags, uint32_t recode_modifier, int32_t marker_pos_start, int32_t marker_pos_end, int32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* sf_range_list_ptr, uint32_t* map_is_unsorted_ptr, uint32_t marker_pos_needed, uint32_t marker_cms_needed, uint32_t marker_alleles_needed, const char* split_chrom_cmd) {
+int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_len_ptr, uintptr_t** marker_exclude_ptr, double** set_allele_freqs_ptr, char*** marker_allele_pp, uintptr_t* max_marker_allele_len_ptr, char** marker_ids_ptr, char** missing_mid_templates, const char* missing_marker_id_match, Chrom_info* chrom_info_ptr, double** marker_cms_ptr, uint32_t** marker_pos_ptr, uint64_t misc_flags, uint64_t filter_flags, int32_t marker_pos_start, int32_t marker_pos_end, int32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* sf_range_list_ptr, uint32_t* map_is_unsorted_ptr, uint32_t marker_pos_needed, uint32_t marker_cms_needed, uint32_t marker_alleles_needed, const char* split_chrom_cmd, const char* ftype_str) {
+  // supports .map now too, to make e.g. --snps + --dosage work
   unsigned char* wkspace_mark = wkspace_base;
   FILE* bimfile = NULL;
   uintptr_t unfiltered_marker_ct = 0;
@@ -730,7 +731,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     line_idx++;
     if (!loadbuf[loadbuf_size - 1]) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-	sprintf(logbuf, "Error: Line %" PRIuPTR " of .bim file is pathologically long.\n", line_idx);
+	sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, ftype_str);
         goto load_bim_ret_INVALID_FORMAT_2;
       } else {
 	goto load_bim_ret_NOMEM;
@@ -747,10 +748,10 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     }
     jj = get_chrom_code(chrom_info_ptr, bufptr3);
     if (jj < 0) {
-      if (chrom_error(".bim file", chrom_info_ptr, bufptr3, line_idx, jj, allow_extra_chroms)) {
+      if (chrom_error(ftype_str, chrom_info_ptr, bufptr3, line_idx, jj, allow_extra_chroms)) {
         goto load_bim_ret_INVALID_FORMAT;
       }
-      retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr3, &jj, line_idx, ".bim file");
+      retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr3, &jj, line_idx, ftype_str);
       if (retval) {
 	goto load_bim_ret_1;
       }
@@ -763,8 +764,13 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     }
     ulii = strlen_se(bufptr);
     if (!unfiltered_marker_ct) {
-      // bufptr2 = col 5 start
-      bufptr2 = next_token_mult(bufptr, 3);
+      if (ftype_str[1] == 'b') {
+	// .bim: bufptr2 = col 5 start
+	bufptr2 = next_token_mult(bufptr, 3);
+      } else {
+	// .map
+	bufptr2 = next_token(bufptr);
+      }
       if (no_more_tokens_kns(bufptr2)) {
 	goto load_bim_ret_MISSING_TOKENS;
       }
@@ -910,7 +916,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   if (sf_ct) {
     for (uii = 0; uii < sf_ct; uii++) {
       if (sf_str_chroms[uii] == MAX_POSSIBLE_CHROM) {
-	LOGPREPRINTFWW("Error: Variant '%s' not found in .bim file.\n", &(sf_range_list_ptr->names[uii * sf_max_len]));
+	LOGPREPRINTFWW("Error: Variant '%s' not found in %s.\n", &(sf_range_list_ptr->names[uii * sf_max_len]), ftype_str);
 	goto load_bim_ret_INVALID_FORMAT_2;
       }
     }
@@ -998,7 +1004,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     goto load_bim_ret_READ_FAIL;
   }
   if (!unfiltered_marker_ct) {
-    logprint("Error: No variants in .bim file.\n");
+    sprintf(logbuf, "Error: No variants in %s.\n", ftype_str);
     goto load_bim_ret_INVALID_FORMAT_2;
   }
   if (from_slen || to_slen) {
@@ -1070,14 +1076,18 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 
   // permanent stack allocation #1: marker_exclude
   // permanent stack allocation #2: set_allele_freqs
-  if (wkspace_alloc_ul_checked(marker_exclude_ptr, unfiltered_marker_ctl * sizeof(intptr_t)) ||
-      wkspace_alloc_d_checked(set_allele_freqs_ptr, unfiltered_marker_ct * sizeof(double))) {
+  if (wkspace_alloc_ul_checked(marker_exclude_ptr, unfiltered_marker_ctl * sizeof(intptr_t))) {
     goto load_bim_ret_NOMEM;
   }
   marker_exclude = *marker_exclude_ptr;
   fill_ulong_zero(marker_exclude, unfiltered_marker_ctl);
-  for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
-    (*set_allele_freqs_ptr)[marker_uidx] = -1.0;
+  if (set_allele_freqs_ptr) {
+    if (wkspace_alloc_d_checked(set_allele_freqs_ptr, unfiltered_marker_ct * sizeof(double))) {
+      goto load_bim_ret_NOMEM;
+    }
+    for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
+      (*set_allele_freqs_ptr)[marker_uidx] = -1.0;
+    }
   }
   fill_uint_zero(chrom_info_ptr->chrom_file_order, MAX_POSSIBLE_CHROM);
   fill_uint_zero(chrom_info_ptr->chrom_file_order_marker_idx, MAX_POSSIBLE_CHROM + 1);
@@ -1145,7 +1155,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	prev_chrom = jj;
 	if (is_set(loaded_chrom_mask, jj)) {
 	  if (split_chrom_cmd) {
-	    sprintf(logbuf, "Error: .bim file has a split chromosome.  Use --%s by itself to\nremedy this.\n", split_chrom_cmd);
+	    sprintf(logbuf, "Error: %s has a split chromosome.  Use --%s by itself to\nremedy this.\n", ftype_str, split_chrom_cmd);
 	    goto load_bim_ret_INVALID_FORMAT_2;
 	  }
 	  split_chrom = 1;
@@ -1184,7 +1194,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	    fill_double_zero(*marker_cms_ptr, unfiltered_marker_ct);
 	  }
 	  if (scan_double(bufptr, &((*marker_cms_ptr)[marker_uidx]))) {
-	    sprintf(logbuf, "Error: Invalid centimorgan position on line %" PRIuPTR " of .bim file.\n", line_idx);
+	    sprintf(logbuf, "Error: Invalid centimorgan position on line %" PRIuPTR " of %s.\n", line_idx, ftype_str);
 	    goto load_bim_ret_INVALID_FORMAT_2;
 	  }
 	}
@@ -1298,8 +1308,8 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     goto load_bim_ret_ALL_MARKERS_EXCLUDED;
   }
   if (set_all_missing_ids && ((*map_is_unsorted_ptr) & UNSORTED_BP)) {
-    logprint("Error: --set-missing-var-ids requires a sorted .bim.  Retry this command after\nusing --make-bed to sort your data.\n");
-    goto load_bim_ret_INVALID_FORMAT;
+    sprintf(logbuf, "Error: --set-missing-var-ids requires a sorted %s.  Retry this command\nafter using --make-bed to sort your data.\n", ftype_str);
+    goto load_bim_ret_INVALID_FORMAT_2;
   }
   for (uii = 0; uii < CHROM_MASK_WORDS; uii++) {
     chrom_info_ptr->chrom_mask[uii] &= loaded_chrom_mask[uii];
@@ -1308,7 +1318,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   chrom_info_ptr->chrom_ct = ++chroms_encountered_m1;
   chrom_info_ptr->chrom_file_order_marker_idx[chroms_encountered_m1] = marker_uidx;
   *marker_exclude_ct_ptr = marker_exclude_ct;
-  LOGPRINTF("%" PRIuPTR " variant%s loaded from .bim file.\n", unfiltered_marker_ct - marker_exclude_ct, (unfiltered_marker_ct == marker_exclude_ct + 1)? "" : "s");
+  LOGPRINTF("%" PRIuPTR " variant%s loaded from %s.\n", unfiltered_marker_ct - marker_exclude_ct, (unfiltered_marker_ct == marker_exclude_ct + 1)? "" : "s", ftype_str);
   if (missing_ids_set) {
     LOGPRINTF("%u missing ID%s set.\n", missing_ids_set, (missing_ids_set == 1)? "" : "s");
   }
@@ -1327,11 +1337,11 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     retval = RET_INVALID_CMDLINE;
     break;
   load_bim_ret_INVALID_BP_COORDINATE:
-    LOGPRINTF("Error: Invalid bp coordinate on line %" PRIuPTR " of .bim file.\n", line_idx);
+    LOGPRINTF("Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, ftype_str);
     retval = RET_INVALID_FORMAT;
     break;
   load_bim_ret_MISSING_TOKENS:
-    LOGPRINTF("Error: Line %" PRIuPTR " of .bim file has fewer tokens than expected.\n", line_idx);
+    LOGPRINTF("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, ftype_str);
     retval = RET_INVALID_FORMAT;
     break;
   load_bim_ret_FROM_TO_DIFFERENT_CHROM:
@@ -1341,7 +1351,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   load_bim_ret_DUPLICATE_ID:
     uii = strlen_se(bufptr);
     bufptr[uii] = '\0';
-    LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in .bim file.\n", bufptr);
+    LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in %s.\n", bufptr, ftype_str);
   load_bim_ret_INVALID_FORMAT_2:
     logprintb();
   load_bim_ret_INVALID_FORMAT:

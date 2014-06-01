@@ -631,7 +631,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   if (!marker_alleles_needed) {
     allelexxxx = 0;
   }
-  retval = load_bim(mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &set_allele_freqs, &marker_allele_ptrs, &max_marker_allele_len, &marker_ids, missing_mid_templates, missing_marker_id_match, chrom_info_ptr, &marker_cms, &marker_pos, freqname, calculation_type, misc_flags, filter_flags, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_range_list_ptr, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, ((calculation_type == CALC_MAKE_BED) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (hwe_thresh == 0.0) && (!update_map) && (!freqname))? NULL : "make-bed");
+  retval = load_bim(mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &set_allele_freqs, &marker_allele_ptrs, &max_marker_allele_len, &marker_ids, missing_mid_templates, missing_marker_id_match, chrom_info_ptr, &marker_cms, &marker_pos, misc_flags, filter_flags, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_range_list_ptr, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, ((calculation_type == CALC_MAKE_BED) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (hwe_thresh == 0.0) && (!update_map) && (!freqname))? NULL : "make-bed", ".bim file");
   if (retval) {
     goto plink_ret_1;
   }
@@ -7633,7 +7633,7 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'm':
       if (!memcmp(argptr2, "ap", 3)) {
-	if ((load_params & (LOAD_PARAMS_BFILE_ALL | LOAD_PARAMS_OX_ALL)) || (load_rare & (~(LOAD_RARE_CNV | LOAD_RARE_GVAR | LOAD_RARE_DOSAGE)))) {
+	if (((load_params & (LOAD_PARAMS_BFILE_ALL | LOAD_PARAMS_OX_ALL)) || (load_rare & (~(LOAD_RARE_CNV | LOAD_RARE_GVAR)))) && ((load_rare != LOAD_RARE_DOSAGE) || (load_params != LOAD_PARAMS_FAM))) {
 	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
 	}
 	load_params |= LOAD_PARAMS_MAP;
@@ -10325,6 +10325,10 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
       } else if (!memcmp(argptr2, "et-missing-snp-ids", 19)) {
+	if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
+	  sprintf(logbuf, "Error: --set-missing-snp-ids cannot be used with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -10346,6 +10350,10 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "et-missing-nonsnp-ids", 22)) {
+	if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
+	  sprintf(logbuf, "Error: --set-missing-nonsnp-ids cannot be used with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -10362,6 +10370,9 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "et-missing-var-ids", 19)) {
 	if (missing_mid_templates[0] || missing_mid_templates[1]) {
 	  logprint("Error: --set-missing-var-ids cannot be used with --set-missing-snp-ids or\n--set-missing-nonsnp-ids.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	} else if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
+	  sprintf(logbuf, "Error: --set-missing-nonsnp-ids cannot be used with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -11971,7 +11982,7 @@ int32_t main(int32_t argc, char** argv) {
       logprint("Error: --dosage cannot be used with other PLINK computations.\n");
       goto main_ret_INVALID_CMDLINE;
     }
-    retval = plink1_dosage(&dosage_info, famname, mapname, outname, outname_end, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, missing_mid_templates, missing_marker_id_match, makepheno_str, phenoname_str, covar_fname, qual_filter, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, filtervals_flattened, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, qual_min_thresh, qual_max_thresh, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, mpheno_col, pheno_modifier, &chrom_info, tail_bottom, tail_top, misc_flags, filter_flags, sex_missing_pheno, update_sex_col, &cluster, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, mwithin_col, glm_modifier, glm_vif_thresh, glm_xchr_model, &parameters_range_list);
+    retval = plink1_dosage(&dosage_info, famname, mapname, outname, outname_end, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, makepheno_str, phenoname_str, covar_fname, qual_filter, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, filtervals_flattened, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, qual_min_thresh, qual_max_thresh, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, mpheno_col, pheno_modifier, &chrom_info, tail_bottom, tail_top, misc_flags, filter_flags, sex_missing_pheno, update_sex_col, &cluster, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, mwithin_col, glm_modifier, glm_vif_thresh, glm_xchr_model, &parameters_range_list);
     if (retval) {
       goto main_ret_1;
     }
