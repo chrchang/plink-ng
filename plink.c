@@ -146,46 +146,6 @@ void disp_exit_msg(int32_t retval) {
 
 // back to our regular program
 
-int32_t convert_tail_pheno(uint32_t unfiltered_indiv_ct, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, double tail_bottom, double tail_top, double missing_phenod) {
-  uintptr_t* pheno_c = *pheno_c_ptr;
-  double* pheno_d = *pheno_d_ptr;
-  uint32_t indiv_uidx;
-  uint32_t indiv_uidx_stop;
-  double dxx;
-  if (!(*pheno_d_ptr)) {
-    logprint("Error: --tail-pheno requires scalar phenotype data.\n");
-    return RET_INVALID_FORMAT;
-  }
-  indiv_uidx = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
-  if (!pheno_c) {
-    if (aligned_malloc(pheno_c_ptr, indiv_uidx * sizeof(intptr_t))) {
-      return RET_NOMEM;
-    }
-    pheno_c = *pheno_c_ptr;
-  }
-  fill_ulong_zero(pheno_c, indiv_uidx);
-  indiv_uidx = 0;
-  do {
-    indiv_uidx = next_set(pheno_nm, indiv_uidx, unfiltered_indiv_ct);
-    indiv_uidx_stop = next_unset(pheno_nm, indiv_uidx, unfiltered_indiv_ct);
-    for (; indiv_uidx < indiv_uidx_stop; indiv_uidx++) {
-      dxx = pheno_d[indiv_uidx];
-      if (dxx > tail_bottom) {
-        if (dxx > tail_top) {
-          SET_BIT(pheno_c, indiv_uidx);
-        } else {
-	  CLEAR_BIT(pheno_nm, indiv_uidx);
-        }
-      }
-    }
-  } while (indiv_uidx_stop < unfiltered_indiv_ct);
-  free(pheno_d);
-  *pheno_d_ptr = NULL;
-  indiv_uidx = popcount_longs(pheno_nm, (unfiltered_indiv_ct + (BITCT - 1)) / BITCT);
-  LOGPRINTF("--tail-pheno: %u phenotype value%s remaining.\n", indiv_uidx, (indiv_uidx == 1)? "" : "s");
-  return 0;
-}
-
 const unsigned char acgt_reverse_arr[] = "1B2DEF3HIJKLMNOPQRS4";
 const unsigned char acgt_arr[] = "ACGT";
 // g_one_char_strs offsets (double)
@@ -295,36 +255,6 @@ void calc_plink_maxfid(uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, u
   } while (indivs_done < indiv_ct);
   *plink_maxfid_ptr = plink_maxfid;
   *plink_maxiid_ptr = plink_maxiid;
-}
-
-uint32_t calc_plink_maxsnp(uint32_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len) {
-  uintptr_t plink_maxsnp = 4;
-  uintptr_t max_marker_id_len_m1 = max_marker_id_len - 1;
-  uint32_t marker_uidx = 0;
-  uint32_t markers_done = 0;
-  char* cptr;
-  char* cptr_end;
-  uintptr_t slen;
-  uint32_t marker_uidx_stop;
-  while (markers_done < marker_ct) {
-    marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
-    marker_uidx_stop = next_set(marker_exclude, marker_uidx, unfiltered_marker_ct);
-    markers_done += marker_uidx_stop - marker_uidx;
-    cptr = &(marker_ids[marker_uidx * max_marker_id_len]);
-    cptr_end = &(marker_ids[marker_uidx_stop * max_marker_id_len]);
-    marker_uidx = marker_uidx_stop;
-    do {
-      slen = strlen(cptr);
-      if (slen > plink_maxsnp) {
-	plink_maxsnp = slen + 2;
-	if (plink_maxsnp >= max_marker_id_len_m1) {
-	  return plink_maxsnp;
-	}
-      }
-      cptr = &(cptr[max_marker_id_len]);
-    } while (cptr < cptr_end);
-  }
-  return plink_maxsnp;
 }
 
 void calc_marker_reverse_bin(uintptr_t* marker_reverse, uintptr_t* marker_exclude, uint32_t unfiltered_marker_ct, uint32_t marker_ct, double* set_allele_freqs) {
@@ -458,8 +388,6 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   char* cptr = NULL;
   uint64_t dists_alloc = 0;
   uintptr_t marker_exclude_ct = 0;
-  char* pid_list = NULL;
-  char* id_list = NULL;
   double missing_phenod = (double)missing_pheno;
   double ci_zt = 0.0;
   uint32_t wt_needed = distance_wt_req(calculation_type, read_dists_fname, dist_calc_type);
@@ -1151,7 +1079,6 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto plink_ret_1;
     }
   }
-  // er, obvious todo: convert this to a local variable
   indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
   if (!indiv_ct) {
     // defensive; currently shouldn't happen since we're actually checking at
@@ -1163,7 +1090,6 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     sprintf(logbuf, "Error: More than 1 %s required for pairwise analysis.\n", g_species_singular);
     goto plink_ret_INVALID_CMDLINE_2;
   }
-  unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
 
   if ((parallel_tot > 1) && (parallel_tot > indiv_ct / 2)) {
     sprintf(logbuf, "Error: Too many --parallel jobs (maximum %" PRIuPTR "/2 = %" PRIuPTR ").\n", indiv_ct, indiv_ct / 2);
@@ -2071,8 +1997,6 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   aligned_free_cond(orig_pheno_nm);
   free_cond(pheno_d);
   aligned_free_cond(pheno_c);
-  free_cond(id_list);
-  free_cond(pid_list);
   fclose_cond(phenofile);
   fclose_cond(bedfile);
   if (marker_allele_ptrs && (max_marker_allele_len > 2)) {

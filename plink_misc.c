@@ -414,6 +414,46 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
   return retval;
 }
 
+int32_t convert_tail_pheno(uint32_t unfiltered_indiv_ct, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, double tail_bottom, double tail_top, double missing_phenod) {
+  uintptr_t* pheno_c = *pheno_c_ptr;
+  double* pheno_d = *pheno_d_ptr;
+  uint32_t indiv_uidx;
+  uint32_t indiv_uidx_stop;
+  double dxx;
+  if (!(*pheno_d_ptr)) {
+    logprint("Error: --tail-pheno requires scalar phenotype data.\n");
+    return RET_INVALID_FORMAT;
+  }
+  indiv_uidx = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  if (!pheno_c) {
+    if (aligned_malloc(pheno_c_ptr, indiv_uidx * sizeof(intptr_t))) {
+      return RET_NOMEM;
+    }
+    pheno_c = *pheno_c_ptr;
+  }
+  fill_ulong_zero(pheno_c, indiv_uidx);
+  indiv_uidx = 0;
+  do {
+    indiv_uidx = next_set(pheno_nm, indiv_uidx, unfiltered_indiv_ct);
+    indiv_uidx_stop = next_unset(pheno_nm, indiv_uidx, unfiltered_indiv_ct);
+    for (; indiv_uidx < indiv_uidx_stop; indiv_uidx++) {
+      dxx = pheno_d[indiv_uidx];
+      if (dxx > tail_bottom) {
+        if (dxx > tail_top) {
+          SET_BIT(pheno_c, indiv_uidx);
+        } else {
+	  CLEAR_BIT(pheno_nm, indiv_uidx);
+        }
+      }
+    }
+  } while (indiv_uidx_stop < unfiltered_indiv_ct);
+  free(pheno_d);
+  *pheno_d_ptr = NULL;
+  indiv_uidx = popcount_longs(pheno_nm, (unfiltered_indiv_ct + (BITCT - 1)) / BITCT);
+  LOGPRINTF("--tail-pheno: %u phenotype value%s remaining.\n", indiv_uidx, (indiv_uidx == 1)? "" : "s");
+  return 0;
+}
+
 int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* marker_pos, double* marker_cms, Chrom_info* chrom_info_ptr) {
   FILE* shapeitfile = NULL;
   char* at_sign_ptr = NULL;
@@ -1558,6 +1598,36 @@ int32_t update_indiv_sexes(char* update_sex_fname, uint32_t update_sex_col, char
   fclose_cond(infile);
   wkspace_reset(wkspace_mark);
   return retval;
+}
+
+uint32_t calc_plink_maxsnp(uint32_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len) {
+  uintptr_t plink_maxsnp = 4;
+  uintptr_t max_marker_id_len_m1 = max_marker_id_len - 1;
+  uint32_t marker_uidx = 0;
+  uint32_t markers_done = 0;
+  char* cptr;
+  char* cptr_end;
+  uintptr_t slen;
+  uint32_t marker_uidx_stop;
+  while (markers_done < marker_ct) {
+    marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
+    marker_uidx_stop = next_set(marker_exclude, marker_uidx, unfiltered_marker_ct);
+    markers_done += marker_uidx_stop - marker_uidx;
+    cptr = &(marker_ids[marker_uidx * max_marker_id_len]);
+    cptr_end = &(marker_ids[marker_uidx_stop * max_marker_id_len]);
+    marker_uidx = marker_uidx_stop;
+    do {
+      slen = strlen(cptr);
+      if (slen > plink_maxsnp) {
+	plink_maxsnp = slen + 2;
+	if (plink_maxsnp >= max_marker_id_len_m1) {
+	  return plink_maxsnp;
+	}
+      }
+      cptr = &(cptr[max_marker_id_len]);
+    } while (cptr < cptr_end);
+  }
+  return plink_maxsnp;
 }
 
 double calc_wt_mean(double exponent, int32_t lhi, int32_t lli, int32_t hhi) {
