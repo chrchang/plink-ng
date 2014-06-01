@@ -30,7 +30,7 @@
 #include "plink_calc.h"
 #include "plink_cnv.h"
 #include "plink_data.h"
-// #include "plink_dosage.h"
+#include "plink_dosage.h"
 #include "plink_family.h"
 #include "plink_filter.h"
 #include "plink_glm.h"
@@ -101,7 +101,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (31 May 2014)";
+  " (1 Jun 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   //  " " (don't actually want this when version number has a trailing letter)
@@ -3095,6 +3095,7 @@ int32_t main(int32_t argc, char** argv) {
   Clump_info clump_info;
   Rel_info rel_info;
   Score_info score_info;
+  Dosage_info dosage_info;
   Range_list snps_range_list;
   Range_list covar_range_list;
   Range_list lasso_select_covars_range_list;
@@ -3126,6 +3127,7 @@ int32_t main(int32_t argc, char** argv) {
   ld_epi_init(&ld_info, &epi_info, &clump_info);
   rel_init(&rel_info);
   misc_init(&score_info);
+  dosage_init(&dosage_info);
   range_list_init(&snps_range_list);
   range_list_init(&covar_range_list);
   range_list_init(&lasso_select_covars_range_list);
@@ -5838,12 +5840,82 @@ int32_t main(int32_t argc, char** argv) {
 	UNSTABLE;
 	if (load_rare || load_params) {
 	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
+	} else if (pheno_modifier & PHENO_ALL) {
+	  logprint("Error: --dosage cannot be used with --all-pheno.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	} else if (mtest_adjust) {
+	  logprint("Error: --dosage cannot be used with --adjust.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 16)) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
-        logprint("Error: --dosage is currently under development.\n");
-	goto main_ret_INVALID_CMDLINE;
+	retval = alloc_fname(&dosage_info.fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
+	for (uii = 2; uii <= param_ct; uii++) {
+          if (!strcmp(argv[cur_arg + uii], "list")) {
+	    dosage_info.modifier |= DOSAGE_LIST;
+	  } else if (!strcmp(argv[cur_arg + uii], "dose1")) {
+	    dosage_info.modifier |= DOSAGE_DOSE1;
+	  } else if (!strcmp(argv[cur_arg + uii], "Z")) {
+	    logprint("Note: --dosage 'Z' modifier is now equivalent to 'Zout', since gzipped input is\nautomatically supported.\n");
+	    dosage_info.modifier |= DOSAGE_ZOUT;
+	  } else if (!strcmp(argv[cur_arg + uii], "Zin")) {
+	    logprint("Note: --dosage 'Zin' modifier now has no effect, since gzipped input is\nautomatically supported.\n");
+	  } else if (!strcmp(argv[cur_arg + uii], "Zout")) {
+	    dosage_info.modifier |= DOSAGE_ZOUT;
+	  } else if (!strcmp(argv[cur_arg + uii], "occur")) {
+	    dosage_info.modifier |= DOSAGE_OCCUR;
+	  } else if (!strcmp(argv[cur_arg + uii], "sex")) {
+	    glm_modifier |= GLM_SEX;
+	  } else if (!strcmp(argv[cur_arg + uii], "beta")) {
+	    glm_modifier |= GLM_BETA;
+	  } else if (strlen(argv[cur_arg + uii]) <= 6) {
+	    goto main_dosage_invalid_param;
+	  } else if (!strcmp(argv[cur_arg + uii], "sepheader")) {
+	    if (dosage_info.modifier & DOSAGE_NOHEADER) {
+	      logprint("Error: --dosage 'sepheader' and 'noheader' modifiers cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    }
+	    dosage_info.modifier |= DOSAGE_SEPHEADER;
+	  } else if (!strcmp(argv[cur_arg + uii], "noheader")) {
+	    if (dosage_info.modifier & DOSAGE_SEPHEADER) {
+	      logprint("Error: --dosage 'sepheader' and 'noheader' modifiers cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    }
+	    dosage_info.modifier |= DOSAGE_NOHEADER;
+	  } else if (!strcmp(argv[cur_arg + uii], "no-x-sex")) {
+	    glm_modifier |= GLM_NO_X_SEX;
+	  } else if (!strcmp(argv[cur_arg + uii], "interaction")) {
+	    glm_modifier |= GLM_INTERACTION;
+	  } else if (!strcmp(argv[cur_arg + uii], "standard-beta")) {
+	    glm_modifier |= GLM_STANDARD_BETA;
+	  } else if (!strcmp(argv[cur_arg + uii], "intercept")) {
+	    glm_modifier |= GLM_INTERCEPT;
+	  } else {
+	  main_dosage_invalid_param:
+	    sprintf(logbuf, "Error: Invalid --dosage modifier '%s'.\n", argv[cur_arg + uii]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+	  }
+	}
+	if (dosage_info.modifier & DOSAGE_OCCUR) {
+	  if (glm_modifier & (GLM_BETA | GLM_HIDE_COVAR | GLM_INTERACTION | GLM_INTERCEPT | GLM_NO_X_SEX | GLM_SEX | GLM_STANDARD_BETA)) {
+	    logprint("Error: --dosage 'occur' mode cannot be used with association analysis\nmodifiers/flags.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+	  }
+	} else {
+	  dosage_info.modifier |= DOSAGE_GLM;
+	}
+	if ((dosage_info.modifier & (DOSAGE_LIST | DOSAGE_SEPHEADER)) == DOSAGE_SEPHEADER) {
+	  logprint("Error: --dosage 'sepheader' modifier must be used with 'list'.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
+	if ((dosage_info.modifier & DOSAGE_DOSE1) && (dosage_info.format != 1)) {
+	  logprint("Error: --dosage 'dose1' modifier must be used with 'format=1'.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
 	load_rare = LOAD_RARE_DOSAGE;
 	mapname[0] = '\0';
       } else if (!memcmp(argptr2, "prime", 6)) {
@@ -7253,6 +7325,9 @@ int32_t main(int32_t argc, char** argv) {
 	} else if (misc_flags & MISC_FAMILY_CLUSTERS) {
 	  logprint("Error: --loop-assoc cannot be used with --family.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
+	} else if (load_rare == LOAD_RARE_DOSAGE) {
+	  logprint("Error: --loop-assoc cannot be used with --dosage.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -8612,8 +8687,8 @@ int32_t main(int32_t argc, char** argv) {
         glm_modifier |= GLM_NO_SNP;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "o-x-sex", 8)) {
-	if (!(calculation_type & CALC_GLM)) {
-	  logprint("Error: --no-x-sex must be used with --linear or --logistic.\n");
+	if ((!(calculation_type & CALC_GLM)) && (!(dosage_info.modifier & DOSAGE_GLM))) {
+	  logprint("Error: --no-x-sex must be used with --linear, --logistic, or --dosage.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (glm_modifier & (GLM_NO_SNP | GLM_SEX)) {
 	  sprintf(logbuf, "Error: --no-x-sex conflicts with a --%s modifier.\n", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear");
@@ -8668,6 +8743,10 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	g_output_missing_geno_ptr = &(g_one_char_strs[((unsigned char)cc) * 2]);
       } else if (!memcmp(argptr2, "utput-missing-phenotype", 24)) {
+	if (load_rare == LOAD_RARE_DOSAGE) {
+	  logprint("Error: --output-missing-phenotype has no effect with --dosage.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -8911,8 +8990,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "arameters", 10)) {
-	if (!(calculation_type & CALC_GLM)) {
-	  logprint("Error: --parameters must be used with --linear or --logistic.\n");
+	if ((!(calculation_type & CALC_GLM)) && (!(dosage_info.modifier & DOSAGE_GLM))) {
+	  logprint("Error: --parameters must be used with --linear, --logistic, or --dosage.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	retval = parse_name_ranges(param_ct, '-', &(argv[cur_arg]), &parameters_range_list, 1);
@@ -10079,7 +10158,7 @@ int32_t main(int32_t argc, char** argv) {
 	simulate_flags |= SIMULATE_TAGS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ex", 3)) {
-	if ((!(calculation_type & CALC_GLM)) && (load_rare != LOAD_RARE_DOSAGE)) {
+	if ((!(calculation_type & CALC_GLM)) && (!(dosage_info.modifier & DOSAGE_GLM))) {
 	  logprint("Error: --sex must be used with --linear, --logistic, or --dosage.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (glm_modifier & GLM_NO_X_SEX) {
@@ -10090,11 +10169,11 @@ int32_t main(int32_t argc, char** argv) {
 	glm_modifier |= GLM_SEX;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "tandard-beta", 13)) {
-	if ((!(calculation_type & CALC_GLM)) || (glm_modifier & GLM_LOGISTIC)) {
-	  logprint("Error: --standard-beta must be used wtih --linear.\n");
+	if (((!(calculation_type & CALC_GLM)) || (glm_modifier & GLM_LOGISTIC)) && (!(dosage_info.modifier & DOSAGE_GLM))) {
+	  logprint("Error: --standard-beta must be used wtih --linear or --dosage.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --standard-beta flag deprecated.  Use '--linear standard-beta'.\n");
+	logprint("Note: --standard-beta flag deprecated.  Use e.g. '--linear standard-beta'.\n");
 	glm_modifier |= GLM_STANDARD_BETA;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "et-table", 9)) {
@@ -11278,6 +11357,16 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	logprint("Note: --with-freqs flag deprecated.  Use e.g. '--r2 with-freqs'.\n");
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "rite-dosage", 12)) {
+	if (!(dosage_info.modifier & DOSAGE_GLM)) {
+	  logprint("Error: --write-dosage must be used with --dosage.\n");
+          goto main_ret_INVALID_CMDLINE_A;
+	} else if ((glm_modifier & (GLM_BETA | GLM_HIDE_COVAR | GLM_INTERACTION | GLM_INTERCEPT | GLM_NO_X_SEX | GLM_SEX | GLM_STANDARD_BETA)) || parameters_range_list.names) {
+	  logprint("Error: --write-dosage cannot be used with --dosage association analysis flags.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
+	dosage_info.modifier += (DOSAGE_WRITE - DOSAGE_GLM);
+        goto main_param_zero;
       } else if (!memcmp(argptr2, "hap", 4)) {
         goto main_hap_disabled_message;
       } else {
@@ -11882,6 +11971,10 @@ int32_t main(int32_t argc, char** argv) {
       logprint("Error: --dosage cannot be used with other PLINK computations.\n");
       goto main_ret_INVALID_CMDLINE;
     }
+    retval = plink1_dosage(&dosage_info, famname, mapname, outname, outname_end, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, missing_mid_templates, missing_marker_id_match, makepheno_str, phenoname_str, covar_fname, qual_filter, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, filtervals_flattened, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, qual_min_thresh, qual_max_thresh, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, mpheno_col, pheno_modifier, &chrom_info, tail_bottom, tail_top, misc_flags, filter_flags, sex_missing_pheno, update_sex_col, &cluster, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, mwithin_col, glm_modifier, glm_vif_thresh, glm_xchr_model, &parameters_range_list);
+    if (retval) {
+      goto main_ret_1;
+    }
   }
   // quit if there's nothing else to do
   if (uii) {
@@ -12111,6 +12204,7 @@ int32_t main(int32_t argc, char** argv) {
   ld_epi_cleanup(&ld_info, &epi_info, &clump_info);
   rel_cleanup(&rel_info);
   misc_cleanup(&score_info);
+  dosage_cleanup(&dosage_info);
   if (file_delete_list) {
     do {
       ll_str_ptr = file_delete_list->next;
