@@ -8129,6 +8129,10 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	  if ((cc != '/') && (cc != '|')) {
 	    set_bit_ul(&(base_bitfields[ulii * indiv_ctv2]), indiv_idx * 2 + 1);
 	  } else {
+      if (bufptr[2] == '.') {
+        // ignore half-missing call
+        continue;
+      }
 	    cc = bufptr[3];
 	    if ((cc != '/') && (cc != '|')) {
 	      // code triploids, etc. as missing
@@ -8174,6 +8178,10 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	  if ((cc != '/') && (cc != '|')) {
 	    set_bit_ul(&(base_bitfields[ulii * indiv_ctv2]), indiv_idx * 2 + 1);
 	  } else {
+      if (bufptr[2] == '.') {
+        // ignore half-missing call
+        continue;
+      }
 	    set_bit_ul(&(base_bitfields[ulii * indiv_ctv2]), indiv_idx * 2);
 	    ulii = ((unsigned char)bufptr[2]) - '0';
 	    if (ulii && (ulii != alt_allele_idx)) {
@@ -8226,6 +8234,10 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	  }
 	} else {
           ujj = (unsigned char)(*(++bufptr)) - '0';
+          if (*bufptr == '.') {
+            // ignore half-missing call
+            continue;
+          }
           while (1) {
             ukk = ((unsigned char)(*(++bufptr))) - 48;
             if (ukk > 9) {
@@ -8284,6 +8296,10 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	  }
 	} else {
           ujj = (unsigned char)(*(++bufptr)) - '0';
+          if (*bufptr == '.') {
+            // ignore half-missing call
+            continue;
+          }
           while (1) {
             ukk = ((unsigned char)(*(++bufptr))) - 48;
             if (ukk > 9) {
