@@ -690,18 +690,13 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
       continue;
     }
     if (colid_first) {
-      if (colmin) {
-        colid_ptr = next_token_mult(colid_ptr, colmin);
-      }
+      colid_ptr = next_token_multz(colid_ptr, colmin);
       colx_ptr = next_token_mult(colid_ptr, coldiff);
       if (no_more_tokens_kns(colx_ptr)) {
 	goto update_marker_cms_ret_MISSING_TOKENS;
       }
     } else {
-      colx_ptr = colid_ptr;
-      if (colmin) {
-	colx_ptr = next_token_mult(colx_ptr, colmin);
-      }
+      colx_ptr = next_token_multz(colid_ptr, colmin);
       colid_ptr = next_token_mult(colx_ptr, coldiff);
       if (no_more_tokens_kns(colid_ptr)) {
 	goto update_marker_cms_ret_MISSING_TOKENS;
@@ -824,18 +819,13 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
       continue;
     }
     if (colid_first) {
-      if (colmin) {
-        colid_ptr = next_token_mult(colid_ptr, colmin);
-      }
+      colid_ptr = next_token_multz(colid_ptr, colmin);
       colx_ptr = next_token_mult(colid_ptr, coldiff);
       if (no_more_tokens_kns(colx_ptr)) {
 	goto update_marker_pos_ret_MISSING_TOKENS;
       }
     } else {
-      colx_ptr = colid_ptr;
-      if (colmin) {
-	colx_ptr = next_token_mult(colx_ptr, colmin);
-      }
+      colx_ptr = next_token_multz(colid_ptr, colmin);
       colid_ptr = next_token_mult(colx_ptr, coldiff);
       if (no_more_tokens_kns(colid_ptr)) {
 	goto update_marker_pos_ret_MISSING_TOKENS;
@@ -978,15 +968,10 @@ int32_t update_marker_names(Two_col_params* update_name, char* sorted_marker_ids
       continue;
     }
     if (colold_first) {
-      if (colmin) {
-        colold_ptr = next_token_mult(colold_ptr, colmin);
-      }
+      colold_ptr = next_token_multz(colold_ptr, colmin);
       colnew_ptr = next_token_mult(colold_ptr, coldiff);
     } else {
-      colnew_ptr = colold_ptr;
-      if (colmin) {
-	colnew_ptr = next_token_mult(colnew_ptr, colmin);
-      }
+      colnew_ptr = next_token_multz(colold_ptr, colmin);
       colold_ptr = next_token_mult(colnew_ptr, coldiff);
     }
     slen = strlen_se(colold_ptr);
@@ -1543,9 +1528,7 @@ int32_t update_indiv_sexes(char* update_sex_fname, uint32_t update_sex_col, char
     }
     set_bit(already_seen, sorted_idx);
     indiv_uidx = indiv_id_map[((uint32_t)sorted_idx)];
-    if (update_sex_col) {
-      bufptr = next_token_mult(bufptr, update_sex_col);
-    }
+    bufptr = next_token_multz(bufptr, update_sex_col);
     if (no_more_tokens_kns(bufptr)) {
       goto update_indiv_sexes_ret_MISSING_TOKENS;
     }
@@ -2049,15 +2032,10 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
       continue;
     }
     if (colid_first) {
-      if (colmin) {
-        colid_ptr = next_token_mult(colid_ptr, colmin);
-      }
+      colid_ptr = next_token_multz(colid_ptr, colmin);
       colx_ptr = next_token_mult(colid_ptr, coldiff);
     } else {
-      colx_ptr = colid_ptr;
-      if (colmin) {
-	colx_ptr = next_token_mult(colx_ptr, colmin);
-      }
+      colx_ptr = next_token_multz(colid_ptr, colmin);
       colid_ptr = next_token_mult(colx_ptr, coldiff);
     }
     idlen = strlen_se(colid_ptr);
@@ -3285,11 +3263,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
     goto score_report_load_next;
   }
   while (1) {
-    if (first_col_m1) {
-      bufptr_arr[0] = next_token_mult(bufptr, first_col_m1);
-    } else {
-      bufptr_arr[0] = bufptr;
-    }
+    bufptr_arr[0] = next_token_multz(bufptr, first_col_m1);
     bufptr_arr[1] = next_token_mult(bufptr_arr[0], col_01_delta);
     bufptr_arr[2] = next_token_mult(bufptr_arr[1], col_12_delta);
     if (!bufptr_arr[2]) {
@@ -3390,11 +3364,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
       goto score_report_qrange_load_next;
     }
     while (1) {
-      if (first_col_m1) {
-	bufptr_arr[0] = next_token_mult(bufptr, first_col_m1);
-      } else {
-        bufptr_arr[0] = bufptr;
-      }
+      bufptr_arr[0] = next_token_multz(bufptr, first_col_m1);
       bufptr_arr[1] = next_token_mult(bufptr_arr[0], col_01_delta);
       if (!bufptr_arr[1]) {
         goto score_report_ret_MISSING_TOKENS_Q;

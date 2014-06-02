@@ -4356,6 +4356,14 @@ int32_t intcmp(const void* aa, const void* bb) {
   return *((const int32_t*)aa) - *((const int32_t*)bb);
 }
 
+int32_t intcmp2(const void* aa, const void* bb) {
+  if (*((const int32_t*)aa) < *((const int32_t*)bb)) {
+    return -1;
+  } else {
+    return (*((const int32_t*)aa) > *((const int32_t*)bb));
+  }
+}
+
 int32_t intcmp3_decr(const void* aa, const void* bb) {
   int32_t ii = *((const int32_t*)bb) - *((const int32_t*)aa);
   if (ii) {
@@ -4509,6 +4517,25 @@ uint32_t uint32arr_greater_than(uint32_t* sorted_uint32_arr, uint32_t arr_length
     }
   }
   if (uii > sorted_uint32_arr[((uint32_t)min_idx)]) {
+    return (min_idx + 1);
+  } else {
+    return min_idx;
+  }
+}
+
+uint32_t int32arr_greater_than(int32_t* sorted_int32_arr, uint32_t arr_length, int32_t ii) {
+  int32_t min_idx = 0;
+  int32_t max_idx = arr_length - 1;
+  uint32_t mid_idx;
+  while (min_idx < max_idx) {
+    mid_idx = (((uint32_t)min_idx) + ((uint32_t)max_idx)) / 2;
+    if (ii > sorted_int32_arr[mid_idx]) {
+      min_idx = mid_idx + 1;
+    } else {
+      max_idx = mid_idx - 1;
+    }
+  }
+  if (ii > sorted_int32_arr[((uint32_t)min_idx)]) {
     return (min_idx + 1);
   } else {
     return min_idx;
@@ -8393,14 +8420,8 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
     if (is_eoln_kns(cc) || (cc == skipchar)) {
       continue;
     }
-    if (colmin) {
-      str1_ptr = next_token_mult(str1_ptr, colmin);
-    }
-    if (coldiff) {
-      str2_ptr = next_token_mult(str1_ptr, coldiff);
-    } else {
-      str2_ptr = str1_ptr;
-    }
+    str1_ptr = next_token_multz(str1_ptr, colmin);
+    str2_ptr = next_token_multz(str1_ptr, coldiff);
     if (no_more_tokens_kns(str2_ptr)) {
       // probably want option for letting this slide in the future
       LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, fname);
@@ -8483,9 +8504,7 @@ int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_p
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    if (colnum) {
-      bufptr = next_token_mult(bufptr, colnum);
-    }
+    bufptr = next_token_multz(bufptr, colnum);
     bufptr2 = next_token(bufptr);
     if (no_more_tokens_kns(bufptr2)) {
       LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, fname);

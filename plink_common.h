@@ -1109,6 +1109,14 @@ char* next_token(char* sptr);
 
 char* next_token_mult(char* sptr, uint32_t ct);
 
+static inline char* next_token_multz(char* sptr, uint32_t ct) {
+  if (!ct) {
+    return sptr;
+  } else {
+    return next_token_mult(sptr, ct);
+  }
+}
+
 uint32_t count_tokens(char* bufptr);
 
 static inline char* fw_strcpyn(uint32_t min_width, uint32_t source_len, const char* source, char* dest) {
@@ -1810,6 +1818,10 @@ int32_t char_cmp_deref(const void* aa, const void* bb);
 
 int32_t intcmp(const void* aa, const void* bb);
 
+#ifndef __cplusplus
+int32_t intcmp2(const void* aa, const void* bb);
+#endif
+
 int32_t intcmp3_decr(const void* aa, const void* bb);
 
 #ifndef __cplusplus
@@ -1825,6 +1837,8 @@ int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfi
 int32_t sort_item_ids(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t exclude_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t collapse_idxs, int(* comparator_deref)(const void*, const void*));
 
 uint32_t uint32arr_greater_than(uint32_t* sorted_uint32_arr, uint32_t arr_length, uint32_t uii);
+
+uint32_t int32arr_greater_than(int32_t* sorted_int32_arr, uint32_t arr_length, int32_t ii);
 
 uintptr_t uint64arr_greater_than(uint64_t* sorted_uint64_arr, uintptr_t arr_length, uint64_t ullii);
 

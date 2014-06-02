@@ -602,18 +602,13 @@ int32_t filter_qual_scores(Two_col_params* qual_filter, double qual_min_thresh, 
       continue;
     }
     if (varid_first) {
-      if (colmin) {
-	colid_ptr = next_token_mult(colid_ptr, colmin);
-      }
+      colid_ptr = next_token_multz(colid_ptr, colmin);
       colx_ptr = next_token_mult(colid_ptr, coldiff);
       if (no_more_tokens_kns(colx_ptr)) {
         goto filter_qual_scores_ret_MISSING_TOKENS;
       }
     } else {
-      colx_ptr = colid_ptr;
-      if (colmin) {
-	colx_ptr = next_token_mult(colx_ptr, colmin);
-      }
+      colx_ptr = next_token_multz(colid_ptr, colmin);
       colid_ptr = next_token_mult(colx_ptr, coldiff);
       if (no_more_tokens_kns(colid_ptr)) {
         goto filter_qual_scores_ret_MISSING_TOKENS;

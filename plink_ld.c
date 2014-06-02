@@ -9737,10 +9737,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       uii = 0;
       ukk = annot_ct * 2; // annotation string length
       for (; uii < cur_read_ct; uii++) {
-	ujj = parse_table[uii * 2 + 1];
-	if (ujj) {
-	  bufptr = next_token_mult(bufptr, ujj);
-	}
+	bufptr = next_token_multz(bufptr, parse_table[uii * 2 + 1]);
         if (no_more_tokens_kns(bufptr)) {
 	  // PLINK 1.07 --clump just skips the line in this situation, instead
 	  // of erroring out, so we replicate that

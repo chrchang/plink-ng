@@ -2489,33 +2489,34 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	  bufptr2[slen] = '\0';
 	  uii = hashval2(bufptr2, slen++);
 	  ll_pptr = &(attr_id_htable[uii]);
-	  ll_ptr = *ll_pptr;
-	  while (ll_ptr) {
+	  while (1) {
+	    ll_ptr = *ll_pptr;
+            if (!ll_ptr) {
+#ifdef __LP64__
+	      // we'll run out of memory way earlier in 32-bit mode
+	      if (attr_id_ct == 0x80000000LLU) {
+	        sprintf(logbuf, "Error: Too many unique attributes in %s (max 2147483648).\n", aip->attrib_fname);
+	        goto annotate_ret_INVALID_FORMAT_WW;
+	      }
+#endif
+	      attr_id_ct++;
+	      ll_ptr = top_alloc_llstr(&topsize, slen);
+	      if (!ll_ptr) {
+	        goto annotate_ret_NOMEM;
+	      }
+	      ll_ptr->next = NULL;
+	      memcpy(ll_ptr->ss, bufptr2, slen);
+	      if (slen > max_attr_id_len) {
+	        max_attr_id_len = slen;
+	      }
+	      *ll_pptr = ll_ptr;
+	      break;
+	    }
 	    if (!strcmp(ll_ptr->ss, bufptr2)) {
-	      goto annotate_repeated_attrib;
+	      break;
 	    }
 	    ll_pptr = &(ll_ptr->next);
-	    ll_ptr = *ll_pptr;
 	  }
-#ifdef __LP64__
-	  // we'll run out of memory way earlier in 32-bit mode
-	  if (attr_id_ct == 0x80000000LLU) {
-	    sprintf(logbuf, "Error: Too many unique attributes in %s (max 2147483648).\n", aip->attrib_fname);
-	    goto annotate_ret_INVALID_FORMAT_WW;
-	  }
-#endif
-	  attr_id_ct++;
-	  ll_ptr = top_alloc_llstr(&topsize, slen);
-	  if (!ll_ptr) {
-	    goto annotate_ret_NOMEM;
-	  }
-	  ll_ptr->next = NULL;
-	  memcpy(ll_ptr->ss, bufptr2, slen);
-	  if (slen > max_attr_id_len) {
-	    max_attr_id_len = slen;
-	  }
-	  *ll_pptr = ll_ptr;
-	annotate_repeated_attrib:
 	  bufptr2 = bufptr;
 	} while (!is_eoln_kns(*bufptr2));
 	if (ujj > max_onevar_attr_ct) {
@@ -2859,9 +2860,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    if (col_skips[0]) {
-      bufptr = next_token_mult(bufptr, col_skips[0]);
-    }
+    bufptr = next_token_multz(bufptr, col_skips[0]);
     token_ptrs[0] = bufptr;
     for (seq_idx = 1; seq_idx < token_ct; seq_idx++) {
       bufptr = next_token_mult(bufptr, col_skips[seq_idx]);
@@ -3414,9 +3413,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     if (is_eoln_kns(*bufptr)) {
       goto gene_report_load_loop;
     }
-    if (col_skips[0]) {
-      bufptr = next_token_mult(bufptr, col_skips[0]);
-    }
+    bufptr = next_token_multz(bufptr, col_skips[0]);
     token_ptrs[0] = bufptr;
     for (seq_idx = 1; seq_idx < token_ct; seq_idx++) {
       bufptr = next_token_mult(bufptr, col_skips[seq_idx]);

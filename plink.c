@@ -101,7 +101,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (1 Jun 2014) ";
+  " (2 Jun 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   //  " " (don't actually want this when version number has a trailing letter)
@@ -1167,7 +1167,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   if (!pheno_nm_ct) {
     hwe_modifier |= HWE_THRESH_ALL;
   } else if (pheno_c) {
-    pheno_ctrl_ct = popcount_longs_exclude(pheno_nm, pheno_c, unfiltered_indiv_ctl);
+    pheno_ctrl_ct = pheno_nm_ct - popcount_longs(pheno_c, unfiltered_indiv_ctl);
     if (!pheno_ctrl_ct) {
       hwe_modifier |= HWE_THRESH_ALL;
     }
@@ -1283,11 +1283,11 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       bitfield_and(sex_male, sex_nm, unfiltered_indiv_ctl);
       if (pheno_nm_ct) {
 	bitfield_andnot(pheno_nm, indiv_exclude, unfiltered_indiv_ctl);
+        pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
 	if (pheno_c) {
 	  bitfield_and(pheno_c, pheno_nm, unfiltered_indiv_ctl);
-          pheno_ctrl_ct = popcount_longs_exclude(pheno_nm, pheno_c, unfiltered_indiv_ctl);
+          pheno_ctrl_ct = pheno_nm_ct - popcount_longs(pheno_c, unfiltered_indiv_ctl);
 	}
-        pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
       }
     }
   }
@@ -1413,11 +1413,11 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       bitfield_and(sex_male, sex_nm, unfiltered_indiv_ctl);
       if (pheno_nm_ct) {
 	bitfield_andnot(pheno_nm, indiv_exclude, unfiltered_indiv_ctl);
+        pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
 	if (pheno_c) {
 	  bitfield_and(pheno_c, pheno_nm, unfiltered_indiv_ctl);
-          pheno_ctrl_ct = popcount_longs_exclude(pheno_nm, pheno_c, unfiltered_indiv_ctl);
+          pheno_ctrl_ct = pheno_nm_ct - popcount_longs(pheno_c, unfiltered_indiv_ctl);
 	}
-        pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
       }
     }
 
@@ -1864,7 +1864,8 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
       *outname_end2 = '\0';
       if (pheno_c) {
-        ujj = popcount_longs_intersect(pheno_nm, pheno_c, unfiltered_indiv_ctl);
+	bitfield_and(pheno_c, pheno_nm, unfiltered_indiv_ctl);
+        ujj = popcount_longs(pheno_c, unfiltered_indiv_ctl);
 	ukk = pheno_nm_ct - ujj;
 	ulii = unfiltered_indiv_ct - indiv_exclude_ct - pheno_nm_ct;
         if (ulii) {
@@ -5771,7 +5772,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --dosage cannot be used with --adjust.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 16)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 12)) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
 	retval = alloc_fname(&dosage_info.fname, argv[cur_arg + 1], argptr, 0);
@@ -5812,12 +5813,8 @@ int32_t main(int32_t argc, char** argv) {
 	    dosage_info.modifier |= DOSAGE_NOHEADER;
 	  } else if (!strcmp(argv[cur_arg + uii], "no-x-sex")) {
 	    glm_modifier |= GLM_NO_X_SEX;
-	  } else if (!strcmp(argv[cur_arg + uii], "interaction")) {
-	    glm_modifier |= GLM_INTERACTION;
 	  } else if (!strcmp(argv[cur_arg + uii], "standard-beta")) {
 	    glm_modifier |= GLM_STANDARD_BETA;
-	  } else if (!strcmp(argv[cur_arg + uii], "intercept")) {
-	    glm_modifier |= GLM_INTERCEPT;
 	  } else {
 	  main_dosage_invalid_param:
 	    sprintf(logbuf, "Error: Invalid --dosage modifier '%s'.\n", argv[cur_arg + uii]);
@@ -5825,7 +5822,7 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
 	if (dosage_info.modifier & DOSAGE_OCCUR) {
-	  if (glm_modifier & (GLM_BETA | GLM_HIDE_COVAR | GLM_INTERACTION | GLM_INTERCEPT | GLM_NO_X_SEX | GLM_SEX | GLM_STANDARD_BETA)) {
+	  if (glm_modifier & (GLM_BETA | GLM_NO_X_SEX | GLM_SEX | GLM_STANDARD_BETA)) {
 	    logprint("Error: --dosage 'occur' mode cannot be used with association analysis\nmodifiers/flags.\n");
             goto main_ret_INVALID_CMDLINE_A;
 	  }
@@ -11296,7 +11293,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (!(dosage_info.modifier & DOSAGE_GLM)) {
 	  logprint("Error: --write-dosage must be used with --dosage.\n");
           goto main_ret_INVALID_CMDLINE_A;
-	} else if ((glm_modifier & (GLM_BETA | GLM_HIDE_COVAR | GLM_INTERACTION | GLM_INTERCEPT | GLM_NO_X_SEX | GLM_SEX | GLM_STANDARD_BETA)) || parameters_range_list.names) {
+	} else if ((glm_modifier & (GLM_BETA | GLM_NO_X_SEX | GLM_SEX | GLM_STANDARD_BETA)) || parameters_range_list.names) {
 	  logprint("Error: --write-dosage cannot be used with --dosage association analysis flags.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}

@@ -1747,7 +1747,7 @@ void incr_dists_rm_inv(uint32_t* idists, uintptr_t* mmasks, uintptr_t indiv_ct_m
       for (ujj = uii; ujj < indiv_ct_m1; ujj++) {
         uljj = (*glptr++) & ulii;
 	if (uljj) {
-	  idists[ujj] = popcount_long(uljj);
+	  idists[ujj] += popcount_long(uljj);
 	}
       }
     }
@@ -4978,6 +4978,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
         sptr_cur = sptr_cur_start;
 	goto calc_genome_emitn_skip_line;
       }
+      // printf("%u %u %u %u\n", marker_ct, indiv_missing_unwt[indiv1idx], indiv_missing_unwt[indiv2idx], missing_dbl_excluded[mdecell]);
       nn = marker_ct - indiv_missing_unwt[indiv1idx] - indiv_missing_unwt[indiv2idx] + missing_dbl_excluded[mdecell];
       oo = nn - genome_main[gmcell] - genome_main[gmcell + 1];
       dxx = ((double)((int32_t)genome_main[gmcell + 1])) / (e00 * nn);

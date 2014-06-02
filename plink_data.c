@@ -2625,18 +2625,13 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
       continue;
     }
     if (colid_first) {
-      if (colmin) {
-        colid_ptr = next_token_mult(colid_ptr, colmin);
-      }
+      colid_ptr = next_token_multz(colid_ptr, colmin);
       colx_ptr = next_token_mult(colid_ptr, coldiff);
       if (no_more_tokens_kns(colx_ptr)) {
 	goto update_marker_chroms_ret_MISSING_TOKENS;
       }
     } else {
-      colx_ptr = colid_ptr;
-      if (colmin) {
-	colx_ptr = next_token_mult(colx_ptr, colmin);
-      }
+      colx_ptr = next_token_multz(colid_ptr, colmin);
       colid_ptr = next_token_mult(colx_ptr, coldiff);
       if (no_more_tokens_kns(colid_ptr)) {
 	goto update_marker_chroms_ret_MISSING_TOKENS;
