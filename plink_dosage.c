@@ -865,6 +865,24 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     loadbuf = (char*)wkspace_base;
     loadbuf[loadbuf_size - 1] = ' ';
     fill_ulong_zero(cur_indivs, indiv_ctl);
+    bufptr = memcpya(logbuf, "--dosage: Reading from ", 23);
+    if (cur_batch_size == 1) {
+      bufptr = strcpya(bufptr, &(fnames[file_idx_start * max_fn_len]));
+    } else if (cur_batch_size == 2) {
+      bufptr = strcpya(bufptr, &(fnames[file_idx_start * max_fn_len]));
+      bufptr = memcpya(bufptr, " and ", 5);
+      bufptr = strcpya(bufptr, &(fnames[(file_idx_start + 1) * max_fn_len]));
+    } else {
+      for (file_idx = 0; file_idx < cur_batch_size - 1; file_idx++) {
+        bufptr = strcpya(bufptr, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
+	bufptr = memcpya(bufptr, ", ", 2);
+      }
+      bufptr = memcpya(bufptr, "and ", 4);
+      bufptr = strcpya(bufptr, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
+    }
+    memcpyl3(bufptr, ".\n");
+    wordwrap(logbuf, 0);
+    logprintb();
     for (file_idx = 0; file_idx < cur_batch_size; file_idx++) {
       read_idx_start = read_idx;
       if (sepheader) {
@@ -1172,7 +1190,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
     }
     wkspace_left += topsize;
-    qsort(bufptr, distinct_id_ct, max_occur_id_len, strcmp_casted);
+    qsort(bufptr, distinct_id_ct, max_occur_id_len, strcmp_natural);
     for (ulii = 0; ulii < distinct_id_ct; ulii++) {
       bufptr2 = &(bufptr[ulii * max_occur_id_len]);
       slen = strlen(bufptr2);
