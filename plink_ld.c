@@ -5046,6 +5046,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
     }
     g_ld_marker_ctm8 = marker_idx2_maxw;
     marker_idx2 = marker_idx2_base;
+    chrom_end = 0;
     do {
       if (cur_idx2_block_size > marker_idx2_end - marker_idx2) {
 	cur_idx2_block_size = marker_idx2_end - marker_idx2;
@@ -5074,6 +5075,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 	}
 	ld_process_load2(&(g_ld_geno2[block_idx2 * founder_ct_192_long]), &(g_ld_geno_masks2[block_idx2 * founder_ct_192_long]), &(g_ld_missing_cts2[block_idx2]), founder_ct, is_x && (!ignore_x), founder_male_include2);
       }
+
       g_ld_idx2_block_size = cur_idx2_block_size;
       g_ld_idx2_block_start = marker_idx2 - marker_idx2_base;
       marker_idx2 += cur_idx2_block_size;
