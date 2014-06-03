@@ -1203,6 +1203,9 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  putc(' ', outfile);
 	}
 	ulii = 0;
+	// could make output format independent of input format (other than
+	// outformat > 1 can't coexist with format == 1), but kinda pointless
+	// since the code won't be kept for PLINK 2.0.
 	if (format_val == 1) {
 	  do {
 	    ulii += MAXLINELEN / 16;
