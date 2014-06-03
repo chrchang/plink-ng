@@ -103,7 +103,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uint32_t map_cols = 3;
   uint32_t map_is_unsorted = 0;
   uint32_t affection = 0;
-  uint32_t plink_maxsnp = 0;
+  // uint32_t plink_maxsnp = 0;
   uint32_t infile_ct = 0;
   uint32_t pheno_ctrl_ct = 0;
   uint32_t batch_ct = 1;
@@ -467,9 +467,11 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   } else {
     logprint("Using 1 thread.\n");
   }
+  /*
   if (load_map) {
     plink_maxsnp = calc_plink_maxsnp(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len);
   }
+  */
   if ((filter_flags & FILTER_MAKE_FOUNDERS) && (!(misc_flags & MISC_MAKE_FOUNDERS_FIRST))) {
     if (make_founders(unfiltered_indiv_ct, indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, (misc_flags / MISC_MAKE_FOUNDERS_REQUIRE_2_MISSING) & 1, indiv_exclude, founder_info)) {
       goto plink1_dosage_ret_NOMEM;
