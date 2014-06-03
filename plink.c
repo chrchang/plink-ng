@@ -5811,6 +5811,28 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    dosage_info.modifier |= DOSAGE_NOHEADER;
+	  } else if (!memcmp(argv[cur_arg + uii], "skip0=", 6)) {
+	    if (scan_uint_defcap(&(argv[cur_arg + uii][6]), &(dosage_info.skip0))) {
+	      sprintf(logbuf, "Error: Invalid --dosage skip0 parameter '%s'.\n", &(argv[cur_arg + uii][6]));
+	      goto main_ret_INVALID_CMDLINE_WWA;
+	    }
+	  } else if (!memcmp(argv[cur_arg + uii], "skip1=", 6)) {
+	    if (scan_uint_defcap(&(argv[cur_arg + uii][6]), &(dosage_info.skip1))) {
+	      sprintf(logbuf, "Error: Invalid --dosage skip1 parameter '%s'.\n", &(argv[cur_arg + uii][6]));
+	      goto main_ret_INVALID_CMDLINE_WWA;
+	    }
+	  } else if (!memcmp(argv[cur_arg + uii], "skip2=", 6)) {
+	    if (scan_uint_defcap(&(argv[cur_arg + uii][6]), &(dosage_info.skip2))) {
+	      sprintf(logbuf, "Error: Invalid --dosage skip2 parameter '%s'.\n", &(argv[cur_arg + uii][6]));
+	      goto main_ret_INVALID_CMDLINE_WWA;
+	    }
+	  } else if (!memcmp(argv[cur_arg + uii], "format=", 7)) {
+	    ujj = ((unsigned char)argv[cur_arg + uii][7]) - '1';
+	    if ((ujj > 2) || argv[cur_arg + uii][8]) {
+	      sprintf(logbuf, "Error: Invalid --dosage format parameter '%s'.\n", &(argv[cur_arg + uii][7]));
+	      goto main_ret_INVALID_CMDLINE_WWA;
+	    }
+	    dosage_info.format = ujj + 1;
 	  } else if (!strcmp(argv[cur_arg + uii], "no-x-sex")) {
 	    glm_modifier |= GLM_NO_X_SEX;
 	  } else if (!strcmp(argv[cur_arg + uii], "standard-beta")) {

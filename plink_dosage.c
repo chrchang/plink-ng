@@ -26,9 +26,8 @@ typedef struct ll_ctstr_entry_struct {
 } Ll_ctstr_entry;
 
 int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* outname, char* outname_end, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* makepheno_str, char* phenoname_str, char* covar_fname, Two_col_params* qual_filter, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* filtervals_flattened, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_indiv_fname, char* filter_attrib_indiv_liststr, double qual_min_thresh, double qual_max_thresh, double thin_keep_prob, uint32_t thin_keep_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t fam_cols, int32_t missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t filter_flags, uint32_t sex_missing_pheno, uint32_t update_sex_col, Cluster_info* cluster_ptr, int32_t marker_pos_start, int32_t marker_pos_end, int32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t mwithin_col, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, Range_list* parameters_range_list_ptr) {
-  logprint("Error: --dosage is currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
-  /*
+  // logprint("Error: --dosage is currently under development.\n");
+  // return RET_CALC_NOT_YET_SUPPORTED;
   // sucks to duplicate so much, but this code will be thrown out later so
   // there's no long-term maintenance problem
   FILE* phenofile = NULL;
@@ -109,6 +108,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uint32_t batch_ct = 1;
   uint32_t max_batch_size = 1;
   uint32_t cur_marker_id_len = 0;
+  uint32_t ujj = 0;
   int32_t retval = 0;
   char* missing_mid_templates[2];
   unsigned char* wkspace_mark;
@@ -149,7 +149,6 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uint32_t read_idx;
   uint32_t slen;
   uint32_t uii;
-  uint32_t ujj;
   int32_t ii;
   missing_mid_templates[0] = NULL;
   missing_mid_templates[1] = NULL;
@@ -752,13 +751,11 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       wkspace_alloc_ul_checked(&cur_indivs, indiv_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ui_checked(&read_idx_to_indiv_idx, indiv_ct * sizeof(int32_t)) ||
       wkspace_alloc_ui_checked(&skip_vals, indiv_ct * sizeof(int32_t)) ||
-      wkspace_alloc_d_checked(&cur_dosages, indiv_ct * sizeof(double))) {
+      wkspace_alloc_d_checked(&cur_dosages, indiv_ct * sizeof(double)) ||
+      wkspace_alloc_c_checked(&cur_marker_id_buf, MAX_ID_LEN)) {
     goto plink1_dosage_ret_NOMEM;
   }
   if (max_batch_size > 1) {
-    if (wkspace_alloc_c_checked(&cur_marker_id_buf, MAX_ID_LEN)) {
-      goto plink1_dosage_ret_NOMEM;
-    }
   }
   gz_infiles = (gzFile*)wkspace_alloc(infile_ct * sizeof(gzFile));
   if (!gz_infiles) {
@@ -840,7 +837,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
 	goto plink1_dosage_ret_WRITE_FAIL;
       }
-    } else {
+    } else if (!count_occur) {
       fputs("SNP A1 A2 ", outfile);
       for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
 	bufptr = &(person_ids[indiv_idx * max_person_id_len]);
@@ -903,7 +900,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    set_bit(cur_indivs, ii);
 	    read_idx_to_indiv_idx[read_idx] = (uint32_t)ii;
             skip_vals[read_idx++] = uii;
-	    uii = 1;
+	    uii = 1 + (format_val == 3);
 	  }
 	}
 	if (gzclose(gz_infiles[file_idx]) != Z_OK) {
@@ -981,7 +978,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    set_bit(cur_indivs, ii);
 	    read_idx_to_indiv_idx[read_idx] = (uint32_t)ii;
             skip_vals[read_idx++] = uii;
-	    uii = 1;
+	    uii = 1 + (format_val == 3);
 	  }
 	  bufptr = bufptr2;
 	}
@@ -1061,8 +1058,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	}
 
 	if (count_occur) {
-	  *bufptr2 = '\0';
-          uii = hashval2(bufptr, slen++);
+          uii = hashval2(cur_marker_id_buf, slen++);
 	  ll_pptr = &(htable[uii]);
 	  while (1) {
 	    ll_ptr = *ll_pptr;
@@ -1072,7 +1068,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	      loadbuf_size = wkspace_left - topsize;
               ll_ptr = (Ll_ctstr_entry*)(&(wkspace_base[loadbuf_size]));
 	      ll_ptr->next = NULL;
-	      memcpy(ll_ptr->ss, bufptr, slen);
+	      memcpy(ll_ptr->ss, cur_marker_id_buf, slen);
 	      if (slen > max_occur_id_len) {
 		max_occur_id_len = slen;
 	      }
@@ -1083,9 +1079,11 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	      } else {
 		goto plink1_dosage_ret_NOMEM2;
 	      }
+	      ll_ptr->ct = 1;
+	      *ll_pptr = ll_ptr;
 	      break;
 	    }
-            if (!strcmp(ll_ptr->ss, bufptr)) {
+            if (!strcmp(ll_ptr->ss, cur_marker_id_buf)) {
 	      ll_ptr->ct += 1;
 	      break;
 	    }
@@ -1114,7 +1112,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    }
 	  } else {
 	    for (; read_idx_start < read_idx; read_idx_start++) {
-	      bufptr = next_token_mult();
+	      bufptr = next_token_mult(bufptr, skip_vals[read_idx_start]);
 	      bufptr2 = next_token(bufptr);
 	      if (no_more_tokens(bufptr2)) {
 		goto plink1_dosage_ret_MISSING_TOKENS;
@@ -1127,7 +1125,6 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 		goto plink1_dosage_ret_INVALID_DOSAGE;
 	      }
 	      cur_dosages[read_idx_to_indiv_idx[read_idx_start]] = dxx;
-	      bufptr = next_token_mult(bufptr2, formatm1);
 	    }
 	  }
 	}
@@ -1152,6 +1149,61 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       gz_infiles[file_idx] = NULL;
     }
     wkspace_reset(wkspace_mark);
+  }
+  if (count_occur) {
+    max_occur_id_len += sizeof(int32_t) + 1; // null, uint32_t
+    wkspace_left -= topsize;
+    if (wkspace_alloc_c_checked(&bufptr, max_occur_id_len * distinct_id_ct)) {
+      goto plink1_dosage_ret_NOMEM2;
+    }
+    ulii = 0; // write idx
+    ujj = 0; // number of counts > 1
+    for (uii = 0; uii < HASHSIZE; uii++) {
+      ll_ptr = htable[uii];
+      while (ll_ptr) {
+	slen = strlen(ll_ptr->ss) + 1;
+	bufptr2 = memcpya(&(bufptr[ulii * max_occur_id_len]), ll_ptr->ss, slen);
+	ulii++;
+        memcpy(bufptr2, &(ll_ptr->ct), sizeof(int32_t));
+        if (ll_ptr->ct != 1) {
+	  ujj++;
+	}
+	ll_ptr = ll_ptr->next;
+      }
+    }
+    wkspace_left += topsize;
+    qsort(bufptr, distinct_id_ct, max_occur_id_len, strcmp_casted);
+    for (ulii = 0; ulii < distinct_id_ct; ulii++) {
+      bufptr2 = &(bufptr[ulii * max_occur_id_len]);
+      slen = strlen(bufptr2);
+      bufptr3 = memcpyax(tbuf, bufptr2, slen, ' ');
+      bufptr3 = uint32_write(bufptr3, *((uint32_t*)(&(bufptr2[slen + 1]))));
+      memcpy(bufptr3, "\n", 2);
+      if (output_gz) {
+	if (gzputs(gz_outfile, tbuf) == -1) {
+	  goto plink1_dosage_ret_WRITE_FAIL;
+	}
+      } else {
+	fputs(tbuf, outfile);
+      }
+    }
+  }
+  if (output_gz) {
+    if (gzclose(gz_outfile) != Z_OK) {
+      goto plink1_dosage_ret_WRITE_FAIL;
+    }
+  } else {
+    if (fclose_null(&outfile)) {
+      goto plink1_dosage_ret_WRITE_FAIL;
+    }
+  }
+  LOGPRINTFWW("--%sdosage%s: Results saved to %s .\n", (do_glm || count_occur)? "" : "write-", count_occur? " occur" : "", outname);
+  if (count_occur) {
+    if (ujj) {
+      LOGPRINTF("%u variant%s appeared multiple times.\n", ujj, (ujj == 1)? "" : "s");
+    } else {
+      logprint("No variant appeared multiple times.\n");
+    }
   }
 
   while (0) {
@@ -1220,5 +1272,4 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   }
 
   return retval;
-  */
 }
