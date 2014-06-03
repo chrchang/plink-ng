@@ -25,9 +25,9 @@ typedef struct ll_ctstr_entry_struct {
   char ss[];
 } Ll_ctstr_entry;
 
+#define DOSAGE_EPSILON 0.000244140625
+
 int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* outname, char* outname_end, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* makepheno_str, char* phenoname_str, char* covar_fname, Two_col_params* qual_filter, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* filtervals_flattened, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_indiv_fname, char* filter_attrib_indiv_liststr, double qual_min_thresh, double qual_max_thresh, double thin_keep_prob, uint32_t thin_keep_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t fam_cols, int32_t missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t filter_flags, uint32_t sex_missing_pheno, uint32_t update_sex_col, Cluster_info* cluster_ptr, int32_t marker_pos_start, int32_t marker_pos_end, int32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t mwithin_col, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, Range_list* parameters_range_list_ptr) {
-  // logprint("Error: --dosage is currently under development.\n");
-  // return RET_CALC_NOT_YET_SUPPORTED;
   // sucks to duplicate so much, but this code will be thrown out later so
   // there's no long-term maintenance problem
   FILE* phenofile = NULL;
@@ -57,6 +57,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uintptr_t* covar_nm = NULL;
   double* pheno_d = NULL;
   double* covar_d = NULL;
+  double* cur_dosages2 = NULL;
   Ll_ctstr_entry** htable = NULL;
   uint32_t* marker_pos = NULL;
   uint32_t* cluster_map = NULL;
@@ -142,6 +143,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uintptr_t uljj;
   double dxx;
   double dyy;
+  double dzz;
   uint32_t gender_unk_ct;
   uint32_t pheno_nm_ct;
   uint32_t batch_idx;
@@ -755,8 +757,6 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       wkspace_alloc_c_checked(&cur_marker_id_buf, MAX_ID_LEN)) {
     goto plink1_dosage_ret_NOMEM;
   }
-  if (max_batch_size > 1) {
-  }
   gz_infiles = (gzFile*)wkspace_alloc(infile_ct * sizeof(gzFile));
   if (!gz_infiles) {
     infile_ct = 0;
@@ -798,6 +798,11 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     }
     bufptr2 = memcpyb(outname_end, ".occur.dosage", 14);
   } else {
+    if (format_val != 1) {
+      if (wkspace_alloc_d_checked(&cur_dosages2, indiv_ct * sizeof(double))) {
+	goto plink1_dosage_ret_NOMEM;
+      }
+    }
     bufptr2 = memcpyb(outname_end, ".out.dosage", 12);
   }
   if (output_gz) {
@@ -939,8 +944,10 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	for (read_idx = 0; read_idx < indiv_ct; read_idx++) {
 	  read_idx_to_indiv_idx[read_idx] = read_idx;
 	}
-	for (read_idx = 0; read_idx < indiv_ct; read_idx++) {
-	  skip_vals[read_idx] = 1;
+	skip_vals[0] = 1;
+	uii = 1 + (format_val == 3);
+	for (read_idx = 1; read_idx < indiv_ct; read_idx++) {
+	  skip_vals[read_idx] = uii;
 	}
 	fill_all_bits(cur_indivs, indiv_ct);
       } else if (!sepheader) {
@@ -1011,6 +1018,9 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 
     while (1) {
       read_idx_start = 0;
+      for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+        cur_dosages[indiv_idx] = -1.0;
+      }
       for (file_idx = 0; file_idx < cur_batch_size; file_idx++) {
 	line_idx = line_idx_arr[file_idx];
 	do {
@@ -1118,33 +1128,167 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 		goto plink1_dosage_ret_MISSING_TOKENS;
 	      }
 	      if (scan_double(bufptr, &dxx)) {
-		goto plink1_dosage_ret_INVALID_DOSAGE;
+		continue;
 	      }
 	      if (!dose1) {
 		dxx *= 0.5;
 	      }
-	      if ((dxx > 1.0) || (dxx < 0.0)) {
-		goto plink1_dosage_ret_INVALID_DOSAGE;
+	      if ((dxx > 1.0 + DOSAGE_EPSILON) || (dxx < 0.0)) {
+		continue;
+	      } else if (dxx > 1.0) {
+		dxx = 1.0;
 	      }
 	      cur_dosages[read_idx_to_indiv_idx[read_idx_start]] = dxx;
 	    }
 	  } else {
 	    for (; read_idx_start < read_idx; read_idx_start++) {
-	      bufptr = next_token_mult(bufptr, skip_vals[read_idx_start]);
-	      bufptr2 = next_token(bufptr);
-	      if (no_more_tokens(bufptr2)) {
+	      bufptr2 = next_token_mult(bufptr, skip_vals[read_idx_start]);
+	      bufptr = next_token(bufptr2);
+	      if (no_more_tokens(bufptr)) {
 		goto plink1_dosage_ret_MISSING_TOKENS;
 	      }
-	      if (scan_double(bufptr, &dxx) || scan_double(bufptr2, &dyy)) {
-		goto plink1_dosage_ret_INVALID_DOSAGE;
+	      if (scan_double(bufptr2, &dxx) || scan_double(bufptr, &dyy)) {
+		continue;
 	      }
-	      dxx += dyy * 0.5;
-	      if ((dxx > 1.0) || (dxx < 0.0)) {
-		goto plink1_dosage_ret_INVALID_DOSAGE;
+	      dzz = dxx + dyy;
+	      if ((dyy < 0.0) || (dxx < 0.0) || (dzz > 1.0 + DOSAGE_EPSILON)) {
+		continue;
+	      } else if (dzz > 1.0) {
+		dzz = 1.0 / dzz;
+		dxx *= dzz;
+		dyy *= dzz;
 	      }
-	      cur_dosages[read_idx_to_indiv_idx[read_idx_start]] = dxx;
+	      uii = read_idx_to_indiv_idx[read_idx_start];
+	      if (!cur_dosages2) {
+		dxx += dyy * 0.5;
+		cur_dosages[uii] = dxx;
+	      } else {
+		cur_dosages[uii] = dxx;
+		cur_dosages2[uii] = dyy;
+	      }
 	    }
 	  }
+	}
+      }
+      if (do_glm) {
+	logprint("Error: --dosage association analysis is currently under development.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+	goto plink1_dosage_ret_1;
+      } else if ((!count_occur) && (marker_idx != ~ZEROLU)) {
+        if (output_gz) {
+	  if (gzputs(gz_outfile, cur_marker_id_buf) == -1) {
+	    goto plink1_dosage_ret_WRITE_FAIL;
+	  }
+	  if (gzputc(gz_outfile, ' ') == -1) {
+	    goto plink1_dosage_ret_WRITE_FAIL;
+	  }
+	  if (gzputs(gz_outfile, a1_ptr) == -1) {
+	    goto plink1_dosage_ret_WRITE_FAIL;
+	  }
+	  if (gzputc(gz_outfile, ' ') == -1) {
+	    goto plink1_dosage_ret_WRITE_FAIL;
+	  }
+	  if (gzputs(gz_outfile, a2_ptr) == -1) {
+	    goto plink1_dosage_ret_WRITE_FAIL;
+	  }
+	  if (gzputc(gz_outfile, ' ') == -1) {
+	    goto plink1_dosage_ret_WRITE_FAIL;
+	  }
+	} else {
+	  fputs(cur_marker_id_buf, outfile);
+	  putc(' ', outfile);
+	  fputs(a1_ptr, outfile);
+	  putc(' ', outfile);
+	  fputs(a2_ptr, outfile);
+	  putc(' ', outfile);
+	}
+	ulii = 0;
+	if (format_val == 1) {
+	  do {
+	    ulii += MAXLINELEN / 16;
+	    bufptr = tbuf;
+	    if (ulii > indiv_ct) {
+	      ulii = indiv_ct;
+	    }
+	    for (indiv_idx = 0; indiv_idx < ulii; indiv_idx++) {
+	      dxx = cur_dosages[indiv_idx];
+	      if (dxx == -1.0) {
+		bufptr = memcpyl3a(bufptr, "NA ");
+	      } else {
+		bufptr = double_g_writex(bufptr, 2 * dxx, ' ');
+	      }
+	    }
+	    if (output_gz) {
+	      if (!gzwrite(gz_outfile, tbuf, bufptr - tbuf)) {
+		goto plink1_dosage_ret_WRITE_FAIL;
+	      }
+	    } else {
+	      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+		goto plink1_dosage_ret_WRITE_FAIL;
+	      }
+	    }
+	  } while (ulii < indiv_ct);
+	} else if (format_val == 2) {
+	  do {
+	    ulii += MAXLINELEN / 32;
+	    bufptr = tbuf;
+	    if (ulii > indiv_ct) {
+	      ulii = indiv_ct;
+	    }
+	    for (indiv_idx = 0; indiv_idx < ulii; indiv_idx++) {
+	      dxx = cur_dosages[indiv_idx];
+	      if (dxx == -1.0) {
+		bufptr = memcpya(bufptr, "NA NA ", 6);
+	      } else {
+		bufptr = double_g_writex(bufptr, dxx, ' ');
+		bufptr = double_g_writex(bufptr, cur_dosages2[indiv_idx], ' ');
+	      }
+	    }
+	    if (output_gz) {
+	      if (!gzwrite(gz_outfile, tbuf, bufptr - tbuf)) {
+		goto plink1_dosage_ret_WRITE_FAIL;
+	      }
+	    } else {
+	      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+		goto plink1_dosage_ret_WRITE_FAIL;
+	      }
+	    }
+	  } while (ulii < indiv_ct);
+	} else {
+	  do {
+	    ulii += MAXLINELEN / 48;
+	    bufptr = tbuf;
+	    if (ulii > indiv_ct) {
+	      ulii = indiv_ct;
+	    }
+	    for (indiv_idx = 0; indiv_idx < ulii; indiv_idx++) {
+	      dxx = cur_dosages[indiv_idx];
+	      if (dxx == -1.0) {
+		bufptr = memcpya(bufptr, "NA NA NA ", 9);
+	      } else {
+		bufptr = double_g_writex(bufptr, dxx, ' ');
+		dyy = cur_dosages2[indiv_idx];
+		bufptr = double_g_writex(bufptr, dyy, ' ');
+		bufptr = double_g_writex(bufptr, 1.0 - dxx - dyy, ' ');
+	      }
+	    }
+	    if (output_gz) {
+	      if (!gzwrite(gz_outfile, tbuf, bufptr - tbuf)) {
+		goto plink1_dosage_ret_WRITE_FAIL;
+	      }
+	    } else {
+	      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+		goto plink1_dosage_ret_WRITE_FAIL;
+	      }
+	    }
+	  } while (ulii < indiv_ct);
+	}
+	if (output_gz) {
+	  if (gzputc(gz_outfile, '\n') == -1) {
+	    goto plink1_dosage_ret_WRITE_FAIL;
+	  }
+	} else {
+	  putc('\n', outfile);
 	}
       }
       if (a1_ptr) {
@@ -1249,10 +1393,6 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       break;
     }
     retval = RET_NOMEM;
-    break;
-  plink1_dosage_ret_INVALID_DOSAGE:
-    LOGPRINTFWW("Error: Invalid dosage value on line %" PRIuPTR " of %s.\n", line_idx, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
-    retval = RET_INVALID_FORMAT;
     break;
   plink1_dosage_ret_MISSING_TOKENS:
     sprintf(logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
