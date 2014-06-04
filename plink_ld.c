@@ -2572,12 +2572,6 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
     }
     chrom_end2 = 0;
     block_end2 = ld_interval1[2 * block_idx1 + 1];
-    /*
-    if (chrom_idx1 == 23) {
-      printf("%lu %lu %lu %lu\n", block_idx1, marker_idx2_maxw, block_idx2, block_idx2_start);
-      exit(1);
-    }
-    */
     dptr = &(results[(block_idx1 * marker_idx2_maxw + block_idx2 - block_idx2_start) * (1 + is_dprime)]);
     while (block_idx2 < block_end2) {
       next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx2);
@@ -5090,7 +5084,6 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
       g_ld_idx2_block_start = marker_idx2 - marker_idx2_base;
       marker_idx2 += cur_idx2_block_size;
       is_last_block = (marker_idx2 >= marker_idx2_end);
-      ;;;
       if (spawn_threads2(threads, &ld_block_thread, thread_ct, is_last_block)) {
 	goto ld_report_regular_ret_THREAD_CREATE_FAIL;
       }

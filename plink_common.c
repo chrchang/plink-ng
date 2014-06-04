@@ -5392,7 +5392,7 @@ uint32_t window_back(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t m
       if (marker_pos[marker_uwidx_cur] < min_pos) {
 	goto window_back_find_first_pos;
       }
-      *window_trail_ct_ptr = remaining_count;
+      *window_trail_ct_ptr = count_max;
       return MAXV(marker_uwidx_cur, marker_uidx_min);
     } else if (marker_pos[marker_uwidx_cur] < min_pos) {
     window_back_find_first_pos:
