@@ -7852,8 +7852,6 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   uintptr_t indiv_idx;
   uintptr_t loadbuf_size;
   uintptr_t slen;
-  uintptr_t alt_idx;
-  uintptr_t alt_ct;
   uintptr_t ulii;
   uintptr_t uljj;
   uintptr_t ulkk;
@@ -7861,6 +7859,8 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   double dxx;
   uint32_t chrom_len;
   uint32_t marker_id_len;
+  uint32_t alt_idx;
+  uint32_t alt_ct;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -8109,8 +8109,6 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     // okay, finally done with the line header
     if (alt_ct < 10) {
       // slightly faster parsing for the usual case
-      // note that '.' is interpreted as an alternate allele since that doesn't
-      // break anything
       fill_ulong_zero(base_bitfields, (alt_ct + 1) * indiv_ctv2);
       if ((!biallelic_only) || (alt_ct == 1)) {
 	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++, bufptr = &(bufptr2[1])) {
@@ -8121,25 +8119,37 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	    }
 	    bufptr2 = &(bufptr[strlen_se(bufptr)]);
 	  }
-	  if (*bufptr == '.') {
-	    continue;
-	  }
-	  ulii = (unsigned char)(*bufptr) - '0';
-	  cc = bufptr[1];
-	  if ((cc != '/') && (cc != '|')) {
-	    set_bit_ul(&(base_bitfields[ulii * indiv_ctv2]), indiv_idx * 2 + 1);
-	  } else {
-      if (bufptr[2] == '.') {
-        // ignore half-missing call
-        continue;
-      }
-	    cc = bufptr[3];
+	  uii = (unsigned char)(*bufptr) - '0';
+	  // time to provide proper support for VCF import; that means, among
+	  // other things, providing a useful error message instead of
+	  // segfaulting on an invalid GT field, to help other tool developers.
+	  if (uii <= 9) {
+	    cc = bufptr[1];
 	    if ((cc != '/') && (cc != '|')) {
-	      // code triploids, etc. as missing
-	      set_bit_ul(&(base_bitfields[ulii * indiv_ctv2]), indiv_idx * 2);
-	      ulii = ((unsigned char)bufptr[2]) - '0';
-	      base_bitfields[ulii * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
+	      set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2 + 1);
+	    } else {
+	      cc = bufptr[3];
+	      if (((cc != '/') && (cc != '|')) || (bufptr[4] == '.')) {
+		// code triploids, etc. as missing
+		ujj = ((unsigned char)bufptr[2]) - '0';
+		if (ujj > 9) {
+		  if (ujj != (uint32_t)(((unsigned char)'.') - '0')) {
+		    goto vcf_to_bed_ret_INVALID_GT;
+		  }
+		  // might be MT, in which case this should be treated as
+		  // homozygous rather than missing for now; and there are no
+		  // cases I'm aware of that demand the opposite treatment.
+		  // (Need to decide how to handle variable ploidy in PLINK 2
+		  // file format...)
+		  set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2 + 1);
+		} else {
+		  set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2);
+		  base_bitfields[ujj * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
+		}
+	      }
 	    }
+	  } else if (uii != (uint32_t)(((unsigned char)'.') - '0')) {
+	    goto vcf_to_bed_ret_INVALID_GT;
 	  }
 	}
 	alt_allele_idx = 1;
@@ -8164,33 +8174,38 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	    }
 	    bufptr2 = &(bufptr[strlen_se(bufptr)]);
 	  }
-	  if (*bufptr == '.') {
-	    continue;
-	  }
-	  ulii = (unsigned char)(*bufptr) - '0';
-	  if (ulii && (ulii != alt_allele_idx)) {
-	    if (alt_allele_idx) {
+	  uii = (unsigned char)(*bufptr) - '0';
+	  if (uii && (uii != alt_allele_idx)) {
+	    if (uii == (uint32_t)(((unsigned char)'.') - '0')) {
+	      continue;
+	    } else if (uii > 9) {
+	      goto vcf_to_bed_ret_INVALID_GT;
+	    } else if (alt_allele_idx) {
 	      goto vcf_to_bed_skip3;
 	    }
-	    alt_allele_idx = ulii;
+	    alt_allele_idx = uii;
 	  }
 	  cc = bufptr[1];
 	  if ((cc != '/') && (cc != '|')) {
-	    set_bit_ul(&(base_bitfields[ulii * indiv_ctv2]), indiv_idx * 2 + 1);
+	    set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2 + 1);
 	  } else {
-      if (bufptr[2] == '.') {
-        // ignore half-missing call
-        continue;
-      }
-	    set_bit_ul(&(base_bitfields[ulii * indiv_ctv2]), indiv_idx * 2);
-	    ulii = ((unsigned char)bufptr[2]) - '0';
-	    if (ulii && (ulii != alt_allele_idx)) {
-              if (alt_allele_idx) {
-		goto vcf_to_bed_skip3;
+	    cc = bufptr[3];
+	    if (((cc != '/') && (cc != '|')) || (bufptr[4] == '.')) {
+	      uii = ((unsigned char)bufptr[2]) - '0';
+	      if (uii && (uii != alt_allele_idx)) {
+		if (uii == (uint32_t)(((unsigned char)'.') - '0')) {
+	          set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2 + 1);
+		  continue;
+		} else if (uii > 9) {
+		  goto vcf_to_bed_ret_INVALID_GT;
+		} else if (alt_allele_idx) {
+		  goto vcf_to_bed_skip3;
+		}
+		alt_allele_idx = uii;
 	      }
-	      alt_allele_idx = ulii;
+	      set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2);
+	      base_bitfields[uii * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
 	    }
-	    base_bitfields[ulii * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
 	  }
 	}
 	if (!alt_allele_idx) {
@@ -8213,51 +8228,55 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	  }
           bufptr2 = &(bufptr[strlen_se(bufptr)]);
 	}
-	if (*bufptr == '.') {
-	  continue;
-	}
         uii = (unsigned char)(*bufptr) - '0';
-	while (1) {
-	  ujj = ((unsigned char)(*(++bufptr))) - 48;
-	  if (ujj > 9) {
-	    break;
-	  }
-          uii = uii * 10 + ujj;
-	}
-	// '/' = ascii 47, '|' = ascii 124
-	if ((ujj != 0xffffffffU) && (ujj != 76)) {
-          // haploid, count 2x
-          if (!uii) {
-            set_bit_ul(base_bitfields, indiv_idx * 2 + 1);
-	  } else {
-            vcf_alt_cts[uii - 1] += 2;
-	  }
-	} else {
-          ujj = (unsigned char)(*(++bufptr)) - '0';
-          if (*bufptr == '.') {
-            // ignore half-missing call
-            continue;
-          }
-          while (1) {
-            ukk = ((unsigned char)(*(++bufptr))) - 48;
-            if (ukk > 9) {
+	if (uii <= 9) {
+	  while (1) {
+	    ujj = ((unsigned char)(*(++bufptr))) - 48;
+	    if (ujj > 9) {
 	      break;
 	    }
-            ujj = ujj * 10 + ukk;
+	    uii = uii * 10 + ujj;
 	  }
-          if ((ujj != 0xffffffffU) && (ujj != 76)) {
-	    // diploid; triploid+ skipped
+	  // '/' = ascii 47, '|' = ascii 124
+	  if ((ujj != 0xffffffffU) && (ujj != 76)) {
+	    // haploid, count 2x
+	  vcf_to_bed_10plus_haploid:
 	    if (!uii) {
-	      set_bit_ul(base_bitfields, indiv_idx * 2);
+	      set_bit_ul(base_bitfields, indiv_idx * 2 + 1);
 	    } else {
-              vcf_alt_cts[uii - 1] += 1;
+	      vcf_alt_cts[uii - 1] += 2;
 	    }
-	    if (!ujj) {
-              base_bitfields[indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
-	    } else {
-	      vcf_alt_cts[ujj - 1] += 1;
+	  } else {
+	    ujj = (unsigned char)(*(++bufptr)) - '0';
+	    if (ujj > 9) {
+	      if (ujj == (uint32_t)(((unsigned char)'.') - '0')) {
+		goto vcf_to_bed_10plus_haploid;
+	      }
+	      goto vcf_to_bed_ret_INVALID_GT;
+	    }
+	    while (1) {
+	      ukk = ((unsigned char)(*(++bufptr))) - 48;
+	      if (ukk > 9) {
+		break;
+	      }
+	      ujj = ujj * 10 + ukk;
+	    }
+	    if (((ujj != 0xffffffffU) && (ujj != 76)) || (bufptr[1] == '.')) {
+	      // diploid; triploid+ skipped
+	      if (!uii) {
+		set_bit_ul(base_bitfields, indiv_idx * 2);
+	      } else {
+		vcf_alt_cts[uii - 1] += 1;
+	      }
+	      if (!ujj) {
+		base_bitfields[indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
+	      } else {
+		vcf_alt_cts[ujj - 1] += 1;
+	      }
 	    }
 	  }
+	} else if (uii != (uint32_t)(((unsigned char)'.') - '0')) {
+	  goto vcf_to_bed_ret_INVALID_GT;
 	}
       }
       alt_allele_idx = 0;
@@ -8280,6 +8299,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
           bufptr2 = &(bufptr[strlen_se(bufptr)]);
 	}
 	if (*bufptr == '.') {
+	  // validated on first pass
 	  continue;
 	}
         uii = (unsigned char)(*bufptr) - '0';
@@ -8290,16 +8310,12 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	  }
           uii = uii * 10 + ujj;
 	}
-	if ((ujj != 0xffffffffU) && (ujj != 76)) {
+	if (((ujj != 0xffffffffU) && (ujj != 76)) || (*(++bufptr) == '.')) {
 	  if (uii == alt_allele_idx) {
             set_bit_ul(alt_bitfield, indiv_idx * 2 + 1);
 	  }
 	} else {
-          ujj = (unsigned char)(*(++bufptr)) - '0';
-          if (*bufptr == '.') {
-            // ignore half-missing call
-            continue;
-          }
+          ujj = (unsigned char)(*bufptr) - '0';
           while (1) {
             ukk = ((unsigned char)(*(++bufptr))) - 48;
             if (ukk > 9) {
@@ -8307,7 +8323,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	    }
             ujj = ujj * 10 + ukk;
 	  }
-          if ((ujj != 0xffffffffU) && (ujj != 76)) {
+          if (((ujj != 0xffffffffU) && (ujj != 76)) || (bufptr[1] == '.')) {
 	    if (uii == alt_allele_idx) {
 	      set_bit_ul(alt_bitfield, indiv_idx * 2);
 	    }
@@ -8407,6 +8423,10 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   vcf_to_bed_ret_WRITE_FAIL:
     putchar('\n');
     retval = RET_WRITE_FAIL;
+    break;
+  vcf_to_bed_ret_INVALID_GT:
+    LOGPRINTF("\nError: Line %" PRIuPTR " of .vcf file has an invalid GT field.\n", line_idx);
+    retval = RET_INVALID_FORMAT;
     break;
   vcf_to_bed_ret_MISSING_TOKENS:
     LOGPRINTF("\nError: Line %" PRIuPTR " of .vcf file has fewer tokens than expected.\n", line_idx);
@@ -9044,7 +9064,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	      set_bit(&(base_bitfields[ulii]), indiv_idx * 2);
 	      base_bitfields[((uljj / 2) - 1) * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
 	    } else {
-	      // could be male X.  don't validate for now
+	      // could be MT or male X.  don't validate for now
 	      set_bit(&(base_bitfields[ulii]), indiv_idx * 2 + 1);
 	    }
 	  }
