@@ -1327,7 +1327,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 #ifndef NOLAPACK
 	  if (pheno_d) {
 	    is_valid = glm_linear_dosage(indiv_ct, cur_indivs, indiv_valid_ct, pheno_nm_collapsed, pheno_d_collapsed, covar_ct, covar_nm, covar_d, cur_dosages, covars_cov_major_buf, covars_indiv_major_buf, param_2d_buf, mi_buf, param_2d_buf2, regression_results, indiv_1d_buf, dgels_a, dgels_b, dgels_work, standard_beta, glm_vif_thresh, &beta, &se, &pval);
-	    logprint("Error: --dosage logistic regression is currently under development.\n");
+	    logprint("Error: --dosage linear regression is currently under development.\n");
 	    retval = RET_CALC_NOT_YET_SUPPORTED;
 	    is_valid = 0;
 	  } else {
