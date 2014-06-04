@@ -1936,9 +1936,9 @@ THREAD_RET_TYPE ld_block_thread(void* arg) {
 	cur_block_idx2_end = idx2_block_size;
       }
       if (results) {
-	rptr = &(results[block_idx1 * marker_idx2_maxw + block_idx2 - fixed_non_missing_ct]);
+	rptr = &(results[block_idx1 * marker_idx2_maxw + block_idx2 + idx2_block_start - fixed_non_missing_ct]);
       } else {
-	rptr_f = &(results_f[block_idx1 * marker_idx2_maxw + block_idx2 - fixed_non_missing_ct]);
+	rptr_f = &(results_f[block_idx1 * marker_idx2_maxw + block_idx2 + idx2_block_start - fixed_non_missing_ct]);
       }
       fixed_missing_ct = missing_cts1[block_idx1];
       fixed_non_missing_ct = founder_ct - fixed_missing_ct;
@@ -2492,9 +2492,10 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   uint32_t is_r2 = g_ld_is_r2;
   uint32_t zero_extra_chroms = g_ld_zero_extra_chroms;
   uint32_t prefix_len = g_ld_prefix_len;
-  uint32_t chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx1);
-  uint32_t chrom_idx1 = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-  uint32_t chrom_end1 = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+  uint32_t chrom_fo_idx1 = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx1);
+  uint32_t chrom_idx1 = chrom_info_ptr->chrom_file_order[chrom_fo_idx1];
+  uint32_t chrom_end1 = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx1 + 1];
+  uint32_t chrom_fo_idx2 = 0;
   uint32_t chrom_idx2 = 0;
   uint32_t fixed_a1_len = 0;
   uint32_t fixed_a2_len = 0;
@@ -2537,9 +2538,9 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
     marker_uidx1++;
     next_unset_ul_unsafe_ck(marker_exclude_idx1, &marker_uidx1);
     if (marker_uidx1 >= chrom_end1) {
-      chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx1);
-      chrom_idx1 = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      chrom_end1 = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+      chrom_fo_idx1 = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx1);
+      chrom_idx1 = chrom_info_ptr->chrom_file_order[chrom_fo_idx1];
+      chrom_end1 = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx1 + 1];
     }
     block_idx2 = ld_interval1[2 * block_idx1];
     if (block_idx2_start < block_idx2) {
@@ -2571,6 +2572,12 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
     }
     chrom_end2 = 0;
     block_end2 = ld_interval1[2 * block_idx1 + 1];
+    /*
+    if (chrom_idx1 == 23) {
+      printf("%lu %lu %lu %lu\n", block_idx1, marker_idx2_maxw, block_idx2, block_idx2_start);
+      exit(1);
+    }
+    */
     dptr = &(results[(block_idx1 * marker_idx2_maxw + block_idx2 - block_idx2_start) * (1 + is_dprime)]);
     while (block_idx2 < block_end2) {
       next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx2);
@@ -2579,9 +2586,9 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	sptr_cur = memcpya(sptr_cur, tbuf, prefix_len);
 	if (is_inter_chr) {
 	  if (marker_uidx2 >= chrom_end2) {
-	    chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx2);
-	    chrom_idx2 = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-	    chrom_end2 = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+	    chrom_fo_idx2 = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx2);
+	    chrom_idx2 = chrom_info_ptr->chrom_file_order[chrom_fo_idx2];
+	    chrom_end2 = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx2 + 1];
 	  }
 	  sptr_cur = width_force(6, sptr_cur, chrom_name_write(sptr_cur, chrom_info_ptr, chrom_idx2, zero_extra_chroms));
 	  sptr_cur = memseta(sptr_cur, 32, 3);
@@ -4679,6 +4686,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
   uint32_t window_bp = ldip->window_bp;
   uint32_t thread_ct = g_ld_thread_ct;
   uint32_t chrom_fo_idx = 0;
+  uint32_t chrom_fo_idx2 = 0;
   uint32_t is_haploid = 0;
   uint32_t is_x = 0;
   uint32_t is_y = 0;
@@ -4720,6 +4728,8 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
   uint32_t window_size_ceil;
   uint32_t chrom_idx;
   uint32_t chrom_end;
+  uint32_t chrom_idx2;
+  uint32_t chrom_end2;
   uint32_t cur_marker_pos;
   uint32_t is_last_block;
   uint32_t uii;
@@ -5046,7 +5056,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
     }
     g_ld_marker_ctm8 = marker_idx2_maxw;
     marker_idx2 = marker_idx2_base;
-    chrom_end = 0;
+    chrom_end2 = 0;
     do {
       if (cur_idx2_block_size > marker_idx2_end - marker_idx2) {
 	cur_idx2_block_size = marker_idx2_end - marker_idx2;
@@ -5060,12 +5070,12 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 	    goto ld_report_regular_ret_READ_FAIL;
 	  }
 	}
-	if (marker_uidx2 >= chrom_end) {
-	  chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx2);
-	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-	  is_haploid = IS_SET(chrom_info_ptr->haploid_mask, chrom_idx);
-	  is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code);
-	  is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code);
+	if (marker_uidx2 >= chrom_end2) {
+	  chrom_fo_idx2 = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx2);
+	  chrom_idx2 = chrom_info_ptr->chrom_file_order[chrom_fo_idx2];
+	  is_haploid = IS_SET(chrom_info_ptr->haploid_mask, chrom_idx2);
+	  is_x = (((int32_t)chrom_idx2) == chrom_info_ptr->x_code);
+	  is_y = (((int32_t)chrom_idx2) == chrom_info_ptr->y_code);
 	}
 	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, &(g_ld_geno2[block_idx2 * founder_ct_192_long]), founder_ct, founder_info, IS_SET(marker_reverse, marker_uidx2))) {
 	  goto ld_report_regular_ret_READ_FAIL;
@@ -5080,6 +5090,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
       g_ld_idx2_block_start = marker_idx2 - marker_idx2_base;
       marker_idx2 += cur_idx2_block_size;
       is_last_block = (marker_idx2 >= marker_idx2_end);
+      ;;;
       if (spawn_threads2(threads, &ld_block_thread, thread_ct, is_last_block)) {
 	goto ld_report_regular_ret_THREAD_CREATE_FAIL;
       }
