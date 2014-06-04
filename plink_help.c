@@ -917,11 +917,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #ifndef STABLE_BUILD
     help_print("dosage\twrite-dosage", &help_ctrl, 1,
 "  --dosage [allele dosage file] <noheader> <skip0=[i]> <skip1=[j]> <skip2=[k]>\n"
-"           <dose1> <format=[m]> <Zout> <occur> <sex | no-x-sex> <beta>\n"
-"           <standard-beta>\n"
+"           <dose1> <format=[m]> <Zout> <occur | standard-beta>\n"
 "  --dosage [list file] list <sepheader | noheader> <skip0=[i]> <skip1=[j]>\n"
-"           <skip2=[k]> <dose1> <format=[m]> <Zout> <occur> <sex | no-x-sex>\n"
-"           <beta> <standard-beta>\n"
+"           <skip2=[k]> <dose1> <format=[m]> <Zout> <occur | standard-beta>\n"
 "  --write-dosage\n"
 "    Process (possibly gzipped) text files with variant-major allelic dosage\n"
 "    data.  This cannot be used with a regular input fileset; instead, you must\n"
@@ -953,8 +951,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      0..1 het likelihood, while 'format=3' indicates 0..1 hom A1, 0..1 het,\n"
 "      0..1 hom A2.\n"
 "    * 'Zout' causes the output file to be gzipped.\n"
-"    * Normally, an association analysis is performed.  'sex', 'no-x-sex',\n"
-"      'beta', and 'standard-beta' behave as they do with --linear/--logistic.\n"
+"    * Normally, an association analysis is performed.  'standard-beta' behaves\n"
+"      as it does with --linear.\n"
 "    * There are two alternate modes which cause the association analysis to be\n"
 "      skipped.  'occur' requests a simple variant occurrence report, while\n"
 "      --write-dosage causes a simple merged file matching the 'format'\n"
@@ -1749,9 +1747,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                          --parameters.\n"
 "                        * You can use '--tests all' to include all terms.\n"
 	       );
-    help_print("linear\tlogistic\tdosage\tvif\txchr-model", &help_ctrl, 0,
+    help_print("linear\tlogistic\tdosage\tvif", &help_ctrl, 0,
 "  --vif [max VIF]     : Set VIF threshold for --linear/--logistic\n"
 "                        multicollinearity check (default 50).\n"
+	       );
+    help_print("linear\tlogistic\txchr-model", &help_ctrl, 0,
 "  --xchr-model [code] : Set the X chromosome --linear/--logistic model.\n"
 "                        0 = skip sex and haploid chromosomes\n"
 "                        1 (default) = add sex as a covariate on X chromosome\n"

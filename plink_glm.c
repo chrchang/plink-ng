@@ -8278,3 +8278,19 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   free_cond(condition_uidxs);
   return retval;
 }
+
+#ifndef NOLAPACK
+uint32_t glm_linear_dosage(uintptr_t indiv_ct, uintptr_t* cur_indivs, uintptr_t indiv_valid_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t covar_ct, uintptr_t* covar_nm, double* covar_d, double* cur_dosages, double* covar_cov_major_buf, double* covar_indiv_major_buf, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, double* regression_results, double* indiv_1d_buf, double* dgels_a, double* dgels_b, double* dgels_work,  uint32_t standard_beta, double vif_thresh, double* beta_ptr, double* se_ptr, double* pval_ptr) {
+  return 1;
+  /*
+  uintptr_t indiv_uidx;
+  uintptr_t indiv_idx;
+  for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_uidx++, indiv_idx++) {
+    next_set_ul_unsafe_ck(cur_indivs, &indiv_uidx);
+    
+  }
+  if (standard_beta) {
+  }
+  */
+}
+#endif

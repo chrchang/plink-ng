@@ -4,6 +4,8 @@
 #include "plink_data.h"
 #include "plink_dosage.h"
 #include "plink_filter.h"
+#include "plink_glm.h"
+#include "plink_matrix.h"
 #include "plink_misc.h"
 
 void dosage_init(Dosage_info* doip) {
@@ -27,7 +29,7 @@ typedef struct ll_ctstr_entry_struct {
 
 #define DOSAGE_EPSILON 0.000244140625
 
-int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* outname, char* outname_end, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* makepheno_str, char* phenoname_str, char* covar_fname, Two_col_params* qual_filter, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* filtervals_flattened, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_indiv_fname, char* filter_attrib_indiv_liststr, double qual_min_thresh, double qual_max_thresh, double thin_keep_prob, uint32_t thin_keep_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t fam_cols, int32_t missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t filter_flags, uint32_t sex_missing_pheno, uint32_t update_sex_col, Cluster_info* cluster_ptr, int32_t marker_pos_start, int32_t marker_pos_end, int32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t mwithin_col, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, Range_list* parameters_range_list_ptr) {
+int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* outname, char* outname_end, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* makepheno_str, char* phenoname_str, char* covar_fname, Two_col_params* qual_filter, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* filtervals_flattened, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_indiv_fname, char* filter_attrib_indiv_liststr, double qual_min_thresh, double qual_max_thresh, double thin_keep_prob, uint32_t thin_keep_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t fam_cols, int32_t missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t filter_flags, uint32_t sex_missing_pheno, uint32_t update_sex_col, Cluster_info* cluster_ptr, int32_t marker_pos_start, int32_t marker_pos_end, int32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t mwithin_col, uint32_t glm_modifier, double glm_vif_thresh, Range_list* parameters_range_list_ptr) {
   // sucks to duplicate so much, but this code will be thrown out later so
   // there's no long-term maintenance problem
   FILE* phenofile = NULL;
@@ -45,19 +47,36 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   char* sorted_person_ids = NULL;
   char* sep_fnames = NULL;
   char* cur_marker_id_buf = NULL;
-  char* cur_a1 = NULL;
-  char* cur_a2 = NULL;
+  char* a1_ptr = NULL;
+  char* a2_ptr = NULL;
   uintptr_t* marker_exclude = NULL;
   uintptr_t* indiv_exclude = NULL;
   uintptr_t* sex_nm = NULL;
   uintptr_t* sex_male = NULL;
   uintptr_t* pheno_nm = NULL;
   uintptr_t* pheno_c = NULL;
+  uintptr_t* pheno_nm_collapsed = NULL;
+  uintptr_t* pheno_c_collapsed = NULL;
   uintptr_t* founder_info = NULL;
   uintptr_t* covar_nm = NULL;
   double* pheno_d = NULL;
   double* covar_d = NULL;
   double* cur_dosages2 = NULL;
+  double* covars_cov_major_buf = NULL;
+  double* covars_indiv_major_buf = NULL;
+#ifndef NOLAPCK
+  double* pheno_d_collapsed = NULL;
+  double* param_2d_buf = NULL;
+  double* param_2d_buf2 = NULL;
+  double* regression_results = NULL;
+  double* indiv_1d_buf = NULL;
+  double* dgels_a = NULL;
+  double* dgels_b = NULL;
+  double* dgels_work = NULL;
+  MATRIX_INVERT_BUF1_TYPE* mi_buf = NULL;
+#endif
+  float* covars_cov_major_f_buf = NULL;
+  float* covars_indiv_major_f_buf = NULL;
   Ll_ctstr_entry** htable = NULL;
   uint32_t* marker_pos = NULL;
   uint32_t* cluster_map = NULL;
@@ -90,6 +109,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uintptr_t ulii = 0;
   double missing_phenod = (double)missing_pheno;
   uint32_t load_map = (mapname[0] != '\0');
+  uint32_t zero_extra_chroms = (misc_flags / MISC_ZERO_EXTRA_CHROMS) & 1;
   uint32_t do_glm = (doip->modifier / DOSAGE_GLM) & 1;
   uint32_t count_occur = doip->modifier & DOSAGE_OCCUR;
   uint32_t sepheader = (doip->modifier / DOSAGE_SEPHEADER) & 1;
@@ -100,23 +120,26 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uint32_t skip1p1 = doip->skip1 + 1;
   uint32_t skip2 = doip->skip2;
   uint32_t format_val = doip->format;
+#ifndef NOLAPACK
+  uint32_t standard_beta = glm_modifier & GLM_STANDARD_BETA;
+#endif
   uint32_t map_cols = 3;
   uint32_t map_is_unsorted = 0;
   uint32_t affection = 0;
-  // uint32_t plink_maxsnp = 0;
+  uint32_t plink_maxsnp = 0;
   uint32_t infile_ct = 0;
   uint32_t pheno_ctrl_ct = 0;
   uint32_t batch_ct = 1;
   uint32_t max_batch_size = 1;
   uint32_t cur_marker_id_len = 0;
+  uint32_t a1_len = 0;
+  uint32_t a2_len = 0;
   uint32_t ujj = 0;
   int32_t retval = 0;
   char* missing_mid_templates[2];
   unsigned char* wkspace_mark;
   char* fnames;
   char* loadbuf;
-  char* a1_ptr;
-  char* a2_ptr;
   char* bufptr;
   char* bufptr2;
   char* bufptr3;
@@ -124,6 +147,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   char* bufptr5;
   char* bufptr6;
   uintptr_t* line_idx_arr;
+  uintptr_t* batch_indivs;
   uintptr_t* cur_indivs;
   double* cur_dosages;
   Ll_ctstr_entry** ll_pptr;
@@ -140,7 +164,14 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uintptr_t indiv_idx;
   uintptr_t cur_batch_size;
   uintptr_t loadbuf_size;
+  uintptr_t indiv_valid_ct;
+  uintptr_t param_ct;
   uintptr_t uljj;
+  double indiv_valid_ct_recip;
+  double rsq;
+  double pval;
+  double beta;
+  double se;
   double dxx;
   double dyy;
   double dzz;
@@ -150,6 +181,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uint32_t read_idx_start;
   uint32_t read_idx;
   uint32_t slen;
+  uint32_t indiv_uidx;
+  uint32_t is_valid;
   uint32_t uii;
   int32_t ii;
   missing_mid_templates[0] = NULL;
@@ -405,15 +438,19 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       logprint("Warning: Ignoring phenotypes of missing-sex samples.  If you don't want those\nphenotypes to be ignored, use the --allow-no-sex flag.\n");
     }
   }
-  if (filter_flags & FILTER_PRUNE) {
+  if (do_glm || (filter_flags & FILTER_PRUNE)) {
+    ulii = indiv_exclude_ct;
     bitfield_ornot(indiv_exclude, pheno_nm, unfiltered_indiv_ctl);
     zero_trailing_bits(indiv_exclude, unfiltered_indiv_ct);
     indiv_exclude_ct = popcount_longs(indiv_exclude, unfiltered_indiv_ctl);
+    uii = do_glm && (!(filter_flags & FILTER_PRUNE));
     if (indiv_exclude_ct == unfiltered_indiv_ct) {
-      LOGPRINTF("Error: All %s removed by --prune.\n", g_species_plural);
+      LOGPRINTF("Error: All %s removed by %s--prune.\n", g_species_plural, uii? "automatic " : "");
       goto plink1_dosage_ret_ALL_SAMPLES_EXCLUDED;
     }
-    LOGPRINTF("--prune: %" PRIuPTR " %s remaining.\n", unfiltered_indiv_ct - indiv_exclude_ct, species_str(unfiltered_indiv_ct == indiv_exclude_ct + 1));
+    if ((filter_flags & FILTER_PRUNE) || (indiv_exclude_ct != ulii)) {
+      LOGPRINTF("%s--prune: %" PRIuPTR " %s remaining.\n", uii? "Automatic " : "", unfiltered_indiv_ct - indiv_exclude_ct, species_str(unfiltered_indiv_ct == indiv_exclude_ct + 1));
+    }
   }
 
   if (filter_flags & (FILTER_BINARY_CASES | FILTER_BINARY_CONTROLS)) {
@@ -467,11 +504,9 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   } else {
     logprint("Using 1 thread.\n");
   }
-  /*
   if (load_map) {
     plink_maxsnp = calc_plink_maxsnp(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len);
   }
-  */
   if ((filter_flags & FILTER_MAKE_FOUNDERS) && (!(misc_flags & MISC_MAKE_FOUNDERS_FIRST))) {
     if (make_founders(unfiltered_indiv_ct, indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, (misc_flags / MISC_MAKE_FOUNDERS_REQUIRE_2_MISSING) & 1, indiv_exclude, founder_info)) {
       goto plink1_dosage_ret_NOMEM;
@@ -486,8 +521,35 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       if (retval) {
 	goto plink1_dosage_ret_1;
       }
+      if (parameters_range_list_ptr) {
+	// just additive effect and covars, so this is a lot simpler than
+	// --linear/--logistic (in fact, this is unnecessary due to
+	// --covar-number, but whatever
+	ulii = (covar_ct + BITCT + 1) / BITCT;
+	// temporary repurposing of batch_indivs
+	if (wkspace_alloc_ul_checked(&batch_indivs, ulii * sizeof(intptr_t))) {
+	  goto plink1_dosage_ret_NOMEM;
+	}
+        fill_ulong_zero(batch_indivs, ulii);
+        numeric_range_list_to_bitfield(parameters_range_list_ptr, covar_ct + 2, batch_indivs, 0, 1);
+	uii = popcount_bit_idx(batch_indivs, 2, covar_ct + 2);
+	if (uii < covar_ct) {
+	  ulii = covar_ct + 2;
+	  ujj = next_unset_unsafe(batch_indivs, 2);
+	  uljj = next_set_ul(batch_indivs, ujj, ulii);
+	  while (uljj < ulii) {
+	    memcpy(&(covar_d[(ujj - 2) * indiv_ct]), &(covar_d[(uljj - 2) * indiv_ct]), indiv_ct * sizeof(double));
+	    ujj++;
+	    uljj++;
+	    next_set_ul_ck(batch_indivs, &uljj, ulii);
+	  }
+	  covar_ct = uii;
+	}
+	wkspace_reset((unsigned char*)batch_indivs);
+      }
     }
   }
+  param_ct = covar_ct + 2;
   bitfield_andnot(pheno_nm, indiv_exclude, unfiltered_indiv_ctl);
   if (pheno_c) {
     bitfield_and(pheno_c, pheno_nm, unfiltered_indiv_ctl);
@@ -539,6 +601,12 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     logprintb();
   } else {
     logprint("Phenotype data is quantitative.\n");
+#ifndef NOLAPACK
+    if (do_glm) {
+      logprint("Error: --dosage linear regression requires " PROG_NAME_CAPS " to be built with LAPACK.\n");
+      goto plink1_dosage_ret_INVALID_CMDLINE;
+    }
+#endif
   }
 
   // now the actual --dosage logic begins
@@ -712,7 +780,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       if (batch_ct) {
 	scan_int32(bufptr, &ii);
 	uii = int32arr_greater_than((int32_t*)uiptr, batch_ct, ii);
-	file_idx = uiptr3[ujj];
+	file_idx = uiptr3[uii];
 	uiptr3[uii] += 1;
 	bufptr = next_token(bufptr);
       } else {
@@ -752,6 +820,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   }
   if (wkspace_alloc_ui_checked(&file_icts, max_batch_size * sizeof(int32_t)) ||
       wkspace_alloc_ul_checked(&line_idx_arr, max_batch_size * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&batch_indivs, indiv_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&cur_indivs, indiv_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ui_checked(&read_idx_to_indiv_idx, indiv_ct * sizeof(int32_t)) ||
       wkspace_alloc_ui_checked(&skip_vals, indiv_ct * sizeof(int32_t)) ||
@@ -780,6 +849,58 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     }
   }
   if (do_glm) {
+    if (!indiv_exclude_ct) {
+      pheno_nm_collapsed = pheno_nm;
+#ifndef NOLAPACK
+      pheno_d_collapsed = pheno_d;
+#endif
+      pheno_c_collapsed = pheno_c;
+    } else {
+      if (wkspace_alloc_ul_checked(&pheno_nm_collapsed, indiv_ctl * sizeof(intptr_t))) {
+        goto plink1_dosage_ret_NOMEM;
+      }
+      collapse_copy_bitarr(unfiltered_indiv_ct, pheno_nm, indiv_exclude, indiv_ct, pheno_nm_collapsed);
+#ifndef NOLAPACK
+      if (pheno_d) {
+	pheno_d_collapsed = (double*)alloc_and_init_collapsed_arr((char*)pheno_d, sizeof(double), unfiltered_indiv_ct, indiv_exclude, indiv_ct, 0);
+	if (!pheno_d_collapsed) {
+	  goto plink1_dosage_ret_NOMEM;
+	}
+      } else {
+#endif
+        if (wkspace_alloc_ul_checked(&pheno_c_collapsed, indiv_ctl * sizeof(intptr_t))) {
+	  goto plink1_dosage_ret_NOMEM;
+	}
+        collapse_copy_bitarr(unfiltered_indiv_ct, pheno_c, indiv_exclude, indiv_ct, pheno_c_collapsed);
+#ifndef NOLAPACK
+      }
+#endif
+    }
+#ifndef NOLAPACK
+    if (pheno_d) {
+      if (wkspace_alloc_d_checked(&covars_cov_major_buf, param_ct * indiv_ct * sizeof(double)) ||
+	  wkspace_alloc_d_checked(&covars_indiv_major_buf, param_ct * indiv_ct * sizeof(double)) ||
+	  wkspace_alloc_d_checked(&param_2d_buf, param_ct * param_ct * sizeof(double)) ||
+	  wkspace_alloc_d_checked(&param_2d_buf2, param_ct * param_ct * sizeof(double)) ||
+          wkspace_alloc_d_checked(&regression_results, param_ct * sizeof(double)) ||
+	  wkspace_alloc_d_checked(&indiv_1d_buf, indiv_ct * sizeof(double)) ||
+	  wkspace_alloc_d_checked(&dgels_a, param_ct * indiv_ct * sizeof(double)) ||
+          wkspace_alloc_d_checked(&dgels_b, indiv_ct * sizeof(double))) {
+	goto plink1_dosage_ret_NOMEM;
+      }
+      mi_buf = (MATRIX_INVERT_BUF1_TYPE*)wkspace_alloc(param_ct * sizeof(MATRIX_INVERT_BUF1_TYPE));
+      if (!mi_buf) {
+	goto plink1_dosage_ret_NOMEM;
+      }
+    } else {
+#endif
+      if (wkspace_alloc_f_checked(&covars_cov_major_f_buf, param_ct * indiv_ct * sizeof(float)) ||
+	  wkspace_alloc_f_checked(&covars_indiv_major_f_buf, param_ct * indiv_ct * sizeof(float))) {
+	goto plink1_dosage_ret_NOMEM;
+      }
+#ifndef NOLAPACK
+    }
+#endif
     if (load_map) {
       bufptr = memcpya(tbuf, " CHR         SNP          BP", 28);
     } else {
@@ -871,7 +992,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     }
     loadbuf = (char*)wkspace_base;
     loadbuf[loadbuf_size - 1] = ' ';
-    fill_ulong_zero(cur_indivs, indiv_ctl);
+    fill_ulong_zero(batch_indivs, indiv_ctl);
     bufptr = memcpya(logbuf, "--dosage: Reading from ", 23);
     if (cur_batch_size == 1) {
       bufptr = strcpya(bufptr, &(fnames[file_idx_start * max_fn_len]));
@@ -916,13 +1037,13 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    uii += format_val;
 	  } else {
 	    ii = person_id_map[(uint32_t)ii];
-	    if (is_set(cur_indivs, ii)) {
+	    if (is_set(batch_indivs, ii)) {
 	      bufptr = &(sorted_person_ids[((uint32_t)ii) * max_person_id_len]);
 	      *strchr(bufptr, '\t') = ' ';
 	      sprintf(logbuf, "Error: '%s' appears multiple times.\n", bufptr);
 	      goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	    }
-	    set_bit(cur_indivs, ii);
+	    set_bit(batch_indivs, ii);
 	    read_idx_to_indiv_idx[read_idx] = (uint32_t)ii;
             skip_vals[read_idx++] = uii;
 	    uii = 1 + (format_val == 3);
@@ -943,15 +1064,16 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
       line_idx = 0;
       if (noheader) {
-	for (read_idx = 0; read_idx < indiv_ct; read_idx++) {
-	  read_idx_to_indiv_idx[read_idx] = read_idx;
+	for (read_idx = 0, indiv_uidx = 0; read_idx < indiv_ct; indiv_uidx++, read_idx++) {
+	  next_unset_unsafe_ck(indiv_exclude, &indiv_uidx);
+	  read_idx_to_indiv_idx[read_idx] = indiv_uidx;
 	}
-	skip_vals[0] = 1;
+	skip_vals[0] = 1 + format_val * read_idx_to_indiv_idx[0];
 	uii = 1 + (format_val == 3);
 	for (read_idx = 1; read_idx < indiv_ct; read_idx++) {
-	  skip_vals[read_idx] = uii;
+	  skip_vals[read_idx] = uii + format_val * read_idx_to_indiv_idx[read_idx];
 	}
-	fill_all_bits(cur_indivs, indiv_ct);
+	fill_all_bits(batch_indivs, indiv_ct);
       } else if (!sepheader) {
 	do {
 	  if (!gzgets(gz_infiles[file_idx], loadbuf, loadbuf_size)) {
@@ -996,13 +1118,13 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    uii += format_val;
 	  } else {
 	    ii = person_id_map[(uint32_t)ii];
-	    if (is_set(cur_indivs, ii)) {
+	    if (is_set(batch_indivs, ii)) {
 	      bufptr = &(sorted_person_ids[((uint32_t)ii) * max_person_id_len]);
 	      *strchr(bufptr, '\t') = ' ';
 	      sprintf(logbuf, "Error: '%s' appears multiple times.\n", bufptr);
 	      goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	    }
-	    set_bit(cur_indivs, ii);
+	    set_bit(batch_indivs, ii);
 	    read_idx_to_indiv_idx[read_idx] = (uint32_t)ii;
             skip_vals[read_idx++] = uii;
 	    uii = 1 + (format_val == 3);
@@ -1020,9 +1142,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 
     while (1) {
       read_idx_start = 0;
-      for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-        cur_dosages[indiv_idx] = -1.0;
-      }
+      memcpy(cur_indivs, batch_indivs, indiv_ctl * sizeof(intptr_t));
       for (file_idx = 0; file_idx < cur_batch_size; file_idx++) {
 	line_idx = line_idx_arr[file_idx];
 	do {
@@ -1057,6 +1177,14 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	if (!file_idx) {
 	  memcpyx(cur_marker_id_buf, bufptr, slen, '\0');
 	  cur_marker_id_len = slen;
+	  a1_len = (uintptr_t)(bufptr4 - bufptr3);
+	  if (allele_set(&a1_ptr, bufptr3, a1_len)) {
+	    goto plink1_dosage_ret_NOMEM;
+	  }
+	  a2_len = (uintptr_t)(bufptr6 - bufptr5);
+	  if (allele_set(&a2_ptr, bufptr5, a2_len)) {
+	    goto plink1_dosage_ret_NOMEM;
+	  }
 	  if (sorted_marker_ids) {
 	    ii = bsearch_str(bufptr, slen, sorted_marker_ids, max_marker_id_len, marker_ct);
 	    if (ii == -1) {
@@ -1065,20 +1193,12 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    }
 	    marker_idx = marker_id_map[(uint32_t)ii];
 	  }
-	  if (allele_set(&a1_ptr, bufptr3, (uintptr_t)(bufptr4 - bufptr3))) {
-	    goto plink1_dosage_ret_NOMEM;
-	  }
-	  if (allele_set(&a2_ptr, bufptr5, (uintptr_t)(bufptr6 - bufptr5))) {
-	    goto plink1_dosage_ret_NOMEM;
-	  }
 	} else {
 	  if ((slen != cur_marker_id_len) || memcmp(bufptr, cur_marker_id_buf, slen)) {
 	    sprintf(logbuf, "Error: Variant ID mismatch between line %" PRIuPTR " of %s and line %" PRIuPTR " of %s.\n", line_idx_arr[0], &(fnames[file_idx_start * max_fn_len]), line_idx, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
 	    goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	  }
-	  *bufptr4 = '\0';
-	  *bufptr6 = '\0';
-	  if (strcmp(bufptr3, cur_a1) || strcmp(bufptr5, cur_a2)) {
+	  if (((uintptr_t)(bufptr4 - bufptr3) != a1_len) || memcmp(bufptr3, a1_ptr, a1_len) || ((uintptr_t)(bufptr6 - bufptr5) != a2_len) || memcmp(bufptr5, a2_ptr, a2_len)) {
 	    sprintf(logbuf, "Error: Allele code mismatch between line %" PRIuPTR " of %s and line %" PRIuPTR " of %s.\n", line_idx_arr[0], &(fnames[file_idx_start * max_fn_len]), line_idx, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
 	    goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	  }
@@ -1130,12 +1250,14 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 		goto plink1_dosage_ret_MISSING_TOKENS;
 	      }
 	      if (scan_double(bufptr, &dxx)) {
+		clear_bit(cur_indivs, read_idx_to_indiv_idx[read_idx_start]);
 		continue;
 	      }
 	      if (!dose1) {
 		dxx *= 0.5;
 	      }
 	      if ((dxx > 1.0 + DOSAGE_EPSILON) || (dxx < 0.0)) {
+		clear_bit(cur_indivs, read_idx_to_indiv_idx[read_idx_start]);
 		continue;
 	      } else if (dxx > 1.0) {
 		dxx = 1.0;
@@ -1150,10 +1272,12 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 		goto plink1_dosage_ret_MISSING_TOKENS;
 	      }
 	      if (scan_double(bufptr2, &dxx) || scan_double(bufptr, &dyy)) {
+		clear_bit(cur_indivs, read_idx_to_indiv_idx[read_idx_start]);
 		continue;
 	      }
 	      dzz = dxx + dyy;
 	      if ((dyy < 0.0) || (dxx < 0.0) || (dzz > 1.0 + DOSAGE_EPSILON)) {
+		clear_bit(cur_indivs, read_idx_to_indiv_idx[read_idx_start]);
 		continue;
 	      } else if (dzz > 1.0) {
 		dzz = 1.0 / dzz;
@@ -1172,128 +1296,253 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  }
 	}
       }
-      if (do_glm) {
-	logprint("Error: --dosage association analysis is currently under development.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto plink1_dosage_ret_1;
-      } else if ((!count_occur) && (marker_idx != ~ZEROLU)) {
-        if (output_gz) {
-	  if (gzputs(gz_outfile, cur_marker_id_buf) == -1) {
-	    goto plink1_dosage_ret_WRITE_FAIL;
+
+      if (marker_idx != ~ZEROLU) {
+	if (do_glm) {
+	  if (covar_nm) {
+	    bitfield_and(cur_indivs, covar_nm, indiv_ctl);
 	  }
-	  if (gzputc(gz_outfile, ' ') == -1) {
-	    goto plink1_dosage_ret_WRITE_FAIL;
+	  indiv_valid_ct = popcount_longs(cur_indivs, indiv_ctl);
+	  dxx = 0.0;
+	  dyy = 0.0;
+	  for (indiv_idx = 0, indiv_uidx = 0; indiv_idx < indiv_valid_ct; indiv_idx++, indiv_uidx++) {
+            next_set_unsafe_ck(cur_indivs, &indiv_uidx);
+	    dzz = cur_dosages[indiv_uidx];
+            dxx += dzz;
+	    dyy += dzz * dzz;
 	  }
-	  if (gzputs(gz_outfile, a1_ptr) == -1) {
-	    goto plink1_dosage_ret_WRITE_FAIL;
+	  indiv_valid_ct_recip = 1.0 / ((double)((intptr_t)indiv_valid_ct));
+	  dzz = dxx * indiv_valid_ct_recip;
+	  // dosageSSQ = sum(x^2 - bar{x}^2) = sum(x^2) - sum(x) * avg(x)
+	  // theoreticalVariance = avg(x) * (1 - avg(x))
+	  // empiricalVariance = 2 * (dosageSSQ / cnt)
+	  // rsq = (theoretical_variance > 0)? (empirical / theoretical) : 0
+
+	  // dzz is minor allele frequency, dyy is ssq
+	  dyy -= dxx * dzz;
+
+          dxx = dzz * (1.0 - dzz); // now dxx = theoretical var
+	  dyy = 2 * dyy * indiv_valid_ct_recip; // and dyy = empirical
+	  rsq = (dxx > 0.0)? (dyy / dxx) : 0.0;
+#ifndef NOLAPACK
+	  if (pheno_d) {
+	    is_valid = glm_linear_dosage(indiv_ct, cur_indivs, indiv_valid_ct, pheno_nm_collapsed, pheno_d_collapsed, covar_ct, covar_nm, covar_d, cur_dosages, covars_cov_major_buf, covars_indiv_major_buf, param_2d_buf, mi_buf, param_2d_buf2, regression_results, indiv_1d_buf, dgels_a, dgels_b, dgels_work, standard_beta, glm_vif_thresh, &beta, &se, &pval);
+	    logprint("Error: --dosage logistic regression is currently under development.\n");
+	    retval = RET_CALC_NOT_YET_SUPPORTED;
+	    is_valid = 0;
+	  } else {
+#endif
+	    logprint("Error: --dosage logistic regression is currently under development.\n");
+	    retval = RET_CALC_NOT_YET_SUPPORTED;
+	    is_valid = 0;
+#ifndef NOLAPACK
 	  }
-	  if (gzputc(gz_outfile, ' ') == -1) {
-	    goto plink1_dosage_ret_WRITE_FAIL;
+#endif
+	  if (retval) {
+	    goto plink1_dosage_ret_1;
 	  }
-	  if (gzputs(gz_outfile, a2_ptr) == -1) {
-	    goto plink1_dosage_ret_WRITE_FAIL;
+	  bufptr = tbuf;
+	  *bufptr++ = ' ';
+	  if (load_map) {
+	    bufptr = width_force(3, bufptr, chrom_name_write(tbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_idx), zero_extra_chroms));
+	    *bufptr++ = ' ';
+	    bufptr = fw_strcpyn(11, cur_marker_id_len, cur_marker_id_buf, bufptr);
+            bufptr = memseta(bufptr, 32, 2);
+            bufptr = uint32_writew10(bufptr, marker_pos[marker_idx]);
+	  } else {
+	    bufptr = fw_strcpyn(11, cur_marker_id_len, cur_marker_id_buf, bufptr);
 	  }
-	  if (gzputc(gz_outfile, ' ') == -1) {
-	    goto plink1_dosage_ret_WRITE_FAIL;
-	  }
-	} else {
-	  fputs(cur_marker_id_buf, outfile);
-	  putc(' ', outfile);
-	  fputs(a1_ptr, outfile);
-	  putc(' ', outfile);
-	  fputs(a2_ptr, outfile);
-	  putc(' ', outfile);
-	}
-	ulii = 0;
-	// could make output format independent of input format (other than
-	// outformat > 1 can't coexist with format == 1), but kinda pointless
-	// since the code won't be kept for PLINK 2.0.
-	if (format_val == 1) {
-	  do {
-	    ulii += MAXLINELEN / 16;
-	    bufptr = tbuf;
-	    if (ulii > indiv_ct) {
-	      ulii = indiv_ct;
+	  *bufptr++ = ' ';
+	  *bufptr = '\0';
+          if (output_gz) {
+	    if (gzputs(gz_outfile, tbuf) == -1) {
+	      goto plink1_dosage_ret_WRITE_FAIL;
 	    }
-	    for (indiv_idx = 0; indiv_idx < ulii; indiv_idx++) {
-	      dxx = cur_dosages[indiv_idx];
-	      if (dxx == -1.0) {
-		bufptr = memcpyl3a(bufptr, "NA ");
+	    if (a1_len < 3) {
+	      if (gzputc(gz_outfile, ' ') == -1) {
+		goto plink1_dosage_ret_WRITE_FAIL;
+	      }
+	      if (a1_len == 1) {
+		if (gzputc(gz_outfile, ' ') == -1) {
+		  goto plink1_dosage_ret_WRITE_FAIL;
+		}
+	      }
+	    }
+	    if (gzputs(gz_outfile, a1_ptr) == -1) {
+	      goto plink1_dosage_ret_WRITE_FAIL;
+	    }
+	    if (gzputc(gz_outfile, ' ') == -1) {
+	      goto plink1_dosage_ret_WRITE_FAIL;
+	    }
+	    if (a2_len < 3) {
+	      if (gzputc(gz_outfile, ' ') == -1) {
+		goto plink1_dosage_ret_WRITE_FAIL;
+	      }
+	      if (a2_len == 1) {
+		if (gzputc(gz_outfile, ' ') == -1) {
+		  goto plink1_dosage_ret_WRITE_FAIL;
+		}
+	      }
+	    }
+	    if (gzputs(gz_outfile, a2_ptr) == -1) {
+	      goto plink1_dosage_ret_WRITE_FAIL;
+	    }
+	  } else {
+            fputs(tbuf, outfile);
+	    if (a1_len < 3) {
+	      putc(' ', outfile);
+	      if (a1_len == 1) {
+		putc(' ', outfile);
+	      }
+	    }
+	    fputs(a1_ptr, outfile);
+	    putc(' ', outfile);
+	    if (a2_len < 3) {
+	      putc(' ', outfile);
+	      if (a2_len == 1) {
+		putc(' ', outfile);
+	      }
+	    }
+	    fputs(a2_ptr, outfile);
+          }
+	  bufptr = tbuf;
+	  *bufptr++ = ' ';
+          bufptr = double_g_writewx4x(bufptr, dzz, 7, ' ');
+          bufptr = double_g_writewx4x(bufptr, rsq, 7, ' ');
+	  if (is_valid) {
+	    bufptr = double_g_writewx4x(bufptr, beta, 7, ' ');
+	    bufptr = double_g_writewx4x(bufptr, se, 7, ' ');
+	    bufptr = double_g_writewx4(bufptr, pval, 7);
+	    bufptr = memcpya(bufptr, "\n", 2);
+	  } else {
+	    bufptr = memcpya(bufptr, "     NA      NA      NA\n", 25);
+	  }
+	  if (output_gz) {
+	    if (gzputs(gz_outfile, tbuf) == -1) {
+	      goto plink1_dosage_ret_WRITE_FAIL;
+	    }
+	  } else {
+	    if (fputs_checked(tbuf, outfile)) {
+	      goto plink1_dosage_ret_WRITE_FAIL;
+	    }
+	  }
+	} else if (!count_occur) {
+	  if (output_gz) {
+	    if (gzputs(gz_outfile, cur_marker_id_buf) == -1) {
+	      goto plink1_dosage_ret_WRITE_FAIL;
+	    }
+	    if (gzputc(gz_outfile, ' ') == -1) {
+	      goto plink1_dosage_ret_WRITE_FAIL;
+	    }
+	    if (gzputs(gz_outfile, a1_ptr) == -1) {
+	      goto plink1_dosage_ret_WRITE_FAIL;
+	    }
+	    if (gzputc(gz_outfile, ' ') == -1) {
+	      goto plink1_dosage_ret_WRITE_FAIL;
+	    }
+	    if (gzputs(gz_outfile, a2_ptr) == -1) {
+	      goto plink1_dosage_ret_WRITE_FAIL;
+	    }
+	    if (gzputc(gz_outfile, ' ') == -1) {
+	      goto plink1_dosage_ret_WRITE_FAIL;
+	    }
+	  } else {
+	    fputs(cur_marker_id_buf, outfile);
+	    putc(' ', outfile);
+	    fputs(a1_ptr, outfile);
+	    putc(' ', outfile);
+	    fputs(a2_ptr, outfile);
+	    putc(' ', outfile);
+	  }
+	  ulii = 0;
+	  // could make output format independent of input format (other than
+	  // outformat > 1 can't coexist with format == 1), but kinda pointless
+	  // since the code won't be kept for PLINK 2.0.
+	  if (format_val == 1) {
+	    do {
+	      ulii += MAXLINELEN / 16;
+	      bufptr = tbuf;
+	      if (ulii > indiv_ct) {
+		ulii = indiv_ct;
+	      }
+	      for (indiv_idx = 0; indiv_idx < ulii; indiv_idx++) {
+		if (!is_set(cur_indivs, indiv_idx)) {
+		  bufptr = memcpyl3a(bufptr, "NA ");
+		} else {
+		  bufptr = double_g_writex(bufptr, 2 * cur_dosages[indiv_idx], ' ');
+		}
+	      }
+	      if (output_gz) {
+		if (!gzwrite(gz_outfile, tbuf, bufptr - tbuf)) {
+		  goto plink1_dosage_ret_WRITE_FAIL;
+		}
 	      } else {
-		bufptr = double_g_writex(bufptr, 2 * dxx, ' ');
+		if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+		  goto plink1_dosage_ret_WRITE_FAIL;
+		}
 	      }
-	    }
-	    if (output_gz) {
-	      if (!gzwrite(gz_outfile, tbuf, bufptr - tbuf)) {
-		goto plink1_dosage_ret_WRITE_FAIL;
+	    } while (ulii < indiv_ct);
+	  } else if (format_val == 2) {
+	    do {
+	      ulii += MAXLINELEN / 32;
+	      bufptr = tbuf;
+	      if (ulii > indiv_ct) {
+		ulii = indiv_ct;
 	      }
-	    } else {
-	      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
-		goto plink1_dosage_ret_WRITE_FAIL;
+	      for (indiv_idx = 0; indiv_idx < ulii; indiv_idx++) {
+		if (!is_set(cur_indivs, indiv_idx)) {
+		  bufptr = memcpya(bufptr, "NA NA ", 6);
+		} else {
+		  bufptr = double_g_writex(bufptr, cur_dosages[indiv_idx], ' ');
+		  bufptr = double_g_writex(bufptr, cur_dosages2[indiv_idx], ' ');
+		}
 	      }
-	    }
-	  } while (ulii < indiv_ct);
-	} else if (format_val == 2) {
-	  do {
-	    ulii += MAXLINELEN / 32;
-	    bufptr = tbuf;
-	    if (ulii > indiv_ct) {
-	      ulii = indiv_ct;
-	    }
-	    for (indiv_idx = 0; indiv_idx < ulii; indiv_idx++) {
-	      dxx = cur_dosages[indiv_idx];
-	      if (dxx == -1.0) {
-		bufptr = memcpya(bufptr, "NA NA ", 6);
+	      if (output_gz) {
+		if (!gzwrite(gz_outfile, tbuf, bufptr - tbuf)) {
+		  goto plink1_dosage_ret_WRITE_FAIL;
+		}
 	      } else {
-		bufptr = double_g_writex(bufptr, dxx, ' ');
-		bufptr = double_g_writex(bufptr, cur_dosages2[indiv_idx], ' ');
+		if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+		  goto plink1_dosage_ret_WRITE_FAIL;
+		}
 	      }
-	    }
-	    if (output_gz) {
-	      if (!gzwrite(gz_outfile, tbuf, bufptr - tbuf)) {
-		goto plink1_dosage_ret_WRITE_FAIL;
+	    } while (ulii < indiv_ct);
+	  } else {
+	    do {
+	      ulii += MAXLINELEN / 48;
+	      bufptr = tbuf;
+	      if (ulii > indiv_ct) {
+		ulii = indiv_ct;
 	      }
-	    } else {
-	      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
-		goto plink1_dosage_ret_WRITE_FAIL;
+	      for (indiv_idx = 0; indiv_idx < ulii; indiv_idx++) {
+		if (!is_set(cur_indivs, indiv_idx)) {
+		  bufptr = memcpya(bufptr, "NA NA NA ", 9);
+		} else {
+		  dxx = cur_dosages[indiv_idx];
+		  bufptr = double_g_writex(bufptr, dxx, ' ');
+		  dyy = cur_dosages2[indiv_idx];
+		  bufptr = double_g_writex(bufptr, dyy, ' ');
+		  bufptr = double_g_writex(bufptr, 1.0 - dxx - dyy, ' ');
+		}
 	      }
-	    }
-	  } while (ulii < indiv_ct);
-	} else {
-	  do {
-	    ulii += MAXLINELEN / 48;
-	    bufptr = tbuf;
-	    if (ulii > indiv_ct) {
-	      ulii = indiv_ct;
-	    }
-	    for (indiv_idx = 0; indiv_idx < ulii; indiv_idx++) {
-	      dxx = cur_dosages[indiv_idx];
-	      if (dxx == -1.0) {
-		bufptr = memcpya(bufptr, "NA NA NA ", 9);
+	      if (output_gz) {
+		if (!gzwrite(gz_outfile, tbuf, bufptr - tbuf)) {
+		  goto plink1_dosage_ret_WRITE_FAIL;
+		}
 	      } else {
-		bufptr = double_g_writex(bufptr, dxx, ' ');
-		dyy = cur_dosages2[indiv_idx];
-		bufptr = double_g_writex(bufptr, dyy, ' ');
-		bufptr = double_g_writex(bufptr, 1.0 - dxx - dyy, ' ');
+		if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+		  goto plink1_dosage_ret_WRITE_FAIL;
+		}
 	      }
-	    }
-	    if (output_gz) {
-	      if (!gzwrite(gz_outfile, tbuf, bufptr - tbuf)) {
-		goto plink1_dosage_ret_WRITE_FAIL;
-	      }
-	    } else {
-	      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
-		goto plink1_dosage_ret_WRITE_FAIL;
-	      }
-	    }
-	  } while (ulii < indiv_ct);
-	}
-	if (output_gz) {
-	  if (gzputc(gz_outfile, '\n') == -1) {
-	    goto plink1_dosage_ret_WRITE_FAIL;
+	    } while (ulii < indiv_ct);
 	  }
-	} else {
-	  putc('\n', outfile);
+	  if (output_gz) {
+	    if (gzputc(gz_outfile, '\n') == -1) {
+	      goto plink1_dosage_ret_WRITE_FAIL;
+	    }
+	  } else {
+	    putc('\n', outfile);
+	  }
 	}
       }
       if (a1_ptr) {

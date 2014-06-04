@@ -5772,7 +5772,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --dosage cannot be used with --adjust.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 12)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 11)) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
 	retval = alloc_fname(&dosage_info.fname, argv[cur_arg + 1], argptr, 0);
@@ -5793,10 +5793,6 @@ int32_t main(int32_t argc, char** argv) {
 	    dosage_info.modifier |= DOSAGE_ZOUT;
 	  } else if (!strcmp(argv[cur_arg + uii], "occur")) {
 	    dosage_info.modifier |= DOSAGE_OCCUR;
-	  } else if (!strcmp(argv[cur_arg + uii], "sex")) {
-	    glm_modifier |= GLM_SEX;
-	  } else if (!strcmp(argv[cur_arg + uii], "beta")) {
-	    glm_modifier |= GLM_BETA;
 	  } else if (strlen(argv[cur_arg + uii]) <= 6) {
 	    goto main_dosage_invalid_param;
 	  } else if (!strcmp(argv[cur_arg + uii], "sepheader")) {
@@ -5833,8 +5829,6 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_WWA;
 	    }
 	    dosage_info.format = ujj + 1;
-	  } else if (!strcmp(argv[cur_arg + uii], "no-x-sex")) {
-	    glm_modifier |= GLM_NO_X_SEX;
 	  } else if (!strcmp(argv[cur_arg + uii], "standard-beta")) {
 	    glm_modifier |= GLM_STANDARD_BETA;
 	  } else {
@@ -5844,7 +5838,7 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
 	if (dosage_info.modifier & DOSAGE_OCCUR) {
-	  if (glm_modifier & (GLM_BETA | GLM_NO_X_SEX | GLM_SEX | GLM_STANDARD_BETA)) {
+	  if (glm_modifier & GLM_STANDARD_BETA) {
 	    logprint("Error: --dosage 'occur' mode cannot be used with association analysis\nmodifiers/flags.\n");
             goto main_ret_INVALID_CMDLINE_A;
 	  }
@@ -8630,8 +8624,8 @@ int32_t main(int32_t argc, char** argv) {
         glm_modifier |= GLM_NO_SNP;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "o-x-sex", 8)) {
-	if ((!(calculation_type & CALC_GLM)) && (!(dosage_info.modifier & DOSAGE_GLM))) {
-	  logprint("Error: --no-x-sex must be used with --linear, --logistic, or --dosage.\n");
+	if (!(calculation_type & CALC_GLM)) {
+	  logprint("Error: --no-x-sex must be used with --linear or --logistic.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (glm_modifier & (GLM_NO_SNP | GLM_SEX)) {
 	  sprintf(logbuf, "Error: --no-x-sex conflicts with a --%s modifier.\n", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear");
@@ -8883,6 +8877,10 @@ int32_t main(int32_t argc, char** argv) {
 	model_modifier |= MODEL_ASSOC_P2;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "filter", 7)) {
+	if (load_rare == LOAD_RARE_DOSAGE) {
+	  logprint("Error: --pfilter is currently ignored by --dosage.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -10101,8 +10099,8 @@ int32_t main(int32_t argc, char** argv) {
 	simulate_flags |= SIMULATE_TAGS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ex", 3)) {
-	if ((!(calculation_type & CALC_GLM)) && (!(dosage_info.modifier & DOSAGE_GLM))) {
-	  logprint("Error: --sex must be used with --linear, --logistic, or --dosage.\n");
+	if (!(calculation_type & CALC_GLM)) {
+	  logprint("Error: --sex must be used with --linear or --logistic.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (glm_modifier & GLM_NO_X_SEX) {
 	  sprintf(logbuf, "Error: --sex conflicts with a --%s modifier.\n", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear");
@@ -11315,7 +11313,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (!(dosage_info.modifier & DOSAGE_GLM)) {
 	  logprint("Error: --write-dosage must be used with --dosage.\n");
           goto main_ret_INVALID_CMDLINE_A;
-	} else if ((glm_modifier & (GLM_BETA | GLM_NO_X_SEX | GLM_SEX | GLM_STANDARD_BETA)) || parameters_range_list.names) {
+	} else if ((glm_modifier & GLM_STANDARD_BETA) || parameters_range_list.names) {
 	  logprint("Error: --write-dosage cannot be used with --dosage association analysis flags.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
@@ -11925,7 +11923,7 @@ int32_t main(int32_t argc, char** argv) {
       logprint("Error: --dosage cannot be used with other PLINK computations.\n");
       goto main_ret_INVALID_CMDLINE;
     }
-    retval = plink1_dosage(&dosage_info, famname, mapname, outname, outname_end, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, makepheno_str, phenoname_str, covar_fname, qual_filter, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, filtervals_flattened, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, qual_min_thresh, qual_max_thresh, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, mpheno_col, pheno_modifier, &chrom_info, tail_bottom, tail_top, misc_flags, filter_flags, sex_missing_pheno, update_sex_col, &cluster, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, mwithin_col, glm_modifier, glm_vif_thresh, glm_xchr_model, &parameters_range_list);
+    retval = plink1_dosage(&dosage_info, famname, mapname, outname, outname_end, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, makepheno_str, phenoname_str, covar_fname, qual_filter, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, filtervals_flattened, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, qual_min_thresh, qual_max_thresh, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, mpheno_col, pheno_modifier, &chrom_info, tail_bottom, tail_top, misc_flags, filter_flags, sex_missing_pheno, update_sex_col, &cluster, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, mwithin_col, glm_modifier, glm_vif_thresh, &parameters_range_list);
     if (retval) {
       goto main_ret_1;
     }
