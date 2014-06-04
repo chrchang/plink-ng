@@ -62,9 +62,9 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   double* pheno_d = NULL;
   double* covar_d = NULL;
   double* cur_dosages2 = NULL;
+#ifndef NOLAPACK
   double* covars_cov_major_buf = NULL;
   double* covars_indiv_major_buf = NULL;
-#ifndef NOLAPCK
   double* pheno_d_collapsed = NULL;
   double* param_2d_buf = NULL;
   double* param_2d_buf2 = NULL;
