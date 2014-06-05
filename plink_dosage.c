@@ -29,7 +29,7 @@ typedef struct ll_ctstr_entry_struct {
 
 #define DOSAGE_EPSILON 0.000244140625
 
-int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* outname, char* outname_end, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* makepheno_str, char* phenoname_str, char* covar_fname, Two_col_params* qual_filter, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* filtervals_flattened, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_indiv_fname, char* filter_attrib_indiv_liststr, double qual_min_thresh, double qual_max_thresh, double thin_keep_prob, uint32_t thin_keep_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t fam_cols, int32_t missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t filter_flags, uint32_t sex_missing_pheno, uint32_t update_sex_col, Cluster_info* cluster_ptr, int32_t marker_pos_start, int32_t marker_pos_end, int32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t mwithin_col, uint32_t glm_modifier, double glm_vif_thresh, Range_list* parameters_range_list_ptr) {
+int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* outname, char* outname_end, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* makepheno_str, char* phenoname_str, char* covar_fname, Two_col_params* qual_filter, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* filtervals_flattened, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_indiv_fname, char* filter_attrib_indiv_liststr, double qual_min_thresh, double qual_max_thresh, double thin_keep_prob, uint32_t thin_keep_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t fam_cols, int32_t missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t filter_flags, uint32_t sex_missing_pheno, uint32_t update_sex_col, Cluster_info* cluster_ptr, int32_t marker_pos_start, int32_t marker_pos_end, int32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t mwithin_col, uint32_t glm_modifier, double glm_vif_thresh) {
   // sucks to duplicate so much, but this code will be thrown out later so
   // there's no long-term maintenance problem
   FILE* phenofile = NULL;
@@ -516,32 +516,6 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       retval = load_covars(covar_fname, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, missing_phenod, covar_modifier, covar_range_list_ptr, 0, &covar_ct, &covar_names, &max_covar_name_len, pheno_nm, &covar_nm, &covar_d, NULL, NULL);
       if (retval) {
 	goto plink1_dosage_ret_1;
-      }
-      if (parameters_range_list_ptr) {
-	// just additive effect and covars, so this is a lot simpler than
-	// --linear/--logistic (in fact, this is unnecessary due to
-	// --covar-number, but whatever
-	ulii = (covar_ct + BITCT + 1) / BITCT;
-	// temporary repurposing of batch_indivs
-	if (wkspace_alloc_ul_checked(&batch_indivs, ulii * sizeof(intptr_t))) {
-	  goto plink1_dosage_ret_NOMEM;
-	}
-        fill_ulong_zero(batch_indivs, ulii);
-        numeric_range_list_to_bitfield(parameters_range_list_ptr, covar_ct + 2, batch_indivs, 0, 1);
-	uii = popcount_bit_idx(batch_indivs, 2, covar_ct + 2);
-	if (uii < covar_ct) {
-	  ulii = covar_ct + 2;
-	  ujj = next_unset_unsafe(batch_indivs, 2);
-	  uljj = next_set_ul(batch_indivs, ujj, ulii);
-	  while (uljj < ulii) {
-	    memcpy(&(covar_d[(ujj - 2) * indiv_ct]), &(covar_d[(uljj - 2) * indiv_ct]), indiv_ct * sizeof(double));
-	    ujj++;
-	    uljj++;
-	    next_set_ul_ck(batch_indivs, &uljj, ulii);
-	  }
-	  covar_ct = uii;
-	}
-	wkspace_reset((unsigned char*)batch_indivs);
       }
     }
   }

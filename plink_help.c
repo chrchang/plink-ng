@@ -1726,18 +1726,14 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --cell [thresh]  : Skip some --model tests when a contingency table entry is\n"
 "                     smaller than the given threshold.\n"
 	       );
-    help_print("linear\tlogistic\tcondition\tcondition-list", &help_ctrl, 0,
+    help_print("linear\tlogistic\tcondition\tcondition-list\tparameters\ttests\ttest-all", &help_ctrl, 0,
 "  --condition [var ID] <dominant | recessive> : Add one variant as a --linear\n"
 "                                                or --logistic covariate.\n"
 "  --condition-list [f] <dominant | recessive> : Add variants named in the file\n"
 "                                                as --linear/--logistic covs.\n"
-	       );
-    help_print("linear\tlogistic\tdosage\tparameters", &help_ctrl, 0,
 "  --parameters [...]  : Include only the given covariates/interactions in the\n"
 "                        --linear/--logistic models, identified by a list of\n"
 "                        1-based indices and/or ranges of them.\n"
-	       );
-    help_print("linear\tlogistic\ttests\ttest-all", &help_ctrl, 0,
 "  --tests <all> {...} : Perform a (joint) test on the specified term(s) in the\n"
 "                        --linear/--logistic model, identified by 1-based\n"
 "                        indices and/or ranges of them.  If permutation was\n"

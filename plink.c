@@ -88,7 +88,7 @@
 
 const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b1e"
+  "PLINK v1.90b1f"
 #else
   "PLINK v1.90b2p"
 #endif
@@ -101,7 +101,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (4 Jun 2014) ";
+  " (5 Jun 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   //  " " (don't actually want this when version number has a trailing letter)
@@ -6853,9 +6853,15 @@ int32_t main(int32_t argc, char** argv) {
 	if (!strcmp(argv[cur_arg + 1], "random")) {
 	  hard_call_threshold = -1;
 	} else {
-	  if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0.0) || (dxx > (0.5 - SMALLISH_EPSILON))) {
+	  if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0.0) || (dxx > 1.0)) {
 	    sprintf(logbuf, "Error: Invalid --hard-call-threshold parameter '%s'.\n", argv[cur_arg + 1]);
 	    goto main_ret_INVALID_CMDLINE_WWA;
+	  } else if (dxx > (0.5 + SMALLISH_EPSILON)) {
+	    sprintf(logbuf, "Error: The --hard-call-threshold parameter must be smaller than 0.5.  (Did you\nmean '--hard-call-threshold %g'?)\n", 1.0 - dxx);
+	    goto main_ret_INVALID_CMDLINE_2A; 
+	  } else if (dxx > (0.5 - SMALLISH_EPSILON)) {
+	    logprint("Error: The --hard-call-threshold parameter must be smaller than 0.5, to prevent\nties.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  }
 	  hard_call_threshold = dxx * (1 + SMALL_EPSILON);
 	}
@@ -8931,8 +8937,9 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "arameters", 10)) {
-	if ((!(calculation_type & CALC_GLM)) && (!(dosage_info.modifier & DOSAGE_GLM))) {
-	  logprint("Error: --parameters must be used with --linear, --logistic, or --dosage.\n");
+	if (!(calculation_type & CALC_GLM)) {
+	  // drop --dosage since --covar-number has same functionality
+	  logprint("Error: --parameters must be used with --linear or --logistic.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	retval = parse_name_ranges(param_ct, '-', &(argv[cur_arg]), &parameters_range_list, 1);
@@ -11923,7 +11930,7 @@ int32_t main(int32_t argc, char** argv) {
       logprint("Error: --dosage cannot be used with other PLINK computations.\n");
       goto main_ret_INVALID_CMDLINE;
     }
-    retval = plink1_dosage(&dosage_info, famname, mapname, outname, outname_end, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, makepheno_str, phenoname_str, covar_fname, qual_filter, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, filtervals_flattened, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, qual_min_thresh, qual_max_thresh, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, mpheno_col, pheno_modifier, &chrom_info, tail_bottom, tail_top, misc_flags, filter_flags, sex_missing_pheno, update_sex_col, &cluster, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, mwithin_col, glm_modifier, glm_vif_thresh, &parameters_range_list);
+    retval = plink1_dosage(&dosage_info, famname, mapname, outname, outname_end, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, makepheno_str, phenoname_str, covar_fname, qual_filter, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, filtervals_flattened, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, qual_min_thresh, qual_max_thresh, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, mpheno_col, pheno_modifier, &chrom_info, tail_bottom, tail_top, misc_flags, filter_flags, sex_missing_pheno, update_sex_col, &cluster, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, mwithin_col, glm_modifier, glm_vif_thresh);
     if (retval) {
       goto main_ret_1;
     }

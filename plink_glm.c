@@ -4624,6 +4624,9 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	goto glm_linear_assoc_ret_NOMEM;
       }
       // need this for max(T) now since we need to track permutation failures
+      // bugfix: g_perm_2success_ct was uninitialized.  add a
+      // wkspace_calloc_...() idiom to reduce the frequency of that mistake?
+      fill_uint_zero(g_perm_2success_ct, marker_initial_ct);
       fill_uint_zero(g_perm_attempt_ct, marker_initial_ct);
       if (perm_adapt) {
 	perms_total = apip->max;
@@ -5815,6 +5818,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	goto glm_logistic_assoc_ret_NOMEM;
       }
       // need this for max(T) now since we need to track permutation failures
+      fill_uint_zero(g_perm_2success_ct, marker_initial_ct);
       fill_uint_zero(g_perm_attempt_ct, marker_initial_ct);
       if (perm_adapt) {
 	perms_total = apip->max;
