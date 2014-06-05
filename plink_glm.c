@@ -8284,17 +8284,114 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 }
 
 #ifndef NOLAPACK
-uint32_t glm_linear_dosage(uintptr_t indiv_ct, uintptr_t* cur_indivs, uintptr_t indiv_valid_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t covar_ct, uintptr_t* covar_nm, double* covar_d, double* cur_dosages, double* covar_cov_major_buf, double* covar_indiv_major_buf, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, double* regression_results, double* indiv_1d_buf, double* dgels_a, double* dgels_b, double* dgels_work,  uint32_t standard_beta, double vif_thresh, double* beta_ptr, double* se_ptr, double* pval_ptr) {
-  return 1;
-  /*
+uint32_t glm_linear_dosage(uintptr_t indiv_ct, uintptr_t* cur_indivs, uintptr_t indiv_valid_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t covar_ct, uintptr_t* covar_nm, double* covar_d, double* cur_dosages, double* pheno_d2, double* covars_cov_major, double* covars_indiv_major, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, uint32_t cluster_ct1, uint32_t* indiv_to_cluster1, double* cluster_param_buf, double* cluster_param_buf2, double* regression_results, double* indiv_1d_buf, double* dgels_a, double* dgels_b, double* dgels_work, __CLPK_integer dgels_lwork, uint32_t standard_beta, double vif_thresh, double* beta_ptr, double* se_ptr, double* pval_ptr) {
+  uintptr_t param_ct = covar_ct + 2;
+  uintptr_t perm_fail = 0;
+  double* dptr = pheno_d2;
+  __CLPK_integer dgels_m = (int32_t)((uint32_t)indiv_valid_ct);
+  __CLPK_integer dgels_n = (int32_t)((uint32_t)param_ct);
+  __CLPK_integer dgels_nrhs = 1;
+  __CLPK_integer dgels_ldb = dgels_m;
+  char dgels_trans = 'N';
+  double* dptr2;
   uintptr_t indiv_uidx;
   uintptr_t indiv_idx;
-  for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_uidx++, indiv_idx++) {
-    next_set_ul_unsafe_ck(cur_indivs, &indiv_uidx);
-    
+  uintptr_t covar_idx;
+  double dxx;
+  double dyy;
+  double dzz;
+  __CLPK_integer dgels_info;
+  uint32_t perm_fail_ct;
+  int32_t ii;
+  if (indiv_valid_ct <= param_ct) {
+    return 0;
   }
-  if (standard_beta) {
+  if (!standard_beta) {
+    dptr2 = covars_indiv_major;
+    for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_uidx++, indiv_idx++) {
+      next_set_ul_unsafe_ck(cur_indivs, &indiv_uidx);
+      *dptr++ = pheno_d[indiv_uidx];
+      *dptr2++ = 1.0;
+      *dptr2++ = cur_dosages[indiv_uidx];
+      if (covar_ct) {
+	memcpy(dptr2, &(covar_d[indiv_uidx * covar_ct]), covar_ct * sizeof(double));
+	dptr2 = &(dptr2[covar_ct]);
+      }
+    }
+    transpose_copy(indiv_valid_ct, param_ct, covars_indiv_major, covars_cov_major);
+  } else {
+    // kind of silly that this flag makes us switch from indiv-major ->
+    // cov-major to cov-major -> indiv-major initialization, but what can you
+    // do.
+    dxx = 0; // sum
+    dyy = 0; // ssq
+    for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_uidx++, indiv_idx++) {
+      next_set_ul_unsafe_ck(cur_indivs, &indiv_uidx);
+      dzz = pheno_d[indiv_uidx];
+      *dptr++ = dzz;
+      dxx += dzz;
+      dyy += dzz * dzz;
+    }
+    dzz = dxx / ((double)((intptr_t)indiv_valid_ct)); // mean
+    dyy = sqrt(((double)((intptr_t)(indiv_valid_ct - 1))) / (dyy - dxx * dzz)); // 1/stdev
+    dptr = pheno_d2;
+    for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
+      *dptr = ((*dptr) - dzz) * dyy;
+      dptr++;
+    }
+    dptr = covars_cov_major;
+    for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
+      *dptr++ = 1;
+    }
+    for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_uidx++, indiv_idx++) {
+      next_set_ul_unsafe_ck(cur_indivs, &indiv_uidx);
+      *dptr++ = cur_dosages[indiv_uidx];
+    }
+    for (covar_idx = 0; covar_idx < covar_ct; covar_idx++) {
+      dxx = 0;
+      dyy = 0;
+      dptr2 = dptr;
+      for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_uidx++, indiv_idx++) {
+        next_set_ul_unsafe_ck(cur_indivs, &indiv_uidx);
+        dzz = covar_d[indiv_uidx * covar_ct];
+	*dptr2++ = dzz;
+	dxx += dzz;
+	dyy += dzz * dzz;
+      }
+      dzz = dxx / ((double)((intptr_t)indiv_valid_ct));
+      dyy = sqrt(((double)((intptr_t)(indiv_valid_ct - 1))) / (dyy - dxx * dzz));
+      for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
+	*dptr = ((*dptr) - dzz) * dyy;
+	dptr++;
+      }
+      // "destructive" populate, we don't need covar_d again in this function
+      // call
+      covar_d++;
+    }
+    transpose_copy(param_ct, indiv_valid_ct, covars_cov_major, covars_indiv_major);
   }
-  */
+  ii = glm_check_vif(vif_thresh, param_ct, indiv_valid_ct, covars_cov_major, param_2d_buf, mi_buf, param_2d_buf2);
+  if (ii == -1) {
+    // kludge, might be better to calculate maximum VIF check memory usage
+    // and verify that much workspace is free ahead of time
+    return 2;
+  } else if (ii == 1) {
+    return 0;
+  }
+  transpose_copy(param_ct, indiv_valid_ct, covars_cov_major, covars_indiv_major);
+  fill_double_zero(regression_results, param_ct);
+  memcpy(dgels_a, covars_cov_major, param_ct * indiv_valid_ct * sizeof(double));
+  memcpy(dgels_b, pheno_d2, indiv_valid_ct * sizeof(double));
+  dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
+  glm_linear_robust_cluster_covar(1, param_ct, indiv_valid_ct, 0, NULL, 0, 0, 0, covars_cov_major, covars_indiv_major, pheno_d2, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, cluster_ct1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, indiv_1d_buf, regression_results, 0, NULL, NULL, NULL, NULL, NULL, &perm_fail_ct, &perm_fail);
+  if (perm_fail_ct) {
+    return 0;
+  }
+  dxx = dgels_b[1];
+  dyy = sqrt(regression_results[0]);
+  *beta_ptr = dxx;
+  *se_ptr = dyy;
+  *pval_ptr = calc_tprob(dxx / dyy, indiv_valid_ct - param_ct);
+  return 1;
 }
 #endif

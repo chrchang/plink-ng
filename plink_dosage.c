@@ -62,7 +62,10 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   double* pheno_d = NULL;
   double* covar_d = NULL;
   double* cur_dosages2 = NULL;
+  double* cluster_param_buf = NULL;
+  double* cluster_param_buf2 = NULL;
 #ifndef NOLAPACK
+  double* pheno_d2 = NULL;
   double* covars_cov_major_buf = NULL;
   double* covars_indiv_major_buf = NULL;
   double* pheno_d_collapsed = NULL;
@@ -84,6 +87,9 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uint32_t* marker_id_map = NULL;
   uint32_t* person_id_map = NULL;
   uint32_t* batch_sizes = NULL;
+  uint32_t* cluster_map1 = NULL;
+  uint32_t* cluster_starts1 = NULL;
+  uint32_t* indiv_to_cluster1 = NULL;
   uint32_t* uiptr = NULL;
   uint32_t* uiptr2 = NULL;
   uint32_t* uiptr3 = NULL;
@@ -133,8 +139,18 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uint32_t cur_marker_id_len = 0;
   uint32_t a1_len = 0;
   uint32_t a2_len = 0;
+  uint32_t cluster_ct1 = 0;
   uint32_t ujj = 0;
   int32_t retval = 0;
+#ifndef NOLAPACK
+  char dgels_trans = 'N';
+  __CLPK_integer dgels_m;
+  __CLPK_integer dgels_n;
+  __CLPK_integer dgels_nrhs;
+  __CLPK_integer dgels_ldb;
+  __CLPK_integer dgels_info;
+  __CLPK_integer dgels_lwork;
+#endif
   char* missing_mid_templates[2];
   unsigned char* wkspace_mark;
   char* fnames;
@@ -571,7 +587,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     logprintb();
   } else {
     logprint("Phenotype data is quantitative.\n");
-#ifndef NOLAPACK
+#ifdef NOLAPACK
     if (do_glm) {
       logprint("Error: --dosage linear regression requires " PROG_NAME_CAPS " to be built with LAPACK.\n");
       goto plink1_dosage_ret_INVALID_CMDLINE;
@@ -846,9 +862,25 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
 #endif
     }
+    if (cluster_ct) {
+      retval = cluster_include_and_reindex(unfiltered_indiv_ct, pheno_nm, 0, NULL, indiv_ct, 0, cluster_ct, cluster_map, cluster_starts, &cluster_ct1, &cluster_map1, &cluster_starts1, NULL, NULL);
+      if (retval) {
+        goto plink1_dosage_ret_1;
+      }
+      if (cluster_ct1) {
+	ulii = MAXV(cluster_ct1 + 1, param_ct);
+	if (wkspace_alloc_d_checked(&cluster_param_buf, ulii * param_ct * sizeof(double)) ||
+            wkspace_alloc_d_checked(&cluster_param_buf2, (cluster_ct1 + 1) * param_ct * sizeof(double)) ||
+            wkspace_alloc_ui_checked(&indiv_to_cluster1, indiv_ct * sizeof(int32_t))) {
+	  goto plink1_dosage_ret_NOMEM;
+	}
+	fill_unfiltered_indiv_to_cluster(indiv_ct, cluster_ct1, cluster_map1, cluster_starts1, indiv_to_cluster1);
+      }
+    }
 #ifndef NOLAPACK
     if (pheno_d) {
-      if (wkspace_alloc_d_checked(&covars_cov_major_buf, param_ct * indiv_ct * sizeof(double)) ||
+      if (wkspace_alloc_d_checked(&pheno_d2, indiv_ct * sizeof(double)) ||
+          wkspace_alloc_d_checked(&covars_cov_major_buf, param_ct * indiv_ct * sizeof(double)) ||
 	  wkspace_alloc_d_checked(&covars_indiv_major_buf, param_ct * indiv_ct * sizeof(double)) ||
 	  wkspace_alloc_d_checked(&param_2d_buf, param_ct * param_ct * sizeof(double)) ||
 	  wkspace_alloc_d_checked(&param_2d_buf2, param_ct * param_ct * sizeof(double)) ||
@@ -860,6 +892,22 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
       mi_buf = (MATRIX_INVERT_BUF1_TYPE*)wkspace_alloc(param_ct * sizeof(MATRIX_INVERT_BUF1_TYPE));
       if (!mi_buf) {
+	goto plink1_dosage_ret_NOMEM;
+      }
+      // workspace query
+      dgels_m = (int32_t)((uint32_t)indiv_ct);
+      dgels_n = (int32_t)((uint32_t)param_ct);
+      dgels_nrhs = 1;
+      dgels_ldb = dgels_m;
+      dgels_lwork = -1;
+      dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, &dxx, &dgels_lwork, &dgels_info);
+      if (dxx > 2147483647.0) {
+	logprint("Error: Multiple linear regression problem too large for current LAPACK version.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+	goto plink1_dosage_ret_1;
+      }
+      dgels_lwork = (int32_t)dxx;
+      if (wkspace_alloc_d_checked(&dgels_work, dgels_lwork * sizeof(double))) {
 	goto plink1_dosage_ret_NOMEM;
       }
     } else {
@@ -876,9 +924,9 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     } else {
       bufptr = memcpya(tbuf, "         SNP", 12);
     }
-    bufptr = memcpya(tbuf, "  A1  A2     FRQ    INFO    ", 56);
+    bufptr = memcpya(bufptr, "  A1  A2     FRQ    INFO    ", 28);
     bufptr = memcpya(bufptr, pheno_c? "  OR" : "BETA", 4);
-    bufptr = memcpya(bufptr, "      SE       P\n", 16);
+    bufptr = memcpya(bufptr, "      SE       P\n", 17);
     bufptr2 = memcpyb(outname_end, ".assoc.dosage", 14);
   } else if (count_occur) {
     // could just use a uint32_t array if .map provided
@@ -1041,7 +1089,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	skip_vals[0] = 1 + format_val * read_idx_to_indiv_idx[0];
 	uii = 1 + (format_val == 3);
 	for (read_idx = 1; read_idx < indiv_ct; read_idx++) {
-	  skip_vals[read_idx] = uii + format_val * read_idx_to_indiv_idx[read_idx];
+	  skip_vals[read_idx] = uii + format_val * (read_idx_to_indiv_idx[read_idx] - read_idx_to_indiv_idx[read_idx - 1] - 1);
 	}
 	fill_all_bits(batch_indivs, indiv_ct);
       } else if (!sepheader) {
@@ -1296,10 +1344,11 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  rsq = (dxx > 0.0)? (dyy / dxx) : 0.0;
 #ifndef NOLAPACK
 	  if (pheno_d) {
-	    is_valid = glm_linear_dosage(indiv_ct, cur_indivs, indiv_valid_ct, pheno_nm_collapsed, pheno_d_collapsed, covar_ct, covar_nm, covar_d, cur_dosages, covars_cov_major_buf, covars_indiv_major_buf, param_2d_buf, mi_buf, param_2d_buf2, regression_results, indiv_1d_buf, dgels_a, dgels_b, dgels_work, standard_beta, glm_vif_thresh, &beta, &se, &pval);
-	    logprint("Error: --dosage linear regression is currently under development.\n");
-	    retval = RET_CALC_NOT_YET_SUPPORTED;
-	    is_valid = 0;
+	    is_valid = glm_linear_dosage(indiv_ct, cur_indivs, indiv_valid_ct, pheno_nm_collapsed, pheno_d_collapsed, covar_ct, covar_nm, covar_d, cur_dosages, pheno_d2, covars_cov_major_buf, covars_indiv_major_buf, param_2d_buf, mi_buf, param_2d_buf2, cluster_ct1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, regression_results, indiv_1d_buf, dgels_a, dgels_b, dgels_work, dgels_lwork, standard_beta, glm_vif_thresh, &beta, &se, &pval);
+	    if (is_valid == 2) {
+	      // NOMEM special case
+	      goto plink1_dosage_ret_NOMEM;              
+	    }
 	  } else {
 #endif
 	    logprint("Error: --dosage logistic regression is currently under development.\n");
@@ -1377,11 +1426,15 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
           }
 	  bufptr = tbuf;
 	  *bufptr++ = ' ';
-          bufptr = double_g_writewx4x(bufptr, dzz, 7, ' ');
-          bufptr = double_g_writewx4x(bufptr, rsq, 7, ' ');
+          bufptr = double_f_writew74(bufptr, dzz);
+	  *bufptr++ = ' ';
+	  bufptr = double_f_writew74(bufptr, rsq);
+	  *bufptr++ = ' ';
 	  if (is_valid) {
-	    bufptr = double_g_writewx4x(bufptr, beta, 7, ' ');
-	    bufptr = double_g_writewx4x(bufptr, se, 7, ' ');
+	    bufptr = double_f_writew74(bufptr, beta * 0.5);
+	    *bufptr++ = ' ';
+	    bufptr = double_f_writew74(bufptr, se * 0.5);
+	    *bufptr++ = ' ';
 	    bufptr = double_g_writewx4(bufptr, pval, 7);
 	    bufptr = memcpya(bufptr, "\n", 2);
 	  } else {
