@@ -64,9 +64,9 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   double* pheno_d = NULL;
   double* covar_d = NULL;
   double* cur_dosages2 = NULL;
+#ifndef NOLAPACK
   double* cluster_param_buf = NULL;
   double* cluster_param_buf2 = NULL;
-#ifndef NOLAPACK
   double* pheno_d2 = NULL;
   double* covars_cov_major_buf = NULL;
   double* covars_indiv_major_buf = NULL;
@@ -140,9 +140,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uint32_t skip1p1 = doip->skip1 + 1;
   uint32_t skip2 = doip->skip2;
   uint32_t format_val = doip->format;
-#ifndef NOLAPACK
   uint32_t standard_beta = glm_modifier & GLM_STANDARD_BETA;
-#endif
   uint32_t map_cols = 3;
   uint32_t map_is_unsorted = 0;
   uint32_t affection = 0;

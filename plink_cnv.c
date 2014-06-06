@@ -1,5 +1,6 @@
 #include "plink_common.h"
 
+#ifndef HIGH_MAX_CHROM
 int32_t cnv_subset_load(char* subset_fname, char** subset_list_ptr, uintptr_t* subset_ct_ptr, uintptr_t* max_subset_name_len_ptr) {
   FILE* subset_file = NULL;
   uintptr_t subset_ct = 0;
@@ -1017,6 +1018,7 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
   wkspace_reset(wkspace_mark);
   return 0;
 }
+#endif // HIGH_MAX_CHROM
 
 int32_t plink_gvar(char* outname, char* outname_end, char* gvarname, char* mapname, char* famname) {
   logprint("Error: Common CNP analysis not yet supported.\n");

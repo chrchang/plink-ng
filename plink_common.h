@@ -1645,8 +1645,12 @@ void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
 void get_set_wrange_align(uintptr_t* bitfield, uintptr_t word_ct, uintptr_t* firstw_ptr, uintptr_t* wlen_ptr);
 
 // Maximum accepted chromosome index is this minus 1.  Currently cannot exceed
-// 2^14 due to SMALL_INTERVAL_BITS setting in plink_cnv.c.
+// 2^14 due to SMALL_INTERVAL_BITS setting in plink_cnv.c...
 #define MAX_POSSIBLE_CHROM 5120
+
+// ...unless this is uncommented (it removes the entire CNV module).
+// #define HIGH_MAX_CHROM
+
 #define MAX_CHROM_TEXTNUM 59
 // usual PLINK 1.07 chromosome field length is 4.  So it's safe to increase
 // MAX_CHROM_TEXTNUM to 9995, but 9996+ creates problems...
@@ -1656,6 +1660,7 @@ void get_set_wrange_align(uintptr_t* bitfield, uintptr_t word_ct, uintptr_t* fir
 #define CHROM_Y (MAX_POSSIBLE_CHROM + 1)
 #define CHROM_XY (MAX_POSSIBLE_CHROM + 2)
 #define CHROM_MT (MAX_POSSIBLE_CHROM + 3)
+
 
 #ifdef __LP64__
   // MAX_POSSIBLE_CHROM / BITCT rounded up
