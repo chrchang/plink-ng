@@ -7810,7 +7810,7 @@ int32_t vcf_sample_line(char* outname, char* outname_end, int32_t missing_pheno,
 // than this)
 #define MAX_VCF_ALT 65534
 
-int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t missing_pheno, uint64_t misc_flags, char* const_fid, char id_delim, char vcf_idspace_to, double vcf_min_qual, char* vcf_filter_exceptions_flattened, Chrom_info* chrom_info_ptr) {
+int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t missing_pheno, uint64_t misc_flags, char* const_fid, char id_delim, char vcf_idspace_to, double vcf_min_qual, char* vcf_filter_exceptions_flattened, uint32_t vcf_half_call, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   gzFile gz_infile = NULL;
   FILE* outfile = NULL;
@@ -7818,6 +7818,9 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   FILE* skip3file = NULL;
   char* sorted_fexcepts = NULL;
   uintptr_t line_idx = 0;
+  uintptr_t fexcept_ct = 0;
+  uintptr_t max_fexcept_len = 5;
+  uintptr_t indiv_ct = 0;
   uint32_t double_id = (misc_flags / MISC_DOUBLE_ID) & 1;
   uint32_t check_qual = (vcf_min_qual != -1);
   uint32_t allow_extra_chroms = (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1;
@@ -7826,9 +7829,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   uint32_t skip3_list = (misc_flags / MISC_BIALLELIC_ONLY_LIST) & 1;
   uint32_t marker_ct = 0;
   uint32_t marker_skip_ct = 0;
-  uintptr_t fexcept_ct = 0;
-  uintptr_t max_fexcept_len = 5;
-  uintptr_t indiv_ct = 0;
+  uint32_t vcf_half_call_explicit_error = (vcf_half_call == VCF_HALF_CALL_ERROR);
   char missing_geno = *g_missing_geno_ptr;
   int32_t retval = 0;
   uint32_t* vcf_alt_cts;
@@ -7866,6 +7867,9 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   uint32_t ukk;
   int32_t ii;
   char cc;
+  if (vcf_half_call_explicit_error) {
+    vcf_half_call = 0;
+  }
   if (gzopen_checked(&gz_infile, vcfname, "rb")) {
     goto vcf_to_bed_ret_OPEN_FAIL;
   }
@@ -8131,17 +8135,18 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	      cc = bufptr[3];
 	      if (((cc != '/') && (cc != '|')) || (bufptr[4] == '.')) {
 		// code triploids, etc. as missing
+		// might want to subject handling of 0/0/. to --vcf-half-call
+		// control
 		ujj = ((unsigned char)bufptr[2]) - '0';
 		if (ujj > 9) {
 		  if (ujj != (uint32_t)(((unsigned char)'.') - '0')) {
 		    goto vcf_to_bed_ret_INVALID_GT;
 		  }
-		  // might be MT, in which case this should be treated as
-		  // homozygous rather than missing for now; and there are no
-		  // cases I'm aware of that demand the opposite treatment.
-		  // (Need to decide how to handle variable ploidy in PLINK 2
-		  // file format...)
-		  set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2 + 1);
+		  if (!vcf_half_call) {
+		    goto vcf_to_bed_ret_HALF_CALL_ERROR;
+		  } else if (vcf_half_call == VCF_HALF_CALL_HAPLOID) {
+		    set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2 + 1);
+		  }
 		} else {
 		  set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2);
 		  base_bitfields[ujj * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
@@ -8194,7 +8199,11 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	      uii = ((unsigned char)bufptr[2]) - '0';
 	      if (uii && (uii != alt_allele_idx)) {
 		if (uii == (uint32_t)(((unsigned char)'.') - '0')) {
-	          set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2 + 1);
+		  if (!vcf_half_call) {
+		    goto vcf_to_bed_ret_HALF_CALL_ERROR;
+		  } else if (vcf_half_call == VCF_HALF_CALL_HAPLOID) {
+	            set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2 + 1);
+		  }
 		  continue;
 		} else if (uii > 9) {
 		  goto vcf_to_bed_ret_INVALID_GT;
@@ -8250,7 +8259,13 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	    ujj = (unsigned char)(*(++bufptr)) - '0';
 	    if (ujj > 9) {
 	      if (ujj == (uint32_t)(((unsigned char)'.') - '0')) {
-		goto vcf_to_bed_10plus_haploid;
+		if (!vcf_half_call) {
+		  goto vcf_to_bed_ret_HALF_CALL_ERROR;
+		} else if (vcf_half_call == VCF_HALF_CALL_HAPLOID) {
+		  goto vcf_to_bed_10plus_haploid;
+		} else {
+		  continue;
+		}
 	      }
 	      goto vcf_to_bed_ret_INVALID_GT;
 	    }
@@ -8310,8 +8325,12 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	  }
           uii = uii * 10 + ujj;
 	}
-	if (((ujj != 0xffffffffU) && (ujj != 76)) || (*(++bufptr) == '.')) {
+	if ((ujj != 0xffffffffU) && (ujj != 76)) {
 	  if (uii == alt_allele_idx) {
+            set_bit_ul(alt_bitfield, indiv_idx * 2 + 1);
+	  }
+	} else if (*(++bufptr) == '.') {
+	  if ((vcf_half_call == VCF_HALF_CALL_HAPLOID) && (uii == alt_allele_idx)) {
             set_bit_ul(alt_bitfield, indiv_idx * 2 + 1);
 	  }
 	} else {
@@ -8423,6 +8442,13 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   vcf_to_bed_ret_WRITE_FAIL:
     putchar('\n');
     retval = RET_WRITE_FAIL;
+    break;
+  vcf_to_bed_ret_HALF_CALL_ERROR:
+    LOGPRINTF("\nError: Line %" PRIuPTR " of .vcf file has a GT half-call.\n", line_idx);
+    if (!vcf_half_call_explicit_error) {
+      logprint("Use --vcf-half-call to specify how these should be processed.\n");
+    }
+    retval = RET_INVALID_FORMAT;
     break;
   vcf_to_bed_ret_INVALID_GT:
     LOGPRINTF("\nError: Line %" PRIuPTR " of .vcf file has an invalid GT field.\n", line_idx);

@@ -101,7 +101,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (5 Jun 2014) ";
+  " (6 Jun 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   //  " " (don't actually want this when version number has a trailing letter)
@@ -122,7 +122,7 @@ const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip
   #ifndef NOLAPACK
 const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --pca, --neighbour,\n--ibs-test, --regress-distance, --model, --gxe, --logistic, --dosage, --lasso,\n--test-missing, --make-perm-pheno, --unrelated-heritability, --tdt, --annotate,\n--clump, --gene-report, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour, --ibs-test,\n--regress-distance, --model, --gxe, --logistic, --dosage, --lasso,\n--test-missing, --make-perm-pheno, --tdt, --annotate, --clump, --gene-report,\n--fast-epistasis,\nand --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep, --r2, --blocks, --distance, --genome, --homozyg,\n--make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour, --ibs-test,\n--regress-distance, --model, --gxe, --logistic, --dosage, --lasso,\n--test-missing, --make-perm-pheno, --tdt, --annotate, --clump, --gene-report,\n--fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #endif
 #endif
 
@@ -2843,6 +2843,7 @@ int32_t main(int32_t argc, char** argv) {
   double qual_max_thresh = HUGE_DOUBLE;
   char id_delim = '\0';
   char vcf_idspace_to = '\0';
+  unsigned char vcf_half_call = 0;
   int32_t retval = 0;
   uint32_t load_params = 0; // describes what file params have been provided
   uint32_t load_rare = 0;
@@ -11167,6 +11168,24 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --vcf-idspace-to parameter must be a nonspace character.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
+      } else if (!memcmp(argptr2, "cf-half-call", 13)) {
+        if (!(load_rare & LOAD_RARE_VCF)) {
+	  logprint("Error: --vcf-half-call must be used with --vcf.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+	if ((!strcmp(argv[cur_arg + 1], "h")) || (!strcmp(argv[cur_arg + 1], "haploid"))) {
+	  vcf_half_call = VCF_HALF_CALL_HAPLOID;
+	} else if ((!strcmp(argv[cur_arg + 1], "m")) || (!strcmp(argv[cur_arg + 1], "missing"))) {
+	  vcf_half_call = VCF_HALF_CALL_MISSING;
+	} else if ((!strcmp(argv[cur_arg + 1], "e")) || (!strcmp(argv[cur_arg + 1], "error"))) {
+	  vcf_half_call = VCF_HALF_CALL_ERROR;
+	} else {
+	  sprintf(logbuf, "Error: '%s' is not a valid mode for --vcf-half-call.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
+	}
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
       }
@@ -11978,7 +11997,7 @@ int32_t main(int32_t argc, char** argv) {
       } else if (load_rare & LOAD_RARE_TRANSPOSE_MASK) {
         retval = transposed_to_bed(pedname, famname, outname, sptr, misc_flags, &chrom_info);
       } else if (load_rare & LOAD_RARE_VCF) {
-	retval = vcf_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, const_fid, id_delim, vcf_idspace_to, vcf_min_qual, vcf_filter_exceptions_flattened, &chrom_info);
+	retval = vcf_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, const_fid, id_delim, vcf_idspace_to, vcf_min_qual, vcf_filter_exceptions_flattened, (uint32_t)vcf_half_call, &chrom_info);
       } else if (load_rare & LOAD_RARE_BCF) {
 	retval = bcf_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, const_fid, id_delim, vcf_idspace_to, vcf_min_qual, vcf_filter_exceptions_flattened, &chrom_info);
       } else if (load_rare == LOAD_RARE_23) {

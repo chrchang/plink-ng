@@ -302,6 +302,11 @@
 #define ALLELE_RECODE_MULTICHAR 2
 #define ALLELE_RECODE_ACGT 4
 
+// 0 = non-explicit error
+#define VCF_HALF_CALL_ERROR 1
+#define VCF_HALF_CALL_HAPLOID 2
+#define VCF_HALF_CALL_MISSING 3
+
 #define M23_MALE 1
 #define M23_FEMALE 2
 #define M23_FORCE_MISSING_SEX 4
