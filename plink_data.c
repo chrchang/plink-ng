@@ -14416,6 +14416,9 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
       }
 
       last_marker_in_idx = marker_in_idx;
+      // er.  this function should be revised to use more word operations.
+      // readbuf should be uintptr_t*, inner loop bmap dereferences should be
+      // removed (use reverse_loadbuf() instead), etc.
       if (fread(readbuf, 1, cur_indiv_ct4, bedfile) < cur_indiv_ct4) {
 	goto merge_main_ret_READ_FAIL;
       }
@@ -14436,13 +14439,18 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	    wbufptr2 = &(wbufptr[ujj / 4]);
 	    umm = (ujj % 4) * 2;
 	    unn = 3U << umm;
-	    if (mbufptr[ukk] & ulii) {
-	      ucc2 = *wbufptr2;
-	      if ((ucc2 ^ ((ucc & 3) << umm)) & unn) {
-		*wbufptr2 = (ucc2 & (~unn)) | (1U << umm);
+	    if ((ucc & 3) != 1) {
+	      if (mbufptr[ukk] & ulii) {
+		ucc2 = *wbufptr2;
+		if ((ucc2 ^ ((ucc & 3) << umm)) & unn) {
+		  *wbufptr2 = (ucc2 & (~unn)) | (1U << umm);
+		}
+	      } else {
+	        mbufptr[ukk] |= ulii;
+	        *wbufptr2 = ((*wbufptr2) & (~unn)) | ((ucc & 3) << umm);
 	      }
-	    } else {
-	      mbufptr[ukk] |= ulii;
+	    } else if (mbufptr[ukk] & ulii) {
+	      // bugfix: do NOT set flag here
 	      *wbufptr2 = ((*wbufptr2) & (~unn)) | ((ucc & 3) << umm);
 	    }
 	    ucc >>= 2;
@@ -14456,13 +14464,17 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	  wbufptr2 = &(wbufptr[ujj / 4]);
 	  umm = (ujj % 4) * 2;
 	  unn = 3U << umm;
-	  if (mbufptr[ukk] & ulii) {
-	    ucc2 = *wbufptr2;
-	    if ((ucc2 ^ ((ucc & 3) << umm)) & unn) {
-	      *wbufptr2 = (ucc2 & (~unn)) | (1U << umm);
+	  if ((ucc & 3) != 1) {
+	    if (mbufptr[ukk] & ulii) {
+	      ucc2 = *wbufptr2;
+	      if ((ucc2 ^ ((ucc & 3) << umm)) & unn) {
+		*wbufptr2 = (ucc2 & (~unn)) | (1U << umm);
+	      }
+	    } else {
+	      mbufptr[ukk] |= ulii;
+	      *wbufptr2 = ((*wbufptr2) & (~unn)) | ((ucc & 3) << umm);
 	    }
-	  } else {
-	    mbufptr[ukk] |= ulii;
+	  } else if (mbufptr[ukk] & ulii) {
 	    *wbufptr2 = ((*wbufptr2) & (~unn)) | ((ucc & 3) << umm);
 	  }
 	  ucc >>= 2;
