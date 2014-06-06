@@ -59,6 +59,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uintptr_t* pheno_c_collapsed = NULL;
   uintptr_t* founder_info = NULL;
   uintptr_t* covar_nm = NULL;
+  uintptr_t* perm_vec = NULL;
+  uintptr_t* perm_fails = NULL; // need to enforce alignment
   double* pheno_d = NULL;
   double* covar_d = NULL;
   double* cur_dosages2 = NULL;
@@ -78,8 +80,20 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   double* dgels_work = NULL;
   MATRIX_INVERT_BUF1_TYPE* mi_buf = NULL;
 #endif
+  float* covar_f = NULL;
   float* covars_cov_major_f_buf = NULL;
   float* covars_indiv_major_f_buf = NULL;
+  float* cluster_param_buf_f = NULL;
+  float* cluster_param_buf2_f = NULL;
+  float* coef_f = NULL;
+  float* pp_f = NULL;
+  float* indiv_1d_buf_f = NULL;
+  float* pheno_buf_f = NULL;
+  float* param_1d_buf_f = NULL;
+  float* param_1d_buf2_f = NULL;
+  float* param_2d_buf_f = NULL;
+  float* param_2d_buf2_f = NULL;
+  float* regression_results_f = NULL;
   Ll_ctstr_entry** htable = NULL;
   uint32_t* marker_pos = NULL;
   uint32_t* cluster_map = NULL;
@@ -165,6 +179,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uintptr_t* batch_indivs;
   uintptr_t* cur_indivs;
   double* cur_dosages;
+  double* dptr;
+  float* fptr;
   Ll_ctstr_entry** ll_pptr;
   Ll_ctstr_entry* ll_ptr;
   uint32_t* file_icts;
@@ -173,6 +189,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uintptr_t marker_ct;
   uintptr_t unfiltered_indiv_ctl;
   uintptr_t indiv_ct;
+  uintptr_t indiv_cta4;
   uintptr_t indiv_ctl;
   uintptr_t line_idx;
   uintptr_t file_idx;
@@ -181,6 +198,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uintptr_t loadbuf_size;
   uintptr_t indiv_valid_ct;
   uintptr_t param_ct;
+  uintptr_t param_cta4;
   uintptr_t uljj;
   double indiv_valid_ct_recip;
   double rsq;
@@ -513,6 +531,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     LOGPRINTF("Error: No %s pass QC.\n", g_species_plural);
     goto plink1_dosage_ret_ALL_SAMPLES_EXCLUDED;
   }
+  indiv_cta4 = (indiv_ct + 3) & (~3);
   indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
   if (g_thread_ct > 1) {
     logprint("Using 1 thread (no multithreaded calculations invoked).\n");
@@ -536,6 +555,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     }
   }
   param_ct = covar_ct + 2;
+  param_cta4 = (param_ct + 3) & (~3);
   bitfield_andnot(pheno_nm, indiv_exclude, unfiltered_indiv_ctl);
   if (pheno_c) {
     bitfield_and(pheno_c, pheno_nm, unfiltered_indiv_ctl);
@@ -585,6 +605,10 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     }
     wordwrap(logbuf, 0);
     logprintb();
+    if (standard_beta) {
+      logprint("Error: --dosage 'standard-beta' modifier cannot be used with a case/control\nphenotype.\n");
+      goto plink1_dosage_ret_INVALID_CMDLINE;
+    }
   } else {
     logprint("Phenotype data is quantitative.\n");
 #ifdef NOLAPACK
@@ -869,9 +893,23 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
       if (cluster_ct1) {
 	ulii = MAXV(cluster_ct1 + 1, param_ct);
-	if (wkspace_alloc_d_checked(&cluster_param_buf, ulii * param_ct * sizeof(double)) ||
-            wkspace_alloc_d_checked(&cluster_param_buf2, (cluster_ct1 + 1) * param_ct * sizeof(double)) ||
-            wkspace_alloc_ui_checked(&indiv_to_cluster1, indiv_ct * sizeof(int32_t))) {
+#ifndef NOLAPACK
+	if (pheno_d) {
+	  if (wkspace_alloc_d_checked(&cluster_param_buf, ulii * param_ct * sizeof(double)) ||
+	      wkspace_alloc_d_checked(&cluster_param_buf2, (cluster_ct1 + 1) * param_ct * sizeof(double))) {
+	    goto plink1_dosage_ret_NOMEM;
+	  }
+	} else {
+#endif
+	  if (wkspace_alloc_f_checked(&cluster_param_buf_f, ulii * param_ct * sizeof(float)) ||
+              wkspace_alloc_f_checked(&cluster_param_buf2_f, (cluster_ct1 + 1) * param_ct * sizeof(float)) ||
+	      wkspace_alloc_f_checked(&covars_indiv_major_f_buf, param_ct * indiv_ct * sizeof(float))) {
+	    goto plink1_dosage_ret_NOMEM;
+	  }
+#ifndef NOLAPACK
+	}
+#endif
+	if (wkspace_alloc_ui_checked(&indiv_to_cluster1, indiv_ct * sizeof(int32_t))) {
 	  goto plink1_dosage_ret_NOMEM;
 	}
 	fill_unfiltered_indiv_to_cluster(indiv_ct, cluster_ct1, cluster_map1, cluster_starts1, indiv_to_cluster1);
@@ -884,7 +922,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  wkspace_alloc_d_checked(&covars_indiv_major_buf, param_ct * indiv_ct * sizeof(double)) ||
 	  wkspace_alloc_d_checked(&param_2d_buf, param_ct * param_ct * sizeof(double)) ||
 	  wkspace_alloc_d_checked(&param_2d_buf2, param_ct * param_ct * sizeof(double)) ||
-          wkspace_alloc_d_checked(&regression_results, param_ct * sizeof(double)) ||
+          wkspace_alloc_d_checked(&regression_results, (param_ct - 1) * sizeof(double)) ||
 	  wkspace_alloc_d_checked(&indiv_1d_buf, indiv_ct * sizeof(double)) ||
 	  wkspace_alloc_d_checked(&dgels_a, param_ct * indiv_ct * sizeof(double)) ||
           wkspace_alloc_d_checked(&dgels_b, indiv_ct * sizeof(double))) {
@@ -912,13 +950,36 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
     } else {
 #endif
-      if (wkspace_alloc_f_checked(&covars_cov_major_f_buf, param_ct * indiv_ct * sizeof(float)) ||
-	  wkspace_alloc_f_checked(&covars_indiv_major_f_buf, param_ct * indiv_ct * sizeof(float))) {
+      if (covar_ct) {
+	ulii = covar_ct * indiv_ct;
+	if (wkspace_alloc_f_checked(&covar_f, ulii * sizeof(float))) {
+	  goto plink1_dosage_ret_NOMEM;
+	}
+	fptr = covar_f;
+        dptr = covar_d;
+	for (uljj = 0; uljj < ulii; uljj++) {
+	  *fptr++ = (float)(*dptr++);
+	}
+      }
+      if (wkspace_alloc_ul_checked(&perm_vec, indiv_ctl * 2 * sizeof(intptr_t)) ||
+          wkspace_alloc_f_checked(&covars_cov_major_f_buf, param_ct * indiv_ct * sizeof(float)) ||
+          wkspace_alloc_f_checked(&coef_f, param_cta4 * sizeof(float)) ||
+          wkspace_alloc_f_checked(&pp_f, indiv_cta4 * sizeof(float)) ||
+	  wkspace_alloc_f_checked(&indiv_1d_buf_f, indiv_ct * sizeof(float)) ||
+          wkspace_alloc_f_checked(&pheno_buf_f, indiv_ct * sizeof(float)) ||
+          wkspace_alloc_f_checked(&param_1d_buf_f, param_ct * sizeof(float)) ||
+          wkspace_alloc_f_checked(&param_1d_buf2_f, param_ct * sizeof(float)) ||
+          wkspace_alloc_f_checked(&param_2d_buf_f, param_ct * param_cta4 * sizeof(float)) ||
+          wkspace_alloc_f_checked(&param_2d_buf2_f, param_ct * param_cta4 * sizeof(float)) ||
+          wkspace_alloc_f_checked(&regression_results_f, (param_ct - 1) * sizeof(float))) {
 	goto plink1_dosage_ret_NOMEM;
       }
 #ifndef NOLAPACK
     }
 #endif
+    if (wkspace_alloc_ul_checked(&perm_fails, sizeof(intptr_t))) {
+      goto plink1_dosage_ret_NOMEM;
+    }
     if (load_map) {
       bufptr = memcpya(tbuf, " CHR         SNP          BP", 28);
     } else {
@@ -1318,6 +1379,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       if (marker_idx != ~ZEROLU) {
 	if (do_glm) {
 	  if (covar_nm) {
+	    // it would be more efficient to make covar_nm act as a mask on
+	    // indiv_exclude earlier, but this is throwaway code
 	    bitfield_and(cur_indivs, covar_nm, indiv_ctl);
 	  }
 	  indiv_valid_ct = popcount_longs(cur_indivs, indiv_ctl);
@@ -1344,22 +1407,17 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  rsq = (dxx > 0.0)? (dyy / dxx) : 0.0;
 #ifndef NOLAPACK
 	  if (pheno_d) {
-	    is_valid = glm_linear_dosage(indiv_ct, cur_indivs, indiv_valid_ct, pheno_nm_collapsed, pheno_d_collapsed, covar_ct, covar_nm, covar_d, cur_dosages, pheno_d2, covars_cov_major_buf, covars_indiv_major_buf, param_2d_buf, mi_buf, param_2d_buf2, cluster_ct1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, regression_results, indiv_1d_buf, dgels_a, dgels_b, dgels_work, dgels_lwork, standard_beta, glm_vif_thresh, &beta, &se, &pval);
+	    is_valid = glm_linear_dosage(indiv_ct, cur_indivs, indiv_valid_ct, pheno_nm_collapsed, pheno_d_collapsed, perm_fails, covar_ct, covar_d, cur_dosages, pheno_d2, covars_cov_major_buf, covars_indiv_major_buf, param_2d_buf, mi_buf, param_2d_buf2, cluster_ct1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, regression_results, indiv_1d_buf, dgels_a, dgels_b, dgels_work, dgels_lwork, standard_beta, glm_vif_thresh, &beta, &se, &pval);
 	    if (is_valid == 2) {
 	      // NOMEM special case
 	      goto plink1_dosage_ret_NOMEM;              
 	    }
 	  } else {
 #endif
-	    logprint("Error: --dosage logistic regression is currently under development.\n");
-	    retval = RET_CALC_NOT_YET_SUPPORTED;
-	    is_valid = 0;
+	    is_valid = glm_logistic_dosage(indiv_ct, cur_indivs, indiv_valid_ct, pheno_nm_collapsed, pheno_c_collapsed, perm_vec, perm_fails, covar_ct, covar_f, cur_dosages, coef_f, pp_f, pheno_buf_f, covars_cov_major_f_buf, covars_indiv_major_f_buf, param_1d_buf_f, param_1d_buf2_f, param_2d_buf_f, param_2d_buf2_f, cluster_ct1, indiv_to_cluster1, cluster_param_buf_f, cluster_param_buf2_f, regression_results_f, indiv_1d_buf_f, &beta, &se, &pval);
 #ifndef NOLAPACK
 	  }
 #endif
-	  if (retval) {
-	    goto plink1_dosage_ret_1;
-	  }
 	  bufptr = tbuf;
 	  *bufptr++ = ' ';
 	  if (load_map) {
@@ -1431,7 +1489,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  bufptr = double_f_writew74(bufptr, rsq);
 	  *bufptr++ = ' ';
 	  if (is_valid) {
-	    bufptr = double_f_writew74(bufptr, beta * 0.5);
+	    bufptr = double_f_writew74(bufptr, pheno_c? exp(beta * 0.5) : (beta * 0.5));
 	    *bufptr++ = ' ';
 	    bufptr = double_f_writew74(bufptr, se * 0.5);
 	    *bufptr++ = ' ';

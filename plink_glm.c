@@ -8284,9 +8284,11 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 }
 
 #ifndef NOLAPACK
-uint32_t glm_linear_dosage(uintptr_t indiv_ct, uintptr_t* cur_indivs, uintptr_t indiv_valid_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t covar_ct, uintptr_t* covar_nm, double* covar_d, double* cur_dosages, double* pheno_d2, double* covars_cov_major, double* covars_indiv_major, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, uint32_t cluster_ct1, uint32_t* indiv_to_cluster1, double* cluster_param_buf, double* cluster_param_buf2, double* regression_results, double* indiv_1d_buf, double* dgels_a, double* dgels_b, double* dgels_work, __CLPK_integer dgels_lwork, uint32_t standard_beta, double vif_thresh, double* beta_ptr, double* se_ptr, double* pval_ptr) {
+uint32_t glm_linear_dosage(uintptr_t indiv_ct, uintptr_t* cur_indivs, uintptr_t indiv_valid_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* perm_fails, uintptr_t covar_ct, double* covar_d, double* cur_dosages, double* pheno_d2, double* covars_cov_major, double* covars_indiv_major, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, uint32_t cluster_ct1, uint32_t* indiv_to_cluster1, double* cluster_param_buf, double* cluster_param_buf2, double* regression_results, double* indiv_1d_buf, double* dgels_a, double* dgels_b, double* dgels_work, __CLPK_integer dgels_lwork, uint32_t standard_beta, double vif_thresh, double* beta_ptr, double* se_ptr, double* pval_ptr) {
   uintptr_t param_ct = covar_ct + 2;
-  uintptr_t perm_fail = 0;
+  if (indiv_valid_ct <= param_ct) {
+    return 0;
+  }
   double* dptr = pheno_d2;
   __CLPK_integer dgels_m = (int32_t)((uint32_t)indiv_valid_ct);
   __CLPK_integer dgels_n = (int32_t)((uint32_t)param_ct);
@@ -8303,9 +8305,6 @@ uint32_t glm_linear_dosage(uintptr_t indiv_ct, uintptr_t* cur_indivs, uintptr_t 
   __CLPK_integer dgels_info;
   uint32_t perm_fail_ct;
   int32_t ii;
-  if (indiv_valid_ct <= param_ct) {
-    return 0;
-  }
   if (!standard_beta) {
     dptr2 = covars_indiv_major;
     for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_uidx++, indiv_idx++) {
@@ -8379,11 +8378,11 @@ uint32_t glm_linear_dosage(uintptr_t indiv_ct, uintptr_t* cur_indivs, uintptr_t 
     return 0;
   }
   transpose_copy(param_ct, indiv_valid_ct, covars_cov_major, covars_indiv_major);
-  fill_double_zero(regression_results, param_ct);
+  fill_double_zero(regression_results, param_ct - 1);
   memcpy(dgels_a, covars_cov_major, param_ct * indiv_valid_ct * sizeof(double));
   memcpy(dgels_b, pheno_d2, indiv_valid_ct * sizeof(double));
   dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
-  glm_linear_robust_cluster_covar(1, param_ct, indiv_valid_ct, 0, NULL, 0, 0, 0, covars_cov_major, covars_indiv_major, pheno_d2, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, cluster_ct1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, indiv_1d_buf, regression_results, 0, NULL, NULL, NULL, NULL, NULL, &perm_fail_ct, &perm_fail);
+  glm_linear_robust_cluster_covar(1, param_ct, indiv_valid_ct, 0, NULL, 0, 0, 0, covars_cov_major, covars_indiv_major, pheno_d2, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, cluster_ct1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, indiv_1d_buf, regression_results, 0, NULL, NULL, NULL, NULL, NULL, &perm_fail_ct, perm_fails);
   if (perm_fail_ct) {
     return 0;
   }
@@ -8395,3 +8394,52 @@ uint32_t glm_linear_dosage(uintptr_t indiv_ct, uintptr_t* cur_indivs, uintptr_t 
   return 1;
 }
 #endif
+
+uint32_t glm_logistic_dosage(uintptr_t indiv_ct, uintptr_t* cur_indivs, uintptr_t indiv_valid_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* perm_vec, uintptr_t* perm_fails, uintptr_t covar_ct, float* covar_f, double* cur_dosages, float* coef, float* pp, float* pheno_buf, float* covars_cov_major, float* covars_indiv_major, float* param_1d_buf, float* param_1d_buf2, float* param_2d_buf, float* param_2d_buf2, uint32_t cluster_ct1, uint32_t* indiv_to_cluster1, float* cluster_param_buf, float* cluster_param_buf2, float* regression_results, float* indiv_1d_buf, double* beta_ptr, double* se_ptr, double* pval_ptr) {
+  uintptr_t param_ct = covar_ct + 2;
+  if (indiv_valid_ct <= param_ct) {
+    return 0;
+  }
+  uintptr_t indiv_valid_cta4 = (indiv_valid_ct + 3) & (~3);
+  uintptr_t indiv_valid_ctv2 = 2 * ((indiv_valid_ct + BITCT - 1) / BITCT);
+  uintptr_t param_cta4 = (param_ct + 3) & (~3);
+  float* fptr = covars_cov_major;
+  uintptr_t case_ct;
+  uintptr_t indiv_uidx;
+  uintptr_t indiv_idx;
+  uintptr_t covar_idx;
+  double dxx;
+  double dyy;
+  vec_collapse_init(pheno_c, indiv_ct, cur_indivs, indiv_valid_ct, perm_vec);
+  case_ct = popcount01_longs(perm_vec, indiv_valid_ctv2);
+  if ((!case_ct) || (case_ct == indiv_valid_ct)) {
+    return 0;
+  }
+  for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
+    *fptr++ = 1;
+  }
+  for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_uidx++, indiv_idx++) {
+    next_set_ul_unsafe_ck(cur_indivs, &indiv_uidx);
+    *fptr++ = (float)cur_dosages[indiv_uidx];
+  }
+  for (covar_idx = 0; covar_idx < covar_ct; covar_idx++) {
+    for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_uidx++, indiv_idx++) {
+      next_set_ul_unsafe_ck(cur_indivs, &indiv_uidx);
+      *fptr++ = covar_f[indiv_uidx * covar_ct];
+    }
+    covar_f++;
+  }
+  if (covars_indiv_major) {
+    transpose_copy_float(param_ct, indiv_valid_cta4, indiv_valid_ct, covars_cov_major, covars_indiv_major);
+  }
+  fill_float_zero(coef, param_cta4);
+  if (glm_logistic_robust_cluster_covar(1, param_ct, indiv_valid_ct, 0, NULL, covars_cov_major, covars_indiv_major, perm_vec, coef, pp, indiv_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, cluster_ct1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, perm_fails) || perm_fails[0]) {
+    return 0;
+  }
+  dxx = (double)coef[1];
+  dyy = sqrt((double)regression_results[0]);
+  *beta_ptr = dxx;
+  *se_ptr = dyy;
+  *pval_ptr = calc_tprob(dxx / dyy, indiv_valid_ct - param_ct);
+  return 1;
+}

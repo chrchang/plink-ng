@@ -5772,6 +5772,9 @@ int32_t main(int32_t argc, char** argv) {
 	} else if (mtest_adjust) {
 	  logprint("Error: --dosage cannot be used with --adjust.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
+	} else if (covar_modifier & COVAR_KEEP_PHENO_ON_MISSING_COV) {
+	  logprint("Error: --dosage cannot be used with --covar 'keep-pheno-on-missing-cov'\nmodifier.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 11)) {
           goto main_ret_INVALID_CMDLINE_2A;
