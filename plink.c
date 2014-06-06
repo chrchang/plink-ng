@@ -12015,7 +12015,7 @@ int32_t main(int32_t argc, char** argv) {
   } else if (load_rare & LOAD_RARE_CNV) {
 #ifdef HIGH_MAX_CHROM
     logprint("Error: The CNV module is disabled in high-contig-limit PLINK builds.\n");
-    goto plink_ret_INVALID_CMDLINE;
+    goto main_ret_INVALID_CMDLINE;
     // no, I don't care about unused variable compiler warnings in this case
 #else
     retval = plink_cnv(outname, outname_end, pedname, mapname, famname, phenoname, keepname, removename, filtername, misc_flags, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, filtervals_flattened, filter_flags, cnv_calc_type, cnv_min_seglen, cnv_max_seglen, cnv_min_score, cnv_max_score, cnv_min_sites, cnv_max_sites, cnv_intersect_filter_type, cnv_intersect_filter_fname, cnv_subset_fname, cnv_overlap_type, cnv_overlap_val, cnv_freq_type, cnv_freq_val, cnv_freq_val2, cnv_test_window, segment_modifier, segment_spanning_fname, cnv_indiv_mperms, cnv_test_mperms, cnv_test_region_mperms, cnv_enrichment_test_mperms, marker_pos_start, marker_pos_end, &chrom_info);
