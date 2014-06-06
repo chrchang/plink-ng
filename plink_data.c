@@ -14439,6 +14439,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	    wbufptr2 = &(wbufptr[ujj / 4]);
 	    umm = (ujj % 4) * 2;
 	    unn = 3U << umm;
+	    // bugfix: do NOT set flag, etc. on missing call
 	    if ((ucc & 3) != 1) {
 	      if (mbufptr[ukk] & ulii) {
 		ucc2 = *wbufptr2;
@@ -14449,9 +14450,6 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	        mbufptr[ukk] |= ulii;
 	        *wbufptr2 = ((*wbufptr2) & (~unn)) | ((ucc & 3) << umm);
 	      }
-	    } else if (mbufptr[ukk] & ulii) {
-	      // bugfix: do NOT set flag here
-	      *wbufptr2 = ((*wbufptr2) & (~unn)) | ((ucc & 3) << umm);
 	    }
 	    ucc >>= 2;
 	  } while (indiv_idx & 3);
@@ -14474,8 +14472,6 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	      mbufptr[ukk] |= ulii;
 	      *wbufptr2 = ((*wbufptr2) & (~unn)) | ((ucc & 3) << umm);
 	    }
-	  } else if (mbufptr[ukk] & ulii) {
-	    *wbufptr2 = ((*wbufptr2) & (~unn)) | ((ucc & 3) << umm);
 	  }
 	  ucc >>= 2;
 	}
@@ -14837,14 +14833,16 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	case 1:
 	  mbufptr2 = &(mbufptr[marker_out_idx * tot_indiv_ctl]);
 	  wbufptr2 = &(wbufptr[marker_out_idx * tot_indiv_ct4]);
-	  if ((*mbufptr2) & uljj) {
-	    ucc3 = *wbufptr2;
-	    if (((ucc3 >> ujj) & 3) != ucc2) {
-	      *wbufptr2 = (ucc3 & ucc) | ucc4;
+	  if (ucc2 != 1) {
+	    if ((*mbufptr2) & uljj) {
+	      ucc3 = *wbufptr2;
+	      if (((ucc3 >> ujj) & 3) != ucc2) {
+		*wbufptr2 = (ucc3 & ucc) | ucc4;
+	      }
+	    } else {
+	      *mbufptr2 |= uljj;
+	      *wbufptr2 = ((*wbufptr2) & ucc) | (ucc2 << ujj);
 	    }
-	  } else {
-	    *mbufptr2 |= uljj;
-	    *wbufptr2 = ((*wbufptr2) & ucc) | (ucc2 << ujj);
 	  }
 	  break;
 	case 2:
