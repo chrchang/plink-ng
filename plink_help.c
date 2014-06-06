@@ -1219,12 +1219,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                         * 'missing'/'m' treats them as missing.\n"
 	       );
     help_print("hard-call-threshold\tmissing-code\tmissing_code\tdata\tgen\tsample", &help_ctrl, 0,
-"  --hard-call-threshold <random> {v} : When an Oxford-format fileset is loaded,\n"
-"                                       calls with uncertainty level greater\n"
-"                                       than 0.1 are normally treated as\n"
-"                                       missing.  You can adjust this threshold\n"
-"                                       by providing a numeric parameter, or\n"
-"                                       randomize all calls with 'random'.\n"
+"  --hard-call-threshold [val]  : When an Oxford-format fileset is loaded, calls\n"
+"  --hard-call-threshold random   with uncertainty level greater than 0.1 are\n"
+"                                 normally treated as missing.  You can adjust\n"
+"                                 this threshold by providing a numeric\n"
+"                                 parameter, or randomize all calls with\n"
+"                                 'random'.\n"
 "  --missing-code {string list}       : Comma-delimited list of missing\n"
 "    (alias: --missing_code)            phenotype values for Oxford-formatted\n"
 "                                       filesets (normally 'NA').\n"

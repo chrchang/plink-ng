@@ -780,7 +780,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
     }
   }
   if (pairwise) {
-    prune_ld_thresh = ld_last_param;
+    prune_ld_thresh = ld_last_param * (1 + SMALL_EPSILON);
   } else {
     // r, not r2, in this case
     prune_ld_thresh = 0.999999;
@@ -5067,6 +5067,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 	if (marker_uidx2 >= chrom_end2) {
 	  chrom_fo_idx2 = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx2);
 	  chrom_idx2 = chrom_info_ptr->chrom_file_order[chrom_fo_idx2];
+	  chrom_end2 = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx2 + 1];
 	  is_haploid = IS_SET(chrom_info_ptr->haploid_mask, chrom_idx2);
 	  is_x = (((int32_t)chrom_idx2) == chrom_info_ptr->x_code);
 	  is_y = (((int32_t)chrom_idx2) == chrom_info_ptr->y_code);

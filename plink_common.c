@@ -5381,8 +5381,21 @@ uint32_t window_back(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t m
   }
   cur_word = (~(*marker_exclude_cur)) & ((ONELU << uii) - ONELU);
   while (1) {
+    if (marker_uwidx_cur < marker_uidx_min) {
+      cur_word &= ~((ONELU << (marker_uidx_min % BITCT)) - ONELU);
+      marker_uwidx_cur = marker_uidx_min;
+      uii = popcount_long(cur_word);
+      if (uii >= remaining_count) {
+	goto window_back_count;
+      } else if (marker_pos[marker_uwidx_cur] < min_pos) {
+	goto window_back_find_first_pos;
+      } else {
+	goto window_back_min;
+      }
+    }
     uii = popcount_long(cur_word);
     if (uii >= remaining_count) {
+    window_back_count:
       uii -= remaining_count; // now a count of number of bits to advance
       while (uii) {
 	cur_word &= cur_word - 1;
@@ -5393,20 +5406,17 @@ uint32_t window_back(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t m
 	goto window_back_find_first_pos;
       }
       *window_trail_ct_ptr = count_max;
-      return MAXV(marker_uwidx_cur, marker_uidx_min);
-    } else if (marker_pos[marker_uwidx_cur] < min_pos) {
+      return marker_uwidx_cur;
+    }
+    if (marker_pos[marker_uwidx_cur] < min_pos) {
     window_back_find_first_pos:
       marker_uwidx_cur += uint32arr_greater_than(&(marker_pos[marker_uwidx_cur]), marker_uidx_last - marker_uwidx_cur, min_pos);
       if (marker_uwidx_cur > marker_uidx_min) {
 	next_unset_unsafe_ck(marker_exclude, &marker_uwidx_cur);
-      } else {
-      window_back_min:
-	marker_uwidx_cur = marker_uidx_min;
       }
+    window_back_min:
       *window_trail_ct_ptr = marker_uidx_start - marker_uwidx_cur - popcount_bit_idx(marker_exclude, marker_uwidx_cur, marker_uidx_start);
       return marker_uwidx_cur;
-    } else if (marker_uwidx_cur <= marker_uidx_min) {
-      goto window_back_min;
     }
     remaining_count -= uii;
     marker_uidx_last = marker_uwidx_cur;
@@ -5438,16 +5448,19 @@ uint32_t window_forward(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_
 	cur_word &= cur_word - 1;
       }
       marker_uwidx_cur += CTZLU(cur_word);
-      if (marker_pos[marker_uwidx_cur] > max_pos) {
-	break;
-      }
       if (marker_uwidx_cur <= marker_uidx_last) {
+	if (marker_pos[marker_uwidx_cur] > max_pos) {
+	  break;
+	}
 	*window_lead_ct_ptr = count_max;
 	return marker_uwidx_cur;
-      } else {
-	marker_uwidx_prev = marker_uidx_last;
+      }
+      if (marker_pos[marker_uidx_last] <= max_pos) {
+        marker_uwidx_prev = marker_uidx_last;
 	goto window_forward_return;
       }
+      marker_uwidx_cur = marker_uidx_last;
+      break;
     }
     marker_uwidx_cur += BITCT;
     if (marker_uwidx_cur >= marker_uidx_last) {
