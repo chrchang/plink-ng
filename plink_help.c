@@ -1019,6 +1019,19 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      chi-square statistics, respectively, to be considered instead.\n\n"
 	       );
 #ifndef STABLE_BUILD
+#ifndef NOLAPACK
+    help_print("qfam\tqfam-between\tqfam-parents\tqfam-total", &help_ctrl, 1,
+"  --qfam\n"
+"  --qfam-between\n"
+"  --qfam-parents\n"
+"  --qfam-total\n"
+"    QFAM family-based association test for quantitative traits.\n"
+"    * A Mendel error check is performed before the main tests; offending\n"
+"      genotypes are treated as missing by this analysis.\n"
+"    * This procedure uses adaptive permutation; the stopping rule can be\n"
+"      customized with --aperm.\n\n"
+	       );
+#endif
     help_print("annotate", &help_ctrl, 1,
 "  --annotate [PLINK report] <attrib=[file]> <ranges=[file]> <filter=[file]>\n"
 "             <snps=[file]> <NA | prune> <block> <subset=[file]> <minimal>\n"

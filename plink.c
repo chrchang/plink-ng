@@ -292,7 +292,7 @@ void swap_reversed_marker_alleles(uintptr_t unfiltered_marker_ct, uintptr_t* mar
 }
 
 static inline uint32_t are_marker_pos_needed(uint64_t calculation_type, uint64_t misc_flags, char* cm_map_fname, char* set_fname, uint32_t min_bp_space, uint32_t genome_skip_write, uint32_t ld_modifier, uint32_t epi_modifier) {
-  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_CLUMP | CALC_BLOCKS | CALC_FLIPSCAN | CALC_TDT)) || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)) || cm_map_fname || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || ((calculation_type & CALC_EPI) && (epi_modifier & EPI_FAST_CASE_ONLY));
+  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_CLUMP | CALC_BLOCKS | CALC_FLIPSCAN | CALC_TDT | CALC_QFAM)) || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)) || cm_map_fname || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || ((calculation_type & CALC_EPI) && (epi_modifier & EPI_FAST_CASE_ONLY));
 }
 
 static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, char* cm_map_fname, Two_col_params* update_cm) {
@@ -307,7 +307,7 @@ static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, char* cm
 }
 
 static inline uint32_t are_marker_alleles_needed(uint64_t calculation_type, char* freqname, Homozyg_info* homozyg_ptr, Two_col_params* a1alleles, Two_col_params* a2alleles, uint32_t ld_modifier, uint32_t snp_only, uint32_t clump_modifier) {
-  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP | CALC_SCORE | CALC_MENDEL | CALC_TDT | CALC_FLIPSCAN)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (ld_modifier & LD_INPHASE)) || a1alleles || a2alleles || snp_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)));
+  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP | CALC_SCORE | CALC_MENDEL | CALC_TDT | CALC_FLIPSCAN | CALC_QFAM)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (ld_modifier & LD_INPHASE)) || a1alleles || a2alleles || snp_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)));
 }
 
 static inline int32_t relationship_or_ibc_req(uint64_t calculation_type) {
@@ -682,16 +682,11 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
         logprint("Error: --regress-distance calculation requires a scalar phenotype.\n");
       } else if (calculation_type & CALC_UNRELATED_HERITABILITY) {
         logprint("Error: --unrelated-heritability requires a scalar phenotype.\n");
-      } else if (calculation_type & CALC_GXE) {
-        logprint("Error: --gxe requires a scalar phenotype.\n");
       }
       goto plink_ret_INVALID_CMDLINE;
     }
   } else {
-    if ((calculation_type & CALC_MODEL) && (!(model_modifier & MODEL_ASSOC))) {
-      logprint("Error: --model requires a case/control phenotype.\n");
-      goto plink_ret_INVALID_CMDLINE;
-    } else if (calculation_type & CALC_CLUSTER) {
+    if (calculation_type & CALC_CLUSTER) {
       if (cluster_ptr->modifier & CLUSTER_CC) {
         logprint("Error: --cc requires a case/control phenotype.\n");
         goto plink_ret_INVALID_CMDLINE;
@@ -702,33 +697,44 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     } else if ((calculation_type & CALC_EPI) && (epi_ip->modifier & EPI_FAST)) {
       logprint("Error: --fast-epistasis requires a case/control phenotype.\n");
       goto plink_ret_INVALID_CMDLINE;
-    } else if (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_FLIPSCAN | CALC_CMH | CALC_HOMOG | CALC_TESTMISS | CALC_TDT)) {
+    } else if (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_FLIPSCAN)) {
       if (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST)) {
         logprint("Error: --ibs-test and --groupdist calculations require a case/control\nphenotype.\n");
       } else if (calculation_type & CALC_FLIPSCAN) {
 	logprint("Error: --flip-scan requires a case/control phenotype.\n");
-      } else if (calculation_type & CALC_CMH) {
-        logprint("Error: --mh and --mh2 require a case/control phenotype.\n");
-      } else if (calculation_type & CALC_HOMOG) {
-        logprint("Error: --homog requires a case/control phenotype.\n");
-      } else if (calculation_type & CALC_TESTMISS) {
-        logprint("Error: --test-missing requires a case/control phenotype.\n");
-      } else {
-	logprint("Error: --tdt requires a case/control phenotype.\n");
       }
       goto plink_ret_INVALID_CMDLINE;
     }
   }
 
-  if ((calculation_type & CALC_GLM) && (!pheno_all)) {
-    if (glm_modifier & GLM_LOGISTIC) {
-      if (!pheno_c) {
-	logprint("Error: --logistic without --all-pheno requires a case/control phenotype.\n");
+  if (!pheno_all) {
+    if (loop_assoc_fname || (!pheno_d)) {
+      if ((calculation_type & CALC_GLM) && (!(glm_modifier & GLM_LOGISTIC))) {
+	logprint("Error: --linear without --all-pheno requires a scalar phenotype.\n");
+	goto plink_ret_INVALID_CMDLINE;
+      } else if (calculation_type & CALC_QFAM) {
+	logprint("Error: QFAM test requires a scalar phenotype.\n");
 	goto plink_ret_INVALID_CMDLINE;
       }
-    } else if (!pheno_d) {
-      logprint("Error: --linear without --all-pheno requires a scalar phenotype.\n");
-      goto plink_ret_INVALID_CMDLINE;
+    } else if (!pheno_c) {
+      if ((calculation_type & CALC_MODEL) && (!(model_modifier & MODEL_ASSOC))) {
+        logprint("Error: --model requires a case/control phenotype.\n");
+        goto plink_ret_INVALID_CMDLINE;
+      } else if ((calculation_type & CALC_GLM) && (glm_modifier & GLM_LOGISTIC)) {
+	logprint("Error: --logistic without --all-pheno requires a case/control phenotype.\n");
+	goto plink_ret_INVALID_CMDLINE;
+      } else if (calculation_type & (CALC_CMH | CALC_HOMOG | CALC_TESTMISS | CALC_TDT)) {
+	if (calculation_type & CALC_CMH) {
+	  logprint("Error: --mh and --mh2 require a case/control phenotype.\n");
+	} else if (calculation_type & CALC_HOMOG) {
+	  logprint("Error: --homog requires a case/control phenotype.\n");
+	} else if (calculation_type & CALC_TESTMISS) {
+	  logprint("Error: --test-missing requires a case/control phenotype.\n");
+	} else {
+	  logprint("Error: --tdt requires a case/control phenotype.\n");
+	}
+	goto plink_ret_INVALID_CMDLINE;
+      }
     }
   }
 
@@ -1096,7 +1102,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     goto plink_ret_INVALID_CMDLINE_2;
   }
   if (g_thread_ct > 1) {
-    if ((calculation_type & (CALC_RELATIONSHIP | CALC_REL_CUTOFF | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_LD | CALC_PCA | CALC_MAKE_PERM_PHENO)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_PERM | GLM_MPERM))) || ((calculation_type & CALC_TESTMISS) && (testmiss_modifier & (TESTMISS_PERM | TESTMISS_MPERM))) || ((calculation_type & CALC_TDT) && (fam_ip->tdt_modifier & (TDT_PERM | TDT_MPERM))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname))) || ((calculation_type & CALC_EPI) && (epi_ip->modifier & EPI_FAST))) {
+    if ((calculation_type & (CALC_RELATIONSHIP | CALC_REL_CUTOFF | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_LD | CALC_PCA | CALC_MAKE_PERM_PHENO | CALC_QFAM)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_PERM | GLM_MPERM))) || ((calculation_type & CALC_TESTMISS) && (testmiss_modifier & (TESTMISS_PERM | TESTMISS_MPERM))) || ((calculation_type & CALC_TDT) && (fam_ip->tdt_modifier & (TDT_PERM | TDT_MPERM))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname))) || ((calculation_type & CALC_EPI) && (epi_ip->modifier & EPI_FAST))) {
       LOGPRINTF("Using up to %u threads (change this with --threads).\n", g_thread_ct);
     } else {
       logprint("Using 1 thread (no multithreaded calculations invoked).\n");
@@ -1770,7 +1776,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
-  if (calculation_type & (CALC_MODEL | CALC_GXE | CALC_GLM | CALC_LASSO | CALC_CMH | CALC_HOMOG | CALC_TESTMISS | CALC_TDT)) {
+  if (calculation_type & (CALC_MODEL | CALC_GXE | CALC_GLM | CALC_LASSO | CALC_CMH | CALC_HOMOG | CALC_TESTMISS | CALC_TDT | CALC_QFAM)) {
     // can't use pheno_ctrl_ct in here since new phenotypes may be loaded, and
     // we don't bother updating it...
     if ((!pheno_all) && (!loop_assoc_fname)) {
@@ -1877,7 +1883,9 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     plink_skip_all_pheno:
       if (calculation_type & CALC_MODEL) {
 	if (pheno_d) {
-	  retval = qassoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_mperm_val, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, sex_male, hh_exists, perm_batch_size, sip);
+	  if (model_modifier & MODEL_ASSOC) {
+	    retval = qassoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_mperm_val, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, sex_male, hh_exists, perm_batch_size, sip);
+	  }
 	} else {
 	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, founder_info, sex_male, hh_exists, ldip->modifier & LD_IGNORE_X, sip);
 	}
@@ -1949,6 +1957,14 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	  goto plink_ret_1;
 	}
       }
+#ifndef NOLAPACK
+      if ((calculation_type & CALC_QFAM) && pheno_d) {
+        retval = qfam(threads, bedfile, bed_offset, outname, outname_end, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, apip, pheno_nm, pheno_d, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, zero_extra_chroms, chrom_info_ptr, hh_exists, fam_ip);
+        if (retval) {
+	  goto plink_ret_1;
+	}
+      }
+#endif
     } while (pheno_all || loop_assoc_fname);
   }
   if (calculation_type & CALC_CLUMP) {
@@ -9187,6 +9203,28 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --qual-max-threshold parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
+      } else if ((!memcmp(argptr2, "fam", 4)) || (!memcmp(argptr2, "fam-between", 12)) || (!memcmp(argptr2, "fam-parents", 12)) || (!memcmp(argptr2, "fam-total", 10))) {
+#ifdef NOLAPACK
+        sprintf(logbuf, "Error: --%s requires " PROG_NAME_CAPS " to be built with LAPACK.\n", argptr);
+	goto main_ret_INVALID_CMDLINE_2;
+#else
+	UNSTABLE;
+	if (calculation_type & CALC_QFAM) {
+	  logprint("Error: Only one QFAM test can be run at a time.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
+	if (!memcmp(argptr2, "fam", 4)) {
+          family_info.qfam_type = QFAM_WITHIN1;
+	} else if (!memcmp(argptr2, "fam-between", 12)) {
+          family_info.qfam_type = QFAM_BETWEEN;
+	} else if (!memcmp(argptr2, "fam-parents", 12)) {
+          family_info.qfam_type = QFAM_WITHIN2;
+	} else {
+          family_info.qfam_type = QFAM_TOTAL;
+	}
+	calculation_type |= CALC_QFAM;
+	goto main_param_zero;
+#endif
       } else if ((!memcmp(argptr2, "ual-geno-scores", 16)) ||
                  (!memcmp(argptr2, "ual-geno-threshold", 19)) ||
                  (!memcmp(argptr2, "ual-geno-max-threshold", 23))) {
