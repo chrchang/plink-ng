@@ -1959,7 +1959,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
 #ifndef NOLAPACK
       if ((calculation_type & CALC_QFAM) && pheno_d) {
-        retval = qfam(threads, bedfile, bed_offset, outname, outname_end, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, apip, pheno_nm, pheno_d, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, zero_extra_chroms, chrom_info_ptr, hh_exists, fam_ip);
+        retval = qfam(threads, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, apip, pheno_nm, pheno_d, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, zero_extra_chroms, chrom_info_ptr, hh_exists, fam_ip);
         if (retval) {
 	  goto plink_ret_1;
 	}
@@ -8194,6 +8194,8 @@ int32_t main(int32_t argc, char** argv) {
           testmiss_modifier |= TESTMISS_MPERM;
 	  family_info.tdt_mperm_val = mperm_val;
 	  family_info.tdt_modifier |= TDT_MPERM;
+	  family_info.qfam_mperm_val = mperm_val;
+	  family_info.qfam_modifier |= QFAM_MPERM;
 	}
       } else if (!memcmp(argptr2, "perm-save", 10)) {
 	if (glm_modifier & GLM_NO_SNP) {
@@ -8888,12 +8890,14 @@ int32_t main(int32_t argc, char** argv) {
         glm_modifier |= GLM_PERM;
         testmiss_modifier |= TESTMISS_PERM;
 	family_info.tdt_modifier |= TDT_PERM;
+	family_info.qfam_modifier |= QFAM_PERM;
 	logprint("Note: --perm flag deprecated.  Use e.g. '--model perm'.\n");
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "erm-count", 10)) {
 	model_modifier |= MODEL_PERM_COUNT;
 	glm_modifier |= GLM_PERM_COUNT;
         testmiss_modifier |= TESTMISS_PERM_COUNT;
+        family_info.qfam_modifier |= QFAM_PERM_COUNT;
 	logprint("Note: --perm-count flag deprecated.  Use e.g. '--model perm-count'.\n");
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "2", 2)) {
@@ -9210,27 +9214,50 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if ((!memcmp(argptr2, "fam", 4)) || (!memcmp(argptr2, "fam-between", 12)) || (!memcmp(argptr2, "fam-parents", 12)) || (!memcmp(argptr2, "fam-total", 10))) {
-#ifdef NOLAPACK
-        sprintf(logbuf, "Error: --%s requires " PROG_NAME_CAPS " to be built with LAPACK.\n", argptr);
-	goto main_ret_INVALID_CMDLINE_2;
-#else
 	UNSTABLE;
 	if (calculation_type & CALC_QFAM) {
 	  logprint("Error: Only one QFAM test can be run at a time.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+	if (param_ct == 2) {
+	  family_info.qfam_modifier &= ~(QFAM_PERM | QFAM_MPERM);
+	}
+	for (uii = 1; uii <= param_ct; uii++) {
+	  if (!strcmp(argv[cur_arg + uii], "perm")) {
+	    family_info.qfam_modifier |= QFAM_PERM;
+	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
+	    if (scan_posint_defcap(&(argv[cur_arg + uii][6]), &(family_info.qfam_mperm_val))) {
+	      sprintf(logbuf, "Error: Invalid --%s mperm parameter '%s'.\n", argptr, argv[cur_arg + uii]);
+              goto main_ret_INVALID_CMDLINE_WWA;
+	    }
+            family_info.qfam_modifier |= QFAM_MPERM;
+	  } else if (!strcmp(argv[cur_arg + uii], "perm-count")) {
+            family_info.qfam_modifier |= QFAM_PERM_COUNT;
+	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
+            sprintf(logbuf, "Error: Improper --%s mperm syntax.  (Use '--%s mperm=[value]'.)\n", argptr, argptr);
+            goto main_ret_INVALID_CMDLINE_WWA;
+	  } else {
+            sprintf(logbuf, "Error: Invalid --%s parameter '%s'.\n", argptr, argv[cur_arg + uii]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+	  }
+	}
+	if (!(family_info.qfam_modifier & (QFAM_PERM | QFAM_MPERM))) {
+	  sprintf(logbuf, "Error: --%s requires permutation.\n", argptr);
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
 	if (!memcmp(argptr2, "fam", 4)) {
-          family_info.qfam_type = QFAM_WITHIN1;
-	} else if (!memcmp(argptr2, "fam-between", 12)) {
-          family_info.qfam_type = QFAM_BETWEEN;
+          family_info.qfam_modifier |= QFAM_WITHIN1;
 	} else if (!memcmp(argptr2, "fam-parents", 12)) {
-          family_info.qfam_type = QFAM_WITHIN2;
+          family_info.qfam_modifier |= QFAM_WITHIN2;
+	} else if (!memcmp(argptr2, "fam-between", 12)) {
+          family_info.qfam_modifier |= QFAM_BETWEEN;
 	} else {
-          family_info.qfam_type = QFAM_TOTAL;
+          family_info.qfam_modifier |= QFAM_TOTAL;
 	}
 	calculation_type |= CALC_QFAM;
-	goto main_param_zero;
-#endif
       } else if ((!memcmp(argptr2, "ual-geno-scores", 16)) ||
                  (!memcmp(argptr2, "ual-geno-threshold", 19)) ||
                  (!memcmp(argptr2, "ual-geno-max-threshold", 23))) {
@@ -10764,7 +10791,7 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "midp")) {
             testmiss_modifier |= TESTMISS_MIDP;
 	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
-            logprint("Error: Improper --test-missing mperm syntax.  (Use\n'--test-missing mperm=[value]'.)\n");
+            logprint("Error: Improper --test-missing mperm syntax.  (Use '--test-missing\nmperm=[value]'.)\n");
             goto main_ret_INVALID_CMDLINE;
 	  } else {
             sprintf(logbuf, "Error: Invalid --test-missing parameter '%s'.\n", argv[cur_arg + uii]);

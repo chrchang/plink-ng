@@ -1021,15 +1021,15 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #ifndef STABLE_BUILD
 #ifndef NOLAPACK
     help_print("qfam\tqfam-between\tqfam-parents\tqfam-total", &help_ctrl, 1,
-"  --qfam\n"
-"  --qfam-between\n"
-"  --qfam-parents\n"
-"  --qfam-total\n"
+"  --qfam <perm | mperm=[value]> <perm-count>\n"
+"  --qfam-parents <perm | mperm=[value] <perm-count>\n"
+"  --qfam-between <perm | mperm=[value]> <perm-count>\n"
+"  --qfam-total <perm | mperm=[value]> <perm-count>\n"
 "    QFAM family-based association test for quantitative traits.\n"
 "    * A Mendel error check is performed before the main tests; offending\n"
 "      genotypes are treated as missing by this analysis.\n"
-"    * This procedure uses adaptive permutation; the stopping rule can be\n"
-"      customized with --aperm.\n\n"
+"    * This procedure requires permutation.  'perm' and 'mperm=[value]' specify\n"
+"      adaptive or max(T) permutation in the usual manner.\n\n"
 	       );
 #endif
     help_print("annotate", &help_ctrl, 1,

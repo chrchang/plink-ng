@@ -11,7 +11,8 @@ void family_init(Family_info* fam_ip) {
   fam_ip->mendel_modifier = 0;
   fam_ip->tdt_modifier = 0;
   fam_ip->tdt_mperm_val = 0;
-  fam_ip->qfam_type = 0;
+  fam_ip->qfam_modifier = 0;
+  fam_ip->qfam_mperm_val = 0;
 }
 
 uint32_t is_composite6(uintptr_t num) {
@@ -2533,15 +2534,77 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   return retval;
 }
 
-#ifndef NOLAPACK
-int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, Aperm_info* apip, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t hh_exists, Family_info* fam_ip) {
+int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, Aperm_info* apip, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t hh_exists, Family_info* fam_ip) {
   logprint("Error: QFAM test is currently under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
+  /*
+  // Fortunately, this can use some of qassoc()'s logic instead of punting to
+  // LAPACK, since it doesn't support X/haploid chromosomes or covariates.
   unsigned char* wkspace_mark = wkspace_base;
+  FILE* outfile = NULL;
+  uint32_t test_type = fam_ip->qfam_modifier & QFAM_TEST;
+  uint32_t perm_adapt = fam_ip->qfam_modifier & QFAM_PERM;
+  uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
   int32_t retval = 0;
-  while (0) {
+  uint64_t* family_list;
+  uint64_t* trio_list;
+  uint32_t* trio_error_lookup;
+  uintptr_t trio_ct;
+  uint32_t family_ct;
+
+  marker_ct -= count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
+  if ((!marker_ct) || is_set(chrom_info_ptr->haploid_mask, 0)) {
+    logprint("Warning: Skipping QFAM test since there is no autosomal data.\n");
+    goto qfam_ret_1;
   }
+  retval = get_trios_and_families(unfiltered_indiv_ct, indiv_exclude, indiv_ct, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, NULL, NULL, NULL, NULL, &family_list, &family_ct, &trio_list, &trio_ct, &trio_error_lookup, 0, multigen);
+
+  outname_end = memcpya(outname_end, ".qfam.", 6);
+  if (test_type == QFAM_WITHIN1) {
+    outname_end = memcpyb(outname_end, "within", 7);  
+  } else if (test_type == QFAM_BETWEEN) {
+    outname_end = memcpyb(outname_end, "between", 8);  
+  } else if (test_type == QFAM_WITHIN2) {
+    outname_end = memcpyb(outname_end, "parents", 8);
+  } else {
+    outname_end = memcpyb(outname_end, "total", 6);
+  }
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto qfam_ret_OPEN_FAIL;
+  }
+
+  if (fclose_null(&outfile)) {
+    goto qfam_ret_WRITE_FAIL;
+  }
+  if (perm_adapt) {
+    memcpy(outname_end, ".perm", 6);
+  } else {
+    memcpy(outname_end, ".mperm", 7);
+  }
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto qfam_ret_OPEN_FAIL;
+  }
+
+  if (fclose_null(&outfile)) {
+    goto qfam_ret_WRITE_FAIL;
+  }
+  while (0) {
+  qfam_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  qfam_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  qfam_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  qfam_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+ qfam_ret_1:
   wkspace_reset(wkspace_mark);
+  fclose_cond(outfile);
   return retval;
+  */
 }
-#endif
