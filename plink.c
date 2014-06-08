@@ -88,7 +88,7 @@
 
 const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b1f"
+  "PLINK v1.90b1g"
 #else
   "PLINK v1.90b2p"
 #endif
@@ -101,7 +101,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (7 Jun 2014) ";
+  " (8 Jun 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   //  " " (don't actually want this when version number has a trailing letter)
@@ -7965,6 +7965,10 @@ int32_t main(int32_t argc, char** argv) {
 	merge_type |= MERGE_LIST;
 	calculation_type |= CALC_MERGE;
       } else if (!memcmp(argptr2, "erge-mode", 10)) {
+	if (!(calculation_type & MERGE_LIST)) {
+	  logprint("Error: --merge-mode must be used with --{b}merge/--merge-list.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -8685,6 +8689,8 @@ int32_t main(int32_t argc, char** argv) {
           chrom_info.output_encoding = CHR_OUTPUT_M;
 	} else if (!strcmp(argv[cur_arg + 1], "MT")) {
           chrom_info.output_encoding = CHR_OUTPUT_MT;
+	} else if (!strcmp(argv[cur_arg + 1], "0M")) {
+	  chrom_info.output_encoding = CHR_OUTPUT_0M;
 	} else if (!strcmp(argv[cur_arg + 1], "chr26")) {
           chrom_info.output_encoding = CHR_OUTPUT_PREFIX;
 	} else if (!strcmp(argv[cur_arg + 1], "chrM")) {

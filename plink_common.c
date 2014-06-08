@@ -3657,7 +3657,24 @@ const char* g_species_plural = NULL;
 
 char* chrom_name_std(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx) {
   uint32_t output_encoding = chrom_info_ptr->output_encoding;
-  if (output_encoding & CHR_OUTPUT_PREFIX) {
+  if (output_encoding & (CHR_OUTPUT_PREFIX | CHR_OUTPUT_0M)) {
+    if (output_encoding == CHR_OUTPUT_0M) {
+      // force two chars
+      if (chrom_idx <= chrom_info_ptr->autosome_ct) {
+	*buf++ = (chrom_idx / 10) + '0';
+	*buf++ = (chrom_idx % 10) + '0';
+      } else if ((int32_t)chrom_idx == chrom_info_ptr->xy_code) {
+	buf = memcpya(buf, "XY", 2);
+      } else {
+	*buf++ = '0';
+	if ((int32_t)chrom_idx == chrom_info_ptr->x_code) {
+	  *buf++ = 'X';
+	} else {
+	  *buf++ = ((int32_t)chrom_idx == chrom_info_ptr->y_code)? 'Y' : 'M';
+	}
+      }
+      return buf;
+    }
     buf = memcpyl3a(buf, "chr");
   }
   if ((!(output_encoding & (CHR_OUTPUT_M | CHR_OUTPUT_MT))) || (chrom_idx <= chrom_info_ptr->autosome_ct)) {
@@ -3810,54 +3827,68 @@ uint32_t bsearch_str_idx(const char* sptr, uint32_t slen, char** str_array, uint
   return 1;
 }
 
+static inline int32_t single_letter_chrom(uint32_t letter) {
+  letter &= 0xdf;
+  if (letter == 'X') {
+    return CHROM_X;
+  } else if (letter == 'Y') {
+    return CHROM_Y;
+  } else if (letter == 'M') {
+    return CHROM_MT;
+  } else {
+    return -1;
+  }
+}
+
 int32_t get_chrom_code_raw(char* sptr) {
   // any character <= ' ' is considered a terminator
+  // note that char arithmetic tends to be compiled to int32 operations, so we
+  // mostly work with ints here
   uint32_t uii;
   uint32_t ujj;
-  if ((((unsigned char)(*sptr)) & 0xdf) == 'C') {
-    if (((((unsigned char)sptr[1]) & 0xdf) == 'H') && ((((unsigned char)sptr[2]) & 0xdf) == 'R')) {
+  uint32_t ukk;
+  uii = (unsigned char)sptr[0];
+  ujj = (unsigned char)sptr[1];
+  if ((uii & 0xdf) == 'C') {
+    if (((ujj & 0xdf) == 'H') && ((((unsigned char)sptr[2]) & 0xdf) == 'R')) {
       sptr = &(sptr[3]);
+      uii = (unsigned char)sptr[0];
+      ujj = (unsigned char)sptr[1];
     } else {
       return -1;
     }
   }
-  if (sptr[1] > ' ') {
+  if (ujj > ' ') {
     if (sptr[2] > ' ') {
       return -1;
     }
-    if ((((unsigned char)sptr[0]) & 0xdf) == 'X') {
-      if ((((unsigned char)sptr[1]) & 0xdf) == 'Y') {
-	return CHROM_XY;
+    ukk = uii - '0';
+    if (ukk < 10) {
+      uii = ujj - '0';
+      if (uii < 10) {
+	return ukk * 10 + uii;
+      } else if (!ukk) {
+	// accept '0X', '0Y', '0M' emitted by Oxford software
+	return single_letter_chrom(ujj);
       }
-      return -1;
-    }
-    if ((((unsigned char)sptr[0]) & 0xdf) == 'M') {
-      if ((((unsigned char)sptr[1]) & 0xdf) == 'T') {
-	return CHROM_MT;
-      }
-      return -1;
-    }
-    uii = ((unsigned char)sptr[0]) - '0';
-    if (uii < 10) {
-      ujj = ((unsigned char)sptr[1]) - '0';
-      if (ujj < 10) {
-	return uii * 10 + ujj;
+    } else {
+      uii &= 0xdf;
+      if (uii == 'X') {
+        if ((ujj == 'Y') || (ujj == 'y')) {
+	  return CHROM_XY;
+	}
+      } else if (uii == 'M') {
+        if ((ujj == 'T') || (ujj == 't')) {
+	  return CHROM_MT;
+	}
       }
     }
   } else {
-    uii = ((unsigned char)sptr[0]);
-    ujj = uii - 48;
-    if (ujj < 10) {
-      return ujj;
+    ukk = uii - '0';
+    if (ukk < 10) {
+      return ukk;
     } else {
-      uii &= 0xdf;
-      if (uii == 88) {
-	return CHROM_X;
-      } else if (uii == 89) {
-	return CHROM_Y;
-      } else if (uii == 77) {
-	return CHROM_MT;
-      }
+      return single_letter_chrom(uii);
     }
   }
   return -1;
@@ -5381,7 +5412,7 @@ uint32_t window_back(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t m
   }
   cur_word = (~(*marker_exclude_cur)) & ((ONELU << uii) - ONELU);
   while (1) {
-    if (marker_uwidx_cur < marker_uidx_min) {
+    if (marker_uwidx_cur <= marker_uidx_min) {
       cur_word &= ~((ONELU << (marker_uidx_min % BITCT)) - ONELU);
       marker_uwidx_cur = marker_uidx_min;
       uii = popcount_long(cur_word);

@@ -1515,8 +1515,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("output-chr\tchr-output", &help_ctrl, 0,
 "  --output-chr [MT code] : Set chromosome coding scheme in output files by\n"
 "                           providing the desired human mitochondrial code.\n"
-"                           (Options are '26', 'M', 'MT', 'chr26', 'chrM', and\n"
-"                           'chrMT'.)\n"
+"                           (Options are '26', 'M', 'MT', '0M', 'chr26', 'chrM',\n"
+"                           and 'chrMT'.)\n"
 	       );
     help_print("output-missing-genotype\toutput-missing-phenotype", &help_ctrl, 0,
 "  --output-missing-genotype [ch] : Set the code used to represent missing\n"
@@ -1627,9 +1627,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                  dummy variables when writing covariate file.\n"
 	       );
     help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 0,
-"  --merge-mode [n]   : Adjust --merge/--bmerge/--merge-list behavior based on a\n"
+"  --merge-mode [n]   : Adjust --{b}merge/--merge-list behavior based on a\n"
 "                       numeric code.\n"
-"                       1 (default) = difference -> missing\n"
+"                       1 (default) = ignore missing calls, otherwise difference\n"
+"                                     -> missing\n"
 "                       2 = only overwrite originally missing calls\n"
 "                       3 = only overwrite when nonmissing in new file\n"
 "                       4/5 = never overwrite and always overwrite, respectively\n"

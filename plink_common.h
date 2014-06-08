@@ -1728,6 +1728,7 @@ static inline const char* species_str(uintptr_t ct) {
 #define CHR_OUTPUT_PREFIX 1
 #define CHR_OUTPUT_M 2
 #define CHR_OUTPUT_MT 4
+#define CHR_OUTPUT_0M 8
 
 static inline uint32_t all_words_zero(uintptr_t* word_arr, uintptr_t word_ct) {
   while (word_ct--) {
