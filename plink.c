@@ -3375,6 +3375,11 @@ int32_t main(int32_t argc, char** argv) {
       ukk = strlen(argptr) + 1;
       // handle aliases now, so sorting will have the desired effects
       switch (*argptr) {
+      case '\0':
+	// special case, since we reserve empty names for preprocessed flags
+	printf("Error: Unrecognized flag ('%s').\n", argv[uii]);
+	goto main_ret_INVALID_CMDLINE;
+
       case 'a':
 	if ((ukk == 11) && (!memcmp(argptr, "allele", 6))) {
 	  if (match_upper(&(argptr[6]), "ACGT")) {
@@ -3604,11 +3609,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	goto main_flag_copy;
       default:
-	if (ukk == 1) {
-	  // special case, since we reserve empty names for preprocessed flags
-	  printf("Error: Unrecognized flag ('%s').\n", argv[uii]);
-	  goto main_ret_INVALID_CMDLINE;
-	}
       main_flag_copy:
 	memcpy(flagptr, argptr, ukk);
       }
@@ -7970,7 +7970,7 @@ int32_t main(int32_t argc, char** argv) {
 	merge_type |= MERGE_LIST;
 	calculation_type |= CALC_MERGE;
       } else if (!memcmp(argptr2, "erge-mode", 10)) {
-	if (!(calculation_type & MERGE_LIST)) {
+	if (!(calculation_type & CALC_MERGE)) {
 	  logprint("Error: --merge-mode must be used with --{b}merge/--merge-list.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
