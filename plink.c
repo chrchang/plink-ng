@@ -3604,6 +3604,11 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	goto main_flag_copy;
       default:
+	if (ukk == 1) {
+	  // special case, since we reserve empty names for preprocessed flags
+	  printf("Error: Unrecognized flag ('%s').\n", argv[uii]);
+	  goto main_ret_INVALID_CMDLINE;
+	}
       main_flag_copy:
 	memcpy(flagptr, argptr, ukk);
       }
