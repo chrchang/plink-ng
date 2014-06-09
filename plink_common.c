@@ -3661,8 +3661,7 @@ char* chrom_name_std(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx) 
     if (output_encoding == CHR_OUTPUT_0M) {
       // force two chars
       if (chrom_idx <= chrom_info_ptr->autosome_ct) {
-	*buf++ = (chrom_idx / 10) + '0';
-	*buf++ = (chrom_idx % 10) + '0';
+	buf = memcpya(buf, &(digit2_table[chrom_idx * 2]), 2);
       } else if ((int32_t)chrom_idx == chrom_info_ptr->xy_code) {
 	buf = memcpya(buf, "XY", 2);
       } else {

@@ -704,6 +704,12 @@ typedef struct ll_str_struct {
   char ss[];
 } Ll_str;
 
+typedef struct ll_ctstr_entry_struct {
+  struct ll_ctstr_entry_struct* next;
+  uint32_t ct;
+  char ss[];
+} Ll_ctstr_entry;
+
 typedef struct two_col_params_struct {
   uint32_t colx;
   uint32_t colid;
