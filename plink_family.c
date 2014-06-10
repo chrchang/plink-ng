@@ -2537,11 +2537,10 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   return retval;
 }
 
-/*
-void qfam_compute_bw(uint32_t family_ct, uint32_t sibship_ct, uintptr_t indiv_ct, uintptr_t* loadbuf, uint32_t* fs_starts, uint32_t* fs_contents, uint32_t* indiv_to_fs_idx, double* b_arr, double* w_arr) {
+void qfam_compute_bw(uint32_t family_ct, uint32_t fs_ct, uint32_t fsc_size, uint32_t singleton_ct, uintptr_t indiv_ct, uintptr_t* loadbuf, uint32_t* fs_starts, uint32_t* fss_contents, uint32_t* indiv_to_fss_idx, double* b_arr, double* w_arr) {
 }
 
-int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t* pheno_nm, uintptr_t* founder_info, char* person_ids, uintptr_t max_person_id_len, uintptr_t max_fid_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint64_t* family_list, uint64_t* trio_list, uint32_t family_ct, uintptr_t trio_ct, uintptr_t** permute_eligible_ptr, uint32_t** fs_starts_ptr, uint32_t** fs_contents, uint32_t** indiv_to_fs_idx_ptr, uint32_t* fs_ct_ptr) {
+int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t* pheno_nm, uintptr_t* founder_info, char* person_ids, uintptr_t max_person_id_len, uintptr_t max_fid_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint64_t* family_list, uint64_t* trio_list, uint32_t family_ct, uintptr_t trio_ct, uint32_t qfam_within, uintptr_t** permute_eligible_ptr, uint32_t** fs_starts_ptr, uint32_t** fss_contents_ptr, uint32_t** indiv_to_fss_idx_ptr, uint32_t* fs_ct_ptr, uint32_t* fsc_size_ptr, uint32_t* singleton_ct_ptr) {
   // on top of get_trios_and_families()'s return values, we need the following
   // information for the main qfam() loop:
   // 1. indiv idx -> family/sibship idx array
@@ -2554,9 +2553,8 @@ int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
   uintptr_t max_merged_id_len = max_fid_len + max_paternal_id_len + max_maternal_id_len + sizeof(int32_t);
   uintptr_t trio_idx = 0;
   uintptr_t topsize = 0;
-  uint32_t fs_ct = family_ct;
   uint32_t family_idx = 0;
-  uint32_t fsc_idx = 0;
+  uint32_t fssc_idx = 0;
   int32_t retval = 0;
   char* merged_ids;
   char* bufptr;
@@ -2567,19 +2565,22 @@ int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
   uintptr_t* ulptr;
   uintptr_t* ulptr2;
   uint32_t* indiv_uidx_to_idx;
-  uint32_t* indiv_to_fs_idx;
+  uint32_t* indiv_to_fss_idx;
   uint32_t* fs_starts;
-  uint32_t* fs_contents;
+  uint32_t* fss_contents;
   uintptr_t cur_indiv_ct;
   uintptr_t indiv_uidx;
   uintptr_t indiv_idx;
   uintptr_t ulii;
   uint64_t ullii;
+  uint32_t slen;
   uint32_t uii;
+  uint32_t ujj;
   if (wkspace_alloc_ul_checked(&permute_eligible, indiv_ctl * sizeof(intptr_t)) ||
-      wkspace_alloc_ui_checked(&indiv_to_fs_idx, indiv_ct * sizeof(int32_t)) ||
+      // this is the equivalent of PLINK 1.07's family pointers
+      wkspace_alloc_ui_checked(&indiv_to_fss_idx, indiv_ct * sizeof(int32_t)) ||
       // shrink later
-      wkspace_alloc_ui_checked(&fs_contents, (indiv_ct + 2 * family_ct) * sizeof(int32_t))) {
+      wkspace_alloc_ui_checked(&fss_contents, (indiv_ct + 2 * family_ct) * sizeof(int32_t))) {
     goto get_sibship_info_ret_NOMEM;
   }
   not_in_family = (uintptr_t*)top_alloc(&topsize, unfiltered_indiv_ctl * sizeof(intptr_t));
@@ -2607,6 +2608,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
   }
 
   bitfield_exclude_to_include(indiv_exclude, not_in_family, unfiltered_indiv_ct);
+  fill_uint_one(indiv_to_fss_idx, indiv_ct);
   fill_uidx_to_idx(indiv_exclude, unfiltered_indiv_ct, indiv_ct, indiv_uidx_to_idx);
   fill_ulong_zero(ulptr, unfiltered_indiv_ctl); // is a double-parent
   fill_ulong_zero(ulptr2, unfiltered_indiv_ctl); // is a child
@@ -2614,16 +2616,24 @@ int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
     while (1) {
       ullii = family_list[family_idx];
       uii = (uint32_t)ullii;
-      fs_contents[fsc_idx++] = indiv_uidx_to_idx[uii];
+      ujj = indiv_uidx_to_idx[uii];
+      fss_contents[fssc_idx++] = ujj;
       if (is_set(not_in_family, uii)) {
+	if (indiv_to_fss_idx[ujj] == 0xffffffffU) {
+	  indiv_to_fss_idx[ujj] = family_idx;
+	}
 	clear_bit(not_in_family, uii);
       } else {
 	set_bit(ulptr, uii);
       }
       uii = (uint32_t)(ullii >> 32);
-      fs_contents[fsc_idx++] = indiv_uidx_to_idx[uii];
+      ujj = indiv_uidx_to_idx[uii];
+      fss_contents[fssc_idx++] = ujj;
       if (is_set(not_in_family, uii)) {
-	clear_bit(not_in_family, ullii >> 32);
+	if (indiv_to_fss_idx[ujj] == 0xffffffffU) {
+	  indiv_to_fss_idx[ujj] = family_idx;
+	}
+	clear_bit(not_in_family, uii);
       } else {
 	set_bit(ulptr, uii);
       }
@@ -2631,25 +2641,30 @@ int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
       ullii = trio_list[trio_idx];
       do {
 	uii = (uint32_t)ullii;
-	fs_contents[fsc_idx++] = indiv_idx_to_uidx[uii];
+	ujj = indiv_uidx_to_idx[uii];
+	fss_contents[fssc_idx++] = ujj;
+	indiv_to_fss_idx[ujj] = family_idx;
 	set_bit(ulptr2, uii);
 	if (++trio_idx == trio_ct) {
-	  goto get_sibship_info_family_list_done;
+	  goto get_sibship_info_first_pass_done;
 	}
 	ullii = trio_list[trio_idx];
       } while ((uint32_t)(ullii >> 32) == family_idx);
       family_idx++;
     }
   }
- get_sibship_info_family_list_done:
+ get_sibship_info_first_pass_done:
   bitfield_andnot(not_in_family, ulptr2, unfiltered_indiv_ctl);
   bitfield_andnot(ulptr, ulptr2, unfiltered_indiv_ctl);
   bitfield_andnot_reversed_args(ulptr, pheno_nm, unfiltered_indiv_ctl);
+  if (qfam_within) {
+    bitfield_and(ulptr, founder_info, unfiltered_indiv_ctl);
+  }
   collapse_copy_bitarr(unfiltered_indiv_ct, ulptr, indiv_exclude, indiv_ct, permute_eligible);
   topsize = ulii;
 
   ulii = popcount_longs(not_in_family, unfiltered_indiv_ctl);
-  wkspace_shrink_top(fs_contents, (fsc_idx + ulii) * sizeof(int32_t));
+  wkspace_shrink_top(fss_contents, (fssc_idx + ulii) * sizeof(int32_t));
   memcpy(ulptr, not_in_family, unfiltered_indiv_ctl * sizeof(intptr_t));
   bitfield_andnot(ulptr, founder_info, unfiltered_indiv_ctl);
   cur_indiv_ct = popcount_longs(ulptr, unfiltered_indiv_ctl);
@@ -2663,7 +2678,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
     fs_starts[0] = 0;
     ulii = 0; // first trio_idx in family
     for (trio_idx = 1; trio_idx < trio_ct; trio_idx++) {
-      uii = ((uint32_t)trio_list[trio_idx] >> 32);
+      uii = (uint32_t)(trio_list[trio_idx] >> 32);
       if (uii > family_idx) {
 	family_idx++;
 	fs_starts[family_idx] = fs_starts[family_idx - 1] + 2 + trio_idx - ulii;
@@ -2675,14 +2690,14 @@ int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
   if (cur_indiv_ct > 1) {
     // identify sibships of size >1
     ulii = topsize;
-    merged_ids = (char*)top_alloc(&topsize, max_merged_id_len * cur_batch_ct);
+    merged_ids = (char*)top_alloc(&topsize, max_merged_id_len * cur_indiv_ct);
     if (!merged_ids) {
       goto get_sibship_info_ret_NOMEM2;
     }
     for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < cur_indiv_ct; indiv_uidx++, indiv_idx++) {
-      next_set_unsafe_ul_ck(ulptr, &indiv_uidx);
+      next_set_ul_unsafe_ck(ulptr, &indiv_uidx);
       bufptr = &(person_ids[indiv_uidx * max_person_id_len]);
-      bufptr2 = memchr(bufptr, '\t', max_person_id_len);
+      bufptr2 = (char*)memchr(bufptr, '\t', max_person_id_len);
       bufptr3 = memcpya(&(merged_ids[indiv_idx * max_merged_id_len]), bufptr, 1 + ((uintptr_t)(bufptr2 - bufptr)));
       bufptr3 = strcpyax(bufptr3, &(paternal_ids[indiv_uidx * max_paternal_id_len]), '\t');
       bufptr3 = strcpyax(bufptr3, &(maternal_ids[indiv_uidx * max_maternal_id_len]), '\0');
@@ -2691,18 +2706,51 @@ int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
     qsort(merged_ids, cur_indiv_ct, max_merged_id_len, strcmp_casted);
     bufptr = merged_ids;
     for (indiv_idx = 1; indiv_idx < cur_indiv_ct; indiv_idx++) {
+      slen = strlen(bufptr) + 1;
       bufptr2 = &(merged_ids[indiv_idx * max_merged_id_len]);
-      if (!strcmp(bufptr, bufptr2)) {
-	;;;
-      } else {
-	bufptr = bufptr2;
+      if (!memcmp(bufptr, bufptr2, slen)) {
+        fs_starts[family_idx] = fssc_idx;
+	uii = *((uint32_t*)(&(bufptr[slen])));
+	clear_bit(not_in_family, uii);
+	ujj = indiv_uidx_to_idx[uii];
+        fss_contents[fssc_idx++] = ujj;
+        indiv_to_fss_idx[ujj] = family_idx;
+	do {
+	  uii = *((uint32_t*)(&(bufptr2[slen])));
+	  clear_bit(not_in_family, uii);
+	  ujj = indiv_uidx_to_idx[uii];
+          indiv_to_fss_idx[ujj] = family_idx;
+          fss_contents[fssc_idx++] = ujj;
+	  if (++indiv_idx == cur_indiv_ct) {
+	    family_idx++;
+	    goto get_sibship_info_second_pass_done;
+	  }
+	  bufptr2 = &(merged_ids[indiv_idx * max_merged_id_len]);
+	} while (!memcmp(bufptr, bufptr2, slen));
+	family_idx++;
       }
+      bufptr = bufptr2;
     }
-    topsize = ulii;
   }
+ get_sibship_info_second_pass_done:
+  *fs_ct_ptr = family_idx;
+  *fsc_size_ptr = fssc_idx;
   wkspace_shrink_top(fs_starts, family_idx * sizeof(int32_t));
   // now iterate through not_in_family
-  
+  ulii = popcount_longs(not_in_family, unfiltered_indiv_ctl);
+  for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < ulii; indiv_uidx++, indiv_idx++) {
+    next_set_ul_unsafe_ck(not_in_family, &indiv_uidx);
+    ujj = indiv_uidx_to_idx[indiv_uidx];
+    fss_contents[fssc_idx++] = ujj;
+    indiv_to_fss_idx[ujj] = family_idx + indiv_idx;
+  }
+  *permute_eligible_ptr = permute_eligible;
+  *fs_starts_ptr = fs_starts;
+  *fss_contents_ptr = fss_contents;
+  *indiv_to_fss_idx_ptr = indiv_to_fss_idx;
+  *singleton_ct_ptr = ulii;
+  // topsize = 0;
+
   while (0) {
   get_sibship_info_ret_NOMEM2:
     wkspace_left += topsize;
@@ -2712,7 +2760,6 @@ int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
   }
   return retval;
 }
-*/
 
 int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, Aperm_info* apip, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t hh_exists, Family_info* fam_ip) {
   logprint("Error: QFAM test is currently under development.\n");
@@ -2726,12 +2773,19 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t perm_adapt = fam_ip->qfam_modifier & QFAM_PERM;
   uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
   int32_t retval = 0;
+  uintptr_t* permute_eligible;
   uint64_t* family_list;
   uint64_t* trio_list;
   uint32_t* trio_error_lookup;
+  uint32_t* fs_starts;
+  uint32_t* fss_contents;
+  uint32_t* indiv_to_fss_idx;
   uintptr_t trio_ct;
   uintptr_t max_fid_len;
   uint32_t family_ct;
+  uint32_t fs_ct;
+  uint32_t fsc_size;
+  uint32_t singleton_ct;
 
   marker_ct -= count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
   if ((!marker_ct) || is_set(chrom_info_ptr->haploid_mask, 0)) {
@@ -2739,6 +2793,22 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     goto qfam_ret_1;
   }
   retval = get_trios_and_families(unfiltered_indiv_ct, indiv_exclude, indiv_ct, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, NULL, &max_fid_len, NULL, NULL, &family_list, &family_ct, &trio_list, &trio_ct, &trio_error_lookup, 0, multigen);
+  if (retval) {
+    goto qfam_ret_1;
+  }
+#ifdef __LP64__
+  // no need to check in 32-bit case since a nomem error would have occurred
+  // earlier...
+  // (okay, no need to check anyway, but best to document this overflow
+  // possibility.)
+  if ((indiv_ct + 2 * family_ct) > 0xffffffffLLU) {
+    logprint("Error: Too many samples and families for QFAM test.\n");
+    goto qfam_ret_INVALID_CMDLINE;
+  }
+#endif
+  if (get_sibship_info(unfiltered_indiv_ct, indiv_exclude, indiv_ct, pheno_nm, founder_info, person_ids, max_person_id_len, max_fid_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, family_list, trio_list, family_ct, trio_ct, (test_type & (QFAM_WITHIN1 | QFAM_WITHIN2)), &permute_eligible, &fs_starts, &fss_contents, &indiv_to_fss_idx, &fs_ct, &fsc_size, &singleton_ct)) {
+    goto qfam_ret_NOMEM;
+  }
 
   outname_end = memcpya(outname_end, ".qfam.", 6);
   if (test_type == QFAM_WITHIN1) {
@@ -2781,6 +2851,9 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     break;
   qfam_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
+    break;
+  qfam_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
     break;
   }
  qfam_ret_1:

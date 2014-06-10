@@ -14200,7 +14200,7 @@ static inline int32_t merge_first_mode(int32_t mm, uint32_t merge_equal_pos) {
   if (merge_equal_pos) {
     return (mm > 5)? 4 : mm;
   } else {
-    return merge_must_track_write(mm)? 4 : 5;
+    return merge_must_track_write(mm)? ((mm == 1)? 1 : 4) : 5;
   }
 }
 
