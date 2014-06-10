@@ -463,7 +463,8 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     relip->ibc_type = -1;
   }
 
-  if (calculation_type & CALC_MAKE_BED) {
+  // famname[0] is nonzero iff we're not in the --merge-list special case
+  if ((calculation_type & CALC_MAKE_BED) && famname[0]) {
 #ifdef _WIN32
     uii = GetFullPathName(pedname, FNAMESIZE, tbuf, NULL);
     if ((!uii) || (uii > FNAMESIZE))
@@ -6039,12 +6040,8 @@ int32_t main(int32_t argc, char** argv) {
 	    logprint("Error: --file parameter too long.\n");
 	    goto main_ret_OPEN_FAIL;
 	  }
-	  if (!(load_params & LOAD_PARAMS_PED)) {
-	    memcpy(strcpya(pedname, argv[cur_arg + 1]), ".ped", 5);
-	  }
-	  if (!(load_params & LOAD_PARAMS_MAP)) {
-	    memcpy(strcpya(mapname, argv[cur_arg + 1]), ".map", 5);
-	  }
+	  memcpy(strcpya(pedname, argv[cur_arg + 1]), ".ped", 5);
+	  memcpy(strcpya(mapname, argv[cur_arg + 1]), ".map", 5);
 	}
       } else if (!memcmp(argptr2, "am", 3)) {
 	if (load_params & (LOAD_PARAMS_TEXT_ALL | LOAD_PARAMS_OX_ALL)) {
@@ -11912,7 +11909,7 @@ int32_t main(int32_t argc, char** argv) {
     }
     // otherwise, autoconversion job
   }
-  if (!(load_params || load_rare || uii)) {
+  if (!(load_params || load_rare || uii || (merge_type & MERGE_LIST))) {
     logprint("Error: No input dataset.\n");
     goto main_ret_INVALID_CMDLINE_A;
   }
@@ -12071,7 +12068,7 @@ int32_t main(int32_t argc, char** argv) {
       logprint("Error: Basic file conversions do not support regular filtering operations.\nRerun your command with --make-bed.\n");
       goto main_ret_INVALID_CMDLINE;
     }
-    if (load_rare || (!famname[0])) {
+    if (load_rare || (load_params & (LOAD_PARAMS_TEXTFILE | LOAD_PARAMS_PED | LOAD_PARAMS_MAP))) {
       sptr = outname_end;
       if (calculation_type && (!(misc_flags & MISC_KEEP_AUTOCONV))) {
         sptr = memcpyb(sptr, "-temporary", 11);

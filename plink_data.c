@@ -15055,7 +15055,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     if (fopen_checked(&mergelistfile, mergename1, "r")) {
       goto merge_datasets_ret_READ_FAIL;
     }
-    merge_ct = 1;
+    merge_ct = (famname[0] != '\0');
     ullxx = 0;
     // first pass: determine merge_ct, mergelist_buf size, verify no lines have
     // > 3 entries
@@ -15101,9 +15101,9 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     if (!feof(mergelistfile)) {
       goto merge_datasets_ret_READ_FAIL;
     }
-    if (!merge_ct) {
-      logprint("Error: Empty --merge-list file.\n");
-      goto merge_datasets_ret_INVALID_FORMAT;
+    if (merge_ct < 2) {
+      sprintf(logbuf, "Error: %s --merge-list file%s specified.\n", merge_ct? "Only one" : "No", merge_ct? "" : "s");
+      goto merge_datasets_ret_INVALID_FORMAT_2;
     }
 #ifndef __LP64__
     if (ullxx > 0x7fffffff) {
@@ -15118,7 +15118,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     }
     rewind(mergelistfile);
     bufptr4 = mergelist_buf;
-    mlpos = 1;
+    mlpos = (famname[0] != '\0');
     while (fgets(tbuf, MAXLINELEN, mergelistfile)) {
       bufptr = skip_initial_spaces(tbuf);
       if (no_more_tokens_kns(bufptr)) {
@@ -15168,9 +15168,11 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     mergelist_bim[1] = mergename2;
     mergelist_fam[1] = (merge_type & MERGE_BINARY)? mergename3 : NULL;
   }
-  mergelist_bed[0] = bedname;
-  mergelist_bim[0] = bimname;
-  mergelist_fam[0] = famname;
+  if (famname[0]) {
+    mergelist_bed[0] = bedname;
+    mergelist_bim[0] = bimname;
+    mergelist_fam[0] = famname;
+  }
 
   // ID counting/duplicate detection strategy:
   // - We do NOT want to scan through .ped files any more times than absolutely

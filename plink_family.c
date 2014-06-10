@@ -2540,7 +2540,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
 void qfam_compute_bw(uint32_t family_ct, uint32_t fs_ct, uint32_t fsc_size, uint32_t singleton_ct, uintptr_t indiv_ct, uintptr_t* loadbuf, uint32_t* fs_starts, uint32_t* fss_contents, uint32_t* indiv_to_fss_idx, double* b_arr, double* w_arr) {
 }
 
-int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t* pheno_nm, uintptr_t* founder_info, char* person_ids, uintptr_t max_person_id_len, uintptr_t max_fid_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint64_t* family_list, uint64_t* trio_list, uint32_t family_ct, uintptr_t trio_ct, uint32_t qfam_within, uintptr_t** permute_eligible_ptr, uint32_t** fs_starts_ptr, uint32_t** fss_contents_ptr, uint32_t** indiv_to_fss_idx_ptr, uint32_t* fs_ct_ptr, uint32_t* fsc_size_ptr, uint32_t* singleton_ct_ptr) {
+int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t* pheno_nm, uintptr_t* founder_info, char* person_ids, uintptr_t max_person_id_len, uintptr_t max_fid_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint64_t* family_list, uint64_t* trio_list, uint32_t family_ct, uintptr_t trio_ct, uint32_t qfam_within, uintptr_t** lm_eligible_ptr, uint32_t** fs_starts_ptr, uint32_t** fss_contents_ptr, uint32_t** indiv_to_fss_idx_ptr, uint32_t* fs_ct_ptr, uint32_t* fsc_size_ptr, uint32_t* singleton_ct_ptr) {
   // on top of get_trios_and_families()'s return values, we need the following
   // information for the main qfam() loop:
   // 1. indiv idx -> family/sibship idx array
@@ -2560,7 +2560,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
   char* bufptr;
   char* bufptr2;
   char* bufptr3;
-  uintptr_t* permute_eligible;
+  uintptr_t* lm_eligible;
   uintptr_t* not_in_family;
   uintptr_t* ulptr;
   uintptr_t* ulptr2;
@@ -2576,7 +2576,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
   uint32_t slen;
   uint32_t uii;
   uint32_t ujj;
-  if (wkspace_alloc_ul_checked(&permute_eligible, indiv_ctl * sizeof(intptr_t)) ||
+  if (wkspace_alloc_ul_checked(&lm_eligible, indiv_ctl * sizeof(intptr_t)) ||
       // this is the equivalent of PLINK 1.07's family pointers
       wkspace_alloc_ui_checked(&indiv_to_fss_idx, indiv_ct * sizeof(int32_t)) ||
       // shrink later
@@ -2658,9 +2658,9 @@ int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
   bitfield_andnot(ulptr, ulptr2, unfiltered_indiv_ctl);
   bitfield_andnot_reversed_args(ulptr, pheno_nm, unfiltered_indiv_ctl);
   if (qfam_within) {
-    bitfield_and(ulptr, founder_info, unfiltered_indiv_ctl);
+    bitfield_andnot(ulptr, founder_info, unfiltered_indiv_ctl);
   }
-  collapse_copy_bitarr(unfiltered_indiv_ct, ulptr, indiv_exclude, indiv_ct, permute_eligible);
+  collapse_copy_bitarr(unfiltered_indiv_ct, ulptr, indiv_exclude, indiv_ct, lm_eligible);
   topsize = ulii;
 
   ulii = popcount_longs(not_in_family, unfiltered_indiv_ctl);
@@ -2744,7 +2744,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
     fss_contents[fssc_idx++] = ujj;
     indiv_to_fss_idx[ujj] = family_idx + indiv_idx;
   }
-  *permute_eligible_ptr = permute_eligible;
+  *lm_eligible_ptr = lm_eligible;
   *fs_starts_ptr = fs_starts;
   *fss_contents_ptr = fss_contents;
   *indiv_to_fss_idx_ptr = indiv_to_fss_idx;
@@ -2769,11 +2769,13 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   // LAPACK, since it doesn't support covariates.
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
+  uintptr_t indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
   uint32_t test_type = fam_ip->qfam_modifier & QFAM_TEST;
+  uint32_t qfam_within = test_type & (QFAM_WITHIN1 | QFAM_WITHIN2);
   uint32_t perm_adapt = fam_ip->qfam_modifier & QFAM_PERM;
   uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
   int32_t retval = 0;
-  uintptr_t* permute_eligible;
+  uintptr_t* lm_eligible;
   uint64_t* family_list;
   uint64_t* trio_list;
   uint32_t* trio_error_lookup;
@@ -2786,6 +2788,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t fs_ct;
   uint32_t fsc_size;
   uint32_t singleton_ct;
+  uint32_t lm_ct;
 
   marker_ct -= count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
   if ((!marker_ct) || is_set(chrom_info_ptr->haploid_mask, 0)) {
@@ -2806,23 +2809,37 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     goto qfam_ret_INVALID_CMDLINE;
   }
 #endif
-  if (get_sibship_info(unfiltered_indiv_ct, indiv_exclude, indiv_ct, pheno_nm, founder_info, person_ids, max_person_id_len, max_fid_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, family_list, trio_list, family_ct, trio_ct, (test_type & (QFAM_WITHIN1 | QFAM_WITHIN2)), &permute_eligible, &fs_starts, &fss_contents, &indiv_to_fss_idx, &fs_ct, &fsc_size, &singleton_ct)) {
+  if (get_sibship_info(unfiltered_indiv_ct, indiv_exclude, indiv_ct, pheno_nm, founder_info, person_ids, max_person_id_len, max_fid_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, family_list, trio_list, family_ct, trio_ct, qfam_within, &lm_eligible, &fs_starts, &fss_contents, &indiv_to_fss_idx, &fs_ct, &fsc_size, &singleton_ct)) {
     goto qfam_ret_NOMEM;
+  }
+  lm_ct = popcount_longs(lm_eligible, indiv_ctl);
+  if (fs_ct + singleton_ct < 2) {
+    logprint("Error: Not enough families for QFAM test.\n");
+    goto qfam_ret_INVALID_CMDLINE;
+  } else if (lm_ct < 2) {
+    LOGPRINTF("Error: Not enough eligible %ss for QFAM test.\n", qfam_within? "nonfounder" : "sample");
+    goto qfam_ret_INVALID_CMDLINE;
   }
 
   outname_end = memcpya(outname_end, ".qfam.", 6);
   if (test_type == QFAM_WITHIN1) {
     outname_end = memcpyb(outname_end, "within", 7);  
-  } else if (test_type == QFAM_BETWEEN) {
-    outname_end = memcpyb(outname_end, "between", 8);  
   } else if (test_type == QFAM_WITHIN2) {
     outname_end = memcpyb(outname_end, "parents", 8);
-  } else {
+  } else if (test_type == QFAM_TOTAL) {
     outname_end = memcpyb(outname_end, "total", 6);
+  } else {
+    outname_end = memcpyb(outname_end, "between", 8);  
   }
   if (fopen_checked(&outfile, outname, "w")) {
     goto qfam_ret_OPEN_FAIL;
   }
+
+  LOGPRINTFWW("--qfam%s: Permuting %u families, and including %u %s in linear regression.\n", (test_type == QFAM_WITHIN1)? "" : ((test_type == QFAM_WITHIN2)? "-parents" : ((test_type == QFAM_TOTAL)? "-total" : "-between")), fs_ct + singleton_ct, lm_ct, g_species_plural);
+  // ----- begin main loop -----
+  fputs("[generating permutations]", stdout);
+  putchar('\n');
+  exit(1);
 
   if (fclose_null(&outfile)) {
     goto qfam_ret_WRITE_FAIL;
