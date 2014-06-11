@@ -880,7 +880,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
       error_table_ptr = mendel_error_table_x;
     }
     if (calc_mendel) {
-      chrom_name_ptr = chrom_name_buf5w4write(chrom_name_buf, chrom_info_ptr, uii, zero_extra_chroms, &chrom_name_len);
+      chrom_name_ptr = chrom_name_buf5w4write(chrom_name_buf, chrom_info_ptr, chrom_idx, zero_extra_chroms, &chrom_name_len);
     }
     if (uii != marker_uidx) {
       marker_uidx = uii;
