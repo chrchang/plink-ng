@@ -5768,7 +5768,7 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
     }
 #ifndef __LP64__
     if (max_block_size > 65536) {
-      logprint("\nError: 32-bit --blocks cannot analyze potential blocks with more than 65536\nmarkers.  Use a 64-bit PLINK build or a smaller --ld-window-kb value.\n");
+      logprint("\nError: 32-bit --blocks cannot analyze potential blocks with more than 65536\nmarkers.  Use a 64-bit PLINK build or a smaller --blocks-window-kb value.\n");
       goto haploview_blocks_ret_INVALID_CMDLINE;
     }
 #endif

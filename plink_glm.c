@@ -162,6 +162,8 @@ THREAD_RET_TYPE linear_gen_perms_thread(void* arg) {
       do {
         urand = sfmt_genrand_uint32(sfmtp);
       } while (urand < lbound);
+      // er, this modulus operation is really slow.  do we want to use
+      // precomputed magic numbers here?
       urand %= indiv_idx + 1;
       perm_pmajor[indiv_idx] = perm_pmajor[urand];
       perm_pmajor[urand] = *pheno_ptr++;
@@ -4630,20 +4632,16 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       fill_uint_zero(g_perm_attempt_ct, marker_initial_ct);
       if (perm_adapt) {
 	perms_total = apip->max;
-	if (perms_total < perm_batch_size) {
-	  perm_batch_size = apip->max;
-	}
       } else {
 	perms_total = glm_mperm_val;
-	if (perms_total < perm_batch_size) {
-	  perm_batch_size = perms_total;
-	}
+      }
+      if (perms_total < perm_batch_size) {
+	perm_batch_size = perms_total;
       }
       uii = perm_batch_size / CACHELINE_INT32;
       if (!uii) {
 	uii = 1;
-      }
-      if (uii > GLM_BLOCKSIZE / CACHELINE_INT32) {
+      } else if (uii > GLM_BLOCKSIZE / CACHELINE_INT32) {
 	uii = GLM_BLOCKSIZE / CACHELINE_INT32;
       }
       if (max_thread_ct > uii) {

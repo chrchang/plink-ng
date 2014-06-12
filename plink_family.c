@@ -2761,41 +2761,92 @@ int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
   return retval;
 }
 
-int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, Aperm_info* apip, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t hh_exists, Family_info* fam_ip) {
-  logprint("Error: QFAM test is currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
-  /*
+#define QFAM_BLOCKSIZE 1024
+
+// multithread globals
+static uintptr_t* g_loadbuf;
+static uintptr_t* g_lm_eligible;
+static uintptr_t* g_qfam_flip;
+static uint32_t* g_qfam_permute;
+static uint32_t* g_perm_attempt_ct;
+static uint32_t* g_fs_starts;
+static uint32_t* g_fss_contents;
+static uint32_t* g_indiv_to_fss_idx;
+static unsigned char* g_perm_adapt_stop;
+static double* g_maxt_extreme_stat;
+static double* g_orig_1mpval;
+static double* g_pheno_d2;
+static uintptr_t g_cur_perm_ct;
+static uint32_t g_fs_ct;
+static uint32_t g_fsc_size;
+static uint32_t g_singleton_ct;
+static uint32_t g_lm_ct;
+static uint32_t g_family_ct;
+static uint32_t g_perms_done;
+static uint32_t g_first_adapt_check;
+static double g_adaptive_intercept;
+static double g_adaptive_slope;
+static double g_aperm_alpha;
+static double g_adaptive_ci_zt;
+
+int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, Aperm_info* apip, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t hh_exists, uint32_t perm_batch_size, Family_info* fam_ip) {
+  // logprint("Error: QFAM test is currently under development.\n");
+  // return RET_CALC_NOT_YET_SUPPORTED;
   // Fortunately, this can use some of qassoc()'s logic instead of punting to
   // LAPACK, since it doesn't support covariates.
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
+  uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uintptr_t unfiltered_indiv_ctv2 = 2 * ((unfiltered_indiv_ct + BITCT - 1) / BITCT);
   uintptr_t indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t indiv_ctv2 = 2 * indiv_ctl;
   uint32_t test_type = fam_ip->qfam_modifier & QFAM_TEST;
   uint32_t qfam_within = test_type & (QFAM_WITHIN1 | QFAM_WITHIN2);
   uint32_t perm_adapt = fam_ip->qfam_modifier & QFAM_PERM;
   uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
+  uint32_t perm_pass_idx = 0;
   int32_t retval = 0;
-  uintptr_t* lm_eligible;
+  const char qfam_flag_suffixes[][8] = {"within", "parents", "total", "between"};
+  const char* flag_suffix;
+  uintptr_t* loadbuf_raw;
   uint64_t* family_list;
   uint64_t* trio_list;
+  uint32_t* precomputed_mods;
   uint32_t* trio_error_lookup;
-  uint32_t* fs_starts;
-  uint32_t* fss_contents;
-  uint32_t* indiv_to_fss_idx;
   uintptr_t trio_ct;
   uintptr_t max_fid_len;
-  uint32_t family_ct;
-  uint32_t fs_ct;
-  uint32_t fsc_size;
-  uint32_t singleton_ct;
+  uintptr_t fss_ct;
+  uintptr_t fss_ctl;
+  uintptr_t cur_perm_ct;
+  uintptr_t ulii;
+  uintptr_t uljj;
   uint32_t lm_ct;
-
-  marker_ct -= count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
-  if ((!marker_ct) || is_set(chrom_info_ptr->haploid_mask, 0)) {
-    logprint("Warning: Skipping QFAM test since there is no autosomal data.\n");
-    goto qfam_ret_1;
+  uint32_t perms_total;
+  uint32_t uii;
+  uint32_t ujj;
+  if (test_type == QFAM_WITHIN1) {
+    flag_suffix = qfam_flag_suffixes[0];
+  } else if (test_type == QFAM_WITHIN2) {
+    flag_suffix = qfam_flag_suffixes[1];
+  } else if (test_type == QFAM_TOTAL) {
+    flag_suffix = qfam_flag_suffixes[2];
+  } else {
+    flag_suffix = qfam_flag_suffixes[3];
   }
-  retval = get_trios_and_families(unfiltered_indiv_ct, indiv_exclude, indiv_ct, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, NULL, &max_fid_len, NULL, NULL, &family_list, &family_ct, &trio_list, &trio_ct, &trio_error_lookup, 0, multigen);
+
+  uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
+  if (uii) {
+    LOGPRINTF("Excluding %u X/MT/haploid variant%s from QFAM test.\n", uii, (uii == 1)? "" : "s");
+    if (uii == marker_ct) {
+      logprint("Error: No variants remaining for QFAM analysis.\n");
+      goto qfam_ret_INVALID_CMDLINE;
+    }
+    marker_ct -= uii;
+  } else if (is_set(chrom_info_ptr->haploid_mask, 0)) {
+    logprint("Error: QFAM test does not currently support haploid data.\n");
+    goto qfam_ret_INVALID_CMDLINE;
+  }
+  retval = get_trios_and_families(unfiltered_indiv_ct, indiv_exclude, indiv_ct, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, NULL, &max_fid_len, NULL, NULL, &family_list, &g_family_ct, &trio_list, &trio_ct, &trio_error_lookup, 0, multigen);
   if (retval) {
     goto qfam_ret_1;
   }
@@ -2804,42 +2855,125 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   // earlier...
   // (okay, no need to check anyway, but best to document this overflow
   // possibility.)
-  if ((indiv_ct + 2 * family_ct) > 0xffffffffLLU) {
+  if ((indiv_ct + 2 * g_family_ct) > 0xffffffffLLU) {
     logprint("Error: Too many samples and families for QFAM test.\n");
     goto qfam_ret_INVALID_CMDLINE;
   }
 #endif
-  if (get_sibship_info(unfiltered_indiv_ct, indiv_exclude, indiv_ct, pheno_nm, founder_info, person_ids, max_person_id_len, max_fid_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, family_list, trio_list, family_ct, trio_ct, qfam_within, &lm_eligible, &fs_starts, &fss_contents, &indiv_to_fss_idx, &fs_ct, &fsc_size, &singleton_ct)) {
+  if (get_sibship_info(unfiltered_indiv_ct, indiv_exclude, indiv_ct, pheno_nm, founder_info, person_ids, max_person_id_len, max_fid_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, family_list, trio_list, g_family_ct, trio_ct, qfam_within, &g_lm_eligible, &g_fs_starts, &g_fss_contents, &g_indiv_to_fss_idx, &g_fs_ct, &g_fsc_size, &g_singleton_ct)) {
     goto qfam_ret_NOMEM;
   }
-  lm_ct = popcount_longs(lm_eligible, indiv_ctl);
-  if (fs_ct + singleton_ct < 2) {
-    logprint("Error: Not enough families for QFAM test.\n");
+  lm_ct = popcount_longs(g_lm_eligible, indiv_ctl);
+  fss_ct = g_fs_ct + g_singleton_ct;
+  if (fss_ct < 2) {
+    logprint("Error: QFAM test requires at least two families.\n");
     goto qfam_ret_INVALID_CMDLINE;
   } else if (lm_ct < 2) {
-    LOGPRINTF("Error: Not enough eligible %ss for QFAM test.\n", qfam_within? "nonfounder" : "sample");
+    LOGPRINTF("Error: Less than two eligible %ss for QFAM test.\n", qfam_within? "nonfounder" : "sample");
     goto qfam_ret_INVALID_CMDLINE;
   }
+  g_lm_ct = lm_ct;
+  fss_ctl = (fss_ct + BITCT - 1) / BITCT;
 
-  outname_end = memcpya(outname_end, ".qfam.", 6);
-  if (test_type == QFAM_WITHIN1) {
-    outname_end = memcpyb(outname_end, "within", 7);  
-  } else if (test_type == QFAM_WITHIN2) {
-    outname_end = memcpyb(outname_end, "parents", 8);
-  } else if (test_type == QFAM_TOTAL) {
-    outname_end = memcpyb(outname_end, "total", 6);
+  if (perm_adapt) {
+    g_aperm_alpha = apip->alpha;
+    perms_total = apip->max;
+    if (wkspace_alloc_ui_checked(&g_perm_attempt_ct, marker_ct * sizeof(int32_t)) ||
+        wkspace_alloc_uc_checked(&g_perm_adapt_stop, marker_ct)) {
+      goto qfam_ret_NOMEM;
+    }
+    ujj = apip->max;
+    for (uii = 0; uii < marker_ct; uii++) {
+      g_perm_attempt_ct[uii] = ujj;
+    }
+    fill_ulong_zero((uintptr_t*)g_perm_adapt_stop, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
+    g_adaptive_ci_zt = ltqnorm(1 - apip->beta / (2.0 * ((intptr_t)marker_ct)));
+    if (apip->min < apip->init_interval) {
+      g_first_adapt_check = (int32_t)(apip->init_interval);
+    } else {
+      g_first_adapt_check = apip->min;
+    }
+    g_adaptive_intercept = apip->init_interval;
+    g_adaptive_slope = apip->interval_slope;
   } else {
-    outname_end = memcpyb(outname_end, "between", 8);  
+    perms_total = fam_ip->qfam_mperm_val;
+    if (wkspace_alloc_d_checked(&g_maxt_extreme_stat, perms_total)) {
+      goto qfam_ret_NOMEM;
+    }
+    // 1 - pval, since df varies across markers
+    fill_double_zero(g_maxt_extreme_stat, perms_total);
   }
+  outname_end = memcpya(outname_end, ".qfam.", 6);
+  outname_end = strcpya(outname_end, flag_suffix);
+  *outname_end = '\0';
+  if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctv2 * sizeof(intptr_t))) {
+    goto qfam_ret_NOMEM;
+  }
+  loadbuf_raw[unfiltered_indiv_ctv2 - 2] = 0;
+  loadbuf_raw[unfiltered_indiv_ctv2 - 1] = 0;
   if (fopen_checked(&outfile, outname, "w")) {
     goto qfam_ret_OPEN_FAIL;
   }
+  if (!perm_batch_size) {
+    perm_batch_size = 512;
+  }
+  if (perms_total < perm_batch_size) {
+    perm_batch_size = perms_total;
+  }
+  if (wkspace_alloc_ul_checked(&g_loadbuf, QFAM_BLOCKSIZE * indiv_ctv2 * sizeof(intptr_t)) ||
+      wkspace_alloc_d_checked(&g_orig_1mpval, marker_ct * sizeof(double)) ||
+      wkspace_alloc_ui_checked(&g_qfam_permute, perm_batch_size * fss_ct * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&g_qfam_flip, perm_batch_size * fss_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ui_checked(&precomputed_mods, (fss_ct - 1) * sizeof(int32_t))) {
+    goto qfam_ret_NOMEM;
+  }
+  g_pheno_d2 = (double*)alloc_and_init_collapsed_arr_incl((char*)pheno_d, sizeof(double), unfiltered_indiv_ct, g_lm_eligible, lm_ct, 1);
+  if (!g_pheno_d2) {
+    goto qfam_ret_NOMEM;
+  }
+  precompute_mods(fss_ct, precomputed_mods);
 
-  LOGPRINTFWW("--qfam%s: Permuting %u families, and including %u %s in linear regression.\n", (test_type == QFAM_WITHIN1)? "" : ((test_type == QFAM_WITHIN2)? "-parents" : ((test_type == QFAM_TOTAL)? "-total" : "-between")), fs_ct + singleton_ct, lm_ct, g_species_plural);
+  LOGPRINTFWW("--qfam-%s: Permuting %" PRIuPTR " families/singletons, and including %u %s in linear regression.\n", flag_suffix, fss_ct, lm_ct, g_species_plural);
+  sprintf(logbuf, "Writing report to %s ... ", outname);
+  wordwrap(logbuf, 25); // strlen("[generating permutations]")
+  logprintb();
+  fflush(stdout);
+  if (fputs_checked("CHR\tSNP\tBP\tA1\tNIND\tBETA\tRAW_P\n", outfile)) {
+    goto qfam_ret_WRITE_FAIL;
+  }
+  g_perms_done = 0;
+
   // ----- begin main loop -----
   fputs("[generating permutations]", stdout);
-  putchar('\n');
-  exit(1);
+  cur_perm_ct = perm_batch_size;
+  if (perm_adapt) {
+    if (perm_pass_idx) {
+      while (g_first_adapt_check <= g_perms_done) {
+        g_first_adapt_check += (int32_t)(apip->init_interval + ((int32_t)g_first_adapt_check) * apip->interval_slope);
+      }
+    }
+    if (g_perms_done < perm_batch_size) {
+      // reduce adaptive overshoot early on
+      ulii = perm_batch_size;
+      uljj = (intptr_t)(apip->init_interval);
+      uljj = MAXV(uljj, apip->min);
+      uljj *= 2;
+      uljj = MAXV(64, uljj);
+      while (ulii >= (uljj << perm_pass_idx)) {
+	ulii >>= 1;
+      }
+      cur_perm_ct = ulii - g_perms_done;
+    }
+  }
+  if (cur_perm_ct > perms_total - g_perms_done) {
+    cur_perm_ct = perms_total - g_perms_done;
+  }
+  g_cur_perm_ct = cur_perm_ct;
+  // I'm guessing the batch size is too small for multithreading to really pay
+  // off?
+  for (ulii = 0; ulii < cur_perm_ct; ulii++) {
+    
+  }
 
   if (fclose_null(&outfile)) {
     goto qfam_ret_WRITE_FAIL;
@@ -2877,5 +3011,4 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   wkspace_reset(wkspace_mark);
   fclose_cond(outfile);
   return retval;
-  */
 }

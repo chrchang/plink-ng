@@ -101,7 +101,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (11 Jun 2014)";
+  " (12 Jun 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   //  " " (don't actually want this when version number has a trailing letter)
@@ -1960,7 +1960,16 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
 #ifndef NOLAPACK
       if ((calculation_type & CALC_QFAM) && pheno_d) {
-        retval = qfam(threads, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_pos, marker_allele_ptrs, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, apip, pheno_nm, pheno_d, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, zero_extra_chroms, chrom_info_ptr, hh_exists, fam_ip);
+	if (covar_ct) {
+	  logprint("Warning: The QFAM test ignores covariates.\n");
+	}
+	if (cluster_ct) {
+	  logprint("Warning: Clusters have no effect on the QFAM permutation test.\n");
+	}
+	if (mtest_adjust && (fam_ip->qfam_modifier & QFAM_PERM)) {
+	  logprint("Warning: The QFAM test does not support --adjust.  Use max(T) permutation to\nobtain multiple-testing corrected p-values.\n");
+	}
+        retval = qfam(threads, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_pos, marker_allele_ptrs, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, apip, pheno_nm, pheno_d, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, zero_extra_chroms, chrom_info_ptr, hh_exists, perm_batch_size, fam_ip);
         if (retval) {
 	  goto plink_ret_1;
 	}

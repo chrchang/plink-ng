@@ -6379,6 +6379,13 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     if (model_adapt_nst) {
       g_aperm_alpha = apip->alpha;
       perms_total = apip->max;
+      if (apip->min < apip->init_interval) {
+	g_first_adapt_check = (int32_t)(apip->init_interval);
+      } else {
+	g_first_adapt_check = apip->min;
+      }
+      g_adaptive_intercept = apip->init_interval;
+      g_adaptive_slope = apip->interval_slope;
     }
   }
   if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
@@ -6685,14 +6692,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	  uii += (int32_t)(ujj + ((int32_t)uii) * ukk);
 	}
 	g_first_adapt_check = uii;
-      } else {
-	if (apip->min < apip->init_interval) {
-	  g_first_adapt_check = (int32_t)(apip->init_interval);
-	} else {
-	  g_first_adapt_check = apip->min;
-	}
-	g_adaptive_intercept = apip->init_interval;
-	g_adaptive_slope = apip->interval_slope;
       }
       perm_vec_ct = wkspace_left / (pheno_nm_ctl2 * sizeof(intptr_t));
     } else {
@@ -8090,6 +8089,14 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	g_perm_attempt_ct[uii] = ujj;
       }
       fill_ulong_zero((uintptr_t*)g_perm_adapt_stop, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
+      g_adaptive_ci_zt = ltqnorm(1 - apip->beta / (2.0 * ((intptr_t)marker_ct)));
+      if (apip->min < apip->init_interval) {
+	g_first_adapt_check = (int32_t)(apip->init_interval);
+      } else {
+	g_first_adapt_check = apip->min;
+      }
+      g_adaptive_intercept = apip->init_interval;
+      g_adaptive_slope = apip->interval_slope;
     }
   }
   outname_end2 = memcpyb(outname_end, ".qassoc", 8);
@@ -8134,21 +8141,15 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     goto qassoc_ret_WRITE_FAIL;
   }
   if (do_perms) {
-    if (perm_batch_size) {
-      uii = perm_batch_size;
-    } else {
-      uii = 512;
+    if (!perm_batch_size) {
+      // this seems to work better than pregenerating as many permutations as
+      // possible.  It might be best to auto-tune this, but we need performance
+      // data across a wide variety of machines to do this intelligently.
+      perm_batch_size = 512;
     }
-    if (uii > perms_total) {
-      uii = perms_total;
-    }
-    uii /= CACHELINE_DBL;
+    uii = MINV(perm_batch_size, perms_total) / CACHELINE_DBL;
     if (max_thread_ct > uii) {
-      if (uii) {
-        max_thread_ct = uii;
-      } else {
-	max_thread_ct = 1;
-      }
+      max_thread_ct = MAXV(uii, 1);
     }
     if (cluster_starts) {
       retval = cluster_include_and_reindex(unfiltered_indiv_ct, pheno_nm, 1, NULL, pheno_nm_ct, 0, cluster_ct, cluster_map, cluster_starts, &g_cluster_ct, &g_cluster_map, &g_cluster_starts, NULL, NULL);
@@ -8181,7 +8182,6 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       goto qassoc_ret_NOMEM;
     }
   }
-  g_adaptive_ci_zt = ltqnorm(1 - apip->beta / (2.0 * ((intptr_t)marker_ct)));
   if (wkspace_alloc_ul_checked(&g_loadbuf, MODEL_BLOCKSIZE * pheno_nm_ctv2 * sizeof(intptr_t)) ||
       wkspace_alloc_d_checked(&g_orig_1mpval, marker_ct * sizeof(double)) ||
       wkspace_alloc_ui_checked(&marker_idx_to_uidx, marker_ct * sizeof(int32_t)) ||
@@ -8227,14 +8227,6 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	  // APERM_MAX prevents infinite loop here
 	  g_first_adapt_check += (int32_t)(apip->init_interval + ((int32_t)g_first_adapt_check) * apip->interval_slope);
 	}
-      } else {
-	if (apip->min < apip->init_interval) {
-	  g_first_adapt_check = (int32_t)(apip->init_interval);
-	} else {
-	  g_first_adapt_check = apip->min;
-	}
-	g_adaptive_intercept = apip->init_interval;
-	g_adaptive_slope = apip->interval_slope;
       }
     }
     // g_perm_vec_ct memory allocation dependencies:
@@ -8249,14 +8241,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     //     g_qresultbuf: MODEL_BLOCKSIZE * (8 * perm_vec_ct, CL-aligned) * 3
     //   max(T), Lin:
     //     g_qresultbuf: MODEL_BLOCKSIZE * (8 * perm_vec_ct, CL-aligned) * 6
-    if (perm_batch_size) {
-      g_perm_vec_ct = perm_batch_size;
-    } else {
-      // this seems to work better than pregenerating as many permutations as
-      // possible.  It might be best to auto-tune this, but we need performance
-      // data across a wide variety of machines to do this intelligently.
-      g_perm_vec_ct = 512;
-    }
+    g_perm_vec_ct = perm_batch_size;
     if (g_perm_vec_ct > perms_total - g_perms_done) {
       g_perm_vec_ct = perms_total - g_perms_done;
     }
