@@ -162,8 +162,8 @@ THREAD_RET_TYPE linear_gen_perms_thread(void* arg) {
       do {
         urand = sfmt_genrand_uint32(sfmtp);
       } while (urand < lbound);
-      // er, this modulus operation is really slow.  do we want to use
-      // precomputed magic numbers here?
+      // er, this modulus operation is slow.  but doesn't seem to be worthwhile
+      // to use magic numbers here.
       urand %= indiv_idx + 1;
       perm_pmajor[indiv_idx] = perm_pmajor[urand];
       perm_pmajor[urand] = *pheno_ptr++;

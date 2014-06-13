@@ -15101,9 +15101,15 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     if (!feof(mergelistfile)) {
       goto merge_datasets_ret_READ_FAIL;
     }
-    if (merge_ct < 2) {
-      sprintf(logbuf, "Error: %s --merge-list file%s specified.\n", merge_ct? "Only one" : "No", merge_ct? "" : "s");
-      goto merge_datasets_ret_INVALID_FORMAT_2;
+    if (!merge_ct) {
+      logprint("Error: --merge-list file is empty, and no other input fileset was specified.\n");
+      goto merge_datasets_ret_INVALID_FORMAT;
+    } else if (merge_ct == 1) {
+      if (famname[0] == '\0') {
+        logprint("Warning: --merge-list file contains only one entry.\n");
+      } else {
+        logprint("Warning: --merge-list file is empty.\n");
+      }
     }
 #ifndef __LP64__
     if (ullxx > 0x7fffffff) {

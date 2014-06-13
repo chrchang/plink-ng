@@ -2761,6 +2761,25 @@ int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
   return retval;
 }
 
+void uint32_permute(uint32_t* perm_arr, uint32_t* precomputed_mods, sfmt_t* sfmtp, uint32_t ct) {
+  // Sets perm_arr[0..(ct-1)] to a random permutation of 0..(ct-1).  Assumes
+  // ct >= 2.
+  // Probably belongs in plink_common.
+  uint32_t write_idx;
+  uint32_t lbound;
+  uint32_t urand;
+  perm_arr[0] = 0;
+  for (write_idx = 1; write_idx < ct; write_idx++) {
+    lbound = *precomputed_mods++;
+    do {
+      urand = sfmt_genrand_uint32(sfmtp);
+    } while (urand < lbound);
+    urand %= write_idx + 1;
+    perm_arr[write_idx] = perm_arr[urand];
+    perm_arr[urand] = write_idx;
+  }
+}
+
 #define QFAM_BLOCKSIZE 1024
 
 // multithread globals
@@ -2970,9 +2989,9 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   }
   g_cur_perm_ct = cur_perm_ct;
   // I'm guessing the batch size is too small for multithreading to really pay
-  // off?
+  // off.
   for (ulii = 0; ulii < cur_perm_ct; ulii++) {
-    
+    uint32_permute(&(g_qfam_permute[ulii * fss_ct]), &(precomputed_mods[-1]), &sfmt, fss_ct);
   }
 
   if (fclose_null(&outfile)) {
