@@ -542,6 +542,7 @@
 #define CACHELINE_DBL (CACHELINE / sizeof(double))
 
 #define CACHEALIGN(val) ((val + (CACHELINE - 1)) & (~(CACHELINE - 1)))
+#define CACHEALIGN_WORD(val) ((val + (CACHELINE_WORD - 1)) & (~(CACHELINE_WORD - 1)))
 #define CACHEALIGN_DBL(val) ((val + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
 #define MAXV(aa, bb) (((bb) > (aa))? (bb) : (aa))
 #define MINV(aa, bb) (((aa) > (bb))? (bb) : (aa))

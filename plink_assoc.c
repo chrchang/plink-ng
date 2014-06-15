@@ -3117,7 +3117,7 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
 	if (++pidx == next_adapt_check - pidx_offset) {
 	  uii = success_2start + success_2incr;
 	  if (uii) {
-	    pval = ((double)((int64_t)uii + 2)) / ((double)(2 * ((int32_t)next_adapt_check + 1)));
+	    pval = ((double)((int32_t)uii + 2)) / ((double)(2 * ((int32_t)next_adapt_check + 1)));
 	    dxx = adaptive_ci_zt * sqrt(pval * (1 - pval) / ((int32_t)next_adapt_check));
 	    dyy = pval - dxx; // lower bound
 	    dzz = pval + dxx; // upper bound
@@ -3704,7 +3704,7 @@ THREAD_RET_TYPE qassoc_adapt_thread(void* arg) {
 	if (++pidx == next_adapt_check - pidx_offset) {
 	  uii = success_2start + success_2incr;
 	  if (uii) {
-	    sval = ((double)((int64_t)uii + 2)) / ((double)(2 * ((int32_t)next_adapt_check + 1)));
+	    sval = ((double)((int32_t)uii + 2)) / ((double)(2 * ((int32_t)next_adapt_check + 1)));
 	    dxx = adaptive_ci_zt * sqrt(sval * (1 - sval) / ((int32_t)next_adapt_check));
 	    dyy = sval - dxx; // lower bound
 	    dzz = sval + dxx; // upper bound
@@ -3878,7 +3878,7 @@ THREAD_RET_TYPE qassoc_adapt_lin_thread(void* arg) {
 	if (++pidx == next_adapt_check - pidx_offset) {
 	  uii = success_2start + success_2incr;
 	  if (uii) {
-	    sval = ((double)((int64_t)uii + 2)) / ((double)(2 * ((int32_t)next_adapt_check + 1)));
+	    sval = ((double)((int32_t)uii + 2)) / ((double)(2 * ((int32_t)next_adapt_check + 1)));
 	    dxx = adaptive_ci_zt * sqrt(sval * (1 - sval) / ((int32_t)next_adapt_check));
 	    dyy = sval - dxx;
 	    dzz = sval + dxx;
@@ -4441,7 +4441,7 @@ THREAD_RET_TYPE model_adapt_domrec_thread(void* arg) {
 	if (++pidx == next_adapt_check - pidx_offset) {
 	  uii = success_2start + success_2incr;
 	  if (uii) {
-	    pval = ((double)((int64_t)uii + 2)) / ((double)(2 * ((int32_t)next_adapt_check + 1)));
+	    pval = ((double)((int32_t)uii + 2)) / ((double)(2 * ((int32_t)next_adapt_check + 1)));
 	    dxx = adaptive_ci_zt * sqrt(pval * (1 - pval) / ((int32_t)next_adapt_check));
 	    dyy = pval - dxx; // lower bound
 	    dzz = pval + dxx; // upper bound
@@ -4825,7 +4825,7 @@ THREAD_RET_TYPE model_adapt_trend_thread(void* arg) {
 	if (++pidx == next_adapt_check - pidx_offset) {
 	  uii = success_2start + success_2incr;
 	  if (uii) {
-	    pval = ((double)((int64_t)uii + 2)) / ((double)(2 * ((int32_t)next_adapt_check + 1)));
+	    pval = ((double)((int32_t)uii + 2)) / ((double)(2 * ((int32_t)next_adapt_check + 1)));
 	    dxx = adaptive_ci_zt * sqrt(pval * (1 - pval) / ((int32_t)next_adapt_check));
 	    dyy = pval - dxx; // lower bound
 	    dzz = pval + dxx; // upper bound
@@ -5168,7 +5168,7 @@ THREAD_RET_TYPE model_adapt_gen_thread(void* arg) {
 	if (++pidx == next_adapt_check - pidx_offset) {
 	  uii = success_2start + success_2incr;
 	  if (uii) {
-	    pval = ((double)((int64_t)uii + 2)) / ((double)(2 * ((int32_t)next_adapt_check + 1)));
+	    pval = ((double)((int32_t)uii + 2)) / ((double)(2 * ((int32_t)next_adapt_check + 1)));
 	    dxx = adaptive_ci_zt * sqrt(pval * (1 - pval) / ((int32_t)next_adapt_check));
 	    dyy = pval - dxx; // lower bound
 	    dzz = pval + dxx; // upper bound
@@ -5597,7 +5597,7 @@ THREAD_RET_TYPE model_adapt_best_thread(void* arg) {
 	if (++pidx == next_adapt_check - pidx_offset) {
 	  uii = success_2start + success_2incr;
 	  if (uii) {
-	    pval = ((double)((int64_t)uii + 2)) / ((double)(2 * ((int32_t)next_adapt_check + 1)));
+	    pval = ((double)((int32_t)uii + 2)) / ((double)(2 * ((int32_t)next_adapt_check + 1)));
 	    dxx = adaptive_ci_zt * sqrt(pval * (1 - pval) / ((int32_t)next_adapt_check));
 	    dyy = pval - dxx; // lower bound
 	    dzz = pval + dxx; // upper bound
@@ -9738,7 +9738,7 @@ THREAD_RET_TYPE testmiss_adapt_thread(void* arg) {
 	if (++pidx == next_adapt_check - pidx_offset) {
 	  uii = success_2start + success_2incr;
 	  if (uii) {
-	    pval = ((double)((int64_t)uii + 2)) / ((double)(2 * ((int32_t)next_adapt_check + 1)));
+	    pval = ((double)((int32_t)uii + 2)) / ((double)(2 * ((int32_t)next_adapt_check + 1)));
 	    dxx = adaptive_ci_zt * sqrt(pval * (1 - pval) / ((int32_t)next_adapt_check));
 	    dyy = pval - dxx;
 	    dzz = pval + dxx;
