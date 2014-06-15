@@ -3014,6 +3014,7 @@ static uintptr_t* g_qfam_flip;
 static uintptr_t* g_nm_fss;
 static uintptr_t* g_nm_lm;
 static uint32_t* g_qfam_permute;
+static uint32_t* g_permute_edit;
 static uint32_t* g_perm_2success_ct;
 static uint32_t* g_perm_attempt_ct;
 static uint32_t* g_fs_starts;
@@ -3063,6 +3064,7 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
   double* qfam_w = &(g_qfam_w[tidx * CACHEALIGN_DBL(lm_ct)]);
   double* pheno_d2 = g_pheno_d2;
   uint32_t* qfam_permute = only_within? g_dummy_perm : g_qfam_permute;
+  uint32_t* permute_edit_buf = only_within? NULL : (&(g_permute_edit[tidx * CACHEALIGN_INT32(fss_ct)]));
   uint32_t* perm_2success_ct = g_perm_2success_ct;
   uint32_t* perm_attempt_ct = g_perm_attempt_ct;
   uint32_t* fs_starts = g_fs_starts;
@@ -3102,8 +3104,12 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
   uint32_t success_2start;
   uint32_t success_2incr;
   uint32_t next_adapt_check;
+  uint32_t cur_fss_ct;
   uint32_t nind;
+  uint32_t orig_fss_idx;
+  uint32_t new_fss_idx;
   uint32_t uii;
+  uint32_t ujj;
   while (1) {
     if (g_block_size <= qfam_thread_ct) {
       if (g_block_size <= tidx) {
@@ -3129,10 +3135,35 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
       stat_high = orig_stat[marker_idx] + EPSILON;
       stat_low = orig_stat[marker_idx] - EPSILON;
       qfam_compute_bw(&(loadbuf[indiv_ctl2 * marker_bidx]), indiv_ct, fs_starts, fss_contents, indiv_to_fss_idx, lm_eligible, lm_within2_founder, family_ct, fs_ct, singleton_ct, lm_ct, nm_fss, nm_lm, pheno_d2, qt_sum_all, qt_ssq_all, qfam_b, qfam_w, &qt_sum, &qt_ssq);
+      cur_fss_ct = popcount_longs(nm_fss, fss_ctl);
       nind = popcount_longs(nm_lm, lm_ctl);
       nind_recip = 1.0 / ((double)((int32_t)nind));
       perm_ptr = qfam_permute;
       for (pidx = 0; pidx < cur_perm_ct;) {
+	if ((!only_within) && (cur_fss_ct != fss_ct)) {
+	  memcpy(permute_edit_buf, perm_ptr, fss_ct * sizeof(int32_t));
+	  for (orig_fss_idx = 0, uii = 0; uii < cur_fss_ct; orig_fss_idx++, uii++) {
+	    // Necessary to edit permutation so that nonmissing families are
+	    // mapped to nonmissing families.  See PLINK 1.07 qfam.cpp.
+	    next_set_unsafe_ck(nm_fss, &orig_fss_idx);
+	    new_fss_idx = permute_edit_buf[orig_fss_idx];
+	    if (is_set(nm_fss, new_fss_idx)) {
+	      continue;
+	    }
+	    // Walk through permutation cycle, swapping until a nonmissing
+	    // family is found.
+	    while (1) {
+	      ujj = permute_edit_buf[new_fss_idx];
+	      permute_edit_buf[new_fss_idx] = new_fss_idx;
+	      if (is_set(nm_fss, ujj)) {
+		break;
+	      }
+	      new_fss_idx = ujj;
+	    }
+	    permute_edit_buf[orig_fss_idx] = ujj;
+	  }
+	  perm_ptr = permute_edit_buf;
+	}
 	if (!qfam_regress(test_type, nind, indiv_to_fss_idx, lm_eligible, nm_lm, pheno_d2, qfam_b, qfam_w, perm_ptr, &(qfam_flip[pidx * fss_ctl]), nind_recip, qt_sum, qt_ssq, &beta, &tstat)) {
 	  if (tstat > stat_high) {
 	    success_2incr += 2;
@@ -3160,7 +3191,7 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
 	  next_adapt_check += (int32_t)(adaptive_intercept + ((int32_t)next_adapt_check) * adaptive_slope);
 	}
 	if (!only_within) {
-	  perm_ptr = &(perm_ptr[fss_ct]);
+	  perm_ptr = &(qfam_permute[fss_ct * pidx]);
 	}
       }
       perm_2success_ct[marker_idx] += success_2incr;
@@ -3192,6 +3223,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t perm_adapt = fam_ip->qfam_modifier & QFAM_PERM;
   uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
   uint32_t only_within = (test_type & (QFAM_WITHIN1 | QFAM_WITHIN2))? 1 : 0;
+  uint32_t perm_count = fam_ip->qfam_modifier & QFAM_PERM_COUNT;
   uint32_t perms_done = 0;
   uint32_t chrom_idx = 0;
   uint32_t qfam_thread_ct = g_thread_ct;
@@ -3235,6 +3267,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uintptr_t cur_perm_ct;
   uintptr_t marker_unstopped_ct;
   uintptr_t marker_uidx;
+  uintptr_t marker_uidx_cur;
   uintptr_t marker_idx_base;
   uintptr_t marker_idx;
   uintptr_t marker_idx2_base;
@@ -3384,7 +3417,8 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   }
   ulii = CACHELINE * ((uintptr_t)qfam_thread_ct);
   if (!only_within) {
-    if (wkspace_alloc_ui_checked(&g_qfam_permute, perm_batch_size * fss_ct * sizeof(intptr_t))) {
+    if (wkspace_alloc_ui_checked(&g_qfam_permute, perm_batch_size * fss_ct * sizeof(intptr_t)) ||
+        wkspace_alloc_ui_checked(&g_permute_edit, ((fss_ct + CACHELINE_INT32 - 1) / CACHELINE_INT32) * ulii)) {
       goto qfam_ret_NOMEM;
     }
   }
@@ -3520,24 +3554,24 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	orig_stat_ptr = &(g_orig_stat[marker_idx_base]);
 	chrom_end = 0;
 	for (block_idx = 0; block_idx < block_size; block_idx++) {
-	  marker_uidx = mu_table[block_idx];
-	  if (marker_uidx >= chrom_end) {
+	  marker_uidx_cur = mu_table[block_idx];
+	  if (marker_uidx_cur >= chrom_end) {
 	    // note that chrom_fo_idx/chrom_end state actually needs to be
-	    // restored at the end of this loop.  fortunately, that automatically
-	    // happens.
-	    chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx);
+	    // restored at the end of this loop.  fortunately, that
+	    // automatically happens.
+	    chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx_cur);
 	    chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	    chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
 	    chrom_name_ptr = chrom_name_buf5w4write(chrom_name_buf, chrom_info_ptr, chrom_idx, zero_extra_chroms, &chrom_name_len);
 	  }
 	  bufptr = memcpyax(tbuf, chrom_name_ptr, chrom_name_len, ' ');
-	  bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), bufptr);
+	  bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx_cur * max_marker_id_len]), bufptr);
 	  *bufptr++ = ' ';
-	  bufptr = uint32_writew10x(bufptr, marker_pos[marker_uidx], ' ');
+	  bufptr = uint32_writew10x(bufptr, marker_pos[marker_uidx_cur], ' ');
 	  if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
 	    goto qfam_ret_WRITE_FAIL;
 	  }
-	  fputs_w4(marker_allele_ptrs[marker_uidx * 2], outfile);
+	  fputs_w4(marker_allele_ptrs[marker_uidx_cur * 2], outfile);
 	  loadbuf_ptr = &(g_loadbuf[block_idx * indiv_ctl2]);
 	  qfam_compute_bw(loadbuf_ptr, indiv_ct, fs_starts, fss_contents, indiv_to_fss_idx, lm_eligible, lm_within2_founder, family_ct, fs_ct, singleton_ct, lm_ct, nm_fss, nm_lm, pheno_d2, qt_sum_all, qt_ssq_all, qfam_b, qfam_w, &qt_sum, &qt_ssq);
 	  nind = popcount_longs(nm_lm, lm_ctl);
@@ -3633,13 +3667,18 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     if (g_orig_stat[marker_idx] == -9) {
       bufptr = memcpya(bufptr, "          NA           NA\n", 26);
     } else {
-      uii = g_perm_2success_ct[marker_idx] + 2;
+      uii = g_perm_2success_ct[marker_idx];
       if (g_perm_attempt_ct) {
 	ujj = g_perm_attempt_ct[marker_idx];
       } else {
 	ujj = perms_total;
       }
-      bufptr = double_g_writewx4(bufptr, ((double)uii) / ((double)(2 * (ujj + 1))), 12);
+      if (!perm_count) {
+        dxx = ((double)(uii + 2)) / ((double)(2 * (ujj + 1)));
+      } else {
+	dxx = ((double)uii) * 0.5;
+      }
+      bufptr = double_g_writewx4(bufptr, dxx, 12);
       bufptr = memseta(bufptr, 32, 3);
       bufptr = uint32_writew10x(bufptr, ujj, '\n');
     }
