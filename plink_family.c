@@ -2954,39 +2954,56 @@ uint32_t qfam_regress(uint32_t test_type, uint32_t nind, uint32_t* indiv_to_fss_
   double beta;
   double dxx;
   uint32_t fss_idx;
-  while (1) {
-    next_set_unsafe_ck(lm_eligible, &indiv_uidx);
-    if (!is_set(nm_lm, indiv_idx)) {
-      indiv_uidx++;
-      indiv_idx++;
-      continue;
-    }
-    fss_idx = qfam_permute[indiv_to_fss_idx[indiv_uidx]];
-    if (test_type == QFAM_TOTAL) {
-      cur_geno = qfam_b[fss_idx];
-      dxx = qfam_w[indiv_idx];
-      if (is_set(qfam_flip, fss_idx)) {
-	cur_geno -= dxx;
-      } else {
-	cur_geno += dxx;
+  if (test_type & (QFAM_WITHIN1 | QFAM_WITHIN2)) {
+    while (1) {
+      next_set_unsafe_ck(lm_eligible, &indiv_uidx);
+      if (!is_set(nm_lm, indiv_idx)) {
+	indiv_uidx++;
+	indiv_idx++;
+	continue;
       }
-    } else if (test_type != QFAM_BETWEEN) {
+      fss_idx = indiv_to_fss_idx[indiv_uidx];
       if (is_set(qfam_flip, fss_idx)) {
 	cur_geno = -qfam_w[indiv_idx];
       } else {
 	cur_geno = qfam_w[indiv_idx];
       }
-    } else {
+      geno_sum += cur_geno;
+      geno_ssq += cur_geno * cur_geno;
+      qt_g_prod += cur_geno * pheno_d2[indiv_idx];
+      if (++indiv_idx2 == nind) {
+	break;
+      }
+      indiv_uidx++;
+      indiv_idx++;
+    }
+  } else {
+    while (1) {
+      next_set_unsafe_ck(lm_eligible, &indiv_uidx);
+      if (!is_set(nm_lm, indiv_idx)) {
+	indiv_uidx++;
+	indiv_idx++;
+	continue;
+      }
+      fss_idx = qfam_permute[indiv_to_fss_idx[indiv_uidx]];
       cur_geno = qfam_b[fss_idx];
+      if (test_type == QFAM_TOTAL) {
+	dxx = qfam_w[indiv_idx];
+	if (is_set(qfam_flip, fss_idx)) {
+	  cur_geno -= dxx;
+	} else {
+	  cur_geno += dxx;
+	}
+      }
+      geno_sum += cur_geno;
+      geno_ssq += cur_geno * cur_geno;
+      qt_g_prod += cur_geno * pheno_d2[indiv_idx];
+      if (++indiv_idx2 == nind) {
+	break;
+      }
+      indiv_uidx++;
+      indiv_idx++;
     }
-    geno_sum += cur_geno;
-    geno_ssq += cur_geno * cur_geno;
-    qt_g_prod += cur_geno * pheno_d2[indiv_idx];
-    if (++indiv_idx2 == nind) {
-      break;
-    }
-    indiv_uidx++;
-    indiv_idx++;
   }
   qt_mean = qt_sum * nind_recip;
   geno_mean = geno_sum * nind_recip;
@@ -3020,7 +3037,6 @@ static uint32_t* g_perm_attempt_ct;
 static uint32_t* g_fs_starts;
 static uint32_t* g_fss_contents;
 static uint32_t* g_indiv_to_fss_idx;
-static uint32_t* g_dummy_perm;
 static unsigned char* g_perm_adapt_stop;
 static uint32_t g_adapt_m_table[MODEL_BLOCKSIZE];
 static double* g_orig_stat;
@@ -3063,7 +3079,7 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
   double* qfam_b = &(g_qfam_b[tidx * CACHEALIGN_DBL(fss_ct)]);
   double* qfam_w = &(g_qfam_w[tidx * CACHEALIGN_DBL(lm_ct)]);
   double* pheno_d2 = g_pheno_d2;
-  uint32_t* qfam_permute = only_within? g_dummy_perm : g_qfam_permute;
+  uint32_t* qfam_permute = only_within? NULL : g_qfam_permute;
   uint32_t* permute_edit_buf = only_within? NULL : (&(g_permute_edit[tidx * CACHEALIGN_INT32(fss_ct)]));
   uint32_t* perm_2success_ct = g_perm_2success_ct;
   uint32_t* perm_attempt_ct = g_perm_attempt_ct;
@@ -3259,6 +3275,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t* fs_starts;
   uint32_t* fss_contents;
   uint32_t* indiv_to_fss_idx;
+  uint32_t* dummy_perm;
   uint32_t* uiptr;
   uintptr_t trio_ct;
   uintptr_t max_fid_len;
@@ -3431,7 +3448,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       wkspace_alloc_d_checked(&pheno_d2, lm_ct * sizeof(double)) ||
       wkspace_alloc_d_checked(&qfam_b, ((fss_ct + CACHELINE_DBL - 1) / CACHELINE_DBL) * ulii) ||
       wkspace_alloc_d_checked(&qfam_w, ((lm_ct + CACHELINE_DBL - 1) / CACHELINE_DBL) * ulii) ||
-      wkspace_alloc_ui_checked(&g_dummy_perm, fss_ct * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&dummy_perm, fss_ct * sizeof(int32_t)) ||
       wkspace_alloc_ul_checked(&dummy_flip, fss_ctl * sizeof(intptr_t))) {
     goto qfam_ret_NOMEM;
   }
@@ -3457,7 +3474,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     g_loadbuf[ulii * indiv_ctl2 - 1] = 0;
   }
   for (uii = 0; uii < fss_ct; uii++) {
-    g_dummy_perm[uii] = uii;
+    dummy_perm[uii] = uii;
   }
   fill_ulong_zero(dummy_flip, fss_ctl);
 
@@ -3579,7 +3596,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	  bufptr = memcpya(bufptr, qfam_test_ptr, 5);
 	  bufptr = uint32_writew8x(bufptr, nind, ' ');
 	  nind_recip = 1.0 / ((double)((int32_t)nind));
-	  if (!qfam_regress(test_type, nind, indiv_to_fss_idx, lm_eligible, nm_lm, pheno_d2, qfam_b, qfam_w, g_dummy_perm, dummy_flip, nind_recip, qt_sum, qt_ssq, &beta, &tstat)) {
+	  if (!qfam_regress(test_type, nind, indiv_to_fss_idx, lm_eligible, nm_lm, pheno_d2, qfam_b, qfam_w, dummy_perm, dummy_flip, nind_recip, qt_sum, qt_ssq, &beta, &tstat)) {
 	    bufptr = double_g_writewx4x(bufptr, beta, 10, ' ');
 	    bufptr = double_g_writewx4x(bufptr, tstat, 12, ' ');
 	    bufptr = double_g_writewx4x(bufptr, calc_tprob(tstat, nind - 2), 12, '\n');
