@@ -2682,16 +2682,11 @@ int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
     bitfield_and(tmp_within2_founder, founder_info, unfiltered_indiv_ctl);
     // now this only consists of founder parents who (i) aren't in multiple
     // families, and (ii) have a different phenotype from their partner.
-    // PLINK 1.07 has a bug which causes singletons to be included as well
-    // (no value in that since the W component is always zero).
+    collapse_copy_bitarr(unfiltered_indiv_ct, tmp_within2_founder, indiv_exclude, indiv_ct, lm_within2_founder);
   }
   bitfield_andnot_reversed_args(ulptr, pheno_nm, unfiltered_indiv_ctl);
-  if (test_type & (QFAM_WITHIN1 | QFAM_WITHIN2)) {
+  if (test_type == QFAM_WITHIN1) {
     bitfield_andnot(ulptr, founder_info, unfiltered_indiv_ctl);
-    if (is_within2) {
-      bitfield_or(ulptr, tmp_within2_founder, unfiltered_indiv_ctl);
-      collapse_copy_bitarr(unfiltered_indiv_ct, tmp_within2_founder, indiv_exclude, indiv_ct, lm_within2_founder);
-    }
   }
   collapse_copy_bitarr(unfiltered_indiv_ct, ulptr, indiv_exclude, indiv_ct, lm_eligible);
   topsize = ulii;
@@ -3181,6 +3176,7 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
 	  perm_ptr = permute_edit_buf;
 	}
 	if (!qfam_regress(test_type, nind, indiv_to_fss_idx, lm_eligible, nm_lm, pheno_d2, qfam_b, qfam_w, perm_ptr, &(qfam_flip[pidx * fss_ctl]), nind_recip, qt_sum, qt_ssq, &beta, &tstat)) {
+	  tstat = fabs(tstat);
 	  if (tstat > stat_high) {
 	    success_2incr += 2;
 	  } else if (tstat > stat_low) {
@@ -3600,7 +3596,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	    bufptr = double_g_writewx4x(bufptr, beta, 10, ' ');
 	    bufptr = double_g_writewx4x(bufptr, tstat, 12, ' ');
 	    bufptr = double_g_writewx4x(bufptr, calc_tprob(tstat, nind - 2), 12, '\n');
-	    *orig_stat_ptr++ = tstat;
+	    *orig_stat_ptr++ = fabs(tstat);
 	  } else {
 	    bufptr = memcpya(bufptr, "        NA           NA           NA\n", 37);
 	    perm_adapt_stop[marker_idx_base + block_idx] = 1;
