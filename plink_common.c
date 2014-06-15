@@ -357,7 +357,7 @@ uint32_t scan_posintptr(char* ss, uintptr_t* valp) {
   uintptr_t cur_digit;
   if (val < 10) {
     while (1) {
-    scan_uintptr_pos_main_loop:
+    scan_posintptr_main_loop:
       cur_digit = (uint32_t)((unsigned char)(*(++ss))) - 48;
       if (cur_digit >= 10) {
 	if (val) {
@@ -374,7 +374,7 @@ uint32_t scan_posintptr(char* ss, uintptr_t* valp) {
   } else if (val == 0xfffffffbU) {
     val = (uint32_t)((unsigned char)(*(++ss))) - 48;
     if (val < 10) {
-      goto scan_uintptr_pos_main_loop;
+      goto scan_posintptr_main_loop;
     }
   }
   return 1;

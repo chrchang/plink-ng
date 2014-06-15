@@ -101,7 +101,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (13 Jun 2014)";
+  " (15 Jun 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   //  " " (don't actually want this when version number has a trailing letter)
@@ -1969,7 +1969,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	if (mtest_adjust && (fam_ip->qfam_modifier & QFAM_PERM)) {
 	  logprint("Warning: The QFAM test does not support --adjust.  Use max(T) permutation to\nobtain multiple-testing corrected p-values.\n");
 	}
-        retval = qfam(threads, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_pos, marker_allele_ptrs, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, apip, pheno_nm, pheno_d, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, zero_extra_chroms, chrom_info_ptr, hh_exists, perm_batch_size, fam_ip);
+        retval = qfam(threads, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, apip, pheno_nm, pheno_d, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, zero_extra_chroms, chrom_info_ptr, hh_exists, perm_batch_size, fam_ip);
         if (retval) {
 	  goto plink_ret_1;
 	}
@@ -9224,7 +9224,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --qual-max-threshold parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
-      } else if ((!memcmp(argptr2, "fam", 4)) || (!memcmp(argptr2, "fam-between", 12)) || (!memcmp(argptr2, "fam-parents", 12)) || (!memcmp(argptr2, "fam-total", 10))) {
+      } else if ((!memcmp(argptr2, "fam", 4)) || (!memcmp(argptr2, "fam-parents", 12)) || (!memcmp(argptr2, "fam-between", 12)) || (!memcmp(argptr2, "fam-total", 10))) {
 	UNSTABLE;
 	if (calculation_type & CALC_QFAM) {
 	  logprint("Error: Only one QFAM test can be run at a time.\n");
