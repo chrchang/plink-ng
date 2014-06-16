@@ -3081,6 +3081,7 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
   uint32_t* fs_starts = g_fs_starts;
   uint32_t* fss_contents = g_fss_contents;
   uint32_t* indiv_to_fss_idx = g_indiv_to_fss_idx;
+  uint32_t* perm_ptr = NULL;
   uintptr_t cur_perm_ct = g_cur_perm_ct;
   uintptr_t indiv_ct = g_indiv_ct;
   uintptr_t indiv_ctl2 = (indiv_ct + (BITCT2 - 1)) / BITCT2;
@@ -3097,7 +3098,6 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
   uintptr_t pidx;
   unsigned char* perm_adapt_stop;
   double* orig_stat;
-  uint32_t* perm_ptr;
   double stat_high;
   double stat_low;
   double qt_sum;
@@ -3149,31 +3149,36 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
       cur_fss_ct = popcount_longs(nm_fss, fss_ctl);
       nind = popcount_longs(nm_lm, lm_ctl);
       nind_recip = 1.0 / ((double)((int32_t)nind));
-      perm_ptr = qfam_permute;
+      // todo: for --qfam{-parents} test, identify W=0 individuals and optimize
+      // them out of the main loop (while keeping them in the simple linear
+      // regression)
       for (pidx = 0; pidx < cur_perm_ct;) {
-	if ((!only_within) && (cur_fss_ct != fss_ct)) {
-	  memcpy(permute_edit_buf, perm_ptr, fss_ct * sizeof(int32_t));
-	  for (orig_fss_idx = 0, uii = 0; uii < cur_fss_ct; orig_fss_idx++, uii++) {
-	    // Necessary to edit permutation so that nonmissing families are
-	    // mapped to nonmissing families.  See PLINK 1.07 qfam.cpp.
-	    next_set_unsafe_ck(nm_fss, &orig_fss_idx);
-	    new_fss_idx = permute_edit_buf[orig_fss_idx];
-	    if (is_set(nm_fss, new_fss_idx)) {
-	      continue;
-	    }
-	    // Walk through permutation cycle, swapping until a nonmissing
-	    // family is found.
-	    while (1) {
-	      ujj = permute_edit_buf[new_fss_idx];
-	      permute_edit_buf[new_fss_idx] = new_fss_idx;
-	      if (is_set(nm_fss, ujj)) {
-		break;
+	if (!only_within) {
+	  perm_ptr = &(qfam_permute[fss_ct * pidx]);
+          if (cur_fss_ct != fss_ct) {
+	    memcpy(permute_edit_buf, perm_ptr, fss_ct * sizeof(int32_t));
+	    for (orig_fss_idx = 0, uii = 0; uii < cur_fss_ct; orig_fss_idx++, uii++) {
+	      // Necessary to edit permutation so that nonmissing families are
+	      // mapped to nonmissing families.  See PLINK 1.07 qfam.cpp.
+	      next_set_unsafe_ck(nm_fss, &orig_fss_idx);
+	      new_fss_idx = permute_edit_buf[orig_fss_idx];
+	      if (is_set(nm_fss, new_fss_idx)) {
+		continue;
 	      }
-	      new_fss_idx = ujj;
+	      // Walk through permutation cycle, swapping until a nonmissing
+	      // family is found.
+	      while (1) {
+		ujj = permute_edit_buf[new_fss_idx];
+		permute_edit_buf[new_fss_idx] = new_fss_idx;
+		if (is_set(nm_fss, ujj)) {
+		  break;
+		}
+		new_fss_idx = ujj;
+	      }
+	      permute_edit_buf[orig_fss_idx] = ujj;
 	    }
-	    permute_edit_buf[orig_fss_idx] = ujj;
+	    perm_ptr = permute_edit_buf;
 	  }
-	  perm_ptr = permute_edit_buf;
 	}
 	if (!qfam_regress(test_type, nind, indiv_to_fss_idx, lm_eligible, nm_lm, pheno_d2, qfam_b, qfam_w, perm_ptr, &(qfam_flip[pidx * fss_ctl]), nind_recip, qt_sum, qt_ssq, &beta, &tstat)) {
 	  tstat = fabs(tstat);
@@ -3202,9 +3207,6 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
 	  }
 	  next_adapt_check += (int32_t)(adaptive_intercept + ((int32_t)next_adapt_check) * adaptive_slope);
 	}
-	if (!only_within) {
-	  perm_ptr = &(qfam_permute[fss_ct * pidx]);
-	}
       }
       perm_2success_ct[marker_idx] += success_2incr;
     }
@@ -3217,8 +3219,6 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
 }
 
 int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, Aperm_info* apip, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t hh_exists, uint32_t perm_batch_size, Family_info* fam_ip) {
-  // logprint("Error: QFAM test is currently under development.\n");
-  // return RET_CALC_NOT_YET_SUPPORTED;
   // Fortunately, this can use some of qassoc()'s logic instead of punting to
   // LAPACK, since it doesn't support covariates.
   unsigned char* wkspace_mark = wkspace_base;

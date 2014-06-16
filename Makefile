@@ -9,20 +9,23 @@ ARCH64=-arch x86_64
 
 UNAME := $(shell uname)
 ifeq ($(UNAME), Darwin)
-BLASFLAGS=-framework Accelerate
-BLASFLAGS64=-framework Accelerate
-LINKFLAGS=
-ZLIB=zlib-1.2.8/libz.a
-ZLIB64=zlib-1.2.8/libz-64.a
+  GCC_GTEQ_43 := $(shell expr `g++ -dumpversion | sed -e 's/\.\([0-9][0-9]\)/\1/g' -e 's/\.\([0-9]\)/0\1/g' -e 's/^[0-9]\{3,4\}$$/&00/'` \>= 40300)
+  ifeq "$(GCC_GTEQ_43)" "1"
+    CFLAGS=-Wall -O2 -flax-vector-conversions
+  endif
+  BLASFLAGS64=-framework Accelerate
+  LINKFLAGS=
+  ZLIB=zlib-1.2.8/libz.a
+  ZLIB64=zlib-1.2.8/libz-64.a
 else
-ifeq ($(UNAME), MINGW32_NT-6.2)
-ARCH64=
-BLASFLAGS=-Wl,-Bstatic -L. lapack/liblapack.a -L. lapack/librefblas.a
-BLASFLAGS64=-Wl,-Bstatic -L. lapack/liblapack-64.a -L. lapack/librefblas-64.a
-LINKFLAGS=-lm -static-libgcc
-ZLIB=zlib-1.2.8/libz.a
-ZLIB64=zlib-1.2.8/libz-64.a
-endif
+  ifeq ($(UNAME), MINGW32_NT-6.2)
+    ARCH64=
+    BLASFLAGS=-Wl,-Bstatic -L. lapack/liblapack.a -L. lapack/librefblas.a
+    BLASFLAGS64=-Wl,-Bstatic -L. lapack/liblapack-64.a -L. lapack/librefblas-64.a
+    LINKFLAGS=-lm -static-libgcc
+    ZLIB=zlib-1.2.8/libz.a
+    ZLIB64=zlib-1.2.8/libz-64.a
+  endif
 endif
 
 SRC = plink.c plink_assoc.c plink_calc.c plink_cluster.c plink_cnv.c plink_common.c plink_data.c plink_dosage.c plink_family.c plink_filter.c plink_glm.c plink_help.c plink_homozyg.c plink_lasso.c plink_ld.c plink_matrix.c plink_misc.c plink_set.c plink_stats.c SFMT.c dcdflib.c pigz.c yarn.c
