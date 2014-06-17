@@ -2929,14 +2929,13 @@ void qfam_compute_bw(uintptr_t* loadbuf, uintptr_t indiv_ct, uint32_t* fs_starts
   *qt_ssq_ptr = qt_ssq;
 }
 
-uint32_t qfam_regress(uint32_t test_type, uint32_t nind, uint32_t* indiv_to_fss_idx, uintptr_t* lm_eligible, uintptr_t* nm_lm, double* pheno_d2, double* qfam_b, double* qfam_w, uint32_t* qfam_permute, uintptr_t* qfam_flip, double nind_recip, double qt_sum, double qt_ssq, double* beta_ptr, double* tstat_ptr) {
+uint32_t qfam_regress(uint32_t test_type, uint32_t nind, uint32_t lm_set_ct, uint32_t* indiv_to_fss_idx, uintptr_t* lm_eligible, uintptr_t* nm_lm, double* pheno_d2, double* qfam_b, double* qfam_w, uint32_t* qfam_permute, uintptr_t* qfam_flip, double nind_recip, double qt_sum, double qt_ssq, double geno_ssq, double* beta_ptr, double* tstat_ptr) {
   // returns 0 on success
   if (nind < 3) {
     return 1;
   }
   double qt_g_prod = 0.0;
   double geno_sum = 0.0;
-  double geno_ssq = 0.0;
   uint32_t indiv_uidx = 0;
   uint32_t indiv_idx = 0;
   uint32_t indiv_idx2 = 0;
@@ -2950,27 +2949,30 @@ uint32_t qfam_regress(uint32_t test_type, uint32_t nind, uint32_t* indiv_to_fss_
   double dxx;
   uint32_t fss_idx;
   if (test_type & (QFAM_WITHIN1 | QFAM_WITHIN2)) {
-    while (1) {
-      next_set_unsafe_ck(lm_eligible, &indiv_uidx);
-      if (!is_set(nm_lm, indiv_idx)) {
+    if (lm_set_ct) {
+      while (1) {
+	next_set_unsafe_ck(lm_eligible, &indiv_uidx);
+	if (!is_set(nm_lm, indiv_idx)) {
+	  indiv_uidx++;
+	  indiv_idx++;
+	  continue;
+	}
+	fss_idx = indiv_to_fss_idx[indiv_uidx];
+	if (is_set(qfam_flip, fss_idx)) {
+	  cur_geno = -qfam_w[indiv_idx];
+	} else {
+	  cur_geno = qfam_w[indiv_idx];
+	}
+	geno_sum += cur_geno;
+	// geno_ssq is constant if we're just flipping signs, so we precompute
+	// it
+	qt_g_prod += cur_geno * pheno_d2[indiv_idx];
+	if (++indiv_idx2 == lm_set_ct) {
+	  break;
+	}
 	indiv_uidx++;
 	indiv_idx++;
-	continue;
       }
-      fss_idx = indiv_to_fss_idx[indiv_uidx];
-      if (is_set(qfam_flip, fss_idx)) {
-	cur_geno = -qfam_w[indiv_idx];
-      } else {
-	cur_geno = qfam_w[indiv_idx];
-      }
-      geno_sum += cur_geno;
-      geno_ssq += cur_geno * cur_geno;
-      qt_g_prod += cur_geno * pheno_d2[indiv_idx];
-      if (++indiv_idx2 == nind) {
-	break;
-      }
-      indiv_uidx++;
-      indiv_idx++;
     }
   } else {
     while (1) {
@@ -3091,6 +3093,7 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
   double aperm_alpha = g_aperm_alpha;
   double qt_sum_all = g_qt_sum_all;
   double qt_ssq_all = g_qt_ssq_all;
+  double geno_ssq = 0.0;
   uint32_t pidx_offset = g_perms_done;
   uint32_t family_ct = g_family_ct;
   uint32_t first_adapt_check = g_first_adapt_check;
@@ -3117,6 +3120,7 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
   uint32_t next_adapt_check;
   uint32_t cur_fss_ct;
   uint32_t nind;
+  uint32_t lm_set_ct;
   uint32_t orig_fss_idx;
   uint32_t new_fss_idx;
   uint32_t uii;
@@ -3148,10 +3152,28 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
       qfam_compute_bw(&(loadbuf[indiv_ctl2 * marker_bidx]), indiv_ct, fs_starts, fss_contents, indiv_to_fss_idx, lm_eligible, lm_within2_founder, family_ct, fs_ct, singleton_ct, lm_ct, nm_fss, nm_lm, pheno_d2, qt_sum_all, qt_ssq_all, qfam_b, qfam_w, &qt_sum, &qt_ssq);
       cur_fss_ct = popcount_longs(nm_fss, fss_ctl);
       nind = popcount_longs(nm_lm, lm_ctl);
+      lm_set_ct = nind;
       nind_recip = 1.0 / ((double)((int32_t)nind));
-      // todo: for --qfam{-parents} test, identify W=0 individuals and optimize
-      // them out of the main loop (while keeping them in the simple linear
-      // regression)
+      if (only_within) {
+	// --qfam{-parents} optimizations:
+	// * geno_ssq is constant, so we precompute it.
+	// * The inner loop can also skip W=0 samples.  So we clear those nm_lm
+	//   bits, and pass separate nind and lm_set_ct values to the simple
+	//   regression function.
+	geno_ssq = 0.0;
+	for (uii = 0; uii < lm_ct; uii++) {
+	  if (is_set(nm_lm, uii)) {
+	    dxx = fabs(qfam_w[uii]);
+            if (fabs(dxx) < SMALL_EPSILON) {
+	      clear_bit(nm_lm, uii);
+	    } else {
+	      geno_ssq += dxx * dxx;
+	    }
+	  }
+	}
+	lm_set_ct = popcount_longs(nm_lm, lm_ctl);
+      }
+
       for (pidx = 0; pidx < cur_perm_ct;) {
 	if (!only_within) {
 	  perm_ptr = &(qfam_permute[fss_ct * pidx]);
@@ -3180,7 +3202,7 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
 	    perm_ptr = permute_edit_buf;
 	  }
 	}
-	if (!qfam_regress(test_type, nind, indiv_to_fss_idx, lm_eligible, nm_lm, pheno_d2, qfam_b, qfam_w, perm_ptr, &(qfam_flip[pidx * fss_ctl]), nind_recip, qt_sum, qt_ssq, &beta, &tstat)) {
+	if (!qfam_regress(test_type, nind, lm_set_ct, indiv_to_fss_idx, lm_eligible, nm_lm, pheno_d2, qfam_b, qfam_w, perm_ptr, &(qfam_flip[pidx * fss_ctl]), nind_recip, qt_sum, qt_ssq, geno_ssq, &beta, &tstat)) {
 	  tstat = fabs(tstat);
 	  if (tstat > stat_high) {
 	    success_2incr += 2;
@@ -3291,6 +3313,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   double nind_recip;
   double qt_sum;
   double qt_ssq;
+  double geno_ssq;
   double beta;
   double tstat;
   double dxx;
@@ -3592,7 +3615,32 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	  bufptr = memcpya(bufptr, qfam_test_ptr, 5);
 	  bufptr = uint32_writew8x(bufptr, nind, ' ');
 	  nind_recip = 1.0 / ((double)((int32_t)nind));
-	  if (!qfam_regress(test_type, nind, indiv_to_fss_idx, lm_eligible, nm_lm, pheno_d2, qfam_b, qfam_w, dummy_perm, dummy_flip, nind_recip, qt_sum, qt_ssq, &beta, &tstat)) {
+	  geno_ssq = 0.0;
+	  if (only_within) {
+	    // see qfam_regress() loop.  uii <-> indiv_uidx, ujj <-> indiv_idx,
+	    // ukk <-> indiv_idx2.
+	    if (nind) {
+	      uii = 0;
+	      ujj = 0;
+	      ukk = 0;
+	      while (1) {
+		next_set_unsafe_ck(lm_eligible, &uii);
+		if (!is_set(nm_lm, ujj)) {
+		  uii++;
+		  ujj++;
+		  continue;
+		}
+		dxx = qfam_w[ujj];
+		geno_ssq += dxx * dxx;
+		if (++ukk == nind) {
+		  break;
+		}
+                uii++;
+		ujj++;
+	      }
+	    }
+	  }
+	  if (!qfam_regress(test_type, nind, nind, indiv_to_fss_idx, lm_eligible, nm_lm, pheno_d2, qfam_b, qfam_w, dummy_perm, dummy_flip, nind_recip, qt_sum, qt_ssq, geno_ssq, &beta, &tstat)) {
 	    bufptr = double_g_writewx4x(bufptr, beta, 10, ' ');
 	    bufptr = double_g_writewx4x(bufptr, tstat, 12, ' ');
 	    bufptr = double_g_writewx4x(bufptr, calc_tprob(tstat, nind - 2), 12, '\n');

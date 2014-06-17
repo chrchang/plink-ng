@@ -101,7 +101,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (16 Jun 2014)";
+  " (17 Jun 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   //  " " (don't actually want this when version number has a trailing letter)
@@ -6922,6 +6922,9 @@ int32_t main(int32_t argc, char** argv) {
       main_hap_disabled_message:
         logprint("Error: The --hap... family of flags has not been reimplemented in PLINK 1.9 due\nto poor phasing accuracy (and, consequently, inferior haplotype\nlikelihood/frequency estimates) relative to other software; for now, we\nrecommend using BEAGLE instead of PLINK for case/control haplotype association\nanalysis.  (You can use '--recode beagle' to export data.)  We apologize for\nthe inconvenience, and plan to develop variants of the --hap... flags which\nhandle pre-phased data effectively.\n");
 	goto main_ret_INVALID_CMDLINE;
+      } else if (!memcmp(argptr2, "ard-call", 9)) {
+	logprint("Error: The undocumented --hard-call flag has been retired.  (The\n--hard-call-threshold flag, supported by both PLINK and PLINK/SEQ, has similar\nfunctionality.)\n");
+	goto main_ret_INVALID_CMDLINE;
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
       }
@@ -7188,8 +7191,8 @@ int32_t main(int32_t argc, char** argv) {
         calculation_type |= CALC_SEXCHECK;
         misc_flags |= MISC_IMPUTE_SEX;
 	sex_missing_pheno |= ALLOW_NO_SEX;
-      } else if (!memcmp(argptr2, "ard-call", 9)) {
-	logprint("Error: The undocumented --hard-call flag has been retired.  (The\n--hard-call-threshold flag, supported by both PLINK and PLINK/SEQ, has similar\nfunctionality.)\n");
+      } else if ((!memcmp(argptr2, "d-dict", 7)) || (!memcmp(argptr2, "d-dump", 7)) || (!memcmp(argptr2, "d-lookup", 9)) || (!memcmp(argptr2, "d-match", 8)) || (!memcmp(argptr2, "d-replace", 10)) || (!memcmp(argptr2, "d-table", 8))) {
+	logprint("Error: --id-dict and --id-match are provisionally retired, since free database\nsoftware handles these operations in a more flexible and powerful manner.\nContact the developers if you still need them.\n");
 	goto main_ret_INVALID_CMDLINE;
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
