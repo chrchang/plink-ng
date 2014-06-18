@@ -2537,7 +2537,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   return retval;
 }
 
-int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* founder_info, char* person_ids, uintptr_t max_person_id_len, uintptr_t max_fid_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint64_t* family_list, uint64_t* trio_list, uint32_t family_ct, uintptr_t trio_ct, uint32_t test_type, uintptr_t** lm_eligible_ptr, uintptr_t** lm_within2_founder_ptr, uint32_t** fs_starts_ptr, uint32_t** fss_contents_ptr, uint32_t** indiv_to_fss_idx_ptr, uint32_t* fs_ct_ptr, uint32_t* singleton_ct_ptr) {
+int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* founder_info, char* person_ids, uintptr_t max_person_id_len, uintptr_t max_fid_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint64_t* family_list, uint64_t* trio_list, uint32_t family_ct, uintptr_t trio_ct, uint32_t test_type, uintptr_t** lm_eligible_ptr, uintptr_t** lm_within2_founder_ptr, uint32_t** fs_starts_ptr, uint32_t** fss_contents_ptr, uint32_t** indiv_lm_to_fss_idx_ptr, uint32_t* fs_ct_ptr, uint32_t* lm_ct_ptr, uint32_t* singleton_ct_ptr) {
   // on top of get_trios_and_families()'s return values, we need the following
   // information for the main qfam() loop:
   // 1. indiv idx -> family/sibship idx array
@@ -2566,8 +2566,10 @@ int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
   uintptr_t* ulptr2;
   uint32_t* indiv_uidx_to_idx;
   uint32_t* indiv_to_fss_idx;
+  uint32_t* indiv_lm_to_fss_idx;
   uint32_t* fs_starts;
   uint32_t* fss_contents;
+  uintptr_t topsize_bak;
   uintptr_t cur_indiv_ct;
   uintptr_t indiv_uidx;
   uintptr_t indiv_idx;
@@ -2584,12 +2586,16 @@ int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
     }
   }
   if (wkspace_alloc_ul_checked(&lm_eligible, indiv_ctl * sizeof(intptr_t)) ||
-      // this is the equivalent of PLINK 1.07's family pointers
-      wkspace_alloc_ui_checked(&indiv_to_fss_idx, indiv_ct * sizeof(int32_t)) ||
       // shrink later
       wkspace_alloc_ui_checked(&fss_contents, (indiv_ct + 2 * family_ct) * sizeof(int32_t))) {
     goto get_sibship_info_ret_NOMEM;
   }
+  // this is the equivalent of PLINK 1.07's family pointers
+  indiv_to_fss_idx = (uint32_t*)top_alloc(&topsize, indiv_ct * sizeof(int32_t));
+  if (!indiv_to_fss_idx) {
+    goto get_sibship_info_ret_NOMEM;
+  }
+  topsize_bak = topsize;
   not_in_family = (uintptr_t*)top_alloc(&topsize, unfiltered_indiv_ctl * sizeof(intptr_t));
   if (!not_in_family) {
     goto get_sibship_info_ret_NOMEM;
@@ -2770,12 +2776,25 @@ int32_t get_sibship_info(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
     fss_contents[fssc_idx++] = ujj;
     indiv_to_fss_idx[ujj] = family_idx + indiv_idx;
   }
+  *singleton_ct_ptr = ulii;
+  // finally, collapse indiv_to_fss_idx to indiv_lm_to_fss_idx
+  topsize = topsize_bak;
+  wkspace_left -= topsize;
+  ulii = popcount_longs(lm_eligible, indiv_ctl);
+  if (wkspace_alloc_ui_checked(&indiv_lm_to_fss_idx, ulii * sizeof(int32_t))) {
+    goto get_sibship_info_ret_NOMEM2;
+  }
+  wkspace_left += topsize;
+  for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < ulii; indiv_uidx++, indiv_idx++) {
+    next_set_ul_unsafe_ck(lm_eligible, &indiv_uidx);
+    indiv_lm_to_fss_idx[indiv_idx] = indiv_to_fss_idx[indiv_uidx];
+  }
   *lm_eligible_ptr = lm_eligible;
   *lm_within2_founder_ptr = lm_within2_founder;
   *fs_starts_ptr = fs_starts;
   *fss_contents_ptr = fss_contents;
-  *indiv_to_fss_idx_ptr = indiv_to_fss_idx;
-  *singleton_ct_ptr = ulii;
+  *indiv_lm_to_fss_idx_ptr = indiv_lm_to_fss_idx;
+  *lm_ct_ptr = ulii;
   // topsize = 0;
 
   while (0) {
@@ -2810,7 +2829,7 @@ void uint32_permute(uint32_t* perm_arr, uint32_t* precomputed_mods, sfmt_t* sfmt
   }
 }
 
-void qfam_compute_bw(uintptr_t* loadbuf, uintptr_t indiv_ct, uint32_t* fs_starts, uint32_t* fss_contents, uint32_t* indiv_to_fss_idx, uintptr_t* lm_eligible, uintptr_t* lm_within2_founder, uint32_t family_ct, uint32_t fs_ct, uint32_t singleton_ct, uint32_t lm_ct, uintptr_t* nm_fss, uintptr_t* nm_lm, double* pheno_d2, double qt_sum_all, double qt_ssq_all, double* qfam_b, double* qfam_w, double* qt_sum_ptr, double* qt_ssq_ptr) {
+void qfam_compute_bw(uintptr_t* loadbuf, uintptr_t indiv_ct, uint32_t* fs_starts, uint32_t* fss_contents, uint32_t* indiv_lm_to_fss_idx, uintptr_t* lm_eligible, uintptr_t* lm_within2_founder, uint32_t family_ct, uint32_t fs_ct, uint32_t singleton_ct, uint32_t lm_ct, uintptr_t* nm_fss, uintptr_t* nm_lm, double* pheno_d2, double qt_sum_all, double qt_ssq_all, double* qfam_b, double* qfam_w, double* qt_sum_ptr, double* qt_ssq_ptr) {
   uint32_t* fs_starts_ptr = fs_starts;
   double qt_sum = qt_sum_all;
   double qt_ssq = qt_ssq_all;
@@ -2897,7 +2916,7 @@ void qfam_compute_bw(uintptr_t* loadbuf, uintptr_t indiv_ct, uint32_t* fs_starts
     next_set_unsafe_ck(lm_eligible, &indiv_uidx);
     ulii = (loadbuf[indiv_uidx / BITCT2] >> (2 * (indiv_uidx % BITCT2))) & 3;
     if (ulii != 1) {
-      fss_idx = indiv_to_fss_idx[indiv_uidx];
+      fss_idx = indiv_lm_to_fss_idx[indiv_idx];
       if (!is_set(nm_fss, fss_idx)) {
 	goto qfam_compute_bw_skip;
       }
@@ -2929,14 +2948,13 @@ void qfam_compute_bw(uintptr_t* loadbuf, uintptr_t indiv_ct, uint32_t* fs_starts
   *qt_ssq_ptr = qt_ssq;
 }
 
-static inline uint32_t qfam_regress(uint32_t test_type, uint32_t nind, uint32_t lm_set_ct, uint32_t* indiv_to_fss_idx, uintptr_t* lm_eligible, uintptr_t* nm_lm, double* pheno_d2, double* qfam_b, double* qfam_w, uint32_t* qfam_permute, uintptr_t* qfam_flip, double nind_recip, double qt_sum, double qt_ssq, double geno_ssq, double* beta_ptr, double* tstat_ptr) {
+static inline uint32_t qfam_regress(uint32_t test_type, uint32_t nind, uint32_t lm_set_ct, uint32_t* indiv_lm_to_fss_idx, uintptr_t* nm_lm, double* pheno_d2, double* qfam_b, double* qfam_w, uint32_t* qfam_permute, uintptr_t* qfam_flip, double nind_recip, double qt_sum, double qt_ssq, double geno_ssq, double* beta_ptr, double* tstat_ptr) {
   // returns 0 on success
   if (nind < 3) {
     return 1;
   }
   double qt_g_prod = 0.0;
   double geno_sum = 0.0;
-  uint32_t indiv_uidx = 0;
   uint32_t indiv_idx = 0;
   uint32_t indiv_idx2 = 0;
   double cur_geno;
@@ -2949,12 +2967,9 @@ static inline uint32_t qfam_regress(uint32_t test_type, uint32_t nind, uint32_t 
   double dxx;
   uint32_t fss_idx;
   if (test_type & (QFAM_WITHIN1 | QFAM_WITHIN2)) {
-    for (; indiv_idx2 < lm_set_ct; indiv_uidx++, indiv_idx++) {
-      next_set_unsafe_ck(lm_eligible, &indiv_uidx);
-      if (!is_set(nm_lm, indiv_idx)) {
-	continue;
-      }
-      fss_idx = indiv_to_fss_idx[indiv_uidx];
+    for (; indiv_idx2 < lm_set_ct; indiv_idx++) {
+      next_set_unsafe_ck(nm_lm, &indiv_idx);
+      fss_idx = indiv_lm_to_fss_idx[indiv_idx];
       if (is_set(qfam_flip, fss_idx)) {
 	cur_geno = -qfam_w[indiv_idx];
       } else {
@@ -2967,12 +2982,9 @@ static inline uint32_t qfam_regress(uint32_t test_type, uint32_t nind, uint32_t 
       indiv_idx2++;
     }
   } else {
-    for (; indiv_idx2 < nind; indiv_uidx++, indiv_idx++) {
-      next_set_unsafe_ck(lm_eligible, &indiv_uidx);
-      if (!is_set(nm_lm, indiv_idx)) {
-	continue;
-      }
-      fss_idx = qfam_permute[indiv_to_fss_idx[indiv_uidx]];
+    for (; indiv_idx2 < nind; indiv_idx++) {
+      next_set_unsafe_ck(nm_lm, &indiv_idx);
+      fss_idx = qfam_permute[indiv_lm_to_fss_idx[indiv_idx]];
       cur_geno = qfam_b[fss_idx];
       if (test_type == QFAM_TOTAL) {
 	dxx = qfam_w[indiv_idx];
@@ -3019,7 +3031,7 @@ static uint32_t* g_perm_2success_ct;
 static uint32_t* g_perm_attempt_ct;
 static uint32_t* g_fs_starts;
 static uint32_t* g_fss_contents;
-static uint32_t* g_indiv_to_fss_idx;
+static uint32_t* g_indiv_lm_to_fss_idx;
 static unsigned char* g_perm_adapt_stop;
 static uint32_t g_adapt_m_table[MODEL_BLOCKSIZE];
 static double* g_orig_stat;
@@ -3068,7 +3080,7 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
   uint32_t* perm_attempt_ct = g_perm_attempt_ct;
   uint32_t* fs_starts = g_fs_starts;
   uint32_t* fss_contents = g_fss_contents;
-  uint32_t* indiv_to_fss_idx = g_indiv_to_fss_idx;
+  uint32_t* indiv_lm_to_fss_idx = g_indiv_lm_to_fss_idx;
   uint32_t* perm_ptr = NULL;
   uintptr_t cur_perm_ct = g_cur_perm_ct;
   uintptr_t indiv_ct = g_indiv_ct;
@@ -3135,7 +3147,7 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
       next_adapt_check = first_adapt_check;
       stat_high = orig_stat[marker_idx] + EPSILON;
       stat_low = orig_stat[marker_idx] - EPSILON;
-      qfam_compute_bw(&(loadbuf[indiv_ctl2 * marker_bidx]), indiv_ct, fs_starts, fss_contents, indiv_to_fss_idx, lm_eligible, lm_within2_founder, family_ct, fs_ct, singleton_ct, lm_ct, nm_fss, nm_lm, pheno_d2, qt_sum_all, qt_ssq_all, qfam_b, qfam_w, &qt_sum, &qt_ssq);
+      qfam_compute_bw(&(loadbuf[indiv_ctl2 * marker_bidx]), indiv_ct, fs_starts, fss_contents, indiv_lm_to_fss_idx, lm_eligible, lm_within2_founder, family_ct, fs_ct, singleton_ct, lm_ct, nm_fss, nm_lm, pheno_d2, qt_sum_all, qt_ssq_all, qfam_b, qfam_w, &qt_sum, &qt_ssq);
       cur_fss_ct = popcount_longs(nm_fss, fss_ctl);
       nind = popcount_longs(nm_lm, lm_ctl);
       lm_set_ct = nind;
@@ -3188,7 +3200,7 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
 	    perm_ptr = permute_edit_buf;
 	  }
 	}
-	if (!qfam_regress(test_type, nind, lm_set_ct, indiv_to_fss_idx, lm_eligible, nm_lm, pheno_d2, qfam_b, qfam_w, perm_ptr, &(qfam_flip[pidx * fss_ctl]), nind_recip, qt_sum, qt_ssq, geno_ssq, &beta, &tstat)) {
+	if (!qfam_regress(test_type, nind, lm_set_ct, indiv_lm_to_fss_idx, nm_lm, pheno_d2, qfam_b, qfam_w, perm_ptr, &(qfam_flip[pidx * fss_ctl]), nind_recip, qt_sum, qt_ssq, geno_ssq, &beta, &tstat)) {
 	  tstat = fabs(tstat);
 	  if (tstat > stat_high) {
 	    success_2incr += 2;
@@ -3234,7 +3246,6 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t unfiltered_indiv_ctp1l2 = 1 + (unfiltered_indiv_ct / BITCT2);
-  uintptr_t indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t indiv_ctl2 = (indiv_ct + (BITCT2 - 1)) / BITCT2;
   double qt_sum_all = 0.0;
   double qt_ssq_all = 0.0;
@@ -3278,7 +3289,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t* trio_error_lookup;
   uint32_t* fs_starts;
   uint32_t* fss_contents;
-  uint32_t* indiv_to_fss_idx;
+  uint32_t* indiv_lm_to_fss_idx;
   uint32_t* dummy_perm;
   uint32_t* uiptr;
   uintptr_t trio_ct;
@@ -3358,10 +3369,9 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     goto qfam_ret_INVALID_CMDLINE;
   }
 #endif
-  if (get_sibship_info(unfiltered_indiv_ct, indiv_exclude, indiv_ct, pheno_nm, pheno_d, founder_info, person_ids, max_person_id_len, max_fid_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, family_list, trio_list, family_ct, trio_ct, test_type, &lm_eligible, &lm_within2_founder, &fs_starts, &fss_contents, &indiv_to_fss_idx, &fs_ct, &singleton_ct)) {
+  if (get_sibship_info(unfiltered_indiv_ct, indiv_exclude, indiv_ct, pheno_nm, pheno_d, founder_info, person_ids, max_person_id_len, max_fid_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, family_list, trio_list, family_ct, trio_ct, test_type, &lm_eligible, &lm_within2_founder, &fs_starts, &fss_contents, &indiv_lm_to_fss_idx, &fs_ct, &lm_ct, &singleton_ct)) {
     goto qfam_ret_NOMEM;
   }
-  lm_ct = popcount_longs(lm_eligible, indiv_ctl);
   fss_ct = fs_ct + singleton_ct;
   if (fss_ct < 2) {
     logprint("Error: QFAM test requires at least two families.\n");
@@ -3372,7 +3382,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   }
   g_fs_starts = fs_starts;
   g_fss_contents = fss_contents;
-  g_indiv_to_fss_idx = indiv_to_fss_idx;
+  g_indiv_lm_to_fss_idx = indiv_lm_to_fss_idx;
   g_lm_eligible = lm_eligible;
   g_lm_within2_founder = lm_within2_founder;
   g_test_type = test_type;
@@ -3595,7 +3605,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	  }
 	  fputs_w4(marker_allele_ptrs[marker_uidx_cur * 2], outfile);
 	  loadbuf_ptr = &(g_loadbuf[block_idx * indiv_ctl2]);
-	  qfam_compute_bw(loadbuf_ptr, indiv_ct, fs_starts, fss_contents, indiv_to_fss_idx, lm_eligible, lm_within2_founder, family_ct, fs_ct, singleton_ct, lm_ct, nm_fss, nm_lm, pheno_d2, qt_sum_all, qt_ssq_all, qfam_b, qfam_w, &qt_sum, &qt_ssq);
+	  qfam_compute_bw(loadbuf_ptr, indiv_ct, fs_starts, fss_contents, indiv_lm_to_fss_idx, lm_eligible, lm_within2_founder, family_ct, fs_ct, singleton_ct, lm_ct, nm_fss, nm_lm, pheno_d2, qt_sum_all, qt_ssq_all, qfam_b, qfam_w, &qt_sum, &qt_ssq);
 	  nind = popcount_longs(nm_lm, lm_ctl);
 	  bufptr = memseta(tbuf, 32, 7);
 	  bufptr = memcpya(bufptr, qfam_test_ptr, 5);
@@ -3603,19 +3613,15 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	  nind_recip = 1.0 / ((double)((int32_t)nind));
 	  geno_ssq = 0.0;
 	  if (only_within) {
-	    // see qfam_regress() loop.  uii <-> indiv_uidx, ujj <-> indiv_idx,
-	    // ukk <-> indiv_idx2.
-	    for (uii = 0, ujj = 0, ukk = 0; ukk < nind; uii++, ujj++) {
-	      next_set_unsafe_ck(lm_eligible, &uii);
-	      if (!is_set(nm_lm, ujj)) {
-		continue;
-	      }
-	      dxx = qfam_w[ujj];
+	    // see qfam_regress() loop.  uii <-> indiv_idx, ujj <-> indiv_idx2.
+	    for (uii = 0, ujj = 0; ujj < nind; uii++) {
+	      next_set_unsafe_ck(nm_lm, &uii);
+	      dxx = qfam_w[uii];
 	      geno_ssq += dxx * dxx;
-	      ukk++;
+	      ujj++;
 	    }
 	  }
-	  if (!qfam_regress(test_type, nind, nind, indiv_to_fss_idx, lm_eligible, nm_lm, pheno_d2, qfam_b, qfam_w, dummy_perm, dummy_flip, nind_recip, qt_sum, qt_ssq, geno_ssq, &beta, &tstat)) {
+	  if (!qfam_regress(test_type, nind, nind, indiv_lm_to_fss_idx, nm_lm, pheno_d2, qfam_b, qfam_w, dummy_perm, dummy_flip, nind_recip, qt_sum, qt_ssq, geno_ssq, &beta, &tstat)) {
 	    bufptr = double_g_writewx4x(bufptr, beta, 10, ' ');
 	    bufptr = double_g_writewx4x(bufptr, tstat, 12, ' ');
 	    bufptr = double_g_writewx4x(bufptr, calc_tprob(tstat, nind - 2), 12, '\n');
