@@ -7860,6 +7860,11 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   return retval;
 }
 
+int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
+  logprint("Error: --indep-pairphase is currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
+}
+
 typedef struct ll_epi_summary_struct {
   struct ll_epi_summary_struct* next;
   double best_chisq;

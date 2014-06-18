@@ -1560,7 +1560,11 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       logprint("Error: LD-based pruning requires a sorted .bim.  Retry this command after using\n--make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
-    retval = ld_prune(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, chrom_info_ptr, set_allele_freqs, marker_pos, unfiltered_indiv_ct, founder_info, sex_male, outname, outname_end, hh_exists);
+    if (!(ldip->modifier & LD_PRUNE_PAIRPHASE)) {
+      retval = ld_prune(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, chrom_info_ptr, set_allele_freqs, marker_pos, unfiltered_indiv_ct, founder_info, sex_male, outname, outname_end, hh_exists);
+    } else {
+      retval = indep_pairphase(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, chrom_info_ptr, set_allele_freqs, marker_pos, unfiltered_indiv_ct, founder_info, sex_male, outname, outname_end, hh_exists);
+    }
     if (retval) {
       goto plink_ret_1;
     }
@@ -6934,22 +6938,22 @@ int32_t main(int32_t argc, char** argv) {
       if (!memcmp(argptr2, "bc", 3)) {
 	calculation_type |= CALC_IBC;
 	goto main_param_zero;
-      } else if (!memcmp(argptr2, "ndep-pairwise", 14)) {
+      } else if ((!memcmp(argptr2, "ndep-pairwise", 14)) || (!memcmp(argptr2, "ndep-pairphase", 15))) {
 	if (calculation_type & CALC_LD_PRUNE) {
-	  logprint("Error: --indep-pairwise cannot be used with --indep.\n");
+	  logprint("Error: Conflicting --indep... commands.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 3, 4)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_posint_defcap(argv[cur_arg + 1], &ld_info.prune_window_size) || ((ld_info.prune_window_size == 1) && (param_ct == 3))) {
-	  sprintf(logbuf, "Error: Invalid --indep-pairwise window size '%s'.\n", argv[cur_arg + 1]);
+	  sprintf(logbuf, "Error: Invalid --%s window size '%s'.\n", argptr, argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (param_ct == 4) {
 	  if (!match_upper(argv[cur_arg + 2], "KB")) {
-	    logprint("Error: Invalid --indep-pairwise parameter sequence.\n");
-	    goto main_ret_INVALID_CMDLINE_A;
+	    sprintf(logbuf, "Error: Invalid --%s parameter sequence.\n", argptr);
+	    goto main_ret_INVALID_CMDLINE_2A;
 	  }
 	  ld_info.modifier |= LD_PRUNE_KB_WINDOW;
 	} else {
@@ -6959,15 +6963,20 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
 	if (scan_posint_defcap(argv[cur_arg + param_ct - 1], &ld_info.prune_window_incr)) {
-	  sprintf(logbuf, "Error: Invalid increment '%s' for --indep-pairwise.\n", argv[cur_arg + param_ct - 1]);
+	  sprintf(logbuf, "Error: Invalid increment '%s' for --%s.\n", argv[cur_arg + param_ct - 1], argptr);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (scan_double(argv[cur_arg + param_ct], &ld_info.prune_last_param) || (ld_info.prune_last_param < 0.0) || (ld_info.prune_last_param >= 1.0)) {
-	  sprintf(logbuf, "Error: Invalid --indep-pairwise r^2 threshold '%s'.\n", argv[cur_arg + param_ct]);
+	  sprintf(logbuf, "Error: Invalid --%s r^2 threshold '%s'.\n", argptr, argv[cur_arg + param_ct]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	calculation_type |= CALC_LD_PRUNE;
-        ld_info.modifier |= LD_PRUNE_PAIRWISE;
+	if (argptr2[9] == 'w') {
+          ld_info.modifier |= LD_PRUNE_PAIRWISE;
+	} else {
+	  UNSTABLE;
+          ld_info.modifier |= LD_PRUNE_PAIRPHASE;
+	}
       } else if (!memcmp(argptr2, "ndep", 5)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 3, 4)) {
 	  goto main_ret_INVALID_CMDLINE_2A;

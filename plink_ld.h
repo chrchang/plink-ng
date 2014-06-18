@@ -18,13 +18,14 @@
 #define LD_WITH_FREQS 0x400
 #define LD_YES_REALLY 0x800
 #define LD_PRUNE_PAIRWISE 0x1000
-#define LD_PRUNE_KB_WINDOW 0x2000
-#define LD_IGNORE_X 0x4000
-#define LD_WEIGHTED_X 0x8000
-#define LD_SNP_LIST_FILE 0x10000
-#define LD_BLOCKS_NO_PHENO_REQ 0x20000
-#define LD_BLOCKS_NO_SMALL_MAX_SPAN 0x40000
-#define LD_FLIPSCAN_VERBOSE 0x80000
+#define LD_PRUNE_PAIRPHASE 0x2000
+#define LD_PRUNE_KB_WINDOW 0x4000
+#define LD_IGNORE_X 0x8000
+#define LD_WEIGHTED_X 0x10000
+#define LD_SNP_LIST_FILE 0x20000
+#define LD_BLOCKS_NO_PHENO_REQ 0x40000
+#define LD_BLOCKS_NO_SMALL_MAX_SPAN 0x80000
+#define LD_FLIPSCAN_VERBOSE 0x100000
 
 typedef struct {
   double prune_last_param; // VIF or r^2 threshold
@@ -113,6 +114,8 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
 int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uint32_t pheno_ctrl_ct, uintptr_t* pheno_c, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists);
 
 int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, uint32_t plink_maxsnp, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uint32_t ctrl_ct, uintptr_t* pheno_c, double* pheno_d, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end, Set_info* sip);
+
+int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists);
 
 int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end);
 
