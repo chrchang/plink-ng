@@ -2929,7 +2929,7 @@ void qfam_compute_bw(uintptr_t* loadbuf, uintptr_t indiv_ct, uint32_t* fs_starts
   *qt_ssq_ptr = qt_ssq;
 }
 
-uint32_t qfam_regress(uint32_t test_type, uint32_t nind, uint32_t lm_set_ct, uint32_t* indiv_to_fss_idx, uintptr_t* lm_eligible, uintptr_t* nm_lm, double* pheno_d2, double* qfam_b, double* qfam_w, uint32_t* qfam_permute, uintptr_t* qfam_flip, double nind_recip, double qt_sum, double qt_ssq, double geno_ssq, double* beta_ptr, double* tstat_ptr) {
+static inline uint32_t qfam_regress(uint32_t test_type, uint32_t nind, uint32_t lm_set_ct, uint32_t* indiv_to_fss_idx, uintptr_t* lm_eligible, uintptr_t* nm_lm, double* pheno_d2, double* qfam_b, double* qfam_w, uint32_t* qfam_permute, uintptr_t* qfam_flip, double nind_recip, double qt_sum, double qt_ssq, double geno_ssq, double* beta_ptr, double* tstat_ptr) {
   // returns 0 on success
   if (nind < 3) {
     return 1;
@@ -2949,37 +2949,27 @@ uint32_t qfam_regress(uint32_t test_type, uint32_t nind, uint32_t lm_set_ct, uin
   double dxx;
   uint32_t fss_idx;
   if (test_type & (QFAM_WITHIN1 | QFAM_WITHIN2)) {
-    if (lm_set_ct) {
-      while (1) {
-	next_set_unsafe_ck(lm_eligible, &indiv_uidx);
-	if (!is_set(nm_lm, indiv_idx)) {
-	  indiv_uidx++;
-	  indiv_idx++;
-	  continue;
-	}
-	fss_idx = indiv_to_fss_idx[indiv_uidx];
-	if (is_set(qfam_flip, fss_idx)) {
-	  cur_geno = -qfam_w[indiv_idx];
-	} else {
-	  cur_geno = qfam_w[indiv_idx];
-	}
-	geno_sum += cur_geno;
-	// geno_ssq is constant if we're just flipping signs, so we precompute
-	// it
-	qt_g_prod += cur_geno * pheno_d2[indiv_idx];
-	if (++indiv_idx2 == lm_set_ct) {
-	  break;
-	}
-	indiv_uidx++;
-	indiv_idx++;
-      }
-    }
-  } else {
-    while (1) {
+    for (; indiv_idx2 < lm_set_ct; indiv_uidx++, indiv_idx++) {
       next_set_unsafe_ck(lm_eligible, &indiv_uidx);
       if (!is_set(nm_lm, indiv_idx)) {
-	indiv_uidx++;
-	indiv_idx++;
+	continue;
+      }
+      fss_idx = indiv_to_fss_idx[indiv_uidx];
+      if (is_set(qfam_flip, fss_idx)) {
+	cur_geno = -qfam_w[indiv_idx];
+      } else {
+	cur_geno = qfam_w[indiv_idx];
+      }
+      geno_sum += cur_geno;
+      // geno_ssq is constant if we're just flipping signs, so we precompute
+      // it
+      qt_g_prod += cur_geno * pheno_d2[indiv_idx];
+      indiv_idx2++;
+    }
+  } else {
+    for (; indiv_idx2 < nind; indiv_uidx++, indiv_idx++) {
+      next_set_unsafe_ck(lm_eligible, &indiv_uidx);
+      if (!is_set(nm_lm, indiv_idx)) {
 	continue;
       }
       fss_idx = qfam_permute[indiv_to_fss_idx[indiv_uidx]];
@@ -2995,11 +2985,7 @@ uint32_t qfam_regress(uint32_t test_type, uint32_t nind, uint32_t lm_set_ct, uin
       geno_sum += cur_geno;
       geno_ssq += cur_geno * cur_geno;
       qt_g_prod += cur_geno * pheno_d2[indiv_idx];
-      if (++indiv_idx2 == nind) {
-	break;
-      }
-      indiv_uidx++;
-      indiv_idx++;
+      indiv_idx2++;
     }
   }
   qt_mean = qt_sum * nind_recip;
@@ -3619,25 +3605,14 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	  if (only_within) {
 	    // see qfam_regress() loop.  uii <-> indiv_uidx, ujj <-> indiv_idx,
 	    // ukk <-> indiv_idx2.
-	    if (nind) {
-	      uii = 0;
-	      ujj = 0;
-	      ukk = 0;
-	      while (1) {
-		next_set_unsafe_ck(lm_eligible, &uii);
-		if (!is_set(nm_lm, ujj)) {
-		  uii++;
-		  ujj++;
-		  continue;
-		}
-		dxx = qfam_w[ujj];
-		geno_ssq += dxx * dxx;
-		if (++ukk == nind) {
-		  break;
-		}
-                uii++;
-		ujj++;
+	    for (uii = 0, ujj = 0, ukk = 0; ukk < nind; uii++, ujj++) {
+	      next_set_unsafe_ck(lm_eligible, &uii);
+	      if (!is_set(nm_lm, ujj)) {
+		continue;
 	      }
+	      dxx = qfam_w[ujj];
+	      geno_ssq += dxx * dxx;
+	      ukk++;
 	    }
 	  }
 	  if (!qfam_regress(test_type, nind, nind, indiv_to_fss_idx, lm_eligible, nm_lm, pheno_d2, qfam_b, qfam_w, dummy_perm, dummy_flip, nind_recip, qt_sum, qt_ssq, geno_ssq, &beta, &tstat)) {
