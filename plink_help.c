@@ -537,9 +537,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    otherwise identical to --check-sex.  It must be used with\n"
 "    --make-bed/--recode/--write-covar.\n\n"
 	       );
-    help_print("indep\tindep-pairwise", &help_ctrl, 1,
+    help_print("indep\tindep-pairwise\tindep-pairphase", &help_ctrl, 1,
 "  --indep [window size]<kb> [step size (locus ct)] [VIF threshold]\n"
 "  --indep-pairwise [window size]<kb> [step size (locus ct)] [r^2 threshold]\n"
+#ifndef STABLE_BUILD
+"  --indep-pairphase [window size]<kb> [step size (locus ct)] [r^2 threshold]\n"
+#endif
 "    Generate a list of markers in approximate linkage equilibrium.  With the\n"
 "    'kb' modifier, the window size is in kilobase instead of locus count units.\n"
 "    (Pre-'kb' space is optional, i.e. '--indep-pairwise 500 kb 5 0.5' and\n"
