@@ -3847,8 +3847,8 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
 	    p_ca_ptr = p_ca_tmp;
 	  }
 
-	  // if approximate zsq >= epi1 threshold but more accurate value is not,
-	  // we still want to save the more accurate value
+	  // if approximate zsq >= epi1 threshold but more accurate value is
+	  // not, we still want to save the more accurate value
 	  // also, we want epi2 counting to be df-sensitive
 	  // (punt on df/best_chisq for now)
 	  zsq = fepi_counts_to_boost_chisq(counts, p_bc_ptr, p_ca_ptr, alpha1sq_ptr, alpha2sq_ptr, df_adj, &(all_chisq_write[block_idx2]), &n_sig_ct_fixed, &(n_sig_ct2[block_idx2]));
@@ -7772,10 +7772,14 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       //   marker_ct2 - 1 - marker_idx1_start cells between the row and the
       //   same-index column
       // * otherwise, gap_cts[] counted the number of skipped cells
-      if (is_triangular) {
-        ujj = marker_ct2 - 1 - marker_idx1_start - ujj;
+      if (marker_idx1 < marker_idx1_end) {
+	if (is_triangular) {
+	  ujj = marker_ct2 - 1 - marker_idx1_start - ujj;
+	} else {
+	  ujj = marker_ct2 - ujj;
+	}
       } else {
-	ujj = marker_ct2 - ujj;
+	ujj = job_size - ujj;
       }
       wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr_start);
       wptr = memcpyl3a(wptr, "   ");
@@ -7796,7 +7800,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	uii = marker_idx_to_uidx[best_ids[marker_idx1]];
 	wptr = width_force(4, wptr, chrom_name_write(wptr, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, uii), zero_extra_chroms));
 	*wptr++ = ' ';
-        wptr = fw_strcpy(plink_maxsnp, &(marker_ids[uii * max_marker_id_len]), wptr);
+	wptr = fw_strcpy(plink_maxsnp, &(marker_ids[uii * max_marker_id_len]), wptr);
       } else {
 	wptr = memcpya(wptr, "          NA   NA", 17);
 	wptr = memseta(wptr, 32, plink_maxsnp - 1);
