@@ -658,11 +658,64 @@ void ld_prune_start_chrom(uint32_t ld_window_kb, uint32_t* cur_chrom_ptr, uint32
   *is_y_ptr = (((int32_t)cur_chrom) == chrom_info_ptr->y_code);
 }
 
+int32_t ld_prune_write(char* outname, char* outname_end, uintptr_t* marker_exclude, uintptr_t* pruned_arr, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, uint32_t chrom_code_end) {
+  FILE* outfile = NULL;
+  int32_t retval = 0;
+  uint32_t cur_chrom;
+  uint32_t chrom_end;
+  uint32_t marker_uidx;
+  fputs("Writing...", stdout);
+  fflush(stdout);
+  strcpy(outname_end, ".prune.in");
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto ld_prune_write_ret_OPEN_FAIL;
+  }
+  for (cur_chrom = 1; cur_chrom < chrom_code_end; cur_chrom++) {
+    chrom_end = chrom_info_ptr->chrom_end[cur_chrom];
+    for (marker_uidx = chrom_info_ptr->chrom_start[cur_chrom]; marker_uidx < chrom_end; marker_uidx++) {
+      if ((!IS_SET(marker_exclude, marker_uidx)) && (!IS_SET(pruned_arr, marker_uidx))) {
+        fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
+	putc('\n', outfile);
+      }
+    }
+  }
+  if (fclose_null(&outfile)) {
+    goto ld_prune_write_ret_WRITE_FAIL;
+  }
+  strcpy(outname_end, ".prune.out");
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto ld_prune_write_ret_OPEN_FAIL;
+  }
+  for (cur_chrom = 1; cur_chrom < chrom_code_end; cur_chrom++) {
+    chrom_end = chrom_info_ptr->chrom_end[cur_chrom];
+    for (marker_uidx = chrom_info_ptr->chrom_start[cur_chrom]; marker_uidx < chrom_end; marker_uidx++) {
+      if ((!IS_SET(marker_exclude, marker_uidx)) && IS_SET(pruned_arr, marker_uidx)) {
+        fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
+	putc('\n', outfile);
+      }
+    }
+  }
+  if (fclose_null(&outfile)) {
+    goto ld_prune_write_ret_WRITE_FAIL;
+  }
+  *outname_end = '\0';
+  putchar('\r');
+  LOGPRINTFWW("Marker lists written to %s.prune.in and %s.prune.out .\n", outname, outname);
+  while (0) {
+  ld_prune_write_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  ld_prune_write_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+  fclose_cond(outfile);
+  return retval;
+}
+
 int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists, uint32_t zero_extra_chroms) {
   // for future consideration: chromosome-based multithread/parallel?
   unsigned char* wkspace_mark = wkspace_base;
-  FILE* outfile_in = NULL;
-  FILE* outfile_out = NULL;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = 2 * ((unfiltered_indiv_ct + (BITCT - 1)) / BITCT);
@@ -711,8 +764,6 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   uintptr_t* pruned_arr;
   uint32_t* live_indices;
   uint32_t* start_arr;
-  uint32_t marker_unfiltered_idx;
-  uintptr_t marker_idx;
   uint32_t pct;
   uint32_t pct_thresh;
   uint32_t window_unfiltered_start;
@@ -747,8 +798,6 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   uintptr_t* mask_var_vec_ptr;
   uintptr_t cur_exclude_ct;
   uint32_t prev_end;
-  char* sptr;
-  FILE* fptr;
   __CLPK_integer window_rem_li;
   __CLPK_integer old_window_rem_li;
   uint32_t window_rem;
@@ -1157,72 +1206,23 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   } while (window_unfiltered_start < unfiltered_marker_ct);
 
   LOGPRINTF("Pruning complete.  %u of %" PRIuPTR " variants removed.\n", tot_exclude_ct, marker_ct);
-  strcpy(outname_end, ".prune.in");
-  if (fopen_checked(&outfile_in, outname, "w")) {
-    goto ld_prune_ret_OPEN_FAIL;
+  retval = ld_prune_write(outname, outname_end, marker_exclude, pruned_arr, marker_ids, max_marker_id_len, chrom_info_ptr, chrom_code_end);
+  if (retval) {
+    goto ld_prune_ret_1;
   }
-  strcpy(outname_end, ".prune.out");
-  if (fopen_checked(&outfile_out, outname, "w")) {
-    goto ld_prune_ret_OPEN_FAIL;
-  }
-  marker_unfiltered_idx = 0;
-  marker_idx = 0;
-  pct = 1;
-  pct_thresh = ((uint64_t)pct * marker_ct) / 100;
-  for (cur_chrom = 1; cur_chrom < chrom_code_end; cur_chrom++) {
-    chrom_end = chrom_info_ptr->chrom_end[cur_chrom];
-    if (!chrom_end) {
-      continue;
-    }
-    marker_unfiltered_idx = chrom_info_ptr->chrom_start[cur_chrom];
-    for (; marker_unfiltered_idx < chrom_end; marker_unfiltered_idx++) {
-      if (!IS_SET(marker_exclude, marker_unfiltered_idx)) {
-	sptr = &(marker_ids[marker_unfiltered_idx * max_marker_id_len]);
-	fptr = IS_SET(pruned_arr, marker_unfiltered_idx)? outfile_out : outfile_in;
-	fwrite(sptr, 1, strlen(sptr), fptr);
-	if (putc_checked('\n', fptr)) {
-	  goto ld_prune_ret_WRITE_FAIL;
-	}
-      }
-      marker_idx++;
-      if (marker_idx >= pct_thresh) {
-	printf("\rWriting... %u%%", pct);
-	fflush(stdout);
-	pct = (marker_idx * 100LLU) / marker_ct + 1;
-        pct_thresh = ((uint64_t)pct * marker_ct) / 100;
-      }
-    }
-  }
-  if (fclose_null(&outfile_in)) {
-    goto ld_prune_ret_WRITE_FAIL;
-  }
-  if (fclose_null(&outfile_out)) {
-    goto ld_prune_ret_WRITE_FAIL;
-  }
-  *outname_end = '\0';
-  putchar('\r');
-  LOGPRINTFWW("Marker lists written to %s.prune.in and %s.prune.out .\n", outname, outname);
 
   while (0) {
   ld_prune_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  ld_prune_ret_OPEN_FAIL:
-    retval = RET_OPEN_FAIL;
-    break;
   ld_prune_ret_READ_FAIL:
     retval = RET_READ_FAIL;
-    break;
-  ld_prune_ret_WRITE_FAIL:
-    retval = RET_WRITE_FAIL;
     break;
   ld_prune_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
   }
  ld_prune_ret_1:
-  fclose_cond(outfile_in);
-  fclose_cond(outfile_out);
   wkspace_reset(wkspace_mark);
   return retval;
 }
@@ -7874,8 +7874,6 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
   // Like ld_prune(), except that it computes the full 3x3 contingency table,
   // and is always in pairwise mode.
   unsigned char* wkspace_mark = wkspace_base;
-  FILE* outfile_in = NULL;
-  FILE* outfile_out = NULL;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = 2 * ((unfiltered_indiv_ct + (BITCT - 1)) / BITCT);
@@ -7908,14 +7906,11 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
   uintptr_t* zmiss;
   uintptr_t* cur_geno1;
   uintptr_t* cur_geno2;
-  FILE* fptr;
-  char* sptr;
   uint32_t* live_indices;
   uint32_t* start_arr;
   uint32_t* cur_tots;
   uint32_t* cur_tot2;
   uintptr_t window_maxl;
-  uintptr_t marker_idx;
   uintptr_t cur_exclude_ct;
   uintptr_t ulii;
   uintptr_t uljj;
@@ -7927,7 +7922,6 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
   double freq11;
   double freq11_expected;
   double rsq;
-  uint32_t marker_unfiltered_idx;
   uint32_t pct_thresh;
   uint32_t window_unfiltered_start;
   uint32_t window_unfiltered_end;
@@ -8236,72 +8230,23 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
   } while (window_unfiltered_start < unfiltered_marker_ct);
 
   LOGPRINTF("Pruning complete.  %u of %" PRIuPTR " variants removed.\n", tot_exclude_ct, marker_ct);
-  strcpy(outname_end, ".prune.in");
-  if (fopen_checked(&outfile_in, outname, "w")) {
-    goto indep_pairphase_ret_OPEN_FAIL;
+  retval = ld_prune_write(outname, outname_end, marker_exclude, pruned_arr, marker_ids, max_marker_id_len, chrom_info_ptr, chrom_code_end);
+  if (retval) {
+    goto indep_pairphase_ret_1;
   }
-  strcpy(outname_end, ".prune.out");
-  if (fopen_checked(&outfile_out, outname, "w")) {
-    goto indep_pairphase_ret_OPEN_FAIL;
-  }
-  marker_unfiltered_idx = 0;
-  marker_idx = 0;
-  pct = 1;
-  pct_thresh = ((uint64_t)pct * marker_ct) / 100;
-  for (cur_chrom = 1; cur_chrom < chrom_code_end; cur_chrom++) {
-    chrom_end = chrom_info_ptr->chrom_end[cur_chrom];
-    if (!chrom_end) {
-      continue;
-    }
-    marker_unfiltered_idx = chrom_info_ptr->chrom_start[cur_chrom];
-    for (; marker_unfiltered_idx < chrom_end; marker_unfiltered_idx++) {
-      if (!IS_SET(marker_exclude, marker_unfiltered_idx)) {
-	sptr = &(marker_ids[marker_unfiltered_idx * max_marker_id_len]);
-	fptr = IS_SET(pruned_arr, marker_unfiltered_idx)? outfile_out : outfile_in;
-	fwrite(sptr, 1, strlen(sptr), fptr);
-	if (putc_checked('\n', fptr)) {
-	  goto indep_pairphase_ret_WRITE_FAIL;
-	}
-      }
-      marker_idx++;
-      if (marker_idx >= pct_thresh) {
-	printf("\rWriting... %u%%", pct);
-	fflush(stdout);
-	pct = (marker_idx * 100LLU) / marker_ct + 1;
-        pct_thresh = ((uint64_t)pct * marker_ct) / 100;
-      }
-    }
-  }
-  if (fclose_null(&outfile_in)) {
-    goto indep_pairphase_ret_WRITE_FAIL;
-  }
-  if (fclose_null(&outfile_out)) {
-    goto indep_pairphase_ret_WRITE_FAIL;
-  }
-  *outname_end = '\0';
-  putchar('\r');
-  LOGPRINTFWW("Marker lists written to %s.prune.in and %s.prune.out .\n", outname, outname);
 
   while (0) {
   indep_pairphase_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  indep_pairphase_ret_OPEN_FAIL:
-    retval = RET_OPEN_FAIL;
-    break;
   indep_pairphase_ret_READ_FAIL:
     retval = RET_READ_FAIL;
-    break;
-  indep_pairphase_ret_WRITE_FAIL:
-    retval = RET_WRITE_FAIL;
     break;
   indep_pairphase_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
   }
  indep_pairphase_ret_1:
-  fclose_cond(outfile_in);
-  fclose_cond(outfile_out);
   wkspace_reset(wkspace_mark);
   return retval;
 }
