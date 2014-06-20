@@ -7924,7 +7924,6 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
   uint32_t window_unfiltered_start;
   uint32_t window_unfiltered_end;
   uint32_t cur_window_size;
-  uint32_t old_window_size;
   uint32_t cur_chrom;
   uint32_t chrom_end;
   uint32_t is_haploid;
@@ -8010,7 +8009,6 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
   do {
     prev_end = 0;
     ld_prune_start_chrom(window_is_kb, &cur_chrom, &chrom_end, window_unfiltered_start, live_indices, start_arr, &window_unfiltered_end, ld_window_size, &cur_window_size, unfiltered_marker_ct, pruned_arr, chrom_info_ptr, marker_pos, &is_haploid, &is_x, &is_y);
-    old_window_size = 1;
     cur_exclude_ct = 0;
     fill_ulong_zero(zmiss, window_maxl);
     if (cur_window_size > 1) {
@@ -8182,7 +8180,6 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
       } else {
 	uljj = ld_window_incr;
       }
-      old_window_size = cur_window_size;
       for (ulii = 0; ulii < uljj; window_unfiltered_end++, ulii++) {
 	next_unset_ck(marker_exclude, &window_unfiltered_end, chrom_end);
 	if (window_unfiltered_end == chrom_end) {
