@@ -496,7 +496,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Generate a Mendel error report.\n\n"
 	       );
     help_print("het\tibc", &help_ctrl, 1,
-"  --het\n"
+"  --het <small-sample>\n"
 "  --ibc\n"
 "    Estimate inbreeding coefficients.  --het reports method-of-moments\n"
 "    estimates, while --ibc calculates all three values described in Yang J, Lee\n"
@@ -507,6 +507,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      samples in your immediate fileset, --read-freq is practically mandatory\n"
 "      since imputed MAFs are wildly inaccurate in that case.\n"
 "    * They also assume the marker set is in approximate linkage equilibrium.\n\n"
+"    * By default, --het omits the n/(n-1) multiplier in Nei's expected\n"
+"      homozygosity formula.  The 'small-sample' modifier causes it to be\n"
+"      included, while forcing --het to use MAFs imputed from the immediate\n"
+"      dataset.\n"
 	       );
     help_print("check-sex\timpute-sex\tupdate-sex\tsex-check", &help_ctrl, 1,
 "  --check-sex {female max F} {male min F}\n"

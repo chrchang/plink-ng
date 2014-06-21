@@ -2916,13 +2916,17 @@ int32_t write_snplist(char* outname, char* outname_end, uintptr_t unfiltered_mar
   return retval;
 }
 
-int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs) {
+int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uintptr_t* founder_info, Chrom_info* chrom_info_ptr, double* set_allele_freqs) {
   // Same F coefficient computation as sexcheck().
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
+  uintptr_t* loadbuf_f = NULL;
+  uintptr_t* founder_vec11 = NULL;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t indiv_ctl2 = (indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t founder_ct = 0;
   uintptr_t monomorphic_ct = 0;
   uintptr_t marker_uidx = 0;
   double nei_sum = 0.0;
@@ -2948,6 +2952,8 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
   uintptr_t indiv_idx;
   uintptr_t cur_missing_ct;
   uintptr_t allele_obs_ct;
+  uintptr_t f_missing_ct;
+  uintptr_t f_allele_obs_ct;
   uintptr_t cur_word;
   uintptr_t ulii;
   uint32_t obs_ct;
@@ -2970,6 +2976,26 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
   marker_ct -= count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
   if (!marker_ct) {
     goto het_report_ret_INVALID_CMDLINE;
+  }
+  if (founder_info) {
+    // founder_info passed iff we're including the small-sample correction, in
+    // which case we may need to mask out nonfounders and determine
+    // missing/allele counts in that subset.
+    founder_ct = popcount_longs(founder_info, unfiltered_indiv_ctl);
+    if (founder_ct < indiv_ct) {
+      if (wkspace_alloc_ul_checked(&founder_vec11, indiv_ctl2 * sizeof(intptr_t)) ||
+          wkspace_alloc_ul_checked(&loadbuf_f, indiv_ctl2 * sizeof(intptr_t))) {
+	goto het_report_ret_NOMEM;
+      }
+      vec_collapse_init_exclude(founder_info, unfiltered_indiv_ct, indiv_exclude, indiv_ct, founder_vec11);
+      lptr = founder_vec11;
+      for (ulii = 0; ulii < indiv_ctl2; ulii++) {
+	*lptr = (*lptr) * 3;
+	lptr++;
+      }
+    } else {
+      loadbuf_f = loadbuf;
+    }
   }
   for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
     if (IS_SET(marker_exclude, marker_uidx)) {
@@ -2994,13 +3020,33 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
       goto het_report_ret_READ_FAIL;
     }
     cur_missing_ct = count_01(loadbuf, indiv_ctl2);
-    allele_obs_ct = 2 * (indiv_ct - cur_missing_ct);
-    dpp = set_allele_freqs[marker_uidx];
-    if ((!allele_obs_ct) || (dpp < 1e-8) || (dpp > (1 - 1e-8))) {
-      monomorphic_ct++;
-      continue;
+    if (!loadbuf_f) {
+      allele_obs_ct = 2 * (indiv_ct - cur_missing_ct);
+      dpp = set_allele_freqs[marker_uidx];
+      if ((!allele_obs_ct) || (dpp < 1e-8) || (dpp > (1 - 1e-8))) {
+        monomorphic_ct++;
+        continue;
+      }
+      cur_nei = 1.0 - 2 * dpp * (1 - dpp);
+    } else {
+      if (founder_vec11) {
+        memcpy(loadbuf_f, loadbuf, indiv_ctl2 * sizeof(intptr_t));
+        bitfield_and(loadbuf_f, founder_vec11, indiv_ctl2);
+        f_missing_ct = count_01(loadbuf_f, indiv_ctl2);
+      } else {
+	f_missing_ct = cur_missing_ct;
+      }
+      f_allele_obs_ct = 2 * (founder_ct - f_missing_ct);
+      ulii = popcount_longs(loadbuf_f, indiv_ctl2) - f_missing_ct;
+      if ((!f_allele_obs_ct) || (!ulii) || (ulii == f_allele_obs_ct)) {
+	monomorphic_ct++;
+	continue;
+      }
+      dee = (double)((intptr_t)ulii);
+      dff = (double)((intptr_t)f_allele_obs_ct);
+      dpp = dee / dff;
+      cur_nei = 1.0 - 2 * (1 - dpp) * dee / (dff - 1);
     }
-    cur_nei = 1.0 - 2 * dpp * (1 - dpp);
     if (cur_missing_ct) {
       // iterate through missing calls
       lptr = loadbuf;
@@ -3066,7 +3112,7 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
   if (fclose_null(&outfile)) {
     goto het_report_ret_WRITE_FAIL;
   }
-  LOGPRINTFWW("--het: %" PRIuPTR " variant%s scanned, report written to %s .\n", marker_ct, (marker_ct == 1)? "" : "s", outname);
+  LOGPRINTFWW("--het%s: %" PRIuPTR " variant%s scanned, report written to %s .\n", loadbuf_f? " small-sample" : "", marker_ct, (marker_ct == 1)? "" : "s", outname);
   while (0) {
   het_report_ret_NOMEM:
     retval = RET_NOMEM;

@@ -1750,7 +1750,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_HET) {
-    retval = het_report(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, chrom_info_ptr, set_allele_freqs);
+    retval = het_report(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, (misc_flags & MISC_HET_SMALL_SAMPLE)? founder_info : NULL, chrom_info_ptr, set_allele_freqs);
     if (retval) {
       goto plink_ret_1;
     }
@@ -6703,8 +6703,17 @@ int32_t main(int32_t argc, char** argv) {
 	hwe_modifier |= HWE_THRESH_ALL;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "et", 3)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+	if (param_ct) {
+	  if (strcmp(argv[cur_arg + 1], "small-sample")) {
+            sprintf(logbuf, "Error: Invalid --het parameter '%s'.\n", argv[cur_arg + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+	  }
+	  misc_flags |= MISC_HET_SMALL_SAMPLE;
+	}
         calculation_type |= CALC_HET;
-	goto main_param_zero;
       } else if ((!memcmp(argptr2, "ardy", 5)) || (!memcmp(argptr2, "ardy midp", 10))) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
