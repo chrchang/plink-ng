@@ -3284,6 +3284,31 @@ void reverse_subset(uintptr_t* writebuf, uintptr_t* subset_vec2, uintptr_t word_
 #endif
 }
 
+void replace_missing_a2(uintptr_t* writebuf, uintptr_t* subset_vec2, uintptr_t word_ct) {
+  // 01 -> 11 for each set bit in subset_vec2
+#ifdef __LP64__
+  __m128i* wvec = (__m128i*)writebuf;
+  __m128i* svec = (__m128i*)subset_vec2;
+  __m128i* wvec_end = (__m128i*)(&(writebuf[word_ct]));
+  __m128i vii;
+  __m128i vjj;
+  do {
+    vii = *wvec;
+    vjj = _mm_andnot_si128(vii, _mm_slli_epi64(_mm_and_si128(vii, *svec++), 1));
+    *wvec++ = _mm_or_si128(vii, vjj);
+  } while (wvec < wvec_end);
+#else
+  uintptr_t* writebuf_end = &(writebuf[word_ct]);
+  uintptr_t ulii;
+  uintptr_t uljj;
+  do {
+    ulii = *writebuf;
+    uljj = (~ulii) & (((*subset_vec2++) & ulii) << 1);
+    *writebuf++ = ulii | uljj;
+  } while (writebuf < writebuf_end);
+#endif
+}
+
 int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t map_cols, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t map_is_unsorted, uint32_t* indiv_sort_map, uint64_t misc_flags, uint32_t splitx_bound1, uint32_t splitx_bound2, Two_col_params* update_chr, char* flip_fname, char* flip_subset_fname, char* zerofname, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, uint32_t hh_exists, Chrom_info* chrom_info_ptr, uint32_t mendel_modifier) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
@@ -3313,6 +3338,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   uint32_t family_ct = 0;
   uint32_t set_hh_missing = (misc_flags / MISC_SET_HH_MISSING) & 1;
   uint32_t set_me_missing = (misc_flags / MISC_SET_ME_MISSING) & 1;
+  uint32_t force_missing_a2 = (misc_flags / MISC_FORCE_MISSING_A2) & 1;
   uint32_t mendel_include_duos = (mendel_modifier / MENDEL_DUOS) & 1;
   uint32_t mendel_multigen = (mendel_modifier / MENDEL_MULTIGEN) & 1;
   uint32_t mergex = (misc_flags / MISC_MERGEX) & 1;
@@ -3322,7 +3348,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   uint32_t chrom_end = 0;
   uint32_t chrom_fo_idx = 0xffffffffU; // deliberate overflow
   int32_t retval = 0;
-  const char errmids[][3] = {"me", "hh"};
+  const char errflags[][17] = {"set-hh-missing", "set-me-missing", "force-missing-a2"};
   uintptr_t* loadbuf;
   uintptr_t* writebuf;
   uintptr_t* writebuf_ptr;
@@ -3375,14 +3401,14 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
     goto make_bed_ret_READ_FAIL;
   }
   if (resort_map) {
-    if (set_hh_missing || set_me_missing) {
+    if (set_hh_missing || set_me_missing || force_missing_a2) {
       // could remove this restriction if we added a chromosome check to the
       // main loop, but no real need to bother.
-      errptr = errmids[set_hh_missing];
+      errptr = errflags[set_hh_missing? 0 : (set_me_missing? 1 : 2)];
       if (map_is_unsorted) {
-        LOGPRINTF("Error: --set-%s-missing cannot be used on an unsorted .bim file.  Use\n--make-bed without --set-%s-missing to sort by position first; then run\n--make-bed + --set-%s-missing on the new fileset.\n", errptr, errptr, errptr);
+        LOGPRINTF("Error: --%s cannot be used on an unsorted .bim file.  Use\n--make-bed without --%s to sort by position first; then run\n--make-bed + --%s on the new fileset.\n", errptr, errptr, errptr);
       } else {
-        LOGPRINTF("Error: --set-%s-missing cannot be used with --merge-x/--split-x/--update-chr.\nFinish updating chromosome codes first.\n", errptr);
+        LOGPRINTF("Error: --%s cannot be used with --merge-x/--split-x/--update-chr.\nFinish updating chromosome codes first.\n", errptr);
       }
       retval = RET_CALC_NOT_YET_SUPPORTED;
       goto make_bed_ret_1;
@@ -3483,7 +3509,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
     } else if (!set_hh_missing) {
       hh_exists = 0;
     }
-    if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, indiv_ct, hh_exists, 0, indiv_exclude, sex_male, &indiv_include2, &indiv_male_include2)) {
+    if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, indiv_ct, force_missing_a2? Y_FIX_NEEDED : hh_exists, 0, indiv_exclude, sex_male, &indiv_include2, &indiv_male_include2)) {
       goto make_bed_ret_NOMEM;
     }
     if (set_me_missing) {
@@ -3543,6 +3569,9 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	}
 	if (flip_subset_markers && is_set(flip_subset_markers, marker_uidx)) {
           reverse_subset(writebuf, flip_subset_vec2, indiv_ctv2);
+	}
+	if (force_missing_a2) {
+	  replace_missing_a2(writebuf, is_y? indiv_male_include2 : indiv_include2, indiv_ctv2);
 	}
 
 	if (fwrite_checked(writebuf, indiv_ct4, bedoutfile)) {

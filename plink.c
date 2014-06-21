@@ -101,7 +101,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (20 Jun 2014)";
+  " (21 Jun 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   //  " " (don't actually want this when version number has a trailing letter)
@@ -6338,6 +6338,16 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "amily", 6)) {
         misc_flags |= MISC_FAMILY_CLUSTERS;
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "orce-missing-a2", 16)) {
+	if (load_rare & LOAD_RARE_CNV) {
+	  logprint("Error: --force-missing-a2 cannot be used with a .cnv fileset.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	} else if (flip_subset_fname) {
+	  logprint("Error: --force-missing-a2 cannot be used with --flip-subset.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
+	misc_flags |= MISC_FORCE_MISSING_A2;
+	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
       }
@@ -7929,6 +7939,10 @@ int32_t main(int32_t argc, char** argv) {
         if (misc_flags & MISC_KEEP_AUTOCONV) {
 	  logprint("Error: --make-bed cannot be used with --keep-autoconv.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
+	}
+	if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
+	  sprintf(logbuf, "Error: --make-bed cannot be used with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
+	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (param_ct) {
 	  sprintf(logbuf, "Error: --make-bed doesn't accept parameters.%s\n", ((param_ct == 1) && (!outname_end))? "  (Did you forget '--out'?)" : "");
@@ -10512,9 +10526,9 @@ int32_t main(int32_t argc, char** argv) {
         score_info.modifier |= SCORE_NO_MEAN_IMPUTATION;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "et-me-missing", 14)) {
-	if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
-	  sprintf(logbuf, "Error: --set-me-missing cannot be used with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
-	  goto main_ret_INVALID_CMDLINE_2A;
+	if (load_rare & LOAD_RARE_CNV) {
+	  logprint("Error: --set-me-missing cannot be used with a .cnv fileset.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	misc_flags |= MISC_SET_ME_MISSING;
 	goto main_param_zero;
@@ -11587,8 +11601,8 @@ int32_t main(int32_t argc, char** argv) {
     sprintf(logbuf, "Error: Deprecated parameter-free --update-%s cannot be used without\n--update-map.\n", (update_map_modifier == 1)? "chr" : "cm");
     goto main_ret_INVALID_CMDLINE_2A;
   }
-  if (((misc_flags & (MISC_MERGEX | MISC_SET_ME_MISSING)) || splitx_bound2 || update_chr) && (((load_rare == LOAD_RARE_CNV) && (cnv_calc_type != CNV_WRITE)) || ((load_rare != LOAD_RARE_CNV) && (calculation_type != CALC_MAKE_BED)))) {
-    sprintf(logbuf, "Error: --merge-x/--split-x/--update-chr/--set-me-missing must be used with\n--%s and no other commands.\n", (load_rare == LOAD_RARE_CNV)? "cnv-write" : "make-bed");
+  if (((misc_flags & (MISC_FORCE_MISSING_A2 | MISC_MERGEX | MISC_SET_ME_MISSING)) || splitx_bound2 || update_chr) && (((load_rare == LOAD_RARE_CNV) && (cnv_calc_type != CNV_WRITE)) || ((load_rare != LOAD_RARE_CNV) && (calculation_type != CALC_MAKE_BED)))) {
+    sprintf(logbuf, "Error: --merge-x/--split-x/--update-chr/--set-me-missing/--force-missing-a2\nmust be used with --%s and no other commands.\n", (load_rare == LOAD_RARE_CNV)? "cnv-write" : "make-bed");
     goto main_ret_INVALID_CMDLINE_2A;
   }
   if (load_rare == LOAD_RARE_CNV) {
