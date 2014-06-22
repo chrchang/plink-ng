@@ -429,8 +429,8 @@ uint32_t is_cnv_overlap(uint32_t start_pos, uint32_t end_pos, uint32_t overlap_t
   return is_cnv_overlap_one_size(start_pos, end_pos, overlap_type, overlap_val, large_max_width, il_large, il_large_len);
 }
 
-int32_t cnv_make_map_write(FILE* new_mapfile, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t bp_pos, uintptr_t* max_marker_id_len_ptr) {
-  char* wptr = chrom_name_write(tbuf, chrom_info_ptr, chrom_idx, zero_extra_chroms);
+int32_t cnv_make_map_write(FILE* new_mapfile, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t bp_pos, uintptr_t* max_marker_id_len_ptr) {
+  char* wptr = chrom_name_write(tbuf, chrom_info_ptr, chrom_idx);
   char* wptr2 = memcpya(wptr, "\tp", 2);
   uintptr_t cur_marker_id_len;
   // this just needs to be an arbitrary unique name, so it's fine if we don't
@@ -621,7 +621,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
   for (uii = 0; uii <= chrom_idx; uii++) {
     marker_chrom_start[uii] = 0;
   }
-  if (cnv_make_map_write(new_mapfile, zero_extra_chroms, chrom_info_ptr, chrom_idx, (uint32_t)((uint64_t)llii), max_marker_id_len_ptr)) {
+  if (cnv_make_map_write(new_mapfile, chrom_info_ptr, chrom_idx, (uint32_t)((uint64_t)llii), max_marker_id_len_ptr)) {
     goto cnv_make_map_ret_WRITE_FAIL;
   }
   for (ulii = 1; ulii < raw_marker_ct; ulii++) {
@@ -639,7 +639,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
 	  marker_chrom_start[++chrom_idx] = distinct_marker_ct;
 	} while (chrom_idx < uii);
       }
-      if (cnv_make_map_write(new_mapfile, zero_extra_chroms, chrom_info_ptr, chrom_idx, (uint32_t)((uint64_t)llii), max_marker_id_len_ptr)) {
+      if (cnv_make_map_write(new_mapfile, chrom_info_ptr, chrom_idx, (uint32_t)((uint64_t)llii), max_marker_id_len_ptr)) {
 	goto cnv_make_map_ret_WRITE_FAIL;
       }
     }

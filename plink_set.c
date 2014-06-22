@@ -1611,7 +1611,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   return retval;
 }
 
-int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr) {
+int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uintptr_t set_ct = sip->ct;
@@ -1672,7 +1672,7 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
         chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[uii];
       }
       fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
-      bufptr = chrom_name_write(&(tbuf[1]), chrom_info_ptr, chrom_idx, zero_extra_chroms);
+      bufptr = chrom_name_write(&(tbuf[1]), chrom_info_ptr, chrom_idx);
       *bufptr++ = '\t';
       bufptr = uint32_writex(bufptr, marker_pos[marker_uidx], '\t');
       // do not keep double-tab (if it was intentional, it should have been in

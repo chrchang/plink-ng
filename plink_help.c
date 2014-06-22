@@ -1557,11 +1557,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --merge-x              : Merge XY chromosome back with X.\n"
 	       );
     help_print("set-me-missing", &help_ctrl, 0,
-"  --set-me-missing   : Cause --make-bed to set Mendel errors to missing.\n"
+"  --set-me-missing  : Cause --make-bed to set Mendel errors to missing.\n"
 	       );
-    help_print("force-missing-a2", &help_ctrl, 0,
-"  --force-missing-a2 : Cause --make-bed to replace all (except Ychr nonmale)\n"
-"                       missing calls with homozygous A2 calls.\n"
+    help_print("fill-missing-a2", &help_ctrl, 0,
+"  --fill-missing-a2 : Cause --make-bed to replace all (except Ychr nonmale)\n"
+"                      missing calls with homozygous A2 calls.\n"
 	       );
     help_print("set-missing-snp-ids\tset-missing-nonsnp-ids\tset-missing-var-ids\tmissing-var-code", &help_ctrl, 0,
 "  --set-missing-snp-ids [tmpl] : Given a template string with a '@' where the\n"

@@ -196,31 +196,30 @@
 #define MISC_LOAD_CLUSTER_KEEP_NA 0x100LLU
 #define MISC_WRITE_CLUSTER_OMIT_UNASSIGNED 0x200LLU
 #define MISC_ALLOW_EXTRA_CHROMS 0x400LLU
-#define MISC_ZERO_EXTRA_CHROMS 0x800LLU
-#define MISC_MAKE_FOUNDERS_REQUIRE_2_MISSING 0x1000LLU
-#define MISC_MAKE_FOUNDERS_FIRST 0x2000LLU
-#define MISC_CMH_BD 0x4000LLU
-#define MISC_CMH2 0x8000LLU
-#define MISC_LASSO_REPORT_ZEROES 0x10000LLU
-#define MISC_LASSO_SELECT_COVARS 0x20000LLU
-#define MISC_DOUBLE_ID 0x40000LLU
-#define MISC_BIALLELIC_ONLY 0x80000LLU
-#define MISC_BIALLELIC_ONLY_STRICT 0x100000LLU
-#define MISC_BIALLELIC_ONLY_LIST 0x200000LLU
-#define MISC_VCF_FILTER 0x400000LLU
-#define MISC_GPLINK 0x800000LLU
-#define MISC_SNPS_ONLY_NO_DI 0x1000000LLU
-#define MISC_IMPUTE_SEX 0x2000000LLU
-#define MISC_OXFORD_SNPID_CHR 0x4000000LLU
-#define MISC_EXTRACT_RANGE 0x8000000LLU
-#define MISC_EXCLUDE_RANGE 0x10000000LLU
-#define MISC_MERGEX 0x20000000LLU
-#define MISC_SET_ME_MISSING 0x40000000LLU
-#define MISC_SEXCHECK_YCOUNT 0x80000000LLU
-#define MISC_SEXCHECK_YONLY 0x100000000LLU
-#define MISC_FAMILY_CLUSTERS 0x200000000LLU
-#define MISC_FORCE_MISSING_A2 0x400000000LLU
-#define MISC_HET_SMALL_SAMPLE 0x800000000LLU
+#define MISC_MAKE_FOUNDERS_REQUIRE_2_MISSING 0x800LLU
+#define MISC_MAKE_FOUNDERS_FIRST 0x1000LLU
+#define MISC_CMH_BD 0x2000LLU
+#define MISC_CMH2 0x4000LLU
+#define MISC_LASSO_REPORT_ZEROES 0x8000LLU
+#define MISC_LASSO_SELECT_COVARS 0x10000LLU
+#define MISC_DOUBLE_ID 0x20000LLU
+#define MISC_BIALLELIC_ONLY 0x40000LLU
+#define MISC_BIALLELIC_ONLY_STRICT 0x80000LLU
+#define MISC_BIALLELIC_ONLY_LIST 0x100000LLU
+#define MISC_VCF_FILTER 0x200000LLU
+#define MISC_GPLINK 0x400000LLU
+#define MISC_SNPS_ONLY_NO_DI 0x800000LLU
+#define MISC_IMPUTE_SEX 0x1000000LLU
+#define MISC_OXFORD_SNPID_CHR 0x2000000LLU
+#define MISC_EXTRACT_RANGE 0x4000000LLU
+#define MISC_EXCLUDE_RANGE 0x8000000LLU
+#define MISC_MERGEX 0x10000000LLU
+#define MISC_SET_ME_MISSING 0x20000000LLU
+#define MISC_SEXCHECK_YCOUNT 0x40000000LLU
+#define MISC_SEXCHECK_YONLY 0x80000000LLU
+#define MISC_FAMILY_CLUSTERS 0x100000000LLU
+#define MISC_FILL_MISSING_A2 0x200000000LLU
+#define MISC_HET_SMALL_SAMPLE 0x400000000LLU
 
 #define FILTER_GENERIC 1LLU
 
@@ -1710,6 +1709,7 @@ typedef struct {
   uintptr_t haploid_mask[CHROM_MASK_WORDS];
 
   // --allow-extra-chroms support
+  uint32_t zero_extra_chroms;
   uint32_t name_ct;
   Ll_str* incl_excl_name_stack;
   uint32_t is_include_stack;
@@ -1717,7 +1717,6 @@ typedef struct {
   char* nonstd_names[MAX_POSSIBLE_CHROM];
   uint32_t nonstd_name_order[MAX_POSSIBLE_CHROM];
 } Chrom_info;
-// er, zero_extra_chroms flag should probably be added to this struct...
 
 #define SPECIES_HUMAN 0
 #define SPECIES_COW 1
@@ -1749,11 +1748,11 @@ static inline uint32_t all_words_zero(uintptr_t* word_arr, uintptr_t word_ct) {
   return 1;
 }
 
-char* chrom_name_write(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t zero_extra_chroms);
+char* chrom_name_write(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx);
 
-char* chrom_name_buf5w4write(char* buf5, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t zero_extra_chroms, uint32_t* chrom_name_len_ptr);
+char* chrom_name_buf5w4write(char* buf5, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t* chrom_name_len_ptr);
 
-uint32_t get_max_chrom_len(Chrom_info* chrom_info_ptr, uint32_t zero_extra_chroms);
+uint32_t get_max_chrom_len(Chrom_info* chrom_info_ptr);
 
 void forget_extra_chrom_names(Chrom_info* chrom_info_ptr);
 

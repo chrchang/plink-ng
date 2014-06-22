@@ -123,7 +123,6 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uintptr_t ulii = 0;
   double missing_phenod = (double)missing_pheno;
   uint32_t load_map = (mapname[0] != '\0');
-  uint32_t zero_extra_chroms = (misc_flags / MISC_ZERO_EXTRA_CHROMS) & 1;
   uint32_t do_glm = (doip->modifier / DOSAGE_GLM) & 1;
   uint32_t count_occur = doip->modifier & DOSAGE_OCCUR;
   uint32_t sepheader = (doip->modifier / DOSAGE_SEPHEADER) & 1;
@@ -1413,7 +1412,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  bufptr = tbuf;
 	  *bufptr++ = ' ';
 	  if (load_map) {
-	    bufptr = width_force(3, bufptr, chrom_name_write(tbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_idx), zero_extra_chroms));
+	    bufptr = width_force(3, bufptr, chrom_name_write(tbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_idx)));
 	    *bufptr++ = ' ';
 	    bufptr = fw_strcpyn(11, cur_marker_id_len, cur_marker_id_buf, bufptr);
             bufptr = memseta(bufptr, 32, 2);

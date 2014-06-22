@@ -3693,14 +3693,14 @@ char* chrom_name_std(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx) 
   return buf;
 }
 
-char* chrom_name_write(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t zero_extra_chroms) {
+char* chrom_name_write(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx) {
   // assumes chrom_idx is valid
   if (!chrom_idx) {
     *buf++ = '0';
     return buf;
   } else if (chrom_idx <= chrom_info_ptr->max_code) {
     return chrom_name_std(buf, chrom_info_ptr, chrom_idx);
-  } else if (zero_extra_chroms) {
+  } else if (chrom_info_ptr->zero_extra_chroms) {
     *buf++ = '0';
     return buf;
   } else {
@@ -3708,7 +3708,7 @@ char* chrom_name_write(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx
   }
 }
 
-char* chrom_name_buf5w4write(char* buf5, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t zero_extra_chroms, uint32_t* chrom_name_len_ptr) {
+char* chrom_name_buf5w4write(char* buf5, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t* chrom_name_len_ptr) {
   uint32_t slen;
   *chrom_name_len_ptr = 4;
   if (!chrom_idx) {
@@ -3719,7 +3719,7 @@ char* chrom_name_buf5w4write(char* buf5, Chrom_info* chrom_info_ptr, uint32_t ch
     } else {
       width_force(4, buf5, chrom_name_std(buf5, chrom_info_ptr, chrom_idx));
     }
-  } else if (zero_extra_chroms) {
+  } else if (chrom_info_ptr->zero_extra_chroms) {
     memcpy(buf5, "   0", 4);
   } else {
     slen = strlen(chrom_info_ptr->nonstd_names[chrom_idx]);
@@ -3733,12 +3733,12 @@ char* chrom_name_buf5w4write(char* buf5, Chrom_info* chrom_info_ptr, uint32_t ch
   return buf5;
 }
 
-uint32_t get_max_chrom_len(Chrom_info* chrom_info_ptr, uint32_t zero_extra_chroms) {
+uint32_t get_max_chrom_len(Chrom_info* chrom_info_ptr) {
   // does not include trailing null
   // can be overestimate
   // if more functions start calling this, it should just be built into
   // load_bim() instead
-  if (zero_extra_chroms) {
+  if (chrom_info_ptr->zero_extra_chroms) {
     return 3 + MAX_CHROM_TEXTNUM_LEN;
   }
   uint32_t max_chrom_len = 3 + MAX_CHROM_TEXTNUM_LEN;
