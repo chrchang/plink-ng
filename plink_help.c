@@ -865,6 +865,15 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Several other flags (most notably, --aperm) can be used to customize the\n"
 "    permutation test.\n\n"
 	       );
+#ifndef STABLE_BUILD
+    help_print("mh\tbd\tmh2\thomog\tcmh", &help_ctrl, 1,
+"  --mh <perm | mperm=[value]> <perm-count>\n"
+"  --bd <perm | mperm=[value]> <perm-count>\n"
+"  --mh2\n"
+"  --homog\n"
+"\n"
+	       );
+#endif
     help_print("gxe\tmcovar", &help_ctrl, 1,
 "  --gxe {covariate index}\n"
 "    Given both a quantitative phenotype and a case/control covariate loaded\n"

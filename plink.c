@@ -306,8 +306,8 @@ static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, char* cm
   return 0;
 }
 
-static inline uint32_t are_marker_alleles_needed(uint64_t calculation_type, char* freqname, Homozyg_info* homozyg_ptr, Two_col_params* a1alleles, Two_col_params* a2alleles, uint32_t ld_modifier, uint32_t snp_only, uint32_t clump_modifier) {
-  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP | CALC_SCORE | CALC_MENDEL | CALC_TDT | CALC_FLIPSCAN | CALC_QFAM)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (ld_modifier & LD_INPHASE)) || a1alleles || a2alleles || snp_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)));
+static inline uint32_t are_marker_alleles_needed(uint64_t calculation_type, char* freqname, Homozyg_info* homozyg_ptr, Two_col_params* a1alleles, Two_col_params* a2alleles, uint32_t ld_modifier, uint32_t snp_only, uint32_t clump_modifier, uint32_t cluster_modifier) {
+  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP | CALC_SCORE | CALC_MENDEL | CALC_TDT | CALC_FLIPSCAN | CALC_QFAM | CALC_HOMOG)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (ld_modifier & LD_INPHASE)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2))) || a1alleles || a2alleles || snp_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)));
 }
 
 static inline int32_t relationship_or_ibc_req(uint64_t calculation_type) {
@@ -338,7 +338,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uint32_t genome_skip_write = (cluster_ptr->ppc != 0.0) && (!(calculation_type & CALC_GENOME)) && (!read_genome_fname);
   uint32_t marker_pos_needed = are_marker_pos_needed(calculation_type, misc_flags, cm_map_fname, sip->fname, min_bp_space, genome_skip_write, ldip->modifier, epi_ip->modifier);
   uint32_t marker_cms_needed = are_marker_cms_needed(calculation_type, cm_map_fname, update_cm);
-  uint32_t marker_alleles_needed = are_marker_alleles_needed(calculation_type, freqname, homozyg_ptr, a1alleles, a2alleles, ldip->modifier, (filter_flags / FILTER_SNPS_ONLY) & 1, clump_ip->modifier);
+  uint32_t marker_alleles_needed = are_marker_alleles_needed(calculation_type, freqname, homozyg_ptr, a1alleles, a2alleles, ldip->modifier, (filter_flags / FILTER_SNPS_ONLY) & 1, clump_ip->modifier, cluster_ptr->modifier);
   uint32_t uii = 0;
   int64_t llxx = 0;
   uint32_t nonfounders = (misc_flags / MISC_NONFOUNDERS) & 1;
@@ -471,7 +471,12 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     if (!realpath(pedname, tbuf))
 #endif
     {
-      LOGPRINTF("Error: Failed to open %s.\n", pedname);
+      uii = strlen(pedname);
+      if ((uii > 8) && ((!memcmp(&(pedname[uii - 8]), ".bed.bed", 8)) || (!memcmp(&(pedname[uii - 8]), ".bim.bed", 8)) || (!memcmp(&(pedname[uii - 8]), ".fam.bed", 8)))) {
+	LOGPRINTFWW("Error: Failed to open %s. (--bfile expects a filename *prefix*; '.bed', '.bim', and '.fam' are automatically appended.)\n", pedname);
+      } else {
+        LOGPRINTFWW(errstr_fopen, pedname);
+      }
       goto plink_ret_OPEN_FAIL;
     }
     memcpy(outname_end, ".bed", 5);
@@ -536,7 +541,16 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
-  if (fopen_checked(&bedfile, pedname, "rb")) {
+  // don't use fopen_checked() here, since we want to customize the error
+  // message.
+  bedfile = fopen(pedname, "rb");
+  if (!bedfile) {
+    uii = strlen(pedname);
+    if ((uii > 8) && ((!memcmp(&(pedname[uii - 8]), ".bed.bed", 8)) || (!memcmp(&(pedname[uii - 8]), ".bim.bed", 8)) || (!memcmp(&(pedname[uii - 8]), ".fam.bed", 8)))) {
+      LOGPRINTFWW("Error: Failed to open %s. (--bfile expects a filename *prefix*; '.bed', '.bim', and '.fam' are automatically appended.)\n", pedname);
+    } else {
+      LOGPRINTFWW(errstr_fopen, pedname);
+    }
     goto plink_ret_OPEN_FAIL;
   }
   // load .bim, count markers, filter chromosomes
@@ -1926,19 +1940,23 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
       // if case/control phenotype loaded with --all-pheno, skip --gxe
       if ((calculation_type & CALC_GXE) && pheno_d) {
-	retval = gxe_assoc(bedfile, bed_offset, outname, outname_end, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, indiv_ct, indiv_exclude, pheno_nm, pheno_d, gxe_covar_nm, gxe_covar_c, sex_male, hh_exists);
+	retval = gxe_assoc(bedfile, bed_offset, outname, outname_end2, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, indiv_ct, indiv_exclude, pheno_nm, pheno_d, gxe_covar_nm, gxe_covar_c, sex_male, hh_exists);
 	if (retval) {
 	  goto plink_ret_1;
 	}
       }
       if (calculation_type & CALC_LASSO) {
-	retval = lasso(threads, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_allele_ptrs, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm_ct, lasso_h2, lasso_minlambda, lasso_select_covars_range_list_ptr, misc_flags, pheno_nm, pheno_c, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_male, hh_exists);
+	retval = lasso(threads, bedfile, bed_offset, outname, outname_end2, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_allele_ptrs, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm_ct, lasso_h2, lasso_minlambda, lasso_select_covars_range_list_ptr, misc_flags, pheno_nm, pheno_c, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_male, hh_exists);
         if (retval) {
 	  goto plink_ret_1;
 	}
       }
       if ((calculation_type & CALC_CMH) && pheno_c) {
-        retval = cmh_assoc();
+	if (!(cluster_ptr->modifier & CLUSTER_CMH2)) {
+          retval = cmh_assoc(threads, bedfile, bed_offset, outname, outname_end2, cluster_ptr->cmh_mperm_val, cluster_ptr->modifier, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists, sip);
+	} else {
+          retval = cmh2_assoc();
+	}
         if (retval) {
           goto plink_ret_1;
 	}
@@ -1950,13 +1968,13 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	}
       }
       if ((calculation_type & CALC_TESTMISS) && pheno_c) {
-        retval = testmiss(threads, bedfile, bed_offset, outname, outname_end, testmiss_mperm_val, testmiss_modifier, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists);
+        retval = testmiss(threads, bedfile, bed_offset, outname, outname_end2, testmiss_mperm_val, testmiss_modifier, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists);
         if (retval) {
 	  goto plink_ret_1;
 	}
       }
       if ((calculation_type & CALC_TDT) && pheno_c) {
-	retval = tdt(threads, bedfile, bed_offset, outname, outname_end, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, mperm_save, pheno_nm, pheno_c, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, chrom_info_ptr, hh_exists, fam_ip);
+	retval = tdt(threads, bedfile, bed_offset, outname, outname_end2, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, mperm_save, pheno_nm, pheno_c, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, chrom_info_ptr, hh_exists, fam_ip);
 	if (retval) {
 	  goto plink_ret_1;
 	}
@@ -1972,7 +1990,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	if (mtest_adjust && (fam_ip->qfam_modifier & QFAM_PERM)) {
 	  logprint("Warning: The QFAM test does not support --adjust.  Use max(T) permutation to\nobtain multiple-testing corrected p-values.\n");
 	}
-        retval = qfam(threads, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, apip, pheno_nm, pheno_d, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, chrom_info_ptr, hh_exists, perm_batch_size, fam_ip);
+        retval = qfam(threads, bedfile, bed_offset, outname, outname_end2, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, apip, pheno_nm, pheno_d, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, chrom_info_ptr, hh_exists, perm_batch_size, fam_ip);
         if (retval) {
 	  goto plink_ret_1;
 	}
@@ -4358,9 +4376,43 @@ int32_t main(int32_t argc, char** argv) {
 	glm_modifier |= GLM_BETA;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "d", 2)) {
-	logprint("Note: --bd flag deprecated.  Use '--mh bd'.\n");
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 3)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+	for (uii = 1; uii <= param_ct; uii++) {
+	  if (!strcmp(argv[cur_arg + uii], "perm")) {
+	    if (cluster.modifier & CLUSTER_CMH_MPERM) {
+	      logprint("Error: --bd 'mperm' and 'perm' cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    }
+	    cluster.modifier |= CLUSTER_CMH_PERM;
+	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
+	    if (cluster.modifier & CLUSTER_CMH_PERM) {
+	      logprint("Error: --bd 'mperm' and 'perm' cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    } else if (cluster.modifier & CLUSTER_CMH_MPERM) {
+	      logprint("Error: Duplicate --bd 'mperm' modifier.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    if (scan_posint_defcap(&(argv[cur_arg + uii][6]), &(cluster.cmh_mperm_val))) {
+	      sprintf(logbuf, "Error: Invalid --bd mperm parameter '%s'.\n", argv[cur_arg + uii]);
+              goto main_ret_INVALID_CMDLINE_WWA;
+	    }
+            cluster.modifier |= CLUSTER_CMH_MPERM;
+	  } else if (!strcmp(argv[cur_arg + uii], "perm-count")) {
+            cluster.modifier |= CLUSTER_CMH_PERM_COUNT;
+	  } else if (!strcmp(argv[cur_arg + uii], "set-test")) {
+	    cluster.modifier |= CLUSTER_CMH_SET_TEST;
+	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
+            logprint("Error: Improper --bd mperm syntax.  (Use '--bd mperm=[value]'.)\n");
+            goto main_ret_INVALID_CMDLINE_A;
+	  } else {
+            sprintf(logbuf, "Error: Invalid --bd parameter '%s'.\n", argv[cur_arg + uii]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+	  }
+	}
 	calculation_type |= CALC_CMH;
-	misc_flags |= MISC_CMH_BD;
+	cluster.modifier |= CLUSTER_CMH_BD;
       } else if (!memcmp(argptr2, "iallelic-only", 14)) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -8200,6 +8252,9 @@ int32_t main(int32_t argc, char** argv) {
 	} else if (glm_modifier & (GLM_PERM | GLM_MPERM)) {
 	  sprintf(logbuf, "Error: --mperm cannot be used with --%s %sperm.\n", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", (glm_modifier & GLM_PERM)? "" : "m");
 	  goto main_ret_INVALID_CMDLINE_2A;
+	} else if (cluster.modifier & (CLUSTER_CMH_PERM | CLUSTER_CMH_MPERM)) {
+	  sprintf(logbuf, "Error: --mperm cannot be used with --%s %sperm.\n", (cluster.modifier & CLUSTER_CMH_BD)? "bd" : "mh", (cluster.modifier & CLUSTER_CMH_PERM)? "" : "m");
+	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -8242,6 +8297,8 @@ int32_t main(int32_t argc, char** argv) {
 	  family_info.tdt_modifier |= TDT_MPERM;
 	  family_info.qfam_mperm_val = mperm_val;
 	  family_info.qfam_modifier |= QFAM_MPERM;
+          cluster.cmh_mperm_val = mperm_val;
+	  cluster.modifier |= CLUSTER_CMH_MPERM;
 	}
       } else if (!memcmp(argptr2, "perm-save", 10)) {
 	if (glm_modifier & GLM_NO_SNP) {
@@ -8423,26 +8480,53 @@ int32_t main(int32_t argc, char** argv) {
 	calculation_type |= CALC_MISSING_REPORT;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "h", 2)) {
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	if (calculation_type & CALC_CMH) {
+	  logprint("Error: --mh is redundant with --bd.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 3)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-	if (param_ct) {
-	  if (strcmp(argv[cur_arg + 1], "bd")) {
-	    sprintf(logbuf, "Error: Invalid --mh parameter '%s'.\n", argv[cur_arg + 1]);
-	    goto main_ret_INVALID_CMDLINE_WWA;
+	for (uii = 1; uii <= param_ct; uii++) {
+	  if (!strcmp(argv[cur_arg + uii], "perm")) {
+	    if (cluster.modifier & CLUSTER_CMH_MPERM) {
+	      logprint("Error: --mh 'mperm' and 'perm' cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    }
+	    cluster.modifier |= CLUSTER_CMH_PERM;
+	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
+	    if (cluster.modifier & CLUSTER_CMH_PERM) {
+	      logprint("Error: --mh 'mperm' and 'perm' cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    } else if (cluster.modifier & CLUSTER_CMH_MPERM) {
+	      logprint("Error: Duplicate --mh 'mperm' modifier.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    if (scan_posint_defcap(&(argv[cur_arg + uii][6]), &(cluster.cmh_mperm_val))) {
+	      sprintf(logbuf, "Error: Invalid --mh mperm parameter '%s'.\n", argv[cur_arg + uii]);
+              goto main_ret_INVALID_CMDLINE_WWA;
+	    }
+            cluster.modifier |= CLUSTER_CMH_MPERM;
+	  } else if (!strcmp(argv[cur_arg + uii], "perm-count")) {
+            cluster.modifier |= CLUSTER_CMH_PERM_COUNT;
+	  } else if (!strcmp(argv[cur_arg + uii], "set-test")) {
+	    cluster.modifier |= CLUSTER_CMH_SET_TEST;
+	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
+            logprint("Error: Improper --mh mperm syntax.  (Use '--mh mperm=[value]'.)\n");
+            goto main_ret_INVALID_CMDLINE_A;
+	  } else {
+            sprintf(logbuf, "Error: Invalid --mh parameter '%s'.\n", argv[cur_arg + uii]);
+            goto main_ret_INVALID_CMDLINE_WWA;
 	  }
-	  misc_flags |= MISC_CMH_BD;
 	}
 	calculation_type |= CALC_CMH;
-	logprint("Error: --mh is not implemented yet.\n");
-        goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "h2", 3)) {
 	if (calculation_type & CALC_CMH) {
-	  logprint("Error: --mh2 cannot be used with --mh.\n");
+	  logprint("Error: --mh2 cannot be used with --mh/--bd.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	calculation_type |= CALC_CMH;
-        misc_flags |= MISC_CMH2;
+	cluster.modifier |= CLUSTER_CMH2;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ake-set", 8)) {
 	if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
@@ -8925,8 +9009,11 @@ int32_t main(int32_t argc, char** argv) {
 	if ((model_modifier & MODEL_MPERM) && (calculation_type & CALC_MODEL)) {
 	  sprintf(logbuf, "Error: --perm cannot be used with --%s mperm.\n", (model_modifier & MODEL_ASSOC)? "assoc" : "model");
 	  goto main_ret_INVALID_CMDLINE_2A;
-	} else if ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_MPERM + GLM_NO_SNP))) {
+	} else if ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_MPERM | GLM_NO_SNP))) {
 	  sprintf(logbuf, "Error: --perm cannot be used with --%s %s.\n", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", (glm_modifier & GLM_MPERM)? "mperm" : "no-snp");
+	  goto main_ret_INVALID_CMDLINE_2A;
+	} else if ((calculation_type & CALC_CMH) && (cluster.modifier & CLUSTER_CMH_MPERM)) {
+	  sprintf(logbuf, "Error: --perm cannot be used with --%s mperm.\n", (cluster.modifier & CLUSTER_CMH_BD)? "bd" : "mh");
 	  goto main_ret_INVALID_CMDLINE_2A;
 	} else if (model_modifier & MODEL_MPERM) {
 	  logprint("Error: --perm cannot be used with --mperm.\n");
@@ -8937,6 +9024,7 @@ int32_t main(int32_t argc, char** argv) {
         testmiss_modifier |= TESTMISS_PERM;
 	family_info.tdt_modifier |= TDT_PERM;
 	family_info.qfam_modifier |= QFAM_PERM;
+	cluster.modifier |= CLUSTER_CMH_PERM;
 	logprint("Note: --perm flag deprecated.  Use e.g. '--model perm'.\n");
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "erm-count", 10)) {
@@ -8944,6 +9032,7 @@ int32_t main(int32_t argc, char** argv) {
 	glm_modifier |= GLM_PERM_COUNT;
         testmiss_modifier |= TESTMISS_PERM_COUNT;
         family_info.qfam_modifier |= QFAM_PERM_COUNT;
+	cluster.modifier |= CLUSTER_CMH_PERM_COUNT;
 	logprint("Note: --perm-count flag deprecated.  Use e.g. '--model perm-count'.\n");
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "2", 2)) {
@@ -9268,13 +9357,21 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-	if (param_ct == 2) {
-	  family_info.qfam_modifier &= ~(QFAM_PERM | QFAM_MPERM);
-	}
 	for (uii = 1; uii <= param_ct; uii++) {
 	  if (!strcmp(argv[cur_arg + uii], "perm")) {
+	    if (family_info.qfam_modifier & QFAM_MPERM) {
+	      sprintf(logbuf, "Error: --%s 'mperm' and 'perm' cannot be used together.\n", argptr);
+	      goto main_ret_INVALID_CMDLINE_2A;
+	    }
 	    family_info.qfam_modifier |= QFAM_PERM;
 	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
+	    if (family_info.qfam_modifier & QFAM_PERM) {
+	      sprintf(logbuf, "Error: --%s 'mperm' and 'perm' cannot be used together.\n", argptr);
+	      goto main_ret_INVALID_CMDLINE_2A;
+	    } else if (family_info.qfam_modifier & QFAM_MPERM) {
+	      sprintf(logbuf, "Error: Duplicate --%s 'mperm' modifier.\n", argptr);
+	      goto main_ret_INVALID_CMDLINE_2;
+	    }
 	    if (scan_posint_defcap(&(argv[cur_arg + uii][6]), &(family_info.qfam_mperm_val))) {
 	      sprintf(logbuf, "Error: Invalid --%s mperm parameter '%s'.\n", argptr, argv[cur_arg + uii]);
               goto main_ret_INVALID_CMDLINE_WWA;
@@ -10264,6 +10361,9 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (calculation_type & CALC_GLM) {
 	  model_modifier |= GLM_SET_TEST;
+	}
+	if ((calculation_type & CALC_CMH) && (!(cluster.modifier & CLUSTER_CMH2))) {
+	  cluster.modifier |= CLUSTER_CMH_SET_TEST;
 	}
 	if ((epi_info.modifier & (EPI_FAST | EPI_REG)) && (!(epi_info.modifier & EPI_SET_BY_ALL))) {
 	  epi_info.modifier |= EPI_SET_BY_SET;
@@ -11703,6 +11803,12 @@ int32_t main(int32_t argc, char** argv) {
     } else if (rel_info.pca_clusters_fname) {
       logprint("Error: --pca-clusters must be used with --within/--family.\n");
       goto main_ret_INVALID_CMDLINE;
+    } else if (calculation_type & CALC_CMH) {
+      logprint("Error: --mh/--bd/--mh2 must be used with --within/--family.\n");
+      goto main_ret_INVALID_CMDLINE;
+    } else if (calculation_type & CALC_HOMOG) {
+      logprint("Error: --homog must be used with --within/--family.\n");
+      goto main_ret_INVALID_CMDLINE;
     }
   }
   if (!set_info.fname) {
@@ -11728,6 +11834,9 @@ int32_t main(int32_t argc, char** argv) {
       goto main_ret_INVALID_CMDLINE;
     } else if (family_info.tdt_modifier & TDT_SET_TEST) {
       logprint("Error: --tdt set-test must be used with --set/--make-set.\n");
+      goto main_ret_INVALID_CMDLINE;
+    } else if (cluster.modifier & CLUSTER_CMH_SET_TEST) {
+      logprint("Error: --mh/--bd set-test must be used with --set/--make-set.\n");
       goto main_ret_INVALID_CMDLINE;
     }
   } else {
@@ -11764,6 +11873,18 @@ int32_t main(int32_t argc, char** argv) {
         goto main_ret_INVALID_CMDLINE_A;
       }
       logprint("Error: --tdt set-test is currently under development.\n");
+      retval = RET_CALC_NOT_YET_SUPPORTED;
+      goto main_ret_1;
+    }
+    if (cluster.modifier & CLUSTER_CMH_SET_TEST) {
+      if (!(family_info.tdt_modifier & (TDT_PERM | TDT_MPERM))) {
+        logprint("Error: --mh/--bd set-test requires permutation.\n");
+        goto main_ret_INVALID_CMDLINE_A;
+      } else if ((mtest_adjust & ADJUST_GC) || (adjust_lambda != 0.0)) {
+        logprint("Error: --adjust 'gc' modifier and --lambda do not make sense with\n--mh/--bd set-test.\n");
+        goto main_ret_INVALID_CMDLINE_A;
+      }
+      logprint("Error: --mh/--bd set-test is currently under development.\n");
       retval = RET_CALC_NOT_YET_SUPPORTED;
       goto main_ret_1;
     }

@@ -23,6 +23,7 @@ void cluster_init(Cluster_info* cluster_ptr) {
   cluster_ptr->max_ctrls = 0xffffffffU;
   cluster_ptr->min_ct = 1;
   cluster_ptr->mds_dim_ct = 0;
+  cluster_ptr->cmh_mperm_val = 0;
   cluster_ptr->min_ibm = 0.0;
 }
 

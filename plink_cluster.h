@@ -8,6 +8,12 @@
 #define CLUSTER_OLD_TIEBREAKS 0x10
 #define CLUSTER_MDS 0x20
 #define CLUSTER_MDS_EIGVALS 0x40
+#define CLUSTER_CMH_BD 0x80
+#define CLUSTER_CMH_PERM 0x100
+#define CLUSTER_CMH_MPERM 0x200
+#define CLUSTER_CMH_PERM_COUNT 0x400
+#define CLUSTER_CMH_SET_TEST 0x800
+#define CLUSTER_CMH2 0x1000
 
 typedef struct {
   char* fname;
@@ -29,6 +35,7 @@ typedef struct {
   uint32_t max_ctrls;
   uint32_t min_ct;
   uint32_t mds_dim_ct;
+  uint32_t cmh_mperm_val;
   double min_ibm;
 } Cluster_info;
 

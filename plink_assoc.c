@@ -10890,8 +10890,64 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
   return retval;
 }
 
-int32_t cmh_assoc() {
-  logprint("Error: --mh and --mh2 are currently under development.\n");
+int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t cmh_mperm_val, uint32_t cmh_modifier, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_male, uint32_t hh_exists, Set_info* sip) {
+  logprint("Error: --mh and --bd are currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
+  /*
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* outfile = NULL;
+  uint32_t breslow_day = cmh_modifier & CLUSTER_CMH_BD;
+  int32_t retval = 0;
+  uint32_t uii;
+  if (cluster_ct < 2) {
+    logprint("Error: --mh/--bd requires at least two clusters.\n");
+    goto cmh_assoc_ret_INVALID_CMDLINE;
+  } else if (breslow_day && (cluster_ct > 10)) {
+    logprint("Warning: Breslow-Day statistics require large N per cluster.\n");
+  }
+  memcpy(outname_end, ".cmh", 5);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto cmh_assoc_ret_OPEN_FAIL;
+  }
+  LOGPRINTFWW5("Writing --%s report to %s ... ", breslow_day? "bd" : "mh", outname);
+  fflush(stdout);
+  sprintf(tbuf, " CHR %%%us         BP   A1      MAF   A2      CHISQ          P         OR         SE        ", plink_maxsnp);
+  fprintf(outfile, tbuf, "SNP");
+  uii = (uint32_t)((int32_t)(ci_size * 100));
+  if (uii >= 10) {
+    fprintf(outfile, "L%u        U%u ", uii, uii);
+  } else {
+    fprintf(outfile, " L%u         U%u ", uii, uii);
+  }
+  if (breslow_day) {
+    fputs("  CHISQ_BD       P_BD ", outfile);
+  }
+  if (putc_checked('\n', outfile)) {
+    goto cmh_assoc_ret_WRITE_FAIL;
+  }
+  // ...
+  if (fclose_null(&outfile)) {
+    goto cmh_assoc_ret_WRITE_FAIL;
+  }
+  while (0) {
+  cmh_assoc_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  cmh_assoc_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  cmh_assoc_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+  }
+  wkspace_reset(wkspace_mark);
+  fclose_cond(outfile);
+  return retval;
+  */
+}
+
+int32_t cmh2_assoc() {
+  logprint("Error: --mh2 is currently under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
 }
 

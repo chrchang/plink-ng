@@ -5673,7 +5673,16 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   int32_writex(missing_pheno_str, missing_pheno, '\0');
   marker_exclude = (uintptr_t*)wkspace_base;
   marker_exclude[0] = 0;
-  if (fopen_checked(&mapfile, mapname, "r")) {
+  // don't use fopen_checked() here, since we want to customize the error
+  // message.
+  mapfile = fopen(mapname, "r");
+  if (!mapfile) {
+    uii = strlen(mapname);
+    if ((uii > 8) && ((!memcmp(&(mapname[uii - 8]), ".ped.map", 8)) || (!memcmp(&(mapname[uii - 8]), ".map.map", 8)))) {
+      LOGPRINTFWW("Error: Failed to open %s. (--file expects a filename *prefix*; '.ped' and '.map' are automatically appended.)\n", mapname);
+    } else {
+      LOGPRINTFWW(errstr_fopen, mapname);
+    }
     goto ped_to_bed_ret_OPEN_FAIL;
   }
   tbuf[MAXLINELEN - 6] = ' ';
@@ -13595,7 +13604,16 @@ int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_person_id
     famname = bedname;
     text_file = 1;
   }
-  if (fopen_checked(&infile, famname, "r")) {
+  infile = fopen(famname, "r");
+  if (!infile) {
+    uii = strlen(famname);
+    if ((!orig_idx) && (uii > 8) && ((!memcmp(&(famname[uii - 8]), ".bed.fam", 8)) || (!memcmp(&(famname[uii - 8]), ".bim.fam", 8)) || (!memcmp(&(famname[uii - 8]), ".fam.fam", 8)))) {
+      // technically could be --merge-list with no --bfile, but we won't bother
+      // with a specialized error message for that case.
+      LOGPRINTFWW("Error: Failed to open %s. (--bfile expects a filename *prefix*; '.bed', '.bim', and '.fam' are automatically appended.)\n", famname);
+    } else {
+      LOGPRINTFWW(errstr_fopen, famname);
+    }
     goto merge_fam_id_scan_ret_OPEN_FAIL;
   }
   tbuf[MAXLINELEN - 1] = ' ';
