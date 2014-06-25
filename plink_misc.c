@@ -2835,7 +2835,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     retval = RET_WRITE_FAIL;
     break;
   sexcheck_ret_NO_X_VAR:
-    logprint("Error: --check-sex/--impute-sex requires at least one polymorphic X chromosome\nsite.\n");
+    logprint("Error: --check-sex/--impute-sex requires at least one polymorphic X chromosome\nlocus.\n");
   sexcheck_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;

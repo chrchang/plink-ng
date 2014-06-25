@@ -101,7 +101,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (22 Jun 2014)";
+  " (25 Jun 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   //  " " (don't actually want this when version number has a trailing letter)
@@ -7991,6 +7991,10 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "af-succ", 8)) {
+	if (misc_flags & MISC_HET_SMALL_SAMPLE) {
+	  logprint("Error: '--het small-sample' cannot be used with --maf-succ.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
 	misc_flags |= MISC_MAF_SUCC;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ap3", 4)) {
@@ -9650,6 +9654,9 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "ead-freq", 9)) {
 	if (calculation_type & CALC_FREQ) {
 	  logprint("Error: --freq and --read-freq flags cannot coexist.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	} else if (misc_flags & MISC_HET_SMALL_SAMPLE) {
+	  logprint("Error: '--het small-sample' cannot currently be used with --read-freq.  Contact\nthe developers if you need to combine them.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -11737,10 +11744,10 @@ int32_t main(int32_t argc, char** argv) {
     goto main_ret_INVALID_CMDLINE_A;
   }
   if (calculation_type & CALC_RECODE) {
-    if (recode_modifier & (RECODE_23 | RECODE_BEAGLE)) {
+    if (recode_modifier & RECODE_23) {
       if (chrom_info.species != SPECIES_HUMAN) {
-	sprintf(logbuf, "Error: --recode %s can only be used on human data.\n", (recode_modifier & RECODE_23)? "23" : "beagle");
-	goto main_ret_INVALID_CMDLINE_2;
+	logprint("Error: --recode 23 can only be used on human data.\n");
+	goto main_ret_INVALID_CMDLINE;
       }
       if ((recode_modifier & RECODE_23) && (misc_flags & MISC_ALLOW_EXTRA_CHROMS) && (!chrom_info.zero_extra_chroms)) {
 	logprint("Error: --allow-extra-chr requires the '0' modifier when used with --recode 23.\n");

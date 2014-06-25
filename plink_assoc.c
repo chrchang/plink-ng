@@ -10165,10 +10165,10 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
   }
   if (do_perms) {
     if (!marker_ct) {
-      logprint("Skipping --test-missing permutation test since all sites are degenerate.\n");
+      logprint("Skipping --test-missing permutation test since all loci are degenerate.\n");
       goto testmiss_ret_1;
     }
-    LOGPRINTF("Including %" PRIuPTR " site%s in --test-missing permutation test.\n", marker_ct, (marker_ct == 1)? "" : "s");
+    LOGPRINTF("Including %" PRIuPTR " loc%s in --test-missing permutation test.\n", marker_ct, (marker_ct == 1)? "us" : "i");
     if (mperm_dump_all) {
       tbuf[0] = '0';
       wptr = &(tbuf[1]);
@@ -10891,9 +10891,8 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
 }
 
 int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t cmh_mperm_val, uint32_t cmh_modifier, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_male, uint32_t hh_exists, Set_info* sip) {
-  logprint("Error: --mh and --bd are currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
-  /*
+  // logprint("Error: --mh and --bd are currently under development.\n");
+  // return RET_CALC_NOT_YET_SUPPORTED;
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uint32_t breslow_day = cmh_modifier & CLUSTER_CMH_BD;
@@ -10903,7 +10902,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
     logprint("Error: --mh/--bd requires at least two clusters.\n");
     goto cmh_assoc_ret_INVALID_CMDLINE;
   } else if (breslow_day && (cluster_ct > 10)) {
-    logprint("Warning: Breslow-Day statistics require large N per cluster.\n");
+    logprint("Warning: Breslow-Day statistics are unreliable with small clusters.\n");
   }
   memcpy(outname_end, ".cmh", 5);
   if (fopen_checked(&outfile, outname, "w")) {
@@ -10943,7 +10942,6 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   wkspace_reset(wkspace_mark);
   fclose_cond(outfile);
   return retval;
-  */
 }
 
 int32_t cmh2_assoc() {

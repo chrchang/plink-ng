@@ -5196,7 +5196,7 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
     goto ld_report_ret_INVALID_CMDLINE;
   }
   if ((marker_ct > 400000) && (!(ld_modifier & LD_YES_REALLY)) && (parallel_tot == 1) && ((ld_modifier & LD_MATRIX_SHAPEMASK) || ((ld_modifier & LD_INTER_CHR) && (!ldip->snpstr) && (!ldip->snps_rl.name_ct) && ((!g_ld_is_r2) || (ldip->window_r2 == 0.0))))) {
-    logprint("Error: Gigantic (over 400k sites) --r/--r2 unfiltered, non-distributed\ncomputation.  Rerun with the 'yes-really' modifier if you are SURE you have\nenough hard drive space and want to do this.\n");
+    logprint("Error: Gigantic (over 400k loci) --r/--r2 unfiltered, non-distributed\ncomputation.  Rerun with the 'yes-really' modifier if you are SURE you have\nenough hard drive space and want to do this.\n");
     goto ld_report_ret_INVALID_CMDLINE;
   }
   if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, founder_ct, XMHH_EXISTS | hh_exists, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
@@ -7091,7 +7091,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   }
   if (parallel_tot > 1) {
     if (marker_ct1 < (1 + is_triangular) * parallel_tot) {
-      sprintf(logbuf, "Error: Too few sites remaining for --parallel %u %u + --%sepistasis.\n", parallel_idx + 1, parallel_tot, is_fast? "fast-" : "");
+      sprintf(logbuf, "Error: Too few loci remaining for --parallel %u %u + --%sepistasis.\n", parallel_idx + 1, parallel_tot, is_fast? "fast-" : "");
       goto epistasis_report_ret_INVALID_CMDLINE_2;
     }
     if (is_triangular) {
@@ -7836,15 +7836,15 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   epistasis_report_ret_TOO_FEW_MARKERS:
     if (pheno_d) {
       if (is_triangular) {
-        logprint("Error: --epistasis requires 2+ non-monomorphic autosomal diploid sites.\n");
+        logprint("Error: --epistasis requires 2+ non-monomorphic autosomal diploid loci.\n");
       } else {
         logprint("Error: Each --epistasis set must contain at least one non-monomorphic autosomal\ndiploid site.\n");
       }
     } else {
       if (is_triangular) {
-        logprint("Error: --{fast-}epistasis requires 2+ autosomal diploid sites not monomorphic\nin either cases or controls.\n");
+        logprint("Error: --{fast-}epistasis requires 2+ autosomal diploid loci not monomorphic in\neither cases or controls.\n");
       } else {
-        logprint("Error: Each --{fast-}epistasis set must contain at least one autosomal diploid\nsite not monomorphic in either cases or controls.\n");
+        logprint("Error: Each --{fast-}epistasis set must contain at least one autosomal diploid\nlocus not monomorphic in either cases or controls.\n");
       }
     }
     retval = RET_INVALID_CMDLINE;
@@ -9104,7 +9104,7 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
       test_mishap_write_line(outfile, wptr, 6, 0, "HETERO", NULL, hap_ct_table, &(hap_ct_table[2]), 1.0 / (hap_ct_table[0] + hap_ct_table[1]), tbuf2, flanklen);
       inspected_ct++;
       if (!(inspected_ct % 1000)) {
-        printf("\r--test-mishap: %uk sites checked.", inspected_ct / 1000);
+        printf("\r--test-mishap: %uk loci checked.", inspected_ct / 1000);
         fflush(stdout);
       }
     }
@@ -9115,10 +9115,10 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   }
   putchar('\r');
   if (inspected_ct < marker_ct) {
-    LOGPRINTF("--test-mishap: %u site%s checked (%" PRIuPTR " skipped).\n", inspected_ct, (inspected_ct == 1)? "" : "s", marker_ct - inspected_ct);
+    LOGPRINTF("--test-mishap: %u loc%s checked (%" PRIuPTR " skipped).\n", inspected_ct, (inspected_ct == 1)? "us" : "i", marker_ct - inspected_ct);
     LOGPREPRINTFWW("Report written to %s .\n", outname);
   } else {
-    LOGPREPRINTFWW("--test-mishap: %u site%s checked, report written to %s .\n", inspected_ct, (inspected_ct == 1)? "" : "s", outname);
+    LOGPREPRINTFWW("--test-mishap: %u loc%s checked, report written to %s .\n", inspected_ct, (inspected_ct == 1)? "us" : "i", outname);
   }
   logprintb();
 

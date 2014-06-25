@@ -3440,7 +3440,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	    if (!is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->x_code)) {
               logprint("Error: --split-x requires X chromosome data.\n");
 	    } else {
-              LOGPRINTF("Error: No X chromosome sites have bp positions <= %u or >= %u.\n", splitx_bound1, splitx_bound2);
+              LOGPRINTF("Error: No X chromosome loci have bp positions <= %u or >= %u.\n", splitx_bound1, splitx_bound2);
 	    }
 	  }
           goto make_bed_ret_INVALID_CMDLINE;
@@ -11128,13 +11128,13 @@ int32_t recode_beagle_new_chrom(char* outname, char* outname_end2, uintptr_t* ma
   char* wbufptr;
   refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
   chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-  if ((chrom_idx > 22) && (chrom_idx < 27)) {
+  if ((chrom_idx > chrom_info_ptr->autosome_ct) && (chrom_idx <= chrom_info_ptr->max_code)) {
     do {
       marker_uidx = next_unset_ul_unsafe(marker_exclude, chrom_end);
       chrom_fo_idx++;
       refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
       chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-    } while ((chrom_idx > 22) && (chrom_idx < 27));
+    } while ((chrom_idx > chrom_info_ptr->autosome_ct) && (chrom_idx <= chrom_info_ptr->max_code));
     if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
       goto recode_beagle_new_chrom_ret_READ_FAIL;
     }
@@ -12343,9 +12343,10 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   } else if (recode_modifier & RECODE_BEAGLE) {
     // for backward compatibility, also exclude XY.  don't exclude custom name
     // chromosomes, though, since chromosome 0 was actually processed
-    autosomal_marker_ct = marker_ct - count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1) - count_chrom_markers(chrom_info_ptr, 25, marker_exclude);
-    // no need to verify genome is diploid since we already know it has to be
-    // human
+    autosomal_marker_ct = marker_ct - count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
+    if (chrom_info_ptr->xy_code != -1) {
+      autosomal_marker_ct -= count_chrom_markers(chrom_info_ptr, chrom_info_ptr->xy_code, marker_exclude);
+    }
     if (!autosomal_marker_ct) {
       logprint("Error: No autosomal variants for --recode beagle.\n");
       goto recode_ret_ALL_MARKERS_EXCLUDED;

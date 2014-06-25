@@ -384,8 +384,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * The 'AD' modifier causes an additive (0/1/2) + dominant (het = 1,\n"
 "      otherwise 0) component file, suitable for loading from R, to be\n"
 "      generated.  If you don't want the dominant component, use 'A' instead.\n"
-"    * The 'beagle' modifier causes per-autosome .dat and .map files, readable\n"
-"      by early BEAGLE versions, to be generated.\n"
+"    * The 'beagle' modifier causes unphased per-autosome .dat and .map files,\n"
+"      readable by early BEAGLE versions, to be generated.\n"
 "    * The 'bimbam' modifier causes a BIMBAM-formatted fileset to be generated.\n"
 "      If your input data only contains one chromosome, you can use\n"
 "      'bimbam-1chr' instead to write a two-column .pos.txt file.\n"
@@ -867,11 +867,22 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 #ifndef STABLE_BUILD
     help_print("mh\tbd\tmh2\thomog\tcmh", &help_ctrl, 1,
-"  --mh <perm | mperm=[value]> <perm-count>\n"
-"  --bd <perm | mperm=[value]> <perm-count>\n"
+"  --mh <perm | mperm=[value]> <perm-count> <set-test>\n"
+"    (alias: --cmh)\n"
+"  --bd <perm | perm-bd | mperm=[value]> <perm-count> <set-test>\n"
 "  --mh2\n"
 "  --homog\n"
-"\n"
+"    Given a case/control phenotype and a set of clusters, --mh computes 2x2xK\n"
+"    Cochran-Mantel-Haenszel statistics for each variant, while --bd also\n"
+"    performs the Breslow-Day test for odds ratio homogeneity.  Permutation and\n"
+"    variant set testing based on the CMH (default) or Breslow-Day (when\n"
+"    'perm-bd' is present) statistic are supported.\n"
+"    The following similar analyses are also available:\n"
+"    * --mh2 swaps the roles of case/control status and cluster membership,\n"
+"      performing a phenotype-stratified IxJxK Cochran-Mantel-Haenszel test on\n"
+"      association between cluster assignments and genotypes.\n"
+"    * --homog executes an alternative to the Breslow-Day test, based on\n"
+"      partitioning of the chi-square statistic.\n\n"
 	       );
 #endif
     help_print("gxe\tmcovar", &help_ctrl, 1,
