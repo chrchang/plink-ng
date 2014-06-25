@@ -4393,7 +4393,7 @@ int32_t main(int32_t argc, char** argv) {
 	    if (cluster.modifier & CLUSTER_CMH_MPERM) {
 	      logprint("Error: --bd 'mperm' and 'perm{-bd}' cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE_A;
-	    } else if ((cluster.modifier & CLUSTER_CMH_PERM | CLUSTER_CMH_PERM_BD) == CLUSTER_CMH_PERM) {
+	    } else if ((cluster.modifier & (CLUSTER_CMH_PERM | CLUSTER_CMH_PERM_BD) == CLUSTER_CMH_PERM)) {
 	      logprint("Error: --bd 'perm' and 'perm-bd' modifiers cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE_A;
 	    } else if (mtest_adjust) {
