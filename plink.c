@@ -4382,13 +4382,28 @@ int32_t main(int32_t argc, char** argv) {
 	for (uii = 1; uii <= param_ct; uii++) {
 	  if (!strcmp(argv[cur_arg + uii], "perm")) {
 	    if (cluster.modifier & CLUSTER_CMH_MPERM) {
-	      logprint("Error: --bd 'mperm' and 'perm' cannot be used together.\n");
+	      logprint("Error: --bd 'mperm' and 'perm{-bd}' cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    } else if (cluster.modifier & CLUSTER_CMH_PERM_BD) {
+	      logprint("Error: --bd 'perm' and 'perm-bd' modifiers cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    cluster.modifier |= CLUSTER_CMH_PERM;
+	  } else if (!strcmp(argv[cur_arg + uii], "perm-bd")) {
+	    if (cluster.modifier & CLUSTER_CMH_MPERM) {
+	      logprint("Error: --bd 'mperm' and 'perm{-bd}' cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    } else if ((cluster.modifier & CLUSTER_CMH_PERM | CLUSTER_CMH_PERM_BD) == CLUSTER_CMH_PERM) {
+	      logprint("Error: --bd 'perm' and 'perm-bd' modifiers cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    } else if (mtest_adjust) {
+	      logprint("Error: --bd 'perm-bd' mode cannot currently be used with --adjust.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    }
+	    cluster.modifier |= CLUSTER_CMH_PERM_BD;
 	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
 	    if (cluster.modifier & CLUSTER_CMH_PERM) {
-	      logprint("Error: --bd 'mperm' and 'perm' cannot be used together.\n");
+	      logprint("Error: --bd 'mperm' and 'perm{-bd}' cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE_A;
 	    } else if (cluster.modifier & CLUSTER_CMH_MPERM) {
 	      logprint("Error: Duplicate --bd 'mperm' modifier.\n");
@@ -9016,12 +9031,17 @@ int32_t main(int32_t argc, char** argv) {
 	} else if ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_MPERM | GLM_NO_SNP))) {
 	  sprintf(logbuf, "Error: --perm cannot be used with --%s %s.\n", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", (glm_modifier & GLM_MPERM)? "mperm" : "no-snp");
 	  goto main_ret_INVALID_CMDLINE_2A;
-	} else if ((calculation_type & CALC_CMH) && (cluster.modifier & CLUSTER_CMH_MPERM)) {
-	  sprintf(logbuf, "Error: --perm cannot be used with --%s mperm.\n", (cluster.modifier & CLUSTER_CMH_BD)? "bd" : "mh");
-	  goto main_ret_INVALID_CMDLINE_2A;
 	} else if (model_modifier & MODEL_MPERM) {
 	  logprint("Error: --perm cannot be used with --mperm.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
+	} else if (calculation_type & CALC_CMH) {
+          if (cluster.modifier & CLUSTER_CMH_MPERM) {
+	    sprintf(logbuf, "Error: --perm cannot be used with --%s mperm.\n", (cluster.modifier & CLUSTER_CMH_BD)? "bd" : "mh");
+	    goto main_ret_INVALID_CMDLINE_2A;
+	  } else if (cluster.modifier & CLUSTER_CMH_PERM_BD) {
+	    logprint("Error: --perm cannot be used with --bd perm-bd.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
+	  }
 	}
 	model_modifier |= MODEL_PERM;
         glm_modifier |= GLM_PERM;
@@ -12013,6 +12033,9 @@ int32_t main(int32_t argc, char** argv) {
       uii++;
     }
     if ((calculation_type & CALC_TDT) && (family_info.tdt_modifier & TDT_MPERM)) {
+      uii++;
+    }
+    if ((calculation_type & CALC_CMH) && (cluster.modifier & CLUSTER_CMH_MPERM)) {
       uii++;
     }
     if (uii != 1) {
