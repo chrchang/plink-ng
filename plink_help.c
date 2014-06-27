@@ -545,6 +545,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    otherwise identical to --check-sex.  It must be used with\n"
 "    --make-bed/--recode/--write-covar.\n\n"
 	       );
+#ifndef STABLE_BUILD
+    /*
+    help_print("weir-fst", &help_ctrl, 1,
+	       );
+    */
+#endif
     help_print("indep\tindep-pairwise\tindep-pairphase", &help_ctrl, 1,
 "  --indep [window size]<kb> [step size (locus ct)] [VIF threshold]\n"
 "  --indep-pairwise [window size]<kb> [step size (locus ct)] [r^2 threshold]\n"

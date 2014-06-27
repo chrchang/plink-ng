@@ -88,7 +88,7 @@
 
 const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b1h"
+  "PLINK v1.90b1i"
 #else
   "PLINK v1.90b2p"
 #endif
@@ -11599,6 +11599,10 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	dosage_info.modifier += (DOSAGE_WRITE - DOSAGE_GLM);
         goto main_param_zero;
+      } else if (!memcmp(argptr2, "eir-fst", 8)) {
+	UNSTABLE;
+        logprint("Error: --weir-fst is currently under development.\n");
+	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "hap", 4)) {
         goto main_hap_disabled_message;
       } else {

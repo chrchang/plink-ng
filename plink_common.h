@@ -291,6 +291,7 @@
 #define CALC_TDT 0x800000000000LLU
 #define CALC_MAKE_PERM_PHENO 0x1000000000000LLU
 #define CALC_QFAM 0x2000000000000LLU
+#define CALC_WEIR_FST 0x4000000000000LLU
 
 // necessary to patch heterozygous haploids/female Y chromosome genotypes
 // during loading?
