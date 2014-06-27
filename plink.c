@@ -291,8 +291,8 @@ void swap_reversed_marker_alleles(uintptr_t unfiltered_marker_ct, uintptr_t* mar
   }
 }
 
-static inline uint32_t are_marker_pos_needed(uint64_t calculation_type, uint64_t misc_flags, char* cm_map_fname, char* set_fname, uint32_t min_bp_space, uint32_t genome_skip_write, uint32_t ld_modifier, uint32_t epi_modifier) {
-  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_CLUMP | CALC_BLOCKS | CALC_FLIPSCAN | CALC_TDT | CALC_QFAM)) || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)) || cm_map_fname || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || ((calculation_type & CALC_EPI) && (epi_modifier & EPI_FAST_CASE_ONLY));
+static inline uint32_t are_marker_pos_needed(uint64_t calculation_type, uint64_t misc_flags, char* cm_map_fname, char* set_fname, uint32_t min_bp_space, uint32_t genome_skip_write, uint32_t ld_modifier, uint32_t epi_modifier, uint32_t cluster_modifier) {
+  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_CLUMP | CALC_BLOCKS | CALC_FLIPSCAN | CALC_TDT | CALC_QFAM)) || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)) || cm_map_fname || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || ((calculation_type & CALC_EPI) && (epi_modifier & EPI_FAST_CASE_ONLY)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2)));
 }
 
 static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, char* cm_map_fname, Two_col_params* update_cm) {
@@ -336,7 +336,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uintptr_t* sex_nm = NULL;
   uintptr_t* sex_male = NULL;
   uint32_t genome_skip_write = (cluster_ptr->ppc != 0.0) && (!(calculation_type & CALC_GENOME)) && (!read_genome_fname);
-  uint32_t marker_pos_needed = are_marker_pos_needed(calculation_type, misc_flags, cm_map_fname, sip->fname, min_bp_space, genome_skip_write, ldip->modifier, epi_ip->modifier);
+  uint32_t marker_pos_needed = are_marker_pos_needed(calculation_type, misc_flags, cm_map_fname, sip->fname, min_bp_space, genome_skip_write, ldip->modifier, epi_ip->modifier, cluster_ptr->modifier);
   uint32_t marker_cms_needed = are_marker_cms_needed(calculation_type, cm_map_fname, update_cm);
   uint32_t marker_alleles_needed = are_marker_alleles_needed(calculation_type, freqname, homozyg_ptr, a1alleles, a2alleles, ldip->modifier, (filter_flags / FILTER_SNPS_ONLY) & 1, clump_ip->modifier, cluster_ptr->modifier);
   uint32_t uii = 0;
@@ -1956,7 +1956,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
       if ((calculation_type & CALC_CMH) && pheno_c) {
 	if (!(cluster_ptr->modifier & CLUSTER_CMH2)) {
-          retval = cmh_assoc(threads, bedfile, bed_offset, outname, outname_end2, cluster_ptr->cmh_mperm_val, cluster_ptr->modifier, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists, sip);
+          retval = cmh_assoc(threads, bedfile, bed_offset, outname, outname_end2, cluster_ptr->cmh_mperm_val, cluster_ptr->modifier, ci_size, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, chrom_info_ptr, set_allele_freqs, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists, sip);
 	} else {
           retval = cmh2_assoc();
 	}

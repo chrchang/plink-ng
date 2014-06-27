@@ -10890,10 +10890,7 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
   return retval;
 }
 
-int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t cmh_mperm_val, uint32_t cmh_modifier, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_male, uint32_t hh_exists, Set_info* sip) {
-  logprint("Error: --mh and --bd are currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
-  /*
+int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t cmh_mperm_val, uint32_t cmh_modifier, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_male, uint32_t hh_exists, Set_info* sip) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   FILE* outfile_msa = NULL;
@@ -10909,6 +10906,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   uint32_t chrom_fo_idx = 0xffffffffU; // deliberate overflow
   uint32_t chrom_end = 0;
   uint32_t chrom_name_len = 0;
+  uint32_t pct = 0;
   uint32_t is_haploid = 0;
   uint32_t is_x = 0;
   uint32_t is_y = 0;
@@ -10924,6 +10922,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   uintptr_t* ulptr2;
   double* orig_chisq;
   double* dptr;
+  char* wptr;
   uint32_t* indiv_to_cluster_pheno;
   uint32_t* cluster_pheno_gtots;
   uint32_t* cur_cluster_pheno_gtots;
@@ -10932,6 +10931,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   uintptr_t marker_uidx;
   uintptr_t marker_idx;
   uintptr_t cur_word;
+  double ci_zt;
   double allele_ct_recip;
   double allele_ctm1_recip;
   double ctrl_ctd;
@@ -10957,12 +10957,15 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   double se;
   double log_or;
   double pval;
+  double dxx;
+  double dyy;
   uint32_t cluster_end;
   uint32_t cluster_idx;
   uint32_t indiv_uidx_base;
   uint32_t indiv_uidx;
   uint32_t cpidx;
   uint32_t chrom_idx;
+  uint32_t loop_end;
   uint32_t ctrl_ct;
   uint32_t case_ct;
   uint32_t ctrl_male_ct;
@@ -11077,7 +11080,12 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   if (fopen_checked(&outfile, outname, "w")) {
     goto cmh_assoc_ret_OPEN_FAIL;
   }
+  if (ci_size == 0.0) {
+    ci_size = 0.95;
+  }
+  ci_zt = ltqnorm(1 - (1 - ci_size) / 2);
   LOGPRINTFWW5("Writing --%s report (%u valid clusters) to %s ... ", breslow_day? "bd" : "mh", cluster_ct2, outname);
+  fputs("0%", stdout);
   fflush(stdout);
   sprintf(tbuf, " CHR %%%us         BP   A1      MAF   A2      CHISQ          P         OR         SE        ", plink_maxsnp);
   fprintf(outfile, tbuf, "SNP");
@@ -11108,6 +11116,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
     goto cmh_assoc_ret_READ_FAIL;
   }
   dptr = orig_chisq;
+  loop_end = marker_ct / 100;
   for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
     if (is_set(marker_exclude, marker_uidx)) {
       marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
@@ -11155,7 +11164,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       if (is_x) {
 	ulptr2 = pheno_nm_nonmale_11;
       }
-      for (indiv_uidx_base = 0; indiv_uidx_base < unfiltered_indiv_ct; indiv_uidx_base++) {
+      for (indiv_uidx_base = 0; indiv_uidx_base < unfiltered_indiv_ct; indiv_uidx_base += BITCT2) {
 	cur_word = (~(*ulptr++)) & (*ulptr2++);
 	while (cur_word) {
 	  uii = CTZLU(cur_word) & (BITCT - 2);
@@ -11197,8 +11206,8 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
     v2 = 0.0;
     v3 = 0.0;
     for (cluster_idx = 0, uiptr = cluster_geno_cts; cluster_idx < cluster_ct2; cluster_idx++, uiptr = &(uiptr[4])) {
-      ctrl_ct = cur_cluster_pheno_gtots[cluster_idx * 2] - cluster_geno_cts[1];
-      case_ct = cur_cluster_pheno_gtots[cluster_idx * 2 + 1] - cluster_geno_cts[3];
+      ctrl_ct = cur_cluster_pheno_gtots[cluster_idx * 2] - uiptr[1];
+      case_ct = cur_cluster_pheno_gtots[cluster_idx * 2 + 1] - uiptr[3];
       // skip cluster if all controls missing, or all cases missing
       if (ctrl_ct && case_ct) {
 	allele_ct = ctrl_ct + case_ct;
@@ -11206,9 +11215,9 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
 	allele_ctm1_recip = 1.0 / ((double)((int32_t)(allele_ct - 1)));
 	ctrl_ctd = (double)((int32_t)ctrl_ct);
 	case_ctd = (double)((int32_t)case_ct);
-	ctrl_a1_ctd = (double)((int32_t)cluster_geno_cts[0]);
+	ctrl_a1_ctd = (double)((int32_t)uiptr[0]);
 	ctrl_a2_ctd = ctrl_ctd - ctrl_a1_ctd;
-	case_a1_ctd = (double)((int32_t)cluster_geno_cts[2]);
+	case_a1_ctd = (double)((int32_t)uiptr[2]);
 	case_a2_ctd = case_ctd - case_a1_ctd;
 	a1_ctd = ctrl_a1_ctd + case_a1_ctd;
 	a2_ctd = ctrl_a2_ctd + case_a2_ctd;
@@ -11220,27 +11229,90 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
 	s2 = case_a2_ctd * ctrl_a1_ctd * allele_ct_recip;
         rtot += r2;
         stot += s2;
-	v1 += allele_ct_recip * r2 * (case_a1_ctd + ctrl_a2_ctd) * r2;
+	v1 += allele_ct_recip * r2 * (case_a1_ctd + ctrl_a2_ctd);
 	v2 += allele_ct_recip * s2 * (case_a2_ctd + ctrl_a1_ctd);
         v3 += allele_ct_recip * ((case_a1_ctd + ctrl_a2_ctd) * s2 + (case_a2_ctd + ctrl_a1_ctd) * r2);
       }
-    }
-    if ((cmh_denom == 0.0) || (rtot == 0.0) || (stot == 0.0)) {
-      goto cmh_assoc_marker_fail;
     }
     cmh_stat *= cmh_stat / cmh_denom;
     odds_ratio = rtot / stot;
     se = sqrt(v1 / (2 * rtot * rtot) + v2 / (2 * stot * stot) + v3 / (2 * rtot * stot));
     log_or = log(odds_ratio);
     pval = chiprob_p(cmh_stat, 1);
-    if (pval <= pfilter) {
-
+    if ((pfilter == 1.0) || (pval <= pfilter)) {
+      wptr = memcpyax(tbuf, chrom_name_ptr, chrom_name_len, ' ');
+      wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr);
+      *wptr++ = ' ';
+      wptr = uint32_writew10x(wptr, marker_pos[marker_uidx], ' ');
+      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	goto cmh_assoc_ret_WRITE_FAIL;
+      }
+      fputs_w4(marker_allele_ptrs[marker_uidx * 2], outfile);
+      tbuf[0] = ' ';
+      wptr = double_g_writewx4x(&(tbuf[1]), 1.0 - set_allele_freqs[marker_uidx], 8, ' ');
+      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	goto cmh_assoc_ret_WRITE_FAIL;
+      }
+      fputs_w4(marker_allele_ptrs[marker_uidx * 2 + 1], outfile);
+      if (realnum(cmh_stat)) {
+	tbuf[0] = ' ';
+	wptr = double_g_writewx4x(&(tbuf[1]), cmh_stat, 10, ' ');
+	wptr = double_g_writewx4x(wptr, pval, 10, ' ');
+      } else {
+        wptr = memcpya(tbuf, "         NA         NA ", 23);
+      }
+      if (realnum(odds_ratio)) {
+        wptr = double_g_writewx4x(wptr, odds_ratio, 10, ' ');
+      } else {
+	wptr = memcpya(wptr, "        NA ", 11);
+      }
+      if (realnum(se)) {
+        wptr = double_g_writewx4x(wptr, se, 10, ' ');
+	dxx = ci_zt * se;
+	dyy = exp(log_or - dxx);
+	if (realnum(dyy)) {
+          wptr = double_g_writewx4x(wptr, dyy, 10, ' ');
+	} else {
+	  wptr = memcpya(wptr, "        NA ", 11);
+	}
+	dyy = exp(log_or + dxx);
+        if (realnum(dyy)) {
+          wptr = double_g_writewx4x(wptr, dyy, 10, ' ');
+	} else {
+	  wptr = memcpya(wptr, "        NA ", 11);
+	}
+      } else {
+	wptr = memcpya(wptr, "        NA         NA         NA ", 33);
+      }
+      if (breslow_day) {
+	// todo
+      }
+      *wptr++ = '\n';
+      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	goto cmh_assoc_ret_WRITE_FAIL;
+      }
+    }
+    if (marker_idx >= loop_end) {
+      if (marker_idx < marker_ct) {
+	if (pct >= 10) {
+	  putchar('\b');
+	}
+	pct = (marker_idx * 100LLU) / marker_ct;
+        printf("\b\b%u%%", pct);
+        fflush(stdout);
+        loop_end = (((uint64_t)pct + 1LLU) * marker_ct) / 100;
+      }
     }
   }
 
   if (fclose_null(&outfile)) {
     goto cmh_assoc_ret_WRITE_FAIL;
   }
+  if (pct >= 10) {
+    putchar('\b');
+  }
+  fputs("\b\b", stdout);
+  logprint("done.\n");
 
   if (cmh_modifier & (CLUSTER_CMH_PERM | CLUSTER_CMH_MPERM)) {
     logprint("Error: --mh/--bd permutation tests are currently under development.\n");
@@ -11291,7 +11363,6 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   fclose_cond(outfile);
   fclose_cond(outfile_msa);
   return retval;
-  */
 }
 
 int32_t cmh2_assoc() {
