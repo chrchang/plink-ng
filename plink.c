@@ -101,7 +101,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (25 Jun 2014)";
+  " (27 Jun 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   //  " " (don't actually want this when version number has a trailing letter)
@@ -717,6 +717,9 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       } else if (calculation_type & CALC_FLIPSCAN) {
 	logprint("Error: --flip-scan requires a case/control phenotype.\n");
       }
+      goto plink_ret_INVALID_CMDLINE;
+    } else if ((calculation_type & CALC_RECODE) && (recode_modifier & (RECODE_HV | RECODE_HV_1CHR))) {
+      logprint("Error: --recode HV{-1chr} requires a case/control phenotype.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
   }
@@ -9718,12 +9721,6 @@ int32_t main(int32_t argc, char** argv) {
 	      }
 	      recode_modifier |= RECODE_12;
 	    }
-	  } else if (!strcmp(argv[cur_arg + uii], "compound-genotypes")) {
-	    if (recode_modifier & RECODE_STRUCTURE) {
-              logprint("Error: --recode 'compound-genotypes' modifier cannot be used with 'structure'.\n");
-              goto main_ret_INVALID_CMDLINE;
-	    }
-	    recode_modifier |= RECODE_COMPOUND;
 	  } else if (!strcmp(argv[cur_arg + uii], "23")) {
 	    if (recode_type_set(&recode_modifier, RECODE_23)) {
 	      goto main_ret_INVALID_CMDLINE_A;
@@ -9732,8 +9729,16 @@ int32_t main(int32_t argc, char** argv) {
 	    if (recode_type_set(&recode_modifier, RECODE_A)) {
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
+          } else if ((tolower(argv[cur_arg + uii][0]) == 'a') && (!strcmp(&(argv[cur_arg + uii][1]), "-transpose"))) {
+	    if (recode_type_set(&recode_modifier, RECODE_A_TRANSPOSE)) {
+	      goto main_ret_INVALID_CMDLINE_A;
+	    }
 	  } else if ((!argv[cur_arg + uii][2]) && match_upper(argv[cur_arg + uii], "AD")) {
 	    if (recode_type_set(&recode_modifier, RECODE_AD)) {
+	      goto main_ret_INVALID_CMDLINE_A;
+	    }
+	  } else if (!strcmp(argv[cur_arg + uii], "compound-genotypes")) {
+	    if (recode_type_set(&recode_modifier, RECODE_COMPOUND)) {
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	  } else if (match_upper_nt(argv[cur_arg + uii], "HV", 2)) {
@@ -9805,10 +9810,6 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	  } else if (!strcmp(argv[cur_arg + uii], "structure")) {
-	    if (recode_modifier & RECODE_COMPOUND) {
-              logprint("Error: --recode 'compound-genotypes' modifier cannot be used with 'structure'.\n");
-              goto main_ret_INVALID_CMDLINE;
-	    }
 	    if (recode_type_set(&recode_modifier, RECODE_STRUCTURE)) {
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
@@ -9847,18 +9848,24 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    recode_modifier |= RECODE_IID;
+	  } else if (!strcmp(argv[cur_arg + uii], "include-alt")) {
+	    recode_modifier |= RECODE_INCLUDE_ALT;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --recode parameter '%s'.%s\n", argv[cur_arg + uii], ((uii == param_ct) && (!outname_end))? "  (Did you forget '--out'?)" : "");
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
+	}
+	if ((recode_modifier & RECODE_INCLUDE_ALT) && (!(recode_modifier & (RECODE_A | RECODE_AD)))) {
+	  logprint("Error: --recode 'include-alt' modifier must be used with 'A' or 'AD'.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	calculation_type |= CALC_RECODE;
       } else if (!memcmp(argptr2, "ecode-whap", 11)) {
         logprint("Error: --recode-whap flag retired since WHAP is no longer supported.\n");
 	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "ecode-allele", 13)) {
-	if (!(recode_modifier & (RECODE_A | RECODE_AD))) {
-	  logprint("Error: --recode-allele must be used with --recode A or --recode AD.\n");
+	if (!(recode_modifier & (RECODE_A | RECODE_A_TRANSPOSE | RECODE_AD))) {
+	  logprint("Error: --recode-allele must be used with --recode A/A-transpose/AD.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (recode_modifier & (RECODE_01 | RECODE_12)) {

@@ -10897,130 +10897,181 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   FILE* outfile_msa = NULL;
-  uintptr_t marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t* indiv_hh_include2 = NULL;
+  uintptr_t* indiv_hh_male_include2 = NULL;
+  uint32_t* orig_df = NULL;
+  char* chrom_name_ptr = NULL;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
-  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
-  uintptr_t topsize = 0;
-  double* maxt_extreme_stat = NULL;
   uint32_t breslow_day = cmh_modifier & CLUSTER_CMH_BD;
-  uint32_t do_perms = cmh_modifier & (CLUSTER_CMH_PERM | CLUSTER_CMH_MPERM);
-  uint32_t is_set_test = cmh_modifier & CLUSTER_CMH_SET_TEST;
-  uint32_t perm_adapt_nst = (cmh_modifier & CLUSTER_CMH_PERM) && (!is_set_test);
-  uint32_t perm_maxt_nst = (cmh_modifier & CLUSTER_CMH_MPERM) && (!is_set_test);
-  uint32_t perms_nst = do_perms && (!is_set_test);
-  uint32_t mperm_dump_all = 0;
-  uint32_t perms_total = 0;
-  uint32_t perms_done = 0;
-  uint32_t perm_pass_idx = 0;
+  uint32_t perm_bd = cmh_modifier & CLUSTER_CMH_PERM_BD;
+  uint32_t cluster_ct2 = 0;
+  uint32_t chrom_fo_idx = 0xffffffffU; // deliberate overflow
+  uint32_t chrom_end = 0;
+  uint32_t chrom_name_len = 0;
+  uint32_t is_haploid = 0;
+  uint32_t is_x = 0;
+  uint32_t is_y = 0;
+  int32_t x_code = chrom_info_ptr->x_code;
+  int32_t y_code = chrom_info_ptr->y_code;
   int32_t retval = 0;
-  uintptr_t pheno_nm_ctv2;
-  uintptr_t* pheno_nm2;
-  uintptr_t* pheno_c2;
+  char chrom_name_buf[3 + MAX_CHROM_TEXTNUM_LEN];
+  uintptr_t* pheno_nm_11;
+  uintptr_t* pheno_nm_nonmale_11;
+  uintptr_t* pheno_nm_male_11;
   uintptr_t* loadbuf_raw;
-  uintptr_t* loadbuf;
-  double* orig_1mpval;
-  uint32_t* missing_cts;
+  uintptr_t* ulptr;
+  uintptr_t* ulptr2;
+  double* orig_chisq;
+  double* dptr;
+  uint32_t* indiv_to_cluster_pheno;
+  uint32_t* cluster_pheno_gtots;
+  uint32_t* cur_cluster_pheno_gtots;
+  uint32_t* cluster_geno_cts;
   uint32_t* uiptr;
-  uint32_t cluster_ct2;
+  uintptr_t marker_uidx;
+  uintptr_t marker_idx;
+  uintptr_t cur_word;
+  double allele_ct_recip;
+  double allele_ctm1_recip;
+  double ctrl_ctd;
+  double case_ctd;
+  double ctrl_a1_ctd;
+  double ctrl_a2_ctd;
+  double case_a1_ctd;
+  double case_a2_ctd;
+  double a1_ctd;
+  double a2_ctd;
+  double mean_case_a1d;
+  double var_case_a1d;
+  double cmh_stat;
+  double cmh_denom;
+  double r2;
+  double s2;
+  double rtot;
+  double stot;
+  double v1;
+  double v2;
+  double v3;
+  double odds_ratio;
+  double se;
+  double log_or;
+  double pval;
   uint32_t cluster_end;
+  uint32_t cluster_idx;
+  uint32_t indiv_uidx_base;
+  uint32_t indiv_uidx;
+  uint32_t cpidx;
+  uint32_t chrom_idx;
+  uint32_t ctrl_ct;
+  uint32_t case_ct;
+  uint32_t ctrl_male_ct;
+  uint32_t case_male_ct;
+  uint32_t allele_ct;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
-  uint32_t umm;
   if (cluster_ct < 2) {
+    logprint("Error: --mh/--bd requires at least two valid clusters.\n");
     goto cmh_assoc_ret_INVALID_CMDLINE;
   }
 
-  // The best data structures for permutation testing are quite different from
-  // those for the single-pass computation, so we separate the logic.
+  // The best data structures for permutation testing are somewhat different
+  // from those for the single-pass computation, so we separate the logic.
 
   // 1. Identify clusters with at least one case and one control, and create
   //    new cluster data structures describing only these.
-  if (wkspace_alloc_ul_checked(&pheno_nm2, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&pheno_c2, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
-      wkspace_alloc_ui_checked(&cluster_map2, cluster_starts[cluster_ct] * sizeof(int32_t))) {
+  // 2. Main loop efficiently skips homozygous A2s via use of CTZLU, and skips
+  //    samples not in a valid cluster via application of the pheno_nm_11
+  //    bitmask.  indiv_to_cluster_pheno[] maps indiv_uidx to (valid) cluster
+  //    index (high 31 bits) and case/control status (low bit).
+  if (wkspace_alloc_ul_checked(&pheno_nm_11, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&pheno_nm_nonmale_11, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&pheno_nm_male_11, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ui_checked(&indiv_to_cluster_pheno, unfiltered_indiv_ct * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&cluster_pheno_gtots, cluster_ct * 4 * sizeof(int32_t))) {
     goto cmh_assoc_ret_NOMEM;
   }
-  // temporary cluster_starts
-  uiptr = (uint32_t*)top_alloc(&topsize, (cluster_ct + 1) * sizeof(int32_t));
-  if (!uiptr) {
-    goto cmh_assoc_ret_NOMEM;
-  }
-  fill_ulong_zero(pheno_nm2, unfiltered_indiv_ctl);
-  uiptr[0] = 0;
+  fill_ulong_zero(pheno_nm_11, unfiltered_indiv_ctl2);
+  fill_ulong_zero(pheno_nm_male_11, unfiltered_indiv_ctl2);
   cluster_end = 0;
+  allele_ct = 0;
   for (cluster_idx = 0; cluster_idx < cluster_ct; cluster_idx++) {
     uii = cluster_end;
     cluster_end = cluster_starts[cluster_idx + 1];
     for (; uii < cluster_end; uii++) {
-      ujj = cluster_map[uii];
-      if (is_set(pheno_nm, ujj)) {
-	if (is_set(pheno_c, ujj)) {
+      indiv_uidx = cluster_map[uii];
+      if (is_set(pheno_nm, indiv_uidx)) {
+	if (is_set(pheno_c, indiv_uidx)) {
 	  // we have a case, check for a control
 	  while (++uii < cluster_end) {
-	    if () {
+	    indiv_uidx = cluster_map[uii];
+	    if (is_set(pheno_nm, indiv_uidx) && (!is_set(pheno_c, indiv_uidx))) {
+	      goto cmh_assoc_cluster_valid;
 	    }
 	  }
 	  continue;
 	} else {
 	  // we have a control, check for a case
+	  while (++uii < cluster_end) {
+	    indiv_uidx = cluster_map[uii];
+	    if (is_set(pheno_c, indiv_uidx)) {
+	      goto cmh_assoc_cluster_valid;
+	    }
+	  }
 	  continue;
 	}
       }
     }
-  }
-  pheno_nm_ct = popcount_longs(pheno_nm2, unfiltered_indiv_ctl);
-  memcpy(pheno_c2, pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t));
-  bitfield_and(pheno_c2, pheno_nm2, unfiltered_indiv_ctl);
-  loadbuf[unfiltered_indiv_ctl2 - 1] = 0;
-
-  retval = cluster_include_and_reindex(unfiltered_indiv_ct, pheno_nm2, 1, pheno_c, pheno_nm_ct, 0, cluster_ct, cluster_map, cluster_starts, &cluster_ct2, &cluster_map2, &cluster_starts2, &g_cluster_case_cts, &g_cluster_cc_perm_preimage);
-  if (retval) {
-    goto cmh_assoc_ret_1;
+    continue;
+  cmh_assoc_cluster_valid:
+    for (uii = cluster_starts[cluster_idx], ctrl_ct = 0, ctrl_male_ct = 0, case_ct = 0, case_male_ct = 0; uii < cluster_end; uii++) {
+      indiv_uidx = cluster_map[uii];
+      if (is_set(pheno_nm, indiv_uidx)) {
+        pheno_nm_11[indiv_uidx / BITCT2] |= (3 * ONELU) << (2 * (indiv_uidx % BITCT2));
+	ukk = is_set(sex_male, indiv_uidx);
+	if (ukk) {
+	  pheno_nm_male_11[indiv_uidx / BITCT2] |= (3 * ONELU) << (2 * (indiv_uidx % BITCT2));
+	}
+	ujj = is_set(pheno_c, indiv_uidx);
+	indiv_to_cluster_pheno[indiv_uidx] = 2 * cluster_ct2 + ujj;
+	if (ujj) {
+	  case_ct++;
+	  case_male_ct += ukk;
+	} else {
+	  ctrl_ct++;
+	  ctrl_male_ct += ukk;
+	}
+      }
+    }
+    cluster_pheno_gtots[4 * cluster_ct2] = ctrl_ct;
+    cluster_pheno_gtots[4 * cluster_ct2 + 1] = ctrl_male_ct;
+    cluster_pheno_gtots[4 * cluster_ct2 + 2] = case_ct;
+    cluster_pheno_gtots[4 * cluster_ct2 + 3] = case_male_ct;
+    allele_ct += ctrl_ct + case_ct;
+    cluster_ct2++;
   }
   if (cluster_ct2 < 2) {
     logprint("Error: --mh/--bd requires at least two valid clusters.\n");
     goto cmh_assoc_ret_INVALID_CMDLINE;
-  } else if (breslow_day && (cluster_ct2 > 10)) {
-    logprint("Warning: Breslow-Day statistics are unreliable with small clusters.\n");
+  } else if (breslow_day && (cluster_ct2 > 10) && (!perm_bd)) {
+    logprint("Warning: Breslow-Day statistics are unreliable with a large number of small\nclusters.  You may want to look at empirical p-values from the 'perm-bd'\nadaptive permutation test.\n");
   }
-  pheno_nm_ctv2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
-  g_pheno_nm_ct = pheno_nm_ct;
-  g_is_perm1 = 0;
-  g_mperm_save_all = NULL;
-  // if (is_set_test) {
-  // ...
-  // }
-  if (perm_maxt_nst) {
-    mperm_dump_all = mperm_save & MPERM_DUMP_ALL;
-    perms_total = cmh_mperm_val;
-    if (wkspace_alloc_d_checked(&maxt_extreme_stat, sizeof(double) * perms_total)) {
-      goto cmh_assoc_ret_NOMEM;
-    }
-    fill_double_zero(maxt_extreme_stat, perms_total);
-    g_maxt_extreme_stat = maxt_extreme_stat;
-    if (mperm_dump_all) {
-      memcpy(outname_end, ".mperm.dump.all", 16);
-      if (fopen_checked(&outfile_msa, outname, "w")) {
-        goto cmh_assoc_ret_OPEN_FAIL;
-      }
-      LOGPRINTFWW("Dumping all permutation chi-square values to %s .\n", outname);
-    }
-  } else {
-    mperm_save = 0;
-    if (perm_adapt_nst) {
-      g_aperm_alpha = apip->alpha;
-      perms_total = apip->max;
-      if (apip->min < apip->init_interval) {
-        g_first_adapt_check = (int32_t)(apip->init_interval);
-      } else {
-        g_first_adapt_check = apip_min;
-      }
-      g_adaptive_intercept = apip->init_interval;
-      g_adaptive_slope = apip->interval_slope;
-    }
+  if (allele_ct >= 0x40000000) {
+    // silly, but I'll document this
+    logprint("Error: --mh/--bd does not support >= 2^30 samples.\n");
+    goto cmh_assoc_ret_INVALID_CMDLINE;
   }
+
+  memcpy(pheno_nm_nonmale_11, pheno_nm_11, unfiltered_indiv_ctl2 * sizeof(intptr_t));
+  bitfield_andnot(pheno_nm_nonmale_11, pheno_nm_male_11, unfiltered_indiv_ctl2);
+  wkspace_shrink_top(cluster_pheno_gtots, cluster_ct2 * 4 * sizeof(int32_t));
+  if (wkspace_alloc_ui_checked(&cur_cluster_pheno_gtots, cluster_ct2 * 2 * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&cluster_geno_cts, cluster_ct2 * 4 * sizeof(int32_t)) ||
+      wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
+    goto cmh_assoc_ret_NOMEM;
+  }
+  loadbuf_raw[unfiltered_indiv_ctl2 - 1] = 0;
 
   memcpy(outname_end, ".cmh", 5);
   if (fopen_checked(&outfile, outname, "w")) {
@@ -11042,26 +11093,171 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   if (putc_checked('\n', outfile)) {
     goto cmh_assoc_ret_WRITE_FAIL;
   }
-  g_adaptive_ci_zt = ltqnorm(1 - apip->beta / (2.0 * ((intptr_t)marker_ct)));
-  if (wkspace_alloc_ul_checked(&loadbuf, MODEL_BLOCKSIZE * pheno_nm_ctv2 * sizeof(intptr_t)) ||
-      wkspace_alloc_d_checked(&orig_1mpval, marker_ct * sizeof(double)) ||
-      wkspace_alloc_ui_checked(&missing_cts, marker_ct * sizeof(int32_t))) {
+  if (alloc_raw_haploid_filters(unfiltered_indiv_ct, hh_exists, 1, pheno_nm, sex_male, &indiv_hh_include2, &indiv_hh_male_include2)) {
     goto cmh_assoc_ret_NOMEM;
   }
-  for (uii = 1; uii < MODEL_BLOCKSIZE; uii++) {
-    loadbuf[uii * pheno_nm_ctv2 - 2] = 0;
-    loadbuf[uii * pheno_nm_ctv2 - 1] = 0;
+  if (wkspace_alloc_d_checked(&orig_chisq, marker_ct * sizeof(double))) {
+    goto cmh_assoc_ret_NOMEM;
+  }
+  if (perm_bd) {
+    if (wkspace_alloc_ui_checked(&orig_df, marker_ct * sizeof(int32_t))) {
+      goto cmh_assoc_ret_NOMEM;
+    }
+  }
+  if (fseeko(bedfile, bed_offset, SEEK_SET)) {
+    goto cmh_assoc_ret_READ_FAIL;
+  }
+  dptr = orig_chisq;
+  for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+    if (is_set(marker_exclude, marker_uidx)) {
+      marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+      if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	goto cmh_assoc_ret_READ_FAIL;
+      }
+    }
+    if (marker_uidx >= chrom_end) {
+      do {
+	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1U];
+      } while (marker_uidx >= chrom_end);
+      chrom_idx = get_marker_chrom(chrom_info_ptr, marker_uidx);
+      is_haploid = is_set(chrom_info_ptr->haploid_mask, chrom_idx);
+      is_x = (chrom_idx == (uint32_t)x_code);
+      is_y = (chrom_idx == (uint32_t)y_code);
+      if (!is_haploid) {
+	for (cpidx = 0; cpidx < 2 * cluster_ct2; cpidx++) {
+	  cur_cluster_pheno_gtots[cpidx] = 2 * cluster_pheno_gtots[cpidx * 2];
+	}
+      } else if (is_x) {
+	for (cpidx = 0; cpidx < 2 * cluster_ct2; cpidx++) {
+	  cur_cluster_pheno_gtots[cpidx] = 2 * cluster_pheno_gtots[cpidx * 2] - cluster_pheno_gtots[cpidx * 2 + 1];
+	}
+      } else if (is_y) {
+	for (cpidx = 0; cpidx < 2 * cluster_ct2; cpidx++) {
+	  cur_cluster_pheno_gtots[cpidx] = cluster_pheno_gtots[cpidx * 2 + 1];
+	}
+      } else {
+	for (cpidx = 0; cpidx < 2 * cluster_ct2; cpidx++) {
+	  cur_cluster_pheno_gtots[cpidx] = cluster_pheno_gtots[cpidx * 2];
+	}
+      }
+      chrom_name_ptr = chrom_name_buf5w4write(chrom_name_buf, chrom_info_ptr, chrom_idx, &chrom_name_len);
+    }
+    if (fread(loadbuf_raw, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+      goto cmh_assoc_ret_READ_FAIL;
+    }
+    if (is_haploid && hh_exists) {
+      haploid_fix(hh_exists, indiv_hh_include2, indiv_hh_male_include2, unfiltered_indiv_ct, is_x, is_y, (unsigned char*)loadbuf_raw);
+    }
+    fill_uint_zero(cluster_geno_cts, 4 * cluster_ct2);
+    ulptr = loadbuf_raw;
+    ulptr2 = pheno_nm_11;
+    if ((!is_haploid) || is_x) {
+      if (is_x) {
+	ulptr2 = pheno_nm_nonmale_11;
+      }
+      for (indiv_uidx_base = 0; indiv_uidx_base < unfiltered_indiv_ct; indiv_uidx_base++) {
+	cur_word = (~(*ulptr++)) & (*ulptr2++);
+	while (cur_word) {
+	  uii = CTZLU(cur_word) & (BITCT - 2);
+	  ujj = (cur_word >> uii) & 3;
+	  indiv_uidx = indiv_uidx_base + (uii / 2);
+	  cpidx = indiv_to_cluster_pheno[indiv_uidx];
+	  // this does the following branchlessly:
+	  // 1. increment A1 count by one for heterozygous calls (ujj == 1)
+	  // 2. increment missing count by two when ujj == 2
+	  // 3. increment A1 count by two when ujj == 3
+	  cluster_geno_cts[cpidx * 2 + (ujj == 2)] += 2 - (ujj == 1);
+	  cur_word &= ~((3 * ONELU) << uii);
+	}
+      }
+    }
+    if (is_haploid) {
+      ulptr = loadbuf_raw;
+      if (is_x || is_y) {
+        ulptr2 = pheno_nm_male_11;
+      }
+      for (indiv_uidx_base = 0; indiv_uidx_base < unfiltered_indiv_ct; indiv_uidx_base++) {
+	cur_word = (~(*ulptr++)) & (*ulptr2++);
+	while (cur_word) {
+	  uii = CTZLU(cur_word) & (BITCT - 2);
+	  ujj = (cur_word >> uii) & 3;
+	  indiv_uidx = indiv_uidx_base + (uii / 2);
+	  cpidx = indiv_to_cluster_pheno[indiv_uidx];
+	  // increments A1 count by one, or missing count by one
+	  cluster_geno_cts[cpidx * 2 + 3 - ujj] += 1;
+	  cur_word &= ~((3 * ONELU) << uii);
+	}
+      }
+    }
+    cmh_stat = 0.0;
+    cmh_denom = 0.0;
+    rtot = 0.0;
+    stot = 0.0;
+    v1 = 0.0;
+    v2 = 0.0;
+    v3 = 0.0;
+    for (cluster_idx = 0, uiptr = cluster_geno_cts; cluster_idx < cluster_ct2; cluster_idx++, uiptr = &(uiptr[4])) {
+      ctrl_ct = cur_cluster_pheno_gtots[cluster_idx * 2] - cluster_geno_cts[1];
+      case_ct = cur_cluster_pheno_gtots[cluster_idx * 2 + 1] - cluster_geno_cts[3];
+      // skip cluster if all controls missing, or all cases missing
+      if (ctrl_ct && case_ct) {
+	allele_ct = ctrl_ct + case_ct;
+	allele_ct_recip = 1.0 / ((double)((int32_t)allele_ct));
+	allele_ctm1_recip = 1.0 / ((double)((int32_t)(allele_ct - 1)));
+	ctrl_ctd = (double)((int32_t)ctrl_ct);
+	case_ctd = (double)((int32_t)case_ct);
+	ctrl_a1_ctd = (double)((int32_t)cluster_geno_cts[0]);
+	ctrl_a2_ctd = ctrl_ctd - ctrl_a1_ctd;
+	case_a1_ctd = (double)((int32_t)cluster_geno_cts[2]);
+	case_a2_ctd = case_ctd - case_a1_ctd;
+	a1_ctd = ctrl_a1_ctd + case_a1_ctd;
+	a2_ctd = ctrl_a2_ctd + case_a2_ctd;
+        mean_case_a1d = case_ctd * a1_ctd * allele_ct_recip;
+	var_case_a1d = ctrl_ctd * case_ctd * a1_ctd * a2_ctd * allele_ct_recip * allele_ct_recip * allele_ctm1_recip;
+	cmh_stat += case_a1_ctd - mean_case_a1d;
+        cmh_denom += var_case_a1d;
+	r2 = case_a1_ctd * ctrl_a2_ctd * allele_ct_recip;
+	s2 = case_a2_ctd * ctrl_a1_ctd * allele_ct_recip;
+        rtot += r2;
+        stot += s2;
+	v1 += allele_ct_recip * r2 * (case_a1_ctd + ctrl_a2_ctd) * r2;
+	v2 += allele_ct_recip * s2 * (case_a2_ctd + ctrl_a1_ctd);
+        v3 += allele_ct_recip * ((case_a1_ctd + ctrl_a2_ctd) * s2 + (case_a2_ctd + ctrl_a1_ctd) * r2);
+      }
+    }
+    if ((cmh_denom == 0.0) || (rtot == 0.0) || (stot == 0.0)) {
+      goto cmh_assoc_marker_fail;
+    }
+    cmh_stat *= cmh_stat / cmh_denom;
+    odds_ratio = rtot / stot;
+    se = sqrt(v1 / (2 * rtot * rtot) + v2 / (2 * stot * stot) + v3 / (2 * rtot * stot));
+    log_or = log(odds_ratio);
+    pval = chiprob_p(cmh_stat, 1);
+    if (pval <= pfilter) {
+
+    }
+  }
+
+  if (fclose_null(&outfile)) {
+    goto cmh_assoc_ret_WRITE_FAIL;
+  }
+
+  if (cmh_modifier & (CLUSTER_CMH_PERM | CLUSTER_CMH_MPERM)) {
+    logprint("Error: --mh/--bd permutation tests are currently under development.\n");
+    goto cmh_assoc_ret_INVALID_CMDLINE;
   }
 
   // Given the genotypes at a marker, the following quantities are invariant
   // through permutations:
-  // * set of valid clusters (2+ nonmissing genotypes)
+  // * set of possibly valid clusters (2+ nonmissing genotypes)
   // * allele counts in each cluster
   // while the following quantities need to be recomputed:
   // * [case x A1] and [case x A2] counts in each cluster (control counts can
-  //   then be determined via subtraction; but note that [case x A2] CANNOT be
-  //   determined from [case x A1] because the number of cases with missing
-  //   genotypes may vary)
+  //   then be determined via subtraction; but note that [case x A2] CANNOT
+  //   generally be determined from [case x A1] because the number of cases
+  //   with missing genotypes may vary, though we could special-case
+  //   no-missing-genotypes if this ever becomes popular enough to justify the
+  //   complexity)
   //
   // To handle both large and small clusters efficiently without too much
   // special-casing, we preprocess the raw data so that each cluster's
@@ -11071,28 +11267,18 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   // sequential memory accessses.  We also scan for clusters containing only a
   // single genotype, or less than two nonmissing genotypes, and exclude them
   // from the main loop.
-  //
 
-  // ----- begin main loop -----
- cmh_assoc_more_perms:
-  if (do_perms_nst) {
-    if (perm_adapt_nst) {
-      if (perm_pass_idx) {
-        while (g_first_adapt_check <= g_perms_done) {
+  // ...
 
-	}
-      }
-    }
-  }
-  if (fclose_null(&outfile)) {
-    goto cmh_assoc_ret_WRITE_FAIL;
-  }
   while (0) {
   cmh_assoc_ret_NOMEM:
     retval = RET_NOMEM;
     break;
   cmh_assoc_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
+    break;
+  cmh_assoc_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
     break;
   cmh_assoc_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
@@ -11101,7 +11287,6 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
     retval = RET_INVALID_CMDLINE;
     break;
   }
- cmh_assoc_ret_1:
   wkspace_reset(wkspace_mark);
   fclose_cond(outfile);
   fclose_cond(outfile_msa);

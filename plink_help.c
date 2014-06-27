@@ -369,10 +369,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    " PROG_NAME_CAPS "'s filtering flags.\n"
 	       );
     help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele\tlist\twith-reference\trecode-vcf\tfid\tiid\trecode-beagle\trecode-bimbam\trecode-fastphase\trecodeHV\trecodehv\trecode-structure", &help_ctrl, 1,
-"  --recode <01 | 12> <compound-genotypes> <23 | A | AD | beagle | bimbam |\n"
-"           bimbam-1chr | fastphase | fastphase-1chr | HV | HV-1chr | lgen |\n"
-"           lgen-ref | list | oxford | rlist | structure | transpose | vcf |\n"
-"           vcf-fid | vcf-iid> <tab | tabx | spacex>\n"
+"  --recode <01 | 12> <23 | A{-transpose} | AD | beagle | bimbam{-1chr} |\n"
+"           compound-genotypes | fastphase{-1chr} | HV{-1chr} | lgen{-ref} |\n"
+"           list | oxford | rlist | structure | transpose | vcf | vcf-fid |\n"
+"           vcf-iid> <tab | tabx | spacex> <include-alt>\n"
 "    Create a new text fileset with all filters applied.  By default, the\n"
 "    fileset consists of a .ped and a .map file, readable with --file.\n"
 "    * The '12' modifier causes A1 (usually minor) alleles to be coded as '1'\n"
@@ -381,9 +381,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      genotype codes for the same variant.\n"
 "    * The '23' modifier causes a 23andMe-formatted file to be generated.  This\n"
 "      can only be used on a single individual's data (--keep may be handy).\n"
-"    * The 'AD' modifier causes an additive (0/1/2) + dominant (het = 1,\n"
-"      otherwise 0) component file, suitable for loading from R, to be\n"
+"    * The 'AD' modifier causes an individual-major additive (0/1/2) + dominant\n"
+"      (het = 1, otherwise 0) component file, suitable for loading from R, to be\n"
 "      generated.  If you don't want the dominant component, use 'A' instead.\n"
+"      If you need uncounted alleles to be named in the header line, add the\n"
+"      'include-alt' modifier.\n"
+"    * The 'A-transpose' modifier causes a variant-major additive component file\n"
+"      to be generated.\n"
 "    * The 'beagle' modifier causes unphased per-autosome .dat and .map files,\n"
 "      readable by early BEAGLE versions, to be generated.\n"
 "    * The 'bimbam' modifier causes a BIMBAM-formatted fileset to be generated.\n"
@@ -1539,8 +1543,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                                with 1+ missing parent(s).\n"
 	       );
     help_print("recode\trecode-allele", &help_ctrl, 0,
-"  --recode-allele [f]  : With --recode A or --recode AD, count alleles named in\n"
-"                         the file (instead of the minor allele).\n"
+"  --recode-allele [fn] : With --recode A/A-transpose/AD, count alleles named in\n"
+"                         the file (otherwise A1 alleles are always counted).\n"
 	       );
     help_print("output-chr\tchr-output", &help_ctrl, 0,
 "  --output-chr [MT code] : Set chromosome coding scheme in output files by\n"
@@ -1580,8 +1584,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --set-me-missing  : Cause --make-bed to set Mendel errors to missing.\n"
 	       );
     help_print("fill-missing-a2", &help_ctrl, 0,
-"  --fill-missing-a2 : Cause --make-bed to replace all (except Ychr nonmale)\n"
-"                      missing calls with homozygous A2 calls.\n"
+"  --fill-missing-a2 : Cause --make-bed to replace all missing calls with\n"
+"                      homozygous A2 calls.\n"
 	       );
     help_print("set-missing-snp-ids\tset-missing-nonsnp-ids\tset-missing-var-ids\tmissing-var-code", &help_ctrl, 0,
 "  --set-missing-snp-ids [tmpl] : Given a template string with a '@' where the\n"
