@@ -10927,6 +10927,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   uint32_t* cluster_pheno_gtots;
   uint32_t* cur_cluster_pheno_gtots;
   uint32_t* cluster_geno_cts;
+  uint32_t* marker_idx_to_uidx;
   uint32_t* uiptr;
   uintptr_t marker_uidx;
   uintptr_t marker_idx;
@@ -10957,6 +10958,18 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   double se;
   double log_or;
   double pval;
+  double one_minus_odds_ratio;
+  double double_1mor_recip;
+  double bdx2;
+  double amax;
+  double bb;
+  double discrim;
+  double as_plus;
+  double as_minus;
+  double a_star;
+  double b_star;
+  double c_star;
+  double d_star;
   double dxx;
   double dyy;
   uint32_t cluster_end;
@@ -10974,6 +10987,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
+  int32_t cur_df;
   if (cluster_ct < 2) {
     logprint("Error: --mh/--bd requires at least two valid clusters.\n");
     goto cmh_assoc_ret_INVALID_CMDLINE;
@@ -11239,6 +11253,11 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
     se = sqrt(v1 / (2 * rtot * rtot) + v2 / (2 * stot * stot) + v3 / (2 * rtot * stot));
     log_or = log(odds_ratio);
     pval = chiprob_p(cmh_stat, 1);
+    if (cmh_stat >= 0.0) {
+      *dptr++ = cmh_stat;
+    } else {
+      *dptr++ = -9;
+    }
     if ((pfilter == 1.0) || (pval <= pfilter)) {
       wptr = memcpyax(tbuf, chrom_name_ptr, chrom_name_len, ' ');
       wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr);
@@ -11285,7 +11304,49 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
 	wptr = memcpya(wptr, "        NA         NA         NA ", 33);
       }
       if (breslow_day) {
-	// todo
+	if (realnum(odds_ratio) && (odds_ratio != 1.0)) {
+	  one_minus_odds_ratio = 1.0 - odds_ratio;
+          double_1mor_recip = 0.5 / one_minus_odds_ratio;
+	  bdx2 = 0.0;
+	  cur_df = -1;
+	  for (cluster_idx = 0, uiptr = cluster_geno_cts; cluster_idx < cluster_ct2; cluster_idx++, uiptr = &(uiptr[4])) {
+	    ctrl_ct = cur_cluster_pheno_gtots[cluster_idx * 2] - uiptr[1];
+	    case_ct = cur_cluster_pheno_gtots[cluster_idx * 2 + 1] - uiptr[3];
+	    if (ctrl_ct && case_ct) {
+	      cur_df++;
+	      ctrl_ctd = (double)((int32_t)ctrl_ct);
+	      case_ctd = (double)((int32_t)case_ct);
+	      ctrl_a1_ctd = (double)((int32_t)uiptr[0]);
+	      case_a1_ctd = (double)((int32_t)uiptr[2]);
+	      a1_ctd = ctrl_a1_ctd + case_a1_ctd;
+	      amax = MINV(case_ctd, a1_ctd);
+	      bb = ctrl_ctd + case_ctd * odds_ratio - a1_ctd * one_minus_odds_ratio;
+	      discrim = sqrt(bb * bb + 4 * one_minus_odds_ratio * odds_ratio * case_ctd * a1_ctd);
+	      as_plus = (-bb + discrim) * double_1mor_recip;
+	      as_minus = (-bb - discrim) * double_1mor_recip;
+	      a_star = ((as_minus <= amax) && (as_minus >= 0))? as_minus : as_plus;
+              b_star = case_ctd - a_star;
+              c_star = a1_ctd - a_star;
+              d_star = ctrl_ctd - a1_ctd + a_star;
+
+	      // inverse variance
+              dxx = 1.0 / a_star + 1.0 / b_star + 1.0 / c_star + 1.0 / d_star;
+
+	      dyy = case_a1_ctd - a_star;
+	      bdx2 += dyy * dyy * dxx;
+	    }
+	  }
+	  pval = chiprob_p(bdx2, cur_df);
+	  if (pval > -1) {
+	    wptr = double_g_writewx4x(wptr, bdx2, 10, ' ');
+	    wptr = double_g_writewx4x(wptr, pval, 10, ' ');
+	  } else {
+	    goto cmh_assoc_bd_fail;
+	  }
+	} else {
+	cmh_assoc_bd_fail:
+	  wptr = memcpya(wptr, "        NA         NA ", 22);
+	}
       }
       *wptr++ = '\n';
       if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
@@ -11304,7 +11365,6 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       }
     }
   }
-
   if (fclose_null(&outfile)) {
     goto cmh_assoc_ret_WRITE_FAIL;
   }
@@ -11313,6 +11373,13 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   }
   fputs("\b\b", stdout);
   logprint("done.\n");
+  if (mtest_adjust) {
+    if (wkspace_alloc_ui_checked(&marker_idx_to_uidx, marker_ct * sizeof(int32_t))) {
+      goto cmh_assoc_ret_NOMEM;
+    }
+    fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_idx_to_uidx);
+    retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, orig_chisq, pfilter, mtest_adjust, adjust_lambda, 0, NULL);
+  }
 
   if (cmh_modifier & (CLUSTER_CMH_PERM | CLUSTER_CMH_MPERM)) {
     logprint("Error: --mh/--bd permutation tests are currently under development.\n");
