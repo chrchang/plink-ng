@@ -673,7 +673,8 @@ int32_t ld_prune_write(char* outname, char* outname_end, uintptr_t* marker_exclu
   for (cur_chrom = 1; cur_chrom < chrom_code_end; cur_chrom++) {
     chrom_end = chrom_info_ptr->chrom_end[cur_chrom];
     for (marker_uidx = chrom_info_ptr->chrom_start[cur_chrom]; marker_uidx < chrom_end; marker_uidx++) {
-      if ((!IS_SET(marker_exclude, marker_uidx)) && (!IS_SET(pruned_arr, marker_uidx))) {
+      // pruned_arr initialized to marker_exclude
+      if (!IS_SET(pruned_arr, marker_uidx)) {
         fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
 	putc('\n', outfile);
       }
@@ -714,6 +715,10 @@ int32_t ld_prune_write(char* outname, char* outname_end, uintptr_t* marker_exclu
 }
 
 int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
+  // Results are slightly different from PLINK 1.07 when missing data is
+  // present, but that's due to a minor bug in 1.07 (sample per-marker
+  // variances don't exclude the missing markers).
+
   // for future consideration: chromosome-based multithread/parallel?
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
@@ -799,7 +804,6 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   uintptr_t cur_exclude_ct;
   uint32_t prev_end;
   __CLPK_integer window_rem_li;
-  __CLPK_integer old_window_rem_li;
   uint32_t window_rem;
   double prune_ld_thresh;
   if (!founder_ct) {
@@ -1027,15 +1031,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	} while (at_least_one_prune);
 	if (!pairwise) {
 	  window_rem = 0;
-	  old_window_rem_li = 0;
-	  for (uii = 0; uii < old_window_size; uii++) {
-	    if (IS_SET(pruned_arr, live_indices[uii])) {
-	      continue;
-	    }
-            idx_remap[window_rem++] = uii;
-	  }
-	  old_window_rem_li = window_rem;
-	  for (; uii < cur_window_size; uii++) {
+	  for (uii = 0; uii < cur_window_size; uii++) {
 	    if (IS_SET(pruned_arr, live_indices[uii])) {
 	      continue;
 	    }
@@ -1053,7 +1049,9 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	      new_cov_matrix[uii * (window_rem + 1)] = 1.0;
 	    }
 	    window_rem_li = window_rem;
-	    ii = invert_matrix_trunc_singular(window_rem_li, new_cov_matrix, irow, work, old_window_rem_li);
+	    // this used to pass old_window_rem as the last parameter, but
+	    // turns out that's unsafe
+	    ii = invert_matrix_trunc_singular(window_rem_li, new_cov_matrix, irow, work, 1);
 	    while (ii) {
 	      if (ii == -1) {
 		goto ld_prune_ret_NOMEM;
@@ -1076,7 +1074,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 		new_cov_matrix[uii * (window_rem + 1)] = 1.0;
 	      }
               window_rem_li = window_rem;
-	      ii = invert_matrix_trunc_singular(window_rem_li, new_cov_matrix, irow, work, old_window_rem_li);
+	      ii = invert_matrix_trunc_singular(window_rem_li, new_cov_matrix, irow, work, 1);
 	    }
 	    dxx = new_cov_matrix[0];
 	    ujj = 0;
@@ -1090,9 +1088,6 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	      SET_BIT(pruned_arr, live_indices[idx_remap[ujj]]);
 	      cur_exclude_ct++;
 	      window_rem--;
-	      if (idx_remap[ujj] < (uint32_t)old_window_size) {
-		old_window_rem_li--;
-	      }
 	      for (uii = ujj; uii < window_rem; uii++) {
                 idx_remap[uii] = idx_remap[uii + 1];
 	      }
