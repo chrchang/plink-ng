@@ -804,10 +804,11 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   uintptr_t cur_exclude_ct;
   uint32_t prev_end;
   __CLPK_integer window_rem_li;
+  uint32_t old_window_rem;
   uint32_t window_rem;
   double prune_ld_thresh;
-  if (!founder_ct) {
-    LOGPRINTF("Warning: Skipping --indep%s since there are no founders.\n(--make-founders may come in handy here.)\n", pairwise? "-pairwise" : "");
+  if (founder_ct < 2) {
+    LOGPRINTF("Warning: Skipping --indep%s since there are less than two founders.\n(--make-founders may come in handy here.)\n", pairwise? "-pairwise" : "");
     goto ld_prune_ret_1;
   }
   if (is_set(chrom_info_ptr->chrom_mask, 0)) {
@@ -923,7 +924,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	weighted_founder_ct = founder_ct;
       }
     }
-    old_window_size = 1;
+    old_window_size = 0;
     cur_exclude_ct = 0;
     if (cur_window_size > 1) {
       for (ulii = 0; ulii < (uintptr_t)cur_window_size; ulii++) {
@@ -1031,7 +1032,14 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	} while (at_least_one_prune);
 	if (!pairwise) {
 	  window_rem = 0;
-	  for (uii = 0; uii < cur_window_size; uii++) {
+	  for (uii = 0; uii < old_window_size; uii++) {
+	    if (IS_SET(pruned_arr, live_indices[uii])) {
+	      continue;
+	    }
+            idx_remap[window_rem++] = uii;
+	  }
+	  old_window_rem = window_rem;
+	  for (; uii < cur_window_size; uii++) {
 	    if (IS_SET(pruned_arr, live_indices[uii])) {
 	      continue;
 	    }
@@ -1049,14 +1057,23 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	      new_cov_matrix[uii * (window_rem + 1)] = 1.0;
 	    }
 	    window_rem_li = window_rem;
-	    // this used to pass old_window_rem as the last parameter, but
-	    // turns out that's unsafe
-	    ii = invert_matrix_trunc_singular(window_rem_li, new_cov_matrix, irow, work, 1);
+	    ii = invert_matrix_checked(window_rem_li, new_cov_matrix, irow, work);
 	    while (ii) {
+#ifdef NOLAPACK
 	      if (ii == -1) {
 		goto ld_prune_ret_NOMEM;
 	      }
+#endif
+	      // 1. binary search for minimum number of bottom right rows/
+	      //    columns that must be trimmed to get a nonsingular matrix
+
+
+
+	      // 2. the last trimmed row/column must be part of some linear
+	      //    combination.  prune *just* that, and retry.
 	      ujj = ii;
+	      // bug reported by Kaustubh was a violation of this:
+	      // assert(!IS_SET(pruned_arr, live_indices[idx_remap[ujj]]));
               SET_BIT(pruned_arr, live_indices[idx_remap[ujj]]);
 	      cur_exclude_ct++;
 	      window_rem--;
@@ -1074,7 +1091,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 		new_cov_matrix[uii * (window_rem + 1)] = 1.0;
 	      }
               window_rem_li = window_rem;
-	      ii = invert_matrix_trunc_singular(window_rem_li, new_cov_matrix, irow, work, 1);
+	      ii = invert_matrix_checked(window_rem_li, new_cov_matrix, irow, work);
 	    }
 	    dxx = new_cov_matrix[0];
 	    ujj = 0;
@@ -1088,6 +1105,9 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	      SET_BIT(pruned_arr, live_indices[idx_remap[ujj]]);
 	      cur_exclude_ct++;
 	      window_rem--;
+	      if (idx_remap[ujj] < (uint32_t)old_window_size) {
+                old_window_rem--;
+	      }
 	      for (uii = ujj; uii < window_rem; uii++) {
                 idx_remap[uii] = idx_remap[uii + 1];
 	      }
@@ -5183,8 +5203,8 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
   g_ld_chrom_info_ptr = chrom_info_ptr;
   g_ld_thread_ct = g_thread_ct;
   g_ld_set_allele_freqs = (ld_modifier & LD_WITH_FREQS)? set_allele_freqs : NULL;
-  if (!founder_ct) {
-    LOGPRINTF("Warning: Skipping --r%s since there are no founders.  (--make-founders may come\nin handy here.)\n", g_ld_is_r2? "2" : "");
+  if (founder_ct < 2) {
+    LOGPRINTF("Warning: Skipping --r%s since there are less than two founders.\n(--make-founders may come in handy here.)\n", g_ld_is_r2? "2" : "");
     goto ld_report_ret_1;
   } else if (founder_ct >= 0x20000000) {
     logprint("Error: --r/--r2 does not support >= 2^29 samples.\n");
@@ -5698,11 +5718,11 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
     bitfield_and(founder_pnm, pheno_nm, unfiltered_indiv_ctl);
   }
   founder_ct = popcount_longs(founder_pnm, unfiltered_indiv_ctl);
-  if (!founder_ct) {
+  if (founder_ct < 2) {
     if ((!no_pheno_req) && (!popcount_longs(pheno_nm, unfiltered_indiv_ctl))) {
-      logprint("Warning: Skipping --blocks, since there are no founders with nonmissing\nphenotypes.  (The 'no-pheno-req' modifier removes the phenotype restriction.)\n");
+      logprint("Warning: Skipping --blocks, since there are less than two founders with\nnonmissing phenotypes.  (The 'no-pheno-req' modifier removes the phenotype\nrestriction.)\n");
     } else {
-      logprint("Warning: Skipping --blocks, since there are no founders with nonmissing\nphenotypes.  (--make-founders may come in handy here.)\n");
+      logprint("Warning: Skipping --blocks, since there are less than two founders with\nnonmissing phenotypes.  (--make-founders may come in handy here.)\n");
     }
     goto haploview_blocks_ret_1;
   }
@@ -7926,8 +7946,8 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
   uint32_t cur_zmiss2;
   uint32_t pct;
   uint32_t uii;
-  if (!founder_ct) {
-    logprint("Warning: Skipping --indep-pairphase since there are no founders.\n(--make-founders may come in handy here.)\n");
+  if (founder_ct < 2) {
+    logprint("Warning: Skipping --indep-pairphase since there are less than two founders.\n(--make-founders may come in handy here.)\n");
     goto indep_pairphase_ret_1;
   }
   if (is_set(chrom_info_ptr->chrom_mask, 0)) {

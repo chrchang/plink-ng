@@ -88,7 +88,7 @@
 
 const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b2"
+  "PLINK v1.90b1j"
 #else
   "PLINK v1.90b2p"
 #endif
@@ -101,10 +101,10 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (29 Jun 2014)";
+  " (1 Jul 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
-  " " // (don't actually want this when version number has a trailing letter)
+  // " " // (don't want this when version number has a trailing letter)
 #endif
 #ifndef NOLAPACK
   "  "
@@ -3424,7 +3424,12 @@ int32_t main(int32_t argc, char** argv) {
 	// special case, since we reserve empty names for preprocessed flags
 	printf("Error: Unrecognized flag ('%s').\n", argv[uii]);
 	goto main_ret_INVALID_CMDLINE;
-
+      case 'F':
+	if (!strcmp(argptr, "Fst")) {
+	  memcpy(flagptr, "fst", 4);
+	  break;
+	}
+	goto main_flag_copy;
       case 'a':
 	if ((ukk == 11) && (!memcmp(argptr, "allele", 6))) {
 	  if (match_upper(&(argptr[6]), "ACGT")) {
@@ -12298,7 +12303,7 @@ int32_t main(int32_t argc, char** argv) {
       logprint("Error: Basic file conversions do not support regular filtering operations.\nRerun your command with --make-bed.\n");
       goto main_ret_INVALID_CMDLINE;
     }
-    if (load_rare || (load_params & (LOAD_PARAMS_TEXTFILE | LOAD_PARAMS_PED | LOAD_PARAMS_MAP))) {
+    if (load_rare || (load_params & (LOAD_PARAMS_TEXTFILE | LOAD_PARAMS_PED | LOAD_PARAMS_MAP | LOAD_PARAMS_OX_ALL))) {
       sptr = outname_end;
       if (calculation_type && (!(misc_flags & MISC_KEEP_AUTOCONV))) {
         sptr = memcpyb(sptr, "-temporary", 11);

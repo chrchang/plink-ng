@@ -546,11 +546,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    --make-bed/--recode/--write-covar.\n\n"
 	       );
 #ifndef STABLE_BUILD
-    help_print("fst", &help_ctrl, 1,
+    help_print("fst\tFst", &help_ctrl, 1,
 "  --fst <case-control>\n"
-"    Estimate fixation index for each autosomal diploid variant, given a set of\n"
-"    subpopulations defined via --within.  Raw and weighted global means are\n"
-"    also reported.\n"
+"    (alias: --Fst)\n"
+"    Estimate Wright's Fst for each autosomal diploid variant using the method\n"
+"    introduced in Weir BS, Cockerham CC (1984) Estimating F-statistics for the\n"
+"    analysis of population structure, given a set of subpopulations defined via\n"
+"    --within.  Raw and weighted global means are also reported.\n"
 "    * If you have only two subpopulations, you can represent them with\n"
 "      case/control status and use the --fst 'case-control' modifier.\n\n"
 	       );

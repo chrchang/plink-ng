@@ -34,6 +34,7 @@ double pythag(const double a, const double b) {
   else return (absb == 0.0 ? 0.0 : absb*sqrt(1.0+SQR(absa/absb)));
 }
 
+#ifdef NOLAPACK
 int32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
   // C port of PLINK stats.cpp svdcmp().
   // Note that this function is NOT thread-safe, due to the buffer allocated
@@ -228,85 +229,6 @@ int32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
   return 1;
 }
 
-int32_t invert_matrix_trunc_singular_svd(__CLPK_integer dim, double* matrix, double* dbl_1d_buf, double* dbl_2d_buf, __CLPK_integer min_dim) {
-  // for no truncation, call this with min_dim == dim
-  const double eps = 1e-24;
-  unsigned char* wkspace_mark = wkspace_base;
-  double* matrix_copy;
-  double* small_matrix = NULL;
-  uint32_t min_dim_u = min_dim;
-  int32_t flag;
-  uint32_t cur_dim;
-  uint32_t max_dim; // known singular
-  uint32_t uii;
-  int32_t i;
-  int32_t j;
-  int32_t k;
-
-  if (wkspace_alloc_d_checked(&matrix_copy, dim * dim * sizeof(double))) {
-    return -1;
-  }
-  memcpy(matrix_copy, matrix, dim * dim * sizeof(double));
-  flag = svdcmp_c(dim, matrix, dbl_1d_buf, dbl_2d_buf);
-
-  if (flag == -1) {
-    return -1;
-  }
-  if (!flag) {
-    max_dim = dim;
-    if (dim > min_dim + 1) {
-      if (wkspace_alloc_d_checked(&small_matrix, (dim - 1) * (dim - 1) * sizeof(double))) {
-        return -1;
-      }
-    }
-    while (max_dim > min_dim_u + 1) {
-      cur_dim = (max_dim + min_dim_u) / 2;
-      for (uii = 0; uii < cur_dim; uii++) {
-        memcpy(&(small_matrix[uii * cur_dim]), &(matrix_copy[uii * dim]), cur_dim * sizeof(double));
-      }
-      flag = svdcmp_c(cur_dim, small_matrix, dbl_1d_buf, dbl_2d_buf);
-      if (flag) {
-        max_dim = cur_dim;
-      } else {
-        min_dim_u = cur_dim;
-      }
-    }
-    wkspace_reset(wkspace_mark);
-    return min_dim_u;
-  }
-  // Look for singular values
-  double wmax = 0;
-  for (i=0; i<dim; i++) {
-    wmax = dbl_1d_buf[i] > wmax ? dbl_1d_buf[i] : wmax;
-  }
-  double wmin = wmax * eps;
-  for (i=0; i<dim; i++) {
-    dbl_1d_buf[i] = dbl_1d_buf[i] < wmin ? 0 : (1 / dbl_1d_buf[i]);
-  }
-
-  for (i=0; i<dim; i++) {
-    for (j=0; j<dim; j++) {
-      matrix[i * dim + j] = matrix[i * dim + j] * dbl_1d_buf[j];
-    }
-  }
-
-  // [nxn].[t(v)] 
-  for (i=0; i<dim; i++) {
-    fill_double_zero(dbl_1d_buf, dim);
-    for (j=0; j<dim; j++) {
-      for (k=0; k<dim; k++) {
-	dbl_1d_buf[j] += matrix[i * dim + k] * dbl_2d_buf[j * dim + k];
-      }
-    }
-    for (j = 0; j < dim; j++) {
-      matrix[i * dim + j] = dbl_1d_buf[j];
-    }
-  }
-  wkspace_reset(wkspace_mark);
-  return 0;
-}
-
-#ifdef NOLAPACK
 int32_t invert_matrix(int32_t dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* dbl_1d_buf, double* dbl_2d_buf) {
   // C port of PLINK stats.cpp's svd_inverse() function.
 
@@ -353,10 +275,6 @@ int32_t invert_matrix(int32_t dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* dbl_
   }
   return 0;
 }
-
-int32_t invert_matrix_trunc_singular(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* int_1d_buf, double* dbl_2d_buf, __CLPK_integer min_dim) {
-  return invert_matrix_trunc_singular_svd(dim, matrix, int_1d_buf, dbl_2d_buf, min_dim);
-}
 #else
 int32_t invert_matrix(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* int_1d_buf, double* dbl_2d_buf) {
   // dgetrf_/dgetri_ is more efficient than dpotrf_/dpotri_ on OS X.
@@ -370,38 +288,26 @@ int32_t invert_matrix(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYP
   return 0;
 }
 
-int32_t invert_matrix_trunc_singular(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* int_1d_buf, double* dbl_2d_buf, __CLPK_integer min_dim) {
-  // Variant of invert_matrix which checks if the matrix is singular.  If it
-  // is, this determines the minimum number of rows/columns which can be
-  // removed from the bottom right to make the matrix nonsingular, knowing that
-  // the upper left min_dim * min_dim matrix is nonsingular, and returns the
-  // zero-based index of the first removed row/column.
+int32_t invert_matrix_checked(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* int_1d_buf, double* dbl_2d_buf) {
+  // This used to fall back on PLINK 1.07's SVD-based implementation when the
+  // rcond estimate was too small, but in practice that just slowed things down
+  // without meaningfully improving inversion of nonsingular matrices.  So now
+  // this just exits a bit earlier, while leaving the old "binary search for
+  // the first row/column causing multicollinearity" logic to the caller.
   __CLPK_integer lwork = dim * dim;
   char cc = '1';
-  unsigned char* wkspace_mark = wkspace_base;
-  double* matrix_copy;
+  double norm = dlange_(&cc, &dim, &dim, matrix, &dim, dbl_2d_buf);
   __CLPK_integer info;
-  double norm;
   double rcond;
-  norm = dlange_(&cc, &dim, &dim, matrix, &dim, dbl_2d_buf);
-  if (wkspace_alloc_d_checked(&matrix_copy, dim * dim * sizeof(double))) {
-    return -1;
-  }
-  memcpy(matrix_copy, matrix, dim * dim * sizeof(double));
   dgetrf_(&dim, &dim, matrix, &dim, int_1d_buf, &info);
   if (info > 0) {
-    rcond = 0.0;
-  } else {
-    dgecon_(&cc, &dim, matrix, &dim, &norm, &rcond, dbl_2d_buf, &(int_1d_buf[dim]), &info);
+    return 1;
   }
+  dgecon_(&cc, &dim, matrix, &dim, &norm, &rcond, dbl_2d_buf, &(int_1d_buf[dim]), &info);
   if (rcond < MATRIX_SINGULAR_RCOND) {
-    memcpy(matrix, matrix_copy, dim * dim * sizeof(double));
-    wkspace_reset(wkspace_mark);
-    return invert_matrix_trunc_singular_svd(dim, matrix, (double*)int_1d_buf, dbl_2d_buf, min_dim);
-  } else {
-    dgetri_(&dim, matrix, &dim, int_1d_buf, dbl_2d_buf, &lwork, &info);
+    return 1;
   }
-  wkspace_reset(wkspace_mark);
+  dgetri_(&dim, matrix, &dim, int_1d_buf, dbl_2d_buf, &lwork, &info);
   return 0;
 }
 #endif
