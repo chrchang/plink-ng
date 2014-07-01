@@ -88,7 +88,7 @@
 
 const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b1j"
+  "PLINK v1.90b2?"
 #else
   "PLINK v1.90b2p"
 #endif
@@ -1975,7 +1975,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	}
       }
       if ((calculation_type & CALC_HOMOG) && pheno_c) {
-	retval = homog_assoc();
+	retval = homog_assoc(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, chrom_info_ptr, set_allele_freqs, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists);
         if (retval) {
           goto plink_ret_1;
 	}
@@ -4161,7 +4161,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "nnotate", 8)) {
-	UNSTABLE;
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 10)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -5884,7 +5883,6 @@ int32_t main(int32_t argc, char** argv) {
         misc_flags |= MISC_DOUBLE_ID;
         goto main_param_zero;
       } else if (!memcmp(argptr2, "osage", 6)) {
-	UNSTABLE;
 	if (load_rare || load_params) {
 	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
 	} else if (pheno_modifier & PHENO_ALL) {
@@ -6435,7 +6433,6 @@ int32_t main(int32_t argc, char** argv) {
 	misc_flags |= MISC_FILL_MISSING_A2;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "st", 3)) {
-	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -6690,7 +6687,6 @@ int32_t main(int32_t argc, char** argv) {
           epi_info.case_only_gap = (int32_t)(dxx * 1000 * (1 + SMALL_EPSILON));
 	}
       } else if (!memcmp(argptr2, "ene-report", 11)) {
-	UNSTABLE;
 	uii = gene_report_glist? 1 : 2;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], uii, uii)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -7094,7 +7090,6 @@ int32_t main(int32_t argc, char** argv) {
 	if (argptr2[9] == 'w') {
           ld_info.modifier |= LD_PRUNE_PAIRWISE;
 	} else {
-	  UNSTABLE;
           ld_info.modifier |= LD_PRUNE_PAIRPHASE;
 	}
       } else if (!memcmp(argptr2, "ndep", 5)) {
@@ -9382,7 +9377,6 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
       } else if (!memcmp(argptr2, "ual-scores", 11)) {
-	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 4)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -9392,7 +9386,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "ual-threshold", 14)) {
-	UNSTABLE;
 	if (!qual_filter) {
 	  logprint("Error: --qual-threshold must be used with --qual-scores.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -9409,7 +9402,6 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
       } else if (!memcmp(argptr2, "ual-max-threshold", 18)) {
-	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -9418,7 +9410,6 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if ((!memcmp(argptr2, "fam", 4)) || (!memcmp(argptr2, "fam-parents", 12)) || (!memcmp(argptr2, "fam-between", 12)) || (!memcmp(argptr2, "fam-total", 10))) {
-	UNSTABLE;
 	if (calculation_type & CALC_QFAM) {
 	  logprint("Error: Only one QFAM test can be run at a time.\n");
 	  goto main_ret_INVALID_CMDLINE_A;

@@ -545,7 +545,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    otherwise identical to --check-sex.  It must be used with\n"
 "    --make-bed/--recode/--write-covar.\n\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("fst\tFst", &help_ctrl, 1,
 "  --fst <case-control>\n"
 "    (alias: --Fst)\n"
@@ -556,13 +555,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * If you have only two subpopulations, you can represent them with\n"
 "      case/control status and use the --fst 'case-control' modifier.\n\n"
 	       );
-#endif
     help_print("indep\tindep-pairwise\tindep-pairphase", &help_ctrl, 1,
 "  --indep [window size]<kb> [step size (locus ct)] [VIF threshold]\n"
 "  --indep-pairwise [window size]<kb> [step size (locus ct)] [r^2 threshold]\n"
-#ifndef STABLE_BUILD
 "  --indep-pairphase [window size]<kb> [step size (locus ct)] [r^2 threshold]\n"
-#endif
 "    Generate a list of markers in approximate linkage equilibrium.  With the\n"
 "    'kb' modifier, the window size is in kilobase instead of locus count units.\n"
 "    (Pre-'kb' space is optional, i.e. '--indep-pairwise 500 kb 5 0.5' and\n"
@@ -881,26 +877,33 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Several other flags (most notably, --aperm) can be used to customize the\n"
 "    permutation test.\n\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("mh\tbd\tmh2\thomog\tcmh", &help_ctrl, 1,
+"  --mh <perm | mperm=[value]> <perm-count>\n"
+"    (alias: --cmh)\n"
+"  --bd <perm | perm-bd | mperm=[value]> <perm-count>\n"
+	       /*
 "  --mh <perm | mperm=[value]> <perm-count> <set-test>\n"
 "    (alias: --cmh)\n"
 "  --bd <perm | perm-bd | mperm=[value]> <perm-count> <set-test>\n"
+	       */
+#ifndef STABLE_BUILD
 "  --mh2\n"
+#endif
 "  --homog\n"
 "    Given a case/control phenotype and a set of clusters, --mh computes 2x2xK\n"
 "    Cochran-Mantel-Haenszel statistics for each variant, while --bd also\n"
 "    performs the Breslow-Day test for odds ratio homogeneity.  Permutation and\n"
 "    variant set testing based on the CMH (default) or Breslow-Day (when\n"
 "    'perm-bd' is present) statistic are supported.\n"
+#ifndef STABLE_BUILD
 "    The following similar analyses are also available:\n"
 "    * --mh2 swaps the roles of case/control status and cluster membership,\n"
 "      performing a phenotype-stratified IxJxK Cochran-Mantel-Haenszel test on\n"
 "      association between cluster assignments and genotypes.\n"
+#endif
 "    * --homog executes an alternative to the Breslow-Day test, based on\n"
 "      partitioning of the chi-square statistic.\n\n"
 	       );
-#endif
     help_print("gxe\tmcovar", &help_ctrl, 1,
 "  --gxe {covariate index}\n"
 "    Given both a quantitative phenotype and a case/control covariate loaded\n"
@@ -959,7 +962,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      and all predictors to zero mean and unit variance before regression, and\n"
 "      the 'intercept' modifier adds intercepts to the main report.\n\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("dosage\twrite-dosage", &help_ctrl, 1,
 "  --dosage [allele dosage file] <noheader> <skip0=[i]> <skip1=[j]> <skip2=[k]>\n"
 "           <dose1> <format=[m]> <Zout> <occur | standard-beta>\n"
@@ -1003,7 +1005,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      --write-dosage causes a simple merged file matching the 'format'\n"
 "      specification (not including 'dose1') to be generated.\n\n"
 	       );
-#endif
     help_print("lasso", &help_ctrl, 1,
 "  --lasso [h2 estimate] {min lambda} <report-zeroes>\n"
 "    Estimate variant effect sizes via LASSO regression.  You must provide an\n"
@@ -1063,8 +1064,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      parent-of-origin test Z score; 'pat'/'mat' cause paternal or maternal TDT\n"
 "      chi-square statistics, respectively, to be considered instead.\n\n"
 	       );
-#ifndef STABLE_BUILD
-#ifndef NOLAPACK
     help_print("qfam\tqfam-between\tqfam-parents\tqfam-total", &help_ctrl, 1,
 "  --qfam <perm | mperm=[value]> <perm-count>\n"
 "  --qfam-parents <perm | mperm=[value]> <perm-count>\n"
@@ -1077,7 +1076,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      usual meanings.  However, 'mperm=[value]' just specifies a fixed number\n"
 "      of permutations; the method does not support a proper max(T) test.\n\n"
 	       );
-#endif
     help_print("annotate", &help_ctrl, 1,
 "  --annotate [PLINK report] <attrib=[file]> <ranges=[file]> <filter=[file]>\n"
 "             <snps=[file]> <NA | prune> <block> <subset=[file]> <minimal>\n"
@@ -1108,14 +1106,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "        distance to the nearest interval.\n"
 "    * When --pfilter is present, high p-values are filtered out.\n\n"
 	       );
-#endif
     help_print("clump", &help_ctrl, 1,
 "  --clump [PLINK report filename(s)...]\n"
 "    Process association analysis report(s) with 'SNP' and p-value columns,\n"
 "    organizing results by LD-based clumps.  Multiple filenames can be separated\n"
 "    by spaces or commas.\n\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("gene-report\tgene-list", &help_ctrl, 1,
 "  --gene-report [PLINK report] [gene range file]\n"
 "    Generate a gene-based report from a variant-based report.\n"
@@ -1123,7 +1119,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * When --extract (without 'range') is present, only variants named in the\n"
 "      --extract file are considered.\n\n"
 	       );
-#endif
     help_print("fast-epistasis\tepistasis\tset-test\tset-by-all\tcase-only\tnop\tepistasis-summary-merge", &help_ctrl, 1,
 "  --fast-epistasis <boost | joint-effects | no-ueki> <case-only>\n"
 "                   <set-by-set | set-by-all> <nop>\n"
@@ -1522,7 +1517,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                             rates exceeding the given thresholds.\n"
 "  --me-exclude-one {ratio} : Make --me exclude only one individual per trio.\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("qual-scores\tqual-threshold\tqual-max-threshold", &help_ctrl, 0,
 "  --qual-scores [f] {qcol} {IDcol} {skip} : Filter out variants with\n"
 "                                            out-of-range quality scores.\n"
@@ -1530,7 +1524,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --qual-threshold [min qual score]       : Set --qual-scores range floor.\n"
 "  --qual-max-threshold [max qual score]   : Set --qual-scores range ceiling.\n"
 	       );
-#endif
     help_print("allow-no-sex\tmust-have-sex", &help_ctrl, 0,
 "  --allow-no-sex   : Do not treat ambiguous-sex individuals as having missing\n"
 "                     phenotypes in analysis commands.  (Automatic /w --no-sex.)\n"
@@ -1869,12 +1862,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --set-max [ct]       : Adjust set test maximum # of significant variants\n"
 "                         considered per set (default 5).\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("annotate\tborder\tannotate-snp-field", &help_ctrl, 0,
 "  --border [kbs]            : Extend --annotate range intervals by given # kbs.\n"
 "  --annotate-snp-field [nm] : Set --annotate variant ID field name.\n"
 	       );
-#endif
     help_print("clump-p1\tclump-p2\tclump-r2\tclump-kb\tclump-snp-field\tclump-field\tclump", &help_ctrl, 0,
 "  --clump-p1 [pval] : Set --clump index var. p-value ceiling (default 0.0001).\n"
 "  --clump-p2 [pval] : Set --clump secondary p-value threshold (default 0.01).\n"
@@ -1908,14 +1899,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("clump-best\tclump", &help_ctrl, 0,
 "  --clump-best              : Report best proxy for each --clump index var.\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("gene-list-border\tgene-report\tgene-subset\tgene-list\tgene-report-snp-field", &help_ctrl, 0,
 "  --gene-list-border [kbs]   : Extend --gene-report regions by given # of kbs.\n"
 "  --gene-subset [filename]   : Specify gene name subset for --gene-report.\n"
 "  --gene-report-snp-field [] : Set --gene-report variant ID field name (default\n"
 "                               'SNP').  Only relevant with --extract.\n"
 	       );
-#endif
     help_print("fast-epistasis\tepistasis\tgap\tepi1\tepi2", &help_ctrl, 0,
 "  --gap [kbs]      : Set '--fast-epistasis case-only' min. gap (default 1000).\n"
 "  --epi1 [p-value] : Set --{fast-}epistasis reporting threshold (default\n"

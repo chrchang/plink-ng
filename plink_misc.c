@@ -3373,6 +3373,9 @@ int32_t fst_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
       }
     }
   }
+  if (fclose_null(&outfile)) {
+    goto fst_report_ret_WRITE_FAIL;
+  }
   if (pct >= 10) {
     putchar('\b');
   }
