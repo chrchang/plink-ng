@@ -1277,6 +1277,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                         * 'haploid'/'h' treats them as haploid calls.\n"
 "                         * 'missing'/'m' treats them as missing.\n"
 	       );
+    help_print("oxford-pheno-name\tdata\tgen\tsample", &help_ctrl, 0,
+"  --oxford-pheno-name [col nm] : Import named phenotype from the .sample file.\n"
+	       );
     help_print("hard-call-threshold\tmissing-code\tmissing_code\tdata\tgen\tsample", &help_ctrl, 0,
 "  --hard-call-threshold [val]  : When an Oxford-format fileset is loaded, calls\n"
 "  --hard-call-threshold random   with uncertainty level greater than 0.1 are\n"
@@ -1284,9 +1287,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                 this threshold by providing a numeric\n"
 "                                 parameter, or randomize all calls with\n"
 "                                 'random'.\n"
-"  --missing-code {string list}       : Comma-delimited list of missing\n"
-"    (alias: --missing_code)            phenotype values for Oxford-formatted\n"
-"                                       filesets (normally 'NA').\n"
+"  --missing-code {string list} : Comma-delimited list of missing phenotype\n"
+"    (alias: --missing_code)      values for Oxford-format filesets (def. 'NA').\n"
 	       );
     help_print("simulate\tsimulate-ncases\tsimulate-ncontrols\tsimulate-prevalence", &help_ctrl, 0,
 "  --simulate-ncases [num]   : Set --simulate case count (default 1000).\n"

@@ -3914,7 +3914,7 @@ int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32
 
 #define D_EPSILON 0.000244140625
 
-int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outname_end, double hard_call_threshold, char* missing_code, int32_t missing_pheno, uint64_t misc_flags, uint32_t is_bgen, Chrom_info* chrom_info_ptr) {
+int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outname_end, char* pheno_name, double hard_call_threshold, char* missing_code, int32_t missing_pheno, uint64_t misc_flags, uint32_t is_bgen, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   gzFile gz_infile = NULL;
@@ -3932,6 +3932,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   //     column has to be FID)
   uint32_t sex_col = 0;
 
+  uint32_t pheno_name_len = 0;
   // load first phenotype (not covariate), if present
   uint32_t pheno_col = 0;
 
@@ -4075,6 +4076,9 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1; 
   }
   bufptr = skip_initial_spaces(&(bufptr[7]));
+  if (pheno_name) {
+    pheno_name_len = strlen(pheno_name);
+  }
   while (!is_eoln_kns(*bufptr)) {
     bufptr2 = token_endnn(bufptr);
     ulii = (uintptr_t)(bufptr2 - bufptr);
@@ -4084,9 +4088,23 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
         goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1;
       }
       sex_col = col_ct;
+    } else if ((ulii == pheno_name_len) && (!memcmp(bufptr, pheno_name, ulii))) {
+      if (pheno_col) {
+	goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1;
+      }
+      pheno_col = col_ct;
     }
     col_ct++;
     bufptr = skip_initial_spaces(bufptr2);
+  }
+  if (pheno_name) {
+    if (!pheno_col) {
+      logprint("Error: --oxford-pheno-name parameter not found in .sample file header.\n");
+      goto oxford_to_bed_ret_INVALID_CMDLINE;
+    } else if (sex_col > pheno_col) {
+      logprint("Error: .sample phenotype column(s) should be after sex covariate.\n");
+      goto oxford_to_bed_ret_INVALID_FORMAT;
+    }
   }
   do {
     line_idx++;
@@ -4139,19 +4157,26 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	  goto oxford_to_bed_ret_INVALID_FORMAT;
 	}
 	pheno_col = col_idx;
-	if (cc == 'B') {
-	  // check for pathological case
-	  if ((bsearch_str("0", 1, sorted_mc, max_mc_len, mc_ct) != -1) || (bsearch_str("1", 1, sorted_mc, max_mc_len, mc_ct) != -1)) {
-	    logprint("Error: '0' and '1' are unacceptable missing case/control phenotype codes.\n");
-	    goto oxford_to_bed_ret_INVALID_CMDLINE;
-	  }
-	  is_binary_pheno = 1;
-	}
+	is_binary_pheno = (cc == 'B');
 	break;
       }
+    } else if (col_idx == pheno_col) {
+      is_binary_pheno = (cc == 'B');
+      if ((!is_binary_pheno) && (cc != 'P')) {
+        logprint("Error: --oxford-pheno-name parameter does not refer to a binary or continuous\nphenotype.\n");
+	goto oxford_to_bed_ret_INVALID_CMDLINE;
+      }
+      break;
     }
     col_idx++;
     bufptr++;
+  }
+  if (is_binary_pheno) {
+    // check for pathological case
+    if ((bsearch_str("0", 1, sorted_mc, max_mc_len, mc_ct) != -1) || (bsearch_str("1", 1, sorted_mc, max_mc_len, mc_ct) != -1)) {
+      logprint("Error: '0' and '1' are unacceptable missing case/control phenotype codes.\n");
+      goto oxford_to_bed_ret_INVALID_CMDLINE;
+    }
   }
   while (fgets(tbuf, MAXLINELEN, infile)) {
     line_idx++;

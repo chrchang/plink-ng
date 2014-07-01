@@ -2878,6 +2878,7 @@ int32_t main(int32_t argc, char** argv) {
   Two_col_params* update_cm = NULL;
   Two_col_params* update_map = NULL;
   Two_col_params* update_name = NULL;
+  char* oxford_pheno_name = NULL;
   char* update_ids_fname = NULL;
   char* update_parents_fname = NULL;
   char* update_sex_fname = NULL;
@@ -8945,6 +8946,17 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_1;
 	  }
 	}
+      } else if (!memcmp(argptr, "xford-pheno-name", 17)) {
+	if (!(load_params & LOAD_PARAMS_OX_ALL)) {
+	  logprint("Error: --oxford-pheno-name must be used with an Oxford-format fileset.\n");
+          goto main_ret_INVALID_CMDLINE_A;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+          goto main_ret_INVALID_CMDLINE_2A;
+	}
+	if (alloc_string(&oxford_pheno_name, argv[cur_arg + 1])) {
+	  goto main_ret_NOMEM;
+	}
       } else if (memcmp(argptr2, "ut", 3)) {
 	// --out is a special case due to logging
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
@@ -12330,7 +12342,7 @@ int32_t main(int32_t argc, char** argv) {
 	  simulate_label = NULL;
 	}
       } else if (load_params & LOAD_PARAMS_OX_ALL) {
-	retval = oxford_to_bed(pedname, mapname, outname, sptr, hard_call_threshold, missing_code, missing_pheno, misc_flags, (load_params / LOAD_PARAMS_OXBGEN) & 1, &chrom_info);
+	retval = oxford_to_bed(pedname, mapname, outname, sptr, oxford_pheno_name, hard_call_threshold, missing_code, missing_pheno, misc_flags, (load_params / LOAD_PARAMS_OXBGEN) & 1, &chrom_info);
       } else {
 	if (load_params & (LOAD_PARAMS_BED | LOAD_PARAMS_BIM)) {
 	  logprint("Error: --bed and --bim cannot be used without --bfile or --fam.\n");
@@ -12460,6 +12472,7 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(update_cm);
   free_cond(update_map);
   free_cond(update_name);
+  free_cond(oxford_pheno_name);
   free_cond(update_ids_fname);
   free_cond(update_parents_fname);
   free_cond(update_sex_fname);
