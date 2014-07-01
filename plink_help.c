@@ -552,8 +552,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    introduced in Weir BS, Cockerham CC (1984) Estimating F-statistics for the\n"
 "    analysis of population structure, given a set of subpopulations defined via\n"
 "    --within.  Raw and weighted global means are also reported.\n"
+"    * It is usually best to perform this calculation on a marker set in\n"
+"      approximate linkage equilibrium.\n"
 "    * If you have only two subpopulations, you can represent them with\n"
-"      case/control status and use the --fst 'case-control' modifier.\n\n"
+"      case/control status and use the 'case-control' modifier.\n\n"
 	       );
     help_print("indep\tindep-pairwise\tindep-pairphase", &help_ctrl, 1,
 "  --indep [window size]<kb> [step size (locus ct)] [VIF threshold]\n"
