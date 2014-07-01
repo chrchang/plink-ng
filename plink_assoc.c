@@ -10890,7 +10890,7 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
   return retval;
 }
 
-int32_t cluster_assoc_init(const char* flag_name, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_male, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uintptr_t** pheno_nm_11_ptr, uintptr_t** pheno_nm_nonmale_11_ptr, uintptr_t** pheno_nm_male_11_ptr, uint32_t** indiv_to_cluster_pheno_ptr, uint32_t** cluster_pheno_gtots_ptr, uint32_t** cur_cluster_pheno_gtots_ptr, uint32_t** cluster_geno_cts_ptr, uintptr_t** loadbuf_raw_ptr, uint32_t* cluster_ct2_ptr, uint32_t* allele_ct_ptr) {
+int32_t cluster_assoc_init(const char* flag_name, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_male, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uintptr_t* cluster_bitfield, uintptr_t** pheno_nm_11_ptr, uintptr_t** pheno_nm_nonmale_11_ptr, uintptr_t** pheno_nm_male_11_ptr, uint32_t** indiv_to_cluster_pheno_ptr, uint32_t** cluster_pheno_gtots_ptr, uint32_t** cur_cluster_pheno_gtots_ptr, uint32_t** cluster_geno_cts_ptr, uintptr_t** loadbuf_raw_ptr, uint32_t* cluster_ct2_ptr, uint32_t* allele_ct_ptr) {
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   uint32_t cluster_ct2 = 0;
   uint32_t allele_ct = 0;
@@ -10986,6 +10986,9 @@ int32_t cluster_assoc_init(const char* flag_name, uintptr_t unfiltered_indiv_ct,
     cluster_pheno_gtots[4 * cluster_ct2 + 2] = case_ct;
     cluster_pheno_gtots[4 * cluster_ct2 + 3] = case_male_ct;
     allele_ct += ctrl_ct + case_ct;
+    if (cluster_bitfield) {
+      SET_BIT(cluster_bitfield, cluster_idx);
+    }
     cluster_ct2++;
   }
   memcpy(pheno_nm_nonmale_11, pheno_nm_11, unfiltered_indiv_ctl2 * sizeof(intptr_t));
@@ -11199,7 +11202,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   // The best data structures for permutation testing are somewhat different
   // from those for the single-pass computation, so we separate the logic.
 
-  retval = cluster_assoc_init("--mh/--bd", unfiltered_indiv_ct, pheno_nm, pheno_c, sex_male, cluster_ct, cluster_map, cluster_starts, &pheno_nm_11, &pheno_nm_nonmale_11, &pheno_nm_male_11, &indiv_to_cluster_pheno, &cluster_pheno_gtots, &cur_cluster_pheno_gtots, &cluster_geno_cts, &loadbuf_raw, &cluster_ct2, &allele_ct);
+  retval = cluster_assoc_init("--mh/--bd", unfiltered_indiv_ct, pheno_nm, pheno_c, sex_male, cluster_ct, cluster_map, cluster_starts, NULL, &pheno_nm_11, &pheno_nm_nonmale_11, &pheno_nm_male_11, &indiv_to_cluster_pheno, &cluster_pheno_gtots, &cur_cluster_pheno_gtots, &cluster_geno_cts, &loadbuf_raw, &cluster_ct2, &allele_ct);
   if (retval) {
     goto cmh_assoc_ret_1;
   }
@@ -11479,31 +11482,36 @@ int32_t cmh2_assoc() {
 }
 
 int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_male, uint32_t hh_exists) {
-  logprint("Error: --homog is currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
-  /*
+  // logprint("Error: --homog is currently under development.\n");
+  // return RET_CALC_NOT_YET_SUPPORTED;
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uintptr_t* indiv_hh_include2 = NULL;
   uintptr_t* indiv_hh_male_include2 = NULL;
   char* writebuf = tbuf;
-  char* wptr_start = NULL;
-  uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  char* chrom_name_ptr = NULL;
+  uintptr_t topsize = 0;
   uint32_t cluster_ct2 = 0;
   uint32_t chrom_fo_idx = 0xffffffffU;
   uint32_t chrom_end = 0;
+  uint32_t chrom_name_len = 0;
   uint32_t pct = 0;
   uint32_t is_haploid = 0;
   uint32_t is_x = 0;
   uint32_t is_y = 0;
   int32_t retval = 0;
+  char chrom_name_buf[3 + MAX_CHROM_TEXTNUM_LEN];
+  uintptr_t* cluster_bitfield;
   uintptr_t* pheno_nm_11;
   uintptr_t* pheno_nm_nonmale_11;
   uintptr_t* pheno_nm_male_11;
   uintptr_t* loadbuf_raw;
-  uintptr_t* ulptr;
-  uintptr_t* ulptr2;
-  char* wptr_start2;
+  double* cluster_tables;
+  double* cluster_chisq;
+  double* cluster_or;
+  double* dptr;
+  char* cluster_ids_collapsed;
+  char* wptr_start;
   char* wptr;
   uint32_t* indiv_to_cluster_pheno;
   uint32_t* cluster_pheno_gtots;
@@ -11513,26 +11521,61 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   uintptr_t marker_uidx;
   uintptr_t marker_idx;
   uintptr_t ulii;
+  double cluster_ct2d;
+  double cluster_ct2m1d;
+  double case_ctd;
+  double ctrl_ctd;
+  double case_a1_ctd;
+  double case_a2_ctd;
+  double ctrl_a1_ctd;
+  double ctrl_a2_ctd;
+  double case_a2_recip;
+  double ctrl_a1_recip;
+  double ln_or;
+  double se_sq_recip;
+  double x_total;
+  double x_assoc1;
+  double x_assoc2;
+  double x_assoc;
+  double dxx;
   uint32_t cluster_idx;
-  uint32_t indiv_uidx_base;
-  uint32_t indiv_uidx;
-  uint32_t cpidx;
   uint32_t loop_end;
-  uint32_t ctrl_ct;
-  uint32_t case_ct;
   uint32_t allele_ct;
-  uint32_t uii;
-  uint32_t ujj;
   ulii = 2 * max_marker_allele_len + MAX_ID_LEN + max_marker_id_len + max_cluster_id_len + 256;
   if (ulii > MAXLINELEN) {
     if (wkspace_alloc_c_checked(&writebuf, ulii)) {
       goto homog_assoc_ret_NOMEM;
     }
   }
+  ulii = ((cluster_ct + (BITCT - 1)) / BITCT);
+  cluster_bitfield = (uintptr_t*)top_alloc(&topsize, ulii * sizeof(intptr_t));
+  fill_ulong_zero(cluster_bitfield, ulii);
+  wkspace_left -= topsize;
   // Factor out common initialization with cmh_assoc().
-  retval = cluster_assoc_init("--homog", unfiltered_indiv_ct, pheno_nm, pheno_c, sex_male, cluster_ct, cluster_map, cluster_starts, &pheno_nm_11, &pheno_nm_nonmale_11, &pheno_nm_male_11, &indiv_to_cluster_pheno, &cluster_pheno_gtots, &cur_cluster_pheno_gtots, &cluster_geno_cts, &loadbuf_raw, &cluster_ct2, &allele_ct);
+  retval = cluster_assoc_init("--homog", unfiltered_indiv_ct, pheno_nm, pheno_c, sex_male, cluster_ct, cluster_map, cluster_starts, cluster_bitfield, &pheno_nm_11, &pheno_nm_nonmale_11, &pheno_nm_male_11, &indiv_to_cluster_pheno, &cluster_pheno_gtots, &cur_cluster_pheno_gtots, &cluster_geno_cts, &loadbuf_raw, &cluster_ct2, &allele_ct);
   if (retval) {
+    wkspace_left += topsize;
     goto homog_assoc_ret_1;
+  }
+  if (cluster_ct == cluster_ct2) {
+    cluster_ids_collapsed = cluster_ids;
+  } else {
+    if (wkspace_alloc_c_checked(&cluster_ids_collapsed, cluster_ct2 * max_cluster_id_len)) {
+      wkspace_left += topsize;
+      goto homog_assoc_ret_NOMEM;
+    }
+    for (ulii = 0, cluster_idx = 0; cluster_idx < cluster_ct2; ulii++, cluster_idx++) {
+      next_set_ul_unsafe_ck(cluster_bitfield, &ulii);
+      memcpy(&(cluster_ids_collapsed[cluster_idx * max_cluster_id_len]), &(cluster_ids[ulii * max_cluster_id_len]), max_cluster_id_len);
+    }
+  }
+  wkspace_left += topsize;
+  cluster_ct2d = (double)((int32_t)cluster_ct2);
+  cluster_ct2m1d = (double)((int32_t)cluster_ct2 - 1);
+  if (wkspace_alloc_d_checked(&cluster_tables, cluster_ct2 * 4 * sizeof(double)) ||
+      wkspace_alloc_d_checked(&cluster_or, cluster_ct2 * sizeof(double)) ||
+      wkspace_alloc_d_checked(&cluster_chisq, cluster_ct2 * sizeof(double))) {
+    goto homog_assoc_ret_NOMEM;
   }
   if (cluster_ct2 > 10) {
     logprint("Warning: --homog statistics can be unreliable with small clusters.\n");
@@ -11542,7 +11585,10 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   if (fopen_checked(&outfile, outname, "w")) {
     goto homog_assoc_ret_OPEN_FAIL;
   }
-  // TEST misaligned for backward compatibility
+  LOGPRINTFWW5("Writing --homog report (%u valid clusters) to %s ... ", cluster_ct2, outname);
+  fputs("0%", stdout);
+  fflush(stdout);
+  // misaligned for backward compatibility
   sprintf(tbuf, " CHR %%%us   A1   A2      F_A      F_U      N_A      N_U     TEST      CHISQ   DF          P         OR\n", plink_maxsnp);
   fprintf(outfile, tbuf, "SNP");
   if (alloc_raw_haploid_filters(unfiltered_indiv_ct, hh_exists, 1, pheno_nm, sex_male, &indiv_hh_include2, &indiv_hh_male_include2)) {
@@ -11553,17 +11599,123 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   }
   loop_end = marker_ct / 100;
   for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-    if (is_set(marker_exclude, marker_uidx)) {
-      marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-      if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
-	goto homog_assoc_ret_READ_FAIL;
+    if (cluster_assoc_load_one(bedfile, bed_offset, marker_exclude, unfiltered_indiv_ct, indiv_hh_include2, indiv_hh_male_include2, loadbuf_raw, pheno_nm_11, pheno_nm_nonmale_11, pheno_nm_male_11, chrom_info_ptr, hh_exists, chrom_name_buf, cluster_ct2, indiv_to_cluster_pheno, cluster_pheno_gtots, cur_cluster_pheno_gtots, cluster_geno_cts, &marker_uidx, &chrom_end, &chrom_fo_idx, &is_haploid, &is_x, &is_y, &chrom_name_ptr, &chrom_name_len)) {
+      goto homog_assoc_ret_READ_FAIL;
+    }
+    dptr = cluster_tables;
+    x_total = 0.0;
+    x_assoc1 = 0.0;
+    x_assoc2 = 0.0;
+    for (cluster_idx = 0, uiptr = cluster_geno_cts; cluster_idx < cluster_ct2; cluster_idx++, uiptr = &(uiptr[4])) {
+      ctrl_ctd = (double)((int32_t)(1 + cur_cluster_pheno_gtots[cluster_idx * 2] - uiptr[1]));
+      case_ctd = (double)((int32_t)(1 + cur_cluster_pheno_gtots[cluster_idx * 2 + 1] - uiptr[3]));
+      ctrl_a1_ctd = (double)((int32_t)uiptr[0]) + 0.5;
+      ctrl_a2_ctd = ctrl_ctd - ctrl_a1_ctd;
+      case_a1_ctd = (double)((int32_t)uiptr[2]) + 0.5;
+      case_a2_ctd = case_ctd - case_a1_ctd;
+      *dptr++ = case_a1_ctd;
+      *dptr++ = case_a2_ctd;
+      *dptr++ = ctrl_a1_ctd;
+      *dptr++ = ctrl_a2_ctd;
+      case_a2_recip = 1.0 / case_a2_ctd;
+      ctrl_a1_recip = 1.0 / ctrl_a1_ctd;
+      dxx = case_a1_ctd * ctrl_a2_ctd * case_a2_recip * ctrl_a1_recip;
+      cluster_or[cluster_idx] = dxx;
+      ln_or = log(dxx);
+      se_sq_recip = 1.0 / ((1.0 / case_a1_ctd) + (1.0 / ctrl_a2_ctd) + case_a2_recip + ctrl_a1_recip);
+      x_assoc2 += se_sq_recip;
+      dxx = ln_or * se_sq_recip;
+      x_assoc1 += dxx;
+      dxx *= ln_or;
+      cluster_chisq[cluster_idx] = dxx;
+      x_total += dxx;
+    }
+    x_assoc = x_assoc1 * x_assoc1 / x_assoc2;
+    wptr_start = memcpyax(writebuf, chrom_name_ptr, chrom_name_len, ' ');
+    wptr_start = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr_start);
+    *wptr_start++ = ' ';
+    wptr_start = fw_strcpy(4, marker_allele_ptrs[marker_uidx * 2], wptr_start);
+    *wptr_start++ = ' ';
+    wptr_start = fw_strcpy(4, marker_allele_ptrs[marker_uidx * 2 + 1], wptr_start);
+    *wptr_start++ = ' ';
+    wptr_start = memcpya(wptr_start, "      NA       NA       NA       NA ", 36);
+    wptr = memcpya(wptr_start, " TOTAL ", 7);
+    wptr = double_g_writewx4x(wptr, x_total, 10, ' ');
+    wptr = uint32_writew4x(wptr, cluster_ct2, ' ');
+    wptr = double_g_writewx4x(wptr, chiprob_p(x_total, cluster_ct2d), 10, ' ');
+    wptr = memcpya(wptr, "        NA\n", 11);
+    if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
+      goto homog_assoc_ret_WRITE_FAIL;
+    }
+    wptr = memcpya(wptr_start, " ASSOC ", 7);
+    wptr = double_g_writewx4(wptr, x_assoc, 10);
+    wptr = memcpya(wptr, "    1 ", 6);
+    wptr = double_g_writewx4x(wptr, chiprob_p(x_assoc, 1), 10, ' ');
+    wptr = memcpya(wptr, "        NA\n", 11);
+    if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
+      goto homog_assoc_ret_WRITE_FAIL;
+    }
+    dxx = x_total - x_assoc;
+    wptr = memcpya(wptr_start, " HOMOG ", 7);
+    wptr = double_g_writewx4x(wptr, dxx, 10, ' ');
+    wptr = uint32_writew4x(wptr, cluster_ct2 - 1, ' ');
+    wptr = double_g_writewx4x(wptr, chiprob_p(dxx, cluster_ct2m1d), 10, ' ');
+    wptr = memcpya(wptr, "        NA\n", 11);
+    if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
+      goto homog_assoc_ret_WRITE_FAIL;
+    }
+    wptr_start = &(wptr_start[-36]);
+    for (cluster_idx = 0, dptr = cluster_tables; cluster_idx < cluster_ct2; cluster_idx++, dptr = &(dptr[4])) {
+      case_ctd = dptr[0] + dptr[1];
+      ctrl_ctd = dptr[2] + dptr[3];
+      if ((case_ctd < 1.5) || (ctrl_ctd < 1.5)) {
+	wptr = memcpya(wptr_start, "      NA       NA ", 18);
+	wptr = double_g_writewx4x(wptr, case_ctd - 1, 8, ' ');
+	wptr = double_g_writewx4x(wptr, ctrl_ctd - 1, 8, ' ');
+	wptr = fw_strcpy(6, &(cluster_ids_collapsed[cluster_idx * max_cluster_id_len]), wptr);
+        wptr = memcpya(wptr, "         NA   NA         NA         NA\n", 39);
+      } else {
+        wptr = double_g_writewx4x(wptr_start, dptr[0] / case_ctd, 8, ' ');
+        wptr = double_g_writewx4x(wptr, dptr[2] / ctrl_ctd, 8, ' ');
+	wptr = double_g_writewx4x(wptr, case_ctd - 1, 8, ' ');
+	wptr = double_g_writewx4x(wptr, ctrl_ctd - 1, 8, ' ');
+	wptr = fw_strcpy(6, &(cluster_ids_collapsed[cluster_idx * max_cluster_id_len]), wptr);
+	*wptr++ = ' ';
+	dxx = cluster_chisq[cluster_idx];
+        wptr = double_g_writewx4(wptr, dxx, 10);
+        wptr = memcpya(wptr, "    1 ", 6);
+	wptr = double_g_writewx4x(wptr, chiprob_p(dxx, 1), 10, ' ');
+	dxx = cluster_or[cluster_idx];
+        if (realnum(dxx)) {
+          wptr = double_g_writewx4x(wptr, dxx, 10, '\n');
+	} else {
+	  wptr = memcpya(wptr, "        NA\n", 11);
+	}
+	if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
+	  goto homog_assoc_ret_WRITE_FAIL;
+	}
       }
-      ;;;
+    }
+    if (marker_idx >= loop_end) {
+      if (marker_idx < marker_ct) {
+	if (pct >= 10) {
+	  putchar('\b');
+	}
+        pct = (marker_idx * 100LLU) / marker_ct;
+        printf("\b\b%u%%", pct);
+        fflush(stdout);
+        loop_end = (((uint64_t)pct + 1LLU) * marker_ct) / 100;
+      }
     }
   }
   if (fclose_null(&outfile)) {
     goto homog_assoc_ret_WRITE_FAIL;
   }
+  if (pct >= 10) {
+    putchar('\b');
+  }
+  fputs("\b\b", stdout);
+  logprint("done.\n");
   while (0) {
   homog_assoc_ret_NOMEM:
     retval = RET_NOMEM;
@@ -11577,13 +11729,9 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   homog_assoc_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
-  homog_assoc_ret_INVALID_CMDLINE:
-    retval = RET_INVALID_CMDLINE;
-    break;
   }
  homog_assoc_ret_1:
   wkspace_reset(wkspace_mark);
   fclose_cond(outfile);
   return retval;
-  */
 }

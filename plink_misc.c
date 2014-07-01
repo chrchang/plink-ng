@@ -3381,7 +3381,13 @@ int32_t fst_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
   }
   fputs("\b\b", stdout);
   logprint("done.\n");
-  LOGPRINTF("Mean Fst estimate: %g\n", sum3 / ((double)((intptr_t)(marker_ct - skipped_marker_ct))));
+  marker_ct -= skipped_marker_ct;
+  if (skipped_marker_ct) {
+    LOGPRINTF("%" PRIuPTR " marker%s (%u excluded).\n", marker_ct, (marker_ct == 1)? " with a valid Fst estimate" : "s with valid Fst estimates", skipped_marker_ct);
+  } else {
+    LOGPRINTF("%" PRIuPTR " marker%s.\n", marker_ct, (marker_ct == 1)? " with a valid Fst estimate" : "s with valid Fst estimates");
+  }
+  LOGPRINTF("Mean Fst estimate: %g\n", sum3 / ((double)((intptr_t)marker_ct)));
   LOGPRINTF("Weighted Fst estimate: %g\n", sum1 / sum2);
 
   while (0) {
