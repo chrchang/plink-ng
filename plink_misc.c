@@ -3136,9 +3136,271 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
   return retval;
 }
 
-int32_t fst_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* pheno_c, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts) {
-  logprint("Error: --fst is currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
+int32_t fst_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts) {
+  // Math based on VCFtools variant_file::output_weir_and_cockerham_fst();
+  // frequency counting logic similar to cmh_assoc().
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* outfile = NULL;
+  char* wptr_start = NULL;
+  uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + BITCT - 1) / BITCT;
+  double sum1 = 0.0;
+  double sum2 = 0.0;
+  double sum3 = 0.0;
+  uint32_t chrom_fo_idx = 0xffffffffU;
+  uint32_t chrom_end = 0;
+  uint32_t chrom_idx = 0;
+  uint32_t skipped_marker_ct = 0;
+  uint32_t pct = 0;
+  int32_t mt_code = chrom_info_ptr->mt_code;
+  int32_t retval = 0;
+  uintptr_t* loadbuf;
+  uintptr_t* cluster_mask;
+  uintptr_t* ulptr;
+  uintptr_t* ulptr2;
+  char* wptr;
+  uint32_t* indiv_to_cluster;
+  uint32_t* cluster_sizes;
+  uint32_t* cluster_geno_cts;
+  uint32_t* uiptr;
+  uint32_t* uiptr2;
+  uintptr_t marker_uidx;
+  uintptr_t marker_idx;
+  uintptr_t cur_word;
+  double cluster_ctd;
+  double cluster_ct_recip;
+  double cluster_ctm1_recip;
+  double one_minus_cluster_ct_recip;
+  double n_sum;
+  double n_sum_recip;
+  double n_ssq;
+  double nbar;
+  double nbar_recip;
+  double pbar_a1;
+  double hbar_a1;
+  double ssqr_a1;
+  double nc;
+  double a_a1;
+  double b_a1;
+  double c_a1;
+  double dxx;
+  double dyy;
+  uint32_t indiv_uidx_base;
+  uint32_t indiv_uidx;
+  uint32_t indiv_idx;
+  uint32_t cur_indiv_ct;
+  uint32_t seek_flag;
+  uint32_t cluster_idx;
+  uint32_t loop_end;
+  uint32_t uii;
+  uint32_t ujj;
+  marker_ct -= count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
+  if (!marker_ct) {
+    logprint("Error: No autosomal diploid variants for --fst.\n");
+    goto fst_report_ret_INVALID_CMDLINE;
+  }
+  if (pheno_c) {
+    cluster_ct = 2;
+  }
+  if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&cluster_mask, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ui_checked(&indiv_to_cluster, unfiltered_indiv_ct * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&cluster_sizes, cluster_ct * sizeof(int32_t))) {
+    goto fst_report_ret_NOMEM;
+  }
+  fill_ulong_zero(cluster_mask, unfiltered_indiv_ctl2 * sizeof(intptr_t));
+  if (pheno_c) {
+    cur_indiv_ct = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
+    uii = popcount_longs(pheno_c, unfiltered_indiv_ctl);
+    if ((!uii) || (cur_indiv_ct == uii)) {
+      logprint("Error: --fst case-control requires at least one case and one control.\n");
+      goto fst_report_ret_INVALID_CMDLINE;
+    }
+    cluster_sizes[0] = cur_indiv_ct - uii;
+    cluster_sizes[1] = uii;
+    for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < cur_indiv_ct; indiv_uidx++, indiv_idx++) {
+      next_set_unsafe_ck(pheno_nm, &indiv_uidx);
+      cluster_mask[indiv_uidx / BITCT2] |= (3 * ONELU) << (2 * (indiv_uidx % BITCT2));
+      indiv_to_cluster[indiv_uidx] = is_set(pheno_c, indiv_uidx);
+    }
+  } else {
+    uii = 0; // cluster index after excluding empty ones
+    uiptr = cluster_map;
+    for (cluster_idx = 0; cluster_idx < cluster_ct; cluster_idx++) {
+      ujj = 0;
+      uiptr2 = &(cluster_map[cluster_starts[cluster_idx + 1]]);
+      for (; uiptr < uiptr2; uiptr++) {
+        indiv_uidx = *uiptr;
+	if (!is_set(indiv_exclude, indiv_uidx)) {
+	  cluster_mask[indiv_uidx / BITCT2] |= (3 * ONELU) << (2 * (indiv_uidx % BITCT2));
+          indiv_to_cluster[indiv_uidx] = uii;
+          ujj++;
+	}
+      }
+      if (ujj) {
+	cluster_sizes[uii++] = ujj;
+      }
+    }
+    cluster_ct = uii;
+    if (cluster_ct < 2) {
+      logprint("Error: --fst requires at least two nonempty clusters.\n");
+      goto fst_report_ret_INVALID_CMDLINE;
+    }
+    wkspace_shrink_top(cluster_sizes, cluster_ct * sizeof(int32_t));
+  }
+  cluster_ctd = (double)((int32_t)cluster_ct);
+  cluster_ct_recip = 1.0 / cluster_ctd;
+  cluster_ctm1_recip = 1.0 / (cluster_ctd - 1.0);
+  one_minus_cluster_ct_recip = 1.0 - cluster_ct_recip;
+  if (wkspace_alloc_ui_checked(&cluster_geno_cts, cluster_ct * 3 * sizeof(int32_t))) {
+    goto fst_report_ret_NOMEM;
+  }
+  memcpy(outname_end, ".fst", 5);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto fst_report_ret_OPEN_FAIL;
+  }
+  if (fputs_checked("CHR\tSNP\tPOS\tNMISS\tFST\n", outfile)) {
+    goto fst_report_ret_WRITE_FAIL;
+  }
+  LOGPRINTFWW5("Writing --fst report (%" PRIuPTR " populations) to %s ... ", cluster_ct, outname);
+  fputs("0%", stdout);
+  fflush(stdout);
+  seek_flag = 1;
+  loop_end = marker_ct / 100;
+  for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+    if (IS_SET(marker_exclude, marker_uidx)) {
+      marker_uidx = next_set_ul_unsafe(marker_exclude, marker_uidx);
+      seek_flag = 1;
+    }
+    if (marker_uidx >= chrom_end) {
+      while (1) {
+	do {
+          chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1U];
+	} while (marker_uidx >= chrom_end);
+        chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+        if ((!IS_SET(chrom_info_ptr->haploid_mask, chrom_idx)) && (chrom_idx != (uint32_t)mt_code)) {
+	  break;
+	}
+	seek_flag = 1;
+	marker_uidx = next_unset_unsafe(marker_exclude, chrom_end);
+      }
+      wptr_start = chrom_name_write(tbuf, chrom_info_ptr, chrom_idx);
+      *wptr_start++ = '\t';
+    }
+    if (seek_flag) {
+      if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+        goto fst_report_ret_READ_FAIL;
+      }
+      seek_flag = 0;
+    }
+    if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+      goto fst_report_ret_READ_FAIL;
+    }
+    fill_uint_zero(cluster_geno_cts, cluster_ct * 3);
+    ulptr = loadbuf;
+    ulptr2 = cluster_mask;
+    for (indiv_uidx_base = 0; indiv_uidx_base < unfiltered_indiv_ct; indiv_uidx_base += BITCT2) {
+      cur_word = (~(*ulptr++)) & (*ulptr2++);
+      while (cur_word) {
+        uii = CTZLU(cur_word) & (BITCT - 2);
+        ujj = (cur_word >> uii) & 3;
+        indiv_uidx = indiv_uidx_base + (uii / 2);
+        cluster_idx = indiv_to_cluster[indiv_uidx];
+        cluster_geno_cts[cluster_idx * 3 + ujj - 1] += 1;
+        cur_word &= ~((3 * ONELU) << uii);
+      }
+    }
+    cur_indiv_ct = 0;
+    n_ssq = 0.0;
+    pbar_a1 = 0.0;
+    hbar_a1 = 0.0;
+    for (cluster_idx = 0, uiptr = cluster_geno_cts; cluster_idx < cluster_ct; cluster_idx++, uiptr = &(uiptr[3])) {
+      uii = cluster_sizes[cluster_idx] - uiptr[1];
+      cur_indiv_ct += uii;
+      dxx = (double)((int32_t)uii);
+      n_ssq += dxx * dxx;
+      pbar_a1 += (double)(uiptr[0] + 2 * uiptr[2]);
+      hbar_a1 += uiptr[0];
+    }
+    n_sum = (double)((int32_t)cur_indiv_ct);
+    n_sum_recip = 1.0 / n_sum;
+    nbar = n_sum * cluster_ct_recip;
+    nbar_recip = n_sum_recip * cluster_ctd;
+    // no need to iterate over alleles when there are only two of them, but
+    // that changes when we add support for the general case in the future
+    pbar_a1 *= 0.5 * n_sum_recip;
+    hbar_a1 *= n_sum_recip;
+    ssqr_a1 = 0.0;
+    for (cluster_idx = 0, uiptr = cluster_geno_cts; cluster_idx < cluster_ct; cluster_idx++, uiptr = &(uiptr[3])) {
+      dxx = (double)((int32_t)(cluster_sizes[cluster_idx] - uiptr[1]));
+      uii = uiptr[0] + 2 * uiptr[2]; // A1 obs ct
+      dyy = ((double)uii) / (2 * dxx) - pbar_a1;
+      ssqr_a1 += dxx * dyy * dyy;
+    }
+    ssqr_a1 *= nbar_recip * cluster_ctm1_recip;
+    nc = (n_sum - n_ssq * n_sum_recip) * cluster_ctm1_recip;
+    dxx = pbar_a1 * (1.0 - pbar_a1) - ssqr_a1 * one_minus_cluster_ct_recip;
+    dyy = 1.0 / (nbar - 1.0);
+    a_a1 = (ssqr_a1 - (dxx - hbar_a1 * 0.25) * dyy) * nbar / nc;
+    b_a1 = (dxx - hbar_a1 * (2.0 * nbar - 1.0) * nbar_recip * 0.25) * nbar * dyy;
+    c_a1 = hbar_a1 * 0.5;
+    dxx = a_a1 + b_a1 + c_a1;
+    dyy = a_a1 / dxx; // fst estimate
+    if (dyy != dyy) {
+      skipped_marker_ct++;
+    } else {
+      sum1 += a_a1;
+      sum2 += dxx;
+      sum3 += dyy;
+    }
+    wptr = strcpyax(wptr_start, &(marker_ids[marker_uidx * max_marker_id_len]), '\t');
+    wptr = uint32_writex(wptr, marker_pos[marker_uidx], '\t');
+    wptr = uint32_writex(wptr, cur_indiv_ct, '\t');
+    wptr = double_g_writex(wptr, dyy, '\n');
+    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+      goto fst_report_ret_WRITE_FAIL;
+    }
+    if (marker_idx >= loop_end) {
+      if (marker_idx < marker_ct) {
+	if (pct >= 10) {
+	  putchar('\b');
+	}
+        pct = (marker_idx * 100LLU) / marker_ct;
+        printf("\b\b%u%%", pct);
+        fflush(stdout);
+        loop_end = (((uint64_t)pct + 1LLU) * marker_ct) / 100;
+      }
+    }
+  }
+  if (pct >= 10) {
+    putchar('\b');
+  }
+  fputs("\b\b", stdout);
+  logprint("done.\n");
+  LOGPRINTF("Mean Fst estimate: %g\n", sum3 / ((double)((intptr_t)(marker_ct - skipped_marker_ct))));
+  LOGPRINTF("Weighted Fst estimate: %g\n", sum1 / sum2);
+
+  while (0) {
+  fst_report_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  fst_report_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  fst_report_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  fst_report_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  fst_report_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+  }
+  wkspace_reset(wkspace_mark);
+  fclose_cond(outfile);
+  return retval;
 }
 
 int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, double* set_allele_freqs, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t hh_exists, Chrom_info* chrom_info_ptr, char* outname, char* outname_end) {

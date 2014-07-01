@@ -549,7 +549,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("fst\tFst", &help_ctrl, 1,
 "  --fst <case-control>\n"
 "    (alias: --Fst)\n"
-"    Estimate Wright's Fst for each autosomal diploid variant using the method\n"
+"    Estimate Wright's Fst for each autosomal diploid locus using the method\n"
 "    introduced in Weir BS, Cockerham CC (1984) Estimating F-statistics for the\n"
 "    analysis of population structure, given a set of subpopulations defined via\n"
 "    --within.  Raw and weighted global means are also reported.\n"

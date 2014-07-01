@@ -1776,7 +1776,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_FST) {
-    retval = fst_report(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, chrom_info_ptr, unfiltered_indiv_ct, indiv_exclude, (misc_flags & MISC_FST_CC)? pheno_c : NULL, cluster_ct, cluster_map, cluster_starts);
+    retval = fst_report(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_pos, chrom_info_ptr, unfiltered_indiv_ct, indiv_exclude, pheno_nm, (misc_flags & MISC_FST_CC)? pheno_c : NULL, cluster_ct, cluster_map, cluster_starts);
     if (retval) {
       goto plink_ret_1;
     }
@@ -6434,7 +6434,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	misc_flags |= MISC_FILL_MISSING_A2;
 	goto main_param_zero;
-      } else if (!memcmp(argptr2, "st", 8)) {
+      } else if (!memcmp(argptr2, "st", 3)) {
 	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
