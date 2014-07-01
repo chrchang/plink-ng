@@ -1283,9 +1283,11 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   ld_prune_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
+#ifdef __LP64__
   ld_prune_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
+#endif
   }
  ld_prune_ret_1:
   wkspace_reset(wkspace_mark);
