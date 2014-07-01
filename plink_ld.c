@@ -806,6 +806,9 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   __CLPK_integer window_rem_li;
   uint32_t old_window_rem;
   uint32_t window_rem;
+  uint32_t bsearch_min;
+  uint32_t bsearch_max;
+  uint32_t bsearch_cur;
   double prune_ld_thresh;
   if (founder_ct < 2) {
     LOGPRINTF("Warning: Skipping --indep%s since there are less than two founders.\n(--make-founders may come in handy here.)\n", pairwise? "-pairwise" : "");
@@ -852,6 +855,14 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   if (pairwise) {
     prune_ld_thresh = ld_last_param * (1 + SMALL_EPSILON);
   } else {
+#ifdef __LP64__
+    if (window_max > 46340) {
+      // todo: check what LAPACK's matrix inversion limit actually is.  Guess
+      // sqrt(2^31 - 1) for now.
+      logprint("Error: --indep does not currently support window sizes > 46340.\n");
+      goto ld_prune_ret_INVALID_CMDLINE;
+    }
+#endif
     // r, not r2, in this case
     prune_ld_thresh = 0.999999;
   }
@@ -999,6 +1010,10 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	      }
 	      if (!pairwise) {
 		dxx = cov12 * sqrt(dxx);
+		if (dxx != dxx) {
+		  // force prune if 0/0 for now
+		  dxx = 1.0;
+		}
 		cov_matrix[uii * window_max + ujj] = dxx;
 	      } else {
 		dxx = cov12 * cov12 * dxx;
@@ -1066,12 +1081,44 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 #endif
 	      // 1. binary search for minimum number of bottom right rows/
 	      //    columns that must be trimmed to get a nonsingular matrix
-
-
+	      bsearch_max = window_rem - 1;
+	      if (old_window_rem > bsearch_max) {
+		// Normally we can assume that only loci not in the previous
+		// window need to be considered here.  But, thanks to numeric
+		// instability, we might still need to properly handle an
+		// apparently-singular old submatrix?
+		old_window_size = 0;
+		old_window_rem = 0;
+	      }
+	      bsearch_min = old_window_rem;
+	      while (bsearch_min < bsearch_max) {
+	        bsearch_cur = (bsearch_min + bsearch_max) / 2;
+                new_cov_matrix[0] = 1.0;
+		for (uii = 1; uii < bsearch_cur; uii++) {
+		  ukk = idx_remap[uii];
+		  for (ujj = 0; ujj < uii; ujj++) {
+		    dxx = cov_matrix[idx_remap[ujj] * window_max + ukk];
+		    new_cov_matrix[ujj * bsearch_cur + uii] = dxx;
+		    new_cov_matrix[uii * bsearch_cur + ujj] = dxx;
+		  }
+		  new_cov_matrix[uii * (bsearch_cur + 1)] = 1.0;
+		}
+		if (bsearch_cur) {
+		  window_rem_li = bsearch_cur;
+		  ii = invert_matrix_checked(window_rem_li, new_cov_matrix, irow, work);
+		  if (!ii) {
+		    bsearch_min = bsearch_cur + 1;
+		  } else {
+		    bsearch_max = bsearch_cur;
+		  }
+		} else {
+		  bsearch_min = 1;
+		}
+	      }
 
 	      // 2. the last trimmed row/column must be part of some linear
 	      //    combination.  prune *just* that, and retry.
-	      ujj = ii;
+	      ujj = bsearch_min;
 	      // bug reported by Kaustubh was a violation of this:
 	      // assert(!IS_SET(pruned_arr, live_indices[idx_remap[ujj]]));
               SET_BIT(pruned_arr, live_indices[idx_remap[ujj]]);
@@ -1235,6 +1282,9 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
     break;
   ld_prune_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
+    break;
+  ld_prune_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
     break;
   }
  ld_prune_ret_1:
