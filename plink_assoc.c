@@ -10895,9 +10895,9 @@ int32_t cluster_assoc_init(const char* flag_name, uintptr_t unfiltered_indiv_ct,
   uint32_t cluster_ct2 = 0;
   uint32_t allele_ct = 0;
   uint32_t cluster_end = 0;
+  uintptr_t* pheno_nm_nonmale_11 = NULL;
+  uintptr_t* pheno_nm_male_11 = NULL;
   uintptr_t* pheno_nm_11;
-  uintptr_t* pheno_nm_nonmale_11;
-  uintptr_t* pheno_nm_male_11;
   uint32_t* indiv_to_cluster_pheno;
   uint32_t* cluster_pheno_gtots;
   uint32_t cluster_idx;
@@ -11476,9 +11476,62 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   return retval;
 }
 
-int32_t cmh2_assoc() {
+int32_t cmh2_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
   logprint("Error: --mh2 is currently under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
+  /*
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* outfile = NULL;
+  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  int32_t retval = 0;
+  uint32_t uii;
+  if (is_set(chrom_info_ptr->haploid_mask, 0)) {
+    logprint("Error: --mh2 cannot be used on haploid genomes.\n");
+    goto cmh2_assoc_ret_INVALID_CMDLINE;
+  }
+  uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
+  if (uii) {
+    LOGPRINTF("Excluding %u X/MT/haploid variant%s from --mh2 analysis.\n", uii, (uii == 1)? "" : "s");
+    // might want this to be a plink_common function
+    if (wkspace_alloc_ul_checked(&marker_exclude_no_haps, unfiltered_marker_ctl * sizeof(intptr_t))) {
+      goto cmh2_assoc_ret_INVALID_CMDLINE;
+    }
+  }
+  marker_ct -= uii;
+  if (!marker_ct) {
+    logprint("Error: No variants remaining for --mh2 analysis.\n");
+    goto cmh2_assoc_ret_INVALID_CMDLINE;
+  }
+  ;;;
+  memcpy(outname_end, ".mh2", 5);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto cmh2_assoc_ret_OPEN_FAIL;
+  }
+  LOGPRINTFWW5("Writing --mh2 report (%u valid clusters) to %s ... ", cluster_ct, outname);
+  fputs("0%", stdout);
+  fflush(stdout);
+  while (0) {
+  cmh2_assoc_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  cmh2_assoc_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  cmh2_assoc_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  cmh2_assoc_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  cmh2_assoc_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+  }
+ cmh2_assoc_ret_1:
+  wkspace_reset(wkspace_mark);
+  fclose_cond(outfile);
+  return retval;
+  */
 }
 
 int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_male, uint32_t hh_exists) {
