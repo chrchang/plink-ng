@@ -5125,6 +5125,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
   uint32_t last_pass = 0;
   int64_t* line_starts = NULL;
   char* missing_geno_ptr = (char*)g_missing_geno_ptr;
+  char missing_geno = *missing_geno_ptr;
   // do NOT convert missing -> output_missing when autoconverting, since the
   // .bim/.fam files are usually read right back in.
   char** marker_allele_ptrs = NULL;
@@ -5265,13 +5266,13 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
       if (IS_SET(marker_exclude, marker_uidx)) {
 	continue;
       }
-      if ((*aptr1 == '0') && (alen1 == 1)) {
-	if ((alen2 != 1) || (*aptr2 != '0')) {
+      if ((*aptr1 == missing_geno) && (alen1 == 1)) {
+	if ((alen2 != 1) || (*aptr2 != missing_geno)) {
           goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_4;
 	}
 	marker_idx++;
 	continue;
-      } else if ((*aptr2 == '0') && (alen2 == 1)) {
+      } else if ((*aptr2 == missing_geno) && (alen2 == 1)) {
 	goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_4;
       }
       uii = map_is_unsorted? map_reverse[marker_idx] : marker_idx;
@@ -5654,8 +5655,8 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   uint32_t last_pass = 0;
   int64_t* line_starts = NULL;
 
-  // actually a single-char vs. multichar flag.  should rename this...
-  uintptr_t max_marker_allele_len = 1;
+  uint32_t is_single_char_alleles = 1;
+  char missing_geno = *g_missing_geno_ptr;
   char missing_pheno_str[12];
 
   uint32_t pass_ct;
@@ -5909,31 +5910,31 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       if (IS_SET(marker_exclude, marker_uidx)) {
 	continue;
       }
-      if (cc == '0') {
-	if (cc2 != '0') {
-	  max_marker_allele_len = 2;
+      if (cc == missing_geno) {
+	if (cc2 != missing_geno) {
+	  is_single_char_alleles = 0;
 	  break;
 	}
 	marker_idx++;
 	continue;
-      } else if (cc2 == '0') {
-	max_marker_allele_len = 2;
+      } else if (cc2 == missing_geno) {
+	is_single_char_alleles = 0;
 	break;
       }
       uii = 4 * (map_is_unsorted? map_reverse[marker_idx] : marker_idx);
       if (incr_text_allele0(cc, &(marker_alleles[uii]), &(marker_allele_cts[uii])) ||
 	  incr_text_allele0(cc2, &(marker_alleles[uii]), &(marker_allele_cts[uii]))) {
-	max_marker_allele_len = 2;
+	is_single_char_alleles = 0;
 	break;
       }
       marker_idx++;
     }
-    if ((max_marker_allele_len == 2) || (!is_eoln_kns(*bufptr))) {
+    if ((!is_single_char_alleles) || (!is_eoln_kns(*bufptr))) {
       // either multi-character alleles, or invalid format.  Restart scan.
       putchar('\r');
       logstr("\n");
       logprint("Possibly irregular .ped line.  Restarting scan, assuming multichar alleles.\n");
-      max_marker_allele_len = 2;
+      is_single_char_alleles = 0;
       break;
     }
     ulii = strlen(bufptr) + (uintptr_t)(bufptr - loadbuf) + 1;
@@ -5951,7 +5952,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       pct = uii;
     }
   }
-  if (max_marker_allele_len == 1) {
+  if (is_single_char_alleles) {
     if (!feof(pedfile)) {
       goto ped_to_bed_ret_READ_FAIL;
     }

@@ -13,6 +13,7 @@ ifeq ($(UNAME), Darwin)
   ifeq "$(GCC_GTEQ_43)" "1"
     CFLAGS=-Wall -O2 -flax-vector-conversions
   endif
+  BLASFLAGS=-framework Accelerate
   BLASFLAGS64=-framework Accelerate
   LINKFLAGS=
   ZLIB=zlib-1.2.8/libz.a
