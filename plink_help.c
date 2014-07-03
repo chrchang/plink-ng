@@ -604,6 +604,17 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    maximum likelihood solution identified by --r/--r2), along with HWE exact\n"
 "    test statistics.\n\n"
 	       );
+#ifndef STABLE_BUILD
+    help_print("show-tags", &help_ctrl, 1,
+"  --show-tags [filename]\n"
+"  --show-tags all\n"
+"    * If a file is specified, list all variants which tag at least one variant\n"
+"      named in the file.  (This will normally be a superset of the original\n"
+"      list, since a variant is considered to tag itself here.)\n"
+"    * If 'all' mode is specified, for each variant, each *other* variant which\n"
+"      tags it is reported.\n\n"
+	       );
+#endif
     help_print("blocks\thap\thap-all\thap-assoc\thap-freq\thap-impute\thap-impute-verbose\thap-linear\thap-logistic\thap-max-phase\thap-min-phase-prob\thap-miss\thap-omnibus\thap-only\thap-phase\thap-phase-wide\thap-pp\thap-snps\thap-tdt\thap-window\tchap\twhap", &help_ctrl, 1,
 "  --blocks <no-pheno-req> <no-small-max-span>\n"
 "    Estimate haplotype blocks, via Haploview's interpretation of the block\n"
@@ -863,7 +874,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      of frequencies.\n"
 "    * 'counts' causes --assoc to report allele counts instead of frequencies.\n"
 	       /*
-"    * 'p2' changes the --assoc permutation test used (see PLINK documentation).\n"
+"    * 'p2' changes the --assoc permutation test used (see PLINK 1.07\n"
+"      documentation).\n"
 	       */
 "    * 'set-test' tests the significance of variant sets.  Requires permutation;\n"
 "      can be customized with --set-p/--set-r2/--set-max.\n"
@@ -880,29 +892,20 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    permutation test.\n\n"
 	       );
     help_print("mh\tbd\tmh2\thomog\tcmh", &help_ctrl, 1,
-"  --mh <perm | mperm=[value]> <perm-count>\n"
-"    (alias: --cmh)\n"
-"  --bd <perm | perm-bd | mperm=[value]> <perm-count>\n"
-	       /*
 "  --mh <perm | mperm=[value]> <perm-count> <set-test>\n"
 "    (alias: --cmh)\n"
 "  --bd <perm | perm-bd | mperm=[value]> <perm-count> <set-test>\n"
-	       */
-#ifndef STABLE_BUILD
 "  --mh2\n"
-#endif
 "  --homog\n"
 "    Given a case/control phenotype and a set of clusters, --mh computes 2x2xK\n"
 "    Cochran-Mantel-Haenszel statistics for each variant, while --bd also\n"
 "    performs the Breslow-Day test for odds ratio homogeneity.  Permutation and\n"
 "    variant set testing based on the CMH (default) or Breslow-Day (when\n"
 "    'perm-bd' is present) statistic are supported.\n"
-#ifndef STABLE_BUILD
 "    The following similar analyses are also available:\n"
 "    * --mh2 swaps the roles of case/control status and cluster membership,\n"
 "      performing a phenotype-stratified IxJxK Cochran-Mantel-Haenszel test on\n"
 "      association between cluster assignments and genotypes.\n"
-#endif
 "    * --homog executes an alternative to the Breslow-Day test, based on\n"
 "      partitioning of the chi-square statistic.\n\n"
 	       );
@@ -1704,9 +1707,18 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --ld-snps [vID...] : Restrict first --r/--r2 variant to the given ranges.\n"
 "  --ld-snp-list [f]  : Restrict first --r/--r2 var. to those named in the file.\n"
 	       );
-    help_print("indep\tindep-pairwise\tr\tr2\tflip-scan\tflipscan\tld-xchr", &help_ctrl, 0,
-"  --ld-xchr [code]   : Set Xchr model for --indep{-pairwise}, --r/--r2, and\n"
-"                       --flip-scan.\n"
+#ifndef STABLE_BUILD
+    help_print("list-all\ttag-kb\ttag-r2\ttag-mode2\tshow-tags", &help_ctrl, 0,
+"  --list-all         : Generate the 'all' mode report when using --show-tags in\n"
+"                       file mode.\n"
+"  --tag-kb [kbs]     : Set --show-tags max tag kb distance (default 250).\n"
+"  --tag-r2 [val]     : Set --show-tags min tag r-squared (default 0.8)\n"
+"  --tag-mode2        : Use two-column --show-tags (file mode) I/O format.\n"
+	       );
+#endif
+    help_print("indep\tindep-pairwise\tr\tr2\tflip-scan\tflipscan\tshow-tags\tld-xchr", &help_ctrl, 0,
+"  --ld-xchr [code]   : Set Xchr model for --indep{-pairwise}, --r/--r2,\n"
+"                       --flip-scan, and --show-tags.\n"
 "                       1 (default) = males coded 0/1, females 0/1/2 (A1 dosage)\n"
 "                       2 = males coded 0/2\n"
 "                       3 = males coded 0/2, but females given double weighting\n"

@@ -26,7 +26,10 @@ void ld_epi_init(Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip) {
   ldip->flipscan_window_size = 10;
   ldip->flipscan_window_bp = 0xffffffffU;
   ldip->flipscan_thresh = 0.5;
+  ldip->show_tags_bp = 250000;
+  ldip->show_tags_r2 = 0.8;
   ldip->snpstr = NULL;
+  ldip->show_tags_fname = NULL;
   range_list_init(&(ldip->snps_rl));
   epi_ip->modifier = 0;
   epi_ip->case_only_gap = 1000000;
@@ -54,6 +57,7 @@ void ld_epi_init(Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip) {
 
 void ld_epi_cleanup(Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip) {
   free_cond(ldip->snpstr);
+  free_cond(ldip->show_tags_fname);
   free_range_list(&(ldip->snps_rl));
   free_cond(epi_ip->ld_mkr1);
   free_cond(epi_ip->ld_mkr2);
@@ -5320,6 +5324,11 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
  ld_report_ret_1:
   wkspace_reset(wkspace_mark);
   return retval;
+}
+
+int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
+  logprint("Error: --show-tags is currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
 }
 
 double calc_lnlike_quantile(double known11, double known12, double known21, double known22, double unknown_dh, double freqx1, double freq1x, double freq2x, double freq11_expected, double denom, int32_t quantile) {

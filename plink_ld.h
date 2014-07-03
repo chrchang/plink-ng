@@ -26,6 +26,8 @@
 #define LD_BLOCKS_NO_PHENO_REQ 0x40000
 #define LD_BLOCKS_NO_SMALL_MAX_SPAN 0x80000
 #define LD_FLIPSCAN_VERBOSE 0x100000
+#define LD_SHOW_TAGS_LIST_ALL 0x200000
+#define LD_SHOW_TAGS_MODE2 0x400000
 
 typedef struct {
   double prune_last_param; // VIF or r^2 threshold
@@ -33,7 +35,9 @@ typedef struct {
   double blocks_min_maf;
   double blocks_inform_frac;
   double flipscan_thresh;
+  double show_tags_r2;
   char* snpstr;
+  char* show_tags_fname;
   Range_list snps_rl;
   uint32_t modifier;
   uint32_t prune_window_size;
@@ -48,6 +52,7 @@ typedef struct {
   uint32_t blocks_recomb_highci;
   uint32_t flipscan_window_size;
   uint32_t flipscan_window_bp;
+  uint32_t show_tags_bp;
 } Ld_info;
 
 // fast epistasis test is really similar to LD scan so we put it in the same
@@ -108,6 +113,8 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists);
 
 int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, double* set_allele_freqs, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists);
+
+int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists);
 
 int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* pheno_nm, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists);
 
