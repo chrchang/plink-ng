@@ -15796,7 +15796,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     if (tot_indiv_ct % 4) {
       umm = tot_indiv_ct / 4;
       ubufptr = writebuf;
-      ucc = 0x55 >> ((tot_indiv_ct % 4) * 2);
+      ucc = 0x55 >> ((4 - (tot_indiv_ct % 4)) * 2);
       for (ukk = 0; ukk < ujj; ukk++) {
         memset(ubufptr, 0x55, umm);
         ubufptr[umm] = ucc;
