@@ -5329,6 +5329,7 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
 int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
   logprint("Error: --show-tags is currently under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
+  // implementation can be similar to flipscan().
 }
 
 double calc_lnlike_quantile(double known11, double known12, double known21, double known22, double unknown_dh, double freqx1, double freq1x, double freq2x, double freq11_expected, double denom, int32_t quantile) {
