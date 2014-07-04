@@ -6341,8 +6341,6 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   uint32_t a2len;
   uint32_t uii;
   uint32_t ujj;
-  uint32_t ukk;
-  uint32_t umm;
   uint32_t pct;
   int32_t retval;
   int32_t ii;
@@ -6722,8 +6720,6 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
     fputs("\b\b\b\b", stdout);
   }
   logprint("done.\n");
-  ukk = indiv_ct / 4;
-  umm = indiv_ct % 4;
   for (uii = 0; uii < marker_ct; uii++) {
     if (popcount_chars((uintptr_t*)writebuf, uii * indiv_ct4, (uii + 1) * indiv_ct4) < indiv_ct) {
       reverse_loadbuf(&(writebuf[uii * indiv_ct4]), indiv_ct);
