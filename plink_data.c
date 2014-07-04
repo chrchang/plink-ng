@@ -6275,72 +6275,6 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   return retval;
 }
 
-void fill_bmap_short(unsigned char* bmap_short, uint32_t ct_mod4) {
-  unsigned char imap[4] = {3, 1, 2, 0};
-  unsigned char* bmap = bmap_short;
-  uint32_t uii;
-  uint32_t ujj;
-  uint32_t ukk;
-  uint32_t umm;
-  uint32_t unn;
-  uint32_t extra_ct;
-  for (uii = 0; uii < 4; uii++) {
-    umm = imap[uii] * 64;
-    for (ujj = 0; ujj < 4; ujj++) {
-      unn = umm + imap[ujj] * 16;
-      for (ukk = 0; ukk < 4; ukk++) {
-	extra_ct = unn + imap[ukk] * 4;
-	*bmap++ = extra_ct + 3;
-	*bmap++ = extra_ct + 1;
-	*bmap++ = extra_ct + 2;
-	*bmap++ = extra_ct;
-      }
-    }
-  }
-  if (ct_mod4) {
-    switch (ct_mod4) {
-    case 1:
-      bmap[0] = 3;
-      bmap[1] = 1;
-      bmap[2] = 2;
-      bmap[3] = 0;
-      return;
-    case 2:
-      for (uii = 0; uii < 4; uii++) {
-	ukk = imap[uii] * 4;
-	*bmap++ = ukk + 3;
-	*bmap++ = ukk + 1;
-	*bmap++ = ukk + 2;
-	*bmap++ = ukk;
-      }
-      return;
-    case 3:
-      for (uii = 0; uii < 4; uii++) {
-	ukk = imap[uii] * 16;
-	for (ujj = 0; ujj < 4; ujj++) {
-	  umm = ukk + imap[ujj] * 4;
-	  *bmap++ = umm + 3;
-	  *bmap++ = umm + 1;
-	  *bmap++ = umm + 2;
-	  *bmap++ = umm;
-	}
-      }
-    }
-  }
-}
-
-void fill_bmap_raw(unsigned char* bmap_raw, uint32_t ct_mod4) {
-  // possibilities:
-  // 0. A1 -> A1, A2 -> A2 [0..255]
-  // 1. A1 -> A2, A2 -> A1 [256..511]
-  // 1 last char. [512..575]
-  uint32_t uii = 0;
-  do {
-    *bmap_raw++ = uii++;
-  } while (uii < 256);
-  fill_bmap_short(bmap_raw, ct_mod4);
-}
-
 int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_t missing_pheno, uint64_t misc_flags, uint32_t lgen_modifier, char* lgen_reference_fname, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
@@ -6386,9 +6320,6 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   uintptr_t indiv_ct4;
   uintptr_t marker_idx;
   unsigned char ucc;
-  unsigned char* ucptr;
-  unsigned char bmap_short[320];
-  unsigned char* bmap2;
   char* loadbuf;
   char* id_buf;
   char* cptr;
@@ -6793,19 +6724,9 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   logprint("done.\n");
   ukk = indiv_ct / 4;
   umm = indiv_ct % 4;
-  fill_bmap_short(bmap_short, umm);
-  bmap2 = &(bmap_short[256]);
   for (uii = 0; uii < marker_ct; uii++) {
     if (popcount_chars((uintptr_t*)writebuf, uii * indiv_ct4, (uii + 1) * indiv_ct4) < indiv_ct) {
-      ucptr = &(writebuf[uii * indiv_ct4]);
-      for (ujj = 0; ujj < ukk; ujj++) {
-	*ucptr = bmap_short[*ucptr];
-	ucptr++;
-      }
-      if (umm) {
-        *ucptr = bmap2[*ucptr];
-	ucptr++;
-      }
+      reverse_loadbuf(&(writebuf[uii * indiv_ct4]), indiv_ct);
       cptr = marker_allele_ptrs[uii * 2];
       marker_allele_ptrs[uii * 2] = marker_allele_ptrs[uii * 2 + 1];
       marker_allele_ptrs[uii * 2 + 1] = cptr;
@@ -9756,15 +9677,12 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
   char alleles[13];
   unsigned char* writebuf;
   unsigned char* ucptr;
-  unsigned char* ucptr2;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
   uint32_t pct;
   uint32_t loop_end;
   uint32_t missing_pheno_len;
-  unsigned char bmap[320];
-  unsigned char* bmap2;
   unsigned char ucc;
   unsigned char ucc2;
   uint64_t ullii;
@@ -9772,8 +9690,6 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
   wptr2 = int32_write(missing_pheno_str, missing_pheno);
   missing_pheno_len = (uintptr_t)(wptr2 - missing_pheno_str);
   *wptr2 = '\0';
-  fill_bmap_short(bmap, indiv_ct % 4);
-  bmap2 = &(bmap[256]);
   if (flags & DUMMY_ACGT) {
     memcpy(alleles, "ACAGATCGCTGTA", 13);
     four_alleles = 1;
@@ -9922,15 +9838,7 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
 
       ujj = popcount_chars((uintptr_t*)writebuf, 0, indiv_ct4);
       if (ujj < indiv_ct) {
-	ucptr = writebuf;
-	ucptr2 = &(writebuf[indiv_ct / 4]);
-	while (ucptr < ucptr2) {
-	  *ucptr = bmap[*ucptr];
-	  ucptr++;
-	}
-	if (dbl_indiv_mod4) {
-	  *ucptr = bmap2[*ucptr];
-	}
+	reverse_loadbuf(writebuf, indiv_ct);
       }
       if (fwrite_checked(writebuf, indiv_ct4, outfile)) {
 	putchar('\n');
@@ -14448,7 +14356,7 @@ int32_t merge_diff_print(FILE* outfile, char* idbuf, char* marker_id, char* pers
   return ferror(outfile);
 }
 
-int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbuf, uint32_t max_bim_linelen, uint32_t tot_indiv_ct, uint32_t tot_marker_ct, uint32_t dedup_marker_ct, uint32_t start_marker_idx, uint32_t marker_window_size, char** marker_allele_ptrs, char* marker_ids, uintptr_t max_marker_id_len, char* person_ids, uintptr_t max_person_id_len, uint32_t merge_nsort, uint32_t* indiv_nsmap, uint32_t* flex_map, uint32_t* marker_map, char* idbuf, unsigned char* readbuf, unsigned char* writebuf, uint32_t merge_mode, uintptr_t* markbuf, FILE* outfile, uint64_t* diff_total_overlap_ptr, uint64_t* diff_not_both_genotyped_ptr, uint64_t* diff_discordant_ptr, uint32_t ped_buflen, unsigned char* bmap_raw) {
+int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbuf, uint32_t max_bim_linelen, uint32_t tot_indiv_ct, uint32_t tot_marker_ct, uint32_t dedup_marker_ct, uint32_t start_marker_idx, uint32_t marker_window_size, char** marker_allele_ptrs, char* marker_ids, uintptr_t max_marker_id_len, char* person_ids, uintptr_t max_person_id_len, uint32_t merge_nsort, uint32_t* indiv_nsmap, uint32_t* flex_map, uint32_t* marker_map, char* idbuf, unsigned char* readbuf, unsigned char* writebuf, uint32_t merge_mode, uintptr_t* markbuf, FILE* outfile, uint64_t* diff_total_overlap_ptr, uint64_t* diff_not_both_genotyped_ptr, uint64_t* diff_discordant_ptr, uint32_t ped_buflen) {
   // flex_map maps individuals for binary filesets, and markers for text
   // filesets.
   uint32_t is_binary = famname? 1 : 0;
@@ -14464,18 +14372,19 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
   uint32_t last_marker_in_idx = 0xfffffffeU;
   uint32_t cur_indiv_ct = 0;
   uintptr_t* mbufptr = NULL; // merge mode 1, 4, 6, 7
+  uintptr_t* readbuf_w = NULL; // used for main binary load
   const char* missing_geno_ptr = g_missing_geno_ptr;
   uint64_t diff_total_overlap = 0;
   uint64_t diff_not_both_genotyped = 0;
   uint64_t diff_discordant = 0;
   uint32_t cur_indiv_ct4 = 0;
-  uint32_t cur_indiv_ctd4 = 0;
+  uint32_t cur_indiv_ctl2 = 0;
   uint32_t is_ped_compound = 1; // 0 = no, 1 = unresolved, 2 = yes
   uint32_t alen1 = 1;
   uint32_t alen2 = 1;
   uintptr_t uljj = 0;
   uintptr_t* mbufptr2;
-  unsigned char* bmap;
+  uintptr_t* rbufptr;
   uint32_t cm_col;
   char* aptr1;
   char* aptr2;
@@ -14484,11 +14393,12 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
   char* bufptr3;
   char* bufptr4;
   char* bufptr5;
-  unsigned char* rbufptr;
   unsigned char* wbufptr;
   unsigned char* wbufptr2;
   uintptr_t indiv_idx;
+  uintptr_t indiv_idx_cur_max;
   uintptr_t line_idx;
+  uintptr_t cur_word;
   uintptr_t ulii;
   uint32_t marker_out_idx;
   uint32_t uii;
@@ -14537,7 +14447,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
     }
     fclose_null(&infile2);
     cur_indiv_ct4 = (cur_indiv_ct + 3) / 4;
-    cur_indiv_ctd4 = cur_indiv_ct / 4;
+    cur_indiv_ctl2 = (cur_indiv_ct + (BITCT2 - 1)) / BITCT2;
   } else {
     bim_loadbuf = tbuf;
     max_bim_linelen = MAXLINELEN;
@@ -14551,18 +14461,22 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
   if (fopen_checked(&bedfile, bedname, is_binary? "rb" : "r")) {
     goto merge_main_ret_OPEN_FAIL;
   }
-  if (is_binary && (!start_marker_idx)) {
-    if (fread(readbuf, 1, 3, bedfile) < 3) {
-      goto merge_main_ret_READ_FAIL;
-    }
-    if (memcmp(readbuf, "l\x1b\x01", 3)) {
-      if (!memcmp(readbuf, "l\x1b", 3)) {
-        LOGPREPRINTFWW("Error: %s is an individual-major binary file. Convert to variant-major (with e.g. --make-bed) and then reattempt the merge.\n", bedname);
-      } else {
-        LOGPREPRINTFWW("Error: %s is not a PLINK 1 binary file.\n", bedname);
+  if (is_binary) {
+    if (!start_marker_idx) {
+      if (fread(readbuf, 1, 3, bedfile) < 3) {
+	goto merge_main_ret_READ_FAIL;
       }
-      goto merge_main_ret_INVALID_FORMAT_2N;
+      if (memcmp(readbuf, "l\x1b\x01", 3)) {
+	if (!memcmp(readbuf, "l\x1b", 3)) {
+	  LOGPREPRINTFWW("Error: %s is an individual-major binary file. Convert to variant-major (with e.g. --make-bed) and then reattempt the merge.\n", bedname);
+	} else {
+	  LOGPREPRINTFWW("Error: %s is not a PLINK 1 binary file.\n", bedname);
+	}
+	goto merge_main_ret_INVALID_FORMAT_2N;
+      }
     }
+    readbuf_w = (uintptr_t*)readbuf;
+    readbuf_w[cur_indiv_ctl2 - 1] = 0;
   }
   do {
     bufptr = skip_initial_spaces(bim_loadbuf);
@@ -14610,20 +14524,20 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
       bufptr3[alen2] = '\0';
       bufptr4 = marker_allele_ptrs[((uint32_t)ii) * 2];
       bufptr5 = marker_allele_ptrs[((uint32_t)ii) * 2 + 1];
-      if ((((*bufptr2 != '0') || (alen1 != 1)) && (!strcmp(bufptr2, bufptr5)))  || (((*bufptr3 != '0') || (alen2 != 1)) && (!strcmp(bufptr3, bufptr4)))) {
-	bmap = &(bmap_raw[256]);
-      } else {
-	bmap = bmap_raw;
-      }
 
       last_marker_in_idx = marker_in_idx;
-      // er.  this function should be revised to use more word operations.
-      // readbuf should be uintptr_t*, inner loop bmap dereferences should be
-      // removed (use reverse_loadbuf() instead), etc.
-      if (fread(readbuf, 1, cur_indiv_ct4, bedfile) < cur_indiv_ct4) {
+      if (fread(readbuf_w, 1, cur_indiv_ct4, bedfile) < cur_indiv_ct4) {
 	goto merge_main_ret_READ_FAIL;
       }
-      rbufptr = readbuf;
+      if ((((*bufptr2 != '0') || (alen1 != 1)) && (!strcmp(bufptr2, bufptr5)))  || (((*bufptr3 != '0') || (alen2 != 1)) && (!strcmp(bufptr3, bufptr4)))) {
+	// Ack, how did this bug not get caught for so long!
+	// Necessary to use reverse_loadbuf here to handle last byte properly
+	// (since cur_indiv_ct % 4 is not necessarily the same as
+	// tot_indiv_ct % 4).  And while I'm at it, may as well switch
+	// the main loops to be word-based.
+	reverse_loadbuf((unsigned char*)readbuf_w, cur_indiv_ct);
+      }
+      rbufptr = readbuf_w;
       wbufptr = &(writebuf[(marker_out_idx - start_marker_idx) * tot_indiv_ct4]);
       if (merge_must_track_write(merge_mode)) {
 	mbufptr = &(markbuf[(marker_out_idx - start_marker_idx) * tot_indiv_ctl]);
@@ -14631,255 +14545,180 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
       switch (merge_mode) {
       case 1: // difference -> missing
 	indiv_idx = 0;
-	for (uii = 0; uii < cur_indiv_ctd4; uii++) {
-	  ucc = bmap[*rbufptr++];
-	  do {
-	    ujj = flex_map[indiv_idx++];
-	    ukk = ujj / BITCT;
-	    ulii = ONELU << (ujj % BITCT);
-	    wbufptr2 = &(wbufptr[ujj / 4]);
-	    umm = (ujj % 4) * 2;
-	    unn = 3U << umm;
+	do {
+	  indiv_idx_cur_max = indiv_idx + BITCT2;
+	  if (indiv_idx_cur_max > cur_indiv_ct) {
+	    indiv_idx_cur_max = cur_indiv_ct;
+	  }
+	  cur_word = *rbufptr++;
+	  for (; indiv_idx < indiv_idx_cur_max; indiv_idx++) {
+	    ucc = cur_word & 3;
 	    // bugfix: do NOT set flag, etc. on missing call
-	    if ((ucc & 3) != 1) {
+	    if (ucc != 1) {
+	      ujj = flex_map[indiv_idx];
+	      ukk = ujj / BITCT;
+	      ulii = ONELU << (ujj % BITCT);
+	      wbufptr2 = &(wbufptr[ujj / 4]);
+	      umm = (ujj % 4) * 2;
+	      unn = 3U << umm;
 	      if (mbufptr[ukk] & ulii) {
 		ucc2 = *wbufptr2;
-		if ((ucc2 ^ ((ucc & 3) << umm)) & unn) {
+		if ((ucc2 ^ (ucc << umm)) & unn) {
 		  *wbufptr2 = (ucc2 & (~unn)) | (1U << umm);
 		}
 	      } else {
-	        mbufptr[ukk] |= ulii;
-	        *wbufptr2 = ((*wbufptr2) & (~unn)) | ((ucc & 3) << umm);
+		mbufptr[ukk] |= ulii;
+		*wbufptr2 = ((*wbufptr2) & (~unn)) | (ucc << umm);
 	      }
 	    }
-	    ucc >>= 2;
-	  } while (indiv_idx & 3);
-	}
-	ucc = bmap[*rbufptr];
-	while (indiv_idx < cur_indiv_ct) {
-	  ujj = flex_map[indiv_idx++];
-	  ukk = ujj / BITCT;
-	  ulii = ONELU << (ujj % BITCT);
-	  wbufptr2 = &(wbufptr[ujj / 4]);
-	  umm = (ujj % 4) * 2;
-	  unn = 3U << umm;
-	  if ((ucc & 3) != 1) {
-	    if (mbufptr[ukk] & ulii) {
-	      ucc2 = *wbufptr2;
-	      if ((ucc2 ^ ((ucc & 3) << umm)) & unn) {
-		*wbufptr2 = (ucc2 & (~unn)) | (1U << umm);
-	      }
-	    } else {
-	      mbufptr[ukk] |= ulii;
-	      *wbufptr2 = ((*wbufptr2) & (~unn)) | ((ucc & 3) << umm);
-	    }
+	    cur_word >>= 2;
 	  }
-	  ucc >>= 2;
-	}
+	} while (indiv_idx < cur_indiv_ct);
 	break;
       case 2: // only overwrite originally missing
 	indiv_idx = 0;
-	for (uii = 0; uii < cur_indiv_ctd4; uii++) {
-	  ucc = bmap[*rbufptr++];
-	  do {
-	    ujj = flex_map[indiv_idx++];
+	do {
+	  indiv_idx_cur_max = indiv_idx + BITCT2;
+	  if (indiv_idx_cur_max > cur_indiv_ct) {
+	    indiv_idx_cur_max = cur_indiv_ct;
+	  }
+	  cur_word = *rbufptr++;
+	  for (; indiv_idx < indiv_idx_cur_max; indiv_idx++) {
+	    ujj = flex_map[indiv_idx];
 	    ukk = (ujj % 4) * 2;
 	    wbufptr2 = &(wbufptr[ujj / 4]);
 	    ucc2 = *wbufptr2;
 	    if (((ucc2 >> ukk) & 3) == 1) {
-	      *wbufptr2 = (ucc2 & (~(3U << ukk))) | ((ucc & 3) << ukk);
+	      ucc = cur_word & 3;
+	      *wbufptr2 = (ucc2 & (~(3U << ukk))) | (ucc << ukk);
 	    }
-	    ucc >>= 2;
-	  } while (indiv_idx & 3);
-	}
-	ucc = bmap[*rbufptr++];
-	while (indiv_idx < cur_indiv_ct) {
-	  ujj = flex_map[indiv_idx++];
-	  ukk = (ujj % 4) * 2;
-	  wbufptr2 = &(wbufptr[ujj / 4]);
-	  ucc2 = *wbufptr2;
-	  if (((ucc2 >> ukk) & 3) == 1) {
-	    *wbufptr2 = (ucc2 & (~(3U << ukk))) | ((ucc & 3) << ukk);
+	    cur_word >>= 2;
 	  }
-	  ucc >>= 2;
-	}
+	} while (indiv_idx < cur_indiv_ct);
 	break;
       case 3: // only overwrite if nonmissing in new file
 	indiv_idx = 0;
-	for (uii = 0; uii < cur_indiv_ctd4; uii++) {
-	  ucc = bmap[*rbufptr++];
-	  do {
-	    ucc2 = ucc & 3;
-	    if (ucc2 != 1) {
+	do {
+	  indiv_idx_cur_max = indiv_idx + BITCT2;
+	  if (indiv_idx_cur_max > cur_indiv_ct) {
+	    indiv_idx_cur_max = cur_indiv_ct;
+	  }
+	  cur_word = *rbufptr++;
+	  for (; indiv_idx < indiv_idx_cur_max; indiv_idx++) {
+	    ucc = cur_word & 3;
+	    if (ucc != 1) {
 	      ujj = flex_map[indiv_idx];
 	      ukk = (ujj % 4) * 2;
 	      wbufptr2 = &(wbufptr[ujj / 4]);
-	      *wbufptr2 = ((*wbufptr2) & (~(3U << ukk))) | (ucc2 << ukk);
+	      *wbufptr2 = ((*wbufptr2) & (~(3U << ukk))) | (ucc << ukk);
 	    }
-	    ucc >>= 2;
-	  } while ((++indiv_idx) & 3);
-	}
-	ucc = bmap[*rbufptr++];
-	while (indiv_idx < cur_indiv_ct) {
-	  ucc2 = ucc & 3;
-	  if (ucc2 != 1) {
-	    ujj = flex_map[indiv_idx];
-	    ukk = (ujj % 4) * 2;
-	    wbufptr2 = &(wbufptr[ujj / 4]);
-	    *wbufptr2 = ((*wbufptr2) & (~(3U << ukk))) | (ucc2 << ukk);
+	    cur_word >>= 2;
 	  }
-	  ucc >>= 2;
-	  indiv_idx++;
-	}
+	} while (indiv_idx < cur_indiv_ct);
 	break;
       case 4: // never overwrite
 	indiv_idx = 0;
-	for (uii = 0; uii < cur_indiv_ctd4; uii++) {
-	  ucc = bmap[*rbufptr++];
-	  do {
-	    ujj = flex_map[indiv_idx++];
+	do {
+	  indiv_idx_cur_max = indiv_idx + BITCT2;
+	  if (indiv_idx_cur_max > cur_indiv_ct) {
+	    indiv_idx_cur_max = cur_indiv_ct;
+	  }
+	  cur_word = *rbufptr++;
+	  for (; indiv_idx < indiv_idx_cur_max; indiv_idx++) {
+	    ujj = flex_map[indiv_idx];
 	    ukk = ujj / BITCT;
 	    ulii = ONELU << (ujj % BITCT);
 	    if (!(mbufptr[ukk] & ulii)) {
 	      mbufptr[ukk] |= ulii;
 	      wbufptr2 = &(wbufptr[ujj / 4]);
 	      ukk = (ujj % 4) * 2;
-	      *wbufptr2 = ((*wbufptr2) & (~(3U << ukk))) | ((ucc & 3) << ukk);
+	      ucc = cur_word & 3;
+	      *wbufptr2 = ((*wbufptr2) & (~(3U << ukk))) | (ucc << ukk);
 	    }
-	    ucc >>= 2;
-	  } while (indiv_idx & 3);
-	}
-	ucc = bmap[*rbufptr];
-	while (indiv_idx < cur_indiv_ct) {
-	  ujj = flex_map[indiv_idx++];
-	  ukk = ujj / BITCT;
-	  ulii = ONELU << (ujj % BITCT);
-	  if (!(mbufptr[ukk] & ulii)) {
-	    mbufptr[ukk] |= ulii;
-	    wbufptr2 = &(wbufptr[ujj / 4]);
-	    ukk = (ujj % 4) * 2;
-	    *wbufptr2 = ((*wbufptr2) & (~(3U << ukk))) | ((ucc & 3) << ukk);
+	    cur_word >>= 2;
 	  }
-	  ucc >>= 2;
-	}
+	} while (indiv_idx < cur_indiv_ct);
 	break;
       case 5: // always overwrite
 	indiv_idx = 0;
-	for (uii = 0; uii < cur_indiv_ctd4; uii++) {
-	  ucc = bmap[*rbufptr++];
-	  do {
-	    ujj = flex_map[indiv_idx++];
+	do {
+	  indiv_idx_cur_max = indiv_idx + BITCT2;
+	  if (indiv_idx_cur_max > cur_indiv_ct) {
+	    indiv_idx_cur_max = cur_indiv_ct;
+	  }
+	  cur_word = *rbufptr++;
+	  for (; indiv_idx < indiv_idx_cur_max; indiv_idx++) {
+	    ucc = cur_word & 3;
+	    ujj = flex_map[indiv_idx];
 	    ukk = (ujj % 4) * 2;
 	    wbufptr2 = &(wbufptr[ujj / 4]);
-	    *wbufptr2 = ((*wbufptr2) & (~(3U << ukk))) | ((ucc & 3) << ukk);
-	    ucc >>= 2;
-	  } while (indiv_idx & 3);
-	}
-	ucc = bmap[*rbufptr];
-	while (indiv_idx < cur_indiv_ct) {
-	  ujj = flex_map[indiv_idx++];
-	  ukk = (ujj % 4) * 2;
-	  wbufptr2 = &(wbufptr[ujj / 4]);
-	  *wbufptr2 = ((*wbufptr2) & (~(3U << ukk))) | ((ucc & 3) << ukk);
-	  ucc >>= 2;
-	}
+	    *wbufptr2 = ((*wbufptr2) & (~(3U << ukk))) | (ucc << ukk);
+	    cur_word >>= 2;
+	  }
+	} while (indiv_idx < cur_indiv_ct);
 	break;
       case 6: // report all mismatches
 	indiv_idx = 0;
-	for (uii = 0; uii < cur_indiv_ctd4; uii++) {
-	  ucc = bmap[*rbufptr++];
-	  do {
-	    ujj = flex_map[indiv_idx++];
+	do {
+	  indiv_idx_cur_max = indiv_idx + BITCT2;
+	  if (indiv_idx_cur_max > cur_indiv_ct) {
+	    indiv_idx_cur_max = cur_indiv_ct;
+	  }
+	  cur_word = *rbufptr++;
+	  for (; indiv_idx < indiv_idx_cur_max; indiv_idx++) {
+	    ujj = flex_map[indiv_idx];
 	    if (mbufptr[ujj / BITCT] & (ONELU << (ujj % BITCT))) {
 	      // would prefer to do this by multiplying indiv overlap with
 	      // marker overlap, but the same-position automerge screws
 	      // with that
 	      diff_total_overlap++;
 	      ukk = (ujj % 4) * 2;
-	      ucc2 = ucc & 3;
+	      ucc = cur_word & 3;
 	      ucc3 = (wbufptr[ujj / 4] >> ukk) & 3;
-	      umm = ((ucc2 == 1) || (ucc3 == 1));
+	      umm = ((ucc == 1) || (ucc3 == 1));
 	      if (umm) {
 		diff_not_both_genotyped++;
 	      }
-	      if (ucc2 != ucc3) {
+	      if (ucc != ucc3) {
 		if (!umm) {
 		  diff_discordant++;
 		}
-		if (merge_diff_print(outfile, idbuf, bufptr, &(person_ids[ujj * max_person_id_len]), ucc2, ucc3, &(marker_allele_ptrs[((uint32_t)ii) * 2]))) {
+		if (merge_diff_print(outfile, idbuf, bufptr, &(person_ids[ujj * max_person_id_len]), ucc, ucc3, &(marker_allele_ptrs[((uint32_t)ii) * 2]))) {
 		  goto merge_main_ret_WRITE_FAIL;
 		}
 	      }
 	    }
-	    ucc >>= 2;
-	  } while (indiv_idx & 3);
-	}
-	ucc = bmap[*rbufptr];
-	while (indiv_idx < cur_indiv_ct) {
-	  ujj = flex_map[indiv_idx++];
-	  if (mbufptr[ujj / BITCT] & (ONELU << (ujj % BITCT))) {
-	    diff_total_overlap++;
-	    ukk = (ujj % 4) * 2;
-	    ucc2 = ucc & 3;
-	    ucc3 = (wbufptr[ujj / 4] >> ukk) & 3;
-	    umm = ((ucc2 == 1) || (ucc3 == 1));
-	    if (umm) {
-	      diff_not_both_genotyped++;
-	    }
-	    if (ucc2 != ucc3) {
-	      if (!umm) {
-		diff_discordant++;
-	      }
-	      if (merge_diff_print(outfile, idbuf, bufptr, &(person_ids[ujj * max_person_id_len]), ucc2, ucc3, &(marker_allele_ptrs[((uint32_t)ii) * 2]))) {
-		goto merge_main_ret_WRITE_FAIL;
-	      }
-	    }
+	    cur_word >>= 2;
 	  }
-	  ucc >>= 2;
-	}
+	} while (indiv_idx < cur_indiv_ct);
 	break;
       case 7: // report nonmissing mismatches
 	indiv_idx = 0;
-	for (uii = 0; uii < cur_indiv_ctd4; uii++) {
-	  ucc = bmap[*rbufptr++];
-	  do {
-	    ujj = flex_map[indiv_idx++];
+	do {
+	  indiv_idx_cur_max = indiv_idx + BITCT2;
+	  if (indiv_idx_cur_max > cur_indiv_ct) {
+	    indiv_idx_cur_max = cur_indiv_ct;
+	  }
+	  cur_word = *rbufptr++;
+	  for (; indiv_idx < indiv_idx_cur_max; indiv_idx++) {
+	    ujj = flex_map[indiv_idx];
 	    if (mbufptr[ujj / BITCT] & (ONELU << (ujj % BITCT))) {
 	      diff_total_overlap++;
 	      ukk = (ujj % 4) * 2;
-	      ucc2 = ucc & 3;
+	      ucc = cur_word & 3;
 	      ucc3 = (wbufptr[ujj / 4] >> ukk) & 3;
-	      if ((ucc2 == 1) || (ucc3 == 1)) {
+	      if ((ucc == 1) || (ucc3 == 1)) {
 		diff_not_both_genotyped++;
-	      } else if (ucc2 != ucc3) {
+	      } else if (ucc != ucc3) {
 		diff_discordant++;
-		if (merge_diff_print(outfile, idbuf, bufptr, &(person_ids[ujj * max_person_id_len]), ucc2, ucc3, &(marker_allele_ptrs[((uint32_t)ii) * 2]))) {
+		if (merge_diff_print(outfile, idbuf, bufptr, &(person_ids[ujj * max_person_id_len]), ucc, ucc3, &(marker_allele_ptrs[((uint32_t)ii) * 2]))) {
 		  goto merge_main_ret_WRITE_FAIL;
 		}
 	      }
 	    }
-	    ucc >>= 2;
-	  } while (indiv_idx & 3);
-	}
-	ucc = bmap[*rbufptr];
-	while (indiv_idx < cur_indiv_ct) {
-	  ujj = flex_map[indiv_idx++];
-	  if (mbufptr[ujj / BITCT] & (ONELU << (ujj % BITCT))) {
-	    diff_total_overlap++;
-	    ukk = (ujj % 4) * 2;
-	    ucc2 = ucc & 3;
-	    ucc3 = (wbufptr[ujj / 4] >> ukk) & 3;
-	    if ((ucc2 == 1) || (ucc3 == 1)) {
-	      diff_not_both_genotyped++;
-	    } else if (ucc2 != ucc3) {
-	      diff_discordant++;
-	      if (merge_diff_print(outfile, idbuf, bufptr, &(person_ids[ujj * max_person_id_len]), ucc2, ucc3, &(marker_allele_ptrs[((uint32_t)ii) * 2]))) {
-		goto merge_main_ret_WRITE_FAIL;
-	      }
-	    }
+	    cur_word >>= 2;
 	  }
-	  ucc >>= 2;
-	}
+	} while (indiv_idx < cur_indiv_ct);
 	break;
       }
     } else {
@@ -15190,11 +15029,6 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   char* bim_loadbuf = NULL;
   // N.B. marker_allele_ptrs are ordered by marker_id instead of position
   char** marker_allele_ptrs = NULL;
-  unsigned char bmap_raw[576];
-  unsigned char* bmap;
-  unsigned char* bmap2;
-  unsigned char* ucptr;
-  unsigned char* ucptr_end;
   uintptr_t* pcptr;
   uintptr_t markers_per_pass;
   uint32_t pass_ct;
@@ -15418,9 +15252,6 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   }
 #endif
   tot_indiv_ct = ullxx;
-  fill_bmap_raw(bmap_raw, tot_indiv_ct % 4);
-  bmap = &(bmap_raw[256]);
-  bmap2 = &(bmap_raw[512]);
   // "allocate" first hash table off far side of stack before making regular
   // stack allocations
   wkspace_left -= topsize;
@@ -15796,7 +15627,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     if (tot_indiv_ct % 4) {
       umm = tot_indiv_ct / 4;
       ubufptr = writebuf;
-      ucc = 0x55 >> ((4 - (tot_indiv_ct % 4)) * 2);
+      ucc = 0x15 >> (6 - 2 * (tot_indiv_ct % 4));
       for (ukk = 0; ukk < ujj; ukk++) {
         memset(ubufptr, 0x55, umm);
         ubufptr[umm] = ucc;
@@ -15809,7 +15640,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       fill_ulong_zero(markbuf, ujj * ulii);
     }
     for (mlpos = 0; mlpos < merge_ct; mlpos++) {
-      retval = merge_main(mergelist_bed[mlpos], mergelist_bim[mlpos], mergelist_fam[mlpos], bim_loadbuf, max_bim_linelen, tot_indiv_ct, tot_marker_ct, dedup_marker_ct, uii * markers_per_pass, ujj, marker_allele_ptrs, marker_ids, max_marker_id_len, person_ids, max_person_id_len, merge_nsort, indiv_nsmap, flex_map, marker_map, idbuf, readbuf, writebuf, mlpos? merge_mode : merge_first_mode(merge_mode, merge_equal_pos), markbuf, outfile, &diff_total_overlap, &diff_not_both_genotyped, &diff_discordant, ped_buflen, bmap_raw);
+      retval = merge_main(mergelist_bed[mlpos], mergelist_bim[mlpos], mergelist_fam[mlpos], bim_loadbuf, max_bim_linelen, tot_indiv_ct, tot_marker_ct, dedup_marker_ct, uii * markers_per_pass, ujj, marker_allele_ptrs, marker_ids, max_marker_id_len, person_ids, max_person_id_len, merge_nsort, indiv_nsmap, flex_map, marker_map, idbuf, readbuf, writebuf, mlpos? merge_mode : merge_first_mode(merge_mode, merge_equal_pos), markbuf, outfile, &diff_total_overlap, &diff_not_both_genotyped, &diff_discordant, ped_buflen);
       if (retval) {
 	goto merge_datasets_ret_1;
       }
@@ -15826,15 +15657,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
 	  if (umm < tot_indiv_ct) {
 	    ulkk = (uii * markers_per_pass) + ukk;
 	    reversed[ulkk / BITCT] |= (ONELU << (ulkk % BITCT));
-	    ucptr = &(writebuf[uljj]);
-	    ucptr_end = &(writebuf[uljj + tot_indiv_ct / 4]);
-	    while (ucptr < ucptr_end) {
-	      *ucptr = bmap[*ucptr];
-	      ucptr++;
-	    }
-	    if (tot_indiv_ct % 4) {
-	      *ucptr = bmap2[*ucptr];
-	    }
+	    reverse_loadbuf(&(writebuf[uljj]), tot_indiv_ct);
 	  }
 	}
       }
