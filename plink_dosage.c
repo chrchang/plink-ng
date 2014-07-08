@@ -1409,16 +1409,14 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 #ifndef NOLAPACK
 	  }
 #endif
-	  bufptr = tbuf;
-	  *bufptr++ = ' ';
 	  if (load_map) {
-	    bufptr = width_force(3, bufptr, chrom_name_write(tbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_idx)));
+	    bufptr = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_idx)));
 	    *bufptr++ = ' ';
 	    bufptr = fw_strcpyn(11, cur_marker_id_len, cur_marker_id_buf, bufptr);
             bufptr = memseta(bufptr, 32, 2);
             bufptr = uint32_writew10(bufptr, marker_pos[marker_idx]);
 	  } else {
-	    bufptr = fw_strcpyn(11, cur_marker_id_len, cur_marker_id_buf, bufptr);
+	    bufptr = fw_strcpyn(11, cur_marker_id_len, cur_marker_id_buf, tbuf);
 	  }
 	  *bufptr++ = ' ';
 	  *bufptr = '\0';
