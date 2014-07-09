@@ -5203,6 +5203,10 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
         goto ped_to_bed_multichar_allele_ret_NOMEM;
       }
     }
+    if (g_debug_on) {
+      sprintf(logbuf, "Loaded line %" PRIuPTR ".\n", line_idx);
+      logstr(logbuf);
+    }
     cur_slen = strlen(loadbuf);
     ulii = cur_slen + 1;
     if (ulii > ped_buflen) {
@@ -5227,12 +5231,18 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
       goto ped_to_bed_multichar_allele_ret_WRITE_FAIL;
     }
     putc('\t', outfile);
+    if (g_debug_on) {
+      logstr("Loaded FID, and dumped to .fam file.\n");
+    }
     bufptr2 = write_token(col2_ptr, outfile);
     if (fam_cols & FAM_COL_34) {
       bufptr2 = write_token(bufptr2, outfile);
       bufptr2 = write_token(bufptr2, outfile);
     } else {
       fputs("0\t0\t", outfile);
+    }
+    if (g_debug_on) {
+      logstr("Wrote columns 2-4 to .fam file.\n");
     }
     if (fam_cols & FAM_COL_5) {
       bufptr2 = write_token_nt(bufptr2, outfile);
@@ -5248,6 +5258,11 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
     }
     if (putc_checked('\n', outfile)) {
       goto ped_to_bed_multichar_allele_ret_WRITE_FAIL;
+    }
+    if (g_debug_on) {
+      logstr("Wrote columns 5-6 to .fam file.\n");
+      sprintf(logbuf, "Genotype data: %s", bufptr);
+      logstr(logbuf);
     }
     wkspace_base += cur_slen_rdup;
     wkspace_left -= cur_slen_rdup;
@@ -5266,7 +5281,14 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
       if (IS_SET(marker_exclude, marker_uidx)) {
 	continue;
       }
+      if (g_debug_on) {
+        sprintf(logbuf, "Tokenized allele pair %" PRIuPTR ".\n", marker_uidx);
+	logstr(logbuf);
+      }
       if ((*aptr1 == missing_geno) && (alen1 == 1)) {
+	if (g_debug_on) {
+	  logstr("Took branch 1.\n");
+	}
 	if ((alen2 != 1) || (*aptr2 != missing_geno)) {
           goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_4;
 	}
@@ -5275,14 +5297,23 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
       } else if ((*aptr2 == missing_geno) && (alen2 == 1)) {
 	goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_4;
       }
+      if (g_debug_on) {
+	logstr("Took branch 2.\n");
+      }
       uii = map_is_unsorted? map_reverse[marker_idx] : marker_idx;
       retval = incr_text_allele_str(&topsize, aptr1, alen1, (Ll_str*)(&(marker_alleles_tmp[uii])), &(marker_allele_cts[4 * uii]));
       if (retval) {
 	goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_6;
       }
+      if (g_debug_on) {
+	logstr("Incremented first allele count.\n");
+      }
       retval = incr_text_allele_str(&topsize, aptr2, alen2, (Ll_str*)(&(marker_alleles_tmp[uii])), &(marker_allele_cts[4 * uii]));
       if (retval) {
 	goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_6;
+      }
+      if (g_debug_on) {
+	logstr("Incremented second allele count.\n");
       }
       marker_idx++;
     }
