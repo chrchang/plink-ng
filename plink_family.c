@@ -725,9 +725,11 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
   uintptr_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctp1l2 = 1 + (unfiltered_indiv_ct / BITCT2);
+  uintptr_t final_mask = get_final_mask(unfiltered_indiv_ct);
   uintptr_t indiv_ct = unfiltered_indiv_ct - *indiv_exclude_ct_ptr;
   uintptr_t marker_uidx = ~ZEROLU;
   uint64_t tot_error_ct = 0;
+  uint32_t unfiltered_indiv_ctl2m1 = (unfiltered_indiv_ct - 1) / BITCT2;
   uint32_t include_duos = (fam_ip->mendel_modifier / MENDEL_DUOS) & 1;
   uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
   uint32_t var_first = fam_ip->mendel_modifier & MENDEL_FILTER_VAR_FIRST;
@@ -887,7 +889,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
       goto mendel_error_scan_seek;
     }
     while (1) {
-      if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+      if (load_raw2(bedfile, loadbuf, unfiltered_indiv_ct4, unfiltered_indiv_ctl2m1, final_mask)) {
 	goto mendel_error_scan_ret_READ_FAIL;
       }
       if (IS_SET(marker_reverse, marker_uidx)) {
@@ -1747,10 +1749,12 @@ int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* o
   double pat_a2transmit_recip = 0.0;
   double mat_a1transmit_recip = 0.0;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uintptr_t final_mask = get_final_mask(unfiltered_indiv_ct);
   uintptr_t marker_uidx = ~ZEROLU;
   uintptr_t markers_done = 0;
   uintptr_t pct = 1;
   uintptr_t pct_thresh = marker_ct_ax / 100;
+  uint32_t unfiltered_indiv_ctl2m1 = (unfiltered_indiv_ct - 1) / BITCT2;
   uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
   int32_t retval = 0;
   // index bits 0-1: child genotype
@@ -1833,7 +1837,7 @@ int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* o
       goto tdt_poo_scan_seek;
     }
     while (1) {
-      if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+      if (load_raw2(bedfile, loadbuf, unfiltered_indiv_ct4, unfiltered_indiv_ctl2m1, final_mask)) {
 	goto tdt_poo_ret_READ_FAIL;
       }
       if (IS_SET(marker_reverse, marker_uidx)) {
@@ -2001,9 +2005,11 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t unfiltered_indiv_ctp1l2 = 1 + (unfiltered_indiv_ct / BITCT2);
+  uintptr_t final_mask = get_final_mask(unfiltered_indiv_ct);
   uintptr_t marker_uidx = ~ZEROLU;
   uintptr_t markers_done = 0;
   uintptr_t pct = 1;
+  uint32_t unfiltered_indiv_ctl2m1 = (unfiltered_indiv_ct - 1) / BITCT2;
   uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
   uint32_t display_ci = (ci_size > 0);
   uint32_t is_exact = fam_ip->tdt_modifier & TDT_EXACT;
@@ -2269,7 +2275,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
       goto tdt_scan_seek;
     }
     while (1) {
-      if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+      if (load_raw2(bedfile, loadbuf, unfiltered_indiv_ct4, unfiltered_indiv_ctl2m1, final_mask)) {
 	goto tdt_ret_READ_FAIL;
       }
       if (IS_SET(marker_reverse, marker_uidx)) {
@@ -3265,12 +3271,14 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t unfiltered_indiv_ctp1l2 = 1 + (unfiltered_indiv_ct / BITCT2);
   uintptr_t indiv_ctl2 = (indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t final_mask = get_final_mask(unfiltered_indiv_ct);
   double qt_sum_all = 0.0;
   double qt_ssq_all = 0.0;
   double geno_sum = 0.0;
   double geno_ssq = 0.0;
   double qt_g_prod = 0.0;
   char* chrom_name_ptr = NULL;
+  uint32_t unfiltered_indiv_ctl2m1 = (unfiltered_indiv_ct - 1) / BITCT2;
   uint32_t test_type = fam_ip->qfam_modifier & QFAM_TEST;
   uint32_t perm_adapt = fam_ip->qfam_modifier & QFAM_PERM;
   uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
@@ -3610,7 +3618,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	  }
 	  seek_flag = 0;
 	}
-	if (fread(loadbuf_raw, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+	if (load_raw2(bedfile, loadbuf_raw, unfiltered_indiv_ct4, unfiltered_indiv_ctl2m1, final_mask)) {
 	  goto qfam_ret_READ_FAIL;
 	}
 	if (IS_SET(marker_reverse, marker_uidx)) {

@@ -2020,11 +2020,37 @@ void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct);
 
 void collapse_copy_2bitarr(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uintptr_t* indiv_exclude);
 
-uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_exclude, uint32_t do_reverse);
+static inline uint32_t load_raw(FILE* bedfile, uintptr_t* rawbuf, uintptr_t unfiltered_indiv_ct4) {
+  // only use this if all accesses to the data involve
+  // 1. some sort of mask, or
+  // 2. explicit iteration from 0..(unfiltered_indiv_ct-1).
+  // otherwise improper trailing bits might cause a segfault, when we should
+  // be ignoring them or just issuing a warning.
+  return (fread(rawbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4);
+}
+
+static inline uintptr_t get_final_mask(uint32_t indiv_ct) {
+  uint32_t uii = indiv_ct % BITCT2;
+  if (uii) {
+    return (ONELU << (2 * uii)) - ONELU;
+  } else {
+    return ~ZEROLU;
+  }
+}
+
+static inline uint32_t load_raw2(FILE* bedfile, uintptr_t* rawbuf, uintptr_t unfiltered_indiv_ct4, uintptr_t unfiltered_indiv_ctl2m1, uintptr_t final_mask) {
+  if (fread(rawbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+    return 1;
+  }
+  rawbuf[unfiltered_indiv_ctl2m1] &= final_mask;
+  return 0;
+}
+
+uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_exclude, uintptr_t final_mask, uint32_t do_reverse);
 
 void collapse_copy_2bitarr_incl(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uintptr_t* indiv_include);
 
-uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_include, uint32_t do_reverse);
+uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_include, uintptr_t final_mask, uint32_t do_reverse);
 
 uint32_t load_and_split(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* casebuf, uintptr_t* ctrlbuf, uintptr_t* pheno_nm, uintptr_t* pheno_c);
 

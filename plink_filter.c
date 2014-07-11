@@ -991,7 +991,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
       if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
 	goto load_oblig_missing_ret_READ_FAIL;
       }
-      if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+      if (load_raw(bedfile, loadbuf, unfiltered_indiv_ct4)) {
 	goto load_oblig_missing_ret_READ_FAIL;
       }
       // no need for het haploid handling here
@@ -1180,10 +1180,12 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ct2l = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t final_mask = get_final_mask(unfiltered_indiv_ct);
   uintptr_t marker_idx = 0;
   uintptr_t y_start = 0;
   uintptr_t y_end = 0;
   uintptr_t* indiv_male_include2 = NULL;
+  uint32_t unfiltered_indiv_ctl2m1 = (unfiltered_indiv_ct - 1) / BITCT2;
   uint32_t indiv_exclude_ct = *indiv_exclude_ct_ptr;
   uint32_t indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
   uint32_t indiv_uidx = 0;
@@ -1237,9 +1239,10 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
 	goto mind_filter_ret_READ_FAIL;
       }
     }
-    if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+    if (load_raw2(bedfile, loadbuf, unfiltered_indiv_ct4, unfiltered_indiv_ctl2m1, final_mask)) {
       goto mind_filter_ret_READ_FAIL;
     }
+    // er, why doesn't this use load_and_collapse?
     lptr = loadbuf;
     if ((marker_uidx >= y_end) || (marker_uidx < y_start)) {
       for (uii = 0; uii < ujj; uii += BITCT2) {
@@ -1747,7 +1750,7 @@ static inline void haploid_single_marker_freqs(uintptr_t unfiltered_indiv_ct, ui
   uintptr_t* lptr_12x_end;
   unfiltered_indiv_ctl2 -= unfiltered_indiv_ctl2 % 12;
   while (unfiltered_indiv_ctl2 >= 120) {
-  single_marker_freqs_and_hwe_loop:
+  haploid_single_marker_freqs_loop:
     lptr_12x_end = &(lptr[cur_decr]);
   // Given a buffer with PLINK binary genotypes for a single marker, let
   //   A := genotype & 0x5555...
@@ -1767,7 +1770,7 @@ static inline void haploid_single_marker_freqs(uintptr_t unfiltered_indiv_ct, ui
   }
   if (unfiltered_indiv_ctl2) {
     cur_decr = unfiltered_indiv_ctl2;
-    goto single_marker_freqs_and_hwe_loop;
+    goto haploid_single_marker_freqs_loop;
   }
 #else
   uintptr_t* lptr_twelve_end = &(lptr[unfiltered_indiv_ctl2 - unfiltered_indiv_ctl2 % 12]);
@@ -2131,7 +2134,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	  goto calc_freqs_and_hwe_ret_READ_FAIL;
 	}
       }
-      if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+      if (load_raw(bedfile, loadbuf, unfiltered_indiv_ct4)) {
 	goto calc_freqs_and_hwe_ret_READ_FAIL;
       }
       if (marker_uidx >= next_chrom_start) {
@@ -2513,7 +2516,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	goto write_missingness_reports_ret_READ_FAIL;
       }
       do {
-	if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+	if (load_raw(bedfile, loadbuf, unfiltered_indiv_ct4)) {
 	  goto write_missingness_reports_ret_READ_FAIL;
 	}
         if (is_haploid) {

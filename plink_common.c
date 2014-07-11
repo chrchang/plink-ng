@@ -7348,6 +7348,7 @@ void collapse_copy_2bitarr(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfil
     indiv_uidx_stop = next_set(indiv_exclude, indiv_uidx, unfiltered_indiv_ct);
     indiv_idx += indiv_uidx_stop - indiv_uidx;
     do {
+      // er, this can totally be sped up
       cur_write |= (((rawbuf[indiv_uidx / BITCT2] >> ((indiv_uidx % BITCT2) * 2)) & 3) << (ii_rem * 2));
       if (++ii_rem == BITCT2) {
         *mainbuf++ = cur_write;
@@ -7361,16 +7362,18 @@ void collapse_copy_2bitarr(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfil
   }
 }
 
-uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_exclude, uint32_t do_reverse) {
+uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_exclude, uintptr_t final_mask, uint32_t do_reverse) {
   uint32_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   if (unfiltered_indiv_ct == indiv_ct) {
     rawbuf = mainbuf;
   }
-  if (fread(rawbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+  if (load_raw(bedfile, rawbuf, unfiltered_indiv_ct4)) {
     return RET_READ_FAIL;
   }
   if (unfiltered_indiv_ct != indiv_ct) {
     collapse_copy_2bitarr(rawbuf, mainbuf, unfiltered_indiv_ct, indiv_ct, indiv_exclude);
+  } else {
+    rawbuf[(unfiltered_indiv_ct - 1) / BITCT2] &= final_mask;
   }
   if (do_reverse) {
     reverse_loadbuf((unsigned char*)mainbuf, indiv_ct);
@@ -7409,16 +7412,18 @@ void collapse_copy_2bitarr_incl(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t 
   }
 }
 
-uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_include, uint32_t do_reverse) {
+uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_include, uintptr_t final_mask, uint32_t do_reverse) {
   uint32_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   if (unfiltered_indiv_ct == indiv_ct) {
     rawbuf = mainbuf;
   }
-  if (fread(rawbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+  if (load_raw(bedfile, rawbuf, unfiltered_indiv_ct4)) {
     return RET_READ_FAIL;
   }
   if (unfiltered_indiv_ct != indiv_ct) {
     collapse_copy_2bitarr_incl(rawbuf, mainbuf, unfiltered_indiv_ct, indiv_ct, indiv_include);
+  } else {
+    mainbuf[(unfiltered_indiv_ct - 1) / BITCT2] &= final_mask;
   }
   if (do_reverse) {
     reverse_loadbuf((unsigned char*)mainbuf, indiv_ct);
@@ -7439,7 +7444,7 @@ uint32_t load_and_split(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_in
   uint32_t read_shift;
   uintptr_t read_word;
   uintptr_t ulii;
-  if (fread(rawbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+  if (load_raw(bedfile, rawbuf, unfiltered_indiv_ct4)) {
     return RET_READ_FAIL;
   }
   while (1) {

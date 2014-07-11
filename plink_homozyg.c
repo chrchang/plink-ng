@@ -862,7 +862,7 @@ int32_t populate_roh_slots_from_disk(FILE* bedfile, uint64_t bed_offset, uintptr
         return RET_READ_FAIL;
       }
     }
-    if (fread(rawbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+    if (load_raw(bedfile, rawbuf, unfiltered_indiv_ct4)) {
       return RET_READ_FAIL;
     }
     marker_cidx = marker_uidx_to_cidx[marker_uidx - chrom_start];
@@ -1818,7 +1818,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 
 	  // last few bytes of each lookahead_buf row may be filled with
 	  // garbage, but it doesn't matter
-	  if (fread(&(lookahead_buf[ulii * unfiltered_indiv_ctl2]), 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+	  if (load_raw(bedfile, &(lookahead_buf[ulii * unfiltered_indiv_ctl2]), unfiltered_indiv_ct4)) {
 	    goto roh_pool_ret_READ_FAIL;
 	  }
 	  ulii++;
@@ -2416,6 +2416,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   uintptr_t* haploid_mask = chrom_info_ptr->haploid_mask;
   uintptr_t topsize = 0;
   uintptr_t roh_ct = 0;
+  uintptr_t final_mask = get_final_mask(indiv_ct);
   uintptr_t* indiv_male = NULL;
 
   // support for new 'extend' modifier
@@ -2613,7 +2614,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
 	break;
       }
       readbuf_cur = &(readbuf[widx * indiv_ctl2]);
-      if (load_and_collapse(bedfile, rawbuf, unfiltered_indiv_ct, readbuf_cur, indiv_ct, indiv_exclude, 0)) {
+      if (load_and_collapse(bedfile, rawbuf, unfiltered_indiv_ct, readbuf_cur, indiv_ct, indiv_exclude, final_mask, 0)) {
 	goto calc_homozyg_ret_READ_FAIL;
       }
       mask_out_homozyg_major(readbuf_cur, indiv_ct);
@@ -2674,7 +2675,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
 	  }
 	}
 	uidx_buf[widx] = marker_uidx;
-	if (load_and_collapse(bedfile, rawbuf, unfiltered_indiv_ct, readbuf_cur, indiv_ct, indiv_exclude, 0)) {
+	if (load_and_collapse(bedfile, rawbuf, unfiltered_indiv_ct, readbuf_cur, indiv_ct, indiv_exclude, final_mask, 0)) {
 	  goto calc_homozyg_ret_READ_FAIL;
 	}
 	mask_out_homozyg_major(readbuf_cur, indiv_ct);

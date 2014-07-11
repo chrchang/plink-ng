@@ -47,6 +47,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
   uintptr_t indiv_valid_ctl2 = (indiv_valid_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t polymorphic_marker_ct = 0;
   uintptr_t unselected_covar_ct = 0;
+  uintptr_t final_mask = get_final_mask(indiv_valid_ct);
   uint32_t chrom_fo_idx = 0xffffffffU; // exploit overflow
   uint32_t chrom_end = 0;
   uint32_t is_x = 0;
@@ -149,7 +150,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
       chrom_fo_idx++;
       refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &uii, &is_haploid);
     }
-    if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf_collapsed, indiv_valid_ct, pheno_nm2, IS_SET(marker_reverse, marker_uidx))) {
+    if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf_collapsed, indiv_valid_ct, pheno_nm2, final_mask, IS_SET(marker_reverse, marker_uidx))) {
       goto lasso_bigmem_ret_READ_FAIL;
     }
     if (is_haploid) {
@@ -359,6 +360,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
   uint64_t iter_tot = 0;
   uintptr_t indiv_valid_ctl2 = (indiv_valid_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t polymorphic_marker_ct = 0;
+  uintptr_t final_mask = get_final_mask(indiv_valid_ct);
   uint32_t chrom_fo_idx = 0xffffffffU; // exploit overflow
   uint32_t chrom_end = 0;
   uint32_t is_x = 0;
@@ -457,7 +459,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
       chrom_fo_idx++;
       refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &uii, &is_haploid);
     }
-    if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf_collapsed, indiv_valid_ct, pheno_nm2, IS_SET(marker_reverse, marker_uidx))) {
+    if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf_collapsed, indiv_valid_ct, pheno_nm2, final_mask, IS_SET(marker_reverse, marker_uidx))) {
       goto lasso_smallmem_ret_READ_FAIL;
     }
     if (is_haploid) {

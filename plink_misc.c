@@ -2246,7 +2246,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
       *wptr++ = ' ';
       cslen = (uintptr_t)(wptr - csptr);
 
-      if (fread(readbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+      if (load_raw(bedfile, readbuf, unfiltered_indiv_ct4)) {
 	goto write_stratified_freqs_ret_READ_FAIL;
       }
       if (IS_SET(marker_reverse, marker_uidx)) {
@@ -2550,6 +2550,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t indiv_ctl2 = (indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t final_mask = get_final_mask(indiv_ct);
   uintptr_t x_variant_ct = 0;
   uintptr_t ytotal = 0;
   double nei_sum = 0.0;
@@ -2633,7 +2634,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	  goto sexcheck_ret_READ_FAIL;
 	}
       }
-      if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, indiv_ct, indiv_exclude, 0)) {
+      if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, indiv_ct, indiv_exclude, final_mask, 0)) {
 	goto sexcheck_ret_READ_FAIL;
       }
       cur_missing_ct = count_01(loadbuf, indiv_ctl2);
@@ -2692,7 +2693,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	    goto sexcheck_ret_READ_FAIL;
 	  }
 	}
-	if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, indiv_ct, indiv_exclude, 0)) {
+	if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, indiv_ct, indiv_exclude, final_mask, 0)) {
 	  goto sexcheck_ret_READ_FAIL;
 	}
 	lptr = loadbuf;
@@ -2926,6 +2927,7 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t indiv_ctl2 = (indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t final_mask = get_final_mask(indiv_ct);
   uintptr_t founder_ct = 0;
   uintptr_t monomorphic_ct = 0;
   uintptr_t marker_uidx = 0;
@@ -3016,7 +3018,7 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
         goto het_report_ret_READ_FAIL;
       }
     }
-    if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, indiv_ct, indiv_exclude, 0)) {
+    if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, indiv_ct, indiv_exclude, final_mask, 0)) {
       goto het_report_ret_READ_FAIL;
     }
     cur_missing_ct = count_01(loadbuf, indiv_ctl2);
@@ -3294,7 +3296,7 @@ int32_t fst_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
       }
       seek_flag = 0;
     }
-    if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+    if (load_raw(bedfile, loadbuf, unfiltered_indiv_ct4)) {
       goto fst_report_ret_READ_FAIL;
     }
     fill_uint_zero(cluster_geno_cts, cluster_ct * 3);
@@ -3420,6 +3422,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t indiv_ctl2 = (indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t final_mask = get_final_mask(indiv_ct);
   uintptr_t topsize = 0;
   uintptr_t miss_ct = 0;
   uintptr_t range_ct = 0;
@@ -3887,7 +3890,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
       ploidy = 2 - is_haploid;
       ploidy_d = (double)((int32_t)ploidy);
     }
-    if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, indiv_ct, indiv_exclude, IS_SET(marker_reverse, marker_uidx))) {
+    if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, indiv_ct, indiv_exclude, final_mask, IS_SET(marker_reverse, marker_uidx))) {
       goto score_report_ret_READ_FAIL;
     }
     if (is_haploid && hh_exists) {

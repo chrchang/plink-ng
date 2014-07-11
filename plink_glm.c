@@ -394,7 +394,7 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
 	goto glm_scan_conditions_ret_READ_FAIL;
       }
       // don't use load_and_collapse since collapse bitmask not finalized
-      if (fread(loadbuf_raw, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+      if (load_raw(bedfile, loadbuf_raw, unfiltered_indiv_ct4)) {
 	goto glm_scan_conditions_ret_READ_FAIL;
       }
       chrom_idx = get_marker_chrom(chrom_info_ptr, marker_uidx);
@@ -2983,7 +2983,7 @@ uint32_t glm_fill_design_float(uintptr_t* loadbuf_collapsed, float* fixed_covars
   }
 #ifndef STABLE_BUILD
   if (fptr != &(cur_covars_cov_major[cur_param_ct * cur_indiv_valid_cta4])) {
-    printf("assert failure:\n  cur_param_ct = %u\n  cur_indiv_valid_cta4 = %" PRIuPTR "\n  fptr - cur_covars_cov_major = %" PRIuPTR "\n", cur_param_ct, cur_indiv_valid_cta4, (uintptr_t)(fptr - cur_covars_cov_major));
+    printf("assert failure:\n  cur_param_ct = %u\n  cur_indiv_valid_cta4 = %" PRIuPTR "\n  fptr - cur_covars_cov_major = %" PRIuPTR "\nindiv_valid_ct = %" PRIuPTR "\nalign_skip = %u\n", cur_param_ct, cur_indiv_valid_cta4, (uintptr_t)(fptr - cur_covars_cov_major), indiv_valid_ct, align_skip);
     exit(1);
   }
 #endif
@@ -4362,6 +4362,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   uintptr_t param_idx;
   uintptr_t param_idx_fixed;
   uintptr_t constraint_idx;
+  uintptr_t final_mask;
   uintptr_t ulii;
   uintptr_t uljj;
   double* msa_ptr;
@@ -4389,16 +4390,17 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   uint32_t marker_idx3;
   uint32_t marker_bidx;
   uint32_t chrom_idx;
+  uint32_t loop_end;
+  uint32_t regression_fail;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
-  uint32_t loop_end;
-  uint32_t regression_fail;
   retval = glm_common_init(bedfile, bed_offset, glm_modifier, standard_beta, glm_xchr_model, parameters_range_list_ptr, tests_range_list_ptr, mtest_adjust, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, max_marker_allele_len, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_indiv_ct, indiv_ct, indiv_exclude, mperm_save, pheno_nm_ct, pheno_nm, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_nm, sex_male, hh_exists, do_perms, &perm_batch_size, &max_param_name_len, &np_diploid, &condition_ct, &np_sex, &marker_initial_ct, &sex_covar_everywhere, &variation_in_sex, &x_sex_interaction, &constraint_ct_max, &param_idx_end, &loadbuf_raw, &load_mask, &sex_male_collapsed, &indiv_include2, &indiv_male_include2, &active_params, &haploid_params, &condition_uidxs, &writebuf, &indiv_valid_ct, &param_ctx_max, &param_ctl_max, &condition_list_start_idx, &covar_start_idx, &interaction_start_idx, &sex_start_idx, &np_base, &param_ct_max);
   if (retval) {
     goto glm_linear_assoc_ret_1;
   }
   indiv_valid_ctv2 = 2 * ((indiv_valid_ct + BITCT - 1) / BITCT);
+  final_mask = get_final_mask(indiv_valid_ct);
   param_ctx_max_m1 = param_ctx_max - 1;
   if (wkspace_alloc_d_checked(&g_orig_stats, marker_initial_ct * sizeof(double)) ||
       wkspace_alloc_c_checked(&param_names, param_ctx_max * max_param_name_len) ||
@@ -4453,7 +4455,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
       goto glm_linear_assoc_ret_READ_FAIL;
     }
-    if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, g_loadbuf, indiv_valid_ct, load_mask, IS_SET(marker_reverse, marker_uidx))) {
+    if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, g_loadbuf, indiv_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx))) {
       goto glm_linear_assoc_ret_READ_FAIL;
     }
     chrom_idx = get_marker_chrom(chrom_info_ptr, marker_uidx);
@@ -4983,7 +4985,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	}
       }
       loadbuf_ptr = &(g_loadbuf[block_size * indiv_valid_ctv2]);
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf_ptr, indiv_valid_ct, load_mask, IS_SET(marker_reverse, marker_uidx))) {
+      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf_ptr, indiv_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx))) {
 	goto glm_linear_assoc_ret_READ_FAIL;
       }
       if (hh_exists) {
@@ -5553,6 +5555,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   uintptr_t param_idx;
   uintptr_t param_idx_fixed;
   uintptr_t constraint_idx;
+  uintptr_t final_mask;
   uintptr_t ulii;
   uintptr_t uljj;
   double* msa_ptr;
@@ -5580,17 +5583,18 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   uint32_t marker_idx3;
   uint32_t marker_bidx;
   uint32_t chrom_idx;
+  uint32_t loop_end;
+  uint32_t regression_fail;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
-  uint32_t loop_end;
-  uint32_t regression_fail;
   retval = glm_common_init(bedfile, bed_offset, glm_modifier, 0, glm_xchr_model, parameters_range_list_ptr, tests_range_list_ptr, mtest_adjust, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, max_marker_allele_len, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_indiv_ct, indiv_ct, indiv_exclude, mperm_save, pheno_nm_ct, pheno_nm, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_nm, sex_male, hh_exists, do_perms, &perm_batch_size, &max_param_name_len, &np_diploid, &condition_ct, &np_sex, &marker_initial_ct, &sex_covar_everywhere, &variation_in_sex, &x_sex_interaction, &constraint_ct_max, &param_idx_end, &loadbuf_raw, &load_mask, &sex_male_collapsed, &indiv_include2, &indiv_male_include2, &active_params, &haploid_params, &condition_uidxs, &writebuf, &indiv_valid_ct, &param_ctx_max, &param_ctl_max, &condition_list_start_idx, &covar_start_idx, &interaction_start_idx, &sex_start_idx, &np_base, &param_ct_max);
   if (retval) {
     goto glm_logistic_assoc_ret_1;
   }
   indiv_valid_cta4 = (indiv_valid_ct + 3) & (~3);
   indiv_valid_ctv2 = 2 * ((indiv_valid_ct + BITCT - 1) / BITCT);
+  final_mask = get_final_mask(indiv_valid_ct);
   param_ctx_max_m1 = param_ctx_max - 1;
   param_ct_maxa4 = (param_ct_max + 3) & (~3);
   if (wkspace_alloc_d_checked(&g_orig_stats, marker_initial_ct * sizeof(double)) ||
@@ -5646,7 +5650,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
       goto glm_logistic_assoc_ret_READ_FAIL;
     }
-    if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, g_loadbuf, indiv_valid_ct, load_mask, IS_SET(marker_reverse, marker_uidx))) {
+    if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, g_loadbuf, indiv_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx))) {
       goto glm_logistic_assoc_ret_READ_FAIL;
     }
     chrom_idx = get_marker_chrom(chrom_info_ptr, marker_uidx);
@@ -6145,7 +6149,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	}
       }
       loadbuf_ptr = &(g_loadbuf[block_size * indiv_valid_ctv2]);
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf_ptr, indiv_valid_ct, load_mask, IS_SET(marker_reverse, marker_uidx))) {
+      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf_ptr, indiv_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx))) {
 	goto glm_logistic_assoc_ret_READ_FAIL;
       }
       if (hh_exists) {
@@ -6662,6 +6666,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   uintptr_t param_ctx; // param_ct + 1 if joint test needed, param_ct otherwise
   uintptr_t param_idx;
   uintptr_t constraint_idx;
+  uintptr_t final_mask;
   uintptr_t uljj;
   double* msa_ptr;
   double* dptr3;
@@ -6875,13 +6880,14 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       geno_map[4] = 2;
     }
   }
+  final_mask = get_final_mask(indiv_valid_ct);
   for (uii = 0; uii < condition_ct; uii++) {
     if (is_set(active_params, uii + 1)) {
       marker_uidx = condition_uidxs[uii];
       if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
 	goto glm_linear_nosnp_ret_READ_FAIL;
       }
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf_collapsed, indiv_valid_ct, load_mask, IS_SET(marker_reverse, marker_uidx))) {
+      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf_collapsed, indiv_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx))) {
 	goto glm_linear_nosnp_ret_READ_FAIL;
       }
       chrom_idx = get_marker_chrom(chrom_info_ptr, marker_uidx);
@@ -7568,6 +7574,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   uintptr_t param_ctx; // param_ct + 1 if joint test needed, param_ct otherwise
   uintptr_t param_idx;
   uintptr_t constraint_idx;
+  uintptr_t final_mask;
   uintptr_t uljj;
   double* msa_ptr;
   double se;
@@ -7788,13 +7795,14 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       geno_map[4] = 2;
     }
   }
+  final_mask = get_final_mask(indiv_valid_ct);
   for (uii = 0; uii < condition_ct; uii++) {
     if (is_set(active_params, uii + 1)) {
       marker_uidx = condition_uidxs[uii];
       if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
 	goto glm_logistic_nosnp_ret_READ_FAIL;
       }
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf_collapsed, indiv_valid_ct, load_mask, IS_SET(marker_reverse, marker_uidx))) {
+      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf_collapsed, indiv_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx))) {
 	goto glm_logistic_nosnp_ret_READ_FAIL;
       }
       chrom_idx = get_marker_chrom(chrom_info_ptr, marker_uidx);

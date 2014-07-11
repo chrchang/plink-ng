@@ -8147,6 +8147,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   uintptr_t pca_indiv_ctl2 = (pca_indiv_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t proj_indiv_ct = indiv_ct - pca_indiv_ct;
   uintptr_t proj_indiv_ctl2 = (proj_indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t final_mask = get_final_mask(pca_indiv_ct);
   double nz = 0.0;
   double zz = -1.0;
   uintptr_t* loadbuf_proj = NULL;
@@ -8374,7 +8375,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	  }
 	  // if projecting, loadbuf_raw contains raw data, so we can just
 	  // follow up with collapse_copy_2bitarr() and reverse_loadbuf()
-	  if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, pca_indiv_ct, pca_indiv_exclude, IS_SET(marker_reverse, marker_uidx))) {
+	  if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, pca_indiv_ct, pca_indiv_exclude, final_mask, IS_SET(marker_reverse, marker_uidx))) {
 	    goto calc_pca_ret_READ_FAIL;
 	  }
 	  // Variant weight matrix = X^T * S * D^{-1/2}, where X^T is the
