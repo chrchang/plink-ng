@@ -5087,7 +5087,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	      }
 	    }
 	    pval = calc_tprob(zval, cur_indiv_valid_ct - cur_param_ct);
-	    if ((param_idx < param_idx_end) && (pval <= pfilter)) {
+	    if ((param_idx < param_idx_end) && ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0)))) {
 	      wptr = fw_strcpy(10, &(cur_param_names[param_idx * max_param_name_len]), wptr_start2);
 	      *wptr++ = ' ';
 	      wptr = uint32_writew8x(wptr, (uint32_t)cur_indiv_valid_ct, ' ');
@@ -5128,7 +5128,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	    dxx = g_linear_mt[0].regression_results[cur_param_ct - 1];
 	    *orig_stats_ptr = dxx;
 	    pval = chiprob_p(dxx, cur_constraint_ct);
-	    if (pval <= pfilter) {
+	    if ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0))) {
 	      wptr = fw_strcpy(10, &(param_names[param_ct_max * max_param_name_len]), wptr_start2);
               *wptr++ = ' ';
               wptr = uint32_writew8(wptr, (uint32_t)cur_indiv_valid_ct);
@@ -5159,22 +5159,24 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
               *msa_ptr++ = -9;
 	    }
 	  }
-	  for (param_idx = 1; param_idx < cur_param_ctx; param_idx++) {
-	    if ((param_idx < param_idx_end) || (param_idx == cur_param_ct)) {
-	      if (!(param_idx == cur_param_ct)) {
-	        wptr = fw_strcpy(10, &(cur_param_names[param_idx * max_param_name_len]), wptr_start2);
-	      } else {
-		wptr = fw_strcpy(10, &(param_names[param_ct_max * max_param_name_len]), wptr_start2);
-	      }
-	      *wptr++ = ' ';
-	      wptr = uint32_writew8(wptr, (uint32_t)cur_indiv_valid_ct);
-	      wptr = memcpya(wptr, "         NA ", 12);
-	      if (display_ci) {
-		wptr = memcpya(wptr, "      NA       NA       NA ", 27);
-	      }
-	      wptr = memcpya(wptr, "          NA           NA\n", 26);
-	      if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
-		goto glm_linear_assoc_ret_WRITE_FAIL;
+	  if (pfilter == 2.0) {
+	    for (param_idx = 1; param_idx < cur_param_ctx; param_idx++) {
+	      if ((param_idx < param_idx_end) || (param_idx == cur_param_ct)) {
+		if (!(param_idx == cur_param_ct)) {
+		  wptr = fw_strcpy(10, &(cur_param_names[param_idx * max_param_name_len]), wptr_start2);
+		} else {
+		  wptr = fw_strcpy(10, &(param_names[param_ct_max * max_param_name_len]), wptr_start2);
+		}
+		*wptr++ = ' ';
+		wptr = uint32_writew8(wptr, (uint32_t)cur_indiv_valid_ct);
+		wptr = memcpya(wptr, "         NA ", 12);
+		if (display_ci) {
+		  wptr = memcpya(wptr, "      NA       NA       NA ", 27);
+		}
+		wptr = memcpya(wptr, "          NA           NA\n", 26);
+		if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
+		  goto glm_linear_assoc_ret_WRITE_FAIL;
+		}
 	      }
 	    }
 	  }
@@ -6212,7 +6214,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	      }
 	    }
 	    pval = chiprob_p(zval * zval, 1);
-	    if ((param_idx < param_idx_end) && (pval <= pfilter)) {
+	    if ((param_idx < param_idx_end) && ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0)))) {
 	      wptr = fw_strcpy(10, &(cur_param_names[param_idx * max_param_name_len]), wptr_start2);
 	      *wptr++ = ' ';
 	      wptr = uint32_writew8x(wptr, (uint32_t)cur_indiv_valid_ct, ' ');
@@ -6239,7 +6241,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	    dxx = (double)g_logistic_mt[0].regression_results[cur_param_ct - 1];
 	    *orig_stats_ptr = dxx;
 	    pval = chiprob_p(dxx, cur_constraint_ct);
-	    if (pval <= pfilter) {
+	    if ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0))) {
 	      wptr = fw_strcpy(10, &(param_names[param_ct_max * max_param_name_len]), wptr_start2);
               *wptr++ = ' ';
               wptr = uint32_writew8(wptr, (uint32_t)cur_indiv_valid_ct);
@@ -6270,22 +6272,24 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
               *msa_ptr++ = -9;
 	    }
 	  }
-	  for (param_idx = 1; param_idx < cur_param_ctx; param_idx++) {
-	    if ((param_idx < param_idx_end) || (param_idx == cur_param_ct)) {
-	      if (!(param_idx == cur_param_ct)) {
-	        wptr = fw_strcpy(10, &(cur_param_names[param_idx * max_param_name_len]), wptr_start2);
-	      } else {
-		wptr = fw_strcpy(10, &(param_names[param_ct_max * max_param_name_len]), wptr_start2);
-	      }
-	      *wptr++ = ' ';
-	      wptr = uint32_writew8(wptr, (uint32_t)cur_indiv_valid_ct);
-	      wptr = memcpya(wptr, "         NA ", 12);
-	      if (display_ci) {
-		wptr = memcpya(wptr, "      NA       NA       NA ", 27);
-	      }
-	      wptr = memcpya(wptr, "          NA           NA\n", 26);
-	      if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
-		goto glm_logistic_assoc_ret_WRITE_FAIL;
+	  if (pfilter == 2.0) {
+	    for (param_idx = 1; param_idx < cur_param_ctx; param_idx++) {
+	      if ((param_idx < param_idx_end) || (param_idx == cur_param_ct)) {
+		if (!(param_idx == cur_param_ct)) {
+		  wptr = fw_strcpy(10, &(cur_param_names[param_idx * max_param_name_len]), wptr_start2);
+		} else {
+		  wptr = fw_strcpy(10, &(param_names[param_ct_max * max_param_name_len]), wptr_start2);
+		}
+		*wptr++ = ' ';
+		wptr = uint32_writew8(wptr, (uint32_t)cur_indiv_valid_ct);
+		wptr = memcpya(wptr, "         NA ", 12);
+		if (display_ci) {
+		  wptr = memcpya(wptr, "      NA       NA       NA ", 27);
+		}
+		wptr = memcpya(wptr, "          NA           NA\n", 26);
+		if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
+		  goto glm_logistic_assoc_ret_WRITE_FAIL;
+		}
 	      }
 	    }
 	  }
@@ -7196,7 +7200,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     zval = dxx / se;
     orig_stats[param_idx - 1] = fabs(zval);
     pval = calc_tprob(zval, indiv_valid_ct - param_ct);
-    if ((!hide_covar) && (pval <= pfilter)) {
+    if ((!hide_covar) && ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0)))) {
       wptr = fw_strcpy(10, &(param_names[param_idx * max_param_name_len]), tbuf);
       *wptr++ = ' ';
       wptr = uint32_writew8x(wptr, (uint32_t)indiv_valid_ct, ' ');
@@ -7235,7 +7239,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     dxx = regression_results[param_ct - 1];
     orig_stats[param_ct - 1] = dxx;
     pval = chiprob_p(dxx, constraint_ct);
-    if (pval <= pfilter) {
+    if ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0))) {
       wptr = fw_strcpy(10, &(param_names[param_ct * max_param_name_len]), tbuf);
       *wptr++ = ' ';
       wptr = uint32_writew8(wptr, (uint32_t)indiv_valid_ct);
@@ -8019,7 +8023,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     zval = dxx / se;
     orig_stats[param_idx - 1] = zval * zval;
     pval = chiprob_p(zval * zval, 1);
-    if ((!hide_covar) && (pval <= pfilter)) {
+    if ((!hide_covar) && ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0)))) {
       wptr = fw_strcpy(10, &(param_names[param_idx * max_param_name_len]), tbuf);
       *wptr++ = ' ';
       wptr = uint32_writew8x(wptr, (uint32_t)indiv_valid_ct, ' ');
@@ -8046,7 +8050,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     dxx = (double)regression_results[param_ct - 1];
     orig_stats[param_ct - 1] = dxx;
     pval = chiprob_p(dxx, constraint_ct);
-    if (pval <= pfilter) {
+    if ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0))) {
       wptr = fw_strcpy(10, &(param_names[param_ct * max_param_name_len]), tbuf);
       *wptr++ = ' ';
       wptr = uint32_writew8(wptr, (uint32_t)indiv_valid_ct);

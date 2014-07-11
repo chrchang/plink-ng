@@ -5745,7 +5745,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   tbuf[MAXLINELEN - 6] = ' ';
   if (check_cm_col(mapfile, tbuf, 0, MAXLINELEN - 5, &cm_col, &line_idx)) {
     if (line_idx) {
-      goto ped_to_bed_ret_MISSING_TOKENS;
+      goto ped_to_bed_ret_MISSING_TOKENS_MAP;
     } else {
       logprint("Error: Empty .map file.\n");
       goto ped_to_bed_ret_INVALID_FORMAT;
@@ -5765,7 +5765,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     col2_ptr = next_token(col1_ptr);
     bufptr = next_token_mult(col2_ptr, 1 + cm_col);
     if (no_more_tokens_kns(bufptr)) {
-      goto ped_to_bed_ret_MISSING_TOKENS;
+      goto ped_to_bed_ret_MISSING_TOKENS_MAP;
     }
     ii = get_chrom_code(chrom_info_ptr, col1_ptr);
     if (ii < 0) {
@@ -5895,7 +5895,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     }
     bufptr = next_token_mult(col2_ptr, ped_col_skip - 1);
     if (no_more_tokens_kns(bufptr)) {
-      goto ped_to_bed_ret_MISSING_TOKENS;
+      goto ped_to_bed_ret_MISSING_TOKENS_PED;
     }
     if ((bufptr - col1_ptr) > (MAXLINELEN / 2) - 4) {
       sprintf(logbuf, "\nError: Line %" PRIuPTR " of .ped file has a pathologically long token.\n", line_idx);
@@ -5930,12 +5930,12 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
       cc = *bufptr++;
       if (!cc) {
-        goto ped_to_bed_ret_MISSING_TOKENS;
+        goto ped_to_bed_ret_MISSING_TOKENS_PED;
       }
       bufptr = skip_initial_spaces(bufptr);
       cc2 = *bufptr++;
       if (!cc2) {
-	goto ped_to_bed_ret_MISSING_TOKENS;
+	goto ped_to_bed_ret_MISSING_TOKENS_PED;
       }
       bufptr = skip_initial_spaces(bufptr);
       if (IS_SET(marker_exclude, marker_uidx)) {
@@ -6287,8 +6287,12 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   ped_to_bed_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
-  ped_to_bed_ret_MISSING_TOKENS:
-    sprintf(logbuf, "\nError: Line %" PRIuPTR " of .map file has fewer tokens than expected.\n", line_idx);
+  ped_to_bed_ret_MISSING_TOKENS_MAP:
+    LOGPRINTF("\nError: Line %" PRIuPTR " of .map file has fewer tokens than expected.\n", line_idx);
+    retval = RET_INVALID_FORMAT;
+    break;
+  ped_to_bed_ret_MISSING_TOKENS_PED:
+    sprintf(logbuf, "\nError: Line %" PRIuPTR " of .ped file has fewer tokens than expected.\n", line_idx);
   ped_to_bed_ret_INVALID_FORMAT_2:
     logprintb();
   ped_to_bed_ret_INVALID_FORMAT:

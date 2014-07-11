@@ -429,7 +429,9 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
     loop_end = (((uint64_t)pct) * chi_ct) / 100LLU;
     for (; cur_idx < loop_end; cur_idx++) {
       pval = sp[cur_idx];
-      if (pval > pfilter) {
+      // if --pfilter specified, filter out both nan and negative pvals, since
+      // both are currently used by upstream functions
+      if ((pfilter != 2.0) && ((!(pval >= 0.0)) || (pval > pfilter))) {
 	continue;
       }
       marker_uidx = new_order[cur_idx];
@@ -6978,7 +6980,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	    // --p2 not written yet
 	  }
 	  *ooptr = (da1 * du2) / (du1 * da2);
-	  if (pval <= pfilter) {
+	  if ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0))) {
 	    a1ptr = marker_allele_ptrs[2 * marker_uidx2];
 	    a2ptr = marker_allele_ptrs[2 * marker_uidx2 + 1];
 	    wptr = memcpya(writebuf, chrom_name_ptr, chrom_name_len);
@@ -8475,36 +8477,39 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	      }
 	    }
 	  }
-	  if ((pfilter == 1.0) || ((tp != -9) && (tp <= pfilter))) {
-	    if (!realnum(beta)) {
-	      wptr = memcpya(wptr, "        NA         NA         NA ", 33);
+	  if ((pfilter != 2.0) && ((tp > pfilter) || (tp == -9))) {
+	    continue;
+	  }
+	  if (!realnum(beta)) {
+	    wptr = memcpya(wptr, "        NA         NA         NA ", 33);
+	  } else {
+	    wptr = double_g_writewx4x(wptr, beta, 10, ' ');
+	    wptr = double_g_writewx4x(wptr, vbeta_sqrt, 10, ' ');
+	    wptr = double_g_writewx4x(wptr, rsq, 10, ' ');
+	  }
+	  if (tp >= 0) {
+	    wptr = double_g_writewx4x(wptr, tstat, 8, ' ');
+	    wptr = double_g_writewx4(wptr, tp, 12);
+	  } else {
+	    wptr = memcpya(wptr, "      NA           NA", 21);
+	  }
+	  if (do_lin && (nanal > 2)) {
+	    dxx = g_orig_linsq[marker_idx + marker_bidx];
+	    if (realnum(dxx)) {
+	      *wptr++ = ' ';
+	      dxx = sqrt(dxx);
+	      wptr = double_g_writewx4x(wptr, dxx, 12, ' ');
+	      wptr = double_g_writewx4(wptr, calc_tprob(dxx, nanal - 2), 12);
 	    } else {
-	      wptr = double_g_writewx4x(wptr, beta, 10, ' ');
-	      wptr = double_g_writewx4x(wptr, vbeta_sqrt, 10, ' ');
-	      wptr = double_g_writewx4x(wptr, rsq, 10, ' ');
-	    }
-	    if (tp >= 0) {
-	      wptr = double_g_writewx4x(wptr, tstat, 8, ' ');
-	      wptr = double_g_writewx4(wptr, tp, 12);
-	    } else {
-	      wptr = memcpya(wptr, "      NA           NA", 21);
-	    }
-	    if (do_lin && (nanal > 2)) {
-	      dxx = g_orig_linsq[marker_idx + marker_bidx];
-	      if (realnum(dxx)) {
-		*wptr++ = ' ';
-		dxx = sqrt(dxx);
-		wptr = double_g_writewx4x(wptr, dxx, 12, ' ');
-		wptr = double_g_writewx4(wptr, calc_tprob(dxx, nanal - 2), 12);
-	      } else {
-		wptr = memcpya(wptr, "           NA           NA", 26);
-	      }
-	    }
-	    wptr = memcpya(wptr, " \n", 2);
-	    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
-	      goto qassoc_ret_WRITE_FAIL;
+	      wptr = memcpya(wptr, "           NA           NA", 26);
 	    }
 	  }
+	  wptr = memcpya(wptr, " \n", 2);
+	  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	    goto qassoc_ret_WRITE_FAIL;
+	  }
+	} else if (pfilter != 2.0) {
+	  continue;
 	} else {
 	  wptr = memcpya(wptr, "        NA         NA         NA       NA           NA ", 55);
 	  if (mperm_save & MPERM_DUMP_ALL) {
@@ -8514,9 +8519,9 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	    wptr = memcpya(wptr, "          NA           NA ", 26);
 	  }
 	  *wptr++ = '\n';
-	  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
-	    goto qassoc_ret_WRITE_FAIL;
-	  }
+	}
+	if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	  goto qassoc_ret_WRITE_FAIL;
 	}
 	if (qt_means) {
 	  wptr_restart = &(tbuf[2 + chrom_name_len + plink_maxsnp]);
@@ -10131,7 +10136,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
     ujj = missing_ct - uii;
     pval = fisher22(uii, ujj, cur_case_ct - uii, cur_ctrl_ct - ujj, midp);
     *dptr++ = 1 - pval;
-    if (pval > pfilter) {
+    if (!(pval <= pfilter)) {
       continue;
     }
     wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr_start);
@@ -11311,7 +11316,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
     } else {
       *dptr++ = -9;
     }
-    if ((pfilter == 1.0) || (pval <= pfilter)) {
+    if ((pfilter == 2.0) || ((pval <= pfilter) && (pval != -9))) {
       wptr = memcpyax(tbuf, chrom_name_ptr, chrom_name_len, ' ');
       wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr);
       *wptr++ = ' ';

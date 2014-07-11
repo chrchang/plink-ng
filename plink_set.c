@@ -2341,7 +2341,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
   uint32_t border = aip->border;
   uint32_t need_var_id = (aip->attrib_fname || aip->snps_fname);
   uint32_t need_pos = (aip->ranges_fname || aip->filter_fname);
-  uint32_t do_pfilter = (pfilter != 1.0);
+  uint32_t do_pfilter = (pfilter != 2.0);
   uint32_t token_ct = need_var_id + 2 * need_pos + do_pfilter;
   uint32_t block01 = (aip->modifier & ANNOT_BLOCK);
   uint32_t prune = (aip->modifier & ANNOT_PRUNE);
@@ -2902,7 +2902,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 
     // P
     if (do_pfilter) {
-      if (scan_double(token_ptrs[col_sequence[3]], &pval) || (pval > pfilter)) {
+      if (scan_double(token_ptrs[col_sequence[3]], &pval) || (!(pval <= pfilter))) {
 	continue;
       }
     }
@@ -3148,7 +3148,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   uintptr_t* chrom_bounds = NULL;
   uint32_t** genedefs = NULL;
   uint64_t saved_line_ct = 0;
-  uint32_t do_pfilter = (pfilter != 1.0);
+  uint32_t do_pfilter = (pfilter != 2.0);
   uint32_t token_ct = 2 + (extractname != NULL) + do_pfilter;
   uint32_t snp_field_len = 0;
   uint32_t col_idx = 0;
@@ -3444,7 +3444,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
 
     // P
     if (do_pfilter) {
-      if (scan_double(token_ptrs[col_sequence[3]], &pval) || (pval > pfilter)) {
+      if (scan_double(token_ptrs[col_sequence[3]], &pval) || (!(pval <= pfilter))) {
         goto gene_report_load_loop;
       }
     }

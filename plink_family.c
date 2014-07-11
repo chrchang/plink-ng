@@ -2355,7 +2355,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
 	}
 	pval = chiprob_p(chisq, 1);
       }
-      if (pval <= pfilter) {
+      if ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0))) {
 	wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr_start);
 	wptr = memseta(wptr, 32, 3);
 	wptr = uint32_writew10x(wptr, marker_pos[marker_uidx], ' ');

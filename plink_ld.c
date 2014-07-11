@@ -5328,6 +5328,166 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
   logprint("Error: --show-tags is currently under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
   // Similar to flipscan().
+  /*
+  unsigned char* wkspace_mark = wkspace_base;
+  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t marker_idx = 0;
+  uintptr_t max_window_size = 1;
+  uintptr_t pct = 1;
+  FILE* infile = NULL;
+  FILE* outfile = NULL;
+  uintptr_t* final_set = NULL;
+  uint32_t tags_list = (ldip->modifier & LD_SHOW_TAGS_LIST_ALL) || (!ldip->show_tags_fname);
+  uint32_t twocolumn = ldip->modifier & LD_SHOW_TAGS_MODE2;
+  int32_t retval = 0;
+  uintptr_t line_idx;
+  uintptr_t unrecog_ct;
+  uintptr_t marker_uidx;
+  uintptr_t* targets;
+  char* sorted_marker_ids;
+  char* bufptr;
+  char* bufptr2;
+  uint32_t* marker_id_map;
+  uint32_t chrom_fo_idx;
+  uint32_t chrom_idx;
+  uint32_t chrom_end;
+  uint32_t is_haploid;
+  uint32_t is_x;
+  uint32_t is_y;
+  uint32_t slen;
+  uint32_t uii;
+  int32_t ii;
+  if (wkspace_alloc_ul_checked(&targets, unfiltered_marker_ctl * sizeof(intptr_t))
+      wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
+    goto show_tags_ret_NOMEM;
+  }
+  loadbuf_raw[unfiltered_indiv_ctl2 - 1] = 0;
+  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
+    max_window_size = chrom_window_max(marker_pos, marker_exclude, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], 0x7fffffff, show_tags_bp * 2, max_window_size);
+  }
+  if (ldip->show_tags_fname) {
+    fill_ulong_zero(targets, unfiltered_marker_ctl);
+    retval = sort_item_ids(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
+    if (retval) {
+      goto show_tags_ret_1;
+    }
+    if (fopen_checked(&infile, ldip->show_tags_fname, "r")) {
+      goto show_tags_ret_OPEN_FAIL;
+    }
+    tbuf[MAXLINELEN - 1] = ' ';
+    line_idx = 0;
+    unrecog_ct = 0;
+    while (fgets(tbuf, MAXLINELEN, infile)) {
+      line_idx++;
+      if (!tbuf[MAXLINELEN - 1]) {
+	LOGPRINTF("Error: Line %" PRIuPTR " of --show-tags file is pathologically long.\n", line_idx);
+	goto show_tags_ret_INVALID_FORMAT;
+      }
+      bufptr = skip_initial_spaces(tbuf);
+      if (is_eoln_kns(*bufptr)) {
+	continue;
+      }
+      slen = strlen_se(bufptr);
+      if (twocolumn) {
+	bufptr2 = skip_initial_spaces(&(bufptr[slen]));
+        if (!bufptr2) {
+	  LOGPRINTF("Error: Line %" PRIuPTR " of --show-tags file has fewer tokens than expected.\n", line_idx);
+	  goto show_tags_ret_INVALID_FORMAT;
+	}
+        if ((*bufptr2 != '1') || is_space_or_eoln(bufptr2[1])) {
+	  continue;
+	}
+      }
+      ii = bsearch_str(bufptr, slen, sorted_marker_ids, max_marker_id_len, marker_ct);
+      if (ii == -1) {
+	unrecog_ct++;
+	continue;
+      }
+      marker_uidx = marker_id_map[(uint32_t)ii];
+      if (IS_SET(targets, marker_uidx)) {
+        bufptr[slen] = '\0';
+        LOGPRINTF("Error: Duplicate variant ID '%s' in --show-tags file.\n", bufptr);
+	goto show_tags_ret_INVALID_FORMAT;
+      }
+      SET_BIT(targets, marker_uidx);
+    }
+    if (fclose_null(&infile)) {
+      goto show_tags_ret_READ_FAIL;
+    }
+    wkspace_reset((unsigned char*)id_map);
+    uii = popcount_longs(targets, unfiltered_marker_ctl);
+    if (!uii) {
+      logprint("Error: No recognized marker IDs in --show-tags file.\n");
+      goto show_tags_ret_INVALID_FORMAT;
+    }
+    if (wkspace_alloc_ul_checked(&final_set, unfiltered_marker_ctl * sizeof(intptr_t))) {
+      goto show_tags_ret_NOMEM;
+    }
+    fill_ulong_zero(final_set, unfiltered_marker_ctl);
+    LOGPRINTF("--show-tags: %u target variant%s loaded.\n", uii, (uii == 1)? "" : "s");
+    if (unrecog_ct) {
+      LOGPRINTF("Warning: %" PRIuPTR " unrecognized marker ID%s in --show-tags file.\n", unrecog_ct, (unrecog_ct == 1)? "" : "s");
+    }
+  } else {
+    bitfield_exclude_to_include(marker_exclude, targets, unfiltered_marker_ct);
+  }
+  if (tags_list) {
+    memcpy(outname_end, ".tags.list", 11);
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto show_tags_ret_WRITE_FAIL;
+    }
+  }
+  printf("--show-tags%s: 0%%", final_set? "" : " all");
+  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
+    chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+    chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+    marker_uidx = next_set(targets, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx], chrom_end);
+    chrom_marker_ct = popcount_bit_idx(targets, marker_uidx, chrom_end);
+    if (chrom_marker_ct < 2) {
+      marker_idx += chrom_marker_ct;
+      continue;
+    }
+  }
+  if (tags_list) {
+    if (fclose_null(&outfile)) {
+      goto show_tags_ret_WRITE_FAIL;
+    }
+    if (!final_set) {
+      LOGPRINTFWW("--show-tags all: Report written to %s .\n", outname);
+    }
+  }
+  if (final_set) {
+    memcpy(outname_end, ".tags", 6);
+    if (tags_list) {
+      LOGPRINTFWW("--show-tags: Main report written to %s.list , and simple tag ID list written to %s .\n", outname, outname);
+    } else {
+      LOGPRINTFWW("--show-tags: Simple tag ID list written to %s .\n", outname);
+    }
+  }
+  while (0) {
+  show_tags_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  show_tags_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  show_tags_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  show_tags_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  show_tags_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ show_tags_ret_1:
+  wkspace_reset(wkspace_mark);
+  fclose_cond(infile);
+  fclose_cond(outfile);
+  return retval;
+  */
 }
 
 double calc_lnlike_quantile(double known11, double known12, double known21, double known22, double unknown_dh, double freqx1, double freq1x, double freq2x, double freq11_expected, double denom, int32_t quantile) {

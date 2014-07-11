@@ -101,7 +101,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (8 Jul 2014) ";
+  " (10 Jul 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   " " // (don't want this when version number has a trailing letter)
@@ -3005,7 +3005,7 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t mperm_save = 0;
   uint32_t mperm_val = 0;
   double ci_size = 0.0;
-  double pfilter = 1.0;
+  double pfilter = 2.0; // make --pfilter 1 still filter out NAs
   uint32_t perm_batch_size = 0;
   uint32_t mtest_adjust = 0;
   double adjust_lambda = 0.0;
@@ -7073,6 +7073,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 3, 4)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
+	// may want to permit decimal here
 	if (scan_posint_defcap(argv[cur_arg + 1], &ld_info.prune_window_size) || ((ld_info.prune_window_size == 1) && (param_ct == 3))) {
 	  sprintf(logbuf, "Error: Invalid --%s window size '%s'.\n", argptr, argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
@@ -9138,8 +9139,8 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --pfilter parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
-	if ((dxx <= 0.0) || (dxx >= 1.0)) {
-	  logprint("Error: --pfilter threshold must be between 0 and 1 exclusive.\n");
+	if ((dxx <= 0.0) || (dxx > 1.0)) {
+	  logprint("Error: --pfilter threshold must be in (0, 1].\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	pfilter = dxx;
