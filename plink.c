@@ -101,7 +101,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (10 Jul 2014)";
+  " (13 Jul 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   " " // (don't want this when version number has a trailing letter)
@@ -1557,7 +1557,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       logprint("Error: --show-tags requires a sorted .bim file.  Retry this command after using\n--make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
-    retval = show_tags(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_pos, chrom_info_ptr, unfiltered_indiv_ct, founder_info, sex_male, outname, outname_end, hh_exists);
+    retval = show_tags(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, chrom_info_ptr, unfiltered_indiv_ct, founder_info, sex_male, outname, outname_end, hh_exists);
     if (retval) {
       goto plink_ret_1;
     }
