@@ -292,7 +292,7 @@ void swap_reversed_marker_alleles(uintptr_t unfiltered_marker_ct, uintptr_t* mar
 }
 
 static inline uint32_t are_marker_pos_needed(uint64_t calculation_type, uint64_t misc_flags, char* cm_map_fname, char* set_fname, uint32_t min_bp_space, uint32_t genome_skip_write, uint32_t ld_modifier, uint32_t epi_modifier, uint32_t cluster_modifier) {
-  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_CLUMP | CALC_BLOCKS | CALC_FLIPSCAN | CALC_TDT | CALC_QFAM | CALC_FST)) || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)) || cm_map_fname || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || ((calculation_type & CALC_EPI) && (epi_modifier & EPI_FAST_CASE_ONLY)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2))) || ((calculation_type & CALC_SHOW_TAGS) && (ld_modifier & LD_SHOW_TAGS_LIST_ALL));
+  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_CLUMP | CALC_BLOCKS | CALC_FLIPSCAN | CALC_TDT | CALC_QFAM | CALC_FST | CALC_SHOW_TAGS)) || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)) || cm_map_fname || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || ((calculation_type & CALC_EPI) && (epi_modifier & EPI_FAST_CASE_ONLY)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2)));
 }
 
 static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, char* cm_map_fname, Two_col_params* update_cm) {
