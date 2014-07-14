@@ -1144,7 +1144,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      ratio estimates.  With 'qt', both input and output values are regression\n"
 "      betas.\n"
 "    * When --extract (without 'range') is present, only variants named in the\n"
-"      --extract file are considered.  Chromosome filters are also respected.\n\n"
+"      --extract file are considered.\n"
+"    * Unless 'no-map' is specified, chromosome filters are also respected.\n\n"
 	       );
 #endif
     help_print("fast-epistasis\tepistasis\tset-test\tset-by-all\tcase-only\tnop\tepistasis-summary-merge", &help_ctrl, 1,
