@@ -7,6 +7,13 @@
 #define SCORE_CENTER 8
 #define SCORE_DATA_HEADER 0x10
 
+#define METAANAL_STUDY 1
+#define METAANAL_NO_MAP 2
+#define METAANAL_NO_ALLELE 4
+#define METAANAL_REPORT_ALL 8
+#define METAANAL_LOGSCALE 0x10
+#define METAANAL_QT 0x20
+
 typedef struct {
   char* fname;
   char* range_fname;
@@ -72,5 +79,7 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
 int32_t fst_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts);
 
 int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, double* set_allele_freqs, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t hh_exists, Chrom_info* chrom_info_ptr, char* outname, char* outname_end);
+
+int32_t meta_analysis(char* metaanal_fnames, uint32_t metaanal_flags, char* extractname, char* outname, char* outname_end, Chrom_info* chrom_info_ptr);
 
 #endif // __PLINK_MISC_H__

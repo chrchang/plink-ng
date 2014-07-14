@@ -120,9 +120,9 @@ const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip
   #endif
 #else
   #ifndef NOLAPACK
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep-pairphase, --r2, --blocks, --distance, --genome,\n--homozyg, --make-rel, --make-grm-gz, --rel-cutoff, --cluster, --pca,\n--neighbour, --ibs-test, --regress-distance, --model, --bd, --gxe, --logistic,\n--dosage, --lasso, --test-missing, --make-perm-pheno, --unrelated-heritability,\n--tdt, --qfam, --annotate, --clump, --gene-report, --fast-epistasis, and\n--score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep-pairphase, --r2, --show-tags, --blocks, --distance,\n--genome, --homozyg, --make-rel, --make-grm-gz, --rel-cutoff, --cluster, --pca,\n--neighbour, --ibs-test, --regress-distance, --model, --bd, --gxe, --logistic,\n--dosage, --lasso, --test-missing, --make-perm-pheno, --unrelated-heritability,\n--tdt, --qfam, --annotate, --clump, --gene-report, --fast-epistasis, and\n--score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep-pairphase, --r2, --blocks, --distance, --genome,\n--homozyg, --make-rel, --make-grm-gz, --rel-cutoff, --cluster, --neighbour,\n--ibs-test, --regress-distance, --model, --bd, --gxe, --logistic, --dosage,\n--lasso, --test-missing, --make-perm-pheno, --tdt, --qfam, --annotate, --clump,\n--gene-report, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep-pairphase, --r2, --show-tags, --blocks, --distance,\n--genome, --homozyg, --make-rel, --make-grm-gz, --rel-cutoff, --cluster,\n--neighbour, --ibs-test, --regress-distance, --model, --bd, --gxe, --logistic,\n--dosage, --lasso, --test-missing, --make-perm-pheno, --tdt, --qfam,\n--annotate, --clump, --gene-report, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #endif
 #endif
 
@@ -2910,7 +2910,9 @@ int32_t main(int32_t argc, char** argv) {
   char* gene_report_glist = NULL;
   char* gene_report_subset = NULL;
   char* gene_report_snp_field = NULL;
+  char* metaanal_fnames = NULL;
   uint32_t gene_report_border = 0;
+  uint32_t metaanal_flags = 0;
   double vcf_min_qual = -1;
   double qual_min_thresh = 0.0;
   double qual_max_thresh = HUGE_DOUBLE;
@@ -8740,6 +8742,44 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	calculation_type |= CALC_MAKE_PERM_PHENO;
+      } else if (!memcmp(argptr2, "eta-analysis", 13)) {
+	UNSTABLE;
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 0x7fffffff)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+	// if '+' present, must detect it before using alloc_and_flatten()
+        // must detect '+'
+	for (uii = 1; uii <= param_ct; uii++) {
+	  if ((argv[cur_arg + uii][0] == '+') && (!argv[cur_arg + uii][1])) {
+	    if (uii <= 2) {
+	      logprint("Error: --meta-analysis requires at least two PLINK report files.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    }
+	    break;
+	  }
+	}
+	retval = alloc_and_flatten(&metaanal_fnames, &(argv[cur_arg + 1]), uii - 1);
+	if (retval) {
+	  goto main_ret_1;
+	}
+	for (uii++; uii <= param_ct; uii++) {
+	  if (!strcmp(argv[cur_arg + uii], "study")) {
+	    metaanal_flags |= METAANAL_STUDY;
+	  } else if (!strcmp(argv[cur_arg + uii], "no-map")) {
+	    metaanal_flags |= METAANAL_NO_MAP | METAANAL_NO_ALLELE;
+	  } else if (!strcmp(argv[cur_arg + uii], "no-allele")) {
+	    metaanal_flags |= METAANAL_NO_ALLELE;
+	  } else if (!strcmp(argv[cur_arg + uii], "report-all")) {
+	    metaanal_flags |= METAANAL_REPORT_ALL;
+	  } else if (!strcmp(argv[cur_arg + uii], "logscale")) {
+	    metaanal_flags |= METAANAL_LOGSCALE;
+	  } else if (!strcmp(argv[cur_arg + uii], "qt")) {
+	    metaanal_flags |= METAANAL_QT | METAANAL_LOGSCALE;
+	  } else {
+	    sprintf(logbuf, "Error: Invalid --meta-analysis modifier '%s'.\n", argv[cur_arg + uii]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
+	  }
+	}
       } else if (!memcmp(argptr2, "lma", 4)) {
         logprint("Error: --mlma is not implemented yet.\n");
         goto main_ret_INVALID_CMDLINE;
@@ -12216,7 +12256,7 @@ int32_t main(int32_t argc, char** argv) {
   // short batch job?
   uii = 0;
   if ((!calculation_type) && (!(load_rare & (LOAD_RARE_LGEN | LOAD_RARE_DUMMY | LOAD_RARE_SIMULATE | LOAD_RARE_TRANSPOSE_MASK | LOAD_RARE_23 | LOAD_RARE_CNV | LOAD_RARE_VCF | LOAD_RARE_BCF)))) {
-    if (epi_info.summary_merge_prefix || annot_info.fname || gene_report_fname || (load_rare == LOAD_RARE_DOSAGE)) {
+    if (epi_info.summary_merge_prefix || annot_info.fname || gene_report_fname || (load_rare == LOAD_RARE_DOSAGE) || metaanal_fnames) {
       uii = 1;
     } else if (famname[0] || load_rare) {
       goto main_ret_NULL_CALC;
@@ -12340,6 +12380,12 @@ int32_t main(int32_t argc, char** argv) {
       goto main_ret_INVALID_CMDLINE;
     }
     retval = plink1_dosage(&dosage_info, famname, mapname, outname, outname_end, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, makepheno_str, phenoname_str, covar_fname, qual_filter, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, filtervals_flattened, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, qual_min_thresh, qual_max_thresh, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, mpheno_col, pheno_modifier, &chrom_info, tail_bottom, tail_top, misc_flags, filter_flags, sex_missing_pheno, update_sex_col, &cluster, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, mwithin_col, glm_modifier, glm_vif_thresh);
+    if (retval) {
+      goto main_ret_1;
+    }
+  }
+  if (metaanal_fnames) {
+    retval = meta_analysis(metaanal_fnames, metaanal_flags, (misc_flags & MISC_EXTRACT_RANGE)? NULL : extractname, outname, outname_end, &chrom_info);
     if (retval) {
       goto main_ret_1;
     }
@@ -12572,6 +12618,7 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(gene_report_glist);
   free_cond(gene_report_subset);
   free_cond(gene_report_snp_field);
+  free_cond(metaanal_fnames);
 
   oblig_missing_cleanup(&oblig_missing_info);
   cluster_cleanup(&cluster);

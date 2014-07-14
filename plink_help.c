@@ -1124,6 +1124,29 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * When --extract (without 'range') is present, only variants named in the\n"
 "      --extract file are considered.\n\n"
 	       );
+#ifndef STABLE_BUILD
+    help_print("meta-analysis", &help_ctrl, 1,
+"  --meta-analysis [PLINK report filenames...]\n"
+"  --meta-analysis [PLINK report filenames...] + <study> <no-map | no-allele>\n"
+"                  <report-all> <logscale | qt>\n"
+"    Perform a meta-analysis on several variant-based reports with 'SNP' and\n"
+"    'SE' fields.\n"
+"    * 'study' causes study-specific effect estimates to be collated in the\n"
+"      meta-analysis report.\n"
+"    * 'no-map' causes 'CHR', 'BP', 'A1', and 'A2' fields to be ignored in the\n"
+"      input files if they're present.  'no-allele' causes just 'A1'/'A2' to be\n"
+"      ignored.\n"
+"    * 'report-all' causes variants present in only a single input file to be\n"
+"      included in the meta-analysis report.\n"
+"    * Normally, --meta-analysis looks for 'OR' odds ratio fields in the input\n"
+"      files.  With 'logscale', 'BETA' log-odds values/regression coefficients\n"
+"      are expected instead, but the meta-analysis report still contains odds\n"
+"      ratio estimates.  With 'qt', both input and output values are regression\n"
+"      betas.\n"
+"    * When --extract (without 'range') is present, only variants named in the\n"
+"      --extract file are considered.  Chromosome filters are also respected.\n\n"
+	       );
+#endif
     help_print("fast-epistasis\tepistasis\tset-test\tset-by-all\tcase-only\tnop\tepistasis-summary-merge", &help_ctrl, 1,
 "  --fast-epistasis <boost | joint-effects | no-ueki> <case-only>\n"
 "                   <set-by-set | set-by-all> <nop>\n"

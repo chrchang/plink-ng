@@ -4109,3 +4109,8 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   fclose_cond(outfile);
   return retval;
 }
+
+int32_t meta_analysis(char* metaanal_fnames, uint32_t metaanal_flags, char* extractname, char* outname, char* outname_end, Chrom_info* chrom_info_ptr) {
+  logprint("Error: --meta-analysis is currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
+}
