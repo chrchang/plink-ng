@@ -3101,7 +3101,7 @@ char* chrom_print_human(char* buf, uint32_t num) {
   }
 }
 
-uint32_t allele_set(char** allele_ptr, char* newval, uint32_t slen) {
+uint32_t allele_set(char** allele_ptr, const char* newval, uint32_t slen) {
   // newval does not need to be null-terminated, and slen does not include
   // terminator
   char* newptr;
@@ -3118,7 +3118,7 @@ uint32_t allele_set(char** allele_ptr, char* newval, uint32_t slen) {
   return 0;
 }
 
-uint32_t allele_reset(char** allele_ptr, char* newval, uint32_t slen) {
+uint32_t allele_reset(char** allele_ptr, const char* newval, uint32_t slen) {
   char* newptr;
   if (slen == 1) {
     newptr = (char*)(&(g_one_char_strs[((unsigned char)*newval) * 2]));

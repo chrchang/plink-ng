@@ -1628,9 +1628,9 @@ double calc_wt_mean(double exponent, int32_t lhi, int32_t lli, int32_t hhi) {
 }
 
 // aptr1 = minor, aptr2 = major
-int32_t load_one_freq(uint32_t alen1, const char* aptr1, uint32_t alen2, const char* aptr2, double maf, double* set_allele_freq_ptr, char* mastr1, char* mastr2, char missing_geno) {
-  uint32_t malen1 = strlen(mastr1);
-  uint32_t malen2 = strlen(mastr2);
+int32_t load_one_freq(uint32_t alen1, const char* aptr1, uint32_t alen2, const char* aptr2, double maf, double* set_allele_freq_ptr, char** mastrs_ptr, char missing_geno) {
+  uint32_t malen1 = strlen(mastrs_ptr[0]);
+  uint32_t malen2 = strlen(mastrs_ptr[1]);
   uint32_t uii;
   const char* aptr;
   if (maf > 0.5) {
@@ -1642,28 +1642,48 @@ int32_t load_one_freq(uint32_t alen1, const char* aptr1, uint32_t alen2, const c
     alen1 = uii;
     maf = 1.0 - maf;
   }
-  if ((malen1 == alen1) && (!memcmp(mastr1, aptr1, alen1))) {
-    if ((malen2 == alen2) && (!memcmp(mastr2, aptr2, alen2))) {
-      *set_allele_freq_ptr = 1.0 - maf;
-    } else {
-      return -1;
+  if ((malen1 == alen1) && (!memcmp(mastrs_ptr[0], aptr1, alen1))) {
+    if (((malen2 != alen2)) || memcmp(mastrs_ptr[1], aptr2, alen2)) {
+      if ((mastrs_ptr[1][0] == missing_geno) && (malen2 == 1)) {
+	if (allele_set(&(mastrs_ptr[1]), aptr2, alen2)) {
+	  return RET_NOMEM;
+	}
+      } else {
+        return RET_ALLELE_MISMATCH;
+      }
     }
-  } else if ((malen2 == alen1) && (!memcmp(mastr2, aptr1, alen1))) {
-    if ((malen1 == alen2) && (!memcmp(mastr1, aptr2, alen2))) {
-      *set_allele_freq_ptr = maf;
-    } else {
-      return -1;
+    *set_allele_freq_ptr = 1.0 - maf;
+  } else if ((malen2 == alen1) && (!memcmp(mastrs_ptr[1], aptr1, alen1))) {
+    if ((malen1 != alen2) || memcmp(mastrs_ptr[0], aptr2, alen2)) {
+      if ((mastrs_ptr[0][0] == missing_geno) && (malen1 == 1)) {
+        if (allele_set(&(mastrs_ptr[0]), aptr2, alen2)) {
+	  return RET_NOMEM;
+	}
+      } else {
+        return RET_ALLELE_MISMATCH;
+      }
     }
+    *set_allele_freq_ptr = maf;
+  } else if ((mastrs_ptr[0][0] == missing_geno) && (malen1 == 1) && (malen2 == alen2) && (!memcmp(mastrs_ptr[1], aptr2, alen2))) {
+    if (allele_set(&(mastrs_ptr[0]), aptr1, alen1)) {
+      return RET_NOMEM;
+    }
+    *set_allele_freq_ptr = 1.0 - maf;
+  } else if ((mastrs_ptr[1][0] == missing_geno) && (malen2 == 1) && (malen1 == alen2) && (!memcmp(mastrs_ptr[0], aptr2, alen2))) {
+    if (allele_set(&(mastrs_ptr[1]), aptr1, alen1)) {
+      return RET_NOMEM;
+    }
+    *set_allele_freq_ptr = maf;
   } else if ((*aptr1 == missing_geno) && (alen1 == 1) && (maf == 0.0)) {
-    if ((malen1 == alen2) && (!memcmp(mastr1, aptr2, alen2))) {
+    if ((malen1 == alen2) && (!memcmp(mastrs_ptr[0], aptr2, alen2))) {
       *set_allele_freq_ptr = 0.0;
-    } else if ((malen2 == alen2) && (!memcmp(mastr2, aptr2, alen2))) {
+    } else if ((malen2 == alen2) && (!memcmp(mastrs_ptr[1], aptr2, alen2))) {
       *set_allele_freq_ptr = 1.0;
     } else {
-      return -1;
+      return RET_ALLELE_MISMATCH;
     }
   } else {
-    return -1;
+    return RET_ALLELE_MISMATCH;
   }
   return 0;
 }
@@ -1777,7 +1797,8 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	      goto read_external_freqs_ret_INVALID_MAF;
 	    }
 	  }
-	  if (load_one_freq(alen1, aptr1, alen2, aptr2, maf, &(set_allele_freqs[marker_uidx]), marker_allele_ptrs[marker_uidx * 2], marker_allele_ptrs[marker_uidx * 2 + 1], missing_geno)) {
+	  retval = load_one_freq(alen1, aptr1, alen2, aptr2, maf, &(set_allele_freqs[marker_uidx]), &(marker_allele_ptrs[marker_uidx * 2]), missing_geno);
+	  if (retval) {
 	    goto read_external_freqs_ret_ALLELE_MISMATCH;
 	  }
 	  if (wt_needed) {
@@ -1851,7 +1872,8 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	    goto read_external_freqs_ret_INVALID_FORMAT_2;
 	  }
 	  maf = ((double)(c_hom_a1 * 2 + c_het + c_hap_a1 + maf_succ)) / ((double)(2 * (c_hom_a1 + c_het + c_hom_a2 + maf_succ) + c_hap_a1 + c_hap_a2));
-	  if (load_one_freq(alen1, aptr1, alen2, aptr2, maf, &(set_allele_freqs[marker_uidx]), marker_allele_ptrs[marker_uidx * 2], marker_allele_ptrs[marker_uidx * 2 + 1], missing_geno)) {
+	  retval = load_one_freq(alen1, aptr1, alen2, aptr2, maf, &(set_allele_freqs[marker_uidx]), &(marker_allele_ptrs[marker_uidx * 2]), missing_geno);
+	  if (retval) {
 	    goto read_external_freqs_ret_ALLELE_MISMATCH;
 	  }
 	  if (wt_needed) {
@@ -1894,7 +1916,8 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	if (scan_double(bufptr, &maf)) {
           goto read_external_freqs_ret_INVALID_MAF;
         }
-	if (load_one_freq(1, missing_geno_ptr, alen1, aptr1, maf, &(set_allele_freqs[marker_uidx]), marker_allele_ptrs[marker_uidx * 2], marker_allele_ptrs[marker_uidx * 2 + 1], missing_geno)) {
+	retval = load_one_freq(1, missing_geno_ptr, alen1, aptr1, maf, &(set_allele_freqs[marker_uidx]), &(marker_allele_ptrs[marker_uidx * 2]), missing_geno);
+	if (retval) {
 	  goto read_external_freqs_ret_ALLELE_MISMATCH;
 	}
 	if (wt_needed) {
@@ -1955,8 +1978,10 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
     retval = RET_INVALID_FORMAT;
     break;
   read_external_freqs_ret_ALLELE_MISMATCH:
+    if (retval == RET_NOMEM) {
+      break;
+    }
     LOGPRINTF("Error: Allele(s) on line %" PRIuPTR " of --read-freq file don't match loaded\nvalues.\n", line_idx);
-    retval = RET_ALLELE_MISMATCH;
     break;
   }
  read_external_freqs_ret_1:
