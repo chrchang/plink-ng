@@ -1030,7 +1030,6 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
   uintptr_t miss_ct = 0;
   uintptr_t err_ct = 0;
   uintptr_t line_idx = 0;
-  const char* missing_geno_ptr = g_missing_geno_ptr;
   uintptr_t* already_seen;
   char* loadbuf;
   char* bufptr;
