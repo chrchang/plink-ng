@@ -5206,12 +5206,6 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
         goto ped_to_bed_multichar_allele_ret_NOMEM;
       }
     }
-#ifndef STABLE_BUILD
-    if (g_debug_on) {
-      sprintf(logbuf, "Loaded line %" PRIuPTR ".\n", line_idx);
-      logstr(logbuf);
-    }
-#endif
     cur_slen = strlen(loadbuf);
     ulii = cur_slen + 1;
     if (ulii > ped_buflen) {
@@ -5236,11 +5230,6 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
       goto ped_to_bed_multichar_allele_ret_WRITE_FAIL;
     }
     putc('\t', outfile);
-#ifndef STABLE_BUILD
-    if (g_debug_on) {
-      logstr("Loaded FID, and dumped to .fam file.\n");
-    }
-#endif
     bufptr2 = write_token(col2_ptr, outfile);
     if (fam_cols & FAM_COL_34) {
       bufptr2 = write_token(bufptr2, outfile);
@@ -5248,11 +5237,6 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
     } else {
       fputs("0\t0\t", outfile);
     }
-#ifndef STABLE_BUILD
-    if (g_debug_on) {
-      logstr("Wrote columns 2-4 to .fam file.\n");
-    }
-#endif
     if (fam_cols & FAM_COL_5) {
       bufptr2 = write_token_nt(bufptr2, outfile);
     } else {
@@ -5268,13 +5252,6 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
     if (putc_checked('\n', outfile)) {
       goto ped_to_bed_multichar_allele_ret_WRITE_FAIL;
     }
-#ifndef STABLE_BUILD
-    if (g_debug_on) {
-      logstr("Wrote columns 5-6 to .fam file.\n");
-      sprintf(logbuf, "Genotype data: %s", bufptr);
-      logstr(logbuf);
-    }
-#endif
     wkspace_base += cur_slen_rdup;
     wkspace_left -= cur_slen_rdup;
     for (marker_uidx = 0, marker_idx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
@@ -5292,12 +5269,6 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
       if (IS_SET(marker_exclude, marker_uidx)) {
 	continue;
       }
-#ifndef STABLE_BUILD
-      if (g_debug_on) {
-        sprintf(logbuf, "Tokenized allele pair %" PRIuPTR ".\n", marker_uidx);
-	logstr(logbuf);
-      }
-#endif
       if ((*aptr1 == missing_geno) && (alen1 == 1)) {
 	if (g_debug_on) {
 	  logstr("Took branch 1.\n");
@@ -5310,30 +5281,15 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
       } else if ((*aptr2 == missing_geno) && (alen2 == 1)) {
 	goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_4;
       }
-#ifndef STABLE_BUILD
-      if (g_debug_on) {
-	logstr("Took branch 2.\n");
-      }
-#endif
       uii = map_is_unsorted? map_reverse[marker_idx] : marker_idx;
       retval = incr_text_allele_str(&topsize, aptr1, alen1, (Ll_str*)(&(marker_alleles_tmp[uii])), &(marker_allele_cts[4 * uii]));
       if (retval) {
 	goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_6;
       }
-#ifndef STABLE_BUILD
-      if (g_debug_on) {
-	logstr("Incremented first allele count.\n");
-      }
-#endif
       retval = incr_text_allele_str(&topsize, aptr2, alen2, (Ll_str*)(&(marker_alleles_tmp[uii])), &(marker_allele_cts[4 * uii]));
       if (retval) {
 	goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_6;
       }
-#ifndef STABLE_BUILD
-      if (g_debug_on) {
-	logstr("Incremented second allele count.\n");
-      }
-#endif
       marker_idx++;
     }
     wkspace_base -= cur_slen_rdup;
@@ -5844,10 +5800,6 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   }
   marker_exclude = (uintptr_t*)wkspace_alloc(((unfiltered_marker_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t));
 
-  // provisionally assume max_marker_allele_len == 1
-  if (wkspace_alloc_c_checked(&marker_alleles_f, marker_ct * 2)) {
-    goto ped_to_bed_ret_NOMEM;
-  }
   if (map_is_unsorted) {
     retval = load_sort_and_write_map(&map_reverse, mapfile, 3 + cm_col, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, max_marker_id_len, 1, chrom_info_ptr);
     if (retval) {
@@ -5856,7 +5808,10 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     cm_col = 1;
     fclose_null(&mapfile);
   }
-  if (wkspace_alloc_c_checked(&marker_alleles, marker_ct * 4) ||
+  // provisionally assume max_marker_allele_len == 1
+  // bugfix: allocate this after map_reverse
+  if (wkspace_alloc_c_checked(&marker_alleles_f, marker_ct * 2) ||
+      wkspace_alloc_c_checked(&marker_alleles, marker_ct * 4) ||
       wkspace_alloc_ui_checked(&marker_allele_cts, marker_ct * 4 * sizeof(int32_t))) {
     goto ped_to_bed_ret_NOMEM;
   }
