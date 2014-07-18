@@ -1030,7 +1030,6 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
   uintptr_t miss_ct = 0;
   uintptr_t err_ct = 0;
   uintptr_t line_idx = 0;
-  uint32_t double_missing_ct = 0;
   const char* missing_geno_ptr = g_missing_geno_ptr;
   uintptr_t* already_seen;
   char* loadbuf;
@@ -1084,10 +1083,6 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
     }
     set_bit(already_seen, sorted_idx);
     marker_uidx = marker_id_map[((uint32_t)sorted_idx)];
-    if ((marker_allele_ptrs[2 * marker_uidx] == missing_geno_ptr) && (marker_allele_ptrs[2 * marker_uidx + 1] == missing_geno_ptr)) {
-      double_missing_ct++;
-      continue;
-    }
     bufptr2 = skip_initial_spaces(bufptr2);
     len2 = strlen_se(bufptr2);
     bufptr = &(bufptr2[len2]);
@@ -1144,9 +1139,6 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
   logprintb();
   if (err_ct) {
     LOGPRINTFWW("%" PRIuPTR " update failure%s logged to %s .\n", err_ct, (err_ct == 1)? "" : "s", outname);
-  }
-  if (double_missing_ct) {
-    LOGPRINTF("%u variant%s skipped since both existing allele codes were missing.\n", double_missing_ct, (double_missing_ct == 1)? "" : "s");
   }
 
   while (0) {
@@ -2032,7 +2024,6 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
   char skipchar = axalleles->skipchar;
   const char* missing_geno_ptr = g_missing_geno_ptr;
   uint32_t colid_first = (axalleles->colid < axalleles->colx);
-  uint32_t double_missing_ct = 0;
   uintptr_t marker_ct = unfiltered_marker_ct - marker_exclude_ct;
   uintptr_t marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t max_marker_allele_len = *max_marker_allele_len_ptr;
@@ -2111,10 +2102,6 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
     }
     SET_BIT(already_seen, sorted_idx);
     marker_uidx = marker_id_map[(uint32_t)sorted_idx];
-    if ((marker_allele_ptrs[marker_uidx * 2] == missing_geno_ptr) && (marker_allele_ptrs[marker_uidx * 2 + 1] == missing_geno_ptr)) {
-      double_missing_ct++;
-      continue;
-    }
     alen = strlen_se(colx_ptr);
     colx_ptr[alen] = '\0';
     if (!strcmp(colx_ptr, marker_allele_ptrs[marker_uidx * 2 + is_a2])) {
@@ -2156,9 +2143,6 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
   }
   marker_uidx = popcount_longs(already_seen, marker_ctl);
   LOGPRINTF("--a%c-allele: %u assignment%s made.\n", is_a2? '2' : '1', marker_uidx, (marker_uidx == 1)? "" : "s");
-  if (double_missing_ct) {
-    LOGPRINTF("%u variant%s skipped since both existing allele codes were missing.\n", double_missing_ct, (double_missing_ct == 1)? "" : "s");
-  }
   *max_marker_allele_len_ptr = max_marker_allele_len;
   while (0) {
   load_ax_alleles_ret_NOMEM:
