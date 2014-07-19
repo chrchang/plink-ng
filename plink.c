@@ -1036,7 +1036,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       if (uii) {
 	if ((!sex_missing_pheno) && (calculation_type & (CALC_MAKE_BED | CALC_MAKE_FAM | CALC_RECODE | CALC_WRITE_COVAR))) {
 	  if (calculation_type & (~(CALC_MAKE_BED | CALC_MAKE_FAM | CALC_RECODE | CALC_WRITE_COVAR))) {
-	    logprint("Error: When ambiguous-sex samples with phenotype data are present,\n--make-bed/--make-fam/--recode/--write-covar usually cannot be combined with\nother commands.  Split them across multiple PLINK runs, or use\n--allow-no-sex/--must-have-sex.\n");
+	    logprint("Error: When ambiguous-sex samples with phenotype data are present,\n--make-bed/--make-just-fam/--recode/--write-covar usually cannot be combined\nwith other commands.  Split them across multiple PLINK runs, or use\n--allow-no-sex/--must-have-sex.\n");
 	    goto plink_ret_INVALID_CMDLINE;
 	  }
 	} else {
@@ -6076,7 +6076,7 @@ int32_t main(int32_t argc, char** argv) {
         if (alloc_string(&markername_snp, argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
-        filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV | FILTER_EXCLUDE_MARKERNAME_SNP;
+        filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP | FILTER_NOCNV | FILTER_EXCLUDE_MARKERNAME_SNP;
       } else if (!memcmp(argptr2, "xclude-snps", 12)) {
 	if (markername_snp) {
 	  logprint("Error: --exclude-snps cannot be used with --exclude-snp.\n");
@@ -7920,7 +7920,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --max-maf parameter '%s' too large (must be < 0.5).\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
-	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
+	filter_flags |= FILTER_ALL_REQ | FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "ind", 4)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -8113,24 +8113,24 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	calculation_type |= CALC_MAKE_BED;
-      } else if (!memcmp(argptr2, "ake-bim", 8)) {
+      } else if (!memcmp(argptr2, "ake-just-bim", 13)) {
 	if (calculation_type & CALC_MAKE_BED) {
-	  logprint("Error: --make-bim cannot be used with --make-bed.\n");
+	  logprint("Error: --make-just-bim cannot be used with --make-bed.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
-	  sprintf(logbuf, "Error: --make-bim cannot be used with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
+	  sprintf(logbuf, "Error: --make-just-bim cannot be used with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	calculation_type |= CALC_MAKE_BIM;
 	goto main_param_zero;
-      } else if (!memcmp(argptr2, "ake-fam", 8)) {
+      } else if (!memcmp(argptr2, "ake-just-fam", 13)) {
 	if (calculation_type & CALC_MAKE_BED) {
-	  logprint("Error: --make-fam cannot be used with --make-bed.\n");
+	  logprint("Error: --make-just-fam cannot be used with --make-bed.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
-	  sprintf(logbuf, "Error: --make-fam cannot be used with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
+	  sprintf(logbuf, "Error: --make-just-fam cannot be used with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	calculation_type |= CALC_MAKE_FAM;
@@ -11749,7 +11749,7 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "rite-covar", 11)) {
 	if (calculation_type & (CALC_MAKE_BED | CALC_MAKE_FAM | CALC_RECODE)) {
-	  logprint("Error: --write-covar cannot be used with --make-bed/--make-fam or --recode.\n");
+	  logprint("Error: --write-covar cannot be used with --make-bed/--make-just-fam/--recode.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (!covar_fname) {
@@ -12021,7 +12021,7 @@ int32_t main(int32_t argc, char** argv) {
       }
     } else {
       if (!(calculation_type & (CALC_WRITE_COVAR | CALC_MAKE_BED | CALC_MAKE_FAM | CALC_RECODE))) {
-        logprint("Error: --must-have-sex must be used with --make-bed, --make-fam, --recode, or\n--write-covar.\n");
+        logprint("Error: --must-have-sex must be used with --make-bed, --make-just-fam, --recode,\nor --write-covar.\n");
         goto main_ret_INVALID_CMDLINE;
       }
     }

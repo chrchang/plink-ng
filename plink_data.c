@@ -3592,7 +3592,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   } else if (resort_map && (calculation_type & CALC_MAKE_BIM)) {
     memcpy(outname_end, ".bim", 5);
     if (calculation_type & CALC_MAKE_BIM) {
-      LOGPRINTFWW5("--make-bim to %s ... ", outname);
+      LOGPRINTFWW5("--make-just-bim to %s ... ", outname);
       fflush(stdout);
     }
     if (wkspace_alloc_ui_checked(&map_reverse, unfiltered_marker_ct * sizeof(int32_t)) ||
@@ -3620,7 +3620,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   if (calculation_type & (CALC_MAKE_BED | CALC_MAKE_FAM)) {
     memcpy(outname_end, ".fam", 5);
     if (calculation_type & CALC_MAKE_FAM) {
-      LOGPRINTFWW5("--make-fam to %s ... ", outname);
+      LOGPRINTFWW5("--make-just-fam to %s ... ", outname);
       fflush(stdout);
     }
     retval = write_fam(outname, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm, pheno_c, pheno_d, output_missing_pheno, ' ', indiv_sort_map);
@@ -3635,7 +3635,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   if ((!resort_map) && (calculation_type & (CALC_MAKE_BED | CALC_MAKE_BIM))) {
     memcpy(outname_end, ".bim", 5);
     if (calculation_type & CALC_MAKE_BIM) {
-      LOGPRINTFWW5("--make-bim to %s ... ", outname);
+      LOGPRINTFWW5("--make-just-bim to %s ... ", outname);
       fflush(stdout);
     }
     retval = write_map_or_bim(outname, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_cms, marker_pos, marker_allele_ptrs, '\t', chrom_info_ptr);
