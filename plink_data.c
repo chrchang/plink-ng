@@ -1085,9 +1085,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     if (wkspace_alloc_d_checked(set_allele_freqs_ptr, unfiltered_marker_ct * sizeof(double))) {
       goto load_bim_ret_NOMEM;
     }
-    for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
-      (*set_allele_freqs_ptr)[marker_uidx] = -1.0;
-    }
+    // leave set_allele_freqs uninitialized
   }
   fill_uint_zero(chrom_info_ptr->chrom_file_order, MAX_POSSIBLE_CHROM);
   fill_uint_zero(chrom_info_ptr->chrom_file_order_marker_idx, MAX_POSSIBLE_CHROM + 1);
@@ -3309,7 +3307,7 @@ void replace_missing_a2(uintptr_t* writebuf, uintptr_t* subset_vec2, uintptr_t w
 #endif
 }
 
-int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t map_cols, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t map_is_unsorted, uint32_t* indiv_sort_map, uint64_t misc_flags, uint32_t splitx_bound1, uint32_t splitx_bound2, Two_col_params* update_chr, char* flip_fname, char* flip_subset_fname, char* zerofname, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, uint32_t hh_exists, Chrom_info* chrom_info_ptr, uint32_t mendel_modifier) {
+int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t map_cols, char* outname, char* outname_end, uint64_t calculation_type, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t map_is_unsorted, uint32_t* indiv_sort_map, uint64_t misc_flags, uint32_t splitx_bound1, uint32_t splitx_bound2, Two_col_params* update_chr, char* flip_fname, char* flip_subset_fname, char* zerofname, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, uint32_t hh_exists, Chrom_info* chrom_info_ptr, uint32_t mendel_modifier) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
@@ -3348,6 +3346,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   uint32_t resort_map = map_is_unsorted || mergex || splitx_bound2 || update_chr;
   uint32_t chrom_end = 0;
   uint32_t chrom_fo_idx = 0xffffffffU; // deliberate overflow
+  uint32_t pct = 1;
   int32_t retval = 0;
   const char errflags[][16] = {"set-hh-missing", "set-me-missing", "fill-missing-a2"};
   uintptr_t* loadbuf;
@@ -3359,7 +3358,6 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   uint32_t is_x;
   uint32_t is_y;
   uint32_t is_mt;
-  uint32_t pct;
   uint32_t loop_end;
   if (flip_subset_fname) {
     if (wkspace_alloc_ul_checked(&flip_subset_markers, unfiltered_marker_ctl * sizeof(intptr_t)) ||
@@ -3371,247 +3369,293 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
       goto make_bed_ret_1;
     }
   }
-  if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
-    goto make_bed_ret_NOMEM;
-  }
-
-  if (zerofname && cluster_ct) {
-    zcdefs = (uint32_t**)wkspace_alloc(cluster_ct * sizeof(intptr_t));
-    if (!zcdefs) {
+  if (calculation_type & CALC_MAKE_BED) {
+    if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
       goto make_bed_ret_NOMEM;
     }
-    retval = zero_cluster_init(zerofname, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, unfiltered_indiv_ct, indiv_exclude, indiv_ct, indiv_sort_map, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, zcdefs, &cluster_zc_masks);
-    if (retval) {
-      goto make_bed_ret_1;
-    }
-    if (wkspace_alloc_ul_checked(&patchbuf, indiv_ctv2 * sizeof(intptr_t))) {
-      goto make_bed_ret_NOMEM;
-    }
-  }
-  memcpy(outname_end, ".bed", 5);
-  if (fopen_checked(&bedoutfile, outname, "wb")) {
-    goto make_bed_ret_OPEN_FAIL;
-  }
 
-  if (fwrite_checked("l\x1b\x01", 3, bedoutfile)) {
-    goto make_bed_ret_WRITE_FAIL;
-  }
-  fflush(stdout);
-  if (fseeko(bedfile, bed_offset, SEEK_SET)) {
-    goto make_bed_ret_READ_FAIL;
-  }
-  if (resort_map) {
-    if (set_hh_missing || set_me_missing || fill_missing_a2) {
-      // could remove this restriction if we added a chromosome check to the
-      // main loop, but no real need to bother.
-      errptr = errflags[set_hh_missing? 0 : (set_me_missing? 1 : 2)];
-      if (map_is_unsorted) {
-        LOGPRINTF("Error: --%s cannot be used on an unsorted .bim file.  Use\n--make-bed without --%s to sort by position first; then run\n--make-bed + --%s on the new fileset.\n", errptr, errptr, errptr);
-      } else {
-        LOGPRINTF("Error: --%s cannot be used with --merge-x/--split-x/--update-chr.\nFinish updating chromosome codes first.\n", errptr);
+    if (zerofname && cluster_ct) {
+      zcdefs = (uint32_t**)wkspace_alloc(cluster_ct * sizeof(intptr_t));
+      if (!zcdefs) {
+	goto make_bed_ret_NOMEM;
       }
-      retval = RET_CALC_NOT_YET_SUPPORTED;
-      goto make_bed_ret_1;
+      retval = zero_cluster_init(zerofname, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, unfiltered_indiv_ct, indiv_exclude, indiv_ct, indiv_sort_map, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, zcdefs, &cluster_zc_masks);
+      if (retval) {
+	goto make_bed_ret_1;
+      }
+      if (wkspace_alloc_ul_checked(&patchbuf, indiv_ctv2 * sizeof(intptr_t))) {
+	goto make_bed_ret_NOMEM;
+      }
     }
-    if (wkspace_alloc_ui_checked(&map_reverse, unfiltered_marker_ct * sizeof(int32_t)) ||
-        wkspace_alloc_ll_checked(&ll_buf, marker_ct * sizeof(int64_t))) {
-      goto make_bed_ret_NOMEM;
+    memcpy(outname_end, ".bed", 5);
+    if (fopen_checked(&bedoutfile, outname, "wb")) {
+      goto make_bed_ret_OPEN_FAIL;
     }
-    if ((map_is_unsorted & UNSORTED_SPLIT_CHROM) || mergex || splitx_bound2 || update_chr) {
-      if (map_is_unsorted & UNSORTED_SPLIT_CHROM) {
-        retval = load_bim_split_chrom(bimname, marker_exclude, marker_ct, chrom_info_ptr, ll_buf);
-        if (retval) {
-	  goto make_bed_ret_1;
-        }
+
+    if (fwrite_checked("l\x1b\x01", 3, bedoutfile)) {
+      goto make_bed_ret_WRITE_FAIL;
+    }
+    fflush(stdout);
+    if (fseeko(bedfile, bed_offset, SEEK_SET)) {
+      goto make_bed_ret_READ_FAIL;
+    }
+    if (resort_map) {
+      if (set_hh_missing || set_me_missing || fill_missing_a2) {
+	// could remove this restriction if we added a chromosome check to the
+	// main loop, but no real need to bother.
+	errptr = errflags[set_hh_missing? 0 : (set_me_missing? 1 : 2)];
+	if (map_is_unsorted) {
+	  LOGPRINTF("Error: --%s cannot be used on an unsorted .bim file.  Use\n--make-bed without --%s to sort by position first; then run\n--make-bed + --%s on the new fileset.\n", errptr, errptr, errptr);
+	} else {
+	  LOGPRINTF("Error: --%s cannot be used with --merge-x/--split-x/--update-chr.\nFinish updating chromosome codes first.\n", errptr);
+	}
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+	goto make_bed_ret_1;
+      }
+      if (wkspace_alloc_ui_checked(&map_reverse, unfiltered_marker_ct * sizeof(int32_t)) ||
+	  wkspace_alloc_ll_checked(&ll_buf, marker_ct * sizeof(int64_t))) {
+	goto make_bed_ret_NOMEM;
+      }
+      if ((map_is_unsorted & UNSORTED_SPLIT_CHROM) || mergex || splitx_bound2 || update_chr) {
+	if (map_is_unsorted & UNSORTED_SPLIT_CHROM) {
+	  retval = load_bim_split_chrom(bimname, marker_exclude, marker_ct, chrom_info_ptr, ll_buf);
+	  if (retval) {
+	    goto make_bed_ret_1;
+	  }
+	} else {
+	  fill_ll_buf(marker_exclude, marker_ct, chrom_info_ptr, ll_buf);
+	}
+	if (update_chr) {
+	  retval = update_marker_chroms(update_chr, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, allow_extra_chroms, chrom_info_ptr, ll_buf);
+	  if (retval) {
+	    goto make_bed_ret_1;
+	  }
+	} else if (mergex || splitx_bound2) {
+	  if (splitx_bound2 && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xy_code)) {
+	    logprint("Error: --split-x cannot be used when the dataset already contains an XY region.\n");
+	    goto make_bed_ret_INVALID_CMDLINE;
+	  }
+	  if (merge_or_split_x(mergex, splitx_bound1, splitx_bound2, unfiltered_marker_ct, marker_exclude, marker_ct, marker_pos, chrom_info_ptr, ll_buf)) {
+	    if (mergex) {
+	      logprint("Error: --merge-x requires XY pseudo-autosomal region data.\n");
+	    } else {
+	      if (!is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->x_code)) {
+		logprint("Error: --split-x requires X chromosome data.\n");
+	      } else {
+		LOGPRINTF("Error: No X chromosome loci have bp positions <= %u or >= %u.\n", splitx_bound1, splitx_bound2);
+	      }
+	    }
+	    goto make_bed_ret_INVALID_CMDLINE;
+	  }
+	}
       } else {
 	fill_ll_buf(marker_exclude, marker_ct, chrom_info_ptr, ll_buf);
       }
-      if (update_chr) {
-        retval = update_marker_chroms(update_chr, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, allow_extra_chroms, chrom_info_ptr, ll_buf);
+      memcpy(outname_end, ".bim", 5);
+      retval = sort_and_write_bim(map_reverse, map_cols, outname, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_cms, marker_pos, marker_allele_ptrs, ll_buf, chrom_info_ptr);
+      if (retval) {
+	goto make_bed_ret_1;
+      }
+      wkspace_reset(ll_buf);
+
+      if (wkspace_alloc_ul_checked(&writebuf, marker_ct * indiv_ctv2)) {
+	// todo: implement multipass.  should now be a minimal change
+	logprint("\nError: Insufficient memory for current --make-bed implementation.  Try raising\nthe --memory value for now.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+	goto make_bed_ret_1;
+      }
+      *outname_end = '\0';
+      LOGPRINTFWW5("--make-bed to %s.bed + %s.bim + %s.fam ... ", outname, outname, outname);
+      fputs("0%", stdout);
+      for (; pct <= 100; pct++) {
+	loop_end = (pct * ((uint64_t)marker_ct)) / 100;
+	for (; marker_idx < loop_end; marker_uidx++, marker_idx++) {
+	  if (IS_SET(marker_exclude, marker_uidx)) {
+	    marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+	    if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	      goto make_bed_ret_READ_FAIL;
+	    }
+	  }
+	  writebuf_ptr = &(writebuf[indiv_ctv2 * map_reverse[marker_uidx]]);
+	  retval = make_bed_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, final_mask, IS_SET(marker_reverse, marker_uidx), writebuf_ptr);
+	  if (retval) {
+	    goto make_bed_ret_1;
+	  }
+	  if (zcdefs) {
+	    zeropatch(indiv_ctv2, cluster_ct, cluster_zc_masks, zcdefs, patchbuf, marker_idx, writebuf_ptr);
+	  }
+	  if (flip_subset_markers && is_set(flip_subset_markers, marker_uidx)) {
+	    reverse_subset(writebuf_ptr, flip_subset_vec2, indiv_ctv2);
+	  }
+	}
+	if (pct < 100) {
+	  if (pct > 10) {
+	    putchar('\b');
+	  }
+	  printf("\b\b%u%%", pct);
+	  fflush(stdout);
+	}
+      }
+      for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+	if (fwrite_checked(writebuf, indiv_ct4, bedoutfile)) {
+	  goto make_bed_ret_WRITE_FAIL;
+	}
+	writebuf = &(writebuf[indiv_ctv2]);
+      }
+    } else {
+      if (!hh_exists) {
+	set_hh_missing = 0;
+      } else if (!set_hh_missing) {
+	hh_exists = 0;
+      }
+      if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, indiv_ct, fill_missing_a2? Y_FIX_NEEDED : hh_exists, 0, indiv_exclude, sex_male, &indiv_include2, &indiv_male_include2)) {
+	goto make_bed_ret_NOMEM;
+      }
+      if (set_me_missing) {
+	retval = get_trios_and_families(unfiltered_indiv_ct, indiv_exclude, indiv_ct, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, NULL, NULL, NULL, NULL, &family_list, &family_ct, &trio_list, &trio_ct, &trio_lookup, mendel_include_duos, mendel_multigen);
 	if (retval) {
 	  goto make_bed_ret_1;
 	}
-      } else if (mergex || splitx_bound2) {
-	if (splitx_bound2 && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xy_code)) {
-          logprint("Error: --split-x cannot be used when the dataset already contains an XY region.\n");
-          goto make_bed_ret_INVALID_CMDLINE;
+	if (trio_ct) {
+	  if (wkspace_alloc_ul_checked(&workbuf, unfiltered_indiv_ctp1l2 * sizeof(intptr_t))) {
+	    goto make_bed_ret_NOMEM;
+	  }
+	  workbuf[unfiltered_indiv_ctp1l2 - 1] = 0;
+	  if (set_hh_missing) {
+	    if (wkspace_alloc_ul_checked(&indiv_raw_male_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
+	      goto make_bed_ret_NOMEM;
+	    }
+	    exclude_to_vec_include(unfiltered_indiv_ct, indiv_raw_male_include2, sex_male);
+	  }
+	} else {
+	  set_me_missing = 0;
 	}
-        if (merge_or_split_x(mergex, splitx_bound1, splitx_bound2, unfiltered_marker_ct, marker_exclude, marker_ct, marker_pos, chrom_info_ptr, ll_buf)) {
-	  if (mergex) {
-	    logprint("Error: --merge-x requires XY pseudo-autosomal region data.\n");
-	  } else {
-	    if (!is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->x_code)) {
-              logprint("Error: --split-x requires X chromosome data.\n");
-	    } else {
-              LOGPRINTF("Error: No X chromosome loci have bp positions <= %u or >= %u.\n", splitx_bound1, splitx_bound2);
+      }
+
+      if (wkspace_alloc_ul_checked(&writebuf, indiv_ctv2)) {
+	goto make_bed_ret_NOMEM;
+      }
+      *outname_end = '\0';
+      LOGPRINTFWW5("--make-bed to %s.bed + %s.bim + %s.fam ... ", outname, outname, outname);
+      fputs("0%", stdout);
+      marker_uidx = 0;
+      for (pct = 1; pct <= 100; pct++) {
+	loop_end = (pct * ((uint64_t)marker_ct)) / 100;
+	for (; marker_idx < loop_end; marker_uidx++, marker_idx++) {
+	  if (IS_SET(marker_exclude, marker_uidx)) {
+	    marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+	    if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	      goto make_bed_ret_READ_FAIL;
 	    }
 	  }
-          goto make_bed_ret_INVALID_CMDLINE;
+	  if (marker_uidx >= chrom_end) {
+	    chrom_fo_idx++;
+	    refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
+	  }
+	  if ((!set_me_missing) || (is_haploid && (!is_x))) {
+	    retval = make_bed_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, final_mask, IS_SET(marker_reverse, marker_uidx), writebuf);
+	    if (is_haploid && set_hh_missing) {
+	      haploid_fix(hh_exists, indiv_include2, indiv_male_include2, indiv_ct, is_x, is_y, (unsigned char*)writebuf);
+	    }
+	  } else {
+	    retval = make_bed_me_missing_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, final_mask, unfiltered_indiv_ctl2m1, IS_SET(marker_reverse, marker_uidx), writebuf, workbuf, indiv_raw_male_include2, trio_lookup, trio_ct, set_hh_missing && is_x, mendel_multigen, &mendel_error_ct);
+	  }
+	  if (retval) {
+	    goto make_bed_ret_1;
+	  }
+	  if (zcdefs) {
+	    zeropatch(indiv_ctv2, cluster_ct, cluster_zc_masks, zcdefs, patchbuf, marker_idx, writebuf);
+	  }
+	  if (flip_subset_markers && is_set(flip_subset_markers, marker_uidx)) {
+	    reverse_subset(writebuf, flip_subset_vec2, indiv_ctv2);
+	  }
+	  if (fill_missing_a2) {
+	    replace_missing_a2(writebuf, is_y? indiv_male_include2 : indiv_include2, indiv_ctv2);
+	  }
+
+	  if (fwrite_checked(writebuf, indiv_ct4, bedoutfile)) {
+	    goto make_bed_ret_WRITE_FAIL;
+	  }
 	}
+	if (pct < 100) {
+	  if (pct > 10) {
+	    putchar('\b');
+	  }
+	  printf("\b\b%u%%", pct);
+	  fflush(stdout);
+	}
+      }
+    }
+    if (fclose_null(&bedoutfile)) {
+      goto make_bed_ret_WRITE_FAIL;
+    }
+  } else if (resort_map && (calculation_type & CALC_MAKE_BIM)) {
+    memcpy(outname_end, ".bim", 5);
+    if (calculation_type & CALC_MAKE_BIM) {
+      LOGPRINTFWW5("--make-bim to %s ... ", outname);
+      fflush(stdout);
+    }
+    if (wkspace_alloc_ui_checked(&map_reverse, unfiltered_marker_ct * sizeof(int32_t)) ||
+	wkspace_alloc_ll_checked(&ll_buf, marker_ct * sizeof(int64_t))) {
+      goto make_bed_ret_NOMEM;
+    }
+    if (map_is_unsorted & UNSORTED_SPLIT_CHROM) {
+      retval = load_bim_split_chrom(bimname, marker_exclude, marker_ct, chrom_info_ptr, ll_buf);
+      if (retval) {
+	goto make_bed_ret_1;
       }
     } else {
       fill_ll_buf(marker_exclude, marker_ct, chrom_info_ptr, ll_buf);
     }
-    memcpy(outname_end, ".bim", 5);
     retval = sort_and_write_bim(map_reverse, map_cols, outname, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_cms, marker_pos, marker_allele_ptrs, ll_buf, chrom_info_ptr);
     if (retval) {
       goto make_bed_ret_1;
     }
-    wkspace_reset(ll_buf);
+    wkspace_reset(map_reverse);
+    if (calculation_type & CALC_MAKE_BIM) {
+      logprint("done.\n");
+    }    
+  }
 
-    if (wkspace_alloc_ul_checked(&writebuf, marker_ct * indiv_ctv2)) {
-      // todo: implement multipass.  should now be a minimal change
-      logprint("\nError: Insufficient memory for current --make-bed implementation.  Try raising\nthe --memory value for now.\n");
-      retval = RET_CALC_NOT_YET_SUPPORTED;
+  if (calculation_type & (CALC_MAKE_BED | CALC_MAKE_FAM)) {
+    memcpy(outname_end, ".fam", 5);
+    if (calculation_type & CALC_MAKE_FAM) {
+      LOGPRINTFWW5("--make-fam to %s ... ", outname);
+      fflush(stdout);
+    }
+    retval = write_fam(outname, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm, pheno_c, pheno_d, output_missing_pheno, ' ', indiv_sort_map);
+    if (retval) {
       goto make_bed_ret_1;
     }
-    *outname_end = '\0';
-    LOGPRINTFWW5("--make-bed to %s.bed + %s.bim + %s.fam ... ", outname, outname, outname);
-    fputs("0%", stdout);
-    for (pct = 1; pct <= 100; pct++) {
-      loop_end = (pct * ((uint64_t)marker_ct)) / 100;
-      for (; marker_idx < loop_end; marker_uidx++, marker_idx++) {
-	if (IS_SET(marker_exclude, marker_uidx)) {
-	  marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-	  if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
-	    goto make_bed_ret_READ_FAIL;
-	  }
-	}
-	writebuf_ptr = &(writebuf[indiv_ctv2 * map_reverse[marker_uidx]]);
-	retval = make_bed_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, final_mask, IS_SET(marker_reverse, marker_uidx), writebuf_ptr);
-	if (retval) {
-	  goto make_bed_ret_1;
-	}
-	if (zcdefs) {
-	  zeropatch(indiv_ctv2, cluster_ct, cluster_zc_masks, zcdefs, patchbuf, marker_idx, writebuf_ptr);
-	}
-	if (flip_subset_markers && is_set(flip_subset_markers, marker_uidx)) {
-          reverse_subset(writebuf_ptr, flip_subset_vec2, indiv_ctv2);
-	}
-      }
-      if (pct < 100) {
-	if (pct > 10) {
-	  putchar('\b');
-	}
-	printf("\b\b%u%%", pct);
-	fflush(stdout);
-      }
-    }
-    for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-      if (fwrite_checked(writebuf, indiv_ct4, bedoutfile)) {
-	goto make_bed_ret_WRITE_FAIL;
-      }
-      writebuf = &(writebuf[indiv_ctv2]);
-    }
-  } else {
-    if (!hh_exists) {
-      set_hh_missing = 0;
-    } else if (!set_hh_missing) {
-      hh_exists = 0;
-    }
-    if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, indiv_ct, fill_missing_a2? Y_FIX_NEEDED : hh_exists, 0, indiv_exclude, sex_male, &indiv_include2, &indiv_male_include2)) {
-      goto make_bed_ret_NOMEM;
-    }
-    if (set_me_missing) {
-      retval = get_trios_and_families(unfiltered_indiv_ct, indiv_exclude, indiv_ct, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, NULL, NULL, NULL, NULL, &family_list, &family_ct, &trio_list, &trio_ct, &trio_lookup, mendel_include_duos, mendel_multigen);
-      if (retval) {
-	goto make_bed_ret_1;
-      }
-      if (trio_ct) {
-	if (wkspace_alloc_ul_checked(&workbuf, unfiltered_indiv_ctp1l2 * sizeof(intptr_t))) {
-	  goto make_bed_ret_NOMEM;
-	}
-	workbuf[unfiltered_indiv_ctp1l2 - 1] = 0;
-	if (set_hh_missing) {
-          if (wkspace_alloc_ul_checked(&indiv_raw_male_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
-	    goto make_bed_ret_NOMEM;
-	  }
-	  exclude_to_vec_include(unfiltered_indiv_ct, indiv_raw_male_include2, sex_male);
-	}
-      } else {
-	set_me_missing = 0;
-      }
-    }
-
-    if (wkspace_alloc_ul_checked(&writebuf, indiv_ctv2)) {
-      goto make_bed_ret_NOMEM;
-    }
-    *outname_end = '\0';
-    LOGPRINTFWW5("--make-bed to %s.bed + %s.bim + %s.fam ... ", outname, outname, outname);
-    fputs("0%", stdout);
-    marker_uidx = 0;
-    for (pct = 1; pct <= 100; pct++) {
-      loop_end = (pct * ((uint64_t)marker_ct)) / 100;
-      for (; marker_idx < loop_end; marker_uidx++, marker_idx++) {
-        if (IS_SET(marker_exclude, marker_uidx)) {
-          marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-	  if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
-            goto make_bed_ret_READ_FAIL;
-	  }
-	}
-	if (marker_uidx >= chrom_end) {
-          chrom_fo_idx++;
-	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
-	}
-	if ((!set_me_missing) || (is_haploid && (!is_x))) {
-	  retval = make_bed_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, final_mask, IS_SET(marker_reverse, marker_uidx), writebuf);
-	  if (is_haploid && set_hh_missing) {
-	    haploid_fix(hh_exists, indiv_include2, indiv_male_include2, indiv_ct, is_x, is_y, (unsigned char*)writebuf);
-	  }
-	} else {
-	  retval = make_bed_me_missing_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, final_mask, unfiltered_indiv_ctl2m1, IS_SET(marker_reverse, marker_uidx), writebuf, workbuf, indiv_raw_male_include2, trio_lookup, trio_ct, set_hh_missing && is_x, mendel_multigen, &mendel_error_ct);
-	}
-	if (retval) {
-	  goto make_bed_ret_1;
-	}
-	if (zcdefs) {
-	  zeropatch(indiv_ctv2, cluster_ct, cluster_zc_masks, zcdefs, patchbuf, marker_idx, writebuf);
-	}
-	if (flip_subset_markers && is_set(flip_subset_markers, marker_uidx)) {
-          reverse_subset(writebuf, flip_subset_vec2, indiv_ctv2);
-	}
-	if (fill_missing_a2) {
-	  replace_missing_a2(writebuf, is_y? indiv_male_include2 : indiv_include2, indiv_ctv2);
-	}
-
-	if (fwrite_checked(writebuf, indiv_ct4, bedoutfile)) {
-	  goto make_bed_ret_WRITE_FAIL;
-	}
-      }
-      if (pct < 100) {
-	if (pct > 10) {
-	  putchar('\b');
-	}
-	printf("\b\b%u%%", pct);
-	fflush(stdout);
-      }
+    if (calculation_type & CALC_MAKE_FAM) {
+      logprint("done.\n");
     }
   }
-  if (fclose_null(&bedoutfile)) {
-    goto make_bed_ret_WRITE_FAIL;
-  }
 
-  memcpy(outname_end, ".fam", 5);
-  retval = write_fam(outname, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm, pheno_c, pheno_d, output_missing_pheno, ' ', indiv_sort_map);
-  if (retval) {
-    goto make_bed_ret_1;
-  }
-
-  if (!resort_map) {
+  if ((!resort_map) && (calculation_type & (CALC_MAKE_BED | CALC_MAKE_BIM))) {
     memcpy(outname_end, ".bim", 5);
+    if (calculation_type & CALC_MAKE_BIM) {
+      LOGPRINTFWW5("--make-bim to %s ... ", outname);
+      fflush(stdout);
+    }
     retval = write_map_or_bim(outname, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_cms, marker_pos, marker_allele_ptrs, '\t', chrom_info_ptr);
     if (retval) {
       goto make_bed_ret_1;
     }
+    if (calculation_type & CALC_MAKE_BIM) {
+      logprint("done.\n");
+    }
   }
 
-  if (pct > 10) {
-    putchar('\b');
-  }
-  fputs("\b\b", stdout);
-  logprint("done.\n");
-  if (set_me_missing) {
-    LOGPRINTF("--set-me-missing: %" PRIu64 " error%s addressed.\n", mendel_error_ct, (mendel_error_ct == 1)? "" : "s");
+  if (calculation_type & CALC_MAKE_BED) {
+    if (pct > 10) {
+      putchar('\b');
+    }
+    fputs("\b\b", stdout);
+    logprint("done.\n");
+    if (set_me_missing) {
+      LOGPRINTF("--set-me-missing: %" PRIu64 " error%s addressed.\n", mendel_error_ct, (mendel_error_ct == 1)? "" : "s");
+    }
   }
   while (0) {
   make_bed_ret_NOMEM:

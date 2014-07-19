@@ -67,20 +67,17 @@
 
 #define LOAD_RARE_DOSAGE 0x2000
 
-#define LOAD_PARAMS_TEXTFILE 1
-#define LOAD_PARAMS_PED 2
-#define LOAD_PARAMS_MAP 4
-#define LOAD_PARAMS_TEXT_ALL 7
-#define LOAD_PARAMS_BFILE 8
-#define LOAD_PARAMS_BED 0x10
-#define LOAD_PARAMS_BIM 0x20
-#define LOAD_PARAMS_FAM 0x40
-#define LOAD_PARAMS_BFILE_ALL 0x78
-#define LOAD_PARAMS_OXDATA 0x80
-#define LOAD_PARAMS_OXGEN 0x100
-#define LOAD_PARAMS_OXBGEN 0x200
-#define LOAD_PARAMS_OXSAMPLE 0x400
-#define LOAD_PARAMS_OX_ALL 0x780
+#define LOAD_PARAMS_PED 1
+#define LOAD_PARAMS_MAP 2
+#define LOAD_PARAMS_TEXT_ALL 3
+#define LOAD_PARAMS_BED 4
+#define LOAD_PARAMS_BIM 8
+#define LOAD_PARAMS_FAM 0x10
+#define LOAD_PARAMS_BFILE_ALL 0x1c
+#define LOAD_PARAMS_OXGEN 0x20
+#define LOAD_PARAMS_OXBGEN 0x40
+#define LOAD_PARAMS_OXSAMPLE 0x80
+#define LOAD_PARAMS_OX_ALL 0xe0
 
 // maximum number of usable cluster computers, this is arbitrary though it
 // shouldn't be larger than 2^31 - 1
@@ -101,7 +98,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (18 Jul 2014)";
+  " (19 Jul 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   " " // (don't want this when version number has a trailing letter)
@@ -292,11 +289,11 @@ void swap_reversed_marker_alleles(uintptr_t unfiltered_marker_ct, uintptr_t* mar
 }
 
 static inline uint32_t are_marker_pos_needed(uint64_t calculation_type, uint64_t misc_flags, char* cm_map_fname, char* set_fname, uint32_t min_bp_space, uint32_t genome_skip_write, uint32_t ld_modifier, uint32_t epi_modifier, uint32_t cluster_modifier) {
-  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_CLUMP | CALC_BLOCKS | CALC_FLIPSCAN | CALC_TDT | CALC_QFAM | CALC_FST | CALC_SHOW_TAGS)) || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)) || cm_map_fname || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || ((calculation_type & CALC_EPI) && (epi_modifier & EPI_FAST_CASE_ONLY)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2)));
+  return (calculation_type & (CALC_MAKE_BED | CALC_MAKE_BIM | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_CLUMP | CALC_BLOCKS | CALC_FLIPSCAN | CALC_TDT | CALC_QFAM | CALC_FST | CALC_SHOW_TAGS)) || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)) || cm_map_fname || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || ((calculation_type & CALC_EPI) && (epi_modifier & EPI_FAST_CASE_ONLY)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2)));
 }
 
 static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, char* cm_map_fname, Two_col_params* update_cm) {
-  if (calculation_type & (CALC_MAKE_BED | CALC_RECODE)) {
+  if (calculation_type & (CALC_MAKE_BED | CALC_MAKE_BIM | CALC_RECODE)) {
     if (cm_map_fname || update_cm) {
       return MARKER_CMS_FORCED;
     } else {
@@ -307,7 +304,7 @@ static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, char* cm
 }
 
 static inline uint32_t are_marker_alleles_needed(uint64_t calculation_type, char* freqname, Homozyg_info* homozyg_ptr, Two_col_params* a1alleles, Two_col_params* a2alleles, uint32_t ld_modifier, uint32_t snp_only, uint32_t clump_modifier, uint32_t cluster_modifier) {
-  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP | CALC_SCORE | CALC_MENDEL | CALC_TDT | CALC_FLIPSCAN | CALC_QFAM | CALC_HOMOG)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (ld_modifier & LD_INPHASE)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2))) || a1alleles || a2alleles || snp_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)));
+  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_MAKE_BIM | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP | CALC_SCORE | CALC_MENDEL | CALC_TDT | CALC_FLIPSCAN | CALC_QFAM | CALC_HOMOG)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (ld_modifier & LD_INPHASE)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2))) || a1alleles || a2alleles || snp_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)));
 }
 
 static inline int32_t relationship_or_ibc_req(uint64_t calculation_type) {
@@ -318,19 +315,24 @@ static inline int32_t distance_wt_req(uint64_t calculation_type, char* read_dist
   return (((calculation_type & CALC_DISTANCE) || ((!read_dists_fname) && ((calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))))) && (!(dist_calc_type & DISTANCE_FLAT_MISSING)));
 }
 
-int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* cm_map_fname, char* cm_map_chrname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char** missing_mid_templates, char* missing_marker_id_match, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* qual_filter, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* indiv_sort_fname, char* filtervals_flattened, char* condition_mname, char* condition_fname, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_indiv_fname, char* filter_attrib_indiv_liststr, double qual_min_thresh, double qual_max_thresh, double thin_keep_prob, uint32_t thin_keep_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t fam_cols, int32_t missing_pheno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, Family_info* fam_ip, double check_sex_fthresh, double check_sex_mthresh, uint32_t check_sex_f_yobs, uint32_t check_sex_m_yobs, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t filter_flags, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t splitx_bound1, uint32_t splitx_bound2, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t update_sex_col, uint32_t hwe_modifier, uint32_t genome_modifier, double genome_min_pi_hat, double genome_max_pi_hat, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, Set_info* sip, Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip, Rel_info* relip, Score_info* sc_ip, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, int32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t write_covar_modifier, uint32_t write_covar_dummy_max_categories, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, Aperm_info* apip, uint32_t mperm_save, uintptr_t ibs_test_perms, uint32_t perm_batch_size, double lasso_h2, double lasso_minlambda, Range_list* lasso_select_covars_range_list_ptr, uint32_t testmiss_modifier, uint32_t testmiss_mperm_val, uint32_t permphe_ct, Ll_str** file_delete_list_ptr) {
+int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, char* famname, char* cm_map_fname, char* cm_map_chrname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char** missing_mid_templates, char* missing_marker_id_match, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* qual_filter, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* indiv_sort_fname, char* filtervals_flattened, char* condition_mname, char* condition_fname, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_indiv_fname, char* filter_attrib_indiv_liststr, double qual_min_thresh, double qual_max_thresh, double thin_keep_prob, uint32_t thin_keep_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t fam_cols, int32_t missing_pheno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, Family_info* fam_ip, double check_sex_fthresh, double check_sex_mthresh, uint32_t check_sex_f_yobs, uint32_t check_sex_m_yobs, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t filter_flags, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t splitx_bound1, uint32_t splitx_bound2, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t update_sex_col, uint32_t hwe_modifier, uint32_t genome_modifier, double genome_min_pi_hat, double genome_max_pi_hat, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, Set_info* sip, Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip, Rel_info* relip, Score_info* sc_ip, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, int32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t write_covar_modifier, uint32_t write_covar_dummy_max_categories, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, Aperm_info* apip, uint32_t mperm_save, uintptr_t ibs_test_perms, uint32_t perm_batch_size, double lasso_h2, double lasso_minlambda, Range_list* lasso_select_covars_range_list_ptr, uint32_t testmiss_modifier, uint32_t testmiss_mperm_val, uint32_t permphe_ct, Ll_str** file_delete_list_ptr) {
   FILE* bedfile = NULL;
   FILE* phenofile = NULL;
   uintptr_t unfiltered_marker_ct = 0;
   uintptr_t* marker_exclude = NULL;
+  uintptr_t marker_exclude_ct = 0;
+  uintptr_t marker_ct = 0;
   uintptr_t max_marker_id_len = 0;
   // set_allele_freqs = .bed set bit frequency in middle of loading process, A2
   //   allele frequency later.
   double* set_allele_freqs = NULL;
   uintptr_t topsize = 0;
   uintptr_t unfiltered_indiv_ct = 0;
+  uintptr_t unfiltered_indiv_ct4 = 0;
+  uintptr_t unfiltered_indiv_ctl = 0;
   uintptr_t* indiv_exclude = NULL;
   uintptr_t indiv_exclude_ct = 0;
+  uintptr_t indiv_ct = 0;
   uint32_t* indiv_sort_map = NULL;
   uintptr_t* founder_info = NULL;
   uintptr_t* sex_nm = NULL;
@@ -356,6 +358,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uint32_t map_is_unsorted = 0;
   uint32_t map_cols = 3;
   uint32_t affection = 0;
+  uint32_t gender_unk_ct = 0;
   uintptr_t* pheno_nm = NULL;
   uintptr_t* pheno_nm_datagen = NULL; // --make-bed/--recode/--write-covar only
   uintptr_t* orig_pheno_nm = NULL; // --all-pheno + --pheno-merge
@@ -386,7 +389,6 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   double* cluster_sorted_ibs = NULL;
   char* cptr = NULL;
   uint64_t dists_alloc = 0;
-  uintptr_t marker_exclude_ct = 0;
   double missing_phenod = (double)missing_pheno;
   double ci_zt = 0.0;
   uint32_t wt_needed = distance_wt_req(calculation_type, read_dists_fname, dist_calc_type);
@@ -404,14 +406,25 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uintptr_t* pca_indiv_exclude = NULL;
   uintptr_t pca_indiv_ct = 0;
   uintptr_t ulii = 0;
+  uint32_t pheno_nm_ct = 0;
+  uint32_t plink_maxsnp = 0;
   uint32_t plink_maxfid = 0;
   uint32_t plink_maxiid = 0;
   unsigned char* wkspace_mark2 = NULL;
   unsigned char* wkspace_mark_precluster = NULL;
   unsigned char* wkspace_mark_postcluster = NULL;
+  int32_t* hwe_lls = NULL;
+  int32_t* hwe_lhs = NULL;
+  int32_t* hwe_hhs = NULL;
+  int32_t* hwe_ll_cases = NULL;
+  int32_t* hwe_lh_cases = NULL;
+  int32_t* hwe_hh_cases = NULL;
+  int32_t* hwe_ll_allfs = NULL;
+  int32_t* hwe_lh_allfs = NULL;
+  int32_t* hwe_hh_allfs = NULL;
+  int32_t* hwe_hapl_allfs = NULL;
+  int32_t* hwe_haph_allfs = NULL;
   pthread_t threads[MAX_THREADS];
-  uintptr_t unfiltered_indiv_ct4;
-  uintptr_t unfiltered_indiv_ctl;
   uint32_t* uiptr;
   double* dptr;
   double* dptr2;
@@ -421,32 +434,16 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uint32_t ukk;
   double dxx;
   char* outname_end2;
-  uintptr_t marker_ct;
-  uintptr_t indiv_ct;
-  uint32_t plink_maxsnp;
   int32_t ii;
   int64_t llyy;
   int64_t llzz;
-  int32_t* hwe_lls;
-  int32_t* hwe_lhs;
-  int32_t* hwe_hhs;
-  int32_t* hwe_ll_cases;
-  int32_t* hwe_lh_cases;
-  int32_t* hwe_hh_cases;
-  int32_t* hwe_ll_allfs;
-  int32_t* hwe_lh_allfs;
-  int32_t* hwe_hh_allfs;
-  int32_t* hwe_hapl_allfs;
-  int32_t* hwe_haph_allfs;
   uint32_t indiv_male_ct;
   uint32_t indiv_f_ct;
   uint32_t indiv_f_male_ct;
-  uint32_t pheno_nm_ct;
   Pedigree_rel_info pri;
   uintptr_t marker_uidx;
   uintptr_t marker_uidx_stop;
   uintptr_t marker_idx;
-  uint32_t gender_unk_ct;
 
   if ((cm_map_fname || update_cm) && (!marker_cms_needed)) {
     LOGPRINTF("Error: --%s results would never be used.  (Did you forget --make-bed?)\n", cm_map_fname? "cm-map" : "update-cm");
@@ -465,17 +462,17 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   // famname[0] is nonzero iff we're not in the --merge-list special case
   if ((calculation_type & CALC_MAKE_BED) && famname[0]) {
 #ifdef _WIN32
-    uii = GetFullPathName(pedname, FNAMESIZE, tbuf, NULL);
+    uii = GetFullPathName(bedname, FNAMESIZE, tbuf, NULL);
     if ((!uii) || (uii > FNAMESIZE))
 #else
-    if (!realpath(pedname, tbuf))
+    if (!realpath(bedname, tbuf))
 #endif
     {
-      uii = strlen(pedname);
-      if ((uii > 8) && ((!memcmp(&(pedname[uii - 8]), ".bed.bed", 8)) || (!memcmp(&(pedname[uii - 8]), ".bim.bed", 8)) || (!memcmp(&(pedname[uii - 8]), ".fam.bed", 8)))) {
-	LOGPRINTFWW("Error: Failed to open %s. (--bfile expects a filename *prefix*; '.bed', '.bim', and '.fam' are automatically appended.)\n", pedname);
+      uii = strlen(bedname);
+      if ((uii > 8) && ((!memcmp(&(bedname[uii - 8]), ".bed.bed", 8)) || (!memcmp(&(bedname[uii - 8]), ".bim.bed", 8)) || (!memcmp(&(bedname[uii - 8]), ".fam.bed", 8)))) {
+	LOGPRINTFWW("Error: Failed to open %s. (--bfile expects a filename *prefix*; '.bed', '.bim', and '.fam' are automatically appended.)\n", bedname);
       } else {
-        LOGPRINTFWW(errstr_fopen, pedname);
+        LOGPRINTFWW(errstr_fopen, bedname);
       }
       goto plink_ret_OPEN_FAIL;
     }
@@ -491,17 +488,17 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 #endif
     {
       logprint("Note: --make-bed input and output filenames match.  Appending '~' to input\nfilenames.\n");
-      uii = strlen(pedname);
-      memcpy(tbuf, pedname, uii + 1);
-      memcpy(&(pedname[uii]), "~", 2);
-      if (rename(tbuf, pedname)) {
+      uii = strlen(bedname);
+      memcpy(tbuf, bedname, uii + 1);
+      memcpy(&(bedname[uii]), "~", 2);
+      if (rename(tbuf, bedname)) {
 	logprint("Error: Failed to append '~' to input .bed filename.\n");
 	goto plink_ret_OPEN_FAIL;
       }
-      uii = strlen(mapname);
-      memcpy(tbuf, mapname, uii + 1);
-      memcpy(&(mapname[uii]), "~", 2);
-      if (rename(tbuf, mapname)) {
+      uii = strlen(bimname);
+      memcpy(tbuf, bimname, uii + 1);
+      memcpy(&(bimname[uii]), "~", 2);
+      if (rename(tbuf, bimname)) {
 	logprint("Error: Failed to append '~' to input .bim filename.\n");
 	goto plink_ret_OPEN_FAIL;
       }
@@ -526,16 +523,16 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     if (ulii) {
       memcpy(outname_end, "-merge", 7);
     }
-    retval = merge_datasets(pedname, mapname, famname, outname, ulii? &(outname_end[6]) : outname_end, mergename1, mergename2, mergename3, indiv_sort_fname, calculation_type, merge_type, indiv_sort, misc_flags, chrom_info_ptr);
+    retval = merge_datasets(bedname, bimname, famname, outname, ulii? &(outname_end[6]) : outname_end, mergename1, mergename2, mergename3, indiv_sort_fname, calculation_type, merge_type, indiv_sort, misc_flags, chrom_info_ptr);
     if (retval || (!(calculation_type & (~CALC_MERGE)))) {
       goto plink_ret_1;
     }
     uljj = (uintptr_t)(outname_end - outname) + (ulii? 6 : 0);
-    memcpy(memcpya(pedname, outname, uljj), ".bed", 5);
-    memcpy(memcpya(famname, pedname, uljj), ".fam", 5);
-    memcpy(memcpya(mapname, pedname, uljj), ".bim", 5);
+    memcpy(memcpya(bedname, outname, uljj), ".bed", 5);
+    memcpy(memcpya(famname, bedname, uljj), ".fam", 5);
+    memcpy(memcpya(bimname, bedname, uljj), ".bim", 5);
     if ((calculation_type & CALC_MAKE_BED) && ulii) {
-      if (push_ll_str(file_delete_list_ptr, pedname) || push_ll_str(file_delete_list_ptr, famname) || push_ll_str(file_delete_list_ptr, mapname)) {
+      if (push_ll_str(file_delete_list_ptr, bedname) || push_ll_str(file_delete_list_ptr, famname) || push_ll_str(file_delete_list_ptr, bimname)) {
 	goto plink_ret_NOMEM;
       }
     }
@@ -543,217 +540,222 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
   // don't use fopen_checked() here, since we want to customize the error
   // message.
-  bedfile = fopen(pedname, "rb");
-  if (!bedfile) {
-    uii = strlen(pedname);
-    if ((uii > 8) && ((!memcmp(&(pedname[uii - 8]), ".bed.bed", 8)) || (!memcmp(&(pedname[uii - 8]), ".bim.bed", 8)) || (!memcmp(&(pedname[uii - 8]), ".fam.bed", 8)))) {
-      LOGPRINTFWW("Error: Failed to open %s. (--bfile expects a filename *prefix*; '.bed', '.bim', and '.fam' are automatically appended.)\n", pedname);
-    } else {
-      LOGPRINTFWW(errstr_fopen, pedname);
+  if (bedname[0]) {
+    bedfile = fopen(bedname, "rb");
+    if (!bedfile) {
+      uii = strlen(bedname);
+      if ((uii > 8) && ((!memcmp(&(bedname[uii - 8]), ".bed.bed", 8)) || (!memcmp(&(bedname[uii - 8]), ".bim.bed", 8)) || (!memcmp(&(bedname[uii - 8]), ".fam.bed", 8)))) {
+	LOGPRINTFWW("Error: Failed to open %s. (--bfile expects a filename *prefix*; '.bed', '.bim', and '.fam' are automatically appended.)\n", bedname);
+      } else {
+	LOGPRINTFWW(errstr_fopen, bedname);
+      }
+      goto plink_ret_OPEN_FAIL;
     }
-    goto plink_ret_OPEN_FAIL;
   }
   // load .bim, count markers, filter chromosomes
-  if (update_name) {
-    ulii = 0;
-    retval = scan_max_strlen(update_name->fname, update_name->colid, update_name->colx, update_name->skip, update_name->skipchar, &max_marker_id_len, &ulii);
+  if (bimname[0]) {
+    if (update_name) {
+      ulii = 0;
+      retval = scan_max_strlen(update_name->fname, update_name->colid, update_name->colx, update_name->skip, update_name->skipchar, &max_marker_id_len, &ulii);
+      if (retval) {
+	goto plink_ret_1;
+      }
+      if (ulii > 80) {
+	// only warn on long new marker ID, since if there's a long old marker ID
+	// and no long new one, it's reasonable to infer that the user is fixing
+	// the problem, so we shouldn't spam them.
+	logprint("Warning: Unusually long new variant ID(s) in --update-name file.  Double-check\nyour file and command-line parameters, and consider changing your naming\nscheme if you encounter memory problems.\n");
+      }
+      if (ulii > max_marker_id_len) {
+	max_marker_id_len = ulii;
+      }
+    }
+    if (!marker_alleles_needed) {
+      allelexxxx = 0;
+    }
+    retval = load_bim(bimname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &set_allele_freqs, &marker_allele_ptrs, &max_marker_allele_len, &marker_ids, missing_mid_templates, missing_marker_id_match, chrom_info_ptr, &marker_cms, &marker_pos, misc_flags, filter_flags, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_range_list_ptr, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, ((!(calculation_type & (~(CALC_MAKE_BED | CALC_MAKE_BIM | CALC_MAKE_FAM)))) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (hwe_thresh == 0.0) && (!update_map) && (!freqname))? NULL : "make-bed", ".bim file");
     if (retval) {
       goto plink_ret_1;
     }
-    if (ulii > 80) {
-      // only warn on long new marker ID, since if there's a long old marker ID
-      // and no long new one, it's reasonable to infer that the user is fixing
-      // the problem, so we shouldn't spam them.
-      logprint("Warning: Unusually long new variant ID(s) in --update-name file.  Double-check\nyour file and command-line parameters, and consider changing your naming\nscheme if you encounter memory problems.\n");
-    }
-    if (ulii > max_marker_id_len) {
-      max_marker_id_len = ulii;
-    }
-  }
-  if (!marker_alleles_needed) {
-    allelexxxx = 0;
-  }
-  retval = load_bim(mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &set_allele_freqs, &marker_allele_ptrs, &max_marker_allele_len, &marker_ids, missing_mid_templates, missing_marker_id_match, chrom_info_ptr, &marker_cms, &marker_pos, misc_flags, filter_flags, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_range_list_ptr, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, ((calculation_type == CALC_MAKE_BED) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (hwe_thresh == 0.0) && (!update_map) && (!freqname))? NULL : "make-bed", ".bim file");
-  if (retval) {
-    goto plink_ret_1;
   }
 
   // load .fam, count indivs
-  uii = fam_cols & FAM_COL_6;
-  if (uii && phenoname) {
-    uii = (pheno_modifier & PHENO_MERGE) && (!makepheno_str);
-  }
-  if (!uii) {
-    pheno_modifier &= ~PHENO_MERGE; // nothing to merge
-  }
-  if (update_ids_fname) {
-    ulii = 0;
-    retval = scan_max_fam_indiv_strlen(update_ids_fname, 3, &max_person_id_len);
+  if (famname[0]) {
+    uii = fam_cols & FAM_COL_6;
+    if (uii && phenoname) {
+      uii = (pheno_modifier & PHENO_MERGE) && (!makepheno_str);
+    }
+    if (!uii) {
+      pheno_modifier &= ~PHENO_MERGE; // nothing to merge
+    }
+    if (update_ids_fname) {
+      ulii = 0;
+      retval = scan_max_fam_indiv_strlen(update_ids_fname, 3, &max_person_id_len);
+      if (retval) {
+	goto plink_ret_1;
+      }
+    } else if (update_parents_fname) {
+      retval = scan_max_strlen(update_parents_fname, 3, 4, 0, '\0', &max_paternal_id_len, &max_maternal_id_len);
+      if (retval) {
+	goto plink_ret_1;
+      }
+    }
+
+    retval = load_fam(famname, fam_cols, uii, missing_pheno, (misc_flags / MISC_AFFECTION_01) & 1, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_nm, &sex_male, &affection, &pheno_nm, &pheno_c, &pheno_d, &founder_info, &indiv_exclude);
     if (retval) {
       goto plink_ret_1;
     }
-  } else if (update_parents_fname) {
-    retval = scan_max_strlen(update_parents_fname, 3, 4, 0, '\0', &max_paternal_id_len, &max_maternal_id_len);
-    if (retval) {
-      goto plink_ret_1;
+
+    unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+    unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+
+    if (misc_flags & MISC_MAKE_FOUNDERS_FIRST) {
+      if (make_founders(unfiltered_indiv_ct, unfiltered_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, (misc_flags / MISC_MAKE_FOUNDERS_REQUIRE_2_MISSING) & 1, indiv_exclude, founder_info)) {
+	goto plink_ret_NOMEM;
+      }
     }
-  }
 
-  retval = load_fam(famname, fam_cols, uii, missing_pheno, (misc_flags / MISC_AFFECTION_01) & 1, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_nm, &sex_male, &affection, &pheno_nm, &pheno_c, &pheno_d, &founder_info, &indiv_exclude);
-  if (retval) {
-    goto plink_ret_1;
-  }
-
-  unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
-  unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
-
-  if (misc_flags & MISC_MAKE_FOUNDERS_FIRST) {
-    if (make_founders(unfiltered_indiv_ct, unfiltered_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, (misc_flags / MISC_MAKE_FOUNDERS_REQUIRE_2_MISSING) & 1, indiv_exclude, founder_info)) {
-      goto plink_ret_NOMEM;
+    if ((pheno_modifier & PHENO_MERGE) && pheno_all) {
+      if (aligned_malloc(&orig_pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+	goto plink_ret_NOMEM;
+      }
+      memcpy(orig_pheno_nm, pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t));
+      if (pheno_c) {
+	if (aligned_malloc(&orig_pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+	  goto plink_ret_NOMEM;
+	}
+	memcpy(orig_pheno_c, pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t));
+      } else if (pheno_d) {
+	orig_pheno_d = (double*)malloc(unfiltered_indiv_ct * sizeof(double));
+	if (!orig_pheno_d) {
+	  goto plink_ret_NOMEM;
+	}
+	memcpy(orig_pheno_d, pheno_d, unfiltered_indiv_ct * sizeof(double));
+      }
     }
-  }
-
-  if ((pheno_modifier & PHENO_MERGE) && pheno_all) {
-    if (aligned_malloc(&orig_pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t))) {
-      goto plink_ret_NOMEM;
+    count_genders(sex_nm, sex_male, unfiltered_indiv_ct, indiv_exclude, &uii, &ujj, &gender_unk_ct);
+    if (gender_unk_ct) {
+      LOGPRINTF("%" PRIuPTR " %s (%u male%s, %u female%s, %u ambiguous) loaded from .fam.\n", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), uii, (uii == 1)? "" : "s", ujj, (ujj == 1)? "" : "s", gender_unk_ct);
+      retval = write_nosex(outname, outname_end, unfiltered_indiv_ct, indiv_exclude, sex_nm, gender_unk_ct, person_ids, max_person_id_len);
+      if (retval) {
+	goto plink_ret_1;
+      }
+    } else {
+      LOGPRINTF("%" PRIuPTR " %s (%d male%s, %d female%s) loaded from .fam.\n", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), uii, (uii == 1)? "" : "s", ujj, (ujj == 1)? "" : "s");
     }
-    memcpy(orig_pheno_nm, pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t));
+    uii = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
+    if (uii) {
+      LOGPRINTF("%u phenotype value%s loaded from .fam.\n", uii, (uii == 1)? "" : "s");
+    }
+
+    if (phenoname && fopen_checked(&phenofile, phenoname, "r")) {
+      goto plink_ret_OPEN_FAIL;
+    }
+
+    if (phenofile || update_ids_fname || update_parents_fname || update_sex_fname || (filter_flags & FILTER_TAIL_PHENO)) {
+      wkspace_mark = wkspace_base;
+      retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, 0, person_ids, max_person_id_len, 0, 0, strcmp_deref);
+      if (retval) {
+	goto plink_ret_1;
+      }
+
+      if (makepheno_str) {
+	retval = makepheno_load(phenofile, makepheno_str, unfiltered_indiv_ct, cptr, max_person_id_len, uiptr, pheno_nm, &pheno_c);
+	if (retval) {
+	  goto plink_ret_1;
+	}
+      } else if (phenofile) {
+	retval = load_pheno(phenofile, unfiltered_indiv_ct, 0, cptr, max_person_id_len, uiptr, missing_pheno, (misc_flags / MISC_AFFECTION_01) & 1, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d, NULL, 0);
+	if (retval) {
+	  if (retval == LOAD_PHENO_LAST_COL) {
+	    logprintb();
+	    retval = RET_INVALID_FORMAT;
+	    wkspace_reset(wkspace_mark);
+	  }
+	  goto plink_ret_1;
+	}
+      }
+      if (filter_flags & FILTER_TAIL_PHENO) {
+	retval = convert_tail_pheno(unfiltered_indiv_ct, pheno_nm, &pheno_c, &pheno_d, tail_bottom, tail_top, missing_phenod);
+	if (retval) {
+	  goto plink_ret_1;
+	}
+      }
+      wkspace_reset(wkspace_mark);
+    }
+
     if (pheno_c) {
-      if (aligned_malloc(&orig_pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t))) {
-	goto plink_ret_NOMEM;
-      }
-      memcpy(orig_pheno_c, pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t));
-    } else if (pheno_d) {
-      orig_pheno_d = (double*)malloc(unfiltered_indiv_ct * sizeof(double));
-      if (!orig_pheno_d) {
-	goto plink_ret_NOMEM;
-      }
-      memcpy(orig_pheno_d, pheno_d, unfiltered_indiv_ct * sizeof(double));
-    }
-  }
-  count_genders(sex_nm, sex_male, unfiltered_indiv_ct, indiv_exclude, &uii, &ujj, &gender_unk_ct);
-  marker_ct = unfiltered_marker_ct - marker_exclude_ct;
-  if (gender_unk_ct) {
-    LOGPRINTF("%" PRIuPTR " %s (%u male%s, %u female%s, %u ambiguous) loaded from .fam.\n", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), uii, (uii == 1)? "" : "s", ujj, (ujj == 1)? "" : "s", gender_unk_ct);
-    retval = write_nosex(outname, outname_end, unfiltered_indiv_ct, indiv_exclude, sex_nm, gender_unk_ct, person_ids, max_person_id_len);
-    if (retval) {
-      goto plink_ret_1;
-    }
-  } else {
-    LOGPRINTF("%" PRIuPTR " %s (%d male%s, %d female%s) loaded from .fam.\n", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), uii, (uii == 1)? "" : "s", ujj, (ujj == 1)? "" : "s");
-  }
-  uii = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
-  if (uii) {
-    LOGPRINTF("%u phenotype value%s loaded from .fam.\n", uii, (uii == 1)? "" : "s");
-  }
-
-  if (phenoname && fopen_checked(&phenofile, phenoname, "r")) {
-    goto plink_ret_OPEN_FAIL;
-  }
-
-  if (phenofile || update_ids_fname || update_parents_fname || update_sex_fname || (filter_flags & FILTER_TAIL_PHENO)) {
-    wkspace_mark = wkspace_base;
-    retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, 0, person_ids, max_person_id_len, 0, 0, strcmp_deref);
-    if (retval) {
-      goto plink_ret_1;
-    }
-
-    if (makepheno_str) {
-      retval = makepheno_load(phenofile, makepheno_str, unfiltered_indiv_ct, cptr, max_person_id_len, uiptr, pheno_nm, &pheno_c);
-      if (retval) {
-	goto plink_ret_1;
-      }
-    } else if (phenofile) {
-      retval = load_pheno(phenofile, unfiltered_indiv_ct, 0, cptr, max_person_id_len, uiptr, missing_pheno, (misc_flags / MISC_AFFECTION_01) & 1, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d, NULL, 0);
-      if (retval) {
-	if (retval == LOAD_PHENO_LAST_COL) {
-	  logprintb();
-	  retval = RET_INVALID_FORMAT;
-	  wkspace_reset(wkspace_mark);
-	}
-	goto plink_ret_1;
-      }
-    }
-    if (filter_flags & FILTER_TAIL_PHENO) {
-      retval = convert_tail_pheno(unfiltered_indiv_ct, pheno_nm, &pheno_c, &pheno_d, tail_bottom, tail_top, missing_phenod);
-      if (retval) {
-	goto plink_ret_1;
-      }
-    }
-    wkspace_reset(wkspace_mark);
-  }
-
-  if (pheno_c) {
-    /*
-    if (calculation_type & (CALC_REGRESS_PCS | CALC_REGRESS_PCS_DISTANCE)) {
-      sprintf(logbuf, "Error: --regress-pcs%s requires a scalar phenotype.\n", (calculation_type & CALC_REGRESS_PCS_DISTANCE)? "-distance" : "");
-      goto plink_ret_INVALID_CMDLINE_2;
-    */
-    if (calculation_type & (CALC_REGRESS_REL | CALC_REGRESS_DISTANCE | CALC_UNRELATED_HERITABILITY | CALC_GXE)) {
-      if (calculation_type & CALC_REGRESS_REL) {
-        logprint("Error: --regress-rel calculation requires a scalar phenotype.\n");
-      } else if (calculation_type & CALC_REGRESS_DISTANCE) {
-        logprint("Error: --regress-distance calculation requires a scalar phenotype.\n");
-      } else if (calculation_type & CALC_UNRELATED_HERITABILITY) {
-        logprint("Error: --unrelated-heritability requires a scalar phenotype.\n");
-      }
-      goto plink_ret_INVALID_CMDLINE;
-    }
-  } else {
-    if (calculation_type & CALC_CLUSTER) {
-      if (cluster_ptr->modifier & CLUSTER_CC) {
-        logprint("Error: --cc requires a case/control phenotype.\n");
-        goto plink_ret_INVALID_CMDLINE;
-      } else if ((cluster_ptr->max_cases != 0xffffffffU) || (cluster_ptr->max_ctrls != 0xffffffffU)) {
-        logprint("Error: --mcc requires a case/control phenotype.\n");
-        goto plink_ret_INVALID_CMDLINE;
-      }
-    } else if ((calculation_type & CALC_EPI) && (epi_ip->modifier & EPI_FAST)) {
-      logprint("Error: --fast-epistasis requires a case/control phenotype.\n");
-      goto plink_ret_INVALID_CMDLINE;
-    } else if (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_FLIPSCAN)) {
-      if (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST)) {
-        logprint("Error: --ibs-test and --groupdist calculations require a case/control\nphenotype.\n");
-      } else if (calculation_type & CALC_FLIPSCAN) {
-	logprint("Error: --flip-scan requires a case/control phenotype.\n");
-      }
-      goto plink_ret_INVALID_CMDLINE;
-    } else if ((calculation_type & CALC_RECODE) && (recode_modifier & (RECODE_HV | RECODE_HV_1CHR))) {
-      logprint("Error: --recode HV{-1chr} requires a case/control phenotype.\n");
-      goto plink_ret_INVALID_CMDLINE;
-    } else if ((calculation_type & CALC_FST) && (misc_flags & MISC_FST_CC)) {
-      logprint("Error: '--fst case-control' requires a case/control phenotype.\n");
-      goto plink_ret_INVALID_CMDLINE;
-    }
-  }
-
-  if (!pheno_all) {
-    if (loop_assoc_fname || (!pheno_d)) {
-      if ((calculation_type & CALC_GLM) && (!(glm_modifier & GLM_LOGISTIC))) {
-	logprint("Error: --linear without --all-pheno requires a scalar phenotype.\n");
-	goto plink_ret_INVALID_CMDLINE;
-      } else if (calculation_type & CALC_QFAM) {
-	logprint("Error: QFAM test requires a scalar phenotype.\n");
-	goto plink_ret_INVALID_CMDLINE;
-      }
-    } else if (!pheno_c) {
-      if ((calculation_type & CALC_MODEL) && (!(model_modifier & MODEL_ASSOC))) {
-        logprint("Error: --model requires a case/control phenotype.\n");
-        goto plink_ret_INVALID_CMDLINE;
-      } else if ((calculation_type & CALC_GLM) && (glm_modifier & GLM_LOGISTIC)) {
-	logprint("Error: --logistic without --all-pheno requires a case/control phenotype.\n");
-	goto plink_ret_INVALID_CMDLINE;
-      } else if (calculation_type & (CALC_CMH | CALC_HOMOG | CALC_TESTMISS | CALC_TDT)) {
-	if (calculation_type & CALC_CMH) {
-	  logprint("Error: --mh and --mh2 require a case/control phenotype.\n");
-	} else if (calculation_type & CALC_HOMOG) {
-	  logprint("Error: --homog requires a case/control phenotype.\n");
-	} else if (calculation_type & CALC_TESTMISS) {
-	  logprint("Error: --test-missing requires a case/control phenotype.\n");
-	} else {
-	  logprint("Error: --tdt requires a case/control phenotype.\n");
+      /*
+      if (calculation_type & (CALC_REGRESS_PCS | CALC_REGRESS_PCS_DISTANCE)) {
+	sprintf(logbuf, "Error: --regress-pcs%s requires a scalar phenotype.\n", (calculation_type & CALC_REGRESS_PCS_DISTANCE)? "-distance" : "");
+	goto plink_ret_INVALID_CMDLINE_2;
+      */
+      if (calculation_type & (CALC_REGRESS_REL | CALC_REGRESS_DISTANCE | CALC_UNRELATED_HERITABILITY | CALC_GXE)) {
+	if (calculation_type & CALC_REGRESS_REL) {
+	  logprint("Error: --regress-rel calculation requires a scalar phenotype.\n");
+	} else if (calculation_type & CALC_REGRESS_DISTANCE) {
+	  logprint("Error: --regress-distance calculation requires a scalar phenotype.\n");
+	} else if (calculation_type & CALC_UNRELATED_HERITABILITY) {
+	  logprint("Error: --unrelated-heritability requires a scalar phenotype.\n");
 	}
 	goto plink_ret_INVALID_CMDLINE;
+      }
+    } else {
+      if (calculation_type & CALC_CLUSTER) {
+	if (cluster_ptr->modifier & CLUSTER_CC) {
+	  logprint("Error: --cc requires a case/control phenotype.\n");
+	  goto plink_ret_INVALID_CMDLINE;
+	} else if ((cluster_ptr->max_cases != 0xffffffffU) || (cluster_ptr->max_ctrls != 0xffffffffU)) {
+	  logprint("Error: --mcc requires a case/control phenotype.\n");
+	  goto plink_ret_INVALID_CMDLINE;
+	}
+      } else if ((calculation_type & CALC_EPI) && (epi_ip->modifier & EPI_FAST)) {
+	logprint("Error: --fast-epistasis requires a case/control phenotype.\n");
+	goto plink_ret_INVALID_CMDLINE;
+      } else if (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_FLIPSCAN)) {
+	if (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST)) {
+	  logprint("Error: --ibs-test and --groupdist calculations require a case/control\nphenotype.\n");
+	} else if (calculation_type & CALC_FLIPSCAN) {
+	  logprint("Error: --flip-scan requires a case/control phenotype.\n");
+	}
+	goto plink_ret_INVALID_CMDLINE;
+      } else if ((calculation_type & CALC_RECODE) && (recode_modifier & (RECODE_HV | RECODE_HV_1CHR))) {
+	logprint("Error: --recode HV{-1chr} requires a case/control phenotype.\n");
+	goto plink_ret_INVALID_CMDLINE;
+      } else if ((calculation_type & CALC_FST) && (misc_flags & MISC_FST_CC)) {
+	logprint("Error: '--fst case-control' requires a case/control phenotype.\n");
+	goto plink_ret_INVALID_CMDLINE;
+      }
+    }
+
+    if (!pheno_all) {
+      if (loop_assoc_fname || (!pheno_d)) {
+	if ((calculation_type & CALC_GLM) && (!(glm_modifier & GLM_LOGISTIC))) {
+	  logprint("Error: --linear without --all-pheno requires a scalar phenotype.\n");
+	  goto plink_ret_INVALID_CMDLINE;
+	} else if (calculation_type & CALC_QFAM) {
+	  logprint("Error: QFAM test requires a scalar phenotype.\n");
+	  goto plink_ret_INVALID_CMDLINE;
+	}
+      } else if (!pheno_c) {
+	if ((calculation_type & CALC_MODEL) && (!(model_modifier & MODEL_ASSOC))) {
+	  logprint("Error: --model requires a case/control phenotype.\n");
+	  goto plink_ret_INVALID_CMDLINE;
+	} else if ((calculation_type & CALC_GLM) && (glm_modifier & GLM_LOGISTIC)) {
+	  logprint("Error: --logistic without --all-pheno requires a case/control phenotype.\n");
+	  goto plink_ret_INVALID_CMDLINE;
+	} else if (calculation_type & (CALC_CMH | CALC_HOMOG | CALC_TESTMISS | CALC_TDT)) {
+	  if (calculation_type & CALC_CMH) {
+	    logprint("Error: --mh and --mh2 require a case/control phenotype.\n");
+	  } else if (calculation_type & CALC_HOMOG) {
+	    logprint("Error: --homog requires a case/control phenotype.\n");
+	  } else if (calculation_type & CALC_TESTMISS) {
+	    logprint("Error: --test-missing requires a case/control phenotype.\n");
+	  } else {
+	    logprint("Error: --tdt requires a case/control phenotype.\n");
+	  }
+	  goto plink_ret_INVALID_CMDLINE;
+	}
       }
     }
   }
@@ -887,67 +889,69 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
-  if (fseeko(bedfile, 0, SEEK_END)) {
-    goto plink_ret_READ_FAIL;
-  }
-  llxx = ftello(bedfile);
-  if (!llxx) {
-    logprint("Error: Empty .bed file.\n");
-    goto plink_ret_INVALID_FORMAT;
-  }
-  rewind(bedfile);
-  uii = fread(tbuf, 1, 3, bedfile);
-  llyy = ((uint64_t)unfiltered_indiv_ct4) * unfiltered_marker_ct;
-  llzz = ((uint64_t)unfiltered_indiv_ct) * ((unfiltered_marker_ct + 3) / 4);
-  if ((uii == 3) && (!memcmp(tbuf, "l\x1b\x01", 3))) {
-    llyy += 3;
-  } else if ((uii == 3) && (!memcmp(tbuf, "l\x1b", 2))) {
-    // v1.00 indiv-major
-    llyy = llzz + 3;
-    bed_offset = 2;
-  } else if (uii && (*tbuf == '\x01')) {
-    // v0.99 SNP-major
-    llyy += 1;
-    bed_offset = 1;
-  } else if (uii && (!(*tbuf))) {
-    // v0.99 indiv-major
-    llyy = llzz + 1;
-    bed_offset = 2;
-  } else {
-    // pre-v0.99, indiv-major, no header bytes
-    llyy = llzz;
-    if (llxx != llyy) {
-      // probably not PLINK-format at all, so give this error instead of
-      // "invalid file size"
-      logprint("Error: Invalid header bytes in .bed file.\n");
+  if (bedfile) {
+    if (fseeko(bedfile, 0, SEEK_END)) {
+      goto plink_ret_READ_FAIL;
+    }
+    llxx = ftello(bedfile);
+    if (!llxx) {
+      logprint("Error: Empty .bed file.\n");
       goto plink_ret_INVALID_FORMAT;
     }
-    bed_offset = 2;
-  }
-  if (llxx != llyy) {
-    if ((*tbuf == '#') || ((uii == 3) && (!memcmp(tbuf, "chr", 3)))) {
-      logprint("Error: Invalid header bytes in PLINK 1 .bed file.  (Is this a UCSC Genome\nBrowser BED file instead?)\n");
-      goto plink_ret_INVALID_FORMAT;
+    rewind(bedfile);
+    uii = fread(tbuf, 1, 3, bedfile);
+    llyy = ((uint64_t)unfiltered_indiv_ct4) * unfiltered_marker_ct;
+    llzz = ((uint64_t)unfiltered_indiv_ct) * ((unfiltered_marker_ct + 3) / 4);
+    if ((uii == 3) && (!memcmp(tbuf, "l\x1b\x01", 3))) {
+      llyy += 3;
+    } else if ((uii == 3) && (!memcmp(tbuf, "l\x1b", 2))) {
+      // v1.00 indiv-major
+      llyy = llzz + 3;
+      bed_offset = 2;
+    } else if (uii && (*tbuf == '\x01')) {
+      // v0.99 SNP-major
+      llyy += 1;
+      bed_offset = 1;
+    } else if (uii && (!(*tbuf))) {
+      // v0.99 indiv-major
+      llyy = llzz + 1;
+      bed_offset = 2;
     } else {
-      sprintf(logbuf, "Error: Invalid .bed file size (expected %" PRId64 " bytes).\n", llyy);
-      goto plink_ret_INVALID_FORMAT_2;
+      // pre-v0.99, indiv-major, no header bytes
+      llyy = llzz;
+      if (llxx != llyy) {
+	// probably not PLINK-format at all, so give this error instead of
+	// "invalid file size"
+	logprint("Error: Invalid header bytes in .bed file.\n");
+	goto plink_ret_INVALID_FORMAT;
+      }
+      bed_offset = 2;
     }
-  }
+    if (llxx != llyy) {
+      if ((*tbuf == '#') || ((uii == 3) && (!memcmp(tbuf, "chr", 3)))) {
+	logprint("Error: Invalid header bytes in PLINK 1 .bed file.  (Is this a UCSC Genome\nBrowser BED file instead?)\n");
+	goto plink_ret_INVALID_FORMAT;
+      } else {
+	sprintf(logbuf, "Error: Invalid .bed file size (expected %" PRId64 " bytes).\n", llyy);
+	goto plink_ret_INVALID_FORMAT_2;
+      }
+    }
 
-  if (bed_offset == 2) {
-    strcpy(outname_end, ".bed.vmaj"); // not really temporary
-    logprint("Individual-major .bed file detected.  Transposing...\n");
-    fclose(bedfile);
-    retval = indiv_major_to_snp_major(pedname, outname, unfiltered_marker_ct, unfiltered_indiv_ct, llxx);
-    if (retval) {
-      goto plink_ret_1;
+    if (bed_offset == 2) {
+      strcpy(outname_end, ".bed.vmaj"); // not really temporary
+      logprint("Individual-major .bed file detected.  Transposing...\n");
+      fclose(bedfile);
+      retval = indiv_major_to_snp_major(bedname, outname, unfiltered_marker_ct, unfiltered_indiv_ct, llxx);
+      if (retval) {
+	goto plink_ret_1;
+      }
+      LOGPRINTFWW("Variant-major .bed written to %s .\n", outname);
+      strcpy(bedname, outname);
+      if (fopen_checked(&bedfile, bedname, "rb")) {
+	goto plink_ret_OPEN_FAIL;
+      }
+      bed_offset = 3;
     }
-    LOGPRINTFWW("Variant-major .bed written to %s .\n", outname);
-    strcpy(pedname, outname);
-    if (fopen_checked(&bedfile, pedname, "rb")) {
-      goto plink_ret_OPEN_FAIL;
-    }
-    bed_offset = 3;
   }
 
   if (update_ids_fname || update_parents_fname || update_sex_fname || keepname || keepfamname || removename || removefamname || filter_attrib_indiv_fname || om_ip->marker_fname || filtername) {
@@ -1026,100 +1030,102 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     wkspace_reset(wkspace_mark);
   }
 
-  if (gender_unk_ct && (!(sex_missing_pheno & ALLOW_NO_SEX))) {
-    uii = popcount_longs_exclude(pheno_nm, sex_nm, unfiltered_indiv_ctl);
-    if (uii) {
-      if ((!sex_missing_pheno) && (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_WRITE_COVAR))) {
-	if (calculation_type & (~(CALC_MAKE_BED | CALC_RECODE | CALC_WRITE_COVAR))) {
-	  logprint("Error: When ambiguous-sex samples with phenotype data are present,\n--make-bed/--recode/--write-covar usually cannot be combined with other\ncommands.  Split them across multiple PLINK runs, or use\n--allow-no-sex/--must-have-sex.\n");
-	  goto plink_ret_INVALID_CMDLINE;
+  if (famname[0]) {
+    if (gender_unk_ct && (!(sex_missing_pheno & ALLOW_NO_SEX))) {
+      uii = popcount_longs_exclude(pheno_nm, sex_nm, unfiltered_indiv_ctl);
+      if (uii) {
+	if ((!sex_missing_pheno) && (calculation_type & (CALC_MAKE_BED | CALC_MAKE_FAM | CALC_RECODE | CALC_WRITE_COVAR))) {
+	  if (calculation_type & (~(CALC_MAKE_BED | CALC_MAKE_FAM | CALC_RECODE | CALC_WRITE_COVAR))) {
+	    logprint("Error: When ambiguous-sex samples with phenotype data are present,\n--make-bed/--make-fam/--recode/--write-covar usually cannot be combined with\nother commands.  Split them across multiple PLINK runs, or use\n--allow-no-sex/--must-have-sex.\n");
+	    goto plink_ret_INVALID_CMDLINE;
+	  }
+	} else {
+	  // either --must-have-sex without --allow-no-sex, or no data
+	  // generation command
+	  bitfield_and(pheno_nm, sex_nm, unfiltered_indiv_ctl);
 	}
-      } else {
-	// either --must-have-sex without --allow-no-sex, or no data generation
-	// command
-        bitfield_and(pheno_nm, sex_nm, unfiltered_indiv_ctl);
+      }
+      if (uii || pheno_all || loop_assoc_fname) {
+	logprint("Warning: Ignoring phenotypes of missing-sex samples.  If you don't want those\nphenotypes to be ignored, use the --allow-no-sex flag.\n");
       }
     }
-    if (uii || pheno_all || loop_assoc_fname) {
-      logprint("Warning: Ignoring phenotypes of missing-sex samples.  If you don't want those\nphenotypes to be ignored, use the --allow-no-sex flag.\n");
+    if (filter_flags & FILTER_PRUNE) {
+      bitfield_ornot(indiv_exclude, pheno_nm, unfiltered_indiv_ctl);
+      zero_trailing_bits(indiv_exclude, unfiltered_indiv_ct);
+      indiv_exclude_ct = popcount_longs(indiv_exclude, unfiltered_indiv_ctl);
+      if (indiv_exclude_ct == unfiltered_indiv_ct) {
+	LOGPRINTF("Error: All %s removed by --prune.\n", g_species_plural);
+	goto plink_ret_ALL_SAMPLES_EXCLUDED;
+      }
+      LOGPRINTF("--prune: %" PRIuPTR " %s remaining.\n", unfiltered_indiv_ct - indiv_exclude_ct, species_str(unfiltered_indiv_ct == indiv_exclude_ct + 1));
     }
-  }
-  if (filter_flags & FILTER_PRUNE) {
-    bitfield_ornot(indiv_exclude, pheno_nm, unfiltered_indiv_ctl);
-    zero_trailing_bits(indiv_exclude, unfiltered_indiv_ct);
-    indiv_exclude_ct = popcount_longs(indiv_exclude, unfiltered_indiv_ctl);
-    if (indiv_exclude_ct == unfiltered_indiv_ct) {
-      LOGPRINTF("Error: All %s removed by --prune.\n", g_species_plural);
-      goto plink_ret_ALL_SAMPLES_EXCLUDED;
-    }
-    LOGPRINTF("--prune: %" PRIuPTR " %s remaining.\n", unfiltered_indiv_ct - indiv_exclude_ct, species_str(unfiltered_indiv_ct == indiv_exclude_ct + 1));
-  }
 
-  if (filter_flags & (FILTER_BINARY_CASES | FILTER_BINARY_CONTROLS)) {
-    if (!pheno_c) {
-      logprint("Error: --filter-cases/--filter-controls requires a case/control phenotype.\n");
-      goto plink_ret_INVALID_CMDLINE;
+    if (filter_flags & (FILTER_BINARY_CASES | FILTER_BINARY_CONTROLS)) {
+      if (!pheno_c) {
+	logprint("Error: --filter-cases/--filter-controls requires a case/control phenotype.\n");
+	goto plink_ret_INVALID_CMDLINE;
+      }
+      ii = indiv_exclude_ct;
+      // fcc == 1: exclude all zeroes in pheno_c
+      // fcc == 2: exclude all ones in pheno_c
+      // -> flip on fcc == 1
+      filter_indivs_bitfields(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, pheno_c, (filter_flags / FILTER_BINARY_CASES) & 1, pheno_nm);
+      if (indiv_exclude_ct == unfiltered_indiv_ct) {
+	LOGPRINTF("Error: All %s removed due to case/control status (--filter-%s).\n", g_species_plural, (filter_flags & FILTER_BINARY_CASES)? "cases" : "controls");
+	goto plink_ret_ALL_SAMPLES_EXCLUDED;
+      }
+      ii = indiv_exclude_ct - ii;
+      LOGPRINTF("%d %s removed due to case/control status (--filter-%s).\n", ii, species_str(ii), (filter_flags & FILTER_BINARY_CASES)? "cases" : "controls");
     }
-    ii = indiv_exclude_ct;
-    // fcc == 1: exclude all zeroes in pheno_c
-    // fcc == 2: exclude all ones in pheno_c
-    // -> flip on fcc == 1
-    filter_indivs_bitfields(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, pheno_c, (filter_flags / FILTER_BINARY_CASES) & 1, pheno_nm);
-    if (indiv_exclude_ct == unfiltered_indiv_ct) {
-      LOGPRINTF("Error: All %s removed due to case/control status (--filter-%s).\n", g_species_plural, (filter_flags & FILTER_BINARY_CASES)? "cases" : "controls");
-      goto plink_ret_ALL_SAMPLES_EXCLUDED;
+    if (filter_flags & (FILTER_BINARY_FEMALES | FILTER_BINARY_MALES)) {
+      ii = indiv_exclude_ct;
+      filter_indivs_bitfields(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, sex_male, (filter_flags / FILTER_BINARY_MALES) & 1, sex_nm);
+      if (indiv_exclude_ct == unfiltered_indiv_ct) {
+	LOGPRINTF("Error: All %s removed due to gender filter (--filter-%s).\n", g_species_plural, (filter_flags & FILTER_BINARY_MALES)? "males" : "females");
+	goto plink_ret_ALL_SAMPLES_EXCLUDED;
+      }
+      ii = indiv_exclude_ct - ii;
+      LOGPRINTF("%d %s removed due to gender filter (--filter-%s).\n", ii, species_str(ii), (filter_flags & FILTER_BINARY_MALES)? "males" : "females");
     }
-    ii = indiv_exclude_ct - ii;
-    LOGPRINTF("%d %s removed due to case/control status (--filter-%s).\n", ii, species_str(ii), (filter_flags & FILTER_BINARY_CASES)? "cases" : "controls");
-  }
-  if (filter_flags & (FILTER_BINARY_FEMALES | FILTER_BINARY_MALES)) {
-    ii = indiv_exclude_ct;
-    filter_indivs_bitfields(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, sex_male, (filter_flags / FILTER_BINARY_MALES) & 1, sex_nm);
-    if (indiv_exclude_ct == unfiltered_indiv_ct) {
-      LOGPRINTF("Error: All %s removed due to gender filter (--filter-%s).\n", g_species_plural, (filter_flags & FILTER_BINARY_MALES)? "males" : "females");
-      goto plink_ret_ALL_SAMPLES_EXCLUDED;
+    if (filter_flags & (FILTER_BINARY_FOUNDERS | FILTER_BINARY_NONFOUNDERS)) {
+      ii = indiv_exclude_ct;
+      filter_indivs_bitfields(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, founder_info, (filter_flags / FILTER_BINARY_FOUNDERS) & 1, NULL);
+      if (indiv_exclude_ct == unfiltered_indiv_ct) {
+	LOGPRINTF("Error: All %s removed due to founder status (--filter-%s).\n", g_species_plural, (filter_flags & FILTER_BINARY_FOUNDERS)? "founders" : "nonfounders");
+	goto plink_ret_ALL_SAMPLES_EXCLUDED;
+      }
+      ii = indiv_exclude_ct - ii;
+      LOGPRINTF("%d %s removed due to founder status (--filter-%s).\n", ii, species_str(ii), (filter_flags & FILTER_BINARY_FOUNDERS)? "founders" : "nonfounders");
     }
-    ii = indiv_exclude_ct - ii;
-    LOGPRINTF("%d %s removed due to gender filter (--filter-%s).\n", ii, species_str(ii), (filter_flags & FILTER_BINARY_MALES)? "males" : "females");
-  }
-  if (filter_flags & (FILTER_BINARY_FOUNDERS | FILTER_BINARY_NONFOUNDERS)) {
-    ii = indiv_exclude_ct;
-    filter_indivs_bitfields(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, founder_info, (filter_flags / FILTER_BINARY_FOUNDERS) & 1, NULL);
-    if (indiv_exclude_ct == unfiltered_indiv_ct) {
-      LOGPRINTF("Error: All %s removed due to founder status (--filter-%s).\n", g_species_plural, (filter_flags & FILTER_BINARY_FOUNDERS)? "founders" : "nonfounders");
-      goto plink_ret_ALL_SAMPLES_EXCLUDED;
-    }
-    ii = indiv_exclude_ct - ii;
-    LOGPRINTF("%d %s removed due to founder status (--filter-%s).\n", ii, species_str(ii), (filter_flags & FILTER_BINARY_FOUNDERS)? "founders" : "nonfounders");
-  }
 
-  if (mind_thresh < 1.0) {
-    retval = mind_filter(bedfile, bed_offset, outname, outname_end, mind_thresh, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, person_ids, max_person_id_len, sex_male, chrom_info_ptr, om_ip);
-    if (retval) {
-      goto plink_ret_1;
+    if (mind_thresh < 1.0) {
+      retval = mind_filter(bedfile, bed_offset, outname, outname_end, mind_thresh, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, person_ids, max_person_id_len, sex_male, chrom_info_ptr, om_ip);
+      if (retval) {
+	goto plink_ret_1;
+      }
     }
-  }
-  if (cluster_ptr->fname || (misc_flags & MISC_FAMILY_CLUSTERS)) {
-    retval = load_clusters(cluster_ptr->fname, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, person_ids, max_person_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len, cluster_ptr->keep_fname, cluster_ptr->keep_flattened, cluster_ptr->remove_fname, cluster_ptr->remove_flattened);
-    if (retval) {
-      goto plink_ret_1;
+    if (cluster_ptr->fname || (misc_flags & MISC_FAMILY_CLUSTERS)) {
+      retval = load_clusters(cluster_ptr->fname, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, person_ids, max_person_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len, cluster_ptr->keep_fname, cluster_ptr->keep_flattened, cluster_ptr->remove_fname, cluster_ptr->remove_flattened);
+      if (retval) {
+	goto plink_ret_1;
+      }
     }
-  }
-  indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
-  if (!indiv_ct) {
-    // defensive; currently shouldn't happen since we're actually checking at
-    // every filter
-    LOGPRINTF("Error: No %s pass QC.\n", g_species_plural);
-    goto plink_ret_ALL_SAMPLES_EXCLUDED;
-  }
-  if ((indiv_ct == 1) && (relationship_or_ibc_req(calculation_type) || distance_req(calculation_type, read_dists_fname) || (calculation_type & (CALC_GENOME | CALC_CLUSTER | CALC_NEIGHBOR)))) {
-    sprintf(logbuf, "Error: More than 1 %s required for pairwise analysis.\n", g_species_singular);
-    goto plink_ret_INVALID_CMDLINE_2;
-  }
+    indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
+    if (!indiv_ct) {
+      // defensive; currently shouldn't happen since we're actually checking at
+      // every filter
+      LOGPRINTF("Error: No %s pass QC.\n", g_species_plural);
+      goto plink_ret_ALL_SAMPLES_EXCLUDED;
+    }
+    if ((indiv_ct == 1) && (relationship_or_ibc_req(calculation_type) || distance_req(calculation_type, read_dists_fname) || (calculation_type & (CALC_GENOME | CALC_CLUSTER | CALC_NEIGHBOR)))) {
+      sprintf(logbuf, "Error: More than 1 %s required for pairwise analysis.\n", g_species_singular);
+      goto plink_ret_INVALID_CMDLINE_2;
+    }
 
-  if ((parallel_tot > 1) && (parallel_tot > indiv_ct / 2)) {
-    sprintf(logbuf, "Error: Too many --parallel jobs (maximum %" PRIuPTR "/2 = %" PRIuPTR ").\n", indiv_ct, indiv_ct / 2);
-    goto plink_ret_INVALID_CMDLINE_2;
+    if ((parallel_tot > 1) && (parallel_tot > indiv_ct / 2)) {
+      sprintf(logbuf, "Error: Too many --parallel jobs (maximum %" PRIuPTR "/2 = %" PRIuPTR ").\n", indiv_ct, indiv_ct / 2);
+      goto plink_ret_INVALID_CMDLINE_2;
+    }
   }
   if (g_thread_ct > 1) {
     if ((calculation_type & (CALC_RELATIONSHIP | CALC_REL_CUTOFF | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_LD | CALC_PCA | CALC_MAKE_PERM_PHENO | CALC_QFAM)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_PERM | GLM_MPERM))) || ((calculation_type & CALC_TESTMISS) && (testmiss_modifier & (TESTMISS_PERM | TESTMISS_MPERM))) || ((calculation_type & CALC_TDT) && (fam_ip->tdt_modifier & (TDT_PERM | TDT_MPERM))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname))) || ((calculation_type & CALC_EPI) && (epi_ip->modifier & EPI_FAST))) {
@@ -1131,229 +1137,253 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     logprint("Using 1 thread.\n");
   }
 
-  if ((calculation_type & (CALC_SEXCHECK | CALC_MISSING_REPORT | CALC_GENOME | CALC_HOMOZYG | CALC_SCORE | CALC_MENDEL | CALC_HET)) || cluster_ptr->mds_dim_ct) {
-    calc_plink_maxfid(unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, &plink_maxfid, &plink_maxiid);
-  }
-  plink_maxsnp = calc_plink_maxsnp(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len);
-
-  if (indiv_sort & (INDIV_SORT_NATURAL | INDIV_SORT_ASCII)) {
-    retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, 0, 0, (indiv_sort & INDIV_SORT_NATURAL)? strcmp_natural_deref : strcmp_deref);
-    if (retval) {
-      goto plink_ret_1;
+  if (famname[0]) {
+    if ((calculation_type & (CALC_SEXCHECK | CALC_MISSING_REPORT | CALC_GENOME | CALC_HOMOZYG | CALC_SCORE | CALC_MENDEL | CALC_HET)) || cluster_ptr->mds_dim_ct) {
+      calc_plink_maxfid(unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, &plink_maxfid, &plink_maxiid);
     }
-    indiv_sort_map = uiptr;
-    wkspace_reset(cptr);
-  } else if (indiv_sort == INDIV_SORT_FILE) {
-    retval = indiv_sort_file_map(indiv_sort_fname, unfiltered_indiv_ct, indiv_exclude, unfiltered_indiv_ct - indiv_exclude_ct, person_ids, max_person_id_len, &indiv_sort_map);
-    if (retval) {
-      goto plink_ret_1;
-    }
-  }
 
-  if ((filter_flags & FILTER_MAKE_FOUNDERS) && (!(misc_flags & MISC_MAKE_FOUNDERS_FIRST))) {
-    if (make_founders(unfiltered_indiv_ct, indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, (misc_flags / MISC_MAKE_FOUNDERS_REQUIRE_2_MISSING) & 1, indiv_exclude, founder_info)) {
-      goto plink_ret_NOMEM;
-    }
-  }
-
-  if (calculation_type & CALC_WRITE_CLUSTER) {
-    retval = write_clusters(outname, outname_end, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, (misc_flags / MISC_WRITE_CLUSTER_OMIT_UNASSIGNED) & 1, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len);
-    if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER))))) {
-      goto plink_ret_1;
-    }
-  }
-
-  // this currently has to come last since covar data structures refer to
-  // filtered individual indices.
-  if (covar_fname) {
-    // update this as more covariate-referencing commands are added
-    if (!(calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_WRITE_COVAR | CALC_GXE | CALC_GLM | CALC_LASSO))) {
-      logprint("Warning: Ignoring --covar since no commands reference the covariates.\n");
-    } else {
-      // if only --gxe, ignore --covar-name/--covar-number
-      uii = (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_WRITE_COVAR | CALC_GLM | CALC_LASSO))? 1 : 0;
-      retval = load_covars(covar_fname, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, missing_phenod, uii? covar_modifier : (covar_modifier & COVAR_KEEP_PHENO_ON_MISSING_COV), uii? covar_range_list_ptr : NULL, gxe_mcovar, &covar_ct, &covar_names, &max_covar_name_len, pheno_nm, &covar_nm, &covar_d, &gxe_covar_nm, &gxe_covar_c);
+    if (indiv_sort & (INDIV_SORT_NATURAL | INDIV_SORT_ASCII)) {
+      retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, 0, 0, (indiv_sort & INDIV_SORT_NATURAL)? strcmp_natural_deref : strcmp_deref);
+      if (retval) {
+	goto plink_ret_1;
+      }
+      indiv_sort_map = uiptr;
+      wkspace_reset(cptr);
+    } else if (indiv_sort == INDIV_SORT_FILE) {
+      retval = indiv_sort_file_map(indiv_sort_fname, unfiltered_indiv_ct, indiv_exclude, unfiltered_indiv_ct - indiv_exclude_ct, person_ids, max_person_id_len, &indiv_sort_map);
       if (retval) {
 	goto plink_ret_1;
       }
     }
-  }
-  bitfield_andnot(pheno_nm, indiv_exclude, unfiltered_indiv_ctl);
-  if (pheno_c) {
-    bitfield_and(pheno_c, pheno_nm, unfiltered_indiv_ctl);
-  }
-  bitfield_andnot(founder_info, indiv_exclude, unfiltered_indiv_ctl);
-  bitfield_andnot(sex_nm, indiv_exclude, unfiltered_indiv_ctl);
-  if (gender_unk_ct) {
-    gender_unk_ct = indiv_ct - popcount_longs(sex_nm, unfiltered_indiv_ctl);
-  }
-  bitfield_and(sex_male, sex_nm, unfiltered_indiv_ctl);
 
-  pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
-  if (!pheno_nm_ct) {
-    hwe_modifier |= HWE_THRESH_ALL;
-  } else if (pheno_c) {
-    pheno_ctrl_ct = pheno_nm_ct - popcount_longs(pheno_c, unfiltered_indiv_ctl);
-    if (!pheno_ctrl_ct) {
-      hwe_modifier |= HWE_THRESH_ALL;
-    }
-  } else {
-    hwe_modifier |= HWE_THRESH_ALL;
-  }
-
-  if (unfiltered_marker_ct == marker_exclude_ct) {
-    // defensive
-    logprint("Error: No variants remaining.\n");
-    goto plink_ret_ALL_MARKERS_EXCLUDED;
-  }
-  retval = calc_freqs_and_hwe(bedfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, founder_info, nonfounders, (misc_flags / MISC_MAF_SUCC) & 1, set_allele_freqs, &marker_reverse, bed_offset, (hwe_thresh > 0.0) || (calculation_type & CALC_HARDY), hwe_modifier & HWE_THRESH_ALL, (pheno_nm_ct && pheno_c)? ((calculation_type / CALC_HARDY) & 1) : 0, geno_thresh, pheno_nm, pheno_nm_ct? pheno_c : NULL, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_cases, &hwe_lh_cases, &hwe_hh_cases, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &geno_excl_bitfield, &indiv_male_ct, &indiv_f_ct, &indiv_f_male_ct, wt_needed, &topsize, &marker_weights, exponent, chrom_info_ptr, om_ip, sex_nm, sex_male, map_is_unsorted & UNSORTED_SPLIT_CHROM, &hh_exists);
-  if (retval) {
-    goto plink_ret_1;
-  }
-
-  if (freqname) {
-    retval = read_external_freqs(freqname, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, chrom_info_ptr, marker_allele_ptrs, set_allele_freqs, (misc_flags / MISC_MAF_SUCC) & 1, exponent, wt_needed, marker_weights);
-    if (retval) {
-      goto plink_ret_1;
-    }
-  }
-
-  if (!(misc_flags & MISC_KEEP_ALLELE_ORDER)) {
-    // after this, set_allele_freqs[] has A2 freqs
-    calc_marker_reverse_bin(marker_reverse, marker_exclude, unfiltered_marker_ct, unfiltered_marker_ct - marker_exclude_ct, set_allele_freqs);
-  }
-  if (a1alleles || a2alleles) {
-    retval = load_ax_alleles(a1alleles? a1alleles : a2alleles, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_allele_ptrs, &max_marker_allele_len, marker_reverse, marker_ids, max_marker_id_len, set_allele_freqs, a2alleles? 1 : 0);
-    if (retval) {
-      goto plink_ret_1;
-    }
-  }
-
-  if (marker_allele_ptrs) {
-    swap_reversed_marker_alleles(unfiltered_marker_ct, marker_reverse, marker_allele_ptrs);
-  }
-
-  // contrary to the PLINK 1.07 flowchart, --freq effectively resolves before
-  // --geno.
-  if (calculation_type & CALC_FREQ) {
-    if (cluster_ct && (!(misc_flags & MISC_FREQX))) {
-      memcpy(outname_end, ".frq.strat", 11);
-      retval = write_stratified_freqs(bedfile, bed_offset, outname, plink_maxsnp, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_len, unfiltered_indiv_ct, indiv_ct, indiv_f_ct, founder_info, nonfounders, sex_male, indiv_f_male_ct, marker_reverse, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len);
-    } else {
-      if (misc_flags & MISC_FREQX) {
-	memcpy(outname_end, ".frqx", 6);
-      } else if (misc_flags & MISC_FREQ_COUNTS) {
-	memcpy(outname_end, ".frq.count", 11);
-      } else {
-	memcpy(outname_end, ".frq", 5);
+    if ((filter_flags & FILTER_MAKE_FOUNDERS) && (!(misc_flags & MISC_MAKE_FOUNDERS_FIRST))) {
+      if (make_founders(unfiltered_indiv_ct, indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, (misc_flags / MISC_MAKE_FOUNDERS_REQUIRE_2_MISSING) & 1, indiv_exclude, founder_info)) {
+	goto plink_ret_NOMEM;
       }
-      retval = write_freqs(outname, plink_maxsnp, unfiltered_marker_ct, marker_exclude, set_allele_freqs, chrom_info_ptr, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_len, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, hwe_hapl_allfs, hwe_haph_allfs, indiv_f_ct, indiv_f_male_ct, misc_flags, marker_reverse);
     }
-    if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER | CALC_FREQ))))) {
-      goto plink_ret_1;
-    }
-  }
-  if (calculation_type & CALC_MISSING_REPORT) {
-    retval = write_missingness_reports(bedfile, bed_offset, outname, outname_end, plink_maxfid, plink_maxiid, plink_maxsnp, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, chrom_info_ptr, om_ip, marker_ids, max_marker_id_len, unfiltered_indiv_ct, indiv_ct, indiv_exclude, pheno_nm, sex_male, indiv_male_ct, person_ids, max_person_id_len, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, hh_exists);
-    if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER | CALC_FREQ | CALC_MISSING_REPORT))))) {
-      goto plink_ret_1;
-    }
-  }
-  if (geno_excl_bitfield) {
-    ulii = marker_exclude_ct;
-    uljj = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
-    bitfield_or(marker_exclude, geno_excl_bitfield, uljj);
-    marker_exclude_ct = popcount_longs(marker_exclude, uljj);
-    if (marker_exclude_ct == unfiltered_marker_ct) {
-      logprint("Error: All variants excluded due to missing genotype data (--geno).\n");
-      goto plink_ret_ALL_MARKERS_EXCLUDED;
-    }
-    ulii = marker_exclude_ct - ulii;
-    LOGPRINTF("%" PRIuPTR " variant%s removed due to missing genotype data (--geno).\n", ulii, (ulii == 1)? "" : "s");
-  }
-  oblig_missing_cleanup(om_ip);
-  if (calculation_type & CALC_HARDY) {
-    retval = hardy_report(outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, hwe_lls, hwe_lhs, hwe_hhs, hwe_modifier, hwe_ll_cases, hwe_lh_cases, hwe_hh_cases, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, pheno_nm_ct, pheno_c, chrom_info_ptr);
-    if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER | CALC_FREQ | CALC_HARDY))))) {
-      goto plink_ret_1;
-    }
-  }
-  if (hwe_thresh > 0.0) {
-    if (enforce_hwe_threshold(hwe_thresh, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, hwe_lls, hwe_lhs, hwe_hhs, hwe_modifier, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, chrom_info_ptr)) {
-      goto plink_ret_ALL_MARKERS_EXCLUDED;
-    }
-  }
-  if ((min_maf != 0.0) || (max_maf != 0.5)) {
-    if (enforce_maf_threshold(min_maf, max_maf, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, set_allele_freqs)) {
-      goto plink_ret_ALL_MARKERS_EXCLUDED;
-    }
-  }
-  if (min_bp_space) {
-    if (map_is_unsorted & UNSORTED_BP) {
-      logprint("Error: --bp-space requires a sorted .bim file.  Retry this command after using\n--make-bed to sort your data.\n");
-      goto plink_ret_INVALID_FORMAT;
-    }
-    enforce_min_bp_space(min_bp_space, unfiltered_marker_ct, marker_exclude, marker_pos, &marker_exclude_ct, chrom_info_ptr);
-  }
 
-  if ((calculation_type & CALC_MENDEL) || (fam_ip->mendel_modifier & MENDEL_FILTER)) {
-    retval = mendel_error_scan(fam_ip, bedfile, bed_offset, outname, outname_end, plink_maxfid, plink_maxiid, plink_maxsnp, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, marker_reverse, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_len, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, hh_exists, chrom_info_ptr, (calculation_type / CALC_MENDEL) & 1);
-    if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER | CALC_FREQ | CALC_MISSING_REPORT | CALC_MENDEL))))) {
-      goto plink_ret_1;
+    if (calculation_type & CALC_WRITE_CLUSTER) {
+      retval = write_clusters(outname, outname_end, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, (misc_flags / MISC_WRITE_CLUSTER_OMIT_UNASSIGNED) & 1, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len);
+      if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER))))) {
+	goto plink_ret_1;
+      }
     }
-    if (fam_ip->mendel_modifier & MENDEL_FILTER) {
-      // gah
-      indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
-      bitfield_andnot(founder_info, indiv_exclude, unfiltered_indiv_ctl);
-      bitfield_andnot(sex_nm, indiv_exclude, unfiltered_indiv_ctl);
-      bitfield_and(sex_male, sex_nm, unfiltered_indiv_ctl);
-      if (pheno_nm_ct) {
-	bitfield_andnot(pheno_nm, indiv_exclude, unfiltered_indiv_ctl);
-        pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
-	if (pheno_c) {
-	  bitfield_and(pheno_c, pheno_nm, unfiltered_indiv_ctl);
-          pheno_ctrl_ct = pheno_nm_ct - popcount_longs(pheno_c, unfiltered_indiv_ctl);
+
+    // this currently has to come last since covar data structures refer to
+    // filtered individual indices.
+    if (covar_fname) {
+      // update this as more covariate-referencing commands are added
+      if (!(calculation_type & (CALC_MAKE_BED | CALC_MAKE_FAM | CALC_RECODE | CALC_WRITE_COVAR | CALC_GXE | CALC_GLM | CALC_LASSO))) {
+	logprint("Warning: Ignoring --covar since no commands reference the covariates.\n");
+      } else {
+	// if only --gxe, ignore --covar-name/--covar-number
+	uii = (calculation_type & (CALC_MAKE_BED | CALC_MAKE_FAM | CALC_RECODE | CALC_WRITE_COVAR | CALC_GLM | CALC_LASSO))? 1 : 0;
+	retval = load_covars(covar_fname, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, missing_phenod, uii? covar_modifier : (covar_modifier & COVAR_KEEP_PHENO_ON_MISSING_COV), uii? covar_range_list_ptr : NULL, gxe_mcovar, &covar_ct, &covar_names, &max_covar_name_len, pheno_nm, &covar_nm, &covar_d, &gxe_covar_nm, &gxe_covar_c);
+	if (retval) {
+	  goto plink_ret_1;
 	}
       }
     }
-  }
 
-  if (wt_needed) {
-    calc_marker_weights(exponent, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, marker_weights);
-  }
-  wkspace_reset(hwe_lls);
-
-  if (sip->fname) {
-    if (map_is_unsorted & UNSORTED_BP) {
-      logprint("Error: --set/--make-set requires a sorted .bim file.  Retry this command after\nusing --make-bed to sort your data.\n");
-      goto plink_ret_INVALID_FORMAT;
+    bitfield_andnot(pheno_nm, indiv_exclude, unfiltered_indiv_ctl);
+    if (pheno_c) {
+      bitfield_and(pheno_c, pheno_nm, unfiltered_indiv_ctl);
     }
-    retval = define_sets(sip, unfiltered_marker_ct, marker_exclude, marker_pos, &marker_exclude_ct, marker_ids, max_marker_id_len, chrom_info_ptr);
-    if (retval) {
-      goto plink_ret_1;
+    bitfield_andnot(founder_info, indiv_exclude, unfiltered_indiv_ctl);
+    bitfield_andnot(sex_nm, indiv_exclude, unfiltered_indiv_ctl);
+    if (gender_unk_ct) {
+      gender_unk_ct = indiv_ct - popcount_longs(sex_nm, unfiltered_indiv_ctl);
     }
-  }
+    bitfield_and(sex_male, sex_nm, unfiltered_indiv_ctl);
 
-  marker_ct = unfiltered_marker_ct - marker_exclude_ct;
-  if (!marker_ct) {
-    // defensive
-    logprint("Error: All variants fail QC.\n");
-    goto plink_ret_ALL_MARKERS_EXCLUDED;
-  }
-  LOGPRINTFWW("%" PRIuPTR " variant%s and %" PRIuPTR " %s pass filters and QC%s.\n", marker_ct, (marker_ct == 1)? "" : "s", indiv_ct, species_str(indiv_ct), (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
-  if (!pheno_nm_ct) {
-    logprint("Note: No phenotypes present.\n");
-  } else if (pheno_c) {
-    if (pheno_nm_ct != indiv_ct) {
-      sprintf(logbuf, "Among remaining phenotypes, %u %s and %u %s.  (%" PRIuPTR " phenotype%s missing.)\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "is a case" : "are cases", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "is a control" : "are controls", indiv_ct - pheno_nm_ct, (indiv_ct - pheno_nm_ct == 1)? " is" : "s are");
+    pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
+    if (!pheno_nm_ct) {
+      hwe_modifier |= HWE_THRESH_ALL;
+    } else if (pheno_c) {
+      pheno_ctrl_ct = pheno_nm_ct - popcount_longs(pheno_c, unfiltered_indiv_ctl);
+      if (!pheno_ctrl_ct) {
+	hwe_modifier |= HWE_THRESH_ALL;
+      }
     } else {
-      sprintf(logbuf, "Among remaining phenotypes, %u %s and %u %s.\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "is a case" : "are cases", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "is a control" : "are controls");
+      hwe_modifier |= HWE_THRESH_ALL;
     }
-    wordwrap(logbuf, 0);
-    logprintb();
-  } else {
-    logprint("Phenotype data is quantitative.\n");
   }
+
+  if (bimname[0]) {
+    if (unfiltered_marker_ct == marker_exclude_ct) {
+      // defensive
+      logprint("Error: No variants remaining.\n");
+      goto plink_ret_ALL_MARKERS_EXCLUDED;
+    }
+    plink_maxsnp = calc_plink_maxsnp(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len);
+    uii = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+    if (wkspace_alloc_ul_checked(&marker_reverse, uii * sizeof(intptr_t))) {
+      goto plink_ret_NOMEM;
+    }
+    fill_ulong_zero(marker_reverse, uii);
+    if (bedfile) {
+      retval = calc_freqs_and_hwe(bedfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, founder_info, nonfounders, (misc_flags / MISC_MAF_SUCC) & 1, set_allele_freqs, bed_offset, (hwe_thresh > 0.0) || (calculation_type & CALC_HARDY), hwe_modifier & HWE_THRESH_ALL, (pheno_nm_ct && pheno_c)? ((calculation_type / CALC_HARDY) & 1) : 0, geno_thresh, pheno_nm, pheno_nm_ct? pheno_c : NULL, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_cases, &hwe_lh_cases, &hwe_hh_cases, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &geno_excl_bitfield, &indiv_male_ct, &indiv_f_ct, &indiv_f_male_ct, wt_needed, &topsize, &marker_weights, exponent, chrom_info_ptr, om_ip, sex_nm, sex_male, map_is_unsorted & UNSORTED_SPLIT_CHROM, &hh_exists);
+      if (retval) {
+	goto plink_ret_1;
+      }
+
+      if (freqname) {
+	retval = read_external_freqs(freqname, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, chrom_info_ptr, marker_allele_ptrs, set_allele_freqs, (misc_flags / MISC_MAF_SUCC) & 1, exponent, wt_needed, marker_weights);
+	if (retval) {
+	  goto plink_ret_1;
+	}
+      }
+
+      if (!(misc_flags & MISC_KEEP_ALLELE_ORDER)) {
+	// after this, set_allele_freqs[] has A2 freqs
+	calc_marker_reverse_bin(marker_reverse, marker_exclude, unfiltered_marker_ct, unfiltered_marker_ct - marker_exclude_ct, set_allele_freqs);
+      }
+    } else {
+      for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
+        set_allele_freqs[marker_uidx] = 1.0;
+      }
+    }
+    if (a1alleles || a2alleles) {
+      retval = load_ax_alleles(a1alleles? a1alleles : a2alleles, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_allele_ptrs, &max_marker_allele_len, marker_reverse, marker_ids, max_marker_id_len, set_allele_freqs, a2alleles? 1 : 0);
+      if (retval) {
+	goto plink_ret_1;
+      }
+    }
+    if (marker_allele_ptrs) {
+      swap_reversed_marker_alleles(unfiltered_marker_ct, marker_reverse, marker_allele_ptrs);
+    }
+
+    // contrary to the PLINK 1.07 flowchart, --freq effectively resolves before
+    // --geno.
+    if (calculation_type & CALC_FREQ) {
+      if (cluster_ct && (!(misc_flags & MISC_FREQX))) {
+	memcpy(outname_end, ".frq.strat", 11);
+	retval = write_stratified_freqs(bedfile, bed_offset, outname, plink_maxsnp, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_len, unfiltered_indiv_ct, indiv_ct, indiv_f_ct, founder_info, nonfounders, sex_male, indiv_f_male_ct, marker_reverse, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len);
+      } else {
+	if (misc_flags & MISC_FREQX) {
+	  memcpy(outname_end, ".frqx", 6);
+	} else if (misc_flags & MISC_FREQ_COUNTS) {
+	  memcpy(outname_end, ".frq.count", 11);
+	} else {
+	  memcpy(outname_end, ".frq", 5);
+	}
+	retval = write_freqs(outname, plink_maxsnp, unfiltered_marker_ct, marker_exclude, set_allele_freqs, chrom_info_ptr, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_len, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, hwe_hapl_allfs, hwe_haph_allfs, indiv_f_ct, indiv_f_male_ct, misc_flags, marker_reverse);
+      }
+      if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER | CALC_FREQ))))) {
+	goto plink_ret_1;
+      }
+    }
+    if (calculation_type & CALC_MISSING_REPORT) {
+      retval = write_missingness_reports(bedfile, bed_offset, outname, outname_end, plink_maxfid, plink_maxiid, plink_maxsnp, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, chrom_info_ptr, om_ip, marker_ids, max_marker_id_len, unfiltered_indiv_ct, indiv_ct, indiv_exclude, pheno_nm, sex_male, indiv_male_ct, person_ids, max_person_id_len, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, hh_exists);
+      if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER | CALC_FREQ | CALC_MISSING_REPORT))))) {
+	goto plink_ret_1;
+      }
+    }
+
+    if (geno_excl_bitfield) {
+      ulii = marker_exclude_ct;
+      uljj = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+      bitfield_or(marker_exclude, geno_excl_bitfield, uljj);
+      marker_exclude_ct = popcount_longs(marker_exclude, uljj);
+      if (marker_exclude_ct == unfiltered_marker_ct) {
+	logprint("Error: All variants excluded due to missing genotype data (--geno).\n");
+	goto plink_ret_ALL_MARKERS_EXCLUDED;
+      }
+      ulii = marker_exclude_ct - ulii;
+      LOGPRINTF("%" PRIuPTR " variant%s removed due to missing genotype data (--geno).\n", ulii, (ulii == 1)? "" : "s");
+    }
+    oblig_missing_cleanup(om_ip);
+    if (calculation_type & CALC_HARDY) {
+      retval = hardy_report(outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, hwe_lls, hwe_lhs, hwe_hhs, hwe_modifier, hwe_ll_cases, hwe_lh_cases, hwe_hh_cases, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, pheno_nm_ct, pheno_c, chrom_info_ptr);
+      if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER | CALC_FREQ | CALC_HARDY))))) {
+	goto plink_ret_1;
+      }
+    }
+    if (hwe_thresh > 0.0) {
+      if (enforce_hwe_threshold(hwe_thresh, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, hwe_lls, hwe_lhs, hwe_hhs, hwe_modifier, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, chrom_info_ptr)) {
+	goto plink_ret_ALL_MARKERS_EXCLUDED;
+      }
+    }
+    if ((min_maf != 0.0) || (max_maf != 0.5)) {
+      if (enforce_maf_threshold(min_maf, max_maf, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, set_allele_freqs)) {
+	goto plink_ret_ALL_MARKERS_EXCLUDED;
+      }
+    }
+    if (min_bp_space) {
+      if (map_is_unsorted & UNSORTED_BP) {
+	logprint("Error: --bp-space requires a sorted .bim file.  Retry this command after using\n--make-bed to sort your data.\n");
+	goto plink_ret_INVALID_FORMAT;
+      }
+      enforce_min_bp_space(min_bp_space, unfiltered_marker_ct, marker_exclude, marker_pos, &marker_exclude_ct, chrom_info_ptr);
+    }
+
+    if (bedfile) {
+      if ((calculation_type & CALC_MENDEL) || (fam_ip->mendel_modifier & MENDEL_FILTER)) {
+	retval = mendel_error_scan(fam_ip, bedfile, bed_offset, outname, outname_end, plink_maxfid, plink_maxiid, plink_maxsnp, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, marker_reverse, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_len, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, hh_exists, chrom_info_ptr, (calculation_type / CALC_MENDEL) & 1);
+	if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER | CALC_FREQ | CALC_MISSING_REPORT | CALC_MENDEL))))) {
+	  goto plink_ret_1;
+	}
+	if (fam_ip->mendel_modifier & MENDEL_FILTER) {
+	  // gah
+	  indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
+	  bitfield_andnot(founder_info, indiv_exclude, unfiltered_indiv_ctl);
+	  bitfield_andnot(sex_nm, indiv_exclude, unfiltered_indiv_ctl);
+	  bitfield_and(sex_male, sex_nm, unfiltered_indiv_ctl);
+	  if (pheno_nm_ct) {
+	    bitfield_andnot(pheno_nm, indiv_exclude, unfiltered_indiv_ctl);
+	    pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_indiv_ctl);
+	    if (pheno_c) {
+	      bitfield_and(pheno_c, pheno_nm, unfiltered_indiv_ctl);
+	      pheno_ctrl_ct = pheno_nm_ct - popcount_longs(pheno_c, unfiltered_indiv_ctl);
+	    }
+	  }
+	}
+      }
+
+      if (wt_needed) {
+	calc_marker_weights(exponent, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, marker_weights);
+      }
+      wkspace_reset(hwe_lls);
+    }
+    if (sip->fname) {
+      if (map_is_unsorted & UNSORTED_BP) {
+	logprint("Error: --set/--make-set requires a sorted .bim file.  Retry this command after\nusing --make-bed to sort your data.\n");
+	goto plink_ret_INVALID_FORMAT;
+      }
+      retval = define_sets(sip, unfiltered_marker_ct, marker_exclude, marker_pos, &marker_exclude_ct, marker_ids, max_marker_id_len, chrom_info_ptr);
+      if (retval) {
+	goto plink_ret_1;
+      }
+    }
+
+    marker_ct = unfiltered_marker_ct - marker_exclude_ct;
+    if (!marker_ct) {
+      // defensive
+      logprint("Error: All variants fail QC.\n");
+      goto plink_ret_ALL_MARKERS_EXCLUDED;
+    }
+    if (bedfile) {
+      LOGPRINTFWW("%" PRIuPTR " variant%s and %" PRIuPTR " %s pass filters and QC%s.\n", marker_ct, (marker_ct == 1)? "" : "s", indiv_ct, species_str(indiv_ct), (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
+    } else {
+      LOGPRINTFWW("%" PRIuPTR " variant%s pass filters and QC.\n", marker_ct, (marker_ct == 1)? "" : "s");
+    }
+  }
+  if (famname[0]) {
+    if (!pheno_nm_ct) {
+      logprint("Note: No phenotypes present.\n");
+    } else if (pheno_c) {
+      if (pheno_nm_ct != indiv_ct) {
+	sprintf(logbuf, "Among remaining phenotypes, %u %s and %u %s.  (%" PRIuPTR " phenotype%s missing.)\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "is a case" : "are cases", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "is a control" : "are controls", indiv_ct - pheno_nm_ct, (indiv_ct - pheno_nm_ct == 1)? " is" : "s are");
+      } else {
+	sprintf(logbuf, "Among remaining phenotypes, %u %s and %u %s.\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "is a case" : "are cases", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "is a control" : "are controls");
+      }
+      wordwrap(logbuf, 0);
+      logprintb();
+    } else {
+      logprint("Phenotype data is quantitative.\n");
+    }
+  }
+
   if (wt_needed) {
     // normalize included marker weights to add to just under 2^32.  (switch to
     // 2^64 if/when 32-bit performance becomes less important than accuracy on
@@ -1516,7 +1546,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
-  if (calculation_type & (CALC_WRITE_COVAR | CALC_MAKE_BED | CALC_RECODE)) {
+  if (calculation_type & (CALC_WRITE_COVAR | CALC_MAKE_BED | CALC_MAKE_BIM | CALC_MAKE_FAM | CALC_RECODE)) {
     if (gender_unk_ct && (sex_missing_pheno & MUST_HAVE_SEX)) {
       if (aligned_malloc(&pheno_nm_datagen, unfiltered_indiv_ctl * sizeof(intptr_t))) {
 	goto plink_ret_NOMEM;
@@ -1524,14 +1554,14 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       memcpy(pheno_nm_datagen, pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t));
       bitfield_and(pheno_nm_datagen, sex_nm, unfiltered_indiv_ctl);
     }
-    if (covar_fname) {
+    if (covar_fname && (calculation_type & (CALC_WRITE_COVAR | CALC_MAKE_BED | CALC_MAKE_FAM | CALC_RECODE))) {
       retval = write_covars(outname, outname_end, write_covar_modifier, write_covar_dummy_max_categories, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm_datagen? pheno_nm_datagen : pheno_nm, pheno_c, pheno_d, missing_phenod, output_missing_pheno, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d);
       if (retval) {
 	goto plink_ret_1;
       }
     }
-    if (calculation_type & CALC_MAKE_BED) {
-      retval = make_bed(bedfile, bed_offset, mapname, map_cols, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_cms, marker_pos, marker_allele_ptrs, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, founder_info, sex_nm, sex_male, pheno_nm_datagen? pheno_nm_datagen : pheno_nm, pheno_c, pheno_d, output_missing_pheno, map_is_unsorted, indiv_sort_map, misc_flags, splitx_bound1, splitx_bound2, update_chr, flip_fname, flip_subset_fname, cluster_ptr->zerofname, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, hh_exists, chrom_info_ptr, fam_ip->mendel_modifier);
+    if (calculation_type & (CALC_MAKE_BED | CALC_MAKE_BIM | CALC_MAKE_FAM)) {
+      retval = make_bed(bedfile, bed_offset, bimname, map_cols, outname, outname_end, calculation_type, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_cms, marker_pos, marker_allele_ptrs, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, founder_info, sex_nm, sex_male, pheno_nm_datagen? pheno_nm_datagen : pheno_nm, pheno_c, pheno_d, output_missing_pheno, map_is_unsorted, indiv_sort_map, misc_flags, splitx_bound1, splitx_bound2, update_chr, flip_fname, flip_subset_fname, cluster_ptr->zerofname, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, hh_exists, chrom_info_ptr, fam_ip->mendel_modifier);
       if (retval) {
         goto plink_ret_1;
       }
@@ -3784,8 +3814,8 @@ int32_t main(int32_t argc, char** argv) {
       g_thread_ct--;
     }
   }
-  memcpy(mapname, PROG_NAME_STR ".map", 10);
-  memcpy(pedname, PROG_NAME_STR ".ped", 10);
+  mapname[0] = '\0';
+  pedname[0] = '\0';
   famname[0] = '\0';
   memcpyl3(output_missing_pheno, "-9");
   // stuff that must be processed before regular alphabetical loop
@@ -3980,7 +4010,7 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
 	  allelexxxx = ALLELE_RECODE;
 	}
-	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
+	filter_flags |= FILTER_BIM_REQ | FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "lleleACGT", 9)) {
 	if (allelexxxx) {
 	  logprint("Error: --allele1234 and --alleleACGT cannot be used together.\n");
@@ -3998,7 +4028,7 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
 	  allelexxxx = ALLELE_RECODE_ACGT;
 	}
-	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
+	filter_flags |= FILTER_BIM_REQ | FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "llele-count", 12)) {
 	lgen_modifier |= LGEN_ALLELE_COUNT;
 	goto main_param_zero;
@@ -4159,7 +4189,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
+	filter_flags |= FILTER_BIM_REQ | FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "2-allele", 9)) {
 	if (a1alleles) {
 	  logprint("Error: --a2-allele cannot be used with --a1-allele.\n");
@@ -4172,7 +4202,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
+	filter_flags |= FILTER_BIM_REQ | FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "nnotate", 8)) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 10)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -4278,7 +4308,7 @@ int32_t main(int32_t argc, char** argv) {
           memcpy(filter_attrib_liststr, argv[cur_arg + 2], uii);
 	  memcpy(&(filter_attrib_liststr[uii]), ",", 2);
 	}
-	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
+	filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "ttrib-indiv", 12)) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
           goto main_ret_INVALID_CMDLINE_2A;
@@ -4296,7 +4326,7 @@ int32_t main(int32_t argc, char** argv) {
           memcpy(filter_attrib_indiv_liststr, argv[cur_arg + 2], uii);
 	  memcpy(&(filter_attrib_indiv_liststr[uii]), ",", 2);
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_FAM_REQ;
       } else if ((!memcmp(argptr2, "lt-group", 9)) ||
                  (!memcmp(argptr2, "lt-snp", 7))) {
         goto main_hap_disabled_message;
@@ -4310,7 +4340,6 @@ int32_t main(int32_t argc, char** argv) {
 	if (load_rare) {
 	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
 	}
-	load_params |= LOAD_PARAMS_BFILE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -4325,9 +4354,11 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (!(load_params & LOAD_PARAMS_BED)) {
 	  memcpy(strcpya(pedname, sptr), ".bed", 5);
+	  load_params |= LOAD_PARAMS_BED;
 	}
 	memcpy(strcpya(mapname, sptr), ".bim", 5);
 	memcpy(strcpya(famname, sptr), ".fam", 5);
+	load_params |= LOAD_PARAMS_BIM | LOAD_PARAMS_FAM;
       } else if (!memcmp(argptr2, "ed", 3)) {
 	if (load_rare) {
 	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
@@ -4342,9 +4373,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	strcpy(pedname, argv[cur_arg + 1]);
       } else if (!memcmp(argptr2, "im", 3)) {
-	if (!(load_params & (LOAD_PARAMS_BED | LOAD_PARAMS_BFILE))) {
-	  logprint("Error: --bim must be used with --bed or --bfile.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
+	if (load_rare) {
+	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
 	}
 	load_params |= LOAD_PARAMS_BIM;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -4401,7 +4431,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --bp-space minimum bp distance '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
-	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
+	filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "eta", 4)) {
 	logprint("Note: --beta flag deprecated.  Use e.g. '--logistic beta'.\n");
 	glm_modifier |= GLM_BETA;
@@ -5401,7 +5431,7 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_NOMEM;
 	  }
 	}
-	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
+	filter_flags |= FILTER_BIM_REQ | FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "heck-sex", 9)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 5)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -5690,7 +5720,6 @@ int32_t main(int32_t argc, char** argv) {
 	if (load_rare || load_params) {
 	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
 	}
-	load_params |= LOAD_PARAMS_OXDATA;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -5705,9 +5734,11 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (!(load_params & LOAD_PARAMS_OXBGEN)) {
 	  memcpy(strcpya(pedname, sptr), ".gen", 5);
+	  load_params |= LOAD_PARAMS_OXGEN;
 	}
 	// cheating: this is of course more like a .fam file
 	memcpy(strcpya(mapname, sptr), ".sample", 8);
+	load_params |= LOAD_PARAMS_OXSAMPLE;
       } else if (!memcmp(argptr2, "ecompress", 10)) {
 	logprint("Error: --decompress flag retired.  Use e.g. 'gunzip [filename]'.\n");
 	goto main_ret_INVALID_CMDLINE;
@@ -5990,7 +6021,6 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	load_rare = LOAD_RARE_DOSAGE;
-	mapname[0] = '\0';
       } else if (!memcmp(argptr2, "prime", 6)) {
 	logprint("Note: --dprime flag deprecated.  Use e.g. '--r2 dprime'.\n");
 	ld_info.modifier |= LD_DPRIME;
@@ -6019,7 +6049,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
+	filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "xclude", 7)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -6038,7 +6068,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
+	filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "xclude-snp", 11)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -6056,7 +6086,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-        filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV | FILTER_EXCLUDE_MARKERNAME_SNP;
+        filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP | FILTER_NOCNV | FILTER_EXCLUDE_MARKERNAME_SNP;
       } else if (!memcmp(argptr2, "pistasis", 9)) {
 	if (epi_info.modifier & EPI_FAST_CASE_ONLY) {
 	  logprint("Error: --epistasis cannot be used with --case-only.\n");
@@ -6141,18 +6171,21 @@ int32_t main(int32_t argc, char** argv) {
 	if (load_params & (LOAD_PARAMS_BFILE_ALL | LOAD_PARAMS_OX_ALL)) {
 	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
 	}
-	load_params |= LOAD_PARAMS_TEXTFILE;
+	load_params |= LOAD_PARAMS_TEXT_ALL;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (param_ct) {
-	  if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 5)) {
+	  sptr = argv[cur_arg + 1];
+	  if (strlen(sptr) > (FNAMESIZE - 5)) {
 	    logprint("Error: --file parameter too long.\n");
 	    goto main_ret_OPEN_FAIL;
 	  }
-	  memcpy(strcpya(pedname, argv[cur_arg + 1]), ".ped", 5);
-	  memcpy(strcpya(mapname, argv[cur_arg + 1]), ".map", 5);
+	} else {
+	  sptr = (char*)PROG_NAME_STR;
 	}
+	memcpy(strcpya(pedname, sptr), ".ped", 5);
+	memcpy(strcpya(mapname, sptr), ".map", 5);
       } else if (!memcmp(argptr2, "am", 3)) {
 	if (load_params & (LOAD_PARAMS_TEXT_ALL | LOAD_PARAMS_OX_ALL)) {
 	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
@@ -6178,36 +6211,36 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_NOMEM;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_FAM_REQ;
       } else if (!memcmp(argptr2, "ilter-cases", 12)) {
-	filter_flags |= FILTER_BINARY_CASES;
+	filter_flags |= FILTER_FAM_REQ | FILTER_BINARY_CASES;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ilter-controls", 15)) {
 	if (filter_flags & FILTER_BINARY_CASES) {
 	  logprint("Error: --filter-cases and --filter-controls cannot be used together.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	filter_flags |= FILTER_BINARY_CONTROLS;
+	filter_flags |= FILTER_FAM_REQ | FILTER_BINARY_CONTROLS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ilter-females", 14)) {
-	filter_flags |= FILTER_BINARY_FEMALES;
+	filter_flags |= FILTER_FAM_REQ | FILTER_BINARY_FEMALES;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ilter-males", 12)) {
 	if (filter_flags & FILTER_BINARY_FEMALES) {
 	  logprint("Error: --filter-males and --filter-females cannot be used together.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	filter_flags |= FILTER_BINARY_MALES;
+	filter_flags |= FILTER_FAM_REQ | FILTER_BINARY_MALES;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ilter-founders", 15)) {
-	filter_flags |= FILTER_BINARY_FOUNDERS;
+	filter_flags |= FILTER_FAM_REQ | FILTER_BINARY_FOUNDERS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ilter-nonfounders", 18)) {
 	if (filter_flags & FILTER_BINARY_FOUNDERS) {
 	  logprint("Error: --filter-founders and --filter-nonfounders cannot be used together.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	filter_flags |= FILTER_BINARY_NONFOUNDERS;
+	filter_flags |= FILTER_FAM_REQ | FILTER_BINARY_NONFOUNDERS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "req", 4)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
@@ -6244,7 +6277,7 @@ int32_t main(int32_t argc, char** argv) {
         if (alloc_string(&markername_from, argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
-	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
+	filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if ((!memcmp(argptr2, "rom-bp", 7)) || (!memcmp(argptr2, "rom-kb", 7)) || (!memcmp(argptr2, "rom-mb", 7))) {
 	if (markername_from) {
 	  logprint("Error: --from-bp/-kb/-mb cannot be used with --from.\n");
@@ -6277,7 +6310,7 @@ int32_t main(int32_t argc, char** argv) {
 	    marker_pos_start = (int32_t)(dxx * (1 + SMALL_EPSILON));
 	  }
 	}
-	filter_flags |= FILTER_DOSAGEMAP;
+	filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP;
       } else if (!memcmp(argptr2, "isher", 6)) {
 	if (model_modifier & MODEL_ASSOC) {
 	  logprint("Error: --fisher cannot be used with --assoc.\n");
@@ -6299,7 +6332,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
+	filter_flags |= FILTER_BIM_REQ | FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "lip-subset", 11)) {
 	if (!flip_fname) {
           logprint("Error: --flip-subset must be used with --flip.\n");
@@ -6434,6 +6467,7 @@ int32_t main(int32_t argc, char** argv) {
         ld_info.modifier |= LD_FLIPSCAN_VERBOSE;
       } else if (!memcmp(argptr2, "amily", 6)) {
         misc_flags |= MISC_FAMILY_CLUSTERS;
+	filter_flags |= FILTER_FAM_REQ;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ill-missing-a2", 15)) {
 	if (load_rare & LOAD_RARE_CNV) {
@@ -6481,7 +6515,7 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
 	  geno_thresh = 0.1;
 	}
-	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
+	filter_flags |= FILTER_ALL_REQ | FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "en", 3)) {
 	if (load_rare || (load_params & (LOAD_PARAMS_TEXT_ALL | LOAD_PARAMS_BFILE_ALL | LOAD_PARAMS_OXBGEN))) {
 	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
@@ -6673,14 +6707,14 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
+	filter_flags |= FILTER_BIM_REQ | FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "ene-all", 8)) {
 	if (set_info.genekeep_flattened) {
           logprint("Error: --gene-all cannot be used with --gene.\n");
           goto main_ret_INVALID_CMDLINE_A;
 	}
         set_info.modifier |= SET_GENE_ALL;
-	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
+	filter_flags |= FILTER_BIM_REQ | FILTER_NODOSAGE | FILTER_NOCNV;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ap", 3)) {
 	if ((epi_info.modifier & (EPI_FAST | EPI_FAST_CASE_ONLY)) != (EPI_FAST | EPI_FAST_CASE_ONLY)) {
@@ -6807,7 +6841,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --hwe threshold must be smaller than 0.5 when using mid-p adjustment.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
+	filter_flags |= FILTER_ALL_REQ | FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "we-all", 7)) {
 	logprint("Note: --hwe-all flag deprecated.  Use '--hwe include-nonctrl'.\n");
 	hwe_modifier |= HWE_THRESH_ALL;
@@ -7365,7 +7399,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_FAM_REQ;
       } else if (!memcmp(argptr2, "eep-fam", 8)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -7374,7 +7408,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_FAM_REQ;
       } else if (!memcmp(argptr2, "eep-allele-order", 17)) {
 	if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
 	  sprintf(logbuf, "Error: --keep-allele-order has no effect with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
@@ -7400,7 +7434,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_FAM_REQ;
       } else if (!memcmp(argptr2, "eep-clusters", 13)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -7409,7 +7443,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_FAM_REQ;
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
       }
@@ -7488,6 +7522,7 @@ int32_t main(int32_t argc, char** argv) {
 	mtest_adjust |= ADJUST_LAMBDA;
       } else if (!memcmp(argptr2, "ist-23-indels", 14)) {
         calculation_type |= CALC_LIST_23_INDELS;
+	goto main_param_zero;
       } else if ((!memcmp(argptr2, "inear", 6)) || (!memcmp(argptr2, "ogistic", 8))) {
 #ifndef NOLAPACK
         if (calculation_type & CALC_GLM) {
@@ -7810,7 +7845,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (((argv[cur_arg + 2][0] == '\'') || (argv[cur_arg + 2][0] == '"')) && (argv[cur_arg + 2][1] == '*') && (argv[cur_arg + 2][2] == argv[cur_arg + 2][0]) && (!argv[cur_arg + 2][3])) {
 	  memcpy(makepheno_str, "*", 2);
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_FAM_REQ;
       } else if (!memcmp(argptr2, "pheno", 6)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -7869,7 +7904,7 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
 	  min_maf = 0.01;
 	}
-	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
+	filter_flags |= FILTER_ALL_REQ | FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "ax-maf", 7)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -7902,7 +7937,7 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
 	  mind_thresh = 0.1;
 	}
-	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
+	filter_flags |= FILTER_ALL_REQ | FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "ake-grm", 8)) {
 	logprint("Error: --make-grm has been retired due to inconsistent meaning across GCTA\nversions.  Use --make-grm-gz or --make-grm-bin.\n");
 	goto main_ret_INVALID_CMDLINE;
@@ -8072,10 +8107,34 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (param_ct) {
+	  // the missing --out mistake is so common--I must have made it over a
+	  // hundred times by now--that a custom error message is worthwhile.
 	  sprintf(logbuf, "Error: --make-bed doesn't accept parameters.%s\n", ((param_ct == 1) && (!outname_end))? "  (Did you forget '--out'?)" : "");
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	calculation_type |= CALC_MAKE_BED;
+      } else if (!memcmp(argptr2, "ake-bim", 8)) {
+	if (calculation_type & CALC_MAKE_BED) {
+	  logprint("Error: --make-bim cannot be used with --make-bed.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
+	if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
+	  sprintf(logbuf, "Error: --make-bim cannot be used with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+	calculation_type |= CALC_MAKE_BIM;
+	goto main_param_zero;
+      } else if (!memcmp(argptr2, "ake-fam", 8)) {
+	if (calculation_type & CALC_MAKE_BED) {
+	  logprint("Error: --make-fam cannot be used with --make-bed.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
+	if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
+	  sprintf(logbuf, "Error: --make-fam cannot be used with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+	calculation_type |= CALC_MAKE_FAM;
+	goto main_param_zero;
       } else if (!memcmp(argptr2, "erge", 5)) {
 	if (calculation_type & CALC_MERGE) {
 	  logprint("Error: --merge cannot be used with --bmerge.\n");
@@ -8541,7 +8600,7 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
-	filter_flags |= FILTER_MAKE_FOUNDERS;
+	filter_flags |= FILTER_FAM_REQ | FILTER_MAKE_FOUNDERS;
       } else if (!memcmp(argptr2, "issing", 7)) {
 	calculation_type |= CALC_MISSING_REPORT;
 	goto main_param_zero;
@@ -8607,6 +8666,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
         set_info.modifier |= SET_MAKE_FROM_RANGES;
+	filter_flags |= FILTER_BIM_REQ;
       } else if (!memcmp(argptr2, "ake-set-border", 15)) {
 	if (!set_info.fname) {
 	  logprint("Error: --make-set-border must be used with --make-set.\n");
@@ -8702,7 +8762,7 @@ int32_t main(int32_t argc, char** argv) {
 	  // silently skip if both parameters are one, for backward
 	  // compatibility
 	  family_info.mendel_modifier |= MENDEL_FILTER;
-	  filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
+	  filter_flags |= FILTER_ALL_REQ | FILTER_NODOSAGE | FILTER_NOCNV;
 	}
       } else if (!memcmp(argptr2, "e-exclude-one", 14)) {
 	if (!(family_info.mendel_modifier & MENDEL_FILTER)) {
@@ -9040,7 +9100,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_FAM_REQ;
       } else if (!memcmp(argptr2, "heno-name", 10)) {
 	if (!phenoname) {
 	  logprint("Error: --pheno-name must be used with --pheno.\n");
@@ -9064,7 +9124,7 @@ int32_t main(int32_t argc, char** argv) {
 	pheno_modifier |= PHENO_MERGE;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "rune", 5)) {
-	filter_flags |= FILTER_PRUNE;
+	filter_flags |= FILTER_FAM_REQ | FILTER_PRUNE;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "arallel", 8)) {
 	if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ) {
@@ -9440,7 +9500,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
+	filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "ual-threshold", 14)) {
 	if (!qual_filter) {
 	  logprint("Error: --qual-threshold must be used with --qual-scores.\n");
@@ -9536,7 +9596,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_FAM_REQ;
       } else if (!memcmp(argptr2, "emove-fam", 10)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -9545,7 +9605,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_FAM_REQ;
       } else if (!memcmp(argptr2, "emove-clusters", 15)) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -9554,7 +9614,7 @@ int32_t main(int32_t argc, char** argv) {
         if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_FAM_REQ;
       } else if (!memcmp(argptr2, "emove-cluster-names", 20)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x7fffffff)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -9563,7 +9623,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-        filter_flags |= FILTER_GENERIC;
+        filter_flags |= FILTER_FAM_REQ;
       } else if (!memcmp(argptr2, "el-cutoff", 10)) {
 	if (parallel_tot > 1) {
 	  logprint("Error: --parallel cannot be used with --rel-cutoff.  (Use a combination of\n--make-rel, --keep/--remove, and a filtering script.)\n");
@@ -9778,6 +9838,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
+	filter_flags |= FILTER_ALL_REQ;
       } else if ((!memcmp(argptr2, "ecode", 6)) || (!memcmp(argptr2, "ecode ", 6))) {
 	if (argptr2[5] == ' ') {
 	  kk = 1;
@@ -10235,7 +10296,7 @@ int32_t main(int32_t argc, char** argv) {
         if (alloc_string(&markername_snp, argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
-        filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
+        filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "nps", 4)) {
 	if (markername_from) {
 	  logprint("Error: --snps cannot be used with --from.\n");
@@ -10255,7 +10316,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-        filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
+        filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "et-hh-missing", 14)) {
 	misc_flags |= MISC_SET_HH_MISSING;
 	goto main_param_zero;
@@ -10275,6 +10336,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
+	filter_flags |= FILTER_BIM_REQ;
       } else if (!memcmp(argptr2, "et-collapse-all", 16)) {
 	if (!set_info.fname) {
 	  logprint("Error: --set-collapse-all must be used with --set/--make-set.\n");
@@ -10576,7 +10638,7 @@ int32_t main(int32_t argc, char** argv) {
 	  }
           misc_flags |= MISC_SNPS_ONLY_NO_DI;
 	}
-	filter_flags |= FILTER_SNPS_ONLY | FILTER_NODOSAGE | FILTER_NOCNV;
+	filter_flags |= FILTER_BIM_REQ | FILTER_SNPS_ONLY | FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "plit-x", 7)) {
 	if (misc_flags & MISC_MERGEX) {
           logprint("Error: --split-x cannot be used with --merge-x.\n");
@@ -10640,7 +10702,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (alloc_string(&missing_mid_templates[1], argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
-	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
+	filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "et-missing-nonsnp-ids", 22)) {
 	if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
 	  sprintf(logbuf, "Error: --set-missing-nonsnp-ids cannot be used with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
@@ -10658,7 +10720,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (alloc_string(&missing_mid_templates[0], argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
-	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
+	filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "et-missing-var-ids", 19)) {
 	if (missing_mid_templates[0] || missing_mid_templates[1]) {
 	  logprint("Error: --set-missing-var-ids cannot be used with --set-missing-snp-ids or\n--set-missing-nonsnp-ids.\n");
@@ -10679,7 +10741,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (alloc_string(&missing_mid_templates[1], argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
-	filter_flags |= FILTER_SET_MISSING_VAR_IDS | FILTER_DOSAGEMAP | FILTER_NOCNV;
+	filter_flags |= FILTER_BIM_REQ | FILTER_SET_MISSING_VAR_IDS | FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "core", 5)) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 7)) {
           goto main_ret_INVALID_CMDLINE_2A;
@@ -10818,7 +10880,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: Ltop cannot be larger than Hbottom for --tail-pheno.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-        filter_flags |= FILTER_TAIL_PHENO;
+        filter_flags |= FILTER_FAM_REQ | FILTER_TAIL_PHENO;
       } else if (!memcmp(argptr2, "hreads", 7)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -10916,7 +10978,7 @@ int32_t main(int32_t argc, char** argv) {
         if (alloc_string(&markername_to, argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
-	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
+	filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if ((!memcmp(argptr2, "o-bp", 5)) || (!memcmp(argptr2, "o-kb", 5)) || (!memcmp(argptr2, "o-mb", 5))) {
 	if (markername_snp && (!(filter_flags & FILTER_EXCLUDE_MARKERNAME_SNP))) {
 	  logprint("Error: --to-bp/-kb/-mb cannot be used with --snp.\n");
@@ -10964,7 +11026,7 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
 	  marker_pos_end = ii;
 	}
-	filter_flags |= FILTER_DOSAGEMAP;
+	filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP;
       } else if (!memcmp(argptr2, "rend", 5)) {
 	if (model_modifier & MODEL_ASSOC) {
 	  logprint("Error: --trend cannot be used with --assoc.\n");
@@ -10996,7 +11058,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --thin variant retention probability too large.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
+	filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "hin-count", 10)) {
 	if (thin_keep_prob != 1.0) {
 	  logprint("Error: --thin cannot be used with --thin-count.\n");
@@ -11009,7 +11071,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --thin-count parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
-	filter_flags |= FILTER_DOSAGEMAP | FILTER_NOCNV;
+	filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "ests", 5)) {
 	if (!(calculation_type & CALC_GLM)) {
 	  logprint("Error: --tests must be used with --linear or --logistic.\n");
@@ -11321,7 +11383,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_NODOSAGE | FILTER_NOCNV;
+	filter_flags |= FILTER_BIM_REQ | FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "pdate-chr", 10)) {
 	if (cnv_calc_type & CNV_MAKE_MAP) {
 	  logprint("--update-chr cannot be used with --cnv-make-map.\n");
@@ -11365,7 +11427,7 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_1;
 	  }
 	}
-	filter_flags |= FILTER_DOSAGEMAP;
+	filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP;
       } else if (!memcmp(argptr2, "pdate-ids", 10)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -11374,7 +11436,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-        filter_flags |= FILTER_GENERIC;
+        filter_flags |= FILTER_BIM_REQ;
       } else if (!memcmp(argptr2, "pdate-map", 10)) {
 	if (cnv_calc_type & CNV_MAKE_MAP) {
 	  logprint("--update-map cannot be used with --cnv-make-map.\n");
@@ -11400,7 +11462,7 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_1;
 	  }
 	}
-	filter_flags |= FILTER_DOSAGEMAP;
+	filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP;
       } else if (!memcmp(argptr2, "pdate-name", 11)) {
 	if (cnv_calc_type & CNV_MAKE_MAP) {
 	  logprint("--update-name cannot be used with --cnv-make-map.\n");
@@ -11440,7 +11502,7 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_1;
 	  }
 	}
-	filter_flags |= FILTER_DOSAGEMAP;
+	filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP;
       } else if (!memcmp(argptr2, "pdate-parents", 14)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -11453,7 +11515,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_FAM_REQ;
       } else if (!memcmp(argptr2, "pdate-sex", 10)) {
 	if (update_ids_fname) {
 	  logprint("Error: --update-sex cannot be used with --update-ids.\n");
@@ -11472,7 +11534,7 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
-	filter_flags |= FILTER_GENERIC;
+	filter_flags |= FILTER_FAM_REQ;
       } else if (!memcmp(argptr2, "nbounded", 9)) {
 	if (!(calculation_type & CALC_GENOME)) {
 	  logprint("Error: --unbounded must be used with --genome.\n");
@@ -11647,6 +11709,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
+	filter_flags |= FILTER_FAM_REQ;
       } else if (!memcmp(argptr2, "ith-phenotype", 14)) {
 	if (!covar_fname) {
 	  logprint("Error: --with-phenotype cannot be used without --covar.\n");
@@ -11685,8 +11748,8 @@ int32_t main(int32_t argc, char** argv) {
 	recode_modifier += RECODE_LGEN_REF - RECODE_LGEN;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "rite-covar", 11)) {
-	if (calculation_type & (CALC_MAKE_BED | CALC_RECODE)) {
-	  logprint("Error: --write-covar cannot be used with --make-bed or --recode.\n");
+	if (calculation_type & (CALC_MAKE_BED | CALC_MAKE_FAM | CALC_RECODE)) {
+	  logprint("Error: --write-covar cannot be used with --make-bed/--make-fam or --recode.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (!covar_fname) {
@@ -11795,7 +11858,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "ero-cms", 8)) {
-	filter_flags |= FILTER_ZERO_CMS | FILTER_NODOSAGE | FILTER_NOCNV;
+	filter_flags |= FILTER_BIM_REQ | FILTER_ZERO_CMS | FILTER_NODOSAGE | FILTER_NOCNV;
         goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
@@ -11836,6 +11899,19 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Error: --cnv-test-region requires a permutation count.\n");
 	goto main_ret_INVALID_CMDLINE_A;
       }
+    }
+  } else if ((load_params & LOAD_PARAMS_BFILE_ALL) && (load_params != LOAD_PARAMS_BFILE_ALL)) {
+    if ((calculation_type & (~(CALC_ONLY_BIM | CALC_ONLY_FAM))) || (filter_flags & FILTER_ALL_REQ)) {
+      logprint("Error: A full .bed + .bim + .fam fileset is required for this.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
+    if ((!mapname[0]) && ((calculation_type & (~CALC_ONLY_FAM)) || (filter_flags & FILTER_BIM_REQ))) {
+      logprint("Error: A .bim file is required for this.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
+    if ((!famname[0]) && ((calculation_type & (~CALC_ONLY_BIM)) || (filter_flags & FILTER_FAM_REQ))) {
+      logprint("Error: A .fam file is required for this.\n");
+      goto main_ret_INVALID_CMDLINE_A;
     }
   }
   if ((cnv_intersect_filter_type & CNV_COUNT) && (!(cnv_calc_type & (CNV_INDIV_PERM | CNV_ENRICHMENT_TEST)))) {
@@ -11944,8 +12020,8 @@ int32_t main(int32_t argc, char** argv) {
         goto main_ret_INVALID_CMDLINE;
       }
     } else {
-      if (!(calculation_type & (CALC_WRITE_COVAR | CALC_MAKE_BED | CALC_RECODE))) {
-        logprint("Error: --must-have-sex must be used with --make-bed/--recode/--write-covar.\n");
+      if (!(calculation_type & (CALC_WRITE_COVAR | CALC_MAKE_BED | CALC_MAKE_FAM | CALC_RECODE))) {
+        logprint("Error: --must-have-sex must be used with --make-bed, --make-fam, --recode, or\n--write-covar.\n");
         goto main_ret_INVALID_CMDLINE;
       }
     }
@@ -12418,17 +12494,11 @@ int32_t main(int32_t argc, char** argv) {
   } else if (load_rare & LOAD_RARE_GVAR) {
     retval = plink_gvar(outname, outname_end, pedname, mapname, famname);
   } else {
-    // famname[0] indicates binary vs. text
-    // extractname, excludename, keepname, and removename indicate the presence
-    // of their respective flags
-    // filtername indicates existence of filter
-    // freqname signals --read-freq
-
     if ((!calculation_type) && filter_flags) {
       logprint("Error: Basic file conversions do not support regular filtering operations.\nRerun your command with --make-bed.\n");
       goto main_ret_INVALID_CMDLINE;
     }
-    if (load_rare || (load_params & (LOAD_PARAMS_TEXTFILE | LOAD_PARAMS_PED | LOAD_PARAMS_MAP | LOAD_PARAMS_OX_ALL))) {
+    if (load_rare || (load_params & (LOAD_PARAMS_TEXT_ALL | LOAD_PARAMS_OX_ALL))) {
       sptr = outname_end;
       if (calculation_type && (!(misc_flags & MISC_KEEP_AUTOCONV))) {
         sptr = memcpyb(sptr, "-temporary", 11);
@@ -12457,10 +12527,6 @@ int32_t main(int32_t argc, char** argv) {
       } else if (load_params & LOAD_PARAMS_OX_ALL) {
 	retval = oxford_to_bed(pedname, mapname, outname, sptr, oxford_pheno_name, hard_call_threshold, missing_code, missing_pheno, misc_flags, (load_params / LOAD_PARAMS_OXBGEN) & 1, &chrom_info);
       } else {
-	if (load_params & (LOAD_PARAMS_BED | LOAD_PARAMS_BIM)) {
-	  logprint("Error: --bed and --bim cannot be used without --bfile or --fam.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
-	}
         retval = ped_to_bed(pedname, mapname, outname, sptr, fam_cols, misc_flags, missing_pheno, &chrom_info);
 	fam_cols |= FAM_COL_1 | FAM_COL_34 | FAM_COL_5;
 	if (!(fam_cols & FAM_COL_6)) {

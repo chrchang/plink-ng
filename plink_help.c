@@ -368,6 +368,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    converters (which only heed chromosome filters), this supports all of\n"
 "    " PROG_NAME_CAPS "'s filtering flags.\n"
 	       );
+    help_print("make-bim\tmake-fam", &help_ctrl, 1,
+"  --make-bim\n"
+"  --make-fam\n"
+"    Variants of --make-bed which only write a new .bim or .fam file.  Can be\n"
+"    used with only .bim/.fam input.\n"
+	       );
+
     help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele\tlist\twith-reference\trecode-vcf\tfid\tiid\trecode-beagle\trecode-bimbam\trecode-fastphase\trecodeHV\trecodehv\trecode-structure", &help_ctrl, 1,
 "  --recode <01 | 12> <23 | A{-transpose} | AD | beagle | bimbam{-1chr} |\n"
 "           compound-genotypes | fastphase{-1chr} | HV{-1chr} | lgen{-ref} |\n"
@@ -422,10 +429,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("write-covar", &help_ctrl, 1,
 "  --write-covar\n"
-"    If a --covar file is loaded, --make-bed and --recode automatically generate\n"
-"    an updated version (with all filters applied).  However, if you do not wish\n"
-"    to simultaneously generate a new genotype file, you can use --write-covar\n"
-"    to just produce a pruned covariate file.\n\n"
+"    If a --covar file is loaded, --make-bed/--make-fam and --recode\n"
+"    automatically generate an updated version (with all filters applied).\n"
+"    However, if you do not wish to simultaneously generate a new genotype file,\n"
+"    you can use --write-covar to just produce a pruned covariate file.\n\n"
 	       );
     help_print("write-cluster", &help_ctrl, 1,
 "  --write-cluster <omit-unassigned>\n"
@@ -1557,7 +1564,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --allow-no-sex   : Do not treat ambiguous-sex individuals as having missing\n"
 "                     phenotypes in analysis commands.  (Automatic /w --no-sex.)\n"
 "  --must-have-sex  : Force ambiguous-sex phenotypes to missing on\n"
-"                     --make-bed/--recode/--write-covar.\n"
+"                     --make-bed/--make-fam/--recode/--write-covar.\n"
 	       );
     help_print("filter-cases\tfilter-controls", &help_ctrl, 0,
 "  --filter-cases       : Include only cases in the current analysis.\n"
@@ -1691,7 +1698,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                         * 'file'/'f' uses the order in the given file (named\n"
 "                           in the second parameter).\n"
 "                         For now, only --merge/--bmerge/--merge-list and\n"
-"                         --make-bed respect this flag.\n"
+"                         --make-bed/--make-fam respect this flag.\n"
 	       );
     help_print("with-phenotype\tdummy-coding\twrite-covar", &help_ctrl, 0,
 "  --with-phenotype <no-parents> <no-sex | female-2> : Include more individual\n"
