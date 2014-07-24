@@ -1658,7 +1658,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --update-name [f] {newcol} {oldcol} {skip} : Update variant IDs.\n"
 	       );
     help_print("update-alleles", &help_ctrl, 0,
-"  --update-alleles [f]     : Update variant allele codes.\n"
+"  --update-alleles [fname] : Update variant allele codes.\n"
 	       );
     help_print("allele1234\talleleACGT\talleleacgt", &help_ctrl, 0,
 "  --allele1234 <multichar> : Interpret/recode A/C/G/T alleles as 1/2/3/4.\n"

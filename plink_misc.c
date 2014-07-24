@@ -1023,13 +1023,14 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   FILE* errfile = NULL;
-  int32_t retval = 0;
   uintptr_t sorted_ids_ctl = (sorted_ids_ct + (BITCT - 1)) / BITCT;
   uintptr_t max_marker_allele_len = *max_marker_allele_len_ptr;
   uintptr_t hit_ct = 0;
   uintptr_t miss_ct = 0;
   uintptr_t err_ct = 0;
   uintptr_t line_idx = 0;
+  int32_t retval = 0;
+  char missing_geno = *g_missing_geno_ptr;
   uintptr_t* already_seen;
   char* loadbuf;
   char* bufptr;
@@ -1088,12 +1089,16 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
     *bufptr = '\0';
     bufptr = skip_initial_spaces(&(bufptr[1]));
     len = strlen_se(bufptr);
+    if (!memcmp(bufptr, bufptr2, len)) {
+      LOGPRINTF("Error: Duplicate allele code on line %" PRIuPTR " of --update-alleles file.\n", line_idx);
+      goto update_marker_alleles_ret_INVALID_FORMAT_2;
+    }
     bufptr[len] = '\0';
-    if ((!strcmp(bufptr2, marker_allele_ptrs[2 * marker_uidx])) && (!strcmp(bufptr, marker_allele_ptrs[2 * marker_uidx + 1]))) {
+    if ((!strcmp(bufptr2, marker_allele_ptrs[2 * marker_uidx])) && ((!strcmp(bufptr, marker_allele_ptrs[2 * marker_uidx + 1])) || ((len == 1) && (*bufptr == missing_geno)))) {
       bufptr2 = skip_initial_spaces(&(bufptr[len + 1]));
       bufptr = next_token(bufptr2);
       goto update_marker_alleles_match;
-    } else if ((!strcmp(bufptr, marker_allele_ptrs[2 * marker_uidx])) && (!strcmp(bufptr2, marker_allele_ptrs[2 * marker_uidx + 1]))) {
+    } else if ((!strcmp(bufptr, marker_allele_ptrs[2 * marker_uidx])) && ((!strcmp(bufptr2, marker_allele_ptrs[2 * marker_uidx + 1])) || ((len2 == 1) && (*bufptr2 == missing_geno)))) {
       bufptr = skip_initial_spaces(&(bufptr[len + 1]));
       bufptr2 = next_token(bufptr);
     update_marker_alleles_match:
