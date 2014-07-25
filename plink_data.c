@@ -11701,131 +11701,134 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       goto recode_ret_NOMEM;
     }
     fill_uint_zero(fid_map, fid_ct);
-  } else if (recode_modifier & RECODE_A_TRANSPOSE) {
-    // format is new to PLINK 1.9, so use tab delimiter unless 'spacex'
-    // modifier present
-    delimiter = ((recode_modifier & (RECODE_TAB | RECODE_DELIMX)) == RECODE_DELIMX)? ' ' : '\t';
-    if (wkspace_alloc_c_checked(&writebuf, indiv_ct * 3 + 1)) {
-      goto recode_ret_NOMEM;
-    }
   } else {
-    if (recode_modifier & RECODE_AD) {
-      if (wkspace_alloc_c_checked(&writebuf2, 32)) {
-	goto recode_ret_NOMEM;
+    if (recode_modifier & RECODE_A_TRANSPOSE) {
+      // format is new to PLINK 1.9, so use tab delimiter unless 'spacex'
+      // modifier present
+      delimiter = ((recode_modifier & (RECODE_TAB | RECODE_DELIMX)) == RECODE_DELIMX)? ' ' : '\t';
+      if (wkspace_alloc_c_checked(&writebuf, indiv_ct * 3 + 1)) {
+        goto recode_ret_NOMEM;
       }
-      memcpy(writebuf2, "2 0     1 1 0 0 NA NA", 21);
-      writebuf2[1] = delimiter;
-      writebuf2[3] = delimiter;
-      writebuf2[9] = delimiter;
-      writebuf2[11] = delimiter;
-      writebuf2[13] = delimiter;
-      writebuf2[15] = delimiter;
-      writebuf2[18] = delimiter;
-      writebuf2[21] = delimiter;
-    }
-    if ((recode_modifier & (RECODE_TAB | RECODE_DELIMX)) == RECODE_TAB) {
-      delim2 = ' ';
-    }
-    if (!(recode_modifier & RECODE_TRANSPOSE)) {
-      max_chrom_size = marker_ct;
+    } else {
       if (recode_modifier & RECODE_AD) {
-	ulii = 6;
-      } else if (recode_modifier & (RECODE_A | RECODE_COMPOUND)) {
-	if ((max_marker_allele_len != 2) && (recode_modifier & RECODE_COMPOUND)) {
-	  logprint("Error: --recode compound-genotypes cannot be used with multi-character allele\nnames.\n");
-	  goto recode_ret_INVALID_FORMAT;
+	if (wkspace_alloc_c_checked(&writebuf2, 32)) {
+	  goto recode_ret_NOMEM;
 	}
-	ulii = 3;
-      } else if (recode_modifier & (RECODE_HV | RECODE_HV_1CHR)) {
-	max_chrom_size = get_max_chrom_size(chrom_info_ptr, marker_exclude, &last_chrom_fo_idx);
-	if ((recode_modifier & RECODE_HV_1CHR) && (max_chrom_size != marker_ct)) {
-	  logprint("Error: --recode HV-1chr requires a single-chromosome dataset.  Did you mean\n'--recode HV'?  (Note the lack of a dash in the middle.)\n");
-	  goto recode_ret_INVALID_CMDLINE;
-	}
-	if (max_marker_allele_len == 2) {
-	  ulii = max_chrom_size * 4;
+	memcpy(writebuf2, "2 0     1 1 0 0 NA NA", 21);
+	writebuf2[1] = delimiter;
+	writebuf2[3] = delimiter;
+	writebuf2[9] = delimiter;
+	writebuf2[11] = delimiter;
+	writebuf2[13] = delimiter;
+	writebuf2[15] = delimiter;
+	writebuf2[18] = delimiter;
+	writebuf2[21] = delimiter;
+      }
+      if ((recode_modifier & (RECODE_TAB | RECODE_DELIMX)) == RECODE_TAB) {
+	delim2 = ' ';
+      }
+      if (!(recode_modifier & RECODE_TRANSPOSE)) {
+	max_chrom_size = marker_ct;
+	if (recode_modifier & RECODE_AD) {
+	  ulii = 6;
+	} else if (recode_modifier & (RECODE_A | RECODE_COMPOUND)) {
+	  if ((max_marker_allele_len != 2) && (recode_modifier & RECODE_COMPOUND)) {
+	    logprint("Error: --recode compound-genotypes cannot be used with multi-character allele\nnames.\n");
+	    goto recode_ret_INVALID_FORMAT;
+	  }
+	  ulii = 3;
+	} else if (recode_modifier & (RECODE_HV | RECODE_HV_1CHR)) {
+	  max_chrom_size = get_max_chrom_size(chrom_info_ptr, marker_exclude, &last_chrom_fo_idx);
+	  if ((recode_modifier & RECODE_HV_1CHR) && (max_chrom_size != marker_ct)) {
+	    logprint("Error: --recode HV-1chr requires a single-chromosome dataset.  Did you mean\n'--recode HV'?  (Note the lack of a dash in the middle.)\n");
+	    goto recode_ret_INVALID_CMDLINE;
+	  }
+	  if (max_marker_allele_len == 2) {
+	    ulii = max_chrom_size * 4;
+	  } else {
+	    ulii = 0;
+	    for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
+	      uljj = 0;
+	      chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
+	      for (marker_uidx = next_unset_ul(marker_exclude, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx], chrom_end); marker_uidx < chrom_end;) {
+		alen = strlen(mk_allele_ptrs[marker_uidx * 2]);
+		alen2 = strlen(mk_allele_ptrs[marker_uidx * 2 + 1]);
+		uljj += MAXV(alen, alen2) + 1;
+		marker_uidx++;
+		next_unset_ul_ck(marker_exclude, &marker_uidx, chrom_end);
+	      }
+	      if (uljj > ulii) {
+		ulii = uljj;
+	      }
+	    }
+	    ulii *= 2;
+	  }
 	} else {
-	  ulii = 0;
-	  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
-	    uljj = 0;
-	    chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
-	    for (marker_uidx = next_unset_ul(marker_exclude, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx], chrom_end); marker_uidx < chrom_end;) {
+	  // all chromosomes at once
+	  // calculate maximum length of .ped line
+	  if (max_marker_allele_len == 2) {
+	    ulii = marker_ct * 4;
+	  } else {
+	    ulii = marker_ct;
+	    for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+	      next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
 	      alen = strlen(mk_allele_ptrs[marker_uidx * 2]);
 	      alen2 = strlen(mk_allele_ptrs[marker_uidx * 2 + 1]);
-	      uljj += MAXV(alen, alen2) + 1;
-	      marker_uidx++;
-	      next_unset_ul_ck(marker_exclude, &marker_uidx, chrom_end);
+	      ulii += MAXV(alen, alen2);
 	    }
-	    if (uljj > ulii) {
-	      ulii = uljj;
-	    }
+	    ulii *= 2;
 	  }
-	  ulii *= 2;
 	}
-      } else {
-	// all chromosomes at once
-	// calculate maximum length of .ped line
-	if (max_marker_allele_len == 2) {
-	  ulii = marker_ct * 4;
-	} else {
-	  ulii = marker_ct;
-	  for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-	    next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
-	    alen = strlen(mk_allele_ptrs[marker_uidx * 2]);
-	    alen2 = strlen(mk_allele_ptrs[marker_uidx * 2 + 1]);
-	    ulii += MAXV(alen, alen2);
+	if (recode_modifier & (RECODE_A | RECODE_AD | RECODE_COMPOUND)) {
+	  if (wkspace_alloc_c_checked(&writebuf, max_chrom_size * ulii)) {
+	    goto recode_ret_NOMEM;
 	  }
-	  ulii *= 2;
+	  if (recode_modifier & RECODE_COMPOUND) {
+	    memset(writebuf, delimiter, max_chrom_size * 3 - 1);
+	    writebuf[max_chrom_size * 3 - 1] = '\n';
+	  }
+	} else {
+	  // --recode, --recode HV
+	  if (wkspace_alloc_c_checked(&writebuf, ulii)) {
+	    goto recode_ret_NOMEM;
+	  }
 	}
       }
-      if (recode_modifier & (RECODE_A | RECODE_AD | RECODE_COMPOUND)) {
-	if (wkspace_alloc_c_checked(&writebuf, max_chrom_size * ulii)) {
-	  goto recode_ret_NOMEM;
-	}
-	if (recode_modifier & RECODE_COMPOUND) {
-	  memset(writebuf, delimiter, max_chrom_size * 3 - 1);
-	  writebuf[max_chrom_size * 3 - 1] = '\n';
-	}
-	if (recode_allele_name) {
-	  if (wkspace_alloc_ul_checked(&recode_allele_reverse, unfiltered_marker_ctl * sizeof(intptr_t))) {
-	    goto recode_ret_NOMEM;
-	  }
-	  // this indicates when we want to report the A2 allele instead of the
-	  // A1.  (potential double negatives, bleah)
-	  fill_ulong_zero(recode_allele_reverse, unfiltered_marker_ctl);
-	  allele_missing = (char**)wkspace_alloc(unfiltered_marker_ct * sizeof(char**));
-	  if (!allele_missing) {
-	    goto recode_ret_NOMEM;
-	  }
-	  recode_allele_extra = (char*)wkspace_base;
-	  fill_ulong_zero((uintptr_t*)allele_missing, unfiltered_marker_ct);
-	  ulii = (max_marker_allele_len + MAXLINELEN + 15) & (~(15 * ONELU));
-	  loadbuf = (unsigned char*)top_alloc(&topsize, ulii);
-	  if (!loadbuf) {
-	    goto recode_ret_NOMEM;
-	  }
-	  wkspace_left -= topsize;
-	  // When '12' and 'A'/'AD' are simultaneously present, most sensible
-	  // behavior is to match against real allele IDs and just apply '12'
-	  // to the output header line.  If that's not what the user wants,
-	  // they can do a two-step recode.
-	  // (--recode12 simply overrode --recodeA/--recodeAD in PLINK 1.07; no
-	  // need to replicate that.) 
-	  retval = recode_allele_load((char*)loadbuf, ulii, recode_allele_name, &allele_missing, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_len, recode_allele_reverse, recode_allele_extra);
-	  wkspace_left += topsize;
-	  topsize = 0;
-	  if (retval) {
-	    goto recode_ret_1;
-	  }
-	}
-      } else {
-	// --recode, --recode HV
-	if (wkspace_alloc_c_checked(&writebuf, ulii)) {
-	  goto recode_ret_NOMEM;
-	}
+    }
+    if (recode_allele_name) {
+      if (wkspace_alloc_ul_checked(&recode_allele_reverse, unfiltered_marker_ctl * sizeof(intptr_t))) {
+	goto recode_ret_NOMEM;
+      }
+      // this indicates when we want to report the A2 allele instead of the
+      // A1.  (potential double negatives, bleah)
+      fill_ulong_zero(recode_allele_reverse, unfiltered_marker_ctl);
+      allele_missing = (char**)wkspace_alloc(unfiltered_marker_ct * sizeof(char**));
+      if (!allele_missing) {
+	goto recode_ret_NOMEM;
+      }
+      recode_allele_extra = (char*)wkspace_base;
+      fill_ulong_zero((uintptr_t*)allele_missing, unfiltered_marker_ct);
+      ulii = (max_marker_allele_len + MAXLINELEN + 15) & (~(15 * ONELU));
+      loadbuf = (unsigned char*)top_alloc(&topsize, ulii);
+      if (!loadbuf) {
+	goto recode_ret_NOMEM;
+      }
+      wkspace_left -= topsize;
+      // When '12' and 'A'/'AD' are simultaneously present, most sensible
+      // behavior is to match against real allele IDs and just apply '12'
+      // to the output header line.  If that's not what the user wants,
+      // they can do a two-step recode.
+      // (--recode12 simply overrode --recodeA/--recodeAD in PLINK 1.07; no
+      // need to replicate that.) 
+      retval = recode_allele_load((char*)loadbuf, ulii, recode_allele_name, &allele_missing, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_len, recode_allele_reverse, recode_allele_extra);
+      wkspace_left += topsize;
+      topsize = 0;
+      if (retval) {
+	goto recode_ret_1;
       }
     }
   }
+
   if (!(recode_modifier & (RECODE_A | RECODE_AD | RECODE_BEAGLE | RECODE_FASTPHASE | RECODE_FASTPHASE_1CHR | RECODE_LGEN | RECODE_LGEN_REF | RECODE_OXFORD | RECODE_VCF))) {
     if (wkspace_alloc_c_checked(&cur_mk_allelesx_buf, 8 * max_marker_allele_len)) {
       goto recode_ret_NOMEM;
