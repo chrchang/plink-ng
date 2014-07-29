@@ -1765,7 +1765,7 @@ static inline void compute_hessian(const float* mm, const float* vv, float* dest
   uint32_t row_ctm3;
   uint32_t row_idx;
   uint32_t row_idx2;
-  if (row_ct >= 3) {
+  if (row_ct > 3) {
     row_ctm3 = row_ct - 3;
     for (row_idx = 0; row_idx < row_ctm3; row_idx += 3) {
       mm_cur = &(mm[row_idx * col_cta4]);
@@ -2020,6 +2020,7 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
       }
     }
     if (logistic_regression(indiv_valid_ct, param_ct, indiv_1d_buf, param_2d_buf, param_1d_buf, param_2d_buf2, param_1d_buf2, covars_cov_major, pheno_buf, coef, pp)) {
+      exit(1);
       goto glm_logistic_robust_cluster_covar_fail;
     }
 
@@ -8426,14 +8427,23 @@ uint32_t glm_logistic_dosage(uintptr_t indiv_ct, uintptr_t* cur_indivs, uintptr_
   for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
     *fptr++ = 1;
   }
+  for (; indiv_idx < indiv_valid_cta4; indiv_idx++) {
+    *fptr++ = 0;
+  }
   for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_uidx++, indiv_idx++) {
     next_set_ul_unsafe_ck(cur_indivs, &indiv_uidx);
     *fptr++ = (float)cur_dosages[indiv_uidx];
+  }
+  for (; indiv_idx < indiv_valid_cta4; indiv_idx++) {
+    *fptr++ = 0;
   }
   for (covar_idx = 0; covar_idx < covar_ct; covar_idx++) {
     for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_uidx++, indiv_idx++) {
       next_set_ul_unsafe_ck(cur_indivs, &indiv_uidx);
       *fptr++ = covar_f[indiv_uidx * covar_ct];
+    }
+    for (; indiv_idx < indiv_valid_cta4; indiv_idx++) {
+      *fptr++ = 0;
     }
     covar_f++;
   }

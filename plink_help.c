@@ -458,7 +458,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --bmerge [binary fileset prefix]\n"
 "    Merge the given fileset with the initially loaded fileset, writing the\n"
 "    result to {output prefix}.bed + .bim + .fam.  (It is no longer necessary to\n"
-"    simultaneously specify --make-bed.\n"
+"    simultaneously specify --make-bed.)\n"
 "  --merge-list [filename]\n"
 "    Merge all filesets named in the text file with the reference fileset, if\n"
 "    one was specified.  (However, this can also be used *without* a reference;\n"
@@ -1855,9 +1855,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                          --parameters.\n"
 "                        * You can use '--tests all' to include all terms.\n"
 	       );
-    help_print("linear\tlogistic\tdosage\tvif", &help_ctrl, 0,
-"  --vif [max VIF]     : Set VIF threshold for --linear/--logistic\n"
-"                        multicollinearity check (default 50).\n"
+    help_print("linear\tdosage\tvif", &help_ctrl, 0,
+"  --vif [max VIF]     : Set VIF threshold for --linear multicollinearity check\n"
+"                        (default 50).\n"
 	       );
     help_print("linear\tlogistic\txchr-model", &help_ctrl, 0,
 "  --xchr-model [code] : Set the X chromosome --linear/--logistic model.\n"

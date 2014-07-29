@@ -953,7 +953,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	}
       }
       if (wkspace_alloc_ul_checked(&perm_vec, indiv_ctl * 2 * sizeof(intptr_t)) ||
-          wkspace_alloc_f_checked(&covars_cov_major_f_buf, param_ct * indiv_ct * sizeof(float)) ||
+          wkspace_alloc_f_checked(&covars_cov_major_f_buf, param_ct * indiv_cta4 * sizeof(float)) ||
           wkspace_alloc_f_checked(&coef_f, param_cta4 * sizeof(float)) ||
           wkspace_alloc_f_checked(&pp_f, indiv_cta4 * sizeof(float)) ||
 	  wkspace_alloc_f_checked(&indiv_1d_buf_f, indiv_ct * sizeof(float)) ||
