@@ -2020,7 +2020,6 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
       }
     }
     if (logistic_regression(indiv_valid_ct, param_ct, indiv_1d_buf, param_2d_buf, param_1d_buf, param_2d_buf2, param_1d_buf2, covars_cov_major, pheno_buf, coef, pp)) {
-      exit(1);
       goto glm_logistic_robust_cluster_covar_fail;
     }
 
