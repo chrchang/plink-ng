@@ -650,9 +650,11 @@ int32_t glm_check_vif(double vif_thresh, uintptr_t param_ct, uintptr_t indiv_val
   return 0;
 }
 
-uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, uint32_t missing_ct, uintptr_t* loadbuf, uint32_t standard_beta, double pheno_sum_base, double pheno_ssq_base, double* covars_cov_major, double* covars_indiv_major, double* perm_pmajor, double* coef, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, uint32_t cluster_ct1, uint32_t* indiv_to_cluster1, double* cluster_param_buf, double* cluster_param_buf2, double* indiv_1d_buf, double* linear_results, uintptr_t constraint_ct, double* constraints_con_major, double* param_df_buf, double* param_df_buf2, double* df_df_buf, double* df_buf, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
+uint32_t glm_linear(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, uint32_t missing_ct, uintptr_t* loadbuf, uint32_t standard_beta, double pheno_sum_base, double pheno_ssq_base, double* covars_cov_major, double* covars_indiv_major, double* perm_pmajor, double* coef, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, double* linear_results, uintptr_t constraint_ct, double* constraints_con_major, double* param_df_buf, double* param_df_buf2, double* df_df_buf, double* df_buf, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
   // See the second half of PLINK 1.07 linear.cpp fitLM(), and
-  // validParameters().
+  // validParameters().  The HuberWhite() logic is, unfortunately, buggy so
+  // it's been removed (if you want to try to fix it, pull the 2014 Aug 1
+  // version of this file from git).
   // Diagonals of the final covariance matrices (not including the intercept
   // element) are saved to linear_results[(perm_idx * (param_ct - 1))..
   // ((perm_idx + 1) * (param_ct - 1) - 1)].
@@ -660,12 +662,10 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
   // A return value of 1 reports that ALL permutations failed.  In this case,
   // perm_fails is not necessarily updated.
   uintptr_t param_ct_p1 = param_ct + 1; // diagonals of param * param matrix
-  uintptr_t param_ct_m1 = param_ct - 1;
   uintptr_t joint_test_requested = (constraints_con_major? 1 : 0);
   uintptr_t param_ctx = param_ct + joint_test_requested;
   uintptr_t param_ctx_m1 = param_ctx - 1;
   uintptr_t cur_word = 0;
-  uint32_t cluster_ct1_p1 = cluster_ct1 + 1;
   uint32_t perm_fail_ct = 0;
   double* dptr;
   double* dptr2;
@@ -682,10 +682,6 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
   uintptr_t param_idx2;
   uintptr_t perm_idx;
 
-  // +1 since "no cluster" is represented as -1
-  // 32-bit since that -1 is actually 0xffffffffU
-  uint32_t cluster_idx_p1;
-
   double dxx;
   double dyy;
   double dzz;
@@ -695,262 +691,143 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
     return 1;
   }
 
-  if (!cluster_ct1) {
-    // only need to perform S[i][j] / sqrt(S[i][i] * S[j][j]) check once, since
-    // it's independent of sigma
+  // only need to perform S[i][j] / sqrt(S[i][i] * S[j][j]) check once, since
+  // it's independent of sigma
 
-    // may as well cache square roots
-    for (param_idx = 0; param_idx < param_ct; param_idx++) {
-      param_2d_buf2[param_idx] = sqrt(param_2d_buf[param_idx * param_ct_p1]);
-    }
-    for (param_idx = 1; param_idx < param_ct; param_idx++) {
-      dxx = 0.99999 * param_2d_buf2[param_idx];
-      dptr = &(param_2d_buf[param_idx * param_ct]); // S[i][j]
-      dptr2 = param_2d_buf2; // sqrt(S[j][j])
-      for (param_idx2 = 0; param_idx2 < param_idx; param_idx2++) {
-	// S[i][j] / sqrt(S[i][i] * S[j][j]) > 0.99999
-	// -> S[i][j] > 0.99999 * sqrt(S[i][i]) * sqrt(S[j][j])
-	if ((*dptr++) > dxx * (*dptr2++)) {
-	  return 1;
-	}
+  // may as well cache square roots
+  for (param_idx = 0; param_idx < param_ct; param_idx++) {
+    param_2d_buf2[param_idx] = sqrt(param_2d_buf[param_idx * param_ct_p1]);
+  }
+  for (param_idx = 1; param_idx < param_ct; param_idx++) {
+    dxx = 0.99999 * param_2d_buf2[param_idx];
+    dptr = &(param_2d_buf[param_idx * param_ct]); // S[i][j]
+    dptr2 = param_2d_buf2; // sqrt(S[j][j])
+    for (param_idx2 = 0; param_idx2 < param_idx; param_idx2++) {
+      // S[i][j] / sqrt(S[i][i] * S[j][j]) > 0.99999
+      // -> S[i][j] > 0.99999 * sqrt(S[i][i]) * sqrt(S[j][j])
+      if ((*dptr++) > dxx * (*dptr2++)) {
+	return 1;
       }
     }
-    // now determine min(S[i][i]), i >= 1
-    min_sigma = param_2d_buf[param_ct_p1];
-    for (param_idx = 2; param_idx < param_ct; param_idx++) {
-      dxx = param_2d_buf[param_idx * param_ct_p1];
-      if (min_sigma > dxx) {
-	min_sigma = dxx;
-      }
+  }
+  // now determine min(S[i][i]), i >= 1
+  min_sigma = param_2d_buf[param_ct_p1];
+  for (param_idx = 2; param_idx < param_ct; param_idx++) {
+    dxx = param_2d_buf[param_idx * param_ct_p1];
+    if (min_sigma > dxx) {
+      min_sigma = dxx;
     }
-    if (min_sigma <= 0) {
-      return 1;
-    }
-    // S[i][i] * sigma < 1e-20 iff sigma < 1e-20 / S[i][i]
-    min_sigma = 1e-20 / min_sigma;
+  }
+  if (min_sigma <= 0) {
+    return 1;
+  }
+  // S[i][i] * sigma < 1e-20 iff sigma < 1e-20 / S[i][i]
+  min_sigma = 1e-20 / min_sigma;
 
-    // now temporarily save sigmas in linear_results[perm_idx * param_ctx_m1]
-    pheno_ptr = perm_pmajor;
-    dyy = 1;
-    dzz = 0;
-    for (perm_idx = 0; perm_idx < cur_batch_size; perm_idx++) {
-      // not coef[perm_idx * param_ct] due to how dgels() works
-      dptr = &(coef[perm_idx * indiv_valid_ct]);
+  // now temporarily save sigmas in linear_results[perm_idx * param_ctx_m1]
+  pheno_ptr = perm_pmajor;
+  dyy = 1;
+  dzz = 0;
+  for (perm_idx = 0; perm_idx < cur_batch_size; perm_idx++) {
+    // not coef[perm_idx * param_ct] due to how dgels() works
+    dptr = &(coef[perm_idx * indiv_valid_ct]);
 
-      dptr2 = covars_indiv_major;
-      dxx = 0;
-      if (!missing_ct) {
-	for (indiv_idx = 0; indiv_idx < indiv_valid_ct + missing_ct; indiv_idx++) {
-	  partial = 0;
-	  dptr3 = dptr;
-	  for (param_idx = 0; param_idx < param_ct; param_idx++) {
-	    partial += (*dptr2++) * (*dptr3++);
-	  }
-	  partial -= *pheno_ptr++;
-	  dxx += partial * partial;
+    dptr2 = covars_indiv_major;
+    dxx = 0;
+    if (!missing_ct) {
+      for (indiv_idx = 0; indiv_idx < indiv_valid_ct + missing_ct; indiv_idx++) {
+	partial = 0;
+	dptr3 = dptr;
+	for (param_idx = 0; param_idx < param_ct; param_idx++) {
+	  partial += (*dptr2++) * (*dptr3++);
 	}
-      } else {
-	if (standard_beta) {
-	  pheno_sum = pheno_sum_base;
-	  pheno_ssq = pheno_ssq_base;
-	  ulptr = loadbuf;
-	  for (indiv_uidx = 0; indiv_uidx < indiv_valid_ct; indiv_uidx += BITCT2) {
-	    cur_word = *ulptr++;
-	    cur_word = cur_word & (~(cur_word >> 1)) & FIVEMASK;
-	    while (cur_word) {
-	      dyy = pheno_ptr[indiv_uidx + (CTZLU(cur_word) / 2)];
-	      pheno_sum -= dyy;
-	      pheno_ssq -= dyy * dyy;
-	      cur_word &= cur_word - 1;
-	    }
-	  }
-	  dzz = pheno_sum / ((double)((intptr_t)indiv_valid_ct));
-          dyy = sqrt(((double)((intptr_t)(indiv_valid_ct - 1))) / (pheno_ssq - pheno_sum * dzz));
-	}
-	for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_uidx++, indiv_idx++) {
-	  partial = 0;
-	  dptr3 = dptr;
-	  for (param_idx = 0; param_idx < param_ct; param_idx++) {
-	    partial += (*dptr2++) * (*dptr3++);
-	  }
-	  while (1) {
-	    if (indiv_uidx % BITCT2) {
-	      cur_word >>= 2;
-	    } else {
-	      cur_word = loadbuf[indiv_uidx / BITCT2];
-	      cur_word = cur_word & (~(cur_word >> 1)) & FIVEMASK;
-	    }
-	    if (!(cur_word & 1)) {
-	      break;
-	    }
-	    indiv_uidx++;
-	  }
-	  partial -= (pheno_ptr[indiv_uidx] - dzz) * dyy;
-	  dxx += partial * partial;
-	}
-	pheno_ptr = &(pheno_ptr[indiv_valid_ct + missing_ct]);
+	partial -= *pheno_ptr++;
+	dxx += partial * partial;
       }
-      linear_results[perm_idx * param_ctx_m1] = dxx;
-    }
-    dxx = 1.0 / ((double)((intptr_t)(indiv_valid_ct - param_ct)));
-    if (!constraint_ct) {
-      // only need diagonal of S
-      dptr2 = param_2d_buf2;
-      for (param_idx = 1; param_idx < param_ct; param_idx++) {
-	*dptr2++ = param_2d_buf[param_idx * param_ct_p1]; // S0[i][i]
+    } else {
+      if (standard_beta) {
+	pheno_sum = pheno_sum_base;
+	pheno_ssq = pheno_ssq_base;
+	ulptr = loadbuf;
+	for (indiv_uidx = 0; indiv_uidx < indiv_valid_ct; indiv_uidx += BITCT2) {
+	  cur_word = *ulptr++;
+	  cur_word = cur_word & (~(cur_word >> 1)) & FIVEMASK;
+	  while (cur_word) {
+	    dyy = pheno_ptr[indiv_uidx + (CTZLU(cur_word) / 2)];
+	    pheno_sum -= dyy;
+	    pheno_ssq -= dyy * dyy;
+	    cur_word &= cur_word - 1;
+	  }
+	}
+	dzz = pheno_sum / ((double)((intptr_t)indiv_valid_ct));
+	dyy = sqrt(((double)((intptr_t)(indiv_valid_ct - 1))) / (pheno_ssq - pheno_sum * dzz));
       }
-    }
-    dptr = linear_results;
-    for (perm_idx = 0; perm_idx < cur_batch_size; perm_idx++) {
-      dyy = dxx * (*dptr); // sigma = (previous sigma) / (nind-np)
-      if (dyy < min_sigma) {
-	dyy = 0;
-	perm_fail_ct++;
-	dptr = &(dptr[param_ctx_m1]);
-	SET_BIT(perm_fails, perm_idx);
-      } else {
-	dptr2 = param_2d_buf2;
-	if (!joint_test_requested) {
-	  for (param_idx = 1; param_idx < param_ct; param_idx++) {
-	    *dptr++ = (*dptr2++) * dyy; // S[i][i] = S0[i][i] * sigma
-	  }
-	} else if (constraint_ct) {
-	  // need all of S for linear_hypothesis_chisq()
-	  dptr3 = param_2d_buf;
-	  param_idx2 = param_ct * param_ct;
-	  for (param_idx = 0; param_idx < param_idx2; param_idx++) {
-	    *dptr2++ = (*dptr3++) * dyy;
-	  }
-	  for (param_idx = 1; param_idx < param_ct; param_idx++) {
-	    *dptr++ = param_2d_buf2[param_idx * param_ct_p1];
-	  }
-	  if (!linear_hypothesis_chisq(constraint_ct, param_ct, constraints_con_major, &(coef[perm_idx * indiv_valid_ct]), param_2d_buf2, param_df_buf, param_df_buf2, df_df_buf, mi_buf, df_buf, &dyy)) {
-	    *dptr++ = dyy;
+      for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_uidx++, indiv_idx++) {
+	partial = 0;
+	dptr3 = dptr;
+	for (param_idx = 0; param_idx < param_ct; param_idx++) {
+	  partial += (*dptr2++) * (*dptr3++);
+	}
+	while (1) {
+	  if (indiv_uidx % BITCT2) {
+	    cur_word >>= 2;
 	  } else {
-	    // joint test failure does not make the entire permutation count
-	    // as failed
-	    *dptr++ = -9;
-	  }
-	} else {
-	  *dptr++ = -9;
-	}
-      }
-    }
-  } else {
-    pheno_ptr = perm_pmajor; // Y[i]
-    for (perm_idx = 0; perm_idx < cur_batch_size; perm_idx++) {
-      fill_double_zero(cluster_param_buf, cluster_ct1_p1 * param_ct);
-      dptr2 = covars_indiv_major; // X[i][j]
-      if (!missing_ct) {
-	for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
-	  dptr3 = &(coef[perm_idx * indiv_valid_ct]);
-	  partial = 0;
-	  for (param_idx = 0; param_idx < param_ct; param_idx++) {
-	    partial += dptr2[param_idx] * (*dptr3++);
-	  }
-	  partial -= *pheno_ptr++;
-	  cluster_idx_p1 = indiv_to_cluster1[indiv_idx] + 1;
-	  dptr3 = &(cluster_param_buf[cluster_idx_p1 * param_ct]);
-	  for (param_idx = 0; param_idx < param_ct; param_idx++) {
-	    // sc[clst[i]][j] += partial * X[i][j]
-	    *dptr3 += partial * (*dptr2++);
-	    dptr3++;
-	  }
-	}
-      } else {
-	dyy = 1;
-	dzz = 0;
-	if (standard_beta) {
-	  pheno_sum = pheno_sum_base;
-	  pheno_ssq = pheno_ssq_base;
-	  ulptr = loadbuf;
-	  for (indiv_uidx = 0; indiv_uidx < indiv_valid_ct + missing_ct; indiv_uidx += BITCT2) {
-	    cur_word = *ulptr++;
+	    cur_word = loadbuf[indiv_uidx / BITCT2];
 	    cur_word = cur_word & (~(cur_word >> 1)) & FIVEMASK;
-	    while (cur_word) {
-	      dyy = pheno_ptr[indiv_uidx + (CTZLU(cur_word) / 2)];
-	      pheno_sum -= dyy;
-	      pheno_ssq -= dyy * dyy;
-	      cur_word &= cur_word - 1;
-	    }
 	  }
-	  dzz = pheno_sum / ((double)((intptr_t)indiv_valid_ct));
-          dyy = sqrt(((double)((intptr_t)(indiv_valid_ct - 1))) / (pheno_ssq - pheno_sum * dzz));
+	  if (!(cur_word & 1)) {
+	    break;
+	  }
+	  indiv_uidx++;
 	}
-	for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_uidx++, indiv_idx++) {
-	  dptr3 = &(coef[perm_idx * indiv_valid_ct]);
-	  partial = 0;
-	  for (param_idx = 0; param_idx < param_ct; param_idx++) {
-	    partial += dptr2[param_idx] * (*dptr3++);
-	  }
-	  while (1) {
-	    if (indiv_uidx % BITCT2) {
-	      cur_word >>= 2;
-	    } else {
-	      cur_word = loadbuf[indiv_uidx / BITCT2];
-	      cur_word = cur_word & (~(cur_word >> 1)) & FIVEMASK;
-	    }
-	    if (!(cur_word & 1)) {
-	      break;
-	    }
-	    indiv_uidx++;
-	  }
-	  partial -= (pheno_ptr[indiv_uidx] - dzz) * dyy;
-	  cluster_idx_p1 = indiv_to_cluster1[indiv_idx] + 1;
-	  dptr3 = &(cluster_param_buf[cluster_idx_p1 * param_ct]);
-	  for (param_idx = 0; param_idx < param_ct; param_idx++) {
-	    *dptr3 += partial * (*dptr2++);
-	    dptr3++;
-	  }
-	}
-	pheno_ptr = &(pheno_ptr[indiv_valid_ct + missing_ct]);
+	partial -= (pheno_ptr[indiv_uidx] - dzz) * dyy;
+	dxx += partial * partial;
       }
-      transpose_copy(cluster_ct1_p1, param_ct, cluster_param_buf, cluster_param_buf2);
-      // can't overwrite param_2d_buf (= S0), everything else is fair game
-      col_major_matrix_multiply(param_ct, param_ct, cluster_ct1_p1, cluster_param_buf, cluster_param_buf2, param_2d_buf2);
-      col_major_matrix_multiply(param_ct, param_ct, param_ct, param_2d_buf, param_2d_buf2, cluster_param_buf); // multMatrix (S0, meat, tmp1)
-      col_major_matrix_multiply(param_ct, param_ct, param_ct, cluster_param_buf, param_2d_buf, param_2d_buf2); // multMatrix (tmp1, S0, S)
-
-      // now do validParameters() check.  validate and cache sqrt(S[i][i])...
-      for (param_idx = 1; param_idx < param_ct; param_idx++) {
-	dxx = param_2d_buf2[param_idx * param_ct_p1];
-        if ((dxx < 1e-20) || (!realnum(dxx))) {
-	  break;
+      pheno_ptr = &(pheno_ptr[indiv_valid_ct + missing_ct]);
+    }
+    linear_results[perm_idx * param_ctx_m1] = dxx;
+  }
+  dxx = 1.0 / ((double)((intptr_t)(indiv_valid_ct - param_ct)));
+  if (!constraint_ct) {
+    // only need diagonal of S
+    dptr2 = param_2d_buf2;
+    for (param_idx = 1; param_idx < param_ct; param_idx++) {
+      *dptr2++ = param_2d_buf[param_idx * param_ct_p1]; // S0[i][i]
+    }
+  }
+  dptr = linear_results;
+  for (perm_idx = 0; perm_idx < cur_batch_size; perm_idx++) {
+    dyy = dxx * (*dptr); // sigma = (previous sigma) / (nind-np)
+    if (dyy < min_sigma) {
+      dyy = 0;
+      perm_fail_ct++;
+      dptr = &(dptr[param_ctx_m1]);
+      SET_BIT(perm_fails, perm_idx);
+    } else {
+      dptr2 = param_2d_buf2;
+      if (!joint_test_requested) {
+	for (param_idx = 1; param_idx < param_ct; param_idx++) {
+	  *dptr++ = (*dptr2++) * dyy; // S[i][i] = S0[i][i] * sigma
 	}
-        cluster_param_buf[param_idx] = sqrt(dxx);
-      }
-      if (param_idx == param_ct) {
-	cluster_param_buf[0] = sqrt(param_2d_buf2[0]);
-        for (param_idx = 1; param_idx < param_ct; param_idx++) {
-	  dxx = 0.99999 * cluster_param_buf[param_idx];
-	  dptr = &(param_2d_buf2[param_idx * param_ct]); // S[i][j]
-	  dptr2 = cluster_param_buf;
-	  for (param_idx2 = 0; param_idx2 < param_idx; param_idx2++) {
-	    if ((*dptr++) > dxx * (*dptr2++)) {
-	      goto glm_linear_robust_cluster_covar_multicollinear;
-	    }
-	  }
+      } else if (constraint_ct) {
+	// need all of S for linear_hypothesis_chisq()
+	dptr3 = param_2d_buf;
+	param_idx2 = param_ct * param_ct;
+	for (param_idx = 0; param_idx < param_idx2; param_idx++) {
+	  *dptr2++ = (*dptr3++) * dyy;
 	}
-	dptr = &(linear_results[perm_idx * param_ctx_m1]);
-        for (param_idx = 1; param_idx < param_ct; param_idx++) {
+	for (param_idx = 1; param_idx < param_ct; param_idx++) {
 	  *dptr++ = param_2d_buf2[param_idx * param_ct_p1];
 	}
-	if (joint_test_requested) {
-	  if (constraint_ct && (!linear_hypothesis_chisq(constraint_ct, param_ct, constraints_con_major, &(coef[perm_idx * indiv_valid_ct]), param_2d_buf2, param_df_buf, param_df_buf2, df_df_buf, mi_buf, df_buf, &dxx))) {
-	    *dptr++ = dxx;
-	  } else {
-            *dptr++ = -9;
-	  }
+	if (!linear_hypothesis_chisq(constraint_ct, param_ct, constraints_con_major, &(coef[perm_idx * indiv_valid_ct]), param_2d_buf2, param_df_buf, param_df_buf2, df_df_buf, mi_buf, df_buf, &dyy)) {
+	  *dptr++ = dyy;
+	} else {
+	  // joint test failure does not make the entire permutation count
+	  // as failed
+	  *dptr++ = -9;
 	}
       } else {
-      glm_linear_robust_cluster_covar_multicollinear:
-	// technically may not need to fill with zeroes/-9
-        fill_double_zero(&(linear_results[perm_idx * param_ctx_m1]), param_ct_m1);
-	SET_BIT(perm_fails, perm_idx);
-	perm_fail_ct++;
-	if (joint_test_requested) {
-          linear_results[perm_idx * param_ctx_m1 + param_ct_m1] = -9;
-	}
+	*dptr++ = -9;
       }
     }
   }
@@ -1957,7 +1834,7 @@ uint32_t logistic_regression(uint32_t indiv_ct, uint32_t param_ct, float* vv, fl
   }
 }
 
-uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, uint32_t missing_ct, uintptr_t* loadbuf, float* covars_cov_major, float* covars_indiv_major, uintptr_t* perm_vecs, float* coef, float* pp, float* indiv_1d_buf, float* pheno_buf, float* param_1d_buf, float* param_1d_buf2, float* param_2d_buf, float* param_2d_buf2, float* logistic_results, uint32_t cluster_ct1, uint32_t* indiv_to_cluster1, float* cluster_param_buf, float* cluster_param_buf2, uintptr_t constraint_ct, double* constraints_con_major, double* param_1d_dbuf, double* param_2d_dbuf, double* param_2d_dbuf2, double* param_df_dbuf, double* df_df_dbuf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* df_dbuf, uintptr_t* perm_fails) {
+uint32_t glm_logistic(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, uint32_t missing_ct, uintptr_t* loadbuf, float* covars_cov_major, uintptr_t* perm_vecs, float* coef, float* pp, float* indiv_1d_buf, float* pheno_buf, float* param_1d_buf, float* param_1d_buf2, float* param_2d_buf, float* param_2d_buf2, float* logistic_results, uintptr_t constraint_ct, double* constraints_con_major, double* param_1d_dbuf, double* param_2d_dbuf, double* param_2d_dbuf2, double* param_df_dbuf, double* df_df_dbuf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* df_dbuf, uintptr_t* perm_fails) {
   // Similar to logistic.cpp fitLM(), but incorporates changes from the
   // postprocessed TopCoder contest code.
   // * coef is now assumed to be initialized with a good starting point for
@@ -1976,7 +1853,6 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
   uintptr_t indiv_validx_ctv2 = 2 * ((indiv_valid_ct + missing_ct + (BITCT - 1)) / BITCT);
   uintptr_t perm_fail_ct = 0;
   uintptr_t cur_word = 0;
-  uint32_t cluster_ct1_p1 = cluster_ct1 + 1;
   uintptr_t perm_idx;
   uintptr_t indiv_uidx;
   uintptr_t indiv_idx;
@@ -1984,12 +1860,7 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
   uintptr_t param_idx2;
   float* fptr;
   float* fptr2;
-
   double dxx;
-
-  // +1 since "no cluster" is represented as -1
-  // 32-bit since that -1 is actually 0xffffffffU
-  uint32_t cluster_idx_p1;
   float fxx;
 
   fill_ulong_zero(perm_fails, ((cur_batch_size + (BITCT - 1)) / BITCT) * sizeof(intptr_t));
@@ -2020,7 +1891,7 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
       }
     }
     if (logistic_regression(indiv_valid_ct, param_ct, indiv_1d_buf, param_2d_buf, param_1d_buf, param_2d_buf2, param_1d_buf2, covars_cov_major, pheno_buf, coef, pp)) {
-      goto glm_logistic_robust_cluster_covar_fail;
+      goto glm_logistic_fail;
     }
 
     // compute S
@@ -2033,55 +1904,11 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
       memcpy(&(param_2d_buf[param_idx * param_ct]), param_1d_buf2, param_ct * sizeof(float));
     }
 
-    if (cluster_ct1) {
-      // HuberWhite()
-      fill_float_zero(cluster_param_buf, cluster_ct1_p1 * param_ct);
-      if (!missing_ct) {
-	for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
-          cluster_idx_p1 = indiv_to_cluster1[indiv_idx] + 1;
-          fxx = -pp[indiv_idx];
-	  fptr = &(cluster_param_buf[cluster_idx_p1 * param_ct]);
-	  fptr2 = &(covars_indiv_major[indiv_idx * param_ct]);
-	  for (param_idx = 0; param_idx < param_ct; param_idx++) {
-	    *fptr += fxx * (*fptr2++);
-	    fptr++;
-	  }
-	}
-      } else {
-	for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_uidx++, indiv_idx++) {
-          cluster_idx_p1 = indiv_to_cluster1[indiv_idx] + 1;
-	  while (1) {
-	    if (indiv_uidx % BITCT2) {
-              cur_word >>= 2;
-	    } else {
-	      cur_word = loadbuf[indiv_uidx / BITCT2];
-              cur_word = cur_word & (~(cur_word >> 1)) & FIVEMASK;
-	    }
-	    if (!(cur_word & 1)) {
-	      break;
-	    }
-	    indiv_uidx++;
-	  }
-          fxx = -pp[indiv_idx];
-          fptr = &(cluster_param_buf[cluster_idx_p1 * param_ct]);
-	  fptr2 = &(covars_indiv_major[indiv_idx * param_ct]);
-	  for (param_idx = 0; param_idx < param_ct; param_idx++) {
-            *fptr += fxx * (*fptr2++);
-            fptr++;
-	  }
-	}
-      }
-      transpose_copy_float(cluster_ct1_p1, param_ct, param_ct, cluster_param_buf, cluster_param_buf2);
-      col_major_fmatrix_multiply(param_ct, param_ct, cluster_ct1_p1, cluster_param_buf, cluster_param_buf2, param_2d_buf2);
-      col_major_fmatrix_multiply(param_ct, param_ct, param_ct, param_2d_buf, param_2d_buf2, cluster_param_buf);
-      col_major_fmatrix_multiply(param_ct, param_ct, param_ct, cluster_param_buf, param_2d_buf, param_2d_buf2);
-      memcpy(param_2d_buf, param_2d_buf2, param_ct * param_ct * sizeof(float));
-    }
     // validParameters() check
     for (param_idx = 1; param_idx < param_ct; param_idx++) {
       fxx = param_2d_buf[param_idx * param_ct_p1];
       if ((fxx < 1e-20) || (!realnum(fxx))) {
-	goto glm_logistic_robust_cluster_covar_fail;
+	goto glm_logistic_fail;
       }
       param_2d_buf2[param_idx] = sqrtf(fxx);
     }
@@ -2092,7 +1919,7 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
       fptr2 = param_2d_buf2;
       for (param_idx2 = 0; param_idx2 < param_idx; param_idx2++) {
         if ((*fptr++) > fxx * (*fptr2++)) {
-	  goto glm_logistic_robust_cluster_covar_fail;
+	  goto glm_logistic_fail;
 	}
       }
     }
@@ -2122,7 +1949,7 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
       }
     }
     if (0) {
-    glm_logistic_robust_cluster_covar_fail:
+    glm_logistic_fail:
       fill_float_zero(&(logistic_results[perm_idx * param_ctx_m1]), param_ct_m1);
       SET_BIT(perm_fails, perm_idx);
       perm_fail_ct++;
@@ -2136,7 +1963,7 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
   return perm_fail_ct;
 }
 
-uint32_t glm_fill_design(uintptr_t* loadbuf_collapsed, double* fixed_covars_cov_major, uintptr_t indiv_valid_ct, uint32_t* indiv_to_cluster1, uint32_t cur_param_ct, uint32_t coding_flags, uint32_t xchr_model, uintptr_t condition_list_start_idx, uintptr_t interaction_start_idx, uintptr_t sex_start_idx, uintptr_t* active_params, uintptr_t* haploid_params, uint32_t include_sex, uint32_t male_x_01, uintptr_t* sex_male_collapsed, uint32_t is_nonx_haploid, double* cur_covars_cov_major, double* cur_covars_indiv_major, uint32_t* cur_indiv_to_cluster1_buf, uint32_t** cur_indiv_to_cluster1_ptr, uint32_t standard_beta) {
+uint32_t glm_fill_design(uintptr_t* loadbuf_collapsed, double* fixed_covars_cov_major, uintptr_t indiv_valid_ct, uint32_t cur_param_ct, uint32_t coding_flags, uint32_t xchr_model, uintptr_t condition_list_start_idx, uintptr_t interaction_start_idx, uintptr_t sex_start_idx, uintptr_t* active_params, uintptr_t* haploid_params, uint32_t include_sex, uint32_t male_x_01, uintptr_t* sex_male_collapsed, uint32_t is_nonx_haploid, double* cur_covars_cov_major, double* cur_covars_indiv_major, uint32_t standard_beta) {
   double* dptr = cur_covars_cov_major;
   uintptr_t* ulptr_end_init = &(loadbuf_collapsed[indiv_valid_ct / BITCT2]);
   uintptr_t fixed_covar_nonsex_ct = interaction_start_idx - condition_list_start_idx;
@@ -2525,14 +2352,6 @@ uint32_t glm_fill_design(uintptr_t* loadbuf_collapsed, double* fixed_covars_cov_
   //   printf("assert failure:\n  cur_param_ct = %u\n  cur_indiv_valid_ct = %" PRIuPTR "\n  dptr - cur_covars_cov_major = %" PRIuPTR "\n", cur_param_ct, cur_indiv_valid_ct, (uintptr_t)(dptr - cur_covars_cov_major));
   //   exit(1);
   // }
-  if (indiv_to_cluster1) {
-    if (!missing_ct) {
-      *cur_indiv_to_cluster1_ptr = indiv_to_cluster1;
-    } else {
-      copy_when_nonmissing(loadbuf_collapsed, (char*)indiv_to_cluster1, sizeof(int32_t), indiv_valid_ct, missing_ct, (char*)cur_indiv_to_cluster1_buf);
-      *cur_indiv_to_cluster1_ptr = cur_indiv_to_cluster1_buf;
-    }
-  }
   if (standard_beta) {
     for (param_idx = 1; param_idx < cur_param_ct; param_idx++) {
       dxx = 0; // sum
@@ -2562,7 +2381,7 @@ uint32_t glm_fill_design(uintptr_t* loadbuf_collapsed, double* fixed_covars_cov_
   return missing_ct;
 }
 
-uint32_t glm_fill_design_float(uintptr_t* loadbuf_collapsed, float* fixed_covars_cov_major, uintptr_t indiv_valid_ct, uint32_t* indiv_to_cluster1, uint32_t cur_param_ct, uint32_t coding_flags, uint32_t xchr_model, uintptr_t condition_list_start_idx, uintptr_t interaction_start_idx, uintptr_t sex_start_idx, uintptr_t* active_params, uintptr_t* haploid_params, uint32_t include_sex, uint32_t male_x_01, uintptr_t* sex_male_collapsed, uint32_t is_nonx_haploid, float* cur_covars_cov_major, float* cur_covars_indiv_major, uint32_t* cur_indiv_to_cluster1_buf, uint32_t** cur_indiv_to_cluster1_ptr) {
+uint32_t glm_fill_design_float(uintptr_t* loadbuf_collapsed, float* fixed_covars_cov_major, uintptr_t indiv_valid_ct, uint32_t cur_param_ct, uint32_t coding_flags, uint32_t xchr_model, uintptr_t condition_list_start_idx, uintptr_t interaction_start_idx, uintptr_t sex_start_idx, uintptr_t* active_params, uintptr_t* haploid_params, uint32_t include_sex, uint32_t male_x_01, uintptr_t* sex_male_collapsed, uint32_t is_nonx_haploid, float* cur_covars_cov_major) {
   // rows of cur_covars_cov_major must be 16-byte aligned
   float* fptr = cur_covars_cov_major;
   uintptr_t* ulptr_end_init = &(loadbuf_collapsed[indiv_valid_ct / BITCT2]);
@@ -2981,22 +2800,10 @@ uint32_t glm_fill_design_float(uintptr_t* loadbuf_collapsed, float* fixed_covars
       }
     }
   }
-#ifndef STABLE_BUILD
-  if (fptr != &(cur_covars_cov_major[cur_param_ct * cur_indiv_valid_cta4])) {
-    printf("assert failure:\n  cur_param_ct = %u\n  cur_indiv_valid_cta4 = %" PRIuPTR "\n  fptr - cur_covars_cov_major = %" PRIuPTR "\nindiv_valid_ct = %" PRIuPTR "\nalign_skip = %u\n", cur_param_ct, cur_indiv_valid_cta4, (uintptr_t)(fptr - cur_covars_cov_major), indiv_valid_ct, align_skip);
-    exit(1);
-  }
-#endif
-  if (indiv_to_cluster1) {
-    if (!missing_ct) {
-      *cur_indiv_to_cluster1_ptr = indiv_to_cluster1;
-    } else {
-      copy_when_nonmissing(loadbuf_collapsed, (char*)indiv_to_cluster1, sizeof(int32_t), indiv_valid_ct, missing_ct, (char*)cur_indiv_to_cluster1_buf);
-      *cur_indiv_to_cluster1_ptr = cur_indiv_to_cluster1_buf;
-    }
-    transpose_copy_float(cur_param_ct, cur_indiv_valid_cta4, cur_indiv_valid_ct, cur_covars_cov_major, cur_covars_indiv_major);
-  }
-
+  // if (fptr != &(cur_covars_cov_major[cur_param_ct * cur_indiv_valid_cta4])) {
+  //   printf("assert failure:\n  cur_param_ct = %u\n  cur_indiv_valid_cta4 = %" PRIuPTR "\n  fptr - cur_covars_cov_major = %" PRIuPTR "\nindiv_valid_ct = %" PRIuPTR "\nalign_skip = %u\n", cur_param_ct, cur_indiv_valid_cta4, (uintptr_t)(fptr - cur_covars_cov_major), indiv_valid_ct, align_skip);
+  //   exit(1);
+  // }
   return missing_ct;
 }
 
@@ -3004,17 +2811,13 @@ uint32_t glm_fill_design_float(uintptr_t* loadbuf_collapsed, float* fixed_covars
 
 #ifndef NOLAPACK
 typedef struct linear_multithread_struct {
-  double* indiv_1d_buf;
   double* param_2d_buf;
   double* param_2d_buf2;
-  double* cluster_param_buf; // guaranteed to be size >= param_ct^2
-  double* cluster_param_buf2; // not guaranteed
   MATRIX_INVERT_BUF1_TYPE* mi_buf;
   double* df_df_buf;
   double* df_buf;
   double* cur_covars_cov_major;
   double* cur_covars_indiv_major;
-  uint32_t* cur_indiv_to_cluster1_buf;
   uintptr_t* perm_fails;
   double* dgels_a;
   double* dgels_b;
@@ -3029,7 +2832,6 @@ static Linear_multithread* g_linear_mt;
 
 typedef struct logistic_multithread_struct {
   float* cur_covars_cov_major;
-  float* cur_covars_indiv_major;
   float* coef;
   float* pp;
   float* indiv_1d_buf;
@@ -3039,9 +2841,6 @@ typedef struct logistic_multithread_struct {
   float* param_2d_buf;
   float* param_2d_buf2;
   float* regression_results;
-  uint32_t* cur_indiv_to_cluster1_buf;
-  float* cluster_param_buf;
-  float* cluster_param_buf2;
   double* param_1d_dbuf;
   double* param_2d_dbuf;
   double* param_2d_dbuf2;
@@ -3058,7 +2857,6 @@ static double* g_orig_stats;
 #ifndef NOLAPACK
 static double* g_fixed_covars_cov_major;
 #endif
-static uint32_t* g_indiv_to_cluster1;
 static uintptr_t g_cur_param_ct;
 static uintptr_t g_cur_constraint_ct;
 static uint32_t g_standard_beta;
@@ -3075,7 +2873,6 @@ static uintptr_t* g_sex_male_collapsed;
 #ifndef NOLAPACK
 static __CLPK_integer g_dgels_lwork;
 #endif
-static uint32_t g_cluster_ct1;
 static double* g_constraints_con_major;
 static uint32_t g_perm_batch_max;
 static float* g_fixed_covars_cov_major_f;
@@ -3124,23 +2921,17 @@ THREAD_RET_TYPE glm_linear_adapt_thread(void* arg) {
   uintptr_t* haploid_params = g_haploid_params;
   uint32_t include_sex = g_include_sex;
   uint32_t male_x_01 = g_male_x_01;
-  uint32_t cluster_ct1 = g_cluster_ct1;
   uintptr_t* sex_male_collapsed = g_sex_male_collapsed;
   uint32_t is_nonx_haploid = g_is_haploid && (!g_is_x);
   double* fixed_covars_cov_major = g_fixed_covars_cov_major;
-  uint32_t* indiv_to_cluster1 = g_indiv_to_cluster1;
   double* constraints_con_major = g_constraints_con_major;
-  double* indiv_1d_buf = g_linear_mt[tidx].indiv_1d_buf;
   double* param_2d_buf = g_linear_mt[tidx].param_2d_buf;
   double* param_2d_buf2 = g_linear_mt[tidx].param_2d_buf2;
-  double* cluster_param_buf = g_linear_mt[tidx].cluster_param_buf;
-  double* cluster_param_buf2 = g_linear_mt[tidx].cluster_param_buf2;
   MATRIX_INVERT_BUF1_TYPE* mi_buf = g_linear_mt[tidx].mi_buf;
   double* df_df_buf = g_linear_mt[tidx].df_df_buf;
   double* df_buf = g_linear_mt[tidx].df_buf;
   double* cur_covars_cov_major = g_linear_mt[tidx].cur_covars_cov_major;
   double* cur_covars_indiv_major = g_linear_mt[tidx].cur_covars_indiv_major;
-  uint32_t* cur_indiv_to_cluster1_buf = g_linear_mt[tidx].cur_indiv_to_cluster1_buf;
   uintptr_t* perm_fails = g_linear_mt[tidx].perm_fails;
   double* dgels_a = g_linear_mt[tidx].dgels_a;
   double* dgels_b = g_linear_mt[tidx].dgels_b;
@@ -3150,7 +2941,6 @@ THREAD_RET_TYPE glm_linear_adapt_thread(void* arg) {
   double* regression_results = g_linear_mt[tidx].regression_results;
   double* dptr;
   uintptr_t* loadbuf_ptr;
-  uint32_t* cur_indiv_to_cluster1;
   uintptr_t cur_missing_ct;
   uintptr_t cur_indiv_valid_ct;
   uintptr_t pidx;
@@ -3193,7 +2983,7 @@ THREAD_RET_TYPE glm_linear_adapt_thread(void* arg) {
     stat_high = orig_stats[marker_idx] + EPSILON;
     stat_low = orig_stats[marker_idx] - EPSILON;
     loadbuf_ptr = &(loadbuf[marker_bidx * indiv_valid_ctv2]);
-    cur_missing_ct = glm_fill_design(loadbuf_ptr, fixed_covars_cov_major, indiv_valid_ct, indiv_to_cluster1, cur_param_ct, coding_flags, glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, is_nonx_haploid, cur_covars_cov_major, cur_covars_indiv_major, cur_indiv_to_cluster1_buf, &cur_indiv_to_cluster1, standard_beta);
+    cur_missing_ct = glm_fill_design(loadbuf_ptr, fixed_covars_cov_major, indiv_valid_ct, cur_param_ct, coding_flags, glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, is_nonx_haploid, cur_covars_cov_major, cur_covars_indiv_major, standard_beta);
     cur_indiv_valid_ct = indiv_valid_ct - cur_missing_ct;
     dgels_m = (int32_t)((uint32_t)cur_indiv_valid_ct);
     dgels_ldb = dgels_m;
@@ -3227,7 +3017,7 @@ THREAD_RET_TYPE glm_linear_adapt_thread(void* arg) {
     }
     dgels_nrhs = (int32_t)((uint32_t)perm_vec_ct);
     dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
-    glm_linear_robust_cluster_covar(perm_vec_ct, cur_param_ct, cur_indiv_valid_ct, cur_missing_ct, loadbuf_ptr, standard_beta, pheno_sum_base, pheno_ssq_base, cur_covars_cov_major, cur_covars_indiv_major, perm_pmajor, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, cluster_ct1, cur_indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, indiv_1d_buf, regression_results, cur_constraint_ct, constraints_con_major, param_df_buf, param_df_buf2, df_df_buf, df_buf, &perm_fail_ct, perm_fails);
+    glm_linear(perm_vec_ct, cur_param_ct, cur_indiv_valid_ct, cur_missing_ct, loadbuf_ptr, standard_beta, pheno_sum_base, pheno_ssq_base, cur_covars_cov_major, cur_covars_indiv_major, perm_pmajor, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, regression_results, cur_constraint_ct, constraints_con_major, param_df_buf, param_df_buf2, df_df_buf, df_buf, &perm_fail_ct, perm_fails);
     for (pidx = 0; pidx < perm_vec_ct;) {
       if (!IS_SET(perm_fails, pidx)) {
 	if (!joint_test_params) {
@@ -3309,14 +3099,11 @@ THREAD_RET_TYPE glm_logistic_adapt_thread(void* arg) {
   uintptr_t* haploid_params = g_haploid_params;
   uint32_t include_sex = g_include_sex;
   uint32_t male_x_01 = g_male_x_01;
-  uint32_t cluster_ct1 = g_cluster_ct1;
   uintptr_t* sex_male_collapsed = g_sex_male_collapsed;
   uint32_t is_nonx_haploid = g_is_haploid && (!g_is_x);
   float* fixed_covars_cov_major = g_fixed_covars_cov_major_f;
-  uint32_t* indiv_to_cluster1 = g_indiv_to_cluster1;
   double* constraints_con_major = g_constraints_con_major;
   float* cur_covars_cov_major = g_logistic_mt[tidx].cur_covars_cov_major;
-  float* cur_covars_indiv_major = g_logistic_mt[tidx].cur_covars_indiv_major;
   float* coef = g_logistic_mt[tidx].coef;
   float* pp = g_logistic_mt[tidx].pp;
   float* indiv_1d_buf = g_logistic_mt[tidx].indiv_1d_buf;
@@ -3326,9 +3113,6 @@ THREAD_RET_TYPE glm_logistic_adapt_thread(void* arg) {
   float* param_2d_buf = g_logistic_mt[tidx].param_2d_buf;
   float* param_2d_buf2 = g_logistic_mt[tidx].param_2d_buf2;
   float* regression_results = g_logistic_mt[tidx].regression_results;
-  uint32_t* cur_indiv_to_cluster1_buf = g_logistic_mt[tidx].cur_indiv_to_cluster1_buf;
-  float* cluster_param_buf = g_logistic_mt[tidx].cluster_param_buf;
-  float* cluster_param_buf2 = g_logistic_mt[tidx].cluster_param_buf2;
   double* param_1d_dbuf = g_logistic_mt[tidx].param_1d_dbuf;
   double* param_2d_dbuf = g_logistic_mt[tidx].param_2d_dbuf;
   double* param_2d_dbuf2 = g_logistic_mt[tidx].param_2d_dbuf2;
@@ -3338,7 +3122,6 @@ THREAD_RET_TYPE glm_logistic_adapt_thread(void* arg) {
   double* df_dbuf = g_logistic_mt[tidx].df_dbuf;
   uintptr_t* perm_fails = g_logistic_mt[tidx].perm_fails;
   uintptr_t* loadbuf_ptr;
-  uint32_t* cur_indiv_to_cluster1;
   uintptr_t cur_missing_ct;
   uintptr_t cur_indiv_valid_ct;
   uintptr_t pidx;
@@ -3375,13 +3158,13 @@ THREAD_RET_TYPE glm_logistic_adapt_thread(void* arg) {
     stat_high = orig_stats[marker_idx] + EPSILON;
     stat_low = orig_stats[marker_idx] - EPSILON;
     loadbuf_ptr = &(loadbuf[marker_bidx * indiv_valid_ctv2]);
-    cur_missing_ct = glm_fill_design_float(loadbuf_ptr, fixed_covars_cov_major, indiv_valid_ct, indiv_to_cluster1, cur_param_ct, coding_flags, glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, is_nonx_haploid, cur_covars_cov_major, cur_covars_indiv_major, cur_indiv_to_cluster1_buf, &cur_indiv_to_cluster1);
+    cur_missing_ct = glm_fill_design_float(loadbuf_ptr, fixed_covars_cov_major, indiv_valid_ct, cur_param_ct, coding_flags, glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, is_nonx_haploid, cur_covars_cov_major);
     cur_indiv_valid_ct = indiv_valid_ct - cur_missing_ct;
     success_2incr = 0;
     cur_fail_ct = 0;
     // todo: try better starting position
     fill_float_zero(coef, ((cur_param_ct + 3) & (~3)) * perm_vec_ct);
-    glm_logistic_robust_cluster_covar(perm_vec_ct, cur_param_ct, cur_indiv_valid_ct, cur_missing_ct, loadbuf_ptr, cur_covars_cov_major, cur_covars_indiv_major, perm_vecs, coef, pp, indiv_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, cluster_ct1, cur_indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, cur_constraint_ct, constraints_con_major, param_1d_dbuf, param_2d_dbuf, param_2d_dbuf2, param_df_dbuf, df_df_dbuf, mi_buf, df_dbuf, perm_fails);
+    glm_logistic(perm_vec_ct, cur_param_ct, cur_indiv_valid_ct, cur_missing_ct, loadbuf_ptr, cur_covars_cov_major, perm_vecs, coef, pp, indiv_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, cur_constraint_ct, constraints_con_major, param_1d_dbuf, param_2d_dbuf, param_2d_dbuf2, param_df_dbuf, df_df_dbuf, mi_buf, df_dbuf, perm_fails);
     for (pidx = 0; pidx < perm_vec_ct;) {
       if (!IS_SET(perm_fails, pidx)) {
 	if (!joint_test_params) {
@@ -3467,25 +3250,19 @@ THREAD_RET_TYPE glm_linear_maxt_thread(void* arg) {
   uintptr_t* haploid_params = g_haploid_params;
   uint32_t include_sex = g_include_sex;
   uint32_t male_x_01 = g_male_x_01;
-  uint32_t cluster_ct1 = g_cluster_ct1;
   uintptr_t perm_batch_max = g_perm_batch_max;
   uintptr_t* sex_male_collapsed = g_sex_male_collapsed;
   uint32_t is_nonx_haploid = g_is_haploid && (!g_is_x);
   double* fixed_covars_cov_major = g_fixed_covars_cov_major;
-  uint32_t* indiv_to_cluster1 = g_indiv_to_cluster1;
   double* constraints_con_major = g_constraints_con_major;
   double* msa_ptr = NULL;
-  double* indiv_1d_buf = g_linear_mt[tidx].indiv_1d_buf;
   double* param_2d_buf = g_linear_mt[tidx].param_2d_buf;
   double* param_2d_buf2 = g_linear_mt[tidx].param_2d_buf2;
-  double* cluster_param_buf = g_linear_mt[tidx].cluster_param_buf;
-  double* cluster_param_buf2 = g_linear_mt[tidx].cluster_param_buf2;
   MATRIX_INVERT_BUF1_TYPE* mi_buf = g_linear_mt[tidx].mi_buf;
   double* df_df_buf = g_linear_mt[tidx].df_df_buf;
   double* df_buf = g_linear_mt[tidx].df_buf;
   double* cur_covars_cov_major = g_linear_mt[tidx].cur_covars_cov_major;
   double* cur_covars_indiv_major = g_linear_mt[tidx].cur_covars_indiv_major;
-  uint32_t* cur_indiv_to_cluster1_buf = g_linear_mt[tidx].cur_indiv_to_cluster1_buf;
   uintptr_t* perm_fails = g_linear_mt[tidx].perm_fails;
   double* dgels_a = g_linear_mt[tidx].dgels_a;
   double* dgels_b = g_linear_mt[tidx].dgels_b;
@@ -3495,7 +3272,6 @@ THREAD_RET_TYPE glm_linear_maxt_thread(void* arg) {
   double* regression_results = g_linear_mt[tidx].regression_results;
   double* dptr;
   uintptr_t* loadbuf_ptr;
-  uint32_t* cur_indiv_to_cluster1;
   uintptr_t cur_missing_ct;
   uintptr_t cur_indiv_valid_ct;
   uintptr_t pidx;
@@ -3539,7 +3315,7 @@ THREAD_RET_TYPE glm_linear_maxt_thread(void* arg) {
     stat_high = orig_stats[marker_idx] + EPSILON;
     stat_low = orig_stats[marker_idx] - EPSILON;
     loadbuf_ptr = &(loadbuf[marker_bidx * indiv_valid_ctv2]);
-    cur_missing_ct = glm_fill_design(loadbuf_ptr, fixed_covars_cov_major, indiv_valid_ct, indiv_to_cluster1, cur_param_ct, coding_flags, glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, is_nonx_haploid, cur_covars_cov_major, cur_covars_indiv_major, cur_indiv_to_cluster1_buf, &cur_indiv_to_cluster1, standard_beta);
+    cur_missing_ct = glm_fill_design(loadbuf_ptr, fixed_covars_cov_major, indiv_valid_ct, cur_param_ct, coding_flags, glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, is_nonx_haploid, cur_covars_cov_major, cur_covars_indiv_major, standard_beta);
     cur_indiv_valid_ct = indiv_valid_ct - cur_missing_ct;
     dgels_m = (int32_t)((uint32_t)cur_indiv_valid_ct);
     dgels_ldb = dgels_m;
@@ -3572,7 +3348,7 @@ THREAD_RET_TYPE glm_linear_maxt_thread(void* arg) {
     }
     dgels_nrhs = (int32_t)((uint32_t)perm_vec_ct);
     dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
-    glm_linear_robust_cluster_covar(perm_vec_ct, cur_param_ct, cur_indiv_valid_ct, cur_missing_ct, loadbuf_ptr, standard_beta, pheno_sum_base, pheno_ssq_base, cur_covars_cov_major, cur_covars_indiv_major, perm_pmajor, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, cluster_ct1, cur_indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, indiv_1d_buf, regression_results, cur_constraint_ct, constraints_con_major, param_df_buf, param_df_buf2, df_df_buf, df_buf, &perm_fail_ct, perm_fails);
+    glm_linear(perm_vec_ct, cur_param_ct, cur_indiv_valid_ct, cur_missing_ct, loadbuf_ptr, standard_beta, pheno_sum_base, pheno_ssq_base, cur_covars_cov_major, cur_covars_indiv_major, perm_pmajor, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, regression_results, cur_constraint_ct, constraints_con_major, param_df_buf, param_df_buf2, df_df_buf, df_buf, &perm_fail_ct, perm_fails);
     for (pidx = 0; pidx < perm_vec_ct; pidx++) {
       if (!IS_SET(perm_fails, pidx)) {
 	if (!joint_test_params) {
@@ -3644,16 +3420,13 @@ THREAD_RET_TYPE glm_logistic_maxt_thread(void* arg) {
   uintptr_t* haploid_params = g_haploid_params;
   uint32_t include_sex = g_include_sex;
   uint32_t male_x_01 = g_male_x_01;
-  uint32_t cluster_ct1 = g_cluster_ct1;
   uintptr_t perm_batch_max = g_perm_batch_max;
   uintptr_t* sex_male_collapsed = g_sex_male_collapsed;
   uint32_t is_nonx_haploid = g_is_haploid && (!g_is_x);
   float* fixed_covars_cov_major = g_fixed_covars_cov_major_f;
-  uint32_t* indiv_to_cluster1 = g_indiv_to_cluster1;
   double* constraints_con_major = g_constraints_con_major;
   double* msa_ptr = NULL;
   float* cur_covars_cov_major = g_logistic_mt[tidx].cur_covars_cov_major;
-  float* cur_covars_indiv_major = g_logistic_mt[tidx].cur_covars_indiv_major;
   float* coef = g_logistic_mt[tidx].coef;
   float* pp = g_logistic_mt[tidx].pp;
   float* indiv_1d_buf = g_logistic_mt[tidx].indiv_1d_buf;
@@ -3663,9 +3436,6 @@ THREAD_RET_TYPE glm_logistic_maxt_thread(void* arg) {
   float* param_2d_buf = g_logistic_mt[tidx].param_2d_buf;
   float* param_2d_buf2 = g_logistic_mt[tidx].param_2d_buf2;
   float* regression_results = g_logistic_mt[tidx].regression_results;
-  uint32_t* cur_indiv_to_cluster1_buf = g_logistic_mt[tidx].cur_indiv_to_cluster1_buf;
-  float* cluster_param_buf = g_logistic_mt[tidx].cluster_param_buf;
-  float* cluster_param_buf2 = g_logistic_mt[tidx].cluster_param_buf2;
   double* param_1d_dbuf = g_logistic_mt[tidx].param_1d_dbuf;
   double* param_2d_dbuf = g_logistic_mt[tidx].param_2d_dbuf;
   double* param_2d_dbuf2 = g_logistic_mt[tidx].param_2d_dbuf2;
@@ -3675,7 +3445,6 @@ THREAD_RET_TYPE glm_logistic_maxt_thread(void* arg) {
   double* df_dbuf = g_logistic_mt[tidx].df_dbuf;
   uintptr_t* perm_fails = g_logistic_mt[tidx].perm_fails;
   uintptr_t* loadbuf_ptr;
-  uint32_t* cur_indiv_to_cluster1;
   uintptr_t cur_missing_ct;
   uintptr_t cur_indiv_valid_ct;
   uintptr_t pidx;
@@ -3713,12 +3482,12 @@ THREAD_RET_TYPE glm_logistic_maxt_thread(void* arg) {
     stat_high = orig_stats[marker_idx] + EPSILON;
     stat_low = orig_stats[marker_idx] - EPSILON;
     loadbuf_ptr = &(loadbuf[marker_bidx * indiv_valid_ctv2]);
-    cur_missing_ct = glm_fill_design_float(loadbuf_ptr, fixed_covars_cov_major, indiv_valid_ct, indiv_to_cluster1, cur_param_ct, coding_flags, glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, is_nonx_haploid, cur_covars_cov_major, cur_covars_indiv_major, cur_indiv_to_cluster1_buf, &cur_indiv_to_cluster1);
+    cur_missing_ct = glm_fill_design_float(loadbuf_ptr, fixed_covars_cov_major, indiv_valid_ct, cur_param_ct, coding_flags, glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, is_nonx_haploid, cur_covars_cov_major);
     cur_indiv_valid_ct = indiv_valid_ct - cur_missing_ct;
     success_2incr = 0;
     // todo: try better starting position
     fill_float_zero(coef, cur_param_cta4 * perm_vec_ct);
-    perm_fail_ct = glm_logistic_robust_cluster_covar(perm_vec_ct, cur_param_ct, cur_indiv_valid_ct, cur_missing_ct, loadbuf_ptr, cur_covars_cov_major, cur_covars_indiv_major, perm_vecs, coef, pp, indiv_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, cluster_ct1, cur_indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, cur_constraint_ct, constraints_con_major, param_1d_dbuf, param_2d_dbuf, param_2d_dbuf2, param_df_dbuf, df_df_dbuf, mi_buf, df_dbuf, perm_fails);
+    perm_fail_ct = glm_logistic(perm_vec_ct, cur_param_ct, cur_indiv_valid_ct, cur_missing_ct, loadbuf_ptr, cur_covars_cov_major, perm_vecs, coef, pp, indiv_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, cur_constraint_ct, constraints_con_major, param_1d_dbuf, param_2d_dbuf, param_2d_dbuf2, param_df_dbuf, df_df_dbuf, mi_buf, df_dbuf, perm_fails);
     for (pidx = 0; pidx < perm_vec_ct; pidx++) {
       if (!IS_SET(perm_fails, pidx)) {
 	if (!joint_test_params) {
@@ -3811,7 +3580,6 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
   uint32_t uii;
   uint32_t ujj;
   g_joint_test_params = NULL;
-  g_indiv_to_cluster1 = NULL;
   if (max_marker_allele_len > MAXLINELEN) {
     if (wkspace_alloc_c_checked(writebuf_ptr, max_marker_allele_len + MAXLINELEN)) {
       goto glm_common_init_ret_NOMEM;
@@ -4276,7 +4044,6 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   uintptr_t cur_param_ct = 0;
   uintptr_t cur_param_ctx = 0;
   uint32_t perms_total = 0;
-  uint32_t cluster_ct1 = 0;
   uint32_t perm_adapt = glm_modifier & GLM_PERM;
   uint32_t perm_maxt = glm_modifier & GLM_MPERM;
   uint32_t covar_interactions = (glm_modifier / GLM_INTERACTION) & 1;
@@ -4306,11 +4073,8 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   __CLPK_integer dgels_info;
   double* constraints_con_major = NULL;
   uint32_t* condition_uidxs = NULL;
-  uint32_t* cluster_map1 = NULL;
-  uint32_t* cluster_starts1 = NULL;
   uint32_t* tcnt = NULL;
   uint32_t* marker_idx_to_uidx = NULL;
-  uint32_t* cur_indiv_to_cluster1 = NULL;
   char* cur_param_names = NULL;
   char* haploid_param_names = NULL;
   char* wptr_start = NULL;
@@ -4672,42 +4436,24 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       g_perm_batch_max = perm_batch_size;
     }
   }
-  if (cluster_starts) {
-    // If there are any size-1 clusters, we actually want two cluster indexes:
-    // - one for permutation, which excludes the size-1 clusters, and
-    // - one for use by the robust cluster variance estimator, which does not.
-    //
-    // cluster_ct1, etc. includes size-1 clusters, while the same variables
-    // without the "1" at the end exclude them.
-    retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 0, NULL, indiv_valid_ct, 0, cluster_ct, cluster_map, cluster_starts, &cluster_ct1, &cluster_map1, &cluster_starts1, NULL, NULL);
-    if (retval) {
-      goto glm_linear_assoc_ret_1;
-    }
-    g_cluster_ct1 = cluster_ct1;
-    if (cluster_ct1) {
-      if (wkspace_alloc_ui_checked(&g_indiv_to_cluster1, indiv_valid_ct * sizeof(int32_t))) {
+  if (do_perms) {
+    if (cluster_starts) {
+      // Pointless to include size-1 clusters in permutation.
+      retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 1, NULL, indiv_valid_ct, 0, cluster_ct, cluster_map, cluster_starts, &g_cluster_ct, &g_cluster_map, &g_cluster_starts, NULL, NULL);
+      if (retval) {
+	goto glm_linear_assoc_ret_1;
+      }
+      if (!g_cluster_ct) {
+	goto glm_linear_assoc_ret_NO_PERMUTATION_CLUSTERS;
+      }
+      if (wkspace_alloc_ui_checked(&g_qassoc_cluster_thread_wkspace, max_thread_ct * ((g_cluster_ct + (CACHELINE_INT32 - 1)) / CACHELINE_INT32) * CACHELINE)) {
 	goto glm_linear_assoc_ret_NOMEM;
       }
-      fill_unfiltered_indiv_to_cluster(indiv_valid_ct, cluster_ct1, cluster_map1, cluster_starts1, g_indiv_to_cluster1);
-      if (do_perms) {
-	retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 1, NULL, indiv_valid_ct, 0, cluster_ct, cluster_map, cluster_starts, &g_cluster_ct, &g_cluster_map, &g_cluster_starts, NULL, NULL);
-	if (retval) {
-	  goto glm_linear_assoc_ret_1;
-	}
-	if (!g_cluster_ct) {
-	  goto glm_linear_assoc_ret_NO_PERMUTATION_CLUSTERS;
-	}
-	if (wkspace_alloc_ui_checked(&g_qassoc_cluster_thread_wkspace, max_thread_ct * ((g_cluster_ct + (CACHELINE_INT32 - 1)) / CACHELINE_INT32) * CACHELINE)) {
-	  goto glm_linear_assoc_ret_NOMEM;
-	}
-	if (wkspace_alloc_ui_checked(&g_indiv_to_cluster, indiv_valid_ct * sizeof(int32_t))) {
-	  goto glm_linear_assoc_ret_NOMEM;
-	}
-	fill_unfiltered_indiv_to_cluster(indiv_valid_ct, g_cluster_ct, g_cluster_map, g_cluster_starts, g_indiv_to_cluster);
+      if (wkspace_alloc_ui_checked(&g_indiv_to_cluster, indiv_valid_ct * sizeof(int32_t))) {
+	goto glm_linear_assoc_ret_NOMEM;
       }
+      fill_unfiltered_indiv_to_cluster(indiv_valid_ct, g_cluster_ct, g_cluster_map, g_cluster_starts, g_indiv_to_cluster);
     }
-  }
-  if (do_perms) {
     if (wkspace_init_sfmtp(max_thread_ct)) {
       goto glm_linear_assoc_ret_NOMEM;
     }
@@ -4721,7 +4467,6 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     if (wkspace_alloc_d_checked(&(g_linear_mt[tidx].cur_covars_cov_major), param_ct_max * indiv_valid_ct * sizeof(double)) ||
         wkspace_alloc_d_checked(&(g_linear_mt[tidx].cur_covars_indiv_major), param_ct_max * indiv_valid_ct * sizeof(double)) ||
         wkspace_alloc_ul_checked(&(g_linear_mt[tidx].perm_fails), ulii * sizeof(intptr_t)) ||
-        wkspace_alloc_d_checked(&(g_linear_mt[tidx].indiv_1d_buf), indiv_valid_ct * sizeof(double)) ||
         wkspace_alloc_d_checked(&(g_linear_mt[tidx].param_2d_buf), param_ct_max * param_ct_max * sizeof(double)) ||
         wkspace_alloc_d_checked(&(g_linear_mt[tidx].param_2d_buf2), param_ct_max * param_ct_max * sizeof(double)) ||
         wkspace_alloc_d_checked(&(g_linear_mt[tidx].regression_results), perm_batch_size * param_ctx_max_m1 * sizeof(double))) {
@@ -4731,14 +4476,6 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     g_linear_mt[tidx].mi_buf = (MATRIX_INVERT_BUF1_TYPE*)wkspace_alloc(param_ct_max * sizeof(MATRIX_INVERT_BUF1_TYPE));
     if (!(g_linear_mt[tidx].mi_buf)) {
       goto glm_linear_assoc_ret_NOMEM;
-    }
-    if (cluster_ct1) {
-      ulii = MAXV(cluster_ct1 + 1, param_ct_max);
-      if (wkspace_alloc_ui_checked(&(g_linear_mt[tidx].cur_indiv_to_cluster1_buf), indiv_valid_ct * sizeof(int32_t)) ||
-          wkspace_alloc_d_checked(&(g_linear_mt[tidx].cluster_param_buf), ulii * param_ct_max * sizeof(double)) ||
-          wkspace_alloc_d_checked(&(g_linear_mt[tidx].cluster_param_buf2), (cluster_ct1 + 1) * param_ct_max * sizeof(double))) {
-	goto glm_linear_assoc_ret_NOMEM;
-      }
     }
     if (constraint_ct_max) {
       if (wkspace_alloc_d_checked(&(g_linear_mt[tidx].df_df_buf), constraint_ct_max * constraint_ct_max * sizeof(double)) ||
@@ -5024,7 +4761,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	if (marker_idx_to_uidx) {
 	  marker_idx_to_uidx[marker_idx3] = marker_uidx2;
 	}
-        cur_missing_ct = glm_fill_design(loadbuf_ptr, g_fixed_covars_cov_major, indiv_valid_ct, g_indiv_to_cluster1, cur_param_ct, glm_modifier & (GLM_HETHOM | GLM_DOMINANT | GLM_RECESSIVE), glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, g_include_sex, g_male_x_01, sex_male_collapsed, g_is_haploid && (!g_is_x), g_linear_mt[0].cur_covars_cov_major, g_linear_mt[0].cur_covars_indiv_major, g_linear_mt[0].cur_indiv_to_cluster1_buf, &cur_indiv_to_cluster1, standard_beta);
+        cur_missing_ct = glm_fill_design(loadbuf_ptr, g_fixed_covars_cov_major, indiv_valid_ct, cur_param_ct, glm_modifier & (GLM_HETHOM | GLM_DOMINANT | GLM_RECESSIVE), glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, g_include_sex, g_male_x_01, sex_male_collapsed, g_is_haploid && (!g_is_x), g_linear_mt[0].cur_covars_cov_major, g_linear_mt[0].cur_covars_indiv_major, standard_beta);
 	cur_indiv_valid_ct = indiv_valid_ct - cur_missing_ct;
 	g_nm_cts[marker_idx3] = cur_indiv_valid_ct;
 	if ((cur_indiv_valid_ct > cur_param_ct) && (!glm_check_vif(glm_vif_thresh, cur_param_ct, cur_indiv_valid_ct, g_linear_mt[0].cur_covars_cov_major, g_linear_mt[0].param_2d_buf, g_linear_mt[0].mi_buf, g_linear_mt[0].param_2d_buf2))) {
@@ -5058,7 +4795,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	  dgels_ldb = dgels_m;
 
 	  dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, g_linear_mt[0].dgels_a, &dgels_m, g_linear_mt[0].dgels_b, &dgels_ldb, g_linear_mt[0].dgels_work, &g_dgels_lwork, &dgels_info);
-	  if (glm_linear_robust_cluster_covar(1, cur_param_ct, cur_indiv_valid_ct, cur_missing_ct, loadbuf_ptr, standard_beta, g_pheno_sum, g_pheno_ssq, g_linear_mt[0].cur_covars_cov_major, g_linear_mt[0].cur_covars_indiv_major, g_pheno_d2, g_linear_mt[0].dgels_b, g_linear_mt[0].param_2d_buf, g_linear_mt[0].mi_buf, g_linear_mt[0].param_2d_buf2, cluster_ct1, cur_indiv_to_cluster1, g_linear_mt[0].cluster_param_buf, g_linear_mt[0].cluster_param_buf2, g_linear_mt[0].indiv_1d_buf, g_linear_mt[0].regression_results, cur_constraint_ct, constraints_con_major, g_linear_mt[0].param_df_buf, g_linear_mt[0].param_df_buf2, g_linear_mt[0].df_df_buf, g_linear_mt[0].df_buf, &perm_fail_ct, g_linear_mt[0].perm_fails) || perm_fail_ct) {
+	  if (glm_linear(1, cur_param_ct, cur_indiv_valid_ct, cur_missing_ct, loadbuf_ptr, standard_beta, g_pheno_sum, g_pheno_ssq, g_linear_mt[0].cur_covars_cov_major, g_linear_mt[0].cur_covars_indiv_major, g_pheno_d2, g_linear_mt[0].dgels_b, g_linear_mt[0].param_2d_buf, g_linear_mt[0].mi_buf, g_linear_mt[0].param_2d_buf2, g_linear_mt[0].regression_results, cur_constraint_ct, constraints_con_major, g_linear_mt[0].param_df_buf, g_linear_mt[0].param_df_buf2, g_linear_mt[0].df_df_buf, g_linear_mt[0].df_buf, &perm_fail_ct, g_linear_mt[0].perm_fails) || perm_fail_ct) {
 	    regression_fail = 1;
 	  }
 	} else {
@@ -5478,7 +5215,6 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   uintptr_t cur_param_ct = 0;
   uintptr_t cur_param_ctx = 0;
   uint32_t perms_total = 0;
-  uint32_t cluster_ct1 = 0;
   uint32_t perm_adapt = glm_modifier & GLM_PERM;
   uint32_t perm_maxt = glm_modifier & GLM_MPERM;
   uint32_t covar_interactions = (glm_modifier / GLM_INTERACTION) & 1;
@@ -5498,11 +5234,8 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   double* constraints_con_major = NULL;
   uintptr_t* pheno_c_collapsed = NULL;
   uint32_t* condition_uidxs = NULL;
-  uint32_t* cluster_map1 = NULL;
-  uint32_t* cluster_starts1 = NULL;
   uint32_t* tcnt = NULL;
   uint32_t* marker_idx_to_uidx = NULL;
-  uint32_t* cur_indiv_to_cluster1 = NULL;
   char* cur_param_names = NULL;
   char* haploid_param_names = NULL;
   char* wptr_start = NULL;
@@ -5864,42 +5597,23 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       g_perm_batch_max = perm_batch_size;
     }
   }
-  if (cluster_starts) {
-    // If there are any size-1 clusters, we actually want two cluster indexes:
-    // - one for permutation, which excludes the size-1 clusters, and
-    // - one for use by the robust cluster variance estimator, which does not.
-    //
-    // cluster_ct1, etc. includes size-1 clusters, while the same variables
-    // without the "1" at the end exclude them.
-    retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 0, NULL, indiv_valid_ct, 0, cluster_ct, cluster_map, cluster_starts, &cluster_ct1, &cluster_map1, &cluster_starts1, NULL, NULL);
-    if (retval) {
-      goto glm_logistic_assoc_ret_1;
-    }
-    g_cluster_ct1 = cluster_ct1;
-    if (cluster_ct1) {
-      if (wkspace_alloc_ui_checked(&g_indiv_to_cluster1, indiv_valid_ct * sizeof(int32_t))) {
+  if (do_perms) {
+    if (cluster_starts) {
+      retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 1, pheno_c, indiv_valid_ct, 0, cluster_ct, cluster_map, cluster_starts, &g_cluster_ct, &g_cluster_map, &g_cluster_starts, &g_cluster_case_cts, &g_cluster_cc_perm_preimage);
+      if (retval) {
+	goto glm_logistic_assoc_ret_1;
+      }
+      if (!g_cluster_ct) {
+	goto glm_logistic_assoc_ret_NO_PERMUTATION_CLUSTERS;
+      }
+      if (cluster_alloc_and_populate_magic_nums(g_cluster_ct, g_cluster_map, g_cluster_starts, &g_tot_quotients, &g_totq_magics, &g_totq_preshifts, &g_totq_postshifts, &g_totq_incrs)) {
 	goto glm_logistic_assoc_ret_NOMEM;
       }
-      fill_unfiltered_indiv_to_cluster(indiv_valid_ct, cluster_ct1, cluster_map1, cluster_starts1, g_indiv_to_cluster1);
-      if (do_perms) {
-	retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 1, pheno_c, indiv_valid_ct, 0, cluster_ct, cluster_map, cluster_starts, &g_cluster_ct, &g_cluster_map, &g_cluster_starts, &g_cluster_case_cts, &g_cluster_cc_perm_preimage);
-	if (retval) {
-	  goto glm_logistic_assoc_ret_1;
-	}
-	if (!g_cluster_ct) {
-	  goto glm_logistic_assoc_ret_NO_PERMUTATION_CLUSTERS;
-	}
-	if (cluster_alloc_and_populate_magic_nums(g_cluster_ct, g_cluster_map, g_cluster_starts, &g_tot_quotients, &g_totq_magics, &g_totq_preshifts, &g_totq_postshifts, &g_totq_incrs)) {
-	  goto glm_logistic_assoc_ret_NOMEM;
-	}
-	if (wkspace_alloc_ui_checked(&g_indiv_to_cluster, indiv_valid_ct * sizeof(int32_t))) {
-	  goto glm_logistic_assoc_ret_NOMEM;
-	}
-	fill_unfiltered_indiv_to_cluster(indiv_valid_ct, g_cluster_ct, g_cluster_map, g_cluster_starts, g_indiv_to_cluster);
+      if (wkspace_alloc_ui_checked(&g_indiv_to_cluster, indiv_valid_ct * sizeof(int32_t))) {
+	goto glm_logistic_assoc_ret_NOMEM;
       }
+      fill_unfiltered_indiv_to_cluster(indiv_valid_ct, g_cluster_ct, g_cluster_map, g_cluster_starts, g_indiv_to_cluster);
     }
-  }
-  if (do_perms) {
     g_tot_quotient = 0x100000000LLU / indiv_valid_ct;
     magic_num(g_tot_quotient, &g_totq_magic, &g_totq_preshift, &g_totq_postshift, &g_totq_incr);
     if (wkspace_init_sfmtp(max_thread_ct)) {
@@ -5926,21 +5640,6 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
         wkspace_alloc_f_checked(&(g_logistic_mt[tidx].regression_results), perm_batch_size * param_ctx_max_m1 * sizeof(float)) ||
         wkspace_alloc_ul_checked(&(g_logistic_mt[tidx].perm_fails), ulii * sizeof(intptr_t))) {
       goto glm_logistic_assoc_ret_NOMEM;
-    }
-    if (cluster_ct1) {
-      ulii = MAXV(cluster_ct1 + 1, param_ct_max);
-      if (wkspace_alloc_f_checked(&(g_logistic_mt[tidx].cur_covars_indiv_major), param_ct_max * indiv_valid_ct * sizeof(float)) ||
-          wkspace_alloc_ui_checked(&(g_logistic_mt[tidx].cur_indiv_to_cluster1_buf), indiv_valid_ct * sizeof(int32_t)) ||
-          wkspace_alloc_f_checked(&(g_logistic_mt[tidx].cluster_param_buf), ulii * param_ct_max * sizeof(float)) ||
-          wkspace_alloc_f_checked(&(g_logistic_mt[tidx].cluster_param_buf2), (cluster_ct1 + 1) * param_ct_max * sizeof(float))) {
-	goto glm_logistic_assoc_ret_NOMEM;
-      }
-    } else {
-      // defensive
-      g_logistic_mt[tidx].cur_covars_indiv_major = NULL;
-      g_logistic_mt[tidx].cur_indiv_to_cluster1_buf = NULL;
-      g_logistic_mt[tidx].cluster_param_buf = NULL;
-      g_logistic_mt[tidx].cluster_param_buf2 = NULL;
     }
     if (constraint_ct_max) {
       g_logistic_mt[tidx].mi_buf = (MATRIX_INVERT_BUF1_TYPE*)wkspace_alloc(param_ct_max * sizeof(MATRIX_INVERT_BUF1_TYPE));
@@ -6184,13 +5883,13 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	if (marker_idx_to_uidx) {
 	  marker_idx_to_uidx[marker_idx3] = marker_uidx2;
 	}
-	cur_missing_ct = glm_fill_design_float(loadbuf_ptr, g_fixed_covars_cov_major_f, indiv_valid_ct, g_indiv_to_cluster1, cur_param_ct, glm_modifier & (GLM_HETHOM | GLM_DOMINANT | GLM_RECESSIVE), glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, g_include_sex, g_male_x_01, sex_male_collapsed, g_is_haploid && (!g_is_x), g_logistic_mt[0].cur_covars_cov_major, g_logistic_mt[0].cur_covars_indiv_major, g_logistic_mt[0].cur_indiv_to_cluster1_buf, &cur_indiv_to_cluster1);
+	cur_missing_ct = glm_fill_design_float(loadbuf_ptr, g_fixed_covars_cov_major_f, indiv_valid_ct, cur_param_ct, glm_modifier & (GLM_HETHOM | GLM_DOMINANT | GLM_RECESSIVE), glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, g_include_sex, g_male_x_01, sex_male_collapsed, g_is_haploid && (!g_is_x), g_logistic_mt[0].cur_covars_cov_major);
 	cur_indiv_valid_ct = indiv_valid_ct - cur_missing_ct;
 	g_nm_cts[marker_idx3] = cur_indiv_valid_ct;
 	if (cur_indiv_valid_ct > cur_param_ct) {
 	  // todo: try better starting position
 	  fill_float_zero(g_logistic_mt[0].coef, (cur_param_ct + 3) & (~3));
-	  regression_fail = glm_logistic_robust_cluster_covar(1, cur_param_ct, cur_indiv_valid_ct, cur_missing_ct, loadbuf_ptr, g_logistic_mt[0].cur_covars_cov_major, g_logistic_mt[0].cur_covars_indiv_major, pheno_c_collapsed, g_logistic_mt[0].coef, g_logistic_mt[0].pp, g_logistic_mt[0].indiv_1d_buf, g_logistic_mt[0].pheno_buf, g_logistic_mt[0].param_1d_buf, g_logistic_mt[0].param_1d_buf2, g_logistic_mt[0].param_2d_buf, g_logistic_mt[0].param_2d_buf2, g_logistic_mt[0].regression_results, cluster_ct1, cur_indiv_to_cluster1, g_logistic_mt[0].cluster_param_buf, g_logistic_mt[0].cluster_param_buf2, cur_constraint_ct, constraints_con_major, g_logistic_mt[0].param_1d_dbuf, g_logistic_mt[0].param_2d_dbuf, g_logistic_mt[0].param_2d_dbuf2, g_logistic_mt[0].param_df_dbuf, g_logistic_mt[0].df_df_dbuf, g_logistic_mt[0].mi_buf, g_logistic_mt[0].df_dbuf, g_logistic_mt[0].perm_fails);
+	  regression_fail = glm_logistic(1, cur_param_ct, cur_indiv_valid_ct, cur_missing_ct, loadbuf_ptr, g_logistic_mt[0].cur_covars_cov_major, pheno_c_collapsed, g_logistic_mt[0].coef, g_logistic_mt[0].pp, g_logistic_mt[0].indiv_1d_buf, g_logistic_mt[0].pheno_buf, g_logistic_mt[0].param_1d_buf, g_logistic_mt[0].param_1d_buf2, g_logistic_mt[0].param_2d_buf, g_logistic_mt[0].param_2d_buf2, g_logistic_mt[0].regression_results, cur_constraint_ct, constraints_con_major, g_logistic_mt[0].param_1d_dbuf, g_logistic_mt[0].param_2d_dbuf, g_logistic_mt[0].param_2d_dbuf2, g_logistic_mt[0].param_df_dbuf, g_logistic_mt[0].df_df_dbuf, g_logistic_mt[0].mi_buf, g_logistic_mt[0].df_dbuf, g_logistic_mt[0].perm_fails);
 	} else {
 	  regression_fail = 1;
 	}
@@ -6595,7 +6294,6 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   uintptr_t constraint_ct = 0;
   uintptr_t ulii = 0;
   uint32_t cur_batch_size = 1;
-  uint32_t cluster_ct1 = 0;
   uint32_t do_perms = (glm_modifier / GLM_MPERM) & 1;
   uint32_t perm_count = glm_modifier & GLM_PERM_COUNT;
   uint32_t hide_covar = glm_modifier & GLM_HIDE_COVAR;
@@ -6622,9 +6320,6 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   __CLPK_integer dgels_info;
   double dzz;
   double* regression_results = NULL;
-  double* cluster_param_buf = NULL;
-  double* cluster_param_buf2 = NULL;
-  double* indiv_1d_buf = NULL;
   double* mperm_save_stats = NULL;
   double* constraints_con_major = NULL;
   double* df_df_buf = NULL;
@@ -6640,9 +6335,6 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   uintptr_t* perm_fails = NULL;
   uint32_t* perm_2success_ct = NULL;
   uint32_t* condition_uidxs = NULL;
-  uint32_t* cluster_map1 = NULL;
-  uint32_t* cluster_starts1 = NULL;
-  uint32_t* indiv_to_cluster1 = NULL;
   double geno_map[12];
   double* geno_map_ptr;
   double* param_2d_buf;
@@ -7063,8 +6755,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   }
   ulii = (perm_batch_size + (BITCT - 1)) / BITCT;
   if (wkspace_alloc_ul_checked(&perm_fails, ulii * sizeof(intptr_t)) ||
-      wkspace_alloc_d_checked(&regression_results, perm_batch_size * (param_ctx - 1) * sizeof(double)) ||
-      wkspace_alloc_d_checked(&indiv_1d_buf, indiv_valid_ct * sizeof(double))) {
+      wkspace_alloc_d_checked(&regression_results, perm_batch_size * (param_ctx - 1) * sizeof(double))) {
     goto glm_linear_nosnp_ret_NOMEM;
   }
 
@@ -7119,36 +6810,21 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   if (max_thread_ct > uii) {
     max_thread_ct = uii;
   }
-  if (cluster_starts) {
-    retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 0, NULL, indiv_valid_ct, 0, cluster_ct, cluster_map, cluster_starts, &cluster_ct1, &cluster_map1, &cluster_starts1, NULL, NULL);
+  if (cluster_starts && do_perms) {
+    retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 1, NULL, indiv_valid_ct, 0, cluster_ct, cluster_map, cluster_starts, &g_cluster_ct, &g_cluster_map, &g_cluster_starts, NULL, NULL);
     if (retval) {
       goto glm_linear_nosnp_ret_1;
     }
-    if (cluster_ct1) {
-      ulii = MAXV(cluster_ct1 + 1, param_ct);
-      if (wkspace_alloc_d_checked(&cluster_param_buf, ulii * param_ct * sizeof(double)) ||
-          wkspace_alloc_d_checked(&cluster_param_buf2, (cluster_ct1 + 1) * param_ct * sizeof(double)) ||
-          wkspace_alloc_ui_checked(&indiv_to_cluster1, indiv_valid_ct * sizeof(int32_t))) {
-	goto glm_linear_nosnp_ret_NOMEM;
-      }
-      fill_unfiltered_indiv_to_cluster(indiv_valid_ct, cluster_ct1, cluster_map1, cluster_starts1, indiv_to_cluster1);
-      if (do_perms) {
-	retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 1, NULL, indiv_valid_ct, 0, cluster_ct, cluster_map, cluster_starts, &g_cluster_ct, &g_cluster_map, &g_cluster_starts, NULL, NULL);
-	if (retval) {
-	  goto glm_linear_nosnp_ret_1;
-	}
-	if (!g_cluster_ct) {
-	  goto glm_linear_nosnp_ret_NO_PERMUTATION_CLUSTERS;
-	}
-	if (wkspace_alloc_ui_checked(&g_qassoc_cluster_thread_wkspace, max_thread_ct * ((g_cluster_ct + (CACHELINE_INT32 - 1)) / CACHELINE_INT32) * CACHELINE)) {
-	  goto glm_linear_nosnp_ret_NOMEM;
-	}
-	if (wkspace_alloc_ui_checked(&g_indiv_to_cluster, indiv_valid_ct * sizeof(int32_t))) {
-	  goto glm_linear_nosnp_ret_NOMEM;
-	}
-	fill_unfiltered_indiv_to_cluster(indiv_valid_ct, g_cluster_ct, g_cluster_map, g_cluster_starts, g_indiv_to_cluster);
-      }
+    if (!g_cluster_ct) {
+      goto glm_linear_nosnp_ret_NO_PERMUTATION_CLUSTERS;
     }
+    if (wkspace_alloc_ui_checked(&g_qassoc_cluster_thread_wkspace, max_thread_ct * ((g_cluster_ct + (CACHELINE_INT32 - 1)) / CACHELINE_INT32) * CACHELINE)) {
+      goto glm_linear_nosnp_ret_NOMEM;
+    }
+    if (wkspace_alloc_ui_checked(&g_indiv_to_cluster, indiv_valid_ct * sizeof(int32_t))) {
+      goto glm_linear_nosnp_ret_NOMEM;
+    }
+    fill_unfiltered_indiv_to_cluster(indiv_valid_ct, g_cluster_ct, g_cluster_map, g_cluster_starts, g_indiv_to_cluster);
   }
   if (do_perms) {
     // Note that, for now, the main nosnp regression loop is not multithreaded;
@@ -7159,7 +6835,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   }
 
   transpose_copy(param_ct, indiv_valid_ct, covars_cov_major, covars_indiv_major);
-  if (glm_linear_robust_cluster_covar(1, param_ct, indiv_valid_ct, 0, NULL, 0, 0, 0, covars_cov_major, covars_indiv_major, g_pheno_d2, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, cluster_ct1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, indiv_1d_buf, regression_results, constraint_ct, constraints_con_major, param_df_buf, param_df_buf2, df_df_buf, df_buf, &perm_fail_ct, perm_fails) || perm_fail_ct) {
+  if (glm_linear(1, param_ct, indiv_valid_ct, 0, NULL, 0, 0, 0, covars_cov_major, covars_indiv_major, g_pheno_d2, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, regression_results, constraint_ct, constraints_con_major, param_df_buf, param_df_buf2, df_df_buf, df_buf, &perm_fail_ct, perm_fails) || perm_fail_ct) {
     logprint("Warning: Skipping --linear no-snp due to multicollinearity.\n");
     goto glm_linear_nosnp_ret_1;
   }
@@ -7299,7 +6975,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     memcpy(dgels_a, covars_cov_major, param_ct * indiv_valid_ct * sizeof(double));
     memcpy(dgels_b, g_perm_pmajor, cur_batch_size * indiv_valid_ct * sizeof(double));
     dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
-    if (glm_linear_robust_cluster_covar(cur_batch_size, param_ct, indiv_valid_ct, 0, NULL, 0, 0, 0, covars_cov_major, covars_indiv_major, g_perm_pmajor, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, cluster_ct1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, indiv_1d_buf, regression_results, constraint_ct, constraints_con_major, param_df_buf, param_df_buf2, df_df_buf, df_buf, &perm_fail_ct, perm_fails)) {
+    if (glm_linear(cur_batch_size, param_ct, indiv_valid_ct, 0, NULL, 0, 0, 0, covars_cov_major, covars_indiv_major, g_perm_pmajor, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, regression_results, constraint_ct, constraints_con_major, param_df_buf, param_df_buf2, df_df_buf, df_buf, &perm_fail_ct, perm_fails)) {
       perm_fail_ct = cur_batch_size;
       fill_bits(perm_fails, 0, cur_batch_size);
     }
@@ -7505,7 +7181,6 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   uintptr_t constraint_ct = 0;
   uintptr_t ulii = 0;
   uint32_t cur_batch_size = 1;
-  uint32_t cluster_ct1 = 0;
   uint32_t do_perms = (glm_modifier / GLM_MPERM) & 1;
   uint32_t perm_count = glm_modifier & GLM_PERM_COUNT;
   uint32_t hide_covar = glm_modifier & GLM_HIDE_COVAR;
@@ -7525,9 +7200,6 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   uintptr_t* indiv_male_include2 = NULL;
   uintptr_t* active_params = NULL;
   uintptr_t* joint_test_params = NULL;
-  float* covars_indiv_major = NULL;
-  float* cluster_param_buf = NULL;
-  float* cluster_param_buf2 = NULL;
   double* mperm_save_stats = NULL;
   double* constraints_con_major = NULL;
   double* param_1d_dbuf = NULL;
@@ -7540,9 +7212,6 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   uintptr_t* perm_fails = NULL;
   uint32_t* perm_2success_ct = NULL;
   uint32_t* condition_uidxs = NULL;
-  uint32_t* cluster_map1 = NULL;
-  uint32_t* cluster_starts1 = NULL;
-  uint32_t* indiv_to_cluster1 = NULL;
   float geno_map[12];
   float* geno_map_ptr;
   char* param_names;
@@ -7927,37 +7596,21 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   if (max_thread_ct > uii) {
     max_thread_ct = uii;
   }
-  if (cluster_starts) {
-    retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 0, NULL, indiv_valid_ct, 0, cluster_ct, cluster_map, cluster_starts, &cluster_ct1, &cluster_map1, &cluster_starts1, NULL, NULL);
+  if (cluster_starts && do_perms) {
+    retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 1, pheno_c, indiv_valid_ct, 0, cluster_ct, cluster_map, cluster_starts, &g_cluster_ct, &g_cluster_map, &g_cluster_starts, &g_cluster_case_cts, &g_cluster_cc_perm_preimage);
     if (retval) {
       goto glm_logistic_nosnp_ret_1;
     }
-    if (cluster_ct1) {
-      ulii = MAXV(cluster_ct1 + 1, param_ct);
-      if (wkspace_alloc_f_checked(&covars_indiv_major, param_ct * indiv_valid_ct * sizeof(float)) ||
-          wkspace_alloc_ui_checked(&indiv_to_cluster1, indiv_valid_ct * sizeof(int32_t)) ||
-          wkspace_alloc_f_checked(&cluster_param_buf, ulii * param_ct * sizeof(float)) ||
-          wkspace_alloc_f_checked(&cluster_param_buf2, (cluster_ct1 + 1) * param_ct * sizeof(float))) {
-	goto glm_logistic_nosnp_ret_NOMEM;
-      }
-      fill_unfiltered_indiv_to_cluster(indiv_valid_ct, cluster_ct1, cluster_map1, cluster_starts1, indiv_to_cluster1);
-      if (do_perms) {
-	retval = cluster_include_and_reindex(unfiltered_indiv_ct, load_mask, 1, pheno_c, indiv_valid_ct, 0, cluster_ct, cluster_map, cluster_starts, &g_cluster_ct, &g_cluster_map, &g_cluster_starts, &g_cluster_case_cts, &g_cluster_cc_perm_preimage);
-	if (retval) {
-	  goto glm_logistic_nosnp_ret_1;
-	}
-	if (!g_cluster_ct) {
-	  goto glm_logistic_nosnp_ret_NO_PERMUTATION_CLUSTERS;
-	}
-	if (cluster_alloc_and_populate_magic_nums(g_cluster_ct, g_cluster_map, g_cluster_starts, &g_tot_quotients, &g_totq_magics, &g_totq_preshifts, &g_totq_postshifts, &g_totq_incrs)) {
-	  goto glm_logistic_nosnp_ret_NOMEM;
-	}
-	if (wkspace_alloc_ui_checked(&g_indiv_to_cluster, indiv_valid_ct * sizeof(int32_t))) {
-	  goto glm_logistic_nosnp_ret_NOMEM;
-	}
-	fill_unfiltered_indiv_to_cluster(indiv_valid_ct, g_cluster_ct, g_cluster_map, g_cluster_starts, g_indiv_to_cluster);
-      }
+    if (!g_cluster_ct) {
+      goto glm_logistic_nosnp_ret_NO_PERMUTATION_CLUSTERS;
     }
+    if (cluster_alloc_and_populate_magic_nums(g_cluster_ct, g_cluster_map, g_cluster_starts, &g_tot_quotients, &g_totq_magics, &g_totq_preshifts, &g_totq_postshifts, &g_totq_incrs)) {
+      goto glm_logistic_nosnp_ret_NOMEM;
+    }
+    if (wkspace_alloc_ui_checked(&g_indiv_to_cluster, indiv_valid_ct * sizeof(int32_t))) {
+      goto glm_logistic_nosnp_ret_NOMEM;
+    }
+    fill_unfiltered_indiv_to_cluster(indiv_valid_ct, g_cluster_ct, g_cluster_map, g_cluster_starts, g_indiv_to_cluster);
   }
   if (constraint_ct) {
     mi_buf = (MATRIX_INVERT_BUF1_TYPE*)wkspace_alloc(param_ct * sizeof(MATRIX_INVERT_BUF1_TYPE));
@@ -7983,11 +7636,8 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     }
   }
 
-  if (covars_indiv_major) {
-    transpose_copy_float(param_ct, indiv_valid_cta4, indiv_valid_ct, covars_cov_major, covars_indiv_major);
-  }
   fill_float_zero(coef, param_cta4);
-  if (glm_logistic_robust_cluster_covar(1, param_ct, indiv_valid_ct, 0, NULL, covars_cov_major, covars_indiv_major, g_perm_vecs, coef, pp, indiv_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, cluster_ct1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, constraint_ct, constraints_con_major, param_1d_dbuf, param_2d_dbuf, param_2d_dbuf2, param_df_dbuf, df_df_dbuf, mi_buf, df_dbuf, perm_fails)) {
+  if (glm_logistic(1, param_ct, indiv_valid_ct, 0, NULL, covars_cov_major, g_perm_vecs, coef, pp, indiv_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, constraint_ct, constraints_con_major, param_1d_dbuf, param_2d_dbuf, param_2d_dbuf2, param_df_dbuf, df_df_dbuf, mi_buf, df_dbuf, perm_fails)) {
     logprint("Warning: Skipping --logistic no-snp due to multicollinearity.\n");
     goto glm_logistic_nosnp_ret_1;
   }
@@ -8105,7 +7755,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     }
     join_threads(threads, g_assoc_thread_ct);
     fill_float_zero(coef, cur_batch_size * param_cta4);
-    perm_fail_total += glm_logistic_robust_cluster_covar(cur_batch_size, param_ct, indiv_valid_ct, 0, NULL, covars_cov_major, covars_indiv_major, g_perm_vecs, coef, pp, indiv_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, cluster_ct1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, constraint_ct, constraints_con_major, param_1d_dbuf, param_2d_dbuf, param_2d_dbuf2, param_df_dbuf, df_df_dbuf, mi_buf, df_dbuf, perm_fails);
+    perm_fail_total += glm_logistic(cur_batch_size, param_ct, indiv_valid_ct, 0, NULL, covars_cov_major, g_perm_vecs, coef, pp, indiv_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, constraint_ct, constraints_con_major, param_1d_dbuf, param_2d_dbuf, param_2d_dbuf2, param_df_dbuf, df_df_dbuf, mi_buf, df_dbuf, perm_fails);
     ulii = param_ct - 1;
     uljj = param_ctx - 1;
     for (perm_idx = 0; perm_idx < cur_batch_size; perm_idx++) {
@@ -8292,7 +7942,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 }
 
 #ifndef NOLAPACK
-uint32_t glm_linear_dosage(uintptr_t indiv_ct, uintptr_t* cur_indivs, uintptr_t indiv_valid_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* perm_fails, uintptr_t covar_ct, double* covar_d, double* cur_dosages, double* pheno_d2, double* covars_cov_major, double* covars_indiv_major, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, uint32_t cluster_ct1, uint32_t* indiv_to_cluster1, double* cluster_param_buf, double* cluster_param_buf2, double* regression_results, double* indiv_1d_buf, double* dgels_a, double* dgels_b, double* dgels_work, __CLPK_integer dgels_lwork, uint32_t standard_beta, double vif_thresh, double* beta_ptr, double* se_ptr, double* pval_ptr) {
+uint32_t glm_linear_dosage(uintptr_t indiv_ct, uintptr_t* cur_indivs, uintptr_t indiv_valid_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* perm_fails, uintptr_t covar_ct, double* covar_d, double* cur_dosages, double* pheno_d2, double* covars_cov_major, double* covars_indiv_major, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, double* regression_results, double* dgels_a, double* dgels_b, double* dgels_work, __CLPK_integer dgels_lwork, uint32_t standard_beta, double vif_thresh, double* beta_ptr, double* se_ptr, double* pval_ptr) {
   uintptr_t param_ct = covar_ct + 2;
   if (indiv_valid_ct <= param_ct) {
     return 0;
@@ -8390,7 +8040,7 @@ uint32_t glm_linear_dosage(uintptr_t indiv_ct, uintptr_t* cur_indivs, uintptr_t 
   memcpy(dgels_a, covars_cov_major, param_ct * indiv_valid_ct * sizeof(double));
   memcpy(dgels_b, pheno_d2, indiv_valid_ct * sizeof(double));
   dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
-  glm_linear_robust_cluster_covar(1, param_ct, indiv_valid_ct, 0, NULL, 0, 0, 0, covars_cov_major, covars_indiv_major, pheno_d2, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, cluster_ct1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, indiv_1d_buf, regression_results, 0, NULL, NULL, NULL, NULL, NULL, &perm_fail_ct, perm_fails);
+  glm_linear(1, param_ct, indiv_valid_ct, 0, NULL, 0, 0, 0, covars_cov_major, covars_indiv_major, pheno_d2, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, regression_results, 0, NULL, NULL, NULL, NULL, NULL, &perm_fail_ct, perm_fails);
   if (perm_fail_ct) {
     return 0;
   }
@@ -8403,7 +8053,7 @@ uint32_t glm_linear_dosage(uintptr_t indiv_ct, uintptr_t* cur_indivs, uintptr_t 
 }
 #endif
 
-uint32_t glm_logistic_dosage(uintptr_t indiv_ct, uintptr_t* cur_indivs, uintptr_t indiv_valid_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* perm_vec, uintptr_t* perm_fails, uintptr_t covar_ct, float* covar_f, double* cur_dosages, float* coef, float* pp, float* pheno_buf, float* covars_cov_major, float* covars_indiv_major, float* param_1d_buf, float* param_1d_buf2, float* param_2d_buf, float* param_2d_buf2, uint32_t cluster_ct1, uint32_t* indiv_to_cluster1, float* cluster_param_buf, float* cluster_param_buf2, float* regression_results, float* indiv_1d_buf, double* beta_ptr, double* se_ptr, double* pval_ptr) {
+uint32_t glm_logistic_dosage(uintptr_t indiv_ct, uintptr_t* cur_indivs, uintptr_t indiv_valid_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* perm_vec, uintptr_t* perm_fails, uintptr_t covar_ct, float* covar_f, double* cur_dosages, float* coef, float* pp, float* pheno_buf, float* covars_cov_major, float* param_1d_buf, float* param_1d_buf2, float* param_2d_buf, float* param_2d_buf2, float* regression_results, float* indiv_1d_buf, double* beta_ptr, double* se_ptr, double* pval_ptr) {
   uintptr_t param_ct = covar_ct + 2;
   if (indiv_valid_ct <= param_ct) {
     return 0;
@@ -8446,11 +8096,8 @@ uint32_t glm_logistic_dosage(uintptr_t indiv_ct, uintptr_t* cur_indivs, uintptr_
     }
     covar_f++;
   }
-  if (covars_indiv_major) {
-    transpose_copy_float(param_ct, indiv_valid_cta4, indiv_valid_ct, covars_cov_major, covars_indiv_major);
-  }
   fill_float_zero(coef, param_cta4);
-  if (glm_logistic_robust_cluster_covar(1, param_ct, indiv_valid_ct, 0, NULL, covars_cov_major, covars_indiv_major, perm_vec, coef, pp, indiv_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, cluster_ct1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, perm_fails) || perm_fails[0]) {
+  if (glm_logistic(1, param_ct, indiv_valid_ct, 0, NULL, covars_cov_major, perm_vec, coef, pp, indiv_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, perm_fails) || perm_fails[0]) {
     return 0;
   }
   dxx = (double)coef[1];
