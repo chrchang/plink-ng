@@ -2943,6 +2943,7 @@ int32_t main(int32_t argc, char** argv) {
   char* gene_report_subset = NULL;
   char* gene_report_snp_field = NULL;
   char* metaanal_fnames = NULL;
+  char* metaanal_snpfield_search_order = NULL;
   uint32_t gene_report_border = 0;
   uint32_t metaanal_flags = 0;
   double vcf_min_qual = -1;
@@ -8842,6 +8843,18 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
+      } else if (!memcmp(argptr2, "eta-analysis-snp-field", 23)) {
+        if (!metaanal_fnames) {
+	  logprint("Error: --meta-analysis-snp-field must be used with --meta-analysis.\n");
+          goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x7fffffff)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+        retval = alloc_and_flatten(&metaanal_snpfield_search_order, &(argv[cur_arg + 1]), param_ct);
+	if (retval) {
+	  goto main_ret_NOMEM;
+	}
       } else if (!memcmp(argptr2, "lma", 4)) {
         logprint("Error: --mlma is not implemented yet.\n");
         goto main_ret_INVALID_CMDLINE;
@@ -12463,7 +12476,7 @@ int32_t main(int32_t argc, char** argv) {
     }
   }
   if (metaanal_fnames) {
-    retval = meta_analysis(metaanal_fnames, metaanal_flags, (misc_flags & MISC_EXTRACT_RANGE)? NULL : extractname, outname, outname_end, &chrom_info);
+    retval = meta_analysis(metaanal_fnames, metaanal_snpfield_search_order, metaanal_flags, (misc_flags & MISC_EXTRACT_RANGE)? NULL : extractname, outname, outname_end, &chrom_info);
     if (retval) {
       goto main_ret_1;
     }
@@ -12687,6 +12700,7 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(gene_report_subset);
   free_cond(gene_report_snp_field);
   free_cond(metaanal_fnames);
+  free_cond(metaanal_snpfield_search_order);
 
   oblig_missing_cleanup(&oblig_missing_info);
   cluster_cleanup(&cluster);

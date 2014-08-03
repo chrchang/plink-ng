@@ -4092,11 +4092,11 @@ int32_t strcmp_casted(const void* s1, const void* s2) {
 // hexadecimal or base 36.  In principle, it's possible to reliably autodetect
 // some of these cases (especially hexadecimal numbers beginning with "0x"),
 // but that'll never be perfect so we just let the user toggle the sort method.
-int32_t strcmp_natural_scan_forward(const char* s1, const char* s2) {
+int32_t strcmp_natural_scan_forward(const unsigned char* s1, const unsigned char* s2) {
   // assumes s1 and s2 currently point to the middle of a mismatching number,
   // where s1 < s2.
-  char c1;
-  char c2;
+  unsigned char c1;
+  unsigned char c2;
   do {
     c1 = *(++s1);
     c2 = *(++s2);
@@ -4115,10 +4115,10 @@ int32_t strcmp_natural_scan_forward(const char* s1, const char* s2) {
 //   3: strings match except for capitalization, last char is numeric.
 // strcmp_natural_tiebroken() expresses the logic for states 2 and 3, while
 // strcmp_natural_uncasted() handles states 0 and 1.
-int32_t strcmp_natural_tiebroken(const char* s1, const char* s2) {
+int32_t strcmp_natural_tiebroken(const unsigned char* s1, const unsigned char* s2) {
   // assumes ties should be broken in favor of s2.
-  char c1 = *(++s1);
-  char c2 = *(++s2);
+  unsigned char c1 = *(++s1);
+  unsigned char c2 = *(++s2);
   while (is_not_nzdigit(c1) && is_not_nzdigit(c2)) {
     // state 2
   strcmp_natural_tiebroken_state_2:
@@ -4165,9 +4165,9 @@ int32_t strcmp_natural_tiebroken(const char* s1, const char* s2) {
   goto strcmp_natural_tiebroken_state_2;
 }
 
-static inline int32_t strcmp_natural_uncasted(const char* s1, const char* s2) {
-  char c1 = *s1;
-  char c2 = *s2;
+static inline int32_t strcmp_natural_uncasted(const unsigned char* s1, const unsigned char* s2) {
+  unsigned char c1 = *s1;
+  unsigned char c2 = *s2;
   while (is_not_nzdigit(c1) && is_not_nzdigit(c2)) {
     // state 0
   strcmp_natural_uncasted_state_0:
@@ -4216,7 +4216,7 @@ static inline int32_t strcmp_natural_uncasted(const char* s1, const char* s2) {
 }
 
 int32_t strcmp_natural(const void* s1, const void* s2) {
-  return strcmp_natural_uncasted((char*)s1, (char*)s2);
+  return strcmp_natural_uncasted((unsigned char*)s1, (unsigned char*)s2);
 }
 
 int32_t strcmp_deref(const void* s1, const void* s2) {
@@ -4224,7 +4224,7 @@ int32_t strcmp_deref(const void* s1, const void* s2) {
 }
 
 int32_t strcmp_natural_deref(const void* s1, const void* s2) {
-  return strcmp_natural_uncasted(*(char**)s1, *(char**)s2);
+  return strcmp_natural_uncasted(*(unsigned char**)s1, *(unsigned char**)s2);
 }
 
 int32_t get_uidx_from_unsorted(char* idstr, uintptr_t* exclude_arr, uint32_t id_ct, char* unsorted_ids, uintptr_t max_id_len) {

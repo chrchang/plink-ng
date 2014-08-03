@@ -905,35 +905,35 @@ static inline Ll_str* top_alloc_llstr(uintptr_t* topsize_ptr, uint32_t size) {
   return (Ll_str*)top_alloc(topsize_ptr, size + sizeof(Ll_str));
 }
 
-static inline int32_t is_letter(char cc) {
-  return (((((unsigned char)cc) & 192) == 64) && (((((unsigned char)cc) - 1) & 31) < 26));
+static inline int32_t is_letter(unsigned char ucc) {
+  return (((ucc & 192) == 64) && (((ucc - 1) & 31) < 26));
 }
 
 // if we need the digit value, better to use (unsigned char)cc - '0'...
-static inline int32_t is_digit(char cc) {
-  return (cc <= '9') && (cc >= '0');
+static inline int32_t is_digit(unsigned char ucc) {
+  return (ucc <= '9') && (ucc >= '0');
 }
 
-static inline int32_t is_not_digit(char cc) {
-  return (cc > '9') || (cc < '0');
+static inline int32_t is_not_digit(unsigned char ucc) {
+  return (ucc > '9') || (ucc < '0');
 }
 
-static inline int32_t is_not_nzdigit(char cc) {
-  return (cc > '9') || (cc <= '0');
+static inline int32_t is_not_nzdigit(unsigned char ucc) {
+  return (ucc > '9') || (ucc <= '0');
 }
 
 // may as well treat all chars < 32, except tab, as eoln...
-static inline int32_t is_eoln(char cc) {
-  return (((unsigned char)cc) < 32) && (cc != '\t');
+static inline int32_t is_eoln(unsigned char ucc) {
+  return (ucc < 32) && (ucc != '\t');
 }
 
 // kns = "known non-space" (where tab counts as a space)
-static inline int32_t is_eoln_kns(char cc) {
-  return ((unsigned char)cc) < 32;
+static inline int32_t is_eoln_kns(unsigned char ucc) {
+  return (ucc < 32);
 }
 
-static inline int32_t is_eoln_or_comment(char cc) {
-  return (((unsigned char)cc) < 32) || (cc == '#');
+static inline int32_t is_eoln_or_comment(unsigned char ucc) {
+  return (ucc < 32) || (ucc == '#');
 }
 
 static inline int32_t no_more_tokens(char* sptr) {
@@ -952,17 +952,17 @@ static inline char* skip_initial_spaces(char* sptr) {
 }
 
 /*
-static inline int32_t is_space_or_eoln(char cc) {
+static inline int32_t is_space_or_eoln(unsigned char cc) {
   // ' ', \t, \n, \0, \r
 #ifdef __LP64__
-  return ((((unsigned char)cc) <= 32) && (0x100002601LLU & (1LLU << cc)));
+  return (ucc <= 32) && (0x100002601LLU & (1LLU << ucc));
 #else
-  return ((((unsigned char)cc) <= 32) && ((cc == ' ') || (0x2601LU & (ONELU << cc))));
+  return ((ucc <= 32) && ((ucc == ' ') || (0x2601LU & (ONELU << ucc))));
 #endif
 }
 */
-static inline int32_t is_space_or_eoln(char cc) {
-  return ((unsigned char)cc) <= 32;
+static inline int32_t is_space_or_eoln(unsigned char ucc) {
+  return (ucc <= 32);
 }
 
 uint32_t match_upper(char* ss, const char* fixed_str);

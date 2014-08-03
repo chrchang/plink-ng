@@ -1137,22 +1137,24 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #ifndef STABLE_BUILD
     help_print("meta-analysis", &help_ctrl, 1,
 "  --meta-analysis [PLINK report filenames...]\n"
-"  --meta-analysis [PLINK report filenames...] + <study> <no-map | no-allele>\n"
-"                  <report-all> <logscale | qt>\n"
+"  --meta-analysis [PLINK report filenames...] + <logscale | qt>\n"
+"                  <no-map | no-allele> <study> <report-all>\n"
 "    Perform a meta-analysis on several variant-based reports with 'SNP' and\n"
 "    'SE' fields.\n"
-"    * 'study' causes study-specific effect estimates to be collated in the\n"
-"      meta-analysis report.\n"
-"    * 'no-map' causes 'CHR', 'BP', 'A1', and 'A2' fields to be ignored in the\n"
-"      input files if they're present.  'no-allele' causes just 'A1'/'A2' to be\n"
-"      ignored.\n"
-"    * 'report-all' causes variants present in only a single input file to be\n"
-"      included in the meta-analysis report.\n"
 "    * Normally, an 'OR' odds ratio field must also be present in each input\n"
 "      file.  With 'logscale', 'BETA' log-odds values/regression coefficients\n"
 "      are expected instead, but the generated report will still contain odds\n"
 "      ratio estimates.  With 'qt', both input and output values are regression\n"
 "      betas.\n"
+"    * 'CHR', 'BP', and 'A1' fields are also normally required.  'no-map' causes\n"
+"      them to all be ignored, while 'no-allele' causes just 'A1' to be ignored.\n"
+"    * If 'A2' fields are present, and neither 'no-map' nor 'no-allele' was\n"
+"      specified, A1/A2 allele flips are handled properly.  Otherwise, A1\n"
+"      mismatches are thrown out.\n"
+"    * 'study' causes study-specific effect estimates to be collated in the\n"
+"      meta-analysis report.\n"
+"    * 'report-all' causes variants present in only a single input file to be\n"
+"      included in the meta-analysis report.\n"
 "    * When --extract (without 'range') is present, only variants named in the\n"
 "      --extract file are considered.\n"
 "    * Unless 'no-map' is specified, chromosome filters are also respected.\n\n"
@@ -1947,6 +1949,14 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("clump-best\tclump", &help_ctrl, 0,
 "  --clump-best              : Report best proxy for each --clump index var.\n"
 	       );
+#ifndef STABLE_BUILD
+    help_print("meta-analysis-snp-field\tmeta-analysis", &help_ctrl, 0,
+"  --meta-analysis-snp-field [n...] : Set --meta-analysis variant ID field name\n"
+"                                     (default 'SNP').  With multiple field\n"
+"                                     names, earlier names take precedence over\n"
+"                                     later ones.\n"
+	       );
+#endif
     help_print("gene-list-border\tgene-report\tgene-subset\tgene-list\tgene-report-snp-field", &help_ctrl, 0,
 "  --gene-list-border [kbs]   : Extend --gene-report regions by given # of kbs.\n"
 "  --gene-subset [filename]   : Specify gene name subset for --gene-report.\n"

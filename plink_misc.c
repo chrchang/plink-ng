@@ -4166,7 +4166,527 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   return retval;
 }
 
-int32_t meta_analysis(char* metaanal_fnames, uint32_t metaanal_flags, char* extractname, char* outname, char* outname_end, Chrom_info* chrom_info_ptr) {
+int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uintptr_t loadbuf_size, char* sorted_header_dict, uint32_t* header_id_map, uintptr_t header_dict_ct, uintptr_t max_header_len, uint32_t* token_ct_ptr, gzFile* gz_infile_ptr, uint32_t* col_skips, uint32_t* col_sequence, uintptr_t* line_idx_ptr, uint32_t* line_max_ptr) {
+  uintptr_t line_idx = 1;
+  uint32_t line_max = 0;
+  uint32_t colnum = 0; // 0-based
+  uint32_t token_ct = *token_ct_ptr;
+  int32_t retval = 0;
+  uint32_t parse_table[7];
+  char* bufptr;
+  uint32_t slen;
+  uint32_t uii;
+  uint32_t ujj;
+  int32_t ii;
+  if (*line_max_ptr) {
+    line_max = *line_max_ptr;
+  }
+  if (gzopen_checked(gz_infile_ptr, fname, "rb")) {
+    goto meta_analysis_open_and_read_header_ret_OPEN_FAIL;
+  }
+  if (gzbuffer(*gz_infile_ptr, 131072)) {
+    goto meta_analysis_open_and_read_header_ret_NOMEM;
+  }
+
+  while (1) {
+    if (!gzgets(*gz_infile_ptr, loadbuf, loadbuf_size)) {
+      if (!gzeof(*gz_infile_ptr)) {
+	goto meta_analysis_open_and_read_header_ret_READ_FAIL;
+      }
+      sprintf(logbuf, "Error: %s is empty.\n", fname);
+      goto meta_analysis_open_and_read_header_ret_INVALID_FORMAT_WW;
+    }
+    if (line_max && (!loadbuf[loadbuf_size - 1])) {
+      if (loadbuf_size == MAXLINEBUFLEN) {
+	sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname);
+	goto meta_analysis_open_and_read_header_ret_INVALID_FORMAT_WW;
+      }
+      goto meta_analysis_open_and_read_header_ret_NOMEM;
+    }
+    bufptr = skip_initial_spaces(loadbuf);
+    if (!is_eoln_kns(*bufptr)) {
+      break;
+    }
+    if (line_max) {
+      slen = strlen(bufptr) + (uintptr_t)(bufptr - loadbuf);
+      if (slen >= line_max) {
+	line_max = slen + 1;
+      }
+      line_idx++;
+    }
+  }
+  fill_uint_one(parse_table, token_ct);
+  ujj = 0x7fffffff; // highest-precedence variant ID header seen so far
+  do {
+    slen = strlen_se(bufptr);
+    ii = bsearch_str(bufptr, slen, sorted_header_dict, max_header_len, header_dict_ct);
+    if (ii != -1) {
+      uii = header_id_map[(uint32_t)ii];
+      if (uii >= 0x40000000) {
+	// variant ID
+	if (uii < ujj) {
+          ujj = uii;
+	  parse_table[0] = colnum * 8;
+	} else if (uii == ujj) {
+          goto meta_analysis_open_and_read_header_ret_DUPLICATE_HEADER_COL;
+	}
+      } else {
+        if (parse_table[uii] != 0xffffffffU) {
+          goto meta_analysis_open_and_read_header_ret_DUPLICATE_HEADER_COL;
+	}
+	parse_table[uii] = (colnum * 8) | uii;
+      }
+    }
+    bufptr = skip_initial_spaces(&(bufptr[slen]));
+    if (++colnum == 0x10000000) {
+      // pathological case
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of %s has too many columns.\n", line_idx, fname);
+      goto meta_analysis_open_and_read_header_ret_INVALID_FORMAT_WW;
+    }
+  } while (is_eoln_kns(*bufptr));
+  if (line_idx) {
+    slen = strlen(bufptr) + (uintptr_t)(bufptr - loadbuf);
+    if (slen >= line_max) {
+      line_max = slen + 1;
+    }
+    *line_idx_ptr = line_idx;
+    *line_max_ptr = line_max;
+    if (parse_table[0] == 0xffffffffU) {
+      sprintf(logbuf, "Error: No variant ID field found in %s.\n", fname);
+      goto meta_analysis_open_and_read_header_ret_INVALID_FORMAT_WW;
+    } else if (parse_table[1] == 0xffffffffU) {
+      sprintf(logbuf, "Error: No effect size field found in %s.\n", fname);
+      goto meta_analysis_open_and_read_header_ret_INVALID_FORMAT_WW;
+    } else if (parse_table[2] == 0xffffffffU) {
+      sprintf(logbuf, "Error: No standard error field found in %s.\n", fname);
+      goto meta_analysis_open_and_read_header_ret_INVALID_FORMAT_WW;
+    } else if (token_ct > 3) {
+      if (parse_table[3] == 0xffffffffU) {
+	sprintf(logbuf, "Error: No CHR field found in %s.\n", fname);
+	goto meta_analysis_open_and_read_header_ret_INVALID_FORMAT_WW;
+      } else if (parse_table[4] == 0xffffffffU) {
+	sprintf(logbuf, "Error: No POS field found in %s.\n", fname);
+	goto meta_analysis_open_and_read_header_ret_INVALID_FORMAT_WW;
+      } else if ((token_ct > 5) && (parse_table[5] == 0xffffffffU)) {
+	sprintf(logbuf, "Error: No A1 field found in %s.\n", fname);
+	goto meta_analysis_open_and_read_header_ret_INVALID_FORMAT_WW;
+      }
+    }
+  }
+#ifdef __cplusplus
+  std::sort((int32_t*)parse_table, (int32_t*)(&(parse_table[token_ct * 2])));
+#else
+  qsort((int32_t*)parse_table, token_ct, sizeof(int32_t), intcmp);
+#endif
+  col_skips[0] = parse_table[0] >> 3;
+  col_sequence[0] = parse_table[0] & 7;
+  for (uii = 1; uii < token_ct; uii++) {
+    ujj = parse_table[uii];
+    if (ujj == 0xffffffffU) {
+      // A2 is optional, so actual token ct may be less than parse_max
+      *token_ct_ptr = uii;
+      break;
+    }
+    col_skips[uii] = (ujj >> 3) - col_skips[0];
+    col_sequence[uii] = ujj & 7;
+  }
+  
+  while (0) {
+  meta_analysis_open_and_read_header_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  meta_analysis_open_and_read_header_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  meta_analysis_open_and_read_header_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  meta_analysis_open_and_read_header_ret_DUPLICATE_HEADER_COL:
+    bufptr[slen] = '\0';
+    sprintf(logbuf, "Error: Duplicate column header '%s' in %s.\n", bufptr, fname);
+  meta_analysis_open_and_read_header_ret_INVALID_FORMAT_WW:
+    wordwrap(logbuf, 0);
+    logprintb();
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+  return retval;
+}
+
+int32_t meta_analysis(char* metaanal_fnames, char* metaanal_snpfield_search_order, uint32_t metaanal_flags, char* extractname, char* outname, char* outname_end, Chrom_info* chrom_info_ptr) {
   logprint("Error: --meta-analysis is currently under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
+  /*
+  gzFile gz_infile = NULL;
+  FILE* infile = NULL;
+  FILE* outfile = NULL;
+  char* sorted_extract_ids = NULL;
+  uintptr_t header_dict_ct = 2; // 'SE', BETA/OR
+  uintptr_t max_header_len = 3;
+  uintptr_t extract_ct = 0;
+  uintptr_t max_extract_id_len = 0;
+  uintptr_t rejected_ct = 0;
+  uintptr_t topsize = 0;
+  uint32_t no_map = metaanal_flags & METAANAL_NO_MAP;
+  uint32_t no_allele = metaanal_flags & METAANAL_NO_ALLELE;
+  uint32_t input_beta = metaanal_flags & METAANAL_LOGSCALE;
+  // uint32_t report_all = metaanal_flags & METAANAL_REPORT_ALL;
+  // uint32_t output_beta = metaanal_flags & METAANAL_QT;
+  // uint32_t report_study_specific = metaanal_flags & METAANAL_STUDY;
+  uint32_t parse_max = 3;
+  uint32_t file_ct = 0;
+  uint32_t line_max = 1;
+  uint32_t a1len = 0;
+  uint32_t a2len = 0;
+  uint32_t cur_chrom = 0;
+  uint32_t cur_bp = 0;
+  int32_t retval = 0;
+  char missing_geno = *g_missing_geno_ptr;
+  // [0] = SNP
+  // [1] = BETA/OR
+  // [2] = SE
+  // [3] = CHR (unless 'no-map')
+  // [4] = BP (unless 'no-map')
+  // [5] = A1 (unless 'no-map'/'no-allele')
+  // [6] = A2 (optional, ignored with 'no-map'/'no-allele')
+  const char problem_strings[][16] = {"BAD_CHR", "BAD_BP", "MISSING_A1", "MISSING_A2", "BAD_ES", "BAD_SE", "ALLELE_MISMATCH"};
+  char* token_ptrs[7];
+  uint32_t col_skips[7];
+  uint32_t col_sequence[7];
+  uintptr_t loadbuf_size;
+  uintptr_t line_idx;
+  uintptr_t ulii;
+  Ll_str** htable;
+  const char* err_ptr;
+  char* sorted_header_dict;
+  char* fname_ptr;
+  char* loadbuf;
+  char* bufptr;
+  uint32_t* header_id_map;
+  double dxx;
+  uint32_t file_ct_byte_width;
+  uint32_t file_idx;
+  uint32_t fname_len;
+  uint32_t token_ct;
+  uint32_t seq_idx;
+  uint32_t var_id_len;
+  uint32_t slen_base;
+  uint32_t slen;
+  uint32_t uii;
+  // 1. Construct header search dictionary.  Similar to clump_reports().
+  if (metaanal_snpfield_search_order) {
+    bufptr = metaanal_snpfield_search_order;
+    do {
+      slen = strlen(bufptr);
+      if (slen >= max_header_len) {
+	max_header_len = slen + 1;
+      }
+      bufptr = &(bufptr[slen + 1]);
+      header_dict_ct++;
+    } while (*bufptr);
+  } else {
+    max_header_len = 4; // 'SNP' + null terminator
+    header_dict_ct++;
+  }
+  if (input_beta && (max_header_len < 5)) {
+    max_header_len = 5;
+  }
+  if (!no_map) {
+    if (max_header_len < 4) {
+      max_header_len = 4;
+    }
+    header_dict_ct += 2;
+    if (!no_allele) {
+      header_dict_ct += 2;
+      parse_max = 7;
+    } else {
+      parse_max = 5;
+    }
+  }
+  if (wkspace_alloc_c_checked(&sorted_header_dict, header_dict_ct * max_header_len) ||
+      wkspace_alloc_ui_checked(&header_id_map, header_dict_ct * sizeof(int32_t))) {
+    goto meta_analysis_ret_NOMEM;
+  }
+  ulii = 0; // write position
+  if (metaanal_snpfield_search_order) {
+    bufptr = metaanal_snpfield_search_order;
+    uii = 0x40000000;
+    do {
+      slen = strlen(bufptr) + 1;
+      memcpy(&(sorted_header_dict[ulii * max_header_len]), bufptr, slen);
+      header_id_map[ulii++] = uii++;
+      bufptr = &(bufptr[slen]);
+    } while (*bufptr);
+  } else {
+    memcpy(sorted_header_dict, "SNP", 4);
+    header_id_map[0] = 0x40000000;
+    ulii++;
+  }
+  if (!input_beta) {
+    memcpyl3(&(sorted_header_dict[ulii * max_header_len]), "OR");
+  } else {
+    memcpy(&(sorted_header_dict[ulii * max_header_len]), "BETA", 5);
+  }
+  header_id_map[ulii++] = 1;
+  memcpyl3(&(sorted_header_dict[ulii * max_header_len]), "SE");
+  header_id_map[ulii++] = 2;
+  if (!no_map) {
+    memcpy(&(sorted_header_dict[ulii * max_header_len]), "CHR", 4);
+    header_id_map[ulii++] = 3;
+    memcpyl3(&(sorted_header_dict[ulii * max_header_len]), "BP");
+    header_id_map[ulii++] = 4;
+    if (!no_allele) {
+      memcpyl3(&(sorted_header_dict[ulii * max_header_len]), "A1");
+      header_id_map[ulii++] = 5;
+      memcpyl3(&(sorted_header_dict[ulii * max_header_len]), "A2");
+      header_id_map[ulii] = 6;
+    }
+  }
+  if (qsort_ext(sorted_header_dict, header_dict_ct, max_header_len, strcmp_deref, (char*)header_id_map, sizeof(int32_t))) {
+    goto meta_analysis_ret_NOMEM;
+  }
+  if (scan_for_duplicate_ids(sorted_header_dict, header_dict_ct, max_header_len)) {
+    logprint("Error: Duplicate/invalid --meta-analysis-snp-field field name.\n");
+    goto meta_analysis_ret_INVALID_CMDLINE;
+  }
+
+  // 2. Allocate space for initial hash table.
+  // Saving memory is pretty important here, so we use the following packing in
+  // the ss field (W = byte width required to save numbers up to file_ct, and
+  // M = 1 iff 'no-map' was not specified):
+  // [W]: number of files this variant appears in, little-endian
+  // [W+1]..[W+5], if M==1: chromosome byte followed by bp coordinate int; may
+  //                        need to widen chromosome byte later
+  // [W+5M+1]: null-terminated variant ID.  Followed by null-terminated A1/A2
+  //           if 'no-allele' not specified
+  htable = (Ll_str**)top_alloc(&topsize, HASHMEM);
+  if (!htable) {
+    goto meta_analysis_ret_NOMEM;
+  }
+  for (uii = 0; uii < HASHSIZE; uii++) {
+    htable[uii] = NULL;
+  }
+  // 3. If --extract specified, load and sort permitted variant list.
+  if (extractname) {
+    if (fopen_checked(&infile, extractname, "rb")) {
+      goto meta_analysis_ret_OPEN_FAIL;
+    }
+    retval = scan_token_ct_len(infile, tbuf, MAXLINELEN, &extract_ct, &max_extract_id_len);
+    if (retval) {
+      goto meta_analysis_ret_1;
+    }
+    if (!extract_ct) {
+      logprint("Error: Empty --extract file.\n");
+      goto meta_analysis_ret_INVALID_FORMAT;
+    }
+    if (max_extract_id_len > MAX_ID_LEN_P1) {
+      logprint("Error: --extract IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+      goto meta_analysis_ret_INVALID_FORMAT;
+    }
+    sorted_extract_ids = (char*)top_alloc(&topsize, extract_ct * max_extract_id_len);
+    if (!sorted_extract_ids) {
+      goto meta_analysis_ret_NOMEM;
+    }
+    rewind(infile);
+    retval = read_tokens(infile, tbuf, MAXLINELEN, extract_ct, max_extract_id_len, sorted_extract_ids);
+    if (retval) {
+      goto meta_analysis_ret_1;
+    }
+    if (fclose_null(&infile)) {
+      goto meta_analysis_ret_READ_FAIL;
+    }
+    qsort(sorted_extract_ids, extract_ct, max_extract_id_len, strcmp_casted);
+    ulii = collapse_duplicate_ids(sorted_extract_ids, extract_ct, max_extract_id_len, NULL);
+    if (ulii < extract_ct) {
+      extract_ct = ulii;
+      wkspace_shrink_top(sorted_extract_ids, extract_ct * max_extract_id_len);
+    }
+  }
+  // 4. Initial scan: save all potentially valid variant IDs (and accompanying
+  //    allele codes/chr/pos, if present) in the hash table, and produce .prob
+  //    file.  Also determine maximum line length, for use in later passes.
+  fname_ptr = metaanal_fnames;
+  do {
+    fname_ptr = strchr(fname_ptr, '\0');
+    fname_ptr++;
+    file_ct++;
+  } while (*fname_ptr);
+  file_ct_byte_width = 4 - (__builtin_clz(file_ct) / 8);
+  fname_ptr = metaanal_fnames;
+  loadbuf = (char*)wkspace_base;
+  for (file_idx = 0; file_idx < file_ct; file_idx++) {
+    fname_len = strlen(fname_ptr);
+    loadbuf_size = wkspace_left - topsize;
+    if (loadbuf_size > MAXLINEBUFLEN) {
+      loadbuf_size = MAXLINEBUFLEN;
+    } else if (loadbuf_size <= MAXLINELEN) {
+      goto meta_analysis_ret_NOMEM;
+    }
+    loadbuf[loadbuf_size - 1] = ' ';
+    token_ct = parse_max;
+    retval = meta_analysis_open_and_read_header(fname_ptr, loadbuf, loadbuf_size, sorted_header_dict, header_id_map, header_dict_ct, max_header_len, &token_ct, &gz_infile, col_skips, col_sequence, &line_idx, &line_max);
+    if (retval) {
+      goto meta_analysis_ret_1;
+    }
+    slen_base = file_ct_byte_width;
+    if (token_ct > 3) {
+      slen_base += 5;
+    }
+    while (1) {
+      line_idx++;
+      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
+	if (!gzeof(gz_infile)) {
+	  goto meta_analysis_ret_READ_FAIL;
+	}
+	break;
+      }
+      if (!loadbuf[loadbuf_size - 1]) {
+	sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname_ptr);
+	goto meta_analysis_ret_INVALID_FORMAT_WW;
+      }
+      bufptr = skip_initial_spaces(loadbuf);
+      if (is_eoln_kns(*bufptr)) {
+        continue;
+      }
+      bufptr = next_token_multz(bufptr, col_skips[0]);
+      token_ptrs[0] = bufptr;
+      for (seq_idx = 1; seq_idx < token_ct; seq_idx++) {
+	bufptr = next_token_mult(bufptr, col_skips[seq_idx]);
+        token_ptrs[seq_idx] = bufptr;
+      }
+      if (!bufptr) {
+	// PLINK 1.07 doesn't error out here, or even count the number of
+	// instances
+	slen = strlen(loadbuf);
+	if (slen >= line_max) {
+	  line_max = slen + 1;
+	}
+	continue;
+      }
+      slen = strlen(bufptr) + ((uintptr_t)(bufptr - loadbuf));
+      if (slen >= line_max) {
+        line_max = slen + 1;
+      }
+      bufptr = token_ptrs[col_sequence[0]];
+      var_id_len = strlen_se(bufptr);
+      if (sorted_extract_ids && (bsearch_str(bufptr, var_id_len, sorted_extract_ids, max_extract_id_len, extract_ct) == -1)) {
+	continue;
+      }
+      if (var_id_len > MAX_ID_LEN) {
+	sprintf(logbuf, "Error: Line %" PRIuPTR " of %s has an excessively long variant ID.\n", line_idx, fname_ptr);
+	goto meta_analysis_ret_INVALID_FORMAT_WW;
+      }
+
+      // validate
+      if (token_ct > 3) {
+	ii = get_chrom_code(chrom_info_ptr, token_ptrs[col_sequence[3]]);
+	if (ii < 0) {
+	  err_ptr = problem_strings[0];
+	  goto meta_analysis_report_error;
+	}
+	cur_chrom = (uint32_t)ii;
+	if (!is_set(chrom_info_ptr->chrom_mask, cur_chrom)) {
+	  continue;
+	}
+	if (scan_uint_defcap(token_ptrs[col_sequence[4]], cur_bp)) {
+	  err_ptr = problem_strings[1];
+	  goto meta_analysis_report_error;
+	}
+	if (token_ct > 5) {
+	  bufptr = token_ptrs[col_sequence[5]];
+	  a1len = strlen_se(bufptr);
+	  if ((*bufptr == missing_geno) && (a1len == 1)) {
+	    err_ptr = problem_strings[2];
+	    goto meta_analysis_report_error;
+	  }
+	  if (token_ct == 7) {
+	    bufptr = token_ptrs[col_sequence[6]];
+	    a2len = strlen_se(bufptr);
+	    if ((*bufptr == missing_geno) && (a2len == 1)) {
+	      err_ptr = problem_strings[3];
+	      goto meta_analysis_report_error;
+	    }
+	  }
+	}
+      }
+      if (scan_double(token_ptrs[col_sequence[1]], &dxx)) {
+	err_ptr = problem_strings[4];
+	goto meta_analysis_report_error;
+      }
+      if (scan_double(token_ptrs[col_sequence[2]], &dxx)) {
+	err_ptr = problem_strings[5];
+	goto meta_analysis_report_error;
+      }
+      // check hash table
+      uii = hashval2(token_ptr[col_sequence[0]], var_id_len);
+
+      if ((!ll_ptr) || (token_ct < 6) || meta_analysis_allelic_match()) {
+	slen = slen_base + var_id_len + a1len + a2len;
+	// save to hash table...
+      } else {
+	err_ptr = problem_strings[6];
+      meta_analysis_report_error:
+	if (!outfile) {
+	  memcpy(outname_end, ".prob", 6);
+	  if (fopen_checked(&outfile, outname, "w")) {
+	    goto meta_analysis_ret_OPEN_FAIL;
+	  }
+	}
+	// write error...
+	rejected_ct++;
+      }
+
+      loadbuf_size = wkspace_left - topsize;
+      if (loadbuf_size >= MAXLINEBUFLEN) {
+        loadbuf_size = MAXLINEBUFLEN;
+      } else if (loadbuf_size <= MAXLINELEN) {
+	goto meta_analysis_ret_NOMEM;
+      } else {
+	loadbuf[loadbuf_size - 1] = ' ';
+      }
+    }
+    fname_ptr = &(fname_ptr[fname_len + 1]);
+  }
+  if (outfile) {
+    if (fclose_null(&outfile)) {
+      goto meta_analysis_ret_WRITE_FAIL;
+    }
+  }
+
+  // 5. Determine final set of variants, and sort them (by chromosome, then
+  //    position, then variant ID in natural order).
+
+  // 6. Remaining load passes: determine how many remaining variants' worth of
+  //    effect sizes/SEs fit in memory, load and meta-analyze just those
+  //    variants, rinse and repeat.
+
+  while (0) {
+  meta_analysis_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  meta_analysis_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  meta_analysis_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  meta_analysis_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  meta_analysis_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+  meta_analysis_ret_INVALID_FORMAT_WW:
+    wordwrap(logbuf, 0);
+    logprintb();
+  meta_analysis_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ meta_analysis_ret_1:
+  gzclose_cond(gz_infile);
+  fclose_cond(infile);
+  fclose_cond(outfile);
+  return retval;
+  */
 }
