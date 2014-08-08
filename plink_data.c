@@ -2754,19 +2754,19 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
   int32_t retval = 0;
   const char* missing_geno_ptr = g_missing_geno_ptr;
   const char* output_missing_geno_ptr = g_output_missing_geno_ptr;
-  char cbuf[16];
+  char chrom_name_buf[MAX_ID_LEN_P1];
   char wbuf[16];
   uint32_t* chrom_start;
   uint32_t* chrom_id;
   uint32_t* unpack_map;
   uintptr_t marker_uidx;
   uintptr_t marker_idx;
-  char* chrom_ptr;
+  char* chrom_name_end;
   char* bufptr;
-  uint32_t uii;
-  uint32_t ujj;
   uint32_t cur_chrom;
   uint32_t chrom_ct;
+  uint32_t uii;
+  uint32_t ujj;
   // There can be a LOT of markers (some 1000 Genomes files we've been offered
   // have ~40 million), so speeding up the sorting step over just calling
   // qsort_ext() may not be a complete waste of effort.
@@ -2785,22 +2785,8 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
       wkspace_alloc_ui_checked(&unpack_map, marker_ct * sizeof(int32_t))) {
     goto sort_and_write_bim_ret_NOMEM;
   }
-#ifndef STABLE_BUILD
-  if (g_debug_on) {
-    sprintf(logbuf, "Initializing sort_and_write_bim; marker_pos = %" PRIxPTR2 "\n", (uintptr_t)marker_pos);
-    logstr(logbuf);
-    sprintf(logbuf, "ll_buf = %" PRIxPTR2 "\n", (uintptr_t)ll_buf);
-    logstr(logbuf);
-  }
-#endif
   fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, unpack_map);
   sort_marker_chrom_pos(ll_buf, marker_ct, marker_pos, chrom_start, chrom_id, unpack_map, &chrom_ct);
-#ifndef STABLE_BUILD
-  if (g_debug_on) {
-    sprintf(logbuf, "Markers sorted; chrom_ct = %u\n", chrom_ct);
-    logstr(logbuf);
-  }
-#endif
   if (fopen_checked(&outfile, outname, "w")) {
     goto sort_and_write_bim_ret_OPEN_FAIL;
   }
@@ -2813,45 +2799,22 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
     if (g_debug_on) {
       sprintf(logbuf, "Processing chromosome %u in sequence\n", uii);
       logstr(logbuf);
+      sprintf(logbuf, "cur_chrom: %u\n", cur_chrom);
+      logstr(logbuf);
     }
 #endif
-    if (cur_chrom <= max_code) {
-      chrom_ptr = uint32_write(cbuf, cur_chrom);
-      *chrom_ptr = '\0';
-      chrom_ptr = cbuf;
-    } else if (chrom_info_ptr->zero_extra_chroms) {
-      chrom_ptr = (char*)(&(g_one_char_strs[96]));
-    } else {
-      chrom_ptr = chrom_info_ptr->nonstd_names[cur_chrom];
-    }
+    chrom_name_end = chrom_name_write(chrom_name_buf, chrom_info_ptr, cur_chrom);
 #ifndef STABLE_BUILD
     if (g_debug_on) {
-      sprintf(logbuf, "(code: %s)\n", chrom_ptr);
+      sprintf(logbuf, "chrom_name_len: %" PRIxPTR2 "\n", ((uintptr_t)(chrom_name_end - chrom_name_buf)) - 1);
       logstr(logbuf);
     }
 #endif
     for (; marker_idx < ujj; marker_idx++) {
-#ifndef STABLE_BUILD
-      if (g_debug_on) {
-	sprintf(logbuf, "Starting marker %" PRIuPTR "\n", marker_idx);
-	logstr(logbuf);
-      }
-#endif
       marker_uidx = unpack_map[(uint32_t)ll_buf[marker_idx]];
-#ifndef STABLE_BUILD
-      if (g_debug_on) {
-	sprintf(logbuf, "Mapped to unfiltered index %" PRIuPTR "\n", marker_uidx);
-	logstr(logbuf);
-      }
-#endif
-      fputs(chrom_ptr, outfile);
+      fputs(chrom_name_buf, outfile);
       putc('\t', outfile);
       fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
-#ifndef STABLE_BUILD
-      if (g_debug_on) {
-	logstr("Marker ID written\n");
-      }
-#endif
       wbuf[0] = '\t';
       if (!marker_cms) {
         bufptr = memcpya(&(wbuf[1]), "0\t", 2); 
@@ -2859,27 +2822,12 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
         bufptr = double_g_writewx8x(&(wbuf[1]), marker_cms[marker_uidx], 1, '\t');
       }
       fwrite(wbuf, 1, bufptr - wbuf, outfile);
-#ifndef STABLE_BUILD
-      if (g_debug_on) {
-	logstr("Centimorgan coordinate written\n");
-      }
-#endif
       bufptr = uint32_write(wbuf, (uint32_t)(ll_buf[marker_idx] >> 32));
       fwrite(wbuf, 1, bufptr - wbuf, outfile);
-#ifndef STABLE_BUILD
-      if (g_debug_on) {
-	logstr("bp coordinate written\n");
-      }
-#endif
       putc('\t', outfile);
       fputs(cond_replace(marker_allele_ptrs[2 * marker_uidx], missing_geno_ptr, output_missing_geno_ptr), outfile);
       putc('\t', outfile);
       fputs(cond_replace(marker_allele_ptrs[2 * marker_uidx + 1], missing_geno_ptr, output_missing_geno_ptr), outfile);
-#ifndef STABLE_BUILD
-      if (g_debug_on) {
-	logstr("Alleles written\n");
-      }
-#endif
       if (putc_checked('\n', outfile)) {
 	goto sort_and_write_bim_ret_WRITE_FAIL;
       }
