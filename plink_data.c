@@ -2785,8 +2785,22 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
       wkspace_alloc_ui_checked(&unpack_map, marker_ct * sizeof(int32_t))) {
     goto sort_and_write_bim_ret_NOMEM;
   }
+#ifndef STABLE_BUILD
+  if (g_debug_on) {
+    sprintf(logbuf, "Initializing sort_and_write_bim; marker_pos = %" PRIxPTR2 "\n", (uintptr_t)marker_pos);
+    logstr(logbuf);
+    sprintf(logbuf, "ll_buf = %" PRIxPTR2 "\n", (uintptr_t)ll_buf);
+    logstr(logbuf);
+  }
+#endif
   fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, unpack_map);
   sort_marker_chrom_pos(ll_buf, marker_ct, marker_pos, chrom_start, chrom_id, unpack_map, &chrom_ct);
+#ifndef STABLE_BUILD
+  if (g_debug_on) {
+    sprintf(logbuf, "Markers sorted; chrom_ct = %u\n", chrom_ct);
+    logstr(logbuf);
+  }
+#endif
   if (fopen_checked(&outfile, outname, "w")) {
     goto sort_and_write_bim_ret_OPEN_FAIL;
   }
@@ -2795,6 +2809,12 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
   for (uii = 0; uii < chrom_ct; uii++) {
     cur_chrom = chrom_id[uii];
     ujj = chrom_start[uii + 1];
+#ifndef STABLE_BUILD
+    if (g_debug_on) {
+      sprintf(logbuf, "Processing chromosome %u in sequence\n", uii);
+      logstr(logbuf);
+    }
+#endif
     if (cur_chrom <= max_code) {
       chrom_ptr = uint32_write(cbuf, cur_chrom);
       *chrom_ptr = '\0';
@@ -2804,11 +2824,34 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
     } else {
       chrom_ptr = chrom_info_ptr->nonstd_names[cur_chrom];
     }
+#ifndef STABLE_BUILD
+    if (g_debug_on) {
+      sprintf(logbuf, "(code: %s)\n", chrom_ptr);
+      logstr(logbuf);
+    }
+#endif
     for (; marker_idx < ujj; marker_idx++) {
+#ifndef STABLE_BUILD
+      if (g_debug_on) {
+	sprintf(logbuf, "Starting marker %" PRIuPTR "\n", marker_idx);
+	logstr(logbuf);
+      }
+#endif
       marker_uidx = unpack_map[(uint32_t)ll_buf[marker_idx]];
+#ifndef STABLE_BUILD
+      if (g_debug_on) {
+	sprintf(logbuf, "Mapped to unfiltered index %" PRIuPTR "\n", marker_uidx);
+	logstr(logbuf);
+      }
+#endif
       fputs(chrom_ptr, outfile);
       putc('\t', outfile);
       fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
+#ifndef STABLE_BUILD
+      if (g_debug_on) {
+	logstr("Marker ID written\n");
+      }
+#endif
       wbuf[0] = '\t';
       if (!marker_cms) {
         bufptr = memcpya(&(wbuf[1]), "0\t", 2); 
@@ -2816,12 +2859,27 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
         bufptr = double_g_writewx8x(&(wbuf[1]), marker_cms[marker_uidx], 1, '\t');
       }
       fwrite(wbuf, 1, bufptr - wbuf, outfile);
+#ifndef STABLE_BUILD
+      if (g_debug_on) {
+	logstr("Centimorgan coordinate written\n");
+      }
+#endif
       bufptr = uint32_write(wbuf, (uint32_t)(ll_buf[marker_idx] >> 32));
       fwrite(wbuf, 1, bufptr - wbuf, outfile);
+#ifndef STABLE_BUILD
+      if (g_debug_on) {
+	logstr("bp coordinate written\n");
+      }
+#endif
       putc('\t', outfile);
       fputs(cond_replace(marker_allele_ptrs[2 * marker_uidx], missing_geno_ptr, output_missing_geno_ptr), outfile);
       putc('\t', outfile);
       fputs(cond_replace(marker_allele_ptrs[2 * marker_uidx + 1], missing_geno_ptr, output_missing_geno_ptr), outfile);
+#ifndef STABLE_BUILD
+      if (g_debug_on) {
+	logstr("Alleles written\n");
+      }
+#endif
       if (putc_checked('\n', outfile)) {
 	goto sort_and_write_bim_ret_WRITE_FAIL;
       }
@@ -5314,9 +5372,6 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
 	continue;
       }
       if ((*aptr1 == missing_geno) && (alen1 == 1)) {
-	if (g_debug_on) {
-	  logstr("Took branch 1.\n");
-	}
 	if ((alen2 != 1) || (*aptr2 != missing_geno)) {
           goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_4;
 	}
@@ -7914,15 +7969,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     // automatically include "." and "PASS"
     fexcept_ct = 2;
     if (vcf_filter_exceptions_flattened) {
-      bufptr = vcf_filter_exceptions_flattened;
-      do {
-        fexcept_ct++;
-        slen = strlen(bufptr);
-        if (slen >= max_fexcept_len) {
-          max_fexcept_len = slen + 1;
-	}
-	bufptr = &(bufptr[slen + 1]);
-      } while (*bufptr);
+      fexcept_ct += count_and_measure_multistr(vcf_filter_exceptions_flattened, &max_fexcept_len);
     }
     if (wkspace_alloc_c_checked(&sorted_fexcepts, fexcept_ct * max_fexcept_len)) {
       goto vcf_to_bed_ret_NOMEM;
@@ -8703,15 +8750,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   }
   if (vcf_filter_exceptions_flattened) {
     // vcf_filter guaranteed to be true
-    bufptr = vcf_filter_exceptions_flattened;
-    do {
-      fexcept_ct++;
-      slen = strlen(bufptr);
-      if (slen >= max_fexcept_len) {
-	max_fexcept_len = slen + 1;
-      }
-      bufptr = &(bufptr[slen + 1]);
-    } while (*bufptr);
+    fexcept_ct = count_and_measure_multistr(vcf_filter_exceptions_flattened, &max_fexcept_len);
     sorted_fexcepts = (char*)top_alloc(&topsize, fexcept_ct * max_fexcept_len);
     bufptr = vcf_filter_exceptions_flattened;
     for (ulii = 0; ulii < fexcept_ct; ulii++) {

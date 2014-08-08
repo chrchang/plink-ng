@@ -1039,7 +1039,7 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
   uintptr_t include_ct = 0;
   uintptr_t max_filterval_len = 0;
   uintptr_t line_idx = 0;
-  uint32_t filterval_ct = 0;
+  uint32_t filterval_ct = count_and_measure_multistr(filtervals_flattened, &max_filterval_len);
   int32_t retval = 0;
   char* sorted_filtervals;
   uintptr_t* indiv_exclude_new;
@@ -1048,15 +1048,6 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
   uint32_t filterval_idx;
   uint32_t slen;
   int32_t person_idx;
-  bufptr = filtervals_flattened;
-  do {
-    filterval_ct++;
-    slen = strlen(bufptr);
-    if (slen >= max_filterval_len) {
-      max_filterval_len = slen + 1;
-    }
-    bufptr = &(bufptr[slen + 1]);
-  } while (*bufptr);
   if (wkspace_alloc_c_checked(&id_buf, max_person_id_len) ||
       wkspace_alloc_ul_checked(&indiv_exclude_new, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_c_checked(&sorted_filtervals, filterval_ct * max_filterval_len)) {

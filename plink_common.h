@@ -1144,7 +1144,7 @@ static inline char* next_token_multz(char* sptr, uint32_t ct) {
   }
 }
 
-uint32_t count_tokens(char* bufptr);
+uint32_t count_tokens(const char* bufptr);
 
 static inline char* fw_strcpyn(uint32_t min_width, uint32_t source_len, const char* source, char* dest) {
   // right-justified strcpy with known source length
@@ -1159,6 +1159,8 @@ static inline char* fw_strcpyn(uint32_t min_width, uint32_t source_len, const ch
 static inline char* fw_strcpy(uint32_t min_width, const char* source, char* dest) {
   return fw_strcpyn(min_width, strlen(source), source, dest);
 }
+
+uint32_t count_and_measure_multistr(const char* multistr, uintptr_t* max_slen_ptr);
 
 char* uint32_write(char* start, uint32_t uii);
 

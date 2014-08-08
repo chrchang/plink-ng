@@ -690,14 +690,36 @@ char* next_token_mult(char* sptr, uint32_t ct) {
   return sptr;
 }
 
-uint32_t count_tokens(char* bufptr) {
+uint32_t count_tokens(const char* bufptr) {
   uint32_t token_ct = 0;
-  bufptr = skip_initial_spaces(bufptr);
+  while ((*bufptr == ' ') || (*bufptr == '\t')) {
+    bufptr++;
+  }
   while (!is_eoln_kns(*bufptr)) {
     token_ct++;
-    bufptr = skip_initial_spaces(token_endnn(bufptr));
+    while (!is_space_or_eoln(*(+bufptr)));
+    while ((*bufptr == ' ') || (*bufptr == '\t')) {
+      bufptr++;
+    }
   }
   return token_ct;
+}
+
+uint32_t count_and_measure_multistr(const char* multistr, uintptr_t* max_slen_ptr) {
+  // max_slen includes null terminator
+  // assumes multistr is nonempty
+  uint32_t ct = 0;
+  uintptr_t max_slen = *max_slen_ptr;
+  uintptr_t slen;
+  do {
+    slen = strlen(multistr) + 1;
+    if (slen > max_slen) {
+      max_slen = slen;
+    }
+    multistr = &(multistr[slen]);
+  } while (*multistr);
+  *max_slen_ptr = max_slen;
+  return ct;
 }
 
 // number-to-string encoders

@@ -93,15 +93,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
     indiv_exclude_new = (uintptr_t*)top_alloc(&topsize, unfiltered_indiv_ctl * sizeof(intptr_t));
     if (keep_flattened || keep_fname) {
       if (keep_flattened) {
-	cluster_name_ptr = keep_flattened;
-	do {
-	  slen = strlen(cluster_name_ptr);
-	  if (slen >= max_cluster_kr_len) {
-	    max_cluster_kr_len = slen + 1;
-	  }
-	  cluster_kr_ct++;
-	  cluster_name_ptr = &(cluster_name_ptr[slen + 1]);
-	} while (*cluster_name_ptr);
+	cluster_kr_ct = count_and_measure_multistr(keep_flattened, &max_cluster_kr_len);
       }
       if (keep_fname) {
 	if (fopen_checked(&infile, keep_fname, "r")) {
@@ -218,15 +210,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
     } else {
       memcpy(indiv_exclude_new, indiv_exclude, unfiltered_indiv_ctl * sizeof(intptr_t));
       if (remove_flattened) {
-	cluster_name_ptr = remove_flattened;
-	do {
-	  slen = strlen(cluster_name_ptr);
-	  if (slen >= max_cluster_kr_len) {
-	    max_cluster_kr_len = slen + 1;
-	  }
-	  cluster_kr_ct++;
-	  cluster_name_ptr = &(cluster_name_ptr[slen + 1]);
-	} while (*cluster_name_ptr);
+        cluster_kr_ct += count_and_measure_multistr(remove_flattened, &max_cluster_kr_len);
       }
       if (remove_fname) {
 	if (fopen_checked(&infile, remove_fname, "r")) {

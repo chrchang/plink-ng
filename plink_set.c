@@ -1022,15 +1022,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     }
     ulii = subset_ct;
     if (sip->setnames_flattened) {
-      bufptr = sip->setnames_flattened;
-      while (*bufptr) {
-        slen = strlen(bufptr) + 1;
-	if (slen > max_subset_id_len) {
-          max_subset_id_len = slen;
-	}
-        subset_ct++;
-        bufptr = &(bufptr[slen]);
-      }
+      subset_ct += count_and_measure_multistr(sip->setnames_flattened, &max_subset_id_len);
     }
     if (!subset_ct) {
       if ((gene_all || sip->genekeep_flattened) && ((!sip->merged_set_name) || (!complement_sets))) {

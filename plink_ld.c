@@ -10407,41 +10407,15 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   }
   fill_ulong_zero(cur_bitfield, marker_ctl);
   if (clump_ip->snpfield_search_order) {
-    bufptr = clump_ip->snpfield_search_order;
-    snpfield_search_ct = 0;
-    do {
-      uii = strlen(bufptr);
-      if (uii >= max_header_len) {
-	max_header_len = uii + 1;
-      }
-      bufptr = &(bufptr[uii + 1]);
-      snpfield_search_ct++;
-    } while (*bufptr);
+    snpfield_search_ct = count_and_measure_multistr(clump_ip->snpfield_search_order, &max_header_len);
   } else {
     max_header_len = 4; // 'SNP' + null terminator
   }
   if (clump_ip->pfield_search_order) {
-    bufptr = clump_ip->pfield_search_order;
-    pfield_search_ct = 0;
-    do {
-      uii = strlen(bufptr);
-      if (uii >= max_header_len) {
-	max_header_len = uii + 1;
-      }
-      bufptr = &(bufptr[uii + 1]);
-      pfield_search_ct++;
-    } while (*bufptr);
+    pfield_search_ct = count_and_measure_multistr(clump_ip->pfield_search_order, &max_header_len);
   }
   if (annot_flattened) {
-    bufptr = annot_flattened;
-    do {
-      uii = strlen(bufptr);
-      if (uii >= max_header_len) {
-	max_header_len = uii + 1;
-      }
-      bufptr = &(bufptr[uii + 1]);
-      annot_ct++;
-    } while (*bufptr);
+    annot_ct = count_and_measure_multistr(annot_flattened, &max_header_len);
   }
   header_dict_ct = snpfield_search_ct + pfield_search_ct + annot_ct;
   // parse_table[2k + 1] stores the number of additional fields to skip before

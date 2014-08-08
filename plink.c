@@ -98,7 +98,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (2 Aug 2014) ";
+  " (7 Aug 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -2944,6 +2944,8 @@ int32_t main(int32_t argc, char** argv) {
   char* gene_report_snp_field = NULL;
   char* metaanal_fnames = NULL;
   char* metaanal_snpfield_search_order = NULL;
+  char* metaanal_a1field_search_order = NULL;
+  char* metaanal_a2field_search_order = NULL;
   uint32_t gene_report_border = 0;
   uint32_t metaanal_flags = 0;
   double vcf_min_qual = -1;
@@ -8843,12 +8845,42 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
+      } else if (!memcmp(argptr2, "eta-analysis-a1-field", 22)) {
+        if (!metaanal_fnames) {
+	  logprint("Error: --meta-analysis-a1-field must be used with --meta-analysis.\n");
+          goto main_ret_INVALID_CMDLINE;
+	} else if (metaanal_flags & METAANAL_NO_ALLELE) {
+	  logprint("Error: --meta-analysis-a1-field cannot be used with --meta-analysis\n'no-map'/'no-allele'.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x20000000)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+        retval = alloc_and_flatten(&metaanal_a1field_search_order, &(argv[cur_arg + 1]), param_ct);
+	if (retval) {
+	  goto main_ret_NOMEM;
+	}
+      } else if (!memcmp(argptr2, "eta-analysis-a2-field", 22)) {
+        if (!metaanal_fnames) {
+	  logprint("Error: --meta-analysis-a2-field must be used with --meta-analysis.\n");
+          goto main_ret_INVALID_CMDLINE;
+	} else if (metaanal_flags & METAANAL_NO_ALLELE) {
+	  logprint("Error: --meta-analysis-a2-field cannot be used with --meta-analysis\n'no-map'/'no-allele'.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x20000000)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+        retval = alloc_and_flatten(&metaanal_a2field_search_order, &(argv[cur_arg + 1]), param_ct);
+	if (retval) {
+	  goto main_ret_NOMEM;
+	}
       } else if (!memcmp(argptr2, "eta-analysis-snp-field", 23)) {
         if (!metaanal_fnames) {
 	  logprint("Error: --meta-analysis-snp-field must be used with --meta-analysis.\n");
           goto main_ret_INVALID_CMDLINE;
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x7fffffff)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x20000000)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
         retval = alloc_and_flatten(&metaanal_snpfield_search_order, &(argv[cur_arg + 1]), param_ct);
@@ -11054,7 +11086,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --trend cannot be used with --model dom/rec/gen.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --trend flag deprecated.  Use '--model trend ...'.\n");
+	logprint("Note: --trend flag deprecated.  Use '--model trend-only ...'.\n");
 	model_modifier |= MODEL_PTREND | MODEL_TRENDONLY;
         calculation_type |= CALC_MODEL;
 	goto main_param_zero;
@@ -12464,6 +12496,12 @@ int32_t main(int32_t argc, char** argv) {
       goto main_ret_1;
     }
   }
+  if (metaanal_fnames) {
+    retval = meta_analysis(metaanal_fnames, metaanal_snpfield_search_order, metaanal_a1field_search_order, metaanal_a2field_search_order, metaanal_flags, (misc_flags & MISC_EXTRACT_RANGE)? NULL : extractname, outname, outname_end, &chrom_info);
+    if (retval) {
+      goto main_ret_1;
+    }
+  }
   if (load_rare == LOAD_RARE_DOSAGE) {
     if (calculation_type) {
       // with --dosage, there *can't* be anything else to do
@@ -12471,15 +12509,9 @@ int32_t main(int32_t argc, char** argv) {
       goto main_ret_INVALID_CMDLINE;
     }
     retval = plink1_dosage(&dosage_info, famname, mapname, outname, outname_end, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, makepheno_str, phenoname_str, covar_fname, qual_filter, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, filtervals_flattened, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, qual_min_thresh, qual_max_thresh, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, mpheno_col, pheno_modifier, &chrom_info, tail_bottom, tail_top, misc_flags, filter_flags, sex_missing_pheno, update_sex_col, &cluster, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, mwithin_col, glm_modifier, glm_vif_thresh);
-    if (retval) {
-      goto main_ret_1;
-    }
-  }
-  if (metaanal_fnames) {
-    retval = meta_analysis(metaanal_fnames, metaanal_snpfield_search_order, metaanal_flags, (misc_flags & MISC_EXTRACT_RANGE)? NULL : extractname, outname, outname_end, &chrom_info);
-    if (retval) {
-      goto main_ret_1;
-    }
+    // unconditional; note that plink1_dosage() currently doesn't even bother
+    // to pop stuff off the stack when it's done
+    goto main_ret_1;
   }
   // quit if there's nothing else to do
   if (uii) {
@@ -12701,6 +12733,8 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(gene_report_snp_field);
   free_cond(metaanal_fnames);
   free_cond(metaanal_snpfield_search_order);
+  free_cond(metaanal_a1field_search_order);
+  free_cond(metaanal_a2field_search_order);
 
   oblig_missing_cleanup(&oblig_missing_info);
   cluster_cleanup(&cluster);

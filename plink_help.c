@@ -531,7 +531,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --check-sex ycount {female max F} {male min F} {female max Y obs}\n"
 "                     {male min Y obs}\n"
 "  --check-sex y-only {female max Y obs} {male min Y obs}\n"
-"  --impute-sex ...\n"
+"  --impute-sex {female max F} {male min F}\n"
+"  --impute-sex ycount {female max F} {male min F} {female max Y obs}\n"
+"                      {male min Y obs}\n"
+"  --impute-sex y-only {female max Y obs} {male min Y obs}\n"
 "    --check-sex normally compares sex assignments in the input dataset with\n"
 "    those imputed from X chromosome inbreeding coefficients.\n"
 "    * Make sure that the X chromosome pseudo-autosomal region has been split\n"
@@ -1491,8 +1494,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     within half the specified kb distance of the named one.\n"
 "  --from-bp [pos]  : Use physical position(s) to define a variant range to\n"
 "  --to-bp   [pos]    load.  --from-kb/--to-kb/--from-mb/--to-mb allow decimal\n"
-"    ...              values.  You must also specify a single chromosome (using\n"
-"                     e.g. --chr) when using these flags.\n"
+"  --from-kb [pos]    values.  You must also specify a single chromosome (using\n"
+"  --to-kb   [pos]    e.g. --chr) when using these flags.\n"
+"  --from-mb [pos]\n"
+"  --to-mb   [pos]\n"
 	       );
     help_print("snps\texclude-snps", &help_ctrl, 0,
 "  --snps [var IDs...]  : Use IDs to specify variant range(s) to load or\n"
@@ -1950,10 +1955,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --clump-best              : Report best proxy for each --clump index var.\n"
 	       );
 #ifndef STABLE_BUILD
-    help_print("meta-analysis-snp-field\tmeta-analysis", &help_ctrl, 0,
-"  --meta-analysis-snp-field [n...] : Set --meta-analysis variant ID field name\n"
-"                                     (default 'SNP').  With multiple field\n"
-"                                     names, earlier names take precedence over\n"
+    help_print("meta-analysis-snp-field\tmeta-analysis-a1-field\tmeta-analysis-a2-field\tmeta-analysis", &help_ctrl, 0,
+"  --meta-analysis-snp-field [n...] : Set --meta-analysis variant ID, A1, and/or\n"
+"  --meta-analysis-a1-field [n...]    A2 allele field name(s).  Defaults are\n"
+"  --meta-analysis-a2-field [n...]    'SNP', 'A1', and 'A2', respectively.  When\n"
+"                                     multiple parameters are given to these\n"
+"                                     flags, earlier names take precedence over\n"
 "                                     later ones.\n"
 	       );
 #endif
