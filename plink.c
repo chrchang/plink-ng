@@ -410,6 +410,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   uint32_t plink_maxsnp = 0;
   uint32_t plink_maxfid = 0;
   uint32_t plink_maxiid = 0;
+  uint32_t max_bim_linelen = 0;
   unsigned char* wkspace_mark2 = NULL;
   unsigned char* wkspace_mark_precluster = NULL;
   unsigned char* wkspace_mark_postcluster = NULL;
@@ -573,7 +574,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     if (!marker_alleles_needed) {
       allelexxxx = 0;
     }
-    retval = load_bim(bimname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &set_allele_freqs, &marker_allele_ptrs, &max_marker_allele_len, &marker_ids, missing_mid_templates, missing_marker_id_match, chrom_info_ptr, &marker_cms, &marker_pos, misc_flags, filter_flags, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_range_list_ptr, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, ((!(calculation_type & (~(CALC_MAKE_BED | CALC_MAKE_BIM | CALC_MAKE_FAM)))) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (hwe_thresh == 0.0) && (!update_map) && (!freqname))? NULL : "make-bed", ".bim file");
+    retval = load_bim(bimname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &set_allele_freqs, &marker_allele_ptrs, &max_marker_allele_len, &marker_ids, missing_mid_templates, missing_marker_id_match, chrom_info_ptr, &marker_cms, &marker_pos, misc_flags, filter_flags, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_range_list_ptr, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, ((!(calculation_type & (~(CALC_MAKE_BED | CALC_MAKE_BIM | CALC_MAKE_FAM)))) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (hwe_thresh == 0.0) && (!update_map) && (!freqname))? NULL : "make-bed", ".bim file", &max_bim_linelen);
     if (retval) {
       goto plink_ret_1;
     }
@@ -1563,7 +1564,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
     }
     if (calculation_type & (CALC_MAKE_BED | CALC_MAKE_BIM | CALC_MAKE_FAM)) {
-      retval = make_bed(bedfile, bed_offset, bimname, map_cols, outname, outname_end, calculation_type, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_cms, marker_pos, marker_allele_ptrs, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, founder_info, sex_nm, sex_male, pheno_nm_datagen? pheno_nm_datagen : pheno_nm, pheno_c, pheno_d, output_missing_pheno, map_is_unsorted, indiv_sort_map, misc_flags, splitx_bound1, splitx_bound2, update_chr, flip_fname, flip_subset_fname, cluster_ptr->zerofname, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, hh_exists, chrom_info_ptr, fam_ip->mendel_modifier);
+      retval = make_bed(bedfile, bed_offset, bimname, map_cols, outname, outname_end, calculation_type, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_cms, marker_pos, marker_allele_ptrs, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, founder_info, sex_nm, sex_male, pheno_nm_datagen? pheno_nm_datagen : pheno_nm, pheno_c, pheno_d, output_missing_pheno, map_is_unsorted, indiv_sort_map, misc_flags, splitx_bound1, splitx_bound2, update_chr, flip_fname, flip_subset_fname, cluster_ptr->zerofname, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, hh_exists, chrom_info_ptr, fam_ip->mendel_modifier, max_bim_linelen);
       if (retval) {
         goto plink_ret_1;
       }
