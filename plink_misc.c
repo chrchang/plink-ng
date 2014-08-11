@@ -4334,6 +4334,19 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
   return retval;
 }
 
+uint32_t meta_analysis_allelic_match(const char* existing_a1ptr, char** token_ptrs, const uint32_t* col_sequence, const uint32_t token_ct, const uint32_t a1lenp1, const uint32_t a2lenp1) {
+  // returns 1 on same-direction match, 2 on A1/A2 reverse match, 0 on mismatch
+  if (token_ct < 6) {
+    return 1;
+  }
+  const char* cur_a1ptr = token_ptrs[col_sequence[5]];
+  // memcmp is safe here since hash table entries are stored b
+  if (memcmp(existing_a1ptr, cur_a1ptr, a1lenp1)) {
+    return ((token_ct == 7) && (!memcmp(existing_a1ptr, token_ptrs[col_sequence[6]], a2lenp1) && (!memcmp(&(existing_a1ptr[a2lenp1]), cur_a1ptr, a1lenp1)))) * 2;
+  }
+  return ((token_ct == 6) || (!memcmp(&(existing_a1ptr[a1lenp1]), token_ptrs[col_sequence[6]], a2lenp1)));
+}
+
 int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1field_search_order, char* a2field_search_order, uint32_t flags, char* extractname, char* outname, char* outname_end, Chrom_info* chrom_info_ptr) {
   logprint("Error: --meta-analysis is currently under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
@@ -4348,21 +4361,27 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   uintptr_t max_header_len = 3;
   uintptr_t extract_ct = 0;
   uintptr_t max_extract_id_len = 0;
+  uintptr_t final_variant_ct = 0;
+  uintptr_t last_var_idx = 0;
   uintptr_t rejected_ct = 0;
-  uintptr_t topsize = 0;
+  uint32_t max_var_id_len_p1 = 0;
+  uint32_t max_combined_allele_len = 0;
   uint32_t no_map = flags & METAANAL_NO_MAP;
   uint32_t no_allele = flags & METAANAL_NO_ALLELE;
   uint32_t input_beta = flags & METAANAL_LOGSCALE;
-  // uint32_t report_all = flags & METAANAL_REPORT_ALL;
+  uint32_t report_all = flags & METAANAL_REPORT_ALL;
   // uint32_t output_beta = flags & METAANAL_QT;
   // uint32_t report_study_specific = flags & METAANAL_STUDY;
   uint32_t parse_max = 3;
   uint32_t file_ct = 0;
+  uint32_t combined_allele_len_byte_width = 0;
   uint32_t line_max = 1;
-  uint32_t a1len = 0;
-  uint32_t a2len = 0;
+  uint32_t a1lenp1 = 0;
+  uint32_t a2lenp1 = 0;
   uint32_t cur_chrom = 0;
   uint32_t cur_bp = 0;
+  uint32_t cur_file_ct_m1 = 0;
+  uint32_t cur_combined_allele_len = 0;
   int32_t retval = 0;
   char missing_geno = *g_missing_geno_ptr;
   // [0] = SNP
@@ -4376,8 +4395,19 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   char* token_ptrs[7];
   uint32_t col_skips[7];
   uint32_t col_sequence[7];
+
+  // always initialized when allocating space for master variant list
+  uintptr_t topsize;
+
   uintptr_t loadbuf_size;
   uintptr_t line_idx;
+  uintptr_t master_var_entry_len;
+  uintptr_t master_var_idx;
+  uintptr_t total_data_slots;
+  uintptr_t cur_data_slots;
+  uintptr_t variants_remaining;
+  uintptr_t cur_var_idx;
+  uintptr_t first_var_idx;
   uintptr_t ulii;
   Ll_str** htable;
   Ll_str** ll_pptr;
@@ -4385,12 +4415,18 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   Ll_str* htable_write;
   const char* err_ptr;
   char* sorted_header_dict;
+  char* master_var_list;
   char* fname_ptr;
   char* loadbuf;
   char* bufptr;
+  char* bufptr2;
+  char* wptr;
+  double* cur_data;
+  uintptr_t* cur_data_starts;
   uint32_t* header_id_map;
   double dxx;
   uint32_t file_ct_byte_width;
+  uint32_t file_ct_mask;
   uint32_t file_idx;
   uint32_t fname_len;
   uint32_t token_ct;
@@ -4398,6 +4434,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   uint32_t var_id_len;
   uint32_t slen_base;
   uint32_t slen;
+  uint32_t cur_variant_ct;
   uint32_t uii;
   int32_t ii;
   // 1. Construct header search dictionary.  Similar to clump_reports().
@@ -4560,7 +4597,14 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
     fname_ptr++;
     file_ct++;
   } while (*fname_ptr);
-  file_ct_byte_width = 4 - (__builtin_clz(file_ct) / 8);
+  file_ct_byte_width = __builtin_clz(file_ct) / 8;
+  file_ct_mask = 0xffffffffU >> (8 * file_ct_byte_width);
+  file_ct_byte_width = 4 - file_ct_byte_width;
+
+  slen_base = file_ct_byte_width;
+  if (token_ct > 3) {
+    slen_base += 5;
+  }
   fname_ptr = input_fnames;
   loadbuf_end = (char*)(&(wkspace_base[wkspace_left]));
   htable_write = (Ll_str*)wkspace_base;
@@ -4582,10 +4626,6 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
     if (retval) {
       goto meta_analysis_ret_1;
     }
-    slen_base = file_ct_byte_width;
-    if (token_ct > 3) {
-      slen_base += 5;
-    }
     while (1) {
       line_idx++;
       if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
@@ -4595,8 +4635,11 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	break;
       }
       if (!loadbuf[loadbuf_size - 1]) {
-	sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname_ptr);
-	goto meta_analysis_ret_INVALID_FORMAT_WW;
+	if (loadbuf_size == MAXLINEBUFLEN) {
+	  sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname_ptr);
+	  goto meta_analysis_ret_INVALID_FORMAT_WW;
+	}
+	goto meta_analysis_ret_NOMEM;
       }
       bufptr = skip_initial_spaces(loadbuf);
       if (is_eoln_kns(*bufptr)) {
@@ -4648,18 +4691,20 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	}
 	if (token_ct > 5) {
 	  bufptr = token_ptrs[col_sequence[5]];
-	  a1len = strlen_se(bufptr);
-	  if ((*bufptr == missing_geno) && (a1len == 1)) {
+	  a1lenp1 = strlen_se(bufptr); // not +1 yet
+	  if ((*bufptr == missing_geno) && (a1lenp1 == 1)) {
 	    err_ptr = problem_strings[2];
 	    goto meta_analysis_report_error;
 	  }
+	  bufptr[a1lenp1++] = '\0';
 	  if (token_ct == 7) {
 	    bufptr = token_ptrs[col_sequence[6]];
-	    a2len = strlen_se(bufptr);
-	    if ((*bufptr == missing_geno) && (a2len == 1)) {
+	    a2lenp1 = strlen_se(bufptr);
+	    if ((*bufptr == missing_geno) && (a2lenp1 == 1)) {
 	      err_ptr = problem_strings[3];
 	      goto meta_analysis_report_error;
 	    }
+	    bufptr[a2lenp1++] = '\0';
 	  }
 	}
       }
@@ -4674,7 +4719,8 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
       // check hash table
       bufptr = token_ptrs[col_sequence[0]];
       bufptr[var_id_len] = '\0';
-      uii = hashval2(token_ptrs[col_sequence[0]], var_id_len);
+      uii = hashval2(token_ptrs[col_sequence[0]], var_id_len++);
+      // var_id_len now includes null-terminator
       ll_pptr = &(htable[uii]);
       while (1) {
 	ll_ptr = *ll_pptr;
@@ -4682,12 +4728,39 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	  break;
 	}
         ll_pptr = &(ll_ptr->next);
-
       }
 
-      if ((!ll_ptr) || (token_ct < 6) || meta_analysis_allelic_match()) {
-	slen = slen_base + var_id_len + a1len + a2len;
-	// save to hash table...
+      if (!ll_ptr) {
+	// new hash table entry; word-align the allocation for now
+	ll_ptr = htable_write;
+	*ll_pptr = ll_ptr;
+        ll_ptr->next = NULL;
+	wptr = memseta(ll_ptr->ss, 0, file_ct_byte_width);
+	if (token_ct > 3) {
+          *wptr++ = cur_chrom;
+	  wptr = memcpya(wptr, &cur_bp, 4);
+	}
+	wptr = memcpya(wptr, bufptr, var_id_len);
+	if (var_id_len > max_var_id_len_p1) {
+	  max_var_id_len_p1 = var_id_len;
+	}
+        if (token_ct > 5) {
+	  bufptr = wptr;
+          wptr = memcpya(wptr, token_ptrs[col_sequence[5]], a1lenp1);
+	  if (token_ct == 7) {
+	    wptr = memcpya(wptr, token_ptrs[col_sequence[6]], a2lenp1);
+	  } else {
+	    *wptr++ = '\0';
+	  }
+	  uii = (uintptr_t)(wptr - bufptr);
+	  if (uii > max_combined_allele_len) {
+	    max_combined_allele_len = uii;
+	  }
+	}
+	if (report_all) {
+	  final_variant_ct++;
+	}
+	htable_write = (Ll_str*)((((uintptr_t)wptr) + sizeof(uintptr_t) - 1) & (~(sizeof(uintptr_t) - ONELU)));
 	// now shrink loadbuf if necessary
 	loadbuf_size = (((uintptr_t)(loadbuf_end - ((char*)htable_write))) / 2);
 	if (loadbuf_size > MAXLINEBUFLEN + 16) {
@@ -4698,24 +4771,34 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	loadbuf_size -= 16;
 	loadbuf = &(loadbuf_end[-((intptr_t)loadbuf_size)]);
       } else {
-	err_ptr = problem_strings[6];
-      meta_analysis_report_error:
-	if (!outfile) {
-	  memcpy(outname_end, ".prob", 6);
-	  if (fopen_checked(&outfile, outname, "w")) {
-	    goto meta_analysis_ret_OPEN_FAIL;
+	if (meta_analysis_allelic_match(&(ll_ptr->ss[slen_base + var_id_len]), token_ptrs, col_sequence, token_ct, a1lenp1, a2lenp1)) {
+	  // increment file count.  Assume little-endian machine
+	  uii = (*((uint32_t*)(ll_ptr->ss[0]))) & file_ct_mask;
+	  if ((!report_all) && (!uii)) {
+	    final_variant_ct++;
 	  }
+	  uii++;
+	  memcpy(&(ll_ptr->ss[0]), &uii, file_ct_byte_width);
+	} else {
+	  err_ptr = problem_strings[6];
+	meta_analysis_report_error:
+	  if (!outfile) {
+	    memcpy(outname_end, ".prob", 6);
+	    if (fopen_checked(&outfile, outname, "w")) {
+	      goto meta_analysis_ret_OPEN_FAIL;
+	    }
+	  }
+	  fputs(fname_ptr, outfile);
+	  putc('\t', outfile);
+	  bufptr = token_ptrs[col_sequence[0]];
+	  bufptr[var_id_len] = '\t';
+	  if (fwrite_checked(bufptr, var_id_len + 1, outfile)) {
+	    goto meta_analysis_ret_WRITE_FAIL;
+	  }
+	  fputs(err_ptr, outfile);
+	  putc('\n', outfile);
+	  rejected_ct++;
 	}
-	fputs(fname_ptr, outfile);
-        putc('\t', outfile);
-	bufptr = token_ptrs[col_sequence[0]];
-	bufptr[var_id_len] = '\t';
-	if (fwrite_checked(bufptr, var_id_len + 1, outfile)) {
-	  goto meta_analysis_ret_WRITE_FAIL;
-	}
-        fputs(err_ptr, outfile);
-	putc('\n', outfile);
-	rejected_ct++;
       }
     }
     fname_ptr = &(fname_ptr[fname_len + 1]);
@@ -4728,16 +4811,136 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   }
 
   // 5. Determine final set of variants, and sort them (by chromosome, then
-  //    position, then variant ID in natural order).  file_ct and A1+A2 length
-  //    are also included past the end of each entry, to remove the need for
-  //    an auxiliary index and let us free the hash table.
-
+  //    position, then variant ID in natural order).  file_ct and (usually)
+  //    [A1+A2 len] are also included past the end of each entry, to remove the
+  //    need for an auxiliary index and let us free the hash table.
+  if (!final_variant_ct) {
+    logprint("Error: No --meta-analysis variants.\n");
+    goto meta_analysis_ret_INVALID_CMDLINE;
+#ifdef __LP64__
+  } else if (final_variant_ct > 0x7fffffff) {
+    logprint("Error: Too many distinct --meta-analysis variants (max 2^31 - 1).\n");
+#endif
+  }
+  if (token_ct > 5) {
+    combined_allele_len_byte_width = 4 - (__builtin_clz(max_combined_allele_len) / 8);
+  }
+  master_var_entry_len = slen_base + max_var_id_len_p1 + combined_allele_len_byte_width;
+  topsize = (final_variant_ct * master_var_entry_len + 15) & (~(15 * ONELU));
+  if ((uintptr_t)(loadbuf_end - ((char*)htable_write)) < topsize) {
+    goto meta_analysis_ret_NOMEM;
+  }
+  master_var_list = &(loadbuf_end[-((intptr_t)topsize)]);
+  // instead of following hash table pointers, we just plow through the table
+  // entries in the order they were allocated in; this lets us access memory
+  // sequentially
+  ll_ptr = (Ll_str*)wkspace_base;
+  for (master_var_idx = 0; master_var_idx < final_variant_ct;) {
+    memcpy(&cur_file_ct_m1, &(ll_ptr->ss[0]), file_ct_byte_width);
+    if (report_all || cur_file_ct_m1) {
+      wptr = &(master_var_list[master_var_idx * master_var_entry_len]);
+      master_var_idx++;
+      if (token_ct > 3) {
+	*wptr++ = ll_ptr->ss[file_ct_byte_width];
+	memcpy(&uii, &(ll_ptr->ss[file_ct_byte_width + 1]), 4);
+	wptr = uint32_encode_5_hi_uchar(wptr, uii);
+      }
+      bufptr = &(ll_ptr->ss[slen_base]);
+      slen = strlen(bufptr) + 1;
+      wptr = memcpya(wptr, bufptr, slen);
+      wptr = memcpya(wptr, &cur_file_ct_m1, file_ct_byte_width);
+      bufptr = &(bufptr[slen]);
+      if (token_ct > 5) {
+	// only save allele length sum, including null terminators
+	slen = strlen(bufptr) + 1;
+	slen += strlen(&(bufptr[slen])) + 1;
+	memcpy(wptr, &slen, combined_allele_len_byte_width);
+	bufptr = &(bufptr[slen]);
+      }
+    } else {
+      bufptr = (char*)memchr(&(ll_ptr->ss[slen_base]), 0, max_var_id_len_p1);
+      if (token_ct > 5) {
+	bufptr = (char*)memchr(&(bufptr[1]), 0, max_combined_allele_len);
+	bufptr = (char*)memchr(&(bufptr[1]), 0, max_combined_allele_len);
+      }
+      bufptr++;
+    }
+    // now bufptr points to the byte past the end of the hash table entry
+    // allocation, and we know the next allocation starts at [this byte,
+    // rounded up to nearest word boundary]
+    ll_ptr = (Ll_str*)((((uintptr_t)bufptr) + sizeof(uintptr_t) - 1) & (~(sizeof(uintptr_t) - ONELU)));
+  }
+  qsort(master_var_list, final_variant_ct, master_var_entry_len, strcmp_natural);
+  wkspace_reset(wkspace_mark);
+  wkspace_left -= topsize;
+  loadbuf_size = line_max;
+  if (wkspace_alloc_c_checked(&loadbuf, loadbuf_size)) {
+    goto meta_analysis_ret_NOMEM2;
+  }
+  total_data_slots = wkspace_left / sizeof(uintptr_t);
+  wkspace_left += topsize;
 
   // 6. Remaining load passes: determine how many remaining variants' worth of
   //    effect sizes/SEs fit in memory, load and meta-analyze just those
   //    variants, rinse and repeat.
+  memcpy(outname_end, ".meta", 6);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto meta_analysis_ret_OPEN_FAIL;
+  }
+  cur_data_starts = (uintptr_t*)wkspace_base;
+  do {
+    first_var_idx = last_var_idx;
+    // memory requrirements per variant:
+    //   2 * sizeof(intptr_t) for cur_data pointer and current file write
+    //     index; this grows from bottom of stack, while pointed-to stuff is
+    //     allocated from top
+    //   (technically could update the file write indexes in-place, but this
+    //   part is not memory-critical so I doubt it's worth it.)
+    //   2 * sizeof(double) * file_ct for effect sizes and SEs; filled from
+    //     back to front, with "number of files left - 1" stored as uint32_t
+    //     at front address to enable this
+    //   sometimes, combined_allele_len for A1/A2, sizeof(double)-aligned
+    bufptr = &(master_var_list[last_var_idx * master_var_entry_len]);
+    variants_remaining = final_variant_ct - last_var_idx;
+    if (token_ct > 3) {
+      bufptr = &(bufptr[5]); // ignore chromosome/position here
+    }
+    cur_data = (double*)(&(cur_data_starts[total_data_slots]));
+    ulii = 0;
+    for (cur_var_idx = 0; cur_var_idx < variants_remaining; cur_var_idx++) {
+      bufptr2 = &(bufptr[last_var_idx * master_var_entry_len]);
+      bufptr2 = (char*)memchr(bufptr2, 0, master_var_entry_len);
+      bufptr2++;
+      memcpy(&cur_file_ct_m1, bufptr2, file_ct_byte_width);
+#ifdef __LP64__
+      cur_data_slots = 4 + 2 * cur_file_ct_m1;
+#else
+      cur_data_slots = 6 + 4 * cur_file_ct_m1;
+#endif
+      if (token_ct > 5) {
+	memcpy(&cur_combined_allele_len, &(bufptr2[file_ct_byte_width]), combined_allele_len_byte_width);
+	cur_data_slots += (8 / BYTECT) * ((cur_combined_allele_len + 7) / 8);
+      }
+      ulii += cur_data_slots;
+      if (ulii > total_data_slots) {
+	break;
+      }
+      cur_data = &(cur_data[-((intptr_t)(cur_data_slots - 2))]);
+      cur_data_starts[2 * cur_var_idx] = (uintptr_t)cur_data;
+      cur_data_starts[2 * cur_var_idx + 1] = 0;
+    }
+    cur_variant_ct = last_var_idx - first_var_idx;
+    if (!cur_variant_ct) {
+      goto meta_analysis_ret_NOMEM;
+    }
+    for (file_idx = 0; file_idx < file_ct; file_idx++) {
+      ;;
+    }
+  } while (last_var_idx != final_variant_ct);
 
   while (0) {
+  meta_analysis_ret_NOMEM2:
+    wkspace_left += topsize;
   meta_analysis_ret_NOMEM:
     retval = RET_NOMEM;
     break;

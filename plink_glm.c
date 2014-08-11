@@ -83,7 +83,7 @@ static uint32_t* g_qassoc_cluster_thread_wkspace;
 
 THREAD_RET_TYPE logistic_gen_perms_thread(void* arg) {
   // just a clone of model_assoc_gen_perms_thread()
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
   uint32_t case_ct = g_case_ct;
   uint32_t tot_quotient = g_tot_quotient;
@@ -103,7 +103,7 @@ THREAD_RET_TYPE logistic_gen_perms_thread(void* arg) {
 }
 
 THREAD_RET_TYPE logistic_gen_cluster_perms_thread(void* arg) {
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
   uintptr_t* __restrict__ perm_vecs = g_perm_vecs;
   sfmt_t* __restrict__ sfmtp = g_sfmtp_arr[tidx];
@@ -133,7 +133,7 @@ THREAD_RET_TYPE linear_gen_perms_thread(void* arg) {
   // g_perm_pmajor indices
   //   [n * indiv_valid_ct] to [(n + 1) * indiv_valid_ct - 1]
   // inclusive.
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uint32_t indiv_valid_ct = g_pheno_nm_ct;
   uintptr_t perm_vec_ctcl = (g_perm_vec_ct + (CACHELINE_INT32 - 1)) / CACHELINE_INT32;
   sfmt_t* sfmtp = g_sfmtp_arr[tidx];
@@ -149,7 +149,7 @@ THREAD_RET_TYPE linear_gen_perms_thread(void* arg) {
   uint32_t indiv_idx;
   uint32_t urand;
   uint32_t lbound;
-  if (((uintptr_t)tidx) + 1 == g_assoc_thread_ct) {
+  if (tidx + 1 == g_assoc_thread_ct) {
     pmax = g_perm_vec_ct;
   }
   pdiff = pmax - pmin;
@@ -177,7 +177,7 @@ THREAD_RET_TYPE linear_gen_cluster_perms_thread(void* arg) {
   // On top of the linear_gen_perms_thread requirements, this also needs
   // g_cluster_ct, g_cluster_map, g_cluster_starts,
   // g_qassoc_cluster_thread_wkspace, and g_indiv_to_cluster to be initialized.
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uint32_t indiv_valid_ct = g_pheno_nm_ct;
   uintptr_t perm_vec_ctcl = (g_perm_vec_ct + (CACHELINE_INT32 - 1)) / CACHELINE_INT32;
   sfmt_t* sfmtp = g_sfmtp_arr[tidx];
@@ -201,7 +201,7 @@ THREAD_RET_TYPE linear_gen_cluster_perms_thread(void* arg) {
   uint32_t urand;
   uint32_t lbound;
   uint32_t uii;
-  if (((uintptr_t)tidx) + 1 == g_assoc_thread_ct) {
+  if (tidx + 1 == g_assoc_thread_ct) {
     pmax = g_perm_vec_ct;
   }
   pdiff = pmax - pmin;
@@ -2881,7 +2881,7 @@ const char glm_main_effects[] = "REC\0DOM\0HOM\0ADD";
 
 #ifndef NOLAPACK
 THREAD_RET_TYPE glm_linear_adapt_thread(void* arg) {
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uintptr_t indiv_valid_ct = g_pheno_nm_ct;
   uintptr_t indiv_valid_ctv2 = 2 * ((indiv_valid_ct + (BITCT - 1)) / BITCT);
   uintptr_t perm_vec_ct = g_perm_vec_ct;
@@ -2969,7 +2969,7 @@ THREAD_RET_TYPE glm_linear_adapt_thread(void* arg) {
   } else {
     param_ctx_m1 = cur_param_ct - 1;
   }
-  if ((uintptr_t)tidx + 1 == g_assoc_thread_ct) {
+  if (tidx + 1 == g_assoc_thread_ct) {
     marker_bceil = g_block_diff;
   }
   for (; marker_bidx < marker_bceil; marker_bidx++) {
@@ -3067,7 +3067,7 @@ THREAD_RET_TYPE glm_linear_adapt_thread(void* arg) {
 #endif
 
 THREAD_RET_TYPE glm_logistic_adapt_thread(void* arg) {
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uintptr_t indiv_valid_ct = g_pheno_nm_ct;
   uintptr_t indiv_valid_ctv2 = 2 * ((indiv_valid_ct + (BITCT - 1)) / BITCT);
   uintptr_t perm_vec_ct = g_perm_vec_ct;
@@ -3144,7 +3144,7 @@ THREAD_RET_TYPE glm_logistic_adapt_thread(void* arg) {
   } else {
     param_ctx_m1 = cur_param_ct - 1;
   }
-  if ((uintptr_t)tidx + 1 == g_assoc_thread_ct) {
+  if (tidx + 1 == g_assoc_thread_ct) {
     marker_bceil = g_block_diff;
   }
   for (; marker_bidx < marker_bceil; marker_bidx++) {
@@ -3215,7 +3215,7 @@ THREAD_RET_TYPE glm_logistic_adapt_thread(void* arg) {
 
 #ifndef NOLAPACK
 THREAD_RET_TYPE glm_linear_maxt_thread(void* arg) {
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uintptr_t indiv_valid_ct = g_pheno_nm_ct;
   uintptr_t indiv_valid_ctv2 = 2 * ((indiv_valid_ct + (BITCT - 1)) / BITCT);
   uintptr_t perm_vec_ct = g_perm_vec_ct;
@@ -3226,7 +3226,7 @@ THREAD_RET_TYPE glm_linear_maxt_thread(void* arg) {
   uintptr_t* loadbuf = g_loadbuf;
   uint32_t* adapt_m_table = &(g_adapt_m_table[marker_bidx]);
   double* perm_pmajor = g_perm_pmajor;
-  uintptr_t perm_vec_ctcl8m = (perm_vec_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+  uintptr_t perm_vec_ctcl8m = CACHEALIGN32_DBL(perm_vec_ct);
   double* __restrict__ results = &(g_maxt_thread_results[perm_vec_ctcl8m * tidx]);
   unsigned char* __restrict__ perm_adapt_stop = g_perm_adapt_stop;
   uint32_t* __restrict__ perm_fail_cts = g_perm_attempt_ct;
@@ -3294,7 +3294,7 @@ THREAD_RET_TYPE glm_linear_maxt_thread(void* arg) {
   } else {
     param_ctx_m1 = cur_param_ct - 1;
   }
-  if ((uintptr_t)tidx + 1 == g_assoc_thread_ct) {
+  if (tidx + 1 == g_assoc_thread_ct) {
     marker_bceil = g_block_diff;
   }
   memcpy(results, &(g_maxt_extreme_stat[pidx_offset]), perm_vec_ct * sizeof(double));
@@ -3390,7 +3390,7 @@ THREAD_RET_TYPE glm_linear_maxt_thread(void* arg) {
 #endif
 
 THREAD_RET_TYPE glm_logistic_maxt_thread(void* arg) {
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uintptr_t indiv_valid_ct = g_pheno_nm_ct;
   uintptr_t indiv_valid_ctv2 = 2 * ((indiv_valid_ct + (BITCT - 1)) / BITCT);
   uintptr_t perm_vec_ct = g_perm_vec_ct;
@@ -3401,7 +3401,7 @@ THREAD_RET_TYPE glm_logistic_maxt_thread(void* arg) {
   uintptr_t* loadbuf = g_loadbuf;
   uint32_t* adapt_m_table = &(g_adapt_m_table[marker_bidx]);
   uintptr_t* perm_vecs = g_perm_vecs;
-  uintptr_t perm_vec_ctcl8m = (perm_vec_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+  uintptr_t perm_vec_ctcl8m = CACHEALIGN32_DBL(perm_vec_ct);
   double* __restrict__ results = &(g_maxt_thread_results[perm_vec_ctcl8m * tidx]);
   unsigned char* __restrict__ perm_adapt_stop = g_perm_adapt_stop;
   uint32_t* __restrict__ perm_fail_cts = g_perm_attempt_ct;
@@ -3461,7 +3461,7 @@ THREAD_RET_TYPE glm_logistic_maxt_thread(void* arg) {
   } else {
     param_ctx_m1 = cur_param_ct - 1;
   }
-  if ((uintptr_t)tidx + 1 == g_assoc_thread_ct) {
+  if (tidx + 1 == g_assoc_thread_ct) {
     marker_bceil = g_block_diff;
   }
   memcpy(results, &(g_maxt_extreme_stat[pidx_offset]), perm_vec_ct * sizeof(double));
@@ -4413,7 +4413,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	max_thread_ct = uii;
       }
       if (!perm_adapt) {
-	ulii = (perm_batch_size + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+	ulii = CACHEALIGN32_DBL(perm_batch_size);
         if (wkspace_alloc_d_checked(&g_maxt_thread_results, ulii * max_thread_ct * sizeof(double)),
             wkspace_alloc_d_checked(&g_maxt_extreme_stat, perms_total * sizeof(double))) {
           goto glm_linear_assoc_ret_NOMEM;
@@ -4950,7 +4950,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	}
 	glm_linear_maxt_thread((void*)ulii);
 	join_threads(threads, g_assoc_thread_ct);
-        ulii = (g_perm_vec_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+        ulii = CACHEALIGN32_DBL(g_perm_vec_ct);
 	ukk = g_perms_done + g_perm_vec_ct;
         for (uii = 0; uii < g_assoc_thread_ct; uii++) {
           dptr = &(g_maxt_thread_results[uii * ulii]);
@@ -5574,7 +5574,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	max_thread_ct = uii;
       }
       if (!perm_adapt) {
-	ulii = (perm_batch_size + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+	ulii = CACHEALIGN32_DBL(perm_batch_size);
         if (wkspace_alloc_d_checked(&g_maxt_thread_results, ulii * max_thread_ct * sizeof(double)),
             wkspace_alloc_d_checked(&g_maxt_extreme_stat, perms_total * sizeof(double))) {
           goto glm_logistic_assoc_ret_NOMEM;
@@ -6025,7 +6025,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	}
 	glm_logistic_maxt_thread((void*)ulii);
 	join_threads(threads, g_assoc_thread_ct);
-        ulii = (g_perm_vec_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+        ulii = CACHEALIGN32_DBL(g_perm_vec_ct);
 	ukk = g_perms_done + g_perm_vec_ct;
         for (uii = 0; uii < g_assoc_thread_ct; uii++) {
           dptr = &(g_maxt_thread_results[uii * ulii]);
@@ -7329,7 +7329,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       logprint("Warning: Ignoring --logistic 'sex' modifier since sex is invariant.\n");
     }
   }
-  indiv_valid_cta4 = (indiv_valid_ct + 3) & (~3);
+  indiv_valid_cta4 = (indiv_valid_ct + 3) & (~(3 * ONELU));
   indiv_valid_ctv2 = 2 * ((indiv_valid_ct + BITCT - 1) / BITCT);
 
   if (condition_mname || condition_fname) {
@@ -7367,7 +7367,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     fill_all_bits(active_params, param_raw_ct);
     param_ct = param_raw_ct;
   }
-  param_cta4 = (param_ct + 3) & (~3);
+  param_cta4 = (param_ct + 3) & (~(3 * ONELU));
   if (param_ct == 1) {
     logprint("Warning: Skipping --logistic since the intercept is the only variable.\n");
     goto glm_logistic_nosnp_ret_1;
@@ -8058,7 +8058,7 @@ uint32_t glm_logistic_dosage(uintptr_t indiv_ct, uintptr_t* cur_indivs, uintptr_
   if (indiv_valid_ct <= param_ct) {
     return 0;
   }
-  uintptr_t indiv_valid_cta4 = (indiv_valid_ct + 3) & (~3);
+  uintptr_t indiv_valid_cta4 = (indiv_valid_ct + 3) & (~(3 * ONELU));
   uintptr_t indiv_valid_ctv2 = 2 * ((indiv_valid_ct + BITCT - 1) / BITCT);
   uintptr_t param_cta4 = (param_ct + 3) & (~3);
   float* fptr = covars_cov_major;

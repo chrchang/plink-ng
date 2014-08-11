@@ -4216,7 +4216,7 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
   uint32_t is_x2;
   uint32_t nm_fixed;
   if (g_ld_thread_wkspace) {
-    cur_geno1_male = &(g_ld_thread_wkspace[tidx * ((founder_ctsplit + (CACHELINE_WORD - 1)) & (~(CACHELINE_WORD - 1)))]);
+    cur_geno1_male = &(g_ld_thread_wkspace[tidx * CACHEALIGN32_WORD(founder_ctsplit)]);
   }
   // suppress warning
   fill_uint_zero(&(tot1[3]), 3);
@@ -4406,7 +4406,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     chrom_end = chrom_info_ptr->chrom_end[(uint32_t)x_code];
     chrom_end = chrom_end - uii - popcount_bit_idx(marker_exclude, uii, chrom_end);
     if (chrom_end) {
-      ulii = (founder_ctsplit + (CACHELINE_WORD - 1)) & (~(CACHELINE_WORD - 1));
+      ulii = CACHEALIGN32_WORD(founder_ctsplit);
       if (wkspace_alloc_ul_checked(&g_ld_thread_wkspace, ulii * thread_ct * sizeof(intptr_t))) {
 	goto ld_report_dprime_ret_NOMEM;
       }
@@ -4946,7 +4946,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
   ulii -= 2 * sizeof(int32_t) + marker_idx2_maxw * sizeof(double);
   idx2_block_size = (wkspace_left / ulii) & (~(7 * ONELU));
   if (idx2_block_size > marker_ct) {
-    idx2_block_size = (marker_ct + 7) & (~7);
+    idx2_block_size = (marker_ct + 7) & (~(7 * ONELU));
   }
   wkspace_mark2 = wkspace_base;
   while (1) {
@@ -9938,7 +9938,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     if (ulii < minmem) {
       goto construct_ld_map_ret_NOMEM;
     }
-    idx1_block_size = (ulii / memreq1) & (~3);
+    idx1_block_size = (ulii / memreq1) & (~(3 * ONELU));
     if (idx1_block_size > marker_ct - marker_idx) {
       idx1_block_size = marker_ct - marker_idx;
     }
@@ -9950,7 +9950,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       }
     }
     g_ld_thread_ct = thread_ct;
-    idx2_block_size = (ulii / memreq2) & (~(BITCT - 1));
+    idx2_block_size = (ulii / memreq2) & (~(BITCT - ONELU));
     if (idx2_block_size > marker_ct) {
       idx2_block_size = marker_ct;
     }
@@ -10521,7 +10521,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   // line to fit in ~half of available workspace.
   // To reduce the risk of 32-bit integer overflow bugs, we cap line length at
   // a bit under 2^30 instead of 2^31 here.
-  extra_annot_space = (48 + 2 * annot_ct) & (~15);
+  extra_annot_space = (48 + 2 * annot_ct) & (~(15 * ONELU));
   if (wkspace_left <= 2 * MAXLINELEN + extra_annot_space) {
     goto clump_reports_ret_NOMEM;
   } else if (wkspace_left - extra_annot_space >= MAXLINEBUFLEN) {

@@ -98,7 +98,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (8 Aug 2014) ";
+  " (11 Aug 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -12474,7 +12474,7 @@ int32_t main(int32_t argc, char** argv) {
       goto main_ret_NOMEM;
     }
   }
-  // force 64-byte align on OS X to make cache line sensitivity work
+  // force 64-byte align to make cache line sensitivity work
   wkspace = (unsigned char*)CACHEALIGN((uintptr_t)wkspace_ua);
   wkspace_base = wkspace;
   wkspace_left = (malloc_size_mb * 1048576 - (uintptr_t)(wkspace - wkspace_ua)) & (~(CACHELINE - ONELU));

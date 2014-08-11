@@ -1563,7 +1563,7 @@ uintptr_t qrem_cost2(uintptr_t indiv_ctl2, uintptr_t* loadbuf1, uintptr_t* loadb
     goto qrem_cost2_loop;
   }
 #else
-  uintptr_t* lptr_four_end = &(loadbuf1[indiv_ctl2 & (~3U)]);
+  uintptr_t* lptr_four_end = &(loadbuf1[indiv_ctl2 & (~3)]);
   while (loadbuf1 < lptr_four_end) {
     cost += qrem_cost2_4(loadbuf1, loadbuf2);
     loadbuf1 = &(loadbuf1[4]);
@@ -1915,7 +1915,7 @@ void calc_rem(uint32_t pheno_nm_ct, uintptr_t perm_vec_ct, uintptr_t* loadbuf, u
 }
 
 void calc_qrem(uint32_t pheno_nm_ct, uintptr_t perm_vec_ct, uintptr_t* loadbuf, uintptr_t* loadbuf_ref, double* perm_vecstd, double* outbufs) {
-  uintptr_t perm_vec_ctcl8m = (perm_vec_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+  uintptr_t perm_vec_ctcl8m = CACHEALIGN32_DBL(perm_vec_ct);
   uint32_t pheno_nm_ctl2x = (pheno_nm_ct + (BITCT2 - 1)) / BITCT2;
 #ifdef __LP64__
   // halve for 8 bytes vs. 16, halve again for ujj being double the indiv idx
@@ -2180,7 +2180,7 @@ void calc_qrem(uint32_t pheno_nm_ct, uintptr_t perm_vec_ct, uintptr_t* loadbuf, 
 }
 
 void calc_qrem_lin(uint32_t pheno_nm_ct, uintptr_t perm_vec_ct, uintptr_t* loadbuf, uintptr_t* loadbuf_ref, double* perm_vecstd, double* outbufs) {
-  uintptr_t perm_vec_ctcl8m = (perm_vec_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+  uintptr_t perm_vec_ctcl8m = CACHEALIGN32_DBL(perm_vec_ct);
   uint32_t pheno_nm_ctl2x = (pheno_nm_ct + (BITCT2 - 1)) / BITCT2;
 #ifdef __LP64__
   // halve for 8 bytes vs. 16, halve again for ujj being double the indiv idx
@@ -2830,7 +2830,7 @@ THREAD_RET_TYPE qassoc_gen_perms_thread(void* arg) {
   //   g_perm_vecstd[n + perm_vec_ctcl8m]
   //   g_perm_vecstd[n + 2 * perm_vec_ctcl8m]
   //   ...
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
   uintptr_t perm_vec_ctcl8 = (g_perm_vec_ct + (CACHELINE_DBL - 1)) / CACHELINE_DBL;
   uintptr_t perm_vec_ctcl8m = perm_vec_ctcl8 * CACHELINE_DBL;
@@ -2854,7 +2854,7 @@ THREAD_RET_TYPE qassoc_gen_perms_thread(void* arg) {
   double* wptr2;
   double* wptr3;
   double cur_source;
-  if (((uintptr_t)tidx) + 1 == g_assoc_thread_ct) {
+  if (tidx + 1 == g_assoc_thread_ct) {
     pmax = g_perm_vec_ct;
   }
   pdiff = pmax - pmin;
@@ -2890,7 +2890,7 @@ THREAD_RET_TYPE qassoc_gen_cluster_perms_thread(void* arg) {
   // On top of the qassoc_gen_perms_thread requirements, this also needs
   // g_cluster_ct, g_cluster_map, g_cluster_starts,
   // g_qassoc_cluster_thread_wkspace, and g_indiv_to_cluster to be initialized.
-  intptr_t tidx = (intptr_t)arg;
+  uintptr_t tidx = (uintptr_t)arg;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
   uintptr_t perm_vec_ctcl8 = (g_perm_vec_ct + (CACHELINE_DBL - 1)) / CACHELINE_DBL;
   uintptr_t perm_vec_ctcl8m = perm_vec_ctcl8 * CACHELINE_DBL;
@@ -2923,7 +2923,7 @@ THREAD_RET_TYPE qassoc_gen_cluster_perms_thread(void* arg) {
   double* wptr2;
   double* wptr3;
   double cur_source;
-  if (((uintptr_t)tidx) + 1 == g_assoc_thread_ct) {
+  if (tidx + 1 == g_assoc_thread_ct) {
     pmax = g_perm_vec_ct;
   }
   pdiff = pmax - pmin;
@@ -3161,8 +3161,8 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
   uint32_t* git_homrar_cts = NULL;
   uint32_t* git_missing_cts = NULL;
   uint32_t* git_het_cts = NULL;
-  uintptr_t perm_vec_ctcl4m = (perm_vec_ct + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1));
-  uintptr_t perm_vec_ctcl8m = (perm_vec_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+  uintptr_t perm_vec_ctcl4m = CACHEALIGN32_INT32(perm_vec_ct);
+  uintptr_t perm_vec_ctcl8m = CACHEALIGN32_DBL(perm_vec_ct);
   double* __restrict__ results = &(g_maxt_thread_results[perm_vec_ctcl8m * tidx]);
   uint32_t precomp_width = g_precomp_width;
   uint32_t case_ct = g_case_ct;
@@ -3442,7 +3442,7 @@ THREAD_RET_TYPE assoc_set_thread(void* arg) {
   uint32_t* git_homrar_cts = NULL;
   uint32_t* git_missing_cts = NULL;
   uint32_t* git_het_cts = NULL;
-  uintptr_t perm_vec_ctcl4m = (perm_vec_ct + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1));
+  uintptr_t perm_vec_ctcl4m = CACHEALIGN32_INT32(perm_vec_ct);
   uint32_t* resultbuf = g_resultbuf;
   uint32_t case_ct = g_case_ct;
   uintptr_t* __restrict__ male_vec = g_indiv_male_include2;
@@ -3564,7 +3564,7 @@ THREAD_RET_TYPE qassoc_adapt_thread(void* arg) {
   uint32_t first_adapt_check = g_first_adapt_check;
   uint32_t max_thread_ct = g_assoc_thread_ct;
   uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
-  uintptr_t perm_vec_ctcl8m = (perm_vec_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+  uintptr_t perm_vec_ctcl8m = CACHEALIGN32_DBL(perm_vec_ct);
   double* git_qt_g_prod = &(g_thread_git_qbufs[perm_vec_ctcl8m * tidx * 3]);
   double* git_qt_sum = &(g_thread_git_qbufs[perm_vec_ctcl8m * (tidx * 3 + 1)]);
   double* git_qt_ssq = &(g_thread_git_qbufs[perm_vec_ctcl8m * (tidx * 3 + 2)]);
@@ -3682,7 +3682,7 @@ THREAD_RET_TYPE qassoc_adapt_thread(void* arg) {
 	    next_cqg = ulii + (ulii >> 2);
 	  }
 	  next_cqg -= pidx_offset;
-	  next_cqg = (next_cqg + CACHELINE_DBL - 1) & (~(CACHELINE_DBL - 1));
+	  next_cqg = CACHEALIGN_DBL(next_cqg);
 	  if (next_cqg > perm_vec_ct) {
 	    next_cqg = perm_vec_ct;
 	  }
@@ -3742,7 +3742,7 @@ THREAD_RET_TYPE qassoc_adapt_lin_thread(void* arg) {
   uint32_t first_adapt_check = g_first_adapt_check;
   uint32_t max_thread_ct = g_assoc_thread_ct;
   uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
-  uintptr_t perm_vec_ctcl8m = (perm_vec_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+  uintptr_t perm_vec_ctcl8m = CACHEALIGN32_DBL(perm_vec_ct);
   double* git_qt_het_sum = &(g_thread_git_qbufs[perm_vec_ctcl8m * tidx * 6]);
   double* git_qt_het_ssq = &(g_thread_git_qbufs[perm_vec_ctcl8m * (tidx * 6 + 1)]);
   double* git_qt_homrar_sum = &(g_thread_git_qbufs[perm_vec_ctcl8m * (tidx * 6 + 2)]);
@@ -3856,7 +3856,7 @@ THREAD_RET_TYPE qassoc_adapt_lin_thread(void* arg) {
 	    next_cqg = ulii + (ulii >> 2);
 	  }
 	  next_cqg -= pidx_offset;
-	  next_cqg = (next_cqg + CACHELINE_DBL - 1) & (~(CACHELINE_DBL - 1));
+	  next_cqg = CACHEALIGN_DBL(next_cqg);
 	  if (next_cqg > perm_vec_ct) {
 	    next_cqg = perm_vec_ct;
 	  }
@@ -3916,7 +3916,7 @@ THREAD_RET_TYPE qassoc_maxt_thread(void* arg) {
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uintptr_t pheno_nm_ctv2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
-  uintptr_t perm_vec_ctcl8m = (perm_vec_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+  uintptr_t perm_vec_ctcl8m = CACHEALIGN32_DBL(perm_vec_ct);
   uint32_t max_thread_ct = g_assoc_thread_ct;
   double* __restrict__ results = &(g_maxt_thread_results[perm_vec_ctcl8m * tidx]);
   double* __restrict__ perm_vecstd = g_perm_vecstd;
@@ -4124,7 +4124,7 @@ THREAD_RET_TYPE qassoc_maxt_lin_thread(void* arg) {
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uintptr_t pheno_nm_ctv2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
-  uintptr_t perm_vec_ctcl8m = (perm_vec_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+  uintptr_t perm_vec_ctcl8m = CACHEALIGN32_DBL(perm_vec_ct);
   uint32_t max_thread_ct = g_assoc_thread_ct;
   double* __restrict__ results = &(g_maxt_thread_results[perm_vec_ctcl8m * tidx]);
   double* __restrict__ perm_vecstd = g_perm_vecstd;
@@ -4485,8 +4485,8 @@ THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
   uint32_t* git_homrar_cts = NULL;
   uint32_t* git_missing_cts = NULL;
   uint32_t* git_het_cts = NULL;
-  uintptr_t perm_vec_ctcl4m = (perm_vec_ct + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1));
-  uintptr_t perm_vec_ctcl8m = (perm_vec_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+  uintptr_t perm_vec_ctcl4m = CACHEALIGN32_INT32(perm_vec_ct);
+  uintptr_t perm_vec_ctcl8m = CACHEALIGN32_DBL(perm_vec_ct);
   double* __restrict__ results = &(g_maxt_thread_results[perm_vec_ctcl8m * tidx]);
   uint32_t precomp_width = g_precomp_width;
   uint32_t case_ct = g_case_ct;
@@ -4867,8 +4867,8 @@ THREAD_RET_TYPE model_maxt_trend_thread(void* arg) {
   uint32_t* git_homrar_cts = NULL;
   uint32_t* git_missing_cts = NULL;
   uint32_t* git_het_cts = NULL;
-  uintptr_t perm_vec_ctcl4m = (perm_vec_ct + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1));
-  uintptr_t perm_vec_ctcl8m = (perm_vec_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+  uintptr_t perm_vec_ctcl4m = CACHEALIGN32_INT32(perm_vec_ct);
+  uintptr_t perm_vec_ctcl8m = CACHEALIGN32_DBL(perm_vec_ct);
   double* __restrict__ results = &(g_maxt_thread_results[perm_vec_ctcl8m * tidx]);
   uint32_t precomp_width = g_precomp_width;
   uint32_t case_ct = g_case_ct;
@@ -5212,8 +5212,8 @@ THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
   uint32_t* git_homrar_cts = NULL;
   uint32_t* git_missing_cts = NULL;
   uint32_t* git_het_cts = NULL;
-  uintptr_t perm_vec_ctcl4m = (perm_vec_ct + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1));
-  uintptr_t perm_vec_ctcl8m = (perm_vec_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+  uintptr_t perm_vec_ctcl4m = CACHEALIGN32_INT32(perm_vec_ct);
+  uintptr_t perm_vec_ctcl8m = CACHEALIGN32_DBL(perm_vec_ct);
   double* __restrict__ results = &(g_maxt_thread_results[perm_vec_ctcl8m * tidx]);
   uint32_t case_ct = g_case_ct;
   uint32_t* __restrict__ perm_vecst = g_perm_vecst;
@@ -5641,8 +5641,8 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
   uint32_t* git_homrar_cts = NULL;
   uint32_t* git_missing_cts = NULL;
   uint32_t* git_het_cts = NULL;
-  uintptr_t perm_vec_ctcl4m = (perm_vec_ct + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1));
-  uintptr_t perm_vec_ctcl8m = (perm_vec_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+  uintptr_t perm_vec_ctcl4m = CACHEALIGN32_INT32(perm_vec_ct);
+  uintptr_t perm_vec_ctcl8m = CACHEALIGN32_DBL(perm_vec_ct);
   double* __restrict__ results = &(g_maxt_thread_results[perm_vec_ctcl8m * tidx]);
   uint32_t precomp_width = g_precomp_width;
   uint32_t case_ct = g_case_ct;
@@ -6732,7 +6732,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     } else if (!perm_vec_ct) {
       goto model_assoc_ret_NOMEM;
     }
-    perm_vec_ctcl4m = (perm_vec_ct + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1));
+    perm_vec_ctcl4m = CACHEALIGN32_INT32(perm_vec_ct);
     perms_done += perm_vec_ct;
     g_perms_done = perms_done;
     g_perm_vec_ct = perm_vec_ct;
@@ -7601,8 +7601,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	  model_maxt_best_thread((void*)ulii);
 	}
 	join_threads2(threads, max_thread_ct, is_last_block);
-	ulii = (perm_vec_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
-	if (model_fisherx) {
+	ulii = CACHEALIGN32_DBL(perm_vec_ct);
+        if (model_fisherx) {
 	  for (uii = 0; uii < assoc_thread_ct; uii++) {
 	    ooptr = &(g_maxt_thread_results[uii * ulii]);
 	    for (ujj = perms_done - perm_vec_ct; ujj < perms_done; ujj++) {
@@ -8247,7 +8247,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     if (g_perm_vec_ct > perms_total - g_perms_done) {
       g_perm_vec_ct = perms_total - g_perms_done;
     }
-    perm_vec_ctcl8m = (g_perm_vec_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+    perm_vec_ctcl8m = CACHEALIGN32_DBL(g_perm_vec_ct);
     if (wkspace_alloc_d_checked(&g_perm_vecstd, perm_vec_ctcl8m * sizeof(double) * pheno_nm_ct)) {
       goto qassoc_ret_NOMEM;
     }
@@ -8656,7 +8656,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	} else if (!ukk) {
 	  ukk = 1;
 	}
-	ulii = (g_perm_vec_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+	ulii = CACHEALIGN32_DBL(g_perm_vec_ct);
 	for (uii = 0; uii < ukk; uii++) {
 	  ooptr = &(g_maxt_thread_results[uii * ulii]);
 	  for (ujj = g_perms_done - g_perm_vec_ct; ujj < g_perms_done; ujj++) {
@@ -9774,7 +9774,7 @@ THREAD_RET_TYPE testmiss_maxt_thread(void* arg) {
   uint32_t max_thread_ct = g_assoc_thread_ct;
   uintptr_t pheno_nm_ctl = (pheno_nm_ct + (BITCT - 1)) / BITCT;
   uintptr_t pheno_nm_ctv = (pheno_nm_ctl + 1) & (~1);
-  uintptr_t perm_vec_ctcl8m = (perm_vec_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+  uintptr_t perm_vec_ctcl8m = CACHEALIGN32_DBL(perm_vec_ct);
   uint32_t perm_ct128 = (perm_vec_ct + 127) / 128;
   uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct128 * 176]);
   uint32_t* __restrict__ perm_vecst = g_perm_vecst;
@@ -10501,7 +10501,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	}
 	testmiss_maxt_thread((void*)ulii);
 	join_threads2(threads, max_thread_ct, is_last_block);
-	ulii = (g_perm_vec_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+	ulii = CACHEALIGN32_DBL(g_perm_vec_ct);
 	umm = block_size;
 	if (umm > max_thread_ct) {
 	  umm = max_thread_ct;
@@ -10796,7 +10796,7 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
     if (!g_pheno_d2) {
       goto make_perm_pheno_ret_NOMEM;
     }
-    perm_vec_ctcl8m = (permphe_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+    perm_vec_ctcl8m = CACHEALIGN32_DBL(permphe_ct);
     if (wkspace_alloc_d_checked(&g_perm_vecstd, perm_vec_ctcl8m * sizeof(double) * pheno_nm_ct)) {
       goto make_perm_pheno_ret_NOMEM;
     }

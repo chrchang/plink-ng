@@ -549,15 +549,25 @@
 #define WKSPACE_DEFAULT_MB 2048
 
 #define CACHELINE 64 // assumed number of bytes per cache line, for alignment
-#define CACHELINE_INT32 (CACHELINE / sizeof(int32_t))
-#define CACHELINE_INT64 (CACHELINE / sizeof(int64_t))
-#define CACHELINE_WORD (CACHELINE / sizeof(intptr_t))
-#define CACHELINE_DBL (CACHELINE / sizeof(double))
+#define CACHELINE_INT32 (CACHELINE / 4)
+#define CACHELINE_INT64 (CACHELINE / 8)
+#define CACHELINE_WORD (CACHELINE / BYTECT)
+#define CACHELINE_DBL (CACHELINE / 8)
 
-#define CACHEALIGN(val) ((val + (CACHELINE - 1)) & (~(CACHELINE - 1)))
-#define CACHEALIGN_INT32(val) ((val + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1)))
-#define CACHEALIGN_WORD(val) ((val + (CACHELINE_WORD - 1)) & (~(CACHELINE_WORD - 1)))
-#define CACHEALIGN_DBL(val) ((val + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
+#define CACHEALIGN(val) ((val + (CACHELINE - 1)) & (~(CACHELINE - ONELU)))
+#define CACHEALIGN_INT32(val) ((val + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - ONELU)))
+#define CACHEALIGN_WORD(val) ((val + (CACHELINE_WORD - 1)) & (~(CACHELINE_WORD - ONELU)))
+#define CACHEALIGN_DBL(val) ((val + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - ONELU)))
+
+// 32-bit instead of word-length bitwise not here, when val can be assumed to
+// be 32-bit.
+// (note that the sizeof operator "returns" an uintptr_t, not a uint32_t; hence
+// the lack of sizeof in the CACHELINE_INT32, etc. definitions.)
+#define CACHEALIGN32(val) ((val + (CACHELINE - 1)) & (~(CACHELINE - 1)))
+#define CACHEALIGN32_INT32(val) ((val + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1)))
+#define CACHEALIGN32_WORD(val) ((val + (CACHELINE_WORD - 1)) & (~(CACHELINE_WORD - 1)))
+#define CACHEALIGN32_DBL(val) ((val + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
+
 #define MAXV(aa, bb) (((bb) > (aa))? (bb) : (aa))
 #define MINV(aa, bb) (((aa) > (bb))? (bb) : (aa))
 
@@ -580,6 +590,7 @@
 #endif
 
 #define BITCT2 (BITCT / 2)
+#define BYTECT (BITCT / 8)
 
 // generic maximum line length.  .ped/.vcf/etc. lines can of course be longer
 #define MAXLINELEN 131072
@@ -1118,6 +1129,16 @@ static inline char* token_endnn(char* sptr) {
 }
 
 void get_top_two(uint32_t* uint_arr, uintptr_t uia_size, uintptr_t* top_idx_ptr, uintptr_t* second_idx_ptr);
+
+static inline char* uint32_encode_5_hi_uchar(char* start, uint32_t uii) {
+  // tried a few bit hacks here, but turns out nothing really beats this
+  *start++ = (unsigned char)(uii | 0x80);
+  *start++ = (unsigned char)((uii >> 7) | 0x80);
+  *start++ = (unsigned char)((uii >> 14) | 0x80);
+  *start++ = (unsigned char)((uii >> 21) | 0x80);
+  *start++ = (unsigned char)((uii >> 28) | 0x80);
+  return start;
+}
 
 int32_t intlen(int32_t num);
 

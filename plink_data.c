@@ -1142,6 +1142,15 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       bufptr3 = skip_initial_spaces(loadbuf2);
     } while (is_eoln_or_comment(*bufptr3));
     jj = get_chrom_code(chrom_info_ptr, bufptr3);
+#ifndef STABLE_BUILD
+    if (g_debug_on && (jj == -2)) {
+      logprint("Assert failure: negative get_chrom_code() return value in load_bim().\n");
+      LOGPRINTF("Input file line number: %" PRIuPTR "\n", line_idx);
+      LOGPRINTF("Line contents: %s", loadbuf2);
+      retval = RET_INVALID_FORMAT; // really RET_BUG...
+      goto load_bim_ret_1;
+    }
+#endif
     if (jj != prev_chrom) {
       if (!split_chrom) {
 	if (prev_chrom != -1) {
@@ -2486,6 +2495,9 @@ int32_t load_bim_split_chrom(char* bimname, uintptr_t* marker_exclude, uintptr_t
   int32_t retval = 0;
   char* bufptr;
   uint64_t chrom_idx;
+#ifndef STABLE_BUILD
+  uint32_t nonstd_idx;
+#endif
   if (fopen_checked(&infile, bimname, "r")) {
     goto load_bim_split_chrom_ret_OPEN_FAIL;
   }
@@ -2504,6 +2516,18 @@ int32_t load_bim_split_chrom(char* bimname, uintptr_t* marker_exclude, uintptr_t
     }
     // already validated
     chrom_idx = ((uint32_t)get_chrom_code(chrom_info_ptr, bufptr));
+#ifndef STABLE_BUILD
+    if (g_debug_on && (chrom_idx == 0xfffffffeLLU)) {
+      logprint("Assert failure: negative get_chrom_code() return value in\nload_bim_split_chrom().\n");
+      LOGPRINTF("Line contents: %s", tbuf);
+      LOGPRINTF("name_ct: %u\n", chrom_info_ptr->name_ct);
+      for (nonstd_idx = 0; nonstd_idx < chrom_info_ptr->name_ct; nonstd_idx++) {
+        LOGPRINTF("nonstd_name_order[%u]: %s\n", nonstd_idx, chrom_info_ptr->nonstd_names[chrom_info_ptr->nonstd_name_order[nonstd_idx]]);
+      }
+      retval = RET_INVALID_FORMAT; // really RET_BUG...
+      goto load_bim_split_chrom_ret_1;
+    }
+#endif
     ll_buf[marker_idx] = (int64_t)((chrom_idx << 32) | ((uint64_t)marker_idx));
   } while ((++marker_idx) < marker_ct);
   while (0) {
@@ -2514,6 +2538,7 @@ int32_t load_bim_split_chrom(char* bimname, uintptr_t* marker_exclude, uintptr_t
     retval = RET_READ_FAIL;
     break;
   }
+ load_bim_split_chrom_ret_1:
   fclose_cond(infile);
   return retval;
 }
@@ -2754,8 +2779,6 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
   int32_t retval = 0;
   const char* missing_geno_ptr = g_missing_geno_ptr;
   const char* output_missing_geno_ptr = g_output_missing_geno_ptr;
-  char chrom_name_buf[MAX_ID_LEN_P1];
-  char wbuf[16];
   uint32_t* chrom_start;
   uint32_t* chrom_id;
   uint32_t* unpack_map;
@@ -2803,28 +2826,27 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
       logstr(logbuf);
     }
 #endif
-    chrom_name_end = chrom_name_write(chrom_name_buf, chrom_info_ptr, cur_chrom);
+    chrom_name_end = chrom_name_write(tbuf, chrom_info_ptr, cur_chrom);
 #ifndef STABLE_BUILD
     if (g_debug_on) {
-      sprintf(logbuf, "chrom_name_len: %" PRIxPTR2 "\n", ((uintptr_t)(chrom_name_end - chrom_name_buf)) - 1);
+      sprintf(logbuf, "chrom_name_len: %" PRIxPTR2 "\n", ((uintptr_t)(chrom_name_end - tbuf)) - 1);
       logstr(logbuf);
     }
 #endif
+    *chrom_name_end++ = '\t';
     for (; marker_idx < ujj; marker_idx++) {
       marker_uidx = unpack_map[(uint32_t)ll_buf[marker_idx]];
-      fputs(chrom_name_buf, outfile);
-      putc('\t', outfile);
-      fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
-      wbuf[0] = '\t';
+      bufptr = strcpyax(chrom_name_end, &(marker_ids[marker_uidx * max_marker_id_len]), '\t');
       if (!marker_cms) {
-        bufptr = memcpya(&(wbuf[1]), "0\t", 2); 
+	*bufptr++ = '0';
       } else {
-        bufptr = double_g_writewx8x(&(wbuf[1]), marker_cms[marker_uidx], 1, '\t');
+        bufptr = double_g_writewx8(bufptr, marker_cms[marker_uidx], 1);
       }
-      fwrite(wbuf, 1, bufptr - wbuf, outfile);
-      bufptr = uint32_write(wbuf, (uint32_t)(ll_buf[marker_idx] >> 32));
-      fwrite(wbuf, 1, bufptr - wbuf, outfile);
-      putc('\t', outfile);
+      *bufptr++ = '\t';
+      bufptr = uint32_writex(bufptr, (uint32_t)(ll_buf[marker_idx] >> 32), '\t');
+      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	goto sort_and_write_bim_ret_WRITE_FAIL;
+      }
       fputs(cond_replace(marker_allele_ptrs[2 * marker_uidx], missing_geno_ptr, output_missing_geno_ptr), outfile);
       putc('\t', outfile);
       fputs(cond_replace(marker_allele_ptrs[2 * marker_uidx + 1], missing_geno_ptr, output_missing_geno_ptr), outfile);
@@ -5266,7 +5288,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
       goto ped_to_bed_multichar_allele_loop_1_start;
     }
     // check for top-of-stack allocations colliding with load buffer
-    cur_slen_rdup = (cur_slen + CACHELINE) & (~(CACHELINE - 1));
+    cur_slen_rdup = (cur_slen + CACHELINE) & (~(CACHELINE - ONELU));
     if (fam_cols & FAM_COL_1) {
       col2_ptr = next_token(col1_ptr);
     } else {
@@ -13902,7 +13924,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
     if (wkspace_left - topsize > 0x7fffff7f) {
       loadbuf_size = 0x3fffffc0;
     } else if (wkspace_left - topsize >= MAXLINELEN * 2) {
-      loadbuf_size = ((wkspace_left - topsize) / 2) & (~(CACHELINE - 1));
+      loadbuf_size = ((wkspace_left - topsize) / 2) & (~(CACHELINE - ONELU));
     } else {
       goto merge_bim_scan_ret_NOMEM;
     }

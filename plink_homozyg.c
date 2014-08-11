@@ -2558,7 +2558,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   }
   // no other workspace allocations during main scan, so we can assign it all
   // to the ROH list
-  max_roh_ct = ((wkspace_left - topsize) & (~(CACHELINE - 1))) / (ROH_ENTRY_INTS * sizeof(int32_t));
+  max_roh_ct = ((wkspace_left - topsize) & (~(CACHELINE - ONELU))) / (ROH_ENTRY_INTS * sizeof(int32_t));
   roh_list = (uint32_t*)wkspace_base;
   ulii = indiv_ctl2 - 1;
   rawbuf[unfiltered_indiv_ctl2 - 1] = 0;

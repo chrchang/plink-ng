@@ -1207,7 +1207,7 @@ THREAD_RET_TYPE ibs_test_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
   uintptr_t perm_ctcl = (g_perm_ct + (CACHELINE * 8 - 1)) / (CACHELINE * 8);
   uintptr_t perm_ctcld = (g_perm_ct + (CACHELINE_DBL - 1)) / CACHELINE_DBL;
-  ibs_test_range((uint32_t)tidx, &(g_perm_col_buf[tidx * perm_ctcl * (CACHELINE / sizeof(intptr_t))]), &(g_perm_results[2 * tidx * perm_ctcld * CACHELINE_DBL]));
+  ibs_test_range((uint32_t)tidx, &(g_perm_col_buf[tidx * perm_ctcl * (CACHELINE / sizeof(intptr_t))]), &(g_perm_results[tidx * perm_ctcld * 2 * CACHELINE_DBL]));
   THREAD_RETURN;
 }
 
@@ -10183,7 +10183,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	// this guarantees write_cluster_solution() has enough space
 	ulii = cur_cluster_ct;
       }
-      wkspace_reset((&(cluster_sorted_ibs_indices[(ulii + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1))])));
+      wkspace_reset((&(cluster_sorted_ibs_indices[CACHEALIGN_INT32(ulii)])));
     } else {
       uiptr = &(cluster_sorted_ibs_indices[CACHELINE_INT32 + 3 * heap_size]);
       for (ulii = 0; ulii < heap_size; ulii++) {
