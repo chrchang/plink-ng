@@ -697,7 +697,7 @@ uint32_t count_tokens(const char* bufptr) {
   }
   while (!is_eoln_kns(*bufptr)) {
     token_ct++;
-    while (!is_space_or_eoln(*(+bufptr)));
+    while (!is_space_or_eoln(*(++bufptr)));
     while ((*bufptr == ' ') || (*bufptr == '\t')) {
       bufptr++;
     }

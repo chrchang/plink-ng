@@ -3809,7 +3809,9 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
 	  } else {
 	    p_bc_ptr = p_bc_tmp;
 	  }
-	  boost_calc_p_ca(tot1[0], tot1[1], tot1[2], tot1[3], tot1[4], tot1[5], p_ca_fixed, &df_adj_base);
+	  if (boost_calc_p_ca(tot1[0], tot1[1], tot1[2], tot1[3], tot1[4], tot1[5], p_ca_fixed, &df_adj_base)) {
+	    ;;;
+	  }
 	}
       }
       block_delta1 = block_idx1 - block_idx1_start;
@@ -8203,6 +8205,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 		  *wptr++ = ' ';
 		} else {
                   wptr = memcpya(wptr, "         nan    0 ", 18);
+		  uii = 0;
 		}
 	      } else if (!no_ueki) {
 		wptr = width_force(12, wptr, double_g_write(wptr, dxx));
@@ -8214,8 +8217,10 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	      if (!no_p_value) {
 		if (!is_boost) {
 		  wptr = double_g_writewx4x(wptr, normdist(-sqrt(dxx)) * 2, 12, ' ');
-		} else {
+		} else if (uii) {
 		  wptr = double_g_writewx4x(wptr, chiprob_p(dxx, uii), 12, ' ');
+		} else {
+		  wptr = memcpya(wptr, "          NA ", 13);
 		}
 	      }
 	      *wptr++ = '\n';
