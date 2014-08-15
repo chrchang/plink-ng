@@ -4968,24 +4968,14 @@ uint32_t is_monomorphic(uintptr_t* lptr, uint32_t indiv_ct) {
 	  return 0;
 	}
 	if (!(--indiv_ctd2)) {
-	  if (indiv_rem) {
-	    if ((~(*lptr)) & (FIVEMASK >> (BITCT - indiv_rem * 2))) {
-	      return 0;
-	    }
-	  }
-	  return 1;
+	  return (indiv_rem && ((~(*lptr)) & (FIVEMASK >> (BITCT - indiv_rem * 2))))? 0 : 1;
 	}
 	ulii = ~(*lptr++);
       }
     } else if (ulii & FIVEMASK) {
       do {
         if (!(--indiv_ctd2)) {
-          if (indiv_rem) {
-	    if ((*lptr) & (AAAAMASK >> (BITCT - indiv_rem * 2))) {
-	      return 0;
-	    }
-	  }
-	  return 1;
+          return (indiv_rem && ((*lptr) & (AAAAMASK >> (BITCT - indiv_rem * 2))))? 0 : 1;
 	}
 	ulii = *lptr++;
       } while (!(ulii & AAAAMASK));
@@ -4997,7 +4987,74 @@ uint32_t is_monomorphic(uintptr_t* lptr, uint32_t indiv_ct) {
     ulii = *lptr;
     uljj = (ulii >> 1) & FIVEMASK;
     ulii = ~ulii;
-    if ((uljj & ulii) || (uljj && (ulii & (FIVEMASK >> (BITCT - indiv_rem * 2))))) {
+    if ((uljj & ulii) || (uljj && (ulii & (~uljj) & (FIVEMASK >> (BITCT - indiv_rem * 2))))) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+uint32_t less_than_two_genotypes(uintptr_t* lptr, uint32_t indiv_ct) {
+  uint32_t indiv_ctd2 = indiv_ct / BITCT2;
+  uint32_t indiv_rem = indiv_ct % BITCT2;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  uintptr_t ulkk;
+  uint32_t distinct_genotype_ct;
+  while (indiv_ctd2) {
+    ulii = *lptr++;
+    uljj = (ulii >> 1) & FIVEMASK;
+    ulkk = ~ulii;
+    if (uljj) {
+      if (uljj & ulii) {
+	// homozygote major observed; either 00 or 10 now demonstrate marker
+	// is polymorphic
+	while (1) {
+	  if (ulkk & FIVEMASK) {
+	    return 0;
+	  }
+	  if (!(--indiv_ctd2)) {
+	    return (indiv_rem && ((~(*lptr)) & (FIVEMASK >> (BITCT - indiv_rem * 2))))? 0 : 1;
+	  }
+	  ulkk = ~(*lptr++);
+	}
+      } else {
+        // heterozygote observed; either 00 or 11 now means we have 2+
+	// genotypes
+	while (1) {
+	  ulii = ~(*lptr++);
+	  if (!(--indiv_ctd2)) {
+	    return (indiv_rem && (((~ulii) ^ (ulii >> 1)) & (FIVEMASK >> (BITCT - indiv_rem * 2))))? 0 : 1;
+	  }
+	  if (((~ulii) ^ (ulii >> 1)) & FIVEMASK) {
+	    return 0;
+	  }
+	}
+      }
+    } else if (ulkk & FIVEMASK) {
+      // homozygous minor observed; either 10 or 11 now demonstrate marker is
+      // polymorphic
+      do {
+        if (!(--indiv_ctd2)) {
+          return (indiv_rem && ((*lptr) & (AAAAMASK >> (BITCT - indiv_rem * 2))))? 0 : 1;
+	}
+	ulii = *lptr++;
+      } while (!(ulii & AAAAMASK));
+      return 0;
+    }
+    indiv_ctd2--;
+  }
+  if (indiv_rem) {
+    ulii = *lptr;
+    uljj = (ulii >> 1) & FIVEMASK;
+    ulkk = ~ulii;
+    // homozygous minor present?
+    distinct_genotype_ct = (ulkk & (~uljj) & (FIVEMASK >> (BITCT - indiv_rem * 2)))? 1 : 0;
+    // heterozygous present?
+    distinct_genotype_ct += (uljj & ulkk)? 1 : 0;
+    // homozygous major present?
+    distinct_genotype_ct += (uljj & ulii)? 1 : 0;
+    if (distinct_genotype_ct > 1) {
       return 0;
     }
   }

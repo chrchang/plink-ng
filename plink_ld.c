@@ -3809,9 +3809,7 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
 	  } else {
 	    p_bc_ptr = p_bc_tmp;
 	  }
-	  if (boost_calc_p_ca(tot1[0], tot1[1], tot1[2], tot1[3], tot1[4], tot1[5], p_ca_fixed, &df_adj_base)) {
-	    ;;;
-	  }
+	  boost_calc_p_ca(tot1[0], tot1[1], tot1[2], tot1[3], tot1[4], tot1[5], p_ca_fixed, &df_adj_base);
 	}
       }
       block_delta1 = block_idx1 - block_idx1_start;
@@ -7547,8 +7545,14 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, casebuf, pheno_nm_ct, pheno_nm, final_mask, 0)) {
 	  goto epistasis_report_ret_READ_FAIL;
 	}
-	if (is_monomorphic(casebuf, pheno_nm_ct)) {
-	  SET_BIT(marker_exclude2, marker_uidx);
+	if (is_boost) {
+	  if (less_than_two_genotypes(casebuf, pheno_nm_ct)) {
+	    SET_BIT(marker_exclude2, marker_uidx);
+	  }
+	} else {
+	  if (is_monomorphic(casebuf, pheno_nm_ct)) {
+	    SET_BIT(marker_exclude2, marker_uidx);
+	  }
 	}
       } else {
         if (load_and_split(bedfile, loadbuf, unfiltered_indiv_ct, casebuf, ctrlbuf, pheno_nm, pheno_c)) {

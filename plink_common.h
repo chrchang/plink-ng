@@ -1947,6 +1947,9 @@ static inline uint32_t popcount_long(uintptr_t val) {
 
 uint32_t is_monomorphic(uintptr_t* lptr, uint32_t indiv_ct);
 
+// same as is_monomorphic, except it also flags the all-heterozygote case
+uint32_t less_than_two_genotypes(uintptr_t* lptr, uint32_t indiv_ct);
+
 // uint32_t has_three_genotypes(uintptr_t* lptr, uint32_t indiv_ct);
 
 uintptr_t popcount_longs(uintptr_t* lptr, uintptr_t word_ct);

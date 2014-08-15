@@ -98,7 +98,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (14 Aug 2014)";
+  " (15 Aug 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -5943,6 +5943,9 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (covar_modifier & COVAR_KEEP_PHENO_ON_MISSING_COV) {
 	  logprint("Error: --dosage cannot be used with --covar 'keep-pheno-on-missing-cov'\nmodifier.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	} else if (condition_mname || condition_fname) {
+	  logprint("Error: --dosage does not support --condition/--condition-list.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 11)) {
