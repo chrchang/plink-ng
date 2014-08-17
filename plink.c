@@ -98,7 +98,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (15 Aug 2014)";
+  " (17 Aug 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -1105,13 +1105,11 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	goto plink_ret_1;
       }
     }
-    if ((cluster_ptr->fname || (misc_flags & MISC_FAMILY_CLUSTERS)) && (cluster_ptr->keep_fname || cluster_ptr->keep_flattened || cluster_ptr->remove_fname || cluster_ptr->remove_flattened)) {
-      wkspace_mark = wkspace_base;
+    if (cluster_ptr->fname || (misc_flags & MISC_FAMILY_CLUSTERS)) {
       retval = load_clusters(cluster_ptr->fname, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, person_ids, max_person_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len, cluster_ptr->keep_fname, cluster_ptr->keep_flattened, cluster_ptr->remove_fname, cluster_ptr->remove_flattened);
       if (retval) {
 	goto plink_ret_1;
       }
-      wkspace_reset(wkspace_mark);
     }
     indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
     if (!indiv_ct) {
