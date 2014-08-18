@@ -85,7 +85,7 @@
 
 const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b2e"
+  "PLINK v1.90b2f"
 #else
   "PLINK v1.90b3p"
 #endif
@@ -1106,6 +1106,9 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
     }
     if (cluster_ptr->fname || (misc_flags & MISC_FAMILY_CLUSTERS)) {
+      // could save off wkspace_mark here and free immediately after
+      // load_clusters(), if clusters are *only* used for filtering.  But not a
+      // big deal.
       retval = load_clusters(cluster_ptr->fname, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, person_ids, max_person_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len, cluster_ptr->keep_fname, cluster_ptr->keep_flattened, cluster_ptr->remove_fname, cluster_ptr->remove_flattened);
       if (retval) {
 	goto plink_ret_1;

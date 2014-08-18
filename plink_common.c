@@ -717,6 +717,7 @@ uint32_t count_and_measure_multistr(const char* multistr, uintptr_t* max_slen_pt
       max_slen = slen;
     }
     multistr = &(multistr[slen]);
+    ct++;
   } while (*multistr);
   *max_slen_ptr = max_slen;
   return ct;
