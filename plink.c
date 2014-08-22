@@ -98,7 +98,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (17 Aug 2014)";
+  " (21 Aug 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -7813,8 +7813,8 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-	cc = argv[cur_arg + 1][0];
-	if ((argv[cur_arg + 1][1] != '\0') || (((unsigned char)cc) <= ' ') || ((cc > '0') && (cc <= '4')) || (cc == 'A') || (cc == 'C') || (cc == 'G') || (cc == 'T')) {
+        cc = extract_char_param(argv[cur_arg + 1]);
+	if (((unsigned char)cc <= ' ') || ((cc > '0') && (cc <= '4')) || (cc == 'A') || (cc == 'C') || (cc == 'G') || (cc == 'T')) {
 	  sprintf(logbuf, "Error: Invalid --missing-genotype parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
