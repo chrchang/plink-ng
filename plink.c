@@ -2122,12 +2122,12 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 
 static inline int32_t is_flag(char* param) {
   unsigned char ucc = param[1];
-  return ((*param == '-') && ((ucc > '9') || ((ucc < '0') && (ucc != '.')))); 
+  return ((*param == '-') && ((ucc > '9') || ((ucc < '0') && (ucc != '.') && (ucc != '\0')))); 
 }
 
 static inline char* is_flag_start(char* param) {
   unsigned char ucc = param[1];
-  if ((*param == '-') && ((ucc > '9') || ((ucc < '0') && (ucc != '.')))) {
+  if ((*param == '-') && ((ucc > '9') || ((ucc < '0') && (ucc != '.') && (ucc != '\0')))) {
     return (ucc == '-')? (&(param[2])) : (&(param[1]));
   }
   return NULL;
@@ -3473,7 +3473,7 @@ int32_t main(int32_t argc, char** argv) {
       switch (*argptr) {
       case '\0':
 	// special case, since we reserve empty names for preprocessed flags
-	printf("Error: Unrecognized flag ('%s').\n", argv[uii]);
+	fputs("Error: Unrecognized flag ('--').\n", stdout);
 	goto main_ret_INVALID_CMDLINE;
       case 'F':
 	if (!strcmp(argptr, "Fst")) {
