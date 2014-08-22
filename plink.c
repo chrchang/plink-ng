@@ -9053,8 +9053,8 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-	cc = argv[cur_arg + 1][0];
-	if ((argv[cur_arg + 1][1] != '\0') || (((unsigned char)cc) <= ' ')) {
+	cc = extract_char_param(argv[cur_arg + 1]);
+	if (((unsigned char)cc) <= ' ') {
 	  sprintf(logbuf, "Error: Invalid --output-missing-genotype parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
