@@ -98,7 +98,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (21 Aug 2014)";
+  " (23 Aug 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -9138,6 +9138,9 @@ int32_t main(int32_t argc, char** argv) {
 	if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
 	  logprint("Error: --ped parameter too long.\n");
 	  goto main_ret_OPEN_FAIL;
+	} else if (!memcmp(argv[cur_arg + 1], "-", 2)) {
+	  logprint("Error: '--ped -' is no longer supported.  Redirect to a temporary file and load\nit the usual way, or use PLINK 1.07.\n");
+	  goto main_ret_INVALID_CMDLINE;
 	}
 	strcpy(pedname, argv[cur_arg + 1]);
       } else if (!memcmp(argptr2, "heno", 5)) {
@@ -11107,7 +11110,12 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --thin variant retention probability too small.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (thin_keep_prob >= (4294967295.5 / 4294967296.0)) {
-	  logprint("Error: --thin variant retention probability too large.\n");
+	  if (scan_uint_defcap(argv[cur_arg + 1], &uii)) {
+	    logprint("Error: --thin variant retention probability too large.\n");
+	  } else {
+	    // VCFtools --thin = --bp-space...
+	    logprint("Error: --thin variant retention probability too large.  (Did you mean\n--bp-space?)\n");
+	  }
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP | FILTER_NOCNV;

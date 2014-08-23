@@ -2764,7 +2764,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
   if (retval) {
     goto annotate_ret_1;
   }
-  fill_uint_one(col_sequence, 4);
+  ujj = 0; // bitfield tracking which columns have already been found
   do {
     bufptr2 = token_endnn(bufptr);
     slen = (uintptr_t)(bufptr2 - bufptr);
@@ -2781,17 +2781,18 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	uii = 4;
       }
       if (uii != 4) {
-        if (col_sequence[uii] != 0xffffffffU) {
+        if ((ujj >> uii) & 1) {
 	  *bufptr2 = '\0';
           sprintf(logbuf, "Error: Duplicate column header '%s' in %s.\n", bufptr, aip->fname);
           goto annotate_ret_INVALID_FORMAT_WW;
 	}
+	ujj |= 1 << uii;
         if (!seq_idx) {
 	  col_skips[0] = col_idx;
 	} else {
 	  col_skips[seq_idx] = col_idx - col_skips[seq_idx - 1];
 	}
-	col_sequence[uii] = seq_idx++;
+	col_sequence[seq_idx++] = uii;
       }
     }
     bufptr = skip_initial_spaces(bufptr2);
@@ -2853,23 +2854,23 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
       continue;
     }
     bufptr = next_token_multz(bufptr, col_skips[0]);
-    token_ptrs[0] = bufptr;
+    token_ptrs[col_sequence[0]] = bufptr;
     for (seq_idx = 1; seq_idx < token_ct; seq_idx++) {
       bufptr = next_token_mult(bufptr, col_skips[seq_idx]);
-      token_ptrs[seq_idx] = bufptr;
+      token_ptrs[col_sequence[seq_idx]] = bufptr;
     }
     if (!bufptr) {
       continue;
     }
     if (need_pos) {
       // CHR
-      chrom_idx = get_chrom_code(chrom_info_ptr, token_ptrs[col_sequence[0]]);
+      chrom_idx = get_chrom_code(chrom_info_ptr, token_ptrs[0]);
       if (chrom_idx < 0) {
         continue;
       }
 
       // BP
-      if (scan_uint_defcap(token_ptrs[col_sequence[1]], &cur_bp)) {
+      if (scan_uint_defcap(token_ptrs[1], &cur_bp)) {
 	continue;
       }
 
@@ -2887,14 +2888,14 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
     }
 
     if (sorted_snplist) {
-      if (bsearch_str(token_ptrs[col_sequence[2]], strlen_se(token_ptrs[col_sequence[2]]), sorted_snplist, max_snplist_id_len, snplist_ct) == -1) {
+      if (bsearch_str(token_ptrs[2], strlen_se(token_ptrs[2]), sorted_snplist, max_snplist_id_len, snplist_ct) == -1) {
 	continue;
       }
     }
 
     // P
     if (do_pfilter) {
-      if (scan_double(token_ptrs[col_sequence[3]], &pval) || (!(pval <= pfilter))) {
+      if (scan_double(token_ptrs[3], &pval) || (!(pval <= pfilter))) {
 	continue;
       }
     }
@@ -2946,7 +2947,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	}
       }
       if (sorted_snplist_attr_ids) {
-	bufptr2 = token_ptrs[col_sequence[2]];
+	bufptr2 = token_ptrs[2];
 	slen = (uintptr_t)(token_endnn(bufptr2) - bufptr2);
 	sorted_idx = bsearch_str(bufptr2, slen, sorted_snplist_attr_ids, max_snplist_attr_id_len, snplist_attr_ct);
 	if (sorted_idx != -1) {
@@ -3007,7 +3008,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	}
       }
       if (sorted_snplist_attr_ids) {
-	bufptr2 = token_ptrs[col_sequence[2]];
+	bufptr2 = token_ptrs[2];
 	slen = (uintptr_t)(token_endnn(bufptr2) - bufptr2);
 	sorted_idx = bsearch_str(bufptr2, slen, sorted_snplist_attr_ids, max_snplist_attr_id_len, snplist_attr_ct);
 	if (sorted_idx != -1) {
@@ -3146,6 +3147,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   uint32_t col_idx = 0;
   uint32_t seq_idx = 0;
   uint32_t cur_bp = 0;
+  uint32_t found_header_bitfield = 0;
   int32_t retval = 0;
 
   // see --annotate comment on col_skips.
@@ -3330,7 +3332,6 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       snp_field_len = 3;
     }
   }
-  fill_uint_one(col_sequence, token_ct);
   retval = open_and_load_to_first_token(&infile, fname, loadbuf_size, '\0', "--gene-report file", loadbuf, &bufptr, &line_idx);
   if (retval) {
     goto gene_report_ret_1;
@@ -3351,17 +3352,18 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
 	ujj = 4;
       }
       if (ujj != 4) {
-	if (col_sequence[ujj] != 0xffffffffU) {
+	if ((found_header_bitfield >> ujj) & 1) {
 	  *bufptr2 = '\0';
 	  sprintf(logbuf, "Error: Duplicate column header '%s' in %s.\n", bufptr, fname);
 	  goto gene_report_ret_INVALID_FORMAT_WW;
 	}
+	found_header_bitfield |= 1 << ujj;
 	if (!seq_idx) {
 	  col_skips[0] = col_idx;
 	} else {
 	  col_skips[seq_idx] = col_idx - col_skips[seq_idx - 1];
 	}
-	col_sequence[ujj] = seq_idx++;
+	col_sequence[seq_idx++] = ujj;
       }
     }
     bufptr = skip_initial_spaces(bufptr2);
@@ -3406,29 +3408,29 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       goto gene_report_load_loop;
     }
     bufptr = next_token_multz(bufptr, col_skips[0]);
-    token_ptrs[0] = bufptr;
+    token_ptrs[col_sequence[0]] = bufptr;
     for (seq_idx = 1; seq_idx < token_ct; seq_idx++) {
       bufptr = next_token_mult(bufptr, col_skips[seq_idx]);
-      token_ptrs[seq_idx] = bufptr;
+      token_ptrs[col_sequence[seq_idx]] = bufptr;
     }
     if (!bufptr) {
       goto gene_report_load_loop;
     }
     // CHR
-    chrom_idx = get_chrom_code(chrom_info_ptr, token_ptrs[col_sequence[0]]);
+    chrom_idx = get_chrom_code(chrom_info_ptr, token_ptrs[0]);
     if (chrom_idx < 0) {
       // todo: log warning?
       goto gene_report_load_loop;
     }
 
     // BP
-    if (scan_uint_defcap(token_ptrs[col_sequence[1]], &cur_bp)) {
+    if (scan_uint_defcap(token_ptrs[1], &cur_bp)) {
       goto gene_report_load_loop;
     }
 
     // variant ID
     if (sorted_extract_ids) {
-      bufptr2 = token_ptrs[col_sequence[2]];
+      bufptr2 = token_ptrs[2];
       if (bsearch_str(bufptr2, strlen_se(bufptr2), sorted_extract_ids, max_extract_id_len, extract_ct) == -1) {
 	goto gene_report_load_loop;
       }
@@ -3436,7 +3438,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
 
     // P
     if (do_pfilter) {
-      if (scan_double(token_ptrs[col_sequence[3]], &pval) || (!(pval <= pfilter))) {
+      if (scan_double(token_ptrs[3], &pval) || (!(pval <= pfilter))) {
         goto gene_report_load_loop;
       }
     }

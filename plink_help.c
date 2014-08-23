@@ -516,7 +516,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    estimates, while --ibc calculates all three values described in Yang J, Lee\n"
 "    SH, Goddard ME and Visscher PM (2011) GCTA: A Tool for Genome-wide Complex\n"
 "    Trait Analysis.  (That paper also describes the relationship matrix\n"
-"    computation we implement.)\n"
+"    computation we reimplement.)\n"
 "    * These functions require decent MAF estimates.  If there are very few\n"
 "      samples in your immediate fileset, --read-freq is practically mandatory\n"
 "      since imputed MAFs are wildly inaccurate in that case.\n"
@@ -1507,9 +1507,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --thin [p]       : Randomly remove loci, retaining each with probability p.\n"
 "  --thin-count [n] : Randomly remove loci until n of them remain.\n"
 	       );
-    help_print("bp-space", &help_ctrl, 0,
+    help_print("bp-space\tthin", &help_ctrl, 0,
 "  --bp-space [bps] : Remove loci so that each pair is no closer than the given\n"
-"                     bp distance.\n"
+"                     bp distance.  (This is equivalent to VCFtools --thin.)\n"
 	       );
     help_print("filter\tmfilter", &help_ctrl, 0,
 "  --filter [f] [val(s)...] : Exclude all individuals without a 3rd column entry\n"

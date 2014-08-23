@@ -4264,7 +4264,7 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
       sprintf(logbuf, "Error: Line %" PRIuPTR " of %s has too many columns.\n", line_idx, fname);
       goto meta_analysis_open_and_read_header_ret_INVALID_FORMAT_WW;
     }
-  } while (is_eoln_kns(*bufptr));
+  } while (!is_eoln_kns(*bufptr));
   if (line_idx) {
     slen = strlen(bufptr) + (uintptr_t)(bufptr - loadbuf);
     if (slen >= line_max) {
@@ -4295,7 +4295,7 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
     }
   }
 #ifdef __cplusplus
-  std::sort((int32_t*)parse_table, (int32_t*)(&(parse_table[token_ct * 2])));
+  std::sort(parse_table, &(parse_table[token_ct]));
 #else
   qsort((int32_t*)parse_table, token_ct, sizeof(int32_t), intcmp);
 #endif
@@ -4308,7 +4308,7 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
       *token_ct_ptr = uii;
       break;
     }
-    col_skips[uii] = (ujj >> 3) - col_skips[0];
+    col_skips[uii] = (ujj >> 3) - (parse_table[uii - 1] >> 3);
     col_sequence[uii] = ujj & 7;
   }
   
@@ -4334,23 +4334,22 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
   return retval;
 }
 
-uint32_t meta_analysis_allelic_match(const char* existing_a1ptr, char** token_ptrs, const uint32_t* col_sequence, const uint32_t token_ct, const uint32_t a1lenp1, const uint32_t a2lenp1) {
+uint32_t meta_analysis_allelic_match(const char* existing_a1ptr, char** token_ptrs, const uint32_t token_ct, const uint32_t a1lenp1, const uint32_t a2lenp1) {
   // returns 1 on same-direction match, 2 on A1/A2 reverse match, 0 on mismatch
   if (token_ct < 6) {
     return 1;
   }
-  const char* cur_a1ptr = token_ptrs[col_sequence[5]];
+  const char* cur_a1ptr = token_ptrs[5];
   // memcmp is safe here since hash table entries are stored b
   if (memcmp(existing_a1ptr, cur_a1ptr, a1lenp1)) {
-    return ((token_ct == 7) && (!memcmp(existing_a1ptr, token_ptrs[col_sequence[6]], a2lenp1) && (!memcmp(&(existing_a1ptr[a2lenp1]), cur_a1ptr, a1lenp1)))) * 2;
+    return ((token_ct == 7) && (!memcmp(existing_a1ptr, token_ptrs[6], a2lenp1) && (!memcmp(&(existing_a1ptr[a2lenp1]), cur_a1ptr, a1lenp1)))) * 2;
   }
-  return ((token_ct == 6) || (!memcmp(&(existing_a1ptr[a1lenp1]), token_ptrs[col_sequence[6]], a2lenp1)));
+  return ((token_ct == 6) || (!memcmp(&(existing_a1ptr[a1lenp1]), token_ptrs[6], a2lenp1)));
 }
 
 int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1field_search_order, char* a2field_search_order, uint32_t flags, char* extractname, char* outname, char* outname_end, Chrom_info* chrom_info_ptr) {
-  logprint("Error: --meta-analysis is currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
-  /*
+  // logprint("Error: --meta-analysis is currently under development.\n");
+  // return RET_CALC_NOT_YET_SUPPORTED;
   unsigned char* wkspace_mark = wkspace_base;
   gzFile gz_infile = NULL;
   FILE* infile = NULL;
@@ -4413,7 +4412,6 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   Ll_str** ll_pptr;
   Ll_str* ll_ptr;
   Ll_str* htable_write;
-  const char* err_ptr;
   char* sorted_header_dict;
   char* master_var_list;
   char* fname_ptr;
@@ -4435,6 +4433,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   uint32_t slen_base;
   uint32_t slen;
   uint32_t cur_variant_ct;
+  uint32_t problem_mask;
   uint32_t uii;
   int32_t ii;
   // 1. Construct header search dictionary.  Similar to clump_reports().
@@ -4646,10 +4645,10 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
         continue;
       }
       bufptr = next_token_multz(bufptr, col_skips[0]);
-      token_ptrs[0] = bufptr;
+      token_ptrs[col_sequence[0]] = bufptr;
       for (seq_idx = 1; seq_idx < token_ct; seq_idx++) {
 	bufptr = next_token_mult(bufptr, col_skips[seq_idx]);
-        token_ptrs[seq_idx] = bufptr;
+        token_ptrs[col_sequence[seq_idx]] = bufptr;
       }
       if (!bufptr) {
 	// PLINK 1.07 doesn't error out here, or even count the number of
@@ -4664,7 +4663,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
       if (slen >= line_max) {
         line_max = slen + 1;
       }
-      bufptr = token_ptrs[col_sequence[0]];
+      bufptr = token_ptrs[0];
       var_id_len = strlen_se(bufptr);
       if (sorted_extract_ids && (bsearch_str(bufptr, var_id_len, sorted_extract_ids, max_extract_id_len, extract_ct) == -1)) {
 	continue;
@@ -4675,51 +4674,47 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
       }
 
       // validate
+      problem_mask = 0;
       if (token_ct > 3) {
-	ii = get_chrom_code(chrom_info_ptr, token_ptrs[col_sequence[3]]);
+	ii = get_chrom_code(chrom_info_ptr, token_ptrs[3]);
 	if (ii < 0) {
-	  err_ptr = problem_strings[0];
-	  goto meta_analysis_report_error;
+	  problem_mask |= 1;
+	} else {
+	  cur_chrom = (uint32_t)ii;
+	  if (!is_set(chrom_info_ptr->chrom_mask, cur_chrom)) {
+	    continue;
+	  }
 	}
-	cur_chrom = (uint32_t)ii;
-	if (!is_set(chrom_info_ptr->chrom_mask, cur_chrom)) {
-	  continue;
-	}
-	if (scan_uint_defcap(token_ptrs[col_sequence[4]], &cur_bp)) {
-	  err_ptr = problem_strings[1];
-	  goto meta_analysis_report_error;
+	if (scan_uint_defcap(token_ptrs[4], &cur_bp)) {
+	  problem_mask |= 2;
 	}
 	if (token_ct > 5) {
-	  bufptr = token_ptrs[col_sequence[5]];
+	  bufptr = token_ptrs[5];
 	  a1lenp1 = strlen_se(bufptr); // not +1 yet
 	  if ((*bufptr == missing_geno) && (a1lenp1 == 1)) {
-	    err_ptr = problem_strings[2];
-	    goto meta_analysis_report_error;
+	    problem_mask |= 4;
 	  }
 	  bufptr[a1lenp1++] = '\0';
 	  if (token_ct == 7) {
-	    bufptr = token_ptrs[col_sequence[6]];
+	    bufptr = token_ptrs[6];
 	    a2lenp1 = strlen_se(bufptr);
 	    if ((*bufptr == missing_geno) && (a2lenp1 == 1)) {
-	      err_ptr = problem_strings[3];
-	      goto meta_analysis_report_error;
+	      problem_mask |= 8;
 	    }
 	    bufptr[a2lenp1++] = '\0';
 	  }
 	}
       }
-      if (scan_double(token_ptrs[col_sequence[1]], &dxx)) {
-	err_ptr = problem_strings[4];
-	goto meta_analysis_report_error;
+      if (scan_double(token_ptrs[1], &dxx) || (dxx == INFINITY) || ((!input_beta) && (!(dxx >= 0))) || (input_beta && ((dxx != dxx) || (dxx == -INFINITY)))) {
+	problem_mask |= 0x10;
       }
-      if (scan_double(token_ptrs[col_sequence[2]], &dxx)) {
-	err_ptr = problem_strings[5];
-	goto meta_analysis_report_error;
+      if (scan_double(token_ptrs[2], &dxx) || (!(dxx >= 0.0)) || (dxx == INFINITY)) {
+	problem_mask |= 0x20;
       }
       // check hash table
-      bufptr = token_ptrs[col_sequence[0]];
+      bufptr = token_ptrs[0];
       bufptr[var_id_len] = '\0';
-      uii = hashval2(token_ptrs[col_sequence[0]], var_id_len++);
+      uii = hashval2(bufptr, var_id_len++);
       // var_id_len now includes null-terminator
       ll_pptr = &(htable[uii]);
       while (1) {
@@ -4731,6 +4726,9 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
       }
 
       if (!ll_ptr) {
+	if (problem_mask) {
+	  goto meta_analysis_report_error;
+	}
 	// new hash table entry; word-align the allocation for now
 	ll_ptr = htable_write;
 	*ll_pptr = ll_ptr;
@@ -4746,9 +4744,9 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	}
         if (token_ct > 5) {
 	  bufptr = wptr;
-          wptr = memcpya(wptr, token_ptrs[col_sequence[5]], a1lenp1);
+          wptr = memcpya(wptr, token_ptrs[5], a1lenp1);
 	  if (token_ct == 7) {
-	    wptr = memcpya(wptr, token_ptrs[col_sequence[6]], a2lenp1);
+	    wptr = memcpya(wptr, token_ptrs[6], a2lenp1);
 	  } else {
 	    *wptr++ = '\0';
 	  }
@@ -4771,16 +4769,19 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	loadbuf_size -= 16;
 	loadbuf = &(loadbuf_end[-((intptr_t)loadbuf_size)]);
       } else {
-	if (meta_analysis_allelic_match(&(ll_ptr->ss[slen_base + var_id_len]), token_ptrs, col_sequence, token_ct, a1lenp1, a2lenp1)) {
+	if (meta_analysis_allelic_match(&(ll_ptr->ss[slen_base + var_id_len]), token_ptrs, token_ct, a1lenp1, a2lenp1)) {
+	  if (problem_mask) {
+	    goto meta_analysis_report_error;
+	  }
 	  // increment file count.  Assume little-endian machine
-	  uii = (*((uint32_t*)(ll_ptr->ss[0]))) & file_ct_mask;
+	  uii = (*((uint32_t*)(ll_ptr->ss))) & file_ct_mask;
 	  if ((!report_all) && (!uii)) {
 	    final_variant_ct++;
 	  }
 	  uii++;
-	  memcpy(&(ll_ptr->ss[0]), &uii, file_ct_byte_width);
+	  memcpy(ll_ptr->ss, &uii, file_ct_byte_width);
 	} else {
-	  err_ptr = problem_strings[6];
+	  problem_mask |= 0x40;
 	meta_analysis_report_error:
 	  if (!outfile) {
 	    memcpy(outname_end, ".prob", 6);
@@ -4788,15 +4789,15 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	      goto meta_analysis_ret_OPEN_FAIL;
 	    }
 	  }
-	  fputs(fname_ptr, outfile);
-	  putc('\t', outfile);
-	  bufptr = token_ptrs[col_sequence[0]];
-	  bufptr[var_id_len] = '\t';
-	  if (fwrite_checked(bufptr, var_id_len + 1, outfile)) {
-	    goto meta_analysis_ret_WRITE_FAIL;
-	  }
-	  fputs(err_ptr, outfile);
-	  putc('\n', outfile);
+	  bufptr = memcpyax(tbuf, fname_ptr, fname_len, '\t');
+	  bufptr = memcpyax(bufptr, token_ptrs[0], var_id_len - 1, '\t');
+	  do {
+	    wptr = strcpyax(bufptr, problem_strings[__builtin_ctz(problem_mask)], '\n');
+	    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	      goto meta_analysis_ret_WRITE_FAIL;
+	    }
+	    problem_mask &= problem_mask - 1;
+	  } while (problem_mask);
 	  rejected_ct++;
 	}
       }
@@ -4836,7 +4837,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   // sequentially
   ll_ptr = (Ll_str*)wkspace_base;
   for (master_var_idx = 0; master_var_idx < final_variant_ct;) {
-    memcpy(&cur_file_ct_m1, &(ll_ptr->ss[0]), file_ct_byte_width);
+    memcpy(&cur_file_ct_m1, ll_ptr->ss, file_ct_byte_width);
     if (report_all || cur_file_ct_m1) {
       wptr = &(master_var_list[master_var_idx * master_var_entry_len]);
       master_var_idx++;
@@ -4880,6 +4881,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   total_data_slots = wkspace_left / sizeof(uintptr_t);
   wkspace_left += topsize;
 
+  /*
   // 6. Remaining load passes: determine how many remaining variants' worth of
   //    effect sizes/SEs fit in memory, load and meta-analyze just those
   //    variants, rinse and repeat.
@@ -4937,6 +4939,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
       ;;
     }
   } while (last_var_idx != final_variant_ct);
+  */
 
   while (0) {
   meta_analysis_ret_NOMEM2:
@@ -4969,5 +4972,4 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   fclose_cond(outfile);
   wkspace_reset(wkspace_mark);
   return retval;
-  */
 }
