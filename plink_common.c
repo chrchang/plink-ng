@@ -1987,6 +1987,59 @@ char* float_e_write(char* start, float fxx) {
   return memcpya(start, &(digit2_table[xp10 * 2]), 2);
 }
 
+char* double_f_writew2(char* start, double dxx) {
+  const double* br_ptr;
+  uint32_t quotient;
+  uint32_t remainder;
+  if (dxx != dxx) {
+    *((uint32_t*)start) = *((uint32_t*)"nan");
+    return &(start[3]);
+  } else if (dxx < 9.9949999999999) {
+    if (dxx < 0) {
+      *start++ = '-';
+      dxx = -dxx;
+      if (dxx >= 9.9949999999999) {
+        goto double_f_writew2_10;
+      }
+    }
+    double_bround2(dxx, banker_round11, &quotient, &remainder);
+    *start++ = '0' + quotient;
+  double_f_writew2_dec:
+    *start++ = '.';
+    return memcpya(start, &(digit2_table[remainder * 2]), 2);
+  }
+ double_f_writew2_10:
+  if (dxx < 9999999.9949999) {
+    if (dxx < 999.99499999999) {
+      if (dxx < 99.994999999999) {
+	br_ptr = banker_round10;
+      } else {
+        br_ptr = banker_round9;
+      }
+    } else if (dxx < 99999.994999999) {
+      if (dxx < 9999.9949999999) {
+	br_ptr = banker_round8;
+      } else {
+	br_ptr = banker_round7;
+      }
+    } else if (dxx < 999999.99499999) {
+      br_ptr = banker_round6;
+    } else {
+      br_ptr = banker_round5;
+    }
+    double_bround2(dxx, br_ptr, &quotient, &remainder);
+    start = uint32_write(start, quotient);
+    goto double_f_writew2_dec;
+  }
+  if (dxx == INFINITY) {
+    *((uint32_t*)start) = *((uint32_t*)"inf");
+    return &(start[3]);
+  }
+  // just punt larger numbers to glibc for now, this isn't a bottleneck
+  start += sprintf(start, "%.2f", dxx);
+  return start;
+}
+
 char* double_f_writew3(char* start, double dxx) {
   const double* br_ptr;
   uint32_t quotient;
@@ -2036,7 +2089,6 @@ char* double_f_writew3(char* start, double dxx) {
     *((uint32_t*)start) = *((uint32_t*)"inf");
     return &(start[3]);
   }
-  // just punt larger numbers to glibc for now, this isn't a bottleneck
   start += sprintf(start, "%.3f", dxx);
   return start;
 }
@@ -2045,8 +2097,7 @@ char* double_f_writew96(char* start, double dxx) {
   uint32_t quotient;
   uint32_t remainder;
   if (dxx != dxx) {
-    *((uint32_t*)start) = *((uint32_t*)"nan");
-    return &(start[3]);
+    return memcpya(start, "      nan", 9);
   } else if (dxx < 9.9999994999999) {
     if (dxx < 0) {
       *start++ = '-';
@@ -2071,8 +2122,7 @@ char* double_f_writew96(char* start, double dxx) {
     goto double_f_writew96_dec;
   }
   if (dxx == INFINITY) {
-    *((uint32_t*)start) = *((uint32_t*)"inf");
-    return &(start[3]);
+    return memcpya(start, "      inf", 9);
   }
   start += sprintf(start, "%.6f", dxx);
   return start;
@@ -2083,8 +2133,7 @@ char* double_f_writew74(char* start, double dxx) {
   uint32_t quotient;
   uint32_t remainder;
   if (dxx != dxx) {
-    *((uint32_t*)start) = *((uint32_t*)"nan");
-    return &(start[3]);
+    return memcpya(start, "    nan", 7);
   } else if (dxx < 9.9999499999999) {
     if (dxx < 0) {
       *start++ = '-';
@@ -2121,8 +2170,7 @@ char* double_f_writew74(char* start, double dxx) {
     goto double_f_writew74_dec;
   }
   if (dxx == INFINITY) {
-    *((uint32_t*)start) = *((uint32_t*)"inf");
-    return &(start[3]);
+    return memcpya(start, "    inf", 7);
   }
   start += sprintf(start, "%.4f", dxx);
   return start;

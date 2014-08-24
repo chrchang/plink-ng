@@ -2351,8 +2351,8 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
   // col_skips[0..(token_ct - 1)] stores deltas between adjacent column indices
   // ([0] = 0-based index of first column), and token_ptrs[0..(token_ct - 1)]
   // points to those token start positions in the current line.
-  // Since the order of the columns may vary, col_sequence[0] = token_ptrs[]
-  // CHR index, [1] = BP index, [2] = SNP index, and [3] = P index.
+  // Since the order of the columns may vary, col_sequence[0] = col_skips
+  // position of CHR index, [1] = BP index, [2] = SNP index, and [3] = P index.
   char* token_ptrs[4];
   uint32_t col_skips[4];
   uint32_t col_sequence[4];

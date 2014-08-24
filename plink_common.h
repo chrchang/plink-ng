@@ -1132,12 +1132,21 @@ void get_top_two(uint32_t* uint_arr, uintptr_t uia_size, uintptr_t* top_idx_ptr,
 
 static inline char* uint32_encode_5_hi_uchar(char* start, uint32_t uii) {
   // tried a few bit hacks here, but turns out nothing really beats this
-  *start++ = (unsigned char)(uii | 0x80);
-  *start++ = (unsigned char)((uii >> 7) | 0x80);
-  *start++ = (unsigned char)((uii >> 14) | 0x80);
-  *start++ = (unsigned char)((uii >> 21) | 0x80);
   *start++ = (unsigned char)((uii >> 28) | 0x80);
+  *start++ = (unsigned char)((uii >> 21) | 0x80);
+  *start++ = (unsigned char)((uii >> 14) | 0x80);
+  *start++ = (unsigned char)((uii >> 7) | 0x80);
+  *start++ = (unsigned char)(uii | 0x80);
   return start;
+}
+
+static inline uint32_t uint32_decode_5_hi_uchar(char* start) {
+  uint32_t uii = ((uint32_t)((unsigned char)(*start++))) << 28;
+  uii |= (((uint32_t)((unsigned char)(*start++))) & 0x7f) << 21;
+  uii |= (((uint32_t)((unsigned char)(*start++))) & 0x7f) << 14;
+  uii |= (((uint32_t)((unsigned char)(*start++))) & 0x7f) << 7;
+  uii |= ((uint32_t)((unsigned char)(*start))) & 0x7f;
+  return uii;
 }
 
 int32_t intlen(int32_t num);
@@ -1204,6 +1213,8 @@ char* uint32_writew10(char* start, uint32_t uii);
 char* double_e_write(char* start, double dxx);
 
 char* float_e_write(char* start, float dxx);
+
+char* double_f_writew2(char* start, double dxx);
 
 char* double_f_writew3(char* start, double dxx);
 
