@@ -4425,6 +4425,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   uintptr_t* cur_data_index;
   uintptr_t* ulptr;
   uint32_t* header_id_map;
+  uint32_t* uiptr;
   double cur_beta;
   double cur_se;
   double cur_inv_var;
@@ -4801,7 +4802,8 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	    goto meta_analysis_report_error;
 	  }
 	  // increment file count.  Assume little-endian machine
-	  uii = (*((uint32_t*)(ll_ptr->ss))) & file_ct_mask;
+	  uiptr = (uint32_t*)ll_ptr->ss;
+	  uii = (*uiptr) & file_ct_mask;
 	  if ((!report_all) && (!uii)) {
 	    final_variant_ct++;
 	  }
