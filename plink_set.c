@@ -266,9 +266,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	sprintf(logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
 	goto load_range_list_ret_INVALID_FORMAT_2;
       }
-      if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
-	continue;
-      }
+      // chrom_mask check removed, we want to track empty sets
       uii = strlen_se(bufptr2);
       bufptr2[uii] = '\0';
       if (subset_ct) {
@@ -2121,15 +2119,13 @@ uint32_t setdefs_compress(Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, 
       }
     }
     if (save_set_bitfield(cur_bitfield, marker_ct, range_start, range_end, 0, &(new_setdefs[set_idx]))) {
-      goto setdefs_compress_fail_and_free_top;
+      wkspace_left += topsize;
+      return 1;
     }
   }
   *new_setdefs_ptr = new_setdefs;
   wkspace_left += topsize;
   return 0;
- setdefs_compress_fail_and_free_top:
-  wkspace_left += topsize;
-  return 1;
 }
 
 int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t subset_ct, char* sorted_subset_ids, uintptr_t max_subset_id_len, Chrom_info* chrom_info_ptr, uintptr_t* gene_ct_ptr, char** gene_names_ptr, uintptr_t* max_gene_id_len_ptr, uintptr_t** chrom_bounds_ptr, uint32_t*** genedefs_ptr, uintptr_t* chrom_max_gene_ct_ptr, const char* file_descrip) {

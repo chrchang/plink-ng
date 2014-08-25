@@ -9733,7 +9733,7 @@ THREAD_RET_TYPE ld_map_thread(void* arg) {
     geno_masks2 = g_ld_geno_masks2;
     missing_cts2 = g_ld_missing_cts2;
     rb_cur = &(result_bitfield[block_idx1_start * marker_ctv]);
-    for (block_idx1 = block_idx1_start; block_idx1 < block_idx1_end; block_idx1++) {
+    for (block_idx1 = block_idx1_start; block_idx1 < block_idx1_end; block_idx1++, rb_cur = &(rb_cur[marker_ctv])) {
       marker_idx2 = block_idx1 + idx1_offset + 1;
       if (marker_idx2 < marker_idx2_start) {
 	marker_idx2 = marker_idx2_start;
@@ -9783,7 +9783,6 @@ THREAD_RET_TYPE ld_map_thread(void* arg) {
           block_idx2 += popcount_bit_idx(load2_bitfield, uii, marker_idx2);
 	}
       }
-      rb_cur = &(rb_cur[marker_ctv]);
     }
     if ((!tidx) || g_is_last_thread_block) {
       THREAD_RETURN;
@@ -9886,7 +9885,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   // To avoid too much back-and-forth disk seeking for large datasets, we
   // construct the LD map in blocks, using similar logic to the --r/--r2 and
   // --fast-epistasis computations.
-  // 1. top_alloc space main window markers' raw data, bitfields for them
+  // 1. top_alloc space for main window markers' raw data, bitfields for them
   //    listing intersecting markers in front (i.e. we only look at the upper
   //    right triangle of the LD matrix), and another union bitfield.
   //    Break the union into secondary windows, and for each secondary window:
@@ -9981,19 +9980,17 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       fill_ulong_zero(&(geno2[ulii * founder_ct_192_long - uljj]), uljj);
       fill_ulong_zero(&(geno_masks2[ulii * founder_ct_192_long - uljj]), uljj);
     }
-    fill_ulong_zero(result_bitfield, idx1_block_size * marker_ctv * sizeof(intptr_t));
+    fill_ulong_zero(result_bitfield, idx1_block_size * marker_ctv);
     g_ld_geno1 = geno1;
     g_ld_geno_masks1 = geno_masks1;
     g_ld_geno2 = geno2;
     g_ld_geno_masks2 = geno_masks2;
     g_ld_result_bitfield = result_bitfield;
-    set_uidx = 0;
     idx1_block_end = marker_idx + idx1_block_size;
-    fill_ulong_zero(load2_bitfield, marker_ctv * sizeof(intptr_t));
-    fill_ulong_zero(result_bitfield, idx1_block_size * marker_ctv * sizeof(intptr_t));
-    for (set_idx = 0; set_idx < set_ct; set_uidx++, set_idx++) {
-      next_set_unsafe_ck(set_incl, &set_uidx);
-      cur_setdef = setdefs[set_uidx];
+    fill_ulong_zero(load2_bitfield, marker_ctv);
+    fill_ulong_zero(result_bitfield, idx1_block_size * marker_ctv);
+    for (set_idx = 0; set_idx < set_ct; set_idx++) {
+      cur_setdef = setdefs[set_idx];
       setdef_iter_init(cur_setdef, marker_ct, marker_idx, &marker_idx2, &setdef_incr_aux);
       if (setdef_iter(cur_setdef, &marker_idx2, &setdef_incr_aux) && (marker_idx2 < idx1_block_end)) {
 	unpack_set(marker_ct, cur_setdef, tmp_set_bitfield);
@@ -10001,7 +9998,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	if (wlen) {
 	  uii = marker_idx2;
 	  do {
-	    bitfield_or(&(result_bitfield[((marker_idx2 - marker_idx) * marker_ctv + firstw) * sizeof(intptr_t)]), &(tmp_set_bitfield[firstw]), wlen);
+	    bitfield_or(&(result_bitfield[((marker_idx2 - marker_idx) * marker_ctv + firstw)]), &(tmp_set_bitfield[firstw]), wlen);
 	    marker_idx2++;
 	    next_set_ck(tmp_set_bitfield, &marker_idx2, idx1_block_end);
 	  } while (marker_idx2 < idx1_block_end);
@@ -10010,11 +10007,10 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	  wlen += firstw;
 #ifdef __LP64__
 	  firstw = 2 * (uii / 128);
-	  clear_bits(&(tmp_set_bitfield[firstw]), 0, uii + 1 - firstw * BITCT);
 #else
-	  firstw = uii / BITCT;
-	  clear_bits(&(tmp_set_bitfield[firstw]), 0, uii + 1 - firstw * BITCT);
+	  firstw = uii / 32;
 #endif
+	  clear_bits(&(tmp_set_bitfield[firstw]), 0, uii + 1 - firstw * BITCT);
 	  bitfield_or(&(load2_bitfield[firstw]), &(tmp_set_bitfield[firstw]), wlen - firstw);
 	}
       }
@@ -10084,6 +10080,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	ulii = block_idx2 * founder_ct_192_long;
 	loadbuf_ptr = &(geno2[ulii]);
 	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, loadbuf_ptr, founder_ct, founder_pnm, final_mask, IS_SET(marker_reverse, marker_uidx2))) {
+	  printf("read fail 1 %lu\n", marker_uidx2);
 	  goto construct_ld_map_ret_READ_FAIL;
 	}
 	if (is_haploid && hh_exists) {
@@ -10117,11 +10114,16 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       join_threads2(threads, thread_ct, is_last_block);
     } while (!is_last_block);
   construct_ld_map_no_new:
+    printf("step 2\n");
     for (block_idx1 = marker_idx; block_idx1 < idx1_block_end; block_idx1++) {
-      rb_ptr = &(result_bitfield[(block_idx1 - marker_idx) * marker_ctv * sizeof(intptr_t)]);
+      rb_ptr = &(result_bitfield[(block_idx1 - marker_idx) * marker_ctv]);
       marker_idx2 = 0;
       while (1) {
 	marker_idx2 = next_set(rb_ptr, marker_idx2, block_idx1);
+	if (marker_idx2 == block_idx1) {
+	  clear_bit(rb_ptr, block_idx1);
+	  break;
+	}
 	if (!in_setdef(ld_map[marker_idx2], block_idx1)) {
 	  clear_bit(rb_ptr, marker_idx2);
 	}
@@ -10136,7 +10138,8 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     topsize = topsize_base; // "free" previous round of allocations
     marker_idx = idx1_block_end;
   } while (marker_idx < marker_ct);
-  if (max_marker_id_len) {
+  printf("wtf\n");
+  if (sip->modifier & SET_R2_WRITE) {
     memcpy(charbuf, outname_end, 8);
     memcpy(outname_end, ".ldset", 7);
     if (fopen_checked(&outfile, outname, "w")) {
@@ -10149,22 +10152,25 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       sptr = &(sip->names[set_uidx * max_set_id_len]);
       uii = strlen(sptr);
       wptr_start = memcpyax(tbuf, sptr, uii, ' ');
-      cur_setdef = setdefs[set_uidx];
+      cur_setdef = setdefs[set_idx];
       setdef_iter_init(cur_setdef, marker_ct, 0, &marker_idx, &setdef_incr_aux);
+      fprintf(outfile, "(%u, %u)\n", set_idx, set_uidx);
       while (setdef_iter(cur_setdef, &marker_idx, &setdef_incr_aux)) {
-        wptr = strcpyax(wptr_start, &(marker_ids[marker_idx_to_uidx[marker_idx] * max_marker_id_len]), ' ');
-	if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
-	  goto construct_ld_map_ret_WRITE_FAIL;
-	}
         cur_setdef2 = ld_map[marker_idx];
         setdef_iter_init(cur_setdef2, marker_ct, 0, &marker_idx2, &setdef_incr_aux2);
-        while (setdef_iter(cur_setdef2, &marker_idx2, &setdef_incr_aux2)) {
-          fputs(&(marker_ids[marker_idx_to_uidx[marker_idx2] * max_marker_id_len]), outfile);
-          putc(' ', outfile);
-          marker_idx2++;
-	}
-        if (putc_checked('\n', outfile)) {
-	  goto construct_ld_map_ret_WRITE_FAIL;
+	if (setdef_iter(cur_setdef2, &marker_idx2, &setdef_incr_aux2)) {
+	  wptr = strcpyax(wptr_start, &(marker_ids[marker_idx_to_uidx[marker_idx] * max_marker_id_len]), ' ');
+	  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	    goto construct_ld_map_ret_WRITE_FAIL;
+	  }
+	  do {
+	    fputs(&(marker_ids[marker_idx_to_uidx[marker_idx2] * max_marker_id_len]), outfile);
+	    putc(' ', outfile);
+	    marker_idx2++;	    
+	  } while (setdef_iter(cur_setdef2, &marker_idx2, &setdef_incr_aux2));
+	  if (putc_checked('\n', outfile)) {
+	    goto construct_ld_map_ret_WRITE_FAIL;
+	  }
 	}
         marker_idx++;
       }

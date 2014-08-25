@@ -50,7 +50,8 @@ typedef struct {
   //   [2k+1], [2k+2]: start and end of range k (half-open); sorted
   // Otherwise, set #r is represented as a bitfield starting from [4], and
   //   [1]: offset of first bit (always divisible by 128)
-  //   [2]: number of bits (divisible by 128 unless very last bit included)
+  //   [2]: number of bits (divisible by 128 unless a variant in the last block
+  //        is included)
   //   [3]: 1 if all out-of-bounds bits are set, 0 otherwise (other flags may
   //        be added later)
   uint32_t** setdefs;
