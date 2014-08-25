@@ -10080,7 +10080,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	ulii = block_idx2 * founder_ct_192_long;
 	loadbuf_ptr = &(geno2[ulii]);
 	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, loadbuf_ptr, founder_ct, founder_pnm, final_mask, IS_SET(marker_reverse, marker_uidx2))) {
-	  printf("read fail 1 %lu\n", marker_uidx2);
+	  printf("read fail 1 %" PRIuPTR "\n", marker_uidx2);
 	  goto construct_ld_map_ret_READ_FAIL;
 	}
 	if (is_haploid && hh_exists) {
