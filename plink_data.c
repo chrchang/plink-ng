@@ -10975,7 +10975,7 @@ uint32_t recode_load_to(unsigned char* loadbuf, FILE* bedfile, uintptr_t bed_off
   return 0;
 }
 
-static inline int32_t recode_write_first_cols(FILE* outfile, uintptr_t indiv_uidx, char delimiter, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno) {
+static inline int32_t recode_write_first_cols(FILE* outfile, uintptr_t indiv_uidx, char delimiter, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, const char* output_missing_pheno) {
   char wbuf[16];
   char* cptr = &(person_ids[indiv_uidx * max_person_id_len]);
   uintptr_t ulii = strlen_se(cptr);
@@ -11169,7 +11169,7 @@ int32_t open_and_write_fastphase_header(FILE** outfile_ptr, char* outname, uintp
   return 0;
 }
 
-uint32_t write_ped_lines(FILE* outfile, unsigned char* loadbuf, uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct4, uintptr_t* indiv_exclude, uintptr_t* indiv_uidx_ptr, uintptr_t indiv_idx_start, uintptr_t indiv_idx_end, uint32_t recode_compound, char** mk_allele_ptrs, char delimiter, char delim2, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char output_missing_geno, char* output_missing_pheno, char* writebuf) {
+uint32_t write_ped_lines(FILE* outfile, unsigned char* loadbuf, uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct4, uintptr_t* indiv_exclude, uintptr_t* indiv_uidx_ptr, uintptr_t indiv_idx_start, uintptr_t indiv_idx_end, uint32_t recode_compound, char** mk_allele_ptrs, char delimiter, char delim2, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char output_missing_geno, const char* output_missing_pheno, char* writebuf) {
   uintptr_t indiv_uidx = *indiv_uidx_ptr;
   char missing4[4];
   unsigned char* bufptr;
@@ -13275,7 +13275,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
         haploid_fix_multiple(marker_exclude, marker_uidx_start, ulii, chrom_info_ptr, hh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, unfiltered_indiv_ct4, loadbuf);
       }
       indiv_uidx = 0;
-      if (write_ped_lines(outfile, loadbuf, marker_exclude, marker_uidx_start, ulii, unfiltered_indiv_ct4, indiv_exclude, &indiv_uidx, 0, indiv_ct, 0, mk_allele_ptrs, delimiter, delim2, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm, pheno_c, pheno_d, output_missing_geno, output_missing_pheno, writebuf)) {
+      // Haploview requires '0' missing phenotype code
+      if (write_ped_lines(outfile, loadbuf, marker_exclude, marker_uidx_start, ulii, unfiltered_indiv_ct4, indiv_exclude, &indiv_uidx, 0, indiv_ct, 0, mk_allele_ptrs, delimiter, delim2, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm, pheno_c, pheno_d, output_missing_geno, &(g_one_char_strs[96]), writebuf)) {
 	goto recode_ret_WRITE_FAIL;
       }
       if (fclose_null(&outfile)) {

@@ -98,7 +98,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (24 Aug 2014)";
+  " (27 Aug 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -2956,6 +2956,7 @@ int32_t main(int32_t argc, char** argv) {
   char id_delim = '\0';
   char vcf_idspace_to = '\0';
   unsigned char vcf_half_call = 0;
+  uint32_t vcf_pl_threshold = 0;
   int32_t retval = 0;
   uint32_t load_params = 0; // describes what file params have been provided
   uint32_t load_rare = 0;
@@ -11711,6 +11712,22 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: '%s' is not a valid mode for --vcf-half-call.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
+      } else if (!memcmp(argptr2, "cf-pl-threshold", 16)) {
+	UNSTABLE;
+	if (!(load_rare & LOAD_RARE_VCF)) {
+	  logprint("Error: --vcf-pl-threshold must be used with --vcf.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+	if (scan_posint_capped(argv[cur_arg + 1], &vcf_pl_threshold, 128 / 10, 128 % 10)) {
+	  sprintf(logbuf, "Error: Invalid --vcf-pl-threshold parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
+	}
+	logprint("Error: --vcf-pl-threshold is currently under development.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+        goto main_ret_1;
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
       }
