@@ -2098,11 +2098,13 @@ int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modi
 	}
         putc(' ', outfile);
       }
-      if (IS_SET(pheno_nm, indiv_uidx)) {
+      if (!IS_SET(pheno_nm, indiv_uidx)) {
+        fputs(output_missing_pheno, outfile);
+      } else if (pheno_c) {
+        putc('1' + IS_SET(pheno_c, indiv_uidx), outfile);
+      } else {
         wptr = double_g_write(tbuf, pheno_d[indiv_uidx]);
 	fwrite(tbuf, 1, wptr - tbuf, outfile);
-      } else {
-        fputs(output_missing_pheno, outfile);
       }
       putc(' ', outfile);
     }
