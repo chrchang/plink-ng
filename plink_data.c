@@ -5405,7 +5405,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
       }
       logprintb();
       get_top_two(&(marker_allele_cts[4 * marker_idx]), uii? 4 : 3, &ulii, &uljj);
-      uii = map_reverse[marker_idx];
+      uii = map_is_unsorted? map_reverse[marker_idx] : marker_idx;
     } else {
       ulii = (marker_allele_cts[4 * marker_idx] < marker_allele_cts[4 * marker_idx + 1])? 1 : 0;
       uljj = ulii ^ 1;
