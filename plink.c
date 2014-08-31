@@ -98,7 +98,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (28 Aug 2014)";
+  " (31 Aug 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -11720,13 +11720,10 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-	if (scan_posint_capped(argv[cur_arg + 1], &vcf_pl_threshold, 128 / 10, 128 % 10)) {
+	if (scan_posint_capped(argv[cur_arg + 1], &vcf_pl_threshold, 126 / 10, 126 % 10)) {
 	  sprintf(logbuf, "Error: Invalid --vcf-pl-threshold parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
-	logprint("Error: --vcf-pl-threshold is currently under development.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-        goto main_ret_1;
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
       }
@@ -12585,7 +12582,7 @@ int32_t main(int32_t argc, char** argv) {
       } else if (load_rare & LOAD_RARE_TRANSPOSE_MASK) {
         retval = transposed_to_bed(pedname, famname, outname, sptr, misc_flags, &chrom_info);
       } else if (load_rare & LOAD_RARE_VCF) {
-	retval = vcf_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, const_fid, id_delim, vcf_idspace_to, vcf_min_qual, vcf_filter_exceptions_flattened, (uint32_t)vcf_half_call, &chrom_info);
+	retval = vcf_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, const_fid, id_delim, vcf_idspace_to, vcf_min_qual, vcf_filter_exceptions_flattened, vcf_pl_threshold, (uint32_t)vcf_half_call, &chrom_info);
       } else if (load_rare & LOAD_RARE_BCF) {
 	retval = bcf_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, const_fid, id_delim, vcf_idspace_to, vcf_min_qual, vcf_filter_exceptions_flattened, &chrom_info);
       } else if (load_rare == LOAD_RARE_23) {

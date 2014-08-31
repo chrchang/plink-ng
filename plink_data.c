@@ -7848,7 +7848,7 @@ int32_t vcf_sample_line(char* outname, char* outname_end, int32_t missing_pheno,
 // than this)
 #define MAX_VCF_ALT 65534
 
-int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t missing_pheno, uint64_t misc_flags, char* const_fid, char id_delim, char vcf_idspace_to, double vcf_min_qual, char* vcf_filter_exceptions_flattened, uint32_t vcf_half_call, Chrom_info* chrom_info_ptr) {
+int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t missing_pheno, uint64_t misc_flags, char* const_fid, char id_delim, char vcf_idspace_to, double vcf_min_qual, char* vcf_filter_exceptions_flattened, uint32_t vcf_pl_threshold, uint32_t vcf_half_call, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   gzFile gz_infile = NULL;
   FILE* outfile = NULL;
@@ -7875,6 +7875,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   char* bufptr;
   char* bufptr2;
   char* bufptr3;
+  char* semicolon_ptr;
   char* chrom_ptr;
   char* marker_id;
   char* pos_str;
@@ -7896,6 +7897,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   uintptr_t ulkk;
   uintptr_t alt_allele_idx;
   double dxx;
+  uint32_t cur_pl_threshold;
   uint32_t chrom_len;
   uint32_t marker_id_len;
   uint32_t alt_idx;
@@ -8120,9 +8122,21 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       goto vcf_to_bed_ret_MISSING_TOKENS;
     }
     if (fexcept_ct) {
-      if (bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_fexcepts, max_fexcept_len, fexcept_ct) == -1) {
+      // bugfix: recognize semicolon delimiter
+    vcf_to_bed_check_filter:
+      semicolon_ptr = (char*)memchr(bufptr, ';', (uintptr_t)(bufptr2 - bufptr));
+      if (!semicolon_ptr) {
+	semicolon_ptr = bufptr2;
+      }
+      if (bsearch_str(bufptr, (uintptr_t)(semicolon_ptr - bufptr), sorted_fexcepts, max_fexcept_len, fexcept_ct) == -1) {
 	marker_skip_ct++;
+	// if we replace the vcf_to_bed_check_filter goto with a while loop,
+	// can't use "continue" here
 	continue;
+      }
+      if (semicolon_ptr != bufptr2) {
+	bufptr = &(semicolon_ptr[1]);
+	goto vcf_to_bed_check_filter;
       }
     }
     bufptr = &(bufptr2[1]);
@@ -8145,47 +8159,93 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       // slightly faster parsing for the usual case
       fill_ulong_zero(base_bitfields, (alt_ct + 1) * indiv_ctv2);
       if ((!biallelic_only) || (alt_ct == 1)) {
-	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++, bufptr = &(bufptr2[1])) {
-	  bufptr2 = strchr(bufptr, '\t');
-	  if (!bufptr2) {
-	    if (indiv_idx != indiv_ct - 1) {
-	      goto vcf_to_bed_ret_MISSING_TOKENS;
+	if (!vcf_pl_threshold) {
+	  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++, bufptr = &(bufptr2[1])) {
+	    bufptr2 = strchr(bufptr, '\t');
+	    if (!bufptr2) {
+	      if (indiv_idx != indiv_ct - 1) {
+		goto vcf_to_bed_ret_MISSING_TOKENS;
+	      }
+	      bufptr2 = &(bufptr[strlen_se(bufptr)]);
 	    }
-	    bufptr2 = &(bufptr[strlen_se(bufptr)]);
-	  }
-	  uii = (unsigned char)(*bufptr) - '0';
-	  // time to provide proper support for VCF import; that means, among
-	  // other things, providing a useful error message instead of
-	  // segfaulting on an invalid GT field, to help other tool developers.
-	  if (uii <= 9) {
-	    cc = bufptr[1];
-	    if ((cc != '/') && (cc != '|')) {
-	      set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2 + 1);
-	    } else {
-	      cc = bufptr[3];
-	      if (((cc != '/') && (cc != '|')) || (bufptr[4] == '.')) {
-		// code triploids, etc. as missing
-		// might want to subject handling of 0/0/. to --vcf-half-call
-		// control
-		ujj = ((unsigned char)bufptr[2]) - '0';
-		if (ujj > 9) {
-		  if (ujj != (uint32_t)(((unsigned char)'.') - '0')) {
-		    goto vcf_to_bed_ret_INVALID_GT;
+	    uii = (unsigned char)(*bufptr) - '0';
+	    // time to provide proper support for VCF import; that means, among
+	    // other things, providing a useful error message instead of
+	    // segfaulting on an invalid GT field, to help other tool
+	    // developers.
+	    if (uii <= 9) {
+	      cc = bufptr[1];
+	      if ((cc != '/') && (cc != '|')) {
+		// haploid
+		set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2 + 1);
+	      } else {
+		cc = bufptr[3];
+		if (((cc != '/') && (cc != '|')) || (bufptr[4] == '.')) {
+		  // code triploids, etc. as missing
+		  // might want to subject handling of 0/0/. to --vcf-half-call
+		  // control
+		  ujj = ((unsigned char)bufptr[2]) - '0';
+		  if (ujj > 9) {
+		    if (ujj != (uint32_t)(((unsigned char)'.') - '0')) {
+		      goto vcf_to_bed_ret_INVALID_GT;
+		    }
+		    if (!vcf_half_call) {
+		      goto vcf_to_bed_ret_HALF_CALL_ERROR;
+		    } else if (vcf_half_call == VCF_HALF_CALL_HAPLOID) {
+		      set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2 + 1);
+		    }
+		  } else {
+		    set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2);
+		    base_bitfields[ujj * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
 		  }
-		  if (!vcf_half_call) {
-		    goto vcf_to_bed_ret_HALF_CALL_ERROR;
-		  } else if (vcf_half_call == VCF_HALF_CALL_HAPLOID) {
-		    set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2 + 1);
-		  }
-		} else {
-		  set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2);
-		  base_bitfields[ujj * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
 		}
 	      }
+	    } else if (uii != (uint32_t)(((unsigned char)'.') - '0')) {
+	      goto vcf_to_bed_ret_INVALID_GT;
 	    }
-	  } else if (uii != (uint32_t)(((unsigned char)'.') - '0')) {
-	    goto vcf_to_bed_ret_INVALID_GT;
 	  }
+	} else {
+	  logprint("under development\n");
+	  retval = RET_CALC_NOT_YET_SUPPORTED;
+	  goto vcf_to_bed_ret_1;
+	  /*
+	  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++, bufptr = &(bufptr2[1])) {
+	    bufptr2 = strchr(bufptr, '\t');
+	    if (!bufptr2) {
+	      if (indiv_idx != indiv_ct - 1) {
+		goto vcf_to_bed_ret_MISSING_TOKENS;
+	      }
+	      bufptr2 = &(bufptr[strlen_se(bufptr)]);
+	    }
+	    uii = (unsigned char)(*bufptr) - '0';
+	    if (uii <= 9) {
+	      cc = bufptr[1];
+	      if ((cc != '/') && (cc != '|')) {
+		set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2 + 1);
+	      } else {
+		cc = bufptr[3];
+		if (((cc != '/') && (cc != '|')) || (bufptr[4] == '.')) {
+		  ujj = ((unsigned char)bufptr[2]) - '0';
+		  if (ujj > 9) {
+		    if (ujj != (uint32_t)(((unsigned char)'.') - '0')) {
+		      goto vcf_to_bed_ret_INVALID_GT;
+		    }
+		    if (!vcf_half_call) {
+		      goto vcf_to_bed_ret_HALF_CALL_ERROR;
+		    } else if (vcf_half_call == VCF_HALF_CALL_HAPLOID) {
+		      set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2 + 1);
+		    }
+		  } else {
+		    set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2);
+		    base_bitfields[ujj * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
+		  }
+		}
+	      }
+	    } else if (uii != (uint32_t)(((unsigned char)'.') - '0')) {
+	      goto vcf_to_bed_ret_INVALID_GT;
+	    }
+	  }
+	  */
 	}
 	alt_allele_idx = 1;
 	if (alt_ct > 1) {
@@ -8255,6 +8315,11 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     } else {
       // bleah, multi-digit genotype codes
       // two-pass read: determine most common alt allele, then actually load it
+      if (vcf_pl_threshold) {
+	logprint("Error: --vcf-pl-threshold does not currently support variants with 10+\nalternate alleles.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+	goto vcf_to_bed_ret_1;
+      }
       fill_ulong_zero(base_bitfields, 2 * indiv_ctv2);
       alt_bitfield = &(base_bitfields[indiv_ctv2]);
       fill_uint_zero(vcf_alt_cts, alt_ct);
