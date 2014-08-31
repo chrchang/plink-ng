@@ -8184,29 +8184,31 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	    }
 	    bufptr2 = &(bufptr[strlen_se(bufptr)]);
 	  }
-	  if (gq_field_pos) {
-	    // to test: does splitting this off in an entirely separate loop
-	    // noticeably speed up common case parsing?  I hope not--this is a
-	    // predictable branch--but one can never be too paranoid about this
-	    // sort of performance leak when hundreds of GB are involved...
-	    gq_scan_ptr = bufptr;
-	    for (uii = 0; uii < gq_field_pos; uii++) {
-	      gq_scan_ptr = (char*)memchr(gq_scan_ptr, ':', (uintptr_t)(bufptr2 - gq_scan_ptr));
-              if (!gq_scan_ptr) {
-		goto vcf_to_bed_ret_MISSING_GQ;
-	      }
-	      gq_scan_ptr++;
-	    }
-	    if (scan_double(gq_scan_ptr, &dxx) || (dxx < vcf_min_gq)) {
-	      continue;
-	    }
-	  }
 	  uii = (unsigned char)(*bufptr) - '0';
 	  // time to provide proper support for VCF import; that means, among
 	  // other things, providing a useful error message instead of
 	  // segfaulting on an invalid GT field, to help other tool
 	  // developers.
 	  if (uii <= 9) {
+	    // no GQ field with ./. calls, so this check cannot occur earlier
+	    if (gq_field_pos) {
+	      // to test: does splitting this off in an entirely separate loop
+	      // noticeably speed up common case parsing?  I hope not--this is
+	      // a predictable branch--but one can never be too paranoid about
+	      // this sort of performance leak when hundreds of GB are
+	      // involved...
+	      gq_scan_ptr = bufptr;
+	      for (uii = 0; uii < gq_field_pos; uii++) {
+		gq_scan_ptr = (char*)memchr(gq_scan_ptr, ':', (uintptr_t)(bufptr2 - gq_scan_ptr));
+		if (!gq_scan_ptr) {
+		  goto vcf_to_bed_ret_MISSING_GQ;
+		}
+		gq_scan_ptr++;
+	      }
+	      if (scan_double(gq_scan_ptr, &dxx) || (dxx < vcf_min_gq)) {
+		continue;
+	      }
+	    }
 	    cc = bufptr[1];
 	    if ((cc != '/') && (cc != '|')) {
 	      // haploid
@@ -8259,6 +8261,17 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	    }
 	    bufptr2 = &(bufptr[strlen_se(bufptr)]);
 	  }
+	  uii = (unsigned char)(*bufptr) - '0';
+	  if (uii && (uii != alt_allele_idx)) {
+	    if (uii == (uint32_t)(((unsigned char)'.') - '0')) {
+	      continue;
+	    } else if (uii > 9) {
+	      goto vcf_to_bed_ret_INVALID_GT;
+	    } else if (alt_allele_idx) {
+	      goto vcf_to_bed_skip3;
+	    }
+	    alt_allele_idx = uii;
+	  }
 	  if (gq_field_pos) {
 	    gq_scan_ptr = bufptr;
 	    for (uii = 0; uii < gq_field_pos; uii++) {
@@ -8271,17 +8284,6 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	    if (scan_double(gq_scan_ptr, &dxx) || (dxx < vcf_min_gq)) {
 	      continue;
 	    }
-	  }
-	  uii = (unsigned char)(*bufptr) - '0';
-	  if (uii && (uii != alt_allele_idx)) {
-	    if (uii == (uint32_t)(((unsigned char)'.') - '0')) {
-	      continue;
-	    } else if (uii > 9) {
-	      goto vcf_to_bed_ret_INVALID_GT;
-	    } else if (alt_allele_idx) {
-	      goto vcf_to_bed_skip3;
-	    }
-	    alt_allele_idx = uii;
 	  }
 	  cc = bufptr[1];
 	  if ((cc != '/') && (cc != '|')) {
@@ -8330,21 +8332,21 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	  }
           bufptr2 = &(bufptr[strlen_se(bufptr)]);
 	}
-	if (gq_field_pos) {
-	  gq_scan_ptr = bufptr;
-	  for (uii = 0; uii < gq_field_pos; uii++) {
-	    gq_scan_ptr = (char*)memchr(gq_scan_ptr, ':', (uintptr_t)(bufptr2 - gq_scan_ptr));
-	    if (!gq_scan_ptr) {
-	      goto vcf_to_bed_ret_MISSING_GQ;
-	    }
-	    gq_scan_ptr++;
-	  }
-	  if (scan_double(gq_scan_ptr, &dxx) || (dxx < vcf_min_gq)) {
-	    continue;
-	  }
-	}
         uii = (unsigned char)(*bufptr) - '0';
 	if (uii <= 9) {
+	  if (gq_field_pos) {
+	    gq_scan_ptr = bufptr;
+	    for (uii = 0; uii < gq_field_pos; uii++) {
+	      gq_scan_ptr = (char*)memchr(gq_scan_ptr, ':', (uintptr_t)(bufptr2 - gq_scan_ptr));
+	      if (!gq_scan_ptr) {
+		goto vcf_to_bed_ret_MISSING_GQ;
+	      }
+	      gq_scan_ptr++;
+	    }
+	    if (scan_double(gq_scan_ptr, &dxx) || (dxx < vcf_min_gq)) {
+	      continue;
+	    }
+	  }
 	  while (1) {
 	    ujj = ((unsigned char)(*(++bufptr))) - 48;
 	    if (ujj > 9) {
@@ -8419,6 +8421,10 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
         if (!bufptr2) {
           bufptr2 = &(bufptr[strlen_se(bufptr)]);
 	}
+	if (*bufptr == '.') {
+	  // validated on first pass
+	  continue;
+	}
 	if (gq_field_pos) {
 	  gq_scan_ptr = bufptr;
 	  for (uii = 0; uii < gq_field_pos; uii++) {
@@ -8428,10 +8434,6 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	  if (scan_double(gq_scan_ptr, &dxx) || (dxx < vcf_min_gq)) {
 	    continue;
 	  }
-	}
-	if (*bufptr == '.') {
-	  // validated on first pass
-	  continue;
 	}
         uii = (unsigned char)(*bufptr) - '0';
 	while (1) {
