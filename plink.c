@@ -2951,12 +2951,12 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t gene_report_border = 0;
   uint32_t metaanal_flags = 0;
   double vcf_min_qual = -1;
+  double vcf_min_gq = -1;
   double qual_min_thresh = 0.0;
   double qual_max_thresh = HUGE_DOUBLE;
   char id_delim = '\0';
   char vcf_idspace_to = '\0';
   unsigned char vcf_half_call = 0;
-  uint32_t vcf_pl_threshold = 0;
   int32_t retval = 0;
   uint32_t load_params = 0; // describes what file params have been provided
   uint32_t load_rare = 0;
@@ -11673,6 +11673,21 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
 	misc_flags |= MISC_VCF_FILTER;
+      } else if (!memcmp(argptr2, "cf-min-gq", 10)) {
+	UNSTABLE;
+	if (!(load_rare & LOAD_RARE_VCF)) {
+	  // er, probably want to support BCF too
+	  logprint("Error: --vcf-min-gq must be used with --vcf.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+	if (scan_double(argv[cur_arg + 1], &vcf_min_gq) || (vcf_min_gq < 0.0)) {
+	  sprintf(logbuf, "Error: Invalid --vcf-min-gq parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
+	}
+	vcf_min_gq *= 1 - SMALL_EPSILON;
       } else if (!memcmp(argptr2, "cf-idspace-to", 14)) {
 	if (!(load_rare & (LOAD_RARE_VCF | LOAD_RARE_BCF))) {
 	  logprint("Error: --vcf-idspace-to must be used with --vcf/--bcf.\n");
@@ -11709,19 +11724,6 @@ int32_t main(int32_t argc, char** argv) {
 	  vcf_half_call = VCF_HALF_CALL_ERROR;
 	} else {
 	  sprintf(logbuf, "Error: '%s' is not a valid mode for --vcf-half-call.\n", argv[cur_arg + 1]);
-	  goto main_ret_INVALID_CMDLINE_WWA;
-	}
-      } else if (!memcmp(argptr2, "cf-pl-threshold", 16)) {
-	UNSTABLE;
-	if (!(load_rare & LOAD_RARE_VCF)) {
-	  logprint("Error: --vcf-pl-threshold must be used with --vcf.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
-	  goto main_ret_INVALID_CMDLINE_2A;
-	}
-	if (scan_posint_capped(argv[cur_arg + 1], &vcf_pl_threshold, 126 / 10, 126 % 10)) {
-	  sprintf(logbuf, "Error: Invalid --vcf-pl-threshold parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else {
@@ -12582,7 +12584,7 @@ int32_t main(int32_t argc, char** argv) {
       } else if (load_rare & LOAD_RARE_TRANSPOSE_MASK) {
         retval = transposed_to_bed(pedname, famname, outname, sptr, misc_flags, &chrom_info);
       } else if (load_rare & LOAD_RARE_VCF) {
-	retval = vcf_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, const_fid, id_delim, vcf_idspace_to, vcf_min_qual, vcf_filter_exceptions_flattened, vcf_pl_threshold, (uint32_t)vcf_half_call, &chrom_info);
+	retval = vcf_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, const_fid, id_delim, vcf_idspace_to, vcf_min_qual, vcf_filter_exceptions_flattened, vcf_min_gq, (uint32_t)vcf_half_call, &chrom_info);
       } else if (load_rare & LOAD_RARE_BCF) {
 	retval = bcf_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, const_fid, id_delim, vcf_idspace_to, vcf_min_qual, vcf_filter_exceptions_flattened, &chrom_info);
       } else if (load_rare == LOAD_RARE_23) {
