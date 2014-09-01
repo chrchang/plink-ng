@@ -8070,8 +8070,8 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       goto vcf_to_bed_ret_MISSING_TOKENS;
     }
     marker_id_len = (uintptr_t)(ref_allele_ptr - marker_id);
-    // okay, now this actually points to the ref allele
     bufptr = strchr(++ref_allele_ptr, '\t');
+    // now ref_allele_ptr finally points to the ref allele
     if (!bufptr) {
       goto vcf_to_bed_ret_MISSING_TOKENS;
     }
@@ -8198,14 +8198,14 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	      // this sort of performance leak when hundreds of GB are
 	      // involved...
 	      gq_scan_ptr = bufptr;
-	      for (uii = 0; uii < gq_field_pos; uii++) {
+	      for (ujj = 0; ujj < gq_field_pos; ujj++) {
 		gq_scan_ptr = (char*)memchr(gq_scan_ptr, ':', (uintptr_t)(bufptr2 - gq_scan_ptr));
 		if (!gq_scan_ptr) {
 		  goto vcf_to_bed_ret_MISSING_GQ;
 		}
 		gq_scan_ptr++;
 	      }
-	      if (scan_double(gq_scan_ptr, &dxx) || (dxx < vcf_min_gq)) {
+	      if ((!scan_double(gq_scan_ptr, &dxx)) && (dxx < vcf_min_gq)) {
 		continue;
 	      }
 	    }
@@ -8274,14 +8274,14 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	  }
 	  if (gq_field_pos) {
 	    gq_scan_ptr = bufptr;
-	    for (uii = 0; uii < gq_field_pos; uii++) {
+	    for (ujj = 0; ujj < gq_field_pos; ujj++) {
 	      gq_scan_ptr = (char*)memchr(gq_scan_ptr, ':', (uintptr_t)(bufptr2 - gq_scan_ptr));
               if (!gq_scan_ptr) {
 		goto vcf_to_bed_ret_MISSING_GQ;
 	      }
 	      gq_scan_ptr++;
 	    }
-	    if (scan_double(gq_scan_ptr, &dxx) || (dxx < vcf_min_gq)) {
+	    if ((!scan_double(gq_scan_ptr, &dxx)) && (dxx < vcf_min_gq)) {
 	      continue;
 	    }
 	  }
@@ -8336,14 +8336,14 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	if (uii <= 9) {
 	  if (gq_field_pos) {
 	    gq_scan_ptr = bufptr;
-	    for (uii = 0; uii < gq_field_pos; uii++) {
+	    for (ujj = 0; ujj < gq_field_pos; ujj++) {
 	      gq_scan_ptr = (char*)memchr(gq_scan_ptr, ':', (uintptr_t)(bufptr2 - gq_scan_ptr));
 	      if (!gq_scan_ptr) {
 		goto vcf_to_bed_ret_MISSING_GQ;
 	      }
 	      gq_scan_ptr++;
 	    }
-	    if (scan_double(gq_scan_ptr, &dxx) || (dxx < vcf_min_gq)) {
+	    if ((!scan_double(gq_scan_ptr, &dxx)) && (dxx < vcf_min_gq)) {
 	      continue;
 	    }
 	  }
@@ -8427,11 +8427,11 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	}
 	if (gq_field_pos) {
 	  gq_scan_ptr = bufptr;
-	  for (uii = 0; uii < gq_field_pos; uii++) {
+	  for (ujj = 0; ujj < gq_field_pos; ujj++) {
 	    gq_scan_ptr = (char*)memchr(gq_scan_ptr, ':', (uintptr_t)(bufptr2 - gq_scan_ptr));
 	    gq_scan_ptr++;
 	  }
-	  if (scan_double(gq_scan_ptr, &dxx) || (dxx < vcf_min_gq)) {
+	  if ((!scan_double(gq_scan_ptr, &dxx)) && (dxx < vcf_min_gq)) {
 	    continue;
 	  }
 	}
