@@ -49,34 +49,29 @@ const char* include_or_exclude_flag_str(uint32_t flags) {
   return NULL;
 }
 
-void exclude_extract_process_token(char* tok_start, char* sorted_ids, uint32_t* id_map, uintptr_t max_id_len, uintptr_t sorted_ids_ct, uintptr_t* exclude_arr, uintptr_t* exclude_arr_new, uintptr_t* duplicate_ct_ptr, uint32_t do_exclude, uint32_t curtoklen) {
+void exclude_extract_process_token(char* tok_start, char* sorted_ids, uint32_t* id_map, uintptr_t max_id_len, uintptr_t sorted_ids_ct, uintptr_t* exclude_arr, uintptr_t* exclude_arr_new, uintptr_t* already_seen, uintptr_t* duplicate_ct_ptr, uint32_t do_exclude, uint32_t curtoklen) {
   uintptr_t ulii = bsearch_str_lb(tok_start, curtoklen, sorted_ids, max_id_len, sorted_ids_ct);
-  uintptr_t is_duplicate = 0;
   uintptr_t uljj;
   uint32_t unfiltered_idx;
   if (ulii != sorted_ids_ct) {
     tok_start[curtoklen] = ' ';
     uljj = bsearch_str_lb(tok_start, curtoklen + 1, sorted_ids, max_id_len, sorted_ids_ct);
     if (uljj > ulii) {
-      do {
-	unfiltered_idx = id_map[ulii];
-	if (!IS_SET(exclude_arr, unfiltered_idx)) {
-	  if (do_exclude) {
-	    if (IS_SET(exclude_arr_new, unfiltered_idx)) {
-	      is_duplicate = 1;
-	    } else {
+      if (IS_SET(already_seen, ulii)) {
+	*duplicate_ct_ptr += 1;
+      } else {
+	SET_BIT(already_seen, ulii);
+	do {
+	  unfiltered_idx = id_map[ulii];
+	  if (!IS_SET(exclude_arr, unfiltered_idx)) {
+	    if (do_exclude) {
 	      SET_BIT(exclude_arr_new, unfiltered_idx);
-	    }
-	  } else {
-	    if (!IS_SET(exclude_arr_new, unfiltered_idx)) {
-	      is_duplicate = 1;
 	    } else {
 	      CLEAR_BIT(exclude_arr_new, unfiltered_idx);
 	    }
 	  }
-	}
-      } while (++ulii < uljj);
-      *duplicate_ct_ptr += is_duplicate;
+	} while (++ulii < uljj);
+      }
     }
   }
 }
@@ -94,12 +89,14 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
   uint32_t curtoklen = 0;
   int32_t retval = 0;
   char* midbuf = &(tbuf[MAXLINELEN]);
+  uintptr_t* already_seen;
   char* id_buf;
   char* bufptr0;
   char* bufptr;
   char* bufptr2;
   char* bufptr3;
   uintptr_t bufsize;
+  uintptr_t sorted_id_ctl;
   int32_t ii;
   uint32_t unfiltered_idx;
   uint32_t cur_idx;
@@ -109,8 +106,9 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
     goto include_or_exclude_ret_NOMEM;
   }
   if (do_exclude) {
-    // need this to avoid spurious duplicate warnings (ID could have been
-    // removed by an earlier step)
+    // need this to avoid --keep/--remove spurious duplicate warnings (ID could
+    // have been removed by an earlier step), though we could switch that to
+    // the already_seen strategy
     memcpy(exclude_arr_new, exclude_arr, unfiltered_ctl * sizeof(intptr_t));
   } else {
     fill_all_bits(exclude_arr_new, unfiltered_ct);
@@ -182,6 +180,13 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
       }
     }
   } else {
+    // solve performance problem when both base dataset and .snplist file have
+    // millions of '.' entries
+    sorted_id_ctl = (sorted_ids_ct + (BITCT - 1)) / BITCT;
+    if (wkspace_alloc_ul_checked(&already_seen, sorted_id_ctl * sizeof(intptr_t))) {
+      goto include_or_exclude_ret_NOMEM;
+    }
+    fill_ulong_zero(already_seen, sorted_id_ctl);
     // use token- instead of line-based loader here
     while (1) {
       if (fread_checked(midbuf, MAXLINELEN, infile, &bufsize)) {
@@ -189,7 +194,7 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
       }
       if (!bufsize) {
         if (curtoklen && (curtoklen < max_id_len)) {
-          exclude_extract_process_token(&(tbuf[MAXLINELEN - curtoklen]), sorted_ids, id_map, max_id_len, sorted_ids_ct, exclude_arr, exclude_arr_new, &duplicate_ct, do_exclude, curtoklen);
+          exclude_extract_process_token(&(tbuf[MAXLINELEN - curtoklen]), sorted_ids, id_map, max_id_len, sorted_ids_ct, exclude_arr, exclude_arr_new, already_seen, &duplicate_ct, do_exclude, curtoklen);
 	}
 	break;
       }
@@ -225,7 +230,7 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
 	  break;
 	}
 	if (curtoklen < max_id_len) {
-          exclude_extract_process_token(bufptr, sorted_ids, id_map, max_id_len, sorted_ids_ct, exclude_arr, exclude_arr_new, &duplicate_ct, do_exclude, curtoklen);
+          exclude_extract_process_token(bufptr, sorted_ids, id_map, max_id_len, sorted_ids_ct, exclude_arr, exclude_arr_new, already_seen, &duplicate_ct, do_exclude, curtoklen);
 	}
 	bufptr = &(bufptr2[1]);
       }
