@@ -196,6 +196,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uint32_t read_idx;
   uint32_t slen;
   uint32_t indiv_uidx;
+  uint32_t prev_indiv_uidx;
   uint32_t is_valid;
   uint32_t uii;
   int32_t ii;
@@ -1094,14 +1095,19 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
       line_idx = 0;
       if (noheader) {
-	for (read_idx = 0, indiv_uidx = 0; read_idx < indiv_ct; indiv_uidx++, read_idx++) {
-	  next_unset_unsafe_ck(indiv_exclude, &indiv_uidx);
-	  read_idx_to_indiv_idx[read_idx] = indiv_uidx;
-	}
-	skip_vals[0] = 1 + format_val * read_idx_to_indiv_idx[0];
+	indiv_uidx = 0;
+	next_unset_unsafe_ck(indiv_exclude, &indiv_uidx);
+	skip_vals[0] = 1 + format_val * indiv_uidx;
 	uii = 1 + (format_val == 3);
 	for (read_idx = 1; read_idx < indiv_ct; read_idx++) {
-	  skip_vals[read_idx] = uii + format_val * (read_idx_to_indiv_idx[read_idx] - read_idx_to_indiv_idx[read_idx - 1] - 1);
+	  prev_indiv_uidx = indiv_uidx++;
+	  next_unset_unsafe_ck(indiv_exclude, &indiv_uidx);
+	  skip_vals[read_idx] = uii + format_val * (indiv_uidx - prev_indiv_uidx - 1);
+	}
+	// bugfix: this is a read_idx -> indiv_idx map, not read_idx ->
+	// indiv_uidx
+	for (read_idx = 0; read_idx < indiv_ct; read_idx++) {
+	  read_idx_to_indiv_idx[read_idx] = read_idx;
 	}
 	fill_all_bits(batch_indivs, indiv_ct);
       } else if (!sepheader) {

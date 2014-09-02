@@ -1488,12 +1488,10 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
   if (retval) {
     goto load_covars_ret_1;
   }
-  printf("step 1\n");
   covar_raw_ct = count_tokens(bufptr);
   if ((covar_raw_ct < 3) || (covar_raw_ct < 2 + gxe_mcovar)) {
     goto load_covars_ret_MISSING_TOKENS;
   }
-  printf("step 1.1\n");
   covar_raw_ct -= 2;
   covar_raw_ctl = (covar_raw_ct + (BITCT - 1)) / BITCT;
   covars_active = (uintptr_t*)wkspace_alloc(covar_raw_ctl * sizeof(intptr_t));
