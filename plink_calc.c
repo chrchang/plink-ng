@@ -5101,7 +5101,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
-int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end, int32_t nonfounders, uint64_t calculation_type, uint32_t genome_modifier, uint32_t ppc_gap, double min_pi_hat, double max_pi_hat, uintptr_t* pheno_nm, uintptr_t* pheno_c, Pedigree_rel_info pri, uint32_t skip_write) {
+int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, double* set_allele_freqs, uint32_t* nchrobs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end, int32_t nonfounders, uint64_t calculation_type, uint32_t genome_modifier, uint32_t ppc_gap, double min_pi_hat, double max_pi_hat, uintptr_t* pheno_nm, uintptr_t* pheno_c, Pedigree_rel_info pri, uint32_t skip_write) {
   FILE* outfile = NULL;
   int32_t retval = 0;
   unsigned char* wkspace_mark = wkspace_base;
@@ -5121,6 +5121,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   char wbuf[16];
   int32_t missing_ct_buf[BITCT];
   double set_allele_freq_buf[GENOME_MULTIPLEX];
+  uint32_t nchrobs_buf[GENOME_MULTIPLEX];
   unsigned char* gptr;
   char* cptr;
   uintptr_t* geno;
@@ -5280,6 +5281,9 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
 	goto calc_genome_ret_1;
       }
       set_allele_freq_buf[ujj] = set_allele_freqs[marker_uidx];
+      if (nchrobs) {
+	nchrobs_buf[ujj] = nchrobs[ujj];
+      }
       // See comments in incr_genome(): the PPC test is time-critical and
       // we do a bit of unusual precomputation here to speed it up.
       //
@@ -5413,7 +5417,11 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
       for (umm = 0; umm < unn; umm++) {
 	dpp = set_allele_freq_buf[ujj + umm];
 	dqq = 1.0 - dpp;
-	num_alleles = (double)(2 * (indiv_ct - missing_ct_buf[umm] - missing_ct_all));
+	if ((!nchrobs) || (nchrobs_buf[ujj + umm] == 0xffffffffU)) {
+	  num_alleles = (double)(2 * (indiv_ct - missing_ct_buf[umm] - missing_ct_all));
+	} else {
+	  num_alleles = (double)nchrobs_buf[ujj + umm];
+	}
 	if ((num_alleles > 3) && (dpp > 0.0) && (dqq > 0.0)) {
 	  // update e00, e01, e02, e11, e12, ibd_prect
 	  // see Plink::preCalcGenomeIBD() in genome.cpp

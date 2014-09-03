@@ -1696,14 +1696,74 @@ int32_t load_one_freq(uint32_t alen1, const char* aptr1, uint32_t alen2, const c
   return 0;
 }
 
-int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, char** marker_allele_ptrs, double* set_allele_freqs, uint32_t maf_succ, double exponent, uint32_t wt_needed, double* marker_weights) {
+uint32_t get_freq_file_type(char* bufptr) {
+  uint32_t token_ct = count_tokens(bufptr);
+  uint32_t slen;
+  if ((token_ct == 6) || (token_ct == 7)) {
+    slen = strlen_se(bufptr);
+    if ((slen != 3) || memcmp(bufptr, "CHR", 3)) {
+      return 0;
+    }
+    bufptr = skip_initial_spaces(&(bufptr[slen]));
+    slen = strlen_se(bufptr);
+    if ((slen != 3) || memcmp(bufptr, "SNP", 3)) {
+      return 0;
+    }
+    bufptr = skip_initial_spaces(&(bufptr[slen]));
+    slen = strlen_se(bufptr);
+    if ((slen != 2) || memcmp(bufptr, "A1", 2)) {
+      return 0;
+    }
+    bufptr = skip_initial_spaces(&(bufptr[slen]));
+    slen = strlen_se(bufptr);
+    if ((slen != 2) || memcmp(bufptr, "A2", 2)) {
+      return 0;
+    }
+    bufptr = skip_initial_spaces(&(bufptr[slen]));
+    slen = strlen_se(bufptr);
+    if (token_ct == 6) {
+      if ((slen != 3) || memcmp(bufptr, "MAF", 3)) {
+	return 0;
+      }
+      bufptr = skip_initial_spaces(&(bufptr[slen]));
+      slen = strlen_se(bufptr);
+      if ((slen != 7) || memcmp(bufptr, "NCHROBS", 7)) {
+	return 0;
+      }
+      return 1;
+    } else {
+      if ((slen != 2) || memcmp(bufptr, "C1", 2)) {
+	return 0;
+      }
+      bufptr = skip_initial_spaces(&(bufptr[slen]));
+      slen = strlen_se(bufptr);
+      if ((slen != 2) || memcmp(bufptr, "C2", 2)) {
+	return 0;
+      }
+      bufptr = skip_initial_spaces(&(bufptr[slen]));
+      slen = strlen_se(bufptr);
+      if ((slen != 2) || memcmp(bufptr, "G0", 2)) {
+	return 0;
+      }
+      return 2;
+    }
+  } else if (token_ct == 3) {
+    return 4;
+  } else if (!memcmp(bufptr, "CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(HAP A1)\tC(HAP A2)\tC(MISSING)", 71)) {
+    return 3;
+  }
+  return 0;
+}
+
+int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, char** marker_allele_ptrs, double* set_allele_freqs, uint32_t* nchrobs, uint32_t maf_succ, double exponent, uint32_t wt_needed, double* marker_weights) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* freqfile = NULL;
-  uintptr_t line_idx = 1;
+  uintptr_t line_idx = 0;
   uint32_t freq_counts = 0;
   uint32_t alen1 = 0;
   uint32_t alen2 = 0;
   uint32_t double_missing_ct = 0;
+  uint32_t cur_nchrobs = 0;
   char* aptr1 = NULL;
   char* aptr2 = NULL;
   int32_t retval = 0;
@@ -1743,17 +1803,25 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
   }
   loadbuf = (char*)wkspace_base;
   loadbuf[loadbuf_size - 1] = ' ';
-  if (!fgets(loadbuf, loadbuf_size, freqfile)) {
-    logprint("Error: Empty --read-freq file.\n");
+  do {
+    if (!fgets(loadbuf, loadbuf_size, freqfile)) {
+      logprint("Error: Empty --read-freq file.\n");
+      goto read_external_freqs_ret_INVALID_FORMAT;
+    }
+    line_idx++;
+    if (!loadbuf[loadbuf_size - 1]) {
+      goto read_external_freqs_ret_TOO_LONG_LINE;
+    }
+    bufptr = skip_initial_spaces(loadbuf);
+  } while (is_eoln_kns(*bufptr));
+  uii = get_freq_file_type(bufptr);
+  if (!uii) {
+    logprint("Error: Invalid --read-freq file header.\n");
     goto read_external_freqs_ret_INVALID_FORMAT;
   }
-  if (!memcmp(loadbuf, " CHR  ", 6)) {
-    uii = strlen(loadbuf);
-    if (loadbuf[uii - 2] == '0') { // --counts makes G0 the last column header
+  if (uii < 3) {
+    if (uii == 2) {
       freq_counts = 1;
-    } else if (loadbuf[uii - 2] != 'S') { // NCHROBS
-      logprint("Error: Invalid --read-freq file header.\n");
-      goto read_external_freqs_ret_INVALID_FORMAT;
     }
     while (fgets(loadbuf, loadbuf_size, freqfile) != NULL) {
       line_idx++;
@@ -1809,10 +1877,24 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	    if (scan_uint_icap(next_token(bufptr), (uint32_t*)&c_hom_a2)) {
 	      goto read_external_freqs_ret_INVALID_HOM_A2;
 	    }
-	    maf = ((double)c_hom_a1 + maf_succ) / ((double)(c_hom_a1 + c_hom_a2 + 2 * maf_succ));
+	    cur_nchrobs = c_hom_a1 + c_hom_a2;
+	    maf = ((double)c_hom_a1 + maf_succ) / ((double)(cur_nchrobs + 2 * maf_succ));
+	    if (nchrobs) {
+	      nchrobs[marker_uidx] = cur_nchrobs;
+	    }
 	  } else {
 	    if (scan_double(bufptr, &maf)) {
 	      goto read_external_freqs_ret_INVALID_MAF;
+	    }
+	    if (nchrobs) {
+	      bufptr = next_token(bufptr);
+	      if (no_more_tokens_kns(bufptr)) {
+		goto read_external_freqs_ret_MISSING_TOKENS;
+	      }
+	      if (scan_uint_icap(bufptr, &cur_nchrobs)) {
+		goto read_external_freqs_ret_INVALID_NCHROBS;
+	      }
+	      nchrobs[marker_uidx] = cur_nchrobs;
 	    }
 	  }
 	  retval = load_one_freq(alen1, aptr1, alen2, aptr2, maf, &(set_allele_freqs[marker_uidx]), &(marker_allele_ptrs[marker_uidx * 2]), missing_geno);
@@ -1830,7 +1912,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
     } else {
       logprint("--read-freq: .frq file loaded.\n");
     }
-  } else if (!memcmp(loadbuf, "CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(HAP A1)\tC(HAP A2)\tC(MISSING)", 71)) {
+  } else if (uii == 3) {
     // changed from strcmp to avoid eoln problems
     // known --freqx format, WDIST v0.15.3 or later
     while (fgets(loadbuf, loadbuf_size, freqfile) != NULL) {
@@ -1896,7 +1978,11 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	    sprintf(logbuf, "Error: Invalid hap. A2 count on line %" PRIuPTR " of --read-freq file.\n", line_idx);
 	    goto read_external_freqs_ret_INVALID_FORMAT_2;
 	  }
-	  maf = ((double)(c_hom_a1 * 2 + c_het + c_hap_a1 + maf_succ)) / ((double)(2 * (c_hom_a1 + c_het + c_hom_a2 + maf_succ) + c_hap_a1 + c_hap_a2));
+	  cur_nchrobs = 2 * (c_hom_a1 + c_het + c_hom_a2 + maf_succ) + c_hap_a1 + c_hap_a2;
+	  maf = ((double)(c_hom_a1 * 2 + c_het + c_hap_a1 + maf_succ)) / ((double)cur_nchrobs);
+	  if (nchrobs) {
+	    nchrobs[marker_uidx] = cur_nchrobs;
+	  }
 	  retval = load_one_freq(alen1, aptr1, alen2, aptr2, maf, &(set_allele_freqs[marker_uidx]), &(marker_allele_ptrs[marker_uidx * 2]), missing_geno);
 	  if (retval) {
 	    goto read_external_freqs_ret_ALLELE_MISMATCH;
@@ -1915,7 +2001,13 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
   } else {
     // Also support GCTA-style frequency files:
     // [marker ID]\t[reference allele]\t[frequency of reference allele]\n
-    line_idx = 0; // no header line here
+    if (nchrobs) {
+      logprint("Error: The current run requires an allele frequency file with observation\ncounts.\n");
+      goto read_external_freqs_ret_INVALID_FORMAT;
+    }
+
+    // no header line here
+    line_idx--;
     do {
       line_idx++;
       if (!loadbuf[loadbuf_size - 1]) {
@@ -1988,6 +2080,10 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
     break;
   read_external_freqs_ret_INVALID_HOM_A2:
     LOGPRINTF("Error: Invalid hom. A2 count on line %" PRIuPTR " of --read-freq file.\n", line_idx);
+    retval = RET_INVALID_FORMAT;
+    break;
+  read_external_freqs_ret_INVALID_NCHROBS:
+    LOGPRINTF("Error: Invalid NCHROBS value on line %" PRIuPTR " of --read-freq file.\n", line_idx);
     retval = RET_INVALID_FORMAT;
     break;
   read_external_freqs_ret_INVALID_MAF:
