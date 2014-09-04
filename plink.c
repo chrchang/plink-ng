@@ -98,7 +98,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (2 Sep 2014) ";
+  " (3 Sep 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -12573,9 +12573,14 @@ int32_t main(int32_t argc, char** argv) {
   } else if (load_rare & LOAD_RARE_GVAR) {
     retval = plink_gvar(outname, outname_end, pedname, mapname, famname);
   } else {
-    if ((!calculation_type) && filter_flags) {
-      logprint("Error: Basic file conversions do not support regular filtering operations.\nRerun your command with --make-bed.\n");
-      goto main_ret_INVALID_CMDLINE;
+    if (filter_flags) {
+      if (!calculation_type) {
+	logprint("Error: Basic file conversions do not support regular filtering operations.\nRerun your command with --make-bed.\n");
+	goto main_ret_INVALID_CMDLINE;
+      } else if (calculation_type == CALC_MERGE) {
+	logprint("Error: Basic merge does not support regular filtering operations.  Rerun your\ncommand with --make-bed.\n");
+	goto main_ret_INVALID_CMDLINE;
+      }
     }
     if (load_rare || (load_params & (LOAD_PARAMS_TEXT_ALL | LOAD_PARAMS_OX_ALL))) {
       sptr = outname_end;
