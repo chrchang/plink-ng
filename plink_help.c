@@ -1278,6 +1278,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      test.  Gene locations must be loaded with --cnv-count.\n\n"
 	       );
 #endif
+    help_print("write-var-ranges", &help_ctrl, 1,
+"  --write-var-ranges [block ct]\n"
+"    Divide the set of variants into equal-size blocks.  (Can be used with\n"
+"    --snps to split a job across multiple machines.)\n\n"
+	       );
     if (!param_ct) {
       fputs(
 "The following other flags are supported.  (Order of operations is described at\n"

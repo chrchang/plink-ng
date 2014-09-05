@@ -3070,6 +3070,56 @@ int32_t write_snplist(char* outname, char* outname_end, uintptr_t unfiltered_mar
   return retval;
 }
 
+int32_t write_var_ranges(char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t write_var_range_ct) {
+  FILE* outfile = NULL;
+  uintptr_t marker_uidx = 0;
+  uintptr_t marker_idx = 0;
+  int32_t retval = 0;
+  uintptr_t new_marker_idx;
+  uint32_t block_idx;
+  if (write_var_range_ct > marker_ct) {
+    logprint("Error: --write-var-ranges block count exceeds the total number of variants.\n");
+    goto write_var_ranges_ret_INVALID_CMDLINE;
+  }
+  memcpy(outname_end, ".var.ranges", 12);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto write_var_ranges_ret_OPEN_FAIL;
+  }
+  if (fputs_checked("FIRST\tLAST\n", outfile)) {
+    goto write_var_ranges_ret_WRITE_FAIL;
+  }
+  for (block_idx = 1; block_idx <= write_var_range_ct; block_idx++) {
+    next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
+    fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
+    putc('\t', outfile);
+    new_marker_idx = (block_idx * ((uint64_t)marker_ct)) / write_var_range_ct;
+    if (new_marker_idx > marker_idx + 1) {
+      marker_uidx = jump_forward_unset_unsafe(marker_exclude, marker_uidx + 1, new_marker_idx - marker_idx - 1);
+    }
+    fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
+    putc('\n', outfile);
+    marker_uidx++;
+    marker_idx = new_marker_idx;
+  }
+  if (fclose_null(&outfile)) {
+    goto write_var_ranges_ret_WRITE_FAIL;
+  }
+  LOGPRINTFWW("--write-var-ranges: Block boundaries written to %s .\n", outname);
+  while (0) {
+  write_var_ranges_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  write_var_ranges_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  write_var_ranges_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+  }
+  fclose_cond(outfile);
+  return retval;
+}
+
 int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uintptr_t* founder_info, Chrom_info* chrom_info_ptr, double* set_allele_freqs) {
   // Same F coefficient computation as sexcheck().
   unsigned char* wkspace_mark = wkspace_base;

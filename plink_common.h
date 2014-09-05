@@ -299,9 +299,10 @@
 #define CALC_SHOW_TAGS 0x8000000000000LLU
 #define CALC_MAKE_BIM 0x10000000000000LLU
 #define CALC_MAKE_FAM 0x20000000000000LLU
-#define CALC_ONLY_BIM (CALC_WRITE_SET | CALC_WRITE_SNPLIST | CALC_LIST_23_INDELS | CALC_MAKE_BIM)
+#define CALC_WRITE_VAR_RANGES 0x40000000000000LLU
+#define CALC_ONLY_BIM (CALC_WRITE_SET | CALC_WRITE_SNPLIST | CALC_WRITE_VAR_RANGES | CALC_LIST_23_INDELS | CALC_MAKE_BIM)
 #define CALC_ONLY_FAM (CALC_MAKE_PERM_PHENO | CALC_WRITE_COVAR | CALC_MAKE_FAM)
-// only room for 10 more basic commands before we need to switch from a single
+// only room for 9 more basic commands before we need to switch from a single
 // uint64_t to uintptr_t*/is_set()/etc.
 
 // necessary to patch heterozygous haploids/female Y chromosome genotypes
@@ -1043,7 +1044,7 @@ int32_t scan_token_ct_len(FILE* infile, char* buf, uintptr_t half_bufsize, uintp
 
 int32_t read_tokens(FILE* infile, char* buf, uintptr_t half_bufsize, uintptr_t token_ct, uintptr_t max_token_len, char* token_name_buf);
 
-static inline char* memseta(char* target, const unsigned char val, uintptr_t ct) {
+static inline char* memseta(char* target, unsigned char val, uintptr_t ct) {
   memset(target, val, ct);
   return &(target[ct]);
 }
@@ -1061,13 +1062,13 @@ static inline char* memcpyb(char* target, const void* source, uint32_t ct) {
   return &(target[ct - 1]);
 }
 
-static inline char* memcpyax(char* target, const void* source, uint32_t ct, const char extra_char) {
+static inline char* memcpyax(char* target, const void* source, uint32_t ct, char extra_char) {
   memcpy(target, source, ct);
   target[ct] = extra_char;
   return &(target[ct + 1]);
 }
 
-static inline void memcpyx(char* target, const void* source, uint32_t ct, const char extra_char) {
+static inline void memcpyx(char* target, const void* source, uint32_t ct, char extra_char) {
   memcpy(target, source, ct);
   target[ct] = extra_char;
 }
@@ -1088,7 +1089,7 @@ static inline char* strcpya(char* target, const void* source) {
   return &(target[slen]);
 }
 
-static inline char* strcpyax(char* target, const void* source, const char extra_char) {
+static inline char* strcpyax(char* target, const void* source, char extra_char) {
   uintptr_t slen = strlen((char*)source);
   memcpy(target, source, slen);
   target[slen] = extra_char;
@@ -1275,97 +1276,97 @@ char* double_g_writewx4(char* start, double dxx, uint32_t min_width);
 
 char* double_g_writewx8(char* start, double dxx, uint32_t min_width);
 
-static inline char* uint32_writex(char* start, uint32_t uii, const char extra_char) {
+static inline char* uint32_writex(char* start, uint32_t uii, char extra_char) {
   char* penult = uint32_write(start, uii);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* int32_writex(char* start, int32_t ii, const char extra_char) {
+static inline char* int32_writex(char* start, int32_t ii, char extra_char) {
   char* penult = int32_write(start, ii);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* uint32_writew4x(char* start, uint32_t uii, const char extra_char) {
+static inline char* uint32_writew4x(char* start, uint32_t uii, char extra_char) {
   char* penult = uint32_writew4(start, uii);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* uint32_writew6x(char* start, uint32_t uii, const char extra_char) {
+static inline char* uint32_writew6x(char* start, uint32_t uii, char extra_char) {
   char* penult = uint32_writew6(start, uii);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* uint32_writew7x(char* start, uint32_t uii, const char extra_char) {
+static inline char* uint32_writew7x(char* start, uint32_t uii, char extra_char) {
   char* penult = uint32_writew7(start, uii);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* uint32_writew8x(char* start, uint32_t uii, const char extra_char) {
+static inline char* uint32_writew8x(char* start, uint32_t uii, char extra_char) {
   char* penult = uint32_writew8(start, uii);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* uint32_writew10x(char* start, uint32_t uii, const char extra_char) {
+static inline char* uint32_writew10x(char* start, uint32_t uii, char extra_char) {
   char* penult = uint32_writew10(start, uii);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* double_e_writex(char* start, double dxx, const char extra_char) {
+static inline char* double_e_writex(char* start, double dxx, char extra_char) {
   char* penult = double_e_write(start, dxx);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* float_e_writex(char* start, float dxx, const char extra_char) {
+static inline char* float_e_writex(char* start, float dxx, char extra_char) {
   char* penult = float_e_write(start, dxx);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* double_f_writew96x(char* start, double dxx, const char extra_char) {
+static inline char* double_f_writew96x(char* start, double dxx, char extra_char) {
   char* penult = double_f_writew96(start, dxx);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* double_f_writew74x(char* start, double dxx, const char extra_char) {
+static inline char* double_f_writew74x(char* start, double dxx, char extra_char) {
   char* penult = double_f_writew74(start, dxx);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* double_g_writex(char* start, double dxx, const char extra_char) {
+static inline char* double_g_writex(char* start, double dxx, char extra_char) {
   char* penult = double_g_write(start, dxx);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* float_g_writex(char* start, float dxx, const char extra_char) {
+static inline char* float_g_writex(char* start, float dxx, char extra_char) {
   char* penult = float_g_write(start, dxx);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* double_g_writewx3x(char* start, double dxx, uint32_t min_width, const char extra_char) {
+static inline char* double_g_writewx3x(char* start, double dxx, uint32_t min_width, char extra_char) {
   char* penult = double_g_writewx3(start, dxx, min_width);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* double_g_writewx4x(char* start, double dxx, uint32_t min_width, const char extra_char) {
+static inline char* double_g_writewx4x(char* start, double dxx, uint32_t min_width, char extra_char) {
   char* penult = double_g_writewx4(start, dxx, min_width);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* double_g_writewx8x(char* start, double dxx, uint32_t min_width, const char extra_char) {
+static inline char* double_g_writewx8x(char* start, double dxx, uint32_t min_width, char extra_char) {
   char* penult = double_g_writewx8(start, dxx, min_width);
   *penult = extra_char;
   return &(penult[1]);
