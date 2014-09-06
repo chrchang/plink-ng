@@ -98,7 +98,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (4 Sep 2014) ";
+  " (6 Sep 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -2958,6 +2958,8 @@ int32_t main(int32_t argc, char** argv) {
   char* metaanal_snpfield_search_order = NULL;
   char* metaanal_a1field_search_order = NULL;
   char* metaanal_a2field_search_order = NULL;
+  char* metaanal_pfield_search_order = NULL;
+  char* metaanal_essfield_search_order = NULL;
   uint32_t gene_report_border = 0;
   uint32_t metaanal_flags = 0;
   double vcf_min_qual = -1;
@@ -8826,7 +8828,7 @@ int32_t main(int32_t argc, char** argv) {
 	calculation_type |= CALC_MAKE_PERM_PHENO;
       } else if (!memcmp(argptr2, "eta-analysis", 13)) {
 	UNSTABLE;
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 0x7fffffff)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 0x1fffffff)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	// if '+' present, must detect it before using alloc_and_flatten()
@@ -8857,6 +8859,8 @@ int32_t main(int32_t argc, char** argv) {
 	    metaanal_flags |= METAANAL_LOGSCALE;
 	  } else if (!strcmp(argv[cur_arg + uii], "qt")) {
 	    metaanal_flags |= METAANAL_QT | METAANAL_LOGSCALE;
+	  } else if (!strcmp(argv[cur_arg + uii], "weighted-z")) {
+	    metaanal_flags |= METAANAL_WEIGHTED_Z;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --meta-analysis modifier '%s'.\n", argv[cur_arg + uii]);
 	    goto main_ret_INVALID_CMDLINE_WWA;
@@ -8870,7 +8874,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --meta-analysis-a1-field cannot be used with --meta-analysis\n'no-map'/'no-allele'.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x20000000)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x10000000)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
         retval = alloc_and_flatten(&metaanal_a1field_search_order, &(argv[cur_arg + 1]), param_ct);
@@ -8885,7 +8889,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --meta-analysis-a2-field cannot be used with --meta-analysis\n'no-map'/'no-allele'.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x20000000)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x10000000)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
         retval = alloc_and_flatten(&metaanal_a2field_search_order, &(argv[cur_arg + 1]), param_ct);
@@ -8897,10 +8901,34 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --meta-analysis-snp-field must be used with --meta-analysis.\n");
           goto main_ret_INVALID_CMDLINE;
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x20000000)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x10000000)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
         retval = alloc_and_flatten(&metaanal_snpfield_search_order, &(argv[cur_arg + 1]), param_ct);
+	if (retval) {
+	  goto main_ret_NOMEM;
+	}
+      } else if (!memcmp(argptr2, "eta-analysis-p-field", 21)) {
+        if ((!metaanal_fnames) || (!(metaanal_flags & METAANAL_WEIGHTED_Z))) {
+	  logprint("Error: --meta-analysis-p-field must be used with --meta-analysis + weighted-z.\n");
+          goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x10000000)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+        retval = alloc_and_flatten(&metaanal_pfield_search_order, &(argv[cur_arg + 1]), param_ct);
+	if (retval) {
+	  goto main_ret_NOMEM;
+	}
+      } else if (!memcmp(argptr2, "eta-analysis-ess-field", 23)) {
+        if ((!metaanal_fnames) || (!(metaanal_flags & METAANAL_WEIGHTED_Z))) {
+	  logprint("Error: --meta-analysis-ess-field must be used with --meta-analysis + weighted-z.\n");
+          goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x10000000)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+        retval = alloc_and_flatten(&metaanal_essfield_search_order, &(argv[cur_arg + 1]), param_ct);
 	if (retval) {
 	  goto main_ret_NOMEM;
 	}
@@ -12551,7 +12579,7 @@ int32_t main(int32_t argc, char** argv) {
     }
   }
   if (metaanal_fnames) {
-    retval = meta_analysis(metaanal_fnames, metaanal_snpfield_search_order, metaanal_a1field_search_order, metaanal_a2field_search_order, metaanal_flags, (misc_flags & MISC_EXTRACT_RANGE)? NULL : extractname, outname, outname_end, &chrom_info);
+    retval = meta_analysis(metaanal_fnames, metaanal_snpfield_search_order, metaanal_a1field_search_order, metaanal_a2field_search_order, metaanal_pfield_search_order, metaanal_essfield_search_order, metaanal_flags, (misc_flags & MISC_EXTRACT_RANGE)? NULL : extractname, outname, outname_end, &chrom_info);
     if (retval) {
       goto main_ret_1;
     }
@@ -12794,6 +12822,8 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(metaanal_snpfield_search_order);
   free_cond(metaanal_a1field_search_order);
   free_cond(metaanal_a2field_search_order);
+  free_cond(metaanal_pfield_search_order);
+  free_cond(metaanal_essfield_search_order);
 
   oblig_missing_cleanup(&oblig_missing_info);
   cluster_cleanup(&cluster);

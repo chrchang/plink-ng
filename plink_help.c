@@ -1141,7 +1141,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("meta-analysis", &help_ctrl, 1,
 "  --meta-analysis [PLINK report filenames...]\n"
 "  --meta-analysis [PLINK report filenames...] + <logscale | qt>\n"
-"                  <no-map | no-allele> <study> <report-all>\n"
+"                  <no-map | no-allele> <study> <report-all> <weighted-z>\n"
 "    Perform a meta-analysis on several variant-based reports with 'SNP' and\n"
 "    'SE' fields.\n"
 "    * Normally, an 'OR' odds ratio field must also be present in each input\n"
@@ -1158,6 +1158,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      meta-analysis report.\n"
 "    * 'report-all' causes variants present in only a single input file to be\n"
 "      included in the meta-analysis report.\n"
+"    * 'weighted-z' requests weighted Z-score-based p-values (as computed by the\n"
+"      Abecasis Lab's METAL package) in addition to the usual inverse\n"
+"      variance-based analysis.  This requires P and effective sample size\n"
+"      fields.\n"
 "    * When --extract (without 'range') is present, only variants named in the\n"
 "      --extract file are considered.\n"
 "    * Unless 'no-map' is specified, chromosome filters are also respected.\n\n"
@@ -1892,7 +1896,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("adjust\tlambda", &help_ctrl, 0,
 "  --lambda [val]   : Set genomic control lambda for --adjust.\n"
 	       );
-    help_print("ci", &help_ctrl, 0,
+    help_print("ci\tassoc\tlinear\tlogistic\tmh\tbd\ttdt", &help_ctrl, 0,
 "  --ci [size]      : Report confidence intervals for odds ratios.\n"
 	       );
     help_print("pfilter", &help_ctrl, 0,
@@ -1907,7 +1911,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      100% * (1 - beta/2T) confidence interval is calculated for each empirical\n"
 "      p-value, where T is the total number of variants; whenever this\n"
 "      confidence interval doesn't contain alpha, the variant is exempted from\n"
-"      further permutation testing.  Default values are 0 and 0.0001.\n"
+"      further permutation testing.  Default values are 0 and 1e-4.\n"
 "    * The last two control when the early termination condition is checked.  If\n"
 "      a check occurs at permutation #p, the next check occurs after\n"
 "      [slope]p + [init interval] more permutations (rounded down).  Default\n"
@@ -1931,7 +1935,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --annotate-snp-field [nm] : Set --annotate variant ID field name.\n"
 	       );
     help_print("clump-p1\tclump-p2\tclump-r2\tclump-kb\tclump-snp-field\tclump-field\tclump", &help_ctrl, 0,
-"  --clump-p1 [pval] : Set --clump index var. p-value ceiling (default 0.0001).\n"
+"  --clump-p1 [pval] : Set --clump index var. p-value ceiling (default 1e-4).\n"
 "  --clump-p2 [pval] : Set --clump secondary p-value threshold (default 0.01).\n"
 "  --clump-r2 [r^2]  : Set --clump r^2 threshold (default 0.5).\n"
 "  --clump-kb [kbs]  : Set --clump kb radius (default 250).\n"
@@ -1964,13 +1968,18 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --clump-best              : Report best proxy for each --clump index var.\n"
 	       );
 #ifndef STABLE_BUILD
-    help_print("meta-analysis-snp-field\tmeta-analysis-a1-field\tmeta-analysis-a2-field\tmeta-analysis", &help_ctrl, 0,
-"  --meta-analysis-snp-field [n...] : Set --meta-analysis variant ID, A1, and/or\n"
-"  --meta-analysis-a1-field [n...]    A2 allele field name(s).  Defaults are\n"
-"  --meta-analysis-a2-field [n...]    'SNP', 'A1', and 'A2', respectively.  When\n"
-"                                     multiple parameters are given to these\n"
-"                                     flags, earlier names take precedence over\n"
-"                                     later ones.\n"
+    help_print("meta-analysis-snp-field\tmeta-analysis-a1-field\tmeta-analysis-a2-field\tmeta-analysis-p-field\tmeta-analysis-ess-field\tmeta-analysis", &help_ctrl, 0,
+"  --meta-analysis-snp-field [n...] : Set --meta-analysis variant ID, A1/A2\n"
+"  --meta-analysis-a1-field [n...]    allele, p-value, and/or effective sample\n"
+"  --meta-analysis-a2-field [n...]    size field names.  Defauls are 'SNP',\n"
+"  --meta-analysis-p-field [n...]     'A1', 'A2', 'P', and 'NMISS',\n"
+"  --meta-analysis-ess-field [n...]   respectively.  When multiple parameters\n"
+"                                     are given to these flags, earlier names\n"
+"                                     take precedence over later ones.\n"
+"                                     Note that, if the numbers of cases and\n"
+"                                     controls are unequal, effective sample\n"
+"                                     size should be\n"
+"                                       4 / (1/[# cases] + 1/[# controls]).\n"
 	       );
 #endif
     help_print("gene-list-border\tgene-report\tgene-subset\tgene-list\tgene-report-snp-field", &help_ctrl, 0,
@@ -1982,7 +1991,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("fast-epistasis\tepistasis\tgap\tepi1\tepi2", &help_ctrl, 0,
 "  --gap [kbs]      : Set '--fast-epistasis case-only' min. gap (default 1000).\n"
 "  --epi1 [p-value] : Set --{fast-}epistasis reporting threshold (default\n"
-"                     0.000005 for 'boost', 0.0001 otherwise).\n"
+"                     5e-6 for 'boost', 1e-4 otherwise).\n"
 "  --epi2 [p-value] : Set threshold for contributing to SIG_E count (def. 0.01).\n"
 	       );
     help_print("fast-epistasis\tje-cellmin", &help_ctrl, 0,

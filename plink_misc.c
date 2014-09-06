@@ -4313,16 +4313,18 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   return retval;
 }
 
-int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uintptr_t loadbuf_size, char* sorted_header_dict, uint32_t* header_id_map, uintptr_t header_dict_ct, uintptr_t max_header_len, uint32_t* token_ct_ptr, gzFile* gz_infile_ptr, uint32_t* col_skips, uint32_t* col_sequence, uintptr_t* line_idx_ptr, uint32_t* line_max_ptr) {
+int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uintptr_t loadbuf_size, char* sorted_header_dict, uint32_t* header_id_map, uintptr_t header_dict_ct, uintptr_t max_header_len, uint32_t weighted_z, uint32_t* token_ct_ptr, gzFile* gz_infile_ptr, uint32_t* col_skips, uint32_t* col_sequence, uintptr_t* line_idx_ptr, uint32_t* line_max_ptr) {
   uintptr_t line_idx = 1;
   uint32_t line_max = 0;
   uint32_t colnum = 0; // 0-based
   uint32_t token_ct = *token_ct_ptr;
   uint32_t best_var_id = 0x7fffffff;
+  uint32_t best_p_id = 0x7fffffff;
+  uint32_t best_ess_id = 0x7fffffff;
   uint32_t best_a1_id = 0x7fffffff;
   uint32_t best_a2_id = 0x7fffffff;
   int32_t retval = 0;
-  uint32_t parse_table[7];
+  uint32_t parse_table[9];
   char* bufptr;
   uint32_t slen;
   uint32_t uii;
@@ -4371,42 +4373,63 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
     ii = bsearch_str(bufptr, slen, sorted_header_dict, max_header_len, header_dict_ct);
     if (ii != -1) {
       uii = header_id_map[(uint32_t)ii];
-      ujj = uii >> 29;
-      if (ujj) {
-	if (ujj == 1) {
-	  // variant ID
-	  if (uii < best_var_id) {
-	    best_var_id = uii;
-	    parse_table[0] = colnum * 8;
-	  } else if (uii == best_var_id) {
-	    goto meta_analysis_open_and_read_header_ret_DUPLICATE_HEADER_COL;
-	  }
-	} else if (ujj == 2) {
-	  // A1
-	  if (uii < best_a1_id) {
-	    best_a1_id = uii;
-	    parse_table[5] = (colnum * 8) | 5;
-	  } else if (uii == best_a1_id) {
-	    goto meta_analysis_open_and_read_header_ret_DUPLICATE_HEADER_COL;
-	  }
-	} else {
-	  // A2
-	  if (uii < best_a2_id) {
-	    best_a2_id = uii;
-	    parse_table[6] = (colnum * 8) | 6;
-	  } else if (uii == best_a2_id) {
-	    goto meta_analysis_open_and_read_header_ret_DUPLICATE_HEADER_COL;
-	  }
-	}
-      } else {
+      ujj = uii >> 28;
+      switch (ujj) {
+      case 0:
         if (parse_table[uii] != 0xffffffffU) {
           goto meta_analysis_open_and_read_header_ret_DUPLICATE_HEADER_COL;
 	}
-	parse_table[uii] = (colnum * 8) | uii;
+	parse_table[uii] = (colnum * 16) | uii;
+	break;
+      case 1:
+	// variant ID
+	if (uii < best_var_id) {
+	  best_var_id = uii;
+	  parse_table[0] = colnum * 16;
+	} else if (uii == best_var_id) {
+	  goto meta_analysis_open_and_read_header_ret_DUPLICATE_HEADER_COL;
+	}
+	break;
+      case 2:
+	// P
+	if (uii < best_p_id) {
+	  best_p_id = uii;
+	  parse_table[3] = (colnum * 16) | 3;
+	} else if (uii == best_p_id) {
+	  goto meta_analysis_open_and_read_header_ret_DUPLICATE_HEADER_COL;
+	}
+	break;
+      case 3:
+	// effective sample size
+	if (uii < best_ess_id) {
+	  best_ess_id = uii;
+	  parse_table[4] = (colnum * 16) | 4;
+	} else if (uii == best_ess_id) {
+	  goto meta_analysis_open_and_read_header_ret_DUPLICATE_HEADER_COL;
+	}
+	break;
+      case 4:
+	// A1
+	if (uii < best_a1_id) {
+	  best_a1_id = uii;
+	  parse_table[7] = (colnum * 16) | 7;
+	} else if (uii == best_a1_id) {
+	  goto meta_analysis_open_and_read_header_ret_DUPLICATE_HEADER_COL;
+	}
+	break;
+      case 5:
+	// A2
+	if (uii < best_a2_id) {
+	  best_a2_id = uii;
+	  parse_table[8] = (colnum * 16) | 8;
+	} else if (uii == best_a2_id) {
+	  goto meta_analysis_open_and_read_header_ret_DUPLICATE_HEADER_COL;
+	}
+	break;
       }
     }
     bufptr = skip_initial_spaces(&(bufptr[slen]));
-    if (++colnum == 0x10000000) {
+    if (++colnum == 0x8000000) {
       // pathological case
       sprintf(logbuf, "Error: Line %" PRIuPTR " of %s has too many columns.\n", line_idx, fname);
       goto meta_analysis_open_and_read_header_ret_INVALID_FORMAT_WW;
@@ -4428,14 +4451,20 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
     } else if (parse_table[2] == 0xffffffffU) {
       sprintf(logbuf, "Error: No standard error field found in %s.\n", fname);
       goto meta_analysis_open_and_read_header_ret_INVALID_FORMAT_WW;
-    } else if (token_ct > 3) {
-      if (parse_table[3] == 0xffffffffU) {
+    } else if (weighted_z && (parse_table[3] == 0xffffffffU)) {
+      sprintf(logbuf, "Error: No p-value field found in %s.\n", fname);
+      goto meta_analysis_open_and_read_header_ret_INVALID_FORMAT_WW;
+    } else if (weighted_z && (parse_table[4] == 0xffffffffU)) {
+      sprintf(logbuf, "Error: No effective sample size field found in %s.\n", fname);
+      goto meta_analysis_open_and_read_header_ret_INVALID_FORMAT_WW;
+    } else if (token_ct > 5) {
+      if (parse_table[5] == 0xffffffffU) {
 	sprintf(logbuf, "Error: No CHR field found in %s.\n", fname);
 	goto meta_analysis_open_and_read_header_ret_INVALID_FORMAT_WW;
-      } else if (parse_table[4] == 0xffffffffU) {
+      } else if (parse_table[6] == 0xffffffffU) {
 	sprintf(logbuf, "Error: No POS field found in %s.\n", fname);
 	goto meta_analysis_open_and_read_header_ret_INVALID_FORMAT_WW;
-      } else if ((token_ct > 5) && (parse_table[5] == 0xffffffffU)) {
+      } else if ((token_ct > 7) && (parse_table[7] == 0xffffffffU)) {
 	sprintf(logbuf, "Error: No A1 allele field found in %s.\n", fname);
 	goto meta_analysis_open_and_read_header_ret_INVALID_FORMAT_WW;
       }
@@ -4446,18 +4475,22 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
 #else
   qsort((int32_t*)parse_table, token_ct, sizeof(int32_t), intcmp);
 #endif
-  col_skips[0] = parse_table[0] >> 3;
-  col_sequence[0] = parse_table[0] & 7;
+  if (!weighted_z) {
+    token_ct -= 2;
+  }
+  col_skips[0] = parse_table[0] >> 4;
+  col_sequence[0] = parse_table[0] & 15;
   for (uii = 1; uii < token_ct; uii++) {
     ujj = parse_table[uii];
     if (ujj == 0xffffffffU) {
-      // A2 is optional, so actual token ct may be less than parse_max
-      *token_ct_ptr = uii;
+      // A2 is optional
+      token_ct--;
       break;
     }
-    col_skips[uii] = (ujj >> 3) - (parse_table[uii - 1] >> 3);
-    col_sequence[uii] = ujj & 7;
+    col_skips[uii] = (ujj >> 4) - (parse_table[uii - 1] >> 4);
+    col_sequence[uii] = ujj & 15;
   }
+  *token_ct_ptr = token_ct;
   
   while (0) {
   meta_analysis_open_and_read_header_ret_NOMEM:
@@ -4481,17 +4514,17 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
   return retval;
 }
 
-uint32_t meta_analysis_allelic_match(const char* existing_a1ptr, char** token_ptrs, const uint32_t token_ct, const uint32_t a1lenp1, const uint32_t a2lenp1) {
+uint32_t meta_analysis_allelic_match(const char* existing_a1ptr, char** token_ptrs, uint32_t token_ct, uint32_t a1lenp1, uint32_t a2lenp1) {
   // returns 1 on same-direction match, 2 on A1/A2 reverse match, 0 on mismatch
-  const char* cur_a1ptr = token_ptrs[5];
+  const char* cur_a1ptr = token_ptrs[7];
   // memcmp is safe since loadbuf is positioned after htable/master_var_list.
   if (memcmp(existing_a1ptr, cur_a1ptr, a1lenp1)) {
-    return ((token_ct == 7) && (!memcmp(existing_a1ptr, token_ptrs[6], a2lenp1) && (!memcmp(&(existing_a1ptr[a2lenp1]), cur_a1ptr, a1lenp1)))) * 2;
+    return ((token_ct & 1) && (!memcmp(existing_a1ptr, token_ptrs[8], a2lenp1) && (!memcmp(&(existing_a1ptr[a2lenp1]), cur_a1ptr, a1lenp1)))) * 2;
   }
-  return ((token_ct == 6) || (!memcmp(&(existing_a1ptr[a1lenp1]), token_ptrs[6], a2lenp1)));
+  return ((!(token_ct & 1)) || (!memcmp(&(existing_a1ptr[a1lenp1]), token_ptrs[8], a2lenp1)));
 }
 
-int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1field_search_order, char* a2field_search_order, uint32_t flags, char* extractname, char* outname, char* outname_end, Chrom_info* chrom_info_ptr) {
+int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1field_search_order, char* a2field_search_order, char* pfield_search_order, char* essfield_search_order, uint32_t flags, char* extractname, char* outname, char* outname_end, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   gzFile gz_infile = NULL;
   FILE* infile = NULL;
@@ -4507,6 +4540,8 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   uintptr_t last_var_idx = 0;
   uintptr_t rejected_ct = 0;
   uintptr_t window_entry_base_cost = 2;
+  double cur_p = 0.0;
+  double cur_ess = 0.0;
   uint32_t max_var_id_len_p1 = 0;
   uint32_t max_combined_allele_len = 0;
   uint32_t use_map = 1 - ((flags / METAANAL_NO_MAP) & 1);
@@ -4515,6 +4550,8 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   uint32_t report_all = flags & METAANAL_REPORT_ALL;
   uint32_t output_beta = flags & METAANAL_QT;
   uint32_t report_study_specific = flags & METAANAL_STUDY;
+
+  uint32_t weighted_z = (flags / METAANAL_WEIGHTED_Z) & 1;
   uint32_t parse_max = 3;
   uint32_t file_ct = 0;
   uint32_t combined_allele_len_byte_width = 0;
@@ -4526,20 +4563,23 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   uint32_t cur_file_ct_m1 = 0;
   uint32_t cur_combined_allele_len = 0;
   uint32_t pass_idx = 0;
+  int32_t neg_entry_size = -2 - ((int32_t)weighted_z) * 2;
   int32_t retval = 0;
   char missing_geno = *g_missing_geno_ptr;
-  const char problem_strings[][16] = {"BAD_CHR", "BAD_BP", "MISSING_A1", "MISSING_A2", "BAD_ES", "BAD_SE", "ALLELE_MISMATCH"};
+  const char problem_strings[][16] = {"BAD_CHR", "BAD_BP", "MISSING_A1", "MISSING_A2", "BAD_ES", "BAD_SE", "ALLELE_MISMATCH", "BAD_P", "BAD_ESS"};
 
   // [0] = SNP
   // [1] = BETA/OR
   // [2] = SE
-  // [3] = CHR (unless 'no-map')
-  // [4] = BP (unless 'no-map')
-  // [5] = A1 (unless 'no-map'/'no-allele')
-  // [6] = A2 (optional, ignored with 'no-map'/'no-allele')
-  char* token_ptrs[7];
-  uint32_t col_skips[7];
-  uint32_t col_sequence[7];
+  // [3] = P ('weighted-z' only)
+  // [4] = effective sample size ('weighted-z' only)
+  // [5] = CHR (unless 'no-map')
+  // [6] = BP (unless 'no-map')
+  // [7] = A1 (unless 'no-map'/'no-allele')
+  // [8] = A2 (optional, ignored with 'no-map'/'no-allele')
+  char* token_ptrs[9];
+  uint32_t col_skips[9];
+  uint32_t col_sequence[9];
 
   // always initialized when allocating space for master variant list
   uintptr_t topsize;
@@ -4620,6 +4660,22 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   if (input_beta && (max_header_len < 5)) {
     max_header_len = 5;
   }
+  if (weighted_z) {
+    parse_max = 5;
+    if (pfield_search_order) {
+      header_dict_ct += count_and_measure_multistr(pfield_search_order, &max_header_len);
+    } else {
+      header_dict_ct++;
+    }
+    if (essfield_search_order) {
+      header_dict_ct += count_and_measure_multistr(essfield_search_order, &max_header_len);
+    } else {
+      header_dict_ct++;
+      if (max_header_len < 6) {
+	max_header_len = 6;
+      }
+    }
+  }
   if (use_map) {
     if (max_header_len < 4) {
       max_header_len = 4;
@@ -4636,9 +4692,9 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
       } else {
 	header_dict_ct++;
       }
-      parse_max = 7;
+      parse_max = 9;
     } else {
-      parse_max = 5;
+      parse_max = 7;
     }
   }
   if (wkspace_alloc_c_checked(&sorted_header_dict, header_dict_ct * max_header_len) ||
@@ -4649,7 +4705,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   ulii = 0; // write position
   if (snpfield_search_order) {
     bufptr = snpfield_search_order;
-    uii = 0x20000000;
+    uii = 0x10000000;
     do {
       slen = strlen(bufptr) + 1;
       memcpy(&(sorted_header_dict[ulii * max_header_len]), bufptr, slen);
@@ -4658,7 +4714,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
     } while (*bufptr);
   } else {
     memcpy(sorted_header_dict, "SNP", 4);
-    header_id_map[0] = 0x20000000;
+    header_id_map[0] = 0x10000000;
     ulii++;
   }
   if (!input_beta) {
@@ -4669,11 +4725,39 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   header_id_map[ulii++] = 1;
   memcpyl3(&(sorted_header_dict[ulii * max_header_len]), "SE");
   header_id_map[ulii++] = 2;
+  if (weighted_z) {
+    if (pfield_search_order) {
+      bufptr = pfield_search_order;
+      uii = 0x20000000;
+      do {
+	slen = strlen(bufptr) + 1;
+	memcpy(&(sorted_header_dict[ulii * max_header_len]), bufptr, slen);
+	header_id_map[ulii++] = uii++;
+	bufptr = &(bufptr[slen]);
+      } while (*bufptr);
+    } else {
+      memcpy(&(sorted_header_dict[ulii * max_header_len]), "P", 2);
+      header_id_map[ulii++] = 0x20000000;
+    }
+    if (essfield_search_order) {
+      bufptr = pfield_search_order;
+      uii = 0x30000000;
+      do {
+	slen = strlen(bufptr) + 1;
+	memcpy(&(sorted_header_dict[ulii * max_header_len]), bufptr, slen);
+	header_id_map[ulii++] = uii++;
+	bufptr = &(bufptr[slen]);
+      } while (*bufptr);
+    } else {
+      memcpy(&(sorted_header_dict[ulii * max_header_len]), "NMISS", 6);
+      header_id_map[ulii++] = 0x30000000;
+    }
+  }
   if (use_map) {
     memcpy(&(sorted_header_dict[ulii * max_header_len]), "CHR", 4);
-    header_id_map[ulii++] = 3;
+    header_id_map[ulii++] = 5;
     memcpyl3(&(sorted_header_dict[ulii * max_header_len]), "BP");
-    header_id_map[ulii++] = 4;
+    header_id_map[ulii++] = 6;
     if (!no_allele) {
       if (a1field_search_order) {
 	bufptr = a1field_search_order;
@@ -4690,7 +4774,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
       }
       if (a2field_search_order) {
 	bufptr = a2field_search_order;
-	uii = 0x60000000;
+	uii = 0x50000000;
 	do {
 	  slen = strlen(bufptr) + 1;
 	  memcpy(&(sorted_header_dict[ulii * max_header_len]), bufptr, slen);
@@ -4699,7 +4783,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	} while (*bufptr);
       } else {
 	memcpyl3(&(sorted_header_dict[ulii * max_header_len]), "A2");
-	header_id_map[ulii] = 0x60000000;
+	header_id_map[ulii] = 0x50000000;
       }
     }
   }
@@ -4797,7 +4881,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
     loadbuf_size -= 16;
     loadbuf = &(loadbuf_end[-((intptr_t)loadbuf_size)]);
     token_ct = parse_max;
-    retval = meta_analysis_open_and_read_header(fname_ptr, loadbuf, loadbuf_size, sorted_header_dict, header_id_map, header_dict_ct, max_header_len, &token_ct, &gz_infile, col_skips, col_sequence, &line_idx, &line_max);
+    retval = meta_analysis_open_and_read_header(fname_ptr, loadbuf, loadbuf_size, sorted_header_dict, header_id_map, header_dict_ct, max_header_len, weighted_z, &token_ct, &gz_infile, col_skips, col_sequence, &line_idx, &line_max);
     if (retval) {
       goto meta_analysis_ret_1;
     }
@@ -4852,7 +4936,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
       // validate
       problem_mask = 0;
       if (use_map) {
-	ii = get_chrom_code(chrom_info_ptr, token_ptrs[3]);
+	ii = get_chrom_code(chrom_info_ptr, token_ptrs[5]);
 	if (ii < 0) {
 	  problem_mask |= 1;
 	} else {
@@ -4861,18 +4945,21 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	    continue;
 	  }
 	}
-	if (scan_uint_defcap(token_ptrs[4], &cur_bp)) {
+	if (scan_uint_defcap(token_ptrs[6], &cur_bp)) {
 	  problem_mask |= 2;
 	}
 	if (!no_allele) {
-	  bufptr = token_ptrs[5];
+	  bufptr = token_ptrs[7];
 	  a1lenp1 = strlen_se(bufptr); // not +1 yet
 	  if ((*bufptr == missing_geno) && (a1lenp1 == 1)) {
 	    problem_mask |= 4;
 	  }
 	  bufptr[a1lenp1++] = '\0';
-	  if (token_ct == 7) {
-	    bufptr = token_ptrs[6];
+	  // A2 allele present if token_ct == 7 or == 9
+	  // if we make further extensions to this function, we should replace
+	  // "token_ct & 1" with an a2_present boolean
+	  if (token_ct & 1) {
+	    bufptr = token_ptrs[8];
 	    a2lenp1 = strlen_se(bufptr);
 	    if ((*bufptr == missing_geno) && (a2lenp1 == 1)) {
 	      problem_mask |= 8;
@@ -4886,6 +4973,14 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
       }
       if (scan_double(token_ptrs[2], &cur_se) || (!(cur_se >= 0.0)) || (cur_se == INFINITY)) {
 	problem_mask |= 0x20;
+      }
+      if (weighted_z) {
+	if (scan_double(token_ptrs[3], &cur_p) || (!(cur_p >= 0.0)) || (cur_p > 1.0)) {
+	  problem_mask |= 0x80;
+	}
+	if (scan_double(token_ptrs[4], &cur_ess) || (!(cur_ess > 0.0)) || (cur_ess == INFINITY)) {
+	  problem_mask |= 0x100;
+	}
       }
       // check hash table
       bufptr = token_ptrs[0];
@@ -4920,9 +5015,9 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	}
         if (!no_allele) {
 	  bufptr = wptr;
-          wptr = memcpya(wptr, token_ptrs[5], a1lenp1);
-	  if (token_ct == 7) {
-	    wptr = memcpya(wptr, token_ptrs[6], a2lenp1);
+          wptr = memcpya(wptr, token_ptrs[7], a1lenp1);
+	  if (token_ct & 1) {
+	    wptr = memcpya(wptr, token_ptrs[8], a2lenp1);
 	  } else {
 	    *wptr++ = '\0';
 	  }
@@ -4945,7 +5040,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	loadbuf_size -= 16;
 	loadbuf = &(loadbuf_end[-((intptr_t)loadbuf_size)]);
       } else {
-	if ((token_ct < 6) || meta_analysis_allelic_match(&(ll_ptr->ss[slen_base + var_id_len]), token_ptrs, token_ct, a1lenp1, a2lenp1)) {
+	if ((token_ct - 2 * weighted_z < 6) || meta_analysis_allelic_match(&(ll_ptr->ss[slen_base + var_id_len]), token_ptrs, token_ct, a1lenp1, a2lenp1)) {
 	  if (problem_mask) {
 	    goto meta_analysis_report_error;
 	  }
@@ -5062,8 +5157,8 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   total_data_slots = (wkspace_left - topsize) / sizeof(uintptr_t);
 
   // 6. Remaining load passes: determine how many remaining variants' worth of
-  //    effect sizes/SEs fit in memory, load and meta-analyze just those
-  //    variants, rinse and repeat.
+  //    effect sizes/SEs/Ps/ESSes fit in memory, load and meta-analyze just
+  //    those variants, rinse and repeat.
   memcpy(outname_end, ".meta", 6);
   if (fopen_checked(&outfile, outname, "w")) {
     goto meta_analysis_ret_OPEN_FAIL;
@@ -5076,6 +5171,9 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
     fputs("  A1  A2", outfile);
   }
   fputs("   N           P        P(R)      OR   OR(R)       Q       I", outfile);
+  if (weighted_z) {
+    fputs("  WEIGHTED_Z       P(WZ)", outfile);
+  }
   if (report_study_specific) {
     for (file_idx = 0; file_idx < file_ct; file_idx++) {
       tbuf[0] = ' ';
@@ -5108,6 +5206,8 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
     //   part is not memory-critical so I doubt it's worth it.)
     // - 2 * sizeof(double) * file_ct for effect sizes and SEs; filled from
     //     back to front
+    //   2 * sizeof(double) * file_ct for p-values and ESSes, filled from back
+    //     to front, if 'weighted-z'
     //   sometimes, bitfield describing which files are involved
     //   sometimes, combined_allele_len for A1/A2, sizeof(double)-aligned
     // - sometimes, (max_var_id_len_p1 + sizeof(int32_t)) rounded up, for
@@ -5138,7 +5238,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	cur_data_slots += (8 / BYTECT) * ((cur_combined_allele_len + 7) / 8);
       }
       cur_data_ptr = &(cur_data[-((intptr_t)cur_data_slots)]);
-      cur_data_slots += window_entry_base_cost + (16 / BYTECT) * (cur_file_ct_m1 + 1);
+      cur_data_slots += window_entry_base_cost + (16 / BYTECT) * (weighted_z + 1) * (cur_file_ct_m1 + 1);
       ulii += cur_data_slots;
       if (ulii > total_data_slots) {
 	break;
@@ -5147,12 +5247,12 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	fill_ulong_zero((uintptr_t*)cur_data_ptr, file_ct64 * (8 / BYTECT));
       }
       cur_data = &(cur_data[-((intptr_t)(cur_data_slots - window_entry_base_cost))]);
-      // [effect sizes and SEs, in reverse order] {file idx bitfield} {A1/A2}
-      //                                         ^
-      //                                         |
-      //                                    cur_data_ptr
+      // [effect sizes/SEs/Ps/ESSes, reverse order] {file idx bitfield} {A1/A2}
+      //                                           ^
+      //                                           |
+      //                                      cur_data_ptr
       //
-      // cur_data_index[2 * var_idx + 1] = # of effect sizes/SEs written so far
+      // cur_data_index[2 * var_idx + 1] = # of effect sizes/etc. saved so far
       cur_data_index[2 * cur_variant_ct] = (uintptr_t)cur_data_ptr;
       cur_data_index[2 * cur_variant_ct + 1] = 0;
     }
@@ -5178,7 +5278,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
     for (file_idx = 0; file_idx < file_ct; file_idx++) {
       fname_len = strlen(fname_ptr);
       token_ct = parse_max;
-      retval = meta_analysis_open_and_read_header(fname_ptr, loadbuf, loadbuf_size, sorted_header_dict, header_id_map, header_dict_ct, max_header_len, &token_ct, &gz_infile, col_skips, col_sequence, NULL, NULL);
+      retval = meta_analysis_open_and_read_header(fname_ptr, loadbuf, loadbuf_size, sorted_header_dict, header_id_map, header_dict_ct, max_header_len, weighted_z, &token_ct, &gz_infile, col_skips, col_sequence, NULL, NULL);
       if (retval) {
 	goto meta_analysis_ret_1;
       }
@@ -5204,7 +5304,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
           continue;
 	}
 	if (use_map) {
-	  ii = get_chrom_code(chrom_info_ptr, token_ptrs[3]);
+	  ii = get_chrom_code(chrom_info_ptr, token_ptrs[5]);
 	  if (ii < 0) {
 	    continue;
 	  }
@@ -5212,18 +5312,18 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	  if (!is_set(chrom_info_ptr->chrom_mask, cur_chrom)) {
 	    continue;
 	  }
-          if (scan_uint_defcap(token_ptrs[4], &cur_bp)) {
+          if (scan_uint_defcap(token_ptrs[6], &cur_bp)) {
 	    continue;
 	  }
           if (!no_allele) {
-	    bufptr = token_ptrs[5];
+	    bufptr = token_ptrs[7];
 	    a1lenp1 = strlen_se(bufptr);
 	    if ((*bufptr == missing_geno) && (a1lenp1 == 1)) {
 	      continue;
 	    }
 	    bufptr[a1lenp1++] = '\0';
-            if (token_ct == 7) {
-	      bufptr = token_ptrs[6];
+            if (token_ct & 1) {
+	      bufptr = token_ptrs[8];
 	      a2lenp1 = strlen_se(bufptr);
 	      if ((*bufptr == missing_geno) && (a2lenp1 == 1)) {
 		continue;
@@ -5243,6 +5343,14 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	}
         if (scan_double(token_ptrs[2], &cur_se) || (!(cur_se >= 0.0)) || (cur_se == INFINITY)) {
           continue;
+	}
+	if (weighted_z) {
+	  if (scan_double(token_ptrs[3], &cur_p) || (!(cur_p >= 0.0)) || (cur_p > 1.0)) {
+	    continue;
+	  }
+	  if (scan_double(token_ptrs[4], &cur_ess) || (!(cur_ess > 0.0)) || (cur_ess == INFINITY)) {
+	    continue;
+	  }
 	}
         bufptr = token_ptrs[0];
 	var_id_len = strlen_se(bufptr);
@@ -5275,9 +5383,9 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	  }
 	  if (!cur_file_ct_m1) {
 	    // save allele codes
-            bufptr2 = memcpya(bufptr2, token_ptrs[5], a1lenp1);
-	    if (token_ct == 7) {
-	      bufptr2 = memcpya(bufptr2, token_ptrs[6], a2lenp1);
+            bufptr2 = memcpya(bufptr2, token_ptrs[7], a1lenp1);
+	    if (token_ct & 1) {
+	      bufptr2 = memcpya(bufptr2, token_ptrs[8], a2lenp1);
 	    } else {
 	      *bufptr2++ = '\0';
 	    }
@@ -5294,9 +5402,13 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	if (report_study_specific) {
           set_bit((uintptr_t*)cur_data_ptr, file_idx);
 	}
-	cur_data_ptr = &(cur_data_ptr[-2 * ((int32_t)cur_file_ct_m1)]);
-        cur_data_ptr[-1] = cur_se;
-	cur_data_ptr[-2] = cur_beta;
+	cur_data_ptr = &(cur_data_ptr[neg_entry_size * ((int32_t)(cur_file_ct_m1 + 1))]);
+	cur_data_ptr[0] = cur_beta;
+	cur_data_ptr[1] = cur_se;
+	if (weighted_z) {
+	  cur_data_ptr[2] = cur_p;
+	  cur_data_ptr[3] = cur_ess;
+	}
 	cur_data_index[2 * cur_var_idx + 1] += 1;
       }
       if (gzclose(gz_infile) != Z_OK) {
@@ -5359,10 +5471,10 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	numer = 0.0;
 	denom = 0.0;
         denom2 = 0.0;
-	for (file_idx = 0; file_idx < cur_file_ct; file_idx++) {
-	  ii = ((int32_t)file_idx) * (-2);
-	  cur_beta = cur_data_ptr[ii - 2];
-	  cur_se = cur_data_ptr[ii - 1];
+	for (file_idx = 1; file_idx <= cur_file_ct; file_idx++) {
+	  ii = ((int32_t)file_idx) * neg_entry_size;
+	  cur_beta = cur_data_ptr[ii];
+	  cur_se = cur_data_ptr[ii + 1];
           cur_inv_var = 1.0 / (cur_se * cur_se);
 	  numer += cur_inv_var * cur_beta;
           denom += cur_inv_var;
@@ -5371,10 +5483,10 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	varsum = 1.0 / denom;
         summ = numer * varsum;
         meta_q = 0.0;
-	for (file_idx = 0; file_idx < cur_file_ct; file_idx++) {
-	  ii = ((int32_t)file_idx) * (-2);
-	  cur_beta = cur_data_ptr[ii - 2];
-	  cur_se = cur_data_ptr[ii - 1];
+	for (file_idx = 1; file_idx <= cur_file_ct; file_idx++) {
+	  ii = ((int32_t)file_idx) * neg_entry_size;
+	  cur_beta = cur_data_ptr[ii];
+	  cur_se = cur_data_ptr[ii + 1];
           dxx = (cur_beta - summ) / cur_se;
 	  meta_q += dxx * dxx;
 	}
@@ -5385,10 +5497,10 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	}
 	numer_random = 0.0;
 	denom_random = 0.0;
-	for (file_idx = 0; file_idx < cur_file_ct; file_idx++) {
-	  ii = ((int32_t)file_idx) * (-2);
-	  cur_beta = cur_data_ptr[ii - 2];
-	  cur_se = cur_data_ptr[ii - 1];
+	for (file_idx = 1; file_idx <= cur_file_ct; file_idx++) {
+	  ii = ((int32_t)file_idx) * neg_entry_size;
+	  cur_beta = cur_data_ptr[ii];
+	  cur_se = cur_data_ptr[ii + 1];
 	  cur_inv_var = 1.0 / (cur_se * cur_se + tau2);
 	  numer_random += cur_inv_var * cur_beta;
 	  denom_random += cur_inv_var;
@@ -5429,8 +5541,14 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	  wptr = memcpya(wptr, "     NA ", 8);
 	}
 	wptr = width_force(7, wptr, double_f_writew2(wptr, meta_i));
+	if (weighted_z) {
+	  // todo
+	}
       } else {
 	wptr = memcpya(wptr, "          NA          NA      NA      NA      NA      NA", 56);
+	if (weighted_z) {
+	  wptr = memcpya(wptr, "          NA          NA", 24);
+	}
       }
       if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
 	goto meta_analysis_ret_WRITE_FAIL;
@@ -5441,7 +5559,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	for (file_idx = 0; file_idx < file_ct; file_idx++) {
 	  if (is_set(ulptr, file_idx)) {
 	    uii++;
-	    double_f_writew74x(&(tbuf[1]), exp(cur_data_ptr[((int32_t)uii) * (-2)]), '\0');
+	    double_f_writew74x(&(tbuf[1]), exp(cur_data_ptr[((int32_t)uii) * neg_entry_size]), '\0');
 	    fputs(tbuf, outfile);
 	  } else {
 	    fputs("      NA", outfile);
