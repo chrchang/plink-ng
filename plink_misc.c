@@ -5542,7 +5542,23 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	}
 	wptr = width_force(7, wptr, double_f_writew2(wptr, meta_i));
 	if (weighted_z) {
-	  // todo
+	  numer = 0.0;
+	  denom2 = 0.0;
+	  for (file_idx = 1; file_idx <= cur_file_ct; file_idx++) {
+	    ii = ((int32_t)file_idx) * (-4);
+	    cur_p = cur_data_ptr[ii + 2];
+	    cur_ess = cur_data_ptr[ii + 3];
+	    if (cur_data_ptr[ii] > 0.0) {
+	      numer += ltqnorm(1.0 - cur_p * 0.5) * sqrt(cur_ess);
+	    } else {
+	      numer -= ltqnorm(1.0 - cur_p * 0.5) * sqrt(cur_ess);
+	    }
+	    denom2 += cur_ess;
+	  }
+	  dxx = numer / sqrt(denom2);
+	  *wptr++ = ' ';
+	  wptr = double_g_writewx4x(wptr, dxx, 11, ' ');
+	  wptr = double_g_writewx4(wptr, 1.0 - 2 * fabs(normdist(fabs(dxx)) - 0.5), 11);
 	}
       } else {
 	wptr = memcpya(wptr, "          NA          NA      NA      NA      NA      NA", 56);
