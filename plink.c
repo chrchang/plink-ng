@@ -11775,6 +11775,7 @@ int32_t main(int32_t argc, char** argv) {
 	calculation_type |= CALC_WRITE_SNPLIST;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "rite-var-ranges", 16)) {
+	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}

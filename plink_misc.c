@@ -4563,7 +4563,6 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   uint32_t cur_file_ct_m1 = 0;
   uint32_t cur_combined_allele_len = 0;
   uint32_t pass_idx = 0;
-  int32_t neg_entry_size = -2 - ((int32_t)weighted_z) * 2;
   int32_t retval = 0;
   char missing_geno = *g_missing_geno_ptr;
   const char problem_strings[][16] = {"BAD_CHR", "BAD_BP", "MISSING_A1", "MISSING_A2", "BAD_ES", "BAD_SE", "ALLELE_MISMATCH", "BAD_P", "BAD_ESS"};
@@ -5206,8 +5205,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
     //   part is not memory-critical so I doubt it's worth it.)
     // - 2 * sizeof(double) * file_ct for effect sizes and SEs; filled from
     //     back to front
-    //   2 * sizeof(double) * file_ct for p-values and ESSes, filled from back
-    //     to front, if 'weighted-z'
+    //   sometimes, numerator and squared denominator of weighted Z-score
     //   sometimes, bitfield describing which files are involved
     //   sometimes, combined_allele_len for A1/A2, sizeof(double)-aligned
     // - sometimes, (max_var_id_len_p1 + sizeof(int32_t)) rounded up, for
@@ -5238,7 +5236,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	cur_data_slots += (8 / BYTECT) * ((cur_combined_allele_len + 7) / 8);
       }
       cur_data_ptr = &(cur_data[-((intptr_t)cur_data_slots)]);
-      cur_data_slots += window_entry_base_cost + (16 / BYTECT) * (weighted_z + 1) * (cur_file_ct_m1 + 1);
+      cur_data_slots += window_entry_base_cost + (16 / BYTECT) * (cur_file_ct_m1 + 1 + weighted_z);
       ulii += cur_data_slots;
       if (ulii > total_data_slots) {
 	break;
@@ -5246,11 +5244,15 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
       if (report_study_specific) {
 	fill_ulong_zero((uintptr_t*)cur_data_ptr, file_ct64 * (8 / BYTECT));
       }
+      if (weighted_z) {
+	cur_data[-2] = 0.0;
+	cur_data[-1] = 0.0;
+      }
       cur_data = &(cur_data[-((intptr_t)(cur_data_slots - window_entry_base_cost))]);
-      // [effect sizes/SEs/Ps/ESSes, reverse order] {file idx bitfield} {A1/A2}
-      //                                           ^
-      //                                           |
-      //                                      cur_data_ptr
+      // [effect sizes/SEs, reverse order] {WZ} {file idx bitfield} {A1/A2}
+      //                                       ^
+      //                                       |
+      //                                  cur_data_ptr
       //
       // cur_data_index[2 * var_idx + 1] = # of effect sizes/etc. saved so far
       cur_data_index[2 * cur_variant_ct] = (uintptr_t)cur_data_ptr;
@@ -5402,13 +5404,18 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	if (report_study_specific) {
           set_bit((uintptr_t*)cur_data_ptr, file_idx);
 	}
-	cur_data_ptr = &(cur_data_ptr[neg_entry_size * ((int32_t)(cur_file_ct_m1 + 1))]);
-	cur_data_ptr[0] = cur_beta;
-	cur_data_ptr[1] = cur_se;
 	if (weighted_z) {
-	  cur_data_ptr[2] = cur_p;
-	  cur_data_ptr[3] = cur_ess;
+	  dxx = ltqnorm(1.0 - cur_p * 0.5) * sqrt(cur_ess);
+	  if (cur_beta > 0.0) {
+	    cur_data_ptr[-2] += dxx;
+	  } else {
+	    cur_data_ptr[-2] -= dxx;
+	  }
+	  cur_data_ptr[-1] += cur_ess;
 	}
+	cur_data_ptr = &(cur_data_ptr[-2 * ((int32_t)(cur_file_ct_m1 + weighted_z))]);
+	cur_data_ptr[-2] = cur_beta;
+	cur_data_ptr[-1] = cur_se;
 	cur_data_index[2 * cur_var_idx + 1] += 1;
       }
       if (gzclose(gz_infile) != Z_OK) {
@@ -5472,7 +5479,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	denom = 0.0;
         denom2 = 0.0;
 	for (file_idx = 1; file_idx <= cur_file_ct; file_idx++) {
-	  ii = ((int32_t)file_idx) * neg_entry_size;
+	  ii = ((int32_t)(file_idx + weighted_z)) * (-2);
 	  cur_beta = cur_data_ptr[ii];
 	  cur_se = cur_data_ptr[ii + 1];
           cur_inv_var = 1.0 / (cur_se * cur_se);
@@ -5484,7 +5491,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
         summ = numer * varsum;
         meta_q = 0.0;
 	for (file_idx = 1; file_idx <= cur_file_ct; file_idx++) {
-	  ii = ((int32_t)file_idx) * neg_entry_size;
+	  ii = ((int32_t)(file_idx + weighted_z)) * (-2);
 	  cur_beta = cur_data_ptr[ii];
 	  cur_se = cur_data_ptr[ii + 1];
           dxx = (cur_beta - summ) / cur_se;
@@ -5498,7 +5505,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	numer_random = 0.0;
 	denom_random = 0.0;
 	for (file_idx = 1; file_idx <= cur_file_ct; file_idx++) {
-	  ii = ((int32_t)file_idx) * neg_entry_size;
+	  ii = ((int32_t)(file_idx + weighted_z)) * (-2);
 	  cur_beta = cur_data_ptr[ii];
 	  cur_se = cur_data_ptr[ii + 1];
 	  cur_inv_var = 1.0 / (cur_se * cur_se + tau2);
@@ -5542,19 +5549,8 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	}
 	wptr = width_force(7, wptr, double_f_writew2(wptr, meta_i));
 	if (weighted_z) {
-	  numer = 0.0;
-	  denom2 = 0.0;
-	  for (file_idx = 1; file_idx <= cur_file_ct; file_idx++) {
-	    ii = ((int32_t)file_idx) * (-4);
-	    cur_p = cur_data_ptr[ii + 2];
-	    cur_ess = cur_data_ptr[ii + 3];
-	    if (cur_data_ptr[ii] > 0.0) {
-	      numer += ltqnorm(1.0 - cur_p * 0.5) * sqrt(cur_ess);
-	    } else {
-	      numer -= ltqnorm(1.0 - cur_p * 0.5) * sqrt(cur_ess);
-	    }
-	    denom2 += cur_ess;
-	  }
+	  numer = cur_data_ptr[-2];
+	  denom2 = cur_data_ptr[-1];
 	  dxx = numer / sqrt(denom2);
 	  *wptr++ = ' ';
 	  wptr = double_g_writewx4x(wptr, dxx, 11, ' ');
@@ -5575,7 +5571,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	for (file_idx = 0; file_idx < file_ct; file_idx++) {
 	  if (is_set(ulptr, file_idx)) {
 	    uii++;
-	    double_f_writew74x(&(tbuf[1]), exp(cur_data_ptr[((int32_t)uii) * neg_entry_size]), '\0');
+	    double_f_writew74x(&(tbuf[1]), exp(cur_data_ptr[((int32_t)uii) * (-2)]), '\0');
 	    fputs(tbuf, outfile);
 	  } else {
 	    fputs("      NA", outfile);
