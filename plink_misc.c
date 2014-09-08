@@ -5571,7 +5571,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	for (file_idx = 0; file_idx < file_ct; file_idx++) {
 	  if (is_set(ulptr, file_idx)) {
 	    uii++;
-	    double_f_writew74x(&(tbuf[1]), exp(cur_data_ptr[((int32_t)uii) * (-2)]), '\0');
+	    double_f_writew74x(&(tbuf[1]), exp(cur_data_ptr[((int32_t)(uii + weighted_z)) * (-2)]), '\0');
 	    fputs(tbuf, outfile);
 	  } else {
 	    fputs("      NA", outfile);
