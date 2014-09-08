@@ -98,7 +98,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (6 Sep 2014) ";
+  " (8 Sep 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -12090,7 +12090,7 @@ int32_t main(int32_t argc, char** argv) {
     }
   }
   if ((parallel_tot > 1) && (!(calculation_type & (CALC_LD | CALC_DISTANCE | CALC_GENOME | CALC_RELATIONSHIP)))) {
-    if ((!(calculation_type & CALC_EPI)) || (!(epi_info.modifier & EPI_REG))) {
+    if ((!(calculation_type & CALC_EPI)) || (!(epi_info.modifier & EPI_FAST))) {
       logprint("Error: --parallel only affects --r/--r2, --distance, --genome, --make-rel,\n--make-grm-gz/--make-grm-bin, and --fast-epistasis.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }

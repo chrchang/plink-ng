@@ -1382,7 +1382,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
             bufptr = memseta(bufptr, 32, 2);
             bufptr = uint32_writew10(bufptr, marker_pos[marker_idx]);
 	  } else {
-	    bufptr = fw_strcpyn(11, cur_marker_id_len, cur_marker_id_buf, tbuf);
+	    tbuf[0] = ' ';
+	    bufptr = fw_strcpyn(11, cur_marker_id_len, cur_marker_id_buf, &(tbuf[1]));
 	  }
 	  *bufptr++ = ' ';
 	  *bufptr = '\0';

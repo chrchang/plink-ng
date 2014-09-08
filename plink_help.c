@@ -1159,7 +1159,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * 'report-all' causes variants present in only a single input file to be\n"
 "      included in the meta-analysis report.\n"
 "    * 'weighted-z' requests weighted Z-score-based p-values (as computed by the\n"
-"      Abecasis Lab's METAL package) in addition to the usual inverse\n"
+"      Abecasis Lab's METAL software) in addition to the usual inverse\n"
 "      variance-based analysis.  This requires P and effective sample size\n"
 "      fields.\n"
 "    * When --extract (without 'range') is present, only variants named in the\n"
