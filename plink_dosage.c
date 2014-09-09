@@ -849,7 +849,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       pheno_c_collapsed = pheno_c;
     } else {
       if (wkspace_alloc_ul_checked(&pheno_nm_collapsed, indiv_ctl * sizeof(intptr_t))) {
-        goto plink1_dosage_ret_NOMEM;
+	goto plink1_dosage_ret_NOMEM;
       }
       collapse_copy_bitarr(unfiltered_indiv_ct, pheno_nm, indiv_exclude, indiv_ct, pheno_nm_collapsed);
 #ifndef NOLAPACK
@@ -860,10 +860,10 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	}
       } else {
 #endif
-        if (wkspace_alloc_ul_checked(&pheno_c_collapsed, indiv_ctl * sizeof(intptr_t))) {
+	if (wkspace_alloc_ul_checked(&pheno_c_collapsed, indiv_ctl * sizeof(intptr_t))) {
 	  goto plink1_dosage_ret_NOMEM;
 	}
-        collapse_copy_bitarr(unfiltered_indiv_ct, pheno_c, indiv_exclude, indiv_ct, pheno_c_collapsed);
+	collapse_copy_bitarr(unfiltered_indiv_ct, pheno_c, indiv_exclude, indiv_ct, pheno_c_collapsed);
 #ifndef NOLAPACK
       }
 #endif
@@ -871,13 +871,13 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 #ifndef NOLAPACK
     if (pheno_d) {
       if (wkspace_alloc_d_checked(&pheno_d2, indiv_ct * sizeof(double)) ||
-          wkspace_alloc_d_checked(&covars_cov_major_buf, param_ct * indiv_ct * sizeof(double)) ||
+	  wkspace_alloc_d_checked(&covars_cov_major_buf, param_ct * indiv_ct * sizeof(double)) ||
 	  wkspace_alloc_d_checked(&covars_indiv_major_buf, param_ct * indiv_ct * sizeof(double)) ||
 	  wkspace_alloc_d_checked(&param_2d_buf, param_ct * param_ct * sizeof(double)) ||
 	  wkspace_alloc_d_checked(&param_2d_buf2, param_ct * param_ct * sizeof(double)) ||
-          wkspace_alloc_d_checked(&regression_results, (param_ct - 1) * sizeof(double)) ||
+	  wkspace_alloc_d_checked(&regression_results, (param_ct - 1) * sizeof(double)) ||
 	  wkspace_alloc_d_checked(&dgels_a, param_ct * indiv_ct * sizeof(double)) ||
-          wkspace_alloc_d_checked(&dgels_b, indiv_ct * sizeof(double))) {
+	  wkspace_alloc_d_checked(&dgels_b, indiv_ct * sizeof(double))) {
 	goto plink1_dosage_ret_NOMEM;
       }
       mi_buf = (MATRIX_INVERT_BUF1_TYPE*)wkspace_alloc(param_ct * sizeof(MATRIX_INVERT_BUF1_TYPE));
@@ -908,22 +908,22 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  goto plink1_dosage_ret_NOMEM;
 	}
 	fptr = covar_f;
-        dptr = covar_d;
+	dptr = covar_d;
 	for (uljj = 0; uljj < ulii; uljj++) {
 	  *fptr++ = (float)(*dptr++);
 	}
       }
       if (wkspace_alloc_ul_checked(&perm_vec, indiv_ctl * 2 * sizeof(intptr_t)) ||
-          wkspace_alloc_f_checked(&covars_cov_major_f_buf, param_ct * indiv_cta4 * sizeof(float)) ||
-          wkspace_alloc_f_checked(&coef_f, param_cta4 * sizeof(float)) ||
-          wkspace_alloc_f_checked(&pp_f, indiv_cta4 * sizeof(float)) ||
+	  wkspace_alloc_f_checked(&covars_cov_major_f_buf, param_ct * indiv_cta4 * sizeof(float)) ||
+	  wkspace_alloc_f_checked(&coef_f, param_cta4 * sizeof(float)) ||
+	  wkspace_alloc_f_checked(&pp_f, indiv_cta4 * sizeof(float)) ||
 	  wkspace_alloc_f_checked(&indiv_1d_buf_f, indiv_ct * sizeof(float)) ||
-          wkspace_alloc_f_checked(&pheno_buf_f, indiv_ct * sizeof(float)) ||
-          wkspace_alloc_f_checked(&param_1d_buf_f, param_ct * sizeof(float)) ||
-          wkspace_alloc_f_checked(&param_1d_buf2_f, param_ct * sizeof(float)) ||
-          wkspace_alloc_f_checked(&param_2d_buf_f, param_ct * param_cta4 * sizeof(float)) ||
-          wkspace_alloc_f_checked(&param_2d_buf2_f, param_ct * param_cta4 * sizeof(float)) ||
-          wkspace_alloc_f_checked(&regression_results_f, (param_ct - 1) * sizeof(float))) {
+	  wkspace_alloc_f_checked(&pheno_buf_f, indiv_ct * sizeof(float)) ||
+	  wkspace_alloc_f_checked(&param_1d_buf_f, param_ct * sizeof(float)) ||
+	  wkspace_alloc_f_checked(&param_1d_buf2_f, param_ct * sizeof(float)) ||
+	  wkspace_alloc_f_checked(&param_2d_buf_f, param_ct * param_cta4 * sizeof(float)) ||
+	  wkspace_alloc_f_checked(&param_2d_buf2_f, param_ct * param_cta4 * sizeof(float)) ||
+	  wkspace_alloc_f_checked(&regression_results_f, (param_ct - 1) * sizeof(float))) {
 	goto plink1_dosage_ret_NOMEM;
       }
 #ifndef NOLAPACK
@@ -1496,13 +1496,15 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  // outformat > 1 can't coexist with format == 1), but kinda pointless
 	  // since the code won't be kept for PLINK 2.0.
 	  if (format_val == 1) {
+	    // bugfix: don't keep resetting indiv_idx to 0
+	    indiv_idx = 0;
 	    do {
 	      ulii += MAXLINELEN / 16;
 	      bufptr = tbuf;
 	      if (ulii > indiv_ct) {
 		ulii = indiv_ct;
 	      }
-	      for (indiv_idx = 0; indiv_idx < ulii; indiv_idx++) {
+	      for (; indiv_idx < ulii; indiv_idx++) {
 		if (!is_set(cur_indivs, indiv_idx)) {
 		  bufptr = memcpyl3a(bufptr, "NA ");
 		} else {
@@ -1520,13 +1522,14 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	      }
 	    } while (ulii < indiv_ct);
 	  } else if (format_val == 2) {
+	    indiv_idx = 0;
 	    do {
 	      ulii += MAXLINELEN / 32;
 	      bufptr = tbuf;
 	      if (ulii > indiv_ct) {
 		ulii = indiv_ct;
 	      }
-	      for (indiv_idx = 0; indiv_idx < ulii; indiv_idx++) {
+	      for (; indiv_idx < ulii; indiv_idx++) {
 		if (!is_set(cur_indivs, indiv_idx)) {
 		  bufptr = memcpya(bufptr, "NA NA ", 6);
 		} else {
@@ -1545,13 +1548,14 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	      }
 	    } while (ulii < indiv_ct);
 	  } else {
+	    indiv_idx = 0;
 	    do {
 	      ulii += MAXLINELEN / 48;
 	      bufptr = tbuf;
 	      if (ulii > indiv_ct) {
 		ulii = indiv_ct;
 	      }
-	      for (indiv_idx = 0; indiv_idx < ulii; indiv_idx++) {
+	      for (; indiv_idx < ulii; indiv_idx++) {
 		if (!is_set(cur_indivs, indiv_idx)) {
 		  bufptr = memcpya(bufptr, "NA NA NA ", 9);
 		} else {
@@ -1559,7 +1563,11 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 		  bufptr = double_g_writex(bufptr, dxx, ' ');
 		  dyy = cur_dosages2[indiv_idx];
 		  bufptr = double_g_writex(bufptr, dyy, ' ');
-		  bufptr = double_g_writex(bufptr, 1.0 - dxx - dyy, ' ');
+		  dxx = 1.0 - dxx - dyy;
+		  if (fabs(dxx) < SMALL_EPSILON) {
+		    dxx = 0.0;
+		  }
+		  bufptr = double_g_writex(bufptr, dxx, ' ');
 		}
 	      }
 	      if (output_gz) {

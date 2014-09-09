@@ -85,7 +85,7 @@
 
 const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b2h"
+  "PLINK v1.90b2i"
 #else
   "PLINK v1.90b3p"
 #endif
@@ -11927,7 +11927,11 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "rite-dosage", 12)) {
 	if (!(dosage_info.modifier & DOSAGE_GLM)) {
-	  logprint("Error: --write-dosage must be used with --dosage.\n");
+	  if (dosage_info.modifier & DOSAGE_OCCUR) {
+	    logprint("Error: --write-dosage cannot be used with '--dosage occur'.\n");
+	  } else {
+	    logprint("Error: --write-dosage must be used with --dosage.\n");
+	  }
           goto main_ret_INVALID_CMDLINE_A;
 	} else if ((glm_modifier & GLM_STANDARD_BETA) || parameters_range_list.names) {
 	  logprint("Error: --write-dosage cannot be used with --dosage association analysis flags.\n");
