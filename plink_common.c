@@ -4325,24 +4325,29 @@ char* scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id
   return NULL;
 }
 
-int32_t is_missing_pheno(char* bufptr, int32_t missing_pheno, uint32_t affection_01) {
-  int32_t bufval;
-  if (scan_int32(bufptr, &bufval) || (bufval != missing_pheno)) {
-    if ((!affection_01) && (*bufptr == '0') && is_space_or_eoln(bufptr[1])) {
-      return 1;
-    }
-    return 0;
+int32_t is_missing_pheno_cc(char* bufptr, double missing_phenod, uint32_t affection_01) {
+  char* ss;
+  double dxx;
+  dxx = strtod(bufptr, &ss);
+  if ((ss == bufptr) || (dxx == missing_phenod)) {
+    return 1;
   }
-  return 1;
+  return (!affection_01) && (bufptr[0] == '0') && is_space_or_eoln(bufptr[1]);
 }
 
-int32_t eval_affection(char* bufptr, int32_t missing_pheno, uint32_t affection_01) {
-  if (is_missing_pheno(bufptr, missing_pheno, affection_01)) {
-    return 1;
-  } else if (((*bufptr == '0') || (*bufptr == '1') || ((*bufptr == '2') && (!affection_01))) && is_space_or_eoln(bufptr[1])) {
+int32_t eval_affection(char* bufptr, double missing_phenod) {
+  // turns out --1 had the side-effect of *forcing* case/control
+  // interpretation in 1.07.  We replicate that for backward compatibility, and
+  // no longer call this function in that context.
+  char* ss;
+  double dxx;
+  // this used to be an integer read, but that could do the wrong thing if e.g.
+  // all phenotypes were -9.xxx...
+  dxx = strtod(bufptr, &ss);
+  if ((ss == bufptr) || (dxx == missing_phenod)) {
     return 1;
   }
-  return 0;
+  return ((bufptr[0] == '0') || (bufptr[0] == '1') || (bufptr[0] == '2')) && is_space_or_eoln(bufptr[1]);
 }
 
 uint32_t triangle_divide(int64_t cur_prod, int32_t modif) {

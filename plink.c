@@ -98,7 +98,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (8 Sep 2014) ";
+  " (9 Sep 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -9110,10 +9110,6 @@ int32_t main(int32_t argc, char** argv) {
 	jj = strlen(argv[cur_arg + 1]);
 	if (jj > 31) {
 	  logprint("Error: --output-missing-phenotype string too long (max 31 chars).\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
-        if (scan_double(argv[cur_arg + 1], &dxx)) {
-	  logprint("Error: --output-missing-phenotype parameter currently must be numeric.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	memcpy(output_missing_pheno, argv[cur_arg + 1], jj + 1);

@@ -3792,8 +3792,8 @@ int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32
 	if (no_more_tokens_kns(bufptr)) {
 	  goto load_fam_ret_MISSING_TOKENS;
 	}
-	if (affection) {
-	  affection = eval_affection(bufptr, missing_pheno, affection_01);
+	if (affection && (!affection_01)) {
+	  affection = eval_affection(bufptr, missing_phenod);
 	}
       }
       unfiltered_indiv_ct++;
@@ -3924,7 +3924,7 @@ int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32
     if (tmp_fam_col_6) {
       bufptr = next_token(bufptr);
       if (affection) {
-	if (!is_missing_pheno(bufptr, missing_pheno, affection_01)) {
+	if (!is_missing_pheno_cc(bufptr, missing_phenod, affection_01)) {
 	  SET_BIT(pheno_nm, indiv_uidx);
 	  if (*bufptr == case_char) {
 	    SET_BIT(pheno_c, indiv_uidx);
@@ -13843,7 +13843,7 @@ int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_person_id
       ll_ptr = *ll_pptr;
       uii = 1;
       if (is_dichot_pheno) {
-	is_dichot_pheno = eval_affection(col6_start_ptr, -9, 0);
+	is_dichot_pheno = eval_affection(col6_start_ptr, -9);
       }
       if (scan_double(col6_start_ptr, &pheno)) {
 	pheno = -9;

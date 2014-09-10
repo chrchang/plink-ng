@@ -238,7 +238,6 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
   uint32_t tmp_len2;
   uint32_t uii;
   double dxx;
-  double dyy;
   if (pheno_d) {
     affection = 0;
   } else {
@@ -338,8 +337,8 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 	  return LOAD_PHENO_LAST_COL;
 	}
 	if (affection) {
-	  if (eval_affection(bufptr, missing_pheno, affection_01)) {
-	    if (is_missing_pheno(bufptr, missing_pheno, affection_01)) {
+	  if (affection_01 || eval_affection(bufptr, missing_phenod)) {
+	    if (is_missing_pheno_cc(bufptr, missing_phenod, affection_01)) {
 	      // Since we're only making one pass through the file, we don't
 	      // have the luxury of knowing in advance whether the phenotype is
 	      // binary or scalar.  If there is a '0' entry that occurs before
@@ -363,19 +362,12 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 	      goto load_pheno_ret_NOMEM;
 	    }
 	    *pheno_d_ptr = pheno_d;
-	    if (affection_01) {
-	      dxx = 0.0;
-	      dyy = 1.0;
-	    } else {
-	      dxx = 1.0;
-	      dyy = 2.0;
-	    }
 	    for (uii = 0; uii < unfiltered_indiv_ct; uii++) {
 	      if (is_set(isz, uii)) {
 		pheno_d[uii] = 0.0;
 		set_bit(pheno_nm, uii);
 	      } else if (is_set(pheno_nm, uii)) {
-		pheno_d[uii] = is_set(pheno_c, uii)? dyy : dxx;
+		pheno_d[uii] = (double)((int32_t)(1 + is_set(pheno_c, uii)));
 	      }
 	    }
 	    aligned_free_null(pheno_c_ptr);
