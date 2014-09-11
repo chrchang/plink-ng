@@ -1622,7 +1622,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --output-missing-genotype [ch] : Set the code used to represent missing\n"
 "                                   genotypes in output files (normally the\n"
 "                                   --missing-genotype value).\n"
-"  --output-missing-phenotype [n] : Set the value used to represent missing\n"
+"  --output-missing-phenotype [s] : Set the string used to represent missing\n"
 "                                   phenotypes in output files (normally the\n"
 "                                   --missing-phenotype value).\n"
 	       );
@@ -2041,6 +2041,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --perm-batch-size [val] : Set number of permutations per batch in QT\n"
 "                            permutation tests.\n"
 	       );
+#ifndef STABLE_BUILD
+    help_print("output-min-p", &help_ctrl, 0,
+"  --output-min-p [p] : Specify minimum p-value to write to reports.\n"
+	       );
+#endif
     help_print("debug", &help_ctrl, 0,
 "  --debug            : Use slower, more crash-resistant logging method.\n"
 	       );

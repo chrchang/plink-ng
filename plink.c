@@ -98,7 +98,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (9 Sep 2014) ";
+  " (10 Sep 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -1125,11 +1125,16 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       LOGPRINTF("Error: No %s pass QC.\n", g_species_plural);
       goto plink_ret_ALL_SAMPLES_EXCLUDED;
     }
+    ulii = popcount_longs(founder_info, unfiltered_indiv_ctl);
+    LOGPRINTFWW("Before main variant filters, %" PRIuPTR " founder%s and %" PRIuPTR " nonfounder%s present.\n", ulii, (ulii == 1)? "" : "s", indiv_ct - ulii, (indiv_ct - ulii == 1)? "" : "s");
+
     if ((indiv_ct == 1) && (relationship_or_ibc_req(calculation_type) || distance_req(calculation_type, read_dists_fname) || (calculation_type & (CALC_GENOME | CALC_CLUSTER | CALC_NEIGHBOR)))) {
       sprintf(logbuf, "Error: More than 1 %s required for pairwise analysis.\n", g_species_singular);
       goto plink_ret_INVALID_CMDLINE_2;
     }
 
+    // er, this needs to check marker_ct instead of indiv_ct for --r/--r2,
+    // --fast-epistasis
     if ((parallel_tot > 1) && (parallel_tot > indiv_ct / 2)) {
       sprintf(logbuf, "Error: Too many --parallel jobs (maximum %" PRIuPTR "/2 = %" PRIuPTR ").\n", indiv_ct, indiv_ct / 2);
       goto plink_ret_INVALID_CMDLINE_2;
@@ -1265,6 +1270,9 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     // --geno.
     if (calculation_type & CALC_FREQ) {
       if (cluster_ct && (!(misc_flags & MISC_FREQX))) {
+	if (misc_flags & MISC_FREQ_COUNTS) {
+	  logprint("Note: --freq 'counts' modifier has no effect on cluster-stratified report.\n");
+	}
 	memcpy(outname_end, ".frq.strat", 11);
 	retval = write_stratified_freqs(bedfile, bed_offset, outname, plink_maxsnp, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_len, unfiltered_indiv_ct, indiv_ct, indiv_f_ct, founder_info, nonfounders, sex_male, indiv_f_male_ct, marker_reverse, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len);
       } else {
@@ -1275,7 +1283,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	} else {
 	  memcpy(outname_end, ".frq", 5);
 	}
-	retval = write_freqs(outname, plink_maxsnp, unfiltered_marker_ct, marker_exclude, set_allele_freqs, chrom_info_ptr, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_len, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, hwe_hapl_allfs, hwe_haph_allfs, indiv_f_ct, indiv_f_male_ct, misc_flags, marker_reverse);
+	retval = write_freqs(outname, plink_maxsnp, unfiltered_marker_ct, marker_exclude, set_allele_freqs, chrom_info_ptr, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_len, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, hwe_hapl_allfs, hwe_haph_allfs, indiv_f_ct, indiv_f_male_ct, nonfounders, misc_flags, marker_reverse);
       }
       if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER | CALC_FREQ))))) {
 	goto plink_ret_1;
@@ -1302,7 +1310,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     }
     oblig_missing_cleanup(om_ip);
     if (calculation_type & CALC_HARDY) {
-      retval = hardy_report(outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, hwe_lls, hwe_lhs, hwe_hhs, hwe_modifier, hwe_ll_cases, hwe_lh_cases, hwe_hh_cases, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, pheno_nm_ct, pheno_c, chrom_info_ptr);
+      retval = hardy_report(outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, hwe_lls, hwe_lhs, hwe_hhs, hwe_modifier, nonfounders, hwe_ll_cases, hwe_lh_cases, hwe_hh_cases, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, pheno_nm_ct, pheno_c, chrom_info_ptr);
       if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER | CALC_FREQ | CALC_HARDY))))) {
 	goto plink_ret_1;
       }
@@ -7842,7 +7850,7 @@ int32_t main(int32_t argc, char** argv) {
 	jj = strlen(argv[cur_arg + 1]);
 	// if anyone is using a missing pheno value of -2^31, they should be
 	// flogged with wet noodles
-	if (scan_int32(argv[cur_arg + 1], &missing_pheno) || (!missing_pheno) || (missing_pheno == 1) || (jj > 31)) {
+	if (scan_int32(argv[cur_arg + 1], &missing_pheno) || (!missing_pheno) || (missing_pheno == 1) || (jj > 31) || scan_double(argv[cur_arg + 1], &dxx) || (dxx != (double)missing_pheno)) {
 	  sprintf(logbuf, "Error: Invalid --missing-phenotype parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
@@ -9162,7 +9170,7 @@ int32_t main(int32_t argc, char** argv) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-        if (scan_double(argv[cur_arg + 1], &output_min_p) || (!(output_min_p > 0.0)) || (output_min_p >= 1.0)) {
+        if (scan_double(argv[cur_arg + 1], &output_min_p) || (!(output_min_p >= 0.0)) || (output_min_p >= 1.0)) {
 	  sprintf(logbuf, "Error: Invalid --output-min-p parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}

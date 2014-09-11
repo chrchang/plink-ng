@@ -2704,7 +2704,7 @@ int32_t hardy_report_write_line(FILE* outfile, char* prefix_buf, uint32_t prefix
   return fwrite_checked(midbuf_ptr, (cptr - midbuf_ptr), outfile);
 }
 
-int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, int32_t* hwe_lls, int32_t* hwe_lhs, int32_t* hwe_hhs, uint32_t hwe_modifier, int32_t* hwe_ll_cases, int32_t* hwe_lh_cases, int32_t* hwe_hh_cases, int32_t* hwe_ll_allfs, int32_t* hwe_lh_allfs, int32_t* hwe_hh_allfs, uint32_t pheno_nm_ct, uintptr_t* pheno_c, Chrom_info* chrom_info_ptr) {
+int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, int32_t* hwe_lls, int32_t* hwe_lhs, int32_t* hwe_hhs, uint32_t hwe_modifier, uint32_t nonfounders, int32_t* hwe_ll_cases, int32_t* hwe_lh_cases, int32_t* hwe_hh_cases, int32_t* hwe_ll_allfs, int32_t* hwe_lh_allfs, int32_t* hwe_hh_allfs, uint32_t pheno_nm_ct, uintptr_t* pheno_c, Chrom_info* chrom_info_ptr) {
   FILE* outfile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t marker_ct = unfiltered_marker_ct - marker_exclude_ct;
@@ -2765,7 +2765,7 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
   if (fopen_checked(&outfile, outname, "w")) {
     goto hardy_report_ret_OPEN_FAIL;
   }
-  LOGPRINTFWW5("--hardy: Writing Hardy-Weinberg report to %s ... ", outname);
+  LOGPRINTFWW5("--hardy: Writing Hardy-Weinberg report (%s) to %s ... ", nonfounders? "all individuals" : "founders only", outname);
   fputs("0%", stdout);
   fflush(stdout);
   sprintf(writebuf, " CHR %%%us     TEST   A1   A2                 GENO   O(HET)   E(HET)            P \n", plink_maxsnp);

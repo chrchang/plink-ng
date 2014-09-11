@@ -2504,7 +2504,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
   if (fclose_null(&outfile)) {
     goto write_stratified_freqs_ret_WRITE_FAIL;
   }
-  LOGPRINTFWW("--freq: Cluster-stratified allele frequencies written to %s .\n", outname);
+  LOGPRINTFWW("--freq: Cluster-stratified allele frequencies (%s) written to %s .\n", nonfounders? "all individuals" : "founders only", outname);
   while (0) {
   write_stratified_freqs_ret_NOMEM:
     retval = RET_NOMEM;
@@ -2524,7 +2524,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
   return retval;
 }
 
-int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, double* set_allele_freqs, Chrom_info* chrom_info_ptr, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, int32_t* ll_cts, int32_t* lh_cts, int32_t* hh_cts, int32_t* hapl_cts, int32_t* haph_cts, uint32_t indiv_f_ct, uint32_t indiv_f_male_ct, uint64_t misc_flags, uintptr_t* marker_reverse) {
+int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, double* set_allele_freqs, Chrom_info* chrom_info_ptr, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, int32_t* ll_cts, int32_t* lh_cts, int32_t* hh_cts, int32_t* hapl_cts, int32_t* haph_cts, uint32_t indiv_f_ct, uint32_t indiv_f_male_ct, uint32_t nonfounders, uint64_t misc_flags, uintptr_t* marker_reverse) {
   FILE* outfile = NULL;
   uint32_t reverse = 0;
   uint32_t freq_counts = (misc_flags / MISC_FREQ_COUNTS) & 1;
@@ -2655,7 +2655,7 @@ int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_m
   if (fclose_null(&outfile)) {
     goto write_freqs_ret_WRITE_FAIL;
   }
-  LOGPRINTFWW("--freq%s: Allele frequencies written to %s .\n", freqx? "x" : "", outname);
+  LOGPRINTFWW("--freq%s: Allele frequencies (%s) written to %s .\n", freqx? "x" : "", nonfounders? "all individuals" : "founders only", outname);
   while (0) {
   write_freqs_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
