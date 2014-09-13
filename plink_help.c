@@ -1329,7 +1329,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                         * 'haploid'/'h' treats them as haploid calls.\n"
 "                         * 'missing'/'m' treats them as missing.\n"
 	       );
-    help_print("oxford-pheno-name\tdata\tgen\tsample", &help_ctrl, 0,
+    help_print("oxford-single-chr\tdata\tgen", &help_ctrl, 0,
+"  --oxford-single-chr [chr nm] : Specify single-chromosome .gen file with\n"
+"                                 ignorable first column.\n"
+	       );
+    help_print("oxford-pheno-name\tdata\tsample", &help_ctrl, 0,
 "  --oxford-pheno-name [col nm] : Import named phenotype from the .sample file.\n"
 	       );
     help_print("hard-call-threshold\tmissing-code\tmissing_code\tdata\tgen\tsample", &help_ctrl, 0,

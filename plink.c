@@ -2942,6 +2942,7 @@ int32_t main(int32_t argc, char** argv) {
   Two_col_params* update_cm = NULL;
   Two_col_params* update_map = NULL;
   Two_col_params* update_name = NULL;
+  char* oxford_single_chr = NULL;
   char* oxford_pheno_name = NULL;
   char* update_ids_fname = NULL;
   char* update_parents_fname = NULL;
@@ -9155,6 +9156,23 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_1;
 	  }
 	}
+      } else if (!memcmp(argptr2, "xford-single-chr", 17)) {
+	if (!(load_params & LOAD_PARAMS_OXGEN)) {
+	  logprint("Error: --oxford-single-chr must be used with .gen input.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+          goto main_ret_INVALID_CMDLINE_2A;
+	}
+	if (!(misc_flags & MISC_ALLOW_EXTRA_CHROMS)) {
+	  if (get_chrom_code_raw(argv[cur_arg + 1]) < 0) {
+	    sprintf(logbuf, "Error: Invalid --oxford-single-chr chromosome code '%s'. (Did you forget --allow-extra-chr?)\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
+	  }
+	}
+        if (alloc_string(&oxford_single_chr, argv[cur_arg + 1])) {
+	  goto main_ret_NOMEM;
+	}
       } else if (!memcmp(argptr2, "xford-pheno-name", 17)) {
 	if (!(load_params & LOAD_PARAMS_OX_ALL)) {
 	  logprint("Error: --oxford-pheno-name must be used with an Oxford-format fileset.\n");
@@ -12682,7 +12700,7 @@ int32_t main(int32_t argc, char** argv) {
 	  simulate_label = NULL;
 	}
       } else if (load_params & LOAD_PARAMS_OX_ALL) {
-	retval = oxford_to_bed(pedname, mapname, outname, sptr, oxford_pheno_name, hard_call_threshold, missing_code, missing_pheno, misc_flags, (load_params / LOAD_PARAMS_OXBGEN) & 1, &chrom_info);
+	retval = oxford_to_bed(pedname, mapname, outname, sptr, oxford_single_chr, oxford_pheno_name, hard_call_threshold, missing_code, missing_pheno, misc_flags, (load_params / LOAD_PARAMS_OXBGEN) & 1, &chrom_info);
       } else {
         retval = ped_to_bed(pedname, mapname, outname, sptr, fam_cols, misc_flags, missing_pheno, &chrom_info);
 	fam_cols |= FAM_COL_1 | FAM_COL_34 | FAM_COL_5;
@@ -12808,6 +12826,7 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(update_cm);
   free_cond(update_map);
   free_cond(update_name);
+  free_cond(oxford_single_chr);
   free_cond(oxford_pheno_name);
   free_cond(update_ids_fname);
   free_cond(update_parents_fname);

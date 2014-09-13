@@ -3973,7 +3973,7 @@ int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32
 
 #define D_EPSILON 0.000244140625
 
-int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outname_end, char* pheno_name, double hard_call_threshold, char* missing_code, int32_t missing_pheno, uint64_t misc_flags, uint32_t is_bgen, Chrom_info* chrom_info_ptr) {
+int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outname_end, char* single_chr, char* pheno_name, double hard_call_threshold, char* missing_code, int32_t missing_pheno, uint64_t misc_flags, uint32_t is_bgen, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   gzFile gz_infile = NULL;
@@ -4044,6 +4044,13 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   uint16_t uskk;
   char cc;
   char cc2;
+  if (single_chr && (!allow_extra_chroms)) {
+    ii = get_chrom_code_raw(single_chr);
+    if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
+      logprint("Error: --oxford-single-chr chromosome code is excluded by chromosome filter.\n");
+      goto oxford_to_bed_ret_INVALID_CMDLINE;
+    }
+  }
   bufptr = int32_write(missing_pheno_str, missing_pheno);
   missing_pheno_len = (uintptr_t)(bufptr - missing_pheno_str);
   if (!missing_code) {
@@ -4382,25 +4389,32 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
       if (is_eoln_kns(*bufptr)) {
 	continue;
       }
-      ii = get_chrom_code(chrom_info_ptr, bufptr);
-      if (ii < 0) {
-	if (chrom_error(".gen file", chrom_info_ptr, bufptr, line_idx, ii, allow_extra_chroms)) {
-	  goto oxford_to_bed_ret_INVALID_FORMAT;
+      if (!single_chr) {
+	ii = get_chrom_code(chrom_info_ptr, bufptr);
+	if (ii < 0) {
+	  if (chrom_error(".gen file", chrom_info_ptr, bufptr, line_idx, ii, allow_extra_chroms)) {
+	    goto oxford_to_bed_ret_INVALID_FORMAT;
+	  }
+	  retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii, line_idx, ".gen file");
+	  if (retval) {
+	    goto oxford_to_bed_ret_1;
+	  }
 	}
-	retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii, line_idx, ".gen file");
-	if (retval) {
-	  goto oxford_to_bed_ret_1;
+	if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
+	  continue;
 	}
-      }
-      if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
-	continue;
       }
       fill_ulong_zero(writebuf, indiv_ctl2);
       bufptr2 = next_token_mult(bufptr, 2);
       if (!bufptr2) {
 	goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
       }
-      fwrite(bufptr, 1, bufptr2 - bufptr, outfile_bim);
+      if (single_chr) {
+	fputs(single_chr, outfile_bim);
+        putc(' ', outfile_bim);
+      } else {
+        fwrite(bufptr, 1, bufptr2 - bufptr, outfile_bim);
+      }
       putc('0', outfile_bim);
       if (putc_checked(' ', outfile_bim)) {
 	goto oxford_to_bed_ret_WRITE_FAIL;
