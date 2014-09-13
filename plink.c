@@ -98,7 +98,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (12 Sep 2014)";
+  " (13 Sep 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -315,7 +315,7 @@ static inline int32_t distance_wt_req(uint64_t calculation_type, char* read_dist
   return (((calculation_type & CALC_DISTANCE) || ((!read_dists_fname) && ((calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))))) && (!(dist_calc_type & DISTANCE_FLAT_MISSING)));
 }
 
-int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, char* famname, char* cm_map_fname, char* cm_map_chrname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char** missing_mid_templates, char* missing_marker_id_match, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* qual_filter, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* indiv_sort_fname, char* filtervals_flattened, char* condition_mname, char* condition_fname, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_indiv_fname, char* filter_attrib_indiv_liststr, double qual_min_thresh, double qual_max_thresh, double thin_keep_prob, uint32_t thin_keep_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t fam_cols, int32_t missing_pheno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, Family_info* fam_ip, double check_sex_fthresh, double check_sex_mthresh, uint32_t check_sex_f_yobs, uint32_t check_sex_m_yobs, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double output_min_p, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t filter_flags, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t splitx_bound1, uint32_t splitx_bound2, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t update_sex_col, uint32_t hwe_modifier, uint32_t genome_modifier, double genome_min_pi_hat, double genome_max_pi_hat, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, Set_info* sip, Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip, Rel_info* relip, Score_info* sc_ip, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, int32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t write_var_range_ct, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t write_covar_modifier, uint32_t write_covar_dummy_max_categories, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, Aperm_info* apip, uint32_t mperm_save, uintptr_t ibs_test_perms, uint32_t perm_batch_size, double lasso_h2, double lasso_minlambda, Range_list* lasso_select_covars_range_list_ptr, uint32_t testmiss_modifier, uint32_t testmiss_mperm_val, uint32_t permphe_ct, Ll_str** file_delete_list_ptr) {
+int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, char* famname, char* cm_map_fname, char* cm_map_chrname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char** missing_mid_templates, char* missing_marker_id_match, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* qual_filter, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* indiv_sort_fname, char* filtervals_flattened, char* condition_mname, char* condition_fname, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_indiv_fname, char* filter_attrib_indiv_liststr, double qual_min_thresh, double qual_max_thresh, double thin_keep_prob, uint32_t thin_keep_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t fam_cols, int32_t missing_pheno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, Family_info* fam_ip, double check_sex_fthresh, double check_sex_mthresh, uint32_t check_sex_f_yobs, uint32_t check_sex_m_yobs, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t filter_flags, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t splitx_bound1, uint32_t splitx_bound2, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t update_sex_col, uint32_t hwe_modifier, uint32_t genome_modifier, double genome_min_pi_hat, double genome_max_pi_hat, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, Set_info* sip, Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip, Rel_info* relip, Score_info* sc_ip, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, int32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t write_var_range_ct, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t write_covar_modifier, uint32_t write_covar_dummy_max_categories, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, Aperm_info* apip, uint32_t mperm_save, uintptr_t ibs_test_perms, uint32_t perm_batch_size, double lasso_h2, double lasso_minlambda, Range_list* lasso_select_covars_range_list_ptr, uint32_t testmiss_modifier, uint32_t testmiss_mperm_val, uint32_t permphe_ct, Ll_str** file_delete_list_ptr) {
   FILE* bedfile = NULL;
   FILE* phenofile = NULL;
   uintptr_t unfiltered_marker_ct = 0;
@@ -1311,7 +1311,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     }
     oblig_missing_cleanup(om_ip);
     if (calculation_type & CALC_HARDY) {
-      retval = hardy_report(outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, hwe_lls, hwe_lhs, hwe_hhs, hwe_modifier, nonfounders, hwe_ll_cases, hwe_lh_cases, hwe_hh_cases, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, pheno_nm_ct, pheno_c, chrom_info_ptr);
+      retval = hardy_report(outname, outname_end, output_min_p, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, hwe_lls, hwe_lhs, hwe_hhs, hwe_modifier, nonfounders, hwe_ll_cases, hwe_lh_cases, hwe_hh_cases, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, pheno_nm_ct, pheno_c, chrom_info_ptr);
       if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER | CALC_FREQ | CALC_HARDY))))) {
 	goto plink_ret_1;
       }
@@ -1686,7 +1686,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       logprint("Error: --test-mishap requires a sorted .bim.  Retry this command after using\n--make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
-    retval = test_mishap(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, min_maf, chrom_info_ptr, unfiltered_indiv_ct, indiv_exclude, indiv_ct);
+    retval = test_mishap(bedfile, bed_offset, outname, outname_end, output_min_p, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, min_maf, chrom_info_ptr, unfiltered_indiv_ct, indiv_exclude, indiv_ct);
     if (retval) {
       goto plink_ret_1;
     }
@@ -1858,7 +1858,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       logprint("Error: --fast-epistasis case-only requires a sorted .bim.  Retry this command\nafter using --make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
-    retval = epistasis_report(threads, epi_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, marker_pos, plink_maxsnp, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm, pheno_nm_ct, pheno_ctrl_ct, pheno_c, pheno_d, parallel_idx, parallel_tot, outname, outname_end, sip);
+    retval = epistasis_report(threads, epi_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, marker_pos, plink_maxsnp, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm, pheno_nm_ct, pheno_ctrl_ct, pheno_c, pheno_d, parallel_idx, parallel_tot, outname, outname_end, output_min_p, sip);
     if (retval) {
       goto plink_ret_1;
     }
@@ -1979,10 +1979,10 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       if (calculation_type & CALC_MODEL) {
 	if (pheno_d) {
 	  if (model_modifier & MODEL_ASSOC) {
-	    retval = qassoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_mperm_val, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, sex_male, hh_exists, perm_batch_size, sip);
+	    retval = qassoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_mperm_val, pfilter, output_min_p, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, sex_male, hh_exists, perm_batch_size, sip);
 	  }
 	} else {
-	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, founder_info, sex_male, hh_exists, ldip->modifier & LD_IGNORE_X, sip);
+	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, founder_info, sex_male, hh_exists, ldip->modifier & LD_IGNORE_X, sip);
 	}
 	if (retval) {
 	  goto plink_ret_1;
@@ -1992,23 +1992,23 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	if (!(glm_modifier & GLM_NO_SNP)) {
 	  if (pheno_d) {
 #ifndef NOLAPACK
-	    retval = glm_linear_assoc(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_indiv_ct, indiv_ct, indiv_exclude, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_nm, sex_male, hh_exists, perm_batch_size, sip);
+	    retval = glm_linear_assoc(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_indiv_ct, indiv_ct, indiv_exclude, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_nm, sex_male, hh_exists, perm_batch_size, sip);
 #else
             logprint("Warning: Skipping --logistic on --all-pheno QT since this is a no-LAPACK " PROG_NAME_CAPS"\nbuild.\n");
 #endif
 	  } else {
-	    retval = glm_logistic_assoc(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_indiv_ct, indiv_ct, indiv_exclude, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_nm, sex_male, hh_exists, perm_batch_size, sip);
+	    retval = glm_logistic_assoc(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_indiv_ct, indiv_ct, indiv_exclude, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_nm, sex_male, hh_exists, perm_batch_size, sip);
 	  }
 	} else {
 	  if (pheno_d) {
 #ifndef NOLAPACK
-	    retval = glm_linear_nosnp(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_indiv_ct, indiv_ct, indiv_exclude, cluster_ct, cluster_map, cluster_starts, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_nm, sex_male, hh_exists, perm_batch_size, sip);
+	    retval = glm_linear_nosnp(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, output_min_p, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_indiv_ct, indiv_ct, indiv_exclude, cluster_ct, cluster_map, cluster_starts, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_nm, sex_male, hh_exists, perm_batch_size, sip);
 #else
             logprint("Warning: Skipping --logistic on --all-pheno QT since this is a no-LAPACK " PROG_NAME_CAPS"\nbuild.\n");
 #endif
 
 	  } else {
-	    retval = glm_logistic_nosnp(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_indiv_ct, indiv_ct, indiv_exclude, cluster_ct, cluster_map, cluster_starts, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_nm, sex_male, hh_exists, perm_batch_size, sip);
+	    retval = glm_logistic_nosnp(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, output_min_p, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_indiv_ct, indiv_ct, indiv_exclude, cluster_ct, cluster_map, cluster_starts, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_nm, sex_male, hh_exists, perm_batch_size, sip);
 	  }
 	}
 	if (retval) {
@@ -2017,7 +2017,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
       // if case/control phenotype loaded with --all-pheno, skip --gxe
       if ((calculation_type & CALC_GXE) && pheno_d) {
-	retval = gxe_assoc(bedfile, bed_offset, outname, outname_end2, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, indiv_ct, indiv_exclude, pheno_nm, pheno_d, gxe_covar_nm, gxe_covar_c, sex_male, hh_exists);
+	retval = gxe_assoc(bedfile, bed_offset, outname, outname_end2, output_min_p, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, indiv_ct, indiv_exclude, pheno_nm, pheno_d, gxe_covar_nm, gxe_covar_c, sex_male, hh_exists);
 	if (retval) {
 	  goto plink_ret_1;
 	}
@@ -2030,28 +2030,28 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
       if ((calculation_type & CALC_CMH) && pheno_c) {
 	if (!(cluster_ptr->modifier & CLUSTER_CMH2)) {
-          retval = cmh_assoc(threads, bedfile, bed_offset, outname, outname_end2, cluster_ptr->cmh_mperm_val, cluster_ptr->modifier, ci_size, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, chrom_info_ptr, set_allele_freqs, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists, sip);
+          retval = cmh_assoc(threads, bedfile, bed_offset, outname, outname_end2, cluster_ptr->cmh_mperm_val, cluster_ptr->modifier, ci_size, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, chrom_info_ptr, set_allele_freqs, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists, sip);
 	} else {
-          retval = cmh2_assoc(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists);
+          retval = cmh2_assoc(bedfile, bed_offset, outname, outname_end, output_min_p, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists);
 	}
         if (retval) {
           goto plink_ret_1;
 	}
       }
       if ((calculation_type & CALC_HOMOG) && pheno_c) {
-	retval = homog_assoc(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, chrom_info_ptr, set_allele_freqs, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists);
+	retval = homog_assoc(bedfile, bed_offset, outname, outname_end, output_min_p, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, chrom_info_ptr, set_allele_freqs, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists);
         if (retval) {
           goto plink_ret_1;
 	}
       }
       if ((calculation_type & CALC_TESTMISS) && pheno_c) {
-        retval = testmiss(threads, bedfile, bed_offset, outname, outname_end2, testmiss_mperm_val, testmiss_modifier, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists);
+        retval = testmiss(threads, bedfile, bed_offset, outname, outname_end2, testmiss_mperm_val, testmiss_modifier, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists);
         if (retval) {
 	  goto plink_ret_1;
 	}
       }
       if ((calculation_type & CALC_TDT) && pheno_c) {
-	retval = tdt(threads, bedfile, bed_offset, outname, outname_end2, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, mperm_save, pheno_nm, pheno_c, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, chrom_info_ptr, hh_exists, fam_ip);
+	retval = tdt(threads, bedfile, bed_offset, outname, outname_end2, ci_size, ci_zt, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, unfiltered_indiv_ct, indiv_exclude, indiv_ct, mperm_save, pheno_nm, pheno_c, founder_info, sex_nm, sex_male, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, chrom_info_ptr, hh_exists, fam_ip);
 	if (retval) {
 	  goto plink_ret_1;
 	}
@@ -3000,7 +3000,6 @@ int32_t main(int32_t argc, char** argv) {
   double geno_thresh = 1.0;
   double mind_thresh = 1.0;
   double hwe_thresh = 0.0;
-  double output_min_p = 0.0;
   uint32_t cur_arg = 1;
   uint64_t calculation_type = 0;
   uint32_t dist_calc_type = 0;
@@ -3070,6 +3069,7 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t mperm_val = 0;
   double ci_size = 0.0;
   double pfilter = 2.0; // make --pfilter 1 still filter out NAs
+  double output_min_p = 0.0;
   uint32_t perm_batch_size = 0;
   uint32_t mtest_adjust = 0;
   double adjust_lambda = 0.0;
@@ -4068,7 +4068,7 @@ int32_t main(int32_t argc, char** argv) {
 	pheno_modifier |= PHENO_ALL;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ssoc", 5)) {
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 7)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 6)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
@@ -4104,8 +4104,6 @@ int32_t main(int32_t argc, char** argv) {
 	    model_modifier |= MODEL_GENEDROP;
 	  } else if (!strcmp(argv[cur_arg + uii], "perm-count")) {
 	    model_modifier |= MODEL_PERM_COUNT;
-	  } else if (!strcmp(argv[cur_arg + uii], "p2")) {
-	    model_modifier |= MODEL_ASSOC_P2;
 	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
 	    if (model_modifier & MODEL_PERM) {
 	      logprint("Error: --assoc 'mperm' and 'perm' cannot be used together.\n");
@@ -9193,9 +9191,6 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --output-min-p parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
-	logprint("Error: --output-min-p is currently under development.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
       } else if (memcmp(argptr2, "ut", 3)) {
 	// --out is a special case due to logging
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
@@ -9347,17 +9342,8 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --perm-count flag deprecated.  Use e.g. '--model perm-count'.\n");
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "2", 2)) {
-	if ((!(calculation_type & CALC_MODEL)) || (!(model_modifier & MODEL_ASSOC))) {
-	  logprint("Error: --p2 must be used with --assoc.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (model_modifier & MODEL_QMASK) {
-	  logprint("Error: --assoc 'qt-means'/'lin' does not make sense with --p2.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
-	}
-	logprint("Note: --p2 flag deprecated.  Use '--assoc p2 ...'.\n");
-	model_modifier |= MODEL_ASSOC_P2;
-	goto main_param_zero;
+	logprint("Error: --p2 has been provisionally retired.  Contact the developers if you need\nthis functionality.\n");
+        goto main_ret_INVALID_CMDLINE_A;
       } else if (!memcmp(argptr2, "filter", 7)) {
 	if (load_rare == LOAD_RARE_DOSAGE) {
 	  logprint("Error: --pfilter is currently ignored by --dosage.\n");
@@ -10976,6 +10962,9 @@ int32_t main(int32_t argc, char** argv) {
 	  ld_info.modifier |= LD_SHOW_TAGS_LIST_ALL;
 	}
         calculation_type |= CALC_SHOW_TAGS;
+      } else if (!memcmp(argptr2, "egment", 7)) {
+	logprint("Error: --segment flag retired.  Use another package, such as BEAGLE or\nGERMLINE, for this analysis.\n");
+	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "kato", 5)) {
 	logprint("Error: --skato is not implemented yet.  Use e.g. PLINK/SEQ to perform this test\nfor now.\n");
 	retval = RET_CALC_NOT_YET_SUPPORTED;
@@ -12620,7 +12609,7 @@ int32_t main(int32_t argc, char** argv) {
     }
   }
   if (metaanal_fnames) {
-    retval = meta_analysis(metaanal_fnames, metaanal_snpfield_search_order, metaanal_a1field_search_order, metaanal_a2field_search_order, metaanal_pfield_search_order, metaanal_essfield_search_order, metaanal_flags, (misc_flags & MISC_EXTRACT_RANGE)? NULL : extractname, outname, outname_end, &chrom_info);
+    retval = meta_analysis(metaanal_fnames, metaanal_snpfield_search_order, metaanal_a1field_search_order, metaanal_a2field_search_order, metaanal_pfield_search_order, metaanal_essfield_search_order, metaanal_flags, (misc_flags & MISC_EXTRACT_RANGE)? NULL : extractname, outname, outname_end, output_min_p, &chrom_info);
     if (retval) {
       goto main_ret_1;
     }
@@ -12631,7 +12620,7 @@ int32_t main(int32_t argc, char** argv) {
       logprint("Error: --dosage cannot be used with other PLINK computations.\n");
       goto main_ret_INVALID_CMDLINE;
     }
-    retval = plink1_dosage(&dosage_info, famname, mapname, outname, outname_end, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, makepheno_str, phenoname_str, covar_fname, qual_filter, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, filtervals_flattened, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, qual_min_thresh, qual_max_thresh, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, mpheno_col, pheno_modifier, &chrom_info, tail_bottom, tail_top, misc_flags, filter_flags, sex_missing_pheno, update_sex_col, &cluster, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, mwithin_col, glm_modifier, glm_vif_thresh);
+    retval = plink1_dosage(&dosage_info, famname, mapname, outname, outname_end, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, makepheno_str, phenoname_str, covar_fname, qual_filter, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, filtervals_flattened, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, qual_min_thresh, qual_max_thresh, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, mpheno_col, pheno_modifier, &chrom_info, tail_bottom, tail_top, misc_flags, filter_flags, sex_missing_pheno, update_sex_col, &cluster, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, mwithin_col, glm_modifier, glm_vif_thresh, output_min_p);
     // unconditional; note that plink1_dosage() currently doesn't even bother
     // to pop stuff off the stack when it's done
     goto main_ret_1;
@@ -12727,7 +12716,7 @@ int32_t main(int32_t argc, char** argv) {
     } else if (!rel_info.ibc_type) {
       rel_info.ibc_type = 1;
     }
-    retval = plink(outname, outname_end, pedname, mapname, famname, cm_map_fname, cm_map_chrname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, read_dists_fname, read_dists_id_fname, evecname, mergename1, mergename2, mergename3, missing_mid_templates, missing_marker_id_match, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, update_alleles_fname, read_genome_fname, qual_filter, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, indiv_sort_fname, filtervals_flattened, condition_mname, condition_fname, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, qual_min_thresh, qual_max_thresh, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, &oblig_missing_info, &family_info, check_sex_fthresh, check_sex_mthresh, check_sex_f_yobs, check_sex_m_yobs, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, output_min_p, tail_bottom, tail_top, misc_flags, filter_flags, calculation_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, parallel_idx, parallel_tot, splitx_bound1, splitx_bound2, ppc_gap, sex_missing_pheno, update_sex_col, hwe_modifier, genome_modifier, genome_min_pi_hat, genome_max_pi_hat, &homozyg, &cluster, neighbor_n1, neighbor_n2, &set_info, &ld_info, &epi_info, &clump_info, &rel_info, &score_info, recode_modifier, allelexxxx, merge_type, indiv_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, write_var_range_ct, covar_modifier, &covar_range_list, write_covar_modifier, write_covar_dummy_max_categories, mwithin_col, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, &parameters_range_list, &tests_range_list, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, &aperm, mperm_save, ibs_test_perms, perm_batch_size, lasso_h2, lasso_minlambda, &lasso_select_covars_range_list, testmiss_modifier, testmiss_mperm_val, permphe_ct, &file_delete_list);
+    retval = plink(outname, outname_end, pedname, mapname, famname, cm_map_fname, cm_map_chrname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, read_dists_fname, read_dists_id_fname, evecname, mergename1, mergename2, mergename3, missing_mid_templates, missing_marker_id_match, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, update_alleles_fname, read_genome_fname, qual_filter, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, indiv_sort_fname, filtervals_flattened, condition_mname, condition_fname, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, qual_min_thresh, qual_max_thresh, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, &oblig_missing_info, &family_info, check_sex_fthresh, check_sex_mthresh, check_sex_f_yobs, check_sex_m_yobs, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, tail_bottom, tail_top, misc_flags, filter_flags, calculation_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, parallel_idx, parallel_tot, splitx_bound1, splitx_bound2, ppc_gap, sex_missing_pheno, update_sex_col, hwe_modifier, genome_modifier, genome_min_pi_hat, genome_max_pi_hat, &homozyg, &cluster, neighbor_n1, neighbor_n2, &set_info, &ld_info, &epi_info, &clump_info, &rel_info, &score_info, recode_modifier, allelexxxx, merge_type, indiv_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, write_var_range_ct, covar_modifier, &covar_range_list, write_covar_modifier, write_covar_dummy_max_categories, mwithin_col, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, &parameters_range_list, &tests_range_list, ci_size, pfilter, output_min_p, mtest_adjust, adjust_lambda, gxe_mcovar, &aperm, mperm_save, ibs_test_perms, perm_batch_size, lasso_h2, lasso_minlambda, &lasso_select_covars_range_list, testmiss_modifier, testmiss_mperm_val, permphe_ct, &file_delete_list);
   }
  main_ret_2:
   free(wkspace_ua);

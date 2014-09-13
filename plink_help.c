@@ -861,7 +861,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "          <set-test>\n"
 	       /*
 "  --assoc <perm | mperm=[value]> <genedrop> <perm-count> <fisher | fisher-midp>\n"
-"          <counts> <p2> <set-test>\n"
+"          <counts> <set-test>\n"
 	       */
 "  --assoc <perm | mperm=[value]> <perm-count> <qt-means> <lin> <set-test>\n"
       /*
@@ -886,10 +886,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * 'perm-count' causes the permutation test report to include counts instead\n"
 "      of frequencies.\n"
 "    * 'counts' causes --assoc to report allele counts instead of frequencies.\n"
-	       /*
-"    * 'p2' changes the --assoc permutation test used (see PLINK 1.07\n"
-"      documentation).\n"
-	       */
 "    * 'set-test' tests the significance of variant sets.  Requires permutation;\n"
 "      can be customized with --set-p/--set-r2/--set-max.\n"
 "    * 'dom', 'rec', 'gen', and 'trend' force the corresponding test to be used\n"

@@ -193,35 +193,29 @@ void single_marker_cc_3freqs(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* c
   *case_missingp = tot_case_a - tot_case_c;
 }
 
-static inline void adjust_print(FILE* outfile, double pval) {
-  char wbuf[16];
-  char* wpos;
-  if (pval == 0) {
-    fputs("       INF ", outfile);
-  } else if (pval < 0) {
-    fputs("        NA ", outfile);
+static inline void adjust_print(double pval, double output_min_p, const char* output_min_p_str, uint32_t output_min_p_strlen, char** bufpp) {
+  if (pval < 0) {
+    *bufpp = memcpya(*bufpp, "        NA ", 11);
+  } else if (pval <= output_min_p) {
+    *bufpp = memcpya(*bufpp, output_min_p_str, output_min_p_strlen);
   } else {
-    wpos = double_g_writewx4x(wbuf, pval, 10, ' ');
-    fwrite(wbuf, 1, wpos - wbuf, outfile);
+    *bufpp = double_g_writewx4x(*bufpp, pval, 10, ' ');
   }
 }
 
-static inline void adjust_print_log10(FILE* outfile, double pval) {
-  char wbuf[16];
-  char* wpos;
-  if (pval == 0) {
-    fputs("       INF ", outfile);
-  } else if (pval < 0) {
-    fputs("        NA ", outfile);
+static inline void adjust_print_log10(double pval, double output_min_p, const char* output_min_logp_str, uint32_t output_min_logp_strlen, char** bufpp) {
+  if (pval < 0) {
+    *bufpp = memcpya(*bufpp, "        NA ", 11);
+  } else if (pval <= output_min_p) {
+    *bufpp = memcpya(*bufpp, output_min_logp_str, output_min_logp_strlen);
   } else if (pval < 1) {
-    wpos = double_g_writewx4x(wbuf, -log10(pval), 10, ' ');
-    fwrite(wbuf, 1, wpos - wbuf, outfile);
+    *bufpp = double_g_writewx4x(*bufpp, -log10(pval), 10, ' ');
   } else {
-    fputs("         0 ", outfile);
+    *bufpp = memcpya(*bufpp, "         0 ", 11);
   }
 }
 
-int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintptr_t chi_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, double* chi, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t non_chi, uint32_t* tcnt) {
+int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintptr_t chi_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, double* chi, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uint32_t non_chi, uint32_t* tcnt) {
   unsigned char* wkspace_mark = wkspace_base;
   uint32_t adjust_gc = mtest_adjust & ADJUST_GC;
   uint32_t is_log10 = mtest_adjust & ADJUST_LOG10;
@@ -231,8 +225,10 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
   double pv_sidak_sd = 0;
   int32_t retval = 0;
   uint32_t is_set_test = !plink_maxsnp;
+  uint32_t output_min_p_strlen = 11;
   uint32_t uii = 0;
   uint32_t* new_tcnt = NULL;
+  char output_min_p_str[16];
   uint32_t pct;
   double* sp;
   double* schi;
@@ -374,7 +370,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
   pv_bh[chi_ct - 1] = dyy;
   harmonic_sum = 1.0;
   for (cur_idx = chi_ct - 1; cur_idx > 0; cur_idx--) {
-    dzz = dct / ((double)cur_idx);
+    dzz = dct / ((double)((int32_t)cur_idx));
     harmonic_sum += dzz;
     dxx = dzz * sp[cur_idx - 1];
     if (dyy > dxx) {
@@ -393,7 +389,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
   pv_by[chi_ct - 1] = dyy;
   harmonic_sum *= dct;
   for (cur_idx = chi_ct - 1; cur_idx > 0; cur_idx--) {
-    dxx = (harmonic_sum / ((double)cur_idx)) * sp[cur_idx - 1];
+    dxx = (harmonic_sum / ((double)((int32_t)cur_idx))) * sp[cur_idx - 1];
     if (dyy > dxx) {
       dyy = dxx;
     }
@@ -425,6 +421,21 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
   fputs("0%", stdout);
   fflush(stdout);
   cur_idx = 0;
+  if (!is_log10) {
+    if (output_min_p == 0.0) {
+      memcpy(output_min_p_str, "       INF ", 11);
+    } else {
+      bufptr = double_g_writewx4x(output_min_p_str, output_min_p, 10, ' ');
+      output_min_p_strlen = (uintptr_t)(bufptr - output_min_p_str);
+    }
+  } else {
+    if (output_min_p == 0.0) {
+      memcpy(output_min_p_str, "       INF ", 11);
+    } else {
+      bufptr = double_g_writewx4x(output_min_p_str, -log10(output_min_p), 10, ' ');
+      output_min_p_strlen = (uintptr_t)(bufptr - output_min_p_str);
+    }
+  }
   for (pct = 1; pct <= 100; pct++) {
     loop_end = (((uint64_t)pct) * chi_ct) / 100LLU;
     for (; cur_idx < loop_end; cur_idx++) {
@@ -459,41 +470,43 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
 	}
       }
       pv_sidak_ss = 1 - pow(1 - pval, dct);
-      dyy = 1 - pow(1 - pval, dct - ((double)cur_idx));
+      dyy = 1 - pow(1 - pval, dct - ((double)((int32_t)cur_idx)));
       if (pv_sidak_sd < dyy) {
 	pv_sidak_sd = dyy;
       }
 
+      bufptr = tbuf;
       if (!is_log10) {
-	adjust_print(outfile, pval);
+	adjust_print(pval, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
 	if (!is_set_test) {
-	  adjust_print(outfile, pv_gc[cur_idx]);
+	  adjust_print(pv_gc[cur_idx], output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
 	}
 	if (qq_plot) {
-	  adjust_print(outfile, (((double)cur_idx) + 0.5) * dzz);
+	  bufptr = double_g_writewx4x(bufptr, (((double)((int32_t)cur_idx)) + 0.5) * dzz, 10, ' ');
 	}
-	adjust_print(outfile, bonf);
-	adjust_print(outfile, pv_holm);
-	adjust_print(outfile, pv_sidak_ss);
-	adjust_print(outfile, pv_sidak_sd);
-	adjust_print(outfile, pv_bh[cur_idx]);
-	adjust_print(outfile, pv_by[cur_idx]);
+	adjust_print(bonf, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
+	adjust_print(pv_holm, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
+	adjust_print(pv_sidak_ss, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
+	adjust_print(pv_sidak_sd, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
+	adjust_print(pv_bh[cur_idx], output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
+	adjust_print(pv_by[cur_idx], output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
       } else {
-	adjust_print_log10(outfile, pval);
+	adjust_print_log10(pval, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
 	if (!is_set_test) {
-	  adjust_print_log10(outfile, pv_gc[cur_idx]);
+	  adjust_print_log10(pv_gc[cur_idx], output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
 	}
 	if (qq_plot) {
-	  adjust_print_log10(outfile, (((double)cur_idx) + 0.5) * dzz);
+	  bufptr = double_g_writewx4x(bufptr, (((double)((int32_t)cur_idx)) + 0.5) * dzz, 10, ' ');
 	}
-	adjust_print_log10(outfile, bonf);
-	adjust_print_log10(outfile, pv_holm);
-	adjust_print_log10(outfile, pv_sidak_ss);
-	adjust_print_log10(outfile, pv_sidak_sd);
-	adjust_print_log10(outfile, pv_bh[cur_idx]);
-	adjust_print_log10(outfile, pv_by[cur_idx]);
+	adjust_print_log10(bonf, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
+	adjust_print_log10(pv_holm, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
+	adjust_print_log10(pv_sidak_ss, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
+	adjust_print_log10(pv_sidak_sd, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
+	adjust_print_log10(pv_bh[cur_idx], output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
+	adjust_print_log10(pv_by[cur_idx], output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
       }
-      if (putc_checked('\n', outfile)) {
+      *bufptr++ = '\n';
+      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
 	goto multcomp_ret_WRITE_FAIL;
       }
     }
@@ -6183,7 +6196,7 @@ void get_model_assoc_precomp_bounds(uint32_t missing_ct, uint32_t is_model, uint
   }
 }
 
-int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_male, uint32_t hh_exists, uint32_t ld_ignore_x, Set_info* sip) {
+int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double ci_zt, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_male, uint32_t hh_exists, uint32_t ld_ignore_x, Set_info* sip) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
@@ -6207,7 +6220,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   uint32_t model_perm_best = !(model_modifier & MODEL_PMASK);
   uint32_t model_perm_count = model_modifier & MODEL_PERM_COUNT;
   uint32_t assoc_counts = model_modifier & MODEL_ASSOC_COUNTS;
-  uint32_t assoc_p2 = model_modifier & MODEL_ASSOC_P2;
   uint32_t display_ci = (ci_size > 0);
   uint32_t perms_total = 0;
   uint32_t male_ct = 0;
@@ -6354,11 +6366,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     if (extract_set_union_unfiltered(sip, NULL, unfiltered_marker_ct, marker_exclude_orig, &marker_exclude, &marker_ct)) {
       goto model_assoc_ret_NOMEM;
     }
-  }
-  if (assoc_p2) {
-    logprint("Error: --assoc p2 not yet supported.\n");
-    retval = RET_CALC_NOT_YET_SUPPORTED;
-    goto model_assoc_ret_1;
   }
   if (model_maxt_nst) {
     perms_total = model_mperm_val;
@@ -6963,7 +6970,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	  if (model_fisher) {
 	    pval = fisher22(uii, ujj, ukk, umm, fisher_midp);
 	    *o1mpptr = 1 - pval;
-	  } else if (!assoc_p2) {
+	  } else {
 	    if ((!umm) && (!ujj)) {
 	      *o1mpptr = -9;
 	      pval = -1;
@@ -6979,8 +6986,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 		orig_chisq[marker_idx + marker_bidx] = dxx;
 	      }
 	    }
-	  } else {
-	    // --p2 not written yet
 	  }
 	  *ooptr = (da1 * du2) / (du1 * da2);
 	  if ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0))) {
@@ -7017,10 +7022,10 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	    wptr = fw_strcpy(4, a2ptr, &(wptr[1]));
 	    *wptr++ = ' ';
 	    if (model_fisher) {
-	      wptr = double_g_writewx4(wptr, pval, 12);
+	      wptr = double_g_writewx4(wptr, MAXV(pval, output_min_p), 12);
 	    } else {
 	      if (pval > -1) {
-		wptr = double_g_writewx4(double_g_writewx4x(wptr, dxx, 12, ' '), pval, 12);
+		wptr = double_g_writewx4(double_g_writewx4x(wptr, dxx, 12, ' '), MAXV(pval, output_min_p), 12);
 	      } else {
 		wptr = memcpya(wptr, "          NA           NA", 25);
 	      }
@@ -7114,7 +7119,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 		*wptr++ = '0' + upp;
 		*wptr++ = ' ';
 	      }
-	      wptr = double_g_writewx4x(wptr, gen_p, 12, '\n');
+	      wptr = double_g_writewx4x(wptr, MAXV(gen_p, output_min_p), 12, '\n');
 	    }
 	    if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
 	      goto model_assoc_ret_WRITE_FAIL;
@@ -7141,7 +7146,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	    if (!model_fisher) {
 	      wptr = memcpya(double_g_writewx4(wptr, ca_chisq, 12), "    1 ", 6);
 	    }
-	    wptr = double_g_writewx4x(wptr, ca_p, 12, '\n');
+	    wptr = double_g_writewx4x(wptr, MAXV(ca_p, output_min_p), 12, '\n');
 	  } else {
 	    wptr = model_assoc_tna(model_fisher, wptr);
 	  }
@@ -7161,7 +7166,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	      if (!model_fisher) {
 		wptr = memcpya(double_g_writewx4(wptr, dww, 12), "    1 ", 6);
 	      }
-	      wptr = double_g_writewx4x(wptr, mult_p, 12, '\n');
+	      wptr = double_g_writewx4x(wptr, MAXV(mult_p, output_min_p), 12, '\n');
 	    } else {
 	      wptr = model_assoc_tna(model_fisher, wptr);
 	    }
@@ -7201,7 +7206,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	      if (!model_fisher) {
 		wptr = memcpya(double_g_writewx4(wptr, dww, 12), "    1 ", 6);
 	      }
-	      wptr = double_g_writewx4x(wptr, dom_p, 12, '\n');
+	      wptr = double_g_writewx4x(wptr, MAXV(dom_p, output_min_p), 12, '\n');
 	    }
 	    if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
 	      goto model_assoc_ret_WRITE_FAIL;
@@ -7239,7 +7244,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	      if (!model_fisher) {
 		wptr = memcpya(double_g_writewx4(wptr, dww, 12), "    1 ", 6);
 	      }
-	      wptr = double_g_writewx4x(wptr, rec_p, 12, '\n');
+	      wptr = double_g_writewx4x(wptr, MAXV(rec_p, output_min_p), 12, '\n');
 	    }
 	    if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
 	      goto model_assoc_ret_WRITE_FAIL;
@@ -7659,7 +7664,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	  goto model_assoc_ret_NOMEM;
         }
         fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_idx_to_uidx);
-        retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, model_fisher? orig_1mpval : orig_chisq, pfilter, mtest_adjust, adjust_lambda, model_fisher, NULL);
+        retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, model_fisher? orig_1mpval : orig_chisq, pfilter, output_min_p, mtest_adjust, adjust_lambda, model_fisher, NULL);
         if (retval) {
 	  goto model_assoc_ret_1;
         }
@@ -7949,7 +7954,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   return retval;
 }
 
-int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* sex_male, uint32_t hh_exists, uint32_t perm_batch_size, Set_info* sip) {
+int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* sex_male, uint32_t hh_exists, uint32_t perm_batch_size, Set_info* sip) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctv2 = 2 * ((unfiltered_indiv_ct + BITCT - 1) / BITCT);
@@ -8492,7 +8497,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	  }
 	  if (tp >= 0) {
 	    wptr = double_g_writewx4x(wptr, tstat, 8, ' ');
-	    wptr = double_g_writewx4(wptr, tp, 12);
+	    wptr = double_g_writewx4(wptr, MAXV(tp, output_min_p), 12);
 	  } else {
 	    wptr = memcpya(wptr, "      NA           NA", 21);
 	  }
@@ -8502,7 +8507,8 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	      *wptr++ = ' ';
 	      dxx = sqrt(dxx);
 	      wptr = double_g_writewx4x(wptr, dxx, 12, ' ');
-	      wptr = double_g_writewx4(wptr, calc_tprob(dxx, nanal - 2), 12);
+	      dxx = calc_tprob(dxx, nanal - 2);
+	      wptr = double_g_writewx4(wptr, MAXV(dxx, output_min_p), 12);
 	    } else {
 	      wptr = memcpya(wptr, "           NA           NA", 26);
 	    }
@@ -8721,7 +8727,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	  g_orig_chisq[uii] = sqrt(g_orig_linsq[uii]);
 	}
       }
-      retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, g_orig_chisq, pfilter, mtest_adjust, adjust_lambda, 1, tcnt);
+      retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, g_orig_chisq, pfilter, output_min_p, mtest_adjust, adjust_lambda, 1, tcnt);
       if (retval) {
 	goto qassoc_ret_1;
       }
@@ -8956,7 +8962,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   return retval;
 }
 
-int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_ct, uintptr_t* indiv_exclude, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* gxe_covar_nm, uintptr_t* gxe_covar_c, uintptr_t* sex_male, uint32_t hh_exists) {
+int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double output_min_p, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_ct, uintptr_t* indiv_exclude, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* gxe_covar_nm, uintptr_t* gxe_covar_c, uintptr_t* sex_male, uint32_t hh_exists) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
@@ -9393,7 +9399,8 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
         wptr = double_g_writewx4x(wptr, beta2, 10, ' ');
         wptr = double_g_writewx4x(wptr, sqrt(vbeta2), 10, ' ');
         wptr = double_g_writewx4x(wptr, zval, 8, ' ');
-        wptr = double_g_writewx4x(wptr, chiprob_p(zval * zval, 1), 12, '\n');
+	dxx = chiprob_p(zval * zval, 1);
+        wptr = double_g_writewx4x(wptr, MAXV(dxx, output_min_p), 12, '\n');
       } else {
       gxe_assoc_nan_line:
         wptr = memcpya(wptr, "      NA         NA         NA       NA         NA         NA       NA           NA\n", 84);
@@ -9913,7 +9920,7 @@ THREAD_RET_TYPE testmiss_maxt_thread(void* arg) {
   }
 }
 
-int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t testmiss_mperm_val, uint32_t testmiss_modifier, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_male, uint32_t hh_exists) {
+int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t testmiss_mperm_val, uint32_t testmiss_modifier, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_male, uint32_t hh_exists) {
   // Simple variant of model_assoc().
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
@@ -10146,7 +10153,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
     *wptr++ = ' ';
     wptr = double_g_writewx4x(wptr, ((int32_t)uii) * cur_case_ct_recip, 12, ' ');
     wptr = double_g_writewx4x(wptr, ((int32_t)ujj) * cur_ctrl_ct_recip, 12, ' ');
-    wptr = double_g_writewx4x(wptr, pval, 12, '\n');
+    wptr = double_g_writewx4x(wptr, MAXV(pval, output_min_p), 12, '\n');
     if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
       goto testmiss_ret_WRITE_FAIL;
     }
@@ -10166,7 +10173,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
       goto testmiss_ret_NOMEM;
     }
     fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_idx_to_uidx);
-    retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, g_orig_1mpval, pfilter, mtest_adjust, 0.0, 1, NULL);
+    retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, g_orig_1mpval, pfilter, output_min_p, mtest_adjust, 0.0, 1, NULL);
     if (retval) {
       goto testmiss_ret_1;
     }
@@ -11133,7 +11140,7 @@ int32_t cluster_assoc_load_one(FILE* bedfile, uintptr_t bed_offset, uintptr_t* m
   return 0;
 }
 
-int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t cmh_mperm_val, uint32_t cmh_modifier, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_male, uint32_t hh_exists, Set_info* sip) {
+int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t cmh_mperm_val, uint32_t cmh_modifier, double ci_size, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_male, uint32_t hh_exists, Set_info* sip) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   FILE* outfile_msa = NULL;
@@ -11336,7 +11343,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       if (realnum(cmh_stat)) {
 	tbuf[0] = ' ';
 	wptr = double_g_writewx4x(&(tbuf[1]), cmh_stat, 10, ' ');
-	wptr = double_g_writewx4x(wptr, pval, 10, ' ');
+	wptr = double_g_writewx4x(wptr, MAXV(pval, output_min_p), 10, ' ');
       } else {
         wptr = memcpya(tbuf, "         NA         NA ", 23);
       }
@@ -11399,7 +11406,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
 	  pval = chiprob_p(bdx2, cur_df);
 	  if (pval > -1) {
 	    wptr = double_g_writewx4x(wptr, bdx2, 10, ' ');
-	    wptr = double_g_writewx4x(wptr, pval, 10, ' ');
+	    wptr = double_g_writewx4x(wptr, MAXV(pval, output_min_p), 10, ' ');
 	  } else {
 	    goto cmh_assoc_bd_fail;
 	  }
@@ -11438,7 +11445,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       goto cmh_assoc_ret_NOMEM;
     }
     fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_idx_to_uidx);
-    retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, orig_chisq, pfilter, mtest_adjust, adjust_lambda, 0, NULL);
+    retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, orig_chisq, pfilter, output_min_p, mtest_adjust, adjust_lambda, 0, NULL);
   }
 
   if (cmh_modifier & (CLUSTER_CMH_PERM | CLUSTER_CMH_MPERM)) {
@@ -11493,7 +11500,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   return retval;
 }
 
-int32_t cmh2_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_male, uint32_t hh_exists) {
+int32_t cmh2_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double output_min_p, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_male, uint32_t hh_exists) {
   // logprint("Error: --mh2 is currently under development.\n");
   // return RET_CALC_NOT_YET_SUPPORTED;
   unsigned char* wkspace_mark = wkspace_base;
@@ -11692,7 +11699,8 @@ int32_t cmh2_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
       }
       wptr = double_g_writex(wptr, chisq, '\t');
       wptr = uint32_writex(wptr, cur_cluster_ctm1, '\t');
-      wptr = double_g_writex(wptr, chiprob_p(chisq, (int32_t)cur_cluster_ctm1), '\n');
+      dxx = chiprob_p(chisq, (int32_t)cur_cluster_ctm1);
+      wptr = double_g_writex(wptr, MAXV(dxx, output_min_p), '\n');
     } else {
     cmh2_assoc_fail:
       wptr = memcpya(wptr, "NA\tNA\tNA\n", 9);
@@ -11743,9 +11751,7 @@ int32_t cmh2_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
   return retval;
 }
 
-int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_male, uint32_t hh_exists) {
-  // logprint("Error: --homog is currently under development.\n");
-  // return RET_CALC_NOT_YET_SUPPORTED;
+int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double output_min_p, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_male, uint32_t hh_exists) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uintptr_t* indiv_hh_include2 = NULL;
@@ -11945,7 +11951,7 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
 	dxx = cluster_chisq[cluster_idx];
         wptr = double_g_writewx4(wptr, dxx, 10);
         wptr = memcpya(wptr, "    1 ", 6);
-	wptr = double_g_writewx4x(wptr, chiprob_p(dxx, 1), 10, ' ');
+	wptr = double_g_writewx4x(wptr, MAXV(chiprob_p(dxx, 1), output_min_p), 10, ' ');
 	dxx = cluster_or[cluster_idx];
         if (realnum(dxx)) {
           wptr = double_g_writewx4x(wptr, dxx, 10, '\n');

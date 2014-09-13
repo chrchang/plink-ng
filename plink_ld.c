@@ -7340,7 +7340,7 @@ int32_t epistasis_regression() {
   return RET_CALC_NOT_YET_SUPPORTED;
 }
 
-int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct2, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uint32_t ctrl_ct, uintptr_t* pheno_c, double* pheno_d, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end, Set_info* sip) {
+int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct2, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uint32_t ctrl_ct, uintptr_t* pheno_c, double* pheno_d, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end, double output_min_p, Set_info* sip) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
@@ -8220,9 +8220,11 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	      }
 	      if (!no_p_value) {
 		if (!is_boost) {
-		  wptr = double_g_writewx4x(wptr, normdist(-sqrt(dxx)) * 2, 12, ' ');
+		  dxx = normdist(-sqrt(dxx)) * 2;
+		  wptr = double_g_writewx4x(wptr, MAXV(dxx, output_min_p), 12, ' ');
 		} else if (uii) {
-		  wptr = double_g_writewx4x(wptr, chiprob_p(dxx, uii), 12, ' ');
+		  dxx = chiprob_p(dxx, uii);
+		  wptr = double_g_writewx4x(wptr, MAXV(dxx, output_min_p), 12, ' ');
 		} else {
 		  wptr = memcpya(wptr, "          NA ", 13);
 		}
@@ -9238,7 +9240,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
   return retval;
 }
 
-void test_mishap_write_line(FILE* outfile, char* wptr, uint32_t prev_alen, uint32_t next_alen, const char* prev_aptr, const char* next_aptr, double* total_cts, double* curhap_cts, double tot_recip, char* flankstr, uint32_t flanklen) {
+void test_mishap_write_line(FILE* outfile, char* wptr, uint32_t prev_alen, uint32_t next_alen, const char* prev_aptr, const char* next_aptr, double* total_cts, double* curhap_cts, double tot_recip, double output_min_p, char* flankstr, uint32_t flanklen) {
   // total_cts[0] = caseN[0] + caseN[1]
   // total_cts[1] = controlN[0] + controlN[1]
   char* tbuf_cur = tbuf;
@@ -9308,7 +9310,8 @@ void test_mishap_write_line(FILE* outfile, char* wptr, uint32_t prev_alen, uint3
     chisq += dxx * dxx / cur_expected;
     wptr = double_g_writewx3(wptr, chisq, 8);
     *wptr++ = ' ';
-    wptr = double_g_writewx3(wptr, chiprob_p(chisq, 1), 8);
+    dxx = chiprob_p(chisq, 1);
+    wptr = double_g_writewx3(wptr, MAXV(dxx, output_min_p), 8);
   } else {
     wptr = memcpya(wptr, "      NA       NA", 17);
   }
@@ -9316,7 +9319,7 @@ void test_mishap_write_line(FILE* outfile, char* wptr, uint32_t prev_alen, uint3
   fwrite(tbuf_cur, 1, (uintptr_t)(wptr - tbuf_cur), outfile);
 }
 
-int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, double min_maf, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct) {
+int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double output_min_p, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, double min_maf, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
@@ -9555,16 +9558,16 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
 	  }
 	  tot_recip = 1.0 / tot_recip;
 	  if (hap_ct_table[2] + hap_ct_table[3] >= dxx) {
-	    test_mishap_write_line(outfile, wptr, prev_a1len, next_a1len, marker_allele_ptrs[2 * marker_uidx_prev], marker_allele_ptrs[2 * marker_uidx_next], hap_ct_table, &(hap_ct_table[2]), tot_recip, tbuf2, flanklen);
+	    test_mishap_write_line(outfile, wptr, prev_a1len, next_a1len, marker_allele_ptrs[2 * marker_uidx_prev], marker_allele_ptrs[2 * marker_uidx_next], hap_ct_table, &(hap_ct_table[2]), tot_recip, output_min_p, tbuf2, flanklen);
 	  }
 	  if (hap_ct_table[6] + hap_ct_table[7] >= dxx) {
-	    test_mishap_write_line(outfile, wptr, prev_a2len, next_a1len, marker_allele_ptrs[2 * marker_uidx_prev + 1], marker_allele_ptrs[2 * marker_uidx_next], hap_ct_table, &(hap_ct_table[6]), tot_recip, tbuf2, flanklen);
+	    test_mishap_write_line(outfile, wptr, prev_a2len, next_a1len, marker_allele_ptrs[2 * marker_uidx_prev + 1], marker_allele_ptrs[2 * marker_uidx_next], hap_ct_table, &(hap_ct_table[6]), tot_recip, output_min_p, tbuf2, flanklen);
 	  }
 	  if (hap_ct_table[4] + hap_ct_table[5] >= dxx) {
-	    test_mishap_write_line(outfile, wptr, prev_a1len, next_a2len, marker_allele_ptrs[2 * marker_uidx_prev], marker_allele_ptrs[2 * marker_uidx_next + 1], hap_ct_table, &(hap_ct_table[4]), tot_recip, tbuf2, flanklen);
+	    test_mishap_write_line(outfile, wptr, prev_a1len, next_a2len, marker_allele_ptrs[2 * marker_uidx_prev], marker_allele_ptrs[2 * marker_uidx_next + 1], hap_ct_table, &(hap_ct_table[4]), tot_recip, output_min_p, tbuf2, flanklen);
 	  }
 	  if (hap_ct_table[8] + hap_ct_table[9] >= dxx) {
-	    test_mishap_write_line(outfile, wptr, prev_a2len, next_a2len, marker_allele_ptrs[2 * marker_uidx_prev + 1], marker_allele_ptrs[2 * marker_uidx_next + 1], hap_ct_table, &(hap_ct_table[8]), tot_recip, tbuf2, flanklen);
+	    test_mishap_write_line(outfile, wptr, prev_a2len, next_a2len, marker_allele_ptrs[2 * marker_uidx_prev + 1], marker_allele_ptrs[2 * marker_uidx_next + 1], hap_ct_table, &(hap_ct_table[8]), tot_recip, output_min_p, tbuf2, flanklen);
 	  }
 	} else {
 	  hap_ct_table[0] = (int32_t)(2 * (counts[0] + counts[1] + counts[2]));
@@ -9594,10 +9597,10 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
 	  }
 	  tot_recip = 1.0 / tot_recip;
 	  if (hap_ct_table[2] + hap_ct_table[3] >= dxx) {
-	    test_mishap_write_line(outfile, wptr, 0, next_a1len, NULL, marker_allele_ptrs[2 * marker_uidx_next], hap_ct_table, &(hap_ct_table[2]), tot_recip, tbuf2, flanklen);
+	    test_mishap_write_line(outfile, wptr, 0, next_a1len, NULL, marker_allele_ptrs[2 * marker_uidx_next], hap_ct_table, &(hap_ct_table[2]), tot_recip, output_min_p, tbuf2, flanklen);
 	  }
 	  if (hap_ct_table[4] + hap_ct_table[5] >= dxx) {
-	    test_mishap_write_line(outfile, wptr, 0, next_a2len, NULL, marker_allele_ptrs[2 * marker_uidx_next + 1], hap_ct_table, &(hap_ct_table[4]), tot_recip, tbuf2, flanklen);
+	    test_mishap_write_line(outfile, wptr, 0, next_a2len, NULL, marker_allele_ptrs[2 * marker_uidx_next + 1], hap_ct_table, &(hap_ct_table[4]), tot_recip, output_min_p, tbuf2, flanklen);
 	  }
 	}
       } else {
@@ -9627,17 +9630,17 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
 	}
 	tot_recip = 1.0 / tot_recip;
 	if (hap_ct_table[2] + hap_ct_table[3] >= dxx) {
-	  test_mishap_write_line(outfile, wptr, prev_a1len, 0, marker_allele_ptrs[2 * marker_uidx_prev], NULL, hap_ct_table, &(hap_ct_table[2]), tot_recip, tbuf2, flanklen);
+	  test_mishap_write_line(outfile, wptr, prev_a1len, 0, marker_allele_ptrs[2 * marker_uidx_prev], NULL, hap_ct_table, &(hap_ct_table[2]), tot_recip, output_min_p, tbuf2, flanklen);
 	}
 	if (hap_ct_table[4] + hap_ct_table[5] >= dxx) {
-	  test_mishap_write_line(outfile, wptr, prev_a2len, 0, marker_allele_ptrs[2 * marker_uidx_prev + 1], NULL, hap_ct_table, &(hap_ct_table[4]), tot_recip, tbuf2, flanklen);
+	  test_mishap_write_line(outfile, wptr, prev_a2len, 0, marker_allele_ptrs[2 * marker_uidx_prev + 1], NULL, hap_ct_table, &(hap_ct_table[4]), tot_recip, output_min_p, tbuf2, flanklen);
 	}
       }
       hap_ct_table[0] = orig_cmiss_tot * 0.5;
       hap_ct_table[1] = orig_cnm_tot * 0.5;
       hap_ct_table[2] = (int32_t)(counts[1] + counts[3] + counts[4] + counts[5] + counts[7]);
       hap_ct_table[3] = (int32_t)(counts[10] + counts[12] + counts[13] + counts[14] + counts[16]);
-      test_mishap_write_line(outfile, wptr, 6, 0, "HETERO", NULL, hap_ct_table, &(hap_ct_table[2]), 1.0 / (hap_ct_table[0] + hap_ct_table[1]), tbuf2, flanklen);
+      test_mishap_write_line(outfile, wptr, 6, 0, "HETERO", NULL, hap_ct_table, &(hap_ct_table[2]), 1.0 / (hap_ct_table[0] + hap_ct_table[1]), output_min_p, tbuf2, flanklen);
       inspected_ct++;
       if (!(inspected_ct % 1000)) {
         printf("\r--test-mishap: %uk loci checked.", inspected_ct / 1000);

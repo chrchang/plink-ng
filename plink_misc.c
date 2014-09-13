@@ -4516,7 +4516,7 @@ uint32_t meta_analysis_allelic_match(const char* existing_a1ptr, char** token_pt
   return ((!(token_ct & 1)) || (!memcmp(&(existing_a1ptr[a1lenp1]), token_ptrs[8], a2lenp1)));
 }
 
-int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1field_search_order, char* a2field_search_order, char* pfield_search_order, char* essfield_search_order, uint32_t flags, char* extractname, char* outname, char* outname_end, Chrom_info* chrom_info_ptr) {
+int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1field_search_order, char* a2field_search_order, char* pfield_search_order, char* essfield_search_order, uint32_t flags, char* extractname, char* outname, char* outname_end, double output_min_p, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   gzFile gz_infile = NULL;
   FILE* infile = NULL;
@@ -5523,19 +5523,19 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	}
 	*wptr++ = ' ';
         if (p1 >= 0.0) {
-	  wptr = double_g_writewx4x(wptr, p1, 11, ' ');
+	  wptr = double_g_writewx4x(wptr, MAXV(p1, output_min_p), 11, ' ');
 	} else {
 	  wptr = memcpya(wptr, "         NA ", 12);
 	}
 	if (pr >= 0.0) {
-	  wptr = double_g_writewx4x(wptr, pr, 11, ' ');
+	  wptr = double_g_writewx4x(wptr, MAXV(pr, output_min_p), 11, ' ');
 	} else {
 	  wptr = memcpya(wptr, "         NA ", 12);
 	}
 	wptr = double_f_writew74x(wptr, summ, ' ');
 	wptr = double_f_writew74x(wptr, summ_random, ' ');
 	if (pq >= 0.0) {
-	  wptr = double_f_writew74x(wptr, pq, ' ');
+	  wptr = double_f_writew74x(wptr, MAXV(pq, output_min_p), ' ');
 	} else {
 	  wptr = memcpya(wptr, "     NA ", 8);
 	}
@@ -5546,7 +5546,8 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	  dxx = numer / sqrt(denom2);
 	  *wptr++ = ' ';
 	  wptr = double_g_writewx4x(wptr, dxx, 11, ' ');
-	  wptr = double_g_writewx4(wptr, 1.0 - 2 * fabs(normdist(fabs(dxx)) - 0.5), 11);
+	  dxx = 1.0 - 2 * fabs(normdist(fabs(dxx)) - 0.5);
+	  wptr = double_g_writewx4(wptr, MAXV(dxx, output_min_p), 11);
 	}
       } else {
 	wptr = memcpya(wptr, "          NA          NA      NA      NA      NA      NA", 56);
