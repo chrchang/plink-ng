@@ -4941,6 +4941,10 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       sptr_cur = fw_strcpy(max_person_iid_len - 1, indiv2, sptr_cur);
       *sptr_cur++ = ' ';
       if (!strcmp(fam1, fam2)) {
+	// FS = sibling
+	// HS = half-sibling
+	// PO = parent-offspring
+	// OT = other
 	while (1) {
 	  if (!(is_founder_fixed || IS_SET(founder_info, indiv2uidx))) {
 	    if ((!strcmp(pat1, pat2)) && (!strcmp(mat1, mat2))) {
@@ -4950,14 +4954,15 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	      sptr_cur = memcpyl3a(sptr_cur, "HS ");
 	      break;
 	    }
-	    if ((!strcmp(pat1, indiv2)) || (!strcmp(mat1, indiv2)) || (!strcmp(pat2, indiv1)) || (!strcmp(mat2, indiv1))) {
-	      sptr_cur = memcpyl3a(sptr_cur, "PO ");
-	      break;
-	    }
+	  }
+	  if ((!strcmp(pat1, indiv2)) || (!strcmp(mat1, indiv2)) || (!strcmp(pat2, indiv1)) || (!strcmp(mat2, indiv1))) {
+	    sptr_cur = memcpyl3a(sptr_cur, "PO ");
+	    break;
 	  }
 	  sptr_cur = memcpyl3a(sptr_cur, "OT ");
 	  break;
 	}
+
 	// insert relationship
 	oo = IS_SET(founder_info, indiv2uidx);
 	if (is_founder_fixed && oo) {
@@ -5567,9 +5572,9 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
 
   if (!parallel_idx) {
     if (genome_modifier & GENOME_OUTPUT_FULL) {
-      sprintf(tbuf, "%%%us%%%us%%%us%%%us RT    EZ      Z0      Z1      Z2  PI_HAT PHE       DST     PPC   RATIO    IBS0    IBS1    IBS2  HOMHOM  HETHET\n", plink_maxfid, plink_maxfid, plink_maxfid, plink_maxfid);
+      sprintf(tbuf, "%%%us%%%us%%%us%%%us RT    EZ      Z0      Z1      Z2  PI_HAT PHE       DST     PPC   RATIO    IBS0    IBS1    IBS2  HOMHOM  HETHET\n", plink_maxfid, plink_maxiid, plink_maxfid, plink_maxiid);
     } else {
-      sprintf(tbuf, "%%%us%%%us%%%us%%%us RT    EZ      Z0      Z1      Z2  PI_HAT PHE       DST     PPC   RATIO\n", plink_maxfid, plink_maxfid, plink_maxfid, plink_maxfid);
+      sprintf(tbuf, "%%%us%%%us%%%us%%%us RT    EZ      Z0      Z1      Z2  PI_HAT PHE       DST     PPC   RATIO\n", plink_maxfid, plink_maxiid, plink_maxfid, plink_maxiid);
     }
   }
   g_pct = 1;

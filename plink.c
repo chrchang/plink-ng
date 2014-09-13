@@ -98,7 +98,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (10 Sep 2014)";
+  " (12 Sep 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -1125,8 +1125,6 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       LOGPRINTF("Error: No %s pass QC.\n", g_species_plural);
       goto plink_ret_ALL_SAMPLES_EXCLUDED;
     }
-    ulii = popcount_longs(founder_info, unfiltered_indiv_ctl);
-    LOGPRINTFWW("Before main variant filters, %" PRIuPTR " founder%s and %" PRIuPTR " nonfounder%s present.\n", ulii, (ulii == 1)? "" : "s", indiv_ct - ulii, (indiv_ct - ulii == 1)? "" : "s");
 
     if ((indiv_ct == 1) && (relationship_or_ibc_req(calculation_type) || distance_req(calculation_type, read_dists_fname) || (calculation_type & (CALC_GENOME | CALC_CLUSTER | CALC_NEIGHBOR)))) {
       sprintf(logbuf, "Error: More than 1 %s required for pairwise analysis.\n", g_species_singular);
@@ -1220,6 +1218,9 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     } else {
       hwe_modifier |= HWE_THRESH_ALL;
     }
+    ulii = popcount_longs(founder_info, unfiltered_indiv_ctl);
+    LOGPRINTFWW("Before main variant filters, %" PRIuPTR " founder%s and %" PRIuPTR " nonfounder%s present.\n", ulii, (ulii == 1)? "" : "s", indiv_ct - ulii, (indiv_ct - ulii == 1)? "" : "s");
+
   }
 
   if (bimname[0]) {
