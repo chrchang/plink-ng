@@ -1382,7 +1382,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     if (bedfile) {
       LOGPRINTFWW("%" PRIuPTR " variant%s and %" PRIuPTR " %s pass filters and QC%s.\n", marker_ct, (marker_ct == 1)? "" : "s", indiv_ct, species_str(indiv_ct), (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
     } else {
-      LOGPRINTFWW("%" PRIuPTR " variant%s pass filters and QC.\n", marker_ct, (marker_ct == 1)? "" : "s");
+      LOGPRINTFWW("%" PRIuPTR " variant%s filters and QC.\n", marker_ct, (marker_ct == 1)? " passes" : "s pass");
     }
   }
   if (famname[0]) {

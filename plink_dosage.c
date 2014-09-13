@@ -199,6 +199,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uint32_t prev_indiv_uidx;
   uint32_t is_valid;
   uint32_t uii;
+  uint32_t ukk;
   int32_t ii;
   missing_mid_templates[0] = NULL;
   missing_mid_templates[1] = NULL;
@@ -570,7 +571,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     }
     LOGPRINTF("%" PRIuPTR " variant%s and %" PRIuPTR " %s pass filters and QC.\n", marker_ct, (marker_ct == 1)? "" : "s", indiv_ct, species_str(indiv_ct));
   } else {
-    LOGPRINTF("%" PRIuPTR " %s pass filters and QC.\n", indiv_ct, species_str(indiv_ct));
+    LOGPRINTF("%" PRIuPTR " %s pass%s filters and QC.\n", indiv_ct, species_str(indiv_ct), (indiv_ct == 1)? "es" : "");
   }
   if (!pheno_nm_ct) {
     if (do_glm) {
@@ -713,6 +714,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       uii = batch_sizes[0];
       uiptr2 = &(batch_sizes[1]);
       uiptr3[0] = 1;
+      batch_ct = 1;
       while (uiptr2 < uiptr) {
 	ujj = *uiptr2++;
 	if (ujj != uii) {
@@ -744,9 +746,11 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       memcpy(batch_sizes, uiptr3, batch_ct * sizeof(int32_t));
       // convert uiptr3 to write offset array
       uii = uiptr3[0];
+      uiptr3[0] = 0;
       for (ujj = 1; ujj < batch_ct; ujj++) {
-        uii += uiptr3[ujj];
-	uiptr3[ujj] = uii;
+	ukk = uii;
+	uii += uiptr3[ujj];
+        uiptr3[ujj] = ukk;
       }
       wkspace_left -= topsize;
     } else {
