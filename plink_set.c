@@ -1832,7 +1832,7 @@ void unpack_set(uintptr_t marker_ct, uint32_t* setdef, uintptr_t* include_bitfie
   } else {
     fill_ulong_zero(include_bitfield, marker_ctl);
     for (uii = 0; uii < range_ct; uii++) {
-      range_start = uii * 2 + 1;
+      range_start = setdef[uii * 2 + 1];
       fill_bits(include_bitfield, range_start, setdef[uii * 2 + 2] - range_start);
     }
   }

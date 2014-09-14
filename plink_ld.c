@@ -9921,6 +9921,8 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   if (!tmp_set_bitfield) {
     goto construct_ld_map_ret_NOMEM;
   }
+  // bugfix: last word might not be initialized by unpack_set()
+  tmp_set_bitfield[marker_ctv - 1] = 0;
   founder_include2 = (uintptr_t*)top_alloc(&topsize, founder_ctv2 * sizeof(intptr_t));
   if (!founder_include2) {
     goto construct_ld_map_ret_NOMEM;
@@ -10073,7 +10075,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       block_idx2 = 0;
       while (1) {
 	if (marker_uidx2 >= chrom_end) {
-	  chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx);
+	  chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx2);
 	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	  chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
 	  is_haploid = is_set(chrom_info_ptr->haploid_mask, chrom_idx);
@@ -10083,7 +10085,6 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	ulii = block_idx2 * founder_ct_192_long;
 	loadbuf_ptr = &(geno2[ulii]);
 	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, loadbuf_ptr, founder_ct, founder_pnm, final_mask, IS_SET(marker_reverse, marker_uidx2))) {
-	  printf("read fail 1 %" PRIuPTR "\n", marker_uidx2);
 	  goto construct_ld_map_ret_READ_FAIL;
 	}
 	if (is_haploid && hh_exists) {
@@ -10117,7 +10118,6 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       join_threads2(threads, thread_ct, is_last_block);
     } while (!is_last_block);
   construct_ld_map_no_new:
-    printf("step 2\n");
     for (block_idx1 = marker_idx; block_idx1 < idx1_block_end; block_idx1++) {
       rb_ptr = &(result_bitfield[(block_idx1 - marker_idx) * marker_ctv]);
       marker_idx2 = 0;
@@ -10141,7 +10141,6 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     topsize = topsize_base; // "free" previous round of allocations
     marker_idx = idx1_block_end;
   } while (marker_idx < marker_ct);
-  printf("wtf\n");
   if (sip->modifier & SET_R2_WRITE) {
     memcpy(charbuf, outname_end, 8);
     memcpy(outname_end, ".ldset", 7);
@@ -10157,20 +10156,28 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       wptr_start = memcpyax(tbuf, sptr, uii, ' ');
       cur_setdef = setdefs[set_idx];
       setdef_iter_init(cur_setdef, marker_ct, 0, &marker_idx, &setdef_incr_aux);
-      fprintf(outfile, "(%u, %u)\n", set_idx, set_uidx);
+
       while (setdef_iter(cur_setdef, &marker_idx, &setdef_incr_aux)) {
         cur_setdef2 = ld_map[marker_idx];
+	// cur_setdef2 can contain variants outside of the current set, so we
+	// need to look at the intersection.
         setdef_iter_init(cur_setdef2, marker_ct, 0, &marker_idx2, &setdef_incr_aux2);
-	if (setdef_iter(cur_setdef2, &marker_idx2, &setdef_incr_aux2)) {
-	  wptr = strcpyax(wptr_start, &(marker_ids[marker_idx_to_uidx[marker_idx] * max_marker_id_len]), ' ');
-	  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
-	    goto construct_ld_map_ret_WRITE_FAIL;
-	  }
-	  do {
+        uii = 0; // now this tracks whether a first match has been found
+	while (setdef_iter(cur_setdef2, &marker_idx2, &setdef_incr_aux2)) {
+	  if (in_setdef(cur_setdef, marker_idx2)) {
+	    if (!uii) {
+	      uii = 1;
+	      wptr = strcpyax(wptr_start, &(marker_ids[marker_idx_to_uidx[marker_idx] * max_marker_id_len]), ' ');
+	      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+		goto construct_ld_map_ret_WRITE_FAIL;
+	      }
+	    }
 	    fputs(&(marker_ids[marker_idx_to_uidx[marker_idx2] * max_marker_id_len]), outfile);
 	    putc(' ', outfile);
-	    marker_idx2++;	    
-	  } while (setdef_iter(cur_setdef2, &marker_idx2, &setdef_incr_aux2));
+	  }
+	  marker_idx2++;
+	}
+	if (uii) {
 	  if (putc_checked('\n', outfile)) {
 	    goto construct_ld_map_ret_WRITE_FAIL;
 	  }
