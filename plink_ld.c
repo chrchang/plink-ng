@@ -9915,26 +9915,30 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   }
   load2_bitfield = (uintptr_t*)top_alloc(&topsize, marker_ctv * sizeof(intptr_t));
   if (!load2_bitfield) {
-    goto construct_ld_map_ret_NOMEM;
+    goto construct_ld_map_ret_NOMEM0;
   }
   tmp_set_bitfield = (uintptr_t*)top_alloc(&topsize, marker_ctv * sizeof(intptr_t));
   if (!tmp_set_bitfield) {
-    goto construct_ld_map_ret_NOMEM;
+    goto construct_ld_map_ret_NOMEM0;
   }
   // bugfix: last word might not be initialized by unpack_set()
   tmp_set_bitfield[marker_ctv - 1] = 0;
   founder_include2 = (uintptr_t*)top_alloc(&topsize, founder_ctv2 * sizeof(intptr_t));
   if (!founder_include2) {
-    goto construct_ld_map_ret_NOMEM;
+    goto construct_ld_map_ret_NOMEM0;
   }
   founder_male_include2 = (uintptr_t*)top_alloc(&topsize, founder_ctv2 * sizeof(intptr_t));
   if (!founder_male_include2) {
-    goto construct_ld_map_ret_NOMEM;
+    goto construct_ld_map_ret_NOMEM0;
   }
   g_ld_load2_bitfield = load2_bitfield;
+  wkspace_left -= topsize;
   alloc_collapsed_haploid_filters(unfiltered_indiv_ct, founder_ct, XMHH_EXISTS | hh_exists, 1, founder_pnm, sex_male, &founder_include2, &founder_male_include2);
   memreq2 = founder_ct_192_long * sizeof(intptr_t) * 2 + 4;
+
+  // this guarantees enough room for save_set_bitfield() worst case
   memreq1 = memreq2 + marker_ctv * sizeof(intptr_t) * 2 + 16;
+
   minmem = memreq2 * BITCT;
   if (minmem < memreq1 * 4) {
     minmem = memreq1 * 4;
@@ -10147,7 +10151,6 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     if (fopen_checked(&outfile, outname, "w")) {
       goto construct_ld_map_ret_OPEN_FAIL;
     }
-    memcpy(outname_end, charbuf, 8);
     set_uidx = 0;
     for (set_idx = 0; set_idx < set_ct; set_uidx++, set_idx++) {
       next_set_unsafe_ck(set_incl, &set_uidx);
@@ -10188,8 +10191,15 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     if (fclose_null(&outfile)) {
       goto construct_ld_map_ret_WRITE_FAIL;
     }
+    LOGPRINTFWW("--set-r2 write: LD map written to %s .\n", outname);
+    memcpy(outname_end, charbuf, 8);
+  } else {
+    logprint("LD map constructed.\n");
   }
+  wkspace_left += topsize;
   while (0) {
+  construct_ld_map_ret_NOMEM0:
+    topsize = 0;
   construct_ld_map_ret_NOMEM:
     retval = RET_NOMEM;
     break;
