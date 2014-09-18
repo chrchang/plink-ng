@@ -18,6 +18,7 @@
 
 #include "plink_common.h"
 #include <ctype.h>
+#include <locale.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -98,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (15 Sep 2014)";
+  " (17 Sep 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -3198,6 +3199,9 @@ int32_t main(int32_t argc, char** argv) {
   range_list_init(&tests_range_list);
   missing_mid_templates[0] = NULL;
   missing_mid_templates[1] = NULL;
+
+  // standardize strtod() behavior
+  setlocale(LC_NUMERIC, "C");
 
   chrom_info.name_ct = 0;
   chrom_info.incl_excl_name_stack = NULL;

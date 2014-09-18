@@ -4405,16 +4405,18 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	}
       }
       fill_ulong_zero(writebuf, indiv_ctl2);
-      bufptr2 = next_token_mult(bufptr, 2);
-      if (!bufptr2) {
-	goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
-      }
       if (single_chr) {
 	fputs(single_chr, outfile_bim);
         putc(' ', outfile_bim);
+	bufptr = next_token(bufptr);
+	bufptr2 = next_token(bufptr);
       } else {
-        fwrite(bufptr, 1, bufptr2 - bufptr, outfile_bim);
+	bufptr2 = next_token_mult(bufptr, 2);
       }
+      if (!bufptr2) {
+	goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
+      }
+      fwrite(bufptr, 1, bufptr2 - bufptr, outfile_bim);
       putc('0', outfile_bim);
       if (putc_checked(' ', outfile_bim)) {
 	goto oxford_to_bed_ret_WRITE_FAIL;
