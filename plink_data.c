@@ -5187,7 +5187,7 @@ static inline char* write_token(char* read_ptr, FILE* outfile) {
   return skip_initial_spaces(&(read_ptr[slen + 1]));
 }
 
-int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char* outname, char* outname_end, FILE** mapfile_ptr, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_alleles_f, uint32_t map_is_unsorted, uint32_t fam_cols, uint32_t ped_col_skip, uint32_t gd_col, uint32_t* map_reverse, int64_t ped_size, char* missing_pheno_str) {
+int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char* outname, char* outname_end, FILE** mapfile_ptr, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_alleles_f, uint32_t map_is_unsorted, uint32_t fam_cols, uint32_t ped_col_skip_iid, uint32_t ped_col_skip, uint32_t gd_col, uint32_t* map_reverse, int64_t ped_size, char* missing_pheno_str) {
   // maintain allele counts and linked lists of observed alleles at FAR end of
   // wkspace.
   int32_t retval = 0;
@@ -5294,7 +5294,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
     } else {
       col2_ptr = col1_ptr;
     }
-    bufptr = next_token_mult(col2_ptr, ped_col_skip - 1);
+    bufptr = next_token_mult(col2_ptr, ped_col_skip_iid);
     if (no_more_tokens_kns(bufptr)) {
       goto ped_to_bed_multichar_allele_ret_MISSING_TOKENS;
     }
@@ -5726,7 +5726,8 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   uint32_t last_mpos = 0;
   uint32_t ped_buflen = 1;
   int32_t retval = 0;
-  uint32_t ped_col_skip = 1 + ((fam_cols & FAM_COL_1) / FAM_COL_1) + 2 * ((fam_cols & FAM_COL_34) / FAM_COL_34) + ((fam_cols & FAM_COL_5) / FAM_COL_5) + ((fam_cols & FAM_COL_6) / FAM_COL_6);
+  uint32_t ped_col_skip_iid = 1 + 2 * ((fam_cols & FAM_COL_34) / FAM_COL_34) + ((fam_cols & FAM_COL_5) / FAM_COL_5) + ((fam_cols & FAM_COL_6) / FAM_COL_6);
+  uint32_t ped_col_skip = ped_col_skip_iid + ((fam_cols & FAM_COL_1) / FAM_COL_1);
   uint32_t last_pass = 0;
   int64_t* line_starts = NULL;
 
@@ -5936,7 +5937,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     } else {
       col2_ptr = col1_ptr;
     }
-    bufptr = next_token_mult(col2_ptr, ped_col_skip - 1);
+    bufptr = next_token_mult(col2_ptr, ped_col_skip_iid);
     if (no_more_tokens_kns(bufptr)) {
       goto ped_to_bed_ret_MISSING_TOKENS_PED;
     }
@@ -6300,7 +6301,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       }
     }
   } else {
-    retval = ped_to_bed_multichar_allele(&pedfile, &outfile, outname, outname_end, &mapfile, unfiltered_marker_ct, marker_exclude, marker_ct, marker_alleles_f, map_is_unsorted, fam_cols, ped_col_skip, cm_col, map_reverse, ped_size, missing_pheno_str);
+    retval = ped_to_bed_multichar_allele(&pedfile, &outfile, outname, outname_end, &mapfile, unfiltered_marker_ct, marker_exclude, marker_ct, marker_alleles_f, map_is_unsorted, fam_cols, ped_col_skip_iid, ped_col_skip, cm_col, map_reverse, ped_size, missing_pheno_str);
     if (retval) {
       goto ped_to_bed_ret_1;
     }
