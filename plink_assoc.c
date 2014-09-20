@@ -11875,6 +11875,7 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   sprintf(tbuf, " CHR %%%us   A1   A2      F_A      F_U      N_A      N_U     TEST      CHISQ   DF          P         OR\n", plink_maxsnp);
   fprintf(outfile, tbuf, "SNP");
   if (chrom_info_ptr->mt_code != -1) {
+    hh_or_mt_exists |= NXMHH_EXISTS;
   }
   if (alloc_raw_haploid_filters(unfiltered_indiv_ct, hh_or_mt_exists, 1, pheno_nm, sex_male, &indiv_hh_include2, &indiv_hh_male_include2)) {
     goto homog_assoc_ret_NOMEM;
