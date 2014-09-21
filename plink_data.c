@@ -7889,7 +7889,7 @@ uint32_t vcf_gp_invalid(char* bufptr, char* bufptr2, double vcf_min_gp, uint32_t
     }
     bufptr++;
   }
-  if (!scan_double(bufptr, &gp_val)) {
+  if (scan_double(bufptr, &gp_val)) {
     *is_error_ptr = 1;
     return 1;
   }
