@@ -7877,7 +7877,7 @@ uint32_t vcf_gp_invalid(char* bufptr, char* bufptr2, double vcf_min_gp, uint32_t
     }
     bufptr++;
   }
-  if (*bufptr == '.') {
+  if ((*bufptr == '.') || (*bufptr == '?')) {
     *is_error_ptr = 0;
     return 0;
   }
