@@ -86,7 +86,7 @@
 
 const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b2j"
+  "PLINK v1.90b2k"
 #else
   "PLINK v1.90b3p"
 #endif
@@ -2975,6 +2975,7 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t metaanal_flags = 0;
   double vcf_min_qual = -1;
   double vcf_min_gq = -1;
+  double vcf_min_gp = -1;
   double qual_min_thresh = 0.0;
   double qual_max_thresh = HUGE_DOUBLE;
   char id_delim = '\0';
@@ -11741,10 +11742,25 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
 	misc_flags |= MISC_VCF_FILTER;
-      } else if (!memcmp(argptr2, "cf-min-gq", 10)) {
+      } else if (!memcmp(argptr2, "cf-min-gp", 10)) {
 	UNSTABLE;
 	if (!(load_rare & LOAD_RARE_VCF)) {
 	  // er, probably want to support BCF too
+	  logprint("Error: --vcf-min-gp must be used with --vcf.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+	if (scan_double(argv[cur_arg + 1], &vcf_min_gp) || (vcf_min_gp <= 0.0) || (vcf_min_gp > 1.0)) {
+	  sprintf(logbuf, "Error: Invalid --vcf-min-gp parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
+	}
+	vcf_min_gp *= 1 - SMALL_EPSILON;
+      } else if (!memcmp(argptr2, "cf-min-gq", 10)) {
+	UNSTABLE;
+	if (!(load_rare & LOAD_RARE_VCF)) {
+	  // probably want to support BCF too
 	  logprint("Error: --vcf-min-gq must be used with --vcf.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
@@ -12677,7 +12693,7 @@ int32_t main(int32_t argc, char** argv) {
       } else if (load_rare & LOAD_RARE_TRANSPOSE_MASK) {
         retval = transposed_to_bed(pedname, famname, outname, sptr, misc_flags, &chrom_info);
       } else if (load_rare & LOAD_RARE_VCF) {
-	retval = vcf_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, const_fid, id_delim, vcf_idspace_to, vcf_min_qual, vcf_filter_exceptions_flattened, vcf_min_gq, (uint32_t)vcf_half_call, &chrom_info);
+	retval = vcf_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, const_fid, id_delim, vcf_idspace_to, vcf_min_qual, vcf_filter_exceptions_flattened, vcf_min_gq, vcf_min_gp, (uint32_t)vcf_half_call, &chrom_info);
       } else if (load_rare & LOAD_RARE_BCF) {
 	retval = bcf_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, const_fid, id_delim, vcf_idspace_to, vcf_min_qual, vcf_filter_exceptions_flattened, &chrom_info);
       } else if (load_rare == LOAD_RARE_23) {

@@ -7866,11 +7866,52 @@ int32_t vcf_sample_line(char* outname, char* outname_end, int32_t missing_pheno,
   return retval;
 }
 
+uint32_t vcf_gp_invalid(char* bufptr, char* bufptr2, double vcf_min_gp, uint32_t gp_field_pos, uint32_t entry_idx, uint32_t* is_error_ptr) {
+  double gp_val;
+  uint32_t uii;
+  for (uii = 0; uii < gp_field_pos; uii++) {
+    bufptr = (char*)memchr(bufptr, ':', (uintptr_t)(bufptr2 - bufptr));
+    if (!bufptr) {
+      *is_error_ptr = 1;
+      return 1;
+    }
+    bufptr++;
+  }
+  if (*bufptr == '.') {
+    *is_error_ptr = 0;
+    return 0;
+  }
+  for (uii = 0; uii < entry_idx; uii++) {
+    bufptr = (char*)memchr(bufptr, ',', (uintptr_t)(bufptr2 - bufptr));
+    if (!bufptr) {
+      *is_error_ptr = 1;
+      return 1;
+    }
+    bufptr++;
+  }
+  if (!scan_double(bufptr, &gp_val)) {
+    *is_error_ptr = 1;
+    return 1;
+  }
+  *is_error_ptr = 0;
+  return (gp_val < vcf_min_gp);
+}
+
+uint32_t vcf_gp_diploid_invalid(char* bufptr, char* bufptr2, double vcf_min_gp, uint32_t gp_field_pos, uint32_t idx1, uint32_t idx2, uint32_t* is_error_ptr) {
+  uint32_t entry_idx;
+  if (idx1 <= idx2) {
+    entry_idx = ((idx2 * (idx2 + 1)) / 2) + idx1;
+  } else {
+    entry_idx = ((idx1 * (idx1 + 1)) / 2) + idx2;
+  }
+  return vcf_gp_invalid(bufptr, bufptr2, vcf_min_gp, gp_field_pos, entry_idx, is_error_ptr);
+}
+
 // oh, what the hell, may as well be liberal (even BCF2 does not support more
 // than this)
 #define MAX_VCF_ALT 65534
 
-int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t missing_pheno, uint64_t misc_flags, char* const_fid, char id_delim, char vcf_idspace_to, double vcf_min_qual, char* vcf_filter_exceptions_flattened, double vcf_min_gq, uint32_t vcf_half_call, Chrom_info* chrom_info_ptr) {
+int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t missing_pheno, uint64_t misc_flags, char* const_fid, char id_delim, char vcf_idspace_to, double vcf_min_qual, char* vcf_filter_exceptions_flattened, double vcf_min_gq, double vcf_min_gp, uint32_t vcf_half_call, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   gzFile gz_infile = NULL;
   FILE* outfile = NULL;
@@ -7890,6 +7931,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   uint32_t marker_ct = 0;
   uint32_t marker_skip_ct = 0;
   uint32_t gq_field_pos = 0;
+  uint32_t gp_field_pos = 0;
   uint32_t vcf_half_call_explicit_error = (vcf_half_call == VCF_HALF_CALL_ERROR);
   int32_t retval = 0;
   char missing_geno = *g_missing_geno_ptr;
@@ -8182,14 +8224,28 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     if (vcf_min_gq != -1) {
       gq_field_pos = 0;
       bufptr2[-1] = ':';
+      gq_scan_ptr = bufptr;
       do {
-	bufptr = (char*)memchr(bufptr, ':', (uintptr_t)(bufptr2 - bufptr));
-	if (++bufptr == bufptr2) {
+	gq_scan_ptr = (char*)memchr(gq_scan_ptr, ':', (uintptr_t)(bufptr2 - gq_scan_ptr));
+	if (++gq_scan_ptr == bufptr2) {
 	  gq_field_pos = 0;
 	  break;
 	}
 	gq_field_pos++;
-      } while (memcmp(bufptr, "GQ:", 3));
+      } while (memcmp(gq_scan_ptr, "GQ:", 3));
+      bufptr2[-1] = '\t';
+    }
+    if (vcf_min_gp != -1) {
+      gp_field_pos = 0;
+      bufptr2[-1] = ':';
+      do {
+	bufptr = (char*)memchr(bufptr, ':', (uintptr_t)(bufptr2 - bufptr));
+	if (++bufptr == bufptr2) {
+	  gp_field_pos = 0;
+	  break;
+	}
+	gp_field_pos++;
+      } while (memcmp(bufptr, "GP:", 3));
       bufptr2[-1] = '\t';
     }
     bufptr = bufptr2;
@@ -8234,6 +8290,15 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	    cc = bufptr[1];
 	    if ((cc != '/') && (cc != '|')) {
 	      // haploid
+	    vcf_to_bed_haploid_1:
+	      if (gp_field_pos) {
+		if (vcf_gp_invalid(bufptr, bufptr2, vcf_min_gp, gp_field_pos, uii, &ukk)) {
+		  if (ukk) {
+		    goto vcf_to_bed_ret_MISSING_GP;
+		  }
+		  continue;
+		}
+	      }
 	      set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2 + 1);
 	    } else {
 	      cc = bufptr[3];
@@ -8249,9 +8314,17 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 		  if (!vcf_half_call) {
 		    goto vcf_to_bed_ret_HALF_CALL_ERROR;
 		  } else if (vcf_half_call == VCF_HALF_CALL_HAPLOID) {
-		    set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2 + 1);
+		    goto vcf_to_bed_haploid_1;
 		  }
 		} else {
+		  if (gp_field_pos) {
+		    if (vcf_gp_diploid_invalid(bufptr, bufptr2, vcf_min_gp, gp_field_pos, uii, ujj, &ukk)) {
+		      if (ukk) {
+			goto vcf_to_bed_ret_MISSING_GP;
+		      }
+		      continue;
+		    }
+		  }
 		  set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2);
 		  base_bitfields[ujj * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
 		}
@@ -8309,28 +8382,45 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	  }
 	  cc = bufptr[1];
 	  if ((cc != '/') && (cc != '|')) {
+	  vcf_to_bed_haploid_2:
+	    if (gp_field_pos) {
+	      if (vcf_gp_invalid(bufptr, bufptr2, vcf_min_gp, gp_field_pos, uii, &ukk)) {
+		if (ukk) {
+		  goto vcf_to_bed_ret_MISSING_GP;
+		}
+	        continue;
+	      }
+	    }
 	    set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2 + 1);
 	  } else {
 	    cc = bufptr[3];
 	    if (((cc != '/') && (cc != '|')) || (bufptr[4] == '.')) {
-	      uii = ((unsigned char)bufptr[2]) - '0';
-	      if (uii && (uii != alt_allele_idx)) {
-		if (uii == (uint32_t)(((unsigned char)'.') - '0')) {
+	      ujj = ((unsigned char)bufptr[2]) - '0';
+	      if (ujj && (ujj != alt_allele_idx)) {
+		if (ujj == (uint32_t)(((unsigned char)'.') - '0')) {
 		  if (!vcf_half_call) {
 		    goto vcf_to_bed_ret_HALF_CALL_ERROR;
 		  } else if (vcf_half_call == VCF_HALF_CALL_HAPLOID) {
-	            set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2 + 1);
+		    goto vcf_to_bed_haploid_2;
 		  }
 		  continue;
-		} else if (uii > 9) {
+		} else if (ujj > 9) {
 		  goto vcf_to_bed_ret_INVALID_GT;
 		} else if (alt_allele_idx) {
 		  goto vcf_to_bed_skip3;
 		}
-		alt_allele_idx = uii;
+		alt_allele_idx = ujj;
+	      }
+	      if (gp_field_pos) {
+		if (vcf_gp_diploid_invalid(bufptr, bufptr2, vcf_min_gp, gp_field_pos, uii, ujj, &ukk)) {
+		  if (ukk) {
+		    goto vcf_to_bed_ret_MISSING_GP;
+		  }
+		  continue;
+		}
 	      }
 	      set_bit_ul(&(base_bitfields[uii * indiv_ctv2]), indiv_idx * 2);
-	      base_bitfields[uii * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
+	      base_bitfields[ujj * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
 	    }
 	  }
 	}
@@ -8379,7 +8469,15 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	  // '/' = ascii 47, '|' = ascii 124
 	  if ((ujj != 0xffffffffU) && (ujj != 76)) {
 	    // haploid, count 2x
-	  vcf_to_bed_10plus_haploid:
+	  vcf_to_bed_haploid_3:
+	    if (gp_field_pos) {
+	      if (vcf_gp_invalid(bufptr, bufptr2, vcf_min_gp, gp_field_pos, uii, &ukk)) {
+		if (ukk) {
+		  goto vcf_to_bed_ret_MISSING_GP;
+		}
+		continue;
+	      }
+	    }
 	    if (!uii) {
 	      set_bit_ul(base_bitfields, indiv_idx * 2 + 1);
 	    } else {
@@ -8392,7 +8490,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 		if (!vcf_half_call) {
 		  goto vcf_to_bed_ret_HALF_CALL_ERROR;
 		} else if (vcf_half_call == VCF_HALF_CALL_HAPLOID) {
-		  goto vcf_to_bed_10plus_haploid;
+		  goto vcf_to_bed_haploid_3;
 		} else {
 		  continue;
 		}
@@ -8408,6 +8506,14 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	    }
 	    if (((ujj != 0xffffffffU) && (ujj != 76)) || (bufptr[1] == '.')) {
 	      // diploid; triploid+ skipped
+	      if (gp_field_pos) {
+                if (vcf_gp_diploid_invalid(bufptr, bufptr2, vcf_min_gp, gp_field_pos, uii, ujj, &ukk)) {
+		  if (ukk) {
+		    goto vcf_to_bed_ret_MISSING_GP;
+		  }
+		  continue;
+		}
+	      }
 	      if (!uii) {
 		set_bit_ul(base_bitfields, indiv_idx * 2);
 	      } else {
@@ -8467,11 +8573,18 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	}
 	if ((ujj != 0xffffffffU) && (ujj != 76)) {
 	  if (uii == alt_allele_idx) {
+	  vcf_to_bed_haploid_4:
+	    if (vcf_gp_invalid(bufptr, bufptr2, vcf_min_gp, gp_field_pos, uii, &ukk)) {
+	      if (ukk) {
+		goto vcf_to_bed_ret_MISSING_GP;
+	      }
+	      continue;
+	    }
             set_bit_ul(alt_bitfield, indiv_idx * 2 + 1);
 	  }
 	} else if (*(++bufptr) == '.') {
 	  if ((vcf_half_call == VCF_HALF_CALL_HAPLOID) && (uii == alt_allele_idx)) {
-            set_bit_ul(alt_bitfield, indiv_idx * 2 + 1);
+	    goto vcf_to_bed_haploid_4;
 	  }
 	} else {
           ujj = (unsigned char)(*bufptr) - '0';
@@ -8483,6 +8596,12 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
             ujj = ujj * 10 + ukk;
 	  }
           if (((ujj != 0xffffffffU) && (ujj != 76)) || (bufptr[1] == '.')) {
+	    if (vcf_gp_diploid_invalid(bufptr, bufptr2, vcf_min_gp, gp_field_pos, uii, ujj, &ukk)) {
+	      if (ukk) {
+	        goto vcf_to_bed_ret_MISSING_GP;
+	      }
+	      continue;
+	    }
 	    if (uii == alt_allele_idx) {
 	      set_bit_ul(alt_bitfield, indiv_idx * 2);
 	    }
@@ -8592,6 +8711,11 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     break;
   vcf_to_bed_ret_MISSING_GQ:
     LOGPRINTF("\nError: Line %" PRIuPTR " of .vcf file has a missing GQ field.\n", line_idx);
+    retval = RET_INVALID_FORMAT;
+    break;
+  vcf_to_bed_ret_MISSING_GP:
+    logprint("\n");
+    LOGPRINTFWW("Error: Line %" PRIuPTR " of .vcf file has a missing or improperly formatted GP field.\n", line_idx);
     retval = RET_INVALID_FORMAT;
     break;
   vcf_to_bed_ret_INVALID_GT:

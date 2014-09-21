@@ -1311,13 +1311,15 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("vcf\tbcf\tid-delim\tvcf-idspace-to", &help_ctrl, 0,
 "  --vcf-idspace-to [c] : Convert spaces in sample IDs to the given character.\n"
 	       );
-    help_print("vcf\tbcf\tbiallelic-only\tvcf-min-qual\tvcf-filter\tvcf-half-call\tvcf-min-gq", &help_ctrl, 0,
+    help_print("vcf\tbcf\tbiallelic-only\tvcf-min-qual\tvcf-filter\tvcf-half-call\tvcf-min-gq\tvcf-min-gp", &help_ctrl, 0,
 "  --biallelic-only <strict> <list> : Skip VCF variants with 2+ alt. alleles.\n"
 "  --vcf-min-qual [val]             : Skip VCF variants with low/missing QUAL.\n"
 "  --vcf-filter {exception(s)...}   : Skip variants which have FILTER failures.\n"
 #ifndef STABLE_BUILD
 "  --vcf-min-gq [val]               : No-call individual genotypes when GQ is\n"
 "                                     below the given threshold.\n"
+"  --vcf-min-gp [val]               : No-call individual genotypes when 0-1\n"
+"                                     scaled GP is below the given threshold.\n"
 #endif
 "  --vcf-half-call [m]  : Specify how '0/.' and similar VCF GT values should be\n"
 "                         handled.  The following three modes are supported:\n"
