@@ -5979,7 +5979,6 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
 int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, char* outname_end2, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, uint32_t mtest_adjust, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude_mid, uintptr_t marker_ct_mid, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* sex_male, Aperm_info* apip, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_pnm, uint32_t gender_req, uint32_t ld_ignore_x, uint32_t hh_exists, Set_info* sip, uintptr_t* loadbuf_raw) {
   logprint("Error: --assoc/--model set-test is currently under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
-  /*
   // Could reuse more of the code in model_assoc() since there's considerable
   // overlap, but there are enough differences between the regular and set
   // permutation tests that separating this out and doing a fair bit of
@@ -5994,6 +5993,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   //    association test phase.
   // 3. Finally, the marker_exclude used for set-based permutation testing
   //    refers to all markers contained in at least one *significant* set.
+  /*
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;

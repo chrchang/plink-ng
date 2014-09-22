@@ -7967,6 +7967,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   uint32_t marker_id_len;
   uint32_t alt_idx;
   uint32_t alt_ct;
+  uint32_t ref_allele_len;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -8139,6 +8140,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     if (!bufptr) {
       goto vcf_to_bed_ret_MISSING_TOKENS;
     }
+    ref_allele_len = (uintptr_t)(bufptr - ref_allele_ptr);
     alt_ct = 1;
     alt_alleles = ++bufptr;
     cc = *bufptr;
@@ -8148,9 +8150,17 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	sprintf(logbuf, "\nError: Invalid alternate allele on line %" PRIuPTR  " of .vcf file.\n", line_idx);
 	goto vcf_to_bed_ret_INVALID_FORMAT_2;
       }
+      bufptr2 = bufptr;
       do {
 	cc = *(++bufptr);
       } while ((unsigned char)cc > ',');
+      if (((uintptr_t)(bufptr - bufptr2) == ref_allele_len) && (!memcmp(ref_allele_ptr, bufptr2, ref_allele_len))) {
+	if (alt_ct || (cc == ',')) {
+	  sprintf(logbuf, "\nError: ALT allele duplicates REF allele on line %" PRIuPTR " of .vcf file.\n", line_idx);
+	  goto vcf_to_bed_ret_INVALID_FORMAT_2;
+	}
+        *alt_alleles = '.'; // tolerate SHAPEIT output
+      }
       if (cc != ',') {
 	break;
       }
