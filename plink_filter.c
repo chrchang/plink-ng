@@ -1995,6 +1995,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
       memcpy(indiv_nonmale_include2, indiv_include2, unfiltered_indiv_ctv2 * sizeof(intptr_t));
       vec_include_mask_out_intersect(unfiltered_indiv_ct, indiv_nonmale_include2, sex_nm, sex_male);
       indiv_nonmale_ct = popcount01_longs(indiv_nonmale_include2, unfiltered_indiv_ctv2);
+      indiv_f_nonmale_ct = indiv_nonmale_ct;
       founder_nonmale_include2 = indiv_nonmale_include2;
       founder_ctrl_nonmale_include2 = indiv_nonmale_include2;
     }

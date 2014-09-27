@@ -9016,6 +9016,7 @@ void free_range_list(Range_list* range_list_ptr) {
 }
 
 // implementation used in PLINK 1.07 stats.cpp
+// probably want to remove this function and use erf() calls in the future
 double normdist(double zz) {
   double sqrt2pi = 2.50662827463;
   double t0;
@@ -9024,7 +9025,7 @@ double normdist(double zz) {
   t0 = 1 / (1 + 0.2316419 * fabs(zz));
   z1 = exp(-0.5 * zz * zz) / sqrt2pi;
   p0 = z1 * t0 * (0.31938153 + t0 * (-0.356563782 + t0 * (1.781477937 + t0 * (-1.821255978 + 1.330274429 * t0))));
- return zz >= 0 ? 1 - p0 : p0;
+  return zz >= 0 ? 1 - p0 : p0;
 }
 
 double rand_normal(double* secondval_ptr) {

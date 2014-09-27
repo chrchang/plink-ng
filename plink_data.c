@@ -7877,7 +7877,8 @@ uint32_t vcf_gp_invalid(char* bufptr, char* bufptr2, double vcf_min_gp, uint32_t
     }
     bufptr++;
   }
-  if ((*bufptr == '.') || (*bufptr == '?')) {
+  // hmm, defend against decimal without leading zero
+  if (((*bufptr == '.') || (*bufptr == '?')) && (bufptr[1] < '.')) {
     *is_error_ptr = 0;
     return 0;
   }
