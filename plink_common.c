@@ -4499,19 +4499,19 @@ int32_t llcmp(const void* aa, const void* bb) {
 
 // Normally use qsort_ext(), but this version is necessary before wkspace has
 // been allocated.
-void qsort_ext2(char* main_arr, intptr_t arr_length, intptr_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, intptr_t secondary_item_len, char* proxy_arr, intptr_t proxy_len) {
-  intptr_t lii;
-  for (lii = 0; lii < arr_length; lii++) {
-    *(char**)(&(proxy_arr[lii * proxy_len])) = &(main_arr[lii * item_length]);
-    memcpy(&(proxy_arr[lii * proxy_len + sizeof(void*)]), &(secondary_arr[lii * secondary_item_len]), secondary_item_len);
+void qsort_ext2(char* main_arr, uintptr_t arr_length, uintptr_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, uintptr_t secondary_item_len, char* proxy_arr, uintptr_t proxy_len) {
+  uintptr_t ulii;
+  for (ulii = 0; ulii < arr_length; ulii++) {
+    *(char**)(&(proxy_arr[ulii * proxy_len])) = &(main_arr[ulii * item_length]);
+    memcpy(&(proxy_arr[ulii * proxy_len + sizeof(void*)]), &(secondary_arr[ulii * secondary_item_len]), secondary_item_len);
   }
   qsort(proxy_arr, arr_length, proxy_len, comparator_deref);
-  for (lii = 0; lii < arr_length; lii++) {
-    memcpy(&(secondary_arr[lii * secondary_item_len]), &(proxy_arr[lii * proxy_len + sizeof(void*)]), secondary_item_len);
-    memcpy(&(proxy_arr[lii * proxy_len]), *(char**)(&(proxy_arr[lii * proxy_len])), item_length);
+  for (ulii = 0; ulii < arr_length; ulii++) {
+    memcpy(&(secondary_arr[ulii * secondary_item_len]), &(proxy_arr[ulii * proxy_len + sizeof(void*)]), secondary_item_len);
+    memcpy(&(proxy_arr[ulii * proxy_len]), *(char**)(&(proxy_arr[ulii * proxy_len])), item_length);
   }
-  for (lii = 0; lii < arr_length; lii++) {
-    memcpy(&(main_arr[lii * item_length]), &(proxy_arr[lii * proxy_len]), item_length);
+  for (ulii = 0; ulii < arr_length; ulii++) {
+    memcpy(&(main_arr[ulii * item_length]), &(proxy_arr[ulii * proxy_len]), item_length);
   }
 }
 

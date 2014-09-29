@@ -8515,7 +8515,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	      }
 	      ujj = ujj * 10 + ukk;
 	    }
-	    if (((ujj != 0xffffffffU) && (ujj != 76)) || (bufptr[1] == '.')) {
+	    if (((ukk != 0xffffffffU) && (ukk != 76)) || (bufptr[1] == '.')) {
 	      // diploid; triploid+ skipped
 	      if (gp_field_pos) {
                 if (vcf_gp_diploid_invalid(bufptr, bufptr2, vcf_min_gp, gp_field_pos, uii, ujj, &ukk)) {
@@ -8586,9 +8586,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	  if (uii == alt_allele_idx) {
 	  vcf_to_bed_haploid_4:
 	    if (vcf_gp_invalid(bufptr, bufptr2, vcf_min_gp, gp_field_pos, uii, &ukk)) {
-	      if (ukk) {
-		goto vcf_to_bed_ret_MISSING_GP;
-	      }
+	      // no need for ukk check since already validated
 	      continue;
 	    }
             set_bit_ul(alt_bitfield, indiv_idx * 2 + 1);
@@ -8606,11 +8604,8 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	    }
             ujj = ujj * 10 + ukk;
 	  }
-          if (((ujj != 0xffffffffU) && (ujj != 76)) || (bufptr[1] == '.')) {
+          if (((ukk != 0xffffffffU) && (ukk != 76)) || (bufptr[1] == '.')) {
 	    if (vcf_gp_diploid_invalid(bufptr, bufptr2, vcf_min_gp, gp_field_pos, uii, ujj, &ukk)) {
-	      if (ukk) {
-	        goto vcf_to_bed_ret_MISSING_GP;
-	      }
 	      continue;
 	    }
 	    if (uii == alt_allele_idx) {

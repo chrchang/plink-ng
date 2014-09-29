@@ -12,6 +12,7 @@ void set_init(Set_info* sip, Annot_info* aip) {
   sip->modifier = 0;
   sip->set_r2 = 0.5;
   sip->set_p = 0.05;
+  sip->set_test_lambda = 0.0;
   sip->set_max = 5;
   aip->fname = NULL;
   aip->attrib_fname = NULL;
@@ -137,6 +138,23 @@ uint32_t interval_in_setdef(uint32_t* setdef, uint32_t marker_idx_start, uint32_
     uii = next_set((uintptr_t*)(&(setdef[4])), marker_idx_start, marker_idx_end);
     return (uii < marker_idx_end);
   }
+}
+
+uint32_t setdef_size(uint32_t* setdef, uint32_t marker_ct) {
+  uint32_t range_ct = setdef[0];
+  uint32_t total_size = 0;
+  uint32_t uii;
+  if (range_ct != 0xffffffffU) {
+    for (uii = 0; uii < range_ct; uii++) {
+      total_size += setdef[uii * 2 + 2] - setdef[uii * 2 + 1];
+    }
+  } else {
+    if (setdef[3]) {
+      total_size = marker_ct - setdef[2];
+    }
+    total_size += popcount_bit_idx((uintptr_t*)(&(setdef[4])), 0, setdef[2]);
+  }
+  return total_size;
 }
 
 void setdef_iter_init(uint32_t* setdef, uint32_t marker_ct, uint32_t start_idx, uint32_t* cur_idx_ptr, uint32_t* aux_ptr) {

@@ -1923,14 +1923,15 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --mperm-save     : Save best max(T) permutation test statistics.\n"
 "  --mperm-save-all : Save all max(T) permutation test statistics.\n"
 	       );
-    help_print("set-p\tset-r2\tset-max\tset-test\twrite-set-r2\tset-r2-phase", &help_ctrl, 0,
-"  --set-p [p-val]      : Adjust set test significant variant p-value ceiling\n"
-"                         (default 0.05).\n"
-"  --set-r2 {v} <write> : Adjust set test significant variant pairwise r^2\n"
-"                         ceiling (default 0.5).  'write' causes violating pairs\n"
-"                         to be dumped to {output prefix}.ldset.\n"
-"  --set-max [ct]       : Adjust set test maximum # of significant variants\n"
-"                         considered per set (default 5).\n"
+    help_print("set-p\tset-r2\tset-max\tset-test-lambda\tset-test\twrite-set-r2\tset-r2-phase", &help_ctrl, 0,
+"  --set-p [p-val]       : Adjust set test significant variant p-value ceiling\n"
+"                          (default 0.05).\n"
+"  --set-r2 {v} <write>  : Adjust set test significant variant pairwise r^2\n"
+"                          ceiling (default 0.5).  'write' causes violating\n"
+"                          pairs to be dumped to {output prefix}.ldset.\n"
+"  --set-max [ct]        : Adjust set test maximum # of significant variants\n"
+"                          considered per set (default 5).\n"
+"  --set-test-lambda [v] : Specify genomic control correction for set test.\n"
 	       );
     help_print("annotate\tborder\tannotate-snp-field", &help_ctrl, 0,
 "  --border [kbs]            : Extend --annotate range intervals by given # kbs.\n"

@@ -27,6 +27,7 @@ typedef struct {
   uint32_t make_set_border;
   double set_r2;
   double set_p;
+  double set_test_lambda;
   uint32_t set_max;
 
   // main data structure, allocated on stack
@@ -82,6 +83,8 @@ void set_cleanup(Set_info* sip, Annot_info* aip);
 uint32_t in_setdef(uint32_t* setdef, uint32_t marker_idx);
 
 uint32_t interval_in_setdef(uint32_t* setdef, uint32_t marker_idx_start, uint32_t marker_idx_end);
+
+uint32_t setdef_size(uint32_t* setdef, uint32_t marker_ct);
 
 void setdef_iter_init(uint32_t* setdef, uint32_t marker_ct, uint32_t start_idx, uint32_t* cur_idx_ptr, uint32_t* aux_ptr);
 

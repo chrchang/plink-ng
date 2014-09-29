@@ -1895,7 +1895,7 @@ int32_t intcmp3_decr(const void* aa, const void* bb);
 int32_t llcmp(const void* aa, const void* bb);
 #endif
 
-void qsort_ext2(char* main_arr, intptr_t arr_length, intptr_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, intptr_t secondary_item_len, char* proxy_arr, intptr_t proxy_len);
+void qsort_ext2(char* main_arr, uintptr_t arr_length, uintptr_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, uintptr_t secondary_item_len, char* proxy_arr, uintptr_t proxy_len);
 
 int32_t qsort_ext(char* main_arr, intptr_t arr_length, intptr_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, intptr_t secondary_item_len);
 

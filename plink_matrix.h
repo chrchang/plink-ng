@@ -5,6 +5,11 @@
 // May want to make this comprehensive to make linking with Intel MKL practical
 // in the future.
 
+// todo: allow this to take advantage of 64-bit integer LAPACK.  As of this
+// writing, it's available on Amazon EC2 64-bit Linux instances, but I can't
+// find it for Windows.  (And even if OS X vecLib adds it soon, we can't use it
+// there anytime soon because static linking is not an option.)
+
 #ifdef __APPLE__
 #include <Accelerate/Accelerate.h>
 #endif

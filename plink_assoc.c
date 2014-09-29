@@ -5976,6 +5976,65 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
   }
 }
 
+void set_test_score(uintptr_t marker_ct, double chisq_threshold, uint32_t set_max, double* chisq_arr, uint32_t** ld_map, uint32_t* cur_setdef, double* sorted_chisq_buf, uint32_t* sorted_marker_idx_buf, uint32_t* proxy_arr, uint32_t* raw_sig_ct_ptr, uint32_t* final_sig_ct_ptr, double* set_score_ptr) {
+  // set score statistic = mean of chi-square statistics of set
+  // representatives.  (In theory, variable-df genotypic test and Fisher's
+  // exact test could be supported via backing out a chi-square stat from the
+  // p-value, but I'll hold off on adding that sort of complexity until/unless
+  // there's demand for it.)
+
+  // sort variants by p-value, then iterate over setdefs, greedily selecting up
+  // to sip->set_max significant independent variants from each.
+  double chi_sum = 0.0;
+  uint32_t raw_sig_ct = 0;
+  uint32_t final_sig_ct = 0;
+  uint32_t marker_idx;
+  uint32_t setdef_incr_aux;
+  uint32_t raw_idx;
+  uint32_t ld_conflict;
+  uint32_t uii;
+  setdef_iter_init(cur_setdef, marker_ct, 0, &marker_idx, &setdef_incr_aux);
+  while (setdef_iter(cur_setdef, &marker_idx, &setdef_incr_aux)) {
+    if (chisq_arr[marker_idx] >= chisq_threshold) {
+      sorted_chisq_buf[raw_sig_ct] = chisq_arr[marker_idx];
+      sorted_marker_idx_buf[raw_sig_ct] = marker_idx;
+      raw_sig_ct++;
+    }
+    marker_idx++;
+  }
+  if (!raw_sig_ct) {
+    // not possible for initial pass, so no need to set raw_sig_ct_ptr, etc.
+    *set_score_ptr = 0.0;
+    printf("wtf\n");
+    exit(1);
+    return;
+  }
+  qsort_ext2((char*)sorted_chisq_buf, raw_sig_ct, sizeof(double), double_cmp_deref, (char*)sorted_marker_idx_buf, sizeof(int32_t), (char*)proxy_arr, sizeof(double) + sizeof(int32_t));
+  raw_idx = raw_sig_ct;
+  do {
+    raw_idx--;
+    ld_conflict = 0;
+    for (uii = 0; uii < final_sig_ct; uii++) {
+      if (in_setdef(cur_setdef, proxy_arr[uii])) {
+	ld_conflict = 1;
+	break;
+      }
+    }
+    if (!ld_conflict) {
+      proxy_arr[final_sig_ct] = sorted_marker_idx_buf[raw_idx];
+      chi_sum += sorted_chisq_buf[raw_idx];
+      if (++final_sig_ct == set_max) {
+	break;
+      }
+    }
+  } while (raw_idx);
+  *set_score_ptr = chi_sum / ((double)((int32_t)final_sig_ct));
+  if (raw_sig_ct_ptr) {
+    *raw_sig_ct_ptr = raw_sig_ct;
+    *final_sig_ct_ptr = final_sig_ct;
+  }
+}
+
 int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, char* outname_end2, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, uint32_t mtest_adjust, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude_mid, uintptr_t marker_ct_mid, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* sex_male, Aperm_info* apip, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_pnm, uint32_t gender_req, uint32_t ld_ignore_x, uint32_t hh_exists, Set_info* sip, uintptr_t* loadbuf_raw) {
   logprint("Error: --assoc/--model set-test is currently under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
@@ -5987,12 +6046,16 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
 
   // There are three levels of marker subsets here.
   // 1. marker_exclude_orig refers to all markers which passed QC filters, etc.
+  //    This is needed to interpret the main set data structure.
   // 2. marker_exclude_mid refers to all markers contained in at least one set.
   //    This is a subset of marker_exclude_orig.  (They are identical if
   //    --gene-all was specified.)  It was used during the single-marker
-  //    association test phase.
+  //    association test phase, and describes which markers orig_chisq[]
+  //    elements initially refer to.
   // 3. Finally, the marker_exclude used for set-based permutation testing
   //    refers to all markers contained in at least one *significant* set.
+  //    orig_chisq is collapsed before permutation to be congruent to this
+  //    marker_exclude.
   /*
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
@@ -6001,33 +6064,47 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   FILE* outfile_msa = NULL;
   uintptr_t* marker_exclude = marker_exclude_mid;
   uintptr_t* cur_bitfield = NULL;
-  double* orig_1mpval = g_orig_1mpval;
+  double* orig_chisq = g_orig_chisq;
   uintptr_t marker_ct = marker_ct_mid;
   uintptr_t raw_set_ct = sip->ct;
   uintptr_t raw_set_ctl = (raw_set_ct + (BITCT - 1)) / BITCT;
   uintptr_t set_ct = 0;
-  double set_p_flip = 1.0 - sip->set_p;
+  uintptr_t max_set_id_len = sip->max_name_len;
+  uintptr_t ulii = 0;
+  double chisq_threshold = inverse_chiprob(sip->set_p, 1);
   uint32_t model_assoc = model_modifier & MODEL_ASSOC;
+  uint32_t perm_adapt = model_modifier & MODEL_PERM;
   uint32_t max_sigset_size = 0;
   int32_t retval = 0;
   uintptr_t* set_incl;
-  double* o1mpptr;
-  double* o1mp_end;
+  double* orig_set_scores;
+  double* sorted_chisq_buf;
+  double* chisq_ptr;
+  double* chisq_end;
+  unsigned char* wkspace_mark2;
+  char* bufptr;
   uint32_t** setdefs;
+  uint32_t** ld_map;
   uint32_t* marker_midx_to_idx;
   uint32_t* marker_idx_to_uidx;
   uint32_t* cur_setdef;
-  uint32_t** ld_map;
+  uint32_t* sorted_marker_idx_buf;
+  uint32_t* proxy_arr;
   uintptr_t marker_ctl;
   uintptr_t marker_midx;
   uintptr_t marker_idx;
+  uintptr_t set_uidx;
   uintptr_t set_idx;
+  uintptr_t uljj;
+  uintptr_t ulkk;
+  double dxx;
   uint32_t range_ct;
   uint32_t range_idx;
   uint32_t range_offset;
   uint32_t range_stop;
   uint32_t include_out_of_bounds;
   uint32_t cur_set_size;
+  uint32_t widx;
   uint32_t uii;
   if (wkspace_alloc_ul_checked(&set_incl, raw_set_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ui_checked(&marker_midx_to_idx, marker_ct_orig * sizeof(int32_t))) {
@@ -6035,10 +6112,19 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   }
   fill_ulong_zero(set_incl, raw_set_ctl);
   fill_midx_to_idx(marker_exclude_orig, marker_exclude, marker_ct, marker_midx_to_idx);
+
+  if (sip->set_test_lambda > 1.0) {
+    dxx = 1.0 / sip->set_test_lambda;
+    chisq_ptr = orig_chisq;
+    for (marker_midx = 0; marker_midx < marker_ct; marker_midx++) {
+      *chisq_ptr *= dxx;
+      chisq_ptr++;
+    }
+  }
   // determine which sets contain at least one significant marker.  do not
   // attempt to calculate the sum statistic yet: we need the LD map for that.
-  for (set_idx = 0; set_idx < raw_set_ct; set_idx++) {
-    cur_setdef = sip->setdefs[set_idx];
+  for (set_uidx = 0; set_uidx < raw_set_ct; set_uidx++) {
+    cur_setdef = sip->setdefs[set_uidx];
     range_ct = cur_setdef[0];
     cur_set_size = 0;
     uii = 0; // found a significant marker?
@@ -6048,10 +6134,10 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
         range_stop = *(++cur_setdef);
         cur_set_size += range_stop - marker_midx;
         if (!uii) {
-          o1mpptr = &(orig_1mpval[marker_midx_to_idx[marker_midx]]);
-          o1mp_end = &(o1mpptr[cur_set_size]);
-	  for (; o1mpptr < o1mp_end; o1mpptr++) {
-	    if (*o1mpptr >= set_p_flip) {
+          chisq_ptr = &(orig_chisq[marker_midx_to_idx[marker_midx]]);
+          chisq_end = &(chisq_ptr[cur_set_size]);
+	  for (; chisq_ptr < chisq_end; chisq_ptr++) {
+	    if (*chisq_ptr >= chisq_threshold) {
 	      uii = 1;
               break;
 	    }
@@ -6065,9 +6151,9 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
       cur_bitfield = (uintptr_t*)(&(cur_setdef[4]));
       if (include_out_of_bounds && range_offset) {
         for (marker_midx = 0; marker_midx < range_offset; marker_midx++) {
-	  // all initial markers guaranteed to be in union, no orig_1mpval
-	  // lookup needed
-          if (orig_1mpval[marker_midx] >= set_p_flip) {
+	  // all initial markers guaranteed to be in union, no
+	  // marker_midx_to_idx lookup needed
+          if (orig_chisq[marker_midx] >= chisq_threshold) {
             uii = 1;
             break;
 	  }
@@ -6078,7 +6164,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
       if (!uii) {
         for (marker_midx = 0; marker_midx < range_stop; marker_midx++) {
           if (IS_SET(cur_bitfield, marker_midx)) {
-            if (orig_1mpval[marker_midx_to_idx[marker_midx + range_offset]] >= set_p_flip) {
+            if (orig_chisq[marker_midx_to_idx[marker_midx + range_offset]] >= chisq_threshold) {
               uii = 1;
               break;
 	    }
@@ -6089,7 +6175,8 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
         cur_set_size += marker_ct_orig - range_offset - range_stop;
         if (!uii) {
           for (marker_idx = marker_midx_to_idx[range_offset + range_stop]; marker_idx < marker_ct; marker_idx++) {
-            if (orig_1mpval[marker_idx] >= set_p_flip) {
+	    // all trailing markers guaranteed to be in union
+            if (orig_chisq[marker_idx] >= chisq_threshold) {
               uii = 1;
               break;
 	    }
@@ -6098,7 +6185,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
       }
     }
     if (uii) {
-      SET_BIT(set_incl, set_idx);
+      SET_BIT(set_incl, set_uidx);
       set_ct++;
       if (cur_set_size > max_sigset_size) {
 	max_sigset_size = cur_set_size;
@@ -6106,13 +6193,43 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
     }
   }
   if (!set_ct) {
-    // todo: skip everything but the final write
+    logprint("Warning: No significant variants in any set.  Skipping permutation-based set\ntest.\n");
+    goto model_assoc_set_test_write;
   }
+  LOGPRINTFWW("--assoc/--model set test: Testing %" PRIuPTR " set%s with at least one significant variant.\n", set_ct, (set_ct == 1)? "" : "s");
   wkspace_reset((unsigned char*)marker_midx_to_idx);
   if (set_ct < raw_set_ct) {
     marker_ct = marker_ct_orig;
     if (extract_set_union_unfiltered(sip, set_incl, unfiltered_marker_ct, marker_exclude_orig, &marker_exclude, &marker_ct)) {
       goto model_assoc_set_test_ret_NOMEM;
+    }
+    if (marker_ct < marker_ct_orig) {
+      // collapse orig_chisq further
+      marker_idx = 0;
+      for (widx = 0; widx < unfiltered_marker_ctl; widx++) {
+	ulii = marker_exclude_mid[widx];
+	if (marker_exclude[widx] != ulii) {
+	  break;
+	}
+	marker_idx += BITCT - popcount_long(ulii);
+      }
+      uljj = marker_exclude[widx];
+      uii = CTZLU(ulii ^ uljj);
+      marker_idx += uii - popcount_long(ulii & ((ONELU << uii) - ONELU));
+      marker_midx = marker_idx;
+      for (; marker_idx < marker_ct; widx++) {
+	ulii = ~marker_exclude_mid[widx];
+	uljj = ~marker_exclude[widx];
+        while (ulii) {
+	  uii = CTZLU(ulii);
+	  ulkk = ONELU << uii;
+	  if (uljj & ulkk) {
+	    orig_chisq[marker_idx++] = orig_chisq[marker_midx];
+	  }
+	  marker_midx++;
+	  ulii ^= ulkk;
+	}
+      }
     }
   }
   // Okay, we've pruned all we can, now it's time to suck it up and construct
@@ -6133,17 +6250,126 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   if (retval) {
     goto model_assoc_set_test_ret_1;
   }
-  // sort variants by p-value, then iterate over setdefs, greedily selecting up
-  // to sip->set_max significant independent variants from each.
-
-  // set score statistic = mean of chi-square statistics of set
-  // representatives.  (In theory, Fisher's exact test could be supported via
-  // backing out a chi-square stat from the p-value, but I'll hold off on
-  // adding that sort of complexity until/unless there's demand for it.)
+  if (wkspace_alloc_d_checked(&orig_set_scores, set_ct * sizeof(double)) ||
+      wkspace_alloc_d_checked(&sorted_chisq_buf, max_sigset_size * sizeof(double)) ||
+      wkspace_alloc_ui_checked(&sorted_marker_idx_buf, max_sigset_size * sizeof(int32_t)) ||
+      // technically assumes sizeof(double) >= sizeof(intptr_t)
+      wkspace_alloc_ui_checked(&proxy_arr, max_sigset_size * (sizeof(double) + sizeof(int32_t)))) {
+    goto model_assoc_set_test_ret_NOMEM;
+  }
+  for (set_idx = 0; set_idx < set_ct; set_idx++) {
+    // we're calling this again during final write anyway, so don't bother
+    // saving raw_sig_ct or final_sig_ct now
+    set_test_score(marker_ct, chisq_threshold, sip->set_max, orig_chisq, ld_map, setdefs[set_idx], sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, NULL, NULL, &(orig_set_scores[set_idx]));
+  }
 
   // generate a permutation batch, efficiently compute chi-square stats for all
   // variants in at least one tested set, compute set score, compare to base
   // set score.
+  wkspace_mark2 = wkspace_base;
+ model_assoc_set_test_more_perms:
+  // perm_vec_ct memory allocation dependencies:
+  //   g_perm_vecst: 16 * ((perm_vec_ct + 127) / 128) * pheno_nm_ct
+  //   g_thread_git_wkspace: ((perm_vec_ct + 127) / 128) * 1152 * thread_ct
+  //   g_resultbuf: MODEL_BLOCKSIZE * (4 * perm_vec_ct, CL-aligned) * 3
+  //   g_perm_vecs: pheno_nm_ctv2 * sizeof(intptr_t) * perm_vec_ct
+  //   g_mperm_save_all: marker_ct * 8 * perm_vec_ct
+  // If we force perm_vec_ct to be a multiple of 128, then we have
+  //   perm_vec_ct * (9 * max_thread_ct + 12 * MODEL_BLOCKSIZE +
+  //                    pheno_nm_ct / 8 + sizeof(intptr_t) * pheno_nm_ctv2
+  //                    + marker_ct * sizeof(double))
+  perm_vec_ct = 128 * (wkspace_left / (128LL * sizeof(intptr_t) * pheno_nm_ctv2 + 1152LL * max_thread_ct + 1536LL + 16LL * pheno_nm_ct + 128LL * sizeof(double) * marker_ct));
+  if (perm_vec_ct > perms_total - perms_done) {
+    perm_vec_ct = perms_total - perms_done;
+  } else if (!perm_vec_ct) {
+    goto model_assoc_set_test_ret_NOMEM;
+  }
+  perm_vec_ctcl4m = CACHEALIGN32_INT32(perm_vec_ct);
+  perms_done += perm_vec_ct;
+  g_perm_vec_ct = perm_vec_ct;
+  g_perm_vecs = (uintptr_t*)wkspace_alloc(perm_vec_ct * pheno_nm_ctv2 * sizeof(intptr_t));
+  if (perm_vec_ct > max_thread_ct) {
+    assoc_thread_ct = max_thread_ct;
+  } else {
+    assoc_thread_ct = perm_vec_ct;
+  }
+  g_assoc_thread_ct = assoc_thread_ct;
+  ulii = 0;
+  if (!g_cluster_starts) {
+    if (spawn_threads(threads, &model_assoc_gen_perms_thread, assoc_thread_ct)) {
+      goto model_assoc_set_test_ret_THREAD_CREATE_FAIL;
+    }
+    model_assoc_gen_perms_thread((void*)ulii);
+  } else {
+    if (spawn_threads(threads, &model_assoc_gen_cluster_perms_thread, assoc_thread_ct)) {
+      goto model_assoc_set_test_ret_THREAD_CREATE_FAIL;
+    }
+    model_assoc_gen_cluster_perms_thread((void*)ulii);
+  }
+  join_threads(threads, assoc_thread_ct);
+  g_assoc_thread_ct = max_thread_ct;
+  g_resultbuf = (uint32_t*)wkspace_alloc(perm_vec_ctcl4m * 3 * MODEL_BLOCKSIZE * sizeof(int32_t));
+#ifdef __LP64__
+  ulii = ((perm_vec_ct + 127) / 128) * 16;
+  g_perm_vecst = (uint32_t*)wkspace_alloc(ulii * pheno_nm_ct);
+#else
+  ulii = ((perm_vec_ct + 31) / 32) * 4;
+  g_perm_vecst = (uint32_t*)wkspace_alloc(ulii * pheno_nm_ct);
+  ulii = ((perm_vec_ct + 63) / 64) * 8;
+#endif
+  g_thread_git_wkspace = (uint32_t*)wkspace_alloc(ulii * 72 * max_thread_ct);
+  transpose_perms(g_perm_vecs, perm_vec_ct, pheno_nm_ct, g_perm_vecst);
+#ifdef __LP64__
+  fill_ulong_zero((uintptr_t*)g_thread_git_wkspace, ulii * 9 * max_thread_ct);
+#else
+  fill_ulong_zero((uintptr_t*)g_thread_git_wkspace, ulii * 18 * max_thread_ct);
+#endif
+  g_mperm_save_all = (double*)wkspace_alloc(marker_ct * perm_vec_ct * sizeof(double));
+  do {
+    // ...
+    marker_idx += block_size;
+  } while (marker_idx < marker_unstopped_ct);
+  // now compute set stats
+  wkspace_reset(wkspace_mark2);
+  if () {
+    goto model_assoc_set_test_more_perms;
+  }
+ model_assoc_set_test_write:
+  if (perm_adapt) {
+    memcpy(outname_end, ".set.perm", 10);
+  } else {
+    memcpy(outname_end, ".set.mperm", 11);
+  }
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto model_assoc_set_test_ret_OPEN_FAIL;
+  }
+  if (fputs_checked("         SET   NSNP   NSIG   ISIG         EMP1 SNPS\n", outfile)) {
+    goto model_assoc_set_test_ret_WRITE_FAIL;
+  }
+  for (set_uidx = 0, set_idx = 0; set_uidx < raw_set_ct; set_uidx++) {
+    bufptr = fw_strcpy(12, &(sip->names[set_uidx * max_set_id_len]), tbuf);
+    *bufptr++;
+    bufptr = uint32_writew6x(bufptr, setdef_size(sip->setdefs[set_uidx], marker_ct_orig), ' ');
+    if (IS_SET(set_incl, set_uidx)) {
+      ;;;
+      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	goto model_assoc_set_test_ret_WRITE_FAIL;
+      }
+      if (putc_checked('\n', outfile)) {
+	goto model_assoc_set_test_ret_WRITE_FAIL;
+      }
+      set_idx++;
+    } else {
+      memcpya(bufptr, "     0      0            1 NA\n", 30);
+      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	goto model_assoc_set_test_ret_WRITE_FAIL;
+      }
+    }
+  }
+  if (fclose_null(&outfile)) {
+    goto model_assoc_set_test_ret_WRITE_FAIL;
+  }
+  LOGPRINTFWW("Set test results written to %s .", outname);
   while (0) {
   model_assoc_set_test_ret_NOMEM:
     retval = RET_NOMEM;
@@ -6156,6 +6382,10 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
     break;
   model_assoc_set_test_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
+    break;
+  model_assoc_set_test_ret_THREAD_CREATE_FAIL:
+    logprint(errstr_thread_create);
+    retval = RET_THREAD_CREATE_FAIL;
     break;
   }
  model_assoc_set_test_ret_1:

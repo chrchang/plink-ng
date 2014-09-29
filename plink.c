@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (26 Sep 2014)";
+  " (29 Sep 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -7545,10 +7545,6 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-	if (!mtest_adjust) {
-	  logprint("Error: --lambda must be used with --adjust.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
-	}
 	if (scan_double(argv[cur_arg + 1], &adjust_lambda)) {
 	  sprintf(logbuf, "Error: Invalid --lambda parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
@@ -10737,6 +10733,22 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --set-max parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
+      } else if (!memcmp(argptr2, "et-test-lambda", 15)) {
+	if (!set_info.fname) {
+	  logprint("Error: --set-test-lambda must be used with --set/--make-set.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+          goto main_ret_INVALID_CMDLINE_2A;
+	}
+	if (scan_double(argv[cur_arg + 1], &set_info.set_test_lambda)) {
+	  sprintf(logbuf, "Error: Invalid --set-test-lambda parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
+	}
+	if (set_info.set_test_lambda < 1) {
+	  logprint("Note: --set-test-lambda parameter set to 1.\n");
+	  set_info.set_test_lambda = 1;
+	}
       } else if (!memcmp(argptr2, "et-by-all", 10)) {
 	if (!set_info.fname) {
 	  logprint("Error: --set-by-all must be used with --set/--make-set.\n");
@@ -12281,6 +12293,7 @@ int32_t main(int32_t argc, char** argv) {
       goto main_ret_INVALID_CMDLINE;
     }
   } else {
+    uii = 0;
     if (model_modifier & MODEL_SET_TEST) {
       if ((!(model_modifier & MODEL_PERM)) && (!model_mperm_val)) {
         logprint("Error: --assoc/--model set-test requires permutation.\n");
@@ -12288,46 +12301,67 @@ int32_t main(int32_t argc, char** argv) {
       } else if (model_modifier & MODEL_FISHER) {
 	logprint("Error: --assoc/--model set-test cannot be used with Fisher's exact test.\n");
         goto main_ret_INVALID_CMDLINE_A;
-      } else if ((mtest_adjust & ADJUST_GC) || (adjust_lambda != 0.0)) {
-        logprint("Error: --adjust 'gc' modifier and --lambda do not make sense with\n--assoc/--model set-test.\n");
+      } else if (model_modifier & MODEL_PGEN) {
+	logprint("Error: --model set-test cannot be used with 2df genotypic chi-square stats.\n");
+	goto main_ret_INVALID_CMDLINE_A;
+      } else if (mtest_adjust & ADJUST_GC) {
+        logprint("Error: --adjust 'gc' modifier does not make sense with\n--assoc/--model set-test.\n");
         goto main_ret_INVALID_CMDLINE_A;
       }
+      uii = 1;
     }
     if (glm_modifier & GLM_SET_TEST) {
       if ((!(glm_modifier & GLM_PERM)) && (!glm_mperm_val)) {
         logprint("Error: --linear/--logistic set-test requires permutation.\n");
         goto main_ret_INVALID_CMDLINE_A;
-      } else if ((mtest_adjust & ADJUST_GC) || (adjust_lambda != 0.0)) {
-        logprint("Error: --adjust 'gc' modifier and --lambda do not make sense with\n--linear/--logistic set-test.\n");
+      } else if (mtest_adjust & ADJUST_GC) {
+        logprint("Error: --adjust 'gc' modifier does not make sense with\n--linear/--logistic set-test.\n");
         goto main_ret_INVALID_CMDLINE_A;
       }
       logprint("Error: --linear/--logistic set-test is currently under development.\n");
       retval = RET_CALC_NOT_YET_SUPPORTED;
       goto main_ret_1;
+      uii = 1;
     }
     if (family_info.tdt_modifier & TDT_SET_TEST) {
       if (!(family_info.tdt_modifier & (TDT_PERM | TDT_MPERM))) {
         logprint("Error: --tdt set-test requires permutation.\n");
         goto main_ret_INVALID_CMDLINE_A;
-      } else if ((mtest_adjust & ADJUST_GC) || (adjust_lambda != 0.0)) {
-        logprint("Error: --adjust 'gc' modifier and --lambda do not make sense with\n--tdt set-test.\n");
+      } else if (mtest_adjust & ADJUST_GC) {
+        logprint("Error: --adjust 'gc' modifier does not make sense with --tdt set-test.\n");
         goto main_ret_INVALID_CMDLINE_A;
       }
       logprint("Error: --tdt set-test is currently under development.\n");
       retval = RET_CALC_NOT_YET_SUPPORTED;
       goto main_ret_1;
+      uii = 1;
     }
     if (cluster.modifier & CLUSTER_CMH_SET_TEST) {
       if (!(family_info.tdt_modifier & (TDT_PERM | TDT_MPERM))) {
         logprint("Error: --mh/--bd set-test requires permutation.\n");
         goto main_ret_INVALID_CMDLINE_A;
-      } else if ((mtest_adjust & ADJUST_GC) || (adjust_lambda != 0.0)) {
-        logprint("Error: --adjust 'gc' modifier and --lambda do not make sense with\n--mh/--bd set-test.\n");
+      } else if (mtest_adjust & ADJUST_GC) {
+        logprint("Error: --adjust 'gc' modifier does not make sense with --mh/--bd set-test.\n");
         goto main_ret_INVALID_CMDLINE_A;
       }
       logprint("Error: --mh/--bd set-test is currently under development.\n");
       retval = RET_CALC_NOT_YET_SUPPORTED;
       goto main_ret_1;
+      uii = 1;
+    }
+    if (mtest_adjust & ADJUST_LAMBDA) {
+      if (set_info.set_test_lambda == 0.0) {
+	// backward compatibility: --lambda and --set-test-lambda weren't
+	// distinct in 1.07
+	logprint("Note: set test + --lambda is deprecated.  Use --set-test-lambda instead.\n");
+	set_info.set_test_lambda = adjust_lambda;
+	if (!(mtest_adjust & 1)) {
+	  mtest_adjust = 0;
+	  adjust_lambda = 0.0;
+	}
+      } else {
+	logprint("Note: Set test --adjust ignores --lambda.\n");
+      }
     }
   }
   if ((family_info.tdt_modifier & (TDT_POO | TDT_PARENPERM1 | TDT_PARENPERM2 | TDT_POOPERM_PAT | TDT_POOPERM_MAT)) && (!(calculation_type & CALC_TDT))) {
@@ -12471,6 +12505,10 @@ int32_t main(int32_t argc, char** argv) {
     if ((model_modifier & (MODEL_PERM | MODEL_MPERM | MODEL_GENEDROP)) == MODEL_GENEDROP) {
       model_modifier |= MODEL_PERM;
     }
+  }
+  if ((mtest_adjust & (ADJUST_LAMBDA + 1)) == ADJUST_LAMBDA) {
+    logprint("Error: --lambda must be used with --adjust.\n");
+    goto main_ret_INVALID_CMDLINE_A;
   }
   if ((homozyg.modifier & (HOMOZYG_GROUP | HOMOZYG_GROUP_VERBOSE)) && (!(calculation_type & CALC_HOMOZYG))) {
     if (homozyg.overlap_min == 0.95) {
