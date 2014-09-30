@@ -3439,8 +3439,8 @@ THREAD_RET_TYPE assoc_set_thread(void* arg) {
   // Regardless of whether adaptive or max(T) permutation is employed, save
   // chi-square stats for the given number of permutations for all still-active
   // variants (adaptive pruning happens outside this loop).
-  // Basically a simplified version of what assoc_maxt_thread() does; the
-  // default --set-r2 value makes LD-exploitation silly here.
+  // Basically a simplified version of what assoc_maxt_thread() does.
+  // LD-exploitation should be added if this sees significant usage.
   // (possible todo: permit Fisher test, converting p-values into equivalent
   // chi-square stats?)
   uintptr_t tidx = (uintptr_t)arg;

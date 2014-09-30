@@ -1657,6 +1657,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     if (gzclose(gz_outfile) != Z_OK) {
       goto plink1_dosage_ret_WRITE_FAIL;
     }
+    gz_outfile = NULL;
   } else {
     if (fclose_null(&outfile)) {
       goto plink1_dosage_ret_WRITE_FAIL;
