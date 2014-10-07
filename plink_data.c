@@ -14113,7 +14113,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
   uint32_t max_bim_linelen = *max_bim_linelen_ptr;
   uint64_t tot_marker_ct = *tot_marker_ct_ptr;
   uint64_t position_warning_ct = *position_warning_ct_ptr;
-  uint32_t cur_marker_ct = *cur_marker_ct_ptr;
+  uint32_t cur_marker_ct = 0;
   uint32_t loadbuf_size = MAXLINELEN;
   double cm = 0.0;
   FILE* infile = NULL;
@@ -15288,7 +15288,8 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   uint32_t keep_allele_order = (misc_flags / MISC_KEEP_ALLELE_ORDER) & 1;
   uint32_t allow_extra_chroms = (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1;
   uint32_t is_dichot_pheno = 1;
-  uint32_t merge_mode = (merge_type & MERGE_MODE_MASK);
+  uint32_t merge_list = merge_type & MERGE_LIST;
+  uint32_t merge_mode = merge_type & MERGE_MODE_MASK;
   uint32_t merge_nsort = ((!indiv_sort) || (indiv_sort == INDIV_SORT_NATURAL))? 1 : 0;
   uint32_t merge_equal_pos = (merge_type & MERGE_EQUAL_POS)? 1 : 0;
   Ll_entry** htable = (Ll_entry**)(&(wkspace_base[wkspace_left - HASHMEM_S]));
@@ -15371,7 +15372,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   if (!merge_mode) {
     merge_mode = 1;
   }
-  if (merge_type & MERGE_LIST) {
+  if (merge_list) {
     if (fopen_checked(&mergelistfile, mergename1, "r")) {
       goto merge_datasets_ret_READ_FAIL;
     }
@@ -15516,15 +15517,20 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
 
   ullxx = 0;
   mlpos = 0;
-  do {
+  for (mlpos = 0; mlpos < merge_ct; mlpos++) {
     retval = merge_fam_id_scan(mergelist_bed[mlpos], mergelist_fam[mlpos], &max_person_id_len, &max_person_full_len, &is_dichot_pheno, htable, &topsize, &ullxx, &ped_buflen, &cur_indiv_ct, &orig_idx);
     if (retval) {
       goto merge_datasets_ret_1;
     }
+    if ((!merge_list) && mlpos) {
+      LOGPRINTFWW("%u %s to be merged from %s.\n", cur_indiv_ct, species_str(cur_indiv_ct), mergelist_fam[1]);
+      uii = ullxx - max_cur_indiv_ct;
+      LOGPRINTF("Of these, %u are new, while %u are present in the base dataset.\n", uii, cur_indiv_ct - uii);
+    }
     if (cur_indiv_ct > max_cur_indiv_ct) {
       max_cur_indiv_ct = cur_indiv_ct;
     }
-  } while (++mlpos < merge_ct);
+  }
 #ifdef __LP64__
   if (ullxx > 0x7fffffff) {
     sprintf(logbuf, "Error: Too many %s (max 2147483647).\n", g_species_plural);
@@ -15720,18 +15726,26 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   topsize = HASHMEM;
 
   ullxx = 0;
-  mlpos = 0;
-  do {
+  for (mlpos = 0; mlpos < merge_ct; ++mlpos) {
     retval = merge_bim_scan(mergelist_bim[mlpos], (mergelist_fam[mlpos])? 1 : 0, &max_marker_id_len, htable2, &topsize, &max_bim_linelen, &ullxx, &cur_marker_ct, &position_warning_ct, &non_biallelics, allow_extra_chroms, chrom_info_ptr);
     if (retval) {
       goto merge_datasets_ret_1;
+    }
+    if (!merge_list) {
+      if (!mlpos) {
+	uii = cur_marker_ct;
+      } else {
+	LOGPRINTFWW("%u marker%s to be merged from %s.\n", cur_marker_ct, (cur_marker_ct == 1)? "" : "s", mergelist_bim[1]);
+	uii = ullxx - uii;
+	LOGPRINTF("Of these, %u are new, while %u are present in the base dataset.\n", uii, cur_marker_ct - uii);
+      }
     }
     if (!mergelist_fam[mlpos]) {
       if (cur_marker_ct > max_cur_marker_text_ct) {
         max_cur_marker_text_ct = cur_marker_ct;
       }
     }
-  } while (++mlpos < merge_ct);
+  }
   if (position_warning_ct > 3) {
     printf("%" PRIu64 " more multiple-position warning%s: see log file.\n", position_warning_ct - 3, (position_warning_ct == 4)? "" : "s");
   }
