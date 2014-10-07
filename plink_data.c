@@ -16015,7 +16015,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   } else {
     // undo the "not"
     diff_not_both_genotyped = diff_total_overlap - diff_not_both_genotyped;
-    LOGPRINTF("%" PRIu64 " overlapping variants, %" PRIu64 " genotyped in both filesets.\n%" PRIu64 " concordant, for a concordance rate of %g.\n", diff_total_overlap, diff_not_both_genotyped, diff_not_both_genotyped - diff_discordant, 1.0 - (((double)diff_discordant) / ((double)diff_not_both_genotyped)));
+    LOGPRINTF("%" PRIu64 " overlapping calls, %" PRIu64 " nonmissing in both filesets.\n%" PRIu64 " concordant, for a concordance rate of %g.\n", diff_total_overlap, diff_not_both_genotyped, diff_not_both_genotyped - diff_discordant, 1.0 - (((double)diff_discordant) / ((double)diff_not_both_genotyped)));
   }
 
   forget_extra_chrom_names(chrom_info_ptr);
