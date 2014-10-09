@@ -15915,7 +15915,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     if (fputs_checked("                 SNP                  FID                  IID      NEW      OLD \n", outfile)) {
       goto merge_datasets_ret_WRITE_FAIL;
     }
-    LOGPREPRINTFWW("Performing %u-pass diff (mode %u), writing results to %s .\n", pass_ct, merge_mode, outname);
+    LOGPREPRINTFWW("Performing %u-pass diff (mode %u; %u %s, %u variant%s), writing results to %s .\n", pass_ct, merge_mode, tot_indiv_ct, species_str(tot_indiv_ct), dedup_marker_ct, (dedup_marker_ct == 1)? "" : "s", outname);
   }
   logprintb();
   for (uii = 0; uii < pass_ct; uii++) {
@@ -16015,7 +16015,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   } else {
     // undo the "not"
     diff_not_both_genotyped = diff_total_overlap - diff_not_both_genotyped;
-    LOGPRINTF("%" PRIu64 " overlapping calls, %" PRIu64 " nonmissing in both filesets.\n%" PRIu64 " concordant, for a concordance rate of %g.\n", diff_total_overlap, diff_not_both_genotyped, diff_not_both_genotyped - diff_discordant, 1.0 - (((double)diff_discordant) / ((double)diff_not_both_genotyped)));
+    LOGPRINTF("%" PRIu64 " overlapping call%s, %" PRIu64 " nonmissing in both filesets.\n%" PRIu64 " concordant, for a concordance rate of %g.\n", diff_total_overlap, (diff_total_overlap == 1)? "" : "s", diff_not_both_genotyped, diff_not_both_genotyped - diff_discordant, 1.0 - (((double)diff_discordant) / ((double)diff_not_both_genotyped)));
   }
 
   forget_extra_chrom_names(chrom_info_ptr);

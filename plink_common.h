@@ -1753,7 +1753,7 @@ typedef struct {
   uint32_t autosome_ct;
   // this is a misnomer--it includes X and excludes MT.  Underlying concept is
   // "are some calls guaranteed to be homozygous (assuming >= 1 male)", which
-  // is no longer true for MT.
+  // is no longer true for MT since heteroplasmy is a thing.
   uintptr_t haploid_mask[CHROM_MASK_WORDS];
 
   // --allow-extra-chroms support
