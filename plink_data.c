@@ -15523,6 +15523,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       goto merge_datasets_ret_1;
     }
     if ((!merge_list) && mlpos) {
+      LOGPRINTFWW("%u %s loaded from %s.\n", max_cur_indiv_ct, species_str(max_cur_indiv_ct), mergelist_fam[0]);
       LOGPRINTFWW("%u %s to be merged from %s.\n", cur_indiv_ct, species_str(cur_indiv_ct), mergelist_fam[1]);
       uii = ullxx - max_cur_indiv_ct;
       LOGPRINTF("Of these, %u are new, while %u are present in the base dataset.\n", uii, cur_indiv_ct - uii);
@@ -15735,6 +15736,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       if (!mlpos) {
 	uii = cur_marker_ct;
       } else {
+	LOGPRINTFWW("%u marker%s loaded from %s.\n", uii, (uii == 1)? "" : "s", mergelist_bim[0]);
 	LOGPRINTFWW("%u marker%s to be merged from %s.\n", cur_marker_ct, (cur_marker_ct == 1)? "" : "s", mergelist_bim[1]);
 	uii = ullxx - uii;
 	LOGPRINTF("Of these, %u are new, while %u are present in the base dataset.\n", uii, cur_marker_ct - uii);
@@ -15915,7 +15917,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     if (fputs_checked("                 SNP                  FID                  IID      NEW      OLD \n", outfile)) {
       goto merge_datasets_ret_WRITE_FAIL;
     }
-    LOGPREPRINTFWW("Performing %u-pass diff (mode %u; %u %s, %u variant%s), writing results to %s .\n", pass_ct, merge_mode, tot_indiv_ct, species_str(tot_indiv_ct), dedup_marker_ct, (dedup_marker_ct == 1)? "" : "s", outname);
+    LOGPREPRINTFWW("Performing %u-pass diff (mode %u), writing results to %s .\n", pass_ct, merge_mode, outname);
   }
   logprintb();
   for (uii = 0; uii < pass_ct; uii++) {
