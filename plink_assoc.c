@@ -11151,6 +11151,7 @@ int32_t cluster_assoc_init(const char* flag_name, uintptr_t unfiltered_indiv_ct,
   uint32_t cluster_ct2 = 0;
   uint32_t sample_ct = 0;
   uint32_t cluster_end = 0;
+  uint32_t case_ct_total = 0;
   uint32_t is_mh2 = (flag_name[4] == '2'); // yeah, this is a hack
   uintptr_t* pheno_nm_nonmale_11 = NULL;
   uintptr_t* pheno_nm_male_11 = NULL;
@@ -11246,6 +11247,7 @@ int32_t cluster_assoc_init(const char* flag_name, uintptr_t unfiltered_indiv_ct,
     cluster_pheno_gtots[4 * cluster_ct2 + 2] = case_ct;
     cluster_pheno_gtots[4 * cluster_ct2 + 3] = case_male_ct;
     sample_ct += ctrl_ct + case_ct;
+    case_ct_total += case_ct;
     if (cluster_bitfield) {
       SET_BIT(cluster_bitfield, cluster_idx);
     }
@@ -11267,6 +11269,7 @@ int32_t cluster_assoc_init(const char* flag_name, uintptr_t unfiltered_indiv_ct,
     LOGPRINTF("Error: %s does not support >= 2^30 samples.\n", flag_name);
     return RET_INVALID_CMDLINE;
   }
+  LOGPRINTF("%s: %u valid clusters, with a total of %u cases and %u controls.\n", flag_name, cluster_ct2, case_ct_total, sample_ct - case_ct_total);
   (*loadbuf_raw_ptr)[unfiltered_indiv_ctl2 - 1] = 0;
   *cluster_ct2_ptr = cluster_ct2;
   return 0;
@@ -11484,7 +11487,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
     ci_size = 0.95;
   }
   ci_zt = ltqnorm(1 - (1 - ci_size) / 2);
-  LOGPRINTFWW5("Writing --%s report (%u valid clusters) to %s ... ", breslow_day? "bd" : "mh", cluster_ct2, outname);
+  LOGPRINTFWW5("Writing report to %s ... ", outname);
   fputs("0%", stdout);
   fflush(stdout);
   sprintf(tbuf, " CHR %%%us         BP   A1      MAF   A2      CHISQ          P         OR         SE        ", plink_maxsnp);
@@ -11852,7 +11855,7 @@ int32_t cmh2_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
   if (fopen_checked(&outfile, outname, "w")) {
     goto cmh2_assoc_ret_OPEN_FAIL;
   }
-  LOGPRINTFWW5("Writing --mh2 report (%u valid clusters) to %s ... ", cluster_ct1, outname);
+  LOGPRINTFWW5("Writing report to %s ... ", outname);
   fputs("0%", stdout);
   fflush(stdout);
   if (fputs_checked("CHR\tSNP\tCHISQ\tDF\tP\n", outfile)) {
@@ -12098,7 +12101,7 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   if (fopen_checked(&outfile, outname, "w")) {
     goto homog_assoc_ret_OPEN_FAIL;
   }
-  LOGPRINTFWW5("Writing --homog report (%u valid clusters) to %s ... ", cluster_ct2, outname);
+  LOGPRINTFWW5("Writing report to %s ... ", outname);
   fputs("0%", stdout);
   fflush(stdout);
   // misaligned for backward compatibility
