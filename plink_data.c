@@ -14309,7 +14309,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
 	    }
 	  }
 	  if (ll_ptr->pos != llxx) {
-	    if ((ll_ptr->pos >> 32) == (llxx >> 32)) {
+	    if ((((uint64_t)ll_ptr->pos) >> 32) == (((uint64_t)llxx) >> 32)) {
 	      LOGPREPRINTFWW("Warning: Multiple positions seen for variant '%s'.\n", bufptr);
 	      if (position_warning_ct < 3) {
 		logprintb();
@@ -14510,7 +14510,7 @@ uint32_t merge_alleles(char** marker_allele_ptrs, uint32_t marker_uidx, uint32_t
   return 0;
 }
 
-static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_map, uint32_t* pos_buf, int64_t* ll_buf, uint32_t* chrom_start, uint32_t* chrom_id, uint32_t chrom_ct, uint32_t* dedup_marker_ct_ptr, uint32_t merge_equal_pos, char** marker_allele_ptrs, Chrom_info* chrom_info_ptr) {
+static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_map, double* marker_cms, double* marker_cms_tmp, uint32_t* pos_buf, int64_t* ll_buf, uint32_t* chrom_start, uint32_t* chrom_id, uint32_t chrom_ct, uint32_t* dedup_marker_ct_ptr, uint32_t merge_equal_pos, char** marker_allele_ptrs, Chrom_info* chrom_info_ptr) {
   // Input: ll_buf is a sequence of sorted arrays (one per chromosome) with
   // base-pair positions in high 32 bits, and pre-sort indices in low 32 bits.
   // Chromosome boundaries are stored in chrom_start[].
@@ -14543,7 +14543,8 @@ static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t 
     // ll_buf has base-pair positions in high 32 bits, and pre-sort indices in
     // low 32 bits.
     llxx = ll_buf[read_pos++];
-    prev_bp = (uint32_t)(llxx >> 32);
+    marker_cms[write_pos] = marker_cms_tmp[(uint32_t)llxx];
+    prev_bp = (uint32_t)(((uint64_t)llxx) >> 32);
     pos_buf[write_pos] = prev_bp;
     marker_map[(uint32_t)llxx] = write_pos++;
     for (; read_pos < chrom_read_end_idx; read_pos++) {
@@ -14573,6 +14574,7 @@ static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t 
 	prev_bp = cur_bp;
       }
       marker_map[presort_idx] = write_pos;
+      marker_cms[write_pos] = marker_cms_tmp[presort_idx];
       pos_buf[write_pos++] = cur_bp;
     }
     read_pos = chrom_start[chrom_idx + 1];
@@ -15326,6 +15328,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   uint32_t* marker_map;
   uint32_t* flex_map;
   double* marker_cms;
+  double* marker_cms_tmp;
   uint32_t* pos_buf;
   int64_t* ll_buf;
   uintptr_t mlpos;
@@ -15791,6 +15794,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       wkspace_alloc_ui_checked(&marker_map, tot_marker_ct * sizeof(int32_t)) ||
       wkspace_alloc_d_checked(&marker_cms, tot_marker_ct * sizeof(double)) ||
       wkspace_alloc_ui_checked(&pos_buf, tot_marker_ct * sizeof(int32_t)) ||
+      wkspace_alloc_d_checked(&marker_cms_tmp, tot_marker_ct * sizeof(double)) ||
       wkspace_alloc_ll_checked(&ll_buf, tot_marker_ct * sizeof(int64_t))) {
     goto merge_datasets_ret_NOMEM2;
   }
@@ -15837,21 +15841,21 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
 	} else {
 	  marker_allele_ptrs[ujj * 2 + 1] = missing_geno_ptr;
 	}
-	marker_cms[ujj] = ll_ptr2->cm;
-	ll_buf[ujj] = (llxx & 0xffffffff00000000LL) | ujj;
+	marker_cms_tmp[ujj] = ll_ptr2->cm;
+	ll_buf[ujj] = (((uint64_t)llxx) & 0xffffffff00000000LL) | ujj;
 	ll_ptr2 = ll_ptr2->next;
       } while (ll_ptr2);
     }
   }
   sort_marker_chrom_pos(ll_buf, tot_marker_ct, pos_buf, chrom_start, chrom_id, NULL, &chrom_ct);
-  if (merge_post_msort_update_maps(marker_ids, max_marker_id_len, marker_map, pos_buf, ll_buf, chrom_start, chrom_id, chrom_ct, &dedup_marker_ct, merge_equal_pos, marker_allele_ptrs, chrom_info_ptr)) {
+  if (merge_post_msort_update_maps(marker_ids, max_marker_id_len, marker_map, marker_cms, marker_cms_tmp, pos_buf, ll_buf, chrom_start, chrom_id, chrom_ct, &dedup_marker_ct, merge_equal_pos, marker_allele_ptrs, chrom_info_ptr)) {
     goto merge_datasets_ret_INVALID_FORMAT;
   }
   if (!dedup_marker_ct) {
     logprint("Error: No variants in merged file.\n");
     goto merge_datasets_ret_INVALID_FORMAT;
   }
-  wkspace_reset(ll_buf);
+  wkspace_reset((char*)marker_cms_tmp);
 
   tot_indiv_ct4 = (tot_indiv_ct + 3) / 4;
 
