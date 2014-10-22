@@ -1006,6 +1006,11 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   if (!unfiltered_marker_ct) {
     sprintf(logbuf, "Error: No variants in %s.\n", ftype_str);
     goto load_bim_ret_INVALID_FORMAT_2;
+  } else if (unfiltered_marker_ct > 2147483645) {
+    // maximum prime < 2^32 is 4294967291; quadratic hashing guarantee breaks
+    // down past that divided by 2.
+    logprint("Error: PLINK does not support more than 2^31 - 3 variants.  We recommend other\nsoftware, such as PLINK/SEQ, for very deep studies of small numbers of genomes.\n");
+    goto load_bim_ret_INVALID_FORMAT;
   }
   if (from_slen || to_slen) {
     if (from_slen && (from_chrom == MAX_POSSIBLE_CHROM)) {

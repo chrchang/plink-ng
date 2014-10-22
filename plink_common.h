@@ -648,10 +648,9 @@
 
 // string hash table constants, currently only relevant for merge operations
 // and annotate()
+// (dynamic sizing used for main marker name lookup)
 
 // last prime before 2^19
-// (maybe want to pick the second-to-last prime instead since this is only 1
-// less?  though 19-character offsets are unlikely to matter in practice...)
 // size chosen to be likely to fit in L3 cache
 #define HASHSIZE 524287
 #define HASHSIZE_S 524287
@@ -892,6 +891,15 @@ void wkspace_reset(void* new_base);
 
 void wkspace_shrink_top(void* rebase, uintptr_t new_size);
 
+uint32_t murmurhash3_32(const void* key, uint32_t len);
+
+static inline uint32_t hashval2(char* idstr, uint32_t idlen) {
+  return murmurhash3_32(idstr, idlen) % HASHSIZE;
+}
+
+uintptr_t geqprime(uintptr_t floor);
+
+/*
 static inline uint32_t hashval2(char* idstr, uint32_t idlen) {
   unsigned char* ucptr = (unsigned char*)idstr;
   unsigned char* ucp_end = &(ucptr[idlen]);
@@ -901,6 +909,7 @@ static inline uint32_t hashval2(char* idstr, uint32_t idlen) {
   }
   return vv;
 }
+*/
 
 static inline unsigned char* top_alloc(uintptr_t* topsize_ptr, uint32_t size) {
   uintptr_t ts = *topsize_ptr + ((size + 15) & (~(15 * ONELU)));

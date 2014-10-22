@@ -15,45 +15,6 @@ void family_init(Family_info* fam_ip) {
   fam_ip->qfam_mperm_val = 0;
 }
 
-uint32_t is_composite6(uintptr_t num) {
-  // assumes num is congruent to 1 or 5 mod 6.
-  // can speed this up by ~50% by hardcoding avoidance of multiples of 5/7,
-  // but this isn't currently a bottleneck so I'll keep this simple
-  uintptr_t divisor = 5;
-  while (divisor * divisor <= num) {
-    if (!(num % divisor)) {
-      return 1;
-    }
-    divisor += 2;
-    if (!(num % divisor)) {
-      return 1;
-    }
-    divisor += 4;
-  }
-  return 0;
-}
-
-// this is probably going to go back into plink_common later...
-uintptr_t geqprime(uintptr_t floor) {
-  // assumes floor is odd and greater than 1.  Returns 5 if floor = 3,
-  // otherwise returns the first prime >= floor.
-  uintptr_t ulii = floor % 3;
-  if (!ulii) {
-    floor += 2;
-  } else if (ulii == 1) {
-    goto geqprime_1mod6;
-  }
-  while (is_composite6(floor)) {
-    floor += 2;
-  geqprime_1mod6:
-    if (!is_composite6(floor)) {
-      return floor;
-    }
-    floor += 4;
-  }
-  return floor;
-}
-
 // bottom 2 bits of index = child genotype
 // middle 2 bits of index = paternal genotype
 // top 2 bits of index = maternal genotype
