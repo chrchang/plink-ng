@@ -797,33 +797,29 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     if (update_map) {
       retval = update_marker_pos(update_map, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, marker_pos, &map_is_unsorted, chrom_info_ptr);
     } else if (update_name) {
-      /*
       retval = update_marker_names(update_name, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len, unfiltered_marker_ct);
       if (retval) {
 	goto plink_ret_1;
       }
       if (update_alleles_fname || (marker_alleles_needed && flip_fname && (!flip_subset_fname)) || extractname || excludename) {
 	wkspace_reset(wkspace_mark);
-        retval = populate_id_htable(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, 0, &topsize, &marker_id_htable, &marker_id_htable_size);
+        retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
       }
-      */
     }
-    /*
     if (marker_alleles_needed) {
       if (update_alleles_fname) {
-        retval = update_marker_alleles(update_alleles_fname, cptr, ulii, max_marker_id_len, uiptr, marker_allele_ptrs, &max_marker_allele_len, outname, outname_end);
+        retval = update_marker_alleles(update_alleles_fname, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, marker_allele_ptrs, &max_marker_allele_len, outname, outname_end);
         if (retval) {
 	  goto plink_ret_1;
         }
       }
       if (flip_fname && (!flip_subset_fname)) {
-        retval = flip_strand(flip_fname, cptr, ulii, max_marker_id_len, uiptr, marker_allele_ptrs);
+        retval = flip_strand(flip_fname, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, marker_allele_ptrs);
         if (retval) {
 	  goto plink_ret_1;
         }
       }
     }
-    */
     if (extractname) {
       if (!(misc_flags & MISC_EXTRACT_RANGE)) {
         retval = extract_exclude_flag_norange(extractname, marker_id_htable, marker_id_htable_size, 0, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
@@ -862,20 +858,18 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	LOGPRINTF("--exclude range: %" PRIuPTR " variant%s remaining.\n", uljj, (uljj == 1)? "" : "s");
       }
     }
-    /*
     if (filter_attrib_fname) {
-      retval = filter_attrib(filter_attrib_fname, filter_attrib_liststr, cptr, ulii, max_marker_id_len, uiptr, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0);
+      retval = filter_attrib(filter_attrib_fname, filter_attrib_liststr, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
       if (retval) {
 	goto plink_ret_1;
       }
     }
     if (qual_filter) {
-      retval = filter_qual_scores(qual_filter, qual_min_thresh, qual_max_thresh, cptr, ulii, max_marker_id_len, uiptr, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
+      retval = filter_qual_scores(qual_filter, qual_min_thresh, qual_max_thresh, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
       if (retval) {
         goto plink_ret_1;
       }
     }
-    */
     wkspace_reset(wkspace_mark);
   }
 
@@ -1010,7 +1004,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
     }
     if (filter_attrib_indiv_fname) {
-      retval = filter_attrib(filter_attrib_indiv_fname, filter_attrib_indiv_liststr, cptr, ulii, max_person_id_len, uiptr, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, 1);
+      retval = filter_attrib_indiv(filter_attrib_indiv_fname, filter_attrib_indiv_liststr, cptr, ulii, max_person_id_len, uiptr, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct);
       if (retval) {
 	goto plink_ret_1;
       }

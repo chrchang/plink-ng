@@ -174,7 +174,7 @@ int32_t keep_or_remove(char* fname, char* sorted_ids, uintptr_t sorted_ids_ct, u
   return retval;
 }
 
-void exclude_extract_process_token(const char* tok_start, const uint32_t* marker_id_htable, uint32_t marker_id_htable_size, const uint32_t* extra_alloc_base, const char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* already_seen, uintptr_t* duplicate_ct_ptr, uint32_t do_exclude, uint32_t curtoklen) {
+void extract_exclude_process_token(const char* tok_start, const uint32_t* marker_id_htable, uint32_t marker_id_htable_size, const uint32_t* extra_alloc_base, const char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_exclude, uintptr_t* already_seen, uintptr_t* duplicate_ct_ptr, uint32_t do_exclude, uint32_t curtoklen) {
   if (curtoklen >= max_marker_id_len) {
     return;
   }
@@ -196,14 +196,18 @@ void exclude_extract_process_token(const char* tok_start, const uint32_t* marker
       cur_llidx = hash_result << 1;
       marker_uidx = extra_alloc_base[cur_llidx];
     } else {
+      // no need to check without --update-map, which requires uniqueness
+      if (is_set(marker_exclude, hash_result)) {
+	goto extract_exclude_process_token_next_hashval;
+      }
       marker_uidx = hash_result;
     }
     sptr = &(marker_ids[marker_uidx * max_marker_id_len]);
     if ((!memcmp(tok_start, sptr, curtoklen)) && (!sptr[curtoklen])) {
-      // when there are multiple variants with the same ID, only need to check
-      // bit for first search result
+      // when there are multiple variants with the same ID, only need to
+      // check bit for first search result
       if (IS_SET(already_seen, marker_uidx)) {
-        *duplicate_ct_ptr += 1;
+	*duplicate_ct_ptr += 1;
       } else {
 	SET_BIT(already_seen, marker_uidx);
 	if (!cur_dup) {
@@ -218,6 +222,7 @@ void exclude_extract_process_token(const char* tok_start, const uint32_t* marker
 	}
       }
     }
+  extract_exclude_process_token_next_hashval:
     top_diff = marker_id_htable_size - hashval;
     if (top_diff > next_incr) {
       hashval += next_incr;
@@ -257,7 +262,7 @@ int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, ui
     }
     if (!bufsize) {
       if (curtoklen) {
-        exclude_extract_process_token(&(tbuf[MAXLINELEN - curtoklen]), marker_id_htable, marker_id_htable_size, extra_alloc_base, marker_ids, max_marker_id_len, already_seen, &duplicate_ct, do_exclude, curtoklen);
+        extract_exclude_process_token(&(tbuf[MAXLINELEN - curtoklen]), marker_id_htable, marker_id_htable_size, extra_alloc_base, marker_ids, max_marker_id_len, marker_exclude, already_seen, &duplicate_ct, do_exclude, curtoklen);
       }
       break;
     }
@@ -292,7 +297,7 @@ int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, ui
         memcpy(bufptr3, bufptr, curtoklen);
 	break;
       }
-      exclude_extract_process_token(bufptr, marker_id_htable, marker_id_htable_size, extra_alloc_base, marker_ids, max_marker_id_len, already_seen, &duplicate_ct, do_exclude, curtoklen);
+      extract_exclude_process_token(bufptr, marker_id_htable, marker_id_htable_size, extra_alloc_base, marker_ids, max_marker_id_len, marker_exclude, already_seen, &duplicate_ct, do_exclude, curtoklen);
       bufptr = &(bufptr2[1]);
     }
   }
@@ -340,7 +345,7 @@ int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, ui
   return retval;
 }
 
-int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintptr_t sorted_ids_ct, uintptr_t max_id_len, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* exclude_ct_ptr, uint32_t is_indiv) {
+int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uint32_t id_htable_size, char* item_ids, uintptr_t max_id_len, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* exclude_ct_ptr) {
   gzFile gz_infile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t include_ct = 0;
@@ -348,7 +353,6 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
   uintptr_t* cur_neg_matches = NULL;
   char* sorted_pos_match = NULL;
   char* sorted_neg_match = NULL;
-  char* id_buf = NULL;
   char* bufptr2 = NULL;
   uint32_t pos_match_ct = 0;
   uint32_t neg_match_ct = 0;
@@ -367,14 +371,13 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
   uintptr_t pos_match_idx;
   uintptr_t neg_match_idx;
   uintptr_t ulii;
-  uint32_t unfiltered_idx;
+  uint32_t item_uidx;
   uint32_t pos_match_needed;
   uint32_t cur_neg_match_ct;
   int32_t sorted_idx;
   
   if (wkspace_alloc_ul_checked(&exclude_arr_new, unfiltered_ctl * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&already_seen, unfiltered_ctl * sizeof(intptr_t)) ||
-      (is_indiv && wkspace_alloc_c_checked(&id_buf, max_id_len))) { 
+      wkspace_alloc_ul_checked(&already_seen, unfiltered_ctl * sizeof(intptr_t))) {
     goto filter_attrib_ret_NOMEM;
   }
   fill_all_bits(exclude_arr_new, unfiltered_ct);
@@ -392,8 +395,8 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
 	if (*cond_ptr == ',') {
 	  continue;
 	} else if (*cond_ptr == '-') {
-	  sprintf(logbuf, "Error: --attrib%s condition cannot contain consecutive dashes.\n", is_indiv? "-indiv" : "");
-	  goto filter_attrib_ret_INVALID_CMDLINE_2;
+	  logprint("Error: --attrib condition cannot contain consecutive dashes.\n");
+	  goto filter_attrib_ret_INVALID_CMDLINE;
 	}
 	is_neg = 1;
       } else if (!(*cond_ptr)) {
@@ -462,7 +465,7 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
       qsort(sorted_pos_match, pos_match_ct, max_pos_match_len, strcmp_casted);
       bufptr = scan_for_duplicate_ids(sorted_pos_match, pos_match_ct, max_pos_match_len);
       if (bufptr) {
-	LOGPREPRINTFWW("Error: Duplicate attribute '%s' in --attrib%s argument.\n", bufptr, is_indiv? "-indiv" : "");
+	LOGPREPRINTFWW("Error: Duplicate attribute '%s' in --attrib argument.\n", bufptr);
 	goto filter_attrib_ret_INVALID_CMDLINE_2;
       }
     }
@@ -470,7 +473,7 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
       qsort(sorted_neg_match, neg_match_ct, max_neg_match_len, strcmp_casted);
       bufptr = scan_for_duplicate_ids(sorted_neg_match, neg_match_ct, max_neg_match_len);
       if (bufptr) {
-	LOGPREPRINTFWW("Error: Duplicate attribute '%s' in --attrib%s argument.\n", bufptr, is_indiv? "-indiv" : "");
+	LOGPREPRINTFWW("Error: Duplicate attribute '%s' in --attrib argument.\n", bufptr);
 	goto filter_attrib_ret_INVALID_CMDLINE_2;
       }
       // actually may make sense to have same attribute as a positive and
@@ -501,7 +504,7 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
     }
     if (!loadbuf[loadbuf_size - 1]) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-	sprintf(logbuf, "Error: Line %" PRIuPTR" of --attrib%s file is pathologically long.\n", line_idx, is_indiv? "-indiv" : "");
+	sprintf(logbuf, "Error: Line %" PRIuPTR" of --attrib file is pathologically long.\n", line_idx);
         goto filter_attrib_ret_INVALID_FORMAT_2;
       }
       goto filter_attrib_ret_NOMEM;
@@ -510,28 +513,270 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    if (is_indiv) {
-      if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_ct, bufptr, &cond_ptr, &sorted_idx)) {
-        sprintf(logbuf, "Error: Line %" PRIuPTR " of --attrib-indiv file has fewer tokens than\nexpected.\n", line_idx);
-        goto filter_attrib_ret_INVALID_FORMAT_2;
+    bufptr2 = token_endnn(bufptr);
+    cond_ptr = skip_initial_spaces(bufptr2);
+    item_uidx = id_htable_find(bufptr, (uintptr_t)(bufptr2 - bufptr), id_htable, id_htable_size, item_ids, max_id_len);
+    if ((item_uidx == 0xffffffffU) || is_set(exclude_arr, item_uidx)) {
+      // miss_ct++;
+      continue;
+    }
+    if (is_set(already_seen, item_uidx)) {
+      *bufptr2 = '\0';
+      LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --attrib file.\n", bufptr);
+      goto filter_attrib_ret_INVALID_FORMAT_2;
+    }
+    set_bit(already_seen, item_uidx);
+    pos_match_needed = pos_match_ct;
+    cur_neg_match_ct = 0;
+    if (neg_match_ct) {
+      fill_ulong_zero(cur_neg_matches, neg_match_ctl);
+    }
+    while (!is_eoln_kns(*cond_ptr)) {
+      bufptr2 = cond_ptr;
+      bufptr = token_endnn(cond_ptr);
+      ulii = (uintptr_t)(bufptr - bufptr2);
+      cond_ptr = skip_initial_spaces(bufptr);
+      if (pos_match_needed && (bsearch_str(bufptr2, ulii, sorted_pos_match, max_pos_match_len, pos_match_ct) != -1)) {
+	pos_match_needed = 0;
       }
-    } else {
-      bufptr2 = token_endnn(bufptr);
-      cond_ptr = skip_initial_spaces(bufptr2);
-      sorted_idx = bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_ids, max_id_len, sorted_ids_ct);
+      if (cur_neg_match_ct < neg_match_ct) {
+	sorted_idx = bsearch_str(bufptr2, ulii, sorted_neg_match, max_neg_match_len, neg_match_ct);
+	if ((sorted_idx != -1) && (!is_set(cur_neg_matches, sorted_idx))) {
+          cur_neg_match_ct++;
+	  if (cur_neg_match_ct == neg_match_ct) {
+	    // fail
+	    pos_match_needed = 1;
+            break;
+	  }
+          set_bit(cur_neg_matches, sorted_idx);
+	}
+      }
+    }
+    if (pos_match_needed) {
+      continue;
+    }
+    // full negative match causes pos_match_needed to be set, so no further
+    // check required
+    clear_bit(exclude_arr_new, item_uidx);
+    include_ct++;
+  }
+  if (!include_ct) {
+    logprint("Error: No variants remaining after --attrib.\n");
+    retval = RET_ALL_MARKERS_EXCLUDED;
+    goto filter_attrib_ret_1;
+  }
+  LOGPRINTF("--attrib: %" PRIuPTR " variant%s remaining.\n", include_ct, (include_ct == 1)? "" : "s");
+  memcpy(exclude_arr, exclude_arr_new, unfiltered_ctl * sizeof(intptr_t));
+  *exclude_ct_ptr = unfiltered_ct - include_ct;
+  while (0) {
+  filter_attrib_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  filter_attrib_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  filter_attrib_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  filter_attrib_ret_INVALID_CMDLINE_2:
+    logprintb();
+  filter_attrib_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+  filter_attrib_ret_INVALID_FORMAT_2:
+    logprintb();
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ filter_attrib_ret_1:
+  wkspace_reset(wkspace_mark);
+  gzclose_cond(gz_infile);
+  return retval;
+}
+
+int32_t filter_attrib_indiv(char* fname, char* condition_str, char* sorted_ids, uintptr_t sorted_ids_ct, uintptr_t max_id_len, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* exclude_ct_ptr) {
+  // re-merge this with filter_attrib() after making sample ID lookup
+  // hash-based
+  gzFile gz_infile = NULL;
+  unsigned char* wkspace_mark = wkspace_base;
+  uintptr_t include_ct = 0;
+  uintptr_t unfiltered_ctl = (unfiltered_ct + (BITCT - 1)) / BITCT;
+  uintptr_t* cur_neg_matches = NULL;
+  char* sorted_pos_match = NULL;
+  char* sorted_neg_match = NULL;
+  char* id_buf = NULL;
+  char* bufptr2 = NULL;
+  uint32_t pos_match_ct = 0;
+  uint32_t neg_match_ct = 0;
+  uint32_t neg_match_ctl = 0;
+  uintptr_t max_pos_match_len = 0;
+  uintptr_t max_neg_match_len = 0;
+  uintptr_t line_idx = 0;
+  uint32_t is_neg = 0;
+  int32_t retval = 0;
+  uintptr_t* exclude_arr_new;
+  uintptr_t* already_seen;
+  char* loadbuf;
+  char* cond_ptr;
+  char* bufptr;
+  uintptr_t loadbuf_size;
+  uintptr_t pos_match_idx;
+  uintptr_t neg_match_idx;
+  uintptr_t ulii;
+  uint32_t unfiltered_idx;
+  uint32_t pos_match_needed;
+  uint32_t cur_neg_match_ct;
+  int32_t sorted_idx;
+  
+  if (wkspace_alloc_ul_checked(&exclude_arr_new, unfiltered_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&already_seen, unfiltered_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_c_checked(&id_buf, max_id_len)) { 
+    goto filter_attrib_indiv_ret_NOMEM;
+  }
+  fill_all_bits(exclude_arr_new, unfiltered_ct);
+  fill_ulong_zero(already_seen, unfiltered_ctl);
+  if (condition_str) {
+    // allow NULL condition_str; this means all indivs/variants named in the
+    // file are included
+    cond_ptr = condition_str;
+    while (1) {
+      while (*cond_ptr == ',') {
+	cond_ptr++;
+      }
+      if (*cond_ptr == '-') {
+	cond_ptr++;
+	if (*cond_ptr == ',') {
+	  continue;
+	} else if (*cond_ptr == '-') {
+	  logprint("Error: --attrib-indiv condition cannot contain consecutive dashes.\n");
+	  goto filter_attrib_indiv_ret_INVALID_CMDLINE;
+	}
+	is_neg = 1;
+      } else if (!(*cond_ptr)) {
+        // command-line parser actually comma-terminates the string for us, so
+        // no need to check for null elsewhere
+	break;
+      }
+      bufptr = strchr(cond_ptr, ',');
+      ulii = (uintptr_t)(bufptr - cond_ptr);
+      if (is_neg) {
+	neg_match_ct++;
+	if (ulii >= max_neg_match_len) {
+	  max_neg_match_len = ulii + 1;
+	}
+      } else {
+        pos_match_ct++;
+	if (ulii >= max_pos_match_len) {
+          max_pos_match_len = ulii + 1;
+	}
+      }
+      cond_ptr = bufptr;
+      is_neg = 0;
+    }
+    if (pos_match_ct) {
+      if (wkspace_alloc_c_checked(&sorted_pos_match, max_pos_match_len * pos_match_ct)) {
+	goto filter_attrib_indiv_ret_NOMEM;
+      }
+    }
+    if (neg_match_ct) {
+      neg_match_ctl = (neg_match_ct + (BITCT - 1)) / BITCT;
+      if (wkspace_alloc_c_checked(&sorted_neg_match, max_neg_match_len * neg_match_ct) ||
+	  wkspace_alloc_ul_checked(&cur_neg_matches, neg_match_ctl * sizeof(intptr_t))) {
+        goto filter_attrib_indiv_ret_NOMEM;
+      }
+    }
+    pos_match_idx = 0;
+    neg_match_idx = 0;
+    cond_ptr = condition_str;
+    is_neg = 0;
+    while (1) {
+      while (*cond_ptr == ',') {
+	cond_ptr++;
+      }
+      if (*cond_ptr == '-') {
+	cond_ptr++;
+	if (*cond_ptr == ',') {
+	  continue;
+	}
+	is_neg = 1;
+      } else if (!(*cond_ptr)) {
+	break;
+      }
+      bufptr = strchr(cond_ptr, ',');
+      ulii = (uintptr_t)(bufptr - cond_ptr);
+      if (is_neg) {
+	memcpyx(&(sorted_neg_match[neg_match_idx * max_neg_match_len]), cond_ptr, ulii, '\0');
+	neg_match_idx++;
+      } else {
+	memcpyx(&(sorted_pos_match[pos_match_idx * max_pos_match_len]), cond_ptr, ulii, '\0');
+        pos_match_idx++;
+      }
+      cond_ptr = bufptr;
+      is_neg = 0;
+    }
+    if (pos_match_ct) {
+      qsort(sorted_pos_match, pos_match_ct, max_pos_match_len, strcmp_casted);
+      bufptr = scan_for_duplicate_ids(sorted_pos_match, pos_match_ct, max_pos_match_len);
+      if (bufptr) {
+	LOGPREPRINTFWW("Error: Duplicate attribute '%s' in --attrib-indiv argument.\n", bufptr);
+	goto filter_attrib_indiv_ret_INVALID_CMDLINE_2;
+      }
+    }
+    if (neg_match_ct) {
+      qsort(sorted_neg_match, neg_match_ct, max_neg_match_len, strcmp_casted);
+      bufptr = scan_for_duplicate_ids(sorted_neg_match, neg_match_ct, max_neg_match_len);
+      if (bufptr) {
+	LOGPREPRINTFWW("Error: Duplicate attribute '%s' in --attrib-indiv argument.\n", bufptr);
+	goto filter_attrib_indiv_ret_INVALID_CMDLINE_2;
+      }
+      // actually may make sense to have same attribute as a positive and
+      // negative condition, so we don't check for that
+    }
+  }
+  loadbuf_size = wkspace_left;
+  if (loadbuf_size > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
+  } else if (loadbuf_size <= MAXLINELEN) {
+    goto filter_attrib_indiv_ret_NOMEM;
+  }
+  if (gzopen_checked(&gz_infile, fname, "rb")) {
+    goto filter_attrib_indiv_ret_OPEN_FAIL;
+  }
+  if (gzbuffer(gz_infile, 131072)) {
+    goto filter_attrib_indiv_ret_NOMEM;
+  }
+  loadbuf = (char*)wkspace_base;
+  loadbuf[loadbuf_size - 1] = ' ';
+  while (1) {
+    line_idx++;
+    if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
+      if (!gzeof(gz_infile)) {
+	goto filter_attrib_indiv_ret_READ_FAIL;
+      }
+      break;
+    }
+    if (!loadbuf[loadbuf_size - 1]) {
+      if (loadbuf_size == MAXLINEBUFLEN) {
+	sprintf(logbuf, "Error: Line %" PRIuPTR" of --attrib-indiv file is pathologically long.\n", line_idx);
+        goto filter_attrib_indiv_ret_INVALID_FORMAT_2;
+      }
+      goto filter_attrib_indiv_ret_NOMEM;
+    }
+    bufptr = skip_initial_spaces(loadbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_ct, bufptr, &cond_ptr, &sorted_idx)) {
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of --attrib-indiv file has fewer tokens than\nexpected.\n", line_idx);
+      goto filter_attrib_indiv_ret_INVALID_FORMAT_2;
     }
     if (sorted_idx == -1) {
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
-      if (is_indiv) {
-	*strchr(id_buf, '\t') = ' ';
-        LOGPREPRINTFWW("Error: Duplicate individual ID '%s' in --attrib-indiv file.\n", id_buf);
-      } else {
-	*bufptr2 = '\0';
-	LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --attrib file.\n", bufptr);
-      }
-      goto filter_attrib_ret_INVALID_FORMAT_2;
+      *strchr(id_buf, '\t') = ' ';
+      LOGPREPRINTFWW("Error: Duplicate individual ID '%s' in --attrib-indiv file.\n", id_buf);
+      goto filter_attrib_indiv_ret_INVALID_FORMAT_2;
     }
     set_bit(already_seen, sorted_idx);
     unfiltered_idx = id_map[(uint32_t)sorted_idx];
@@ -570,50 +815,48 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
     include_ct++;
   }
   if (!include_ct) {
-    LOGPRINTF("Error: No %s remaining after --attrib%s.\n", is_indiv? g_species_plural : "variants", is_indiv? "-indiv" : "");
-    if (is_indiv) {
-      retval = RET_ALL_SAMPLES_EXCLUDED;
-    } else {
-      retval = RET_ALL_MARKERS_EXCLUDED;
-    }
-    goto filter_attrib_ret_1;
+    LOGPRINTF("Error: No %s remaining after --attrib-indiv.\n", g_species_plural);
+    retval = RET_ALL_SAMPLES_EXCLUDED;
+    goto filter_attrib_indiv_ret_1;
   }
-  LOGPRINTF("--attrib%s: %" PRIuPTR " %s remaining.\n", is_indiv? "-indiv" : "", include_ct, is_indiv? species_str(include_ct) : "variants");
+  LOGPRINTF("--attrib-indiv: %" PRIuPTR " %s remaining.\n", include_ct, species_str(include_ct));
   memcpy(exclude_arr, exclude_arr_new, unfiltered_ctl * sizeof(intptr_t));
   *exclude_ct_ptr = unfiltered_ct - include_ct;
   while (0) {
-  filter_attrib_ret_NOMEM:
+  filter_attrib_indiv_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  filter_attrib_ret_OPEN_FAIL:
+  filter_attrib_indiv_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;
-  filter_attrib_ret_READ_FAIL:
+  filter_attrib_indiv_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  filter_attrib_ret_INVALID_CMDLINE_2:
+  filter_attrib_indiv_ret_INVALID_CMDLINE_2:
     logprintb();
+  filter_attrib_indiv_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
-  filter_attrib_ret_INVALID_FORMAT_2:
+  filter_attrib_indiv_ret_INVALID_FORMAT_2:
     logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
- filter_attrib_ret_1:
+ filter_attrib_indiv_ret_1:
   wkspace_reset(wkspace_mark);
   gzclose_cond(gz_infile);
   return retval;
 }
 
-int32_t filter_qual_scores(Two_col_params* qual_filter, double qual_min_thresh, double qual_max_thresh, char* sorted_marker_ids, uintptr_t sorted_ids_ct, uintptr_t max_marker_id_len, uint32_t* marker_id_map, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr) {
+int32_t filter_qual_scores(Two_col_params* qual_filter, double qual_min_thresh, double qual_max_thresh, uint32_t* marker_id_htable, uint32_t marker_id_htable_size, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
-  uintptr_t sorted_ids_ctl = (sorted_ids_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t miss_ct = 0;
   uint32_t varid_first = (qual_filter->colid < qual_filter->colx);
   char skipchar = qual_filter->skipchar;
   uintptr_t* already_seen;
+  uintptr_t* marker_exclude_orig;
   char* loadbuf;
   uintptr_t loadbuf_size;
   uintptr_t slen;
@@ -625,13 +868,14 @@ int32_t filter_qual_scores(Two_col_params* qual_filter, double qual_min_thresh, 
   uint32_t colmin;
   uint32_t coldiff;
   uint32_t marker_uidx;
-  int32_t sorted_idx;
   int32_t retval;
   char cc;
-  if (wkspace_alloc_ul_checked(&already_seen, sorted_ids_ctl * sizeof(intptr_t))) {
+  if (wkspace_alloc_ul_checked(&already_seen, unfiltered_marker_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&marker_exclude_orig, unfiltered_marker_ctl * sizeof(intptr_t))) {
     goto filter_qual_scores_ret_NOMEM;
   }
-  fill_ulong_zero(already_seen, sorted_ids_ctl);
+  fill_ulong_zero(already_seen, unfiltered_marker_ctl);
+  memcpy(marker_exclude_orig, marker_exclude, unfiltered_marker_ctl * sizeof(intptr_t));
 
   loadbuf = (char*)wkspace_base;
   loadbuf_size = wkspace_left;
@@ -682,18 +926,17 @@ int32_t filter_qual_scores(Two_col_params* qual_filter, double qual_min_thresh, 
       }
     }
     slen = strlen_se(colid_ptr);
-    sorted_idx = bsearch_str(colid_ptr, slen, sorted_marker_ids, max_marker_id_len, sorted_ids_ct);
-    if (sorted_idx == -1) {
+    marker_uidx = id_htable_find(colid_ptr, slen, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len);
+    if ((marker_uidx == 0xffffffffU) || is_set(marker_exclude_orig, marker_uidx)) {
       miss_ct++;
       continue;
     }
-    if (is_set(already_seen, sorted_idx)) {
+    if (is_set(already_seen, marker_uidx)) {
       colid_ptr[slen] = '\0';
       LOGPREPRINTFWW("Error: Duplicate variant '%s' in --qual-scores file.\n", colid_ptr);
       goto filter_qual_scores_ret_INVALID_FORMAT_2;
     }
-    set_bit(already_seen, sorted_idx);
-    marker_uidx = marker_id_map[(uint32_t)sorted_idx];
+    set_bit(already_seen, marker_uidx);
     if (scan_double(colx_ptr, &dxx) || (dxx < qual_min_thresh) || (dxx > qual_max_thresh)) {
       set_bit(marker_exclude, marker_uidx);
     }
@@ -701,7 +944,7 @@ int32_t filter_qual_scores(Two_col_params* qual_filter, double qual_min_thresh, 
   if (!feof(infile)) {
     goto filter_qual_scores_ret_READ_FAIL;
   }
-  *marker_exclude_ct_ptr = popcount_longs(marker_exclude, (unfiltered_marker_ct + (BITCT - 1)) / BITCT);
+  *marker_exclude_ct_ptr = popcount_longs(marker_exclude, unfiltered_marker_ctl);
   marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
   if (miss_ct) {
     sprintf(logbuf, "--qual-scores: %" PRIuPTR " variant%s remaining, %" PRIuPTR " ID%s missing.\n", marker_ct, (marker_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");

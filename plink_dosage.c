@@ -37,7 +37,6 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   char* maternal_ids = NULL;
   char* cluster_ids = NULL;
   char* covar_names = NULL;
-  char* sorted_marker_ids = NULL;
   char* sorted_person_ids = NULL;
   char* sep_fnames = NULL;
   char* cur_marker_id_buf = NULL;
@@ -86,7 +85,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uint32_t* marker_pos = NULL;
   uint32_t* cluster_map = NULL;
   uint32_t* cluster_starts = NULL;
-  uint32_t* marker_id_map = NULL;
+  uint32_t* marker_id_htable = NULL;
   uint32_t* person_id_map = NULL;
   uint32_t* batch_sizes = NULL;
   uint32_t* uiptr = NULL;
@@ -133,6 +132,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uint32_t batch_ct = 1;
   uint32_t max_batch_size = 1;
   uint32_t cur_marker_id_len = 0;
+  uint32_t marker_id_htable_size = 0;
   uint32_t a1_len = 0;
   uint32_t a2_len = 0;
   uint32_t ujj = 0;
@@ -292,35 +292,32 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     wkspace_reset(wkspace_mark);
   }
   if (load_map) {
-    /*
     uii = update_map || update_name || filter_attrib_fname || qual_filter;
     if (uii || extractname || excludename) {
       wkspace_mark = wkspace_base;
-      retval = sort_item_ids(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, !uii, 0, strcmp_deref);
+      retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, !uii, &marker_id_htable, &marker_id_htable_size);
       if (retval) {
 	goto plink1_dosage_ret_1;
       }
-      ulii = unfiltered_marker_ct - marker_exclude_ct;
 
       if (update_map) {
-	retval = update_marker_pos(update_map, sorted_marker_ids, ulii, max_marker_id_len, marker_id_map, marker_exclude, &marker_exclude_ct, marker_pos, &map_is_unsorted, chrom_info_ptr);
+	retval = update_marker_pos(update_map, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, marker_pos, &map_is_unsorted, chrom_info_ptr);
       } else if (update_name) {
-	retval = update_marker_names(update_name, sorted_marker_ids, ulii, max_marker_id_len, marker_id_map, marker_ids);
+	retval = update_marker_names(update_name, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len, unfiltered_marker_ct);
 	if (retval) {
 	  goto plink1_dosage_ret_1;
 	}
 	if (extractname || excludename) {
 	  wkspace_reset(wkspace_mark);
-	  retval = sort_item_ids(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
+	  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
 	  if (retval) {
 	    goto plink1_dosage_ret_1;
 	  }
-	  ulii = unfiltered_marker_ct - marker_exclude_ct;
 	}
       }
       if (extractname) {
 	if (!(misc_flags & MISC_EXTRACT_RANGE)) {
-	  retval = include_or_exclude(extractname, sorted_marker_ids, ulii, max_marker_id_len, marker_id_map, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0);
+	  retval = extract_exclude_flag_norange(extractname, marker_id_htable, marker_id_htable_size, 0, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
 	  if (retval) {
 	    goto plink1_dosage_ret_1;
 	  }
@@ -339,7 +336,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
       if (excludename) {
 	if (!(misc_flags & MISC_EXCLUDE_RANGE)) {
-	  retval = include_or_exclude(excludename, sorted_marker_ids, ulii, max_marker_id_len, marker_id_map, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 1);
+	  retval = extract_exclude_flag_norange(extractname, marker_id_htable, marker_id_htable_size, 1, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
 	  if (retval) {
 	    goto plink1_dosage_ret_1;
 	  }
@@ -357,20 +354,19 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	}
       }
       if (filter_attrib_fname) {
-	retval = filter_attrib(filter_attrib_fname, filter_attrib_liststr, sorted_marker_ids, ulii, max_marker_id_len, marker_id_map, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0);
+	retval = filter_attrib(filter_attrib_fname, filter_attrib_liststr, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
 	if (retval) {
 	  goto plink1_dosage_ret_1;
 	}
       }
       if (qual_filter) {
-	retval = filter_qual_scores(qual_filter, qual_min_thresh, qual_max_thresh, sorted_marker_ids, ulii, max_marker_id_len, marker_id_map, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
+	retval = filter_qual_scores(qual_filter, qual_min_thresh, qual_max_thresh, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
 	if (retval) {
 	  goto plink1_dosage_ret_1;
 	}
       }
       wkspace_reset(wkspace_mark);
     }
-    */
     if (thin_keep_prob != 1.0) {
       if (random_thin_markers(thin_keep_prob, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct)) {
 	goto plink1_dosage_ret_ALL_MARKERS_EXCLUDED;
@@ -433,7 +429,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
     }
     if (filter_attrib_indiv_fname) {
-      retval = filter_attrib(filter_attrib_indiv_fname, filter_attrib_indiv_liststr, sorted_person_ids, ulii, max_person_id_len, person_id_map, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, 1);
+      retval = filter_attrib_indiv(filter_attrib_indiv_fname, filter_attrib_indiv_liststr, sorted_person_ids, ulii, max_person_id_len, person_id_map, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct);
       if (retval) {
 	goto plink1_dosage_ret_1;
       }
@@ -567,7 +563,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       enforce_min_bp_space(min_bp_space, unfiltered_marker_ct, marker_exclude, marker_pos, &marker_exclude_ct, chrom_info_ptr);
     }
     marker_ct = unfiltered_marker_ct - marker_exclude_ct;
-    retval = sort_item_ids(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
+    retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
     if (retval) {
       goto plink1_dosage_ret_1;
     }
@@ -1227,13 +1223,12 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  if (allele_set(&a2_ptr, bufptr5, a2_len)) {
 	    goto plink1_dosage_ret_NOMEM;
 	  }
-	  if (sorted_marker_ids) {
-	    ii = bsearch_str(bufptr, slen, sorted_marker_ids, max_marker_id_len, marker_ct);
-	    if (ii == -1) {
+	  if (load_map) {
+	    marker_idx = id_htable_find(bufptr, slen, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len);
+	    if (marker_idx == 0xffffffffU) {
 	      marker_idx = ~ZEROLU;
 	      continue;
 	    }
-	    marker_idx = marker_id_map[(uint32_t)ii];
 	  }
 	} else {
 	  if ((slen != cur_marker_id_len) || memcmp(bufptr, cur_marker_id_buf, slen)) {
