@@ -1009,6 +1009,8 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   } else if (unfiltered_marker_ct > 2147483645) {
     // maximum prime < 2^32 is 4294967291; quadratic hashing guarantee breaks
     // down past that divided by 2.
+    // PLINK/SEQ now supports a 64-bit count here, and few other tools do, so
+    // it's appropriate to explicitly recommend it.
     logprint("Error: PLINK does not support more than 2^31 - 3 variants.  We recommend other\nsoftware, such as PLINK/SEQ, for very deep studies of small numbers of genomes.\n");
     goto load_bim_ret_INVALID_FORMAT;
   }

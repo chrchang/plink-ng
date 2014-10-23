@@ -24,59 +24,26 @@ void oblig_missing_cleanup(Oblig_missing_info* om_ip) {
   }
 }
 
-const char extract_str[] = "extract";
-const char exclude_str[] = "exclude";
 const char keep_str[] = "keep";
 const char keep_fam_str[] = "keep-fam";
 const char remove_str[] = "remove";
 const char remove_fam_str[] = "remove-fam";
 
-const char* include_or_exclude_flag_str(uint32_t flags) {
+const char* keep_or_remove_flag_str(uint32_t flags) {
   switch (flags) {
   case 0:
-    return extract_str;
-  case 1:
-    return exclude_str;
-  case 2:
     return keep_str;
-  case 3:
+  case 1:
     return remove_str;
-  case 6:
+  case 2:
     return keep_fam_str;
-  case 7:
+  case 3:
     return remove_fam_str;
   }
   return NULL;
 }
 
-void exclude_extract_process_token(char* tok_start, char* sorted_ids, uint32_t* id_map, uintptr_t max_id_len, uintptr_t sorted_ids_ct, uintptr_t* exclude_arr, uintptr_t* exclude_arr_new, uintptr_t* already_seen, uintptr_t* duplicate_ct_ptr, uint32_t do_exclude, uint32_t curtoklen) {
-  uintptr_t ulii = bsearch_str_lb(tok_start, curtoklen, sorted_ids, max_id_len, sorted_ids_ct);
-  uintptr_t uljj;
-  uint32_t unfiltered_idx;
-  if (ulii != sorted_ids_ct) {
-    tok_start[curtoklen] = ' ';
-    uljj = bsearch_str_lb(tok_start, curtoklen + 1, sorted_ids, max_id_len, sorted_ids_ct);
-    if (uljj > ulii) {
-      if (IS_SET(already_seen, ulii)) {
-	*duplicate_ct_ptr += 1;
-      } else {
-	SET_BIT(already_seen, ulii);
-	do {
-	  unfiltered_idx = id_map[ulii];
-	  if (!IS_SET(exclude_arr, unfiltered_idx)) {
-	    if (do_exclude) {
-	      SET_BIT(exclude_arr_new, unfiltered_idx);
-	    } else {
-	      CLEAR_BIT(exclude_arr_new, unfiltered_idx);
-	    }
-	  }
-	} while (++ulii < uljj);
-      }
-    }
-  }
-}
-
-int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_ct, uintptr_t max_id_len, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* exclude_ct_ptr, uint32_t flags) {
+int32_t keep_or_remove(char* fname, char* sorted_ids, uintptr_t sorted_ids_ct, uintptr_t max_id_len, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* exclude_ct_ptr, uint32_t flags) {
   FILE* infile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t* exclude_arr_new = NULL;
@@ -84,26 +51,17 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
   uintptr_t duplicate_ct = 0;
   uintptr_t line_idx = 0;
   uint32_t do_exclude = flags & 1;
-  // flags & 2 = indivs
-  uint32_t families_only = flags & 4;
-  uint32_t curtoklen = 0;
+  uint32_t families_only = flags & 2;
   int32_t retval = 0;
-  char* midbuf = &(tbuf[MAXLINELEN]);
-  uintptr_t* already_seen;
   char* id_buf;
   char* bufptr0;
-  char* bufptr;
-  char* bufptr2;
-  char* bufptr3;
-  uintptr_t bufsize;
-  uintptr_t sorted_id_ctl;
   int32_t ii;
   uint32_t unfiltered_idx;
   uint32_t cur_idx;
   uint32_t last_idx;
 
   if (wkspace_alloc_ul_checked(&exclude_arr_new, unfiltered_ctl * sizeof(intptr_t))) {
-    goto include_or_exclude_ret_NOMEM;
+    goto keep_or_remove_ret_NOMEM;
   }
   if (do_exclude) {
     // need this to avoid --keep/--remove spurious duplicate warnings (ID could
@@ -113,164 +71,268 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
   } else {
     fill_all_bits(exclude_arr_new, unfiltered_ct);
   }
-  if (fopen_checked(&infile, fname, (flags & 2)? "r" : "rb")) {
-    goto include_or_exclude_ret_OPEN_FAIL;
+  if (fopen_checked(&infile, fname, "r")) {
+    goto keep_or_remove_ret_OPEN_FAIL;
   }
-  if (flags & 2) {
-    tbuf[MAXLINELEN - 1] = ' ';
-    if (wkspace_alloc_c_checked(&id_buf, max_id_len)) {
-      goto include_or_exclude_ret_NOMEM;
+  tbuf[MAXLINELEN - 1] = ' ';
+  if (wkspace_alloc_c_checked(&id_buf, max_id_len)) {
+    goto keep_or_remove_ret_NOMEM;
+  }
+  while (fgets(tbuf, MAXLINELEN, infile) != NULL) {
+    line_idx++;
+    if (!tbuf[MAXLINELEN - 1]) {
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of --%s file is pathologically long.\n", line_idx, keep_or_remove_flag_str(flags));
+      goto keep_or_remove_ret_INVALID_FORMAT_2;
     }
-    while (fgets(tbuf, MAXLINELEN, infile) != NULL) {
-      line_idx++;
-      if (!tbuf[MAXLINELEN - 1]) {
-	sprintf(logbuf, "Error: Line %" PRIuPTR " of --%s file is pathologically long.\n", line_idx, include_or_exclude_flag_str(flags));
-	goto include_or_exclude_ret_INVALID_FORMAT_2;
+    bufptr0 = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*bufptr0)) {
+      continue;
+    }
+    if (!families_only) {
+      if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_ct, bufptr0, NULL, &ii)) {
+	sprintf(logbuf, "Error: Line %" PRIuPTR " of --%s file has fewer tokens than expected.\n", line_idx, keep_or_remove_flag_str(flags));
+	goto keep_or_remove_ret_INVALID_FORMAT_2;
       }
-      bufptr0 = skip_initial_spaces(tbuf);
-      if (is_eoln_kns(*bufptr0)) {
-	continue;
-      }
-      if (!families_only) {
-	if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_ct, bufptr0, NULL, &ii)) {
-	  sprintf(logbuf, "Error: Line %" PRIuPTR " of --%s file has fewer tokens than expected.\n", line_idx, include_or_exclude_flag_str(flags));
-	  goto include_or_exclude_ret_INVALID_FORMAT_2;
-	}
-	if (ii != -1) {
-	  unfiltered_idx = id_map[(uint32_t)ii];
-	  if (!IS_SET(exclude_arr, unfiltered_idx)) {
-	    if (do_exclude) {
-	      if (IS_SET(exclude_arr_new, unfiltered_idx)) {
-		duplicate_ct++;
-	      } else {
-		SET_BIT(exclude_arr_new, unfiltered_idx);
-	      }
+      if (ii != -1) {
+	unfiltered_idx = id_map[(uint32_t)ii];
+	if (!IS_SET(exclude_arr, unfiltered_idx)) {
+	  if (do_exclude) {
+	    if (IS_SET(exclude_arr_new, unfiltered_idx)) {
+	      duplicate_ct++;
 	    } else {
-	      if (!IS_SET(exclude_arr_new, unfiltered_idx)) {
-		duplicate_ct++;
-	      } else {
-		CLEAR_BIT(exclude_arr_new, unfiltered_idx);
-	      }
+	      SET_BIT(exclude_arr_new, unfiltered_idx);
+	    }
+	  } else {
+	    if (!IS_SET(exclude_arr_new, unfiltered_idx)) {
+	      duplicate_ct++;
+	    } else {
+	      CLEAR_BIT(exclude_arr_new, unfiltered_idx);
 	    }
 	  }
 	}
-      } else {
-	bsearch_fam(id_buf, sorted_ids, max_id_len, sorted_ids_ct, bufptr0, &cur_idx, &last_idx);
-	ii = 0;
-	while (cur_idx < last_idx) {
-	  unfiltered_idx = id_map[cur_idx++];
-	  if (!IS_SET(exclude_arr, unfiltered_idx)) {
-	    if (do_exclude) {
-	      if (IS_SET(exclude_arr_new, unfiltered_idx)) {
-		ii = 1;
-	      } else {
-		SET_BIT(exclude_arr_new, unfiltered_idx);
-	      }
+      }
+    } else {
+      bsearch_fam(id_buf, sorted_ids, max_id_len, sorted_ids_ct, bufptr0, &cur_idx, &last_idx);
+      ii = 0;
+      while (cur_idx < last_idx) {
+	unfiltered_idx = id_map[cur_idx++];
+	if (!IS_SET(exclude_arr, unfiltered_idx)) {
+	  if (do_exclude) {
+	    if (IS_SET(exclude_arr_new, unfiltered_idx)) {
+	      ii = 1;
 	    } else {
-	      if (!IS_SET(exclude_arr_new, unfiltered_idx)) {
-		ii = 1;
-	      } else {
-		CLEAR_BIT(exclude_arr_new, unfiltered_idx);
-	      }
+	      SET_BIT(exclude_arr_new, unfiltered_idx);
+	    }
+	  } else {
+	    if (!IS_SET(exclude_arr_new, unfiltered_idx)) {
+	      ii = 1;
+	    } else {
+	      CLEAR_BIT(exclude_arr_new, unfiltered_idx);
 	    }
 	  }
 	}
-	// only add one to duplicate_ct, instead of one per family member
-	duplicate_ct += (uint32_t)ii;
       }
-    }
-  } else {
-    // solve performance problem when both base dataset and .snplist file have
-    // millions of '.' entries
-    sorted_id_ctl = (sorted_ids_ct + (BITCT - 1)) / BITCT;
-    if (wkspace_alloc_ul_checked(&already_seen, sorted_id_ctl * sizeof(intptr_t))) {
-      goto include_or_exclude_ret_NOMEM;
-    }
-    fill_ulong_zero(already_seen, sorted_id_ctl);
-    // use token- instead of line-based loader here
-    while (1) {
-      if (fread_checked(midbuf, MAXLINELEN, infile, &bufsize)) {
-	goto include_or_exclude_ret_READ_FAIL;
-      }
-      if (!bufsize) {
-        if (curtoklen && (curtoklen < max_id_len)) {
-          exclude_extract_process_token(&(tbuf[MAXLINELEN - curtoklen]), sorted_ids, id_map, max_id_len, sorted_ids_ct, exclude_arr, exclude_arr_new, already_seen, &duplicate_ct, do_exclude, curtoklen);
-	}
-	break;
-      }
-      bufptr0 = &(midbuf[bufsize]);
-      *bufptr0 = ' ';
-      bufptr0[1] = '0';
-      bufptr = &(tbuf[MAXLINELEN - curtoklen]);
-      bufptr2 = midbuf;
-      if (curtoklen) {
-	goto include_or_exclude_tok_start;
-      }
-      while (1) {
-	while (*bufptr <= ' ') {
-	  bufptr++;
-	}
-        if (bufptr >= bufptr0) {
-	  curtoklen = 0;
-	  break;
-	}
-        bufptr2 = &(bufptr[1]);
-      include_or_exclude_tok_start:
-        while (*bufptr2 > ' ') {
-	  bufptr2++;
-	}
-        curtoklen = (uintptr_t)(bufptr2 - bufptr);
-        if (bufptr2 == &(tbuf[MAXLINELEN * 2])) {
-	  if (curtoklen > MAXLINELEN) {
-	    sprintf(logbuf, "Error: Excessively long ID in --%s file.\n", include_or_exclude_flag_str(flags));
-	    goto include_or_exclude_ret_INVALID_FORMAT_2;
-	  }
-	  bufptr3 = &(tbuf[MAXLINELEN - curtoklen]);
-          memcpy(bufptr3, bufptr, curtoklen);
-	  break;
-	}
-	if (curtoklen < max_id_len) {
-          exclude_extract_process_token(bufptr, sorted_ids, id_map, max_id_len, sorted_ids_ct, exclude_arr, exclude_arr_new, already_seen, &duplicate_ct, do_exclude, curtoklen);
-	}
-	bufptr = &(bufptr2[1]);
-      }
+      // only add one to duplicate_ct, instead of one per family member
+      duplicate_ct += (uint32_t)ii;
     }
   }
   if (!feof(infile)) {
-    goto include_or_exclude_ret_READ_FAIL;
+    goto keep_or_remove_ret_READ_FAIL;
   }
   memcpy(exclude_arr, exclude_arr_new, unfiltered_ctl * sizeof(intptr_t));
   *exclude_ct_ptr = popcount_longs(exclude_arr, unfiltered_ctl);
   if (*exclude_ct_ptr == unfiltered_ct) {
-    LOGPRINTF("Error: No %s remaining after --%s.\n", (flags & 2)? g_species_plural : "variants", include_or_exclude_flag_str(flags));
-    goto include_or_exclude_ret_ALL_SAMPLES_EXCLUDED;
+    LOGPRINTF("Error: No %s remaining after --%s.\n", g_species_plural, keep_or_remove_flag_str(flags));
+    goto keep_or_remove_ret_ALL_SAMPLES_EXCLUDED;
   }
   unfiltered_ct -= *exclude_ct_ptr; // now filtered count
-  if (flags & 2) {
-    LOGPRINTF("--%s: %" PRIuPTR " %s remaining.\n", include_or_exclude_flag_str(flags), unfiltered_ct, species_str(unfiltered_ct));
-  } else {
-    LOGPRINTF("--%s: %" PRIuPTR " variant%s remaining.\n", include_or_exclude_flag_str(flags), unfiltered_ct, (unfiltered_ct == 1)? "" : "s");
-  }
+  LOGPRINTF("--%s: %" PRIuPTR " %s remaining.\n", keep_or_remove_flag_str(flags), unfiltered_ct, species_str(unfiltered_ct));
   if (duplicate_ct) {
     // "At least" since this does not count duplicate IDs absent from the .bim.
-    LOGPRINTF("Warning: At least %" PRIuPTR " duplicate ID%s in --%s file.\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", include_or_exclude_flag_str(flags));
+    LOGPRINTF("Warning: At least %" PRIuPTR " duplicate ID%s in --%s file.\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", keep_or_remove_flag_str(flags));
   }
   while (0) {
-  include_or_exclude_ret_NOMEM:
+  keep_or_remove_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  include_or_exclude_ret_OPEN_FAIL:
+  keep_or_remove_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;
-  include_or_exclude_ret_READ_FAIL:
+  keep_or_remove_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  include_or_exclude_ret_INVALID_FORMAT_2:
+  keep_or_remove_ret_INVALID_FORMAT_2:
     logprintb();
     retval = RET_INVALID_FORMAT;
     break;
-  include_or_exclude_ret_ALL_SAMPLES_EXCLUDED:
+  keep_or_remove_ret_ALL_SAMPLES_EXCLUDED:
     retval = RET_ALL_SAMPLES_EXCLUDED;
+    break;
+  }
+  wkspace_reset(wkspace_mark);
+  fclose_cond(infile);
+  return retval;
+}
+
+void exclude_extract_process_token(const char* tok_start, const uint32_t* marker_id_htable, uint32_t marker_id_htable_size, const uint32_t* extra_alloc_base, const char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* already_seen, uintptr_t* duplicate_ct_ptr, uint32_t do_exclude, uint32_t curtoklen) {
+  if (curtoklen >= max_marker_id_len) {
+    return;
+  }
+  uint32_t hashval = murmurhash3_32(tok_start, curtoklen) % marker_id_htable_size;
+  uint32_t next_incr = 1;
+  uint32_t cur_llidx = 0;
+  const char* sptr;
+  uintptr_t marker_uidx;
+  uint32_t hash_result;
+  uint32_t top_diff;
+  uint32_t cur_dup;
+  while (1) {
+    hash_result = marker_id_htable[hashval];
+    cur_dup = hash_result >> 31;
+    if (cur_dup) {
+      if (hash_result == 0xffffffffU) {
+	return;
+      }
+      cur_llidx = hash_result << 1;
+      marker_uidx = extra_alloc_base[cur_llidx];
+    } else {
+      marker_uidx = hash_result;
+    }
+    sptr = &(marker_ids[marker_uidx * max_marker_id_len]);
+    if ((!memcmp(tok_start, sptr, curtoklen)) && (!sptr[curtoklen])) {
+      // when there are multiple variants with the same ID, only need to check
+      // bit for first search result
+      if (IS_SET(already_seen, marker_uidx)) {
+        *duplicate_ct_ptr += 1;
+      } else {
+	SET_BIT(already_seen, marker_uidx);
+	if (!cur_dup) {
+	  return;
+	}
+	while (1) {
+	  cur_llidx = extra_alloc_base[cur_llidx + 1];
+	  if (cur_llidx == 0xffffffffU) {
+	    return;
+	  }
+	  SET_BIT(already_seen, extra_alloc_base[cur_llidx]);
+	}
+      }
+    }
+    top_diff = marker_id_htable_size - hashval;
+    if (top_diff > next_incr) {
+      hashval += next_incr;
+    } else {
+      hashval = next_incr - top_diff;
+    }
+    next_incr += 2;
+  }
+}
+
+int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, uint32_t marker_id_htable_size, uint32_t do_exclude, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr) {
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* infile = NULL;
+  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t duplicate_ct = 0;
+  // needs to be synced with populate_id_htable
+  const uint32_t* extra_alloc_base = &(marker_id_htable[CACHEALIGN32_INT32(marker_id_htable_size)]);
+  char* midbuf = &(tbuf[MAXLINELEN]);
+  uint32_t curtoklen = 0;
+  int32_t retval = 0;
+  uintptr_t bufsize;
+  uintptr_t* already_seen;
+  char* bufptr0;
+  char* bufptr;
+  char* bufptr2;
+  char* bufptr3;
+  if (wkspace_alloc_ul_checked(&already_seen, unfiltered_marker_ctl * sizeof(intptr_t))) {
+    goto extract_exclude_flag_norange_ret_NOMEM;
+  }
+  fill_ulong_zero(already_seen, unfiltered_marker_ctl);
+  if (fopen_checked(&infile, fname, "rb")) {
+    goto extract_exclude_flag_norange_ret_OPEN_FAIL;
+  }
+  while (1) {
+    if (fread_checked(midbuf, MAXLINELEN, infile, &bufsize)) {
+      goto extract_exclude_flag_norange_ret_READ_FAIL;
+    }
+    if (!bufsize) {
+      if (curtoklen) {
+        exclude_extract_process_token(&(tbuf[MAXLINELEN - curtoklen]), marker_id_htable, marker_id_htable_size, extra_alloc_base, marker_ids, max_marker_id_len, already_seen, &duplicate_ct, do_exclude, curtoklen);
+      }
+      break;
+    }
+    bufptr0 = &(midbuf[bufsize]);
+    *bufptr0 = ' ';
+    bufptr0[1] = '0';
+    bufptr = &(tbuf[MAXLINELEN - curtoklen]);
+    bufptr2 = midbuf;
+    if (curtoklen) {
+      goto extract_exclude_flag_norange_tok_start;
+    }
+    while (1) {
+      while (*bufptr <= ' ') {
+	bufptr++;
+      }
+      if (bufptr >= bufptr0) {
+	curtoklen = 0;
+	break;
+      }
+      bufptr2 = &(bufptr[1]);
+    extract_exclude_flag_norange_tok_start:
+      while (*bufptr2 > ' ') {
+	bufptr2++;
+      }
+      curtoklen = (uintptr_t)(bufptr2 - bufptr);
+      if (bufptr2 == &(tbuf[MAXLINELEN * 2])) {
+        if (curtoklen > MAXLINELEN) {
+	  sprintf(logbuf, "Error: Excessively long ID in --%s file.\n", do_exclude? "exclude" : "extract");
+          goto extract_exclude_flag_norange_ret_INVALID_FORMAT_2;
+	}
+	bufptr3 = &(tbuf[MAXLINELEN - curtoklen]);
+        memcpy(bufptr3, bufptr, curtoklen);
+	break;
+      }
+      exclude_extract_process_token(bufptr, marker_id_htable, marker_id_htable_size, extra_alloc_base, marker_ids, max_marker_id_len, already_seen, &duplicate_ct, do_exclude, curtoklen);
+      bufptr = &(bufptr2[1]);
+    }
+  }
+  if (!feof(infile)) {
+    goto extract_exclude_flag_norange_ret_READ_FAIL;
+  }
+  if (do_exclude) {
+    bitfield_or(marker_exclude, already_seen, unfiltered_marker_ctl * sizeof(intptr_t));
+  } else {
+    bitfield_ornot(marker_exclude, already_seen, unfiltered_marker_ctl * sizeof(intptr_t));
+    zero_trailing_bits(marker_exclude, unfiltered_marker_ct);
+  }
+  *marker_exclude_ct_ptr = popcount_longs(marker_exclude, unfiltered_marker_ctl);
+  if (*marker_exclude_ct_ptr == unfiltered_marker_ct) {
+    LOGPRINTF("Error: No variants remaining after --%s.\n", do_exclude? "exclude" : "extract");
+    goto extract_exclude_flag_norange_ret_ALL_MARKERS_EXCLUDED;
+  }
+  unfiltered_marker_ct -= *marker_exclude_ct_ptr; // now filtered count
+  LOGPRINTF("--%s: %" PRIuPTR " variant%s remaining.\n", do_exclude? "exclude" : "extract", unfiltered_marker_ct, (unfiltered_marker_ct == 1)? "" : "s");
+  if (duplicate_ct) {
+    // "At least" since this does not count duplicate IDs absent from the .bim.
+    LOGPRINTF("Warning: At least %" PRIuPTR " duplicate ID%s in --%s file.\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", do_exclude? "exclude" : "extract");
+  }
+
+  while (0) {
+  extract_exclude_flag_norange_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  extract_exclude_flag_norange_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  extract_exclude_flag_norange_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  extract_exclude_flag_norange_ret_INVALID_FORMAT_2:
+    logprintb();
+    retval = RET_INVALID_FORMAT;
+    break;
+  extract_exclude_flag_norange_ret_ALL_MARKERS_EXCLUDED:
+    retval = RET_ALL_MARKERS_EXCLUDED;
     break;
   }
   wkspace_reset(wkspace_mark);

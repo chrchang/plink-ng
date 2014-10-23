@@ -222,127 +222,6 @@ void wkspace_shrink_top(void* rebase, uintptr_t new_size) {
   wkspace_left += freed_bytes;
 }
 
-// MurmurHash3, from
-// https://code.google.com/p/smhasher/source/browse/trunk/MurmurHash3.cpp
-
-static inline uint32_t rotl32(uint32_t x, int8_t r) {
-  return (x << r) | (x >> (32 - r));
-}
-
-static inline uint32_t getblock32(const uint32_t* p, int i) {
-  return p[i];
-}
-
-//-----------------------------------------------------------------------------
-// Finalization mix - force all bits of a hash block to avalanche
-
-static inline uint32_t fmix32(uint32_t h) {
-  h ^= h >> 16;
-  h *= 0x85ebca6b;
-  h ^= h >> 13;
-  h *= 0xc2b2ae35;
-  h ^= h >> 16;
-
-  return h;
-}
-
-uint32_t murmurhash3_32(const void* key, uint32_t len) {
-  const uint8_t* data = (const uint8_t*)key;
-  const int32_t nblocks = len / 4;
-
-  uint32_t h1 = 0;
-  // uint32_t h1 = seed;
-
-  const uint32_t c1 = 0xcc9e2d51;
-  const uint32_t c2 = 0x1b873593;
-
-  //----------
-  // body
-
-  const uint32_t* blocks = (const uint32_t*)(data + nblocks*4);
-
-  int32_t i;
-  uint32_t k1;
-  for(i = -nblocks; i; i++) {
-      k1 = getblock32(blocks,i);
-
-      k1 *= c1;
-      k1 = rotl32(k1,15);
-      k1 *= c2;
-   
-      h1 ^= k1;
-      h1 = rotl32(h1,13);
-      h1 = h1*5+0xe6546b64;
-  }
-
-  //----------
-  // tail
-
-  const uint8_t* tail = (const uint8_t*)(data + nblocks*4);
-
-  k1 = 0;
-
-  switch(len & 3) {
-    case 3:
-      k1 ^= tail[2] << 16;
-      // fall through
-    case 2:
-      k1 ^= tail[1] << 8;
-      // fall through
-    case 1:
-      k1 ^= tail[0];
-      k1 *= c1;
-      k1 = rotl32(k1,15);
-      k1 *= c2;
-      h1 ^= k1;
-  }
-
-  //----------
-  // finalization
-
-  h1 ^= len;
-
-  return fmix32(h1);
-}
-
-uint32_t is_composite6(uintptr_t num) {
-  // assumes num is congruent to 1 or 5 mod 6.
-  // can speed this up by ~50% by hardcoding avoidance of multiples of 5/7,
-  // but this isn't currently a bottleneck so I'll keep this simple
-  uintptr_t divisor = 5;
-  while (divisor * divisor <= num) {
-    if (!(num % divisor)) {
-      return 1;
-    }
-    divisor += 2;
-    if (!(num % divisor)) {
-      return 1;
-    }
-    divisor += 4;
-  }
-  return 0;
-}
-
-uintptr_t geqprime(uintptr_t floor) {
-  // assumes floor is odd and greater than 1.  Returns 5 if floor = 3,
-  // otherwise returns the first prime >= floor.
-  uintptr_t ulii = floor % 3;
-  if (!ulii) {
-    floor += 2;
-  } else if (ulii == 1) {
-    goto geqprime_1mod6;
-  }
-  while (is_composite6(floor)) {
-    floor += 2;
-  geqprime_1mod6:
-    if (!is_composite6(floor)) {
-      return floor;
-    }
-    floor += 4;
-  }
-  return floor;
-}
-
 uint32_t match_upper(char* ss, const char* fixed_str) {
   // Returns whether uppercased ss matches nonempty fixed_str.  Assumes
   // fixed_str contains nothing but letters and a null terminator.
@@ -3627,6 +3506,269 @@ uint32_t prev_unset(uintptr_t* bit_arr, uint32_t loc, uint32_t floor) {
   return MAXV(loc, floor);
 }
 */
+
+// MurmurHash3, from
+// https://code.google.com/p/smhasher/source/browse/trunk/MurmurHash3.cpp
+
+static inline uint32_t rotl32(uint32_t x, int8_t r) {
+  return (x << r) | (x >> (32 - r));
+}
+
+static inline uint32_t getblock32(const uint32_t* p, int i) {
+  return p[i];
+}
+
+//-----------------------------------------------------------------------------
+// Finalization mix - force all bits of a hash block to avalanche
+
+static inline uint32_t fmix32(uint32_t h) {
+  h ^= h >> 16;
+  h *= 0x85ebca6b;
+  h ^= h >> 13;
+  h *= 0xc2b2ae35;
+  h ^= h >> 16;
+
+  return h;
+}
+
+uint32_t murmurhash3_32(const void* key, uint32_t len) {
+  const uint8_t* data = (const uint8_t*)key;
+  const int32_t nblocks = len / 4;
+
+  uint32_t h1 = 0;
+  // uint32_t h1 = seed;
+
+  const uint32_t c1 = 0xcc9e2d51;
+  const uint32_t c2 = 0x1b873593;
+
+  //----------
+  // body
+
+  const uint32_t* blocks = (const uint32_t*)(data + nblocks*4);
+
+  int32_t i;
+  uint32_t k1;
+  for(i = -nblocks; i; i++) {
+      k1 = getblock32(blocks,i);
+
+      k1 *= c1;
+      k1 = rotl32(k1,15);
+      k1 *= c2;
+   
+      h1 ^= k1;
+      h1 = rotl32(h1,13);
+      h1 = h1*5+0xe6546b64;
+  }
+
+  //----------
+  // tail
+
+  const uint8_t* tail = (const uint8_t*)(data + nblocks*4);
+
+  k1 = 0;
+
+  switch(len & 3) {
+    case 3:
+      k1 ^= tail[2] << 16;
+      // fall through
+    case 2:
+      k1 ^= tail[1] << 8;
+      // fall through
+    case 1:
+      k1 ^= tail[0];
+      k1 *= c1;
+      k1 = rotl32(k1,15);
+      k1 *= c2;
+      h1 ^= k1;
+  }
+
+  //----------
+  // finalization
+
+  h1 ^= len;
+
+  return fmix32(h1);
+}
+
+uint32_t is_composite6(uintptr_t num) {
+  // assumes num is congruent to 1 or 5 mod 6.
+  // can speed this up by ~50% by hardcoding avoidance of multiples of 5/7,
+  // but this isn't currently a bottleneck so I'll keep this simple
+  uintptr_t divisor = 5;
+  while (divisor * divisor <= num) {
+    if (!(num % divisor)) {
+      return 1;
+    }
+    divisor += 2;
+    if (!(num % divisor)) {
+      return 1;
+    }
+    divisor += 4;
+  }
+  return 0;
+}
+
+uintptr_t geqprime(uintptr_t floor) {
+  // assumes floor is odd and greater than 1.  Returns 5 if floor = 3,
+  // otherwise returns the first prime >= floor.
+  uintptr_t ulii = floor % 3;
+  if (!ulii) {
+    floor += 2;
+  } else if (ulii == 1) {
+    goto geqprime_1mod6;
+  }
+  while (is_composite6(floor)) {
+    floor += 2;
+  geqprime_1mod6:
+    if (!is_composite6(floor)) {
+      return floor;
+    }
+    floor += 4;
+  }
+  return floor;
+}
+
+int32_t populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, const char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t* id_htable, uint32_t id_htable_size) {
+  // While unique IDs are normally assumed (and enforced) here, --extract and
+  // --exclude are an exception, since we want to be able to e.g. exclude all
+  // variants named '.'.  Since there could be millions of them, ordinary
+  // O(n^2) hash table duplicate resolution is unacceptably slow; instead, we
+  // allocate additional linked lists past the end of id_htable to track all
+  // unfiltered indexes of duplicate names.  (This requires the
+  // alloc_and_populate_id_htable interface; top_alloc doesn't work there.)
+  uintptr_t item_uidx = 0;
+  uint32_t extra_alloc = 0;
+  uint32_t prev_llidx = 0;
+  // needs to be synced with extract_exclude_flag_norange()
+  uint32_t* extra_alloc_base = (uint32_t*)wkspace_base;
+  uint32_t item_idx = 0;
+  const char* sptr;
+  uintptr_t prev_uidx;
+  uint32_t max_extra_alloc;
+  uint32_t slen;
+  uint32_t hashval;
+  uint32_t next_incr;
+  uint32_t top_diff;
+  uint32_t hash_result;
+  uint32_t cur_dup;
+  fill_uint_one(id_htable, id_htable_size);
+  if (!allow_dups) {
+    for (; item_idx < item_ct; item_uidx++, item_idx++) {
+      next_unset_ul_unsafe_ck(exclude_arr, &item_uidx);
+      sptr = &(item_ids[item_uidx * max_id_len]);
+      slen = strlen(sptr);
+      hashval = murmurhash3_32(sptr, slen) % id_htable_size;
+      next_incr = 1;
+      while (1) {
+	hash_result = id_htable[hashval];
+	if (hash_result == 0xffffffffU) {
+	  id_htable[hashval] = item_uidx;
+	  break;
+	} else if (!memcmp(sptr, &(item_ids[hash_result * max_id_len]), slen + 1)) {
+	  LOGPRINTFWW("Error: Duplicate ID '%s'.\n", sptr);
+	  return RET_INVALID_FORMAT;
+	}
+	// defend against overflow
+	top_diff = id_htable_size - hashval;
+	if (top_diff > next_incr) {
+	  hashval += next_incr;
+	} else {
+	  hashval = next_incr - top_diff;
+	}
+	next_incr += 2; // quadratic probing
+      }
+    }
+  } else {
+#ifdef __LP64__
+    if (wkspace_left >= 0x400000000LLU) {
+      max_extra_alloc = 0xfffffffeU;
+    } else {
+      max_extra_alloc = wkspace_left / sizeof(int32_t);
+    }
+#else
+    max_extra_alloc = wkspace_left / sizeof(int32_t);
+#endif
+    for (; item_idx < item_ct; item_uidx++, item_idx++) {
+      next_unset_ul_unsafe_ck(exclude_arr, &item_uidx);
+      sptr = &(item_ids[item_uidx * max_id_len]);
+      slen = strlen(sptr);
+      hashval = murmurhash3_32(sptr, slen) % id_htable_size;
+      next_incr = 1;
+      while (1) {
+	hash_result = id_htable[hashval];
+	if (hash_result == 0xffffffffU) {
+	  id_htable[hashval] = item_uidx;
+	  break;
+        } else {
+	  cur_dup = hash_result >> 31;
+          if (cur_dup) {
+	    prev_llidx = hash_result << 1;
+	    prev_uidx = extra_alloc_base[prev_llidx];
+          } else {
+	    prev_uidx = hash_result;
+          }
+          if (!memcmp(sptr, &(item_ids[prev_uidx * max_id_len]), slen + 1)) {
+	    if (extra_alloc + 4 > max_extra_alloc) {
+	      return RET_NOMEM;
+	    }
+	    // point to linked list entry instead
+	    if (!cur_dup) {
+	      extra_alloc_base[extra_alloc] = hash_result;
+	      extra_alloc_base[extra_alloc + 1] = 0xffffffffU; // list end
+	      prev_llidx = extra_alloc;
+	      extra_alloc += 2;
+	    }
+	    extra_alloc_base[extra_alloc] = item_uidx;
+	    extra_alloc_base[extra_alloc + 1] = prev_llidx;
+	    id_htable[hashval] = 0x80000000U | (extra_alloc >> 1);
+	    extra_alloc += 2;
+          }
+	}
+	top_diff = id_htable_size - hashval;
+	if (top_diff > next_incr) {
+	  hashval += next_incr;
+	} else {
+	  hashval = next_incr - top_diff;
+	}
+	next_incr += 2;
+      }
+    }
+    if (extra_alloc) {
+      wkspace_alloc(extra_alloc * sizeof(int32_t));
+    }
+  }
+  return 0;
+}
+
+uint32_t id_htable_find(const char* id_buf, uintptr_t cur_id_len, const uint32_t* id_htable, uint32_t id_htable_size, const char* item_ids, uintptr_t max_id_len) {
+  // assumes no duplicate entries
+  // returns 0xffffffffU on failure
+  if (cur_id_len >= max_id_len) {
+    return 0xffffffffU;
+  }
+  uint32_t hashval = murmurhash3_32(id_buf, cur_id_len) % id_htable_size;
+  uint32_t next_incr = 1;
+  const char* sptr;
+  uint32_t hash_result;
+  uint32_t top_diff;
+  while (1) {
+    hash_result = id_htable[hashval];
+    if (hash_result == 0xffffffffU) {
+      return 0xffffffffU;
+    }
+    sptr = &(item_ids[hash_result * max_id_len]);
+    if ((!memcmp(id_buf, sptr, cur_id_len)) && (!sptr[cur_id_len])) {
+      return hash_result;
+    }
+    top_diff = id_htable_size - hashval;
+    if (top_diff > next_incr) {
+      hashval += next_incr;
+    } else {
+      hashval = next_incr - top_diff;
+    }
+    next_incr += 2;
+  }
+}
 
 void fill_idx_to_uidx(uintptr_t* exclude_arr, uintptr_t unfiltered_item_ct, uintptr_t item_ct, uint32_t* idx_to_uidx) {
   uint32_t* idx_to_uidx_end = &(idx_to_uidx[item_ct]);

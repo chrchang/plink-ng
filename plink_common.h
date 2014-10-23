@@ -891,27 +891,7 @@ void wkspace_reset(void* new_base);
 
 void wkspace_shrink_top(void* rebase, uintptr_t new_size);
 
-uint32_t murmurhash3_32(const void* key, uint32_t len);
-
-static inline uint32_t hashval2(char* idstr, uint32_t idlen) {
-  return murmurhash3_32(idstr, idlen) % HASHSIZE;
-}
-
-uintptr_t geqprime(uintptr_t floor);
-
-/*
-static inline uint32_t hashval2(char* idstr, uint32_t idlen) {
-  unsigned char* ucptr = (unsigned char*)idstr;
-  unsigned char* ucp_end = &(ucptr[idlen]);
-  uint32_t vv = *ucptr;
-  while (++ucptr != ucp_end) {
-    vv = ((vv << 8) + (*ucptr)) % HASHSIZE;
-  }
-  return vv;
-}
-*/
-
-static inline unsigned char* top_alloc(uintptr_t* topsize_ptr, uint32_t size) {
+static inline unsigned char* top_alloc(uintptr_t* topsize_ptr, uintptr_t size) {
   uintptr_t ts = *topsize_ptr + ((size + 15) & (~(15 * ONELU)));
   if (ts > wkspace_left) {
     return NULL;
@@ -1660,6 +1640,27 @@ static inline void fill_double_zero(double* darr, size_t size) {
     *darr++ = 0.0;
   }
 }
+
+uint32_t murmurhash3_32(const void* key, uint32_t len);
+
+static inline uint32_t hashval2(char* idstr, uint32_t idlen) {
+  return murmurhash3_32(idstr, idlen) % HASHSIZE;
+}
+
+uintptr_t geqprime(uintptr_t floor);
+
+int32_t populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, const char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t* id_htable, uint32_t id_htable_size);
+
+static inline int32_t alloc_and_populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, const char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t** id_htable_ptr, uint32_t* id_htable_size_ptr) {
+  uint32_t id_htable_size = geqprime(item_ct * 2 + 1);
+  if (wkspace_alloc_ui_checked(id_htable_ptr, id_htable_size * sizeof(int32_t))) {
+    return RET_NOMEM;
+  }
+  *id_htable_size_ptr = id_htable_size;
+  return populate_id_htable(unfiltered_ct, exclude_arr, item_ct, item_ids, max_id_len, allow_dups, *id_htable_ptr, id_htable_size);
+}
+
+uint32_t id_htable_find(const char* id_buf, uintptr_t cur_id_len, const uint32_t* id_htable, uint32_t id_htable_size, const char* item_ids, uintptr_t max_id_len);
 
 void fill_idx_to_uidx(uintptr_t* exclude_arr, uintptr_t unfiltered_item_ct, uintptr_t item_ct, uint32_t* idx_to_uidx);
 

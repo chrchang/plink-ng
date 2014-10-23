@@ -292,6 +292,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     wkspace_reset(wkspace_mark);
   }
   if (load_map) {
+    /*
     uii = update_map || update_name || filter_attrib_fname || qual_filter;
     if (uii || extractname || excludename) {
       wkspace_mark = wkspace_base;
@@ -369,6 +370,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
       wkspace_reset(wkspace_mark);
     }
+    */
     if (thin_keep_prob != 1.0) {
       if (random_thin_markers(thin_keep_prob, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct)) {
 	goto plink1_dosage_ret_ALL_MARKERS_EXCLUDED;
@@ -407,25 +409,25 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
     }
     if (keepfamname) {
-      retval = include_or_exclude(keepfamname, sorted_person_ids, ulii, max_person_id_len, person_id_map, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, 6);
+      retval = keep_or_remove(keepfamname, sorted_person_ids, ulii, max_person_id_len, person_id_map, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, 2);
       if (retval) {
 	goto plink1_dosage_ret_1;
       }
     }
     if (keepname) {
-      retval = include_or_exclude(keepname, sorted_person_ids, ulii, max_person_id_len, person_id_map, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, 2);
+      retval = keep_or_remove(keepname, sorted_person_ids, ulii, max_person_id_len, person_id_map, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, 0);
       if (retval) {
 	goto plink1_dosage_ret_1;
       }
     }
     if (removefamname) {
-      retval = include_or_exclude(removefamname, sorted_person_ids, ulii, max_person_id_len, person_id_map, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, 7);
+      retval = keep_or_remove(removefamname, sorted_person_ids, ulii, max_person_id_len, person_id_map, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, 3);
       if (retval) {
 	goto plink1_dosage_ret_1;
       }
     }
     if (removename) {
-      retval = include_or_exclude(removename, sorted_person_ids, ulii, max_person_id_len, person_id_map, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, 3);
+      retval = keep_or_remove(removename, sorted_person_ids, ulii, max_person_id_len, person_id_map, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, 1);
       if (retval) {
 	goto plink1_dosage_ret_1;
       }

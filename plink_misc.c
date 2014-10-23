@@ -621,12 +621,12 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
   return retval;
 }
 
-int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, uintptr_t sorted_ids_ct, uintptr_t max_marker_id_len, uint32_t* marker_id_map, double* marker_cms) {
+int32_t update_marker_cms(Two_col_params* update_cm, uint32_t* marker_id_htable, uint32_t marker_id_htable_size, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_marker_ct, double* marker_cms) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   char skipchar = update_cm->skipchar;
   uint32_t colid_first = (update_cm->colid < update_cm->colx);
-  uintptr_t sorted_ids_ctl = (sorted_ids_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t hit_ct = 0;
   uintptr_t miss_ct = 0;
   uintptr_t* already_seen;
@@ -638,14 +638,13 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
   uint32_t coldiff;
   char* colid_ptr;
   char* colx_ptr;
-  int32_t sorted_idx;
   uint32_t marker_uidx;
   char cc;
   int32_t retval;
-  if (wkspace_alloc_ul_checked(&already_seen, sorted_ids_ctl * sizeof(intptr_t))) {
+  if (wkspace_alloc_ul_checked(&already_seen, unfiltered_marker_ctl * sizeof(intptr_t))) {
     goto update_marker_cms_ret_NOMEM;
   }
-  fill_ulong_zero(already_seen, sorted_ids_ctl);
+  fill_ulong_zero(already_seen, unfiltered_marker_ctl);
 
   loadbuf = (char*)wkspace_base;
   loadbuf_size = wkspace_left;
@@ -696,18 +695,17 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
       }
     }
     slen = strlen_se(colid_ptr);
-    sorted_idx = bsearch_str(colid_ptr, slen, sorted_marker_ids, max_marker_id_len, sorted_ids_ct);
-    if (sorted_idx == -1) {
+    marker_uidx = id_htable_find(colid_ptr, slen, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len);
+    if (marker_uidx == 0xffffffffU) {
       miss_ct++;
       continue;
     }
-    if (is_set(already_seen, sorted_idx)) {
+    if (is_set(already_seen, marker_uidx)) {
       colid_ptr[slen] = '\0';
       LOGPREPRINTFWW("Error: Duplicate variant '%s' in --update-cm file.\n", colid_ptr);
       goto update_marker_cms_ret_INVALID_FORMAT_2;
     }
-    set_bit(already_seen, sorted_idx);
-    marker_uidx = marker_id_map[(uint32_t)sorted_idx];
+    set_bit(already_seen, marker_uidx);
     if (scan_double(colx_ptr, &(marker_cms[marker_uidx]))) {
       sprintf(logbuf, "Error: Invalid centimorgan position on line %" PRIuPTR " of --update-cm file.\n", line_idx);
       goto update_marker_cms_ret_INVALID_FORMAT_2;
@@ -743,17 +741,16 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
   return retval;
 }
 
-int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, uintptr_t marker_ct, uintptr_t max_marker_id_len, uint32_t* marker_id_map, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uint32_t* marker_pos, uint32_t* map_is_unsorted_ptr, Chrom_info* chrom_info_ptr) {
-  // requires sorted_ids_ct == marker_ct
+int32_t update_marker_pos(Two_col_params* update_map, uint32_t* marker_id_htable, uint32_t marker_id_htable_size, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uint32_t* marker_pos, uint32_t* map_is_unsorted_ptr, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   char skipchar = update_map->skipchar;
   uint32_t colid_first = (update_map->colid < update_map->colx);
-  uintptr_t marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t hit_ct = 0;
   uintptr_t miss_ct = 0;
+  uint32_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
   uint32_t map_is_unsorted = ((*map_is_unsorted_ptr) & UNSORTED_CHROM);
-  uintptr_t orig_exclude_ct = *marker_exclude_ct_ptr;
   uint32_t chrom_fo_idx_p1 = 0;
   uint32_t chrom_end = 0;
   uint32_t last_pos = 0;
@@ -766,15 +763,15 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
   uint32_t coldiff;
   char* colid_ptr;
   char* colx_ptr;
-  int32_t sorted_idx;
   uint32_t marker_uidx;
   uint32_t marker_idx;
-  char cc;
+  int32_t bp_coord;
   int32_t retval;
-  if (wkspace_alloc_ul_checked(&already_seen, marker_ctl * sizeof(intptr_t))) {
+  char cc;
+  if (wkspace_alloc_ul_checked(&already_seen, unfiltered_marker_ctl * sizeof(intptr_t))) {
     goto update_marker_pos_ret_NOMEM;
   }
-  fill_ulong_zero(already_seen, marker_ctl);
+  fill_ulong_zero(already_seen, unfiltered_marker_ctl);
 
   loadbuf = (char*)wkspace_base;
   loadbuf_size = wkspace_left;
@@ -825,27 +822,26 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
       }
     }
     slen = strlen_se(colid_ptr);
-    sorted_idx = bsearch_str(colid_ptr, slen, sorted_marker_ids, max_marker_id_len, marker_ct);
-    if (sorted_idx == -1) {
+    marker_uidx = id_htable_find(colid_ptr, slen, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len);
+    if (marker_uidx == 0xffffffffU) {
       miss_ct++;
       continue;
     }
-    if (is_set(already_seen, sorted_idx)) {
+    if (is_set(already_seen, marker_uidx)) {
       colid_ptr[slen] = '\0';
       LOGPREPRINTFWW("Error: Duplicate variant '%s' in --update-map file.\n", colid_ptr);
       goto update_marker_pos_ret_INVALID_FORMAT_2;
     }
-    set_bit(already_seen, sorted_idx);
-    marker_uidx = marker_id_map[(uint32_t)sorted_idx];
-    if (scan_int_abs_defcap(colx_ptr, &sorted_idx)) {
+    set_bit(already_seen, marker_uidx);
+    if (scan_int_abs_defcap(colx_ptr, &bp_coord)) {
       sprintf(logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of --update-map file.\n", line_idx);
       goto update_marker_pos_ret_INVALID_FORMAT_2;
     }
-    if (sorted_idx < 0) {
+    if (bp_coord < 0) {
       SET_BIT(marker_exclude, marker_uidx);
-      *marker_exclude_ct_ptr += 1;
+      marker_ct--;
     } else {
-      marker_pos[marker_uidx] = sorted_idx;
+      marker_pos[marker_uidx] = bp_coord;
     }
     hit_ct++;
   }
@@ -858,13 +854,12 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
     sprintf(logbuf, "--update-map: %" PRIuPTR " value%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
   }
   logprintb();
-  marker_uidx = 0;
-  marker_ct -= (*marker_exclude_ct_ptr) - orig_exclude_ct;
+  *marker_exclude_ct_ptr = unfiltered_marker_ct - marker_ct;
   if (!marker_ct) {
     logprint("Error: All variants excluded by --update-map (due to negative marker\npositions).\n");
     goto update_marker_pos_ret_ALL_MARKERS_EXCLUDED;
   }
-  for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+  for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
     next_unset_unsafe_ck(marker_exclude, &marker_uidx);
     while (marker_uidx >= chrom_end) {
       chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[++chrom_fo_idx_p1];
@@ -906,6 +901,7 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
   return retval;
 }
 
+/*
 int32_t update_marker_names(Two_col_params* update_name, char* sorted_marker_ids, uintptr_t marker_ct, uintptr_t max_marker_id_len, uint32_t* marker_id_map, char* true_marker_ids) {
   // requires sorted_ids_ct == marker_ct
   unsigned char* wkspace_mark = wkspace_base;
@@ -1011,6 +1007,7 @@ int32_t update_marker_names(Two_col_params* update_name, char* sorted_marker_ids
   wkspace_reset(wkspace_mark);
   return retval;
 }
+*/
 
 int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_ids, uintptr_t sorted_ids_ct, uintptr_t max_marker_id_len, uint32_t* marker_id_map, char** marker_allele_ptrs, uintptr_t* max_marker_allele_len_ptr, char* outname, char* outname_end) {
   unsigned char* wkspace_mark = wkspace_base;
