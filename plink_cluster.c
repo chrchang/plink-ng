@@ -42,14 +42,14 @@ void cluster_cleanup(Cluster_info* cluster_ptr) {
   free_cond(cluster_ptr->zerofname);
 }
 
-int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, uint32_t mwithin_col, uint32_t keep_na, uintptr_t* cluster_ct_ptr, uint32_t** cluster_map_ptr, uint32_t** cluster_starts_ptr, char** cluster_ids_ptr, uintptr_t* max_cluster_id_len_ptr, char* keep_fname, char* keep_flattened, char* remove_fname, char* remove_flattened) {
+int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, uint32_t mwithin_col, uint32_t keep_na, uintptr_t* cluster_ct_ptr, uint32_t** cluster_map_ptr, uint32_t** cluster_starts_ptr, char** cluster_ids_ptr, uintptr_t* max_cluster_id_len_ptr, char* keep_fname, char* keep_flattened, char* remove_fname, char* remove_flattened) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
-  uintptr_t* indiv_exclude_new = NULL;
-  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
-  uintptr_t indiv_exclude_ct = *indiv_exclude_ct_ptr;
-  uintptr_t indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
-  uintptr_t indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t* sample_exclude_new = NULL;
+  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
+  uintptr_t sample_exclude_ct = *sample_exclude_ct_ptr;
+  uintptr_t sample_ct = unfiltered_sample_ct - sample_exclude_ct;
+  uintptr_t sample_ctl = (sample_ct + (BITCT - 1)) / BITCT;
   uintptr_t topsize = 0;
   uintptr_t max_cluster_kr_len = 0;
   uint32_t cluster_filter = (keep_fname || keep_flattened || remove_fname || remove_flattened);
@@ -84,13 +84,13 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
   uintptr_t ulii;
   int32_t sorted_idx;
   uint32_t read_idx;
-  uint32_t indiv_uidx;
-  uint32_t indiv_idx;
+  uint32_t sample_uidx;
+  uint32_t sample_idx;
   uint32_t slen;
   uint32_t uii;
   tbuf[MAXLINELEN - 1] = ' ';
   if (cluster_filter) {
-    indiv_exclude_new = (uintptr_t*)top_alloc(&topsize, unfiltered_indiv_ctl * sizeof(intptr_t));
+    sample_exclude_new = (uintptr_t*)top_alloc(&topsize, unfiltered_sample_ctl * sizeof(intptr_t));
     if (keep_flattened || keep_fname) {
       if (keep_flattened) {
 	cluster_kr_ct = count_and_measure_multistr(keep_flattened, &max_cluster_kr_len);
@@ -121,7 +121,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
 	  goto load_clusters_ret_INVALID_FORMAT;
 	}
       }
-      fill_all_bits(indiv_exclude_new, unfiltered_indiv_ct);
+      fill_all_bits(sample_exclude_new, unfiltered_sample_ct);
       sorted_keep_ids = (char*)top_alloc(&topsize, cluster_kr_ct * max_cluster_kr_len);
       if (!sorted_keep_ids) {
 	goto load_clusters_ret_NOMEM;
@@ -208,7 +208,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
 	topsize = topsize_bak;
       }
     } else {
-      memcpy(indiv_exclude_new, indiv_exclude, unfiltered_indiv_ctl * sizeof(intptr_t));
+      memcpy(sample_exclude_new, sample_exclude, unfiltered_sample_ctl * sizeof(intptr_t));
       if (remove_flattened) {
         cluster_kr_ct += count_and_measure_multistr(remove_flattened, &max_cluster_kr_len);
       }
@@ -273,22 +273,22 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
   }
 
   if (fname) {
-    sorted_ids = (char*)top_alloc(&topsize, indiv_ct * max_person_id_len);
+    sorted_ids = (char*)top_alloc(&topsize, sample_ct * max_person_id_len);
     if (!sorted_ids) {
       goto load_clusters_ret_NOMEM;
     }
-    id_map = (uint32_t*)top_alloc(&topsize, indiv_ct * sizeof(int32_t));
+    id_map = (uint32_t*)top_alloc(&topsize, sample_ct * sizeof(int32_t));
     if (!id_map) {
       goto load_clusters_ret_NOMEM;
     }
     topsize_bak = topsize;
-    already_seen = (uintptr_t*)top_alloc(&topsize, indiv_ctl * sizeof(intptr_t));
+    already_seen = (uintptr_t*)top_alloc(&topsize, sample_ctl * sizeof(intptr_t));
     if (!already_seen) {
       goto load_clusters_ret_NOMEM;
     }
-    fill_ulong_zero(already_seen, indiv_ctl);
+    fill_ulong_zero(already_seen, sample_ctl);
     wkspace_left -= topsize;
-    retval = sort_item_ids_noalloc(sorted_ids, id_map, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, 0, 0, strcmp_deref);
+    retval = sort_item_ids_noalloc(sorted_ids, id_map, unfiltered_sample_ct, sample_exclude, sample_ct, person_ids, max_person_id_len, 0, 0, strcmp_deref);
     wkspace_left += topsize;
     if (retval) {
       goto load_clusters_ret_1;
@@ -296,7 +296,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
 
     // two-pass load
     // 1. load cluster names, track longest length, validate format, verify no
-    //    individual ID appears multiple times
+    //    sample ID appears multiple times
     // intermission. sort cluster names, purge duplicates, allocate memory for
     //               return values
     // 2. populate return arrays
@@ -317,7 +317,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
       if (is_eoln_kns(*fam_id)) {
 	continue;
       }
-      if (bsearch_read_fam_indiv(idbuf, sorted_ids, max_person_id_len, indiv_ct, fam_id, &cluster_name_ptr, &sorted_idx)) {
+      if (bsearch_read_fam_indiv(idbuf, sorted_ids, max_person_id_len, sample_ct, fam_id, &cluster_name_ptr, &sorted_idx)) {
 	goto load_clusters_ret_MISSING_TOKENS;
       }
       if (sorted_idx == -1) {
@@ -338,7 +338,8 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
       slen = strlen_se(cluster_name_ptr);
       if ((!keep_na) && (slen == 2) && (!memcmp(cluster_name_ptr, "NA", 2))) {
 	// postponed to here because, even without 'keep-NA', we do not want to
-	// ignore cluster=NA lines for the purpose of detecting duplicate indivs
+	// ignore cluster=NA lines for the purpose of detecting duplicate
+	// samples
 	continue;
       }
       // cluster won't exist because of --keep-clusters/--remove-clusters?
@@ -378,8 +379,8 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
 	strcpy(&(cluster_ids[ulii * max_cluster_id_len]), cluster_names->ss);
 	cluster_names = cluster_names->next;
       }
-      // deallocate cluster ID linked list and duplicate indiv ID detector from
-      // top of stack, allocate cluster size tracker
+      // deallocate cluster ID linked list and duplicate sample ID detector
+      // from top of stack, allocate cluster size tracker
       wkspace_left += topsize;
       topsize = topsize_bak;
       tmp_cluster_starts = (uint32_t*)top_alloc(&topsize, assigned_ct * sizeof(int32_t));
@@ -408,7 +409,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
 	if (is_eoln_kns(*fam_id)) {
 	  continue;
 	}
-	bsearch_read_fam_indiv(idbuf, sorted_ids, max_person_id_len, indiv_ct, fam_id, &cluster_name_ptr, &sorted_idx);
+	bsearch_read_fam_indiv(idbuf, sorted_ids, max_person_id_len, sample_ct, fam_id, &cluster_name_ptr, &sorted_idx);
 	if (sorted_idx == -1) {
 	  continue;
 	}
@@ -419,17 +420,17 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
 	if ((!keep_na) && (slen == 2) && (!memcmp(cluster_name_ptr, "NA", 2))) {
 	  continue;
 	}
-	indiv_uidx = id_map[(uint32_t)sorted_idx];
+	sample_uidx = id_map[(uint32_t)sorted_idx];
 	if (sorted_keep_ids) {
 	  sorted_idx = bsearch_str(cluster_name_ptr, slen, sorted_keep_ids, max_cluster_kr_len, cluster_kr_ct);
 	  if (sorted_idx == -1) {
 	    continue;
 	  }
-	  clear_bit(indiv_exclude_new, indiv_uidx);
+	  clear_bit(sample_exclude_new, sample_uidx);
 	} else if (sorted_remove_ids) {
 	  sorted_idx = bsearch_str(cluster_name_ptr, slen, sorted_remove_ids, max_cluster_kr_len, cluster_kr_ct);
 	  if (sorted_idx != -1) {
-	    set_bit(indiv_exclude_new, indiv_uidx);
+	    set_bit(sample_exclude_new, sample_uidx);
 	    continue;
 	  }
 	}
@@ -437,7 +438,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
 	sorted_idx = bsearch_str_natural(cluster_name_ptr, cluster_ids, max_cluster_id_len, cluster_ct);
 	uii = tmp_cluster_starts[(uint32_t)sorted_idx];
 	tmp_cluster_starts[(uint32_t)sorted_idx] += 1;
-	cluster_map[uii] = indiv_uidx;
+	cluster_map[uii] = sample_uidx;
       }
       if (!feof(infile)) {
 	goto load_clusters_ret_READ_FAIL;
@@ -454,10 +455,10 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
       LOGPRINTF("--within: %" PRIuPTR " cluster%s loaded, covering a total of %" PRIuPTR " %s.\n", cluster_ct, (cluster_ct == 1)? "" : "s", assigned_ct, species_str(assigned_ct));
     } else {
       if (sorted_keep_ids) {
-	logprint("Error: No individuals named in --within file remain in the current analysis, so\n--keep-clusters/--keep-cluster-names excludes everyone.\n");
+	logprint("Error: No samples named in --within file remain in the current analysis, so\n--keep-clusters/--keep-cluster-names excludes everyone.\n");
 	goto load_clusters_ret_INVALID_FORMAT;
       }
-      logprint("Warning: No individuals named in --within file remain in the current analysis.\n");
+      logprint("Warning: No samples named in --within file remain in the current analysis.\n");
       goto load_clusters_ret_1;
     }
   } else {
@@ -474,20 +475,20 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
       goto load_clusters_ret_INVALID_FORMAT;
     }
 
-    for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
-      next_unset_unsafe_ck(indiv_exclude, &indiv_uidx);
-      cluster_name_ptr = &(person_ids[indiv_uidx * max_person_id_len]);
+    for (sample_uidx = 0, sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
+      next_unset_unsafe_ck(sample_exclude, &sample_uidx);
+      cluster_name_ptr = &(person_ids[sample_uidx * max_person_id_len]);
       slen = (uintptr_t)((char*)memchr(cluster_name_ptr, '\t', max_person_id_len) - cluster_name_ptr);
       if (sorted_keep_ids) {
 	sorted_idx = bsearch_str(cluster_name_ptr, slen, sorted_keep_ids, max_cluster_kr_len, cluster_kr_ct);
 	if (sorted_idx == -1) {
 	  continue;
 	}
-	clear_bit(indiv_exclude_new, indiv_uidx);
+	clear_bit(sample_exclude_new, sample_uidx);
       } else if (sorted_remove_ids) {
 	sorted_idx = bsearch_str(cluster_name_ptr, slen, sorted_remove_ids, max_cluster_kr_len, cluster_kr_ct);
 	if (sorted_idx != -1) {
-	  set_bit(indiv_exclude_new, indiv_uidx);
+	  set_bit(sample_exclude_new, sample_uidx);
 	}
       }
       if (slen >= max_cluster_id_len) {
@@ -505,16 +506,16 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
       goto load_clusters_ret_NOMEM2;
     }
     cluster_ids = *cluster_ids_ptr;
-    if (indiv_exclude_new) {
-      ulptr = indiv_exclude_new;
+    if (sample_exclude_new) {
+      ulptr = sample_exclude_new;
     } else {
-      ulptr = indiv_exclude;
+      ulptr = sample_exclude;
     }
-    for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < assigned_ct; indiv_uidx++, indiv_idx++) {
-      next_unset_unsafe_ck(ulptr, &indiv_uidx);
-      cluster_name_ptr = &(person_ids[indiv_uidx * max_person_id_len]);
+    for (sample_uidx = 0, sample_idx = 0; sample_idx < assigned_ct; sample_uidx++, sample_idx++) {
+      next_unset_unsafe_ck(ulptr, &sample_uidx);
+      cluster_name_ptr = &(person_ids[sample_uidx * max_person_id_len]);
       slen = (uintptr_t)((char*)memchr(cluster_name_ptr, '\t', max_person_id_len) - cluster_name_ptr);
-      memcpyx(&(cluster_ids[indiv_idx * max_cluster_id_len]), cluster_name_ptr, slen, '\0');
+      memcpyx(&(cluster_ids[sample_idx * max_cluster_id_len]), cluster_name_ptr, slen, '\0');
     }
     wkspace_left += topsize;
     tmp_cluster_starts = (uint32_t*)top_alloc(&topsize, assigned_ct * sizeof(int32_t));
@@ -535,23 +536,23 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
     cluster_starts = *cluster_starts_ptr;
     memcpy(cluster_starts, tmp_cluster_starts, cluster_ct * sizeof(int32_t));
     cluster_starts[cluster_ct] = assigned_ct;
-    for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < assigned_ct; indiv_uidx++, indiv_idx++) {
-      next_unset_unsafe_ck(ulptr, &indiv_uidx);
-      cluster_name_ptr = &(person_ids[indiv_uidx * max_person_id_len]);
+    for (sample_uidx = 0, sample_idx = 0; sample_idx < assigned_ct; sample_uidx++, sample_idx++) {
+      next_unset_unsafe_ck(ulptr, &sample_uidx);
+      cluster_name_ptr = &(person_ids[sample_uidx * max_person_id_len]);
       memcpyx(tbuf, cluster_name_ptr, (uintptr_t)((char*)memchr(cluster_name_ptr, '\t', max_cluster_id_len) - cluster_name_ptr), '\0');
       sorted_idx = bsearch_str_natural(tbuf, cluster_ids, max_cluster_id_len, cluster_ct);
       uii = tmp_cluster_starts[(uint32_t)sorted_idx];
       tmp_cluster_starts[(uint32_t)sorted_idx] += 1;
-      cluster_map[uii] = indiv_uidx;
+      cluster_map[uii] = sample_uidx;
     }
     LOGPRINTF("--family: %" PRIuPTR " cluster%s defined.\n", cluster_ct, (cluster_ct == 1)? "" : "s");
   }
-  if (indiv_exclude_new) {
-    ulii = popcount_longs(indiv_exclude_new, unfiltered_indiv_ctl);
-    if (ulii != indiv_exclude_ct) {
-      memcpy(indiv_exclude, indiv_exclude_new, unfiltered_indiv_ctl * sizeof(intptr_t));
-      *indiv_exclude_ct_ptr = ulii;
-      ulii -= indiv_exclude_ct;
+  if (sample_exclude_new) {
+    ulii = popcount_longs(sample_exclude_new, unfiltered_sample_ctl);
+    if (ulii != sample_exclude_ct) {
+      memcpy(sample_exclude, sample_exclude_new, unfiltered_sample_ctl * sizeof(intptr_t));
+      *sample_exclude_ct_ptr = ulii;
+      ulii -= sample_exclude_ct;
       LOGPRINTF("%" PRIuPTR " %s removed by cluster filter(s).\n", ulii, species_str(ulii));
     }
   }
@@ -584,47 +585,47 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
   return retval;
 }
 
-void fill_unfiltered_sample_to_cluster(uintptr_t unfiltered_indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* indiv_to_cluster) {
+void fill_unfiltered_sample_to_cluster(uintptr_t unfiltered_sample_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* sample_to_cluster) {
   uint32_t* cluster_map_pos = cluster_map;
   uint32_t* cluster_end_ptr;
   uint32_t cluster_idx;
   // 0xffffffffU cluster index = unassigned
-  fill_uint_one(indiv_to_cluster, unfiltered_indiv_ct);
+  fill_uint_one(sample_to_cluster, unfiltered_sample_ct);
   for (cluster_idx = 0; cluster_idx < cluster_ct; cluster_idx++) {
     cluster_end_ptr = &(cluster_map[cluster_starts[cluster_idx + 1]]);
     do {
-      indiv_to_cluster[*cluster_map_pos] = cluster_idx;
+      sample_to_cluster[*cluster_map_pos] = cluster_idx;
     } while (++cluster_map_pos < cluster_end_ptr);
   }
 }
 
-int32_t fill_sample_to_cluster(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* indiv_to_cluster, uint32_t* late_clidx_to_indiv_uidx) {
+int32_t fill_sample_to_cluster(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* sample_to_cluster, uint32_t* late_clidx_to_sample_uidx) {
   unsigned char* wkspace_mark = wkspace_base;
   uint32_t* cluster_map_pos = cluster_map;
   int32_t retval = 0;
   uint32_t* uidx_to_idx;
   uint32_t* cluster_end_ptr;
   uint32_t cluster_idx;
-  uint32_t indiv_uidx;
-  uint32_t indiv_idx;
-  if (wkspace_alloc_ui_checked(&uidx_to_idx, unfiltered_indiv_ct * sizeof(int32_t))) {
+  uint32_t sample_uidx;
+  uint32_t sample_idx;
+  if (wkspace_alloc_ui_checked(&uidx_to_idx, unfiltered_sample_ct * sizeof(int32_t))) {
     goto fill_sample_to_cluster_ret_NOMEM;
   }
-  fill_uidx_to_idx(indiv_exclude, unfiltered_indiv_ct, indiv_ct, uidx_to_idx);
-  fill_uint_one(indiv_to_cluster, indiv_ct);
+  fill_uidx_to_idx(sample_exclude, unfiltered_sample_ct, sample_ct, uidx_to_idx);
+  fill_uint_one(sample_to_cluster, sample_ct);
   for (cluster_idx = 0; cluster_idx < cluster_ct; cluster_idx++) {
     cluster_end_ptr = &(cluster_map[cluster_starts[cluster_idx + 1]]);
     do {
-      indiv_to_cluster[uidx_to_idx[*cluster_map_pos]] = cluster_idx;
+      sample_to_cluster[uidx_to_idx[*cluster_map_pos]] = cluster_idx;
     } while (++cluster_map_pos < cluster_end_ptr);
   }
-  if (cluster_starts[cluster_ct] < indiv_ct) {
-    indiv_uidx = 0;
-    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
-      indiv_uidx = next_unset_unsafe(indiv_exclude, indiv_uidx);
-      if (indiv_to_cluster[indiv_idx] == 0xffffffffU) {
-	late_clidx_to_indiv_uidx[cluster_idx - cluster_ct] = indiv_uidx;
-	indiv_to_cluster[indiv_idx] = cluster_idx++;
+  if (cluster_starts[cluster_ct] < sample_ct) {
+    sample_uidx = 0;
+    for (sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
+      sample_uidx = next_unset_unsafe(sample_exclude, sample_uidx);
+      if (sample_to_cluster[sample_idx] == 0xffffffffU) {
+	late_clidx_to_sample_uidx[cluster_idx - cluster_ct] = sample_uidx;
+	sample_to_cluster[sample_idx] = cluster_idx++;
       }
     }
   }
@@ -637,30 +638,30 @@ int32_t fill_sample_to_cluster(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_e
   return retval;
 }
 
-int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uint32_t omit_unassigned, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len) {
+int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* person_ids, uintptr_t max_person_id_len, uint32_t omit_unassigned, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
-  uintptr_t indiv_uidx = 0;
+  uintptr_t sample_uidx = 0;
   int32_t retval = 0;
-  uint32_t* indiv_to_cluster;
+  uint32_t* sample_to_cluster;
   char* person_id_ptr;
   char* bufptr;
-  uintptr_t indiv_idx;
+  uintptr_t sample_idx;
   uint32_t cluster_idx;
   uint32_t slen;
-  if (wkspace_alloc_ui_checked(&indiv_to_cluster, unfiltered_indiv_ct * sizeof(int32_t))) {
+  if (wkspace_alloc_ui_checked(&sample_to_cluster, unfiltered_sample_ct * sizeof(int32_t))) {
     goto write_cluster_ret_NOMEM;
   }
-  fill_unfiltered_sample_to_cluster(unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, indiv_to_cluster);
+  fill_unfiltered_sample_to_cluster(unfiltered_sample_ct, cluster_ct, cluster_map, cluster_starts, sample_to_cluster);
   memcpy(outname_end, ".clst", 6);
   if (fopen_checked(&outfile, outname, "w")) {
     goto write_cluster_ret_OPEN_FAIL;
   }
-  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
-    indiv_uidx = next_unset_unsafe(indiv_exclude, indiv_uidx);
-    cluster_idx = indiv_to_cluster[indiv_uidx];
+  for (sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
+    sample_uidx = next_unset_unsafe(sample_exclude, sample_uidx);
+    cluster_idx = sample_to_cluster[sample_uidx];
     if ((!omit_unassigned) || (cluster_idx != 0xffffffffU)) {
-      person_id_ptr = &(person_ids[indiv_uidx * max_person_id_len]);
+      person_id_ptr = &(person_ids[sample_uidx * max_person_id_len]);
       slen = strlen_se(person_id_ptr);
       bufptr = memcpyax(tbuf, person_id_ptr, slen, ' ');
       bufptr = strcpyax(bufptr, &(person_id_ptr[slen + 1]), ' ');
@@ -694,25 +695,25 @@ int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_in
   return retval;
 }
 
-int32_t extract_clusters(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, char* cluster_names_flattened, char* clusters_fname, uintptr_t** new_indiv_exclude_ptr, uintptr_t* new_indiv_ct_ptr) {
+int32_t extract_clusters(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, char* cluster_names_flattened, char* clusters_fname, uintptr_t** new_sample_exclude_ptr, uintptr_t* new_sample_ct_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
-  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
   uintptr_t line_idx = 0;
   int32_t retval = 0;
   char* bufptr;
-  uintptr_t* new_indiv_exclude;
+  uintptr_t* new_sample_exclude;
   uint32_t* uiptr;
   uint32_t* cluster_end;
   uint32_t slen;
-  uint32_t indiv_uidx;
+  uint32_t sample_uidx;
   int32_t ii;
-  if (wkspace_alloc_ul_checked(new_indiv_exclude_ptr, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+  if (wkspace_alloc_ul_checked(new_sample_exclude_ptr, unfiltered_sample_ctl * sizeof(intptr_t))) {
     goto extract_clusters_ret_NOMEM;
   }
-  new_indiv_exclude = *new_indiv_exclude_ptr;
+  new_sample_exclude = *new_sample_exclude_ptr;
   wkspace_mark = wkspace_base;
-  fill_all_bits(new_indiv_exclude, unfiltered_indiv_ct);
+  fill_all_bits(new_sample_exclude, unfiltered_sample_ct);
   if (cluster_names_flattened) {
     bufptr = cluster_names_flattened;
     do {
@@ -723,9 +724,9 @@ int32_t extract_clusters(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
 	  uiptr = &(cluster_map[cluster_starts[(uint32_t)ii]]);
 	  cluster_end = &(cluster_map[cluster_starts[1 + (uint32_t)ii]]);
 	  while (uiptr < cluster_end) {
-	    indiv_uidx = *uiptr++;
-	    if (!is_set(indiv_exclude, indiv_uidx)) {
-	      clear_bit(new_indiv_exclude, indiv_uidx);
+	    sample_uidx = *uiptr++;
+	    if (!is_set(sample_exclude, sample_uidx)) {
+	      clear_bit(new_sample_exclude, sample_uidx);
 	    }
 	  }
 	}
@@ -758,9 +759,9 @@ int32_t extract_clusters(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
 	uiptr = &(cluster_map[cluster_starts[(uint32_t)ii]]);
 	cluster_end = &(cluster_map[cluster_starts[1 + (uint32_t)ii]]);
 	while (uiptr < cluster_end) {
-	  indiv_uidx = *uiptr++;
-	  if (!is_set(indiv_exclude, indiv_uidx)) {
-	    clear_bit(new_indiv_exclude, indiv_uidx);
+	  sample_uidx = *uiptr++;
+	  if (!is_set(sample_exclude, sample_uidx)) {
+	    clear_bit(new_sample_exclude, sample_uidx);
 	  }
 	}
       }
@@ -769,7 +770,7 @@ int32_t extract_clusters(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
       goto extract_clusters_ret_READ_FAIL;
     }
   }
-  *new_indiv_ct_ptr = unfiltered_indiv_ct - popcount_longs(new_indiv_exclude, unfiltered_indiv_ctl);
+  *new_sample_ct_ptr = unfiltered_sample_ct - popcount_longs(new_sample_exclude, unfiltered_sample_ctl);
   while (0) {
   extract_clusters_ret_NOMEM:
     retval = RET_NOMEM;
@@ -850,11 +851,11 @@ void adjust_cc_perm_preimage(uint32_t cluster_ct, uint32_t* cluster_map, uint32_
   }
 }
 
-int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_include, uint32_t remove_size1, uintptr_t* pheno_c, uintptr_t indiv_ct, uint32_t is_perm1, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* new_cluster_ct_ptr, uint32_t** new_cluster_map_ptr, uint32_t** new_cluster_starts_ptr, uint32_t** cluster_case_cts_ptr, uintptr_t** cluster_cc_perm_preimage_ptr) {
-  // If any individuals are excluded, this converts a unfiltered-index cluster
-  // map to a collapsed-index cluster map (suitable for passing to the
-  // per-cluster permutation function), allocating space for the latter.
-  // Otherwise, this just sets the new cluster map to point to the old one.
+int32_t cluster_include_and_reindex(uintptr_t unfiltered_sample_ct, uintptr_t* sample_include, uint32_t remove_size1, uintptr_t* pheno_c, uintptr_t sample_ct, uint32_t is_perm1, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* new_cluster_ct_ptr, uint32_t** new_cluster_map_ptr, uint32_t** new_cluster_starts_ptr, uint32_t** cluster_case_cts_ptr, uintptr_t** cluster_cc_perm_preimage_ptr) {
+  // If any samples are excluded, this converts a unfiltered-index cluster map
+  // to a collapsed-index cluster map (suitable for passing to the per-cluster
+  // permutation function), allocating space for the latter.  Otherwise, this
+  // just sets the new cluster map to point to the old one.
   //
   // remove_size1 should be 0 or 1.  If it's 1, all size-1 clusters are
   // removed.
@@ -864,7 +865,7 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
   unsigned char* wkspace_mark = wkspace_base;
   uint32_t old_assigned_ct = cluster_starts[cluster_ct];
   uint32_t new_cluster_ct = 0;
-  uint32_t indiv_uidx = 0;
+  uint32_t sample_uidx = 0;
   uint32_t case_ct = 0;
   uint32_t assigned_ct = 0;
   uintptr_t* cluster_cc_perm_preimage = NULL;
@@ -881,17 +882,17 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
   uint32_t last_case_ct_incr;
   uint32_t shrink_map;
   if (pheno_c) {
-    if (wkspace_alloc_ul_checked(cluster_cc_perm_preimage_ptr, (2 - is_perm1) * ((indiv_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t))) {
+    if (wkspace_alloc_ul_checked(cluster_cc_perm_preimage_ptr, (2 - is_perm1) * ((sample_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t))) {
       goto cluster_include_and_reindex_ret_NOMEM;
     }
     cluster_cc_perm_preimage = *cluster_cc_perm_preimage_ptr;
     if (!is_perm1) {
-      vec_collapse_init(pheno_c, unfiltered_indiv_ct, indiv_include, indiv_ct, cluster_cc_perm_preimage);
+      vec_collapse_init(pheno_c, unfiltered_sample_ct, sample_include, sample_ct, cluster_cc_perm_preimage);
     } else {
-      collapse_copy_bitarr_incl(unfiltered_indiv_ct, pheno_c, indiv_include, indiv_ct, cluster_cc_perm_preimage);
+      collapse_copy_bitarr_incl(unfiltered_sample_ct, pheno_c, sample_include, sample_ct, cluster_cc_perm_preimage);
     }
   }
-  if ((indiv_ct == unfiltered_indiv_ct) && ((!remove_size1) || no_size1(cluster_ct, cluster_starts))) {
+  if ((sample_ct == unfiltered_sample_ct) && ((!remove_size1) || no_size1(cluster_ct, cluster_starts))) {
     *new_cluster_map_ptr = cluster_map;
     *new_cluster_ct_ptr = cluster_ct;
     *new_cluster_starts_ptr = cluster_starts;
@@ -909,7 +910,7 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
     cluster_assigned_ct = 0;
     cluster_end = cluster_starts[cluster_idx + 1];
     for (map_idx = cluster_starts[cluster_idx]; map_idx < cluster_end; map_idx++) {
-      cluster_assigned_ct += is_set(indiv_include, cluster_map[map_idx]);
+      cluster_assigned_ct += is_set(sample_include, cluster_map[map_idx]);
     }
     if (cluster_assigned_ct > remove_size1) {
       new_cluster_ct++;
@@ -938,10 +939,10 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
     }
     cluster_case_cts = *cluster_case_cts_ptr;
   }
-  if (wkspace_alloc_ui_checked(&uidx_to_idx, unfiltered_indiv_ct * sizeof(int32_t))) {
+  if (wkspace_alloc_ui_checked(&uidx_to_idx, unfiltered_sample_ct * sizeof(int32_t))) {
     goto cluster_include_and_reindex_ret_NOMEM;
   }
-  fill_uidx_to_idx_incl(indiv_include, unfiltered_indiv_ct, indiv_ct, uidx_to_idx);
+  fill_uidx_to_idx_incl(sample_include, unfiltered_sample_ct, sample_ct, uidx_to_idx);
   *new_cluster_ct_ptr = new_cluster_ct;
   cluster_read_idx = 1;
   map_idx = 0;
@@ -954,8 +955,8 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
   // * update new_cluster_starts[] if necessary
   // * if remove_size1, also delete clusters that are now size 1
   for (map_read_idx = 0; map_read_idx < old_assigned_ct; map_read_idx++) {
-    indiv_uidx = cluster_map[map_read_idx];
-    if (!IS_SET(indiv_include, indiv_uidx)) {
+    sample_uidx = cluster_map[map_read_idx];
+    if (!IS_SET(sample_include, sample_uidx)) {
       continue;
     }
     if (map_read_idx >= cluster_end) {
@@ -982,9 +983,9 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
     }
     if (pheno_c) {
       case_ct += last_case_ct_incr;
-      last_case_ct_incr = IS_SET(pheno_c, indiv_uidx);
+      last_case_ct_incr = IS_SET(pheno_c, sample_uidx);
     }
-    new_cluster_map[map_idx++] = uidx_to_idx[indiv_uidx];
+    new_cluster_map[map_idx++] = uidx_to_idx[sample_uidx];
   }
   if (new_cluster_ct && (!(remove_size1 && (new_cluster_starts[cluster_idx - 1] == map_idx - 1)))) {
     // fill in last array elements, but guard against "last cluster is of size
@@ -1035,12 +1036,12 @@ int32_t cluster_alloc_and_populate_magic_nums(uint32_t cluster_ct, uint32_t* clu
   return 0;
 }
 
-int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* indiv_to_cluster, uint32_t for_cluster_flag, uint32_t is_max_dist, double* dists, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices) {
+int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* sample_to_cluster, uint32_t for_cluster_flag, uint32_t is_max_dist, double* dists, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* dist_file = NULL;
   FILE* id_file = NULL;
-  uintptr_t id_entry_ct = indiv_ct;
-  uintptr_t matching_entry_ct = indiv_ct;
+  uintptr_t id_entry_ct = sample_ct;
+  uintptr_t matching_entry_ct = sample_ct;
   uintptr_t line_idx = 0;
   char* id_buf = &(tbuf[MAXLINELEN]);
   uint64_t* fidx_to_memidx = NULL; // high 32 bits = fidx, low 32 = memidx
@@ -1073,14 +1074,14 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
     goto read_dists_ret_READ_FAIL;
   }
   if (id_fname) {
-    if (wkspace_alloc_ull_checked(&fidx_to_memidx, indiv_ct * sizeof(int64_t))) {
+    if (wkspace_alloc_ull_checked(&fidx_to_memidx, sample_ct * sizeof(int64_t))) {
       goto read_dists_ret_NOMEM;
     }
-    fill_ull_one(fidx_to_memidx, indiv_ct);
+    fill_ull_one(fidx_to_memidx, sample_ct);
     if (fopen_checked(&id_file, id_fname, "r")) {
       goto read_dists_ret_OPEN_FAIL;
     }
-    retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_indiv_ct, indiv_exclude, unfiltered_indiv_ct - indiv_ct, person_ids, max_person_id_len, 0, 1, strcmp_deref);
+    retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_sample_ct, sample_exclude, unfiltered_sample_ct - sample_ct, person_ids, max_person_id_len, 0, 1, strcmp_deref);
     if (retval) {
       goto read_dists_ret_1;
     }
@@ -1097,7 +1098,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
       if (is_eoln_kns(*fam_id)) {
         continue;
       }
-      if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_person_id_len, indiv_ct, fam_id, NULL, &ii)) {
+      if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_person_id_len, sample_ct, fam_id, NULL, &ii)) {
 	LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, id_fname);
         goto read_dists_ret_INVALID_FORMAT_2;
       }
@@ -1117,8 +1118,8 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
       }
       if (cluster_ct && (!neighbor_n2)) {
 	// if cluster_ct && neighbor_n2, best to
-	// postpone indiv_to_cluster dereference
-        fidx_to_memidx[uii] = ((uint64_t)(indiv_to_cluster[uii])) | (((uint64_t)id_entry_ct) << 32);
+	// postpone sample_to_cluster dereference
+        fidx_to_memidx[uii] = ((uint64_t)(sample_to_cluster[uii])) | (((uint64_t)id_entry_ct) << 32);
       } else {
         fidx_to_memidx[uii] = ((uint64_t)uii) | (((uint64_t)id_entry_ct) << 32);
       }
@@ -1129,21 +1130,21 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
       goto read_dists_ret_READ_FAIL;
     }
     fclose_null(&id_file);
-    if (matching_entry_ct < indiv_ct) {
-      logprint("Error: --read-dists ID file does not contain all individuals in current run.\n");
+    if (matching_entry_ct < sample_ct) {
+      logprint("Error: --read-dists ID file does not contain all samples in current run.\n");
       goto read_dists_ret_INVALID_FORMAT;
     }
   } else if (cluster_ct) {
-    if (wkspace_alloc_ull_checked(&fidx_to_memidx, indiv_ct * sizeof(int64_t))) {
+    if (wkspace_alloc_ull_checked(&fidx_to_memidx, sample_ct * sizeof(int64_t))) {
       goto read_dists_ret_NOMEM;
     }
     if (neighbor_n2) {
-      for (id_entry_ct = 0; id_entry_ct < indiv_ct; id_entry_ct++) {
+      for (id_entry_ct = 0; id_entry_ct < sample_ct; id_entry_ct++) {
 	fidx_to_memidx[id_entry_ct] = ((uint64_t)id_entry_ct) | (((uint64_t)id_entry_ct) << 32);
       }
     } else {
-      for (id_entry_ct = 0; id_entry_ct < indiv_ct; id_entry_ct++) {
-	fidx_to_memidx[id_entry_ct] = ((uint64_t)(indiv_to_cluster[id_entry_ct])) | (((uint64_t)id_entry_ct) << 32);
+      for (id_entry_ct = 0; id_entry_ct < sample_ct; id_entry_ct++) {
+	fidx_to_memidx[id_entry_ct] = ((uint64_t)(sample_to_cluster[id_entry_ct])) | (((uint64_t)id_entry_ct) << 32);
       }
     }
   }
@@ -1152,9 +1153,9 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
     // std::sort is faster than qsort for basic types.  See e.g. Anders
     // Kaseorg's answer to
     // http://www.quora.com/Software-Engineering/Generally-how-much-faster-is-C-compared-to-C++
-    std::sort((int64_t*)fidx_to_memidx, (int64_t*)(&(fidx_to_memidx[indiv_ct])));
+    std::sort((int64_t*)fidx_to_memidx, (int64_t*)(&(fidx_to_memidx[sample_ct])));
 #else
-    qsort(fidx_to_memidx, indiv_ct, sizeof(int64_t), llcmp);
+    qsort(fidx_to_memidx, sample_ct, sizeof(int64_t), llcmp);
 #endif
   }
   fpos = (((uint64_t)id_entry_ct) * (id_entry_ct - 1)) * (sizeof(double) / 2);
@@ -1169,16 +1170,16 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
     }
     if (neighbor_n2) {
       dptr = dists;
-      for (memidx1 = 1; memidx1 < indiv_ct; memidx1++) {
+      for (memidx1 = 1; memidx1 < sample_ct; memidx1++) {
 	for (memidx2 = 0; memidx2 < memidx1; memidx2++) {
-          update_neighbor(indiv_ct, neighbor_n2, memidx1, memidx2, *dptr++, neighbor_quantiles, neighbor_qindices);
+          update_neighbor(sample_ct, neighbor_n2, memidx1, memidx2, *dptr++, neighbor_quantiles, neighbor_qindices);
 	}
       }
     }
   } else {
     fpos = 0;
     if ((!cluster_ct) || (!neighbor_n2)) {
-      for (ulii = 1; ulii < indiv_ct; ulii++) {
+      for (ulii = 1; ulii < sample_ct; ulii++) {
 	ullii = fidx_to_memidx[ulii];
 	memidx1 = (uintptr_t)(ullii & (ONELU * 0xffffffffU));
 	fidx1 = (uintptr_t)(ullii >> 32);
@@ -1204,24 +1205,24 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
 	    dists[((memidx2 * (memidx2 - 1)) / 2) + memidx1] += cur_ibs;
 	  }
 	  if (neighbor_n2) {
-	    update_neighbor(indiv_ct, neighbor_n2, memidx1, memidx2, cur_ibs, neighbor_quantiles, neighbor_qindices);
+	    update_neighbor(sample_ct, neighbor_n2, memidx1, memidx2, cur_ibs, neighbor_quantiles, neighbor_qindices);
 	  }
 	  fpos += sizeof(double);
 	}
       }
     } else {
-      for (ulii = 1; ulii < indiv_ct; ulii++) {
+      for (ulii = 1; ulii < sample_ct; ulii++) {
 	ullii = fidx_to_memidx[ulii];
 	memidx1 = (uintptr_t)(ullii & (ONELU * 0xffffffffU));
 	fidx1 = (uintptr_t)(ullii >> 32);
-        clidx1 = indiv_to_cluster[memidx1];
+        clidx1 = sample_to_cluster[memidx1];
 	trimem = (clidx1 * (clidx1 - 1)) / 2;
 	trif = (((uint64_t)fidx1) * (fidx1 - 1)) * (sizeof(double) / 2);
 	for (uljj = 0; uljj < ulii; uljj++) {
 	  ullii = fidx_to_memidx[uljj];
 	  memidx2 = (uintptr_t)(ullii & (ONELU * 0xffffffffU));
 	  fidx2 = (uint64_t)(ullii >> 32);
-	  clidx2 = indiv_to_cluster[memidx2];
+	  clidx2 = sample_to_cluster[memidx2];
 	  fpos2 = trif + (fidx2 * sizeof(double));
 	  if (fpos2 > fpos) {
 	    fpos = fpos2;
@@ -1251,7 +1252,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
 	    }
 	  }
 	  if (neighbor_n2) {
-	    update_neighbor(indiv_ct, neighbor_n2, memidx1, memidx2, cur_ibs, neighbor_quantiles, neighbor_qindices);
+	    update_neighbor(sample_ct, neighbor_n2, memidx1, memidx2, cur_ibs, neighbor_quantiles, neighbor_qindices);
 	  }
 	  fpos += sizeof(double);
 	}
@@ -1259,7 +1260,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
     }
   }
   if (for_cluster_flag != 2) {
-    LOGPRINTF("--read-dists: %" PRIuPTR " values loaded%s.\n", (indiv_ct * (indiv_ct - 1)) / 2, for_cluster_flag? " for --cluster/--neighbor" : "");
+    LOGPRINTF("--read-dists: %" PRIuPTR " values loaded%s.\n", (sample_ct * (sample_ct - 1)) / 2, for_cluster_flag? " for --cluster/--neighbor" : "");
   }
   while (0) {
   read_dists_ret_NOMEM:
@@ -1284,30 +1285,30 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
   return retval;
 }
 
-void update_neighbor(uintptr_t indiv_ct, uint32_t neighbor_n2, uintptr_t indiv_idx1, uintptr_t indiv_idx2, double cur_ibs, double* neighbor_quantiles, uint32_t* neighbor_qindices) {
+void update_neighbor(uintptr_t sample_ct, uint32_t neighbor_n2, uintptr_t sample_idx1, uintptr_t sample_idx2, double cur_ibs, double* neighbor_quantiles, uint32_t* neighbor_qindices) {
   uintptr_t exceed_ct;
   uintptr_t cur_write;
-  exceed_ct = nonincr_doublearr_leq_stride(&(neighbor_quantiles[indiv_idx1]), neighbor_n2, indiv_ct, cur_ibs);
+  exceed_ct = nonincr_doublearr_leq_stride(&(neighbor_quantiles[sample_idx1]), neighbor_n2, sample_ct, cur_ibs);
   if (exceed_ct < neighbor_n2) {
     for (cur_write = neighbor_n2 - 1; cur_write > exceed_ct; cur_write--) {
-      neighbor_quantiles[cur_write * indiv_ct + indiv_idx1] = neighbor_quantiles[(cur_write - 1) * indiv_ct + indiv_idx1];
-      neighbor_qindices[cur_write * indiv_ct + indiv_idx1] = neighbor_qindices[(cur_write - 1) * indiv_ct + indiv_idx1];
+      neighbor_quantiles[cur_write * sample_ct + sample_idx1] = neighbor_quantiles[(cur_write - 1) * sample_ct + sample_idx1];
+      neighbor_qindices[cur_write * sample_ct + sample_idx1] = neighbor_qindices[(cur_write - 1) * sample_ct + sample_idx1];
     }
-    neighbor_quantiles[(exceed_ct * indiv_ct) + indiv_idx1] = cur_ibs;
-    neighbor_qindices[(exceed_ct * indiv_ct) + indiv_idx1] = indiv_idx2;
+    neighbor_quantiles[(exceed_ct * sample_ct) + sample_idx1] = cur_ibs;
+    neighbor_qindices[(exceed_ct * sample_ct) + sample_idx1] = sample_idx2;
   }
-  exceed_ct = nonincr_doublearr_leq_stride(&(neighbor_quantiles[indiv_idx2]), neighbor_n2, indiv_ct, cur_ibs);
+  exceed_ct = nonincr_doublearr_leq_stride(&(neighbor_quantiles[sample_idx2]), neighbor_n2, sample_ct, cur_ibs);
   if (exceed_ct < neighbor_n2) {
     for (cur_write = neighbor_n2 - 1; cur_write > exceed_ct; cur_write--) {
-      neighbor_quantiles[cur_write * indiv_ct + indiv_idx2] = neighbor_quantiles[(cur_write - 1) * indiv_ct + indiv_idx2];
-      neighbor_qindices[cur_write * indiv_ct + indiv_idx2] = neighbor_qindices[(cur_write - 1) * indiv_ct + indiv_idx2];
+      neighbor_quantiles[cur_write * sample_ct + sample_idx2] = neighbor_quantiles[(cur_write - 1) * sample_ct + sample_idx2];
+      neighbor_qindices[cur_write * sample_ct + sample_idx2] = neighbor_qindices[(cur_write - 1) * sample_ct + sample_idx2];
     }
-    neighbor_quantiles[(exceed_ct * indiv_ct) + indiv_idx2] = cur_ibs;
-    neighbor_qindices[(exceed_ct * indiv_ct) + indiv_idx2] = indiv_idx1;
+    neighbor_quantiles[(exceed_ct * sample_ct) + sample_idx2] = cur_ibs;
+    neighbor_qindices[(exceed_ct * sample_ct) + sample_idx2] = sample_idx1;
   }
 }
 
-int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t* cluster_merge_prevented, double* cluster_sorted_ibs, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices, uint32_t* ppc_fail_counts, double min_ppc, uint32_t is_max_dist, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* indiv_to_cluster) {
+int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t* cluster_merge_prevented, double* cluster_sorted_ibs, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices, uint32_t* ppc_fail_counts, double min_ppc, uint32_t is_max_dist, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* sample_to_cluster) {
   unsigned char* wkspace_mark = wkspace_base;
   gzFile gz_infile = NULL;
   uint32_t neighbor_load_quantiles = neighbor_quantiles && cluster_sorted_ibs;
@@ -1320,15 +1321,15 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
   uint32_t* id_map;
   char* bufptr;
   char* fam_id;
-  uint32_t indiv_idx1;
-  uint32_t indiv_idx2;
+  uint32_t sample_idx1;
+  uint32_t sample_idx2;
   double cur_ibs;
   double cur_ppc;
   uintptr_t tcoord;
   uint32_t uii;
   int32_t ii;
   int32_t retval;
-  retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_indiv_ct, indiv_exclude, unfiltered_indiv_ct - indiv_ct, person_ids, max_person_id_len, 0, 1, strcmp_deref);
+  retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_sample_ct, sample_exclude, unfiltered_sample_ct - sample_ct, person_ids, max_person_id_len, 0, 1, strcmp_deref);
   if (retval) {
     goto read_genome_ret_1;
   }
@@ -1360,21 +1361,21 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
     if (is_eoln_kns(*fam_id)) {
       continue;
     }
-    if (bsearch_read_fam_indiv(idbuf, sorted_ids, max_person_id_len, indiv_ct, fam_id, &fam_id, &ii)) {
+    if (bsearch_read_fam_indiv(idbuf, sorted_ids, max_person_id_len, sample_ct, fam_id, &fam_id, &ii)) {
       goto read_genome_ret_MISSING_TOKENS;
     }
     if (ii == -1) {
       continue;
     }
-    indiv_idx1 = id_map[(uint32_t)ii];
-    if (bsearch_read_fam_indiv(idbuf, sorted_ids, max_person_id_len, indiv_ct, fam_id, &bufptr, &ii)) {
+    sample_idx1 = id_map[(uint32_t)ii];
+    if (bsearch_read_fam_indiv(idbuf, sorted_ids, max_person_id_len, sample_ct, fam_id, &bufptr, &ii)) {
       goto read_genome_ret_MISSING_TOKENS;
     }
     if (ii == -1) {
       continue;
     }
-    indiv_idx2 = id_map[(uint32_t)ii];
-    if (indiv_idx2 == indiv_idx1) {
+    sample_idx2 = id_map[(uint32_t)ii];
+    if (sample_idx2 == sample_idx1) {
       sprintf(logbuf, "Error: FID1/IID1 matches FID2/IID2 on line %" PRIuPTR " of --read-genome file.\n", line_idx);
       goto read_genome_ret_INVALID_FORMAT_2;
     }
@@ -1390,8 +1391,8 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
       }
       ppc_fail = (cur_ppc < min_ppc);
       if (ppc_fail && ppc_fail_counts) {
-	ppc_fail_counts[indiv_idx1] += 1;
-	ppc_fail_counts[indiv_idx2] += 1;
+	ppc_fail_counts[sample_idx1] += 1;
+	ppc_fail_counts[sample_idx2] += 1;
       }
     }
     if (scan_double(bufptr, &cur_ibs)) {
@@ -1399,13 +1400,13 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
       goto read_genome_ret_INVALID_FORMAT_2;
     }
     if (neighbor_load_quantiles) {
-      update_neighbor(indiv_ct, neighbor_n2, indiv_idx1, indiv_idx2, cur_ibs, neighbor_quantiles, neighbor_qindices);
+      update_neighbor(sample_ct, neighbor_n2, sample_idx1, sample_idx2, cur_ibs, neighbor_quantiles, neighbor_qindices);
     }
     loaded_entry_ct++;
     if (cluster_ct) {
-      indiv_idx1 = indiv_to_cluster[indiv_idx1];
-      indiv_idx2 = indiv_to_cluster[indiv_idx2];
-      if (indiv_idx1 == indiv_idx2) {
+      sample_idx1 = sample_to_cluster[sample_idx1];
+      sample_idx2 = sample_to_cluster[sample_idx2];
+      if (sample_idx1 == sample_idx2) {
 	if (ppc_fail && (!ppc_warning)) {
 	  logprint("Warning: Initial cluster assignment violates PPC test constraint.\n");
 	  ppc_warning = 1;
@@ -1413,12 +1414,12 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
 	continue;
       }
     }
-    if (indiv_idx2 < indiv_idx1) {
-      uii = indiv_idx1;
-      indiv_idx1 = indiv_idx2;
-      indiv_idx2 = uii;
+    if (sample_idx2 < sample_idx1) {
+      uii = sample_idx1;
+      sample_idx1 = sample_idx2;
+      sample_idx2 = uii;
     }
-    tcoord = tri_coord_no_diag(indiv_idx1, indiv_idx2);
+    tcoord = tri_coord_no_diag(sample_idx1, sample_idx2);
     if (ppc_fail) {
       SET_BIT(cluster_merge_prevented, tcoord);
     }
@@ -1435,8 +1436,8 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
   if (!gzeof(gz_infile)) {
     goto read_genome_ret_READ_FAIL;
   }
-  if (loaded_entry_ct != (indiv_ct * (indiv_ct - 1)) / 2) {
-    LOGPREPRINTFWW("Error: %s does not include all individual pairs.\n", read_genome_fname);
+  if (loaded_entry_ct != (sample_ct * (sample_ct - 1)) / 2) {
+    LOGPREPRINTFWW("Error: %s does not include all sample pairs.\n", read_genome_fname);
     goto read_genome_ret_INVALID_FORMAT_2;
   }
   while (0) {
@@ -1464,7 +1465,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
   return retval;
 }
 
-int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* indiv_to_cluster, uintptr_t* merge_prevented) {
+int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* sample_to_cluster, uintptr_t* merge_prevented) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* matchfile = NULL;
   FILE* typefile = NULL;
@@ -1479,8 +1480,8 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
   char intbuf[12];
   char* sorted_ids;
   uint32_t* id_map;
-  char** indiv_idx_to_match_str;
-  double** indiv_idx_to_dvals;
+  char** sample_idx_to_match_str;
+  double** sample_idx_to_dvals;
   unsigned char* wkspace_mark2;
   unsigned char* cov_type_arr;
   double* tol_arr;
@@ -1491,8 +1492,8 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
   double* dptr;
   double* dptr2;
   double* dptr3;
-  uintptr_t indiv_idx1;
-  uintptr_t indiv_idx2;
+  uintptr_t sample_idx1;
+  uintptr_t sample_idx2;
   uintptr_t clidx1;
   uintptr_t clidx2;
   uintptr_t tcoord;
@@ -1504,7 +1505,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
   uint32_t uii;
   int32_t ii;
   char cc;
-  retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_indiv_ct, indiv_exclude, unfiltered_indiv_ct - indiv_ct, person_ids, max_person_id_len, 0, 1, strcmp_deref);
+  retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_sample_ct, sample_exclude, unfiltered_sample_ct - sample_ct, person_ids, max_person_id_len, 0, 1, strcmp_deref);
   if (retval) {
     goto cluster_enforce_match_ret_1;
   }
@@ -1512,12 +1513,12 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
   wkspace_mark2 = wkspace_base;
   tbuf[MAXLINELEN - 1] = ' ';
   if (cp->match_fname) {
-    indiv_idx_to_match_str = (char**)wkspace_alloc(indiv_ct * sizeof(intptr_t));
-    if (!indiv_idx_to_match_str) {
+    sample_idx_to_match_str = (char**)wkspace_alloc(sample_ct * sizeof(intptr_t));
+    if (!sample_idx_to_match_str) {
       goto cluster_enforce_match_ret_NOMEM;
     }
-    for (indiv_idx1 = 0; indiv_idx1 < indiv_ct; indiv_idx1++) {
-      indiv_idx_to_match_str[indiv_idx1] = NULL;
+    for (sample_idx1 = 0; sample_idx1 < sample_ct; sample_idx1++) {
+      sample_idx_to_match_str[sample_idx1] = NULL;
     }
     cov_type_arr = wkspace_base;
     if (wkspace_left < MAXLINELEN) {
@@ -1608,19 +1609,19 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       if (is_eoln_kns(*bufptr)) {
 	continue;
       }
-      if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_person_id_len, indiv_ct, bufptr, &bufptr2, &ii)) {
+      if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_person_id_len, sample_ct, bufptr, &bufptr2, &ii)) {
 	goto cluster_enforce_match_ret_MISSING_TOKENS;
       }
       if (ii == -1) {
 	continue;
       }
-      indiv_idx1 = id_map[(uint32_t)ii];
-      if (indiv_idx_to_match_str[indiv_idx1]) {
+      sample_idx1 = id_map[(uint32_t)ii];
+      if (sample_idx_to_match_str[sample_idx1]) {
 	*strchr(id_buf, '\t') = ' ';
         LOGPREPRINTFWW("Error: ID '%s' appears multiple times in --match file.\n", id_buf);
 	goto cluster_enforce_match_ret_INVALID_FORMAT_2;
       }
-      indiv_idx_to_match_str[indiv_idx1] = wptr;
+      sample_idx_to_match_str[sample_idx1] = wptr;
       for (cov_idx = 0; cov_idx < cov_ct; cov_idx++) {
         bufptr = skip_initial_spaces(bufptr2);
 	if (is_eoln_kns(*bufptr)) {
@@ -1660,25 +1661,25 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       }
     }
     clidx1 = 0;
-    clidx2 = 1; // need these unequal if indiv_to_cluster undefined
-    for (indiv_idx1 = 1; indiv_idx1 < indiv_ct; indiv_idx1++) {
-      wptr = indiv_idx_to_match_str[indiv_idx1];
+    clidx2 = 1; // need these unequal if sample_to_cluster undefined
+    for (sample_idx1 = 1; sample_idx1 < sample_ct; sample_idx1++) {
+      wptr = sample_idx_to_match_str[sample_idx1];
       if (!wptr) {
 	continue;
       }
-      if (indiv_to_cluster) {
-        clidx1 = indiv_to_cluster[indiv_idx1];
+      if (sample_to_cluster) {
+        clidx1 = sample_to_cluster[sample_idx1];
 	tcoord = (clidx1 * (clidx1 - 1)) >> 1;
       } else {
-	tcoord = (indiv_idx1 * (indiv_idx1 - 1)) >> 1;
+	tcoord = (sample_idx1 * (sample_idx1 - 1)) >> 1;
       }
-      for (indiv_idx2 = 0; indiv_idx2 < indiv_idx1; indiv_idx2++) {
-        bufptr = indiv_idx_to_match_str[indiv_idx2];
+      for (sample_idx2 = 0; sample_idx2 < sample_idx1; sample_idx2++) {
+        bufptr = sample_idx_to_match_str[sample_idx2];
 	if (!bufptr) {
 	  continue;
 	}
-	if (indiv_to_cluster) {
-	  clidx2 = indiv_to_cluster[indiv_idx2];
+	if (sample_to_cluster) {
+	  clidx2 = sample_to_cluster[sample_idx2];
 	  if (clidx2 == clidx1) {
             if (cluster_mismatch_warning) {
 	      continue;
@@ -1694,7 +1695,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	    }
 	  }
 	} else {
-	  cur_coord = tcoord + indiv_idx2;
+	  cur_coord = tcoord + sample_idx2;
 	  if (IS_SET(merge_prevented, cur_coord)) {
 	    continue;
 	  }
@@ -1738,12 +1739,12 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
     wkspace_reset(wkspace_mark2);
   }
   if (cp->qmatch_fname) {
-    indiv_idx_to_dvals = (double**)wkspace_alloc(indiv_ct * sizeof(intptr_t));
-    if (!indiv_idx_to_dvals) {
+    sample_idx_to_dvals = (double**)wkspace_alloc(sample_ct * sizeof(intptr_t));
+    if (!sample_idx_to_dvals) {
       goto cluster_enforce_match_ret_NOMEM;
     }
-    for (indiv_idx1 = 0; indiv_idx1 < indiv_ct; indiv_idx1++) {
-      indiv_idx_to_dvals[indiv_idx1] = NULL;
+    for (sample_idx1 = 0; sample_idx1 < sample_ct; sample_idx1++) {
+      sample_idx_to_dvals[sample_idx1] = NULL;
     }
     tol_arr = (double*)wkspace_base;
     if (wkspace_left <= MAXLINELEN * 4) {
@@ -1821,19 +1822,19 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       if (is_eoln_kns(*bufptr)) {
 	continue;
       }
-      if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_person_id_len, indiv_ct, bufptr, &bufptr, &ii)) {
+      if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_person_id_len, sample_ct, bufptr, &bufptr, &ii)) {
         goto cluster_enforce_match_ret_MISSING_TOKENS_Q;
       }
       if (ii == -1) {
 	continue;
       }
-      indiv_idx1 = id_map[(uint32_t)ii];
-      if (indiv_idx_to_dvals[indiv_idx1]) {
+      sample_idx1 = id_map[(uint32_t)ii];
+      if (sample_idx_to_dvals[sample_idx1]) {
 	*strchr(id_buf, '\t') = ' ';
         LOGPREPRINTFWW("Error: ID '%s' appears multiple times in --qmatch file.\n", id_buf);
         goto cluster_enforce_match_ret_INVALID_FORMAT_2;
       }
-      indiv_idx_to_dvals[indiv_idx1] = dptr;
+      sample_idx_to_dvals[sample_idx1] = dptr;
       for (cov_idx = 0; cov_idx < cov_ct; cov_idx++) {
 	bufptr = skip_initial_spaces(bufptr);
 	if (is_eoln_kns(*bufptr)) {
@@ -1876,24 +1877,24 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
     }
     clidx1 = 0;
     clidx2 = 1;
-    for (indiv_idx1 = 1; indiv_idx1 < indiv_ct; indiv_idx1++) {
-      dptr3 = indiv_idx_to_dvals[indiv_idx1];
+    for (sample_idx1 = 1; sample_idx1 < sample_ct; sample_idx1++) {
+      dptr3 = sample_idx_to_dvals[sample_idx1];
       if (!dptr3) {
 	continue;
       }
-      if (indiv_to_cluster) {
-	clidx1 = indiv_to_cluster[indiv_idx1];
+      if (sample_to_cluster) {
+	clidx1 = sample_to_cluster[sample_idx1];
 	tcoord = (clidx1 * (clidx1 - 1)) >> 1;
       } else {
-        tcoord = (indiv_idx1 * (indiv_idx1 - 1)) >> 1;
+        tcoord = (sample_idx1 * (sample_idx1 - 1)) >> 1;
       }
-      for (indiv_idx2 = 0; indiv_idx2 < indiv_idx1; indiv_idx2++) {
-        dptr = indiv_idx_to_dvals[indiv_idx2];
+      for (sample_idx2 = 0; sample_idx2 < sample_idx1; sample_idx2++) {
+        dptr = sample_idx_to_dvals[sample_idx2];
         if (!dptr) {
 	  continue;
 	}
-	if (indiv_to_cluster) {
-	  clidx2 = indiv_to_cluster[indiv_idx2];
+	if (sample_to_cluster) {
+	  clidx2 = sample_to_cluster[sample_idx2];
 	  if (clidx2 == clidx1) {
             if (cluster_mismatch_warning) {
 	      continue;
@@ -1909,7 +1910,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	    }
 	  }
 	} else {
-	  cur_coord = tcoord + indiv_idx2;
+	  cur_coord = tcoord + sample_idx2;
 	  if (IS_SET(merge_prevented, cur_coord)) {
 	    continue;
 	  }
@@ -1965,14 +1966,14 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
   return retval;
 }
 
-uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_t list_size, uint32_t* sorted_ibs_indices, uint32_t* cluster_index, uint32_t* cur_cluster_sizes, uint32_t indiv_ct, uint32_t* cur_cluster_case_cts, uint32_t case_ct, uint32_t ctrl_ct, uint32_t* cur_cluster_remap, Cluster_info* cp, uintptr_t* ibs_ties, uint32_t* merge_sequence) {
+uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_t list_size, uint32_t* sorted_ibs_indices, uint32_t* cluster_index, uint32_t* cur_cluster_sizes, uint32_t sample_ct, uint32_t* cur_cluster_case_cts, uint32_t case_ct, uint32_t ctrl_ct, uint32_t* cur_cluster_remap, Cluster_info* cp, uintptr_t* ibs_ties, uint32_t* merge_sequence) {
   uint32_t is_old_tiebreaks = cp->modifier & CLUSTER_OLD_TIEBREAKS;
   uint32_t* list_end = &(sorted_ibs_indices[list_size]);
   uint32_t max_merge = cluster_ct - cp->min_ct;
   uint32_t max_size = cp->max_size;
   uint32_t max_cases = cp->max_cases;
   uint32_t max_ctrls = cp->max_ctrls;
-  uint32_t size_restriction = (max_size < indiv_ct);
+  uint32_t size_restriction = (max_size < sample_ct);
   uint32_t case_restriction = (max_cases < case_ct);
   uint32_t ctrl_restriction = (max_ctrls < ctrl_ct);
   uint32_t sccr = size_restriction || case_restriction || ctrl_restriction;
@@ -2398,12 +2399,12 @@ void heap_merge_two_cc(uint32_t coord_aux, uint32_t coord_main, double dsize_aux
   heap_up_then_down(heap_pos2, *heap_size_ptr, heap_vals, val_to_cindices, cluster_index);
 }
 
-uint32_t cluster_group_avg_main(uint32_t cluster_ct, uintptr_t* merge_prevented, uint32_t heap_size, double* heap_vals, uint32_t* val_to_cindices, uint32_t* cluster_index, uint32_t* cur_cluster_sizes, uint32_t indiv_ct, uint32_t* cur_cluster_case_cts, uint32_t case_ct, uint32_t ctrl_ct, uint32_t* cur_cluster_remap, Cluster_info* cp, uint32_t* merge_sequence) {
+uint32_t cluster_group_avg_main(uint32_t cluster_ct, uintptr_t* merge_prevented, uint32_t heap_size, double* heap_vals, uint32_t* val_to_cindices, uint32_t* cluster_index, uint32_t* cur_cluster_sizes, uint32_t sample_ct, uint32_t* cur_cluster_case_cts, uint32_t case_ct, uint32_t ctrl_ct, uint32_t* cur_cluster_remap, Cluster_info* cp, uint32_t* merge_sequence) {
   uint32_t max_merge = cluster_ct - cp->min_ct;
   uint32_t max_size = cp->max_size;
   uint32_t max_cases = cp->max_cases;
   uint32_t max_ctrls = cp->max_ctrls;
-  uint32_t size_restriction = (max_size < indiv_ct);
+  uint32_t size_restriction = (max_size < sample_ct);
   uint32_t case_restriction = (max_cases < case_ct);
   uint32_t ctrl_restriction = (max_ctrls < ctrl_ct);
   uint32_t sccr = size_restriction || case_restriction || ctrl_restriction;
@@ -2647,7 +2648,7 @@ uint32_t cluster_group_avg_main(uint32_t cluster_ct, uintptr_t* merge_prevented,
   return merge_ct;
 }
 
-void write_cluster1(FILE* outfile, uint32_t clidx, char* person_ids, uintptr_t max_person_id_len, uintptr_t* pheno_c, uint32_t* indiv_idx_to_uidx, uint32_t* merge_sequence, uint32_t merge_ct) {
+void write_cluster1(FILE* outfile, uint32_t clidx, char* person_ids, uintptr_t max_person_id_len, uintptr_t* pheno_c, uint32_t* sample_idx_to_uidx, uint32_t* merge_sequence, uint32_t merge_ct) {
   // Manually manage recursion, to minimize crash risk when there are e.g. 500k
   // clusters.  Fortunately, no recursion stack is even needed.
   char* sptr;
@@ -2655,13 +2656,13 @@ void write_cluster1(FILE* outfile, uint32_t clidx, char* person_ids, uintptr_t m
   uint32_t msidx;
  write_cluster1_recurse:
   putc(' ', outfile);
-  sptr = &(person_ids[indiv_idx_to_uidx[clidx] * max_person_id_len]);
+  sptr = &(person_ids[sample_idx_to_uidx[clidx] * max_person_id_len]);
   sptr2 = (char*)memchr(sptr, '\t', max_person_id_len);
   fwrite(sptr, 1, sptr2 - sptr, outfile);
   putc('_', outfile);
   fputs(&(sptr2[1]), outfile);
   if (pheno_c) {
-    if (IS_SET(pheno_c, indiv_idx_to_uidx[clidx])) {
+    if (IS_SET(pheno_c, sample_idx_to_uidx[clidx])) {
       fputs("(2)", outfile);
     } else {
       fputs("(1)", outfile);
@@ -2677,7 +2678,7 @@ void write_cluster1(FILE* outfile, uint32_t clidx, char* person_ids, uintptr_t m
   }
 }
 
-void write_cluster1_oitc(FILE* outfile, uint32_t clidx, char* person_ids, uintptr_t max_person_id_len, uintptr_t* pheno_c, uint32_t* orig_cluster_map, uint32_t* orig_cluster_starts, uint32_t* late_clidx_to_indiv_uidx, uint32_t orig_within_ct, uint32_t* cluster_remap, uint32_t* merge_sequence, uint32_t merge_ct) {
+void write_cluster1_oitc(FILE* outfile, uint32_t clidx, char* person_ids, uintptr_t max_person_id_len, uintptr_t* pheno_c, uint32_t* orig_cluster_map, uint32_t* orig_cluster_starts, uint32_t* late_clidx_to_sample_uidx, uint32_t orig_within_ct, uint32_t* cluster_remap, uint32_t* merge_sequence, uint32_t merge_ct) {
   char* sptr;
   char* sptr2;
   uint32_t uii;
@@ -2685,13 +2686,13 @@ void write_cluster1_oitc(FILE* outfile, uint32_t clidx, char* person_ids, uintpt
  write_cluster1_oitc_recurse:
   putc(' ', outfile);
   if (clidx >= orig_within_ct) {
-    sptr = &(person_ids[late_clidx_to_indiv_uidx[clidx - orig_within_ct] * max_person_id_len]);
+    sptr = &(person_ids[late_clidx_to_sample_uidx[clidx - orig_within_ct] * max_person_id_len]);
     sptr2 = (char*)memchr(sptr, '\t', max_person_id_len);
     fwrite(sptr, 1, sptr2 - sptr, outfile);
     putc('_', outfile);
     fputs(&(sptr2[1]), outfile);
     if (pheno_c) {
-      if (IS_SET(pheno_c, late_clidx_to_indiv_uidx[clidx - orig_within_ct])) {
+      if (IS_SET(pheno_c, late_clidx_to_sample_uidx[clidx - orig_within_ct])) {
 	fputs("(2)", outfile);
       } else {
 	fputs("(1)", outfile);
@@ -2724,7 +2725,7 @@ void write_cluster1_oitc(FILE* outfile, uint32_t clidx, char* person_ids, uintpt
   }
 }
 
-int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_indiv_to_cluster, uintptr_t indiv_ct, uint32_t* orig_cluster_map, uint32_t* orig_cluster_starts, uint32_t* late_clidx_to_indiv_uidx, uint32_t orig_within_ct, uint32_t orig_cluster_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t* pheno_c, uint32_t* indiv_idx_to_uidx, Cluster_info* cp, uint32_t* cluster_remap, uint32_t* clidx_table_space, uint32_t merge_ct, uint32_t* merge_sequence) {
+int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_sample_to_cluster, uintptr_t sample_ct, uint32_t* orig_cluster_map, uint32_t* orig_cluster_starts, uint32_t* late_clidx_to_sample_uidx, uint32_t orig_within_ct, uint32_t orig_cluster_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t* pheno_c, uint32_t* sample_idx_to_uidx, Cluster_info* cp, uint32_t* cluster_remap, uint32_t* clidx_table_space, uint32_t merge_ct, uint32_t* merge_sequence) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uint32_t only2 = cp->modifier & CLUSTER_ONLY2;
@@ -2737,7 +2738,7 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
   char* sptr2;
   char* wptr;
   uint32_t* cur_remap;
-  uint32_t indiv_idx;
+  uint32_t sample_idx;
   uint32_t clidx;
   uint32_t uii;
   uint32_t ujj;
@@ -2754,13 +2755,13 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
   }
   fputs("Writing cluster solution...", stdout);
   fflush(stdout);
-  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-    if (orig_indiv_to_cluster) {
-      clidx = cluster_remap[orig_indiv_to_cluster[indiv_idx]];
+  for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
+    if (orig_sample_to_cluster) {
+      clidx = cluster_remap[orig_sample_to_cluster[sample_idx]];
     } else {
-      clidx = cluster_remap[indiv_idx];
+      clidx = cluster_remap[sample_idx];
     }
-    sptr = &(person_ids[indiv_idx_to_uidx[indiv_idx] * max_person_id_len]);
+    sptr = &(person_ids[sample_idx_to_uidx[sample_idx] * max_person_id_len]);
     sptr2 = (char*)memchr(sptr, '\t', max_person_id_len);
     wptr = memcpyax(tbuf, sptr, (sptr2 - sptr), ' ');
     wptr = strcpyax(wptr, &(sptr2[1]), '\t');
@@ -2784,10 +2785,10 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
         if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
 	  goto write_cluster_solution_ret_WRITE_FAIL;
 	}
-        if (!orig_indiv_to_cluster) {
-	  write_cluster1(outfile, clidx, person_ids, max_person_id_len, report_pheno? pheno_c : NULL, indiv_idx_to_uidx, merge_sequence, merge_ct);
+        if (!orig_sample_to_cluster) {
+	  write_cluster1(outfile, clidx, person_ids, max_person_id_len, report_pheno? pheno_c : NULL, sample_idx_to_uidx, merge_sequence, merge_ct);
 	} else {
-	  write_cluster1_oitc(outfile, clidx, person_ids, max_person_id_len, report_pheno? pheno_c : NULL, orig_cluster_map, orig_cluster_starts, late_clidx_to_indiv_uidx, orig_within_ct, cluster_remap, merge_sequence, merge_ct);
+	  write_cluster1_oitc(outfile, clidx, person_ids, max_person_id_len, report_pheno? pheno_c : NULL, orig_cluster_map, orig_cluster_starts, late_clidx_to_sample_uidx, orig_within_ct, cluster_remap, merge_sequence, merge_ct);
 	}
 	if (putc_checked('\n', outfile)) {
 	  goto write_cluster_solution_ret_WRITE_FAIL;
@@ -2835,8 +2836,8 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
       }
     }
     fputs(" 0%", stdout);
-    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-      sptr = &(person_ids[indiv_idx_to_uidx[indiv_idx] * max_person_id_len]);
+    for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
+      sptr = &(person_ids[sample_idx_to_uidx[sample_idx] * max_person_id_len]);
       sptr2 = (char*)memchr(sptr, '\t', max_person_id_len);
       if (fwrite_checked(sptr, sptr2 - sptr, outfile)) {
 	goto write_cluster_solution_ret_WRITE_FAIL;
@@ -2844,10 +2845,10 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
       putc(' ', outfile);
       fputs(&(sptr2[1]), outfile);
       putc('\t', outfile);
-      if (orig_indiv_to_cluster) {
-        clidx = orig_indiv_to_cluster[indiv_idx];
+      if (orig_sample_to_cluster) {
+        clidx = orig_sample_to_cluster[sample_idx];
       } else {
-	clidx = indiv_idx;
+	clidx = sample_idx;
       }
       wptr = uint32_writex(wbuf, clidx, ' ');
       fwrite(wbuf, 1, wptr - wbuf, outfile);
@@ -2876,11 +2877,11 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
       if (putc_checked('\n', outfile)) {
 	goto write_cluster_solution_ret_WRITE_FAIL;
       }
-      if ((indiv_idx + 1) * 100LLU >= ((uint64_t)pct * indiv_ct)) {
+      if ((sample_idx + 1) * 100LLU >= ((uint64_t)pct * sample_ct)) {
 	if (pct > 10) {
           putchar('\b');
 	}
-        pct = (((uint64_t)(indiv_idx + 1)) * 100) / indiv_ct;
+        pct = (((uint64_t)(sample_idx + 1)) * 100) / sample_ct;
         printf("\b\b%u%%", pct++);
 	fflush(stdout);
       }
@@ -2912,7 +2913,7 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
 }
 
 #ifndef NOLAPACK
-int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t* indiv_idx_to_uidx, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uint32_t cur_cluster_ct, uint32_t merge_ct, uint32_t* orig_indiv_to_cluster, uint32_t* cur_cluster_remap, uint32_t dim_ct, uint32_t is_mds_cluster, uint32_t dump_eigvals, double* dists) {
+int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, uintptr_t sample_ct, uint32_t* sample_idx_to_uidx, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uint32_t cur_cluster_ct, uint32_t merge_ct, uint32_t* orig_sample_to_cluster, uint32_t* cur_cluster_remap, uint32_t dim_ct, uint32_t is_mds_cluster, uint32_t dump_eigvals, double* dists) {
   FILE* outfile = NULL;
   uintptr_t final_cluster_ct = cur_cluster_ct - merge_ct;
   double grand_mean = 0.0;
@@ -2946,7 +2947,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
   double* dptr2;
   char* wptr;
   char* wptr2;
-  uintptr_t indiv_idx;
+  uintptr_t sample_idx;
   uintptr_t clidx1;
   uintptr_t clidx2;
   uint32_t dim_idx;
@@ -2959,8 +2960,8 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
   if (!final_cluster_remap) {
     goto mds_plot_ret_NOMEM;
   }
-  if ((indiv_ct > 5000) && (!is_mds_cluster) && (final_cluster_ct < indiv_ct) && (final_cluster_ct > 1)) {
-    LOGPRINTF("Warning: Per-individual --mds-plot can be very slow with over 5000 %s.\nConsider using the 'by-cluster' modifier.\n", g_species_plural);
+  if ((sample_ct > 5000) && (!is_mds_cluster) && (final_cluster_ct < sample_ct) && (final_cluster_ct > 1)) {
+    LOGPRINTF("Warning: Per-sample --mds-plot can be very slow with over 5000 %s.\nConsider using the 'by-cluster' modifier.\n", g_species_plural);
   }
   for (clidx1 = 0; clidx1 < cur_cluster_ct; clidx1++) {
     clidx2 = cur_cluster_remap[clidx1];
@@ -3004,20 +3005,20 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
     ulii = final_cluster_ct;
   } else {
     wkspace_reset(dists);
-    if (wkspace_alloc_d_checked(&main_matrix, indiv_ct * indiv_ct * sizeof(double))) {
+    if (wkspace_alloc_d_checked(&main_matrix, sample_ct * sample_ct * sizeof(double))) {
       goto mds_plot_ret_NOMEM;
     }
     // expand triangular diagonal-free matrix to square matrix
-    ulii = ((indiv_ct - 1) * (indiv_ct - 2)) >> 1;
-    for (indiv_idx = indiv_ct - 1; indiv_idx;) {
-      memcpy(&(main_matrix[indiv_idx * indiv_ct]), &(main_matrix[ulii]), indiv_idx * sizeof(double));
-      ulii -= (--indiv_idx);
+    ulii = ((sample_ct - 1) * (sample_ct - 2)) >> 1;
+    for (sample_idx = sample_ct - 1; sample_idx;) {
+      memcpy(&(main_matrix[sample_idx * sample_ct]), &(main_matrix[ulii]), sample_idx * sizeof(double));
+      ulii -= (--sample_idx);
     }
-    ulii = indiv_ct + 1;
-    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-      main_matrix[indiv_idx * ulii] = 0.0;
+    ulii = sample_ct + 1;
+    for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
+      main_matrix[sample_idx * ulii] = 0.0;
     }
-    ulii = indiv_ct;
+    ulii = sample_ct;
   }
   if (wkspace_alloc_d_checked(&column_means, ulii * sizeof(double))) {
     goto mds_plot_ret_NOMEM;
@@ -3140,17 +3141,17 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
   if (putc_checked('\n', outfile)) {
     goto mds_plot_ret_WRITE_FAIL;
   }
-  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-    wptr2 = &(person_ids[indiv_idx_to_uidx[indiv_idx] * max_person_id_len]);
+  for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
+    wptr2 = &(person_ids[sample_idx_to_uidx[sample_idx] * max_person_id_len]);
     uii = strlen_se(wptr2);
     wptr = fw_strcpyn(plink_maxfid, uii, wptr2, tbuf);
     *wptr++ = ' ';
     wptr = fw_strcpy(plink_maxiid, &(wptr2[uii + 1]), wptr);
     *wptr++ = ' ';
-    if (orig_indiv_to_cluster) {
-      uii = orig_indiv_to_cluster[indiv_idx];
+    if (orig_sample_to_cluster) {
+      uii = orig_sample_to_cluster[sample_idx];
     } else {
-      uii = indiv_idx;
+      uii = sample_idx;
     }
     uii = final_cluster_remap[uii];
     wptr = uint32_writew6x(wptr, uii, ' ');
@@ -3158,7 +3159,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
       goto mds_plot_ret_WRITE_FAIL;
     }
     if (!is_mds_cluster) {
-      dptr = &(main_matrix[(indiv_idx + 1) * dim_ct]);
+      dptr = &(main_matrix[(sample_idx + 1) * dim_ct]);
       for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
         wptr = double_g_writex(&(tbuf[11]), *(--dptr), ' ');
 	uii = wptr - (&(tbuf[11]));
