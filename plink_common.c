@@ -22,7 +22,7 @@ FILE* logfile = NULL;
 char logbuf[MAXLINELEN * 2]; // safe sprintf buffer, if one is needed
 uint32_t g_debug_on = 0;
 uint32_t g_log_failed = 0;
-uintptr_t g_indiv_ct;
+uintptr_t g_sample_ct;
 uint32_t g_thread_ct;
 
 uint32_t aligned_malloc(uintptr_t** aligned_pp, uintptr_t size) {

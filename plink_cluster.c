@@ -598,7 +598,7 @@ void fill_unfiltered_sample_to_cluster(uintptr_t unfiltered_indiv_ct, uintptr_t 
   }
 }
 
-int32_t fill_indiv_to_cluster(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* indiv_to_cluster, uint32_t* late_clidx_to_indiv_uidx) {
+int32_t fill_sample_to_cluster(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* indiv_to_cluster, uint32_t* late_clidx_to_indiv_uidx) {
   unsigned char* wkspace_mark = wkspace_base;
   uint32_t* cluster_map_pos = cluster_map;
   int32_t retval = 0;
@@ -608,7 +608,7 @@ int32_t fill_indiv_to_cluster(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_ex
   uint32_t indiv_uidx;
   uint32_t indiv_idx;
   if (wkspace_alloc_ui_checked(&uidx_to_idx, unfiltered_indiv_ct * sizeof(int32_t))) {
-    goto fill_indiv_to_cluster_ret_NOMEM;
+    goto fill_sample_to_cluster_ret_NOMEM;
   }
   fill_uidx_to_idx(indiv_exclude, unfiltered_indiv_ct, indiv_ct, uidx_to_idx);
   fill_uint_one(indiv_to_cluster, indiv_ct);
@@ -629,7 +629,7 @@ int32_t fill_indiv_to_cluster(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_ex
     }
   }
   while (0) {
-  fill_indiv_to_cluster_ret_NOMEM:
+  fill_sample_to_cluster_ret_NOMEM:
     retval = RET_NOMEM;
     break;
   }

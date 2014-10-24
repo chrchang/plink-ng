@@ -3086,7 +3086,7 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
   uint32_t* indiv_lm_to_fss_idx = g_indiv_lm_to_fss_idx;
   uint32_t* perm_ptr = NULL;
   uintptr_t cur_perm_ct = g_cur_perm_ct;
-  uintptr_t indiv_ct = g_indiv_ct;
+  uintptr_t indiv_ct = g_sample_ct;
   uintptr_t indiv_ctl2 = (indiv_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t flip_ctl = only_within? lm_ctl : fss_ctl;
   double adaptive_intercept = g_adaptive_intercept;
@@ -3380,7 +3380,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   g_lm_eligible = lm_eligible;
   g_lm_within2_founder = lm_within2_founder;
   g_test_type = test_type;
-  g_indiv_ct = indiv_ct;
+  g_sample_ct = indiv_ct;
   g_fs_ct = fs_ct;
   g_singleton_ct = singleton_ct;
   g_lm_ct = lm_ct;

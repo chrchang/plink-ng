@@ -721,7 +721,7 @@ extern char logbuf[];
 extern uint32_t g_debug_on;
 extern uint32_t g_log_failed;
 
-extern uintptr_t g_indiv_ct;
+extern uintptr_t g_sample_ct;
 extern uint32_t g_thread_ct;
 
 typedef struct ll_str_struct {
