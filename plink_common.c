@@ -3910,42 +3910,42 @@ void vec_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfiltered
   }
 }
 
-uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* indiv_bitarr, uintptr_t* sex_male, uintptr_t** indiv_include2_ptr, uintptr_t** indiv_male_include2_ptr) {
-  uintptr_t indiv_ctv2 = 2 * ((indiv_ct + (BITCT - 1)) / BITCT);
+uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* sample_bitarr, uintptr_t* sex_male, uintptr_t** sample_include2_ptr, uintptr_t** sample_male_include2_ptr) {
+  uintptr_t sample_ctv2 = 2 * ((sample_ct + (BITCT - 1)) / BITCT);
   if (hh_exists & (Y_FIX_NEEDED | NXMHH_EXISTS)) {
     // if already allocated, we assume this is fully initialized
-    if (!(*indiv_include2_ptr)) {
-      if (wkspace_alloc_ul_checked(indiv_include2_ptr, indiv_ctv2 * sizeof(intptr_t))) {
+    if (!(*sample_include2_ptr)) {
+      if (wkspace_alloc_ul_checked(sample_include2_ptr, sample_ctv2 * sizeof(intptr_t))) {
 	return 1;
       }
-      fill_vec_55(*indiv_include2_ptr, indiv_ct);
+      fill_vec_55(*sample_include2_ptr, sample_ct);
     }
   }
   if (hh_exists & (XMHH_EXISTS | Y_FIX_NEEDED)) {
     // if already allocated, we assume it's been top_alloc'd but not
     // initialized
-    if (!(*indiv_male_include2_ptr)) {
-      if (wkspace_alloc_ul_checked(indiv_male_include2_ptr, indiv_ctv2 * sizeof(intptr_t))) {
+    if (!(*sample_male_include2_ptr)) {
+      if (wkspace_alloc_ul_checked(sample_male_include2_ptr, sample_ctv2 * sizeof(intptr_t))) {
 	return 1;
       }
     }
     if (is_include) {
-      vec_collapse_init(sex_male, unfiltered_indiv_ct, indiv_bitarr, indiv_ct, *indiv_male_include2_ptr);
+      vec_collapse_init(sex_male, unfiltered_sample_ct, sample_bitarr, sample_ct, *sample_male_include2_ptr);
     } else {
-      vec_collapse_init_exclude(sex_male, unfiltered_indiv_ct, indiv_bitarr, indiv_ct, *indiv_male_include2_ptr);
+      vec_collapse_init_exclude(sex_male, unfiltered_sample_ct, sample_bitarr, sample_ct, *sample_male_include2_ptr);
     }
   }
   return 0;
 }
 
-void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char oldc, char newc) {
+void sample_delim_convert(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uint32_t sample_ct, char* person_ids, uintptr_t max_person_id_len, char oldc, char newc) {
   // assumes there is exactly one delimiter to convert per name
-  uintptr_t indiv_uidx = 0;
-  uint32_t indiv_idx;
+  uintptr_t sample_uidx = 0;
+  uint32_t sample_idx;
   char* nptr;
-  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
-    next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
-    nptr = (char*)memchr(&(person_ids[indiv_uidx * max_person_id_len]), (unsigned char)oldc, max_person_id_len);
+  for (sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
+    next_unset_ul_unsafe_ck(sample_exclude, &sample_uidx);
+    nptr = (char*)memchr(&(person_ids[sample_uidx * max_person_id_len]), (unsigned char)oldc, max_person_id_len);
     *nptr = newc;
   }
 }
@@ -4813,8 +4813,8 @@ int32_t qsort_ext(char* main_arr, intptr_t arr_length, intptr_t item_length, int
 
 int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t collapse_idxs, int(* comparator_deref)(const void*, const void*)) {
   // Stores a lexicographically sorted list of IDs in sorted_ids and the raw
-  // positions of the corresponding markers/indivs in *id_map_ptr.  Does not
-  // include excluded markers/indivs in the list.
+  // positions of the corresponding markers/samples in *id_map_ptr.  Does not
+  // include excluded markers/samples in the list.
   // Assumes sorted_ids and id_map have been allocated; use the sort_item_ids()
   // wrapper if they haven't been.
   // Note that this DOES still perform a "stack" allocation (in the qsort_ext()
@@ -5263,12 +5263,12 @@ void bitfield_xor(uintptr_t* bit_arr, uintptr_t* xor_arr, uintptr_t word_ct) {
 
 }
 
-uint32_t is_monomorphic(uintptr_t* lptr, uint32_t indiv_ct) {
-  uint32_t indiv_ctd2 = indiv_ct / BITCT2;
-  uint32_t indiv_rem = indiv_ct % BITCT2;
+uint32_t is_monomorphic(uintptr_t* lptr, uint32_t sample_ct) {
+  uint32_t sample_ctd2 = sample_ct / BITCT2;
+  uint32_t sample_rem = sample_ct % BITCT2;
   uintptr_t ulii;
   uintptr_t uljj;
-  while (indiv_ctd2) {
+  while (sample_ctd2) {
     ulii = *lptr++;
     uljj = (ulii >> 1) & FIVEMASK;
     ulii = ~ulii;
@@ -5284,41 +5284,41 @@ uint32_t is_monomorphic(uintptr_t* lptr, uint32_t indiv_ct) {
 	if (ulii & FIVEMASK) {
 	  return 0;
 	}
-	if (!(--indiv_ctd2)) {
-	  return (indiv_rem && ((~(*lptr)) & (FIVEMASK >> (BITCT - indiv_rem * 2))))? 0 : 1;
+	if (!(--sample_ctd2)) {
+	  return (sample_rem && ((~(*lptr)) & (FIVEMASK >> (BITCT - sample_rem * 2))))? 0 : 1;
 	}
 	ulii = ~(*lptr++);
       }
     } else if (ulii & FIVEMASK) {
       do {
-        if (!(--indiv_ctd2)) {
-          return (indiv_rem && ((*lptr) & (AAAAMASK >> (BITCT - indiv_rem * 2))))? 0 : 1;
+        if (!(--sample_ctd2)) {
+          return (sample_rem && ((*lptr) & (AAAAMASK >> (BITCT - sample_rem * 2))))? 0 : 1;
 	}
 	ulii = *lptr++;
       } while (!(ulii & AAAAMASK));
       return 0;
     }
-    indiv_ctd2--;
+    sample_ctd2--;
   }
-  if (indiv_rem) {
+  if (sample_rem) {
     ulii = *lptr;
     uljj = (ulii >> 1) & FIVEMASK;
     ulii = ~ulii;
-    if ((uljj & ulii) || (uljj && (ulii & (~uljj) & (FIVEMASK >> (BITCT - indiv_rem * 2))))) {
+    if ((uljj & ulii) || (uljj && (ulii & (~uljj) & (FIVEMASK >> (BITCT - sample_rem * 2))))) {
       return 0;
     }
   }
   return 1;
 }
 
-uint32_t less_than_two_genotypes(uintptr_t* lptr, uint32_t indiv_ct) {
-  uint32_t indiv_ctd2 = indiv_ct / BITCT2;
-  uint32_t indiv_rem = indiv_ct % BITCT2;
+uint32_t less_than_two_genotypes(uintptr_t* lptr, uint32_t sample_ct) {
+  uint32_t sample_ctd2 = sample_ct / BITCT2;
+  uint32_t sample_rem = sample_ct % BITCT2;
   uintptr_t ulii;
   uintptr_t uljj;
   uintptr_t ulkk;
   uint32_t distinct_genotype_ct;
-  while (indiv_ctd2) {
+  while (sample_ctd2) {
     ulii = *lptr++;
     uljj = (ulii >> 1) & FIVEMASK;
     ulkk = ~ulii;
@@ -5330,8 +5330,8 @@ uint32_t less_than_two_genotypes(uintptr_t* lptr, uint32_t indiv_ct) {
 	  if (ulkk & FIVEMASK) {
 	    return 0;
 	  }
-	  if (!(--indiv_ctd2)) {
-	    return (indiv_rem && ((~(*lptr)) & (FIVEMASK >> (BITCT - indiv_rem * 2))))? 0 : 1;
+	  if (!(--sample_ctd2)) {
+	    return (sample_rem && ((~(*lptr)) & (FIVEMASK >> (BITCT - sample_rem * 2))))? 0 : 1;
 	  }
 	  ulkk = ~(*lptr++);
 	}
@@ -5340,8 +5340,8 @@ uint32_t less_than_two_genotypes(uintptr_t* lptr, uint32_t indiv_ct) {
 	// genotypes
 	while (1) {
 	  ulii = ~(*lptr++);
-	  if (!(--indiv_ctd2)) {
-	    return (indiv_rem && (((~ulii) ^ (ulii >> 1)) & (FIVEMASK >> (BITCT - indiv_rem * 2))))? 0 : 1;
+	  if (!(--sample_ctd2)) {
+	    return (sample_rem && (((~ulii) ^ (ulii >> 1)) & (FIVEMASK >> (BITCT - sample_rem * 2))))? 0 : 1;
 	  }
 	  if (((~ulii) ^ (ulii >> 1)) & FIVEMASK) {
 	    return 0;
@@ -5352,21 +5352,21 @@ uint32_t less_than_two_genotypes(uintptr_t* lptr, uint32_t indiv_ct) {
       // homozygous minor observed; either 10 or 11 now demonstrate marker is
       // polymorphic
       do {
-        if (!(--indiv_ctd2)) {
-          return (indiv_rem && ((*lptr) & (AAAAMASK >> (BITCT - indiv_rem * 2))))? 0 : 1;
+        if (!(--sample_ctd2)) {
+          return (sample_rem && ((*lptr) & (AAAAMASK >> (BITCT - sample_rem * 2))))? 0 : 1;
 	}
 	ulii = *lptr++;
       } while (!(ulii & AAAAMASK));
       return 0;
     }
-    indiv_ctd2--;
+    sample_ctd2--;
   }
-  if (indiv_rem) {
+  if (sample_rem) {
     ulii = *lptr;
     uljj = (ulii >> 1) & FIVEMASK;
     ulkk = ~ulii;
     // homozygous minor present?
-    distinct_genotype_ct = (ulkk & (~uljj) & (FIVEMASK >> (BITCT - indiv_rem * 2)))? 1 : 0;
+    distinct_genotype_ct = (ulkk & (~uljj) & (FIVEMASK >> (BITCT - sample_rem * 2)))? 1 : 0;
     // heterozygous present?
     distinct_genotype_ct += (uljj & ulkk)? 1 : 0;
     // homozygous major present?
@@ -5379,9 +5379,9 @@ uint32_t less_than_two_genotypes(uintptr_t* lptr, uint32_t indiv_ct) {
 }
 
 /*
-uint32_t has_three_genotypes(uintptr_t* lptr, uint32_t indiv_ct) {
-  uintptr_t* lptr_end = &(lptr[indiv_ct / BITCT2]);
-  uint32_t indiv_rem = indiv_ct % BITCT2;
+uint32_t has_three_genotypes(uintptr_t* lptr, uint32_t sample_ct) {
+  uintptr_t* lptr_end = &(lptr[sample_ct / BITCT2]);
+  uint32_t sample_rem = sample_ct % BITCT2;
   uintptr_t* cur_lptr;
   uintptr_t ulii;
   uintptr_t uljj;
@@ -5390,7 +5390,7 @@ uint32_t has_three_genotypes(uintptr_t* lptr, uint32_t indiv_ct) {
     ulii = ~(*cur_lptr);
     uljj = ulii & (ulii >> 1) & FIVEMASK;
     if (cur_lptr == lptr_end) {
-      if ((!indiv_rem) || (!(uljj << (BITCT - indiv_rem * 2)))) {
+      if ((!sample_rem) || (!(uljj << (BITCT - sample_rem * 2)))) {
 	return 0;
       }
       break;
@@ -5403,7 +5403,7 @@ uint32_t has_three_genotypes(uintptr_t* lptr, uint32_t indiv_ct) {
   }
   cur_lptr = lptr;
   // zero-padding is benign for het and hom A2 checks
-  lptr_end = &(lptr[(indiv_ct + (BITCT2 - 1)) / BITCT2]);
+  lptr_end = &(lptr[(sample_ct + (BITCT2 - 1)) / BITCT2]);
   while (1) {
     ulii = *cur_lptr;
     uljj = (ulii >> 1) & FIVEMASK;
@@ -7184,14 +7184,14 @@ uintptr_t count_01_12(uintptr_t* lptr) {
 }
 #endif
 
-void vec_set_freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
+void vec_set_freq(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
   // Assuming include_vec describes e.g. cases, and an autosomal marker, this
   // counts the number of case set alleles loaded in lptr[], as well as the
   // number of cases with missing genotype info.
   // See single_marker_freqs_and_hwe() for discussion.
   // missing count: popcount2(genotype & (~(genotype >> 1)) & 0x5555...)
   // set allele count: popcount(genotype) - missing count
-  uintptr_t* lptr_end = &(lptr[indiv_ctl2]);
+  uintptr_t* lptr_end = &(lptr[sample_ctl2]);
   uintptr_t loader;
   uintptr_t loader2;
   uintptr_t missing_incr;
@@ -7200,21 +7200,21 @@ void vec_set_freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec,
 #ifdef __LP64__
   uintptr_t cur_decr = 60;
   uintptr_t* lptr_6x_end;
-  indiv_ctl2 -= indiv_ctl2 % 6;
-  while (indiv_ctl2 >= 60) {
+  sample_ctl2 -= sample_ctl2 % 6;
+  while (sample_ctl2 >= 60) {
   vec_set_freq_loop:
     lptr_6x_end = &(lptr[cur_decr]);
     count_set_freq_60v((__m128i*)lptr, (__m128i*)lptr_6x_end, (__m128i*)include_vec, &acc, &accm);
     lptr = lptr_6x_end;
     include_vec = &(include_vec[cur_decr]);
-    indiv_ctl2 -= cur_decr;
+    sample_ctl2 -= cur_decr;
   }
-  if (indiv_ctl2) {
-    cur_decr = indiv_ctl2;
+  if (sample_ctl2) {
+    cur_decr = sample_ctl2;
     goto vec_set_freq_loop;
   }
 #else
-  uintptr_t* lptr_six_end = &(lptr[indiv_ctl2 - (indiv_ctl2 % 6)]);
+  uintptr_t* lptr_six_end = &(lptr[sample_ctl2 - (sample_ctl2 % 6)]);
   while (lptr < lptr_six_end) {
     count_set_freq_6(lptr, include_vec, &acc, &accm);
     lptr = &(lptr[6]);
@@ -7232,10 +7232,10 @@ void vec_set_freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec,
   *missing_ctp = accm;
 }
 
-void vec_set_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* male_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
+void vec_set_freq_x(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* male_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
   // diploid counting for nonmales, haploid counting for males
   // missing_ct := male_obs + male_missing + 2 * female_missing
-  uintptr_t* lptr_end = &(lptr[indiv_ctl2]);
+  uintptr_t* lptr_end = &(lptr[sample_ctl2]);
   uintptr_t loader;
   uintptr_t loader2;
   uintptr_t loader3;
@@ -7246,22 +7246,22 @@ void vec_set_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ve
 #ifdef __LP64__
   uintptr_t cur_decr = 60;
   uintptr_t* lptr_6x_end;
-  indiv_ctl2 -= indiv_ctl2 % 6;
-  while (indiv_ctl2 >= 60) {
+  sample_ctl2 -= sample_ctl2 % 6;
+  while (sample_ctl2 >= 60) {
   vec_set_freq_x_loop:
     lptr_6x_end = &(lptr[cur_decr]);
     count_set_freq_x_60v((__m128i*)lptr, (__m128i*)lptr_6x_end, (__m128i*)include_vec, (__m128i*)male_vec, &acc, &accm);
     lptr = lptr_6x_end;
     include_vec = &(include_vec[cur_decr]);
     male_vec = &(male_vec[cur_decr]);
-    indiv_ctl2 -= cur_decr;
+    sample_ctl2 -= cur_decr;
   }
-  if (indiv_ctl2) {
-    cur_decr = indiv_ctl2;
+  if (sample_ctl2) {
+    cur_decr = sample_ctl2;
     goto vec_set_freq_x_loop;
   }
 #else
-  uintptr_t* lptr_six_end = &(lptr[indiv_ctl2 - (indiv_ctl2 % 6)]);
+  uintptr_t* lptr_six_end = &(lptr[sample_ctl2 - (sample_ctl2 % 6)]);
   while (lptr < lptr_six_end) {
     count_set_freq_x_6(lptr, include_vec, male_vec, &acc, &accm);
     lptr = &(lptr[6]);
@@ -7286,8 +7286,8 @@ void vec_set_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ve
   *missing_ctp = accm;
 }
 
-void vec_set_freq_y(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* nonmale_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
-  uintptr_t* lptr_end = &(lptr[indiv_ctl2]);
+void vec_set_freq_y(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* nonmale_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
+  uintptr_t* lptr_end = &(lptr[sample_ctl2]);
   uintptr_t loader;
   uintptr_t loader2;
   uintptr_t loader3;
@@ -7297,22 +7297,22 @@ void vec_set_freq_y(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ve
 #ifdef __LP64__
   uintptr_t cur_decr = 120;
   uintptr_t* lptr_12x_end;
-  indiv_ctl2 -= indiv_ctl2 % 12;
-  while (indiv_ctl2 >= 120) {
+  sample_ctl2 -= sample_ctl2 % 12;
+  while (sample_ctl2 >= 120) {
   vec_set_freq_y_loop:
     lptr_12x_end = &(lptr[cur_decr]);
     count_set_freq_y_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)include_vec, (__m128i*)nonmale_vec, &acc, &accm);
     lptr = lptr_12x_end;
     include_vec = &(include_vec[cur_decr]);
     nonmale_vec = &(nonmale_vec[cur_decr]);
-    indiv_ctl2 -= cur_decr;
+    sample_ctl2 -= cur_decr;
   }
-  if (indiv_ctl2) {
-    cur_decr = indiv_ctl2;
+  if (sample_ctl2) {
+    cur_decr = sample_ctl2;
     goto vec_set_freq_y_loop;
   }
 #else
-  uintptr_t* lptr_twelve_end = &(lptr[indiv_ctl2 - (indiv_ctl2 % 12)]);
+  uintptr_t* lptr_twelve_end = &(lptr[sample_ctl2 - (sample_ctl2 % 12)]);
   while (lptr < lptr_twelve_end) {
     count_set_freq_y_12(lptr, include_vec, nonmale_vec, &acc, &accm);
     lptr = &(lptr[12]);
@@ -7332,9 +7332,9 @@ void vec_set_freq_y(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ve
   *missing_ctp = accm;
 }
 
-void vec_3freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* missing_ctp, uint32_t* het_ctp, uint32_t* homset_ctp) {
+void vec_3freq(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* missing_ctp, uint32_t* het_ctp, uint32_t* homset_ctp) {
   // generic routine for getting all counts.
-  uintptr_t* lptr_end = &(lptr[indiv_ctl2]);
+  uintptr_t* lptr_end = &(lptr[sample_ctl2]);
   uintptr_t loader;
   uintptr_t loader2;
   uintptr_t loader3;
@@ -7344,21 +7344,21 @@ void vec_3freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, ui
 #ifdef __LP64__
   uintptr_t cur_decr = 120;
   uintptr_t* lptr_12x_end;
-  indiv_ctl2 -= indiv_ctl2 % 12;
-  while (indiv_ctl2 >= 120) {
+  sample_ctl2 -= sample_ctl2 % 12;
+  while (sample_ctl2 >= 120) {
   vec_3freq_loop:
     lptr_12x_end = &(lptr[cur_decr]);
     count_3freq_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)include_vec, &acc_even, &acc_odd, &acc_and);
     lptr = lptr_12x_end;
     include_vec = &(include_vec[cur_decr]);
-    indiv_ctl2 -= cur_decr;
+    sample_ctl2 -= cur_decr;
   }
-  if (indiv_ctl2) {
-    cur_decr = indiv_ctl2;
+  if (sample_ctl2) {
+    cur_decr = sample_ctl2;
     goto vec_3freq_loop;
   }
 #else
-  uintptr_t* lptr_twelve_end = &(lptr[indiv_ctl2 - (indiv_ctl2 % 12)]);
+  uintptr_t* lptr_twelve_end = &(lptr[sample_ctl2 - (sample_ctl2 % 12)]);
   while (lptr < lptr_twelve_end) {
     count_3freq_12(lptr, include_vec, &acc_even, &acc_odd, &acc_and);
     lptr = &(lptr[12]);
@@ -7618,17 +7618,17 @@ uint32_t get_max_chrom_size(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclud
   return max_chrom_size;
 }
 
-void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t* male_ct_ptr, uint32_t* female_ct_ptr, uint32_t* unk_ct_ptr) {
+void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uint32_t* male_ct_ptr, uint32_t* female_ct_ptr, uint32_t* unk_ct_ptr) {
   uint32_t male_ct = 0;
   uint32_t female_ct = 0;
   uint32_t unk_ct = 0;
-  uint32_t unfiltered_indiv_ctld = unfiltered_indiv_ct / BITCT;
-  uint32_t unfiltered_indiv_ct_rem = unfiltered_indiv_ct & (BITCT - 1);
+  uint32_t unfiltered_sample_ctld = unfiltered_sample_ct / BITCT;
+  uint32_t unfiltered_sample_ct_rem = unfiltered_sample_ct & (BITCT - 1);
   uintptr_t ulii;
   uintptr_t uljj;
-  uintptr_t indiv_bidx;
-  for (indiv_bidx = 0; indiv_bidx < unfiltered_indiv_ctld; indiv_bidx++) {
-    ulii = ~(*indiv_exclude++);
+  uintptr_t sample_bidx;
+  for (sample_bidx = 0; sample_bidx < unfiltered_sample_ctld; sample_bidx++) {
+    ulii = ~(*sample_exclude++);
   count_genders_last_loop:
     uljj = *sex_nm++;
     unk_ct += popcount_long(ulii & (~uljj));
@@ -7637,9 +7637,9 @@ void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_
     male_ct += popcount_long(ulii & uljj);
     female_ct += popcount_long(ulii & (~uljj));
   }
-  if (unfiltered_indiv_ct_rem) {
-    ulii = (~(*indiv_exclude)) & ((ONELU << unfiltered_indiv_ct_rem) - ONELU);
-    unfiltered_indiv_ct_rem = 0;
+  if (unfiltered_sample_ct_rem) {
+    ulii = (~(*sample_exclude)) & ((ONELU << unfiltered_sample_ct_rem) - ONELU);
+    unfiltered_sample_ct_rem = 0;
     goto count_genders_last_loop;
   }
   *male_ct_ptr = male_ct;
@@ -7662,12 +7662,12 @@ double calc_wt_mean_maf(double exponent, double maf) {
   return (lh_freq * (ll_freq + lh_freq) + 2 * ll_freq * hh_freq) * weight;
 }
 
-void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct) {
-  uintptr_t indiv_bidx = 0;
-  unsigned char* loadbuf_end = &(loadbuf[(unfiltered_indiv_ct + 3) / 4]);
+void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_sample_ct) {
+  uintptr_t sample_bidx = 0;
+  unsigned char* loadbuf_end = &(loadbuf[(unfiltered_sample_ct + 3) / 4]);
   unsigned char ucc;
   unsigned char ucc2;
-  uintptr_t unfiltered_indiv_ctd;
+  uintptr_t unfiltered_sample_ctd;
   uint32_t* loadbuf_alias32;
   uint32_t uii;
   uint32_t ujj;
@@ -7680,8 +7680,8 @@ void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct) {
   // recode_load_to() is faster
   if (!(((uintptr_t)loadbuf) & 15)) {
     loadbuf_alias = (__m128i*)loadbuf;
-    unfiltered_indiv_ctd = unfiltered_indiv_ct / 64;
-    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
+    unfiltered_sample_ctd = unfiltered_sample_ct / 64;
+    for (; sample_bidx < unfiltered_sample_ctd; sample_bidx++) {
       vii = *loadbuf_alias;
       // we want to exchange 00 and 11, and leave 01/10 untouched.  So make
       // vjj := 11 iff vii is 00/11, and vjj := 00 otherwise; then xor.
@@ -7692,8 +7692,8 @@ void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct) {
     loadbuf = (unsigned char*)loadbuf_alias;
   } else if (!(((uintptr_t)loadbuf) & 3)) {
     loadbuf_alias32 = (uint32_t*)loadbuf;
-    unfiltered_indiv_ctd = unfiltered_indiv_ct / BITCT2;
-    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
+    unfiltered_sample_ctd = unfiltered_sample_ct / BITCT2;
+    for (; sample_bidx < unfiltered_sample_ctd; sample_bidx++) {
       uii = *loadbuf_alias32;
       ujj = 0x55555555 & (~(uii ^ (uii >> 1)));
       ujj *= 3;
@@ -7704,8 +7704,8 @@ void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct) {
 #else
   if (!(((uintptr_t)loadbuf) & 3)) {
     loadbuf_alias32 = (uint32_t*)loadbuf;
-    unfiltered_indiv_ctd = unfiltered_indiv_ct / BITCT2;
-    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
+    unfiltered_sample_ctd = unfiltered_sample_ct / BITCT2;
+    for (; sample_bidx < unfiltered_sample_ctd; sample_bidx++) {
       uii = *loadbuf_alias32;
       ujj = 0x55555555 & (~(uii ^ (uii >> 1)));
       ujj *= 3;
@@ -7720,136 +7720,136 @@ void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct) {
     ucc2 *= 3;
     *loadbuf++ = ucc ^ ucc2;
   }
-  uii = unfiltered_indiv_ct & 3;
+  uii = unfiltered_sample_ct & 3;
   if (uii) {
     loadbuf[-1] &= (0xff >> (8 - 2 * uii));
   }
 }
 
-void collapse_copy_2bitarr(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uintptr_t* indiv_exclude) {
+void collapse_copy_2bitarr(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uintptr_t* sample_exclude) {
   uintptr_t cur_write = 0;
-  uint32_t indiv_uidx = 0;
-  uint32_t indiv_idx = 0;
+  uint32_t sample_uidx = 0;
+  uint32_t sample_idx = 0;
   uint32_t ii_rem = 0;
-  uint32_t indiv_uidx_stop;
+  uint32_t sample_uidx_stop;
   // just copy first words when possible
-  if (!indiv_exclude[0]) {
-    indiv_uidx = next_set(indiv_exclude, 0, unfiltered_indiv_ct & (~(BITCT2 - 1))) & (~(BITCT2 - 1));
-    memcpy(mainbuf, rawbuf, indiv_uidx / 4);
-    indiv_idx = indiv_uidx;
-    mainbuf = &(mainbuf[indiv_uidx / BITCT2]);
+  if (!sample_exclude[0]) {
+    sample_uidx = next_set(sample_exclude, 0, unfiltered_sample_ct & (~(BITCT2 - 1))) & (~(BITCT2 - 1));
+    memcpy(mainbuf, rawbuf, sample_uidx / 4);
+    sample_idx = sample_uidx;
+    mainbuf = &(mainbuf[sample_uidx / BITCT2]);
   }
-  while (indiv_idx < indiv_ct) {
-    indiv_uidx = next_unset_unsafe(indiv_exclude, indiv_uidx);
-    indiv_uidx_stop = next_set(indiv_exclude, indiv_uidx, unfiltered_indiv_ct);
-    indiv_idx += indiv_uidx_stop - indiv_uidx;
+  while (sample_idx < sample_ct) {
+    sample_uidx = next_unset_unsafe(sample_exclude, sample_uidx);
+    sample_uidx_stop = next_set(sample_exclude, sample_uidx, unfiltered_sample_ct);
+    sample_idx += sample_uidx_stop - sample_uidx;
     do {
       // er, this can totally be sped up
-      cur_write |= (((rawbuf[indiv_uidx / BITCT2] >> ((indiv_uidx % BITCT2) * 2)) & 3) << (ii_rem * 2));
+      cur_write |= (((rawbuf[sample_uidx / BITCT2] >> ((sample_uidx % BITCT2) * 2)) & 3) << (ii_rem * 2));
       if (++ii_rem == BITCT2) {
         *mainbuf++ = cur_write;
         cur_write = 0;
         ii_rem = 0;
       }
-    } while (++indiv_uidx < indiv_uidx_stop);
+    } while (++sample_uidx < sample_uidx_stop);
   }
   if (ii_rem) {
     *mainbuf = cur_write;
   }
 }
 
-uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_exclude, uintptr_t final_mask, uint32_t do_reverse) {
-  uint32_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
-  if (unfiltered_indiv_ct == indiv_ct) {
+uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* mainbuf, uint32_t sample_ct, uintptr_t* sample_exclude, uintptr_t final_mask, uint32_t do_reverse) {
+  uint32_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
+  if (unfiltered_sample_ct == sample_ct) {
     rawbuf = mainbuf;
   }
-  if (load_raw(bedfile, rawbuf, unfiltered_indiv_ct4)) {
+  if (load_raw(bedfile, rawbuf, unfiltered_sample_ct4)) {
     return RET_READ_FAIL;
   }
-  if (unfiltered_indiv_ct != indiv_ct) {
-    collapse_copy_2bitarr(rawbuf, mainbuf, unfiltered_indiv_ct, indiv_ct, indiv_exclude);
+  if (unfiltered_sample_ct != sample_ct) {
+    collapse_copy_2bitarr(rawbuf, mainbuf, unfiltered_sample_ct, sample_ct, sample_exclude);
   } else {
-    rawbuf[(unfiltered_indiv_ct - 1) / BITCT2] &= final_mask;
+    rawbuf[(unfiltered_sample_ct - 1) / BITCT2] &= final_mask;
   }
   if (do_reverse) {
-    reverse_loadbuf((unsigned char*)mainbuf, indiv_ct);
+    reverse_loadbuf((unsigned char*)mainbuf, sample_ct);
   }
   return 0;
 }
 
-void collapse_copy_2bitarr_incl(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uintptr_t* indiv_include) {
+void collapse_copy_2bitarr_incl(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uintptr_t* sample_include) {
   // mirror image of collapse_copy_2bitarr()
   uintptr_t cur_write = 0;
-  uint32_t indiv_uidx = 0;
-  uint32_t indiv_idx = 0;
+  uint32_t sample_uidx = 0;
+  uint32_t sample_idx = 0;
   uint32_t ii_rem = 0;
-  uint32_t indiv_uidx_stop;
-  if (!(~indiv_include[0])) {
-    indiv_uidx = next_unset(indiv_include, 0, unfiltered_indiv_ct & (~(BITCT2 - 1))) & (~(BITCT2 - 1));
-    memcpy(mainbuf, rawbuf, indiv_uidx / 4);
-    indiv_idx = indiv_uidx;
-    mainbuf = &(mainbuf[indiv_uidx / BITCT2]);
+  uint32_t sample_uidx_stop;
+  if (!(~sample_include[0])) {
+    sample_uidx = next_unset(sample_include, 0, unfiltered_sample_ct & (~(BITCT2 - 1))) & (~(BITCT2 - 1));
+    memcpy(mainbuf, rawbuf, sample_uidx / 4);
+    sample_idx = sample_uidx;
+    mainbuf = &(mainbuf[sample_uidx / BITCT2]);
   }
-  while (indiv_idx < indiv_ct) {
-    indiv_uidx = next_set_unsafe(indiv_include, indiv_uidx);
-    indiv_uidx_stop = next_unset(indiv_include, indiv_uidx, unfiltered_indiv_ct);
-    indiv_idx += indiv_uidx_stop - indiv_uidx;
+  while (sample_idx < sample_ct) {
+    sample_uidx = next_set_unsafe(sample_include, sample_uidx);
+    sample_uidx_stop = next_unset(sample_include, sample_uidx, unfiltered_sample_ct);
+    sample_idx += sample_uidx_stop - sample_uidx;
     do {
-      cur_write |= (((rawbuf[indiv_uidx / BITCT2] >> ((indiv_uidx % BITCT2) * 2)) & 3) << (ii_rem * 2));
+      cur_write |= (((rawbuf[sample_uidx / BITCT2] >> ((sample_uidx % BITCT2) * 2)) & 3) << (ii_rem * 2));
       if (++ii_rem == BITCT2) {
         *mainbuf++ = cur_write;
         cur_write = 0;
         ii_rem = 0;
       }
-    } while (++indiv_uidx < indiv_uidx_stop);
+    } while (++sample_uidx < sample_uidx_stop);
   }
   if (ii_rem) {
     *mainbuf = cur_write;
   }
 }
 
-uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_include, uintptr_t final_mask, uint32_t do_reverse) {
-  uint32_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
-  if (unfiltered_indiv_ct == indiv_ct) {
+uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* mainbuf, uint32_t sample_ct, uintptr_t* sample_include, uintptr_t final_mask, uint32_t do_reverse) {
+  uint32_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
+  if (unfiltered_sample_ct == sample_ct) {
     rawbuf = mainbuf;
   }
-  if (load_raw(bedfile, rawbuf, unfiltered_indiv_ct4)) {
+  if (load_raw(bedfile, rawbuf, unfiltered_sample_ct4)) {
     return RET_READ_FAIL;
   }
-  if (unfiltered_indiv_ct != indiv_ct) {
-    collapse_copy_2bitarr_incl(rawbuf, mainbuf, unfiltered_indiv_ct, indiv_ct, indiv_include);
+  if (unfiltered_sample_ct != sample_ct) {
+    collapse_copy_2bitarr_incl(rawbuf, mainbuf, unfiltered_sample_ct, sample_ct, sample_include);
   } else {
-    mainbuf[(unfiltered_indiv_ct - 1) / BITCT2] &= final_mask;
+    mainbuf[(unfiltered_sample_ct - 1) / BITCT2] &= final_mask;
   }
   if (do_reverse) {
-    reverse_loadbuf((unsigned char*)mainbuf, indiv_ct);
+    reverse_loadbuf((unsigned char*)mainbuf, sample_ct);
   }
   return 0;
 }
 
-uint32_t load_and_split(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* casebuf, uintptr_t* ctrlbuf, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
+uint32_t load_and_split(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* casebuf, uintptr_t* ctrlbuf, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
   // add do_reverse later if needed
-  uintptr_t* rawbuf_end = &(rawbuf[unfiltered_indiv_ct / BITCT2]);
+  uintptr_t* rawbuf_end = &(rawbuf[unfiltered_sample_ct / BITCT2]);
   uintptr_t case_word = 0;
   uintptr_t ctrl_word = 0;
-  uint32_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uint32_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uint32_t case_shift2 = 0;
   uint32_t ctrl_shift2 = 0;
   uint32_t read_shift_max = BITCT2;
-  uint32_t indiv_uidx = 0;
+  uint32_t sample_uidx = 0;
   uint32_t read_shift;
   uintptr_t read_word;
   uintptr_t ulii;
-  if (load_raw(bedfile, rawbuf, unfiltered_indiv_ct4)) {
+  if (load_raw(bedfile, rawbuf, unfiltered_sample_ct4)) {
     return RET_READ_FAIL;
   }
   while (1) {
     while (rawbuf < rawbuf_end) {
       read_word = *rawbuf++;
-      for (read_shift = 0; read_shift < read_shift_max; indiv_uidx++, read_shift++) {
-	if (is_set(pheno_nm, indiv_uidx)) {
+      for (read_shift = 0; read_shift < read_shift_max; sample_uidx++, read_shift++) {
+	if (is_set(pheno_nm, sample_uidx)) {
 	  ulii = read_word & 3;
-	  if (is_set(pheno_c, indiv_uidx)) {
+	  if (is_set(pheno_c, sample_uidx)) {
 	    case_word |= ulii << case_shift2;
 	    case_shift2 += 2;
 	    if (case_shift2 == BITCT) {
@@ -7870,7 +7870,7 @@ uint32_t load_and_split(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_in
 	read_word >>= 2;
       }
     }
-    if (indiv_uidx == unfiltered_indiv_ct) {
+    if (sample_uidx == unfiltered_sample_ct) {
       if (case_shift2) {
 	*casebuf = case_word;
       }
@@ -7880,11 +7880,11 @@ uint32_t load_and_split(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_in
       return 0;
     }
     rawbuf_end++;
-    read_shift_max = unfiltered_indiv_ct % BITCT2;
+    read_shift_max = unfiltered_sample_ct % BITCT2;
   }
 }
 
-uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* marker_exclude, uint32_t marker_ct_autosomal, uint32_t block_max_size, uintptr_t unfiltered_indiv_ct4, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_weights, unsigned char* readbuf, uint32_t* chrom_fo_idx_ptr, uintptr_t* marker_uidx_ptr, uintptr_t* marker_idx_ptr, uint32_t* block_size_ptr, uintptr_t* marker_reverse, double* set_allele_freq_buf, float* set_allele_freq_buf_fl, uint32_t* wtbuf) {
+uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* marker_exclude, uint32_t marker_ct_autosomal, uint32_t block_max_size, uintptr_t unfiltered_sample_ct4, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_weights, unsigned char* readbuf, uint32_t* chrom_fo_idx_ptr, uintptr_t* marker_uidx_ptr, uintptr_t* marker_idx_ptr, uint32_t* block_size_ptr, uintptr_t* marker_reverse, double* set_allele_freq_buf, float* set_allele_freq_buf_fl, uint32_t* wtbuf) {
   uintptr_t marker_uidx = *marker_uidx_ptr;
   uintptr_t marker_idx = *marker_idx_ptr;
   uint32_t chrom_fo_idx = *chrom_fo_idx_ptr;
@@ -7905,7 +7905,7 @@ uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* mark
   while (markers_read < block_max_size) {
     if (IS_SET(marker_exclude, marker_uidx)) {
       marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-      if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+      if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
 	return RET_READ_FAIL;
       }
     }
@@ -7919,12 +7919,12 @@ uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* mark
 	  break;
 	}
 	marker_uidx = next_unset_ul_unsafe(marker_exclude, chrom_end);
-	if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
 	  return RET_READ_FAIL;
 	}
       }
     }
-    if (fread(&(readbuf[markers_read * unfiltered_indiv_ct4]), 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+    if (fread(&(readbuf[markers_read * unfiltered_sample_ct4]), 1, unfiltered_sample_ct4, bedfile) < unfiltered_sample_ct4) {
       return RET_READ_FAIL;
     }
     if (set_allele_freq_buf) {
@@ -7955,8 +7955,8 @@ uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* mark
   return 0;
 }
 
-void vec_include_init(uintptr_t unfiltered_indiv_ct, uintptr_t* new_include2, uintptr_t* old_include) {
-  uint32_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+void vec_include_init(uintptr_t unfiltered_sample_ct, uintptr_t* new_include2, uintptr_t* old_include) {
+  uint32_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
   uintptr_t ulii;
   uintptr_t uljj;
   uintptr_t ulkk;
@@ -7990,8 +7990,8 @@ void vec_include_init(uintptr_t unfiltered_indiv_ct, uintptr_t* new_include2, ui
     }
     *new_include2++ = ulkk;
     *new_include2++ = ulmm;
-  } while (--unfiltered_indiv_ctl);
-  ulii = unfiltered_indiv_ct & (BITCT - 1);
+  } while (--unfiltered_sample_ctl);
+  ulii = unfiltered_sample_ct & (BITCT - 1);
   if (ulii) {
     new_include2--;
     if (ulii < BITCT2) {
@@ -8003,8 +8003,8 @@ void vec_include_init(uintptr_t unfiltered_indiv_ct, uintptr_t* new_include2, ui
   }
 }
 
-void exclude_to_vec_include(uintptr_t unfiltered_indiv_ct, uintptr_t* include_vec, uintptr_t* exclude_arr) {
-  uint32_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+void exclude_to_vec_include(uintptr_t unfiltered_sample_ct, uintptr_t* include_vec, uintptr_t* exclude_arr) {
+  uint32_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
   uintptr_t ulii;
   uintptr_t uljj;
   uintptr_t ulkk;
@@ -8038,8 +8038,8 @@ void exclude_to_vec_include(uintptr_t unfiltered_indiv_ct, uintptr_t* include_ve
     }
     *include_vec++ = ulkk;
     *include_vec++ = ulmm;
-  } while (--unfiltered_indiv_ctl);
-  ulii = unfiltered_indiv_ct & (BITCT - 1);
+  } while (--unfiltered_sample_ctl);
+  ulii = unfiltered_sample_ct & (BITCT - 1);
   if (ulii) {
     include_vec--;
     if (ulii < BITCT2) {
@@ -8097,8 +8097,8 @@ void vec_init_andnot(uintptr_t vec_wsize, uintptr_t* target_arr, uintptr_t* sour
 #endif
 }
 
-void vec_include_mask_in(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* mask_arr) {
-  uint32_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+void vec_include_mask_in(uintptr_t unfiltered_sample_ct, uintptr_t* include_arr, uintptr_t* mask_arr) {
+  uint32_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
   uintptr_t ulii;
   uintptr_t uljj;
   uintptr_t ulkk;
@@ -8132,11 +8132,11 @@ void vec_include_mask_in(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, 
     }
     *include_arr++ = ulkk;
     *include_arr++ = ulmm;
-  } while (--unfiltered_indiv_ctl);
+  } while (--unfiltered_sample_ctl);
 }
 
-void vec_include_mask_out(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* mask_arr) {
-  uint32_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+void vec_include_mask_out(uintptr_t unfiltered_sample_ct, uintptr_t* include_arr, uintptr_t* mask_arr) {
+  uint32_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
   uintptr_t ulii;
   uintptr_t uljj;
   uintptr_t ulkk;
@@ -8170,11 +8170,11 @@ void vec_include_mask_out(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr,
     }
     *include_arr++ = ulkk;
     *include_arr++ = ulmm;
-  } while (--unfiltered_indiv_ctl);
+  } while (--unfiltered_sample_ctl);
 }
 
-void vec_include_mask_out_intersect(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* mask_arr, uintptr_t* mask2_arr) {
-  uint32_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+void vec_include_mask_out_intersect(uintptr_t unfiltered_sample_ct, uintptr_t* include_arr, uintptr_t* mask_arr, uintptr_t* mask2_arr) {
+  uint32_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
   uintptr_t ulii;
   uintptr_t uljj;
   uintptr_t ulkk;
@@ -8208,15 +8208,15 @@ void vec_include_mask_out_intersect(uintptr_t unfiltered_indiv_ct, uintptr_t* in
     }
     *include_arr++ = ulkk;
     *include_arr++ = ulmm;
-  } while (--unfiltered_indiv_ctl);
+  } while (--unfiltered_sample_ctl);
 }
 
-void vec_init_01(uintptr_t unfiltered_indiv_ct, uintptr_t* data_ptr, uintptr_t* result_ptr) {
+void vec_init_01(uintptr_t unfiltered_sample_ct, uintptr_t* data_ptr, uintptr_t* result_ptr) {
   // initializes result_ptr bits 01 iff data_ptr bits are 01
 #ifdef __LP64__
   const __m128i m1 = {FIVEMASK, FIVEMASK};
   __m128i* vec2_read = (__m128i*)data_ptr;
-  __m128i* read_end = &(vec2_read[(unfiltered_indiv_ct + (BITCT - 1)) / BITCT]);
+  __m128i* read_end = &(vec2_read[(unfiltered_sample_ct + (BITCT - 1)) / BITCT]);
   __m128i* vec2_write = (__m128i*)result_ptr;
   __m128i loader;
   do {
@@ -8224,7 +8224,7 @@ void vec_init_01(uintptr_t unfiltered_indiv_ct, uintptr_t* data_ptr, uintptr_t* 
     *vec2_write++ = _mm_and_si128(_mm_andnot_si128(_mm_srli_epi64(loader, 1), loader), m1);
   } while (vec2_read < read_end);
 #else
-  uintptr_t* read_end = &(data_ptr[2 * ((unfiltered_indiv_ct + (BITCT - 1)) / BITCT)]);
+  uintptr_t* read_end = &(data_ptr[2 * ((unfiltered_sample_ct + (BITCT - 1)) / BITCT)]);
   uintptr_t loader;
   do {
     loader = *data_ptr++;
@@ -8233,13 +8233,13 @@ void vec_init_01(uintptr_t unfiltered_indiv_ct, uintptr_t* data_ptr, uintptr_t* 
 #endif
 }
 
-void vec_invert(uintptr_t unfiltered_indiv_ct, uintptr_t* vec2) {
-  uintptr_t* vec2_last = &(vec2[unfiltered_indiv_ct / BITCT2]);
-  uint32_t remainder = unfiltered_indiv_ct & (BITCT2 - 1);
+void vec_invert(uintptr_t unfiltered_sample_ct, uintptr_t* vec2) {
+  uintptr_t* vec2_last = &(vec2[unfiltered_sample_ct / BITCT2]);
+  uint32_t remainder = unfiltered_sample_ct & (BITCT2 - 1);
 #ifdef __LP64__
   const __m128i m1 = {FIVEMASK, FIVEMASK};
   __m128i* vec2_128 = (__m128i*)vec2;
-  __m128i* vec2_last128 = &(vec2_128[unfiltered_indiv_ct / BITCT]);
+  __m128i* vec2_last128 = &(vec2_128[unfiltered_sample_ct / BITCT]);
   while (vec2_128 < vec2_last128) {
     *vec2_128 = _mm_xor_si128(*vec2_128, m1);
     vec2_128++;
@@ -8260,7 +8260,7 @@ void vec_invert(uintptr_t unfiltered_indiv_ct, uintptr_t* vec2) {
   }
 }
 
-void vec_datamask(uintptr_t unfiltered_indiv_ct, uint32_t matchval, uintptr_t* data_ptr, uintptr_t* mask_ptr, uintptr_t* result_ptr) {
+void vec_datamask(uintptr_t unfiltered_sample_ct, uint32_t matchval, uintptr_t* data_ptr, uintptr_t* mask_ptr, uintptr_t* result_ptr) {
   // vec_ptr assumed to be standard 00/01 bit vector
   // sets result_vec bits to 01 iff data_ptr bits are equal to matchval and
   // vec_ptr bit is set, 00 otherwise.
@@ -8268,11 +8268,11 @@ void vec_datamask(uintptr_t unfiltered_indiv_ct, uint32_t matchval, uintptr_t* d
 #ifdef __LP64__
   __m128i* data_read = (__m128i*)data_ptr;
   __m128i* mask_read = (__m128i*)mask_ptr;
-  __m128i* data_read_end = &(data_read[(unfiltered_indiv_ct + (BITCT - 1)) / BITCT]);
+  __m128i* data_read_end = &(data_read[(unfiltered_sample_ct + (BITCT - 1)) / BITCT]);
   __m128i* writer = (__m128i*)result_ptr;
   __m128i loader;
 #else
-  uintptr_t* data_read_end = &(data_ptr[2 * (unfiltered_indiv_ct + (BITCT - 1)) / BITCT]);
+  uintptr_t* data_read_end = &(data_ptr[2 * (unfiltered_sample_ct + (BITCT - 1)) / BITCT]);
   uintptr_t loader;
 #endif
   if (matchval) {
@@ -8316,21 +8316,21 @@ void vec_datamask(uintptr_t unfiltered_indiv_ct, uint32_t matchval, uintptr_t* d
   }
 }
 
-void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_include2, uintptr_t indiv_ct, uintptr_t* missing_bitfield) {
-  uint32_t word_ct = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
-  uintptr_t indiv_idx;
+void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_sample_ct, uintptr_t* sample_include2, uintptr_t sample_ct, uintptr_t* missing_bitfield) {
+  uint32_t word_ct = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t sample_idx;
   uintptr_t cur_word;
   uintptr_t cur_mask;
   uintptr_t cur_write;
   uint32_t woffset;
   uint32_t widx;
   uint32_t uii;
-  if (unfiltered_indiv_ct == indiv_ct) {
+  if (unfiltered_sample_ct == sample_ct) {
     cur_write = 0;
     woffset = 0;
     for (widx = 0; widx < word_ct; widx++) {
       cur_word = *lptr++;
-      cur_word = cur_word & ((~cur_word) >> 1) & (*indiv_include2++);
+      cur_word = cur_word & ((~cur_word) >> 1) & (*sample_include2++);
       while (cur_word) {
         uii = CTZLU(cur_word) / 2;
         cur_write |= ONELU << (woffset + uii);
@@ -8348,34 +8348,34 @@ void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_in
       *missing_bitfield++ = cur_write;
     }
   } else {
-    fill_ulong_zero(missing_bitfield, (indiv_ct + (BITCT - 1)) / BITCT);
-    indiv_idx = 0;
-    for (widx = 0; indiv_idx < indiv_ct; widx++, lptr++) {
-      cur_mask = *indiv_include2++;
+    fill_ulong_zero(missing_bitfield, (sample_ct + (BITCT - 1)) / BITCT);
+    sample_idx = 0;
+    for (widx = 0; sample_idx < sample_ct; widx++, lptr++) {
+      cur_mask = *sample_include2++;
       if (cur_mask) {
         cur_word = *lptr;
         cur_word = cur_word & ((~cur_word) >> 1) & cur_mask;
 	if (cur_mask == FIVEMASK) {
           if (cur_word) {
-	    uii = indiv_idx;
+	    uii = sample_idx;
             do {
               set_bit(missing_bitfield, (CTZLU(cur_word) / 2) + uii);
               cur_word &= cur_word - 1;
 	    } while (cur_word);
 	  }
-	  indiv_idx += BITCT2;
+	  sample_idx += BITCT2;
 	} else {
 	  if (cur_word) {
 	    do {
 	      uii = CTZLU(cur_mask);
 	      if ((cur_word >> uii) & 1) {
-                set_bit_ul(missing_bitfield, indiv_idx);
+                set_bit_ul(missing_bitfield, sample_idx);
 	      }
-	      indiv_idx++;
+	      sample_idx++;
 	      cur_mask &= cur_mask - 1;
 	    } while (cur_mask);
 	  } else {
-            indiv_idx += popcount2_long(cur_mask);
+            sample_idx += popcount2_long(cur_mask);
 	  }
         }
       }
@@ -8383,27 +8383,27 @@ void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_in
   }
 }
 
-void hh_reset(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t unfiltered_indiv_ct) {
-  uintptr_t indiv_bidx = 0;
-  unsigned char* loadbuf_end = &(loadbuf[(unfiltered_indiv_ct + 3) / 4]);
+void hh_reset(unsigned char* loadbuf, uintptr_t* sample_include2, uintptr_t unfiltered_sample_ct) {
+  uintptr_t sample_bidx = 0;
+  unsigned char* loadbuf_end = &(loadbuf[(unfiltered_sample_ct + 3) / 4]);
   unsigned char* iicp;
   unsigned char ucc;
   unsigned char ucc2;
-  uintptr_t unfiltered_indiv_ctd;
+  uintptr_t unfiltered_sample_ctd;
   uint32_t* loadbuf_alias32;
   uint32_t uii;
   uint32_t ujj;
 #ifdef __LP64__
-  uint32_t* indiv_include2_alias32;
+  uint32_t* sample_include2_alias32;
   __m128i* loadbuf_alias;
   __m128i* iivp;
   __m128i vii;
   __m128i vjj;
   if (!(((uintptr_t)loadbuf) & 15)) {
     loadbuf_alias = (__m128i*)loadbuf;
-    iivp = (__m128i*)indiv_include2;
-    unfiltered_indiv_ctd = unfiltered_indiv_ct / 64;
-    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
+    iivp = (__m128i*)sample_include2;
+    unfiltered_sample_ctd = unfiltered_sample_ct / 64;
+    for (; sample_bidx < unfiltered_sample_ctd; sample_bidx++) {
       vii = *loadbuf_alias;
       vjj = _mm_and_si128(_mm_andnot_si128(vii, _mm_srli_epi64(vii, 1)), *iivp++);
       *loadbuf_alias++ = _mm_sub_epi64(vii, vjj);
@@ -8412,30 +8412,30 @@ void hh_reset(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t unfil
     iicp = (unsigned char*)iivp;
   } else if (!(((uintptr_t)loadbuf) & 3)) {
     loadbuf_alias32 = (uint32_t*)loadbuf;
-    indiv_include2_alias32 = (uint32_t*)indiv_include2;
-    unfiltered_indiv_ctd = unfiltered_indiv_ct / BITCT2;
-    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
+    sample_include2_alias32 = (uint32_t*)sample_include2;
+    unfiltered_sample_ctd = unfiltered_sample_ct / BITCT2;
+    for (; sample_bidx < unfiltered_sample_ctd; sample_bidx++) {
       uii = *loadbuf_alias32;
-      ujj = ((uii >> 1) & (~uii)) & (*indiv_include2_alias32++);
+      ujj = ((uii >> 1) & (~uii)) & (*sample_include2_alias32++);
       *loadbuf_alias32++ = uii - ujj;
     }
     loadbuf = (unsigned char*)loadbuf_alias32;
-    iicp = (unsigned char*)indiv_include2_alias32;
+    iicp = (unsigned char*)sample_include2_alias32;
   } else {
-    iicp = (unsigned char*)indiv_include2;
+    iicp = (unsigned char*)sample_include2;
   }
 #else
   if (!(((uintptr_t)loadbuf) & 3)) {
     loadbuf_alias32 = (uint32_t*)loadbuf;
-    unfiltered_indiv_ctd = unfiltered_indiv_ct / BITCT2;
-    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
+    unfiltered_sample_ctd = unfiltered_sample_ct / BITCT2;
+    for (; sample_bidx < unfiltered_sample_ctd; sample_bidx++) {
       uii = *loadbuf_alias32;
-      ujj = ((uii >> 1) & (~uii)) & (*indiv_include2++);
+      ujj = ((uii >> 1) & (~uii)) & (*sample_include2++);
       *loadbuf_alias32++ = uii - ujj;
     }
     loadbuf = (unsigned char*)loadbuf_alias32;
   }
-  iicp = (unsigned char*)indiv_include2;
+  iicp = (unsigned char*)sample_include2;
 #endif
   for (; loadbuf < loadbuf_end;) {
     ucc = *loadbuf;
@@ -8444,23 +8444,23 @@ void hh_reset(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t unfil
   }
 }
 
-void hh_reset_y(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t unfiltered_indiv_ct) {
-  uintptr_t indiv_bidx = 0;
-  unsigned char* loadbuf_end = &(loadbuf[(unfiltered_indiv_ct + 3) / 4]);
+void hh_reset_y(unsigned char* loadbuf, uintptr_t* sample_include2, uintptr_t* sample_male_include2, uintptr_t unfiltered_sample_ct) {
+  uintptr_t sample_bidx = 0;
+  unsigned char* loadbuf_end = &(loadbuf[(unfiltered_sample_ct + 3) / 4]);
   unsigned char* iicp;
   unsigned char* imicp;
   unsigned char ucc;
   unsigned char ucc2;
   unsigned char ucc3;
-  uintptr_t unfiltered_indiv_ctd;
+  uintptr_t unfiltered_sample_ctd;
   uint32_t* loadbuf_alias32;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
 #ifdef __LP64__
   const __m128i m1 = {FIVEMASK, FIVEMASK};
-  uint32_t* indiv_include2_alias32;
-  uint32_t* indiv_male_include2_alias32;
+  uint32_t* sample_include2_alias32;
+  uint32_t* sample_male_include2_alias32;
   __m128i* loadbuf_alias;
   __m128i* iivp;
   __m128i* imivp;
@@ -8469,12 +8469,12 @@ void hh_reset_y(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t* in
   __m128i vkk;
   if (!(((uintptr_t)loadbuf) & 15)) {
     loadbuf_alias = (__m128i*)loadbuf;
-    iivp = (__m128i*)indiv_include2;
-    imivp = (__m128i*)indiv_male_include2;
-    unfiltered_indiv_ctd = unfiltered_indiv_ct / 64;
-    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
-      // indiv_include2 & ~indiv_male_include2: force to 01
-      // indiv_male_include2: convert 10 to 01, keep everything else
+    iivp = (__m128i*)sample_include2;
+    imivp = (__m128i*)sample_male_include2;
+    unfiltered_sample_ctd = unfiltered_sample_ct / 64;
+    for (; sample_bidx < unfiltered_sample_ctd; sample_bidx++) {
+      // sample_include2 & ~sample_male_include2: force to 01
+      // sample_male_include2: convert 10 to 01, keep everything else
       vii = *imivp++;
       vjj = *iivp++;
       vkk = _mm_and_si128(*loadbuf_alias, _mm_or_si128(vii, _mm_slli_epi64(vii, 1)));
@@ -8485,36 +8485,36 @@ void hh_reset_y(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t* in
     imicp = (unsigned char*)imivp;
   } else if (!(((uintptr_t)loadbuf) & 3)) {
     loadbuf_alias32 = (uint32_t*)loadbuf;
-    indiv_include2_alias32 = (uint32_t*)indiv_include2;
-    indiv_male_include2_alias32 = (uint32_t*)indiv_male_include2;
-    unfiltered_indiv_ctd = unfiltered_indiv_ct / 16;
-    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
-      uii = *indiv_male_include2_alias32++;
-      ujj = *indiv_include2_alias32++;
+    sample_include2_alias32 = (uint32_t*)sample_include2;
+    sample_male_include2_alias32 = (uint32_t*)sample_male_include2;
+    unfiltered_sample_ctd = unfiltered_sample_ct / 16;
+    for (; sample_bidx < unfiltered_sample_ctd; sample_bidx++) {
+      uii = *sample_male_include2_alias32++;
+      ujj = *sample_include2_alias32++;
       ukk = (*loadbuf_alias32) & (uii * 3);
       *loadbuf_alias32++ = ((~uii) & ujj) | (ukk - ((~ukk) & (ukk >> 1) & 0x55555555));
     }
     loadbuf = (unsigned char*)loadbuf_alias32;
-    iicp = (unsigned char*)indiv_include2_alias32;
-    imicp = (unsigned char*)indiv_male_include2_alias32;
+    iicp = (unsigned char*)sample_include2_alias32;
+    imicp = (unsigned char*)sample_male_include2_alias32;
   } else {
-    iicp = (unsigned char*)indiv_include2;
-    imicp = (unsigned char*)indiv_male_include2;
+    iicp = (unsigned char*)sample_include2;
+    imicp = (unsigned char*)sample_male_include2;
   }
 #else
   if (!(((uintptr_t)loadbuf) & 3)) {
     loadbuf_alias32 = (uint32_t*)loadbuf;
-    unfiltered_indiv_ctd = unfiltered_indiv_ct / 16;
-    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
-      uii = *indiv_male_include2++;
-      ujj = *indiv_include2++;
+    unfiltered_sample_ctd = unfiltered_sample_ct / 16;
+    for (; sample_bidx < unfiltered_sample_ctd; sample_bidx++) {
+      uii = *sample_male_include2++;
+      ujj = *sample_include2++;
       ukk = (*loadbuf_alias32) & (uii * 3);
       *loadbuf_alias32++ = ((~uii) & ujj) | (ukk - ((~ukk) & (ukk >> 1) & 0x55555555));
     }
     loadbuf = (unsigned char*)loadbuf_alias32;
   }
-  iicp = (unsigned char*)indiv_include2;
-  imicp = (unsigned char*)indiv_male_include2;
+  iicp = (unsigned char*)sample_include2;
+  imicp = (unsigned char*)sample_male_include2;
 #endif
   for (; loadbuf < loadbuf_end;) {
     ucc = *imicp++;
@@ -8524,39 +8524,39 @@ void hh_reset_y(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t* in
   }
 }
 
-uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* indiv_bitarr, uintptr_t* sex_male, uintptr_t** indiv_raw_include2_ptr, uintptr_t** indiv_raw_male_include2_ptr) {
-  uintptr_t unfiltered_indiv_ctv2 = 2 * ((unfiltered_indiv_ct + (BITCT - 1)) / BITCT);
-  uintptr_t* indiv_raw_male_include2;
+uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* sample_bitarr, uintptr_t* sex_male, uintptr_t** sample_raw_include2_ptr, uintptr_t** sample_raw_male_include2_ptr) {
+  uintptr_t unfiltered_sample_ctv2 = 2 * ((unfiltered_sample_ct + (BITCT - 1)) / BITCT);
+  uintptr_t* sample_raw_male_include2;
   if (hh_exists & (Y_FIX_NEEDED | NXMHH_EXISTS)) {
-    if (wkspace_alloc_ul_checked(indiv_raw_include2_ptr, unfiltered_indiv_ctv2 * sizeof(intptr_t))) {
+    if (wkspace_alloc_ul_checked(sample_raw_include2_ptr, unfiltered_sample_ctv2 * sizeof(intptr_t))) {
       return 1;
     }
     if (is_include) {
-      vec_include_init(unfiltered_indiv_ct, *indiv_raw_include2_ptr, indiv_bitarr);
+      vec_include_init(unfiltered_sample_ct, *sample_raw_include2_ptr, sample_bitarr);
     } else {
-      exclude_to_vec_include(unfiltered_indiv_ct, *indiv_raw_include2_ptr, indiv_bitarr);
+      exclude_to_vec_include(unfiltered_sample_ct, *sample_raw_include2_ptr, sample_bitarr);
     }
   }
   if (hh_exists & (XMHH_EXISTS | Y_FIX_NEEDED)) {
-    if (wkspace_alloc_ul_checked(indiv_raw_male_include2_ptr, unfiltered_indiv_ctv2 * sizeof(intptr_t))) {
+    if (wkspace_alloc_ul_checked(sample_raw_male_include2_ptr, unfiltered_sample_ctv2 * sizeof(intptr_t))) {
       return 1;
     }
-    indiv_raw_male_include2 = *indiv_raw_male_include2_ptr;
+    sample_raw_male_include2 = *sample_raw_male_include2_ptr;
     if (hh_exists & (Y_FIX_NEEDED | NXMHH_EXISTS)) {
-      memcpy(indiv_raw_male_include2, *indiv_raw_include2_ptr, unfiltered_indiv_ctv2 * sizeof(intptr_t));
+      memcpy(sample_raw_male_include2, *sample_raw_include2_ptr, unfiltered_sample_ctv2 * sizeof(intptr_t));
     } else {
       if (is_include) {
-	vec_include_init(unfiltered_indiv_ct, indiv_raw_male_include2, indiv_bitarr);
+	vec_include_init(unfiltered_sample_ct, sample_raw_male_include2, sample_bitarr);
       } else {
-	exclude_to_vec_include(unfiltered_indiv_ct, indiv_raw_male_include2, indiv_bitarr);
+	exclude_to_vec_include(unfiltered_sample_ct, sample_raw_male_include2, sample_bitarr);
       }
     }
-    vec_include_mask_in(unfiltered_indiv_ct, indiv_raw_male_include2, sex_male);
+    vec_include_mask_in(unfiltered_sample_ct, sample_raw_male_include2, sex_male);
   }
   return 0;
 }
 
-void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t hh_exists, uintptr_t* indiv_raw_include2, uintptr_t* indiv_raw_male_include2, uintptr_t unfiltered_indiv_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf) {
+void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t hh_exists, uintptr_t* sample_raw_include2, uintptr_t* sample_raw_male_include2, uintptr_t unfiltered_sample_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf) {
   uintptr_t marker_idx = 0;
   uintptr_t marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx_start);
   uint32_t chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx);
@@ -8581,18 +8581,18 @@ void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start
       if (is_x) {
 	if (hh_exists & XMHH_EXISTS) {
 	  for (; marker_idx < marker_idx_chrom_end; marker_idx++) {
-	    hh_reset(&(loadbuf[marker_idx * byte_ct_per_marker]), indiv_raw_male_include2, unfiltered_indiv_ct);
+	    hh_reset(&(loadbuf[marker_idx * byte_ct_per_marker]), sample_raw_male_include2, unfiltered_sample_ct);
 	  }
 	}
       } else if (is_y) {
 	if (hh_exists & Y_FIX_NEEDED) {
 	  for (; marker_idx < marker_idx_chrom_end; marker_idx++) {
-	    hh_reset_y(&(loadbuf[marker_idx * byte_ct_per_marker]), indiv_raw_include2, indiv_raw_male_include2, unfiltered_indiv_ct);
+	    hh_reset_y(&(loadbuf[marker_idx * byte_ct_per_marker]), sample_raw_include2, sample_raw_male_include2, unfiltered_sample_ct);
 	  }
 	}
       } else if (hh_exists & NXMHH_EXISTS) {
 	for (; marker_idx < marker_idx_chrom_end; marker_idx++) {
-	  hh_reset(&(loadbuf[marker_idx * byte_ct_per_marker]), indiv_raw_include2, unfiltered_indiv_ct);
+	  hh_reset(&(loadbuf[marker_idx * byte_ct_per_marker]), sample_raw_include2, unfiltered_sample_ct);
 	}
       }
     }
@@ -8601,13 +8601,13 @@ void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start
   }
 }
 
-void force_missing(unsigned char* loadbuf, uintptr_t* force_missing_include2, uintptr_t unfiltered_indiv_ct) {
-  uintptr_t indiv_bidx = 0;
-  unsigned char* loadbuf_end = &(loadbuf[(unfiltered_indiv_ct + 3) / 4]);
+void force_missing(unsigned char* loadbuf, uintptr_t* force_missing_include2, uintptr_t unfiltered_sample_ct) {
+  uintptr_t sample_bidx = 0;
+  unsigned char* loadbuf_end = &(loadbuf[(unfiltered_sample_ct + 3) / 4]);
   unsigned char* fmicp;
   unsigned char ucc;
   unsigned char ucc2;
-  uintptr_t unfiltered_indiv_ctd;
+  uintptr_t unfiltered_sample_ctd;
   uint32_t* loadbuf_alias32;
   uint32_t uii;
   uint32_t ujj;
@@ -8620,8 +8620,8 @@ void force_missing(unsigned char* loadbuf, uintptr_t* force_missing_include2, ui
   if (!(((uintptr_t)loadbuf) & 15)) {
     loadbuf_alias = (__m128i*)loadbuf;
     fmivp = (__m128i*)force_missing_include2;
-    unfiltered_indiv_ctd = unfiltered_indiv_ct / 64;
-    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
+    unfiltered_sample_ctd = unfiltered_sample_ct / 64;
+    for (; sample_bidx < unfiltered_sample_ctd; sample_bidx++) {
       vii = *loadbuf_alias;
       vjj = *fmivp++;
       vii = _mm_or_si128(vii, vjj);
@@ -8633,8 +8633,8 @@ void force_missing(unsigned char* loadbuf, uintptr_t* force_missing_include2, ui
   } else if (!(((uintptr_t)loadbuf) & 3)) {
     loadbuf_alias32 = (uint32_t*)loadbuf;
     force_missing_include2_alias32 = (uint32_t*)force_missing_include2;
-    unfiltered_indiv_ctd = unfiltered_indiv_ct / BITCT2;
-    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
+    unfiltered_sample_ctd = unfiltered_sample_ct / BITCT2;
+    for (; sample_bidx < unfiltered_sample_ctd; sample_bidx++) {
       uii = *loadbuf_alias32;
       ujj = *force_missing_include2_alias32++;
       uii |= ujj;
@@ -8649,8 +8649,8 @@ void force_missing(unsigned char* loadbuf, uintptr_t* force_missing_include2, ui
 #else
   if (!(((uintptr_t)loadbuf) & 3)) {
     loadbuf_alias32 = (uint32_t*)loadbuf;
-    unfiltered_indiv_ctd = unfiltered_indiv_ct / BITCT2;
-    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
+    unfiltered_sample_ctd = unfiltered_sample_ct / BITCT2;
+    for (; sample_bidx < unfiltered_sample_ctd; sample_bidx++) {
       uii = *loadbuf_alias32;
       ujj = *force_missing_include2++;
       uii |= ujj;
@@ -9194,15 +9194,15 @@ void uncollapse_copy_flip_include_arr(uintptr_t* collapsed_include_arr, uintptr_
   }
 }
 
-void copy_when_nonmissing(uintptr_t* loadbuf, char* source, uintptr_t elem_size, uintptr_t unfiltered_indiv_ct, uintptr_t missing_ct, char* dest) {
-  uintptr_t* loadbuf_end = &(loadbuf[(unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2]);
+void copy_when_nonmissing(uintptr_t* loadbuf, char* source, uintptr_t elem_size, uintptr_t unfiltered_sample_ct, uintptr_t missing_ct, char* dest) {
+  uintptr_t* loadbuf_end = &(loadbuf[(unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2]);
   uintptr_t last_missing_p1 = 0;
-  uintptr_t indiv_idx_offset = 0;
+  uintptr_t sample_idx_offset = 0;
   uintptr_t cur_word;
   uintptr_t new_missing_idx;
   uintptr_t diff;
   if (!missing_ct) {
-    memcpy(dest, source, unfiltered_indiv_ct * elem_size);
+    memcpy(dest, source, unfiltered_sample_ct * elem_size);
     return;
   }
   do {
@@ -9210,7 +9210,7 @@ void copy_when_nonmissing(uintptr_t* loadbuf, char* source, uintptr_t elem_size,
     cur_word = cur_word & (~(cur_word >> 1)) & FIVEMASK;
     if (cur_word) {
       do {
-	new_missing_idx = indiv_idx_offset + (CTZLU(cur_word) / 2);
+	new_missing_idx = sample_idx_offset + (CTZLU(cur_word) / 2);
 	diff = new_missing_idx - last_missing_p1;
 	if (diff) {
 	  dest = memcpya(dest, &(source[last_missing_p1 * elem_size]), diff * elem_size);
@@ -9219,9 +9219,9 @@ void copy_when_nonmissing(uintptr_t* loadbuf, char* source, uintptr_t elem_size,
 	cur_word &= cur_word - 1;
       } while (cur_word);
     }
-    indiv_idx_offset += BITCT2;
+    sample_idx_offset += BITCT2;
   } while (loadbuf < loadbuf_end);
-  diff = unfiltered_indiv_ct - last_missing_p1;
+  diff = unfiltered_sample_ct - last_missing_p1;
   if (diff) {
     memcpy(dest, &(source[last_missing_p1 * elem_size]), diff * elem_size);
   }
@@ -9230,7 +9230,7 @@ void copy_when_nonmissing(uintptr_t* loadbuf, char* source, uintptr_t elem_size,
 uint32_t collapse_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len, uint32_t* id_starts) {
   // Collapses array of sorted IDs to remove duplicates, and writes
   // pre-collapse positions to id_starts (so e.g. duplication count of any
-  // individual ID can be determined via subtraction) if it isn't NULL.
+  // sample ID can be determined via subtraction) if it isn't NULL.
   // Assumes id_ct is positive.  Returns id_ct of collapsed array.
   uintptr_t read_idx;
   uintptr_t write_idx;

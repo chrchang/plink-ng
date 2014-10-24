@@ -509,7 +509,7 @@
 #define CNV_WRITE_FREQ 0x20
 #define CNV_UNIQUE 0x40
 #define CNV_DROP_NO_SEGMENT 0x80
-#define CNV_INDIV_PERM 0x100
+#define CNV_SAMPLE_PERM 0x100
 #define CNV_ENRICHMENT_TEST 0x200
 #define CNV_TEST 0x400
 #define CNV_TEST_FORCE_1SIDED 0x800
@@ -1676,7 +1676,7 @@ void vec_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uin
 
 void vec_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_exclude_bitarr, uint32_t filtered_ct, uintptr_t* output_vec);
 
-uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* indiv_bitarr, uintptr_t* sex_male, uintptr_t** indiv_include2_ptr, uintptr_t** indiv_male_include2_ptr);
+uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* sample_bitarr, uintptr_t* sex_male, uintptr_t** sample_include2_ptr, uintptr_t** sample_male_include2_ptr);
 
 static inline void free_cond(void* memptr) {
   if (memptr) {
@@ -1705,7 +1705,7 @@ static inline int32_t filename_exists(char* fname, char* fname_end, const char* 
 #endif
 }
 
-void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char oldc, char newc);
+void sample_delim_convert(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uint32_t sample_ct, char* person_ids, uintptr_t max_person_id_len, char oldc, char newc);
 
 void get_set_wrange_align(uintptr_t* bitfield, uintptr_t word_ct, uintptr_t* firstw_ptr, uintptr_t* wlen_ptr);
 
@@ -1968,12 +1968,12 @@ static inline uint32_t popcount_long(uintptr_t val) {
   return popcount2_long(val - ((val >> 1) & FIVEMASK));
 }
 
-uint32_t is_monomorphic(uintptr_t* lptr, uint32_t indiv_ct);
+uint32_t is_monomorphic(uintptr_t* lptr, uint32_t sample_ct);
 
 // same as is_monomorphic, except it also flags the all-heterozygote case
-uint32_t less_than_two_genotypes(uintptr_t* lptr, uint32_t indiv_ct);
+uint32_t less_than_two_genotypes(uintptr_t* lptr, uint32_t sample_ct);
 
-// uint32_t has_three_genotypes(uintptr_t* lptr, uint32_t indiv_ct);
+// uint32_t has_three_genotypes(uintptr_t* lptr, uint32_t sample_ct);
 
 uintptr_t popcount_longs(uintptr_t* lptr, uintptr_t word_ct);
 
@@ -2028,13 +2028,13 @@ void count_2freq_dbl_6(uintptr_t* lptr, uintptr_t* mask1p, uintptr_t* mask2p, ui
 void count_3freq_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp);
 #endif
 
-void vec_set_freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* set_ctp, uint32_t* missing_ctp);
+void vec_set_freq(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* set_ctp, uint32_t* missing_ctp);
 
-void vec_set_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* male_vec, uint32_t* set_ctp, uint32_t* missing_ctp);
+void vec_set_freq_x(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* male_vec, uint32_t* set_ctp, uint32_t* missing_ctp);
 
-void vec_set_freq_y(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* nonmale_vec, uint32_t* set_ctp, uint32_t* missing_ctp);
+void vec_set_freq_y(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* nonmale_vec, uint32_t* set_ctp, uint32_t* missing_ctp);
 
-void vec_3freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* missing_ctp, uint32_t* het_ctp, uint32_t* homa2_ctp);
+void vec_3freq(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* missing_ctp, uint32_t* het_ctp, uint32_t* homa2_ctp);
 
 uintptr_t count_01(uintptr_t* lptr, uintptr_t word_ct);
 
@@ -2070,25 +2070,25 @@ uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* mark
 
 uint32_t get_max_chrom_size(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t* last_chrom_fo_idx_ptr);
 
-void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t* male_ct_ptr, uint32_t* female_ct_ptr, uint32_t* unk_ct_ptr);
+void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uint32_t* male_ct_ptr, uint32_t* female_ct_ptr, uint32_t* unk_ct_ptr);
 
 double calc_wt_mean_maf(double exponent, double maf);
 
-void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct);
+void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_sample_ct);
 
-void collapse_copy_2bitarr(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uintptr_t* indiv_exclude);
+void collapse_copy_2bitarr(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uintptr_t* sample_exclude);
 
-static inline uint32_t load_raw(FILE* bedfile, uintptr_t* rawbuf, uintptr_t unfiltered_indiv_ct4) {
+static inline uint32_t load_raw(FILE* bedfile, uintptr_t* rawbuf, uintptr_t unfiltered_sample_ct4) {
   // only use this if all accesses to the data involve
   // 1. some sort of mask, or
-  // 2. explicit iteration from 0..(unfiltered_indiv_ct-1).
+  // 2. explicit iteration from 0..(unfiltered_sample_ct-1).
   // otherwise improper trailing bits might cause a segfault, when we should
   // be ignoring them or just issuing a warning.
-  return (fread(rawbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4);
+  return (fread(rawbuf, 1, unfiltered_sample_ct4, bedfile) < unfiltered_sample_ct4);
 }
 
-static inline uintptr_t get_final_mask(uint32_t indiv_ct) {
-  uint32_t uii = indiv_ct % BITCT2;
+static inline uintptr_t get_final_mask(uint32_t sample_ct) {
+  uint32_t uii = sample_ct % BITCT2;
   if (uii) {
     return (ONELU << (2 * uii)) - ONELU;
   } else {
@@ -2096,72 +2096,72 @@ static inline uintptr_t get_final_mask(uint32_t indiv_ct) {
   }
 }
 
-static inline uint32_t load_raw2(FILE* bedfile, uintptr_t* rawbuf, uintptr_t unfiltered_indiv_ct4, uintptr_t unfiltered_indiv_ctl2m1, uintptr_t final_mask) {
-  if (fread(rawbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+static inline uint32_t load_raw2(FILE* bedfile, uintptr_t* rawbuf, uintptr_t unfiltered_sample_ct4, uintptr_t unfiltered_sample_ctl2m1, uintptr_t final_mask) {
+  if (fread(rawbuf, 1, unfiltered_sample_ct4, bedfile) < unfiltered_sample_ct4) {
     return 1;
   }
-  rawbuf[unfiltered_indiv_ctl2m1] &= final_mask;
+  rawbuf[unfiltered_sample_ctl2m1] &= final_mask;
   return 0;
 }
 
-uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_exclude, uintptr_t final_mask, uint32_t do_reverse);
+uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* mainbuf, uint32_t sample_ct, uintptr_t* sample_exclude, uintptr_t final_mask, uint32_t do_reverse);
 
-void collapse_copy_2bitarr_incl(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uintptr_t* indiv_include);
+void collapse_copy_2bitarr_incl(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uintptr_t* sample_include);
 
-uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_include, uintptr_t final_mask, uint32_t do_reverse);
+uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* mainbuf, uint32_t sample_ct, uintptr_t* sample_include, uintptr_t final_mask, uint32_t do_reverse);
 
-uint32_t load_and_split(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* casebuf, uintptr_t* ctrlbuf, uintptr_t* pheno_nm, uintptr_t* pheno_c);
+uint32_t load_and_split(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* casebuf, uintptr_t* ctrlbuf, uintptr_t* pheno_nm, uintptr_t* pheno_c);
 
-uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* marker_exclude, uint32_t marker_ct_autosomal, uint32_t block_max_size, uintptr_t unfiltered_indiv_ct4, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_weights, unsigned char* readbuf, uint32_t* chrom_fo_idx_ptr, uintptr_t* marker_uidx_ptr, uintptr_t* marker_idx_ptr, uint32_t* block_size_ptr, uintptr_t* marker_reverse, double* set_allele_freq_buf, float* set_allele_freq_buf_fl, uint32_t* wtbuf);
+uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* marker_exclude, uint32_t marker_ct_autosomal, uint32_t block_max_size, uintptr_t unfiltered_sample_ct4, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_weights, unsigned char* readbuf, uint32_t* chrom_fo_idx_ptr, uintptr_t* marker_uidx_ptr, uintptr_t* marker_idx_ptr, uint32_t* block_size_ptr, uintptr_t* marker_reverse, double* set_allele_freq_buf, float* set_allele_freq_buf_fl, uint32_t* wtbuf);
 
-void vec_include_init(uintptr_t unfiltered_indiv_ct, uintptr_t* new_include2, uintptr_t* old_include);
+void vec_include_init(uintptr_t unfiltered_sample_ct, uintptr_t* new_include2, uintptr_t* old_include);
 
-void exclude_to_vec_include(uintptr_t unfiltered_indiv_ct, uintptr_t* include_vec, uintptr_t* exclude_arr);
+void exclude_to_vec_include(uintptr_t unfiltered_sample_ct, uintptr_t* include_vec, uintptr_t* exclude_arr);
 
 void vec_init_invert(uintptr_t vec_entry_ct, uintptr_t* target_arr, uintptr_t* source_arr);
 
 void vec_init_andnot(uintptr_t vec_entry_ct, uintptr_t* target_arr, uintptr_t* source_arr, uintptr_t* exclude_arr);
 
-void vec_include_mask_in(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* mask_arr);
+void vec_include_mask_in(uintptr_t unfiltered_sample_ct, uintptr_t* include_arr, uintptr_t* mask_arr);
 
-void vec_include_mask_out(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* mask_arr);
+void vec_include_mask_out(uintptr_t unfiltered_sample_ct, uintptr_t* include_arr, uintptr_t* mask_arr);
 
-void vec_include_mask_out_intersect(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* mask_arr, uintptr_t* mask2_arr);
+void vec_include_mask_out_intersect(uintptr_t unfiltered_sample_ct, uintptr_t* include_arr, uintptr_t* mask_arr, uintptr_t* mask2_arr);
 
-void vec_init_01(uintptr_t unfiltered_indiv_ct, uintptr_t* data_ptr, uintptr_t* result_ptr);
+void vec_init_01(uintptr_t unfiltered_sample_ct, uintptr_t* data_ptr, uintptr_t* result_ptr);
 
-void vec_invert(uintptr_t unfiltered_indiv_ct, uintptr_t* vec2);
+void vec_invert(uintptr_t unfiltered_sample_ct, uintptr_t* vec2);
 
-void vec_datamask(uintptr_t unfiltered_indiv_ct, uint32_t matchval, uintptr_t* data_ptr, uintptr_t* mask_ptr, uintptr_t* result_ptr);
+void vec_datamask(uintptr_t unfiltered_sample_ct, uint32_t matchval, uintptr_t* data_ptr, uintptr_t* mask_ptr, uintptr_t* result_ptr);
 
-void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_include2, uintptr_t indiv_ct, uintptr_t* missing_bitfield);
+void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_sample_ct, uintptr_t* sample_include2, uintptr_t sample_ct, uintptr_t* missing_bitfield);
 
-void hh_reset(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t unfiltered_indiv_ct);
+void hh_reset(unsigned char* loadbuf, uintptr_t* sample_include2, uintptr_t unfiltered_sample_ct);
 
-void hh_reset_y(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t unfiltered_indiv_ct);
+void hh_reset_y(unsigned char* loadbuf, uintptr_t* sample_include2, uintptr_t* sample_male_include2, uintptr_t unfiltered_sample_ct);
 
-static inline void haploid_fix(uint32_t hh_exists, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t indiv_ct, uint32_t is_x, uint32_t is_y, unsigned char* loadbuf) {
+static inline void haploid_fix(uint32_t hh_exists, uintptr_t* sample_include2, uintptr_t* sample_male_include2, uintptr_t sample_ct, uint32_t is_x, uint32_t is_y, unsigned char* loadbuf) {
   if (is_x) {
     if (hh_exists & XMHH_EXISTS) {
-      hh_reset(loadbuf, indiv_male_include2, indiv_ct);
+      hh_reset(loadbuf, sample_male_include2, sample_ct);
     }
   } else if (is_y) {
     if (hh_exists & Y_FIX_NEEDED) {
-      hh_reset_y(loadbuf, indiv_include2, indiv_male_include2, indiv_ct);
+      hh_reset_y(loadbuf, sample_include2, sample_male_include2, sample_ct);
     }
   } else if (hh_exists & NXMHH_EXISTS) {
-    hh_reset(loadbuf, indiv_include2, indiv_ct);
+    hh_reset(loadbuf, sample_include2, sample_ct);
   }
 }
 
-uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* indiv_bitarr, uintptr_t* sex_male, uintptr_t** indiv_raw_include2_ptr, uintptr_t** indiv_raw_male_include2_ptr);
+uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* sample_bitarr, uintptr_t* sex_male, uintptr_t** sample_raw_include2_ptr, uintptr_t** sample_raw_male_include2_ptr);
 
-void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t hh_exists, uintptr_t* indiv_raw_include2, uintptr_t* indiv_raw_male_include2, uintptr_t unfiltered_indiv_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf);
+void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t hh_exists, uintptr_t* sample_raw_include2, uintptr_t* sample_raw_male_include2, uintptr_t unfiltered_sample_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf);
 
-void force_missing(unsigned char* loadbuf, uintptr_t* force_missing_include2, uintptr_t unfiltered_indiv_ct);
+void force_missing(unsigned char* loadbuf, uintptr_t* force_missing_include2, uintptr_t unfiltered_sample_ct);
 
-static inline char sexchar(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t indiv_uidx) {
-  return is_set(sex_nm, indiv_uidx)? (is_set(sex_male, indiv_uidx)? '1' : '2') : '0';
+static inline char sexchar(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t sample_uidx) {
+  return is_set(sex_nm, sample_uidx)? (is_set(sex_male, sample_uidx)? '1' : '2') : '0';
 }
 
 int32_t open_and_size_string_list(char* fname, FILE** infile_ptr, uintptr_t* list_len_ptr, uintptr_t* max_str_len_ptr);
@@ -2188,7 +2188,7 @@ void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* 
 
 void uncollapse_copy_flip_include_arr(uintptr_t* collapsed_include_arr, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* output_exclude_arr);
 
-void copy_when_nonmissing(uintptr_t* loadbuf, char* source, uintptr_t elem_size, uintptr_t unfiltered_indiv_ct, uintptr_t missing_ct, char* dest);
+void copy_when_nonmissing(uintptr_t* loadbuf, char* source, uintptr_t elem_size, uintptr_t unfiltered_sample_ct, uintptr_t missing_ct, char* dest);
 
 uint32_t collapse_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len, uint32_t* id_starts);
 
@@ -2206,11 +2206,11 @@ double rand_normal(double* secondval_ptr);
 
 void init_sfmt64_from_sfmt32(sfmt_t* sfmt32, sfmt_t* sfmt64);
 
-static inline void precompute_mods(uintptr_t indiv_ct, uint32_t* precomputed_mods) {
+static inline void precompute_mods(uintptr_t sample_ct, uint32_t* precomputed_mods) {
   // sets precomputed_mods[n] = 2^32 mod (n-2)
-  uintptr_t indiv_idx;
-  for (indiv_idx = 2; indiv_idx <= indiv_ct; indiv_idx++) {
-    *precomputed_mods++ = (uint32_t)(0x100000000LLU % indiv_idx);
+  uintptr_t sample_idx;
+  for (sample_idx = 2; sample_idx <= sample_ct; sample_idx++) {
+    *precomputed_mods++ = (uint32_t)(0x100000000LLU % sample_idx);
   }
 }
 

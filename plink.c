@@ -5026,7 +5026,7 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
-	cnv_calc_type |= CNV_INDIV_PERM;
+	cnv_calc_type |= CNV_SAMPLE_PERM;
       } else if (!memcmp(argptr2, "nv-intersect", 13)) {
 	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -8416,7 +8416,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (load_rare & LOAD_RARE_CNV) {
-	  if ((cnv_calc_type & CNV_INDIV_PERM) && (!cnv_sample_mperms)) {
+	  if ((cnv_calc_type & CNV_SAMPLE_PERM) && (!cnv_sample_mperms)) {
 	    logprint("Note: --mperm flag deprecated.  Use e.g. '--cnv-indiv-perm [perm. count]'.\n");
 	    cnv_sample_mperms = mperm_val;
 	  } else if ((cnv_calc_type & CNV_TEST_REGION) && (!cnv_test_region_mperms)) {
@@ -8425,7 +8425,7 @@ int32_t main(int32_t argc, char** argv) {
 	    logprint("Note: --mperm flag deprecated.  Use e.g. '--cnv-enrichment-test [perm. count]'.\n");
 	  } else {
 	    logprint("Note: --mperm flag deprecated.  Use e.g. '--cnv-test [permutation count]'.\n");
-            if (!(cnv_calc_type & (CNV_INDIV_PERM | CNV_ENRICHMENT_TEST | CNV_TEST | CNV_TEST_REGION))) {
+            if (!(cnv_calc_type & (CNV_SAMPLE_PERM | CNV_ENRICHMENT_TEST | CNV_TEST | CNV_TEST_REGION))) {
 	      cnv_calc_type |= CNV_TEST;
 	    }
 	    cnv_test_mperms = mperm_val;
@@ -12070,7 +12070,7 @@ int32_t main(int32_t argc, char** argv) {
       }
     }
     if (!mperm_val) {
-      if ((cnv_calc_type & CNV_INDIV_PERM) && (!cnv_sample_mperms)) {
+      if ((cnv_calc_type & CNV_SAMPLE_PERM) && (!cnv_sample_mperms)) {
 	logprint("Error: --cnv-indiv-perm requires a permutation count.\n");
 	goto main_ret_INVALID_CMDLINE_A;
       } else if ((cnv_calc_type & CNV_TEST_REGION) && (!cnv_test_region_mperms)) {
@@ -12092,7 +12092,7 @@ int32_t main(int32_t argc, char** argv) {
       goto main_ret_INVALID_CMDLINE_A;
     }
   }
-  if ((cnv_intersect_filter_type & CNV_COUNT) && (!(cnv_calc_type & (CNV_INDIV_PERM | CNV_ENRICHMENT_TEST)))) {
+  if ((cnv_intersect_filter_type & CNV_COUNT) && (!(cnv_calc_type & (CNV_SAMPLE_PERM | CNV_ENRICHMENT_TEST)))) {
     logprint("Error: --cnv-count must be used with --cnv-indiv-perm or --cnv-enrichment-test.\n");
     goto main_ret_INVALID_CMDLINE;
   }
