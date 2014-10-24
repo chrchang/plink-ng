@@ -2191,16 +2191,15 @@ int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modi
 }
 
 int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t* indiv_sort_map, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, uint32_t** zcdefs, uintptr_t** cluster_zc_masks_ptr) {
-  // (todo: patch plink() sequence so that marker IDs always need to be sorted
-  // only once?  may want to tune the data structure a bit too: while binary
-  // search on a sorted array already works quite well, packing the "top" of
-  // the "binary tree" into a single page should speed things up.)
+  // (todo: patch plink() sequence so that marker ID hash table only needs to
+  // be constructed once?)
   //
-  // 1. create sorted marker ID and cluster ID lists, regular stack allocation
+  // 1. create marker ID hash table and sorted cluster ID list, regular stack
+  //    allocation
   // 2. load .zero file, converting to internal indices.  (lines with
   //    unrecognized IDs are skipped; we don't want a header line to cause this
   //    to error out.)  this is top_alloc'd.
-  // 3. free sorted ID lists, sort loaded .zero contents
+  // 3. free marker ID/cluster ID lists, sort loaded .zero contents
   // 4. assemble one block bitfield at a time, use save_set_bitfield() to
   //    compress each
   // 5. allocate and initialize cluster_zc_masks
@@ -2213,8 +2212,8 @@ int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintp
   uint32_t range_first = marker_ct;
   uint32_t range_last = 0;
   int32_t retval = 0;
-  char* sorted_marker_ids;
-  uint32_t* marker_id_map;
+  uint32_t* marker_id_htable;
+  uint32_t* marker_uidx_to_idx;
   uint32_t* indiv_uidx_to_idx;
   uintptr_t* marker_bitfield_tmp;
   uintptr_t* cluster_zc_mask;
@@ -2226,12 +2225,13 @@ int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintp
   uintptr_t topsize_base;
   uintptr_t max_zc_item_ct;
   uintptr_t marker_uidx;
-  uint32_t uii;
+  uint32_t marker_id_htable_size;
   uint32_t cluster_idx;
   uint32_t cur_cluster;
   uint32_t cluster_size;
   uint32_t indiv_uidx;
   uint32_t indiv_idx;
+  uint32_t uii;
   int32_t ii;
   marker_bitfield_tmp = (uintptr_t*)top_alloc(&topsize, marker_ctp2l * sizeof(intptr_t));
   if (!marker_bitfield_tmp) {
@@ -2245,10 +2245,14 @@ int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintp
   zc_entries_end = (int64_t*)marker_bitfield_tmp;
   zc_entries = &(zc_entries_end[-1]);
   wkspace_left -= topsize + 16;
-  retval = sort_item_ids(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_ct, marker_ids, max_marker_id_len, 0, 1, strcmp_deref);
+  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
   if (retval) {
     goto zero_cluster_init_ret_1;
   }
+  if (wkspace_alloc_ui_checked(&marker_uidx_to_idx, unfiltered_marker_ct * sizeof(int32_t))) {
+    goto zero_cluster_init_ret_NOMEM;
+  }
+  fill_uidx_to_idx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_uidx_to_idx);
   // cluster IDs are already natural-sorted
 
   if (fopen_checked(&zcfile, zerofname, "r")) {
@@ -2269,9 +2273,8 @@ int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintp
       continue;
     }
     bufptr2 = token_endnn(bufptr);
-    ii = bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_marker_ids, max_marker_id_len, marker_ct);
-    if (ii != -1) {
-      marker_uidx = marker_id_map[(uint32_t)ii];
+    marker_uidx = id_htable_find(bufptr, (uintptr_t)(bufptr2 - bufptr), marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len);
+    if (marker_uidx != 0xffffffffU) {
       bufptr = skip_initial_spaces(bufptr2);
       if (is_eoln_kns(*bufptr)) {
 	goto zero_cluster_init_ret_MISSING_TOKENS;
@@ -2279,14 +2282,14 @@ int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintp
       bufptr2 = token_endnn(bufptr);
       uii = (uintptr_t)(bufptr2 - bufptr);
       if (uii < max_cluster_id_len) {
-        *bufptr2 = '\0';
-        ii = bsearch_str_natural(bufptr, cluster_ids, max_cluster_id_len, cluster_ct);
-        if (ii != -1) {
+	*bufptr2 = '\0';
+	ii = bsearch_str_natural(bufptr, cluster_ids, max_cluster_id_len, cluster_ct);
+	if (ii != -1) {
 	  if (++zc_item_ct > max_zc_item_ct) {
 	    goto zero_cluster_init_ret_NOMEM;
 	  }
 	  // cluster ID in high bits, marker ID in low bits, so sorting works
-	  *(--zc_entries) = (int64_t)((((uint64_t)((uint32_t)ii)) << 32) | ((uint64_t)marker_uidx));
+	  *(--zc_entries) = (int64_t)((((uint64_t)((uint32_t)ii)) << 32) | ((uint64_t)marker_uidx_to_idx[marker_uidx]));
 	}
       }
     }
@@ -2297,7 +2300,7 @@ int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintp
   wkspace_left += topsize;
   topsize_base = topsize;
   topsize += ((zc_item_ct + 1) / 2) * 16;
-  wkspace_reset(marker_id_map);
+  wkspace_reset(marker_id_htable);
   wkspace_left -= topsize;
 #ifdef __cplusplus
   std::sort(zc_entries, &(zc_entries[zc_item_ct]));

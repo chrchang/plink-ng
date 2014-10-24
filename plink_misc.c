@@ -2133,34 +2133,32 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
   char skipchar = axalleles->skipchar;
   const char* missing_geno_ptr = g_missing_geno_ptr;
   uint32_t colid_first = (axalleles->colid < axalleles->colx);
-  uintptr_t marker_ct = unfiltered_marker_ct - marker_exclude_ct;
-  uintptr_t marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t max_marker_allele_len = *max_marker_allele_len_ptr;
   uintptr_t* already_seen;
   char* loadbuf;
-  uintptr_t loadbuf_size;
-  uintptr_t line_idx;
-  uint32_t idlen;
-  uint32_t alen;
-  char* sorted_marker_ids;
   char* colid_ptr;
   char* colx_ptr;
-  uint32_t* marker_id_map;
+  uint32_t* marker_id_htable;
+  uintptr_t loadbuf_size;
+  uintptr_t line_idx;
+  uint32_t marker_id_htable_size;
+  uint32_t idlen;
+  uint32_t alen;
   uint32_t colmin;
   uint32_t coldiff;
-  int32_t sorted_idx;
   uint32_t marker_uidx;
   char cc;
   uint32_t replace_other;
   int32_t retval;
-  retval = sort_item_ids(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
+  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
   if (retval) {
     goto load_ax_alleles_ret_1;
   }
-  if (wkspace_alloc_ul_checked(&already_seen, marker_ctl * sizeof(intptr_t))) {
+  if (wkspace_alloc_ul_checked(&already_seen, unfiltered_marker_ctl * sizeof(intptr_t))) {
     goto load_ax_alleles_ret_NOMEM;
   }
-  fill_ulong_zero(already_seen, marker_ctl);
+  fill_ulong_zero(already_seen, unfiltered_marker_ctl);
   loadbuf_size = wkspace_left;
   if (loadbuf_size > MAXLINEBUFLEN) {
     loadbuf_size = MAXLINEBUFLEN;
@@ -2169,6 +2167,9 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
   }
   loadbuf = (char*)wkspace_base;
   retval = open_and_skip_first_lines(&infile, axalleles->fname, loadbuf, loadbuf_size, axalleles->skip);
+  if (retval) {
+    goto load_ax_alleles_ret_1;
+  }
   if (colid_first) {
     colmin = axalleles->colid - 1;
     coldiff = axalleles->colx - axalleles->colid;
@@ -2200,17 +2201,16 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
       colid_ptr = next_token_mult(colx_ptr, coldiff);
     }
     idlen = strlen_se(colid_ptr);
-    sorted_idx = bsearch_str(colid_ptr, idlen, sorted_marker_ids, max_marker_id_len, marker_ct);
-    if (sorted_idx == -1) {
+    marker_uidx = id_htable_find(colid_ptr, idlen, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len);
+    if (marker_uidx == 0xffffffffU) {
       continue;
     }
-    if (is_set(already_seen, sorted_idx)) {
+    if (is_set(already_seen, marker_uidx)) {
       colid_ptr[idlen] = '\0';
       LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --a%c-allele file.\n", colid_ptr, is_a2? '2' : '1');
       goto load_ax_alleles_ret_INVALID_FORMAT_2;
     }
-    SET_BIT(already_seen, sorted_idx);
-    marker_uidx = marker_id_map[(uint32_t)sorted_idx];
+    set_bit(already_seen, marker_uidx);
     alen = strlen_se(colx_ptr);
     colx_ptr[alen] = '\0';
     if (!strcmp(colx_ptr, marker_allele_ptrs[marker_uidx * 2 + is_a2])) {
@@ -2250,7 +2250,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
   if (!feof(infile)) {
     goto load_ax_alleles_ret_READ_FAIL;
   }
-  marker_uidx = popcount_longs(already_seen, marker_ctl);
+  marker_uidx = popcount_longs(already_seen, unfiltered_marker_ctl);
   LOGPRINTF("--a%c-allele: %u assignment%s made.\n", is_a2? '2' : '1', marker_uidx, (marker_uidx == 1)? "" : "s");
   *max_marker_allele_len_ptr = max_marker_allele_len;
   while (0) {
