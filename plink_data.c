@@ -4558,7 +4558,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	goto oxford_to_bed_ret_READ_FAIL;
       }
       if (uii != sample_ct) {
-	logprint("Error: Unexpected number of sampleiduals specified in SNP block header.\n");
+	logprint("Error: Unexpected number of samples specified in SNP block header.\n");
 	goto oxford_to_bed_ret_INVALID_FORMAT;
       }
       if (bgen_multichar_alleles) {
