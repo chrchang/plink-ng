@@ -584,7 +584,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
   return retval;
 }
 
-void fill_unfiltered_indiv_to_cluster(uintptr_t unfiltered_indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* indiv_to_cluster) {
+void fill_unfiltered_sample_to_cluster(uintptr_t unfiltered_indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* indiv_to_cluster) {
   uint32_t* cluster_map_pos = cluster_map;
   uint32_t* cluster_end_ptr;
   uint32_t cluster_idx;
@@ -651,7 +651,7 @@ int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_in
   if (wkspace_alloc_ui_checked(&indiv_to_cluster, unfiltered_indiv_ct * sizeof(int32_t))) {
     goto write_cluster_ret_NOMEM;
   }
-  fill_unfiltered_indiv_to_cluster(unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, indiv_to_cluster);
+  fill_unfiltered_sample_to_cluster(unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, indiv_to_cluster);
   memcpy(outname_end, ".clst", 6);
   if (fopen_checked(&outfile, outname, "w")) {
     goto write_cluster_ret_OPEN_FAIL;
