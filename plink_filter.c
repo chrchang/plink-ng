@@ -594,7 +594,7 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
   return retval;
 }
 
-int32_t filter_attrib_indiv(char* fname, char* condition_str, char* sorted_ids, uintptr_t sorted_ids_ct, uintptr_t max_id_len, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* exclude_ct_ptr) {
+int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids, uintptr_t sorted_ids_ct, uintptr_t max_id_len, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* exclude_ct_ptr) {
   // re-merge this with filter_attrib() after making sample ID lookup
   // hash-based
   gzFile gz_infile = NULL;
@@ -631,7 +631,7 @@ int32_t filter_attrib_indiv(char* fname, char* condition_str, char* sorted_ids, 
   if (wkspace_alloc_ul_checked(&exclude_arr_new, unfiltered_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&already_seen, unfiltered_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_c_checked(&id_buf, max_id_len)) { 
-    goto filter_attrib_indiv_ret_NOMEM;
+    goto filter_attrib_sample_ret_NOMEM;
   }
   fill_all_bits(exclude_arr_new, unfiltered_ct);
   fill_ulong_zero(already_seen, unfiltered_ctl);
@@ -649,7 +649,7 @@ int32_t filter_attrib_indiv(char* fname, char* condition_str, char* sorted_ids, 
 	  continue;
 	} else if (*cond_ptr == '-') {
 	  logprint("Error: --attrib-indiv condition cannot contain consecutive dashes.\n");
-	  goto filter_attrib_indiv_ret_INVALID_CMDLINE;
+	  goto filter_attrib_sample_ret_INVALID_CMDLINE;
 	}
 	is_neg = 1;
       } else if (!(*cond_ptr)) {
@@ -675,14 +675,14 @@ int32_t filter_attrib_indiv(char* fname, char* condition_str, char* sorted_ids, 
     }
     if (pos_match_ct) {
       if (wkspace_alloc_c_checked(&sorted_pos_match, max_pos_match_len * pos_match_ct)) {
-	goto filter_attrib_indiv_ret_NOMEM;
+	goto filter_attrib_sample_ret_NOMEM;
       }
     }
     if (neg_match_ct) {
       neg_match_ctl = (neg_match_ct + (BITCT - 1)) / BITCT;
       if (wkspace_alloc_c_checked(&sorted_neg_match, max_neg_match_len * neg_match_ct) ||
 	  wkspace_alloc_ul_checked(&cur_neg_matches, neg_match_ctl * sizeof(intptr_t))) {
-        goto filter_attrib_indiv_ret_NOMEM;
+        goto filter_attrib_sample_ret_NOMEM;
       }
     }
     pos_match_idx = 0;
@@ -719,7 +719,7 @@ int32_t filter_attrib_indiv(char* fname, char* condition_str, char* sorted_ids, 
       bufptr = scan_for_duplicate_ids(sorted_pos_match, pos_match_ct, max_pos_match_len);
       if (bufptr) {
 	LOGPREPRINTFWW("Error: Duplicate attribute '%s' in --attrib-indiv argument.\n", bufptr);
-	goto filter_attrib_indiv_ret_INVALID_CMDLINE_2;
+	goto filter_attrib_sample_ret_INVALID_CMDLINE_2;
       }
     }
     if (neg_match_ct) {
@@ -727,7 +727,7 @@ int32_t filter_attrib_indiv(char* fname, char* condition_str, char* sorted_ids, 
       bufptr = scan_for_duplicate_ids(sorted_neg_match, neg_match_ct, max_neg_match_len);
       if (bufptr) {
 	LOGPREPRINTFWW("Error: Duplicate attribute '%s' in --attrib-indiv argument.\n", bufptr);
-	goto filter_attrib_indiv_ret_INVALID_CMDLINE_2;
+	goto filter_attrib_sample_ret_INVALID_CMDLINE_2;
       }
       // actually may make sense to have same attribute as a positive and
       // negative condition, so we don't check for that
@@ -737,13 +737,13 @@ int32_t filter_attrib_indiv(char* fname, char* condition_str, char* sorted_ids, 
   if (loadbuf_size > MAXLINEBUFLEN) {
     loadbuf_size = MAXLINEBUFLEN;
   } else if (loadbuf_size <= MAXLINELEN) {
-    goto filter_attrib_indiv_ret_NOMEM;
+    goto filter_attrib_sample_ret_NOMEM;
   }
   if (gzopen_checked(&gz_infile, fname, "rb")) {
-    goto filter_attrib_indiv_ret_OPEN_FAIL;
+    goto filter_attrib_sample_ret_OPEN_FAIL;
   }
   if (gzbuffer(gz_infile, 131072)) {
-    goto filter_attrib_indiv_ret_NOMEM;
+    goto filter_attrib_sample_ret_NOMEM;
   }
   loadbuf = (char*)wkspace_base;
   loadbuf[loadbuf_size - 1] = ' ';
@@ -751,16 +751,16 @@ int32_t filter_attrib_indiv(char* fname, char* condition_str, char* sorted_ids, 
     line_idx++;
     if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
       if (!gzeof(gz_infile)) {
-	goto filter_attrib_indiv_ret_READ_FAIL;
+	goto filter_attrib_sample_ret_READ_FAIL;
       }
       break;
     }
     if (!loadbuf[loadbuf_size - 1]) {
       if (loadbuf_size == MAXLINEBUFLEN) {
 	sprintf(logbuf, "Error: Line %" PRIuPTR" of --attrib-indiv file is pathologically long.\n", line_idx);
-        goto filter_attrib_indiv_ret_INVALID_FORMAT_2;
+        goto filter_attrib_sample_ret_INVALID_FORMAT_2;
       }
-      goto filter_attrib_indiv_ret_NOMEM;
+      goto filter_attrib_sample_ret_NOMEM;
     }
     bufptr = skip_initial_spaces(loadbuf);
     if (is_eoln_kns(*bufptr)) {
@@ -768,7 +768,7 @@ int32_t filter_attrib_indiv(char* fname, char* condition_str, char* sorted_ids, 
     }
     if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_ct, bufptr, &cond_ptr, &sorted_idx)) {
       sprintf(logbuf, "Error: Line %" PRIuPTR " of --attrib-indiv file has fewer tokens than\nexpected.\n", line_idx);
-      goto filter_attrib_indiv_ret_INVALID_FORMAT_2;
+      goto filter_attrib_sample_ret_INVALID_FORMAT_2;
     }
     if (sorted_idx == -1) {
       continue;
@@ -776,7 +776,7 @@ int32_t filter_attrib_indiv(char* fname, char* condition_str, char* sorted_ids, 
     if (is_set(already_seen, sorted_idx)) {
       *strchr(id_buf, '\t') = ' ';
       LOGPREPRINTFWW("Error: Duplicate individual ID '%s' in --attrib-indiv file.\n", id_buf);
-      goto filter_attrib_indiv_ret_INVALID_FORMAT_2;
+      goto filter_attrib_sample_ret_INVALID_FORMAT_2;
     }
     set_bit(already_seen, sorted_idx);
     unfiltered_idx = id_map[(uint32_t)sorted_idx];
@@ -817,32 +817,32 @@ int32_t filter_attrib_indiv(char* fname, char* condition_str, char* sorted_ids, 
   if (!include_ct) {
     LOGPRINTF("Error: No %s remaining after --attrib-indiv.\n", g_species_plural);
     retval = RET_ALL_SAMPLES_EXCLUDED;
-    goto filter_attrib_indiv_ret_1;
+    goto filter_attrib_sample_ret_1;
   }
   LOGPRINTF("--attrib-indiv: %" PRIuPTR " %s remaining.\n", include_ct, species_str(include_ct));
   memcpy(exclude_arr, exclude_arr_new, unfiltered_ctl * sizeof(intptr_t));
   *exclude_ct_ptr = unfiltered_ct - include_ct;
   while (0) {
-  filter_attrib_indiv_ret_NOMEM:
+  filter_attrib_sample_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  filter_attrib_indiv_ret_OPEN_FAIL:
+  filter_attrib_sample_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;
-  filter_attrib_indiv_ret_READ_FAIL:
+  filter_attrib_sample_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  filter_attrib_indiv_ret_INVALID_CMDLINE_2:
+  filter_attrib_sample_ret_INVALID_CMDLINE_2:
     logprintb();
-  filter_attrib_indiv_ret_INVALID_CMDLINE:
+  filter_attrib_sample_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
-  filter_attrib_indiv_ret_INVALID_FORMAT_2:
+  filter_attrib_sample_ret_INVALID_FORMAT_2:
     logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
- filter_attrib_indiv_ret_1:
+ filter_attrib_sample_ret_1:
   wkspace_reset(wkspace_mark);
   gzclose_cond(gz_infile);
   return retval;
