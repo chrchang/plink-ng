@@ -51,7 +51,7 @@ int32_t sort_item_ids_nx(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t
   return 0;
 }
 
-int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr_t unfiltered_marker_ct, uintptr_t indiv_ct, uint64_t fsize) {
+int32_t sample_major_to_snp_major(char* sample_major_fname, char* outname, uintptr_t unfiltered_marker_ct, uintptr_t sample_ct, uint64_t fsize) {
   // See below for old mmap() code.  Turns out this is more portable without
   // being noticeably slower.
   unsigned char* wkspace_mark = wkspace_base;
@@ -59,9 +59,9 @@ int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr
   FILE* outfile = NULL;
   uintptr_t unfiltered_marker_ct4 = (unfiltered_marker_ct + 3) / 4;
   uintptr_t unfiltered_marker_ctl2 = (unfiltered_marker_ct + (BITCT2 - 1)) / BITCT2;
-  uintptr_t unfiltered_indiv_ct4 = (indiv_ct + 3) / 4;
+  uintptr_t unfiltered_sample_ct4 = (sample_ct + 3) / 4;
   uintptr_t marker_idx_end = 0;
-  uint32_t bed_offset = fsize - indiv_ct * ((uint64_t)unfiltered_marker_ct4);
+  uint32_t bed_offset = fsize - sample_ct * ((uint64_t)unfiltered_marker_ct4);
   int32_t retval = 0;
   uintptr_t* loadbuf;
   uintptr_t* lptr;
@@ -71,34 +71,34 @@ int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr
   uintptr_t marker_idx_base;
   uintptr_t marker_idx_block_end;
   uintptr_t marker_idx;
-  uintptr_t indiv_idx_base;
-  uintptr_t indiv_idx_end;
-  uintptr_t indiv_idx;
+  uintptr_t sample_idx_base;
+  uintptr_t sample_idx_end;
+  uintptr_t sample_idx;
   uintptr_t cur_word0;
   uintptr_t cur_word1;
   uintptr_t cur_word2;
   uintptr_t cur_word3;
   // could make this allocation a bit smaller in multipass case, but whatever
   if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_marker_ctl2 * 4 * sizeof(intptr_t))) {
-    goto indiv_major_to_snp_major_ret_NOMEM;
+    goto sample_major_to_snp_major_ret_NOMEM;
   }
-  if (wkspace_left < unfiltered_indiv_ct4) {
-    goto indiv_major_to_snp_major_ret_NOMEM;
+  if (wkspace_left < unfiltered_sample_ct4) {
+    goto sample_major_to_snp_major_ret_NOMEM;
   }
   writebuf = (unsigned char*)wkspace_base;
-  write_marker_ct = BITCT2 * (wkspace_left / (unfiltered_indiv_ct4 * BITCT2));
+  write_marker_ct = BITCT2 * (wkspace_left / (unfiltered_sample_ct4 * BITCT2));
   loadbuf[unfiltered_marker_ctl2 - 1] = 0;
   loadbuf[2 * unfiltered_marker_ctl2 - 1] = 0;
   loadbuf[3 * unfiltered_marker_ctl2 - 1] = 0;
   loadbuf[4 * unfiltered_marker_ctl2 - 1] = 0;
-  if (fopen_checked(&infile, indiv_major_fname, "rb")) {
-    goto indiv_major_to_snp_major_ret_OPEN_FAIL;
+  if (fopen_checked(&infile, sample_major_fname, "rb")) {
+    goto sample_major_to_snp_major_ret_OPEN_FAIL;
   }
   if (fopen_checked(&outfile, outname, "wb")) {
-    goto indiv_major_to_snp_major_ret_OPEN_FAIL;
+    goto sample_major_to_snp_major_ret_OPEN_FAIL;
   }
   if (fwrite_checked("l\x1b\x01", 3, outfile)) {
-    goto indiv_major_to_snp_major_ret_WRITE_FAIL;
+    goto sample_major_to_snp_major_ret_WRITE_FAIL;
   }
   do {
     marker_idx_base = marker_idx_end;
@@ -107,19 +107,19 @@ int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr
       marker_idx_end = unfiltered_marker_ct;
     }
     if (fseeko(infile, bed_offset, SEEK_SET)) {
-      goto indiv_major_to_snp_major_ret_READ_FAIL;
+      goto sample_major_to_snp_major_ret_READ_FAIL;
     }
-    for (indiv_idx_end = 0; indiv_idx_end < indiv_ct;) {
-      indiv_idx_base = indiv_idx_end;
-      indiv_idx_end = indiv_idx_base + 4;
-      if (indiv_idx_end > indiv_ct) {
-	fill_ulong_zero(&(loadbuf[(indiv_ct % 4) * unfiltered_marker_ctl2]), (4 - (indiv_ct % 4)) * unfiltered_marker_ctl2);
-	indiv_idx_end = indiv_ct;
+    for (sample_idx_end = 0; sample_idx_end < sample_ct;) {
+      sample_idx_base = sample_idx_end;
+      sample_idx_end = sample_idx_base + 4;
+      if (sample_idx_end > sample_ct) {
+	fill_ulong_zero(&(loadbuf[(sample_ct % 4) * unfiltered_marker_ctl2]), (4 - (sample_ct % 4)) * unfiltered_marker_ctl2);
+	sample_idx_end = sample_ct;
       }
       lptr = loadbuf;
-      for (indiv_idx = indiv_idx_base; indiv_idx < indiv_idx_end; indiv_idx++) {
+      for (sample_idx = sample_idx_base; sample_idx < sample_idx_end; sample_idx++) {
         if (load_raw(infile, lptr, unfiltered_marker_ct4)) {
-	  goto indiv_major_to_snp_major_ret_READ_FAIL;
+	  goto sample_major_to_snp_major_ret_READ_FAIL;
         }
 	lptr = &(lptr[unfiltered_marker_ctl2]);
       }
@@ -134,7 +134,7 @@ int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr
 	if (marker_idx_block_end > marker_idx_end) {
           marker_idx_block_end = marker_idx_end;
 	}
-	ucptr = &(writebuf[(marker_idx - marker_idx_base) * unfiltered_indiv_ct4 + (indiv_idx_base / 4)]);
+	ucptr = &(writebuf[(marker_idx - marker_idx_base) * unfiltered_sample_ct4 + (sample_idx_base / 4)]);
 	while (1) {
 	  *ucptr = (unsigned char)((cur_word0 & 3) | ((cur_word1 & 3) << 2) | ((cur_word2 & 3) << 4) | ((cur_word3 & 3) << 6));
 	  if (++marker_idx == marker_idx_block_end) {
@@ -144,29 +144,29 @@ int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr
 	  cur_word1 >>= 2;
 	  cur_word2 >>= 2;
 	  cur_word3 >>= 2;
-	  ucptr = &(ucptr[unfiltered_indiv_ct4]);
+	  ucptr = &(ucptr[unfiltered_sample_ct4]);
 	}
       }
     }
-    if (fwrite_checked(writebuf, (marker_idx_end - marker_idx_base) * unfiltered_indiv_ct4, outfile)) {
-      goto indiv_major_to_snp_major_ret_WRITE_FAIL;
+    if (fwrite_checked(writebuf, (marker_idx_end - marker_idx_base) * unfiltered_sample_ct4, outfile)) {
+      goto sample_major_to_snp_major_ret_WRITE_FAIL;
     }
   } while (marker_idx_end < unfiltered_marker_ct);
   if (fclose_null(&outfile)) {
-    goto indiv_major_to_snp_major_ret_WRITE_FAIL;
+    goto sample_major_to_snp_major_ret_WRITE_FAIL;
   }
 
   while (0) {
-  indiv_major_to_snp_major_ret_NOMEM:
+  sample_major_to_snp_major_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  indiv_major_to_snp_major_ret_OPEN_FAIL:
+  sample_major_to_snp_major_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;
-  indiv_major_to_snp_major_ret_READ_FAIL:
+  sample_major_to_snp_major_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  indiv_major_to_snp_major_ret_WRITE_FAIL:
+  sample_major_to_snp_major_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
   }
@@ -175,94 +175,6 @@ int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr
   fclose_cond(outfile);
   return retval;
 }
-
-/*
-int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr_t unfiltered_marker_ct, uintptr_t indiv_ct, uint64_t fsize) {
-  FILE* outfile = NULL;
-  int32_t in_fd = open(indiv_major_fname, O_RDONLY);
-  unsigned char* in_contents = (unsigned char*)MAP_FAILED;
-  uintptr_t unfiltered_marker_ct4 = (unfiltered_marker_ct + 3) / 4;
-  uintptr_t indiv_ct4l = indiv_ct / 4;
-  uintptr_t indiv_ct4 = (indiv_ct + 3) / 4;
-  unsigned char* icoff;
-  int32_t retval;
-  uintptr_t max_4blocks_in_mem;
-  uintptr_t superblock_offset;
-  uint32_t block_last_marker;
-  uint32_t uii;
-  uint32_t add_val;
-  uint32_t rshift_val;
-  uint32_t ujj;
-  unsigned char* write_ptr;
-  if (in_fd == -1) {
-    LOGPRINTFWW(errstr_fopen, indiv_major_fname);
-    // immediate return since we don't want to close(in_fd)
-    return RET_OPEN_FAIL;
-  }
-  in_contents = (unsigned char*)mmap(NULL, (size_t)fsize, PROT_READ, MAP_PRIVATE, in_fd, 0);
-  if (in_contents == MAP_FAILED) {
-    goto indiv_major_to_snp_major_ret_READ_FAIL;
-  }
-  if (fopen_checked(&outfile, outname, "wb")) {
-    goto indiv_major_to_snp_major_ret_OPEN_FAIL;
-  }
-  // assume header has already been validated, etc.
-  uii = fsize - indiv_ct * unfiltered_marker_ct4;
-  icoff = &(in_contents[uii]);
-  if (fwrite_checked("l\x1b\x01", 3, outfile)) {
-    goto indiv_major_to_snp_major_ret_WRITE_FAIL;
-  }
-  // 4 * indiv_ct4 bytes needed per 4-marker output block
-  max_4blocks_in_mem = wkspace_left / (4 * indiv_ct4);
-  superblock_offset = 0;
-  while (superblock_offset < unfiltered_marker_ct4) {
-    block_last_marker = unfiltered_marker_ct - (superblock_offset * 4);
-    if (block_last_marker > (max_4blocks_in_mem * 4)) {
-      block_last_marker = max_4blocks_in_mem * 4;
-    }
-    write_ptr = wkspace_base;
-    for (uii = 0; uii < block_last_marker; uii++) {
-      rshift_val = (uii % 4) * 2;
-      add_val = uii / 4;
-      for (ujj = 0; ujj < indiv_ct4l; ujj++) {
-        *write_ptr++ = ((icoff[4 * ujj * unfiltered_marker_ct4 + add_val] >> rshift_val) & 3) + (((icoff[(4 * ujj + 1) * unfiltered_marker_ct4 + add_val] >> rshift_val) & 3) << 2) + (((icoff[(4 * ujj + 2) * unfiltered_marker_ct4 + add_val] >> rshift_val) & 3) << 4) + (((icoff[(4 * ujj + 3) * unfiltered_marker_ct4 + add_val] >> rshift_val) & 3) << 6);
-      }
-      if (indiv_ct % 4) {
-	*write_ptr = 0;
-	for (ujj = 0; ujj < (indiv_ct % 4); ujj++) {
-	  *write_ptr |= ((icoff[(ujj + indiv_ct4l * 4) * unfiltered_marker_ct4 + add_val] >> rshift_val) & 3) << (ujj * 2);
-	}
-	write_ptr++;
-      }
-    }
-    if (fwrite_checked(wkspace_base, ((int64_t)block_last_marker) * indiv_ct4, outfile)) {
-      goto indiv_major_to_snp_major_ret_WRITE_FAIL;
-    }
-    superblock_offset += max_4blocks_in_mem;
-  }
-  if (fclose_null(&outfile)) {
-    goto indiv_major_to_snp_major_ret_WRITE_FAIL;
-  }
-  retval = 0;
-  while (0) {
-  indiv_major_to_snp_major_ret_OPEN_FAIL:
-    retval = RET_OPEN_FAIL;
-    break;
-  indiv_major_to_snp_major_ret_READ_FAIL:
-    retval = RET_READ_FAIL;
-    break;
-  indiv_major_to_snp_major_ret_WRITE_FAIL:
-    retval = RET_WRITE_FAIL;
-    break;
-  }
-  fclose_cond(outfile);
-  if (in_contents != MAP_FAILED) {
-    munmap(in_contents, fsize);
-  }
-  close(in_fd);
-  return retval;
-}
-*/
 
 uint32_t chrom_error(const char* extension, Chrom_info* chrom_info_ptr, char* chrom_str, uintptr_t line_idx, int32_t error_code, uint32_t allow_extra_chroms) {
   if (allow_extra_chroms && (error_code == -2)) {
@@ -2989,12 +2901,14 @@ int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t un
   uint32_t flip_indiv_ct = 0;
   int32_t retval = 0;
   const char reverse_complements[] = "T\0G\0\0\0C\0\0\0\0\0\0\0\0\0\0\0\0A";
-  char* sorted_ids;
-  uint32_t* id_map;
+  uint32_t* marker_id_htable;
+  char* sorted_person_ids;
+  uint32_t* person_id_map;
   char* bufptr;
   char* a1ptr;
   char* a2ptr;
   char* id_buf;
+  uint32_t marker_id_htable_size;
   uint32_t slen;
   uint32_t marker_uidx;
   uint32_t indiv_idx_write;
@@ -3002,7 +2916,7 @@ int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t un
   unsigned char ucc;
   // load --flip file, then --flip-subset
   fill_ulong_zero(flip_subset_markers, unfiltered_marker_ctl);
-  retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
+  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
   if (retval) {
     goto flip_subset_init_ret_1;
   }
@@ -3021,11 +2935,10 @@ int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t un
       continue;
     }
     slen = strlen_se(bufptr);
-    sorted_idx = bsearch_str(bufptr, slen, sorted_ids, max_marker_id_len, marker_ct);
-    if (sorted_idx == -1) {
+    marker_uidx = id_htable_find(bufptr, slen, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len);
+    if (marker_uidx == 0xffffffffU) {
       continue;
     }
-    marker_uidx = id_map[(uint32_t)sorted_idx];
     a1ptr = marker_allele_ptrs[2 * marker_uidx];
     a2ptr = marker_allele_ptrs[2 * marker_uidx + 1];
     ucc = a1ptr[0];
@@ -3045,7 +2958,7 @@ int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t un
     goto flip_subset_init_ret_READ_FAIL;
   }
   wkspace_reset(wkspace_mark);
-  retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_indiv_ct, indiv_exclude, unfiltered_indiv_ct - indiv_ct, person_ids, max_person_id_len, 0, 1, strcmp_deref);
+  retval = sort_item_ids(&sorted_person_ids, &person_id_map, unfiltered_indiv_ct, indiv_exclude, unfiltered_indiv_ct - indiv_ct, person_ids, max_person_id_len, 0, 1, strcmp_deref);
   if (retval) {
     goto flip_subset_init_ret_1;
   }
@@ -3073,14 +2986,14 @@ int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t un
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_person_id_len, indiv_ct, bufptr, NULL, &sorted_idx) || (sorted_idx == -1)) {
+    if (bsearch_read_fam_indiv(id_buf, sorted_person_ids, max_person_id_len, indiv_ct, bufptr, NULL, &sorted_idx) || (sorted_idx == -1)) {
       miss_ct++;
       continue;
     }
     if (!indiv_sort_map) {
-      indiv_idx_write = id_map[(uint32_t)sorted_idx];
+      indiv_idx_write = person_id_map[(uint32_t)sorted_idx];
     } else {
-      indiv_idx_write = indiv_uidx_to_idx[indiv_sort_map[id_map[(uint32_t)sorted_idx]]];
+      indiv_idx_write = indiv_uidx_to_idx[indiv_sort_map[person_id_map[(uint32_t)sorted_idx]]];
     }
     if (IS_SET_DBL(flip_subset_vec2, indiv_idx_write)) {
       *strchr(id_buf, '\t') = ' ';

@@ -959,7 +959,7 @@ static inline uint32_t popcount_xor_2mask_multiword(uintptr_t** xor1p, uintptr_t
 
 // ----- multithread globals -----
 double* g_rel_dists = NULL;
-uint32_t* g_indiv_missing_unwt = NULL;
+uint32_t* g_sample_missing_unwt = NULL;
 uint32_t* g_missing_dbl_excluded = NULL;
 double* g_dists = NULL;
 
@@ -4838,7 +4838,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
   char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
   uintptr_t* indiv_exclude = g_cg_indiv_exclude;
-  uint32_t* indiv_missing_unwt = g_indiv_missing_unwt;
+  uint32_t* indiv_missing_unwt = g_sample_missing_unwt;
   uint32_t* missing_dbl_excluded = g_missing_dbl_excluded;
   uint32_t* genome_main = g_genome_main;
   uintptr_t indiv_ct = g_indiv_ct;
@@ -5233,7 +5233,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   g_masks = masks;
   g_mmasks = mmasks;
   g_missing_dbl_excluded = missing_dbl_excluded;
-  g_indiv_missing_unwt = indiv_missing_unwt;
+  g_sample_missing_unwt = indiv_missing_unwt;
   g_genome_main = genome_main;
   fill_uint_zero(missing_dbl_excluded, tot_cells);
   fill_uint_zero(indiv_missing_unwt, indiv_ct);
@@ -5818,8 +5818,8 @@ int32_t do_rel_cutoff(uint64_t calculation_type, double rel_cutoff, double* rel_
 	*dptr3++ = *dptr4++;
       }
     }
-    giptr = g_indiv_missing_unwt;
-    giptr2 = g_indiv_missing_unwt;
+    giptr = g_sample_missing_unwt;
+    giptr2 = g_sample_missing_unwt;
     for (indiv_idx = 0; indiv_idx < indiv_ct + indivs_excluded; indiv_idx++) {
       if (rel_ct_arr[indiv_idx] != -1) {
 	*giptr = *giptr2++;
@@ -6717,8 +6717,8 @@ int32_t do_rel_cutoff_f(uint64_t calculation_type, float rel_cutoff, float* rel_
 	*dptr3++ = *dptr4++;
       }
     }
-    giptr = g_indiv_missing_unwt;
-    giptr2 = g_indiv_missing_unwt;
+    giptr = g_sample_missing_unwt;
+    giptr2 = g_sample_missing_unwt;
     for (indiv_idx = 0; indiv_idx < indiv_ct + indivs_excluded; indiv_idx++) {
       if (rel_ct_arr[indiv_idx] != -1) {
 	*giptr = *giptr2++;
@@ -6901,7 +6901,7 @@ uint32_t calc_rel_grm_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
   uint64_t start_offset = g_cr_start_offset;
   uint64_t hundredth = g_cr_hundredth;
-  uint32_t* indiv_missing_unwt = g_indiv_missing_unwt;
+  uint32_t* indiv_missing_unwt = g_sample_missing_unwt;
   uint32_t* mdeptr = g_cr_mdeptr;
   double* dist_ptr = g_cr_dist_ptr;
   double* ibc_ptr = g_cr_ibc_ptr;
@@ -7014,7 +7014,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   if (wkspace_alloc_ui_checked(&indiv_missing_unwt, indiv_ct * sizeof(int32_t))) {
     goto calc_rel_ret_NOMEM;
   }
-  g_indiv_missing_unwt = indiv_missing_unwt;
+  g_sample_missing_unwt = indiv_missing_unwt;
   fill_int_zero((int32_t*)indiv_missing_unwt, indiv_ct);
   g_indiv_ct = indiv_ct;
   if (dist_thread_ct > indiv_ct / 2) {
@@ -7599,7 +7599,7 @@ uint32_t calc_rel_f_grm_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   uint64_t hundredth = g_cr_hundredth;
   float* dist_ptr = g_crf_dist_ptr;
   float* ibc_ptr = g_crf_ibc_ptr;
-  uint32_t* indiv_missing_unwt = g_indiv_missing_unwt;
+  uint32_t* indiv_missing_unwt = g_sample_missing_unwt;
   uint32_t* mdeptr = g_cr_mdeptr;
   uintptr_t max_indiv1idx = g_cr_max_indiv1idx;
   uintptr_t indiv1idx = g_cr_indiv1idx;
@@ -7710,7 +7710,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
   if (wkspace_alloc_ui_checked(&indiv_missing_unwt, indiv_ct * sizeof(int32_t))) {
     goto calc_rel_f_ret_NOMEM;
   }
-  g_indiv_missing_unwt = indiv_missing_unwt;
+  g_sample_missing_unwt = indiv_missing_unwt;
   fill_uint_zero(indiv_missing_unwt, indiv_ct);
   g_indiv_ct = indiv_ct;
   if (dist_thread_ct > indiv_ct / 2) {
@@ -8643,7 +8643,7 @@ int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintpt
     goto calc_ibm_ret_NOMEM;
   }
   fill_uint_zero(g_missing_dbl_excluded, llxx);
-  g_indiv_missing_unwt = indiv_missing_unwt;
+  g_sample_missing_unwt = indiv_missing_unwt;
   fill_uint_zero(indiv_missing_unwt, indiv_ct);
   wkspace_mark = wkspace_base;
 
@@ -8805,7 +8805,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
         wkspace_alloc_ui_checked(&indiv_missing_unwt, indiv_ct * sizeof(int32_t))) {
       goto calc_distance_ret_NOMEM;
     }
-    g_indiv_missing_unwt = indiv_missing_unwt;
+    g_sample_missing_unwt = indiv_missing_unwt;
     fill_uint_zero(g_missing_dbl_excluded, llxx);
     fill_uint_zero(indiv_missing_unwt, indiv_ct);
     unwt_needed = 1;
@@ -9519,7 +9519,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       }
       ulii = 0;
       dbl_exclude_ptr = g_missing_dbl_excluded;
-      indiv_missing_unwt = g_indiv_missing_unwt;
+      indiv_missing_unwt = g_sample_missing_unwt;
       for (indiv_idx1 = 0; indiv_idx1 < indiv_ct; indiv_idx1++) {
         indiv_missing_ptr = &(indiv_missing_unwt[indiv_idx1]);
 	uii = marker_ct - (*indiv_missing_ptr++);
@@ -9743,7 +9743,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       fputs("Writing IBM matrix... 0%    \b\b\b\b", stdout);
       fflush(stdout);
     }
-    indiv_missing_unwt = g_indiv_missing_unwt;
+    indiv_missing_unwt = g_sample_missing_unwt;
     missing_dbl_excluded = g_missing_dbl_excluded;
     for (indiv_idx1 = 0; indiv_idx1 < indiv_ct; indiv_idx1++) {
       indiv_missing_ptr = indiv_missing_unwt;

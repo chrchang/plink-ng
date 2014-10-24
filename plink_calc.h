@@ -35,7 +35,7 @@ typedef struct {
 } Rel_info;
 
 extern double* g_rel_dists;
-extern uint32_t* g_indiv_missing_unwt;
+extern uint32_t* g_sample_missing_unwt;
 extern uint32_t* g_missing_dbl_excluded;
 extern double* g_dists;
 

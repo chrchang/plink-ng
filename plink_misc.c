@@ -1282,7 +1282,7 @@ int32_t flip_strand(char* flip_fname, uint32_t* marker_id_htable, uint32_t marke
   return retval;
 }
 
-int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintptr_t indiv_ct, uintptr_t max_person_id_len, uint32_t* indiv_id_map, char* person_ids) {
+int32_t update_sample_ids(char* update_ids_fname, char* sorted_person_ids, uintptr_t indiv_ct, uintptr_t max_person_id_len, uint32_t* indiv_id_map, char* person_ids) {
   // file has been pre-scanned
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
@@ -1301,11 +1301,11 @@ int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintpt
   int32_t sorted_idx;
   if (wkspace_alloc_c_checked(&idbuf, max_person_id_len) ||
       wkspace_alloc_ul_checked(&already_seen, indiv_ctl * sizeof(intptr_t))) {
-    goto update_indiv_ids_ret_NOMEM;
+    goto update_sample_ids_ret_NOMEM;
   }
   fill_ulong_zero(already_seen, indiv_ctl);
   if (fopen_checked(&infile, update_ids_fname, "r")) {
-    goto update_indiv_ids_ret_OPEN_FAIL;
+    goto update_sample_ids_ret_OPEN_FAIL;
   }
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, infile)) {
@@ -1314,7 +1314,7 @@ int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintpt
       // er, either this buffer should be extended, or the
       // scan_max_fam_indiv_strlen() should use this length...
       sprintf(logbuf, "Error: Line %" PRIuPTR " of --update-ids file is pathologically long.\n", line_idx);
-      goto update_indiv_ids_ret_INVALID_FORMAT_2;
+      goto update_sample_ids_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(tbuf);
     if (is_eoln_kns(*bufptr)) {
@@ -1328,7 +1328,7 @@ int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintpt
     if (is_set(already_seen, sorted_idx)) {
       *strchr(idbuf, '\t') = ' ';
       LOGPREPRINTFWW("Error: Duplicate individual ID '%s' in --update-ids file.\n", idbuf);
-      goto update_indiv_ids_ret_INVALID_FORMAT_2;
+      goto update_sample_ids_ret_INVALID_FORMAT_2;
     }
     set_bit(already_seen, sorted_idx);
     indiv_uidx = indiv_id_map[((uint32_t)sorted_idx)];
@@ -1340,13 +1340,13 @@ int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintpt
     len = strlen_se(bufptr);
     if ((len == 1) && (*bufptr == '0')) {
       sprintf(logbuf, "Error: Invalid IID '0' on line %" PRIuPTR " of --update-ids file.\n", line_idx);
-      goto update_indiv_ids_ret_INVALID_FORMAT_2;
+      goto update_sample_ids_ret_INVALID_FORMAT_2;
     }
     memcpyx(wptr, bufptr, len, '\0');
     hit_ct++;
   }
   if (!feof(infile)) {
-    goto update_indiv_ids_ret_READ_FAIL;
+    goto update_sample_ids_ret_READ_FAIL;
   }
   if (miss_ct) {
     sprintf(logbuf, "--update-ids: %" PRIuPTR " %s updated, %" PRIuPTR " ID%s not present.\n", hit_ct, species_str(hit_ct), miss_ct, (miss_ct == 1)? "" : "s");
@@ -1356,16 +1356,16 @@ int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintpt
   logprintb();
 
   while (0) {
-  update_indiv_ids_ret_NOMEM:
+  update_sample_ids_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  update_indiv_ids_ret_OPEN_FAIL:
+  update_sample_ids_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;
-  update_indiv_ids_ret_READ_FAIL:
+  update_sample_ids_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  update_indiv_ids_ret_INVALID_FORMAT_2:
+  update_sample_ids_ret_INVALID_FORMAT_2:
     logprintb();
     retval = RET_INVALID_FORMAT;
     break;
@@ -1375,7 +1375,7 @@ int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintpt
   return retval;
 }
 
-int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids, uintptr_t indiv_ct, uintptr_t max_person_id_len, uint32_t* indiv_id_map, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info) {
+int32_t update_sample_parents(char* update_parents_fname, char* sorted_person_ids, uintptr_t indiv_ct, uintptr_t max_person_id_len, uint32_t* indiv_id_map, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   int32_t retval = 0;
@@ -1396,11 +1396,11 @@ int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids
   int32_t sorted_idx;
   if (wkspace_alloc_c_checked(&idbuf, max_person_id_len) ||
       wkspace_alloc_ul_checked(&already_seen, indiv_ctl * sizeof(intptr_t))) {
-    goto update_indiv_parents_ret_NOMEM;
+    goto update_sample_parents_ret_NOMEM;
   }
   fill_ulong_zero(already_seen, indiv_ctl);
   if (fopen_checked(&infile, update_parents_fname, "r")) {
-    goto update_indiv_parents_ret_OPEN_FAIL;
+    goto update_sample_parents_ret_OPEN_FAIL;
   }
   // permit very long lines since this can be pointed at .ped files
   if (wkspace_left > MAXLINEBUFLEN) {
@@ -1408,14 +1408,14 @@ int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids
   } else if (wkspace_left > MAXLINELEN) {
     loadbuf_size = wkspace_left;
   } else {
-    goto update_indiv_parents_ret_NOMEM;
+    goto update_sample_parents_ret_NOMEM;
   }
   loadbuf = (char*)wkspace_base;
   loadbuf[loadbuf_size - 1] = ' ';
   while (fgets(loadbuf, loadbuf_size, infile)) {
     // no line_idx since all the validation happened earlier
     if (!loadbuf[loadbuf_size - 1]) {
-      goto update_indiv_parents_ret_NOMEM;
+      goto update_sample_parents_ret_NOMEM;
     }
     bufptr = skip_initial_spaces(loadbuf);
     if (is_eoln_kns(*bufptr)) {
@@ -1429,7 +1429,7 @@ int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids
     if (is_set(already_seen, sorted_idx)) {
       *strchr(idbuf, '\t') = ' ';
       LOGPREPRINTFWW("Error: Duplicate individual ID '%s' in --update-parents file.\n", idbuf);
-      goto update_indiv_parents_ret_INVALID_FORMAT_2;
+      goto update_sample_parents_ret_INVALID_FORMAT_2;
     }
     set_bit(already_seen, sorted_idx);
     indiv_uidx = indiv_id_map[((uint32_t)sorted_idx)];
@@ -1449,7 +1449,7 @@ int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids
     hit_ct++;
   }
   if (!feof(infile)) {
-    goto update_indiv_parents_ret_READ_FAIL;
+    goto update_sample_parents_ret_READ_FAIL;
   }
   if (miss_ct) {
     sprintf(logbuf, "--update-parents: %" PRIuPTR " %s updated, %" PRIuPTR " ID%s not present.\n", hit_ct, species_str(hit_ct), miss_ct, (miss_ct == 1)? "" : "s");
@@ -1459,16 +1459,16 @@ int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids
   logprintb();
 
   while (0) {
-  update_indiv_parents_ret_NOMEM:
+  update_sample_parents_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  update_indiv_parents_ret_OPEN_FAIL:
+  update_sample_parents_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;
-  update_indiv_parents_ret_READ_FAIL:
+  update_sample_parents_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  update_indiv_parents_ret_INVALID_FORMAT_2:
+  update_sample_parents_ret_INVALID_FORMAT_2:
     logprintb();
     retval = RET_INVALID_FORMAT;
     break;
@@ -1478,7 +1478,7 @@ int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids
   return retval;
 }
 
-int32_t update_indiv_sexes(char* update_sex_fname, uint32_t update_sex_col, char* sorted_person_ids, uintptr_t indiv_ct, uintptr_t max_person_id_len, uint32_t* indiv_id_map, uintptr_t* sex_nm, uintptr_t* sex_male) {
+int32_t update_sample_sexes(char* update_sex_fname, uint32_t update_sex_col, char* sorted_person_ids, uintptr_t indiv_ct, uintptr_t max_person_id_len, uint32_t* indiv_id_map, uintptr_t* sex_nm, uintptr_t* sex_male) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   int32_t retval = 0;
@@ -1498,11 +1498,11 @@ int32_t update_indiv_sexes(char* update_sex_fname, uint32_t update_sex_col, char
   update_sex_col--;
   if (wkspace_alloc_c_checked(&idbuf, max_person_id_len) ||
       wkspace_alloc_ul_checked(&already_seen, indiv_ctl * sizeof(intptr_t))) {
-    goto update_indiv_sexes_ret_NOMEM;
+    goto update_sample_sexes_ret_NOMEM;
   }
   fill_ulong_zero(already_seen, indiv_ctl);
   if (fopen_checked(&infile, update_sex_fname, "r")) {
-    goto update_indiv_sexes_ret_OPEN_FAIL;
+    goto update_sample_sexes_ret_OPEN_FAIL;
   }
   // permit very long lines since this can be pointed at .ped files
   if (wkspace_left > MAXLINEBUFLEN) {
@@ -1510,7 +1510,7 @@ int32_t update_indiv_sexes(char* update_sex_fname, uint32_t update_sex_col, char
   } else if (wkspace_left > MAXLINELEN) {
     loadbuf_size = wkspace_left;
   } else {
-    goto update_indiv_sexes_ret_NOMEM;
+    goto update_sample_sexes_ret_NOMEM;
   }
   loadbuf = (char*)wkspace_base;
   loadbuf[loadbuf_size - 1] = ' ';
@@ -1519,9 +1519,9 @@ int32_t update_indiv_sexes(char* update_sex_fname, uint32_t update_sex_col, char
     if (!loadbuf[loadbuf_size - 1]) {
       if (loadbuf_size == MAXLINEBUFLEN) {
 	sprintf(logbuf, "Error: Line %" PRIuPTR " of --update-sex file is pathologically long.\n", line_idx);
-	goto update_indiv_sexes_ret_INVALID_FORMAT_2;
+	goto update_sample_sexes_ret_INVALID_FORMAT_2;
       } else {
-	goto update_indiv_sexes_ret_NOMEM;
+	goto update_sample_sexes_ret_NOMEM;
       }
     }
     bufptr = skip_initial_spaces(loadbuf);
@@ -1529,7 +1529,7 @@ int32_t update_indiv_sexes(char* update_sex_fname, uint32_t update_sex_col, char
       continue;
     }
     if (bsearch_read_fam_indiv(idbuf, sorted_person_ids, max_person_id_len, indiv_ct, bufptr, &bufptr, &sorted_idx)) {
-      goto update_indiv_sexes_ret_MISSING_TOKENS;
+      goto update_sample_sexes_ret_MISSING_TOKENS;
     }
     if (sorted_idx == -1) {
       miss_ct++;
@@ -1538,19 +1538,19 @@ int32_t update_indiv_sexes(char* update_sex_fname, uint32_t update_sex_col, char
     if (is_set(already_seen, sorted_idx)) {
       *strchr(idbuf, '\t') = ' ';
       LOGPREPRINTFWW("Error: Duplicate individual ID '%s' in --update-sex file.\n", idbuf);
-      goto update_indiv_sexes_ret_INVALID_FORMAT_2;
+      goto update_sample_sexes_ret_INVALID_FORMAT_2;
     }
     set_bit(already_seen, sorted_idx);
     indiv_uidx = indiv_id_map[((uint32_t)sorted_idx)];
     bufptr = next_token_multz(bufptr, update_sex_col);
     if (no_more_tokens_kns(bufptr)) {
-      goto update_indiv_sexes_ret_MISSING_TOKENS;
+      goto update_sample_sexes_ret_MISSING_TOKENS;
     }
     cc = *bufptr;
     ucc = ((unsigned char)cc) & 0xdfU;
     if ((cc < '0') || ((cc > '2') && (ucc != 'M') && (ucc != 'F')) || (bufptr[1] > ' ')) {
       sprintf(logbuf, "Error: Invalid sex value on line %" PRIuPTR " of --update-sex file.\n(Acceptable values: 1/M = male, 2/F = female, 0 = missing.)\n", line_idx);
-      goto update_indiv_sexes_ret_INVALID_FORMAT_2;
+      goto update_sample_sexes_ret_INVALID_FORMAT_2;
     }
     if (cc == '0') {
       CLEAR_BIT(sex_nm, indiv_uidx);
@@ -1566,7 +1566,7 @@ int32_t update_indiv_sexes(char* update_sex_fname, uint32_t update_sex_col, char
     hit_ct++;
   }
   if (!feof(infile)) {
-    goto update_indiv_sexes_ret_READ_FAIL;
+    goto update_sample_sexes_ret_READ_FAIL;
   }
   if (miss_ct) {
     sprintf(logbuf, "--update-sex: %" PRIuPTR " %s updated, %" PRIuPTR " ID%s not present.\n", hit_ct, species_str(hit_ct), miss_ct, (miss_ct == 1)? "" : "s");
@@ -1576,18 +1576,18 @@ int32_t update_indiv_sexes(char* update_sex_fname, uint32_t update_sex_col, char
   logprintb();
 
   while (0) {
-  update_indiv_sexes_ret_NOMEM:
+  update_sample_sexes_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  update_indiv_sexes_ret_OPEN_FAIL:
+  update_sample_sexes_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;
-  update_indiv_sexes_ret_READ_FAIL:
+  update_sample_sexes_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  update_indiv_sexes_ret_MISSING_TOKENS:
+  update_sample_sexes_ret_MISSING_TOKENS:
     sprintf(logbuf, "Error: Line %" PRIuPTR " of --update-sex file has fewer tokens than expected.\n", line_idx);
-  update_indiv_sexes_ret_INVALID_FORMAT_2:
+  update_sample_sexes_ret_INVALID_FORMAT_2:
     logprintb();
     retval = RET_INVALID_FORMAT;
     break;

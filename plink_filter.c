@@ -10,7 +10,7 @@ void oblig_missing_init(Oblig_missing_info* om_ip) {
   om_ip->cluster_ref_cts = NULL;
   om_ip->indiv_lookup = NULL;
   om_ip->marker_fname = NULL;
-  om_ip->indiv_fname = NULL;
+  om_ip->sample_fname = NULL;
 }
 
 void oblig_missing_cleanup(Oblig_missing_info* om_ip) {
@@ -19,7 +19,7 @@ void oblig_missing_cleanup(Oblig_missing_info* om_ip) {
     free_cond(om_ip->cluster_ref_cts);
     free_cond(om_ip->indiv_lookup);
     free_cond(om_ip->marker_fname);
-    free_cond(om_ip->indiv_fname);
+    free_cond(om_ip->sample_fname);
     om_ip->marker_fname = NULL;
   }
 }
@@ -1097,7 +1097,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
     goto load_oblig_missing_ret_NOMEM;
   }
   loadbuf_end = &(loadbuf[unfiltered_indiv_ctl2]);
-  if (fopen_checked(&infile, om_ip->indiv_fname, "r")) {
+  if (fopen_checked(&infile, om_ip->sample_fname, "r")) {
     goto load_oblig_missing_ret_OPEN_FAIL;
   }
   tbuf[MAXLINELEN - 1] = ' ';
@@ -1108,7 +1108,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
   while (fgets(tbuf, MAXLINELEN, infile)) {
     line_idx++;
     if (!tbuf[MAXLINELEN - 1]) {
-      LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, om_ip->indiv_fname);
+      LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, om_ip->sample_fname);
       goto load_oblig_missing_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(tbuf);
@@ -1116,13 +1116,13 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
       continue;
     }
     if (bsearch_read_fam_indiv(idbuf, sorted_person_ids, max_person_id_len, sorted_indiv_ct, bufptr, &bufptr2, &ii)) {
-      LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, om_ip->indiv_fname);
+      LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, om_ip->sample_fname);
       goto load_oblig_missing_ret_INVALID_FORMAT_2;
     }
     if (ii != -1) {
       if (is_set(loadbuf, ii)) {
         strchr(idbuf, '\t')[0] = ' ';
-        LOGPREPRINTFWW("Error: Duplicate individual ID '%s' in %s.\n", idbuf, om_ip->indiv_fname);
+        LOGPREPRINTFWW("Error: Duplicate individual ID '%s' in %s.\n", idbuf, om_ip->sample_fname);
 	goto load_oblig_missing_ret_INVALID_FORMAT_2;
       }
       set_bit(loadbuf, ii);
@@ -1147,7 +1147,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
     goto load_oblig_missing_ret_READ_FAIL;
   }
   if (!max_cluster_id_len) {
-    LOGPRINTFWW("Warning: --oblig-missing ignored, since no valid blocks were defined in %s.\n", om_ip->indiv_fname);
+    LOGPRINTFWW("Warning: --oblig-missing ignored, since no valid blocks were defined in %s.\n", om_ip->sample_fname);
     goto load_oblig_missing_ret_1;
   }
   wkspace_left -= topsize;
@@ -1271,7 +1271,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
     goto load_oblig_missing_ret_READ_FAIL;
   }
   if (missing_cluster_ct) {
-    LOGPRINTFWW("Warning: %" PRIuPTR " entr%s in %s had block IDs missing from %s.\n", missing_cluster_ct, (missing_cluster_ct == 1)? "y" : "ies", om_ip->marker_fname, om_ip->indiv_fname);
+    LOGPRINTFWW("Warning: %" PRIuPTR " entr%s in %s had block IDs missing from %s.\n", missing_cluster_ct, (missing_cluster_ct == 1)? "y" : "ies", om_ip->marker_fname, om_ip->sample_fname);
   }
   om_ip->entry_ct = (uintptr_t)(zc_entries_end - zc_entries);
   if (!om_ip->entry_ct) {
@@ -1342,7 +1342,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
   return retval;
 }
 
-int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t sorted_ids_len, uintptr_t max_person_id_len, uint32_t* id_map, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* filtervals_flattened, uint32_t mfilter_col) {
+int32_t filter_samples_file(char* filtername, char* sorted_person_ids, uintptr_t sorted_ids_len, uintptr_t max_person_id_len, uint32_t* id_map, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* filtervals_flattened, uint32_t mfilter_col) {
   FILE* infile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
@@ -1361,7 +1361,7 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
   if (wkspace_alloc_c_checked(&id_buf, max_person_id_len) ||
       wkspace_alloc_ul_checked(&indiv_exclude_new, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_c_checked(&sorted_filtervals, filterval_ct * max_filterval_len)) {
-    goto filter_indivs_file_ret_NOMEM;
+    goto filter_samples_file_ret_NOMEM;
   }
   fill_all_bits(indiv_exclude_new, unfiltered_indiv_ct);
   bufptr = filtervals_flattened;
@@ -1373,21 +1373,21 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
   qsort(sorted_filtervals, filterval_ct, max_filterval_len, strcmp_casted);
 
   if (fopen_checked(&infile, filtername, "r")) {
-    goto filter_indivs_file_ret_OPEN_FAIL;
+    goto filter_samples_file_ret_OPEN_FAIL;
   }
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, infile)) {
     line_idx++;
     if (!tbuf[MAXLINELEN - 1]) {
       sprintf(logbuf, "Error: Line %" PRIuPTR " of --filter file is pathologically long.\n", line_idx);
-      goto filter_indivs_file_ret_INVALID_FORMAT_2;
+      goto filter_samples_file_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(tbuf);
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
     if (bsearch_read_fam_indiv(id_buf, sorted_person_ids, max_person_id_len, sorted_ids_len, bufptr, &bufptr, &person_idx)) {
-      goto filter_indivs_file_ret_MISSING_TOKENS;
+      goto filter_samples_file_ret_MISSING_TOKENS;
     }
     if (person_idx != -1) {
       person_idx = id_map[(uint32_t)person_idx];
@@ -1396,7 +1396,7 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
 	  bufptr = next_token_mult(bufptr, mfilter_col - 1);
 	}
 	if (no_more_tokens_kns(bufptr)) {
-	  goto filter_indivs_file_ret_MISSING_TOKENS;
+	  goto filter_samples_file_ret_MISSING_TOKENS;
 	}
 	if (bsearch_str(bufptr, strlen_se(bufptr), sorted_filtervals, max_filterval_len, filterval_ct) != -1) {
 	  if (is_set(indiv_exclude_new, person_idx)) {
@@ -1408,33 +1408,33 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
     }
   }
   if (!feof(infile)) {
-    goto filter_indivs_file_ret_READ_FAIL;
+    goto filter_samples_file_ret_READ_FAIL;
   }
   if (!include_ct) {
     LOGPRINTF("Error: All %s excluded by --filter.\n", g_species_plural);
-    goto filter_indivs_file_ret_ALL_SAMPLES_EXCLUDED;
+    goto filter_samples_file_ret_ALL_SAMPLES_EXCLUDED;
   }
   LOGPRINTF("--filter: %" PRIuPTR " %s remaining.\n", include_ct, species_str(include_ct));
   memcpy(indiv_exclude, indiv_exclude_new, unfiltered_indiv_ctl * sizeof(intptr_t));
   *indiv_exclude_ct_ptr = unfiltered_indiv_ct - include_ct;
 
   while (0) {
-  filter_indivs_file_ret_NOMEM:
+  filter_samples_file_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  filter_indivs_file_ret_OPEN_FAIL:
+  filter_samples_file_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;
-  filter_indivs_file_ret_READ_FAIL:
+  filter_samples_file_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  filter_indivs_file_ret_MISSING_TOKENS:
+  filter_samples_file_ret_MISSING_TOKENS:
     sprintf(logbuf, "Error: Line %" PRIuPTR " of --filter file has fewer tokens than expected.\n", line_idx);
-  filter_indivs_file_ret_INVALID_FORMAT_2:
+  filter_samples_file_ret_INVALID_FORMAT_2:
     logprintb();
     retval = RET_INVALID_FORMAT;
     break;
-  filter_indivs_file_ret_ALL_SAMPLES_EXCLUDED:
+  filter_samples_file_ret_ALL_SAMPLES_EXCLUDED:
     retval = RET_ALL_SAMPLES_EXCLUDED;
     break;
   }
@@ -1443,7 +1443,7 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
   return retval;
 }
 
-void filter_indivs_bitfields(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, uintptr_t* orfield, int32_t orfield_flip, uintptr_t* ornot) {
+void filter_samples_bitfields(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, uintptr_t* orfield, int32_t orfield_flip, uintptr_t* ornot) {
   // indiv_exclude := indiv_exclude | orfield | (~ornot) if !orfield_flip
   //               := indiv_exclude | (~orfield) | (~ornot) otherwise
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
