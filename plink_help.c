@@ -318,7 +318,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --sample [fname] : Specify full name of .sample file.\n\n"
     	       );
     help_print("23file", &help_ctrl, 1,
-"  --23file [fname] {family ID} {indiv. ID} {sex} {pheno} {pat. ID} {mat. ID} :\n"
+"  --23file [fname] {FID} {IID} {sex} {pheno} {pat. ID} {mat. ID} :\n"
 "    Specify 23andMe input file.\n\n"
 	       );
 #ifndef STABLE_BUILD
@@ -334,11 +334,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     binary relationship matrix) filename prefix.\n\n"
 	       );
     help_print("dummy", &help_ctrl, 1,
-"  --dummy [indiv ct] [SNP ct] {missing geno freq} {missing pheno freq}\n"
+"  --dummy [sample ct] [SNP ct] {missing geno freq} {missing pheno freq}\n"
 "          <acgt | 1234 | 12> <scalar-pheno>\n"
-"    This generates a fake input dataset with the specified number of\n"
-"    individuals and SNPs.  By default, the missing genotype and phenotype\n"
-"    frequencies are zero, and genotypes are As and Bs (change the latter with\n"
+"    This generates a fake input dataset with the specified number of samples\n"
+"    and SNPs.  By default, the missing genotype and phenotype frequencies are\n"
+"    zero, and genotypes are As and Bs (change the latter with\n"
 "    'acgt'/'1234'/'12').  The 'scalar-pheno' modifier causes a normally\n"
 "    distributed scalar phenotype to be generated instead of a binary one.\n\n"
 	       );
@@ -388,8 +388,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * The '12' modifier causes A1 (usually minor) alleles to be coded as '1'\n"
 "      and A2 alleles to be coded as '2', while '01' maps A1 -> 0 and A2 -> 1.\n"
 "    * The '23' modifier causes a 23andMe-formatted file to be generated.  This\n"
-"      can only be used on a single individual's data (--keep may be handy).\n"
-"    * The 'AD' modifier causes an individual-major additive (0/1/2) + dominant\n"
+"      can only be used on a single sample's data (--keep may be handy).\n"
+"    * The 'AD' modifier causes an sample-major additive (0/1/2) + dominant\n"
 "      (het = 1, otherwise 0) component file, suitable for loading from R, to be\n"
 "      generated.  If you don't want the dominant component, use 'A' instead.\n"
 "      If you need uncounted alleles to be named in the header line, add the\n"
@@ -441,7 +441,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --write-cluster <omit-unassigned>\n"
 "    If clusters are specified with --within/--family, this generates a new\n"
 "    cluster file (with all filters applied).  The 'omit-unassigned' modifier\n"
-"    causes unclustered individuals to be omitted from the file; otherwise their\n"
+"    causes unclustered samples to be omitted from the file; otherwise their\n"
 "    cluster is 'NA'.\n\n"
 	       );
     help_print("write-set\tset-table", &help_ctrl, 1,
@@ -490,8 +490,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 		);
     help_print("missing", &help_ctrl, 1,
 "  --missing\n"
-"    Generate individual- and variant-based missing data reports.  If clusters\n"
-"    are defined, the variant-based report is cluster-stratified.\n\n"
+"    Generate sample- and variant-based missing data reports.  If clusters are\n"
+"    defined, the variant-based report is cluster-stratified.\n\n"
 	       );
     help_print("test-mishap", &help_ctrl, 1,
 "  --test-mishap\n"
@@ -633,7 +633,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Estimate haplotype blocks, via Haploview's interpretation of the block\n"
 "    definition suggested by Gabriel S et al. (2002) The Structure of Haplotype\n"
 "    Blocks in the Human Genome.\n"
-"    * Normally, individuals with missing phenotypes are not considered by this\n"
+"    * Normally, samples with missing phenotypes are not considered by this\n"
 "      computation; the 'no-pheno-req' modifier lifts this restriction.\n"
 "    * Normally, size-2 blocks may not span more than 20kb, and size-3 blocks\n"
 "      are limited to 30kb.  The 'no-small-max-span' modifier removes these\n"
@@ -651,10 +651,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "             <flat-missing>\n"
 "    Write a lower-triangular tab-delimited table of (weighted) genomic\n"
 "    distances in allele count units to {output prefix}.dist, and a list of the\n"
-"    corresponding family/individual IDs to {output prefix}.dist.id.  The first\n"
-"    row of the .dist file contains a single {genome 1-genome 2} distance, the\n"
-"    second row has the {genome 1-genome 3} and {genome 2-genome 3} distances in\n"
-"    that order, etc.\n"
+"    corresponding sample IDs to {output prefix}.dist.id.  The first row of the\n"
+"    .dist file contains a single {genome 1-genome 2} distance, the second row\n"
+"    has the {genome 1-genome 3} and {genome 2-genome 3} distances in that\n"
+"    order, etc.\n"
 "    * It is usually best to perform this calculation on a marker set in\n"
 "      approximate linkage equilibrium.\n"
 "    * If the 'square' or 'square0' modifier is present, a square matrix is\n"
@@ -713,17 +713,17 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    format, which describes one pair per line, while --make-grm-bin writes them\n"
 "    in GCTA 1.1+'s single-precision triangular binary format.  Note that these\n"
 "    formats explicitly report the number of valid observations (where neither\n"
-"    individual has a missing call) for each pair, which is useful input for\n"
-"    some scripts.\n"
+"    sample has a missing call) for each pair, which is useful input for some\n"
+"    scripts.\n"
 "    These computations can be subdivided with --parallel.\n\n"
 	       );
     help_print("rel-cutoff\tgrm-cutoff", &help_ctrl, 1,
 "  --rel-cutoff {val}\n"
 "    (alias: --grm-cutoff)\n"
-"    Exclude one member of each pair of individuals with relatedness greater\n"
-"    than the given cutoff value (default 0.025).  If no later operation will\n"
-"    cause the list of remaining individuals to be written to disk, this will\n"
-"    save it to {output prefix}.rel.id.\n"
+"    Exclude one member of each pair of samples with relatedness greater than\n"
+"    the given cutoff value (default 0.025).  If no later operation will cause\n"
+"    the list of remaining samples to be written to disk, this will save it to\n"
+"    {output prefix}.rel.id.\n"
 "    Note that maximizing the remaining sample size is equivalent to the NP-hard\n"
 "    maximum independent set problem, so we use a greedy algorithm instead of\n"
 "    guaranteeing optimality.  (Use the --make-rel and --keep/--remove flags if\n"
@@ -733,12 +733,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --ibs-test {permutation count}\n"
 "  --groupdist {iters} {d}\n"
 "    Given case/control phenotype data, these commands consider three subsets of\n"
-"    the distance matrix: pairs of affected individuals, affected-unaffected\n"
-"    pairs, and pairs of unaffected individuals.  Each of these subsets has a\n"
-"    distribution of pairwise genomic distances; --ibs-test uses permutation to\n"
-"    estimate p-values re: which types of pairs are most similar, while\n"
-"    --groupdist focuses on the differences between the centers of these\n"
-"    distributions and estimates standard errors via delete-d jackknife.\n\n"
+"    the distance matrix: pairs of affected samples, affected-unaffected pairs,\n"
+"    and pairs of unaffected samples.  Each of these subsets has a distribution\n"
+"    of pairwise genomic distances; --ibs-test uses permutation to estimate\n"
+"    p-values re: which types of pairs are most similar, while --groupdist\n"
+"    focuses on the differences between the centers of these distributions and\n"
+"    estimates standard errors via delete-d jackknife.\n\n"
 	       );
     help_print("regress-distance\tregress-rel", &help_ctrl, 1,
 "  --regress-distance {iters} {d}\n"
@@ -757,8 +757,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Generate an identity-by-descent report.\n"
 "    * It is usually best to perform this calculation on a marker set in\n"
 "      approximate linkage equilibrium.\n"
-"    * The 'rel-check' modifier excludes pairs of individuals with different\n"
-"      FIDs from the final report.\n"
+"    * The 'rel-check' modifier excludes pairs of samples with different FIDs\n"
+"      from the final report.\n"
 "    * 'full' adds raw pairwise comparison data to the report.\n"
 "    * The P(IBD=0/1/2) estimator employed by this command sometimes yields\n"
 "      numbers outside the range [0,1]; by default, these are clipped.  The\n"
@@ -818,7 +818,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("cluster\tcc\tgroup-avg\tgroup-average\tcluster-missing", &help_ctrl, 1,
 "  --cluster <cc> <group-avg | old-tiebreaks> <missing> <only2>\n"
-"    Cluster individuals using a pairwise similarity statistic (normally IBS).\n"
+"    Cluster samples using a pairwise similarity statistic (normally IBS).\n"
 "    * The 'cc' modifier forces every cluster to have at least one case and one\n"
 "      control.\n"
 "    * The 'group-avg' modifier causes clusters to be joined based on average\n"
@@ -852,7 +852,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("neighbour\tneighbor", &help_ctrl, 1,
 "  --neighbour [n1] [n2]\n"
 "    (alias: --neighbor)\n"
-"    Report IBS distances from each individual to their n1th- to n2th-nearest\n"
+"    Report IBS distances from each sample to their n1th- to n2th-nearest\n"
 "    neighbors, associated Z-scores, and the identities of those neighbors.\n"
 "    Useful for outlier detection.\n\n"
 	       );
@@ -1260,7 +1260,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     /*
     help_print("cnv-check-no-overlap", &help_ctrl, 1,
 "  --cnv-check-no-overlap\n"
-"    Given a .cnv fileset, this checks for within-individual CNV overlaps.\n\n"
+"    Given a .cnv fileset, this checks for within-sample CNV overlaps.\n\n"
 	       );
     */
     help_print("cnv-indiv-perm\tcnv-test\tcnv-test-region\tcnv-enrichment-test\tmperm\tcnv-test-1sided\tcnv-test-2sided", &help_ctrl, 1,
@@ -1304,7 +1304,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --missing-genotype [char] : Set missing genotype code (normally '0').\n"
 	       );
     help_print("vcf\tbcf\tdouble-id\tconst-fid\tid-delim", &help_ctrl, 0,
-"  --double-id          : Set both FIDs and IIDs to the VCF sample ID.\n"
+"  --double-id          : Set both FIDs and IIDs to the VCF/BCF sample ID.\n"
 "  --const-fid {ID}     : Set all FIDs to the given constant (default '0').\n"
 "  --id-delim {d}       : Parse sample IDs as [FID][d][IID] (default delim '_').\n"
 	       );
@@ -1316,10 +1316,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --vcf-min-qual [val]             : Skip VCF variants with low/missing QUAL.\n"
 "  --vcf-filter {exception(s)...}   : Skip variants which have FILTER failures.\n"
 #ifndef STABLE_BUILD
-"  --vcf-min-gq [val]               : No-call individual genotypes when GQ is\n"
+"  --vcf-min-gq [val]               : No-call a genotype when GQ is below the\n"
+"                                     given threshold.\n"
+"  --vcf-min-gp [val]               : No-call a genotype when 0-1 scaled GP is\n"
 "                                     below the given threshold.\n"
-"  --vcf-min-gp [val]               : No-call individual genotypes when 0-1\n"
-"                                     scaled GP is below the given threshold.\n"
 #endif
 "  --vcf-half-call [m]  : Specify how '0/.' and similar VCF GT values should be\n"
 "                         handled.  The following three modes are supported:\n"
@@ -1350,10 +1350,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --simulate-prevalence [p] : Set --simulate disease prevalence (default 0.01).\n"
 	       );
     help_print("simulate-qt\tsimulate-n", &help_ctrl, 0,
-"  --simulate-n [num]        : Set --simulate-qt indiv count (default 1000).\n"
+"  --simulate-n [num]        : Set --simulate-qt sample count (default 1000).\n"
 	       );
     help_print("simulate\tsimulate-qt\tsimulate-label\tsimulate-missing", &help_ctrl, 0,
-"  --simulate-label [prefix] : Set --simulate{-qt} individual name prefix.\n"
+"  --simulate-label [prefix] : Set --simulate{-qt} FID/IID name prefix.\n"
 "  --simulate-missing [freq] : Set --simulate{-qt} missing genotype frequency.\n"
 	       );
     help_print("allow-extra-chr\taec", &help_ctrl, 0,
@@ -1387,7 +1387,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --pheno-name [c] : If --pheno file has a header row, use column with the\n"
 "                     given name.\n"
 "  --pheno-merge    : When the main input fileset contains an phenotype value\n"
-"                     for an individual, but the --pheno file does not, use the\n"
+"                     for a sample, but the --pheno file does not, use the\n"
 "                     original value instead of treating the phenotype as\n"
 "                     missing.\n"
 	       );
@@ -1399,17 +1399,17 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("make-pheno\tpheno", &help_ctrl, 0,
 "  --make-pheno [fn] [val] : Define a new case/control phenotype.  If the val\n"
-"                            parameter is '*', all individuals listed in the\n"
-"                            the given file are cases, and everyone else is a\n"
-"                            control.  (Note that, in some shells, it is\n"
-"                            necessary to surround the * with quotes.)\n"
-"                            Otherwise, all individuals with third column entry\n"
+"                            parameter is '*', all samples listed in the given\n"
+"                            file are cases, and everyone else is a control.\n"
+"                            (Note that, in some shells, it is necessary to\n"
+"                            surround the * with quotes.)\n"
+"                            Otherwise, all samples with third column entry\n"
 "                            equal to the val parameter are cases, and all other\n"
-"                            individuals mentioned in the file are controls.\n"
+"                            samples mentioned in the file are controls.\n"
 	       );
     help_print("tail-pheno\tgroupdist\tpheno", &help_ctrl, 0,
 "  --tail-pheno [Lt] {Hbt} : Downcode a scalar phenotype to a case/control\n"
-"                            phenotype.  All individuals with phenotype values\n"
+"                            phenotype.  All samples with phenotype values\n"
 "                            greater than Hbt are cases, and all with values\n"
 "                            less than or equal to Lt are controls.  If Hbt is\n"
 "                            unspecified, it is equal to Lt; otherwise,\n"
@@ -1446,8 +1446,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                  --make-set file.\n"
 	       );
     help_print("keep\tremove\tkeep-fam\tremove-fam", &help_ctrl, 0,
-"  --keep [filename]     : Exclude all individuals not named in the file.\n"
-"  --remove [filename]   : Exclude all individuals named in the file.\n"
+"  --keep [filename]     : Exclude all samples not named in the file.\n"
+"  --remove [filename]   : Exclude all samples named in the file.\n"
 "  --keep-fam [filename] : Exclude all families not named in the file.\n"
 "  --remove-fam [fname]  : Exclude all families named in the file.\n"
 	       );
@@ -1458,10 +1458,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("keep-clusters\tkeep-cluster-names\tremove-clusters\tremove-cluster-names", &help_ctrl, 0,
 "  --keep-clusters [filename]          : These can be used individually or in\n"
 "  --keep-cluster-names [name(s)...]     combination to define a list of\n"
-"                                        clusters to keep; all individuals not\n"
-"                                        in a cluster in that list are then\n"
-"                                        excluded.  Use spaces to separate\n"
-"                                        cluster names for --keep-cluster-names.\n"
+"                                        clusters to keep; all samples not in a\n"
+"                                        cluster in that list are then excluded.\n"
+"                                        Use spaces to separate cluster names\n"
+"                                        for --keep-cluster-names.\n"
 "  --remove-clusters [filename]        : Exclude all clusters named in the file.\n"
 "  --remove-cluster-names [name(s)...] : Exclude the named clusters.\n"
 	       );
@@ -1474,10 +1474,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("attrib\tattrib-indiv", &help_ctrl, 0,
 "  --attrib [f] {att lst} : Given a file assigning attributes to variants, and a\n"
 "  --attrib-indiv [f] {a}   comma-delimited list (with no whitespace) of\n"
-"                           attribute names, remove variants/individuals which\n"
-"                           are either missing from the file or don't have any\n"
-"                           of the listed attributes.  If some attribute names\n"
-"                           in the list are preceded by '-', they are treated as\n"
+"                           attribute names, remove variants/samples which are\n"
+"                           either missing from the file or don't have any of\n"
+"                           the listed attributes.  If some attribute names in\n"
+"                           the list are preceded by '-', they are treated as\n"
 "                           'negative match conditions' instead: variants with\n"
 "                           all the negative match attributes are removed.\n"
 "                           The first character in the list cannot be a '-', due\n"
@@ -1527,8 +1527,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     bp distance.  (This is equivalent to VCFtools --thin.)\n"
 	       );
     help_print("filter\tmfilter", &help_ctrl, 0,
-"  --filter [f] [val(s)...] : Exclude all individuals without a 3rd column entry\n"
-"                             in the given file matching one of the given\n"
+"  --filter [f] [val(s)...] : Exclude all samples without a 3rd column entry in\n"
+"                             the given file matching one of the given\n"
 "                             space-separated value(s).\n"
 "  --mfilter [n]            : Match against (n+2)th column instead.\n"
 	       );
@@ -1539,8 +1539,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     parameter; when --geno is not invoked, no per-variant\n"
 "                     missing call frequency ceiling is enforced at all.  Other\n"
 "                     inclusion/exclusion default thresholds work the same way.)\n"
-"  --mind {val}     : Exclude individuals with missing call frequencies greater\n"
-"                     than a threshold (default 0.1).\n"
+"  --mind {val}     : Exclude samples with missing call frequencies greater than\n"
+"                     a threshold (default 0.1).\n"
 	       );
     help_print("oblig-clusters\toblig-missing", &help_ctrl, 0,
 "  --oblig-missing [f1] [f2] : Specify blocks of missing genotype calls for\n"
@@ -1551,7 +1551,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                              second, and block IDs in the third.\n"
 	       );
     help_print("prune", &help_ctrl, 0,
-"  --prune          : Remove individuals with missing phenotypes.\n"
+"  --prune          : Remove samples with missing phenotypes.\n"
 	       );
     help_print("maf\tmax-maf", &help_ctrl, 0,
 "  --maf {val}      : Exclude variants with minor allele frequency lower than a\n"
@@ -1576,7 +1576,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("me\tme-exclude-one", &help_ctrl, 0,
 "  --me [t] [v] <var-first> : Filter out trios and variants with Mendel error\n"
 "                             rates exceeding the given thresholds.\n"
-"  --me-exclude-one {ratio} : Make --me exclude only one individual per trio.\n"
+"  --me-exclude-one {ratio} : Make --me exclude only one sample per trio.\n"
 	       );
     help_print("qual-scores\tqual-threshold\tqual-max-threshold", &help_ctrl, 0,
 "  --qual-scores [f] {qcol} {IDcol} {skip} : Filter out variants with\n"
@@ -1586,7 +1586,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --qual-max-threshold [max qual score]   : Set --qual-scores range ceiling.\n"
 	       );
     help_print("allow-no-sex\tmust-have-sex", &help_ctrl, 0,
-"  --allow-no-sex   : Do not treat ambiguous-sex individuals as having missing\n"
+"  --allow-no-sex   : Do not treat ambiguous-sex samples as having missing\n"
 "                     phenotypes in analysis commands.  (Automatic /w --no-sex.)\n"
 "  --must-have-sex  : Force ambiguous-sex phenotypes to missing on\n"
 "                     --make-bed/--make-just-fam/--recode/--write-covar.\n"
@@ -1689,14 +1689,14 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --alleleACGT <multichar> : Reverse of --allele1234.\n"
 	       );
     help_print("update-ids\tupdate-parents\tupdate-sex\timpute-sex", &help_ctrl, 0,
-"  --update-ids [f]     : Update individual IDs.\n"
+"  --update-ids [f]     : Update sample IDs.\n"
 "  --update-parents [f] : Update parental IDs.\n"
 "  --update-sex [f] {n} : Update sexes.  Sex (1 or M = male, 2 or F = female, 0\n"
 "                         = missing) is loaded from column n+2 (default n is 1).\n"
 	       );
     help_print("flip\tflip-subset", &help_ctrl, 0,
 "  --flip [filename]    : Flip alleles (A<->T, C<->G) for SNP IDs in the file.\n"
-"  --flip-subset [fn]   : Only apply --flip to indivs in the --flip-subset file.\n"
+"  --flip-subset [fn]   : Only apply --flip to samples in --flip-subset file.\n"
 	       );
     help_print("flip-scan\tflip-scan-window\tflip-scan-window-kb\tflip-scan-threshold\tld-window\tld-window-kb\tflipscan\tflipscan-window\tflipscan-window-kb\tflipscan-threshold", &help_ctrl, 0,
 "  --flip-scan-window [ct+1] : Set --flip-scan max locus ct distance (def. 10).\n"
@@ -1712,9 +1712,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --a2-allele [f] {a2col} {IDcol} {skip} : Force alleles in the file to A2.\n"
 	       );
     help_print("indiv-sort\tmerge\tbmerge\tmerge-list", &help_ctrl, 0,
-"  --indiv-sort [m] {f} : Specify family/individual ID sort order.  The\n"
-"                         following four modes are supported:\n"
-"                         * 'none'/'0' keeps individuals in the order they were\n"
+"  --indiv-sort [m] {f} : Specify FID/IID sort order.  The following four modes\n"
+"                         are supported:\n"
+"                         * 'none'/'0' keeps samples in the order they were\n"
 "                           loaded.  Default for non-merge operations.\n"
 "                         * 'natural'/'n' invokes 'natural sort', e.g.\n"
 "                           'id2' < 'ID3' < 'id10'.  Default when merging.\n"
@@ -1726,8 +1726,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                         --make-bed/--make-just-fam respect this flag.\n"
 	       );
     help_print("with-phenotype\tdummy-coding\twrite-covar", &help_ctrl, 0,
-"  --with-phenotype <no-parents> <no-sex | female-2> : Include more individual\n"
-"                                                      info in new .cov file.\n"
+"  --with-phenotype <no-parents> <no-sex | female-2> : Include more sample info\n"
+"                                                      in new .cov file.\n"
 "  --dummy-coding {N} <no-round> : Split categorical variables (n categories,\n"
 "                                  2 < n <= N, default N is 49) into n-1 binary\n"
 "                                  dummy variables when writing covariate file.\n"
@@ -1748,8 +1748,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                       positions.\n"
 	       );
     help_print("mendel-duos\tmendel-multigen\tme\tmendel\ttdt\tset-me-missing", &help_ctrl, 0,
-"  --mendel-duos      : Make Mendel error checks consider individuals with only\n"
-"                       one parent in the dataset.\n"
+"  --mendel-duos      : Make Mendel error checks consider samples with only one\n"
+"                       parent in the dataset.\n"
 	       );
     help_print("mendel-duos\tmendel-multigen\tme\tmendel\ttdt\tset-me-missing\ttdt", &help_ctrl, 0,
 "  --mendel-multigen  : Make Mendel error checks consider (great-)grandparental\n"
@@ -1824,13 +1824,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("match\tmatch-type\tqmatch\tqt\tcluster", &help_ctrl, 0,
 "  --match [f] {mv} : Use covariate values to restrict clustering.  Without\n"
-"                     --match-type, two individuals can only be in the same\n"
-"                     cluster if all covariates match.  The optional second\n"
-"                     parameter specifies a covariate value to treat as missing.\n"
+"                     --match-type, two samples can only be in the same cluster\n"
+"                     if all covariates match.  The optional second parameter\n"
+"                     specifies a covariate value to treat as missing.\n"
 "  --match-type [f] : Refine interpretation of --match file.  The --match-type\n"
 "                     file is expected to be a single line with as many entries\n"
 "                     as the --match file has covariates; '0' entries specify\n"
-"                     'negative matches' (i.e. individuals with equal covariate\n"
+"                     'negative matches' (i.e. samples with equal covariate\n"
 "                     values cannot be in the same cluster), '1' entries specify\n"
 "                     'positive matches' (default), and '-1' causes the\n"
 "                     corresponding covariate to be ignored.\n"
@@ -1847,7 +1847,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                              --pca computation.  (--pca-cluster-names expects\n"
 "                              a space-delimited sequence of cluster names,\n"
 "                              while --pca-clusters expects a file with one\n"
-"                              cluster name per line.)  All individuals outside\n"
+"                              cluster name per line.)  All samples outside\n"
 "                              those clusters will then be projected on to the\n"
 "                              calculated PCs.\n"
 	       );
