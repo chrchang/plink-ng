@@ -42,7 +42,7 @@ void cluster_cleanup(Cluster_info* cluster_ptr) {
   free_cond(cluster_ptr->zerofname);
 }
 
-int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, uint32_t mwithin_col, uint32_t keep_na, uintptr_t* cluster_ct_ptr, uint32_t** cluster_map_ptr, uint32_t** cluster_starts_ptr, char** cluster_ids_ptr, uintptr_t* max_cluster_id_len_ptr, char* keep_fname, char* keep_flattened, char* remove_fname, char* remove_flattened) {
+int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* sample_ids, uintptr_t max_sample_id_len, uint32_t mwithin_col, uint32_t keep_na, uintptr_t* cluster_ct_ptr, uint32_t** cluster_map_ptr, uint32_t** cluster_starts_ptr, char** cluster_ids_ptr, uintptr_t* max_cluster_id_len_ptr, char* keep_fname, char* keep_flattened, char* remove_fname, char* remove_flattened) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   uintptr_t* sample_exclude_new = NULL;
@@ -273,7 +273,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
   }
 
   if (fname) {
-    sorted_ids = (char*)top_alloc(&topsize, sample_ct * max_person_id_len);
+    sorted_ids = (char*)top_alloc(&topsize, sample_ct * max_sample_id_len);
     if (!sorted_ids) {
       goto load_clusters_ret_NOMEM;
     }
@@ -288,7 +288,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
     }
     fill_ulong_zero(already_seen, sample_ctl);
     wkspace_left -= topsize;
-    retval = sort_item_ids_noalloc(sorted_ids, id_map, unfiltered_sample_ct, sample_exclude, sample_ct, person_ids, max_person_id_len, 0, 0, strcmp_deref);
+    retval = sort_item_ids_noalloc(sorted_ids, id_map, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, 0, 0, strcmp_deref);
     wkspace_left += topsize;
     if (retval) {
       goto load_clusters_ret_1;
@@ -317,7 +317,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
       if (is_eoln_kns(*fam_id)) {
 	continue;
       }
-      if (bsearch_read_fam_indiv(idbuf, sorted_ids, max_person_id_len, sample_ct, fam_id, &cluster_name_ptr, &sorted_idx)) {
+      if (bsearch_read_fam_indiv(idbuf, sorted_ids, max_sample_id_len, sample_ct, fam_id, &cluster_name_ptr, &sorted_idx)) {
 	goto load_clusters_ret_MISSING_TOKENS;
       }
       if (sorted_idx == -1) {
@@ -409,7 +409,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 	if (is_eoln_kns(*fam_id)) {
 	  continue;
 	}
-	bsearch_read_fam_indiv(idbuf, sorted_ids, max_person_id_len, sample_ct, fam_id, &cluster_name_ptr, &sorted_idx);
+	bsearch_read_fam_indiv(idbuf, sorted_ids, max_sample_id_len, sample_ct, fam_id, &cluster_name_ptr, &sorted_idx);
 	if (sorted_idx == -1) {
 	  continue;
 	}
@@ -477,8 +477,8 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 
     for (sample_uidx = 0, sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
       next_unset_unsafe_ck(sample_exclude, &sample_uidx);
-      cluster_name_ptr = &(person_ids[sample_uidx * max_person_id_len]);
-      slen = (uintptr_t)((char*)memchr(cluster_name_ptr, '\t', max_person_id_len) - cluster_name_ptr);
+      cluster_name_ptr = &(sample_ids[sample_uidx * max_sample_id_len]);
+      slen = (uintptr_t)((char*)memchr(cluster_name_ptr, '\t', max_sample_id_len) - cluster_name_ptr);
       if (sorted_keep_ids) {
 	sorted_idx = bsearch_str(cluster_name_ptr, slen, sorted_keep_ids, max_cluster_kr_len, cluster_kr_ct);
 	if (sorted_idx == -1) {
@@ -513,8 +513,8 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
     }
     for (sample_uidx = 0, sample_idx = 0; sample_idx < assigned_ct; sample_uidx++, sample_idx++) {
       next_unset_unsafe_ck(ulptr, &sample_uidx);
-      cluster_name_ptr = &(person_ids[sample_uidx * max_person_id_len]);
-      slen = (uintptr_t)((char*)memchr(cluster_name_ptr, '\t', max_person_id_len) - cluster_name_ptr);
+      cluster_name_ptr = &(sample_ids[sample_uidx * max_sample_id_len]);
+      slen = (uintptr_t)((char*)memchr(cluster_name_ptr, '\t', max_sample_id_len) - cluster_name_ptr);
       memcpyx(&(cluster_ids[sample_idx * max_cluster_id_len]), cluster_name_ptr, slen, '\0');
     }
     wkspace_left += topsize;
@@ -538,7 +538,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
     cluster_starts[cluster_ct] = assigned_ct;
     for (sample_uidx = 0, sample_idx = 0; sample_idx < assigned_ct; sample_uidx++, sample_idx++) {
       next_unset_unsafe_ck(ulptr, &sample_uidx);
-      cluster_name_ptr = &(person_ids[sample_uidx * max_person_id_len]);
+      cluster_name_ptr = &(sample_ids[sample_uidx * max_sample_id_len]);
       memcpyx(tbuf, cluster_name_ptr, (uintptr_t)((char*)memchr(cluster_name_ptr, '\t', max_cluster_id_len) - cluster_name_ptr), '\0');
       sorted_idx = bsearch_str_natural(tbuf, cluster_ids, max_cluster_id_len, cluster_ct);
       uii = tmp_cluster_starts[(uint32_t)sorted_idx];
@@ -638,13 +638,13 @@ int32_t fill_sample_to_cluster(uintptr_t unfiltered_sample_ct, uintptr_t* sample
   return retval;
 }
 
-int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* person_ids, uintptr_t max_person_id_len, uint32_t omit_unassigned, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len) {
+int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uint32_t omit_unassigned, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uintptr_t sample_uidx = 0;
   int32_t retval = 0;
   uint32_t* sample_to_cluster;
-  char* person_id_ptr;
+  char* sample_id_ptr;
   char* bufptr;
   uintptr_t sample_idx;
   uint32_t cluster_idx;
@@ -661,10 +661,10 @@ int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_sa
     sample_uidx = next_unset_unsafe(sample_exclude, sample_uidx);
     cluster_idx = sample_to_cluster[sample_uidx];
     if ((!omit_unassigned) || (cluster_idx != 0xffffffffU)) {
-      person_id_ptr = &(person_ids[sample_uidx * max_person_id_len]);
-      slen = strlen_se(person_id_ptr);
-      bufptr = memcpyax(tbuf, person_id_ptr, slen, ' ');
-      bufptr = strcpyax(bufptr, &(person_id_ptr[slen + 1]), ' ');
+      sample_id_ptr = &(sample_ids[sample_uidx * max_sample_id_len]);
+      slen = strlen_se(sample_id_ptr);
+      bufptr = memcpyax(tbuf, sample_id_ptr, slen, ' ');
+      bufptr = strcpyax(bufptr, &(sample_id_ptr[slen + 1]), ' ');
       if (cluster_idx != 0xffffffffU) {
         bufptr = strcpyax(bufptr, &(cluster_ids[cluster_idx * max_cluster_id_len]), '\n');
       } else {
@@ -1036,7 +1036,7 @@ int32_t cluster_alloc_and_populate_magic_nums(uint32_t cluster_ct, uint32_t* clu
   return 0;
 }
 
-int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* sample_to_cluster, uint32_t for_cluster_flag, uint32_t is_max_dist, double* dists, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices) {
+int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* sample_to_cluster, uint32_t for_cluster_flag, uint32_t is_max_dist, double* dists, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* dist_file = NULL;
   FILE* id_file = NULL;
@@ -1081,7 +1081,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample
     if (fopen_checked(&id_file, id_fname, "r")) {
       goto read_dists_ret_OPEN_FAIL;
     }
-    retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_sample_ct, sample_exclude, unfiltered_sample_ct - sample_ct, person_ids, max_person_id_len, 0, 1, strcmp_deref);
+    retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_sample_ct, sample_exclude, unfiltered_sample_ct - sample_ct, sample_ids, max_sample_id_len, 0, 1, strcmp_deref);
     if (retval) {
       goto read_dists_ret_1;
     }
@@ -1098,7 +1098,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample
       if (is_eoln_kns(*fam_id)) {
         continue;
       }
-      if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_person_id_len, sample_ct, fam_id, NULL, &ii)) {
+      if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_sample_id_len, sample_ct, fam_id, NULL, &ii)) {
 	LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, id_fname);
         goto read_dists_ret_INVALID_FORMAT_2;
       }
@@ -1308,7 +1308,7 @@ void update_neighbor(uintptr_t sample_ct, uint32_t neighbor_n2, uintptr_t sample
   }
 }
 
-int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t* cluster_merge_prevented, double* cluster_sorted_ibs, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices, uint32_t* ppc_fail_counts, double min_ppc, uint32_t is_max_dist, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* sample_to_cluster) {
+int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t* cluster_merge_prevented, double* cluster_sorted_ibs, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices, uint32_t* ppc_fail_counts, double min_ppc, uint32_t is_max_dist, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* sample_to_cluster) {
   unsigned char* wkspace_mark = wkspace_base;
   gzFile gz_infile = NULL;
   uint32_t neighbor_load_quantiles = neighbor_quantiles && cluster_sorted_ibs;
@@ -1329,7 +1329,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uin
   uint32_t uii;
   int32_t ii;
   int32_t retval;
-  retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_sample_ct, sample_exclude, unfiltered_sample_ct - sample_ct, person_ids, max_person_id_len, 0, 1, strcmp_deref);
+  retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_sample_ct, sample_exclude, unfiltered_sample_ct - sample_ct, sample_ids, max_sample_id_len, 0, 1, strcmp_deref);
   if (retval) {
     goto read_genome_ret_1;
   }
@@ -1361,14 +1361,14 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uin
     if (is_eoln_kns(*fam_id)) {
       continue;
     }
-    if (bsearch_read_fam_indiv(idbuf, sorted_ids, max_person_id_len, sample_ct, fam_id, &fam_id, &ii)) {
+    if (bsearch_read_fam_indiv(idbuf, sorted_ids, max_sample_id_len, sample_ct, fam_id, &fam_id, &ii)) {
       goto read_genome_ret_MISSING_TOKENS;
     }
     if (ii == -1) {
       continue;
     }
     sample_idx1 = id_map[(uint32_t)ii];
-    if (bsearch_read_fam_indiv(idbuf, sorted_ids, max_person_id_len, sample_ct, fam_id, &bufptr, &ii)) {
+    if (bsearch_read_fam_indiv(idbuf, sorted_ids, max_sample_id_len, sample_ct, fam_id, &bufptr, &ii)) {
       goto read_genome_ret_MISSING_TOKENS;
     }
     if (ii == -1) {
@@ -1465,7 +1465,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uin
   return retval;
 }
 
-int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* sample_to_cluster, uintptr_t* merge_prevented) {
+int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* sample_to_cluster, uintptr_t* merge_prevented) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* matchfile = NULL;
   FILE* typefile = NULL;
@@ -1505,7 +1505,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
   uint32_t uii;
   int32_t ii;
   char cc;
-  retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_sample_ct, sample_exclude, unfiltered_sample_ct - sample_ct, person_ids, max_person_id_len, 0, 1, strcmp_deref);
+  retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_sample_ct, sample_exclude, unfiltered_sample_ct - sample_ct, sample_ids, max_sample_id_len, 0, 1, strcmp_deref);
   if (retval) {
     goto cluster_enforce_match_ret_1;
   }
@@ -1609,7 +1609,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       if (is_eoln_kns(*bufptr)) {
 	continue;
       }
-      if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_person_id_len, sample_ct, bufptr, &bufptr2, &ii)) {
+      if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_sample_id_len, sample_ct, bufptr, &bufptr2, &ii)) {
 	goto cluster_enforce_match_ret_MISSING_TOKENS;
       }
       if (ii == -1) {
@@ -1822,7 +1822,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       if (is_eoln_kns(*bufptr)) {
 	continue;
       }
-      if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_person_id_len, sample_ct, bufptr, &bufptr, &ii)) {
+      if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_sample_id_len, sample_ct, bufptr, &bufptr, &ii)) {
         goto cluster_enforce_match_ret_MISSING_TOKENS_Q;
       }
       if (ii == -1) {
@@ -2648,7 +2648,7 @@ uint32_t cluster_group_avg_main(uint32_t cluster_ct, uintptr_t* merge_prevented,
   return merge_ct;
 }
 
-void write_cluster1(FILE* outfile, uint32_t clidx, char* person_ids, uintptr_t max_person_id_len, uintptr_t* pheno_c, uint32_t* sample_idx_to_uidx, uint32_t* merge_sequence, uint32_t merge_ct) {
+void write_cluster1(FILE* outfile, uint32_t clidx, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t* pheno_c, uint32_t* sample_idx_to_uidx, uint32_t* merge_sequence, uint32_t merge_ct) {
   // Manually manage recursion, to minimize crash risk when there are e.g. 500k
   // clusters.  Fortunately, no recursion stack is even needed.
   char* sptr;
@@ -2656,8 +2656,8 @@ void write_cluster1(FILE* outfile, uint32_t clidx, char* person_ids, uintptr_t m
   uint32_t msidx;
  write_cluster1_recurse:
   putc(' ', outfile);
-  sptr = &(person_ids[sample_idx_to_uidx[clidx] * max_person_id_len]);
-  sptr2 = (char*)memchr(sptr, '\t', max_person_id_len);
+  sptr = &(sample_ids[sample_idx_to_uidx[clidx] * max_sample_id_len]);
+  sptr2 = (char*)memchr(sptr, '\t', max_sample_id_len);
   fwrite(sptr, 1, sptr2 - sptr, outfile);
   putc('_', outfile);
   fputs(&(sptr2[1]), outfile);
@@ -2678,7 +2678,7 @@ void write_cluster1(FILE* outfile, uint32_t clidx, char* person_ids, uintptr_t m
   }
 }
 
-void write_cluster1_oitc(FILE* outfile, uint32_t clidx, char* person_ids, uintptr_t max_person_id_len, uintptr_t* pheno_c, uint32_t* orig_cluster_map, uint32_t* orig_cluster_starts, uint32_t* late_clidx_to_sample_uidx, uint32_t orig_within_ct, uint32_t* cluster_remap, uint32_t* merge_sequence, uint32_t merge_ct) {
+void write_cluster1_oitc(FILE* outfile, uint32_t clidx, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t* pheno_c, uint32_t* orig_cluster_map, uint32_t* orig_cluster_starts, uint32_t* late_clidx_to_sample_uidx, uint32_t orig_within_ct, uint32_t* cluster_remap, uint32_t* merge_sequence, uint32_t merge_ct) {
   char* sptr;
   char* sptr2;
   uint32_t uii;
@@ -2686,8 +2686,8 @@ void write_cluster1_oitc(FILE* outfile, uint32_t clidx, char* person_ids, uintpt
  write_cluster1_oitc_recurse:
   putc(' ', outfile);
   if (clidx >= orig_within_ct) {
-    sptr = &(person_ids[late_clidx_to_sample_uidx[clidx - orig_within_ct] * max_person_id_len]);
-    sptr2 = (char*)memchr(sptr, '\t', max_person_id_len);
+    sptr = &(sample_ids[late_clidx_to_sample_uidx[clidx - orig_within_ct] * max_sample_id_len]);
+    sptr2 = (char*)memchr(sptr, '\t', max_sample_id_len);
     fwrite(sptr, 1, sptr2 - sptr, outfile);
     putc('_', outfile);
     fputs(&(sptr2[1]), outfile);
@@ -2701,8 +2701,8 @@ void write_cluster1_oitc(FILE* outfile, uint32_t clidx, char* person_ids, uintpt
   } else {
     ujj = orig_cluster_starts[clidx + 1];
     for (uii = orig_cluster_starts[clidx]; uii < ujj; uii++) {
-      sptr = &(person_ids[orig_cluster_map[uii] * max_person_id_len]);
-      sptr2 = (char*)memchr(sptr, '\t', max_person_id_len);
+      sptr = &(sample_ids[orig_cluster_map[uii] * max_sample_id_len]);
+      sptr2 = (char*)memchr(sptr, '\t', max_sample_id_len);
       fwrite(sptr, 1, sptr2 - sptr, outfile);
       putc('_', outfile);
       fputs(&(sptr2[1]), outfile);
@@ -2725,7 +2725,7 @@ void write_cluster1_oitc(FILE* outfile, uint32_t clidx, char* person_ids, uintpt
   }
 }
 
-int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_sample_to_cluster, uintptr_t sample_ct, uint32_t* orig_cluster_map, uint32_t* orig_cluster_starts, uint32_t* late_clidx_to_sample_uidx, uint32_t orig_within_ct, uint32_t orig_cluster_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t* pheno_c, uint32_t* sample_idx_to_uidx, Cluster_info* cp, uint32_t* cluster_remap, uint32_t* clidx_table_space, uint32_t merge_ct, uint32_t* merge_sequence) {
+int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_sample_to_cluster, uintptr_t sample_ct, uint32_t* orig_cluster_map, uint32_t* orig_cluster_starts, uint32_t* late_clidx_to_sample_uidx, uint32_t orig_within_ct, uint32_t orig_cluster_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t* pheno_c, uint32_t* sample_idx_to_uidx, Cluster_info* cp, uint32_t* cluster_remap, uint32_t* clidx_table_space, uint32_t merge_ct, uint32_t* merge_sequence) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uint32_t only2 = cp->modifier & CLUSTER_ONLY2;
@@ -2761,8 +2761,8 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
     } else {
       clidx = cluster_remap[sample_idx];
     }
-    sptr = &(person_ids[sample_idx_to_uidx[sample_idx] * max_person_id_len]);
-    sptr2 = (char*)memchr(sptr, '\t', max_person_id_len);
+    sptr = &(sample_ids[sample_idx_to_uidx[sample_idx] * max_sample_id_len]);
+    sptr2 = (char*)memchr(sptr, '\t', max_sample_id_len);
     wptr = memcpyax(tbuf, sptr, (sptr2 - sptr), ' ');
     wptr = strcpyax(wptr, &(sptr2[1]), '\t');
     wptr = uint32_writex(wptr, clidx_remap[clidx], '\n');
@@ -2786,9 +2786,9 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
 	  goto write_cluster_solution_ret_WRITE_FAIL;
 	}
         if (!orig_sample_to_cluster) {
-	  write_cluster1(outfile, clidx, person_ids, max_person_id_len, report_pheno? pheno_c : NULL, sample_idx_to_uidx, merge_sequence, merge_ct);
+	  write_cluster1(outfile, clidx, sample_ids, max_sample_id_len, report_pheno? pheno_c : NULL, sample_idx_to_uidx, merge_sequence, merge_ct);
 	} else {
-	  write_cluster1_oitc(outfile, clidx, person_ids, max_person_id_len, report_pheno? pheno_c : NULL, orig_cluster_map, orig_cluster_starts, late_clidx_to_sample_uidx, orig_within_ct, cluster_remap, merge_sequence, merge_ct);
+	  write_cluster1_oitc(outfile, clidx, sample_ids, max_sample_id_len, report_pheno? pheno_c : NULL, orig_cluster_map, orig_cluster_starts, late_clidx_to_sample_uidx, orig_within_ct, cluster_remap, merge_sequence, merge_ct);
 	}
 	if (putc_checked('\n', outfile)) {
 	  goto write_cluster_solution_ret_WRITE_FAIL;
@@ -2837,8 +2837,8 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
     }
     fputs(" 0%", stdout);
     for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
-      sptr = &(person_ids[sample_idx_to_uidx[sample_idx] * max_person_id_len]);
-      sptr2 = (char*)memchr(sptr, '\t', max_person_id_len);
+      sptr = &(sample_ids[sample_idx_to_uidx[sample_idx] * max_sample_id_len]);
+      sptr2 = (char*)memchr(sptr, '\t', max_sample_id_len);
       if (fwrite_checked(sptr, sptr2 - sptr, outfile)) {
 	goto write_cluster_solution_ret_WRITE_FAIL;
       }
@@ -2913,7 +2913,7 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
 }
 
 #ifndef NOLAPACK
-int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, uintptr_t sample_ct, uint32_t* sample_idx_to_uidx, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uint32_t cur_cluster_ct, uint32_t merge_ct, uint32_t* orig_sample_to_cluster, uint32_t* cur_cluster_remap, uint32_t dim_ct, uint32_t is_mds_cluster, uint32_t dump_eigvals, double* dists) {
+int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, uintptr_t sample_ct, uint32_t* sample_idx_to_uidx, char* sample_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_sample_id_len, uint32_t cur_cluster_ct, uint32_t merge_ct, uint32_t* orig_sample_to_cluster, uint32_t* cur_cluster_remap, uint32_t dim_ct, uint32_t is_mds_cluster, uint32_t dump_eigvals, double* dists) {
   FILE* outfile = NULL;
   uintptr_t final_cluster_ct = cur_cluster_ct - merge_ct;
   double grand_mean = 0.0;
@@ -3142,7 +3142,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
     goto mds_plot_ret_WRITE_FAIL;
   }
   for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
-    wptr2 = &(person_ids[sample_idx_to_uidx[sample_idx] * max_person_id_len]);
+    wptr2 = &(sample_ids[sample_idx_to_uidx[sample_idx] * max_sample_id_len]);
     uii = strlen_se(wptr2);
     wptr = fw_strcpyn(plink_maxfid, uii, wptr2, tbuf);
     *wptr++ = ' ';

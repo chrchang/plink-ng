@@ -2701,7 +2701,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
   gzFile grm_gzfile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t topsize = 0;
-  uintptr_t max_person_id_len = 4;
+  uintptr_t max_sample_id_len = 4;
   uintptr_t unfiltered_sample_ct = 0;
   uintptr_t sample_uidx = 0;
   uintptr_t line_idx = 0;
@@ -2711,7 +2711,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
   uint32_t is_strict = (relip->modifier / REL_UNRELATED_HERITABILITY_STRICT) & 1;
   uintptr_t* pheno_c = NULL;
   double* pheno_d = NULL;
-  uintptr_t cur_person_id_len;
+  uintptr_t cur_sample_id_len;
   uintptr_t unfiltered_sample_ctl;
   uintptr_t* pheno_nm;
   uintptr_t pheno_nm_ct;
@@ -2750,15 +2750,15 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
       continue;
     }
     bufptr2 = token_endnn(bufptr);
-    cur_person_id_len = bufptr2 - bufptr;
+    cur_sample_id_len = bufptr2 - bufptr;
     bufptr2 = skip_initial_spaces(bufptr2);
     if (is_eoln_kns(*bufptr2)) {
       LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, grmname);
       goto unrelated_herit_batch_ret_INVALID_FORMAT_2;
     }
-    cur_person_id_len += strlen_se(bufptr2) + 2;
-    if (cur_person_id_len > max_person_id_len) {
-      max_person_id_len = cur_person_id_len;
+    cur_sample_id_len += strlen_se(bufptr2) + 2;
+    if (cur_sample_id_len > max_sample_id_len) {
+      max_sample_id_len = cur_sample_id_len;
     }
     unfiltered_sample_ct++;
   }
@@ -2774,7 +2774,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
   if (wkspace_alloc_ul_checked(&pheno_nm, unfiltered_sample_ctl * sizeof(intptr_t))) {
     goto unrelated_herit_batch_ret_NOMEM;
   }
-  sorted_ids = (char*)top_alloc(&topsize, unfiltered_sample_ct * max_person_id_len);
+  sorted_ids = (char*)top_alloc(&topsize, unfiltered_sample_ct * max_sample_id_len);
   if (!sorted_ids) {
     goto unrelated_herit_batch_ret_NOMEM;
   }
@@ -2789,13 +2789,13 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
       continue;
     }
     bufptr2 = token_endnn(bufptr);
-    cur_person_id_len = bufptr2 - bufptr;
-    memcpy(&(sorted_ids[sample_uidx * max_person_id_len]), bufptr, cur_person_id_len);
-    sorted_ids[sample_uidx * max_person_id_len + (cur_person_id_len++)] = '\t';
+    cur_sample_id_len = bufptr2 - bufptr;
+    memcpy(&(sorted_ids[sample_uidx * max_sample_id_len]), bufptr, cur_sample_id_len);
+    sorted_ids[sample_uidx * max_sample_id_len + (cur_sample_id_len++)] = '\t';
     bufptr2 = skip_initial_spaces(bufptr2);
     ulii = strlen_se(bufptr2);
-    memcpy(&(sorted_ids[sample_uidx * max_person_id_len + cur_person_id_len]), bufptr2, ulii);
-    sorted_ids[(sample_uidx++) * max_person_id_len + cur_person_id_len + ulii] = '\0';
+    memcpy(&(sorted_ids[sample_uidx * max_sample_id_len + cur_sample_id_len]), bufptr2, ulii);
+    sorted_ids[(sample_uidx++) * max_sample_id_len + cur_sample_id_len + ulii] = '\0';
   }
   if (!feof(infile)) {
     goto unrelated_herit_batch_ret_READ_FAIL;
@@ -2804,7 +2804,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
     id_map[sample_uidx] = sample_uidx;
   }
   wkspace_left -= topsize;
-  if (qsort_ext(sorted_ids, unfiltered_sample_ct, max_person_id_len, strcmp_deref, (char*)id_map, sizeof(int32_t))) {
+  if (qsort_ext(sorted_ids, unfiltered_sample_ct, max_sample_id_len, strcmp_deref, (char*)id_map, sizeof(int32_t))) {
     goto unrelated_herit_batch_ret_NOMEM2;
   }
   wkspace_left += topsize;
@@ -2814,7 +2814,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
     goto unrelated_herit_batch_ret_OPEN_FAIL;
   }
   wkspace_left -= topsize;
-  retval = load_pheno(infile, unfiltered_sample_ct, 0, sorted_ids, max_person_id_len, id_map, missing_pheno, 0, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d, NULL, 0);
+  retval = load_pheno(infile, unfiltered_sample_ct, 0, sorted_ids, max_sample_id_len, id_map, missing_pheno, 0, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d, NULL, 0);
   wkspace_left += topsize;
   // topsize = 0; (sorted_ids and id_map no longer used)
   fclose_null(&infile);
@@ -3479,7 +3479,7 @@ void normalize_phenos(double* new_phenos, uint32_t sample_ct, uintptr_t* sample_
 }
 
 /*
-int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t max_pcs, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t sample_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, char* person_ids, uintptr_t max_person_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, double* pheno_d, double missing_phenod, char* outname, char* outname_end, uint32_t hh_exists) {
+int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t max_pcs, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t sample_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, double* pheno_d, double missing_phenod, char* outname, char* outname_end, uint32_t hh_exists) {
   FILE* outfile = NULL;
   FILE* evecfile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
@@ -3527,14 +3527,14 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
   uint32_t is_x;
   uint32_t is_y;
   uint32_t uii;
-  char* person_id_ptr;
+  char* sample_id_ptr;
   MATRIX_INVERT_BUF1_TYPE* inv_1d_buf;
   double* dbl_2d_buf;
   double dxx;
   if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_sample_ctl2 * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&loadbuf, sample_ctl2 * sizeof(intptr_t)) ||
       wkspace_alloc_ui_checked(&missing_cts, sample_ct * sizeof(int32_t)) ||
-      wkspace_alloc_c_checked(&id_buf, max_person_id_len)) {
+      wkspace_alloc_c_checked(&id_buf, max_sample_id_len)) {
     goto calc_regress_pcs_ret_NOMEM;
   }
   if (alloc_collapsed_haploid_filters(unfiltered_sample_ct, sample_ct, hh_exists, 0, sample_exclude, sex_male, &sample_include2, &sample_male_include2)) {
@@ -3893,12 +3893,12 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
   sample_uidx = 0;
   for (sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
     next_unset_ul_unsafe_ck(sample_exclude, &sample_uidx);
-    person_id_ptr = &(person_ids[sample_uidx * max_person_id_len]);
-    uii = strlen_se(person_id_ptr);
+    sample_id_ptr = &(sample_ids[sample_uidx * max_sample_id_len]);
+    uii = strlen_se(sample_id_ptr);
     // todo: adjust pheno_d, double-check missing gender behavior
-    fwrite(person_id_ptr, 1, uii, outfile);
+    fwrite(sample_id_ptr, 1, uii, outfile);
     putc(' ', outfile);
-    fputs(&(person_id_ptr[uii + 1]), outfile);
+    fputs(&(sample_id_ptr[uii + 1]), outfile);
     tbuf[0] = ' ';
     bufptr = double_g_writex(&(tbuf[1]), ((double)missing_cts[sample_uidx]) / (double)marker_ct, ' ');
     *bufptr = sexchar(sex_nm, sex_male, sample_uidx);
@@ -3950,16 +3950,16 @@ static uintptr_t g_cg_sample1uidx;
 static uintptr_t g_cg_sample2uidx;
 static uintptr_t g_cg_tstc;
 static uint32_t g_cg_marker_ct;
-static uintptr_t g_cg_max_person_id_len;
-static uint32_t g_cg_max_person_fid_len;
-static uint32_t g_cg_max_person_iid_len;
+static uintptr_t g_cg_max_sample_id_len;
+static uint32_t g_cg_max_sample_fid_len;
+static uint32_t g_cg_max_sample_iid_len;
 static uintptr_t g_cg_max_paternal_id_len;
 static uintptr_t g_cg_max_maternal_id_len;
 static uintptr_t* g_cg_sample_exclude;
 static uintptr_t* g_cg_pheno_nm;
 static uintptr_t* g_cg_pheno_c;
 static uintptr_t* g_cg_founder_info;
-static char* g_cg_person_ids;
+static char* g_cg_sample_ids;
 static char* g_cg_paternal_ids;
 static char* g_cg_maternal_ids;
 static uint32_t g_cg_genome_modifier;
@@ -3998,7 +3998,7 @@ static double* g_dw_dist_ptr;
 static unsigned char* g_dw_membuf;
 static double g_dw_half_marker_ct_recip;
 
-int32_t write_ids(char* outname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, char* person_ids, uintptr_t max_person_id_len) {
+int32_t write_ids(char* outname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, char* sample_ids, uintptr_t max_sample_id_len) {
   uintptr_t sample_uidx = 0;
   FILE* outfile;
   if (fopen_checked(&outfile, outname, "w")) {
@@ -4009,7 +4009,7 @@ int32_t write_ids(char* outname, uintptr_t unfiltered_sample_ct, uintptr_t* samp
     if (sample_uidx == unfiltered_sample_ct) {
       break;
     }
-    fputs(&(person_ids[sample_uidx * max_person_id_len]), outfile);
+    fputs(&(sample_ids[sample_uidx * max_sample_id_len]), outfile);
     if (putc_checked('\n', outfile)) {
       return RET_WRITE_FAIL;
     }
@@ -4021,25 +4021,25 @@ int32_t write_ids(char* outname, uintptr_t unfiltered_sample_ct, uintptr_t* samp
   return 0;
 }
 
-int32_t distance_d_write_ids(char* outname, char* outname_end, uint32_t dist_calc_type, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, char* person_ids, uintptr_t max_person_id_len) {
+int32_t distance_d_write_ids(char* outname, char* outname_end, uint32_t dist_calc_type, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, char* sample_ids, uintptr_t max_sample_id_len) {
   int32_t retval;
   if (dist_calc_type & DISTANCE_ALCT) {
     strcpy(outname_end, ".dist.id");
-    retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, person_ids, max_person_id_len);
+    retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, sample_ids, max_sample_id_len);
     if (retval) {
       return retval;
     }
   }
   if (dist_calc_type & DISTANCE_IBS) {
     strcpy(outname_end, ".mibs.id");
-    retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, person_ids, max_person_id_len);
+    retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, sample_ids, max_sample_id_len);
     if (retval) {
       return retval;
     }
   }
   if (dist_calc_type & DISTANCE_1_MINUS_IBS) {
     strcpy(outname_end, ".mdist.id");
-    retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, person_ids, max_person_id_len);
+    retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, sample_ids, max_sample_id_len);
     if (retval) {
       return retval;
     }
@@ -4853,14 +4853,14 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   uintptr_t sample2uidx = g_cg_sample2uidx;
   uintptr_t tstc = g_cg_tstc;
   uint32_t marker_ct = g_cg_marker_ct;
-  uintptr_t max_person_id_len = g_cg_max_person_id_len;
-  uint32_t max_person_fid_len = g_cg_max_person_fid_len;
-  uint32_t max_person_iid_len = g_cg_max_person_iid_len;
+  uintptr_t max_sample_id_len = g_cg_max_sample_id_len;
+  uint32_t max_sample_fid_len = g_cg_max_sample_fid_len;
+  uint32_t max_sample_iid_len = g_cg_max_sample_iid_len;
   uintptr_t max_paternal_id_len = g_cg_max_paternal_id_len;
   uintptr_t max_maternal_id_len = g_cg_max_maternal_id_len;
   uintptr_t* pheno_c = g_cg_pheno_c;
   uintptr_t* founder_info = g_cg_founder_info;
-  char* person_ids = g_cg_person_ids;
+  char* sample_ids = g_cg_sample_ids;
   char* paternal_ids = g_cg_paternal_ids;
   char* maternal_ids = g_cg_maternal_ids;
   uint32_t family_id_fixed = g_cg_family_id_fixed;
@@ -4910,7 +4910,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   }
   while (sample1idx < tstc) {
     if (sample2idx == sample1idx + 1) {
-      cptr = &(person_ids[sample1uidx * max_person_id_len]);
+      cptr = &(sample_ids[sample1uidx * max_sample_id_len]);
       uii = strlen_se(cptr);
       memcpyx(fam1, cptr, uii, '\0');
       sample1 = next_token(cptr);
@@ -4921,24 +4921,24 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       family_id_fixed = g_cg_pri.family_idxs[sample1uidx];
       founder_ct = g_cg_pri.family_founder_cts[family_id_fixed];
       llfct = ((int64_t)founder_ct * (founder_ct - 1)) - 2 * g_cg_pri.family_rel_space_offsets[family_id_fixed];
-      sptr_start = fw_strcpyn(max_person_fid_len - 1, uii, fam1, &(tbuf[1]));
+      sptr_start = fw_strcpyn(max_sample_fid_len - 1, uii, fam1, &(tbuf[1]));
       *sptr_start++ = ' ';
-      sptr_start = fw_strcpy(max_person_iid_len - 1, sample1, sptr_start);
+      sptr_start = fw_strcpy(max_sample_iid_len - 1, sample1, sptr_start);
       *sptr_start++ = ' ';
     }
     while (sample2idx < sample_ct) {
       next_unset_ul_unsafe_ck(sample_exclude, &sample2uidx);
       sptr_cur_start = sptr_cur;
       sptr_cur = memcpya(sptr_cur, tbuf, sptr_start - tbuf);
-      cptr = &(person_ids[sample2uidx * max_person_id_len]);
+      cptr = &(sample_ids[sample2uidx * max_sample_id_len]);
       uii = strlen_se(cptr);
       memcpyx(fam2, cptr, uii, '\0');
       sample2 = skip_initial_spaces(&(cptr[uii + 1]));
       pat2 = &(paternal_ids[sample2uidx * max_paternal_id_len]);
       mat2 = &(maternal_ids[sample2uidx * max_maternal_id_len]);
-      sptr_cur = fw_strcpyn(max_person_fid_len - 1, uii, fam2, sptr_cur);
+      sptr_cur = fw_strcpyn(max_sample_fid_len - 1, uii, fam2, sptr_cur);
       *sptr_cur++ = ' ';
-      sptr_cur = fw_strcpy(max_person_iid_len - 1, sample2, sptr_cur);
+      sptr_cur = fw_strcpy(max_sample_iid_len - 1, sample2, sptr_cur);
       *sptr_cur++ = ' ';
       if (!strcmp(fam1, fam2)) {
 	// FS = sibling
@@ -5106,7 +5106,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
-int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, double* set_allele_freqs, uint32_t* nchrobs, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end, int32_t nonfounders, uint64_t calculation_type, uint32_t genome_modifier, uint32_t ppc_gap, double min_pi_hat, double max_pi_hat, uintptr_t* pheno_nm, uintptr_t* pheno_c, Pedigree_rel_info pri, uint32_t skip_write) {
+int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, double* set_allele_freqs, uint32_t* nchrobs, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_sample_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end, int32_t nonfounders, uint64_t calculation_type, uint32_t genome_modifier, uint32_t ppc_gap, double min_pi_hat, double max_pi_hat, uintptr_t* pheno_nm, uintptr_t* pheno_c, Pedigree_rel_info pri, uint32_t skip_write) {
   FILE* outfile = NULL;
   int32_t retval = 0;
   unsigned char* wkspace_mark = wkspace_base;
@@ -5192,8 +5192,8 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
       dist_thread_ct = 1;
     }
   }
-  g_cg_max_person_fid_len = plink_maxfid;
-  g_cg_max_person_iid_len = plink_maxiid;
+  g_cg_max_sample_fid_len = plink_maxfid;
+  g_cg_max_sample_iid_len = plink_maxiid;
   g_cg_min_pi_hat = min_pi_hat;
   g_cg_max_pi_hat = max_pi_hat;
 
@@ -5515,7 +5515,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
     }
     putchar('\r');
     strcpy(outname_end, ".mibs.id");
-    retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, person_ids, max_person_id_len);
+    retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, sample_ids, max_sample_id_len);
     if (retval) {
       goto calc_genome_ret_1;
     }
@@ -5562,7 +5562,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
     }
     putchar('\r');
     strcpy(outname_end, ".mdist.id");
-    retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, person_ids, max_person_id_len);
+    retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, sample_ids, max_sample_id_len);
     if (retval) {
       goto calc_genome_ret_1;
     }
@@ -5581,13 +5581,13 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   g_cg_gmcell = 0;
   g_cg_mdecell = 0;
   g_cg_marker_ct = marker_ct;
-  g_cg_max_person_id_len = max_person_id_len;
+  g_cg_max_sample_id_len = max_sample_id_len;
   g_cg_max_paternal_id_len = max_paternal_id_len;
   g_cg_max_maternal_id_len = max_maternal_id_len;
   g_cg_pheno_nm = pheno_nm;
   g_cg_pheno_c = pheno_c;
   g_cg_founder_info = founder_info;
-  g_cg_person_ids = person_ids;
+  g_cg_sample_ids = sample_ids;
   g_cg_paternal_ids = paternal_ids;
   g_cg_maternal_ids = maternal_ids;
   g_cg_genome_modifier = genome_modifier;
@@ -5661,7 +5661,7 @@ inline void rel_cut_arr_dec(int32_t* rel_ct_arr_elem, uint32_t* exactly_one_rel_
   }
 }
 
-int32_t do_rel_cutoff(uint64_t calculation_type, double rel_cutoff, double* rel_ibc, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* outname, char* outname_end, uintptr_t unfiltered_sample_ct, char* person_ids, uintptr_t max_person_id_len) {
+int32_t do_rel_cutoff(uint64_t calculation_type, double rel_cutoff, double* rel_ibc, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* outname, char* outname_end, uintptr_t unfiltered_sample_ct, char* sample_ids, uintptr_t max_sample_id_len) {
   uint32_t samples_excluded = 0;
   uint32_t exactly_one_rel_ct = 0;
   uintptr_t sample_ct = unfiltered_sample_ct - (*sample_exclude_ct_ptr);
@@ -5831,7 +5831,7 @@ int32_t do_rel_cutoff(uint64_t calculation_type, double rel_cutoff, double* rel_
   LOGPRINTF("%u %s excluded by --rel-cutoff.\n", samples_excluded, species_str(samples_excluded));
   if (!(calculation_type & (CALC_RELATIONSHIP | CALC_GDISTANCE_MASK))) {
     strcpy(outname_end, ".rel.id");
-    retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, person_ids, max_person_id_len);
+    retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, sample_ids, max_sample_id_len);
     if (retval) {
       return retval;
     }
@@ -6568,7 +6568,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   return retval;
 }
 
-int32_t do_rel_cutoff_f(uint64_t calculation_type, float rel_cutoff, float* rel_ibc, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* outname, char* outname_end, uintptr_t unfiltered_sample_ct, char* person_ids, uintptr_t max_person_id_len) {
+int32_t do_rel_cutoff_f(uint64_t calculation_type, float rel_cutoff, float* rel_ibc, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* outname, char* outname_end, uintptr_t unfiltered_sample_ct, char* sample_ids, uintptr_t max_sample_id_len) {
   uint32_t samples_excluded = 0;
   uint32_t exactly_one_rel_ct = 0;
   uintptr_t sample_ct = unfiltered_sample_ct - (*sample_exclude_ct_ptr);
@@ -6730,7 +6730,7 @@ int32_t do_rel_cutoff_f(uint64_t calculation_type, float rel_cutoff, float* rel_
   LOGPRINTF("%u %s excluded by --rel-cutoff.\n", samples_excluded, species_str(samples_excluded));
   if (!(calculation_type & (CALC_RELATIONSHIP | CALC_GDISTANCE_MASK))) {
     strcpy(outname_end, ".rel.id");
-    retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, person_ids, max_person_id_len);
+    retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, sample_ids, max_sample_id_len);
     if (retval) {
       return retval;
     }
@@ -6942,7 +6942,7 @@ uint32_t calc_rel_grm_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
-int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, uint64_t calculation_type, Rel_info* relip, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, uint32_t marker_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, double* set_allele_freqs, double** rel_ibc_ptr, Chrom_info* chrom_info_ptr) {
+int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, uint64_t calculation_type, Rel_info* relip, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, uint32_t marker_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* sample_ids, uintptr_t max_sample_id_len, double* set_allele_freqs, double** rel_ibc_ptr, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t sample_ct = unfiltered_sample_ct - (*sample_exclude_ct_ptr);
@@ -7194,7 +7194,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
     }
   }
   if (calculation_type & CALC_REL_CUTOFF) {
-    retval = do_rel_cutoff(calculation_type, rel_cutoff, rel_ibc, sample_exclude, sample_exclude_ct_ptr, outname, outname_end, unfiltered_sample_ct, person_ids, max_person_id_len);
+    retval = do_rel_cutoff(calculation_type, rel_cutoff, rel_ibc, sample_exclude, sample_exclude_ct_ptr, outname, outname_end, unfiltered_sample_ct, sample_ids, max_sample_id_len);
     if (retval) {
       goto calc_rel_ret_1;
     }
@@ -7216,8 +7216,8 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
     sample_uidx = 0;
     for (sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
       next_unset_ul_unsafe_ck(sample_exclude, &sample_uidx);
-      fam_id = &(person_ids[sample_uidx * max_person_id_len]);
-      sample_id = (char*)memchr(fam_id, '\t', max_person_id_len);
+      fam_id = &(sample_ids[sample_uidx * max_sample_id_len]);
+      sample_id = (char*)memchr(fam_id, '\t', max_sample_id_len);
       wptr = memcpyax(wbuf, fam_id, (uintptr_t)(sample_id - fam_id), '\t');
       wptr = strcpyax(wptr, &(sample_id[1]), '\t');
       wptr = uint32_writex(wptr, marker_ct - sample_missing_unwt[sample_idx], '\t');
@@ -7400,7 +7400,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       wptr = strcpya(wptr, "written to ");
       wptr = strcpya(wptr, outname);
       strcpy(&(outname_end[4]), ".id");
-      retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, person_ids, max_person_id_len);
+      retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, sample_ids, max_sample_id_len);
       if (retval) {
 	goto calc_rel_ret_1;
       }
@@ -7638,7 +7638,7 @@ uint32_t calc_rel_f_grm_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
-int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, uint64_t calculation_type, Rel_info* relip, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, uint32_t marker_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, double* set_allele_freqs, Chrom_info* chrom_info_ptr) {
+int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, uint64_t calculation_type, Rel_info* relip, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, uint32_t marker_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* sample_ids, uintptr_t max_sample_id_len, double* set_allele_freqs, Chrom_info* chrom_info_ptr) {
   // N.B. A sgemm-based implementation may be better (especially when it's time
   // to add support for probabilistic data).
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
@@ -7873,7 +7873,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
     }
   }
   if (calculation_type & CALC_REL_CUTOFF) {
-    retval = do_rel_cutoff_f(calculation_type, rel_cutoff, rel_ibc, sample_exclude, sample_exclude_ct_ptr, outname, outname_end, unfiltered_sample_ct, person_ids, max_person_id_len);
+    retval = do_rel_cutoff_f(calculation_type, rel_cutoff, rel_ibc, sample_exclude, sample_exclude_ct_ptr, outname, outname_end, unfiltered_sample_ct, sample_ids, max_sample_id_len);
     if (retval) {
       goto calc_rel_f_ret_1;
     }
@@ -8106,7 +8106,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
       wptr = strcpya(wptr, "written to ");
       wptr = strcpya(wptr, outname);
       strcpy(&(outname_end[4]), ".id");
-      retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, person_ids, max_person_id_len);
+      retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, sample_ids, max_sample_id_len);
       if (retval) {
 	goto calc_rel_f_ret_1;
       }
@@ -8150,7 +8150,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
 }
 
 #ifndef NOLAPACK
-int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, Rel_info* relip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t* pca_sample_exclude, uintptr_t pca_sample_ct, char* person_ids, uintptr_t max_person_id_len, double* set_allele_freqs, Chrom_info* chrom_info_ptr, double* rel_ibc) {
+int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, Rel_info* relip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t* pca_sample_exclude, uintptr_t pca_sample_ct, char* sample_ids, uintptr_t max_sample_id_len, double* set_allele_freqs, Chrom_info* chrom_info_ptr, double* rel_ibc) {
   // similar to mds_plot() in plink_cluster.c
   FILE* outfile = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
@@ -8551,11 +8551,11 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   }
   for (sample_uidx = 0, sample_idx = 0; sample_idx < sample_ct; sample_idx++, sample_uidx++) {
     next_unset_ul_unsafe_ck(sample_exclude, &sample_uidx);
-    cptr = &(person_ids[sample_uidx * max_person_id_len]);
+    cptr = &(sample_ids[sample_uidx * max_sample_id_len]);
     if (delimiter == '\t') {
       wptr = strcpya(tbuf, cptr);
     } else {
-      wptr_start = (char*)memchr(cptr, '\t', max_person_id_len);
+      wptr_start = (char*)memchr(cptr, '\t', max_sample_id_len);
       wptr = memcpya(tbuf, cptr, wptr_start - cptr);
       *wptr++ = ' ';
       wptr = strcpya(wptr, &(wptr_start[1]));
@@ -8725,7 +8725,7 @@ int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintpt
   return retval;
 }
 
-int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t* marker_exclude, uint32_t marker_ct, double* set_allele_freqs, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* person_ids, uintptr_t max_person_id_len, Chrom_info* chrom_info_ptr, uint32_t wt_needed, uint32_t marker_weight_sum, uint32_t* marker_weights_i, double exponent) {
+int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t* marker_exclude, uint32_t marker_ct, double* set_allele_freqs, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, Chrom_info* chrom_info_ptr, uint32_t wt_needed, uint32_t marker_weight_sum, uint32_t* marker_weights_i, double exponent) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -9124,7 +9124,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
       wptr = strcpya(logbuf, "Distances (proportions) written to ");
       wptr = strcpya(wptr, outname);
       strcpy(outname_end, ".mdist.id");
-      retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, person_ids, max_person_id_len);
+      retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, sample_ids, max_sample_id_len);
       if (retval) {
 	goto calc_distance_ret_1;
       }
@@ -9171,7 +9171,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     }
     putchar('\r');
     strcpy(outname_end, ".mibs.id");
-    retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, person_ids, max_person_id_len);
+    retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, sample_ids, max_sample_id_len);
     if (retval) {
       goto calc_distance_ret_1;
     }
@@ -9257,7 +9257,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     }
     if (calculation_type & CALC_DISTANCE) {
       if (!parallel_idx) {
-	retval = distance_d_write_ids(outname, outname_end, dist_calc_type, unfiltered_sample_ct, sample_exclude, person_ids, max_person_id_len);
+	retval = distance_d_write_ids(outname, outname_end, dist_calc_type, unfiltered_sample_ct, sample_exclude, sample_ids, max_sample_id_len);
 	if (retval) {
 	  goto calc_distance_ret_1;
 	}
@@ -9338,7 +9338,7 @@ void cluster_dist_multiply(uintptr_t sample_ct, uintptr_t cluster_ct, uint32_t* 
   }
 }
 
-int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, char* read_dists_fname, char* read_dists_id_fname, char* read_genome_fname, char* outname, char* outname_end, uint64_t calculation_type, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Cluster_info* cp, int32_t missing_pheno, uint32_t neighbor_n1, uint32_t neighbor_n2, uint32_t ppc_gap, uintptr_t* pheno_c, double* mds_plot_dmatrix_copy, uintptr_t* cluster_merge_prevented, double* cluster_sorted_ibs, unsigned char* wkspace_mark_precluster, unsigned char* wkspace_mark_postcluster) {
+int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_sample_id_len, char* read_dists_fname, char* read_dists_id_fname, char* read_genome_fname, char* outname, char* outname_end, uint64_t calculation_type, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Cluster_info* cp, int32_t missing_pheno, uint32_t neighbor_n1, uint32_t neighbor_n2, uint32_t ppc_gap, uintptr_t* pheno_c, double* mds_plot_dmatrix_copy, uintptr_t* cluster_merge_prevented, double* cluster_sorted_ibs, unsigned char* wkspace_mark_precluster, unsigned char* wkspace_mark_postcluster) {
   // --cluster and --neighbour.  They are handled by the same function because
   // they initially process the distance matrix/PPC test results in roughly the
   // same way, but we have removed the PLINK 1.07 requirement that --cluster be
@@ -9503,7 +9503,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       fill_uint_zero(ppc_fail_counts, sample_ct);
     }
     if (read_genome_fname) {
-      retval = read_genome(read_genome_fname, unfiltered_sample_ct, sample_exclude, sample_ct, person_ids, max_person_id_len, cluster_merge_prevented, use_genome_dists? cluster_sorted_ibs : NULL, neighbor_n2, neighbor_quantiles, neighbor_qindices, ppc_fail_counts, min_ppc, cluster_ct && (!is_group_avg), cluster_ct, cluster_starts, sample_to_cluster);
+      retval = read_genome(read_genome_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, cluster_merge_prevented, use_genome_dists? cluster_sorted_ibs : NULL, neighbor_n2, neighbor_quantiles, neighbor_qindices, ppc_fail_counts, min_ppc, cluster_ct && (!is_group_avg), cluster_ct, cluster_starts, sample_to_cluster);
       if (retval) {
 	goto calc_cluster_neighbor_ret_1;
       }
@@ -9583,7 +9583,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     // calculate entire distance matrix, or use already-calculated matrix in
     // memory
     if (!g_dists) {
-      retval = calc_distance(threads, 0, 1, bedfile, bed_offset, outname, outname_end, 0, DISTANCE_FLAT_MISSING | DISTANCE_CLUSTER, marker_exclude, marker_ct, set_allele_freqs, unfiltered_sample_ct, sample_exclude, sample_ct, person_ids, max_person_id_len, chrom_info_ptr, 0, 0, NULL, 0.0);
+      retval = calc_distance(threads, 0, 1, bedfile, bed_offset, outname, outname_end, 0, DISTANCE_FLAT_MISSING | DISTANCE_CLUSTER, marker_exclude, marker_ct, set_allele_freqs, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, chrom_info_ptr, 0, 0, NULL, 0.0);
       if (retval) {
         goto calc_cluster_neighbor_ret_1;
       }
@@ -9643,7 +9643,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     }
   }
   if (read_dists_fname) {
-    retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_sample_ct, sample_exclude, sample_ct, person_ids, max_person_id_len, cluster_ct, cluster_starts, sample_to_cluster, (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))? 1 : 0, cluster_ct && (!is_group_avg), cluster_sorted_ibs, neighbor_n2, neighbor_quantiles, neighbor_qindices);
+    retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, cluster_ct, cluster_starts, sample_to_cluster, (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))? 1 : 0, cluster_ct && (!is_group_avg), cluster_sorted_ibs, neighbor_n2, neighbor_quantiles, neighbor_qindices);
     if (retval) {
       goto calc_cluster_neighbor_ret_1;
     }
@@ -9680,8 +9680,8 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     putc('\n', outfile);
     dxx1 = 1.0 / ((double)((intptr_t)(sample_ct - 1)));
     for (sample_idx1 = 0; sample_idx1 < sample_ct; sample_idx1++) {
-      fam_id = &(person_ids[sample_idx_to_uidx[sample_idx1] * max_person_id_len]);
-      sample_id = (char*)memchr(fam_id, '\t', max_person_id_len);
+      fam_id = &(sample_ids[sample_idx_to_uidx[sample_idx1] * max_sample_id_len]);
+      sample_id = (char*)memchr(fam_id, '\t', max_sample_id_len);
       wptr_start = fw_strcpyn(12, (uint32_t)(sample_id - fam_id), fam_id, tbuf);
       *wptr_start++ = ' ';
       wptr_start = fw_strcpy(12, &(sample_id[1]), wptr_start);
@@ -9696,8 +9696,8 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	wptr = double_g_writewx4x(wptr, dxx, 12, ' ');
         wptr = double_g_writewx4x(wptr, (dxx - neighbor_quantile_means[ulii]) * neighbor_quantile_stdev_recips[ulii], 12, ' ');
 	sample_idx2 = neighbor_qindices[sample_idx2];
-        fam_id = &(person_ids[sample_idx_to_uidx[sample_idx2] * max_person_id_len]);
-        sample_id = (char*)memchr(fam_id, '\t', max_person_id_len);
+        fam_id = &(sample_ids[sample_idx_to_uidx[sample_idx2] * max_sample_id_len]);
+        sample_id = (char*)memchr(fam_id, '\t', max_sample_id_len);
         wptr = fw_strcpyn(12, (uint32_t)(sample_id - fam_id), fam_id, wptr);
         *wptr++ = ' ';
         wptr = fw_strcpy(12, &(sample_id[1]), wptr);
@@ -10076,7 +10076,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 
   wkspace_reset(wkspace_mark_precluster);
   if (cp->match_fname || cp->qmatch_fname) {
-    retval = cluster_enforce_match(cp, missing_pheno, unfiltered_sample_ct, sample_exclude, sample_ct, person_ids, max_person_id_len, cluster_ct, cluster_starts, sample_to_cluster, cluster_merge_prevented);
+    retval = cluster_enforce_match(cp, missing_pheno, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, cluster_ct, cluster_starts, sample_to_cluster, cluster_merge_prevented);
     if (retval) {
       goto calc_cluster_neighbor_ret_1;
     }
@@ -10258,7 +10258,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   logprint(" done.");
   fputs("                        ", stdout);
   logprint("\n");
-  retval = write_cluster_solution(outname, outname_end, sample_to_cluster, sample_ct, cluster_map, cluster_starts, late_clidx_to_sample_uidx, cluster_ct, cur_cluster_ct, person_ids, max_person_id_len, pheno_c, sample_idx_to_uidx, cp, cur_cluster_remap, cluster_sorted_ibs_indices, merge_ct, merge_sequence);
+  retval = write_cluster_solution(outname, outname_end, sample_to_cluster, sample_ct, cluster_map, cluster_starts, late_clidx_to_sample_uidx, cluster_ct, cur_cluster_ct, sample_ids, max_sample_id_len, pheno_c, sample_idx_to_uidx, cp, cur_cluster_remap, cluster_sorted_ibs_indices, merge_ct, merge_sequence);
   if (retval) {
     goto calc_cluster_neighbor_ret_1;
   }
@@ -10280,9 +10280,9 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	fill_double_zero(mds_plot_dmatrix_copy, (ulii * (ulii - 1)) / 2);
       }
       if (read_dists_fname) {
-	retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_sample_ct, sample_exclude, sample_ct, person_ids, max_person_id_len, is_mds_cluster? cluster_ct : 0, is_mds_cluster? cluster_starts : NULL, is_mds_cluster? sample_to_cluster : NULL, 2, 0, mds_plot_dmatrix_copy, 0, NULL, NULL);
+	retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, is_mds_cluster? cluster_ct : 0, is_mds_cluster? cluster_starts : NULL, is_mds_cluster? sample_to_cluster : NULL, 2, 0, mds_plot_dmatrix_copy, 0, NULL, NULL);
       } else {
-	retval = read_genome(read_genome_fname, unfiltered_sample_ct, sample_exclude, sample_ct, person_ids, max_person_id_len, NULL, mds_plot_dmatrix_copy, 0, NULL, NULL, NULL, 0.0, 0, is_mds_cluster? cluster_ct : 0, is_mds_cluster? cluster_starts : NULL, is_mds_cluster? sample_to_cluster : NULL);
+	retval = read_genome(read_genome_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, NULL, mds_plot_dmatrix_copy, 0, NULL, NULL, NULL, 0.0, 0, is_mds_cluster? cluster_ct : 0, is_mds_cluster? cluster_starts : NULL, is_mds_cluster? sample_to_cluster : NULL);
       }
       if (retval) {
 	goto calc_cluster_neighbor_ret_1;
@@ -10293,7 +10293,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
         cluster_dist_multiply(sample_ct, cluster_ct, cluster_starts, mds_plot_dmatrix_copy);
       }
     }
-    retval = mds_plot(outname, outname_end, sample_exclude, sample_ct, sample_idx_to_uidx, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, cur_cluster_ct, merge_ct, sample_to_cluster, cur_cluster_remap, cp->mds_dim_ct, is_mds_cluster, cp->modifier & CLUSTER_MDS_EIGVALS, mds_plot_dmatrix_copy);
+    retval = mds_plot(outname, outname_end, sample_exclude, sample_ct, sample_idx_to_uidx, sample_ids, plink_maxfid, plink_maxiid, max_sample_id_len, cur_cluster_ct, merge_ct, sample_to_cluster, cur_cluster_remap, cp->mds_dim_ct, is_mds_cluster, cp->modifier & CLUSTER_MDS_EIGVALS, mds_plot_dmatrix_copy);
     if (retval) {
       goto calc_cluster_neighbor_ret_1;
     }

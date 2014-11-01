@@ -3938,14 +3938,14 @@ uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t
   return 0;
 }
 
-void sample_delim_convert(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uint32_t sample_ct, char* person_ids, uintptr_t max_person_id_len, char oldc, char newc) {
+void sample_delim_convert(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uint32_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, char oldc, char newc) {
   // assumes there is exactly one delimiter to convert per name
   uintptr_t sample_uidx = 0;
   uint32_t sample_idx;
   char* nptr;
   for (sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
     next_unset_ul_unsafe_ck(sample_exclude, &sample_uidx);
-    nptr = (char*)memchr(&(person_ids[sample_uidx * max_person_id_len]), (unsigned char)oldc, max_person_id_len);
+    nptr = (char*)memchr(&(sample_ids[sample_uidx * max_sample_id_len]), (unsigned char)oldc, max_sample_id_len);
     *nptr = newc;
   }
 }
@@ -8911,18 +8911,18 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
   return retval;
 }
 
-int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_person_id_len_ptr) {
+int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_sample_id_len_ptr) {
   // colnum is a 1-based index with the FID column number; IID column is
   // assumed to follow.
   // Includes terminating null in lengths.
   FILE* infile = NULL;
   uintptr_t loadbuf_size = wkspace_left;
-  uintptr_t max_person_id_len = *max_person_id_len_ptr;
+  uintptr_t max_sample_id_len = *max_sample_id_len_ptr;
   uintptr_t line_idx = 0;
   char* loadbuf = (char*)wkspace_base;
   char* bufptr;
   char* bufptr2;
-  uintptr_t cur_person_id_len;
+  uintptr_t cur_sample_id_len;
   int32_t retval;
   colnum--;
   if (loadbuf_size > MAXLINEBUFLEN) {
@@ -8954,15 +8954,15 @@ int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_p
       LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, fname);
       goto scan_max_fam_indiv_strlen_ret_INVALID_FORMAT_2;
     }
-    cur_person_id_len = strlen_se(bufptr) + strlen_se(bufptr2) + 2;
-    if (cur_person_id_len > max_person_id_len) {
-      max_person_id_len = cur_person_id_len;
+    cur_sample_id_len = strlen_se(bufptr) + strlen_se(bufptr2) + 2;
+    if (cur_sample_id_len > max_sample_id_len) {
+      max_sample_id_len = cur_sample_id_len;
     }
   }
   if (!feof(infile)) {
     goto scan_max_fam_indiv_strlen_ret_READ_FAIL;
   }
-  *max_person_id_len_ptr = max_person_id_len;
+  *max_sample_id_len_ptr = max_sample_id_len;
   while (0) {
   scan_max_fam_indiv_strlen_ret_NOMEM:
     retval = RET_NOMEM;

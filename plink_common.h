@@ -1705,7 +1705,7 @@ static inline int32_t filename_exists(char* fname, char* fname_end, const char* 
 #endif
 }
 
-void sample_delim_convert(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uint32_t sample_ct, char* person_ids, uintptr_t max_person_id_len, char oldc, char newc);
+void sample_delim_convert(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uint32_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, char oldc, char newc);
 
 void get_set_wrange_align(uintptr_t* bitfield, uintptr_t word_ct, uintptr_t* firstw_ptr, uintptr_t* wlen_ptr);
 
@@ -2176,7 +2176,7 @@ int32_t open_and_load_to_first_token(FILE** infile_ptr, char* fname, uintptr_t l
 
 int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t headerskip, char skipchar, uintptr_t* max_str_len_ptr, uintptr_t* max_str2_len_ptr);
 
-int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_person_id_len_ptr);
+int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_sample_id_len_ptr);
 
 char* alloc_and_init_collapsed_arr(char* item_arr, uintptr_t item_len, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t filtered_ct, uint32_t read_only);
 
