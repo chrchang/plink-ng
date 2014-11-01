@@ -21,7 +21,7 @@ void misc_cleanup(Score_info* sc_ip) {
   free_cond(sc_ip->data_fname);
 }
 
-int32_t make_founders(uintptr_t unfiltered_sample_ct, uintptr_t sample_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t require_two, uintptr_t* sample_exclude, uintptr_t* founder_info) {
+int32_t make_founders(uintptr_t unfiltered_sample_ct, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t require_two, uintptr_t* sample_exclude, uintptr_t* founder_info) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
   uint32_t new_founder_ct = 0;
@@ -36,7 +36,7 @@ int32_t make_founders(uintptr_t unfiltered_sample_ct, uintptr_t sample_ct, char*
   uint32_t fam_len_p1;
   uint32_t missing_parent_ct;
   uint32_t cur_len;
-  if (wkspace_alloc_c_checked(&id_buf, max_person_id_len) ||
+  if (wkspace_alloc_c_checked(&id_buf, max_sample_id_len) ||
       wkspace_alloc_ul_checked(&nf_bitarr, unfiltered_sample_ctl * sizeof(intptr_t))) {
     goto make_founders_ret_NOMEM;
   }
@@ -47,33 +47,33 @@ int32_t make_founders(uintptr_t unfiltered_sample_ct, uintptr_t sample_ct, char*
     logprint("Note: Skipping --make-founders since there are no nonfounders.\n");
     goto make_founders_ret_1;
   }
-  sorted_ids = alloc_and_init_collapsed_arr(person_ids, max_person_id_len, unfiltered_sample_ct, sample_exclude, sample_ct, 0);
+  sorted_ids = alloc_and_init_collapsed_arr(sample_ids, max_sample_id_len, unfiltered_sample_ct, sample_exclude, sample_ct, 0);
   if (!sorted_ids) {
     goto make_founders_ret_NOMEM;
   }
-  qsort(sorted_ids, sample_ct, max_person_id_len, strcmp_casted);
+  qsort(sorted_ids, sample_ct, max_sample_id_len, strcmp_casted);
   do {
-    pat_ptr = &(person_ids[sample_uidx * max_person_id_len]);
+    pat_ptr = &(sample_ids[sample_uidx * max_sample_id_len]);
     fam_len_p1 = strlen_se(pat_ptr) + 1;
     wptr = memcpya(id_buf, pat_ptr, fam_len_p1);
     missing_parent_ct = 0;
     pat_ptr = &(paternal_ids[sample_uidx * max_paternal_id_len]);
     cur_len = strlen(pat_ptr);
-    if (cur_len + fam_len_p1 >= max_person_id_len) {
+    if (cur_len + fam_len_p1 >= max_sample_id_len) {
       missing_parent_ct++;
     } else {
       memcpy(wptr, pat_ptr, cur_len);
-      if (bsearch_str(id_buf, cur_len + fam_len_p1, sorted_ids, max_person_id_len, sample_ct) == -1) {
+      if (bsearch_str(id_buf, cur_len + fam_len_p1, sorted_ids, max_sample_id_len, sample_ct) == -1) {
 	missing_parent_ct++;
       }
     }
     mat_ptr = &(maternal_ids[sample_uidx * max_maternal_id_len]);
     cur_len = strlen(mat_ptr);
-    if (cur_len + fam_len_p1 >= max_person_id_len) {
+    if (cur_len + fam_len_p1 >= max_sample_id_len) {
       missing_parent_ct++;
     } else {
       memcpy(wptr, mat_ptr, cur_len);
-      if (bsearch_str(id_buf, cur_len + fam_len_p1, sorted_ids, max_person_id_len, sample_ct) == -1) {
+      if (bsearch_str(id_buf, cur_len + fam_len_p1, sorted_ids, max_sample_id_len, sample_ct) == -1) {
 	missing_parent_ct++;
       }
     }
@@ -97,7 +97,7 @@ int32_t make_founders(uintptr_t unfiltered_sample_ct, uintptr_t sample_ct, char*
   return retval;
 }
 
-int32_t write_nosex(char* outname, char* outname_end, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sex_nm, uintptr_t gender_unk_ct, char* person_ids, uintptr_t max_person_id_len) {
+int32_t write_nosex(char* outname, char* outname_end, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sex_nm, uintptr_t gender_unk_ct, char* sample_ids, uintptr_t max_sample_id_len) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
@@ -116,7 +116,7 @@ int32_t write_nosex(char* outname, char* outname_end, uintptr_t unfiltered_sampl
   }
   for (sample_idx = 0; sample_idx < gender_unk_ct; sample_idx++, sample_uidx++) {
     next_set_ul_unsafe_ck(sex_missing, &sample_uidx);
-    fputs(&(person_ids[sample_uidx * max_person_id_len]), outfile);
+    fputs(&(sample_ids[sample_uidx * max_sample_id_len]), outfile);
     putc('\n', outfile);
   }
   if (fclose_null(&outfile)) {
@@ -139,7 +139,7 @@ int32_t write_nosex(char* outname, char* outname_end, uintptr_t unfiltered_sampl
   return retval;
 }
 
-int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltered_sample_ct, char* sorted_person_ids, uintptr_t max_person_id_len, uint32_t* id_map, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr) {
+int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltered_sample_ct, char* sorted_sample_ids, uintptr_t max_sample_id_len, uint32_t* id_map, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr) {
   uint32_t mp_strlen = strlen(makepheno_str);
   uint32_t makepheno_all = ((mp_strlen == 1) && (makepheno_str[0] == '*'));
   unsigned char* wkspace_mark = wkspace_base;
@@ -151,9 +151,9 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
   char* bufptr0;
   char* bufptr;
   int32_t ii;
-  uint32_t person_idx;
+  uint32_t sample_idx;
   uint32_t tmp_len;
-  if (wkspace_alloc_c_checked(&id_buf, max_person_id_len)) {
+  if (wkspace_alloc_c_checked(&id_buf, max_sample_id_len)) {
     goto makepheno_load_ret_NOMEM;
   }
   if (!pheno_c) {
@@ -178,19 +178,19 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
     if (is_eoln_kns(*bufptr0)) {
       continue;
     }
-    if (bsearch_read_fam_indiv(id_buf, sorted_person_ids, max_person_id_len, unfiltered_sample_ct, bufptr0, &bufptr, &ii)) {
+    if (bsearch_read_fam_indiv(id_buf, sorted_sample_ids, max_sample_id_len, unfiltered_sample_ct, bufptr0, &bufptr, &ii)) {
       sprintf(logbuf, "Error: Line %" PRIuPTR " of --make-pheno file has fewer tokens than expected.\n", line_idx);
       goto makepheno_load_ret_INVALID_FORMAT_2;
     }
     if (ii != -1) {
-      person_idx = id_map[(uint32_t)ii];
+      sample_idx = id_map[(uint32_t)ii];
       if (makepheno_all) {
-	SET_BIT(pheno_c, person_idx);
+	SET_BIT(pheno_c, sample_idx);
       } else {
-	SET_BIT(pheno_nm, person_idx);
+	SET_BIT(pheno_nm, sample_idx);
         tmp_len = strlen_se(bufptr);
 	if ((tmp_len == mp_strlen) && (!memcmp(bufptr, makepheno_str, mp_strlen))) {
-	  SET_BIT(pheno_c, person_idx);
+	  SET_BIT(pheno_c, sample_idx);
 	}
       }
     }
@@ -216,7 +216,7 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
   return retval;
 }
 
-int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sample_exclude_ct, char* sorted_person_ids, uintptr_t max_person_id_len, uint32_t* id_map, int32_t missing_pheno, uint32_t affection_01, uint32_t mpheno_col, char* phenoname_str, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, char* phenoname_load, uintptr_t max_pheno_name_len) {
+int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sample_exclude_ct, char* sorted_sample_ids, uintptr_t max_sample_id_len, uint32_t* id_map, int32_t missing_pheno, uint32_t affection_01, uint32_t mpheno_col, char* phenoname_str, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, char* phenoname_load, uintptr_t max_pheno_name_len) {
   uint32_t affection = 1;
   uintptr_t* pheno_c = *pheno_c_ptr;
   double* pheno_d = *pheno_d_ptr;
@@ -231,7 +231,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
   int32_t retval = 0;
   char* loadbuf;
   uint32_t loadbuf_size;
-  int32_t person_idx;
+  int32_t sample_idx;
   char* bufptr0;
   char* bufptr;
   uint32_t tmp_len;
@@ -322,11 +322,11 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
     if (!header_processed) {
       header_processed = 1;
     } else {
-      if (bsearch_read_fam_indiv(tbuf, sorted_person_ids, max_person_id_len, sample_ct, bufptr0, &bufptr, &person_idx)) {
+      if (bsearch_read_fam_indiv(tbuf, sorted_sample_ids, max_sample_id_len, sample_ct, bufptr0, &bufptr, &sample_idx)) {
 	goto load_pheno_ret_MISSING_TOKENS;
       }
-      if (person_idx != -1) {
-	person_idx = id_map[(uint32_t)person_idx];
+      if (sample_idx != -1) {
+	sample_idx = id_map[(uint32_t)sample_idx];
 	if (mpheno_col > 1) {
 	  bufptr = next_token_mult(bufptr, mpheno_col - 1);
 	}
@@ -345,16 +345,16 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
 	      // we know the phenotype is scalar, we need to not set the
 	      // phenotype to zero during the binary -> scalar conversion step.
 	      if (*bufptr == '0') {
-		set_bit(isz, person_idx);
+		set_bit(isz, sample_idx);
 	      }
-	      clear_bit(pheno_c, person_idx);
+	      clear_bit(pheno_c, sample_idx);
 	    } else {
 	      if (*bufptr == case_char) {
-		set_bit(pheno_c, person_idx);
+		set_bit(pheno_c, sample_idx);
 	      } else {
-		clear_bit(pheno_c, person_idx);
+		clear_bit(pheno_c, sample_idx);
 	      }
-	      set_bit(pheno_nm, person_idx);
+	      set_bit(pheno_nm, sample_idx);
 	    }
 	  } else {
 	    pheno_d = (double*)malloc(unfiltered_sample_ct * sizeof(double));
@@ -376,8 +376,8 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
 	}
 	if (!affection) {
 	  if ((!scan_double(bufptr, &dxx)) && (dxx != missing_phenod)) {
-	    pheno_d[(uint32_t)person_idx] = dxx;
-	    set_bit(pheno_nm, person_idx);
+	    pheno_d[(uint32_t)sample_idx] = dxx;
+	    set_bit(pheno_nm, sample_idx);
 	  }
 	}
       }
@@ -1282,7 +1282,7 @@ int32_t flip_strand(char* flip_fname, uint32_t* marker_id_htable, uint32_t marke
   return retval;
 }
 
-int32_t update_sample_ids(char* update_ids_fname, char* sorted_person_ids, uintptr_t sample_ct, uintptr_t max_person_id_len, uint32_t* sample_id_map, char* person_ids) {
+int32_t update_sample_ids(char* update_ids_fname, char* sorted_sample_ids, uintptr_t sample_ct, uintptr_t max_sample_id_len, uint32_t* sample_id_map, char* sample_ids) {
   // file has been pre-scanned
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
@@ -1299,7 +1299,7 @@ int32_t update_sample_ids(char* update_ids_fname, char* sorted_person_ids, uintp
   uintptr_t sample_uidx;
   uint32_t len;
   int32_t sorted_idx;
-  if (wkspace_alloc_c_checked(&idbuf, max_person_id_len) ||
+  if (wkspace_alloc_c_checked(&idbuf, max_sample_id_len) ||
       wkspace_alloc_ul_checked(&already_seen, sample_ctl * sizeof(intptr_t))) {
     goto update_sample_ids_ret_NOMEM;
   }
@@ -1320,7 +1320,7 @@ int32_t update_sample_ids(char* update_ids_fname, char* sorted_person_ids, uintp
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    bsearch_read_fam_indiv(idbuf, sorted_person_ids, max_person_id_len, sample_ct, bufptr, &bufptr, &sorted_idx);
+    bsearch_read_fam_indiv(idbuf, sorted_sample_ids, max_sample_id_len, sample_ct, bufptr, &bufptr, &sorted_idx);
     if (sorted_idx == -1) {
       miss_ct++;
       continue;
@@ -1332,7 +1332,7 @@ int32_t update_sample_ids(char* update_ids_fname, char* sorted_person_ids, uintp
     }
     set_bit(already_seen, sorted_idx);
     sample_uidx = sample_id_map[((uint32_t)sorted_idx)];
-    wptr = &(person_ids[sample_uidx * max_person_id_len]);
+    wptr = &(sample_ids[sample_uidx * max_sample_id_len]);
     len = strlen_se(bufptr);
     bufptr2 = &(bufptr[len]);
     wptr = memcpyax(wptr, bufptr, len, '\t');
@@ -1375,7 +1375,7 @@ int32_t update_sample_ids(char* update_ids_fname, char* sorted_person_ids, uintp
   return retval;
 }
 
-int32_t update_sample_parents(char* update_parents_fname, char* sorted_person_ids, uintptr_t sample_ct, uintptr_t max_person_id_len, uint32_t* sample_id_map, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info) {
+int32_t update_sample_parents(char* update_parents_fname, char* sorted_sample_ids, uintptr_t sample_ct, uintptr_t max_sample_id_len, uint32_t* sample_id_map, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   int32_t retval = 0;
@@ -1394,7 +1394,7 @@ int32_t update_sample_parents(char* update_parents_fname, char* sorted_person_id
   uint32_t len;
   uint32_t len2;
   int32_t sorted_idx;
-  if (wkspace_alloc_c_checked(&idbuf, max_person_id_len) ||
+  if (wkspace_alloc_c_checked(&idbuf, max_sample_id_len) ||
       wkspace_alloc_ul_checked(&already_seen, sample_ctl * sizeof(intptr_t))) {
     goto update_sample_parents_ret_NOMEM;
   }
@@ -1421,7 +1421,7 @@ int32_t update_sample_parents(char* update_parents_fname, char* sorted_person_id
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    bsearch_read_fam_indiv(idbuf, sorted_person_ids, max_person_id_len, sample_ct, bufptr, &bufptr, &sorted_idx);
+    bsearch_read_fam_indiv(idbuf, sorted_sample_ids, max_sample_id_len, sample_ct, bufptr, &bufptr, &sorted_idx);
     if (sorted_idx == -1) {
       miss_ct++;
       continue;
@@ -1478,7 +1478,7 @@ int32_t update_sample_parents(char* update_parents_fname, char* sorted_person_id
   return retval;
 }
 
-int32_t update_sample_sexes(char* update_sex_fname, uint32_t update_sex_col, char* sorted_person_ids, uintptr_t sample_ct, uintptr_t max_person_id_len, uint32_t* sample_id_map, uintptr_t* sex_nm, uintptr_t* sex_male) {
+int32_t update_sample_sexes(char* update_sex_fname, uint32_t update_sex_col, char* sorted_sample_ids, uintptr_t sample_ct, uintptr_t max_sample_id_len, uint32_t* sample_id_map, uintptr_t* sex_nm, uintptr_t* sex_male) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   int32_t retval = 0;
@@ -1496,7 +1496,7 @@ int32_t update_sample_sexes(char* update_sex_fname, uint32_t update_sex_col, cha
   char cc;
   unsigned char ucc;
   update_sex_col--;
-  if (wkspace_alloc_c_checked(&idbuf, max_person_id_len) ||
+  if (wkspace_alloc_c_checked(&idbuf, max_sample_id_len) ||
       wkspace_alloc_ul_checked(&already_seen, sample_ctl * sizeof(intptr_t))) {
     goto update_sample_sexes_ret_NOMEM;
   }
@@ -1528,7 +1528,7 @@ int32_t update_sample_sexes(char* update_sex_fname, uint32_t update_sex_col, cha
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    if (bsearch_read_fam_indiv(idbuf, sorted_person_ids, max_person_id_len, sample_ct, bufptr, &bufptr, &sorted_idx)) {
+    if (bsearch_read_fam_indiv(idbuf, sorted_sample_ids, max_sample_id_len, sample_ct, bufptr, &bufptr, &sorted_idx)) {
       goto update_sample_sexes_ret_MISSING_TOKENS;
     }
     if (sorted_idx == -1) {
@@ -2700,7 +2700,7 @@ void calc_marker_weights(double exponent, uint32_t unfiltered_marker_ct, uintptr
   } while (markers_done < marker_ct);
 }
 
-int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uint64_t misc_flags, double check_sex_fthresh, double check_sex_mthresh, uint32_t max_f_yobs, uint32_t min_m_yobs, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* gender_unk_ct_ptr) {
+int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_sample_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uint64_t misc_flags, double check_sex_fthresh, double check_sex_mthresh, uint32_t max_f_yobs, uint32_t min_m_yobs, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* gender_unk_ct_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uint32_t* het_cts = NULL;
@@ -2888,8 +2888,8 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   }
   for (sample_idx = 0; sample_idx < sample_ct; sample_idx++, sample_uidx++) {
     next_unset_ul_unsafe_ck(sample_exclude, &sample_uidx);
-    fid_ptr = &(person_ids[sample_uidx * max_person_id_len]);
-    iid_ptr = (char*)memchr(fid_ptr, '\t', max_person_id_len);
+    fid_ptr = &(sample_ids[sample_uidx * max_sample_id_len]);
+    iid_ptr = (char*)memchr(fid_ptr, '\t', max_sample_id_len);
     wptr = fw_strcpyn(plink_maxfid, (uintptr_t)(iid_ptr - fid_ptr), fid_ptr, tbuf);
     *wptr++ = ' ';
     wptr = fw_strcpy(plink_maxiid, &(iid_ptr[1]), wptr);
@@ -3128,7 +3128,7 @@ int32_t write_var_ranges(char* outname, char* outname_end, uintptr_t unfiltered_
   return retval;
 }
 
-int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uintptr_t* founder_info, Chrom_info* chrom_info_ptr, double* set_allele_freqs) {
+int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_sample_id_len, uintptr_t* founder_info, Chrom_info* chrom_info_ptr, double* set_allele_freqs) {
   // Same F coefficient computation as sexcheck().
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
@@ -3299,8 +3299,8 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
   sample_uidx = 0;
   for (sample_idx = 0; sample_idx < sample_ct; sample_idx++, sample_uidx++) {
     next_unset_ul_unsafe_ck(sample_exclude, &sample_uidx);
-    fid_ptr = &(person_ids[sample_uidx * max_person_id_len]);
-    iid_ptr = (char*)memchr(fid_ptr, '\t', max_person_id_len);
+    fid_ptr = &(sample_ids[sample_uidx * max_sample_id_len]);
+    iid_ptr = (char*)memchr(fid_ptr, '\t', max_sample_id_len);
     wptr = fw_strcpyn(plink_maxfid, (uintptr_t)(iid_ptr - fid_ptr), fid_ptr, tbuf);
     *wptr++ = ' ';
     wptr = fw_strcpy(plink_maxiid, &(iid_ptr[1]), wptr);
@@ -3625,7 +3625,7 @@ int32_t fst_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
   return retval;
 }
 
-int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, double* set_allele_freqs, uintptr_t sample_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t hh_exists, Chrom_info* chrom_info_ptr, char* outname, char* outname_end) {
+int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, double* set_allele_freqs, uintptr_t sample_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, char* sample_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_sample_id_len, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t hh_exists, Chrom_info* chrom_info_ptr, char* outname, char* outname_end) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   FILE* outfile = NULL;
@@ -4242,7 +4242,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   fprintf(outfile, tbuf2, "FID", "IID");
   for (sample_uidx = 0, sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
     next_unset_ul_unsafe_ck(sample_exclude, &sample_uidx);
-    bufptr_arr[0] = &(person_ids[sample_uidx * max_person_id_len]);
+    bufptr_arr[0] = &(sample_ids[sample_uidx * max_sample_id_len]);
     uii = strlen_se(bufptr_arr[0]);
     bufptr = fw_strcpyn(plink_maxfid, uii, bufptr_arr[0], tbuf2);
     *bufptr++ = ' ';
