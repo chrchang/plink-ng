@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (1 Nov 2014) ";
+  " (2 Nov 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -1440,28 +1440,24 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   }
 
   if (relationship_or_ibc_req(calculation_type)) {
-    if (relip->modifier & REL_CALC_SINGLE_PREC) {
-      retval = calc_rel_f(threads, parallel_idx, parallel_tot, calculation_type, relip, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ct, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, sample_ids, max_sample_id_len, set_allele_freqs, chrom_info_ptr);
-    } else {
-      if (relip->pca_cluster_names_flattened || relip->pca_clusters_fname) {
-	retval = extract_clusters(unfiltered_sample_ct, sample_exclude, sample_ct, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, relip->pca_cluster_names_flattened, relip->pca_clusters_fname, &pca_sample_exclude, &pca_sample_ct);
-	if (retval) {
-	  goto plink_ret_1;
-	}
-	if (pca_sample_ct < 2) {
-	  logprint("Error: Too few samples specified by --pca-cluster-names/--pca-clusters.\n");
-	  goto plink_ret_1;
-	}
-	if (pca_sample_ct == sample_ct) {
-	  logprint("Warning: --pca-cluster-names/--pca-clusters has no effect since all samples are\nin the named clusters.\n");
-	  pca_sample_exclude = NULL;
-	} else {
-	  LOGPRINTF("--pca-cluster-names/--pca-clusters: %" PRIuPTR " samples specified.\n", pca_sample_ct);
-	  ulii = unfiltered_sample_ct - pca_sample_ct;
-	}
+    if (relip->pca_cluster_names_flattened || relip->pca_clusters_fname) {
+      retval = extract_clusters(unfiltered_sample_ct, sample_exclude, sample_ct, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, relip->pca_cluster_names_flattened, relip->pca_clusters_fname, &pca_sample_exclude, &pca_sample_ct);
+      if (retval) {
+	goto plink_ret_1;
       }
-      retval = calc_rel(threads, parallel_idx, parallel_tot, calculation_type, relip, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ct, unfiltered_sample_ct, pca_sample_exclude? pca_sample_exclude : sample_exclude, pca_sample_exclude? (&ulii) : (&sample_exclude_ct), sample_ids, max_sample_id_len, set_allele_freqs, &rel_ibc, chrom_info_ptr);
+      if (pca_sample_ct < 2) {
+	logprint("Error: Too few samples specified by --pca-cluster-names/--pca-clusters.\n");
+	goto plink_ret_1;
+      }
+      if (pca_sample_ct == sample_ct) {
+	logprint("Warning: --pca-cluster-names/--pca-clusters has no effect since all samples are\nin the named clusters.\n");
+	pca_sample_exclude = NULL;
+      } else {
+	LOGPRINTF("--pca-cluster-names/--pca-clusters: %" PRIuPTR " samples specified.\n", pca_sample_ct);
+	ulii = unfiltered_sample_ct - pca_sample_ct;
+      }
     }
+    retval = calc_rel(threads, parallel_idx, parallel_tot, calculation_type, relip, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ct, unfiltered_sample_ct, pca_sample_exclude? pca_sample_exclude : sample_exclude, pca_sample_exclude? (&ulii) : (&sample_exclude_ct), sample_ids, max_sample_id_len, set_allele_freqs, &rel_ibc, chrom_info_ptr);
     if (retval) {
       goto plink_ret_1;
     }
@@ -5803,17 +5799,23 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	    dist_calc_type |= DISTANCE_TRI;
 	  } else if (!strcmp(argv[cur_arg + uii], "gz")) {
-	    if (dist_calc_type & DISTANCE_BIN) {
-	      logprint("Error: --distance 'gz' and 'bin' flags cannot coexist.\n");
+	    if (dist_calc_type & (DISTANCE_BIN | DISTANCE_BIN4)) {
+	      logprint("Error: Conflicting --distance modifiers.\n");
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    dist_calc_type |= DISTANCE_GZ;
 	  } else if (!strcmp(argv[cur_arg + uii], "bin")) {
-	    if (dist_calc_type & DISTANCE_GZ) {
-	      logprint("Error: --distance 'gz' and 'bin' flags cannot coexist.\n");
+	    if (dist_calc_type & (DISTANCE_GZ | DISTANCE_BIN4)) {
+	      logprint("Error: Conflicting --distance modifiers.\n");
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    dist_calc_type |= DISTANCE_BIN;
+	  } else if (!strcmp(argv[cur_arg + uii], "bin4")) {
+	    if (dist_calc_type & (DISTANCE_GZ | DISTANCE_BIN)) {
+	      logprint("Error: Conflicting --distance modifiers.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    }
+	    dist_calc_type |= DISTANCE_BIN4;
 	  } else if (!strcmp(argv[cur_arg + uii], "ibs")) {
 	    if (dist_calc_type & DISTANCE_IBS) {
 	      logprint("Error: Duplicate --distance 'ibs' modifier.\n");
@@ -7969,6 +7971,10 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Error: --make-grm has been retired due to inconsistent meaning across GCTA\nversions.  Use --make-grm-gz or --make-grm-bin.\n");
 	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "ake-grm-gz", 11)) {
+	if (calculation_type & CALC_RELATIONSHIP) {
+	  logprint("Error: --make-grm-bin cannot be used with --make-grm-gz.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -7997,7 +8003,8 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	    rel_info.ibc_type = argv[cur_arg + uii][3] - '0';
 	  } else if (!strcmp(argv[cur_arg + uii], "single-prec")) {
-	    rel_info.modifier |= REL_CALC_SINGLE_PREC;
+	    logprint("Error: --make-grm-gz 'single-prec' modifier has been retired.\n");
+	    goto main_ret_INVALID_CMDLINE;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --make-grm-gz parameter '%s'.\n", argv[cur_arg + uii]);
 	    goto main_ret_INVALID_CMDLINE_WWA;
@@ -8005,14 +8012,10 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	calculation_type |= CALC_RELATIONSHIP;
       } else if (!memcmp(argptr2, "ake-grm-bin", 12)) {
-	if (calculation_type & CALC_RELATIONSHIP) {
-	  logprint("Error: --make-grm-bin cannot be used with --make-grm-gz.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
-	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-	rel_info.modifier |= REL_CALC_GRM_BIN | REL_CALC_SINGLE_PREC;
+	rel_info.modifier |= REL_CALC_GRM_BIN | REL_CALC_BIN4;
 	if (param_ct) {
 	  if (!strcmp(argv[cur_arg + 1], "cov")) {
 	    if (calculation_type & CALC_IBC) {
@@ -8048,17 +8051,23 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	    rel_info.modifier |= REL_CALC_COV;
 	  } else if (!strcmp(argv[cur_arg + uii], "gz")) {
-	    if (rel_info.modifier & REL_CALC_BIN) {
-	      logprint("Error: --make-rel 'gz' and 'bin' modifiers cannot coexist.\n");
+	    if (rel_info.modifier & (REL_CALC_BIN | REL_CALC_BIN4)) {
+	      logprint("Error: Conflicting --make-rel modifiers.\n");
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    rel_info.modifier |= REL_CALC_GZ;
 	  } else if (!strcmp(argv[cur_arg + uii], "bin")) {
-	    if (rel_info.modifier & REL_CALC_GZ) {
-	      logprint("Error: --make-rel 'gz' and 'bin' modifiers cannot coexist.\n");
+	    if (rel_info.modifier & (REL_CALC_GZ | REL_CALC_BIN4)) {
+	      logprint("Error: Conflicting --make-rel modifiers.\n");
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    rel_info.modifier |= REL_CALC_BIN;
+	  } else if (!strcmp(argv[cur_arg + uii], "bin4")) {
+	    if (rel_info.modifier & (REL_CALC_GZ | REL_CALC_BIN)) {
+	      logprint("Error: Conflicting --make-rel modifiers.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    }
+	    rel_info.modifier |= REL_CALC_BIN4;
 	  } else if (!strcmp(argv[cur_arg + uii], "square")) {
 	    if ((rel_info.modifier & REL_CALC_SHAPEMASK) == REL_CALC_SQ0) {
 	      logprint("Error: --make-rel 'square' and 'square0' modifiers cannot coexist.\n");
@@ -8097,14 +8106,15 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	    rel_info.ibc_type = argv[cur_arg + uii][3] - '0';
 	  } else if (!strcmp(argv[cur_arg + uii], "single-prec")) {
-	    rel_info.modifier |= REL_CALC_SINGLE_PREC;
+	    logprint("Error: --make-rel 'single-prec' modifier has been retired.  Use 'bin4'.\n");
+	    goto main_ret_INVALID_CMDLINE;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --make-rel parameter '%s'.\n", argv[cur_arg + uii]);
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
 	if (!(rel_info.modifier & REL_CALC_SHAPEMASK)) {
-	  rel_info.modifier |= (rel_info.modifier & REL_CALC_BIN)? REL_CALC_SQ : REL_CALC_TRI;
+	  rel_info.modifier |= (rel_info.modifier & (REL_CALC_BIN | REL_CALC_BIN4))? REL_CALC_SQ : REL_CALC_TRI;
 	}
 	calculation_type |= CALC_RELATIONSHIP;
       } else if (!memcmp(argptr2, "atrix", 6)) {
@@ -9250,14 +9260,14 @@ int32_t main(int32_t argc, char** argv) {
 	if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ) {
 	  logprint("Error: --parallel cannot be used with '--distance square'.  Use '--distance\nsquare0' or plain --distance instead.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
-	} else if ((dist_calc_type & DISTANCE_BIN) && (!(dist_calc_type & DISTANCE_SHAPEMASK))) {
-	  logprint("Error: --parallel cannot be used with plain '--distance bin'.  Use '--distance\nbin square0' or '--distance bin triangle' instead.\n");
+	} else if ((dist_calc_type & (DISTANCE_BIN | DISTANCE_BIN4)) && (!(dist_calc_type & DISTANCE_SHAPEMASK))) {
+	  logprint("Error: --parallel cannot be used with plain '--distance bin{4}'.  Use e.g.\n'--distance bin square0' or '--distance bin triangle' instead.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if ((rel_info.modifier & REL_CALC_SHAPEMASK) == REL_CALC_SQ) {
 	  logprint("Error: --parallel cannot be used with '--make-rel square'.  Use '--make-rel\nsquare0' or plain '--make-rel' instead.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
-	} else if ((rel_info.modifier & REL_CALC_BIN) && (!(rel_info.modifier & REL_CALC_SHAPEMASK))) {
-	  logprint("Error: --parallel cannot be used with plain '--make-rel bin'.  Use '--make-rel\nbin square0' or '--make-rel bin triangle' instead.\n");
+	} else if ((rel_info.modifier & (REL_CALC_BIN | REL_CALC_BIN4)) && (!(rel_info.modifier & REL_CALC_SHAPEMASK))) {
+	  logprint("Error: --parallel cannot be used with plain '--make-rel bin{4}'.  Use e.g.\n'--make-rel bin square0' or '--make-rel bin triangle' instead.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (calculation_type & CALC_PLINK1_DISTANCE_MATRIX) {
 	  logprint("Error: --parallel and --distance-matrix cannot be used together.  Use\n--distance instead.\n");
@@ -9412,9 +9422,6 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (parallel_tot > 1) {
 	  logprint("Error: --parallel and --pca cannot be used together.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
-	} else if (rel_info.modifier & REL_CALC_SINGLE_PREC) {
-	  logprint("Error: --pca flag cannot be used with a single-precision relationship matrix\ncalculation.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4)) {
@@ -9787,9 +9794,6 @@ int32_t main(int32_t argc, char** argv) {
 	} else if (rel_info.pca_cluster_names_flattened || rel_info.pca_clusters_fname) {
 	  logprint("Error: --pca-cluster-names/--pca-clusters cannot be used with --regress-rel.\n");
 	  goto main_ret_INVALID_CMDLINE;
-	} else if (rel_info.modifier & REL_CALC_SINGLE_PREC) {
-	  logprint("Error: --regress-rel cannot currently be used with a single-precision\nrelationship matrix.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -10265,51 +10269,61 @@ int32_t main(int32_t argc, char** argv) {
 	    ld_info.modifier |= LD_MATRIX_TRI;
 	  } else if (!strcmp(argv[cur_arg + uii], "inter-chr")) {
             ld_info.modifier |= LD_INTER_CHR;
-            if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_SPACES)) {
+            if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_BIN4 | LD_MATRIX_SPACES)) {
 	      goto main_r2_matrix_conflict;
 	    }
 	  } else if (!strcmp(argv[cur_arg + uii], "gz")) {
-	    if (ld_info.modifier & LD_MATRIX_BIN) {
-	      logprint("Error: --r/--r2 'gz' and 'bin' modifiers cannot be used together.\n");
+	    if (ld_info.modifier & (LD_MATRIX_BIN | LD_MATRIX_BIN4)) {
+	      logprint("Error: Conflicting --r/--r2 modifiers.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    ld_info.modifier |= LD_REPORT_GZ;
 	  } else if (!strcmp(argv[cur_arg + uii], "bin")) {
 	    if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DPRIME | LD_WITH_FREQS)) {
 	      goto main_r2_matrix_conflict;
-	    } else if (ld_info.modifier & LD_REPORT_GZ) {
-	      logprint("Error: --r/--r2 'gz' and 'bin' modifiers cannot be used together.\n");
+	    } else if (ld_info.modifier & (LD_REPORT_GZ | LD_MATRIX_BIN4)) {
+	      logprint("Error: Conflicting --r/--r2 modifiers.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    } else if (ld_info.modifier & LD_MATRIX_SPACES) {
-	      logprint("Error: --r/--r2 'bin' and 'spaces' modifiers cannot be used together.\n");
+	      logprint("Error: --r/--r2 'bin{4}' and 'spaces' modifiers cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    ld_info.modifier |= LD_MATRIX_BIN;
+	  } else if (!strcmp(argv[cur_arg + uii], "bin4")) {
+	    if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DPRIME | LD_WITH_FREQS)) {
+	      goto main_r2_matrix_conflict;
+	    } else if (ld_info.modifier & (LD_REPORT_GZ | LD_MATRIX_BIN)) {
+	      logprint("Error: Conflicting --r/--r2 modifiers.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    } else if (ld_info.modifier & LD_MATRIX_SPACES) {
+	      logprint("Error: --r/--r2 'bin{4}' and 'spaces' modifiers cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    ld_info.modifier |= LD_MATRIX_BIN4;
 	  } else if (!strcmp(argv[cur_arg + uii], "single-prec")) {
-	    // yeah, as a practical matter this should probably be the default
-            // since there are no long chains of floating point calculations...
-	    ld_info.modifier |= LD_SINGLE_PREC;
+	    logprint("Error: --r/--r2 'single-prec' modifier has been retired.  Use 'bin4'.\n");
+	    goto main_ret_INVALID_CMDLINE;
 	  } else if (!strcmp(argv[cur_arg + uii], "spaces")) {
 	    if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DPRIME | LD_WITH_FREQS)) {
 	      goto main_r2_matrix_conflict;
-	    } else if (ld_info.modifier & LD_MATRIX_BIN) {
-	      logprint("Error: --r/--r2 'bin' and 'spaces' modifiers cannot be used together.\n");
+	    } else if (ld_info.modifier & (LD_MATRIX_BIN | LD_MATRIX_BIN4)) {
+	      logprint("Error: --r/--r2 'bin{4}' and 'spaces' modifiers cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    ld_info.modifier |= LD_MATRIX_SPACES;
 	  } else if (!strcmp(argv[cur_arg + uii], "in-phase")) {
 	    ld_info.modifier |= LD_INPHASE;
-            if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_SPACES)) {
+            if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_BIN4 | LD_MATRIX_SPACES)) {
 	      goto main_r2_matrix_conflict;
 	    }
 	  } else if (!strcmp(argv[cur_arg + uii], "dprime")) {
 	    ld_info.modifier |= LD_DPRIME;
-            if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_SPACES)) {
+            if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_BIN4 | LD_MATRIX_SPACES)) {
 	      goto main_r2_matrix_conflict;
 	    }
 	  } else if (!strcmp(argv[cur_arg + uii], "with-freqs")) {
 	    ld_info.modifier |= LD_WITH_FREQS;
-            if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_SPACES)) {
+            if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_BIN4 | LD_MATRIX_SPACES)) {
 	      goto main_r2_matrix_conflict;
 	    }
 	  } else if (!strcmp(argv[cur_arg + uii], "yes-really")) {
@@ -10319,11 +10333,7 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
-	if ((ld_info.modifier & (LD_SINGLE_PREC | LD_MATRIX_BIN)) == LD_SINGLE_PREC) {
-	  logprint("Error: --r/--r2 'single-prec' modifier currently must be used with 'bin'.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
-	}
-        if ((ld_info.modifier & LD_MATRIX_BIN) && (!(ld_info.modifier & LD_MATRIX_SHAPEMASK))) {
+        if ((ld_info.modifier & (LD_MATRIX_BIN | LD_MATRIX_BIN4)) && (!(ld_info.modifier & LD_MATRIX_SHAPEMASK))) {
           ld_info.modifier |= LD_MATRIX_SQ;
 	}
 	if ((ld_info.modifier & LD_MATRIX_SPACES) && (!(ld_info.modifier & LD_MATRIX_SHAPEMASK))) {
@@ -11451,9 +11461,6 @@ int32_t main(int32_t argc, char** argv) {
 	} else if (calculation_type & CALC_PCA) {
 	  logprint("Error: --pca cannot be used with --unrelated-heritability.\n");
           goto main_ret_INVALID_CMDLINE;
-	} else if (rel_info.modifier & REL_CALC_SINGLE_PREC) {
-	  logprint("Error: --unrelated-heritability flag cannot be used with a single-precision\nrelationship matrix calculation.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (load_rare & (LOAD_RARE_GRM | LOAD_RARE_GRM_BIN)) {
 	  if (calculation_type & CALC_REL_CUTOFF) {
@@ -11970,7 +11977,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
         ld_info.modifier |= LD_WITH_FREQS;
-	if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_SPACES)) {
+	if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_BIN4 | LD_MATRIX_SPACES)) {
 	  goto main_r2_matrix_conflict;
 	}
 	logprint("Note: --with-freqs flag deprecated.  Use e.g. '--r2 with-freqs'.\n");
@@ -12464,19 +12471,19 @@ int32_t main(int32_t argc, char** argv) {
 
   if (mperm_save) {
     uii = 0;
-    if ((calculation_type & CALC_MODEL) && (model_modifier & MODEL_MPERM)) {
+    if ((calculation_type & CALC_MODEL) && ((model_modifier & (MODEL_MPERM | MODEL_SET_TEST)) == MODEL_MPERM)) {
       uii++;
     }
-    if ((calculation_type & CALC_GLM) && (glm_modifier & GLM_MPERM)) {
+    if ((calculation_type & CALC_GLM) && ((glm_modifier & (GLM_MPERM | GLM_SET_TEST)) == GLM_MPERM)) {
       uii++;
     }
     if ((calculation_type & CALC_TESTMISS) && (testmiss_modifier & TESTMISS_MPERM)) {
       uii++;
     }
-    if ((calculation_type & CALC_TDT) && (family_info.tdt_modifier & TDT_MPERM)) {
+    if ((calculation_type & CALC_TDT) && ((family_info.tdt_modifier & (TDT_MPERM | TDT_SET_TEST)) == TDT_MPERM)) {
       uii++;
     }
-    if ((calculation_type & CALC_CMH) && (cluster.modifier & CLUSTER_CMH_MPERM)) {
+    if ((calculation_type & CALC_CMH) && ((cluster.modifier & (CLUSTER_CMH_MPERM | CLUSTER_CMH_SET_TEST)) == CLUSTER_CMH_MPERM)) {
       uii++;
     }
     if (uii != 1) {

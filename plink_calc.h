@@ -11,9 +11,9 @@
 #define REL_CALC_SHAPEMASK 6
 #define REL_CALC_GZ 8
 #define REL_CALC_BIN 0x10
-#define REL_CALC_GRM 0x20
-#define REL_CALC_GRM_BIN 0x40
-#define REL_CALC_SINGLE_PREC 0x80
+#define REL_CALC_BIN4 0x20
+#define REL_CALC_GRM 0x40
+#define REL_CALC_GRM_BIN 0x80
 #define REL_CALC_MASK 0xff
 #define REL_UNRELATED_HERITABILITY_STRICT 0x100
 #define REL_PCA_HEADER 0x200
@@ -62,8 +62,6 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
 int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, char* outname_end, Rel_info* relip);
 
 int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, uint64_t calculation_type, Rel_info* relip, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, uint32_t marker_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* sample_ids, uintptr_t max_sample_id_len, double* set_allele_freqs, double** rel_ibc_ptr, Chrom_info* chrom_info_ptr);
-
-int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, uint64_t calculation_type, Rel_info* relip, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, uint32_t marker_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* sample_ids, uintptr_t max_sample_id_len, double* set_allele_freqs, Chrom_info* chrom_info_ptr);
 
 #ifndef NOLAPACK
 int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, Rel_info* relip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t* pca_sample_exclude, uintptr_t pca_sample_ct, char* sample_ids, uintptr_t max_sample_id_len, double* set_allele_freqs, Chrom_info* chrom_info_ptr, double* rel_ibc);

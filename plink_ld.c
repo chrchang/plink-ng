@@ -2122,10 +2122,10 @@ uint32_t ld_matrix_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, uintptr_t* founder_include2, uintptr_t* founder_male_include2, uintptr_t* loadbuf, char* outname, uint32_t hh_exists) {
   FILE* outfile = NULL;
   uint32_t ld_modifier = ldip->modifier;
-  uint32_t is_binary = ld_modifier & LD_MATRIX_BIN;
+  uint32_t is_binary = ld_modifier & (LD_MATRIX_BIN | LD_MATRIX_BIN4);
   uint32_t is_square = ((ld_modifier & LD_MATRIX_SHAPEMASK) == LD_MATRIX_SQ);
   uint32_t is_square0 = ((ld_modifier & LD_MATRIX_SHAPEMASK) == LD_MATRIX_SQ0);
-  uint32_t output_single_prec = (ld_modifier / LD_SINGLE_PREC) & 1;
+  uint32_t output_single_prec = (ld_modifier / LD_MATRIX_BIN4) & 1;
   uint32_t output_gz = ld_modifier & LD_REPORT_GZ;
   uint32_t ignore_x = (ld_modifier / LD_IGNORE_X) & 1;
   uintptr_t marker_ct = g_ld_marker_ct;
@@ -2305,7 +2305,7 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     marker_uidx1 = jump_forward_unset_unsafe(marker_exclude, marker_uidx1 + 1, marker_idx1);
   }
   g_ld_keep_sign = 0;
-  sprintf(logbuf, "--r%s %s%s%s to %s ... ", g_ld_is_r2? "2" : "", is_square? "square" : (is_square0? "square0" : "triangle"), is_binary? " bin" : (output_gz? " gz" : ""), output_single_prec? " single-prec" : "", outname);
+  sprintf(logbuf, "--r%s %s%s to %s ... ", g_ld_is_r2? "2" : "", is_square? "square" : (is_square0? "square0" : "triangle"), is_binary? (output_single_prec? " bin4" : " bin") : (output_gz? " gz" : ""), outname);
   wordwrap(logbuf, 16); // strlen("99% [processing]")
   logprintb();
   fputs("0%", stdout);
@@ -5243,7 +5243,7 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
 #endif
   uintptr_t founder_ct_192_long = founder_ct_mld_m1 * (MULTIPLEX_LD / BITCT2) + founder_ct_mld_rem * (192 / BITCT2);
   uint32_t ld_modifier = ldip->modifier;
-  uint32_t is_binary = ld_modifier & LD_MATRIX_BIN;
+  uint32_t is_binary = ld_modifier & (LD_MATRIX_BIN | LD_MATRIX_BIN4);
   uint32_t output_gz = ld_modifier & LD_REPORT_GZ;
   char* bufptr = memcpyl3a(outname_end, ".ld");
   int32_t retval = 0;

@@ -24,13 +24,14 @@ typedef struct {
   char* merged_set_name;
   char* genekeep_flattened;
   uint32_t modifier;
+
+  // main data structure, allocated on stack
   uint32_t make_set_border;
   double set_r2;
   double set_p;
   double set_test_lambda;
   uint32_t set_max;
 
-  // main data structure, allocated on stack
   uintptr_t ct;
   char* names;
   uintptr_t max_name_len;

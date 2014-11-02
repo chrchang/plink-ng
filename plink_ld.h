@@ -8,11 +8,11 @@
 #define LD_MATRIX_TRI 3
 #define LD_MATRIX_SHAPEMASK 3
 #define LD_MATRIX_BIN 4
-#define LD_MATRIX_SPACES 8
-#define LD_R2 0x10
-#define LD_INTER_CHR 0x20
-#define LD_REPORT_GZ 0x40
-#define LD_SINGLE_PREC 0x80
+#define LD_MATRIX_BIN4 8
+#define LD_MATRIX_SPACES 0x10
+#define LD_R2 0x20
+#define LD_INTER_CHR 0x40
+#define LD_REPORT_GZ 0x80
 #define LD_INPHASE 0x100
 #define LD_DPRIME 0x200
 #define LD_WITH_FREQS 0x400
