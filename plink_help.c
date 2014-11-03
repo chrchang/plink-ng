@@ -561,7 +561,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("fst\tFst", &help_ctrl, 1,
 "  --fst <case-control>\n"
 "    (alias: --Fst)\n"
-"    Estimate Wright's Fst for each autosomal diploid locus using the method\n"
+"    Estimate Wright's Fst for each autosomal diploid variant using the method\n"
 "    introduced in Weir BS, Cockerham CC (1984) Estimating F-statistics for the\n"
 "    analysis of population structure, given a set of subpopulations defined via\n"
 "    --within.  Raw and weighted global means are also reported.\n"
@@ -571,13 +571,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      case/control status and use the 'case-control' modifier.\n\n"
 	       );
     help_print("indep\tindep-pairwise\tindep-pairphase", &help_ctrl, 1,
-"  --indep [window size]<kb> [step size (locus ct)] [VIF threshold]\n"
-"  --indep-pairwise [window size]<kb> [step size (locus ct)] [r^2 threshold]\n"
-"  --indep-pairphase [window size]<kb> [step size (locus ct)] [r^2 threshold]\n"
+"  --indep [window size]<kb> [step size (variant ct)] [VIF threshold]\n"
+"  --indep-pairwise [window size]<kb> [step size (variant ct)] [r^2 threshold]\n"
+"  --indep-pairphase [window size]<kb> [step size (variant ct)] [r^2 threshold]\n"
 "    Generate a list of markers in approximate linkage equilibrium.  With the\n"
-"    'kb' modifier, the window size is in kilobase instead of locus count units.\n"
-"    (Pre-'kb' space is optional, i.e. '--indep-pairwise 500 kb 5 0.5' and\n"
-"    '--indep-pairwise 500kb 5 0.5' have the same effect.)\n"
+"    'kb' modifier, the window size is in kilobase instead of variant count\n"
+"    units.  (Pre-'kb' space is optional, i.e. '--indep-pairwise 500 kb 5 0.5'\n"
+"    and '--indep-pairwise 500kb 5 0.5' have the same effect.)\n"
 "    Note that you need to rerun " PROG_NAME_CAPS " using --extract or --exclude on the\n"
 "    .prune.in/.prune.out file to apply the list to another computation.\n\n"
 		);
@@ -1494,7 +1494,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     chromosome code XY (pseudo-autosomal region of X).\n"
 	       );
     help_print("snps-only", &help_ctrl, 0,
-"  --snps-only <no-DI> : Exclude loci with multi-character allele codes.\n"
+"  --snps-only <no-DI> : Exclude variants with multi-character allele codes.\n"
 	       );
     help_print("from\tto\tsnp\twindow\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb\texclude-snp\textract-snp", &help_ctrl, 0,
 "  --from [var ID]  : Use ID(s) to specify a variant range to load.  When used\n"
@@ -1515,12 +1515,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --exclude-snps [...]   exclude.  E.g. '--snps rs1111-rs2222, rs3333, rs4444'.\n"
 	       );
     help_print("thin\tthin-count", &help_ctrl, 0,
-"  --thin [p]       : Randomly remove loci, retaining each with probability p.\n"
-"  --thin-count [n] : Randomly remove loci until n of them remain.\n"
+"  --thin [p]       : Randomly remove variants, retaining each with prob. p.\n"
+"  --thin-count [n] : Randomly remove variants until n of them remain.\n"
 	       );
     help_print("bp-space\tthin", &help_ctrl, 0,
-"  --bp-space [bps] : Remove loci so that each pair is no closer than the given\n"
-"                     bp distance.  (This is equivalent to VCFtools --thin.)\n"
+"  --bp-space [bps] : Remove variants so that each pair is no closer than the\n"
+"                     given bp distance.  (Equivalent to VCFtools --thin.)\n"
 	       );
     help_print("filter\tmfilter", &help_ctrl, 0,
 "  --filter [f] [val(s)...] : Exclude all samples without a 3rd column entry in\n"
@@ -1636,7 +1636,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     genotypes to missing.\n"
 	       );
     help_print("split-x\tmerge-x\tset-hh-missing\t23file-convert-xy\t23file-make-xylist\tcheck-sex\timpute-sex", &help_ctrl, 0,
-"  --split-x [bp1] [bp2]  : Changes chromosome code of all X chromosome loci\n"
+"  --split-x [bp1] [bp2]  : Changes chromosome code of all X chromosome variants\n"
 "  --split-x [build code]   with bp position <= bp1 or >= bp2 to XY.  The\n"
 "                           following build codes are supported as shorthand:\n"
 "                           * 'b36'/'hg18' = NCBI 36, bounds 2709521 & 154584237\n"
@@ -1695,7 +1695,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --flip-subset [fn]   : Only apply --flip to samples in --flip-subset file.\n"
 	       );
     help_print("flip-scan\tflip-scan-window\tflip-scan-window-kb\tflip-scan-threshold\tld-window\tld-window-kb\tflipscan\tflipscan-window\tflipscan-window-kb\tflipscan-threshold", &help_ctrl, 0,
-"  --flip-scan-window [ct+1] : Set --flip-scan max locus ct distance (def. 10).\n"
+"  --flip-scan-window [ct+1] : Set --flip-scan max variant ct dist. (def. 10).\n"
 "  --flip-scan-window-kb [x] : Set --flip-scan max kb distance (default 1000).\n"
 "  --flip-scan-threshold [x] : Set --flip-scan min correlation (default 0.5).\n"
 	       );
@@ -1752,7 +1752,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                       genotypes when parental genotype data is missing.\n"
 	       );
     help_print("r\tr2\tld-window-kb\tld-window-r2\tld-window\tld-snp\tld-snps\tld-snp-list", &help_ctrl, 0,
-"  --ld-window [ct+1] : Set --r/--r2 max locus ct pairwise distance (usu. 10).\n"
+"  --ld-window [ct+1] : Set --r/--r2 max variant ct pairwise distance (usu. 10).\n"
 "  --ld-window-kb [x] : Set --r/--r2 max kb pairwise distance (usually 1000).\n"
 "  --ld-window-r2 [x] : Set threshold for --r2 report inclusion (usually 0.2).\n"
 "  --ld-snp [var ID]  : Set first variant in all --r/--r2 pairs.\n"
@@ -1803,8 +1803,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --max [cutoff]     : Specify maximum PI_HAT for inclusion in --genome report.\n"
 	       );
     help_print("homozyg\thomozyg-match\tpool-size", &help_ctrl, 0,
-"  --homozyg-match [] : Set minimum concordance across jointly homozygous loci\n"
-"                       for a pairwise allelic match to be declared.\n"
+"  --homozyg-match [] : Set minimum concordance across jointly homozygous\n"
+"                       variants for a pairwise allelic match to be declared.\n"
 "  --pool-size [ct]   : Set minimum size of pools in '--homozyg group' report.\n"
 	       );
     help_print("read-genome\tcluster\tneighbour\tneighbor", &help_ctrl, 0,
