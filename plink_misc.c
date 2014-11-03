@@ -4839,6 +4839,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
       goto meta_analysis_ret_NOMEM;
     }
     rewind(infile);
+    // todo: switch to hash table to avoid sort
     retval = read_tokens(infile, tbuf, MAXLINELEN, extract_ct, max_extract_id_len, sorted_extract_ids);
     if (retval) {
       goto meta_analysis_ret_1;

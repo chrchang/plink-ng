@@ -2490,48 +2490,31 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
   uintptr_t miss_ct = 0;
   uintptr_t marker_uidx = 0;
   uintptr_t line_idx = update_chr->skip;
-  char* sorted_marker_ids;
-  uint32_t* marker_id_map;
   uintptr_t* already_seen;
   char* loadbuf;
-  uintptr_t loadbuf_size;
-  uint32_t colmin;
-  uint32_t coldiff;
   char* colid_ptr;
   char* colx_ptr;
-  uintptr_t marker_idx;
-  uintptr_t delta;
-  uintptr_t slen;
+  uint32_t* marker_id_htable;
+  uint32_t* marker_uidx_to_idx;
+  uintptr_t loadbuf_size;
+  uint32_t marker_id_htable_size;
+  uint32_t colmin;
+  uint32_t coldiff;
+  uint32_t slen;
+  uint32_t marker_idx;
   int32_t sorted_idx;
-  char cc;
   int32_t retval;
+  char cc;
+  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
+  if (retval) {
+    goto update_marker_chroms_ret_1;
+  }
   if (wkspace_alloc_ul_checked(&already_seen, marker_ctl * sizeof(intptr_t)) ||
-      wkspace_alloc_ui_checked(&marker_id_map, marker_ct * sizeof(int32_t)) ||
-      wkspace_alloc_c_checked(&sorted_marker_ids, marker_ct * max_marker_id_len)) {
+      wkspace_alloc_ui_checked(&marker_uidx_to_idx, unfiltered_marker_ct * sizeof(int32_t))) {
     goto update_marker_chroms_ret_NOMEM;
   }
-  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-    marker_id_map[marker_idx] = marker_idx;
-  }
-  marker_uidx = 0;
-  marker_idx = 0;
-  do {
-    marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-    delta = next_set_ul(marker_exclude, marker_uidx, unfiltered_marker_ct) - marker_uidx;
-    memcpy(&(sorted_marker_ids[marker_idx * max_marker_id_len]), &(marker_ids[marker_uidx * max_marker_id_len]), delta * max_marker_id_len);
-    marker_idx += delta;
-    marker_uidx += delta;
-  } while (marker_idx < marker_ct);
-  if (qsort_ext(sorted_marker_ids, marker_ct, max_marker_id_len, strcmp_deref, (char*)marker_id_map, sizeof(int32_t))) {
-    goto update_marker_chroms_ret_NOMEM;
-  }
-  colid_ptr = scan_for_duplicate_ids(sorted_marker_ids, marker_ct, max_marker_id_len);
-  if (colid_ptr) {
-    LOGPREPRINTFWW("Error: Duplicate variant ID '%s'.\n", colid_ptr);
-    goto update_marker_chroms_ret_INVALID_FORMAT_2;
-  }
-
   fill_ulong_zero(already_seen, marker_ctl);
+  fill_uidx_to_idx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_uidx_to_idx);
   loadbuf = (char*)wkspace_base;
   loadbuf_size = wkspace_left;
   if (loadbuf_size > MAXLINEBUFLEN) {
@@ -2580,18 +2563,18 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
       }
     }
     slen = strlen_se(colid_ptr);
-    sorted_idx = bsearch_str(colid_ptr, slen, sorted_marker_ids, max_marker_id_len, marker_ct);
-    if (sorted_idx == -1) {
+    marker_uidx = id_htable_find(colid_ptr, slen, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len);
+    if (marker_uidx == 0xffffffffU) {
       miss_ct++;
       continue;
     }
-    if (is_set(already_seen, sorted_idx)) {
+    marker_idx = marker_uidx_to_idx[marker_uidx];
+    if (is_set(already_seen, marker_idx)) {
       colid_ptr[slen] = '\0';
       LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --update-chr file.\n", colid_ptr);
       goto update_marker_chroms_ret_INVALID_FORMAT_2;
     }
-    set_bit(already_seen, sorted_idx);
-    marker_idx = marker_id_map[((uint32_t)sorted_idx)];
+    set_bit(already_seen, marker_idx);
     sorted_idx = get_chrom_code(chrom_info_ptr, colx_ptr);
     if (sorted_idx < 0) {
       if ((!allow_extra_chroms) || (sorted_idx == -1)) {
@@ -15733,6 +15716,9 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       } while (ll_ptr2);
     }
   }
+  // todo: reimplement this in a manner that never performs a variant ID sort.
+  // chrom/pos-based sort is of course still needed, but that involves cheaper
+  // int64 comparisons.
   if (qsort_ext(marker_ids, tot_marker_ct, max_marker_id_len, strcmp_deref, (char*)pos_buf, sizeof(int32_t))) {
     goto merge_datasets_ret_NOMEM2;
   }

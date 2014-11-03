@@ -10333,7 +10333,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uintptr_t* index_data;
   uintptr_t* window_data;
   uintptr_t* window_data_ptr;
-  char* sorted_marker_ids;
+  char* sorted_missing_variant_ids;
   char* sorted_header_dict;
   char* loadbuft; // t is for text
   char* cur_a1;
@@ -10343,11 +10343,12 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   char* bufptr3;
   char* bufptr4;
   uint32_t* header_id_map;
-  uint32_t* marker_id_map;
+  uint32_t* marker_id_htable;
   uint32_t* parse_table;
   uint32_t* cur_parse_info;
   uint32_t* nsig_arr;
   uint32_t* pval_map;
+  uint32_t* marker_uidx_to_idx;
   uint32_t* marker_idx_to_uidx;
   double* sorted_pvals;
   Clump_missing_id* cm_ptr;
@@ -10373,6 +10374,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   double cur_r2;
   double max_r2;
   double dxx;
+  uint32_t marker_id_htable_size;
   uint32_t annot_ct_p2;
   uint32_t annot_ct_p2_ctl;
   uint32_t cur_read_ct;
@@ -10432,15 +10434,17 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       goto clump_reports_ret_1;
     }
   }
-  // 2. sort marker IDs and allocate index-tracking bitfield
-  retval = sort_item_ids(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_ct, marker_ids, max_marker_id_len, 0, 1, strcmp_deref);
+  // 2. create marker ID hash table, allocate index-tracking bitfield
+  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
   if (retval) {
     goto clump_reports_ret_1;
   }
-  if (wkspace_alloc_ul_checked(&cur_bitfield, marker_ctl * sizeof(intptr_t))) {
+  if (wkspace_alloc_ul_checked(&cur_bitfield, marker_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ui_checked(&marker_uidx_to_idx, unfiltered_marker_ct * sizeof(int32_t))) {
     goto clump_reports_ret_NOMEM;
   }
   fill_ulong_zero(cur_bitfield, marker_ctl);
+  fill_uidx_to_idx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_uidx_to_idx);
   if (clump_ip->snpfield_search_order) {
     snpfield_search_ct = count_and_measure_multistr(clump_ip->snpfield_search_order, &max_header_len);
   } else {
@@ -10687,8 +10691,8 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	LOGPREPRINTFWW("Error: Negative p-value on line %" PRIuPTR " of %s.\n", line_idx, fname_ptr);
 	goto clump_reports_ret_INVALID_FORMAT_2;
       }
-      ii = bsearch_str(&(loadbuft[cur_parse_info[0]]), cur_parse_info[1], sorted_marker_ids, max_marker_id_len, marker_ct);
-      if (ii == -1) {
+      marker_uidx = id_htable_find(&(loadbuft[cur_parse_info[0]]), cur_parse_info[1], marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len);
+      if (marker_uidx == 0xffffffffU) {
 	// variant ID not in current fileset
 	if ((pval <= p1_thresh) && index_eligible) {
 	  // actually a top variant, track it
@@ -10706,7 +10710,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	}
 	continue;
       }
-      marker_idx = marker_id_map[(uint32_t)ii];
+      marker_idx = marker_uidx_to_idx[marker_uidx];
       if (pval > load_pthresh) {
 	if (pval >= 0.05) {
 	  if (pval > 1) {
@@ -11540,27 +11544,27 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   }
   putc('\n', outfile);
   if (missing_variant_ct) {
-    // 1. sort by ID
+    // 1. sort by ID (could switch this to hash table-based too)
     // 2. pick smallest pval when duplicates present
     // 3. sort by pval
     // 4. write results
     wkspace_reset(wkspace_mark);
-    if (wkspace_alloc_c_checked(&sorted_marker_ids, missing_variant_ct * max_missing_id_len) ||
+    if (wkspace_alloc_c_checked(&sorted_missing_variant_ids, missing_variant_ct * max_missing_id_len) ||
 	wkspace_alloc_d_checked(&sorted_pvals, missing_variant_ct * sizeof(double))) {
       goto clump_reports_ret_NOMEM;
     }
     for (ulii = 0; ulii < missing_variant_ct; ulii++) {
       cm_ptr = not_found_list;
-      strcpy(&(sorted_marker_ids[ulii * max_missing_id_len]), cm_ptr->idstr);
+      strcpy(&(sorted_missing_variant_ids[ulii * max_missing_id_len]), cm_ptr->idstr);
       sorted_pvals[ulii] = cm_ptr->pval;
       not_found_list = not_found_list->next;
       free(cm_ptr);
     }
-    if (qsort_ext(sorted_marker_ids, missing_variant_ct, max_missing_id_len, strcmp_deref, (char*)sorted_pvals, sizeof(double))) {
+    if (qsort_ext(sorted_missing_variant_ids, missing_variant_ct, max_missing_id_len, strcmp_deref, (char*)sorted_pvals, sizeof(double))) {
       goto clump_reports_ret_NOMEM;
     }
-    bufptr = sorted_marker_ids;
-    uii = strlen(sorted_marker_ids);
+    bufptr = sorted_missing_variant_ids;
+    uii = strlen(sorted_missing_variant_ids);
     for (ulii = 1; ulii < missing_variant_ct; ulii++) {
       bufptr2 = &(bufptr[max_missing_id_len]);
       ujj = strlen(bufptr2);
@@ -11593,24 +11597,24 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       uii = ujj;
     }
     missing_variant_ct = ulii;
-    if (qsort_ext((char*)sorted_pvals, missing_variant_ct, sizeof(double), double_cmp_deref, sorted_marker_ids, max_missing_id_len)) {
+    if (qsort_ext((char*)sorted_pvals, missing_variant_ct, sizeof(double), double_cmp_deref, sorted_missing_variant_ids, max_missing_id_len)) {
       goto clump_reports_ret_NOMEM;
     }
     if (clump_verbose) {
       for (ulii = 0; ulii < missing_variant_ct; ulii++) {
-	fputs(&(sorted_marker_ids[ulii * max_missing_id_len]), outfile);
+	fputs(&(sorted_missing_variant_ids[ulii * max_missing_id_len]), outfile);
 	fputs(" not found in dataset\n", outfile);
       }
       LOGPRINTF("%" PRIuPTR " top variant ID%s missing; see the end of the .clumped file.\n", missing_variant_ct, (missing_variant_ct == 1)? "" : "s");
     } else {
       uljj = MINV(missing_variant_ct, 3);
       for (ulii = 0; ulii < uljj; ulii++) {
-	LOGPRINTFWW("Warning: '%s' is missing from the main dataset, and is a top variant.\n", &(sorted_marker_ids[ulii * max_missing_id_len]));
+	LOGPRINTFWW("Warning: '%s' is missing from the main dataset, and is a top variant.\n", &(sorted_missing_variant_ids[ulii * max_missing_id_len]));
       }
       if (missing_variant_ct > 3) {
         printf("%" PRIuPTR " more top variant ID%s missing; see log file.\n", missing_variant_ct - 3, (missing_variant_ct == 4)? "" : "s");
 	for (ulii = 3; ulii < missing_variant_ct; ulii++) {
-	  LOGPREPRINTFWW("Warning: '%s' is missing from the main dataset, and is a top variant.\n", &(sorted_marker_ids[ulii * max_missing_id_len]));
+	  LOGPREPRINTFWW("Warning: '%s' is missing from the main dataset, and is a top variant.\n", &(sorted_missing_variant_ids[ulii * max_missing_id_len]));
 	  logstr(logbuf);
 	}
       }

@@ -3255,6 +3255,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     }
     wkspace_left += topsize;
     rewind(infile);
+    // todo: switch to hash table to avoid sort
     retval = read_tokens(infile, tbuf, MAXLINELEN, extract_ct, max_extract_id_len, sorted_extract_ids);
     if (retval) {
       goto gene_report_ret_1;
