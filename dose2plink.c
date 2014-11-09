@@ -686,7 +686,6 @@ int32_t main(int32_t argc, char** argv) {
   size_t sztmp;
 #else
 #ifdef _WIN32
-  SYSTEM_INFO sysinfo;
   MEMORYSTATUSEX memstatus;
 #endif
 #endif
