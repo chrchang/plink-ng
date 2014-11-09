@@ -10879,6 +10879,17 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	filter_flags |= FILTER_BIM_REQ | FILTER_SET_MISSING_VAR_IDS | FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "core", 5)) {
+	if (load_rare & LOAD_RARE_DOSAGE) {
+	  if (dosage_info.modifier & DOSAGE_OCCUR) {
+	    logprint("Error: --dosage 'occur' mode cannot be used with --score.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
+	  }
+	  if (glm_modifier & GLM_STANDARD_BETA) {
+	    logprint("Error: --dosage + --score cannot be used with association analysis\nmodifiers/flags.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+	  }
+	  dosage_info.modifier += (DOSAGE_SCORE - DOSAGE_GLM);
+	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 7)) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -11985,6 +11996,8 @@ int32_t main(int32_t argc, char** argv) {
 	if (!(dosage_info.modifier & DOSAGE_GLM)) {
 	  if (dosage_info.modifier & DOSAGE_OCCUR) {
 	    logprint("Error: --write-dosage cannot be used with '--dosage occur'.\n");
+	  } else if (dosage_info.modifier & DOSAGE_SCORE) {
+	    logprint("Error: --write-dosage cannot be used with --score.\n");
 	  } else {
 	    logprint("Error: --write-dosage must be used with --dosage.\n");
 	  }
@@ -12673,12 +12686,12 @@ int32_t main(int32_t argc, char** argv) {
     }
   }
   if (load_rare == LOAD_RARE_DOSAGE) {
-    if (calculation_type) {
+    if (calculation_type & (~CALC_SCORE)) {
       // with --dosage, there *can't* be anything else to do
       logprint("Error: --dosage cannot be used with other PLINK computations.\n");
       goto main_ret_INVALID_CMDLINE;
     }
-    retval = plink1_dosage(&dosage_info, famname, mapname, outname, outname_end, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, makepheno_str, phenoname_str, covar_fname, qual_filter, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, filtervals_flattened, filter_attrib_fname, filter_attrib_liststr, filter_attrib_sample_fname, filter_attrib_sample_liststr, qual_min_thresh, qual_max_thresh, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, mpheno_col, pheno_modifier, &chrom_info, tail_bottom, tail_top, misc_flags, filter_flags, sex_missing_pheno, update_sex_col, &cluster, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, mwithin_col, glm_modifier, glm_vif_thresh, output_min_p);
+    retval = plink1_dosage(&dosage_info, famname, mapname, outname, outname_end, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, makepheno_str, phenoname_str, covar_fname, qual_filter, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, filtervals_flattened, filter_attrib_fname, filter_attrib_liststr, filter_attrib_sample_fname, filter_attrib_sample_liststr, qual_min_thresh, qual_max_thresh, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, mpheno_col, pheno_modifier, &chrom_info, tail_bottom, tail_top, misc_flags, filter_flags, sex_missing_pheno, update_sex_col, &cluster, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, mwithin_col, glm_modifier, glm_vif_thresh, output_min_p, &score_info);
     // unconditional; note that plink1_dosage() currently doesn't even bother
     // to pop stuff off the stack when it's done
     goto main_ret_1;

@@ -1010,10 +1010,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * 'Zout' causes the output file to be gzipped.\n"
 "    * Normally, an association analysis is performed.  'standard-beta' behaves\n"
 "      as it does with --linear.\n"
-"    * There are two alternate modes which cause the association analysis to be\n"
-"      skipped.  'occur' requests a simple variant occurrence report, while\n"
-"      --write-dosage causes a simple merged file matching the 'format'\n"
-"      specification (not including 'dose1') to be generated.\n\n"
+"    * There are three alternate modes which cause the association analysis to\n"
+"      be skipped.\n"
+"      * 'occur' requests a simple variant occurrence report.\n"
+"      * --write-dosage causes a simple merged file matching the 'format'\n"
+"        specification (not including 'dose1') to be generated.\n"
+"      * --score applies a linear scoring system to the dosages.\n\n"
 	       );
     help_print("lasso", &help_ctrl, 1,
 "  --lasso [h2 estimate] {min lambda} <report-zeroes>\n"
@@ -1213,7 +1215,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      observations instead (decreasing the denominator in the final average\n"
 "      when this happens), use the 'no-mean-imputation' modifier.\n"
 "    * Alternatively, you can use the 'center' modifier to shift all scores to\n"
-"      mean zero.\n\n"
+"      mean zero.\n"
+"    * This command can be used with dosage data.\n\n"
 	       );
     /*
     help_print("regress-pcs\tregress-pcs-distance", &help_ctrl, 1,

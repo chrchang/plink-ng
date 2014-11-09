@@ -3658,6 +3658,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   uint32_t ploidy = 0;
   uint32_t max_rangename_len = 0;
   uint32_t rangename_len = 0;
+  uint32_t marker_id_htable_size = geqprime(marker_ct * 2 + 1);
   int32_t retval = 0;
   double female_effect_size[4];
   int32_t female_allele_ct_delta[4];
@@ -3670,8 +3671,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   uintptr_t* lbptr;
   char* bufptr;
   char* loadbuf_c;
-  char* sorted_marker_ids;
-  uint32_t* marker_id_map;
+  uint32_t* marker_id_htable;
   uint32_t* miss_cts;
   int32_t* named_allele_ct_deltas;
   double* score_deltas;
@@ -3711,25 +3711,19 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   int32_t delta1;
   int32_t delta2;
   int32_t deltam;
-  int32_t sorted_idx;
-  sorted_marker_ids = (char*)top_alloc(&topsize, marker_ct * max_marker_id_len);
-  if (!sorted_marker_ids) {
+  marker_id_htable = (uint32_t*)top_alloc(&topsize, marker_id_htable_size * sizeof(int32_t));
+  if (!marker_id_htable) {
     goto score_report_ret_NOMEM;
   }
-  marker_id_map = (uint32_t*)top_alloc(&topsize, marker_ct * sizeof(int32_t));
-  if (!marker_id_map) {
-    goto score_report_ret_NOMEM;
+  retval = populate_id_htable(unfiltered_marker_ct, marker_exclude_orig, marker_ct, marker_ids, max_marker_id_len, 0, marker_id_htable, marker_id_htable_size);
+  if (retval) {
+    goto score_report_ret_1;
   }
   dptr = (double*)top_alloc(&topsize, unfiltered_marker_ct * sizeof(double));
   if (!dptr) {
     goto score_report_ret_NOMEM;
   }
   wkspace_left -= topsize;
-  retval = sort_item_ids_noalloc(sorted_marker_ids, marker_id_map, unfiltered_marker_ct, marker_exclude_orig, marker_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
-  if (retval) {
-    wkspace_left += topsize;
-    goto score_report_ret_1;
-  }
   if (wkspace_alloc_ul_checked(&marker_exclude, unfiltered_marker_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&a2_effect, unfiltered_marker_ctl * sizeof(intptr_t))) {
     goto score_report_ret_NOMEM2;
@@ -3805,9 +3799,8 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
     if (!bufptr_arr[2]) {
       goto score_report_ret_MISSING_TOKENS;
     }
-    sorted_idx = bsearch_str(bufptr_arr[varid_idx], strlen_se(bufptr_arr[varid_idx]), sorted_marker_ids, max_marker_id_len, marker_ct);
-    if (sorted_idx != -1) {
-      marker_uidx = marker_id_map[(uint32_t)sorted_idx];
+    marker_uidx = id_htable_find(bufptr_arr[varid_idx], strlen_se(bufptr_arr[varid_idx]), marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len);
+    if (marker_uidx != 0xffffffffU) {
       bufptr_arr[allele_idx][strlen_se(bufptr_arr[allele_idx])] = '\0';
       uii = strcmp(bufptr_arr[allele_idx], marker_allele_ptrs[2 * marker_uidx]);
       if ((!uii) || (!strcmp(bufptr_arr[allele_idx], marker_allele_ptrs[2 * marker_uidx + 1]))) {
@@ -3905,9 +3898,8 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
       if (!bufptr_arr[1]) {
         goto score_report_ret_MISSING_TOKENS_Q;
       }
-      sorted_idx = bsearch_str(bufptr_arr[varid_idx], strlen_se(bufptr_arr[varid_idx]), sorted_marker_ids, max_marker_id_len, marker_ct);
-      if (sorted_idx != -1) {
-	marker_uidx = marker_id_map[(uint32_t)sorted_idx];
+      marker_uidx = id_htable_find(bufptr_arr[varid_idx], strlen_se(bufptr_arr[varid_idx]), marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len);
+      if (marker_uidx != 0xffffffffU) {
         if (!IS_SET(marker_exclude, marker_uidx)) {
 	  if (scan_double(bufptr_arr[1 - varid_idx], &dxx) || (dxx != dxx)) {
 	    miss_ct++;
