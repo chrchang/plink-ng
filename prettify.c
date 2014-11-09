@@ -449,9 +449,7 @@ int32_t main(int32_t argc, char** argv) {
     }
   }
 
-  if ((argc == 1) || ((argc == 2) && ((!strcmp(argv[1], "--help")) || (!strcmp(argv[1], "-help"))))) {
-    goto main_ret_HELP;
-  } else if (argc > 10) {
+  if (argc > 10) {
     fputs("Error: Too many parameters.\n\n", stderr);
     goto main_ret_INVALID_CMDLINE_2;
   }

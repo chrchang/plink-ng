@@ -87,5 +87,11 @@ nsort: nsort.c
 interval_merge: interval_merge.c
 	gcc -Wall -O2 interval_merge.c -o interval_merge
 
+dose2plink32: dose2plink.c
+	g++ -Wall -O2 -lm -m32 dose2plink.c -o dose2plink -L. $(ZLIB)
+
+dose2plink: dose2plink.c
+	g++ -Wall -O2 -lm dose2plink.c -o dose2plink -L. $(ZLIB64)
+
 clobber:
 	rm -f *.o

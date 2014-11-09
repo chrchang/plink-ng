@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (2 Nov 2014) ";
+  " (9 Nov 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -123,8 +123,6 @@ const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip
 const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --freqx, --missing, --test-mishap, --hardy, --mendel, --ibc,\n--impute-sex, --indep-pairphase, --r2, --show-tags, --blocks, --distance,\n--genome, --homozyg, --make-rel, --make-grm-gz, --rel-cutoff, --cluster,\n--neighbour, --ibs-test, --regress-distance, --model, --bd, --gxe, --logistic,\n--dosage, --lasso, --test-missing, --make-perm-pheno, --tdt, --qfam,\n--annotate, --clump, --gene-report, --meta-analysis, --fast-epistasis, and\n--score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #endif
 #endif
-
-intptr_t malloc_size_mb = 0;
 
 unsigned char* wkspace;
 
@@ -2997,6 +2995,7 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t mfilter_col = 0;
   uint32_t pheno_modifier = 0;
   int32_t missing_pheno = -9;
+  intptr_t malloc_size_mb = 0;
   uintptr_t groupdist_iters = ITERS_DEFAULT;
   uint32_t groupdist_d = 0;
   uintptr_t regress_iters = ITERS_DEFAULT;
@@ -3123,14 +3122,14 @@ int32_t main(int32_t argc, char** argv) {
   int32_t mib[2];
   size_t sztmp;
 #endif
-  unsigned char* wkspace_ua;
+  unsigned char* wkspace_ua = NULL;
+  char* bubble = NULL;
   char** subst_argv2;
   uint32_t param_ct;
   time_t rawtime;
   char* argptr;
   char* sptr;
   char* sptr2;
-  char* bubble;
   int32_t ii;
   int32_t jj;
   int32_t kk;
@@ -12649,6 +12648,7 @@ int32_t main(int32_t argc, char** argv) {
   wkspace_base = wkspace;
   wkspace_left = (malloc_size_mb * 1048576 - (uintptr_t)(wkspace - wkspace_ua)) & (~(CACHELINE - ONELU));
   free(bubble);
+  bubble = NULL;
 
   // standalone stuff
   if (epi_info.summary_merge_prefix) {
@@ -12757,7 +12757,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
       }
       if (retval || (!calculation_type)) {
-	goto main_ret_2;
+	goto main_ret_1;
       }
       memcpy(memcpya(pedname, outname, uii), ".bed", 5);
       memcpy(memcpya(mapname, outname, uii), ".bim", 5);
@@ -12776,8 +12776,6 @@ int32_t main(int32_t argc, char** argv) {
     }
     retval = plink(outname, outname_end, pedname, mapname, famname, cm_map_fname, cm_map_chrname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, read_dists_fname, read_dists_id_fname, evecname, mergename1, mergename2, mergename3, missing_mid_templates, missing_marker_id_match, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, update_alleles_fname, read_genome_fname, qual_filter, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, sample_sort_fname, filtervals_flattened, condition_mname, condition_fname, filter_attrib_fname, filter_attrib_liststr, filter_attrib_sample_fname, filter_attrib_sample_liststr, qual_min_thresh, qual_max_thresh, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, &oblig_missing_info, &family_info, check_sex_fthresh, check_sex_mthresh, check_sex_f_yobs, check_sex_m_yobs, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, tail_bottom, tail_top, misc_flags, filter_flags, calculation_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, parallel_idx, parallel_tot, splitx_bound1, splitx_bound2, ppc_gap, sex_missing_pheno, update_sex_col, hwe_modifier, genome_modifier, genome_min_pi_hat, genome_max_pi_hat, &homozyg, &cluster, neighbor_n1, neighbor_n2, &set_info, &ld_info, &epi_info, &clump_info, &rel_info, &score_info, recode_modifier, allelexxxx, merge_type, sample_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, write_var_range_ct, covar_modifier, &covar_range_list, write_covar_modifier, write_covar_dummy_max_categories, mwithin_col, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, &parameters_range_list, &tests_range_list, ci_size, pfilter, output_min_p, mtest_adjust, adjust_lambda, gxe_mcovar, &aperm, mperm_save, ibs_test_perms, perm_batch_size, lasso_h2, lasso_minlambda, &lasso_select_covars_range_list, testmiss_modifier, testmiss_mperm_val, permphe_ct, &file_delete_list);
   }
- main_ret_2:
-  free(wkspace_ua);
   while (0) {
   main_ret_NOMEM:
     retval = RET_NOMEM;
@@ -12831,6 +12829,8 @@ int32_t main(int32_t argc, char** argv) {
  main_ret_1:
   fclose_cond(scriptfile);
   disp_exit_msg(retval);
+  free_cond(bubble);
+  free_cond(wkspace_ua);
   free_cond(subst_argv);
   free_cond(script_buf);
   free_cond(rerun_buf);
