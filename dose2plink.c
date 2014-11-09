@@ -116,6 +116,12 @@ unsigned char* wkspace;
 unsigned char* wkspace_base;
 uintptr_t wkspace_left;
 
+void wkspace_reset(void* new_base) {
+  uintptr_t freed_bytes = wkspace_base - (unsigned char*)new_base;
+  wkspace_base = (unsigned char*)new_base;
+  wkspace_left += freed_bytes;
+}
+
 #define WKSPACE_MIN_MB 129
 #define WKSPACE_DEFAULT_MB 2048
 
@@ -135,7 +141,7 @@ void disp_usage(FILE* stream) {
 "  -i, --info [fname]   : Specify full .info/.mlinfo filename.  Required.\n"
 "  -o, --out [prefix]   : Set output filename prefix (default 'plink_dosage').\n"
 "  -m, -memory [val]    : Set size, in MB, of initial workspace malloc attempt.\n"
-"  --no-gz (or '-gz 0') : Turn off zipping of the output .pdat file.\n\n"
+"  --no-gz (or '-gz 0') : Turn off zipping of the output .pdat file.\n"
 , stream);
 }
 
@@ -674,7 +680,7 @@ int32_t main(int32_t argc, char** argv) {
   uintptr_t marker_ct = 0;
   uintptr_t sample_ct = 0;
   uintptr_t dosagebuf_width = 1;
-  uintptr_t max_line_len = MINLINEBUFLEN - 1;
+  uintptr_t next_loadbuf_size = MINLINEBUFLEN - 1;
   intptr_t malloc_size_mb = 0;
   uint32_t dosename_param_idx = 0;
   uint32_t infoname_param_idx = 0;
@@ -694,6 +700,7 @@ int32_t main(int32_t argc, char** argv) {
   uintptr_t dosagebuf_size;
   uintptr_t sample_idx;
   uintptr_t marker_idx;
+  uintptr_t marker_idx_start;
   uintptr_t ulii;
   double* dosagebuf;
   double* dptr;
@@ -704,6 +711,7 @@ int32_t main(int32_t argc, char** argv) {
   char* bufptr3;
   int64_t llxx;
   uint32_t param_idx;
+  uint32_t pass_idx;
   uint32_t uii;
   unsigned char ucc;
   unsigned char ucc2;
@@ -1079,18 +1087,25 @@ int32_t main(int32_t argc, char** argv) {
     sample_ct++;
   main_update_max_line_1:
     ulii = strlen(bufptr) + (uintptr_t)(bufptr - loadbuf);
-    if (ulii >= max_line_len) {
-      max_line_len = ulii + 1;
+    if (ulii >= next_loadbuf_size) {
+      next_loadbuf_size = ulii + 1;
     }
   }
   if (fclose_null(&outfile_pfam)) {
     goto main_ret_WRITE_FAIL;
   }
-  ;;;
 
   numbuf[0] = '\t';
+  fputs("Starting dose2plink ("
+#ifdef __LP64__
+"64"
+#else
+"32"
+#endif
+	"-bit).\n", stdout);
+
   // pass 1, read .info and write .pdat
-  for (marker_idx = ~ZEROLU; marker_idx != dosagebuf_width; marker_idx++) {
+  for (marker_idx = ~ZEROLU; marker_idx != dosagebuf_width;) {
     info_line_idx++;
     if (!gzgets(infofile, loadbuf, loadbuf_size)) {
       if (!gzeof(infofile)) {
@@ -1205,24 +1220,159 @@ int32_t main(int32_t argc, char** argv) {
 	}
       }
     }
+    marker_idx++;
   main_update_max_line_2:
     ulii = strlen(bufptr) + (uintptr_t)(bufptr - loadbuf);
-    if (ulii >= max_line_len) {
-      max_line_len = ulii + 1;
+    if (ulii >= next_loadbuf_size) {
+      next_loadbuf_size = ulii + 1;
     }
   }
 
-  if (dosagebuf_width == marker_ct) {
-    printf("%s written (%" PRIuPTR " markers, %" PRIuPTR " samples).\n", outname, marker_ct, sample_ct);
-  } else {
-    printf("multipass unfinished\n");
-    exit(1);
+  if (dosagebuf_width < marker_ct) {
+    pass_idx = 0;
+    marker_idx_start = dosagebuf_width;
+    wkspace_reset(loadbuf);
+    loadbuf_size = CACHEALIGN(next_loadbuf_size);
+    loadbuf = (char*)wkspace_alloc(loadbuf_size);
+    loadbuf[loadbuf_size - 1] = ' ';
+    dosagebuf_width = wkspace_left / (sizeof(double) * sample_ct);
+    dosagebuf = (double*)wkspace_base;
     do {
+      pass_idx++;
+      printf("Pass %u complete (%" PRIuPTR "/%" PRIuPTR ").\n", pass_idx, marker_idx_start, marker_ct);
+      if (marker_ct - marker_idx_start < dosagebuf_width) {
+	dosagebuf_width = marker_ct - marker_idx_start;
+      }
       dose_line_idx = 0;
+      gzrewind(dosefile);
       // later passes: read .dose
+      dptr = dosagebuf;
+      for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
+        do {
+	  dose_line_idx++;
+	  if (!gzgets(dosefile, loadbuf, loadbuf_size)) {
+            goto main_ret_READ_FAIL;
+	  }
+	  bufptr = skip_initial_spaces(loadbuf);
+	} while (is_eoln_kns(*bufptr));
+        bufptr = next_token_mult(bufptr, 2 + marker_idx_start);
+	for (marker_idx = 0; marker_idx < dosagebuf_width; marker_idx++) {
+          if (scan_double(bufptr, dptr)) {
+	    fprintf(stderr, "Error: Invalid dosage value on line %" PRIuPTR " of --dose file.\n", dose_line_idx);
+	    goto main_ret_INVALID_FORMAT;
+	  }
+	  dptr++;
+	  bufptr = skip_initial_spaces(token_endnn(bufptr));
+	}
+      }
+
       // later passes: read .info and write .pdat
-    } while (0);
+      for (marker_idx = 0; marker_idx < dosagebuf_width;) {
+	// marker_idx is actually an offset here
+	info_line_idx++;
+	if (!gzgets(infofile, loadbuf, loadbuf_size)) {
+	  if (!gzeof(infofile)) {
+	    goto main_ret_READ_FAIL;
+	  }
+          fputs("Error: --info file has fewer lines than expected.\n", stderr);
+	  goto main_ret_INVALID_FORMAT;
+	}
+	if (!loadbuf[loadbuf_size - 1]) {
+	  if (loadbuf_size == MAXLINEBUFLEN) {
+	    fprintf(stderr, "Error: Line %" PRIuPTR " of --info file is pathologically long.\n", info_line_idx);
+	    goto main_ret_INVALID_FORMAT;
+	  }
+	  goto main_ret_NOMEM;
+	}
+	bufptr = skip_initial_spaces(loadbuf);
+	if (is_eoln_kns(*bufptr)) {
+	  continue;
+	}
+	// er, this belongs in a function
+	bufptr2 = token_endnn(bufptr);
+	dptr = &(dosagebuf[marker_idx]);
+	if (gzip_pdat) {
+	  if (!gzwrite(gz_outfile_pdat, bufptr, bufptr2 - bufptr)) {
+	    goto main_ret_WRITE_FAIL;
+	  }
+	  bufptr = skip_initial_spaces(bufptr2);
+	  if (is_eoln_kns(*bufptr)) {
+	    fprintf(stderr, "Error: Fewer tokens than expected on line %" PRIuPTR " of --info file.\n", info_line_idx);
+	    goto main_ret_INVALID_FORMAT;
+	  }
+	  bufptr2 = token_endnn(bufptr);
+	  *(--bufptr) = '\t';
+	  if (!gzwrite(gz_outfile_pdat, bufptr, bufptr2 - bufptr)) {
+	    goto main_ret_WRITE_FAIL;
+	  }
+	  bufptr = skip_initial_spaces(bufptr2);
+	  if (is_eoln_kns(*bufptr)) {
+	    fprintf(stderr, "Error: Fewer tokens than expected on line %" PRIuPTR " of --info file.\n", info_line_idx);
+	    goto main_ret_INVALID_FORMAT;
+	  }
+	  bufptr2 = token_endnn(bufptr);
+	  *(--bufptr) = '\t';
+	  if (!gzwrite(gz_outfile_pdat, bufptr, bufptr2 - bufptr)) {
+	    goto main_ret_WRITE_FAIL;
+	  }
+	  for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
+	    *double_g_write(&(numbuf[1]), dptr[sample_idx * dosagebuf_width]) = '\0';
+	    if (gzputs(gz_outfile_pdat, numbuf) == -1) {
+	      goto main_ret_WRITE_FAIL;
+	    }
+	  }
+	  if (gzputc(gz_outfile_pdat, '\n') == -1) {
+	    goto main_ret_WRITE_FAIL;
+	  }
+	} else {
+	  if (fwrite_checked(bufptr, bufptr2 - bufptr, outfile_pdat)) {
+	    goto main_ret_WRITE_FAIL;
+	  }
+	  bufptr = skip_initial_spaces(bufptr2);
+	  if (is_eoln_kns(*bufptr)) {
+	    fprintf(stderr, "Error: Fewer tokens than expected on line %" PRIuPTR " of --info file.\n", info_line_idx);
+	    goto main_ret_INVALID_FORMAT;
+	  }
+	  bufptr2 = token_endnn(bufptr);
+	  *(--bufptr) = '\t';
+	  if (fwrite_checked(bufptr, bufptr2 - bufptr, outfile_pdat)) {
+	    goto main_ret_WRITE_FAIL;
+	  }
+	  bufptr = skip_initial_spaces(bufptr2);
+	  if (is_eoln_kns(*bufptr)) {
+	    fprintf(stderr, "Error: Fewer tokens than expected on line %" PRIuPTR " of --info file.\n", info_line_idx);
+	    goto main_ret_INVALID_FORMAT;
+	  }
+	  bufptr2 = token_endnn(bufptr);
+	  *(--bufptr) = '\t';
+	  if (fwrite_checked(bufptr, bufptr2 - bufptr, outfile_pdat)) {
+	    goto main_ret_WRITE_FAIL;
+	  }
+	  for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
+	    *double_g_write(&(numbuf[1]), dptr[sample_idx * dosagebuf_width]) = '\0';
+	    fputs(numbuf, outfile_pdat);
+	  }
+	  if (putc_checked('\n', outfile_pdat)) {
+	    goto main_ret_WRITE_FAIL;
+	  }
+	}
+	marker_idx++;
+      }
+      marker_idx_start += dosagebuf_width;
+    } while (marker_idx_start < marker_ct);
   }
+  if (gzip_pdat) {
+    if (gzclose(gz_outfile_pdat) != Z_OK) {
+      gz_outfile_pdat = NULL;
+      goto main_ret_WRITE_FAIL;
+    }
+    gz_outfile_pdat = NULL;
+  } else {
+    if (fclose_null(&outfile_pdat)) {
+      goto main_ret_WRITE_FAIL;
+    }
+  }
+  printf("%s written (%" PRIuPTR " markers, %" PRIuPTR " samples).\n", outname, marker_ct, sample_ct);
 
   while (0) {
   main_ret_HELP:
