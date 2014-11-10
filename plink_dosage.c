@@ -1331,8 +1331,12 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   }
   if (noheader) {
     if (infile_ct != 1) {
-      logprint("Error: --dosage 'noheader' modifier cannot be used with multiple input files.\n");
-      goto plink1_dosage_ret_INVALID_CMDLINE;
+      for (batch_idx = 0; batch_idx < batch_ct; batch_idx++) {
+	if (batch_sizes[batch_idx] != 1) {
+	  logprint("Error: --dosage 'noheader' modifier cannot be used with multifile batches.\n");
+	  goto plink1_dosage_ret_INVALID_CMDLINE;
+	}
+      }
     }
     // sorted_sample_ids = NULL;
   } else {

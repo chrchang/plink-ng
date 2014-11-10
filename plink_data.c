@@ -4901,7 +4901,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     retval = RET_INVALID_FORMAT;
     break;
   oxford_to_bed_ret_MISSING_TOKENS:
-    logprint("Error: Too few tokens in .sample line.\n");
+    LOGPRINTF("Error: Line %" PRIuPTR " of .sample file has fewer tokens than expected.\n", line_idx);
     retval = RET_INVALID_FORMAT;
     break;
   oxford_to_bed_ret_SAMPLE_LONG_LINE:
