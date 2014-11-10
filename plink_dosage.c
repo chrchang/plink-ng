@@ -23,7 +23,438 @@ void dosage_cleanup(Dosage_info* doip) {
 
 #define DOSAGE_EPSILON 0.000244140625
 
-int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* outname, char* outname_end, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* makepheno_str, char* phenoname_str, char* covar_fname, Two_col_params* qual_filter, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* filtervals_flattened, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_sample_fname, char* filter_attrib_sample_liststr, double qual_min_thresh, double qual_max_thresh, double thin_keep_prob, uint32_t thin_keep_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t fam_cols, int32_t missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t filter_flags, uint32_t sex_missing_pheno, uint32_t update_sex_col, Cluster_info* cluster_ptr, int32_t marker_pos_start, int32_t marker_pos_end, int32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t mwithin_col, uint32_t glm_modifier, double glm_vif_thresh, double output_min_p, Score_info* sc_ip) {
+int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_end, uintptr_t* score_marker_ct_ptr, uintptr_t* max_score_marker_id_len_ptr, char** score_marker_ids_ptr, char*** score_allele_codes_ptr, double** score_effect_sizes_ptr, uintptr_t** score_qrange_key_exists_ptr, double** score_qrange_keys_ptr, uintptr_t* qrange_ct_ptr, uintptr_t* max_qrange_name_len_ptr, char** score_qrange_names_ptr, double** score_qrange_bounds_ptr) {
+  // We don't necessarily have the whole variant ID list in advance, so it
+  // makes sense to deviate a bit from score_report().
+  //
+  // 1. Process main --score file in three passes.  First pass, just determine
+  //    variant count and maximum ID length; second pass, save and sort just
+  //    the relevant variant IDs and check for duplicates; third pass, save
+  //    allele codes and scores.
+  // 2. If --q-score-range was specified, load those files.
+  FILE* infile = NULL;
+  uintptr_t score_marker_ct = 0;
+  uintptr_t max_score_marker_id_len = 0;
+  uintptr_t miss_ct = 0;
+  uintptr_t marker_idx = 0;
+  uintptr_t qrange_ct = 0;
+  uintptr_t max_qrange_name_len = 0;
+  uint64_t allele_code_buf_len = 0;
+  uintptr_t* score_qrange_key_exists = NULL;
+  double* score_qrange_keys = NULL;
+  uint32_t modifier = sc_ip->modifier;
+  int32_t retval = 0;
+  char* bufptr_arr[3];
+  char* score_marker_ids;
+  char* score_qrange_names;
+  char** score_allele_codes;
+  double* score_effect_sizes;
+  double* score_qrange_bounds;
+  char* allele_code_buf;
+  char* loadbuf;
+  char* bufptr;
+  uintptr_t loadbuf_size;
+  uintptr_t score_marker_ctl;
+  uintptr_t line_idx;
+  uintptr_t ulii;
+  double lbound;
+  double ubound;
+  double dxx;
+  uint32_t first_col_m1;
+  uint32_t col_01_delta;
+  uint32_t col_12_delta;
+  uint32_t varid_idx;
+  uint32_t allele_idx;
+  uint32_t effect_idx;
+  uint32_t rangename_len_limit;
+  uint32_t slen;
+  int32_t ii;
+  loadbuf_size = wkspace_left;
+  if (loadbuf_size > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
+  } else if (loadbuf_size <= MAXLINELEN) {
+    goto dosage_load_score_files_ret_NOMEM;
+  }
+  loadbuf = (char*)wkspace_base;
+  retval = open_and_load_to_first_token(&infile, sc_ip->fname, loadbuf_size, '\0', "--score file", loadbuf, &bufptr, &line_idx);
+  if (retval) {
+    goto dosage_load_score_files_ret_1;
+  }
+  
+  if (sc_ip->varid_col < sc_ip->allele_col) {
+    first_col_m1 = sc_ip->varid_col;
+    varid_idx = 0;
+    if (sc_ip->allele_col < sc_ip->effect_col) {
+      col_01_delta = sc_ip->allele_col - first_col_m1;
+      col_12_delta = sc_ip->effect_col - sc_ip->allele_col;
+      allele_idx = 1;
+      effect_idx = 2;
+    } else {
+      allele_idx = 2;
+      if (sc_ip->varid_col < sc_ip->effect_col) {
+        col_01_delta = sc_ip->effect_col - first_col_m1;
+        col_12_delta = sc_ip->allele_col - sc_ip->effect_col;
+	effect_idx = 1;
+      } else {
+        first_col_m1 = sc_ip->effect_col;
+        col_01_delta = sc_ip->varid_col - first_col_m1;
+        col_12_delta = sc_ip->allele_col - sc_ip->varid_col;
+        varid_idx = 1;
+        effect_idx = 0;
+      }
+    }
+  } else {
+    first_col_m1 = sc_ip->allele_col;
+    allele_idx = 0;
+    if (sc_ip->varid_col < sc_ip->effect_col) {
+      col_01_delta = sc_ip->varid_col - first_col_m1;
+      col_12_delta = sc_ip->effect_col - sc_ip->varid_col;
+      varid_idx = 1;
+      effect_idx = 2;
+    } else {
+      varid_idx = 2;
+      if (sc_ip->allele_col < sc_ip->effect_col) {
+        col_01_delta = sc_ip->effect_col - first_col_m1;
+        col_12_delta = sc_ip->varid_col - sc_ip->effect_col;
+	effect_idx = 1;
+      } else {
+        first_col_m1 = sc_ip->effect_col;
+        col_01_delta = sc_ip->allele_col - first_col_m1;
+        col_12_delta = sc_ip->varid_col - sc_ip->allele_col;
+        allele_idx = 1;
+        effect_idx = 0;
+      }
+    }
+  }
+  first_col_m1--;
+  if (modifier & SCORE_HEADER) {
+    goto dosage_load_score_files_next1;
+  }
+  // first pass: validate, count
+  while (1) {
+    bufptr_arr[0] = next_token_multz(bufptr, first_col_m1);
+    bufptr_arr[1] = next_token_mult(bufptr_arr[0], col_01_delta);
+    bufptr_arr[2] = next_token_mult(bufptr_arr[1], col_12_delta);
+    if (!bufptr_arr[2]) {
+      goto dosage_load_score_files_ret_MISSING_TOKENS;
+    }
+    if (scan_double(bufptr_arr[effect_idx], &dxx)) {
+      miss_ct++;
+    } else {
+      ulii = strlen_se(bufptr_arr[varid_idx]) + 1;
+      if (ulii > max_score_marker_id_len) {
+	max_score_marker_id_len = ulii;
+      }
+      slen = strlen_se(bufptr_arr[allele_idx]);
+      if (slen > 1) {
+	allele_code_buf_len += slen + 1;
+      }
+      score_marker_ct++;
+    }
+  dosage_load_score_files_next1:
+    line_idx++;
+    if (!fgets(loadbuf, loadbuf_size, infile)) {
+      break;
+    }
+    if (!(loadbuf[loadbuf_size - 1])) {
+      if (loadbuf_size == MAXLINEBUFLEN) {
+        sprintf(logbuf, "Error: Line %" PRIuPTR " of --score file is pathologically long.\n", line_idx);
+        goto dosage_load_score_files_ret_INVALID_FORMAT_2;
+      }
+      goto dosage_load_score_files_ret_NOMEM;
+    }
+    bufptr = skip_initial_spaces(loadbuf);
+    if (is_eoln_kns(*bufptr)) {
+      goto dosage_load_score_files_next1;
+    }
+  }
+  if (!score_marker_ct) {
+    logprint("Error: No valid entries in --score file.\n");
+    goto dosage_load_score_files_ret_INVALID_FORMAT;
+  }
+  if (score_marker_ct >= 0x40000000) {
+    logprint("Error: --score does not support >= 2^30 variants.\n");
+    goto dosage_load_score_files_ret_INVALID_FORMAT;
+  }
+#ifndef __LP64__
+  if (allele_code_buf_len > 0x7fffffff) {
+    goto dosage_load_score_files_ret_NOMEM;
+  }
+#endif
+  if (wkspace_alloc_c_checked(score_marker_ids_ptr, score_marker_ct * max_score_marker_id_len) ||
+      wkspace_alloc_d_checked(score_effect_sizes_ptr, score_marker_ct * sizeof(double)) ||
+      wkspace_alloc_c_checked(&allele_code_buf, (uintptr_t)allele_code_buf_len)) {
+    goto dosage_load_score_files_ret_NOMEM;
+  }
+  score_marker_ids = *score_marker_ids_ptr;
+  score_effect_sizes = *score_effect_sizes_ptr;
+  score_marker_ctl = (score_marker_ct + (BITCT - 1)) / BITCT;
+  if (sc_ip->data_fname) {
+    if (wkspace_alloc_ul_checked(score_qrange_key_exists_ptr, score_marker_ctl * sizeof(intptr_t)) ||
+        wkspace_alloc_d_checked(score_qrange_keys_ptr, score_marker_ct * sizeof(double))) {
+      goto dosage_load_score_files_ret_NOMEM;
+    }
+    score_qrange_key_exists = *score_qrange_key_exists_ptr;
+    score_qrange_keys = *score_qrange_keys_ptr;
+    fill_ulong_zero(score_qrange_key_exists, score_marker_ctl);
+  }
+  score_allele_codes = (char**)wkspace_alloc(score_marker_ct * sizeof(intptr_t));
+  if (!score_allele_codes) {
+    goto dosage_load_score_files_ret_NOMEM;
+  }
+  *score_allele_codes_ptr = score_allele_codes;
+  rewind(infile);
+  loadbuf_size = wkspace_left;
+  if (loadbuf_size > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
+  } else if (loadbuf_size <= MAXLINELEN) {
+    goto dosage_load_score_files_ret_NOMEM;
+  }
+  loadbuf = (char*)wkspace_base;
+  loadbuf[loadbuf_size - 1] = ' ';
+  // pass 2: load and sort variant IDs
+  retval = load_to_first_token(infile, loadbuf_size, '\0', "--score file", loadbuf, &bufptr, &line_idx);
+  if (modifier & SCORE_HEADER) {
+    goto dosage_load_score_files_next2;
+  }
+  while (1) {
+    bufptr_arr[0] = next_token_multz(bufptr, first_col_m1);
+    bufptr_arr[1] = next_token_mult(bufptr_arr[0], col_01_delta);
+    bufptr_arr[2] = next_token_mult(bufptr_arr[1], col_12_delta);
+    if (!scan_double(bufptr_arr[effect_idx], &dxx)) {
+      slen = strlen_se(bufptr_arr[varid_idx]);
+      memcpyx(&(score_marker_ids[marker_idx * max_score_marker_id_len]), bufptr_arr[varid_idx], slen, '\0');
+      if (++marker_idx == score_marker_ct) {
+	break;
+      }
+    }
+  dosage_load_score_files_next2:
+    line_idx++;
+    if (!fgets(loadbuf, loadbuf_size, infile)) {
+      goto dosage_load_score_files_ret_READ_FAIL;
+    }
+    if (!(loadbuf[loadbuf_size - 1])) {
+      if (loadbuf_size == MAXLINEBUFLEN) {
+        sprintf(logbuf, "Error: Line %" PRIuPTR " of --score file is pathologically long.\n", line_idx);
+        goto dosage_load_score_files_ret_INVALID_FORMAT_2;
+      }
+      goto dosage_load_score_files_ret_NOMEM;
+    }
+    bufptr = skip_initial_spaces(loadbuf);
+    if (is_eoln_kns(*bufptr)) {
+      goto dosage_load_score_files_next2;
+    }
+  }
+  qsort(score_marker_ids, score_marker_ct, max_score_marker_id_len, strcmp_casted);
+  bufptr = scan_for_duplicate_ids(score_marker_ids, score_marker_ct, max_score_marker_id_len);
+  if (bufptr) {
+    LOGPREPRINTFWW("Error: Duplicate variant '%s' in --score file.\n", bufptr);
+    goto dosage_load_score_files_ret_INVALID_FORMAT_2;
+  }
+  rewind(infile);
+
+  // pass 3: load other stuff
+  retval = load_to_first_token(infile, loadbuf_size, '\0', "--score file", loadbuf, &bufptr, &line_idx);
+  ulii = 0;
+  if (modifier & SCORE_HEADER) {
+    goto dosage_load_score_files_next3;
+  }
+  while (1) {
+    bufptr_arr[0] = next_token_multz(bufptr, first_col_m1);
+    bufptr_arr[1] = next_token_mult(bufptr_arr[0], col_01_delta);
+    bufptr_arr[2] = next_token_mult(bufptr_arr[1], col_12_delta);
+    if (!scan_double(bufptr_arr[effect_idx], &dxx)) {
+      // guaranteed to succeed unless the user is overwriting the file between
+      // load passes, which we won't bother defending against
+      marker_idx = (uint32_t)bsearch_str(bufptr_arr[varid_idx], strlen_se(bufptr_arr[varid_idx]), score_marker_ids, max_score_marker_id_len, score_marker_ct);
+      score_effect_sizes[marker_idx] = dxx;
+      slen = strlen_se(bufptr_arr[allele_idx]);
+      if (slen == 1) {
+	score_allele_codes[marker_idx] = (char*)(&(g_one_char_strs[2 * bufptr_arr[allele_idx][0]]));
+      } else {
+	score_allele_codes[marker_idx] = allele_code_buf;
+        allele_code_buf = memcpyax(allele_code_buf, bufptr_arr[allele_idx], slen, '\0');
+      }
+      if (++ulii == score_marker_ct) {
+	break;
+      }
+    }
+  dosage_load_score_files_next3:
+    if (!fgets(loadbuf, loadbuf_size, infile)) {
+      goto dosage_load_score_files_ret_READ_FAIL;
+    }
+    bufptr = skip_initial_spaces(loadbuf);
+    if (is_eoln_kns(*bufptr)) {
+      goto dosage_load_score_files_next3;
+    }
+  }  
+  if (fclose_null(&infile)) {
+    goto dosage_load_score_files_ret_READ_FAIL;
+  }
+  LOGPRINTFWW("--score: %" PRIuPTR " entr%s loaded from %s.\n", score_marker_ct, (score_marker_ct == 1)? "y" : "ies", sc_ip->fname);
+  if (miss_ct) {
+    LOGPRINTF("Warning: %" PRIuPTR " line%s skipped.\n", miss_ct, (miss_ct == 1)? "" : "s");
+  }
+  *score_marker_ct_ptr = score_marker_ct;
+  *max_score_marker_id_len_ptr = max_score_marker_id_len;
+  if (sc_ip->data_fname) {
+    retval = open_and_load_to_first_token(&infile, sc_ip->data_fname, loadbuf_size, '\0', "--q-score-range data file", loadbuf, &bufptr, &line_idx);
+    if (retval) {
+      goto dosage_load_score_files_ret_1;
+    }
+    if (sc_ip->data_varid_col < sc_ip->data_col) {
+      first_col_m1 = sc_ip->data_varid_col;
+      col_01_delta = sc_ip->data_col - first_col_m1;
+      varid_idx = 0;
+    } else {
+      first_col_m1 = sc_ip->data_col;
+      col_01_delta = sc_ip->data_varid_col - first_col_m1;
+      varid_idx = 1;
+    }
+    first_col_m1--;
+    miss_ct = 0;
+    if (modifier & SCORE_DATA_HEADER) {
+      goto dosage_load_score_files_next4;
+    }
+    while (1) {
+      bufptr_arr[0] = next_token_multz(bufptr, first_col_m1);
+      bufptr_arr[1] = next_token_mult(bufptr_arr[0], col_01_delta);
+      if (!bufptr_arr[1]) {
+        goto dosage_load_score_files_ret_MISSING_TOKENS_Q;
+      }
+      ii = bsearch_str(bufptr_arr[varid_idx], strlen_se(bufptr_arr[varid_idx]), score_marker_ids, max_score_marker_id_len, score_marker_ct);
+      if (ii != -1) {
+        if (scan_double(bufptr_arr[1 - varid_idx], &dxx) || (dxx != dxx)) {
+	  miss_ct++;
+	} else {
+	  if (is_set(score_qrange_key_exists, ii)) {
+	    LOGPREPRINTFWW("Error: Duplicate variant '%s' in --q-score-range data file.\n", &(score_marker_ids[((uint32_t)ii) * max_score_marker_id_len]));
+	    goto dosage_load_score_files_ret_INVALID_FORMAT_2;
+	  }
+	  score_qrange_keys[(uint32_t)ii] = dxx;
+	  set_bit(score_qrange_key_exists, ii);
+	}
+      } else {
+	miss_ct++;
+      }
+    dosage_load_score_files_next4:
+      line_idx++;
+      if (!fgets(loadbuf, loadbuf_size, infile)) {
+	break;
+      }
+      if (!(loadbuf[loadbuf_size - 1])) {
+	if (loadbuf_size == MAXLINEBUFLEN) {
+	  sprintf(logbuf, "Error: Line %" PRIuPTR " of --q-score-range data file is pathologically long.\n", line_idx);
+	  goto dosage_load_score_files_ret_INVALID_FORMAT_2;
+	}
+	goto dosage_load_score_files_ret_NOMEM;
+      }
+      bufptr = skip_initial_spaces(loadbuf);
+      if (is_eoln_kns(*bufptr)) {
+	goto dosage_load_score_files_next4;
+      }
+    }
+    if (fclose_null(&infile)) {
+      goto dosage_load_score_files_ret_READ_FAIL;
+    }
+    if (miss_ct) {
+      LOGPRINTF("Warning: %" PRIuPTR " line%s skipped in --q-score-range data file.\n", miss_ct, (miss_ct == 1)? "" : "s");
+    }
+    if (fopen_checked(&infile, sc_ip->range_fname, "r")) {
+      goto dosage_load_score_files_ret_OPEN_FAIL;
+    }
+    rangename_len_limit = (FNAMESIZE - 10) - ((uintptr_t)(outname_end - outname));
+    tbuf[MAXLINELEN - 1] = ' ';
+    while (fgets(tbuf, MAXLINELEN, infile)) {
+      line_idx++;
+      if (!tbuf[MAXLINELEN - 1]) {
+        sprintf(logbuf, "Error: Line %" PRIuPTR " of --q-score-range range file is pathologically long.\n", line_idx);
+        goto dosage_load_score_files_ret_INVALID_FORMAT_2;
+      }
+      bufptr = skip_initial_spaces(tbuf);
+      if (is_eoln_kns(*bufptr)) {
+        continue;
+      }
+      slen = strlen_se(bufptr);
+      bufptr_arr[1] = skip_initial_spaces(&(bufptr[slen]));
+      bufptr_arr[2] = next_token(bufptr_arr[1]);
+      if ((!bufptr_arr[2]) || scan_double(bufptr_arr[1], &lbound) || scan_double(bufptr_arr[2], &ubound) || (lbound != lbound) || (ubound != ubound) || (lbound > ubound)) {
+	// count these skips?
+	continue;
+      }
+      if (slen > rangename_len_limit) {
+        sprintf(logbuf, "Error: Excessively long range name on line %" PRIuPTR " of --q-score-range range\nfile.\n", line_idx);
+        goto dosage_load_score_files_ret_INVALID_FORMAT_2;
+      }
+      qrange_ct++;
+      if (slen >= max_qrange_name_len) {
+	max_qrange_name_len = slen + 1;
+      }
+    }
+    if (!feof(infile)) {
+      goto dosage_load_score_files_ret_READ_FAIL;
+    }
+    if (!qrange_ct) {
+      logprint("Error: No valid entries in --q-score-range range file.\n");
+      goto dosage_load_score_files_ret_INVALID_FORMAT;
+    }
+    if (wkspace_alloc_c_checked(score_qrange_names_ptr, qrange_ct * max_qrange_name_len) ||
+        wkspace_alloc_d_checked(score_qrange_bounds_ptr, qrange_ct * 2 * sizeof(double))) {
+      goto dosage_load_score_files_ret_NOMEM;
+    }
+    score_qrange_names = *score_qrange_names_ptr;
+    score_qrange_bounds = *score_qrange_bounds_ptr;
+    rewind(infile);
+    ulii = 0; // range index
+    while (fgets(tbuf, MAXLINELEN, infile)) {
+      bufptr = skip_initial_spaces(tbuf);
+      if (is_eoln_kns(*bufptr)) {
+        continue;
+      }
+      slen = strlen_se(bufptr);
+      bufptr_arr[1] = skip_initial_spaces(&(bufptr[slen]));
+      bufptr_arr[2] = next_token(bufptr_arr[1]);
+      if ((!bufptr_arr[2]) || scan_double(bufptr_arr[1], &lbound) || scan_double(bufptr_arr[2], &ubound) || (lbound != lbound) || (ubound != ubound) || (lbound > ubound)) {
+	continue;
+      }
+      memcpyx(&(score_qrange_names[ulii * max_qrange_name_len]), bufptr, slen, '\0');
+      score_qrange_bounds[2 * ulii] = lbound;
+      score_qrange_bounds[2 * ulii + 1] = ubound;
+      ulii++;
+    }
+    if (fclose_null(&infile)) {
+      goto dosage_load_score_files_ret_READ_FAIL;
+    }
+    LOGPRINTF("--q-score-range: %" PRIuPTR " range%s loaded.\n", qrange_ct, (qrange_ct == 1)? "" : "s");
+  }
+  while (0) {
+  dosage_load_score_files_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  dosage_load_score_files_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  dosage_load_score_files_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  dosage_load_score_files_ret_MISSING_TOKENS_Q:
+    LOGPRINTF("Error: Line %" PRIuPTR " of --q-score-range data file has fewer tokens than\nexpected.\n", line_idx);
+    retval = RET_INVALID_FORMAT;
+    break;
+  dosage_load_score_files_ret_MISSING_TOKENS:
+    sprintf(logbuf, "Error: Line %" PRIuPTR " of --score file has fewer tokens than expected.\n", line_idx);
+  dosage_load_score_files_ret_INVALID_FORMAT_2:
+    logprintb();
+  dosage_load_score_files_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ dosage_load_score_files_ret_1:
+  fclose_cond(infile);
+  return retval;
+}
+
+int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* outname, char* outname_end, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* makepheno_str, char* phenoname_str, char* covar_fname, Two_col_params* qual_filter, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* filtervals_flattened, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_sample_fname, char* filter_attrib_sample_liststr, double qual_min_thresh, double qual_max_thresh, double thin_keep_prob, uint32_t thin_keep_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t fam_cols, int32_t missing_pheno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t filter_flags, uint32_t sex_missing_pheno, uint32_t update_sex_col, Cluster_info* cluster_ptr, int32_t marker_pos_start, int32_t marker_pos_end, int32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t mwithin_col, uint32_t glm_modifier, double glm_vif_thresh, double output_min_p, Score_info* sc_ip) {
   // sucks to duplicate so much, but this code will be thrown out later so
   // there's no long-term maintenance problem
   FILE* phenofile = NULL;
@@ -40,6 +471,9 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   char* sorted_sample_ids = NULL;
   char* sep_fnames = NULL;
   char* cur_marker_id_buf = NULL;
+  char* score_marker_ids = NULL;
+  char* score_qrange_names = NULL;
+  char** score_allele_codes = NULL;
   char* a1_ptr = NULL;
   char* a2_ptr = NULL;
   uintptr_t* marker_exclude = NULL;
@@ -54,9 +488,15 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uintptr_t* covar_nm = NULL;
   uintptr_t* perm_vec = NULL;
   uintptr_t* perm_fails = NULL; // need to enforce alignment
+  uintptr_t* score_qrange_key_exists = NULL;
   double* pheno_d = NULL;
   double* covar_d = NULL;
   double* cur_dosages2 = NULL;
+  double* score_effect_sizes = NULL;
+  double* score_qrange_keys = NULL;
+  double* score_qrange_bounds = NULL;
+  double* cur_scores = NULL;
+  double* score_bases = NULL;
 #ifndef NOLAPACK
   double* pheno_d2 = NULL;
   double* covars_cov_major_buf = NULL;
@@ -88,6 +528,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uint32_t* marker_id_htable = NULL;
   uint32_t* sample_id_map = NULL;
   uint32_t* batch_sizes = NULL;
+  uint32_t* score_range_obs_cts = NULL;
+  uint32_t* score_miss_cts = NULL;
   uint32_t* uiptr = NULL;
   uint32_t* uiptr2 = NULL;
   uint32_t* uiptr3 = NULL;
@@ -110,6 +552,10 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uintptr_t distinct_id_ct = 0; // occur mode
   uintptr_t max_occur_id_len = 0;
   uintptr_t marker_idx = 0;
+  uintptr_t score_marker_ct = 0;
+  uintptr_t max_score_marker_id_len = 0;
+  uintptr_t qrange_ct = 0;
+  uintptr_t max_qrange_name_len = 0;
   uintptr_t ulii = 0;
   double missing_phenod = (double)missing_pheno;
   uint32_t load_map = (mapname[0] != '\0');
@@ -120,11 +566,15 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uint32_t noheader = doip->modifier & DOSAGE_NOHEADER;
   uint32_t output_gz = doip->modifier & DOSAGE_ZOUT;
   uint32_t dose1 = doip->modifier & DOSAGE_DOSE1;
+  uint32_t score_report_average = doip->modifier & DOSAGE_SCORE_NOSUM;
+  uint32_t dosage_score_cnt = doip->modifier & DOSAGE_SCORE_CNT;
   uint32_t skip0 = doip->skip0;
   uint32_t skip1p1 = doip->skip1 + 1;
   uint32_t skip2 = doip->skip2;
   uint32_t format_val = doip->format;
   uint32_t standard_beta = glm_modifier & GLM_STANDARD_BETA;
+  uint32_t score_center = sc_ip->modifier & SCORE_CENTER;
+  uint32_t score_mean_impute = !(sc_ip->modifier & SCORE_NO_MEAN_IMPUTATION);
   uint32_t map_cols = 3;
   uint32_t map_is_unsorted = 0;
   uint32_t affection = 0;
@@ -134,6 +584,11 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uint32_t max_batch_size = 1;
   uint32_t cur_marker_id_len = 0;
   uint32_t marker_id_htable_size = 0;
+  uint32_t score_marker_idx = 0;
+  uint32_t score_a2_effect = 0;
+  uint32_t plink_maxfid = 0;
+  uint32_t plink_maxiid = 0;
+  uint32_t missing_pheno_len = 0;
   uint32_t a1_len = 0;
   uint32_t a2_len = 0;
   uint32_t ujj = 0;
@@ -148,6 +603,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   __CLPK_integer dgels_lwork;
 #endif
   char* missing_mid_templates[2];
+  char missing_pheno_str[32];
   unsigned char* wkspace_mark;
   char* fnames;
   char* loadbuf;
@@ -181,12 +637,15 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uintptr_t sample_valid_ct;
   uintptr_t param_ct;
   uintptr_t param_cta4;
+  uintptr_t qrange_idx;
   uintptr_t uljj;
   double sample_valid_ct_recip;
   double rsq;
   double pval;
   double beta;
   double se;
+  double score_cur_effect_size;
+  double score_missing_effect;
   double dxx;
   double dyy;
   double dzz;
@@ -204,10 +663,6 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   int32_t ii;
   missing_mid_templates[0] = NULL;
   missing_mid_templates[1] = NULL;
-  if (do_score) {
-    logprint("--dosage + --score is currently under development.\n");
-    exit(1);
-  }
   if (load_map) {
     retval = load_bim(mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, NULL, NULL, NULL, &ulii, &marker_ids, missing_mid_templates, NULL, chrom_info_ptr, NULL, &marker_pos, misc_flags, filter_flags, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_range_list_ptr, &map_is_unsorted, do_glm || min_bp_space || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)), 0, 0, NULL, ".map file", NULL);
     if (retval) {
@@ -604,6 +1059,45 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     }
 #endif
   }
+  if (do_score) {
+    retval = dosage_load_score_files(sc_ip, outname, outname_end, &score_marker_ct, &max_score_marker_id_len, &score_marker_ids, &score_allele_codes, &score_effect_sizes, &score_qrange_key_exists, &score_qrange_keys, &qrange_ct, &max_qrange_name_len, &score_qrange_names, &score_qrange_bounds);
+    if (retval) {
+      goto plink1_dosage_ret_1;
+    }
+    if (qrange_ct) {
+      if (wkspace_alloc_d_checked(&cur_scores, sample_ct * qrange_ct * sizeof(double)) ||
+          wkspace_alloc_d_checked(&score_bases, qrange_ct * sizeof(double)) ||
+          wkspace_alloc_ui_checked(&score_range_obs_cts, qrange_ct * sizeof(int32_t)) ||
+          wkspace_alloc_ui_checked(&score_miss_cts, sample_ct * qrange_ct * sizeof(int32_t))) {
+	goto plink1_dosage_ret_NOMEM;
+      }
+      fill_double_zero(cur_scores, sample_ct * qrange_ct);
+      fill_double_zero(score_bases, qrange_ct);
+      fill_uint_zero(score_range_obs_cts, qrange_ct);
+      fill_uint_zero(score_miss_cts, sample_ct * qrange_ct);
+      *outname_end = '.';
+    } else {
+      if (wkspace_alloc_d_checked(&cur_scores, sample_ct * sizeof(double)) ||
+          wkspace_alloc_d_checked(&score_bases, sizeof(double)) ||
+          wkspace_alloc_ui_checked(&score_range_obs_cts, sizeof(int32_t)) ||
+          wkspace_alloc_ui_checked(&score_miss_cts, sample_ct * sizeof(int32_t))) {
+	goto plink1_dosage_ret_NOMEM;
+      }
+      fill_double_zero(cur_scores, sample_ct);
+      score_bases[0] = 0.0;
+      score_range_obs_cts[0] = 0;
+      fill_uint_zero(score_miss_cts, sample_ct);
+    }
+    calc_plink_maxfid(unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, &plink_maxfid, &plink_maxiid);
+    missing_pheno_len = strlen(output_missing_pheno);
+    if (missing_pheno_len < 6) {
+      memset(missing_pheno_str, 32, 6 - missing_pheno_len);
+      memcpy(&(missing_pheno_str[6 - missing_pheno_len]), output_missing_pheno, missing_pheno_len);
+      missing_pheno_len = 6;
+    } else {
+      memcpy(missing_pheno_str, output_missing_pheno, missing_pheno_len);
+    }
+  }
 
   // now the actual --dosage logic begins
   // 1. either load single file, or
@@ -964,7 +1458,9 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	goto plink1_dosage_ret_NOMEM;
       }
     }
-    bufptr2 = memcpyb(outname_end, ".out.dosage", 12);
+    if (!do_score) {
+      bufptr2 = memcpyb(outname_end, ".out.dosage", 12);
+    }
   }
   if (output_gz) {
     memcpy(bufptr2, ".gz", 4);
@@ -979,8 +1475,9 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       if (gzputs(gz_outfile, "SNP A1 A2 ") == -1) {
 	goto plink1_dosage_ret_WRITE_FAIL;
       }
-      for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
-	bufptr = &(sample_ids[sample_idx * max_sample_id_len]);
+      for (sample_uidx = 0, sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
+	next_unset_unsafe_ck(sample_exclude, &sample_uidx);
+	bufptr = &(sample_ids[sample_uidx * max_sample_id_len]);
 	bufptr2 = strchr(bufptr, '\t');
 	*bufptr2 = ' ';
         if (gzputs(gz_outfile, bufptr) == -1) {
@@ -995,7 +1492,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	goto plink1_dosage_ret_WRITE_FAIL;
       }
     }
-  } else {
+  } else if (!do_score) {
     if (fopen_checked(&outfile, outname, "w")) {
       goto plink1_dosage_ret_OPEN_FAIL;
     }
@@ -1005,8 +1502,9 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
     } else if (!count_occur) {
       fputs("SNP A1 A2 ", outfile);
-      for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
-	bufptr = &(sample_ids[sample_idx * max_sample_id_len]);
+      for (sample_uidx = 0, sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
+	next_unset_unsafe_ck(sample_exclude, &sample_uidx);
+	bufptr = &(sample_ids[sample_uidx * max_sample_id_len]);
 	bufptr2 = strchr(bufptr, '\t');
 	*bufptr2 = ' ';
         fputs(bufptr, outfile);
@@ -1231,7 +1729,29 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  if (load_map) {
 	    marker_idx = id_htable_find(bufptr, slen, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len);
 	    if (marker_idx == 0xffffffffU) {
+#ifdef __LP64__
 	      marker_idx = ~ZEROLU;
+#endif
+	      continue;
+	    }
+	  }
+	  if (do_score) {
+            score_marker_idx = (uint32_t)bsearch_str(bufptr, slen, score_marker_ids, max_score_marker_id_len, score_marker_ct);
+	    if (score_marker_idx == 0xffffffffU) {
+	      continue;
+	    }
+	    if (score_qrange_key_exists && (!is_set(score_qrange_key_exists, score_marker_idx))) {
+	      score_marker_idx = 0xffffffffU;
+	      continue;
+	    }
+	    if (!strcmp(a1_ptr, score_allele_codes[score_marker_idx])) {
+	      score_a2_effect = 0;
+	    } else if (!strcmp(a2_ptr, score_allele_codes[score_marker_idx])) {
+	      score_a2_effect = 1;
+	    } else {
+	      // PLINK 1.07 just skips the marker instead of erroring out here,
+	      // so we replicate that
+	      score_marker_idx = 0xffffffffU;
 	      continue;
 	    }
 	  }
@@ -1244,7 +1764,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    sprintf(logbuf, "Error: Allele code mismatch between line %" PRIuPTR " of %s and line %" PRIuPTR " of %s.\n", line_idx_arr[0], &(fnames[file_idx_start * max_fn_len]), line_idx, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
 	    goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	  }
-	  if (marker_idx == ~ZEROLU) {
+	  if ((marker_idx == ~ZEROLU) || (score_marker_idx == 0xffffffffU)) {
 	    continue;
 	  }
 	}
@@ -1339,7 +1859,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	}
       }
 
-      if (marker_idx != ~ZEROLU) {
+      if ((marker_idx != ~ZEROLU) && (score_marker_idx != 0xffffffffU)) {
 	if (do_glm) {
 	  if (covar_nm) {
 	    // it would be more efficient to make covar_nm act as a mask on
@@ -1469,6 +1989,50 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	      goto plink1_dosage_ret_WRITE_FAIL;
 	    }
 	  }
+	} else if (do_score) {
+	  sample_valid_ct = popcount_longs(cur_samples, sample_ctl);
+	  qrange_idx = 0;
+	  score_cur_effect_size = score_effect_sizes[score_marker_idx];
+	  if (score_a2_effect) {
+	    for (sample_idx = 0, sample_uidx = 0; sample_idx < sample_valid_ct; sample_idx++, sample_uidx++) {
+              next_set_unsafe_ck(cur_samples, &sample_uidx);
+	      cur_dosages[sample_uidx] = 1.0 - cur_dosages[sample_uidx];
+	    }
+	  }
+	  dxx = 0.0; // dosage sum
+	  for (sample_idx = 0, sample_uidx = 0; sample_idx < sample_valid_ct; sample_idx++, sample_uidx++) {
+	    next_set_unsafe_ck(cur_samples, &sample_uidx);
+	    dxx += cur_dosages[sample_uidx];
+	  }
+	  if (sample_valid_ct) {
+            dxx /= (double)((intptr_t)sample_valid_ct); // now average
+	  } else {
+	    dxx = 0.0;
+	  }
+	  score_missing_effect = dxx * score_cur_effect_size;
+	  do {
+	    if (qrange_ct) {
+	      if ((score_qrange_bounds[2 * qrange_idx] > score_qrange_keys[score_marker_idx]) || (score_qrange_bounds[2 * qrange_idx + 1] < score_qrange_keys[score_marker_idx])) {
+		continue;
+	      }
+	    }
+	    score_range_obs_cts[qrange_idx] += 1;
+	    dptr = &(cur_scores[sample_ct * qrange_idx]);
+	    if (score_center) {
+	      score_bases[qrange_idx] -= score_missing_effect;
+	    }
+	    uiptr = &(score_miss_cts[sample_ct * qrange_idx]);
+	    for (sample_uidx = 0; sample_uidx < sample_ct; sample_uidx++) {
+	      if (!is_set(cur_samples, sample_uidx)) {
+		uiptr[sample_uidx] += 1;
+		if (score_mean_impute) {
+		  dptr[sample_uidx] += score_missing_effect;
+		}
+	      } else {
+		dptr[sample_uidx] += cur_dosages[sample_uidx] * score_cur_effect_size;
+	      }
+	    }
+	  } while (++qrange_idx < qrange_ct);
 	} else if (!count_occur) {
 	  if (output_gz) {
 	    if (gzputs(gz_outfile, cur_marker_id_buf) == -1) {
@@ -1617,60 +2181,123 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     }
     wkspace_reset(wkspace_mark);
   }
-  if (count_occur) {
-    max_occur_id_len += sizeof(int32_t) + 1; // null, uint32_t
-    wkspace_left -= topsize;
-    if (wkspace_alloc_c_checked(&bufptr, max_occur_id_len * distinct_id_ct)) {
-      goto plink1_dosage_ret_NOMEM2;
-    }
-    ulii = 0; // write idx
-    ujj = 0; // number of counts > 1
-    for (uii = 0; uii < HASHSIZE; uii++) {
-      ll_ptr = htable[uii];
-      while (ll_ptr) {
-	slen = strlen(ll_ptr->ss) + 1;
-	bufptr2 = memcpya(&(bufptr[ulii * max_occur_id_len]), ll_ptr->ss, slen);
-	ulii++;
-        memcpy(bufptr2, &(ll_ptr->ct), sizeof(int32_t));
-        if (ll_ptr->ct != 1) {
-	  ujj++;
-	}
-	ll_ptr = ll_ptr->next;
+  if (do_score) {
+    qrange_idx = 0;
+    do {
+      if (qrange_ct) {
+	bufptr = strcpya(&(outname_end[1]), &(score_qrange_names[qrange_idx * max_qrange_name_len]));
+	memcpy(bufptr, ".profile", 9);
+      } else {
+	memcpy(outname_end, ".profile", 9);
       }
-    }
-    wkspace_left += topsize;
-    qsort(bufptr, distinct_id_ct, max_occur_id_len, strcmp_natural);
-    for (ulii = 0; ulii < distinct_id_ct; ulii++) {
-      bufptr2 = &(bufptr[ulii * max_occur_id_len]);
-      slen = strlen(bufptr2);
-      bufptr3 = memcpyax(tbuf, bufptr2, slen, ' ');
-      bufptr3 = uint32_write(bufptr3, *((uint32_t*)(&(bufptr2[slen + 1]))));
-      memcpy(bufptr3, "\n", 2);
-      if (output_gz) {
-	if (gzputs(gz_outfile, tbuf) == -1) {
+      if (fopen_checked(&outfile, outname, "w")) {
+	goto plink1_dosage_ret_OPEN_FAIL;
+      }
+      sprintf(tbuf, "%%%us %%%us  PHENO%s %s\n", plink_maxfid, plink_maxiid, dosage_score_cnt? "    CNT" : "", score_report_average? "   SCORE" : "SCORESUM");
+      fprintf(outfile, tbuf, "FID", "IID");
+      uii = score_range_obs_cts[qrange_idx];
+      uiptr = &(score_miss_cts[sample_ct * qrange_idx]);
+      dxx = score_bases[qrange_idx];
+      dptr = &(cur_scores[sample_ct * qrange_idx]);
+      for (sample_uidx = 0, sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
+	next_unset_unsafe_ck(sample_exclude, &sample_uidx);
+	bufptr = &(sample_ids[sample_uidx * max_sample_id_len]);
+	bufptr2 = strchr(bufptr, '\t');
+	bufptr = fw_strcpyn(plink_maxfid, (uintptr_t)(bufptr2 - bufptr), bufptr, tbuf);
+	*bufptr++ = ' ';
+	bufptr = fw_strcpy(plink_maxiid, &(bufptr2[1]), bufptr);
+	*bufptr++ = ' ';
+	if (IS_SET(pheno_nm, sample_uidx)) {
+          if (pheno_c) {
+	    bufptr = memseta(bufptr, 32, 5);
+	    *bufptr++ = '1' + IS_SET(pheno_c, sample_uidx);
+	  } else {
+	    bufptr = width_force(6, bufptr, double_g_write(bufptr, pheno_d[sample_uidx]));
+	  }
+	} else {
+	  bufptr = memcpya(bufptr, missing_pheno_str, missing_pheno_len);
+	}
+        *bufptr++ = ' ';
+	ujj = uii - score_miss_cts[sample_idx];
+	if (dosage_score_cnt) {
+	  bufptr = uint32_writew6x(bufptr, uii, ' ');
+	}
+        if (score_mean_impute) {
+	  ujj = uii;
+	}
+	dyy = dxx + dptr[sample_idx];
+	if (fabs(dyy) < SMALL_EPSILON) {
+	  dyy = 0;
+	} else if (score_report_average) {
+	  dyy /= ((double)((int32_t)ujj));
+	}
+	bufptr = width_force(8, bufptr, double_g_write(bufptr, dyy));
+	*bufptr++ = '\n';
+        if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
 	  goto plink1_dosage_ret_WRITE_FAIL;
 	}
-      } else {
-	fputs(tbuf, outfile);
       }
-    }
-  }
-  if (output_gz) {
-    if (gzclose(gz_outfile) != Z_OK) {
-      goto plink1_dosage_ret_WRITE_FAIL;
-    }
-    gz_outfile = NULL;
-  } else {
+    } while (++qrange_idx < qrange_ct);
     if (fclose_null(&outfile)) {
       goto plink1_dosage_ret_WRITE_FAIL;
     }
-  }
-  LOGPRINTFWW("--%sdosage%s: Results saved to %s .\n", (do_glm || count_occur)? "" : "write-", count_occur? " occur" : "", outname);
-  if (count_occur) {
-    if (ujj) {
-      LOGPRINTF("%u variant%s appeared multiple times.\n", ujj, (ujj == 1)? "" : "s");
+    LOGPRINTFWW("--score: Results written to %s .\n", outname);
+  } else {
+    if (count_occur) {
+      max_occur_id_len += sizeof(int32_t) + 1; // null, uint32_t
+      wkspace_left -= topsize;
+      if (wkspace_alloc_c_checked(&bufptr, max_occur_id_len * distinct_id_ct)) {
+	goto plink1_dosage_ret_NOMEM2;
+      }
+      ulii = 0; // write idx
+      ujj = 0; // number of counts > 1
+      for (uii = 0; uii < HASHSIZE; uii++) {
+	ll_ptr = htable[uii];
+	while (ll_ptr) {
+	  slen = strlen(ll_ptr->ss) + 1;
+	  bufptr2 = memcpya(&(bufptr[ulii * max_occur_id_len]), ll_ptr->ss, slen);
+	  ulii++;
+	  memcpy(bufptr2, &(ll_ptr->ct), sizeof(int32_t));
+	  if (ll_ptr->ct != 1) {
+	    ujj++;
+	  }
+	  ll_ptr = ll_ptr->next;
+	}
+      }
+      wkspace_left += topsize;
+      qsort(bufptr, distinct_id_ct, max_occur_id_len, strcmp_natural);
+      for (ulii = 0; ulii < distinct_id_ct; ulii++) {
+	bufptr2 = &(bufptr[ulii * max_occur_id_len]);
+	slen = strlen(bufptr2);
+	bufptr3 = memcpyax(tbuf, bufptr2, slen, ' ');
+	bufptr3 = uint32_write(bufptr3, *((uint32_t*)(&(bufptr2[slen + 1]))));
+	memcpy(bufptr3, "\n", 2);
+	if (output_gz) {
+	  if (gzputs(gz_outfile, tbuf) == -1) {
+	    goto plink1_dosage_ret_WRITE_FAIL;
+	  }
+	} else {
+	  fputs(tbuf, outfile);
+	}
+      }
+    }
+    if (output_gz) {
+      if (gzclose(gz_outfile) != Z_OK) {
+	goto plink1_dosage_ret_WRITE_FAIL;
+      }
+      gz_outfile = NULL;
     } else {
-      logprint("No variant appeared multiple times.\n");
+      if (fclose_null(&outfile)) {
+	goto plink1_dosage_ret_WRITE_FAIL;
+      }
+    }
+    LOGPRINTFWW("--%sdosage%s: Results saved to %s .\n", (do_glm || count_occur)? "" : "write-", count_occur? " occur" : "", outname);
+    if (count_occur) {
+      if (ujj) {
+	LOGPRINTF("%u variant%s appeared multiple times.\n", ujj, (ujj == 1)? "" : "s");
+      } else {
+	logprint("No variant appeared multiple times.\n");
+      }
     }
   }
 

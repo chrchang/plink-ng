@@ -1597,6 +1597,43 @@ int32_t update_sample_sexes(char* update_sex_fname, uint32_t update_sex_col, cha
   return retval;
 }
 
+void calc_plink_maxfid(uint32_t unfiltered_sample_ct, uintptr_t* sample_exclude, uint32_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uint32_t* plink_maxfid_ptr, uint32_t* plink_maxiid_ptr) {
+  uintptr_t plink_maxfid = 4;
+  uintptr_t plink_maxiid = 4;
+  uint32_t sample_uidx = 0;
+  uint32_t samples_done = 0;
+  char* cptr;
+  char* cptr2;
+  char* cptr_end;
+  uintptr_t slen;
+  uint32_t sample_uidx_stop;
+  // imitate PLINK 1.07 behavior (see Plink::prettyPrintLengths() in
+  // helper.cpp), to simplify testing and avoid randomly breaking existing
+  // scripts
+  do {
+    sample_uidx = next_unset_unsafe(sample_exclude, sample_uidx);
+    sample_uidx_stop = next_set(sample_exclude, sample_uidx, unfiltered_sample_ct);
+    samples_done += sample_uidx_stop - sample_uidx;
+    cptr = &(sample_ids[sample_uidx * max_sample_id_len]);
+    cptr_end = &(sample_ids[sample_uidx_stop * max_sample_id_len]);
+    sample_uidx = sample_uidx_stop;
+    do {
+      cptr2 = (char*)memchr(cptr, '\t', max_sample_id_len);
+      slen = (uintptr_t)(cptr2 - cptr);
+      if (slen > plink_maxfid) {
+	plink_maxfid = slen + 2;
+      }
+      slen = strlen(&(cptr2[1]));
+      if (slen > plink_maxiid) {
+        plink_maxiid = slen + 2;
+      }
+      cptr = &(cptr[max_sample_id_len]);
+    } while (cptr < cptr_end);
+  } while (samples_done < sample_ct);
+  *plink_maxfid_ptr = plink_maxfid;
+  *plink_maxiid_ptr = plink_maxiid;
+}
+
 uint32_t calc_plink_maxsnp(uint32_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len) {
   uintptr_t plink_maxsnp = 4;
   uintptr_t max_marker_id_len_m1 = max_marker_id_len - 1;
@@ -3626,6 +3663,8 @@ int32_t fst_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
 }
 
 int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, double* set_allele_freqs, uintptr_t sample_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, char* sample_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_sample_id_len, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t hh_exists, Chrom_info* chrom_info_ptr, char* outname, char* outname_end) {
+  // Note that there is a dosage-only implementation of this logic in
+  // plink_dosage.c.
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   FILE* outfile = NULL;
@@ -3848,7 +3887,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
     logprint("Error: No valid entries in --score file.\n");
     goto score_report_ret_INVALID_FORMAT;
   } else if (cur_marker_ct >= 0x40000000) {
-    logprint("Error: --score does not support >= 2^30 markers.\n");
+    logprint("Error: --score does not support >= 2^30 variants.\n");
     goto score_report_ret_INVALID_FORMAT;
   }
   if (miss_ct) {

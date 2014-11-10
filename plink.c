@@ -216,43 +216,6 @@ void allelexxxx_recode(uint32_t allelexxxx, char** marker_allele_ptrs, uint32_t 
   }
 }
 
-void calc_plink_maxfid(uint32_t unfiltered_sample_ct, uintptr_t* sample_exclude, uint32_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uint32_t* plink_maxfid_ptr, uint32_t* plink_maxiid_ptr) {
-  uintptr_t plink_maxfid = 4;
-  uintptr_t plink_maxiid = 4;
-  uint32_t sample_uidx = 0;
-  uint32_t samples_done = 0;
-  char* cptr;
-  char* cptr2;
-  char* cptr_end;
-  uintptr_t slen;
-  uint32_t sample_uidx_stop;
-  // imitate PLINK 1.07 behavior (see Plink::prettyPrintLengths() in
-  // helper.cpp), to simplify testing and avoid randomly breaking existing
-  // scripts
-  do {
-    sample_uidx = next_unset_unsafe(sample_exclude, sample_uidx);
-    sample_uidx_stop = next_set(sample_exclude, sample_uidx, unfiltered_sample_ct);
-    samples_done += sample_uidx_stop - sample_uidx;
-    cptr = &(sample_ids[sample_uidx * max_sample_id_len]);
-    cptr_end = &(sample_ids[sample_uidx_stop * max_sample_id_len]);
-    sample_uidx = sample_uidx_stop;
-    do {
-      cptr2 = (char*)memchr(cptr, '\t', max_sample_id_len);
-      slen = (uintptr_t)(cptr2 - cptr);
-      if (slen > plink_maxfid) {
-	plink_maxfid = slen + 2;
-      }
-      slen = strlen(&(cptr2[1]));
-      if (slen > plink_maxiid) {
-        plink_maxiid = slen + 2;
-      }
-      cptr = &(cptr[max_sample_id_len]);
-    } while (cptr < cptr_end);
-  } while (samples_done < sample_ct);
-  *plink_maxfid_ptr = plink_maxfid;
-  *plink_maxiid_ptr = plink_maxiid;
-}
-
 void calc_marker_reverse_bin(uintptr_t* marker_reverse, uintptr_t* marker_exclude, uint32_t unfiltered_marker_ct, uint32_t marker_ct, double* set_allele_freqs) {
   uint32_t marker_uidx = 0;
   uint32_t markers_done = 0;
@@ -10884,13 +10847,17 @@ int32_t main(int32_t argc, char** argv) {
 	    logprint("Error: --dosage 'occur' mode cannot be used with --score.\n");
 	    goto main_ret_INVALID_CMDLINE_A;
 	  }
+	  if (dosage_info.modifier & DOSAGE_ZOUT) {
+	    logprint("Error: --dosage 'Zout' modifier cannot be used with --score.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+	  }
 	  if (glm_modifier & GLM_STANDARD_BETA) {
 	    logprint("Error: --dosage + --score cannot be used with association analysis\nmodifiers/flags.\n");
             goto main_ret_INVALID_CMDLINE_A;
 	  }
 	  dosage_info.modifier += (DOSAGE_SCORE - DOSAGE_GLM);
 	}
-        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 7)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 8)) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
 	retval = alloc_fname(&score_info.fname, argv[cur_arg + 1], argptr, 0);
@@ -10905,6 +10872,9 @@ int32_t main(int32_t argc, char** argv) {
 	    if (score_info.modifier & SCORE_NO_MEAN_IMPUTATION) {
 	      logprint("Error: --score 'sum' and 'no-mean-imputation' modifiers cannot be used\ntogether.\n");
               goto main_ret_INVALID_CMDLINE_A;
+	    } else if (dosage_info.modifier & DOSAGE_SCORE_NOSUM) {
+	      logprint("Error: --score 'sum' and 'no-sum' modifiers conflict.\n");
+	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    score_info.modifier |= SCORE_SUM;
 	  } else if (!strcmp(argv[cur_arg + uii], "no-mean-imputation")) {
@@ -10922,6 +10892,14 @@ int32_t main(int32_t argc, char** argv) {
               goto main_ret_INVALID_CMDLINE_A;
 	    }
             score_info.modifier |= SCORE_CENTER;
+	  } else if (!strcmp(argv[cur_arg + uii], "no-sum")) {
+	    if (score_info.modifier & SCORE_SUM) {
+	      logprint("Error: --score 'sum' and 'no-sum' modifiers conflict.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    dosage_info.modifier |= DOSAGE_SCORE_NOSUM;
+	  } else if (!strcmp(argv[cur_arg + uii], "include-cnt")) {
+            dosage_info.modifier |= DOSAGE_SCORE_CNT;
 	  } else if (ujj == 3) {
             logprint("Error: --score takes at most three numeric parameters.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -12691,7 +12669,7 @@ int32_t main(int32_t argc, char** argv) {
       logprint("Error: --dosage cannot be used with other PLINK computations.\n");
       goto main_ret_INVALID_CMDLINE;
     }
-    retval = plink1_dosage(&dosage_info, famname, mapname, outname, outname_end, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, makepheno_str, phenoname_str, covar_fname, qual_filter, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, filtervals_flattened, filter_attrib_fname, filter_attrib_liststr, filter_attrib_sample_fname, filter_attrib_sample_liststr, qual_min_thresh, qual_max_thresh, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, mpheno_col, pheno_modifier, &chrom_info, tail_bottom, tail_top, misc_flags, filter_flags, sex_missing_pheno, update_sex_col, &cluster, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, mwithin_col, glm_modifier, glm_vif_thresh, output_min_p, &score_info);
+    retval = plink1_dosage(&dosage_info, famname, mapname, outname, outname_end, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, makepheno_str, phenoname_str, covar_fname, qual_filter, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, filtervals_flattened, filter_attrib_fname, filter_attrib_liststr, filter_attrib_sample_fname, filter_attrib_sample_liststr, qual_min_thresh, qual_max_thresh, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, tail_bottom, tail_top, misc_flags, filter_flags, sex_missing_pheno, update_sex_col, &cluster, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, mwithin_col, glm_modifier, glm_vif_thresh, output_min_p, &score_info);
     // unconditional; note that plink1_dosage() currently doesn't even bother
     // to pop stuff off the stack when it's done
     goto main_ret_1;

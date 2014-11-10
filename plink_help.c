@@ -1198,7 +1198,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Two-locus joint genotype count report.\n\n"
 	       );
     help_print("score\tscore-no-mean-imputation", &help_ctrl, 1,
-"  --score [filename] {i} {j} {k} <header> <sum> <no-mean-imputation | center>\n"
+"  --score [filename] {i} {j} {k} <header> <sum | no-sum>\n"
+"          <no-mean-imputation | center> <include-cnt>\n"
 "    Apply a linear scoring system to each sample.\n"
 "    The input file should have one line per scored variant.  Variant IDs are\n"
 "    read from column #i, allele codes are read from column #j, and scores are\n"
@@ -1208,7 +1209,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      be ignored; otherwise, --score assumes there is no header line.\n"
 "    * By default, final scores are averages of the valid per-variant scores.\n"
 "      The 'sum' modifier causes sums to be reported instead.  (This cannot be\n"
-"      used with 'no-mean-imputation'.)\n"
+"      used with 'no-mean-imputation'.  And for backward compatibility, 'sum' is\n"
+"      automatically on with dosage data unless 'no-sum' is specified.)\n"
 "    * By default, copies of the unnamed allele contribute zero to score, while\n"
 "      missing genotypes contribute an amount proportional to the loaded (via\n"
 "      --read-freq) or imputed allele frequency.  To throw out missing\n"
@@ -1216,7 +1218,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      when this happens), use the 'no-mean-imputation' modifier.\n"
 "    * Alternatively, you can use the 'center' modifier to shift all scores to\n"
 "      mean zero.\n"
-"    * This command can be used with dosage data.\n\n"
+"    * This command can be used with dosage data.  By default, the 'CNT' column\n"
+"      is omitted from the output file in this case; use 'include-cnt' to keep\n"
+"      it.\n\n"
 	       );
     /*
     help_print("regress-pcs\tregress-pcs-distance", &help_ctrl, 1,
