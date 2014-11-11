@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (10 Nov 2014)";
+  " (11 Nov 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -7529,113 +7529,123 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 #endif
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 11)) {
-	  goto main_ret_INVALID_CMDLINE_2A;
-	}
-	for (uii = 1; uii <= param_ct; uii++) {
-	  if (!strcmp(argv[cur_arg + uii], "perm")) {
-	    if (glm_modifier & GLM_MPERM) {
-	      sprintf(logbuf, "Error: --%s 'mperm' and 'perm' cannot be used together.\n", argptr);
-	      goto main_ret_INVALID_CMDLINE_2A;
-	    }
-            glm_modifier |= GLM_PERM;
-	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
-            if (glm_modifier & GLM_PERM) {
-	      sprintf(logbuf, "Error: --%s 'mperm' and 'perm' cannot be used together.\n", argptr);
-	      goto main_ret_INVALID_CMDLINE_2A;
-	    } else if (glm_modifier & GLM_MPERM) {
-	      sprintf(logbuf, "Error: Duplicate --%s 'mperm' modifier.\n", argptr);
+	if (load_rare & LOAD_RARE_DOSAGE) {
+	  // make --dosage + modifier-free --linear/--logistic only issue a
+	  // warning
+	  if (param_ct) {
+	    logprint("Error: --dosage cannot be used with --linear/--logistic modifiers.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
+	  }
+	  logprint("Note: --dosage automatically performs a regression; --linear/--logistic has no\nadditional effect.\n");
+	} else {
+	  if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 11)) {
+	    goto main_ret_INVALID_CMDLINE_2A;
+	  }
+	  for (uii = 1; uii <= param_ct; uii++) {
+	    if (!strcmp(argv[cur_arg + uii], "perm")) {
+	      if (glm_modifier & GLM_MPERM) {
+		sprintf(logbuf, "Error: --%s 'mperm' and 'perm' cannot be used together.\n", argptr);
+		goto main_ret_INVALID_CMDLINE_2A;
+	      }
+	      glm_modifier |= GLM_PERM;
+	    } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
+	      if (glm_modifier & GLM_PERM) {
+		sprintf(logbuf, "Error: --%s 'mperm' and 'perm' cannot be used together.\n", argptr);
+		goto main_ret_INVALID_CMDLINE_2A;
+	      } else if (glm_modifier & GLM_MPERM) {
+		sprintf(logbuf, "Error: Duplicate --%s 'mperm' modifier.\n", argptr);
+		goto main_ret_INVALID_CMDLINE_2;
+	      }
+	      if (scan_posint_defcap(&(argv[cur_arg + uii][6]), &glm_mperm_val)) {
+		sprintf(logbuf, "Error: Invalid --%s mperm parameter '%s'.\n", argptr, &(argv[cur_arg + uii][6]));
+		goto main_ret_INVALID_CMDLINE_WWA;
+	      }
+	      glm_modifier |= GLM_MPERM;
+	    } else if (!strcmp(argv[cur_arg + uii], "genedrop")) {
+	      glm_modifier |= GLM_GENEDROP;
+	    } else if (!strcmp(argv[cur_arg + uii], "perm-count")) {
+	      glm_modifier |= GLM_PERM_COUNT;
+	    } else if (!strcmp(argv[cur_arg + uii], "genotypic")) {
+	      if (glm_modifier & (GLM_HETHOM | GLM_DOMINANT | GLM_RECESSIVE)) {
+		sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
+		goto main_ret_INVALID_CMDLINE_2;
+	      }
+	      glm_modifier |= GLM_GENOTYPIC;
+	      glm_xchr_model = 0;
+	    } else if (!strcmp(argv[cur_arg + uii], "hethom")) {
+	      if (glm_modifier & (GLM_GENOTYPIC | GLM_DOMINANT | GLM_RECESSIVE)) {
+		sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
+		goto main_ret_INVALID_CMDLINE_2;
+	      }
+	      glm_modifier |= GLM_HETHOM;
+	      glm_xchr_model = 0;
+	    } else if (!strcmp(argv[cur_arg + uii], "dominant")) {
+	      if (glm_modifier & (GLM_GENOTYPIC | GLM_HETHOM | GLM_RECESSIVE)) {
+		sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
+		goto main_ret_INVALID_CMDLINE_2;
+	      }
+	      glm_modifier |= GLM_DOMINANT;
+	      glm_xchr_model = 0;
+	    } else if (!strcmp(argv[cur_arg + uii], "recessive")) {
+	      if (glm_modifier & (GLM_GENOTYPIC | GLM_HETHOM | GLM_DOMINANT)) {
+		sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
+		goto main_ret_INVALID_CMDLINE_2;
+	      }
+	      glm_modifier |= GLM_RECESSIVE;
+	      glm_xchr_model = 0;
+	    } else if (!strcmp(argv[cur_arg + uii], "no-snp")) {
+	      if (mtest_adjust) {
+		sprintf(logbuf, "Error: --%s no-snp cannot be used with --adjust.\n", argptr);
+		goto main_ret_INVALID_CMDLINE_2A;
+	      }
+	      // defer the rest of the check
+	      glm_modifier |= GLM_NO_SNP;
+	    } else if (!strcmp(argv[cur_arg + uii], "hide-covar")) {
+	      glm_modifier |= GLM_HIDE_COVAR;
+	    } else if (!strcmp(argv[cur_arg + uii], "sex")) {
+	      if (glm_modifier & GLM_NO_X_SEX) {
+		sprintf(logbuf, "Error: --%s 'sex' and 'no-x-sex' cannot be used together.\n", argptr);
+		goto main_ret_INVALID_CMDLINE_2A;
+	      }
+	      glm_modifier |= GLM_SEX;
+	    } else if (!strcmp(argv[cur_arg + uii], "no-x-sex")) {
+	      if (glm_modifier & GLM_SEX) {
+		sprintf(logbuf, "Error: --%s 'sex' and 'no-x-sex' cannot be used together.\n", argptr);
+		goto main_ret_INVALID_CMDLINE_2A;
+	      }
+	      glm_modifier |= GLM_NO_X_SEX;
+	    } else if (!strcmp(argv[cur_arg + uii], "interaction")) {
+	      glm_modifier |= GLM_INTERACTION;
+	    } else if (!strcmp(argv[cur_arg + uii], "standard-beta")) {
+	      if (glm_modifier & GLM_LOGISTIC) {
+		logprint("Error: --logistic does not have a 'standard-beta' modifier.  (Did you mean\n--linear or 'beta'?)\n");
+		goto main_ret_INVALID_CMDLINE_A;
+	      }
+	      glm_modifier |= GLM_STANDARD_BETA;
+	    } else if (!strcmp(argv[cur_arg + uii], "intercept")) {
+	      if (glm_modifier & GLM_LOGISTIC) {
+		logprint("Error: --logistic does not currently have a 'intercept' modifier.  (Did you\nmean --linear or 'beta'?)\n");
+		goto main_ret_INVALID_CMDLINE_A;
+	      }
+	      glm_modifier |= GLM_INTERCEPT;
+	    } else if (!strcmp(argv[cur_arg + uii], "beta")) {
+	      glm_modifier |= GLM_BETA;
+	    } else if (!strcmp(argv[cur_arg + uii], "set-test")) {
+	      glm_modifier |= GLM_SET_TEST;
+	    } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
+	      sprintf(logbuf, "Error: Improper --%s mperm syntax.  (Use '--%s mperm=[value]'.)\n", argptr, argptr);
 	      goto main_ret_INVALID_CMDLINE_2;
-	    }
-	    if (scan_posint_defcap(&(argv[cur_arg + uii][6]), &glm_mperm_val)) {
-	      sprintf(logbuf, "Error: Invalid --%s mperm parameter '%s'.\n", argptr, &(argv[cur_arg + uii][6]));
+	    } else {
+	      sprintf(logbuf, "Error: Invalid --%s parameter '%s'.\n", argptr, argv[cur_arg + uii]);
 	      goto main_ret_INVALID_CMDLINE_WWA;
 	    }
-            glm_modifier |= GLM_MPERM;
-	  } else if (!strcmp(argv[cur_arg + uii], "genedrop")) {
-	    glm_modifier |= GLM_GENEDROP;
-	  } else if (!strcmp(argv[cur_arg + uii], "perm-count")) {
-	    glm_modifier |= GLM_PERM_COUNT;
-	  } else if (!strcmp(argv[cur_arg + uii], "genotypic")) {
-	    if (glm_modifier & (GLM_HETHOM | GLM_DOMINANT | GLM_RECESSIVE)) {
-	      sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
-	      goto main_ret_INVALID_CMDLINE_2;
-	    }
-	    glm_modifier |= GLM_GENOTYPIC;
-	    glm_xchr_model = 0;
-	  } else if (!strcmp(argv[cur_arg + uii], "hethom")) {
-	    if (glm_modifier & (GLM_GENOTYPIC | GLM_DOMINANT | GLM_RECESSIVE)) {
-	      sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
-	      goto main_ret_INVALID_CMDLINE_2;
-	    }
-	    glm_modifier |= GLM_HETHOM;
-	    glm_xchr_model = 0;
-	  } else if (!strcmp(argv[cur_arg + uii], "dominant")) {
-	    if (glm_modifier & (GLM_GENOTYPIC | GLM_HETHOM | GLM_RECESSIVE)) {
-	      sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
-	      goto main_ret_INVALID_CMDLINE_2;
-	    }
-	    glm_modifier |= GLM_DOMINANT;
-	    glm_xchr_model = 0;
-	  } else if (!strcmp(argv[cur_arg + uii], "recessive")) {
-	    if (glm_modifier & (GLM_GENOTYPIC | GLM_HETHOM | GLM_DOMINANT)) {
-	      sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
-	      goto main_ret_INVALID_CMDLINE_2;
-	    }
-	    glm_modifier |= GLM_RECESSIVE;
-	    glm_xchr_model = 0;
-	  } else if (!strcmp(argv[cur_arg + uii], "no-snp")) {
-	    if (mtest_adjust) {
-	      sprintf(logbuf, "Error: --%s no-snp cannot be used with --adjust.\n", argptr);
-	      goto main_ret_INVALID_CMDLINE_2A;
-	    }
-	    // defer the rest of the check
-	    glm_modifier |= GLM_NO_SNP;
-	  } else if (!strcmp(argv[cur_arg + uii], "hide-covar")) {
-	    glm_modifier |= GLM_HIDE_COVAR;
-	  } else if (!strcmp(argv[cur_arg + uii], "sex")) {
-	    if (glm_modifier & GLM_NO_X_SEX) {
-	      sprintf(logbuf, "Error: --%s 'sex' and 'no-x-sex' cannot be used together.\n", argptr);
-	      goto main_ret_INVALID_CMDLINE_2A;
-	    }
-	    glm_modifier |= GLM_SEX;
-	  } else if (!strcmp(argv[cur_arg + uii], "no-x-sex")) {
-	    if (glm_modifier & GLM_SEX) {
-	      sprintf(logbuf, "Error: --%s 'sex' and 'no-x-sex' cannot be used together.\n", argptr);
-	      goto main_ret_INVALID_CMDLINE_2A;
-	    }
-	    glm_modifier |= GLM_NO_X_SEX;
-	  } else if (!strcmp(argv[cur_arg + uii], "interaction")) {
-	    glm_modifier |= GLM_INTERACTION;
-	  } else if (!strcmp(argv[cur_arg + uii], "standard-beta")) {
-	    if (glm_modifier & GLM_LOGISTIC) {
-	      logprint("Error: --logistic does not have a 'standard-beta' modifier.  (Did you mean\n--linear or 'beta'?)\n");
-	      goto main_ret_INVALID_CMDLINE_A;
-	    }
-	    glm_modifier |= GLM_STANDARD_BETA;
-	  } else if (!strcmp(argv[cur_arg + uii], "intercept")) {
-	    if (glm_modifier & GLM_LOGISTIC) {
-	      logprint("Error: --logistic does not currently have a 'intercept' modifier.  (Did you\nmean --linear or 'beta'?)\n");
-	      goto main_ret_INVALID_CMDLINE_A;
-	    }
-	    glm_modifier |= GLM_INTERCEPT;
-	  } else if (!strcmp(argv[cur_arg + uii], "beta")) {
-	    glm_modifier |= GLM_BETA;
-	  } else if (!strcmp(argv[cur_arg + uii], "set-test")) {
-	    glm_modifier |= GLM_SET_TEST;
-	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
-	    sprintf(logbuf, "Error: Improper --%s mperm syntax.  (Use '--%s mperm=[value]'.)\n", argptr, argptr);
-	    goto main_ret_INVALID_CMDLINE_2;
-	  } else {
-	    sprintf(logbuf, "Error: Invalid --%s parameter '%s'.\n", argptr, argv[cur_arg + uii]);
-	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
+	  if ((glm_modifier & GLM_NO_SNP) && (glm_modifier & GLM_NO_SNP_EXCL)) {
+	    sprintf(logbuf, "Error: --%s 'no-snp' modifier conflicts with another modifier.\n", argptr);
+	    goto main_ret_INVALID_CMDLINE_2A;
+	  }
+	  calculation_type |= CALC_GLM;
 	}
-	if ((glm_modifier & GLM_NO_SNP) && (glm_modifier & GLM_NO_SNP_EXCL)) {
-	  sprintf(logbuf, "Error: --%s 'no-snp' modifier conflicts with another modifier.\n", argptr);
-	  goto main_ret_INVALID_CMDLINE_2A;
-	}
-	calculation_type |= CALC_GLM;
       } else if (!memcmp(argptr2, "d-xchr", 7)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;

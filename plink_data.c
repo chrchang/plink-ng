@@ -4298,6 +4298,9 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	ii = get_chrom_code(chrom_info_ptr, bufptr);
 	if (ii < 0) {
 	  if (chrom_error(".gen file", chrom_info_ptr, bufptr, line_idx, ii, allow_extra_chroms)) {
+	    if (!memcmp(bufptr, "---", 3)) {
+	      logprint("(Did you forget --oxford-single-chr?)\n");
+	    }
 	    goto oxford_to_bed_ret_INVALID_FORMAT;
 	  }
 	  retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii, line_idx, ".gen file");
