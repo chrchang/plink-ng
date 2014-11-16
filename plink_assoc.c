@@ -6171,6 +6171,129 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
   }
 }
 
+THREAD_RET_TYPE model_set_best_thread(void* arg) {
+  // Similar to model_set_domrec_thread().
+  uintptr_t tidx = (uintptr_t)arg;
+  uint32_t pheno_nm_ct = g_pheno_nm_ct;
+  uint32_t assoc_thread_ct = g_assoc_thread_ct;
+  uintptr_t perm_vec_ct = g_perm_vec_ct;
+  uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
+#ifdef __LP64__
+  uint32_t perm_ct128 = (perm_vec_ct + 127) / 128;
+  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct128 * 288]);
+#else
+  uint32_t perm_ct64 = (perm_vec_ct + 63) / 64;
+  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct64 * 144]);
+#endif
+  uint32_t* git_homrar_cts = NULL;
+  uint32_t* git_missing_cts = NULL;
+  uint32_t* git_het_cts = NULL;
+  uintptr_t perm_vec_ctcl4m = CACHEALIGN32_INT32(perm_vec_ct);
+  uint32_t* resultbuf = g_resultbuf;
+  uint32_t case_ct = g_case_ct;
+  uint32_t* __restrict__ perm_vecst = g_perm_vecst;
+  double* msa_ptr = NULL;
+  uintptr_t* loadbuf;
+  uintptr_t* loadbuf_cur;
+  uintptr_t* is_invalid;
+  uint32_t* __restrict__ missing_cts;
+  uint32_t* __restrict__ het_cts;
+  uint32_t* __restrict__ homcom_cts;
+  uintptr_t pidx;
+  uintptr_t marker_idx;
+  intptr_t tot_obs;
+  intptr_t com_ct;
+  intptr_t rar_ct;
+  intptr_t het_ct;
+  intptr_t homrar_ct;
+  intptr_t homcom_ct;
+  double best_stat;
+  double sval;
+  uint32_t block_start;
+  uint32_t marker_bidx_start;
+  uint32_t marker_bidx;
+  uint32_t marker_bceil;
+  uint32_t case_homrar_ct;
+  uint32_t case_homcom_ct;
+  uint32_t case_het_ct;
+  uint32_t case_missing_ct;
+  uint32_t case_com_ct;
+  uint32_t skip_domrec;
+  uint32_t uii;
+  int32_t missing_ct;
+  while (1) {
+    block_start = g_block_start;
+    if (g_block_diff <= assoc_thread_ct) {
+      if (g_block_diff <= tidx) {
+	goto model_set_best_thread_skip_all;
+      }
+      marker_bidx_start = block_start + tidx;
+      marker_bceil = marker_bidx_start + 1;
+    } else {
+      marker_bidx_start = block_start + (((uint64_t)tidx) * g_block_diff) / assoc_thread_ct;
+      marker_bceil = block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
+    }
+    marker_bidx = marker_bidx_start;
+    loadbuf = g_loadbuf;
+    is_invalid = g_is_invalid_bitfield;
+    missing_cts = g_missing_cts;
+    het_cts = g_het_cts;
+    homcom_cts = g_homcom_cts;
+    for (; marker_bidx < marker_bceil; marker_bidx++) {
+      marker_idx = g_adapt_m_table[marker_bidx];
+      msa_ptr = &(g_mperm_save_all[marker_idx * perm_vec_ct]);
+      missing_ct = missing_cts[marker_idx];
+      tot_obs = pheno_nm_ct - missing_ct;
+      het_ct = het_cts[marker_idx];
+      homcom_ct = homcom_cts[marker_idx];
+      com_ct = 2 * homcom_ct + het_ct;
+      rar_ct = tot_obs * 2 - com_ct;
+      homrar_ct = tot_obs - homcom_ct - het_ct;
+      skip_domrec = IS_SET(is_invalid, marker_idx);
+      loadbuf_cur = &(loadbuf[marker_bidx * pheno_nm_ctl2]);
+      git_homrar_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
+      git_missing_cts = &(git_homrar_cts[perm_vec_ctcl4m]);
+      git_het_cts = &(git_homrar_cts[2 * perm_vec_ctcl4m]);
+#ifdef __LP64__
+      fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * (perm_vec_ctcl4m / 2));
+#else
+      fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * perm_vec_ctcl4m);
+#endif
+      calc_git(pheno_nm_ct, perm_vec_ct, loadbuf_cur, perm_vecst, git_homrar_cts, thread_git_wkspace);
+#ifdef __LP64__
+      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 72);
+#else
+      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 72);
+#endif
+      for (pidx = 0; pidx < perm_vec_ct; pidx++) {
+	case_missing_ct = git_missing_cts[pidx];
+	case_het_ct = git_het_cts[pidx];
+	case_homrar_ct = git_homrar_cts[pidx];
+	case_homcom_ct = case_ct - case_missing_ct - case_het_ct - case_homrar_ct;
+	case_com_ct = case_het_ct + 2 * case_homcom_ct;
+	uii = case_ct - case_missing_ct;
+	best_stat = chi22_eval(case_com_ct, 2 * uii, com_ct, 2 * tot_obs);
+	if (!skip_domrec) {
+          sval = chi22_eval(case_homcom_ct, uii, homcom_ct, tot_obs);
+	  if (sval > best_stat) {
+	    best_stat = sval;
+	  }
+	  sval = chi22_eval(case_homrar_ct, uii, homrar_ct, tot_obs);
+          if (sval > best_stat) {
+            best_stat = sval;
+	  }
+	}
+	*msa_ptr++ = best_stat;
+      }
+    }
+  model_set_best_thread_skip_all:
+    if ((!tidx) || g_is_last_thread_block) {
+      THREAD_RETURN;
+    }
+    THREAD_BLOCK_FINISH(tidx);
+  }
+}
+
 void set_test_score(uintptr_t marker_ct, double chisq_threshold, uint32_t set_max, double* chisq_arr, uint32_t** ld_map, uint32_t* cur_setdef, double* sorted_chisq_buf, uint32_t* sorted_marker_idx_buf, uint32_t* proxy_arr, uint32_t* raw_sig_ct_ptr, uint32_t* final_sig_ct_ptr, double* set_score_ptr) {
   // set score statistic = mean of chi-square statistics of set
   // representatives.  (In theory, variable-df genotypic test and Fisher's
@@ -6242,14 +6365,13 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   // 2. marker_exclude_mid refers to all markers contained in at least one set.
   //    This is a subset of marker_exclude_orig.  (They are identical if
   //    --gene-all was specified.)  It was used during the single-marker
-  //    association test phase, and describes which markers orig_chisq[]
-  //    elements initially refer to.
+  //    association test phase, and describes which markers orig_chisq[],
+  //    g_missing_cts[], etc. elements initially refer to.
   // 3. Finally, the marker_exclude used for set-based permutation testing
   //    refers to all markers contained in at least one *significant* set.
   //    orig_chisq is collapsed before permutation to be congruent to this
   //    marker_exclude.
   unsigned char* wkspace_mark = wkspace_base;
-  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   FILE* outfile = NULL;
   uintptr_t* marker_exclude = marker_exclude_mid;
@@ -6278,6 +6400,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   double adaptive_ci_zt = 0.0;
   double chisq_threshold = inverse_chiprob(sip->set_p, 1);
   uint32_t model_assoc = model_modifier & MODEL_ASSOC;
+  uint32_t model_perm_best = !(model_modifier & MODEL_PMASK);
   uint32_t max_sigset_size = 0;
   uint32_t max_thread_ct = g_thread_ct;
   uint32_t perms_done = 0;
@@ -6286,6 +6409,8 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   int32_t retval = 0;
   uintptr_t* set_incl;
   uintptr_t* loadbuf_ptr;
+  uintptr_t* is_invalid_bitfield;
+  uintptr_t* ulptr;
   double* orig_set_scores;
   double* chisq_ptr;
   double* chisq_end;
@@ -6305,8 +6430,6 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uintptr_t set_idx;
   uintptr_t perm_vec_ct;
   uintptr_t perm_vec_ctcl4m;
-  uintptr_t uljj;
-  uintptr_t ulkk;
   double stat_high;
   double stat_low;
   double cur_score;
@@ -6318,7 +6441,6 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uint32_t range_stop;
   uint32_t include_out_of_bounds;
   uint32_t cur_set_size;
-  uint32_t widx;
   uint32_t perms_total;
   uint32_t block_size;
   uint32_t block_end;
@@ -6434,34 +6556,6 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
     if (extract_set_union_unfiltered(sip, set_incl, unfiltered_marker_ct, marker_exclude_orig, &marker_exclude, &marker_ct)) {
       goto model_assoc_set_test_ret_NOMEM;
     }
-    if (marker_ct < marker_ct_orig) {
-      // collapse orig_chisq further
-      marker_idx = 0;
-      for (widx = 0; widx < unfiltered_marker_ctl; widx++) {
-	ulii = marker_exclude_mid[widx];
-	if (marker_exclude[widx] != ulii) {
-	  break;
-	}
-	marker_idx += BITCT - popcount_long(ulii);
-      }
-      uljj = marker_exclude[widx];
-      uii = CTZLU(ulii ^ uljj);
-      marker_idx += uii - popcount_long(ulii & ((ONELU << uii) - ONELU));
-      marker_midx = marker_idx;
-      for (; marker_idx < marker_ct; widx++) {
-	ulii = ~marker_exclude_mid[widx];
-	uljj = ~marker_exclude[widx];
-        while (ulii) {
-	  uii = CTZLU(ulii);
-	  ulkk = ONELU << uii;
-	  if (uljj & ulkk) {
-	    orig_chisq[marker_idx++] = orig_chisq[marker_midx];
-	  }
-	  marker_midx++;
-	  ulii ^= ulkk;
-	}
-      }
-    }
   }
   // Okay, we've pruned all we can, now it's time to suck it up and construct
   // the potentially huge LD map
@@ -6486,15 +6580,32 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   }
   if (marker_ct_mid != marker_ct) {
     // collapse these arrays so the permutation inner loop is faster
+    inplace_delta_collapse_arr((char*)orig_chisq, sizeof(double), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
     inplace_delta_collapse_arr((char*)g_missing_cts, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
     if (model_assoc) {
       inplace_delta_collapse_arr((char*)g_set_cts, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
-    } else if (model_modifier & (MODEL_PDOM | MODEL_PREC | MODEL_PTREND)) {
+    } else {
       inplace_delta_collapse_arr((char*)g_het_cts, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
       inplace_delta_collapse_arr((char*)g_homcom_cts, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
-    } else {
-      printf("not implemented yet\n");
-      exit(1);
+      if (model_perm_best) {
+	// probably belongs in plink_common
+	if (wkspace_alloc_ul_checked(&ulptr, marker_ctl * sizeof(intptr_t))) {
+	  goto model_assoc_set_test_ret_NOMEM;
+	}
+        fill_ulong_zero(ulptr, marker_ctl);
+	is_invalid_bitfield = g_is_invalid_bitfield;
+	for (marker_uidx = 0, marker_midx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_midx++) {
+	  next_unset_ul_unsafe_ck(marker_exclude_mid, &marker_uidx);
+	  if (!IS_SET(marker_exclude, marker_uidx)) {
+	    if (IS_SET(is_invalid_bitfield, marker_midx)) {
+	      SET_BIT(ulptr, marker_idx);
+	    }
+	    marker_idx++;
+	  }
+	}
+	memcpy(is_invalid_bitfield, ulptr, marker_ctl * sizeof(intptr_t));
+	wkspace_reset((unsigned char*)ulptr);
+      }
     }
   }
 
@@ -6708,8 +6819,10 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
       }
       model_set_trend_thread((void*)ulii);
     } else {
-      printf("not implemented yet\n");
-      exit(1);
+      if (spawn_threads2(threads, &model_set_best_thread, max_thread_ct, is_last_block)) {
+	goto model_assoc_set_test_ret_THREAD_CREATE_FAIL;
+      }
+      model_set_best_thread((void*)ulii);
     }
     join_threads2(threads, max_thread_ct, is_last_block);
     marker_idx += block_size;

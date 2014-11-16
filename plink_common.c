@@ -9060,6 +9060,8 @@ char* alloc_and_init_collapsed_arr_incl(char* item_arr, uintptr_t item_len, uint
 }
 
 void inplace_delta_collapse_arr(char* item_arr, uintptr_t item_len, uintptr_t filtered_ct_orig, uintptr_t filtered_ct_new, uintptr_t* exclude_orig, uintptr_t* exclude_new) {
+  // if this sort of collapse function is ever in an important loop, check
+  // whether specialized 4-byte and 8-byte versions are much faster
   uintptr_t* exclude_orig_start = exclude_orig;
   char* write_end = &(item_arr[filtered_ct_new * item_len]);
   uintptr_t read_idx = 1;

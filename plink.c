@@ -12494,7 +12494,8 @@ int32_t main(int32_t argc, char** argv) {
   }
   if (calculation_type & CALC_MODEL) {
     if (!(model_modifier & (MODEL_ASSOC | MODEL_PDOM | MODEL_PREC | MODEL_PTREND))) {
-      if (mtest_adjust) {
+      if (mtest_adjust && (!(model_modifier & MODEL_SET_TEST))) {
+	// this is actually okay with the set test
 	logprint("Error: In order to use --model with --adjust, you must include the 'trend',\n'trend-only', 'dom', or 'rec' modifier.\n");
 	goto main_ret_INVALID_CMDLINE;
       }
