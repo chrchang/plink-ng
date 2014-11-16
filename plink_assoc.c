@@ -6203,7 +6203,6 @@ THREAD_RET_TYPE model_set_best_thread(void* arg) {
   uintptr_t marker_idx;
   intptr_t tot_obs;
   intptr_t com_ct;
-  intptr_t rar_ct;
   intptr_t het_ct;
   intptr_t homrar_ct;
   intptr_t homcom_ct;
@@ -6247,7 +6246,6 @@ THREAD_RET_TYPE model_set_best_thread(void* arg) {
       het_ct = het_cts[marker_idx];
       homcom_ct = homcom_cts[marker_idx];
       com_ct = 2 * homcom_ct + het_ct;
-      rar_ct = tot_obs * 2 - com_ct;
       homrar_ct = tot_obs - homcom_ct - het_ct;
       skip_domrec = IS_SET(is_invalid, marker_idx);
       loadbuf_cur = &(loadbuf[marker_bidx * pheno_nm_ctl2]);
