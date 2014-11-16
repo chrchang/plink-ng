@@ -3488,8 +3488,6 @@ THREAD_RET_TYPE assoc_set_thread(void* arg) {
   uint32_t min_ploidy;
   uint32_t case_set_ct;
   uint32_t case_missing_ct;
-  uint32_t uii;
-  double sval;
   uint32_t missing_ct;
   while (1) {
     block_start = g_block_start;
@@ -3560,11 +3558,9 @@ THREAD_RET_TYPE assoc_set_thread(void* arg) {
 	    vec_set_freq_y(pheno_nm_ctl2, loadbuf_cur, &(perm_vecs[pidx * pheno_nm_ctl2]), nonmale_vec, &case_set_ct, &case_missing_ct);
 	  }
 	}
-	uii = row1x_sum - case_missing_ct * min_ploidy;
 	// Fisher's exact test not supported since we are adding raw chi-square
 	// stats, so little to gain from precomputation
-	sval = chi22_eval(case_set_ct, uii, col1_sum, tot_obs);
-	*msa_ptr++ = sval;
+	*msa_ptr++ = chi22_eval(case_set_ct, row1x_sum - case_missing_ct * min_ploidy, col1_sum, tot_obs);
       }
     }
   assoc_set_thread_skip_all:
@@ -4723,6 +4719,109 @@ THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
       perm_2success_ct[marker_idx++] += success_2incr;
     }
   model_maxt_domrec_thread_skip_all:
+    if ((!tidx) || g_is_last_thread_block) {
+      THREAD_RETURN;
+    }
+    THREAD_BLOCK_FINISH(tidx);
+  }
+}
+
+THREAD_RET_TYPE model_set_domrec_thread(void* arg) {
+  // Similar to assoc_set_thread().
+  uintptr_t tidx = (uintptr_t)arg;
+  uint32_t pheno_nm_ct = g_pheno_nm_ct;
+  uint32_t assoc_thread_ct = g_assoc_thread_ct;
+  uintptr_t perm_vec_ct = g_perm_vec_ct;
+  uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
+#ifdef __LP64__
+  uint32_t perm_ct128 = (perm_vec_ct + 127) / 128;
+  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct128 * 288]);
+#else
+  uint32_t perm_ct64 = (perm_vec_ct + 63) / 64;
+  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct64 * 144]);
+#endif
+  uint32_t* git_homrar_cts = NULL;
+  uint32_t* git_missing_cts = NULL;
+  uint32_t* git_het_cts = NULL;
+  uintptr_t perm_vec_ctcl4m = CACHEALIGN32_INT32(perm_vec_ct);
+  uint32_t* resultbuf = g_resultbuf;
+  uint32_t case_ct = g_case_ct;
+  int32_t is_model_prec = g_is_model_prec;
+  uint32_t* __restrict__ perm_vecst = g_perm_vecst;
+  double* msa_ptr = NULL;
+  uintptr_t* loadbuf;
+  uintptr_t* loadbuf_cur;
+  uint32_t* __restrict__ missing_cts;
+  uint32_t* __restrict__ het_cts;
+  uint32_t* __restrict__ homcom_cts;
+  uintptr_t pidx;
+  uintptr_t marker_idx;
+  intptr_t col1_sum;
+  intptr_t tot_obs;
+  uint32_t block_start;
+  uint32_t marker_bidx_start;
+  uint32_t marker_bidx;
+  uint32_t marker_bceil;
+  uint32_t case_homx_ct;
+  uint32_t case_missing_ct;
+  uint32_t missing_ct;
+  uint32_t het_ct;
+  uint32_t homcom_ct;
+  while (1) {
+    block_start = g_block_start;
+    if (g_block_diff <= assoc_thread_ct) {
+      if (g_block_diff <= tidx) {
+	goto model_set_domrec_thread_skip_all;
+      }
+      marker_bidx_start = block_start + tidx;
+      marker_bceil = marker_bidx_start + 1;
+    } else {
+      marker_bidx_start = block_start + (((uint64_t)tidx) * g_block_diff) / assoc_thread_ct;
+      marker_bceil = block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
+    }
+    marker_bidx = marker_bidx_start;
+    loadbuf = g_loadbuf;
+    missing_cts = g_missing_cts;
+    het_cts = g_het_cts;
+    homcom_cts = g_homcom_cts;
+    for (; marker_bidx < marker_bceil; marker_bidx++) {
+      marker_idx = g_adapt_m_table[marker_bidx];
+      msa_ptr = &(g_mperm_save_all[marker_idx * perm_vec_ct]);
+      missing_ct = missing_cts[marker_idx];
+      het_ct = het_cts[marker_idx];
+      homcom_ct = homcom_cts[marker_idx];
+      tot_obs = pheno_nm_ct - missing_ct;
+      if (is_model_prec) {
+	col1_sum = tot_obs - homcom_ct - het_ct;
+      } else {
+        col1_sum = homcom_ct;
+      }
+      loadbuf_cur = &(loadbuf[marker_bidx * pheno_nm_ctl2]);
+      git_homrar_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
+      git_missing_cts = &(git_homrar_cts[perm_vec_ctcl4m]);
+      git_het_cts = &(git_homrar_cts[2 * perm_vec_ctcl4m]);
+#ifdef __LP64__
+      fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * (perm_vec_ctcl4m / 2));
+#else
+      fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * perm_vec_ctcl4m);
+#endif
+      calc_git(pheno_nm_ct, perm_vec_ct, loadbuf_cur, perm_vecst, git_homrar_cts, thread_git_wkspace);
+#ifdef __LP64__
+      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 72);
+#else
+      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 72);
+#endif
+      for (pidx = 0; pidx < perm_vec_ct; pidx++) {
+	case_missing_ct = git_missing_cts[pidx];
+        if (is_model_prec) {
+	  case_homx_ct = git_homrar_cts[pidx];
+	} else {
+	  case_homx_ct = case_ct - case_missing_ct - git_homrar_cts[pidx] - git_het_cts[pidx];
+	}
+	*msa_ptr++ = chi22_eval(case_homx_ct, case_ct - case_missing_ct, col1_sum, tot_obs);
+      }
+    }
+  model_set_domrec_thread_skip_all:
     if ((!tidx) || g_is_last_thread_block) {
       THREAD_RETURN;
     }
@@ -6292,10 +6391,21 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   if (retval) {
     goto model_assoc_set_test_ret_1;
   }
-  // need to collapse set_cts and missing_cts
   if (marker_ct_mid != marker_ct) {
-    inplace_delta_collapse_arr((char*)g_set_cts, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
+    // collapse these arrays so the permutation inner loop is faster
     inplace_delta_collapse_arr((char*)g_missing_cts, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
+    if (model_assoc) {
+      inplace_delta_collapse_arr((char*)g_set_cts, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
+    } else if (model_modifier & (MODEL_PDOM | MODEL_PREC)) {
+      inplace_delta_collapse_arr((char*)g_het_cts, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
+      inplace_delta_collapse_arr((char*)g_homcom_cts, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
+    } else if (model_modifier & MODEL_PTREND) {
+      printf("not implemented yet\n");
+      exit(1);
+    } else {
+      printf("not implemented yet\n");
+      exit(1);
+    }
   }
 
   if (wkspace_alloc_d_checked(&orig_set_scores, set_ct * sizeof(double)) ||
@@ -6497,9 +6607,13 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
 	goto model_assoc_set_test_ret_THREAD_CREATE_FAIL;
       }
       assoc_set_thread((void*)ulii);
+    } else if (model_modifier & (MODEL_PDOM | MODEL_PREC)) {
+      if (spawn_threads2(threads, &model_set_domrec_thread, max_thread_ct, is_last_block)) {
+	goto model_assoc_set_test_ret_THREAD_CREATE_FAIL;
+      }
+      model_set_domrec_thread((void*)ulii);
     } else {
-      // todo
-      printf("--model set test not implemented yet\n");
+      printf("not implemented yet\n");
       exit(1);
     }
     join_threads2(threads, max_thread_ct, is_last_block);
