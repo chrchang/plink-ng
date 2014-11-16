@@ -3783,6 +3783,19 @@ void fill_idx_to_uidx(uintptr_t* exclude_arr, uintptr_t unfiltered_item_ct, uint
   } while (idx_to_uidx < idx_to_uidx_end);
 }
 
+void fill_idx_to_uidx_incl(uintptr_t* include_arr, uintptr_t unfiltered_item_ct, uintptr_t item_ct, uint32_t* idx_to_uidx) {
+  uint32_t* idx_to_uidx_end = &(idx_to_uidx[item_ct]);
+  uint32_t item_uidx = 0;
+  uint32_t item_uidx_stop;
+  do {
+    item_uidx = next_set_unsafe(include_arr, item_uidx);
+    item_uidx_stop = next_unset(include_arr, item_uidx, unfiltered_item_ct);
+    do {
+      *idx_to_uidx++ = item_uidx++;
+    } while (item_uidx < item_uidx_stop);
+  } while (idx_to_uidx < idx_to_uidx_end);
+}
+
 void fill_uidx_to_idx(uintptr_t* exclude_arr, uint32_t unfiltered_item_ct, uint32_t item_ct, uint32_t* uidx_to_idx) {
   uint32_t item_uidx = 0;
   uint32_t item_idx = 0;

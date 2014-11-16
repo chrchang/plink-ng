@@ -275,6 +275,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
       }
     }
   } else if (non_chi) {
+    // chi[] assumed to have 1 - pval
     for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
       dxx = 1 - chi[cur_idx];
       dyy = inverse_chiprob(dxx, 1);
@@ -519,7 +520,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
     }
   }
   fputs("\b\b\b", stdout);
-  LOGPRINTFWW("--adjust values (%" PRIuPTR " variant%s) written to %s .\n", chi_ct, (chi_ct == 1)? "" : "s", outname);
+  LOGPRINTFWW("--adjust values (%" PRIuPTR " %s%s) written to %s .\n", chi_ct, is_set_test? "set" : "variant", (chi_ct == 1)? "" : "s", outname);
 
   while (0) {
   multcomp_ret_NOMEM:
@@ -6036,9 +6037,7 @@ void set_test_score(uintptr_t marker_ct, double chisq_threshold, uint32_t set_ma
   }
 }
 
-int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, char* outname_end2, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, uint32_t mtest_adjust, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude_mid, uintptr_t marker_ct_mid, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* sex_male, Aperm_info* apip, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_pnm, uint32_t gender_req, uint32_t ld_ignore_x, uint32_t hh_exists, Set_info* sip, uintptr_t* loadbuf_raw) {
-  // logprint("Error: --assoc/--model set-test is currently under development.\n");
-  // return RET_CALC_NOT_YET_SUPPORTED;
+int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, char* outname_end2, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, double output_min_p, uint32_t mtest_adjust, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude_mid, uintptr_t marker_ct_mid, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* sex_male, Aperm_info* apip, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_pnm, uint32_t gender_req, uint32_t ld_ignore_x, uint32_t hh_exists, Set_info* sip, uintptr_t* loadbuf_raw) {
   // Could reuse more of the code in model_assoc() since there's considerable
   // overlap, but there are enough differences between the regular and set
   // permutation tests that separating this out and doing a fair bit of
@@ -6070,6 +6069,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   char* tbuf2 = &(tbuf[MAXLINELEN]);
   double* orig_chisq = g_orig_chisq;
   double* sorted_chisq_buf = NULL;
+  double* empirical_1mpval = NULL;
   uint32_t* marker_idx_to_uidx = NULL;
   uint32_t* sorted_marker_idx_buf = NULL;
   uint32_t* proxy_arr = NULL;
@@ -6103,6 +6103,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uint32_t** ld_map;
   uint32_t* marker_midx_to_idx;
   uint32_t* cur_setdef;
+  uint32_t* set_idx_to_uidx;
   uintptr_t marker_ctl;
   uintptr_t marker_uidx;
   uintptr_t marker_midx;
@@ -6556,7 +6557,11 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
  model_assoc_set_test_perms_done:
   putchar('\r');
   LOGPRINTF("\r%u permutation%s complete.\n", perms_done, (perms_done != 1)? "s" : "");
-  // todo: --adjust
+  if (set_ct && mtest_adjust) {
+    if (wkspace_alloc_d_checked(&empirical_1mpval, set_ct * sizeof(double))) {
+      goto model_assoc_set_test_ret_NOMEM;
+    }
+  }
  model_assoc_set_test_write:
   if (model_modifier & MODEL_PERM) {
     memcpy(outname_end2, ".set.perm", 10);
@@ -6578,8 +6583,11 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
       bufptr = uint32_writew6x(bufptr, raw_sig_ct, ' ');
       bufptr = uint32_writew6x(bufptr, final_sig_ct, ' ');
       pval = ((double)(perm_2success_ct[set_idx] + 2)) / ((double)(2 * (perm_attempt_ct[set_idx] + 1)));
+      if (empirical_1mpval) {
+	empirical_1mpval[set_idx] = 1.0 - pval;
+      }
       if (pval <= pfilter) {
-	bufptr = double_g_writewx4x(bufptr, pval, 12, ' ');
+	bufptr = double_g_writewx4x(bufptr, MAXV(pval, output_min_p), 12, ' ');
 	if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
 	  goto model_assoc_set_test_ret_WRITE_FAIL;
 	}
@@ -6606,6 +6614,14 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
     goto model_assoc_set_test_ret_WRITE_FAIL;
   }
   LOGPRINTFWW("Set test results written to %s .\n", outname);
+  if (set_ct && mtest_adjust) {
+    if (wkspace_alloc_ui_checked(&set_idx_to_uidx, set_ct * sizeof(int32_t))) {
+      goto model_assoc_set_test_ret_NOMEM;
+    }
+    fill_idx_to_uidx_incl(set_incl, raw_set_ct, set_ct, set_idx_to_uidx);
+    outname_end2[4] = '\0'; // .set.adjusted instead of .set.mperm.adjusted
+    retval = multcomp(outname, &(outname_end2[4]), set_idx_to_uidx, set_ct, sip->names, max_set_id_len, 0, NULL, empirical_1mpval, pfilter, output_min_p, mtest_adjust, 0.0, 1, NULL);
+  }
   while (0) {
   model_assoc_set_test_ret_NOMEM:
     retval = RET_NOMEM;
@@ -8197,7 +8213,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	}
       }
     } else {
-      retval = model_assoc_set_test(threads, bedfile, bed_offset, outname, outname_end, outname_end2, model_modifier, model_mperm_val, pfilter, mtest_adjust, unfiltered_marker_ct, marker_exclude_orig, marker_ct_orig, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, sex_male, apip, pheno_nm_ct, pheno_nm, pheno_c, founder_pnm, gender_req, ld_ignore_x, hh_exists, sip, loadbuf_raw);
+      retval = model_assoc_set_test(threads, bedfile, bed_offset, outname, outname_end, outname_end2, model_modifier, model_mperm_val, pfilter, output_min_p, mtest_adjust, unfiltered_marker_ct, marker_exclude_orig, marker_ct_orig, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, sex_male, apip, pheno_nm_ct, pheno_nm, pheno_c, founder_pnm, gender_req, ld_ignore_x, hh_exists, sip, loadbuf_raw);
       if (retval) {
         goto model_assoc_ret_1;
       }
