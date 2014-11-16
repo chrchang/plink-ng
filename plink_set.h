@@ -105,6 +105,8 @@ void unpack_set(uintptr_t marker_ct, uint32_t* setdef, uintptr_t* include_bitfie
 
 void unpack_set_unfiltered(uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* setdef, uintptr_t* new_exclude);
 
+uint32_t extract_set_union(uint32_t** setdefs, uintptr_t set_ct, uintptr_t* set_incl, uintptr_t* filtered_union, uintptr_t marker_ct);
+
 uint32_t extract_set_union_unfiltered(Set_info* sip, uintptr_t* set_incl, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t** union_marker_exclude_ptr, uintptr_t* union_marker_ct_ptr);
 
 uint32_t setdefs_compress(Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude, uintptr_t marker_ct, uint32_t*** new_setdefs_ptr);

@@ -1916,18 +1916,14 @@ void unpack_set_unfiltered(uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, 
   }
 }
 
-uint32_t extract_set_union(Set_info* sip, uintptr_t* set_incl, uintptr_t** filtered_union_ptr, uintptr_t* union_marker_ct_ptr) {
-  // allocates filtered_union on "stack", caller responsible for handling it
-  uintptr_t marker_ct = *union_marker_ct_ptr;
+uint32_t extract_set_union(uint32_t** setdefs, uintptr_t set_ct, uintptr_t* set_incl, uintptr_t* filtered_union, uintptr_t marker_ct) {
   uintptr_t marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
-  uintptr_t set_ct = sip->ct;
 
   // these track known filled words at the beginning and end.  (just intended
   // to detect early exit opportunities; doesn't need to be perfect.)
   uint32_t unset_startw = 0;
   uint32_t unset_endw = marker_ctl;
 
-  uintptr_t* filtered_union;
   uint32_t* cur_setdef;
   uintptr_t set_idx;
   uint32_t range_ct;
@@ -1936,16 +1932,12 @@ uint32_t extract_set_union(Set_info* sip, uintptr_t* set_incl, uintptr_t** filte
   uint32_t range_end;
   uint32_t keep_outer;
   uint32_t read_offset;
-  if (wkspace_alloc_ul_checked(filtered_union_ptr, marker_ctl * sizeof(intptr_t))) {
-    return 1;
-  }
-  filtered_union = *filtered_union_ptr;
   fill_ulong_zero(filtered_union, marker_ctl);
   for (set_idx = 0; set_idx < set_ct; set_idx++) {
     if (set_incl && (!IS_SET(set_incl, set_idx))) {
       continue;
     }
-    cur_setdef = sip->setdefs[set_idx];
+    cur_setdef = setdefs[set_idx];
     range_ct = cur_setdef[0];
     if (range_ct == 0xffffffffU) {
       range_start = cur_setdef[1] / BITCT;
@@ -2029,8 +2021,7 @@ uint32_t extract_set_union(Set_info* sip, uintptr_t* set_incl, uintptr_t** filte
   }
  extract_set_union_exit_early:
   zero_trailing_bits(filtered_union, marker_ct);
-  *union_marker_ct_ptr = popcount_longs(filtered_union, marker_ctl);
-  return 0;
+  return popcount_longs(filtered_union, marker_ctl);
 }
 
 uint32_t extract_set_union_unfiltered(Set_info* sip, uintptr_t* set_incl, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t** union_marker_exclude_ptr, uintptr_t* union_marker_ct_ptr) {
@@ -2040,14 +2031,14 @@ uint32_t extract_set_union_unfiltered(Set_info* sip, uintptr_t* set_incl, uintpt
   // Assumes marker_ct is initial value of *union_marker_ct_ptr.
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t orig_marker_ct = *union_marker_ct_ptr;
+  uintptr_t orig_marker_ctl = (orig_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t* union_marker_exclude;
   uintptr_t* filtered_union;
-  if (wkspace_alloc_ul_checked(&union_marker_exclude, unfiltered_marker_ctl * sizeof(intptr_t))) {
+  if (wkspace_alloc_ul_checked(&union_marker_exclude, unfiltered_marker_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&filtered_union, orig_marker_ctl * sizeof(intptr_t))) {
     return 1;
   }
-  if (extract_set_union(sip, set_incl, &filtered_union, union_marker_ct_ptr)) {
-    return 1;
-  }
+  *union_marker_ct_ptr = extract_set_union(sip->setdefs, sip->ct, set_incl, filtered_union, orig_marker_ct);
   if ((*union_marker_ct_ptr) == orig_marker_ct) {
     wkspace_reset(union_marker_exclude);
     *union_marker_exclude_ptr = marker_exclude;

@@ -8980,6 +8980,20 @@ int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_s
   return retval;
 }
 
+/*
+void inplace_collapse_uint32(uint32_t* item_arr, uint32_t unfiltered_ct, uintptr_t* exclude_arr, uint32_t filtered_ct) {
+  if (unfiltered_ct == filtered_ct) {
+    return;
+  }
+  uint32_t item_uidx = next_set_unsafe(exclude_arr, 0);
+  uint32_t item_idx = item_uidx;
+  for (; item_idx < filtered_ct; item_idx++, item_uidx++) {
+    next_unset_unsafe_ck(exclude_arr, &item_uidx);
+    item_arr[item_idx] = item_arr[item_uidx];
+  }
+}
+*/
+
 char* alloc_and_init_collapsed_arr(char* item_arr, uintptr_t item_len, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t filtered_ct, uint32_t read_only) {
   uint32_t item_uidx = 0;
   char* new_arr;
@@ -9032,7 +9046,6 @@ char* alloc_and_init_collapsed_arr_incl(char* item_arr, uintptr_t item_len, uint
   return new_arr;
 }
 
-/*
 void inplace_delta_collapse_arr(char* item_arr, uintptr_t item_len, uintptr_t filtered_ct_orig, uintptr_t filtered_ct_new, uintptr_t* exclude_orig, uintptr_t* exclude_new) {
   uintptr_t* exclude_orig_start = exclude_orig;
   char* write_end = &(item_arr[filtered_ct_new * item_len]);
@@ -9076,7 +9089,6 @@ void inplace_delta_collapse_arr(char* item_arr, uintptr_t item_len, uintptr_t fi
     write_ptr = &(write_ptr[item_len]);
   }
 }
-*/
 
 void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr) {
   uintptr_t cur_write = 0;

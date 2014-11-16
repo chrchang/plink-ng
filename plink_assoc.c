@@ -6014,14 +6014,15 @@ void set_test_score(uintptr_t marker_ct, double chisq_threshold, uint32_t set_ma
   do {
     raw_idx--;
     ld_conflict = 0;
+    marker_idx = sorted_marker_idx_buf[raw_idx];
     for (uii = 0; uii < final_sig_ct; uii++) {
-      if (in_setdef(cur_setdef, proxy_arr[uii])) {
+      if (in_setdef(ld_map[proxy_arr[uii]], marker_idx)) {
 	ld_conflict = 1;
 	break;
       }
     }
     if (!ld_conflict) {
-      proxy_arr[final_sig_ct] = sorted_marker_idx_buf[raw_idx];
+      proxy_arr[final_sig_ct] = marker_idx;
       chi_sum += sorted_chisq_buf[raw_idx];
       if (++final_sig_ct == set_max) {
 	break;
@@ -6036,8 +6037,8 @@ void set_test_score(uintptr_t marker_ct, double chisq_threshold, uint32_t set_ma
 }
 
 int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, char* outname_end2, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, uint32_t mtest_adjust, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude_mid, uintptr_t marker_ct_mid, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* sex_male, Aperm_info* apip, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_pnm, uint32_t gender_req, uint32_t ld_ignore_x, uint32_t hh_exists, Set_info* sip, uintptr_t* loadbuf_raw) {
-  logprint("Error: --assoc/--model set-test is currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
+  // logprint("Error: --assoc/--model set-test is currently under development.\n");
+  // return RET_CALC_NOT_YET_SUPPORTED;
   // Could reuse more of the code in model_assoc() since there's considerable
   // overlap, but there are enough differences between the regular and set
   // permutation tests that separating this out and doing a fair bit of
@@ -6056,18 +6057,23 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   //    refers to all markers contained in at least one *significant* set.
   //    orig_chisq is collapsed before permutation to be congruent to this
   //    marker_exclude.
-  /*
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   FILE* outfile = NULL;
-  FILE* outfile_msa = NULL;
   uintptr_t* marker_exclude = marker_exclude_mid;
   uintptr_t* cur_bitfield = NULL;
   uintptr_t* unstopped_markers = NULL;
   uintptr_t* loadbuf = g_loadbuf;
   uintptr_t* sample_male_include2 = g_sample_male_include2;
+  uintptr_t* perm_adapt_set_unstopped = NULL;
+  char* tbuf2 = &(tbuf[MAXLINELEN]);
   double* orig_chisq = g_orig_chisq;
+  double* sorted_chisq_buf = NULL;
+  uint32_t* marker_idx_to_uidx = NULL;
+  uint32_t* sorted_marker_idx_buf = NULL;
+  uint32_t* proxy_arr = NULL;
+  uint32_t* perm_2success_ct = NULL;
   uint32_t* perm_attempt_ct = NULL;
   uintptr_t marker_ct = marker_ct_mid;
   uintptr_t pheno_nm_ctv2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
@@ -6077,17 +6083,18 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uintptr_t max_set_id_len = sip->max_name_len;
   uintptr_t final_mask = get_final_mask(pheno_nm_ct);
   uintptr_t ulii = 0;
+  double adaptive_ci_zt = 0.0;
   double chisq_threshold = inverse_chiprob(sip->set_p, 1);
   uint32_t model_assoc = model_modifier & MODEL_ASSOC;
   uint32_t max_sigset_size = 0;
   uint32_t max_thread_ct = g_thread_ct;
   uint32_t perms_done = 0;
+  uint32_t perm_pass_idx = 0;
   int32_t x_code = chrom_info_ptr->x_code;
   int32_t retval = 0;
   uintptr_t* set_incl;
   uintptr_t* loadbuf_ptr;
   double* orig_set_scores;
-  double* sorted_chisq_buf;
   double* chisq_ptr;
   double* chisq_end;
   unsigned char* wkspace_mark2;
@@ -6095,10 +6102,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uint32_t** setdefs;
   uint32_t** ld_map;
   uint32_t* marker_midx_to_idx;
-  uint32_t* marker_idx_to_uidx;
   uint32_t* cur_setdef;
-  uint32_t* sorted_marker_idx_buf;
-  uint32_t* proxy_arr;
   uintptr_t marker_ctl;
   uintptr_t marker_uidx;
   uintptr_t marker_midx;
@@ -6110,6 +6114,10 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uintptr_t perm_vec_ctcl4m;
   uintptr_t uljj;
   uintptr_t ulkk;
+  double stat_high;
+  double stat_low;
+  double cur_score;
+  double pval;
   double dxx;
   uint32_t range_ct;
   uint32_t range_idx;
@@ -6130,6 +6138,11 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uint32_t marker_unstopped_ct;
   uint32_t is_last_block;
   uint32_t pidx;
+  uint32_t pidx_offset;
+  uint32_t first_adapt_check;
+  uint32_t next_adapt_check;
+  uint32_t raw_sig_ct;
+  uint32_t final_sig_ct;
   uint32_t uii;
   if (wkspace_alloc_ul_checked(&set_incl, raw_set_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ui_checked(&marker_midx_to_idx, marker_ct_orig * sizeof(int32_t))) {
@@ -6271,10 +6284,19 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   } else {
     setdefs = sip->setdefs;
   }
-  retval = construct_ld_map(threads, bedfile, bed_offset, marker_exclude, marker_ct, marker_reverse, marker_idx_to_uidx, unfiltered_sample_ct, founder_pnm, sip, set_incl, set_ct, setdefs, outname, outname_end, marker_ids, max_marker_id_len, sex_male, chrom_info_ptr, ld_ignore_x, hh_exists, &ld_map);
+  ulii = (uintptr_t)(outname_end - outname);
+  // don't want to overwrite .assoc extension, etc.
+  memcpy(tbuf2, outname, ulii);
+  retval = construct_ld_map(threads, bedfile, bed_offset, marker_exclude, marker_ct, marker_reverse, marker_idx_to_uidx, unfiltered_sample_ct, founder_pnm, sip, set_incl, set_ct, setdefs, tbuf2, &(tbuf2[ulii]), marker_ids, max_marker_id_len, sex_male, chrom_info_ptr, ld_ignore_x, hh_exists, &ld_map);
   if (retval) {
     goto model_assoc_set_test_ret_1;
   }
+  // need to collapse set_cts and missing_cts
+  if (marker_ct_mid != marker_ct) {
+    inplace_delta_collapse_arr((char*)g_set_cts, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
+    inplace_delta_collapse_arr((char*)g_missing_cts, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
+  }
+
   if (wkspace_alloc_d_checked(&orig_set_scores, set_ct * sizeof(double)) ||
       wkspace_alloc_d_checked(&sorted_chisq_buf, max_sigset_size * sizeof(double)) ||
       wkspace_alloc_ui_checked(&sorted_marker_idx_buf, max_sigset_size * sizeof(int32_t)) ||
@@ -6289,15 +6311,26 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   }
   // just treat --mperm as --perm with min_perms == max_perms, since this isn't
   // a proper max(T) test
-  if (wkspace_alloc_ui_checked(&perm_attempt_ct, set_ct * sizeof(int32_t)) ||
+  if (wkspace_alloc_ul_checked(&perm_adapt_set_unstopped, ((set_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t)) ||
+      wkspace_alloc_ui_checked(&perm_2success_ct, set_ct * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&perm_attempt_ct, set_ct * sizeof(int32_t)) ||
       wkspace_alloc_ul_checked(&unstopped_markers, marker_ctl * sizeof(intptr_t))) {
     goto model_assoc_set_test_ret_NOMEM;
   }
   if (model_modifier & MODEL_PERM) {
     perms_total = apip->max;
+    if (apip->min < apip->init_interval) {
+      first_adapt_check = (int32_t)(apip->init_interval);
+    } else {
+      first_adapt_check = apip->min;
+    }
+    adaptive_ci_zt = ltqnorm(1 - apip->beta / (2.0 * ((intptr_t)set_ct)));
   } else {
     perms_total = model_mperm_val;
+    first_adapt_check = perms_total + 1;
   }
+  fill_all_bits(perm_adapt_set_unstopped, set_ct);
+  fill_uint_zero(perm_2success_ct, set_ct);
   fill_all_bits(unstopped_markers, marker_ct);
   for (uii = 0; uii < set_ct; uii++) {
     perm_attempt_ct[uii] = perms_total;
@@ -6316,6 +6349,12 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   // set score.
   wkspace_mark2 = wkspace_base;
  model_assoc_set_test_more_perms:
+  if (perm_pass_idx) {
+    uii = apip->init_interval;
+    while (first_adapt_check <= perms_done) {
+      first_adapt_check += (int32_t)(uii + ((int32_t)first_adapt_check) * apip->interval_slope);
+    }
+  }
   // perm_vec_ct memory allocation dependencies:
   //   g_perm_vecst: 16 * ((perm_vec_ct + 127) / 128) * pheno_nm_ct
   //   g_thread_git_wkspace: ((perm_vec_ct + 127) / 128) * 1152 * thread_ct
@@ -6332,7 +6371,6 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   } else if (!perm_vec_ct) {
     goto model_assoc_set_test_ret_NOMEM;
   }
-  ;;;
   perm_vec_ctcl4m = CACHEALIGN32_INT32(perm_vec_ct);
   perms_done += perm_vec_ct;
   g_perms_done = perms_done;
@@ -6460,27 +6498,70 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
       assoc_set_thread((void*)ulii);
     } else {
       // todo
-      printf("not implemented yet\n");
+      printf("--model set test not implemented yet\n");
       exit(1);
     }
     join_threads2(threads, max_thread_ct, is_last_block);
     marker_idx += block_size;
   } while (marker_idx < marker_unstopped_ct);
   // now compute set stats for the just-completed permutations
+  pidx_offset = perms_done - perm_vec_ct;
   for (set_idx = 0; set_idx < set_ct; set_idx++) {
-    if () {
+    if (IS_SET(perm_adapt_set_unstopped, set_idx)) {
+      next_adapt_check = first_adapt_check;
+      uii = perm_2success_ct[set_idx];
+      stat_high = orig_set_scores[set_idx] + EPSILON;
+      stat_low = orig_set_scores[set_idx] - EPSILON;
+      for (pidx = 0; pidx < perm_vec_ct;) {
+	set_test_score(marker_ct, chisq_threshold, sip->set_max, &(g_mperm_save_all[pidx * marker_ct]), ld_map, setdefs[set_idx], sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, NULL, NULL, &cur_score);
+	if (cur_score > stat_high) {
+	  uii += 2;
+	} else if (cur_score > stat_low) {
+	  uii++;
+	}
+	if (++pidx == next_adapt_check - pidx_offset) {
+	  if (uii) {
+	    pval = ((double)((int32_t)uii + 2)) / ((double)(2 * ((int32_t)next_adapt_check + 1)));
+	    dxx = adaptive_ci_zt * sqrt(pval * (1 - pval) / ((int32_t)next_adapt_check));
+	    if ((pval - dxx > apip->alpha) || (pval + dxx < apip->alpha)) {
+	      CLEAR_BIT(perm_adapt_set_unstopped, set_idx);
+	      perm_attempt_ct[set_idx] = next_adapt_check;
+	      break;
+	    }
+	  }
+	  next_adapt_check += (int32_t)(apip->init_interval + ((int32_t)next_adapt_check) * apip->interval_slope);
+	}
+      }
+      perm_2success_ct[set_idx] = uii;
     }
-    set_test_score(marker_ct, chisq_threshold, sip->set_max, &(g_mperm_save_all[]));
   }
   wkspace_reset(wkspace_mark2);
-  if (0) {
+  if (perms_done < perms_total) {
+    if (model_modifier & MODEL_PERM) {
+      if (!extract_set_union(setdefs, set_ct, perm_adapt_set_unstopped, unstopped_markers, marker_ct)) {
+	perms_done = 0;
+	for (set_idx = 0; set_idx < set_ct; set_idx++) {
+	  if (perms_done < perm_attempt_ct[set_idx]) {
+	    perms_done = perm_attempt_ct[set_idx];
+	  }
+	}
+	goto model_assoc_set_test_perms_done;
+      }
+    }
+    printf("\r%u permutation%s complete.", perms_done, (perms_done != 1)? "s" : "");
+    fflush(stdout);
+    perm_pass_idx++;
     goto model_assoc_set_test_more_perms;
   }
+ model_assoc_set_test_perms_done:
+  putchar('\r');
+  LOGPRINTF("\r%u permutation%s complete.\n", perms_done, (perms_done != 1)? "s" : "");
+  // todo: --adjust
  model_assoc_set_test_write:
   if (model_modifier & MODEL_PERM) {
-    memcpy(outname_end, ".set.perm", 10);
+    memcpy(outname_end2, ".set.perm", 10);
   } else {
-    memcpy(outname_end, ".set.mperm", 11);
+    memcpy(outname_end2, ".set.mperm", 11);
   }
   if (fopen_checked(&outfile, outname, "w")) {
     goto model_assoc_set_test_ret_OPEN_FAIL;
@@ -6490,18 +6571,32 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   }
   for (set_uidx = 0, set_idx = 0; set_uidx < raw_set_ct; set_uidx++) {
     bufptr = fw_strcpy(12, &(sip->names[set_uidx * max_set_id_len]), tbuf);
-    *bufptr++;
+    *bufptr++ = ' ';
     bufptr = uint32_writew6x(bufptr, setdef_size(sip->setdefs[set_uidx], marker_ct_orig), ' ');
     if (IS_SET(set_incl, set_uidx)) {
-      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
-	goto model_assoc_set_test_ret_WRITE_FAIL;
-      }
-      if (putc_checked('\n', outfile)) {
-	goto model_assoc_set_test_ret_WRITE_FAIL;
+      set_test_score(marker_ct, chisq_threshold, sip->set_max, orig_chisq, ld_map, setdefs[set_idx], sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, &raw_sig_ct, &final_sig_ct, &cur_score);
+      bufptr = uint32_writew6x(bufptr, raw_sig_ct, ' ');
+      bufptr = uint32_writew6x(bufptr, final_sig_ct, ' ');
+      pval = ((double)(perm_2success_ct[set_idx] + 2)) / ((double)(2 * (perm_attempt_ct[set_idx] + 1)));
+      if (pval <= pfilter) {
+	bufptr = double_g_writewx4x(bufptr, pval, 12, ' ');
+	if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	  goto model_assoc_set_test_ret_WRITE_FAIL;
+	}
+	// as a side effect, set_test_score() fills proxy_arr with the marker
+	// indexes we need
+	fputs(&(marker_ids[marker_idx_to_uidx[proxy_arr[0]] * max_marker_id_len]), outfile);
+	for (uii = 1; uii < final_sig_ct; uii++) {
+	  putc('|', outfile);
+	  fputs(&(marker_ids[marker_idx_to_uidx[proxy_arr[uii]] * max_marker_id_len]), outfile);
+	}
+	if (putc_checked('\n', outfile)) {
+	  goto model_assoc_set_test_ret_WRITE_FAIL;
+	}
       }
       set_idx++;
     } else {
-      memcpya(bufptr, "     0      0            1 NA\n", 30);
+      bufptr = memcpya(bufptr, "     0      0            1 NA\n", 30);
       if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
 	goto model_assoc_set_test_ret_WRITE_FAIL;
       }
@@ -6532,9 +6627,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
  model_assoc_set_test_ret_1:
   wkspace_reset(wkspace_mark);
   fclose_cond(outfile);
-  fclose_cond(outfile_msa);
   return retval;
-  */
 }
 
 void get_model_assoc_precomp_bounds(uint32_t missing_ct, uint32_t is_model, uint32_t* minp, uint32_t* ctp) {
@@ -7089,10 +7182,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       if (perm_pass_idx) {
 	uii = g_first_adapt_check;
 	ujj = apip->init_interval;
-	ukk = apip->interval_slope;
 	while (uii <= perms_done) {
 	  // APERM_MAX prevents infinite loop here
-	  uii += (int32_t)(ujj + ((int32_t)uii) * ukk);
+	  uii += (int32_t)(ujj + ((int32_t)uii) * apip->interval_slope);
 	}
 	g_first_adapt_check = uii;
       }
