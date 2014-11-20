@@ -609,7 +609,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       load_bim_template_match:
 	missing_template_seg_len[template_insert_ct] = ujj;
 	missing_template_base_len += ujj;
-	missing_template_seg_order[ukk] = template_insert_ct++;
+	missing_template_seg_order[template_insert_ct++] = ukk;
 	missing_template_seg[template_insert_ct] = &(bufptr[1]);
       }
       cc = *(++bufptr);
@@ -766,7 +766,8 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	bufptr4 = bufptr;
 	for (uii = 0; uii < template_insert_ct; uii++) {
 	  bufptr4 = memcpya(bufptr4, missing_template_seg[uii], missing_template_seg_len[uii]);
-	  bufptr4 = memcpya(bufptr4, insert_buf[uii], insert_buf_len[uii]);
+	  ujj = missing_template_seg_order[uii];
+	  bufptr4 = memcpya(bufptr4, insert_buf[ujj], insert_buf_len[ujj]);
 	}
 	bufptr4 = memcpya(bufptr4, missing_template_seg[uii], missing_template_seg_len[uii]);
 	ulii = (uintptr_t)(bufptr4 - bufptr);
@@ -1238,7 +1239,8 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	  bufptr4 = bufptr5;
 	  for (uii = 0; uii < template_insert_ct; uii++) {
 	    bufptr4 = memcpya(bufptr4, missing_template_seg[uii], missing_template_seg_len[uii]);
-	    bufptr4 = memcpya(bufptr4, insert_buf[uii], insert_buf_len[uii]);
+	    ujj = missing_template_seg_order[uii];
+	    bufptr4 = memcpya(bufptr4, insert_buf[ujj], insert_buf_len[ujj]);
 	  }
 	  bufptr4 = memcpyax(bufptr4, missing_template_seg[uii], missing_template_seg_len[uii], '\0');
 	  if (!strcmp(prev_new_id, bufptr5)) {
