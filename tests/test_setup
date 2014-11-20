@@ -1,0 +1,15 @@
+#!/bin/bash
+
+# This generates a few datasets for our tests to run on.  (It is not efficient
+# to just store them in GitHub.)  It is assumed that the PLINK 1.9 build to be
+# tested is named/symlinked as "plink2", and a PLINK 1.07 build is
+# named/symlinked as "plink1".
+
+# When the number of samples isn't divisible by 4, special-case logic is
+# sometimes needed to handle the last data byte for each variant.  This has
+# been a source of bugs, so it's important to have a test case for each sample
+# count remainder mod 4.
+plink2 --dummy 4321 54321 0.02 acgt --out dummy_cc1
+plink2 --dummy 5432 50000 0.04 acgt --out dummy_cc2
+plink2 --dummy 4323 44444 0.03 acgt --out dummy1
+plink2 --dummy 5434 43210 0.05 acgt --out dummy2

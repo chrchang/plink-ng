@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (15 Nov 2014)";
+  " (19 Nov 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -277,7 +277,7 @@ static inline int32_t distance_wt_req(uint64_t calculation_type, char* read_dist
   return (((calculation_type & CALC_DISTANCE) || ((!read_dists_fname) && ((calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))))) && (!(dist_calc_type & DISTANCE_FLAT_MISSING)));
 }
 
-int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, char* famname, char* cm_map_fname, char* cm_map_chrname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char** missing_mid_templates, char* missing_marker_id_match, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* qual_filter, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* sample_sort_fname, char* filtervals_flattened, char* condition_mname, char* condition_fname, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_sample_fname, char* filter_attrib_sample_liststr, double qual_min_thresh, double qual_max_thresh, double thin_keep_prob, uint32_t thin_keep_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t fam_cols, int32_t missing_pheno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, Family_info* fam_ip, double check_sex_fthresh, double check_sex_mthresh, uint32_t check_sex_f_yobs, uint32_t check_sex_m_yobs, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t filter_flags, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t splitx_bound1, uint32_t splitx_bound2, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t update_sex_col, uint32_t hwe_modifier, uint32_t genome_modifier, double genome_min_pi_hat, double genome_max_pi_hat, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, Set_info* sip, Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip, Rel_info* relip, Score_info* sc_ip, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t sample_sort, int32_t marker_pos_start, int32_t marker_pos_end, int32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t write_var_range_ct, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t write_covar_modifier, uint32_t write_covar_dummy_max_categories, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, Aperm_info* apip, uint32_t mperm_save, uintptr_t ibs_test_perms, uint32_t perm_batch_size, double lasso_h2, double lasso_minlambda, Range_list* lasso_select_covars_range_list_ptr, uint32_t testmiss_modifier, uint32_t testmiss_mperm_val, uint32_t permphe_ct, Ll_str** file_delete_list_ptr) {
+int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, char* famname, char* cm_map_fname, char* cm_map_chrname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* missing_mid_template, char* missing_marker_id_match, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* qual_filter, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* sample_sort_fname, char* filtervals_flattened, char* condition_mname, char* condition_fname, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_sample_fname, char* filter_attrib_sample_liststr, double qual_min_thresh, double qual_max_thresh, double thin_keep_prob, uint32_t new_id_max_allele_len, uint32_t thin_keep_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t fam_cols, int32_t missing_pheno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, Family_info* fam_ip, double check_sex_fthresh, double check_sex_mthresh, uint32_t check_sex_f_yobs, uint32_t check_sex_m_yobs, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t filter_flags, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t splitx_bound1, uint32_t splitx_bound2, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t update_sex_col, uint32_t hwe_modifier, uint32_t genome_modifier, double genome_min_pi_hat, double genome_max_pi_hat, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, Set_info* sip, Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip, Rel_info* relip, Score_info* sc_ip, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t sample_sort, int32_t marker_pos_start, int32_t marker_pos_end, int32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t write_var_range_ct, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t write_covar_modifier, uint32_t write_covar_dummy_max_categories, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, Aperm_info* apip, uint32_t mperm_save, uintptr_t ibs_test_perms, uint32_t perm_batch_size, double lasso_h2, double lasso_minlambda, Range_list* lasso_select_covars_range_list_ptr, uint32_t testmiss_modifier, uint32_t testmiss_mperm_val, uint32_t permphe_ct, Ll_str** file_delete_list_ptr) {
   FILE* bedfile = NULL;
   FILE* phenofile = NULL;
   uintptr_t unfiltered_marker_ct = 0;
@@ -542,7 +542,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     if (!marker_alleles_needed) {
       allelexxxx = 0;
     }
-    retval = load_bim(bimname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &set_allele_freqs, nchrobs_needed? (&nchrobs) : NULL, &marker_allele_ptrs, &max_marker_allele_len, &marker_ids, missing_mid_templates, missing_marker_id_match, chrom_info_ptr, &marker_cms, &marker_pos, misc_flags, filter_flags, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_range_list_ptr, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, ((!(calculation_type & (~(CALC_MAKE_BED | CALC_MAKE_BIM | CALC_MAKE_FAM)))) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (hwe_thresh == 0.0) && (!update_map) && (!freqname))? NULL : "make-bed", ".bim file", &max_bim_linelen);
+    retval = load_bim(bimname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &set_allele_freqs, nchrobs_needed? (&nchrobs) : NULL, &marker_allele_ptrs, &max_marker_allele_len, &marker_ids, missing_mid_template, new_id_max_allele_len, missing_marker_id_match, chrom_info_ptr, &marker_cms, &marker_pos, misc_flags, filter_flags, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_range_list_ptr, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, ((!(calculation_type & (~(CALC_MAKE_BED | CALC_MAKE_BIM | CALC_MAKE_FAM)))) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (hwe_thresh == 0.0) && (!update_map) && (!freqname))? NULL : "make-bed", ".bim file", &max_bim_linelen);
     if (retval) {
       goto plink_ret_1;
     }
@@ -2582,6 +2582,34 @@ uint32_t species_flag(uint32_t* species_code_ptr, uint32_t new_code) {
   return 0;
 }
 
+uint32_t valid_varid_template_string(char* varid_str, const char* flag_name) {
+  char* sptr = strchr(varid_str, '@');
+  char* sptr2 = strchr(varid_str, '#');
+  if ((!sptr) || (!sptr2) || strchr(&(sptr[1]), '@') || strchr(&(sptr2[1]), '#')) {
+    LOGPRINTFWW("Error: The %s template string requires exactly one '@' and one '#'.\n", flag_name);
+    return 0;
+  }
+  // snp/nonsnp is not sufficient for assigning unique IDs to unnamed 1000
+  // Genomes phase 3 variants (see e.g. chr22:18078898).  So we now allow the
+  // template string to include allele names, where '$1' = first allele in
+  // ASCII-sort order, and '$2' = second allele.
+  // Use of sorted order, instead of ref/alt or major/minor, is necessary to
+  // minimize the chance of assigning different names to the same variant in
+  // different datasets.  (Triallelic variants are still a problem, but no
+  // solution is possible there until the file format is extended.)
+  // For now, either '$' must be entirely absent from the template string, or
+  // it appears exactly twice, once in '$1' and once in '$2'.
+  sptr = strchr(varid_str, '$');
+  if (sptr) {
+    sptr2 = strchr(&(sptr[1]), '$');
+    if ((!sptr2) || strchr(&(sptr2[1]), '$') || (!(((sptr[1] == '1') && (sptr2[1] == '2')) || ((sptr[1] == '2') && (sptr2[1] == '1'))))) {
+      LOGPRINTFWW("Error: The %s template string requires either no instances of '$', or exactly one '$1' and one '$2'.\n", flag_name);
+      return 0;
+    }
+  }
+  return 1;
+}
+
 // these need global scope to stay around on all systems
 const char species_singular_constants[][7] = {"person", "cow", "dog", "horse", "mouse", "plant", "sheep", "sample"};
 const char species_plural_constants[][8] = {"people", "cattle", "dogs", "horses", "mice", "plants", "sheep", "samples"};
@@ -3059,6 +3087,7 @@ int32_t main(int32_t argc, char** argv) {
   double lasso_minlambda = -1;
   uint32_t testmiss_modifier = 0;
   uint32_t testmiss_mperm_val = 0;
+  uint32_t new_id_max_allele_len = 23;
   char* segment_spanning_fname = NULL;
   char* missing_code = NULL;
   char range_delim = '-';
@@ -3080,7 +3109,7 @@ int32_t main(int32_t argc, char** argv) {
   char mergename2[FNAMESIZE];
   char mergename3[FNAMESIZE];
   char output_missing_pheno[32];
-  char* missing_mid_templates[2];
+  char* missing_mid_template;
 #ifdef __APPLE__
   int32_t mib[2];
   size_t sztmp;
@@ -3092,7 +3121,6 @@ int32_t main(int32_t argc, char** argv) {
   time_t rawtime;
   char* argptr;
   char* sptr;
-  char* sptr2;
   int32_t ii;
   int32_t jj;
   int32_t kk;
@@ -3149,8 +3177,7 @@ int32_t main(int32_t argc, char** argv) {
   range_list_init(&lasso_select_covars_range_list);
   range_list_init(&parameters_range_list);
   range_list_init(&tests_range_list);
-  missing_mid_templates[0] = NULL;
-  missing_mid_templates[1] = NULL;
+  missing_mid_template = NULL;
 
   // standardize strtod() behavior
   setlocale(LC_NUMERIC, "C");
@@ -9009,6 +9036,14 @@ int32_t main(int32_t argc, char** argv) {
         logprint("Note: --nudge flag deprecated.  Use '--genome nudge'.\n");
         genome_modifier |= GENOME_NUDGE;
         goto main_param_zero;
+      } else if (!memcmp(argptr2, "ew-id-max-allele-len", 21)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+	if (scan_posint_capped(argv[cur_arg + 1], &new_id_max_allele_len, (MAX_ID_LEN - 2) / 10, (MAX_ID_LEN - 2) % 10)) {
+	  sprintf(logbuf, "Error: Invalid --new-id-max-allele-len parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
+	}
       } else if (!memcmp(argptr2, "o-snp", 6)) {
 	if (!(calculation_type & CALC_GLM)) {
 	  logprint("Error: --no-snp must be used with --linear or --logistic.\n");
@@ -10788,69 +10823,26 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
       } else if (!memcmp(argptr2, "et-missing-snp-ids", 19)) {
-	if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
-	  sprintf(logbuf, "Error: --set-missing-snp-ids cannot be used with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
-	  goto main_ret_INVALID_CMDLINE_2A;
-	}
-        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
-          goto main_ret_INVALID_CMDLINE_2A;
-	}
-	// must contain exactly one '@' and one '#'
-	sptr = strchr(argv[cur_arg + 1], '@');
-	sptr2 = strchr(argv[cur_arg + 1], '#');
-	if ((!sptr) || (!sptr2) || strchr(&(sptr[1]), '@') || strchr(&(sptr2[1]), '#')) {
-	  logprint("Error: The --set-missing-snp-ids template string requires exactly one '@' and\none '#'.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
-	}
-	if (missing_mid_templates[0] && (!strcmp(missing_mid_templates[0], argv[cur_arg + 1]))) {
-	  // users can still shoot themselves in the foot by splitting this
-	  // across two runs, but at least it's harder
-	  logprint("Error: --set-missing-snp-ids and --set-missing-nonsnp-ids cannot be given the\nsame template string.  Use --set-missing-var-ids if you're sure there are no\nposition overlaps.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
-	}
-	if (alloc_string(&missing_mid_templates[1], argv[cur_arg + 1])) {
-	  goto main_ret_NOMEM;
-	}
-	filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP | FILTER_NOCNV;
+	logprint("Error: --set-missing-snp-ids has been retired.  Use --set-missing-var-ids with\n'$1' and '$2' instead.\n");
+	goto main_ret_INVALID_CMDLINE_A;
       } else if (!memcmp(argptr2, "et-missing-nonsnp-ids", 22)) {
+	logprint("Error: --set-missing-nonsnp-ids has been retired.  Use --set-missing-var-ids\nwith '$1' and '$2' instead.\n");
+	goto main_ret_INVALID_CMDLINE_A;
+      } else if (!memcmp(argptr2, "et-missing-var-ids", 19)) {
 	if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
-	  sprintf(logbuf, "Error: --set-missing-nonsnp-ids cannot be used with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
-	  goto main_ret_INVALID_CMDLINE_2A;
+	  sprintf(logbuf, "Error: --set-missing-var-ids cannot be used with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
-	sptr = strchr(argv[cur_arg + 1], '@');
-	sptr2 = strchr(argv[cur_arg + 1], '#');
-	if ((!sptr) || (!sptr2) || strchr(&(sptr[1]), '@') || strchr(&(sptr2[1]), '#')) {
-	  logprint("Error: The --set-missing-nonsnp-ids template string requires exactly one '@'\nand one '#'.\n");
+	if (!valid_varid_template_string(argv[cur_arg + 1], "--set-missing-var-ids")) {
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	if (alloc_string(&missing_mid_templates[0], argv[cur_arg + 1])) {
+	if (alloc_string(&missing_mid_template, argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
 	filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP | FILTER_NOCNV;
-      } else if (!memcmp(argptr2, "et-missing-var-ids", 19)) {
-	if (missing_mid_templates[0] || missing_mid_templates[1]) {
-	  logprint("Error: --set-missing-var-ids cannot be used with --set-missing-snp-ids or\n--set-missing-nonsnp-ids.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
-	} else if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
-	  sprintf(logbuf, "Error: --set-missing-nonsnp-ids cannot be used with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
-	  goto main_ret_INVALID_CMDLINE_A;
-	}
-        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
-          goto main_ret_INVALID_CMDLINE_2A;
-	}
-	sptr = strchr(argv[cur_arg + 1], '@');
-	sptr2 = strchr(argv[cur_arg + 1], '#');
-	if ((!sptr) || (!sptr2) || strchr(&(sptr[1]), '@') || strchr(&(sptr2[1]), '#')) {
-	  logprint("Error: The --set-missing-var-ids template string requires exactly one '@' and\none '#'.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
-	}
-	if (alloc_string(&missing_mid_templates[1], argv[cur_arg + 1])) {
-	  goto main_ret_NOMEM;
-	}
-	filter_flags |= FILTER_BIM_REQ | FILTER_SET_MISSING_VAR_IDS | FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "core", 5)) {
 	if (load_rare & LOAD_RARE_DOSAGE) {
 	  if (dosage_info.modifier & DOSAGE_OCCUR) {
@@ -12776,7 +12768,7 @@ int32_t main(int32_t argc, char** argv) {
     } else if (!rel_info.ibc_type) {
       rel_info.ibc_type = 1;
     }
-    retval = plink(outname, outname_end, pedname, mapname, famname, cm_map_fname, cm_map_chrname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, read_dists_fname, read_dists_id_fname, evecname, mergename1, mergename2, mergename3, missing_mid_templates, missing_marker_id_match, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, update_alleles_fname, read_genome_fname, qual_filter, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, sample_sort_fname, filtervals_flattened, condition_mname, condition_fname, filter_attrib_fname, filter_attrib_liststr, filter_attrib_sample_fname, filter_attrib_sample_liststr, qual_min_thresh, qual_max_thresh, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, &oblig_missing_info, &family_info, check_sex_fthresh, check_sex_mthresh, check_sex_f_yobs, check_sex_m_yobs, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, tail_bottom, tail_top, misc_flags, filter_flags, calculation_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, parallel_idx, parallel_tot, splitx_bound1, splitx_bound2, ppc_gap, sex_missing_pheno, update_sex_col, hwe_modifier, genome_modifier, genome_min_pi_hat, genome_max_pi_hat, &homozyg, &cluster, neighbor_n1, neighbor_n2, &set_info, &ld_info, &epi_info, &clump_info, &rel_info, &score_info, recode_modifier, allelexxxx, merge_type, sample_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, write_var_range_ct, covar_modifier, &covar_range_list, write_covar_modifier, write_covar_dummy_max_categories, mwithin_col, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, &parameters_range_list, &tests_range_list, ci_size, pfilter, output_min_p, mtest_adjust, adjust_lambda, gxe_mcovar, &aperm, mperm_save, ibs_test_perms, perm_batch_size, lasso_h2, lasso_minlambda, &lasso_select_covars_range_list, testmiss_modifier, testmiss_mperm_val, permphe_ct, &file_delete_list);
+    retval = plink(outname, outname_end, pedname, mapname, famname, cm_map_fname, cm_map_chrname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, read_dists_fname, read_dists_id_fname, evecname, mergename1, mergename2, mergename3, missing_mid_template, missing_marker_id_match, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, update_alleles_fname, read_genome_fname, qual_filter, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, sample_sort_fname, filtervals_flattened, condition_mname, condition_fname, filter_attrib_fname, filter_attrib_liststr, filter_attrib_sample_fname, filter_attrib_sample_liststr, qual_min_thresh, qual_max_thresh, thin_keep_prob, new_id_max_allele_len, thin_keep_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, &oblig_missing_info, &family_info, check_sex_fthresh, check_sex_mthresh, check_sex_f_yobs, check_sex_m_yobs, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, tail_bottom, tail_top, misc_flags, filter_flags, calculation_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, parallel_idx, parallel_tot, splitx_bound1, splitx_bound2, ppc_gap, sex_missing_pheno, update_sex_col, hwe_modifier, genome_modifier, genome_min_pi_hat, genome_max_pi_hat, &homozyg, &cluster, neighbor_n1, neighbor_n2, &set_info, &ld_info, &epi_info, &clump_info, &rel_info, &score_info, recode_modifier, allelexxxx, merge_type, sample_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, write_var_range_ct, covar_modifier, &covar_range_list, write_covar_modifier, write_covar_dummy_max_categories, mwithin_col, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, &parameters_range_list, &tests_range_list, ci_size, pfilter, output_min_p, mtest_adjust, adjust_lambda, gxe_mcovar, &aperm, mperm_save, ibs_test_perms, perm_batch_size, lasso_h2, lasso_minlambda, &lasso_select_covars_range_list, testmiss_modifier, testmiss_mperm_val, permphe_ct, &file_delete_list);
   }
   while (0) {
   main_ret_NOMEM:
@@ -12896,8 +12888,7 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(maternal_id_23);
   free_cond(condition_mname);
   free_cond(condition_fname);
-  free_cond(missing_mid_templates[0]);
-  free_cond(missing_mid_templates[1]);
+  free_cond(missing_mid_template);
   free_cond(missing_marker_id_match);
   free_cond(filter_attrib_fname);
   free_cond(filter_attrib_liststr);
