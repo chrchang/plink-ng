@@ -228,6 +228,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
   uint32_t output_min_p_strlen = 11;
   uint32_t uii = 0;
   uint32_t* new_tcnt = NULL;
+  double* unadj = NULL;
   char output_min_p_str[16];
   uint32_t pct;
   double* sp;
@@ -243,6 +244,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
   double harmonic_sum;
   double dct;
   double pval;
+  double unadj_pval;
   double* pv_gc;
   double lambda_recip;
   double bonf;
@@ -345,15 +347,13 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
 
   // handle reverse-order calculations
   if (wkspace_alloc_d_checked(&pv_bh, chi_ct * sizeof(double)) ||
-      wkspace_alloc_d_checked(&pv_by, chi_ct * sizeof(double))) {
+      wkspace_alloc_d_checked(&pv_by, chi_ct * sizeof(double)) ||
+      wkspace_alloc_d_checked(&pv_gc, chi_ct * sizeof(double))) {
     goto multcomp_ret_NOMEM;
   }
   if (adjust_gc) {
-    pv_gc = sp;
-  } else {
-    if (wkspace_alloc_d_checked(&pv_gc, chi_ct * sizeof(double))) {
-      goto multcomp_ret_NOMEM;
-    }
+    unadj = sp;
+    sp = pv_gc;
   }
   uii = chi_ct;
   if (tcnt) {
@@ -446,6 +446,11 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
       if ((pfilter != 2.0) && ((!(pval >= 0.0)) || (pval > pfilter))) {
 	continue;
       }
+      if (adjust_gc) {
+        unadj_pval = unadj[cur_idx];
+      } else {
+	unadj_pval = pval;
+      }
       marker_uidx = new_order[cur_idx];
       if (!is_set_test) {
         bufptr = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx)));
@@ -478,7 +483,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
 
       bufptr = tbuf;
       if (!is_log10) {
-	adjust_print(pval, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
+	adjust_print(unadj_pval, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
 	if (!is_set_test) {
 	  adjust_print(pv_gc[cur_idx], output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
 	}
@@ -8807,6 +8812,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   uint32_t chrom_name_len = 0;
   char chrom_name_buf[5];
   uint32_t mu_table[MODEL_BLOCKSIZE];
+  char numbuf[16]; // ' -1.23456e-200\0' fits, barely
   char spacebuf[8];
   char* outname_end2;
   char* wptr_start;
@@ -8881,6 +8887,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   g_pheno_nm_ct = pheno_nm_ct;
   g_perms_done = 0;
   g_mperm_save_all = NULL;
+  numbuf[0] = ' ';
   if (perm_maxt) {
     perms_total = model_mperm_val;
     if (wkspace_alloc_d_checked(&g_maxt_extreme_stat, sizeof(double) * perms_total)) {
@@ -9294,14 +9301,16 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	  if (mperm_save & MPERM_DUMP_ALL) {
 	    if (!do_lin) {
 	      if (tp >= 0) {
-		fprintf(outfile_msa, " %g", tstat * tstat);
+		double_g_writex(&(numbuf[1]), tstat * tstat, '\0');
+		fputs(numbuf, outfile_msa);
 	      } else {
 		fputs(" NA", outfile_msa);
 	      }
 	    } else {
 	      dxx = g_orig_linsq[marker_idx + marker_bidx];
 	      if ((nanal > 2) && realnum(dxx)) {
-		fprintf(outfile_msa, " %g", dxx);
+		double_g_writex(&(numbuf[1]), dxx, '\0');
+		fputs(numbuf, outfile_msa);
 	      } else {
 		fputs(" NA", outfile_msa);
 	      }
