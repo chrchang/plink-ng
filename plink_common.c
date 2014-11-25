@@ -3722,6 +3722,7 @@ int32_t populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uint
 	    extra_alloc_base[extra_alloc + 1] = prev_llidx;
 	    id_htable[hashval] = 0x80000000U | (extra_alloc >> 1);
 	    extra_alloc += 2;
+	    break; // bugfix
           }
 	}
 	top_diff = id_htable_size - hashval;
