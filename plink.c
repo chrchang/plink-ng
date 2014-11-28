@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (25 Nov 2014)";
+  " (28 Nov 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -10673,6 +10673,10 @@ int32_t main(int32_t argc, char** argv) {
           model_modifier |= MODEL_SET_TEST;
 	}
 	if (calculation_type & CALC_GLM) {
+	  if (glm_modifier & GLM_NO_SNP) {
+	    logprint("Error: --set-test cannot be used with --linear/--logistic no-snp.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
+	  }
 	  glm_modifier |= GLM_SET_TEST;
 	}
 	if ((calculation_type & CALC_CMH) && (!(cluster.modifier & CLUSTER_CMH2))) {
@@ -12310,9 +12314,6 @@ int32_t main(int32_t argc, char** argv) {
         logprint("Error: --adjust 'gc' modifier does not make sense with\n--linear/--logistic set-test.\n");
         goto main_ret_INVALID_CMDLINE_A;
       }
-      logprint("Error: --linear/--logistic set-test is currently under development.\n");
-      retval = RET_CALC_NOT_YET_SUPPORTED;
-      goto main_ret_1;
       uii = 1;
     }
     if (family_info.tdt_modifier & TDT_SET_TEST) {

@@ -140,7 +140,7 @@ void disp_usage(FILE* stream) {
 "  -d, --dose [fname]   : Specify full .dose/.mldose filename.  Required.\n"
 "  -i, --info [fname]   : Specify full .info/.mlinfo filename.  Required.\n"
 "  -o, --out [prefix]   : Set output filename prefix (default 'plink_dosage').\n"
-"  -m, -memory [val]    : Set size, in MB, of initial workspace malloc attempt.\n"
+"  -m, --memory [val]   : Set size, in MB, of initial workspace malloc attempt.\n"
 "  --no-gz (or '-gz 0') : Turn off zipping of the output .pdat file.\n"
 , stream);
 }
