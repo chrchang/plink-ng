@@ -5015,7 +5015,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       goto glm_linear_assoc_ret_WRITE_FAIL;
     }
     if (mtest_adjust) {
-      retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_initial_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, g_orig_chisq, pfilter, output_min_p, mtest_adjust, adjust_lambda, 1, tcnt);
+      retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_initial_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, g_orig_chisq, pfilter, output_min_p, mtest_adjust, adjust_lambda, tcnt, NULL);
       if (retval) {
 	goto glm_linear_assoc_ret_1;
       }
@@ -6098,7 +6098,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       goto glm_logistic_assoc_ret_WRITE_FAIL;
     }
     if (mtest_adjust) {
-      retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_initial_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, g_orig_chisq, pfilter, output_min_p, mtest_adjust, adjust_lambda, 0, NULL);
+      retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_initial_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, g_orig_chisq, pfilter, output_min_p, mtest_adjust, adjust_lambda, NULL, NULL);
       if (retval) {
 	goto glm_logistic_assoc_ret_1;
       }

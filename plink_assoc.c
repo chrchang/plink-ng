@@ -215,7 +215,7 @@ static inline void adjust_print_log10(double pval, double output_min_p, const ch
   }
 }
 
-int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintptr_t chi_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, double* chi, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uint32_t non_chi, uint32_t* tcnt) {
+int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintptr_t chi_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, double* chi, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uint32_t* tcnt, double* pvals) {
   unsigned char* wkspace_mark = wkspace_base;
   uint32_t adjust_gc = mtest_adjust & ADJUST_GC;
   uint32_t is_log10 = mtest_adjust & ADJUST_LOG10;
@@ -258,7 +258,18 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
       wkspace_alloc_ui_checked(&new_order, chi_ct * sizeof(int32_t))) {
     goto multcomp_ret_NOMEM;
   }
-  if (tcnt) {
+  if (pvals) {
+    for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
+      dxx = pvals[cur_idx];
+      dyy = inverse_chiprob(dxx, 1);
+      if (dyy >= 0) {
+	sp[uii] = dxx;
+	new_order[uii] = marker_uidxs[cur_idx];
+	schi[uii] = dyy;
+	uii++;
+      }
+    }
+  } else if (tcnt) {
     if (wkspace_alloc_ui_checked(&new_tcnt, chi_ct * sizeof(int32_t))) {
       goto multcomp_ret_NOMEM;
     }
@@ -274,18 +285,6 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
 	  new_tcnt[uii] = ujj - 2;
 	  uii++;
 	}
-      }
-    }
-  } else if (non_chi) {
-    // chi[] assumed to have 1 - pval
-    for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
-      dxx = 1 - chi[cur_idx];
-      dyy = inverse_chiprob(dxx, 1);
-      if (dyy >= 0) {
-	sp[uii] = dxx;
-	new_order[uii] = marker_uidxs[cur_idx];
-	schi[uii] = dyy;
-	uii++;
       }
     }
   } else {
@@ -2626,7 +2625,7 @@ void check_for_better_rem_cost(uintptr_t best_cost, uint32_t maxt_block_base, ui
 }
 
 // multithread globals
-static double* g_orig_1mpval;
+static double* g_orig_pvals;
 static double* g_orig_chisq;
 static double* g_mperm_save_all;
 
@@ -3010,7 +3009,7 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
   double adaptive_ci_zt = g_adaptive_ci_zt;
   double aperm_alpha = g_aperm_alpha;
   uintptr_t* __restrict__ loadbuf;
-  double* __restrict__ orig_1mpval;
+  double* __restrict__ orig_pvals;
   double* __restrict__ orig_chisq;
   uint32_t* __restrict__ missing_cts;
   uint32_t* __restrict__ set_cts;
@@ -3055,7 +3054,7 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
     }
     min_ploidy_1 = g_min_ploidy_1;
     loadbuf = g_loadbuf;
-    orig_1mpval = g_orig_1mpval;
+    orig_pvals = g_orig_pvals;
     orig_chisq = g_orig_chisq;
     missing_cts = g_missing_cts;
     set_cts = g_set_cts;
@@ -3086,10 +3085,10 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
       success_2start = perm_2success_ct[marker_idx];
       success_2incr = 0;
       if (model_fisher) {
-	stat_high = orig_1mpval[marker_idx] + EPSILON;
-	stat_low = orig_1mpval[marker_idx] - EPSILON;
+	stat_high = orig_pvals[marker_idx] * (1.0 + EPSILON);
+	stat_low = orig_pvals[marker_idx] * (1.0 - EPSILON);
       } else {
-	if (orig_1mpval[marker_idx] == -9) {
+	if (orig_pvals[marker_idx] == -9) {
 	  perm_adapt_stop[marker_idx] = 1;
 	  perm_attempt_ct[marker_idx] = next_adapt_check;
 	  perm_2success_ct[marker_idx] = next_adapt_check;
@@ -3130,14 +3129,19 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
 	} else {
 	  uii = row1x_sum - case_missing_ct * min_ploidy; // row1_sum
 	  if (model_fisher) {
-	    dxx = 1.0 - fisher22(case_set_ct, uii - case_set_ct, col1_sum - case_set_ct, col2_sum + case_set_ct - uii, fisher_midp);
+	    dxx = fisher22(case_set_ct, uii - case_set_ct, col1_sum - case_set_ct, col2_sum + case_set_ct - uii, fisher_midp);
+	    if (dxx < stat_low) {
+	      success_2incr += 2;
+	    } else if (dxx <= stat_high) {
+	      success_2incr++;
+	    }
 	  } else {
 	    dxx = chi22_eval(case_set_ct, uii, col1_sum, tot_obs);
-	  }
-	  if (dxx > stat_high) {
-	    success_2incr += 2;
-	  } else if (dxx > stat_low) {
-	    success_2incr++;
+	    if (dxx > stat_high) {
+	      success_2incr += 2;
+	    } else {
+	      success_2incr++;
+	    }
 	  }
 	}
 	if (++pidx == next_adapt_check - pidx_offset) {
@@ -3205,7 +3209,7 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
   uint32_t* __restrict__ precomp_start;
   uint32_t* __restrict__ precomp_ui;
   double* __restrict__ precomp_d;
-  double* __restrict__ orig_1mpval;
+  double* __restrict__ orig_pvals;
   double* __restrict__ orig_chisq;
   uint16_t* ldrefs;
   uintptr_t* loadbuf_cur;
@@ -3277,7 +3281,7 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
     precomp_start = g_precomp_start;
     precomp_ui = g_precomp_ui;
     precomp_d = g_precomp_d;
-    orig_1mpval = g_orig_1mpval;
+    orig_pvals = g_orig_pvals;
     orig_chisq = g_orig_chisq;
     resultbuf = g_resultbuf;
     ldrefs = g_ldrefs;
@@ -3287,10 +3291,10 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
     }
     for (; marker_bidx < marker_bceil; marker_bidx++) {
       if (model_fisher) {
-	stat_high = 1.0 + EPSILON - orig_1mpval[marker_idx];
-	stat_low = 1.0 - EPSILON - orig_1mpval[marker_idx];
+	stat_high = orig_pvals[marker_idx] * (1.0 + EPSILON);
+	stat_low = orig_pvals[marker_idx] * (1.0 - EPSILON);
       } else {
-	if (g_orig_1mpval[marker_idx] == -9) {
+	if (g_orig_pvals[marker_idx] == -9) {
 	  if (msa_ptr) {
 	    for (pidx = 0; pidx < perm_vec_ct; pidx++) {
 	      *msa_ptr++ = -9;
@@ -3411,7 +3415,7 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
 	    sval = fisher22(case_set_ct, uii - case_set_ct, col1_sum - case_set_ct, col2_sum + case_set_ct - uii, fisher_midp);
 	    if (sval < stat_low) {
 	      success_2incr += 2;
-	    } else if (sval < stat_high) {
+	    } else if (sval <= stat_high) {
 	      success_2incr++;
 	    }
 	    if (results[pidx] > sval) {
@@ -4345,7 +4349,7 @@ THREAD_RET_TYPE model_adapt_domrec_thread(void* arg) {
   double adaptive_ci_zt = g_adaptive_ci_zt;
   double aperm_alpha = g_aperm_alpha;
   uintptr_t* __restrict__ loadbuf;
-  double* __restrict__ orig_1mpval;
+  double* __restrict__ orig_pvals;
   double* __restrict__ orig_chisq;
   uint32_t* __restrict__ missing_cts;
   uint32_t* __restrict__ het_cts;
@@ -4385,7 +4389,7 @@ THREAD_RET_TYPE model_adapt_domrec_thread(void* arg) {
       marker_bceil = g_block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
     }
     loadbuf = g_loadbuf;
-    orig_1mpval = g_orig_1mpval;
+    orig_pvals = g_orig_pvals;
     orig_chisq = g_orig_chisq;
     missing_cts = g_missing_cts;
     het_cts = g_het_cts;
@@ -4395,13 +4399,13 @@ THREAD_RET_TYPE model_adapt_domrec_thread(void* arg) {
     for (; marker_bidx < marker_bceil; marker_bidx++) {
       marker_idx = g_adapt_m_table[marker_bidx];
       if (model_fisher) {
-	if (orig_1mpval[marker_idx] == -9) {
+	if (orig_pvals[marker_idx] == -9) {
 	  perm_adapt_stop[marker_idx] = 1;
 	  perm_attempt_ct[marker_idx] = 0;
 	  continue;
 	}
-	stat_high = orig_1mpval[marker_idx] + EPSILON;
-	stat_low = orig_1mpval[marker_idx] - EPSILON;
+	stat_high = orig_pvals[marker_idx] * (1.0 + EPSILON);
+	stat_low = orig_pvals[marker_idx] * (1.0 - EPSILON);
       } else {
 	if (orig_chisq[marker_idx] == -9) {
 	  perm_adapt_stop[marker_idx] = 1;
@@ -4450,14 +4454,19 @@ THREAD_RET_TYPE model_adapt_domrec_thread(void* arg) {
 	} else {
 	  uii = case_ct - case_missing_ct;
 	  if (model_fisher) {
-	    dxx = 1.0 - fisher22(case_homx_ct, uii - case_homx_ct, col1_sum - case_homx_ct, col2_sum + case_homx_ct - uii, fisher_midp);
+	    dxx = fisher22(case_homx_ct, uii - case_homx_ct, col1_sum - case_homx_ct, col2_sum + case_homx_ct - uii, fisher_midp);
+	    if (dxx < stat_low) {
+	      success_2incr += 2;
+	    } else if (dxx <= stat_high) {
+	      success_2incr++;
+	    }
 	  } else {
 	    dxx = chi22_eval(case_homx_ct, uii, col1_sum, tot_obs);
-	  }
-	  if (dxx > stat_high) {
-	    success_2incr += 2;
-	  } else if (dxx > stat_low) {
-	    success_2incr++;
+	    if (dxx > stat_high) {
+	      success_2incr += 2;
+	    } else if (dxx > stat_low) {
+	      success_2incr++;
+	    }
 	  }
 	}
 	if (++pidx == next_adapt_check - pidx_offset) {
@@ -4522,7 +4531,7 @@ THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
   uint32_t* __restrict__ precomp_start;
   uint32_t* __restrict__ precomp_ui;
   double* __restrict__ precomp_d;
-  double* __restrict__ orig_1mpval;
+  double* __restrict__ orig_pvals;
   double* __restrict__ orig_chisq;
   uint16_t* ldrefs;
   uintptr_t* loadbuf_cur;
@@ -4579,7 +4588,7 @@ THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
     precomp_start = g_precomp_start;
     precomp_ui = g_precomp_ui;
     precomp_d = g_precomp_d;
-    orig_1mpval = g_orig_1mpval;
+    orig_pvals = g_orig_pvals;
     orig_chisq = g_orig_chisq;
     resultbuf = g_resultbuf;
     ldrefs = g_ldrefs;
@@ -4589,7 +4598,7 @@ THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
     }
     for (; marker_bidx < marker_bceil; marker_bidx++) {
       if (model_fisher) {
-	if (orig_1mpval[marker_idx] == -9) {
+	if (orig_pvals[marker_idx] == -9) {
 	model_maxt_domrec_thread_skip_marker:
 	  marker_idx++;
 	  if (msa_ptr) {
@@ -4599,8 +4608,8 @@ THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
 	  }
 	  continue;
 	}
-	stat_high = 1.0 + EPSILON - orig_1mpval[marker_idx];
-	stat_low = 1.0 - EPSILON - orig_1mpval[marker_idx];
+	stat_high = orig_pvals[marker_idx] * (1.0 + EPSILON);
+	stat_low = orig_pvals[marker_idx] * (1.0 - EPSILON);
       } else {
 	if (orig_chisq[marker_idx] == -9) {
 	  goto model_maxt_domrec_thread_skip_marker;
@@ -4699,7 +4708,7 @@ THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
 	    sval = fisher22(case_homx_ct, uii - case_homx_ct, col1_sum - case_homx_ct, col2_sum + case_homx_ct - uii, fisher_midp);
 	    if (sval < stat_low) {
 	      success_2incr += 2;
-	    } else if (sval < stat_high) {
+	    } else if (sval <= stat_high) {
 	      success_2incr++;
 	    }
 	    if (results[pidx] > sval) {
@@ -4853,7 +4862,7 @@ THREAD_RET_TYPE model_adapt_trend_thread(void* arg) {
   double adaptive_ci_zt = g_adaptive_ci_zt;
   double aperm_alpha = g_aperm_alpha;
   uintptr_t* __restrict__ loadbuf;
-  double* __restrict__ orig_1mpval;
+  double* __restrict__ orig_pvals;
   double* __restrict__ orig_chisq;
   uint32_t* __restrict__ missing_cts;
   uint32_t* __restrict__ het_cts;
@@ -4893,7 +4902,7 @@ THREAD_RET_TYPE model_adapt_trend_thread(void* arg) {
       marker_bceil = g_block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
     }
     loadbuf = g_loadbuf;
-    orig_1mpval = g_orig_1mpval;
+    orig_pvals = g_orig_pvals;
     orig_chisq = g_orig_chisq;
     missing_cts = g_missing_cts;
     het_cts = g_het_cts;
@@ -4903,7 +4912,7 @@ THREAD_RET_TYPE model_adapt_trend_thread(void* arg) {
     for (; marker_bidx < marker_bceil; marker_bidx++) {
       marker_idx = g_adapt_m_table[marker_bidx];
       next_adapt_check = first_adapt_check;
-      if (orig_1mpval[marker_idx] == -9) {
+      if (orig_pvals[marker_idx] == -9) {
 	perm_adapt_stop[marker_idx] = 1;
 	perm_attempt_ct[marker_idx] = next_adapt_check;
 	perm_2success_ct[marker_idx] = next_adapt_check;
@@ -5006,7 +5015,7 @@ THREAD_RET_TYPE model_maxt_trend_thread(void* arg) {
   uint32_t* __restrict__ precomp_start;
   uint32_t* __restrict__ precomp_ui;
   double* __restrict__ precomp_d;
-  double* __restrict__ orig_1mpval;
+  double* __restrict__ orig_pvals;
   double* __restrict__ orig_chisq;
   uint16_t* ldrefs;
   uintptr_t* loadbuf_cur;
@@ -5061,7 +5070,7 @@ THREAD_RET_TYPE model_maxt_trend_thread(void* arg) {
     precomp_start = g_precomp_start;
     precomp_ui = g_precomp_ui;
     precomp_d = g_precomp_d;
-    orig_1mpval = g_orig_1mpval;
+    orig_pvals = g_orig_pvals;
     orig_chisq = g_orig_chisq;
     resultbuf = g_resultbuf;
     ldrefs = g_ldrefs;
@@ -5070,7 +5079,7 @@ THREAD_RET_TYPE model_maxt_trend_thread(void* arg) {
       msa_ptr = &(mperm_save_all[marker_idx * perm_vec_ct]);
     }
     for (; marker_bidx < marker_bceil; marker_bidx++) {
-      if (orig_1mpval[marker_idx] == -9) {
+      if (orig_pvals[marker_idx] == -9) {
 	perm_2success_ct[marker_idx++] += perm_vec_ct;
 	continue;
       }
@@ -5280,7 +5289,7 @@ THREAD_RET_TYPE model_adapt_gen_thread(void* arg) {
   double adaptive_ci_zt = g_adaptive_ci_zt;
   double aperm_alpha = g_aperm_alpha;
   uintptr_t* __restrict__ loadbuf;
-  double* __restrict__ orig_1mpval;
+  double* __restrict__ orig_pvals;
   double* __restrict__ orig_chisq;
   uint32_t* __restrict__ missing_cts;
   uint32_t* __restrict__ het_cts;
@@ -5319,7 +5328,7 @@ THREAD_RET_TYPE model_adapt_gen_thread(void* arg) {
       marker_bceil = g_block_start + (((uint64_t)tidx + 1) * g_block_diff) / assoc_thread_ct;
     }
     loadbuf = g_loadbuf;
-    orig_1mpval = g_orig_1mpval;
+    orig_pvals = g_orig_pvals;
     orig_chisq = g_orig_chisq;
     missing_cts = g_missing_cts;
     het_cts = g_het_cts;
@@ -5327,13 +5336,13 @@ THREAD_RET_TYPE model_adapt_gen_thread(void* arg) {
     for (; marker_bidx < marker_bceil; marker_bidx++) {
       marker_idx = g_adapt_m_table[marker_bidx];
       if (model_fisher) {
-	if (orig_1mpval[marker_idx] == -9) {
+	if (orig_pvals[marker_idx] == -9) {
 	  perm_adapt_stop[marker_idx] = 1;
 	  perm_attempt_ct[marker_idx] = 0;
 	  continue;
 	}
-	stat_high = 1.0 + EPSILON - orig_1mpval[marker_idx];
-	stat_low = 1.0 - EPSILON - orig_1mpval[marker_idx];
+	stat_high = orig_pvals[marker_idx] * (1.0 + EPSILON);
+	stat_low = orig_pvals[marker_idx] * (1.0 - EPSILON);
       } else {
 	if (orig_chisq[marker_idx] == -9) {
 	  perm_adapt_stop[marker_idx] = 1;
@@ -5361,12 +5370,12 @@ THREAD_RET_TYPE model_adapt_gen_thread(void* arg) {
 	vec_3freq(pheno_nm_ctv2, &(loadbuf[marker_bidx * pheno_nm_ctv2]), &(perm_vecs[pidx * pheno_nm_ctv2]), &case_missing_ct, &case_het_ct, &case_homcom_ct);
 	if (model_fisher) {
 	  uii = case_ct - case_het_ct - case_homcom_ct - case_missing_ct;
-	  // this is very slow.  a precomputed 2-dimensional table could improve
-	  // matters, but I doubt it's worth the effort for now.
+	  // this is very slow.  a precomputed 2-dimensional table could
+	  // improve matters, but I doubt it's worth the effort for now.
 	  dxx = fisher23(case_homcom_ct, case_het_ct, uii, homcom_ct - case_homcom_ct, het_ct - case_het_ct, homrar_ct - uii, fisher_midp);
 	  if (dxx < stat_low) {
 	    success_2incr += 2;
-	  } else if (dxx < stat_high) {
+	  } else if (dxx <= stat_high) {
 	    success_2incr++;
 	  }
 	} else {
@@ -5440,7 +5449,7 @@ THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
   uint32_t* __restrict__ missing_cts;
   uint32_t* __restrict__ het_cts;
   uint32_t* __restrict__ homcom_cts;
-  double* __restrict__ orig_1mpval;
+  double* __restrict__ orig_pvals;
   double* __restrict__ orig_chisq;
   uint16_t* ldrefs;
   uintptr_t* loadbuf_cur;
@@ -5490,7 +5499,7 @@ THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
     missing_cts = g_missing_cts;
     het_cts = g_het_cts;
     homcom_cts = g_homcom_cts;
-    orig_1mpval = g_orig_1mpval;
+    orig_pvals = g_orig_pvals;
     orig_chisq = g_orig_chisq;
     resultbuf = g_resultbuf;
     ldrefs = g_ldrefs;
@@ -5501,12 +5510,12 @@ THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
     }
     for (; marker_bidx < marker_bceil; marker_bidx++) {
       if (model_fisher) {
-	if (orig_1mpval[marker_idx] == -9) {
+	if (orig_pvals[marker_idx] == -9) {
 	  marker_idx++;
 	  continue;
 	}
-	stat_high = 1.0 + EPSILON - orig_1mpval[marker_idx];
-	stat_low = 1.0 - EPSILON - orig_1mpval[marker_idx];
+	stat_high = orig_pvals[marker_idx] * (1.0 + EPSILON);
+	stat_low = orig_pvals[marker_idx] * (1.0 - EPSILON);
       } else {
 	if (orig_chisq[marker_idx] == -9) {
 	  marker_idx++;
@@ -5565,7 +5574,7 @@ THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
 	  sval = fisher23(case_homcom_ct, case_het_ct, uii, homcom_ct - case_homcom_ct, het_ct - case_het_ct, homrar_ct - uii, fisher_midp);
 	  if (sval < stat_low) {
 	    success_2incr += 2;
-	  } else if (sval < stat_high) {
+	  } else if (sval <= stat_high) {
 	    success_2incr++;
 	  }
 	  if (results[pidx] > sval) {
@@ -5624,7 +5633,7 @@ THREAD_RET_TYPE model_adapt_best_thread(void* arg) {
   double aperm_alpha = g_aperm_alpha;
   uintptr_t* __restrict__ loadbuf;
   uintptr_t* is_invalid;
-  double* __restrict__ orig_1mpval;
+  double* __restrict__ orig_pvals;
   double* __restrict__ orig_chisq;
   uint32_t* __restrict__ missing_cts;
   uint32_t* __restrict__ het_cts;
@@ -5673,7 +5682,7 @@ THREAD_RET_TYPE model_adapt_best_thread(void* arg) {
     }
     loadbuf = g_loadbuf;
     is_invalid = g_is_invalid_bitfield;
-    orig_1mpval = g_orig_1mpval;
+    orig_pvals = g_orig_pvals;
     orig_chisq = g_orig_chisq;
     missing_cts = g_missing_cts;
     het_cts = g_het_cts;
@@ -5684,8 +5693,8 @@ THREAD_RET_TYPE model_adapt_best_thread(void* arg) {
     for (; marker_bidx < marker_bceil; marker_bidx++) {
       marker_idx = g_adapt_m_table[marker_bidx];
       if (model_fisher) {
-	stat_high = 1.0 + EPSILON - orig_1mpval[marker_idx];
-	stat_low = 1.0 + EPSILON - orig_1mpval[marker_idx];
+	stat_high = orig_pvals[marker_idx] * (1.0 + EPSILON);
+	stat_low = orig_pvals[marker_idx] * (1.0 - EPSILON);
       } else {
 	if (orig_chisq[marker_idx] == -9) {
 	  perm_adapt_stop[marker_idx] = 1;
@@ -5768,20 +5777,20 @@ THREAD_RET_TYPE model_adapt_best_thread(void* arg) {
 	    dxx = fisher22(case_com_ct, 2 * uii - case_com_ct, com_ct - case_com_ct, 2 * ukk + case_com_ct - com_ct, fisher_midp);
 	    if (dxx < stat_low) {
 	      goto model_adapt_best_thread_betterstat;
-	    } else if (dxx < stat_high) {
+	    } else if (dxx <= stat_high) {
 	      ujj = 1;
 	    }
 	    if (!skip_domrec) {
 	      dxx = fisher22(case_homcom_ct, uii - case_homcom_ct, homcom_ct - case_homcom_ct, ukk + case_homcom_ct - homcom_ct, fisher_midp);
 	      if (dxx < stat_low) {
 		goto model_adapt_best_thread_betterstat;
-	      } else if (dxx < stat_high) {
+	      } else if (dxx <= stat_high) {
 		ujj = 1;
 	      }
 	      dxx = fisher22(case_homrar_ct, uii - case_homrar_ct, homrar_ct - case_homrar_ct, ukk + case_homrar_ct - homrar_ct, fisher_midp);
 	      if (dxx < stat_low) {
 		goto model_adapt_best_thread_betterstat;
-	      } else if (dxx < stat_high) {
+	      } else if (dxx <= stat_high) {
 		ujj = 1;
 	      }
 	    }
@@ -5874,7 +5883,7 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
   uint32_t* __restrict__ precomp_start;
   uint32_t* __restrict__ precomp_ui;
   double* __restrict__ precomp_d;
-  double* __restrict__ orig_1mpval;
+  double* __restrict__ orig_pvals;
   double* __restrict__ orig_chisq;
   uint16_t* ldrefs;
   uintptr_t* loadbuf_cur;
@@ -5940,7 +5949,7 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
     precomp_start = g_precomp_start;
     precomp_ui = g_precomp_ui;
     precomp_d = g_precomp_d;
-    orig_1mpval = g_orig_1mpval;
+    orig_pvals = g_orig_pvals;
     orig_chisq = g_orig_chisq;
     resultbuf = g_resultbuf;
     ldrefs = g_ldrefs;
@@ -5951,8 +5960,8 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
     }
     for (; marker_bidx < marker_bceil; marker_bidx++) {
       if (model_fisher) {
-	stat_high = 1.0 + EPSILON - orig_1mpval[marker_idx];
-	stat_low = 1.0 - EPSILON - orig_1mpval[marker_idx];
+	stat_high = orig_pvals[marker_idx] * (1.0 + EPSILON);
+	stat_low = orig_pvals[marker_idx] * (1.0 - EPSILON);
 	default_best_stat = 1;
       } else {
 	if (orig_chisq[marker_idx] == -9) {
@@ -6130,7 +6139,7 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
 	    }
 	    if (best_stat < stat_low) {
 	      cur_add = 2;
-	    } else if (best_stat < stat_high) {
+	    } else if (best_stat <= stat_high) {
 	      cur_add = 1;
 	    }
 	  } else {
@@ -6386,7 +6395,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   char* tbuf2 = &(tbuf[MAXLINELEN]);
   double* orig_chisq = g_orig_chisq;
   double* sorted_chisq_buf = NULL;
-  double* empirical_1mpval = NULL;
+  double* empirical_pvals = NULL;
   uint32_t* marker_idx_to_uidx = NULL;
   uint32_t* sorted_marker_idx_buf = NULL;
   uint32_t* proxy_arr = NULL;
@@ -6883,7 +6892,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   putchar('\r');
   LOGPRINTF("\r%u permutation%s complete.\n", perms_done, (perms_done != 1)? "s" : "");
   if (set_ct && mtest_adjust) {
-    if (wkspace_alloc_d_checked(&empirical_1mpval, set_ct * sizeof(double))) {
+    if (wkspace_alloc_d_checked(&empirical_pvals, set_ct * sizeof(double))) {
       goto model_assoc_set_test_ret_NOMEM;
     }
   }
@@ -6908,8 +6917,8 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
       bufptr = uint32_writew6x(bufptr, raw_sig_ct, ' ');
       bufptr = uint32_writew6x(bufptr, final_sig_ct, ' ');
       pval = ((double)(perm_2success_ct[set_idx] + 2)) / ((double)(2 * (perm_attempt_ct[set_idx] + 1)));
-      if (empirical_1mpval) {
-	empirical_1mpval[set_idx] = 1.0 - pval;
+      if (empirical_pvals) {
+	empirical_pvals[set_idx] = 1.0 - pval;
       }
       if (pval <= pfilter) {
 	bufptr = double_g_writewx4x(bufptr, MAXV(pval, output_min_p), 12, ' ');
@@ -6945,7 +6954,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
     }
     fill_idx_to_uidx_incl(set_incl, raw_set_ct, set_ct, set_idx_to_uidx);
     outname_end2[4] = '\0'; // .set.adjusted instead of .set.mperm.adjusted
-    retval = multcomp(outname, &(outname_end2[4]), set_idx_to_uidx, set_ct, sip->names, max_set_id_len, 0, NULL, empirical_1mpval, pfilter, output_min_p, mtest_adjust, 0.0, 1, NULL);
+    retval = multcomp(outname, &(outname_end2[4]), set_idx_to_uidx, set_ct, sip->names, max_set_id_len, 0, NULL, NULL, pfilter, output_min_p, mtest_adjust, 0.0, NULL, empirical_pvals);
   }
   while (0) {
   model_assoc_set_test_ret_NOMEM:
@@ -7122,8 +7131,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   uint32_t* setp;
   uint32_t* hetp;
   uint32_t* missing_cts;
-  double* orig_1mpval;
-  double* o1mpptr;
+  double* orig_pvals;
+  double* orig_pvals_ptr;
   double* ooptr;
   uintptr_t* loadbuf_raw;
   uintptr_t* loadbuf;
@@ -7315,12 +7324,12 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
   g_adaptive_ci_zt = ltqnorm(1 - apip->beta / (2.0 * ((intptr_t)marker_ct)));
   if (wkspace_alloc_ul_checked(&loadbuf, MODEL_BLOCKSIZE * pheno_nm_ctv2 * sizeof(intptr_t)) ||
-      wkspace_alloc_d_checked(&orig_1mpval, marker_ct * sizeof(double)) ||
+      wkspace_alloc_d_checked(&orig_pvals, marker_ct * sizeof(double)) ||
       wkspace_alloc_ui_checked(&missing_cts, marker_ct * sizeof(int32_t))) {
     goto model_assoc_ret_NOMEM;
   }
   g_loadbuf = loadbuf;
-  g_orig_1mpval = orig_1mpval;
+  g_orig_pvals = orig_pvals;
   g_missing_cts = missing_cts;
   if (model_assoc) {
     if (wkspace_alloc_d_checked(&orig_odds, marker_ct * sizeof(double)) ||
@@ -7739,7 +7748,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     }
     if (!perm_pass_idx) {
       // basic --assoc/--model
-      o1mpptr = &(orig_1mpval[marker_idx + g_block_start]);
+      orig_pvals_ptr = &(orig_pvals[marker_idx + g_block_start]);
       missp = &(missing_cts[marker_idx + g_block_start]);
       if (model_assoc) {
 	setp = &(set_cts[marker_idx + g_block_start]);
@@ -7794,10 +7803,10 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	  du2 = uii;
 	  if (model_fisher) {
 	    pval = fisher22(uii, ujj, ukk, umm, fisher_midp);
-	    *o1mpptr = 1 - pval;
+	    *orig_pvals_ptr = pval;
 	  } else {
 	    if ((!umm) && (!ujj)) {
-	      *o1mpptr = -9;
+	      *orig_pvals_ptr = -9;
 	      pval = -1;
 	      dxx = 0;
 	      if (fill_orig_chisq) {
@@ -7806,7 +7815,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	    } else {
 	      dxx = chi22_eval(ukk, ukk + umm, uii + ukk, uii + ujj + ukk + umm);
 	      pval = chiprob_p(dxx, 1);
-	      *o1mpptr = 1 - pval;
+	      *orig_pvals_ptr = pval;
 	      if (fill_orig_chisq) {
 		orig_chisq[marker_idx + marker_bidx] = dxx;
 	      }
@@ -7880,7 +7889,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	  }
 	  missp++;
 	  setp++;
-	  o1mpptr++;
+	  orig_pvals_ptr++;
 	  ooptr++;
 	}
       } else {
@@ -8095,22 +8104,19 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 		orig_chisq[marker_idx + marker_bidx] = -9;
 	      }
 	    }
-	    if (dxx != -9) {
-	      dxx = 1 - dxx;
-	    }
 	  } else if (model_modifier & MODEL_PGEN) {
-	    dxx = (gen_p >= 0)? (1 - gen_p) : -9;
+	    dxx = (gen_p >= 0)? gen_p : -9;
 	  } else if (model_modifier & MODEL_PDOM) {
-	    dxx = (dom_p >= 0)? (1 - dom_p) : -9;
+	    dxx = (dom_p >= 0)? dom_p : -9;
 	  } else if (model_modifier & MODEL_PREC) {
-	    dxx = (rec_p >= 0)? (1 - rec_p) : -9;
+	    dxx = (rec_p >= 0)? rec_p : -9;
 	  } else if (model_modifier & MODEL_PTREND) {
-	    dxx = (ca_p >= 0)? ca_chisq : -9;
+	    dxx = (ca_p >= 0)? ca_p : -9;
 	  }
 	  missp++;
 	  setp++;
 	  hetp++;
-	  *o1mpptr++ = dxx;
+	  *orig_pvals_ptr++ = dxx;
 	}
       }
     }
@@ -8165,7 +8171,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	  ujj *= uqq;
 	  ukk += uii * precomp_width;
 	  if (model_fisher) {
-	    dxx = 1 - orig_1mpval[urr];
+	    dxx = orig_pvals[urr];
 	    if (model_adapt_nst) {
 	      for (umm = uii * precomp_width; umm < ukk; umm++) {
 		fisher22_precomp_pval_bounds(dxx, fisher_midp, unn - ujj, uoo, upp, &(precomp_ui[umm * 4]), NULL);
@@ -8214,7 +8220,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	  ukk += uii * precomp_width;
 	  uss = 2 * ujj;
 	  if (model_fisher) {
-	    dxx = 1 - orig_1mpval[urr];
+	    dxx = orig_pvals[urr];
 	    if (model_adapt_nst) {
 	      for (umm = uii * precomp_width; umm < ukk; umm++) {
 	        fisher22_precomp_pval_bounds(dxx, fisher_midp, unn - uss, uoo, uqq, &(precomp_ui[umm * 12]), NULL);
@@ -8345,7 +8351,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	  ukk += uii * precomp_width;
 	  ujj = case_ct - ujj;
 	  if (model_fisher) {
-	    dxx = 1 - orig_1mpval[urr];
+	    dxx = orig_pvals[urr];
 	    if (model_adapt_nst) {
 	      for (umm = uii * precomp_width; umm < ukk; umm++) {
 	        fisher22_precomp_pval_bounds(dxx, fisher_midp, ujj--, uoo, upp, &(precomp_ui[umm * 4]), NULL);
@@ -8489,7 +8495,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	  goto model_assoc_ret_NOMEM;
         }
         fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_idx_to_uidx);
-        retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, model_fisher? orig_1mpval : orig_chisq, pfilter, output_min_p, mtest_adjust, adjust_lambda, model_fisher, NULL);
+        retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, model_fisher? NULL : orig_chisq, pfilter, output_min_p, mtest_adjust, adjust_lambda, NULL, model_fisher? orig_pvals : NULL);
         if (retval) {
 	  goto model_assoc_ret_1;
         }
@@ -8502,9 +8508,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	if (model_fisherx) {
 	  for (uii = 0; uii < marker_ct; uii++) {
 	    *wptr++ = ' ';
-	    dxx = orig_1mpval[uii];
+	    dxx = orig_pvals[uii];
 	    if (dxx >= 0) {
-	      wptr = double_g_write(wptr, 1 - dxx);
+	      wptr = double_g_write(wptr, dxx);
 	    } else {
 	      wptr = memcpya(wptr, "NA", 2);
 	    }
@@ -8557,10 +8563,10 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       a1ptr = &(tbuf[MAXLINELEN]);
       for (uii = 0; uii < ulii; uii++) {
 	wptr = uint32_write(wptr, uii + ujj);
-        o1mpptr = &(g_mperm_save_all[uii]);
+        orig_pvals_ptr = &(g_mperm_save_all[uii]);
 	for (ukk = 0; ukk < marker_ct; ukk++) {
 	  *wptr++ = ' ';
-	  dxx = o1mpptr[ukk * ulii];
+	  dxx = orig_pvals_ptr[ukk * ulii];
 	  if (dxx >= 0) {
 	    wptr = double_g_write(wptr, dxx);
 	  } else {
@@ -8627,8 +8633,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	dxx = 0;
 	if (model_fisherx) {
 	  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-	    if (orig_1mpval[marker_idx] > dxx) {
-	      dxx = orig_1mpval[marker_idx];
+	    if ((orig_pvals[marker_idx] != -9) && (orig_pvals[marker_idx] < dxx)) {
+	      dxx = orig_pvals[marker_idx];
 	    }
 	  }
 	  dxx = 1 - dxx;
@@ -8705,7 +8711,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
         if (pval <= pfilter) {
 	  fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr_start);
 	  wptr = &(wptr_start[1 + plink_maxsnp]);
-	  if ((!model_assoc) && ((model_adapt_nst && (!perm_attempt_ct[marker_idx])) || ((!model_adapt_nst) && ((model_fisherx && (orig_1mpval[marker_idx] == -9)) || ((!model_fisherx) && (orig_chisq[marker_idx] == -9)))))) {
+	  if ((!model_assoc) && ((model_adapt_nst && (!perm_attempt_ct[marker_idx])) || ((!model_adapt_nst) && ((model_fisherx && (orig_pvals[marker_idx] == -9)) || ((!model_fisherx) && (orig_chisq[marker_idx] == -9)))))) {
 	    // invalid
             wptr = memcpya(wptr, "          NA           NA", 25);
 	  } else {
@@ -8720,7 +8726,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	    } else {
 	      if (model_fisherx) {
 		// minimum p-value
-		dzz = (int32_t)(doublearr_greater_than(maxt_extreme_stat, perms_total, 1.0 + EPSILON - orig_1mpval[marker_idx]) + 1);
+		dzz = (int32_t)(doublearr_greater_than(maxt_extreme_stat, perms_total, orig_pvals[marker_idx] * (1.0 + EPSILON)) + 1);
 	      } else {
 		// maximum chisq
 		dzz = (int32_t)(perms_total - doublearr_greater_than(maxt_extreme_stat, perms_total, orig_chisq[marker_idx] - EPSILON) + 1);
@@ -9020,7 +9026,6 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     }
   }
   if (wkspace_alloc_ul_checked(&g_loadbuf, MODEL_BLOCKSIZE * pheno_nm_ctv2 * sizeof(intptr_t)) ||
-      wkspace_alloc_d_checked(&g_orig_1mpval, marker_ct * sizeof(double)) ||
       wkspace_alloc_ui_checked(&marker_idx_to_uidx, marker_ct * sizeof(int32_t)) ||
       wkspace_alloc_ul_checked(&sample_include2, pheno_nm_ctv2 * sizeof(intptr_t))) {
     goto qassoc_ret_NOMEM;
@@ -9555,7 +9560,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	  g_orig_chisq[uii] = sqrt(g_orig_linsq[uii]);
 	}
       }
-      retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, g_orig_chisq, pfilter, output_min_p, mtest_adjust, adjust_lambda, 1, tcnt);
+      retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, g_orig_chisq, pfilter, output_min_p, mtest_adjust, adjust_lambda, tcnt, NULL);
       if (retval) {
 	goto qassoc_ret_1;
       }
@@ -10483,7 +10488,7 @@ THREAD_RET_TYPE testmiss_adapt_thread(void* arg) {
   unsigned char* __restrict__ perm_adapt_stop = g_perm_adapt_stop;
   // this can be cached since testmiss() computes all raw p-values before
   // starting permutation test
-  double* __restrict__ orig_1mpval = g_orig_1mpval;
+  double* __restrict__ orig_pvals = g_orig_pvals;
   double adaptive_intercept = g_adaptive_intercept;
   double adaptive_slope = g_adaptive_slope;
   double adaptive_ci_zt = g_adaptive_ci_zt;
@@ -10545,10 +10550,8 @@ THREAD_RET_TYPE testmiss_adapt_thread(void* arg) {
       if (is_y) {
 	missing_sum = missing_cts[marker_idx];
 	nm_sum = valid_obs_ct - missing_sum;
-	// don't have to support both fisher and chisq here, so just use p
-	// instead of 1-p
-	stat_high = 1.0 - orig_1mpval[marker_idx] + EPSILON;
-	stat_low = 1.0 - orig_1mpval[marker_idx] - EPSILON;
+	stat_high = orig_pvals[marker_idx] * (1.0 + EPSILON);
+	stat_low = orig_pvals[marker_idx] * (1.0 - EPSILON);
       }
       success_2start = perm_2success_ct[marker_idx];
       success_2incr = 0;
@@ -10576,7 +10579,7 @@ THREAD_RET_TYPE testmiss_adapt_thread(void* arg) {
 	  pval = fisher22(missing_case_ct, case_ct - missing_case_ct, missing_sum - missing_case_ct, nm_sum + missing_case_ct - case_ct, is_midp);
 	  if (pval < stat_low) {
 	    success_2incr += 2;
-	  } else if (pval < stat_high) {
+	  } else if (pval <= stat_high) {
 	    success_2incr++;
 	  }
 	}
@@ -10620,7 +10623,7 @@ THREAD_RET_TYPE testmiss_maxt_thread(void* arg) {
   uint32_t* __restrict__ perm_vecst = g_perm_vecst;
   uint32_t* __restrict__ perm_2success_ct = g_perm_2success_ct;
   double* __restrict__ results = &(g_maxt_thread_results[perm_vec_ctcl8m * tidx]);
-  double* __restrict__ orig_1mpval = g_orig_1mpval;
+  double* __restrict__ orig_pvals = g_orig_pvals;
   double* msa_ptr = NULL;
   uint32_t* male_case_cts = NULL;
   uint32_t* gpui = NULL;
@@ -10689,8 +10692,8 @@ THREAD_RET_TYPE testmiss_maxt_thread(void* arg) {
 	gpui = &(precomp_ui[6 * marker_bidx]);
 	gpd = &(precomp_d[2 * marker_bidx]);
       } else {
-	stat_high = 1.0 + EPSILON - orig_1mpval[marker_idx];
-	stat_low = 1.0 - EPSILON - orig_1mpval[marker_idx];
+	stat_high = orig_pvals[marker_idx] * (1.0 + EPSILON);
+	stat_low = orig_pvals[marker_idx] * (1.0 - EPSILON);
       }
       loadbuf_ptr = &(loadbuf[marker_bidx * pheno_nm_ctv]);
       success_2incr = 0;
@@ -10729,7 +10732,7 @@ THREAD_RET_TYPE testmiss_maxt_thread(void* arg) {
 	  pval = fisher22(missing_case_ct, missing_sum - missing_case_ct, cur_case_ct - missing_case_ct, nm_sum + missing_case_ct - cur_case_ct, is_midp);
 	  if (pval < stat_low) {
 	    success_2incr += 2;
-	  } else if (pval < stat_high) {
+	  } else if (pval <= stat_high) {
 	    success_2incr++;
 	  }
 	  if (results[pidx] > pval) {
@@ -10918,10 +10921,10 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
   }
   chrom_end = 0;
   // must be last allocation
-  if (wkspace_alloc_d_checked(&g_orig_1mpval, marker_ct_orig * sizeof(double))) {
+  if (wkspace_alloc_d_checked(&g_orig_pvals, marker_ct_orig * sizeof(double))) {
     goto testmiss_ret_NOMEM;
   }
-  dptr = g_orig_1mpval;
+  dptr = g_orig_pvals;
   for (marker_idx = 0; marker_idx < marker_ct_orig; marker_uidx++, marker_idx++) {
     if (IS_SET(marker_exclude_orig, marker_uidx)) {
       marker_uidx = next_unset_ul_unsafe(marker_exclude_orig, marker_uidx);
@@ -10976,7 +10979,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
     uii = popcount_longs_intersect(missing_bitfield, cur_pheno_c_collapsed, cur_sample_ctl);
     ujj = missing_ct - uii;
     pval = fisher22(uii, ujj, cur_case_ct - uii, cur_ctrl_ct - ujj, midp);
-    *dptr++ = 1 - pval;
+    *dptr++ = pval;
     if (!(pval <= pfilter)) {
       continue;
     }
@@ -10993,8 +10996,8 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
     goto testmiss_ret_WRITE_FAIL;
   }
   logprint("done.\n");
-  marker_ct = (uintptr_t)(dptr - g_orig_1mpval);
-  wkspace_shrink_top(g_orig_1mpval, marker_ct * sizeof(double));
+  marker_ct = (uintptr_t)(dptr - g_orig_pvals);
+  wkspace_shrink_top(g_orig_pvals, marker_ct * sizeof(double));
   if (mtest_adjust) {
     if (adjust_lambda != 0.0) {
       logprint("Ignoring 'gc'/--lambda for --test-missing multiple-test correction.\n");
@@ -11004,7 +11007,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
       goto testmiss_ret_NOMEM;
     }
     fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_idx_to_uidx);
-    retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, g_orig_1mpval, pfilter, output_min_p, mtest_adjust, 0.0, 1, NULL);
+    retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, NULL, pfilter, output_min_p, mtest_adjust, 0.0, NULL, g_orig_pvals);
     if (retval) {
       goto testmiss_ret_1;
     }
@@ -11020,9 +11023,9 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
       wptr = &(tbuf[1]);
       for (uii = 0; uii < marker_ct; uii++) {
         *wptr++ = ' ';
-        dxx = g_orig_1mpval[uii];
+        dxx = g_orig_pvals[uii];
 	if (dxx >= 0) {
-	  wptr = double_g_write(wptr, 1 - dxx);
+	  wptr = double_g_write(wptr, dxx);
 	} else {
 	  wptr = memcpya(wptr, "NA", 2);
 	}
@@ -11315,7 +11318,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	  } else {
 	    marker_cidx = marker_idx + uii;
 	  }
-	  pval = 1 - g_orig_1mpval[marker_cidx];
+	  pval = g_orig_pvals[marker_cidx];
 	  missing_ct = g_missing_cts[marker_cidx];
 	  if (perm_adapt) {
 	    fisher22_precomp_pval_bounds(pval, midp, case_ct, missing_ct, pheno_nm_ct, &(g_precomp_ui[uii * 4]), NULL);
@@ -11434,13 +11437,12 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	if (fopen_checked(&outfile, outname, "w")) {
 	  goto testmiss_ret_OPEN_FAIL;
 	}
-	dxx = 0;
+	dxx = 1.0;
 	for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-	  if (g_orig_1mpval[marker_idx] > dxx) {
-	    dxx = g_orig_1mpval[marker_idx];
+	  if (g_orig_pvals[marker_idx] < dxx) {
+	    dxx = g_orig_pvals[marker_idx];
 	  }
 	}
-	dxx = 1 - dxx;
 	memcpy(tbuf, "0 ", 2);
 	wptr = double_g_writex(&(tbuf[2]), dxx, '\n');
 	if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile)) {
@@ -11511,7 +11513,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	    wptr = uint32_writew10(wptr, g_perm_attempt_ct[marker_idx]);
 	  } else {
 	    // minimum p-value
-	    dzz = (int32_t)(doublearr_greater_than(g_maxt_extreme_stat, perms_total, 1.0 + EPSILON - g_orig_1mpval[marker_idx]) + 1);
+	    dzz = (int32_t)(doublearr_greater_than(g_maxt_extreme_stat, perms_total, g_orig_pvals[marker_idx] * (1.0 + EPSILON)) + 1);
 	    if (!perm_count) {
 	      wptr = double_g_writewx4(wptr, dzz * dyy, 12);
 	    } else {
@@ -12282,7 +12284,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       goto cmh_assoc_ret_NOMEM;
     }
     fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_idx_to_uidx);
-    retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, orig_chisq, pfilter, output_min_p, mtest_adjust, adjust_lambda, 0, NULL);
+    retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, orig_chisq, pfilter, output_min_p, mtest_adjust, adjust_lambda, NULL, NULL);
   }
 
   if (cmh_modifier & (CLUSTER_CMH_PERM | CLUSTER_CMH_MPERM)) {
