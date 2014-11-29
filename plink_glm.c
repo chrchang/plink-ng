@@ -10,7 +10,6 @@
 #define GLM_BLOCKSIZE 512
 
 // multithread globals
-static double* g_orig_chisq;
 static double* g_mperm_save_all;
 
 // A separated-low-and-high-bit format was tried, and found to not really be
@@ -4073,9 +4072,10 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   uintptr_t* marker_exclude = marker_exclude_orig;
   uintptr_t* founder_pnm = NULL;
   double* constraints_con_major = NULL;
+  double* orig_pvals = NULL;
   uint32_t* condition_uidxs = NULL;
-  uint32_t* tcnt = NULL;
   uint32_t* marker_idx_to_uidx = NULL;
+  uint32_t* tcnt = NULL;
   char* cur_param_names = NULL;
   char* haploid_param_names = NULL;
   char* wptr_start = NULL;
@@ -4399,10 +4399,16 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   mperm_save_all = mperm_save & MPERM_DUMP_ALL;
   if (fill_orig_chiabs) {
     if (mtest_adjust || is_set_test) {
-      // g_orig_chisq has t-statistics, NOT squared
-      if (wkspace_alloc_d_checked(&g_orig_chisq, marker_initial_ct * sizeof(double)) ||
-          wkspace_alloc_ui_checked(&tcnt, marker_initial_ct * sizeof(int32_t))) {
-	goto glm_linear_assoc_ret_NOMEM;
+      if (constraint_ct_max || is_set_test) {
+	if (wkspace_alloc_d_checked(&orig_pvals, marker_initial_ct * sizeof(double))) {
+	  goto glm_linear_assoc_ret_NOMEM;
+	}
+      }
+      if (!constraint_ct_max) {
+	if (wkspace_alloc_ui_checked(&tcnt, marker_initial_ct * sizeof(int32_t))) {
+	  goto glm_linear_assoc_ret_NOMEM;
+	}
+	fill_uint_zero(tcnt, marker_initial_ct);
       }
       if (!is_set_test) {
 	if (wkspace_alloc_ui_checked(&marker_idx_to_uidx, marker_initial_ct * sizeof(int32_t))) {
@@ -4843,19 +4849,21 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	    dxx = g_linear_mt[0].dgels_b[param_idx]; // coef[p]
 	    se = sqrt(g_linear_mt[0].regression_results[param_idx - 1]);
 	    zval = dxx / se;
+	    pval = calc_tprob(zval, cur_sample_valid_ct - cur_param_ct);
 	    if (param_idx == 1) {
-	      if (mtest_adjust) {
-		g_orig_chisq[marker_idx3] = fabs(zval);
-		tcnt[marker_idx3] = cur_sample_valid_ct;
-	      }
 	      if (mperm_save_all) {
 		fprintf(outfile_msa, " %g", fabs(zval));
 	      }
-	      if (!cur_constraint_ct) {
+	      if (!constraint_ct_max) {
 		*orig_stats_ptr = fabs(zval);
+		if (orig_pvals) {
+		  orig_pvals[marker_idx3] = pval;
+		}
+		if (mtest_adjust) {
+		  tcnt[marker_idx3] = cur_sample_valid_ct - cur_param_ct;
+		}
 	      }
 	    }
-	    pval = calc_tprob(zval, cur_sample_valid_ct - cur_param_ct);
 	    if ((param_idx < param_idx_end) && ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0)))) {
 	      wptr = fw_strcpy(10, &(cur_param_names[param_idx * max_param_name_len]), wptr_start2);
 	      *wptr++ = ' ';
@@ -4897,6 +4905,9 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	    dxx = g_linear_mt[0].regression_results[cur_param_ct - 1];
 	    *orig_stats_ptr = dxx;
 	    pval = chiprob_p(dxx, cur_constraint_ct);
+	    if (orig_pvals) {
+	      orig_pvals[marker_idx3] = pval;
+	    }
 	    if ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0))) {
 	      wptr = fw_strcpy(10, &(param_names[param_ct_max * max_param_name_len]), wptr_start2);
               *wptr++ = ' ';
@@ -4911,12 +4922,13 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 		goto glm_linear_assoc_ret_WRITE_FAIL;
 	      }
 	    }
+	  } else if (orig_pvals) {
+	    orig_pvals[marker_idx3] = -9;
 	  }
 	} else {
 	  g_perm_adapt_stop[marker_idx3] = 1;
-	  if (mtest_adjust && (param_idx == 1)) {
-	    g_orig_chisq[marker_idx3] = -9;
-	    tcnt[marker_idx3] = 0;
+	  if (orig_pvals) {
+	    orig_pvals[marker_idx3] = -9;
 	  }
 	  *orig_stats_ptr = -9;
 	  if (mperm_save_all) {
@@ -5015,7 +5027,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       goto glm_linear_assoc_ret_WRITE_FAIL;
     }
     if (mtest_adjust) {
-      retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_initial_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, g_orig_chisq, pfilter, output_min_p, mtest_adjust, adjust_lambda, tcnt, NULL);
+      retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_initial_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, constraint_ct_max? NULL : g_orig_stats, pfilter, output_min_p, mtest_adjust, adjust_lambda, constraint_ct_max? NULL : tcnt, constraint_ct_max? orig_pvals : NULL);
       if (retval) {
 	goto glm_linear_assoc_ret_1;
       }
@@ -5264,6 +5276,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   uint32_t max_thread_ct = g_thread_ct;
   int32_t retval = 0;
   double* constraints_con_major = NULL;
+  double* orig_pvals = NULL;
   uintptr_t* pheno_c_collapsed = NULL;
   uint32_t* condition_uidxs = NULL;
   uint32_t* marker_idx_to_uidx = NULL;
@@ -5577,7 +5590,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   }
   if (fill_orig_chiabs) {
     if (mtest_adjust) {
-      if (wkspace_alloc_d_checked(&g_orig_chisq, marker_initial_ct * sizeof(double)) ||
+      if (wkspace_alloc_d_checked(&orig_pvals, marker_initial_ct * sizeof(double)) ||
           wkspace_alloc_ui_checked(&marker_idx_to_uidx, marker_initial_ct * sizeof(int32_t))) {
 	goto glm_logistic_assoc_ret_NOMEM;
       }
@@ -5944,18 +5957,18 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	    dxx = (double)g_logistic_mt[0].coef[param_idx];
 	    se = sqrt((double)g_logistic_mt[0].regression_results[param_idx - 1]);
 	    zval = dxx / se;
+	    pval = chiprob_p(zval * zval, 1);
 	    if (param_idx == 1) {
-	      if (mtest_adjust) {
-		g_orig_chisq[marker_idx3] = zval * zval;
-	      }
 	      if (mperm_save_all) {
 		fprintf(outfile_msa, " %g", zval * zval);
 	      }
 	      if (!cur_constraint_ct) {
 		*orig_stats_ptr = zval * zval;
+		if (mtest_adjust) {
+		  orig_pvals[marker_idx3] = pval;
+		}
 	      }
 	    }
-	    pval = chiprob_p(zval * zval, 1);
 	    if ((param_idx < param_idx_end) && ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0)))) {
 	      wptr = fw_strcpy(10, &(cur_param_names[param_idx * max_param_name_len]), wptr_start2);
 	      *wptr++ = ' ';
@@ -5983,6 +5996,9 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	    dxx = (double)g_logistic_mt[0].regression_results[cur_param_ct - 1];
 	    *orig_stats_ptr = dxx;
 	    pval = chiprob_p(dxx, cur_constraint_ct);
+	    if (mtest_adjust) {
+	      orig_pvals[marker_idx3] = pval;
+	    }
 	    if ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0))) {
 	      wptr = fw_strcpy(10, &(param_names[param_ct_max * max_param_name_len]), wptr_start2);
               *wptr++ = ' ';
@@ -6000,8 +6016,8 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	  }
 	} else {
 	  g_perm_adapt_stop[marker_idx3] = 1;
-	  if (mtest_adjust && (param_idx == 1)) {
-	    g_orig_chisq[marker_idx3] = -9;
+	  if (mtest_adjust) {
+	    orig_pvals[marker_idx3] = -9;
 	  }
 	  *orig_stats_ptr = -9;
 	  if (mperm_save_all) {
@@ -6098,7 +6114,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       goto glm_logistic_assoc_ret_WRITE_FAIL;
     }
     if (mtest_adjust) {
-      retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_initial_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, g_orig_chisq, pfilter, output_min_p, mtest_adjust, adjust_lambda, NULL, NULL);
+      retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_initial_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, NULL, pfilter, output_min_p, mtest_adjust, adjust_lambda, NULL, orig_pvals);
       if (retval) {
 	goto glm_logistic_assoc_ret_1;
       }

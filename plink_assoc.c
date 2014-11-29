@@ -275,14 +275,14 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
     }
     for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
       ujj = tcnt[cur_idx];
-      if (ujj > 2) {
+      if (ujj) {
 	dxx = chi[cur_idx]; // not actually squared
-	dyy = calc_tprob(dxx, ujj - 2);
+	dyy = calc_tprob(dxx, ujj);
 	if (dyy > -1) {
 	  sp[uii] = dyy;
 	  new_order[uii] = marker_uidxs[cur_idx];
 	  schi[uii] = dxx * dxx;
-	  new_tcnt[uii] = ujj - 2;
+	  new_tcnt[uii] = ujj;
 	  uii++;
 	}
       }
@@ -474,8 +474,23 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
 	  pv_holm = dyy;
 	}
       }
-      pv_sidak_ss = 1 - pow(1 - pval, dct);
-      dyy = 1 - pow(1 - pval, dct - ((double)((int32_t)cur_idx)));
+      // avoid catastrophic cancellation for small p-values
+      // 1 - (1-p)^c = 1 - (1 - cp + (c(c-1) / 2)p^2 + ...)
+      //             = cp - (c(c-1) / 2)p^2 + [stuff smaller than (c^3p^3)/6]
+      // current threshold is chosen to ensure at least 4 digits of precision
+      // in (1 - pval) if pow() is used, since 4 significant digits are printed
+      // in the .adjusted file.  but in theory we should take dct into account
+      // too: small dct lets us use a higher threshold..
+      if (pval >= RECIP_2_53 * 16384) {
+	pv_sidak_ss = 1 - pow(1 - pval, dct);
+	dyy = 1 - pow(1 - pval, dct - ((double)((int32_t)cur_idx)));
+      } else {
+	// for very large dct, we might want to include the p^3 term of the
+	// binomial expansion as well
+	pv_sidak_ss = pval * (dct - pval * (dct - 1));
+	dyy = dct - (double)((int32_t)cur_idx);
+	dyy = pval * (dyy - pval * (dyy - 1));
+      }
       if (pv_sidak_sd < dyy) {
 	pv_sidak_sd = dyy;
       }
@@ -9285,7 +9300,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	if (fill_orig_chiabs) {
 	  g_orig_chisq[marker_idx + marker_bidx] = tstat;
 	  if (mtest_adjust) {
-	    tcnt[marker_idx + marker_bidx] = nanal;
+	    tcnt[marker_idx + marker_bidx] = (nanal > 2)? (nanal - 2) : 0;
 	  }
 	}
 	if (do_lin) {
