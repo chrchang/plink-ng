@@ -12300,9 +12300,6 @@ int32_t main(int32_t argc, char** argv) {
       } else if (model_modifier & MODEL_PGEN) {
 	logprint("Error: --model set-test cannot be used with 2df genotypic chi-square stats.\n");
 	goto main_ret_INVALID_CMDLINE_A;
-      } else if (mtest_adjust & ADJUST_GC) {
-        logprint("Error: --adjust 'gc' modifier does not make sense with\n--assoc/--model set-test.\n");
-        goto main_ret_INVALID_CMDLINE_A;
       }
       uii = 1;
     }
@@ -12310,9 +12307,9 @@ int32_t main(int32_t argc, char** argv) {
       if ((!(glm_modifier & GLM_PERM)) && (!glm_mperm_val)) {
         logprint("Error: --linear/--logistic set-test requires permutation.\n");
         goto main_ret_INVALID_CMDLINE_A;
-      } else if (mtest_adjust & ADJUST_GC) {
-        logprint("Error: --adjust 'gc' modifier does not make sense with\n--linear/--logistic set-test.\n");
-        goto main_ret_INVALID_CMDLINE_A;
+      } else if ((glm_modifier & (GLM_GENOTYPIC | GLM_HETHOM | GLM_TEST_ALL)) || tests_range_list.name_ct) {
+	logprint("Error: --linear/--logistic set-test cannot be used with joint tests.\n");
+	goto main_ret_INVALID_CMDLINE_A;
       }
       uii = 1;
     }

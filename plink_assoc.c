@@ -6431,6 +6431,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   double adaptive_ci_zt = 0.0;
   double chisq_threshold = inverse_chiprob(sip->set_p, 1);
   uint32_t model_assoc = model_modifier & MODEL_ASSOC;
+  uint32_t perm_count = model_modifier & MODEL_PERM_COUNT;
   uint32_t model_perm_best = !(model_modifier & MODEL_PMASK);
   uint32_t max_sigset_size = 0;
   uint32_t max_thread_ct = g_thread_ct;
@@ -6924,9 +6925,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   if (fopen_checked(&outfile, outname, "w")) {
     goto model_assoc_set_test_ret_OPEN_FAIL;
   }
-  if (fputs_checked("         SET   NSNP   NSIG   ISIG         EMP1 SNPS\n", outfile)) {
-    goto model_assoc_set_test_ret_WRITE_FAIL;
-  }
+  fprintf(outfile, "         SET   NSNP   NSIG   ISIG         EMP1 %sSNPS\n", perm_count? "          NP " : "");
   for (set_uidx = 0, set_idx = 0; set_uidx < raw_set_ct; set_uidx++) {
     bufptr = fw_strcpy(12, &(sip->names[set_uidx * max_set_id_len]), tbuf);
     *bufptr++ = ' ';
@@ -6940,7 +6939,13 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
 	empirical_pvals[set_idx] = 1.0 - pval;
       }
       if (pval <= pfilter) {
-	bufptr = double_g_writewx4x(bufptr, MAXV(pval, output_min_p), 12, ' ');
+	if (!perm_count) {
+	  bufptr = double_g_writewx4x(bufptr, MAXV(pval, output_min_p), 12, ' ');
+	} else {
+	  bufptr = double_g_writewx4(bufptr, ((double)perm_2success_ct[set_idx]) / 2.0, 12);
+	  bufptr = memseta(bufptr, 32, 3);
+	  bufptr = uint32_writew10x(bufptr, perm_attempt_ct[set_idx], ' ');
+	}
 	if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
 	  goto model_assoc_set_test_ret_WRITE_FAIL;
 	}
@@ -6957,7 +6962,11 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
       }
       set_idx++;
     } else {
-      bufptr = memcpya(bufptr, "     0      0            1 NA\n", 30);
+      if (!perm_count) {
+        bufptr = memcpya(bufptr, "     0      0            1 NA\n", 30);
+      } else {
+        bufptr = memcpya(bufptr, "     0      0            0            0 NA\n", 43);
+      }
       if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
 	goto model_assoc_set_test_ret_WRITE_FAIL;
       }
@@ -8753,7 +8762,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	      if (!model_perm_count) {
 		wptr = double_g_writewx4(wptr, dzz * dyy, 12);
 	      } else {
-		wptr = double_g_writewx4(wptr, dzz, 12);
+		wptr = double_g_writewx4(wptr, dzz - 1, 12);
 	      }
 	    }
 	  }
@@ -9762,7 +9771,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	      if (!perm_count) {
 		wptr = double_g_writewx4(wptr, dzz * dyy, 12);
 	      } else {
-		wptr = double_g_writewx4(wptr, dzz, 12);
+		wptr = double_g_writewx4(wptr, dzz - 1, 12);
 	      }
 	    }
 	  }
@@ -11532,7 +11541,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	    if (!perm_count) {
 	      wptr = double_g_writewx4(wptr, dzz * dyy, 12);
 	    } else {
-	      wptr = double_g_writewx4(wptr, dzz, 12);
+	      wptr = double_g_writewx4(wptr, dzz - 1, 12);
 	    }
 	  }
 	  wptr = memcpya(wptr, " \n", 2);

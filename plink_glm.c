@@ -653,7 +653,7 @@ int32_t glm_check_vif(double vif_thresh, uintptr_t param_ct, uintptr_t sample_va
 uint32_t glm_linear(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t sample_valid_ct, uint32_t missing_ct, uintptr_t* loadbuf, uint32_t standard_beta, double pheno_sum_base, double pheno_ssq_base, double* covars_cov_major, double* covars_sample_major, double* perm_pmajor, double* coef, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, double* linear_results, uintptr_t constraint_ct, double* constraints_con_major, double* param_df_buf, double* param_df_buf2, double* df_df_buf, double* df_buf, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
   // See the second half of PLINK 1.07 linear.cpp fitLM(), and
   // validParameters().  The HuberWhite() logic is, unfortunately, buggy so
-  // it's been removed (if you want to try to fix it, pull the 2014 Aug 1
+  // it's been removed (if you want to try to fix it, pull the 1 Aug 2014
   // version of this file from git).
   // Diagonals of the final covariance matrices (not including the intercept
   // element) are saved to linear_results[(perm_idx * (param_ct - 1))..
@@ -4404,7 +4404,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	  goto glm_linear_assoc_ret_NOMEM;
 	}
       }
-      if (!constraint_ct_max) {
+      if ((!constraint_ct_max) || is_set_test) {
 	if (wkspace_alloc_ui_checked(&tcnt, marker_initial_ct * sizeof(int32_t))) {
 	  goto glm_linear_assoc_ret_NOMEM;
 	}
@@ -5026,15 +5026,22 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     if (fclose_null(&outfile)) {
       goto glm_linear_assoc_ret_WRITE_FAIL;
     }
-    if (mtest_adjust) {
-      retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_initial_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, constraint_ct_max? NULL : g_orig_stats, pfilter, output_min_p, mtest_adjust, constraint_ct_max, adjust_lambda, constraint_ct_max? NULL : tcnt, constraint_ct_max? orig_pvals : NULL);
+    if (!is_set_test) {
+      if (mtest_adjust) {
+	retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_initial_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, constraint_ct_max? NULL : g_orig_stats, pfilter, output_min_p, mtest_adjust, constraint_ct_max, adjust_lambda, constraint_ct_max? NULL : tcnt, constraint_ct_max? orig_pvals : NULL);
+	if (retval) {
+	  goto glm_linear_assoc_ret_1;
+	}
+      }
+      if (mperm_save_all) {
+	if (putc_checked('\n', outfile_msa)) {
+	  goto glm_linear_assoc_ret_WRITE_FAIL;
+	}
+      }
+    } else {
+      //retval = glm_linear_assoc_set_test(threads, bedfile, bed_offset, outname, outname_end, );
       if (retval) {
 	goto glm_linear_assoc_ret_1;
-      }
-    }
-    if (mperm_save_all) {
-      if (putc_checked('\n', outfile_msa)) {
-	goto glm_linear_assoc_ret_WRITE_FAIL;
       }
     }
   }
@@ -5188,7 +5195,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
               if (!perm_count) {
 		wptr = double_g_writewx4(wptr, dzz / ((double)((int32_t)perms_total + 1)), 12);
 	      } else {
-                wptr = double_g_writewx4(wptr, dzz, 12);
+                wptr = double_g_writewx4(wptr, dzz - 1, 12);
 	      }
 	    }
 	  }
@@ -6275,7 +6282,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
               if (!perm_count) {
 		wptr = double_g_writewx4(wptr, dzz / ((double)((int32_t)perms_total + 1)), 12);
 	      } else {
-                wptr = double_g_writewx4(wptr, dzz, 12);
+                wptr = double_g_writewx4(wptr, dzz - 1, 12);
 	      }
 	    }
 	  }
