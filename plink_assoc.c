@@ -215,9 +215,12 @@ static inline void adjust_print_log10(double pval, double output_min_p, const ch
   }
 }
 
-int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintptr_t chi_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, double* chi, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uint32_t* tcnt, double* pvals) {
+int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintptr_t chi_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, double* chi, double pfilter, double output_min_p, uint32_t mtest_adjust, uint32_t skip_gc, double adjust_lambda, uint32_t* tcnt, double* pvals) {
+  // Association statistics can be provided in three ways:
+  // 1. Just p-values (pvals[]).
+  // 2. T statistics (in chi[]) and dfs (in tcnt[]).
+  // 3. 1df chi-square stats (in chi[]).
   unsigned char* wkspace_mark = wkspace_base;
-  uint32_t adjust_gc = mtest_adjust & ADJUST_GC;
   uint32_t is_log10 = mtest_adjust & ADJUST_LOG10;
   uint32_t qq_plot = mtest_adjust & ADJUST_QQ;
   FILE* outfile = NULL;
@@ -225,6 +228,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
   double pv_sidak_sd = 0;
   int32_t retval = 0;
   uint32_t is_set_test = !plink_maxsnp;
+  uint32_t adjust_gc = (mtest_adjust & ADJUST_GC) && (!skip_gc);
   uint32_t output_min_p_strlen = 11;
   uint32_t uii = 0;
   uint32_t* new_tcnt = NULL;
@@ -323,7 +327,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
   dct = chi_ct;
 
   // get lambda...
-  if (is_set_test) {
+  if (skip_gc) {
     lambda_recip = 1.0;
   } else if (mtest_adjust & ADJUST_LAMBDA) {
     lambda_recip = adjust_lambda;
@@ -402,7 +406,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
     goto multcomp_ret_OPEN_FAIL;
   }
   if (!is_set_test) {
-    sprintf(tbuf, " CHR %%%us      UNADJ         GC ", plink_maxsnp);
+    sprintf(tbuf, " CHR %%%us      UNADJ %s", plink_maxsnp, skip_gc? "" : "        GC ");
     fprintf(outfile, tbuf, "SNP");
   } else {
     plink_maxsnp = max_marker_id_len - 1;
@@ -480,7 +484,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
       // current threshold is chosen to ensure at least 4 digits of precision
       // in (1 - pval) if pow() is used, since 4 significant digits are printed
       // in the .adjusted file.  but in theory we should take dct into account
-      // too: small dct lets us use a higher threshold..
+      // too: small dct lets us use a higher threshold.
       if (pval >= RECIP_2_53 * 16384) {
 	pv_sidak_ss = 1 - pow(1 - pval, dct);
 	dyy = 1 - pow(1 - pval, dct - ((double)((int32_t)cur_idx)));
@@ -498,7 +502,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
       bufptr = tbuf;
       if (!is_log10) {
 	adjust_print(unadj_pval, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
-	if (!is_set_test) {
+	if (!skip_gc) {
 	  adjust_print(pv_gc[cur_idx], output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
 	}
 	if (qq_plot) {
@@ -6969,7 +6973,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
     }
     fill_idx_to_uidx_incl(set_incl, raw_set_ct, set_ct, set_idx_to_uidx);
     outname_end2[4] = '\0'; // .set.adjusted instead of .set.mperm.adjusted
-    retval = multcomp(outname, &(outname_end2[4]), set_idx_to_uidx, set_ct, sip->names, max_set_id_len, 0, NULL, NULL, pfilter, output_min_p, mtest_adjust, 0.0, NULL, empirical_pvals);
+    retval = multcomp(outname, &(outname_end2[4]), set_idx_to_uidx, set_ct, sip->names, max_set_id_len, 0, NULL, NULL, pfilter, output_min_p, mtest_adjust, 1, 0.0, NULL, empirical_pvals);
   }
   while (0) {
   model_assoc_set_test_ret_NOMEM:
@@ -8510,7 +8514,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	  goto model_assoc_ret_NOMEM;
         }
         fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_idx_to_uidx);
-        retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, model_fisher? NULL : orig_chisq, pfilter, output_min_p, mtest_adjust, adjust_lambda, NULL, model_fisher? orig_pvals : NULL);
+        retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, model_fisher? NULL : orig_chisq, pfilter, output_min_p, mtest_adjust, (!model_assoc) && (!(model_modifier & MODEL_PTREND)), adjust_lambda, NULL, model_fisher? orig_pvals : NULL);
         if (retval) {
 	  goto model_assoc_ret_1;
         }
@@ -9575,7 +9579,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	  g_orig_chisq[uii] = sqrt(g_orig_linsq[uii]);
 	}
       }
-      retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, g_orig_chisq, pfilter, output_min_p, mtest_adjust, adjust_lambda, tcnt, NULL);
+      retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, g_orig_chisq, pfilter, output_min_p, mtest_adjust, 0, adjust_lambda, tcnt, NULL);
       if (retval) {
 	goto qassoc_ret_1;
       }
@@ -11014,15 +11018,11 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
   marker_ct = (uintptr_t)(dptr - g_orig_pvals);
   wkspace_shrink_top(g_orig_pvals, marker_ct * sizeof(double));
   if (mtest_adjust) {
-    if (adjust_lambda != 0.0) {
-      logprint("Ignoring 'gc'/--lambda for --test-missing multiple-test correction.\n");
-      mtest_adjust &= ~(ADJUST_GC | ADJUST_LAMBDA);
-    }
     if (wkspace_alloc_ui_checked(&marker_idx_to_uidx, marker_ct * sizeof(int32_t))) {
       goto testmiss_ret_NOMEM;
     }
     fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_idx_to_uidx);
-    retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, NULL, pfilter, output_min_p, mtest_adjust, 0.0, NULL, g_orig_pvals);
+    retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, NULL, pfilter, output_min_p, mtest_adjust, 1, 0.0, NULL, g_orig_pvals);
     if (retval) {
       goto testmiss_ret_1;
     }
@@ -12299,7 +12299,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       goto cmh_assoc_ret_NOMEM;
     }
     fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_idx_to_uidx);
-    retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, orig_chisq, pfilter, output_min_p, mtest_adjust, adjust_lambda, NULL, NULL);
+    retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, orig_chisq, pfilter, output_min_p, mtest_adjust, 0, adjust_lambda, NULL, NULL);
   }
 
   if (cmh_modifier & (CLUSTER_CMH_PERM | CLUSTER_CMH_MPERM)) {

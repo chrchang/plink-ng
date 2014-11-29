@@ -2481,7 +2481,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
       }
     }
     fill_idx_to_uidx(marker_exclude_tmp, unfiltered_marker_ct, marker_ct, marker_idx_to_uidx);
-    retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, is_exact? NULL : orig_chisq, pfilter, output_min_p, mtest_adjust, adjust_lambda, NULL, is_exact? orig_chisq : NULL);
+    retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, is_exact? NULL : orig_chisq, pfilter, output_min_p, mtest_adjust, 0, adjust_lambda, NULL, is_exact? orig_chisq : NULL);
     if (retval) {
       goto tdt_ret_1;
     }
