@@ -4034,12 +4034,76 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
 }
 
 #ifndef NOLAPACK
-int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double ci_zt, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, char* condition_mname, char* condition_fname, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t sample_ct, uintptr_t* sample_exclude, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t covar_ct, char* covar_names, uintptr_t max_covar_name_len, uintptr_t* covar_nm, double* covar_d, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t hh_or_mt_exists, uint32_t perm_batch_size, Set_info* sip) {
+int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t glm_modifier, uint32_t glm_mperm_val, double pfilter, double output_min_p, uint32_t mtest_adjust, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude_mid, uintptr_t marker_ct_mid, char* madker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* sex_male, Aperm_info* apip, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* founder_pnm, uintptr_t* sample_include2, uintptr_t* sample_male_include2, uint32_t ld_ignore_x, uint32_t hh_exists, uint32_t hh_or_mt_exists, Set_info* sip, uint32_t* tcnt, uintptr_t* loadbuf_raw) {
+  // Side effect: t-statistics in g_orig_stats[] are clobbered and replaced
+  // with same-p-value 1df chi-square statistics.  Something of this sort is
+  // required to get the set test to work at all for --linear/--logistic.
+  // We could apply a similar procedure to xdf joint test p-values, but I'll
+  // refrain until/unless methods developers say that's actually a worthwhile
+  // procedure.
+  unsigned char* wkspace_mark = wkspace_base;
+  uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
+  FILE* outfile = NULL;
+  uintptr_t* marker_exclude = marker_exclude_mid;
+  uintptr_t* unstopped_markers = NULL;
+  uintptr_t* loadbuf = g_loadbuf;
+  uintptr_t* perm_adapt_set_unstopped = NULL;
+  double* orig_stats = g_orig_stats;
+  double* empirical_pvals = NULL;
+  uint32_t marker_idx_to_uidx = NULL;
+  uint32_t* perm_2success_ct = NULL;
+  uint32_t* perm_attempt_ct = NULL;
+  uintptr_t marker_ct = marker_ct_mid;
+  uintptr_t raw_set_ct = sip->ct;
+  uintptr_t raw_set_ctl = (raw_set_ct + (BITCT - 1)) / BITCT;
+  uintptr_t set_ct = 0;
+  uintptr_t max_set_id_len = sip->max_name_len;
+  uintptr_t final_mask = get_final_mask(pheno_nm_ct);
+  double adaptive_ci_zt = 0.0;
+  uint32_t max_sigset_size = 0;
+  uint32_t max_thread_ct = g_thread_ct;
+  uint32_t perms_done = 0;
+  int32_t retval = 0;
+  uintptr_t* set_incl;
+  uint32_t* marker_midx_to_idx;
+  uintptr_t marker_midx;
+  double dxx;
+  double dyy;
+  if (sip->set_test_lambda > 1.0) {
+    dxx = 1.0 / sip->set_test_lambda;
+  } else {
+    dxx = 1.0;
+  }
+  for (marker_midx = 0; marker_midx < marker_ct; marker_midx++) {
+    dyy = calc_tprob(orig_stats[marker_midx], tcnt[marker_midx]);
+    if (dyy == 0.0) {
+      dyy = 5e-324; // prevent inverse_chiprob() from breaking
+    }
+    orig_stats[marker_midx] = inverse_chiprob(dyy, 1) * dxx;
+  }
+  // retval = set_test_init();
+  if (retval) {
+    goto glm_linear_assoc_set_test_ret_1;
+  }
+  if (sip->set_test_lambda > 1.0) {
+  }
+  while (0) {
+  }
+ glm_linear_assoc_set_test_ret_1:
+  wkspace_reset(wkspace_mark);
+  fclose_cond(outfile);
+  return retval;
+}
+
+int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double ci_zt, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, char* condition_mname, char* condition_fname, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t sample_ct, uintptr_t* sample_exclude, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t covar_ct, char* covar_names, uintptr_t max_covar_name_len, uintptr_t* covar_nm, double* covar_d, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t ld_ignore_x, uint32_t hh_exists, uint32_t perm_batch_size, Set_info* sip) {
+  logprint("Error: --linear set-based test is under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
   FILE* outfile = NULL;
   FILE* outfile_msa = NULL;
+  uintptr_t marker_ct = marker_ct_orig;
   uintptr_t sample_uidx = 0;
   uintptr_t cur_constraint_ct = 0;
   uintptr_t cur_param_ct = 0;
@@ -4062,6 +4126,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   uint32_t perm_fail_ct = 0;
   uint32_t pct = 0;
   uint32_t max_thread_ct = g_thread_ct;
+  uint32_t hh_or_mt_exists = hh_exists;
   int32_t retval = 0;
   uint32_t linear_intercept = glm_modifier & GLM_INTERCEPT;
   char dgels_trans = 'N';
@@ -4169,9 +4234,6 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     hh_or_mt_exists |= NXMHH_EXISTS;
   }
   if (is_set_test) {
-    // logprint("Error: --linear set-based test is under development.\n");
-    // retval = RET_CALC_NOT_YET_SUPPORTED;
-    // goto glm_linear_assoc_ret_1;
     if (wkspace_alloc_ul_checked(&founder_pnm, unfiltered_sample_ctl * sizeof(intptr_t))) {
       goto glm_linear_assoc_ret_NOMEM;
     }
@@ -4399,7 +4461,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   mperm_save_all = mperm_save & MPERM_DUMP_ALL;
   if (fill_orig_chiabs) {
     if (mtest_adjust || is_set_test) {
-      if (constraint_ct_max || is_set_test) {
+      if (constraint_ct_max) {
 	if (wkspace_alloc_d_checked(&orig_pvals, marker_initial_ct * sizeof(double))) {
 	  goto glm_linear_assoc_ret_NOMEM;
 	}
@@ -4859,7 +4921,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 		if (orig_pvals) {
 		  orig_pvals[marker_idx3] = pval;
 		}
-		if (mtest_adjust) {
+		if (tcnt) {
 		  tcnt[marker_idx3] = cur_sample_valid_ct - cur_param_ct;
 		}
 	      }
@@ -5039,7 +5101,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	}
       }
     } else {
-      //retval = glm_linear_assoc_set_test(threads, bedfile, bed_offset, outname, outname_end, );
+      retval = glm_linear_assoc_set_test(threads, bedfile, bed_offset, outname, outname_end, glm_modifier, glm_mperm_val, pfilter, output_min_p, mtest_adjust, unfiltered_marker_ct, marker_exclude_orig, marker_ct_orig, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, sex_male, apip, pheno_nm_ct, pheno_nm, founder_pnm, sample_include2, sample_male_include2, ld_ignore_x, hh_exists, hh_or_mt_exists, sip, tcnt, loadbuf_raw);
       if (retval) {
 	goto glm_linear_assoc_ret_1;
       }
@@ -5252,7 +5314,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 }
 #endif
 
-int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double ci_zt, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, char* condition_mname, char* condition_fname, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t sample_ct, uintptr_t* sample_exclude, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t covar_ct, char* covar_names, uintptr_t max_covar_name_len, uintptr_t* covar_nm, double* covar_d, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t hh_or_mt_exists, uint32_t perm_batch_size, Set_info* sip) {
+int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double ci_zt, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, char* condition_mname, char* condition_fname, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t sample_ct, uintptr_t* sample_exclude, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t covar_ct, char* covar_names, uintptr_t max_covar_name_len, uintptr_t* covar_nm, double* covar_d, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t ld_ignore_x, uint32_t hh_exists, uint32_t perm_batch_size, Set_info* sip) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   FILE* outfile = NULL;
@@ -5281,6 +5343,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   uint32_t perm_pass_idx = 0;
   uint32_t pct = 0;
   uint32_t max_thread_ct = g_thread_ct;
+  uint32_t hh_or_mt_exists = hh_exists;
   int32_t retval = 0;
   double* constraints_con_major = NULL;
   double* orig_pvals = NULL;

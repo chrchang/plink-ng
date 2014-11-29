@@ -10225,6 +10225,157 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   return retval;
 }
 
+int32_t set_test_init(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t marker_ct_mid, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, double* orig_chisq, Set_info* sip, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* sex_male, uintptr_t* founder_pnm, uint32_t ld_ignore_x, uint32_t hh_exists, const char* flag_descrip, uintptr_t** marker_exclude_ptr, uintptr_t** set_incl_ptr, uint32_t** marker_idx_to_uidx_ptr, uint32_t*** setdefs_ptr, uintptr_t* marker_ct_ptr, uintptr_t* set_ct_ptr, uint32_t*** ld_map_ptr) {
+  // Assumes marker_exclude_ptr initially points to marker_exclude_mid.
+  // Side effect: allocates set_incl, marker_idx_to_uidx, ld_map on stack
+  uintptr_t marker_ct = marker_ct_mid;
+  uintptr_t raw_set_ct = sip->ct;
+  uintptr_t raw_set_ctl = (raw_set_ct + (BITCT - 1)) / BITCT;
+  uintptr_t set_ct = 0;
+  double chisq_threshold = inverse_chiprob(sip->set_p, 1);
+  uint32_t max_sigset_size = 0;
+  int32_t retval = 0;
+  uintptr_t marker_midx;
+  uintptr_t set_uidx;
+  uintptr_t* set_incl;
+  uintptr_t* cur_bitfield;
+  double* chisq_ptr;
+  double* chisq_end;
+  uint32_t* marker_midx_to_idx;
+  uint32_t* cur_setdef;
+  uintptr_t marker_idx;
+  double dxx;
+  uint32_t range_ct;
+  uint32_t range_idx;
+  uint32_t range_offset;
+  uint32_t range_stop;
+  uint32_t include_out_of_bounds;
+  uint32_t cur_set_size;
+  uint32_t uii;
+  if (wkspace_alloc_ul_checked(set_incl_ptr, raw_set_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ui_checked(&marker_midx_to_idx, marker_ct_orig * sizeof(int32_t))) {
+    goto set_test_init_ret_NOMEM;
+  }
+  set_incl = *set_incl_ptr;
+  fill_ulong_zero(set_incl, raw_set_ctl);
+  fill_midx_to_idx(marker_exclude_orig, *marker_exclude_ptr, marker_ct, marker_midx_to_idx);
+
+  if (sip->set_test_lambda > 1.0) {
+    dxx = 1.0 / sip->set_test_lambda;
+    chisq_ptr = orig_chisq;
+    for (marker_midx = 0; marker_midx < marker_ct; marker_midx++) {
+      *chisq_ptr *= dxx;
+      chisq_ptr++;
+    }
+  }
+  // determine which sets contain at least one significant marker.  do not
+  // attempt to calculate the sum statistic yet: we need the LD map for that.
+  for (set_uidx = 0; set_uidx < raw_set_ct; set_uidx++) {
+    cur_setdef = sip->setdefs[set_uidx];
+    range_ct = cur_setdef[0];
+    cur_set_size = 0;
+    uii = 0; // found a significant marker?
+    if (range_ct != 0xffffffffU) {
+      for (range_idx = 0; range_idx < range_ct; range_idx++) {
+        marker_midx = *(++cur_setdef);
+        range_stop = *(++cur_setdef);
+        cur_set_size += range_stop - marker_midx;
+        if (!uii) {
+          chisq_ptr = &(orig_chisq[marker_midx_to_idx[marker_midx]]);
+          chisq_end = &(chisq_ptr[cur_set_size]);
+	  for (; chisq_ptr < chisq_end; chisq_ptr++) {
+	    if (*chisq_ptr >= chisq_threshold) {
+	      uii = 1;
+              break;
+	    }
+	  }
+	}
+      }
+    } else {
+      range_offset = cur_setdef[1];
+      range_stop = cur_setdef[2];
+      include_out_of_bounds = cur_setdef[3];
+      cur_bitfield = (uintptr_t*)(&(cur_setdef[4]));
+      if (include_out_of_bounds && range_offset) {
+        for (marker_midx = 0; marker_midx < range_offset; marker_midx++) {
+	  // all initial markers guaranteed to be in union, no
+	  // marker_midx_to_idx lookup needed
+          if (orig_chisq[marker_midx] >= chisq_threshold) {
+            uii = 1;
+            break;
+	  }
+	}
+        cur_set_size += range_offset;
+      }
+      cur_set_size += popcount_longs(cur_bitfield, ((range_stop + 127) / 128) * (128 / BITCT));
+      if (!uii) {
+        for (marker_midx = 0; marker_midx < range_stop; marker_midx++) {
+          if (IS_SET(cur_bitfield, marker_midx)) {
+            if (orig_chisq[marker_midx_to_idx[marker_midx + range_offset]] >= chisq_threshold) {
+              uii = 1;
+              break;
+	    }
+	  }
+	}
+      }
+      if (include_out_of_bounds && (range_offset + range_stop < marker_ct_orig)) {
+        cur_set_size += marker_ct_orig - range_offset - range_stop;
+        if (!uii) {
+          for (marker_idx = marker_midx_to_idx[range_offset + range_stop]; marker_idx < marker_ct; marker_idx++) {
+	    // all trailing markers guaranteed to be in union
+            if (orig_chisq[marker_idx] >= chisq_threshold) {
+              uii = 1;
+              break;
+	    }
+	  }
+	}
+      }
+    }
+    if (uii) {
+      SET_BIT(set_incl, set_uidx);
+      set_ct++;
+      if (cur_set_size > max_sigset_size) {
+	max_sigset_size = cur_set_size;
+      }
+    }
+  }
+  if (!set_ct) {
+    logprint("Warning: No significant variants in any set.  Skipping permutation-based set\ntest.\n");
+    goto set_test_init_ret_1;
+  }
+  LOGPRINTFWW("%s set test: Testing %" PRIuPTR " set%s with at least one significant variant.\n", flag_descrip, set_ct, (set_ct == 1)? "" : "s");
+  wkspace_reset((unsigned char*)marker_midx_to_idx);
+  if (set_ct < raw_set_ct) {
+    marker_ct = marker_ct_orig;
+    if (extract_set_union_unfiltered(sip, set_incl, unfiltered_marker_ct, marker_exclude_orig, marker_exclude_ptr, &marker_ct)) {
+      goto set_test_init_ret_NOMEM;
+    }
+  }
+  // Okay, we've pruned all we can, now it's time to suck it up and construct
+  // the potentially huge LD map
+  if (wkspace_alloc_ui_checked(marker_idx_to_uidx_ptr, marker_ct * sizeof(int32_t))) {
+    goto set_test_init_ret_NOMEM;
+  }
+  fill_idx_to_uidx(*marker_exclude_ptr, unfiltered_marker_ct, marker_ct, *marker_idx_to_uidx_ptr);
+  if (marker_ct < marker_ct_orig) {
+    if (setdefs_compress(sip, set_incl, set_ct, unfiltered_marker_ct, marker_exclude_orig, marker_ct_orig, *marker_exclude_ptr, marker_ct, setdefs_ptr)) {
+      goto set_test_init_ret_NOMEM;
+    }
+  } else {
+    *setdefs_ptr = sip->setdefs;
+  }
+  retval = construct_ld_map(threads, bedfile, bed_offset, *marker_exclude_ptr, marker_ct, marker_reverse, *marker_idx_to_uidx_ptr, unfiltered_sample_ct, founder_pnm, sip, set_incl, set_ct, *setdefs_ptr, outname, outname_end, marker_ids, max_marker_id_len, sex_male, chrom_info_ptr, ld_ignore_x, hh_exists, ld_map_ptr);
+  while (0) {
+  set_test_init_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  }
+ set_test_init_ret_1:
+  *marker_ct_ptr = marker_ct;
+  *set_ct_ptr = set_ct;
+  return retval;
+}
+
 typedef struct clump_entry_struct {
   double pval;
   struct clump_entry_struct* next;
