@@ -6325,64 +6325,6 @@ THREAD_RET_TYPE model_set_best_thread(void* arg) {
   }
 }
 
-void set_test_score(uintptr_t marker_ct, double chisq_threshold, uint32_t set_max, double* chisq_arr, uint32_t** ld_map, uint32_t* cur_setdef, double* sorted_chisq_buf, uint32_t* sorted_marker_idx_buf, uint32_t* proxy_arr, uint32_t* raw_sig_ct_ptr, uint32_t* final_sig_ct_ptr, double* set_score_ptr) {
-  // set score statistic = mean of chi-square statistics of set
-  // representatives.  (In theory, variable-df genotypic test and Fisher's
-  // exact test could be supported via backing out a chi-square stat from the
-  // p-value, but I'll hold off on adding that sort of complexity until/unless
-  // there's demand for it.)
-
-  // sort variants by p-value, then iterate over setdefs, greedily selecting up
-  // to sip->set_max significant independent variants from each.
-  double chi_sum = 0.0;
-  uint32_t raw_sig_ct = 0;
-  uint32_t final_sig_ct = 0;
-  uint32_t marker_idx;
-  uint32_t setdef_incr_aux;
-  uint32_t raw_idx;
-  uint32_t ld_conflict;
-  uint32_t uii;
-  setdef_iter_init(cur_setdef, marker_ct, 0, &marker_idx, &setdef_incr_aux);
-  while (setdef_iter(cur_setdef, &marker_idx, &setdef_incr_aux)) {
-    if (chisq_arr[marker_idx] >= chisq_threshold) {
-      sorted_chisq_buf[raw_sig_ct] = chisq_arr[marker_idx];
-      sorted_marker_idx_buf[raw_sig_ct] = marker_idx;
-      raw_sig_ct++;
-    }
-    marker_idx++;
-  }
-  if (!raw_sig_ct) {
-    // not possible for initial pass, so no need to set raw_sig_ct_ptr, etc.
-    *set_score_ptr = 0.0;
-    return;
-  }
-  qsort_ext2((char*)sorted_chisq_buf, raw_sig_ct, sizeof(double), double_cmp_deref, (char*)sorted_marker_idx_buf, sizeof(int32_t), (char*)proxy_arr, sizeof(double) + sizeof(int32_t));
-  raw_idx = raw_sig_ct;
-  do {
-    raw_idx--;
-    ld_conflict = 0;
-    marker_idx = sorted_marker_idx_buf[raw_idx];
-    for (uii = 0; uii < final_sig_ct; uii++) {
-      if (in_setdef(ld_map[proxy_arr[uii]], marker_idx)) {
-	ld_conflict = 1;
-	break;
-      }
-    }
-    if (!ld_conflict) {
-      proxy_arr[final_sig_ct] = marker_idx;
-      chi_sum += sorted_chisq_buf[raw_idx];
-      if (++final_sig_ct == set_max) {
-	break;
-      }
-    }
-  } while (raw_idx);
-  *set_score_ptr = chi_sum / ((double)((int32_t)final_sig_ct));
-  if (raw_sig_ct_ptr) {
-    *raw_sig_ct_ptr = raw_sig_ct;
-    *final_sig_ct_ptr = final_sig_ct;
-  }
-}
-
 int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, char* outname_end2, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, double output_min_p, uint32_t mtest_adjust, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude_mid, uintptr_t marker_ct_mid, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* sex_male, Aperm_info* apip, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_pnm, uint32_t gender_req, uint32_t ld_ignore_x, uint32_t hh_exists, Set_info* sip, uintptr_t* loadbuf_raw) {
   // Could reuse more of the code in model_assoc() since there's considerable
   // overlap, but there are enough differences between the regular and set
@@ -6426,7 +6368,6 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uintptr_t final_mask = get_final_mask(pheno_nm_ct);
   uintptr_t ulii = 0;
   double adaptive_ci_zt = 0.0;
-  double chisq_threshold = inverse_chiprob(sip->set_p, 1);
   uint32_t model_assoc = model_modifier & MODEL_ASSOC;
   uint32_t perm_count = model_modifier & MODEL_PERM_COUNT;
   uint32_t model_perm_best = !(model_modifier & MODEL_PMASK);
@@ -6443,7 +6384,6 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uint32_t** setdefs;
   uint32_t** ld_map;
   uint32_t* set_idx_to_uidx;
-  uintptr_t marker_ctl;
   uintptr_t marker_uidx;
   uintptr_t marker_midx;
   uintptr_t marker_idx;
@@ -6453,6 +6393,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uintptr_t set_idx;
   uintptr_t perm_vec_ct;
   uintptr_t perm_vec_ctcl4m;
+  double chisq_threshold;
   double stat_high;
   double stat_low;
   double cur_score;
@@ -6488,17 +6429,15 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   ulii = (uintptr_t)(outname_end - outname);
   // don't want to overwrite .assoc extension, etc.
   memcpy(tbuf2, outname, ulii);
-  retval = set_test_init(threads, bedfile, bed_offset, tbuf2, &(tbuf2[ulii]), unfiltered_marker_ct, marker_exclude_orig, marker_ct_orig, marker_ids, max_marker_id_len, marker_reverse, orig_chisq, sip, chrom_info_ptr, unfiltered_sample_ct, sex_male, founder_pnm, ld_ignore_x, hh_exists, "--assoc/--model", &marker_ct, &marker_exclude, &set_incl, &marker_idx_to_uidx, &setdefs, &set_ct, &max_sigset_size, &ld_map);
+  retval = set_test_common_init(threads, bedfile, bed_offset, tbuf2, &(tbuf2[ulii]), unfiltered_marker_ct, marker_exclude_orig, marker_ct_orig, marker_ids, max_marker_id_len, marker_reverse, orig_chisq, sip, chrom_info_ptr, unfiltered_sample_ct, sex_male, founder_pnm, ld_ignore_x, hh_exists, "--assoc/--model", &marker_ct, &marker_exclude, &set_incl, &marker_idx_to_uidx, &setdefs, &set_ct, &max_sigset_size, &ld_map, &chisq_threshold, &orig_set_scores, &sorted_chisq_buf, &sorted_marker_idx_buf, &proxy_arr, &perm_adapt_set_unstopped, &perm_2success_ct, &perm_attempt_ct, &unstopped_markers);
   if (retval) {
     goto model_assoc_set_test_ret_1;
   }
   if (!set_ct) {
     goto model_assoc_set_test_write;
   }
-  marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
   if (marker_ct_mid != marker_ct) {
     // collapse these arrays so the permutation inner loop is faster
-    inplace_delta_collapse_arr((char*)orig_chisq, sizeof(double), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
     inplace_delta_collapse_arr((char*)g_missing_cts, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
     if (model_assoc) {
       inplace_delta_collapse_arr((char*)g_set_cts, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
@@ -6506,33 +6445,11 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
       inplace_delta_collapse_arr((char*)g_het_cts, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
       inplace_delta_collapse_arr((char*)g_homcom_cts, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
       if (model_perm_best) {
-	if (delta_collapse_bitfield(g_is_invalid_bitfield, marker_ct, marker_exclude_mid, marker_exclude)) {
-	  goto model_assoc_set_test_ret_NOMEM;
-	}
+	inplace_delta_collapse_bitfield(g_is_invalid_bitfield, marker_ct, marker_exclude_mid, marker_exclude);
       }
     }
   }
 
-  if (wkspace_alloc_d_checked(&orig_set_scores, set_ct * sizeof(double)) ||
-      wkspace_alloc_d_checked(&sorted_chisq_buf, max_sigset_size * sizeof(double)) ||
-      wkspace_alloc_ui_checked(&sorted_marker_idx_buf, max_sigset_size * sizeof(int32_t)) ||
-      // technically assumes sizeof(double) >= sizeof(intptr_t)
-      wkspace_alloc_ui_checked(&proxy_arr, max_sigset_size * (sizeof(double) + sizeof(int32_t)))) {
-    goto model_assoc_set_test_ret_NOMEM;
-  }
-  for (set_idx = 0; set_idx < set_ct; set_idx++) {
-    // we're calling this again during final write anyway, so don't bother
-    // saving raw_sig_ct or final_sig_ct now
-    set_test_score(marker_ct, chisq_threshold, sip->set_max, orig_chisq, ld_map, setdefs[set_idx], sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, NULL, NULL, &(orig_set_scores[set_idx]));
-  }
-  // just treat --mperm as --perm with min_perms == max_perms, since this isn't
-  // a proper max(T) test
-  if (wkspace_alloc_ul_checked(&perm_adapt_set_unstopped, ((set_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t)) ||
-      wkspace_alloc_ui_checked(&perm_2success_ct, set_ct * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(&perm_attempt_ct, set_ct * sizeof(int32_t)) ||
-      wkspace_alloc_ul_checked(&unstopped_markers, marker_ctl * sizeof(intptr_t))) {
-    goto model_assoc_set_test_ret_NOMEM;
-  }
   if (model_modifier & MODEL_PERM) {
     perms_total = apip->max;
     if (apip->min < apip->init_interval) {

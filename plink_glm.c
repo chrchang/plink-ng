@@ -4052,8 +4052,11 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
   uintptr_t* loadbuf = g_loadbuf;
   uintptr_t* perm_adapt_set_unstopped = NULL;
   double* orig_stats = g_orig_stats;
+  double* sorted_chisq_buf = NULL;
   double* empirical_pvals = NULL;
   uint32_t* marker_idx_to_uidx = NULL;
+  uint32_t* sorted_marker_idx_buf = NULL;
+  uint32_t* proxy_arr = NULL;
   uint32_t* perm_2success_ct = NULL;
   uint32_t* perm_attempt_ct = NULL;
   uintptr_t marker_ct = marker_ct_mid;
@@ -4067,10 +4070,12 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
   uint32_t perms_done = 0;
   int32_t retval = 0;
   uintptr_t* set_incl;
+  double* orig_set_scores;
   uint32_t** setdefs;
   uint32_t** ld_map;
   uintptr_t marker_midx;
-  uintptr_t marker_ctl;
+  uintptr_t set_idx;
+  double chisq_threshold;
   double dxx;
   double dyy;
   uint32_t max_sigset_size;
@@ -4082,31 +4087,29 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
   for (marker_midx = 0; marker_midx < marker_ct; marker_midx++) {
     dyy = calc_tprob(orig_stats[marker_midx], tcnt[marker_midx]);
     if (dyy == 0.0) {
-      dyy = 5e-324; // prevent inverse_chiprob() from breaking
+      dyy = 5e-324; // don't want inverse_chiprob() to return -9 in this case
     }
     orig_stats[marker_midx] = inverse_chiprob(dyy, 1) * dxx;
   }
-  retval = set_test_init(threads, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude_orig, marker_ct_orig, marker_ids, max_marker_id_len, marker_reverse, orig_stats, sip, chrom_info_ptr, unfiltered_sample_ct, sex_male, founder_pnm, ld_ignore_x, hh_exists, "--linear", &marker_ct, &marker_exclude, &set_incl, &marker_idx_to_uidx, &setdefs, &set_ct, &max_sigset_size, &ld_map);
+  retval = set_test_common_init(threads, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude_orig, marker_ct_orig, marker_ids, max_marker_id_len, marker_reverse, orig_stats, sip, chrom_info_ptr, unfiltered_sample_ct, sex_male, founder_pnm, ld_ignore_x, hh_exists, "--linear", &marker_ct, &marker_exclude, &set_incl, &marker_idx_to_uidx, &setdefs, &set_ct, &max_sigset_size, &ld_map, &chisq_threshold, &orig_set_scores, &sorted_chisq_buf, &sorted_marker_idx_buf, &proxy_arr, &perm_adapt_set_unstopped, &perm_2success_ct, &perm_attempt_ct, &unstopped_markers);
   if (retval) {
     goto glm_linear_assoc_set_test_ret_1;
   }
   if (!set_ct) {
     goto glm_linear_assoc_set_test_write;
   }
-  marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
   if (marker_ct_mid != marker_ct) {
-    inplace_delta_collapse_arr((char*)orig_stats, sizeof(double), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
     inplace_delta_collapse_arr((char*)tcnt, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
-    if (delta_collapse_bitfield(regression_skip, marker_ct, marker_exclude_mid, marker_exclude)) {
-      goto glm_linear_assoc_set_test_ret_NOMEM;
-    }
+    inplace_delta_collapse_bitfield(regression_skip, marker_ct, marker_exclude_mid, marker_exclude);
   }
  glm_linear_assoc_set_test_write:
-  ;;;  
+  ;;;
   while (0) {
+    /*
   glm_linear_assoc_set_test_ret_NOMEM:
     retval = RET_NOMEM;
     break;
+    */
   }
  glm_linear_assoc_set_test_ret_1:
   wkspace_reset(wkspace_mark);

@@ -9106,28 +9106,37 @@ void inplace_delta_collapse_arr(char* item_arr, uintptr_t item_len, uintptr_t fi
   }
 }
 
-uint32_t delta_collapse_bitfield(uintptr_t* bitfield, uint32_t filtered_ct_new, uintptr_t* exclude_orig, uintptr_t* exclude_new) {
-  uint32_t item_ctl = (filtered_ct_new + (BITCT - 1)) / BITCT;
-  uintptr_t* ulptr;
-  uint32_t item_uidx;
-  uint32_t item_midx;
-  uint32_t item_idx;
-  if (wkspace_alloc_ul_checked(&ulptr, item_ctl * sizeof(intptr_t))) {
-    return 1;
-  }
-  fill_ulong_zero(ulptr, item_ctl);
-  for (item_uidx = 0, item_midx = 0, item_idx = 0; item_idx < filtered_ct_new; item_uidx++, item_midx++) {
+void inplace_delta_collapse_bitfield(uintptr_t* read_ptr, uint32_t filtered_ct_new, uintptr_t* exclude_orig, uintptr_t* exclude_new) {
+  // only guaranteed to zero out trailing bits up to the nearest 16-byte
+  // boundary on 64-bit systems
+  uintptr_t* write_ptr = read_ptr;
+  uintptr_t readw = *read_ptr++;
+  uintptr_t writew = 0;
+  uint32_t item_uidx = 0;
+  uint32_t item_mwidx = 0;
+  uint32_t item_idx = 0;
+  for (; item_idx < filtered_ct_new; item_uidx++) {
     next_unset_unsafe_ck(exclude_orig, &item_uidx);
     if (!is_set(exclude_new, item_uidx)) {
-      if (is_set(bitfield, item_midx)) {
-	set_bit(ulptr, item_idx);
+      if ((readw >> item_mwidx) & 1) {
+	writew |= ONELU << (item_idx % BITCT);
       }
-      item_idx++;
+      if (!((++item_idx) % BITCT)) {
+	*write_ptr++ = writew;
+	writew = 0;
+      }
+    }
+    if (++item_mwidx == BITCT) {
+      item_mwidx = 0;
+      readw = *read_ptr++;
     }
   }
-  memcpy(bitfield, ulptr, item_ctl * sizeof(intptr_t));
-  wkspace_reset((unsigned char*)ulptr);
-  return 0;
+  if (write_ptr < read_ptr) {
+    *write_ptr++ = writew;
+    if (write_ptr < read_ptr) {
+      *write_ptr = 0;
+    }
+  }
 }
 
 void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr) {
