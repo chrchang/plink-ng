@@ -6650,7 +6650,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
       stat_high = orig_set_scores[set_idx] + EPSILON;
       stat_low = orig_set_scores[set_idx] - EPSILON;
       for (pidx = 0; pidx < perm_vec_ct;) {
-	set_test_score(marker_ct, chisq_threshold, sip->set_max, &(g_mperm_save_all[pidx * marker_ct]), ld_map, setdefs[set_idx], sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, NULL, NULL, &cur_score);
+	set_test_score(marker_ct, perm_vec_ct, chisq_threshold, sip->set_max, &(g_mperm_save_all[pidx]), ld_map, setdefs[set_idx], sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, NULL, NULL, &cur_score);
 	if (cur_score > stat_high) {
 	  uii += 2;
 	} else if (cur_score > stat_low) {
@@ -6712,7 +6712,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
     *bufptr++ = ' ';
     bufptr = uint32_writew6x(bufptr, setdef_size(sip->setdefs[set_uidx], marker_ct_orig), ' ');
     if (IS_SET(set_incl, set_uidx)) {
-      set_test_score(marker_ct, chisq_threshold, sip->set_max, orig_chisq, ld_map, setdefs[set_idx], sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, &raw_sig_ct, &final_sig_ct, &cur_score);
+      set_test_score(marker_ct, 1, chisq_threshold, sip->set_max, orig_chisq, ld_map, setdefs[set_idx], sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, &raw_sig_ct, &final_sig_ct, &cur_score);
       bufptr = uint32_writew6x(bufptr, raw_sig_ct, ' ');
       bufptr = uint32_writew6x(bufptr, final_sig_ct, ' ');
       pval = ((double)(perm_2success_ct[set_idx] + 2)) / ((double)(2 * (perm_attempt_ct[set_idx] + 1)));
