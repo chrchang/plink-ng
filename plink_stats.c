@@ -54,6 +54,20 @@ double calc_tprob(double tt, double df) {
   return 2 * qq;
 }
 
+double inverse_tprob(double dbl_qq, double df) {
+  double qq = dbl_qq * 0.5;
+  double pp = 1 - qq;
+  int32_t st = 0;
+  int32_t ww = 2;
+  double bnd = 1;
+  double tt;
+  cdft(&ww, &pp, &qq, &tt, &df, &st, &bnd);
+  if (st != 0) {
+    return -9;
+  }
+  return tt;
+}
+
 // Inverse normal distribution
 
 //

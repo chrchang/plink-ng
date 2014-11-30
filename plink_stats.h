@@ -3,6 +3,9 @@
 
 #include "plink_matrix.h"
 
+// result of inverse_chiprob(5e-324, 1)
+#define MAX_INVERSE_CHIPROB_1DF 1957.4999902125001
+
 static inline uint32_t realnum(double dd) {
   return (dd == dd) && (dd != INFINITY) && (dd != -INFINITY);
 }
@@ -20,6 +23,8 @@ static inline double chiprob_px(double xx, double df) {
 double inverse_chiprob(double qq, double df);
 
 double calc_tprob(double tt, double df);
+
+double inverse_tprob(double dbl_qq, double df);
 
 double ltqnorm(double p);
 

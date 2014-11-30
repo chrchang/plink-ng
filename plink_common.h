@@ -764,6 +764,8 @@ typedef union {
 
 uint32_t push_ll_str(Ll_str** ll_stack_ptr, const char* ss);
 
+// warning: do NOT include allele codes (unless they're guaranteed to be SNPs)
+// in log strings; they can overflow the buffer.
 void logstr(const char* ss);
 
 void logprint(const char* ss);

@@ -19,7 +19,11 @@ const char* g_output_missing_geno_ptr = &(g_one_char_strs[96]);
 sfmt_t sfmt;
 
 FILE* logfile = NULL;
-char logbuf[MAXLINELEN * 2]; // safe sprintf buffer, if one is needed
+
+// mostly-safe sprintf buffer.  warning: do NOT put allele codes or
+// arbitrary-length lists in here.
+char logbuf[MAXLINELEN * 2];
+
 uint32_t g_debug_on = 0;
 uint32_t g_log_failed = 0;
 uintptr_t g_sample_ct;
