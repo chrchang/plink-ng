@@ -712,9 +712,7 @@ static inline void aligned_free_cond_null(uintptr_t** aligned_pp) {
 extern sfmt_t sfmt;
 
 extern const char errstr_fopen[];
-extern const char errstr_thread_create[];
 extern const char cmdline_format_str[];
-extern const char errstr_phenotype_format[];
 
 extern FILE* logfile;
 extern char logbuf[];

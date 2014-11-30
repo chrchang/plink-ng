@@ -2340,7 +2340,6 @@ int32_t regress_rel_main(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
     return RET_NOMEM;
   }
   if (spawn_threads(threads, &regress_rel_jack_thread, g_thread_ct)) {
-    logprint(errstr_thread_create);
     return RET_THREAD_CREATE_FAIL;
   }
   ulii = 0;
@@ -3146,7 +3145,6 @@ int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfi
     retval = RET_NOMEM;
     break;
   ibs_test_calc_ret_THREAD_CREATE_FAIL:
-    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     break;
   }
@@ -3378,7 +3376,6 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_sample_ct, uintpt
     retval = RET_NOMEM;
     break;
   groupdist_calc_ret_THREAD_CREATE_FAIL:
-    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     break;
   }
@@ -5745,7 +5742,6 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
     retval = RET_INVALID_CMDLINE;
     break;
   calc_genome_ret_THREAD_CREATE_FAIL:
-    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     break;
   }
@@ -7473,7 +7469,6 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
     retval = RET_INVALID_CMDLINE;
     break;
   calc_rel_ret_THREAD_CREATE_FAIL:
-    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     break;
   }
@@ -8052,7 +8047,6 @@ int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintpt
     retval = RET_INVALID_CMDLINE;
     break;
   calc_ibm_ret_THREAD_CREATE_FAIL:
-    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     break;
   }
@@ -8620,7 +8614,6 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     retval = RET_INVALID_CMDLINE;
     break;
   calc_distance_ret_THREAD_CREATE_FAIL:
-    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     break;
   }
@@ -9889,7 +9882,6 @@ int32_t regress_distance(pthread_t* threads, uint64_t calculation_type, double* 
     retval = RET_NOMEM;
     break;
   regress_distance_ret_THREAD_CREATE_FAIL:
-    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
   }
   wkspace_reset(wkspace_mark);

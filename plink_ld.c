@@ -2524,7 +2524,6 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     retval = RET_INVALID_CMDLINE;
     break;
   ld_report_matrix_ret_THREAD_CREATE_FAIL:
-    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     break;
   }
@@ -4716,7 +4715,6 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     retval = RET_READ_FAIL;
     break;
   ld_report_dprime_ret_THREAD_CREATE_FAIL:
-    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     break;
   }
@@ -5218,7 +5216,6 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
     retval = RET_INVALID_FORMAT;
     break;
   ld_report_regular_ret_THREAD_CREATE_FAIL:
-    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     break;
   }
@@ -8391,7 +8388,6 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     retval = RET_INVALID_CMDLINE;
     break;
   epistasis_report_ret_THREAD_CREATE_FAIL:
-    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     break;
   }
@@ -10216,7 +10212,6 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     retval = RET_INVALID_CMDLINE;
     break;
   construct_ld_map_ret_THREAD_CREATE_FAIL:
-    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     break;
   }
@@ -10450,6 +10445,9 @@ int32_t set_test_common_init(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
       wkspace_alloc_ul_checked(unstopped_markers_ptr, ((marker_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t))) {
     goto set_test_common_init_ret_NOMEM;
   }
+  fill_all_bits(*perm_adapt_set_unstopped_ptr, set_ct);
+  fill_uint_zero(*perm_2success_ct_ptr, set_ct);
+  fill_all_bits(*unstopped_markers_ptr, marker_ct);
   while (0) {
   set_test_common_init_ret_NOMEM:
     retval = RET_NOMEM;

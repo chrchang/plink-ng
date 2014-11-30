@@ -3755,7 +3755,6 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     retval = RET_INVALID_CMDLINE;
     break;
   qfam_ret_THREAD_CREATE_FAIL:
-    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     break;
   }

@@ -137,6 +137,9 @@ void disp_exit_msg(int32_t retval) {
   case RET_READ_FAIL:
     logprint("\nError: File read failure.\n");
     break;
+  case RET_THREAD_CREATE_FAIL:
+    logprint("\nError: Failed to create thread.\n");
+    break;
   }
 }
 
@@ -12317,9 +12320,6 @@ int32_t main(int32_t argc, char** argv) {
       if (!(family_info.tdt_modifier & (TDT_PERM | TDT_MPERM))) {
         logprint("Error: --tdt set-test requires permutation.\n");
         goto main_ret_INVALID_CMDLINE_A;
-      } else if (mtest_adjust & ADJUST_GC) {
-        logprint("Error: --adjust 'gc' modifier does not make sense with --tdt set-test.\n");
-        goto main_ret_INVALID_CMDLINE_A;
       }
       logprint("Error: --tdt set-test is currently under development.\n");
       retval = RET_CALC_NOT_YET_SUPPORTED;
@@ -12329,9 +12329,6 @@ int32_t main(int32_t argc, char** argv) {
     if (cluster.modifier & CLUSTER_CMH_SET_TEST) {
       if (!(family_info.tdt_modifier & (TDT_PERM | TDT_MPERM))) {
         logprint("Error: --mh/--bd set-test requires permutation.\n");
-        goto main_ret_INVALID_CMDLINE_A;
-      } else if (mtest_adjust & ADJUST_GC) {
-        logprint("Error: --adjust 'gc' modifier does not make sense with --mh/--bd set-test.\n");
         goto main_ret_INVALID_CMDLINE_A;
       }
       logprint("Error: --mh/--bd set-test is currently under development.\n");

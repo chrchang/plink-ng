@@ -4035,7 +4035,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
 }
 
 #ifndef NOLAPACK
-int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t glm_modifier, uint32_t glm_mperm_val, double pfilter, double output_min_p, uint32_t mtest_adjust, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude_mid, uintptr_t marker_ct_mid, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, uintptr_t* regression_skip, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* sex_male, Aperm_info* apip, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* founder_pnm, uintptr_t* sample_include2, uintptr_t* sample_male_include2, uint32_t ld_ignore_x, uint32_t hh_exists, uint32_t hh_or_mt_exists, Set_info* sip, uint32_t* tcnt, uintptr_t* loadbuf_raw) {
+int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t glm_modifier, uint32_t glm_mperm_val, double pfilter, double output_min_p, uint32_t mtest_adjust, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude_mid, uintptr_t marker_ct_mid, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, uintptr_t* regression_skip, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* sex_male, Aperm_info* apip, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* founder_pnm, uintptr_t* sample_include2, uintptr_t* sample_male_include2, uint32_t ld_ignore_x, uint32_t hh_exists, uint32_t hh_or_mt_exists, uint32_t perm_batch_size, Set_info* sip, uint32_t* tcnt, uintptr_t* loadbuf_raw) {
   // Side effect: t-statistics in g_orig_stats[] are clobbered and replaced
   // with same-p-value 1df chi-square statistics.  Something of this sort is
   // required to get the set test to work at all for --linear/--logistic.
@@ -4075,10 +4075,15 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
   uint32_t** ld_map;
   uintptr_t marker_midx;
   uintptr_t set_idx;
+  uintptr_t ulii;
   double chisq_threshold;
   double dxx;
   double dyy;
+  uint32_t perms_total;
   uint32_t max_sigset_size;
+  uint32_t marker_unstopped_ct;
+  uint32_t first_adapt_check;
+  uint32_t uii;
   if (sip->set_test_lambda > 1.0) {
     dxx = 1.0 / sip->set_test_lambda;
   } else {
@@ -4102,14 +4107,71 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
     inplace_delta_collapse_arr((char*)tcnt, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
     inplace_delta_collapse_bitfield(regression_skip, marker_ct, marker_exclude_mid, marker_exclude);
   }
+  if (glm_modifier & GLM_PERM) {
+    perms_total = apip->max;
+    first_adapt_check = (apip->min < apip->init_interval)? ((int32_t)apip->init_interval) : apip->min;
+    adaptive_ci_zt = ltqnorm(1 - apip->beta / (2.0 * ((intptr_t)set_ct)));
+  } else {
+    perms_total = glm_mperm_val;
+    first_adapt_check = perms_total + 1;
+  }
+  for (uii = 0; uii < set_ct; uii++) {
+    perm_attempt_ct[uii] = perms_total;
+  }
+  if (max_thread_ct > perms_total) {
+    max_thread_ct = perms_total;
+  }
+  if (wkspace_init_sfmtp(max_thread_ct)) {
+    goto glm_linear_assoc_set_test_ret_NOMEM;
+  }
+  if (!perm_batch_size) {
+    perm_batch_size = 512;
+  }
+  if (perms_total < perm_batch_size) {
+    perm_batch_size = perms_total;
+  }
+  marker_unstopped_ct = marker_ct;
+ glm_linear_set_test_more_perms:
+  if (perms_done) {
+    uii = apip->init_interval;
+    while (first_adapt_check <= perms_done) {
+      first_adapt_check += (int32_t)(uii + ((int32_t)first_adapt_check) * apip->interval_slope);
+    }
+  }
+  g_perm_vec_ct = perm_batch_size;
+  if (g_perm_vec_ct > perms_total - perms_done) {
+    g_perm_vec_ct = perms_total - perms_done;
+  }
+  if (g_perm_vec_ct >= CACHELINE_INT32 * max_thread_ct) {
+    g_assoc_thread_ct = max_thread_ct;
+  } else {
+    g_assoc_thread_ct = g_perm_vec_ct / CACHELINE_INT32;
+    if (!g_assoc_thread_ct) {
+      g_assoc_thread_ct = 1;
+    }
+  }
+  ulii = 0;
+  if (!g_cluster_ct) {
+    if (spawn_threads(threads, &linear_gen_perms_thread, g_assoc_thread_ct)) {
+      goto glm_linear_assoc_set_test_ret_THREAD_CREATE_FAIL;
+    }
+    linear_gen_perms_thread((void*)ulii);
+  } else {
+    if (spawn_threads(threads, &linear_gen_cluster_perms_thread, g_assoc_thread_ct)) {
+      goto glm_linear_assoc_set_test_ret_THREAD_CREATE_FAIL;
+    }
+    linear_gen_cluster_perms_thread((void*)ulii);
+  }
+  join_threads(threads, g_assoc_thread_ct);
  glm_linear_assoc_set_test_write:
   ;;;
   while (0) {
-    /*
   glm_linear_assoc_set_test_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-    */
+  glm_linear_assoc_set_test_ret_THREAD_CREATE_FAIL:
+    retval = RET_THREAD_CREATE_FAIL;
+    break;
   }
  glm_linear_assoc_set_test_ret_1:
   wkspace_reset(wkspace_mark);
@@ -4670,7 +4732,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     g_pheno_sum = 0;
     g_pheno_ssq = (double)((intptr_t)(sample_valid_ct - 1));
   }
-  if (do_perms_nst) {
+  if (do_perms) {
     if (wkspace_alloc_ui_checked(&g_precomputed_mods, (sample_valid_ct - 1) * sizeof(int32_t)) ||
 	wkspace_alloc_d_checked(&g_perm_pmajor, perm_batch_size * sample_valid_ct * sizeof(double))) {
       goto glm_linear_assoc_ret_NOMEM;
@@ -4733,7 +4795,6 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     if (g_perm_vec_ct > perms_total - g_perms_done) {
       g_perm_vec_ct = perms_total - g_perms_done;
     }
-    ulii = 0;
     if (g_perm_vec_ct >= CACHELINE_INT32 * max_thread_ct) {
       g_assoc_thread_ct = max_thread_ct;
     } else {
@@ -4742,6 +4803,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	g_assoc_thread_ct = 1;
       }
     }
+    ulii = 0;
     if (!g_cluster_ct) {
       if (spawn_threads(threads, &linear_gen_perms_thread, g_assoc_thread_ct)) {
 	goto glm_linear_assoc_ret_THREAD_CREATE_FAIL;
@@ -5140,7 +5202,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	}
       }
     } else {
-      retval = glm_linear_assoc_set_test(threads, bedfile, bed_offset, outname, outname_end, glm_modifier, glm_mperm_val, pfilter, output_min_p, mtest_adjust, unfiltered_marker_ct, marker_exclude_orig, marker_ct_orig, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, regression_skip, chrom_info_ptr, unfiltered_sample_ct, sex_male, apip, pheno_nm_ct, pheno_nm, founder_pnm, sample_include2, sample_male_include2, ld_ignore_x, hh_exists, hh_or_mt_exists, sip, tcnt, loadbuf_raw);
+      retval = glm_linear_assoc_set_test(threads, bedfile, bed_offset, outname, outname_end, glm_modifier, glm_mperm_val, pfilter, output_min_p, mtest_adjust, unfiltered_marker_ct, marker_exclude_orig, marker_ct_orig, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, regression_skip, chrom_info_ptr, unfiltered_sample_ct, sex_male, apip, pheno_nm_ct, pheno_nm, founder_pnm, sample_include2, sample_male_include2, ld_ignore_x, hh_exists, hh_or_mt_exists, perm_batch_size, sip, tcnt, loadbuf_raw);
       if (retval) {
 	goto glm_linear_assoc_ret_1;
       }
@@ -5340,7 +5402,6 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     logprint("Warning: Skipping --linear since phenotype is constant.\n");
     break;
   glm_linear_assoc_ret_THREAD_CREATE_FAIL:
-    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     break;
   }
@@ -6428,7 +6489,6 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     logprint("Warning: Skipping --linear/--logistic since phenotype is constant.\n");
     break;
   glm_logistic_assoc_ret_THREAD_CREATE_FAIL:
-    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     break;
   }
@@ -7309,7 +7369,6 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     retval = RET_WRITE_FAIL;
     break;
   glm_linear_nosnp_ret_THREAD_CREATE_FAIL:
-    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     break;
   glm_linear_nosnp_ret_NO_PERMUTATION_CLUSTERS:
@@ -8087,7 +8146,6 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     retval = RET_WRITE_FAIL;
     break;
   glm_logistic_nosnp_ret_THREAD_CREATE_FAIL:
-    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     break;
   glm_logistic_nosnp_ret_NO_PERMUTATION_CLUSTERS:

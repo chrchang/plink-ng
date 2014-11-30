@@ -6452,19 +6452,12 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
 
   if (model_modifier & MODEL_PERM) {
     perms_total = apip->max;
-    if (apip->min < apip->init_interval) {
-      first_adapt_check = (int32_t)(apip->init_interval);
-    } else {
-      first_adapt_check = apip->min;
-    }
+    first_adapt_check = (apip->min < apip->init_interval)? ((int32_t)apip->init_interval) : apip->min;
     adaptive_ci_zt = ltqnorm(1 - apip->beta / (2.0 * ((intptr_t)set_ct)));
   } else {
     perms_total = model_mperm_val;
     first_adapt_check = perms_total + 1;
   }
-  fill_all_bits(perm_adapt_set_unstopped, set_ct);
-  fill_uint_zero(perm_2success_ct, set_ct);
-  fill_all_bits(unstopped_markers, marker_ct);
   for (uii = 0; uii < set_ct; uii++) {
     perm_attempt_ct[uii] = perms_total;
   }
@@ -6786,7 +6779,6 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
     retval = RET_WRITE_FAIL;
     break;
   model_assoc_set_test_ret_THREAD_CREATE_FAIL:
-    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     break;
   }
@@ -8590,7 +8582,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     retval = RET_INVALID_CMDLINE;
     break;
   model_assoc_ret_THREAD_CREATE_FAIL:
-    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     break;
   }
@@ -9599,7 +9590,6 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     retval = RET_INVALID_CMDLINE;
     break;
   qassoc_ret_THREAD_CREATE_FAIL:
-    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     break;
   }
@@ -11368,7 +11358,6 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
     retval = RET_INVALID_CMDLINE;
     break;
   testmiss_ret_THREAD_CREATE_FAIL:
-    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     break;
   }
@@ -11539,7 +11528,6 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
     retval = RET_INVALID_CMDLINE;
     break;
   make_perm_pheno_ret_THREAD_CREATE_FAIL:
-    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     break;
   }

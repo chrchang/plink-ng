@@ -2,10 +2,10 @@
 
 #include "pigz.h"
 
+// no leading \n since this is used in LOGPRINTFWW expressions
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
-const char errstr_thread_create[] = "\nError: Failed to create thread.\n";
+
 const char cmdline_format_str[] = "\n  " PROG_NAME_STR " [input flag(s)...] {command flag(s)...} {other flag(s)...}\n  " PROG_NAME_STR " --help {flag name(s)...}\n\n";
-const char errstr_phenotype_format[] = "Error: Improperly formatted phenotype file.\n";
 
 char tbuf[TBUF_SIZE];
 
