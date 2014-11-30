@@ -6420,6 +6420,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uint32_t* perm_2success_ct = NULL;
   uint32_t* perm_attempt_ct = NULL;
   uintptr_t pheno_nm_ctv2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
+  uintptr_t marker_ct = marker_ct_mid;
   uintptr_t raw_set_ct = sip->ct;
   uintptr_t max_set_id_len = sip->max_name_len;
   uintptr_t final_mask = get_final_mask(pheno_nm_ct);
@@ -6429,7 +6430,6 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uint32_t model_assoc = model_modifier & MODEL_ASSOC;
   uint32_t perm_count = model_modifier & MODEL_PERM_COUNT;
   uint32_t model_perm_best = !(model_modifier & MODEL_PMASK);
-  uint32_t max_sigset_size = 0;
   uint32_t max_thread_ct = g_thread_ct;
   uint32_t perms_done = 0;
   int32_t x_code = chrom_info_ptr->x_code;
@@ -6445,7 +6445,6 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uint32_t** setdefs;
   uint32_t** ld_map;
   uint32_t* set_idx_to_uidx;
-  uintptr_t marker_ct;
   uintptr_t marker_ctl;
   uintptr_t marker_uidx;
   uintptr_t marker_midx;
@@ -6476,6 +6475,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uint32_t pidx_offset;
   uint32_t first_adapt_check;
   uint32_t next_adapt_check;
+  uint32_t max_sigset_size;
   uint32_t raw_sig_ct;
   uint32_t final_sig_ct;
   uint32_t uii;
@@ -6490,7 +6490,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   ulii = (uintptr_t)(outname_end - outname);
   // don't want to overwrite .assoc extension, etc.
   memcpy(tbuf2, outname, ulii);
-  retval = set_test_init(threads, bedfile, bed_offset, tbuf2, &(tbuf2[ulii]), unfiltered_marker_ct, marker_exclude_orig, marker_ct_orig, marker_ct_mid, marker_ids, max_marker_id_len, marker_reverse, orig_chisq, sip, chrom_info_ptr, unfiltered_sample_ct, sex_male, founder_pnm, ld_ignore_x, hh_exists, "--assoc/--model", &marker_exclude, &set_incl, &marker_idx_to_uidx, &setdefs, &marker_ct, &set_ct, &ld_map);
+  retval = set_test_init(threads, bedfile, bed_offset, tbuf2, &(tbuf2[ulii]), unfiltered_marker_ct, marker_exclude_orig, marker_ct_orig, marker_ids, max_marker_id_len, marker_reverse, orig_chisq, sip, chrom_info_ptr, unfiltered_sample_ct, sex_male, founder_pnm, ld_ignore_x, hh_exists, "--assoc/--model", &marker_ct, &marker_exclude, &set_incl, &marker_idx_to_uidx, &setdefs, &set_ct, &max_sigset_size, &ld_map);
   if (retval) {
     goto model_assoc_set_test_ret_1;
   }

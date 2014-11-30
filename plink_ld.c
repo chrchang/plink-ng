@@ -10225,10 +10225,11 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   return retval;
 }
 
-int32_t set_test_init(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t marker_ct_mid, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, double* orig_chisq, Set_info* sip, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* sex_male, uintptr_t* founder_pnm, uint32_t ld_ignore_x, uint32_t hh_exists, const char* flag_descrip, uintptr_t** marker_exclude_ptr, uintptr_t** set_incl_ptr, uint32_t** marker_idx_to_uidx_ptr, uint32_t*** setdefs_ptr, uintptr_t* marker_ct_ptr, uintptr_t* set_ct_ptr, uint32_t*** ld_map_ptr) {
-  // Assumes marker_exclude_ptr initially points to marker_exclude_mid.
+int32_t set_test_init(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, double* orig_chisq, Set_info* sip, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* sex_male, uintptr_t* founder_pnm, uint32_t ld_ignore_x, uint32_t hh_exists, const char* flag_descrip, uintptr_t* marker_ct_ptr, uintptr_t** marker_exclude_ptr, uintptr_t** set_incl_ptr, uint32_t** marker_idx_to_uidx_ptr, uint32_t*** setdefs_ptr, uintptr_t* set_ct_ptr, uint32_t* max_sigset_size_ptr, uint32_t*** ld_map_ptr) {
+  // Assumes *marker_ct_ptr has value marker_ct_mid, and marker_exclude_ptr
+  // initially points to marker_exclude_mid.
   // Side effect: allocates set_incl, marker_idx_to_uidx, ld_map on stack
-  uintptr_t marker_ct = marker_ct_mid;
+  uintptr_t marker_ct = *marker_ct_ptr;
   uintptr_t raw_set_ct = sip->ct;
   uintptr_t raw_set_ctl = (raw_set_ct + (BITCT - 1)) / BITCT;
   uintptr_t set_ct = 0;
@@ -10244,7 +10245,6 @@ int32_t set_test_init(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, c
   uint32_t* marker_midx_to_idx;
   uint32_t* cur_setdef;
   uintptr_t marker_idx;
-  double dxx;
   uint32_t range_ct;
   uint32_t range_idx;
   uint32_t range_offset;
@@ -10260,14 +10260,6 @@ int32_t set_test_init(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, c
   fill_ulong_zero(set_incl, raw_set_ctl);
   fill_midx_to_idx(marker_exclude_orig, *marker_exclude_ptr, marker_ct, marker_midx_to_idx);
 
-  if (sip->set_test_lambda > 1.0) {
-    dxx = 1.0 / sip->set_test_lambda;
-    chisq_ptr = orig_chisq;
-    for (marker_midx = 0; marker_midx < marker_ct; marker_midx++) {
-      *chisq_ptr *= dxx;
-      chisq_ptr++;
-    }
-  }
   // determine which sets contain at least one significant marker.  do not
   // attempt to calculate the sum statistic yet: we need the LD map for that.
   for (set_uidx = 0; set_uidx < raw_set_ct; set_uidx++) {
@@ -10373,6 +10365,7 @@ int32_t set_test_init(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, c
  set_test_init_ret_1:
   *marker_ct_ptr = marker_ct;
   *set_ct_ptr = set_ct;
+  *max_sigset_size_ptr = max_sigset_size;
   return retval;
 }
 
