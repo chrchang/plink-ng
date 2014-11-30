@@ -2188,6 +2188,8 @@ char* alloc_and_init_collapsed_arr_incl(char* item_arr, uintptr_t item_len, uint
 
 void inplace_delta_collapse_arr(char* item_arr, uintptr_t item_len, uintptr_t filtered_ct_orig, uintptr_t filtered_ct_new, uintptr_t* exclude_orig, uintptr_t* exclude_new);
 
+uint32_t delta_collapse_bitfield(uintptr_t* bitfield, uint32_t filtered_ct_new, uintptr_t* exclude_orig, uintptr_t* exclude_new);
+
 void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr);
 
 void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_arr);

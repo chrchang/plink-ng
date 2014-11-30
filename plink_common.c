@@ -9106,6 +9106,30 @@ void inplace_delta_collapse_arr(char* item_arr, uintptr_t item_len, uintptr_t fi
   }
 }
 
+uint32_t delta_collapse_bitfield(uintptr_t* bitfield, uint32_t filtered_ct_new, uintptr_t* exclude_orig, uintptr_t* exclude_new) {
+  uint32_t item_ctl = (filtered_ct_new + (BITCT - 1)) / BITCT;
+  uintptr_t* ulptr;
+  uint32_t item_uidx;
+  uint32_t item_midx;
+  uint32_t item_idx;
+  if (wkspace_alloc_ul_checked(&ulptr, item_ctl * sizeof(intptr_t))) {
+    return 1;
+  }
+  fill_ulong_zero(ulptr, item_ctl);
+  for (item_uidx = 0, item_midx = 0, item_idx = 0; item_idx < filtered_ct_new; item_uidx++, item_midx++) {
+    next_unset_unsafe_ck(exclude_orig, &item_uidx);
+    if (!is_set(exclude_new, item_uidx)) {
+      if (is_set(bitfield, item_midx)) {
+	set_bit(ulptr, item_idx);
+      }
+      item_idx++;
+    }
+  }
+  memcpy(bitfield, ulptr, item_ctl * sizeof(intptr_t));
+  wkspace_reset((unsigned char*)ulptr);
+  return 0;
+}
+
 void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr) {
   uintptr_t cur_write = 0;
   uint32_t item_uidx = 0;

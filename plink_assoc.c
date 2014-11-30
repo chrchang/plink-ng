@@ -6436,8 +6436,6 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   int32_t retval = 0;
   uintptr_t* set_incl;
   uintptr_t* loadbuf_ptr;
-  uintptr_t* is_invalid_bitfield;
-  uintptr_t* ulptr;
   double* orig_set_scores;
   double* chisq_ptr;
   unsigned char* wkspace_mark2;
@@ -6494,10 +6492,10 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   if (retval) {
     goto model_assoc_set_test_ret_1;
   }
-  marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
   if (!set_ct) {
     goto model_assoc_set_test_write;
   }
+  marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
   if (marker_ct_mid != marker_ct) {
     // collapse these arrays so the permutation inner loop is faster
     inplace_delta_collapse_arr((char*)orig_chisq, sizeof(double), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
@@ -6508,23 +6506,9 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
       inplace_delta_collapse_arr((char*)g_het_cts, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
       inplace_delta_collapse_arr((char*)g_homcom_cts, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
       if (model_perm_best) {
-	// probably belongs in plink_common
-	if (wkspace_alloc_ul_checked(&ulptr, marker_ctl * sizeof(intptr_t))) {
+	if (delta_collapse_bitfield(g_is_invalid_bitfield, marker_ct, marker_exclude_mid, marker_exclude)) {
 	  goto model_assoc_set_test_ret_NOMEM;
 	}
-        fill_ulong_zero(ulptr, marker_ctl);
-	is_invalid_bitfield = g_is_invalid_bitfield;
-	for (marker_uidx = 0, marker_midx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_midx++) {
-	  next_unset_ul_unsafe_ck(marker_exclude_mid, &marker_uidx);
-	  if (!IS_SET(marker_exclude, marker_uidx)) {
-	    if (IS_SET(is_invalid_bitfield, marker_midx)) {
-	      SET_BIT(ulptr, marker_idx);
-	    }
-	    marker_idx++;
-	  }
-	}
-	memcpy(is_invalid_bitfield, ulptr, marker_ctl * sizeof(intptr_t));
-	wkspace_reset((unsigned char*)ulptr);
       }
     }
   }
