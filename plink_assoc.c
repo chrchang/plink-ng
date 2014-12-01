@@ -3542,7 +3542,7 @@ THREAD_RET_TYPE assoc_set_thread(void* arg) {
     for (; marker_bidx < marker_bceil; marker_bidx++) {
       marker_idx = g_adapt_m_table[marker_bidx];
       // probably want to make this bidx-based instead
-      msa_ptr = &(g_mperm_save_all[marker_idx * perm_vec_ct]);
+      msa_ptr = &(g_mperm_save_all[marker_bidx * perm_vec_ct]);
       col1_sum = set_allele_cts[marker_idx];
       missing_ct = missing_cts[marker_idx];
       if (is_x) {
@@ -4818,7 +4818,7 @@ THREAD_RET_TYPE model_set_domrec_thread(void* arg) {
     homcom_cts = g_homcom_cts;
     for (; marker_bidx < marker_bceil; marker_bidx++) {
       marker_idx = g_adapt_m_table[marker_bidx];
-      msa_ptr = &(g_mperm_save_all[marker_idx * perm_vec_ct]);
+      msa_ptr = &(g_mperm_save_all[marker_bidx * perm_vec_ct]);
       missing_ct = missing_cts[marker_idx];
       het_ct = het_cts[marker_idx];
       homcom_ct = homcom_cts[marker_idx];
@@ -5253,7 +5253,7 @@ THREAD_RET_TYPE model_set_trend_thread(void* arg) {
     homcom_cts = g_homcom_cts;
     for (; marker_bidx < marker_bceil; marker_bidx++) {
       marker_idx = g_adapt_m_table[marker_bidx];
-      msa_ptr = &(g_mperm_save_all[marker_idx * perm_vec_ct]);
+      msa_ptr = &(g_mperm_save_all[marker_bidx * perm_vec_ct]);
       missing_ct = missing_cts[marker_idx];
       tot_obs = pheno_nm_ct - missing_ct;
       het_ct = het_cts[marker_idx];
@@ -6272,7 +6272,7 @@ THREAD_RET_TYPE model_set_best_thread(void* arg) {
     homcom_cts = g_homcom_cts;
     for (; marker_bidx < marker_bceil; marker_bidx++) {
       marker_idx = g_adapt_m_table[marker_bidx];
-      msa_ptr = &(g_mperm_save_all[marker_idx * perm_vec_ct]);
+      msa_ptr = &(g_mperm_save_all[marker_bidx * perm_vec_ct]);
       missing_ct = missing_cts[marker_idx];
       tot_obs = pheno_nm_ct - missing_ct;
       het_ct = het_cts[marker_idx];
@@ -6324,7 +6324,7 @@ THREAD_RET_TYPE model_set_best_thread(void* arg) {
   }
 }
 
-int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, char* outname_end2, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, double output_min_p, uint32_t mtest_adjust, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude_mid, uintptr_t marker_ct_mid, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* sex_male, Aperm_info* apip, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_pnm, uint32_t gender_req, uint32_t ld_ignore_x, uint32_t hh_exists, Set_info* sip, uintptr_t* loadbuf_raw) {
+int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, char* outname_end2, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, double output_min_p, uint32_t mtest_adjust, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude_mid, uintptr_t marker_ct_mid, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* sex_male, Aperm_info* apip, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_pnm, uint32_t gender_req, uint32_t ld_ignore_x, uint32_t hh_exists, uint32_t perm_batch_size, Set_info* sip, uintptr_t* loadbuf_raw) {
   // Could reuse more of the code in model_assoc() since there's considerable
   // overlap, but there are enough differences between the regular and set
   // permutation tests that separating this out and doing a fair bit of
@@ -6377,7 +6377,10 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uintptr_t* set_incl;
   uintptr_t* loadbuf_ptr;
   double* orig_set_scores;
+  double* chisq_pmajor;
   double* chisq_ptr;
+  double* read_dptr;
+  double* write_dptr;
   unsigned char* wkspace_mark2;
   char* bufptr;
   uint32_t** setdefs;
@@ -6392,6 +6395,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uintptr_t set_idx;
   uintptr_t perm_vec_ct;
   uintptr_t perm_vec_ctcl4m;
+  uintptr_t pidx;
   double chisq_threshold;
   double cur_score;
   double pval;
@@ -6411,6 +6415,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uint32_t max_sigset_size;
   uint32_t raw_sig_ct;
   uint32_t final_sig_ct;
+  uint32_t marker_bidx;
   uint32_t uii;
   if (sip->set_test_lambda > 1.0) {
     dxx = 1.0 / sip->set_test_lambda;
@@ -6464,6 +6469,9 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   marker_unstopped_ct = marker_ct;
   g_block_start = 0; // will be nonzero sometimes after LD-exploitation added
 
+  if (!perm_batch_size) {
+    perm_batch_size = 512;
+  }
   // generate a permutation batch, efficiently compute chi-square stats for all
   // variants in at least one tested set, compute set score, compare to base
   // set score.
@@ -6480,12 +6488,16 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   //   g_thread_git_wkspace: ((perm_vec_ct + 127) / 128) * 1152 * thread_ct
   //   g_resultbuf: MODEL_BLOCKSIZE * (4 * perm_vec_ct, CL-aligned) * 3
   //   g_perm_vecs: pheno_nm_ctv2 * sizeof(intptr_t) * perm_vec_ct
-  //   g_mperm_save_all: marker_ct * 8 * perm_vec_ct
+  //   g_mperm_save_all: MODEL_BLOCKSIZE * 8 * perm_vec_ct
+  //   chisq_pmajor: marker_ct * 8 * perm_vec_ct
   // If we force perm_vec_ct to be a multiple of 128, then we have
-  //   perm_vec_ct * (9 * max_thread_ct + 12 * MODEL_BLOCKSIZE +
+  //   perm_vec_ct * (9 * max_thread_ct + 20 * MODEL_BLOCKSIZE +
   //                    pheno_nm_ct / 8 + sizeof(intptr_t) * pheno_nm_ctv2
   //                    + marker_ct * sizeof(double))
-  perm_vec_ct = 128 * (wkspace_left / (128LL * sizeof(intptr_t) * pheno_nm_ctv2 + 1152LL * max_thread_ct + 1536LL * MODEL_BLOCKSIZE + 16LL * pheno_nm_ct + 128LL * sizeof(double) * marker_ct));
+  perm_vec_ct = 128 * (wkspace_left / (128LL * sizeof(intptr_t) * pheno_nm_ctv2 + 1152LL * max_thread_ct + 2560LL * MODEL_BLOCKSIZE + 16LL * pheno_nm_ct + 128LL * sizeof(double) * marker_ct));
+  if (perm_vec_ct > perm_batch_size) {
+    perm_vec_ct = perm_batch_size;
+  }
   if (perm_vec_ct > perms_total - perms_done) {
     perm_vec_ct = perms_total - perms_done;
   } else if (!perm_vec_ct) {
@@ -6532,7 +6544,8 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
 #else
   fill_ulong_zero((uintptr_t*)g_thread_git_wkspace, ulii * 18 * max_thread_ct);
 #endif
-  g_mperm_save_all = (double*)wkspace_alloc(marker_ct * perm_vec_ct * sizeof(double));
+  g_mperm_save_all = (double*)wkspace_alloc(MODEL_BLOCKSIZE * perm_vec_ct * sizeof(double));
+  chisq_pmajor = (double*)wkspace_alloc(marker_ct * perm_vec_ct * sizeof(double));
   chrom_fo_idx = 0xffffffffU;
   marker_uidx = next_unset_unsafe(marker_exclude, 0);
   if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
@@ -6633,9 +6646,17 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
       model_set_best_thread((void*)ulii);
     }
     join_threads2(threads, max_thread_ct, is_last_block);
+    for (pidx = 0; pidx < perm_vec_ct; pidx++) {
+      // transpose
+      read_dptr = &(g_mperm_save_all[pidx]);
+      write_dptr = &(chisq_pmajor[pidx * marker_ct]);
+      for (marker_bidx = 0; marker_bidx < block_size; marker_bidx++) {
+	write_dptr[g_adapt_m_table[marker_bidx]] = read_dptr[marker_bidx * perm_vec_ct];
+      }
+    }
     marker_idx += block_size;
   } while (marker_idx < marker_unstopped_ct);
-  compute_set_scores(marker_ct, perm_vec_ct, set_ct, g_mperm_save_all, orig_set_scores, sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, setdefs, ld_map, apip, chisq_threshold, adaptive_ci_zt, first_adapt_check, perms_done, sip->set_max, perm_adapt_set_unstopped, perm_2success_ct, perm_attempt_ct);
+  compute_set_scores(marker_ct, perm_vec_ct, set_ct, chisq_pmajor, orig_set_scores, sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, setdefs, ld_map, apip, chisq_threshold, adaptive_ci_zt, first_adapt_check, perms_done, sip->set_max, perm_adapt_set_unstopped, perm_2success_ct, perm_attempt_ct);
   wkspace_reset(wkspace_mark2);
   if (perms_done < perms_total) {
     if (model_modifier & MODEL_PERM) {
@@ -6676,7 +6697,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
     *bufptr++ = ' ';
     bufptr = uint32_writew6x(bufptr, setdef_size(sip->setdefs[set_uidx], marker_ct_orig), ' ');
     if (IS_SET(set_incl, set_uidx)) {
-      set_test_score(marker_ct, 1, chisq_threshold, sip->set_max, orig_chisq, ld_map, setdefs[set_idx], sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, &raw_sig_ct, &final_sig_ct, &cur_score);
+      set_test_score(marker_ct, chisq_threshold, sip->set_max, orig_chisq, ld_map, setdefs[set_idx], sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, &raw_sig_ct, &final_sig_ct, &cur_score);
       bufptr = uint32_writew6x(bufptr, raw_sig_ct, ' ');
       bufptr = uint32_writew6x(bufptr, final_sig_ct, ' ');
       pval = ((double)(perm_2success_ct[set_idx] + 2)) / ((double)(2 * (perm_attempt_ct[set_idx] + 1)));
@@ -6794,7 +6815,7 @@ void get_model_assoc_precomp_bounds(uint32_t missing_ct, uint32_t is_model, uint
   }
 }
 
-int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double ci_zt, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_male, uint32_t hh_exists, uint32_t ld_ignore_x, Set_info* sip) {
+int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double ci_zt, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_male, uint32_t hh_exists, uint32_t ld_ignore_x, uint32_t perm_batch_size, Set_info* sip) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
@@ -8316,7 +8337,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	}
       }
     } else {
-      retval = model_assoc_set_test(threads, bedfile, bed_offset, outname, outname_end, outname_end2, model_modifier, model_mperm_val, pfilter, output_min_p, mtest_adjust, unfiltered_marker_ct, marker_exclude_orig, marker_ct_orig, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, sex_male, apip, pheno_nm_ct, pheno_nm, pheno_c, founder_pnm, gender_req, ld_ignore_x, hh_exists, sip, loadbuf_raw);
+      retval = model_assoc_set_test(threads, bedfile, bed_offset, outname, outname_end, outname_end2, model_modifier, model_mperm_val, pfilter, output_min_p, mtest_adjust, unfiltered_marker_ct, marker_exclude_orig, marker_ct_orig, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, sex_male, apip, pheno_nm_ct, pheno_nm, pheno_c, founder_pnm, gender_req, ld_ignore_x, hh_exists, perm_batch_size, sip, loadbuf_raw);
       if (retval) {
         goto model_assoc_ret_1;
       }

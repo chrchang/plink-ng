@@ -2041,7 +2041,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                       integer between 0 and 4294967295 inclusive.\n"
 	       );
     help_print("perm-batch-size", &help_ctrl, 0,
-"  --perm-batch-size [val] : Set number of permutations per batch in QT\n"
+"  --perm-batch-size [val] : Set number of permutations per batch for some\n"
 "                            permutation tests.\n"
 	       );
 #ifndef STABLE_BUILD

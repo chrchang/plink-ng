@@ -10220,7 +10220,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   return retval;
 }
 
-void set_test_score(uintptr_t marker_ct, uintptr_t stride, double chisq_threshold, uint32_t set_max, double* chisq_arr, uint32_t** ld_map, uint32_t* cur_setdef, double* sorted_chisq_buf, uint32_t* sorted_marker_idx_buf, uint32_t* proxy_arr, uint32_t* raw_sig_ct_ptr, uint32_t* final_sig_ct_ptr, double* set_score_ptr) {
+void set_test_score(uintptr_t marker_ct, double chisq_threshold, uint32_t set_max, double* chisq_arr, uint32_t** ld_map, uint32_t* cur_setdef, double* sorted_chisq_buf, uint32_t* sorted_marker_idx_buf, uint32_t* proxy_arr, uint32_t* raw_sig_ct_ptr, uint32_t* final_sig_ct_ptr, double* set_score_ptr) {
   // set score statistic = mean of chi-square statistics of set
   // representatives.  --linear/--logistic t statistics are converted to
   // same-p-value 1df chi-square stats out of necessity; in theory, this hack
@@ -10240,8 +10240,8 @@ void set_test_score(uintptr_t marker_ct, uintptr_t stride, double chisq_threshol
   uint32_t uii;
   setdef_iter_init(cur_setdef, marker_ct, 0, &marker_idx, &setdef_incr_aux);
   while (setdef_iter(cur_setdef, &marker_idx, &setdef_incr_aux)) {
-    if (chisq_arr[marker_idx * stride] >= chisq_threshold) {
-      sorted_chisq_buf[raw_sig_ct] = chisq_arr[marker_idx * stride];
+    if (chisq_arr[marker_idx] >= chisq_threshold) {
+      sorted_chisq_buf[raw_sig_ct] = chisq_arr[marker_idx];
       sorted_marker_idx_buf[raw_sig_ct] = marker_idx;
       raw_sig_ct++;
       if (raw_sig_ct > 202) {
@@ -10439,7 +10439,7 @@ int32_t set_test_common_init(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   for (set_idx = 0; set_idx < set_ct; set_idx++) {
     // we're calling this again during final write anyway, so don't bother
     // saving raw_sig_ct or final_sig_ct now
-    set_test_score(marker_ct, 1, chisq_threshold, sip->set_max, orig_chisq, *ld_map_ptr, setdefs[set_idx], *sorted_chisq_buf_ptr, *sorted_marker_idx_buf_ptr, *proxy_arr_ptr, NULL, NULL, &(orig_set_scores[set_idx]));
+    set_test_score(marker_ct, chisq_threshold, sip->set_max, orig_chisq, *ld_map_ptr, setdefs[set_idx], *sorted_chisq_buf_ptr, *sorted_marker_idx_buf_ptr, *proxy_arr_ptr, NULL, NULL, &(orig_set_scores[set_idx]));
   }
   // just treat --mperm as --perm with min_perms == max_perms, since this isn't
   // a proper max(T) test
@@ -10484,7 +10484,7 @@ void compute_set_scores(uintptr_t marker_ct, uintptr_t perm_vec_ct, uintptr_t se
       stat_high = orig_set_scores[set_idx] + EPSILON;
       stat_low = orig_set_scores[set_idx] - EPSILON;
       for (pidx = 0; pidx < perm_vec_ct;) {
-	set_test_score(marker_ct, perm_vec_ct, chisq_threshold, set_max, &(chisq_matrix[pidx]), ld_map, setdefs[set_idx], sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, NULL, NULL, &cur_score);
+	set_test_score(marker_ct, chisq_threshold, set_max, &(chisq_matrix[pidx * marker_ct]), ld_map, setdefs[set_idx], sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, NULL, NULL, &cur_score);
 	if (cur_score > stat_high) {
 	  uii += 2;
 	} else if (cur_score > stat_low) {

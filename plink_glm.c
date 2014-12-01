@@ -4178,6 +4178,7 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
   // procedure.
   logprint("Error: --linear set-based test is under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
+  /*
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t cur_param_ct = 0;
@@ -4208,7 +4209,6 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
   uintptr_t* set_incl;
   uintptr_t* loadbuf_ptr;
   double* orig_set_scores;
-  double* dptr;
   uint32_t** setdefs;
   uint32_t** ld_map;
   uintptr_t marker_ctl;
@@ -4352,10 +4352,6 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
     do {
       if (IS_SET(regression_skip, marker_idx2)) {
         do {
-	  dptr = &(g_mperm_save_all[marker_idx2 * perm_vec_ct]);
-	  for (ulii = 0; ulii < perm_vec_ct; ulii++) {
-	    *dptr++ = -9;
-	  }
 	  marker_uidx++;
 	  next_unset_unsafe_ck(marker_exclude, &marker_uidx);
 	  marker_idx2++;
@@ -4445,6 +4441,7 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
   wkspace_reset(wkspace_mark);
   fclose_cond(outfile);
   return retval;
+  */
 }
 
 int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double ci_zt, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, char* condition_mname, char* condition_fname, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t sample_ct, uintptr_t* sample_exclude, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t covar_ct, char* covar_names, uintptr_t max_covar_name_len, uintptr_t* covar_nm, double* covar_d, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t ld_ignore_x, uint32_t hh_exists, uint32_t perm_batch_size, Set_info* sip) {
