@@ -81,7 +81,9 @@ static uint32_t* g_totq_incrs;
 static uint32_t* g_sample_to_cluster;
 static uint32_t* g_qassoc_cluster_thread_wkspace;
 
+#ifndef NOLAPACK
 static double g_set_p;
+#endif
 
 THREAD_RET_TYPE logistic_gen_perms_thread(void* arg) {
   // just a clone of model_assoc_gen_perms_thread()
