@@ -915,7 +915,7 @@ void calc_git(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uintptr_t* __restrict_
   // 3. This can happen up to 17 times before the 8-bit accumulators risk
   //    overflow.  Then, they are unfolded into the final output array of
   //    32-bit ints, zeroed out, and the second loop restarts.
-  // Note that thread_bufs[] is assumed to be zeroed out before this function
+  // Note that results_bufs[] is assumed to be zeroed out before this function
   // is called.
   uint32_t pheno_nm_ctl2x = (pheno_nm_ct + (BITCT2 - 1)) / BITCT2;
   uint32_t perm_ct16 = (perm_vec_ct + 15) / 16;
@@ -2815,7 +2815,6 @@ THREAD_RET_TYPE model_assoc_gen_perms_thread(void* arg) {
   if (!g_is_perm1) {
     pheno_nm_ctv *= 2;
     for (; pidx < pmax; pidx++) {
-      // printf("hi %u %u %u %llu %u %u %u %lu %u %lu %lu\n", pheno_nm_ct, case_ct, tot_quotient, totq_magic, totq_preshift, totq_postshift, totq_incr, (uintptr_t)perm_vecs, pidx, pheno_nm_ctv, (uintptr_t)sfmtp);
       generate_cc_perm_vec(pheno_nm_ct, case_ct, tot_quotient, totq_magic, totq_preshift, totq_postshift, totq_incr, &(perm_vecs[pidx * pheno_nm_ctv]), sfmtp);
     }
   } else {
@@ -6486,7 +6485,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   //   perm_vec_ct * (9 * max_thread_ct + 12 * MODEL_BLOCKSIZE +
   //                    pheno_nm_ct / 8 + sizeof(intptr_t) * pheno_nm_ctv2
   //                    + marker_ct * sizeof(double))
-  perm_vec_ct = 128 * (wkspace_left / (128LL * sizeof(intptr_t) * pheno_nm_ctv2 + 1152LL * max_thread_ct + 1536LL + 16LL * pheno_nm_ct + 128LL * sizeof(double) * marker_ct));
+  perm_vec_ct = 128 * (wkspace_left / (128LL * sizeof(intptr_t) * pheno_nm_ctv2 + 1152LL * max_thread_ct + 1536LL * MODEL_BLOCKSIZE + 16LL * pheno_nm_ct + 128LL * sizeof(double) * marker_ct));
   if (perm_vec_ct > perms_total - perms_done) {
     perm_vec_ct = perms_total - perms_done;
   } else if (!perm_vec_ct) {
@@ -6656,7 +6655,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   }
  model_assoc_set_test_perms_done:
   putchar('\r');
-  LOGPRINTF("\r%u permutation%s complete.\n", perms_done, (perms_done != 1)? "s" : "");
+  LOGPRINTF("%u permutation%s complete.\n", perms_done, (perms_done != 1)? "s" : "");
   if (set_ct && mtest_adjust) {
     if (wkspace_alloc_d_checked(&empirical_pvals, set_ct * sizeof(double))) {
       goto model_assoc_set_test_ret_NOMEM;
@@ -6682,7 +6681,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
       bufptr = uint32_writew6x(bufptr, final_sig_ct, ' ');
       pval = ((double)(perm_2success_ct[set_idx] + 2)) / ((double)(2 * (perm_attempt_ct[set_idx] + 1)));
       if (empirical_pvals) {
-	empirical_pvals[set_idx] = 1.0 - pval;
+	empirical_pvals[set_idx] = pval;
       }
       if (pval <= pfilter) {
 	if (!perm_count) {
@@ -7338,9 +7337,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       // 8 * perm_vec_ct bytes, multiplying by 128 yields 1024, and
       // 1152 + 1024 = 2176.
       if (mperm_save & MPERM_DUMP_ALL) {
-        perm_vec_ct = 128 * (wkspace_left / (128LL * sizeof(intptr_t) * pheno_nm_ctv2 + 2176LL * max_thread_ct + 1536LL + 16LL * pheno_nm_ct + 128LL * sizeof(double) * marker_ct));
+        perm_vec_ct = 128 * (wkspace_left / (128LL * sizeof(intptr_t) * pheno_nm_ctv2 + 2176LL * max_thread_ct + 1536LL * MODEL_BLOCKSIZE + 16LL * pheno_nm_ct + 128LL * sizeof(double) * marker_ct));
       } else {
-        perm_vec_ct = 128 * (wkspace_left / (128LL * sizeof(intptr_t) * pheno_nm_ctv2 + 2176LL * max_thread_ct + 1536LL + 16LL * pheno_nm_ct));
+        perm_vec_ct = 128 * (wkspace_left / (128LL * sizeof(intptr_t) * pheno_nm_ctv2 + 2176LL * max_thread_ct + 1536LL * MODEL_BLOCKSIZE + 16LL * pheno_nm_ct));
       }
     }
     if (perm_vec_ct > perms_total - perms_done) {

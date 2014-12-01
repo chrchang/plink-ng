@@ -3640,7 +3640,7 @@ THREAD_RET_TYPE glm_linear_set_thread(void* arg) {
       if (!IS_SET(perm_fails, pidx)) {
 	dxx = dgels_b[pidx * cur_sample_valid_ct + 1] / sqrt(regression_results[pidx * param_ct_m1]);
 	if (dxx < min_tstat) {
-	  dxx = 0; // ok to use 0 instead of -9
+	  dxx = -9;
 	} else {
 	  dxx = calc_tprob(dxx, cur_sample_valid_ct - cur_param_ct);
 	  if (dxx == 0.0) {
@@ -3650,7 +3650,7 @@ THREAD_RET_TYPE glm_linear_set_thread(void* arg) {
 	  }
 	}
       } else {
-	dxx = 0;
+	dxx = -9;
       }
       *msa_ptr++ = dxx;
     }
@@ -4196,7 +4196,6 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
   uint32_t* perm_attempt_ct = NULL;
   uintptr_t marker_ct = marker_ct_mid;
   uintptr_t raw_set_ct = sip->ct;
-  uintptr_t raw_set_ctl = (raw_set_ct + (BITCT - 1)) / BITCT;
   uintptr_t set_ct = 0;
   uintptr_t max_set_id_len = sip->max_name_len;
   uintptr_t final_mask = get_final_mask(pheno_nm_ct);
@@ -4209,11 +4208,13 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
   uintptr_t* set_incl;
   uintptr_t* loadbuf_ptr;
   double* orig_set_scores;
+  double* dptr;
   uint32_t** setdefs;
   uint32_t** ld_map;
   uintptr_t marker_ctl;
   uintptr_t marker_midx;
   uintptr_t set_idx;
+  uintptr_t perm_vec_ct;
   uintptr_t ulii;
   double chisq_threshold;
   double dxx;
@@ -4281,21 +4282,22 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
   }
   marker_unstopped_ct = marker_ct - popcount_longs(regression_skip, marker_ctl);
   wkspace_mark2 = wkspace_base;
- glm_linear_set_test_more_perms:
+ glm_linear_assoc_set_test_more_perms:
   if (perms_done) {
     uii = apip->init_interval;
     while (first_adapt_check <= perms_done) {
       first_adapt_check += (int32_t)(uii + ((int32_t)first_adapt_check) * apip->interval_slope);
     }
   }
-  g_perm_vec_ct = perm_batch_size;
-  if (g_perm_vec_ct > perms_total - perms_done) {
-    g_perm_vec_ct = perms_total - perms_done;
+  perm_vec_ct = perm_batch_size;
+  if (perm_vec_ct > perms_total - perms_done) {
+    perm_vec_ct = perms_total - perms_done;
   }
-  if (g_perm_vec_ct >= CACHELINE_INT32 * max_thread_ct) {
+  g_perm_vec_ct = perm_vec_ct;
+  if (perm_vec_ct >= CACHELINE_INT32 * max_thread_ct) {
     g_assoc_thread_ct = max_thread_ct;
   } else {
-    g_assoc_thread_ct = g_perm_vec_ct / CACHELINE_INT32;
+    g_assoc_thread_ct = perm_vec_ct / CACHELINE_INT32;
     if (!g_assoc_thread_ct) {
       g_assoc_thread_ct = 1;
     }
@@ -4313,7 +4315,7 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
     linear_gen_cluster_perms_thread((void*)ulii);
   }
   join_threads(threads, g_assoc_thread_ct);
-  if (wkspace_alloc_d_checked(&g_mperm_save_all, marker_ct * g_perm_vec_ct * sizeof(double))) {
+  if (wkspace_alloc_d_checked(&g_mperm_save_all, marker_ct * perm_vec_ct * sizeof(double))) {
     goto glm_linear_assoc_set_test_ret_NOMEM;
   }
   chrom_fo_idx = 0xffffffffU;
@@ -4350,7 +4352,10 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
     do {
       if (IS_SET(regression_skip, marker_idx2)) {
         do {
-	  fill_double_zero(&(g_mperm_save_all[marker_idx2 * g_perm_vec_ct]), g_perm_vec_ct);
+	  dptr = &(g_mperm_save_all[marker_idx2 * perm_vec_ct]);
+	  for (ulii = 0; ulii < perm_vec_ct; ulii++) {
+	    *dptr++ = -9;
+	  }
 	  marker_uidx++;
 	  next_unset_unsafe_ck(marker_exclude, &marker_uidx);
 	  marker_idx2++;
@@ -4396,8 +4401,33 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
 
     marker_idx += block_size;
   } while (marker_idx < marker_unstopped_ct);
-  // compute_set_scores();
-
+  compute_set_scores(marker_ct, perm_vec_ct, set_ct, g_mperm_save_all, orig_set_scores, sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, setdefs, ld_map, apip, chisq_threshold, adaptive_ci_zt, first_adapt_check, perms_done, sip->set_max, perm_adapt_set_unstopped, perm_2success_ct, perm_attempt_ct);
+  wkspace_reset(wkspace_mark2);
+  if (perms_done < perms_total) {
+    if (glm_modifier & GLM_PERM) {
+      if (!extract_set_union(setdefs, set_ct, perm_adapt_set_unstopped, unstopped_markers, marker_ct)) {
+	perms_done = 0;
+	for (set_idx = 0; set_idx < set_ct; set_idx++) {
+          if (perms_done < perm_attempt_ct[set_idx]) {
+	    perms_done = perm_attempt_ct[set_idx];
+	  }
+	}
+	goto glm_linear_assoc_set_test_done;
+      }
+    }
+    printf("\r%u permutation%s complete.", perms_done, (perms_done != 1)? "s" : "");
+    fflush(stdout);
+    goto glm_linear_assoc_set_test_more_perms;
+  }
+ glm_linear_assoc_set_test_done:
+  putchar('\r');
+  LOGPRINTF("%u permutation%s complete.\n", perms_done, (perms_done != 1)? "s" : "");
+  if (set_ct && mtest_adjust) {
+    if (wkspace_alloc_d_checked(&empirical_pvals, set_ct * sizeof(double))) {
+      goto glm_linear_assoc_set_test_ret_NOMEM;
+    }
+  }
+  ;;;
  glm_linear_assoc_set_test_write:
   ;;;
   while (0) {
