@@ -10461,6 +10461,49 @@ int32_t set_test_common_init(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   return retval;
 }
 
+void compute_set_scores(uintptr_t marker_ct, uintptr_t perm_vec_ct, uintptr_t set_ct, double* chisq_matrix, double* orig_set_scores, double* sorted_chisq_buf, uint32_t* sorted_marker_idx_buf, uint32_t* proxy_arr, uint32_t** setdefs, uint32_t** ld_map, Aperm_info* apip, double chisq_threshold, double adaptive_ci_zt, uint32_t first_adapt_check, uint32_t perms_done, uint32_t set_max, uintptr_t* perm_adapt_set_unstopped, uint32_t* perm_2success_ct, uint32_t* perm_attempt_ct) {
+  // compute set stats for the just-completed permutations
+  uint32_t pidx_offset = perms_done - perm_vec_ct;
+  uintptr_t set_idx;
+  double stat_high;
+  double stat_low;
+  double cur_score;
+  double pval;
+  double dxx;
+  uint32_t next_adapt_check;
+  uint32_t pidx;
+  uint32_t uii;
+  for (set_idx = 0; set_idx < set_ct; set_idx++) {
+    if (IS_SET(perm_adapt_set_unstopped, set_idx)) {
+      next_adapt_check = first_adapt_check;
+      uii = perm_2success_ct[set_idx];
+      stat_high = orig_set_scores[set_idx] + EPSILON;
+      stat_low = orig_set_scores[set_idx] - EPSILON;
+      for (pidx = 0; pidx < perm_vec_ct;) {
+	set_test_score(marker_ct, perm_vec_ct, chisq_threshold, set_max, &(chisq_matrix[pidx]), ld_map, setdefs[set_idx], sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, NULL, NULL, &cur_score);
+	if (cur_score > stat_high) {
+	  uii += 2;
+	} else if (cur_score > stat_low) {
+	  uii++;
+	}
+	if (++pidx == next_adapt_check - pidx_offset) {
+	  if (uii) {
+	    pval = ((double)((int32_t)uii + 2)) / ((double)(2 * ((int32_t)next_adapt_check + 1)));
+	    dxx = adaptive_ci_zt * sqrt(pval * (1 - pval) / ((int32_t)next_adapt_check));
+	    if ((pval - dxx > apip->alpha) || (pval + dxx < apip->alpha)) {
+	      CLEAR_BIT(perm_adapt_set_unstopped, set_idx);
+	      perm_attempt_ct[set_idx] = next_adapt_check;
+	      break;
+	    }
+	  }
+	  next_adapt_check += (int32_t)(apip->init_interval + ((int32_t)next_adapt_check) * apip->interval_slope);
+	}
+      }
+      perm_2success_ct[set_idx] = uii;
+    }
+  }
+}
+
 typedef struct clump_entry_struct {
   double pval;
   struct clump_entry_struct* next;

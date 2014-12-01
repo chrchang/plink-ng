@@ -3640,7 +3640,7 @@ THREAD_RET_TYPE glm_linear_set_thread(void* arg) {
       if (!IS_SET(perm_fails, pidx)) {
 	dxx = dgels_b[pidx * cur_sample_valid_ct + 1] / sqrt(regression_results[pidx * param_ct_m1]);
 	if (dxx < min_tstat) {
-	  dxx = -9;
+	  dxx = 0; // ok to use 0 instead of -9
 	} else {
 	  dxx = calc_tprob(dxx, cur_sample_valid_ct - cur_param_ct);
 	  if (dxx == 0.0) {
@@ -3650,7 +3650,7 @@ THREAD_RET_TYPE glm_linear_set_thread(void* arg) {
 	  }
 	}
       } else {
-	dxx = -9;
+	dxx = 0;
       }
       *msa_ptr++ = dxx;
     }
@@ -4350,6 +4350,7 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
     do {
       if (IS_SET(regression_skip, marker_idx2)) {
         do {
+	  fill_double_zero(&(g_mperm_save_all[marker_idx2 * g_perm_vec_ct]), g_perm_vec_ct);
 	  marker_uidx++;
 	  next_unset_unsafe_ck(marker_exclude, &marker_uidx);
 	  marker_idx2++;
@@ -4395,6 +4396,8 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
 
     marker_idx += block_size;
   } while (marker_idx < marker_unstopped_ct);
+  // compute_set_scores();
+
  glm_linear_assoc_set_test_write:
   ;;;
   while (0) {

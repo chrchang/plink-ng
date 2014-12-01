@@ -6394,8 +6394,6 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uintptr_t perm_vec_ct;
   uintptr_t perm_vec_ctcl4m;
   double chisq_threshold;
-  double stat_high;
-  double stat_low;
   double cur_score;
   double pval;
   double dxx;
@@ -6410,10 +6408,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uint32_t min_ploidy_1;
   uint32_t marker_unstopped_ct;
   uint32_t is_last_block;
-  uint32_t pidx;
-  uint32_t pidx_offset;
   uint32_t first_adapt_check;
-  uint32_t next_adapt_check;
   uint32_t max_sigset_size;
   uint32_t raw_sig_ct;
   uint32_t final_sig_ct;
@@ -6641,37 +6636,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
     join_threads2(threads, max_thread_ct, is_last_block);
     marker_idx += block_size;
   } while (marker_idx < marker_unstopped_ct);
-  // now compute set stats for the just-completed permutations
-  pidx_offset = perms_done - perm_vec_ct;
-  for (set_idx = 0; set_idx < set_ct; set_idx++) {
-    if (IS_SET(perm_adapt_set_unstopped, set_idx)) {
-      next_adapt_check = first_adapt_check;
-      uii = perm_2success_ct[set_idx];
-      stat_high = orig_set_scores[set_idx] + EPSILON;
-      stat_low = orig_set_scores[set_idx] - EPSILON;
-      for (pidx = 0; pidx < perm_vec_ct;) {
-	set_test_score(marker_ct, perm_vec_ct, chisq_threshold, sip->set_max, &(g_mperm_save_all[pidx]), ld_map, setdefs[set_idx], sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, NULL, NULL, &cur_score);
-	if (cur_score > stat_high) {
-	  uii += 2;
-	} else if (cur_score > stat_low) {
-	  uii++;
-	}
-	if (++pidx == next_adapt_check - pidx_offset) {
-	  if (uii) {
-	    pval = ((double)((int32_t)uii + 2)) / ((double)(2 * ((int32_t)next_adapt_check + 1)));
-	    dxx = adaptive_ci_zt * sqrt(pval * (1 - pval) / ((int32_t)next_adapt_check));
-	    if ((pval - dxx > apip->alpha) || (pval + dxx < apip->alpha)) {
-	      CLEAR_BIT(perm_adapt_set_unstopped, set_idx);
-	      perm_attempt_ct[set_idx] = next_adapt_check;
-	      break;
-	    }
-	  }
-	  next_adapt_check += (int32_t)(apip->init_interval + ((int32_t)next_adapt_check) * apip->interval_slope);
-	}
-      }
-      perm_2success_ct[set_idx] = uii;
-    }
-  }
+  compute_set_scores(marker_ct, perm_vec_ct, set_ct, g_mperm_save_all, orig_set_scores, sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, setdefs, ld_map, apip, chisq_threshold, adaptive_ci_zt, first_adapt_check, perms_done, sip->set_max, perm_adapt_set_unstopped, perm_2success_ct, perm_attempt_ct);
   wkspace_reset(wkspace_mark2);
   if (perms_done < perms_total) {
     if (model_modifier & MODEL_PERM) {
