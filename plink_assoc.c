@@ -3541,7 +3541,6 @@ THREAD_RET_TYPE assoc_set_thread(void* arg) {
     set_allele_cts = g_set_cts;
     for (; marker_bidx < marker_bceil; marker_bidx++) {
       marker_idx = g_adapt_m_table[marker_bidx];
-      // probably want to make this bidx-based instead
       msa_ptr = &(g_mperm_save_all[marker_bidx * perm_vec_ct]);
       col1_sum = set_allele_cts[marker_idx];
       missing_ct = missing_cts[marker_idx];

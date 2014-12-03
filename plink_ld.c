@@ -10244,10 +10244,6 @@ void set_test_score(uintptr_t marker_ct, double chisq_threshold, uint32_t set_ma
       sorted_chisq_buf[raw_sig_ct] = chisq_arr[marker_idx];
       sorted_marker_idx_buf[raw_sig_ct] = marker_idx;
       raw_sig_ct++;
-      if (raw_sig_ct > 202) {
-	printf("wtf\n");
-	exit(1);
-      }
     }
     marker_idx++;
   }
