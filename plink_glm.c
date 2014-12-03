@@ -3544,7 +3544,6 @@ THREAD_RET_TYPE glm_linear_set_thread(void* arg) {
   uint32_t marker_bidx = CACHELINE_INT32 * ((((uint64_t)tidx) * marker_blocks) / g_assoc_thread_ct);
   uint32_t marker_bceil = CACHELINE_INT32 * ((((uint64_t)(tidx + 1)) * marker_blocks) / g_assoc_thread_ct);
   uintptr_t* loadbuf = g_loadbuf;
-  uint32_t* adapt_m_table = &(g_adapt_m_table[marker_bidx]);
   double* perm_pmajor = g_perm_pmajor;
   double pheno_sum_base = g_pheno_sum;
   double pheno_ssq_base = g_pheno_ssq;
@@ -3585,7 +3584,6 @@ THREAD_RET_TYPE glm_linear_set_thread(void* arg) {
   uintptr_t cur_sample_valid_ct;
   uintptr_t pidx;
   uintptr_t sample_idx;
-  uint32_t marker_idx;
   uint32_t perm_fail_ct;
   __CLPK_integer dgels_m;
   __CLPK_integer dgels_nrhs;
@@ -3598,7 +3596,6 @@ THREAD_RET_TYPE glm_linear_set_thread(void* arg) {
     marker_bceil = g_block_diff;
   }
   for (; marker_bidx < marker_bceil; marker_bidx++) {
-    marker_idx = *adapt_m_table++;
     msa_ptr = &(g_mperm_save_all[marker_bidx * perm_vec_ct]);
     loadbuf_ptr = &(loadbuf[marker_bidx * sample_valid_ctv2]);
     cur_missing_ct = glm_fill_design(loadbuf_ptr, fixed_covars_cov_major, sample_valid_ct, cur_param_ct, coding_flags, glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, is_nonx_haploid, cur_covars_cov_major, cur_covars_sample_major, standard_beta);
