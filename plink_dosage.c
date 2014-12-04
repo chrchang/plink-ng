@@ -568,6 +568,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uint32_t dose1 = doip->modifier & DOSAGE_DOSE1;
   uint32_t score_report_average = doip->modifier & DOSAGE_SCORE_NOSUM;
   uint32_t dosage_score_cnt = doip->modifier & DOSAGE_SCORE_CNT;
+  uint32_t sex_covar = doip->modifier & DOSAGE_SEX;
   uint32_t skip0 = doip->skip0;
   uint32_t skip1p1 = doip->skip1 + 1;
   uint32_t skip2 = doip->skip2;
@@ -986,9 +987,28 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     if (!do_glm) {
       logprint("Warning: Ignoring --covar since no commands reference the covariates.\n");
     } else {
-      retval = load_covars(covar_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, missing_phenod, covar_modifier, covar_range_list_ptr, 0, &covar_ct, &covar_names, &max_covar_name_len, pheno_nm, &covar_nm, &covar_d, NULL, NULL);
+      retval = load_covars(covar_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sex_covar? sex_nm : NULL, sex_covar? sex_male : NULL, sample_ids, max_sample_id_len, missing_phenod, covar_modifier, covar_range_list_ptr, 0, &covar_ct, &covar_names, &max_covar_name_len, pheno_nm, &covar_nm, &covar_d, NULL, NULL);
       if (retval) {
 	goto plink1_dosage_ret_1;
+      }
+    }
+  } else if (sex_covar) {
+    if (wkspace_alloc_c_checked(&covar_names, 4) ||
+        wkspace_alloc_ul_checked(&covar_nm, sample_ctl * sizeof(intptr_t)) ||
+        wkspace_alloc_d_checked(&covar_d, sample_ct * sizeof(double))) {
+      goto plink1_dosage_ret_NOMEM;
+    }
+    covar_ct = 1;
+    max_covar_name_len = 4;
+    memcpy(covar_names, "SEX", 4);
+    fill_all_bits(covar_nm, sample_ct);
+    for (sample_uidx = 0, sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
+      next_unset_unsafe_ck(sample_exclude, &sample_uidx);
+      if (is_set(sex_nm, sample_uidx)) {
+        covar_d[sample_idx] = (double)((int32_t)is_set(sex_male, sample_idx));
+      } else {
+	CLEAR_BIT(covar_nm, sample_idx);
+        covar_d[sample_idx] = missing_phenod;
       }
     }
   }

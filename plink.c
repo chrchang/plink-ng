@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (2 Dec 2014) ";
+  " (3 Dec 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -1147,7 +1147,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       } else {
 	// if only --gxe, ignore --covar-name/--covar-number
 	uii = (calculation_type & (CALC_MAKE_BED | CALC_MAKE_FAM | CALC_RECODE | CALC_WRITE_COVAR | CALC_GLM | CALC_LASSO))? 1 : 0;
-	retval = load_covars(covar_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, missing_phenod, uii? covar_modifier : (covar_modifier & COVAR_KEEP_PHENO_ON_MISSING_COV), uii? covar_range_list_ptr : NULL, gxe_mcovar, &covar_ct, &covar_names, &max_covar_name_len, pheno_nm, &covar_nm, &covar_d, &gxe_covar_nm, &gxe_covar_c);
+	retval = load_covars(covar_fname, unfiltered_sample_ct, sample_exclude, sample_ct, NULL, NULL, sample_ids, max_sample_id_len, missing_phenod, uii? covar_modifier : (covar_modifier & COVAR_KEEP_PHENO_ON_MISSING_COV), uii? covar_range_list_ptr : NULL, gxe_mcovar, &covar_ct, &covar_names, &max_covar_name_len, pheno_nm, &covar_nm, &covar_d, &gxe_covar_nm, &gxe_covar_c);
 	if (retval) {
 	  goto plink_ret_1;
 	}
@@ -5964,7 +5964,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --dosage does not support --condition/--condition-list.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 11)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 12)) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
 	retval = alloc_fname(&dosage_info.fname, argv[cur_arg + 1], argptr, 0);
@@ -5985,6 +5985,8 @@ int32_t main(int32_t argc, char** argv) {
 	    dosage_info.modifier |= DOSAGE_ZOUT;
 	  } else if (!strcmp(argv[cur_arg + uii], "occur")) {
 	    dosage_info.modifier |= DOSAGE_OCCUR;
+	  } else if (!strcmp(argv[cur_arg + uii], "sex")) {
+	    dosage_info.modifier |= DOSAGE_SEX;
 	  } else if (strlen(argv[cur_arg + uii]) <= 6) {
 	    goto main_dosage_invalid_param;
 	  } else if (!strcmp(argv[cur_arg + uii], "sepheader")) {
@@ -6030,7 +6032,7 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
 	if (dosage_info.modifier & DOSAGE_OCCUR) {
-	  if (glm_modifier & GLM_STANDARD_BETA) {
+	  if ((glm_modifier & GLM_STANDARD_BETA) || (dosage_info.modifier & DOSAGE_SEX)) {
 	    logprint("Error: --dosage 'occur' mode cannot be used with association analysis\nmodifiers/flags.\n");
             goto main_ret_INVALID_CMDLINE_A;
 	  }
@@ -10640,7 +10642,10 @@ int32_t main(int32_t argc, char** argv) {
 	simulate_flags |= SIMULATE_TAGS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ex", 3)) {
-	if (!(calculation_type & CALC_GLM)) {
+	if (load_rare == LOAD_RARE_DOSAGE) {
+	  logprint("Error: --dosage + --sex did not work properly in PLINK 1.07 (--sex had no\neffect).  If you have used that flag combination in the past, we recommend\nthat you rerun your analysis with PLINK 1.9 '--dosage sex'.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	} else if (!(calculation_type & CALC_GLM)) {
 	  logprint("Error: --sex must be used with --linear or --logistic.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (glm_modifier & GLM_NO_X_SEX) {

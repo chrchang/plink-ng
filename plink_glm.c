@@ -4948,6 +4948,8 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	goto glm_linear_assoc_ret_NOMEM;
       }
     }
+  } else {
+    orig_perm_batch_size = 1;
   }
   if (wkspace_alloc_d_checked(&g_pheno_d2, sample_valid_ct * sizeof(double))) {
     goto glm_linear_assoc_ret_NOMEM;

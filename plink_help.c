@@ -974,9 +974,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("dosage\twrite-dosage", &help_ctrl, 1,
 "  --dosage [allele dosage file] <noheader> <skip0=[i]> <skip1=[j]> <skip2=[k]>\n"
-"           <dose1> <format=[m]> <Zout> <occur | standard-beta>\n"
+"           <dose1> <format=[m]> <Zout> <occur | standard-beta> <sex>\n"
 "  --dosage [list file] list <sepheader | noheader> <skip0=[i]> <skip1=[j]>\n"
 "           <skip2=[k]> <dose1> <format=[m]> <Zout> <occur | standard-beta>\n"
+"           <sex>\n"
 "  --write-dosage\n"
 "    Process (possibly gzipped) text files with variant-major allelic dosage\n"
 "    data.  This cannot be used with a regular input fileset; instead, you must\n"
@@ -1008,8 +1009,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      0..1 het likelihood, while 'format=3' indicates 0..1 hom A1, 0..1 het,\n"
 "      0..1 hom A2.\n"
 "    * 'Zout' causes the output file to be gzipped.\n"
-"    * Normally, an association analysis is performed.  'standard-beta' behaves\n"
-"      as it does with --linear.\n"
+"    * Normally, an association analysis is performed.  'standard-beta' and\n"
+"      'sex' behave as they are supposed to with --linear/--logistic.  (Note\n"
+"      that --dosage + --sex did NOT work properly in PLINK 1.07.)\n"
 "    * There are three alternate modes which cause the association analysis to\n"
 "      be skipped.\n"
 "      * 'occur' requests a simple variant occurrence report.\n"

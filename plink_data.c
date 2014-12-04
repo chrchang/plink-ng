@@ -1333,8 +1333,10 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   return retval;
 }
 
-int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, double missing_phenod, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t gxe_mcovar, uintptr_t* covar_ct_ptr, char** covar_names_ptr, uintptr_t* max_covar_name_len_ptr, uintptr_t* pheno_nm, uintptr_t** covar_nm_ptr, double** covar_d_ptr, uintptr_t** gxe_covar_nm_ptr, uintptr_t** gxe_covar_c_ptr) {
+int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t* sex_nm, uintptr_t* sex_male, char* sample_ids, uintptr_t max_sample_id_len, double missing_phenod, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t gxe_mcovar, uintptr_t* covar_ctx_ptr, char** covar_names_ptr, uintptr_t* max_covar_name_len_ptr, uintptr_t* pheno_nm, uintptr_t** covar_nm_ptr, double** covar_d_ptr, uintptr_t** gxe_covar_nm_ptr, uintptr_t** gxe_covar_c_ptr) {
   // similar to load_clusters() in plink_cluster.c
+  // sex_nm and sex_male should be NULL unless sex is supposed to be added as
+  // an extra covariate
   unsigned char* wkspace_mark = wkspace_base;
   unsigned char* wkspace_mark2 = NULL;
   FILE* covar_file = NULL;
@@ -1354,12 +1356,13 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
   uintptr_t* gxe_covar_c = NULL;
   double* dptr = NULL;
   char* bufptr = NULL;
-  uintptr_t max_covar_name_len = 1;
+  uintptr_t max_covar_name_len = sex_nm? 4 : 1;
   double dxx = 0.0;
   uint32_t keep_pheno_on_missing_cov = covar_modifier & COVAR_KEEP_PHENO_ON_MISSING_COV;
   int32_t retval = 0;
   uintptr_t covar_raw_ctl;
   uintptr_t covar_ct;
+  uintptr_t covar_ctx;
   uintptr_t* covars_active;
   uintptr_t* already_seen;
   char* sorted_ids;
@@ -1379,7 +1382,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
   uint32_t covar_missing;
   int32_t ii;
 
-  if ((!keep_pheno_on_missing_cov) || gxe_mcovar) {
+  if ((!keep_pheno_on_missing_cov) || gxe_mcovar || sex_nm) {
     sample_idx_to_uidx = (uint32_t*)top_alloc(&topsize, sample_ct * sizeof(int32_t));
     if (!sample_idx_to_uidx) {
       goto load_covars_ret_NOMEM;
@@ -1439,14 +1442,15 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
   // To simplify loading sequence, guarantee enough space for covars_active[]
   // bitfield on first pass.  Each covariate corresponds to at least 16 bits in
   // the first nonempty line (a value and a space = 2 bytes), so reserving the
-  // first 1/17 (rounded up) always works.
+  // last 1/17 (rounded up) always works.  (Minor memory leak fix:
+  // covars_active no longer remains allocated on function exit.)
   loadbuf_size = ((wkspace_left - topsize) / 68) * 64;
   if (loadbuf_size > MAXLINEBUFLEN) {
     loadbuf_size = MAXLINEBUFLEN;
   } else if (loadbuf_size <= MAXLINELEN) {
     goto load_covars_ret_NOMEM;
   }
-  loadbuf = (char*)(&(wkspace_base[wkspace_left - topsize - loadbuf_size]));
+  loadbuf = (char*)wkspace_base;
   retval = open_and_load_to_first_token(&covar_file, covar_fname, loadbuf_size, '\0', "--covar file", loadbuf, &bufptr, &line_idx);
   if (retval) {
     goto load_covars_ret_1;
@@ -1457,7 +1461,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
   }
   covar_raw_ct -= 2;
   covar_raw_ctl = (covar_raw_ct + (BITCT - 1)) / BITCT;
-  covars_active = (uintptr_t*)wkspace_alloc(covar_raw_ctl * sizeof(intptr_t));
+  covars_active = (uintptr_t*)top_alloc(&topsize, covar_raw_ctl * sizeof(intptr_t));
 
   // no header line present?
   bufptr2 = next_token(bufptr);
@@ -1479,8 +1483,9 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
       if (retval) {
 	goto load_covars_ret_1;
       }
-      // deallocate --covar-name support
-      topsize -= (uintptr_t)(((unsigned char*)already_seen) - ((unsigned char*)covar_name_flag_seen_idxs));
+      // can't deallocate --covar-name support here due to covars_active
+      // repositioning
+      // topsize -= (uintptr_t)(((unsigned char*)already_seen) - ((unsigned char*)covar_name_flag_seen_idxs));
     }
     covar_ct = popcount_longs(covars_active, covar_raw_ctl);
   } else if (covar_range_list_ptr) {
@@ -1490,6 +1495,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
     fill_ulong_zero(covars_active, covar_raw_ctl);
     covar_ct = 0;
   }
+  covar_ctx = covar_ct + (sex_nm? 1 : 0);
   min_covar_col_ct = last_set_bit(covars_active, covar_raw_ctl) + 1;
   if (min_covar_col_ct < gxe_mcovar) {
     min_covar_col_ct = gxe_mcovar;
@@ -1526,10 +1532,10 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
       goto load_covars_ret_INVALID_FORMAT;
     }
     // not only --gxe
-    *covar_ct_ptr = covar_ct;
+    *covar_ctx_ptr = covar_ctx;
     *max_covar_name_len_ptr = max_covar_name_len;
-    ulii = covar_ct * sample_ct;
-    if (wkspace_alloc_c_checked(covar_names_ptr, covar_ct * max_covar_name_len) ||
+    ulii = covar_ctx * sample_ct;
+    if (wkspace_alloc_c_checked(covar_names_ptr, covar_ctx * max_covar_name_len) ||
         wkspace_alloc_ul_checked(covar_nm_ptr, sample_ctl * sizeof(intptr_t)) ||
         wkspace_alloc_d_checked(covar_d_ptr, ulii * sizeof(double))) {
       goto load_covars_ret_NOMEM2;
@@ -1591,6 +1597,9 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
 	}
       }
     }
+  }
+  if (sex_nm) {
+    memcpy(&(covar_names[covar_ct * max_covar_name_len]), "SEX", 4);
   }
   while (fgets(loadbuf, loadbuf_size, covar_file)) {
     line_idx++;
@@ -1661,6 +1670,14 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
       }
     }
     if (covar_range_list_ptr) {
+      if (sex_nm) {
+	sample_uidx = sample_idx_to_uidx[sample_idx];
+	if (is_set(sex_nm, sample_uidx)) {
+	  *dptr++ = (double)((int32_t)is_set(sex_male, sample_uidx));
+	} else {
+	  covar_missing = 1;
+	}
+      }
       if (!covar_missing) {
 	SET_BIT(covar_nm, sample_idx);
       } else {
