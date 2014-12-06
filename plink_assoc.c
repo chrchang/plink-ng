@@ -335,7 +335,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
     if (chi_ct & 1) {
       lambda_recip = schi[(chi_ct - 1) / 2];
     } else {
-      lambda_recip = (schi[chi_ct / 2 - 1] + schi[chi_ct / 2]) / 2.0;
+      lambda_recip = (schi[chi_ct / 2 - 1] + schi[chi_ct / 2]) * 0.5;
     }
     lambda_recip = lambda_recip / 0.456;
     if (lambda_recip < 1.0) {
@@ -6707,7 +6707,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
 	if (!perm_count) {
 	  bufptr = double_g_writewx4x(bufptr, MAXV(pval, output_min_p), 12, ' ');
 	} else {
-	  bufptr = double_g_writewx4(bufptr, ((double)perm_2success_ct[set_idx]) / 2.0, 12);
+	  bufptr = double_g_writewx4(bufptr, ((double)perm_2success_ct[set_idx]) * 0.5, 12);
 	  bufptr = memseta(bufptr, 32, 3);
 	  bufptr = uint32_writew10x(bufptr, perm_attempt_ct[set_idx], ' ');
 	}
@@ -6741,7 +6741,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
     goto model_assoc_set_test_ret_WRITE_FAIL;
   }
   LOGPRINTFWW("Set test results written to %s .\n", outname);
-  if (set_ct && mtest_adjust) {
+  if (empirical_pvals) {
     if (wkspace_alloc_ui_checked(&set_idx_to_uidx, set_ct * sizeof(int32_t))) {
       goto model_assoc_set_test_ret_NOMEM;
     }
@@ -8510,7 +8510,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	    if (!model_perm_count) {
 	      wptr = double_g_writewx4x(wptr, pval, 12, ' ');
 	    } else {
-	      wptr = double_g_writewx4x(wptr, ((double)perm_2success_ct[marker_idx]) / 2.0, 12, ' ');
+	      wptr = double_g_writewx4x(wptr, ((double)perm_2success_ct[marker_idx]) * 0.5, 12, ' ');
 	    }
 	    if (model_adapt_nst) {
 	      wptr = memseta(wptr, 32, 2);
@@ -9516,7 +9516,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	    if (!perm_count) {
 	      wptr = double_g_writewx4x(wptr, pval, 12, ' ');
 	    } else {
-	      wptr = double_g_writewx4x(wptr, ((double)g_perm_2success_ct[marker_idx]) / 2.0, 12, ' ');
+	      wptr = double_g_writewx4x(wptr, ((double)g_perm_2success_ct[marker_idx]) * 0.5, 12, ' ');
 	    }
 	    if (perm_adapt) {
 	      wptr = memseta(wptr, 32, 2);
@@ -11292,7 +11292,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	  if (!perm_count) {
 	    wptr = double_g_writewx4x(wptr, pval, 12, ' ');
 	  } else {
-	    wptr = double_g_writewx4x(wptr, ((double)g_perm_2success_ct[marker_idx]) / 2.0, 12, ' ');
+	    wptr = double_g_writewx4x(wptr, ((double)g_perm_2success_ct[marker_idx]) * 0.5, 12, ' ');
 	  }
 	  if (perm_adapt) {
 	    wptr = memseta(wptr, 32, 2);

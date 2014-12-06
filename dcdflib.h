@@ -2,6 +2,9 @@
 #ifndef __CDFLIB_H__
 #define __CDFLIB_H__
 
+// N.B. these routines are NOT THREAD-SAFE due to use of static local variables
+// all over the place.
+
 double algdiv(double*,double*);
 double alngam(double*);
 double alnrel(double*);

@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (3 Dec 2014) ";
+  " (6 Dec 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -10643,7 +10643,7 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ex", 3)) {
 	if (load_rare == LOAD_RARE_DOSAGE) {
-	  logprint("Error: --dosage + --sex did not work properly in PLINK 1.07 (--sex had no\neffect).  If you have used that flag combination in the past, we recommend\nthat you rerun your analysis with PLINK 1.9 '--dosage sex'.\n");
+	  logprint("Error: --dosage + --sex did not work properly in PLINK 1.07 (--sex had no\neffect).  If you have used that flag combination in the past, we recommend\nthat you rerun your analysis with PLINK 1.9 '--dosage ... sex'.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (!(calculation_type & CALC_GLM)) {
 	  logprint("Error: --sex must be used with --linear or --logistic.\n");
@@ -10865,7 +10865,7 @@ int32_t main(int32_t argc, char** argv) {
 	    logprint("Error: --dosage 'Zout' modifier cannot be used with --score.\n");
             goto main_ret_INVALID_CMDLINE_A;
 	  }
-	  if (glm_modifier & GLM_STANDARD_BETA) {
+	  if ((glm_modifier & GLM_STANDARD_BETA) || (dosage_info.modifier & DOSAGE_SEX)) {
 	    logprint("Error: --dosage + --score cannot be used with association analysis\nmodifiers/flags.\n");
             goto main_ret_INVALID_CMDLINE_A;
 	  }
@@ -11994,7 +11994,7 @@ int32_t main(int32_t argc, char** argv) {
 	    logprint("Error: --write-dosage must be used with --dosage.\n");
 	  }
           goto main_ret_INVALID_CMDLINE_A;
-	} else if ((glm_modifier & GLM_STANDARD_BETA) || parameters_range_list.names) {
+	} else if ((glm_modifier & GLM_STANDARD_BETA) || (dosage_info.modifier & DOSAGE_SEX)) {
 	  logprint("Error: --write-dosage cannot be used with --dosage association analysis flags.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}

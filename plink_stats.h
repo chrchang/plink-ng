@@ -10,8 +10,10 @@ static inline uint32_t realnum(double dd) {
   return (dd == dd) && (dd != INFINITY) && (dd != -INFINITY);
 }
 
+// NOT THREAD-SAFE.
 double chiprob_p(double xx, double df);
 
+// NOT THREAD-SAFE.
 static inline double chiprob_px(double xx, double df) {
   if (xx != -9) {
     return chiprob_p(xx, df);
@@ -20,10 +22,13 @@ static inline double chiprob_px(double xx, double df) {
   }
 }
 
+// NOT THREAD-SAFE.
 double inverse_chiprob(double qq, double df);
 
+// NOT THREAD-SAFE.
 double calc_tprob(double tt, double df);
 
+// NOT THREAD-SAFE.
 double inverse_tprob(double dbl_qq, double df);
 
 double ltqnorm(double p);
