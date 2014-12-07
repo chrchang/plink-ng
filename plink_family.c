@@ -3435,9 +3435,6 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   if (fopen_checked(&outfile, outname, "w")) {
     goto qfam_ret_OPEN_FAIL;
   }
-  if (!perm_batch_size) {
-    perm_batch_size = 512;
-  }
   if (perms_total < perm_batch_size) {
     perm_batch_size = perms_total;
   }

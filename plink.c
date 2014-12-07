@@ -3054,7 +3054,7 @@ int32_t main(int32_t argc, char** argv) {
   double ci_size = 0.0;
   double pfilter = 2.0; // make --pfilter 1 still filter out NAs
   double output_min_p = 0.0;
-  uint32_t perm_batch_size = 0;
+  uint32_t perm_batch_size = DEFAULT_PERM_BATCH_SIZE;
   uint32_t mtest_adjust = 0;
   double adjust_lambda = 0.0;
   uintptr_t ibs_test_perms = DEFAULT_IBS_TEST_PERMS;

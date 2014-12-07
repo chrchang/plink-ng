@@ -378,6 +378,8 @@ void col_major_fmatrix_multiply(__CLPK_integer row1_ct, __CLPK_integer col2_ct, 
 #endif // NOLAPACK
 }
 
+// Todo: replace these with cache-oblivious, or at least -friendlier,
+// algorithms.
 void transpose_copy(uintptr_t old_maj, uintptr_t new_maj, double* old_matrix, double* new_matrix) {
   double* dptr;
   uintptr_t new_maj_idx;

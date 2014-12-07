@@ -8,6 +8,7 @@
 #include "plink_stats.h"
 
 // currently assumed to be no larger than MODEL_BLOCKSIZE
+// might not want a perfect power of 2 due to cache eviction issues?
 #define GLM_BLOCKSIZE 512
 
 // multithread globals
@@ -4775,9 +4776,6 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     if (extract_set_union_unfiltered(sip, NULL, unfiltered_marker_ct, marker_exclude_orig, &marker_exclude, &marker_ct)) {
       goto glm_linear_assoc_ret_NOMEM;
     }
-    if (!orig_perm_batch_size) {
-      orig_perm_batch_size = 512;
-    }
     if (glm_modifier & GLM_PERM) {
       if (orig_perm_batch_size > apip->max) {
 	orig_perm_batch_size = apip->max;
@@ -5034,9 +5032,6 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       }
     }
     if (do_perms_nst) {
-      if (!orig_perm_batch_size) {
-	orig_perm_batch_size = 512;
-      }
       if (wkspace_alloc_ui_checked(&g_perm_2success_ct, marker_initial_ct * sizeof(int32_t)) ||
 	  wkspace_alloc_ui_checked(&g_perm_attempt_ct, marker_initial_ct * sizeof(int32_t))) {
 	goto glm_linear_assoc_ret_NOMEM;
@@ -6384,9 +6379,6 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     if (extract_set_union_unfiltered(sip, NULL, unfiltered_marker_ct, marker_exclude_orig, &marker_exclude, &marker_ct)) {
       goto glm_logistic_assoc_ret_NOMEM;
     }
-    if (!orig_perm_batch_size) {
-      orig_perm_batch_size = 512;
-    }
     if (glm_modifier & GLM_PERM) {
       if (orig_perm_batch_size > apip->max) {
 	orig_perm_batch_size = apip->max;
@@ -6631,9 +6623,6 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       }
     }
     if (do_perms_nst) {
-      if (!orig_perm_batch_size) {
-	orig_perm_batch_size = 512;
-      }
       if (wkspace_alloc_ui_checked(&g_perm_2success_ct, marker_initial_ct * sizeof(int32_t)) ||
 	  wkspace_alloc_ui_checked(&g_perm_attempt_ct, marker_initial_ct * sizeof(int32_t))) {
 	goto glm_logistic_assoc_ret_NOMEM;
@@ -7841,10 +7830,6 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   perms_done = 0;
 
   if (do_perms) {
-    if (!perm_batch_size) {
-      // er, maybe this should be initialized in main()
-      perm_batch_size = 512;
-    }
     // not actually max(T), just fixed permutation count.
     if (perm_batch_size > glm_mperm_val) {
       perm_batch_size = glm_mperm_val;
@@ -8662,10 +8647,6 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   perms_done = 0;
 
   if (do_perms) {
-    if (!perm_batch_size) {
-      // er, maybe this should be initialized in main()
-      perm_batch_size = 512;
-    }
     // not actually max(T), just fixed permutation count.
     if (perm_batch_size > glm_mperm_val) {
       perm_batch_size = glm_mperm_val;

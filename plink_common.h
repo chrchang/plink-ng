@@ -610,6 +610,12 @@
 // limit that applies to .vcf and similar files)
 #define MAXLINEBUFLEN 0x7fffffc0
 
+// Default --perm-batch-size value in most contexts.  It may actually be better
+// to *avoid* a power of two due to the need for transpositions involving this
+// stride; see e.g. http://danluu.com/3c-conflict/ .  This should be tested
+// during PLINK 2.0 development.
+#define DEFAULT_PERM_BATCH_SIZE 512
+
 // note that this is NOT foolproof: see e.g.
 // http://insanecoding.blogspot.com/2007/11/pathmax-simply-isnt.html .  (This
 // is why I haven't bothered with OS-based #ifdefs here.)  But it should be

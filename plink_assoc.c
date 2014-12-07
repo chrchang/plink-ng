@@ -6468,9 +6468,6 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   marker_unstopped_ct = marker_ct;
   g_block_start = 0; // will be nonzero sometimes after LD-exploitation added
 
-  if (!perm_batch_size) {
-    perm_batch_size = 512;
-  }
   // generate a permutation batch, efficiently compute chi-square stats for all
   // variants in at least one tested set, compute set score, compare to base
   // set score.
@@ -8775,12 +8772,6 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     goto qassoc_ret_WRITE_FAIL;
   }
   if (do_perms) {
-    if (!perm_batch_size) {
-      // this seems to work better than pregenerating as many permutations as
-      // possible.  It might be best to auto-tune this, but we need performance
-      // data across a wide variety of machines to do this intelligently.
-      perm_batch_size = 512;
-    }
     uii = MINV(perm_batch_size, perms_total) / CACHELINE_DBL;
     if (max_thread_ct > uii) {
       max_thread_ct = MAXV(uii, 1);
