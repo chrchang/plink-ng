@@ -9917,7 +9917,10 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   if (!tmp_set_bitfield) {
     goto construct_ld_map_ret_NOMEM0;
   }
-  // bugfix: last word might not be initialized by unpack_set()
+  // bugfix: last word might not be initialized by unpack_set().  Also
+  // initialize second-to-last word to defend against an unpack_set()
+  // implementation change.
+  tmp_set_bitfield[marker_ctv - 2] = 0;
   tmp_set_bitfield[marker_ctv - 1] = 0;
   founder_include2 = (uintptr_t*)top_alloc(&topsize, founder_ctv2 * sizeof(intptr_t));
   if (!founder_include2) {
@@ -11084,6 +11087,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     goto clump_reports_ret_NOMEM2;
   }
   for (uii = 1; uii <= 5; uii++) {
+    index_data[uii * founder_ctv2 - 2] = 0;
     index_data[uii * founder_ctv2 - 1] = 0;
   }
   if (alloc_collapsed_haploid_filters(unfiltered_sample_ct, founder_ct, Y_FIX_NEEDED, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
@@ -11202,6 +11206,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       if (fseeko(bedfile, bed_offset + marker_uidx * ((uint64_t)unfiltered_sample_ct4), SEEK_SET)) {
 	goto clump_reports_ret_READ_FAIL;
       }
+      window_data_ptr[founder_ctv2 - 2] = 0;
       window_data_ptr[founder_ctv2 - 1] = 0;
       if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, window_data_ptr, founder_ct, founder_info, final_mask, is_set(marker_reverse, marker_uidx))) {
 	goto clump_reports_ret_READ_FAIL;

@@ -7553,6 +7553,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     if (!loadbuf_collapsed) {
       goto glm_linear_nosnp_ret_NOMEM;
     }
+    loadbuf_collapsed[sample_valid_ctv2 - 2] = 0;
     loadbuf_collapsed[sample_valid_ctv2 - 1] = 0;
     sex_male_collapsed = (uintptr_t*)top_alloc(&topsize, sample_valid_ctv2 * (sizeof(intptr_t) / 2));
     if (!sex_male_collapsed) {
@@ -8435,6 +8436,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     if (!loadbuf_collapsed) {
       goto glm_logistic_nosnp_ret_NOMEM;
     }
+    loadbuf_collapsed[sample_valid_ctv2 - 2] = 0;
     loadbuf_collapsed[sample_valid_ctv2 - 1] = 0;
     sex_male_collapsed = (uintptr_t*)top_alloc(&topsize, sample_valid_ctv2 * (sizeof(intptr_t) / 2));
     if (!sex_male_collapsed) {

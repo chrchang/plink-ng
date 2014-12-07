@@ -7301,6 +7301,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   }
 
   for (uii = 1; uii <= MODEL_BLOCKSIZE; uii++) {
+    loadbuf[uii * pheno_nm_ctv2 - 2] = 0;
     loadbuf[uii * pheno_nm_ctv2 - 1] = 0;
   }
   if (model_perms) {
@@ -8573,7 +8574,12 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   return retval;
 }
 
-int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* founder_info, uintptr_t* sex_male, uint32_t hh_exists, uint32_t perm_batch_size, Set_info* sip) {
+int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, double output_min_p, uint32_t mtest_adjust, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude_mid, uintptr_t marker_ct_mid, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* sex_male, Aperm_info* apip, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* founder_pnm, uintptr_t* sample_include2, uintptr_t* sample_male_include2, uint32_t ld_ignore_x, uint32_t hh_exists, uint32_t hh_or_mt_exists, uint32_t perm_batch_size, Set_info* sip, uint32_t* tcnt, uintptr_t* loadbuf_raw) {
+  logprint("Error: QT --assoc set-test is currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
+}
+
+int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* founder_info, uintptr_t* sex_male, uint32_t hh_exists, uint32_t ld_ignore_x, uint32_t perm_batch_size, Set_info* sip) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t marker_ct = marker_ct_orig;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
@@ -8685,9 +8691,6 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     goto qassoc_ret_1;
   }
   if (is_set_test) {
-    logprint("Error: QT --assoc set-test is currently under development.\n");
-    retval = RET_CALC_NOT_YET_SUPPORTED;
-    goto qassoc_ret_1;
     if (wkspace_alloc_ul_checked(&founder_pnm, unfiltered_sample_ctl * sizeof(intptr_t))) {
       goto qassoc_ret_NOMEM;
     }
@@ -8755,6 +8758,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_sample_ctv2 * sizeof(intptr_t))) {
     goto qassoc_ret_NOMEM;
   }
+  loadbuf_raw[unfiltered_sample_ctv2 - 2] = 0;
   loadbuf_raw[unfiltered_sample_ctv2 - 1] = 0;
   if (fill_orig_chiabs) {
     if (wkspace_alloc_d_checked(&g_orig_chisq, marker_ct * sizeof(double))) {
@@ -9362,26 +9366,33 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	goto qassoc_ret_WRITE_FAIL;
       }
     }
-    if (do_perms_nst) {
-      wkspace_reset(g_perm_vecstd);
-    }
     if (fclose_null(&outfile)) {
       goto qassoc_ret_WRITE_FAIL;
     }
-    if (mtest_adjust && (!is_set_test)) {
-      if (do_lin) {
-	for (uii = 0; uii < marker_ct; uii++) {
-	  g_orig_chisq[uii] = sqrt(g_orig_linsq[uii]);
+    if (!is_set_test) {
+      if (do_perms_nst) {
+	wkspace_reset(g_perm_vecstd);
+      }
+      if (mtest_adjust) {
+	if (do_lin) {
+	  for (uii = 0; uii < marker_ct; uii++) {
+	    g_orig_chisq[uii] = sqrt(g_orig_linsq[uii]);
+	  }
+	}
+	retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, g_orig_chisq, pfilter, output_min_p, mtest_adjust, 0, adjust_lambda, tcnt, NULL);
+	if (retval) {
+	  goto qassoc_ret_1;
 	}
       }
-      retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, g_orig_chisq, pfilter, output_min_p, mtest_adjust, 0, adjust_lambda, tcnt, NULL);
+      if (mperm_save & MPERM_DUMP_ALL) {
+	if (putc_checked('\n', outfile_msa)) {
+	  goto qassoc_ret_WRITE_FAIL;
+	}
+      }
+    } else {
+      retval = qassoc_set_test(threads, bedfile, bed_offset, outname, outname_end, model_modifier, model_mperm_val, pfilter, output_min_p, mtest_adjust, unfiltered_marker_ct, marker_exclude_orig, marker_ct_orig, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, sex_male, apip, pheno_nm_ct, pheno_nm, founder_pnm, sample_include2, sample_male_include2, ld_ignore_x, hh_exists, hh_or_mt_exists, perm_batch_size, sip, tcnt, loadbuf_raw);
       if (retval) {
 	goto qassoc_ret_1;
-      }
-    }
-    if (mperm_save & MPERM_DUMP_ALL) {
-      if (putc_checked('\n', outfile_msa)) {
-	goto qassoc_ret_WRITE_FAIL;
       }
     }
   }
@@ -9488,7 +9499,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	if (fclose_null(&outfile)) {
 	  goto qassoc_ret_WRITE_FAIL;
 	}
-	memcpy(outname_end, ".qassoc", 7);
+	memcpy(outname_end, ".qassoc", 7); // deliberately not null-terminated
       }
       memcpy(outname_end2, ".mperm", 7);
     }
@@ -10893,6 +10904,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
       goto testmiss_ret_NOMEM;
     }
     for (uii = 1; uii <= MODEL_BLOCKSIZE; uii++) {
+      g_loadbuf[uii * pheno_nm_ctv - 2] = 0;
       g_loadbuf[uii * pheno_nm_ctv - 1] = 0;
     }
     fill_uint_zero(g_perm_2success_ct, marker_ct);
