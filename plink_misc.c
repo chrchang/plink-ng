@@ -3459,7 +3459,7 @@ int32_t fst_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
       wkspace_alloc_ui_checked(&cluster_sizes, cluster_ct * sizeof(int32_t))) {
     goto fst_report_ret_NOMEM;
   }
-  fill_ulong_zero(cluster_mask, unfiltered_sample_ctl2 * sizeof(intptr_t));
+  fill_ulong_zero(cluster_mask, unfiltered_sample_ctl2);
   if (pheno_c) {
     cur_sample_ct = popcount_longs(pheno_nm, unfiltered_sample_ctl);
     uii = popcount_longs(pheno_c, unfiltered_sample_ctl);

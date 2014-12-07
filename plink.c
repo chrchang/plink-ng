@@ -1933,7 +1933,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       if (calculation_type & CALC_MODEL) {
 	if (pheno_d) {
 	  if (model_modifier & MODEL_ASSOC) {
-	    retval = qassoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_mperm_val, pfilter, output_min_p, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, sex_male, hh_exists, perm_batch_size, sip);
+	    retval = qassoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_mperm_val, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, founder_info, sex_male, hh_exists, perm_batch_size, sip);
 	  }
 	} else {
 	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, founder_info, sex_male, hh_exists, ldip->modifier & LD_IGNORE_X, perm_batch_size, sip);
@@ -9510,6 +9510,12 @@ int32_t main(int32_t argc, char** argv) {
                  (!memcmp(argptr2, "roxy-dosage", 12)) ||
                  (!memcmp(argptr2, "roxy-replace", 13)) ||
                  (!memcmp(argptr2, "roxy-verbose", 13))) {
+	// Apparently there are no good alternatives for Y and MT imputation?
+	// May want to modify this error message to suggest PLINK 1.07 for that
+	// case.  (Since BEAGLE 4 is open source, it may be practical to build
+	// a PLINK 2.1 which includes a port of its imputation routine, and
+	// that can be written to handle Y/MT in a sane manner.  But that's not
+	// happening before 2016.)
         logprint("Error: PLINK 1 proxy association and imputation commands have been retired due\nto poor accuracy.  (See Nothnagel M et al. (2009) A comprehensive evaluation of\nSNP genotype imputation.)  We suggest using another tool, such as BEAGLE 4 or\nIMPUTE2, for imputation instead, and performing association analysis on those\nresults.  ('--recode vcf' and --vcf can be used to exchange data with BEAGLE 4,\nwhile '--recode oxford' and --data let you work with IMPUTE2.)\n");
         goto main_ret_INVALID_CMDLINE;
       } else {
@@ -12307,6 +12313,9 @@ int32_t main(int32_t argc, char** argv) {
         goto main_ret_INVALID_CMDLINE_A;
       } else if (model_modifier & MODEL_PGEN) {
 	logprint("Error: --model set-test cannot be used with 2df genotypic chi-square stats.\n");
+	goto main_ret_INVALID_CMDLINE_A;
+      } else if (model_modifier & MODEL_LIN) {
+	logprint("Error: --assoc set-test does not currently support the Lin statistic; contact\nthe developers if you need this combination.\n");
 	goto main_ret_INVALID_CMDLINE_A;
       }
       uii = 1;
