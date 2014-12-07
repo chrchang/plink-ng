@@ -5877,8 +5877,6 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 #endif
 
 int32_t glm_logistic_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t glm_modifier, uint32_t glm_xchr_model, uint32_t glm_mperm_val, double pfilter, double output_min_p, uint32_t mtest_adjust, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude_mid, uintptr_t marker_ct_mid, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, uintptr_t* regression_skip, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* sex_male, Aperm_info* apip, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* founder_pnm, uintptr_t* load_mask, uintptr_t* sample_include2, uintptr_t* sample_male_include2, uint32_t ld_ignore_x, uint32_t hh_exists, uint32_t hh_or_mt_exists, uint32_t perm_batch_size, Set_info* sip, uintptr_t* loadbuf_raw, uintptr_t param_ct_max, uintptr_t np_base, uintptr_t np_diploid, uintptr_t np_sex, uintptr_t sample_valid_ct, uint32_t sex_covar_everywhere) {
-  // logprint("Error: --logistic set-based test is under development.\n");
-  // return RET_CALC_NOT_YET_SUPPORTED;
   // Very similar to glm_linear_assoc_set_test(); could merge them.
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;

@@ -9233,12 +9233,12 @@ void uncollapse_copy_flip_include_arr(uintptr_t* collapsed_include_arr, uintptr_
     uncollapse_copy_flip_include_arr_loop:
       while (cur_read) {
         write_bit = CTZLU(cur_read);
-        cea_read >>= 1;
         if (read_bit == BITCT) {
           cea_read = ~(*collapsed_include_arr++);
 	  read_bit = 0;
         }
         cur_write |= (cea_read & ONELU) << write_bit;
+        cea_read >>= 1;
         read_bit++;
         cur_read &= cur_read - ONELU;
       }
@@ -9247,12 +9247,10 @@ void uncollapse_copy_flip_include_arr(uintptr_t* collapsed_include_arr, uintptr_
       if (read_bit == BITCT) {
         *output_exclude_arr = ~(*collapsed_include_arr++);
       } else {
-	// there's an extra bit shift here, should rewrite this loop to remove
-	// it
-        cur_write = cea_read >> 1;
+        cur_write = cea_read;
         cea_read = ~(*collapsed_include_arr++);
         *output_exclude_arr = cur_write | (cea_read << (BITCT - read_bit));
-	cea_read >>= read_bit - 1;
+	cea_read >>= read_bit;
       }
     }
     output_exclude_arr++;
