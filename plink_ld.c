@@ -10222,11 +10222,10 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 
 void set_test_score(uintptr_t marker_ct, double chisq_threshold, uint32_t set_max, double* chisq_arr, uint32_t** ld_map, uint32_t* cur_setdef, double* sorted_chisq_buf, uint32_t* sorted_marker_idx_buf, uint32_t* proxy_arr, uint32_t* raw_sig_ct_ptr, uint32_t* final_sig_ct_ptr, double* set_score_ptr) {
   // set score statistic = mean of chi-square statistics of set
-  // representatives.  --linear/--logistic t statistics are converted to
-  // same-p-value 1df chi-square stats out of necessity; in theory, this hack
-  // could be applied to e.g. Fisher's exact test and the variable-df genotypic
-  // test as well, but I'll hold off on that until/unless it's specifically
-  // requested.
+  // representatives.  --linear t statistics are converted to same-p-value 1df
+  // chi-square stats out of necessity; in theory, this hack could be applied
+  // to e.g. Fisher's exact test and the variable-df genotypic test as well,
+  // but I'll hold off on that until/unless it's specifically requested.
 
   // sort variants by p-value, then iterate over setdefs, greedily selecting up
   // to sip->set_max significant independent variants from each.

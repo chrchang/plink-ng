@@ -3834,7 +3834,10 @@ void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t unfiltered_item_ct, 
 }
 
 void fill_midx_to_idx(uintptr_t* exclude_arr_orig, uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* midx_to_idx) {
-  // assumes item_ct is nonzero
+  // Assumes item_ct is nonzero.
+
+  // May want to switch to alternate behavior: when current midx is excluded,
+  // fill midx_to_idx[] with the next item_idx.
   uint32_t item_uidx = next_unset_unsafe(exclude_arr_orig, 0);
   uint32_t item_idx = 0;
   uint32_t item_midx;
@@ -9235,19 +9238,21 @@ void uncollapse_copy_flip_include_arr(uintptr_t* collapsed_include_arr, uintptr_
           cea_read = ~(*collapsed_include_arr++);
 	  read_bit = 0;
         }
-        cur_write |= (cea_read & 1) << write_bit;
+        cur_write |= (cea_read & ONELU) << write_bit;
         read_bit++;
-        cur_read &= cur_read - 1;
+        cur_read &= cur_read - ONELU;
       }
       *output_exclude_arr = cur_write;
     } else {
       if (read_bit == BITCT) {
         *output_exclude_arr = ~(*collapsed_include_arr++);
       } else {
-        cur_write = cea_read;
+	// there's an extra bit shift here, should rewrite this loop to remove
+	// it
+        cur_write = cea_read >> 1;
         cea_read = ~(*collapsed_include_arr++);
         *output_exclude_arr = cur_write | (cea_read << (BITCT - read_bit));
-	cea_read >>= read_bit;
+	cea_read >>= read_bit - 1;
       }
     }
     output_exclude_arr++;
