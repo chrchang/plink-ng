@@ -82,10 +82,6 @@ static uint32_t* g_totq_incrs;
 static uint32_t* g_sample_to_cluster;
 static uint32_t* g_qassoc_cluster_thread_wkspace;
 
-#ifndef NOLAPACK
-static uint32_t* g_df;
-#endif
-
 THREAD_RET_TYPE logistic_gen_perms_thread(void* arg) {
   // just a clone of model_assoc_gen_perms_thread()
   uintptr_t tidx = (uintptr_t)arg;
@@ -3580,7 +3576,6 @@ THREAD_RET_TYPE glm_linear_set_thread(void* arg) {
   double* msa_ptr;
   double* dptr;
   uintptr_t* loadbuf_ptr;
-  uint32_t* df_ptr;
   uintptr_t cur_missing_ct;
   uintptr_t cur_sample_valid_ct;
   uintptr_t pidx;
@@ -3598,7 +3593,6 @@ THREAD_RET_TYPE glm_linear_set_thread(void* arg) {
   }
   for (; marker_bidx < marker_bceil; marker_bidx++) {
     msa_ptr = &(g_mperm_save_all[marker_bidx * perm_vec_ct]);
-    df_ptr = &(g_df[marker_bidx]);
     loadbuf_ptr = &(loadbuf[marker_bidx * sample_valid_ctv2]);
     cur_missing_ct = glm_fill_design(loadbuf_ptr, fixed_covars_cov_major, sample_valid_ct, cur_param_ct, coding_flags, glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, is_nonx_haploid, cur_covars_cov_major, cur_covars_sample_major, standard_beta);
     cur_sample_valid_ct = sample_valid_ct - cur_missing_ct;
@@ -3633,12 +3627,6 @@ THREAD_RET_TYPE glm_linear_set_thread(void* arg) {
     dgels_nrhs = (int32_t)((uint32_t)perm_vec_ct);
     dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
     glm_linear(perm_vec_ct, cur_param_ct, cur_sample_valid_ct, cur_missing_ct, loadbuf_ptr, standard_beta, pheno_sum_base, pheno_ssq_base, cur_covars_cov_major, cur_covars_sample_major, perm_pmajor, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, regression_results, 0, NULL, NULL, NULL, NULL, NULL, &perm_fail_ct, perm_fails);
-    if (cur_sample_valid_ct > cur_param_ct) {
-      *df_ptr = cur_sample_valid_ct - cur_param_ct;
-    } else {
-      *df_ptr = 1;
-    }
-    df_ptr++;
     for (pidx = 0; pidx < perm_vec_ct; pidx++) {
       if (!IS_SET(perm_fails, pidx)) {
 	dxx = fabs(dgels_b[pidx * cur_sample_valid_ct + 1] / sqrt(regression_results[pidx * param_ct_m1]));
@@ -4345,9 +4333,6 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
   if (wkspace_init_sfmtp(max_thread_ct)) {
     goto glm_linear_assoc_set_test_ret_NOMEM;
   }
-  if (wkspace_alloc_ui_checked(&g_df, MODEL_BLOCKSIZE * sizeof(int32_t))) {
-    goto glm_linear_assoc_set_test_ret_NOMEM;
-  }
 
   wkspace_mark2 = wkspace_base;
  glm_linear_assoc_set_test_more_perms:
@@ -4488,9 +4473,10 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
     // (conversion has to be done here since dcdflib is not thread-safe)
     read_dptr = g_mperm_save_all;
     for (marker_bidx = 0; marker_bidx < block_size; marker_bidx++) {
-      uii = g_df[marker_bidx];
+      uii = g_adapt_m_table[marker_bidx];
+      write_dptr = &(chisq_pmajor[uii]);
+      uii = tcnt[uii];
       dyy = inverse_tprob(sip->set_p, uii);
-      write_dptr = &(chisq_pmajor[g_adapt_m_table[marker_bidx]]);
       for (pidx = 0; pidx < perm_vec_ct; pidx++) {
 	dxx = *read_dptr++;
 	if (dxx < dyy) {
