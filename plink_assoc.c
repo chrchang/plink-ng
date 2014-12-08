@@ -4344,6 +4344,104 @@ THREAD_RET_TYPE qassoc_maxt_lin_thread(void* arg) {
   }
 }
 
+THREAD_RET_TYPE qassoc_set_thread(void* arg) {
+  // Simplified version of qassoc_adapt/maxt_thread(), except we need to save
+  // actual t-statistics.
+  uintptr_t tidx = (uintptr_t)arg;
+  uint32_t pheno_nm_ct = g_pheno_nm_ct;
+  uintptr_t perm_vec_ct = g_perm_vec_ct;
+  uint32_t max_thread_ct = g_assoc_thread_ct;
+  uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
+  uintptr_t perm_vec_ctcl8m = CACHEALIGN32_DBL(perm_vec_ct);
+  double* git_qt_g_prod = &(g_thread_git_qbufs[perm_vec_ctcl8m * tidx * 3]);
+  double* git_qt_sum = &(g_thread_git_qbufs[perm_vec_ctcl8m * (tidx * 3 + 1)]);
+  double* git_qt_ssq = &(g_thread_git_qbufs[perm_vec_ctcl8m * (tidx * 3 + 2)]);
+  double* __restrict__ perm_vecstd = g_perm_vecstd;
+  double pheno_sum = g_pheno_sum;
+  double pheno_ssq = g_pheno_ssq;
+  uint32_t* __restrict__ missing_cts;
+  uint32_t* __restrict__ het_cts;
+  uint32_t* __restrict__ homcom_cts;
+  uintptr_t* __restrict__ loadbuf;
+  uintptr_t marker_idx;
+  uintptr_t pidx;
+  intptr_t geno_sum;
+  intptr_t geno_ssq;
+  double* msa_ptr;
+  uint32_t marker_bidx;
+  uint32_t marker_bceil;
+  uint32_t missing_ct;
+  uint32_t het_ct;
+  uint32_t homcom_ct;
+  uint32_t homrar_ct;
+  uint32_t nanal;
+  uint32_t cur_thread_ct;
+  double nanal_recip;
+  double nanal_m1_recip;
+  double nanal_m2_recip;
+  double geno_mean;
+  double geno_var_recip;
+  double qt_sum;
+  double qt_ssq;
+  double qt_g_prod;
+  double qt_mean;
+  double qt_var;
+  double qt_g_covar;
+  double beta;
+  double vbeta_sqrt;
+  while (1) {
+    cur_thread_ct = g_block_diff / CACHELINE_DBL;
+    if (cur_thread_ct > max_thread_ct) {
+      cur_thread_ct = max_thread_ct;
+    } else if (!cur_thread_ct) {
+      cur_thread_ct = 1;
+    }
+    if (cur_thread_ct <= tidx) {
+      goto qassoc_set_thread_skip_all;
+    }
+    marker_bidx = (((uint64_t)tidx) * g_block_diff) / cur_thread_ct;
+    marker_bceil = (((uint64_t)tidx + 1) * g_block_diff) / cur_thread_ct;
+    loadbuf = g_loadbuf;
+    missing_cts = g_missing_cts;
+    het_cts = g_het_cts;
+    homcom_cts = g_homcom_cts;
+    for (; marker_bidx < marker_bceil; marker_bidx++) {
+      marker_idx = g_adapt_m_table[marker_bidx];
+      msa_ptr = &(g_mperm_save_all[marker_bidx * perm_vec_ct]);
+      missing_ct = missing_cts[marker_idx];
+      nanal = pheno_nm_ct - missing_ct;
+      homcom_ct = homcom_cts[marker_idx];
+      het_ct = het_cts[marker_idx];
+      homrar_ct = nanal - het_ct - homcom_ct;
+      geno_sum = 2 * homrar_ct + het_ct;
+      geno_ssq = 4 * homrar_ct + het_ct;
+      nanal_recip = 1.0 / ((double)((int32_t)nanal));
+      nanal_m1_recip = 1.0 / ((double)(((int32_t)nanal) - 1));
+      nanal_m2_recip = 1.0 / ((double)(((int32_t)nanal) - 2));
+      geno_mean = ((double)geno_sum) * nanal_recip;
+      geno_var_recip = 1.0 / ((((double)geno_ssq) - geno_sum * geno_mean) * nanal_m1_recip);
+      calc_qgit(pheno_nm_ct, perm_vec_ctcl8m, perm_vec_ct, &(loadbuf[marker_bidx * pheno_nm_ctl2]), perm_vecstd, git_qt_g_prod);
+      for (pidx = 0; pidx < perm_vec_ct; pidx++) {
+	qt_sum = pheno_sum - git_qt_sum[pidx];
+	qt_ssq = pheno_ssq - git_qt_ssq[pidx];
+	qt_g_prod = git_qt_g_prod[pidx];
+	qt_mean = qt_sum * nanal_recip;
+	qt_var = (qt_ssq - qt_sum * qt_mean) * nanal_m1_recip;
+	qt_g_covar = (qt_g_prod - qt_sum * geno_mean) * nanal_m1_recip;
+	beta = qt_g_covar * geno_var_recip;
+	vbeta_sqrt = sqrt((qt_var * geno_var_recip - beta * beta) * nanal_m2_recip);
+	*msa_ptr++ = fabs(beta / vbeta_sqrt);
+      }
+      fill_double_zero(git_qt_g_prod, perm_vec_ctcl8m * 3);
+    }
+  qassoc_set_thread_skip_all:
+    if ((!tidx) || g_is_last_thread_block) {
+      THREAD_RETURN;
+    }
+    THREAD_BLOCK_FINISH(tidx);
+  }
+}
+
 THREAD_RET_TYPE model_adapt_domrec_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
   uintptr_t pheno_nm_ct = g_pheno_nm_ct;
@@ -8578,9 +8676,6 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   // Similar to glm_linear_assoc_set_test().
   // Side effect: t-statistics in g_orig_chisq[] are clobbered and replaced
   // with same-p-value 1df chi-square statistics.
-  logprint("Error: QT --assoc set-test is currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
-  /*
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
@@ -8588,6 +8683,7 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   uintptr_t* unstopped_markers = NULL;
   uintptr_t* loadbuf = g_loadbuf;
   uintptr_t* perm_adapt_set_unstopped = NULL;
+  uintptr_t* regression_skip = NULL;
   double* orig_stats = g_orig_chisq; // initially contains t-statistics
   double* sorted_chisq_buf = NULL;
   double* empirical_pvals = NULL;
@@ -8604,7 +8700,7 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   uintptr_t pheno_nm_ctv2 = 2 * ((pheno_nm_ct + BITCT - 1) / BITCT);
   double adaptive_ci_zt = 0.0;
   uint32_t max_thread_ct = g_thread_ct;
-  uint32_t perm_count = model_modifier & GLM_PERM_COUNT;
+  uint32_t perm_count = model_modifier & MODEL_PERM_COUNT;
   uint32_t perms_done = 0;
   int32_t retval = 0;
   unsigned char* wkspace_mark2;
@@ -8623,6 +8719,7 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   uintptr_t set_uidx;
   uintptr_t set_idx;
   uintptr_t perm_vec_ct;
+  uintptr_t perm_vec_ctcl8m;
   uintptr_t pidx;
   uintptr_t ulii;
   double chisq_threshold;
@@ -8633,6 +8730,7 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   uint32_t perms_total;
   uint32_t max_sigset_size;
   uint32_t marker_unstopped_ct;
+  uint32_t is_last_block;
   uint32_t chrom_fo_idx;
   uint32_t chrom_end;
   uint32_t block_size;
@@ -8669,15 +8767,28 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
   if (marker_ct_mid != marker_ct) {
     inplace_delta_collapse_arr((char*)tcnt, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
+    inplace_delta_collapse_arr((char*)g_missing_cts, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
+    inplace_delta_collapse_arr((char*)g_het_cts, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
+    inplace_delta_collapse_arr((char*)g_homcom_cts, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
   }
-  if (wkspace_alloc_) {
+  if (wkspace_alloc_ul_checked(&regression_skip, marker_ctl * sizeof(intptr_t))) {
+    goto qassoc_set_test_ret_NOMEM;
   }
-  if (glm_modifier & GLM_PERM) {
+  fill_ulong_zero(regression_skip, marker_ctl);
+  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+    // nanal
+    uii = tcnt[marker_idx] + 2;
+    if ((uii == 2) || (g_homcom_cts[marker_idx] == uii) || (g_het_cts[marker_idx] == uii) || (g_het_cts[marker_idx] + g_homcom_cts[marker_idx] == 0)) {
+      // 0 df or no genotype variation, regression always fails
+      SET_BIT(regression_skip, marker_idx);
+    }
+  }
+  if (model_modifier & MODEL_PERM) {
     perms_total = apip->max;
     first_adapt_check = (apip->min < apip->init_interval)? ((int32_t)apip->init_interval) : apip->min;
     adaptive_ci_zt = ltqnorm(1 - apip->beta / (2.0 * ((intptr_t)set_ct)));
   } else {
-    perms_total = glm_mperm_val;
+    perms_total = model_mperm_val;
     first_adapt_check = perms_total + 1;
   }
   for (uii = 0; uii < set_ct; uii++) {
@@ -8687,9 +8798,6 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     max_thread_ct = perms_total;
   }
   if (wkspace_init_sfmtp(max_thread_ct)) {
-    goto qassoc_set_test_ret_NOMEM;
-  }
-  if (wkspace_alloc_ui_checked(&g_df, MODEL_BLOCKSIZE * sizeof(int32_t))) {
     goto qassoc_set_test_ret_NOMEM;
   }
 
@@ -8720,17 +8828,24 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
       g_assoc_thread_ct = 1;
     }
   }
+  perm_vec_ctcl8m = CACHEALIGN32_DBL(perm_vec_ct);
+  if (wkspace_alloc_d_checked(&g_perm_vecstd, perm_vec_ctcl8m * sizeof(double) * pheno_nm_ct) ||
+      wkspace_alloc_d_checked(&g_thread_git_qbufs, perm_vec_ctcl8m * sizeof(double) * 3 * max_thread_ct)) {
+    goto qassoc_set_test_ret_NOMEM;
+  }
+  fill_double_zero(g_thread_git_qbufs, 3 * max_thread_ct * perm_vec_ctcl8m);
+
   ulii = 0;
   if (!g_cluster_ct) {
-    if (spawn_threads(threads, &linear_gen_perms_thread, g_assoc_thread_ct)) {
+    if (spawn_threads(threads, &qassoc_gen_perms_thread, g_assoc_thread_ct)) {
       goto qassoc_set_test_ret_THREAD_CREATE_FAIL;
     }
-    linear_gen_perms_thread((void*)ulii);
+    qassoc_gen_perms_thread((void*)ulii);
   } else {
-    if (spawn_threads(threads, &linear_gen_cluster_perms_thread, g_assoc_thread_ct)) {
+    if (spawn_threads(threads, &qassoc_gen_cluster_perms_thread, g_assoc_thread_ct)) {
       goto qassoc_set_test_ret_THREAD_CREATE_FAIL;
     }
-    linear_gen_cluster_perms_thread((void*)ulii);
+    qassoc_gen_cluster_perms_thread((void*)ulii);
   }
   join_threads(threads, g_assoc_thread_ct);
   if (wkspace_alloc_d_checked(&g_mperm_save_all, MODEL_BLOCKSIZE * perm_vec_ct * sizeof(double)) ||
@@ -8757,23 +8872,12 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
       // exploit overflow
       chrom_fo_idx++;
       refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &uii, &g_min_ploidy_1);
-      g_min_ploidy_1 |= uii;
-      g_male_x_01 = 0;
-      if (g_is_x) {
-	cur_param_ct = param_ct_max;
-	if (glm_xchr_model != 2) {
-	  g_male_x_01 = 1;
-	}
-      } else {
-        cur_param_ct = np_base + np_diploid;
-      }
-      g_cur_param_ct = cur_param_ct;
-      g_include_sex = sex_covar_everywhere || (g_is_x && np_sex);
+      g_min_ploidy_1 |= uii; // treat MT as haploid
     }
     block_size = 0;
     block_end = marker_unstopped_ct - marker_idx;
-    if (block_end > GLM_BLOCKSIZE) {
-      block_end = GLM_BLOCKSIZE;
+    if (block_end > MODEL_BLOCKSIZE) {
+      block_end = MODEL_BLOCKSIZE;
     }
     do {
       if (!IS_SET(unstopped_markers, marker_idx2)) {
@@ -8789,12 +8893,12 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
 	  break;
 	}
       }
-      loadbuf_ptr = &(loadbuf[block_size * sample_valid_ctv2]);
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf_ptr, sample_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+      loadbuf_ptr = &(loadbuf[block_size * pheno_nm_ctv2]);
+      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf_ptr, pheno_nm_ct, pheno_nm, final_mask, IS_SET(marker_reverse, marker_uidx))) {
 	goto qassoc_set_test_ret_READ_FAIL;
       }
       if (g_min_ploidy_1 && hh_or_mt_exists) {
-	haploid_fix(hh_or_mt_exists, sample_include2, sample_male_include2, sample_valid_ct, g_is_x, g_is_y, (unsigned char*)loadbuf_ptr);
+	haploid_fix(hh_or_mt_exists, sample_include2, sample_male_include2, pheno_nm_ct, g_is_x, g_is_y, (unsigned char*)loadbuf_ptr);
       }
       g_adapt_m_table[block_size] = marker_idx2++;
       block_size++;
@@ -8812,29 +8916,23 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     if (!block_size) {
       continue;
     }
+    is_last_block = (marker_idx + block_size >= marker_unstopped_ct);
     g_block_diff = block_size;
-
-    g_assoc_thread_ct = block_size / CACHELINE_INT32;
-    if (g_assoc_thread_ct > max_thread_ct) {
-      g_assoc_thread_ct = max_thread_ct;
-    } else if (!g_assoc_thread_ct) {
-      g_assoc_thread_ct = 1;
-    }
     ulii = 0;
-
-    if (spawn_threads(threads, &glm_linear_set_thread, g_assoc_thread_ct)) {
+    if (spawn_threads2(threads, &qassoc_set_thread, max_thread_ct, is_last_block)) {
       goto qassoc_set_test_ret_THREAD_CREATE_FAIL;
     }
-    glm_linear_set_thread((void*)ulii);
-    join_threads(threads, g_assoc_thread_ct);
+    qassoc_set_thread((void*)ulii);
+    join_threads2(threads, max_thread_ct, is_last_block);
 
     // convert to equivalent chi-square stats and transpose
     // (conversion has to be done here since dcdflib is not thread-safe)
     read_dptr = g_mperm_save_all;
     for (marker_bidx = 0; marker_bidx < block_size; marker_bidx++) {
-      uii = g_df[marker_bidx];
+      uii = g_adapt_m_table[marker_bidx];
+      write_dptr = &(chisq_pmajor[uii]);
+      uii = tcnt[uii];
       dyy = inverse_tprob(sip->set_p, uii);
-      write_dptr = &(chisq_pmajor[g_adapt_m_table[marker_bidx]]);
       for (pidx = 0; pidx < perm_vec_ct; pidx++) {
 	dxx = *read_dptr++;
 	if (dxx < dyy) {
@@ -8845,7 +8943,7 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
 	    dxx = MAX_INVERSE_CHIPROB_1DF;
 	  } else {
 	    dxx = inverse_chiprob(dxx, 1);
-	  }	  
+	  }
 	}
 	// this is cache-unfriendly, may want to update in-place instead and
 	// separate out the transpose
@@ -8858,7 +8956,7 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   compute_set_scores(marker_ct, perm_vec_ct, set_ct, chisq_pmajor, orig_set_scores, sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, setdefs, ld_map, apip, chisq_threshold, adaptive_ci_zt, first_adapt_check, perms_done, sip->set_max, perm_adapt_set_unstopped, perm_2success_ct, perm_attempt_ct);
   wkspace_reset(wkspace_mark2);
   if (perms_done < perms_total) {
-    if (glm_modifier & GLM_PERM) {
+    if (model_modifier & MODEL_PERM) {
       if (!extract_set_union(setdefs, set_ct, perm_adapt_set_unstopped, unstopped_markers, marker_ct)) {
 	perms_done = 0;
 	for (set_idx = 0; set_idx < set_ct; set_idx++) {
@@ -8882,10 +8980,10 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     }
   }
  qassoc_set_test_write:
-  if (glm_modifier & GLM_PERM) {
-    memcpy(outname_end, ".assoc.linear.set.perm", 23);
+  if (model_modifier & MODEL_PERM) {
+    memcpy(outname_end, ".qassoc.set.perm", 17);
   } else {
-    memcpy(outname_end, ".assoc.linear.set.mperm", 24);
+    memcpy(outname_end, ".qassoc.set.mperm", 18);
   }
   if (fopen_checked(&outfile, outname, "w")) {
     goto qassoc_set_test_ret_OPEN_FAIL;
@@ -8969,7 +9067,6 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   wkspace_reset(wkspace_mark);
   fclose_cond(outfile);
   return retval;
-  */
 }
 
 int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* founder_info, uintptr_t* sex_male, uint32_t hh_exists, uint32_t ld_ignore_x, uint32_t perm_batch_size, Set_info* sip) {
