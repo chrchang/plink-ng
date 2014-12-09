@@ -472,7 +472,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * If a line contains exactly two names, they are assumed to be the full\n"
 "      filenames for a text fileset (.ped first, then .map).\n"
 "    * If a line contains exactly three names, they are assumed to be the full\n"
-"      filenames for a binary fileset (.bed, then .bim, then .fam).\n"
+"      filenames for a binary fileset (.bed, then .bim, then .fam).\n\n"
 	       );
     help_print("write-snplist\tlist-23-indels", &help_ctrl, 1,
 "  --write-snplist\n"
@@ -482,6 +482,21 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    --list-23-indels writes the subset with 23andMe-style indel calls (D/I\n"
 "    allele codes).\n\n"
 	       );
+#ifndef STABLE_BUILD
+    help_print("list-duplicate-vars", &help_ctrl, 1,
+"  --list-duplicate-vars <require-same-ref> <ids-only> <suppress-first>\n"
+"    --list-duplicate-vars writes a .dupvar file describing all groups of\n"
+"    variants with matching positions and allele codes.\n"
+"    * By default, A1/A2 allele assignments are ignored; use 'require-same-ref'\n"
+"      to override this.\n"
+"    * Normally, the report contains position and allele codes.  To remove them\n"
+"      (and produce a file directly usable with e.g. --extract/--exclude), use\n"
+"      'ids-only'.  Note that this command will fail in 'ids-only' mode if any\n"
+"      of the reported IDs are not unique.\n"
+"    * 'suppress-first' causes the first variant ID in each group to be omitted\n"
+"      from the report.\n\n"
+	       );
+#endif
     help_print("freq\tfreqx\tfrqx\tcounts", &help_ctrl, 1,
 "  --freq <counts>\n"
 "  --freqx\n"

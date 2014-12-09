@@ -299,9 +299,10 @@
 #define CALC_MAKE_BIM 0x10000000000000LLU
 #define CALC_MAKE_FAM 0x20000000000000LLU
 #define CALC_WRITE_VAR_RANGES 0x40000000000000LLU
-#define CALC_ONLY_BIM (CALC_WRITE_SET | CALC_WRITE_SNPLIST | CALC_WRITE_VAR_RANGES | CALC_LIST_23_INDELS | CALC_MAKE_BIM)
+#define CALC_DUPVAR 0x80000000000000LLU
+#define CALC_ONLY_BIM (CALC_WRITE_SET | CALC_WRITE_SNPLIST | CALC_WRITE_VAR_RANGES | CALC_LIST_23_INDELS | CALC_MAKE_BIM | CALC_DUPVAR)
 #define CALC_ONLY_FAM (CALC_MAKE_PERM_PHENO | CALC_WRITE_COVAR | CALC_MAKE_FAM)
-// only room for 9 more basic commands before we need to switch from a single
+// only room for 8 more basic commands before we need to switch from a single
 // uint64_t to uintptr_t*/is_set()/etc.
 
 // necessary to patch heterozygous haploids/female Y chromosome genotypes
@@ -500,6 +501,10 @@
 #define ADJUST_LOG10 4
 #define ADJUST_QQ 8
 #define ADJUST_LAMBDA 16
+
+#define DUPVAR_REF 1
+#define DUPVAR_IDS_ONLY 2
+#define DUPVAR_SUPPRESS_FIRST 4
 
 #define CNV_MAKE_MAP 1
 #define CNV_MAKE_MAP_LONG 2
