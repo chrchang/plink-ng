@@ -3166,8 +3166,287 @@ int32_t write_var_ranges(char* outname, char* outname_end, uintptr_t unfiltered_
 }
 
 int32_t list_duplicate_vars(char* outname, char* outname_end, uint32_t dupvar_modifier, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, Chrom_info* chrom_info_ptr, char** marker_allele_ptrs) {
-  logprint("Error: --list-duplicate-vars is currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* outfile = NULL;
+  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uint32_t* uidx_list_end = (uint32_t*)(&(wkspace_base[wkspace_left]));
+  uint32_t* group_list_start = (uint32_t*)wkspace_base;
+  uint32_t* group_write = group_list_start;
+  uint32_t require_same_ref = dupvar_modifier & DUPVAR_REF;
+  uint32_t ids_only = dupvar_modifier & DUPVAR_IDS_ONLY;
+  uint32_t suppress_first_id = dupvar_modifier & DUPVAR_SUPPRESS_FIRST;
+  int32_t retval = 0;
+  uintptr_t max_batch_size;
+  uintptr_t marker_uidx2;
+  uintptr_t* uniqueness_check_bitfield;
+  uint32_t* uidx_list; // grows down from workspace end
+  uint32_t* group_idxs;
+  uint32_t* group_sizes;
+  uint32_t* group_rep_uidx_list;
+  uint32_t* read_uiptr;
+  uint32_t* write_uiptr;
+  uint32_t* reported_id_htable;
+  char* a1ptr;
+  char* a2ptr;
+  char* wptr_start;
+  char* wptr;
+  uint32_t chrom_fo_idx;
+  uint32_t chrom_end;
+  uint32_t marker_uidx;
+  uint32_t marker_idx;
+  uint32_t last_pos;
+  uint32_t last_uidx;
+  uint32_t next_pos;
+  uint32_t cur_batch_size;
+  uint32_t item_idx;
+  uint32_t group_idx;
+  uint32_t group_ct;
+  uint32_t duplicate_group_ct;
+  uint32_t write_offset;
+  uint32_t htable_entry_ct;
+  uint32_t reported_id_htable_size;
+  uint32_t uniqueness_check_ct;
+  uint32_t uii;
+  uint32_t ujj;
+  uidx_list_end--;
+  memcpy(outname_end, ".dupvar", 8);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto list_duplicate_vars_ret_OPEN_FAIL;
+  }
+  if (!ids_only) {
+    if (fputs_checked(require_same_ref? "CHR\tPOS\tREF\tALT\tIDS\n" : "CHR\tPOS\tALLELES\tIDS\n", outfile)) {
+      goto list_duplicate_vars_ret_WRITE_FAIL;
+    }
+  }
+  max_batch_size = wkspace_left / (5 * sizeof(int32_t));
+  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
+    chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+    marker_uidx = next_unset(marker_exclude, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx], chrom_end);
+    if (marker_uidx == chrom_end) {
+      continue;
+    }
+    wptr_start = chrom_name_write(tbuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx]);
+    *wptr_start++ = '\t';
+    last_pos = marker_pos[marker_uidx];
+    while (1) {
+      last_uidx = marker_uidx;
+      marker_uidx++;
+      next_unset_ck(marker_exclude, &marker_uidx, chrom_end);
+      if (marker_uidx == chrom_end) {
+	break;
+      }
+      next_pos = marker_pos[marker_uidx];
+      if (next_pos == last_pos) {
+	uidx_list = uidx_list_end;
+	*uidx_list = last_uidx;
+	cur_batch_size = 1;
+        do {
+	  if (++cur_batch_size > max_batch_size) {
+	    goto list_duplicate_vars_ret_NOMEM;
+	  }
+	  *(--uidx_list) = marker_uidx;
+	  marker_uidx++;
+	  next_unset_ck(marker_exclude, &marker_uidx, chrom_end);
+	  if (marker_uidx == chrom_end) {
+	    break;
+	  }
+          next_pos = marker_pos[marker_uidx];
+	} while (next_pos == last_pos);
+	// make uidx_list increasing- instead of decreasing-order
+	for (ujj = 0; ujj < cur_batch_size / 2; ujj++) {
+	  uii = uidx_list[ujj];
+	  uidx_list[ujj] = uidx_list[cur_batch_size - 1 - ujj];
+	  uidx_list[cur_batch_size - 1 - ujj] = uii;
+	}
+	group_idxs = &(uidx_list[-((int32_t)cur_batch_size)]);
+	group_rep_uidx_list = &(group_idxs[-((int32_t)cur_batch_size)]);
+	group_sizes = &(group_rep_uidx_list[-((int32_t)cur_batch_size)]);
+	group_ct = 0;
+        for (item_idx = 0; item_idx < cur_batch_size; item_idx++) {
+	  uii = uidx_list[item_idx] * 2;
+	  a1ptr = marker_allele_ptrs[uii];
+	  a2ptr = marker_allele_ptrs[uii + 1];
+	  if (!require_same_ref) {
+	    // there should be too few duplicates for a hash table to make
+	    // sense here
+	    for (group_idx = 0; group_idx < group_ct; group_idx++) {
+	      uii = group_rep_uidx_list[group_idx] * 2;
+	      if (((!strcmp(a1ptr, marker_allele_ptrs[uii])) && (!strcmp(a2ptr, marker_allele_ptrs[uii + 1]))) || ((!strcmp(a2ptr, marker_allele_ptrs[uii])) && (!strcmp(a1ptr, marker_allele_ptrs[uii + 1])))) {
+		break;
+	      }
+	    }
+	  } else {
+	    for (group_idx = 0; group_idx < group_ct; group_idx++) {
+	      uii = group_rep_uidx_list[group_idx] * 2;
+	      if ((!strcmp(a1ptr, marker_allele_ptrs[uii])) && (!strcmp(a2ptr, marker_allele_ptrs[uii + 1]))) {
+		break;
+	      }
+	    }
+	  }
+	  if (group_idx == group_ct) {
+	    group_rep_uidx_list[group_ct] = uidx_list[item_idx];
+	    group_sizes[group_ct++] = 1;
+	  } else {
+	    group_sizes[group_idx] += 1;
+	  }
+	  group_idxs[item_idx] = group_idx;
+	}
+	if (group_ct < cur_batch_size) {
+	  // now identify equivalence classes
+	  write_offset = 0;
+	  duplicate_group_ct = 0;
+	  for (group_idx = 0; group_idx < group_ct; group_idx++) {
+	    if (group_sizes[group_idx] > 1) {
+	      uii = group_sizes[group_idx];
+	      group_sizes[group_idx] = write_offset;
+	      write_offset += uii;
+	      duplicate_group_ct++;
+	    } else {
+	      group_sizes[group_idx] = 0xffffffffU;
+	    }
+	  }
+	  for (item_idx = 0; item_idx < cur_batch_size; item_idx++) {
+	    uii = group_idxs[item_idx];
+	    ujj = group_sizes[uii];
+	    if (ujj != 0xffffffffU) {
+	      // actually a write offset
+	      group_write[ujj] = uidx_list[item_idx];
+	      group_sizes[uii] += 1;
+	    }
+	  }
+	  for (group_idx = 0; group_idx < group_ct; group_idx++) {
+	    if (group_sizes[group_idx] != 0xffffffffU) {
+	      // set high bit of last member of each group
+	      group_write[group_sizes[group_idx] - 1] |= 0x80000000U;
+	    }
+	  }
+	  if (suppress_first_id) {
+	    read_uiptr = group_write;
+	    write_uiptr = group_write;
+	    for (group_idx = 0; group_idx < duplicate_group_ct; group_idx++) {
+	      read_uiptr++;
+	      do {
+		uii = *read_uiptr++;
+		*write_uiptr++ = uii;
+	      } while (!(uii & 0x80000000U));
+	    }
+	    write_offset -= duplicate_group_ct;
+	  }
+	  if (!ids_only) {
+	    read_uiptr = group_write;
+	    for (group_idx = 0; group_idx < duplicate_group_ct; group_idx++) {
+	      wptr = uint32_writex(wptr_start, last_pos, '\t');
+	      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+		goto list_duplicate_vars_ret_WRITE_FAIL;
+	      }
+	      uii = *read_uiptr;
+	      ujj = uii & 0x7fffffff;
+	      a1ptr = marker_allele_ptrs[ujj * 2];
+	      a2ptr = marker_allele_ptrs[ujj * 2 + 1];
+	      if (!require_same_ref) {
+		// use ASCII order
+		if (strcmp(a1ptr, a2ptr) < 0) {
+		  fputs(a1ptr, outfile);
+		  putc(',', outfile);
+		  fputs(a2ptr, outfile);
+		} else {
+		  fputs(a2ptr, outfile);
+		  putc(',', outfile);
+		  fputs(a1ptr, outfile);
+		}
+	      } else {
+		fputs(a2ptr, outfile);
+		putc('\t', outfile);
+		fputs(a1ptr, outfile);
+	      }
+	      putc('\t', outfile);
+	      while (1) {
+		fputs(&(marker_ids[ujj * max_marker_id_len]), outfile);
+		read_uiptr++;
+		if (uii & 0x80000000U) {
+		  break;
+		}
+		putc(' ', outfile);
+		uii = *read_uiptr;
+		ujj = uii & 0x7fffffff;
+	      }
+	      if (putc_checked('\n', outfile)) {
+		goto list_duplicate_vars_ret_WRITE_FAIL;
+	      }
+	    }
+	  } else {
+	    group_write = &(group_write[write_offset]);
+	    // technically an underestimate, but we don't care
+	    max_batch_size = ((uintptr_t)(uidx_list_end - group_write)) / 5;
+	  }
+	}
+	if (marker_uidx == chrom_end) {
+	  break;
+	}
+      }
+      last_pos = next_pos;
+    }
+  }
+  if (ids_only && (group_write != group_list_start)) {
+    htable_entry_ct = (uintptr_t)(group_write - group_list_start);
+    group_list_start = (uint32_t*)wkspace_alloc(htable_entry_ct * sizeof(int32_t));
+    if (wkspace_alloc_ul_checked(&uniqueness_check_bitfield, unfiltered_marker_ctl * sizeof(intptr_t))) {
+      goto list_duplicate_vars_ret_NOMEM;
+    }
+    fill_all_bits(uniqueness_check_bitfield, unfiltered_marker_ct);
+    for (uii = 0; uii < htable_entry_ct; uii++) {
+      clear_bit(uniqueness_check_bitfield, (group_list_start[uii] & 0x7fffffff));
+    }
+    retval = alloc_and_populate_id_htable(unfiltered_marker_ct, uniqueness_check_bitfield, htable_entry_ct, marker_ids, max_marker_id_len, 0, &reported_id_htable, &reported_id_htable_size);
+    if (retval) {
+      goto list_duplicate_vars_ret_1;
+    }
+    bitfield_invert(uniqueness_check_bitfield, unfiltered_marker_ct);
+    bitfield_or(uniqueness_check_bitfield, marker_exclude, unfiltered_marker_ctl);
+    uniqueness_check_ct = marker_ct - htable_entry_ct;
+    for (marker_uidx2 = 0, marker_idx = 0; marker_idx < uniqueness_check_ct; marker_uidx2++, marker_idx++) {
+      next_unset_ul_unsafe_ck(uniqueness_check_bitfield, &marker_uidx2);
+      wptr = &(marker_ids[marker_uidx2 * max_marker_id_len]);
+      if (id_htable_find(wptr, strlen(wptr), reported_id_htable, reported_id_htable_size, marker_ids, max_marker_id_len) != 0xffffffffU) {
+        LOGPRINTFWW("Error: Duplicate ID '%s'.\n", wptr);
+	goto list_duplicate_vars_ret_INVALID_FORMAT;
+      }
+    }
+    read_uiptr = group_list_start;
+    do {
+      uii = *read_uiptr++;
+      fputs(&(marker_ids[(uii & 0x7fffffff) * max_marker_id_len]), outfile);
+      if (uii & 0x80000000U) {
+	if (putc_checked('\n', outfile)) {
+	  goto list_duplicate_vars_ret_WRITE_FAIL;
+	}
+      } else {
+	putc(' ', outfile);
+      }
+    } while (read_uiptr != group_write);
+  }
+  if (fclose_null(&outfile)) {
+    goto list_duplicate_vars_ret_WRITE_FAIL;
+  }
+  LOGPRINTFWW("--list-duplicate-vars report written to %s .\n", outname);
+  while (0) {
+  list_duplicate_vars_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  list_duplicate_vars_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  list_duplicate_vars_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  list_duplicate_vars_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ list_duplicate_vars_ret_1:
+  wkspace_reset(wkspace_mark);
+  fclose_cond(outfile);
+  return retval;
 }
 
 int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_sample_id_len, uintptr_t* founder_info, Chrom_info* chrom_info_ptr, double* set_allele_freqs) {
@@ -3702,7 +3981,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   uint32_t ploidy = 0;
   uint32_t max_rangename_len = 0;
   uint32_t rangename_len = 0;
-  uint32_t marker_id_htable_size = geqprime(marker_ct * 2 + 1);
+  uint32_t marker_id_htable_size = get_id_htable_size(marker_ct);
   int32_t retval = 0;
   double female_effect_size[4];
   int32_t female_allele_ct_delta[4];

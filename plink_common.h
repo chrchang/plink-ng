@@ -1660,10 +1660,14 @@ static inline uint32_t hashval2(char* idstr, uint32_t idlen) {
 
 uintptr_t geqprime(uintptr_t floor);
 
+static inline uint32_t get_id_htable_size(uintptr_t item_ct) {
+  return (item_ct < 32761)? 65521 : geqprime(item_ct * 2 + 1);
+}
+
 int32_t populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, const char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t* id_htable, uint32_t id_htable_size);
 
 static inline int32_t alloc_and_populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, const char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t** id_htable_ptr, uint32_t* id_htable_size_ptr) {
-  uint32_t id_htable_size = geqprime(item_ct * 2 + 1);
+  uint32_t id_htable_size = get_id_htable_size(item_ct);
   if (wkspace_alloc_ui_checked(id_htable_ptr, id_htable_size * sizeof(int32_t))) {
     return RET_NOMEM;
   }

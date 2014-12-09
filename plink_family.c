@@ -87,6 +87,7 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
   uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_sample_ctp1l = 1 + (unfiltered_sample_ct / BITCT);
   uintptr_t sample_uidx = next_unset_unsafe(sample_exclude, 0);
+  // does *not* use populate_id_htable
   uintptr_t htable_size = geqprime(2 * unfiltered_sample_ct + 1);
   uintptr_t topsize = 0;
   uintptr_t max_fid_len = 2;

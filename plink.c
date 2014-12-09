@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (8 Dec 2014) ";
+  " (9 Dec 2014) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -1524,6 +1524,10 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   }
 
   if (calculation_type & CALC_DUPVAR) {
+    if (map_is_unsorted & UNSORTED_BP) {
+      logprint("Error: --list-duplicate-vars requires a sorted .bim file.  Retry this command\nafter using --make-bed to sort your data.\n");
+      goto plink_ret_INVALID_FORMAT;
+    }
     retval = list_duplicate_vars(outname, outname_end, dupvar_modifier, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_pos, chrom_info_ptr, marker_allele_ptrs);
     if (retval) {
       goto plink_ret_1;
