@@ -379,8 +379,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 
     help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele\tlist\twith-reference\trecode-vcf\tfid\tiid\trecode-beagle\trecode-bimbam\trecode-fastphase\trecodeHV\trecodehv\trecode-structure", &help_ctrl, 1,
-"  --recode <01 | 12> <23 | A{-transpose} | AD | beagle | bimbam{-1chr} |\n"
-"           compound-genotypes | fastphase{-1chr} | HV{-1chr} | lgen{-ref} |\n"
+"  --recode <01 | 12> <23 | A{-transpose} | AD | beagle{-nomap} | bimbam{-1chr}\n"
+"           | compound-genotypes | fastphase{-1chr} | HV{-1chr} | lgen{-ref} |\n"
 "           list | oxford | rlist | structure | transpose | vcf | vcf-fid |\n"
 "           vcf-iid> <tab | tabx | spacex> <include-alt>\n"
 "    Create a new text fileset with all filters applied.  By default, the\n"
@@ -397,7 +397,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * The 'A-transpose' modifier causes a variant-major additive component file\n"
 "      to be generated.\n"
 "    * The 'beagle' modifier causes unphased per-autosome .dat and .map files,\n"
-"      readable by early BEAGLE versions, to be generated.\n"
+"      readable by early BEAGLE versions, to be generated, while 'beagle-nomap'\n"
+"      generates a single .beagle.dat file.\n"
 "    * The 'bimbam' modifier causes a BIMBAM-formatted fileset to be generated.\n"
 "      If your input data only contains one chromosome, you can use\n"
 "      'bimbam-1chr' instead to write a two-column .pos.txt file.\n"

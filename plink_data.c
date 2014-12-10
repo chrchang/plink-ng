@@ -11316,6 +11316,13 @@ int32_t recode_beagle_new_chrom(char* outname, char* outname_end2, uintptr_t* ma
       goto recode_beagle_new_chrom_ret_READ_FAIL;
     }
   }
+  *marker_uidx_ptr = marker_uidx;
+  *chrom_fo_idx_ptr = chrom_fo_idx;
+  *chrom_idx_ptr = chrom_idx;
+  *chrom_end_ptr = chrom_end;
+  if (!mapfile_ptr) {
+    return 0;
+  }
 
   wbufptr = chrom_name_write(outname_end2, chrom_info_ptr, chrom_idx);
   memcpy(wbufptr, ".dat", 5);
@@ -11332,10 +11339,6 @@ int32_t recode_beagle_new_chrom(char* outname, char* outname_end2, uintptr_t* ma
   *wbufptr = '\0';
   LOGPREPRINTFWW("%s.dat + %s.map created.\n", outname, outname);
   logstr(logbuf);
-  *marker_uidx_ptr = marker_uidx;
-  *chrom_fo_idx_ptr = chrom_fo_idx;
-  *chrom_idx_ptr = chrom_idx;
-  *chrom_end_ptr = chrom_end;
   while (0) {
   recode_beagle_new_chrom_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
@@ -11530,6 +11533,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   uintptr_t* sample_male_include2 = NULL;
   uint32_t lgen_ref = (recode_modifier & RECODE_LGEN_REF);
   uint32_t rlist = (recode_modifier & RECODE_RLIST);
+  uint32_t beagle_nomap = (recode_modifier & RECODE_BEAGLE_NOMAP);
   uint32_t vcf_not_fid = (recode_modifier & RECODE_VCF) && (!(recode_modifier & RECODE_FID));
   uint32_t vcf_not_iid = (recode_modifier & RECODE_VCF) && (!(recode_modifier & RECODE_IID));
   uint32_t vcf_two_ids = vcf_not_fid && vcf_not_iid;
@@ -11609,7 +11613,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     set_hh_missing = 0;
   }
   if (set_hh_missing || (recode_modifier & RECODE_VCF)) {
-    if (recode_modifier & (RECODE_23 | RECODE_A_TRANSPOSE | RECODE_BEAGLE | RECODE_BIMBAM | RECODE_BIMBAM_1CHR | RECODE_LGEN | RECODE_LGEN_REF | RECODE_LIST | RECODE_OXFORD | RECODE_RLIST | RECODE_TRANSPOSE | RECODE_VCF)) {
+    if (recode_modifier & (RECODE_23 | RECODE_A_TRANSPOSE | RECODE_BEAGLE | RECODE_BEAGLE_NOMAP | RECODE_BIMBAM | RECODE_BIMBAM_1CHR | RECODE_LGEN | RECODE_LGEN_REF | RECODE_LIST | RECODE_OXFORD | RECODE_RLIST | RECODE_TRANSPOSE | RECODE_VCF)) {
       // SNP-major and no need for sample_uidx in inner loop, so we can use
       // collapsed representation
       if (alloc_collapsed_haploid_filters(unfiltered_sample_ct, sample_ct, hh_exists | ((recode_modifier & RECODE_VCF)? XMHH_EXISTS : 0), 0, sample_exclude, sex_male, &sample_include2, &sample_male_include2)) {
@@ -11640,7 +11644,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     }
     max_marker_allele_len = 2;
   }
-  if (recode_modifier & (RECODE_A_TRANSPOSE | RECODE_BEAGLE | RECODE_BIMBAM | RECODE_BIMBAM_1CHR | RECODE_LGEN | RECODE_LGEN_REF | RECODE_LIST | RECODE_OXFORD | RECODE_RLIST | RECODE_TRANSPOSE | RECODE_VCF)) {
+  if (recode_modifier & (RECODE_A_TRANSPOSE | RECODE_BEAGLE | RECODE_BEAGLE_NOMAP | RECODE_BIMBAM | RECODE_BIMBAM_1CHR | RECODE_LGEN | RECODE_LGEN_REF | RECODE_LIST | RECODE_OXFORD | RECODE_RLIST | RECODE_TRANSPOSE | RECODE_VCF)) {
     if (wkspace_alloc_ul_checked(&loadbuf_collapsed, sample_ctv2 * sizeof(intptr_t))) {
       goto recode_ret_NOMEM;
     }
@@ -11664,7 +11668,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       goto recode_ret_NOMEM;
     }
     fill_uint_zero(missing_cts, sample_ct);
-  } else if (recode_modifier & RECODE_BEAGLE) {
+  } else if (recode_modifier & (RECODE_BEAGLE | RECODE_BEAGLE_NOMAP)) {
     // common header:
     // "P FID " + ... + "\n"
     // "I IID " + ... + "\n"
@@ -12023,7 +12027,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     }
   }
 
-  if (!(recode_modifier & (RECODE_A | RECODE_AD | RECODE_BEAGLE | RECODE_FASTPHASE | RECODE_FASTPHASE_1CHR | RECODE_LGEN | RECODE_LGEN_REF | RECODE_OXFORD | RECODE_VCF))) {
+  if (!(recode_modifier & (RECODE_A | RECODE_AD | RECODE_BEAGLE | RECODE_BEAGLE_NOMAP | RECODE_FASTPHASE | RECODE_FASTPHASE_1CHR | RECODE_LGEN | RECODE_LGEN_REF | RECODE_OXFORD | RECODE_VCF))) {
     if (wkspace_alloc_c_checked(&cur_mk_allelesx_buf, 8 * max_marker_allele_len)) {
       goto recode_ret_NOMEM;
     }
@@ -12632,7 +12636,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	goto recode_ret_WRITE_FAIL;
       }
     }
-  } else if (recode_modifier & RECODE_BEAGLE) {
+  } else if (recode_modifier & (RECODE_BEAGLE | RECODE_BEAGLE_NOMAP)) {
     // for backward compatibility, also exclude XY.  don't exclude custom name
     // chromosomes, though, since chromosome 0 was actually processed
     autosomal_marker_ct = marker_ct - count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
@@ -12643,16 +12647,30 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       logprint("Error: No autosomal variants for --recode beagle.\n");
       goto recode_ret_ALL_MARKERS_EXCLUDED;
     }
-    memcpy(outname_end, ".chr-", 6);
-    sprintf(logbuf, "--recode beagle to %s*.dat + %s*.map... ", outname, outname);
+    if (!beagle_nomap) {
+      memcpy(outname_end, ".chr-", 6);
+      sprintf(logbuf, "--recode beagle to %s*.dat + %s*.map... ", outname, outname);
+    } else {
+      memcpy(outname_end, ".beagle.dat", 12);
+      sprintf(logbuf, "--recode beagle to %s ... ", outname);
+    }
     wordwrap(logbuf, 5);
     fputs(logbuf, stdout);
     fputs("0%", stdout);
     fflush(stdout);
     marker_uidx = next_unset_unsafe(marker_exclude, 0);
-    retval = recode_beagle_new_chrom(outname, &(outname_end[5]), marker_exclude, chrom_info_ptr, &marker_uidx, &chrom_fo_idx, &chrom_idx, &chrom_end, bedfile, bed_offset, unfiltered_sample_ct4, &outfile, &outfile2, writebuf2, header_len);
+    retval = recode_beagle_new_chrom(outname, &(outname_end[5]), marker_exclude, chrom_info_ptr, &marker_uidx, &chrom_fo_idx, &chrom_idx, &chrom_end, bedfile, bed_offset, unfiltered_sample_ct4, &outfile, beagle_nomap? NULL : (&outfile2), writebuf2, header_len);
     if (retval) {
       goto recode_ret_1;
+    }
+    if (beagle_nomap) {
+      if (fopen_checked(&outfile, outname, "w")) {
+	goto recode_ret_OPEN_FAIL;
+      }
+      if (fwrite_checked(writebuf2, header_len, outfile)) {
+	goto recode_ret_WRITE_FAIL;
+      }
+      outfile2 = NULL;
     }
     for (pct = 1; pct <= 100; pct++) {
       loop_end = (((uint64_t)pct) * autosomal_marker_ct) / 100;
@@ -12664,11 +12682,13 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  }
 	}
         if (marker_uidx >= chrom_end) {
-	  if (fclose_null(&outfile) || fclose_null(&outfile2)) {
-	    goto recode_ret_WRITE_FAIL;
-	  }
 	  chrom_fo_idx++;
-          retval = recode_beagle_new_chrom(outname, &(outname_end[5]), marker_exclude, chrom_info_ptr, &marker_uidx, &chrom_fo_idx, &chrom_idx, &chrom_end, bedfile, bed_offset, unfiltered_sample_ct4, &outfile, &outfile2, writebuf2, header_len);
+	  if (outfile2) {
+	    if (fclose_null(&outfile) || fclose_null(&outfile2)) {
+	      goto recode_ret_WRITE_FAIL;
+	    }
+	  }
+	  retval = recode_beagle_new_chrom(outname, &(outname_end[5]), marker_exclude, chrom_info_ptr, &marker_uidx, &chrom_fo_idx, &chrom_idx, &chrom_end, bedfile, bed_offset, unfiltered_sample_ct4, &outfile, beagle_nomap? NULL : (&outfile2), writebuf2, header_len);
 	  if (retval) {
 	    goto recode_ret_1;
 	  }
@@ -12682,12 +12702,14 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	}
         fputs(cptr, outfile);
         putc(' ', outfile);
-	if (fputs_checked(cptr, outfile2)) {
-	  goto recode_ret_WRITE_FAIL;
+	if (outfile2) {
+	  if (fputs_checked(cptr, outfile2)) {
+	    goto recode_ret_WRITE_FAIL;
+	  }
+	  putc('\t', outfile2);
+	  wbufptr = uint32_writex(tbuf, marker_pos[marker_uidx], '\t');
+	  fwrite(tbuf, 1, wbufptr - tbuf, outfile2);
 	}
-	putc('\t', outfile2);
-        wbufptr = uint32_writex(tbuf, marker_pos[marker_uidx], '\t');
-	fwrite(tbuf, 1, wbufptr - tbuf, outfile2);
 	aptr = mk_allele_ptrs[2 * marker_uidx];
 	aptr2 = mk_allele_ptrs[2 * marker_uidx + 1];
 	alen = strlen(aptr);
@@ -12697,15 +12719,19 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	cmalen[0] = 2 * alen + 2;
 	wbufptr = memcpyax(&(cur_mk_allelesx[2][1]), aptr, alen, ' ');
 	memcpy(wbufptr, aptr2, alen2);
-	fputs(replace_if_zstr(aptr, "X"), outfile2);
-	putc('\t', outfile2);
-	fputs(replace_if_zstr(aptr2, "X"), outfile2);
+	if (outfile2) {
+	  fputs(replace_if_zstr(aptr, "X"), outfile2);
+	  putc('\t', outfile2);
+	  fputs(replace_if_zstr(aptr2, "X"), outfile2);
+	}
 	cmalen[2] = alen + alen2 + 2;
 	wbufptr = memcpyax(&(cur_mk_allelesx[3][1]), aptr2, alen2, ' ');
 	memcpy(wbufptr, aptr2, alen2);
 	cmalen[3] = 2 * alen2 + 2;
-	if (putc_checked('\n', outfile2)) {
-	  goto recode_ret_WRITE_FAIL;
+	if (outfile2) {
+	  if (putc_checked('\n', outfile2)) {
+	    goto recode_ret_WRITE_FAIL;
+	  }
 	}
 	ulptr = loadbuf_collapsed;
 	ulptr_end = &(loadbuf_collapsed[sample_ct / BITCT2]);
@@ -12737,8 +12763,10 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	fflush(stdout);
       }
     }
-    if (fclose_null(&outfile2)) {
-      goto recode_ret_WRITE_FAIL;
+    if (outfile2) {
+      if (fclose_null(&outfile2)) {
+	goto recode_ret_WRITE_FAIL;
+      }
     }
   } else if (recode_modifier & (RECODE_BIMBAM | RECODE_BIMBAM_1CHR)) {
     if (recode_modifier & RECODE_BIMBAM_1CHR) {
@@ -13654,7 +13682,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     }
   }
 
-  if (!(recode_modifier & (RECODE_TRANSPOSE | RECODE_23 | RECODE_A | RECODE_A_TRANSPOSE | RECODE_AD | RECODE_BEAGLE | RECODE_BIMBAM | RECODE_BIMBAM_1CHR | RECODE_FASTPHASE | RECODE_FASTPHASE_1CHR | RECODE_HV | RECODE_HV_1CHR | RECODE_LIST | RECODE_STRUCTURE | RECODE_VCF))) {
+  if (!(recode_modifier & (RECODE_TRANSPOSE | RECODE_23 | RECODE_A | RECODE_A_TRANSPOSE | RECODE_AD | RECODE_BEAGLE | RECODE_BEAGLE_NOMAP | RECODE_BIMBAM | RECODE_BIMBAM_1CHR | RECODE_FASTPHASE | RECODE_FASTPHASE_1CHR | RECODE_HV | RECODE_HV_1CHR | RECODE_LIST | RECODE_STRUCTURE | RECODE_VCF))) {
     strcpy(outname_end, ".map");
     retval = write_map_or_bim(outname, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_cms, marker_pos, NULL, ((recode_modifier & (RECODE_TAB | RECODE_DELIMX)) == RECODE_DELIMX)? ' ' : '\t', chrom_info_ptr);
     if (retval) {

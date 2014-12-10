@@ -10086,6 +10086,10 @@ int32_t main(int32_t argc, char** argv) {
 	    if (recode_type_set(&recode_modifier, RECODE_BEAGLE)) {
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
+	  } else if (!strcmp(argv[cur_arg + uii], "beagle-nomap")) {
+	    if (recode_type_set(&recode_modifier, RECODE_BEAGLE_NOMAP)) {
+	      goto main_ret_INVALID_CMDLINE_A;
+	    }
 	  } else if (!strcmp(argv[cur_arg + uii], "bimbam")) {
 	    if (recode_type_set(&recode_modifier, RECODE_BIMBAM)) {
 	      goto main_ret_INVALID_CMDLINE_A;
