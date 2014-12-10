@@ -12650,12 +12650,12 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     if (!beagle_nomap) {
       memcpy(outname_end, ".chr-", 6);
       sprintf(logbuf, "--recode beagle to %s*.dat + %s*.map... ", outname, outname);
+      wordwrap(logbuf, 5);
+      fputs(logbuf, stdout);
     } else {
       memcpy(outname_end, ".beagle.dat", 12);
-      sprintf(logbuf, "--recode beagle to %s ... ", outname);
+      LOGPRINTFWW5("--recode beagle to %s ... ", outname);
     }
-    wordwrap(logbuf, 5);
-    fputs(logbuf, stdout);
     fputs("0%", stdout);
     fflush(stdout);
     marker_uidx = next_unset_unsafe(marker_exclude, 0);
