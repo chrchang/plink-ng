@@ -1473,15 +1473,13 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       htable[uii] = NULL;
     }
     bufptr2 = memcpyb(outname_end, ".occur.dosage", 14);
-  } else {
+  } else if (!do_score) {
     if (format_val != 1) {
       if (wkspace_alloc_d_checked(&cur_dosages2, sample_ct * sizeof(double))) {
 	goto plink1_dosage_ret_NOMEM;
       }
     }
-    if (!do_score) {
-      bufptr2 = memcpyb(outname_end, ".out.dosage", 12);
-    }
+    bufptr2 = memcpyb(outname_end, ".out.dosage", 12);
   }
   if (output_gz) {
     memcpy(bufptr2, ".gz", 4);
