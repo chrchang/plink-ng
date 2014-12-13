@@ -10284,7 +10284,8 @@ void set_test_score(uintptr_t marker_ct, double chisq_threshold, uint32_t set_ma
 int32_t set_test_common_init(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, double* orig_chisq, Set_info* sip, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* sex_male, uintptr_t* founder_pnm, uint32_t ld_ignore_x, uint32_t hh_exists, const char* flag_descrip, uintptr_t* marker_ct_ptr, uintptr_t** marker_exclude_ptr, uintptr_t** set_incl_ptr, uint32_t** marker_idx_to_uidx_ptr, uint32_t*** setdefs_ptr, uintptr_t* set_ct_ptr, uint32_t* max_sigset_size_ptr, uint32_t*** ld_map_ptr, double* chisq_threshold_ptr, double** orig_set_scores_ptr, double** sorted_chisq_buf_ptr, uint32_t** sorted_marker_idx_buf_ptr, uint32_t** proxy_arr_ptr, uintptr_t** perm_adapt_set_unstopped_ptr, uint32_t** perm_2success_ct_ptr, uint32_t** perm_attempt_ct_ptr, uintptr_t** unstopped_markers_ptr) {
   // Assumes *marker_ct_ptr has value marker_ct_mid, and marker_exclude_ptr
   // initially points to marker_exclude_mid.
-  // Side effect: allocates set_incl, marker_idx_to_uidx, ld_map on stack
+  // Side effect: allocates set_incl, marker_idx_to_uidx, ld_map, and several
+  // other arrays on stack
   uintptr_t marker_ct_mid = *marker_ct_ptr;
   uintptr_t marker_ct = marker_ct_mid;
   uintptr_t raw_set_ct = sip->ct;

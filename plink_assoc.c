@@ -1,3 +1,4 @@
+
 #include "plink_common.h"
 
 #include "plink_assoc.h"
@@ -543,7 +544,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
     }
   }
   fputs("\b\b\b", stdout);
-  LOGPRINTFWW("--adjust values (%" PRIuPTR " %s%s) written to %s .\n", chi_ct, is_set_test? "set" : "variant", (chi_ct == 1)? "" : "s", outname);
+  LOGPRINTFWW("--adjust values (%" PRIuPTR " %s%s) written to %s .\n", chi_ct, is_set_test? "nonempty set" : "variant", (chi_ct == 1)? "" : "s", outname);
 
   while (0) {
   multcomp_ret_NOMEM:
@@ -6448,6 +6449,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uintptr_t* loadbuf = g_loadbuf;
   uintptr_t* sample_male_include2 = g_sample_male_include2;
   uintptr_t* perm_adapt_set_unstopped = NULL;
+  uintptr_t* nonempty_set_incl = NULL;
   char* tbuf2 = &(tbuf[MAXLINELEN]);
   double* orig_chisq = g_orig_chisq;
   double* sorted_chisq_buf = NULL;
@@ -6457,6 +6459,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uint32_t* proxy_arr = NULL;
   uint32_t* perm_2success_ct = NULL;
   uint32_t* perm_attempt_ct = NULL;
+  uint32_t* nonempty_set_idx_to_uidx = NULL;
   uintptr_t pheno_nm_ctv2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
   uintptr_t marker_ct = marker_ct_mid;
   uintptr_t raw_set_ct = sip->ct;
@@ -6464,11 +6467,13 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uintptr_t final_mask = get_final_mask(pheno_nm_ct);
   uintptr_t ulii = 0;
   double adaptive_ci_zt = 0.0;
+  uint32_t raw_set_ctl = (raw_set_ct + (BITCT - 1)) / BITCT;
   uint32_t model_assoc = model_modifier & MODEL_ASSOC;
   uint32_t perm_count = model_modifier & MODEL_PERM_COUNT;
   uint32_t model_perm_best = !(model_modifier & MODEL_PMASK);
   uint32_t max_thread_ct = g_thread_ct;
   uint32_t perms_done = 0;
+  uint32_t nonempty_set_ct = 0;
   int32_t x_code = chrom_info_ptr->x_code;
   int32_t retval = 0;
   uintptr_t* set_incl;
@@ -6482,7 +6487,6 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   char* bufptr;
   uint32_t** setdefs;
   uint32_t** ld_map;
-  uint32_t* set_idx_to_uidx;
   uintptr_t marker_uidx;
   uintptr_t marker_midx;
   uintptr_t marker_idx;
@@ -6513,6 +6517,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uint32_t raw_sig_ct;
   uint32_t final_sig_ct;
   uint32_t marker_bidx;
+  uint32_t set_midx;
   uint32_t uii;
   if (sip->set_test_lambda > 1.0) {
     dxx = 1.0 / sip->set_test_lambda;
@@ -6772,9 +6777,21 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   putchar('\r');
   LOGPRINTF("%u permutation%s complete.\n", perms_done, (perms_done != 1)? "s" : "");
   if (set_ct && mtest_adjust) {
-    if (wkspace_alloc_d_checked(&empirical_pvals, set_ct * sizeof(double))) {
+    if (wkspace_alloc_ul_checked(&nonempty_set_incl, raw_set_ctl * sizeof(intptr_t))) {
       goto model_assoc_set_test_ret_NOMEM;
     }
+    fill_ulong_zero(nonempty_set_incl, raw_set_ctl);
+    for (set_uidx = 0; set_uidx < raw_set_ct; set_uidx++) {
+      if (sip->setdefs[set_uidx][0]) {
+	set_bit(nonempty_set_incl, set_uidx);
+	nonempty_set_ct++;
+      }
+    }
+    if (wkspace_alloc_d_checked(&empirical_pvals, nonempty_set_ct * sizeof(double)) ||
+        wkspace_alloc_ui_checked(&nonempty_set_idx_to_uidx, nonempty_set_ct * sizeof(int32_t))) {
+      goto model_assoc_set_test_ret_NOMEM;
+    }
+    fill_idx_to_uidx_incl(nonempty_set_incl, raw_set_ct, nonempty_set_ct, nonempty_set_idx_to_uidx);
   }
  model_assoc_set_test_write:
   if (model_modifier & MODEL_PERM) {
@@ -6786,7 +6803,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
     goto model_assoc_set_test_ret_OPEN_FAIL;
   }
   fprintf(outfile, "         SET   NSNP   NSIG   ISIG         EMP1 %sSNPS\n", perm_count? "          NP " : "");
-  for (set_uidx = 0, set_idx = 0; set_uidx < raw_set_ct; set_uidx++) {
+  for (set_uidx = 0, set_midx = 0, set_idx = 0; set_uidx < raw_set_ct; set_uidx++) {
     bufptr = fw_strcpy(12, &(sip->names[set_uidx * max_set_id_len]), tbuf);
     *bufptr++ = ' ';
     bufptr = uint32_writew6x(bufptr, setdef_size(sip->setdefs[set_uidx], marker_ct_orig), ' ');
@@ -6796,7 +6813,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
       bufptr = uint32_writew6x(bufptr, final_sig_ct, ' ');
       pval = ((double)(perm_2success_ct[set_idx] + 2)) / ((double)(2 * (perm_attempt_ct[set_idx] + 1)));
       if (empirical_pvals) {
-	empirical_pvals[set_idx] = pval;
+	empirical_pvals[set_midx] = pval;
       }
       if (pval <= pfilter) {
 	if (!perm_count) {
@@ -6820,6 +6837,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
 	  goto model_assoc_set_test_ret_WRITE_FAIL;
 	}
       }
+      set_midx++;
       set_idx++;
     } else {
       if (!perm_count) {
@@ -6830,6 +6848,10 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
       if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
 	goto model_assoc_set_test_ret_WRITE_FAIL;
       }
+      if (nonempty_set_incl && is_set(nonempty_set_incl, set_uidx)) {
+	empirical_pvals[set_midx] = 1.0;
+	set_midx++;
+      }
     }
   }
   if (fclose_null(&outfile)) {
@@ -6837,12 +6859,8 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   }
   LOGPRINTFWW("Set test results written to %s .\n", outname);
   if (empirical_pvals) {
-    if (wkspace_alloc_ui_checked(&set_idx_to_uidx, set_ct * sizeof(int32_t))) {
-      goto model_assoc_set_test_ret_NOMEM;
-    }
-    fill_idx_to_uidx_incl(set_incl, raw_set_ct, set_ct, set_idx_to_uidx);
     outname_end2[4] = '\0'; // .set.adjusted instead of .set.mperm.adjusted
-    retval = multcomp(outname, &(outname_end2[4]), set_idx_to_uidx, set_ct, sip->names, max_set_id_len, 0, NULL, NULL, pfilter, output_min_p, mtest_adjust, 1, 0.0, NULL, empirical_pvals);
+    retval = multcomp(outname, &(outname_end2[4]), nonempty_set_idx_to_uidx, nonempty_set_ct, sip->names, max_set_id_len, 0, NULL, NULL, pfilter, output_min_p, mtest_adjust, 1, 0.0, NULL, empirical_pvals);
   }
   while (0) {
   model_assoc_set_test_ret_NOMEM:

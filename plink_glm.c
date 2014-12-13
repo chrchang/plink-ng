@@ -4643,6 +4643,10 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   uint32_t perm_pass_idx = 0;
   uint32_t perm_fail_ct = 0;
   uint32_t pct = 0;
+  // not useful to have more than 2 threads due to memory bus bottleneck?  need
+  // to test this, and some other multithreaded routines, on quad-core system.
+  // if this value is changed, glm_linear_assoc_set_test value also needs to be
+  // changed.
   uint32_t max_thread_ct = g_thread_ct;
   uint32_t hh_or_mt_exists = hh_exists;
   int32_t retval = 0;
