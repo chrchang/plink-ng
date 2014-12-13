@@ -134,6 +134,8 @@ int32_t set_test_common_init(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
 
 void compute_set_scores(uintptr_t marker_ct, uintptr_t perm_vec_ct, uintptr_t set_ct, double* chisq_matrix, double* orig_set_scores, double* sorted_chisq_buf, uint32_t* sorted_marker_idx_buf, uint32_t* proxy_arr, uint32_t** setdefs, uint32_t** ld_map, Aperm_info* apip, double chisq_threshold, double adaptive_ci_zt, uint32_t first_adapt_check, uint32_t perms_done, uint32_t set_max, uintptr_t* perm_adapt_set_unstopped, uint32_t* perm_2success_ct, uint32_t* perm_attempt_ct);
 
+int32_t write_set_test_results(char* outname, char* outname_end2, Set_info* sip, uint32_t** ld_map, uint32_t** setdefs, uintptr_t* set_incl, uintptr_t set_ct, uintptr_t marker_ct_orig, uintptr_t marker_ct, uint32_t* marker_idx_to_uidx, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* perm_2success_ct, uint32_t* perm_attempt_ct, uint32_t mtest_adjust, uint32_t perm_count, double pfilter, double output_min_p, double chisq_threshold, double* orig_stats, double* sorted_chisq_buf, uint32_t* sorted_marker_idx_buf, uint32_t* proxy_arr);
+
 int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* founder_info, Clump_info* clump_ip, uintptr_t* sex_male, uint32_t hh_exists);
 
 #endif // __PLINK_LD_H__

@@ -4228,23 +4228,19 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t cur_param_ct = 0;
-  FILE* outfile = NULL;
   uintptr_t* marker_exclude = marker_exclude_mid;
   uintptr_t* unstopped_markers = NULL;
   uintptr_t* loadbuf = g_loadbuf;
   uintptr_t* perm_adapt_set_unstopped = NULL;
   double* orig_stats = g_orig_stats;
   double* sorted_chisq_buf = NULL;
-  double* empirical_pvals = NULL;
   uint32_t* marker_idx_to_uidx = NULL;
   uint32_t* sorted_marker_idx_buf = NULL;
   uint32_t* proxy_arr = NULL;
   uint32_t* perm_2success_ct = NULL;
   uint32_t* perm_attempt_ct = NULL;
   uintptr_t marker_ct = marker_ct_mid;
-  uintptr_t raw_set_ct = sip->ct;
   uintptr_t set_ct = 0;
-  uintptr_t max_set_id_len = sip->max_name_len;
   uintptr_t final_mask = get_final_mask(pheno_nm_ct);
   uintptr_t sample_valid_ctv2 = 2 * ((sample_valid_ct + BITCT - 1) / BITCT);
   double adaptive_ci_zt = 0.0;
@@ -4259,20 +4255,15 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
   double* chisq_pmajor;
   double* read_dptr;
   double* write_dptr;
-  char* bufptr;
   uint32_t** setdefs;
   uint32_t** ld_map;
-  uint32_t* set_idx_to_uidx;
   uintptr_t marker_ctl;
   uintptr_t marker_midx;
-  uintptr_t set_uidx;
   uintptr_t set_idx;
   uintptr_t perm_vec_ct;
   uintptr_t pidx;
   uintptr_t ulii;
   double chisq_threshold;
-  double cur_score;
-  double pval;
   double dxx;
   double dyy;
   uint32_t perms_total;
@@ -4288,8 +4279,6 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
   uint32_t marker_idx2;
   uint32_t marker_bidx;
   uint32_t skip_ct;
-  uint32_t raw_sig_ct;
-  uint32_t final_sig_ct;
   uint32_t uii;
   if (sip->set_test_lambda > 1.0) {
     dxx = 1.0 / sip->set_test_lambda;
@@ -4518,90 +4507,19 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
  glm_linear_assoc_set_test_perms_done:
   putchar('\r');
   LOGPRINTF("%u permutation%s complete.\n", perms_done, (perms_done != 1)? "s" : "");
-  if (set_ct && mtest_adjust) {
-    if (wkspace_alloc_d_checked(&empirical_pvals, set_ct * sizeof(double))) {
-      goto glm_linear_assoc_set_test_ret_NOMEM;
-    }
-  }
  glm_linear_assoc_set_test_write:
   if (glm_modifier & GLM_PERM) {
     memcpy(outname_end, ".assoc.linear.set.perm", 23);
   } else {
     memcpy(outname_end, ".assoc.linear.set.mperm", 24);
   }
-  if (fopen_checked(&outfile, outname, "w")) {
-    goto glm_linear_assoc_set_test_ret_OPEN_FAIL;
-  }
-  fprintf(outfile, "         SET   NSNP   NSIG   ISIG         EMP1 %sSNPS\n", perm_count? "          NP " : "");
-  for (set_uidx = 0, set_idx = 0; set_uidx < raw_set_ct; set_uidx++) {
-    bufptr = fw_strcpy(12, &(sip->names[set_uidx * max_set_id_len]), tbuf);
-    *bufptr++ = ' ';
-    bufptr = uint32_writew6x(bufptr, setdef_size(sip->setdefs[set_uidx], marker_ct_orig), ' ');
-    if (IS_SET(set_incl, set_uidx)) {
-      set_test_score(marker_ct, chisq_threshold, sip->set_max, orig_stats, ld_map, setdefs[set_idx], sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, &raw_sig_ct, &final_sig_ct, &cur_score);
-      bufptr = uint32_writew6x(bufptr, raw_sig_ct, ' ');
-      bufptr = uint32_writew6x(bufptr, final_sig_ct, ' ');
-      pval = ((double)(perm_2success_ct[set_idx] + 2)) / ((double)(2 * (perm_attempt_ct[set_idx] + 1)));
-      if (empirical_pvals) {
-	empirical_pvals[set_idx] = pval;
-      }
-      if (pval <= pfilter) {
-	if (!perm_count) {
-	  bufptr = double_g_writewx4x(bufptr, MAXV(pval, output_min_p), 12, ' ');
-	} else {
-	  bufptr = double_g_writewx4(bufptr, ((double)perm_2success_ct[set_idx]) * 0.5, 12);
-	  bufptr = memseta(bufptr, 32, 3);
-	  bufptr = uint32_writew10x(bufptr, perm_attempt_ct[set_idx], ' ');
-	}
-	if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
-	  goto glm_linear_assoc_set_test_ret_WRITE_FAIL;
-	}
-	fputs(&(marker_ids[marker_idx_to_uidx[proxy_arr[0]] * max_marker_id_len]), outfile);
-	for (uii = 1; uii < final_sig_ct; uii++) {
-	  putc('|', outfile);
-	  fputs(&(marker_ids[marker_idx_to_uidx[proxy_arr[uii]] * max_marker_id_len]), outfile);
-	}
-	if (putc_checked('\n', outfile)) {
-	  goto glm_linear_assoc_set_test_ret_WRITE_FAIL;
-	}
-      }
-      set_idx++;
-    } else {
-      if (!perm_count) {
-        bufptr = memcpya(bufptr, "     0      0            1 NA\n", 30);
-      } else {
-        bufptr = memcpya(bufptr, "     0      0            0            0 NA\n", 43);
-      }
-      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
-	goto glm_linear_assoc_set_test_ret_WRITE_FAIL;
-      }
-    }
-  }
-  if (fclose_null(&outfile)) {
-    goto glm_linear_assoc_set_test_ret_WRITE_FAIL;
-  }
-  LOGPRINTFWW("Set test results written to %s .\n", outname);
-  if (empirical_pvals) {
-    if (wkspace_alloc_ui_checked(&set_idx_to_uidx, set_ct * sizeof(int32_t))) {
-      goto glm_linear_assoc_set_test_ret_NOMEM;
-    }
-    fill_idx_to_uidx_incl(set_incl, raw_set_ct, set_ct, set_idx_to_uidx);
-    // .assoc.linear.set.adjusted instead of .set.mperm.adjusted
-    outname_end[17] = '\0';
-    retval = multcomp(outname, &(outname_end[17]), set_idx_to_uidx, set_ct, sip->names, max_set_id_len, 0, NULL, NULL, pfilter, output_min_p, mtest_adjust, 1, 0.0, NULL, empirical_pvals);
-  }
+  retval = write_set_test_results(outname, &(outname_end[17]), sip, ld_map, setdefs, set_incl, set_ct, marker_ct_orig, marker_ct, marker_idx_to_uidx, marker_ids, max_marker_id_len, perm_2success_ct, perm_attempt_ct, mtest_adjust, perm_count, pfilter, output_min_p, chisq_threshold, orig_stats, sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr);
   while (0) {
   glm_linear_assoc_set_test_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  glm_linear_assoc_set_test_ret_OPEN_FAIL:
-    retval = RET_OPEN_FAIL;
-    break;
   glm_linear_assoc_set_test_ret_READ_FAIL:
     retval = RET_READ_FAIL;
-    break;
-  glm_linear_assoc_set_test_ret_WRITE_FAIL:
-    retval = RET_WRITE_FAIL;
     break;
   glm_linear_assoc_set_test_ret_THREAD_CREATE_FAIL:
     retval = RET_THREAD_CREATE_FAIL;
@@ -4609,7 +4527,6 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
   }
  glm_linear_assoc_set_test_ret_1:
   wkspace_reset(wkspace_mark);
-  fclose_cond(outfile);
   return retval;
 }
 
@@ -5867,23 +5784,19 @@ int32_t glm_logistic_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t cur_param_ct = 0;
-  FILE* outfile = NULL;
   uintptr_t* marker_exclude = marker_exclude_mid;
   uintptr_t* unstopped_markers = NULL;
   uintptr_t* loadbuf = g_loadbuf;
   uintptr_t* perm_adapt_set_unstopped = NULL;
   double* orig_stats = g_orig_stats;
   double* sorted_chisq_buf = NULL;
-  double* empirical_pvals = NULL;
   uint32_t* marker_idx_to_uidx = NULL;
   uint32_t* sorted_marker_idx_buf = NULL;
   uint32_t* proxy_arr = NULL;
   uint32_t* perm_2success_ct = NULL;
   uint32_t* perm_attempt_ct = NULL;
   uintptr_t marker_ct = marker_ct_mid;
-  uintptr_t raw_set_ct = sip->ct;
   uintptr_t set_ct = 0;
-  uintptr_t max_set_id_len = sip->max_name_len;
   uintptr_t final_mask = get_final_mask(pheno_nm_ct);
   uintptr_t sample_valid_ctv2 = 2 * ((sample_valid_ct + BITCT - 1) / BITCT);
   double adaptive_ci_zt = 0.0;
@@ -5898,20 +5811,15 @@ int32_t glm_logistic_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t
   double* chisq_pmajor;
   double* read_dptr;
   double* write_dptr;
-  char* bufptr;
   uint32_t** setdefs;
   uint32_t** ld_map;
-  uint32_t* set_idx_to_uidx;
   uintptr_t marker_ctl;
   uintptr_t marker_midx;
-  uintptr_t set_uidx;
   uintptr_t set_idx;
   uintptr_t perm_vec_ct;
   uintptr_t pidx;
   uintptr_t ulii;
   double chisq_threshold;
-  double cur_score;
-  double pval;
   double dxx;
   uint32_t perms_total;
   uint32_t max_sigset_size;
@@ -5926,8 +5834,6 @@ int32_t glm_logistic_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t
   uint32_t marker_idx2;
   uint32_t marker_bidx;
   uint32_t skip_ct;
-  uint32_t raw_sig_ct;
-  uint32_t final_sig_ct;
   uint32_t uii;
   if (sip->set_test_lambda > 1.0) {
     dxx = 1.0 / sip->set_test_lambda;
@@ -6133,90 +6039,19 @@ int32_t glm_logistic_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t
  glm_logistic_assoc_set_test_perms_done:
   putchar('\r');
   LOGPRINTF("%u permutation%s complete.\n", perms_done, (perms_done != 1)? "s" : "");
-  if (set_ct && mtest_adjust) {
-    if (wkspace_alloc_d_checked(&empirical_pvals, set_ct * sizeof(double))) {
-      goto glm_logistic_assoc_set_test_ret_NOMEM;
-    }
-  }
  glm_logistic_assoc_set_test_write:
   if (glm_modifier & GLM_PERM) {
     memcpy(outname_end, ".assoc.logistic.set.perm", 25);
   } else {
     memcpy(outname_end, ".assoc.logistic.set.mperm", 26);
   }
-  if (fopen_checked(&outfile, outname, "w")) {
-    goto glm_logistic_assoc_set_test_ret_OPEN_FAIL;
-  }
-  fprintf(outfile, "         SET   NSNP   NSIG   ISIG         EMP1 %sSNPS\n", perm_count? "          NP " : "");
-  for (set_uidx = 0, set_idx = 0; set_uidx < raw_set_ct; set_uidx++) {
-    bufptr = fw_strcpy(12, &(sip->names[set_uidx * max_set_id_len]), tbuf);
-    *bufptr++ = ' ';
-    bufptr = uint32_writew6x(bufptr, setdef_size(sip->setdefs[set_uidx], marker_ct_orig), ' ');
-    if (IS_SET(set_incl, set_uidx)) {
-      set_test_score(marker_ct, chisq_threshold, sip->set_max, orig_stats, ld_map, setdefs[set_idx], sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, &raw_sig_ct, &final_sig_ct, &cur_score);
-      bufptr = uint32_writew6x(bufptr, raw_sig_ct, ' ');
-      bufptr = uint32_writew6x(bufptr, final_sig_ct, ' ');
-      pval = ((double)(perm_2success_ct[set_idx] + 2)) / ((double)(2 * (perm_attempt_ct[set_idx] + 1)));
-      if (empirical_pvals) {
-	empirical_pvals[set_idx] = pval;
-      }
-      if (pval <= pfilter) {
-	if (!perm_count) {
-	  bufptr = double_g_writewx4x(bufptr, MAXV(pval, output_min_p), 12, ' ');
-	} else {
-	  bufptr = double_g_writewx4(bufptr, ((double)perm_2success_ct[set_idx]) * 0.5, 12);
-	  bufptr = memseta(bufptr, 32, 3);
-	  bufptr = uint32_writew10x(bufptr, perm_attempt_ct[set_idx], ' ');
-	}
-	if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
-	  goto glm_logistic_assoc_set_test_ret_WRITE_FAIL;
-	}
-	fputs(&(marker_ids[marker_idx_to_uidx[proxy_arr[0]] * max_marker_id_len]), outfile);
-	for (uii = 1; uii < final_sig_ct; uii++) {
-	  putc('|', outfile);
-	  fputs(&(marker_ids[marker_idx_to_uidx[proxy_arr[uii]] * max_marker_id_len]), outfile);
-	}
-	if (putc_checked('\n', outfile)) {
-	  goto glm_logistic_assoc_set_test_ret_WRITE_FAIL;
-	}
-      }
-      set_idx++;
-    } else {
-      if (!perm_count) {
-        bufptr = memcpya(bufptr, "     0      0            1 NA\n", 30);
-      } else {
-        bufptr = memcpya(bufptr, "     0      0            0            0 NA\n", 43);
-      }
-      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
-	goto glm_logistic_assoc_set_test_ret_WRITE_FAIL;
-      }
-    }
-  }
-  if (fclose_null(&outfile)) {
-    goto glm_logistic_assoc_set_test_ret_WRITE_FAIL;
-  }
-  LOGPRINTFWW("Set test results written to %s .\n", outname);
-  if (empirical_pvals) {
-    if (wkspace_alloc_ui_checked(&set_idx_to_uidx, set_ct * sizeof(int32_t))) {
-      goto glm_logistic_assoc_set_test_ret_NOMEM;
-    }
-    fill_idx_to_uidx_incl(set_incl, raw_set_ct, set_ct, set_idx_to_uidx);
-    // .assoc.logistic.set.adjusted instead of .set.mperm.adjusted
-    outname_end[19] = '\0';
-    retval = multcomp(outname, &(outname_end[19]), set_idx_to_uidx, set_ct, sip->names, max_set_id_len, 0, NULL, NULL, pfilter, output_min_p, mtest_adjust, 1, 0.0, NULL, empirical_pvals);
-  }
+  retval = write_set_test_results(outname, &(outname_end[19]), sip, ld_map, setdefs, set_incl, set_ct, marker_ct_orig, marker_ct, marker_idx_to_uidx, marker_ids, max_marker_id_len, perm_2success_ct, perm_attempt_ct, mtest_adjust, perm_count, pfilter, output_min_p, chisq_threshold, orig_stats, sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr);
   while (0) {
   glm_logistic_assoc_set_test_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  glm_logistic_assoc_set_test_ret_OPEN_FAIL:
-    retval = RET_OPEN_FAIL;
-    break;
   glm_logistic_assoc_set_test_ret_READ_FAIL:
     retval = RET_READ_FAIL;
-    break;
-  glm_logistic_assoc_set_test_ret_WRITE_FAIL:
-    retval = RET_WRITE_FAIL;
     break;
   glm_logistic_assoc_set_test_ret_THREAD_CREATE_FAIL:
     retval = RET_THREAD_CREATE_FAIL;
@@ -6224,7 +6059,6 @@ int32_t glm_logistic_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t
   }
  glm_logistic_assoc_set_test_ret_1:
   wkspace_reset(wkspace_mark);
-  fclose_cond(outfile);
   return retval;
 }
 

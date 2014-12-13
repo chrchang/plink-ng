@@ -6443,37 +6443,29 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   //    marker_exclude.
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  FILE* outfile = NULL;
   uintptr_t* marker_exclude = marker_exclude_mid;
   uintptr_t* unstopped_markers = NULL;
   uintptr_t* loadbuf = g_loadbuf;
   uintptr_t* sample_male_include2 = g_sample_male_include2;
   uintptr_t* perm_adapt_set_unstopped = NULL;
-  uintptr_t* nonempty_set_incl = NULL;
   char* tbuf2 = &(tbuf[MAXLINELEN]);
   double* orig_chisq = g_orig_chisq;
   double* sorted_chisq_buf = NULL;
-  double* empirical_pvals = NULL;
   uint32_t* marker_idx_to_uidx = NULL;
   uint32_t* sorted_marker_idx_buf = NULL;
   uint32_t* proxy_arr = NULL;
   uint32_t* perm_2success_ct = NULL;
   uint32_t* perm_attempt_ct = NULL;
-  uint32_t* nonempty_set_idx_to_uidx = NULL;
   uintptr_t pheno_nm_ctv2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
   uintptr_t marker_ct = marker_ct_mid;
-  uintptr_t raw_set_ct = sip->ct;
-  uintptr_t max_set_id_len = sip->max_name_len;
   uintptr_t final_mask = get_final_mask(pheno_nm_ct);
   uintptr_t ulii = 0;
   double adaptive_ci_zt = 0.0;
-  uint32_t raw_set_ctl = (raw_set_ct + (BITCT - 1)) / BITCT;
   uint32_t model_assoc = model_modifier & MODEL_ASSOC;
   uint32_t perm_count = model_modifier & MODEL_PERM_COUNT;
   uint32_t model_perm_best = !(model_modifier & MODEL_PMASK);
   uint32_t max_thread_ct = g_thread_ct;
   uint32_t perms_done = 0;
-  uint32_t nonempty_set_ct = 0;
   int32_t x_code = chrom_info_ptr->x_code;
   int32_t retval = 0;
   uintptr_t* set_incl;
@@ -6484,7 +6476,6 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   double* read_dptr;
   double* write_dptr;
   unsigned char* wkspace_mark2;
-  char* bufptr;
   uint32_t** setdefs;
   uint32_t** ld_map;
   uintptr_t marker_uidx;
@@ -6492,14 +6483,11 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uintptr_t marker_idx;
   uintptr_t marker_idx2;
   uintptr_t set_ct;
-  uintptr_t set_uidx;
   uintptr_t set_idx;
   uintptr_t perm_vec_ct;
   uintptr_t perm_vec_ctcl4m;
   uintptr_t pidx;
   double chisq_threshold;
-  double cur_score;
-  double pval;
   double dxx;
   uint32_t perms_total;
   uint32_t block_size;
@@ -6514,10 +6502,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uint32_t is_last_block;
   uint32_t first_adapt_check;
   uint32_t max_sigset_size;
-  uint32_t raw_sig_ct;
-  uint32_t final_sig_ct;
   uint32_t marker_bidx;
-  uint32_t set_midx;
   uint32_t uii;
   if (sip->set_test_lambda > 1.0) {
     dxx = 1.0 / sip->set_test_lambda;
@@ -6776,104 +6761,19 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
  model_assoc_set_test_perms_done:
   putchar('\r');
   LOGPRINTF("%u permutation%s complete.\n", perms_done, (perms_done != 1)? "s" : "");
-  if (set_ct && mtest_adjust) {
-    if (wkspace_alloc_ul_checked(&nonempty_set_incl, raw_set_ctl * sizeof(intptr_t))) {
-      goto model_assoc_set_test_ret_NOMEM;
-    }
-    fill_ulong_zero(nonempty_set_incl, raw_set_ctl);
-    for (set_uidx = 0; set_uidx < raw_set_ct; set_uidx++) {
-      if (sip->setdefs[set_uidx][0]) {
-	set_bit(nonempty_set_incl, set_uidx);
-	nonempty_set_ct++;
-      }
-    }
-    if (wkspace_alloc_d_checked(&empirical_pvals, nonempty_set_ct * sizeof(double)) ||
-        wkspace_alloc_ui_checked(&nonempty_set_idx_to_uidx, nonempty_set_ct * sizeof(int32_t))) {
-      goto model_assoc_set_test_ret_NOMEM;
-    }
-    fill_idx_to_uidx_incl(nonempty_set_incl, raw_set_ct, nonempty_set_ct, nonempty_set_idx_to_uidx);
-  }
  model_assoc_set_test_write:
   if (model_modifier & MODEL_PERM) {
     memcpy(outname_end2, ".set.perm", 10);
   } else {
     memcpy(outname_end2, ".set.mperm", 11);
   }
-  if (fopen_checked(&outfile, outname, "w")) {
-    goto model_assoc_set_test_ret_OPEN_FAIL;
-  }
-  fprintf(outfile, "         SET   NSNP   NSIG   ISIG         EMP1 %sSNPS\n", perm_count? "          NP " : "");
-  for (set_uidx = 0, set_midx = 0, set_idx = 0; set_uidx < raw_set_ct; set_uidx++) {
-    bufptr = fw_strcpy(12, &(sip->names[set_uidx * max_set_id_len]), tbuf);
-    *bufptr++ = ' ';
-    bufptr = uint32_writew6x(bufptr, setdef_size(sip->setdefs[set_uidx], marker_ct_orig), ' ');
-    if (IS_SET(set_incl, set_uidx)) {
-      set_test_score(marker_ct, chisq_threshold, sip->set_max, orig_chisq, ld_map, setdefs[set_idx], sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, &raw_sig_ct, &final_sig_ct, &cur_score);
-      bufptr = uint32_writew6x(bufptr, raw_sig_ct, ' ');
-      bufptr = uint32_writew6x(bufptr, final_sig_ct, ' ');
-      pval = ((double)(perm_2success_ct[set_idx] + 2)) / ((double)(2 * (perm_attempt_ct[set_idx] + 1)));
-      if (empirical_pvals) {
-	empirical_pvals[set_midx] = pval;
-      }
-      if (pval <= pfilter) {
-	if (!perm_count) {
-	  bufptr = double_g_writewx4x(bufptr, MAXV(pval, output_min_p), 12, ' ');
-	} else {
-	  bufptr = double_g_writewx4(bufptr, ((double)perm_2success_ct[set_idx]) * 0.5, 12);
-	  bufptr = memseta(bufptr, 32, 3);
-	  bufptr = uint32_writew10x(bufptr, perm_attempt_ct[set_idx], ' ');
-	}
-	if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
-	  goto model_assoc_set_test_ret_WRITE_FAIL;
-	}
-	// as a side effect, set_test_score() fills proxy_arr with the marker
-	// indexes we need
-	fputs(&(marker_ids[marker_idx_to_uidx[proxy_arr[0]] * max_marker_id_len]), outfile);
-	for (uii = 1; uii < final_sig_ct; uii++) {
-	  putc('|', outfile);
-	  fputs(&(marker_ids[marker_idx_to_uidx[proxy_arr[uii]] * max_marker_id_len]), outfile);
-	}
-	if (putc_checked('\n', outfile)) {
-	  goto model_assoc_set_test_ret_WRITE_FAIL;
-	}
-      }
-      set_midx++;
-      set_idx++;
-    } else {
-      if (!perm_count) {
-        bufptr = memcpya(bufptr, "     0      0            1 NA\n", 30);
-      } else {
-        bufptr = memcpya(bufptr, "     0      0            0            0 NA\n", 43);
-      }
-      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
-	goto model_assoc_set_test_ret_WRITE_FAIL;
-      }
-      if (nonempty_set_incl && is_set(nonempty_set_incl, set_uidx)) {
-	empirical_pvals[set_midx] = 1.0;
-	set_midx++;
-      }
-    }
-  }
-  if (fclose_null(&outfile)) {
-    goto model_assoc_set_test_ret_WRITE_FAIL;
-  }
-  LOGPRINTFWW("Set test results written to %s .\n", outname);
-  if (empirical_pvals) {
-    outname_end2[4] = '\0'; // .set.adjusted instead of .set.mperm.adjusted
-    retval = multcomp(outname, &(outname_end2[4]), nonempty_set_idx_to_uidx, nonempty_set_ct, sip->names, max_set_id_len, 0, NULL, NULL, pfilter, output_min_p, mtest_adjust, 1, 0.0, NULL, empirical_pvals);
-  }
+  retval = write_set_test_results(outname, &(outname_end2[4]), sip, ld_map, setdefs, set_incl, set_ct, marker_ct_orig, marker_ct, marker_idx_to_uidx, marker_ids, max_marker_id_len, perm_2success_ct, perm_attempt_ct, mtest_adjust, perm_count, pfilter, output_min_p, chisq_threshold, orig_chisq, sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr);
   while (0) {
   model_assoc_set_test_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  model_assoc_set_test_ret_OPEN_FAIL:
-    retval = RET_OPEN_FAIL;
-    break;
   model_assoc_set_test_ret_READ_FAIL:
     retval = RET_READ_FAIL;
-    break;
-  model_assoc_set_test_ret_WRITE_FAIL:
-    retval = RET_WRITE_FAIL;
     break;
   model_assoc_set_test_ret_THREAD_CREATE_FAIL:
     retval = RET_THREAD_CREATE_FAIL;
@@ -6881,7 +6781,6 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   }
  model_assoc_set_test_ret_1:
   wkspace_reset(wkspace_mark);
-  fclose_cond(outfile);
   return retval;
 }
 
@@ -8695,7 +8594,6 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   // Side effect: t-statistics in g_orig_chisq[] are clobbered and replaced
   // with same-p-value 1df chi-square statistics.
   unsigned char* wkspace_mark = wkspace_base;
-  FILE* outfile = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t* marker_exclude = marker_exclude_mid;
   uintptr_t* unstopped_markers = NULL;
@@ -8704,16 +8602,13 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   uintptr_t* regression_skip = NULL;
   double* orig_stats = g_orig_chisq; // initially contains t-statistics
   double* sorted_chisq_buf = NULL;
-  double* empirical_pvals = NULL;
   uint32_t* marker_idx_to_uidx = NULL;
   uint32_t* sorted_marker_idx_buf = NULL;
   uint32_t* proxy_arr = NULL;
   uint32_t* perm_2success_ct = NULL;
   uint32_t* perm_attempt_ct = NULL;
   uintptr_t marker_ct = marker_ct_mid;
-  uintptr_t raw_set_ct = sip->ct;
   uintptr_t set_ct = 0;
-  uintptr_t max_set_id_len = sip->max_name_len;
   uintptr_t final_mask = get_final_mask(pheno_nm_ct);
   uintptr_t pheno_nm_ctv2 = 2 * ((pheno_nm_ct + BITCT - 1) / BITCT);
   double adaptive_ci_zt = 0.0;
@@ -8728,21 +8623,16 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   double* chisq_pmajor;
   double* read_dptr;
   double* write_dptr;
-  char* bufptr;
   uint32_t** setdefs;
   uint32_t** ld_map;
-  uint32_t* set_idx_to_uidx;
   uintptr_t marker_ctl;
   uintptr_t marker_midx;
-  uintptr_t set_uidx;
   uintptr_t set_idx;
   uintptr_t perm_vec_ct;
   uintptr_t perm_vec_ctcl8m;
   uintptr_t pidx;
   uintptr_t ulii;
   double chisq_threshold;
-  double cur_score;
-  double pval;
   double dxx;
   double dyy;
   uint32_t perms_total;
@@ -8759,8 +8649,6 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   uint32_t marker_idx2;
   uint32_t marker_bidx;
   uint32_t skip_ct;
-  uint32_t raw_sig_ct;
-  uint32_t final_sig_ct;
   uint32_t uii;
   if (sip->set_test_lambda > 1.0) {
     dxx = 1.0 / sip->set_test_lambda;
@@ -8992,90 +8880,19 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
  qassoc_set_test_perms_done:
   putchar('\r');
   LOGPRINTF("%u permutation%s complete.\n", perms_done, (perms_done != 1)? "s" : "");
-  if (set_ct && mtest_adjust) {
-    if (wkspace_alloc_d_checked(&empirical_pvals, set_ct * sizeof(double))) {
-      goto qassoc_set_test_ret_NOMEM;
-    }
-  }
  qassoc_set_test_write:
   if (model_modifier & MODEL_PERM) {
     memcpy(outname_end, ".qassoc.set.perm", 17);
   } else {
     memcpy(outname_end, ".qassoc.set.mperm", 18);
   }
-  if (fopen_checked(&outfile, outname, "w")) {
-    goto qassoc_set_test_ret_OPEN_FAIL;
-  }
-  fprintf(outfile, "         SET   NSNP   NSIG   ISIG         EMP1 %sSNPS\n", perm_count? "          NP " : "");
-  for (set_uidx = 0, set_idx = 0; set_uidx < raw_set_ct; set_uidx++) {
-    bufptr = fw_strcpy(12, &(sip->names[set_uidx * max_set_id_len]), tbuf);
-    *bufptr++ = ' ';
-    bufptr = uint32_writew6x(bufptr, setdef_size(sip->setdefs[set_uidx], marker_ct_orig), ' ');
-    if (IS_SET(set_incl, set_uidx)) {
-      set_test_score(marker_ct, chisq_threshold, sip->set_max, orig_stats, ld_map, setdefs[set_idx], sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, &raw_sig_ct, &final_sig_ct, &cur_score);
-      bufptr = uint32_writew6x(bufptr, raw_sig_ct, ' ');
-      bufptr = uint32_writew6x(bufptr, final_sig_ct, ' ');
-      pval = ((double)(perm_2success_ct[set_idx] + 2)) / ((double)(2 * (perm_attempt_ct[set_idx] + 1)));
-      if (empirical_pvals) {
-	empirical_pvals[set_idx] = pval;
-      }
-      if (pval <= pfilter) {
-	if (!perm_count) {
-	  bufptr = double_g_writewx4x(bufptr, MAXV(pval, output_min_p), 12, ' ');
-	} else {
-	  bufptr = double_g_writewx4(bufptr, ((double)perm_2success_ct[set_idx]) * 0.5, 12);
-	  bufptr = memseta(bufptr, 32, 3);
-	  bufptr = uint32_writew10x(bufptr, perm_attempt_ct[set_idx], ' ');
-	}
-	if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
-	  goto qassoc_set_test_ret_WRITE_FAIL;
-	}
-	fputs(&(marker_ids[marker_idx_to_uidx[proxy_arr[0]] * max_marker_id_len]), outfile);
-	for (uii = 1; uii < final_sig_ct; uii++) {
-	  putc('|', outfile);
-	  fputs(&(marker_ids[marker_idx_to_uidx[proxy_arr[uii]] * max_marker_id_len]), outfile);
-	}
-	if (putc_checked('\n', outfile)) {
-	  goto qassoc_set_test_ret_WRITE_FAIL;
-	}
-      }
-      set_idx++;
-    } else {
-      if (!perm_count) {
-        bufptr = memcpya(bufptr, "     0      0            1 NA\n", 30);
-      } else {
-        bufptr = memcpya(bufptr, "     0      0            0            0 NA\n", 43);
-      }
-      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
-	goto qassoc_set_test_ret_WRITE_FAIL;
-      }
-    }
-  }
-  if (fclose_null(&outfile)) {
-    goto qassoc_set_test_ret_WRITE_FAIL;
-  }
-  LOGPRINTFWW("Set test results written to %s .\n", outname);
-  if (empirical_pvals) {
-    if (wkspace_alloc_ui_checked(&set_idx_to_uidx, set_ct * sizeof(int32_t))) {
-      goto qassoc_set_test_ret_NOMEM;
-    }
-    fill_idx_to_uidx_incl(set_incl, raw_set_ct, set_ct, set_idx_to_uidx);
-    // .qassoc.set.adjusted instead of .set.mperm.adjusted
-    outname_end[11] = '\0';
-    retval = multcomp(outname, &(outname_end[11]), set_idx_to_uidx, set_ct, sip->names, max_set_id_len, 0, NULL, NULL, pfilter, output_min_p, mtest_adjust, 1, 0.0, NULL, empirical_pvals);
-  }
+  retval = write_set_test_results(outname, &(outname_end[11]), sip, ld_map, setdefs, set_incl, set_ct, marker_ct_orig, marker_ct, marker_idx_to_uidx, marker_ids, max_marker_id_len, perm_2success_ct, perm_attempt_ct, mtest_adjust, perm_count, pfilter, output_min_p, chisq_threshold, orig_stats, sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr);
   while (0) {
   qassoc_set_test_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  qassoc_set_test_ret_OPEN_FAIL:
-    retval = RET_OPEN_FAIL;
-    break;
   qassoc_set_test_ret_READ_FAIL:
     retval = RET_READ_FAIL;
-    break;
-  qassoc_set_test_ret_WRITE_FAIL:
-    retval = RET_WRITE_FAIL;
     break;
   qassoc_set_test_ret_THREAD_CREATE_FAIL:
     retval = RET_THREAD_CREATE_FAIL;
@@ -9083,7 +8900,6 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   }
  qassoc_set_test_ret_1:
   wkspace_reset(wkspace_mark);
-  fclose_cond(outfile);
   return retval;
 }
 

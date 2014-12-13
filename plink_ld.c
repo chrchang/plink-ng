@@ -1,6 +1,7 @@
 #include "plink_common.h"
 
 #include <stddef.h>
+#include "plink_assoc.h"
 #include "plink_ld.h"
 #include "plink_stats.h"
 #include "pigz.h"
@@ -10505,6 +10506,114 @@ void compute_set_scores(uintptr_t marker_ct, uintptr_t perm_vec_ct, uintptr_t se
       perm_2success_ct[set_idx] = uii;
     }
   }
+}
+
+int32_t write_set_test_results(char* outname, char* outname_end2, Set_info* sip, uint32_t** ld_map, uint32_t** setdefs, uintptr_t* set_incl, uintptr_t set_ct, uintptr_t marker_ct_orig, uintptr_t marker_ct, uint32_t* marker_idx_to_uidx, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* perm_2success_ct, uint32_t* perm_attempt_ct, uint32_t mtest_adjust, uint32_t perm_count, double pfilter, double output_min_p, double chisq_threshold, double* orig_stats, double* sorted_chisq_buf, uint32_t* sorted_marker_idx_buf, uint32_t* proxy_arr) {
+  // assumes caller will free memory from stack
+  FILE* outfile = NULL;
+  uintptr_t* nonempty_set_incl = NULL;
+  double* empirical_pvals = NULL;
+  uintptr_t raw_set_ct = sip->ct;
+  uintptr_t max_set_id_len = sip->max_name_len;
+  uint32_t nonempty_set_ct = 0;
+  int32_t retval = 0;
+  uintptr_t set_uidx;
+  uintptr_t set_idx;
+  char* bufptr;
+  uint32_t* nonempty_set_idx_to_uidx;
+  double cur_score;
+  double pval;
+  uint32_t raw_sig_ct;
+  uint32_t final_sig_ct;
+  uint32_t set_midx;
+  uint32_t uii;
+  if (set_ct && mtest_adjust) {
+    if (alloc_and_populate_nonempty_set_incl(sip, &nonempty_set_ct, &nonempty_set_incl)) {
+      goto write_set_test_results_ret_NOMEM;
+    }
+    if (wkspace_alloc_d_checked(&empirical_pvals, nonempty_set_ct * sizeof(double))) {
+      goto write_set_test_results_ret_NOMEM;
+    }
+  }
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto write_set_test_results_ret_OPEN_FAIL;
+  }
+  fprintf(outfile, "         SET   NSNP   NSIG   ISIG         EMP1 %sSNPS\n", perm_count? "          NP " : "");
+  for (set_uidx = 0, set_midx = 0, set_idx = 0; set_uidx < raw_set_ct; set_uidx++) {
+    bufptr = fw_strcpy(12, &(sip->names[set_uidx * max_set_id_len]), tbuf);
+    *bufptr++ = ' ';
+    bufptr = uint32_writew6x(bufptr, setdef_size(sip->setdefs[set_uidx], marker_ct_orig), ' ');
+    if (IS_SET(set_incl, set_uidx)) {
+      set_test_score(marker_ct, chisq_threshold, sip->set_max, orig_stats, ld_map, setdefs[set_idx], sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, &raw_sig_ct, &final_sig_ct, &cur_score);
+      bufptr = uint32_writew6x(bufptr, raw_sig_ct, ' ');
+      bufptr = uint32_writew6x(bufptr, final_sig_ct, ' ');
+      pval = ((double)(perm_2success_ct[set_idx] + 2)) / ((double)(2 * (perm_attempt_ct[set_idx] + 1)));
+      if (empirical_pvals) {
+	empirical_pvals[set_midx] = pval;
+      }
+      if (pval <= pfilter) {
+	if (!perm_count) {
+	  bufptr = double_g_writewx4x(bufptr, MAXV(pval, output_min_p), 12, ' ');
+	} else {
+	  bufptr = double_g_writewx4(bufptr, ((double)perm_2success_ct[set_idx]) * 0.5, 12);
+	  bufptr = memseta(bufptr, 32, 3);
+	  bufptr = uint32_writew10x(bufptr, perm_attempt_ct[set_idx], ' ');
+	}
+	if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	  goto write_set_test_results_ret_WRITE_FAIL;
+	}
+	fputs(&(marker_ids[marker_idx_to_uidx[proxy_arr[0]] * max_marker_id_len]), outfile);
+	for (uii = 1; uii < final_sig_ct; uii++) {
+	  putc('|', outfile);
+	  fputs(&(marker_ids[marker_idx_to_uidx[proxy_arr[uii]] * max_marker_id_len]), outfile);
+	}
+	if (putc_checked('\n', outfile)) {
+	  goto write_set_test_results_ret_WRITE_FAIL;
+	}
+      }
+      set_midx++;
+      set_idx++;
+    } else {
+      if (!perm_count) {
+        bufptr = memcpya(bufptr, "     0      0            1 NA\n", 30);
+      } else {
+        bufptr = memcpya(bufptr, "     0      0            0            0 NA\n", 43);
+      }
+      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	goto write_set_test_results_ret_WRITE_FAIL;
+      }
+      if (nonempty_set_incl && is_set(nonempty_set_incl, set_uidx)) {
+	empirical_pvals[set_midx] = 1.0;
+	set_midx++;
+      }
+    }
+  }
+  if (fclose_null(&outfile)) {
+    goto write_set_test_results_ret_WRITE_FAIL;
+  }
+  LOGPRINTFWW("Set test results written to %s .\n", outname);
+  if (empirical_pvals) {
+    if (wkspace_alloc_ui_checked(&nonempty_set_idx_to_uidx, nonempty_set_ct * sizeof(int32_t))) {
+      goto write_set_test_results_ret_NOMEM;
+    }
+    fill_idx_to_uidx_incl(nonempty_set_incl, raw_set_ct, nonempty_set_ct, nonempty_set_idx_to_uidx);
+    // .qassoc.set.adjusted instead of .set.mperm.adjusted, etc.
+    *outname_end2 = '\0';
+    retval = multcomp(outname, outname_end2, nonempty_set_idx_to_uidx, nonempty_set_ct, sip->names, max_set_id_len, 0, NULL, NULL, pfilter, output_min_p, mtest_adjust, 1, 0.0, NULL, empirical_pvals);
+  }
+  while (0) {
+  write_set_test_results_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  write_set_test_results_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  write_set_test_results_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+  fclose_cond(outfile);
+  return retval;
 }
 
 typedef struct clump_entry_struct {

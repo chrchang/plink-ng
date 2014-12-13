@@ -56,6 +56,7 @@ typedef struct {
   //        is included)
   //   [3]: 1 if all out-of-bounds bits are set, 0 otherwise (other flags may
   //        be added later)
+  // Empty sets are always stored in the first format, with [0] == 0.
   uint32_t** setdefs;
 } Set_info;
 
@@ -90,6 +91,8 @@ uint32_t setdef_size(uint32_t* setdef, uint32_t marker_ct);
 void setdef_iter_init(uint32_t* setdef, uint32_t marker_ct, uint32_t start_idx, uint32_t* cur_idx_ptr, uint32_t* aux_ptr);
 
 uint32_t setdef_iter(uint32_t* setdef, uint32_t* cur_idx_ptr, uint32_t* aux_ptr);
+
+uint32_t alloc_and_populate_nonempty_set_incl(Set_info* sip, uint32_t* nonempty_set_ct_ptr, uintptr_t** nonempty_set_incl_ptr);
 
 int32_t extract_exclude_range(char* fname, uint32_t* marker_pos, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uint32_t is_exclude, Chrom_info* chrom_info_ptr);
 

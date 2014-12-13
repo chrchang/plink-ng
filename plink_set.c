@@ -229,6 +229,27 @@ uint32_t setdef_iter(uint32_t* setdef, uint32_t* cur_idx_ptr, uint32_t* aux_ptr)
   }
 }
 
+uint32_t alloc_and_populate_nonempty_set_incl(Set_info* sip, uint32_t* nonempty_set_ct_ptr, uintptr_t** nonempty_set_incl_ptr) {
+  uint32_t raw_set_ct = sip->ct;
+  uint32_t raw_set_ctl = (raw_set_ct + (BITCT - 1)) / BITCT;
+  uint32_t nonempty_set_ct = 0;
+  uintptr_t* nonempty_set_incl;
+  uint32_t set_uidx;
+  if (wkspace_alloc_ul_checked(nonempty_set_incl_ptr, raw_set_ctl * sizeof(intptr_t))) {
+    return 1;
+  }
+  nonempty_set_incl = *nonempty_set_incl_ptr;
+  fill_ulong_zero(nonempty_set_incl, raw_set_ctl);
+  for (set_uidx = 0; set_uidx < raw_set_ct; set_uidx++) {
+    if (sip->setdefs[set_uidx][0]) {
+      set_bit(nonempty_set_incl, set_uidx);
+      nonempty_set_ct++;
+    }
+  }
+  *nonempty_set_ct_ptr = nonempty_set_ct;
+  return 0;
+}
+
 int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_extend, uint32_t collapse_group, uint32_t fail_on_no_sets, uint32_t c_prefix, uintptr_t subset_ct, char* sorted_subset_ids, uintptr_t max_subset_id_len, uint32_t* marker_pos, Chrom_info* chrom_info_ptr, uintptr_t* topsize_ptr, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_len_ptr, Make_set_range*** make_set_range_arr_ptr, uint64_t** range_sort_buf_ptr, const char* file_descrip) {
   // Called directly by extract_exclude_range(), define_sets(), and indirectly
   // by annotate(), gene_report(), and clump_reports().
