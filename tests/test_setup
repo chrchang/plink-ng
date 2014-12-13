@@ -9,7 +9,11 @@
 # sometimes needed to handle the last data byte for each variant.  This has
 # been a source of bugs, so it's important to have a test case for each sample
 # count remainder mod 4.
-plink2 --dummy 4321 54321 0.02 acgt --out dummy_cc1
-plink2 --dummy 5432 50000 0.04 acgt --out dummy_cc2
-plink2 --dummy 4323 44444 0.03 acgt --out dummy1
-plink2 --dummy 5434 43210 0.05 acgt --out dummy2
+
+# 385 samples x 1089 markers should be a large enough dataset to test generic
+# advancement loops, and the lower the runtime of the test suite, the more
+# frequently it can be run.
+plink2 --dummy 433 1423 0.02 acgt --out dummy_cc1
+plink2 --dummy 432 1234 0.04 acgt --out dummy_cc2
+plink2 --dummy 385 1112 0.03 acgt scalar-pheno --out dummy1
+plink2 --dummy 500 1111 0.05 acgt scalar-pheno --out dummy2
