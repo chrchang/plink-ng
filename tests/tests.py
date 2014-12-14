@@ -5,7 +5,7 @@ import sys
 
 def main():
     bfile_names = ['dummy_cc1', 'dummy_cc2', 'dummy1', 'dummy2']
-    bfile_names_cc = ['dummy_cc1', 'dummy_cc2']
+    bfile_names_cc = ['dummy_cc1', 'dummy_cc2'] # there must be at least 2
     bfile_names_qt = ['dummy1', 'dummy2']
 
     for bfn in bfile_names:
@@ -26,11 +26,11 @@ def main():
             print '--recode test failed.'
             sys.exit(1)
 
-        retval = subprocess.call('plink1 --file test1 --silent --maf 0.05 --write-snplist --out test1', shell=True)
+        retval = subprocess.call('plink1 --file test1 --silent --maf 0.04999 --write-snplist --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --file/--maf/--write-snplist test.'
             sys.exit(1)
-        retval = subprocess.call('plink2 --file test2 --silent --maf 0.05 --write-snplist --out test2', shell=True)
+        retval = subprocess.call('plink2 --file test2 --silent --maf 0.04999 --write-snplist --out test2', shell=True)
         if not retval == 0:
             print 'Unexpected error in --file/--maf/--write-snplist test.'
             sys.exit(1)
@@ -47,11 +47,11 @@ def main():
         if not retval == 0:
             print 'Unexpected error in --recode vcf test.'
             sys.exit(1)
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --hwe 0.01 --write-snplist --out test1', shell=True)
+        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --hwe 0.009999 --write-snplist --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --hwe/--vcf test.'
             sys.exit(1)
-        retval = subprocess.call('plink2 --vcf test2.vcf --silent --hwe 0.01 --write-snplist --out test2', shell=True)
+        retval = subprocess.call('plink2 --vcf test2.vcf --silent --hwe 0.009999 --write-snplist --out test2', shell=True)
         if not retval == 0:
             print 'Unexpected error in --hwe/--vcf test.'
             sys.exit(1)
@@ -96,6 +96,117 @@ def main():
             print '--missing/--tfile test failed.'
             sys.exit(1)
     print '--missing/--recode transpose/--tfile test passed.'
+
+    for bfn in bfile_names:
+        retval = subprocess.call('plink2 --bfile ' + bfn + ' --silent --recode oxford --out test2', shell=True)
+        if not retval == 0:
+            print 'Unexpected error in --recode oxford test.'
+            sys.exit(1)
+        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --het --out test1', shell=True)
+        if not retval == 0:
+            print 'Unexpected error in --data/--het test.'
+            sys.exit(1)
+        retval = subprocess.call('plink2 --data test2 --silent --het small-sample --out test2', shell=True)
+        if not retval == 0:
+            print 'Unexpected error in --data/--het test.'
+            sys.exit(1)
+        retval = subprocess.call('diff -q test1.het test2.het', shell=True)
+        if not retval == 0:
+            print '--data/--het/--recode oxford test failed.'
+            sys.exit(1)
+    print '--data/--het/--recode oxford test passed.'
+
+    retval = subprocess.call('plink1 --bfile ' + bfile_names_cc[0] + ' --silent --bmerge ' + bfile_names_cc[1] + '.bed ' + bfile_names_cc[1] + '.bim ' + bfile_names_cc[1] + '.fam --max-maf 0.4999 --make-bed --out test1', shell=True)
+    if not retval == 0:
+        print 'Unexpected error in --bmerge/--make-bed/--max-maf test.'
+        sys.exit(1)
+    retval = subprocess.call('plink2 --bfile ' + bfile_names_cc[0] + ' --silent --bmerge ' + bfile_names_cc[1] + ' --max-maf 0.4999 --make-bed --out test2', shell=True)
+    if not retval == 0:
+        print 'Unexpected error in --bmerge/--make-bed/--max-maf test.'
+        sys.exit(1)
+    retval = subprocess.call('diff -q test1.bed test2.bed', shell=True)
+    if not retval == 0:
+        print '--bmerge/--make-bed/--max-maf test failed.'
+        sys.exit(1)
+    retval = subprocess.call('diff -q test1.bim test2.bim', shell=True)
+    if not retval == 0:
+        print '--bmerge/--make-bed/--max-maf test failed.'
+        sys.exit(1)
+    retval = subprocess.call('diff -q test1.bim test2.bim', shell=True)
+    if not retval == 0:
+        print '--bmerge/--make-bed/--max-maf test failed.'
+        sys.exit(1)
+    print '--bmerge/--make-bed/--max-maf test passed.'
+
+    retval = subprocess.call('plink2 --bfile ' + bfile_names_cc[1] + ' --silent --recode --out test2', shell=True)
+    if not retval == 0:
+        print 'Unexpected error in --merge test.'
+        sys.exit(1)
+    retval = subprocess.call('plink2 --bfile ' + bfile_names_cc[0] + ' --silent --merge test2 --max-maf 0.4999 --make-bed --out test2', shell=True)
+    if not retval == 0:
+        print 'Unexpected error in --merge test.'
+        sys.exit(1)
+    retval = subprocess.call('diff -q test1.bed test2.bed', shell=True)
+    if not retval == 0:
+        print '--merge test failed.'
+        sys.exit(1)
+    retval = subprocess.call('diff -q test1.bim test2.bim', shell=True)
+    if not retval == 0:
+        print '--merge test failed.'
+        sys.exit(1)
+    retval = subprocess.call('diff -q test1.bim test2.bim', shell=True)
+    if not retval == 0:
+        print '--merge test failed.'
+        sys.exit(1)
+    print '--merge test passed.'
+
+    subprocess.call('rm merge_list.txt', shell=True)
+    retval = subprocess.call('echo ' + bfile_names_cc[0] + '.bed ' + bfile_names_cc[0] + '.bim ' + bfile_names_cc[0] + '.fam > merge_list.txt', shell=True)
+    if not retval == 0:
+        print 'Unexpected error in --merge-list test.'
+        sys.exit(1)
+    retval = subprocess.call('echo ' + bfile_names_cc[1] + '.bed ' + bfile_names_cc[1] + '.bim ' + bfile_names_cc[1] + '.fam >> merge_list.txt', shell=True)
+    if not retval == 0:
+        print 'Unexpected error in --merge-list test.'
+        sys.exit(1)
+    retval = subprocess.call('plink1 --merge-list merge_list.txt --silent --max-maf 0.4999 --make-bed --out test1', shell=True)
+    if not retval == 0:
+        print 'Unexpected error in --merge-list test.'
+        sys.exit(1)
+    retval = subprocess.call('plink2 --merge-list merge_list.txt --silent --max-maf 0.4999 --make-bed --out test2', shell=True)
+    if not retval == 0:
+        print 'Unexpected error in --merge-list test.'
+        sys.exit(1)
+    retval = subprocess.call('diff -q test1.bed test2.bed', shell=True)
+    if not retval == 0:
+        print '--merge-list test failed.'
+        sys.exit(1)
+    retval = subprocess.call('diff -q test1.bim test2.bim', shell=True)
+    if not retval == 0:
+        print '--merge-list test failed.'
+        sys.exit(1)
+    retval = subprocess.call('diff -q test1.bim test2.bim', shell=True)
+    if not retval == 0:
+        print '--merge-list test failed.'
+        sys.exit(1)
+    subprocess.call('rm merge_list.txt', shell=True)
+    print '--merge-list test passed.'
+
+    for bfn in bfile_names_cc:
+        # diff error likely at MAF = 0.4875 due to rounding
+        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --flip-scan --mind 0.05399 --maf 0.4876 --max-maf 0.4999 --out test1', shell=True)
+        if not retval == 0:
+            print 'Unexpected error in --flip-scan/--mind test.'
+            sys.exit(1)
+        retval = subprocess.call('plink2 --bfile ' + bfn + ' --silent --flip-scan --mind 0.05399 --maf 0.4876 --max-maf 0.4999 --out test2', shell=True)
+        if not retval == 0:
+            print 'Unexpected error in --flip-scan/--mind test.'
+            sys.exit(1)
+        retval = subprocess.call('diff -q test1.flipscan test2.flipscan', shell=True)
+        if not retval == 0:
+            print '--flip-scan/--mind test failed.'
+            sys.exit(1)
+    print '--flip-scan/--mind test passed.'
 
     print 'All tests passed.'
     subprocess.call('rm test1.*', shell=True)
