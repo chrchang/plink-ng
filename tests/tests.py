@@ -169,10 +169,6 @@ def main():
     if not retval == 0:
         print 'Unexpected error in --merge-list test.'
         sys.exit(1)
-    retval = subprocess.call('plink1 --merge-list merge_list.txt --silent --max-maf 0.4999 --make-bed --out test1', shell=True)
-    if not retval == 0:
-        print 'Unexpected error in --merge-list test.'
-        sys.exit(1)
     retval = subprocess.call('plink2 --merge-list merge_list.txt --silent --max-maf 0.4999 --make-bed --out test2', shell=True)
     if not retval == 0:
         print 'Unexpected error in --merge-list test.'
@@ -207,6 +203,48 @@ def main():
             print '--flip-scan/--mind test failed.'
             sys.exit(1)
     print '--flip-scan/--mind test passed.'
+
+    for bfn in bfile_names_cc:
+        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --freq --geno 0.5399 --max-maf 0.4999 --out test1', shell=True)
+        if not retval == 0:
+            print 'Unexpected error in --freq/--geno test.'
+            sys.exit(1)
+        retval = subprocess.call('plink2 --bfile ' + bfn + ' --silent --freq --geno 0.5399  --max-maf 0.4999 --out test2', shell=True)
+        if not retval == 0:
+            print 'Unexpected error in --freq/--geno test.'
+            sys.exit(1)
+        retval = subprocess.call('diff -q test1.frq test2.frq', shell=True)
+        if not retval == 0:
+            print '--freq/--geno test failed.'
+            sys.exit(1)
+    print '--freq/--geno test passed.'
+
+    # don't bother with --test-mishap for now due to EM phasing algorithm
+    # change
+
+    for bfn in bfile_names_cc:
+        # force at least 14 to be missing out of 513
+        retval = subprocess.call('plink2 --bfile ' + bfn + ' --silent --geno 0.0254 --write-snplist --out test2', shell=True)
+        if not retval == 0:
+            print 'Unexpected error in --exclude/--hardy test.'
+            sys.exit(1)
+        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --exclude test2.snplist --hardy --out test1', shell=True)
+        if not retval == 0:
+            print 'Unexpected error in --exclude/--hardy test.'
+            sys.exit(1)
+        retval = subprocess.call('plink2 --bfile ' + bfn + ' --silent --exclude test2.snplist --hardy --out test2', shell=True)
+        if not retval == 0:
+            print 'Unexpected error in --exclude/--hardy test.'
+            sys.exit(1)
+        # skip column 8 due to likelihood of floating point error
+        # note that leading space(s) cause it to be column 9 after tr
+        retval = subprocess.call("cat test1.hwe | tr -s ' ' '\t' | cut -f 1-8,10 > test1.hwe2", shell=True)
+        retval = subprocess.call("cat test2.hwe | tr -s ' ' '\t' | cut -f 1-8,10 > test2.hwe2", shell=True)
+        retval = subprocess.call('diff -q test1.hwe2 test2.hwe2', shell=True)
+        if not retval == 0:
+            print '--exclude/--hardy test failed.'
+            sys.exit(1)
+    print '--exclude/--hardy test passed.'
 
     print 'All tests passed.'
     subprocess.call('rm test1.*', shell=True)

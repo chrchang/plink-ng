@@ -1862,7 +1862,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
 }
 #endif
 
-static inline void single_marker_freqs_and_hwe(uintptr_t unfiltered_sample_ctl2, uintptr_t* lptr, uintptr_t* sample_include2, uintptr_t* founder_include2, uintptr_t* founder_ctrl_include2, uintptr_t* founder_case_include2, uintptr_t sample_ct, uint32_t* ll_ctp, uint32_t* lh_ctp, uint32_t* hh_ctp, uint32_t sample_f_ct, uint32_t* ll_ctfp, uint32_t* lh_ctfp, uint32_t* hh_ctfp, uint32_t hwe_or_geno_needed, uintptr_t sample_f_ctl_ct, uint32_t* ll_hwep, uint32_t* lh_hwep, uint32_t* hh_hwep, int32_t hardy_needed, uintptr_t sample_f_case_ct, uint32_t* ll_case_hwep, uint32_t* lh_case_hwep, uint32_t* hh_case_hwep) {
+static inline void single_marker_freqs_and_hwe(uintptr_t unfiltered_sample_ctl2, uintptr_t* lptr, uintptr_t* sample_include2, uintptr_t* founder_include2, uintptr_t* founder_ctrl_include2, uintptr_t* founder_case_include2, uintptr_t sample_ct, uint32_t* ll_ctp, uint32_t* lh_ctp, uint32_t* hh_ctp, uint32_t sample_f_ct, uint32_t* ll_ctfp, uint32_t* lh_ctfp, uint32_t* hh_ctfp, uint32_t hwe_or_geno_needed, uintptr_t sample_f_ctrl_ct, uint32_t* ll_hwep, uint32_t* lh_hwep, uint32_t* hh_hwep, int32_t hardy_needed, uintptr_t sample_f_case_ct, uint32_t* ll_case_hwep, uint32_t* lh_case_hwep, uint32_t* hh_case_hwep) {
   // This is best understood from the bottom third up (which is the order it
   // was written).  It's way overkill for just determining genotype
   // frequencies, but a ruthlessly optimized version is needed for e.g.
@@ -2003,7 +2003,7 @@ static inline void single_marker_freqs_and_hwe(uintptr_t unfiltered_sample_ctl2,
   if (hwe_or_geno_needed) {
     *hh_hwep = tot_c_hwe;
     *lh_hwep = tot_b_hwe - tot_c_hwe;
-    *ll_hwep = sample_f_ctl_ct - tot_a_hwe - *lh_hwep;
+    *ll_hwep = sample_f_ctrl_ct - tot_a_hwe - *lh_hwep;
     if (hardy_needed) {
       *hh_case_hwep = tot_c_chwe;
       *lh_case_hwep = tot_b_chwe - tot_c_chwe;
@@ -2348,7 +2348,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	wkspace_alloc_ul_checked(&tmp_sample_excl_mask2, unfiltered_sample_ctl * sizeof(intptr_t))) {
       goto calc_freqs_and_hwe_ret_NOMEM;
     }
-    memcpy(tmp_sample_excl_mask2, tmp_sample_excl_mask, unfiltered_sample_ctl);
+    memcpy(tmp_sample_excl_mask2, tmp_sample_excl_mask, unfiltered_sample_ctl * sizeof(intptr_t));
     bitfield_ornot(tmp_sample_excl_mask2, pheno_nm, unfiltered_sample_ctl);
     bitfield_or(tmp_sample_excl_mask2, pheno_c, unfiltered_sample_ctl);
     zero_trailing_bits(tmp_sample_excl_mask2, unfiltered_sample_ct);
