@@ -205,34 +205,47 @@ def main():
     print '--flip-scan/--mind test passed.'
 
     for bfn in bfile_names_cc:
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --freq --geno 0.5399 --max-maf 0.4999 --out test1', shell=True)
+        # force at least 14 to be missing out of 513...
+        retval = subprocess.call('plink2 --bfile ' + bfn + ' --silent --geno 0.06049 --max-maf 0.4999 --write-snplist --out test2', shell=True)
         if not retval == 0:
-            print 'Unexpected error in --freq/--geno test.'
+            print 'Unexpected error in --extract/--freq/--geno test.'
             sys.exit(1)
-        retval = subprocess.call('plink2 --bfile ' + bfn + ' --silent --freq --geno 0.5399  --max-maf 0.4999 --out test2', shell=True)
+        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --freq --extract test2.snplist --out test1', shell=True)
         if not retval == 0:
-            print 'Unexpected error in --freq/--geno test.'
+            print 'Unexpected error in --extract/--freq/--geno test.'
+            sys.exit(1)
+        retval = subprocess.call('plink2 --bfile ' + bfn + ' --silent --freq --extract test2.snplist --out test2', shell=True)
+        if not retval == 0:
+            print 'Unexpected error in --extract/--freq/--geno test.'
             sys.exit(1)
         retval = subprocess.call('diff -q test1.frq test2.frq', shell=True)
         if not retval == 0:
-            print '--freq/--geno test failed.'
+            print '--extract/--freq/--geno test failed.'
             sys.exit(1)
-    print '--freq/--geno test passed.'
+    print '--extract/--freq/--geno test passed.'
 
     # don't bother with --test-mishap for now due to EM phasing algorithm
     # change
 
     for bfn in bfile_names_cc:
-        # force at least 14 to be missing out of 513
-        retval = subprocess.call('plink2 --bfile ' + bfn + ' --silent --geno 0.0254 --write-snplist --out test2', shell=True)
+        # force at least 14 to be missing out of 513...
+        retval = subprocess.call('plink2 --bfile ' + bfn + ' --silent --geno 0.0254 --write-snplist --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --exclude/--hardy test.'
             sys.exit(1)
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --exclude test2.snplist --hardy --out test1', shell=True)
+        # ...but no more than 31 out of 512.
+
+        # --hardy + --geno order of operations has changed, for good reason.
+        retval = subprocess.call('plink2 --bfile ' + bfn + ' --silent --exclude test1.snplist --geno 0.06049 --write-snplist --out test2', shell=True)
         if not retval == 0:
             print 'Unexpected error in --exclude/--hardy test.'
             sys.exit(1)
-        retval = subprocess.call('plink2 --bfile ' + bfn + ' --silent --exclude test2.snplist --hardy --out test2', shell=True)
+
+        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --extract test2.snplist --hardy --out test1', shell=True)
+        if not retval == 0:
+            print 'Unexpected error in --exclude/--hardy test.'
+            sys.exit(1)
+        retval = subprocess.call('plink2 --bfile ' + bfn + ' --silent --extract test2.snplist --hardy --out test2', shell=True)
         if not retval == 0:
             print 'Unexpected error in --exclude/--hardy test.'
             sys.exit(1)

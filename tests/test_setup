@@ -19,7 +19,7 @@
 # to figure out when that has happened (in which case they can just rerun this
 # script), vs. when an actual bug is involved.
 
-plink2 --dummy 513 1423 0.02 acgt --out dummy_cc1
-plink2 --dummy 512 1234 0.04 acgt --out dummy_cc2
-plink2 --dummy 385 1112 0.03 acgt scalar-pheno --out dummy1
-plink2 --dummy 500 1111 0.05 acgt scalar-pheno --out dummy2
+plink2 --dummy 513 1423 0.02 --out dummy_cc1
+plink2 --dummy 512 1234 0.04 --out dummy_cc2
+plink2 --dummy 387 1112 0.03 scalar-pheno --out dummy1
+plink2 --dummy 478 1111 0.05 scalar-pheno --out dummy2
