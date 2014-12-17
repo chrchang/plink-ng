@@ -10882,6 +10882,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     ulii++;
   }
   if (clump_ip->pfield_search_order) {
+    bufptr = clump_ip->pfield_search_order;
     uii = 0x20000000;
     do {
       ujj = strlen(bufptr) + 1;
