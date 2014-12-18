@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (16 Dec 2014)";
+  " (17 Dec 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -12219,6 +12219,9 @@ int32_t main(int32_t argc, char** argv) {
       goto main_ret_INVALID_CMDLINE_A;
     } else if ((!mapname[0]) && (filter_flags & FILTER_DOSAGEMAP)) {
       logprint("Error: --dosage cannot be used with variant filters unless a .map file is\nspecified.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    } else if (!famname[0]) {
+      logprint("Error: --dosage must be used with --fam.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
   }

@@ -426,6 +426,8 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
       goto dosage_load_score_files_ret_READ_FAIL;
     }
     LOGPRINTF("--q-score-range: %" PRIuPTR " range%s loaded.\n", qrange_ct, (qrange_ct == 1)? "" : "s");
+    *qrange_ct_ptr = qrange_ct;
+    *max_qrange_name_len_ptr = max_qrange_name_len;
   }
   while (0) {
   dosage_load_score_files_ret_NOMEM:
@@ -2256,11 +2258,11 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  goto plink1_dosage_ret_WRITE_FAIL;
 	}
       }
+      if (fclose_null(&outfile)) {
+	goto plink1_dosage_ret_WRITE_FAIL;
+      }
+      LOGPRINTFWW("--score: Results written to %s .\n", outname);
     } while (++qrange_idx < qrange_ct);
-    if (fclose_null(&outfile)) {
-      goto plink1_dosage_ret_WRITE_FAIL;
-    }
-    LOGPRINTFWW("--score: Results written to %s .\n", outname);
   } else {
     if (count_occur) {
       max_occur_id_len += sizeof(int32_t) + 1; // null, uint32_t
