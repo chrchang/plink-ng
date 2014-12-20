@@ -3407,16 +3407,18 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	    goto make_bed_ret_INVALID_CMDLINE;
 	  }
 	  if (merge_or_split_x(mergex, splitx_bound1, splitx_bound2, unfiltered_marker_ct, marker_exclude, marker_ct, marker_pos, chrom_info_ptr, ll_buf)) {
-	    if (mergex) {
-	      logprint("Error: --merge-x requires XY pseudo-autosomal region data.\n");
-	    } else {
-	      if (!is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->x_code)) {
-		logprint("Error: --split-x requires X chromosome data.\n");
+	    if (!(misc_flags & MISC_SPLIT_MERGE_NOFAIL)) {
+	      if (mergex) {
+		logprint("Error: --merge-x requires XY pseudo-autosomal region data.  (Use 'no-fail' to\nforce --make-bed to proceed anyway.\n");
 	      } else {
-		LOGPRINTF("Error: No X chromosome loci have bp positions <= %u or >= %u.\n", splitx_bound1, splitx_bound2);
+		if (!is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->x_code)) {
+		  logprint("Error: --split-x requires X chromosome data.  (Use 'no-fail' to force\n--make-bed to proceed anyway.\n");
+		} else {
+		  LOGPRINTFWW("Error: No X chromosome loci have bp positions <= %u or >= %u. (Use 'no-fail' to force --make-bed to proceed anyway.)\n", splitx_bound1, splitx_bound2);
+		}
 	      }
+	      goto make_bed_ret_INVALID_CMDLINE;
 	    }
-	    goto make_bed_ret_INVALID_CMDLINE;
 	  }
 	}
       } else {

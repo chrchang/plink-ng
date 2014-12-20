@@ -1664,13 +1664,18 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     genotypes to missing.\n"
 	       );
     help_print("split-x\tmerge-x\tset-hh-missing\t23file-convert-xy\t23file-make-xylist\tcheck-sex\timpute-sex", &help_ctrl, 0,
-"  --split-x [bp1] [bp2]  : Changes chromosome code of all X chromosome variants\n"
-"  --split-x [build code]   with bp position <= bp1 or >= bp2 to XY.  The\n"
-"                           following build codes are supported as shorthand:\n"
-"                           * 'b36'/'hg18' = NCBI 36, bounds 2709521 & 154584237\n"
-"                           * 'b37'/'hg19' = GRCh37, bounds 2699520 & 154931044\n"
-"                           * 'b38'/'hg38' = GRCh38, bounds 2781479 & 155701383\n"
-"  --merge-x              : Merge XY chromosome back with X.\n"
+"  --split-x [bp1] [bp2] <no-fail> : Changes chromosome code of all X chromosome\n"
+"  --split-x [build] <no-fail>       variants with bp position <= bp1 or >= bp2\n"
+"                                    to XY.  The following build codes are\n"
+"                                    supported as shorthand:\n"
+"                                    * 'b36'/'hg18' = NCBI 36, 2709521/154584237\n"
+"                                    * 'b37'/'hg19' = GRCh37, 2699520/154931044\n"
+"                                    * 'b38'/'hg38' = GRCh38, 2781479/155701383\n"
+"                                    By default, PLINK errors out when no\n"
+"                                    variants would be affected by --split-x;\n"
+"                                    the 'no-fail' modifier (useful in scripts)\n"
+"                                    overrides this.\n"
+"  --merge-x <no-fail>             : Merge XY chromosome back with X.\n"
 	       );
     help_print("set-me-missing", &help_ctrl, 0,
 "  --set-me-missing  : Cause --make-bed to set Mendel errors to missing.\n"

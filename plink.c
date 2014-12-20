@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (17 Dec 2014)";
+  " (19 Dec 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -8789,6 +8789,16 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --merge-x must be used with a chromosome set containing X and XY codes.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+	if (param_ct == 1) {
+	  if (strcmp(argv[cur_arg + 1], "no-fail")) {
+	    sprintf(logbuf, "Error: Invalid --merge-x parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_A;
+	  }
+	  misc_flags |= MISC_SPLIT_MERGE_NOFAIL;
+	}
 	misc_flags |= MISC_MERGEX;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "issing-var-code", 16)) {
@@ -10843,21 +10853,35 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --split-x must be used with a chromosome set containing X and XY codes.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 3)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-	if (param_ct == 1) {
-          if ((!strcmp(argv[cur_arg + 1], "b36")) || (!strcmp(argv[cur_arg + 1], "hg18"))) {
+	uii = 1;
+	ujj = param_ct;
+	// 'no-fail' must be either the first or last parameter.
+	if (!strcmp(argv[cur_arg + 1], "no-fail")) {
+	  misc_flags |= MISC_SPLIT_MERGE_NOFAIL;
+	  uii = 2;
+	} else if (!strcmp(argv[cur_arg + param_ct], "no-fail")) {
+	  misc_flags |= MISC_SPLIT_MERGE_NOFAIL;
+	  ujj--;
+	}
+	if ((ujj < uii) || (ujj == uii + 2)) {
+	  logprint("Error: Invalid --split-x parameter sequence.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (ujj == uii) {
+          if ((!strcmp(argv[cur_arg + uii], "b36")) || (!strcmp(argv[cur_arg + uii], "hg18"))) {
             splitx_bound1 = 2709521;
             splitx_bound2 = 154584237;
-	  } else if ((!strcmp(argv[cur_arg + 1], "b37")) || (!strcmp(argv[cur_arg + 1], "hg19"))) {
+	  } else if ((!strcmp(argv[cur_arg + uii], "b37")) || (!strcmp(argv[cur_arg + uii], "hg19"))) {
             splitx_bound1 = 2699520;
             splitx_bound2 = 154931044;
-	  } else if ((!strcmp(argv[cur_arg + 1], "b38")) || (!strcmp(argv[cur_arg + 1], "hg38"))) {
+	  } else if ((!strcmp(argv[cur_arg + uii], "b38")) || (!strcmp(argv[cur_arg + uii], "hg38"))) {
             splitx_bound1 = 2781479;
             splitx_bound1 = 155701383;
 	  } else {
-            sprintf(logbuf, "Error: Unrecognized --split-x build code '%s'.\n", argv[cur_arg + 1]);
+            sprintf(logbuf, "Error: Unrecognized --split-x build code '%s'.\n", argv[cur_arg + uii]);
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	  if (chrom_info.species != SPECIES_HUMAN) {
@@ -10865,12 +10889,12 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_INVALID_CMDLINE;
 	  }
 	} else {
-	  if (scan_uint_defcap(argv[cur_arg + 1], &splitx_bound1)) {
-	    sprintf(logbuf, "Error: Invalid --split-x parameter '%s'.\n", argv[cur_arg + 1]);
+	  if (scan_uint_defcap(argv[cur_arg + uii], &splitx_bound1)) {
+	    sprintf(logbuf, "Error: Invalid --split-x parameter '%s'.\n", argv[cur_arg + uii]);
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
-	  if (scan_posint_defcap(argv[cur_arg + 2], &splitx_bound2) || (splitx_bound2 <= splitx_bound1)) {
-	    sprintf(logbuf, "Error: Invalid --split-x parameter '%s'.\n", argv[cur_arg + 2]);
+	  if (scan_posint_defcap(argv[cur_arg + ujj], &splitx_bound2) || (splitx_bound2 <= splitx_bound1)) {
+	    sprintf(logbuf, "Error: Invalid --split-x parameter '%s'.\n", argv[cur_arg + ujj]);
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
