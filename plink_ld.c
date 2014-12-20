@@ -5631,8 +5631,9 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
       marker_uidx2 = window_uidxs[window_cidx2];
       while (marker_pos[marker_uidx2] < marker_pos_thresh) {
 	if (IS_SET(cur_targets, window_cidx2)) {
+	  // bugfix: tag_matrix_row_ptr is not always 16-byte aligned.
+	  tag_ct = popcount_longs_nzbase(tag_matrix, window_cidx2 * max_window_ctl, (window_cidx2 + 1) * max_window_ctl);
 	  tag_matrix_row_ptr = &(tag_matrix[window_cidx2 * max_window_ctl]);
-	  tag_ct = popcount_longs(tag_matrix_row_ptr, max_window_ctl);
 	  min_bp = marker_pos[marker_uidx2];
 	  max_bp = marker_pos[marker_uidx2];
 	  window_cidx3 = window_cidx_starts[window_cidx2];
