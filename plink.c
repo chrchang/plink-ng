@@ -86,7 +86,7 @@
 
 const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b2s"
+  "PLINK v1.90b2t"
 #else
   "PLINK v1.90b3p"
 #endif
@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (19 Dec 2014)";
+  " (20 Dec 2014)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   // " " // (don't want this when version number has a trailing letter)
@@ -9035,7 +9035,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --neighbour parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
-	if (scan_posint_defcap(argv[cur_arg + 1], &neighbor_n2)) {
+	if (scan_posint_defcap(argv[cur_arg + 2], &neighbor_n2)) {
 	  sprintf(logbuf, "Error: Invalid --neighbour parameter '%s'.\n", argv[cur_arg + 2]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}

@@ -10078,7 +10078,7 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
       }
       if (dbl_sample_mod4) {
 	ucc = *(--ucptr);
-	*ucptr = ucc >> dbl_sample_mod4;
+	*ucptr = ucc >> (8 - dbl_sample_mod4);
       }
 
       ujj = popcount_chars((uintptr_t*)writebuf, 0, sample_ct4);

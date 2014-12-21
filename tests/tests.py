@@ -12,34 +12,34 @@ def main():
     for bfn in bfile_names:
         retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --recode --out test1', shell=True)
         if not retval == 0:
-            print 'Unexpected error in --file/--maf/--recode/--write-snplist test.'
+            print 'Unexpected error in --file/--maf/--nonfounders/--recode/--write-snplist test.'
             sys.exit(1)
         retval = subprocess.call('plink2 --bfile ' + bfn + ' --silent --recode --out test2', shell=True)
         if not retval == 0:
-            print 'Unexpected error in --file/--maf/--recode/--write-snplist test.'
+            print 'Unexpected error in --file/--maf/--nonfounders/--recode/--write-snplist test.'
             sys.exit(1)
         retval = subprocess.call('diff -q test1.ped test2.ped', shell=True)
         if not retval == 0:
-            print '--recode test failed.'
+            print '--file/--maf/--nonfounders/--recode/--write-snplist test failed.'
             sys.exit(1)
         retval = subprocess.call('diff -q test1.map test2.map', shell=True)
         if not retval == 0:
-            print '--recode test failed.'
+            print '--file/--maf/--nonfounders/--recode/--write-snplist test failed.'
             sys.exit(1)
 
         retval = subprocess.call('plink1 --file test1 --silent --nonfounders --maf 0.04999 --write-snplist --out test1', shell=True)
         if not retval == 0:
-            print 'Unexpected error in --file/--maf/--write-snplist test.'
+            print 'Unexpected error in --file/--maf/--nonfounders/--recode/--write-snplist test.'
             sys.exit(1)
         retval = subprocess.call('plink2 --file test2 --silent --nonfounders --maf 0.04999 --write-snplist --out test2', shell=True)
         if not retval == 0:
-            print 'Unexpected error in --file/--maf/--write-snplist test.'
+            print 'Unexpected error in --file/--maf/--nonfounders/--recode/--write-snplist test.'
             sys.exit(1)
         subprocess.call('diff -q test1.snplist test2.snplist', shell=True)
         if not retval == 0:
-            print '--file/--maf/--write-snplist test failed.'
+            print '--file/--maf/--nonfounders/--recode/--write-snplist test failed.'
             sys.exit(1)
-    print '--file/--maf/--recode/--write-snplist test passed.'
+    print '--file/--maf/--nonfounders/--recode/--write-snplist test passed.'
 
     # --hwe takes case/control status into account, and VCF doesn't store that,
     # so this test is quantitative-trait only
@@ -438,24 +438,8 @@ def main():
             sys.exit(1)
     print '--check-sex/--impute-sex/--read-freq test passed.'
 
-    # don't bother with --indep since different matrix inversion routines are
-    # used
-    for bfn in bfile_names_cc:
-        # use 0.029 r^2 threshold since these are random genotypes with zero
-        # expected correlation
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --indep-pairwise 50 5 0.029 --out test1', shell=True)
-        if not retval == 0:
-            print 'Unexpected error in --indep-pairwise test.'
-            sys.exit(1)
-        retval = subprocess.call('plink2 --bfile ' + bfn + ' --silent --indep-pairwise 50 5 0.029 --out test2', shell=True)
-        if not retval == 0:
-            print 'Unexpected error in --indep-pairwise test.'
-            sys.exit(1)
-        retval = subprocess.call('diff -q test1.prune.in test2.prune.in', shell=True)
-        if not retval == 0:
-            print '--indep-pairwise test failed.'
-            sys.exit(1)
-    print '--indep-pairwise test passed.'
+    # Skip --indep-pairwise for now since harmless minor differences are
+    # expected.
 
     # floating-point error is more likely to affect --r, so we just test --r2
     for bfn in bfile_names:
@@ -474,30 +458,82 @@ def main():
     print '--r2 test passed.'
 
     for bfn in bfile_names:
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --show-tags all --tag-r2 0.031 --out test1', shell=True)
+        retval = subprocess.call('plink2 --bfile ' + bfn + ' --silent --make-set set.txt --write-set --out test1', shell=True)
         if not retval == 0:
-            print 'Unexpected error in --show-tags test.'
+            print 'Unexpected error in --gene/--show-tags test.'
             sys.exit(1)
-        retval = subprocess.call('plink2 --bfile ' + bfn + ' --silent --show-tags all --tag-r2 0.031 --out test2', shell=True)
+        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --set test1.set --gene set2 --show-tags all --tag-r2 0.031 --out test1', shell=True)
         if not retval == 0:
-            print 'Unexpected error in --show-tags test.'
+            print 'Unexpected error in --gene/--show-tags test.'
+            sys.exit(1)
+        retval = subprocess.call('plink2 --bfile ' + bfn + ' --silent --make-set set.txt --gene set2 --show-tags all --tag-r2 0.031 --out test2', shell=True)
+        if not retval == 0:
+            print 'Unexpected error in --gene/--show-tags test.'
             sys.exit(1)
         # ignore column 7 since we changed the interval length definition
         retval = subprocess.call("cat test1.tags.list | sed 's/^[[:space:]]*//g' | tr -s ' ' '\t' | cut -f 1-6,8 > test1.tags.list2", shell=True)
         if not retval == 0:
-            print 'Unexpected error in --show-tags test.'
+            print 'Unexpected error in --gene/--show-tags test.'
             sys.exit(1)
         retval = subprocess.call("cat test2.tags.list | sed 's/^[[:space:]]*//g' | tr -s ' ' '\t' | cut -f 1-6,8 > test2.tags.list2", shell=True)
         if not retval == 0:
-            print 'Unexpected error in --show-tags test.'
+            print 'Unexpected error in --gene/--show-tags test.'
             sys.exit(1)
         retval = subprocess.call('diff -q test1.tags.list2 test2.tags.list2', shell=True)
         if not retval == 0:
-            print '--show-tags test failed.'
+            print '--gene/--show-tags test failed.'
             sys.exit(1)
-    print '--show-tags test passed.'
+    print '--gene/--show-tags test passed.'
 
+    # skip --blocks for now since test files lack the necessary LD
 
+    for bfn in bfile_names:
+        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --cluster --distance-matrix --out test1', shell=True)
+        if not retval == 0:
+            print 'Unexpected error in --distance-matrix test.'
+            sys.exit(1)
+        retval = subprocess.call('plink2 --bfile ' + bfn + ' --silent --distance-matrix --out test2', shell=True)
+        if not retval == 0:
+            print 'Unexpected error in --distance-matrix test.'
+            sys.exit(1)
+        retval = subprocess.call('diff -q test1.mdist test2.mdist', shell=True)
+        if not retval == 0:
+            print '--distance-matrix test failed.'
+            sys.exit(1)
+    print '--distance-matrix test passed.'
+
+    for bfn in bfile_names:
+        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --genome --out test1', shell=True)
+        if not retval == 0:
+            print 'Unexpected error in --genome test.'
+            sys.exit(1)
+        retval = subprocess.call('plink2 --bfile ' + bfn + ' --silent --genome --out test2', shell=True)
+        if not retval == 0:
+            print 'Unexpected error in --genome test.'
+            sys.exit(1)
+        retval = subprocess.call('diff -q test1.genome test2.genome', shell=True)
+        if not retval == 0:
+            print '--genome test failed.'
+            sys.exit(1)
+    print '--genome test passed.'
+
+    for bfn in bfile_names:
+        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --homozyg --out test1', shell=True)
+        if not retval == 0:
+            print 'Unexpected error in --homozyg test.'
+            sys.exit(1)
+        retval = subprocess.call('plink2 --bfile ' + bfn + ' --silent --homozyg subtract-1-from-lengths --out test2', shell=True)
+        if not retval == 0:
+            print 'Unexpected error in --homozyg test.'
+            sys.exit(1)
+        retval = subprocess.call('diff -q test1.hom test2.hom', shell=True)
+        if not retval == 0:
+            print '--homozyg test failed.'
+            sys.exit(1)
+    print '--homozyg test passed.'
+
+    # skip --neighbour test for now due to likelihood of ties.  (Caught a
+    # command-line parsing bug when trying to write that test, though.)
 
     print 'All tests passed.'
     subprocess.call('rm test1.*', shell=True)

@@ -5160,7 +5160,12 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       dyy = (double)genome_main[gmcell + 3];
       dxx1 = 1.0 / ((double)(genome_main[gmcell + 4] + genome_main[gmcell + 3]));
       dxx2 = normdist((dxx * dxx1 - 0.666666) / (sqrt(0.2222222 * dxx1)));
-      sptr_cur = double_f_writew74x(double_f_writew96x(sptr_cur, 1.0 - (genome_main[gmcell] + 2 * genome_main[gmcell + 1]) / ((double)(2 * nn)), ' '), dxx2, ' ');
+      sptr_cur = double_f_writew96x(sptr_cur, 1.0 - (genome_main[gmcell] + 2 * genome_main[gmcell + 1]) / ((double)(2 * nn)), ' ');
+      if (dxx2 != dxx2) {
+	sptr_cur = memcpya(sptr_cur, "     NA ", 8);
+      } else {
+	sptr_cur = double_f_writew74x(sptr_cur, dxx2, ' ');
+      }
       if (genome_main[gmcell + 3]) {
 	sptr_cur = double_f_writew74(sptr_cur, dxx / dyy);
       } else {
