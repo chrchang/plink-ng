@@ -8959,9 +8959,9 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
     }
     goto epi_summary_merge_ret_INVALID_HEADER;
   }
-  bufptr = next_token(bufptr);
-  bufptr2 = next_token(bufptr);
-  plink_maxsnp = ((uintptr_t)(bufptr2 - bufptr)) - 1;
+  bufptr2 = token_end(bufptr);
+  bufptr = skip_initial_spaces(bufptr2);
+  plink_maxsnp = ((uintptr_t)(token_end(bufptr) - bufptr2)) - 1;
   while (fgets(tbuf, MAXLINELEN, infile)) {
     line_idx++;
     if (!tbuf[MAXLINELEN - 1]) {
