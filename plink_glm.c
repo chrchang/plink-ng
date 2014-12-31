@@ -1161,9 +1161,14 @@ static inline __m128 fmath_exp_ps(__m128 xx) {
   u4 = _mm_srli_epi32(u4, 10);
   u4 = _mm_slli_epi32(u4, 23);
   uint32_t v0 = _mm_cvtsi128_si32(v4);
-  uint32_t v1 = ((int32_t)(uint16_t)__builtin_ia32_vec_ext_v8hi((__v8hi)(__m128i)(v4), (int32_t)(2)));
-  uint32_t v2 = ((int32_t)(uint16_t)__builtin_ia32_vec_ext_v8hi((__v8hi)(__m128i)(v4), (int32_t)(4)));
-  uint32_t v3 = ((int32_t)(uint16_t)__builtin_ia32_vec_ext_v8hi((__v8hi)(__m128i)(v4), (int32_t)(6)));
+  // uint32_t v1 = ((int32_t)(uint16_t)__builtin_ia32_vec_ext_v8hi((__v8hi)(__m128i)(v4), (int32_t)(2)));
+  // uint32_t v2 = ((int32_t)(uint16_t)__builtin_ia32_vec_ext_v8hi((__v8hi)(__m128i)(v4), (int32_t)(4)));
+  // uint32_t v3 = ((int32_t)(uint16_t)__builtin_ia32_vec_ext_v8hi((__v8hi)(__m128i)(v4), (int32_t)(6)));
+  // make this work with LLVM
+  uint32_t v1 = _mm_extract_epi16(((__m128i)(v4)), ((int32_t)(2)));
+  uint32_t v2 = _mm_extract_epi16(((__m128i)(v4)), ((int32_t)(4)));
+  uint32_t v3 = _mm_extract_epi16(((__m128i)(v4)), ((int32_t)(6)));
+
   __m128 t0 = _mm_set_ss(float_exp_lookup[v0]);
   __m128 t1 = _mm_set_ss(float_exp_lookup[v1]);
   __m128 t2 = _mm_set_ss(float_exp_lookup[v2]);
