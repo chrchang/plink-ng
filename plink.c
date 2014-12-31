@@ -1,5 +1,5 @@
 // PLINK 1.90
-// Copyright (C) 2005-2014 Shaun Purcell, Christopher Chang
+// Copyright (C) 2005-2015 Shaun Purcell, Christopher Chang
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -86,9 +86,9 @@
 
 const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b2t"
+  "PLINK v1.90b3"
 #else
-  "PLINK v1.90b3p"
+  "PLINK v1.90p"
 #endif
 #ifdef NOLAPACK
   "NL"
@@ -99,16 +99,18 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (20 Dec 2014)";
+  " (1 Dec 2015) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
-  // " " // (don't want this when version number has a trailing letter)
+  " " // (don't want this when version number has a trailing letter)
+#else
+  "  " // (don't want this when version number has e.g. "b3" before "p")
 #endif
 #ifndef NOLAPACK
   "  "
 #endif
   "      https://www.cog-genomics.org/plink2\n"
-  "(C) 2005-2014 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
+  "(C) 2005-2015 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
 const char errstr_append[] = "For more information, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
 #ifdef STABLE_BUILD
   #ifndef NOLAPACK
@@ -1823,7 +1825,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       logprint("Error: --fast-epistasis case-only requires a sorted .bim.  Retry this command\nafter using --make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
-    retval = epistasis_report(threads, epi_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, marker_pos, plink_maxsnp, chrom_info_ptr, unfiltered_sample_ct, pheno_nm, pheno_nm_ct, pheno_ctrl_ct, pheno_c, pheno_d, parallel_idx, parallel_tot, outname, outname_end, output_min_p, sip);
+    retval = epistasis_report(threads, epi_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, marker_pos, plink_maxsnp, chrom_info_ptr, unfiltered_sample_ct, pheno_nm, pheno_nm_ct, pheno_ctrl_ct, pheno_c, pheno_d, parallel_idx, parallel_tot, outname, outname_end, output_min_p, glm_vif_thresh, sip);
     if (retval) {
       goto plink_ret_1;
     }
@@ -11757,19 +11759,19 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'v':
       if (!memcmp(argptr2, "if", 3)) {
-	if ((!(calculation_type & CALC_GLM)) || (glm_modifier & GLM_LOGISTIC)) {
-	  logprint("Error: --vif must be used with --linear.\n");
+	if (((!(calculation_type & CALC_GLM)) || (glm_modifier & GLM_LOGISTIC)) && (!((calculation_type & CALC_EPI) || (!(epi_info.modifier & EPI_REG))))) {
+	  logprint("Error: --vif must be used with --linear/--epistasis.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_double(argv[cur_arg + 1], &glm_vif_thresh)) {
-	  sprintf(logbuf, "Error: Invalid --linear/--logistic VIF threshold '%s'.\n", argv[cur_arg + 1]);
+	  sprintf(logbuf, "Error: Invalid --linear/--epistasis VIF threshold '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if (glm_vif_thresh < 1.0) {
-	  sprintf(logbuf, "Error: --linear/--logistic VIF threshold '%s' too small (must be >= 1).\n", argv[cur_arg + 1]);
+	  sprintf(logbuf, "Error: --linear/--epistasis VIF threshold '%s' too small (must be >= 1).\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "egas", 5)) {
@@ -12166,6 +12168,10 @@ int32_t main(int32_t argc, char** argv) {
       logprint("Error: A .fam file is required for this.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
+  }
+  if (sample_sort && (calculation_type & (~(CALC_MERGE | CALC_MAKE_BED)))) {
+    logprint("Error: --indiv-sort only affects --make-bed and --merge/--bmerge/--merge-list.\n");
+    goto main_ret_INVALID_CMDLINE_A;
   }
   if ((cnv_intersect_filter_type & CNV_COUNT) && (!(cnv_calc_type & (CNV_SAMPLE_PERM | CNV_ENRICHMENT_TEST)))) {
     logprint("Error: --cnv-count must be used with --cnv-indiv-perm or --cnv-enrichment-test.\n");

@@ -6246,7 +6246,7 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
     marker_ct = unfiltered_marker_ct - popcount_longs(marker_exclude, unfiltered_marker_ctl);
   }
   if (marker_ct < 2) {
-    logprint("Warning: Skipping --blocks since there are too few markers with MAF >= 0.05.\n");
+    logprint("Warning: Skipping --blocks since there are too few variants with MAF >= 0.05.\n");
     goto haploview_blocks_ret_1;
   }
   pct_thresh = marker_ct / 100;
@@ -6289,7 +6289,7 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
     }
 #ifndef __LP64__
     if (max_block_size > 65536) {
-      logprint("\nError: 32-bit --blocks cannot analyze potential blocks with more than 65536\nmarkers.  Use a 64-bit PLINK build or a smaller --blocks-window-kb value.\n");
+      logprint("\nError: 32-bit --blocks cannot analyze potential blocks with more than 65536\nvariants.  Use a 64-bit PLINK build or a smaller --blocks-window-kb value.\n");
       goto haploview_blocks_ret_INVALID_CMDLINE;
     }
 #endif
@@ -7334,12 +7334,81 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
   return retval;
 }
 
-int32_t epistasis_regression() {
-  logprint("Error: --epistasis has not been implemented yet.\n");
+#ifndef NOLAPACK
+int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uintptr_t marker_uidx_base, uintptr_t marker_ct1, uintptr_t* marker_exclude1, uintptr_t marker_idx1_start, uintptr_t marker_idx1_end, uintptr_t marker_ct2, uintptr_t* marker_exclude2, uint32_t is_triangular, uintptr_t job_size, uint64_t tests_expected, uintptr_t unfiltered_sample_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, double* pheno_d, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end, double output_min_p, double glm_vif_thresh, uintptr_t* loadbuf_raw, uintptr_t* loadbuf, double* best_chisq, uint32_t* best_ids, uint32_t* n_sig_cts, uint32_t* fail_cts, uint32_t* gap_cts) {
+  logprint("Error: --epistasis linear regression is under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
+  /*
+  FILE* outfile = NULL;
+  uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
+  uintptr_t final_mask = get_final_mask(pheno_nm_ct);
+  uintptr_t marker_uidx = marker_uidx_base;
+  uintptr_t pct = 1;
+  uintptr_t marker_uidx2 = 0;
+  uintptr_t marker_uidx2_trail = 0;
+  uintptr_t marker_idx2 = 0;
+  uintptr_t marker_idx2_trail = 0;
+  uint64_t pct_thresh = tests_expected / 100;
+  uint64_t tests_complete = 0;
+  uint32_t max_thread_ct = g_epi_thread_ct;
+  uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
+  uint32_t chrom_end = 0;
+  uint32_t chrom_idx = 0;
+  uint32_t chrom_idx2 = 0;
+  int32_t retval = 0;
+  unsigned char* wkspace_mark2;
+  char* wptr;
+  memcpy(outname_end, ".epi.qt", 8);
+  if (parallel_tot > 1) {
+    outname_end[7] = '.';
+    uint32_writex(&(outname_end[8]), parallel_idx + 1, '\0');
+  }
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto epistasis_linear_regression_ret_OPEN_FAIL;
+  }
+  if (!parallel_idx) {
+    wptr = memcpya(tbuf, "CHR1 ", 5);
+    wptr = fw_strcpyn(plink_maxsnp, 4, "SNP1", wptr);
+    wptr = memcpya(wptr, " CHR2 ", 6);
+    wptr = fw_strcpyn(plink_maxsnp, 4, "SNP2", wptr);
+    wptr = memcpya(wptr, "     BETA_INT         STAT            P \n", 41);
+    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+      goto epistasis_linear_regression_ret_WRITE_FAIL;
+    }
+  }
+  // claim up to half of memory with idx1 bufs; each marker currently costs
+  //   ;;;
+  //   marker_ct2 * sizeof(double) for results
+  while (0) {
+  epistasis_linear_regression_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  epistasis_linear_regression_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  epistasis_linear_regression_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  epistasis_linear_regression_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  epistasis_linear_regression_ret_THREAD_CREATE_FAIL:
+    retval = RET_THREAD_CREATE_FAIL;
+    break;
+  }
+  fclose_cond(outfile);
+  // caller will free memory
+  return retval;
+  */
+}
+#endif
+
+int32_t epistasis_logistic_regression(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uintptr_t marker_uidx_base, uintptr_t marker_ct1, uintptr_t* marker_exclude1, uintptr_t marker_idx1_start, uintptr_t marker_idx1_end, uintptr_t marker_ct2, uintptr_t* marker_exclude2, uint32_t is_triangular, uintptr_t job_size, uint64_t tests_expected, uintptr_t unfiltered_sample_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uintptr_t* pheno_c, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end, double output_min_p, uintptr_t* loadbuf_raw, uintptr_t* loadbuf, double* best_chisq, uint32_t* best_ids, uint32_t* n_sig_cts, uint32_t* fail_cts, uint32_t* gap_cts) {
+  logprint("Error: --epistasis logistic regression is under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
 }
 
-int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct2, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uint32_t ctrl_ct, uintptr_t* pheno_c, double* pheno_d, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end, double output_min_p, Set_info* sip) {
+int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct2, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uint32_t ctrl_ct, uintptr_t* pheno_c, double* pheno_d, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end, double output_min_p, double glm_vif_thresh, Set_info* sip) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
@@ -7438,6 +7507,13 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   uint32_t is_last_block;
   uint32_t missing_ct;
   uint32_t ujj;
+#ifdef NOLAPACK
+  if (pheno_d) {
+    logprint("Error: QT --epistasis requires " PROG_NAME_CAPS " to be built with LAPACK.\n");
+    goto epistasis_report_ret_INVALID_CMDLINE;
+  }
+#endif
+
   // common initialization between --epistasis and --fast-epistasis: remove
   // monomorphic and non-autosomal diploid sites
   if (is_custom_set1) {
@@ -7471,7 +7547,9 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     logprint("Error: --{fast-}epistasis does not support >= 2^29 samples.\n");
     goto epistasis_report_ret_INVALID_CMDLINE;
   }
+#ifndef NOLAPACK
   if (!pheno_d) {
+#endif
     if ((case_ct < 2) || ((!is_case_only) && (ctrl_ct < 2))) {
       sprintf(logbuf, "Error: --%sepistasis requires at least two cases%s.\n", is_fast? "fast-" : "", is_case_only? "" : " and two controls");
       goto epistasis_report_ret_INVALID_CMDLINE_2;
@@ -7481,12 +7559,14 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     }
     ctrlbuf = &(casebuf[case_ctv2]);
     ctrlbuf[ctrl_ctl2 - 1] = 0;
+#ifndef NOLAPACK
   } else {
     case_ctv2 = 2 * (pheno_nm_ct + (BITCT - 1)) / BITCT;
     if (wkspace_alloc_ul_checked(&casebuf, case_ctv2 * sizeof(intptr_t))) {
       goto epistasis_report_ret_NOMEM;
     }
   }
+#endif
   casebuf[case_ctv2 - 2] = 0;
   casebuf[case_ctv2 - 1] = 0;
   // marker_exclude2 should be on top since we might free it
@@ -7719,14 +7799,21 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     dxx = ltqnorm(epi_ip->epi2 / 2);
     g_epi_alpha2sq[0] = dxx * dxx;
   }
-  pct_thresh = tests_expected / 100;
   if (!is_fast) {
-    // hmm, this might not end up as a separate function
-    retval = epistasis_regression();
+#ifndef NOLAPACK
+    if (pheno_d) {
+      retval = epistasis_linear_regression(threads, epi_ip, bedfile, bed_offset, unfiltered_marker_ct, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, marker_uidx_base, marker_ct1, marker_exclude1, marker_idx1_start, marker_idx1_end, marker_ct2, marker_exclude2, is_triangular, job_size, tests_expected, unfiltered_sample_ct, pheno_nm, pheno_nm_ct, pheno_d, parallel_idx, parallel_tot, outname, outname_end, output_min_p, glm_vif_thresh, loadbuf, casebuf, best_chisq, best_ids, n_sig_cts, fail_cts, gap_cts);
+    } else {
+#endif
+      retval = epistasis_logistic_regression(threads, epi_ip, bedfile, bed_offset, unfiltered_marker_ct, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, marker_uidx_base, marker_ct1, marker_exclude1, marker_idx1_start, marker_idx1_end, marker_ct2, marker_exclude2, is_triangular, job_size, tests_expected, unfiltered_sample_ct, pheno_nm, pheno_nm_ct, pheno_c, parallel_idx, parallel_tot, outname, outname_end, output_min_p, loadbuf, casebuf, best_chisq, best_ids, n_sig_cts, fail_cts, gap_cts);
+#ifndef NOLAPACK
+    }
+#endif
     if (retval) {
       goto epistasis_report_ret_1;
     }
   } else {
+    pct_thresh = tests_expected / 100;
     if (is_case_only) {
       g_epi_ctrl_ct = 0;
       ctrl_ctv3 = 0;
@@ -8253,9 +8340,9 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	}
       }
     } while (marker_idx1 < marker_idx1_end);
-  }
-  if (fclose_null(&outfile)) {
-    goto epistasis_report_ret_WRITE_FAIL;
+    if (fclose_null(&outfile)) {
+      goto epistasis_report_ret_WRITE_FAIL;
+    }
   }
   memcpy(&(outname_end[7]), ".summary", 9);
   if (parallel_tot > 1) {
@@ -8369,6 +8456,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     retval = RET_WRITE_FAIL;
     break;
   epistasis_report_ret_TOO_FEW_MARKERS:
+#ifndef NOLAPACK
     if (pheno_d) {
       if (is_triangular) {
         logprint("Error: --epistasis requires 2+ non-monomorphic autosomal diploid loci.\n");
@@ -8376,12 +8464,15 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
         logprint("Error: Each --epistasis set must contain at least one non-monomorphic autosomal\ndiploid site.\n");
       }
     } else {
+#endif
       if (is_triangular) {
         logprint("Error: --{fast-}epistasis requires 2+ autosomal diploid loci not monomorphic in\neither cases or controls.\n");
       } else {
         logprint("Error: Each --{fast-}epistasis set must contain at least one autosomal diploid\nlocus not monomorphic in either cases or controls.\n");
       }
+#ifndef NOLAPACK
     }
+#endif
     retval = RET_INVALID_CMDLINE;
     break;
   epistasis_report_ret_INVALID_CMDLINE_2:

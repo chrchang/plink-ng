@@ -1836,9 +1836,6 @@ uint32_t logistic_regression(uint32_t sample_ct, uint32_t param_ct, float* vv, f
   }
 }
 
-// debug
-static uint32_t g_marker_uidx2;
-
 uint32_t glm_logistic(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t sample_valid_ct, uint32_t missing_ct, uintptr_t* loadbuf, float* covars_cov_major, uintptr_t* perm_vecs, float* coef, float* pp, float* sample_1d_buf, float* pheno_buf, float* param_1d_buf, float* param_1d_buf2, float* param_2d_buf, float* param_2d_buf2, float* logistic_results, uintptr_t constraint_ct, double* constraints_con_major, double* param_1d_dbuf, double* param_2d_dbuf, double* param_2d_dbuf2, double* param_df_dbuf, double* df_df_dbuf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* df_dbuf, uintptr_t* perm_fails) {
   // Similar to logistic.cpp fitLM(), but incorporates changes from the
   // postprocessed TopCoder contest code.
@@ -6788,7 +6785,6 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	if (cur_sample_valid_ct > cur_param_ct) {
 	  // todo: try better starting position
 	  fill_float_zero(g_logistic_mt[0].coef, (cur_param_ct + 3) & (~3));
-	  g_marker_uidx2 = marker_uidx2;
 	  regression_fail = glm_logistic(1, cur_param_ct, cur_sample_valid_ct, cur_missing_ct, loadbuf_ptr, g_logistic_mt[0].cur_covars_cov_major, pheno_c_collapsed, g_logistic_mt[0].coef, g_logistic_mt[0].pp, g_logistic_mt[0].sample_1d_buf, g_logistic_mt[0].pheno_buf, g_logistic_mt[0].param_1d_buf, g_logistic_mt[0].param_1d_buf2, g_logistic_mt[0].param_2d_buf, g_logistic_mt[0].param_2d_buf2, g_logistic_mt[0].regression_results, cur_constraint_ct, constraints_con_major, g_logistic_mt[0].param_1d_dbuf, g_logistic_mt[0].param_2d_dbuf, g_logistic_mt[0].param_2d_dbuf2, g_logistic_mt[0].param_df_dbuf, g_logistic_mt[0].df_df_dbuf, g_logistic_mt[0].mi_buf, g_logistic_mt[0].df_dbuf, g_logistic_mt[0].perm_fails);
 	} else {
 	  regression_fail = 1;

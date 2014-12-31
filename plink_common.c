@@ -4325,6 +4325,11 @@ int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int3
     *chrom_idx_ptr = (int32_t)(chrom_idx + max_code_p1);
     return 0;
   }
+  if (*bufptr == '#') {
+    // this breaks VCF and PLINK 2 binary
+    logprint("Error: Chromosome/contig names may not begin with '#'.\n");
+    return RET_INVALID_FORMAT;
+  }
   if (slen > MAX_ID_LEN) {
     if (line_idx) {
       LOGPRINTFWW("Error: Line %" PRIuPTR " of %s has an excessively long chromosome/contig name.  (The " PROG_NAME_CAPS " limit is " MAX_ID_LEN_STR " characters.)\n", line_idx, file_descrip);
