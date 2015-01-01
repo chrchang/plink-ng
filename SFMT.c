@@ -47,8 +47,11 @@ extern "C" {
 #include <string.h>
 #include <assert.h>
 #include "SFMT.h"
+
+#ifndef __LP64__
 inline static void do_recursion(w128_t * r, w128_t * a, w128_t * b,
 				w128_t * c, w128_t * d);
+#endif
 
 inline static void rshift128(w128_t *out,  w128_t const *in, int shift);
 inline static void lshift128(w128_t *out,  w128_t const *in, int shift);
@@ -107,6 +110,7 @@ inline static void lshift128(w128_t *out, w128_t const *in, int shift)
  * @param c a 128-bit part of the internal state array
  * @param d a 128-bit part of the internal state array
  */
+#ifndef __LP64__
 inline static void do_recursion(w128_t *r, w128_t *a, w128_t *b,
 				w128_t *c, w128_t *d)
 {
@@ -124,6 +128,7 @@ inline static void do_recursion(w128_t *r, w128_t *a, w128_t *b,
     r->u[3] = a->u[3] ^ x.u[3] ^ ((b->u[3] >> SFMT_SR1) & SFMT_MSK4)
 	^ y.u[3] ^ (d->u[3] << SFMT_SL1);
 }
+#endif
 
 /**
  * parameters used by sse2.

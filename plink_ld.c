@@ -7341,6 +7341,8 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
   /*
   FILE* outfile = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
+  uintptr_t pheno_nm_ctl2 = (pheno_nm_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t pheno_nm_ctv2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
   uintptr_t final_mask = get_final_mask(pheno_nm_ct);
   uintptr_t marker_uidx = marker_uidx_base;
   uintptr_t pct = 1;
@@ -7358,6 +7360,13 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
   int32_t retval = 0;
   unsigned char* wkspace_mark2;
   char* wptr;
+  uintptr_t marker_idx1_start;
+  uintptr_t marker_idx1;
+  uintptr_t marker_idx1_end;
+  uintptr_t idx1_block_size;
+  uintptr_t idx2_block_size;
+  uintptr_t idx2_block_sizem16;
+  uintptr_t ulii;
   memcpy(outname_end, ".epi.qt", 8);
   if (parallel_tot > 1) {
     outname_end[7] = '.';
@@ -7376,9 +7385,24 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
       goto epistasis_linear_regression_ret_WRITE_FAIL;
     }
   }
-  // claim up to half of memory with idx1 bufs; each marker currently costs
-  //   ;;;
-  //   marker_ct2 * sizeof(double) for results
+  // claim up to half of memory with idx1 bufs; each marker currently costs:
+  //   pheno_nm_ctl2 * sizeof(intptr_t) for geno buf
+  //   4 * sizeof(int32_t) + sizeof(double) + marker_ct2 * sizeof(double) for
+  //     other stuff (see epistasis_report() comment)
+  ulii = pheno_nm_ctl2 * sizeof(intptr_t) + 4 * sizeof(int32_t) + sizeof(double) + marker_ct2 * sizeof(double);
+  idx1_block_size = (wkspace_left - 4 * CACHELINE + 3 * sizeof(int32_t) - max_thread_ct * (5 * (CACHELINE - 4))) / (ulii * 2 + 1);
+  if (!idx1_block_size) {
+    goto epistasis_linear_regression_ret_NOMEM;
+  }
+  if (idx1_block_size > job_size) {
+    idx1_block_size = job_size;
+  }
+  // pad to avoid threads writing to same cacheline
+  ulii = (max_thread_ct - 1) * 15 + idx1_block_size;
+  g_epi_geno1_offsets = (uint32_t*)wkspace_alloc(idx1_block_size * 2 * sizeof(int32_t));
+  g_epi_geno1 = (uintptr_t*)wkspace_alloc(pheno_nm_ctl2 * idx1_block_size * sizeof(intptr_t));
+  ;;;
+
   while (0) {
   epistasis_linear_regression_ret_NOMEM:
     retval = RET_NOMEM;
@@ -7848,7 +7872,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	goto epistasis_report_ret_WRITE_FAIL;
       }
     }
-    // claim up to half of memory with idx1 bufs; each marker currently costs
+    // claim up to half of memory with idx1 bufs; each marker currently costs:
     //   (case_ctsplit + ctrl_ctsplit) * sizeof(intptr_t) for loose geno buf
     //   0.25 for missing tracker
     //   sizeof(int32_t) for offset (to skip bottom left triangle, and/or
