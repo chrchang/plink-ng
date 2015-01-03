@@ -11541,6 +11541,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   uint32_t vcf_two_ids = vcf_not_fid && vcf_not_iid;
   uint32_t recode_012 = recode_modifier & (RECODE_01 | RECODE_12);
   uint32_t set_hh_missing = (misc_flags / MISC_SET_HH_MISSING) & 1;
+  uint32_t real_references = (misc_flags / MISC_REAL_REFERENCES) & 1;
   uint32_t xmhh_exists_orig = hh_exists & XMHH_EXISTS;
   uintptr_t header_len = 0;
   uintptr_t max_chrom_size = 0;
@@ -12264,42 +12265,52 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       goto recode_ret_OPEN_FAIL;
     }
     if (fputs_checked(
-"##fileformat=VCFv4.1\n"
-"##filedate=", outfile)) {
+"##fileformat=VCFv4.2\n"
+"##fileDate=", outfile)) {
       goto recode_ret_WRITE_FAIL;
     }
     time(&rawtime);
     loctime = localtime(&rawtime);
     strftime(tbuf, MAXLINELEN, "%Y%m%d", loctime);
     fputs(tbuf, outfile);
-    fputs(
-"\n##source=" PROG_NAME_CAPS "\n"
-"##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n"
-, outfile);
+    fputs("\n##source=PLINKv1.90b3\n", outfile);
     uii = 0; // '0' written already?
     memcpy(tbuf, "##contig=<ID=", 13);
     for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
       chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+      if (!IS_SET(chrom_info_ptr->chrom_mask, chrom_idx)) {
+	continue;
+      }
       cptr = chrom_name_write(&(tbuf[13]), chrom_info_ptr, chrom_idx);
       if ((tbuf[13] == '0') && (cptr == &(tbuf[14]))) {
 	if (uii) {
 	  continue;
 	}
 	uii = 1;
-	cptr = memcpya(cptr, ",length=536870911", 17);
+	cptr = memcpya(cptr, ",length=2147483645", 18);
       } else {
+	*cptr = '\0';
+	if (strchr(&(tbuf[13]), ':')) {
+	  logprint("Error: VCF chromosome codes may not include the ':' character.\n");
+	  goto recode_ret_INVALID_FORMAT;
+	}
         cptr = memcpya(cptr, ",length=", 8);
 	if (!(map_is_unsorted & UNSORTED_BP)) {
 	  cptr = uint32_write(cptr, marker_pos[chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1] - 1] + 1);
 	} else {
-	  cptr = memcpya(cptr, "536870911", 9); // unknown
+	  cptr = memcpya(cptr, "2147483645", 10); // unknown
 	}
       }
       cptr = memcpya(cptr, ">\n", 2);
       fwrite(tbuf, 1, cptr - tbuf, outfile);
     }
+    if (!real_references) {
+      fputs("##INFO=<ID=PR,Number=0,Type=Flag,Description=\"Provisional reference allele, may not be based on real reference genome\"\n", outfile);
+    }
+    fputs("##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n", outfile);
+    // todo: include PEDIGREE in header, and make --vcf be able to read it?
+    // Can't find a specification for how this should be done...
     fputs("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT", outfile);
-
     chrom_fo_idx = 0;
     refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
@@ -12380,7 +12391,11 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	} else {
 	  putc('.', outfile);
 	}
-	fputs("\t.\t.\t.\tGT", outfile);
+	if (!real_references) {
+	  fputs("\t.\t.\tPR\tGT", outfile);
+	} else {
+	  fputs("\t.\t.\t.\tGT", outfile);
+	}
 
 	if (load_and_collapse(bedfile, (uintptr_t*)loadbuf, unfiltered_sample_ct, loadbuf_collapsed, sample_ct, sample_exclude, final_mask, IS_SET(marker_reverse, marker_uidx))) {
 	  goto recode_ret_READ_FAIL;

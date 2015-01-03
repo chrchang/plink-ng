@@ -8342,6 +8342,48 @@ void vec_datamask(uintptr_t unfiltered_sample_ct, uint32_t matchval, uintptr_t* 
   }
 }
 
+/*
+void vec_rotate_plink1_to_plink2(uintptr_t* lptr, uint32_t word_ct) {
+#ifdef __LP64__
+  const __m128i m1 = {FIVEMASK, FIVEMASK};
+  __m128i* vptr = (__m128i*)lptr;
+  __m128i* vend = (__m128i*)(&(lptr[word_ct]));
+  __m128i vii;
+  __m128i vjj;
+  do {
+    // new high bit set iff old low bit was set
+    // new low bit set iff old bits differed 
+    vii = *vptr;
+    vjj = _mm_and_si128(vii, m1); // old low bit
+    vii = _mm_and_si128(_mm_srli_epi64(vii, 1), m1); // old high bit, shifted
+    *vptr = _mm_or_si128(_mm_slli_epi64(vjj, 1), _mm_xor_si128(vii, vjj));
+  } while (++vptr != vend);
+#else
+  uintptr_t* lend = &(lptr[word_ct]);
+  uintptr_t ulii;
+  uintptr_t uljj;
+  do {
+    ulii = *lptr;
+    uljj = ulii & FIVEMASK;
+    ulii = (ulii >> 1) & FIVEMASK;
+    *lptr = ulii ^ (uljj * 3);
+  } while (++lptr != lend);
+#endif
+}
+*/
+
+void rotate_plink1_to_plink2_and_copy(uintptr_t* loadbuf, uintptr_t* writebuf, uintptr_t word_ct) {
+  uintptr_t* loadbuf_end = &(loadbuf[word_ct]);
+  uintptr_t ulii;
+  uintptr_t uljj;
+  do {
+    ulii = *loadbuf++;
+    uljj = ulii & FIVEMASK;
+    ulii = (ulii >> 1) & FIVEMASK;
+    *writebuf++ = ulii ^ (uljj * 3);
+  } while (loadbuf < loadbuf_end);
+}
+
 void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_sample_ct, uintptr_t* sample_include2, uintptr_t sample_ct, uintptr_t* missing_bitfield) {
   uint32_t word_ct = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t sample_idx;

@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (1 Jan 2015) ";
+  " (3 Jan 2015) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   " " // (don't want this when version number has a trailing letter)
@@ -7814,11 +7814,9 @@ int32_t main(int32_t argc, char** argv) {
 	}
         calculation_type |= CALC_EPI;
       } else if (!memcmp(argptr2, "ist-all", 8)) {
-	UNSTABLE;
 	ld_info.modifier |= LD_SHOW_TAGS_LIST_ALL;
         goto main_param_zero;
       } else if (!memcmp(argptr2, "ist-duplicate-vars", 19)) {
-	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 3)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -8886,7 +8884,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	calculation_type |= CALC_MAKE_PERM_PHENO;
       } else if (!memcmp(argptr2, "eta-analysis", 13)) {
-	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 0x1fffffff)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -9241,7 +9238,6 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_NOMEM;
 	}
       } else if (!memcmp(argptr2, "utput-min-p", 12)) {
-	UNSTABLE;
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -10412,6 +10408,13 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	calculation_type |= CALC_LD;
+      } else if (!memcmp(argptr2, "eal-references", 15)) {
+	if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
+	  sprintf(logbuf, "Error: --real-references has no effect with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+        misc_flags |= MISC_REAL_REFERENCES | MISC_KEEP_ALLELE_ORDER;
+        goto main_param_zero;
       } else if (!memcmp(argptr2, "ange", 5)) {
         if (extractname) {
 	  misc_flags |= MISC_EXTRACT_RANGE;
@@ -11823,7 +11826,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	misc_flags |= MISC_VCF_FILTER;
       } else if (!memcmp(argptr2, "cf-min-gp", 10)) {
-	UNSTABLE;
 	if (!(load_rare & LOAD_RARE_VCF)) {
 	  // er, probably want to support BCF too
 	  logprint("Error: --vcf-min-gp must be used with --vcf.\n");
@@ -11838,7 +11840,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	vcf_min_gp *= 1 - SMALL_EPSILON;
       } else if (!memcmp(argptr2, "cf-min-gq", 10)) {
-	UNSTABLE;
 	if (!(load_rare & LOAD_RARE_VCF)) {
 	  // probably want to support BCF too
 	  logprint("Error: --vcf-min-gq must be used with --vcf.\n");
@@ -11900,7 +11901,6 @@ int32_t main(int32_t argc, char** argv) {
 	calculation_type |= CALC_WRITE_SNPLIST;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "rite-var-ranges", 16)) {
-	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}

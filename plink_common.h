@@ -220,6 +220,7 @@
 #define MISC_HET_SMALL_SAMPLE 0x100000000LLU
 #define MISC_FST_CC 0x200000000LLU
 #define MISC_SPLIT_MERGE_NOFAIL 0x400000000LLU
+#define MISC_REAL_REFERENCES 0x800000000LLU
 
 // assume for now that .bed must always be accompanied by both .bim and .fam
 #define FILTER_ALL_REQ 1LLU
@@ -2152,6 +2153,10 @@ void vec_init_01(uintptr_t unfiltered_sample_ct, uintptr_t* data_ptr, uintptr_t*
 void vec_invert(uintptr_t unfiltered_sample_ct, uintptr_t* vec2);
 
 void vec_datamask(uintptr_t unfiltered_sample_ct, uint32_t matchval, uintptr_t* data_ptr, uintptr_t* mask_ptr, uintptr_t* result_ptr);
+
+// void vec_rotate_plink1_to_plink2(uintptr_t* lptr, uint32_t word_ct);
+
+void rotate_plink1_to_plink2_and_copy(uintptr_t* loadbuf, uintptr_t* writebuf, uintptr_t word_ct);
 
 void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_sample_ct, uintptr_t* sample_include2, uintptr_t sample_ct, uintptr_t* missing_bitfield);
 

@@ -3964,6 +3964,151 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   }
 }
 
+// epistasis linear/logistic regression multithread globals
+
+#ifndef NOLAPACK
+typedef struct epi_linear_multithread_struct {
+  double* param_2d_buf;
+  double* param_2d_buf2;
+  MATRIX_INVERT_BUF1_TYPE* mi_buf;
+  double* cur_covars_cov_major;
+  double* cur_covars_sample_major;
+  double* dgels_a;
+  double* dgels_b;
+  double* dgels_work;
+  double* regression_results;
+} Epi_linear_multithread;
+
+static Epi_linear_multithread* g_epi_linear_mt;
+static __CLPK_integer g_epi_dgels_lwork;
+static double* g_epi_pheno_d2;
+static double g_epi_pheno_sum;
+static double g_epi_pheno_ssq;
+#endif
+
+static uint32_t g_epi_pheno_nm_ct;
+
+#ifndef NOLAPACK
+THREAD_RET_TYPE epi_linear_thread(void* arg) {
+  uintptr_t tidx = (uintptr_t)arg;
+  uintptr_t block_idx1_start = g_epi_idx1_block_bounds[tidx];
+  uintptr_t block_idx1_end = g_epi_idx1_block_bounds[tidx + 1];
+  uintptr_t idx1_block_start16 = g_epi_idx1_block_bounds16[tidx];
+  uintptr_t marker_idx1 = g_epi_marker_idx1 + block_idx1_start;
+  uintptr_t marker_ct = g_epi_marker_ct;
+  double alpha1sq = g_epi_alpha1sq[0];
+  double alpha2sq = g_epi_alpha2sq[0];
+  uint32_t pheno_nm_ct = g_epi_pheno_nm_ct;
+  uint32_t best_id_fixed = 0;
+  uint32_t is_first_half = 0;
+  uintptr_t pheno_nm_ctl2 = (pheno_nm_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t* geno1 = g_epi_geno1;
+  MATRIX_INVERT_BUF1_TYPE* mi_buf = g_epi_linear_mt[tidx].mi_buf;
+  double* param_2d_buf = g_epi_linear_mt[tidx].param_2d_buf;
+  double* param_2d_buf2 = g_epi_linear_mt[tidx].param_2d_buf2;
+  double* cur_covars_cov_major = g_epi_linear_mt[tidx].cur_covars_cov_major;
+  double* cur_covars_sample_major = g_epi_linear_mt[tidx].cur_covars_sample_major;
+  double* dgels_a = g_epi_linear_mt[tidx].dgels_a;
+  double* dgels_b = g_epi_linear_mt[tidx].dgels_b;
+  double* dgels_work = g_epi_linear_mt[tidx].dgels_work;
+  double* regression_results = g_epi_linear_mt[tidx].regression_results;
+  uint32_t* geno1_offsets = g_epi_geno1_offsets;
+  uint32_t* best_id1 = &(g_epi_best_id1[idx1_block_start16]);
+  __CLPK_integer dgels_n = 4;
+  __CLPK_integer dgels_lwork = g_epi_dgels_lwork;
+  uintptr_t* cur_geno1;
+  uintptr_t* geno2;
+  uintptr_t* cur_geno2;
+  double* all_chisq_write;
+  double* chisq2_ptr;
+  double* all_chisq;
+  double* best_chisq1;
+  double* best_chisq2;
+  uint32_t* n_sig_ct1;
+  uint32_t* fail_ct1;
+  uint32_t* best_id2;
+  uint32_t* n_sig_ct2;
+  uint32_t* fail_ct2;
+  uintptr_t idx2_block_size;
+  uintptr_t cur_idx2_block_size;
+  uintptr_t idx2_block_start;
+  uintptr_t idx2_block_end;
+  uintptr_t idx2_block_sizem16;
+  uintptr_t block_idx1;
+  uintptr_t block_delta1;
+  uintptr_t block_idx2;
+  uintptr_t ulii;
+  double best_chisq_fixed;
+  double dxx;
+  double zsq;
+  uint32_t n_sig_ct_fixed;
+  uint32_t fail_ct_fixed;
+  while (1) {
+    idx2_block_size = g_epi_idx2_block_size;
+    cur_idx2_block_size = idx2_block_size;
+    idx2_block_start = g_epi_idx2_block_start;
+    idx2_block_end = idx2_block_start + idx2_block_size;
+    idx2_block_sizem16 = (idx2_block_size + 15) & (~(15 + ONELU));
+    geno2 = g_epi_geno2;
+    all_chisq = &(g_epi_all_chisq[idx2_block_start]);
+    best_chisq1 = &(g_epi_best_chisq1[idx1_block_start16]);
+    best_chisq2 = &(g_epi_best_chisq2[tidx * idx2_block_sizem16]);
+    n_sig_ct1 = &(g_epi_n_sig_ct1[idx1_block_start16]);
+    fail_ct1 = &(g_epi_fail_ct1[idx1_block_start16]);
+    best_id2 = &(g_epi_best_id2[tidx * idx2_block_sizem16]);
+    n_sig_ct2 = &(g_epi_n_sig_ct2[tidx * idx2_block_sizem16]);
+    fail_ct2 = &(g_epi_fail_ct2[tidx * idx2_block_sizem16]);
+    for (block_idx1 = block_idx1_start; block_idx1 < block_idx1_end; block_idx1++, marker_idx1++) {
+      ulii = geno1_offsets[2 * block_idx1];
+      if (ulii > idx2_block_start) {
+        block_idx2 = 0;
+        cur_idx2_block_size = ulii - idx2_block_start;
+	if (cur_idx2_block_size >= idx2_block_size) {
+          cur_idx2_block_size = idx2_block_size;
+	} else {
+	  is_first_half = 1;
+        }
+      } else {
+        ulii = geno1_offsets[2 * block_idx1 + 1];
+        if (ulii >= idx2_block_end) {
+          // may not be done in set1 x all or set1 x set2 cases
+          continue;
+	} else {
+          if (ulii <= idx2_block_start) {
+            block_idx2 = 0;
+	  } else {
+            block_idx2 = ulii - idx2_block_start;
+	  }
+	}
+      }
+      cur_geno1 = &(geno1[block_idx1 * pheno_nm_ctl2]);
+      n_sig_ct_fixed = 0;
+      fail_ct_fixed = 0;
+      block_delta1 = block_idx1 - block_idx1_start;
+      best_chisq_fixed = best_chisq1[block_delta1];
+
+      // [0] = chisq, [1] = beta
+      all_chisq_write = &(all_chisq[block_idx1 * marker_ct * 2]);
+
+    epi_linear_thread_second_half:
+      cur_geno2 = &(geno2[block_idx2 * pheno_nm_ctl2]);
+      chisq2_ptr = &(best_chisq2[block_idx2]);
+      for (; block_idx2 < cur_idx2_block_size; block_idx2++, chisq2_ptr++, cur_geno2 = &(cur_geno2[pheno_nm_ctl2])) {
+        // ...
+      }
+      ;;;
+      // ...
+    }
+    if ((!tidx) || g_is_last_thread_block) {
+      THREAD_RETURN;
+    }
+    THREAD_BLOCK_FINISH(tidx);
+  }
+}
+#endif
+
+
+
 double calc_lnlike(double known11, double known12, double known21, double known22, double center_ct_d, double freq11, double freq12, double freq21, double freq22, double half_hethet_share, double freq11_incr) {
   double lnlike;
   freq11 += freq11_incr;
@@ -7342,14 +7487,12 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
   FILE* outfile = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t pheno_nm_ctl2 = (pheno_nm_ct + (BITCT2 - 1)) / BITCT2;
-  uintptr_t pheno_nm_ctv2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
   uintptr_t final_mask = get_final_mask(pheno_nm_ct);
   uintptr_t marker_uidx = marker_uidx_base;
   uintptr_t pct = 1;
   uintptr_t marker_uidx2 = 0;
-  uintptr_t marker_uidx2_trail = 0;
+  uintptr_t marker_idx1 = marker_idx1_start;
   uintptr_t marker_idx2 = 0;
-  uintptr_t marker_idx2_trail = 0;
   uint64_t pct_thresh = tests_expected / 100;
   uint64_t tests_complete = 0;
   uint32_t max_thread_ct = g_epi_thread_ct;
@@ -7357,16 +7500,135 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
   uint32_t chrom_end = 0;
   uint32_t chrom_idx = 0;
   uint32_t chrom_idx2 = 0;
+  __CLPK_integer dgels_m = pheno_nm_ct;
+  __CLPK_integer dgels_n = 4;
+  __CLPK_integer dgels_nrhs = 1;
+  __CLPK_integer dgels_ldb = pheno_nm_ct;
   int32_t retval = 0;
+  char dgels_trans = 'N';
   unsigned char* wkspace_mark2;
+  uintptr_t* ulptr;
+  char* wptr_start;
+  char* wptr_start2;
   char* wptr;
-  uintptr_t marker_idx1_start;
-  uintptr_t marker_idx1;
-  uintptr_t marker_idx1_end;
+  double* dptr;
+  double* dptr2;
+  uint32_t* uiptr;
+  uint32_t* uiptr2;
+  uint32_t* uiptr3;
+  uint32_t* uiptr4;
+  uint32_t* uiptr5;
+  uintptr_t cur_workload;
   uintptr_t idx1_block_size;
   uintptr_t idx2_block_size;
   uintptr_t idx2_block_sizem16;
+  uintptr_t marker_uidx_tmp;
+  uintptr_t block_idx1;
+  uintptr_t block_idx2;
+  uintptr_t cur_idx2_block_size;
+  uintptr_t chrom_end2;
+  uintptr_t tidx;
   uintptr_t ulii;
+  uintptr_t uljj;
+  uintptr_t ulkk;
+  double dxx;
+  uint32_t chrom_fo_idx;
+  uint32_t chrom_fo_idx2;
+  uint32_t is_last_block;
+  uint32_t sample_uidx;
+  uint32_t sample_idx;
+  uint32_t uii;
+  uint32_t ujj;
+  __CLPK_integer dgels_info;
+  if (wkspace_alloc_d_checked(&g_epi_pheno_d2, pheno_nm_ct * sizeof(double))) {
+    goto epistasis_linear_regression_ret_NOMEM;
+  }
+  // allocate per-thread buffers for glm_linear() calls.
+  g_epi_linear_mt = (Epi_linear_multithread*)wkspace_alloc(max_thread_ct * sizeof(Epi_linear_multithread));
+  if (!g_epi_linear_mt) {
+    goto epistasis_linear_regression_ret_NOMEM;
+  }
+  // param_ct_max = 4 (intercept, A, B, AB)
+  for (tidx = 0; tidx < max_thread_ct; tidx++) {
+    if (wkspace_alloc_d_checked(&(g_epi_linear_mt[tidx].cur_covars_cov_major), pheno_nm_ct * 4 * sizeof(double)) ||
+        wkspace_alloc_d_checked(&(g_epi_linear_mt[tidx].cur_covars_sample_major), pheno_nm_ct * 4 * sizeof(double)) ||
+	wkspace_alloc_d_checked(&(g_epi_linear_mt[tidx].param_2d_buf), 4 * 4 * sizeof(double)) ||
+        wkspace_alloc_d_checked(&(g_epi_linear_mt[tidx].param_2d_buf2), 4 * 4 * sizeof(double)) ||
+        wkspace_alloc_d_checked(&(g_epi_linear_mt[tidx].regression_results), 3 * sizeof(double)) ||
+        wkspace_alloc_d_checked(&(g_epi_linear_mt[tidx].dgels_a), pheno_nm_ct * 4 * sizeof(double)) ||
+        wkspace_alloc_d_checked(&(g_epi_linear_mt[tidx].dgels_b), pheno_nm_ct * sizeof(double))) {
+      goto epistasis_linear_regression_ret_NOMEM;
+    }
+    g_epi_linear_mt[tidx].mi_buf = (MATRIX_INVERT_BUF1_TYPE*)wkspace_alloc(4 * sizeof(MATRIX_INVERT_BUF1_TYPE));
+    if (!g_epi_linear_mt[tidx].mi_buf) {
+      goto epistasis_linear_regression_ret_NOMEM;
+    }
+    if (!tidx) {
+      g_epi_dgels_lwork = -1;
+      dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, g_epi_linear_mt[0].dgels_a, &dgels_m, g_epi_linear_mt[0].dgels_b, &dgels_ldb, &dxx, &g_epi_dgels_lwork, &dgels_info);
+      if (dxx > 2147483647.0) {
+        logprint("Error: Linear regression problem too large for current LAPACK version.\n");
+        retval = RET_CALC_NOT_YET_SUPPORTED;
+        goto epistasis_linear_regression_ret_1;
+      }
+      g_epi_dgels_lwork = (int32_t)dxx;
+    }
+    if (wkspace_alloc_d_checked(&(g_epi_linear_mt[tidx].dgels_work), g_epi_dgels_lwork * sizeof(double))) {
+      goto epistasis_linear_regression_ret_NOMEM;
+    }
+  }
+  dptr = g_epi_pheno_d2;
+  g_epi_pheno_sum = 0;
+  g_epi_pheno_ssq = 0;
+  for (sample_uidx = 0, sample_idx = 0; sample_idx < pheno_nm_ct; sample_uidx++, sample_idx++) {
+    next_set_unsafe_ck(pheno_nm, &sample_uidx);
+    dxx = pheno_d[sample_uidx];
+    g_epi_pheno_sum += dxx;
+    g_epi_pheno_ssq += dxx * dxx;
+    g_epi_pheno_d2[sample_idx] = dxx;
+  }
+  if (g_epi_pheno_ssq * ((double)((int32_t)pheno_nm_ct)) == g_epi_pheno_sum * g_epi_pheno_sum) {
+    logprint("Error: Phenotype is constant.\n");
+    goto epistasis_linear_regression_ret_INVALID_CMDLINE;
+  }
+
+  // claim up to half of memory with idx1 bufs; each marker currently costs:
+  //   pheno_nm_ctl2 * sizeof(intptr_t) for geno buf
+  //   4 * sizeof(int32_t) + sizeof(double) + marker_ct2 * 2 * sizeof(double)
+  //     for other stuff (see epistasis_report() comment, starting from
+  //     "offset"; main result buffer must be double-size to store both beta
+  //     and chi-square stat)
+  ulii = pheno_nm_ctl2 * sizeof(intptr_t) + 4 * sizeof(int32_t) + sizeof(double) + marker_ct2 * 2 * sizeof(double);
+  idx1_block_size = (wkspace_left - 4 * CACHELINE + 3 * sizeof(int32_t) - max_thread_ct * (5 * (CACHELINE - 4))) / (ulii * 2 + 1);
+  if (!idx1_block_size) {
+    goto epistasis_linear_regression_ret_NOMEM;
+  }
+  if (idx1_block_size > job_size) {
+    idx1_block_size = job_size;
+  }
+  // pad to avoid threads writing to same cacheline
+  ulii = (max_thread_ct - 1) * 15 + idx1_block_size;
+  g_epi_geno1_offsets = (uint32_t*)wkspace_alloc(idx1_block_size * 2 * sizeof(int32_t));
+  g_epi_geno1 = (uintptr_t*)wkspace_alloc(pheno_nm_ctl2 * idx1_block_size * sizeof(intptr_t));
+  g_epi_all_chisq = (double*)wkspace_alloc(idx1_block_size * marker_ct2 * 2 * sizeof(double));
+  g_epi_best_chisq1 = (double*)wkspace_alloc(ulii * sizeof(double));
+  g_epi_best_id1 = (uint32_t*)wkspace_alloc(ulii * sizeof(int32_t));
+  g_epi_n_sig_ct1 = (uint32_t*)wkspace_alloc(ulii * sizeof(int32_t));
+  g_epi_fail_ct1 = (uint32_t*)wkspace_alloc(ulii * sizeof(int32_t));
+  for (block_idx1 = 0; block_idx1 < idx1_block_size; block_idx1++) {
+    g_epi_geno1[block_idx1 * pheno_nm_ctl2 + pheno_nm_ctl2 - 1] = 0;
+  }
+  if (is_triangular) {
+    fill_uint_zero(g_epi_geno1_offsets, 2 * idx1_block_size);
+  }
+
+  ulii = pheno_nm_ctl2 * sizeof(intptr_t) + max_thread_ct * (3 * sizeof(int32_t) + sizeof(double));
+  idx2_block_size = (wkspace_left - (CACHELINE - sizeof(intptr_t)) - max_thread_ct * (3 * (CACHELINE - sizeof(int32_t)) + (CACHELINE - sizeof(double)))) / ulii;
+  if (idx2_block_size > marker_ct2) {
+    idx2_block_size = marker_ct2;
+  }
+  idx2_block_size = (idx2_block_size + 15) & (~(15 * ONELU));
+
   memcpy(outname_end, ".epi.qt", 8);
   if (parallel_tot > 1) {
     outname_end[7] = '.';
@@ -7385,24 +7647,314 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
       goto epistasis_linear_regression_ret_WRITE_FAIL;
     }
   }
-  // claim up to half of memory with idx1 bufs; each marker currently costs:
-  //   pheno_nm_ctl2 * sizeof(intptr_t) for geno buf
-  //   4 * sizeof(int32_t) + sizeof(double) + marker_ct2 * sizeof(double) for
-  //     other stuff (see epistasis_report() comment)
-  ulii = pheno_nm_ctl2 * sizeof(intptr_t) + 4 * sizeof(int32_t) + sizeof(double) + marker_ct2 * sizeof(double);
-  idx1_block_size = (wkspace_left - 4 * CACHELINE + 3 * sizeof(int32_t) - max_thread_ct * (5 * (CACHELINE - 4))) / (ulii * 2 + 1);
-  if (!idx1_block_size) {
-    goto epistasis_linear_regression_ret_NOMEM;
-  }
-  if (idx1_block_size > job_size) {
-    idx1_block_size = job_size;
-  }
-  // pad to avoid threads writing to same cacheline
-  ulii = (max_thread_ct - 1) * 15 + idx1_block_size;
-  g_epi_geno1_offsets = (uint32_t*)wkspace_alloc(idx1_block_size * 2 * sizeof(int32_t));
-  g_epi_geno1 = (uintptr_t*)wkspace_alloc(pheno_nm_ctl2 * idx1_block_size * sizeof(intptr_t));
-  ;;;
 
+  wkspace_mark2 = wkspace_base;
+  while (1) {
+    if (!idx2_block_size) {
+      goto epistasis_linear_regression_ret_NOMEM;
+    }
+    if (!(wkspace_alloc_ul_checked(&g_epi_geno2, pheno_nm_ctl2 * idx2_block_size * sizeof(intptr_t)) ||
+          wkspace_alloc_d_checked(&g_epi_best_chisq2, max_thread_ct * idx2_block_size * sizeof(double)) ||
+          wkspace_alloc_ui_checked(&g_epi_best_id2, max_thread_ct * idx2_block_size * sizeof(int32_t)) ||
+          wkspace_alloc_ui_checked(&g_epi_n_sig_ct2, max_thread_ct * idx2_block_size * sizeof(int32_t)) ||
+          wkspace_alloc_ui_checked(&g_epi_fail_ct2, max_thread_ct * idx2_block_size * sizeof(int32_t)))) {
+      break;
+    }
+    wkspace_reset(wkspace_mark2);
+    idx2_block_size -= 16;
+  }
+  for (block_idx2 = 0; block_idx2 < idx2_block_size; block_idx2++) {
+    g_epi_geno2[block_idx2 * pheno_nm_ctl2 + pheno_nm_ctl2 - 1] = 0;
+  }
+  marker_uidx = next_unset_ul_unsafe(marker_exclude1, marker_uidx_base);
+  if (marker_idx1) {
+    marker_uidx = jump_forward_unset_unsafe(marker_exclude1, marker_uidx + 1, marker_idx1);
+  }
+  wptr = memcpya(logbuf, "QT --epistasis to ", 18);
+  wptr = strcpya(wptr, outname);
+  memcpy(wptr, " ... ", 6);
+  wordwrap(logbuf, 16); // strlen("99% [processing]")
+  logprintb();
+  fputs("0%", stdout);
+  do {
+    fputs(" [processing]", stdout);
+    fflush(stdout);
+    if (idx1_block_size > marker_idx1_end - marker_idx1) {
+      idx1_block_size = marker_idx1_end - marker_idx1;
+      if (idx1_block_size < max_thread_ct) {
+        max_thread_ct = idx1_block_size;
+        g_epi_thread_ct = max_thread_ct;
+      }
+    }
+    g_epi_marker_idx1 = marker_idx1;
+    dptr = g_epi_all_chisq;
+    dptr2 = &(g_epi_all_chisq[idx1_block_size * marker_ct2 * 2]);
+    do {
+      *dptr = -1;
+      dptr = &(dptr[2]);
+    } while (dptr < dptr2);
+    marker_uidx_tmp = marker_uidx;
+    if (fseeko(bedfile, bed_offset + (marker_uidx * ((uint64_t)unfiltered_sample_ct4)), SEEK_SET)) {
+      goto epistasis_linear_regression_ret_READ_FAIL;
+    }
+    cur_workload = idx1_block_size * marker_ct2;
+    if (is_triangular) {
+      for (block_idx1 = 0; block_idx1 < idx1_block_size; block_idx1++) {
+        ulii = block_idx1 + marker_idx1 + 1;
+        cur_workload -= ulii;
+        g_epi_geno1_offsets[2 * block_idx1 + 1] = ulii;
+      }
+    } else {
+      fill_uint_zero(g_epi_geno1_offsets, 2 * idx1_block_size);
+      marker_uidx2 = marker_uidx_base;
+      marker_idx2 = 0;
+    }
+    tests_complete += cur_workload;
+    ulii = 0; // total number of tests
+    g_epi_idx1_block_bounds[0] = 0;
+    g_epi_idx1_block_bounds16[0] = 0;
+    block_idx1 = 0;
+    for (tidx = 1; tidx < max_thread_ct; tidx++) {
+      uljj = (((uint64_t)cur_workload) * tidx) / max_thread_ct;
+      if (is_triangular) {
+        do {
+          ulii += marker_ct2 - g_epi_geno1_offsets[2 * block_idx1 + 1];
+          block_idx1++;
+	} while (ulii < uljj);
+      } else {
+        do {
+	  ulii += marker_ct2;
+	  block_idx1++;
+	} while (ulii < uljj);
+      }
+      uii = block_idx1 - g_epi_idx1_block_bounds[tidx - 1];
+      g_epi_idx1_block_bounds[tidx] = block_idx1;
+      g_epi_idx1_block_bounds16[tidx] = g_epi_idx1_block_bounds16[tidx - 1] + ((uii + 15) & (~15));
+    }
+    g_epi_idx1_block_bounds[max_thread_ct] = idx1_block_size;
+    chrom_end = 0;
+    for (block_idx1 = 0; block_idx1 < idx1_block_size; marker_uidx_tmp++, block_idx1++) {
+      if (IS_SET(marker_exclude1, marker_uidx_tmp)) {
+	marker_uidx_tmp = next_unset_ul_unsafe(marker_exclude1, marker_uidx_tmp);
+        if (fseeko(bedfile, bed_offset + (marker_uidx_tmp * ((uint64_t)unfiltered_sample_ct4)), SEEK_SET)) {
+          goto epistasis_linear_regression_ret_READ_FAIL;
+	}
+      }
+      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, pheno_nm_ct, pheno_nm, final_mask, IS_SET(marker_reverse, marker_uidx_tmp))) {
+        goto epistasis_linear_regression_ret_READ_FAIL;
+      }
+      // rotate to hom A1 = 00, het = 01, hom A2 = 10, missing = 11, to allow
+      // inner loop to use ordinary multiplication
+      rotate_plink1_to_plink2_and_copy(loadbuf, &(g_epi_geno1[block_idx1 * pheno_nm_ctl2]), pheno_nm_ctl2);
+      if (!is_triangular) {
+	if (!IS_SET(marker_exclude2, marker_uidx_tmp)) {
+          // do not compare against self
+          marker_idx2 += marker_uidx_tmp - marker_uidx2 - popcount_bit_idx(marker_exclude2, marker_uidx2, marker_uidx_tmp);
+          marker_uidx2 = marker_uidx_tmp;
+          g_epi_geno1_offsets[2 * block_idx1] = marker_idx2;
+          g_epi_geno1_offsets[2 * block_idx1 + 1] = marker_idx2 + 1;
+          gap_cts[block_idx1 + marker_idx1] = 1;
+	}
+      }
+    }
+    marker_uidx2 = next_unset_ul_unsafe(marker_exclude2, marker_uidx_base);
+    if (is_triangular) {
+      marker_idx2 = marker_idx1 + 1;
+      marker_uidx2 = jump_forward_unset_unsafe(marker_exclude2, marker_uidx2 + 1, marker_idx2);
+    } else {
+      marker_idx2 = 0;
+    }
+    if (fseeko(bedfile, bed_offset + (marker_uidx2 * ((uint64_t)unfiltered_sample_ct4)), SEEK_SET)) {
+      goto epistasis_linear_regression_ret_READ_FAIL;
+    }
+    cur_idx2_block_size = idx2_block_size;
+    do {
+      if (cur_idx2_block_size > marker_ct2 - marker_idx2) {
+        cur_idx2_block_size = marker_ct2 - marker_idx2;
+      }
+      for (block_idx2 = 0; block_idx2 < cur_idx2_block_size; marker_uidx2++, block_idx2++) {
+        if (IS_SET(marker_exclude2, marker_uidx2)) {
+          marker_uidx2 = next_unset_ul_unsafe(marker_exclude2, marker_uidx2);
+          if (fseeko(bedfile, bed_offset + (marker_uidx2 * ((uint64_t)unfiltered_sample_ct4)), SEEK_SET)) {
+            goto epistasis_linear_regression_ret_READ_FAIL;
+	  }
+	}
+        ulptr = &(g_epi_geno2[block_idx2 * pheno_nm_ctl2]);
+	if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, pheno_nm_ct, pheno_nm, final_mask, IS_SET(marker_reverse, marker_uidx2))) {
+	  goto epistasis_linear_regression_ret_READ_FAIL;
+	}
+	rotate_plink1_to_plink2_and_copy(loadbuf, ulptr, pheno_nm_ctl2);
+      }
+      g_epi_idx2_block_size = cur_idx2_block_size;
+      g_epi_idx2_block_start = marker_idx2;
+      idx2_block_sizem16 = (cur_idx2_block_size + 15) & (~(15 * ONELU));
+      fill_uint_zero(g_epi_n_sig_ct1, idx1_block_size + 15 * (max_thread_ct - 1));
+      fill_uint_zero(g_epi_fail_ct1, idx1_block_size + 15 * (max_thread_ct - 1));
+      fill_uint_zero(g_epi_n_sig_ct2, idx2_block_sizem16 * max_thread_ct);
+      fill_uint_zero(g_epi_fail_ct2, idx2_block_sizem16 * max_thread_ct);
+      for (tidx = 0; tidx < max_thread_ct; tidx++) {
+        ulii = g_epi_idx1_block_bounds[tidx];
+        uljj = g_epi_idx1_block_bounds[tidx + 1] - ulii;
+        dptr = &(g_epi_best_chisq1[g_epi_idx1_block_bounds[tidx]]);
+	dptr2 = &(g_epi_all_chisq[(marker_idx1 + ulii) * 2]);
+	for (ulkk = 0; ulkk < uljj; ulkk++) {
+          *dptr++ = dptr2[ulkk * 2];
+	}
+        ulii = g_epi_geno1_offsets[2 * ulii + 1];
+        if (ulii < marker_idx2 + cur_idx2_block_size) {
+          if (ulii <= marker_idx2) {
+            ulii = 0;
+	  } else {
+            ulii -= marker_idx2;
+	  }
+          uljj = cur_idx2_block_size - ulii;
+	  dptr = &(g_epi_best_chisq2[tidx * idx2_block_sizem16 + ulii]);
+	  dptr2 = &(g_epi_all_chisq[(marker_idx2 + ulii) * 2]);
+          for (ulkk = 0; ulkk < uljj; ulkk++) {
+            *dptr++ = dptr2[ulkk * 2];
+	  }
+	}
+      }
+      is_last_block = (marker_idx2 + cur_idx2_block_size >= marker_ct2);
+      if (spawn_threads2(threads, &epi_linear_thread, max_thread_ct, is_last_block)) {
+	goto epistasis_linear_regression_ret_THREAD_CREATE_FAIL;
+      }
+      epi_linear_thread((void*)0);
+      join_threads2(threads, max_thread_ct, is_last_block);
+      // merge best_chisq, best_ids, fail_cts
+      for (tidx = 0; tidx < max_thread_ct; tidx++) {
+	ulii = g_epi_idx1_block_bounds[tidx];
+	uljj = g_epi_idx1_block_bounds[tidx + 1] - ulii;
+	uii = g_epi_idx1_block_bounds16[tidx];
+	dptr = &(g_epi_best_chisq1[uii]);
+	uiptr = &(g_epi_best_id1[uii]);
+	uiptr2 = &(g_epi_n_sig_ct1[uii]);
+	uiptr3 = &(g_epi_fail_ct1[uii]);
+	ulii += marker_idx1;
+	dptr2 = &(best_chisq[ulii]);
+	uiptr4 = &(n_sig_cts[ulii]);
+	uiptr5 = &(fail_cts[ulii]);
+	for (block_idx1 = 0; block_idx1 < uljj; block_idx1++, dptr2++, uiptr4++, uiptr5++) {
+	  dxx = *dptr++;
+	  if (dxx > (*dptr2)) {
+	    *dptr2 = dxx;
+	    best_ids[block_idx1 + ulii] = uiptr[block_idx1];
+	  }
+	  *uiptr4 += *uiptr2++;
+	  *uiptr5 += *uiptr3++;
+	}
+      }
+      if (is_triangular) {
+	for (tidx = 0; tidx < max_thread_ct; tidx++) {
+	  block_idx2 = g_epi_geno1_offsets[2 * g_epi_idx1_block_bounds[tidx] + 1];
+	  if (block_idx2 <= marker_idx2) {
+	    block_idx2 = 0;
+	  } else {
+	    block_idx2 -= marker_idx2;
+	  }
+	  dptr = &(g_epi_best_chisq2[tidx * idx2_block_sizem16 + block_idx2]);
+	  uiptr = &(g_epi_best_id2[tidx * idx2_block_sizem16]);
+	  uiptr2 = &(g_epi_n_sig_ct2[tidx * idx2_block_sizem16 + block_idx2]);
+	  uiptr3 = &(g_epi_fail_ct2[tidx * idx2_block_sizem16 + block_idx2]);
+	  dptr2 = &(best_chisq[block_idx2 + marker_idx2]);
+	  uiptr4 = &(n_sig_cts[block_idx2 + marker_idx2]);
+	  uiptr5 = &(fail_cts[block_idx2 + marker_idx2]);
+	  for (; block_idx2 < cur_idx2_block_size; block_idx2++, dptr2++, uiptr4++, uiptr5++) {
+	    dxx = *dptr++;
+	    if (dxx > (*dptr2)) {
+	      *dptr2 = dxx;
+	      best_ids[block_idx2 + marker_idx2] = uiptr[block_idx2];
+	    }
+	    *uiptr4 += *uiptr2++;
+	    *uiptr5 += *uiptr3++;
+	  }
+	}
+      }
+      marker_idx2 += cur_idx2_block_size;
+    } while (marker_idx2 < marker_ct2);
+    // ...
+
+    while (1) {
+      next_unset_ul_unsafe_ck(marker_exclude1, &marker_uidx);
+      ujj = g_epi_geno1_offsets[2 * block_idx1];
+      marker_idx2 = 0;
+      dptr = &(g_epi_all_chisq[block_idx1 * 2 * marker_ct2]);
+      if (marker_uidx >= chrom_end) {
+	chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx);
+	chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+      }
+      wptr_start = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, chrom_idx));
+      *wptr_start++ = ' ';
+      wptr_start = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr_start);
+      *wptr_start++ = ' ';
+      marker_uidx2 = next_unset_ul_unsafe(marker_exclude2, marker_uidx_base);
+      for (chrom_fo_idx2 = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx2); chrom_fo_idx2 < chrom_ct; chrom_fo_idx2++) {
+	chrom_idx2 = chrom_info_ptr->chrom_file_order[chrom_fo_idx2];
+	chrom_end2 = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx2 + 1];
+	wptr_start2 = width_force(4, wptr_start, chrom_name_write(wptr_start, chrom_info_ptr, chrom_idx2));
+	*wptr_start2++ = ' ';
+	for (; marker_uidx2 < chrom_end2; next_unset_ul_ck(marker_exclude2, &marker_uidx2, chrom_end2), marker_idx2++, dptr = &(dptr[2])) {
+	  if (marker_idx2 == ujj) {
+	    marker_idx2 = g_epi_geno1_offsets[2 * block_idx1 + 1];
+	    if (marker_idx2 == marker_ct2) {
+	      goto epistasis_linear_regression_write_loop;
+	    }
+	    if (marker_idx2 > ujj) {
+	      marker_uidx2 = jump_forward_unset_unsafe(marker_exclude2, marker_uidx2 + 1, marker_idx2 - ujj);
+	      dptr = &(dptr[2 * (marker_idx2 - ujj)]);
+	      if (marker_uidx2 >= chrom_end2) {
+		break;
+	      }
+	    }
+	  } else if (marker_idx2 == marker_ct2) {
+	    goto epistasis_linear_regression_write_loop;
+	  }
+	  dxx = *dptr;
+	  if (dxx != -1) {
+	    wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), wptr_start2);
+	    *wptr++ = ' ';
+	    // beta
+	    wptr = width_force(12, wptr, double_g_write(wptr, dptr[1]));
+            *wptr++ = ' ';
+	    wptr = width_force(12, wptr, double_g_write(wptr, dxx));
+	    *wptr++ = ' ';
+	    dxx = normdist(-sqrt(dxx)) * 2;
+	    wptr = double_g_writewx4x(wptr, MAXV(dxx, output_min_p), 12, ' ');
+	    *wptr++ = '\n';
+	    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	      goto epistasis_linear_regression_ret_WRITE_FAIL;
+	    }
+	    // could remove this writeback in --epi1 1 case
+	    *dptr = -1;
+	  }
+	  marker_uidx2++;
+	}
+      }
+    epistasis_linear_regression_write_loop:
+      block_idx1++;
+      marker_uidx++;
+      if (block_idx1 >= idx1_block_size) {
+        break;
+      }
+    }
+    marker_idx1 += idx1_block_size;
+    fputs("\b\b\b\b\b\b\b\b\b\b          \b\b\b\b\b\b\b\b\b\b", stdout);
+    if (tests_complete >= pct_thresh) {
+      if (pct > 10) {
+        putchar('\b');
+      }
+      pct = (tests_complete * 100LLU) / tests_expected;
+      if (pct < 100) {
+        printf("\b\b%" PRIuPTR "%%", pct);
+        fflush(stdout);
+        pct_thresh = ((++pct) * ((uint64_t)tests_expected)) / 100;
+      }
+    }
+  } while (marker_idx1 < marker_idx1_end);
+  if (fclose_null(&outfile)) {
+    goto epistasis_linear_regression_ret_WRITE_FAIL;
+  }
   while (0) {
   epistasis_linear_regression_ret_NOMEM:
     retval = RET_NOMEM;
@@ -7416,10 +7968,14 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
   epistasis_linear_regression_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
+  epistasis_linear_regression_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
   epistasis_linear_regression_ret_THREAD_CREATE_FAIL:
     retval = RET_THREAD_CREATE_FAIL;
     break;
   }
+ epistasis_linear_regression_ret_1:
   fclose_cond(outfile);
   // caller will free memory
   return retval;
@@ -7968,9 +8524,10 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     }
     wptr = memcpya(wptr, " to ", 4);
     wptr = strcpya(wptr, outname);
-    memcpy(wptr, "...", 4);
+    memcpy(wptr, " ... ", 6);
+    wordwrap(logbuf, 16); // strlen("99% [processing]") 
     logprintb();
-    fputs(" 0%", stdout);
+    fputs("0%", stdout);
     do {
       fputs(" [processing]", stdout);
       fflush(stdout);
@@ -8258,15 +8815,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       fflush(stdout);
       chrom_end = 0;
       block_idx1 = 0;
-      goto epistasis_report_write_start;
       while (1) {
-      epistasis_report_write_loop:
-	block_idx1++;
-	marker_uidx++;
-	if (block_idx1 >= idx1_block_size) {
-	  break;
-	}
-      epistasis_report_write_start:
 	next_unset_ul_unsafe_ck(marker_exclude1, &marker_uidx);
 	ujj = g_epi_geno1_offsets[2 * block_idx1];
 	marker_idx2 = 0;
@@ -8348,6 +8897,12 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	    }
 	    marker_uidx2++;
 	  }
+	}
+      epistasis_report_write_loop:
+	block_idx1++;
+	marker_uidx++;
+	if (block_idx1 >= idx1_block_size) {
+	  break;
 	}
       }
       marker_idx1 += idx1_block_size;
@@ -8462,8 +9017,8 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   if (is_triangular) {
     tests_thrown_out /= 2; // all fails double-counted in triangle case
   }
-  fputs("\b\b\b", stdout);
-  LOGPRINTF(" done.\n");
+  fputs("\b\b", stdout);
+  LOGPRINTF("done.\n");
   LOGPRINTFWW("%" PRIu64 " valid tests performed, summary written to %s .\n", tests_expected - tests_thrown_out, outname);
 
   while (0) {

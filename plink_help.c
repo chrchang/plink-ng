@@ -418,13 +418,14 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * 'oxford' causes an Oxford-format .gen + .sample fileset to be generated.\n"
 "    * The 'structure' modifier causes a Structure-format file to be generated.\n"
 "    * 'transpose' creates a transposed text fileset (loadable with --tfile).\n"
-"    * 'vcf', 'vcf-fid', and 'vcf-iid' result in production of a VCFv4.1 file.\n"
+"    * 'vcf', 'vcf-fid', and 'vcf-iid' result in production of a VCFv4.2 file.\n"
 "      'vcf-fid' and 'vcf-iid' cause family IDs or within-family IDs\n"
 "      respectively to be used for the sample IDs in the last header row, while\n"
-"      'vcf' merges both IDs and puts an underscore between them.  The A2 allele\n"
-"      is saved as the reference; when it is important for reference alleles to\n"
-"      be correct, you'll usually also want to include --a2-allele in your\n"
-"      command.\n"
+"      'vcf' merges both IDs and puts an underscore between them.\n"
+"      The A2 allele is saved as the reference and normally flagged as not based\n"
+"      on a real reference genome ('PR' INFO field value).  When it is important\n"
+"      for reference alleles to be correct, you'll also want to include\n"
+"      --a2-allele and --real-references in your command.\n"
 "    * The 'tab' modifier makes the output mostly tab-delimited instead of\n"
 "      mostly space-delimited.  'tabx' and 'spacex' force all tabs and all\n"
 "      spaces, respectively.\n\n"
@@ -483,7 +484,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    --list-23-indels writes the subset with 23andMe-style indel calls (D/I\n"
 "    allele codes).\n\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("list-duplicate-vars", &help_ctrl, 1,
 "  --list-duplicate-vars <require-same-ref> <ids-only> <suppress-first>\n"
 "    --list-duplicate-vars writes a .dupvar file describing all groups of\n"
@@ -497,7 +497,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * 'suppress-first' causes the first variant ID in each group to be omitted\n"
 "      from the report.\n\n"
 	       );
-#endif
     help_print("freq\tfreqx\tfrqx\tcounts", &help_ctrl, 1,
 "  --freq <counts>\n"
 "  --freqx\n"
@@ -635,7 +634,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    maximum likelihood solution identified by --r/--r2), along with HWE exact\n"
 "    test statistics.\n\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("show-tags", &help_ctrl, 1,
 "  --show-tags [filename]\n"
 "  --show-tags all\n"
@@ -645,7 +643,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * If 'all' mode is specified, for each variant, each *other* variant which\n"
 "      tags it is reported.\n\n"
 	       );
-#endif
     help_print("blocks\thap\thap-all\thap-assoc\thap-freq\thap-impute\thap-impute-verbose\thap-linear\thap-logistic\thap-max-phase\thap-min-phase-prob\thap-miss\thap-omnibus\thap-only\thap-phase\thap-phase-wide\thap-pp\thap-snps\thap-tdt\thap-window\tchap\twhap", &help_ctrl, 1,
 "  --blocks <no-pheno-req> <no-small-max-span>\n"
 "    Estimate haplotype blocks, via Haploview's interpretation of the block\n"
@@ -1152,7 +1149,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * When --extract (without 'range') is present, only variants named in the\n"
 "      --extract file are considered.\n\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("meta-analysis", &help_ctrl, 1,
 "  --meta-analysis [PLINK report filenames...]\n"
 "  --meta-analysis [PLINK report filenames...] + <logscale | qt>\n"
@@ -1181,7 +1177,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      --extract file are considered.\n"
 "    * Unless 'no-map' is specified, chromosome filters are also respected.\n\n"
 	       );
-#endif
     help_print("fast-epistasis\tepistasis\tset-test\tset-by-all\tcase-only\tnop\tepistasis-summary-merge", &help_ctrl, 1,
 "  --fast-epistasis <boost | joint-effects | no-ueki> <case-only>\n"
 "                   <set-by-set | set-by-all> <nop>\n"
@@ -1339,12 +1334,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --biallelic-only <strict> <list> : Skip VCF variants with 2+ alt. alleles.\n"
 "  --vcf-min-qual [val]             : Skip VCF variants with low/missing QUAL.\n"
 "  --vcf-filter {exception(s)...}   : Skip variants which have FILTER failures.\n"
-#ifndef STABLE_BUILD
 "  --vcf-min-gq [val]               : No-call a genotype when GQ is below the\n"
 "                                     given threshold.\n"
 "  --vcf-min-gp [val]               : No-call a genotype when 0-1 scaled GP is\n"
 "                                     below the given threshold.\n"
-#endif
 "  --vcf-half-call [m]  : Specify how '0/.' and similar VCF GT values should be\n"
 "                         handled.  The following three modes are supported:\n"
 "                         * 'error'/'e' (default) errors out and reports line #.\n"
@@ -1729,9 +1722,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --flip-scan-window-kb [x] : Set --flip-scan max kb distance (default 1000).\n"
 "  --flip-scan-threshold [x] : Set --flip-scan min correlation (default 0.5).\n"
 	       );
-    help_print("keep-allele-order\tmake-bed\tmerge\tbmerge\tmerge-list", &help_ctrl, 0,
+    help_print("keep-allele-order\treal-references\tmake-bed\tmerge\tbmerge\tmerge-list\trecode", &help_ctrl, 0,
 "  --keep-allele-order  : Keep the allele order defined in the .bim file,\n"
-"                         instead of forcing A2 to be the major allele.\n"
+"  --real-references      instead of forcing A2 to be the major allele.\n"
+"                         --real-references also removes 'PR' from the INFO\n"
+"                         values emitted by --recode vcf{-fid/-iid}.\n"
 	       );
     help_print("a1-allele\treference-allele\tupdate-ref-allele\ta2-allele", &help_ctrl, 0,
 "  --a1-allele [f] {a1col} {IDcol} {skip} : Force alleles in the file to A1.\n"
@@ -1789,7 +1784,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --ld-snps [vID...] : Restrict first --r/--r2 variant to the given ranges.\n"
 "  --ld-snp-list [f]  : Restrict first --r/--r2 var. to those named in the file.\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("list-all\ttag-kb\ttag-r2\ttag-mode2\tshow-tags", &help_ctrl, 0,
 "  --list-all         : Generate the 'all' mode report when using --show-tags in\n"
 "                       file mode.\n"
@@ -1797,7 +1791,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --tag-r2 [val]     : Set --show-tags min tag r-squared (default 0.8)\n"
 "  --tag-mode2        : Use two-column --show-tags (file mode) I/O format.\n"
 	       );
-#endif
     help_print("indep\tindep-pairwise\tr\tr2\tflip-scan\tflipscan\tshow-tags\tld-xchr", &help_ctrl, 0,
 "  --ld-xchr [code]   : Set Xchr model for --indep{-pairwise}, --r/--r2,\n"
 "                       --flip-scan, and --show-tags.\n"
@@ -1996,7 +1989,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("clump-best\tclump", &help_ctrl, 0,
 "  --clump-best              : Report best proxy for each --clump index var.\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("meta-analysis-snp-field\tmeta-analysis-a1-field\tmeta-analysis-a2-field\tmeta-analysis-p-field\tmeta-analysis-ess-field\tmeta-analysis", &help_ctrl, 0,
 "  --meta-analysis-snp-field [n...] : Set --meta-analysis variant ID, A1/A2\n"
 "  --meta-analysis-a1-field [n...]    allele, p-value, and/or effective sample\n"
@@ -2010,7 +2002,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                     size should be\n"
 "                                       4 / (1/[# cases] + 1/[# controls]).\n"
 	       );
-#endif
     help_print("gene-list-border\tgene-report\tgene-subset\tgene-list\tgene-report-snp-field", &help_ctrl, 0,
 "  --gene-list-border [kbs]   : Extend --gene-report regions by given # of kbs.\n"
 "  --gene-subset [filename]   : Specify gene name subset for --gene-report.\n"
@@ -2070,11 +2061,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --perm-batch-size [val] : Set number of permutations per batch for some\n"
 "                            permutation tests.\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("output-min-p", &help_ctrl, 0,
 "  --output-min-p [p] : Specify minimum p-value to write to reports.\n"
 	       );
-#endif
     help_print("debug", &help_ctrl, 0,
 "  --debug            : Use slower, more crash-resistant logging method.\n"
 	       );
