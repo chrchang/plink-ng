@@ -425,7 +425,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      The A2 allele is saved as the reference and normally flagged as not based\n"
 "      on a real reference genome ('PR' INFO field value).  When it is important\n"
 "      for reference alleles to be correct, you'll also want to include\n"
-"      --a2-allele and --real-references in your command.\n"
+"      --a2-allele and --real-ref-alleles in your command.\n"
 "    * The 'tab' modifier makes the output mostly tab-delimited instead of\n"
 "      mostly space-delimited.  'tabx' and 'spacex' force all tabs and all\n"
 "      spaces, respectively.\n\n"
@@ -1722,10 +1722,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --flip-scan-window-kb [x] : Set --flip-scan max kb distance (default 1000).\n"
 "  --flip-scan-threshold [x] : Set --flip-scan min correlation (default 0.5).\n"
 	       );
-    help_print("keep-allele-order\treal-references\tmake-bed\tmerge\tbmerge\tmerge-list\trecode", &help_ctrl, 0,
+    help_print("keep-allele-order\treal-ref-alleles\tmake-bed\tmerge\tbmerge\tmerge-list\trecode", &help_ctrl, 0,
 "  --keep-allele-order  : Keep the allele order defined in the .bim file,\n"
-"  --real-references      instead of forcing A2 to be the major allele.\n"
-"                         --real-references also removes 'PR' from the INFO\n"
+"  --real-ref-alleles     instead of forcing A2 to be the major allele.\n"
+"                         --real-ref-alleles also removes 'PR' from the INFO\n"
 "                         values emitted by --recode vcf{-fid/-iid}.\n"
 	       );
     help_print("a1-allele\treference-allele\tupdate-ref-allele\ta2-allele", &help_ctrl, 0,

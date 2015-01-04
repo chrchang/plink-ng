@@ -220,7 +220,7 @@
 #define MISC_HET_SMALL_SAMPLE 0x100000000LLU
 #define MISC_FST_CC 0x200000000LLU
 #define MISC_SPLIT_MERGE_NOFAIL 0x400000000LLU
-#define MISC_REAL_REFERENCES 0x800000000LLU
+#define MISC_REAL_REF_ALLELES 0x800000000LLU
 
 // assume for now that .bed must always be accompanied by both .bim and .fam
 #define FILTER_ALL_REQ 1LLU

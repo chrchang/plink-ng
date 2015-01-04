@@ -10408,12 +10408,12 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	calculation_type |= CALC_LD;
-      } else if (!memcmp(argptr2, "eal-references", 15)) {
+      } else if (!memcmp(argptr2, "eal-ref-alleles", 16)) {
 	if (load_rare & (LOAD_RARE_CNV | LOAD_RARE_DOSAGE)) {
-	  sprintf(logbuf, "Error: --real-references has no effect with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
+	  sprintf(logbuf, "Error: --real-ref-alleles has no effect with %s.\n", (load_rare == LOAD_RARE_CNV)? "a .cnv fileset" : "--dosage");
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-        misc_flags |= MISC_REAL_REFERENCES | MISC_KEEP_ALLELE_ORDER;
+        misc_flags |= MISC_REAL_REF_ALLELES | MISC_KEEP_ALLELE_ORDER;
         goto main_param_zero;
       } else if (!memcmp(argptr2, "ange", 5)) {
         if (extractname) {

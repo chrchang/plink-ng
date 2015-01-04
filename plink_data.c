@@ -11541,7 +11541,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   uint32_t vcf_two_ids = vcf_not_fid && vcf_not_iid;
   uint32_t recode_012 = recode_modifier & (RECODE_01 | RECODE_12);
   uint32_t set_hh_missing = (misc_flags / MISC_SET_HH_MISSING) & 1;
-  uint32_t real_references = (misc_flags / MISC_REAL_REFERENCES) & 1;
+  uint32_t real_ref_alleles = (misc_flags / MISC_REAL_REF_ALLELES) & 1;
   uint32_t xmhh_exists_orig = hh_exists & XMHH_EXISTS;
   uintptr_t header_len = 0;
   uintptr_t max_chrom_size = 0;
@@ -12273,7 +12273,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     loctime = localtime(&rawtime);
     strftime(tbuf, MAXLINELEN, "%Y%m%d", loctime);
     fputs(tbuf, outfile);
-    fputs("\n##source=PLINKv1.90b3\n", outfile);
+    fputs("\n##source=PLINKv1.90\n", outfile);
     uii = 0; // '0' written already?
     memcpy(tbuf, "##contig=<ID=", 13);
     for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
@@ -12304,7 +12304,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       cptr = memcpya(cptr, ">\n", 2);
       fwrite(tbuf, 1, cptr - tbuf, outfile);
     }
-    if (!real_references) {
+    if (!real_ref_alleles) {
       fputs("##INFO=<ID=PR,Number=0,Type=Flag,Description=\"Provisional reference allele, may not be based on real reference genome\"\n", outfile);
     }
     fputs("##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n", outfile);
@@ -12391,7 +12391,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	} else {
 	  putc('.', outfile);
 	}
-	if (!real_references) {
+	if (!real_ref_alleles) {
 	  fputs("\t.\t.\tPR\tGT", outfile);
 	} else {
 	  fputs("\t.\t.\t.\tGT", outfile);

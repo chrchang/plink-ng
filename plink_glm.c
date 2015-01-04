@@ -737,7 +737,7 @@ uint32_t glm_linear(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t samp
     dptr2 = covars_sample_major;
     dxx = 0;
     if (!missing_ct) {
-      for (sample_idx = 0; sample_idx < sample_valid_ct + missing_ct; sample_idx++) {
+      for (sample_idx = 0; sample_idx < sample_valid_ct; sample_idx++) {
 	partial = 0;
 	dptr3 = dptr;
 	for (param_idx = 0; param_idx < param_ct; param_idx++) {
