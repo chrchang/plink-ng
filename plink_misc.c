@@ -1209,46 +1209,61 @@ int32_t flip_strand(char* flip_fname, uint32_t* marker_id_htable, uint32_t marke
   uintptr_t hit_ct = 0;
   uintptr_t miss_ct = 0;
   uintptr_t line_idx = 0;
+  uintptr_t marker_uidx;
+  uintptr_t loadbuf_size;
   uintptr_t* already_seen;
+  char* loadbuf;
   char* bufptr;
   uint32_t slen;
   uint32_t cur_non_acgt0;
-  uintptr_t marker_uidx;
   if (wkspace_alloc_ul_checked(&already_seen, unfiltered_marker_ctl * sizeof(intptr_t))) {
     goto flip_strand_ret_NOMEM;
   }
   fill_ulong_zero(already_seen, unfiltered_marker_ctl);
+  // Compatibility fix: when multiple variant IDs are on a line, PLINK 1.07
+  // flips them all.
+  loadbuf_size = wkspace_left;
+  if (loadbuf_size > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
+  } else if (loadbuf_size <= MAXLINELEN) {
+    goto flip_strand_ret_NOMEM;
+  }
+  loadbuf = (char*)wkspace_base;
+  loadbuf[loadbuf_size - 1] = ' ';
   if (fopen_checked(&flipfile, flip_fname, "r")) {
     goto flip_strand_ret_OPEN_FAIL;
   }
-  tbuf[MAXLINELEN - 1] = ' ';
-  while (fgets(tbuf, MAXLINELEN, flipfile)) {
+  while (fgets(loadbuf, loadbuf_size, flipfile)) {
     line_idx++;
-    if (!tbuf[MAXLINELEN - 1]) {
-      sprintf(logbuf, "Error: Line %" PRIuPTR " of --flip file is pathologically long.\n", line_idx);
-      goto flip_strand_ret_INVALID_FORMAT_2;
+    if (!loadbuf[loadbuf_size - 1]) {
+      if (loadbuf_size == MAXLINEBUFLEN) {
+        sprintf(logbuf, "Error: Line %" PRIuPTR " of --flip file is pathologically long.\n", line_idx);
+        goto flip_strand_ret_INVALID_FORMAT_2;
+      } else {
+        goto flip_strand_ret_NOMEM;
+      }
     }
-    bufptr = skip_initial_spaces(tbuf);
-    if (is_eoln_kns(*bufptr)) {
-      continue;
+    bufptr = skip_initial_spaces(loadbuf);
+    while (!is_eoln_kns(*bufptr)) {
+      slen = strlen_se(bufptr);
+      marker_uidx = id_htable_find(bufptr, slen, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len);
+      if ((marker_uidx == 0xffffffffU) || IS_SET(marker_exclude, marker_uidx)) {
+	miss_ct++;
+	continue;
+      }
+      if (IS_SET(already_seen, marker_uidx)) {
+	bufptr[slen] = '\0';
+	LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --flip file.\n", bufptr);
+	goto flip_strand_ret_INVALID_FORMAT_2;
+      }
+      SET_BIT(already_seen, marker_uidx);
+      cur_non_acgt0 = 0;
+      cur_non_acgt0 |= flip_str(&(marker_allele_ptrs[2 * marker_uidx]));
+      cur_non_acgt0 |= flip_str(&(marker_allele_ptrs[2 * marker_uidx + 1]));
+      non_acgt_ct += (cur_non_acgt0 & 1);
+      hit_ct += (cur_non_acgt0 >> 1);
+      bufptr = skip_initial_spaces(&(bufptr[slen]));
     }
-    slen = strlen_se(bufptr);
-    marker_uidx = id_htable_find(bufptr, slen, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len);
-    if ((marker_uidx == 0xffffffffU) || IS_SET(marker_exclude, marker_uidx)) {
-      miss_ct++;
-      continue;
-    }
-    if (IS_SET(already_seen, marker_uidx)) {
-      bufptr[slen] = '\0';
-      LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --flip file.\n", bufptr);
-      goto flip_strand_ret_INVALID_FORMAT_2;
-    }
-    SET_BIT(already_seen, marker_uidx);
-    cur_non_acgt0 = 0;
-    cur_non_acgt0 |= flip_str(&(marker_allele_ptrs[2 * marker_uidx]));
-    cur_non_acgt0 |= flip_str(&(marker_allele_ptrs[2 * marker_uidx + 1]));
-    non_acgt_ct += (cur_non_acgt0 & 1);
-    hit_ct += (cur_non_acgt0 >> 1);
   }
   if (!feof(flipfile)) {
     goto flip_strand_ret_READ_FAIL;

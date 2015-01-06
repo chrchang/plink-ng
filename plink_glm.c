@@ -591,7 +591,6 @@ int32_t glm_check_vif(double vif_thresh, uintptr_t param_ct, uintptr_t sample_va
   uintptr_t sample_idx;
   double dxx;
   double dyy;
-  int32_t ii;
   for (param_idx = 1; param_idx < param_ct; param_idx++) {
     dyy = 0; // sum
     dptr = &(covars_collapsed[param_idx * sample_valid_ct]);
@@ -640,9 +639,8 @@ int32_t glm_check_vif(double vif_thresh, uintptr_t param_ct, uintptr_t sample_va
     param_2d_buf[param_idx * param_ct] = 1;
   }
   
-  ii = invert_matrix(dim, param_2d_buf, mi_buf, param_2d_buf2);
-  if (ii) {
-    return ii;
+  if (invert_matrix(dim, param_2d_buf, mi_buf, param_2d_buf2)) {
+    return 1;
   }
   for (param_idx = 0; param_idx < param_ct_m1; param_idx++) {
     if (param_2d_buf[param_idx * param_ct] > vif_thresh) {

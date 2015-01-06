@@ -283,7 +283,7 @@ int32_t invert_matrix(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYP
   dgetrf_(&dim, &dim, matrix, &dim, int_1d_buf, &info);
   dgetri_(&dim, matrix, &dim, int_1d_buf, dbl_2d_buf, &lwork, &info);
   if (info) {
-    return -1;
+    return 1;
   }
   return 0;
 }

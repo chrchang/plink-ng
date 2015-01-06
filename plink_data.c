@@ -7836,12 +7836,12 @@ uint32_t vcf_gp_invalid(char* bufptr, char* bufptr2, double vcf_min_gp, uint32_t
   for (uii = 0; uii < gp_field_pos; uii++) {
     bufptr = (char*)memchr(bufptr, ':', (uintptr_t)(bufptr2 - bufptr));
     if (!bufptr) {
-      *is_error_ptr = 1;
-      return 1;
+      *is_error_ptr = 0;
+      return 0;
     }
     bufptr++;
   }
-  // hmm, defend against decimal without leading zero
+  // do not treat decimal without leading zero as missing value
   if (((*bufptr == '.') || (*bufptr == '?')) && (bufptr[1] < '.')) {
     *is_error_ptr = 0;
     return 0;
@@ -8254,7 +8254,8 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	      for (ujj = 0; ujj < gq_field_pos; ujj++) {
 		gq_scan_ptr = (char*)memchr(gq_scan_ptr, ':', (uintptr_t)(bufptr2 - gq_scan_ptr));
 		if (!gq_scan_ptr) {
-		  goto vcf_to_bed_ret_MISSING_GQ;
+		  // non-GT fields are allowed to be missing
+		  goto vcf_to_bed_missing_gq_1;
 		}
 		gq_scan_ptr++;
 	      }
@@ -8262,6 +8263,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 		continue;
 	      }
 	    }
+	  vcf_to_bed_missing_gq_1:
 	    cc = bufptr[1];
 	    if ((cc != '/') && (cc != '|')) {
 	      // haploid
@@ -8269,7 +8271,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	      if (gp_field_pos) {
 		if (vcf_gp_invalid(bufptr, bufptr2, vcf_min_gp, gp_field_pos, uii, &ukk)) {
 		  if (ukk) {
-		    goto vcf_to_bed_ret_MISSING_GP;
+		    goto vcf_to_bed_ret_INVALID_GP;
 		  }
 		  continue;
 		}
@@ -8295,7 +8297,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 		  if (gp_field_pos) {
 		    if (vcf_gp_diploid_invalid(bufptr, bufptr2, vcf_min_gp, gp_field_pos, uii, ujj, &ukk)) {
 		      if (ukk) {
-			goto vcf_to_bed_ret_MISSING_GP;
+			goto vcf_to_bed_ret_INVALID_GP;
 		      }
 		      continue;
 		    }
@@ -8347,7 +8349,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	    for (ujj = 0; ujj < gq_field_pos; ujj++) {
 	      gq_scan_ptr = (char*)memchr(gq_scan_ptr, ':', (uintptr_t)(bufptr2 - gq_scan_ptr));
               if (!gq_scan_ptr) {
-		goto vcf_to_bed_ret_MISSING_GQ;
+                goto vcf_to_bed_missing_gq_2;
 	      }
 	      gq_scan_ptr++;
 	    }
@@ -8355,13 +8357,14 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	      continue;
 	    }
 	  }
+	vcf_to_bed_missing_gq_2:
 	  cc = bufptr[1];
 	  if ((cc != '/') && (cc != '|')) {
 	  vcf_to_bed_haploid_2:
 	    if (gp_field_pos) {
 	      if (vcf_gp_invalid(bufptr, bufptr2, vcf_min_gp, gp_field_pos, uii, &ukk)) {
 		if (ukk) {
-		  goto vcf_to_bed_ret_MISSING_GP;
+		  goto vcf_to_bed_ret_INVALID_GP;
 		}
 	        continue;
 	      }
@@ -8389,7 +8392,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	      if (gp_field_pos) {
 		if (vcf_gp_diploid_invalid(bufptr, bufptr2, vcf_min_gp, gp_field_pos, uii, ujj, &ukk)) {
 		  if (ukk) {
-		    goto vcf_to_bed_ret_MISSING_GP;
+		    goto vcf_to_bed_ret_INVALID_GP;
 		  }
 		  continue;
 		}
@@ -8426,7 +8429,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	    for (ujj = 0; ujj < gq_field_pos; ujj++) {
 	      gq_scan_ptr = (char*)memchr(gq_scan_ptr, ':', (uintptr_t)(bufptr2 - gq_scan_ptr));
 	      if (!gq_scan_ptr) {
-		goto vcf_to_bed_ret_MISSING_GQ;
+                goto vcf_to_bed_missing_gq_3;
 	      }
 	      gq_scan_ptr++;
 	    }
@@ -8434,6 +8437,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	      continue;
 	    }
 	  }
+	vcf_to_bed_missing_gq_3:
 	  while (1) {
 	    ujj = ((unsigned char)(*(++bufptr))) - 48;
 	    if (ujj > 9) {
@@ -8448,7 +8452,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	    if (gp_field_pos) {
 	      if (vcf_gp_invalid(bufptr, bufptr2, vcf_min_gp, gp_field_pos, uii, &ukk)) {
 		if (ukk) {
-		  goto vcf_to_bed_ret_MISSING_GP;
+		  goto vcf_to_bed_ret_INVALID_GP;
 		}
 		continue;
 	      }
@@ -8484,7 +8488,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	      if (gp_field_pos) {
                 if (vcf_gp_diploid_invalid(bufptr, bufptr2, vcf_min_gp, gp_field_pos, uii, ujj, &ukk)) {
 		  if (ukk) {
-		    goto vcf_to_bed_ret_MISSING_GP;
+		    goto vcf_to_bed_ret_INVALID_GP;
 		  }
 		  continue;
 		}
@@ -8679,13 +8683,9 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     }
     retval = RET_INVALID_FORMAT;
     break;
-  vcf_to_bed_ret_MISSING_GQ:
-    LOGPRINTF("\nError: Line %" PRIuPTR " of .vcf file has a missing GQ field.\n", line_idx);
-    retval = RET_INVALID_FORMAT;
-    break;
-  vcf_to_bed_ret_MISSING_GP:
+  vcf_to_bed_ret_INVALID_GP:
     logprint("\n");
-    LOGPRINTFWW("Error: Line %" PRIuPTR " of .vcf file has a missing or improperly formatted GP field.\n", line_idx);
+    LOGPRINTF("Error: Line %" PRIuPTR " of .vcf file has an improperly formatted GP field.\n", line_idx);
     retval = RET_INVALID_FORMAT;
     break;
   vcf_to_bed_ret_INVALID_GT:

@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include "plink_assoc.h"
+#include "plink_glm.h"
 #include "plink_ld.h"
 #include "plink_stats.h"
 #include "pigz.h"
@@ -3977,7 +3978,6 @@ typedef struct epi_linear_multithread_struct {
   double* dgels_a;
   double* dgels_b;
   double* dgels_work;
-  double* regression_results;
 } Epi_linear_multithread;
 
 static Epi_linear_multithread* g_epi_linear_mt;
@@ -3985,6 +3985,7 @@ static __CLPK_integer g_epi_dgels_lwork;
 static double* g_epi_pheno_d2;
 static double g_epi_pheno_sum;
 static double g_epi_pheno_ssq;
+static double g_epi_vif_thresh;
 #endif
 
 static uint32_t g_epi_pheno_nm_ct;
@@ -4001,6 +4002,7 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
   double alpha2sq = g_epi_alpha2sq[0];
   double pheno_sum = g_epi_pheno_sum;
   double pheno_ssq = g_epi_pheno_ssq;
+  double vif_thresh = g_epi_vif_thresh;
   uint32_t pheno_nm_ct = g_epi_pheno_nm_ct;
   uint32_t best_id_fixed = 0;
   uint32_t is_first_half = 0;
@@ -4016,7 +4018,6 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
   double* dgels_a = g_epi_linear_mt[tidx].dgels_a;
   double* dgels_b = g_epi_linear_mt[tidx].dgels_b;
   double* dgels_work = g_epi_linear_mt[tidx].dgels_work;
-  double* regression_results = g_epi_linear_mt[tidx].regression_results;
   uint32_t* geno1_offsets = g_epi_geno1_offsets;
   uint32_t* best_id1 = &(g_epi_best_id1[idx1_block_start16]);
   char dgels_trans = 'N';
@@ -4049,11 +4050,16 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
   uintptr_t block_idx2;
   uintptr_t cur_word1;
   uintptr_t cur_word2;
+  uintptr_t param_idx;
+  uintptr_t param_idx2;
   uintptr_t ulii;
   uintptr_t uljj;
   double best_chisq_fixed;
   double cur_pheno_sum;
   double cur_pheno_ssq;
+  double partial;
+  double min_sigma;
+  double sigma;
   double dxx;
   double dyy;
   double zsq;
@@ -4117,7 +4123,8 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
       cur_geno2 = &(geno2[block_idx2 * pheno_nm_ctl2]);
       chisq2_ptr = &(best_chisq2[block_idx2]);
       for (; block_idx2 < cur_idx2_block_size; block_idx2++, chisq2_ptr++, cur_geno2 = &(cur_geno2[pheno_nm_ctl2])) {
-	// populate cur_covars_sample_major and dgels_b phenotype, transpose it, call glm_linear
+	// populate cur_covars_sample_major and dgels_b phenotype, transpose
+	// it, call glm_linear
 	// can optimize zero-missing-call case, etc. later
         dptr = cur_covars_sample_major;
 	dptr2 = pheno_buf;
@@ -4140,6 +4147,9 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
             uljj = cur_word2 & (3 * ONELU);
 	    if ((ulii != 3) && (uljj != 3)) {
               *dptr++ = 1.0;
+	      // sadly, casting to signed when possible before converting to
+	      // double makes a big difference in 32-bit builds, though it
+	      // appears to be unnecessary in 64-bit-only code.
 	      dxx = (double)((intptr_t)ulii);
 	      dyy = (double)((intptr_t)uljj);
               *dptr++ = dxx;
@@ -4156,13 +4166,68 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
             cur_word2 >>= 2;
 	  }
 	}
-	if (cur_sample_ct > 4) {
-	  dgels_m = cur_sample_ct;
-	  dgels_ldb = dgels_m;
-	  // transpose, copy to dgels_a, etc.
+	if (cur_sample_ct <= 4) {
+          goto epi_linear_thread_regression_fail;
+	}
+	transpose_copy(cur_sample_ct, 4, cur_covars_sample_major, cur_covars_cov_major);
+	if (glm_check_vif(vif_thresh, 4, cur_sample_ct, cur_covars_cov_major, param_2d_buf, mi_buf, param_2d_buf2)) {
+          goto epi_linear_thread_regression_fail;
+	}
 
-	  memcpy(dgels_b, pheno_buf, cur_sample_ct * sizeof(double));
-	  dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
+	col_major_matrix_multiply(4, 4, cur_sample_ct, cur_covars_sample_major, cur_covars_cov_major, param_2d_buf);
+	if (invert_matrix(4, param_2d_buf, mi_buf, param_2d_buf2)) {
+	  goto epi_linear_thread_regression_fail;
+	}
+	for (param_idx = 0; param_idx < 4; param_idx++) {
+          param_2d_buf2[param_idx] = sqrt(param_2d_buf[param_idx * 5]);
+	}
+        for (param_idx = 1; param_idx < 4; param_idx++) {
+          dxx = 0.99999 * param_2d_buf2[param_idx];
+          dptr = &(param_2d_buf[param_idx * 4]);
+          dptr2 = param_2d_buf2;
+          for (param_idx2 = 0; param_idx2 < param_idx; param_idx2++) {
+            if ((*dptr++) > dxx * (*dptr2++)) {
+              goto epi_linear_thread_regression_fail;
+	    }
+	  }
+	}
+        min_sigma = MAXV(param_2d_buf[5], param_2d_buf[10]);
+	if (param_2d_buf[15] > min_sigma) {
+          min_sigma = param_2d_buf[15];
+	}
+	min_sigma = 1e-20 / min_sigma;
+
+	dgels_m = cur_sample_ct;
+	dgels_ldb = dgels_m;
+	memcpy(dgels_a, cur_covars_cov_major, cur_sample_ct * 4 * sizeof(double));
+	memcpy(dgels_b, pheno_buf, cur_sample_ct * sizeof(double));
+	dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
+
+	dptr = cur_covars_sample_major;
+	sigma = 0;
+        for (sample_idx = 0; sample_idx < cur_sample_ct; sample_idx++) {
+	  partial = 0;
+          dptr2 = dgels_b;
+          for (param_idx = 0; param_idx < 4; param_idx++) {
+            partial += (*dptr++) * (*dptr2++);
+	  }
+	  partial -= pheno_buf[sample_idx];
+	  sigma += partial * partial;
+	}
+	sigma /= (double)((int32_t)(cur_sample_ct - 4));
+        if (sigma < min_sigma) {
+          goto epi_linear_thread_regression_fail;
+	}
+	// end glm_linear() clone
+
+	// dgels_b[3] = linear regression beta for AB term
+	// sqrt(param_2d_buf[15] * sigma) = standard error for AB term
+	zsq = (dgels_b[3] * dgels_b[3]) / (param_2d_buf[15] * sigma);
+
+	
+	while (0) {
+	epi_linear_thread_regression_fail:
+	  zsq = 0;
 	}
       }
       ;;;
@@ -7623,7 +7688,6 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
         wkspace_alloc_d_checked(&(g_epi_linear_mt[tidx].cur_covars_sample_major), pheno_nm_ct * 4 * sizeof(double)) ||
 	wkspace_alloc_d_checked(&(g_epi_linear_mt[tidx].param_2d_buf), 4 * 4 * sizeof(double)) ||
         wkspace_alloc_d_checked(&(g_epi_linear_mt[tidx].param_2d_buf2), 4 * 4 * sizeof(double)) ||
-        wkspace_alloc_d_checked(&(g_epi_linear_mt[tidx].regression_results), 3 * sizeof(double)) ||
         wkspace_alloc_d_checked(&(g_epi_linear_mt[tidx].dgels_a), pheno_nm_ct * 4 * sizeof(double)) ||
         wkspace_alloc_d_checked(&(g_epi_linear_mt[tidx].dgels_b), pheno_nm_ct * sizeof(double))) {
       goto epistasis_linear_regression_ret_NOMEM;
@@ -7660,6 +7724,7 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
     logprint("Error: Phenotype is constant.\n");
     goto epistasis_linear_regression_ret_INVALID_CMDLINE;
   }
+  g_epi_vif_thresh = glm_vif_thresh;
 
   // claim up to half of memory with idx1 bufs; each marker currently costs:
   //   pheno_nm_ctl2 * sizeof(intptr_t) for geno buf
