@@ -12382,12 +12382,26 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  fputs(cptr, outfile);
 	}
 	putc('\t', outfile);
+
+	if (load_and_collapse(bedfile, (uintptr_t*)loadbuf, unfiltered_sample_ct, loadbuf_collapsed, sample_ct, sample_exclude, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+	  goto recode_ret_READ_FAIL;
+	}
+	if (is_haploid && set_hh_missing) {
+	  haploid_fix(hh_exists, sample_include2, sample_male_include2, sample_ct, is_x, is_y, (unsigned char*)loadbuf_collapsed);
+	}
+
 	cptr = mk_allele_ptrs[2 * marker_uidx];
 	if (cptr != missing_geno_ptr) {
           if ((!invalid_allele_code_seen) && (!valid_vcf_allele_code(cptr))) {
 	    invalid_allele_code_seen = 1;
 	  }
-	  fputs(cptr, outfile);
+	  // if ALT allele is not actually present in immediate dataset, VCF
+	  // spec actually requires '.'
+	  if (!is_monomorphic_a2(loadbuf_collapsed, sample_ct)) {
+	    fputs(cptr, outfile);
+	  } else {
+	    putc('.', outfile);
+	  }
 	} else {
 	  putc('.', outfile);
 	}
@@ -12397,12 +12411,6 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  fputs("\t.\t.\t.\tGT", outfile);
 	}
 
-	if (load_and_collapse(bedfile, (uintptr_t*)loadbuf, unfiltered_sample_ct, loadbuf_collapsed, sample_ct, sample_exclude, final_mask, IS_SET(marker_reverse, marker_uidx))) {
-	  goto recode_ret_READ_FAIL;
-	}
-	if (is_haploid && set_hh_missing) {
-	  haploid_fix(hh_exists, sample_include2, sample_male_include2, sample_ct, is_x, is_y, (unsigned char*)loadbuf_collapsed);
-	}
 	wbufptr = writebuf;
 	ulptr = loadbuf_collapsed;
 	ulptr_end = &(loadbuf_collapsed[sample_ct / BITCT2]);

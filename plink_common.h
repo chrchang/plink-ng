@@ -1988,6 +1988,8 @@ static inline uint32_t popcount_long(uintptr_t val) {
   return popcount2_long(val - ((val >> 1) & FIVEMASK));
 }
 
+uint32_t is_monomorphic_a2(uintptr_t* lptr, uint32_t sample_ct);
+
 uint32_t is_monomorphic(uintptr_t* lptr, uint32_t sample_ct);
 
 // same as is_monomorphic, except it also flags the all-heterozygote case

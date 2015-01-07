@@ -5286,7 +5286,17 @@ void bitfield_xor(uintptr_t* bit_arr, uintptr_t* xor_arr, uintptr_t word_ct) {
     *bit_arr++ ^= *xor_arr++;
   } while (bit_arr < bit_arr_end);
 #endif
+}
 
+uint32_t is_monomorphic_a2(uintptr_t* lptr, uint32_t sample_ct) {
+  uintptr_t* loop_end = &(lptr[sample_ct / BITCT2]);
+  uint32_t sample_rem = sample_ct % BITCT2;
+  for (; lptr < loop_end; lptr++) {
+    if ((~(*lptr)) & FIVEMASK) {
+      return 0;
+    }
+  }
+  return (sample_rem && ((~(*lptr)) & (FIVEMASK >> (BITCT - sample_rem * 2))))? 0 : 1;
 }
 
 uint32_t is_monomorphic(uintptr_t* lptr, uint32_t sample_ct) {
