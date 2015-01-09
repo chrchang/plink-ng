@@ -3113,7 +3113,6 @@ int32_t make_bed_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32_t unfilter
   uint32_t sample_uidx2;
   if (sample_sort_map) {
     if (load_raw(bedfile, loadbuf, unfiltered_sample_ct4)) {
-      printf("fail %" PRIuPTR "\n", unfiltered_sample_ct4);
       return RET_READ_FAIL;
     }
     for (; sample_idx < sample_ct; sample_idx++) {
@@ -3326,11 +3325,18 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   uintptr_t* writebuf_ptr;
   uint32_t* map_reverse;
   const char* errptr;
+  uintptr_t pass_size;
   uint32_t is_haploid;
   uint32_t is_x;
   uint32_t is_y;
   uint32_t is_mt;
   uint32_t loop_end;
+  uint32_t pass_ct;
+  uint32_t pass_idx;
+  uint32_t pass_start;
+  uint32_t pass_end;
+  uint32_t seek_needed;
+  uint32_t markers_done;
   if (flip_subset_fname) {
     if (wkspace_alloc_ul_checked(&flip_subset_markers, unfiltered_marker_ctl * sizeof(intptr_t)) ||
         wkspace_alloc_ul_checked(&flip_subset_vec2, sample_ctv2 * sizeof(intptr_t))) {
@@ -3368,9 +3374,6 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
       goto make_bed_ret_WRITE_FAIL;
     }
     fflush(stdout);
-    if (fseeko(bedfile, bed_offset, SEEK_SET)) {
-      goto make_bed_ret_READ_FAIL;
-    }
     if (resort_map) {
       if (set_hh_missing || set_me_missing || fill_missing_a2) {
 	// could remove this restriction if we added a chromosome check to the
@@ -3432,27 +3435,39 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
       }
       wkspace_reset(ll_buf);
 
-      if (wkspace_alloc_ul_checked(&writebuf, marker_ct * sample_ctv2)) {
-	// todo: implement multipass.  should now be a minimal change
-	logprint("\nError: Insufficient memory for current --make-bed implementation.  Try raising\nthe --memory value for now.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto make_bed_ret_1;
+      // oops, forgot to multiply by sizeof(intptr_t)!  fortunately, this
+      // segfaulted instead of corrupting any data.
+      // anyway, it's now time to implement multipass.
+      if (wkspace_left < sample_ctv2 * sizeof(intptr_t)) {
+        goto make_bed_ret_NOMEM;
       }
+      writebuf = (uintptr_t*)wkspace_base;
+      pass_ct = 1 + ((sample_ctv2 * marker_ct * sizeof(intptr_t) - 1) / wkspace_left);
+      pass_size = 1 + ((marker_ct - 1) / pass_ct);
       *outname_end = '\0';
       LOGPRINTFWW5("--make-bed to %s.bed + %s.bim + %s.fam ... ", outname, outname, outname);
       fputs("0%", stdout);
-      for (; pct <= 100; pct++) {
-	loop_end = (pct * ((uint64_t)marker_ct)) / 100;
-	for (; marker_idx < loop_end; marker_uidx++, marker_idx++) {
+      loop_end = marker_ct / 100;
+      markers_done = 0;
+      for (pass_idx = 0; pass_idx < pass_ct; pass_idx++) {
+        pass_start = pass_idx * pass_size;
+	pass_end = (pass_idx + 1) * pass_size;
+	seek_needed = 1;
+	for (; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
 	  if (IS_SET(marker_exclude, marker_uidx)) {
 	    marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+	    seek_needed = 1;
+	  }
+	  if ((map_reverse[marker_uidx] < pass_start) || map_reverse[marker_uidx] >= pass_end) {
+	    seek_needed = 1;
+	    continue;
+	  }
+	  writebuf_ptr = &(writebuf[sample_ctv2 * (map_reverse[marker_uidx] - pass_start)]);
+	  if (seek_needed) {
 	    if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
-	      printf("fail-%" PRIuPTR "\n", marker_uidx);
 	      goto make_bed_ret_READ_FAIL;
 	    }
 	  }
-	  printf("%" PRIuPTR " %u\n", marker_uidx, map_reverse[marker_uidx]);
-	  writebuf_ptr = &(writebuf[sample_ctv2 * map_reverse[marker_uidx]]);
 	  retval = make_bed_one_marker(bedfile, loadbuf, unfiltered_sample_ct, unfiltered_sample_ct4, sample_exclude, sample_ct, sample_sort_map, final_mask, IS_SET(marker_reverse, marker_uidx), writebuf_ptr);
 	  if (retval) {
 	    goto make_bed_ret_1;
@@ -3463,13 +3478,17 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	  if (flip_subset_markers && is_set(flip_subset_markers, marker_uidx)) {
 	    reverse_subset(writebuf_ptr, flip_subset_vec2, sample_ctv2);
 	  }
-	}
-	if (pct < 100) {
-	  if (pct > 10) {
-	    putchar('\b');
+	  if (markers_done >= loop_end) {
+	    if (pct > 10) {
+	      putchar('\b');
+	    }
+	    pct = (markers_done * 100LLU) / marker_ct;
+	    printf("\b\b%u%%", pct);
+	    fflush(stdout);
+	    pct++;
+	    loop_end = (pct * ((uint64_t)marker_ct)) / 100;
 	  }
-	  printf("\b\b%u%%", pct);
-	  fflush(stdout);
+	  markers_done++;
 	}
       }
       for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
@@ -3510,6 +3529,9 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 
       if (wkspace_alloc_ul_checked(&writebuf, sample_ctv2)) {
 	goto make_bed_ret_NOMEM;
+      }
+      if (fseeko(bedfile, bed_offset, SEEK_SET)) {
+	goto make_bed_ret_READ_FAIL;
       }
       *outname_end = '\0';
       LOGPRINTFWW5("--make-bed to %s.bed + %s.bim + %s.fam ... ", outname, outname, outname);

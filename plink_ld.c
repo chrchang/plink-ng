@@ -3980,15 +3980,17 @@ typedef struct epi_linear_multithread_struct {
   double* dgels_work;
 } Epi_linear_multithread;
 
+/*
 static Epi_linear_multithread* g_epi_linear_mt;
 static __CLPK_integer g_epi_dgels_lwork;
 static double* g_epi_pheno_d2;
 static double g_epi_pheno_sum;
 static double g_epi_pheno_ssq;
 static double g_epi_vif_thresh;
+*/
 #endif
 
-static uint32_t g_epi_pheno_nm_ct;
+// static uint32_t g_epi_pheno_nm_ct;
 
 #ifndef NOLAPACK
 /*
