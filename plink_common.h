@@ -38,8 +38,8 @@
 #ifdef _WIN32
   #define PRId64 "I64d"
   #define PRIu64 "I64u"
-  #define fseeko _fseeki64
-  #define ftello _ftelli64
+  #define fseeko fseeko64
+  #define ftello ftello64
   #include <windows.h>
   #include <process.h>
   #define pthread_t HANDLE
