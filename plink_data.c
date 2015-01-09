@@ -3447,7 +3447,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	  if (IS_SET(marker_exclude, marker_uidx)) {
 	    marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
 	    if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
-	      printf("fail-" PRIuPTR "\n", marker_uidx);
+	      printf("fail-%" PRIuPTR "\n", marker_uidx);
 	      goto make_bed_ret_READ_FAIL;
 	    }
 	  }
