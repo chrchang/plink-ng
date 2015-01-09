@@ -3452,13 +3452,16 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
       for (pass_idx = 0; pass_idx < pass_ct; pass_idx++) {
         pass_start = pass_idx * pass_size;
 	pass_end = (pass_idx + 1) * pass_size;
+	if (pass_idx + 1 == pass_ct) {
+	  pass_end = marker_ct;
+	}
 	seek_needed = 1;
-	for (; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+	for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
 	  if (IS_SET(marker_exclude, marker_uidx)) {
 	    marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
 	    seek_needed = 1;
 	  }
-	  if ((map_reverse[marker_uidx] < pass_start) || map_reverse[marker_uidx] >= pass_end) {
+	  if ((map_reverse[marker_uidx] < pass_start) || (map_reverse[marker_uidx] >= pass_end)) {
 	    seek_needed = 1;
 	    continue;
 	  }
@@ -3491,12 +3494,13 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	  }
 	  markers_done++;
 	}
-      }
-      for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-	if (fwrite_checked(writebuf, sample_ct4, bedoutfile)) {
-	  goto make_bed_ret_WRITE_FAIL;
+	writebuf_ptr = writebuf;
+	for (marker_idx = pass_start; marker_idx < pass_end; marker_idx++) {
+	  if (fwrite_checked(writebuf_ptr, sample_ct4, bedoutfile)) {
+	    goto make_bed_ret_WRITE_FAIL;
+	  }
+	  writebuf_ptr = &(writebuf_ptr[sample_ctv2]);
 	}
-	writebuf = &(writebuf[sample_ctv2]);
       }
     } else {
       if (!hh_exists) {
