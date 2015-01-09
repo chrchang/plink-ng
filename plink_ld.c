@@ -3991,6 +3991,7 @@ static double g_epi_vif_thresh;
 static uint32_t g_epi_pheno_nm_ct;
 
 #ifndef NOLAPACK
+/*
 THREAD_RET_TYPE epi_linear_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
   uintptr_t block_idx1_start = g_epi_idx1_block_bounds[tidx];
@@ -4239,9 +4240,8 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
     THREAD_BLOCK_FINISH(tidx);
   }
 }
+*/
 #endif
-
-
 
 double calc_lnlike(double known11, double known12, double known21, double known22, double center_ct_d, double freq11, double freq12, double freq21, double freq22, double half_hethet_share, double freq11_incr) {
   double lnlike;

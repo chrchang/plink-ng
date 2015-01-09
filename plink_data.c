@@ -3113,6 +3113,7 @@ int32_t make_bed_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32_t unfilter
   uint32_t sample_uidx2;
   if (sample_sort_map) {
     if (load_raw(bedfile, loadbuf, unfiltered_sample_ct4)) {
+      printf("fail %lu\n", unfiltered_sample_ct4);
       return RET_READ_FAIL;
     }
     for (; sample_idx < sample_ct; sample_idx++) {
@@ -3446,9 +3447,11 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	  if (IS_SET(marker_exclude, marker_uidx)) {
 	    marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
 	    if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
+	      printf("fail-%lu\n", marker_uidx);
 	      goto make_bed_ret_READ_FAIL;
 	    }
 	  }
+	  printf("%lu %u\n", marker_uidx, map_reverse[marker_uidx]);
 	  writebuf_ptr = &(writebuf[sample_ctv2 * map_reverse[marker_uidx]]);
 	  retval = make_bed_one_marker(bedfile, loadbuf, unfiltered_sample_ct, unfiltered_sample_ct4, sample_exclude, sample_ct, sample_sort_map, final_mask, IS_SET(marker_reverse, marker_uidx), writebuf_ptr);
 	  if (retval) {
