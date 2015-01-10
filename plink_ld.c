@@ -3930,7 +3930,7 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
 	  fail_ct_fixed++;
 	  fail_ct2[block_idx2] += 1;
 	  if (alpha1sq == 0.0) {
-	    // special case: log NA
+	    // special case: log NA when '--epi1 1' specified
 	    all_chisq_write[block_idx2] = NAN;
 	  }
 	}
@@ -3980,20 +3980,17 @@ typedef struct epi_linear_multithread_struct {
   double* dgels_work;
 } Epi_linear_multithread;
 
-/*
 static Epi_linear_multithread* g_epi_linear_mt;
 static __CLPK_integer g_epi_dgels_lwork;
 static double* g_epi_pheno_d2;
 static double g_epi_pheno_sum;
 static double g_epi_pheno_ssq;
 static double g_epi_vif_thresh;
-*/
 #endif
 
-// static uint32_t g_epi_pheno_nm_ct;
+static uint32_t g_epi_pheno_nm_ct;
 
 #ifndef NOLAPACK
-/*
 THREAD_RET_TYPE epi_linear_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
   uintptr_t block_idx1_start = g_epi_idx1_block_bounds[tidx];
@@ -4080,9 +4077,9 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
     cur_idx2_block_size = idx2_block_size;
     idx2_block_start = g_epi_idx2_block_start;
     idx2_block_end = idx2_block_start + idx2_block_size;
-    idx2_block_sizem16 = (idx2_block_size + 15) & (~(15 + ONELU));
+    idx2_block_sizem16 = (idx2_block_size + 15) & (~(15 * ONELU));
     geno2 = g_epi_geno2;
-    all_chisq = &(g_epi_all_chisq[idx2_block_start]);
+    all_chisq = &(g_epi_all_chisq[2 * idx2_block_start]);
     best_chisq1 = &(g_epi_best_chisq1[idx1_block_start16]);
     best_chisq2 = &(g_epi_best_chisq2[tidx * idx2_block_sizem16]);
     n_sig_ct1 = &(g_epi_n_sig_ct1[idx1_block_start16]);
@@ -4226,15 +4223,54 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
 	// dgels_b[3] = linear regression beta for AB term
 	// sqrt(param_2d_buf[15] * sigma) = standard error for AB term
 	zsq = (dgels_b[3] * dgels_b[3]) / (param_2d_buf[15] * sigma);
-
-	
+	if (zsq >= alpha1sq) {
+          all_chisq_write[2 * block_idx2] = zsq;
+          all_chisq_write[2 * block_idx2 + 1] = dgels_b[3];
+	}
+	if (zsq >= alpha2sq) {
+          n_sig_ct_fixed++;
+	  n_sig_ct2[block_idx2] += 1;
+	}
+	if (zsq > best_chisq_fixed) {
+          best_chisq_fixed = zsq;
+	  best_id_fixed = block_idx2 + idx2_block_start;
+	}
+        dxx = *chisq2_ptr;
+        if (zsq > dxx) {
+          *chisq2_ptr = zsq;
+	  best_id2[block_idx2] = marker_idx1;
+	}
 	while (0) {
 	epi_linear_thread_regression_fail:
 	  zsq = 0;
+	  fail_ct_fixed++;
+	  fail_ct2[block_idx2] += 1;
+	  if (alpha1sq == 0.0) {
+	    // special case: log NA when '--epi1 1' specified
+	    all_chisq_write[block_idx2 * 2] = NAN;
+	    all_chisq_write[block_idx2 * 2 + 1] = NAN;
+	  }
 	}
       }
-      ;;;
-      // ...
+      if (is_first_half) {
+        is_first_half = 0;
+	ulii = geno1_offsets[2 * block_idx1 + 1];
+        cur_idx2_block_size = idx2_block_size;
+        if (ulii < idx2_block_end) {
+	  // guaranteed to be larger than idx2_block_start, otherwise there
+	  // would have been no first half
+          block_idx2 = ulii - idx2_block_start;
+	  goto epi_linear_thread_second_half;
+	}
+      }
+      if (best_chisq_fixed > best_chisq1[block_delta1]) {
+        best_chisq1[block_delta1] = best_chisq_fixed;
+	best_id1[block_delta1] = best_id_fixed;
+      }
+      n_sig_ct1[block_delta1] = n_sig_ct_fixed;
+      if (fail_ct_fixed) {
+        fail_ct1[block_delta1] = fail_ct_fixed;
+      }
     }
     if ((!tidx) || g_is_last_thread_block) {
       THREAD_RETURN;
@@ -4242,7 +4278,6 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
     THREAD_BLOCK_FINISH(tidx);
   }
 }
-*/
 #endif
 
 double calc_lnlike(double known11, double known12, double known21, double known22, double center_ct_d, double freq11, double freq12, double freq21, double freq22, double half_hethet_share, double freq11_incr) {
@@ -7617,9 +7652,8 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
 
 #ifndef NOLAPACK
 int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uintptr_t marker_uidx_base, uintptr_t marker_ct1, uintptr_t* marker_exclude1, uintptr_t marker_idx1_start, uintptr_t marker_idx1_end, uintptr_t marker_ct2, uintptr_t* marker_exclude2, uint32_t is_triangular, uintptr_t job_size, uint64_t tests_expected, uintptr_t unfiltered_sample_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, double* pheno_d, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end, double output_min_p, double glm_vif_thresh, uintptr_t* loadbuf_raw, uintptr_t* loadbuf, double* best_chisq, uint32_t* best_ids, uint32_t* n_sig_cts, uint32_t* fail_cts, uint32_t* gap_cts) {
-  logprint("Error: --epistasis linear regression is under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
-  /*
+  // logprint("Error: --epistasis linear regression is under development.\n");
+  // return RET_CALC_NOT_YET_SUPPORTED;
   FILE* outfile = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t pheno_nm_ctl2 = (pheno_nm_ct + (BITCT2 - 1)) / BITCT2;
@@ -7679,6 +7713,7 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
   if (wkspace_alloc_d_checked(&g_epi_pheno_d2, pheno_nm_ct * sizeof(double))) {
     goto epistasis_linear_regression_ret_NOMEM;
   }
+  g_epi_pheno_nm_ct = pheno_nm_ct;
   // per-thread buffers
   g_epi_linear_mt = (Epi_linear_multithread*)wkspace_alloc(max_thread_ct * sizeof(Epi_linear_multithread));
   if (!g_epi_linear_mt) {
@@ -7877,10 +7912,11 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
           goto epistasis_linear_regression_ret_READ_FAIL;
 	}
       }
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, pheno_nm_ct, pheno_nm, final_mask, IS_SET(marker_reverse, marker_uidx_tmp))) {
+      // marker_reverse deliberately flipped
+      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, pheno_nm_ct, pheno_nm, final_mask, !IS_SET(marker_reverse, marker_uidx_tmp))) {
         goto epistasis_linear_regression_ret_READ_FAIL;
       }
-      // rotate to hom A1 = 00, het = 01, hom A2 = 10, missing = 11, to allow
+      // rotate to hom A1 = 11, het = 01, hom A2 = 00, missing = 11, to allow
       // inner loop to use ordinary multiplication
       rotate_plink1_to_plink2_and_copy(loadbuf, &(g_epi_geno1[block_idx1 * pheno_nm_ctl2]), pheno_nm_ctl2);
       if (!is_triangular) {
@@ -7917,7 +7953,8 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
 	  }
 	}
         ulptr = &(g_epi_geno2[block_idx2 * pheno_nm_ctl2]);
-	if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, pheno_nm_ct, pheno_nm, final_mask, IS_SET(marker_reverse, marker_uidx2))) {
+	// marker_reverse deliberately flipped
+	if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, pheno_nm_ct, pheno_nm, final_mask, !IS_SET(marker_reverse, marker_uidx2))) {
 	  goto epistasis_linear_regression_ret_READ_FAIL;
 	}
 	rotate_plink1_to_plink2_and_copy(loadbuf, ulptr, pheno_nm_ctl2);
@@ -8009,8 +8046,10 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
       }
       marker_idx2 += cur_idx2_block_size;
     } while (marker_idx2 < marker_ct2);
-    // ...
-
+    fputs("\b\b\b\b\b\b\b\b\b\b\bwriting]   \b\b\b", stdout);
+    fflush(stdout);
+    chrom_end = 0;
+    block_idx1 = 0;
     while (1) {
       next_unset_ul_unsafe_ck(marker_exclude1, &marker_uidx);
       ujj = g_epi_geno1_offsets[2 * block_idx1];
@@ -8116,7 +8155,6 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
   fclose_cond(outfile);
   // caller will free memory
   return retval;
-  */
 }
 #endif
 
@@ -9156,7 +9194,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   }
   fputs("\b\b", stdout);
   LOGPRINTF("done.\n");
-  LOGPRINTFWW("%" PRIu64 " valid tests performed, summary written to %s .\n", tests_expected - tests_thrown_out, outname);
+  LOGPRINTFWW("%" PRIu64 " valid test%s performed, summary written to %s .\n", tests_expected - tests_thrown_out, (tests_expected - tests_thrown_out == 1)? "" : "s", outname);
 
   while (0) {
   epistasis_report_ret_NOMEM:
