@@ -8,6 +8,8 @@
 int32_t glm_check_vif(double vif_thresh, uintptr_t param_ct, uintptr_t sample_valid_ct, double* covars_collapsed, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2);
 #endif
 
+void solve_linear_system(const float* ll, const float* yy, float* xx, uint32_t dd);
+
 uint32_t logistic_regression(uint32_t sample_ct, uint32_t param_ct, float* vv, float* hh, float* grad, float* ll, float* dcoef, const float* xx, const float* yy, float* coef, float* pp);
 
 #ifndef NOLAPACK
