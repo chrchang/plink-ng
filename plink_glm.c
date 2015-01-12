@@ -602,7 +602,7 @@ int32_t glm_check_vif(double vif_thresh, uintptr_t param_ct, uintptr_t sample_va
   }
   for (param_idx = 1; param_idx < param_ct; param_idx++) {
     dptr = &(param_2d_buf[(param_idx - 1) * param_ct]);
-    dyy = param_2d_buf2[param_idx];
+    dyy = param_2d_buf2[param_idx] * sample_ct_d;
     for (param_idx2 = param_idx; param_idx2 < param_ct; param_idx2++) {
       dxx = 0;
       dptr2 = &(covars_collapsed[param_idx * sample_valid_ct]);
@@ -610,7 +610,7 @@ int32_t glm_check_vif(double vif_thresh, uintptr_t param_ct, uintptr_t sample_va
       for (sample_idx = 0; sample_idx < sample_valid_ct; sample_idx++) {
 	dxx += (*dptr2++) * (*dptr3++);
       }
-      dxx -= dyy * param_2d_buf2[param_idx2] * sample_ct_d;
+      dxx -= dyy * param_2d_buf2[param_idx2];
       *dptr++ = dxx * sample_ct_m1_recip;
     }
   }

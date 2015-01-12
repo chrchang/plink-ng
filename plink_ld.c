@@ -3967,26 +3967,14 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
 
 // epistasis linear/logistic regression multithread globals
 
-#ifndef NOLAPACK
-typedef struct epi_linear_multithread_struct {
-  double* pheno_buf;
-  double* param_2d_buf;
-  double* param_2d_buf2;
-  MATRIX_INVERT_BUF1_TYPE* mi_buf;
-  double* cur_covars_cov_major;
-  double* cur_covars_sample_major;
-  double* dgels_a;
-  double* dgels_b;
-  double* dgels_work;
-} Epi_linear_multithread;
-
-static Epi_linear_multithread* g_epi_linear_mt;
-static __CLPK_integer g_epi_dgels_lwork;
 static double* g_epi_pheno_d2;
+static double* g_epi_phenogeno1;
+static double* g_epi_phenogeno2;
+static uint32_t* g_epi_genosums1;
+static uint32_t* g_epi_genosums2;
 static double g_epi_pheno_sum;
 static double g_epi_pheno_ssq;
 static double g_epi_vif_thresh;
-#endif
 
 static uint32_t g_epi_pheno_nm_ct;
 
@@ -4008,7 +3996,6 @@ static float* g_epi_all_chisq_f;
 static float* g_epi_best_chisq_f1;
 static float* g_epi_best_chisq_f2;
 
-#ifndef NOLAPACK
 THREAD_RET_TYPE epi_linear_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
   uintptr_t block_idx1_start = g_epi_idx1_block_bounds[tidx];
@@ -4026,25 +4013,21 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
   uint32_t is_first_half = 0;
   uintptr_t pheno_nm_ctl2 = (pheno_nm_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t* geno1 = g_epi_geno1;
-  MATRIX_INVERT_BUF1_TYPE* mi_buf = g_epi_linear_mt[tidx].mi_buf;
   double* pheno_d2 = g_epi_pheno_d2;
-  double* pheno_buf = g_epi_linear_mt[tidx].pheno_buf;
-  double* param_2d_buf = g_epi_linear_mt[tidx].param_2d_buf;
-  double* param_2d_buf2 = g_epi_linear_mt[tidx].param_2d_buf2;
-  double* cur_covars_cov_major = g_epi_linear_mt[tidx].cur_covars_cov_major;
-  double* cur_covars_sample_major = g_epi_linear_mt[tidx].cur_covars_sample_major;
-  double* dgels_a = g_epi_linear_mt[tidx].dgels_a;
-  double* dgels_b = g_epi_linear_mt[tidx].dgels_b;
-  double* dgels_work = g_epi_linear_mt[tidx].dgels_work;
   uint32_t* geno1_offsets = g_epi_geno1_offsets;
   uint32_t* best_id1 = &(g_epi_best_id1[idx1_block_start16]);
-  char dgels_trans = 'N';
-  __CLPK_integer dgels_n = 4;
-  __CLPK_integer dgels_nrhs = 1;
-  __CLPK_integer dgels_lwork = g_epi_dgels_lwork;
+  double dmatrix_buf[16];
+  double dmatrix_buf2[16];
+  MATRIX_INVERT_BUF1_TYPE mi_buf[4];
+  // sum(aa), sum(ab), sum(bb), sum(aab), sum(abb), and sum(aabb) can all be
+  // derived from these four quantities.
+  uint32_t cur_minor_cts[4]; // 11, 12, 21, 22
+
   uintptr_t* cur_geno1;
   uintptr_t* geno2;
   uintptr_t* cur_geno2;
+  double* phenogeno1;
+  double* phenogeno2;
   double* all_chisq_write;
   double* chisq2_ptr;
   double* all_chisq;
@@ -4052,12 +4035,13 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
   double* best_chisq2;
   double* dptr;
   double* dptr2;
-  double* dptr3;
   uint32_t* n_sig_ct1;
   uint32_t* fail_ct1;
   uint32_t* best_id2;
   uint32_t* n_sig_ct2;
   uint32_t* fail_ct2;
+  uint32_t* genosums1;
+  uint32_t* genosums2;
   uintptr_t idx2_block_size;
   uintptr_t cur_idx2_block_size;
   uintptr_t idx2_block_start;
@@ -4070,22 +4054,44 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
   uintptr_t cur_word2;
   uintptr_t param_idx;
   uintptr_t param_idx2;
+  uintptr_t cur_sum_aab;
+  uintptr_t cur_sum_abb;
+  uintptr_t cur_sum_aabb;
   uintptr_t ulii;
   uintptr_t uljj;
   double best_chisq_fixed;
+  double sum_a_pheno_base;
   double cur_pheno_sum;
   double cur_pheno_ssq;
-  double partial;
+  double cur_sum_a_pheno;
+  double cur_sum_b_pheno;
+  double cur_sum_ab_pheno;
+  double sample_ctd;
+  double sample_ct_recip;
+  double sample_ct_m1_recip;
+  double cur_sum_ad;
+  double cur_sum_bd;
+  double cur_sum_abd;
+  double determinant;
   double min_sigma;
   double sigma;
   double dxx;
   double dyy;
+  double dzz;
+  double dww;
+  double dvv;
+  double duu;
   double zsq;
-  __CLPK_integer dgels_m;
-  __CLPK_integer dgels_ldb;
-  __CLPK_integer dgels_info;
   uint32_t n_sig_ct_fixed;
   uint32_t fail_ct_fixed;
+
+  uint32_t sum_a_base;
+  uint32_t sum_aa_base;
+  uint32_t cur_sum_a;
+  uint32_t cur_sum_aa;
+  uint32_t cur_sum_b;
+  uint32_t cur_sum_bb;
+  uint32_t cur_sum_ab;
   uint32_t widx;
   uint32_t loop_end;
   uint32_t sample_idx;
@@ -4097,6 +4103,10 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
     idx2_block_end = idx2_block_start + idx2_block_size;
     idx2_block_sizem16 = (idx2_block_size + 15) & (~(15 * ONELU));
     geno2 = g_epi_geno2;
+    phenogeno1 = g_epi_phenogeno1;
+    phenogeno2 = g_epi_phenogeno2;
+    genosums1 = g_epi_genosums1;
+    genosums2 = g_epi_genosums2;
     all_chisq = &(g_epi_all_chisq[2 * idx2_block_start]);
     best_chisq1 = &(g_epi_best_chisq1[idx1_block_start16]);
     best_chisq2 = &(g_epi_best_chisq2[tidx * idx2_block_sizem16]);
@@ -4133,6 +4143,9 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
       fail_ct_fixed = 0;
       block_delta1 = block_idx1 - block_idx1_start;
       best_chisq_fixed = best_chisq1[block_delta1];
+      sum_a_pheno_base = phenogeno1[block_idx1];
+      sum_a_base = genosums1[2 * block_idx1];
+      sum_aa_base = genosums1[2 * block_idx1 + 1];
 
       // [0] = chisq, [1] = beta
       all_chisq_write = &(all_chisq[block_idx1 * marker_ct * 2]);
@@ -4141,17 +4154,39 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
       cur_geno2 = &(geno2[block_idx2 * pheno_nm_ctl2]);
       chisq2_ptr = &(best_chisq2[block_idx2]);
       for (; block_idx2 < cur_idx2_block_size; block_idx2++, chisq2_ptr++, cur_geno2 = &(cur_geno2[pheno_nm_ctl2])) {
-	// populate cur_covars_sample_major and dgels_b phenotype, transpose
-	// it, call glm_linear
-	// can optimize zero-missing-call case, etc. later
-        dptr = cur_covars_sample_major;
-	dptr2 = pheno_buf;
-	dptr3 = pheno_d2;
+	// Our covariates are 1, genotype A (in {0, 1, 2}), genotype B, and
+	//   [genotype A] * [genotype B].
+	// The ordinary least squares solution to this system is
+	//   (X^T X)^{-1} X^T Y
+	// where X^T X is the following 4x4 matrix (where n = # of samples):
+	//   [ n       sum(A)   sum(B)   sum(AB)   ]
+	//   [ sum(A)  sum(AA)  sum(AB)  sum(AAB)  ]
+	//   [ sum(B)  sum(AB)  sum(BB)  sum(ABB)  ]
+	//   [ sum(AB) sum(AAB) sum(ABB) sum(AABB) ]
+        // (sum(.) denotes the sum of that (product of) genotypes, across all
+	// samples.)
+	// Meanwhile, X^T Y is the following 4x1 matrix:
+	//   [ sum(pheno)      ]
+	//   [ sum(A * pheno)  ]
+	//   [ sum(B * pheno)  ]
+	//   [ sum(AB * pheno) ]
+	// Crucially, the VIF and valid parameters checks can also operate
+	// purely on the terms above and sum(pheno * pheno).
+
+	// these nine values can be mostly precomputed; just need to subtract
+	// from them sometimes when missing values are present.
 	cur_pheno_sum = pheno_sum;
 	cur_pheno_ssq = pheno_ssq;
+	cur_sum_a_pheno = sum_a_pheno_base;
+	cur_sum_b_pheno = phenogeno2[block_idx2];
+	cur_sum_a = sum_a_base;
+	cur_sum_aa = sum_aa_base;
+	cur_sum_b = genosums2[block_idx2 * 2];
+	cur_sum_bb = genosums2[block_idx2 * 2 + 1];
 	cur_sample_ct = pheno_nm_ct;
-	// this part is similar to glm_linear().  Not worthwhile to use it
-	// directly, though, due to how it acts on loadbuf.
+
+	cur_sum_ab_pheno = 0.0;
+	fill_uint_zero(cur_minor_cts, 4);
 	for (widx = 0; widx < pheno_nm_ctl2; widx++) {
 	  sample_idx = widx * BITCT2;
           cur_word1 = cur_geno1[widx];
@@ -4160,90 +4195,214 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
 	  if (loop_end > pheno_nm_ct) {
             loop_end = pheno_nm_ct;
 	  }
-          for (; sample_idx < loop_end; sample_idx++, dptr3++) {
+          for (; sample_idx < loop_end; cur_word1 >>= 2, cur_word2 >>= 2, sample_idx++) {
             ulii = cur_word1 & (3 * ONELU);
             uljj = cur_word2 & (3 * ONELU);
-	    if ((ulii != 3) && (uljj != 3)) {
-              *dptr++ = 1.0;
-	      // sadly, casting to signed when possible before converting to
-	      // double makes a big difference in 32-bit builds, though it
-	      // appears to be unnecessary in 64-bit-only code.
-	      dxx = (double)((intptr_t)ulii);
-	      dyy = (double)((intptr_t)uljj);
-              *dptr++ = dxx;
-	      *dptr++ = dyy;
-              *dptr++ = dxx * dyy;
-	      *dptr2++ = *dptr3;
+	    // handle common cases efficiently
+	    if (!ulii) {
+              if (uljj != 3) {
+                continue;
+              }
+              dxx = pheno_d2[sample_idx];
+	    } else if (!uljj) {
+              if (ulii != 3) {
+	        continue;
+	      }
+	      dxx = pheno_d2[sample_idx];
 	    } else {
-	      dxx = *dptr3;
-	      cur_pheno_sum -= dxx;
-	      cur_pheno_ssq -= dxx * dxx;
-              cur_sample_ct--;
+	      dxx = pheno_d2[sample_idx];
+	      if (ulii == 3) {
+		if (uljj == 1) {
+		  cur_sum_b_pheno -= dxx;
+		  cur_sum_b--;
+		  cur_sum_bb--;
+		} else if (uljj == 2) {
+		  cur_sum_b_pheno -= 2 * dxx;
+		  cur_sum_b -= 2;
+		  cur_sum_bb -= 4;
+		}
+	      } else if (uljj == 3) {
+		// ulii must be 1 or 2
+		cur_sum_a_pheno -= dxx;
+		if (ulii == 2) {
+		  cur_sum_a_pheno -= dxx;
+		}
+		cur_sum_a -= ulii;
+		cur_sum_aa -= ulii * ulii;
+	      } else {
+		cur_sum_ab_pheno += ((double)((intptr_t)(ulii * uljj))) * dxx;
+		cur_minor_cts[ulii * 2 + uljj - 3] += 1;
+		continue;
+	      }
 	    }
-            cur_word1 >>= 2;
-            cur_word2 >>= 2;
+	    cur_pheno_sum -= dxx;
+	    cur_pheno_ssq -= dxx * dxx;
+	    cur_sample_ct--;
 	  }
 	}
+	printf("%g %g\n\n", cur_pheno_sum, cur_pheno_ssq);
 	if (cur_sample_ct <= 4) {
           goto epi_linear_thread_regression_fail;
 	}
-	transpose_copy(cur_sample_ct, 4, cur_covars_sample_major, cur_covars_cov_major);
-	if (glm_check_vif(vif_thresh, 4, cur_sample_ct, cur_covars_cov_major, param_2d_buf, mi_buf, param_2d_buf2)) {
-          goto epi_linear_thread_regression_fail;
+	// VIF check.  Mirrors glm_check_vif(), but param_ct is hardcoded to 4
+	// and we avoid additional iteration over the sample_idxs.
+	sample_ctd = (double)((int32_t)cur_sample_ct);
+	sample_ct_recip = 1.0 / sample_ctd;
+	sample_ct_m1_recip = (double)((int32_t)(cur_sample_ct - 1)); // not recip yet
+	cur_sum_ab = cur_minor_cts[0] + 2 * (cur_minor_cts[1] + cur_minor_cts[2]) + 4 * cur_minor_cts[3];
+	cur_sum_aab = cur_minor_cts[0] + 2 * cur_minor_cts[1] + 4 * cur_minor_cts[2] + (8 * ONELU) * cur_minor_cts[3];
+	cur_sum_abb = cur_minor_cts[0] + 4 * cur_minor_cts[1] + 2 * cur_minor_cts[2] + (8 * ONELU) * cur_minor_cts[3];
+	cur_sum_aabb = cur_minor_cts[0] + 4 * (cur_minor_cts[1] + cur_minor_cts[2]) + (16 * ONELU) * cur_minor_cts[3];
+
+	cur_sum_ad = (double)((int32_t)cur_sum_a);
+	cur_sum_bd = (double)((int32_t)cur_sum_b);
+	cur_sum_abd = (double)((int32_t)cur_sum_ab);
+
+	// some genotype means
+	dxx = cur_sum_bd * sample_ct_recip;
+	dyy = cur_sum_abd * sample_ct_recip;
+
+	dww = ((double)((int32_t)cur_sum_aa)) - cur_sum_ad * cur_sum_ad * sample_ct_recip;
+	dvv = ((double)((int32_t)cur_sum_bb)) - cur_sum_bd * dxx;
+	duu = ((double)((intptr_t)cur_sum_aabb)) - cur_sum_abd * dyy;
+	if ((dww <= 0) || (dvv <= 0) || (duu <= 0)) {
+	  goto epi_linear_thread_regression_fail;
+	}
+	dww = sample_ct_m1_recip / sqrt(dww);
+	dvv = sample_ct_m1_recip / sqrt(dvv);
+	duu = sample_ct_m1_recip / sqrt(duu);
+	sample_ct_m1_recip = 1.0 / sample_ct_m1_recip;
+
+	dxx = (cur_sum_abd - cur_sum_ad * dxx) * sample_ct_m1_recip;
+	dzz = (((double)((intptr_t)cur_sum_abb)) - cur_sum_bd * dyy) * sample_ct_m1_recip;
+	dyy = (((double)((intptr_t)cur_sum_aab)) - cur_sum_ad * dyy) * sample_ct_m1_recip;
+	// now dxx = A_{12}, dyy = A_{13}, dzz = A_{23}
+
+	dxx *= dww * dvv;
+	dyy *= dww * duu;
+	dzz *= dvv * duu;
+	if ((dxx > 0.999) || (dyy > 0.999) || (dzz > 0.999)) {
+	  goto epi_linear_thread_regression_fail;
+	}
+	// Use analytic formula for 3x3 symmetric matrix inverse.
+	// det A = A_{11}A_{22}A_{33} + 2 * A_{12}A_{13}A_{23}
+	//       - A_{11}(A_{23}^2) - A_{22}(A_{13}^2) - A_{33}(A_{12}^2)
+	// upper left of inverse = (A_{22}A_{33} - (A_{23}^2))(det A)^{-1}
+        //                middle = (A_{11}A_{33} - (A_{13}^2))(det A)^{-1}
+	//           lower right = (A_{11}A_{22} - (A_{12}^2))(det A)^{-1}
+	dww = dxx * dxx;
+	dvv = dyy * dyy;
+	duu = dzz * dzz;
+	determinant = 1 + 2 * dxx * dyy * dzz - dww - dvv - duu;
+	if (fabs(determinant) < EPSILON) {
+	  goto epi_linear_thread_regression_fail;
+	}
+	// (1 - x^2)/det > vif_thresh
+	// if det > 0:
+	//   1 - x^2 > vif_thresh * det
+	//   1 - vif_thresh * det > x^2
+	// otherwise:
+	//   1 - x^2 < vif_thresh * det
+	//   1 - vif_thresh * det < x^2
+        dxx = 1 - vif_thresh * determinant; // now a threshold
+	if (((determinant > 0) && ((dxx > dww) || (dxx > dvv) || (dxx > duu))) || ((determinant < 0) && ((dxx < dww) || (dxx < dvv) || (dxx < duu)))) {
+	  goto epi_linear_thread_regression_fail;
 	}
 
-	col_major_matrix_multiply(4, 4, cur_sample_ct, cur_covars_sample_major, cur_covars_cov_major, param_2d_buf);
-	if (invert_matrix(4, param_2d_buf, mi_buf, param_2d_buf2)) {
+	// VIF check done, now perform linear regression
+	dmatrix_buf[0] = sample_ctd;
+	dmatrix_buf[1] = cur_sum_ad;
+        dmatrix_buf[2] = cur_sum_bd;
+	dmatrix_buf[3] = cur_sum_abd;
+	dmatrix_buf[4] = cur_sum_ad;
+	dmatrix_buf[5] = (double)((int32_t)cur_sum_aa);
+	dmatrix_buf[6] = cur_sum_abd;
+	dmatrix_buf[7] = (double)((intptr_t)cur_sum_aab);
+	dmatrix_buf[8] = cur_sum_bd;
+	dmatrix_buf[9] = cur_sum_abd;
+	dmatrix_buf[10] = (double)((int32_t)cur_sum_bb);
+	dmatrix_buf[11] = (double)((intptr_t)cur_sum_abb);
+	dmatrix_buf[12] = cur_sum_abd;
+	dmatrix_buf[13] = dmatrix_buf[7];
+	dmatrix_buf[14] = dmatrix_buf[11];
+	dmatrix_buf[15] = (double)((intptr_t)cur_sum_aabb);
+	// todo: see if hardcoding this inversion makes a noticeable
+	// difference
+	if (invert_matrix(4, dmatrix_buf, mi_buf, dmatrix_buf2)) {
 	  goto epi_linear_thread_regression_fail;
 	}
 	for (param_idx = 0; param_idx < 4; param_idx++) {
-          param_2d_buf2[param_idx] = sqrt(param_2d_buf[param_idx * 5]);
+	  dmatrix_buf2[param_idx] = sqrt(dmatrix_buf[param_idx * 5]);
 	}
         for (param_idx = 1; param_idx < 4; param_idx++) {
-          dxx = 0.99999 * param_2d_buf2[param_idx];
-          dptr = &(param_2d_buf[param_idx * 4]);
-          dptr2 = param_2d_buf2;
+          dxx = 0.99999 * dmatrix_buf2[param_idx];
+          dptr = &(dmatrix_buf[param_idx * 4]);
+          dptr2 = dmatrix_buf2;
           for (param_idx2 = 0; param_idx2 < param_idx; param_idx2++) {
             if ((*dptr++) > dxx * (*dptr2++)) {
               goto epi_linear_thread_regression_fail;
 	    }
 	  }
 	}
-        min_sigma = MAXV(param_2d_buf[5], param_2d_buf[10]);
-	if (param_2d_buf[15] > min_sigma) {
-          min_sigma = param_2d_buf[15];
+        min_sigma = MAXV(dmatrix_buf[5], dmatrix_buf[10]);
+	if (dmatrix_buf[15] > min_sigma) {
+          min_sigma = dmatrix_buf[15];
 	}
 	min_sigma = 1e-20 / min_sigma;
 
-	dgels_m = cur_sample_ct;
-	dgels_ldb = dgels_m;
-	memcpy(dgels_a, cur_covars_cov_major, cur_sample_ct * 4 * sizeof(double));
-	memcpy(dgels_b, pheno_buf, cur_sample_ct * sizeof(double));
-	dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
-
-	dptr = cur_covars_sample_major;
-	sigma = 0;
-        for (sample_idx = 0; sample_idx < cur_sample_ct; sample_idx++) {
-	  partial = 0;
-          dptr2 = dgels_b;
-          for (param_idx = 0; param_idx < 4; param_idx++) {
-            partial += (*dptr++) * (*dptr2++);
-	  }
-	  partial -= pheno_buf[sample_idx];
-	  sigma += partial * partial;
+	for (param_idx = 0; param_idx < 4; param_idx++) {
+	  dptr = &(dmatrix_buf[param_idx * 4]);
+	  dmatrix_buf2[param_idx] = cur_pheno_sum * dptr[0] + cur_sum_a_pheno * dptr[1] + cur_sum_b_pheno * dptr[2] + cur_sum_ab_pheno * dptr[3];
 	}
+	// dmatrix_buf2[0..3] now has linear regression result
+
+	// partial = coef[0] + A * coef[1] + B * coef[2] + AB * coef[3] - pheno
+	// sigma = \sum_{all samples} (partial * partial)
+	//       = \sum (coef[0]^2
+        //               + 2 * A * coef[0] * coef[1]
+	//               + 2 * B * coef[0] * coef[2]
+	//               + 2 * AB * coef[0] * coef[3]
+	//               - 2 * coef[0] * pheno
+	//               + AA * coef[1]^2
+	//               + 2 * AB * coef[1] * coef[2]
+	//               + 2 * AAB * coef[1] * coef[3]
+	//               - 2 * A * coef[1] * pheno
+	//               + BB * coef[2]^2
+	//               + 2 * ABB * coef[2] * coef[3]
+	//               - 2 * B * coef[2] * pheno
+	//               + AABB * coef[3]^2
+	//               - 2 * AB * coef[3] * pheno
+	//               + pheno * pheno
+	dxx = dmatrix_buf2[1] * ((double)((int32_t)cur_sum_aa));
+	dyy = dmatrix_buf2[2] * ((double)((int32_t)cur_sum_bb));
+	dzz = dmatrix_buf2[3] * ((double)((intptr_t)cur_sum_aabb));
+	sigma = dmatrix_buf2[0] * dmatrix_buf2[0] * sample_ctd
+	      + dxx * dxx
+              + dyy * dyy
+              + dzz * dzz
+              + cur_pheno_ssq
+	      + 2 * (dmatrix_buf2[0] * (dmatrix_buf2[1] * cur_sum_ad
+                                      + dmatrix_buf2[2] * cur_sum_bd
+                                      + dmatrix_buf2[3] * cur_sum_abd
+				      - cur_pheno_sum)
+		   + dmatrix_buf2[1] * (dmatrix_buf2[2] * cur_sum_abd
+				      + dmatrix_buf2[3] * ((double)((intptr_t)cur_sum_aab))
+				      - cur_sum_a_pheno)
+		   + dmatrix_buf2[2] * (dmatrix_buf2[3] * ((double)((intptr_t)cur_sum_abb))
+				      - cur_sum_b_pheno)
+		   - dzz * cur_sum_ab_pheno);
 	sigma /= (double)((int32_t)(cur_sample_ct - 4));
         if (sigma < min_sigma) {
           goto epi_linear_thread_regression_fail;
 	}
-	// end glm_linear() clone
 
-	// dgels_b[3] = linear regression beta for AB term
-	// sqrt(param_2d_buf[15] * sigma) = standard error for AB term
-	zsq = (dgels_b[3] * dgels_b[3]) / (param_2d_buf[15] * sigma);
+	// dmatrix_buf2[3] = linear regression beta for AB term
+	// sqrt(dmatrix_buf[15] * sigma) = standard error for AB term
+	dxx = dmatrix_buf2[3];
+	zsq = dxx / (dmatrix_buf[15] * sigma);
 	if (zsq >= alpha1sq) {
           all_chisq_write[2 * block_idx2] = zsq;
-          all_chisq_write[2 * block_idx2 + 1] = dgels_b[3];
+          all_chisq_write[2 * block_idx2 + 1] = dxx;
 	}
 	if (zsq >= alpha2sq) {
           n_sig_ct_fixed++;
@@ -4296,7 +4455,6 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
     THREAD_BLOCK_FINISH(tidx);
   }
 }
-#endif
 
 THREAD_RET_TYPE epi_logistic_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
@@ -7929,10 +8087,59 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
   return retval;
 }
 
-#ifndef NOLAPACK
+void rotate_loadbuf_and_compute_phenogeno(uintptr_t* loadbuf, double* pheno_d2, uint32_t pheno_nm_ct, uintptr_t* loadbuf_write, double* phenogeno, uint32_t* genosums) {
+  double cur_phenogeno = 0;
+  uint32_t geno1_ct = 0;
+  uint32_t geno2_ct = 0;
+  uintptr_t cur_word;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  double dxx;
+  uint32_t sample_idx;
+  uint32_t sample_idx_base;
+  uint32_t uii;
+  for (sample_idx = 0; sample_idx < pheno_nm_ct;) {
+    // we're interested in hom A1 (non-trailing 00) and het (10) bit
+    // values here.
+    cur_word = ~(*loadbuf++);
+    sample_idx_base = sample_idx;
+    sample_idx += BITCT2;
+    if (sample_idx > pheno_nm_ct) {
+      cur_word &= (ONELU << (pheno_nm_ct % BITCT2)) - ONELU;
+    }
+    // now hom A1 = 11 and het = 01.  Temporarily erase the 10s.
+    uljj = cur_word & FIVEMASK;
+    ulii = uljj | (cur_word & (uljj << 1));
+    while (ulii) {
+      uii = CTZLU(ulii);
+      dxx = pheno_d2[sample_idx_base + uii / 2];
+      if (!((ulii >> (uii + 1)) & 1)) {
+	// het
+	cur_phenogeno += dxx;
+	geno1_ct++;
+      } else {
+	// hom A1
+	cur_phenogeno += 2 * dxx;
+	geno2_ct++;
+      }
+      ulii &= ~((3 * ONELU) << uii);
+    }
+    // currently hom A1 = 11, missing = 10, het = 01, hom A2 = 00
+    // rotate to hom A1 = 10, missing = 11, het = 01, hom A2 = 00
+    // to allow inner loop to use ordinary multiplication
+    *loadbuf_write++ = cur_word ^ ((cur_word >> 1) & FIVEMASK);
+  }
+  *phenogeno = cur_phenogeno;
+  genosums[0] = geno1_ct + 2 * geno2_ct;
+  genosums[1] = geno1_ct + 4 * geno2_ct;
+}
+
 int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uintptr_t marker_uidx_base, uintptr_t marker_ct1, uintptr_t* marker_exclude1, uintptr_t marker_idx1_start, uintptr_t marker_idx1_end, uintptr_t marker_ct2, uintptr_t* marker_exclude2, uint32_t is_triangular, uintptr_t job_size, uint64_t tests_expected, uintptr_t unfiltered_sample_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, double* pheno_d, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end, double output_min_p, double glm_vif_thresh, uintptr_t* loadbuf_raw, uintptr_t* loadbuf, double* best_chisq, uint32_t* best_ids, uint32_t* n_sig_cts, uint32_t* fail_cts, uint32_t* gap_cts) {
-  // logprint("Error: --epistasis linear regression is under development.\n");
-  // return RET_CALC_NOT_YET_SUPPORTED;
+  // We use QT --assoc's strategy for speeding up linear regression, since we
+  // do not need to support arbitrary covariates.  It's more complicated here
+  // because we have 3 covariates instead of one, but two of them are still
+  // restricted to the values {0, 1, 2} and the last is the product of the
+  // first two.  So we're able to use variations of the QT --assoc bit hacks.
   FILE* outfile = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t pheno_nm_ctl2 = (pheno_nm_ct + (BITCT2 - 1)) / BITCT2;
@@ -7949,17 +8156,12 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
   uint32_t chrom_end = 0;
   uint32_t chrom_idx = 0;
   uint32_t chrom_idx2 = 0;
-  __CLPK_integer dgels_m = pheno_nm_ct;
-  __CLPK_integer dgels_n = 4;
-  __CLPK_integer dgels_nrhs = 1;
-  __CLPK_integer dgels_ldb = pheno_nm_ct;
   int32_t retval = 0;
-  char dgels_trans = 'N';
   unsigned char* wkspace_mark2;
-  uintptr_t* ulptr;
   char* wptr_start;
   char* wptr_start2;
   char* wptr;
+  double* pheno_d2;
   double* dptr;
   double* dptr2;
   uint32_t* uiptr;
@@ -7988,46 +8190,12 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
   uint32_t sample_idx;
   uint32_t uii;
   uint32_t ujj;
-  __CLPK_integer dgels_info;
-  if (wkspace_alloc_d_checked(&g_epi_pheno_d2, pheno_nm_ct * sizeof(double))) {
+  if (wkspace_alloc_d_checked(&pheno_d2, pheno_nm_ct * sizeof(double))) {
     goto epistasis_linear_regression_ret_NOMEM;
   }
+  g_epi_pheno_d2 = pheno_d2;
   g_epi_pheno_nm_ct = pheno_nm_ct;
-  // per-thread buffers
-  g_epi_linear_mt = (Epi_linear_multithread*)wkspace_alloc(max_thread_ct * sizeof(Epi_linear_multithread));
-  if (!g_epi_linear_mt) {
-    goto epistasis_linear_regression_ret_NOMEM;
-  }
-  // param_ct_max = 4 (intercept, A, B, AB)
-  for (tidx = 0; tidx < max_thread_ct; tidx++) {
-    if (wkspace_alloc_d_checked(&(g_epi_linear_mt[tidx].pheno_buf), pheno_nm_ct * sizeof(double)) ||
-        wkspace_alloc_d_checked(&(g_epi_linear_mt[tidx].cur_covars_cov_major), pheno_nm_ct * 4 * sizeof(double)) ||
-        wkspace_alloc_d_checked(&(g_epi_linear_mt[tidx].cur_covars_sample_major), pheno_nm_ct * 4 * sizeof(double)) ||
-	wkspace_alloc_d_checked(&(g_epi_linear_mt[tidx].param_2d_buf), 4 * 4 * sizeof(double)) ||
-        wkspace_alloc_d_checked(&(g_epi_linear_mt[tidx].param_2d_buf2), 4 * 4 * sizeof(double)) ||
-        wkspace_alloc_d_checked(&(g_epi_linear_mt[tidx].dgels_a), pheno_nm_ct * 4 * sizeof(double)) ||
-        wkspace_alloc_d_checked(&(g_epi_linear_mt[tidx].dgels_b), pheno_nm_ct * sizeof(double))) {
-      goto epistasis_linear_regression_ret_NOMEM;
-    }
-    g_epi_linear_mt[tidx].mi_buf = (MATRIX_INVERT_BUF1_TYPE*)wkspace_alloc(4 * sizeof(MATRIX_INVERT_BUF1_TYPE));
-    if (!g_epi_linear_mt[tidx].mi_buf) {
-      goto epistasis_linear_regression_ret_NOMEM;
-    }
-    if (!tidx) {
-      g_epi_dgels_lwork = -1;
-      dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, g_epi_linear_mt[0].dgels_a, &dgels_m, g_epi_linear_mt[0].dgels_b, &dgels_ldb, &dxx, &g_epi_dgels_lwork, &dgels_info);
-      if (dxx > 2147483647.0) {
-        logprint("Error: Linear regression problem too large for current LAPACK version.\n");
-        retval = RET_CALC_NOT_YET_SUPPORTED;
-        goto epistasis_linear_regression_ret_1;
-      }
-      g_epi_dgels_lwork = (int32_t)dxx;
-    }
-    if (wkspace_alloc_d_checked(&(g_epi_linear_mt[tidx].dgels_work), g_epi_dgels_lwork * sizeof(double))) {
-      goto epistasis_linear_regression_ret_NOMEM;
-    }
-  }
-  dptr = g_epi_pheno_d2;
+  dptr = pheno_d2;
   g_epi_pheno_sum = 0;
   g_epi_pheno_ssq = 0;
   for (sample_uidx = 0, sample_idx = 0; sample_idx < pheno_nm_ct; sample_uidx++, sample_idx++) {
@@ -8035,8 +8203,10 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
     dxx = pheno_d[sample_uidx];
     g_epi_pheno_sum += dxx;
     g_epi_pheno_ssq += dxx * dxx;
-    g_epi_pheno_d2[sample_idx] = dxx;
+    pheno_d2[sample_idx] = dxx;
   }
+  // could add an epsilon here, but this is good enough to catch the most
+  // common case (all phenotypes are the same integer near zero).
   if (g_epi_pheno_ssq * ((double)((int32_t)pheno_nm_ct)) == g_epi_pheno_sum * g_epi_pheno_sum) {
     logprint("Error: Phenotype is constant.\n");
     goto epistasis_linear_regression_ret_INVALID_CMDLINE;
@@ -8045,12 +8215,15 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
 
   // claim up to half of memory with idx1 bufs; each marker currently costs:
   //   pheno_nm_ctl2 * sizeof(intptr_t) for geno buf
+  //   sizeof(double) for precomputed sum(phenotype * genotype) values
+  //   2 * sizeof(int32_t) for precomputed sum(genotype) and sum(genotype^2)
+  //     values
   //   4 * sizeof(int32_t) + sizeof(double) + marker_ct2 * 2 * sizeof(double)
   //     for other stuff (see epistasis_report() comment, starting from
   //     "offset"; main result buffer must be double-size to store both beta
   //     and chi-square stat)
-  ulii = pheno_nm_ctl2 * sizeof(intptr_t) + 4 * sizeof(int32_t) + sizeof(double) + marker_ct2 * 2 * sizeof(double);
-  idx1_block_size = (wkspace_left - 4 * CACHELINE + 3 * sizeof(int32_t) - max_thread_ct * (5 * (CACHELINE - 4))) / (ulii * 2 + 1);
+  ulii = pheno_nm_ctl2 * sizeof(intptr_t) + 6 * sizeof(int32_t) + 2 * sizeof(double) + marker_ct2 * 2 * sizeof(double);
+  idx1_block_size = (wkspace_left - 6 * CACHELINE + 5 * sizeof(int32_t) + sizeof(double) - max_thread_ct * (5 * (CACHELINE - 4))) / (ulii * 2 + 1);
   if (!idx1_block_size) {
     goto epistasis_linear_regression_ret_NOMEM;
   }
@@ -8061,6 +8234,10 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
   ulii = (max_thread_ct - 1) * 15 + idx1_block_size;
   g_epi_geno1_offsets = (uint32_t*)wkspace_alloc(idx1_block_size * 2 * sizeof(int32_t));
   g_epi_geno1 = (uintptr_t*)wkspace_alloc(pheno_nm_ctl2 * idx1_block_size * sizeof(intptr_t));
+  g_epi_phenogeno1 = (double*)wkspace_alloc(idx1_block_size * sizeof(double));
+  // may be better to just recompute genosums values in inner loop?  can test
+  // this later
+  g_epi_genosums1 = (uint32_t*)wkspace_alloc(idx1_block_size * 2 * sizeof(int32_t));
   g_epi_all_chisq = (double*)wkspace_alloc(idx1_block_size * marker_ct2 * 2 * sizeof(double));
   g_epi_best_chisq1 = (double*)wkspace_alloc(ulii * sizeof(double));
   g_epi_best_id1 = (uint32_t*)wkspace_alloc(ulii * sizeof(int32_t));
@@ -8073,8 +8250,8 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
     fill_uint_zero(g_epi_geno1_offsets, 2 * idx1_block_size);
   }
 
-  ulii = pheno_nm_ctl2 * sizeof(intptr_t) + max_thread_ct * (3 * sizeof(int32_t) + sizeof(double));
-  idx2_block_size = (wkspace_left - (CACHELINE - sizeof(intptr_t)) - max_thread_ct * (3 * (CACHELINE - sizeof(int32_t)) + (CACHELINE - sizeof(double)))) / ulii;
+  ulii = pheno_nm_ctl2 * sizeof(intptr_t) + 2 * sizeof(int32_t) + sizeof(double) + max_thread_ct * (3 * sizeof(int32_t) + sizeof(double));
+  idx2_block_size = (wkspace_left - (3 * CACHELINE - sizeof(intptr_t) - 2 * sizeof(int32_t) - sizeof(double)) - max_thread_ct * (3 * (CACHELINE - sizeof(int32_t)) + (CACHELINE - sizeof(double)))) / ulii;
   if (idx2_block_size > marker_ct2) {
     idx2_block_size = marker_ct2;
   }
@@ -8105,6 +8282,8 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
       goto epistasis_linear_regression_ret_NOMEM;
     }
     if (!(wkspace_alloc_ul_checked(&g_epi_geno2, pheno_nm_ctl2 * idx2_block_size * sizeof(intptr_t)) ||
+          wkspace_alloc_d_checked(&g_epi_phenogeno2, idx2_block_size * sizeof(double)) ||
+          wkspace_alloc_ui_checked(&g_epi_genosums2, idx2_block_size * 2 * sizeof(int32_t)) ||
           wkspace_alloc_d_checked(&g_epi_best_chisq2, max_thread_ct * idx2_block_size * sizeof(double)) ||
           wkspace_alloc_ui_checked(&g_epi_best_id2, max_thread_ct * idx2_block_size * sizeof(int32_t)) ||
           wkspace_alloc_ui_checked(&g_epi_n_sig_ct2, max_thread_ct * idx2_block_size * sizeof(int32_t)) ||
@@ -8191,13 +8370,10 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
           goto epistasis_linear_regression_ret_READ_FAIL;
 	}
       }
-      // marker_reverse deliberately flipped
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, pheno_nm_ct, pheno_nm, final_mask, !IS_SET(marker_reverse, marker_uidx_tmp))) {
+      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, pheno_nm_ct, pheno_nm, final_mask, IS_SET(marker_reverse, marker_uidx_tmp))) {
         goto epistasis_linear_regression_ret_READ_FAIL;
       }
-      // rotate to hom A1 = 11, het = 01, hom A2 = 00, missing = 11, to allow
-      // inner loop to use ordinary multiplication
-      rotate_plink1_to_plink2_and_copy(loadbuf, &(g_epi_geno1[block_idx1 * pheno_nm_ctl2]), pheno_nm_ctl2);
+      rotate_loadbuf_and_compute_phenogeno(loadbuf, pheno_d2, pheno_nm_ct, &(g_epi_geno1[block_idx1 * pheno_nm_ctl2]), &(g_epi_phenogeno1[block_idx1]), &(g_epi_genosums1[block_idx1 * 2]));
       if (!is_triangular) {
 	if (!IS_SET(marker_exclude2, marker_uidx_tmp)) {
           // do not compare against self
@@ -8231,12 +8407,10 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
             goto epistasis_linear_regression_ret_READ_FAIL;
 	  }
 	}
-        ulptr = &(g_epi_geno2[block_idx2 * pheno_nm_ctl2]);
-	// marker_reverse deliberately flipped
-	if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, pheno_nm_ct, pheno_nm, final_mask, !IS_SET(marker_reverse, marker_uidx2))) {
+	if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, pheno_nm_ct, pheno_nm, final_mask, IS_SET(marker_reverse, marker_uidx2))) {
 	  goto epistasis_linear_regression_ret_READ_FAIL;
 	}
-	rotate_plink1_to_plink2_and_copy(loadbuf, ulptr, pheno_nm_ctl2);
+        rotate_loadbuf_and_compute_phenogeno(loadbuf, pheno_d2, pheno_nm_ct, &(g_epi_geno2[block_idx2 * pheno_nm_ctl2]), &(g_epi_phenogeno2[block_idx2]), &(g_epi_genosums2[block_idx2 * 2]));
       }
       g_epi_idx2_block_size = cur_idx2_block_size;
       g_epi_idx2_block_start = marker_idx2;
@@ -8430,12 +8604,10 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
     retval = RET_THREAD_CREATE_FAIL;
     break;
   }
- epistasis_linear_regression_ret_1:
   fclose_cond(outfile);
   // caller will free memory
   return retval;
 }
-#endif
 
 int32_t epistasis_logistic_regression(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uintptr_t marker_uidx_base, uintptr_t marker_ct1, uintptr_t* marker_exclude1, uintptr_t marker_idx1_start, uintptr_t marker_idx1_end, uintptr_t marker_ct2, uintptr_t* marker_exclude2, uint32_t is_triangular, uintptr_t job_size, uint64_t tests_expected, uintptr_t unfiltered_sample_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uintptr_t* pheno_c, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end, double output_min_p, uintptr_t* loadbuf_raw, uintptr_t* loadbuf, double* best_chisq, uint32_t* best_ids, uint32_t* n_sig_cts, uint32_t* fail_cts, uint32_t* gap_cts) {
   FILE* outfile = NULL;
@@ -8666,7 +8838,7 @@ int32_t epistasis_logistic_regression(pthread_t* threads, Epi_info* epi_ip, FILE
       if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, pheno_nm_ct, pheno_nm, final_mask, !IS_SET(marker_reverse, marker_uidx_tmp))) {
         goto epistasis_logistic_regression_ret_READ_FAIL;
       }
-      // rotate to hom A1 = 11, het = 01, hom A2 = 00, missing = 11, to allow
+      // rotate to hom A1 = 10, het = 01, hom A2 = 00, missing = 11, to allow
       // inner loop to use ordinary multiplication
       // this is a bit redundant with the forced reverse, but it's not a
       // bottleneck
@@ -9005,12 +9177,6 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   uint32_t is_last_block;
   uint32_t missing_ct;
   uint32_t ujj;
-#ifdef NOLAPACK
-  if (pheno_d) {
-    logprint("Error: QT --epistasis requires " PROG_NAME_CAPS " to be built with LAPACK.\n");
-    goto epistasis_report_ret_INVALID_CMDLINE;
-  }
-#endif
 
   // common initialization between --epistasis and --fast-epistasis: remove
   // monomorphic and non-autosomal diploid sites
@@ -9045,9 +9211,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     logprint("Error: --{fast-}epistasis does not support >= 2^29 samples.\n");
     goto epistasis_report_ret_INVALID_CMDLINE;
   }
-#ifndef NOLAPACK
   if (!pheno_d) {
-#endif
     if ((case_ct < 2) || ((!is_case_only) && (ctrl_ct < 2))) {
       sprintf(logbuf, "Error: --%sepistasis requires at least two cases%s.\n", is_fast? "fast-" : "", is_case_only? "" : " and two controls");
       goto epistasis_report_ret_INVALID_CMDLINE_2;
@@ -9057,14 +9221,12 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     }
     ctrlbuf = &(casebuf[case_ctv2]);
     ctrlbuf[ctrl_ctl2 - 1] = 0;
-#ifndef NOLAPACK
   } else {
     case_ctv2 = 2 * (pheno_nm_ct + (BITCT - 1)) / BITCT;
     if (wkspace_alloc_ul_checked(&casebuf, case_ctv2 * sizeof(intptr_t))) {
       goto epistasis_report_ret_NOMEM;
     }
   }
-#endif
   casebuf[case_ctv2 - 2] = 0;
   casebuf[case_ctv2 - 1] = 0;
   // marker_exclude2 should be on top since we might free it
@@ -9298,15 +9460,11 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     g_epi_alpha2sq[0] = dxx * dxx;
   }
   if (!is_fast) {
-#ifndef NOLAPACK
     if (pheno_d) {
       retval = epistasis_linear_regression(threads, epi_ip, bedfile, bed_offset, unfiltered_marker_ct, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, marker_uidx_base, marker_ct1, marker_exclude1, marker_idx1_start, marker_idx1_end, marker_ct2, marker_exclude2, is_triangular, job_size, tests_expected, unfiltered_sample_ct, pheno_nm, pheno_nm_ct, pheno_d, parallel_idx, parallel_tot, outname, outname_end, output_min_p, glm_vif_thresh, loadbuf, casebuf, best_chisq, best_ids, n_sig_cts, fail_cts, gap_cts);
     } else {
-#endif
       retval = epistasis_logistic_regression(threads, epi_ip, bedfile, bed_offset, unfiltered_marker_ct, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, marker_uidx_base, marker_ct1, marker_exclude1, marker_idx1_start, marker_idx1_end, marker_ct2, marker_exclude2, is_triangular, job_size, tests_expected, unfiltered_sample_ct, pheno_nm, pheno_nm_ct, pheno_c, parallel_idx, parallel_tot, outname, outname_end, output_min_p, loadbuf, casebuf, best_chisq, best_ids, n_sig_cts, fail_cts, gap_cts);
-#ifndef NOLAPACK
     }
-#endif
     if (retval) {
       goto epistasis_report_ret_1;
     }
@@ -9953,7 +10111,6 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     retval = RET_WRITE_FAIL;
     break;
   epistasis_report_ret_TOO_FEW_MARKERS:
-#ifndef NOLAPACK
     if (pheno_d) {
       if (is_triangular) {
         logprint("Error: --epistasis requires 2+ non-monomorphic autosomal diploid loci.\n");
@@ -9961,15 +10118,12 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
         logprint("Error: Each --epistasis set must contain at least one non-monomorphic autosomal\ndiploid site.\n");
       }
     } else {
-#endif
       if (is_triangular) {
         logprint("Error: --{fast-}epistasis requires 2+ autosomal diploid loci not monomorphic in\neither cases or controls.\n");
       } else {
         logprint("Error: Each --{fast-}epistasis set must contain at least one autosomal diploid\nlocus not monomorphic in either cases or controls.\n");
       }
-#ifndef NOLAPACK
     }
-#endif
     retval = RET_INVALID_CMDLINE;
     break;
   epistasis_report_ret_INVALID_CMDLINE_2:
