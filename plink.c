@@ -10698,17 +10698,18 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ex", 3)) {
 	if (load_rare == LOAD_RARE_DOSAGE) {
-	  logprint("Error: --dosage + --sex did not work properly in PLINK 1.07 (--sex had no\neffect).  If you have used that flag combination in the past, we recommend\nthat you rerun your analysis with PLINK 1.9 '--dosage ... sex'.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
-	} else if (!(calculation_type & CALC_GLM)) {
-	  logprint("Error: --sex must be used with --linear or --logistic.\n");
-	  goto main_ret_INVALID_CMDLINE_A;
-	} else if (glm_modifier & GLM_NO_X_SEX) {
-	  sprintf(logbuf, "Error: --sex conflicts with a --%s modifier.\n", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear");
-	  goto main_ret_INVALID_CMDLINE_2A;
+	  dosage_info.modifier |= DOSAGE_SEX;
+	} else {
+	  if (!(calculation_type & CALC_GLM)) {
+	    logprint("Error: --sex must be used with --linear/--logistic/--dosage.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
+	  } else if (glm_modifier & GLM_NO_X_SEX) {
+	    sprintf(logbuf, "Error: --sex conflicts with a --%s modifier.\n", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear");
+	    goto main_ret_INVALID_CMDLINE_2A;
+	  }
+	  logprint("Note: --sex flag deprecated.  Use e.g. '--linear sex'.\n");
+	  glm_modifier |= GLM_SEX;
 	}
-	logprint("Note: --sex flag deprecated.  Use e.g. '--linear sex'.\n");
-	glm_modifier |= GLM_SEX;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "tandard-beta", 13)) {
 	if (((!(calculation_type & CALC_GLM)) || (glm_modifier & GLM_LOGISTIC)) && (!(dosage_info.modifier & DOSAGE_GLM))) {
