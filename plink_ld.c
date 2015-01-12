@@ -4088,6 +4088,7 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
   double* pheno_d2 = g_epi_pheno_d2;
   uint32_t* geno1_offsets = g_epi_geno1_offsets;
   uint32_t* best_id1 = &(g_epi_best_id1[idx1_block_start16]);
+  const double dconst[] = {1.0, 2.0, 2.0, 4.0};
   double dmatrix_buf[16];
   double dmatrix_buf2[4];
 
@@ -4124,6 +4125,7 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
   uintptr_t block_idx2;
   uintptr_t cur_word1;
   uintptr_t cur_word2;
+  // uintptr_t active_mask;
   uintptr_t param_idx;
   uintptr_t param_idx2;
   uintptr_t cur_sum_aab;
@@ -4267,6 +4269,8 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
 	  if (loop_end > pheno_nm_ct) {
             loop_end = pheno_nm_ct;
 	  }
+	  // we can entirely skip 5 common cases: 00/00, 00/01, 00/10, 01/00,
+	  // 10/00.  todo: try to use a bitmask and CTZLU to skip them.
           for (; sample_idx < loop_end; cur_word1 >>= 2, cur_word2 >>= 2, sample_idx++) {
             ulii = cur_word1 & (3 * ONELU);
             uljj = cur_word2 & (3 * ONELU);
@@ -4275,7 +4279,7 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
               if (uljj != 3) {
                 continue;
               }
-              dxx = pheno_d2[sample_idx];
+	      dxx = pheno_d2[sample_idx];
 	    } else if (!uljj) {
               if (ulii != 3) {
 	        continue;
@@ -4302,8 +4306,9 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
 		cur_sum_a -= ulii;
 		cur_sum_aa -= ulii * ulii;
 	      } else {
-		cur_sum_ab_pheno += ((double)((intptr_t)(ulii * uljj))) * dxx;
-		cur_minor_cts[ulii * 2 + uljj - 3] += 1;
+		ulii = ulii * 2 + uljj - 3;
+		cur_sum_ab_pheno += dconst[ulii] * dxx;
+		cur_minor_cts[ulii] += 1;
 		continue;
 	      }
 	    }
