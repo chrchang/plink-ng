@@ -4240,7 +4240,6 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
 	    cur_sample_ct--;
 	  }
 	}
-	printf("%g %g\n\n", cur_pheno_sum, cur_pheno_ssq);
 	if (cur_sample_ct <= 4) {
           goto epi_linear_thread_regression_fail;
 	}
@@ -4248,7 +4247,7 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
 	// and we avoid additional iteration over the sample_idxs.
 	sample_ctd = (double)((int32_t)cur_sample_ct);
 	sample_ct_recip = 1.0 / sample_ctd;
-	sample_ct_m1_recip = (double)((int32_t)(cur_sample_ct - 1)); // not recip yet
+	sample_ct_m1_recip = 1.0 / ((double)((int32_t)(cur_sample_ct - 1)));
 	cur_sum_ab = cur_minor_cts[0] + 2 * (cur_minor_cts[1] + cur_minor_cts[2]) + 4 * cur_minor_cts[3];
 	cur_sum_aab = cur_minor_cts[0] + 2 * cur_minor_cts[1] + 4 * cur_minor_cts[2] + (8 * ONELU) * cur_minor_cts[3];
 	cur_sum_abb = cur_minor_cts[0] + 4 * cur_minor_cts[1] + 2 * cur_minor_cts[2] + (8 * ONELU) * cur_minor_cts[3];
@@ -4268,10 +4267,9 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
 	if ((dww <= 0) || (dvv <= 0) || (duu <= 0)) {
 	  goto epi_linear_thread_regression_fail;
 	}
-	dww = sample_ct_m1_recip / sqrt(dww);
-	dvv = sample_ct_m1_recip / sqrt(dvv);
-	duu = sample_ct_m1_recip / sqrt(duu);
-	sample_ct_m1_recip = 1.0 / sample_ct_m1_recip;
+	dww = 1.0 / sqrt(dww * sample_ct_m1_recip);
+	dvv = 1.0 / sqrt(dvv * sample_ct_m1_recip);
+	duu = 1.0 / sqrt(duu * sample_ct_m1_recip);
 
 	dxx = (cur_sum_abd - cur_sum_ad * dxx) * sample_ct_m1_recip;
 	dzz = (((double)((intptr_t)cur_sum_abb)) - cur_sum_bd * dyy) * sample_ct_m1_recip;
@@ -4331,6 +4329,7 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
 	if (invert_matrix(4, dmatrix_buf, mi_buf, dmatrix_buf2)) {
 	  goto epi_linear_thread_regression_fail;
 	}
+
 	for (param_idx = 0; param_idx < 4; param_idx++) {
 	  dmatrix_buf2[param_idx] = sqrt(dmatrix_buf[param_idx * 5]);
 	}
@@ -4373,13 +4372,10 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
 	//               + AABB * coef[3]^2
 	//               - 2 * AB * coef[3] * pheno
 	//               + pheno * pheno
-	dxx = dmatrix_buf2[1] * ((double)((int32_t)cur_sum_aa));
-	dyy = dmatrix_buf2[2] * ((double)((int32_t)cur_sum_bb));
-	dzz = dmatrix_buf2[3] * ((double)((intptr_t)cur_sum_aabb));
 	sigma = dmatrix_buf2[0] * dmatrix_buf2[0] * sample_ctd
-	      + dxx * dxx
-              + dyy * dyy
-              + dzz * dzz
+	      + dmatrix_buf2[1] * dmatrix_buf2[1] * ((double)((int32_t)cur_sum_aa))
+	      + dmatrix_buf2[2] * dmatrix_buf2[2] * ((double)((int32_t)cur_sum_bb))
+	      + dmatrix_buf2[3] * dmatrix_buf2[3] * ((double)((intptr_t)cur_sum_aabb))
               + cur_pheno_ssq
 	      + 2 * (dmatrix_buf2[0] * (dmatrix_buf2[1] * cur_sum_ad
                                       + dmatrix_buf2[2] * cur_sum_bd
@@ -4390,7 +4386,7 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
 				      - cur_sum_a_pheno)
 		   + dmatrix_buf2[2] * (dmatrix_buf2[3] * ((double)((intptr_t)cur_sum_abb))
 				      - cur_sum_b_pheno)
-		   - dzz * cur_sum_ab_pheno);
+		   - dmatrix_buf2[3] * cur_sum_ab_pheno);
 	sigma /= (double)((int32_t)(cur_sample_ct - 4));
         if (sigma < min_sigma) {
           goto epi_linear_thread_regression_fail;
@@ -4399,7 +4395,7 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
 	// dmatrix_buf2[3] = linear regression beta for AB term
 	// sqrt(dmatrix_buf[15] * sigma) = standard error for AB term
 	dxx = dmatrix_buf2[3];
-	zsq = dxx / (dmatrix_buf[15] * sigma);
+	zsq = (dxx * dxx) / (dmatrix_buf[15] * sigma);
 	if (zsq >= alpha1sq) {
           all_chisq_write[2 * block_idx2] = zsq;
           all_chisq_write[2 * block_idx2 + 1] = dxx;
@@ -8105,7 +8101,7 @@ void rotate_loadbuf_and_compute_phenogeno(uintptr_t* loadbuf, double* pheno_d2, 
     sample_idx_base = sample_idx;
     sample_idx += BITCT2;
     if (sample_idx > pheno_nm_ct) {
-      cur_word &= (ONELU << (pheno_nm_ct % BITCT2)) - ONELU;
+      cur_word &= (ONELU << (2 * (pheno_nm_ct % BITCT2))) - ONELU;
     }
     // now hom A1 = 11 and het = 01.  Temporarily erase the 10s.
     uljj = cur_word & FIVEMASK;
