@@ -3996,6 +3996,78 @@ static float* g_epi_all_chisq_f;
 static float* g_epi_best_chisq_f1;
 static float* g_epi_best_chisq_f2;
 
+uint32_t matrix_invert_4x4symm(double* dmatrix) {
+  double buf[16];
+  double determinant;
+  // initially, dww = A_{22}A_{34} - A_{23}A_{24}
+  //            dxx = A_{23}A_{34} - A_{24}A_{33}
+  //            dyy = A_{23}A_{44} - A_{24}A_{34}
+  //            dzz = A_{33}A_{44} - A_{34}A_{34}
+  double dww = dmatrix[5] * dmatrix[11] - dmatrix[6] * dmatrix[7];
+  double dxx = dmatrix[6] * dmatrix[11] - dmatrix[7] * dmatrix[10];
+  double dyy = dmatrix[6] * dmatrix[15] - dmatrix[7] * dmatrix[11];
+  double dzz = dmatrix[10] * dmatrix[15] - dmatrix[11] * dmatrix[11];
+  double dvv;
+  double duu;
+  buf[0] = dmatrix[5] * dzz
+         - dmatrix[6] * dyy
+         + dmatrix[7] * dxx;
+  buf[1] = dmatrix[2] * dyy
+         - dmatrix[1] * dzz
+         - dmatrix[3] * dxx;
+  buf[2] = dmatrix[1] * dyy
+         + dmatrix[2] * (dmatrix[7] * dmatrix[7] - dmatrix[5] * dmatrix[15])
+         + dmatrix[3] * dww;
+  duu = dmatrix[5] * dmatrix[10] - dmatrix[6] * dmatrix[6];
+  buf[3] = dmatrix[2] * dww
+         - dmatrix[1] * dxx
+         - dmatrix[3] * duu;
+  determinant = dmatrix[0] * buf[0] + dmatrix[1] * buf[1] + dmatrix[2] * buf[2] + dmatrix[3] * buf[3];
+  if (fabs(determinant) < EPSILON) {
+    return 1;
+  }
+  buf[5] = dmatrix[0] * dzz
+         + dmatrix[2] * (dmatrix[3] * dmatrix[11] - dmatrix[2] * dmatrix[15])
+         + dmatrix[3] * (dmatrix[2] * dmatrix[11] - dmatrix[3] * dmatrix[10]);
+  dzz = dmatrix[1] * dmatrix[15] - dmatrix[3] * dmatrix[7];
+  buf[6] = dmatrix[2] * dzz
+         - dmatrix[0] * dyy
+         + dmatrix[3] * (dmatrix[3] * dmatrix[6] - dmatrix[1] * dmatrix[11]);
+  dyy = dmatrix[1] * dmatrix[11] - dmatrix[2] * dmatrix[7];
+  dvv = dmatrix[1] * dmatrix[10] - dmatrix[2] * dmatrix[6];
+  buf[7] = dmatrix[0] * dxx
+         - dmatrix[2] * dyy
+         + dmatrix[3] * dvv;
+  buf[10] = dmatrix[0] * (dmatrix[5] * dmatrix[15] - dmatrix[7] * dmatrix[7])
+          - dmatrix[1] * dzz
+          + dmatrix[3] * (dmatrix[1] * dmatrix[7] - dmatrix[3] * dmatrix[5]);
+  dxx = dmatrix[1] * dmatrix[6] - dmatrix[2] * dmatrix[5];
+  buf[11] = dmatrix[1] * dyy
+          - dmatrix[0] * dww
+          - dmatrix[3] * dxx;
+  buf[15] = dmatrix[0] * duu
+          - dmatrix[1] * dvv
+          + dmatrix[2] * dxx;
+  determinant = 1.0 / determinant; // now reciprocal
+  dmatrix[0] = buf[0] * determinant;
+  dmatrix[1] = buf[1] * determinant;
+  dmatrix[2] = buf[2] * determinant;
+  dmatrix[3] = buf[3] * determinant;
+  dmatrix[4] = dmatrix[1];
+  dmatrix[5] = buf[5] * determinant;
+  dmatrix[6] = buf[6] * determinant;
+  dmatrix[7] = buf[7] * determinant;
+  dmatrix[8] = dmatrix[2];
+  dmatrix[9] = dmatrix[6];
+  dmatrix[10] = buf[10] * determinant;
+  dmatrix[11] = buf[11] * determinant;
+  dmatrix[12] = dmatrix[3];
+  dmatrix[13] = dmatrix[7];
+  dmatrix[14] = dmatrix[11];
+  dmatrix[15] = buf[15] * determinant;
+  return 0;
+}
+
 THREAD_RET_TYPE epi_linear_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
   uintptr_t block_idx1_start = g_epi_idx1_block_bounds[tidx];
@@ -4017,8 +4089,8 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
   uint32_t* geno1_offsets = g_epi_geno1_offsets;
   uint32_t* best_id1 = &(g_epi_best_id1[idx1_block_start16]);
   double dmatrix_buf[16];
-  double dmatrix_buf2[16];
-  MATRIX_INVERT_BUF1_TYPE mi_buf[4];
+  double dmatrix_buf2[4];
+
   // sum(aa), sum(ab), sum(bb), sum(aab), sum(abb), and sum(aabb) can all be
   // derived from these four quantities.
   uint32_t cur_minor_cts[4]; // 11, 12, 21, 22
@@ -4312,21 +4384,13 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
 	dmatrix_buf[1] = cur_sum_ad;
         dmatrix_buf[2] = cur_sum_bd;
 	dmatrix_buf[3] = cur_sum_abd;
-	dmatrix_buf[4] = cur_sum_ad;
 	dmatrix_buf[5] = (double)((int32_t)cur_sum_aa);
 	dmatrix_buf[6] = cur_sum_abd;
 	dmatrix_buf[7] = (double)((intptr_t)cur_sum_aab);
-	dmatrix_buf[8] = cur_sum_bd;
-	dmatrix_buf[9] = cur_sum_abd;
 	dmatrix_buf[10] = (double)((int32_t)cur_sum_bb);
 	dmatrix_buf[11] = (double)((intptr_t)cur_sum_abb);
-	dmatrix_buf[12] = cur_sum_abd;
-	dmatrix_buf[13] = dmatrix_buf[7];
-	dmatrix_buf[14] = dmatrix_buf[11];
 	dmatrix_buf[15] = (double)((intptr_t)cur_sum_aabb);
-	// todo: see if hardcoding this inversion makes a noticeable
-	// difference
-	if (invert_matrix(4, dmatrix_buf, mi_buf, dmatrix_buf2)) {
+	if (matrix_invert_4x4symm(dmatrix_buf)) {
 	  goto epi_linear_thread_regression_fail;
 	}
 
