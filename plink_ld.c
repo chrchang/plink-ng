@@ -4125,7 +4125,7 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
   uintptr_t block_idx2;
   uintptr_t cur_word1;
   uintptr_t cur_word2;
-  // uintptr_t active_mask;
+  uintptr_t active_mask;
   uintptr_t param_idx;
   uintptr_t param_idx2;
   uintptr_t cur_sum_aab;
@@ -4167,9 +4167,9 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
   uint32_t cur_sum_bb;
   uint32_t cur_sum_ab;
   uint32_t widx;
-  uint32_t loop_end;
   uint32_t sample_idx;
   uint32_t cur_sample_ct;
+  uint32_t woffset;
   while (1) {
     idx2_block_size = g_epi_idx2_block_size;
     cur_idx2_block_size = idx2_block_size;
@@ -4265,28 +4265,19 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
 	  sample_idx = widx * BITCT2;
           cur_word1 = cur_geno1[widx];
           cur_word2 = cur_geno2[widx];
-          loop_end = sample_idx + BITCT2;
-	  if (loop_end > pheno_nm_ct) {
-            loop_end = pheno_nm_ct;
-	  }
 	  // we can entirely skip 5 common cases: 00/00, 00/01, 00/10, 01/00,
-	  // 10/00.  todo: try to use a bitmask and CTZLU to skip them.
-          for (; sample_idx < loop_end; cur_word1 >>= 2, cur_word2 >>= 2, sample_idx++) {
-            ulii = cur_word1 & (3 * ONELU);
-            uljj = cur_word2 & (3 * ONELU);
-	    // handle common cases efficiently
-	    if (!ulii) {
-              if (uljj != 3) {
-                continue;
-              }
-	      dxx = pheno_d2[sample_idx];
-	    } else if (!uljj) {
-              if (ulii != 3) {
-	        continue;
-	      }
-	      dxx = pheno_d2[sample_idx];
-	    } else {
-	      dxx = pheno_d2[sample_idx];
+	  // 10/00.
+	  active_mask = cur_word1 | cur_word2;
+	  active_mask = (active_mask & (active_mask >> 1) & FIVEMASK) | (cur_word1 & cur_word2);
+	  dptr = &(pheno_d2[sample_idx]);
+	  while (active_mask) {
+            woffset = CTZLU(active_mask) / 2;
+	    dxx = dptr[woffset];
+	    woffset *= 2;
+	    ulii = (cur_word1 >> woffset) & (3 * ONELU);
+            uljj = (cur_word2 >> woffset) & (3 * ONELU);
+	    active_mask &= ~((3 * ONELU) << woffset);
+	    if (ulii && uljj) {
 	      if (ulii == 3) {
 		if (uljj == 1) {
 		  cur_sum_b_pheno -= dxx;
