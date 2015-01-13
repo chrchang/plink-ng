@@ -9016,6 +9016,7 @@ uint32_t glm_logistic_dosage(uintptr_t sample_ct, uintptr_t* cur_samples, uintpt
   dyy = sqrt((double)regression_results[0]);
   *beta_ptr = dxx;
   *se_ptr = dyy;
-  *pval_ptr = calc_tprob(dxx / dyy, sample_valid_ct - param_ct);
+  dxx /= dyy;
+  *pval_ptr = chiprob_p(dxx * dxx, 1);
   return 1;
 }
