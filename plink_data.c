@@ -1523,7 +1523,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
   //   if a single covariate is missing for a person, that person's covar_nm
   //   bit is zero.
   // * covar_d is in sample-major order (i.e. the value of covariate m for
-  //   sample n is covar_d[n * covar_ct + m], where m and n are zero-based).
+  //   sample n is covar_d[n * covar_ctx + m], where m and n are zero-based).
   //   It does track when some covariates are missing and others aren't
   //   (missing covariates are represented as the --missing-phenotype value).
   if (covar_range_list_ptr) {
@@ -1635,7 +1635,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
       goto load_covars_ret_MISSING_TOKENS;
     }
     if (covar_range_list_ptr) {
-      dptr = &(covar_d[sample_idx * covar_ct]);
+      dptr = &(covar_d[sample_idx * covar_ctx]);
     }
     covar_missing = 0;
     for (uii = 0; uii < min_covar_col_ct; uii++) {
