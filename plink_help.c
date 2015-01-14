@@ -1567,12 +1567,16 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                              second, and block IDs in the third.\n"
 	       );
     help_print("prune", &help_ctrl, 0,
-"  --prune          : Remove samples with missing phenotypes.\n"
+"  --prune             : Remove samples with missing phenotypes.\n"
 	       );
-    help_print("maf\tmax-maf", &help_ctrl, 0,
-"  --maf {val}      : Exclude variants with minor allele frequency lower than a\n"
-"                     threshold (default 0.01).\n"
-"  --max-maf [val]  : Exclude variants with MAF greater than the threshold.\n"
+    help_print("maf\tmax-maf\tmac\tmin-ac\tmax-mac\tmax-ac", &help_ctrl, 0,
+"  --maf {freq}        : Exclude variants with minor allele frequency lower than\n"
+"                        a threshold (default 0.01).\n"
+"  --max-maf [freq]    : Exclude variants with MAF greater than the threshold.\n"
+"  --mac [ct]          : Exclude variants with minor allele count lower than the\n"
+"    (alias: --min-ac)   given threshold.\n"
+"  --max-mac [ct]      : Exclude variants with minor allele count greater than\n"
+"    (alias: --max-ac)   the given threshold.\n"
 	       );
     help_print("maf-succ", &help_ctrl, 0,
 "  --maf-succ       : Rule of succession MAF estimation (used in EIGENSOFT).\n"

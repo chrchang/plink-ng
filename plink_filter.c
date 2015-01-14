@@ -2109,7 +2109,7 @@ static inline void haploid_single_marker_freqs(uintptr_t unfiltered_sample_ct, u
   *hethap_incr_ptr = hethap_incr;
 }
 
-int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_exclude_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t* founder_info, int32_t nonfounders, int32_t maf_succ, double* set_allele_freqs, uintptr_t bed_offset, uint32_t hwe_needed, uint32_t hwe_all, uint32_t hardy_needed, double geno_thresh, uintptr_t* pheno_nm, uintptr_t* pheno_c, int32_t** hwe_lls_ptr, int32_t** hwe_lhs_ptr, int32_t** hwe_hhs_ptr, int32_t** hwe_ll_cases_ptr, int32_t** hwe_lh_cases_ptr, int32_t** hwe_hh_cases_ptr, int32_t** hwe_ll_allfs_ptr, int32_t** hwe_lh_allfs_ptr, int32_t** hwe_hh_allfs_ptr, int32_t** hwe_hapl_allfs_ptr, int32_t** hwe_haph_allfs_ptr, uintptr_t** geno_excl_bitfield_ptr, uint32_t* sample_male_ct_ptr, uint32_t* sample_f_ct_ptr, uint32_t* sample_f_male_ct_ptr, uint32_t wt_needed, uintptr_t* topsize_ptr, double** marker_weights_ptr, double exponent, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t is_split_chrom, uint32_t* hh_exists_ptr) {
+int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_exclude_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t* founder_info, int32_t nonfounders, int32_t maf_succ, double* set_allele_freqs, uintptr_t bed_offset, uint32_t hwe_needed, uint32_t hwe_all, uint32_t hardy_needed, uint32_t min_ac, uint32_t max_ac, double geno_thresh, uintptr_t* pheno_nm, uintptr_t* pheno_c, int32_t** hwe_lls_ptr, int32_t** hwe_lhs_ptr, int32_t** hwe_hhs_ptr, int32_t** hwe_ll_cases_ptr, int32_t** hwe_lh_cases_ptr, int32_t** hwe_hh_cases_ptr, int32_t** hwe_ll_allfs_ptr, int32_t** hwe_lh_allfs_ptr, int32_t** hwe_hh_allfs_ptr, int32_t** hwe_hapl_allfs_ptr, int32_t** hwe_haph_allfs_ptr, uintptr_t** geno_excl_bitfield_ptr, uintptr_t** ac_excl_bitfield_ptr, uint32_t* sample_male_ct_ptr, uint32_t* sample_f_ct_ptr, uint32_t* sample_f_male_ct_ptr, uint32_t wt_needed, uintptr_t* topsize_ptr, double** marker_weights_ptr, double exponent, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t is_split_chrom, uint32_t* hh_exists_ptr) {
   FILE* hhfile = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + BITCT - 1) / BITCT;
@@ -2168,6 +2168,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   uintptr_t* founder_case_include2 = NULL;
   uintptr_t* founder_case_nonmale_include2 = NULL;
   uintptr_t* geno_excl_bitfield = NULL;
+  uintptr_t* ac_excl_bitfield = NULL;
   uint64_t* om_entry_ptr = NULL;
   double* marker_weights = NULL;
   uint32_t sample_nonmale_ct = 0;
@@ -2267,6 +2268,13 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
     fill_ulong_zero(geno_excl_bitfield, unfiltered_marker_ctl);
     // change this to a minimum nonmissing rate
     geno_thresh = (1.0 - geno_thresh) * (1 - SMALL_EPSILON);
+  }
+  if ((min_ac > 0) || (max_ac < sample_ct)) {
+    if (wkspace_alloc_ul_checked(ac_excl_bitfield_ptr, unfiltered_marker_ctl * sizeof(intptr_t))) {
+      goto calc_freqs_and_hwe_ret_NOMEM;
+    }
+    ac_excl_bitfield = *ac_excl_bitfield_ptr;
+    fill_ulong_zero(ac_excl_bitfield, unfiltered_marker_ctl);
   }
   wkspace_mark = wkspace_base;
   if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_sample_ctv2 * sizeof(intptr_t)) ||
@@ -2469,6 +2477,16 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	    nonmissing_rate_tot_max -= 1;
 	  }
 	}
+	if (ac_excl_bitfield) {
+	  if (ll_ctf < hh_ctf) {
+	    uii = 2 * ll_ctf + lh_ctf;
+	  } else {
+	    uii = 2 * hh_ctf + lh_ctf;
+	  }
+	  if ((uii < min_ac) || (uii > max_ac)) {
+	    set_bit(ac_excl_bitfield, marker_uidx);
+	  }
+	}
 	uii = 2 * (ll_ctf + lh_ctf + hh_ctf + maf_succ);
 	if (!uii) {
 	  // avoid 0/0 division
@@ -2591,8 +2609,20 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	}
 	hwe_hapl_allfs[marker_uidx] = ll_ctf;
 	hwe_haph_allfs[marker_uidx] = hh_ctf;
-	uii += ll_ctf + hh_ctf + 2 * maf_succ;
-	ujj += hh_ctf + maf_succ;
+	uii += ll_ctf + hh_ctf;
+	ujj += hh_ctf;
+	if (ac_excl_bitfield) {
+	  if (ujj * 2 < uii) {
+	    ukk = ujj;
+	  } else {
+	    ukk = uii - ujj;
+	  }
+	  if ((ukk < min_ac) || (ukk > max_ac)) {
+	    set_bit(ac_excl_bitfield, marker_uidx);
+	  }
+	}
+	uii += 2 * maf_succ;
+	ujj += maf_succ;
 	if (!uii) {
 	  maf = 0.5;
 	} else {
@@ -3279,27 +3309,33 @@ uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct
   return 0;
 }
 
-uint32_t enforce_maf_threshold(double min_maf, double max_maf, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, double* set_allele_freqs) {
+uint32_t enforce_minor_allele_thresholds(double min_maf, double max_maf, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* ac_excl_bitfield, uintptr_t* marker_exclude_ct_ptr, double* set_allele_freqs) {
+  uint32_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uint32_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
   uint32_t marker_uidx = 0;
   uint32_t removed_ct = 0;
   uint32_t markers_done = 0;
   uint32_t marker_uidx_stop;
   double dxx;
-  min_maf *= 1 - SMALL_EPSILON;
-  max_maf *= 1 + SMALL_EPSILON;
-  while (markers_done < marker_ct) {
-    marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
-    marker_uidx_stop = next_set(marker_exclude, marker_uidx, unfiltered_marker_ct);
-    markers_done += marker_uidx_stop - marker_uidx;
-    do {
-      dxx = get_maf(set_allele_freqs[marker_uidx]);
-      if ((dxx < min_maf) || (dxx > max_maf)) {
-        SET_BIT(marker_exclude, marker_uidx);
-        removed_ct++;
-      }
-    } while (++marker_uidx < marker_uidx_stop);
+  if ((min_maf != 0.0) || (max_maf != 0.5)) {
+    min_maf *= 1 - SMALL_EPSILON;
+    max_maf *= 1 + SMALL_EPSILON;
+    while (markers_done < marker_ct) {
+      marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
+      marker_uidx_stop = next_set(marker_exclude, marker_uidx, unfiltered_marker_ct);
+      markers_done += marker_uidx_stop - marker_uidx;
+      do {
+	dxx = get_maf(set_allele_freqs[marker_uidx]);
+	if ((dxx < min_maf) || (dxx > max_maf)) {
+	  SET_BIT(marker_exclude, marker_uidx);
+	}
+      } while (++marker_uidx < marker_uidx_stop);
+    }
   }
+  if (ac_excl_bitfield) {
+    bitfield_or(marker_exclude, ac_excl_bitfield, unfiltered_marker_ctl);
+  }
+  removed_ct = popcount_longs(marker_exclude, unfiltered_marker_ctl) - (*marker_exclude_ct_ptr);
   if (marker_ct == removed_ct) {
     logprint("Error: All variants removed due to MAF threshold(s) (--maf/--max-maf).\n");
     return 1;
