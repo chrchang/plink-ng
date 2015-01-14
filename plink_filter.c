@@ -3337,10 +3337,10 @@ uint32_t enforce_minor_allele_thresholds(double min_maf, double max_maf, uintptr
   }
   removed_ct = popcount_longs(marker_exclude, unfiltered_marker_ctl) - (*marker_exclude_ct_ptr);
   if (marker_ct == removed_ct) {
-    logprint("Error: All variants removed due to MAF threshold(s) (--maf/--max-maf).\n");
+    logprint("Error: All variants removed due to minor allele threshold(s)\n(--maf/--max-maf/--mac/--max-mac).\n");
     return 1;
   }
-  LOGPRINTF("%u variant%s removed due to MAF threshold(s) (--maf/--max-maf).\n", removed_ct, (removed_ct == 1)? "" : "s");
+  LOGPRINTFWW("%u variant%s removed due to minor allele threshold(s) (--maf/--max-maf/--mac/--max-mac).\n", removed_ct, (removed_ct == 1)? "" : "s");
   *marker_exclude_ct_ptr += removed_ct;
   return 0;
 }
