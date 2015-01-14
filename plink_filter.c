@@ -2612,7 +2612,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	uii += ll_ctf + hh_ctf;
 	ujj += hh_ctf;
 	if (ac_excl_bitfield) {
-	  if (ujj < uii / 2) {
+	  if (ujj <= uii / 2) {
 	    ukk = ujj;
 	  } else {
 	    ukk = uii - ujj;
