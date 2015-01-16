@@ -86,7 +86,7 @@
 
 const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b3a"
+  "PLINK v1.90b3b"
 #else
   "PLINK v1.90p"
 #endif
@@ -99,7 +99,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (13 Jan 2015)";
+  " (15 Jan 2015)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
@@ -929,6 +929,11 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     ulii = unfiltered_sample_ct - sample_exclude_ct;
     if (update_ids_fname) {
       retval = update_sample_ids(update_ids_fname, cptr, ulii, max_sample_id_len, uiptr, sample_ids);
+      if (retval) {
+	goto plink_ret_1;
+      }
+      wkspace_reset(wkspace_base);
+      retval = sort_item_ids(&cptr, &uiptr, unfiltered_sample_ct, sample_exclude, sample_exclude_ct, sample_ids, max_sample_id_len, 0, 0, strcmp_deref);
       if (retval) {
 	goto plink_ret_1;
       }
