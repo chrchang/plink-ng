@@ -41,7 +41,7 @@
    -11 - operation is unsupported (e.g. unix login while crypt is not linked)
    -12 - eval didn't return a SEXP (possibly the server is too old/buggy or crashed)
  */
-#ifdef __cplusplus
+#if defined __cplusplus && !defined _WIN32
 
 #include "Rconnection.h"
 
@@ -961,4 +961,4 @@ int Rconnection::serverShutdown() {
 
 #endif
 
-#endif // __cplusplus
+#endif // __cplusplus, !_WIN32

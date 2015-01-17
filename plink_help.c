@@ -1237,6 +1237,15 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      is omitted from the output file in this case; use 'include-cnt' to keep\n"
 "      it.\n\n"
 	       );
+#if defined __cplusplus && !defined _WIN32 && !defined STABLE_BUILD
+    help_print("R\tR-debug", &help_ctrl, 1,
+"  --R [R script file] <debug>\n"
+"    Connect to a Rserve background process, and execute the Rplink function\n"
+"    defined in the input file.  (Unless the 'debug' modifier is present; in\n"
+"    that case, the R commands that PLINK would have tried to execute are logged\n"
+"    to a file.)\n\n"
+	       );
+#endif
     /*
     help_print("regress-pcs\tregress-pcs-distance", &help_ctrl, 1,
 "  --regress-pcs [.evec or .eigenvec filename] <normalize-pheno> <sex-specific>\n"
@@ -2035,6 +2044,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      j defaults to i+1.  The 'header' modifier causes the first nonempty line\n"
 "      of this file to be skipped.\n"
 	       );
+#if defined __cplusplus && !defined _WIN32 && !defined STABLE_BUILD
+    help_print("R\tR-port", &help_ctrl, 0,
+"  --R-port [port #]  : Connect to Rserve on a port other than 6311.\n"
+	       );
+#endif
     help_print("parallel\tgenome-lists", &help_ctrl, 0,
 "  --parallel [k] [n] : Divide the output matrix into n pieces, and only compute\n"
 "                       the kth piece.  The primary output file will have the\n"
