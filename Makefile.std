@@ -21,7 +21,7 @@ endif
 
 CFLAGS=-Wall -O2
 BLASFLAGS=-L/usr/lib64/atlas -llapack -lcblas -latlas
-LINKFLAGS=-lm -lpthread
+LINKFLAGS=-lm -lpthread -ldl
 ZLIB=zlib-1.2.8/libz.so.1.2.8
 
 ifeq ($(SYS), MAC)
@@ -30,7 +30,7 @@ ifeq ($(SYS), MAC)
     CFLAGS=-Wall -O2 -flax-vector-conversions
   endif
   BLASFLAGS=-framework Accelerate
-  LINKFLAGS=
+  LINKFLAGS=-ldl
   ZLIB=zlib-1.2.8/libz.1.2.8.dylib
 endif
 
@@ -49,10 +49,12 @@ ifdef NO_LAPACK
   BLASFLAGS=
 endif
 
-SRC = plink.c plink_assoc.c plink_calc.c plink_cluster.c plink_cnv.c plink_common.c plink_data.c plink_dosage.c plink_family.c plink_filter.c plink_glm.c plink_help.c plink_homozyg.c plink_lasso.c plink_ld.c plink_matrix.c plink_misc.c plink_set.c plink_stats.c SFMT.c dcdflib.c pigz.c yarn.c
+SRC = plink.c plink_assoc.c plink_calc.c plink_cluster.c plink_cnv.c plink_common.c plink_data.c plink_dosage.c plink_family.c plink_filter.c plink_glm.c plink_help.c plink_homozyg.c plink_lasso.c plink_ld.c plink_matrix.c plink_misc.c plink_rserve.c plink_set.c plink_stats.c SFMT.c dcdflib.c pigz.c yarn.c Rconnection.cc
 
-# In the likely event that you are concurrently using PLINK 1.07, we suggest
-# either renaming that binary to "plink1" or this one to "plink2".
+# In the event that you are still concurrently using PLINK 1.07, we suggest
+# renaming that binary to "plink107" and "plink1".  (Previously,
+# "plink1"/"plink2" was suggested here; that also works for now, but it may
+# lead to minor problems when PLINK 2.0 is released.)
 
 plink: $(SRC)
 	g++ $(CFLAGS) $(SRC) -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)

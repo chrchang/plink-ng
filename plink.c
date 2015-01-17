@@ -40,6 +40,7 @@
 #include "plink_lasso.h"
 #include "plink_ld.h"
 #include "plink_misc.h"
+#include "plink_rserve.h"
 #include "plink_set.h"
 #include "plink_stats.h"
 #include "pigz.h"
@@ -99,7 +100,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (15 Jan 2015)";
+  " (17 Jan 2015)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
