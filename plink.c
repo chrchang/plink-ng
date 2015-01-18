@@ -4016,16 +4016,19 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-	retval = alloc_fname(&rplugin_fname, argv[cur_arg + 1], argptr, 0);
-	if (retval) {
-	  goto main_ret_1;
-	}
+	uii = 1;
 	if (param_ct == 2) {
-	  if (strcmp(argv[cur_arg + 2], "debug")) {
+	  if (!strcmp(argv[cur_arg + 1], "debug")) {
+	    uii = 2;
+	  } else if (strcmp(argv[cur_arg + 2], "debug")) {
 	    sprintf(logbuf, "Error: Invalid --R modifier '%s'.\n", argv[cur_arg + 2]);
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
           misc_flags |= MISC_RPLUGIN_DEBUG;
+	}
+	retval = alloc_fname(&rplugin_fname, argv[cur_arg + uii], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
 	}
 	calculation_type |= CALC_RPLUGIN;
 #else
