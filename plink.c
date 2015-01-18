@@ -9526,7 +9526,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	pfilter = dxx;
-      } else if (!memcmp(argptr2, "erm-batch-size", 1)) {
+      } else if (!memcmp(argptr2, "erm-batch-size", 15)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
