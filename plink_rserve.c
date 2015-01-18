@@ -11,26 +11,41 @@
 #include "sisocks.h"
 #include "Rconnection.h"
 
+#define RPLUGIN_BLOCK_SIZE 100
+
 int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin_debug, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uint32_t* marker_pos, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uintptr_t* pheno_c, double* pheno_d, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uintptr_t covar_ct, double* covar_d, char* outname, char* outname_end) {
   // See PLINK 1.07 r.cpp.
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   FILE* outfile = NULL;
   char* wkspace_end = (char*)(&(wkspace_base[wkspace_left]));
-  char* inbuf_start = (char*)wkspace_base;
-  char* inbuf_ptr = inbuf_start;
   Rinteger* r_n = NULL;
   Rinteger* r_s = NULL;
   Rdouble* r_p = NULL;
   Rdouble* r_cov = NULL;
   Rconnection* rc = NULL;
+  uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
+  uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t pheno_nm_ctl2 = (pheno_nm_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t line_idx = 0;
+  uintptr_t final_mask = get_final_mask(pheno_nm_ct);
   int32_t retval = 0;
+  uintptr_t marker_uidx;
   uintptr_t ulii;
   uintptr_t uljj;
+  uintptr_t* loadbuf_raw;
+  uintptr_t* loadbuf;
+  uintptr_t* ulptr;
+  Rinteger* r_l;
+  Rinteger* r_g;
   double* pheno_d2;
+  char* inbuf_start;
+  char* inbuf_end;
   char* bufptr;
   int32_t* sample_to_cluster;
+  uint32_t marker_idx_base;
+  uint32_t block_size;
+  uint32_t block_offset;
   uint32_t sample_uidx;
   uint32_t sample_idx;
   uint32_t uii;
@@ -38,43 +53,55 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
   if (fopen_checked(&infile, rplugin_fname, "r")) {
     goto rserve_call_ret_OPEN_FAIL;
   }
+  if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_sample_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&loadbuf, pheno_nm_ctl2 * RPLUGIN_BLOCK_SIZE * sizeof(intptr_t))) {
+    goto rserve_call_ret_NOMEM;
+  }
+  loadbuf_raw[unfiltered_sample_ctl2 - 1] = 0;
+  for (ulii = 1; ulii <= RPLUGIN_BLOCK_SIZE; ulii++) {
+    loadbuf[ulii * pheno_nm_ctl2 - 1] = 0;
+  }
+  inbuf_start = (char*)wkspace_base;
+  inbuf_end = inbuf_start;
   while (1) {
     if ((uintptr_t)(wkspace_end - inbuf_start) < MAXLINELEN) {
       goto rserve_call_ret_NOMEM;
     }
-    inbuf_ptr[MAXLINELEN - 1] = ' ';
-    if (!fgets(inbuf_ptr, MAXLINELEN, infile)) {
+    inbuf_end[MAXLINELEN - 1] = ' ';
+    if (!fgets(inbuf_end, MAXLINELEN, infile)) {
       break;
     }
     line_idx++;
-    if (!(inbuf_ptr[MAXLINELEN - 1])) {
+    if (!(inbuf_end[MAXLINELEN - 1])) {
       sprintf(logbuf, "Error: Line %" PRIuPTR " of --R file is pathologically long.\n", line_idx);
       goto rserve_call_ret_INVALID_FORMAT_2;
     }
-    uii = strlen(inbuf_ptr);
+    uii = strlen(inbuf_end);
     // standardize line ending
     if (uii) {
-      if (inbuf_ptr[uii - 1] == '\n') {
-	if ((uii >= 2) && (inbuf_ptr[uii - 2] == '\r')) {
-	  inbuf_ptr[uii - 2] = '\n';
-	  inbuf_ptr = &(inbuf_ptr[uii - 1]);
+      if (inbuf_end[uii - 1] == '\n') {
+	if ((uii >= 2) && (inbuf_end[uii - 2] == '\r')) {
+	  inbuf_end[uii - 2] = '\n';
+	  inbuf_end = &(inbuf_end[uii - 1]);
+	} else {
+	  inbuf_end = &(inbuf_end[uii]);
 	}
       } else {
-	inbuf_ptr[uii] = '\n';
-	inbuf_ptr = &(inbuf_ptr[uii + 1]);
+	inbuf_end[uii] = '\n';
+	inbuf_end = &(inbuf_end[uii + 1]);
       }
     } else {
-      *inbuf_ptr++ = '\n';
+      *inbuf_end++ = '\n';
     }
   }
   if (fclose_null(&infile)) {
     goto rserve_call_ret_READ_FAIL;
   }
-  if (inbuf_ptr == inbuf_start) {
+  if (inbuf_end == inbuf_start) {
     logprint("Error: Empty --R file.\n");
     goto rserve_call_ret_INVALID_FORMAT;
   }
-  wkspace_alloc((uintptr_t)(inbuf_ptr - inbuf_start));
+  wkspace_alloc((uintptr_t)(inbuf_end - inbuf_start));
   if (pheno_c) {
     if (wkspace_alloc_d_checked(&pheno_d2, pheno_nm_ct * sizeof(double))) {
       goto rserve_call_ret_NOMEM;
@@ -178,6 +205,83 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
     bufptr = memcpya(bufptr, " ) \n", 4);
     if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
       goto rserve_call_ret_WRITE_FAIL;
+    }
+  }
+  marker_uidx = next_unset_unsafe(marker_exclude, 0);
+  if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
+    goto rserve_call_ret_READ_FAIL;
+  }
+  for (marker_uidx = 0, marker_idx_base = 0; marker_idx_base < marker_ct; marker_idx_base += block_size) {
+    block_size = marker_ct - marker_idx_base;
+    if (block_size > RPLUGIN_BLOCK_SIZE) {
+      block_size = RPLUGIN_BLOCK_SIZE;
+    }
+    ulptr = loadbuf;
+    for (block_offset = 0; block_offset < block_size; marker_uidx++, block_offset++) {
+      if (IS_SET(marker_exclude, marker_uidx)) {
+	marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+	if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
+	  goto rserve_call_ret_READ_FAIL;
+	}
+      }
+      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, ulptr, pheno_nm_ct, pheno_nm, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+	goto rserve_call_ret_READ_FAIL;
+      }
+      // 0 -> 3
+      // 1 -> 0
+      // 2 -> 2
+      // 3 -> 1
+      // i.e.
+      //   bottom bit unset -> top bit set
+      //   top bit same as bottom bit -> bottom bit set
+      for (uii = 0; uii < pheno_nm_ctl2; uii++) {
+        ulii = *ulptr;
+	uljj = (~ulii) & FIVEMASK;
+	ulii = (ulii >> 1) & FIVEMASK;
+	*ulptr++ = (uljj << 1) | (ulii ^ uljj);
+      }
+      // overflow bits on last word don't matter
+    }
+    if (!rplugin_debug) {
+      // todo
+    } else {
+      bufptr = memcpya(tbuf, "l <- ", 5);
+      bufptr = uint32_write(bufptr, block_size);
+      bufptr = memcpya(bufptr, "\ng <- c( ", 9);
+      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	goto rserve_call_ret_WRITE_FAIL;
+      }
+      block_offset = 0;
+      sample_idx = 0;
+      while (1) {
+        bufptr = tbuf;
+	ulptr = &(loadbuf[sample_idx / BITCT2]);
+	uii = 2 * (sample_idx & (BITCT2 - 1));
+	for (block_offset = 0; block_offset < block_size; block_offset++, ulptr = &(ulptr[pheno_nm_ctl2])) {
+	  ulii = ((*ulptr) >> uii) & 3;
+	  if (!ulii) {
+	    bufptr = memcpya(bufptr, "-1", 2);
+	  } else {
+	    // '/' = ascii 47
+	    *bufptr++ = (unsigned char)(47 + ulii);
+	  }
+	  bufptr = memcpya(bufptr, ", ", 2);
+	}
+	if (++sample_idx == pheno_nm_ct) {
+	  break;
+	}
+	if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	  goto rserve_call_ret_WRITE_FAIL;
+	}
+      }
+      bufptr = memcpya(&(bufptr[-2]), " ) \nGENO <- matrix( g , nrow = n ,byrow=T)\nGENO[GENO == -1 ] <- NA \n\n\n", 70);
+      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	goto rserve_call_ret_WRITE_FAIL;
+      }
+      if (fwrite_checked(inbuf_start, inbuf_end - inbuf_start, outfile)) {
+	goto rserve_call_ret_WRITE_FAIL;
+      }
+      putc('\n', outfile);
     }
   }
 
