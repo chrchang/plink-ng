@@ -183,6 +183,7 @@
 #define RET_NULL_CALC 11
 #define RET_ALL_SAMPLES_EXCLUDED 12
 #define RET_ALL_MARKERS_EXCLUDED 13
+#define RET_NETWORK 14
 #define LOAD_PHENO_LAST_COL 127
 
 #define MISC_AFFECTION_01 1LLU
@@ -221,7 +222,7 @@
 #define MISC_FST_CC 0x200000000LLU
 #define MISC_SPLIT_MERGE_NOFAIL 0x400000000LLU
 #define MISC_REAL_REF_ALLELES 0x800000000LLU
-#define MISC_RSERVE_DEBUG 0x1000000000LLU
+#define MISC_RPLUGIN_DEBUG 0x1000000000LLU
 
 // assume for now that .bed must always be accompanied by both .bim and .fam
 #define FILTER_ALL_REQ 1LLU
@@ -303,7 +304,7 @@
 #define CALC_MAKE_FAM 0x20000000000000LLU
 #define CALC_WRITE_VAR_RANGES 0x40000000000000LLU
 #define CALC_DUPVAR 0x80000000000000LLU
-#define CALC_R_PLUGIN 0x100000000000000LLU
+#define CALC_RPLUGIN 0x100000000000000LLU
 #define CALC_ONLY_BIM (CALC_WRITE_SET | CALC_WRITE_SNPLIST | CALC_WRITE_VAR_RANGES | CALC_LIST_23_INDELS | CALC_MAKE_BIM | CALC_DUPVAR)
 #define CALC_ONLY_FAM (CALC_MAKE_PERM_PHENO | CALC_WRITE_COVAR | CALC_MAKE_FAM)
 // only room for 7 more basic commands before we need to switch from a single
@@ -2207,6 +2208,8 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
 int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_sample_id_len_ptr);
 
 // void inplace_collapse_uint32(uint32_t* item_arr, uint32_t unfiltered_ct, uintptr_t* exclude_arr, uint32_t filtered_ct);
+
+void inplace_collapse_uint32_incl(uint32_t* item_arr, uint32_t unfiltered_ct, uintptr_t* incl_arr, uint32_t filtered_ct);
 
 char* alloc_and_init_collapsed_arr(char* item_arr, uintptr_t item_len, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t filtered_ct, uint32_t read_only);
 

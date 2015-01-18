@@ -261,7 +261,7 @@ void swap_reversed_marker_alleles(uintptr_t unfiltered_marker_ct, uintptr_t* mar
 }
 
 static inline uint32_t are_marker_pos_needed(uint64_t calculation_type, uint64_t misc_flags, char* cm_map_fname, char* set_fname, uint32_t min_bp_space, uint32_t genome_skip_write, uint32_t ld_modifier, uint32_t epi_modifier, uint32_t cluster_modifier) {
-  return (calculation_type & (CALC_MAKE_BED | CALC_MAKE_BIM | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_CLUMP | CALC_BLOCKS | CALC_FLIPSCAN | CALC_TDT | CALC_QFAM | CALC_FST | CALC_SHOW_TAGS | CALC_DUPVAR | CALC_R_PLUGIN)) || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)) || cm_map_fname || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || ((calculation_type & CALC_EPI) && (epi_modifier & EPI_FAST_CASE_ONLY)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2)));
+  return (calculation_type & (CALC_MAKE_BED | CALC_MAKE_BIM | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_CLUMP | CALC_BLOCKS | CALC_FLIPSCAN | CALC_TDT | CALC_QFAM | CALC_FST | CALC_SHOW_TAGS | CALC_DUPVAR | CALC_RPLUGIN)) || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)) || cm_map_fname || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || ((calculation_type & CALC_EPI) && (epi_modifier & EPI_FAST_CASE_ONLY)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2)));
 }
 
 static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, char* cm_map_fname, Two_col_params* update_cm) {
@@ -276,7 +276,7 @@ static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, char* cm
 }
 
 static inline uint32_t are_marker_alleles_needed(uint64_t calculation_type, char* freqname, Homozyg_info* homozyg_ptr, Two_col_params* a1alleles, Two_col_params* a2alleles, uint32_t ld_modifier, uint32_t snp_only, uint32_t clump_modifier, uint32_t cluster_modifier) {
-  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_MAKE_BIM | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP | CALC_SCORE | CALC_MENDEL | CALC_TDT | CALC_FLIPSCAN | CALC_QFAM | CALC_HOMOG | CALC_DUPVAR | CALC_R_PLUGIN)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (ld_modifier & LD_INPHASE)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2))) || a1alleles || a2alleles || snp_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)));
+  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_MAKE_BIM | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP | CALC_SCORE | CALC_MENDEL | CALC_TDT | CALC_FLIPSCAN | CALC_QFAM | CALC_HOMOG | CALC_DUPVAR | CALC_RPLUGIN)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (ld_modifier & LD_INPHASE)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2))) || a1alleles || a2alleles || snp_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)));
 }
 
 static inline int32_t relationship_or_ibc_req(uint64_t calculation_type) {
@@ -1155,11 +1155,11 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     // filtered sample indices.
     if (covar_fname) {
       // update this as more covariate-referencing commands are added
-      if (!(calculation_type & (CALC_MAKE_BED | CALC_MAKE_FAM | CALC_RECODE | CALC_WRITE_COVAR | CALC_GXE | CALC_GLM | CALC_LASSO))) {
+      if (!(calculation_type & (CALC_MAKE_BED | CALC_MAKE_FAM | CALC_RECODE | CALC_WRITE_COVAR | CALC_GXE | CALC_GLM | CALC_LASSO | CALC_RPLUGIN))) {
 	logprint("Warning: Ignoring --covar since no commands reference the covariates.\n");
       } else {
 	// if only --gxe, ignore --covar-name/--covar-number
-	uii = (calculation_type & (CALC_MAKE_BED | CALC_MAKE_FAM | CALC_RECODE | CALC_WRITE_COVAR | CALC_GLM | CALC_LASSO))? 1 : 0;
+	uii = (calculation_type & (CALC_MAKE_BED | CALC_MAKE_FAM | CALC_RECODE | CALC_WRITE_COVAR | CALC_GLM | CALC_LASSO | CALC_RPLUGIN))? 1 : 0;
 	retval = load_covars(covar_fname, unfiltered_sample_ct, sample_exclude, sample_ct, NULL, NULL, sample_ids, max_sample_id_len, missing_phenod, uii? covar_modifier : (covar_modifier & COVAR_KEEP_PHENO_ON_MISSING_COV), uii? covar_range_list_ptr : NULL, gxe_mcovar, &covar_ct, &covar_names, &max_covar_name_len, pheno_nm, &covar_nm, &covar_d, &gxe_covar_nm, &gxe_covar_c);
 	if (retval) {
 	  goto plink_ret_1;
@@ -1850,8 +1850,8 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   }
 
 #if defined __cplusplus && !defined _WIN32
-  if (calculation_type & CALC_R_PLUGIN) {
-    retval = rserve_call(rplugin_fname, rplugin_port, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, marker_allele_ptrs, marker_pos, plink_maxsnp, chrom_info_ptr, unfiltered_sample_ct, pheno_nm, pheno_nm_ct, pheno_c, pheno_d, outname, outname_end);
+  if (calculation_type & CALC_RPLUGIN) {
+    retval = rserve_call(rplugin_fname, rplugin_port, (misc_flags / MISC_RPLUGIN_DEBUG) & 1, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, marker_allele_ptrs, marker_pos, plink_maxsnp, chrom_info_ptr, unfiltered_sample_ct, pheno_nm, pheno_nm_ct, pheno_c, pheno_d, cluster_ct, cluster_map, cluster_starts, covar_ct, covar_d, outname, outname_end);
     if (retval) {
       goto plink_ret_1;
     }
@@ -4025,9 +4025,9 @@ int32_t main(int32_t argc, char** argv) {
 	    sprintf(logbuf, "Error: Invalid --R modifier '%s'.\n", argv[cur_arg + 2]);
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
-          misc_flags |= MISC_RSERVE_DEBUG;
+          misc_flags |= MISC_RPLUGIN_DEBUG;
 	}
-	calculation_type |= CALC_R_PLUGIN;
+	calculation_type |= CALC_RPLUGIN;
 #else
   #ifdef _WIN32
         logprint("Error: --R does not currently support Windows.\n");
@@ -4055,11 +4055,12 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
         }
 	logprint("Note: --R-debug flag deprecated.  Use e.g. '--R [filename] debug'.\n");
-	misc_flags |= MISC_RSERVE_DEBUG;
+	misc_flags |= MISC_RPLUGIN_DEBUG;
 	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
       }
+      break;
 
     case 'Z':
       if (!memcmp(argptr2, "-genome", 8)) {
@@ -4830,6 +4831,10 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (strcmp(argv[cur_arg + 2], "keep-pheno-on-missing-cov")) {
 	    sprintf(logbuf, "Error: Invalid --covar parameter '%s'.\n", argv[cur_arg + 2]);
             goto main_ret_INVALID_CMDLINE_WWA;
+	  }
+	  if (rplugin_fname) {
+	    logprint("Error: --covar 'keep-pheno-on-missing-cov' modifier cannot be used with --R.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  }
           covar_modifier |= COVAR_KEEP_PHENO_ON_MISSING_COV;
 	}

@@ -9072,6 +9072,18 @@ void inplace_collapse_uint32(uint32_t* item_arr, uint32_t unfiltered_ct, uintptr
 }
 */
 
+void inplace_collapse_uint32_incl(uint32_t* item_arr, uint32_t unfiltered_ct, uintptr_t* incl_arr, uint32_t filtered_ct) {
+  if (unfiltered_ct == filtered_ct) {
+    return;
+  }
+  uint32_t item_uidx = next_unset_unsafe(incl_arr, 0);
+  uint32_t item_idx = item_uidx;
+  for (; item_idx < filtered_ct; item_idx++, item_uidx++) {
+    next_set_unsafe_ck(incl_arr, &item_uidx);
+    item_arr[item_idx] = item_arr[item_uidx];
+  }
+}
+
 char* alloc_and_init_collapsed_arr(char* item_arr, uintptr_t item_len, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t filtered_ct, uint32_t read_only) {
   uint32_t item_uidx = 0;
   char* new_arr;
