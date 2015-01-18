@@ -10921,6 +10921,12 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	  glm_modifier |= GLM_SET_TEST;
 	}
+	if (calculation_type & CALC_TDT) {
+	  family_info.tdt_modifier |= TDT_SET_TEST;
+	}
+	if (calculation_type & CALC_DFAM) {
+	  family_info.dfam_modifier |= DFAM_SET_TEST;
+	}
 	if ((calculation_type & CALC_CMH) && (!(cluster.modifier & CLUSTER_CMH2))) {
 	  cluster.modifier |= CLUSTER_CMH_SET_TEST;
 	}
@@ -12436,8 +12442,11 @@ int32_t main(int32_t argc, char** argv) {
       goto main_ret_INVALID_CMDLINE_A;
     }
   }
-  if ((family_info.mendel_modifier & (MENDEL_DUOS | MENDEL_MULTIGEN)) && (!(calculation_type & CALC_MENDEL)) && (!(family_info.mendel_modifier & MENDEL_FILTER)) && (!(misc_flags & MISC_SET_ME_MISSING))) {
-    logprint("Error: --mendel-duos/--mendel-multigen must be used with\n--me/--mendel/--set-me-missing.\n");
+  if ((family_info.mendel_modifier & MENDEL_DUOS) && (!(calculation_type & CALC_MENDEL)) && (!(family_info.mendel_modifier & MENDEL_FILTER)) && (!(misc_flags & MISC_SET_ME_MISSING))) {
+    logprint("Error: --mendel-duos must be used with --me/--mendel/--set-me-missing.\n");
+    goto main_ret_INVALID_CMDLINE;
+  } else if ((family_info.mendel_modifier & MENDEL_MULTIGEN) && (!(calculation_type & (CALC_MENDEL | CALC_TDT | CALC_DFAM | CALC_QFAM))) && (!(family_info.mendel_modifier & MENDEL_FILTER)) && (!(misc_flags & MISC_SET_ME_MISSING))) {
+    logprint("Error: --mendel-multigen must be used with --me, --mendel, --set-me-missing, or\nan association test which checks for Mendel errors.\n");
     goto main_ret_INVALID_CMDLINE;
   }
   if (flip_subset_fname && (load_rare || (calculation_type != CALC_MAKE_BED) || (min_maf != 0.0) || (max_maf != 0.5) || (hwe_thresh != 0.0))) {
