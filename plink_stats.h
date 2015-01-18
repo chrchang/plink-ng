@@ -6,10 +6,6 @@
 // result of inverse_chiprob(5e-324, 1)
 #define MAX_INVERSE_CHIPROB_1DF 1957.4999902125001
 
-static inline uint32_t realnum(double dd) {
-  return (dd == dd) && (dd != INFINITY) && (dd != -INFINITY);
-}
-
 // NOT THREAD-SAFE.
 double chiprob_p(double xx, double df);
 

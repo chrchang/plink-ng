@@ -1707,6 +1707,10 @@ static inline void free_cond(void* memptr) {
   }
 }
 
+static inline uint32_t realnum(double dd) {
+  return (dd == dd) && (dd != INFINITY) && (dd != -INFINITY);
+}
+
 static inline double get_maf(double allele_freq) {
   if (allele_freq < 0.5) {
     return allele_freq;

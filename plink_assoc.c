@@ -1,4 +1,3 @@
-
 #include "plink_common.h"
 
 #include "plink_assoc.h"
@@ -7630,8 +7629,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	  if ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0))) {
 	    a1ptr = marker_allele_ptrs[2 * marker_uidx2];
 	    a2ptr = marker_allele_ptrs[2 * marker_uidx2 + 1];
-	    wptr = memcpya(writebuf, chrom_name_ptr, chrom_name_len);
-	    *wptr++ = ' ';
+	    wptr = memcpyax(writebuf, chrom_name_ptr, chrom_name_len, ' ');
 	    wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), wptr);
 	    *wptr++ = ' ';
 	    wptr = uint32_writew10(wptr, marker_pos[marker_uidx2]);
