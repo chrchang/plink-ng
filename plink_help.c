@@ -1071,7 +1071,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #endif
 #endif
     help_print("tdt\tpoo\tperm\tmperm\tparentdt1\tparentdt2\tpat\tmat\tset-test", &help_ctrl, 1,
-"  --tdt <exact | exact-midp | poo> <perm | mperm=[value]>\n"
+"  --tdt <exact | exact-midp | poo> <perm | mperm=[value]> <perm-count>\n"
 "        <parentdt1 | parentdt2 | pat | mat> <set-test>\n"
 "    Report transmission disequilibrium test statistics, given case/control\n"
 "    phenotypes and pedigree information.\n"
@@ -1093,6 +1093,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      parent-of-origin test Z score; 'pat'/'mat' cause paternal or maternal TDT\n"
 "      chi-square statistics, respectively, to be considered instead.\n\n"
 	       );
+#ifndef STABLE_BUILD
+    help_print("dfam", &help_ctrl, 1,
+"  --dfam <perm | mperm=[value]> <perm-count> <set-test>\n"
+"    Sib-TDT-based association test.\n\n"
+	       );
+#endif
     help_print("qfam\tqfam-between\tqfam-parents\tqfam-total", &help_ctrl, 1,
 "  --qfam <perm | mperm=[value]> <perm-count>\n"
 "  --qfam-parents <perm | mperm=[value]> <perm-count>\n"
@@ -1240,10 +1246,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #if defined __cplusplus && !defined _WIN32 && !defined STABLE_BUILD
     help_print("R\tR-debug", &help_ctrl, 1,
 "  --R [R script file] <debug>\n"
-"    Connect to a Rserve background process, and execute the Rplink function\n"
-"    defined in the input file.  (Unless the 'debug' modifier is present; in\n"
-"    that case, the R commands that PLINK would have tried to execute are logged\n"
-"    to a file.)\n\n"
+"    Connect to a Rserve (preferably version 1.7 or later) background process,\n"
+"    and execute the Rplink function defined in the input file.  (Unless the\n"
+"    'debug' modifier is present; in that case, the R commands that PLINK would\n"
+"    have tried to execute are logged to a file.)\n\n"
 	       );
 #endif
     /*

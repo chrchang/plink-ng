@@ -104,7 +104,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (17 Jan 2015)";
+  " (18 Jan 2015)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
@@ -276,7 +276,7 @@ static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, char* cm
 }
 
 static inline uint32_t are_marker_alleles_needed(uint64_t calculation_type, char* freqname, Homozyg_info* homozyg_ptr, Two_col_params* a1alleles, Two_col_params* a2alleles, uint32_t ld_modifier, uint32_t snp_only, uint32_t clump_modifier, uint32_t cluster_modifier) {
-  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_MAKE_BIM | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP | CALC_SCORE | CALC_MENDEL | CALC_TDT | CALC_FLIPSCAN | CALC_QFAM | CALC_HOMOG | CALC_DUPVAR | CALC_RPLUGIN)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (ld_modifier & LD_INPHASE)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2))) || a1alleles || a2alleles || snp_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)));
+  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_MAKE_BIM | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP | CALC_SCORE | CALC_MENDEL | CALC_TDT | CALC_FLIPSCAN | CALC_QFAM | CALC_HOMOG | CALC_DUPVAR | CALC_RPLUGIN | CALC_DFAM)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (ld_modifier & LD_INPHASE)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2))) || a1alleles || a2alleles || snp_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)));
 }
 
 static inline int32_t relationship_or_ibc_req(uint64_t calculation_type) {
@@ -724,15 +724,17 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	} else if ((calculation_type & CALC_GLM) && (glm_modifier & GLM_LOGISTIC)) {
 	  logprint("Error: --logistic without --all-pheno requires a case/control phenotype.\n");
 	  goto plink_ret_INVALID_CMDLINE;
-	} else if (calculation_type & (CALC_CMH | CALC_HOMOG | CALC_TESTMISS | CALC_TDT)) {
+	} else if (calculation_type & (CALC_CMH | CALC_HOMOG | CALC_TESTMISS | CALC_TDT | CALC_DFAM)) {
 	  if (calculation_type & CALC_CMH) {
 	    logprint("Error: --mh and --mh2 require a case/control phenotype.\n");
 	  } else if (calculation_type & CALC_HOMOG) {
 	    logprint("Error: --homog requires a case/control phenotype.\n");
 	  } else if (calculation_type & CALC_TESTMISS) {
 	    logprint("Error: --test-missing requires a case/control phenotype.\n");
-	  } else {
+	  } else if (calculation_type & CALC_TDT) {
 	    logprint("Error: --tdt requires a case/control phenotype.\n");
+	  } else {
+	    logprint("Error: --dfam requires a case/control phenotype.\n");
 	  }
 	  goto plink_ret_INVALID_CMDLINE;
 	}
@@ -1110,7 +1112,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     }
   }
   if (g_thread_ct > 1) {
-    if ((calculation_type & (CALC_RELATIONSHIP | CALC_REL_CUTOFF | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_LD | CALC_PCA | CALC_MAKE_PERM_PHENO | CALC_QFAM)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_PERM | GLM_MPERM))) || ((calculation_type & CALC_TESTMISS) && (testmiss_modifier & (TESTMISS_PERM | TESTMISS_MPERM))) || ((calculation_type & CALC_TDT) && (fam_ip->tdt_modifier & (TDT_PERM | TDT_MPERM))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname))) || ((calculation_type & CALC_EPI) && (epi_ip->modifier & (EPI_FAST | EPI_REG)))) {
+    if ((calculation_type & (CALC_RELATIONSHIP | CALC_REL_CUTOFF | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_LD | CALC_PCA | CALC_MAKE_PERM_PHENO | CALC_QFAM)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_PERM | GLM_MPERM))) || ((calculation_type & CALC_TESTMISS) && (testmiss_modifier & (TESTMISS_PERM | TESTMISS_MPERM))) || ((calculation_type & CALC_TDT) && (fam_ip->tdt_modifier & (TDT_PERM | TDT_MPERM))) || ((calculation_type & CALC_DFAM) && (fam_ip->dfam_modifier & (DFAM_PERM | DFAM_MPERM))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname))) || ((calculation_type & CALC_EPI) && (epi_ip->modifier & (EPI_FAST | EPI_REG)))) {
       LOGPRINTF("Using up to %u threads (change this with --threads).\n", g_thread_ct);
     } else {
       logprint("Using 1 thread (no multithreaded calculations invoked).\n");
@@ -1858,7 +1860,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   }
 #endif
 
-  if (calculation_type & (CALC_MODEL | CALC_GXE | CALC_GLM | CALC_LASSO | CALC_CMH | CALC_HOMOG | CALC_TESTMISS | CALC_TDT | CALC_QFAM)) {
+  if (calculation_type & (CALC_MODEL | CALC_GXE | CALC_GLM | CALC_LASSO | CALC_CMH | CALC_HOMOG | CALC_TESTMISS | CALC_TDT | CALC_DFAM | CALC_QFAM)) {
     // can't use pheno_ctrl_ct in here since new phenotypes may be loaded, and
     // we don't bother updating it...
     if ((!pheno_all) && (!loop_assoc_fname)) {
@@ -2038,7 +2040,13 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	}
       }
       if ((calculation_type & CALC_TDT) && pheno_c) {
-	retval = tdt(threads, bedfile, bed_offset, outname, outname_end2, ci_size, ci_zt, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, unfiltered_sample_ct, sample_exclude, sample_ct, mperm_save, pheno_nm, pheno_c, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, chrom_info_ptr, hh_exists, fam_ip);
+	retval = tdt(threads, bedfile, bed_offset, outname, outname_end2, ci_size, ci_zt, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_len, marker_reverse, unfiltered_sample_ct, sample_exclude, sample_ct, apip, mperm_save, pheno_nm, pheno_c, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, chrom_info_ptr, hh_exists, fam_ip);
+	if (retval) {
+	  goto plink_ret_1;
+	}
+      }
+      if ((calculation_type & CALC_DFAM) && pheno_c) {
+	retval = dfam(threads, bedfile, bed_offset, outname, outname_end2, ci_size, ci_zt, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, unfiltered_sample_ct, sample_exclude, sample_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, apip, mperm_save, pheno_nm, pheno_c, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, chrom_info_ptr, hh_exists, fam_ip);
 	if (retval) {
 	  goto plink_ret_1;
 	}
@@ -4587,7 +4595,7 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    if (scan_posint_defcap(&(argv[cur_arg + uii][6]), &(cluster.cmh_mperm_val))) {
-	      sprintf(logbuf, "Error: Invalid --bd mperm parameter '%s'.\n", argv[cur_arg + uii]);
+	      sprintf(logbuf, "Error: Invalid --bd mperm parameter '%s'.\n", &(argv[cur_arg + uii][6]));
               goto main_ret_INVALID_CMDLINE_WWA;
 	    }
             cluster.modifier |= CLUSTER_CMH_MPERM;
@@ -6152,6 +6160,44 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	load_rare = LOAD_RARE_DOSAGE;
+      } else if (!memcmp(argptr2, "fam", 4)) {
+	UNSTABLE;
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 3)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+	for (uii = 1; uii <= param_ct; uii++) {
+	  if (!strcmp(argv[cur_arg + uii], "perm")) {
+	    if (family_info.dfam_modifier & DFAM_MPERM) {
+	      logprint("Error: --dfam 'mperm' and 'perm' cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    }
+	    family_info.dfam_modifier |= DFAM_PERM;
+	  } else if (!strcmp(argv[cur_arg + uii], "perm-count")) {
+	    family_info.dfam_modifier |= DFAM_PERM_COUNT;
+	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
+	    if (family_info.dfam_modifier & DFAM_PERM) {
+	      logprint("Error: --dfam 'mperm' and 'perm' cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    } else if (family_info.dfam_modifier & DFAM_MPERM) {
+	      logprint("Error: Duplicate --dfam 'mperm' modifier.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    if (scan_posint_defcap(&(argv[cur_arg + uii][6]), &family_info.dfam_mperm_val)) {
+	      sprintf(logbuf, "Error: Invalid --dfam mperm parameter '%s'.\n", &(argv[cur_arg + uii][6]));
+	      goto main_ret_INVALID_CMDLINE_WWA;
+	    }
+	    family_info.dfam_modifier |= DFAM_MPERM;
+	  } else if (!strcmp(argv[cur_arg + uii], "set-test")) {
+	    family_info.dfam_modifier |= DFAM_SET_TEST;
+	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
+	    logprint("Error: Improper --dfam mperm syntax.  (Use '--dfam mperm=[value]'.)\n");
+	    goto main_ret_INVALID_CMDLINE;
+	  } else {
+	    sprintf(logbuf, "Error: Invalid --dfam parameter '%s'.\n", argv[cur_arg + uii]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
+	  }
+	}
+	calculation_type |= CALC_DFAM;
       } else if (!memcmp(argptr2, "prime", 6)) {
 	logprint("Note: --dprime flag deprecated.  Use e.g. '--r2 dprime'.\n");
 	ld_info.modifier |= LD_DPRIME;
@@ -6597,6 +6643,10 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --flip-scan-verbose flag deprecated.  Use '--flip-scan verbose'.\n");
         ld_info.modifier |= LD_FLIPSCAN_VERBOSE;
       } else if (!memcmp(argptr2, "amily", 6)) {
+	if (calculation_type & CALC_DFAM) {
+	  logprint("Error: --family cannot be used with --dfam.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
         misc_flags |= MISC_FAMILY_CLUSTERS;
 	filter_flags |= FILTER_FAM_REQ;
 	goto main_param_zero;
@@ -8538,6 +8588,9 @@ int32_t main(int32_t argc, char** argv) {
 	} else if (glm_modifier & (GLM_PERM | GLM_MPERM)) {
 	  sprintf(logbuf, "Error: --mperm cannot be used with --%s %sperm.\n", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", (glm_modifier & GLM_PERM)? "" : "m");
 	  goto main_ret_INVALID_CMDLINE_2A;
+	} else if (family_info.dfam_modifier & (DFAM_PERM | DFAM_MPERM)) {
+	  sprintf(logbuf, "Error: --mperm cannot be used with --dfam %sperm.\n", (family_info.dfam_modifier & DFAM_PERM)? "" : "m");
+	  goto main_ret_INVALID_CMDLINE_2A;
 	} else if (cluster.modifier & (CLUSTER_CMH_PERM | CLUSTER_CMH_MPERM)) {
 	  sprintf(logbuf, "Error: --mperm cannot be used with --%s %sperm.\n", (cluster.modifier & CLUSTER_CMH_BD)? "bd" : "mh", (cluster.modifier & CLUSTER_CMH_PERM)? "" : "m");
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -8581,6 +8634,8 @@ int32_t main(int32_t argc, char** argv) {
           testmiss_modifier |= TESTMISS_MPERM;
 	  family_info.tdt_mperm_val = mperm_val;
 	  family_info.tdt_modifier |= TDT_MPERM;
+	  family_info.dfam_mperm_val = mperm_val;
+	  family_info.dfam_modifier |= DFAM_MPERM;
 	  family_info.qfam_mperm_val = mperm_val;
 	  family_info.qfam_modifier |= QFAM_MPERM;
           cluster.cmh_mperm_val = mperm_val;
@@ -8789,7 +8844,7 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    if (scan_posint_defcap(&(argv[cur_arg + uii][6]), &(cluster.cmh_mperm_val))) {
-	      sprintf(logbuf, "Error: Invalid --mh mperm parameter '%s'.\n", argv[cur_arg + uii]);
+	      sprintf(logbuf, "Error: Invalid --mh mperm parameter '%s'.\n", &(argv[cur_arg + uii][6]));
               goto main_ret_INVALID_CMDLINE_WWA;
 	    }
             cluster.modifier |= CLUSTER_CMH_MPERM;
@@ -9322,7 +9377,11 @@ int32_t main(int32_t argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "xford-single-chr", 17)) {
 	if (!(load_params & LOAD_PARAMS_OXGEN)) {
-	  logprint("Error: --oxford-single-chr must be used with .gen input.\n");
+	  if (load_params & LOAD_PARAMS_OXBGEN) {
+	    logprint("Error: --oxford-single-chr must be used with .gen input.  (Single-chromosome\n.bgen files do not require this, since they still contain chromosome codes.)\n");
+	  } else {
+	    logprint("Error: --oxford-single-chr must be used with .gen input.\n");
+	  }
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -9472,14 +9531,19 @@ int32_t main(int32_t argc, char** argv) {
 	  ppc_gap = (int32_t)(dxx * (1 + SMALL_EPSILON));
 	}
       } else if (!memcmp(argptr2, "erm", 4)) {
-	if ((model_modifier & MODEL_MPERM) && (calculation_type & CALC_MODEL)) {
-	  sprintf(logbuf, "Error: --perm cannot be used with --%s mperm.\n", (model_modifier & MODEL_ASSOC)? "assoc" : "model");
-	  goto main_ret_INVALID_CMDLINE_2A;
+	if (model_modifier & MODEL_MPERM) {
+          if (calculation_type & CALC_MODEL) {
+	    sprintf(logbuf, "Error: --perm cannot be used with --%s mperm.\n", (model_modifier & MODEL_ASSOC)? "assoc" : "model");
+	    goto main_ret_INVALID_CMDLINE_2A;
+	  } else {
+	    logprint("Error: --perm cannot be used with --mperm.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
+	  }
 	} else if ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_MPERM | GLM_NO_SNP))) {
 	  sprintf(logbuf, "Error: --perm cannot be used with --%s %s.\n", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", (glm_modifier & GLM_MPERM)? "mperm" : "no-snp");
 	  goto main_ret_INVALID_CMDLINE_2A;
-	} else if (model_modifier & MODEL_MPERM) {
-	  logprint("Error: --perm cannot be used with --mperm.\n");
+	} else if (family_info.dfam_modifier & DFAM_MPERM) {
+	  logprint("Error: --perm cannot be used with --dfam mperm.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (calculation_type & CALC_CMH) {
           if (cluster.modifier & CLUSTER_CMH_MPERM) {
@@ -9494,6 +9558,7 @@ int32_t main(int32_t argc, char** argv) {
         glm_modifier |= GLM_PERM;
         testmiss_modifier |= TESTMISS_PERM;
 	family_info.tdt_modifier |= TDT_PERM;
+	family_info.dfam_modifier |= DFAM_PERM;
 	family_info.qfam_modifier |= QFAM_PERM;
 	cluster.modifier |= CLUSTER_CMH_PERM;
 	logprint("Note: --perm flag deprecated.  Use e.g. '--model perm'.\n");
@@ -9502,6 +9567,8 @@ int32_t main(int32_t argc, char** argv) {
 	model_modifier |= MODEL_PERM_COUNT;
 	glm_modifier |= GLM_PERM_COUNT;
         testmiss_modifier |= TESTMISS_PERM_COUNT;
+	family_info.tdt_modifier |= TDT_PERM_COUNT;
+	family_info.dfam_modifier |= DFAM_PERM_COUNT;
         family_info.qfam_modifier |= QFAM_PERM_COUNT;
 	cluster.modifier |= CLUSTER_CMH_PERM_COUNT;
 	logprint("Note: --perm-count flag deprecated.  Use e.g. '--model perm-count'.\n");
@@ -9834,7 +9901,7 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_2;
 	    }
 	    if (scan_posint_defcap(&(argv[cur_arg + uii][6]), &(family_info.qfam_mperm_val))) {
-	      sprintf(logbuf, "Error: Invalid --%s mperm parameter '%s'.\n", argptr, argv[cur_arg + uii]);
+	      sprintf(logbuf, "Error: Invalid --%s mperm parameter '%s'.\n", argptr, &(argv[cur_arg + uii][6]));
               goto main_ret_INVALID_CMDLINE_WWA;
 	    }
             family_info.qfam_modifier |= QFAM_MPERM;
@@ -11460,7 +11527,7 @@ int32_t main(int32_t argc, char** argv) {
               goto main_ret_INVALID_CMDLINE;
 	    }
 	    if (scan_posint_defcap(&(argv[cur_arg + uii][6]), &testmiss_mperm_val)) {
-	      sprintf(logbuf, "Error: Invalid --test-missing mperm parameter '%s'.\n", argv[cur_arg + uii]);
+	      sprintf(logbuf, "Error: Invalid --test-missing mperm parameter '%s'.\n", &(argv[cur_arg + uii][6]));
               goto main_ret_INVALID_CMDLINE_WWA;
 	    }
             testmiss_modifier |= TESTMISS_MPERM;
@@ -11481,7 +11548,7 @@ int32_t main(int32_t argc, char** argv) {
         calculation_type |= CALC_TESTMISHAP;
         goto main_param_zero;
       } else if (!memcmp(argptr2, "dt", 3)) {
-        if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 5)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
@@ -11515,6 +11582,8 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    family_info.tdt_modifier |= TDT_PERM;
+	  } else if (!strcmp(argv[cur_arg + uii], "perm-count")) {
+	    family_info.tdt_modifier |= TDT_PERM_COUNT;
 	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
 	    if (family_info.tdt_modifier & TDT_PERM) {
 	      logprint("Error: --tdt 'mperm' and 'perm' cannot be used together.\n");
@@ -11524,7 +11593,7 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    if (scan_posint_defcap(&(argv[cur_arg + uii][6]), &family_info.tdt_mperm_val)) {
-	      sprintf(logbuf, "Error: Invalid --tdt mperm parameter '%s'.\n", argv[cur_arg + uii]);
+	      sprintf(logbuf, "Error: Invalid --tdt mperm parameter '%s'.\n", &(argv[cur_arg + uii][6]));
               goto main_ret_INVALID_CMDLINE_WWA;
 	    }
             family_info.tdt_modifier |= TDT_MPERM;
@@ -12519,8 +12588,18 @@ int32_t main(int32_t argc, char** argv) {
       goto main_ret_1;
       uii = 1;
     }
+    if (family_info.dfam_modifier & DFAM_SET_TEST) {
+      if (!(family_info.dfam_modifier & (DFAM_PERM | DFAM_MPERM))) {
+        logprint("Error: --dfam set-test requires permutation.\n");
+        goto main_ret_INVALID_CMDLINE_A;
+      }
+      logprint("Error: --dfam set-test is currently under development.\n");
+      retval = RET_CALC_NOT_YET_SUPPORTED;
+      goto main_ret_1;
+      uii = 1;
+    }
     if (cluster.modifier & CLUSTER_CMH_SET_TEST) {
-      if (!(family_info.tdt_modifier & (TDT_PERM | TDT_MPERM))) {
+      if (!(cluster.modifier & (CLUSTER_CMH_PERM | CLUSTER_CMH_MPERM))) {
         logprint("Error: --mh/--bd set-test requires permutation.\n");
         goto main_ret_INVALID_CMDLINE_A;
       }

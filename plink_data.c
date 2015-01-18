@@ -4416,6 +4416,8 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	goto oxford_to_bed_ret_WRITE_FAIL;
       }
       bufptr = bufptr2;
+      // todo: treat identical A1 and A2 as special case, since that prevents
+      // future merge?
       bufptr2 = next_token_mult(bufptr, 2);
       if (no_more_tokens_kns(bufptr2)) {
 	goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
