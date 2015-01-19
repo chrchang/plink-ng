@@ -6195,6 +6195,10 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   uint32_t ujj;
   uint32_t ukk;
   numbuf[0] = ' ';
+  if (pheno_nm_ct < 2) {
+    logprint("Warning: Skipping --logistic since less than two phenotypes are present.\n");
+    goto glm_logistic_assoc_ret_1;
+  }
   if ((chrom_info_ptr->mt_code != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->mt_code)) {
     hh_or_mt_exists |= NXMHH_EXISTS;
   }
