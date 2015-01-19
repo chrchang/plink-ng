@@ -3967,13 +3967,6 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
     np_diploid = np_diploid_raw;
     np_sex = np_sex_raw;
   }
-  if (sample_valid_ct <= param_ct_max) {
-    logprint("Warning: Skipping --linear since # variables >= # samples.\n");
-    if (pheno_nm_ct > param_ct_max) {
-      logprint("(Check your covariates--all samples with at least one missing covariate are\nexcluded from this analysis.)\n");
-    }
-    goto glm_common_init_ret_1;
-  }
   // parameter sequence:
   // 1. intercept
   // 2. allelic dosage
@@ -4696,6 +4689,13 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   }
   retval = glm_common_init(bedfile, bed_offset, glm_modifier, standard_beta, glm_xchr_model, parameters_range_list_ptr, tests_range_list_ptr, mtest_adjust, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, max_marker_allele_len, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_sample_ct, sample_ct, sample_exclude, pheno_nm_ct, pheno_nm, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_nm, sex_male, hh_or_mt_exists, do_perms, is_set_test, &perm_batch_size, &max_param_name_len, &np_diploid, &condition_ct, &np_sex, &marker_initial_ct, &sex_covar_everywhere, &variation_in_sex, &x_sex_interaction, &constraint_ct_max, &param_idx_end, &loadbuf_raw, &load_mask, &sex_male_collapsed, &sample_include2, &sample_male_include2, &active_params, &haploid_params, &condition_uidxs, &writebuf, &sample_valid_ct, &param_ctx_max, &param_ctl_max, &condition_list_start_idx, &covar_start_idx, &interaction_start_idx, &sex_start_idx, &np_base, &param_ct_max);
   if (retval) {
+    goto glm_linear_assoc_ret_1;
+  }
+  if (sample_valid_ct <= param_ct_max) {
+    logprint("Warning: Skipping --linear since # variables >= # samples.\n");
+    if (pheno_nm_ct > param_ct_max) {
+      logprint("(Check your covariates--all samples with at least one missing covariate are\nexcluded from this analysis.)\n");
+    }
     goto glm_linear_assoc_ret_1;
   }
   sample_valid_ctv2 = 2 * ((sample_valid_ct + BITCT - 1) / BITCT);
@@ -6195,6 +6195,10 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   uint32_t ujj;
   uint32_t ukk;
   numbuf[0] = ' ';
+  if (pheno_nm_ct < 2) {
+    logprint("Warning: Skipping --logistic since less than two phenotypes are present.\n");
+    goto glm_logistic_assoc_ret_1;
+  }
   if ((chrom_info_ptr->mt_code != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->mt_code)) {
     hh_or_mt_exists |= NXMHH_EXISTS;
   }
@@ -6219,6 +6223,13 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   }
   retval = glm_common_init(bedfile, bed_offset, glm_modifier, 0, glm_xchr_model, parameters_range_list_ptr, tests_range_list_ptr, mtest_adjust, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, max_marker_allele_len, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_sample_ct, sample_ct, sample_exclude, pheno_nm_ct, pheno_nm, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_nm, sex_male, hh_or_mt_exists, do_perms, is_set_test, &perm_batch_size, &max_param_name_len, &np_diploid, &condition_ct, &np_sex, &marker_initial_ct, &sex_covar_everywhere, &variation_in_sex, &x_sex_interaction, &constraint_ct_max, &param_idx_end, &loadbuf_raw, &load_mask, &sex_male_collapsed, &sample_include2, &sample_male_include2, &active_params, &haploid_params, &condition_uidxs, &writebuf, &sample_valid_ct, &param_ctx_max, &param_ctl_max, &condition_list_start_idx, &covar_start_idx, &interaction_start_idx, &sex_start_idx, &np_base, &param_ct_max);
   if (retval) {
+    goto glm_logistic_assoc_ret_1;
+  }
+  if (sample_valid_ct <= param_ct_max) {
+    logprint("Warning: Skipping --logistic since # variables >= # samples.\n");
+    if (pheno_nm_ct > param_ct_max) {
+      logprint("(Check your covariates--all samples with at least one missing covariate are\nexcluded from this analysis.)\n");
+    }
     goto glm_logistic_assoc_ret_1;
   }
   sample_valid_cta4 = (sample_valid_ct + 3) & (~3);
