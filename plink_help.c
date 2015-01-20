@@ -1095,8 +1095,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 #ifndef STABLE_BUILD
     help_print("dfam", &help_ctrl, 1,
-"  --dfam <perm | mperm=[value]> <perm-count> <set-test>\n"
-"    Sib-TDT-based association test.\n\n"
+"  --dfam <no-unrelateds> <perm | mperm=[value]> <perm-count> <set-test>\n"
+"    Sib-TDT-based association test.  By default, clusters of unrelated\n"
+"    individuals are included in the test; the 'no-unrelateds' modifier removes\n"
+"    this component, leaving the original sib-TDT.\n\n"
 	       );
 #endif
     help_print("qfam\tqfam-between\tqfam-parents\tqfam-total", &help_ctrl, 1,

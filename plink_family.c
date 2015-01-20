@@ -1,6 +1,7 @@
 #include "plink_common.h"
 
 #include "plink_assoc.h"
+#include "plink_cluster.h"
 #include "plink_family.h"
 #include "plink_stats.h"
 
@@ -2767,7 +2768,9 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
     sample_lm_to_fss_idx[sample_idx] = sample_to_fss_idx[sample_uidx];
   }
   *lm_eligible_ptr = lm_eligible;
-  *lm_within2_founder_ptr = lm_within2_founder;
+  if (is_within2) {
+    *lm_within2_founder_ptr = lm_within2_founder;
+  }
   *fs_starts_ptr = fs_starts;
   *fss_contents_ptr = fss_contents;
   *sample_lm_to_fss_idx_ptr = sample_lm_to_fss_idx;
@@ -2784,9 +2787,79 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   return retval;
 }
 
-int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double ci_size, double ci_zt, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* sample_ids, uintptr_t max_sample_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, Chrom_info* chrom_info_ptr, uint32_t hh_exists, Family_info* fam_ip) {
+int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double ci_size, double ci_zt, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* sample_ids, uintptr_t max_sample_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, Chrom_info* chrom_info_ptr, uint32_t hh_exists, uint32_t within_cmdflag, Family_info* fam_ip) {
   logprint("Error: --dfam is currently under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
+  /*
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* outfile = NULL;
+  uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
+  uintptr_t final_mask = get_final_mask(unfiltered_sample_ct);
+  char* chrom_name_ptr = NULL;
+  uint32_t unfiltered_sample_ctl2m1 = (unfiltered_sample_ct - 1) / BITCT2;
+  uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
+  int32_t retval = 0;
+  uintptr_t* lm_eligible;
+  uint64_t* family_list;
+  uint64_t* trio_list;
+  uint32_t* trio_error_lookup;
+  uint32_t* fs_starts;
+  uint32_t* fss_contents;
+  uint32_t* sample_lm_to_fss_idx;
+  uintptr_t trio_ct;
+  uintptr_t max_fid_len;
+  uint32_t family_ct;
+  uint32_t fs_ct;
+  uint32_t lm_ct;
+  uint32_t singleton_ct;
+  uint32_t uii;
+  uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
+  if (uii) {
+    LOGPRINTF("Excluding %u X/MT/haploid variant%s from DFAM test.\n", uii, (uii == 1)? "" : "s");
+    if (uii == marker_ct) {
+      logprint("Error: No variants remaining for DFAM analysis.\n");
+      goto dfam_ret_INVALID_CMDLINE;
+    }
+    marker_ct -= uii;
+  } else if (is_set(chrom_info_ptr->haploid_mask, 0)) {
+    logprint("Error: DFAM test does not support haploid data.\n");
+    goto dfam_ret_INVALID_CMDLINE;
+  }
+  // no --mendel-duos support for now
+  retval = get_trios_and_families(unfiltered_sample_ct, sample_exclude, sample_ct, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, NULL, &max_fid_len, NULL, NULL, &family_list, &family_ct, &trio_list, &trio_ct, &trio_error_lookup, 0, multigen);
+  if (retval) {
+    goto dfam_ret_1;
+  }
+#ifdef __LP64__
+  if ((sample_ct + 2 * family_ct) > 0xffffffffLLU) {
+    logprint("Error: Too many samples and families for DFAM test.\n");
+    goto dfam_ret_INVALID_CMDLINE;
+  }
+#endif
+  if (get_sibship_info(unfiltered_sample_ct, sample_exclude, sample_ct, pheno_nm, NULL, founder_info, sample_ids, max_sample_id_len, max_fid_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, family_list, trio_list, family_ct, trio_ct, 0, &lm_eligible, NULL, &fs_starts, &fss_contents, &sample_lm_to_fss_idx, &fs_ct, &lm_ct, &singleton_ct)) {
+    goto dfam_ret_NOMEM;
+  }
+  // --within on an empty file actually causes --dfam to behave differently
+  // than no --within at all in PLINK 1.07.  Replicate this for now.
+  if (within_cmdflag) {
+
+  } else {
+    // fill_unfiltered_sample_to_cluster();
+  }
+  
+  while (0) {
+  dfam_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  dfam_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+  }
+ dfam_ret_1:
+  fclose_cond(outfile);
+  wkspace_reset(wkspace_mark);
+  return retval;
+  */
 }
 
 void uint32_permute(uint32_t* perm_arr, uint32_t* precomputed_mods, sfmt_t* sfmtp, uint32_t ct) {

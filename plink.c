@@ -104,7 +104,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (18 Jan 2015)";
+  " (19 Jan 2015)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
@@ -2046,7 +2046,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	}
       }
       if ((calculation_type & CALC_DFAM) && pheno_c) {
-	retval = dfam(threads, bedfile, bed_offset, outname, outname_end2, ci_size, ci_zt, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, unfiltered_sample_ct, sample_exclude, sample_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, apip, mperm_save, pheno_nm, pheno_c, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, chrom_info_ptr, hh_exists, fam_ip);
+	retval = dfam(threads, bedfile, bed_offset, outname, outname_end2, ci_size, ci_zt, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, unfiltered_sample_ct, sample_exclude, sample_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, apip, mperm_save, pheno_nm, pheno_c, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, chrom_info_ptr, hh_exists, (cluster_ptr->fname != NULL), fam_ip);
 	if (retval) {
 	  goto plink_ret_1;
 	}
@@ -6162,11 +6162,13 @@ int32_t main(int32_t argc, char** argv) {
 	load_rare = LOAD_RARE_DOSAGE;
       } else if (!memcmp(argptr2, "fam", 4)) {
 	UNSTABLE;
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 3)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
-	  if (!strcmp(argv[cur_arg + uii], "perm")) {
+	  if (!strcmp(argv[cur_arg + uii], "no-unrelateds")) {
+	    family_info.dfam_modifier |= DFAM_NO_UNRELATEDS;
+	  } else if (!strcmp(argv[cur_arg + uii], "perm")) {
 	    if (family_info.dfam_modifier & DFAM_MPERM) {
 	      logprint("Error: --dfam 'mperm' and 'perm' cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE_A;
@@ -6198,6 +6200,16 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
 	calculation_type |= CALC_DFAM;
+      } else if (!memcmp(argptr2, "fam-no-unrelateds", 18)) {
+	// keep this undocumented flag since it makes DFAM correspond to the
+	// original sib-TDT.
+	if (!(calculation_type & CALC_DFAM)) {
+	  logprint("Error: --dfam-no-unrelateds must be used with --dfam.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	family_info.dfam_modifier |= DFAM_NO_UNRELATEDS;
+	logprint("Note: --dfam-no-unrelateds flag deprecated.  Use '--dfam no-unrelateds'.\n");
+	goto main_param_zero;
       } else if (!memcmp(argptr2, "prime", 6)) {
 	logprint("Note: --dprime flag deprecated.  Use e.g. '--r2 dprime'.\n");
 	ld_info.modifier |= LD_DPRIME;
@@ -11835,7 +11847,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-        filter_flags |= FILTER_BIM_REQ;
+        filter_flags |= FILTER_FAM_REQ;
       } else if (!memcmp(argptr2, "pdate-map", 10)) {
 	if (cnv_calc_type & CNV_MAKE_MAP) {
 	  logprint("--update-map cannot be used with --cnv-make-map.\n");
