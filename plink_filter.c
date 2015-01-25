@@ -2678,9 +2678,10 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   return retval;
 }
 
-int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t plink_maxfid, uint32_t plink_maxiid, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_sample_ct, uintptr_t sample_ct, uintptr_t* sample_exclude, uintptr_t* pheno_nm, uintptr_t* sex_male, uint32_t sample_male_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, uint32_t hh_exists) {
+int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t output_gz, uint32_t plink_maxfid, uint32_t plink_maxiid, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_sample_ct, uintptr_t sample_ct, uintptr_t* sample_exclude, uintptr_t* pheno_nm, uintptr_t* sex_male, uint32_t sample_male_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, uint32_t hh_exists) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
+  gzFile gz_outfile = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ct2l = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t unfiltered_sample_ctv2 = (unfiltered_sample_ct2l + 1) & (~1);
@@ -2753,9 +2754,16 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   if (fseeko(bedfile, bed_offset, SEEK_SET)) {
     goto write_missingness_reports_ret_READ_FAIL;
   }
-  memcpy(outname_end, ".lmiss", 7);
-  if (fopen_checked(&outfile, outname, "w")) {
-    goto write_missingness_reports_ret_WRITE_FAIL;
+  if (!output_gz) {
+    memcpy(outname_end, ".lmiss", 7);
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto write_missingness_reports_ret_WRITE_FAIL;
+    }
+  } else {
+    memcpy(outname_end, ".lmiss.gz", 10);
+    if (gzopen_checked(&gz_outfile, outname, "wb")) {
+      goto write_missingness_reports_ret_WRITE_FAIL;
+    }
   }
   if (om_ip->entry_ct) {
     om_entry_ptr = om_ip->entries;
@@ -2817,7 +2825,11 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
     }
     sprintf(tbuf, " CHR %%%us       CLST   N_MISS   N_CLST   N_GENO   F_MISS\n", plink_maxsnp);
   }
-  fprintf(outfile, tbuf, "SNP");
+  if (!output_gz) {
+    fprintf(outfile, tbuf, "SNP");
+  } else {
+    gzprintf(gz_outfile, tbuf, "SNP");
+  }
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
     chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
@@ -2882,7 +2894,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	  wptr = uint32_writew8x(cptr2, ukk - oblig_ct, ' ');
           wptr = uint32_writew8x(wptr, cur_tot - oblig_ct, ' ');
 	  wptr = double_g_writewx4x(wptr, ((double)((int32_t)(ukk - oblig_ct))) / ((double)((int32_t)(cur_tot - oblig_ct))), 8, '\n');
-          if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	  if (flexwrite_checked(tbuf, wptr - tbuf, output_gz, outfile, gz_outfile)) {
 	    goto write_missingness_reports_ret_WRITE_FAIL;
 	  }
 	} else {
@@ -2935,7 +2947,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	    umm -= oblig_missing_ct_by_cluster[clidx];
 	    wptr = uint32_writew8x(wptr, umm, ' ');
             wptr = double_g_writewx4x(wptr, ((double)((int32_t)uii)) / ((double)((int32_t)umm)), 8, '\n');
-	    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	    if (flexwrite_checked(tbuf, wptr - tbuf, output_gz, outfile, gz_outfile)) {
 	      goto write_missingness_reports_ret_WRITE_FAIL;
 	    }
 	  }
@@ -2952,15 +2964,25 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
       } while (marker_uidx < chrom_end);
     }
   }
-  if (fclose_null(&outfile)) {
+  if (flexclose_null(output_gz, &outfile, &gz_outfile)) {
     goto write_missingness_reports_ret_WRITE_FAIL;
   }
   outname_end[1] = 'i';
-  if (fopen_checked(&outfile, outname, "w")) {
-    goto write_missingness_reports_ret_WRITE_FAIL;
+  if (!output_gz) {
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto write_missingness_reports_ret_WRITE_FAIL;
+    }
+  } else {
+    if (gzopen_checked(&gz_outfile, outname, "wb")) {
+      goto write_missingness_reports_ret_WRITE_FAIL;
+    }
   }
   sprintf(tbuf, "%%%us %%%us MISS_PHENO   N_MISS   N_GENO   F_MISS\n", plink_maxfid, plink_maxiid);
-  fprintf(outfile, tbuf, "FID", "IID");
+  if (!output_gz) {
+    fprintf(outfile, tbuf, "FID", "IID");
+  } else {
+    gzprintf(gz_outfile, tbuf, "FID", "IID");
+  }
   do {
     sample_uidx = next_unset_unsafe(sample_exclude, sample_uidx);
     sample_uidx_stop = next_set(sample_exclude, sample_uidx, unfiltered_sample_ct);
@@ -2989,16 +3011,16 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
       wptr = uint32_writew8x(wptr, uii, ' ');
       wptr = uint32_writew8x(wptr, ujj, ' ');
       wptr = double_g_writewx4x(wptr, ((double)((int32_t)uii)) / ((double)((int32_t)ujj)), 8, '\n');
-      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+      if (flexwrite_checked(tbuf, wptr - tbuf, output_gz, outfile, gz_outfile)) {
 	goto write_missingness_reports_ret_WRITE_FAIL;
       }
     } while (++sample_uidx < sample_uidx_stop);
   } while (sample_idx < sample_ct);
-  if (fclose_null(&outfile)) {
+  if (flexclose_null(output_gz, &outfile, &gz_outfile)) {
     goto write_missingness_reports_ret_WRITE_FAIL;
   }
   *outname_end = '\0';
-  LOGPRINTFWW("--missing: Sample missing data report written to %s.imiss, and variant-based %smissing data report written to %s.lmiss.\n", outname, cluster_ct? "cluster-stratified " : "", outname);
+  LOGPRINTFWW("--missing: Sample missing data report written to %s.imiss%s, and variant-based %smissing data report written to %s.lmiss%s.\n", outname, output_gz? ".gz" : "", cluster_ct? "cluster-stratified " : "", outname, output_gz? ".gz" : "");
   while (0) {
   write_missingness_reports_ret_NOMEM:
     retval = RET_NOMEM;
@@ -3012,6 +3034,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   }
   wkspace_reset(wkspace_mark);
   fclose_cond(outfile);
+  gzclose_cond(gz_outfile);
   return retval;
 }
 

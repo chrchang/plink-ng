@@ -2102,14 +2102,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 		  bufptr = double_g_writex(bufptr, 2 * cur_dosages[sample_idx], ' ');
 		}
 	      }
-	      if (output_gz) {
-		if (!gzwrite(gz_outfile, tbuf, bufptr - tbuf)) {
-		  goto plink1_dosage_ret_WRITE_FAIL;
-		}
-	      } else {
-		if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
-		  goto plink1_dosage_ret_WRITE_FAIL;
-		}
+	      if (flexwrite_checked(tbuf, bufptr - tbuf, output_gz, outfile, gz_outfile)) {
+		goto plink1_dosage_ret_WRITE_FAIL;
 	      }
 	    } while (ulii < sample_ct);
 	  } else if (format_val == 2) {
@@ -2128,14 +2122,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 		  bufptr = double_g_writex(bufptr, cur_dosages2[sample_idx], ' ');
 		}
 	      }
-	      if (output_gz) {
-		if (!gzwrite(gz_outfile, tbuf, bufptr - tbuf)) {
-		  goto plink1_dosage_ret_WRITE_FAIL;
-		}
-	      } else {
-		if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
-		  goto plink1_dosage_ret_WRITE_FAIL;
-		}
+	      if (flexwrite_checked(tbuf, bufptr - tbuf, output_gz, outfile, gz_outfile)) {
+		goto plink1_dosage_ret_WRITE_FAIL;
 	      }
 	    } while (ulii < sample_ct);
 	  } else {
@@ -2161,14 +2149,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 		  bufptr = double_g_writex(bufptr, dxx, ' ');
 		}
 	      }
-	      if (output_gz) {
-		if (!gzwrite(gz_outfile, tbuf, bufptr - tbuf)) {
-		  goto plink1_dosage_ret_WRITE_FAIL;
-		}
-	      } else {
-		if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
-		  goto plink1_dosage_ret_WRITE_FAIL;
-		}
+	      if (flexwrite_checked(tbuf, bufptr - tbuf, output_gz, outfile, gz_outfile)) {
+		goto plink1_dosage_ret_WRITE_FAIL;
 	      }
 	    } while (ulii < sample_ct);
 	  }
@@ -2302,15 +2284,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	}
       }
     }
-    if (output_gz) {
-      if (gzclose(gz_outfile) != Z_OK) {
-	goto plink1_dosage_ret_WRITE_FAIL;
-      }
-      gz_outfile = NULL;
-    } else {
-      if (fclose_null(&outfile)) {
-	goto plink1_dosage_ret_WRITE_FAIL;
-      }
+    if (flexclose_null(output_gz, &outfile, &gz_outfile)) {
+      goto plink1_dosage_ret_WRITE_FAIL;
     }
     LOGPRINTFWW("--%sdosage%s: Results saved to %s .\n", (do_glm || count_occur)? "" : "write-", count_occur? " occur" : "", outname);
     if (count_occur) {

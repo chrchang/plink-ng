@@ -507,9 +507,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    with --read-freq.\n\n"
 		);
     help_print("missing", &help_ctrl, 1,
-"  --missing\n"
+"  --missing <gz>\n"
 "    Generate sample- and variant-based missing data reports.  If clusters are\n"
-"    defined, the variant-based report is cluster-stratified.\n\n"
+"    defined, the variant-based report is cluster-stratified.  'gz' causes the\n"
+"    output files to be gzipped.\n\n"
 	       );
     help_print("test-mishap", &help_ctrl, 1,
 "  --test-mishap\n"

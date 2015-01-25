@@ -1264,7 +1264,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
     }
     if (calculation_type & CALC_MISSING_REPORT) {
-      retval = write_missingness_reports(bedfile, bed_offset, outname, outname_end, plink_maxfid, plink_maxiid, plink_maxsnp, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, chrom_info_ptr, om_ip, marker_ids, max_marker_id_len, unfiltered_sample_ct, sample_ct, sample_exclude, pheno_nm, sex_male, sample_male_ct, sample_ids, max_sample_id_len, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, hh_exists);
+      retval = write_missingness_reports(bedfile, bed_offset, outname, outname_end, (misc_flags / MISC_MISSING_GZ) & 1, plink_maxfid, plink_maxiid, plink_maxsnp, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, chrom_info_ptr, om_ip, marker_ids, max_marker_id_len, unfiltered_sample_ct, sample_ct, sample_exclude, pheno_nm, sex_male, sample_male_ct, sample_ids, max_sample_id_len, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, hh_exists);
       if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER | CALC_FREQ | CALC_MISSING_REPORT))))) {
 	goto plink_ret_1;
       }
@@ -8830,8 +8830,17 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	filter_flags |= FILTER_FAM_REQ | FILTER_MAKE_FOUNDERS;
       } else if (!memcmp(argptr2, "issing", 7)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+        if (param_ct) {
+	  if (strcmp(argv[cur_arg + 1], "gz")) {
+	    sprintf(logbuf, "Error: Invalid --missing parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
+	  }
+	  misc_flags |= MISC_MISSING_GZ;
+	}
 	calculation_type |= CALC_MISSING_REPORT;
-	goto main_param_zero;
       } else if (!memcmp(argptr2, "h", 2)) {
 	if (calculation_type & CALC_CMH) {
 	  logprint("Error: --mh is redundant with --bd.\n");

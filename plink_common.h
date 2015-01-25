@@ -223,6 +223,7 @@
 #define MISC_SPLIT_MERGE_NOFAIL 0x400000000LLU
 #define MISC_REAL_REF_ALLELES 0x800000000LLU
 #define MISC_RPLUGIN_DEBUG 0x1000000000LLU
+#define MISC_MISSING_GZ 0x2000000000LLU
 
 // assume for now that .bed must always be accompanied by both .bim and .fam
 #define FILTER_ALL_REQ 1LLU
@@ -844,9 +845,31 @@ static inline int32_t fclose_null(FILE** fptr_ptr) {
 
 int32_t gzopen_checked(gzFile* target_ptr, const char* fname, const char* mode);
 
+static inline int32_t gzclose_null(gzFile* gzf_ptr) {
+  int32_t ii = gzclose(*gzf_ptr);
+  *gzf_ptr = NULL;
+  return (ii != Z_OK);
+}
+
 static inline void gzclose_cond(gzFile gz_infile) {
   if (gz_infile) {
     gzclose(gz_infile);
+  }
+}
+
+static inline int32_t flexwrite_checked(const void* buf, size_t len, uint32_t output_gz, FILE* outfile, gzFile gz_outfile) {
+  if (!output_gz) {
+    return fwrite_checked(buf, len, outfile);
+  } else {
+    return (!gzwrite(gz_outfile, buf, len));
+  }
+}
+
+static inline int32_t flexclose_null(uint32_t output_gz, FILE** fptr_ptr, gzFile* gzf_ptr) {
+  if (!output_gz) {
+    return fclose_null(fptr_ptr);
+  } else {
+    return gzclose_null(gzf_ptr);
   }
 }
 
