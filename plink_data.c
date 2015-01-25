@@ -15783,7 +15783,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     }
     if (!merge_list) {
       if (!mlpos) {
-	uii = tot_marker_ct;
+	uii = ullxx;
       } else {
 	LOGPRINTFWW("%u marker%s loaded from %s.\n", uii, (uii == 1)? "" : "s", mergelist_bim[0]);
 	LOGPRINTFWW("%u marker%s to be merged from %s.\n", cur_marker_ct, (cur_marker_ct == 1)? "" : "s", mergelist_bim[1]);
