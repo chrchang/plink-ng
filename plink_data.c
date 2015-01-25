@@ -15783,10 +15783,14 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     }
     if (!merge_list) {
       if (!mlpos) {
-	uii = cur_marker_ct;
+	uii = tot_marker_ct;
       } else {
 	LOGPRINTFWW("%u marker%s loaded from %s.\n", uii, (uii == 1)? "" : "s", mergelist_bim[0]);
 	LOGPRINTFWW("%u marker%s to be merged from %s.\n", cur_marker_ct, (cur_marker_ct == 1)? "" : "s", mergelist_bim[1]);
+	// bugfix: don't underflow when a single file has duplicate IDs (e.g.
+	// '.').
+	// Merging should fail anyway in that case, but we should not embarrass
+	// ourselves by printing inaccurate numbers here.
 	uii = ullxx - uii;
 	LOGPRINTF("Of these, %u are new, while %u are present in the base dataset.\n", uii, cur_marker_ct - uii);
       }
