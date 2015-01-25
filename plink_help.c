@@ -1416,7 +1416,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     using the values in the main input fileset.\n"
 "  --all-pheno      : For basic association tests, loop through all phenotypes\n"
 "                     in --pheno file.\n"
-"  --mpheno [col]   : Specify phenotype column number in --pheno file.\n"
+"  --mpheno [n]     : Load phenotype from column (n+2) in --pheno file.\n"
 "  --pheno-name [c] : If --pheno file has a header row, use column with the\n"
 "                     given name.\n"
 "  --pheno-merge    : When the main input fileset contains an phenotype value\n"

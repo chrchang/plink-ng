@@ -2516,13 +2516,16 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
 }
 
 int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* founder_info, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t max_fid_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint64_t* family_list, uint64_t* trio_list, uint32_t family_ct, uintptr_t trio_ct, uint32_t test_type, uintptr_t** lm_eligible_ptr, uintptr_t** lm_within2_founder_ptr, uint32_t** fs_starts_ptr, uint32_t** fss_contents_ptr, uint32_t** sample_lm_to_fss_idx_ptr, uint32_t* fs_ct_ptr, uint32_t* lm_ct_ptr, uint32_t* singleton_ct_ptr) {
-  // on top of get_trios_and_families()'s return values, we need the following
+  // On top of get_trios_and_families()'s return values, we need the following
   // information for the main dfam() and qfam() loops:
   // 1. sample idx -> family/sibship idx array
   // 2. fs_starts[]/fs_contents[] arrays describing family/sibship idx ->
   //    sample idxs mapping.
-  // we may as well sort size-1 sibships/singleton founders to the end; this
+  // We may as well sort size-1 sibships/singleton founders to the end; this
   // lets us get away with a smaller fs_starts[] array and a faster loop.
+  // There is also some qfam-specific initialization here (a divorcee with
+  // children from two different spouses may be excluded from the linear
+  // model).  test_type is zero for dfam and nonzero for qfam.
   uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
   uintptr_t sample_ctl = (sample_ct + (BITCT - 1)) / BITCT;
   uintptr_t max_merged_id_len = max_fid_len + max_paternal_id_len + max_maternal_id_len + sizeof(int32_t);
@@ -2530,6 +2533,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   uintptr_t topsize = 0;
   uintptr_t* tmp_within2_founder = NULL;
   uintptr_t* lm_within2_founder = NULL;
+  uintptr_t* lm_eligible = NULL;
   uint32_t is_within2 = (test_type == QFAM_WITHIN2);
   uint32_t family_idx = 0;
   uint32_t fssc_idx = 0;
@@ -2538,7 +2542,6 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   char* bufptr;
   char* bufptr2;
   char* bufptr3;
-  uintptr_t* lm_eligible;
   uintptr_t* not_in_family;
   uintptr_t* ulptr;
   uintptr_t* ulptr2;
@@ -2558,14 +2561,18 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   uint32_t ujj;
   uint32_t ukk;
   uint32_t umm;
-  if (is_within2) {
-    if (wkspace_alloc_ul_checked(&lm_within2_founder, sample_ctl * sizeof(intptr_t))) {
-      goto get_sibship_info_ret_NOMEM2;
+  if (test_type) {
+    if (is_within2) {
+      if (wkspace_alloc_ul_checked(&lm_within2_founder, sample_ctl * sizeof(intptr_t))) {
+	goto get_sibship_info_ret_NOMEM2;
+      }
+    }
+    if (wkspace_alloc_ul_checked(&lm_eligible, sample_ctl * sizeof(intptr_t))) {
+      goto get_sibship_info_ret_NOMEM;
     }
   }
-  if (wkspace_alloc_ul_checked(&lm_eligible, sample_ctl * sizeof(intptr_t)) ||
-      // shrink later
-      wkspace_alloc_ui_checked(&fss_contents, (sample_ct + 2 * family_ct) * sizeof(int32_t))) {
+  // shrink later
+  if (wkspace_alloc_ui_checked(&fss_contents, (sample_ct + 2 * family_ct) * sizeof(int32_t))) {
     goto get_sibship_info_ret_NOMEM;
   }
   // this is the equivalent of PLINK 1.07's family pointers
@@ -2613,6 +2620,8 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   if (family_ct) {
     while (1) {
       ullii = family_list[family_idx];
+      // uii, ukk = unfiltered idxs of parents
+      // ujj, umm = filtered idxs
       uii = (uint32_t)ullii;
       ujj = sample_uidx_to_idx[uii];
       fss_contents[fssc_idx++] = ujj;
@@ -2669,10 +2678,12 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
     collapse_copy_bitarr(unfiltered_sample_ct, tmp_within2_founder, sample_exclude, sample_ct, lm_within2_founder);
   }
   bitfield_andnot_reversed_args(ulptr, pheno_nm, unfiltered_sample_ctl);
-  if (test_type == QFAM_WITHIN1) {
-    bitfield_andnot(ulptr, founder_info, unfiltered_sample_ctl);
+  if (test_type) {
+    if (test_type == QFAM_WITHIN1) {
+      bitfield_andnot(ulptr, founder_info, unfiltered_sample_ctl);
+    }
+    collapse_copy_bitarr(unfiltered_sample_ct, ulptr, sample_exclude, sample_ct, lm_eligible);
   }
-  collapse_copy_bitarr(unfiltered_sample_ct, ulptr, sample_exclude, sample_ct, lm_eligible);
   topsize = ulii;
 
   memcpy(ulptr, not_in_family, unfiltered_sample_ctl * sizeof(intptr_t));
@@ -2746,35 +2757,35 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   *fs_ct_ptr = family_idx;
   fs_starts[family_idx] = fssc_idx;
   wkspace_shrink_top(fs_starts, (family_idx + 1) * sizeof(int32_t));
-  // now iterate through not_in_family
-  ulii = popcount_longs(not_in_family, unfiltered_sample_ctl);
-  for (sample_uidx = 0, sample_idx = 0; sample_idx < ulii; sample_uidx++, sample_idx++) {
-    next_set_ul_unsafe_ck(not_in_family, &sample_uidx);
-    ujj = sample_uidx_to_idx[sample_uidx];
-    fss_contents[fssc_idx++] = ujj;
-    sample_to_fss_idx[ujj] = family_idx + sample_idx;
-  }
-  *singleton_ct_ptr = ulii;
-  // finally, collapse sample_to_fss_idx to sample_lm_to_fss_idx
-  topsize = topsize_bak;
-  wkspace_left -= topsize;
-  ulii = popcount_longs(lm_eligible, sample_ctl);
-  if (wkspace_alloc_ui_checked(&sample_lm_to_fss_idx, ulii * sizeof(int32_t))) {
-    goto get_sibship_info_ret_NOMEM2;
-  }
-  wkspace_left += topsize;
-  for (sample_uidx = 0, sample_idx = 0; sample_idx < ulii; sample_uidx++, sample_idx++) {
-    next_set_ul_unsafe_ck(lm_eligible, &sample_uidx);
-    sample_lm_to_fss_idx[sample_idx] = sample_to_fss_idx[sample_uidx];
-  }
-  *lm_eligible_ptr = lm_eligible;
-  if (is_within2) {
+  if (test_type) {
+    // for qfam, save singletons, and collapse sample_to_fss_idx to
+    // sample_lm_to_fss_idx
+    ulii = popcount_longs(not_in_family, unfiltered_sample_ctl);
+    for (sample_uidx = 0, sample_idx = 0; sample_idx < ulii; sample_uidx++, sample_idx++) {
+      next_set_ul_unsafe_ck(not_in_family, &sample_uidx);
+      ujj = sample_uidx_to_idx[sample_uidx];
+      fss_contents[fssc_idx++] = ujj;
+      sample_to_fss_idx[ujj] = family_idx + sample_idx;
+    }
+    *singleton_ct_ptr = ulii;
+    topsize = topsize_bak;
+    wkspace_left -= topsize;
+    ulii = popcount_longs(lm_eligible, sample_ctl);
+    if (wkspace_alloc_ui_checked(&sample_lm_to_fss_idx, ulii * sizeof(int32_t))) {
+      goto get_sibship_info_ret_NOMEM2;
+    }
+    wkspace_left += topsize;
+    for (sample_uidx = 0, sample_idx = 0; sample_idx < ulii; sample_uidx++, sample_idx++) {
+      next_set_ul_unsafe_ck(lm_eligible, &sample_uidx);
+      sample_lm_to_fss_idx[sample_idx] = sample_to_fss_idx[sample_uidx];
+    }
+    *lm_eligible_ptr = lm_eligible;
     *lm_within2_founder_ptr = lm_within2_founder;
+    *sample_lm_to_fss_idx_ptr = sample_lm_to_fss_idx;
+    *lm_ct_ptr = ulii;
   }
   *fs_starts_ptr = fs_starts;
   *fss_contents_ptr = fss_contents;
-  *sample_lm_to_fss_idx_ptr = sample_lm_to_fss_idx;
-  *lm_ct_ptr = ulii;
   // topsize = 0;
 
   while (0) {
