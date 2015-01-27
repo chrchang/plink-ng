@@ -529,7 +529,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Generate a Mendel error report.\n\n"
 	       );
     help_print("het\tibc", &help_ctrl, 1,
-"  --het <small-sample>\n"
+"  --het <small-sample> <gz>\n"
 "  --ibc\n"
 "    Estimate inbreeding coefficients.  --het reports method-of-moments\n"
 "    estimates, while --ibc calculates all three values described in Yang J, Lee\n"

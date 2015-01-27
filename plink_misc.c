@@ -3575,10 +3575,11 @@ int32_t list_duplicate_vars(char* outname, char* outname_end, uint32_t dupvar_mo
   return retval;
 }
 
-int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_sample_id_len, uintptr_t* founder_info, Chrom_info* chrom_info_ptr, double* set_allele_freqs) {
+int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t output_gz, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_sample_id_len, uintptr_t* founder_info, Chrom_info* chrom_info_ptr, double* set_allele_freqs) {
   // Same F coefficient computation as sexcheck().
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
+  gzFile gz_outfile = NULL;
   uintptr_t* loadbuf_f = NULL;
   uintptr_t* founder_vec11 = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
@@ -3737,12 +3738,28 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
   if (!marker_ct) {
     goto het_report_ret_INVALID_CMDLINE;
   }
-  memcpy(outname_end, ".het", 5);
-  if (fopen_checked(&outfile, outname, "w")) {
-    goto het_report_ret_OPEN_FAIL;
+  if (!output_gz) {
+    memcpy(outname_end, ".het", 5);
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto het_report_ret_OPEN_FAIL;
+    }
+  } else {
+    memcpy(outname_end, ".het.gz", 8);
+    if (gzopen_checked(&gz_outfile, outname, "wb")) {
+      goto het_report_ret_OPEN_FAIL;
+    }
   }
   sprintf(tbuf, "%%%us %%%us       O(HOM)       E(HOM)        N(NM)            F\n", plink_maxfid, plink_maxiid);
-  fprintf(outfile, tbuf, "FID", "IID");
+  if (!output_gz) {
+    fprintf(outfile, tbuf, "FID", "IID");
+    if (ferror(outfile)) {
+      goto het_report_ret_WRITE_FAIL;
+    }
+  } else {
+    if (!gzprintf(gz_outfile, tbuf, "FID", "IID")) {
+      goto het_report_ret_WRITE_FAIL;
+    }
+  }
   sample_uidx = 0;
   for (sample_idx = 0; sample_idx < sample_ct; sample_idx++, sample_uidx++) {
     next_unset_ul_unsafe_ck(sample_exclude, &sample_uidx);
@@ -3765,11 +3782,11 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
     } else {
       wptr = memcpya(wptr, "         0            0            0          nan\n", 50);
     }
-    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+    if (flexwrite_checked(tbuf, wptr - tbuf, output_gz, outfile, gz_outfile)) {
       goto het_report_ret_WRITE_FAIL;
     }
   }
-  if (fclose_null(&outfile)) {
+  if (flexclose_null(output_gz, &outfile, &gz_outfile)) {
     goto het_report_ret_WRITE_FAIL;
   }
   LOGPRINTFWW("--het%s: %" PRIuPTR " variant%s scanned, report written to %s .\n", loadbuf_f? " small-sample" : "", marker_ct, (marker_ct == 1)? "" : "s", outname);
@@ -3793,6 +3810,7 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
   }
   wkspace_reset(wkspace_mark);
   fclose_cond(outfile);
+  gzclose_cond(gz_outfile);
   return retval;
 }
 
