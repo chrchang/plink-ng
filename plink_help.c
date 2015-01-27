@@ -498,8 +498,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      from the report.\n\n"
 	       );
     help_print("freq\tfreqx\tfrqx\tcounts", &help_ctrl, 1,
-"  --freq <counts>\n"
-"  --freqx\n"
+"  --freq <counts> <gz>\n"
+"  --freqx <gz>\n"
 "    --freq generates a basic allele frequency (or count, if the 'counts'\n"
 "    modifier is present) report.  This can be combined with --within/--family\n"
 "    to produce a cluster-stratified allele frequency/count report instead.\n"

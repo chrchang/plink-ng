@@ -224,6 +224,7 @@
 #define MISC_REAL_REF_ALLELES 0x800000000LLU
 #define MISC_RPLUGIN_DEBUG 0x1000000000LLU
 #define MISC_MISSING_GZ 0x2000000000LLU
+#define MISC_FREQ_GZ 0x4000000000LLU
 
 // assume for now that .bed must always be accompanied by both .bim and .fam
 #define FILTER_ALL_REQ 1LLU

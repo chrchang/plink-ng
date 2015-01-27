@@ -104,7 +104,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (25 Jan 2015)";
+  " (27 Jan 2015)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
@@ -1247,8 +1247,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	if (misc_flags & MISC_FREQ_COUNTS) {
 	  logprint("Note: --freq 'counts' modifier has no effect on cluster-stratified report.\n");
 	}
-	memcpy(outname_end, ".frq.strat", 11);
-	retval = write_stratified_freqs(bedfile, bed_offset, outname, plink_maxsnp, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_len, unfiltered_sample_ct, sample_ct, sample_f_ct, founder_info, nonfounders, sex_male, sample_f_male_ct, marker_reverse, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len);
+	retval = write_stratified_freqs(bedfile, bed_offset, outname, outname_end, (misc_flags / MISC_FREQ_GZ) & 1, plink_maxsnp, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_len, unfiltered_sample_ct, sample_ct, sample_f_ct, founder_info, nonfounders, sex_male, sample_f_male_ct, marker_reverse, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len);
       } else {
 	if (misc_flags & MISC_FREQX) {
 	  memcpy(outname_end, ".frqx", 6);
@@ -6432,19 +6431,24 @@ int32_t main(int32_t argc, char** argv) {
 	filter_flags |= FILTER_FAM_REQ | FILTER_BINARY_NONFOUNDERS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "req", 4)) {
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-	if (param_ct) {
-	  if (strcmp(argv[cur_arg + 1], "counts")) {
-            sprintf(logbuf, "Error: Invalid --freq parameter '%s'.\n", argv[cur_arg + 1]);
+	for (uii = 1; uii <= param_ct; uii++) {
+	  if (!strcmp(argv[cur_arg + uii], "counts")) {
+	    misc_flags |= MISC_FREQ_COUNTS;
+	  } else if (!strcmp(argv[cur_arg + uii], "gz")) {
+	    misc_flags |= MISC_FREQ_GZ;
+	  } else {
+            sprintf(logbuf, "Error: Invalid --freq parameter '%s'.\n", argv[cur_arg + uii]);
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
-	  misc_flags |= MISC_FREQ_COUNTS;
 	}
 	calculation_type |= CALC_FREQ;
 	if (misc_flags & MISC_FREQ_COUNTS) {
 	  // --keep-allele-order also set for backward compatibility
+	  // placed here instead of a few lines up because '--freq --counts' is
+	  // permitted
 	  misc_flags |= MISC_KEEP_ALLELE_ORDER;
 	}
       } else if (!memcmp(argptr2, "reqx", 5)) {
@@ -6452,9 +6456,18 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --freqx cannot be used with --freq.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+	if (param_ct) {
+	  if (strcmp(argv[cur_arg + 1], "gz")) {
+	    sprintf(logbuf, "Error: Invalid --freqx parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
+	  }
+	  misc_flags |= MISC_FREQ_GZ;
+	}
 	calculation_type |= CALC_FREQ;
 	misc_flags |= MISC_FREQX;
-	goto main_param_zero;
       } else if (!memcmp(argptr2, "rom", 4)) {
 	if (chrom_flag_present) {
 	  logprint("Error: --from cannot be used with --autosome{-xy} or --{not-}chr.\n");
@@ -12834,6 +12847,10 @@ int32_t main(int32_t argc, char** argv) {
   uii = load_params & LOAD_PARAMS_OX_ALL;
   if ((uii == LOAD_PARAMS_OXGEN) || (uii == LOAD_PARAMS_OXBGEN)) {
     logprint("Error: --gen/--bgen cannot be used without --data or --sample.\n");
+    goto main_ret_INVALID_CMDLINE_A;
+  }
+  if ((merge_type & MERGE_EQUAL_POS) && (!(calculation_type & CALC_MERGE))) {
+    logprint("Error: --merge-equal-pos must be used with --merge/--bmerge/--merge-list.\n(Note that you are permitted to merge a fileset with itself.)\n");
     goto main_ret_INVALID_CMDLINE_A;
   }
   // short batch job?

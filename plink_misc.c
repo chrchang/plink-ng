@@ -2356,9 +2356,11 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
   return retval;
 }
 
-int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t unfiltered_sample_ct, uintptr_t sample_ct, uint32_t sample_f_ct, uintptr_t* founder_info, uint32_t nonfounders, uintptr_t* sex_male, uint32_t sample_f_male_ct, uintptr_t* marker_reverse, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len) {
+int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t output_gz, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t unfiltered_sample_ct, uintptr_t sample_ct, uint32_t sample_f_ct, uintptr_t* founder_info, uint32_t nonfounders, uintptr_t* sex_male, uint32_t sample_f_male_ct, uintptr_t* marker_reverse, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
+  gzFile gz_outfile = NULL;
+  char* writebuf = tbuf;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
   uint32_t* cur_cluster_map = cluster_map;
@@ -2393,6 +2395,11 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
   uint32_t uii;
   if (wkspace_alloc_ul_checked(&readbuf, unfiltered_sample_ctl2 * sizeof(intptr_t))) {
     goto write_stratified_freqs_ret_NOMEM;
+  }
+  if (2 * max_marker_allele_len + max_marker_id_len + max_cluster_id_len + 256 > MAXLINELEN) {
+    if (wkspace_alloc_c_checked(&writebuf, 2 * max_marker_allele_len + max_marker_id_len + max_cluster_id_len + 256)) {
+      goto write_stratified_freqs_ret_NOMEM;
+    }
   }
   if ((sample_ct > sample_f_ct) && (!nonfounders)) {
     if (wkspace_alloc_ui_checked(&cur_cluster_starts, (cluster_ct + 1) * sizeof(int32_t)) ||
@@ -2453,11 +2460,23 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
       cluster_starts_male[clidx + 1] = clmpos;
     }
   }
-  if (fopen_checked(&outfile, outname, "w")) {
-    goto write_stratified_freqs_ret_OPEN_FAIL;
+  if (!output_gz) {
+    memcpy(outname_end, ".frq.strat", 11);
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto write_stratified_freqs_ret_OPEN_FAIL;
+    }
+  } else {
+    memcpy(outname_end, ".frq.strat.gz", 14);
+    if (gzopen_checked(&gz_outfile, outname, "wb")) {
+      goto write_stratified_freqs_ret_OPEN_FAIL;
+    }
   }
   sprintf(tbuf, " CHR %%%ds     CLST   A1   A2      MAF    MAC  NCHROBS\n", plink_maxsnp);
-  fprintf(outfile, tbuf, "SNP");
+  if (!output_gz) {
+    fprintf(outfile, tbuf, "SNP");
+  } else {
+    gzprintf(gz_outfile, tbuf, "SNP");
+  }
   if (wkspace_alloc_c_checked(&csptr, 2 * max_marker_allele_len + 16)) {
     goto write_stratified_freqs_ret_NOMEM;
   }
@@ -2477,7 +2496,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
     if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
       goto write_stratified_freqs_ret_READ_FAIL;
     }
-    col_2_start = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, chrom_idx));
+    col_2_start = width_force(4, writebuf, chrom_name_write(writebuf, chrom_info_ptr, chrom_idx));
     *col_2_start++ = ' ';
     do {
       sptr = &(marker_ids[marker_uidx * max_marker_id_len]);
@@ -2503,7 +2522,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
 	uiptr2 = cluster_map_male;
 	for (clidx = 0; clidx < cluster_ct; clidx++) {
 	  wptr = fw_strcpy(8, &(cluster_ids[clidx * max_cluster_id_len]), wptr_start);
-	  wptr = memcpyax(wptr, csptr, cslen, ' ');
+	  wptr = memcpya(wptr, csptr, cslen);
 	  fill_uint_zero(cur_cts, 4);
 	  uiptr3 = &(cluster_map_nonmale[cluster_starts_nonmale[clidx + 1]]);
 	  while (uiptr < uiptr3) {
@@ -2528,7 +2547,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
 	  } else {
 	    wptr = memcpya(wptr, "       0      0        0 \n", 26);
 	  }
-	  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	  if (flexwrite_checked(writebuf, wptr - writebuf, output_gz, outfile, gz_outfile)) {
 	    goto write_stratified_freqs_ret_WRITE_FAIL;
 	  }
 	}
@@ -2536,7 +2555,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
 	uiptr = cluster_map_male;
 	for (clidx = 0; clidx < cluster_ct; clidx++) {
 	  wptr = fw_strcpy(8, &(cluster_ids[clidx * max_cluster_id_len]), wptr_start);
-	  wptr = memcpyax(wptr, csptr, cslen, ' ');
+	  wptr = memcpya(wptr, csptr, cslen);
 	  fill_uint_zero(cur_cts, 4);
 	  uiptr2 = &(cluster_map_male[cluster_starts_male[clidx + 1]]);
 	  while (uiptr < uiptr2) {
@@ -2558,7 +2577,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
 	  } else {
 	    wptr = memcpya(wptr, "       0      0        0 \n", 26);
 	  }
-	  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	  if (flexwrite_checked(writebuf, wptr - writebuf, output_gz, outfile, gz_outfile)) {
 	    goto write_stratified_freqs_ret_WRITE_FAIL;
 	  }
 	}
@@ -2566,7 +2585,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
         uiptr = cur_cluster_map;
 	for (clidx = 0; clidx < cluster_ct; clidx++) {
 	  wptr = fw_strcpy(8, &(cluster_ids[clidx * max_cluster_id_len]), wptr_start);
-	  wptr = memcpyax(wptr, csptr, cslen, ' ');
+	  wptr = memcpya(wptr, csptr, cslen);
 	  fill_uint_zero(cur_cts, 4);
 	  uiptr2 = &(cur_cluster_map[cur_cluster_starts[clidx + 1]]);
 	  while (uiptr < uiptr2) {
@@ -2588,7 +2607,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
 	  } else {
 	    wptr = memcpya(wptr, "       0      0        0 \n", 26);
 	  }
-	  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	  if (flexwrite_checked(writebuf, wptr - writebuf, output_gz, outfile, gz_outfile)) {
 	    goto write_stratified_freqs_ret_WRITE_FAIL;
 	  }
 	}
@@ -2602,7 +2621,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
       }
     } while (marker_uidx < chrom_end);
   }
-  if (fclose_null(&outfile)) {
+  if (flexclose_null(output_gz, &outfile, &gz_outfile)) {
     goto write_stratified_freqs_ret_WRITE_FAIL;
   }
   LOGPRINTFWW("--freq: Cluster-stratified allele frequencies (%s) written to %s .\n", nonfounders? "all samples" : "founders only", outname);
@@ -2622,6 +2641,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
   }
   wkspace_reset(wkspace_mark);
   fclose_cond(outfile);
+  gzclose_cond(gz_outfile);
   return retval;
 }
 
