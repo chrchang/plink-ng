@@ -7058,18 +7058,21 @@ int32_t main(int32_t argc, char** argv) {
 	}
         calculation_type |= CALC_HET;
       } else if ((!memcmp(argptr2, "ardy", 5)) || (!memcmp(argptr2, "ardy midp", 10))) {
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (argptr2[4]) {
 	  hwe_modifier |= HWE_MIDP;
 	}
-        if (param_ct) {
-	  if (strcmp(argv[cur_arg + 1], "midp")) {
-            sprintf(logbuf, "Error: Invalid --hardy parameter '%s'.\n", argv[cur_arg + 1]);
+	for (uii = 1; uii <= param_ct; uii++) {
+	  if (!strcmp(argv[cur_arg + uii], "midp")) {
+            hwe_modifier |= HWE_MIDP;
+	  } else if (!strcmp(argv[cur_arg + uii], "gz")) {
+	    hwe_modifier |= HWE_GZ;
+	  } else {
+            sprintf(logbuf, "Error: Invalid --hardy parameter '%s'.\n", argv[cur_arg + uii]);
             goto main_ret_INVALID_CMDLINE_WWA;
 	  }
-          hwe_modifier |= HWE_MIDP;
 	}
 	calculation_type |= CALC_HARDY;
       } else if (!memcmp(argptr2, "omozyg", 7)) {

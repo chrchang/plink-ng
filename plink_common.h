@@ -436,6 +436,7 @@
 #define HWE_MIDP 1
 #define HWE_THRESH_MIDP 2
 #define HWE_THRESH_ALL 4
+#define HWE_GZ 8
 
 #define MENDEL_FILTER 1
 #define MENDEL_FILTER_VAR_FIRST 2

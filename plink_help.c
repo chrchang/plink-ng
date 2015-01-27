@@ -517,7 +517,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Check for association between missing calls and flanking haplotypes.\n\n"
                );
     help_print("hardy\thardy2", &help_ctrl, 1,
-"  --hardy <midp>\n"
+"  --hardy <midp> <gz>\n"
 "    Generate a Hardy-Weinberg exact test p-value report.  (This does NOT\n"
 "    simultaneously filter on the p-value any more; use --hwe for that.)  With\n"
 "    the 'midp' modifier, the test applies the mid-p adjustment described in\n"
