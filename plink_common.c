@@ -568,6 +568,25 @@ int32_t read_tokens(FILE* infile, char* buf, uintptr_t half_bufsize, uintptr_t t
   }
 }
 
+int32_t gzputs_w4(gzFile gz_outfile, const char* ss) {
+  if (!ss[1]) {
+    if (gzputs(gz_outfile, "   ") == -1) {
+      return -1;
+    }
+    return gzputc(gz_outfile, ss[0]);
+  }
+  if (!ss[2]) {
+    if (gzputs(gz_outfile, "  ") == -1) {
+      return -1;
+    }
+  } else if (!ss[3]) {
+    if (gzputc(gz_outfile, ' ') == -1) {
+      return -1;
+    }
+  }
+  return gzputs(gz_outfile, ss);
+}
+
 int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr, uintptr_t* line_idx_ptr) {
   char* lptr;
   do {

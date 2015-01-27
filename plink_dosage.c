@@ -2001,14 +2001,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  } else {
 	    bufptr = memcpya(bufptr, "     NA      NA      NA\n", 25);
 	  }
-	  if (output_gz) {
-	    if (gzputs(gz_outfile, tbuf) == -1) {
-	      goto plink1_dosage_ret_WRITE_FAIL;
-	    }
-	  } else {
-	    if (fputs_checked(tbuf, outfile)) {
-	      goto plink1_dosage_ret_WRITE_FAIL;
-	    }
+	  if (flexputs_checked(tbuf, output_gz, outfile, gz_outfile)) {
+	    goto plink1_dosage_ret_WRITE_FAIL;
 	  }
 	} else if (do_score) {
 	  sample_valid_ct = popcount_longs(cur_samples, sample_ctl);
@@ -2275,12 +2269,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	bufptr3 = memcpyax(tbuf, bufptr2, slen, ' ');
 	bufptr3 = uint32_write(bufptr3, *((uint32_t*)(&(bufptr2[slen + 1]))));
 	memcpy(bufptr3, "\n", 2);
-	if (output_gz) {
-	  if (gzputs(gz_outfile, tbuf) == -1) {
-	    goto plink1_dosage_ret_WRITE_FAIL;
-	  }
-	} else {
-	  fputs(tbuf, outfile);
+	if (flexputs_checked(tbuf, output_gz, outfile, gz_outfile)) {
+	  goto plink1_dosage_ret_WRITE_FAIL;
 	}
       }
     }

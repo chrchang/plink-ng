@@ -866,6 +866,14 @@ static inline int32_t flexwrite_checked(const void* buf, size_t len, uint32_t ou
   }
 }
 
+static inline int32_t flexputs_checked(const char* ss, uint32_t output_gz, FILE* outfile, gzFile gz_outfile) {
+  if (!output_gz) {
+    return fputs_checked(ss, outfile);
+  } else {
+    return (gzputs(gz_outfile, ss) == -1);
+  }
+}
+
 static inline int32_t flexclose_null(uint32_t output_gz, FILE** fptr_ptr, gzFile* gzf_ptr) {
   if (!output_gz) {
     return fclose_null(fptr_ptr);
@@ -1142,6 +1150,8 @@ static inline void fputs_w4(char* ss, FILE* outfile) {
     fputs(ss, outfile);
   }
 }
+
+int32_t gzputs_w4(gzFile gz_outfile, const char* ss);
 
 int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr, uintptr_t* line_idx_ptr);
 

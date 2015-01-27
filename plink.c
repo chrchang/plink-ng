@@ -1249,14 +1249,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	}
 	retval = write_stratified_freqs(bedfile, bed_offset, outname, outname_end, (misc_flags / MISC_FREQ_GZ) & 1, plink_maxsnp, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_len, unfiltered_sample_ct, sample_ct, sample_f_ct, founder_info, nonfounders, sex_male, sample_f_male_ct, marker_reverse, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len);
       } else {
-	if (misc_flags & MISC_FREQX) {
-	  memcpy(outname_end, ".frqx", 6);
-	} else if (misc_flags & MISC_FREQ_COUNTS) {
-	  memcpy(outname_end, ".frq.count", 11);
-	} else {
-	  memcpy(outname_end, ".frq", 5);
-	}
-	retval = write_freqs(outname, plink_maxsnp, unfiltered_marker_ct, marker_exclude, set_allele_freqs, chrom_info_ptr, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_len, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, hwe_hapl_allfs, hwe_haph_allfs, sample_f_ct, sample_f_male_ct, nonfounders, misc_flags, marker_reverse);
+	retval = write_freqs(outname, outname_end, plink_maxsnp, unfiltered_marker_ct, marker_exclude, set_allele_freqs, chrom_info_ptr, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_len, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, hwe_hapl_allfs, hwe_haph_allfs, sample_f_ct, sample_f_male_ct, nonfounders, misc_flags, marker_reverse);
       }
       if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER | CALC_FREQ))))) {
 	goto plink_ret_1;

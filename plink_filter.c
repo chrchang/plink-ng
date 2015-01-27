@@ -2757,12 +2757,12 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   if (!output_gz) {
     memcpy(outname_end, ".lmiss", 7);
     if (fopen_checked(&outfile, outname, "w")) {
-      goto write_missingness_reports_ret_WRITE_FAIL;
+      goto write_missingness_reports_ret_OPEN_FAIL;
     }
   } else {
     memcpy(outname_end, ".lmiss.gz", 10);
     if (gzopen_checked(&gz_outfile, outname, "wb")) {
-      goto write_missingness_reports_ret_WRITE_FAIL;
+      goto write_missingness_reports_ret_OPEN_FAIL;
     }
   }
   if (om_ip->entry_ct) {
@@ -2827,8 +2827,13 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   }
   if (!output_gz) {
     fprintf(outfile, tbuf, "SNP");
+    if (ferror(outfile)) {
+      goto write_missingness_reports_ret_WRITE_FAIL;
+    }
   } else {
-    gzprintf(gz_outfile, tbuf, "SNP");
+    if (!gzprintf(gz_outfile, tbuf, "SNP")) {
+      goto write_missingness_reports_ret_WRITE_FAIL;
+    }
   }
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
@@ -2970,18 +2975,23 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   outname_end[1] = 'i';
   if (!output_gz) {
     if (fopen_checked(&outfile, outname, "w")) {
-      goto write_missingness_reports_ret_WRITE_FAIL;
+      goto write_missingness_reports_ret_OPEN_FAIL;
     }
   } else {
     if (gzopen_checked(&gz_outfile, outname, "wb")) {
-      goto write_missingness_reports_ret_WRITE_FAIL;
+      goto write_missingness_reports_ret_OPEN_FAIL;
     }
   }
   sprintf(tbuf, "%%%us %%%us MISS_PHENO   N_MISS   N_GENO   F_MISS\n", plink_maxfid, plink_maxiid);
   if (!output_gz) {
     fprintf(outfile, tbuf, "FID", "IID");
+    if (ferror(outfile)) {
+      goto write_missingness_reports_ret_WRITE_FAIL;
+    }
   } else {
-    gzprintf(gz_outfile, tbuf, "FID", "IID");
+    if (!gzprintf(gz_outfile, tbuf, "FID", "IID")) {
+      goto write_missingness_reports_ret_WRITE_FAIL;
+    }
   }
   do {
     sample_uidx = next_unset_unsafe(sample_exclude, sample_uidx);
@@ -3024,6 +3034,9 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   while (0) {
   write_missingness_reports_ret_NOMEM:
     retval = RET_NOMEM;
+    break;
+  write_missingness_reports_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
     break;
   write_missingness_reports_ret_READ_FAIL:
     retval = RET_READ_FAIL;
