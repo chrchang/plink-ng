@@ -14601,15 +14601,15 @@ static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t 
       llxx = ll_buf[read_pos];
       presort_idx = (uint32_t)llxx;
       cur_bp = (uint32_t)(llxx >> 32);
-      // do not merge chr 0 (unplaced) or bp 0.
-      if ((prev_bp == cur_bp) && prev_bp && (!unplaced)) {
+      // do not merge chr 0 (unplaced).
+      if ((prev_bp == cur_bp) && (!unplaced)) {
 	if (merge_equal_pos && merge_alleles(marker_allele_ptrs, ((uint32_t)ll_buf[read_pos - 1]), presort_idx)) {
 	  LOGPRINTFWW("Error: --merge-equal-pos failure.  Variants '%s' and '%s' have the same position, but do not share the same alleles.\n", &(marker_ids[max_marker_id_len * presort_idx]), &(marker_ids[max_marker_id_len * ((uint32_t)ll_buf[read_pos - 1])]));
 	  return 1;
 	}
 	LOGPREPRINTFWW("Warning: Variants '%s' and '%s' have the same position.\n", &(marker_ids[max_marker_id_len * presort_idx]), &(marker_ids[max_marker_id_len * ((uint32_t)ll_buf[read_pos - 1])]));
 	if (position_warning_ct < 3) {
-	  logprintb();          
+	  logprintb();
 	} else {
 	  logstr(logbuf);
 	}
