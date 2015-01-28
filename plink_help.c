@@ -1786,8 +1786,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                       7 = report mismatching nonmissing calls without merging\n"
 	       );
     help_print("merge\tbmerge\tmerge-list\tmerge-mode\tmerge-equal-pos", &help_ctrl, 0,
-"  --merge-equal-pos  : Merge variants with different names but identical\n"
-"                       positions.\n"
+"  --merge-equal-pos  : With --merge/--bmerge/--merge-list, merge variants with\n"
+"                       different names but identical positions.  (Exception:\n"
+"                       chromosome code 0 and bp coordinate 0 are skipped.)\n"
 	       );
     help_print("mendel-duos\tmendel-multigen\tme\tmendel\ttdt\tset-me-missing", &help_ctrl, 0,
 "  --mendel-duos      : Make Mendel error checks consider samples with only one\n"

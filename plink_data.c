@@ -14577,15 +14577,18 @@ static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t 
   uint32_t chrom_idx;
   uint32_t chrom_read_end_idx;
   int64_t llxx;
+  uint32_t unplaced;
   uint32_t prev_bp;
   uint32_t cur_bp;
   uint32_t presort_idx;
   for (chrom_idx = 0; chrom_idx < chrom_ct; chrom_idx++) {
-    if (!IS_SET(chrom_mask, chrom_id[chrom_idx])) {
+    unplaced = chrom_id[chrom_idx]; // initially chromosome code
+    if (!IS_SET(chrom_mask, unplaced)) {
       read_pos = chrom_start[chrom_idx + 1];
       chrom_start[chrom_idx + 1] = write_pos;
       continue;
     }
+    unplaced = (unplaced == 0) || (chrom_info_ptr->zero_extra_chroms && (unplaced > chrom_info_ptr->max_code));
     chrom_read_end_idx = chrom_start[chrom_idx + 1];
     // ll_buf has base-pair positions in high 32 bits, and pre-sort indices in
     // low 32 bits.
@@ -14598,21 +14601,19 @@ static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t 
       llxx = ll_buf[read_pos];
       presort_idx = (uint32_t)llxx;
       cur_bp = (uint32_t)(llxx >> 32);
-      if (prev_bp == cur_bp) {
+      // do not merge chr 0 (unplaced) or bp 0.
+      if ((prev_bp == cur_bp) && prev_bp && (!unplaced)) {
 	if (merge_equal_pos && merge_alleles(marker_allele_ptrs, ((uint32_t)ll_buf[read_pos - 1]), presort_idx)) {
 	  LOGPRINTFWW("Error: --merge-equal-pos failure.  Variants '%s' and '%s' have the same position, but do not share the same alleles.\n", &(marker_ids[max_marker_id_len * presort_idx]), &(marker_ids[max_marker_id_len * ((uint32_t)ll_buf[read_pos - 1])]));
 	  return 1;
 	}
-	if (prev_bp) {
-	  // no warning if prev_bp is 0
-	  LOGPREPRINTFWW("Warning: Variants '%s' and '%s' have the same position.\n", &(marker_ids[max_marker_id_len * presort_idx]), &(marker_ids[max_marker_id_len * ((uint32_t)ll_buf[read_pos - 1])]));
-	  if (position_warning_ct < 3) {
-	    logprintb();          
-	  } else {
-	    logstr(logbuf);
-	  }
-	  position_warning_ct++;
+	LOGPREPRINTFWW("Warning: Variants '%s' and '%s' have the same position.\n", &(marker_ids[max_marker_id_len * presort_idx]), &(marker_ids[max_marker_id_len * ((uint32_t)ll_buf[read_pos - 1])]));
+	if (position_warning_ct < 3) {
+	  logprintb();          
+	} else {
+	  logstr(logbuf);
 	}
+	position_warning_ct++;
 	if (merge_equal_pos) {
 	  marker_map[presort_idx] = write_pos - 1;
 	  continue;
