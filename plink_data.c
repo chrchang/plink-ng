@@ -9343,11 +9343,12 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       ucptr = (unsigned char*)loadbuf;
       if (ujj == 2) {
 	for (sample_idx = 0; sample_idx < sample_ct; sample_idx++, ucptr++) {
-	  ulii = *ucptr++;
+	  // discard all phase bits for now
+	  // missing = 0x80 or 0x81
+	  ulii = (*ucptr++) & 0x7e;
 	  if (ulii) {
-	    // discard all phase bits for now
 	    ulii = ((ulii / 2) - 1) * sample_ctv2;
-	    uljj = *ucptr;
+	    uljj = (*ucptr) & 0x7e;
 	    if (uljj) {
 	      set_bit(&(base_bitfields[ulii]), sample_idx * 2);
 	      base_bitfields[((uljj / 2) - 1) * sample_ctv2 + sample_idx / BITCT2] += ONELU << (2 * (sample_idx % BITCT2));
@@ -9359,7 +9360,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	}
       } else if (ujj == 1) {
 	for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
-	  ulii = *ucptr++;
+	  ulii = (*ucptr++) & 0x7e;
 	  if (ulii) {
 	    set_bit(&(base_bitfields[((ulii / 2) - 1) * sample_ctv2]), sample_idx * 2 + 1);
 	  }
@@ -9369,10 +9370,10 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	  if (ucptr[2]) {
 	    ucptr = &(ucptr[ujj]);
 	  } else {
-	    ulii = *ucptr++;
+	    ulii = (*ucptr++) & 0x7e;
 	    if (ulii) {
 	      ulii = ((ulii / 2) - 1) * sample_ctv2;
-	      uljj = *ucptr;
+	      uljj = (*ucptr) & 0x7e;
 	      if (uljj) {
 		set_bit(&(base_bitfields[ulii]), sample_idx * 2);
 		base_bitfields[((uljj / 2) - 1) * sample_ctv2 + sample_idx / BITCT2] += ONELU << (2 * (sample_idx % BITCT2));
@@ -9389,10 +9390,10 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       // bleah, this should totally use templates instead of cut-and-paste
       if (ujj == 2) {
 	for (sample_idx = 0; sample_idx < sample_ct; sample_idx++, ui16ptr++) {
-	  ulii = *ui16ptr++;
+	  ulii = (*ui16ptr++) & 0x7ffe;
 	  if (ulii) {
 	    ulii = ((ulii / 2) - 1) * sample_ctv2;
-            uljj = *ui16ptr;
+            uljj = (*ui16ptr) & 0x7ffe;
 	    if (uljj) {
 	      set_bit(&(base_bitfields[ulii]), sample_idx * 2);
 	      base_bitfields[((uljj / 2) - 1) * sample_ctv2 + sample_idx / BITCT2] += ONELU << (2 * (sample_idx % BITCT2));
@@ -9403,7 +9404,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	}
       } else if (ujj == 1) {
 	for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
-	  ulii = *ui16ptr++;
+	  ulii = (*ui16ptr++) & 0x7ffe;
 	  if (ulii) {
 	    set_bit(&(base_bitfields[((ulii / 2) - 1) * sample_ctv2]), sample_idx * 2 + 1);
 	  }
@@ -9413,10 +9414,10 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	  if (ui16ptr[2]) {
 	    ui16ptr = &(ui16ptr[ujj]);
 	  } else {
-	    ulii = *ui16ptr++;
+	    ulii = (*ui16ptr++) & 0x7ffe;
 	    if (ulii) {
 	      ulii = ((ulii / 2) - 1) * sample_ctv2;
-              uljj = *ui16ptr;
+              uljj = (*ui16ptr) & 0x7ffe;
 	      if (uljj) {
 		set_bit(&(base_bitfields[ulii]), sample_idx * 2);
 		base_bitfields[((uljj / 2) - 1) * sample_ctv2 + sample_idx / BITCT2] += ONELU << (2 * (sample_idx % BITCT2));
@@ -9432,10 +9433,10 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       uiptr = (uint32_t*)loadbuf;
       if (ujj == 2) {
 	for (sample_idx = 0; sample_idx < sample_ct; sample_idx++, uiptr++) {
-	  ulii = *uiptr++;
+	  ulii = (*uiptr++) & 0x7ffffffe;
 	  if (ulii) {
 	    ulii = ((ulii / 2) - 1) * sample_ctv2;
-            uljj = *uiptr;
+            uljj = (*uiptr) & 0x7ffffffe;
 	    if (uljj) {
 	      set_bit(&(base_bitfields[ulii]), sample_idx * 2);
 	      base_bitfields[((uljj / 2) - 1) * sample_ctv2 + sample_idx / BITCT2] += ONELU << (2 * (sample_idx % BITCT2));
@@ -9446,7 +9447,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	}
       } else if (ujj == 1) {
 	for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
-	  ulii = *uiptr++;
+	  ulii = (*uiptr++) & 0x7ffffffe;
 	  if (ulii) {
 	    set_bit(&(base_bitfields[((ulii / 2) - 1) * sample_ctv2]), sample_idx * 2 + 1);
 	  }
@@ -9456,10 +9457,10 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	  if (uiptr[2]) {
 	    uiptr = &(uiptr[ujj]);
 	  } else {
-	    ulii = *uiptr++;
+	    ulii = (*uiptr++) & 0x7ffffffe;
 	    if (ulii) {
 	      ulii = ((ulii / 2) - 1) * sample_ctv2;
-              uljj = *uiptr;
+              uljj = (*uiptr) & 0x7ffffffe;
 	      if (uljj) {
 		set_bit(&(base_bitfields[ulii]), sample_idx * 2);
 		base_bitfields[((uljj / 2) - 1) * sample_ctv2 + sample_idx / BITCT2] += ONELU << (2 * (sample_idx % BITCT2));
