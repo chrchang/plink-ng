@@ -422,6 +422,10 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
       score_qrange_bounds[2 * ulii + 1] = ubound;
       ulii++;
     }
+    if (ulii != qrange_ct) {
+      // catches /dev/stdin redirection
+      goto dosage_load_score_files_ret_READ_FAIL;
+    }
     if (fclose_null(&infile)) {
       goto dosage_load_score_files_ret_READ_FAIL;
     }
