@@ -4026,6 +4026,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   uint32_t shiftval;
   uint32_t bgen_compressed;
   uint32_t bgen_multichar_alleles;
+  uint32_t identical_alleles;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -4415,22 +4416,34 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
       if (putc_checked(' ', outfile_bim)) {
 	goto oxford_to_bed_ret_WRITE_FAIL;
       }
-      bufptr = bufptr2;
-      // todo: treat identical A1 and A2 as special case, since that prevents
-      // future merge?
-      bufptr2 = next_token_mult(bufptr, 2);
-      if (no_more_tokens_kns(bufptr2)) {
+      bufptr = next_token(bufptr2);
+      bufptr3 = next_token(bufptr);
+      if (no_more_tokens_kns(bufptr3)) {
 	goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
       }
-      bufptr2 = token_endnn(bufptr2);
-      fwrite(bufptr, 1, bufptr2 - bufptr, outfile_bim);
+      // bufptr2 = pos
+      // bufptr  = allele 1
+      // bufptr3 = allele 2
+      bufptr4 = token_endnn(bufptr3);
+      uii = (uintptr_t)(bufptr4 - bufptr3);
+      identical_alleles = (strlen_se(bufptr) == uii) && (!memcmp(bufptr, bufptr3, uii));
+      if (identical_alleles) {
+	// we treat identical A1 and A2 as a special case, since naive handling
+	// prevents e.g. later data merge.
+	// maybe add a warning?
+	fwrite(bufptr2, 1, strlen_se(bufptr2), outfile_bim);
+        fputs(" 0 ", outfile_bim);
+	fwrite(bufptr3, 1, bufptr4 - bufptr3, outfile_bim);        
+      } else {
+	fwrite(bufptr2, 1, bufptr4 - bufptr2, outfile_bim);
+      }
       if (putc_checked('\n', outfile_bim)) {
 	goto oxford_to_bed_ret_WRITE_FAIL;
       }
       cur_word = 0;
       shiftval = 0;
       ulptr = writebuf;
-      bufptr = skip_initial_spaces(&(bufptr2[1]));
+      bufptr = skip_initial_spaces(&(bufptr4[1]));
       for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
 	if (is_eoln_kns(*bufptr)) {
 	  goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
@@ -4557,6 +4570,16 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
       if (shiftval) {
 	*ulptr++ = cur_word;
       }
+      if (identical_alleles) {
+	// keep missing calls, but convert hom/het A1 to hom A2.
+	for (ulptr = writebuf; ulptr < (&(writebuf[sample_ctl2])); ulptr++) {
+	  ulii = *ulptr;
+	  *ulptr = ((~ulii) << 1) | ulii | FIVEMASK;
+	}
+	if (sample_ct % 4) {
+	  writebuf[sample_ctl2 - 1] &= (ONELU << (2 * (sample_ct % BITCT2))) - ONELU;
+	}
+      }
       if (fwrite_checked(writebuf, sample_ct4, outfile)) {
 	goto oxford_to_bed_ret_WRITE_FAIL;
       }
@@ -4582,9 +4605,9 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     }
     loadbuf = (char*)wkspace_base;
     loadbuf_size = wkspace_left;
-    if (loadbuf_size > MAXLINEBUFLEN / 2) {
+    if (loadbuf_size > MAXLINEBUFLEN) {
       // halve the limit since there are two alleles
-      loadbuf_size = MAXLINEBUFLEN / 2;
+      loadbuf_size = MAXLINEBUFLEN;
     } else if (loadbuf_size < 3 * 65536) {
       goto oxford_to_bed_ret_NOMEM;
     }
@@ -4740,8 +4763,8 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
         fwrite(bufptr, 1, usjj, outfile_bim);
 	bufptr = uint32_writex(&(tbuf[3]), uint_arr[0], ' ');
 	fwrite(tbuf, 1, bufptr - tbuf, outfile_bim);
-        if (uint_arr[1] >= loadbuf_size) {
-	  if (loadbuf_size < MAXLINEBUFLEN / 2) {
+        if (uint_arr[1] >= loadbuf_size / 2) {
+	  if (loadbuf_size < MAXLINEBUFLEN) {
 	    goto oxford_to_bed_ret_NOMEM;
 	  }
 	  logprint("Error: Excessively long allele in .bgen file.\n");
@@ -4751,25 +4774,31 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	  goto oxford_to_bed_ret_READ_FAIL;
 	}
 	loadbuf[uint_arr[1]] = ' ';
-        if (fwrite_checked(loadbuf, uint_arr[1] + 1, outfile_bim)) {
-	  goto oxford_to_bed_ret_WRITE_FAIL;
-	}
 	if (fread(&uii, 1, 4, infile) < 4) {
 	  goto oxford_to_bed_ret_READ_FAIL;
 	}
-        if (uii >= loadbuf_size) {
-	  if (loadbuf_size < MAXLINEBUFLEN / 2) {
+        if (uii >= loadbuf_size / 2) {
+	  if (loadbuf_size < MAXLINEBUFLEN) {
 	    goto oxford_to_bed_ret_NOMEM;
 	  }
 	  logprint("Error: Excessively long allele in .bgen file.\n");
 	  goto oxford_to_bed_ret_INVALID_FORMAT;
 	}
-        if (fread(loadbuf, 1, uii, infile) < uii) {
+	bufptr = &(loadbuf[uint_arr[1] + 1]);
+        if (fread(bufptr, 1, uii, infile) < uii) {
 	  goto oxford_to_bed_ret_READ_FAIL;
 	}
-	loadbuf[uii] = '\n';
-        if (fwrite_checked(loadbuf, uii + 1, outfile_bim)) {
-	  goto oxford_to_bed_ret_WRITE_FAIL;
+	bufptr[uii] = '\n';
+	identical_alleles = (uii == uint_arr[1]) && (!memcmp(loadbuf, bufptr, uii));
+	if (!identical_alleles) {
+	  if (fwrite_checked(loadbuf, uint_arr[1] + uii + 2, outfile_bim)) {
+	    goto oxford_to_bed_ret_WRITE_FAIL;
+	  }
+	} else {
+	  fputs("0 ", outfile_bim);
+	  if (fwrite_checked(bufptr, uii + 1, outfile_bim)) {
+	    goto oxford_to_bed_ret_WRITE_FAIL;
+	  }
 	}
       } else {
 	uii = 0;
@@ -4836,7 +4865,12 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	fwrite(&(loadbuf[uii + 2]), 1, ukk, outfile_bim);
 	memcpy(&ujj, &(loadbuf[2 * uii + 3]), 4);
 	bufptr = uint32_writex(&(tbuf[3]), ujj, ' ');
-	*bufptr++ = loadbuf[2 * uii + 7];
+	identical_alleles = (loadbuf[2 * uii + 7] == loadbuf[2 * uii + 8]);
+	if (!identical_alleles) {
+	  *bufptr++ = loadbuf[2 * uii + 7];
+	} else {
+	  *bufptr++ = '0';
+	}
 	*bufptr++ = ' ';
 	*bufptr++ = loadbuf[2 * uii + 8];
 	*bufptr++ = '\n';
@@ -4943,6 +4977,15 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
       }
       if (shiftval) {
 	*ulptr++ = cur_word;
+      }
+      if (identical_alleles) {
+	for (ulptr = writebuf; ulptr < (&(writebuf[sample_ctl2])); ulptr++) {
+	  ulii = *ulptr;
+	  *ulptr = ((~ulii) << 1) | ulii | FIVEMASK;
+	}
+	if (sample_ct % 4) {
+	  writebuf[sample_ctl2 - 1] &= (ONELU << (2 * (sample_ct % BITCT2))) - ONELU;
+	}
       }
       if (fwrite_checked(writebuf, sample_ct4, outfile)) {
 	goto oxford_to_bed_ret_WRITE_FAIL;
