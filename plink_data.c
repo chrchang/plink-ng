@@ -8976,7 +8976,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   if (((unsigned char)(tbuf[4])) > 2) {
     // defend against 0x82-0x87 being given a meaning in 8-bit int vectors,
     // etc.
-    LOGPREPRINTFWW("Error: %s appears to be formatted as BCFv2.%u; this PLINK build only supports v2.0-2.2. You may need to obtain an updated version of PLINK.\n", ((unsigned char)(tbuf[4])));
+    LOGPREPRINTFWW("Error: %s appears to be formatted as BCFv2.%u; this PLINK build only supports v2.0-2.2. You may need to obtain an updated version of PLINK.\n", bcfname, ((unsigned char)(tbuf[4])));
     goto bcf_to_bed_ret_INVALID_FORMAT_2;
   }
   if (gzread(gz_infile, &header_size, 4) < 4) {
