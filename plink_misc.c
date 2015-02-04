@@ -5637,7 +5637,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   if (!no_allele) {
     fputs("  A1  A2", outfile);
   }
-  fputs("   N           P        P(R)      OR   OR(R)       Q       I", outfile);
+  fputs(output_beta? "   N           P        P(R)    BETA BETA(R)       Q       I" : "   N           P        P(R)      OR   OR(R)       Q       I", outfile);
   if (weighted_z) {
     fputs("  WEIGHTED_Z       P(WZ)", outfile);
   }
