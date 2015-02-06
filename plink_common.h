@@ -404,6 +404,7 @@
 #define RECODE_FID 0x2000000
 #define RECODE_IID 0x4000000
 #define RECODE_INCLUDE_ALT 0x8000000
+#define RECODE_GZ 0x10000000
 
 #define GENOME_OUTPUT_GZ 1
 #define GENOME_REL_CHECK 2
@@ -865,6 +866,15 @@ static inline int32_t flexwrite_checked(const void* buf, size_t len, uint32_t ou
     return fwrite_checked(buf, len, outfile);
   } else {
     return (!gzwrite(gz_outfile, buf, len));
+  }
+}
+
+static inline int32_t flexputc_checked(int32_t ii, uint32_t output_gz, FILE* outfile, gzFile gz_outfile) {
+  if (!output_gz) {
+    putc(ii, outfile);
+    return ferror(outfile);
+  } else {
+    return (gzputc(gz_outfile, ii) == -1);
   }
 }
 
