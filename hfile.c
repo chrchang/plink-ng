@@ -298,14 +298,14 @@ void hclose_abruptly(hFILE *fp)
  * File descriptor backend *
  ***************************/
 
-#include <sys/socket.h>
+// #include <sys/socket.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
 
-#ifdef _WIN32
-#define HAVE_CLOSESOCKET
-#endif
+// #ifdef _WIN32
+// #define HAVE_CLOSESOCKET
+// #endif
 
 /* For Unix, it doesn't matter whether a file descriptor is a socket.
    However Windows insists on send()/recv() and its own closesocket()
@@ -314,7 +314,7 @@ void hclose_abruptly(hFILE *fp)
 typedef struct {
     hFILE base;
     int fd;
-    int is_socket:1;
+  // int is_socket:1;
 } hFILE_fd;
 
 static ssize_t fd_read(hFILE *fpv, void *buffer, size_t nbytes)
@@ -322,8 +322,11 @@ static ssize_t fd_read(hFILE *fpv, void *buffer, size_t nbytes)
     hFILE_fd *fp = (hFILE_fd *) fpv;
     ssize_t n;
     do {
+      /*
         n = fp->is_socket? recv(fp->fd, buffer, nbytes, 0)
                          : read(fp->fd, buffer, nbytes);
+      */
+        n = read(fp->fd, buffer, nbytes);
     } while (n < 0 && errno == EINTR);
     return n;
 }
@@ -333,8 +336,11 @@ static ssize_t fd_write(hFILE *fpv, const void *buffer, size_t nbytes)
     hFILE_fd *fp = (hFILE_fd *) fpv;
     ssize_t n;
     do {
+      /*
         n = fp->is_socket?  send(fp->fd, buffer, nbytes, 0)
                          : write(fp->fd, buffer, nbytes);
+      */
+        n = write(fp->fd, buffer, nbytes);
     } while (n < 0 && errno == EINTR);
     return n;
 }
@@ -398,7 +404,7 @@ static hFILE *hopen_fd(const char *filename, const char *mode)
     if (fp == NULL) goto error;
 
     fp->fd = fd;
-    fp->is_socket = 0;
+    // fp->is_socket = 0;
     fp->base.backend = &fd_backend;
     return &fp->base;
 
@@ -414,7 +420,7 @@ hFILE *hdopen(int fd, const char *mode)
     if (fp == NULL) return NULL;
 
     fp->fd = fd;
-    fp->is_socket = (strchr(mode, 's') != NULL);
+    // fp->is_socket = (strchr(mode, 's') != NULL);
     fp->base.backend = &fd_backend;
     return &fp->base;
 }
@@ -500,6 +506,7 @@ static const struct hFILE_backend mem_backend =
     mem_read, NULL, mem_seek, NULL, mem_close
 };
 
+/*
 static hFILE *hopen_mem(const char *data, const char *mode)
 {
     // TODO Implement write modes, which will require memory allocation
@@ -514,6 +521,7 @@ static hFILE *hopen_mem(const char *data, const char *mode)
     fp->base.backend = &mem_backend;
     return &fp->base;
 }
+*/
 
 
 /******************************
