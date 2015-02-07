@@ -12380,6 +12380,11 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       if (!bgz_outfile) {
 	goto recode_ret_OPEN_FAIL;
       }
+#ifndef _WIN32
+      if (g_thread_ct > 1) {
+	bgzf_mt(bgz_outfile, g_thread_ct, 128);
+      }
+#endif
     }
     wbufptr = memcpya(tbuf, "##fileformat=VCF4.2\n##fileDate=", 31);
     time(&rawtime);
