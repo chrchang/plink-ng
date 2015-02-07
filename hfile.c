@@ -355,16 +355,16 @@ static int fd_flush(hFILE *fpv)
 {
     hFILE_fd *fp = (hFILE_fd *) fpv;
     int ret;
-    do {
-#ifdef HAVE_FDATASYNC
-        ret = fdatasync(fp->fd);
+#ifdef _WIN32
+    ret = FlushFileBuffers(fp->fd)? 0 : -1;
 #else
+    do {
         ret = fsync(fp->fd);
-#endif
         // Ignore invalid-for-fsync(2) errors due to being, e.g., a pipe,
         // and operation-not-supported errors (Mac OS X)
         if (ret < 0 && (errno == EINVAL || errno == ENOTSUP)) ret = 0;
     } while (ret < 0 && errno == EINTR);
+#endif
     return ret;
 }
 
