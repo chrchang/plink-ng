@@ -14,6 +14,7 @@
 #include <sys/types.h>
 #include "plink_family.h"
 #include "plink_set.h"
+#include "bgzf.h"
 
 #define PHENO_EPSILON 0.000030517578125
 
@@ -11597,10 +11598,34 @@ uint32_t valid_vcf_allele_code(const char* allele_code) {
   return 1;
 }
 
+int32_t flexbwrite_checked(const void* buf, size_t len, uint32_t output_bgz, FILE* outfile, BGZF* bgz_outfile) {
+  if (!output_bgz) {
+    return fwrite_checked(buf, len, outfile);
+  } else {
+    return (bgzf_write(bgz_outfile, buf, len) < 0);
+  }
+}
+
+int32_t flexbputs_checked(const char* buf, uint32_t output_bgz, FILE* outfile, BGZF* bgz_outfile) {
+  if (!output_bgz) {
+    return fputs_checked(buf, outfile);
+  } else {
+    return (bgzf_write(bgz_outfile, buf, strlen(buf)) < 0);
+  }
+}
+
+int32_t flexbputc_checked(unsigned char ucc, uint32_t output_bgz, FILE* outfile, BGZF* bgz_outfile) {
+  if (!output_bgz) {
+    return putc_checked(ucc, outfile);
+  } else {
+    return (bgzf_write(bgz_outfile, &ucc, 1) < 0);
+  }
+}
+
 int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, char* recode_allele_name, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uint32_t* marker_pos, uintptr_t* marker_reverse, char* sample_ids, uintptr_t max_sample_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t map_is_unsorted, uint64_t misc_flags, uint32_t hh_exists, Chrom_info* chrom_info_ptr) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
-  gzFile gz_outfile = NULL;
+  BGZF* bgz_outfile = NULL;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t sample_ctv2 = 2 * ((sample_ct + (BITCT - 1)) / BITCT);
@@ -11622,7 +11647,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   uint32_t vcf_not_fid = (recode_modifier & RECODE_VCF) && (!(recode_modifier & RECODE_FID));
   uint32_t vcf_not_iid = (recode_modifier & RECODE_VCF) && (!(recode_modifier & RECODE_IID));
   uint32_t vcf_two_ids = vcf_not_fid && vcf_not_iid;
-  uint32_t output_gz = (recode_modifier / RECODE_GZ) & 1;
+  uint32_t output_bgz = (recode_modifier / RECODE_BGZ) & 1;
   uint32_t recode_012 = recode_modifier & (RECODE_01 | RECODE_12);
   uint32_t set_hh_missing = (misc_flags / MISC_SET_HH_MISSING) & 1;
   uint32_t real_ref_alleles = (misc_flags / MISC_REAL_REF_ALLELES) & 1;
@@ -12344,32 +12369,27 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       }
     }
   } else if (recode_modifier & RECODE_VCF) {
-    if (!output_gz) {
+    if (!output_bgz) {
       memcpy(outname_end, ".vcf", 5);
       if (fopen_checked(&outfile, outname, "w")) {
 	goto recode_ret_OPEN_FAIL;
       }
     } else {
       memcpy(outname_end, ".vcf.gz", 7);
-      if (gzopen_checked(&gz_outfile, outname, "wb")) {
+      bgz_outfile = bgzf_open(outname, "w");
+      if (!bgz_outfile) {
 	goto recode_ret_OPEN_FAIL;
       }
     }
-    if (flexputs_checked(
-"##fileformat=VCFv4.2\n"
-"##fileDate=", output_gz, outfile, gz_outfile)) {
-      goto recode_ret_WRITE_FAIL;
-    }
+    wbufptr = memcpya(tbuf, "##fileformat=VCF4.2\n##fileDate=", 31);
     time(&rawtime);
     loctime = localtime(&rawtime);
-    strftime(tbuf, MAXLINELEN, "%Y%m%d", loctime);
-    if (flexputs_checked(tbuf, output_gz, outfile, gz_outfile)) {
-      goto recode_ret_WRITE_FAIL;
-    }
-    if (flexputs_checked("\n##source=PLINKv1.90\n", output_gz, outfile, gz_outfile)) {
-      goto recode_ret_WRITE_FAIL;
-    }
+    wbufptr += strftime(wbufptr, MAXLINELEN, "%Y%m%d", loctime);
+    wbufptr = memcpya(wbufptr, "\n##source=PLINKv1.90\n", 21);
     uii = 0; // '0' written already?
+    if (flexbwrite_checked(tbuf, wbufptr - tbuf, output_bgz, outfile, bgz_outfile)) {
+      goto recode_ret_WRITE_FAIL;
+    }
     memcpy(tbuf, "##contig=<ID=", 13);
     for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
       chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
@@ -12397,19 +12417,19 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	}
       }
       cptr = memcpya(cptr, ">\n", 2);
-      if (flexwrite_checked(tbuf, cptr - tbuf, output_gz, outfile, gz_outfile)) {
+      if (flexbwrite_checked(tbuf, cptr - tbuf, output_bgz, outfile, bgz_outfile)) {
 	goto recode_ret_WRITE_FAIL;
       }
     }
     if (!real_ref_alleles) {
-      if (flexputs_checked("##INFO=<ID=PR,Number=0,Type=Flag,Description=\"Provisional reference allele, may not be based on real reference genome\"\n", output_gz, outfile, gz_outfile)) {
+      if (flexbputs_checked("##INFO=<ID=PR,Number=0,Type=Flag,Description=\"Provisional reference allele, may not be based on real reference genome\"\n", output_bgz, outfile, bgz_outfile)) {
 	goto recode_ret_WRITE_FAIL;
       }
     }
     // todo: include PEDIGREE in header, and make --vcf be able to read it?
-    if (flexputs_checked(
+    if (flexbputs_checked(
 "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n"
-"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT", output_gz, outfile, gz_outfile)) {
+"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT", output_bgz, outfile, bgz_outfile)) {
       goto recode_ret_WRITE_FAIL;
     }
     chrom_fo_idx = 0;
@@ -12421,11 +12441,11 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       next_unset_ul_unsafe_ck(sample_exclude, &sample_uidx);
       cptr = &(sample_ids[sample_uidx * max_sample_id_len]);
       ulii = strlen_se(cptr);
-      if (flexputc_checked('\t', output_gz, outfile, gz_outfile)) {
+      if (flexbputc_checked('\t', output_bgz, outfile, bgz_outfile)) {
 	goto recode_ret_WRITE_FAIL;
       }
       if (vcf_not_iid) {
-	if (flexwrite_checked(cptr, ulii, output_gz, outfile, gz_outfile)) {
+	if (flexbwrite_checked(cptr, ulii, output_bgz, outfile, bgz_outfile)) {
 	  goto recode_ret_WRITE_FAIL;
 	}
 	if (vcf_two_ids) {
@@ -12435,18 +12455,18 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	      logprint("Warning: Underscore(s) present in sample IDs.\n");
 	    }
 	  }
-	  if (flexputc_checked('_', output_gz, outfile, gz_outfile)) {
+	  if (flexbputc_checked('_', output_bgz, outfile, bgz_outfile)) {
 	    goto recode_ret_WRITE_FAIL;
 	  }
 	}
       }
       if (vcf_not_fid) {
-	if (flexputs_checked(&(cptr[ulii + 1]), output_gz, outfile, gz_outfile)) {
+	if (flexbputs_checked(&(cptr[ulii + 1]), output_bgz, outfile, bgz_outfile)) {
 	  goto recode_ret_WRITE_FAIL;
 	}
       }
     }
-    LOGPRINTFWW5("--recode vcf%s%s to %s ... ", vcf_not_iid? (vcf_not_fid? "" : "-fid") : "-iid", output_gz? " gz" : "", outname);
+    LOGPRINTFWW5("--recode vcf%s%s to %s ... ", vcf_not_iid? (vcf_not_fid? "" : "-fid") : "-iid", output_bgz? " bgz" : "", outname);
     fputs("0%", stdout);
     fflush(stdout);
     tbuf[0] = '\n';
@@ -12478,23 +12498,23 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	*wbufptr++ = '\t';
 	wbufptr = uint32_writex(wbufptr, marker_pos[marker_uidx], '\t');
 	wbufptr = strcpyax(wbufptr, &(marker_ids[marker_uidx * max_marker_id_len]), '\t');
-	if (flexwrite_checked(tbuf, wbufptr - tbuf, output_gz, outfile, gz_outfile)) {
+	if (flexbwrite_checked(tbuf, wbufptr - tbuf, output_bgz, outfile, bgz_outfile)) {
 	  goto recode_ret_WRITE_FAIL;
 	}
 	cptr = mk_allele_ptrs[2 * marker_uidx + 1];
 	if (cptr == missing_geno_ptr) {
-	  if (flexputc_checked('N', output_gz, outfile, gz_outfile)) {
+	  if (flexbputc_checked('N', output_bgz, outfile, bgz_outfile)) {
 	    goto recode_ret_WRITE_FAIL;
 	  }
 	} else {
           if ((!invalid_allele_code_seen) && (!valid_vcf_allele_code(cptr))) {
             invalid_allele_code_seen = 1;
 	  }
-	  if (flexputs_checked(cptr, output_gz, outfile, gz_outfile)) {
+	  if (flexbputs_checked(cptr, output_bgz, outfile, bgz_outfile)) {
 	    goto recode_ret_WRITE_FAIL;
 	  }
 	}
-	if (flexputc_checked('\t', output_gz, outfile, gz_outfile)) {
+	if (flexbputc_checked('\t', output_bgz, outfile, bgz_outfile)) {
 	  goto recode_ret_WRITE_FAIL;
 	}
 
@@ -12513,20 +12533,20 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  // if ALT allele is not actually present in immediate dataset, VCF
 	  // spec actually requires '.'
 	  if (!is_monomorphic_a2(loadbuf_collapsed, sample_ct)) {
-	    if (flexputs_checked(cptr, output_gz, outfile, gz_outfile)) {
+	    if (flexbputs_checked(cptr, output_bgz, outfile, bgz_outfile)) {
 	      goto recode_ret_WRITE_FAIL;
 	    }
 	  } else {
-	    if (flexputc_checked('.', output_gz, outfile, gz_outfile)) {
+	    if (flexbputc_checked('.', output_bgz, outfile, bgz_outfile)) {
 	      goto recode_ret_WRITE_FAIL;
 	    }
 	  }
 	} else {
-	  if (flexputc_checked('.', output_gz, outfile, gz_outfile)) {
+	  if (flexbputc_checked('.', output_bgz, outfile, bgz_outfile)) {
 	    goto recode_ret_WRITE_FAIL;
 	  }
 	}
-	if (flexputs_checked(real_ref_alleles? "\t.\t.\t.\tGT" : "\t.\t.\tPR\tGT", output_gz, outfile, gz_outfile)) {
+	if (flexbputs_checked(real_ref_alleles? "\t.\t.\t.\tGT" : "\t.\t.\tPR\tGT", output_bgz, outfile, bgz_outfile)) {
 	  goto recode_ret_WRITE_FAIL;
 	}
 	wbufptr = writebuf;
@@ -12570,7 +12590,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	    shiftmax = sample_ct % BITCT2;
 	  }
 	}
-	if (flexwrite_checked(writebuf, wbufptr - writebuf, output_gz, outfile, gz_outfile)) {
+	if (flexbwrite_checked(writebuf, wbufptr - writebuf, output_bgz, outfile, bgz_outfile)) {
 	  goto recode_ret_WRITE_FAIL;
 	}
       }
@@ -12582,13 +12602,15 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	fflush(stdout);
       }
     }
-    if (flexputc_checked('\n', output_gz, outfile, gz_outfile)) {
+    if (flexbputc_checked('\n', output_bgz, outfile, bgz_outfile)) {
       goto recode_ret_WRITE_FAIL;
     }
-    if (output_gz) {
-      if (gzclose_null(&gz_outfile)) {
+    if (output_bgz) {
+      if (bgzf_close(bgz_outfile)) {
+	bgz_outfile = NULL;
 	goto recode_ret_WRITE_FAIL;
       }
+      bgz_outfile = NULL;
     }
   } else if (recode_modifier & RECODE_OXFORD) {
     memcpy(outname_end, ".gen", 5);
@@ -13888,7 +13910,9 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   wkspace_reset(wkspace_mark);
   fclose_cond(outfile2);
   fclose_cond(outfile);
-  gzclose_cond(gz_outfile);
+  if (bgz_outfile) {
+    bgzf_close(bgz_outfile);
+  }
   return retval;
 }
 

@@ -104,7 +104,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (6 Feb 2015) ";
+  " (7 Feb 2015) ";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
@@ -10301,8 +10301,8 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    recode_modifier |= RECODE_DELIMX;
-	  } else if (!strcmp(argv[cur_arg + uii], "gz")) {
-	    recode_modifier |= RECODE_GZ;
+	  } else if (!strcmp(argv[cur_arg + uii], "bgz")) {
+	    recode_modifier |= RECODE_BGZ;
 	  } else if (!strcmp(argv[cur_arg + uii], "beagle")) {
 	    if (recode_type_set(&recode_modifier, RECODE_BEAGLE)) {
 	      goto main_ret_INVALID_CMDLINE_A;
@@ -10397,8 +10397,8 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --recode 'include-alt' modifier must be used with 'A' or 'AD'.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	if ((recode_modifier & RECODE_GZ) && (!(recode_modifier & RECODE_VCF))) {
-	  logprint("Error: --recode 'gz' modifier currently must be used with VCF output.\n");
+	if ((recode_modifier & RECODE_BGZ) && (!(recode_modifier & RECODE_VCF))) {
+	  logprint("Error: --recode 'bgz' modifier must be used with VCF output.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	calculation_type |= CALC_RECODE;
