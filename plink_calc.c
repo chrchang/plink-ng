@@ -4477,11 +4477,11 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
   int32_t write_ibs_matrix = dist_calc_type & DISTANCE_IBS;
   int32_t write_1mibs_matrix = dist_calc_type & DISTANCE_1_MINUS_IBS;
   int32_t retval = 0;
+  unsigned char overflow_buf[262144];
   double dxx;
   double dyy;
   double* dist_ptr;
   uintptr_t* glptr;
-  unsigned char* overflow_buf;
   uintptr_t sample_idx_ct;
   uintptr_t ulii;
   uintptr_t uljj;
