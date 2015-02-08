@@ -1112,7 +1112,11 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     }
   }
   if (g_thread_ct > 1) {
-    if ((calculation_type & (CALC_RELATIONSHIP | CALC_REL_CUTOFF | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_LD | CALC_PCA | CALC_MAKE_PERM_PHENO | CALC_QFAM)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_PERM | GLM_MPERM))) || ((calculation_type & CALC_TESTMISS) && (testmiss_modifier & (TESTMISS_PERM | TESTMISS_MPERM))) || ((calculation_type & CALC_TDT) && (fam_ip->tdt_modifier & (TDT_PERM | TDT_MPERM))) || ((calculation_type & CALC_DFAM) && (fam_ip->dfam_modifier & (DFAM_PERM | DFAM_MPERM))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname))) || ((calculation_type & CALC_EPI) && (epi_ip->modifier & (EPI_FAST | EPI_REG)))) {
+    if ((calculation_type & (CALC_RELATIONSHIP | CALC_REL_CUTOFF | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_LD | CALC_PCA | CALC_MAKE_PERM_PHENO | CALC_QFAM)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_PERM | GLM_MPERM))) || ((calculation_type & CALC_TESTMISS) && (testmiss_modifier & (TESTMISS_PERM | TESTMISS_MPERM))) || ((calculation_type & CALC_TDT) && (fam_ip->tdt_modifier & (TDT_PERM | TDT_MPERM))) || ((calculation_type & CALC_DFAM) && (fam_ip->dfam_modifier & (DFAM_PERM | DFAM_MPERM))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname))) || ((calculation_type & CALC_EPI) && (epi_ip->modifier & (EPI_FAST | EPI_REG)))
+#ifndef _WIN32
+	|| ((calculation_type & CALC_RECODE) && (((recode_modifier & (RECODE_VCF | RECODE_BGZ)) == (RECODE_VCF | RECODE_BGZ))))
+#endif
+) {
       LOGPRINTF("Using up to %u threads (change this with --threads).\n", g_thread_ct);
     } else {
       logprint("Using 1 thread (no multithreaded calculations invoked).\n");
