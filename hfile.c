@@ -410,7 +410,11 @@ static size_t blksize(int fd)
 {
     struct stat sbuf;
     if (fstat(fd, &sbuf) != 0) return 0;
+#ifdef _WIN32
+    return 512;
+#else
     return sbuf.st_blksize;
+#endif
 }
 
 static hFILE *hopen_fd(const char *filename, const char *mode)
