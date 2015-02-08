@@ -354,18 +354,37 @@ static off_t fd_seek(hFILE *fpv, off_t offset, int whence)
 static int fd_flush(hFILE *fpv)
 {
     hFILE_fd *fp = (hFILE_fd *) fpv;
-    int ret;
 #ifdef _WIN32
-    ret = FlushFileBuffers(fp->fd)? 0 : -1;
+    // See the patch at
+    // https://lists.gnu.org/archive/html/bug-gnulib/2008-10/msg00004.html .
+    HANDLE hh = (HANDLE)_get_osfhandle(fp->fd);
+    DWORD err;
+    if (hh == INVALID_HANDLE_VALUE) {
+        errno = EBADF;
+        return -1;
+    }
+    if (!FlushFileBuffers(hh)) {
+        err = GetLastError();
+        switch (err) {
+        case ERROR_INVALID_HANDLE:
+	    errno = EINVAL;
+	    break;
+	default:
+	    errno = EIO;
+	}
+	return -1;
+    }
+    return 0;
 #else
+    int ret;
     do {
         ret = fsync(fp->fd);
         // Ignore invalid-for-fsync(2) errors due to being, e.g., a pipe,
         // and operation-not-supported errors (Mac OS X)
         if (ret < 0 && (errno == EINVAL || errno == ENOTSUP)) ret = 0;
     } while (ret < 0 && errno == EINTR);
-#endif
     return ret;
+#endif
 }
 
 static int fd_close(hFILE *fpv)
