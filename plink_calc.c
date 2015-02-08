@@ -4481,6 +4481,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
   double dyy;
   double* dist_ptr;
   uintptr_t* glptr;
+  unsigned char* overflow_buf;
   uintptr_t sample_idx_ct;
   uintptr_t ulii;
   uintptr_t uljj;
@@ -4824,11 +4825,11 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  sprintf(outname_end, ".dist.gz");
 	}
 	if (shape == DISTANCE_SQ) {
-	  parallel_compress(outname, 0, distance_d_write_sq_emitn);
+	  parallel_compress(outname, overflow_buf, 0, distance_d_write_sq_emitn);
 	} else if (shape == DISTANCE_SQ0) {
-	  parallel_compress(outname, 0, distance_d_write_sq0_emitn);
+	  parallel_compress(outname, overflow_buf, 0, distance_d_write_sq0_emitn);
 	} else {
-	  parallel_compress(outname, 0, distance_d_write_tri_emitn);
+	  parallel_compress(outname, overflow_buf, 0, distance_d_write_tri_emitn);
 	}
       } else {
 	if (parallel_tot > 1) {
@@ -4837,11 +4838,11 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  sprintf(outname_end, ".dist");
 	}
 	if (shape == DISTANCE_SQ) {
-	  retval = write_uncompressed(outname, 0, distance_d_write_sq_emitn);
+	  retval = write_uncompressed(outname, overflow_buf, 0, distance_d_write_sq_emitn);
 	} else if (shape == DISTANCE_SQ0) {
-	  retval = write_uncompressed(outname, 0, distance_d_write_sq0_emitn);
+	  retval = write_uncompressed(outname, overflow_buf, 0, distance_d_write_sq0_emitn);
 	} else {
-	  retval = write_uncompressed(outname, 0, distance_d_write_tri_emitn);
+	  retval = write_uncompressed(outname, overflow_buf, 0, distance_d_write_tri_emitn);
 	}
 	if (retval) {
 	  goto distance_d_write_ret_1;
@@ -4862,11 +4863,11 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  sprintf(outname_end, ".mdist.gz");
 	}
 	if (shape == DISTANCE_SQ) {
-	  parallel_compress(outname, 0, distance_d_write_1mibs_sq_emitn);
+	  parallel_compress(outname, overflow_buf, 0, distance_d_write_1mibs_sq_emitn);
 	} else if (shape == DISTANCE_SQ0) {
-	  parallel_compress(outname, 0, distance_d_write_1mibs_sq0_emitn);
+	  parallel_compress(outname, overflow_buf, 0, distance_d_write_1mibs_sq0_emitn);
 	} else {
-	  parallel_compress(outname, 0, distance_d_write_1mibs_tri_emitn);
+	  parallel_compress(outname, overflow_buf, 0, distance_d_write_1mibs_tri_emitn);
 	}
       } else {
 	if (parallel_tot > 1) {
@@ -4875,11 +4876,11 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  sprintf(outname_end, ".mdist");
 	}
 	if (shape == DISTANCE_SQ) {
-	  retval = write_uncompressed(outname, 0, distance_d_write_1mibs_sq_emitn);
+	  retval = write_uncompressed(outname, overflow_buf, 0, distance_d_write_1mibs_sq_emitn);
 	} else if (shape == DISTANCE_SQ0) {
-	  retval = write_uncompressed(outname, 0, distance_d_write_1mibs_sq0_emitn);
+	  retval = write_uncompressed(outname, overflow_buf, 0, distance_d_write_1mibs_sq0_emitn);
 	} else {
-	  retval = write_uncompressed(outname, 0, distance_d_write_1mibs_tri_emitn);
+	  retval = write_uncompressed(outname, overflow_buf, 0, distance_d_write_1mibs_tri_emitn);
 	}
 	if (retval) {
 	  goto distance_d_write_ret_1;
@@ -4902,11 +4903,11 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  sprintf(outname_end, ".mibs.gz");
 	}
 	if (shape == DISTANCE_SQ) {
-	  parallel_compress(outname, 0, distance_d_write_ibs_sq_emitn);
+	  parallel_compress(outname, overflow_buf, 0, distance_d_write_ibs_sq_emitn);
 	} else if (shape == DISTANCE_SQ0) {
-	  parallel_compress(outname, 0, distance_d_write_ibs_sq0_emitn);
+	  parallel_compress(outname, overflow_buf, 0, distance_d_write_ibs_sq0_emitn);
 	} else {
-	  parallel_compress(outname, 0, distance_d_write_ibs_tri_emitn);
+	  parallel_compress(outname, overflow_buf, 0, distance_d_write_ibs_tri_emitn);
 	}
       } else {
 	if (parallel_tot > 1) {
@@ -4915,11 +4916,11 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  sprintf(outname_end, ".mibs");
 	}
 	if (shape == DISTANCE_SQ) {
-	  retval = write_uncompressed(outname, 0, distance_d_write_ibs_sq_emitn);
+	  retval = write_uncompressed(outname, overflow_buf, 0, distance_d_write_ibs_sq_emitn);
 	} else if (shape == DISTANCE_SQ0) {
-	  retval = write_uncompressed(outname, 0, distance_d_write_ibs_sq0_emitn);
+	  retval = write_uncompressed(outname, overflow_buf, 0, distance_d_write_ibs_sq0_emitn);
 	} else {
-	  retval = write_uncompressed(outname, 0, distance_d_write_ibs_tri_emitn);
+	  retval = write_uncompressed(outname, overflow_buf, 0, distance_d_write_ibs_tri_emitn);
 	}
 	if (retval) {
 	  goto distance_d_write_ret_1;
@@ -5239,6 +5240,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   int32_t missing_ct_buf[BITCT];
   double set_allele_freq_buf[GENOME_MULTIPLEX];
   uint32_t nchrobs_buf[GENOME_MULTIPLEX];
+  unsigned char* overflow_buf;
   unsigned char* gptr;
   char* cptr;
   uintptr_t* geno;
@@ -5337,7 +5339,8 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
       wkspace_alloc_ul_checked(&masks, sample_ct * (GENOME_MULTIPLEX / 4)) ||
       wkspace_alloc_ul_checked(&mmasks, sample_ct * sizeof(intptr_t)) ||
       wkspace_alloc_c_checked(&g_cg_fam1, plink_maxfid + 1) ||
-      wkspace_alloc_c_checked(&g_cg_fam2, plink_maxfid + 1)) {
+      wkspace_alloc_c_checked(&g_cg_fam2, plink_maxfid + 1) ||
+      wkspace_alloc_uc_checked(&overflow_buf, 262144)) {
     goto calc_genome_ret_NOMEM;
   }
 
@@ -5719,14 +5722,14 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
     } else {
       strcpy(outname_end, ".genome.gz");
     }
-    parallel_compress(outname, 0, calc_genome_emitn);
+    parallel_compress(outname, overflow_buf, 0, calc_genome_emitn);
   } else {
     if (parallel_tot > 1) {
       sprintf(outname_end, ".genome.%d", parallel_idx + 1);
     } else {
       strcpy(outname_end, ".genome");
     }
-    retval = write_uncompressed(outname, 0, calc_genome_emitn);
+    retval = write_uncompressed(outname, overflow_buf, 0, calc_genome_emitn);
     if (retval) {
       goto calc_genome_ret_1;
     }
@@ -6119,6 +6122,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   uint32_t rel_calc_type = relip->modifier & REL_CALC_MASK;
   uintptr_t* compact_rel_table;
   uintptr_t* rtptr;
+  unsigned char* overflow_buf;
   char* bufptr;
   uint64_t ullii;
   uint64_t ulljj;
@@ -6185,7 +6189,8 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
     goto rel_cutoff_batch_ret_NOMEM;
   }
   fill_ulong_zero(compact_rel_table, tot_words);
-  if (wkspace_alloc_i_checked(&rel_ct_arr, sample_ct * sizeof(int32_t))) {
+  if (wkspace_alloc_i_checked(&rel_ct_arr, sample_ct * sizeof(int32_t)) ||
+      wkspace_alloc_uc_checked(&overflow_buf, 262144)) {
     goto rel_cutoff_batch_ret_NOMEM;
   }
   fill_int_zero(rel_ct_arr, sample_ct);
@@ -6539,10 +6544,10 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
       if (load_grm_bin) {
 	if (rel_calc_type & REL_CALC_GZ) {
 	  memcpy(outname_end, ".grm.gz", 8);
-	  parallel_compress(outname, 0, rel_cutoff_batch_rbin_emitn);
+	  parallel_compress(outname, overflow_buf, 0, rel_cutoff_batch_rbin_emitn);
 	} else {
 	  memcpy(outname_end, ".grm", 5);
-	  retval = write_uncompressed(outname, 0, rel_cutoff_batch_rbin_emitn);
+	  retval = write_uncompressed(outname, overflow_buf, 0, rel_cutoff_batch_rbin_emitn);
 	  if (retval) {
 	    goto rel_cutoff_batch_ret_1;
 	  }
@@ -6550,10 +6555,10 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
       } else {
 	if (rel_calc_type & REL_CALC_GZ) {
 	  memcpy(outname_end, ".grm.gz", 8);
-	  parallel_compress(outname, 0, rel_cutoff_batch_emitn);
+	  parallel_compress(outname, overflow_buf, 0, rel_cutoff_batch_emitn);
 	} else {
 	  memcpy(outname_end, ".grm", 5);
-	  retval = write_uncompressed(outname, 0, rel_cutoff_batch_emitn);
+	  retval = write_uncompressed(outname, overflow_buf, 0, rel_cutoff_batch_emitn);
 	  if (retval) {
 	    goto rel_cutoff_batch_ret_1;
 	  }
@@ -6905,6 +6910,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   char wbuf[96];
   uint64_t start_offset;
   uint64_t hundredth;
+  unsigned char* overflow_buf;
   char* wptr;
   char* fam_id;
   char* sample_id;
@@ -7003,7 +7009,8 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       wkspace_alloc_ul_checked(&mmasks, sample_ct * sizeof(intptr_t)) ||
       wkspace_alloc_uc_checked(&gptr, MULTIPLEX_REL * unfiltered_sample_ct4) ||
       wkspace_alloc_ul_checked(&masks, sample_ct * sizeof(intptr_t)) ||
-      wkspace_alloc_d_checked(&weights, 2048 * BITCT * sizeof(double))) {
+      wkspace_alloc_d_checked(&weights, 2048 * BITCT * sizeof(double)) ||
+      wkspace_alloc_uc_checked(&overflow_buf, 262144)) {
     goto calc_rel_ret_NOMEM;
   }
   g_geno = (unsigned char*)geno;
@@ -7354,13 +7361,13 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	  } else {
 	    strcpy(outname_end, ".grm.gz");
 	  }
-	  parallel_compress(outname, 0, calc_rel_grm_emitn);
+	  parallel_compress(outname, overflow_buf, 0, calc_rel_grm_emitn);
 	} else {
 	  strcpy(outname_end, ".grm");
 	  if (parallel_tot > 1) {
 	    sprintf(&(outname_end[4]), ".%u", parallel_idx + 1);
 	  }
-	  retval = write_uncompressed(outname, 0, calc_rel_grm_emitn);
+	  retval = write_uncompressed(outname, overflow_buf, 0, calc_rel_grm_emitn);
 	  if (retval) {
 	    goto calc_rel_ret_1;
 	  }
@@ -7380,9 +7387,9 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	}
 	if (rel_shape == REL_CALC_TRI) {
 	  if (rel_calc_type & REL_CALC_GZ) {
-	    parallel_compress(outname, 0, calc_rel_tri_emitn);
+	    parallel_compress(outname, overflow_buf, 0, calc_rel_tri_emitn);
 	  } else {
-	    retval = write_uncompressed(outname, 0, calc_rel_tri_emitn);
+	    retval = write_uncompressed(outname, overflow_buf, 0, calc_rel_tri_emitn);
 	    if (retval) {
 	      goto calc_rel_ret_1;
 	    }
@@ -7406,9 +7413,9 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	  }
 	  g_cr_min_sample = min_sample;
 	  if (rel_calc_type & REL_CALC_GZ) {
-	    parallel_compress(outname, 0, calc_rel_sq0_emitn);
+	    parallel_compress(outname, overflow_buf, 0, calc_rel_sq0_emitn);
 	  } else {
-	    retval = write_uncompressed(outname, 0, calc_rel_sq0_emitn);
+	    retval = write_uncompressed(outname, overflow_buf, 0, calc_rel_sq0_emitn);
 	    if (retval) {
 	      goto calc_rel_ret_1;
 	    }
@@ -7416,9 +7423,9 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	} else {
 	  g_cr_min_sample = min_sample;
 	  if (rel_calc_type & REL_CALC_GZ) {
-	    parallel_compress(outname, 0, calc_rel_sq_emitn);
+	    parallel_compress(outname, overflow_buf, 0, calc_rel_sq_emitn);
 	  } else {
-	    retval = write_uncompressed(outname, 0, calc_rel_sq_emitn);
+	    retval = write_uncompressed(outname, overflow_buf, 0, calc_rel_sq_emitn);
 	    if (retval) {
 	      goto calc_rel_ret_1;
 	    }

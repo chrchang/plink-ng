@@ -309,8 +309,7 @@ void pigz_init(uint32_t setprocs) {
   return;
 }
 
-void parallel_compress(char* out_fname, uint32_t do_append, uint32_t(* emitn)(uint32_t, unsigned char*)) {
-  unsigned char buf[BLOCKSIZE + SUPERSIZE];
+void parallel_compress(char* out_fname, unsigned char* overflow_buf, uint32_t do_append, uint32_t(* emitn)(uint32_t, unsigned char*)) {
   uint32_t overflow_ct = 0;
   gzFile gz_outfile = gzopen(out_fname, do_append? "ab": "wb");
   uint32_t last_size;
@@ -319,7 +318,7 @@ void parallel_compress(char* out_fname, uint32_t do_append, uint32_t(* emitn)(ui
     exit(2);
   }
   do {
-    last_size = emitn(overflow_ct, buf);
+    last_size = emitn(overflow_ct, overflow_buf);
     if (last_size > BLOCKSIZE) {
       overflow_ct = last_size - BLOCKSIZE;
       last_size = BLOCKSIZE;
@@ -327,18 +326,18 @@ void parallel_compress(char* out_fname, uint32_t do_append, uint32_t(* emitn)(ui
       overflow_ct = 0;
     }
     if (last_size) {
-      if (!gzwrite(gz_outfile, buf, last_size)) {
-	printf("\nError: File write failure.\n");
+      if (!gzwrite(gz_outfile, overflow_buf, last_size)) {
+	fputs("\nError: File write failure.\n", stdout);
 	gzclose(gz_outfile);
 	exit(6);
       }
     }
     if (overflow_ct) {
-      memcpy(buf, &(buf[BLOCKSIZE]), overflow_ct);
+      memcpy(overflow_buf, &(overflow_buf[BLOCKSIZE]), overflow_ct);
     }
   } while (last_size);
   if (gzclose(gz_outfile) != Z_OK) {
-    printf("\nError: File write failure.\n");
+    fputs("\nError: File write failure.\n", stdout);
     exit(6);
   }
 }
@@ -1192,9 +1191,11 @@ local void write_thread(void *dummy)
    value calculations and one other thread for writing the output -- compress
    threads will be launched and left running (waiting actually) to support
    subsequent calls of parallel_compress() */
-void parallel_compress(char* out_fname, uint32_t do_append, uint32_t(* emitn)(uint32_t, unsigned char*))
+void parallel_compress(char* out_fname, unsigned char* overflow_buf, uint32_t do_append, uint32_t(* emitn)(uint32_t, unsigned char*))
 {
-    unsigned char overflow_buf[SUPERSIZE];
+    // overflow_buf must have size >= BLOCKSIZE + maximum emission 
+    // maximum emission currently limited to BLOCKSIZE, will try to change this
+    // soon
     uint32_t overflow_ct;
     long seq;                       /* sequence number */
     struct space *curr;             /* input data to compress */
@@ -1337,8 +1338,7 @@ void pigz_init(uint32_t setprocs)
 
 // provide identical interface for uncompressed writing, to simplify code that
 // can generate either compressed or uncompressed output
-int32_t write_uncompressed(char* out_fname, uint32_t do_append, uint32_t(* emitn)(uint32_t, unsigned char*)) {
-  unsigned char buf[BLOCKSIZE + SUPERSIZE];
+int32_t write_uncompressed(char* out_fname, unsigned char* overflow_buf, uint32_t do_append, uint32_t(* emitn)(uint32_t, unsigned char*)) {
   uint32_t overflow_ct = 0;
   // if it's potentially worth compressing, it should be text, hence mode "w"
   // instead of "wb"
@@ -1349,7 +1349,7 @@ int32_t write_uncompressed(char* out_fname, uint32_t do_append, uint32_t(* emitn
     return 2; // RET_OPEN_FAIL
   }
   do {
-    last_size = emitn(overflow_ct, buf);
+    last_size = emitn(overflow_ct, overflow_buf);
     if (last_size > BLOCKSIZE) {
       overflow_ct = last_size - BLOCKSIZE;
       last_size = BLOCKSIZE;
@@ -1357,14 +1357,14 @@ int32_t write_uncompressed(char* out_fname, uint32_t do_append, uint32_t(* emitn
       overflow_ct = 0;
     }
     if (last_size) {
-      if (!fwrite(buf, last_size, 1, outfile)) {
+      if (!fwrite(overflow_buf, last_size, 1, outfile)) {
 	printf("\nError: File write failure.\n");
 	fclose(outfile);
 	return 6; // RET_WRITE_FAIL
       }
     }
     if (overflow_ct) {
-      memcpy(buf, &(buf[BLOCKSIZE]), overflow_ct);
+      memcpy(overflow_buf, &(overflow_buf[BLOCKSIZE]), overflow_ct);
     }
   } while (last_size);
   if (fclose(outfile)) {

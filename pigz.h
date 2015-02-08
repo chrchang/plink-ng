@@ -6,10 +6,10 @@
 
 #define PIGZ_BLOCK_SIZE 131072
 
-void parallel_compress(char* out_fname, uint32_t do_append, uint32_t(* emitn)(uint32_t, unsigned char*));
+void parallel_compress(char* out_fname, unsigned char* overflow_buf, uint32_t do_append, uint32_t(* emitn)(uint32_t, unsigned char*));
 
 void pigz_init(uint32_t setprocs);
 
-int32_t write_uncompressed(char* out_fname, uint32_t do_append, uint32_t(* emitn)(uint32_t, unsigned char*));
+int32_t write_uncompressed(char* out_fname, unsigned char* overflow_buf, uint32_t do_append, uint32_t(* emitn)(uint32_t, unsigned char*));
 
 #endif // __PIGZ_H__

@@ -2156,6 +2156,7 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   int32_t retval = 0;
   unsigned char* wkspace_mark2;
   uintptr_t* ulptr;
+  unsigned char* overflow_buf;
   uint64_t tests_completed;
   uintptr_t thread_workload;
   uintptr_t cur_idx2_block_size;
@@ -2173,6 +2174,9 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   uint32_t chrom_end;
   uint32_t is_last_block;
 
+  if (wkspace_alloc_uc_checked(&overflow_buf, 262144)) {
+    goto ld_report_matrix_ret_NOMEM;
+  }
   if (output_single_prec) {
     // force divisibility by 16 instead (cacheline = 64 bytes, float = 4)
     marker_ctm8 = (marker_ctm8 + 8) & (~15);
@@ -2477,9 +2481,9 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 	g_ld_idx2_block_size = marker_idx1 + 1;
       }
       if (output_gz) {
-        parallel_compress(outname, not_first_write, ld_matrix_emitn);
+        parallel_compress(outname, overflow_buf, not_first_write, ld_matrix_emitn);
       } else {
-        write_uncompressed(outname, not_first_write, ld_matrix_emitn);
+        write_uncompressed(outname, overflow_buf, not_first_write, ld_matrix_emitn);
       }
       not_first_write = 1;
     }
@@ -5182,6 +5186,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   uintptr_t* dummy_nm;
   uintptr_t* ulptr;
   uint32_t* uiptr;
+  unsigned char* overflow_buf;
   unsigned char* wkspace_mark2;
   uintptr_t thread_workload;
   uintptr_t idx1_block_size;
@@ -5202,7 +5207,8 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   uint32_t cur_marker_pos;
   uint32_t is_last_block;
   uint32_t uii;
-  if (wkspace_alloc_ul_checked(&loadbuf, founder_ctl * 2 * sizeof(intptr_t)) ||
+  if (wkspace_alloc_uc_checked(&overflow_buf, 262144) ||
+      wkspace_alloc_ul_checked(&loadbuf, founder_ctl * 2 * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&dummy_nm, founder_ctl * sizeof(intptr_t))) {
     goto ld_report_dprime_ret_NOMEM;
   }
@@ -5488,9 +5494,9 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     g_ld_idx2_block_start = 0;
     g_ld_block_idx2 = 0;
     if (output_gz) {
-      parallel_compress(outname, not_first_write, ld_regular_emitn);
+      parallel_compress(outname, overflow_buf, not_first_write, ld_regular_emitn);
     } else {
-      write_uncompressed(outname, not_first_write, ld_regular_emitn);
+      write_uncompressed(outname, overflow_buf, not_first_write, ld_regular_emitn);
     }
     not_first_write = 1;
     g_ld_is_first_block = 0;
@@ -5573,6 +5579,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
   uint32_t chrom_last = 0;
   int32_t retval = 0;
   unsigned char* wkspace_mark2;
+  unsigned char* overflow_buf;
   uint32_t* id_map;
   char* sorted_ids;
   char* bufptr;
@@ -5608,6 +5615,9 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
   uint32_t is_last_block;
   uint32_t uii;
   int32_t ii;
+  if (wkspace_alloc_uc_checked(&overflow_buf, 262144)) {
+    goto ld_report_regular_ret_NOMEM;
+  }
   if (idx1_subset) {
     if (wkspace_alloc_ul_checked(&marker_exclude_idx1, unfiltered_marker_ctl * sizeof(intptr_t))) {
       goto ld_report_regular_ret_NOMEM;
@@ -5980,9 +5990,9 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
     g_ld_idx2_block_start = 0;
     g_ld_block_idx2 = 0;
     if (output_gz) {
-      parallel_compress(outname, not_first_write, ld_regular_emitn);
+      parallel_compress(outname, overflow_buf, not_first_write, ld_regular_emitn);
     } else {
-      write_uncompressed(outname, not_first_write, ld_regular_emitn);
+      write_uncompressed(outname, overflow_buf, not_first_write, ld_regular_emitn);
     }
     not_first_write = 1;
     g_ld_is_first_block = 0;
