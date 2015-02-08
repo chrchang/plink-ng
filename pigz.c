@@ -291,11 +291,7 @@
    input buffers to about the same number.
  */
 
-#include <stdint.h>
-#include <inttypes.h>
-#define BLOCKSIZE 131072LU
-// extra allocated input buffer space, to simplify callback function logic
-#define SUPERSIZE 131072LU
+#include "pigz.h"
 
 #ifdef _WIN32
 // stopgap non-parallel code for Windows
@@ -310,8 +306,10 @@ void pigz_init(uint32_t setprocs) {
 }
 
 void parallel_compress(char* out_fname, unsigned char* overflow_buf, uint32_t do_append, uint32_t(* emitn)(uint32_t, unsigned char*)) {
+  // minor issue: this currently writes \n instead of \r\n linebreaks.
   uint32_t overflow_ct = 0;
   gzFile gz_outfile = gzopen(out_fname, do_append? "ab": "wb");
+  unsigned char* write_ptr;
   uint32_t last_size;
   if (!gz_outfile) {
     printf("\nError: Failed to open %s.\n", out_fname);
@@ -319,9 +317,9 @@ void parallel_compress(char* out_fname, unsigned char* overflow_buf, uint32_t do
   }
   do {
     last_size = emitn(overflow_ct, overflow_buf);
-    if (last_size > BLOCKSIZE) {
-      overflow_ct = last_size - BLOCKSIZE;
-      last_size = BLOCKSIZE;
+    if (last_size > PIGZ_BLOCK_SIZE) {
+      overflow_ct = last_size - PIGZ_BLOCK_SIZE;
+      last_size = PIGZ_BLOCK_SIZE;
     } else {
       overflow_ct = 0;
     }
@@ -333,7 +331,17 @@ void parallel_compress(char* out_fname, unsigned char* overflow_buf, uint32_t do
       }
     }
     if (overflow_ct) {
-      memcpy(overflow_buf, &(overflow_buf[BLOCKSIZE]), overflow_ct);
+      write_ptr = &(overflow_buf[PIGZ_BLOCK_SIZE]);
+      while (overflow_ct > PIGZ_BLOCK_SIZE) {
+	if (!gzwrite(gz_outfile, write_ptr, PIGZ_BLOCK_SIZE)) {
+	  fputs("\nError: File write failure.\n", stdout);
+	  gzclose(gz_outfile);
+	  exit(6);
+	}
+	write_ptr = &(write_ptr[PIGZ_BLOCK_SIZE]);
+	overflow_ct -= PIGZ_BLOCK_SIZE;
+      }
+      memcpy(overflow_buf, write_ptr, overflow_ct);
     }
   } while (last_size);
   if (gzclose(gz_outfile) != Z_OK) {
@@ -891,7 +899,7 @@ local void setup_jobs(void)
     /* initialize buffer pools (initial size for out_pool not critical, since
        buffers will be grown in size if needed -- initial size chosen to make
        this unlikely -- same for lens_pool) */
-    new_pool(&in_pool, g.block + SUPERSIZE, INBUFS(g.procs));
+    new_pool(&in_pool, g.block, INBUFS(g.procs));
     new_pool(&out_pool, OUTPOOL(g.block), -1);
     new_pool(&dict_pool, DICT, -1);
     new_pool(&lens_pool, g.block >> (RSYNCBITS - 1), -1);
@@ -1193,17 +1201,22 @@ local void write_thread(void *dummy)
    subsequent calls of parallel_compress() */
 void parallel_compress(char* out_fname, unsigned char* overflow_buf, uint32_t do_append, uint32_t(* emitn)(uint32_t, unsigned char*))
 {
-    // overflow_buf must have size >= BLOCKSIZE + maximum emission 
-    // maximum emission currently limited to BLOCKSIZE, will try to change this
-    // soon
+    // overflow_buf must have size >= PIGZ_BLOCK_SIZE + maximum emission 
+
+    // if overflow_ct is nonzero, this points to the first uncompressed
+    // character in overflow_buf
+    unsigned char* read_ptr = NULL;
+
     uint32_t overflow_ct;
     long seq;                       /* sequence number */
     struct space *curr;             /* input data to compress */
     struct space *next;             /* input data that follows curr */
     struct space *dict;             /* dictionary for next compression */
     struct job *job;                /* job for compress, then write */
+
     int more;                       /* true if more input to read */
     size_t len;                     /* for various length computations */
+    uint32_t cur_len;
 
     g.outf = out_fname;
     g.outd = open(g.outf, O_WRONLY | (do_append? O_APPEND : (O_CREAT | O_TRUNC)), 0644);
@@ -1218,14 +1231,17 @@ void parallel_compress(char* out_fname, unsigned char* overflow_buf, uint32_t do
      the output of the compress threads) */
     seq = 0;
     next = get_space(&in_pool);
-    next->len = emitn(0, next->buf);
-    if (next->len > BLOCKSIZE) {
-	overflow_ct = next->len - BLOCKSIZE;
-	memcpy(overflow_buf, &(next->buf[BLOCKSIZE]), overflow_ct);
-	next->len = BLOCKSIZE;
+    cur_len = emitn(0, overflow_buf);
+    if (cur_len > PIGZ_BLOCK_SIZE) {
+        memcpy(next->buf, overflow_buf, PIGZ_BLOCK_SIZE);
+	next->len = PIGZ_BLOCK_SIZE;
+	read_ptr = &(overflow_buf[PIGZ_BLOCK_SIZE]);
     } else {
-	overflow_ct = 0;
+	memcpy(next->buf, overflow_buf, cur_len);
+        next->len = cur_len;
     }
+    overflow_ct = cur_len - next->len;
+
     dict = NULL;
     do {
         /* create a new job */
@@ -1239,14 +1255,27 @@ void parallel_compress(char* out_fname, unsigned char* overflow_buf, uint32_t do
 
         /* get more input if we don't already have some */
 	next = get_space(&in_pool);
-	memcpy(next->buf, overflow_buf, overflow_ct);
-	next->len = emitn(overflow_ct, next->buf);
-	if (next->len > BLOCKSIZE) {
-	    overflow_ct = next->len - BLOCKSIZE;
-	    memcpy(overflow_buf, &(next->buf[BLOCKSIZE]), overflow_ct);
-	    next->len = BLOCKSIZE;
+	if (overflow_ct >= PIGZ_BLOCK_SIZE) {
+	    // no need to call emitn(), since we still have >= 128K of text
+	    // from the previous call to compress
+	    memcpy(next->buf, read_ptr, PIGZ_BLOCK_SIZE);
+	    next->len = PIGZ_BLOCK_SIZE;
+	    read_ptr = &(read_ptr[PIGZ_BLOCK_SIZE]);
+	    overflow_ct -= PIGZ_BLOCK_SIZE;
 	} else {
-	    overflow_ct = 0;
+	    if (overflow_ct) {
+	        memcpy(overflow_buf, read_ptr, overflow_ct);
+	    }
+	    cur_len = emitn(overflow_ct, overflow_buf);
+	    if (cur_len > PIGZ_BLOCK_SIZE) {
+	        memcpy(next->buf, overflow_buf, PIGZ_BLOCK_SIZE);
+		next->len = PIGZ_BLOCK_SIZE;
+		read_ptr = &(overflow_buf[PIGZ_BLOCK_SIZE]);
+	    } else {
+	        memcpy(next->buf, overflow_buf, cur_len);
+		next->len = cur_len;
+	    }
+	    overflow_ct = cur_len - next->len;
 	}
 
         /* if rsyncable, generate block lengths and prepare curr for job to
@@ -1331,7 +1360,7 @@ void pigz_init(uint32_t setprocs)
 #endif
     yarn_prefix = g.prog;
     yarn_abort = cut_short;
-    g.block = BLOCKSIZE;            /* 128K */
+    g.block = PIGZ_BLOCK_SIZE;            /* 128K */
     g.verbosity = 1;                /* normal message level */
 }
 #endif // _WIN32
@@ -1343,6 +1372,7 @@ int32_t write_uncompressed(char* out_fname, unsigned char* overflow_buf, uint32_
   // if it's potentially worth compressing, it should be text, hence mode "w"
   // instead of "wb"
   FILE* outfile = fopen(out_fname, do_append? "a" : "w");
+  unsigned char* write_ptr;
   uint32_t last_size;
   if (!outfile) {
     printf("\nError: Failed to open %s.\n", out_fname);
@@ -1350,25 +1380,35 @@ int32_t write_uncompressed(char* out_fname, unsigned char* overflow_buf, uint32_
   }
   do {
     last_size = emitn(overflow_ct, overflow_buf);
-    if (last_size > BLOCKSIZE) {
-      overflow_ct = last_size - BLOCKSIZE;
-      last_size = BLOCKSIZE;
+    if (last_size > PIGZ_BLOCK_SIZE) {
+      overflow_ct = last_size - PIGZ_BLOCK_SIZE;
+      last_size = PIGZ_BLOCK_SIZE;
     } else {
       overflow_ct = 0;
     }
     if (last_size) {
       if (!fwrite(overflow_buf, last_size, 1, outfile)) {
-	printf("\nError: File write failure.\n");
+	fputs("\nError: File write failure.\n", stdout);
 	fclose(outfile);
 	return 6; // RET_WRITE_FAIL
       }
     }
     if (overflow_ct) {
-      memcpy(overflow_buf, &(overflow_buf[BLOCKSIZE]), overflow_ct);
+      write_ptr = &(overflow_buf[PIGZ_BLOCK_SIZE]);
+      while (overflow_ct > PIGZ_BLOCK_SIZE) {
+	if (!fwrite(write_ptr, PIGZ_BLOCK_SIZE, 1, outfile)) {
+	  fputs("\nError: File write failure.\n", stdout);
+	  fclose(outfile);
+	  return 6;
+	}
+	write_ptr = &(write_ptr[PIGZ_BLOCK_SIZE]);
+	overflow_ct -= PIGZ_BLOCK_SIZE;
+      }
+      memcpy(overflow_buf, write_ptr, overflow_ct);
     }
   } while (last_size);
   if (fclose(outfile)) {
-    printf("\nError: File write failure.\n");
+    fputs("\nError: File write failure.\n", stdout);
     return 6;
   }
   return 0;
