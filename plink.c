@@ -1117,6 +1117,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
         || ((calculation_type & CALC_FREQ) && (misc_flags & MISC_FREQ_GZ))
         || ((calculation_type & CALC_MISSING_REPORT) && (misc_flags & MISC_MISSING_GZ))
         || ((calculation_type & CALC_HARDY) && (hwe_modifier & HWE_GZ))
+        || ((calculation_type & CALC_HET) && (misc_flags & MISC_HET_GZ))
 	|| ((calculation_type & CALC_RECODE) && (((recode_modifier & (RECODE_VCF | RECODE_BGZ)) == (RECODE_VCF | RECODE_BGZ))))
 #endif
 ) {
