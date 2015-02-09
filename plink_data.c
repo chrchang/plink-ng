@@ -1046,6 +1046,11 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     if (snps_only) {
       max_marker_allele_len = 2;
     }
+    if (max_marker_allele_len > 500000000) {
+      // guard against overflows
+      logprint("Error: Alleles are limited to 500 million characters.\n");
+      goto load_bim_ret_INVALID_FORMAT;
+    }
     *max_marker_allele_len_ptr = max_marker_allele_len;
     marker_allele_ptrs = (char**)wkspace_alloc(unfiltered_marker_ct * 2 * sizeof(intptr_t));
     if (!marker_allele_ptrs) {

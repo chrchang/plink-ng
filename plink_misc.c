@@ -2644,8 +2644,8 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
 }
 
 int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, double* set_allele_freqs, Chrom_info* chrom_info_ptr, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, int32_t* ll_cts, int32_t* lh_cts, int32_t* hh_cts, int32_t* hapl_cts, int32_t* haph_cts, uint32_t sample_f_ct, uint32_t sample_f_male_ct, uint32_t nonfounders, uint64_t misc_flags, uintptr_t* marker_reverse) {
-  FILE* outfile = NULL;
-  gzFile gz_outfile = NULL;
+  unsigned char* wkspace_mark = wkspace_base;
+  char* pzwritep = NULL;
   uint32_t reverse = 0;
   uint32_t freq_counts = (misc_flags / MISC_FREQ_COUNTS) & 1;
   uint32_t freqx = (misc_flags / MISC_FREQX) & 1;
@@ -2653,6 +2653,8 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
   uint32_t maf_succ = (misc_flags / MISC_MAF_SUCC) & 1;
   int32_t chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
   int32_t retval = 0;
+  Pigz_state ps;
+  unsigned char* overflow_buf;
   char* minor_ptr;
   char* major_ptr;
   char* bufptr;
@@ -2664,6 +2666,11 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
   uint32_t missing_ct;
   int32_t chrom_idx;
   uint32_t uii;
+  pzwrite_init_null(&ps);
+  if (wkspace_alloc_uc_checked(&overflow_buf, PIGZ_BLOCK_SIZE + 2 * max_marker_allele_len + MAXLINELEN)) {
+    goto write_freqs_ret_NOMEM;
+  }
+
   bufptr = memcpya(outname_end, ".frq", 4);
   if (freqx) {
     *bufptr++ = 'x';
@@ -2672,35 +2679,20 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
   }
   if (!output_gz) {
     *bufptr = '\0';
-    if (fopen_checked(&outfile, outname, "w")) {
-      goto write_freqs_ret_OPEN_FAIL;
-    }
   } else {
     memcpy(bufptr, ".gz", 4);
-    if (gzopen_checked(&gz_outfile, outname, "wb")) {
-      goto write_freqs_ret_OPEN_FAIL;
-    }
   }
+  if (flex_pzwrite_init(output_gz, outname, overflow_buf, 0, &ps)) {
+    goto write_freqs_ret_OPEN_FAIL;
+  }
+  pzwritep = (char*)overflow_buf;
   if (freqx) {
-    if (flexputs_checked("CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(HAP A1)\tC(HAP A2)\tC(MISSING)\n", output_gz, outfile, gz_outfile)) {
-      goto write_freqs_ret_WRITE_FAIL;
-    }
+    pzwritep = strcpya(pzwritep, "CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(HAP A1)\tC(HAP A2)\tC(MISSING)\n");
   } else if (plink_maxsnp < 5) {
-    if (flexputs_checked(freq_counts? " CHR  SNP   A1   A2     C1     C2     G0\n" : " CHR  SNP   A1   A2          MAF  NCHROBS\n", output_gz, outfile, gz_outfile)) {
-      goto write_freqs_ret_WRITE_FAIL;
-    }
+    pzwritep = strcpya(pzwritep, freq_counts? " CHR  SNP   A1   A2     C1     C2     G0\n" : " CHR  SNP   A1   A2          MAF  NCHROBS\n");
   } else {
     sprintf(tbuf, freq_counts? " CHR %%%us   A1   A2     C1     C2     G0\n" : " CHR %%%us   A1   A2          MAF  NCHROBS\n", plink_maxsnp);
-    if (!output_gz) {
-      fprintf(outfile, tbuf, "SNP");
-      if (ferror(outfile)) {
-	goto write_freqs_ret_WRITE_FAIL;
-      }
-    } else {
-      if (!gzprintf(gz_outfile, tbuf, "SNP")) {
-	goto write_freqs_ret_WRITE_FAIL;
-      }
-    }
+    pzwritep += sprintf(pzwritep, tbuf, "SNP");
   }
   for (chrom_idx = 0; chrom_idx < chrom_code_end; chrom_idx++) {
     if (!chrom_exists(chrom_info_ptr, chrom_idx)) {
@@ -2728,106 +2720,62 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
 	  missing_ct = sample_f_ct - (ll_cts[marker_uidx] + lh_cts[marker_uidx] + hh_cts[marker_uidx]);
 	}
 	if (freqx) {
-	  bufptr = chrom_name_write(tbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx));
-	  *bufptr++ = '\t';
-	  bufptr = strcpyax(bufptr, &(marker_ids[marker_uidx * max_marker_id_len]), '\t');
-	  if (flexwrite_checked(tbuf, bufptr - tbuf, output_gz, outfile, gz_outfile)) {
-	    goto write_freqs_ret_WRITE_FAIL;
-	  }
-	  if (!output_gz) {
-	    fputs(minor_ptr, outfile);
-	    putc('\t', outfile);
-	    fputs(major_ptr, outfile);
-	  } else {
-	    if (gzputs(gz_outfile, minor_ptr) == -1) {
-	      goto write_freqs_ret_WRITE_FAIL;
-	    }
-	    if (gzputc(gz_outfile, '\t') == -1) {
-	      goto write_freqs_ret_WRITE_FAIL;
-	    }
-	    if (gzputs(gz_outfile, major_ptr) == -1) {
-	      goto write_freqs_ret_WRITE_FAIL;
-	    }
-	  }
-	  tbuf[0] = '\t';
-          bufptr = uint32_writex(&(tbuf[1]), reverse? hh_cts[marker_uidx] : ll_cts[marker_uidx], '\t');
-	  bufptr = uint32_writex(bufptr, lh_cts[marker_uidx], '\t');
-          bufptr = uint32_writex(bufptr, reverse? ll_cts[marker_uidx] : hh_cts[marker_uidx], '\t');
-          bufptr = uint32_writex(bufptr, reverse? haph_cts[marker_uidx] : hapl_cts[marker_uidx], '\t');
-          bufptr = uint32_writex(bufptr, reverse? hapl_cts[marker_uidx] : haph_cts[marker_uidx], '\t');
-          bufptr = uint32_writex(bufptr, missing_ct, '\n');
+	  pzwritep = chrom_name_write(pzwritep, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx));
+	  *pzwritep++ = '\t';
+	  pzwritep = strcpyax(pzwritep, &(marker_ids[marker_uidx * max_marker_id_len]), '\t');
+	  pzwritep = strcpyax(pzwritep, minor_ptr, '\t');
+          pzwritep = strcpyax(pzwritep, major_ptr, '\t');
+          pzwritep = uint32_writex(pzwritep, reverse? hh_cts[marker_uidx] : ll_cts[marker_uidx], '\t');
+	  pzwritep = uint32_writex(pzwritep, lh_cts[marker_uidx], '\t');
+          pzwritep = uint32_writex(pzwritep, reverse? ll_cts[marker_uidx] : hh_cts[marker_uidx], '\t');
+          pzwritep = uint32_writex(pzwritep, reverse? haph_cts[marker_uidx] : hapl_cts[marker_uidx], '\t');
+          pzwritep = uint32_writex(pzwritep, reverse? hapl_cts[marker_uidx] : haph_cts[marker_uidx], '\t');
+          pzwritep = uint32_writex(pzwritep, missing_ct, '\n');
 	} else {
-	  bufptr = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx)));
-	  *bufptr++ = ' ';
-	  bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), bufptr);
-	  *bufptr++ = ' ';
-	  if (flexwrite_checked(tbuf, bufptr - tbuf, output_gz, outfile, gz_outfile)) {
-	    goto write_freqs_ret_WRITE_FAIL;
-	  }
-	  if (!output_gz) {
-	    fputs_w4(minor_ptr, outfile);
-	    putc(' ', outfile);
-	    fputs_w4(major_ptr, outfile);
-	  } else {
-	    if (gzputs_w4(gz_outfile, minor_ptr) == -1) {
-	      goto write_freqs_ret_WRITE_FAIL;
-	    }
-	    if (gzputc(gz_outfile, ' ') == -1) {
-	      goto write_freqs_ret_WRITE_FAIL;
-	    }
-	    if (gzputs_w4(gz_outfile, major_ptr) == -1) {
-	      goto write_freqs_ret_WRITE_FAIL;
-	    }
-	  }
-	  tbuf[0] = ' ';
-          bufptr = uint32_writew6x(&(tbuf[1]), 2 * ll_cts[marker_uidx] + lh_cts[marker_uidx] + hapl_cts[marker_uidx], ' ');
-	  bufptr = uint32_writew6x(bufptr, 2 * hh_cts[marker_uidx] + lh_cts[marker_uidx] + haph_cts[marker_uidx], ' ');
-	  bufptr = uint32_writew6x(bufptr, missing_ct, '\n');
+	  pzwritep = width_force(4, pzwritep, chrom_name_write(pzwritep, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx)));
+	  *pzwritep++ = ' ';
+	  pzwritep = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), pzwritep);
+	  *pzwritep++ = ' ';
+	  pzwritep = fw_strcpy(4, minor_ptr, pzwritep);
+	  *pzwritep++ = ' ';
+	  pzwritep = fw_strcpy(4, major_ptr, pzwritep);
+	  *pzwritep++ = ' ';
+          pzwritep = uint32_writew6x(pzwritep, 2 * ll_cts[marker_uidx] + lh_cts[marker_uidx] + hapl_cts[marker_uidx], ' ');
+	  pzwritep = uint32_writew6x(pzwritep, 2 * hh_cts[marker_uidx] + lh_cts[marker_uidx] + haph_cts[marker_uidx], ' ');
+	  pzwritep = uint32_writew6x(pzwritep, missing_ct, '\n');
 	}
       } else {
-	bufptr = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx)));
-	*bufptr++ = ' ';
-	bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), bufptr);
-        *bufptr++ = ' ';
-	if (flexwrite_checked(tbuf, bufptr - tbuf, output_gz, outfile, gz_outfile)) {
-	  goto write_freqs_ret_WRITE_FAIL;
-	}
-	if (!output_gz) {
-	  fputs_w4(minor_ptr, outfile);
-	  putc(' ', outfile);
-	  fputs_w4(major_ptr, outfile);
-	} else {
-	  if (gzputs_w4(gz_outfile, minor_ptr) == -1) {
-	    goto write_freqs_ret_WRITE_FAIL;
-	  }
-	  if (gzputc(gz_outfile, ' ') == -1) {
-	    goto write_freqs_ret_WRITE_FAIL;
-	  }
-	  if (gzputs_w4(gz_outfile, major_ptr) == -1) {
-	    goto write_freqs_ret_WRITE_FAIL;
-	  }
-	}
-        tbuf[0] = ' ';
+	pzwritep = width_force(4, pzwritep, chrom_name_write(pzwritep, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx)));
+	*pzwritep++ = ' ';
+	pzwritep = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), pzwritep);
+        *pzwritep++ = ' ';
+	pzwritep = fw_strcpy(4, minor_ptr, pzwritep);
+	*pzwritep++ = ' ';
+	pzwritep = fw_strcpy(4, major_ptr, pzwritep);
+	*pzwritep++ = ' ';
 	uii = 2 * (ll_cts[marker_uidx] + lh_cts[marker_uidx] + hh_cts[marker_uidx]) + hapl_cts[marker_uidx] + haph_cts[marker_uidx];
 	if (maf_succ || uii || (set_allele_freqs[marker_uidx] != 0.5)) {
-          bufptr = double_g_writewx4(&(tbuf[1]), 1.0 - set_allele_freqs[marker_uidx], 12);
+          pzwritep = double_g_writewx4(pzwritep, 1.0 - set_allele_freqs[marker_uidx], 12);
 	} else {
-	  bufptr = memcpya(&(tbuf[1]), "          NA", 12);
+	  pzwritep = memcpya(pzwritep, "          NA", 12);
 	}
-	*bufptr++ = ' ';
-        bufptr = uint32_writew8x(bufptr, uii, '\n');
+	*pzwritep++ = ' ';
+        pzwritep = uint32_writew8x(pzwritep, uii, '\n');
       }
-      if (flexwrite_checked(tbuf, bufptr - tbuf, output_gz, outfile, gz_outfile)) {
+      if (flex_pzwrite(&ps, &pzwritep)) {
 	goto write_freqs_ret_WRITE_FAIL;
       }
       marker_uidx = next_unset(marker_exclude, marker_uidx + 1, chrom_end);
     }
   }
-  if (flexclose_null(output_gz, &outfile, &gz_outfile)) {
+  if (flex_pzwrite_close_null(&ps, pzwritep)) {
     goto write_freqs_ret_WRITE_FAIL;
   }
   LOGPRINTFWW("--freq%s: Allele frequencies (%s) written to %s .\n", freqx? "x" : "", nonfounders? "all samples" : "founders only", outname);
   while (0) {
+  write_freqs_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
   write_freqs_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;
@@ -2835,8 +2783,8 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
     retval = RET_WRITE_FAIL;
     break;
   }
-  fclose_cond(outfile);
-  gzclose_cond(gz_outfile);
+  flex_pzwrite_close_cond(&ps, pzwritep);
+  wkspace_reset(wkspace_mark);
   return retval;
 }
 
