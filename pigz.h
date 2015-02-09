@@ -48,7 +48,7 @@ typedef struct {
     long seq;
     struct space* dict;
     struct space* next;
-    FILE* outfile; // uncompressed writing
+    int outd; // uncompressed writing
 } Pigz_state;
 #endif // _WIN32 / NOTHREAD
 
@@ -82,7 +82,7 @@ static inline void compressed_pzwrite(Pigz_state* ps_ptr, char** writep_ptr) {
 
 static inline int32_t flex_pzwrite(Pigz_state* ps_ptr, char** writep_ptr) {
     if ((uintptr_t)(((unsigned char*)(*writep_ptr)) - ps_ptr->overflow_buf) >= PIGZ_BLOCK_SIZE + 1) {
-        if (ps_ptr->outfile) {
+        if (ps_ptr->outd != -1) {
 	    return force_pzwrite(ps_ptr, writep_ptr, PIGZ_BLOCK_SIZE + 1);
         }
 	force_compressed_pzwrite(ps_ptr, writep_ptr, PIGZ_BLOCK_SIZE + 1);
@@ -110,7 +110,7 @@ static inline void compressed_pzwrite_close_cond(Pigz_state* ps_ptr, char* write
 
 static inline void flex_pzwrite_close_cond(Pigz_state* ps_ptr, char* writep) {
     if (ps_ptr->overflow_buf) {
-        if (ps_ptr->outfile) {
+        if (ps_ptr->outd != -1) {
 	    pzwrite_close_null(ps_ptr, writep);
         } else {
 	    compressed_pzwrite_close_null(ps_ptr, writep);

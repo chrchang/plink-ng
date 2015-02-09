@@ -1307,10 +1307,9 @@ void parallel_compress(char* out_fname, unsigned char* overflow_buf, uint32_t do
 
 // about time to implement this without the awkward callback interface...
 int32_t pzwrite_init(char* out_fname, unsigned char* overflow_buf, uint32_t do_append, Pigz_state* ps_ptr) {
-    // if it's potentially worth compressing, it should be text, hence mode "w"
-    // instead of "wb"
-    ps_ptr->outfile = fopen(out_fname, do_append? "a" : "w");
-    if (!ps_ptr->outfile) {
+    // unbuffered, and doesn't need to support Windows
+    ps_ptr->outd = open(out_fname, O_WRONLY | (do_append? O_APPEND : (O_CREAT | O_TRUNC)), 0644);
+    if (ps_ptr->outd == -1) {
         printf("\nError: Failed to open %s.\n", out_fname);
         return 2; // RET_OPEN_FAIL
     }
@@ -1319,7 +1318,7 @@ int32_t pzwrite_init(char* out_fname, unsigned char* overflow_buf, uint32_t do_a
 }
 
 void compressed_pzwrite_init(char* out_fname, unsigned char* overflow_buf, uint32_t do_append, Pigz_state* ps_ptr) {
-    ps_ptr->outfile = NULL;
+    ps_ptr->outd = -1;
     g.outf = out_fname;
     g.outd = open(g.outf, O_WRONLY | (do_append? O_APPEND : (O_CREAT | O_TRUNC)), 0644);
 
@@ -1347,11 +1346,16 @@ int32_t flex_pzwrite_init(uint32_t output_gz, char* out_fname, unsigned char* ov
 
 int32_t force_pzwrite(Pigz_state* ps_ptr, char** writep_ptr, uint32_t write_min) {
     unsigned char* writep = (unsigned char*)(*writep_ptr);
-    uint32_t cur_len = (uintptr_t)(writep - ps_ptr->overflow_buf);
-    if (cur_len) {
-	if (!fwrite(ps_ptr->overflow_buf, cur_len, 1, ps_ptr->outfile)) {
+    unsigned char* buf = ps_ptr->overflow_buf;
+    uint32_t len = (uintptr_t)(writep - buf);
+    ssize_t ret;
+    while (len) {
+        ret = write(ps_ptr->outd, ps_ptr->overflow_buf, len);
+	if (ret < 1) {
 	    return 6; // RET_WRITE_FAIL;
 	}
+        buf += ret;
+        len -= ret;
     }
     *writep_ptr = (char*)(ps_ptr->overflow_buf);
     return 0;
@@ -1429,9 +1433,8 @@ void force_compressed_pzwrite(Pigz_state* ps_ptr, char** writep_ptr, uint32_t wr
 int32_t pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
     int32_t ii;
     int32_t jj;
-    force_pzwrite(ps_ptr, &writep, 0);
-    ii = ferror(ps_ptr->outfile);
-    jj = fclose(ps_ptr->outfile);
+    ii = force_pzwrite(ps_ptr, &writep, 0);
+    jj = close(ps_ptr->outd);
     ps_ptr->overflow_buf = NULL;
     return ii || jj;
 }
@@ -1448,7 +1451,7 @@ void compressed_pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
 }
 
 int32_t flex_pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
-    if (ps_ptr->outfile) {
+    if (ps_ptr->outd != -1) {
         return pzwrite_close_null(ps_ptr, writep);
     } else {
         compressed_pzwrite_close_null(ps_ptr, writep);
