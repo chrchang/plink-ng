@@ -1406,11 +1406,8 @@ void compressed_pzwrite_init(char* out_fname, unsigned char* overflow_buf, uint3
     /* start write thread */
     writeth = launch(write_thread, NULL);
 
-    ps_ptr->seq = 0;
     ps_ptr->overflow_buf = overflow_buf;
-    ps_ptr->dict = NULL;
-    ps_ptr->next = get_space(&in_pool);
-    ps_ptr->next->len = 0;
+    ps_ptr->next = NULL;
 }
 
 int32_t flex_pzwrite_init(uint32_t output_gz, char* out_fname, unsigned char* overflow_buf, uint32_t do_append, Pigz_state* ps_ptr) {
@@ -1446,12 +1443,45 @@ void force_compressed_pzwrite(Pigz_state* ps_ptr, char** writep_ptr, uint32_t wr
     unsigned char* readp = ps_ptr->overflow_buf;
     uint32_t cur_len = (uintptr_t)(writep - readp);
 
-    struct space *curr;             /* input data to compress */
+    struct space* curr;             /* input data to compress */
     struct job *job;                /* job for compress, then write */
 
     int more;                       /* true if more input to read */
     size_t len;                     /* for various length computations */
+    if (!ps_ptr->next) {
+        ps_ptr->seq = 0;
+        ps_ptr->next = get_space(&in_pool);
+        if (cur_len > PIGZ_BLOCK_SIZE) {
+	    memcpy(ps_ptr->next->buf, readp, PIGZ_BLOCK_SIZE);
+            ps_ptr->next->len = PIGZ_BLOCK_SIZE;
+            readp = &(readp[PIGZ_BLOCK_SIZE]);
+	    cur_len -= PIGZ_BLOCK_SIZE;
+	} else {
+	    memcpy(ps_ptr->next->buf, readp, cur_len);
+            ps_ptr->next->len = cur_len;
+	    readp = writep;
+	    cur_len = 0;
+	}
+        ps_ptr->dict = NULL;
+	if ((cur_len <= PIGZ_BLOCK_SIZE) && write_min) {
+	    // need more input to handle dict properly
+	    if (cur_len) {
+		memcpy(ps_ptr->overflow_buf, readp, cur_len);
+	    }
+	    *writep_ptr = (char*)(&(ps_ptr->overflow_buf[cur_len]));
+	    return;
+	}
+    }
+
     do {
+	// create a new job
+	job = (struct job*)malloc(sizeof(struct job));
+	if (job == NULL) {
+	    bail("not enough memory", "");
+	}
+	job->calc = new_lock(0);
+        curr = ps_ptr->next;
+	ps_ptr->next = get_space(&in_pool);
         if (cur_len > PIGZ_BLOCK_SIZE) {
 	    memcpy(ps_ptr->next->buf, readp, PIGZ_BLOCK_SIZE);
 	    ps_ptr->next->len = PIGZ_BLOCK_SIZE;
@@ -1461,16 +1491,9 @@ void force_compressed_pzwrite(Pigz_state* ps_ptr, char** writep_ptr, uint32_t wr
 	    ps_ptr->next->len = cur_len;
 	    readp = writep;
 	}
-	// create a new job
-	job = (struct job*)malloc(sizeof(struct job));
-	if (job == NULL) {
-	    bail("not enough memory", "");
-	}
-	job->calc = new_lock(0);
-        curr = ps_ptr->next;
 	job->lens = NULL;
 	job->in = curr;
-	more = write_min || (readp != writep);
+	more = (cur_len != 0);
 	job->more = more;
         job->out = ps_ptr->dict;
 	if (more) {
@@ -1499,8 +1522,6 @@ void force_compressed_pzwrite(Pigz_state* ps_ptr, char** writep_ptr, uint32_t wr
         compress_tail = &(job->next);
 	twist(compress_have, BY, +1);
 	cur_len = (uintptr_t)(writep - readp);
-	ps_ptr->next = get_space(&in_pool);
-        ps_ptr->next->len = 0;
     } while ((cur_len >= write_min) && more);
     if (cur_len) {
         memcpy(ps_ptr->overflow_buf, readp, cur_len);
