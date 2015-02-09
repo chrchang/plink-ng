@@ -369,7 +369,6 @@ void compressed_pzwrite_init(char* out_fname, unsigned char* overflow_buf, uint3
         exit(2);
     }
     ps_ptr->overflow_buf = overflow_buf;
-    return 0;
 }
 
 int32_t flex_pzwrite_init(uint32_t output_gz, char* out_fname, unsigned char* overflow_buf, uint32_t do_append, Pigz_state* ps_ptr) {
@@ -389,6 +388,7 @@ int32_t force_pzwrite(Pigz_state* ps_ptr, char** writep_ptr, uint32_t write_min)
 	}
         *writep_ptr = (char*)(ps_ptr->overflow_buf);
     }
+    return 0;
 }
 
 void force_compressed_pzwrite(Pigz_state* ps_ptr, char** writep_ptr, uint32_t write_min) {
