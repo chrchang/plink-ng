@@ -2796,7 +2796,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   }
   ujj = unfiltered_sample_ct2l * BITCT2;
   if (!cluster_ct) {
-    sprintf(tbuf, " CHR %%%us   N_MISS   N_GENO   F_MISS\n", plink_maxsnp);
+    sprintf(tbuf, " CHR %%%us   N_MISS   N_GENO   F_MISS" EOLN_STR, plink_maxsnp);
   } else {
     if (wkspace_alloc_ui_checked(&sample_to_cluster, unfiltered_sample_ct * sizeof(int32_t)) ||
         wkspace_alloc_ui_checked(&missing_ct_by_cluster, cluster_ct * sizeof(int32_t)) ||
@@ -2822,7 +2822,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	}
       }
     }
-    sprintf(tbuf, " CHR %%%us       CLST   N_MISS   N_CLST   N_GENO   F_MISS\n", plink_maxsnp);
+    sprintf(tbuf, " CHR %%%us       CLST   N_MISS   N_CLST   N_GENO   F_MISS" EOLN_STR, plink_maxsnp);
   }
 
   pzwritep += sprintf(pzwritep, tbuf, "SNP");
@@ -2890,7 +2890,8 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
           pzwritep = memcpya(pzwritep, tbuf, cptr2 - tbuf);
 	  pzwritep = uint32_writew8x(pzwritep, ukk - oblig_ct, ' ');
           pzwritep = uint32_writew8x(pzwritep, cur_tot - oblig_ct, ' ');
-	  pzwritep = double_g_writewx4x(pzwritep, ((double)((int32_t)(ukk - oblig_ct))) / ((double)((int32_t)(cur_tot - oblig_ct))), 8, '\n');
+	  pzwritep = double_g_writewx4(pzwritep, ((double)((int32_t)(ukk - oblig_ct))) / ((double)((int32_t)(cur_tot - oblig_ct))), 8);
+          append_binary_eoln(&pzwritep);
 	  if (flex_pzwrite(&ps, &pzwritep)) {
 	    goto write_missingness_reports_ret_WRITE_FAIL;
 	  }
@@ -2944,7 +2945,8 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	    pzwritep = uint32_writew8x(pzwritep, umm, ' ');
 	    umm -= oblig_missing_ct_by_cluster[clidx];
 	    pzwritep = uint32_writew8x(pzwritep, umm, ' ');
-            pzwritep = double_g_writewx4x(pzwritep, ((double)((int32_t)uii)) / ((double)((int32_t)umm)), 8, '\n');
+            pzwritep = double_g_writewx4(pzwritep, ((double)((int32_t)uii)) / ((double)((int32_t)umm)), 8);
+	    append_binary_eoln(&pzwritep);
 	    if (flex_pzwrite(&ps, &pzwritep)) {
 	      goto write_missingness_reports_ret_WRITE_FAIL;
 	    }
@@ -2970,7 +2972,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
     goto write_missingness_reports_ret_OPEN_FAIL;
   }
   pzwritep = (char*)overflow_buf;
-  sprintf(tbuf, "%%%us %%%us MISS_PHENO   N_MISS   N_GENO   F_MISS\n", plink_maxfid, plink_maxiid);
+  sprintf(tbuf, "%%%us %%%us MISS_PHENO   N_MISS   N_GENO   F_MISS" EOLN_STR, plink_maxfid, plink_maxiid);
   pzwritep += sprintf(pzwritep, tbuf, "FID", "IID");
   do {
     sample_uidx = next_unset_unsafe(sample_exclude, sample_uidx);
@@ -2999,7 +3001,8 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
       }
       pzwritep = uint32_writew8x(pzwritep, uii, ' ');
       pzwritep = uint32_writew8x(pzwritep, ujj, ' ');
-      pzwritep = double_g_writewx4x(pzwritep, ((double)((int32_t)uii)) / ((double)((int32_t)ujj)), 8, '\n');
+      pzwritep = double_g_writewx4(pzwritep, ((double)((int32_t)uii)) / ((double)((int32_t)ujj)), 8);
+      append_binary_eoln(&pzwritep);
       if (flex_pzwrite(&ps, &pzwritep)) {
 	goto write_missingness_reports_ret_WRITE_FAIL;
       }
@@ -3049,10 +3052,11 @@ int32_t hardy_report_write_line(Pigz_state* ps_ptr, char** pzwritep_ptr, char* p
   if (denom) {
     drecip = 1.0 / ((double)denom);
     minor_freq = (2 * ll_ct + lh_ct) * drecip;
-    pzwritep = double_g_writewx4x(double_g_writewx4x(double_g_writewx4x(pzwritep, (lh_ct * 2) * drecip, 8, ' '), minor_freq * (2 * hh_ct + lh_ct) * drecip * 2, 8, ' '), MAXV(pval, output_min_p), 12, '\n');
+    pzwritep = double_g_writewx4(double_g_writewx4x(double_g_writewx4x(pzwritep, (lh_ct * 2) * drecip, 8, ' '), minor_freq * (2 * hh_ct + lh_ct) * drecip * 2, 8, ' '), MAXV(pval, output_min_p), 12);
   } else {
-    pzwritep = memcpya(pzwritep, "     nan      nan           NA\n", 31);
+    pzwritep = memcpya(pzwritep, "     nan      nan           NA", 30);
   }
+  append_binary_eoln(&pzwritep);
   if (flex_pzwrite(ps_ptr, &pzwritep)) {
     return 1;
   }
@@ -3131,7 +3135,7 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
   LOGPRINTFWW5("--hardy: Writing Hardy-Weinberg report (%s) to %s ... ", nonfounders? "all samples" : "founders only", outname);
   fputs("0%", stdout);
   fflush(stdout);
-  sprintf(writebuf, " CHR %%%us     TEST   A1   A2                 GENO   O(HET)   E(HET)            P \n", plink_maxsnp);
+  sprintf(writebuf, " CHR %%%us     TEST   A1   A2                 GENO   O(HET)   E(HET)            P " EOLN_STR, plink_maxsnp);
   pzwritep += sprintf(pzwritep, writebuf, "SNP");
 
   chrom_fo_idx = 0;

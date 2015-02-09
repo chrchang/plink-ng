@@ -2471,7 +2471,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
     goto write_stratified_freqs_ret_OPEN_FAIL;
   }
   pzwritep = (char*)overflow_buf;
-  sprintf(tbuf, " CHR %%%us     CLST   A1   A2      MAF    MAC  NCHROBS\n", plink_maxsnp);
+  sprintf(tbuf, " CHR %%%us     CLST   A1   A2      MAF    MAC  NCHROBS" EOLN_STR, plink_maxsnp);
   pzwritep += sprintf(pzwritep, tbuf, "SNP");
   if (wkspace_alloc_c_checked(&csptr, 2 * max_marker_allele_len + 16)) {
     goto write_stratified_freqs_ret_NOMEM;
@@ -2540,10 +2540,11 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
             pzwritep = double_g_writewx4x(pzwritep, ((double)((int32_t)a1_obs)) / ((double)tot_obs), 8, ' ');
 	    pzwritep = uint32_writew6x(pzwritep, a1_obs, ' ');
 	    pzwritep = uint32_writew8(pzwritep, tot_obs);
-	    pzwritep = memcpya(pzwritep, " \n", 2);
+	    *pzwritep++ = ' ';
 	  } else {
-	    pzwritep = memcpya(pzwritep, "       0      0        0 \n", 26);
+	    pzwritep = memcpya(pzwritep, "       0      0        0 ", 25);
 	  }
+	  append_binary_eoln(&pzwritep);
 	  if (flex_pzwrite(&ps, &pzwritep)) {
 	    goto write_stratified_freqs_ret_WRITE_FAIL;
 	  }
@@ -2571,10 +2572,11 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
             pzwritep = double_g_writewx4x(pzwritep, ((double)((int32_t)a1_obs)) / ((double)tot_obs), 8, ' ');
 	    pzwritep = uint32_writew6x(pzwritep, a1_obs, ' ');
 	    pzwritep = uint32_writew8(pzwritep, tot_obs);
-	    pzwritep = memcpya(pzwritep, " \n", 2);
+	    *pzwritep++ = ' ';
 	  } else {
-	    pzwritep = memcpya(pzwritep, "       0      0        0 \n", 26);
+	    pzwritep = memcpya(pzwritep, "       0      0        0 ", 25);
 	  }
+	  append_binary_eoln(&pzwritep);
 	  if (flex_pzwrite(&ps, &pzwritep)) {
 	    goto write_stratified_freqs_ret_WRITE_FAIL;
 	  }
@@ -2602,10 +2604,11 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
             pzwritep = double_g_writewx4x(pzwritep, ((double)((int32_t)a1_obs)) / ((double)tot_obs), 8, ' ');
 	    pzwritep = uint32_writew6x(pzwritep, a1_obs, ' ');
 	    pzwritep = uint32_writew8(pzwritep, tot_obs);
-	    pzwritep = memcpya(pzwritep, " \n", 2);
+	    *pzwritep++ = ' ';
 	  } else {
-	    pzwritep = memcpya(pzwritep, "       0      0        0 \n", 26);
+	    pzwritep = memcpya(pzwritep, "       0      0        0 ", 25);
 	  }
+	  append_binary_eoln(&pzwritep);
 	  if (flex_pzwrite(&ps, &pzwritep)) {
 	    goto write_stratified_freqs_ret_WRITE_FAIL;
 	  }
@@ -2687,11 +2690,11 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
   }
   pzwritep = (char*)overflow_buf;
   if (freqx) {
-    pzwritep = strcpya(pzwritep, "CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(HAP A1)\tC(HAP A2)\tC(MISSING)\n");
+    pzwritep = strcpya(pzwritep, "CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(HAP A1)\tC(HAP A2)\tC(MISSING)" EOLN_STR);
   } else if (plink_maxsnp < 5) {
-    pzwritep = strcpya(pzwritep, freq_counts? " CHR  SNP   A1   A2     C1     C2     G0\n" : " CHR  SNP   A1   A2          MAF  NCHROBS\n");
+    pzwritep = strcpya(pzwritep, freq_counts? (" CHR  SNP   A1   A2     C1     C2     G0" EOLN_STR) : (" CHR  SNP   A1   A2          MAF  NCHROBS" EOLN_STR));
   } else {
-    sprintf(tbuf, freq_counts? " CHR %%%us   A1   A2     C1     C2     G0\n" : " CHR %%%us   A1   A2          MAF  NCHROBS\n", plink_maxsnp);
+    sprintf(tbuf, freq_counts? (" CHR %%%us   A1   A2     C1     C2     G0" EOLN_STR) : (" CHR %%%us   A1   A2          MAF  NCHROBS" EOLN_STR), plink_maxsnp);
     pzwritep += sprintf(pzwritep, tbuf, "SNP");
   }
   for (chrom_idx = 0; chrom_idx < chrom_code_end; chrom_idx++) {
@@ -2730,7 +2733,7 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
           pzwritep = uint32_writex(pzwritep, reverse? ll_cts[marker_uidx] : hh_cts[marker_uidx], '\t');
           pzwritep = uint32_writex(pzwritep, reverse? haph_cts[marker_uidx] : hapl_cts[marker_uidx], '\t');
           pzwritep = uint32_writex(pzwritep, reverse? hapl_cts[marker_uidx] : haph_cts[marker_uidx], '\t');
-          pzwritep = uint32_writex(pzwritep, missing_ct, '\n');
+          pzwritep = uint32_write(pzwritep, missing_ct);
 	} else {
 	  pzwritep = width_force(4, pzwritep, chrom_name_write(pzwritep, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx)));
 	  *pzwritep++ = ' ';
@@ -2742,7 +2745,7 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
 	  *pzwritep++ = ' ';
           pzwritep = uint32_writew6x(pzwritep, 2 * ll_cts[marker_uidx] + lh_cts[marker_uidx] + hapl_cts[marker_uidx], ' ');
 	  pzwritep = uint32_writew6x(pzwritep, 2 * hh_cts[marker_uidx] + lh_cts[marker_uidx] + haph_cts[marker_uidx], ' ');
-	  pzwritep = uint32_writew6x(pzwritep, missing_ct, '\n');
+	  pzwritep = uint32_writew6(pzwritep, missing_ct);
 	}
       } else {
 	pzwritep = width_force(4, pzwritep, chrom_name_write(pzwritep, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx)));
@@ -2760,8 +2763,9 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
 	  pzwritep = memcpya(pzwritep, "          NA", 12);
 	}
 	*pzwritep++ = ' ';
-        pzwritep = uint32_writew8x(pzwritep, uii, '\n');
+        pzwritep = uint32_writew8(pzwritep, uii);
       }
+      append_binary_eoln(&pzwritep);
       if (flex_pzwrite(&ps, &pzwritep)) {
 	goto write_freqs_ret_WRITE_FAIL;
       }
@@ -3706,10 +3710,11 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
       pzwritep = uint32_writew10x(pzwritep, obs_ct, ' ');
       dtot = (double)((int32_t)obs_ct) - dee;
       dff = (dtot - ((double)((int32_t)(het_cts[sample_idx])))) / dtot;
-      pzwritep = double_g_writewx4x(pzwritep, dff, 12, '\n');
+      pzwritep = double_g_writewx4(pzwritep, dff, 12);
     } else {
-      pzwritep = memcpya(pzwritep, "         0            0            0          nan\n", 50);
+      pzwritep = memcpya(pzwritep, "         0            0            0          nan", 49);
     }
+    append_binary_eoln(&pzwritep);
     if (flex_pzwrite(&ps, &pzwritep)) {
       goto het_report_ret_WRITE_FAIL;
     }

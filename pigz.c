@@ -351,7 +351,7 @@ void parallel_compress(char* out_fname, unsigned char* overflow_buf, uint32_t do
 }
 
 int32_t pzwrite_init(char* out_fname, unsigned char* overflow_buf, uint32_t do_append, Pigz_state* ps_ptr) {
-    ps_ptr->outfile = fopen(out_fname, do_append? "a" : "w");
+    ps_ptr->outfile = fopen(out_fname, do_append? "ab" : "wb");
     ps_ptr->gz_outfile = NULL;
     if (!ps_ptr->outfile) {
         printf("\nError: Failed to open %s.\n", out_fname);
@@ -1573,6 +1573,7 @@ int32_t write_uncompressed(char* out_fname, unsigned char* overflow_buf, uint32_
   uint32_t overflow_ct = 0;
   // if it's potentially worth compressing, it should be text, hence mode "w"
   // instead of "wb"
+  // (er, that actually does the wrong thing on Windows.  Fixed in pzwrite.)
   FILE* outfile = fopen(out_fname, do_append? "a" : "w");
   unsigned char* write_ptr;
   uint32_t last_size;

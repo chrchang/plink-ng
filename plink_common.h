@@ -45,6 +45,7 @@
   #define pthread_t HANDLE
   #define THREAD_RET_TYPE unsigned __stdcall
   #define THREAD_RETURN return 0
+  #define EOLN_STR "\r\n"
 #else
   #include <pthread.h>
   #define THREAD_RET_TYPE void*
@@ -54,6 +55,7 @@
       #define PRId64 "lld"
     #endif
   #endif
+  #define EOLN_STR "\n"
 #endif
 
 #ifdef __APPLE__
@@ -1144,6 +1146,17 @@ static inline char* strcpyax(char* target, const void* source, char extra_char) 
   memcpy(target, source, slen);
   target[slen] = extra_char;
   return &(target[slen + 1]);
+}
+
+static inline void append_binary_eoln(char** target_ptr) {
+#ifdef _WIN32
+  (*target_ptr)[0] = '\r';
+  (*target_ptr)[1] = '\n';
+  *target_ptr += 2;
+#else
+  **target_ptr = '\n';
+  *target_ptr += 1;
+#endif
 }
 
 static inline void fputs_w4(char* ss, FILE* outfile) {
