@@ -350,6 +350,80 @@ void parallel_compress(char* out_fname, unsigned char* overflow_buf, uint32_t do
   }
 }
 
+int32_t pzwrite_init(char* out_fname, unsigned char* overflow_buf, uint32_t do_append, Pigz_state* ps_ptr) {
+    ps_ptr->outfile = fopen(out_fname, do_append? "a" : "w");
+    ps_ptr->gz_outfile = NULL;
+    if (!ps_ptr->outfile) {
+        printf("\nError: Failed to open %s.\n", out_fname);
+        return 2; // RET_OPEN_FAIL
+    }
+    ps_ptr->overflow_buf = overflow_buf;
+    return 0;
+}
+
+void compressed_pzwrite_init(char* out_fname, unsigned char* overflow_buf, uint32_t do_append, Pigz_state* ps_ptr) {
+    ps_ptr->outfile = NULL;
+    ps_ptr->gz_outfile = gzopen(out_fname, do_append? "ab" : "wb");
+    if (!ps_ptr->gz_outfile) {
+        printf("\nError: Failed to open %s.\n", out_fname);
+        exit(2);
+    }
+    ps_ptr->overflow_buf = overflow_buf;
+    return 0;
+}
+
+int32_t flex_pzwrite_init(uint32_t output_gz, char* out_fname, unsigned char* overflow_buf, uint32_t do_append, Pigz_state* ps_ptr) {
+    if (!output_gz) {
+        return pzwrite_init(out_fname, overflow_buf, do_append, ps_ptr);
+    } else {
+        compressed_pzwrite_init(out_fname, overflow_buf, do_append, ps_ptr);
+        return 0;
+    }
+}
+
+int32_t force_pzwrite(Pigz_state* ps_ptr, char** writep_ptr, uint32_t write_min) {
+    unsigned char* writep = (unsigned char*)(*writep_ptr);
+    if (ps_ptr->overflow_buf != writep) {
+        if (!fwrite(ps_ptr->overflow_buf, writep - ps_ptr->overflow_buf, 1, ps_ptr->outfile)) {
+	    return 6; // RET_WRITE_FAIL
+	}
+        *writep_ptr = (char*)(ps_ptr->overflow_buf);
+    }
+}
+
+void force_compressed_pzwrite(Pigz_state* ps_ptr, char** writep_ptr, uint32_t write_min) {
+    unsigned char* writep = (unsigned char*)(*writep_ptr);
+    if (ps_ptr->overflow_buf != writep) {
+        if (!gzwrite(ps_ptr->gz_outfile, ps_ptr->overflow_buf, writep - ps_ptr->overflow_buf)) {
+	    fputs("\nError: File write failure.\n", stdout);
+            gzclose(ps_ptr->gz_outfile);
+            exit(6);
+        }
+        *writep_ptr = (char*)(ps_ptr->overflow_buf);
+    }
+}
+
+int32_t pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
+    force_pzwrite(ps_ptr, &writep, 0);
+    int32_t ii = ferror(ps_ptr->outfile);
+    int32_t jj = fclose(ps_ptr->outfile);
+    ps_ptr->overflow_buf = NULL;
+    return ii || jj;
+}
+
+void compressed_pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
+    force_compressed_pzwrite(ps_ptr, &writep, 0);
+    ps_ptr->overflow_buf = NULL;
+    if (gzclose(ps_ptr->gz_outfile) != Z_OK) {
+        fputs("\nError: File write failure.\n", stdout);
+        exit(6);
+    }
+}
+
+int32_t flex_pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
+
+}
+
 #else
 
 #define VERSION "pigz 2.3\n"
@@ -1352,7 +1426,7 @@ int32_t force_pzwrite(Pigz_state* ps_ptr, char** writep_ptr, uint32_t write_min)
     while (len) {
         ret = write(ps_ptr->outd, ps_ptr->overflow_buf, len);
 	if (ret < 1) {
-	    return 6; // RET_WRITE_FAIL;
+	    return 6; // RET_WRITE_FAIL
 	}
         buf += ret;
         len -= ret;
@@ -1431,10 +1505,8 @@ void force_compressed_pzwrite(Pigz_state* ps_ptr, char** writep_ptr, uint32_t wr
 }
 
 int32_t pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
-    int32_t ii;
-    int32_t jj;
-    ii = force_pzwrite(ps_ptr, &writep, 0);
-    jj = close(ps_ptr->outd);
+    int32_t ii = force_pzwrite(ps_ptr, &writep, 0);
+    int32_t jj = close(ps_ptr->outd);
     ps_ptr->overflow_buf = NULL;
     return ii || jj;
 }
@@ -1451,7 +1523,7 @@ void compressed_pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
 }
 
 int32_t flex_pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
-    if (ps_ptr->outd != -1) {
+    if (is_uncompressed_pzwrite(ps_ptr)) {
         return pzwrite_close_null(ps_ptr, writep);
     } else {
         compressed_pzwrite_close_null(ps_ptr, writep);

@@ -50,6 +50,20 @@ typedef struct {
     struct space* next;
     int outd; // uncompressed writing
 } Pigz_state;
+
+static inline uint32_t is_uncompressed_pzwrite(Pigz_state* ps_ptr) {
+    return ps_ptr->outd != -1;
+}
+#else
+typedef struct {
+    unsigned char* overflow_buf;
+    FILE* outfile;
+    gzFile gz_outfile;
+} Pigz_state;
+
+static inline uint32_t is_uncompressed_pzwrite(Pigz_state* ps_ptr) {
+    return (outfile != NULL);
+}
 #endif // _WIN32 / NOTHREAD
 
 // This interface is obsolete; compressed_pzwrite/flex_pzwrite is far easier to
@@ -82,7 +96,7 @@ static inline void compressed_pzwrite(Pigz_state* ps_ptr, char** writep_ptr) {
 
 static inline int32_t flex_pzwrite(Pigz_state* ps_ptr, char** writep_ptr) {
     if ((uintptr_t)(((unsigned char*)(*writep_ptr)) - ps_ptr->overflow_buf) >= PIGZ_BLOCK_SIZE + 1) {
-        if (ps_ptr->outd != -1) {
+        if (is_uncompressed_pzwrite(ps_ptr)) {
 	    return force_pzwrite(ps_ptr, writep_ptr, PIGZ_BLOCK_SIZE + 1);
         }
 	force_compressed_pzwrite(ps_ptr, writep_ptr, PIGZ_BLOCK_SIZE + 1);
@@ -110,7 +124,7 @@ static inline void compressed_pzwrite_close_cond(Pigz_state* ps_ptr, char* write
 
 static inline void flex_pzwrite_close_cond(Pigz_state* ps_ptr, char* writep) {
     if (ps_ptr->overflow_buf) {
-        if (ps_ptr->outd != -1) {
+        if (is_uncompressed_pzwrite(ps_ptr)) {
 	    pzwrite_close_null(ps_ptr, writep);
         } else {
 	    compressed_pzwrite_close_null(ps_ptr, writep);
