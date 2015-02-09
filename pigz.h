@@ -71,6 +71,10 @@ static inline uint32_t is_uncompressed_pzwrite(Pigz_state* ps_ptr) {
 void parallel_compress(char* out_fname, unsigned char* overflow_buf, uint32_t do_append, uint32_t(* emitn)(uint32_t, unsigned char*));
 
 
+static inline void pzwrite_init_null(Pigz_state* ps_ptr) {
+    ps_ptr->overflow_buf = NULL;
+}
+
 int32_t pzwrite_init(char* out_fname, unsigned char* overflow_buf, uint32_t do_append, Pigz_state* ps_ptr);
 
 void compressed_pzwrite_init(char* out_fname, unsigned char* overflow_buf, uint32_t do_append, Pigz_state* ps_ptr);

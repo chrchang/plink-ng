@@ -2737,10 +2737,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   uint32_t ukk;
   uint32_t umm;
   uint32_t unn;
-
-  // required for flex_pzwrite_close_cond() to work properly
-  // todo: encapsulate this
-  ps.overflow_buf = NULL;
+  pzwrite_init_null(&ps);
   if (wkspace_alloc_uc_checked(&overflow_buf, PIGZ_BLOCK_SIZE + MAXLINELEN) ||
       wkspace_alloc_ui_checked(&missing_cts, unfiltered_sample_ct * sizeof(int32_t)) ||
       wkspace_alloc_ul_checked(&loadbuf, unfiltered_sample_ctv2 * sizeof(intptr_t)) ||
@@ -2828,7 +2825,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
     sprintf(tbuf, " CHR %%%us       CLST   N_MISS   N_CLST   N_GENO   F_MISS\n", plink_maxsnp);
   }
 
-  pzwritep += sprintf((char*)overflow_buf, tbuf, "SNP");
+  pzwritep += sprintf(pzwritep, tbuf, "SNP");
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
     chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
@@ -2974,7 +2971,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   }
   pzwritep = (char*)overflow_buf;
   sprintf(tbuf, "%%%us %%%us MISS_PHENO   N_MISS   N_GENO   F_MISS\n", plink_maxfid, plink_maxiid);
-  pzwritep += sprintf((char*)overflow_buf, tbuf, "FID", "IID");
+  pzwritep += sprintf(pzwritep, tbuf, "FID", "IID");
   do {
     sample_uidx = next_unset_unsafe(sample_exclude, sample_uidx);
     sample_uidx_stop = next_set(sample_exclude, sample_uidx, unfiltered_sample_ct);
@@ -3033,37 +3030,39 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   return retval;
 }
 
-int32_t hardy_report_write_line(uint32_t output_gz, FILE* outfile, gzFile gz_outfile, char* prefix_buf, uint32_t prefix_len, uint32_t reverse, uint32_t ll_ct, uint32_t lh_ct, uint32_t hh_ct, char* midbuf_ptr, double pval, double output_min_p) {
+int32_t hardy_report_write_line(Pigz_state* ps_ptr, char** pzwritep_ptr, char* prefix_buf, uint32_t prefix_len, uint32_t reverse, uint32_t ll_ct, uint32_t lh_ct, uint32_t hh_ct, char* midbuf_ptr, double pval, double output_min_p) {
+  char* pzwritep = *pzwritep_ptr;
   char wbuf[48];
   char* cptr;
   uint32_t denom;
   double drecip;
   double minor_freq;
-  if (flexwrite_checked(prefix_buf, prefix_len, output_gz, outfile, gz_outfile)) {
-    return 1;
-  }
+  pzwritep = memcpya(pzwritep, prefix_buf, prefix_len);
   if (reverse) {
     cptr = uint32_write(uint32_writex(uint32_writex(wbuf, hh_ct, '/'), lh_ct, '/'), ll_ct);
   } else {
     cptr = uint32_write(uint32_writex(uint32_writex(wbuf, ll_ct, '/'), lh_ct, '/'), hh_ct);
   }
-  cptr = fw_strcpyn(20, cptr - wbuf, wbuf, midbuf_ptr);
-  *cptr++ = ' ';
+  pzwritep = fw_strcpyn(20, cptr - wbuf, wbuf, pzwritep);
+  *pzwritep++ = ' ';
   denom = (ll_ct + lh_ct + hh_ct) * 2;
   if (denom) {
     drecip = 1.0 / ((double)denom);
     minor_freq = (2 * ll_ct + lh_ct) * drecip;
-    cptr = double_g_writewx4x(double_g_writewx4x(double_g_writewx4x(cptr, (lh_ct * 2) * drecip, 8, ' '), minor_freq * (2 * hh_ct + lh_ct) * drecip * 2, 8, ' '), MAXV(pval, output_min_p), 12, '\n');
+    pzwritep = double_g_writewx4x(double_g_writewx4x(double_g_writewx4x(pzwritep, (lh_ct * 2) * drecip, 8, ' '), minor_freq * (2 * hh_ct + lh_ct) * drecip * 2, 8, ' '), MAXV(pval, output_min_p), 12, '\n');
   } else {
-    cptr = memcpya(cptr, "     nan      nan           NA\n", 31);
+    pzwritep = memcpya(pzwritep, "     nan      nan           NA\n", 31);
   }
-  return flexwrite_checked(midbuf_ptr, (cptr - midbuf_ptr), output_gz, outfile, gz_outfile);
+  if (flex_pzwrite(ps_ptr, &pzwritep)) {
+    return 1;
+  }
+  *pzwritep_ptr = pzwritep;
+  return 0;
 }
 
 int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, int32_t* hwe_lls, int32_t* hwe_lhs, int32_t* hwe_hhs, uint32_t hwe_modifier, uint32_t nonfounders, int32_t* hwe_ll_cases, int32_t* hwe_lh_cases, int32_t* hwe_hh_cases, int32_t* hwe_ll_allfs, int32_t* hwe_lh_allfs, int32_t* hwe_hh_allfs, uint32_t pheno_nm_ct, uintptr_t* pheno_c, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
-  FILE* outfile = NULL;
-  gzFile gz_outfile = NULL;
+  char* pzwritep = NULL;
   uintptr_t marker_ct = unfiltered_marker_ct - marker_exclude_ct;
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
@@ -3072,6 +3071,7 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
   int32_t retval = 0;
   uint32_t skip_chrom = 0;
   uint32_t pct = 0;
+  Pigz_state ps;
   uint32_t prefix_len;
   uint32_t loop_end;
   uint32_t uii;
@@ -3084,6 +3084,7 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
   uint32_t chrom_end;
   uint32_t reverse;
   double* p_values;
+  unsigned char* overflow_buf;
   char* writebuf;
   char* cptr0;
   char* cptr;
@@ -3091,13 +3092,15 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
   char* cptr3;
   char* cptr4;
   char* cptr5;
+  pzwrite_init_null(&ps);
   if (pheno_nm_ct) {
     report_type = pheno_c? 0 : 1;
   } else {
     report_type = 2;
   }
   uii = report_type? 1 : 3;
-  if (wkspace_alloc_d_checked(&p_values, uii * marker_ct * sizeof(double)) ||
+  if (wkspace_alloc_uc_checked(&overflow_buf, PIGZ_BLOCK_SIZE + 2 * max_marker_allele_len + MAXLINELEN) ||
+      wkspace_alloc_d_checked(&p_values, uii * marker_ct * sizeof(double)) ||
       wkspace_alloc_c_checked(&writebuf, 2 * max_marker_allele_len + MAXLINELEN)) {
     goto hardy_report_ret_NOMEM;
   }
@@ -3119,31 +3122,17 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
   marker_uidx = 0;
   marker_idx = 0;
 
-  if (!output_gz) {
-    memcpy(outname_end, ".hwe", 5);
-    if (fopen_checked(&outfile, outname, "w")) {
-      goto hardy_report_ret_OPEN_FAIL;
-    }
-  } else {
-    memcpy(outname_end, ".hwe.gz", 8);
-    if (gzopen_checked(&gz_outfile, outname, "wb")) {
-      goto hardy_report_ret_OPEN_FAIL;
-    }
+  memcpy(outname_end, output_gz? ".hwe.gz" : ".hwe", output_gz? 8 : 5);
+  if (flex_pzwrite_init(output_gz, outname, overflow_buf, 0, &ps)) {
+    goto hardy_report_ret_OPEN_FAIL;
   }
+  pzwritep = (char*)overflow_buf;
+
   LOGPRINTFWW5("--hardy: Writing Hardy-Weinberg report (%s) to %s ... ", nonfounders? "all samples" : "founders only", outname);
   fputs("0%", stdout);
   fflush(stdout);
   sprintf(writebuf, " CHR %%%us     TEST   A1   A2                 GENO   O(HET)   E(HET)            P \n", plink_maxsnp);
-  if (!output_gz) {
-    fprintf(outfile, writebuf, "SNP");
-    if (ferror(outfile)) {
-      goto hardy_report_ret_WRITE_FAIL;
-    }
-  } else {
-    if (!gzprintf(gz_outfile, writebuf, "SNP")) {
-      goto hardy_report_ret_WRITE_FAIL;
-    }
-  }
+  pzwritep += sprintf(pzwritep, writebuf, "SNP");
 
   chrom_fo_idx = 0;
   refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
@@ -3190,7 +3179,7 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
 	cptr5 = fw_strcpy(4, cptr4, &(cptr5[1]));
 	*cptr5 = ' ';
 	prefix_len = 1 + (cptr5 - writebuf);
-	if (hardy_report_write_line(output_gz, outfile, gz_outfile, writebuf, prefix_len, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], cptr2, p_values[marker_idx], output_min_p)) {
+	if (hardy_report_write_line(&ps, &pzwritep, writebuf, prefix_len, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], cptr2, p_values[marker_idx], output_min_p)) {
 	  goto hardy_report_ret_WRITE_FAIL;
 	}
       }
@@ -3233,17 +3222,17 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
 	cptr5 = fw_strcpy(4, cptr4, &(cptr5[1]));
 	*cptr5 = ' ';
 	prefix_len = 1 + (cptr5 - writebuf);
-	if (hardy_report_write_line(output_gz, outfile, gz_outfile, writebuf, prefix_len, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], cptr2, p_values[3 * marker_idx], output_min_p)) {
+	if (hardy_report_write_line(&ps, &pzwritep, writebuf, prefix_len, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], cptr2, p_values[3 * marker_idx], output_min_p)) {
 	  goto hardy_report_ret_WRITE_FAIL;
 	}
 
 	memcpy(&(cptr0[7 + plink_maxsnp]), "FF", 2);
-	if (hardy_report_write_line(output_gz, outfile, gz_outfile, writebuf, prefix_len, reverse, hwe_ll_cases[marker_uidx], hwe_lh_cases[marker_uidx], hwe_hh_cases[marker_uidx], cptr2, p_values[3 * marker_idx + 1], output_min_p)) {
+	if (hardy_report_write_line(&ps, &pzwritep, writebuf, prefix_len, reverse, hwe_ll_cases[marker_uidx], hwe_lh_cases[marker_uidx], hwe_hh_cases[marker_uidx], cptr2, p_values[3 * marker_idx + 1], output_min_p)) {
 	  goto hardy_report_ret_WRITE_FAIL;
 	}
 
 	memcpy(&(cptr0[4 + plink_maxsnp]), "UN", 2);
-	if (hardy_report_write_line(output_gz, outfile, gz_outfile, writebuf, prefix_len, reverse, hwe_lls[marker_uidx], hwe_lhs[marker_uidx], hwe_hhs[marker_uidx], cptr2, p_values[3 * marker_idx + 2], output_min_p)) {
+	if (hardy_report_write_line(&ps, &pzwritep, writebuf, prefix_len, reverse, hwe_lls[marker_uidx], hwe_lhs[marker_uidx], hwe_hhs[marker_uidx], cptr2, p_values[3 * marker_idx + 2], output_min_p)) {
 	  goto hardy_report_ret_WRITE_FAIL;
 	}
       }
@@ -3270,8 +3259,7 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
     retval = RET_WRITE_FAIL;
     break;
   }
-  fclose_cond(outfile);
-  gzclose_cond(gz_outfile);
+  flex_pzwrite_close_cond(&ps, pzwritep);
   wkspace_reset(wkspace_mark);
   return retval;
 }
