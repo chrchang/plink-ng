@@ -291,8 +291,6 @@
    input buffers to about the same number.
  */
 
-#include "pigz.h"
-
 #ifdef _WIN32
 // stopgap non-parallel code for Windows
 
@@ -300,6 +298,8 @@
 #include <stdlib.h>
 #include <windows.h>
 #include "zlib-1.2.8/zlib.h"
+
+#include "pigz.h"
 
 void pigz_init(uint32_t setprocs) {
   return;
@@ -405,6 +405,9 @@ void parallel_compress(char* out_fname, unsigned char* overflow_buf, uint32_t do
                         /* lock, new_lock(), possess(), twist(), wait_for(),
                            release(), peek_lock(), free_lock(), yarn_name */
 #endif
+
+#include "pigz.h"
+
 
 /* for local functions and globals */
 #define local static
@@ -673,37 +676,6 @@ local unsigned long crc32_comb(unsigned long crc1, unsigned long crc2,
 
 #define BASE 65521U     /* largest prime smaller than 65536 */
 #define LOW16 0xffff    /* mask lower 16 bits */
-
-
-/* -- pool of spaces for buffer management -- */
-
-/* These routines manage a pool of spaces.  Each pool specifies a fixed size
-   buffer to be contained in each space.  Each space has a use count, which
-   when decremented to zero returns the space to the pool.  If a space is
-   requested from the pool and the pool is empty, a space is immediately
-   created unless a specified limit on the number of spaces has been reached.
-   Only if the limit is reached will it wait for a space to be returned to the
-   pool.  Each space knows what pool it belongs to, so that it can be returned.
- */
-
-/* a space (one buffer for each space) */
-struct space {
-    lock *use;              /* use count -- return to pool when zero */
-    unsigned char *buf;     /* buffer of size size */
-    size_t size;            /* current size of this buffer */
-    size_t len;             /* for application usage (initially zero) */
-    struct pool *pool;      /* pool to return to */
-    struct space *next;     /* for pool linked list */
-};
-
-/* pool of spaces (one pool for each type needed) */
-struct pool {
-    lock *have;             /* unused spaces available, lock for list */
-    struct space *head;     /* linked list of available buffers */
-    size_t size;            /* size of new buffers in this pool */
-    int limit;              /* number of new spaces allowed, or -1 */
-    int made;               /* number of buffers made */
-};
 
 /* initialize a pool (pool structure itself provided, not allocated) -- the
    limit is the maximum number of spaces in the pool, or -1 to indicate no
@@ -1332,6 +1304,157 @@ void parallel_compress(char* out_fname, unsigned char* overflow_buf, uint32_t do
     finish_jobs();
 }
 
+
+// about time to implement this without the awkward callback interface...
+int32_t pzwrite_init(char* out_fname, unsigned char* overflow_buf, uint32_t do_append, Pigz_state* ps_ptr) {
+    // if it's potentially worth compressing, it should be text, hence mode "w"
+    // instead of "wb"
+    ps_ptr->outfile = fopen(out_fname, do_append? "a" : "w");
+    if (!ps_ptr->outfile) {
+        printf("\nError: Failed to open %s.\n", out_fname);
+        return 2; // RET_OPEN_FAIL
+    }
+    ps_ptr->overflow_buf = overflow_buf;
+    return 0;
+}
+
+void compressed_pzwrite_init(char* out_fname, unsigned char* overflow_buf, uint32_t do_append, Pigz_state* ps_ptr) {
+    ps_ptr->outfile = NULL;
+    g.outf = out_fname;
+    g.outd = open(g.outf, O_WRONLY | (do_append? O_APPEND : (O_CREAT | O_TRUNC)), 0644);
+
+    /* if first time or after an option change, setup the job lists */
+    setup_jobs();
+
+    /* start write thread */
+    writeth = launch(write_thread, NULL);
+
+    ps_ptr->seq = 0;
+    ps_ptr->overflow_buf = overflow_buf;
+    ps_ptr->dict = NULL;
+    ps_ptr->next = get_space(&in_pool);
+    ps_ptr->next->len = 0;
+}
+
+int32_t flex_pzwrite_init(uint32_t output_gz, char* out_fname, unsigned char* overflow_buf, uint32_t do_append, Pigz_state* ps_ptr) {
+    if (!output_gz) {
+        return pzwrite_init(out_fname, overflow_buf, do_append, ps_ptr);
+    } else {
+        compressed_pzwrite_init(out_fname, overflow_buf, do_append, ps_ptr);
+        return 0;
+    }
+}
+
+int32_t force_pzwrite(Pigz_state* ps_ptr, char** writep_ptr, uint32_t write_min) {
+    unsigned char* writep = (unsigned char*)(*writep_ptr);
+    uint32_t cur_len = (uintptr_t)(writep - ps_ptr->overflow_buf);
+    if (cur_len) {
+	if (!fwrite(ps_ptr->overflow_buf, cur_len, 1, ps_ptr->outfile)) {
+	    return 6; // RET_WRITE_FAIL;
+	}
+    }
+    *writep_ptr = (char*)(ps_ptr->overflow_buf);
+    return 0;
+}
+
+void force_compressed_pzwrite(Pigz_state* ps_ptr, char** writep_ptr, uint32_t write_min) {
+    // Caller must not request a length-0 write until it's time to close the
+    // file.
+    unsigned char* writep = (unsigned char*)(*writep_ptr);
+    unsigned char* readp = ps_ptr->overflow_buf;
+    uint32_t cur_len = (uintptr_t)(writep - readp);
+
+    struct space *curr;             /* input data to compress */
+    struct job *job;                /* job for compress, then write */
+
+    int more;                       /* true if more input to read */
+    size_t len;                     /* for various length computations */
+    do {
+        if (cur_len > PIGZ_BLOCK_SIZE) {
+	    memcpy(ps_ptr->next->buf, readp, PIGZ_BLOCK_SIZE);
+	    ps_ptr->next->len = PIGZ_BLOCK_SIZE;
+            readp = &(readp[PIGZ_BLOCK_SIZE]);
+	} else {
+	    memcpy(ps_ptr->next->buf, readp, cur_len);
+	    ps_ptr->next->len = cur_len;
+	    readp = writep;
+	}
+	// create a new job
+	job = (struct job*)malloc(sizeof(struct job));
+	if (job == NULL) {
+	    bail("not enough memory", "");
+	}
+	job->calc = new_lock(0);
+        curr = ps_ptr->next;
+	job->lens = NULL;
+	job->in = curr;
+	more = write_min || (readp != writep);
+	job->more = more;
+        job->out = ps_ptr->dict;
+	if (more) {
+	    if (curr->len >= DICT || job->out == NULL) {
+	        ps_ptr->dict = curr;
+	        use_space(ps_ptr->dict);
+	    } else {
+	        ps_ptr->dict = get_space(&dict_pool);
+                len = DICT - curr->len;
+                memcpy(ps_ptr->dict->buf, job->out->buf + (job->out->len - len), len);
+                memcpy(ps_ptr->dict->buf + len, curr->buf, curr->len);
+                ps_ptr->dict->len = DICT;
+	    }
+	}
+	job->seq = ps_ptr->seq;
+        if (++(ps_ptr->seq) < 1) {
+	    bail("input too long: ", "");
+	}
+	if (cthreads < ps_ptr->seq && cthreads < g.procs) {
+	    (void)launch(compress_thread, NULL);
+            cthreads++;
+	}
+        possess(compress_have);
+        job->next = NULL;
+        *compress_tail = job;
+        compress_tail = &(job->next);
+	twist(compress_have, BY, +1);
+	cur_len = (uintptr_t)(writep - readp);
+	ps_ptr->next = get_space(&in_pool);
+        ps_ptr->next->len = 0;
+    } while ((cur_len >= write_min) && more);
+    if (cur_len) {
+        memcpy(ps_ptr->overflow_buf, readp, cur_len);
+    }
+    *writep_ptr = (char*)(&(ps_ptr->overflow_buf[cur_len]));
+}
+
+int32_t pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
+    int32_t ii;
+    int32_t jj;
+    force_pzwrite(ps_ptr, &writep, 0);
+    ii = ferror(ps_ptr->outfile);
+    jj = fclose(ps_ptr->outfile);
+    ps_ptr->overflow_buf = NULL;
+    return ii || jj;
+}
+
+void compressed_pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
+    force_compressed_pzwrite(ps_ptr, &writep, 0);
+    drop_space(ps_ptr->next);
+    /* wait for the write thread to complete (we leave the compress threads out
+       there and waiting in case there is another stream to compress) */
+    join(writeth);
+    writeth = NULL;
+    finish_jobs();
+    ps_ptr->overflow_buf = NULL;
+}
+
+int32_t flex_pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
+    if (ps_ptr->outfile) {
+        return pzwrite_close_null(ps_ptr, writep);
+    } else {
+        compressed_pzwrite_close_null(ps_ptr, writep);
+        return 0;
+    }
+}
 #endif
 
 /* catch termination signal */

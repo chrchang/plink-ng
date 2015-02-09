@@ -109,6 +109,9 @@
         handler will exit (set to NULL by default for no action)
  */
 
+#ifndef __YARN_H__
+#define __YARN_H__
+
 extern const char *yarn_prefix;
 extern void (*yarn_abort)(int);
 
@@ -132,3 +135,5 @@ enum wait_op {
 void wait_for(lock *, enum wait_op, long);
 long peek_lock(lock *);
 void free_lock(lock *);
+
+#endif // __YARN_H__
