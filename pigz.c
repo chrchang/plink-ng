@@ -419,11 +419,6 @@ void compressed_pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
         exit(6);
     }
 }
-
-int32_t flex_pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
-
-}
-
 #else
 
 #define VERSION "pigz 2.3\n"
@@ -1521,6 +1516,7 @@ void compressed_pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
     finish_jobs();
     ps_ptr->overflow_buf = NULL;
 }
+#endif
 
 int32_t flex_pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
     if (is_uncompressed_pzwrite(ps_ptr)) {
@@ -1530,7 +1526,6 @@ int32_t flex_pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
         return 0;
     }
 }
-#endif
 
 /* catch termination signal */
 local void cut_short(int sig)

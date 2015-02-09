@@ -62,7 +62,7 @@ typedef struct {
 } Pigz_state;
 
 static inline uint32_t is_uncompressed_pzwrite(Pigz_state* ps_ptr) {
-    return (outfile != NULL);
+    return (ps_ptr->outfile != NULL);
 }
 #endif // _WIN32 / NOTHREAD
 
