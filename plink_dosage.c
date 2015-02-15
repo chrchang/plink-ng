@@ -7,6 +7,7 @@
 #include "plink_glm.h"
 #include "plink_matrix.h"
 #include "plink_misc.h"
+#include "pigz.h"
 
 void dosage_init(Dosage_info* doip) {
   doip->fname = NULL;
@@ -465,9 +466,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   // there's no long-term maintenance problem
   FILE* phenofile = NULL;
   FILE* infile = NULL;
-  FILE* outfile = NULL;
+  FILE* profile_outfile = NULL;
   gzFile* gz_infiles = NULL;
-  gzFile gz_outfile = NULL;
   char* marker_ids = NULL;
   char* sample_ids = NULL;
   char* paternal_ids = NULL;
@@ -482,6 +482,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   char** score_allele_codes = NULL;
   char* a1_ptr = NULL;
   char* a2_ptr = NULL;
+  char* pzwritep = NULL;
   uintptr_t* marker_exclude = NULL;
   uintptr_t* sample_exclude = NULL;
   uintptr_t* sex_nm = NULL;
@@ -610,7 +611,9 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   __CLPK_integer dgels_lwork;
 #endif
   char missing_pheno_str[32];
+  Pigz_state ps;
   unsigned char* wkspace_mark;
+  unsigned char* overflow_buf;
   char* fnames;
   char* loadbuf;
   char* bufptr;
@@ -667,6 +670,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uint32_t uii;
   uint32_t ukk;
   int32_t ii;
+  pzwrite_init_null(&ps);
   if (load_map) {
     retval = load_bim(mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, NULL, NULL, NULL, &ulii, &marker_ids, NULL, 0, NULL, chrom_info_ptr, NULL, &marker_pos, misc_flags, filter_flags, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_range_list_ptr, &map_is_unsorted, do_glm || min_bp_space || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)), 0, 0, NULL, ".map file", NULL);
     if (retval) {
@@ -1334,7 +1338,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     memcpy(fnames, doip->fname, uii);
     infile_ct = 1;
   }
-  if (wkspace_alloc_ui_checked(&file_icts, max_batch_size * sizeof(int32_t)) ||
+  if (wkspace_alloc_uc_checked(&overflow_buf, 2 * PIGZ_BLOCK_SIZE) ||
+      wkspace_alloc_ui_checked(&file_icts, max_batch_size * sizeof(int32_t)) ||
       wkspace_alloc_ul_checked(&line_idx_arr, max_batch_size * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&batch_samples, sample_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&cur_samples, sample_ctl * sizeof(intptr_t)) ||
@@ -1467,7 +1472,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     }
     bufptr = memcpya(bufptr, "  A1  A2     FRQ    INFO    ", 28);
     bufptr = memcpya(bufptr, pheno_c? "  OR" : "BETA", 4);
-    bufptr = memcpya(bufptr, "      SE       P\n", 17);
+    bufptr = memcpya(bufptr, "      SE       P", 16);
+    append_binary_eoln(&bufptr);
     bufptr2 = memcpyb(outname_end, ".assoc.dosage", 14);
   } else if (count_occur) {
     // could just use a uint32_t array if .map provided
@@ -1489,56 +1495,29 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   }
   if (output_gz) {
     memcpy(bufptr2, ".gz", 4);
-    if (gzopen_checked(&gz_outfile, outname, "wb")) {
-      goto plink1_dosage_ret_OPEN_FAIL;
-    }
+  }
+  if (flex_pzwrite_init(output_gz, outname, overflow_buf, 0, &ps)) {
+    goto plink1_dosage_ret_OPEN_FAIL;
+  }
+  pzwritep = (char*)overflow_buf;
+
+  if (!do_score) {
     if (do_glm) {
-      if (!gzwrite(gz_outfile, tbuf, bufptr - tbuf)) {
-	goto plink1_dosage_ret_WRITE_FAIL;
-      }
-    } else {
-      if (gzputs(gz_outfile, "SNP A1 A2 ") == -1) {
-	goto plink1_dosage_ret_WRITE_FAIL;
-      }
-      for (sample_uidx = 0, sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
-	next_unset_unsafe_ck(sample_exclude, &sample_uidx);
-	bufptr = &(sample_ids[sample_uidx * max_sample_id_len]);
-	bufptr2 = strchr(bufptr, '\t');
-	*bufptr2 = ' ';
-        if (gzputs(gz_outfile, bufptr) == -1) {
-	  goto plink1_dosage_ret_WRITE_FAIL;
-	}
-	if (gzputc(gz_outfile, ' ') == -1) {
-	  goto plink1_dosage_ret_WRITE_FAIL;
-	}
-	*bufptr2 = '\t';
-      }
-      if (gzputc(gz_outfile, '\n') == -1) {
-	goto plink1_dosage_ret_WRITE_FAIL;
-      }
-    }
-  } else if (!do_score) {
-    if (fopen_checked(&outfile, outname, "w")) {
-      goto plink1_dosage_ret_OPEN_FAIL;
-    }
-    if (do_glm) {
-      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
-	goto plink1_dosage_ret_WRITE_FAIL;
-      }
+      pzwritep = memcpya(pzwritep, tbuf, bufptr - tbuf);
     } else if (!count_occur) {
-      fputs("SNP A1 A2 ", outfile);
+      pzwritep = memcpya(pzwritep, "SNP A1 A2 ", 10);
       for (sample_uidx = 0, sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
 	next_unset_unsafe_ck(sample_exclude, &sample_uidx);
 	bufptr = &(sample_ids[sample_uidx * max_sample_id_len]);
 	bufptr2 = strchr(bufptr, '\t');
-	*bufptr2 = ' ';
-        fputs(bufptr, outfile);
-	putc(' ', outfile);
-	*bufptr2 = '\t';
+	pzwritep = memcpya(pzwritep, bufptr, bufptr2 - bufptr);
+	*pzwritep++ = ' ';
+	pzwritep = strcpyax(pzwritep, &(bufptr2[1]), ' ');
+	if (flex_pzwrite(&ps, &pzwritep)) {
+	  goto plink1_dosage_ret_WRITE_FAIL;
+	}
       }
-      if (putc_checked('\n', outfile)) {
-	goto plink1_dosage_ret_WRITE_FAIL;
-      }
+      append_binary_eoln(&pzwritep);
     }
   }
   wkspace_mark = wkspace_base;
@@ -1927,85 +1906,51 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  }
 #endif
 	  if (load_map) {
-	    bufptr = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_idx)));
-	    *bufptr++ = ' ';
-	    bufptr = fw_strcpyn(11, cur_marker_id_len, cur_marker_id_buf, bufptr);
-            bufptr = memseta(bufptr, 32, 2);
-            bufptr = uint32_writew10(bufptr, marker_pos[marker_idx]);
+	    pzwritep = width_force(4, pzwritep, chrom_name_write(pzwritep, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_idx)));
+	    *pzwritep++ = ' ';
+	    pzwritep = fw_strcpyn(11, cur_marker_id_len, cur_marker_id_buf, pzwritep);
+            pzwritep = memseta(pzwritep, 32, 2);
+            pzwritep = uint32_writew10(pzwritep, marker_pos[marker_idx]);
 	  } else {
-	    tbuf[0] = ' ';
-	    bufptr = fw_strcpyn(11, cur_marker_id_len, cur_marker_id_buf, &(tbuf[1]));
+	    *pzwritep++ = ' ';
+	    pzwritep = fw_strcpyn(11, cur_marker_id_len, cur_marker_id_buf, pzwritep);
 	  }
-	  *bufptr++ = ' ';
-	  *bufptr = '\0';
-          if (output_gz) {
-	    if (gzputs(gz_outfile, tbuf) == -1) {
-	      goto plink1_dosage_ret_WRITE_FAIL;
+	  *pzwritep++ = ' ';
+	  if (a1_len < 3) {
+	    *pzwritep++ = ' ';
+	    if (a1_len == 1) {
+	      *pzwritep++ = ' ';
 	    }
-	    if (a1_len < 3) {
-	      if (gzputc(gz_outfile, ' ') == -1) {
-		goto plink1_dosage_ret_WRITE_FAIL;
-	      }
-	      if (a1_len == 1) {
-		if (gzputc(gz_outfile, ' ') == -1) {
-		  goto plink1_dosage_ret_WRITE_FAIL;
-		}
-	      }
+	  }
+	  if (flex_pzputs_allele(&ps, &pzwritep, a1_ptr, a1_len)) {
+	    goto plink1_dosage_ret_WRITE_FAIL;
+	  }
+	  *pzwritep++ = ' ';
+	  if (a2_len < 3) {
+            *pzwritep++ = ' ';
+	    if (a2_len == 1) {
+	      *pzwritep++ = ' ';
 	    }
-	    if (gzputs(gz_outfile, a1_ptr) == -1) {
-	      goto plink1_dosage_ret_WRITE_FAIL;
-	    }
-	    if (gzputc(gz_outfile, ' ') == -1) {
-	      goto plink1_dosage_ret_WRITE_FAIL;
-	    }
-	    if (a2_len < 3) {
-	      if (gzputc(gz_outfile, ' ') == -1) {
-		goto plink1_dosage_ret_WRITE_FAIL;
-	      }
-	      if (a2_len == 1) {
-		if (gzputc(gz_outfile, ' ') == -1) {
-		  goto plink1_dosage_ret_WRITE_FAIL;
-		}
-	      }
-	    }
-	    if (gzputs(gz_outfile, a2_ptr) == -1) {
-	      goto plink1_dosage_ret_WRITE_FAIL;
-	    }
-	  } else {
-            fputs(tbuf, outfile);
-	    if (a1_len < 3) {
-	      putc(' ', outfile);
-	      if (a1_len == 1) {
-		putc(' ', outfile);
-	      }
-	    }
-	    fputs(a1_ptr, outfile);
-	    putc(' ', outfile);
-	    if (a2_len < 3) {
-	      putc(' ', outfile);
-	      if (a2_len == 1) {
-		putc(' ', outfile);
-	      }
-	    }
-	    fputs(a2_ptr, outfile);
-          }
-	  bufptr = tbuf;
-	  *bufptr++ = ' ';
-          bufptr = double_f_writew74(bufptr, dzz);
-	  *bufptr++ = ' ';
-	  bufptr = double_f_writew74(bufptr, rsq);
-	  *bufptr++ = ' ';
+	  }
+	  if (flex_pzputs_allele(&ps, &pzwritep, a2_ptr, a2_len)) {
+	    goto plink1_dosage_ret_WRITE_FAIL;
+	  }
+	  *pzwritep++ = ' ';
+          pzwritep = double_f_writew74(pzwritep, dzz);
+	  *pzwritep++ = ' ';
+	  pzwritep = double_f_writew74(pzwritep, rsq);
+	  *pzwritep++ = ' ';
 	  if (is_valid) {
-	    bufptr = double_f_writew74(bufptr, pheno_c? exp(beta * 0.5) : (beta * 0.5));
-	    *bufptr++ = ' ';
-	    bufptr = double_f_writew74(bufptr, se * 0.5);
-	    *bufptr++ = ' ';
-	    bufptr = double_g_writewx4(bufptr, MAXV(pval, output_min_p), 7);
-	    bufptr = memcpya(bufptr, "\n", 2);
+	    pzwritep = double_f_writew74(pzwritep, pheno_c? exp(beta * 0.5) : (beta * 0.5));
+	    *pzwritep++ = ' ';
+	    pzwritep = double_f_writew74(pzwritep, se * 0.5);
+	    *pzwritep++ = ' ';
+	    pzwritep = double_g_writewx4(pzwritep, MAXV(pval, output_min_p), 7);
 	  } else {
-	    bufptr = memcpya(bufptr, "     NA      NA      NA\n", 25);
+	    pzwritep = memcpya(pzwritep, "     NA      NA      NA", 24);
 	  }
-	  if (flexputs_checked(tbuf, output_gz, outfile, gz_outfile)) {
+	  append_binary_eoln(&pzwritep);
+	  if (flex_pzwrite(&ps, &pzwritep)) {
 	    goto plink1_dosage_ret_WRITE_FAIL;
 	  }
 	} else if (do_score) {
@@ -2053,32 +1998,17 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    }
 	  } while (++qrange_idx < qrange_ct);
 	} else if (!count_occur) {
-	  if (output_gz) {
-	    if (gzputs(gz_outfile, cur_marker_id_buf) == -1) {
-	      goto plink1_dosage_ret_WRITE_FAIL;
-	    }
-	    if (gzputc(gz_outfile, ' ') == -1) {
-	      goto plink1_dosage_ret_WRITE_FAIL;
-	    }
-	    if (gzputs(gz_outfile, a1_ptr) == -1) {
-	      goto plink1_dosage_ret_WRITE_FAIL;
-	    }
-	    if (gzputc(gz_outfile, ' ') == -1) {
-	      goto plink1_dosage_ret_WRITE_FAIL;
-	    }
-	    if (gzputs(gz_outfile, a2_ptr) == -1) {
-	      goto plink1_dosage_ret_WRITE_FAIL;
-	    }
-	    if (gzputc(gz_outfile, ' ') == -1) {
-	      goto plink1_dosage_ret_WRITE_FAIL;
-	    }
-	  } else {
-	    fputs(cur_marker_id_buf, outfile);
-	    putc(' ', outfile);
-	    fputs(a1_ptr, outfile);
-	    putc(' ', outfile);
-	    fputs(a2_ptr, outfile);
-	    putc(' ', outfile);
+	  pzwritep = strcpyax(pzwritep, cur_marker_id_buf, ' ');
+	  if (flex_pzputs_allele(&ps, &pzwritep, a1_ptr, a1_len)) {
+	    goto plink1_dosage_ret_WRITE_FAIL;
+	  }
+	  *pzwritep++ = ' ';
+	  if (flex_pzputs_allele(&ps, &pzwritep, a2_ptr, a2_len)) {
+	    goto plink1_dosage_ret_WRITE_FAIL;
+	  }
+	  *pzwritep++ = ' ';
+	  if (flex_pzwrite(&ps, &pzwritep)) {
+	    goto plink1_dosage_ret_WRITE_FAIL;
 	  }
 	  ulii = 0;
 	  // could make output format independent of input format (other than
@@ -2089,18 +2019,17 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    sample_idx = 0;
 	    do {
 	      ulii += MAXLINELEN / 16;
-	      bufptr = tbuf;
 	      if (ulii > sample_ct) {
 		ulii = sample_ct;
 	      }
 	      for (; sample_idx < ulii; sample_idx++) {
 		if (!is_set(cur_samples, sample_idx)) {
-		  bufptr = memcpyl3a(bufptr, "NA ");
+		  pzwritep = memcpyl3a(pzwritep, "NA ");
 		} else {
-		  bufptr = double_g_writex(bufptr, 2 * cur_dosages[sample_idx], ' ');
+		  pzwritep = double_g_writex(pzwritep, 2 * cur_dosages[sample_idx], ' ');
 		}
 	      }
-	      if (flexwrite_checked(tbuf, bufptr - tbuf, output_gz, outfile, gz_outfile)) {
+	      if (flex_pzwrite(&ps, &pzwritep)) {
 		goto plink1_dosage_ret_WRITE_FAIL;
 	      }
 	    } while (ulii < sample_ct);
@@ -2108,19 +2037,18 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    sample_idx = 0;
 	    do {
 	      ulii += MAXLINELEN / 32;
-	      bufptr = tbuf;
 	      if (ulii > sample_ct) {
 		ulii = sample_ct;
 	      }
 	      for (; sample_idx < ulii; sample_idx++) {
 		if (!is_set(cur_samples, sample_idx)) {
-		  bufptr = memcpya(bufptr, "NA NA ", 6);
+		  pzwritep = memcpya(pzwritep, "NA NA ", 6);
 		} else {
-		  bufptr = double_g_writex(bufptr, cur_dosages[sample_idx], ' ');
-		  bufptr = double_g_writex(bufptr, cur_dosages2[sample_idx], ' ');
+		  pzwritep = double_g_writex(pzwritep, cur_dosages[sample_idx], ' ');
+		  pzwritep = double_g_writex(pzwritep, cur_dosages2[sample_idx], ' ');
 		}
 	      }
-	      if (flexwrite_checked(tbuf, bufptr - tbuf, output_gz, outfile, gz_outfile)) {
+	      if (flex_pzwrite(&ps, &pzwritep)) {
 		goto plink1_dosage_ret_WRITE_FAIL;
 	      }
 	    } while (ulii < sample_ct);
@@ -2128,37 +2056,30 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    sample_idx = 0;
 	    do {
 	      ulii += MAXLINELEN / 48;
-	      bufptr = tbuf;
 	      if (ulii > sample_ct) {
 		ulii = sample_ct;
 	      }
 	      for (; sample_idx < ulii; sample_idx++) {
 		if (!is_set(cur_samples, sample_idx)) {
-		  bufptr = memcpya(bufptr, "NA NA NA ", 9);
+		  pzwritep = memcpya(pzwritep, "NA NA NA ", 9);
 		} else {
 		  dxx = cur_dosages[sample_idx];
-		  bufptr = double_g_writex(bufptr, dxx, ' ');
+		  pzwritep = double_g_writex(pzwritep, dxx, ' ');
 		  dyy = cur_dosages2[sample_idx];
-		  bufptr = double_g_writex(bufptr, dyy, ' ');
+		  pzwritep = double_g_writex(pzwritep, dyy, ' ');
 		  dxx = 1.0 - dxx - dyy;
 		  if (fabs(dxx) < SMALL_EPSILON) {
 		    dxx = 0.0;
 		  }
-		  bufptr = double_g_writex(bufptr, dxx, ' ');
+		  pzwritep = double_g_writex(pzwritep, dxx, ' ');
 		}
 	      }
-	      if (flexwrite_checked(tbuf, bufptr - tbuf, output_gz, outfile, gz_outfile)) {
+	      if (flex_pzwrite(&ps, &pzwritep)) {
 		goto plink1_dosage_ret_WRITE_FAIL;
 	      }
 	    } while (ulii < sample_ct);
 	  }
-	  if (output_gz) {
-	    if (gzputc(gz_outfile, '\n') == -1) {
-	      goto plink1_dosage_ret_WRITE_FAIL;
-	    }
-	  } else {
-	    putc('\n', outfile);
-	  }
+	  append_binary_eoln(&pzwritep);
 	}
       }
       if (a1_ptr) {
@@ -2191,11 +2112,13 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       } else {
 	memcpy(outname_end, ".profile", 9);
       }
-      if (fopen_checked(&outfile, outname, "w")) {
+      // this is not affected by 'gz' in PLINK 1.07; retain that for backward
+      // compatibility.
+      if (fopen_checked(&profile_outfile, outname, "w")) {
 	goto plink1_dosage_ret_OPEN_FAIL;
       }
       sprintf(tbuf, "%%%us %%%us  PHENO%s %s\n", plink_maxfid, plink_maxiid, dosage_score_cnt? "    CNT" : "", score_report_average? "   SCORE" : "SCORESUM");
-      fprintf(outfile, tbuf, "FID", "IID");
+      fprintf(profile_outfile, tbuf, "FID", "IID");
       uii = score_range_obs_cts[qrange_idx];
       uiptr = &(score_miss_cts[sample_ct * qrange_idx]);
       dxx = score_bases[qrange_idx];
@@ -2234,11 +2157,11 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	}
 	bufptr = width_force(8, bufptr, double_g_write(bufptr, dyy));
 	*bufptr++ = '\n';
-        if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+        if (fwrite_checked(tbuf, bufptr - tbuf, profile_outfile)) {
 	  goto plink1_dosage_ret_WRITE_FAIL;
 	}
       }
-      if (fclose_null(&outfile)) {
+      if (fclose_null(&profile_outfile)) {
 	goto plink1_dosage_ret_WRITE_FAIL;
       }
       LOGPRINTFWW("--score: Results written to %s .\n", outname);
@@ -2270,15 +2193,15 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       for (ulii = 0; ulii < distinct_id_ct; ulii++) {
 	bufptr2 = &(bufptr[ulii * max_occur_id_len]);
 	slen = strlen(bufptr2);
-	bufptr3 = memcpyax(tbuf, bufptr2, slen, ' ');
-	bufptr3 = uint32_write(bufptr3, *((uint32_t*)(&(bufptr2[slen + 1]))));
-	memcpy(bufptr3, "\n", 2);
-	if (flexputs_checked(tbuf, output_gz, outfile, gz_outfile)) {
+	pzwritep = memcpyax(pzwritep, bufptr2, slen, ' ');
+	pzwritep = uint32_write(pzwritep, *((uint32_t*)(&(bufptr2[slen + 1]))));
+	append_binary_eoln(&pzwritep);
+	if (flex_pzwrite(&ps, &pzwritep)) {
 	  goto plink1_dosage_ret_WRITE_FAIL;
 	}
       }
     }
-    if (flexclose_null(output_gz, &outfile, &gz_outfile)) {
+    if (flex_pzwrite_close_null(&ps, pzwritep)) {
       goto plink1_dosage_ret_WRITE_FAIL;
     }
     LOGPRINTFWW("--%sdosage%s: Results saved to %s .\n", (do_glm || count_occur)? "" : "write-", count_occur? " occur" : "", outname);
@@ -2338,8 +2261,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   free_cond(pheno_d);
   fclose_cond(phenofile);
   fclose_cond(infile);
-  fclose_cond(outfile);
-  gzclose_cond(gz_outfile);
+  fclose_cond(profile_outfile);
+  flex_pzwrite_close_cond(&ps, pzwritep);
   if (a1_ptr && a1_ptr[1]) {
     free(a1_ptr);
   }

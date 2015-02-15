@@ -104,7 +104,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (10 Feb 2015)";
+  " (15 Feb 2015)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
@@ -12999,6 +12999,7 @@ int32_t main(int32_t argc, char** argv) {
       logprint("Error: --dosage cannot be used with other PLINK computations.\n");
       goto main_ret_INVALID_CMDLINE;
     }
+    pigz_init(g_thread_ct);
     retval = plink1_dosage(&dosage_info, famname, mapname, outname, outname_end, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, makepheno_str, phenoname_str, covar_fname, qual_filter, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, filtervals_flattened, filter_attrib_fname, filter_attrib_liststr, filter_attrib_sample_fname, filter_attrib_sample_liststr, qual_min_thresh, qual_max_thresh, thin_keep_prob, thin_keep_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, tail_bottom, tail_top, misc_flags, filter_flags, sex_missing_pheno, update_sex_col, &cluster, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, mwithin_col, glm_modifier, glm_vif_thresh, output_min_p, &score_info);
     // unconditional; note that plink1_dosage() currently doesn't even bother
     // to pop stuff off the stack when it's done

@@ -403,6 +403,33 @@ void force_compressed_pzwrite(Pigz_state* ps_ptr, char** writep_ptr, uint32_t wr
     }
 }
 
+int32_t flex_pzputs_std(Pigz_state* ps_ptr, char** writep_ptr, char* ss, uint32_t sslen) {
+    unsigned char* writep = (unsigned char*)(*writep_ptr);
+    unsigned char* readp = (unsigned char*)ss;
+    uint32_t cur_write_space = 2 * PIGZ_BLOCK_SIZE - ((uintptr_t)(writep - ps_ptr->overflow_buf));
+    while (sslen > cur_write_space) {
+        memcpy(writep, readp, cur_write_space);
+	if (is_uncompressed_pzwrite(ps_ptr)) {
+	    if (!fwrite(ps_ptr->overflow_buf, 2 * PIGZ_BLOCK_SIZE, 1, ps_ptr->outfile)) {
+                return 6;
+	    }
+	} else {
+	    if (!gzwrite(ps_ptr->gz_outfile, ps_ptr->overflow_buf, 2 * PIGZ_BLOCK_SIZE)) {
+	        fputs("\nError: File write failure.\n", stdout);
+	        gzclose(ps_ptr->gz_outfile);
+	        exit(6);
+	    }
+	}
+        writep = ps_ptr->overflow_buf;
+        readp = &(readp[cur_write_space]);
+	sslen -= cur_write_space;
+	cur_write_space = 2 * PIGZ_BLOCK_SIZE;
+    }
+    memcpy(writep, readp, sslen);
+    *writep_ptr = &(writep[sslen]);
+    return flex_pzwrite(ps_ptr, writep_ptr);
+}
+
 int32_t pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
     force_pzwrite(ps_ptr, &writep, 0);
     int32_t ii = ferror(ps_ptr->outfile);
@@ -1527,6 +1554,30 @@ void force_compressed_pzwrite(Pigz_state* ps_ptr, char** writep_ptr, uint32_t wr
         memcpy(ps_ptr->overflow_buf, readp, cur_len);
     }
     *writep_ptr = (char*)(&(ps_ptr->overflow_buf[cur_len]));
+}
+
+int32_t flex_pzputs_std(Pigz_state* ps_ptr, char** writep_ptr, char* ss, uint32_t sslen) {
+    unsigned char* writep = (unsigned char*)(*writep_ptr);
+    unsigned char* readp = (unsigned char*)ss;
+    uint32_t cur_write_space = 2 * PIGZ_BLOCK_SIZE - ((uintptr_t)(writep - ps_ptr->overflow_buf));
+    int32_t ii;
+    while (sslen > cur_write_space) {
+        memcpy(writep, readp, cur_write_space);
+	if (is_uncompressed_pzwrite(ps_ptr)) {
+	    ii = force_pzwrite(ps_ptr, (char**)(&writep), PIGZ_BLOCK_SIZE + 1);
+	    if (ii) {
+	        return ii;
+	    }
+	} else {
+	    force_compressed_pzwrite(ps_ptr, (char**)(&writep), PIGZ_BLOCK_SIZE + 1);
+	}
+        readp = &(readp[cur_write_space]);
+	sslen -= cur_write_space;
+	cur_write_space = 2 * PIGZ_BLOCK_SIZE;
+    }
+    memcpy(writep, readp, sslen);
+    *writep_ptr = (char*)(&(writep[sslen]));
+    return flex_pzwrite(ps_ptr, writep_ptr);
 }
 
 int32_t pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {

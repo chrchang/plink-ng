@@ -108,6 +108,21 @@ static inline int32_t flex_pzwrite(Pigz_state* ps_ptr, char** writep_ptr) {
     return 0;
 }
 
+// Assumes overflow_buf has size 2 * PIGZ_BLOCK_SIZE.
+int32_t flex_pzputs_std(Pigz_state* ps_ptr, char** writep_ptr, char* ss, uint32_t sslen);
+
+// designed to write allele codes, which are usually length-1, but could have
+// length in the millions.  Assumes overflow_buf has size 2 * PIGZ_BLOCK_SIZE.
+static inline int32_t flex_pzputs_allele(Pigz_state* ps_ptr, char** writep_ptr, char* allele_code, uint32_t allele_len) {
+    // optimize the common case
+    if (allele_len == 1) {
+        **writep_ptr = *allele_code;
+	*writep_ptr += 1;
+	return flex_pzwrite(ps_ptr, writep_ptr);
+    }
+    return flex_pzputs_std(ps_ptr, writep_ptr, allele_code, allele_len);
+}
+
 int32_t pzwrite_close_null(Pigz_state* ps_ptr, char* writep);
 
 void compressed_pzwrite_close_null(Pigz_state* ps_ptr, char* writep);
