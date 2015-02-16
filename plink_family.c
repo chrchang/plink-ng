@@ -3137,6 +3137,9 @@ static double* g_orig_stat;
 static double* g_pheno_d2;
 static double* g_qfam_b;
 static double* g_qfam_w;
+static double* g_beta_sum;
+static double* g_beta_ssq;
+static uint32_t* g_beta_fail_cts;
 static uintptr_t g_cur_perm_ct;
 static double g_qt_sum_all;
 static double g_qt_ssq_all;
@@ -3173,6 +3176,8 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
   double* qfam_b = &(g_qfam_b[tidx * CACHEALIGN32_DBL(fss_ct)]);
   double* qfam_w = &(g_qfam_w[tidx * CACHEALIGN32_DBL(lm_ct)]);
   double* pheno_d2 = g_pheno_d2;
+  double* beta_sum = g_beta_sum;
+  double* beta_ssq = g_beta_ssq;
   uint32_t* qfam_permute = only_within? NULL : g_qfam_permute;
   uint32_t* permute_edit_buf = only_within? NULL : (&(g_permute_edit[tidx * CACHEALIGN32_INT32(fss_ct)]));
   uint32_t* perm_2success_ct = g_perm_2success_ct;
@@ -3181,6 +3186,7 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
   uint32_t* fss_contents = g_fss_contents;
   uint32_t* sample_lm_to_fss_idx = g_sample_lm_to_fss_idx;
   uint32_t* perm_ptr = NULL;
+  uint32_t* beta_fail_cts = g_beta_fail_cts;
   uintptr_t cur_perm_ct = g_cur_perm_ct;
   uintptr_t sample_ct = g_sample_ct;
   uintptr_t sample_ctl2 = (sample_ct + (BITCT2 - 1)) / BITCT2;
@@ -3207,6 +3213,8 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
   double qt_ssq;
   double nind_recip;
   double beta;
+  double cur_beta_sum;
+  double cur_beta_ssq;
   double tstat;
   double pval;
   double dxx;
@@ -3218,6 +3226,7 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
   uint32_t success_2start;
   uint32_t success_2incr;
   uint32_t next_adapt_check;
+  uint32_t cur_beta_fail_cts;
   uint32_t cur_fss_ct;
   uint32_t nind;
   uint32_t orig_fss_idx;
@@ -3255,6 +3264,9 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
       if (only_within) {
 	flip_precalc(lm_ct, qfam_w, pheno_d2, nm_lm, &geno_sum, &geno_ssq, &qt_g_prod);
       }
+      cur_beta_sum = 0.0;
+      cur_beta_ssq = 0.0;
+      cur_beta_fail_cts = 0;
 
       for (pidx = 0; pidx < cur_perm_ct;) {
 	if (!only_within) {
@@ -3285,6 +3297,8 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
 	  }
 	}
 	if (!qfam_regress(test_type, nind, lm_ct, sample_lm_to_fss_idx, nm_lm, pheno_d2, qfam_b, qfam_w, perm_ptr, &(qfam_flip[pidx * flip_ctl]), nind_recip, qt_sum, qt_ssq, geno_sum, geno_ssq, qt_g_prod, &beta, &tstat)) {
+	  cur_beta_sum += beta;
+	  cur_beta_ssq += beta * beta;
 	  tstat = fabs(tstat);
 	  if (tstat > stat_high) {
 	    success_2incr += 2;
@@ -3294,6 +3308,7 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
 	} else {
 	  // conservative handling of permutation regression failure
 	  success_2incr += 2;
+	  cur_beta_fail_cts++;
 	}
 	if (++pidx == next_adapt_check - pidx_offset) {
 	  // won't ever get here with fixed number of permutations
@@ -3313,6 +3328,13 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
 	}
       }
       perm_2success_ct[marker_idx] += success_2incr;
+      if (beta_sum) {
+	beta_sum[marker_idx] += cur_beta_sum;
+	beta_ssq[marker_idx] += cur_beta_ssq;
+	if (cur_beta_fail_cts) {
+	  beta_fail_cts[marker_idx] += cur_beta_fail_cts;
+	}
+      }
     }
   qfam_thread_skip_all:
     if ((!tidx) || g_is_last_thread_block) {
@@ -3337,6 +3359,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   double geno_sum = 0.0;
   double geno_ssq = 0.0;
   double qt_g_prod = 0.0;
+  double* orig_beta = NULL;
   char* chrom_name_ptr = NULL;
   uint32_t unfiltered_sample_ctl2m1 = (unfiltered_sample_ct - 1) / BITCT2;
   uint32_t test_type = fam_ip->qfam_modifier & QFAM_TEST;
@@ -3344,6 +3367,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
   uint32_t only_within = (test_type & (QFAM_WITHIN1 | QFAM_WITHIN2))? 1 : 0;
   uint32_t perm_count = fam_ip->qfam_modifier & QFAM_PERM_COUNT;
+  uint32_t emp_se = fam_ip->qfam_modifier & QFAM_EMP_SE;
   uint32_t perms_done = 0;
   uint32_t chrom_idx = 0;
   uint32_t qfam_thread_ct = g_thread_ct;
@@ -3542,6 +3566,21 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       goto qfam_ret_NOMEM;
     }
   }
+  if (emp_se) {
+    if (wkspace_alloc_d_checked(&orig_beta, marker_ct * sizeof(double)) ||
+        wkspace_alloc_d_checked(&g_beta_sum, marker_ct * sizeof(double)) ||
+        wkspace_alloc_d_checked(&g_beta_ssq, marker_ct * sizeof(double)) ||
+        wkspace_alloc_ui_checked(&g_beta_fail_cts, marker_ct * sizeof(double))) {
+      goto qfam_ret_NOMEM;
+    }
+    fill_double_zero(g_beta_sum, marker_ct);
+    fill_double_zero(g_beta_ssq, marker_ct);
+    fill_uint_zero(g_beta_fail_cts, marker_ct);
+  } else {
+    g_beta_sum = NULL;
+    g_beta_ssq = NULL;
+    g_beta_fail_cts = NULL;
+  }
   if (wkspace_alloc_ul_checked(&g_loadbuf, MODEL_BLOCKSIZE * sample_ctl2 * sizeof(intptr_t)) ||
       wkspace_alloc_d_checked(&g_orig_stat, marker_ct * sizeof(double)) ||
       wkspace_alloc_ul_checked(&g_qfam_flip, perm_batch_size * flip_ctl * sizeof(intptr_t)) ||
@@ -3725,6 +3764,9 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	    // do not apply --output-min-p since only the empirical p-value is
 	    // supposed to be postprocessed here, not this one
 	    bufptr = double_g_writewx4x(bufptr, calc_tprob(tstat, nind - 2), 12, '\n');
+	    if (emp_se) {
+	      orig_beta[marker_idx_base + block_idx] = beta;
+	    }
 	    *orig_stat_ptr++ = fabs(tstat);
 	  } else {
 	    bufptr = memcpya(bufptr, "        NA           NA           NA\n", 37);
@@ -3784,7 +3826,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   if (fopen_checked(&outfile, outname, "w")) {
     goto qfam_ret_OPEN_FAIL;
   }
-  sprintf(tbuf, " CHR %%%us         EMP1           NP \n", plink_maxsnp);
+  sprintf(tbuf, emp_se? " CHR %%%us         BETA       EMP_SE         EMP1           NP \n" : " CHR %%%us         EMP1           NP \n", plink_maxsnp);
   fprintf(outfile, tbuf, "SNP");
   chrom_fo_idx = 0xffffffffU;
   chrom_end = 0;
@@ -3807,6 +3849,9 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), bufptr);
     *bufptr++ = ' ';
     if (g_orig_stat[marker_idx] == -9) {
+      if (emp_se) {
+	bufptr = memcpya(bufptr, "          NA           NA ", 26);
+      }
       bufptr = memcpya(bufptr, "          NA           NA\n", 26);
     } else {
       uii = g_perm_2success_ct[marker_idx];
@@ -3814,6 +3859,17 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	ujj = g_perm_attempt_ct[marker_idx];
       } else {
 	ujj = perms_total;
+      }
+      if (emp_se) {
+	bufptr = double_g_writewx4x(bufptr, orig_beta[marker_idx], 12, ' ');
+	ukk = ujj - g_beta_fail_cts[marker_idx];
+	if (ukk <= 1) {
+          bufptr = memcpya(bufptr, "          NA ", 13);
+	} else {
+	  dxx = g_beta_sum[marker_idx];
+	  dxx = sqrt((g_beta_ssq[marker_idx] - dxx * dxx / ((double)((int32_t)ukk))) / ((double)((int32_t)(ukk - 1))));
+          bufptr = double_g_writewx4x(bufptr, dxx, 12, ' ');
+	}
       }
       if (!perm_count) {
         dxx = ((double)(uii + 2)) / ((double)(2 * (ujj + 1)));

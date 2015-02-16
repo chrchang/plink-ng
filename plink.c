@@ -9923,11 +9923,13 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: Only one QFAM test can be run at a time.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 3)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
-	  if (!strcmp(argv[cur_arg + uii], "perm")) {
+	  if (!strcmp(argv[cur_arg + uii], "emp-se")) {
+	    family_info.qfam_modifier |= QFAM_EMP_SE;
+	  } else if (!strcmp(argv[cur_arg + uii], "perm")) {
 	    if (family_info.qfam_modifier & QFAM_MPERM) {
 	      sprintf(logbuf, "Error: --%s 'mperm' and 'perm' cannot be used together.\n", argptr);
 	      goto main_ret_INVALID_CMDLINE_2A;

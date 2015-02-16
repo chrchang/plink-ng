@@ -1104,16 +1104,18 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 #endif
     help_print("qfam\tqfam-between\tqfam-parents\tqfam-total", &help_ctrl, 1,
-"  --qfam <perm | mperm=[value]> <perm-count>\n"
-"  --qfam-parents <perm | mperm=[value]> <perm-count>\n"
-"  --qfam-between <perm | mperm=[value]> <perm-count>\n"
-"  --qfam-total <perm | mperm=[value]> <perm-count>\n"
+"  --qfam <perm | mperm=[value]> <perm-count> <emp-se>\n"
+"  --qfam-parents <perm | mperm=[value]> <perm-count> <emp-se>\n"
+"  --qfam-between <perm | mperm=[value]> <perm-count> <emp-se>\n"
+"  --qfam-total <perm | mperm=[value]> <perm-count> <emp-se>\n"
 "    QFAM family-based association test for quantitative traits.\n"
 "    * A Mendel error check is performed before the main tests; offending\n"
 "      genotypes are treated as missing by this analysis.\n"
 "    * This procedure requires permutation.  'perm' and 'perm-count' have the\n"
 "      usual meanings.  However, 'mperm=[value]' just specifies a fixed number\n"
-"      of permutations; the method does not support a proper max(T) test.\n\n"
+"      of permutations; the method does not support a proper max(T) test.\n"
+"    * The 'emp-se' modifier adds BETA and EMP_SE (empirical standard error for\n"
+"      beta) fields to the .perm output file.\n\n"
 	       );
     help_print("annotate", &help_ctrl, 1,
 "  --annotate [PLINK report] <attrib=[file]> <ranges=[file]> <filter=[file]>\n"

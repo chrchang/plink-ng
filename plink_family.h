@@ -27,6 +27,7 @@
 #define QFAM_PERM 0x10
 #define QFAM_MPERM 0x20
 #define QFAM_PERM_COUNT 0x40
+#define QFAM_EMP_SE 0x80
 
 extern const uint32_t mendel_error_table[];
 extern const uint32_t mendel_error_table_x[];
