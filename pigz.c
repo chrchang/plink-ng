@@ -426,7 +426,7 @@ int32_t flex_pzputs_std(Pigz_state* ps_ptr, char** writep_ptr, char* ss, uint32_
 	cur_write_space = 2 * PIGZ_BLOCK_SIZE;
     }
     memcpy(writep, readp, sslen);
-    *writep_ptr = &(writep[sslen]);
+    *writep_ptr = (unsigned char*)(&(writep[sslen]));
     return flex_pzwrite(ps_ptr, writep_ptr);
 }
 
