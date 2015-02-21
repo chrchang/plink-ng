@@ -20,12 +20,6 @@
 #define PROG_NAME_STR "plink"
 #define PROG_NAME_CAPS "PLINK"
 
-#ifdef STABLE_BUILD
-  #define UNSTABLE goto main_unstable_disabled
-#else
-  #define UNSTABLE
-#endif
-
 #ifdef _WIN32
   // needed for MEMORYSTATUSEX
   #ifndef _WIN64
@@ -809,6 +803,12 @@ void wordwrap(char* ss, uint32_t suffix_len);
 
 // 5 = length of "done." suffix, which is commonly used
 #define LOGPRINTFWW5(...) sprintf(logbuf, __VA_ARGS__); wordwrap(logbuf, 5); logprintb();
+
+#ifdef STABLE_BUILD
+  #define UNSTABLE(val) sptr = strcpya(&(logbuf[9]), val); goto main_unstable_disabled
+#else
+  #define UNSTABLE(val)
+#endif
 
 int32_t fopen_checked(FILE** target_ptr, const char* fname, const char* mode);
 

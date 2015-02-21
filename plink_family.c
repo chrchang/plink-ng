@@ -2571,14 +2571,24 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
       goto get_sibship_info_ret_NOMEM;
     }
   }
-  // shrink later
-  if (wkspace_alloc_ui_checked(&fss_contents, (sample_ct + 2 * family_ct) * sizeof(int32_t))) {
-    goto get_sibship_info_ret_NOMEM;
-  }
-  // this is the equivalent of PLINK 1.07's family pointers
-  sample_to_fss_idx = (uint32_t*)top_alloc(&topsize, sample_ct * sizeof(int32_t));
-  if (!sample_to_fss_idx) {
-    goto get_sibship_info_ret_NOMEM;
+  if (test_type) {
+    // shrink later
+    if (wkspace_alloc_ui_checked(&fss_contents, (sample_ct + 2 * family_ct) * sizeof(int32_t))) {
+      goto get_sibship_info_ret_NOMEM;
+    }
+    // this is the equivalent of PLINK 1.07's family pointers
+    sample_to_fss_idx = (uint32_t*)top_alloc(&topsize, sample_ct * sizeof(int32_t));
+    if (!sample_to_fss_idx) {
+      goto get_sibship_info_ret_NOMEM;
+    }
+  } else {
+    if (wkspace_alloc_ui_checked(&sample_to_fss_idx, sample_ct * sizeof(int32_t))) {
+      goto get_sibship_info_ret_NOMEM;
+    }
+    // shrink later
+    if (wkspace_alloc_ui_checked(&fss_contents, (sample_ct + 2 * family_ct) * sizeof(int32_t))) {
+      goto get_sibship_info_ret_NOMEM;
+    }
   }
   topsize_bak = topsize;
   not_in_family = (uintptr_t*)top_alloc(&topsize, unfiltered_sample_ctl * sizeof(intptr_t));
@@ -2783,6 +2793,9 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
     *lm_within2_founder_ptr = lm_within2_founder;
     *sample_lm_to_fss_idx_ptr = sample_lm_to_fss_idx;
     *lm_ct_ptr = ulii;
+  } else {
+    // return sample_to_fss_idx in place of sample_lm_to_fss_idx
+    *sample_lm_to_fss_idx_ptr = sample_to_fss_idx;
   }
   *fs_starts_ptr = fs_starts;
   *fss_contents_ptr = fss_contents;
@@ -2810,13 +2823,12 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t unfiltered_sample_ctl2m1 = (unfiltered_sample_ct - 1) / BITCT2;
   uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
   int32_t retval = 0;
-  uintptr_t* lm_eligible;
   uint64_t* family_list;
   uint64_t* trio_list;
   uint32_t* trio_error_lookup;
   uint32_t* fs_starts;
   uint32_t* fss_contents;
-  uint32_t* sample_lm_to_fss_idx;
+  uint32_t* sample_to_fss_idx;
   uintptr_t trio_ct;
   uintptr_t max_fid_len;
   uint32_t family_ct;
@@ -2847,15 +2859,14 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     goto dfam_ret_INVALID_CMDLINE;
   }
 #endif
-  if (get_sibship_info(unfiltered_sample_ct, sample_exclude, sample_ct, pheno_nm, NULL, founder_info, sample_ids, max_sample_id_len, max_fid_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, family_list, trio_list, family_ct, trio_ct, 0, &lm_eligible, NULL, &fs_starts, &fss_contents, &sample_lm_to_fss_idx, &fs_ct, &lm_ct, &singleton_ct)) {
+  if (get_sibship_info(unfiltered_sample_ct, sample_exclude, sample_ct, pheno_nm, NULL, founder_info, sample_ids, max_sample_id_len, max_fid_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, family_list, trio_list, family_ct, trio_ct, 0, NULL, NULL, &fs_starts, &fss_contents, &sample_to_fss_idx, &fs_ct, &lm_ct, &singleton_ct)) {
     goto dfam_ret_NOMEM;
   }
   // --within on an empty file actually causes --dfam to behave differently
   // than no --within at all in PLINK 1.07.  Replicate this for now.
   if (within_cmdflag) {
-
   } else {
-    // fill_unfiltered_sample_to_cluster();
+    // 
   }
   
   while (0) {

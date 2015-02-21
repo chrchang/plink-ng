@@ -104,7 +104,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (15 Feb 2015)";
+  " (21 Feb 2015)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
@@ -4020,7 +4020,7 @@ int32_t main(int32_t argc, char** argv) {
     case 'R':
       if (*argptr2 == '\0') {
 #if defined __cplusplus && !defined _WIN32
-        UNSTABLE;
+        UNSTABLE("R");
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -4944,7 +4944,7 @@ int32_t main(int32_t argc, char** argv) {
         cluster.modifier |= CLUSTER_MISSING;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "file", 5)) {
-        UNSTABLE;
+        UNSTABLE("cfile");
 	if (load_rare || load_params) {
 	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
 	}
@@ -4966,7 +4966,7 @@ int32_t main(int32_t argc, char** argv) {
 	memcpy(memcpya(mapname, sptr, uii), ".cnv.map", 9);
 	load_rare = LOAD_RARE_CNV;
       } else if (!memcmp(argptr2, "nv-count", 9)) {
-	UNSTABLE;
+	UNSTABLE("cnv-count");
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -4976,15 +4976,15 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	cnv_intersect_filter_type = CNV_COUNT;
       } else if (!memcmp(argptr2, "nv-del", 7)) {
-	UNSTABLE;
+	UNSTABLE("cnv-del");
 	cnv_calc_type |= CNV_DEL;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "nv-disrupt", 11)) {
-	UNSTABLE;
+	UNSTABLE("cnv-disrupt");
 	cnv_overlap_type = CNV_DISRUPT;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "nv-dup", 7)) {
-	UNSTABLE;
+	UNSTABLE("cnv-dup");
 	if (cnv_calc_type & CNV_DEL) {
 	  logprint("Error: --cnv-dup cannot be used with --cnv-del.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
@@ -4992,7 +4992,7 @@ int32_t main(int32_t argc, char** argv) {
 	cnv_calc_type |= CNV_DUP;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "nv-enrichment-test", 19)) {
-	UNSTABLE;
+	UNSTABLE("cnv-enrichment-test");
 	if (!cnv_intersect_filter_type) {
 	  logprint("Error: --cnv-enrichment-test must be used with --cnv-count.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
@@ -5008,7 +5008,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	cnv_calc_type |= CNV_ENRICHMENT_TEST;
       } else if (!memcmp(argptr2, "nv-exclude", 11)) {
-	UNSTABLE;
+	UNSTABLE("cnv-exclude");
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -5022,11 +5022,11 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	cnv_intersect_filter_type = CNV_EXCLUDE;
       } else if (!memcmp(argptr2, "nv-exclude-off-by-1", 20)) {
-	UNSTABLE;
+	UNSTABLE("cnv-exclude-off-by-1");
         cnv_calc_type |= CNV_EXCLUDE_OFF_BY_1;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "nv-freq-exclude-above", 22)) {
-	UNSTABLE;
+	UNSTABLE("cnv-freq-exclude-above");
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -5036,7 +5036,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	cnv_freq_type = CNV_FREQ_EXCLUDE_ABOVE;
       } else if (!memcmp(argptr2, "nv-freq-exclude-below", 22)) {
-	UNSTABLE;
+	UNSTABLE("cnv-freq-exclude-below");
 	if (cnv_freq_type) {
 	  logprint("Error: --cnv-freq-exclude-below cannot be used with --cnv-freq-exclude-above.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -5050,7 +5050,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	cnv_freq_type = CNV_FREQ_EXCLUDE_BELOW;
       } else if (!memcmp(argptr2, "nv-freq-exclude-exact", 22)) {
-	UNSTABLE;
+	UNSTABLE("cnv-freq-exclude-exact");
 	if (cnv_freq_type) {
 	  logprint("Error: --cnv-freq-exclude-exact cannot be used with\n--cnv-freq-exclude-above/-below.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -5064,7 +5064,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	cnv_freq_type = CNV_FREQ_EXCLUDE_EXACT;
       } else if (!memcmp(argptr2, "nv-freq-include-exact", 22)) {
-	UNSTABLE;
+	UNSTABLE("cnv-freq-include-exact");
 	if (cnv_freq_type) {
 	  logprint("Error: --cnv-freq-include-exact cannot be used with\n--cnv-freq-exclude-above/-below/-exact.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -5078,7 +5078,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	cnv_freq_type = CNV_FREQ_INCLUDE_EXACT;
       } else if (!memcmp(argptr2, "nv-freq-method2", 16)) {
-	UNSTABLE;
+	UNSTABLE("cnv-freq-method2");
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -5094,7 +5094,7 @@ int32_t main(int32_t argc, char** argv) {
 	  cnv_freq_val2 = SMALLISH_EPSILON;
 	}
       } else if (!memcmp(argptr2, "nv-freq-overlap", 16)) {
-	UNSTABLE;
+	UNSTABLE("cnv-freq-overlap");
 	if (!(cnv_freq_type & CNV_FREQ_FILTER)) {
 	  logprint("Error: --cnv-freq-overlap must be used with --cnv-freq-include-exact or\n--cnv-freq-exclude-above/-below/-exact.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -5116,7 +5116,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	cnv_freq_type |= CNV_FREQ_OVERLAP;
       } else if (!memcmp(argptr2, "nv-indiv-perm", 14)) {
-	UNSTABLE;
+	UNSTABLE("cnv-indiv-perm");
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -5128,7 +5128,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	cnv_calc_type |= CNV_SAMPLE_PERM;
       } else if (!memcmp(argptr2, "nv-intersect", 13)) {
-	UNSTABLE;
+	UNSTABLE("cnv-intersect");
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -5142,7 +5142,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	cnv_intersect_filter_type = CNV_INTERSECT;
       } else if (!memcmp(argptr2, "nv-kb", 6)) {
-	UNSTABLE;
+	UNSTABLE("cnv-kb");
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -5152,7 +5152,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	cnv_min_seglen = (int32_t)(dxx * 1000 * (1 + SMALL_EPSILON));
       } else if (!memcmp(argptr2, "nv-list", 8)) {
-	UNSTABLE;
+	UNSTABLE("cnv-list");
 	if ((load_rare & (~LOAD_RARE_CNV)) || load_params) {
 	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
 	}
@@ -5166,7 +5166,7 @@ int32_t main(int32_t argc, char** argv) {
 	strcpya(pedname, argv[cur_arg + 1]);
 	load_rare = LOAD_RARE_CNV;
       } else if (!memcmp(argptr2, "nv-make-map", 12)) {
-	UNSTABLE;
+	UNSTABLE("cnv-make-map");
 	if (!(load_rare & LOAD_RARE_CNV)) {
 	  logprint("Error: --cnv-make-map cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -5184,7 +5184,7 @@ int32_t main(int32_t argc, char** argv) {
 	  cnv_calc_type |= CNV_MAKE_MAP | CNV_MAKE_MAP_LONG;
 	}
       } else if (!memcmp(argptr2, "nv-max-kb", 10)) {
-	UNSTABLE;
+	UNSTABLE("cnv-max-kb");
 	if (!(load_rare & LOAD_RARE_CNV)) {
 	  logprint("Error: --cnv-max-kb cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -5202,7 +5202,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
       } else if (!memcmp(argptr2, "nv-max-score", 13)) {
-	UNSTABLE;
+	UNSTABLE("cnv-max-score");
 	if (!(load_rare & LOAD_RARE_CNV)) {
 	  logprint("Error: --cnv-max-score cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -5215,7 +5215,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "nv-max-sites", 13)) {
-	UNSTABLE;
+	UNSTABLE("cnv-max-sites");
 	if (!(load_rare & LOAD_RARE_CNV)) {
 	  logprint("Error: --cnv-max-sites cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -5228,7 +5228,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "nv-overlap", 11)) {
-	UNSTABLE;
+	UNSTABLE("cnv-overlap");
 	if (!(load_rare & LOAD_RARE_CNV)) {
 	  logprint("Error: --cnv-overlap cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -5255,7 +5255,7 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
       } else if (!memcmp(argptr2, "nv-region-overlap", 18)) {
-	UNSTABLE;
+	UNSTABLE("cnv-region-overlap");
 	if (!(load_rare & LOAD_RARE_CNV)) {
 	  logprint("Error: --cnv-region-overlap cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -5272,7 +5272,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	cnv_overlap_type = CNV_OVERLAP_REGION;
       } else if (!memcmp(argptr2, "nv-score", 9)) {
-	UNSTABLE;
+	UNSTABLE("cnv-score");
 	if (!(load_rare & LOAD_RARE_CNV)) {
 	  logprint("Error: --cnv-score cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -5289,7 +5289,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
       } else if (!memcmp(argptr2, "nv-sites", 9)) {
-	UNSTABLE;
+	UNSTABLE("cnv-sites");
 	if (!(load_rare & LOAD_RARE_CNV)) {
 	  logprint("Error: --cnv-sites cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -5306,7 +5306,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
       } else if (!memcmp(argptr2, "nv-subset", 10)) {
-	UNSTABLE;
+	UNSTABLE("cnv-subset");
 	if (!(load_rare & LOAD_RARE_CNV)) {
 	  logprint("Error: --cnv-subset cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -5322,7 +5322,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "nv-test", 8)) {
-	UNSTABLE;
+	UNSTABLE("cnv-test");
 	if (!(load_rare & LOAD_RARE_CNV)) {
 	  logprint("Error: --cnv-test cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -5357,7 +5357,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	cnv_calc_type |= CNV_TEST;
       } else if (!memcmp(argptr2, "nv-test-1sided", 15)) {
-	UNSTABLE;
+	UNSTABLE("cnv-test-1sided");
 	if (cnv_calc_type & CNV_TEST_FORCE_2SIDED) {
 	  logprint("Error: --cnv-test cannot be both 1-sided and 2-sided at the same time.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -5365,7 +5365,7 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --cnv-test-1sided flag deprecated.  Use '--cnv-test 1sided'.\n");
 	cnv_calc_type |= CNV_TEST_FORCE_1SIDED;
       } else if (!memcmp(argptr2, "nv-test-2sided", 15)) {
-	UNSTABLE;
+	UNSTABLE("cnv-test-2sided");
 	if (cnv_calc_type & CNV_TEST_FORCE_1SIDED) {
 	  logprint("Error: --cnv-test cannot be both 1-sided and 2-sided at the same time.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -5373,7 +5373,7 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --cnv-test-2sided flag deprecated.  Use '--cnv-test 2sided'.\n");
 	cnv_calc_type |= CNV_TEST_FORCE_2SIDED;
       } else if (!memcmp(argptr2, "nv-test-region", 15)) {
-	UNSTABLE;
+	UNSTABLE("cnv-test-region");
 	if (!(load_rare & LOAD_RARE_CNV)) {
 	  logprint("Error: --cnv-test-region cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -5389,7 +5389,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	cnv_calc_type |= CNV_TEST_REGION;
       } else if (!memcmp(argptr2, "nv-test-window", 15)) {
-	UNSTABLE;
+	UNSTABLE("cnv-test-window");
 	if (!(load_rare & LOAD_RARE_CNV)) {
 	  logprint("Error: --cnv-test-window cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -5408,7 +5408,7 @@ int32_t main(int32_t argc, char** argv) {
 	  cnv_test_window = (int32_t)(dxx * (1 + SMALL_EPSILON));
 	}
       } else if (!memcmp(argptr2, "nv-union-overlap", 17)) {
-	UNSTABLE;
+	UNSTABLE("cnv-union-overlap");
 	if (!(load_rare & LOAD_RARE_CNV)) {
 	  logprint("Error: --cnv-union-overlap cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -5425,7 +5425,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	cnv_overlap_type = CNV_OVERLAP_UNION;
       } else if (!memcmp(argptr2, "nv-write", 9)) {
-	UNSTABLE;
+	UNSTABLE("cnv-write");
 	if (!(load_rare & LOAD_RARE_CNV)) {
 	  logprint("Error: --cnv-write cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -5446,7 +5446,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	cnv_calc_type |= CNV_WRITE;
       } else if (!memcmp(argptr2, "nv-write-freq", 14)) {
-	UNSTABLE;
+	UNSTABLE("cnv-write-freq");
 	if (!(load_rare & LOAD_RARE_CNV)) {
 	  logprint("Error: --cnv-write freq cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -6161,7 +6161,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	load_rare = LOAD_RARE_DOSAGE;
       } else if (!memcmp(argptr2, "fam", 4)) {
-	UNSTABLE;
+	UNSTABLE("dfam");
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -6861,7 +6861,7 @@ int32_t main(int32_t argc, char** argv) {
 	mtest_adjust |= ADJUST_GC;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "file", 5)) {
-	UNSTABLE;
+	UNSTABLE("gfile");
 	if (load_rare || (load_params & (~LOAD_PARAMS_FAM))) {
 	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
 	}
@@ -9175,7 +9175,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_NOMEM;
 	}
       } else if (!memcmp(argptr2, "ac", 3)) {
-	UNSTABLE;
+	UNSTABLE("mac");
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -9184,7 +9184,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if (!memcmp(argptr2, "ax-mac", 7)) {
-	UNSTABLE;
+	UNSTABLE("max-mac");
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -11758,7 +11758,7 @@ int32_t main(int32_t argc, char** argv) {
         logprint("Error: --unrelated-heritability requires " PROG_NAME_CAPS " to be built with LAPACK.\n");
 	goto main_ret_INVALID_CMDLINE;
 #else
-	UNSTABLE;
+	UNSTABLE("unrelated-heritability");
 	if (rel_info.modifier & REL_CALC_COV) {
 	  logprint("Error: --unrelated-heritability flag cannot coexist with a covariance\nmatrix calculation.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
@@ -13146,7 +13146,11 @@ int32_t main(int32_t argc, char** argv) {
 #ifdef STABLE_BUILD
     break;
   main_unstable_disabled:
-    logprint("Error: This flag's implementation is unfinished or unstable.  If you wish to\ntest it, use the latest development build.\n");
+    // see the UNSTABLE macro in plink_common.h
+    memcpy(logbuf, "Error: --", 9);
+    strcpy(sptr, " is either unfinished or not yet well-tested. If you wish to help with testing, use the latest development build.\n");
+    wordwrap(logbuf, 0);
+    logprintb();
     retval = RET_CALC_NOT_YET_SUPPORTED;
 #endif
   }
