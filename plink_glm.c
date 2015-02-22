@@ -4714,6 +4714,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     // use this array to track regression failures even in max(T) case
     fill_ulong_zero((uintptr_t*)g_perm_adapt_stop, (marker_initial_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
   } else {
+    g_perm_adapt_stop = NULL;
     ulii = (marker_initial_ct + (BITCT - 1)) / BITCT;
     if (wkspace_alloc_ul_checked(&regression_skip, ulii * sizeof(intptr_t))) {
       goto glm_linear_assoc_ret_NOMEM;
@@ -6250,6 +6251,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     // use this array to track regression failures even in max(T) case
     fill_ulong_zero((uintptr_t*)g_perm_adapt_stop, (marker_initial_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
   } else {
+    g_perm_adapt_stop = NULL;
     ulii = (marker_initial_ct + (BITCT - 1)) / BITCT;
     if (wkspace_alloc_ul_checked(&regression_skip, ulii * sizeof(intptr_t))) {
       goto glm_logistic_assoc_ret_NOMEM;

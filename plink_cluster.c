@@ -600,6 +600,11 @@ void fill_unfiltered_sample_to_cluster(uintptr_t unfiltered_sample_ct, uintptr_t
 }
 
 int32_t fill_sample_to_cluster(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* sample_to_cluster, uint32_t* late_clidx_to_sample_uidx) {
+  // If late_clidx_to_sample_uidx is not NULL, all samples not in a loaded
+  // cluster are given their own cluster, and late_clidx_to_sample_uidx is
+  // filled with the cluster index -> sample uidx mapping.
+  // (Yes, this is a strange interface; it may be switched to filtered sample
+  // indexes later.)
   unsigned char* wkspace_mark = wkspace_base;
   uint32_t* cluster_map_pos = cluster_map;
   int32_t retval = 0;
@@ -619,7 +624,7 @@ int32_t fill_sample_to_cluster(uintptr_t unfiltered_sample_ct, uintptr_t* sample
       sample_to_cluster[uidx_to_idx[*cluster_map_pos]] = cluster_idx;
     } while (++cluster_map_pos < cluster_end_ptr);
   }
-  if (cluster_starts[cluster_ct] < sample_ct) {
+  if (late_clidx_to_sample_uidx && (cluster_starts[cluster_ct] < sample_ct)) {
     sample_uidx = 0;
     for (sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
       sample_uidx = next_unset_unsafe(sample_exclude, sample_uidx);
