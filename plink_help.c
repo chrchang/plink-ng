@@ -2161,7 +2161,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #endif
     if (!param_ct) {
       fputs(
-"\nFor further documentation and support, consult the main webpage\n"
+"\nPrimary methods paper:\n"
+"Chang CC, Chow CC, Tellier LCAM, Vattikuti S, Purcell SM, Lee JJ (2015)\n"
+"Second-generation PLINK: rising to the challenge of larger and richer datasets.\n"
+"GigaScience, 4.\n\n"
+"For further documentation and support, consult the main webpage\n"
 "(https://www.cog-genomics.org/plink2 ) and/or the mailing list\n"
 "(https://groups.google.com/d/forum/plink2-users ).\n"
 , stdout);

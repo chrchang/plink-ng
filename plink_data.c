@@ -7857,8 +7857,11 @@ int32_t vcf_sample_line(char* outname, char* outname_end, int32_t missing_pheno,
 	}
       }
       if (memchr(&(bufptr3[1]), (unsigned char)id_delim, (uintptr_t)(bufptr2 - &(bufptr3[1])))) {
-        sprintf(logbuf, "Error: Multiple instances of '%c' in sample ID.\n", id_delim);
-        goto vcf_sample_line_ret_INVALID_FORMAT_2;
+        LOGPRINTF("Error: Multiple instances of '%c' in sample ID.\n", id_delim);
+	if (id_delim == '_') {
+	  logprint("If you do not want '_' to be treated as a FID/IID delimiter, use --double-id or\n--const-fid to choose a different method of converting VCF sample IDs to PLINK\nIDs, or --id-delim to change the FID/IID delimiter.\n");
+	}
+        goto vcf_sample_line_ret_INVALID_FORMAT;
       }
       wptr = memcpyax(tbuf, bufptr, (uintptr_t)(bufptr3 - bufptr), '\t');
       bufptr3++;
@@ -12391,7 +12394,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       }
 #endif
     }
-    wbufptr = memcpya(tbuf, "##fileformat=VCF4.2\n##fileDate=", 31);
+    wbufptr = memcpya(tbuf, "##fileformat=VCFv4.2\n##fileDate=", 32);
     time(&rawtime);
     loctime = localtime(&rawtime);
     wbufptr += strftime(wbufptr, MAXLINELEN, "%Y%m%d", loctime);
