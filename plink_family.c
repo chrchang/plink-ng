@@ -4151,7 +4151,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   if (fopen_checked(&outfile, outname, "w")) {
     goto qfam_ret_OPEN_FAIL;
   }
-  sprintf(tbuf, emp_se? " CHR %%%us         BETA       EMP_SE         EMP1           NP \n" : " CHR %%%us         EMP1           NP \n", plink_maxsnp);
+  sprintf(tbuf, emp_se? " CHR %%%us         BETA     EMP_BETA       EMP_SE         EMP1           NP \n" : " CHR %%%us         EMP1           NP \n", plink_maxsnp);
   fprintf(outfile, tbuf, "SNP");
   chrom_fo_idx = 0xffffffffU;
   chrom_end = 0;
@@ -4175,7 +4175,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     *bufptr++ = ' ';
     if (g_orig_stat[marker_idx] == -9) {
       if (emp_se) {
-	bufptr = memcpya(bufptr, "          NA           NA ", 26);
+	bufptr = memcpya(bufptr, "           NA          NA           NA ", 39);
       }
       bufptr = memcpya(bufptr, "          NA           NA\n", 26);
     } else {
@@ -4191,8 +4191,9 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	if (ukk <= 1) {
           bufptr = memcpya(bufptr, "          NA ", 13);
 	} else {
-	  dxx = g_beta_sum[marker_idx];
-	  dxx = sqrt((g_beta_ssq[marker_idx] - dxx * dxx / ((double)((int32_t)ukk))) / ((double)((int32_t)(ukk - 1))));
+	  dxx = g_beta_sum[marker_idx] / ((double)((int32_t)ukk));
+	  bufptr = double_g_writewx4x(bufptr, dxx, 12, ' ');
+	  dxx = sqrt((g_beta_ssq[marker_idx] - g_beta_sum[marker_idx] * dxx) / ((double)((int32_t)(ukk - 1))));
           bufptr = double_g_writewx4x(bufptr, dxx, 12, ' ');
 	}
       }
