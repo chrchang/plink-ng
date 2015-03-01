@@ -15705,7 +15705,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       LOGPRINTFWW("%u %s loaded from %s.\n", max_cur_sample_ct, species_str(max_cur_sample_ct), mergelist_fam[0]);
       LOGPRINTFWW("%u %s to be merged from %s.\n", cur_sample_ct, species_str(cur_sample_ct), mergelist_fam[1]);
       uii = ullxx - max_cur_sample_ct;
-      LOGPRINTF("Of these, %u are new, while %u are present in the base dataset.\n", uii, cur_sample_ct - uii);
+      LOGPRINTF("Of these, %u %s new, while %u %s present in the base dataset.\n", uii, (uii == 1)? "is" : "are", cur_sample_ct - uii, (cur_sample_ct - uii == 1)? "is" : "are");
     }
     if (cur_sample_ct > max_cur_sample_ct) {
       max_cur_sample_ct = cur_sample_ct;
@@ -15922,7 +15922,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
 	// Merging should fail anyway in that case, but we should not embarrass
 	// ourselves by printing inaccurate numbers here.
 	uii = ullxx - uii;
-	LOGPRINTF("Of these, %u are new, while %u are present in the base dataset.\n", uii, cur_marker_ct - uii);
+	LOGPRINTF("Of these, %u %s new, while %u %s present in the base dataset.\n", uii, (uii == 1)? "is" : "are", cur_marker_ct - uii, (cur_marker_ct - uii == 1)? "is" : "are");
       }
     }
     if (!mergelist_fam[mlpos]) {

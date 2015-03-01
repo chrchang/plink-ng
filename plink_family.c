@@ -2812,6 +2812,12 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
 }
 
 // multithread globals
+/*
+static double* g_maxt_extreme_stat;
+static double* g_maxt_thread_results;
+static uintptr_t* g_pheno_nm;
+*/
+
 static uintptr_t* g_loadbuf;
 static uintptr_t* g_lm_eligible;
 static uintptr_t* g_lm_within2_founder;
@@ -2851,21 +2857,23 @@ static double g_adaptive_slope;
 static double g_aperm_alpha;
 static double g_adaptive_ci_zt;
 
-int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* sample_ids, uintptr_t max_sample_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, Chrom_info* chrom_info_ptr, uint32_t hh_exists, uint32_t within_cmdflag, Family_info* fam_ip, Set_info* sip) {
+int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* sample_ids, uintptr_t max_sample_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, Chrom_info* chrom_info_ptr, uint32_t hh_exists, uint32_t within_cmdflag, Family_info* fam_ip, Set_info* sip) {
   logprint("Error: --dfam is currently under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
   /*
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
+  FILE* outfile_msa = NULL;
   char* textbuf = tbuf;
+  uintptr_t marker_ct_orig_autosomal = marker_ct_orig;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t unfiltered_sample_ctp1l2 = 1 + (unfiltered_sample_ct / BITCT2);
   uintptr_t final_mask = get_final_mask(unfiltered_sample_ct);
-  uintptr_t pct = 1;
-  uintptr_t* marker_exclude = marker_exclude_orig;
+  uintptr_t* marker_exclude_orig_autosomal = marker_exclude_orig;
+  uintptr_t* founder_pnm = NULL;
   double* orig_chisq = NULL;
   uint32_t unfiltered_sample_ctl2m1 = (unfiltered_sample_ct - 1) / BITCT2;
   uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
@@ -2874,18 +2882,27 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t perm_maxt_nst = (fam_ip->dfam_modifier & DFAM_MPERM) && (!is_set_test);
   uint32_t do_perms = fam_ip->dfam_modifier & (DFAM_PERM | DFAM_MPERM);
   uint32_t do_perms_nst = do_perms && (!is_set_test);
+  uint32_t perm_count = fam_ip->dfam_modifier & DFAM_PERM_COUNT;
+  uint32_t fill_orig_chisq = do_perms || mtest_adjust;
   uint32_t no_unrelateds = (fam_ip->dfam_modifier & DFAM_NO_UNRELATEDS) || (within_cmdflag && (!cluster_ct));
   uint32_t family_all_case_children_ct = 0;
   uint32_t family_mixed_ct = 0;
   uint32_t sibship_mixed_ct = 0;
   uint32_t unrelated_cluster_ct = 0;
+  uint32_t pct = 0;
+  uint32_t max_thread_ct = g_thread_ct;
+  uint32_t perm_pass_idx = 0;
+  uint32_t perms_total = 0;
   uint32_t perms_done = 0;
   int32_t retval = 0;
+  uintptr_t* dfam_pheno_nm;
   uintptr_t* loadbuf_raw;
   uintptr_t* loadbuf;
   uintptr_t* workbuf;
+  uintptr_t* marker_exclude;
   uintptr_t* dfam_sample_exclude;
-  uintptr_t* marker_exclude_tmp;
+  double* maxt_extreme_stat = NULL;
+  char* outname_end2;
   char* wptr_start;
   char* wptr;
   uint64_t* family_list;
@@ -2900,10 +2917,10 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t* cluster_ctrl_case_cts;
   uint32_t* cluster_write_idxs;
   uint32_t* cur_dfam_ptr;
+  uintptr_t marker_ct;
   uintptr_t marker_uidx;
   uintptr_t trio_ct;
   uintptr_t max_fid_len;
-  uintptr_t pct_thresh;
   uintptr_t ulii;
   uint32_t family_ct;
   uint32_t fs_ct;
@@ -2929,23 +2946,24 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t marker_idx;
   uint32_t marker_idx2;
   uint32_t uii;
-  uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
+  uint32_t ujj;
+  uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude_orig, 1, 1);
   if (uii) {
     LOGPRINTF("Excluding %u X/MT/haploid variant%s from DFAM test.\n", uii, (uii == 1)? "" : "s");
-    if (uii == marker_ct) {
+    if (uii == marker_ct_orig_autosomal) {
       logprint("Error: No variants remaining for DFAM analysis.\n");
       goto dfam_ret_INVALID_CMDLINE;
     }
-    marker_ct -= uii;
-    if (wkspace_alloc_ul_checked(&marker_exclude, unfiltered_marker_ctl * sizeof(intptr_t))) {
+    marker_ct_orig_autosomal -= uii;
+    if (wkspace_alloc_ul_checked(&marker_exclude_orig_autosomal, unfiltered_marker_ctl * sizeof(intptr_t))) {
       goto dfam_ret_NOMEM;
     }
-    memcpy(marker_exclude, marker_exclude_orig, unfiltered_marker_ctl * sizeof(intptr_t));
+    memcpy(marker_exclude_orig_autosomal, marker_exclude_orig, unfiltered_marker_ctl * sizeof(intptr_t));
     for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
       chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       if (is_set(chrom_info_ptr->haploid_mask, chrom_idx) || ((int32_t)chrom_idx == chrom_info_ptr->mt_code)) {
 	uii = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
-	fill_bits(marker_exclude, uii, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1] - uii);
+	fill_bits(marker_exclude_orig_autosomal, uii, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1] - uii);
       }
     }
   } else if (is_set(chrom_info_ptr->haploid_mask, 0)) {
@@ -2957,6 +2975,19 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     logprint("Error: DFAM test requires at least one case.\n");
     goto dfam_ret_INVALID_CMDLINE;
   }
+  marker_exclude = marker_exclude_orig_autosomal;
+  marker_ct = marker_ct_orig_autosomal;
+  if (is_set_test) {
+    if (wkspace_alloc_ul_checked(&founder_pnm, unfiltered_sample_ctl * sizeof(intptr_t))) {
+      goto dfam_ret_NOMEM;
+    }
+    memcpy(founder_pnm, pheno_nm, unfiltered_sample_ctl * sizeof(intptr_t));
+    bitfield_and(founder_pnm, founder_info, unfiltered_sample_ctl);
+    if (extract_set_union_unfiltered(sip, NULL, unfiltered_marker_ct, marker_exclude_orig_autosomal, &marker_exclude, &marker_ct)) {
+      goto dfam_ret_NOMEM;
+    }
+  }
+
   // no --mendel-duos support for now
   retval = get_trios_and_families(unfiltered_sample_ct, sample_exclude, sample_ct, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, NULL, &max_fid_len, NULL, NULL, &family_list, &family_ct, &trio_list, &trio_ct, &trio_error_lookup, 0, multigen);
   if (retval) {
@@ -3144,11 +3175,14 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   }
   dfam_sample_ct = unfiltered_sample_ct - popcount_longs(dfam_sample_exclude, unfiltered_sample_ctl);
   dfam_sample_ctl2 = (dfam_sample_ct + (BITCT2 - 1)) / BITCT2;
-  if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_sample_ctl2 * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&workbuf, unfiltered_sample_ctp1l2 * sizeof(intptr_t)) || 
+  if (wkspace_alloc_ul_checked(&dfam_pheno_nm, dfam_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_sample_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&workbuf, unfiltered_sample_ctp1l2 * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&g_loadbuf, MODEL_BLOCKSIZE * dfam_sample_ctl2 * sizeof(intptr_t))) {
     goto dfam_ret_NOMEM;
   }
+  collapse_copy_bitarr(sample_ct, pheno_nm, dfam_sample_exclude, dfam_sample_ct, dfam_pheno_nm);
+  g_pheno_nm = dfam_pheno_nm;
   loadbuf_raw[unfiltered_sample_ctl2 - 1] = 0;
   workbuf[unfiltered_sample_ctp1l2 - 1] = 0;
   for (ulii = 1; ulii <= MODEL_BLOCKSIZE; ulii++) {
@@ -3157,32 +3191,94 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   }
   // no X/haploid/MT, so no haploid filters
 
-  if (do_perms) {
-    logprint("Error: --dfam permutation tests are currently under development.\n");
-    retval = RET_CALC_NOT_YET_SUPPORTED;
-    goto dfam_ret_1;
+  if (fill_orig_chisq) {
+    if (wkspace_alloc_d_checked(&g_orig_stat, marker_ct * sizeof(double))) {
+      goto dfam_ret_NOMEM;
+    }
   }
+
   ulii = 2 * max_marker_allele_len + plink_maxsnp + MAX_ID_LEN + 256;
   if (ulii > MAXLINELEN) {
     if (wkspace_alloc_c_checked(&textbuf, ulii)) {
       goto dfam_ret_NOMEM;
     }
   }
-  pct_thresh = marker_ct / 100;
-  memcpy(outname_end, ".dfam", 6);
+
+  // permutation test boilerplate mostly copied from qassoc() in plink_assoc.c,
+  // since it's also restricted to autosomes
+  g_mperm_save_all = NULL;
+  if (perm_maxt_nst) {
+    perms_total = fam_ip->dfam_mperm_val;
+    if (wkspace_alloc_d_checked(&maxt_extreme_stat, perms_total * sizeof(double))) {
+      goto dfam_ret_NOMEM;
+    }
+    g_maxt_extreme_stat = maxt_extreme_stat;
+    fill_double_zero(maxt_extreme_stat, perms_total);
+    if (mperm_save & MPERM_DUMP_ALL) {
+      memcpy(outname_end, ".mperm.dump.all", 16);
+      if (fopen_checked(&outfile_msa, outname, "w")) {
+        goto dfam_ret_OPEN_FAIL;
+      }
+      if (putc_checked('0', outfile_msa)) {
+	goto dfam_ret_WRITE_FAIL;
+      }
+      LOGPRINTF("Dumping all permutation chi-square values to %s .\n", outname);
+    }
+  } else {
+    mperm_save = 0;
+    if (perm_adapt_nst) {
+      g_aperm_alpha = apip->alpha;
+      perms_total = apip->max;
+      if (wkspace_alloc_ui_checked(&g_perm_attempt_ct, marker_ct * sizeof(int32_t)) ||
+          wkspace_alloc_uc_checked(&g_perm_adapt_stop, marker_ct)) {
+        goto dfam_ret_NOMEM;
+      }
+      ujj = apip->max;
+      for (uii = 0; uii < marker_ct; uii++) {
+	g_perm_attempt_ct[uii] = ujj;
+      }
+      fill_ulong_zero((uintptr_t*)g_perm_adapt_stop, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
+      g_adaptive_ci_zt = ltqnorm(1 - apip->beta / (2.0 * ((intptr_t)marker_ct)));
+      if (apip->min < apip->init_interval) {
+        g_first_adapt_check = (int32_t)(apip->init_interval);
+      } else {
+	g_first_adapt_check = apip->min;
+      }
+      g_adaptive_intercept = apip->init_interval;
+      g_adaptive_slope = apip->interval_slope;
+    }
+  }
+
+  outname_end2 = memcpyb(outname_end, ".dfam", 6);
   if (fopen_checked(&outfile, outname, "w")) {
     goto dfam_ret_OPEN_FAIL;
   }
+  LOGPRINTFWW5("Writing --dfam results to %s ... ", outname);
+  fflush(stdout);
   sprintf(textbuf, " CHR %%%us   A1   A2      OBS      EXP        CHISQ            P \n", plink_maxsnp);
   fprintf(outfile, textbuf, "SNP");
   loop_end = marker_ct / 100;
   marker_unstopped_ct = marker_ct;
+
+  if (do_perms) {
+    if (fam_ip->dfam_modifier & DFAM_PERM) {
+      if (perm_batch_size > apip->max) {
+        perm_batch_size = apip->max;
+      }
+    } else {
+      if (perm_batch_size > fam_ip->dfam_mperm_val) {
+        perm_batch_size = fam_ip->dfam_mperm_val;
+      }
+    }
+  }
+  
   fputs("--dfam: 0%", stdout);
   fflush(stdout);
   // ----- begin main loop -----
-  // dfam_more_perms:
+ dfam_more_perms:
   if (do_perms_nst) {
-    // todo
+    if (!perm_pass_idx) {
+    }
   }
   chrom_fo_idx = 0xffffffffU;
   marker_uidx = next_unset_unsafe(marker_exclude, 0);
@@ -3204,15 +3300,40 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       // ...
     } while (block_size < block_end);
   } while (marker_idx < marker_unstopped_ct);
-  // ...
-  LOGPRINTF("--dfam: Report written to %s .\n", outname);
-  if (mtest_adjust) {
-    if (wkspace_alloc_ui_checked(&idx_to_uidx, marker_ct * sizeof(int32_t))) {
-      goto dfam_ret_NOMEM;
+  if (!perm_pass_idx) {
+    putchar('\r');
+    LOGPRINTF("--dfam: Report written to %s .\n");
+    if (do_perms_nst) {
+      wkspace_reset();
     }
-    fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, idx_to_uidx);
-    retval = multcomp(outname, outname_end, idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, orig_chisq, pfilter, output_min_p, mtest_adjust, 0, adjust_lambda, NULL, NULL);
+    if (fclose_null(&outfile)) {
+      goto dfam_ret_WRITE_FAIL;
+    }
+    if (!is_set_test) {
+      if (wkspace_alloc_ui_checked(&idx_to_uidx, marker_ct * sizeof(int32_t))) {
+	goto dfam_ret_NOMEM;
+      }
+      fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, idx_to_uidx);
+      retval = multcomp(outname, outname_end, idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, orig_chisq, pfilter, output_min_p, mtest_adjust, 0, adjust_lambda, NULL, NULL);
+      if (retval) {
+	goto dfam_ret_1;
+      }
+      wkspace_reset(idx_to_uidx);
+      // if (mperm_save & MPERM_DUMP_ALL) { ...
+    } else {
+      // retval = dfam_set_test(threads, bedfile, bed_offset, outname, outname_end, ...);
+      if (retval) {
+        goto dfam_ret_1;
+      }
+    }
   }
+  if (do_perms_nst) {
+    // if (mperm_save & MPERM_DUMP_ALL) { ...
+    wkspace_reset();
+    if (perms_done < perms_total) {
+    }
+  }
+  // ...
   
   while (0) {
   dfam_ret_NOMEM:
@@ -3232,8 +3353,9 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     break;
   }
  dfam_ret_1:
-  fclose_cond(outfile);
   wkspace_reset(wkspace_mark);
+  fclose_cond(outfile);
+  fclose_cond(outfile_msa);
   return retval;
   */
 }
