@@ -12435,7 +12435,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       }
     }
     if (!real_ref_alleles) {
-      if (flexbputs_checked("##INFO=<ID=PR,Number=0,Type=Flag,Description=\"Provisional reference allele, may not be based on real reference genome\"\n", output_bgz, outfile, bgz_outfile)) {
+      if (flexbputs_checked("##INFO=<ID=PR,Number=0,Type=Flag,Description=\"Provisional reference allele, may not be based on real reference genome\">\n", output_bgz, outfile, bgz_outfile)) {
 	goto recode_ret_WRITE_FAIL;
       }
     }

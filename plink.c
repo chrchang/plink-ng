@@ -91,7 +91,7 @@
 
 const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b3e"
+  "PLINK v1.90b3f"
 #else
   "PLINK v1.90p"
 #endif
