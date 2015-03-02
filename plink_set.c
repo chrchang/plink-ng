@@ -1929,6 +1929,7 @@ void unpack_set_unfiltered(uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, 
     unpack_set_unfiltered_late_start:
       range_end = *uiptr++;
       if (range_end == marker_ct) {
+	last_uidx = unfiltered_marker_ct;
 	break;
       }
       last_uidx = jump_forward_unset_unsafe(marker_exclude, marker_uidx + 1, range_end - range_start);
