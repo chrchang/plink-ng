@@ -3665,6 +3665,9 @@ int32_t main(int32_t argc, char** argv) {
 	} else if (!strcmp(argptr, "max-ac")) {
 	  memcpy(flagptr, "max-mac", 8);
 	  break;
+	} else if (!strcmp(argptr, "max-indv")) {
+	  memcpy(flagptr, "thin-indiv-count", 17);
+	  break;
 	}
 	goto main_flag_copy;
       case 'n':
@@ -11535,6 +11538,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "hin-indiv", 10)) {
+	UNSTABLE("thin-indiv");
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
           goto main_ret_INVALID_CMDLINE_2A;
         }
@@ -11550,6 +11554,7 @@ int32_t main(int32_t argc, char** argv) {
           goto main_ret_INVALID_CMDLINE_A;
         }
       } else if (!memcmp(argptr2, "hin-indiv-count", 16)) {
+	UNSTABLE("thin-indiv-count");
         if (thin_keep_sample_prob != 1.0) {
           logprint("Error: --thin-indiv cannot be used with --thin-indiv-count.\n");
           goto main_ret_INVALID_CMDLINE_WWA;

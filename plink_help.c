@@ -1563,6 +1563,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --bp-space [bps] : Remove variants so that each pair is no closer than the\n"
 "                     given bp distance.  (Equivalent to VCFtools --thin.)\n"
 	       );
+    help_print("thin-indiv\tthin-indiv-count\tmax-indv", &help_ctrl, 0,
+"  --thin-indiv [p]         : Randomly remove samples, retaining with prob. p.\n"
+"  --thin-indiv-count [n]   : Randomly remove samples until n of them remain.\n"
+	       );
     help_print("filter\tmfilter", &help_ctrl, 0,
 "  --filter [f] [val(s)...] : Exclude all samples without a 3rd column entry in\n"
 "                             the given file matching one of the given\n"
