@@ -1714,7 +1714,7 @@ uint32_t calc_plink_maxsnp(uint32_t unfiltered_marker_ct, uintptr_t* marker_excl
   return plink_maxsnp;
 }
 
-double calc_wt_mean(double exponent, int32_t lhi, int32_t lli, int32_t hhi) {
+double calc_wt_mean(double distance_exp, int32_t lhi, int32_t lli, int32_t hhi) {
   double lcount = (double)lli + ((double)lhi * 0.5);
   int64_t tot = lhi + lli + hhi;
   double dtot = (double)tot;
@@ -1723,7 +1723,7 @@ double calc_wt_mean(double exponent, int32_t lhi, int32_t lli, int32_t hhi) {
   if ((!lhi) && ((!lli) || (!hhi))) {
     return 0.0;
   }
-  weight = pow(2 * lcount * (dtot - lcount) / (dtot * dtot), -exponent);
+  weight = pow(2 * lcount * (dtot - lcount) / (dtot * dtot), -distance_exp);
   subcount = lhi * (subcount + hhi) + 2 * subcount * hhi;
   return (subcount * weight * 2) / (double)(tot * tot);
 }
@@ -1850,7 +1850,7 @@ uint32_t get_freq_file_type(char* bufptr) {
   return 0;
 }
 
-int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, char** marker_allele_ptrs, double* set_allele_freqs, uint32_t* nchrobs, uint32_t maf_succ, double exponent, uint32_t wt_needed, double* marker_weights) {
+int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, char** marker_allele_ptrs, double* set_allele_freqs, uint32_t* nchrobs, uint32_t maf_succ, double distance_exp, uint32_t wt_needed, double* dist_missing_wts) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* freqfile = NULL;
   uintptr_t line_idx = 0;
@@ -1997,7 +1997,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	    goto read_external_freqs_ret_ALLELE_MISMATCH;
 	  }
 	  if (wt_needed) {
-	    marker_weights[marker_uidx] = calc_wt_mean_maf(exponent, set_allele_freqs[marker_uidx]);
+	    dist_missing_wts[marker_uidx] = calc_wt_mean_maf(distance_exp, set_allele_freqs[marker_uidx]);
 	  }
         }
       }
@@ -2084,9 +2084,9 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	  }
 	  if (wt_needed) {
 	    if (c_hap_a1 || c_hap_a2) {
-	      marker_weights[marker_uidx] = calc_wt_mean_maf(exponent, set_allele_freqs[marker_uidx]);
+	      dist_missing_wts[marker_uidx] = calc_wt_mean_maf(distance_exp, set_allele_freqs[marker_uidx]);
 	    } else {
-	      marker_weights[marker_uidx] = calc_wt_mean(exponent, c_het, c_hom_a1, c_hom_a2);
+	      dist_missing_wts[marker_uidx] = calc_wt_mean(distance_exp, c_het, c_hom_a1, c_hom_a2);
 	    }
 	  }
         }
@@ -2137,7 +2137,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	  goto read_external_freqs_ret_ALLELE_MISMATCH;
 	}
 	if (wt_needed) {
-	  marker_weights[marker_uidx] = calc_wt_mean_maf(exponent, set_allele_freqs[marker_uidx]);
+	  dist_missing_wts[marker_uidx] = calc_wt_mean_maf(distance_exp, set_allele_freqs[marker_uidx]);
 	}
       } else {
 	// if there aren't exactly 3 columns, this isn't a GCTA .freq file
@@ -2792,7 +2792,7 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
   return retval;
 }
 
-void calc_marker_weights(double exponent, uint32_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, int32_t* ll_cts, int32_t* lh_cts, int32_t* hh_cts, double* marker_weights) {
+void calc_dist_missing_wts(double distance_exp, uint32_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, int32_t* ll_cts, int32_t* lh_cts, int32_t* hh_cts, double* dist_missing_wts) {
   uint32_t marker_uidx = 0;
   uint32_t markers_done = 0;
   uint32_t marker_uidx_stop;
@@ -2801,8 +2801,8 @@ void calc_marker_weights(double exponent, uint32_t unfiltered_marker_ct, uintptr
     marker_uidx_stop = next_set(marker_exclude, marker_uidx, unfiltered_marker_ct);
     markers_done += marker_uidx_stop - marker_uidx;
     do {
-      if (marker_weights[marker_uidx] < 0.0) {
-	marker_weights[marker_uidx] = calc_wt_mean(exponent, lh_cts[marker_uidx], ll_cts[marker_uidx], hh_cts[marker_uidx]);
+      if (dist_missing_wts[marker_uidx] < 0.0) {
+	dist_missing_wts[marker_uidx] = calc_wt_mean(distance_exp, lh_cts[marker_uidx], ll_cts[marker_uidx], hh_cts[marker_uidx]);
       }
     } while (++marker_uidx < marker_uidx_stop);
   } while (markers_done < marker_ct);

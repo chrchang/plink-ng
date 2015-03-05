@@ -1837,11 +1837,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                               informative pairs] ratios to be larger than this\n"
 "                               value (default 0.95).\n"
 	       );
-    help_print("distance-exp\texponent\tdistance", &help_ctrl, 0,
-"  --distance-exp [x] : When computing genomic distances, assign each variant a\n"
-"                       weight of (2q(1-q))^{-x}, where q is the inferred MAF.\n"
-"                       (Use --read-freq if you want to explicitly specify some\n"
-"                       or all of the MAFs.)\n"
+    help_print("distance-wts\tdistance-exp\texponent\tdistance", &help_ctrl, 0,
+"  --distance-wts exp=[x]        : When computing genomic distances, assign each\n"
+"                                  variant a weight of (2q(1-q))^{-x}, where q\n"
+"                                  is the loaded or inferred MAF.\n"
+"  --distance-wts [f] <noheader> : When computing genomic distances, assign each\n"
+"                                  variant the weight specified in the file.\n"
 	       );
     help_print("read-dists\tload-dists\tibs-test\tgroupdist\tregress-distance\tcluster\tneighbour\tneighbor", &help_ctrl, 0,
 "  --read-dists [dist file] {id file} : Load a triangular binary distance matrix\n"

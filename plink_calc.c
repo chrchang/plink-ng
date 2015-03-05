@@ -378,7 +378,7 @@ void update_rel_f_ibc(float* rel_ibc, uintptr_t* geno, float* set_allele_freqs, 
   }
 }
 
-void fill_weights(double* weights, double* set_allele_freqs, double exponent) {
+void fill_weights(double* weights, double* set_allele_freqs, double distance_exp) {
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -400,7 +400,7 @@ void fill_weights(double* weights, double* set_allele_freqs, double exponent) {
   double twt[7];
 #endif
   for (uii = 0; uii < MULTIPLEX_DIST_EXP / 2; uii++) {
-    wtarr[uii] = pow(2 * set_allele_freqs[uii] * (1.0 - set_allele_freqs[uii]), -exponent);
+    wtarr[uii] = pow(2 * set_allele_freqs[uii] * (1.0 - set_allele_freqs[uii]), -distance_exp);
   }
   for (uoo = 0; uoo < 2; uoo++) {
     wt = &(wtarr[7 * uoo]);
@@ -8069,7 +8069,7 @@ int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintpt
   return retval;
 }
 
-int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t* marker_exclude, uint32_t marker_ct, double* set_allele_freqs, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, Chrom_info* chrom_info_ptr, uint32_t wt_needed, uint32_t marker_weight_sum, uint32_t* marker_weights_i, double exponent) {
+int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t* marker_exclude, uint32_t marker_ct, double* set_allele_freqs, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, Chrom_info* chrom_info_ptr, uint32_t wt_needed, uint32_t marker_weight_sum, uint32_t* dist_missing_wts_i, double distance_exp) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -8081,7 +8081,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   uintptr_t marker_idx = 0;
   uint32_t chrom_fo_idx = 0;
   int32_t retval = 0;
-  uint32_t exp0 = (exponent == 0.0);
+  uint32_t exp0 = (distance_exp == 0.0);
   uint32_t* sample_missing = NULL;
   uint32_t* sample_missing_unwt = NULL;
   uint32_t* giptr = NULL;
@@ -8275,7 +8275,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     // See the comments at the beginning of this file for discussion of
     // the zero exponent special case.
 
-    retval = block_load_autosomal(bedfile, bed_offset, marker_exclude, marker_ct_autosomal, multiplex, unfiltered_sample_ct4, chrom_info_ptr, set_allele_freqs, marker_weights_i, bedbuf, &chrom_fo_idx, &marker_uidx, &marker_idx, &ujj, NULL, set_allele_freq_buf, NULL, wt_needed? wtbuf : NULL);
+    retval = block_load_autosomal(bedfile, bed_offset, marker_exclude, marker_ct_autosomal, multiplex, unfiltered_sample_ct4, chrom_info_ptr, set_allele_freqs, dist_missing_wts_i, bedbuf, &chrom_fo_idx, &marker_uidx, &marker_idx, &ujj, NULL, set_allele_freq_buf, NULL, wt_needed? wtbuf : NULL);
     if (retval) {
       goto calc_distance_ret_1;
     }
@@ -8407,7 +8407,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	    giptr3++;
 	  }
 	}
-	fill_weights(weights, &(set_allele_freq_buf[ukk]), exponent);
+	fill_weights(weights, &(set_allele_freq_buf[ukk]), distance_exp);
 	uii = is_last_block && (ukk + (MULTIPLEX_DIST_EXP / 3) >= ujj);
 	if (spawn_threads2(threads, &calc_wdist_thread, dist_thread_ct, uii)) {
 	  goto calc_distance_ret_THREAD_CREATE_FAIL;
@@ -8581,7 +8581,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   }
 
   if (calculation_type & (CALC_DISTANCE | CALC_IBS_TEST)) {
-    if ((exponent == 0.0) || (!(dist_calc_type & (DISTANCE_IBS | DISTANCE_1_MINUS_IBS)))) {
+    if ((distance_exp == 0.0) || (!(dist_calc_type & (DISTANCE_IBS | DISTANCE_1_MINUS_IBS)))) {
       g_half_marker_ct_recip = 0.5 / (double)marker_ct_autosomal;
     } else {
       dyy = 0.0;
@@ -8592,7 +8592,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	marker_uidx = next_autosomal_unsafe(marker_exclude, marker_uidx, chrom_info_ptr, &chrom_end, &chrom_fo_idx);
 	dxx = set_allele_freqs[marker_uidx];
 	if ((dxx > 0.0) && (dxx < 1.0)) {
-	  dyy += pow(2 * dxx * (1.0 - dxx), -exponent);
+	  dyy += pow(2 * dxx * (1.0 - dxx), -distance_exp);
 	} else {
 	  dyy += 1.0;
 	}
