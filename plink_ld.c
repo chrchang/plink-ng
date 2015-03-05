@@ -3051,7 +3051,7 @@ static void two_locus_count_table_zmiss1(uintptr_t* lptr1, uintptr_t* lptr2, uin
   counts_3x3[1] = popcount_longs_intersect(lptr1, &(lptr2[sample_ctv3]), sample_ctv3);
   if (!is_zmiss2) {
     counts_3x3[2] = popcount_longs_intersect(lptr1, &(lptr2[2 * sample_ctv3]), sample_ctv3);
-    counts_3x3[5] = popcount_longs_intersect(&(lptr1[2 * sample_ctv3]), &(lptr2[2 * sample_ctv3]), sample_ctv3);
+    counts_3x3[5] = popcount_longs_intersect(&(lptr1[sample_ctv3]), &(lptr2[2 * sample_ctv3]), sample_ctv3);
   }
   lptr1 = &(lptr1[sample_ctv3]);
   counts_3x3[3] = popcount_longs_intersect(lptr1, lptr2, sample_ctv3);
