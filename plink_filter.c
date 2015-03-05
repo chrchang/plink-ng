@@ -1039,6 +1039,72 @@ int32_t random_thin_markers_ct(uint32_t thin_keep_ct, uintptr_t unfiltered_marke
   return retval;
 }
 
+uint32_t random_thin_samples(double thin_keep_prob, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr) {
+  uint32_t sample_ct = unfiltered_sample_ct - *sample_exclude_ct_ptr;
+  uint32_t sample_uidx = 0;
+  uint32_t samples_done = 0;
+  uint32_t removed_ct = 0;
+  uint32_t uint32_thresh = (uint32_t)(thin_keep_prob * 4294967296.0 + 0.5);
+  uint32_t sample_uidx_stop;
+  while (samples_done < sample_ct) {
+    sample_uidx = next_unset_unsafe(sample_exclude, sample_uidx);
+    sample_uidx_stop = next_set(sample_exclude, sample_uidx, unfiltered_sample_ct);
+    samples_done += sample_uidx_stop - sample_uidx;
+    do {
+      if(sfmt_genrand_uint32(&sfmt) >= uint32_thresh) {
+        SET_BIT(sample_exclude, sample_uidx);
+        removed_ct++;
+      }
+    } while (++sample_uidx < sample_uidx_stop);
+  }
+  if (sample_ct == removed_ct) {
+    LOGPRINTF("Error: All %s removed by --thin-indiv. Try a higher probability.\n", g_species_plural);
+    return 1;
+  }
+  LOGPRINTF("--thin-indiv: %u %s removed (%u remaining).\n", removed_ct, (removed_ct==1)? g_species_singular : g_species_plural, sample_ct - removed_ct);
+  *sample_exclude_ct_ptr += removed_ct;
+  return 0;
+}
+
+int32_t random_thin_samples_ct(uint32_t thin_keep_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr) {
+  unsigned char* wkspace_mark = wkspace_base;
+  uint32_t sample_ct = unfiltered_sample_ct - *sample_exclude_ct_ptr;
+  uint32_t sample_uidx = 0;
+  uintptr_t sample_ctl = (sample_ct + (BITCT - 1)) / BITCT;
+  int32_t retval = 0;
+  uintptr_t* perm_buf;
+  uint32_t sample_idx;
+  if (thin_keep_ct > sample_ct) {
+    LOGPRINTF("Error: --thin-indiv-count parameter exceeds number of remaining %s.\n", g_species_plural);
+    goto random_thin_samples_ct_ret_INVALID_CMDLINE;
+  }
+  if (wkspace_alloc_ul_checked(&perm_buf, sample_ctl * sizeof(intptr_t))) {
+    goto random_thin_samples_ct_ret_NOMEM;
+  }
+
+  generate_perm1_interleaved(sample_ct, sample_ct - thin_keep_ct, 0, 1, perm_buf);
+  sample_uidx = 0;
+  for (sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
+    next_unset_unsafe_ck(sample_exclude, &sample_uidx);
+    if (is_set(perm_buf, sample_idx)) {
+      set_bit(sample_exclude, sample_uidx);
+    }
+  }
+  LOGPRINTF("--thin-indiv-count: %u %s removed (%u remaining).\n", sample_ct - thin_keep_ct, (sample_ct - thin_keep_ct == 1)? g_species_singular : g_species_plural, thin_keep_ct);
+  *sample_exclude_ct_ptr = unfiltered_sample_ct - thin_keep_ct;
+  while(0) {
+  random_thin_samples_ct_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  random_thin_samples_ct_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+  }
+  wkspace_reset(wkspace_mark);
+  return retval;
+}
+
+
 int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char* marker_ids, uintptr_t max_marker_id_len, char* sorted_sample_ids, uintptr_t sorted_sample_ct, uintptr_t max_sample_id_len, uint32_t* sample_id_map, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sex_male, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip) {
   // 1. load and validate cluster file
   // 2. load marker file, sort by uidx
