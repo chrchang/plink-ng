@@ -1072,18 +1072,31 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
     for (uii = 0; uii < family_ct; uii++) {
       family_code = family_list[uii];
       ujj = (uint32_t)family_code; // paternal uidx
+      ukk = (uint32_t)(family_code >> 32); // maternal uidx
       if (ujj < unfiltered_sample_ct) {
 	// bleah, fids[] isn't in right order for this lookup
 	cptr = &(sample_ids[ujj * max_sample_id_len]);
 	wptr = fw_strcpyn(plink_maxfid, (uintptr_t)(((char*)memchr(cptr, '\t', max_sample_id_len)) - cptr), cptr, tbuf);
       } else {
-	wptr = memseta(tbuf, 32, plink_maxfid - 1);
-	*wptr++ = '0';
+	cptr = &(sample_ids[ukk * max_sample_id_len]);
+	wptr = fw_strcpyn(plink_maxfid, (uintptr_t)(((char*)memchr(cptr, '\t', max_sample_id_len)) - cptr), cptr, tbuf);
+	// wptr = memseta(tbuf, 32, plink_maxfid - 1);
+	// *wptr++ = '0';
       }
       *wptr++ = ' ';
-      wptr = fw_strcpy(plink_maxiid, &(iids[ujj * max_iid_len]), wptr);
+      if (ujj != unfiltered_sample_ct) {
+        wptr = fw_strcpy(plink_maxiid, &(iids[ujj * max_iid_len]), wptr);
+      } else {
+	wptr = memseta(wptr, 32, plink_maxiid - 2);
+	wptr = memcpya(wptr, "NA", 2);
+      }
       *wptr++ = ' ';
-      wptr = fw_strcpy(plink_maxiid, &(iids[((uintptr_t)(family_code >> 32)) * max_iid_len]), wptr);
+      if (ukk != unfiltered_sample_ct) {
+        wptr = fw_strcpy(plink_maxiid, &(iids[ukk * max_iid_len]), wptr);
+      } else {
+	wptr = memseta(wptr, 32, plink_maxiid - 2);
+	wptr = memcpya(wptr, "NA", 2);
+      }
       *wptr++ = ' ';
       wptr = uint32_writew6x(wptr, child_cts[uii], ' ');
       if (family_error_cts[uii * 3] < 10000) {
