@@ -7970,21 +7970,6 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   // the same as the raw marker weights: for instance, a missing observation at
   // a MAF-0 marker has no weight at all.)
   if (missing_wt_needed) {
-	/*
-	// assume Hardy-Weinberg equilibrium
-	// homozygote frequencies: maf^2, (1-maf)^2
-	// heterozygote frequency: 2maf(1-maf)
-  double ll_freq = maf * maf;
-  double lh_freq = 2 * maf * (1.0 - maf);
-  double hh_freq = (1.0 - maf) * (1.0 - maf);
-  double weight;
-  if (lh_freq == 0.0) {
-    return 0.0;
-  }
-  weight = pow(lh_freq, -exponent);
-  return (lh_freq * (ll_freq + lh_freq) + 2 * ll_freq * hh_freq) * weight;
-}
-	*/
     // hack: overwrite dist_missing_wts while populating dist_missing_wts_i.
     // CACHELINE padding added to reduce risk of an aliasing problem.
     if (wkspace_alloc_ui_checked(&dist_missing_wts_i, CACHELINE) ||
@@ -8029,7 +8014,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     // subtract marker_ct to guard against rounding-driven overflow
     dyy = (4294967296.0 - ((double)((intptr_t)marker_ct))) / dyy;
     for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-      uii = (uint32_t)(dist_missing_wts[marker_idx] + 0.5);
+      uii = (uint32_t)(dist_missing_wts[marker_idx] * dyy + 0.5);
       marker_weight_sum += uii;
       dist_missing_wts_i[marker_idx] = uii;
     }
@@ -8120,7 +8105,11 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 
     copy_set_allele_freqs(marker_uidx, marker_exclude, multiplex, marker_idx, marker_ct, NULL, set_allele_freqs, set_allele_freq_buf);
     if (missing_wt_needed) {
-      memcpy(wtbuf, &(dist_missing_wts_i[marker_idx]), (marker_ct - marker_idx) * sizeof(int32_t));
+      uii = marker_ct - marker_idx;
+      if (uii > multiplex) {
+	uii = multiplex;
+      }
+      memcpy(wtbuf, &(dist_missing_wts_i[marker_idx]), uii * sizeof(int32_t));
     }
     retval = block_load(bedfile, bed_offset, marker_exclude, marker_ct, multiplex, unfiltered_sample_ct4, bedbuf, &marker_uidx, &marker_idx, &ujj);
     if (retval) {
@@ -8373,7 +8362,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   if (missing_wt_needed) {
     giptr = g_missing_tot_weights;
     dptr2 = g_dists;
-    if (main_weights) {
+    if (!main_weights) {
       iptr = g_idists;
       for (sample_idx = g_thread_start[0]; sample_idx < tstc; sample_idx++) {
 	giptr2 = sample_missing;
@@ -8395,7 +8384,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   } else if (dist_calc_type & DISTANCE_FLAT_MISSING) {
     dptr2 = g_dists;
     giptr = g_missing_dbl_excluded;
-    if (main_weights) {
+    if (!main_weights) {
       iptr = g_idists;
       if (dist_calc_type & DISTANCE_CLUSTER) {
 	// save as IBS
