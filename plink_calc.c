@@ -249,136 +249,7 @@ void update_rel_ibc(double* rel_ibc, uintptr_t* geno, double* set_allele_freqs, 
   }
 }
 
-void update_rel_f_ibc(float* rel_ibc, uintptr_t* geno, float* set_allele_freqs, int32_t ibc_type, uint32_t sample_ct, uint32_t window_size) {
-  // first calculate weight array, then loop
-  uint32_t uii;
-  uint32_t ujj;
-  uint32_t ukk;
-  uint32_t umm;
-  float twt;
-  float* wtptr;
-  float mult = 1.0;
-  uintptr_t ulii;
-  float weights[BITCT * 12];
-  float* weights1 = &(weights[64]);
-  float* weights2 = &(weights[128]);
-  float* weights3 = &(weights[256]);
-  float* weights4 = &(weights[320]);
-#ifdef __LP64__
-  float* weights5 = &(weights[384]);
-  float* weights6 = &(weights[448]);
-  float* weights7 = &(weights[512]);
-  float* weights8 = &(weights[640]);
-  float* weights9 = &(weights[704]);
-#endif
-  float wtarr[BITCT2 * 5];
-  float *wptr = weights;
-  fill_float_zero(wtarr, BITCT2 * 5);
-  for (uii = 0; uii < window_size; uii += 1) {
-    if ((set_allele_freqs[uii] != 0.0) && (set_allele_freqs[uii] < (1.0 - EPSILON))) {
-      if (ibc_type) {
-        if (ibc_type == 2) {
-          wtarr[uii * 8] = 2;
-          wtarr[uii * 8 + 2] = 2.0 - 1.0 / (2 * set_allele_freqs[uii] * (1.0 - set_allele_freqs[uii]));
-          wtarr[uii * 8 + 3] = 2;
-        } else {
-          twt = 2 * set_allele_freqs[uii];
-          if (ibc_type == 1) {
-            mult = 1 / (twt * (1.0 - set_allele_freqs[uii]));
-          }
-          wtarr[uii * 8] = twt * twt * mult;
-          wtarr[uii * 8 + 2] = (1.0 - twt) * (1.0 - twt) * mult;
-          wtarr[uii * 8 + 3] = (2.0 - twt) * (2.0 - twt) * mult;
-        }
-      } else {
-        twt = 1.0 - set_allele_freqs[uii];
-        mult = 1 / (set_allele_freqs[uii] * twt);
-        wtarr[uii * 8] = 1.0 + set_allele_freqs[uii] * set_allele_freqs[uii] * mult;
-        wtarr[uii * 8 + 3] = 1.0 + twt * twt * mult;
-      }
-    } else {
-      if (ibc_type) {
-        if (ibc_type == -1) {
-          twt = 2 * set_allele_freqs[uii];
-          wtarr[uii * 8] = twt * twt;
-          wtarr[uii * 8 + 2] = (1.0 - twt) * (1.0 - twt);
-          wtarr[uii * 8 + 3] = (2.0 - twt) * (2.0 - twt);
-        } else if (ibc_type == 1) {
-	  wtarr[uii * 8 + 2] = INFINITY;
-          if (set_allele_freqs[uii] == 0.0) {
-            wtarr[uii * 8] = 0;
-            wtarr[uii * 8 + 3] = INFINITY;
-          } else {
-            wtarr[uii * 8] = INFINITY;
-            wtarr[uii * 8 + 3] = 0;
-          }
-        } else {
-          // need to set to 1 instead of 2 for agreement with GCTA
-          wtarr[uii * 8] = 1;
-          wtarr[uii * 8 + 2] = -INFINITY;
-          wtarr[uii * 8 + 3] = 1;
-        }
-      } else {
-        if (set_allele_freqs[uii] == 0.0) {
-          wtarr[uii * 8] = 1;
-          wtarr[uii * 8 + 3] = INFINITY;
-        } else {
-          wtarr[uii * 8] = INFINITY;
-          wtarr[uii * 8 + 3] = 1;
-        }
-      }
-    }
-  }
-  for (ukk = 0; ukk < (BITCT * 5) / 32; ukk++) {
-    wtptr = &(wtarr[16 * ukk]);
-#ifdef __LP64__
-    if ((ukk == 2) || (ukk == 7)) {
-      for (uii = 0; uii < 8; uii++) {
-	twt = wtptr[uii + 8];
-	for (ujj = 0; ujj < 8; ujj++) {
-	  *wptr++ = twt + wtptr[ujj];
-	}
-	wptr = &(wptr[8]);
-      }
-    } else {
-      for (uii = 0; uii < 8; uii++) {
-	twt = wtptr[uii + 8];
-	for (ujj = 0; ujj < 8; ujj++) {
-	  *wptr++ = twt + wtptr[ujj];
-	}
-      }
-    }
-#else
-    if (ukk == 2) {
-      for (uii = 0; uii < 8; uii++) {
-	twt = wtptr[uii + 8];
-	for (ujj = 0; ujj < 8; ujj++) {
-	  *wptr++ = twt + wtptr[ujj];
-	}
-	wptr = &(wptr[8]);
-      }
-    } else {
-      for (uii = 0; uii < 8; uii++) {
-	twt = wtptr[uii + 8];
-	for (ujj = 0; ujj < 8; ujj++) {
-	  *wptr++ = twt + wtptr[ujj];
-	}
-      }
-    }
-#endif
-  }
-  for (umm = 0; umm < sample_ct; umm++) {
-    ulii = *geno++;
-#ifdef __LP64__
-    *rel_ibc += weights9[ulii >> 57] + weights8[(ulii >> 51) & 63] + weights7[(ulii >> 44) & 127] + weights6[(ulii >> 38) & 63] + weights5[(ulii >> 32) & 63] + weights4[(ulii >> 25) & 63] + weights3[(ulii >> 19) & 63] + weights2[(ulii >> 12) & 127] + weights1[(ulii >> 6) & 63] + weights[ulii & 63];
-#else
-    *rel_ibc += weights4[ulii >> 25] + weights3[(ulii >> 19) & 63] + weights2[(ulii >> 12) & 127] + weights1[(ulii >> 6) & 63] + weights[ulii & 63];
-#endif
-    rel_ibc++;
-  }
-}
-
-void fill_weights(double* weights, double* set_allele_freqs, double distance_exp) {
+void fill_subset_weights(double* subset_weights, double* main_weights) {
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -390,7 +261,7 @@ void fill_weights(double* weights, double* set_allele_freqs, double distance_exp
 #ifdef __LP64__
   double twt[5];
   double twtf;
-  __m128d* wpairs = (__m128d*)weights;
+  __m128d* swpairs = (__m128d*)subset_weights;
   __m128d vpen;
   __m128d vfinal1;
   __m128d vfinal2;
@@ -399,9 +270,7 @@ void fill_weights(double* weights, double* set_allele_freqs, double distance_exp
   uint32_t uqq;
   double twt[7];
 #endif
-  for (uii = 0; uii < MULTIPLEX_DIST_EXP / 2; uii++) {
-    wtarr[uii] = pow(2 * set_allele_freqs[uii] * (1.0 - set_allele_freqs[uii]), -distance_exp);
-  }
+  memcpy(wtarr, main_weights, (MULTIPLEX_DIST_EXP / 2) * sizeof(double));
   for (uoo = 0; uoo < 2; uoo++) {
     wt = &(wtarr[7 * uoo]);
 #ifdef __LP64__
@@ -438,19 +307,19 @@ void fill_weights(double* weights, double* set_allele_freqs, double distance_exp
 #ifdef __LP64__
 	      twtf = twt[4];
 	      vpen = _mm_set1_pd(twtf);
-	      *wpairs++ = _mm_add_pd(vpen, vfinal1);
-	      *wpairs++ = _mm_add_pd(vpen, vfinal2);
+	      *swpairs++ = _mm_add_pd(vpen, vfinal1);
+	      *swpairs++ = _mm_add_pd(vpen, vfinal2);
 	      twtf += wt[1];
 	      vpen = _mm_set1_pd(twtf);
-	      *wpairs++ = _mm_add_pd(vpen, vfinal1);
-	      *wpairs++ = _mm_add_pd(vpen, vfinal2);
-	      *wpairs = *(wpairs - 2);
-	      wpairs++;
-	      *wpairs = *(wpairs - 2);
-	      wpairs++;
+	      *swpairs++ = _mm_add_pd(vpen, vfinal1);
+	      *swpairs++ = _mm_add_pd(vpen, vfinal2);
+	      *swpairs = *(swpairs - 2);
+	      swpairs++;
+	      *swpairs = *(swpairs - 2);
+	      swpairs++;
 	      vpen = _mm_set1_pd(twtf + wt[1]);
-	      *wpairs++ = _mm_add_pd(vpen, vfinal1);
-	      *wpairs++ = _mm_add_pd(vpen, vfinal2);
+	      *swpairs++ = _mm_add_pd(vpen, vfinal1);
+	      *swpairs++ = _mm_add_pd(vpen, vfinal2);
 #else
               twt[5] = twt[4];
               for (upp = 0; upp < 4; upp++) {
@@ -462,7 +331,7 @@ void fill_weights(double* weights, double* set_allele_freqs, double distance_exp
                   if (uqq & 1) {
                     twt[6] += wt[0];
                   }
-                  *weights++ = twt[6];
+                  *subset_weights++ = twt[6];
                 }
               }
 #endif
@@ -499,19 +368,19 @@ void fill_weights(double* weights, double* set_allele_freqs, double distance_exp
 	    }
 	    twtf = twt[3];
 	    vpen = _mm_set1_pd(twtf);
-	    *wpairs++ = _mm_add_pd(vpen, vfinal1);
-	    *wpairs++ = _mm_add_pd(vpen, vfinal2);
+	    *swpairs++ = _mm_add_pd(vpen, vfinal1);
+	    *swpairs++ = _mm_add_pd(vpen, vfinal2);
 	    twtf += wt[1];
 	    vpen = _mm_set1_pd(twtf);
-	    *wpairs++ = _mm_add_pd(vpen, vfinal1);
-	    *wpairs++ = _mm_add_pd(vpen, vfinal2);
-	    *wpairs = *(wpairs - 2);
-	    wpairs++;
-	    *wpairs = *(wpairs - 2);
-	    wpairs++;
+	    *swpairs++ = _mm_add_pd(vpen, vfinal1);
+	    *swpairs++ = _mm_add_pd(vpen, vfinal2);
+	    *swpairs = *(swpairs - 2);
+	    swpairs++;
+	    *swpairs = *(swpairs - 2);
+	    swpairs++;
 	    vpen = _mm_set1_pd(twtf + wt[1]);
-	    *wpairs++ = _mm_add_pd(vpen, vfinal1);
-	    *wpairs++ = _mm_add_pd(vpen, vfinal2);
+	    *swpairs++ = _mm_add_pd(vpen, vfinal1);
+	    *swpairs++ = _mm_add_pd(vpen, vfinal2);
           }
 	}
       }
@@ -520,7 +389,7 @@ void fill_weights(double* weights, double* set_allele_freqs, double distance_exp
 #endif
 }
 
-void fill_weights_r(double* weights, double* set_allele_freqs, uint32_t var_std) {
+void fill_subset_weights_r(double* subset_weights, double* set_allele_freqs, uint32_t var_std) {
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -528,7 +397,7 @@ void fill_weights_r(double* weights, double* set_allele_freqs, uint32_t var_std)
   uint32_t unn;
   // 20 markers to process in quintuplets, for 64-bit; 10, for 32-bit.
   // Each quintuplet of markers requires 40 wtarr entries, and induces
-  // 2^15 writes to weights[].
+  // 2^15 writes to subset_weights[].
   double wtarr_raw[BITCT2 * 5 + 1];
   double* wtarr = wtarr_raw;
   double twt;
@@ -542,7 +411,7 @@ void fill_weights_r(double* weights, double* set_allele_freqs, uint32_t var_std)
   double mult = 1.0;
   double aux;
 #ifdef __LP64__
-  __m128d* wpairs = (__m128d*)weights;
+  __m128d* swpairs = (__m128d*)subset_weights;
   __m128d vpen;
   __m128d vfinal1;
   __m128d vfinal2;
@@ -629,133 +498,13 @@ void fill_weights_r(double* weights, double* set_allele_freqs, uint32_t var_std)
             twt4 = twt3 + wtptr[umm + 8];
 #ifdef __LP64__
             vpen = _mm_set1_pd(twt4);
-            *wpairs++ = _mm_add_pd(vpen, vfinal1);
-            *wpairs++ = _mm_add_pd(vpen, vfinal2);
-            *wpairs++ = _mm_add_pd(vpen, vfinal3);
-            *wpairs++ = _mm_add_pd(vpen, vfinal4);
+            *swpairs++ = _mm_add_pd(vpen, vfinal1);
+            *swpairs++ = _mm_add_pd(vpen, vfinal2);
+            *swpairs++ = _mm_add_pd(vpen, vfinal3);
+            *swpairs++ = _mm_add_pd(vpen, vfinal4);
 #else
             for (uoo = 0; uoo < 8; uoo++) {
-              *weights++ = twt4 + wtptr[uoo];
-            }
-#endif
-          }
-        }
-      }
-    }
-  }
-}
-
-void fill_weights_r_f(float* weights_f, float* set_allele_freqs_f, uint32_t var_std) {
-  uint32_t uii;
-  uint32_t ujj;
-  uint32_t ukk;
-  uint32_t umm;
-  uint32_t unn;
-  // 20 markers to process in quintuplets, for 64-bit; 10, for 32-bit.
-  // Each quintuplet of markers requires 40 wtarr entries, and induces
-  // 2^15 writes to weights_f[].
-  float wtarr_raw[BITCT2 * 5 + 3];
-  float* wtarr = wtarr_raw;
-  float twt;
-  float twt2;
-  float twt3;
-  float twt4;
-  float* wtptr;
-  float mean;
-  float mean_m1;
-  float mean_m2;
-  float mult = 1.0;
-  float aux;
-#ifdef __LP64__
-  __m128* wquads = (__m128*)weights_f;
-  __m128 vpen;
-  __m128 vfinal1;
-  __m128 vfinal2;
-#else
-  uint32_t uoo;
-#endif
-  uii = (((uintptr_t)wtarr) & 15);
-  if (uii) {
-    // force 16-byte alignment; can't do this at compile-time since stack
-    // pointer has no 16-byte align guarantee.
-    // yes, this assumes floats are 4 bytes.
-    wtarr = &(wtarr[4 - (uii / 4)]);
-  }
-  for (uii = 0; uii < MULTIPLEX_REL / 3; uii += 1) {
-    if (((set_allele_freqs_f[uii] != 0.0) && (set_allele_freqs_f[uii] < (1.0 - EPSILON))) || (!var_std)) {
-      if (set_allele_freqs_f[uii] < 0.5) {
-	mean = 2 * set_allele_freqs_f[uii];
-	mean_m1 = mean - 1.0;
-	mean_m2 = mean - 2.0;
-        if (var_std) {
-	  mult = 1 / (mean * (1.0 - set_allele_freqs_f[uii]));
-        }
-        aux = mean * mult;
-	wtarr[uii * 8] = mean * aux;
-        wtarr[uii * 8 + 1] = 0;
-	wtarr[uii * 8 + 2] = mean_m1 * aux;
-	wtarr[uii * 8 + 3] = mean_m2 * aux;
-	wtarr[uii * 8 + 4] = mean_m1 * mean_m1 * mult;
-	wtarr[uii * 8 + 5] = mean_m2 * mean_m1 * mult;
-	wtarr[uii * 8 + 6] = mean_m2 * mean_m2 * mult;
-      } else {
-	mean = 2 * (1.0 - set_allele_freqs_f[uii]);
-	mean_m1 = mean - 1.0;
-	mean_m2 = mean - 2.0;
-        if (var_std) {
-	  mult = 1 / (mean * set_allele_freqs_f[uii]);
-        }
-        aux = mean_m2 * mult;
-	wtarr[uii * 8] = mean_m2 * aux;
-        wtarr[uii * 8 + 1] = 0;
-	wtarr[uii * 8 + 2] = mean_m1 * aux;
-	wtarr[uii * 8 + 3] = mean * aux;
-	wtarr[uii * 8 + 4] = mean_m1 * mean_m1 * mult;
-	wtarr[uii * 8 + 5] = mean_m1 * mean * mult;
-	wtarr[uii * 8 + 6] = mean * mean * mult;
-      }
-    } else {
-      if (set_allele_freqs_f[uii] == 0.0) {
-        wtarr[uii * 8] = 0;
-        wtarr[uii * 8 + 1] = 0;
-        wtarr[uii * 8 + 2] = -1;
-        wtarr[uii * 8 + 3] = -2;
-        wtarr[uii * 8 + 4] = INFINITY;
-        wtarr[uii * 8 + 5] = INFINITY;
-        wtarr[uii * 8 + 6] = INFINITY;
-      } else {
-        wtarr[uii * 8] = INFINITY;
-        wtarr[uii * 8 + 1] = 0;
-        wtarr[uii * 8 + 2] = INFINITY;
-        wtarr[uii * 8 + 3] = -2;
-        wtarr[uii * 8 + 4] = INFINITY;
-        wtarr[uii * 8 + 5] = -1;
-        wtarr[uii * 8 + 6] = 0;
-      }
-    }
-    wtarr[uii * 8 + 7] = 0;
-  }
-  for (unn = 0; unn < BITCT / 16; unn++) {
-    wtptr = &(wtarr[40 * unn]);
-#ifdef __LP64__
-    vfinal1 = _mm_load_ps(wtptr);
-    vfinal2 = _mm_load_ps(&(wtptr[4]));
-#endif
-    for (uii = 0; uii < 8; uii++) {
-      twt = wtptr[uii + 32];
-      for (ujj = 0; ujj < 8; ujj++) {
-        twt2 = twt + wtptr[ujj + 24];
-        for (ukk = 0; ukk < 8; ukk++) {
-          twt3 = twt2 + wtptr[ukk + 16];
-          for (umm = 0; umm < 8; umm++) {
-            twt4 = twt3 + wtptr[umm + 8];
-#ifdef __LP64__
-            vpen = _mm_set1_ps(twt4);
-            *wquads++ = _mm_add_ps(vpen, vfinal1);
-            *wquads++ = _mm_add_ps(vpen, vfinal2);
-#else
-            for (uoo = 0; uoo < 8; uoo++) {
-              *weights_f++ = twt4 + wtptr[uoo];
+              *subset_weights++ = twt4 + wtptr[uoo];
             }
 #endif
           }
@@ -968,8 +717,8 @@ static int32_t* g_idists;
 static uintptr_t* g_pheno_nm = NULL;
 static uintptr_t* g_pheno_c = NULL;
 static unsigned char* g_geno = NULL;
-static double* g_weights;
-static uint32_t* g_weights_i;
+static double* g_subset_weights;
+static uint32_t* g_subset_weights_i;
 static double g_reg_tot_xy;
 static double g_reg_tot_x;
 static double g_reg_tot_y;
@@ -1262,7 +1011,7 @@ void incr_dists_i(uint32_t* idists, uintptr_t* geno, uintptr_t* masks, uint32_t 
   }
 }
 
-void incr_wt_dist_missing(uint32_t* mtw, uint32_t* weights_i, uintptr_t* mmasks, uint32_t start_idx, uint32_t end_idx) {
+void incr_wt_dist_missing(uint32_t* mtw, uint32_t* subset_weights_i, uintptr_t* mmasks, uint32_t start_idx, uint32_t end_idx) {
   uintptr_t* glptr;
   uintptr_t ulii;
   uintptr_t uljj;
@@ -1275,7 +1024,7 @@ void incr_wt_dist_missing(uint32_t* mtw, uint32_t* weights_i, uintptr_t* mmasks,
       for (ujj = 0; ujj < uii; ujj++) {
 	uljj = (*glptr++) & ulii;
         while (uljj) {
-          mtw[ujj] += weights_i[CTZLU(uljj)];
+          mtw[ujj] += subset_weights_i[CTZLU(uljj)];
           uljj &= uljj - 1;
         }
       }
@@ -1328,8 +1077,8 @@ THREAD_RET_TYPE calc_ibs_thread(void* arg) {
   while (1) {
     is_last_block = g_is_last_thread_block;
     if (weighted_missing_ptr) {
-      // g_weights_i moves around
-      incr_wt_dist_missing(weighted_missing_ptr, g_weights_i, mmasks_ptr, ulii, end_idx);
+      // g_subset_weights_i moves around
+      incr_wt_dist_missing(weighted_missing_ptr, g_subset_weights_i, mmasks_ptr, ulii, end_idx);
     }
     if (flat_missing_ptr) {
       incr_dists_rm(flat_missing_ptr, mmasks_ptr, ulii, end_idx);
@@ -1843,17 +1592,17 @@ THREAD_RET_TYPE calc_wdist_thread(void* arg) {
   uintptr_t* geno_ptr = (uintptr_t*)g_geno;
   uintptr_t* masks_ptr = g_masks;
   uintptr_t* mmasks_ptr = g_mmasks;
-  double* weights_ptr = g_weights;
-  uint32_t* weights_i_ptr = g_weights_i;
+  double* subset_weights_ptr = g_subset_weights;
+  uint32_t* subset_weights_i_ptr = g_subset_weights_i;
   uint32_t* weighted_missing_ptr = &(g_missing_tot_weights[offset]);
   uint32_t end_idx = g_thread_start[tidx + 1];
   uint32_t is_last_block;
   while (1) {
     is_last_block = g_is_last_thread_block;
-    incr_dists(dists_ptr, geno_ptr, masks_ptr, weights_ptr, ulii, end_idx);
+    incr_dists(dists_ptr, geno_ptr, masks_ptr, subset_weights_ptr, ulii, end_idx);
     if (is_last_block || (g_thread_spawn_ct & 1)) {
-      // weights_i is stationary here
-      incr_wt_dist_missing(weighted_missing_ptr, weights_i_ptr, mmasks_ptr, ulii, end_idx);
+      // subset_weights_i is stationary here
+      incr_wt_dist_missing(weighted_missing_ptr, subset_weights_i_ptr, mmasks_ptr, ulii, end_idx);
     }
     if ((!tidx) || is_last_block) {
       THREAD_RETURN;
@@ -1914,12 +1663,12 @@ THREAD_RET_TYPE calc_rel_thread(void* arg) {
   uintptr_t* masks_ptr = g_masks;
   uintptr_t* mmasks_ptr = g_mmasks;
   uint32_t* missing_ptr = &(g_missing_dbl_excluded[offset]);
-  double* weights_ptr = g_weights;
+  double* subset_weights_ptr = g_subset_weights;
   uint32_t end_idx = g_thread_start[tidx + 1];
   uint32_t is_last_block;
   while (1) {
     is_last_block = g_is_last_thread_block;
-    incr_dists_r(rel_ptr, geno_ptr, masks_ptr, (uint32_t)tidx, weights_ptr);
+    incr_dists_r(rel_ptr, geno_ptr, masks_ptr, (uint32_t)tidx, subset_weights_ptr);
     if (is_last_block || ((g_thread_spawn_ct % 3) == 2)) {
       incr_dists_rm(missing_ptr, mmasks_ptr, ulii, end_idx);
     }
@@ -1927,48 +1676,6 @@ THREAD_RET_TYPE calc_rel_thread(void* arg) {
       THREAD_RETURN;
     }
     THREAD_BLOCK_FINISH(tidx);
-  }
-}
-
-void incr_dists_r_f(float* dists_f, uintptr_t* geno, uintptr_t* masks, float* weights_f, uint32_t start_idx, uint32_t end_idx) {
-  uintptr_t* glptr;
-  uintptr_t* maskptr;
-  uintptr_t ulii;
-  uintptr_t uljj;
-  uintptr_t basemask;
-  float* weights1 = &(weights_f[32768]);
-#ifdef __LP64__
-  float* weights2 = &(weights_f[65536]);
-  float* weights3 = &(weights_f[98304]);
-#endif
-  uint32_t uii;
-  uint32_t ujj;
-  for (uii = start_idx; uii < end_idx; uii++) {
-    glptr = geno;
-    ulii = geno[uii];
-    maskptr = masks;
-    basemask = masks[uii];
-    if (!basemask) {
-      for (ujj = 0; ujj < uii; ujj++) {
-	uljj = ((*glptr++) + ulii) | (*maskptr++);
-#ifdef __LP64__
-	*dists_f += weights_f[(uint16_t)uljj] + weights1[(uint16_t)(uljj >> 16)] + weights2[(uint16_t)(uljj >> 32)] + weights3[uljj >> 48];
-#else
-	*dists_f += weights_f[(uint16_t)uljj] + weights1[uljj >> 16];
-#endif
-	dists_f++;
-      }
-    } else {
-      for (ujj = 0; ujj < uii; ujj++) {
-        uljj = ((*glptr++) + ulii) | ((*maskptr++) | basemask);
-#ifdef __LP64__
-	*dists_f += weights_f[(uint16_t)uljj] + weights1[(uint16_t)(uljj >> 16)] + weights2[(uint16_t)(uljj >> 32)] + weights3[uljj >> 48];
-#else
-	*dists_f += weights_f[(uint16_t)uljj] + weights1[uljj >> 16];
-#endif
-	dists_f++;
-      }
-    }
   }
 }
 
@@ -6884,7 +6591,53 @@ uint32_t calc_rel_grm_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
-int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, uint64_t calculation_type, Rel_info* relip, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, uint32_t marker_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* sample_ids, uintptr_t max_sample_id_len, double* set_allele_freqs, double** rel_ibc_ptr, Chrom_info* chrom_info_ptr) {
+uint32_t block_load(FILE* bedfile, int32_t bed_offset, uintptr_t* marker_exclude, uint32_t marker_ct, uint32_t block_max_size, uintptr_t unfiltered_sample_ct4, unsigned char* readbuf, uintptr_t* marker_uidx_ptr, uintptr_t* marker_idx_ptr, uint32_t* block_size_ptr) {
+  uintptr_t marker_uidx = *marker_uidx_ptr;
+  uintptr_t marker_idx = *marker_idx_ptr;
+  uint32_t markers_read = 0;
+  if (block_max_size > marker_ct - marker_idx) {
+    block_max_size = marker_ct - marker_idx;
+  }
+  while (markers_read < block_max_size) {
+    if (IS_SET(marker_exclude, marker_uidx)) {
+      marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+      if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
+	return RET_READ_FAIL;
+      }
+    }
+    if (fread(&(readbuf[markers_read * unfiltered_sample_ct4]), 1, unfiltered_sample_ct4, bedfile) < unfiltered_sample_ct4) {
+      return RET_READ_FAIL;
+    }
+    markers_read++;
+    marker_idx++;
+    marker_uidx++;
+  }
+
+  *marker_uidx_ptr = marker_uidx;
+  *marker_idx_ptr = marker_idx;
+  *block_size_ptr = markers_read;
+  return 0;
+}
+
+void copy_set_allele_freqs(uintptr_t marker_uidx, uintptr_t* marker_exclude, uint32_t block_max_size, uintptr_t marker_idx, uint32_t marker_ct, uintptr_t* marker_reverse, double* set_allele_freqs, double* set_allele_freq_buf) {
+  uint32_t markers_read = 0;
+  if (block_max_size > marker_ct - marker_idx) {
+    block_max_size = marker_ct - marker_idx;
+  }
+  while (markers_read < block_max_size) {
+    next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
+    if ((!marker_reverse) || (!IS_SET(marker_reverse, marker_uidx))) {
+      set_allele_freq_buf[markers_read] = set_allele_freqs[marker_uidx];
+    } else {
+      set_allele_freq_buf[markers_read] = 1.0 - set_allele_freqs[marker_uidx];
+    }
+    markers_read++;
+    marker_idx++;
+    marker_uidx++;
+  }
+}
+
+int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, uint64_t calculation_type, Rel_info* relip, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t* marker_reverse, uint32_t marker_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* sample_ids, uintptr_t max_sample_id_len, double* set_allele_freqs, double** rel_ibc_ptr, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t sample_ct = unfiltered_sample_ct - (*sample_exclude_ct_ptr);
@@ -6892,6 +6645,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   uintptr_t marker_idx = 0;
   FILE* outfile = NULL;
   FILE* out_bin_nfile = NULL;
+  uintptr_t* marker_exclude = marker_exclude_orig;
   uint32_t rel_calc_type = relip->modifier & REL_CALC_MASK;
   int32_t ibc_type = relip->ibc_type;
   int32_t retval = 0;
@@ -6904,7 +6658,6 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   double* dptr3 = NULL;
   double* dptr4 = NULL;
   double* rel_dists = NULL;
-  uint32_t chrom_fo_idx = 0;
   double* dptr2;
   double set_allele_freq_buf[MULTIPLEX_DIST];
   char wbuf[96];
@@ -6917,7 +6670,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   uintptr_t* geno;
   uintptr_t* masks;
   uintptr_t* mmasks;
-  double* weights;
+  double* subset_weights;
   double* rel_ibc;
   uint32_t* mdeptr;
   uint32_t* sample_missing_unwt;
@@ -6996,6 +6749,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
     fill_double_zero(rel_dists, llxx);
   }
   wkspace_mark = wkspace_base;
+  // stack allocations after this point are freed normally
   if (rel_req && (!g_missing_dbl_excluded)) {
     if (wkspace_alloc_ui_checked(&g_missing_dbl_excluded, llxx * sizeof(int32_t))) {
       goto calc_rel_ret_NOMEM;
@@ -7009,25 +6763,21 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       wkspace_alloc_ul_checked(&mmasks, sample_ct * sizeof(intptr_t)) ||
       wkspace_alloc_uc_checked(&gptr, MULTIPLEX_REL * unfiltered_sample_ct4) ||
       wkspace_alloc_ul_checked(&masks, sample_ct * sizeof(intptr_t)) ||
-      wkspace_alloc_d_checked(&weights, 2048 * BITCT * sizeof(double)) ||
+      wkspace_alloc_d_checked(&subset_weights, 2048 * BITCT * sizeof(double)) ||
       wkspace_alloc_uc_checked(&overflow_buf, 262144)) {
     goto calc_rel_ret_NOMEM;
   }
   g_geno = (unsigned char*)geno;
   g_masks = masks;
   g_mmasks = mmasks;
-  g_weights = weights;
+  g_subset_weights = subset_weights;
 
   // Exclude markers on non-autosomal chromosomes for now.
-  uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
-  if (uii) {
-    if (uii == marker_ct) {
-      logprint("Error: No autosomal variants for relationship matrix calculation.\n");
-      goto calc_rel_ret_INVALID_CMDLINE;
-    }
-    LOGPRINTF("Excluding %u variant%s on non-autosomes from relationship matrix calc.\n", uii, (uii == 1)? "" : "s");
-    marker_ct -= uii;
+  retval = conditional_allocate_non_autosomal_markers(chrom_info_ptr, unfiltered_marker_ct, marker_exclude_orig, marker_ct, 1, 1, "relationship matrix calc", &marker_exclude, &uii);
+  if (retval) {
+    goto calc_rel_ret_1;
   }
+  marker_ct -= uii;
 
   // See comments at the beginning of this file, and those in the main
   // CALC_DISTANCE loop.  The main difference between this calculation and
@@ -7035,7 +6785,8 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   // each marker to 3 bits and use + instead of XOR to distinguish the
   // cases.
   do {
-    retval = block_load_autosomal(bedfile, bed_offset, marker_exclude, marker_ct, MULTIPLEX_REL, unfiltered_sample_ct4, chrom_info_ptr, set_allele_freqs, NULL, gptr, &chrom_fo_idx, &marker_uidx, &marker_idx, &cur_markers_loaded, marker_reverse, set_allele_freq_buf, NULL, NULL);
+    copy_set_allele_freqs(marker_uidx, marker_exclude, MULTIPLEX_REL, marker_idx, marker_ct, marker_reverse, set_allele_freqs, set_allele_freq_buf);
+    retval = block_load(bedfile, bed_offset, marker_exclude, marker_ct, MULTIPLEX_REL, unfiltered_sample_ct4, gptr, &marker_uidx, &marker_idx, &cur_markers_loaded);
     if (retval) {
       goto calc_rel_ret_1;
     }
@@ -7087,7 +6838,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	update_rel_ibc(rel_ibc, geno, &(set_allele_freq_buf[win_marker_idx]), ibc_type, sample_ct, ukk);
       }
       if (rel_req) {
-	fill_weights_r(weights, &(set_allele_freq_buf[win_marker_idx]), (ibc_type != -1));
+	fill_subset_weights_r(subset_weights, &(set_allele_freq_buf[win_marker_idx]), (ibc_type != -1));
 	if (spawn_threads2(threads, &calc_rel_thread, dist_thread_ct, ujj)) {
 	  goto calc_rel_ret_THREAD_CREATE_FAIL;
 	}
@@ -7944,13 +7695,13 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 }
 #endif
 
-int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_exclude, uint32_t marker_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, Chrom_info* chrom_info_ptr) {
+int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uint32_t marker_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, Chrom_info* chrom_info_ptr) {
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
-  uint32_t chrom_fo_idx = 0;
   uint32_t dist_thread_ct = g_thread_ct;
   int32_t retval = 0;
+  uintptr_t* marker_exclude = marker_exclude_orig;
   uint32_t* giptr = NULL;
   unsigned char* wkspace_mark;
   unsigned char* bedbuf;
@@ -7966,12 +7717,7 @@ int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintpt
   uint32_t umm;
   uint32_t unn;
   uintptr_t* glptr;
-  uint32_t marker_ct_autosomal;
   int64_t llxx;
-  if (is_set(chrom_info_ptr->haploid_mask, 0)) {
-    logprint("Error: '--cluster missing' cannot currently be used on haploid genomes.\n");
-    goto calc_ibm_ret_INVALID_CMDLINE;
-  }
   g_sample_ct = sample_ct;
   if (dist_thread_ct > sample_ct / 32) {
     dist_thread_ct = sample_ct / 32;
@@ -7997,21 +7743,20 @@ int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintpt
   }
   g_mmasks = mmasks;
   fseeko(bedfile, bed_offset, SEEK_SET);
-  uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
-  marker_ct_autosomal = marker_ct - uii;
-  if (uii) {
-    LOGPRINTF("Excluding %u variant%s on non-autosomes from IBM calculation.\n", uii, (uii == 1)? "" : "s");
+  retval = conditional_allocate_non_autosomal_markers(chrom_info_ptr, unfiltered_marker_ct, marker_exclude_orig, marker_ct, 1, 1, "IBM calculation", &marker_exclude, &uii);
+  if (retval) {
+    goto calc_ibm_ret_1;
   }
-  is_last_block = (marker_idx == marker_ct_autosomal);
-  while (!is_last_block) {
-    retval = block_load_autosomal(bedfile, bed_offset, marker_exclude, marker_ct_autosomal, MULTIPLEX_DIST, unfiltered_sample_ct4, chrom_info_ptr, NULL, NULL, bedbuf, &chrom_fo_idx, &marker_uidx, &marker_idx, &ujj, NULL, NULL, NULL, NULL);
+  marker_ct -= uii;
+  do {
+    retval = block_load(bedfile, bed_offset, marker_exclude, marker_ct, MULTIPLEX_DIST, unfiltered_sample_ct4, bedbuf, &marker_uidx, &marker_idx, &ujj);
     if (retval) {
       goto calc_ibm_ret_1;
     }
     if (ujj < MULTIPLEX_DIST) {
       memset(&(bedbuf[ujj * unfiltered_sample_ct4]), 0, (MULTIPLEX_DIST - ujj) * unfiltered_sample_ct4);
     }
-    is_last_block = (marker_idx == marker_ct_autosomal);
+    is_last_block = (marker_idx == marker_ct);
     for (ukk = 0; ukk < ujj; ukk += BITCT) {
       glptr = mmasks;
       giptr = sample_missing_unwt;
@@ -8051,43 +7796,48 @@ int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintpt
 
     printf("\r%" PRIuPTR " markers complete.", marker_idx);
     fflush(stdout);
-  }
+  } while (!is_last_block);
   putchar('\r');
   wkspace_reset(wkspace_mark);
   while (0) {
   calc_ibm_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  calc_ibm_ret_INVALID_CMDLINE:
-    retval = RET_INVALID_CMDLINE;
-    break;
   calc_ibm_ret_THREAD_CREATE_FAIL:
     retval = RET_THREAD_CREATE_FAIL;
     break;
   }
  calc_ibm_ret_1:
+  // caller will free memory if there was an error
   return retval;
 }
 
-int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t* marker_exclude, uint32_t marker_ct, double* set_allele_freqs, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, Chrom_info* chrom_info_ptr, uint32_t wt_needed, uint32_t marker_weight_sum, uint32_t* dist_missing_wts_i, double distance_exp) {
+int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t force_exclude_alloc, uintptr_t** marker_exclude_ptr, uint32_t* marker_ct_ptr, double** main_weights_ptr) {
+  logprint("Error: --distance-wts is currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
+}
+
+int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, char* read_dists_fname, char* distance_wts_fname, double distance_exp, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uint32_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* set_allele_freqs, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, Chrom_info* chrom_info_ptr) {
+  // if calculation_type == 0, this must perform the basic unweighted
+  // computation and not write to disk.
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uint64_t dists_alloc = 0;
-  double marker_weight_sum_d = (double)marker_weight_sum;
+  uint32_t missing_wt_needed = ((calculation_type & CALC_DISTANCE) || ((!read_dists_fname) && (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE)))) && (!(dist_calc_type & DISTANCE_FLAT_MISSING));
   uint32_t unwt_needed = 0;
-  uintptr_t marker_uidx = 0;
-  uintptr_t marker_idx = 0;
-  uint32_t chrom_fo_idx = 0;
+  uint32_t marker_weight_sum = 0;
   int32_t retval = 0;
-  uint32_t exp0 = (distance_exp == 0.0);
+  uintptr_t* marker_exclude = marker_exclude_orig;
+  uint32_t* dist_missing_wts_i = NULL;
   uint32_t* sample_missing = NULL;
   uint32_t* sample_missing_unwt = NULL;
   uint32_t* giptr = NULL;
   uint32_t* giptr2 = NULL;
   char* writebuf = NULL;
-  double* weights = NULL;
+  double* main_weights = NULL;
+  double* subset_weights = NULL;
   uint32_t dist_thread_ct = g_thread_ct;
   double set_allele_freq_buf[MULTIPLEX_DIST];
   uint32_t wtbuf[MULTIPLEX_DIST];
@@ -8100,6 +7850,8 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   unsigned char* gptr;
   uintptr_t sample_uidx;
   uintptr_t sample_idx;
+  uintptr_t marker_uidx;
+  uintptr_t marker_idx;
   uintptr_t ulii;
   uintptr_t uljj;
   uintptr_t ulkk;
@@ -8116,17 +7868,13 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   uintptr_t* glptr;
   uintptr_t* glptr2;
   uintptr_t* glptr3;
+  double* dist_missing_wts;
   double* dptr2;
+  double marker_weight_sum_d;
   double dxx;
   double dyy;
-  uint32_t marker_ct_autosomal;
   uint32_t multiplex;
-  uint32_t chrom_end;
   int64_t llxx;
-  if (is_set(chrom_info_ptr->haploid_mask, 0)) {
-    logprint("Error: --distance/--ibs-matrix/--distance-matrix cannot be used on haploid\ngenomes.\n");
-    goto calc_distance_ret_INVALID_CMDLINE;
-  }
   g_sample_ct = sample_ct;
   if (dist_thread_ct > sample_ct / 32) {
     dist_thread_ct = sample_ct / 32;
@@ -8162,7 +7910,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     goto calc_distance_ret_NOMEM;
   }
   wkspace_mark = wkspace_base;
-  if (wt_needed) {
+  if (missing_wt_needed) {
     if (wkspace_alloc_ui_checked(&g_missing_tot_weights, llxx * sizeof(int32_t)) ||
         wkspace_alloc_ui_checked(&sample_missing, sample_ct * sizeof(int32_t))) {
       goto calc_distance_ret_NOMEM;
@@ -8174,7 +7922,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     g_missing_tot_weights = NULL;
   }
 
-  if (exp0) {
+  if ((!distance_wts_fname) && (distance_exp == 0.0)) {
     g_idists = (int32_t*)((char*)wkspace_mark - CACHEALIGN(llxx * sizeof(int32_t)));
     fill_int_zero(g_idists, llxx);
     masks = (uintptr_t*)wkspace_alloc(sample_ct * (MULTIPLEX_2DIST / 8));
@@ -8185,11 +7933,110 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   if (!masks) {
     goto calc_distance_ret_NOMEM;
   }
+  // regular stack allocations past this point will be freed normally.
   if (wkspace_alloc_ul_checked(&mmasks, sample_ct * sizeof(intptr_t))) {
     goto calc_distance_ret_NOMEM;
   }
 
-  if (exp0) {
+  retval = conditional_allocate_non_autosomal_markers(chrom_info_ptr, unfiltered_marker_ct, marker_exclude_orig, marker_ct, 1, 1, "distance matrix calc", &marker_exclude, &uii);
+  if (retval) {
+    goto calc_distance_ret_1;
+  }
+  marker_ct -= uii;
+
+  // Load or compute nonuniform marker weighting scheme.
+  if (distance_wts_fname || (distance_exp != 0.0)) {
+    if (distance_wts_fname) {
+      retval = load_distance_wts(distance_wts_fname, unfiltered_marker_ct, marker_ids, max_marker_id_len, (marker_exclude == marker_exclude_orig), &marker_exclude, &marker_ct, &main_weights);
+      if (retval) {
+	goto calc_distance_ret_1;
+      }
+    } else {
+      if (wkspace_alloc_d_checked(&main_weights, marker_ct * sizeof(double))) {
+	goto calc_distance_ret_NOMEM;
+      }
+      for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+        next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
+	dxx = set_allele_freqs[marker_uidx];
+	dyy = 2 * dxx * (1.0 - dxx);
+	if (dyy != 0.0) {
+	  dyy = pow(dyy, -distance_exp);
+	}
+	main_weights[marker_idx] = dyy;
+      }
+    }
+  }
+  // Now compute missing observation weights.  (Note that these are usually not
+  // the same as the raw marker weights: for instance, a missing observation at
+  // a MAF-0 marker has no weight at all.)
+  if (missing_wt_needed) {
+	/*
+	// assume Hardy-Weinberg equilibrium
+	// homozygote frequencies: maf^2, (1-maf)^2
+	// heterozygote frequency: 2maf(1-maf)
+  double ll_freq = maf * maf;
+  double lh_freq = 2 * maf * (1.0 - maf);
+  double hh_freq = (1.0 - maf) * (1.0 - maf);
+  double weight;
+  if (lh_freq == 0.0) {
+    return 0.0;
+  }
+  weight = pow(lh_freq, -exponent);
+  return (lh_freq * (ll_freq + lh_freq) + 2 * ll_freq * hh_freq) * weight;
+}
+	*/
+    // hack: overwrite dist_missing_wts while populating dist_missing_wts_i.
+    // CACHELINE padding added to reduce risk of an aliasing problem.
+    if (wkspace_alloc_ui_checked(&dist_missing_wts_i, CACHELINE) ||
+        wkspace_alloc_d_checked(&dist_missing_wts, marker_ct * sizeof(double))) {
+      goto calc_distance_ret_NOMEM;
+    }
+    dyy = 0.0; // raw weight sum
+    for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+      next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
+      // assume HWE, compute expected contribution to distance statistic:
+      //   expected minor allele obs: 2 * maf
+      //   P(0 copies) = (1 - maf) * (1 - maf)
+      //   P(1 copy)   = 2 * maf * (1 - maf)
+      //   P(2 copies) = maf * maf
+      //   frequency of distance-1 pairs:
+      //       freq[0-1 pair] + freq[1-2 pair]
+      //     =   2 * (1 - maf) * (1 - maf) * 2 * maf * (1 - maf)
+      //       + 2 * 2 * maf * (1 - maf) * maf * maf
+      //     =   4 * maf * (1 - maf) * (maf * maf + (1 - maf) * (1 - maf))
+      //         4 * maf * (1 - maf) * (2 * maf * maf - 2 * maf + 1)
+      //   frequency of distance-2 pairs:
+      //     2 * (1 - maf) * (1 - maf) * maf * maf
+      //   expected distance:
+      //       4 * maf * (1 - maf) * (2 * maf * maf - 2 * maf + 1
+      //                              + maf * (1 - maf))
+      //     = 4 * maf * (1 - maf) * (maf * maf - maf + 1)
+      //     constant factor doesn't matter here
+      dxx = set_allele_freqs[marker_uidx];
+      if ((dxx != 0.0) && (dxx != 1.0)) {
+	dxx = dxx * (1.0 - dxx) * (dxx * dxx - dxx + 1);
+	if (main_weights) {
+	  dxx *= main_weights[marker_idx];
+	}
+      }
+      dist_missing_wts[marker_idx] = dxx;
+      dyy += dxx;
+    }
+
+    // now normalize to sum to just under 2^32.  (switch to 2^64 if/when 32-bit
+    // performance becomes less important than accuracy on 50+ million marker
+    // sets.)
+    // subtract marker_ct to guard against rounding-driven overflow
+    dyy = (4294967296.0 - ((double)((intptr_t)marker_ct))) / dyy;
+    for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+      uii = (uint32_t)(dist_missing_wts[marker_idx] + 0.5);
+      marker_weight_sum += uii;
+      dist_missing_wts_i[marker_idx] = uii;
+    }
+  }
+  marker_weight_sum_d = (double)marker_weight_sum;
+
+  if (!main_weights) {
     multiplex = MULTIPLEX_DIST;
     geno = (uintptr_t*)wkspace_alloc(sample_ct * (MULTIPLEX_2DIST / 8));
   } else {
@@ -8206,27 +8053,23 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   if (wkspace_alloc_uc_checked(&bedbuf, multiplex * unfiltered_sample_ct4)) {
     goto calc_distance_ret_NOMEM;
   }
-  if (!exp0) {
+  if (main_weights) {
 #ifdef __LP64__
-    if (wkspace_alloc_d_checked(&weights, 45056 * sizeof(double))) {
+    if (wkspace_alloc_d_checked(&subset_weights, 45056 * sizeof(double))) {
       goto calc_distance_ret_NOMEM;
     }
 #else
-    if (wkspace_alloc_d_checked(&weights, 32768 * sizeof(double))) {
+    if (wkspace_alloc_d_checked(&subset_weights, 32768 * sizeof(double))) {
       goto calc_distance_ret_NOMEM;
     }
-    g_weights_i = wtbuf;
+    g_subset_weights_i = wtbuf;
 #endif
-    g_weights = weights;
+    g_subset_weights = subset_weights;
   }
   fseeko(bedfile, bed_offset, SEEK_SET);
-  uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
-  marker_ct_autosomal = marker_ct - uii;
-  if (uii) {
-    LOGPRINTF("Excluding %u variant%s on non-autosomes from distance matrix calc.\n", uii, (uii == 1)? "" : "s");
-  }
-  is_last_block = (marker_idx == marker_ct_autosomal);
-  while (!is_last_block) {
+  marker_uidx = 0;
+  marker_idx = 0;
+  do {
     for (ujj = 0; ujj < multiplex; ujj++) {
       set_allele_freq_buf[ujj] = 0.5;
     }
@@ -8275,13 +8118,17 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     // See the comments at the beginning of this file for discussion of
     // the zero exponent special case.
 
-    retval = block_load_autosomal(bedfile, bed_offset, marker_exclude, marker_ct_autosomal, multiplex, unfiltered_sample_ct4, chrom_info_ptr, set_allele_freqs, dist_missing_wts_i, bedbuf, &chrom_fo_idx, &marker_uidx, &marker_idx, &ujj, NULL, set_allele_freq_buf, NULL, wt_needed? wtbuf : NULL);
+    copy_set_allele_freqs(marker_uidx, marker_exclude, multiplex, marker_idx, marker_ct, NULL, set_allele_freqs, set_allele_freq_buf);
+    if (missing_wt_needed) {
+      memcpy(wtbuf, &(dist_missing_wts_i[marker_idx]), (marker_ct - marker_idx) * sizeof(int32_t));
+    }
+    retval = block_load(bedfile, bed_offset, marker_exclude, marker_ct, multiplex, unfiltered_sample_ct4, bedbuf, &marker_uidx, &marker_idx, &ujj);
     if (retval) {
       goto calc_distance_ret_1;
     }
     if (ujj < multiplex) {
       memset(&(bedbuf[ujj * unfiltered_sample_ct4]), 0, (multiplex - ujj) * unfiltered_sample_ct4);
-      if (exp0) {
+      if (!main_weights) {
 	fill_ulong_zero(geno, sample_ct * (MULTIPLEX_2DIST / BITCT));
 	fill_ulong_zero(masks, sample_ct * (MULTIPLEX_2DIST / BITCT));
       } else {
@@ -8289,13 +8136,13 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	fill_ulong_zero(masks, sample_ct);
       }
     }
-    is_last_block = (marker_idx == marker_ct_autosomal);
-    if (exp0) {
+    is_last_block = (marker_idx == marker_ct);
+    if (!main_weights) {
       for (ukk = 0; ukk < ujj; ukk += BITCT) {
 	glptr = &(geno[ukk / BITCT2]);
 	glptr2 = &(masks[ukk / BITCT2]);
 	glptr3 = mmasks;
-	if (wt_needed) {
+	if (missing_wt_needed) {
 	  giptr = sample_missing;
 	}
 	if (unwt_needed) {
@@ -8312,7 +8159,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	      ulii |= uljj << (umm * 2);
 	      if (uljj == 1) {
 		ulkk |= ONELU << umm;
-		if (wt_needed) {
+		if (missing_wt_needed) {
 		  *giptr += wtbuf[umm + ukk];
 		}
 		if (unwt_needed) {
@@ -8335,7 +8182,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	      ulii |= uljj << (umm * 2);
 	      if (uljj == 1) {
 		ulkk |= ONELU << umm;
-		if (wt_needed) {
+		if (missing_wt_needed) {
 		  *giptr += wtbuf[umm + ukk + BITCT2];
 		}
 		if (unwt_needed) {
@@ -8350,7 +8197,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	    *glptr3++ |= ulkk << BITCT2;
 	    glptr = &(glptr[(MULTIPLEX_2DIST / BITCT) - 1]);
 	    glptr2 = &(glptr2[(MULTIPLEX_2DIST / BITCT) - 1]);
-	    if (wt_needed) {
+	    if (missing_wt_needed) {
 	      giptr++;
 	    }
 	    if (unwt_needed) {
@@ -8359,8 +8206,8 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	  }
 	}
 
-	if (wt_needed) {
-	  g_weights_i = &(wtbuf[ukk]);
+	if (missing_wt_needed) {
+	  g_subset_weights_i = &(wtbuf[ukk]);
 	}
 	uii = is_last_block && (ukk + BITCT >= ujj);
 	if (spawn_threads2(threads, &calc_ibs_thread, dist_thread_ct, uii)) {
@@ -8407,7 +8254,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	    giptr3++;
 	  }
 	}
-	fill_weights(weights, &(set_allele_freq_buf[ukk]), distance_exp);
+	fill_subset_weights(subset_weights, &(main_weights[ukk]));
 	uii = is_last_block && (ukk + (MULTIPLEX_DIST_EXP / 3) >= ujj);
 	if (spawn_threads2(threads, &calc_wdist_thread, dist_thread_ct, uii)) {
 	  goto calc_distance_ret_THREAD_CREATE_FAIL;
@@ -8419,7 +8266,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     }
     printf("\r%" PRIuPTR " markers complete.", marker_idx);
     fflush(stdout);
-  }
+  } while (!is_last_block);
   putchar('\r');
   logprint("Distance matrix calculation complete.\n");
   wkspace_reset(masks);
@@ -8439,7 +8286,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     // parallel_tot must be 1 for --distance-matrix
     for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
       giptr2 = sample_missing_unwt;
-      uii = marker_ct_autosomal - giptr2[sample_idx];
+      uii = marker_ct - giptr2[sample_idx];
       wptr = writebuf;
       for (ujj = 0; ujj < sample_idx; ujj++) {
 	wptr = double_g_writex(wptr, ((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++))), ' ');
@@ -8489,7 +8336,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     pct = 1;
     for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
       giptr2 = sample_missing_unwt;
-      uii = marker_ct_autosomal - giptr2[sample_idx];
+      uii = marker_ct - giptr2[sample_idx];
       wptr = writebuf;
       for (ujj = 0; ujj < sample_idx; ujj++) {
 	wptr = double_g_writex(wptr, 1.0 - (((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++)))), ' ');
@@ -8521,12 +8368,12 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     }
     outname_end[5] = '\0';
     LOGPRINTFWW("IBS matrix written to %s , and IDs to %s.id .\n", outname, outname);
-  }
+  } while (!is_last_block);
   tstc = g_thread_start[dist_thread_ct];
-  if (wt_needed) {
+  if (missing_wt_needed) {
     giptr = g_missing_tot_weights;
     dptr2 = g_dists;
-    if (exp0) {
+    if (main_weights) {
       iptr = g_idists;
       for (sample_idx = g_thread_start[0]; sample_idx < tstc; sample_idx++) {
 	giptr2 = sample_missing;
@@ -8548,13 +8395,13 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   } else if (dist_calc_type & DISTANCE_FLAT_MISSING) {
     dptr2 = g_dists;
     giptr = g_missing_dbl_excluded;
-    if (exp0) {
+    if (main_weights) {
       iptr = g_idists;
       if (dist_calc_type & DISTANCE_CLUSTER) {
 	// save as IBS
         for (sample_idx = g_thread_start[0]; sample_idx < tstc; sample_idx++) {
 	  giptr2 = sample_missing_unwt;
-	  uii = marker_ct_autosomal - giptr2[sample_idx];
+	  uii = marker_ct - giptr2[sample_idx];
 	  for (ujj = 0; ujj < sample_idx; ujj++) {
 	    *dptr2++ = 1.0 - (((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++))));
 	  }
@@ -8562,18 +8409,18 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
       } else {
 	for (sample_idx = g_thread_start[0]; sample_idx < tstc; sample_idx++) {
 	  giptr2 = sample_missing_unwt;
-	  uii = marker_ct_autosomal - giptr2[sample_idx];
+	  uii = marker_ct - giptr2[sample_idx];
 	  for (ujj = 0; ujj < sample_idx; ujj++) {
-	    *dptr2++ = (((double)marker_ct_autosomal) / (uii - (*giptr2++) + (*giptr++))) * (*iptr++);
+	    *dptr2++ = (((double)marker_ct) / (uii - (*giptr2++) + (*giptr++))) * (*iptr++);
 	  }
 	}
       }
     } else {
       for (sample_idx = g_thread_start[0]; sample_idx < tstc; sample_idx++) {
 	giptr2 = sample_missing_unwt;
-	uii = marker_ct_autosomal - giptr2[sample_idx];
+	uii = marker_ct - giptr2[sample_idx];
 	for (ujj = 0; ujj < sample_idx; ujj++) {
-	  *dptr2 *= ((double)marker_ct_autosomal) / (uii - (*giptr2++) + (*giptr++));
+	  *dptr2 *= ((double)marker_ct) / (uii - (*giptr2++) + (*giptr++));
 	  dptr2++;
 	}
       }
@@ -8582,14 +8429,12 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 
   if (calculation_type & (CALC_DISTANCE | CALC_IBS_TEST)) {
     if ((distance_exp == 0.0) || (!(dist_calc_type & (DISTANCE_IBS | DISTANCE_1_MINUS_IBS)))) {
-      g_half_marker_ct_recip = 0.5 / (double)marker_ct_autosomal;
+      g_half_marker_ct_recip = 0.5 / (double)marker_ct;
     } else {
       dyy = 0.0;
       marker_uidx = 0;
-      chrom_fo_idx = 0xffffffffU;
-      chrom_end = 0;
-      for (marker_idx = 0; marker_idx < marker_ct_autosomal; marker_uidx++, marker_idx++) {
-	marker_uidx = next_autosomal_unsafe(marker_exclude, marker_uidx, chrom_info_ptr, &chrom_end, &chrom_fo_idx);
+      for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+	next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
 	dxx = set_allele_freqs[marker_uidx];
 	if ((dxx > 0.0) && (dxx < 1.0)) {
 	  dyy += pow(2 * dxx * (1.0 - dxx), -distance_exp);
@@ -8624,9 +8469,6 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     break;
   calc_distance_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
-    break;
-  calc_distance_ret_INVALID_CMDLINE:
-    retval = RET_INVALID_CMDLINE;
     break;
   calc_distance_ret_THREAD_CREATE_FAIL:
     retval = RET_THREAD_CREATE_FAIL;
@@ -8926,7 +8768,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     // calculate entire distance matrix, or use already-calculated matrix in
     // memory
     if (!g_dists) {
-      retval = calc_distance(threads, 0, 1, bedfile, bed_offset, outname, outname_end, 0, DISTANCE_FLAT_MISSING | DISTANCE_CLUSTER, marker_exclude, marker_ct, set_allele_freqs, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, chrom_info_ptr, 0, 0, NULL, 0.0);
+      retval = calc_distance(threads, 0, 1, bedfile, bed_offset, outname, outname_end, NULL, NULL, 0.0, 0, DISTANCE_FLAT_MISSING | DISTANCE_CLUSTER, unfiltered_marker_ct, marker_exclude, marker_ct, NULL, 0, set_allele_freqs, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, chrom_info_ptr);
       if (retval) {
         goto calc_cluster_neighbor_ret_1;
       }
@@ -9064,7 +8906,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   }
   if (cluster_missing || ibm_constraint) {
     if (!g_missing_dbl_excluded) {
-      retval = calc_ibm(threads, bedfile, bed_offset, marker_exclude, marker_ct, unfiltered_sample_ct, sample_exclude, sample_ct, chrom_info_ptr);
+      retval = calc_ibm(threads, bedfile, bed_offset, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_sample_ct, sample_exclude, sample_ct, chrom_info_ptr);
       if (retval) {
         goto calc_cluster_neighbor_ret_1;
       }

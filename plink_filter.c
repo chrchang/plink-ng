@@ -2177,7 +2177,7 @@ static inline void haploid_single_marker_freqs(uintptr_t unfiltered_sample_ct, u
   *hethap_incr_ptr = hethap_incr;
 }
 
-int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_exclude_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t* founder_info, int32_t nonfounders, int32_t maf_succ, double* set_allele_freqs, uintptr_t bed_offset, uint32_t hwe_needed, uint32_t hwe_all, uint32_t hardy_needed, uint32_t min_ac, uint32_t max_ac, double geno_thresh, uintptr_t* pheno_nm, uintptr_t* pheno_c, int32_t** hwe_lls_ptr, int32_t** hwe_lhs_ptr, int32_t** hwe_hhs_ptr, int32_t** hwe_ll_cases_ptr, int32_t** hwe_lh_cases_ptr, int32_t** hwe_hh_cases_ptr, int32_t** hwe_ll_allfs_ptr, int32_t** hwe_lh_allfs_ptr, int32_t** hwe_hh_allfs_ptr, int32_t** hwe_hapl_allfs_ptr, int32_t** hwe_haph_allfs_ptr, uintptr_t** geno_excl_bitfield_ptr, uintptr_t** ac_excl_bitfield_ptr, uint32_t* sample_male_ct_ptr, uint32_t* sample_f_ct_ptr, uint32_t* sample_f_male_ct_ptr, uint32_t wt_needed, uintptr_t* topsize_ptr, double** marker_weights_ptr, double exponent, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t is_split_chrom, uint32_t* hh_exists_ptr) {
+int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_exclude_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t* founder_info, int32_t nonfounders, int32_t maf_succ, double* set_allele_freqs, uintptr_t bed_offset, uint32_t hwe_needed, uint32_t hwe_all, uint32_t hardy_needed, uint32_t min_ac, uint32_t max_ac, double geno_thresh, uintptr_t* pheno_nm, uintptr_t* pheno_c, int32_t** hwe_lls_ptr, int32_t** hwe_lhs_ptr, int32_t** hwe_hhs_ptr, int32_t** hwe_ll_cases_ptr, int32_t** hwe_lh_cases_ptr, int32_t** hwe_hh_cases_ptr, int32_t** hwe_ll_allfs_ptr, int32_t** hwe_lh_allfs_ptr, int32_t** hwe_hh_allfs_ptr, int32_t** hwe_hapl_allfs_ptr, int32_t** hwe_haph_allfs_ptr, uintptr_t** geno_excl_bitfield_ptr, uintptr_t** ac_excl_bitfield_ptr, uint32_t* sample_male_ct_ptr, uint32_t* sample_f_ct_ptr, uint32_t* sample_f_male_ct_ptr, uintptr_t* topsize_ptr, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t is_split_chrom, uint32_t* hh_exists_ptr) {
   FILE* hhfile = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + BITCT - 1) / BITCT;
@@ -2238,7 +2238,6 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   uintptr_t* geno_excl_bitfield = NULL;
   uintptr_t* ac_excl_bitfield = NULL;
   uint64_t* om_entry_ptr = NULL;
-  double* marker_weights = NULL;
   uint32_t sample_nonmale_ct = 0;
   uint32_t sample_f_nonmale_ct = 0;
   uint32_t sample_f_ctl_nonmale_ct = 0;
@@ -2270,20 +2269,6 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   uint32_t ujj;
   double maf;
   double cur_genotyping_rate;
-  if (wt_needed) {
-    // this is a pretty ugly hack... but no worse than what preceded it, I
-    // suppose
-    marker_weights = (double*)top_alloc(topsize_ptr, CACHEALIGN(unfiltered_marker_ct * sizeof(double)));
-    if (!marker_weights) {
-      goto calc_freqs_and_hwe_ret_NOMEM;
-    }
-    wkspace_left -= *topsize_ptr;
-    *marker_weights_ptr = marker_weights;
-    for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
-      marker_weights[marker_uidx] = -1.0;
-    }
-  }
-
   if (!hwe_needed) {
     *hwe_lls_ptr = (int32_t*)wkspace_base;
   } else {
@@ -2697,9 +2682,6 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	  maf = ((double)ujj) / ((double)uii);
 	}
 	set_allele_freqs[marker_uidx] = maf;
-	if (wt_needed) {
-	  marker_weights[marker_uidx] = calc_wt_mean_maf(exponent, maf);
-	}
       }
       nonmissing_rate_tot += cur_genotyping_rate;
       if (geno_excl_bitfield && (cur_genotyping_rate < geno_thresh)) {

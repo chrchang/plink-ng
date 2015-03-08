@@ -1922,6 +1922,9 @@ static inline int32_t chrom_exists(Chrom_info* chrom_info_ptr, uint32_t chrom_id
 
 int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int32_t* chrom_idx_ptr, uintptr_t line_idx, const char* file_descrip);
 
+// no need for this; code is simpler if we just create a copy of marker_exclude
+// with all non-autosomal loci removed
+/*
 static inline uintptr_t next_autosomal_unsafe(uintptr_t* marker_exclude, uintptr_t marker_uidx, Chrom_info* chrom_info_ptr, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr) {
   // assumes we are at an autosomal marker if marker_uidx < *chrom_end_ptr
   next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
@@ -1942,6 +1945,7 @@ static inline uintptr_t next_autosomal_unsafe(uintptr_t* marker_exclude, uintptr
     marker_uidx = next_unset_ul_unsafe(marker_exclude, *chrom_end_ptr);
   }
 }
+*/
 
 void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* is_mt_ptr, uint32_t* is_haploid_ptr);
 
@@ -2158,11 +2162,11 @@ static inline uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t 
 
 uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t count_x, uint32_t count_mt);
 
+int32_t conditional_allocate_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uint32_t marker_ct, uint32_t count_x, uint32_t count_mt, const char* calc_descrip, uintptr_t** marker_exclude_ptr, uint32_t* newly_excluded_ct_ptr);
+
 uint32_t get_max_chrom_size(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t* last_chrom_fo_idx_ptr);
 
 void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uint32_t* male_ct_ptr, uint32_t* female_ct_ptr, uint32_t* unk_ct_ptr);
-
-double calc_wt_mean_maf(double exponent, double maf);
 
 void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_sample_ct);
 
@@ -2201,8 +2205,6 @@ void collapse_copy_2bitarr_incl(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t 
 uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* mainbuf, uint32_t sample_ct, uintptr_t* sample_include, uintptr_t final_mask, uint32_t do_reverse);
 
 uint32_t load_and_split(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* casebuf, uintptr_t* ctrlbuf, uintptr_t* pheno_nm, uintptr_t* pheno_c);
-
-uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* marker_exclude, uint32_t marker_ct_autosomal, uint32_t block_max_size, uintptr_t unfiltered_sample_ct4, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* dist_missing_wts_i, unsigned char* readbuf, uint32_t* chrom_fo_idx_ptr, uintptr_t* marker_uidx_ptr, uintptr_t* marker_idx_ptr, uint32_t* block_size_ptr, uintptr_t* marker_reverse, double* set_allele_freq_buf, float* set_allele_freq_buf_fl, uint32_t* wtbuf);
 
 void vec_include_init(uintptr_t unfiltered_sample_ct, uintptr_t* new_include2, uintptr_t* old_include);
 

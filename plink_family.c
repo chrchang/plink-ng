@@ -1087,15 +1087,15 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
       if (ujj != unfiltered_sample_ct) {
         wptr = fw_strcpy(plink_maxiid, &(iids[ujj * max_iid_len]), wptr);
       } else {
-	wptr = memseta(wptr, 32, plink_maxiid - 2);
-	wptr = memcpya(wptr, "NA", 2);
+	wptr = memseta(wptr, 32, plink_maxiid - 1);
+	*wptr++ = '0';
       }
       *wptr++ = ' ';
       if (ukk != unfiltered_sample_ct) {
         wptr = fw_strcpy(plink_maxiid, &(iids[ukk * max_iid_len]), wptr);
       } else {
-	wptr = memseta(wptr, 32, plink_maxiid - 2);
-	wptr = memcpya(wptr, "NA", 2);
+	wptr = memseta(wptr, 32, plink_maxiid - 1);
+	*wptr++ = '0';
       }
       *wptr++ = ' ';
       wptr = uint32_writew6x(wptr, child_cts[uii], ' ');

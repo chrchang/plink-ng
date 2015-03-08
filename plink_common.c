@@ -7652,6 +7652,54 @@ uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* mark
   return ct;
 }
 
+int32_t conditional_allocate_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uint32_t marker_ct, uint32_t count_x, uint32_t count_mt, const char* calc_descrip, uintptr_t** marker_exclude_ptr, uint32_t* newly_excluded_ct_ptr) {
+  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  int32_t x_code = chrom_info_ptr->x_code;
+  int32_t y_code = chrom_info_ptr->y_code;
+  int32_t mt_code = chrom_info_ptr->mt_code;
+  uint32_t x_ct = 0;
+  uint32_t y_ct = 0;
+  uint32_t mt_ct = 0;
+  if (is_set(chrom_info_ptr->haploid_mask, 0)) {
+    *newly_excluded_ct_ptr = marker_ct;
+  } else {
+    if (count_x && (x_code != -1)) {
+      x_ct = count_chrom_markers(chrom_info_ptr, x_code, marker_exclude_orig);
+    }
+    if (y_code != -1) {
+      y_ct = count_chrom_markers(chrom_info_ptr, y_code, marker_exclude_orig);
+    }
+    if (count_mt && (mt_code != -1)) {
+      mt_ct = count_chrom_markers(chrom_info_ptr, mt_code, marker_exclude_orig);
+    }
+    *newly_excluded_ct_ptr = x_ct + y_ct + mt_ct;
+  }
+  if (*newly_excluded_ct_ptr) {
+    LOGPRINTF("Excluding %u variant%s on non-autosomes from %s.\n", *newly_excluded_ct_ptr, (*newly_excluded_ct_ptr == 1)? "" : "s", calc_descrip);
+  }
+  if (*newly_excluded_ct_ptr == marker_ct) {
+    logprint("Error: No variants remaining.\n");
+    return RET_INVALID_CMDLINE;
+  }
+  if (!(*newly_excluded_ct_ptr)) {
+    return 0;
+  }
+  if (wkspace_alloc_ul_checked(marker_exclude_ptr, unfiltered_marker_ctl * sizeof(intptr_t))) {
+    return RET_NOMEM;
+  }
+  memcpy(*marker_exclude_ptr, marker_exclude_orig, unfiltered_marker_ctl * sizeof(intptr_t));
+  if (x_ct) {
+    fill_bits(*marker_exclude_ptr, chrom_info_ptr->chrom_start[(uint32_t)x_code], chrom_info_ptr->chrom_end[(uint32_t)x_code] - chrom_info_ptr->chrom_start[(uint32_t)x_code]);
+  }
+  if (y_ct) {
+    fill_bits(*marker_exclude_ptr, chrom_info_ptr->chrom_start[(uint32_t)y_code], chrom_info_ptr->chrom_end[(uint32_t)y_code] - chrom_info_ptr->chrom_start[(uint32_t)y_code]);
+  }
+  if (mt_ct) {
+    fill_bits(*marker_exclude_ptr, chrom_info_ptr->chrom_start[(uint32_t)mt_code], chrom_info_ptr->chrom_end[(uint32_t)mt_code] - chrom_info_ptr->chrom_start[(uint32_t)mt_code]);
+  }
+  return 0;
+}
+
 uint32_t get_max_chrom_size(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t* last_chrom_fo_idx_ptr) {
   uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
   uint32_t max_chrom_size = 0;
@@ -7700,21 +7748,6 @@ void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_
   *male_ct_ptr = male_ct;
   *female_ct_ptr = female_ct;
   *unk_ct_ptr = unk_ct;
-}
-
-double calc_wt_mean_maf(double exponent, double maf) {
-  // assume Hardy-Weinberg equilibrium
-  // homozygote frequencies: maf^2, (1-maf)^2
-  // heterozygote frequency: 2maf(1-maf)
-  double ll_freq = maf * maf;
-  double lh_freq = 2 * maf * (1.0 - maf);
-  double hh_freq = (1.0 - maf) * (1.0 - maf);
-  double weight;
-  if (lh_freq == 0.0) {
-    return 0.0;
-  }
-  weight = pow(lh_freq, -exponent);
-  return (lh_freq * (ll_freq + lh_freq) + 2 * ll_freq * hh_freq) * weight;
 }
 
 void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_sample_ct) {
@@ -7937,77 +7970,6 @@ uint32_t load_and_split(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sa
     rawbuf_end++;
     read_shift_max = unfiltered_sample_ct % BITCT2;
   }
-}
-
-uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* marker_exclude, uint32_t marker_ct_autosomal, uint32_t block_max_size, uintptr_t unfiltered_sample_ct4, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* dist_missing_wts_i, unsigned char* readbuf, uint32_t* chrom_fo_idx_ptr, uintptr_t* marker_uidx_ptr, uintptr_t* marker_idx_ptr, uint32_t* block_size_ptr, uintptr_t* marker_reverse, double* set_allele_freq_buf, float* set_allele_freq_buf_fl, uint32_t* wtbuf) {
-  uintptr_t marker_uidx = *marker_uidx_ptr;
-  uintptr_t marker_idx = *marker_idx_ptr;
-  uint32_t chrom_fo_idx = *chrom_fo_idx_ptr;
-  uint32_t chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
-  uint32_t markers_read = 0;
-  uint32_t autosome_ct = chrom_info_ptr->autosome_ct;
-  uint32_t xy_code = (uint32_t)chrom_info_ptr->xy_code;
-  uint32_t max_code = chrom_info_ptr->max_code;
-  uint32_t cur_chrom;
-  uint32_t is_x;
-  uint32_t is_y;
-  uint32_t is_mt;
-  uint32_t is_haploid;
-
-  if (block_max_size > marker_ct_autosomal - marker_idx) {
-    block_max_size = marker_ct_autosomal - marker_idx;
-  }
-  while (markers_read < block_max_size) {
-    if (IS_SET(marker_exclude, marker_uidx)) {
-      marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-      if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
-	return RET_READ_FAIL;
-      }
-    }
-    if (marker_uidx >= chrom_end) {
-      while (1) {
-	chrom_fo_idx++;
-	refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
-	cur_chrom = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-	if ((cur_chrom <= autosome_ct) || (cur_chrom == xy_code) || (cur_chrom > max_code)) {
-	  // for now, unplaced chromosomes are all "autosomal"
-	  break;
-	}
-	marker_uidx = next_unset_ul_unsafe(marker_exclude, chrom_end);
-	if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
-	  return RET_READ_FAIL;
-	}
-      }
-    }
-    if (fread(&(readbuf[markers_read * unfiltered_sample_ct4]), 1, unfiltered_sample_ct4, bedfile) < unfiltered_sample_ct4) {
-      return RET_READ_FAIL;
-    }
-    if (set_allele_freq_buf) {
-      if ((!marker_reverse) || (!IS_SET(marker_reverse, marker_uidx))) {
-        set_allele_freq_buf[markers_read] = set_allele_freqs[marker_uidx];
-      } else {
-        set_allele_freq_buf[markers_read] = 1.0 - set_allele_freqs[marker_uidx];
-      }
-    } else if (set_allele_freq_buf_fl) {
-      if (!IS_SET(marker_reverse, marker_uidx)) {
-        set_allele_freq_buf_fl[markers_read] = (float)set_allele_freqs[marker_uidx];
-      } else {
-        set_allele_freq_buf_fl[markers_read] = 1.0 - ((float)set_allele_freqs[marker_uidx]);
-      }
-    }
-    if (wtbuf) {
-      wtbuf[markers_read] = dist_missing_wts_i[marker_idx];
-    }
-    markers_read++;
-    marker_idx++;
-    marker_uidx++;
-  }
-
-  *chrom_fo_idx_ptr = chrom_fo_idx;
-  *marker_uidx_ptr = marker_uidx;
-  *marker_idx_ptr = marker_idx;
-  *block_size_ptr = markers_read;
-  return 0;
 }
 
 void vec_include_init(uintptr_t unfiltered_sample_ct, uintptr_t* new_include2, uintptr_t* old_include) {
