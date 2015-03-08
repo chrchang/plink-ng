@@ -7812,9 +7812,148 @@ int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintpt
   return retval;
 }
 
-int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t force_exclude_alloc, uintptr_t** marker_exclude_ptr, uint32_t* marker_ct_ptr, double** main_weights_ptr) {
-  logprint("Error: --distance-wts is currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
+int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t noheader, uint32_t conditional_alloc_exclude, uintptr_t** marker_exclude_ptr, uint32_t* marker_ct_ptr, double** main_weights_ptr) {
+  FILE* infile = NULL;
+  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t line_idx = 0;
+  uintptr_t topsize = 0;
+
+  // special case: weight-0 assignment effectively doesn't exist, but we still
+  // want to check for repeated IDs there.
+  uint32_t zcount = 0;
+
+  int32_t retval = 0;
+  unsigned char* wkspace_mark;
+  uintptr_t* marker_include;
+  double* main_weights_tmp;
+  double* dptr;
+  char* bufptr;
+  uint32_t* marker_id_htable;
+  double dxx;
+  uint32_t marker_id_htable_size;
+  uint32_t marker_uidx;
+  uint32_t marker_idx;
+  uint32_t idlen;
+  uint32_t marker_ct;
+  marker_include = (uintptr_t*)top_alloc(&topsize, unfiltered_marker_ctl * sizeof(intptr_t));
+  if (!marker_include) {
+    goto load_distance_wts_ret_NOMEM;
+  }
+  fill_ulong_zero(marker_include, unfiltered_marker_ctl);
+  main_weights_tmp = (double*)top_alloc(&topsize, unfiltered_marker_ct * sizeof(double));
+  if (!main_weights_tmp) {
+    goto load_distance_wts_ret_NOMEM;
+  }
+  wkspace_left -= topsize;
+  wkspace_mark = wkspace_base;
+  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, *marker_exclude_ptr, *marker_ct_ptr, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
+  wkspace_left += topsize;
+  if (retval) {
+    goto load_distance_wts_ret_1;
+  }
+  if (fopen_checked(&infile, distance_wts_fname, "r")) {
+    goto load_distance_wts_ret_OPEN_FAIL;
+  }
+  tbuf[MAXLINELEN - 1] = ' ';
+  while (fgets(tbuf, MAXLINELEN, infile)) {
+    line_idx++;
+    if (!tbuf[MAXLINELEN - 1]) {
+      LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, distance_wts_fname);
+      goto load_distance_wts_ret_INVALID_FORMAT_2;
+    }
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    if (!noheader) {
+      noheader = 1;
+      continue;
+    }
+    // variant ID in first column, weight in second
+    idlen = strlen_se(bufptr);
+    marker_uidx = id_htable_find(bufptr, idlen, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len);
+    if (marker_uidx == 0xffffffffU) {
+      continue;
+    }
+    if (is_set(marker_include, marker_uidx)) {
+      bufptr[idlen] = '\0';
+      LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --distance-wts file.\n", bufptr);
+      goto load_distance_wts_ret_INVALID_FORMAT_2;
+    }
+    set_bit(marker_include, marker_uidx);
+    bufptr = skip_initial_spaces(&(bufptr[idlen]));
+    if (is_eoln_kns(*bufptr)) {
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of --distance-wts file has fewer tokens than expected.\n", line_idx);
+      goto load_distance_wts_ret_INVALID_FORMAT_2;
+    }
+    if (scan_double(bufptr, &dxx)) {
+      goto load_distance_wts_ret_INVALID_WEIGHT;
+    }
+    if (!((dxx >= 0.0) && (dxx != INFINITY))) {
+      goto load_distance_wts_ret_INVALID_WEIGHT;
+    }
+    if (dxx == 0.0) {
+      zcount++;
+    }
+    main_weights_tmp[marker_uidx] = dxx;
+  }
+  if (!feof(infile)) {
+    goto load_distance_wts_ret_READ_FAIL;
+  }
+  wkspace_reset(wkspace_mark);
+  marker_ct = popcount_longs(marker_include, unfiltered_marker_ctl) - zcount;
+  if (!marker_ct) {
+    logprint("Error: No valid nonzero entries in --distance-wts file.\n");
+    goto load_distance_wts_ret_INVALID_FORMAT;
+  }
+  wkspace_left -= topsize;
+  if ((marker_ct != (*marker_ct_ptr))) {
+    if (conditional_alloc_exclude) {
+      if (wkspace_alloc_ul_checked(marker_exclude_ptr, unfiltered_marker_ctl * sizeof(intptr_t))) {
+	goto load_distance_wts_ret_NOMEM2;
+      }
+    }
+    bitfield_exclude_to_include(marker_include, *marker_exclude_ptr, unfiltered_marker_ct);
+    *marker_ct_ptr = marker_ct;
+  }
+  if (wkspace_alloc_d_checked(main_weights_ptr, marker_ct * sizeof(double))) {
+    goto load_distance_wts_ret_NOMEM2;
+  }
+  wkspace_left += topsize;
+  dptr = *main_weights_ptr;
+  *marker_ct_ptr = marker_ct;
+  for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++) {
+    next_set_unsafe_ck(marker_include, &marker_uidx);
+    dxx = main_weights_tmp[marker_uidx];
+    if (dxx != 0.0) {
+      *dptr++ = dxx;
+      marker_idx++;
+    }
+  }
+  // topsize = 0;
+  while (0) {
+  load_distance_wts_ret_NOMEM2:
+    wkspace_left += topsize;
+  load_distance_wts_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  load_distance_wts_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  load_distance_wts_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  load_distance_wts_ret_INVALID_WEIGHT:
+    sprintf(logbuf, "Error: Invalid weight on line %" PRIuPTR " of --distance-wts file.\n", line_idx);
+  load_distance_wts_ret_INVALID_FORMAT_2:
+    logprintb();
+  load_distance_wts_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ load_distance_wts_ret_1:
+  fclose_cond(infile);
+  return retval;
 }
 
 int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, char* read_dists_fname, char* distance_wts_fname, double distance_exp, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uint32_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* set_allele_freqs, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, Chrom_info* chrom_info_ptr) {
@@ -7909,6 +8048,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   if (wkspace_alloc_d_checked(&g_dists, dists_alloc + CACHELINE)) {
     goto calc_distance_ret_NOMEM;
   }
+  // stack allocations before this point must be freed by the caller.
   wkspace_mark = wkspace_base;
   if (missing_wt_needed) {
     if (wkspace_alloc_ui_checked(&g_missing_tot_weights, llxx * sizeof(int32_t)) ||
@@ -7922,20 +8062,12 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     g_missing_tot_weights = NULL;
   }
 
-  if ((!distance_wts_fname) && (distance_exp == 0.0)) {
+  ujj = distance_wts_fname || (distance_exp != 0.0); // special weights?
+  if (!ujj) {
     g_idists = (int32_t*)((char*)wkspace_mark - CACHEALIGN(llxx * sizeof(int32_t)));
     fill_int_zero(g_idists, llxx);
-    masks = (uintptr_t*)wkspace_alloc(sample_ct * (MULTIPLEX_2DIST / 8));
   } else {
     fill_double_zero(g_dists, llxx);
-    masks = (uintptr_t*)wkspace_alloc(sample_ct * sizeof(intptr_t));
-  }
-  if (!masks) {
-    goto calc_distance_ret_NOMEM;
-  }
-  // regular stack allocations past this point will be freed normally.
-  if (wkspace_alloc_ul_checked(&mmasks, sample_ct * sizeof(intptr_t))) {
-    goto calc_distance_ret_NOMEM;
   }
 
   retval = conditional_allocate_non_autosomal_markers(chrom_info_ptr, unfiltered_marker_ct, marker_exclude_orig, marker_ct, 1, 1, "distance matrix calc", &marker_exclude, &uii);
@@ -7944,26 +8076,39 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   }
   marker_ct -= uii;
 
+  if (distance_wts_fname) {
+    retval = load_distance_wts(distance_wts_fname, unfiltered_marker_ct, marker_ids, max_marker_id_len, dist_calc_type & DISTANCE_WTS_NOHEADER, (marker_exclude == marker_exclude_orig), &marker_exclude, &marker_ct, &main_weights);
+    if (retval) {
+      goto calc_distance_ret_1;
+    }
+  }
+
+  // stack allocations past this point are freed BEFORE results are written.
+  if (!ujj) {
+    masks = (uintptr_t*)wkspace_alloc(sample_ct * (MULTIPLEX_2DIST / 8));
+  } else {
+    masks = (uintptr_t*)wkspace_alloc(sample_ct * sizeof(intptr_t));
+  }
+  if (!masks) {
+    goto calc_distance_ret_NOMEM;
+  }
+  if (wkspace_alloc_ul_checked(&mmasks, sample_ct * sizeof(intptr_t))) {
+    goto calc_distance_ret_NOMEM;
+  }
+
   // Load or compute nonuniform marker weighting scheme.
-  if (distance_wts_fname || (distance_exp != 0.0)) {
-    if (distance_wts_fname) {
-      retval = load_distance_wts(distance_wts_fname, unfiltered_marker_ct, marker_ids, max_marker_id_len, (marker_exclude == marker_exclude_orig), &marker_exclude, &marker_ct, &main_weights);
-      if (retval) {
-	goto calc_distance_ret_1;
+  if (distance_exp != 0.0) {
+    if (wkspace_alloc_d_checked(&main_weights, marker_ct * sizeof(double))) {
+      goto calc_distance_ret_NOMEM;
+    }
+    for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+      next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
+      dxx = set_allele_freqs[marker_uidx];
+      dyy = 2 * dxx * (1.0 - dxx);
+      if (dyy != 0.0) {
+	dyy = pow(dyy, -distance_exp);
       }
-    } else {
-      if (wkspace_alloc_d_checked(&main_weights, marker_ct * sizeof(double))) {
-	goto calc_distance_ret_NOMEM;
-      }
-      for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-        next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
-	dxx = set_allele_freqs[marker_uidx];
-	dyy = 2 * dxx * (1.0 - dxx);
-	if (dyy != 0.0) {
-	  dyy = pow(dyy, -distance_exp);
-	}
-	main_weights[marker_idx] = dyy;
-      }
+      main_weights[marker_idx] = dyy;
     }
   }
   // Now compute missing observation weights.  (Note that these are usually not

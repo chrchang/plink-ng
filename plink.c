@@ -5935,7 +5935,7 @@ int32_t main(int32_t argc, char** argv) {
 	  if (param_ct == 2) {
 	    if (!strcmp(argv[cur_arg + 1], "noheader")) {
 	      uii = 2;
-	    } else if (!strcmp(argv[cur_arg + 2], "noheader")) {
+	    } else if (strcmp(argv[cur_arg + 2], "noheader")) {
 	      sprintf(logbuf, "Error: Invalid --distance-wts parameter '%s'.\n", argv[cur_arg + 2]);
 	      goto main_ret_INVALID_CMDLINE_WWA;
 	    }
@@ -5945,9 +5945,6 @@ int32_t main(int32_t argc, char** argv) {
 	  if (retval) {
 	    goto main_ret_1;
 	  }
-	  logprint("Error: --distance-wts is currently under development.\n");
-	  retval = RET_CALC_NOT_YET_SUPPORTED;
-	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "istance-matrix", 15)) {
 	if (distance_exp != 0.0) {
