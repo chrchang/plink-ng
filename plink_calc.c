@@ -117,7 +117,7 @@ void rel_cleanup(Rel_info* relip) {
   free_cond(relip->pca_clusters_fname);
 }
 
-void update_rel_ibc(double* rel_ibc, uintptr_t* geno, double* set_allele_freqs, int32_t ibc_type, uint32_t sample_ct, uint32_t window_size) {
+void update_rel_ibc(double* rel_ibc, uintptr_t* geno, double* set_allele_freqs, double* main_weights, int32_t ibc_type, uint32_t sample_ct, uint32_t window_size) {
   // first calculate weight array, then loop
   uint32_t uii;
   uint32_t ujj;
@@ -198,6 +198,11 @@ void update_rel_ibc(double* rel_ibc, uintptr_t* geno, double* set_allele_freqs, 
           wtarr[uii * 8 + 3] = 1;
         }
       }
+    }
+    if (main_weights) {
+      wtarr[uii * 8] *= main_weights[uii];
+      wtarr[uii * 8 + 2] *= main_weights[uii];
+      wtarr[uii * 8 + 3] *= main_weights[uii];
     }
   }
   for (ukk = 0; ukk < (BITCT * 5) / 32; ukk++) {
@@ -389,7 +394,7 @@ void fill_subset_weights(double* subset_weights, double* main_weights) {
 #endif
 }
 
-void fill_subset_weights_r(double* subset_weights, double* set_allele_freqs, uint32_t var_std) {
+void fill_subset_weights_r(double* subset_weights, double* set_allele_freqs, double* main_weights, uint32_t var_std) {
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -476,6 +481,11 @@ void fill_subset_weights_r(double* subset_weights, double* set_allele_freqs, uin
         wtarr[uii * 8 + 4] = INFINITY;
         wtarr[uii * 8 + 5] = -1;
         wtarr[uii * 8 + 6] = 0;
+      }
+    }
+    if (main_weights) {
+      for (ujj = 0; ujj < 7; ujj++) {
+	wtarr[uii * 8 + ujj] *= main_weights[uii];
       }
     }
     wtarr[uii * 8 + 7] = 0;
@@ -1654,6 +1664,33 @@ void incr_dists_r(double* dists, uintptr_t* geno, uintptr_t* masks, uint32_t tid
 }
 
 THREAD_RET_TYPE calc_rel_thread(void* arg) {
+  uintptr_t tidx = (uintptr_t)arg;
+  uintptr_t ulii = g_thread_start[tidx];
+  uintptr_t uljj = g_thread_start[0];
+  uintptr_t offset = (((uint64_t)ulii) * (ulii - 1) - ((uint64_t)uljj) * (uljj - 1)) / 2;
+  double* rel_ptr = &(g_rel_dists[offset]);
+  uintptr_t* geno_ptr = (uintptr_t*)g_geno;
+  uintptr_t* masks_ptr = g_masks;
+  uintptr_t* mmasks_ptr = g_mmasks;
+  uint32_t* missing_ptr = &(g_missing_dbl_excluded[offset]);
+  double* subset_weights_ptr = g_subset_weights;
+  uint32_t end_idx = g_thread_start[tidx + 1];
+  uint32_t is_last_block;
+  while (1) {
+    is_last_block = g_is_last_thread_block;
+    incr_dists_r(rel_ptr, geno_ptr, masks_ptr, (uint32_t)tidx, subset_weights_ptr);
+    if (is_last_block || ((g_thread_spawn_ct % 3) == 2)) {
+      incr_dists_rm(missing_ptr, mmasks_ptr, ulii, end_idx);
+    }
+    if ((!tidx) || is_last_block) {
+      THREAD_RETURN;
+    }
+    THREAD_BLOCK_FINISH(tidx);
+  }
+}
+
+THREAD_RET_TYPE calc_wt_rel_thread(void* arg) {
+  // this needs more work
   uintptr_t tidx = (uintptr_t)arg;
   uintptr_t ulii = g_thread_start[tidx];
   uintptr_t uljj = g_thread_start[0];
@@ -6637,7 +6674,151 @@ void copy_set_allele_freqs(uintptr_t marker_uidx, uintptr_t* marker_exclude, uin
   }
 }
 
-int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, uint64_t calculation_type, Rel_info* relip, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t* marker_reverse, uint32_t marker_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* sample_ids, uintptr_t max_sample_id_len, double* set_allele_freqs, double** rel_ibc_ptr, Chrom_info* chrom_info_ptr) {
+int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t noheader, uint32_t conditional_alloc_exclude, uintptr_t** marker_exclude_ptr, uint32_t* marker_ct_ptr, double** main_weights_ptr) {
+  FILE* infile = NULL;
+  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t line_idx = 0;
+  uintptr_t topsize = 0;
+
+  // special case: weight-0 assignment effectively doesn't exist, but we still
+  // want to check for repeated IDs there.
+  uint32_t zcount = 0;
+
+  int32_t retval = 0;
+  unsigned char* wkspace_mark;
+  uintptr_t* marker_include;
+  double* main_weights_tmp;
+  double* dptr;
+  char* bufptr;
+  uint32_t* marker_id_htable;
+  double dxx;
+  uint32_t marker_id_htable_size;
+  uint32_t marker_uidx;
+  uint32_t marker_idx;
+  uint32_t idlen;
+  uint32_t marker_ct;
+  marker_include = (uintptr_t*)top_alloc(&topsize, unfiltered_marker_ctl * sizeof(intptr_t));
+  if (!marker_include) {
+    goto load_distance_wts_ret_NOMEM;
+  }
+  fill_ulong_zero(marker_include, unfiltered_marker_ctl);
+  main_weights_tmp = (double*)top_alloc(&topsize, unfiltered_marker_ct * sizeof(double));
+  if (!main_weights_tmp) {
+    goto load_distance_wts_ret_NOMEM;
+  }
+  wkspace_left -= topsize;
+  wkspace_mark = wkspace_base;
+  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, *marker_exclude_ptr, *marker_ct_ptr, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
+  wkspace_left += topsize;
+  if (retval) {
+    goto load_distance_wts_ret_1;
+  }
+  if (fopen_checked(&infile, distance_wts_fname, "r")) {
+    goto load_distance_wts_ret_OPEN_FAIL;
+  }
+  tbuf[MAXLINELEN - 1] = ' ';
+  while (fgets(tbuf, MAXLINELEN, infile)) {
+    line_idx++;
+    if (!tbuf[MAXLINELEN - 1]) {
+      LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, distance_wts_fname);
+      goto load_distance_wts_ret_INVALID_FORMAT_2;
+    }
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    if (!noheader) {
+      noheader = 1;
+      continue;
+    }
+    // variant ID in first column, weight in second
+    idlen = strlen_se(bufptr);
+    marker_uidx = id_htable_find(bufptr, idlen, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len);
+    if (marker_uidx == 0xffffffffU) {
+      continue;
+    }
+    if (is_set(marker_include, marker_uidx)) {
+      bufptr[idlen] = '\0';
+      LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --distance-wts file.\n", bufptr);
+      goto load_distance_wts_ret_INVALID_FORMAT_2;
+    }
+    set_bit(marker_include, marker_uidx);
+    bufptr = skip_initial_spaces(&(bufptr[idlen]));
+    if (is_eoln_kns(*bufptr)) {
+      sprintf(logbuf, "Error: Line %" PRIuPTR " of --distance-wts file has fewer tokens than expected.\n", line_idx);
+      goto load_distance_wts_ret_INVALID_FORMAT_2;
+    }
+    if (scan_double(bufptr, &dxx)) {
+      goto load_distance_wts_ret_INVALID_WEIGHT;
+    }
+    if (!((dxx >= 0.0) && (dxx != INFINITY))) {
+      goto load_distance_wts_ret_INVALID_WEIGHT;
+    }
+    if (dxx == 0.0) {
+      zcount++;
+    }
+    main_weights_tmp[marker_uidx] = dxx;
+  }
+  if (!feof(infile)) {
+    goto load_distance_wts_ret_READ_FAIL;
+  }
+  wkspace_reset(wkspace_mark);
+  marker_ct = popcount_longs(marker_include, unfiltered_marker_ctl) - zcount;
+  if (!marker_ct) {
+    logprint("Error: No valid nonzero entries in --distance-wts file.\n");
+    goto load_distance_wts_ret_INVALID_FORMAT;
+  }
+  wkspace_left -= topsize;
+  if ((marker_ct != (*marker_ct_ptr))) {
+    if (conditional_alloc_exclude) {
+      if (wkspace_alloc_ul_checked(marker_exclude_ptr, unfiltered_marker_ctl * sizeof(intptr_t))) {
+	goto load_distance_wts_ret_NOMEM2;
+      }
+    }
+    bitfield_exclude_to_include(marker_include, *marker_exclude_ptr, unfiltered_marker_ct);
+    *marker_ct_ptr = marker_ct;
+  }
+  if (wkspace_alloc_d_checked(main_weights_ptr, marker_ct * sizeof(double))) {
+    goto load_distance_wts_ret_NOMEM2;
+  }
+  wkspace_left += topsize;
+  dptr = *main_weights_ptr;
+  *marker_ct_ptr = marker_ct;
+  for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++) {
+    next_set_unsafe_ck(marker_include, &marker_uidx);
+    dxx = main_weights_tmp[marker_uidx];
+    if (dxx != 0.0) {
+      *dptr++ = dxx;
+      marker_idx++;
+    }
+  }
+  // topsize = 0;
+  while (0) {
+  load_distance_wts_ret_NOMEM2:
+    wkspace_left += topsize;
+  load_distance_wts_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  load_distance_wts_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  load_distance_wts_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  load_distance_wts_ret_INVALID_WEIGHT:
+    sprintf(logbuf, "Error: Invalid weight on line %" PRIuPTR " of --distance-wts file.\n", line_idx);
+  load_distance_wts_ret_INVALID_FORMAT_2:
+    logprintb();
+  load_distance_wts_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ load_distance_wts_ret_1:
+  fclose_cond(infile);
+  return retval;
+}
+
+int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, uint64_t calculation_type, Rel_info* relip, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, char* distance_wts_fname, uint32_t distance_wts_noheader, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t* marker_reverse, uint32_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* sample_ids, uintptr_t max_sample_id_len, double* set_allele_freqs, double** rel_ibc_ptr, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t sample_ct = unfiltered_sample_ct - (*sample_exclude_ct_ptr);
@@ -6658,6 +6839,8 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   double* dptr3 = NULL;
   double* dptr4 = NULL;
   double* rel_dists = NULL;
+  double* main_weights = NULL;
+  double* main_weights_ptr = NULL;
   double* dptr2;
   double set_allele_freq_buf[MULTIPLEX_DIST];
   char wbuf[96];
@@ -6696,10 +6879,11 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   uint32_t* giptr;
   uint32_t* giptr2;
   uintptr_t* glptr2;
-  if (is_set(chrom_info_ptr->haploid_mask, 0)) {
-    logprint("Error: --make-rel/--make-grm-... cannot be used on haploid genomes.\n");
-    goto calc_rel_ret_INVALID_CMDLINE;
+  if (distance_wts_fname) {
+    logprint("Error: --make-{rel,grm-gz,grm-bin} + --distance-wts is currently under\ndevelopment.\n");
+    goto calc_rel_ret_1;
   }
+
   // timing results on the NIH 512-core machine suggest that it's
   // counterproductive to make thread count exceed about n/64
   if (dist_thread_ct > sample_ct / 64) {
@@ -6779,6 +6963,13 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   }
   marker_ct -= uii;
 
+  if (distance_wts_fname) {
+    retval = load_distance_wts(distance_wts_fname, unfiltered_marker_ct, marker_ids, max_marker_id_len, distance_wts_noheader, (marker_exclude == marker_exclude_orig), &marker_exclude, &marker_ct, &main_weights);
+    if (retval) {
+      goto calc_rel_ret_1;
+    }
+  }
+
   // See comments at the beginning of this file, and those in the main
   // CALC_DISTANCE loop.  The main difference between this calculation and
   // the (nonzero exponent) distance calculation is that we have to pad
@@ -6786,6 +6977,9 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   // cases.
   do {
     copy_set_allele_freqs(marker_uidx, marker_exclude, MULTIPLEX_REL, marker_idx, marker_ct, marker_reverse, set_allele_freqs, set_allele_freq_buf);
+    if (main_weights) {
+      main_weights_ptr = &(main_weights[marker_idx]);
+    }
     retval = block_load(bedfile, bed_offset, marker_exclude, marker_ct, MULTIPLEX_REL, unfiltered_sample_ct4, gptr, &marker_uidx, &marker_idx, &cur_markers_loaded);
     if (retval) {
       goto calc_rel_ret_1;
@@ -6832,18 +7026,25 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       }
       if (calculation_type & CALC_IBC) {
 	for (uii = 0; uii < 3; uii++) {
-	  update_rel_ibc(&(rel_ibc[uii * sample_ct]), geno, &(set_allele_freq_buf[win_marker_idx]), uii, sample_ct, ukk);
+	  update_rel_ibc(&(rel_ibc[uii * sample_ct]), geno, &(set_allele_freq_buf[win_marker_idx]), main_weights_ptr? (&(main_weights_ptr[win_marker_idx])) : NULL, uii, sample_ct, ukk);
 	}
       } else {
-	update_rel_ibc(rel_ibc, geno, &(set_allele_freq_buf[win_marker_idx]), ibc_type, sample_ct, ukk);
+	update_rel_ibc(rel_ibc, geno, &(set_allele_freq_buf[win_marker_idx]), main_weights_ptr? (&(main_weights_ptr[win_marker_idx])) : NULL, ibc_type, sample_ct, ukk);
       }
       if (rel_req) {
-	fill_subset_weights_r(subset_weights, &(set_allele_freq_buf[win_marker_idx]), (ibc_type != -1));
-	if (spawn_threads2(threads, &calc_rel_thread, dist_thread_ct, ujj)) {
-	  goto calc_rel_ret_THREAD_CREATE_FAIL;
-	}
+	fill_subset_weights_r(subset_weights, &(set_allele_freq_buf[win_marker_idx]), main_weights_ptr? (&(main_weights_ptr[win_marker_idx])) : NULL, (ibc_type != -1));
 	ulii = 0;
-	calc_rel_thread((void*)ulii);
+	if (!main_weights_ptr) {
+	  if (spawn_threads2(threads, &calc_rel_thread, dist_thread_ct, ujj)) {
+	    goto calc_rel_ret_THREAD_CREATE_FAIL;
+	  }
+	  calc_rel_thread((void*)ulii);
+	} else {
+	  if (spawn_threads2(threads, &calc_wt_rel_thread, dist_thread_ct, ujj)) {
+	    goto calc_rel_ret_THREAD_CREATE_FAIL;
+	  }
+	  calc_wt_rel_thread((void*)ulii);
+	}
 	join_threads2(threads, dist_thread_ct, ujj);
       }
     }
@@ -7227,9 +7428,6 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
     break;
   calc_rel_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
-    break;
-  calc_rel_ret_INVALID_CMDLINE:
-    retval = RET_INVALID_CMDLINE;
     break;
   calc_rel_ret_THREAD_CREATE_FAIL:
     retval = RET_THREAD_CREATE_FAIL;
@@ -7809,150 +8007,6 @@ int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintpt
   }
  calc_ibm_ret_1:
   // caller will free memory if there was an error
-  return retval;
-}
-
-int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t noheader, uint32_t conditional_alloc_exclude, uintptr_t** marker_exclude_ptr, uint32_t* marker_ct_ptr, double** main_weights_ptr) {
-  FILE* infile = NULL;
-  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
-  uintptr_t line_idx = 0;
-  uintptr_t topsize = 0;
-
-  // special case: weight-0 assignment effectively doesn't exist, but we still
-  // want to check for repeated IDs there.
-  uint32_t zcount = 0;
-
-  int32_t retval = 0;
-  unsigned char* wkspace_mark;
-  uintptr_t* marker_include;
-  double* main_weights_tmp;
-  double* dptr;
-  char* bufptr;
-  uint32_t* marker_id_htable;
-  double dxx;
-  uint32_t marker_id_htable_size;
-  uint32_t marker_uidx;
-  uint32_t marker_idx;
-  uint32_t idlen;
-  uint32_t marker_ct;
-  marker_include = (uintptr_t*)top_alloc(&topsize, unfiltered_marker_ctl * sizeof(intptr_t));
-  if (!marker_include) {
-    goto load_distance_wts_ret_NOMEM;
-  }
-  fill_ulong_zero(marker_include, unfiltered_marker_ctl);
-  main_weights_tmp = (double*)top_alloc(&topsize, unfiltered_marker_ct * sizeof(double));
-  if (!main_weights_tmp) {
-    goto load_distance_wts_ret_NOMEM;
-  }
-  wkspace_left -= topsize;
-  wkspace_mark = wkspace_base;
-  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, *marker_exclude_ptr, *marker_ct_ptr, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
-  wkspace_left += topsize;
-  if (retval) {
-    goto load_distance_wts_ret_1;
-  }
-  if (fopen_checked(&infile, distance_wts_fname, "r")) {
-    goto load_distance_wts_ret_OPEN_FAIL;
-  }
-  tbuf[MAXLINELEN - 1] = ' ';
-  while (fgets(tbuf, MAXLINELEN, infile)) {
-    line_idx++;
-    if (!tbuf[MAXLINELEN - 1]) {
-      LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, distance_wts_fname);
-      goto load_distance_wts_ret_INVALID_FORMAT_2;
-    }
-    bufptr = skip_initial_spaces(tbuf);
-    if (is_eoln_kns(*bufptr)) {
-      continue;
-    }
-    if (!noheader) {
-      noheader = 1;
-      continue;
-    }
-    // variant ID in first column, weight in second
-    idlen = strlen_se(bufptr);
-    marker_uidx = id_htable_find(bufptr, idlen, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len);
-    if (marker_uidx == 0xffffffffU) {
-      continue;
-    }
-    if (is_set(marker_include, marker_uidx)) {
-      bufptr[idlen] = '\0';
-      LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --distance-wts file.\n", bufptr);
-      goto load_distance_wts_ret_INVALID_FORMAT_2;
-    }
-    set_bit(marker_include, marker_uidx);
-    bufptr = skip_initial_spaces(&(bufptr[idlen]));
-    if (is_eoln_kns(*bufptr)) {
-      sprintf(logbuf, "Error: Line %" PRIuPTR " of --distance-wts file has fewer tokens than expected.\n", line_idx);
-      goto load_distance_wts_ret_INVALID_FORMAT_2;
-    }
-    if (scan_double(bufptr, &dxx)) {
-      goto load_distance_wts_ret_INVALID_WEIGHT;
-    }
-    if (!((dxx >= 0.0) && (dxx != INFINITY))) {
-      goto load_distance_wts_ret_INVALID_WEIGHT;
-    }
-    if (dxx == 0.0) {
-      zcount++;
-    }
-    main_weights_tmp[marker_uidx] = dxx;
-  }
-  if (!feof(infile)) {
-    goto load_distance_wts_ret_READ_FAIL;
-  }
-  wkspace_reset(wkspace_mark);
-  marker_ct = popcount_longs(marker_include, unfiltered_marker_ctl) - zcount;
-  if (!marker_ct) {
-    logprint("Error: No valid nonzero entries in --distance-wts file.\n");
-    goto load_distance_wts_ret_INVALID_FORMAT;
-  }
-  wkspace_left -= topsize;
-  if ((marker_ct != (*marker_ct_ptr))) {
-    if (conditional_alloc_exclude) {
-      if (wkspace_alloc_ul_checked(marker_exclude_ptr, unfiltered_marker_ctl * sizeof(intptr_t))) {
-	goto load_distance_wts_ret_NOMEM2;
-      }
-    }
-    bitfield_exclude_to_include(marker_include, *marker_exclude_ptr, unfiltered_marker_ct);
-    *marker_ct_ptr = marker_ct;
-  }
-  if (wkspace_alloc_d_checked(main_weights_ptr, marker_ct * sizeof(double))) {
-    goto load_distance_wts_ret_NOMEM2;
-  }
-  wkspace_left += topsize;
-  dptr = *main_weights_ptr;
-  *marker_ct_ptr = marker_ct;
-  for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++) {
-    next_set_unsafe_ck(marker_include, &marker_uidx);
-    dxx = main_weights_tmp[marker_uidx];
-    if (dxx != 0.0) {
-      *dptr++ = dxx;
-      marker_idx++;
-    }
-  }
-  // topsize = 0;
-  while (0) {
-  load_distance_wts_ret_NOMEM2:
-    wkspace_left += topsize;
-  load_distance_wts_ret_NOMEM:
-    retval = RET_NOMEM;
-    break;
-  load_distance_wts_ret_OPEN_FAIL:
-    retval = RET_OPEN_FAIL;
-    break;
-  load_distance_wts_ret_READ_FAIL:
-    retval = RET_READ_FAIL;
-    break;
-  load_distance_wts_ret_INVALID_WEIGHT:
-    sprintf(logbuf, "Error: Invalid weight on line %" PRIuPTR " of --distance-wts file.\n", line_idx);
-  load_distance_wts_ret_INVALID_FORMAT_2:
-    logprintb();
-  load_distance_wts_ret_INVALID_FORMAT:
-    retval = RET_INVALID_FORMAT;
-    break;
-  }
- load_distance_wts_ret_1:
-  fclose_cond(infile);
   return retval;
 }
 

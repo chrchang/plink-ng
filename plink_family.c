@@ -2825,10 +2825,12 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
 }
 
 // multithread globals
+/*
 static double* g_maxt_extreme_stat;
 static double* g_maxt_thread_results;
 static double* g_mperm_save_all;
 static uintptr_t* g_pheno_c;
+*/
 
 static uintptr_t* g_loadbuf;
 static uintptr_t* g_lm_eligible;

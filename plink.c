@@ -1386,7 +1386,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	ulii = unfiltered_sample_ct - pca_sample_ct;
       }
     }
-    retval = calc_rel(threads, parallel_idx, parallel_tot, calculation_type, relip, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ct, unfiltered_sample_ct, pca_sample_exclude? pca_sample_exclude : sample_exclude, pca_sample_exclude? (&ulii) : (&sample_exclude_ct), sample_ids, max_sample_id_len, set_allele_freqs, &rel_ibc, chrom_info_ptr);
+    retval = calc_rel(threads, parallel_idx, parallel_tot, calculation_type, relip, bedfile, bed_offset, outname, outname_end, distance_wts_fname, (dist_calc_type & DISTANCE_WTS_NOHEADER), unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ct, marker_ids, max_marker_id_len, unfiltered_sample_ct, pca_sample_exclude? pca_sample_exclude : sample_exclude, pca_sample_exclude? (&ulii) : (&sample_exclude_ct), sample_ids, max_sample_id_len, set_allele_freqs, &rel_ibc, chrom_info_ptr);
     if (retval) {
       goto plink_ret_1;
     }
@@ -8170,6 +8170,10 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --make-grm-bin cannot be used with --make-grm-gz.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
+	if (distance_exp != 0.0) {
+	  logprint("Error: '--distance-wts exp=[x]' cannot be used with --make-grm-gz.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -8207,6 +8211,10 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	calculation_type |= CALC_RELATIONSHIP;
       } else if (!memcmp(argptr2, "ake-grm-bin", 12)) {
+	if (distance_exp != 0.0) {
+	  logprint("Error: '--distance-wts exp=[x]' cannot be used with --make-grm-bin.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -8229,6 +8237,10 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "ake-rel", 8)) {
 	if (calculation_type & CALC_RELATIONSHIP) {
 	  logprint("Error: --make-rel cannot be used with --make-grm-gz/--make-grm-bin.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
+	if (distance_exp != 0.0) {
+	  logprint("Error: '--distance-wts exp=[x]' cannot be used with --make-rel.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 3)) {
@@ -12477,6 +12489,10 @@ int32_t main(int32_t argc, char** argv) {
       logprint("Error: --parallel and --ibs-matrix cannot be used together.  Use --distance\ninstead.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
+  }
+  if (distance_wts_fname && (!(calculation_type & (CALC_DISTANCE | CALC_RELATIONSHIP)))) {
+    logprint("Error: --distance-wts must be used with --distance, --make-rel, --make-grm-bin,\nor --make-grm-gz.\n");
+    goto main_ret_INVALID_CMDLINE_A;
   }
   if ((parallel_tot > 1) && (!(calculation_type & (CALC_LD | CALC_DISTANCE | CALC_GENOME | CALC_RELATIONSHIP)))) {
     if ((!(calculation_type & CALC_EPI)) || (!(epi_info.modifier & (EPI_FAST | EPI_REG)))) {
