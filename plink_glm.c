@@ -5452,7 +5452,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 		goto glm_linear_assoc_ret_WRITE_FAIL;
 	      }
 	    }
-	  } else if (orig_pvals) {
+	  } else if (orig_pvals && constraint_ct_max) {
 	    orig_pvals[marker_idx3] = -9;
 	  }
 	} else {
