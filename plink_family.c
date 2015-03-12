@@ -4724,7 +4724,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     *bufptr++ = ' ';
     if (g_orig_stat[marker_idx] == -9) {
       if (emp_se) {
-	bufptr = memcpya(bufptr, "           NA          NA           NA ", 39);
+	bufptr = memcpya(bufptr, "          NA           NA           NA ", 39);
       }
       bufptr = memcpya(bufptr, "          NA           NA\n", 26);
     } else {

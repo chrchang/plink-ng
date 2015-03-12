@@ -9920,6 +9920,9 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
       } else if ((!memcmp(argptr2, "fam", 4)) || (!memcmp(argptr2, "fam-parents", 12)) || (!memcmp(argptr2, "fam-between", 12)) || (!memcmp(argptr2, "fam-total", 10))) {
+	logprint("Error: QFAM test is closed for repairs.\n");
+        retval = RET_CALC_NOT_YET_SUPPORTED;
+	goto main_ret_1;
 	if (calculation_type & CALC_QFAM) {
 	  logprint("Error: Only one QFAM test can be run at a time.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
