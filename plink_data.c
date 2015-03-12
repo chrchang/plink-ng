@@ -5634,17 +5634,19 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
 	    ukk = map_reverse[umm++];
 	    if ((ukk >= marker_start) && (ukk < marker_end)) {
 	      ucc = 1;
-	      if (!strcmp(aptr1, marker_allele_ptrs[2 * ukk + 1])) {
-		if ((alen1 == alen2) && (!memcmp(aptr1, aptr2, alen1))) {
-		  ucc = 3;
-		} else if (!strcmp(aptr2, marker_allele_ptrs[2 * ukk])) {
-		  ucc = 2;
-		}
-	      } else if (!strcmp(aptr1, marker_allele_ptrs[2 * ukk])) {
-		if ((alen1 == alen2) && (!memcmp(aptr1, aptr2, alen1))) {
-		  ucc = 0;
-		} else if (!strcmp(aptr2, marker_allele_ptrs[2 * ukk + 1])) {
-		  ucc = 2;
+	      if ((*aptr1 != missing_geno) || (alen1 != 1)) {
+		if (!strcmp(aptr1, marker_allele_ptrs[2 * ukk + 1])) {
+		  if ((alen1 == alen2) && (!memcmp(aptr1, aptr2, alen1))) {
+		    ucc = 3;
+		  } else if (!strcmp(aptr2, marker_allele_ptrs[2 * ukk])) {
+		    ucc = 2;
+		  }
+		} else if (!strcmp(aptr1, marker_allele_ptrs[2 * ukk])) {
+		  if ((alen1 == alen2) && (!memcmp(aptr1, aptr2, alen1))) {
+		    ucc = 0;
+		  } else if (!strcmp(aptr2, marker_allele_ptrs[2 * ukk + 1])) {
+		    ucc = 2;
+		  }
 		}
 	      }
 	      wbufptr[(ukk - marker_start) * sample_ct4] |= ucc << ii_shift;
@@ -5667,17 +5669,19 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
 	      continue;
 	    }
 	    ucc = 1;
-	    if (!strcmp(aptr1, marker_allele_ptrs[2 * marker_idx + 1])) {
-	      if ((alen1 == alen2) && (!memcmp(aptr1, aptr2, alen1))) {
-		ucc = 3;
-	      } else if (!strcmp(aptr2, marker_allele_ptrs[2 * marker_idx])) {
-		ucc = 2;
-	      }
-	    } else if (!strcmp(aptr1, marker_allele_ptrs[2 * marker_idx])) {
-	      if ((alen1 == alen2) && (!memcmp(aptr1, aptr2, alen1))) {
-		ucc = 0;
-	      } else if (!strcmp(aptr2, marker_allele_ptrs[2 * marker_idx + 1])) {
-		ucc = 2;
+	    if ((*aptr1 != missing_geno) || (alen1 != 1)) {
+	      if (!strcmp(aptr1, marker_allele_ptrs[2 * marker_idx + 1])) {
+		if ((alen1 == alen2) && (!memcmp(aptr1, aptr2, alen1))) {
+		  ucc = 3;
+		} else if (!strcmp(aptr2, marker_allele_ptrs[2 * marker_idx])) {
+		  ucc = 2;
+		}
+	      } else if (!strcmp(aptr1, marker_allele_ptrs[2 * marker_idx])) {
+		if ((alen1 == alen2) && (!memcmp(aptr1, aptr2, alen1))) {
+		  ucc = 0;
+		} else if (!strcmp(aptr2, marker_allele_ptrs[2 * marker_idx + 1])) {
+		  ucc = 2;
+		}
 	      }
 	    }
 	    *wbufptr |= ucc << ii_shift;
