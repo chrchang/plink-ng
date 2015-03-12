@@ -6880,7 +6880,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 		goto glm_logistic_assoc_ret_WRITE_FAIL;
 	      }
 	    }
-	  } else if (orig_pvals) {
+	  } else if (orig_pvals && constraint_ct_max) {
 	    orig_pvals[marker_idx3] = -9;
 	  }
 	} else {
