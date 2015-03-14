@@ -3881,6 +3881,7 @@ void qfam_compute_bw(uintptr_t* loadbuf, uintptr_t sample_ct, uint32_t* fs_start
     } else {
       clear_bit(nm_fss, cur_idx);
     }
+    cur_start = cur_end;
   }
   for (; cur_idx < fss_ct; cur_idx++) {
     sample_uidx = *fss_ptr++;
