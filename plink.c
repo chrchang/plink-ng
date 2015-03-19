@@ -91,7 +91,7 @@
 
 const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b3h"
+  "PLINK v1.90b3i"
 #else
   "PLINK v1.90p"
 #endif
@@ -104,7 +104,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   // include trailing space if day < 10, so character length stays the same
-  " (14 Mar 2015)";
+  " (18 Mar 2015)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
@@ -7994,6 +7994,10 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
 	calculation_type |= CALC_DUPVAR;
+      } else if (!memcmp(argptr2, "d-pred", 7)) {
+	logprint("Error: --ld-pred is currently under development.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+	goto main_ret_1;
       } else if ((!memcmp(argptr2, "ookup", 6)) ||
                  (!memcmp(argptr2, "ookup-list", 11)) ||
                  (!memcmp(argptr2, "ookup-gene", 11)) ||

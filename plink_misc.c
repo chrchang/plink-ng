@@ -4831,7 +4831,8 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
 #else
   qsort((int32_t*)parse_table, token_ct, sizeof(int32_t), intcmp);
 #endif
-  if (!weighted_z) {
+  // bugfix: this caused a segfault in no-map case
+  if ((!weighted_z) && (token_ct > 5)) {
     token_ct -= 2;
   }
   col_skips[0] = parse_table[0] >> 4;
