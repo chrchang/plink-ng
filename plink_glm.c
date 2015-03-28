@@ -3953,12 +3953,13 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
 	}
       }
     }
+    np_base = param_ct_max - np_diploid;
     if (!sex_covar_everywhere) {
       np_sex = popcount_bit_idx(active_params, sex_start_idx, param_raw_ct_max);
-    }
-    np_base = param_ct_max - np_diploid - np_sex;
-    if (!np_sex) {
-      variation_in_sex = 0;
+      np_base -= np_sex;
+      if (!np_sex) {
+	variation_in_sex = 0;
+      }
     }
   } else {
     fill_all_bits(active_params, param_raw_ct_max);
