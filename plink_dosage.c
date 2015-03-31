@@ -1947,7 +1947,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    *pzwritep++ = ' ';
 	    pzwritep = double_g_writewx4(pzwritep, MAXV(pval, output_min_p), 7);
 	  } else {
-	    pzwritep = memcpya(pzwritep, "     NA      NA      NA", 24);
+	    pzwritep = memcpya(pzwritep, "     NA      NA      NA", 23);
 	  }
 	  append_binary_eoln(&pzwritep);
 	  if (flex_pzwrite(&ps, &pzwritep)) {
