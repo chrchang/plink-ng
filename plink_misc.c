@@ -3837,7 +3837,7 @@ int32_t fst_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
   loop_end = marker_ct / 100;
   for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
     if (IS_SET(marker_exclude, marker_uidx)) {
-      marker_uidx = next_set_ul_unsafe(marker_exclude, marker_uidx);
+      marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
       seek_flag = 1;
     }
     if (marker_uidx >= chrom_end) {
