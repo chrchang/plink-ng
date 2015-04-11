@@ -15493,6 +15493,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   uint32_t orig_idx = 0;
   uint32_t cur_marker_ct = 0;
   uint32_t tot_marker_ct = 0;
+  int32_t retval = 0;
   uint32_t* map_reverse = NULL;
   uintptr_t* reversed = NULL;
   char* bim_loadbuf = NULL;
@@ -15546,7 +15547,6 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   unsigned char* ubufptr;
   char cc;
   unsigned char ucc;
-  int32_t retval;
   if (wkspace_alloc_ui_checked(&chrom_start, (MAX_POSSIBLE_CHROM + 1) * sizeof(int32_t)) ||
       wkspace_alloc_ui_checked(&chrom_id, MAX_POSSIBLE_CHROM * sizeof(int32_t))) {
     goto merge_datasets_ret_NOMEM;

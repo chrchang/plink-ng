@@ -1614,15 +1614,15 @@ static inline void prev_unset_unsafe_ck(uintptr_t* bit_arr, uint32_t* loc_ptr) {
 
 // These functions seem to optimize better than memset(arr, 0, x) under gcc.
 static inline void fill_long_zero(intptr_t* larr, size_t size) {
-  intptr_t* lptr = &(larr[size]);
-  while (larr < lptr) {
+  size_t ulii;
+  for (ulii = 0; ulii < size; ulii++) {
     *larr++ = 0;
   }
 }
 
 static inline void fill_ulong_zero(uintptr_t* ularr, size_t size) {
-  uintptr_t* ulptr = &(ularr[size]);
-  while (ularr < ulptr) {
+  size_t ulii;
+  for (ulii = 0; ulii < size; ulii++) {
     *ularr++ = 0;
   }
 }
