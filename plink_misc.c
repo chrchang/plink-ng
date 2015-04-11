@@ -4827,7 +4827,9 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
     }
   }
 #ifdef __cplusplus
-  std::sort(parse_table, &(parse_table[token_ct]));
+  // suppress bogus gcc 4.4 warning, this is not performance-critical
+  qsort((int32_t*)parse_table, token_ct, sizeof(int32_t), intcmp);
+  // std::sort(parse_table, &(parse_table[token_ct]));
 #else
   qsort((int32_t*)parse_table, token_ct, sizeof(int32_t), intcmp);
 #endif

@@ -810,7 +810,7 @@ void transpose_perms(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_
 	  memcpy(perm_vecst, wbuf, 16);
 	  perm_vecst = &(perm_vecst[4]);
 	transpose_perms_loop_start:
-	  fill_ulong_zero((uintptr_t*)wbuf, 2);
+	  fill_uint_zero(wbuf, 4);
 	  wshift = 0;
 	}
 	wbptr = wbuf;
@@ -864,7 +864,7 @@ void transpose_perm1s(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno
 	  memcpy(perm_vecst, wbuf, 16);
 	  perm_vecst = &(perm_vecst[4]);
 	transpose_perm1s_loop_start:
-	  fill_ulong_zero((uintptr_t*)wbuf, 2);
+	  fill_uint_zero(wbuf, 2);
 	  wshift = 0;
 	}
 	wbptr = wbuf;

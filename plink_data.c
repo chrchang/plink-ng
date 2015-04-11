@@ -567,7 +567,10 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   uint32_t cur_pos;
   char cc;
   fill_ulong_zero(loaded_chrom_mask, CHROM_MASK_WORDS);
-  fill_ulong_zero((uintptr_t*)(&insert_buf), 4);
+  insert_buf[0] = NULL;
+  insert_buf[1] = NULL;
+  insert_buf[2] = NULL;
+  insert_buf[3] = NULL;
   if (sf_ct) {
     sf_start_idxs = (uint32_t*)malloc((MAX_POSSIBLE_CHROM + 1) * sizeof(int32_t));
     if (!sf_start_idxs) {
@@ -585,7 +588,11 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     }
   }
   fill_uint_zero(missing_template_seg_len, 5);
-  fill_ulong_zero((uintptr_t*)(&missing_template_seg), 5);
+  missing_template_seg[0] = NULL;
+  missing_template_seg[1] = NULL;
+  missing_template_seg[2] = NULL;
+  missing_template_seg[3] = NULL;
+  missing_template_seg[4] = NULL;
   if (missing_mid_template) {
     if (!missing_marker_id_match) {
       missing_marker_id_match = &(g_one_char_strs[92]); // '.'
@@ -7315,7 +7322,10 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       goto transposed_to_bed_ret_WRITE_FAIL;
     }
     cptr2 = cptr4;
-    fill_ulong_zero((uintptr_t*)alleles, 4);
+    alleles[0] = NULL;
+    alleles[1] = NULL;
+    alleles[2] = NULL;
+    alleles[3] = NULL;
     fill_uint_zero(allele_cts, 4);
     for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
       cptr2 = skip_initial_spaces(cptr2);
