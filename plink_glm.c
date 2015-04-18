@@ -5221,12 +5221,15 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       } else if ((!g_min_ploidy_1) || (!genotypic_or_hethom)) {
 	cur_param_ct = np_base + np_diploid;
 	if (constraint_ct_max) {
-          cur_constraint_ct = popcount_bit_idx(g_joint_test_params, 0, constraint_ct_max - np_sex);
+	  // bugfix: this incorrectly had constraint_ct_max as last parameter
+          cur_constraint_ct = popcount_bit_idx(g_joint_test_params, 0, cur_param_ct);
 	} else {
 	  cur_constraint_ct = 0;
 	}
 	cur_param_names = param_names;
       } else {
+	// er, is this still reachable with forced --xchr-model 0?  should it
+	// be reachable?
 	cur_param_ct = np_base;
 	cur_constraint_ct = 0;
 	if (constraint_ct_max) {
