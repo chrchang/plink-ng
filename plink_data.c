@@ -8753,6 +8753,9 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     }
     marker_skip_ct++;
   }
+  if (fclose_null(&bimfile) || fclose_null(&outfile) || fclose_null(&skip3file)) {
+    goto vcf_to_bed_ret_WRITE_FAIL;
+  }
   putchar('\r');
   *outname_end = '\0';
   LOGPRINTFWW("--vcf: %s.bed + %s.bim + %s.fam written.\n", outname, outname, outname);

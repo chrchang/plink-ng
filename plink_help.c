@@ -850,8 +850,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #ifndef NOLAPACK
     help_print("pca\tmake-rel\tmake-grm\tmake-grm-gz\tmake-grm-bin", &help_ctrl, 1,
 "  --pca {count} <header> <tabs> <var-wts>\n"
-"    Calculates a variance-standardized relationship matrix (use --make-rel or\n"
-"    --make-grm-gz to dump it), and extracts the top 20 principal components.\n"
+"    Calculates a variance-standardized relationship matrix (use\n"
+"    --make-rel/--make-grm-gz/--make-grm-bin to dump it), and extracts the top\n"
+"    20 principal components.\n"
 "    * It is usually best to perform this calculation on a marker set in\n"
 "      approximate linkage equilibrium.\n"
 "    * You can change the number of PCs by passing a numeric parameter.\n"
