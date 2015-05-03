@@ -14385,6 +14385,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
 	goto merge_bim_scan_ret_1;
       }
     }
+    // do not filter on chrom_mask here, since that happens later
     bufptr = next_token(bufptr);
     bufptr2 = token_endl(bufptr);
     uii = bufptr2 - bufptr;
@@ -16053,6 +16054,9 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     }
   }
   sort_marker_chrom_pos(ll_buf, tot_marker_ct, pos_buf, chrom_start, chrom_id, NULL, &chrom_ct);
+  // bugfix: when chromosomes are filtered out, flag the corresponding markers
+  // in marker_map[]
+  fill_uint_one(marker_map, tot_marker_ct);
   if (merge_post_msort_update_maps(marker_ids, max_marker_id_len, marker_map, marker_cms, marker_cms_tmp, pos_buf, ll_buf, chrom_start, chrom_id, chrom_ct, &dedup_marker_ct, merge_equal_pos, marker_allele_ptrs, chrom_info_ptr)) {
     goto merge_datasets_ret_INVALID_FORMAT;
   }
@@ -16195,7 +16199,10 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     }
     uii = tot_marker_ct;
     while (uii--) {
-      map_reverse[marker_map[uii]] = uii;
+      ujj = marker_map[uii];
+      if (ujj != 0xffffffffU) {
+        map_reverse[ujj] = uii;
+      }
     }
     for (ulii = 0; ulii < chrom_ct; ulii++) {
       uii = chrom_start[ulii + 1];
