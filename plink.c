@@ -103,9 +103,10 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  // include trailing space if day < 10, so character length stays the same
-  " (3 May 2015) ";
+  " (6 May 2015)";
 const char ver_str2[] =
+  // include leading space if day < 10, so character length stays the same
+  " "
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
 #else
@@ -2395,6 +2396,174 @@ void print_ver() {
   fputs(ver_str2, stdout);
 }
 
+int32_t rerun(uint32_t rerun_argv_pos, uint32_t rerun_parameter_present, int32_t* argc_ptr, uint32_t* cur_arg_ptr, char*** argv_ptr, char*** subst_argv_ptr, char** rerun_buf_ptr) {
+  // caller is responsible for freeing rerun_buf
+  char** argv = *argv_ptr;
+  FILE* rerunfile = fopen(rerun_parameter_present? argv[rerun_argv_pos + 1] : (PROG_NAME_STR ".log"), "r");
+  uintptr_t line_idx = 0;
+  char** subst_argv2 = NULL;
+  uint32_t argc = (uint32_t)(*argc_ptr);
+  uint32_t cur_arg = *cur_arg_ptr;
+  int32_t retval = 0;
+  char* rerun_buf;
+  char* sptr;
+  char* argptr;
+  char* argptr2;
+  uint32_t line_byte_ct;
+  uint32_t loaded_arg_ct;
+  uint32_t duplicate_ct;
+  uint32_t loaded_arg_idx;
+  uint32_t cmdline_arg_idx;
+  uint32_t new_arg_idx;
+  uint32_t slen;
+  uint32_t slen2;
+  if (!rerunfile) {
+    print_ver();
+    goto rerun_ret_OPEN_FAIL;
+  }
+  tbuf[MAXLINELEN - 1] = ' ';
+  if (!fgets(tbuf, MAXLINELEN, rerunfile)) {
+    print_ver();
+    fputs("Error: Empty log file for --rerun.\n", stdout);
+    goto rerun_ret_INVALID_FORMAT;
+  }
+  ++line_idx;
+  if (!tbuf[MAXLINELEN - 1]) {
+    goto rerun_ret_LONG_LINE;
+  }
+  if (!fgets(tbuf, MAXLINELEN, rerunfile)) {
+    print_ver();
+    fputs("Error: Only one line in --rerun log file.\n", stdout);
+    goto rerun_ret_INVALID_FORMAT;
+  }
+  ++line_idx;
+  if (!tbuf[MAXLINELEN - 1]) {
+    goto rerun_ret_LONG_LINE;
+  }
+  if ((tbuf[0] >= '0') && (tbuf[0] <= '9')) {
+    // Old "xx arguments: --aa bb --cc --dd" format
+    fclose_null(&rerunfile);
+    if (scan_posint_capped(tbuf, &loaded_arg_ct, (MAXLINELEN / 2) / 10, (MAXLINELEN / 2) % 10)) {
+      print_ver();
+      fputs("Error: Invalid argument count on line 2 of --rerun log file.\n", stdout);
+      goto rerun_ret_INVALID_FORMAT;
+    }
+    line_byte_ct = strlen(tbuf) + 1;
+    rerun_buf = (char*)malloc(line_byte_ct);
+    if (!rerun_buf) {
+      goto rerun_ret_NOMEM;
+    }
+    *rerun_buf_ptr = rerun_buf;
+    memcpy(rerun_buf, tbuf, line_byte_ct);
+
+    // now use tbuf as a lame bitfield
+    memset(tbuf, 1, loaded_arg_ct);
+
+    // skip "xx arguments: ", to get to the first flag
+    sptr = next_token_mult(rerun_buf, 2);
+
+    loaded_arg_idx = 0;
+    duplicate_ct = 0;
+    do {
+      if (no_more_tokens_kns(sptr)) {
+	print_ver();
+	fputs("Error: Line 2 of --rerun log file has fewer tokens than expected.\n", stdout);
+	goto rerun_ret_INVALID_FORMAT;
+      }
+      argptr = is_flag_start(sptr);
+      if (argptr) {
+	slen = strlen_se(argptr);
+	for (cmdline_arg_idx = cur_arg; cmdline_arg_idx < argc; cmdline_arg_idx++) {
+	  argptr2 = is_flag_start(argv[cmdline_arg_idx]);
+	  if (argptr2) {
+	    slen2 = strlen(argptr2);
+	    if ((slen == slen2) && (!memcmp(argptr, argptr2, slen))) {
+	      cmdline_arg_idx = 0xffffffffU;
+	      break;
+	    }
+	  }
+	}
+	if (cmdline_arg_idx == 0xffffffffU) {
+	  // matching flag, override --rerun
+	  do {
+	    duplicate_ct++;
+	    tbuf[loaded_arg_idx++] = 0;
+	    if (loaded_arg_idx == loaded_arg_ct) {
+	      break;
+	    }
+	    sptr = next_token(sptr);
+	  } while (!is_flag(sptr));
+	} else {
+	  loaded_arg_idx++;
+	  sptr = next_token(sptr);
+	}
+      } else {
+	loaded_arg_idx++;
+	sptr = next_token(sptr);
+      }
+    } while (loaded_arg_idx < loaded_arg_ct);
+    subst_argv2 = (char**)malloc((argc + loaded_arg_ct - duplicate_ct - rerun_parameter_present - 1 - cur_arg) * sizeof(char*));
+    if (!subst_argv2) {
+      goto rerun_ret_NOMEM;
+    }
+    new_arg_idx = 0;
+    for (cmdline_arg_idx = cur_arg; cmdline_arg_idx < rerun_argv_pos; cmdline_arg_idx++) {
+      subst_argv2[new_arg_idx++] = argv[cmdline_arg_idx];
+    }
+    sptr = next_token_mult(rerun_buf, 2);
+    for (loaded_arg_idx = 0; loaded_arg_idx < loaded_arg_ct; loaded_arg_idx++) {
+      if (tbuf[loaded_arg_idx]) {
+	slen = strlen_se(sptr);
+	subst_argv2[new_arg_idx++] = sptr;
+	sptr[slen] = '\0';
+	if (loaded_arg_idx != loaded_arg_ct - 1) {
+	  sptr = skip_initial_spaces(&(sptr[slen + 1]));
+	}
+      } else {
+	sptr = next_token(sptr);
+      }
+    }
+    for (cmdline_arg_idx = rerun_argv_pos + rerun_parameter_present + 1; cmdline_arg_idx < argc; cmdline_arg_idx++) {
+      subst_argv2[new_arg_idx++] = argv[cmdline_arg_idx];
+    }
+    *cur_arg_ptr = 0;
+    *argc_ptr = new_arg_idx;
+    if (*subst_argv_ptr) {
+      free(*subst_argv_ptr);
+    }
+    *subst_argv_ptr = subst_argv2;
+    *argv_ptr = subst_argv2;
+    subst_argv2 = NULL;
+  } else {
+    // Current, and also PLINK 1.07, "Options in effect:"
+    while (memcmp(tbuf, "Options in effect:", 18) || (tbuf[18] >= ' ')) {
+      if (!fgets(tbuf, MAXLINELEN, rerunfile)) {
+	goto rerun_ret_LONG_LINE;
+      }
+    }
+    // todo
+  }
+  while (0) {
+  rerun_ret_NOMEM:
+    print_ver();
+    retval = RET_NOMEM;
+    break;
+  rerun_ret_OPEN_FAIL:
+    print_ver();
+    retval = RET_OPEN_FAIL;
+    break;
+  rerun_ret_LONG_LINE:
+    print_ver();
+    printf("Error: Line %" PRIuPTR " of --rerun log file is pathologically long.\n", line_idx);
+  rerun_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+  free_cond(subst_argv2);
+  fclose_cond(rerunfile);
+  return retval;
+}
+
 char extract_char_param(char* ss) {
   // maps c, 'c', and "c" to c, and anything else to the null char.  This is
   // intended to support e.g. always using '#' to designate a # parameter
@@ -3118,7 +3287,6 @@ int32_t main(int32_t argc, char** argv) {
 #endif
   unsigned char* wkspace_ua = NULL;
   char* bubble = NULL;
-  char** subst_argv2;
   uint32_t param_ct;
   time_t rawtime;
   char* argptr;
@@ -3155,7 +3323,6 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t ujj;
   uint32_t ukk;
   uint32_t umm;
-  uint32_t unn;
   intptr_t default_alloc_mb;
   int64_t llxx;
   Ll_str* ll_str_ptr;
@@ -3289,119 +3456,10 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
       }
-      if (ujj) {
-	scriptfile = fopen(argv[uii + 1], "r");
-      } else {
-        scriptfile = fopen(PROG_NAME_STR ".log", "r");
+      retval = rerun(uii, ujj, &argc, &cur_arg, &argv, &subst_argv, &rerun_buf);
+      if (retval) {
+	goto main_ret_1;
       }
-      if (!scriptfile) {
-	print_ver();
-	goto main_ret_OPEN_FAIL;
-      }
-      tbuf[MAXLINELEN - 1] = ' ';
-      if (!fgets(tbuf, MAXLINELEN, scriptfile)) {
-	print_ver();
-	fputs("Error: Empty log file for --rerun.\n", stdout);
-	goto main_ret_INVALID_FORMAT;
-      }
-      if (!tbuf[MAXLINELEN - 1]) {
-        print_ver();
-        fputs("Error: Line 1 of --rerun log file is pathologically long.\n", stdout);
-	goto main_ret_INVALID_FORMAT;
-      }
-      if (!fgets(tbuf, MAXLINELEN, scriptfile)) {
-	print_ver();
-	fputs("Error: Only one line in --rerun log file.\n", stdout);
-	goto main_ret_INVALID_FORMAT;
-      }
-      if (!tbuf[MAXLINELEN - 1]) {
-	print_ver();
-	fputs("Error: Line 2 of --rerun log file is pathologically long.\n", stdout);
-	goto main_ret_INVALID_FORMAT;
-      }
-      fclose_null(&scriptfile);
-      if (scan_posint_capped(tbuf, (uint32_t*)(&kk), (MAXLINELEN / 2) / 10, (MAXLINELEN / 2) % 10)) {
-	print_ver();
-	fputs("Error: Invalid argument count on line 2 of --rerun log file.\n", stdout);
-	goto main_ret_INVALID_FORMAT;
-      }
-      ukk = strlen(tbuf) + 1;
-      rerun_buf = (char*)malloc(ukk);
-      memcpy(rerun_buf, tbuf, ukk);
-
-      memset(tbuf, 1, (uint32_t)kk);
-      sptr = next_token_mult(rerun_buf, 2);
-      umm = 0;
-      ukk = 0;
-      do {
-	if (no_more_tokens_kns(sptr)) {
-	  print_ver();
-	  fputs("Error: Line 2 of --rerun log file has fewer tokens than expected.\n", stdout);
-	  goto main_ret_INVALID_FORMAT;
-	}
-	argptr = is_flag_start(sptr);
-	if (argptr) {
-          for (unn = cur_arg; unn < (uint32_t)argc; unn++) {
-	    argptr2 = is_flag_start(argv[unn]);
-	    if (argptr2) {
-	      if (!strcmp(argptr, argptr2)) {
-		unn = 0xffffffffU;
-		break;
-	      }
-	    }
-	  }
-          if (unn == 0xffffffffU) {
-	    // matching flag, override --rerun
-            do {
-	      ukk++;
-	      tbuf[umm++] = 0;
-	      if (umm == (uint32_t)kk) {
-		break;
-	      }
-	      sptr = next_token(sptr);
-	    } while (!is_flag(sptr));
-	  } else {
-	    umm++;
-	    sptr = next_token(sptr);
-	  }
-	} else {
-	  umm++;
-          sptr = next_token(sptr);
-	}
-      } while (umm < (uint32_t)kk);
-      subst_argv2 = (char**)malloc((argc + kk - ukk - ujj - 1 - cur_arg) * sizeof(char*));
-      if (!subst_argv2) {
-	print_ver();
-	goto main_ret_NOMEM;
-      }
-      unn = 0;
-      for (umm = cur_arg; umm < uii; umm++) {
-	subst_argv2[unn++] = argv[umm];
-      }
-      sptr = next_token_mult(rerun_buf, 2);
-      for (umm = 0; umm < (uint32_t)kk; umm++) {
-        if (tbuf[umm]) {
-	  ukk = strlen_se(sptr);
-	  subst_argv2[unn++] = sptr;
-	  sptr[ukk] = '\0';
-	  if (umm != ((uint32_t)kk) - 1) {
-	    sptr = skip_initial_spaces(&(sptr[ukk + 1]));
-	  }
-	} else {
-	  sptr = next_token(sptr);
-	}
-      }
-      for (umm = uii + ujj + 1; umm < (uint32_t)argc; umm++) {
-	subst_argv2[unn++] = argv[umm];
-      }
-      cur_arg = 0;
-      argc = unn;
-      if (subst_argv) {
-	free(subst_argv);
-      }
-      subst_argv = subst_argv2;
-      argv = subst_argv2;
-      subst_argv2 = NULL;
     }
   }
   if ((cur_arg < (uint32_t)argc) && (!is_flag(argv[cur_arg]))) {
@@ -3792,6 +3850,7 @@ int32_t main(int32_t argc, char** argv) {
   outname[uii] = '\0';
 
   logstr(ver_str);
+  /*
   sprintf(logbuf, "\n%d argument%s:", argc + umm - cur_arg, (argc + umm - cur_arg == 1)? "" : "s");
   logstr(logbuf);
   for (cur_flag = 0; cur_flag < flag_ct; cur_flag++) {
@@ -3803,6 +3862,21 @@ int32_t main(int32_t argc, char** argv) {
       logstr(argv[ii++]);
     }
   }
+  */
+  logstr("\n");
+  logprint("Options in effect:\n");
+  for (cur_flag = 0; cur_flag < flag_ct; cur_flag++) {
+    logprint("  --");
+    logprint(&(flag_buf[cur_flag * MAX_FLAG_LEN]));
+    ii = flag_map[cur_flag] + 1;
+    while ((ii < argc) && (!is_flag(argv[ii]))) {
+      logprint(" ");
+      logprint(argv[ii++]);
+    }
+    logprint("\n");
+  }
+  logprint("\n");
+
 #ifdef _WIN32
   windows_dw = TBUF_SIZE;
   if (GetComputerName(tbuf, &windows_dw))
@@ -3810,7 +3884,7 @@ int32_t main(int32_t argc, char** argv) {
   if (gethostname(tbuf, TBUF_SIZE) != -1)
 #endif
   {
-    logstr("\nHostname: ");
+    logstr("Hostname: ");
     logstr(tbuf);
   }
   logstr("\nWorking directory: ");
@@ -13147,9 +13221,6 @@ int32_t main(int32_t argc, char** argv) {
     break;
   main_ret_READ_FAIL:
     retval = RET_READ_FAIL;
-    break;
-  main_ret_INVALID_FORMAT:
-    retval = RET_INVALID_FORMAT;
     break;
   main_ret_INVALID_CMDLINE_UNRECOGNIZED:
     invalid_arg(argv[cur_arg]);
