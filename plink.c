@@ -2400,15 +2400,17 @@ int32_t rerun(uint32_t rerun_argv_pos, uint32_t rerun_parameter_present, int32_t
   // caller is responsible for freeing rerun_buf
   char** argv = *argv_ptr;
   FILE* rerunfile = fopen(rerun_parameter_present? argv[rerun_argv_pos + 1] : (PROG_NAME_STR ".log"), "r");
-  uintptr_t line_idx = 0;
+  uintptr_t line_idx = 1;
   char** subst_argv2 = NULL;
   uint32_t argc = (uint32_t)(*argc_ptr);
   uint32_t cur_arg = *cur_arg_ptr;
   int32_t retval = 0;
   char* rerun_buf;
+  char* rerun_start_ptr;
   char* sptr;
   char* argptr;
   char* argptr2;
+  char* load_ptr;
   uint32_t line_byte_ct;
   uint32_t loaded_arg_ct;
   uint32_t duplicate_ct;
@@ -2427,7 +2429,6 @@ int32_t rerun(uint32_t rerun_argv_pos, uint32_t rerun_parameter_present, int32_t
     fputs("Error: Empty log file for --rerun.\n", stdout);
     goto rerun_ret_INVALID_FORMAT;
   }
-  ++line_idx;
   if (!tbuf[MAXLINELEN - 1]) {
     goto rerun_ret_LONG_LINE;
   }
@@ -2436,7 +2437,7 @@ int32_t rerun(uint32_t rerun_argv_pos, uint32_t rerun_parameter_present, int32_t
     fputs("Error: Only one line in --rerun log file.\n", stdout);
     goto rerun_ret_INVALID_FORMAT;
   }
-  ++line_idx;
+  line_idx++;
   if (!tbuf[MAXLINELEN - 1]) {
     goto rerun_ret_LONG_LINE;
   }
@@ -2455,94 +2456,137 @@ int32_t rerun(uint32_t rerun_argv_pos, uint32_t rerun_parameter_present, int32_t
     }
     *rerun_buf_ptr = rerun_buf;
     memcpy(rerun_buf, tbuf, line_byte_ct);
-
-    // now use tbuf as a lame bitfield
-    memset(tbuf, 1, loaded_arg_ct);
-
     // skip "xx arguments: ", to get to the first flag
-    sptr = next_token_mult(rerun_buf, 2);
-
-    loaded_arg_idx = 0;
-    duplicate_ct = 0;
-    do {
-      if (no_more_tokens_kns(sptr)) {
+    rerun_start_ptr = next_token_mult(rerun_buf, 2);
+  } else {
+    // Current, and also PLINK 1.07, "Options in effect:"
+    while (memcmp(tbuf, "Options in effect:", 18) || (tbuf[18] >= ' ')) {
+      line_idx++;
+      if (!fgets(tbuf, MAXLINELEN, rerunfile)) {
 	print_ver();
-	fputs("Error: Line 2 of --rerun log file has fewer tokens than expected.\n", stdout);
+	fputs("Error: Invalid log file for --rerun.\n", stdout);
 	goto rerun_ret_INVALID_FORMAT;
       }
-      argptr = is_flag_start(sptr);
-      if (argptr) {
-	slen = strlen_se(argptr);
-	for (cmdline_arg_idx = cur_arg; cmdline_arg_idx < argc; cmdline_arg_idx++) {
-	  argptr2 = is_flag_start(argv[cmdline_arg_idx]);
-	  if (argptr2) {
-	    slen2 = strlen(argptr2);
-	    if ((slen == slen2) && (!memcmp(argptr, argptr2, slen))) {
-	      cmdline_arg_idx = 0xffffffffU;
-	      break;
-	    }
+    }
+    load_ptr = tbuf;
+    loaded_arg_ct = 0;
+    // We load each of the option lines in sequence into tbuf, always
+    // overwriting the previous line's newline.  (Note that tbuf[] has
+    // size > 2 * MAXLINELEN; this lets us avoid additional dynamic memory
+    // allocation as long as we impose the constraint that all lines combined
+    // add up to less than MAXLINELEN bytes.)
+    while (1) {
+      load_ptr[MAXLINELEN - 1] = ' ';
+      if (!fgets(load_ptr, MAXLINELEN, rerunfile)) {
+	break;
+      }
+      line_idx++;
+      if (!tbuf[MAXLINELEN - 1]) {
+	goto rerun_ret_LONG_LINE;
+      }
+      sptr = skip_initial_spaces(load_ptr);
+      if (is_eoln_kns(*sptr)) {
+	*load_ptr = '\0';
+	break;
+      }
+      do {
+	argptr = token_endnn(sptr);
+	loaded_arg_ct++;
+        sptr = skip_initial_spaces(argptr);
+      } while (!is_eoln_kns(*sptr));
+      load_ptr = argptr;
+      if (load_ptr >= &(tbuf[MAXLINELEN])) {
+	print_ver();
+	fputs("Error: --rerun argument sequence too long.\n", stdout);
+	goto rerun_ret_INVALID_FORMAT;
+      }
+    }
+    fclose_null(&rerunfile);
+    line_byte_ct = 1 + (uintptr_t)(load_ptr - tbuf);
+    rerun_buf = (char*)malloc(line_byte_ct);
+    if (!rerun_buf) {
+      goto rerun_ret_NOMEM;
+    }
+    rerun_buf = (char*)malloc(1 + ((uintptr_t)(load_ptr - tbuf)));
+    memcpy(rerun_buf, tbuf, line_byte_ct);
+    rerun_start_ptr = skip_initial_spaces(rerun_buf);
+  }
+  sptr = rerun_start_ptr;
+
+  // now use tbuf as a lame bitfield
+  memset(tbuf, 1, loaded_arg_ct);
+  loaded_arg_idx = 0;
+  duplicate_ct = 0;
+  do {
+    if (no_more_tokens_kns(sptr)) {
+      print_ver();
+      fputs("Error: Line 2 of --rerun log file has fewer tokens than expected.\n", stdout);
+      goto rerun_ret_INVALID_FORMAT;
+    }
+    argptr = is_flag_start(sptr);
+    if (argptr) {
+      slen = strlen_se(argptr);
+      for (cmdline_arg_idx = cur_arg; cmdline_arg_idx < argc; cmdline_arg_idx++) {
+	argptr2 = is_flag_start(argv[cmdline_arg_idx]);
+	if (argptr2) {
+	  slen2 = strlen(argptr2);
+	  if ((slen == slen2) && (!memcmp(argptr, argptr2, slen))) {
+	    cmdline_arg_idx = 0xffffffffU;
+	    break;
 	  }
 	}
-	if (cmdline_arg_idx == 0xffffffffU) {
-	  // matching flag, override --rerun
-	  do {
-	    duplicate_ct++;
-	    tbuf[loaded_arg_idx++] = 0;
-	    if (loaded_arg_idx == loaded_arg_ct) {
-	      break;
-	    }
-	    sptr = next_token(sptr);
-	  } while (!is_flag(sptr));
-	} else {
-	  loaded_arg_idx++;
+      }
+      if (cmdline_arg_idx == 0xffffffffU) {
+	// matching flag, override --rerun
+	do {
+	  duplicate_ct++;
+	  tbuf[loaded_arg_idx++] = 0;
+	  if (loaded_arg_idx == loaded_arg_ct) {
+	    break;
+	  }
 	  sptr = next_token(sptr);
-	}
+	} while (!is_flag(sptr));
       } else {
 	loaded_arg_idx++;
 	sptr = next_token(sptr);
       }
-    } while (loaded_arg_idx < loaded_arg_ct);
-    subst_argv2 = (char**)malloc((argc + loaded_arg_ct - duplicate_ct - rerun_parameter_present - 1 - cur_arg) * sizeof(char*));
-    if (!subst_argv2) {
-      goto rerun_ret_NOMEM;
+    } else {
+      loaded_arg_idx++;
+      sptr = next_token(sptr);
     }
-    new_arg_idx = 0;
-    for (cmdline_arg_idx = cur_arg; cmdline_arg_idx < rerun_argv_pos; cmdline_arg_idx++) {
-      subst_argv2[new_arg_idx++] = argv[cmdline_arg_idx];
-    }
-    sptr = next_token_mult(rerun_buf, 2);
-    for (loaded_arg_idx = 0; loaded_arg_idx < loaded_arg_ct; loaded_arg_idx++) {
-      if (tbuf[loaded_arg_idx]) {
-	slen = strlen_se(sptr);
-	subst_argv2[new_arg_idx++] = sptr;
-	sptr[slen] = '\0';
-	if (loaded_arg_idx != loaded_arg_ct - 1) {
-	  sptr = skip_initial_spaces(&(sptr[slen + 1]));
-	}
-      } else {
-	sptr = next_token(sptr);
-      }
-    }
-    for (cmdline_arg_idx = rerun_argv_pos + rerun_parameter_present + 1; cmdline_arg_idx < argc; cmdline_arg_idx++) {
-      subst_argv2[new_arg_idx++] = argv[cmdline_arg_idx];
-    }
-    *cur_arg_ptr = 0;
-    *argc_ptr = new_arg_idx;
-    if (*subst_argv_ptr) {
-      free(*subst_argv_ptr);
-    }
-    *subst_argv_ptr = subst_argv2;
-    *argv_ptr = subst_argv2;
-    subst_argv2 = NULL;
-  } else {
-    // Current, and also PLINK 1.07, "Options in effect:"
-    while (memcmp(tbuf, "Options in effect:", 18) || (tbuf[18] >= ' ')) {
-      if (!fgets(tbuf, MAXLINELEN, rerunfile)) {
-	goto rerun_ret_LONG_LINE;
-      }
-    }
-    // todo
+  } while (loaded_arg_idx < loaded_arg_ct);
+  subst_argv2 = (char**)malloc((argc + loaded_arg_ct - duplicate_ct - rerun_parameter_present - 1 - cur_arg) * sizeof(char*));
+  if (!subst_argv2) {
+    goto rerun_ret_NOMEM;
   }
+  new_arg_idx = 0;
+  for (cmdline_arg_idx = cur_arg; cmdline_arg_idx < rerun_argv_pos; cmdline_arg_idx++) {
+    subst_argv2[new_arg_idx++] = argv[cmdline_arg_idx];
+  }
+  sptr = rerun_start_ptr;
+  for (loaded_arg_idx = 0; loaded_arg_idx < loaded_arg_ct; loaded_arg_idx++) {
+    if (tbuf[loaded_arg_idx]) {
+      slen = strlen_se(sptr);
+      subst_argv2[new_arg_idx++] = sptr;
+      sptr[slen] = '\0';
+      if (loaded_arg_idx != loaded_arg_ct - 1) {
+	sptr = skip_initial_spaces(&(sptr[slen + 1]));
+      }
+    } else {
+      sptr = next_token(sptr);
+    }
+  }
+  for (cmdline_arg_idx = rerun_argv_pos + rerun_parameter_present + 1; cmdline_arg_idx < argc; cmdline_arg_idx++) {
+    subst_argv2[new_arg_idx++] = argv[cmdline_arg_idx];
+  }
+  *cur_arg_ptr = 0;
+  *argc_ptr = new_arg_idx;
+  if (*subst_argv_ptr) {
+    free(*subst_argv_ptr);
+  }
+  *subst_argv_ptr = subst_argv2;
+  *argv_ptr = subst_argv2;
+  subst_argv2 = NULL;
   while (0) {
   rerun_ret_NOMEM:
     print_ver();
