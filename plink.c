@@ -103,7 +103,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (6 May 2015)";
+  " (7 May 2015)";
 const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -11518,6 +11518,10 @@ int32_t main(int32_t argc, char** argv) {
 	if (load_params || (load_rare & (~(LOAD_RARE_TRANSPOSE | LOAD_RARE_TFAM)))) {
 	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
 	}
+	if (!(load_rare & (LOAD_RARE_TRANSPOSE | LOAD_RARE_TFAM))) {
+	  logprint("Error: --tped must be used with --tfam or --tfile.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -13018,6 +13022,10 @@ int32_t main(int32_t argc, char** argv) {
   uii = load_params & LOAD_PARAMS_OX_ALL;
   if ((uii == LOAD_PARAMS_OXGEN) || (uii == LOAD_PARAMS_OXBGEN)) {
     logprint("Error: --gen/--bgen cannot be used without --data or --sample.\n");
+    goto main_ret_INVALID_CMDLINE_A;
+  }
+  if ((load_params & LOAD_RARE_TFAM) && (!(load_params & (LOAD_RARE_TRANSPOSE | LOAD_RARE_TPED)))) {
+    logprint("Error: --tfam must be used with --tfile or --tped.\n");
     goto main_ret_INVALID_CMDLINE_A;
   }
   if ((merge_type & MERGE_EQUAL_POS) && (!(calculation_type & CALC_MERGE))) {

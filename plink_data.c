@@ -7147,9 +7147,6 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     goto transposed_to_bed_ret_NOMEM;
   }
 
-  logstr("Processing .tped file.\n");
-  transposed_to_bed_print_pct(0);
-  fflush(stdout);
   if (fopen_checked(&infile, tfamname, "r")) {
     goto transposed_to_bed_ret_OPEN_FAIL;
   }
@@ -7222,6 +7219,9 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   if (fseeko(infile, 0, SEEK_END)) {
     goto transposed_to_bed_ret_READ_FAIL;
   }
+  logstr("Processing .tped file.\n");
+  transposed_to_bed_print_pct(0);
+  fflush(stdout);
   tped_size = ftello(infile);
   rewind(infile);
   tped_next_thresh = tped_size / 100;
