@@ -15,7 +15,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define PROG_NAME_STR "plink"
 #define PROG_NAME_CAPS "PLINK"
@@ -1970,6 +1970,8 @@ int32_t double_cmp_deref(const void* aa, const void* bb);
 int32_t char_cmp_deref(const void* aa, const void* bb);
 
 int32_t intcmp(const void* aa, const void* bb);
+
+int32_t uintcmp(const void* aa, const void* bb);
 
 #ifndef __cplusplus
 int32_t intcmp2(const void* aa, const void* bb);

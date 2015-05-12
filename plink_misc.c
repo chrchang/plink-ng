@@ -4828,10 +4828,10 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
   }
 #ifdef __cplusplus
   // suppress bogus gcc 4.4 warning, this is not performance-critical
-  qsort((int32_t*)parse_table, token_ct, sizeof(int32_t), intcmp);
+  qsort(parse_table, token_ct, sizeof(int32_t), uintcmp);
   // std::sort(parse_table, &(parse_table[token_ct]));
 #else
-  qsort((int32_t*)parse_table, token_ct, sizeof(int32_t), intcmp);
+  qsort(parse_table, token_ct, sizeof(int32_t), uintcmp);
 #endif
   // bugfix: this caused a segfault in no-map case
   if ((!weighted_z) && (token_ct > 5)) {

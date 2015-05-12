@@ -4770,6 +4770,14 @@ int32_t intcmp(const void* aa, const void* bb) {
   return *((const int32_t*)aa) - *((const int32_t*)bb);
 }
 
+int32_t uintcmp(const void* aa, const void* bb) {
+  if (*((const uint32_t*)aa) < *((const uint32_t*)bb)) {
+    return -1;
+  } else {
+    return (*((const uint32_t*)aa) > *((const uint32_t*)bb));
+  }
+}
+
 int32_t intcmp2(const void* aa, const void* bb) {
   if (*((const int32_t*)aa) < *((const int32_t*)bb)) {
     return -1;
