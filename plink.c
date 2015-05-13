@@ -103,7 +103,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (11 May 2015)";
+  " (12 May 2015)";
 const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -9650,7 +9650,7 @@ int32_t main(int32_t argc, char** argv) {
 	} else if ((rel_info.modifier & REL_CALC_SHAPEMASK) == REL_CALC_SQ) {
 	  logprint("Error: --parallel cannot be used with '--make-rel square'.  Use '--make-rel\nsquare0' or plain '--make-rel' instead.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
-	} else if ((rel_info.modifier & (REL_CALC_BIN | REL_CALC_BIN4)) && (!(rel_info.modifier & REL_CALC_SHAPEMASK))) {
+	} else if ((rel_info.modifier & (REL_CALC_BIN | REL_CALC_BIN4)) && (!(rel_info.modifier & (REL_CALC_SHAPEMASK | REL_CALC_GRM_BIN)))) {
 	  logprint("Error: --parallel cannot be used with plain '--make-rel bin{4}'.  Use e.g.\n'--make-rel bin square0' or '--make-rel bin triangle' instead.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (calculation_type & CALC_PLINK1_DISTANCE_MATRIX) {
