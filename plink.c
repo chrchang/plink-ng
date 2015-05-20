@@ -103,7 +103,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (12 May 2015)";
+  " (20 May 2015)";
 const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -13024,7 +13024,7 @@ int32_t main(int32_t argc, char** argv) {
     logprint("Error: --gen/--bgen cannot be used without --data or --sample.\n");
     goto main_ret_INVALID_CMDLINE_A;
   }
-  if ((load_params & LOAD_RARE_TFAM) && (!(load_params & (LOAD_RARE_TRANSPOSE | LOAD_RARE_TPED)))) {
+  if ((load_rare & LOAD_RARE_TFAM) && (!(load_rare & (LOAD_RARE_TRANSPOSE | LOAD_RARE_TPED)))) {
     logprint("Error: --tfam must be used with --tfile or --tped.\n");
     goto main_ret_INVALID_CMDLINE_A;
   }
