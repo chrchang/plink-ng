@@ -7642,8 +7642,6 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	wptr = memcpyl3a(tbuf, "CHR");
 	*wptr++ = delimiter;
 	wptr = memcpyl3a(wptr, "VAR");
-	*wptr++ = delimiter;
-	wptr = memcpya(wptr, "A1", 2);
 	for (pc_idx = 1; pc_idx <= pc_ct; pc_idx++) {
 	  *wptr++ = delimiter;
 	  wptr = memcpya(wptr, "PC", 2);
