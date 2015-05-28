@@ -8216,7 +8216,8 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       bufptr2 = bufptr;
       do {
 	cc = *(++bufptr);
-      } while ((unsigned char)cc > ',');
+	// allow GATK 3.4 <*:DEL> symbolic allele
+      } while (((unsigned char)cc > ',') || (cc == '*'));
       if (((uintptr_t)(bufptr - bufptr2) == ref_allele_len) && (!memcmp(ref_allele_ptr, bufptr2, ref_allele_len))) {
 	if ((alt_ct != 1) || (cc == ',')) {
 	  sprintf(logbuf, "\nError: ALT allele duplicates REF allele on line %" PRIuPTR " of .vcf file.\n", line_idx);
