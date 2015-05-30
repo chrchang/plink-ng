@@ -5825,7 +5825,19 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	}
 	bufptr2++;
 	if (*bufptr2) {
-	  fputs_w4(bufptr2, outfile);
+	  // bugfix: fputs_w4 does the wrong thing for 4+ character alleles.
+	  // instead, we want a leading space, then fputs_w3.
+	  if (!bufptr2[1]) {
+	    fputs("   ", outfile);
+	    putc(bufptr2[0], outfile);
+	  } else if (!bufptr2[2]) {
+	    fputs("  ", outfile);
+	    putc(bufptr2[0], outfile);
+	    putc(bufptr2[1], outfile);
+	  } else {
+	    putc(' ', outfile);
+	    fputs(bufptr2, outfile);
+	  }
 	} else {
 	  fputs("   ?", outfile);
 	}
