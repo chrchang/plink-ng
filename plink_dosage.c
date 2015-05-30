@@ -576,6 +576,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uint32_t score_report_average = doip->modifier & DOSAGE_SCORE_NOSUM;
   uint32_t dosage_score_cnt = doip->modifier & DOSAGE_SCORE_CNT;
   uint32_t sex_covar = doip->modifier & DOSAGE_SEX;
+  uint32_t frq2 = doip->modifier & DOSAGE_FRQ2;
   uint32_t skip0 = doip->skip0;
   uint32_t skip1p1 = doip->skip1 + 1;
   uint32_t skip2 = doip->skip2;
@@ -1373,6 +1374,10 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       goto plink1_dosage_ret_1;
     }
   }
+  if (frq2 && ((!do_glm) || pheno_d)) {
+    logprint("Error: --dosage 'frq2' modifier must be used with a case-control association\nanalysis.\n");
+    goto plink1_dosage_ret_INVALID_CMDLINE;
+  }
   if (do_glm) {
     if (!sample_exclude_ct) {
       pheno_nm_collapsed = pheno_nm;
@@ -1470,7 +1475,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     } else {
       bufptr = memcpya(tbuf, "         SNP", 12);
     }
-    bufptr = memcpya(bufptr, "  A1  A2     FRQ    INFO    ", 28);
+    bufptr = memcpya(bufptr, frq2? "  A1  A2   FRQ_A   FRQ_U    INFO    " : "  A1  A2     FRQ    INFO    ", frq2? 36 : 28);
     bufptr = memcpya(bufptr, pheno_c? "  OR" : "BETA", 4);
     bufptr = memcpya(bufptr, "      SE       P", 16);
     append_binary_eoln(&bufptr);
@@ -1936,15 +1941,40 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    goto plink1_dosage_ret_WRITE_FAIL;
 	  }
 	  *pzwritep++ = ' ';
-          pzwritep = double_f_writew74(pzwritep, dzz);
+	  if (!frq2) {
+            pzwritep = double_f_writew74(pzwritep, dzz);
+	  } else {
+	    // compute case and control A1 frequencies
+	    dxx = 0.0; // case sum
+	    dyy = 0.0; // control sum
+	    uii = 0;
+	    for (sample_idx = 0, sample_uidx = 0; sample_idx < sample_valid_ct; sample_idx++, sample_uidx++) {
+	      next_set_unsafe_ck(cur_samples, &sample_uidx);
+	      dzz = cur_dosages[sample_uidx];
+	      if (is_set(pheno_c_collapsed, sample_uidx)) {
+		dxx += dzz;
+		uii++; // could also use a popcount
+	      } else {
+		dyy += dzz;
+	      }
+	    }
+	    if (uii) {
+	      pzwritep = double_f_writew74x(pzwritep, dxx / ((double)((int32_t)uii)), ' ');
+	    } else {
+	      pzwritep = memcpya(pzwritep, "     NA ", 8);
+	    }
+	    uii = sample_valid_ct - uii;
+	    if (uii) {
+	      pzwritep = double_f_writew74(pzwritep, dyy / ((double)((int32_t)uii)));
+	    } else {
+	      pzwritep = memcpya(pzwritep, "     NA", 7);
+	    }
+	  }
 	  *pzwritep++ = ' ';
-	  pzwritep = double_f_writew74(pzwritep, rsq);
-	  *pzwritep++ = ' ';
+	  pzwritep = double_f_writew74x(pzwritep, rsq, ' ');
 	  if (is_valid) {
-	    pzwritep = double_f_writew74(pzwritep, pheno_c? exp(beta * 0.5) : (beta * 0.5));
-	    *pzwritep++ = ' ';
-	    pzwritep = double_f_writew74(pzwritep, se * 0.5);
-	    *pzwritep++ = ' ';
+	    pzwritep = double_f_writew74x(pzwritep, pheno_c? exp(beta * 0.5) : (beta * 0.5), ' ');
+	    pzwritep = double_f_writew74x(pzwritep, se * 0.5, ' ');
 	    pzwritep = double_g_writewx4(pzwritep, MAXV(pval, output_min_p), 7);
 	  } else {
 	    pzwritep = memcpya(pzwritep, "     NA      NA      NA", 23);

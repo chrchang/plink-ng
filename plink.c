@@ -6183,7 +6183,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --dosage does not support --condition/--condition-list.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 12)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 13)) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
 	retval = alloc_fname(&dosage_info.fname, argv[cur_arg + 1], argptr, 0);
@@ -6206,6 +6206,11 @@ int32_t main(int32_t argc, char** argv) {
 	    dosage_info.modifier |= DOSAGE_OCCUR;
 	  } else if (!strcmp(argv[cur_arg + uii], "sex")) {
 	    dosage_info.modifier |= DOSAGE_SEX;
+	  } else if (!strcmp(argv[cur_arg + uii], "frq2")) {
+	    // FRQ_A and FRQ_U fields in association report, instead of just
+	    // FRQ.  Not documented yet since interface is subject to change.
+	    UNSTABLE("dosage frq2");
+	    dosage_info.modifier |= DOSAGE_FRQ2;
 	  } else if (strlen(argv[cur_arg + uii]) <= 6) {
 	    goto main_dosage_invalid_param;
 	  } else if (!strcmp(argv[cur_arg + uii], "sepheader")) {
