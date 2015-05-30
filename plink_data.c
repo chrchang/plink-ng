@@ -14,7 +14,9 @@
 #include <sys/types.h>
 #include "plink_family.h"
 #include "plink_set.h"
+
 #include "bgzf.h"
+#include "pigz.h"
 
 #define PHENO_EPSILON 0.000030517578125
 
@@ -11657,6 +11659,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   BGZF* bgz_outfile = NULL;
+  char* pzwritep = NULL;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t sample_ctv2 = 2 * ((sample_ct + (BITCT - 1)) / BITCT);
@@ -11668,6 +11671,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   char** mk_allele_ptrs = marker_allele_ptrs;
   char** allele_missing = NULL;
   char* recode_allele_extra = NULL;
+  unsigned char* overflow_buf = NULL;
   const char* missing_geno_ptr = g_missing_geno_ptr;
   char delim2 = delimiter;
   uintptr_t* sample_include2 = NULL;
@@ -11679,6 +11683,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   uint32_t vcf_not_iid = (recode_modifier & RECODE_VCF) && (!(recode_modifier & RECODE_IID));
   uint32_t vcf_two_ids = vcf_not_fid && vcf_not_iid;
   uint32_t output_bgz = (recode_modifier / RECODE_BGZ) & 1;
+  uint32_t output_gen_gz = (recode_modifier / RECODE_GEN_GZ) & 1;
   uint32_t recode_012 = recode_modifier & (RECODE_01 | RECODE_12);
   uint32_t set_hh_missing = (misc_flags / MISC_SET_HH_MISSING) & 1;
   uint32_t real_ref_alleles = (misc_flags / MISC_REAL_REF_ALLELES) & 1;
@@ -11709,6 +11714,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   char* cur_mk_allelesx[6];
   char cur_dosage_chars[4];
   uint32_t cmalen[4];
+  Pigz_state ps;
   time_t rawtime;
   struct tm *loctime;
   uint32_t is_x;
@@ -11752,6 +11758,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   uint32_t cur_fid;
   uint32_t uii;
   int32_t ii;
+  pzwrite_init_null(&ps);
   if (!hh_exists) {
     set_hh_missing = 0;
   }
@@ -11806,7 +11813,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       goto recode_ret_NOMEM;
     }
   } else if (recode_modifier & RECODE_OXFORD) {
-    if (wkspace_alloc_c_checked(&writebuf, sample_ct * 6) ||
+    if (wkspace_alloc_uc_checked(&overflow_buf, PIGZ_BLOCK_SIZE + sample_ct * 6 + 2 * max_marker_allele_len + MAXLINELEN) ||
         wkspace_alloc_ui_checked(&missing_cts, sample_ct * sizeof(int32_t))) {
       goto recode_ret_NOMEM;
     }
@@ -12649,12 +12656,13 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       bgz_outfile = NULL;
     }
   } else if (recode_modifier & RECODE_OXFORD) {
-    memcpy(outname_end, ".gen", 5);
-    if (fopen_checked(&outfile, outname, "w")) {
+    memcpy(outname_end, output_gen_gz? ".gen.gz" : ".gen", output_gen_gz? 8 : 5);
+    if (flex_pzwrite_init(output_gen_gz, outname, overflow_buf, 0, &ps)) {
       goto recode_ret_OPEN_FAIL;
     }
     *outname_end = '\0';
-    LOGPRINTFWW5("--recode oxford to %s.gen + %s.sample ... ", outname, outname);
+    LOGPRINTFWW5("--recode oxford to %s.gen%s + %s.sample ... ", outname, output_gen_gz? ".gz" : "", outname);
+    pzwritep = (char*)overflow_buf;
     fputs("0%", stdout);
     fflush(stdout);
     for (pct = 1; pct <= 100; pct++) {
@@ -12673,24 +12681,18 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  // not clear from documentation whether anything special should be
 	  // done for Y/haploid chromosomes
 	}
-        wbufptr = chrom_name_write(tbuf, chrom_info_ptr, chrom_idx);
-        *wbufptr++ = ' ';
-        wbufptr = strcpyax(wbufptr, &(marker_ids[marker_uidx * max_marker_id_len]), ' ');
-        wbufptr = uint32_writex(wbufptr, marker_pos[marker_uidx], ' ');
-        if (fwrite_checked(tbuf, wbufptr - tbuf, outfile)) {
-          goto recode_ret_WRITE_FAIL;
-	}
-        fputs(mk_allele_ptrs[2 * marker_uidx], outfile);
-	putc(' ', outfile);
-        fputs(mk_allele_ptrs[2 * marker_uidx + 1], outfile);
-
+	pzwritep = chrom_name_write(pzwritep, chrom_info_ptr, chrom_idx);
+	*pzwritep++ = ' ';
+	pzwritep = strcpyax(pzwritep, &(marker_ids[marker_uidx * max_marker_id_len]), ' ');
+	pzwritep = uint32_writex(pzwritep, marker_pos[marker_uidx], ' ');
+	pzwritep = strcpyax(pzwritep, mk_allele_ptrs[2 * marker_uidx], ' ');
+	pzwritep = strcpya(pzwritep, mk_allele_ptrs[2 * marker_uidx + 1]);
 	if (load_and_collapse(bedfile, (uintptr_t*)loadbuf, unfiltered_sample_ct, loadbuf_collapsed, sample_ct, sample_exclude, final_mask, IS_SET(marker_reverse, marker_uidx))) {
 	  goto recode_ret_READ_FAIL;
 	}
 	if (is_haploid && set_hh_missing) {
 	  haploid_fix(hh_exists, sample_include2, sample_male_include2, sample_ct, is_x, is_y, (unsigned char*)loadbuf_collapsed);
 	}
-	wbufptr = writebuf;
 	ulptr = loadbuf_collapsed;
 	ulptr_end = &(loadbuf_collapsed[sample_ct / BITCT2]);
 	sample_idx = 0;
@@ -12703,7 +12705,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	      if (ulii == 1) {
                 missing_cts[sample_idx] += 1;
 	      }
-	      wbufptr = memcpya(wbufptr, &(cur_mk_allelesx_buf[ulii * 8]), 6);
+	      pzwritep = memcpya(pzwritep, &(cur_mk_allelesx_buf[ulii * 8]), 6);
 	    }
 	    sample_uidx += BITCT2;
 	  }
@@ -12713,10 +12715,10 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  ulptr_end++;
 	  sample_uidx = sample_ct;
 	}
-	if (fwrite_checked(writebuf, wbufptr - writebuf, outfile)) {
+	append_binary_eoln(&pzwritep);
+	if (flex_pzwrite(&ps, &pzwritep)) {
 	  goto recode_ret_WRITE_FAIL;
 	}
-        putc('\n', outfile);
       }
       if (pct < 100) {
 	if (pct > 10) {
@@ -12726,7 +12728,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	fflush(stdout);
       }
     }
-    if (fclose_null(&outfile)) {
+    if (flex_pzwrite_close_null(&ps, pzwritep)) {
       goto recode_ret_WRITE_FAIL;
     }
     memcpy(outname_end, ".sample", 8);
@@ -13949,6 +13951,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   if (bgz_outfile) {
     bgzf_close(bgz_outfile);
   }
+  flex_pzwrite_close_cond(&ps, pzwritep);
   return retval;
 }
 
