@@ -12661,7 +12661,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       goto recode_ret_OPEN_FAIL;
     }
     *outname_end = '\0';
-    LOGPRINTFWW5("--recode oxford to %s.gen%s + %s.sample ... ", outname, output_gen_gz? ".gz" : "", outname);
+    LOGPRINTFWW5("--recode oxford%s to %s.gen%s + %s.sample ... ", output_gen_gz? " gen-gz" : "", outname, output_gen_gz? ".gz" : "", outname);
     pzwritep = (char*)overflow_buf;
     fputs("0%", stdout);
     fflush(stdout);
