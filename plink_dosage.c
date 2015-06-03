@@ -1374,8 +1374,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       goto plink1_dosage_ret_1;
     }
   }
-  if (frq2 && ((!do_glm) || pheno_d)) {
-    logprint("Error: --dosage 'frq2' modifier must be used with a case-control association\nanalysis.\n");
+  if (frq2 && (!do_glm)) {
+    logprint("Error: --dosage 'frq2' modifier can only be used in association analysis mode.\n");
     goto plink1_dosage_ret_INVALID_CMDLINE;
   }
   if (do_glm) {
@@ -1689,6 +1689,12 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       file_icts[file_idx] = read_idx - read_idx_start;
       line_idx_arr[file_idx] = line_idx;
     }
+    if ((batch_ct == 1) && (!noheader)) {
+      ulii = sample_ct - popcount_longs(batch_samples, sample_ctl);
+      if (ulii) {
+	LOGPRINTFWW("Warning: %" PRIuPTR " sample ID%s present in .fam file but missing from dosage file%s.\n", ulii, (ulii == 1)? "" : "s", (cur_batch_size == 1)? "" : "s");
+      }
+    }
 
     while (1) {
       read_idx_start = 0;
@@ -1941,9 +1947,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    goto plink1_dosage_ret_WRITE_FAIL;
 	  }
 	  *pzwritep++ = ' ';
-	  if (!frq2) {
-            pzwritep = double_f_writew74(pzwritep, dzz);
-	  } else {
+	  if (frq2 && pheno_c) {
 	    // compute case and control A1 frequencies
 	    dxx = 0.0; // case sum
 	    dyy = 0.0; // control sum
@@ -1968,6 +1972,13 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	      pzwritep = double_f_writew74(pzwritep, dyy / ((double)((int32_t)uii)));
 	    } else {
 	      pzwritep = memcpya(pzwritep, "     NA", 7);
+	    }
+	  } else {
+            pzwritep = double_f_writew74(pzwritep, dzz);
+	    // remove this kludge once scripts stop depending on it
+	    if (frq2) {
+	      *pzwritep++ = ' ';
+	      pzwritep = double_f_writew74(pzwritep, dzz);
 	    }
 	  }
 	  *pzwritep++ = ' ';
