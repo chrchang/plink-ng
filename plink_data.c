@@ -4612,8 +4612,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     if (fopen_checked(&infile, genname, "rb")) {
       goto oxford_to_bed_ret_OPEN_FAIL;
     }
-    // supports BGEN v1.0 and v1.1.  (online documentation seems to have
-    // several errors as of this writing, ugh)
+    // supports BGEN v1.0 and v1.1.
     bgen_probs = (uint16_t*)wkspace_alloc(6 * sample_ct);
     if (!bgen_probs) {
       goto oxford_to_bed_ret_NOMEM;
@@ -4642,6 +4641,10 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
       logprint("Error: --bgen and --sample files contain different numbers of samples.\n");
       goto oxford_to_bed_ret_INVALID_FORMAT;
     }
+    if (uint_arr[4] && (uint_arr[4] != 0x6e656762)) {
+      logprint("Error: Invalid .bgen magic number.\n");
+      goto oxford_to_bed_ret_INVALID_FORMAT;
+    }
     if (fseeko(infile, uint_arr[1], SEEK_SET)) {
       goto oxford_to_bed_ret_READ_FAIL;
     }
@@ -4649,7 +4652,14 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
       goto oxford_to_bed_ret_READ_FAIL;
     }
     if (uii & (~5)) {
-      logprint("Error: Unrecognized flags in .bgen header.  (This PLINK build only supports\nBGEN v1.0 and v1.1.)\n");
+      uii = (uii >> 2) & 15;
+      if (uii == 2) {
+	logprint("Error: BGEN v1.2 input requires PLINK 2.0 (under development as of this\nwriting).  Use gen-convert to downcode to BGEN v1.1 if you want to process this\ndata with PLINK 1.9.\n");
+      } else if (uii > 2) {
+	logprint("Error: Unrecognized BGEN version.  Use gen-convert or a similar tool to\ndowncode to BGEN v1.1 if you want to process this data with PLINK 1.9.\n");
+      } else {
+        logprint("Error: Unrecognized flags in .bgen header.  (PLINK 1.9 only supports\nBGEN v1.0 and v1.1.)\n");
+      }
       goto oxford_to_bed_ret_INVALID_FORMAT;
     }
     if (fseeko(infile, 4 + uint_arr[0], SEEK_SET)) {

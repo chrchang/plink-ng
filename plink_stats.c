@@ -326,13 +326,13 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
   // - Sum the *relative* likelihoods of more likely smaller het counts.
   // - Determine the minimum tail mass to pass the threshold.
   // - The majority of the time, the tail boundary elements are enough to pass
-  // the threshold; we never need to sum the remainder of the tails.
+  //   the threshold; we never need to sum the remainder of the tails.
   // - And in the case of disequilibrium, we will often be able to immediately
-  // determine that the tail sum cannot possibly pass the threshold, just by
-  // looking at the tail boundary elements and using a geometric series to
-  // upper-bound the tail sums.
+  //   determine that the tail sum cannot possibly pass the threshold, just by
+  //   looking at the tail boundary elements and using a geometric series to
+  //   upper-bound the tail sums.
   // - Only when neither of these conditions hold do we start traveling down
-  // the tails.
+  //   the tails.
   intptr_t obs_homc;
   intptr_t obs_homr;
   if (obs_hom1 < obs_hom2) {
