@@ -2924,28 +2924,18 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
   double grand_mean = 0.0;
   uintptr_t ulii = 0;
   int32_t retval = 0;
-  char jobz = 'V';
-  char range = 'I';
-  char uplo = 'U';
-  double nz = 0.0;
-  double zz = -1.0;
+  char jobz = 'A';
   __CLPK_integer info = 0;
   __CLPK_integer lwork = -1;
-  __CLPK_integer liwork = -1;
   __CLPK_integer mdim;
-  __CLPK_integer i1;
-  __CLPK_integer i2;
-  __CLPK_integer out_m;
-  __CLPK_integer ldz;
-  __CLPK_integer optim_liwork;
   __CLPK_integer* iwork;
-  __CLPK_integer* isuppz;
   double* work;
   double optim_lwork;
   double* main_matrix;
   double* column_means;
-  double* out_w;
-  double* out_z;
+  double* sqrt_eigvals;
+  double* out_u;
+  double* out_v;
   uint32_t* final_cluster_remap;
   uint32_t* final_cluster_sizes;
   double* dptr;
@@ -2960,7 +2950,6 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
   uint32_t ujj;
   double dxx;
   double dyy;
-  double* sqrt_eigvals;
   final_cluster_remap = (uint32_t*)malloc(cur_cluster_ct * sizeof(int32_t));
   if (!final_cluster_remap) {
     goto mds_plot_ret_NOMEM;
@@ -3013,7 +3002,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
     if (wkspace_alloc_d_checked(&main_matrix, sample_ct * sample_ct * sizeof(double))) {
       goto mds_plot_ret_NOMEM;
     }
-    // expand triangular diagonal-free matrix to square matrix
+    // expand triangular diagonal-free matrix to bottom-left of square matrix
     ulii = ((sample_ct - 1) * (sample_ct - 2)) >> 1;
     for (sample_idx = sample_ct - 1; sample_idx;) {
       memcpy(&(main_matrix[sample_idx * sample_ct]), &(main_matrix[ulii]), sample_idx * sizeof(double));
@@ -3031,7 +3020,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
   fill_double_zero(column_means, ulii);
   // bottom left filled with IBS values.  Now subtract them from 1 and square
   // them, and extract column means...
-  for (clidx1 = 1; clidx1 < ulii; clidx1++) {
+  for (clidx1 = 0; clidx1 < ulii; clidx1++) {
     dptr = &(main_matrix[clidx1 * ulii]);
     dptr2 = column_means;
     dyy = 0.0;
@@ -3045,6 +3034,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
     }
     *dptr2 += dyy;
   }
+
   dxx = 1.0 / ((double)((intptr_t)ulii));
   grand_mean = 0.0;
   for (clidx1 = 0; clidx1 < ulii; clidx1++) {
@@ -3053,13 +3043,19 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
   }
   grand_mean *= dxx;
   // ...then double-center and multiply by -0.5
-  for (clidx1 = 1; clidx1 < ulii; clidx1++) {
+  for (clidx1 = 0; clidx1 < ulii; clidx1++) {
     dxx = column_means[clidx1];
     dptr = &(main_matrix[clidx1 * ulii]);
     dptr2 = column_means;
-    for (clidx2 = 0; clidx2 < clidx1; clidx2++) {
+    for (clidx2 = 0; clidx2 <= clidx1; clidx2++) {
       *dptr = -0.5 * ((*dptr) - dxx - (*dptr2++) + grand_mean);
       dptr++;
+    }
+  }
+  // finally, copy over top right since dgesdd does not exploit symmetry
+  for (clidx1 = 0; clidx1 < ulii; clidx1++) {
+    for (clidx2 = clidx1 + 1; clidx2 < ulii; clidx2++) {
+      main_matrix[clidx1 * ulii + clidx2] = main_matrix[clidx2 * ulii + clidx1];
     }
   }
 
@@ -3070,60 +3066,50 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
   LOGPRINTF("Performing multidimensional scaling analysis (%u dimension%s)...", dim_ct, (dim_ct == 1)? "" : "s");
   fflush(stdout);
 
-  // no need to fill upper right
-
-  // see eigen_lapack() in PLINK 1.07 lapackf.cpp (though we use dsyevr_
-  // instead of dsyevx_).  todo: use arpack-ng instead?
   mdim = ulii;
-  i2 = mdim;
-  i1 = i2 + 1 - dim_ct;
-  if (wkspace_alloc_d_checked(&out_w, dim_ct * sizeof(double)) ||
-      wkspace_alloc_d_checked(&out_z, dim_ct * ulii * sizeof(double))) {
+  if (wkspace_alloc_d_checked(&sqrt_eigvals, ulii * sizeof(double)) ||
+      wkspace_alloc_d_checked(&out_u, ulii * ulii * sizeof(double)) ||
+      wkspace_alloc_d_checked(&out_v, ulii * ulii * sizeof(double))) {
     goto mds_plot_ret_NOMEM;
   }
-  fill_double_zero(out_w, dim_ct);
-  fill_double_zero(out_z, dim_ct * ulii);
-  isuppz = (__CLPK_integer*)wkspace_alloc(2 * dim_ct * sizeof(__CLPK_integer));
-  if (!isuppz) {
-    goto mds_plot_ret_NOMEM;
-  }
-  fill_int_zero((int32_t*)isuppz, 2 * dim_ct * (sizeof(__CLPK_integer) / sizeof(int32_t)));
-  ldz = mdim;
+  fill_double_zero(sqrt_eigvals, ulii);
+  fill_double_zero(out_u, ulii * ulii);
+  fill_double_zero(out_v, ulii * ulii);
 
-  dsyevr_(&jobz, &range, &uplo, &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, &optim_lwork, &lwork, &optim_liwork, &liwork, &info);
+  iwork = (__CLPK_integer*)wkspace_alloc(8 * ulii * sizeof(__CLPK_integer));
+  if (!iwork) {
+    goto mds_plot_ret_NOMEM;
+  }
+  fill_int_zero(iwork, 8 * mdim);
+
+  // workspace query
+  dgesdd_(&jobz, &mdim, &mdim, main_matrix, &mdim, sqrt_eigvals, out_u, &mdim, out_v, &mdim, &optim_lwork, &lwork, iwork, &info);
   lwork = (int32_t)optim_lwork;
   if (wkspace_alloc_d_checked(&work, lwork * sizeof(double))) {
     goto mds_plot_ret_NOMEM;
   }
-  liwork = optim_liwork;
-  iwork = (__CLPK_integer*)wkspace_alloc(liwork * sizeof(__CLPK_integer));
-  if (!iwork) {
-    goto mds_plot_ret_NOMEM;
-  }
   fill_double_zero(work, lwork);
-  fill_int_zero((int32_t*)iwork, liwork * (sizeof(__CLPK_integer) / sizeof(int32_t)));
-  dsyevr_(&jobz, &range, &uplo, &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, work, &lwork, iwork, &liwork, &info);
+  dgesdd_(&jobz, &mdim, &mdim, main_matrix, &mdim, sqrt_eigvals, out_u, &mdim, out_v, &mdim, work, &lwork, iwork, &info);
 
-  // * out_w[0..(dim_ct-1)] contains eigenvalues
-  // * out_z[(ii*ulii)..(ii*ulii + ulii - 1)] is eigenvector corresponding to
-  //   out_w[ii]
-  wkspace_reset(isuppz);
-  if (wkspace_alloc_d_checked(&sqrt_eigvals, dim_ct * sizeof(double))) {
-    goto mds_plot_ret_NOMEM;
-  }
-  for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
-    dxx = out_w[dim_idx];
-    if (dxx > 0.0) {
-      sqrt_eigvals[dim_idx] = sqrt(dxx);
+  // * sqrt_eigvals[0..(ulii-1)] contains singular values
+  // * out_u[(ii*ulii)..(ii*ulii + ulii - 1)] are eigenvectors corresponding to
+  //   sqrt_eigvals[ii].  (out_v is a transposed version, signs may differ
+  //   too.)
+
+  for (clidx1 = 0; clidx1 < ulii; clidx1++) {
+    if (sqrt_eigvals[clidx1] >= 0.0) {
+      sqrt_eigvals[clidx1] = sqrt(sqrt_eigvals[clidx1]);
     } else {
-      sqrt_eigvals[dim_idx] = 0.0;
+      // is this possible?
+      sqrt_eigvals[clidx1] = 0.0;
     }
   }
+
   // repurpose main_matrix as mds[]
   dptr = main_matrix;
   for (clidx1 = 0; clidx1 < ulii; clidx1++) {
     for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
-      *dptr++ = out_z[dim_idx * ulii + clidx1] * sqrt_eigvals[dim_idx];
+      *dptr++ = out_u[dim_idx * ulii + clidx1] * sqrt_eigvals[dim_idx];
     }
   }
   logprint(" done.\n");
@@ -3164,9 +3150,9 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
       goto mds_plot_ret_WRITE_FAIL;
     }
     if (!is_mds_cluster) {
-      dptr = &(main_matrix[(sample_idx + 1) * dim_ct]);
+      dptr = &(main_matrix[sample_idx * dim_ct]);
       for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
-        wptr = double_g_writex(&(tbuf[11]), *(--dptr), ' ');
+        wptr = double_g_writex(&(tbuf[11]), *(dptr++), ' ');
 	uii = wptr - (&(tbuf[11]));
 	if (uii < 13) {
 	  wptr2 = &(wptr[-13]);
@@ -3177,9 +3163,9 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
 	fwrite(wptr2, 1, wptr - wptr2, outfile);
       }
     } else {
-      dptr = &(main_matrix[(uii + 1) * dim_ct]);
+      dptr = &(main_matrix[uii * dim_ct]);
       for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
-        wptr = double_g_writex(&(tbuf[11]), *(--dptr), ' ');
+        wptr = double_g_writex(&(tbuf[11]), *(dptr++), ' ');
 	uii = wptr - (&(tbuf[11]));
 	if (uii < 13) {
 	  wptr2 = &(wptr[-13]);
@@ -3205,8 +3191,8 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
     if (fopen_checked(&outfile, outname, "w")) {
       goto mds_plot_ret_OPEN_FAIL;
     }
-    for (dim_idx = dim_ct; dim_idx; dim_idx--) {
-      wptr = double_g_writex(tbuf, sqrt_eigvals[dim_idx - 1] * sqrt_eigvals[dim_idx - 1], '\n');
+    for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
+      wptr = double_g_writex(tbuf, sqrt_eigvals[dim_idx] * sqrt_eigvals[dim_idx], '\n');
       *wptr = '\0';
       fputs(tbuf, outfile);
     }
