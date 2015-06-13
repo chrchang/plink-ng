@@ -4010,7 +4010,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   uint32_t bgen_hardthresh = 0;
   uint32_t marker_ct = 0;
   int32_t retval = 0;
-  uint32_t uint_arr[4];
+  uint32_t uint_arr[5];
   char missing_pheno_str[12];
   char* bufptr;
   char* bufptr2;
@@ -4625,7 +4625,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     } else if (loadbuf_size < 3 * 65536) {
       goto oxford_to_bed_ret_NOMEM;
     }
-    if (fread(uint_arr, 1, 16, infile) < 16) {
+    if (fread(uint_arr, 1, 20, infile) < 20) {
       goto oxford_to_bed_ret_READ_FAIL;
     }
     if (uint_arr[1] > uint_arr[0]) {
