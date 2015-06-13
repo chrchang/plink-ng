@@ -3072,15 +3072,15 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
       wkspace_alloc_d_checked(&out_v, ulii * ulii * sizeof(double))) {
     goto mds_plot_ret_NOMEM;
   }
-  fill_double_zero(sqrt_eigvals, ulii);
-  fill_double_zero(out_u, ulii * ulii);
-  fill_double_zero(out_v, ulii * ulii);
+  // fill_double_zero(sqrt_eigvals, ulii);
+  // fill_double_zero(out_u, ulii * ulii);
+  // fill_double_zero(out_v, ulii * ulii);
 
   iwork = (__CLPK_integer*)wkspace_alloc(8 * ulii * sizeof(__CLPK_integer));
   if (!iwork) {
     goto mds_plot_ret_NOMEM;
   }
-  fill_int_zero(iwork, 8 * mdim);
+  // fill_int_zero(iwork, 8 * mdim);
 
   // workspace query
   dgesdd_(&jobz, &mdim, &mdim, main_matrix, &mdim, sqrt_eigvals, out_u, &mdim, out_v, &mdim, &optim_lwork, &lwork, iwork, &info);
@@ -3088,7 +3088,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
   if (wkspace_alloc_d_checked(&work, lwork * sizeof(double))) {
     goto mds_plot_ret_NOMEM;
   }
-  fill_double_zero(work, lwork);
+  // fill_double_zero(work, lwork);
   dgesdd_(&jobz, &mdim, &mdim, main_matrix, &mdim, sqrt_eigvals, out_u, &mdim, out_v, &mdim, work, &lwork, iwork, &info);
 
   // * sqrt_eigvals[0..(ulii-1)] contains singular values
