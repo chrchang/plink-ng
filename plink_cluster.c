@@ -3063,7 +3063,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
     dim_ct = ulii;
   }
 
-  LOGPRINTF("Performing multidimensional scaling analysis (%u dimension%s)...", dim_ct, (dim_ct == 1)? "" : "s");
+  LOGPRINTF("Performing multidimensional scaling analysis (SVD algorithm, %u\ndimension%s)...", dim_ct, (dim_ct == 1)? "" : "s");
   fflush(stdout);
 
   mdim = ulii;
@@ -3209,6 +3209,321 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
     retval = RET_OPEN_FAIL;
     break;
   mds_plot_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+  fclose_cond(outfile);
+  free_cond(final_cluster_remap);
+  wkspace_reset(dists);
+  return retval;
+}
+
+// probably want to factor out common initialization with mds_plot, etc.
+int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample_exclude, uintptr_t sample_ct, uint32_t* sample_idx_to_uidx, char* sample_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_sample_id_len, uint32_t cur_cluster_ct, uint32_t merge_ct, uint32_t* orig_sample_to_cluster, uint32_t* cur_cluster_remap, uint32_t dim_ct, uint32_t is_mds_cluster, uint32_t dump_eigvals, double* dists) {
+  FILE* outfile = NULL;
+  uintptr_t final_cluster_ct = cur_cluster_ct - merge_ct;
+  double grand_mean = 0.0;
+  uintptr_t ulii = 0;
+  int32_t retval = 0;
+  char jobz = 'V';
+  char range = 'I';
+  char uplo = 'U';
+  double nz = 0.0;
+  double zz = -1.0;
+  __CLPK_integer info = 0;
+  __CLPK_integer lwork = -1;
+  __CLPK_integer liwork = -1;
+  __CLPK_integer mdim;
+  __CLPK_integer i1;
+  __CLPK_integer i2;
+  __CLPK_integer out_m;
+  __CLPK_integer ldz;
+  __CLPK_integer optim_liwork;
+  __CLPK_integer* iwork;
+  __CLPK_integer* isuppz;
+  double* work;
+  double optim_lwork;
+  double* main_matrix;
+  double* column_means;
+  double* out_w;
+  double* out_z;
+  uint32_t* final_cluster_remap;
+  uint32_t* final_cluster_sizes;
+  double* dptr;
+  double* dptr2;
+  char* wptr;
+  char* wptr2;
+  uintptr_t sample_idx;
+  uintptr_t clidx1;
+  uintptr_t clidx2;
+  uint32_t dim_idx;
+  uint32_t uii;
+  uint32_t ujj;
+  double dxx;
+  double dyy;
+  double* sqrt_eigvals;
+  final_cluster_remap = (uint32_t*)malloc(cur_cluster_ct * sizeof(int32_t));
+  if (!final_cluster_remap) {
+    goto mds_plot_eigendecomp_ret_NOMEM;
+  }
+  if ((sample_ct > 5000) && (!is_mds_cluster) && (final_cluster_ct < sample_ct) && (final_cluster_ct > 1)) {
+    LOGPRINTF("Warning: Per-sample --mds-plot can be very slow with over 5000 %s.\nConsider using the 'by-cluster' modifier.\n", g_species_plural);
+  }
+  for (clidx1 = 0; clidx1 < cur_cluster_ct; clidx1++) {
+    clidx2 = cur_cluster_remap[clidx1];
+    if (clidx2 == clidx1) {
+      final_cluster_remap[clidx1] = ulii++;
+    } else {
+      final_cluster_remap[clidx1] = final_cluster_remap[clidx2];
+    }
+  }
+  if (is_mds_cluster) {
+    if (wkspace_alloc_d_checked(&main_matrix, final_cluster_ct * final_cluster_ct * sizeof(double)) ||
+        wkspace_alloc_ui_checked(&final_cluster_sizes, final_cluster_ct * sizeof(int32_t))) {
+      goto mds_plot_eigendecomp_ret_NOMEM;
+    }
+    fill_double_zero(main_matrix, final_cluster_ct * final_cluster_ct);
+    fill_uint_zero(final_cluster_sizes, final_cluster_ct);
+    dptr = dists;
+    final_cluster_sizes[final_cluster_remap[0]] = 1;
+    for (uii = 1; uii < cur_cluster_ct; uii++) {
+      clidx1 = final_cluster_remap[uii];
+      final_cluster_sizes[clidx1] += 1;
+      dptr2 = &(main_matrix[clidx1 * final_cluster_ct]);
+      for (ujj = 0; ujj < uii; ujj++) {
+	clidx2 = final_cluster_remap[ujj];
+	if (clidx2 < clidx1) {
+	  dptr2[clidx2] += (*dptr);
+	} else if (clidx1 > clidx2) {
+          main_matrix[clidx2 * final_cluster_ct + clidx1] += (*dptr);
+	}
+	dptr++;
+      }
+    }
+    for (clidx1 = 1; clidx1 < final_cluster_ct; clidx1++) {
+      dptr = &(main_matrix[clidx1 * final_cluster_ct]);
+      ulii = final_cluster_sizes[clidx1];
+      for (clidx2 = 0; clidx2 < clidx1; clidx2++) {
+	dxx = (double)((intptr_t)(ulii * final_cluster_sizes[clidx2]));
+	dptr[clidx2] /= dxx;
+      }
+    }
+    ulii = final_cluster_ct;
+  } else {
+    wkspace_reset(dists);
+    if (wkspace_alloc_d_checked(&main_matrix, sample_ct * sample_ct * sizeof(double))) {
+      goto mds_plot_eigendecomp_ret_NOMEM;
+    }
+    // expand triangular diagonal-free matrix to square matrix
+    ulii = ((sample_ct - 1) * (sample_ct - 2)) >> 1;
+    for (sample_idx = sample_ct - 1; sample_idx;) {
+      memcpy(&(main_matrix[sample_idx * sample_ct]), &(main_matrix[ulii]), sample_idx * sizeof(double));
+      ulii -= (--sample_idx);
+    }
+    ulii = sample_ct + 1;
+    for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
+      main_matrix[sample_idx * ulii] = 0.0;
+    }
+    ulii = sample_ct;
+  }
+  if (wkspace_alloc_d_checked(&column_means, ulii * sizeof(double))) {
+    goto mds_plot_eigendecomp_ret_NOMEM;
+  }
+  fill_double_zero(column_means, ulii);
+  // bottom left filled with IBS values.  Now subtract them from 1 and square
+  // them, and extract column means...
+  for (clidx1 = 1; clidx1 < ulii; clidx1++) {
+    dptr = &(main_matrix[clidx1 * ulii]);
+    dptr2 = column_means;
+    dyy = 0.0;
+    for (clidx2 = 0; clidx2 < clidx1; clidx2++) {
+      dxx = 1.0 - (*dptr);
+      dxx *= dxx;
+      *dptr++ = dxx;
+      *dptr2 += dxx;
+      dptr2++;
+      dyy += dxx;
+    }
+    *dptr2 += dyy;
+  }
+  dxx = 1.0 / ((double)((intptr_t)ulii));
+  grand_mean = 0.0;
+  for (clidx1 = 0; clidx1 < ulii; clidx1++) {
+    column_means[clidx1] *= dxx;
+    grand_mean += column_means[clidx1];
+  }
+  grand_mean *= dxx;
+  // ...then double-center and multiply by -0.5
+  for (clidx1 = 1; clidx1 < ulii; clidx1++) {
+    dxx = column_means[clidx1];
+    dptr = &(main_matrix[clidx1 * ulii]);
+    dptr2 = column_means;
+    for (clidx2 = 0; clidx2 <= clidx1; clidx2++) {
+      *dptr = -0.5 * ((*dptr) - dxx - (*dptr2++) + grand_mean);
+      dptr++;
+    }
+  }
+
+  if (dim_ct > ulii) {
+    dim_ct = ulii;
+  }
+
+  LOGPRINTF("Performing multidimensional scaling analysis (eigendecomposition algorithm,\n%u dimension%s)...", dim_ct, (dim_ct == 1)? "" : "s");
+  fflush(stdout);
+
+  // no need to fill upper right
+
+  // see eigen_lapack() in PLINK 1.07 lapackf.cpp (though we use dsyevr_
+  // instead of dsyevx_).  todo: use arpack-ng instead?
+  mdim = ulii;
+  i2 = mdim;
+  i1 = i2 + 1 - dim_ct;
+  if (wkspace_alloc_d_checked(&out_w, dim_ct * sizeof(double)) ||
+      wkspace_alloc_d_checked(&out_z, dim_ct * ulii * sizeof(double))) {
+    goto mds_plot_eigendecomp_ret_NOMEM;
+  }
+  fill_double_zero(out_w, dim_ct);
+  fill_double_zero(out_z, dim_ct * ulii);
+  isuppz = (__CLPK_integer*)wkspace_alloc(2 * dim_ct * sizeof(__CLPK_integer));
+  if (!isuppz) {
+    goto mds_plot_eigendecomp_ret_NOMEM;
+  }
+  fill_int_zero((int32_t*)isuppz, 2 * dim_ct * (sizeof(__CLPK_integer) / sizeof(int32_t)));
+  ldz = mdim;
+
+  dsyevr_(&jobz, &range, &uplo, &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, &optim_lwork, &lwork, &optim_liwork, &liwork, &info);
+  lwork = (int32_t)optim_lwork;
+  if (wkspace_alloc_d_checked(&work, lwork * sizeof(double))) {
+    goto mds_plot_eigendecomp_ret_NOMEM;
+  }
+  liwork = optim_liwork;
+  iwork = (__CLPK_integer*)wkspace_alloc(liwork * sizeof(__CLPK_integer));
+  if (!iwork) {
+    goto mds_plot_eigendecomp_ret_NOMEM;
+  }
+  fill_double_zero(work, lwork);
+  fill_int_zero((int32_t*)iwork, liwork * (sizeof(__CLPK_integer) / sizeof(int32_t)));
+  dsyevr_(&jobz, &range, &uplo, &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, work, &lwork, iwork, &liwork, &info);
+
+  // * out_w[0..(dim_ct-1)] contains eigenvalues
+  // * out_z[(ii*ulii)..(ii*ulii + ulii - 1)] is eigenvector corresponding to
+  //   out_w[ii]
+  wkspace_reset(isuppz);
+  if (wkspace_alloc_d_checked(&sqrt_eigvals, dim_ct * sizeof(double))) {
+    goto mds_plot_eigendecomp_ret_NOMEM;
+  }
+  for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
+    dxx = out_w[dim_idx];
+    if (dxx > 0.0) {
+      sqrt_eigvals[dim_idx] = sqrt(dxx);
+    } else {
+      sqrt_eigvals[dim_idx] = 0.0;
+    }
+  }
+  // repurpose main_matrix as mds[]
+  dptr = main_matrix;
+  for (clidx1 = 0; clidx1 < ulii; clidx1++) {
+    for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
+      *dptr++ = out_z[dim_idx * ulii + clidx1] * sqrt_eigvals[dim_idx];
+    }
+  }
+  logprint(" done.\n");
+
+  memcpy(outname_end, ".mds", 5);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto mds_plot_eigendecomp_ret_OPEN_FAIL;
+  }
+  sprintf(tbuf, "%%%us %%%us    SOL ", plink_maxfid, plink_maxiid);
+  fprintf(outfile, tbuf, "FID", "IID");
+  tbuf[22] = ' ';
+  for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
+    wptr = uint32_write(tbuf, dim_idx + 1);
+    uii = wptr - tbuf;
+    wptr2 = memseta(&(tbuf[10]), 32, 11 - uii);
+    *wptr2++ = 'C';
+    memcpy(wptr2, tbuf, uii);
+    fwrite(&(tbuf[10]), 1, 13, outfile);
+  }
+  if (putc_checked('\n', outfile)) {
+    goto mds_plot_eigendecomp_ret_WRITE_FAIL;
+  }
+  for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
+    wptr2 = &(sample_ids[sample_idx_to_uidx[sample_idx] * max_sample_id_len]);
+    uii = strlen_se(wptr2);
+    wptr = fw_strcpyn(plink_maxfid, uii, wptr2, tbuf);
+    *wptr++ = ' ';
+    wptr = fw_strcpy(plink_maxiid, &(wptr2[uii + 1]), wptr);
+    *wptr++ = ' ';
+    if (orig_sample_to_cluster) {
+      uii = orig_sample_to_cluster[sample_idx];
+    } else {
+      uii = sample_idx;
+    }
+    uii = final_cluster_remap[uii];
+    wptr = uint32_writew6x(wptr, uii, ' ');
+    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+      goto mds_plot_eigendecomp_ret_WRITE_FAIL;
+    }
+    if (!is_mds_cluster) {
+      dptr = &(main_matrix[(sample_idx + 1) * dim_ct]);
+      for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
+        wptr = double_g_writex(&(tbuf[11]), *(--dptr), ' ');
+	uii = wptr - (&(tbuf[11]));
+	if (uii < 13) {
+	  wptr2 = &(wptr[-13]);
+	  memset(wptr2, 32, 13 - uii);
+	} else {
+	  wptr2 = &(tbuf[11]);
+	}
+	fwrite(wptr2, 1, wptr - wptr2, outfile);
+      }
+    } else {
+      dptr = &(main_matrix[(uii + 1) * dim_ct]);
+      for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
+        wptr = double_g_writex(&(tbuf[11]), *(--dptr), ' ');
+	uii = wptr - (&(tbuf[11]));
+	if (uii < 13) {
+	  wptr2 = &(wptr[-13]);
+	  memset(wptr2, 32, 13 - uii);
+	} else {
+	  wptr2 = &(tbuf[11]);
+	}
+	fwrite(wptr2, 1, wptr - wptr2, outfile);
+      }
+    }
+    if (putc_checked('\n', outfile)) {
+      goto mds_plot_eigendecomp_ret_WRITE_FAIL;
+    }
+  }
+  if (fclose_null(&outfile)) {
+    goto mds_plot_eigendecomp_ret_WRITE_FAIL;
+  }
+  if (!dump_eigvals) {
+    LOGPREPRINTFWW("MDS solution written to %s .\n", outname);
+  } else {
+    LOGPREPRINTFWW("MDS solution written to %s (eigenvalues in %s.eigvals ).\n", outname, outname);
+    memcpy(&(outname_end[4]), ".eigvals", 9);
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto mds_plot_eigendecomp_ret_OPEN_FAIL;
+    }
+    for (dim_idx = dim_ct; dim_idx; dim_idx--) {
+      wptr = double_g_writex(tbuf, sqrt_eigvals[dim_idx - 1] * sqrt_eigvals[dim_idx - 1], '\n');
+      *wptr = '\0';
+      fputs(tbuf, outfile);
+    }
+    if (fclose_null(&outfile)) {
+      goto mds_plot_eigendecomp_ret_WRITE_FAIL;
+    }
+  }
+  logprintb();
+  while (0) {
+  mds_plot_eigendecomp_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  mds_plot_eigendecomp_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  mds_plot_eigendecomp_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
   }

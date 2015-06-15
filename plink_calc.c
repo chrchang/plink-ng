@@ -9664,7 +9664,11 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
         cluster_dist_multiply(sample_ct, cluster_ct, cluster_starts, mds_plot_dmatrix_copy);
       }
     }
-    retval = mds_plot(outname, outname_end, sample_exclude, sample_ct, sample_idx_to_uidx, sample_ids, plink_maxfid, plink_maxiid, max_sample_id_len, cur_cluster_ct, merge_ct, sample_to_cluster, cur_cluster_remap, cp->mds_dim_ct, is_mds_cluster, cp->modifier & CLUSTER_MDS_EIGVALS, mds_plot_dmatrix_copy);
+    if (cp->modifier & CLUSTER_MDS_EIGENDECOMP) {
+      retval = mds_plot_eigendecomp(outname, outname_end, sample_exclude, sample_ct, sample_idx_to_uidx, sample_ids, plink_maxfid, plink_maxiid, max_sample_id_len, cur_cluster_ct, merge_ct, sample_to_cluster, cur_cluster_remap, cp->mds_dim_ct, is_mds_cluster, cp->modifier & CLUSTER_MDS_EIGVALS, mds_plot_dmatrix_copy);
+    } else {
+      retval = mds_plot(outname, outname_end, sample_exclude, sample_ct, sample_idx_to_uidx, sample_ids, plink_maxfid, plink_maxiid, max_sample_id_len, cur_cluster_ct, merge_ct, sample_to_cluster, cur_cluster_remap, cp->mds_dim_ct, is_mds_cluster, cp->modifier & CLUSTER_MDS_EIGVALS, mds_plot_dmatrix_copy);
+    }
     if (retval) {
       goto calc_cluster_neighbor_ret_1;
     }

@@ -1907,8 +1907,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                              calculated PCs.\n"
 	       );
     help_print("cluster\tmds-plot\tmds-cluster", &help_ctrl, 0,
-"  --mds-plot [dims] <by-cluster> <eigvals> : Multidimensional scaling analysis.\n"
-"                                             Requires --cluster.\n"
+"  --mds-plot [dims] <by-cluster> <eigendecomp> <eigvals> :\n"
+"    Multidimensional scaling analysis.  Requires --cluster.\n"
 	       );
 #endif
     help_print("cell\tmodel", &help_ctrl, 0,

@@ -103,7 +103,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (13 Jun 2015)";
+  " (15 Jun 2015)";
 const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -8887,13 +8887,15 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --mds-plot must be used with --cluster.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 3)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 4)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	cluster.mds_dim_ct = 0;
         for (uii = 1; uii <= param_ct; uii++) {
           if (!strcmp(argv[cur_arg + uii], "by-cluster")) {
 	    cluster.modifier |= CLUSTER_MDS;
+	  } else if (!strcmp(argv[cur_arg + uii], "eigendecomp")) {
+	    cluster.modifier |= CLUSTER_MDS_EIGENDECOMP;
 	  } else if (!strcmp(argv[cur_arg + uii], "eigvals")) {
 	    cluster.modifier |= CLUSTER_MDS_EIGVALS;
 	  } else {

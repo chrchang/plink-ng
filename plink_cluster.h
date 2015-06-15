@@ -7,14 +7,15 @@
 #define CLUSTER_ONLY2 8
 #define CLUSTER_OLD_TIEBREAKS 0x10
 #define CLUSTER_MDS 0x20
-#define CLUSTER_MDS_EIGVALS 0x40
-#define CLUSTER_CMH_BD 0x80
-#define CLUSTER_CMH_PERM 0x100
-#define CLUSTER_CMH_PERM_BD 0x200
-#define CLUSTER_CMH_MPERM 0x400
-#define CLUSTER_CMH_PERM_COUNT 0x800
-#define CLUSTER_CMH_SET_TEST 0x1000
-#define CLUSTER_CMH2 0x2000
+#define CLUSTER_MDS_EIGENDECOMP 0x40
+#define CLUSTER_MDS_EIGVALS 0x80
+#define CLUSTER_CMH_BD 0x100
+#define CLUSTER_CMH_PERM 0x200
+#define CLUSTER_CMH_PERM_BD 0x400
+#define CLUSTER_CMH_MPERM 0x800
+#define CLUSTER_CMH_PERM_COUNT 0x1000
+#define CLUSTER_CMH_SET_TEST 0x2000
+#define CLUSTER_CMH2 0x4000
 
 typedef struct {
   char* fname;
@@ -74,6 +75,8 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
 
 #ifndef NOLAPACK
 int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, uintptr_t sample_ct, uint32_t* sample_idx_to_uidx, char* sample_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_sample_id_len, uint32_t cur_cluster_ct, uint32_t merge_ct, uint32_t* orig_sample_to_cluster, uint32_t* cur_cluster_remap, uint32_t dim_ct, uint32_t is_mds_cluster, uint32_t dump_eigvals, double* dists);
+
+int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample_exclude, uintptr_t sample_ct, uint32_t* sample_idx_to_uidx, char* sample_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_sample_id_len, uint32_t cur_cluster_ct, uint32_t merge_ct, uint32_t* orig_sample_to_cluster, uint32_t* cur_cluster_remap, uint32_t dim_ct, uint32_t is_mds_cluster, uint32_t dump_eigvals, double* dists);
 #endif
 
 #endif // __PLINK_CLUSTER_H__

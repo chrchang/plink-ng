@@ -360,7 +360,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
   double err_cur = 0.0;
   uint64_t iter_tot = 0;
   uintptr_t sample_valid_ctl2 = (sample_valid_ct + (BITCT2 - 1)) / BITCT2;
-  uintptr_t polymorphic_marker_ct = 0;
+  uintptr_t unselected_covar_ct = 0;
   uintptr_t final_mask = get_final_mask(sample_valid_ct);
   uint32_t chrom_fo_idx = 0xffffffffU; // exploit overflow
   uint32_t chrom_end = 0;
@@ -390,6 +390,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
   double dyy;
   double dzz;
   double zz;
+  uintptr_t polymorphic_marker_ct;
   uintptr_t cur_word;
   uintptr_t cur_genotype;
   uintptr_t ulii;
@@ -420,36 +421,49 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
   ulptr_end_init = &(loadbuf_collapsed[sample_valid_ct / BITCT2]);
   fputs("Using memory-conserving LASSO implementation.\n", stdout);
   if (covar_ct) {
-    if (wkspace_alloc_d_checked()) {
+    if (wkspace_alloc_d_checked(&covar_data_arr, covar_ct * sample_valid_ct * sizeof(double))) {
       goto lasso_smallmem_ret_NOMEM;
     }
-    dptr = covar_data_arr;
-    for (covar_idx = 0; covar_idx < covar_ct; covar_idx++) {
-      dxx = 0; // sum
-      dyy = 0; // ssq
-      dptr2 = &(covar_d[covar_idx]);
-      for (sample_uidx = 0, sample_idx = 0; sample_idx < sample_valid_ct; sample_uidx++, sample_idx++) {
-	next_set_ul_unsafe_ck(covar_nm, &sample_uidx);
-        dzz = dptr2[sample_uidx * covar_ct];
-        dxx += dzz;
-	dyy += dzz * dzz;
-        *dptr++ = dzz;
+    dxx = 1.0 / ((double)((intptr_t)sample_valid_ct));
+    dyy = (double)((intptr_t)(sample_valid_ct - 1));
+    if (!select_covars_bitfield) {
+      for (covar_idx = 0; covar_idx < covar_ct; covar_idx++) {
+	if (transpose_covar(sample_valid_ct, covar_ct, covar_nm, &(covar_d[covar_idx]), &(covar_data_arr[covar_idx * sample_valid_ct]), sqrt_n_recip, dxx, dyy)) {
+	  goto lasso_smallmem_ret_CONST_COVAR;
+	}
       }
-      if (dyy * ((double)sample_valid_ct) == dxx * dxx) {
-        logprint("Error: --lasso covariate is constant.\n");
-        goto lasso_smallmem_ret_INVALID_CMDLINE;
+      if (!select_covars) {
+	unselected_covar_ct = covar_ct;
       }
-      dzz = dxx / ((double)((intptr_t)sample_valid_ct));
-      dyy = sqrt_n_recip * sqrt(((double)((intptr_t)(sample_valid_ct - 1))) / (dyy - dxx * dzz));
-      dptr = &(data_arr[covar_idx * sample_valid_ct]);
-      for (sample_idx = 0; sample_idx < sample_valid_ct; sample_idx++) {
-        *dptr = ((*dptr) - dzz) * dyy;
-        dptr++;
+    } else {
+      ulii = 0;
+      for (covar_idx = 0; covar_idx < covar_ct; covar_idx++) {
+	if (IS_SET(select_covars_bitfield, covar_idx)) {
+	  continue;
+	}
+	if (transpose_covar(sample_valid_ct, covar_ct, covar_nm, &(covar_d[covar_idx]), &(covar_data_arr[ulii * sample_valid_ct]), sqrt_n_recip, dxx, dyy)) {
+          goto lasso_smallmem_ret_CONST_COVAR;
+	}
+	ulii++;
+      }
+      unselected_covar_ct = ulii;
+      for (covar_idx = 0; covar_idx < covar_ct; covar_idx++) {
+	if (!IS_SET(select_covars_bitfield, covar_idx)) {
+	  continue;
+	}
+	if (transpose_covar(sample_valid_ct, covar_ct, covar_nm, &(covar_d[covar_idx]), &(covar_data_arr[ulii * sample_valid_ct]), sqrt_n_recip, dxx, dyy)) {
+          goto lasso_smallmem_ret_CONST_COVAR;
+	}
+	ulii++;
       }
     }
   }
-  dptr = &(data_arr[covar_ct * sample_valid_ct]);
+  dptr = &(covar_data_arr[covar_ct * sample_valid_ct]);
+  sige = sqrt(1.0 - lasso_h2 + 1.0 / ((double)((intptr_t)sample_valid_ct)));
+  zz = sige * sqrt_n_recip;
   for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+    // count polymorphic markers here, compute lambda_max, perform rand_matrix
+    // multiply if necessary
     if (IS_SET(marker_exclude, marker_uidx)) {
       marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
       if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
@@ -470,7 +484,6 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
     uii = sample_valid_ct - missing_ct;
     homrar_ct = uii - het_ct - homset_ct;
     if (!(((!homrar_ct) && ((!het_ct) || (!homset_ct))) || ((!het_ct) && (!homset_ct)))) {
-      // ok, not monomorphic.  standardize to zero mean, unit variance
       SET_BIT(polymorphic_markers, marker_uidx);
       dyy = (double)(2 * homrar_ct + het_ct); // sum
       dxx = dyy / ((double)((int32_t)uii)); // mean
@@ -482,6 +495,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
       sample_idx_stop = BITCT2;
       ulptr = loadbuf_collapsed;
       ulptr_end = ulptr_end_init;
+      dptr2 = dptr;
       while (1) {
         while (ulptr < ulptr_end) {
           cur_word = *ulptr++;
@@ -498,6 +512,18 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
         sample_idx_stop = sample_valid_ct;
       }
       polymorphic_marker_ct++;
+      dxx = 0;
+      for (sample_idx = 0; sample_idx < sample_valid_ct; sample_idx++) {
+	dxx += dptr2[sample_idx] * pheno_d_collapsed[sample_idx];
+      }
+      dxx = fabs(dxx);
+      if (dxx > lambda_max) {
+	lambda_max = dxx;
+      }
+      if (rand_matrix && (!(polymorphic_marker_ct % WARM_START_ITERS))) {
+
+	dptr = ;;;
+      }
     }
   }
   *polymorphic_marker_ct_ptr = polymorphic_marker_ct;
@@ -507,28 +533,14 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
   }
   col_ct = covar_ct + polymorphic_marker_ct;
   col_ctl = (col_ct + (BITCT - 1)) / BITCT;
-  wkspace_shrink_top(data_arr, col_ct * sample_valid_ct * sizeof(double));
   xhat = (double*)wkspace_alloc(col_ct * sizeof(double));
   active_set = (uintptr_t*)wkspace_alloc(col_ctl * sizeof(intptr_t));
   *xhat_ptr = xhat;
-  dptr = data_arr;
-  for (col_idx = 0; col_idx < col_ct; col_idx++) {
-    dxx = 0;
-    dptr2 = pheno_d_collapsed;
-    for (sample_idx = 0; sample_idx < sample_valid_ct; sample_idx++) {
-      dxx += (*dptr++) * (*dptr2++);
-    }
-    dxx = fabs(dxx);
-    if (dxx > lambda_max) {
-      lambda_max = dxx;
-    }
-  }
-  sige = sqrt(1.0 - lasso_h2 + 1.0 / ((double)((intptr_t)sample_valid_ct)));
-  zz = sige * sqrt_n_recip;
   if (rand_matrix) {
     prod_matrix = (double*)wkspace_alloc(col_ct * WARM_START_ITERS * sizeof(double));
     fputs("\r--lasso: Initializing warm start matrix...", stdout);
     fflush(stdout);
+    // multiply square blocks?
     col_major_matrix_multiply(WARM_START_ITERS, col_ct, sample_valid_ct, rand_matrix, data_arr, prod_matrix);
     for (ulii = 0; ulii < WARM_START_ITERS; ulii++) {
       dxx = 0.0;
@@ -648,6 +660,8 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
   lasso_smallmem_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
+  lasso_smallmem_ret_CONST_COVAR:
+    logprint("Error: --lasso covariate is constant.\n");
   lasso_smallmem_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
