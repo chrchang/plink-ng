@@ -3155,7 +3155,7 @@ int32_t make_bed_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32_t unfilter
   return 0;
 }
 
-int32_t make_bed_me_missing_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32_t unfiltered_sample_ct, uintptr_t unfiltered_sample_ct4, uintptr_t* sample_exclude, uint32_t sample_ct, uint32_t* sample_sort_map, uintptr_t final_mask, uint32_t unfiltered_sample_ctl2m1, uint32_t is_reverse, uintptr_t* writebuf, uintptr_t* workbuf, uintptr_t* sample_raw_male_include2, uint32_t* trio_lookup, uint32_t trio_ct, uint32_t set_x_hh_missing, uint32_t multigen, uint64_t* error_ct_ptr) {
+int32_t make_bed_me_missing_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32_t unfiltered_sample_ct, uintptr_t unfiltered_sample_ct4, uintptr_t* sample_exclude, uint32_t sample_ct, uint32_t* sample_sort_map, uintptr_t final_mask, uint32_t unfiltered_sample_ctl2m1, uint32_t is_reverse, uintptr_t* writebuf, uintptr_t* workbuf, uintptr_t* sex_male, uintptr_t* sample_raw_male_include2, uint32_t* trio_lookup, uint32_t trio_ct, uint32_t set_hh_missing, uint32_t is_x, uint32_t multigen, uint64_t* error_ct_ptr) {
   // requires final_mask to be for unfiltered_sample_ct
   uintptr_t* writeptr = writebuf;
   uintptr_t cur_word = 0;
@@ -3169,15 +3169,13 @@ int32_t make_bed_me_missing_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32
   if (load_raw2(bedfile, loadbuf, unfiltered_sample_ct4, unfiltered_sample_ctl2m1, final_mask)) {
     return RET_READ_FAIL;
   }
-  // do NOT treat males differently from females on Xchr if --set-hh-missing
-  // not specified, since user may be procrastinating on fixing gender errors.
-  if (set_x_hh_missing) {
+  if (set_hh_missing && is_x) {
     hh_reset((unsigned char*)loadbuf, sample_raw_male_include2, unfiltered_sample_ct);
   }
   if (is_reverse) {
     reverse_loadbuf((unsigned char*)loadbuf, unfiltered_sample_ct);
   }
-  *error_ct_ptr += erase_mendel_errors(unfiltered_sample_ct, loadbuf, workbuf, trio_lookup, trio_ct, multigen);
+  *error_ct_ptr += erase_mendel_errors(unfiltered_sample_ct, loadbuf, workbuf, sex_male, trio_lookup, trio_ct, is_x, multigen);
   if (sample_sort_map) {
     for (; sample_idx < sample_ct; sample_idx++) {
       do {
@@ -3576,7 +3574,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	      haploid_fix(hh_exists, sample_include2, sample_male_include2, sample_ct, is_x, is_y, (unsigned char*)writebuf);
 	    }
 	  } else {
-	    retval = make_bed_me_missing_one_marker(bedfile, loadbuf, unfiltered_sample_ct, unfiltered_sample_ct4, sample_exclude, sample_ct, sample_sort_map, final_mask, unfiltered_sample_ctl2m1, IS_SET(marker_reverse, marker_uidx), writebuf, workbuf, sample_raw_male_include2, trio_lookup, trio_ct, set_hh_missing && is_x, mendel_multigen, &mendel_error_ct);
+	    retval = make_bed_me_missing_one_marker(bedfile, loadbuf, unfiltered_sample_ct, unfiltered_sample_ct4, sample_exclude, sample_ct, sample_sort_map, final_mask, unfiltered_sample_ctl2m1, IS_SET(marker_reverse, marker_uidx), writebuf, workbuf, sex_male, sample_raw_male_include2, trio_lookup, trio_ct, set_hh_missing, is_x, mendel_multigen, &mendel_error_ct);
 	  }
 	  if (retval) {
 	    goto make_bed_ret_1;

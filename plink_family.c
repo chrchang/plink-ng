@@ -25,7 +25,7 @@ void family_init(Family_info* fam_ip) {
 // bits 0-7 = child increment (always 1)
 // bits 8-15 = father increment
 // bits 16-23 = mother increment
-// bits 24-31 = error code
+// bits 24-31 = female error code
 const uint32_t mendel_error_table[] =
 {0, 0, 0x1010101, 0x8000001,
  0, 0, 0, 0x7010001,
@@ -43,24 +43,14 @@ const uint32_t mendel_error_table[] =
  0x4010001, 0, 0, 0,
  0x4010001, 0, 0, 0,
  0x5000001, 0, 0x2010101, 0};
-// necessary to check child gender when dealing with error 9/10
-const uint32_t mendel_error_table_x[] =
-{0, 0, 0x1010101, 0x8000001,
- 0, 0, 0, 0x9010001,
- 0, 0, 0, 0x7010001,
- 0x3000101, 0, 0, 0x7010001,
- 0, 0, 0, 0x6000101,
+
+// bottom 2 bits of index = child genotype
+// next 2 bits of index = maternal genotype
+const uint32_t mendel_error_table_male_x[] =
+{0, 0, 0, 0x9010001,
  0, 0, 0, 0,
  0, 0, 0, 0,
- 0x3000101, 0, 0, 0,
- 0, 0, 0, 0x6000101,
- 0, 0, 0, 0,
- 0, 0, 0, 0,
- 0x3000101, 0, 0, 0,
- 0x4010001, 0, 0, 0x6000101,
- 0xa010001, 0, 0, 0,
- 0x4010001, 0, 0, 0,
- 0x5000001, 0, 0x2010101, 0};
+ 0xa010001, 0, 0, 0};
 
 int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* sample_ids, uintptr_t max_sample_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, char** fids_ptr, uintptr_t* max_fid_len_ptr, char** iids_ptr, uintptr_t* max_iid_len_ptr, uint64_t** family_list_ptr, uint32_t* family_ct_ptr, uint64_t** trio_list_ptr, uintptr_t* trio_ct_ptr, uint32_t** trio_lookup_ptr, uint32_t include_duos, uint32_t toposort) {
   // This mirrors linkRelateds() in genedrop.cpp, and parseTrios() in trio.cpp,
@@ -471,7 +461,7 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
   return retval;
 }
 
-uint32_t erase_mendel_errors(uintptr_t unfiltered_sample_ct, uintptr_t* loadbuf, uintptr_t* workbuf, uint32_t* trio_lookup, uint32_t trio_ct, uint32_t multigen) {
+uint32_t erase_mendel_errors(uintptr_t unfiltered_sample_ct, uintptr_t* loadbuf, uintptr_t* workbuf, uintptr_t* sex_male, uint32_t* trio_lookup, uint32_t trio_ct, uint32_t is_x, uint32_t multigen) {
   uint32_t* uiptr = trio_lookup;
   uint32_t cur_errors = 0;
   uint32_t trio_idx;
@@ -492,11 +482,17 @@ uint32_t erase_mendel_errors(uintptr_t unfiltered_sample_ct, uintptr_t* loadbuf,
       uii = *uiptr++;
       ujj = *uiptr++;
       ukk = *uiptr++;
-      umm = mendel_error_table[((workbuf[uii / BITCT2] >> (2 * (uii % BITCT2))) & 3) | (((workbuf[ujj / BITCT2] >> (2 * (ujj % BITCT2))) & 3) << 2) | (((workbuf[ukk / BITCT2] >> (2 * (ukk % BITCT2))) & 3) << 4)];
+      umm = (workbuf[uii / BITCT2] >> (2 * (uii % BITCT2))) & 3;
+      unn = (workbuf[ukk / BITCT2] >> (2 * (ukk % BITCT2))) & 3;
+      if ((!is_x) || (!is_set(sex_male, uii))) {
+        umm = mendel_error_table[umm | (((workbuf[ujj / BITCT2] >> (2 * (ujj % BITCT2))) & 3) << 2) | (unn << 4)];
+      } else {
+	umm = mendel_error_table_male_x[umm | (unn << 2)];
+      }
       if (umm) {
 	ulii = loadbuf[uii / BITCT2];
 	uljj = ONELU << (2 * (uii % BITCT2));
-        loadbuf[uii / BITCT2] = (ulii & (~(3 * uljj))) | uljj;
+	loadbuf[uii / BITCT2] = (ulii & (~(3 * uljj))) | uljj;
 	if (umm & 0x100) {
 	  ulii = loadbuf[ujj / BITCT2];
 	  uljj = ONELU << (2 * (ujj % BITCT2));
@@ -525,7 +521,11 @@ uint32_t erase_mendel_errors(uintptr_t unfiltered_sample_ct, uintptr_t* loadbuf,
       ulii = (workbuf[unn] >> uii) & 3;
       uljj = ((workbuf[uoo] >> ujj) & 3) | (((workbuf[upp] >> ukk) & 3) << 2);
       if (ulii != 1) {
-        umm = mendel_error_table[ulii | (uljj << 2)];
+	if ((!is_x) || (!is_set(sex_male, uii))) {
+          umm = mendel_error_table[ulii | (uljj << 2)];
+	} else {
+	  umm = mendel_error_table_male_x[ulii | (uljj & 12)];
+	}
         if (umm) {
 	  ulii = loadbuf[unn];
 	  uljj = ONELU << uii;
@@ -543,10 +543,14 @@ uint32_t erase_mendel_errors(uintptr_t unfiltered_sample_ct, uintptr_t* loadbuf,
 	  cur_errors++;
 	}
       } else if (!uljj) {
+	// both parents are homozygous for the same allele, so child genotype
+	// is "known" for the purpose of checking grandchild genotypes
 	workbuf[unn] &= ~(ONELU << uii);
       } else if (uljj == 15) {
 	workbuf[unn] |= (2 * ONELU) << uii;
       }
+      // no need to fill "known" heterozygous genotype, since that's treated
+      // the same way as a missing genotype
     }
   }
   return cur_errors;
@@ -711,7 +715,6 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
   char* errstrs[10];
   uint32_t errstr_lens[11];
   uint32_t alens[2];
-  const uint32_t* error_table_ptr;
   char* fids;
   char* iids;
   char* wptr;
@@ -753,6 +756,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
   uint32_t ujj;
   uint32_t ukk;
   uint32_t umm;
+  uint32_t unn;
   marker_ct -= count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 0, 1);
   if ((!marker_ct) || is_set(chrom_info_ptr->haploid_mask, 0)) {
     logprint("Warning: Skipping --me/--mendel since there is no autosomal or Xchr data.\n");
@@ -845,11 +849,6 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
     if (uii == chrom_end) {
       continue;
     }
-    if (!is_x) {
-      error_table_ptr = mendel_error_table;
-    } else {
-      error_table_ptr = mendel_error_table_x;
-    }
     if (calc_mendel) {
       chrom_name_ptr = chrom_name_buf5w4write(chrom_name_buf, chrom_info_ptr, chrom_idx, &chrom_name_len);
     }
@@ -885,15 +884,18 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	  uii = *uiptr++;
 	  ujj = *uiptr++;
 	  ukk = *uiptr++;
-          umm = error_table_ptr[((loadbuf[uii / BITCT2] >> (2 * (uii % BITCT2))) & 3) | (((loadbuf[ujj / BITCT2] >> (2 * (ujj % BITCT2))) & 3) << 2) | (((loadbuf[ukk / BITCT2] >> (2 * (ukk % BITCT2))) & 3) << 4)];
+	  umm = (loadbuf[uii / BITCT2] >> (2 * (uii % BITCT2))) & 3;
+	  unn = (loadbuf[ukk / BITCT2] >> (2 * (ukk % BITCT2))) & 3;
+	  if ((!is_x) || (!is_set(sex_male, uii))) {
+            umm = mendel_error_table[umm | (((loadbuf[ujj / BITCT2] >> (2 * (ujj % BITCT2))) & 3) << 2) | (unn << 4)];
+	  } else {
+	    umm = mendel_error_table_male_x[umm | (unn << 2)];
+	  }
 	  if (umm) {
 	    error_cts_tmp2[trio_idx] += umm & 0xffffff;
 	    cur_error_ct++;
 	    if (calc_mendel) {
 	      umm >>= 24;
-	      if ((umm > 8) && (!is_set(sex_male, uii))) {
-		umm = 34 - 3 * umm; // 9 -> 7, 10 -> 4
-	      }
 	      wptr = fw_strcpy(plink_maxfid, &(fids[trio_idx * max_fid_len]), tbuf);
 	      *wptr++ = ' ';
 	      wptr = fw_strcpy(plink_maxiid, &(iids[uii * max_iid_len]), wptr);
@@ -924,16 +926,17 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	  ujj = 2 * (uii % BITCT2);
 	  ulii = (loadbuf[umm] >> ujj) & 3;
 	  if (ulii != 1) {
-	    umm = error_table_ptr[ulii | (uljj << 2)];
+	    if ((!is_x) || (!is_set(sex_male, uii))) {
+	      umm = mendel_error_table[ulii | (uljj << 2)];
+	    } else {
+	      umm = mendel_error_table_male_x[ulii | (uljj & 12)];
+	    }
 	    if (umm) {
 	      error_cts_tmp2[trio_idx] += umm & 0xffffff;
 	      cur_error_ct++;
 	      if (calc_mendel) {
 	        set_bit(error_locs, trio_idx);
 		umm >>= 24;
-		if ((umm > 8) && (!is_set(sex_male, uii))) {
-		  umm = 34 - 3 * umm;
-		}
                 cur_errors[trio_idx] = (unsigned char)umm;
 	      }
 	    }
@@ -1724,7 +1727,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   return 0;
 }
 
-int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double output_min_p, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct_ax, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sample_male_include2, uint32_t* trio_nuclear_lookup, uint32_t family_ct, Aperm_info* apip, uint32_t mperm_save, char* sample_ids, uintptr_t max_sample_id_len, Chrom_info* chrom_info_ptr, uint32_t hh_exists, Family_info* fam_ip, uintptr_t* loadbuf, uintptr_t* workbuf, char* textbuf, double* orig_chisq, uint32_t* trio_error_lookup, uintptr_t trio_ct) {
+int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double output_min_p, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct_ax, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sex_male, uintptr_t* sample_male_include2, uint32_t* trio_nuclear_lookup, uint32_t family_ct, Aperm_info* apip, uint32_t mperm_save, char* sample_ids, uintptr_t max_sample_id_len, Chrom_info* chrom_info_ptr, uint32_t hh_exists, Family_info* fam_ip, uintptr_t* loadbuf, uintptr_t* workbuf, char* textbuf, double* orig_chisq, uint32_t* trio_error_lookup, uintptr_t trio_ct) {
   FILE* outfile = NULL;
   uint64_t mendel_error_ct = 0;
   double pat_a2transmit_recip = 0.0;
@@ -1827,7 +1830,7 @@ int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* o
       if (hh_exists && is_x) {
         hh_reset((unsigned char*)loadbuf, sample_male_include2, unfiltered_sample_ct);
       }
-      mendel_error_ct += erase_mendel_errors(unfiltered_sample_ct, loadbuf, workbuf, trio_error_lookup, trio_ct, multigen);
+      mendel_error_ct += erase_mendel_errors(unfiltered_sample_ct, loadbuf, workbuf, sex_male, trio_error_lookup, trio_ct, is_x, multigen);
       lookup_ptr = trio_nuclear_lookup;
       poo_acc = 0;
       poo_acc_ct = 0;
@@ -2203,7 +2206,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
     }
   }
   if (poo_test) {
-    retval = tdt_poo(threads, bedfile, bed_offset, outname, outname_end, output_min_p, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, unfiltered_sample_ct, sample_male_include2, trio_nuclear_lookup, family_ct, apip, mperm_save, sample_ids, max_sample_id_len, chrom_info_ptr, hh_exists, fam_ip, loadbuf, workbuf, textbuf, orig_chisq, trio_error_lookup, trio_ct);
+    retval = tdt_poo(threads, bedfile, bed_offset, outname, outname_end, output_min_p, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, unfiltered_sample_ct, sex_male, sample_male_include2, trio_nuclear_lookup, family_ct, apip, mperm_save, sample_ids, max_sample_id_len, chrom_info_ptr, hh_exists, fam_ip, loadbuf, workbuf, textbuf, orig_chisq, trio_error_lookup, trio_ct);
     if (retval) {
       goto tdt_ret_1;
     }
@@ -2274,7 +2277,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
       //    c. if at least one het parent, iterate through genotyped children,
       //       incrementing regular TDT counts.
       // mendel_error_ct += erase_mendel_errors(unfiltered_sample_ct, loadbuf, workbuf, trio_error_lookup, trio_ct, multigen);
-      erase_mendel_errors(unfiltered_sample_ct, loadbuf, workbuf, trio_error_lookup, trio_ct, multigen);
+      erase_mendel_errors(unfiltered_sample_ct, loadbuf, workbuf, sex_male, trio_error_lookup, trio_ct, is_x, multigen);
       lookup_ptr = trio_nuclear_lookup;
       parentdt_acc = 0;
       parentdt_acc_ct = 0;
@@ -3439,7 +3442,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       if (IS_SET(marker_reverse, marker_uidx)) {
 	reverse_loadbuf((unsigned char*)loadbuf_raw, unfiltered_sample_ct);
       }
-      erase_mendel_errors(unfiltered_sample_ct, loadbuf_raw, workbuf, trio_error_lookup, trio_ct, multigen);
+      erase_mendel_errors(unfiltered_sample_ct, loadbuf_raw, workbuf, sex_male, trio_error_lookup, trio_ct, 0, multigen);
       collapse_copy_2bitarr(loadbuf_raw, &(g_loadbuf[block_size * dfam_sample_ctl2]), unfiltered_sample_ct, dfam_sample_ct, dfam_sample_exclude);
       if (perm_adapt_nst) {
 	g_adapt_m_table[block_size] = marker_idx2++;
@@ -4595,7 +4598,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	if (IS_SET(marker_reverse, marker_uidx)) {
 	  reverse_loadbuf((unsigned char*)loadbuf_raw, unfiltered_sample_ct);
 	}
-	erase_mendel_errors(unfiltered_sample_ct, loadbuf_raw, workbuf, trio_error_lookup, trio_ct, multigen);
+	erase_mendel_errors(unfiltered_sample_ct, loadbuf_raw, workbuf, sex_male, trio_error_lookup, trio_ct, 0, multigen);
 	loadbuf_ptr = &(g_loadbuf[block_idx * sample_ctl2]);
 	collapse_copy_2bitarr(loadbuf_raw, loadbuf_ptr, unfiltered_sample_ct, sample_ct, sample_exclude);
 	g_adapt_m_table[block_idx] = marker_idx;
