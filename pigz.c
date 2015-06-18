@@ -1559,10 +1559,17 @@ void force_compressed_pzwrite(Pigz_state* ps_ptr, char** writep_ptr, uint32_t wr
 int32_t flex_pzputs_std(Pigz_state* ps_ptr, char** writep_ptr, char* ss, uint32_t sslen) {
     unsigned char* writep = (unsigned char*)(*writep_ptr);
     unsigned char* readp = (unsigned char*)ss;
-    uint32_t cur_write_space = 2 * PIGZ_BLOCK_SIZE - ((uintptr_t)(writep - ps_ptr->overflow_buf));
+    uint32_t cur_write_pos = (uintptr_t)(writep - ps_ptr->overflow_buf);
+    uint32_t delta;
     int32_t ii;
-    while (sslen > cur_write_space) {
-        memcpy(writep, readp, cur_write_space);
+    while ((sslen + cur_write_pos) > PIGZ_BLOCK_SIZE) {
+        if (cur_write_pos <= PIGZ_BLOCK_SIZE) {
+	    delta = PIGZ_BLOCK_SIZE + 1 - cur_write_pos;
+	    memcpy(writep, readp, delta);
+	    writep = &(writep[delta]);
+	    readp = &(readp[delta]);
+            sslen -= delta;
+        }
 	if (is_uncompressed_pzwrite(ps_ptr)) {
 	    ii = force_pzwrite(ps_ptr, (char**)(&writep), PIGZ_BLOCK_SIZE + 1);
 	    if (ii) {
@@ -1571,9 +1578,7 @@ int32_t flex_pzputs_std(Pigz_state* ps_ptr, char** writep_ptr, char* ss, uint32_
 	} else {
 	    force_compressed_pzwrite(ps_ptr, (char**)(&writep), PIGZ_BLOCK_SIZE + 1);
 	}
-        readp = &(readp[cur_write_space]);
-	sslen -= cur_write_space;
-	cur_write_space = 2 * PIGZ_BLOCK_SIZE;
+        cur_write_pos = (uintptr_t)(writep - ps_ptr->overflow_buf);
     }
     memcpy(writep, readp, sslen);
     *writep_ptr = (char*)(&(writep[sslen]));
