@@ -103,7 +103,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (17 Jun 2015)";
+  " (18 Jun 2015)";
 const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -665,6 +665,8 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	  logprint("Error: --regress-distance calculation requires a scalar phenotype.\n");
 	} else if (calculation_type & CALC_UNRELATED_HERITABILITY) {
 	  logprint("Error: --unrelated-heritability requires a scalar phenotype.\n");
+	} else if (calculation_type & CALC_GXE) {
+	  logprint("Error: --gxe requires a scalar phenotype.\n");
 	}
 	goto plink_ret_INVALID_CMDLINE;
       }
