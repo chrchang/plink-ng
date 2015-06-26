@@ -48,6 +48,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
   uintptr_t polymorphic_marker_ct = 0;
   uintptr_t unselected_covar_ct = 0;
   uintptr_t final_mask = get_final_mask(sample_valid_ct);
+  double lambda_min = lasso_minlambda;
   uint32_t chrom_fo_idx = 0xffffffffU; // exploit overflow
   uint32_t chrom_end = 0;
   uint32_t is_x = 0;
@@ -64,7 +65,6 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
   uintptr_t* active_set;
   uintptr_t* ulptr;
   double sige;
-  double lambda_min;
   double loghi;
   double loglo;
   double logdelta;
@@ -200,6 +200,36 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
   col_ct = covar_ct + polymorphic_marker_ct;
   col_ctl = (col_ct + (BITCT - 1)) / BITCT;
   wkspace_shrink_top(data_arr, col_ct * sample_valid_ct * sizeof(double));
+  sige = sqrt(1.0 - lasso_h2 + 1.0 / ((double)((intptr_t)sample_valid_ct)));
+  zz = sige * sqrt_n_recip;
+  if (rand_matrix) {
+    prod_matrix = (double*)wkspace_alloc(WARM_START_ITERS * WARM_START_ITERS * sizeof(double));
+    fputs("\r--lasso: Initializing warm start matrix...", stdout);
+    fflush(stdout);
+    fill_double_zero(misc_arr, WARM_START_ITERS);
+    for (col_idx = 0; col_idx < col_ct;) {
+      ulii = col_idx + WARM_START_ITERS;
+      if (ulii > col_ct) {
+	ulii = col_ct;
+      }
+      // splitting this into square blocks reduces memory consumption without
+      // slowing things down (may even be faster due to locality).
+      col_major_matrix_multiply(WARM_START_ITERS, ulii - col_idx, sample_valid_ct, rand_matrix, &(data_arr[col_idx * sample_valid_ct]), prod_matrix);
+      dptr = prod_matrix;
+      for (; col_idx < ulii; col_idx++) {
+	for (uii = 0; uii < WARM_START_ITERS; uii++) {
+	  dxx = fabs(*dptr++);
+	  if (dxx > misc_arr[uii]) {
+	    misc_arr[uii] = dxx;
+	  }
+	}
+      }
+    }
+    lambda_min = destructive_get_dmedian(misc_arr, WARM_START_ITERS) * zz;
+    logstr("--lasso:");
+    LOGPRINTF(" using min lambda = %g.\n", lambda_min);
+    wkspace_reset(prod_matrix);
+  }
   xhat = (double*)wkspace_alloc(col_ct * sizeof(double));
   active_set = (uintptr_t*)wkspace_alloc(col_ctl * sizeof(intptr_t));
   *xhat_ptr = xhat;
@@ -215,40 +245,16 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
       lambda_max = dxx;
     }
   }
-  sige = sqrt(1.0 - lasso_h2 + 1.0 / ((double)((intptr_t)sample_valid_ct)));
-  zz = sige * sqrt_n_recip;
-  if (rand_matrix) {
-    prod_matrix = (double*)wkspace_alloc(col_ct * WARM_START_ITERS * sizeof(double));
-    fputs("\r--lasso: Initializing warm start matrix...", stdout);
-    fflush(stdout);
-    col_major_matrix_multiply(WARM_START_ITERS, col_ct, sample_valid_ct, rand_matrix, data_arr, prod_matrix);
-    for (ulii = 0; ulii < WARM_START_ITERS; ulii++) {
-      dxx = 0.0;
-      dptr = &(prod_matrix[ulii]);
-      for (col_idx = 0; col_idx < col_ct; col_idx++) {
-	dyy = fabs(dptr[col_idx * WARM_START_ITERS]);
-	if (dyy > dxx) {
-	  dxx = dyy;
-	}
-      }
-      misc_arr[ulii] = dxx * zz;
-    }
-    lambda_min = destructive_get_dmedian(misc_arr, WARM_START_ITERS);
-    logstr("--lasso:");
-    LOGPRINTF(" using min lambda = %g.\n", lambda_min);
-  } else {
-    lambda_min = lasso_minlambda;
-    if (lasso_minlambda >= lambda_max) {
-      logprint("\nError: min lambda >= max lambda.\n");
-      goto lasso_bigmem_ret_INVALID_CMDLINE;
-    }
+  if (lambda_min >= lambda_max) {
+    logprint("\nError: min lambda >= max lambda.\n");
+    goto lasso_bigmem_ret_INVALID_CMDLINE;
   }
   loghi = log(lambda_max);
   loglo = log(lambda_min);
   logdelta = (loghi - loglo) / (NLAMBDA - 1.0);
+  dptr = data_arr;
   for (col_idx = 0; col_idx < col_ct; col_idx++) {
     dxx = 0.0;
-    dptr = &(data_arr[col_idx * sample_valid_ct]);
     dptr2 = pheno_d_collapsed;
     for (sample_idx = 0; sample_idx < sample_valid_ct; sample_idx++) {
       dxx += (*dptr++) * (*dptr2++);
@@ -358,6 +364,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
   double sqrt_n_recip = sqrt(1.0 / ((double)((intptr_t)sample_valid_ct)));
   double lambda_max = 0.0;
   double err_cur = 0.0;
+  double lambda_min = lasso_minlambda;
   uint64_t iter_tot = 0;
   uintptr_t sample_valid_ctl2 = (sample_valid_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t unselected_covar_ct = 0;
@@ -367,11 +374,12 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
   uint32_t is_x = 0;
   uint32_t is_y = 0;
   uint32_t min_ploidy_1 = 0;
+  uint32_t partial_marker_idx = 0;
   int32_t retval = 0;
+  double* prod_matrix = NULL;
   double cur_mapping[4];
   double* data_window;
   double* xhat;
-  double* prod_matrix;
   double* dptr;
   double* dptr2;
   uintptr_t* ulptr_end_init;
@@ -379,7 +387,6 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
   uintptr_t* active_set;
   uintptr_t* ulptr;
   double sige;
-  double lambda_min;
   double loghi;
   double loglo;
   double logdelta;
@@ -458,12 +465,30 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
       }
     }
   }
-  dptr = &(covar_data_arr[covar_ct * sample_valid_ct]);
   sige = sqrt(1.0 - lasso_h2 + 1.0 / ((double)((intptr_t)sample_valid_ct)));
   zz = sige * sqrt_n_recip;
+  if (rand_matrix) {
+    if (wkspace_alloc_d_checked(&data_window, sample_valid_ct * WARM_START_ITERS * sizeof(double)) ||
+        wkspace_alloc_d_checked(&prod_matrix, WARM_START_ITERS * WARM_START_ITERS * sizeof(double))) {
+      goto lasso_smallmem_ret_NOMEM;
+    }
+    fputs("\r--lasso: Initializing warm start matrix...", stdout);
+    fflush(stdout);
+    fill_double_zero(misc_arr, WARM_START_ITERS);
+  } else {
+    if (wkspace_alloc_d_checked(&data_window, sample_valid_ct * sizeof(double))) {
+      goto lasso_smallmem_ret_NOMEM;
+    }
+  }
+  // put this on top of the stack so we can shrink it when we know the true
+  // column count
+  if (wkspace_alloc_d_checked(&xhat, (covar_ct + marker_ct) * sizeof(double))) {
+    goto lasso_smallmem_ret_NOMEM;
+  }
+  dptr = data_window;
   for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-    // count polymorphic markers here, compute lambda_max, perform rand_matrix
-    // multiply if necessary
+    // count polymorphic markers here, compute xhat[] and lambda_max, perform
+    // rand_matrix multiply if necessary
     if (IS_SET(marker_exclude, marker_uidx)) {
       marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
       if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
@@ -511,62 +536,87 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
         ulptr_end++;
         sample_idx_stop = sample_valid_ct;
       }
-      polymorphic_marker_ct++;
-      dxx = 0;
+      dxx = 0.0;
       for (sample_idx = 0; sample_idx < sample_valid_ct; sample_idx++) {
 	dxx += dptr2[sample_idx] * pheno_d_collapsed[sample_idx];
       }
+      xhat[covar_ct + polymorphic_marker_ct + partial_marker_idx] = dxx;
+      partial_marker_idx++;
       dxx = fabs(dxx);
       if (dxx > lambda_max) {
 	lambda_max = dxx;
       }
-      if (rand_matrix && (!(polymorphic_marker_ct % WARM_START_ITERS))) {
-
-	dptr = ;;;
+      if (partial_marker_idx == WARM_START_ITERS) {
+	if (rand_matrix) {
+	  col_major_matrix_multiply(WARM_START_ITERS, WARM_START_ITERS, sample_valid_ct, &(rand_matrix[polymorphic_marker_ct * WARM_START_ITERS]), data_window, prod_matrix);
+	  dptr = prod_matrix;
+	  for (col_idx = 0; col_idx < WARM_START_ITERS; col_idx++) {
+	    for (ulii = 0; ulii < WARM_START_ITERS; ulii++) {
+	      dxx = fabs(*dptr++);
+	      if (dxx > misc_arr[ulii]) {
+		misc_arr[ulii] = dxx;
+	      }
+	    }
+	  }
+	}
+	polymorphic_marker_ct += WARM_START_ITERS;
+	partial_marker_idx = 0;
+	dptr = data_window;
+      } else if (!rand_matrix) {
+	dptr = data_window;
       }
     }
   }
-  *polymorphic_marker_ct_ptr = polymorphic_marker_ct;
-  if (!polymorphic_marker_ct) {
+  if (!(polymorphic_marker_ct + partial_marker_idx)) {
     logprint("Warning: Skipping --lasso since no polymorphic markers are present.\n");
     return 0;
   }
-  col_ct = covar_ct + polymorphic_marker_ct;
-  col_ctl = (col_ct + (BITCT - 1)) / BITCT;
-  xhat = (double*)wkspace_alloc(col_ct * sizeof(double));
-  active_set = (uintptr_t*)wkspace_alloc(col_ctl * sizeof(intptr_t));
-  *xhat_ptr = xhat;
   if (rand_matrix) {
-    prod_matrix = (double*)wkspace_alloc(col_ct * WARM_START_ITERS * sizeof(double));
-    fputs("\r--lasso: Initializing warm start matrix...", stdout);
-    fflush(stdout);
-    // multiply square blocks?
-    col_major_matrix_multiply(WARM_START_ITERS, col_ct, sample_valid_ct, rand_matrix, data_arr, prod_matrix);
-    for (ulii = 0; ulii < WARM_START_ITERS; ulii++) {
-      dxx = 0.0;
-      dptr = &(prod_matrix[ulii]);
-      for (col_idx = 0; col_idx < col_ct; col_idx++) {
-	dyy = fabs(dptr[col_idx * WARM_START_ITERS]);
-	if (dyy > dxx) {
-	  dxx = dyy;
+    if (partial_marker_idx) {
+      col_major_matrix_multiply(WARM_START_ITERS, partial_marker_idx, sample_valid_ct, &(rand_matrix[polymorphic_marker_ct * WARM_START_ITERS]), data_window, prod_matrix);
+      dptr = prod_matrix;
+      for (col_idx = 0; col_idx < partial_marker_idx; col_idx++) {
+	for (ulii = 0; ulii < WARM_START_ITERS; ulii++) {
+	  dxx = fabs(*dptr++);
+	  if (dxx > misc_arr[ulii]) {
+	    misc_arr[ulii] = dxx;
+	  }
 	}
       }
-      misc_arr[ulii] = dxx * zz;
     }
-    lambda_min = destructive_get_dmedian(misc_arr, WARM_START_ITERS);
+    lambda_min = destructive_get_median(misc_arr, WARM_START_ITERS) * zz;
     logstr("--lasso:");
     LOGPRINTF(" using min lambda = %g.\n", lambda_min);
-  } else {
-    lambda_min = lasso_minlambda;
-    if (lasso_minlambda >= lambda_max) {
-      logprint("\nError: min lambda >= max lambda.\n");
-      goto lasso_smallmem_ret_INVALID_CMDLINE;
-    }
+    wkspace_reset(prod_matrix);
+  }
+  polymorphic_marker_ct += partial_marker_idx;
+  *polymorphic_marker_ct_ptr = polymorphic_marker_ct;
+  col_ct = covar_ct + polymorphic_marker_ct;
+  wkspace_shrink_top();
+  col_ctl = (col_ct + (BITCT - 1)) / BITCT;
+  active_set = (uintptr_t*)wkspace_alloc(col_ctl * sizeof(intptr_t));
+  *xhat_ptr = xhat;
+  if (lambda_min >= lambda_max) {
+    logprint("\nError: min lambda >= max lambda.\n");
+    goto lasso_smallmem_ret_INVALID_CMDLINE;
   }
   loghi = log(lambda_max);
   loglo = log(lambda_min);
   logdelta = (loghi - loglo) / (NLAMBDA - 1.0);
-  for (col_idx = 0; col_idx < col_ct; col_idx++) {
+  dptr = covar_data_arr;
+  col_idx = 0;
+  if (covar_ct) {
+    dptr = covar_data_arr;
+    for (; col_idx < covar_ct; col_idx++) {
+      dxx = 0.0;
+      dptr2 = pheno_d_collapsed;
+      for (sample_idx = 0; sample_idx < sample_valid_ct; sample_idx++) {
+	dxx += (*dptr++) * (*dptr2++);
+      }
+      xhat[col_idx] = dxx;
+    }
+  }
+  for (; col_idx < col_ct; col_idx++) {
     dxx = 0.0;
     dptr = &(data_arr[col_idx * sample_valid_ct]);
     dptr2 = pheno_d_collapsed;
@@ -586,6 +636,10 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
     fflush(stdout);
     lambda = exp(loghi - logdelta * ((double)((int32_t)lambi)));
     memcpy(residuals, pheno_d_collapsed, sample_valid_ct * sizeof(double));
+    for (col_idx = 0; col_idx < ; col_idx++) {
+    }
+    for (; col_idx < col_ct; col_idx++) {
+    }
     for (col_idx = 0; col_idx < col_ct; col_idx++) {
       dptr = residuals;
       dptr2 = &(data_arr[col_idx * sample_valid_ct]);
@@ -833,25 +887,31 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   // maximum size of remaining allocations, for memory hog mode (col_ct is at
   // most marker_ct + covar_ct):
   // 1. data_arr: col_ct * sample_valid_ct * sizeof(double)
-  // 2. prod_matrix: col_ct * WARM_START_ITERS * sizeof(double)
-  // 3. xhat: col_ct * sizeof(double)
-  // 4. active_set: col_ctl * sizeof(intptr_t)
-  ullii = CACHEALIGN(((uint64_t)uii) * sample_valid_ct * sizeof(double)) + CACHEALIGN(((uint64_t)uii) * sizeof(double)) + CACHEALIGN(((uii + 7) / 8));
+  // plus
+  //   2a. xhat: col_ct * sizeof(double)
+  //   2b. active_set: col_ctl * sizeof(intptr_t)
+  // or
+  //   3. prod_matrix: WARM_START_ITERS * WARM_START_ITERS * sizeof(double)
+  // (whichever is larger)
+  ullii = CACHEALIGN(((uint64_t)uii) * sizeof(double)) + CACHEALIGN(((uii + 7) / 8));
   // assumes WARM_START_ITERS is even
   if (rand_matrix) {
     uljj = (sample_valid_ct * WARM_START_ITERS) - 1;
     for (ulii = 0; ulii < uljj; ulii += 2) {
       rand_matrix[ulii] = rand_normal(&(rand_matrix[ulii + 1]));
     }
-    ullii += CACHEALIGN(((uint64_t)uii) * WARM_START_ITERS * sizeof(double)) + CACHEALIGN(((uint64_t)uii) * sizeof(double)) + CACHEALIGN(((uii + 7) / 8));
+    if (ullii < CACHEALIGN(WARM_START_ITERS * WARM_START_ITERS * sizeof(double))) {
+      ullii = CACHEALIGN(WARM_START_ITERS * WARM_START_ITERS * sizeof(double));
+    }
   }
+  ullii += CACHEALIGN(((uint64_t)uii) * sample_valid_ct * sizeof(double));
   if (ullii <= wkspace_left) {
     retval = lasso_bigmem(bedfile, bed_offset, marker_exclude, marker_ct, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, pheno_nm2, lasso_h2, lasso_minlambda, select_covars, select_covars_bitfield, pheno_d_collapsed, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, hh_or_mt_exists, sample_valid_ct, sample_include2, sample_male_include2, loadbuf_raw, loadbuf_collapsed, rand_matrix, misc_arr, residuals, polymorphic_markers, &polymorphic_marker_ct, &iter_tot, &xhat);
   } else {
     // retval = lasso_smallmem(threads, bedfile, bed_offset, marker_exclude, marker_ct, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, pheno_nm2, lasso_h2, lasso_minlambda, select_covars, select_covars_bitfield, pheno_d_collapsed, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, hh_or_mt_exists, sample_valid_ct, sample_include2, sample_male_include2, loadbuf_raw, loadbuf_collapsed, rand_matrix, misc_arr, residuals, polymorphic_markers, &polymorphic_marker_ct, &iter_tot, &xhat);
     retval = RET_NOMEM;
   }
-  if (retval) {
+  if (retval || (!polymorphic_marker_ct)) {
     goto lasso_ret_1;
   }
   memcpy(outname_end, ".lasso", 7);

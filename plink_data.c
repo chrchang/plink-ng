@@ -446,6 +446,11 @@ void load_bim_sf_insert(uint32_t chrom_idx, uint32_t pos_start, uint32_t pos_end
 	}
 	if (llbuf[llidx + 1] < pos_end) {
 	  // scan forward, attempt to collapse entries
+
+	  // bugfix: if no forward entries can be collapsed, current entry must
+	  // be updated
+	  llbuf[llidx + 1] = pos_end;
+	  
 	  old_llidx = llidx;
           new_llidx = llbuf[llidx + 2];
 	  while (new_llidx != 1) {

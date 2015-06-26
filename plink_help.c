@@ -1760,7 +1760,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("a1-allele\treference-allele\tupdate-ref-allele\ta2-allele", &help_ctrl, 0,
 "  --a1-allele [f] {a1col} {IDcol} {skip} : Force alleles in the file to A1.\n"
-"  --a2-allele [f] {a2col} {IDcol} {skip} : Force alleles in the file to A2.\n"
+"  --a2-allele [filename] {a2col} {IDcol} {skip} :\n"
+"    Force alleles in the file to A2.  (\"--a2-allele [VCF filename] 4 3 '#'\",\n"
+"    which scrapes reference allele assignments from a VCF file, is especially\n"
+"    useful.)\n"
 	       );
     help_print("indiv-sort\tmerge\tbmerge\tmerge-list", &help_ctrl, 0,
 "  --indiv-sort [m] {f} : Specify FID/IID sort order.  The following four modes\n"
