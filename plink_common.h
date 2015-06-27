@@ -1950,6 +1950,8 @@ int32_t get_uidx_from_unsorted(char* idstr, uintptr_t* exclude_arr, uint32_t id_
 
 char* scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len);
 
+char* scan_for_duplicate_or_overlap_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len, char* sorted_nonoverlap_ids, uintptr_t nonoverlap_id_ct, uintptr_t max_nonoverlap_id_len);
+
 int32_t is_missing_pheno_cc(char* bufptr, double missing_phenod, uint32_t affection_01);
 
 int32_t eval_affection(char* bufptr, double missing_phenod);

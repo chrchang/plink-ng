@@ -1518,7 +1518,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                           the listed attributes.  If some attribute names in\n"
 "                           the list are preceded by '-', they are treated as\n"
 "                           'negative match conditions' instead: variants with\n"
-"                           all the negative match attributes are removed.\n"
+"                           at least one negative match attribute are removed.\n"
 "                           The first character in the list cannot be a '-', due\n"
 "                           to how command-line parsing works; add a comma in\n"
 "                           front to get around this.\n"

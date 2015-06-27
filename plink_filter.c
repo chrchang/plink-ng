@@ -352,7 +352,6 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t include_ct = 0;
   uintptr_t unfiltered_ctl = (unfiltered_ct + (BITCT - 1)) / BITCT;
-  uintptr_t* cur_neg_matches = NULL;
   char* sorted_pos_match = NULL;
   char* sorted_neg_match = NULL;
   char* bufptr2 = NULL;
@@ -375,7 +374,6 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
   uintptr_t ulii;
   uint32_t item_uidx;
   uint32_t pos_match_needed;
-  uint32_t cur_neg_match_ct;
   int32_t sorted_idx;
   
   if (wkspace_alloc_ul_checked(&exclude_arr_new, unfiltered_ctl * sizeof(intptr_t)) ||
@@ -429,8 +427,7 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
     }
     if (neg_match_ct) {
       neg_match_ctl = (neg_match_ct + (BITCT - 1)) / BITCT;
-      if (wkspace_alloc_c_checked(&sorted_neg_match, max_neg_match_len * neg_match_ct) ||
-	  wkspace_alloc_ul_checked(&cur_neg_matches, neg_match_ctl * sizeof(intptr_t))) {
+      if (wkspace_alloc_c_checked(&sorted_neg_match, max_neg_match_len * neg_match_ct)) {
         goto filter_attrib_ret_NOMEM;
       }
     }
@@ -473,13 +470,15 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
     }
     if (neg_match_ct) {
       qsort(sorted_neg_match, neg_match_ct, max_neg_match_len, strcmp_casted);
-      bufptr = scan_for_duplicate_ids(sorted_neg_match, neg_match_ct, max_neg_match_len);
+      // bugfix: when multiple negative match conditions are present, presence
+      // of ANY of them is enough to disqualify the variant.  So it's
+      // appropriate to ensure no duplication between positive and negative
+      // match conditions after all.
+      bufptr = scan_for_duplicate_or_overlap_ids(sorted_neg_match, neg_match_ct, max_neg_match_len, sorted_pos_match, pos_match_ct, max_pos_match_len);
       if (bufptr) {
 	LOGPREPRINTFWW("Error: Duplicate attribute '%s' in --attrib argument.\n", bufptr);
 	goto filter_attrib_ret_INVALID_CMDLINE_2;
       }
-      // actually may make sense to have same attribute as a positive and
-      // negative condition, so we don't check for that
     }
   }
   loadbuf_size = wkspace_left;
@@ -529,10 +528,6 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
     }
     set_bit(already_seen, item_uidx);
     pos_match_needed = pos_match_ct;
-    cur_neg_match_ct = 0;
-    if (neg_match_ct) {
-      fill_ulong_zero(cur_neg_matches, neg_match_ctl);
-    }
     while (!is_eoln_kns(*cond_ptr)) {
       bufptr2 = cond_ptr;
       bufptr = token_endnn(cond_ptr);
@@ -540,25 +535,18 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
       cond_ptr = skip_initial_spaces(bufptr);
       if (pos_match_needed && (bsearch_str(bufptr2, ulii, sorted_pos_match, max_pos_match_len, pos_match_ct) != -1)) {
 	pos_match_needed = 0;
-      }
-      if (cur_neg_match_ct < neg_match_ct) {
+      } else if (neg_match_ct) {
 	sorted_idx = bsearch_str(bufptr2, ulii, sorted_neg_match, max_neg_match_len, neg_match_ct);
-	if ((sorted_idx != -1) && (!is_set(cur_neg_matches, sorted_idx))) {
-          cur_neg_match_ct++;
-	  if (cur_neg_match_ct == neg_match_ct) {
-	    // fail
-	    pos_match_needed = 1;
-            break;
-	  }
-          set_bit(cur_neg_matches, sorted_idx);
+	if (sorted_idx != -1) {
+	  // fail
+	  pos_match_needed = 1;
+	  break;
 	}
       }
     }
     if (pos_match_needed) {
       continue;
     }
-    // full negative match causes pos_match_needed to be set, so no further
-    // check required
     clear_bit(exclude_arr_new, item_uidx);
     include_ct++;
   }
@@ -603,7 +591,6 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t include_ct = 0;
   uintptr_t unfiltered_ctl = (unfiltered_ct + (BITCT - 1)) / BITCT;
-  uintptr_t* cur_neg_matches = NULL;
   char* sorted_pos_match = NULL;
   char* sorted_neg_match = NULL;
   char* id_buf = NULL;
@@ -627,7 +614,6 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
   uintptr_t ulii;
   uint32_t unfiltered_idx;
   uint32_t pos_match_needed;
-  uint32_t cur_neg_match_ct;
   int32_t sorted_idx;
   
   if (wkspace_alloc_ul_checked(&exclude_arr_new, unfiltered_ctl * sizeof(intptr_t)) ||
@@ -682,8 +668,7 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
     }
     if (neg_match_ct) {
       neg_match_ctl = (neg_match_ct + (BITCT - 1)) / BITCT;
-      if (wkspace_alloc_c_checked(&sorted_neg_match, max_neg_match_len * neg_match_ct) ||
-	  wkspace_alloc_ul_checked(&cur_neg_matches, neg_match_ctl * sizeof(intptr_t))) {
+      if (wkspace_alloc_c_checked(&sorted_neg_match, max_neg_match_len * neg_match_ct)) {
         goto filter_attrib_sample_ret_NOMEM;
       }
     }
@@ -726,13 +711,11 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
     }
     if (neg_match_ct) {
       qsort(sorted_neg_match, neg_match_ct, max_neg_match_len, strcmp_casted);
-      bufptr = scan_for_duplicate_ids(sorted_neg_match, neg_match_ct, max_neg_match_len);
+      bufptr = scan_for_duplicate_or_overlap_ids(sorted_neg_match, neg_match_ct, max_neg_match_len, sorted_pos_match, pos_match_ct, max_pos_match_len);
       if (bufptr) {
 	LOGPREPRINTFWW("Error: Duplicate attribute '%s' in --attrib-indiv argument.\n", bufptr);
 	goto filter_attrib_sample_ret_INVALID_CMDLINE_2;
       }
-      // actually may make sense to have same attribute as a positive and
-      // negative condition, so we don't check for that
     }
   }
   loadbuf_size = wkspace_left;
@@ -783,10 +766,6 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
     set_bit(already_seen, sorted_idx);
     unfiltered_idx = id_map[(uint32_t)sorted_idx];
     pos_match_needed = pos_match_ct;
-    cur_neg_match_ct = 0;
-    if (neg_match_ct) {
-      fill_ulong_zero(cur_neg_matches, neg_match_ctl);
-    }
     while (!is_eoln_kns(*cond_ptr)) {
       bufptr2 = cond_ptr;
       bufptr = token_endnn(cond_ptr);
@@ -794,25 +773,18 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
       cond_ptr = skip_initial_spaces(bufptr);
       if (pos_match_needed && (bsearch_str(bufptr2, ulii, sorted_pos_match, max_pos_match_len, pos_match_ct) != -1)) {
 	pos_match_needed = 0;
-      }
-      if (cur_neg_match_ct < neg_match_ct) {
+      } else if (neg_match_ct) {
 	sorted_idx = bsearch_str(bufptr2, ulii, sorted_neg_match, max_neg_match_len, neg_match_ct);
-	if ((sorted_idx != -1) && (!is_set(cur_neg_matches, sorted_idx))) {
-          cur_neg_match_ct++;
-	  if (cur_neg_match_ct == neg_match_ct) {
-	    // fail
-	    pos_match_needed = 1;
-            break;
-	  }
-          set_bit(cur_neg_matches, sorted_idx);
+	if (sorted_idx != -1) {
+	  // fail
+	  pos_match_needed = 1;
+	  break;
 	}
       }
     }
     if (pos_match_needed) {
       continue;
     }
-    // full negative match causes pos_match_needed to be set, so no further
-    // check required
     clear_bit(exclude_arr_new, unfiltered_idx);
     include_ct++;
   }

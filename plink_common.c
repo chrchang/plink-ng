@@ -4633,6 +4633,40 @@ char* scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id
   return NULL;
 }
 
+char* scan_for_duplicate_or_overlap_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len, char* sorted_nonoverlap_ids, uintptr_t nonoverlap_id_ct, uintptr_t max_nonoverlap_id_len) {
+  // extended scan_for_duplicate_ids() which also verifies that no entry in
+  // sorted_ids matches any entry in sorted_nonoverlap_ids.
+  // nonoverlap_id_ct == 0 and sorted_nonoverlap_ids == NULL ok.  id_ct cannot
+  // be zero, though.
+  uintptr_t nonoverlap_id_idx = 0;
+  uintptr_t id_idx = 0;
+  char* cur_id_ptr = sorted_ids;
+  char* nonoverlap_id_ptr;
+  char* other_id_ptr;
+  int32_t ii;
+  while (1) {
+    if (nonoverlap_id_idx == nonoverlap_id_ct) {
+      return scan_for_duplicate_ids(cur_id_ptr, id_ct - id_idx, max_id_len);
+    }
+    nonoverlap_id_ptr = &(sorted_nonoverlap_ids[nonoverlap_id_idx * max_nonoverlap_id_len]);
+    ii = strcmp(cur_id_ptr, nonoverlap_id_ptr);
+    if (ii < 0) {
+      if (++id_idx == id_ct) {
+	return NULL;
+      }
+      other_id_ptr = &(cur_id_ptr[max_id_len]);
+      if (!strcmp(cur_id_ptr, other_id_ptr)) {
+	return cur_id_ptr;
+      }
+      cur_id_ptr = other_id_ptr;
+      continue;
+    } else if (!ii) {
+      return cur_id_ptr;
+    }
+    nonoverlap_id_idx++;
+  }
+}
+
 int32_t is_missing_pheno_cc(char* bufptr, double missing_phenod, uint32_t affection_01) {
   char* ss;
   double dxx;
