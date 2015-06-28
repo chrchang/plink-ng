@@ -357,7 +357,6 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
   char* bufptr2 = NULL;
   uint32_t pos_match_ct = 0;
   uint32_t neg_match_ct = 0;
-  uint32_t neg_match_ctl = 0;
   uintptr_t max_pos_match_len = 0;
   uintptr_t max_neg_match_len = 0;
   uintptr_t line_idx = 0;
@@ -426,7 +425,6 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
       }
     }
     if (neg_match_ct) {
-      neg_match_ctl = (neg_match_ct + (BITCT - 1)) / BITCT;
       if (wkspace_alloc_c_checked(&sorted_neg_match, max_neg_match_len * neg_match_ct)) {
         goto filter_attrib_ret_NOMEM;
       }
@@ -597,7 +595,6 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
   char* bufptr2 = NULL;
   uint32_t pos_match_ct = 0;
   uint32_t neg_match_ct = 0;
-  uint32_t neg_match_ctl = 0;
   uintptr_t max_pos_match_len = 0;
   uintptr_t max_neg_match_len = 0;
   uintptr_t line_idx = 0;
@@ -667,7 +664,6 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
       }
     }
     if (neg_match_ct) {
-      neg_match_ctl = (neg_match_ct + (BITCT - 1)) / BITCT;
       if (wkspace_alloc_c_checked(&sorted_neg_match, max_neg_match_len * neg_match_ct)) {
         goto filter_attrib_sample_ret_NOMEM;
       }
