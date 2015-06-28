@@ -287,7 +287,6 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
     while (1) {
       col_uidx = 0;
       col_to_z = 0;
-      printf("active_set size: %lu\n", popcount_longs(active_set, col_ctl));
       for (marker_idx = 0; marker_idx < col_nz_ct; marker_idx++, col_uidx++) {
         col_uidx = next_set_unsafe(active_set, col_uidx);
         xjold = xhat[col_uidx];
