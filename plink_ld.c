@@ -13135,6 +13135,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       }
       window_data_ptr = &(window_data_ptr[founder_ctv2]);
     }
+    next_unset_unsafe_ck(marker_exclude, &marker_uidx);
     if (fseeko(bedfile, bed_offset + marker_uidx * ((uint64_t)unfiltered_sample_ct4), SEEK_SET)) {
       goto clump_reports_ret_READ_FAIL;
     }
