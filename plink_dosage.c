@@ -576,7 +576,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uint32_t score_report_average = doip->modifier & DOSAGE_SCORE_NOSUM;
   uint32_t dosage_score_cnt = doip->modifier & DOSAGE_SCORE_CNT;
   uint32_t sex_covar = doip->modifier & DOSAGE_SEX;
-  uint32_t frq2 = doip->modifier & DOSAGE_FRQ2;
+  uint32_t freq_cc = doip->modifier & DOSAGE_FREQ_CC;
   uint32_t skip0 = doip->skip0;
   uint32_t skip1p1 = doip->skip1 + 1;
   uint32_t skip2 = doip->skip2;
@@ -1374,9 +1374,13 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       goto plink1_dosage_ret_1;
     }
   }
-  if (frq2 && (!do_glm)) {
-    logprint("Error: --dosage 'frq2' modifier can only be used in association analysis mode.\n");
-    goto plink1_dosage_ret_INVALID_CMDLINE;
+  if (freq_cc) {
+    if (!do_glm) {
+      logprint("Error: --dosage 'case-control-freqs' modifier can only be used in association\nanalysis mode.\n");
+      goto plink1_dosage_ret_INVALID_CMDLINE;
+    } else if (!pheno_c) {
+      logprint("Warning: '--dosage case-control-freqs' is silly with a quantitative phenotype.\n");
+    }
   }
   if (do_glm) {
     if (!sample_exclude_ct) {
@@ -1475,7 +1479,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     } else {
       bufptr = memcpya(tbuf, "         SNP", 12);
     }
-    bufptr = memcpya(bufptr, frq2? "  A1  A2   FRQ_A   FRQ_U    INFO    " : "  A1  A2     FRQ    INFO    ", frq2? 36 : 28);
+    bufptr = memcpya(bufptr, freq_cc? "  A1  A2   FRQ_A   FRQ_U    INFO    " : "  A1  A2     FRQ    INFO    ", freq_cc? 36 : 28);
     bufptr = memcpya(bufptr, pheno_c? "  OR" : "BETA", 4);
     bufptr = memcpya(bufptr, "      SE       P", 16);
     append_binary_eoln(&bufptr);
@@ -1947,7 +1951,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    goto plink1_dosage_ret_WRITE_FAIL;
 	  }
 	  *pzwritep++ = ' ';
-	  if (frq2 && pheno_c) {
+	  if (freq_cc && pheno_c) {
 	    // compute case and control A1 frequencies
 	    dxx = 0.0; // case sum
 	    dyy = 0.0; // control sum
@@ -1976,7 +1980,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  } else {
             pzwritep = double_f_writew74(pzwritep, dzz);
 	    // remove this kludge once scripts stop depending on it
-	    if (frq2) {
+	    if (freq_cc) {
 	      *pzwritep++ = ' ';
 	      pzwritep = double_f_writew74(pzwritep, dzz);
 	    }

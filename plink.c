@@ -103,10 +103,10 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (29 Jun 2015)";
+  " (3 Jul 2015)";
 const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
 #else
@@ -695,6 +695,9 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       } else if ((calculation_type & CALC_FST) && (misc_flags & MISC_FST_CC)) {
 	logprint("Error: '--fst case-control' requires a case/control phenotype.\n");
 	goto plink_ret_INVALID_CMDLINE;
+      } else if ((calculation_type & CALC_FREQ) && (misc_flags & MISC_FREQ_CC)) {
+	logprint("Error: '--freq case-control' requires a case/control phenotype.\n");
+	goto plink_ret_INVALID_CMDLINE;
       }
     }
 
@@ -1257,6 +1260,8 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	  logprint("Note: --freq 'counts' modifier has no effect on cluster-stratified report.\n");
 	}
 	retval = write_stratified_freqs(bedfile, bed_offset, outname, outname_end, (misc_flags / MISC_FREQ_GZ) & 1, plink_maxsnp, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_len, unfiltered_sample_ct, sample_ct, sample_f_ct, founder_info, nonfounders, sex_male, sample_f_male_ct, marker_reverse, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len);
+      } else if (misc_flags & MISC_FREQ_CC) {
+	retval = write_cc_freqs(bedfile, bed_offset, outname, outname_end, (misc_flags / MISC_FREQ_GZ) & 1, plink_maxsnp, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_len, unfiltered_sample_ct, founder_info, nonfounders, sex_male, marker_reverse, pheno_nm, pheno_c);
       } else {
 	retval = write_freqs(outname, outname_end, plink_maxsnp, unfiltered_marker_ct, marker_exclude, set_allele_freqs, chrom_info_ptr, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_len, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, hwe_hapl_allfs, hwe_haph_allfs, sample_f_ct, sample_f_male_ct, nonfounders, misc_flags, marker_reverse);
       }
@@ -6208,11 +6213,12 @@ int32_t main(int32_t argc, char** argv) {
 	    dosage_info.modifier |= DOSAGE_OCCUR;
 	  } else if (!strcmp(argv[cur_arg + uii], "sex")) {
 	    dosage_info.modifier |= DOSAGE_SEX;
+	  } else if (!strcmp(argv[cur_arg + uii], "case-control-freqs")) {
+	    dosage_info.modifier |= DOSAGE_FREQ_CC;
 	  } else if (!strcmp(argv[cur_arg + uii], "frq2")) {
-	    // FRQ_A and FRQ_U fields in association report, instead of just
-	    // FRQ.  Not documented yet since interface is subject to change.
-	    UNSTABLE("dosage frq2");
-	    dosage_info.modifier |= DOSAGE_FRQ2;
+	    // turn this into an error before official 1.90 release
+	    logprint("Warning: The --dosage 'frq2' modifier has been renamed to 'case-control-freqs'.\n");
+	    dosage_info.modifier |= DOSAGE_FREQ_CC;
 	  } else if (strlen(argv[cur_arg + uii]) <= 6) {
 	    goto main_dosage_invalid_param;
 	  } else if (!strcmp(argv[cur_arg + uii], "sepheader")) {
@@ -6551,7 +6557,17 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
 	  if (!strcmp(argv[cur_arg + uii], "counts")) {
+	    if (misc_flags & MISC_FREQ_CC) {
+	      logprint("Error: --freq 'counts' and 'case-control' modifiers cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
 	    misc_flags |= MISC_FREQ_COUNTS;
+	  } else if (!strcmp(argv[cur_arg + uii], "case-control")) {
+	    if (misc_flags & MISC_FREQ_COUNTS) {
+	      logprint("Error: --freq 'counts' and 'case-control' modifiers cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    misc_flags |= MISC_FREQ_CC;
 	  } else if (!strcmp(argv[cur_arg + uii], "gz")) {
 	    misc_flags |= MISC_FREQ_GZ;
 	  } else {

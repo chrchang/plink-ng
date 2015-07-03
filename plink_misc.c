@@ -2619,6 +2619,189 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
   return retval;
 }
 
+int32_t write_cc_freqs(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t output_gz, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t unfiltered_sample_ct, uintptr_t* founder_info, uint32_t nonfounders, uintptr_t* sex_male, uintptr_t* marker_reverse, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
+  unsigned char* wkspace_mark = wkspace_base;
+  char* pzwritep = NULL;
+  uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
+  uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t* loadbuf = NULL;
+  uintptr_t* case_include2 = NULL;
+  uintptr_t* ctrl_include2 = NULL;
+  uintptr_t* male_vec = NULL;
+  uintptr_t* nonmale_vec = NULL;
+  int32_t chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
+  int32_t retval = 0;
+  Pigz_state ps;
+  unsigned char* overflow_buf;
+  uintptr_t* ulptr;
+  char* bufptr;
+  uintptr_t chrom_end;
+  uintptr_t marker_uidx;
+  uint32_t is_x;
+  uint32_t is_y;
+  uint32_t is_haploid;
+  int32_t chrom_idx;
+  uint32_t case_ct;
+  uint32_t ctrl_ct;
+  uint32_t case_set_ct;
+  uint32_t ctrl_set_ct;
+  uint32_t case_missing_ct;
+  uint32_t ctrl_missing_ct;
+  uint32_t case_obs;
+  uint32_t ctrl_obs;
+  uint32_t uii;
+  pzwrite_init_null(&ps);
+  if (wkspace_alloc_uc_checked(&overflow_buf, PIGZ_BLOCK_SIZE + 2 * max_marker_allele_len + max_marker_id_len + 256)) {
+    goto write_cc_freqs_ret_NOMEM;
+  }
+
+  if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_sample_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&case_include2, unfiltered_sample_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&ctrl_include2, unfiltered_sample_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&male_vec, unfiltered_sample_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&nonmale_vec, unfiltered_sample_ctl2 * sizeof(intptr_t))) {
+      goto write_cc_freqs_ret_NOMEM;
+  }
+  loadbuf[unfiltered_sample_ctl2 - 1] = 0;
+  vec_include_init(unfiltered_sample_ct, case_include2, pheno_c);
+  vec_include_init(unfiltered_sample_ct, ctrl_include2, pheno_nm);
+  memcpy(nonmale_vec, ctrl_include2, unfiltered_sample_ctl2 * sizeof(intptr_t));
+  bitfield_andnot(ctrl_include2, case_include2, unfiltered_sample_ctl2);
+  vec_include_init(unfiltered_sample_ct, male_vec, sex_male);
+  bitfield_andnot(nonmale_vec, male_vec, unfiltered_sample_ctl2);
+  if (!nonfounders) {
+    if (wkspace_alloc_ul_checked(&ulptr, unfiltered_sample_ctl2 * sizeof(intptr_t))) {
+      goto write_cc_freqs_ret_NOMEM;
+    }
+    vec_include_init(unfiltered_sample_ct, ulptr, founder_info);
+    bitfield_and(case_include2, ulptr, unfiltered_sample_ctl2);
+    bitfield_and(ctrl_include2, ulptr, unfiltered_sample_ctl2);
+    bitfield_and(male_vec, ulptr, unfiltered_sample_ctl2);
+    bitfield_and(nonmale_vec, ulptr, unfiltered_sample_ctl2);
+    wkspace_reset(ulptr);
+  }
+  case_ct = popcount2_longs(case_include2, unfiltered_sample_ctl2);
+  ctrl_ct = popcount2_longs(ctrl_include2, unfiltered_sample_ctl2);
+
+  bufptr = memcpya(outname_end, ".frq.cc", 7);
+  if (!output_gz) {
+    *bufptr = '\0';
+  } else {
+    memcpy(bufptr, ".gz", 4);
+  }
+  if (flex_pzwrite_init(output_gz, outname, overflow_buf, 0, &ps)) {
+    goto write_cc_freqs_ret_OPEN_FAIL;
+  }
+  pzwritep = (char*)overflow_buf;
+  pzwritep = memcpya(pzwritep, " CHR  ", 6);
+  if (plink_maxsnp >= 5) {
+    pzwritep = memseta(pzwritep, 32, plink_maxsnp - 4);
+  }
+  pzwritep = strcpya(pzwritep, "SNP   A1   A2        MAF_A        MAF_U  NCHROBS_A  NCHROBS_U" EOLN_STR);
+
+  for (chrom_idx = 0; chrom_idx < chrom_code_end; chrom_idx++) {
+    if (!chrom_exists(chrom_info_ptr, chrom_idx)) {
+      continue;
+    }
+    is_x = (chrom_idx == chrom_info_ptr->x_code);
+    is_y = (chrom_idx == chrom_info_ptr->y_code);
+    is_haploid = is_set(chrom_info_ptr->haploid_mask, chrom_idx);
+    chrom_end = chrom_info_ptr->chrom_end[chrom_idx];
+    marker_uidx = next_unset_ul(marker_exclude, chrom_info_ptr->chrom_start[chrom_idx], chrom_end);
+    if (marker_uidx >= chrom_end) {
+      continue;
+    }
+    if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
+      goto write_cc_freqs_ret_READ_FAIL;
+    }
+    do {
+      pzwritep = width_force(4, pzwritep, chrom_name_write(pzwritep, chrom_info_ptr, chrom_idx));
+      *pzwritep++ = ' ';
+      pzwritep = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), pzwritep);
+      *pzwritep++ = ' ';
+      pzwritep = fw_strcpy(4, marker_allele_ptrs[marker_uidx * 2], pzwritep);
+      *pzwritep++ = ' ';
+      pzwritep = fw_strcpy(4, marker_allele_ptrs[marker_uidx * 2 + 1], pzwritep);
+      *pzwritep++ = ' ';
+
+      if (load_raw(bedfile, loadbuf, unfiltered_sample_ct4)) {
+	goto write_cc_freqs_ret_READ_FAIL;
+      }
+      if (IS_SET(marker_reverse, marker_uidx)) {
+	reverse_loadbuf((unsigned char*)loadbuf, unfiltered_sample_ct);
+      }
+      if (is_x) {
+	vec_set_freq_x(unfiltered_sample_ctl2, loadbuf, case_include2, male_vec, &case_set_ct, &case_missing_ct);
+	vec_set_freq_x(unfiltered_sample_ctl2, loadbuf, ctrl_include2, male_vec, &ctrl_set_ct, &ctrl_missing_ct);
+	case_obs = 2 * case_ct - case_missing_ct;
+	ctrl_obs = 2 * ctrl_ct - ctrl_missing_ct;
+      } else if (!is_haploid) {
+	vec_set_freq(unfiltered_sample_ctl2, loadbuf, case_include2, &case_set_ct, &case_missing_ct);
+	vec_set_freq(unfiltered_sample_ctl2, loadbuf, ctrl_include2, &ctrl_set_ct, &ctrl_missing_ct);
+	case_obs = 2 * (case_ct - case_missing_ct);
+	ctrl_obs = 2 * (ctrl_ct - ctrl_missing_ct);
+      } else {
+        if (is_y) {
+	  vec_set_freq_y(unfiltered_sample_ctl2, loadbuf, case_include2, nonmale_vec, &case_set_ct, &case_missing_ct);
+	  vec_set_freq_y(unfiltered_sample_ctl2, loadbuf, ctrl_include2, nonmale_vec, &ctrl_set_ct, &ctrl_missing_ct);
+        } else {
+	  vec_3freq(unfiltered_sample_ctl2, loadbuf, case_include2, &case_missing_ct, &uii, &case_set_ct);
+	  case_missing_ct += uii;
+	  vec_3freq(unfiltered_sample_ctl2, loadbuf, ctrl_include2, &ctrl_missing_ct, &uii, &ctrl_set_ct);
+	  ctrl_missing_ct += uii;
+	}
+	case_obs = case_ct - case_missing_ct;
+	ctrl_obs = ctrl_ct - ctrl_missing_ct;
+      }
+      if (case_obs) {
+	pzwritep = double_g_writewx4x(pzwritep, ((double)((int32_t)(case_obs - case_set_ct))) / ((double)case_obs), 12, ' ');
+      } else {
+	pzwritep = memcpya(pzwritep, "        NA ", 11);
+      }
+      if (ctrl_obs) {
+	pzwritep = double_g_writewx4x(pzwritep, ((double)((int32_t)(ctrl_obs - ctrl_set_ct))) / ((double)ctrl_obs), 12, ' ');
+      } else {
+	pzwritep = memcpya(pzwritep, "        NA ", 11);
+      }
+
+      pzwritep = uint32_writew10x(pzwritep, case_obs, ' ');
+      pzwritep = uint32_writew10(pzwritep, ctrl_obs);
+      append_binary_eoln(&pzwritep);
+      if (flex_pzwrite(&ps, &pzwritep)) {
+	goto write_cc_freqs_ret_WRITE_FAIL;
+      }
+      marker_uidx++;
+      if (IS_SET(marker_exclude, marker_uidx)) {
+	marker_uidx = next_unset_ul(marker_exclude, marker_uidx, chrom_end);
+	if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
+	  goto write_cc_freqs_ret_WRITE_FAIL;
+	}
+      }
+    } while (marker_uidx < chrom_end);
+  }
+  if (flex_pzwrite_close_null(&ps, pzwritep)) {
+    goto write_cc_freqs_ret_WRITE_FAIL;
+  }
+  LOGPRINTFWW("--freq case-control: Phenotype-stratified allele frequencies (%s) written to %s .\n", nonfounders? "all samples" : "founders only", outname);
+  while (0) {
+  write_cc_freqs_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  write_cc_freqs_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  write_cc_freqs_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  write_cc_freqs_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+  flex_pzwrite_close_cond(&ps, pzwritep);
+  wkspace_reset(wkspace_mark);
+  return retval;
+}
+
 int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, double* set_allele_freqs, Chrom_info* chrom_info_ptr, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, int32_t* ll_cts, int32_t* lh_cts, int32_t* hh_cts, int32_t* hapl_cts, int32_t* haph_cts, uint32_t sample_f_ct, uint32_t sample_f_male_ct, uint32_t nonfounders, uint64_t misc_flags, uintptr_t* marker_reverse) {
   unsigned char* wkspace_mark = wkspace_base;
   char* pzwritep = NULL;
@@ -2664,11 +2847,16 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
   pzwritep = (char*)overflow_buf;
   if (freqx) {
     pzwritep = strcpya(pzwritep, "CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(HAP A1)\tC(HAP A2)\tC(MISSING)" EOLN_STR);
-  } else if (plink_maxsnp < 5) {
-    pzwritep = strcpya(pzwritep, freq_counts? (" CHR  SNP   A1   A2     C1     C2     G0" EOLN_STR) : (" CHR  SNP   A1   A2          MAF  NCHROBS" EOLN_STR));
   } else {
-    sprintf(tbuf, freq_counts? (" CHR %%%us   A1   A2     C1     C2     G0" EOLN_STR) : (" CHR %%%us   A1   A2          MAF  NCHROBS" EOLN_STR), plink_maxsnp);
-    pzwritep += sprintf(pzwritep, tbuf, "SNP");
+    pzwritep = memcpya(pzwritep, " CHR  ", 6);
+    if (plink_maxsnp >= 5) {
+      pzwritep = memseta(pzwritep, 32, plink_maxsnp - 4);
+    }
+    if (freq_counts) {
+      pzwritep = strcpya(pzwritep, "SNP   A1   A2     C1     C2     G0" EOLN_STR);
+    } else {
+      pzwritep = strcpya(pzwritep, "SNP   A1   A2          MAF  NCHROBS" EOLN_STR);
+    }
   }
   for (chrom_idx = 0; chrom_idx < chrom_code_end; chrom_idx++) {
     if (!chrom_exists(chrom_info_ptr, chrom_idx)) {
@@ -2696,7 +2884,7 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
 	  missing_ct = sample_f_ct - (ll_cts[marker_uidx] + lh_cts[marker_uidx] + hh_cts[marker_uidx]);
 	}
 	if (freqx) {
-	  pzwritep = chrom_name_write(pzwritep, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx));
+	  pzwritep = chrom_name_write(pzwritep, chrom_info_ptr, chrom_idx);
 	  *pzwritep++ = '\t';
 	  pzwritep = strcpyax(pzwritep, &(marker_ids[marker_uidx * max_marker_id_len]), '\t');
 	  pzwritep = strcpyax(pzwritep, minor_ptr, '\t');
@@ -2708,7 +2896,7 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
           pzwritep = uint32_writex(pzwritep, reverse? hapl_cts[marker_uidx] : haph_cts[marker_uidx], '\t');
           pzwritep = uint32_write(pzwritep, missing_ct);
 	} else {
-	  pzwritep = width_force(4, pzwritep, chrom_name_write(pzwritep, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx)));
+	  pzwritep = width_force(4, pzwritep, chrom_name_write(pzwritep, chrom_info_ptr, chrom_idx));
 	  *pzwritep++ = ' ';
 	  pzwritep = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), pzwritep);
 	  *pzwritep++ = ' ';
@@ -2721,7 +2909,7 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
 	  pzwritep = uint32_writew6(pzwritep, missing_ct);
 	}
       } else {
-	pzwritep = width_force(4, pzwritep, chrom_name_write(pzwritep, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx)));
+	pzwritep = width_force(4, pzwritep, chrom_name_write(pzwritep, chrom_info_ptr, chrom_idx));
 	*pzwritep++ = ' ';
 	pzwritep = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), pzwritep);
         *pzwritep++ = ' ';
@@ -2731,12 +2919,12 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
 	*pzwritep++ = ' ';
 	uii = 2 * (ll_cts[marker_uidx] + lh_cts[marker_uidx] + hh_cts[marker_uidx]) + hapl_cts[marker_uidx] + haph_cts[marker_uidx];
 	if (maf_succ || uii || (set_allele_freqs[marker_uidx] != 0.5)) {
-          pzwritep = double_g_writewx4(pzwritep, 1.0 - set_allele_freqs[marker_uidx], 12);
+	  pzwritep = double_g_writewx4(pzwritep, 1.0 - set_allele_freqs[marker_uidx], 12);
 	} else {
 	  pzwritep = memcpya(pzwritep, "          NA", 12);
 	}
 	*pzwritep++ = ' ';
-        pzwritep = uint32_writew8(pzwritep, uii);
+	pzwritep = uint32_writew8(pzwritep, uii);
       }
       append_binary_eoln(&pzwritep);
       if (flex_pzwrite(&ps, &pzwritep)) {
@@ -2748,7 +2936,7 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
   if (flex_pzwrite_close_null(&ps, pzwritep)) {
     goto write_freqs_ret_WRITE_FAIL;
   }
-  LOGPRINTFWW("--freq%s: Allele frequencies (%s) written to %s .\n", freqx? "x" : "", nonfounders? "all samples" : "founders only", outname);
+  LOGPRINTFWW("--freq%s%s: Allele frequencies (%s) written to %s .\n", freqx? "x" : "", freq_counts? " counts" : "", nonfounders? "all samples" : "founders only", outname);
   while (0) {
   write_freqs_ret_NOMEM:
     retval = RET_NOMEM;

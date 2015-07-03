@@ -7384,6 +7384,7 @@ void vec_set_freq_x(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_v
 }
 
 void vec_set_freq_y(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* nonmale_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
+  // all nonmales contribute to missing_ct here
   uintptr_t* lptr_end = &(lptr[sample_ctl2]);
   uintptr_t loader;
   uintptr_t loader2;

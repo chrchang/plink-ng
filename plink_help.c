@@ -500,11 +500,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      from the report.\n\n"
 	       );
     help_print("freq\tfreqx\tfrqx\tcounts", &help_ctrl, 1,
-"  --freq <counts> <gz>\n"
+"  --freq <counts | case-control> <gz>\n"
 "  --freqx <gz>\n"
 "    --freq generates a basic allele frequency (or count, if the 'counts'\n"
 "    modifier is present) report.  This can be combined with --within/--family\n"
-"    to produce a cluster-stratified allele frequency/count report instead.\n"
+"    to produce a cluster-stratified allele frequency/count report instead, or\n"
+"    the 'case-control' modifier to report case and control allele frequencies\n"
+"    separately.\n"
 "    --freqx generates a more detailed genotype count report, designed for use\n"
 "    with --read-freq.\n\n"
 		);
@@ -995,9 +997,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("dosage\twrite-dosage", &help_ctrl, 1,
 "  --dosage [allele dosage file] <noheader> <skip0=[i]> <skip1=[j]> <skip2=[k]>\n"
 "           <dose1> <format=[m]> <Zout> <occur | standard-beta> <sex>\n"
+"           <case-control-freqs>\n"
 "  --dosage [list file] list <sepheader | noheader> <skip0=[i]> <skip1=[j]>\n"
 "           <skip2=[k]> <dose1> <format=[m]> <Zout> <occur | standard-beta>\n"
-"           <sex>\n"
+"           <sex> <case-control-freqs>\n"
 "  --write-dosage\n"
 "    Process (possibly gzipped) text files with variant-major allelic dosage\n"
 "    data.  This cannot be used with a regular input fileset; instead, you must\n"
@@ -1031,6 +1034,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * 'Zout' causes the output file to be gzipped.\n"
 "    * Normally, an association analysis is performed.  'standard-beta' and\n"
 "      'sex' behave as they are supposed to with --linear/--logistic.\n"
+"      'case-control-freqs' causes case and control allele frequencies to be\n"
+"      reported separately.\n"
 "    * There are three alternate modes which cause the association analysis to\n"
 "      be skipped.\n"
 "      * 'occur' requests a simple variant occurrence report.\n"
