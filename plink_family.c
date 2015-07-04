@@ -3892,7 +3892,6 @@ void qfam_compute_bw(uintptr_t* loadbuf, uintptr_t sample_ct, uint32_t* fs_start
     ulii = (loadbuf[sample_uidx / BITCT2] >> (2 * (sample_uidx % BITCT2))) & 3;
     if (ulii != 1) {
       qfam_b[cur_idx] = (double)(2 - (intptr_t)(ulii + (ulii == 0)));
-      // printf("branch 4 %u\n", cur_idx);
     } else {
       clear_bit(nm_fss, cur_idx);
     }
