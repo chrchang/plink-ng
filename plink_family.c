@@ -2712,8 +2712,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   }
   topsize = ulii;
 
-  memcpy(ulptr, not_in_family, unfiltered_sample_ctl * sizeof(intptr_t));
-  bitfield_andnot(ulptr, founder_info, unfiltered_sample_ctl);
+  bitfield_andnot_copy(unfiltered_sample_ctl, ulptr, not_in_family, founder_info);
   cur_sample_ct = popcount_longs(ulptr, unfiltered_sample_ctl);
   wkspace_left -= topsize;
   if (wkspace_alloc_ui_checked(&fs_starts, (1 + family_ct + (cur_sample_ct / 2)) * sizeof(int32_t))) {
@@ -3866,6 +3865,7 @@ void qfam_compute_bw(uintptr_t* loadbuf, uintptr_t sample_ct, uint32_t* fs_start
   }
   fss_ptr = &(fss_contents[cur_start]);
   for (; cur_idx < fs_ct; cur_idx++) {
+    // sibships
     cur_end = *fs_starts_ptr++;
     sib_ct = cur_end - cur_start;
     fss_end = &(fss_contents[cur_end]);
@@ -3887,10 +3887,12 @@ void qfam_compute_bw(uintptr_t* loadbuf, uintptr_t sample_ct, uint32_t* fs_start
     cur_start = cur_end;
   }
   for (; cur_idx < fss_ct; cur_idx++) {
+    // singletons
     sample_uidx = *fss_ptr++;
     ulii = (loadbuf[sample_uidx / BITCT2] >> (2 * (sample_uidx % BITCT2))) & 3;
     if (ulii != 1) {
       qfam_b[cur_idx] = (double)(2 - (intptr_t)(ulii + (ulii == 0)));
+      // printf("branch 4 %u\n", cur_idx);
     } else {
       clear_bit(nm_fss, cur_idx);
     }

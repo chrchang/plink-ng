@@ -8139,18 +8139,19 @@ void vec_init_invert(uintptr_t entry_ct, uintptr_t* target_arr, uintptr_t* sourc
   }
 }
 
-void vec_init_andnot(uintptr_t vec_wsize, uintptr_t* target_arr, uintptr_t* source_arr, uintptr_t* exclude_arr) {
-  // initializes a half-bitfield as source_arr ANDNOT exclude_arr
+void bitfield_andnot_copy(uintptr_t word_ct, uintptr_t* target_arr, uintptr_t* source_arr, uintptr_t* exclude_arr) {
+  // target_arr := source_arr ANDNOT exclude_arr
+  // may write an extra word
 #ifdef __LP64__
   __m128i* tptr = (__m128i*)target_arr;
   __m128i* sptr = (__m128i*)source_arr;
   __m128i* xptr = (__m128i*)exclude_arr;
-  __m128i* tptr_end = (__m128i*)(&(target_arr[vec_wsize]));
+  __m128i* tptr_end = (__m128i*)(&(target_arr[word_ct]));
   do {
     *tptr++ = _mm_andnot_si128(*xptr++, *sptr++);
   } while (tptr < tptr_end);
 #else
-  uintptr_t* tptr_end = &(target_arr[vec_wsize]);
+  uintptr_t* tptr_end = &(target_arr[word_ct]);
   do {
     *target_arr++ = (*source_arr++) & (~(*exclude_arr++));
   } while (target_arr < tptr_end);

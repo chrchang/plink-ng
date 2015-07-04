@@ -7306,9 +7306,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     vec_collapse_init(sex_male, unfiltered_sample_ct, pheno_nm, pheno_nm_ct, sample_male_case_include2);
     bitfield_and(sample_male_case_include2, sample_case_include2, pheno_nm_ctv2);
     case_male_ct = popcount01_longs(sample_male_case_include2, pheno_nm_ctv2);
-    vec_init_andnot(pheno_nm_ctv2, sample_male_ctrl_include2, sample_male_include2, sample_male_case_include2);
-    vec_init_andnot(pheno_nm_ctv2, sample_nonmale_case_include2, sample_case_include2, sample_male_case_include2);
-    vec_init_andnot(pheno_nm_ctv2, sample_nonmale_ctrl_include2, sample_ctrl_include2, sample_male_ctrl_include2);
+    bitfield_andnot_copy(pheno_nm_ctv2, sample_male_ctrl_include2, sample_male_include2, sample_male_case_include2);
+    bitfield_andnot_copy(pheno_nm_ctv2, sample_nonmale_case_include2, sample_case_include2, sample_male_case_include2);
+    bitfield_andnot_copy(pheno_nm_ctv2, sample_nonmale_ctrl_include2, sample_ctrl_include2, sample_male_ctrl_include2);
     ctrl_male_ct = male_ct - case_male_ct;
     case_nonmale_ct = case_ct - case_male_ct;
     ctrl_nonmale_ct = ctrl_ct - ctrl_male_ct;
@@ -11985,8 +11985,7 @@ int32_t cluster_assoc_init(const char* flag_name, uintptr_t unfiltered_sample_ct
     }
     cluster_ct2++;
   }
-  memcpy(pheno_nm_nonmale_11, pheno_nm_11, unfiltered_sample_ctl2 * sizeof(intptr_t));
-  bitfield_andnot(pheno_nm_nonmale_11, pheno_nm_male_11, unfiltered_sample_ctl2);
+  bitfield_andnot_copy(unfiltered_sample_ctl2, pheno_nm_nonmale_11, pheno_nm_11, pheno_nm_male_11);
   wkspace_shrink_top(cluster_pheno_gtots, cluster_ct2 * 4 * sizeof(int32_t));
   if (wkspace_alloc_ui_checked(cur_cluster_pheno_gtots_ptr, cluster_ct2 * 2 * sizeof(int32_t)) ||
       wkspace_alloc_ui_checked(cluster_geno_cts_ptr, cluster_ct2 * 4 * sizeof(int32_t)) ||

@@ -2200,9 +2200,9 @@ void vec_include_init(uintptr_t unfiltered_sample_ct, uintptr_t* new_include2, u
 
 void exclude_to_vec_include(uintptr_t unfiltered_sample_ct, uintptr_t* include_vec, uintptr_t* exclude_arr);
 
-void vec_init_invert(uintptr_t vec_entry_ct, uintptr_t* target_arr, uintptr_t* source_arr);
+void vec_init_invert(uintptr_t entry_ct, uintptr_t* target_arr, uintptr_t* source_arr);
 
-void vec_init_andnot(uintptr_t vec_entry_ct, uintptr_t* target_arr, uintptr_t* source_arr, uintptr_t* exclude_arr);
+void bitfield_andnot_copy(uintptr_t word_ct, uintptr_t* target_arr, uintptr_t* source_arr, uintptr_t* exclude_arr);
 
 void vec_include_mask_in(uintptr_t unfiltered_sample_ct, uintptr_t* include_arr, uintptr_t* mask_arr);
 
