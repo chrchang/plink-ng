@@ -2,6 +2,9 @@
 
 #include "plink_homozyg.h"
 
+// This implementation's use of unfiltered indices is idiotic; it should be
+// rewritten to be based on post-filtering variant indices ASAP.
+
 void homozyg_init(Homozyg_info* homozyg_ptr) {
   homozyg_ptr->modifier = 0;
   homozyg_ptr->min_snp = 100;
@@ -749,9 +752,9 @@ void initialize_roh_slot(uint32_t* cur_roh, uint32_t chrom_start, uint32_t* mark
   uint32_t uii;
 
   // given an interval [a, b], when we can't just use the half-open convention
-  // everywhere, "last" means b and "end" means b+1.  (yeah, I should clean up
-  // the huge unfiltered index vs. filtered index mess and remove the need to
-  // deviate from half-open.)
+  // everywhere, "last" means b and "end" means b+1.  (yeah, it wouldn't have
+  // been necessary to make this distinction at all if I hadn't used unfiltered
+  // indices where they didn't belong.)
   *roh_slot_cidx_start = cidx_first;
   *roh_slot_cidx_end = cidx_last + 1;
   *roh_slot_end_uidx = cur_roh[1] + 1;
