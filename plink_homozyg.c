@@ -595,6 +595,11 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
     cur_roh_ct = 0; // unaff ct
     uii = 0; // aff ct
     for (marker_uidx1 = chrom_start; marker_uidx1 < chrom_len; marker_uidx1++) {
+      // bugfix: excluded markers can actually be at the end of a ROH.
+      if (pheno_c) {
+	uii += roh_ct_aff_adj[marker_uidx1 - chrom_start];
+      }
+      cur_roh_ct += roh_ct_unaff_adj[marker_uidx1 - chrom_start];
       if (IS_SET(marker_exclude, marker_uidx1)) {
 	continue;
       }
@@ -605,10 +610,8 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
       if (!pheno_c) {
         wptr = &(wptr_bp1[20]);
       } else {
-	uii += roh_ct_aff_adj[marker_uidx1 - chrom_start];
         wptr = uint32_writew8x(&(wptr_bp1[11]), uii, ' ');
       }
-      cur_roh_ct += roh_ct_unaff_adj[marker_uidx1 - chrom_start];
       if (cur_roh_ct + uii > max_pool_size) {
         max_pool_size = cur_roh_ct + uii;
       }
