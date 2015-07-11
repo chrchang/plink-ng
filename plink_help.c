@@ -529,8 +529,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Hardy-Weinberg Equilibrium.\n\n"
 	       );
     help_print("mendel", &help_ctrl, 1,
-"  --mendel\n"
-"    Generate a Mendel error report.\n\n"
+"  --mendel <summaries-only>\n"
+"    Generate a Mendel error report.  The 'summaries-only' modifier causes the\n"
+"    .mendel file (listing every single error) to be skipped.\n\n"
 	       );
     help_print("het\tibc", &help_ctrl, 1,
 "  --het <small-sample> <gz>\n"

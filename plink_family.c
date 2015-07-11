@@ -706,6 +706,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
   uint32_t include_duos = (fam_ip->mendel_modifier / MENDEL_DUOS) & 1;
   uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
   uint32_t var_first = fam_ip->mendel_modifier & MENDEL_FILTER_VAR_FIRST;
+  uint32_t full_error_list = calc_mendel && (!(fam_ip->mendel_modifier & MENDEL_SUMMARIES_ONLY));
   uint32_t varlen = 0;
   uint32_t chrom_name_len = 0;
   uint32_t new_marker_exclude_ct = 0;
@@ -814,19 +815,21 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
     for (uii = 1; uii < 10; uii++) {
       errstrs[uii] = &(errstrs[0][uii * ulii]);
     }
-    if (multigen) {
+    if (multigen && full_error_list) {
       if (wkspace_alloc_ul_checked(&error_locs, trio_ctl * sizeof(intptr_t)) ||
-          wkspace_alloc_uc_checked(&cur_errors, trio_ct)) {
+	  wkspace_alloc_uc_checked(&cur_errors, trio_ct)) {
 	goto mendel_error_scan_ret_NOMEM;
       }
       fill_ulong_zero(error_locs, trio_ctl);
     }
-    memcpy(outname_end, ".mendel", 8);
-    if (fopen_checked(&outfile, outname, "w")) {
-      goto mendel_error_scan_ret_OPEN_FAIL;
+    if (full_error_list) {
+      memcpy(outname_end, ".mendel", 8);
+      if (fopen_checked(&outfile, outname, "w")) {
+	goto mendel_error_scan_ret_OPEN_FAIL;
+      }
+      sprintf(tbuf, "%%%us %%%us  CHR %%%us   CODE                 ERROR\n", plink_maxfid, plink_maxiid, plink_maxsnp);
+      fprintf(outfile, tbuf, "FID", "KID", "SNP");
     }
-    sprintf(tbuf, "%%%us %%%us  CHR %%%us   CODE                 ERROR\n", plink_maxfid, plink_maxiid, plink_maxsnp);
-    fprintf(outfile, tbuf, "FID", "KID", "SNP");
     memcpy(outname_end, ".lmendel", 9);
     if (fopen_checked(&outfile_l, outname, "w")) {
       goto mendel_error_scan_ret_OPEN_FAIL;
@@ -894,7 +897,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	  if (umm) {
 	    error_cts_tmp2[trio_idx] += umm & 0xffffff;
 	    cur_error_ct++;
-	    if (calc_mendel) {
+	    if (full_error_list) {
 	      umm >>= 24;
 	      wptr = fw_strcpy(plink_maxfid, &(fids[trio_idx * max_fid_len]), tbuf);
 	      *wptr++ = ' ';
@@ -934,7 +937,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	    if (umm) {
 	      error_cts_tmp2[trio_idx] += umm & 0xffffff;
 	      cur_error_ct++;
-	      if (calc_mendel) {
+	      if (full_error_list) {
 	        set_bit(error_locs, trio_idx);
 		umm >>= 24;
                 cur_errors[trio_idx] = (unsigned char)umm;
@@ -946,7 +949,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	    loadbuf[umm] |= (2 * ONELU) << ujj;
 	  }
 	}
-	if (calc_mendel && cur_error_ct) {
+	if (full_error_list && cur_error_ct) {
           trio_idx = 0;
 	  for (uii = 0; uii < cur_error_ct; trio_idx++, uii++) {
             next_set_ul_unsafe_ck(error_locs, &trio_idx);
@@ -1051,8 +1054,10 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
   }
   LOGPRINTF("--me/--mendel: %" PRIu64 " Mendel error%s detected.\n", tot_error_ct, (tot_error_ct == 1)? "" : "s");
   if (calc_mendel) {
-    if (fclose_null(&outfile)) {
-      goto mendel_error_scan_ret_WRITE_FAIL;
+    if (full_error_list) {
+      if (fclose_null(&outfile)) {
+	goto mendel_error_scan_ret_WRITE_FAIL;
+      }
     }
     if (fclose_null(&outfile_l)) {
       goto mendel_error_scan_ret_WRITE_FAIL;
@@ -1170,7 +1175,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
       }
     }
     *outname_end = '\0';
-    LOGPRINTFWW("Reports written to %s.mendel + %s.imendel + %s.fmendel + %s.lmendel .\n", outname, outname, outname, outname);
+    LOGPRINTFWW("Reports written to %s%s%s.imendel + %s.fmendel + %s.lmendel .\n", full_error_list? outname : "", full_error_list? ".mendel + " : "", outname, outname, outname);
   }
   if (fam_ip->mendel_modifier & MENDEL_FILTER) {
     *marker_exclude_ct_ptr += new_marker_exclude_ct;

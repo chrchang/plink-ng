@@ -535,7 +535,10 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
       kb_tot /= (double)((int32_t)cur_roh_ct);
     }
     wptr = width_force(8, wptr, double_g_write(wptr, kb_tot));
-    wptr = memcpya(wptr, " \n", 2);
+    if (cur_roh_ct) {
+      *wptr++ = ' ';
+    }
+    *wptr++ = '\n';
     if (fwrite_checked(tbuf, wptr - tbuf, outfile_indiv)) {
       goto write_main_roh_reports_ret_WRITE_FAIL;
     }

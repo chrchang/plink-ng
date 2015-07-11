@@ -103,10 +103,10 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (3 Jul 2015)";
+  " (10 Jul 2015)";
 const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
 #else
@@ -9200,8 +9200,17 @@ int32_t main(int32_t argc, char** argv) {
 	family_info.tdt_modifier |= TDT_POOPERM_MAT;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "endel", 6)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+	if (param_ct) {
+	  if (strcmp(argv[cur_arg + 1], "summaries-only")) {
+	    sprintf(logbuf, "Error: Invalid --mendel parameter '%s'.\n", argv[cur_arg + 1]);
+	    goto main_ret_INVALID_CMDLINE;
+	  }
+	  family_info.mendel_modifier |= MENDEL_SUMMARIES_ONLY;
+	}
 	calculation_type |= CALC_MENDEL;
-        goto main_param_zero;
       } else if (!memcmp(argptr2, "endel-duos", 11)) {
 	family_info.mendel_modifier |= MENDEL_DUOS;
 	goto main_param_zero;
@@ -9252,7 +9261,7 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "weighted-z")) {
 	    metaanal_flags |= METAANAL_WEIGHTED_Z;
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --meta-analysis modifier '%s'.\n", argv[cur_arg + uii]);
+	    sprintf(logbuf, "Error: Invalid --meta-analysis parameter '%s'.\n", argv[cur_arg + uii]);
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
@@ -9337,7 +9346,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (scan_uint_defcap(argv[cur_arg + 1], &max_ac)) {
-	  sprintf(logbuf, "Error: Invalid --max-mac paramter '%s'.\n", argv[cur_arg + 1]);
+	  sprintf(logbuf, "Error: Invalid --max-mac parameter '%s'.\n", argv[cur_arg + 1]);
 	}
         if (max_ac < min_ac) {
 	  logprint("Error: --max-mac parameter cannot be smaller than --mac parameter.\n");
