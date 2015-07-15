@@ -214,7 +214,10 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
       fwrite(tbuf, 1, (uintptr_t)(bufptr - tbuf), outfile);
       fputs(" ) \nCOVAR <- matrix( c , nrow = n , byrow=T)\n", outfile);
     } else {
-      fputs("COVAR <- matrix( NA , nrow = n , ncol = 0 , byrow = T)\n", outfile);
+      // old code (this might be better?  but --R backward compatibility is
+      // more important than --R-debug...):
+      // fputs("COVAR <- matrix( NA , nrow = n , ncol = 0 , byrow = T)\n", outfile);
+      fputs("COVAR<-NA\n", outfile);
     }
     fputs("CLUSTER <- c( ", outfile);
     for (sample_idx = 0; sample_idx < pheno_nm_ct - 1; sample_idx++) {
@@ -224,6 +227,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
     }
     bufptr = int32_write(tbuf, sample_to_cluster[sample_idx]);
     bufptr = memcpya(bufptr, " ) \n", 4);
+    fputs("CLUSTER[CLUSTER==-1] <- NA\n", outfile);
     if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
       goto rserve_call_ret_WRITE_FAIL;
     }
