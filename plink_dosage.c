@@ -1567,7 +1567,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  goto plink1_dosage_ret_OPEN_FAIL;
 	}
 	line_idx = 0;
-	uii = 1; // current skip value
+	uii = 1 + skip2; // current skip value
 	while (gzgets(gz_infiles[file_idx], tbuf, MAXLINELEN)) {
 	  line_idx++;
 	  if (!tbuf[MAXLINELEN - 1]) {
@@ -1615,7 +1615,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       if (noheader) {
 	sample_uidx = 0;
 	next_unset_unsafe_ck(sample_exclude, &sample_uidx);
-	skip_vals[0] = 1 + format_val * sample_uidx;
+	skip_vals[0] = 1 + skip2 + format_val * sample_uidx;
 	uii = 1 + (format_val == 3);
 	for (read_idx = 1; read_idx < sample_ct; read_idx++) {
 	  prev_sample_uidx = sample_uidx++;
@@ -1661,7 +1661,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  sprintf(logbuf, "Error: Column %u of %s's header isn't 'A2'.\n", skip0 + skip1p1 + 2, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
 	  goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	}
-	uii = 1;
+	uii = 1 + skip2;
 	bufptr = skip_initial_spaces(token_endnn(bufptr2));
 	while (!is_eoln_kns(*bufptr)) {
           if (bsearch_read_fam_indiv(tbuf, sorted_sample_ids, max_sample_id_len, sample_ct, bufptr, &bufptr2, &ii)) {
@@ -1896,6 +1896,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  }
 	  sample_valid_ct_recip = 1.0 / ((double)((intptr_t)sample_valid_ct));
 	  dzz = dxx * sample_valid_ct_recip;
+	  // printf("sample_valid_ct: %lu  dzz: %g\n", sample_valid_ct, dzz);
 	  // dosageSSQ = sum(x^2 - bar{x}^2) = sum(x^2) - sum(x) * avg(x)
 	  // theoreticalVariance = avg(x) * (1 - avg(x))
 	  // empiricalVariance = 2 * (dosageSSQ / cnt)
