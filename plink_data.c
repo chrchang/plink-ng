@@ -14307,14 +14307,9 @@ int32_t merge_sample_sortf(char* sample_sort_fname, char* sample_fids, uintptr_t
   // sample_fids[] is already sorted
   unsigned char* wkspace_mark = wkspace_base;
   int32_t retval = 0;
-  char* sptr;
-  char* sptr2;
   uintptr_t sample_uidx;
   for (sample_uidx = 0; sample_uidx < tot_sample_ct; sample_uidx++) {
-    sptr = &(sample_fids[sample_uidx * max_sample_full_len]);
-    sptr2 = (char*)memchr(sptr, '\t', max_sample_id_len);
-    sptr2 = (char*)memchr(&(sptr2[1]), '\t', max_sample_id_len);
-    memcpyx(&(sample_ids[sample_uidx * max_sample_id_len]), sptr, (uintptr_t)(sptr2 - sptr), '\0');
+    strcpy(&(sample_ids[sample_uidx * max_sample_id_len]), &(sample_fids[sample_uidx * max_sample_full_len]));
   }
   retval = sample_sort_file_map(sample_sort_fname, tot_sample_ct, NULL, tot_sample_ct, sample_ids, max_sample_id_len, &map_reverse);
   wkspace_reset(wkspace_mark);
@@ -15810,8 +15805,11 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
 	} while (ll_ptr);
       }
     }
-    for (uii = 0; uii < tot_sample_ct; uii++) {
-      sample_nsmap[uii] = uii;
+    for (ulii = 0; ulii < tot_sample_ct; ulii++) {
+      sample_nsmap[ulii] = ulii;
+      bufptr = (char*)memchr(&(sample_fids[ulii * max_sample_full_len]), '\t', max_sample_id_len);
+      bufptr = (char*)memchr(&(bufptr[1]), '\t', max_sample_id_len);
+      *bufptr = '\0';
     }
     if (qsort_ext(sample_fids, tot_sample_ct, max_sample_full_len, strcmp_deref, (char*)sample_nsmap, sizeof(int32_t))) {
       goto merge_datasets_ret_NOMEM2;
@@ -15838,6 +15836,15 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
 	  ll_ptr = ll_ptr->next;
 	} while (ll_ptr);
       }
+    }
+    // bugfix: parental IDs and phenotype were being used to break sorting
+    // ties here, so e.g. "CEU NA07000 0 0 2" was being natural-sorted after
+    // "ceu NA07000 0 0 1", resulting in a crash when "CEU NA07000" was looked
+    // up later.
+    for (ulii = 0; ulii < tot_sample_ct; ulii++) {
+      bufptr = (char*)memchr(&(sample_fids[ulii * max_sample_full_len]), '\t', max_sample_id_len);
+      bufptr = (char*)memchr(&(bufptr[1]), '\t', max_sample_id_len);
+      *bufptr = '\0';
     }
     if (is_dichot_pheno) {
       if (qsort_ext(sample_fids, tot_sample_ct, max_sample_full_len, merge_nsort? strcmp_natural_deref : strcmp_deref, pheno_c_char, 1)) {
@@ -15871,12 +15878,12 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       ujj = map_reverse[ulii];
       bufptr = &(sample_fids[ujj * max_sample_full_len]);
       bufptr3 = &(sample_ids[ujj * max_sample_id_len]);
-      bufptr2 = (char*)memchr(bufptr, '\t', max_sample_id_len);
-      bufptr2 = (char*)memchr(&(bufptr2[1]), '\t', max_sample_id_len);
-      uii = (uintptr_t)(bufptr2 - bufptr);
-      memcpyx(bufptr3, bufptr, uii, '\0');
+      uii = strlen(bufptr) + 1;
+      memcpy(bufptr3, bufptr, uii);
       if (merge_mode < 6) {
-	uii += strlen(bufptr2);
+        // no longer matters whether this is \t or \0, we're about to free it
+	bufptr[uii - 1] = '\t';
+	uii += strlen(&(bufptr[uii]));
 	if (fwrite_checked(bufptr, uii, outfile)) {
 	  goto merge_datasets_ret_WRITE_FAIL;
 	}
@@ -15892,14 +15899,15 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     bufptr = sample_fids;
     bufptr3 = sample_ids;
     for (ulii = 0; ulii < tot_sample_ct; ulii++) {
-      bufptr2 = (char*)memchr(bufptr, '\t', max_sample_id_len);
-      bufptr2 = (char*)memchr(&(bufptr2[1]), '\t', max_sample_id_len);
-      uii = (uintptr_t)(bufptr2 - bufptr);
-      memcpyx(bufptr3, bufptr, uii, '\0');
+      uii = strlen(bufptr) + 1;
+      memcpy(bufptr3, bufptr, uii);
       bufptr3 = &(bufptr3[max_sample_id_len]);
       if (merge_mode < 6) {
-	uii += strlen(bufptr2);
-	fwrite(bufptr, 1, uii, outfile);
+	bufptr[uii - 1] = '\t';
+	uii += strlen(&(bufptr[uii]));
+	if (fwrite_checked(bufptr, uii, outfile)) {
+	  goto merge_datasets_ret_WRITE_FAIL;
+	}
 	if (is_dichot_pheno) {
 	  cc = pheno_c_char[ulii];
 	  fprintf(outfile, "\t%s\n", cc? ((cc == 1)? "2" : "-9") : "1");
@@ -15916,7 +15924,9 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       for (ulii = 0; ulii < tot_sample_ct; ulii++) {
 	ujj = map_reverse[ulii];
 	bufptr = &(sample_fids[ujj * max_sample_full_len]);
-	if (fwrite_checked(bufptr, strlen(bufptr), outfile)) {
+	uii = strlen(bufptr);
+	bufptr[uii] = '\t';
+	if (fwrite_checked(bufptr, uii + strlen(&(bufptr[uii])), outfile)) {
 	  goto merge_datasets_ret_WRITE_FAIL;
 	}
 	if (is_dichot_pheno) {
