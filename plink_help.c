@@ -2099,6 +2099,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("threads\tthread-num\tnum_threads", &help_ctrl, 0,
 "  --threads [val]    : Set maximum number of concurrent threads.\n"
+"                       This has one known limitation: some BLAS/LAPACK linear\n"
+"                       algebra operations are multithreaded in a way that PLINK\n"
+"                       cannot control.  If this is problematic, you should\n"
+"                       recompile against single-threaded BLAS/LAPACK.\n"
 	       );
     help_print("d\tsnps", &help_ctrl, 0,
 "  --d [char]         : Change variant/covariate range delimiter (normally '-').\n"
