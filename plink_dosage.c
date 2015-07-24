@@ -984,8 +984,16 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   sample_cta4 = (sample_ct + 3) & (~3);
   sample_ctl = (sample_ct + (BITCT - 1)) / BITCT;
   uii = do_glm && pheno_d;
-  if ((!uii) && (g_thread_ct > 1)) {
-    logprint("Using 1 thread (no multithreaded calculations invoked).\n");
+  if (g_thread_ct > 1) {
+    if (output_gz) {
+      LOGPRINTF("Using up to %u threads (change this with --threads).\n", g_thread_ct);
+    } else {
+      if (uii) {
+	logprint("Using 1 thread.\n");
+      } else {
+        logprint("Using 1 thread (no multithreaded calculations invoked).\n");
+      }
+    }
   } else {
     logprint("Using 1 thread.\n");
   }
