@@ -14188,6 +14188,15 @@ int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_sample_id
       col6_start_ptr = skip_initial_spaces(&(col5_start_ptr[uii]));
       if (no_more_tokens_kns(col6_start_ptr)) {
 	LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, famname);
+	if (text_file) {
+	  // .ped/.map swap?  give a more helpful error message then
+	  uii = strlen(famname);
+	  if (!memcmp(&(famname[uii - 4]), ".map", 4)) {
+	    logprintb();
+	    logprint("(The .ped file must be named before the .map; did you swap them?)\n");
+	    goto merge_fam_id_scan_ret_INVALID_FORMAT;
+	  }
+	}
 	goto merge_fam_id_scan_ret_INVALID_FORMAT_2;
       }
       if (uii != 1) {
@@ -14297,6 +14306,7 @@ int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_sample_id
     LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, famname);
   merge_fam_id_scan_ret_INVALID_FORMAT_2:
     logprintb();
+  merge_fam_id_scan_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
   }
   fclose_cond(infile);
