@@ -103,7 +103,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (24 Jul 2015)";
+  " (27 Jul 2015)";
 const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -13367,7 +13367,11 @@ int32_t main(int32_t argc, char** argv) {
     retval = RET_INVALID_CMDLINE;
     break;
   main_ret_NULL_CALC:
-    logprint("Warning: No output requested.  Exiting.\n");
+    if (filter_flags) {
+      logprint("Warning: No output requested.  (Did you forget --make-bed?)  Exiting.\n");
+    } else {
+      logprint("Warning: No output requested.  Exiting.\n");
+    }
     fputs(cmdline_format_str, stdout);
     fputs(notestr_null_calc2, stdout);
     retval = RET_NULL_CALC;
