@@ -12461,7 +12461,7 @@ void update_clump_histo(double pval, uintptr_t* histo) {
 
 int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* founder_info, Clump_info* clump_ip, uintptr_t* sex_male, uint32_t hh_exists) {
   unsigned char* wkspace_mark = wkspace_base;
-  FILE* infile = NULL;
+  gzFile gz_infile = NULL;
   FILE* outfile = NULL;
   FILE* outfile_ranges = NULL;
   FILE* outfile_best = NULL;
@@ -12771,8 +12771,11 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   }
   // load in reverse order since we're adding to the front of the linked lists
   for (file_idx = file_ct; file_idx; file_idx--) {
-    if (fopen_checked(&infile, fname_ptr, "r")) {
+    if (gzopen_checked(&gz_infile, fname_ptr, "rb")) {
       goto clump_reports_ret_OPEN_FAIL;
+    }
+    if (gzbuffer(gz_infile, 131072)) {
+      goto clump_reports_ret_NOMEM;
     }
     loadbuft_size = wkspace_left - topsize;
     if (loadbuft_size <= 2 * MAXLINELEN + extra_annot_space) {
@@ -12787,9 +12790,31 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     }
     ukk = 0x7fffffff; // highest-precedence variant ID header seen so far
     umm = 0x7fffffff; // highest-precedence p-value header seen so far
-    retval = load_to_first_token(infile, loadbuft_size, '\0', "--clump", loadbuft, &bufptr, &line_idx);
-    if (retval) {
-      goto clump_reports_ret_1;
+    // load_to_first_token() with potentially gzipped input.  Move this to
+    // plink_common if anything else needs it.
+    line_idx = 0;
+    while (1) {
+      line_idx++;
+      if (!gzgets(gz_infile, loadbuft, loadbuft_size)) {
+	if (!gzeof(gz_infile)) {
+	  goto clump_reports_ret_READ_FAIL;
+	} else {
+          LOGPREPRINTFWW("Error: Empty %s.\n", fname_ptr);
+	  goto clump_reports_ret_INVALID_FORMAT_2;
+	}
+      }
+      if (!(loadbuft[loadbuft_size - 1])) {
+	if (loadbuft_size == MAXLINEBUFLEN / 2) {
+	  LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname_ptr);
+	  goto clump_reports_ret_INVALID_FORMAT_2;
+	} else {
+	  goto clump_reports_ret_NOMEM;
+	}
+      }
+      bufptr = skip_initial_spaces(loadbuft);
+      if (!is_eoln_kns(*bufptr)) {
+	break;
+      }
     }
     fill_ulong_zero(col_bitfield, annot_ct_p2_ctl);
     uii = 0; // current 0-based column number
@@ -12852,8 +12877,14 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       parse_table[uii * 2 + 1] -= parse_table[uii * 2 - 1] + 1;
     }
   clump_reports_load_loop:
-    while (fgets(loadbuft, loadbuft_size, infile)) {
+    while (1) {
       line_idx++;
+      if (!gzgets(gz_infile, loadbuft, loadbuft_size)) {
+	if (!gzeof(gz_infile)) {
+	  goto clump_reports_ret_READ_FAIL;
+	}
+	break;
+      }
       if (!loadbuft[loadbuft_size - 1]) {
 	if (loadbuft_size == MAXLINEBUFLEN / 2) {
 	  LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname_ptr);
@@ -12956,7 +12987,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	loadbuft[loadbuft_size - 1] = ' ';
       }
     }
-    if (fclose_null(&infile)) {
+    if (gzclose_null(&gz_infile)) {
       goto clump_reports_ret_READ_FAIL;
     }
     if (file_idx > 1) {
@@ -13866,7 +13897,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   }
  clump_reports_ret_1:
   wkspace_reset(wkspace_mark);
-  fclose_cond(infile);
+  gzclose_cond(gz_infile);
   fclose_cond(outfile);
   fclose_cond(outfile_ranges);
   fclose_cond(outfile_best);

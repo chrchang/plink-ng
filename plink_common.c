@@ -8881,6 +8881,15 @@ int32_t load_to_first_token(FILE* infile, uintptr_t loadbuf_size, char comment_c
   while (fgets(loadbuf, loadbuf_size, infile)) {
     line_idx++;
     if (!(loadbuf[loadbuf_size - 1])) {
+      // PLINK 1.9 has two text line loading modes: "regular" and "long".
+      // * "Regular" mode limits lines to about MAXLINELEN (about 128k as of
+      //   this writing) characters.
+      // * "Long" mode theoretically accepts lines up to about MAXLINEBUFLEN
+      //   (~2 GB) characters but degrades gracefully if less memory is
+      //   available (in that case, an out-of-memory instead of an
+      //   invalid-format error is reported on fgets overflow).  Any long
+      //   buffer size larger than MAXLINELEN should work properly with
+      //   plink_common.
       if ((loadbuf_size == MAXLINELEN) || (loadbuf_size == MAXLINEBUFLEN)) {
 	LOGPRINTF("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, file_descrip);
 	return RET_INVALID_FORMAT;
