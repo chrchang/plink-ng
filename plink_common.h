@@ -793,9 +793,15 @@ void logstr(const char* ss);
 
 void logprint(const char* ss);
 
+void logerrprint(const char* ss);
+
 void logprintb();
 
+void logerrprintb();
+
 #define LOGPRINTF(...) sprintf(logbuf, __VA_ARGS__); logprintb();
+
+#define LOGERRPRINTF(...) sprintf(logbuf, __VA_ARGS__); logerrprintb();
 
 // input for wordwrap/LOGPRINTFWW should have no intermediate '\n's.  If
 // suffix_len is 0, there should be a terminating \n.
@@ -804,6 +810,8 @@ void wordwrap(char* ss, uint32_t suffix_len);
 #define LOGPREPRINTFWW(...) sprintf(logbuf, __VA_ARGS__); wordwrap(logbuf, 0);
 
 #define LOGPRINTFWW(...) sprintf(logbuf, __VA_ARGS__); wordwrap(logbuf, 0); logprintb();
+
+#define LOGERRPRINTFWW(...) sprintf(logbuf, __VA_ARGS__); wordwrap(logbuf, 0); logerrprintb();
 
 // 5 = length of "done." suffix, which is commonly used
 #define LOGPRINTFWW5(...) sprintf(logbuf, __VA_ARGS__); wordwrap(logbuf, 5); logprintb();

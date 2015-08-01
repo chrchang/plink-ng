@@ -74,17 +74,21 @@ void logstr(const char* ss) {
   if (!g_debug_on) {
     fputs(ss, logfile);
     if (ferror(logfile)) {
-      printf("\nWarning: Logging failure on:\n%s\nFurther logging will not be attempted in this run.\n", ss);
+      putchar('\n');
+      fflush(stdout);
+      fprintf(stderr, "Warning: Logging failure on:\n%s\nFurther logging will not be attempted in this run.\n", ss);
       g_log_failed = 1;
     }
   } else {
     if (g_log_failed) {
-      fputs(ss, stdout);
       fflush(stdout);
+      fputs(ss, stderr);
     } else {
       fputs(ss, logfile);
       if (ferror(logfile)) {
-        printf("\nError: Debug logging failure.  Dumping to standard output:\n%s", ss);
+	putchar('\n');
+	fflush(stdout);
+        fprintf(stderr, "Error: Debug logging failure.  Dumping to stderr:\n%s", ss);
 	g_log_failed = 1;
       } else {
 	fflush(logfile);
@@ -98,9 +102,21 @@ void logprint(const char* ss) {
   fputs(ss, stdout);
 }
 
+void logerrprint(const char* ss) {
+  logstr(ss);
+  fflush(stdout);
+  fputs(ss, stderr);
+}
+
 void logprintb() {
   logstr(logbuf);
   fputs(logbuf, stdout);
+}
+
+void logerrprintb() {
+  logstr(logbuf);
+  fflush(stdout);
+  fputs(logbuf, stderr);
 }
 
 void wordwrap(char* ss, uint32_t suffix_len) {
@@ -3688,7 +3704,7 @@ int32_t populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uint
 	  id_htable[hashval] = item_uidx;
 	  break;
 	} else if (!memcmp(sptr, &(item_ids[hash_result * max_id_len]), slen + 1)) {
-	  LOGPRINTFWW("Error: Duplicate ID '%s'.\n", sptr);
+	  LOGERRPRINTFWW("Error: Duplicate ID '%s'.\n", sptr);
 	  return RET_INVALID_FORMAT;
 	}
 	// defend against overflow
@@ -4346,19 +4362,19 @@ int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int3
   }
   if (*bufptr == '#') {
     // this breaks VCF and PLINK 2 binary
-    logprint("Error: Chromosome/contig names may not begin with '#'.\n");
+    logerrprint("Error: Chromosome/contig names may not begin with '#'.\n");
     return RET_INVALID_FORMAT;
   }
   if (slen > MAX_ID_LEN) {
     if (line_idx) {
-      LOGPRINTFWW("Error: Line %" PRIuPTR " of %s has an excessively long chromosome/contig name.  (The " PROG_NAME_CAPS " limit is " MAX_ID_LEN_STR " characters.)\n", line_idx, file_descrip);
+      LOGERRPRINTFWW("Error: Line %" PRIuPTR " of %s has an excessively long chromosome/contig name.  (The " PROG_NAME_CAPS " limit is " MAX_ID_LEN_STR " characters.)\n", line_idx, file_descrip);
     } else {
-      LOGPRINTFWW("Error: Excessively long chromosome/contig name in %s. (The " PROG_NAME_CAPS " limit is " MAX_ID_LEN_STR " characters.)\n", file_descrip);
+      LOGERRPRINTFWW("Error: Excessively long chromosome/contig name in %s. (The " PROG_NAME_CAPS " limit is " MAX_ID_LEN_STR " characters.)\n", file_descrip);
     }
     return RET_INVALID_FORMAT;
   }
   if (chrom_code_end == MAX_POSSIBLE_CHROM) {
-    logprint("Error: Too many distinct nonstandard chromosome/contig names.\n");
+    logerrprint("Error: Too many distinct nonstandard chromosome/contig names.\n");
     return RET_INVALID_FORMAT;
   }
   nonstd_names[chrom_code_end] = (char*)malloc(slen + 1);
@@ -4936,7 +4952,7 @@ int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfi
       if (tptr) {
         *tptr = ' ';
       }
-      LOGPRINTFWW("Error: Duplicate ID '%s'.\n", dup_id);
+      LOGERRPRINTFWW("Error: Duplicate ID '%s'.\n", dup_id);
       return RET_INVALID_FORMAT;
     }
   }
@@ -7591,11 +7607,11 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint3
   string_range_list_to_bitfield_ret_INVALID_CMDLINE_3:
     sprintf(logbuf, "Error: Missing --%s token in %s.\n", range_list_flag, file_descrip);
   string_range_list_to_bitfield_ret_INVALID_CMDLINE_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_CMDLINE;
     break;
   string_range_list_to_bitfield_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -7669,7 +7685,7 @@ int32_t string_range_list_to_bitfield2(char* sorted_ids, uint32_t* id_map, uintp
   string_range_list_to_bitfield2_ret_INVALID_CMDLINE_3:
     sprintf(logbuf, "Error: --%s ID not found.\n", range_list_flag);
   string_range_list_to_bitfield2_ret_INVALID_CMDLINE_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_CMDLINE;
     break;
   }
@@ -7721,7 +7737,7 @@ int32_t conditional_allocate_non_autosomal_markers(Chrom_info* chrom_info_ptr, u
     LOGPRINTF("Excluding %u variant%s on non-autosomes from %s.\n", *newly_excluded_ct_ptr, (*newly_excluded_ct_ptr == 1)? "" : "s", calc_descrip);
   }
   if (*newly_excluded_ct_ptr == marker_ct) {
-    logprint("Error: No variants remaining.\n");
+    logerrprint("Error: No variants remaining.\n");
     return RET_INVALID_CMDLINE;
   }
   if (!(*newly_excluded_ct_ptr)) {
@@ -8788,7 +8804,7 @@ int32_t open_and_size_string_list(char* fname, FILE** infile_ptr, uintptr_t* lis
   while (fgets(tbuf, MAXLINELEN, *infile_ptr)) {
     line_idx++;
     if (!tbuf[MAXLINELEN - 1]) {
-      LOGPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname);
+      LOGERRPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname);
       goto open_and_size_string_list_ret_INVALID_FORMAT;
     }
     bufptr = skip_initial_spaces(tbuf);
@@ -8858,7 +8874,7 @@ int32_t open_and_skip_first_lines(FILE** infile_ptr, char* fname, char* loadbuf,
   for (line_idx = 1; line_idx <= lines_to_skip; line_idx++) {
     if (!fgets(loadbuf, loadbuf_size, *infile_ptr)) {
       if (feof(*infile_ptr)) {
-	LOGPRINTFWW("Error: Fewer lines than expected in %s.\n", fname);
+	LOGERRPRINTFWW("Error: Fewer lines than expected in %s.\n", fname);
 	return RET_INVALID_FORMAT;
       } else {
 	return RET_READ_FAIL;
@@ -8866,7 +8882,7 @@ int32_t open_and_skip_first_lines(FILE** infile_ptr, char* fname, char* loadbuf,
     }
     if (!(loadbuf[loadbuf_size - 1])) {
       if ((loadbuf_size == MAXLINELEN) || (loadbuf_size == MAXLINEBUFLEN)) {
-	LOGPRINTFWW("Error: Line %u of %s is pathologically long.\n", line_idx, fname);
+	LOGERRPRINTFWW("Error: Line %u of %s is pathologically long.\n", line_idx, fname);
 	return RET_INVALID_FORMAT;
       } else {
         return RET_NOMEM;
@@ -8891,7 +8907,7 @@ int32_t load_to_first_token(FILE* infile, uintptr_t loadbuf_size, char comment_c
       //   buffer size larger than MAXLINELEN should work properly with
       //   plink_common.
       if ((loadbuf_size == MAXLINELEN) || (loadbuf_size == MAXLINEBUFLEN)) {
-	LOGPRINTF("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, file_descrip);
+	LOGERRPRINTF("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, file_descrip);
 	return RET_INVALID_FORMAT;
       } else {
 	return RET_NOMEM;
@@ -8908,7 +8924,7 @@ int32_t load_to_first_token(FILE* infile, uintptr_t loadbuf_size, char comment_c
   if (!feof(infile)) {
     return RET_READ_FAIL;
   }
-  LOGPRINTF("Error: Empty %s.\n", file_descrip);
+  LOGERRPRINTF("Error: Empty %s.\n", file_descrip);
   return RET_INVALID_FORMAT;
 }
 
@@ -9014,7 +9030,7 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
     retval = RET_READ_FAIL;
     break;
   scan_max_strlen_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -9083,7 +9099,7 @@ int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_s
     retval = RET_READ_FAIL;
     break;
   scan_max_fam_indiv_strlen_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
