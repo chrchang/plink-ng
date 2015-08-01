@@ -6971,7 +6971,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   char* a2ptr;
   uint32_t loop_end;
   if (pheno_nm_ct < 2) {
-    logprint("Warning: Skipping --assoc/--model since less than two phenotypes are present.\n");
+    logerrprint("Warning: Skipping --assoc/--model since less than two phenotypes are present.\n");
     goto model_assoc_ret_1;
   }
   if (max_marker_allele_len > MAXLINELEN) {
@@ -7074,7 +7074,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     }
   } else {
     if (is_set(chrom_info_ptr->haploid_mask, 0)) {
-      logprint("Error: --model cannot be used on haploid genomes.\n");
+      logerrprint("Error: --model cannot be used on haploid genomes.\n");
       goto model_assoc_ret_INVALID_CMDLINE;
     }
     uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 0, 1);
@@ -7084,13 +7084,13 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	// the command-line fix is, this is not worth the trouble of supporting
 	// (this problem illustrates why core data structures should use
 	// unfiltered indexes when possible, though)
-	logprint("Error: --model set-test cannot be used with sets containing MT/haploid\nvariants.  (You can use e.g. '--not-chr y, mt' to exclude them.)\n");
+	logerrprint("Error: --model set-test cannot be used with sets containing MT/haploid\nvariants.  (You can use e.g. '--not-chr y, mt' to exclude them.)\n");
 	goto model_assoc_ret_INVALID_CMDLINE;
       }
       LOGPRINTF("Excluding %u MT/haploid variant%s from --model analysis.\n", uii, (uii == 1)? "" : "s");
       marker_ct -= uii;
       if (!marker_ct) {
-	logprint("Error: No variants remaining for --model analysis.\n");
+	logerrprint("Error: No variants remaining for --model analysis.\n");
 	goto model_assoc_ret_INVALID_CMDLINE;
       }
     }
@@ -7180,7 +7180,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	goto model_assoc_ret_1;
       }
       if (!g_cluster_ct) {
-        logprint("Error: No size 2+ clusters for permutation test.\n");
+        logerrprint("Error: No size 2+ clusters for permutation test.\n");
 	goto model_assoc_ret_INVALID_CMDLINE;
       }
       retval = cluster_alloc_and_populate_magic_nums(g_cluster_ct, g_cluster_map, g_cluster_starts, &g_tot_quotients, &g_totq_magics, &g_totq_preshifts, &g_totq_postshifts, &g_totq_incrs);
@@ -9009,7 +9009,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   char* a1ptr;
   char* a2ptr;
   if (pheno_nm_ct < 2) {
-    logprint("Warning: Skipping QT --assoc since less than two phenotypes are present.\n");
+    logerrprint("Warning: Skipping QT --assoc since less than two phenotypes are present.\n");
     goto qassoc_ret_1;
   }
   if (is_set_test) {
@@ -9105,7 +9105,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     *outname_end2 = '\0';
   }
   if (haploid_chrom_present(chrom_info_ptr) || mt_exists) {
-    logprint("Warning: QT --assoc doesn't handle X/Y/MT/haploid variants normally (try\n--linear).\n");
+    logerrprint("Warning: QT --assoc doesn't handle X/Y/MT/haploid variants normally (try\n--linear).\n");
   }
   LOGPRINTFWW5("Writing QT --assoc report to %s ... ", outname);
   fflush(stdout);
@@ -9137,7 +9137,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	goto qassoc_ret_1;
       }
       if (!g_cluster_ct) {
-        logprint("Error: No size 2+ clusters for permutation test.\n");
+        logerrprint("Error: No size 2+ clusters for permutation test.\n");
         goto qassoc_ret_INVALID_CMDLINE;
       }
       if (wkspace_alloc_ui_checked(&g_sample_to_cluster, pheno_nm_ct * sizeof(int32_t)) ||
@@ -10066,10 +10066,10 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
   uint32_t geno_ssq2;
 
   if (group1_size < 3) {
-    logprint("Error: First --gxe group has fewer than three members.\n");
+    logerrprint("Error: First --gxe group has fewer than three members.\n");
     goto gxe_assoc_ret_INVALID_CMDLINE;
   } else if (group2_size < 3) {
-    logprint("Error: Second --gxe group has fewer than three members.\n");
+    logerrprint("Error: Second --gxe group has fewer than three members.\n");
     goto gxe_assoc_ret_INVALID_CMDLINE;
   }
   if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_sample_ctl * 2 * sizeof(intptr_t)) ||
@@ -10158,7 +10158,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
       group1_size_male = popcount_longs_exclude(sample_male_include2, group2_include2, covar_nm_ctl * 2);
       group2_size_male = male_ct - group1_size_male;
       if ((group1_size_male < 3) || (group2_size_male < 3)) {
-        logprint("Warning: Skipping Y chromosome for --gxe since a group has less than 3 males.\n");
+        logerrprint("Warning: Skipping Y chromosome for --gxe since a group has less than 3 males.\n");
 	skip_y = 1;
       }
       // currently still need to initialize covar_nm_male_raw even on skip_y
@@ -10199,7 +10199,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
     goto gxe_assoc_ret_OPEN_FAIL;
   }
   if (haploid_chrom_present(chrom_info_ptr) || mt_exists) {
-    logprint("Warning: --gxe doesn't currently handle X/Y/MT/haploid variants properly.\n");
+    logerrprint("Warning: --gxe doesn't currently handle X/Y/MT/haploid variants properly.\n");
   }
   LOGPRINTFWW5("Writing --gxe report to %s ... ", outname);
   fputs("0%", stdout);
@@ -10981,7 +10981,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
   uint32_t ukk;
   uint32_t umm;
   if ((!case_ct) || (!ctrl_ct)) {
-    logprint("Warning: Skipping --test-missing since at least one case and one control is\nrequired.\n");
+    logerrprint("Warning: Skipping --test-missing since at least one case and one control is\nrequired.\n");
     goto testmiss_ret_1;
   }
   cur_case_ct_recip = 1.0 / ((double)((int32_t)case_ct));
@@ -10991,7 +10991,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
   if ((y_code == -1) || (!is_set(chrom_info_ptr->chrom_mask, y_code))) {
     skip_y = 1;
   } else if ((!case_ct_y) || (!ctrl_ct_y)) {
-    logprint("Warning: --test-missing is skipping Y chromosome since at least one male case\nand one male control are necessary.\n");
+    logerrprint("Warning: --test-missing is skipping Y chromosome since at least one male case\nand one male control are necessary.\n");
     skip_y = 1;
   }
   if (perm_maxt) {
@@ -11204,7 +11204,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	goto testmiss_ret_1;
       }
       if (!g_cluster_ct) {
-	logprint("Error: No size 2+ clusters for permutation test.\n");
+	logerrprint("Error: No size 2+ clusters for permutation test.\n");
 	goto testmiss_ret_INVALID_CMDLINE;
       }
       retval = cluster_alloc_and_populate_magic_nums(g_cluster_ct, g_cluster_map, g_cluster_starts, &g_tot_quotients, &g_totq_magics, &g_totq_preshifts, &g_totq_postshifts, &g_totq_incrs);
@@ -11728,7 +11728,7 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
   uint32_t sample_nmidx;
   uint32_t rshift;
   if (!pheno_nm_ct) {
-    logprint("Error: --make-perm-pheno requires phenotype data.\n");
+    logerrprint("Error: --make-perm-pheno requires phenotype data.\n");
     goto make_perm_pheno_ret_INVALID_CMDLINE;
   }
   g_assoc_thread_ct = MINV(g_thread_ct, permphe_ct);
@@ -11753,7 +11753,7 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
 	goto make_perm_pheno_ret_1;
       }
       if (!g_cluster_ct) {
-        logprint("Error: Degenerate --make-perm-pheno invocation (no size 2+ clusters).\n");
+        logerrprint("Error: Degenerate --make-perm-pheno invocation (no size 2+ clusters).\n");
         goto make_perm_pheno_ret_INVALID_CMDLINE;
       }
       retval = cluster_alloc_and_populate_magic_nums(g_cluster_ct, g_cluster_map, g_cluster_starts, &g_tot_quotients, &g_totq_magics, &g_totq_preshifts, &g_totq_postshifts, &g_totq_incrs);
@@ -11791,7 +11791,7 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
 	goto make_perm_pheno_ret_1;
       }
       if (!g_cluster_ct) {
-        logprint("Error: Degenerate --make-perm-pheno invocation (no size 2+ clusters).\n");
+        logerrprint("Error: Degenerate --make-perm-pheno invocation (no size 2+ clusters).\n");
         goto make_perm_pheno_ret_INVALID_CMDLINE;
       }
       if (wkspace_alloc_ui_checked(&g_sample_to_cluster, pheno_nm_ct * sizeof(int32_t)) ||
@@ -11900,7 +11900,7 @@ int32_t cluster_assoc_init(const char* flag_name, uintptr_t unfiltered_sample_ct
   uint32_t ujj;
   uint32_t ukk;
   if (cluster_ct < 2) {
-    LOGPRINTF("Error: %s requires at least two valid clusters.\n", flag_name);
+    LOGERRPRINTF("Error: %s requires at least two valid clusters.\n", flag_name);
     return RET_INVALID_CMDLINE;
   }
   // 1. Identify clusters with at least one case and one control, and create
@@ -11993,11 +11993,11 @@ int32_t cluster_assoc_init(const char* flag_name, uintptr_t unfiltered_sample_ct
     return RET_NOMEM;
   }
   if (cluster_ct2 < 2) {
-    LOGPRINTF("Error: %s requires at least two valid clusters.\n", flag_name);
+    LOGERRPRINTF("Error: %s requires at least two valid clusters.\n", flag_name);
     return RET_INVALID_CMDLINE;
   } else if (sample_ct >= 0x40000000) {
     // silly, but I'll document this
-    LOGPRINTF("Error: %s does not support >= 2^30 samples.\n", flag_name);
+    LOGERRPRINTF("Error: %s does not support >= 2^30 samples.\n", flag_name);
     return RET_INVALID_CMDLINE;
   }
   LOGPRINTF("%s: %u valid clusters, with a total of %u cases and %u controls.\n", flag_name, cluster_ct2, case_ct_total, sample_ct - case_ct_total);
@@ -12210,7 +12210,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
     goto cmh_assoc_ret_1;
   }
   if (breslow_day && (cluster_ct2 > 10) && (!perm_bd)) {
-    logprint("Warning: Breslow-Day statistics are unreliable with a large number of small\nclusters.  You may want to look at empirical p-values from the 'perm-bd'\nadaptive permutation test.\n");
+    logerrprint("Warning: Breslow-Day statistics are unreliable with a large number of small\nclusters.  You may want to look at empirical p-values from the 'perm-bd'\nadaptive permutation test.\n");
   }
 
   memcpy(outname_end, ".cmh", 5);
@@ -12431,7 +12431,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   }
 
   if (cmh_modifier & (CLUSTER_CMH_PERM | CLUSTER_CMH_MPERM)) {
-    logprint("Error: --mh/--bd permutation tests are currently under development.\n");
+    logerrprint("Error: --mh/--bd permutation tests are currently under development.\n");
     goto cmh_assoc_ret_INVALID_CMDLINE;
   }
 
@@ -12551,7 +12551,7 @@ int32_t cmh2_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
     case_ct += cluster_pheno_gtots[4 * cluster_idx + 2];
   }
   if ((ctrl_ct < 2) || (case_ct < 2)) {
-    logprint("Error: --mh2 requires at least two cases and two controls.\n");
+    logerrprint("Error: --mh2 requires at least two cases and two controls.\n");
     goto cmh2_assoc_ret_INVALID_CMDLINE;
   }
 #ifdef __LP64__
@@ -12560,7 +12560,7 @@ int32_t cmh2_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
     // routine has an integer overflow here
     // (if/when we do permit this, will need to switch a few variables to type
     // uintptr_t)
-    logprint("Error: --mh2 does not currently support more than 46341 clusters.\n");
+    logerrprint("Error: --mh2 does not currently support more than 46341 clusters.\n");
     goto cmh2_assoc_ret_INVALID_CMDLINE;
   }
 #endif
@@ -12828,7 +12828,7 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
     goto homog_assoc_ret_NOMEM;
   }
   if (cluster_ct2 > 10) {
-    logprint("Warning: --homog statistics can be unreliable with small clusters.\n");
+    logerrprint("Warning: --homog statistics can be unreliable with small clusters.\n");
   }
 
   memcpy(outname_end, ".homog", 7);

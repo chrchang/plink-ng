@@ -2481,7 +2481,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
     goto unrelated_herit_batch_ret_READ_FAIL;
   }
   if (unfiltered_sample_ct < 2) {
-    logprint("Error: Less than two samples in .grm.id file.\n");
+    logerrprint("Error: Less than two samples in .grm.id file.\n");
     goto unrelated_herit_batch_ret_INVALID_FORMAT;
   }
   rewind(infile);
@@ -2537,12 +2537,12 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
     goto unrelated_herit_batch_ret_1;
   }
   if (!pheno_d) {
-    logprint("Error: --unrelated-heritability requires scalar phenotype.\n");
+    logerrprint("Error: --unrelated-heritability requires scalar phenotype.\n");
     goto unrelated_herit_batch_ret_INVALID_CMDLINE;
   }
   pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_sample_ctl);
   if (pheno_nm_ct < 2) {
-    logprint("Error: Less than two phenotypes present.\n");
+    logerrprint("Error: Less than two phenotypes present.\n");
     goto unrelated_herit_batch_ret_INVALID_FORMAT;
   }
   ulii = CACHEALIGN_DBL(pheno_nm_ct * pheno_nm_ct);
@@ -2665,11 +2665,11 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
     retval = RET_INVALID_CMDLINE;
     break;
   unrelated_herit_batch_ret_INVALID_FORMAT_3:
-    logprint("Error: Invalid .grm.gz file.\n");
+    logerrprint("Error: Invalid .grm.gz file.\n");
     retval = RET_INVALID_FORMAT;
     break;
   unrelated_herit_batch_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
   unrelated_herit_batch_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -2739,10 +2739,10 @@ int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfi
   g_sample_ct = sample_ct;
   perm_ct += 1; // first permutation = original config
   if (pheno_ctrl_ct < 2) {
-    logprint("Warning: Skipping --ibs-test due to too few controls (minimum 2).\n");
+    logerrprint("Warning: Skipping --ibs-test due to too few controls (minimum 2).\n");
     goto ibs_test_calc_ret_1;
   } else if (case_ct < 2) {
-    logprint("Warning: Skipping --ibs-test due to too few cases (minimum 2).\n");
+    logerrprint("Warning: Skipping --ibs-test due to too few cases (minimum 2).\n");
     goto ibs_test_calc_ret_1;
   }
   for (ulii = 0; ulii < 6; ulii++) {
@@ -2935,12 +2935,12 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_sample_ct, uintpt
   double dww;
   uint32_t is_case;
   if (pheno_ctrl_ct < 2) {
-    logprint("Warning: Skipping --groupdist due to too few controls (minimum 2).\n");
+    logerrprint("Warning: Skipping --groupdist due to too few controls (minimum 2).\n");
     goto groupdist_calc_ret_1;
   }
   g_case_ct = pheno_nm_ct - pheno_ctrl_ct;
   if (g_case_ct < 2) {
-    logprint("Warning: Skipping --groupdist due to too few cases (minimum 2).\n");
+    logerrprint("Warning: Skipping --groupdist due to too few cases (minimum 2).\n");
     goto groupdist_calc_ret_1;
   }
   g_ctrl_ct = pheno_ctrl_ct;
@@ -3277,18 +3277,18 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
   tbuf[MAXLINELEN - 1] = ' ';
   if (!fgets(tbuf, MAXLINELEN - 6, evecfile)) {
     if (feof(evecfile)) {
-      goto calc_regress_pcs_ret_INVALID_FORMAT;
+      goto calc_regress_pcs_ret_INVALID_FORMAT_2G;
     } else {
       goto calc_regress_pcs_ret_READ_FAIL;
     }
   }
   if (!tbuf[MAXLINELEN - 7]) {
-    logprint("Error: Excessively long line in .evec/.eigenvec file.\n");
-    goto calc_regress_pcs_ret_INVALID_FORMAT2;
+    logerrprint("Error: Excessively long line in .evec/.eigenvec file.\n");
+    goto calc_regress_pcs_ret_INVALID_FORMAT;
   }
   bufptr = skip_initial_spaces(tbuf);
   if (no_more_tokens_kns(bufptr)) {
-    goto calc_regress_pcs_ret_INVALID_FORMAT;
+    goto calc_regress_pcs_ret_INVALID_FORMAT_2G;
   }
   if (memcmp(bufptr, "#eigvals:", 9)) {
     is_eigenvec = 1;
@@ -3300,7 +3300,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     bufptr = next_token(bufptr);
   }
   if (!pc_ct) {
-    goto calc_regress_pcs_ret_INVALID_FORMAT;
+    goto calc_regress_pcs_ret_INVALID_FORMAT_2G;
   }
   if (pc_ct > max_pcs) {
     sprintf(logbuf, "%svec format detected.  Regressing on %d PC%s (out of %d).\n", is_eigenvec? "GCTA .eigen" : "SMARTPCA .e", max_pcs, (max_pcs == 1)? "" : "s", pc_ct);
@@ -3333,10 +3333,10 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
       bufptr = next_token_mult(skip_initial_spaces(tbuf), 2);
       for (uii = 0; uii < pc_ct; uii++) {
 	if (no_more_tokens_kns(bufptr)) {
-	  goto calc_regress_pcs_ret_INVALID_FORMAT;
+	  goto calc_regress_pcs_ret_INVALID_FORMAT_2G;
 	}
 	if (scan_double(bufptr, &(pc_matrix[uii * sample_ct + sample_idx]))) {
-	  goto calc_regress_pcs_ret_INVALID_FORMAT;
+	  goto calc_regress_pcs_ret_INVALID_FORMAT_2G;
 	}
 	bufptr = next_token(bufptr);
       }
@@ -3366,10 +3366,10 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
       bufptr = next_token(skip_initial_spaces(tbuf));
       for (uii = 0; uii < pc_ct; uii++) {
 	if (no_more_tokens_kns(bufptr)) {
-	  goto calc_regress_pcs_ret_INVALID_FORMAT;
+	  goto calc_regress_pcs_ret_INVALID_FORMAT_2G;
 	}
 	if (scan_double(bufptr, &(pc_matrix[uii * sample_ct + sample_idx]))) {
-	  goto calc_regress_pcs_ret_INVALID_FORMAT;
+	  goto calc_regress_pcs_ret_INVALID_FORMAT_2G;
 	}
 	bufptr = next_token(bufptr);
       }
@@ -3642,12 +3642,12 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     retval = RET_WRITE_FAIL;
     break;
   calc_regress_pcs_ret_INVALID_FORMAT_3:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
+  calc_regress_pcs_ret_INVALID_FORMAT_2G:
+    logerrprint("Error: Improperly formatted .evec file.\n");
   calc_regress_pcs_ret_INVALID_FORMAT:
-    logprint("Error: Improperly formatted .evec file.\n");
-  calc_regress_pcs_ret_INVALID_FORMAT2:
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -5040,7 +5040,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   uint32_t pct;
 
   if (is_set(chrom_info_ptr->haploid_mask, 0)) {
-    logprint("Error: --genome cannot be used on haploid genomes.\n");
+    logerrprint("Error: --genome cannot be used on haploid genomes.\n");
     goto calc_genome_ret_INVALID_CMDLINE;
   }
   g_sample_ct = sample_ct;
@@ -5898,7 +5898,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   int32_t cur_prune;
   ulii = (uintptr_t)(grmname_end - grmname);
   if ((ulii == (uintptr_t)(outname_end - outname)) && (!memcmp(grmname, outname, ulii))) {
-    LOGPRINTF("Error: --rel-cutoff input and output ID filenames cannot match.%s\n", strcmp(outname, PROG_NAME_STR)? "" : "  (Use --out.)");
+    LOGERRPRINTF("Error: --rel-cutoff input and output ID filenames cannot match.%s\n", strcmp(outname, PROG_NAME_STR)? "" : "  (Use --out.)");
     goto rel_cutoff_batch_ret_INVALID_CMDLINE;
   }
   memcpy(grmname_end, ".grm.id", 8);
@@ -6405,12 +6405,12 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
     retval = RET_WRITE_FAIL;
     break;
   rel_cutoff_batch_ret_INVALID_FORMAT_GENERIC:
-    putchar('\n');
-    logprint("Error: Improperly formatted .grm.gz file.\n");
+    logprint("\n");
+    logerrprint("Error: Improperly formatted .grm.gz file.\n");
     retval = RET_INVALID_FORMAT;
     break;
   rel_cutoff_batch_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   rel_cutoff_batch_ret_INVALID_CMDLINE:
@@ -6765,7 +6765,7 @@ int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_
   wkspace_reset(wkspace_mark);
   marker_ct = popcount_longs(marker_include, unfiltered_marker_ctl) - zcount;
   if (!marker_ct) {
-    logprint("Error: No valid nonzero entries in --distance-wts file.\n");
+    logerrprint("Error: No valid nonzero entries in --distance-wts file.\n");
     goto load_distance_wts_ret_INVALID_FORMAT;
   }
   wkspace_left -= topsize;
@@ -6808,7 +6808,7 @@ int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_
   load_distance_wts_ret_INVALID_WEIGHT:
     sprintf(logbuf, "Error: Invalid weight on line %" PRIuPTR " of --distance-wts file.\n", line_idx);
   load_distance_wts_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
   load_distance_wts_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -6880,7 +6880,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   uint32_t* giptr2;
   uintptr_t* glptr2;
   if (distance_wts_fname) {
-    logprint("Error: --make-{rel,grm-gz,grm-bin} + --distance-wts is currently under\ndevelopment.\n");
+    logerrprint("Error: --make-{rel,grm-gz,grm-bin} + --distance-wts is currently under\ndevelopment.\n");
     goto calc_rel_ret_1;
   }
 
@@ -7410,10 +7410,10 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
     // even if this isn't true (empty intersection, or inaccurate 0 MAF), but
     // at least this catches the common case
     if (calculation_type & (CALC_REGRESS_REL | CALC_PCA | CALC_UNRELATED_HERITABILITY)) {
-      logprint("Error: Sample(s) present with no genotype data.  Use --mind to filter them out.\n");
+      logerrprint("Error: Sample(s) present with no genotype data.  Use --mind to filter them out.\n");
       retval = RET_INVALID_FORMAT;
     } else {
-      logprint("Warning: Sample(s) present with no genotype data.  Use --mind to filter them\nout.\n");
+      logerrprint("Warning: Sample(s) present with no genotype data.  Use --mind to filter them\nout.\n");
     }
   }
   while (0) {
@@ -7525,7 +7525,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
       pc_ct = marker_ct;
       sprintf(logbuf, "Warning: calculating %u PCs, since there are only %u autosomal markers.\n", pc_ct, pc_ct);
     }
-    logprintb();
+    logerrprintb();
   }
   ulii = (pca_sample_ct * (pca_sample_ct + 1)) / 2;
   if (ulii < sample_ct * pc_ct) {
@@ -8802,13 +8802,13 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   if (sample_ct <= cp->min_ct) {
     // todo: check if anyone uses --mds-plot without caring about clustering;
     // if yes, we should stop forcing --mds-plot to be used with --cluster.
-    logprint("Error: --K parameter too large (>= sample count).\n");
+    logerrprint("Error: --K parameter too large (>= sample count).\n");
     goto calc_cluster_neighbor_ret_INVALID_CMDLINE;
   }
   if (cluster_ct) {
     cur_cluster_ct += cluster_ct - cluster_starts[cluster_ct];
     if (cur_cluster_ct <= cp->min_ct) {
-      logprint("Error: --K parameter too large (>= initial cluster count).\n");
+      logerrprint("Error: --K parameter too large (>= initial cluster count).\n");
       goto calc_cluster_neighbor_ret_INVALID_CMDLINE;
     }
     sample_to_cluster = (uint32_t*)malloc(sample_ct * sizeof(int32_t));
@@ -8842,7 +8842,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   }
   if (do_neighbor) {
     if (neighbor_n2 >= sample_ct) {
-      logprint("Error: Second --neighbour parameter too large (>= population size).\n");
+      logerrprint("Error: Second --neighbour parameter too large (>= population size).\n");
       goto calc_cluster_neighbor_ret_INVALID_CMDLINE;
     }
     ulii = neighbor_n2 * sample_ct;
@@ -8939,7 +8939,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 		if (clidx1 != clidx2) {
 		  SET_BIT(cluster_merge_prevented, tcoord);
 		} else if (!ppc_warning) {
-		  logprint("Warning: Initial cluster assignment violates PPC test constraint.\n");
+		  logerrprint("Warning: Initial cluster assignment violates PPC test constraint.\n");
 		  ppc_warning = 1;
 		}
 	      }
@@ -9273,7 +9273,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       putchar('\r');
       LOGPRINTFWW("IBM matrix written to %s .\n", outname);
       if (ibm_warning) {
-	logprint("Warning: Initial cluster assignment violates IBM constraint.\n");
+	logerrprint("Warning: Initial cluster assignment violates IBM constraint.\n");
       }
       if (mds_fill_nonclust && (!cluster_ct)) {
 	memcpy(mds_plot_dmatrix_copy, cluster_sorted_ibs, initial_triangle_size * sizeof(double));
@@ -9347,7 +9347,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       }
     }
     if (mc_warning) {
-      logprint("Warning: Initial cluster assignment violates --mc restriction.\n");
+      logerrprint("Warning: Initial cluster assignment violates --mc restriction.\n");
     }
     for (clidx1 = cluster_ct; clidx1 < cur_cluster_ct; clidx1++) {
       cur_cluster_sizes[clidx1] = 1;
@@ -9440,7 +9440,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	}
       }
       if (mcc_warning) {
-        logprint("Warning: Initial cluster assignment violates --mcc restriction.\n");
+        logerrprint("Warning: Initial cluster assignment violates --mcc restriction.\n");
       }
     }
   }
@@ -9499,7 +9499,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       heap_size -= popcount_longs_nzbase(cluster_merge_prevented, tcoord / BITCT, (initial_triangle_size + (BITCT - 1)) / BITCT);
     }
     if (!heap_size) {
-      logprint("Error: No cluster merges possible.\n");
+      logerrprint("Error: No cluster merges possible.\n");
       goto calc_cluster_neighbor_ret_INVALID_CMDLINE;
     }
     wkspace_reset(cluster_sorted_ibs);
@@ -9603,7 +9603,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     }
 #ifdef __LP64__
   } else {
-    logprint("Error: --cluster cannot handle >65536 initial clusters yet.\n");
+    logerrprint("Error: --cluster cannot handle >65536 initial clusters yet.\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
     goto calc_cluster_neighbor_ret_1;
   }

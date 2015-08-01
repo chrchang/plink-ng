@@ -137,22 +137,19 @@ unsigned char* wkspace;
 void disp_exit_msg(int32_t retval) {
   switch (retval) {
   case RET_NOMEM:
-    putchar('\n');
-    fflush(stdout);
+    logprint("\n");
     logerrprint("Error: Out of memory.  The --memory flag may be helpful.\n");
     break;
   case RET_WRITE_FAIL:
-    putchar('\n');
-    fflush(stdout);
+    logprint("\n");
     logerrprint("Error: File write failure.\n");
     break;
   case RET_READ_FAIL:
-    putchar('\n');
-    fflush(stdout);
+    logprint("\n");
     logerrprint("Error: File read failure.\n");
     break;
   case RET_THREAD_CREATE_FAIL:
-    putchar('\n');
+    logprint("\n");
     logerrprint("Error: Failed to create thread.\n");
     break;
   }

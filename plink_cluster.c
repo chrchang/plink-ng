@@ -117,7 +117,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 	  cluster_kr_ct++;
 	}
 	if (!cluster_kr_ct) {
-	  logprint("Error: Empty --keep-clusters file.\n");
+	  logerrprint("Error: Empty --keep-clusters file.\n");
 	  goto load_clusters_ret_INVALID_FORMAT;
 	}
       }
@@ -366,7 +366,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
     }
     if (cluster_names) {
       if (max_cluster_id_len > MAX_ID_LEN_P1) {
-	logprint("Error: Cluster IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+	logerrprint("Error: Cluster IDs are limited to " MAX_ID_LEN_STR " characters.\n");
 	goto load_clusters_ret_INVALID_FORMAT;
       }
       *max_cluster_id_len_ptr = max_cluster_id_len;
@@ -455,10 +455,10 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
       LOGPRINTF("--within: %" PRIuPTR " cluster%s loaded, covering a total of %" PRIuPTR " %s.\n", cluster_ct, (cluster_ct == 1)? "" : "s", assigned_ct, species_str(assigned_ct));
     } else {
       if (sorted_keep_ids) {
-	logprint("Error: No samples named in --within file remain in the current analysis, so\n--keep-clusters/--keep-cluster-names excludes everyone.\n");
+	logerrprint("Error: No samples named in --within file remain in the current analysis, so\n--keep-clusters/--keep-cluster-names excludes everyone.\n");
 	goto load_clusters_ret_INVALID_FORMAT;
       }
-      logprint("Warning: No samples named in --within file remain in the current analysis.\n");
+      logerrprint("Warning: No samples named in --within file remain in the current analysis.\n");
       goto load_clusters_ret_1;
     }
   } else {
@@ -471,7 +471,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
     // 4. initialize other data structures
     if (max_cluster_id_len > MAX_ID_LEN_P1) {
       // max FID len was previously checked
-      logprint("Error: Cluster IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+      logerrprint("Error: Cluster IDs are limited to " MAX_ID_LEN_STR " characters.\n");
       goto load_clusters_ret_INVALID_FORMAT;
     }
 
@@ -497,7 +497,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
       assigned_ct++;
     }
     if (!assigned_ct) {
-      logprint("Error: --keep-clusters/--keep-cluster-names excludes everyone.\n");
+      logerrprint("Error: --keep-clusters/--keep-cluster-names excludes everyone.\n");
       goto load_clusters_ret_INVALID_FORMAT;
     }
     *max_cluster_id_len_ptr = max_cluster_id_len;
@@ -572,7 +572,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
   load_clusters_ret_MISSING_TOKENS:
     sprintf(logbuf, "Error: Line %" PRIuPTR " of --within file has fewer tokens than expected.\n", line_idx);
   load_clusters_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
   load_clusters_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -787,7 +787,7 @@ int32_t extract_clusters(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
     retval = RET_READ_FAIL;
     break;
   extract_clusters_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -1136,7 +1136,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample
     }
     fclose_null(&id_file);
     if (matching_entry_ct < sample_ct) {
-      logprint("Error: --read-dists ID file does not contain all samples in current run.\n");
+      logerrprint("Error: --read-dists ID file does not contain all samples in current run.\n");
       goto read_dists_ret_INVALID_FORMAT;
     }
   } else if (cluster_ct) {
@@ -1278,7 +1278,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample
     retval = RET_READ_FAIL;
     break;
   read_dists_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
   read_dists_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -1354,7 +1354,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uin
   } while (is_eoln_kns(*bufptr));
   // a little bit of input validation
   if (memcmp(bufptr, "FID1", 4)) {
-    logprint("Error: Invalid --read-genome file header line.\n");
+    logerrprint("Error: Invalid --read-genome file header line.\n");
     goto read_genome_ret_INVALID_FORMAT;
   }
   while (gzgets(gz_infile, tbuf, MAXLINELEN)) {
@@ -1413,7 +1413,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uin
       sample_idx2 = sample_to_cluster[sample_idx2];
       if (sample_idx1 == sample_idx2) {
 	if (ppc_fail && (!ppc_warning)) {
-	  logprint("Warning: Initial cluster assignment violates PPC test constraint.\n");
+	  logerrprint("Warning: Initial cluster assignment violates PPC test constraint.\n");
 	  ppc_warning = 1;
 	}
 	continue;
@@ -1453,13 +1453,13 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uin
     retval = RET_READ_FAIL;
     break;
   read_genome_ret_MISSING_TOKENS:
-    LOGPRINTF("Error: Line %" PRIuPTR " of --read-genome file has fewer tokens than expected.\n", line_idx);
+    LOGERRPRINTF("Error: Line %" PRIuPTR " of --read-genome file has fewer tokens than expected.\n", line_idx);
     retval = RET_INVALID_FORMAT;
     break;
   read_genome_ret_LONG_LINE:
     sprintf(logbuf, "Error: Line %" PRIuPTR " of --read-genome file is pathologically long.\n", line_idx);
   read_genome_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
   read_genome_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -1566,7 +1566,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	  cc = *bufptr;
 	}
 	if (cov_ct > 65536) {
-          logprint("Error: Too many tokens in --match-type file (max 65536).\n");
+          logerrprint("Error: Too many tokens in --match-type file (max 65536).\n");
 	  goto cluster_enforce_match_ret_INVALID_FORMAT;
 	}
       }
@@ -1575,12 +1575,12 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       }
       fclose_null(&typefile);
       if (!cov_ct) {
-        logprint("Error: Empty --match-type file.\n");
+        logerrprint("Error: Empty --match-type file.\n");
 	goto cluster_enforce_match_ret_INVALID_FORMAT;
       }
       non_null_cov_ct = cov_ct - cov_idx;
       if (!non_null_cov_ct) {
-	logprint("Error: Degenerate --match-type file (all -1/*).\n");
+	logerrprint("Error: Degenerate --match-type file (all -1/*).\n");
 	goto cluster_enforce_match_ret_INVALID_FORMAT;
       }
       while (!cov_type_arr[cov_ct - 1]) {
@@ -1736,7 +1736,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       }
     }
     if (cluster_mismatch_warning) {
-      logprint("Warning: Initial cluster assignment violates --match constraint.\n");
+      logerrprint("Warning: Initial cluster assignment violates --match constraint.\n");
       cluster_mismatch_warning = 0;
     }
     cov_ct = 0;
@@ -1795,7 +1795,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	tol_arr[cov_ct++] = dxx;
 	bufptr = skip_initial_spaces(token_endnn(bufptr));
 	if (cov_ct > 65536) {
-          logprint("Error: Too many values in --qt file (max 65536).\n");
+          logerrprint("Error: Too many values in --qt file (max 65536).\n");
 	  goto cluster_enforce_match_ret_INVALID_FORMAT;
 	}
       }
@@ -1805,7 +1805,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
     }
     fclose_null(&typefile);
     if (!cov_ct) {
-      logprint("Error: Empty --qt file.\n");
+      logerrprint("Error: Empty --qt file.\n");
       goto cluster_enforce_match_ret_INVALID_FORMAT;
     }
     wkspace_alloc(cov_ct * sizeof(double)); // tol_arr
@@ -1938,7 +1938,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       }
     }
     if (cluster_mismatch_warning) {
-      logprint("Warning: Initial cluster assignment violates --qmatch constraint.\n");
+      logerrprint("Warning: Initial cluster assignment violates --qmatch constraint.\n");
     }
   }
   LOGPRINTF("--%smatch constraints applied.\n", cp->match_fname? (cp->qmatch_fname? "match and q" : "") : "q");
@@ -1953,13 +1953,13 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
     retval = RET_READ_FAIL;
     break;
   cluster_enforce_match_ret_MISSING_TOKENS_Q:
-    LOGPRINTF("Error: Line %" PRIuPTR " of --qmatch file has fewer tokens than expected.\n", line_idx);
+    LOGERRPRINTF("Error: Line %" PRIuPTR " of --qmatch file has fewer tokens than expected.\n", line_idx);
     retval = RET_INVALID_FORMAT;
     break;
   cluster_enforce_match_ret_MISSING_TOKENS:
     sprintf(logbuf, "Error: Line %" PRIuPTR " of --match file has fewer tokens than expected.\n", line_idx);
   cluster_enforce_match_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
   cluster_enforce_match_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -2955,7 +2955,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
     goto mds_plot_ret_NOMEM;
   }
   if ((sample_ct > 5000) && (!is_mds_cluster) && (final_cluster_ct < sample_ct) && (final_cluster_ct > 1)) {
-    LOGPRINTF("Warning: Per-sample --mds-plot can be very slow with over 5000 %s.\nConsider using the 'by-cluster' modifier.\n", g_species_plural);
+    LOGERRPRINTF("Warning: Per-sample --mds-plot can be very slow with over 5000 %s.\nConsider using the 'by-cluster' modifier.\n", g_species_plural);
   }
   for (clidx1 = 0; clidx1 < cur_cluster_ct; clidx1++) {
     clidx2 = cur_cluster_remap[clidx1];
@@ -3267,7 +3267,7 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
     goto mds_plot_eigendecomp_ret_NOMEM;
   }
   if ((sample_ct > 5000) && (!is_mds_cluster) && (final_cluster_ct < sample_ct) && (final_cluster_ct > 1)) {
-    LOGPRINTF("Warning: Per-sample --mds-plot can be very slow with over 5000 %s.\nConsider using the 'by-cluster' modifier.\n", g_species_plural);
+    LOGERRPRINTF("Warning: Per-sample --mds-plot can be very slow with over 5000 %s.\nConsider using the 'by-cluster' modifier.\n", g_species_plural);
   }
   for (clidx1 = 0; clidx1 < cur_cluster_ct; clidx1++) {
     clidx2 = cur_cluster_remap[clidx1];
