@@ -350,24 +350,24 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       if (fail_on_no_sets) {
 	if (marker_pos) {
 	  // okay, this is a kludge
-	  logprint("Error: All variants excluded by --gene{-all}, since no sets were defined from\n--make-set file.\n");
+	  logerrprint("Error: All variants excluded by --gene{-all}, since no sets were defined from\n--make-set file.\n");
 	  retval = RET_ALL_MARKERS_EXCLUDED;
 	} else {
 	  if (subset_ct) {
-	    logprint("Error: No --gene-subset genes present in --gene-report file.\n");
+	    logerrprint("Error: No --gene-subset genes present in --gene-report file.\n");
 	  } else {
-	    logprint("Error: Empty --gene-report file.\n");
+	    logerrprint("Error: Empty --gene-report file.\n");
 	  }
 	  retval = RET_INVALID_FORMAT;
 	}
 	goto load_range_list_ret_1;
       }
-      LOGPRINTF("Warning: No valid ranges in %s file.\n", file_descrip);
+      LOGERRPRINTF("Warning: No valid ranges in %s file.\n", file_descrip);
       goto load_range_list_ret_1;
     }
     max_set_id_len += c_prefix;
     if (max_set_id_len > MAX_ID_LEN_P1) {
-      logprint("Error: Set IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+      logerrprint("Error: Set IDs are limited to " MAX_ID_LEN_STR " characters.\n");
       goto load_range_list_ret_INVALID_FORMAT;
     }
     wkspace_left -= *topsize_ptr;
@@ -530,7 +530,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
     retval = RET_NOMEM;
     break;
   load_range_list_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
   load_range_list_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -581,15 +581,14 @@ int32_t extract_exclude_range(char* fname, uint32_t* marker_pos, uintptr_t unfil
   }
   *marker_exclude_ct_ptr = popcount_longs(marker_exclude, unfiltered_marker_ctl);
   if (*marker_exclude_ct_ptr == unfiltered_marker_ct) {
-    sprintf(logbuf, "Error: All variants excluded by '--%s range'.\n", is_exclude? "exclude" : "extract");
+    LOGERRPRINTF("Error: All variants excluded by '--%s range'.\n", is_exclude? "exclude" : "extract");
     retval = RET_ALL_MARKERS_EXCLUDED;
   } else if (*marker_exclude_ct_ptr == orig_marker_exclude_ct) {
-    sprintf(logbuf, "Warning: No variants excluded by '--%s range'.\n", is_exclude? "exclude" : "extract");
+    LOGERRPRINTF("Warning: No variants excluded by '--%s range'.\n", is_exclude? "exclude" : "extract");
   } else {
     orig_marker_exclude_ct = *marker_exclude_ct_ptr - orig_marker_exclude_ct;
-    sprintf(logbuf, "--%s range: %" PRIuPTR " variant%s excluded.\n", is_exclude? "exclude" : "extract", orig_marker_exclude_ct, (orig_marker_exclude_ct == 1)? "" : "s");
+    LOGPRINTF("--%s range: %" PRIuPTR " variant%s excluded.\n", is_exclude? "exclude" : "extract", orig_marker_exclude_ct, (orig_marker_exclude_ct == 1)? "" : "s");
   }
-  logprintb();
   while (0) {
   extract_exclude_range_ret_NOMEM:
     retval = RET_NOMEM;
@@ -1023,7 +1022,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	bufptr = &(bufptr[slen]);
       } while (*bufptr);
       if (!genekeep_ct) {
-	logprint("Error: All variants excluded by --gene.\n");
+	logerrprint("Error: All variants excluded by --gene.\n");
 	goto define_sets_ret_ALL_MARKERS_EXCLUDED_2;
       }
       sorted_genekeep_ids = (char*)top_alloc(&topsize, genekeep_ct * max_genekeep_len);
@@ -1052,7 +1051,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       retval = scan_token_ct_len(infile, tbuf, MAXLINELEN, &subset_ct, &max_subset_id_len);
       if (retval) {
 	if (retval == RET_INVALID_FORMAT) {
-	  logprint("Error: Pathologically long token in --subset file.\n");
+	  logerrprint("Error: Pathologically long token in --subset file.\n");
 	}
 	goto define_sets_ret_1;
       }
@@ -1064,9 +1063,9 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     if (!subset_ct) {
       if ((gene_all || sip->genekeep_flattened) && ((!sip->merged_set_name) || (!complement_sets))) {
 	if (sip->subset_fname) {
-	  logprint("Error: All variants excluded, since --subset file is empty.\n");
+	  logerrprint("Error: All variants excluded, since --subset file is empty.\n");
 	} else {
-	  logprint("Error: All variants excluded, since --set-names was given no parameters.\n");
+	  logerrprint("Error: All variants excluded, since --set-names was given no parameters.\n");
 	}
 	goto define_sets_ret_ALL_MARKERS_EXCLUDED_2;
       }
@@ -1074,15 +1073,15 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	goto define_sets_merge_nothing;
       } else {
 	if (sip->subset_fname) {
-          logprint("Warning: Empty --subset file; no sets defined.\n");
+          logerrprint("Warning: Empty --subset file; no sets defined.\n");
 	} else {
-          logprint("Warning: No sets defined since --set-names was given no parameters.\n");
+          logerrprint("Warning: No sets defined since --set-names was given no parameters.\n");
 	}
         goto define_sets_ret_1;
       }
     }
     if (max_subset_id_len > MAX_ID_LEN_P1) {
-      logprint("Error: Subset IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+      logerrprint("Error: Subset IDs are limited to " MAX_ID_LEN_STR " characters.\n");
       goto define_sets_ret_INVALID_FORMAT;
     }
     sorted_subset_ids = (char*)top_alloc(&topsize, subset_ct * max_subset_id_len);
@@ -1210,7 +1209,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
           curtoklen = (uintptr_t)(bufptr2 - bufptr);
           if (bufptr2 == &(tbuf[MAXLINELEN * 2])) {
 	    if (curtoklen > MAXLINELEN) {
-	      logprint("Error: Excessively long token in --set file.\n");
+	      logerrprint("Error: Excessively long token in --set file.\n");
 	      goto define_sets_ret_INVALID_FORMAT;
 	    }
             bufptr3 = &(tbuf[MAXLINELEN - curtoklen]);
@@ -1252,10 +1251,10 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       }
       if (!set_ct) {
 	if (!complement_sets) {
-	  logprint("Error: All variants excluded by --gene{-all}, since no sets were defined from\n--set file.\n");
+	  logerrprint("Error: All variants excluded by --gene{-all}, since no sets were defined from\n--set file.\n");
 	  goto define_sets_ret_ALL_MARKERS_EXCLUDED_2;
 	}
-	logprint("Warning: No sets defined from --set file.\n");
+	logerrprint("Warning: No sets defined from --set file.\n");
 	goto define_sets_ret_1;
       }
     }
@@ -1339,7 +1338,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       }
     }
     if (!set_ct) {
-      logprint("Warning: No sets defined from --set file.\n");
+      logerrprint("Warning: No sets defined from --set file.\n");
       goto define_sets_ret_1;
     }
     rewind(infile);
@@ -1356,7 +1355,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       set_ct = 1;
       max_set_id_len = strlen(sip->merged_set_name) + 1;
       if (max_set_id_len > MAX_ID_LEN_P1) {
-	logprint("Error: Set IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+	logerrprint("Error: Set IDs are limited to " MAX_ID_LEN_STR " characters.\n");
 	goto define_sets_ret_INVALID_FORMAT;
       }
       if (wkspace_alloc_c_checked(&set_names, max_set_id_len)) {
@@ -1365,7 +1364,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       memcpy(set_names, sip->merged_set_name, max_set_id_len);
     } else {
       if (max_set_id_len > MAX_ID_LEN_P1) {
-	logprint("Error: Set IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+	logerrprint("Error: Set IDs are limited to " MAX_ID_LEN_STR " characters.\n");
 	goto define_sets_ret_INVALID_FORMAT;
       }
       if (wkspace_alloc_c_checked(&set_names, set_ct * max_set_id_len)) {
@@ -1621,16 +1620,16 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     retval = RET_READ_FAIL;
     break;
   define_sets_ret_ALL_MARKERS_EXCLUDED:
-    logprint("Error: All variants excluded by --gene/--gene-all.\n");
+    logerrprint("Error: All variants excluded by --gene/--gene-all.\n");
   define_sets_ret_ALL_MARKERS_EXCLUDED_2:
     retval = RET_ALL_MARKERS_EXCLUDED;
     break;
   define_sets_ret_INVALID_FORMAT_EXTRA_END:
-    logprint("Error: Extra 'END' token in --set file.\n");
+    logerrprint("Error: Extra 'END' token in --set file.\n");
     retval = RET_INVALID_FORMAT;
     break;
   define_sets_ret_INVALID_FORMAT_NO_END:
-    logprint("Error: Last token in --set file isn't 'END'.\n");
+    logerrprint("Error: Last token in --set file isn't 'END'.\n");
   define_sets_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -2308,8 +2307,6 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
 }
 
 int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr) {
-  // logprint("Error: --annotate is currently under development.\n");
-  // return RET_CALC_NOT_YET_SUPPORTED;
   unsigned char* wkspace_mark = wkspace_base;
   gzFile gz_attribfile = NULL;
   FILE* infile = NULL;
@@ -2428,7 +2425,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
       retval = scan_token_ct_len(infile, tbuf, MAXLINELEN, &snplist_ct, &max_snplist_id_len);
       if (retval) {
 	if (retval == RET_INVALID_FORMAT) {
-	  logprint("Error: Pathologically long token in --annotate snps file.\n");
+	  logerrprint("Error: Pathologically long token in --annotate snps file.\n");
 	}
 	goto annotate_ret_1;
       }
@@ -2618,16 +2615,16 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	retval = scan_token_ct_len(infile, tbuf, MAXLINELEN, &subset_ct, &max_subset_id_len);
 	if (retval) {
 	  if (retval == RET_INVALID_FORMAT) {
-	    logprint("Error: Pathologically long token in --annotate subset file.\n");
+	    logerrprint("Error: Pathologically long token in --annotate subset file.\n");
 	  }
 	  goto annotate_ret_1;
 	}
 	if (!subset_ct) {
-	  logprint("Error: --annotate subset file is empty.\n");
+	  logerrprint("Error: --annotate subset file is empty.\n");
 	  goto annotate_ret_INVALID_FORMAT;
 	}
 	if (max_subset_id_len > MAX_ID_LEN_P1) {
-	  logprint("Error: --annotate subset IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+	  logerrprint("Error: --annotate subset IDs are limited to " MAX_ID_LEN_STR " characters.\n");
 	  goto annotate_ret_INVALID_FORMAT;
 	}
 	sorted_subset_ids = (char*)top_alloc(&topsize, subset_ct * max_subset_id_len);
@@ -2676,7 +2673,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
       // need [range_names idx -> merged natural sort order] and
       // [attribute idx -> merged natural sort order] lookup tables
       if (ulii > 0x3fffffff) {
-	logprint("Error: Too many unique annotations for '--annotate block' (max 1073741823).\n");
+	logerrprint("Error: Too many unique annotations for '--annotate block' (max 1073741823).\n");
         goto annotate_ret_INVALID_FORMAT;
       }
       if (wkspace_alloc_ui_checked(&range_idx_lookup, ulii * sizeof(int32_t))) {
@@ -2753,7 +2750,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 #endif
     LOGPRINTF("--annotate block: %u unique annotation%s present.\n", unique_annot_ct, (unique_annot_ct == 1)? "" : "s");
     if (unique_annot_ct > 1000) {
-      logprint("Warning: Output file may be very large.  Are you sure you want >1000 additional\ncolumns per line?  If not, restart without 'block'.\n");
+      logerrprint("Warning: Output file may be very large.  Are you sure you want >1000 additional\ncolumns per line?  If not, restart without 'block'.\n");
     }
     wkspace_left -= topsize;
     if (wkspace_alloc_c_checked(&writebuf, unique_annot_ctlw * sizeof(intptr_t))) {
@@ -3139,7 +3136,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
     break;
   annotate_ret_INVALID_FORMAT_WW:
     wordwrap(logbuf, 0);
-    logprintb();
+    logerrprintb();
   annotate_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -3219,16 +3216,16 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     retval = scan_token_ct_len(infile, tbuf, MAXLINELEN, &subset_ct, &max_subset_id_len);
     if (retval) {
       if (retval == RET_INVALID_FORMAT) {
-	logprint("Error: Pathologically long token in --gene-subset file.\n");
+	logerrprint("Error: Pathologically long token in --gene-subset file.\n");
       }
       goto gene_report_ret_1;
     }
     if (!subset_ct) {
-      logprint("Error: --gene-subset file is empty.\n");
+      logerrprint("Error: --gene-subset file is empty.\n");
       goto gene_report_ret_INVALID_FORMAT;
     }
     if (max_subset_id_len > MAX_ID_LEN_P1) {
-      logprint("Error: --gene-subset IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+      logerrprint("Error: --gene-subset IDs are limited to " MAX_ID_LEN_STR " characters.\n");
       goto gene_report_ret_INVALID_FORMAT;
     }
     sorted_subset_ids = (char*)top_alloc(&topsize, subset_ct * max_subset_id_len);
@@ -3255,11 +3252,11 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       goto gene_report_ret_1;
     }
     if (!extract_ct) {
-      logprint("Error: Empty --extract file.\n");
+      logerrprint("Error: Empty --extract file.\n");
       goto gene_report_ret_INVALID_FORMAT;
     }
     if (max_extract_id_len > MAX_ID_LEN_P1) {
-      logprint("Error: --extract IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+      logerrprint("Error: --extract IDs are limited to " MAX_ID_LEN_STR " characters.\n");
       goto gene_report_ret_INVALID_FORMAT;
     }
     wkspace_left -= topsize;
@@ -3589,7 +3586,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   while (0) {
   gene_report_ret_LONG_LINE:
     if (loadbuf_size == MAXLINEBUFLEN) {
-      LOGPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname);
+      LOGERRPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname);
       retval = RET_INVALID_FORMAT;
       break;
     }
@@ -3609,7 +3606,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     break;
   gene_report_ret_INVALID_FORMAT_WW:
     wordwrap(logbuf, 0);
-    logprintb();
+    logerrprintb();
   gene_report_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;

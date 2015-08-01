@@ -312,7 +312,9 @@ void parallel_compress(char* out_fname, unsigned char* overflow_buf, uint32_t do
   unsigned char* write_ptr;
   uint32_t last_size;
   if (!gz_outfile) {
-    printf("\nError: Failed to open %s.\n", out_fname);
+    putchar('\n');
+    fflush(stdout);
+    fprintf(stderr, "Error: Failed to open %s.\n", out_fname);
     exit(2);
   }
   do {
@@ -325,7 +327,9 @@ void parallel_compress(char* out_fname, unsigned char* overflow_buf, uint32_t do
     }
     if (last_size) {
       if (!gzwrite(gz_outfile, overflow_buf, last_size)) {
-	fputs("\nError: File write failure.\n", stdout);
+	putchar('\n');
+	fflush(stdout);
+	fputs("Error: File write failure.\n", stderr);
 	gzclose(gz_outfile);
 	exit(6);
       }
@@ -334,7 +338,9 @@ void parallel_compress(char* out_fname, unsigned char* overflow_buf, uint32_t do
       write_ptr = &(overflow_buf[PIGZ_BLOCK_SIZE]);
       while (overflow_ct > PIGZ_BLOCK_SIZE) {
 	if (!gzwrite(gz_outfile, write_ptr, PIGZ_BLOCK_SIZE)) {
-	  fputs("\nError: File write failure.\n", stdout);
+	  putchar('\n');
+	  fflush(stdout);
+	  fputs("Error: File write failure.\n", stderr);
 	  gzclose(gz_outfile);
 	  exit(6);
 	}
@@ -345,7 +351,9 @@ void parallel_compress(char* out_fname, unsigned char* overflow_buf, uint32_t do
     }
   } while (last_size);
   if (gzclose(gz_outfile) != Z_OK) {
-    fputs("\nError: File write failure.\n", stdout);
+    putchar('\n');
+    fflush(stdout);
+    fputs("Error: File write failure.\n", stderr);
     exit(6);
   }
 }
@@ -354,7 +362,9 @@ int32_t pzwrite_init(char* out_fname, unsigned char* overflow_buf, uint32_t do_a
     ps_ptr->outfile = fopen(out_fname, do_append? "ab" : "wb");
     ps_ptr->gz_outfile = NULL;
     if (!ps_ptr->outfile) {
-        printf("\nError: Failed to open %s.\n", out_fname);
+        putchar('\n');
+	fflush(stdout);
+        fprintf(stderr, "Error: Failed to open %s.\n", out_fname);
         return 2; // RET_OPEN_FAIL
     }
     ps_ptr->overflow_buf = overflow_buf;
@@ -365,7 +375,9 @@ void compressed_pzwrite_init(char* out_fname, unsigned char* overflow_buf, uint3
     ps_ptr->outfile = NULL;
     ps_ptr->gz_outfile = gzopen(out_fname, do_append? "ab" : "wb");
     if (!ps_ptr->gz_outfile) {
-        printf("\nError: Failed to open %s.\n", out_fname);
+        putchar('\n');
+        fflush(stdout);
+        fprintf(stderr, "Error: Failed to open %s.\n", out_fname);
         exit(2);
     }
     ps_ptr->overflow_buf = overflow_buf;
@@ -395,7 +407,9 @@ void force_compressed_pzwrite(Pigz_state* ps_ptr, char** writep_ptr, uint32_t wr
     unsigned char* writep = (unsigned char*)(*writep_ptr);
     if (ps_ptr->overflow_buf != writep) {
         if (!gzwrite(ps_ptr->gz_outfile, ps_ptr->overflow_buf, writep - ps_ptr->overflow_buf)) {
-	    fputs("\nError: File write failure.\n", stdout);
+	    putchar('\n');
+	    fflush(stdout);
+	    fputs("Error: File write failure.\n", stderr);
             gzclose(ps_ptr->gz_outfile);
             exit(6);
         }
@@ -415,7 +429,9 @@ int32_t flex_pzputs_std(Pigz_state* ps_ptr, char** writep_ptr, char* ss, uint32_
 	    }
 	} else {
 	    if (!gzwrite(ps_ptr->gz_outfile, ps_ptr->overflow_buf, 2 * PIGZ_BLOCK_SIZE)) {
-	        fputs("\nError: File write failure.\n", stdout);
+	        putchar('\n');
+		fflush(stdout);
+	        fputs("Error: File write failure.\n", stderr);
 	        gzclose(ps_ptr->gz_outfile);
 	        exit(6);
 	    }
@@ -442,7 +458,9 @@ void compressed_pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
     force_compressed_pzwrite(ps_ptr, &writep, 0);
     ps_ptr->overflow_buf = NULL;
     if (gzclose(ps_ptr->gz_outfile) != Z_OK) {
-        fputs("\nError: File write failure.\n", stdout);
+        putchar('\n');
+	fflush(stdout);
+        fputs("Error: File write failure.\n", stderr);
         exit(6);
     }
 }
@@ -1415,7 +1433,9 @@ int32_t pzwrite_init(char* out_fname, unsigned char* overflow_buf, uint32_t do_a
     // unbuffered, and doesn't need to support Windows
     ps_ptr->outd = open(out_fname, O_WRONLY | (do_append? O_APPEND : (O_CREAT | O_TRUNC)), 0644);
     if (ps_ptr->outd == -1) {
-        printf("\nError: Failed to open %s.\n", out_fname);
+        putchar('\n');
+	fflush(stdout);
+        fprintf(stderr, "Error: Failed to open %s.\n", out_fname);
         return 2; // RET_OPEN_FAIL
     }
     ps_ptr->overflow_buf = overflow_buf;
@@ -1655,7 +1675,9 @@ int32_t write_uncompressed(char* out_fname, unsigned char* overflow_buf, uint32_
   unsigned char* write_ptr;
   uint32_t last_size;
   if (!outfile) {
-    printf("\nError: Failed to open %s.\n", out_fname);
+    putchar('\n');
+    fflush(stdout);
+    fprintf(stderr, "Error: Failed to open %s.\n", out_fname);
     return 2; // RET_OPEN_FAIL
   }
   do {
@@ -1668,7 +1690,9 @@ int32_t write_uncompressed(char* out_fname, unsigned char* overflow_buf, uint32_
     }
     if (last_size) {
       if (!fwrite(overflow_buf, last_size, 1, outfile)) {
-	fputs("\nError: File write failure.\n", stdout);
+	putchar('\n');
+	fflush(stdout);
+	fputs("Error: File write failure.\n", stderr);
 	fclose(outfile);
 	return 6; // RET_WRITE_FAIL
       }
@@ -1677,7 +1701,9 @@ int32_t write_uncompressed(char* out_fname, unsigned char* overflow_buf, uint32_
       write_ptr = &(overflow_buf[PIGZ_BLOCK_SIZE]);
       while (overflow_ct > PIGZ_BLOCK_SIZE) {
 	if (!fwrite(write_ptr, PIGZ_BLOCK_SIZE, 1, outfile)) {
-	  fputs("\nError: File write failure.\n", stdout);
+	  putchar('\n');
+	  fflush(stdout);
+	  fputs("Error: File write failure.\n", stderr);
 	  fclose(outfile);
 	  return 6;
 	}
@@ -1688,7 +1714,9 @@ int32_t write_uncompressed(char* out_fname, unsigned char* overflow_buf, uint32_
     }
   } while (last_size);
   if (fclose(outfile)) {
-    fputs("\nError: File write failure.\n", stdout);
+    putchar('\n');
+    fflush(stdout);
+    fputs("Error: File write failure.\n", stderr);
     return 6;
   }
   return 0;

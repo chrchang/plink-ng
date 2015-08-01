@@ -112,7 +112,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
     goto rserve_call_ret_READ_FAIL;
   }
   if (inbuf_end == inbuf_start) {
-    logprint("Error: Empty --R file.\n");
+    logerrprint("Error: Empty --R file.\n");
     goto rserve_call_ret_INVALID_FORMAT;
   }
   *inbuf_end = '\0';
@@ -155,7 +155,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
     ii = rc->connect();
     if (ii) {
       sockerrorchecks(tbuf, 128, -1);
-      LOGPRINTFWW("Error: Unable to connect (code %d: %s).\n", ii, tbuf);
+      LOGERRPRINTFWW("Error: Unable to connect (code %d: %s).\n", ii, tbuf);
       goto rserve_call_ret_NETWORK;
     }
     rc->eval("options(echo=F)");
@@ -425,7 +425,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
     retval = RET_WRITE_FAIL;
     break;
   rserve_call_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
   rserve_call_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
