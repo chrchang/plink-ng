@@ -170,11 +170,11 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
     }
   }
   if (!score_marker_ct) {
-    logprint("Error: No valid entries in --score file.\n");
+    logerrprint("Error: No valid entries in --score file.\n");
     goto dosage_load_score_files_ret_INVALID_FORMAT;
   }
   if (score_marker_ct >= 0x40000000) {
-    logprint("Error: --score does not support >= 2^30 variants.\n");
+    logerrprint("Error: --score does not support >= 2^30 variants.\n");
     goto dosage_load_score_files_ret_INVALID_FORMAT;
   }
 #ifndef __LP64__
@@ -294,7 +294,7 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
   }
   LOGPRINTFWW("--score: %" PRIuPTR " entr%s loaded from %s.\n", score_marker_ct, (score_marker_ct == 1)? "y" : "ies", sc_ip->fname);
   if (miss_ct) {
-    LOGPRINTF("Warning: %" PRIuPTR " line%s skipped.\n", miss_ct, (miss_ct == 1)? "" : "s");
+    LOGERRPRINTF("Warning: %" PRIuPTR " line%s skipped.\n", miss_ct, (miss_ct == 1)? "" : "s");
   }
   *score_marker_ct_ptr = score_marker_ct;
   *max_score_marker_id_len_ptr = max_score_marker_id_len;
@@ -359,7 +359,7 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
       goto dosage_load_score_files_ret_READ_FAIL;
     }
     if (miss_ct) {
-      LOGPRINTF("Warning: %" PRIuPTR " line%s skipped in --q-score-range data file.\n", miss_ct, (miss_ct == 1)? "" : "s");
+      LOGERRPRINTF("Warning: %" PRIuPTR " line%s skipped in --q-score-range data file.\n", miss_ct, (miss_ct == 1)? "" : "s");
     }
     if (fopen_checked(&infile, sc_ip->range_fname, "r")) {
       goto dosage_load_score_files_ret_OPEN_FAIL;
@@ -396,7 +396,7 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
       goto dosage_load_score_files_ret_READ_FAIL;
     }
     if (!qrange_ct) {
-      logprint("Error: No valid entries in --q-score-range range file.\n");
+      logerrprint("Error: No valid entries in --q-score-range range file.\n");
       goto dosage_load_score_files_ret_INVALID_FORMAT;
     }
     if (wkspace_alloc_c_checked(score_qrange_names_ptr, qrange_ct * max_qrange_name_len) ||
@@ -445,13 +445,13 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
     retval = RET_READ_FAIL;
     break;
   dosage_load_score_files_ret_MISSING_TOKENS_Q:
-    LOGPRINTF("Error: Line %" PRIuPTR " of --q-score-range data file has fewer tokens than\nexpected.\n", line_idx);
+    LOGERRPRINTF("Error: Line %" PRIuPTR " of --q-score-range data file has fewer tokens than\nexpected.\n", line_idx);
     retval = RET_INVALID_FORMAT;
     break;
   dosage_load_score_files_ret_MISSING_TOKENS:
     sprintf(logbuf, "Error: Line %" PRIuPTR " of --score file has fewer tokens than expected.\n", line_idx);
   dosage_load_score_files_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
   dosage_load_score_files_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -678,7 +678,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       goto plink1_dosage_ret_1;
     }
     if (map_is_unsorted & UNSORTED_SPLIT_CHROM) {
-      logprint("Error: .map file has a split chromosome.\n");
+      logerrprint("Error: .map file has a split chromosome.\n");
       goto plink1_dosage_ret_INVALID_FORMAT;
     }
   }
@@ -792,7 +792,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  }
 	} else {
 	  if (map_is_unsorted & UNSORTED_BP) {
-	    logprint("Error: '--extract range' requires a sorted .bim.  Retry this command after\nusing --make-bed to sort your data.\n");
+	    logerrprint("Error: '--extract range' requires a sorted .bim.  Retry this command after\nusing --make-bed to sort your data.\n");
 	    goto plink1_dosage_ret_INVALID_CMDLINE;
 	  }
 	  retval = extract_exclude_range(extractname, marker_pos, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0, chrom_info_ptr);
@@ -811,7 +811,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  }
 	} else {
 	  if (map_is_unsorted & UNSORTED_BP) {
-	    logprint("Error: '--exclude range' requires a sorted .bim.  Retry this command after\nusing --make-bed to sort your data.\n");
+	    logerrprint("Error: '--exclude range' requires a sorted .bim.  Retry this command after\nusing --make-bed to sort your data.\n");
 	    goto plink1_dosage_ret_INVALID_CMDLINE;
 	  }
 	  retval = extract_exclude_range(excludename, marker_pos, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 1, chrom_info_ptr);
@@ -918,7 +918,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     uii = popcount_longs_exclude(pheno_nm, sex_nm, unfiltered_sample_ctl);
     if (uii) {
       bitfield_and(pheno_nm, sex_nm, unfiltered_sample_ctl);
-      logprint("Warning: Ignoring phenotypes of missing-sex samples.  If you don't want those\nphenotypes to be ignored, use the --allow-no-sex flag.\n");
+      logerrprint("Warning: Ignoring phenotypes of missing-sex samples.  If you don't want those\nphenotypes to be ignored, use the --allow-no-sex flag.\n");
     }
   }
   if (do_glm || (filter_flags & FILTER_PRUNE)) {
@@ -928,7 +928,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     sample_exclude_ct = popcount_longs(sample_exclude, unfiltered_sample_ctl);
     uii = do_glm && (!(filter_flags & FILTER_PRUNE));
     if (sample_exclude_ct == unfiltered_sample_ct) {
-      LOGPRINTF("Error: All %s removed by %s--prune.\n", g_species_plural, uii? "automatic " : "");
+      LOGERRPRINTF("Error: All %s removed by %s--prune.\n", g_species_plural, uii? "automatic " : "");
       goto plink1_dosage_ret_ALL_SAMPLES_EXCLUDED;
     }
     if ((filter_flags & FILTER_PRUNE) || (sample_exclude_ct != ulii)) {
@@ -938,13 +938,13 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 
   if (filter_flags & (FILTER_BINARY_CASES | FILTER_BINARY_CONTROLS)) {
     if (!pheno_c) {
-      logprint("Error: --filter-cases/--filter-controls requires a case/control phenotype.\n");
+      logerrprint("Error: --filter-cases/--filter-controls requires a case/control phenotype.\n");
       goto plink1_dosage_ret_INVALID_CMDLINE;
     }
     ii = sample_exclude_ct;
     filter_samples_bitfields(unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, pheno_c, (filter_flags / FILTER_BINARY_CASES) & 1, pheno_nm);
     if (sample_exclude_ct == unfiltered_sample_ct) {
-      LOGPRINTF("Error: All %s removed due to case/control status (--filter-%s).\n", g_species_plural, (filter_flags & FILTER_BINARY_CASES)? "cases" : "controls");
+      LOGERRPRINTF("Error: All %s removed due to case/control status (--filter-%s).\n", g_species_plural, (filter_flags & FILTER_BINARY_CASES)? "cases" : "controls");
       goto plink1_dosage_ret_ALL_SAMPLES_EXCLUDED;
     }
     ii = sample_exclude_ct - ii;
@@ -954,7 +954,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     ii = sample_exclude_ct;
     filter_samples_bitfields(unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, sex_male, (filter_flags / FILTER_BINARY_MALES) & 1, sex_nm);
     if (sample_exclude_ct == unfiltered_sample_ct) {
-      LOGPRINTF("Error: All %s removed due to gender filter (--filter-%s).\n", g_species_plural, (filter_flags & FILTER_BINARY_MALES)? "males" : "females");
+      LOGERRPRINTF("Error: All %s removed due to gender filter (--filter-%s).\n", g_species_plural, (filter_flags & FILTER_BINARY_MALES)? "males" : "females");
       goto plink1_dosage_ret_ALL_SAMPLES_EXCLUDED;
     }
     ii = sample_exclude_ct - ii;
@@ -964,7 +964,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     ii = sample_exclude_ct;
     filter_samples_bitfields(unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, founder_info, (filter_flags / FILTER_BINARY_FOUNDERS) & 1, NULL);
     if (sample_exclude_ct == unfiltered_sample_ct) {
-      LOGPRINTF("Error: All %s removed due to founder status (--filter-%s).\n", g_species_plural, (filter_flags & FILTER_BINARY_FOUNDERS)? "founders" : "nonfounders");
+      LOGERRPRINTF("Error: All %s removed due to founder status (--filter-%s).\n", g_species_plural, (filter_flags & FILTER_BINARY_FOUNDERS)? "founders" : "nonfounders");
       goto plink1_dosage_ret_ALL_SAMPLES_EXCLUDED;
     }
     ii = sample_exclude_ct - ii;
@@ -978,7 +978,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   }
   sample_ct = unfiltered_sample_ct - sample_exclude_ct;
   if (!sample_ct) {
-    LOGPRINTF("Error: No %s pass QC.\n", g_species_plural);
+    LOGERRPRINTF("Error: No %s pass QC.\n", g_species_plural);
     goto plink1_dosage_ret_ALL_SAMPLES_EXCLUDED;
   }
   sample_cta4 = (sample_ct + 3) & (~3);
@@ -999,7 +999,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   }
 #ifndef NOLAPACK
   if (uii && ((!known_procs) || (known_procs * 2 >= g_thread_ct))) {
-    logprint("Warning: This run includes BLAS/LAPACK linear algebra operations which\ncurrently disregard the --threads limit.  If this is problematic, you may want\nto recompile against single-threaded BLAS/LAPACK.\n");
+    logerrprint("Warning: This run includes BLAS/LAPACK linear algebra operations which\ncurrently disregard the --threads limit.  If this is problematic, you may want\nto recompile against single-threaded BLAS/LAPACK.\n");
   }
 #endif
   if ((filter_flags & FILTER_MAKE_FOUNDERS) && (!(misc_flags & MISC_MAKE_FOUNDERS_FIRST))) {
@@ -1010,7 +1010,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   if (covar_fname) {
     // update this as more covariate-referencing commands are added
     if (!do_glm) {
-      logprint("Warning: Ignoring --covar since no commands reference the covariates.\n");
+      logerrprint("Warning: Ignoring --covar since no commands reference the covariates.\n");
     } else {
       retval = load_covars(covar_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sex_covar? sex_nm : NULL, sex_covar? sex_male : NULL, sample_ids, max_sample_id_len, missing_phenod, covar_modifier, covar_range_list_ptr, 0, &covar_ct, &covar_names, &max_covar_name_len, pheno_nm, &covar_nm, &covar_d, NULL, NULL);
       if (retval) {
@@ -1054,12 +1054,12 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 
   if (load_map) {
     if (unfiltered_marker_ct == marker_exclude_ct) {
-      logprint("Error: No variants remaining.\n");
+      logerrprint("Error: No variants remaining.\n");
       goto plink1_dosage_ret_ALL_MARKERS_EXCLUDED;
     }
     if (min_bp_space) {
       if (map_is_unsorted & UNSORTED_BP) {
-	logprint("Error: --bp-space requires a sorted .bim file.  Retry this command after using\n--make-bed to sort your data.\n");
+	logerrprint("Error: --bp-space requires a sorted .bim file.  Retry this command after using\n--make-bed to sort your data.\n");
 	goto plink1_dosage_ret_INVALID_FORMAT;
       }
       enforce_min_bp_space(min_bp_space, unfiltered_marker_ct, marker_exclude, marker_pos, &marker_exclude_ct, chrom_info_ptr);
@@ -1075,7 +1075,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   }
   if (!pheno_nm_ct) {
     if (do_glm) {
-      logprint("Error: No phenotypes present.\n");
+      logerrprint("Error: No phenotypes present.\n");
       goto plink1_dosage_ret_ALL_SAMPLES_EXCLUDED;
     }
     logprint("Note: No phenotypes present.\n");
@@ -1089,14 +1089,14 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     wordwrap(logbuf, 0);
     logprintb();
     if (standard_beta) {
-      logprint("Error: --dosage 'standard-beta' modifier cannot be used with a case/control\nphenotype.\n");
+      logerrprint("Error: --dosage 'standard-beta' modifier cannot be used with a case/control\nphenotype.\n");
       goto plink1_dosage_ret_INVALID_CMDLINE;
     }
   } else {
     logprint("Phenotype data is quantitative.\n");
 #ifdef NOLAPACK
     if (do_glm) {
-      logprint("Error: --dosage linear regression requires " PROG_NAME_CAPS " to be built with LAPACK.\n");
+      logerrprint("Error: --dosage linear regression requires " PROG_NAME_CAPS " to be built with LAPACK.\n");
       goto plink1_dosage_ret_INVALID_CMDLINE;
     }
 #endif
@@ -1170,7 +1170,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     batch_ct = count_tokens(bufptr) - sepheader - 1; // underflow ok
     if (batch_ct) {
       if (batch_ct != 1) {
-        logprint("Error: Unexpected number of columns in --dosage list file.\n");
+        logerrprint("Error: Unexpected number of columns in --dosage list file.\n");
 	goto plink1_dosage_ret_INVALID_FORMAT;
       }
       batch_sizes = (uint32_t*)wkspace_base;
@@ -1376,7 +1376,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     if (infile_ct != 1) {
       for (batch_idx = 0; batch_idx < batch_ct; batch_idx++) {
 	if (batch_sizes[batch_idx] != 1) {
-	  logprint("Error: --dosage 'noheader' modifier cannot be used with multifile batches.\n");
+	  logerrprint("Error: --dosage 'noheader' modifier cannot be used with multifile batches.\n");
 	  goto plink1_dosage_ret_INVALID_CMDLINE;
 	}
       }
@@ -1390,10 +1390,10 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   }
   if (freq_cc) {
     if (!do_glm) {
-      logprint("Error: --dosage 'case-control-freqs' modifier can only be used in association\nanalysis mode.\n");
+      logerrprint("Error: --dosage 'case-control-freqs' modifier can only be used in association\nanalysis mode.\n");
       goto plink1_dosage_ret_INVALID_CMDLINE;
     } else if (!pheno_c) {
-      logprint("Warning: '--dosage case-control-freqs' is silly with a quantitative phenotype.\n");
+      logerrprint("Warning: '--dosage case-control-freqs' is silly with a quantitative phenotype.\n");
     }
   }
   if (do_glm) {
@@ -1448,7 +1448,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       dgels_lwork = -1;
       dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, &dxx, &dgels_lwork, &dgels_info);
       if (dxx > 2147483647.0) {
-	logprint("Error: Multiple linear regression problem too large for current LAPACK version.\n");
+	logerrprint("Error: Multiple linear regression problem too large for current LAPACK version.\n");
 	retval = RET_CALC_NOT_YET_SUPPORTED;
 	goto plink1_dosage_ret_1;
       }
@@ -1710,7 +1710,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     if ((batch_ct == 1) && (!noheader)) {
       ulii = sample_ct - popcount_longs(batch_samples, sample_ctl);
       if (ulii) {
-	LOGPRINTFWW("Warning: %" PRIuPTR " sample ID%s present in .fam file but missing from dosage file%s.\n", ulii, (ulii == 1)? "" : "s", (cur_batch_size == 1)? "" : "s");
+	LOGERRPRINTFWW("Warning: %" PRIuPTR " sample ID%s present in .fam file but missing from dosage file%s.\n", ulii, (ulii == 1)? "" : "s", (cur_batch_size == 1)? "" : "s");
       }
     }
 
@@ -1722,7 +1722,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	do {
 	  if (!gzgets(gz_infiles[file_idx], loadbuf, loadbuf_size)) {
 	    if (file_idx) {
-	      logprint("Error: Misaligned dosage data files.\n");
+	      logerrprint("Error: Misaligned dosage data files.\n");
 	      goto plink1_dosage_ret_INVALID_FORMAT;
 	    }
 	    goto plink1_dosage_end_loop;
@@ -2294,7 +2294,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     break;
   plink1_dosage_ret_LONG_LINE:
     if (loadbuf_size == MAXLINEBUFLEN) {
-      LOGPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
+      LOGERRPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
       retval = RET_INVALID_FORMAT;
       break;
     }
@@ -2305,7 +2305,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   plink1_dosage_ret_INVALID_FORMAT_WW:
     wordwrap(logbuf, 0);
   plink1_dosage_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
   plink1_dosage_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;

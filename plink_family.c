@@ -437,7 +437,7 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
       }
     }
     if (remaining_edge_ct) {
-      logprint("Error: Pedigree graph is cyclic.  Check for evidence of time travel abuse in\nyour cohort.\n");
+      logerrprint("Error: Pedigree graph is cyclic.  Check for evidence of time travel abuse in\nyour cohort.\n");
       goto get_trios_and_families_ret_INVALID_FORMAT;
     }
     wkspace_reset(edge_list);
@@ -449,7 +449,7 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
     retval = RET_NOMEM;
     break;
   get_trios_and_families_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
   get_trios_and_families_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -760,7 +760,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
   uint32_t unn;
   marker_ct -= count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 0, 1);
   if ((!marker_ct) || is_set(chrom_info_ptr->haploid_mask, 0)) {
-    logprint("Warning: Skipping --me/--mendel since there is no autosomal or Xchr data.\n");
+    logerrprint("Warning: Skipping --me/--mendel since there is no autosomal or Xchr data.\n");
     goto mendel_error_scan_ret_1;
   }
   retval = get_trios_and_families(unfiltered_sample_ct, sample_exclude, sample_ct, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, &fids, &max_fid_len, &iids, &max_iid_len, &family_list, &family_ct, &trio_list, &trio_ct, &trio_lookup, include_duos, multigen);
@@ -768,7 +768,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
     goto mendel_error_scan_ret_1;
   }
   if (!trio_ct) {
-    LOGPRINTF("Warning: Skipping --me/--mendel since there are no %strios.\n", include_duos? "duos or " : "");
+    LOGERRPRINTF("Warning: Skipping --me/--mendel since there are no %strios.\n", include_duos? "duos or " : "");
     goto mendel_error_scan_ret_1;
   }
   trio_ct4 = (trio_ct + 3) / 4;
@@ -1180,7 +1180,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
   if (fam_ip->mendel_modifier & MENDEL_FILTER) {
     *marker_exclude_ct_ptr += new_marker_exclude_ct;
     if (unfiltered_marker_ct == *marker_exclude_ct_ptr) {
-      logprint("Error: All variants excluded by --me.\n");
+      logerrprint("Error: All variants excluded by --me.\n");
       goto mendel_error_scan_ret_ALL_MARKERS_EXCLUDED;
     }
     if (var_first) {
@@ -1221,7 +1221,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
     }
     ulii = popcount_longs(sample_exclude, (unfiltered_sample_ct + (BITCT - 1)) / BITCT);
     if (unfiltered_sample_ct == ulii) {
-      LOGPRINTF("Error: All %s excluded by --me.\n", g_species_plural);
+      LOGERRPRINTF("Error: All %s excluded by --me.\n", g_species_plural);
       goto mendel_error_scan_ret_ALL_SAMPLES_EXCLUDED;
     }
     *sample_exclude_ct_ptr = ulii;
@@ -1720,7 +1720,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 	  }
 	}
 	if (sample_idx_write == remaining_sample_ct) {
-	  logprint("Error: Pedigree graph is cyclic.  Check for evidence of time travel abuse in\nyour cohort.\n");
+	  logerrprint("Error: Pedigree graph is cyclic.  Check for evidence of time travel abuse in\nyour cohort.\n");
 	  return RET_INVALID_FORMAT;
 	}
 	remaining_sample_ct = sample_idx_write;
@@ -2094,7 +2094,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   uint32_t umm;
   marker_ct -= count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 0, 1);
   if ((!marker_ct) || is_set(chrom_info_ptr->haploid_mask, 0)) {
-    logprint("Warning: Skipping --tdt since there is no autosomal or Xchr data.\n");
+    logerrprint("Warning: Skipping --tdt since there is no autosomal or Xchr data.\n");
     goto tdt_ret_1;
   }
   retval = get_trios_and_families(unfiltered_sample_ct, sample_exclude, sample_ct, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, &fids, &max_fid_len, &iids, &max_iid_len, &family_list, &family_ct, &trio_list, &trio_ct, &trio_error_lookup, 0, multigen);
@@ -2102,7 +2102,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
     goto tdt_ret_1;
   }
   if (!trio_ct) {
-    logprint("Warning: Skipping --tdt since there are no trios.\n");
+    logerrprint("Warning: Skipping --tdt since there are no trios.\n");
     goto tdt_ret_1;
   }
   // now assemble list of nuclear families with at least one case child
@@ -2179,7 +2179,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
     family_ct++;
   }
   if (lookup_ptr == trio_nuclear_lookup) {
-    LOGPRINTF("Warning: Skipping --tdt%s since there are no trios with an affected child%s.\n", poo_test? " poo" : "", poo_test? "" : ", and no\ndiscordant parent pairs");
+    LOGERRPRINTF("Warning: Skipping --tdt%s since there are no trios with an affected child%s.\n", poo_test? " poo" : "", poo_test? "" : ", and no\ndiscordant parent pairs");
     goto tdt_ret_1;
   }
   wkspace_shrink_top(trio_nuclear_lookup, ((uintptr_t)(lookup_ptr - trio_nuclear_lookup)) * sizeof(int32_t));
@@ -2200,7 +2200,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
     goto tdt_ret_NOMEM;
   }
   if (fam_ip->tdt_modifier & (TDT_PERM | TDT_MPERM)) {
-    logprint("Error: --tdt permutation tests are currently under development.\n");
+    logerrprint("Error: --tdt permutation tests are currently under development.\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
     goto tdt_ret_1;
   }
@@ -2920,7 +2920,7 @@ void dfam_sibship_calc(uint32_t cur_case_ct, uint32_t case_hom_a1_ct, uint32_t c
 }
 
 int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* sample_ids, uintptr_t max_sample_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, Chrom_info* chrom_info_ptr, uint32_t hh_exists, uint32_t within_cmdflag, uint32_t perm_batch_size, Family_info* fam_ip, Set_info* sip) {
-  logprint("Error: --dfam is currently under development.\n");
+  logerrprint("Error: --dfam is currently under development.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
   /*
   unsigned char* wkspace_mark = wkspace_base;
@@ -3044,7 +3044,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   if (uii) {
     LOGPRINTF("Excluding %u X/MT/haploid variant%s from DFAM test.\n", uii, (uii == 1)? "" : "s");
     if (uii == marker_ct_orig_autosomal) {
-      logprint("Error: No variants remaining for DFAM analysis.\n");
+      logerrprint("Error: No variants remaining for DFAM analysis.\n");
       goto dfam_ret_INVALID_CMDLINE;
     }
     marker_ct_orig_autosomal -= uii;
@@ -3060,12 +3060,12 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       }
     }
   } else if (is_set(chrom_info_ptr->haploid_mask, 0)) {
-    logprint("Error: DFAM test does not support haploid data.\n");
+    logerrprint("Error: DFAM test does not support haploid data.\n");
     goto dfam_ret_INVALID_CMDLINE;
   }
   uii = popcount_longs_exclude(pheno_c, sample_exclude, unfiltered_sample_ct);
   if (!uii) {
-    logprint("Error: DFAM test requires at least one case.\n");
+    logerrprint("Error: DFAM test requires at least one case.\n");
     goto dfam_ret_INVALID_CMDLINE;
   }
   marker_exclude = marker_exclude_orig_autosomal;
@@ -3094,7 +3094,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   }
 #ifdef __LP64__
   if ((12 * sample_ct + 2 * family_ct) > 0xffffffffLLU) {
-    logprint("Error: Too many samples and families for DFAM test.\n");
+    logerrprint("Error: Too many samples and families for DFAM test.\n");
     goto dfam_ret_INVALID_CMDLINE;
   }
 #endif
@@ -3268,7 +3268,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   wkspace_reset((unsigned char*)idx_to_uidx);
   wkspace_shrink_top(dfam_iteration_order, (cur_dfam_ptr - dfam_iteration_order) * sizeof(int32_t));
   if (do_perms) {
-    logprint("Error: --dfam permutation tests are currently under development.\n");
+    logerrprint("Error: --dfam permutation tests are currently under development.\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
     goto dfam_ret_1;
   }
@@ -4343,12 +4343,12 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   if (uii) {
     LOGPRINTF("Excluding %u X/MT/haploid variant%s from QFAM test.\n", uii, (uii == 1)? "" : "s");
     if (uii == marker_ct) {
-      logprint("Error: No variants remaining for QFAM analysis.\n");
+      logerrprint("Error: No variants remaining for QFAM analysis.\n");
       goto qfam_ret_INVALID_CMDLINE;
     }
     marker_ct -= uii;
   } else if (is_set(chrom_info_ptr->haploid_mask, 0)) {
-    logprint("Error: QFAM test does not currently support haploid data.\n");
+    logerrprint("Error: QFAM test does not currently support haploid data.\n");
     goto qfam_ret_INVALID_CMDLINE;
   }
   // no --mendel-duos support for now
@@ -4363,7 +4363,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   // (okay, no need to check anyway, but best to document this overflow
   // possibility.)
   if ((sample_ct + 2 * family_ct) > 0xffffffffLLU) {
-    logprint("Error: Too many samples and families for QFAM test.\n");
+    logerrprint("Error: Too many samples and families for QFAM test.\n");
     goto qfam_ret_INVALID_CMDLINE;
   }
 #endif
@@ -4372,10 +4372,10 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   }
   fss_ct = fs_ct + singleton_ct;
   if (fss_ct < 2) {
-    logprint("Error: QFAM test requires at least two families.\n");
+    logerrprint("Error: QFAM test requires at least two families.\n");
     goto qfam_ret_INVALID_CMDLINE;
   } else if (lm_ct < 3) {
-    LOGPRINTF("Error: Less than three eligible %ss for QFAM test.\n", (test_type == QFAM_WITHIN1)? "nonfounder" : "sample");
+    LOGERRPRINTF("Error: Less than three eligible %ss for QFAM test.\n", (test_type == QFAM_WITHIN1)? "nonfounder" : "sample");
     goto qfam_ret_INVALID_CMDLINE;
   }
   g_fs_starts = fs_starts;

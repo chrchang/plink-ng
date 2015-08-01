@@ -640,7 +640,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	retval = load_pheno(phenofile, unfiltered_sample_ct, 0, cptr, max_sample_id_len, uiptr, missing_pheno, (misc_flags / MISC_AFFECTION_01) & 1, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d, NULL, 0);
 	if (retval) {
 	  if (retval == LOAD_PHENO_LAST_COL) {
-	    logprintb();
+	    logerrprintb();
 	    retval = RET_INVALID_FORMAT;
 	    wkspace_reset(wkspace_mark);
 	  }

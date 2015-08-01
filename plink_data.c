@@ -14804,7 +14804,7 @@ static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t 
     chrom_start[chrom_idx + 1] = write_pos;
   }
   if (position_warning_ct > 3) {
-    printf("%u more same-position warning%s: see log file.\n", position_warning_ct - 3, (position_warning_ct == 4)? "" : "s");
+    fprintf(stderr, "%u more same-position warning%s: see log file.\n", position_warning_ct - 3, (position_warning_ct == 4)? "" : "s");
   }
   *dedup_marker_ct_ptr = write_pos;
   return 0;
@@ -15993,7 +15993,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     }
   }
   if (position_warning_ct > 3) {
-    printf("%" PRIu64 " more multiple-position warning%s: see log file.\n", position_warning_ct - 3, (position_warning_ct == 4)? "" : "s");
+    fprintf(stderr, "%" PRIu64 " more multiple-position warning%s: see log file.\n", position_warning_ct - 3, (position_warning_ct == 4)? "" : "s");
   }
 #ifdef __LP64__
   if (ullxx > 0x7fffffff) {

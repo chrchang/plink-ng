@@ -305,7 +305,7 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
   if (condition_mname) {
     ii = get_uidx_from_unsorted(condition_mname, marker_exclude, marker_ct, marker_ids, max_marker_id_len);
     if (ii == -1) {
-      LOGPRINTFWW("Warning: --condition variant ID '%s' not found.\n", condition_mname);
+      LOGERRPRINTFWW("Warning: --condition variant ID '%s' not found.\n", condition_mname);
       return 0;
     }
     condition_ct = 1;
@@ -348,7 +348,7 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
 	  miss_ct++;
 	} else {
 	  if (is_set(already_seen, ii)) {
-	    LOGPRINTFWW("Error: Duplicate variant '%s' in --condition-list file.\n", bufptr);
+	    LOGERRPRINTFWW("Error: Duplicate variant '%s' in --condition-list file.\n", bufptr);
 	    goto glm_scan_conditions_ret_INVALID_FORMAT;
 	  }
 	  if (condition_ct == condition_ct_max) {
@@ -367,7 +367,7 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
       condition_uidxs = (uint32_t*)malloc(condition_ct * sizeof(int32_t));
       memcpy(condition_uidxs, condition_uidxs_tmp, condition_ct * sizeof(int32_t));
     } else if (!miss_ct) {
-      logprint("Warning: --condition-list file is empty.\n");
+      logerrprint("Warning: --condition-list file is empty.\n");
       goto glm_scan_conditions_ret_1;
     }
     if (miss_ct) {
@@ -452,7 +452,7 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
     retval = RET_READ_FAIL;
     break;
   glm_scan_conditions_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
   glm_scan_conditions_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -3774,19 +3774,19 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
   g_male_x_01 = 0;
   if (!glm_xchr_model) {
     if (is_set(chrom_info_ptr->haploid_mask, 0)) {
-      logprint("Error: --xchr-model 0 cannot be used with haploid genomes.\n");
+      logerrprint("Error: --xchr-model 0 cannot be used with haploid genomes.\n");
       goto glm_common_init_ret_INVALID_CMDLINE;
     }
     uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
     if (uii) {
       if (is_set_test) {
-	logprint("Error: --linear/--logistic set-test cannot be used with --xchr-model 0.\n");
+	logerrprint("Error: --linear/--logistic set-test cannot be used with --xchr-model 0.\n");
 	goto glm_common_init_ret_INVALID_CMDLINE;
       }
       LOGPRINTF("Excluding %u nonautosomal variant%s from --linear/--logistic analysis\n(--xchr-model 0).\n", uii, (uii == 1)? "" : "s");
       marker_initial_ct -= uii;
       if (!marker_initial_ct) {
-	logprint("Error: No variants remaining for --linear/--logistic analysis.\n");
+	logerrprint("Error: No variants remaining for --linear/--logistic analysis.\n");
 	goto glm_common_init_ret_INVALID_CMDLINE;
       }
     }
@@ -3884,10 +3884,10 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
       }
     } else {
       if (sex_covar_everywhere) {
-        LOGPRINTFWW("Warning: Ignoring --linear/--logistic 'sex' modifier%s since sex is%cinvariant.\n", x_sex_interaction? " and --xchr-model 3" : "", x_sex_interaction? '\n' : ' ');
+        LOGERRPRINTFWW("Warning: Ignoring --linear/--logistic 'sex' modifier%s since sex is%cinvariant.\n", x_sex_interaction? " and --xchr-model 3" : "", x_sex_interaction? '\n' : ' ');
         sex_covar_everywhere = 0;
       } else if (x_sex_interaction) {
-        logprint("Warning: Ignoring --xchr-model 3 since sex is invariant.\n");
+        logerrprint("Warning: Ignoring --xchr-model 3 since sex is invariant.\n");
       }
       x_sex_interaction = 0;
     }
@@ -3941,7 +3941,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
     numeric_range_list_to_bitfield(parameters_range_list_ptr, param_raw_ct_max, active_params, 0, 1);
     if ((!(active_params[0] & 2)) && ((!np_diploid_raw) || (active_params[0] & 4)) && ((!covar_interactions) || ((!popcount_bit_idx(active_params, interaction_start_idx, sex_start_idx)) && ((!variation_in_sex) || (!popcount_bit_idx(active_params, sex_start_idx + 1, param_raw_ct_max)))))) {
       // force the user to explicitly use no-snp if that's their intention
-      logprint("Error: --parameters must retain at least one dosage-dependent variable.  To\nperform one-off regression(s), use the --linear 'no-snp' modifier instead.\n");
+      logerrprint("Error: --parameters must retain at least one dosage-dependent variable.  To\nperform one-off regression(s), use the --linear 'no-snp' modifier instead.\n");
       goto glm_common_init_ret_INVALID_CMDLINE;
     }
     param_ct_max = popcount_longs(active_params, param_raw_ctl);
@@ -3982,7 +3982,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
   if (IS_SET(active_params, 1)) {
     max_param_name_len = 4;
   } else if (mtest_adjust) {
-    logprint("Error: --adjust cannot be used when --parameters excludes the main effect.\n");
+    logerrprint("Error: --adjust cannot be used when --parameters excludes the main effect.\n");
     goto glm_common_init_ret_INVALID_CMDLINE;
   }
   if (hide_covar) {
@@ -3994,7 +3994,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
       if (tests_range_list_ptr->name_ct || (glm_modifier & GLM_TEST_ALL)) {
         param_idx_end = 1;
       } else {
-        logprint("Error: 'hide-covar' modifier suppresses all output due to --parameters setting.\n");
+        logerrprint("Error: 'hide-covar' modifier suppresses all output due to --parameters setting.\n");
         goto glm_common_init_ret_INVALID_CMDLINE;
       }
     }
@@ -4153,15 +4153,15 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
       wkspace_reset(g_joint_test_params);
       g_joint_test_params = NULL;
       constraint_ct_max = 0;
-      logprint("Warning: Ignoring --tests since too few parameter indices are in range.\n");
+      logerrprint("Warning: Ignoring --tests since too few parameter indices are in range.\n");
     }
   }
   if (covar_interactions && do_perms && ((!constraint_ct_max) || uii)) {
-    logprint("Error: --linear/--logistic 'interaction' modifier cannot be used with\npermutation except with --tests.\n");
+    logerrprint("Error: --linear/--logistic 'interaction' modifier cannot be used with\npermutation except with --tests.\n");
     goto glm_common_init_ret_INVALID_CMDLINE;
   }
   if (do_perms && (!IS_SET(active_params, 1)) && (!constraint_ct_max)) {
-    logprint("Error: --linear/--logistic permutation test cannot occur when --parameters\nexcludes the main effect and no joint test is active.\n");
+    logerrprint("Error: --linear/--logistic permutation test cannot occur when --parameters\nexcludes the main effect and no joint test is active.\n");
     goto glm_common_init_ret_INVALID_CMDLINE;
   }
 
@@ -4693,9 +4693,9 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     goto glm_linear_assoc_ret_1;
   }
   if (sample_valid_ct <= param_ct_max) {
-    logprint("Warning: Skipping --linear since # variables >= # samples.\n");
+    logerrprint("Warning: Skipping --linear since # variables >= # samples.\n");
     if (pheno_nm_ct > param_ct_max) {
-      logprint("(Check your covariates--all samples with at least one missing covariate are\nexcluded from this analysis.)\n");
+      logerrprint("(Check your covariates--all samples with at least one missing covariate are\nexcluded from this analysis.)\n");
     }
     goto glm_linear_assoc_ret_1;
   }
@@ -5057,7 +5057,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, g_linear_mt[0].dgels_a, &dgels_m, g_linear_mt[0].dgels_b, &dgels_ldb, &dxx, &g_dgels_lwork, &dgels_info);
       // todo: support linking to 64-bit LAPACK on Linux
       if (dxx > 2147483647.0) {
-	logprint("Error: Multiple linear regression problem too large for current LAPACK version.\n");
+	logerrprint("Error: Multiple linear regression problem too large for current LAPACK version.\n");
 	retval = RET_CALC_NOT_YET_SUPPORTED;
 	goto glm_linear_assoc_ret_1;
       }
@@ -5768,11 +5768,11 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     retval = RET_WRITE_FAIL;
     break;
   glm_linear_assoc_ret_NO_PERMUTATION_CLUSTERS:
-    logprint("Error: No size 2+ clusters for permutation test.\n");
+    logerrprint("Error: No size 2+ clusters for permutation test.\n");
     retval = RET_INVALID_CMDLINE;
     break;
   glm_linear_assoc_ret_PHENO_CONSTANT:
-    logprint("Warning: Skipping --linear since phenotype is constant.\n");
+    logerrprint("Warning: Skipping --linear since phenotype is constant.\n");
     break;
   glm_linear_assoc_ret_THREAD_CREATE_FAIL:
     retval = RET_THREAD_CREATE_FAIL;
@@ -6201,7 +6201,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   uint32_t ukk;
   numbuf[0] = ' ';
   if (pheno_nm_ct < 2) {
-    logprint("Warning: Skipping --logistic since less than two phenotypes are present.\n");
+    logerrprint("Warning: Skipping --logistic since less than two phenotypes are present.\n");
     goto glm_logistic_assoc_ret_1;
   }
   if ((chrom_info_ptr->mt_code != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->mt_code)) {
@@ -6231,9 +6231,9 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     goto glm_logistic_assoc_ret_1;
   }
   if (sample_valid_ct <= param_ct_max) {
-    logprint("Warning: Skipping --logistic since # variables >= # samples.\n");
+    logerrprint("Warning: Skipping --logistic since # variables >= # samples.\n");
     if (pheno_nm_ct > param_ct_max) {
-      logprint("(Check your covariates--all samples with at least one missing covariate are\nexcluded from this analysis.)\n");
+      logerrprint("(Check your covariates--all samples with at least one missing covariate are\nexcluded from this analysis.)\n");
     }
     goto glm_logistic_assoc_ret_1;
   }
@@ -7194,11 +7194,11 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     retval = RET_WRITE_FAIL;
     break;
   glm_logistic_assoc_ret_NO_PERMUTATION_CLUSTERS:
-    logprint("Error: No size 2+ clusters for permutation test.\n");
+    logerrprint("Error: No size 2+ clusters for permutation test.\n");
     retval = RET_INVALID_CMDLINE;
     break;
   glm_logistic_assoc_ret_PHENO_CONSTANT:
-    logprint("Warning: Skipping --linear/--logistic since phenotype is constant.\n");
+    logerrprint("Warning: Skipping --linear/--logistic since phenotype is constant.\n");
     break;
   glm_logistic_assoc_ret_THREAD_CREATE_FAIL:
     retval = RET_THREAD_CREATE_FAIL;
@@ -7310,7 +7310,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   uint32_t slen;
   int32_t ii;
   if (hide_covar && (!tests_range_list_ptr->name_ct) && (!(glm_modifier & GLM_TEST_ALL))) {
-    logprint("Error: --linear hide-covar no-snp produces no output.\n");
+    logerrprint("Error: --linear hide-covar no-snp produces no output.\n");
     goto glm_linear_nosnp_ret_INVALID_CMDLINE;
   }
   if (glm_init_load_mask(sample_exclude, pheno_nm, covar_nm, sample_ct, unfiltered_sample_ctv2, &load_mask)) {
@@ -7379,7 +7379,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       bitfield_and(load_mask, sex_nm, unfiltered_sample_ctl);
       sample_valid_ct = popcount_longs(load_mask, unfiltered_sample_ctl);
     } else {
-      logprint("Warning: Ignoring --linear 'sex' modifier since sex is invariant.\n");
+      logerrprint("Warning: Ignoring --linear 'sex' modifier since sex is invariant.\n");
     }
   }
   sample_valid_ctv2 = 2 * ((sample_valid_ct + BITCT - 1) / BITCT);
@@ -7421,12 +7421,12 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     param_ct = param_raw_ct;
   }
   if (param_ct == 1) {
-    logprint("Warning: Skipping --linear since the intercept is the only variable.\n");
+    logerrprint("Warning: Skipping --linear since the intercept is the only variable.\n");
     goto glm_linear_nosnp_ret_1;
   } else if (sample_valid_ct <= param_ct) {
-    logprint("Warning: Skipping --linear since # variables >= # samples.\n");
+    logerrprint("Warning: Skipping --linear since # variables >= # samples.\n");
     if (pheno_nm_ct > param_ct) {
-      logprint("(Check your covariates--all samples with at least one missing covariate are\nexcluded from this analysis.)\n");
+      logerrprint("(Check your covariates--all samples with at least one missing covariate are\nexcluded from this analysis.)\n");
     }
     goto glm_linear_nosnp_ret_1;
   }
@@ -7476,7 +7476,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     } else {
       constraint_ct = 0;
       aligned_free_null(&joint_test_params);
-      logprint("Warning: Ignoring --tests since fewer than two parameter indices are in range.\n");
+      logerrprint("Warning: Ignoring --tests since fewer than two parameter indices are in range.\n");
     }
   }
 
@@ -7665,7 +7665,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   if (ii == -1) {
     goto glm_linear_nosnp_ret_NOMEM;
   } else if (ii == 1) {
-    logprint("Warning: Skipping --linear no-snp since VIF check failed.\n");
+    logerrprint("Warning: Skipping --linear no-snp since VIF check failed.\n");
     goto glm_linear_nosnp_ret_1;
   }
 
@@ -7718,7 +7718,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     // maybe this can't actually happen, but just in case...
     // (todo: update this, and all the other matrix logic, once LAPACK can
     // handle 64-bit integers; currently that's on their wishlist)
-    logprint("Error: Multiple linear regression problem too large for current LAPACK version.\n");
+    logerrprint("Error: Multiple linear regression problem too large for current LAPACK version.\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
     goto glm_linear_nosnp_ret_1;
   }
@@ -7730,7 +7730,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 
   dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
   if (dgels_info) {
-    logprint("Warning: Skipping --linear no-snp since regression failed.\n");
+    logerrprint("Warning: Skipping --linear no-snp since regression failed.\n");
     goto glm_linear_nosnp_ret_1;
   }
 
@@ -7767,11 +7767,11 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 
   transpose_copy(param_ct, sample_valid_ct, covars_cov_major, covars_sample_major);
   if (glm_linear(1, param_ct, sample_valid_ct, 0, NULL, 0, 0, 0, covars_cov_major, covars_sample_major, g_pheno_d2, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, regression_results, constraint_ct, constraints_con_major, param_df_buf, param_df_buf2, df_df_buf, df_buf, &perm_fail_ct, perm_fails) || perm_fail_ct) {
-    logprint("Warning: Skipping --linear no-snp due to multicollinearity.\n");
+    logerrprint("Warning: Skipping --linear no-snp due to multicollinearity.\n");
     goto glm_linear_nosnp_ret_1;
   }
   if (constraint_ct && (regression_results[param_ct - 1] == -9)) {
-    logprint("Warning: Ignoring --tests due to regression failure.\n");
+    logerrprint("Warning: Ignoring --tests due to regression failure.\n");
     constraint_ct = 0;
   }
 
@@ -8079,12 +8079,12 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     retval = RET_THREAD_CREATE_FAIL;
     break;
   glm_linear_nosnp_ret_NO_PERMUTATION_CLUSTERS:
-    logprint("Error: No size 2+ clusters for permutation test.\n");
+    logerrprint("Error: No size 2+ clusters for permutation test.\n");
   glm_linear_nosnp_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
   glm_linear_nosnp_ret_PHENO_CONSTANT:
-    logprint("Warning: Skipping --linear since phenotype is constant.\n");
+    logerrprint("Warning: Skipping --linear since phenotype is constant.\n");
     break;
   }
  glm_linear_nosnp_ret_1:
@@ -8190,7 +8190,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   uint32_t ujj;
   uint32_t slen;
   if (hide_covar && (!tests_range_list_ptr->name_ct) && (!(glm_modifier & GLM_TEST_ALL))) {
-    logprint("Error: --logistic hide-covar no-snp produces no output.\n");
+    logerrprint("Error: --logistic hide-covar no-snp produces no output.\n");
     goto glm_logistic_nosnp_ret_INVALID_CMDLINE;
   }
   if (glm_init_load_mask(sample_exclude, pheno_nm, covar_nm, sample_ct, unfiltered_sample_ctv2, &load_mask)) {
@@ -8259,7 +8259,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       bitfield_and(load_mask, sex_nm, unfiltered_sample_ctl);
       sample_valid_ct = popcount_longs(load_mask, unfiltered_sample_ctl);
     } else {
-      logprint("Warning: Ignoring --logistic 'sex' modifier since sex is invariant.\n");
+      logerrprint("Warning: Ignoring --logistic 'sex' modifier since sex is invariant.\n");
     }
   }
   sample_valid_cta4 = (sample_valid_ct + 3) & (~(3 * ONELU));
@@ -8303,12 +8303,12 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   }
   param_cta4 = (param_ct + 3) & (~(3 * ONELU));
   if (param_ct == 1) {
-    logprint("Warning: Skipping --logistic since the intercept is the only variable.\n");
+    logerrprint("Warning: Skipping --logistic since the intercept is the only variable.\n");
     goto glm_logistic_nosnp_ret_1;
   } else if (sample_valid_ct <= param_ct) {
-    logprint("Warning: Skipping --logistic since # variables >= # samples.\n");
+    logerrprint("Warning: Skipping --logistic since # variables >= # samples.\n");
     if (pheno_nm_ct > param_ct) {
-      logprint("(Check your covariates--all samples with at least one missing covariate are\nexcluded from this analysis.)\n");
+      logerrprint("(Check your covariates--all samples with at least one missing covariate are\nexcluded from this analysis.)\n");
     }
     goto glm_logistic_nosnp_ret_1;
   }
@@ -8358,7 +8358,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     } else {
       constraint_ct = 0;
       aligned_free_null(&joint_test_params);
-      logprint("Warning: Ignoring --tests since fewer than two parameter indices are in range.\n");
+      logerrprint("Warning: Ignoring --tests since fewer than two parameter indices are in range.\n");
     }
   }
 
@@ -8568,11 +8568,11 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 
   fill_float_zero(coef, param_cta4);
   if (glm_logistic(1, param_ct, sample_valid_ct, 0, NULL, covars_cov_major, g_perm_vecs, coef, pp, sample_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, constraint_ct, constraints_con_major, param_1d_dbuf, param_2d_dbuf, param_2d_dbuf2, param_df_dbuf, df_df_dbuf, mi_buf, df_dbuf, perm_fails)) {
-    logprint("Warning: Skipping --logistic no-snp due to multicollinearity.\n");
+    logerrprint("Warning: Skipping --logistic no-snp due to multicollinearity.\n");
     goto glm_logistic_nosnp_ret_1;
   }
   if (constraint_ct && (regression_results[param_ct - 1] == -9)) {
-    logprint("Warning: Ignoring --tests due to regression failure.\n");
+    logerrprint("Warning: Ignoring --tests due to regression failure.\n");
     constraint_ct = 0;
   }
 
@@ -8853,12 +8853,12 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     retval = RET_THREAD_CREATE_FAIL;
     break;
   glm_logistic_nosnp_ret_NO_PERMUTATION_CLUSTERS:
-    logprint("Error: No size 2+ clusters for permutation test.\n");
+    logerrprint("Error: No size 2+ clusters for permutation test.\n");
   glm_logistic_nosnp_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
   glm_logistic_nosnp_ret_PHENO_CONSTANT:
-    logprint("Warning: Skipping --logistic since phenotype is constant.\n");
+    logerrprint("Warning: Skipping --logistic since phenotype is constant.\n");
     break;
   }
  glm_logistic_nosnp_ret_1:

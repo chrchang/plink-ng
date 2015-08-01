@@ -194,7 +194,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
   *polymorphic_marker_ct_ptr = polymorphic_marker_ct;
   if (!polymorphic_marker_ct) {
     putchar('\n');
-    logprint("Warning: Skipping --lasso since no polymorphic loci are present.\n");
+    logerrprint("Warning: Skipping --lasso since no polymorphic loci are present.\n");
     return 0;
   }
   col_ct = covar_ct + polymorphic_marker_ct;
@@ -246,7 +246,8 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
     }
   }
   if (lambda_min >= lambda_max) {
-    logprint("\nError: min lambda >= max lambda.\n");
+    logprint("\n");
+    logerrprint("Error: min lambda >= max lambda.\n");
     goto lasso_bigmem_ret_INVALID_CMDLINE;
   }
   loghi = log(lambda_max);
@@ -344,7 +345,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
     retval = RET_READ_FAIL;
     break;
   lasso_bigmem_ret_CONST_COVAR:
-    logprint("Error: --lasso covariate is constant.\n");
+    logerrprint("Error: --lasso covariate is constant.\n");
   lasso_bigmem_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
@@ -578,7 +579,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
     }
   }
   if (!(polymorphic_marker_ct + partial_marker_idx)) {
-    logprint("Warning: Skipping --lasso since no polymorphic markers are present.\n");
+    logerrprint("Warning: Skipping --lasso since no polymorphic markers are present.\n");
     return 0;
   }
   if (rand_matrix) {
@@ -606,7 +607,8 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
   col_ctl = (col_ct + (BITCT - 1)) / BITCT;
   *xhat_ptr = xhat;
   if (lambda_min >= lambda_max) {
-    logprint("\nError: min lambda >= max lambda.\n");
+    logprint("\n");
+    logerrprint("Error: min lambda >= max lambda.\n");
     goto lasso_smallmem_ret_INVALID_CMDLINE;
   }
   if (wkspace_alloc_ul_checked(&active_set, col_ctl * sizeof(intptr_t)) ||
@@ -756,7 +758,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
     retval = RET_READ_FAIL;
     break;
   lasso_smallmem_ret_CONST_COVAR:
-    logprint("Error: --lasso covariate is constant.\n");
+    logerrprint("Error: --lasso covariate is constant.\n");
   lasso_smallmem_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
@@ -825,9 +827,9 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   }
   if (sample_valid_ct < 2) {
     if (pheno_nm_ct < 2) {
-      logprint("Warning: Skipping --lasso since less than two phenotypes are present.\n");
+      logerrprint("Warning: Skipping --lasso since less than two phenotypes are present.\n");
     } else {
-      logprint("Warning: Skipping --lasso since too many samples have missing covariates.\n");
+      logerrprint("Warning: Skipping --lasso since too many samples have missing covariates.\n");
     }
     goto lasso_ret_1;
   }
@@ -895,7 +897,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
     dyy = dxx;
   }
   if (dyy * ((double)((intptr_t)sample_valid_ct)) == dxx * dxx) {
-    logprint("Warning: Skipping --lasso since phenotype is constant.\n");
+    logerrprint("Warning: Skipping --lasso since phenotype is constant.\n");
     goto lasso_ret_1;
   }
   dzz = dxx / ((double)((intptr_t)sample_valid_ct)); // mean
@@ -915,7 +917,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   }
   if (select_covars && select_covars_range_list_ptr->name_ct) {
     if (!covar_ct) {
-      logprint("Error: No covariates loaded for --lasso-select-covars.\n");
+      logerrprint("Error: No covariates loaded for --lasso-select-covars.\n");
       goto lasso_ret_INVALID_CMDLINE;
     }
     retval = string_range_list_to_bitfield_alloc(covar_names, covar_ct, max_covar_name_len, select_covars_range_list_ptr, &select_covars_bitfield, "lasso-select-covars", "--covar file");

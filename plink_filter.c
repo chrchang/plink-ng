@@ -144,14 +144,14 @@ int32_t keep_or_remove(char* fname, char* sorted_ids, uintptr_t sorted_ids_ct, u
   memcpy(exclude_arr, exclude_arr_new, unfiltered_ctl * sizeof(intptr_t));
   *exclude_ct_ptr = popcount_longs(exclude_arr, unfiltered_ctl);
   if (*exclude_ct_ptr == unfiltered_ct) {
-    LOGPRINTF("Error: No %s remaining after --%s.\n", g_species_plural, keep_or_remove_flag_str(flags));
+    LOGERRPRINTF("Error: No %s remaining after --%s.\n", g_species_plural, keep_or_remove_flag_str(flags));
     goto keep_or_remove_ret_ALL_SAMPLES_EXCLUDED;
   }
   unfiltered_ct -= *exclude_ct_ptr; // now filtered count
   LOGPRINTF("--%s: %" PRIuPTR " %s remaining.\n", keep_or_remove_flag_str(flags), unfiltered_ct, species_str(unfiltered_ct));
   if (duplicate_ct) {
     // "At least" since this does not count duplicate IDs absent from the .bim.
-    LOGPRINTF("Warning: At least %" PRIuPTR " duplicate ID%s in --%s file.\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", keep_or_remove_flag_str(flags));
+    LOGERRPRINTF("Warning: At least %" PRIuPTR " duplicate ID%s in --%s file.\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", keep_or_remove_flag_str(flags));
   }
   while (0) {
   keep_or_remove_ret_NOMEM:
@@ -164,7 +164,7 @@ int32_t keep_or_remove(char* fname, char* sorted_ids, uintptr_t sorted_ids_ct, u
     retval = RET_READ_FAIL;
     break;
   keep_or_remove_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   keep_or_remove_ret_ALL_SAMPLES_EXCLUDED:
@@ -314,14 +314,14 @@ int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, ui
   }
   *marker_exclude_ct_ptr = popcount_longs(marker_exclude, unfiltered_marker_ctl);
   if (*marker_exclude_ct_ptr == unfiltered_marker_ct) {
-    LOGPRINTF("Error: No variants remaining after --%s.\n", do_exclude? "exclude" : "extract");
+    LOGERRPRINTF("Error: No variants remaining after --%s.\n", do_exclude? "exclude" : "extract");
     goto extract_exclude_flag_norange_ret_ALL_MARKERS_EXCLUDED;
   }
   unfiltered_marker_ct -= *marker_exclude_ct_ptr; // now filtered count
   LOGPRINTF("--%s: %" PRIuPTR " variant%s remaining.\n", do_exclude? "exclude" : "extract", unfiltered_marker_ct, (unfiltered_marker_ct == 1)? "" : "s");
   if (duplicate_ct) {
     // "At least" since this does not count duplicate IDs absent from the .bim.
-    LOGPRINTF("Warning: At least %" PRIuPTR " duplicate ID%s in --%s file.\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", do_exclude? "exclude" : "extract");
+    LOGERRPRINTF("Warning: At least %" PRIuPTR " duplicate ID%s in --%s file.\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", do_exclude? "exclude" : "extract");
   }
 
   while (0) {
@@ -335,7 +335,7 @@ int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, ui
     retval = RET_READ_FAIL;
     break;
   extract_exclude_flag_norange_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   extract_exclude_flag_norange_ret_ALL_MARKERS_EXCLUDED:
@@ -394,7 +394,7 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
 	if (*cond_ptr == ',') {
 	  continue;
 	} else if (*cond_ptr == '-') {
-	  logprint("Error: --attrib condition cannot contain consecutive dashes.\n");
+	  logerrprint("Error: --attrib condition cannot contain consecutive dashes.\n");
 	  goto filter_attrib_ret_INVALID_CMDLINE;
 	}
 	is_neg = 1;
@@ -549,7 +549,7 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
     include_ct++;
   }
   if (!include_ct) {
-    logprint("Error: No variants remaining after --attrib.\n");
+    logerrprint("Error: No variants remaining after --attrib.\n");
     retval = RET_ALL_MARKERS_EXCLUDED;
     goto filter_attrib_ret_1;
   }
@@ -567,12 +567,12 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
     retval = RET_READ_FAIL;
     break;
   filter_attrib_ret_INVALID_CMDLINE_2:
-    logprintb();
+    logerrprintb();
   filter_attrib_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
   filter_attrib_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -633,7 +633,7 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
 	if (*cond_ptr == ',') {
 	  continue;
 	} else if (*cond_ptr == '-') {
-	  logprint("Error: --attrib-indiv condition cannot contain consecutive dashes.\n");
+	  logerrprint("Error: --attrib-indiv condition cannot contain consecutive dashes.\n");
 	  goto filter_attrib_sample_ret_INVALID_CMDLINE;
 	}
 	is_neg = 1;
@@ -785,7 +785,7 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
     include_ct++;
   }
   if (!include_ct) {
-    LOGPRINTF("Error: No %s remaining after --attrib-indiv.\n", g_species_plural);
+    LOGERRPRINTF("Error: No %s remaining after --attrib-indiv.\n", g_species_plural);
     retval = RET_ALL_SAMPLES_EXCLUDED;
     goto filter_attrib_sample_ret_1;
   }
@@ -803,12 +803,12 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
     retval = RET_READ_FAIL;
     break;
   filter_attrib_sample_ret_INVALID_CMDLINE_2:
-    logprintb();
+    logerrprintb();
   filter_attrib_sample_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
   filter_attrib_sample_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -932,7 +932,7 @@ int32_t filter_qual_scores(Two_col_params* qual_filter, double qual_min_thresh, 
   filter_qual_scores_ret_MISSING_TOKENS:
     sprintf(logbuf, "Error: Line %" PRIuPTR " of --qual-scores file has fewer tokens than expected.\n", line_idx);
   filter_qual_scores_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -961,7 +961,7 @@ uint32_t random_thin_markers(double thin_keep_prob, uintptr_t unfiltered_marker_
     } while (++marker_uidx < marker_uidx_stop);
   }
   if (marker_ct == removed_ct) {
-    logprint("Error: All variants removed by --thin.  Try a higher probability.\n");
+    logerrprint("Error: All variants removed by --thin.  Try a higher probability.\n");
     return 1;
   }
   LOGPRINTF("--thin: %u variant%s removed (%u remaining).\n", removed_ct, (removed_ct == 1)? "" : "s", marker_ct - removed_ct);
@@ -978,7 +978,7 @@ int32_t random_thin_markers_ct(uint32_t thin_keep_ct, uintptr_t unfiltered_marke
   uintptr_t* perm_buf;
   uint32_t marker_idx;
   if (thin_keep_ct > marker_ct) {
-    LOGPRINTF("Error: --thin-count parameter exceeds number of remaining variants.\n");
+    LOGERRPRINTF("Error: --thin-count parameter exceeds number of remaining variants.\n");
     goto random_thin_markers_ct_ret_INVALID_CMDLINE;
   }
   if (wkspace_alloc_ul_checked(&perm_buf, marker_ctl * sizeof(intptr_t))) {
@@ -1026,7 +1026,7 @@ uint32_t random_thin_samples(double thin_keep_prob, uintptr_t unfiltered_sample_
     } while (++sample_uidx < sample_uidx_stop);
   }
   if (sample_ct == removed_ct) {
-    LOGPRINTF("Error: All %s removed by --thin-indiv. Try a higher probability.\n", g_species_plural);
+    LOGERRPRINTF("Error: All %s removed by --thin-indiv. Try a higher probability.\n", g_species_plural);
     return 1;
   }
   LOGPRINTF("--thin-indiv: %u %s removed (%u remaining).\n", removed_ct, (removed_ct==1)? g_species_singular : g_species_plural, sample_ct - removed_ct);
@@ -1043,7 +1043,7 @@ int32_t random_thin_samples_ct(uint32_t thin_keep_ct, uintptr_t unfiltered_sampl
   uintptr_t* perm_buf;
   uint32_t sample_idx;
   if (thin_keep_ct > sample_ct) {
-    LOGPRINTF("Error: --thin-indiv-count parameter exceeds number of remaining %s.\n", g_species_plural);
+    LOGERRPRINTF("Error: --thin-indiv-count parameter exceeds number of remaining %s.\n", g_species_plural);
     goto random_thin_samples_ct_ret_INVALID_CMDLINE;
   }
   if (wkspace_alloc_ul_checked(&perm_buf, sample_ctl * sizeof(intptr_t))) {
@@ -1183,7 +1183,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
     goto load_oblig_missing_ret_READ_FAIL;
   }
   if (!max_cluster_id_len) {
-    LOGPRINTFWW("Warning: --oblig-missing ignored, since no valid blocks were defined in %s.\n", om_ip->sample_fname);
+    LOGERRPRINTFWW("Warning: --oblig-missing ignored, since no valid blocks were defined in %s.\n", om_ip->sample_fname);
     goto load_oblig_missing_ret_1;
   }
   wkspace_left -= topsize;
@@ -1307,11 +1307,11 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
     goto load_oblig_missing_ret_READ_FAIL;
   }
   if (missing_cluster_ct) {
-    LOGPRINTFWW("Warning: %" PRIuPTR " entr%s in %s had block IDs missing from %s.\n", missing_cluster_ct, (missing_cluster_ct == 1)? "y" : "ies", om_ip->marker_fname, om_ip->sample_fname);
+    LOGERRPRINTFWW("Warning: %" PRIuPTR " entr%s in %s had block IDs missing from %s.\n", missing_cluster_ct, (missing_cluster_ct == 1)? "y" : "ies", om_ip->marker_fname, om_ip->sample_fname);
   }
   om_ip->entry_ct = (uintptr_t)(zc_entries_end - zc_entries);
   if (!om_ip->entry_ct) {
-    LOGPRINTFWW("Warning: --oblig-missing ignored, since %s had no valid entries.\n", om_ip->marker_fname);
+    LOGERRPRINTFWW("Warning: --oblig-missing ignored, since %s had no valid entries.\n", om_ip->marker_fname);
     goto load_oblig_missing_ret_1;
   }
 
@@ -1368,7 +1368,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
     retval = RET_READ_FAIL;
     break;
   load_oblig_missing_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -1447,7 +1447,7 @@ int32_t filter_samples_file(char* filtername, char* sorted_sample_ids, uintptr_t
     goto filter_samples_file_ret_READ_FAIL;
   }
   if (!include_ct) {
-    LOGPRINTF("Error: All %s excluded by --filter.\n", g_species_plural);
+    LOGERRPRINTF("Error: All %s excluded by --filter.\n", g_species_plural);
     goto filter_samples_file_ret_ALL_SAMPLES_EXCLUDED;
   }
   LOGPRINTF("--filter: %" PRIuPTR " %s remaining.\n", include_ct, species_str(include_ct));
@@ -1467,7 +1467,7 @@ int32_t filter_samples_file(char* filtername, char* sorted_sample_ids, uintptr_t
   filter_samples_file_ret_MISSING_TOKENS:
     sprintf(logbuf, "Error: Line %" PRIuPTR " of --filter file has fewer tokens than expected.\n", line_idx);
   filter_samples_file_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   filter_samples_file_ret_ALL_SAMPLES_EXCLUDED:
@@ -1665,7 +1665,7 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   }
   *sample_exclude_ct_ptr += removed_ct;
   if (*sample_exclude_ct_ptr == unfiltered_sample_ct) {
-    LOGPRINTF("Error: All %s removed due to missing genotype data (--mind).\n", g_species_plural);
+    LOGERRPRINTF("Error: All %s removed due to missing genotype data (--mind).\n", g_species_plural);
     LOGPRINTFWW("IDs written to %s .\n", outname);
     goto mind_filter_ret_ALL_SAMPLES_EXCLUDED;
   }
@@ -2668,10 +2668,10 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   logprint(" done.\n");
   if (hethap_ct) {
     *outname_end = '\0';
-    LOGPRINTFWW("Warning: %" PRIu64 " het. haploid genotype%s present (see %s.hh ); many commands treat these as missing.\n", hethap_ct, (hethap_ct == 1LLU)? "" : "s", outname);
+    LOGERRPRINTFWW("Warning: %" PRIu64 " het. haploid genotype%s present (see %s.hh ); many commands treat these as missing.\n", hethap_ct, (hethap_ct == 1LLU)? "" : "s", outname);
   }
   if (nonmissing_nonmale_y) {
-    logprint("Warning: Nonmissing nonmale Y chromosome genotype(s) present; many commands\ntreat these as missing.\n");
+    logerrprint("Warning: Nonmissing nonmale Y chromosome genotype(s) present; many commands\ntreat these as missing.\n");
     *hh_exists_ptr |= Y_FIX_NEEDED;
   }
   if (nonmissing_rate_tot <= 0.9999995 * ((double)((intptr_t)nonmissing_rate_tot_max))) {
@@ -3345,10 +3345,10 @@ uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct
     }
   }
   if (((uint64_t)max_obs) * 9 > ((uint64_t)min_obs) * 10) {
-    logprint("Warning: --hwe observation counts vary by more than 10%.  Consider using\n--geno, and/or applying different p-value thresholds to distinct subsets of\nyour data.\n");
+    logerrprint("Warning: --hwe observation counts vary by more than 10%.  Consider using\n--geno, and/or applying different p-value thresholds to distinct subsets of\nyour data.\n");
   }
   if (marker_ct == removed_ct) {
-    logprint("Error: All variants removed due to Hardy-Weinberg exact test (--hwe).\n");
+    logerrprint("Error: All variants removed due to Hardy-Weinberg exact test (--hwe).\n");
     return 1;
   }
   LOGPRINTF("--hwe: %u variant%s removed due to Hardy-Weinberg exact test.\n", removed_ct, (removed_ct == 1)? "" : "s");
@@ -3384,7 +3384,7 @@ uint32_t enforce_minor_allele_thresholds(double min_maf, double max_maf, uintptr
   }
   removed_ct = popcount_longs(marker_exclude, unfiltered_marker_ctl) - (*marker_exclude_ct_ptr);
   if (marker_ct == removed_ct) {
-    logprint("Error: All variants removed due to minor allele threshold(s)\n(--maf/--max-maf/--mac/--max-mac).\n");
+    logerrprint("Error: All variants removed due to minor allele threshold(s)\n(--maf/--max-maf/--mac/--max-mac).\n");
     return 1;
   }
   LOGPRINTFWW("%u variant%s removed due to minor allele threshold(s) (--maf/--max-maf/--mac/--max-mac).\n", removed_ct, (removed_ct == 1)? "" : "s");

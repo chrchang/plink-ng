@@ -818,7 +818,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   uint32_t bsearch_cur;
   double prune_ld_thresh;
   if (founder_ct < 2) {
-    LOGPRINTF("Warning: Skipping --indep%s since there are less than two founders.\n(--make-founders may come in handy here.)\n", pairwise? "-pairwise" : "");
+    LOGERRPRINTF("Warning: Skipping --indep%s since there are less than two founders.\n(--make-founders may come in handy here.)\n", pairwise? "-pairwise" : "");
     goto ld_prune_ret_1;
   }
   if (is_set(chrom_info_ptr->chrom_mask, 0)) {
@@ -833,7 +833,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
     LOGPRINTF("--indep%s: Ignoring %" PRIuPTR " chromosome 0 variant%s.\n", pairwise? "-pairwise" : "", ulii, (ulii == 1)? "" : "s");
   }
   if (marker_ct < 2) {
-    LOGPRINTF("Error: Too few valid variants for --indep%s.\n", pairwise? "-pairwise" : "");
+    LOGERRPRINTF("Error: Too few valid variants for --indep%s.\n", pairwise? "-pairwise" : "");
     goto ld_prune_ret_INVALID_FORMAT;
   }
 
@@ -846,7 +846,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
     if (founder_ct + nonmale_founder_ct > 0x7fffffff) {
       // no, this shouldn't ever happen, but may as well document that there
       // theoretically is a 32-bit integer range issue here
-      logprint("Error: Too many founders for --indep[-pairwise] + --ld-xchr 3.\n");
+      logerrprint("Error: Too many founders for --indep[-pairwise] + --ld-xchr 3.\n");
       goto ld_prune_ret_1;
     }
   }
@@ -866,7 +866,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
     if (window_max > 46340) {
       // todo: check what LAPACK's matrix inversion limit actually is.  Guess
       // sqrt(2^31 - 1) for now.
-      logprint("Error: --indep does not currently support window sizes > 46340.\n");
+      logerrprint("Error: --indep does not currently support window sizes > 46340.\n");
       goto ld_prune_ret_INVALID_CMDLINE;
     }
 #endif
@@ -1528,9 +1528,9 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   pheno_ct[1] = popcount_longs(founder_phenos[1], unfiltered_sample_ctl);
   if ((!pheno_ct[0]) || (!pheno_ct[1])) {
     if (popcount_longs(founder_info, unfiltered_sample_ctl)) {
-      logprint("Error: --flip-scan requires at least one case and one control, and only\nconsiders founders.\n");
+      logerrprint("Error: --flip-scan requires at least one case and one control, and only\nconsiders founders.\n");
     } else {
-      logprint("Error: --flip-scan requires founders.  (--make-founders may come in handy\nhere.)\n");
+      logerrprint("Error: --flip-scan requires founders.  (--make-founders may come in handy\nhere.)\n");
     }
     goto flipscan_ret_INVALID_CMDLINE;
   }
@@ -2201,7 +2201,7 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   }
   idx1_block_size = thread_workload * thread_ct;
   if ((parallel_tot > 1) && (marker_ct < 2 * parallel_tot)) {
-    LOGPRINTF("Error: Too few variants in --r%s run for --parallel %u %u.\n", g_ld_is_r2? "2" : "", parallel_idx + 1, parallel_tot);
+    LOGERRPRINTF("Error: Too few variants in --r%s run for --parallel %u %u.\n", g_ld_is_r2? "2" : "", parallel_idx + 1, parallel_tot);
     goto ld_report_matrix_ret_INVALID_CMDLINE;
   }
   if (!is_square) {
@@ -5675,7 +5675,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
           if (ii != -1) {
             uii = id_map[(uint32_t)ii];
             if (!is_set(marker_exclude_idx1, uii)) {
-	      logprint("Error: Duplicate variant ID in --ld-snp-list file.\n");
+	      logerrprint("Error: Duplicate variant ID in --ld-snp-list file.\n");
 	      goto ld_report_regular_ret_INVALID_FORMAT;
 	    }
             clear_bit(marker_exclude_idx1, uii);
@@ -5694,7 +5694,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
     }
   }
   if ((parallel_tot > 1) && (marker_ct1 < 2 * parallel_tot)) {
-    LOGPRINTF("Error: Too few variants in --r%s run for --parallel %u %u.\n", g_ld_is_r2? "2" : "", parallel_idx + 1, parallel_tot);
+    LOGERRPRINTF("Error: Too few variants in --r%s run for --parallel %u %u.\n", g_ld_is_r2? "2" : "", parallel_idx + 1, parallel_tot);
     goto ld_report_regular_ret_INVALID_CMDLINE;
   }
   // yeah, this is uneven in the inter-chr case
@@ -6027,7 +6027,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
     retval = RET_READ_FAIL;
     break;
   ld_report_regular_ret_EMPTY_SET1:
-    logprint("Error: No valid variants specified by --ld-snp/--ld-snps/--ld-snp-list.\n");
+    logerrprint("Error: No valid variants specified by --ld-snp/--ld-snps/--ld-snp-list.\n");
   ld_report_regular_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
@@ -6076,14 +6076,14 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
   g_ld_thread_ct = g_thread_ct;
   g_ld_set_allele_freqs = (ld_modifier & LD_WITH_FREQS)? set_allele_freqs : NULL;
   if (founder_ct < 2) {
-    LOGPRINTF("Warning: Skipping --r%s since there are less than two founders.\n(--make-founders may come in handy here.)\n", g_ld_is_r2? "2" : "");
+    LOGERRPRINTF("Warning: Skipping --r%s since there are less than two founders.\n(--make-founders may come in handy here.)\n", g_ld_is_r2? "2" : "");
     goto ld_report_ret_1;
   } else if (founder_ct >= 0x20000000) {
-    logprint("Error: --r/--r2 does not support >= 2^29 samples.\n");
+    logerrprint("Error: --r/--r2 does not support >= 2^29 samples.\n");
     goto ld_report_ret_INVALID_CMDLINE;
   }
   if ((marker_ct > 400000) && (!(ld_modifier & LD_YES_REALLY)) && (parallel_tot == 1) && ((ld_modifier & LD_MATRIX_SHAPEMASK) || ((ld_modifier & LD_INTER_CHR) && (!ldip->snpstr) && (!ldip->snps_rl.name_ct) && ((!g_ld_is_r2) || (ldip->window_r2 == 0.0))))) {
-    logprint("Error: Gigantic (over 400k loci) --r/--r2 unfiltered, non-distributed\ncomputation.  Rerun with the 'yes-really' modifier if you are SURE you have\nenough hard drive space and want to do this.\n");
+    logerrprint("Error: Gigantic (over 400k loci) --r/--r2 unfiltered, non-distributed\ncomputation.  Rerun with the 'yes-really' modifier if you are SURE you have\nenough hard drive space and want to do this.\n");
     goto ld_report_ret_INVALID_CMDLINE;
   }
   if (alloc_collapsed_haploid_filters(unfiltered_sample_ct, founder_ct, XMHH_EXISTS | hh_exists, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
@@ -6112,7 +6112,7 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
   *bufptr = '\0';
   if (ld_modifier & LD_INPHASE) {
     if (max_marker_allele_len * 4 + plink_maxsnp * 2 + get_max_chrom_len(chrom_info_ptr) * 2 + 128 > MAXLINELEN) {
-      logprint("Error: --r/--r2 in-phase does not support very long allele codes.\n");
+      logerrprint("Error: --r/--r2 in-phase does not support very long allele codes.\n");
       goto ld_report_ret_INVALID_CMDLINE;
     }
     g_ld_marker_allele_ptrs = marker_allele_ptrs;
@@ -6232,7 +6232,7 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
   uint32_t uii;
   int32_t ii;
   if (founder_ct < 2) {
-    logprint("Warning: Skipping --show-tags since there are less than two founders.\n(--make-founders may come in handy here.)\n");
+    logerrprint("Warning: Skipping --show-tags since there are less than two founders.\n(--make-founders may come in handy here.)\n");
     goto show_tags_ret_1;
   }
   if (wkspace_alloc_ul_checked(&targets, unfiltered_marker_ctl * sizeof(intptr_t)) ||
@@ -6255,7 +6255,7 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
     while (fgets(tbuf, MAXLINELEN, infile)) {
       line_idx++;
       if (!tbuf[MAXLINELEN - 1]) {
-	LOGPRINTF("Error: Line %" PRIuPTR " of --show-tags file is pathologically long.\n", line_idx);
+	LOGERRPRINTF("Error: Line %" PRIuPTR " of --show-tags file is pathologically long.\n", line_idx);
 	goto show_tags_ret_INVALID_FORMAT;
       }
       bufptr = skip_initial_spaces(tbuf);
@@ -6266,7 +6266,7 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
       if (twocolumn) {
 	bufptr2 = skip_initial_spaces(&(bufptr[slen]));
         if (!bufptr2) {
-	  LOGPRINTF("Error: Line %" PRIuPTR " of --show-tags file has fewer tokens than expected.\n", line_idx);
+	  LOGERRPRINTF("Error: Line %" PRIuPTR " of --show-tags file has fewer tokens than expected.\n", line_idx);
 	  goto show_tags_ret_INVALID_FORMAT;
 	}
         if ((*bufptr2 != '1') || (!is_space_or_eoln(bufptr2[1]))) {
@@ -6281,7 +6281,7 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
       marker_uidx = marker_id_map[(uint32_t)ii];
       if (IS_SET(targets, marker_uidx)) {
         bufptr[slen] = '\0';
-        LOGPRINTF("Error: Duplicate variant ID '%s' in --show-tags file.\n", bufptr);
+        LOGERRPRINTF("Error: Duplicate variant ID '%s' in --show-tags file.\n", bufptr);
 	goto show_tags_ret_INVALID_FORMAT;
       }
       SET_BIT(targets, marker_uidx);
@@ -6292,7 +6292,7 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
     wkspace_reset((unsigned char*)marker_id_map);
     target_ct = popcount_longs(targets, unfiltered_marker_ctl);
     if (!target_ct) {
-      logprint("Error: No recognized variant IDs in --show-tags file.\n");
+      logerrprint("Error: No recognized variant IDs in --show-tags file.\n");
       goto show_tags_ret_INVALID_FORMAT;
     }
     if (wkspace_alloc_ul_checked(&final_set, unfiltered_marker_ctl * sizeof(intptr_t))) {
@@ -6301,7 +6301,7 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
     memcpy(final_set, targets, unfiltered_marker_ctl * sizeof(intptr_t));
     LOGPRINTF("--show-tags: %u target variant%s loaded.\n", target_ct, (target_ct == 1)? "" : "s");
     if (unrecog_ct) {
-      LOGPRINTF("Warning: %" PRIuPTR " unrecognized variant ID%s in --show-tags file.\n", unrecog_ct, (unrecog_ct == 1)? "" : "s");
+      LOGERRPRINTF("Warning: %" PRIuPTR " unrecognized variant ID%s in --show-tags file.\n", unrecog_ct, (unrecog_ct == 1)? "" : "s");
     }
   } else {
     bitfield_exclude_to_include(marker_exclude, targets, unfiltered_marker_ct);
@@ -7043,9 +7043,9 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
   founder_ct = popcount_longs(founder_pnm, unfiltered_sample_ctl);
   if (founder_ct < 2) {
     if ((!no_pheno_req) && (!popcount_longs(pheno_nm, unfiltered_sample_ctl))) {
-      logprint("Warning: Skipping --blocks, since there are less than two founders with\nnonmissing phenotypes.  (The 'no-pheno-req' modifier removes the phenotype\nrestriction.)\n");
+      logerrprint("Warning: Skipping --blocks, since there are less than two founders with\nnonmissing phenotypes.  (The 'no-pheno-req' modifier removes the phenotype\nrestriction.)\n");
     } else {
-      logprint("Warning: Skipping --blocks, since there are less than two founders with\nnonmissing phenotypes.  (--make-founders may come in handy here.)\n");
+      logerrprint("Warning: Skipping --blocks, since there are less than two founders with\nnonmissing phenotypes.  (--make-founders may come in handy here.)\n");
     }
     goto haploview_blocks_ret_1;
   }
@@ -7064,7 +7064,7 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
     marker_ct = unfiltered_marker_ct - popcount_longs(marker_exclude, unfiltered_marker_ctl);
   }
   if (marker_ct < 2) {
-    logprint("Warning: Skipping --blocks since there are too few variants with MAF >= 0.05.\n");
+    logerrprint("Warning: Skipping --blocks since there are too few variants with MAF >= 0.05.\n");
     goto haploview_blocks_ret_1;
   }
   pct_thresh = marker_ct / 100;
@@ -7107,7 +7107,8 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
     }
 #ifndef __LP64__
     if (max_block_size > 65536) {
-      logprint("\nError: 32-bit --blocks cannot analyze potential blocks with more than 65536\nvariants.  Use a 64-bit PLINK build or a smaller --blocks-window-kb value.\n");
+      logprint("\n");
+      logerrprint("Error: 32-bit --blocks cannot analyze potential blocks with more than 65536\nvariants.  Use a 64-bit PLINK build or a smaller --blocks-window-kb value.\n");
       goto haploview_blocks_ret_INVALID_CMDLINE;
     }
 #endif
@@ -7770,7 +7771,7 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
     // ulkk = (unfiltered_sample_ctl2 + 1) / 2;
     sample_ct = popcount_longs(sample_exclude, ulkk);
     if (!sample_ct) {
-      logprint("Warning: Skipping --ld since there are no founders.  (--make-founders may come\nin handy here.)\n");
+      logerrprint("Warning: Skipping --ld since there are no founders.  (--make-founders may come\nin handy here.)\n");
       goto twolocus_ret_1;
     }
     if (wkspace_alloc_ul_checked(&loadbuf_raw, ulkk * sizeof(intptr_t))) {
@@ -7925,7 +7926,7 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
     counts_cc[7] = counts_all[3] + counts_all[11] + counts_all[15];
     count_total = counts_cc[0] + counts_cc[2] + counts_cc[3];
     if (!count_total) {
-      logprint("Error: No valid observations for --ld.\n");
+      logerrprint("Error: No valid observations for --ld.\n");
       goto twolocus_ret_INVALID_CMDLINE;
     }
     if ((!counts_cc[2]) && ((!counts_cc[0]) || (!counts_cc[3]))) {
@@ -8134,14 +8135,14 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
     break;
   twolocus_ret_MARKER_NOT_FOUND:
     if (outname) {
-      logprint("Error: --twolocus variant name not found.\n");
+      logerrprint("Error: --twolocus variant name not found.\n");
     } else {
-      logprint("Error: --ld variant name not found.\n");
+      logerrprint("Error: --ld variant name not found.\n");
     }
     retval = RET_INVALID_CMDLINE;
     break;
   twolocus_ret_INVALID_CMDLINE_2:
-    logprintb();
+    logerrprintb();
   twolocus_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
@@ -8273,7 +8274,7 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
   // could add an epsilon here, but this is good enough to catch the most
   // common case (all phenotypes are the same integer near zero).
   if (g_epi_pheno_ssq * ((double)((int32_t)pheno_nm_ct)) == g_epi_pheno_sum * g_epi_pheno_sum) {
-    logprint("Error: Phenotype is constant.\n");
+    logerrprint("Error: Phenotype is constant.\n");
     goto epistasis_linear_regression_ret_INVALID_CMDLINE;
   }
   g_epi_vif_thresh = glm_vif_thresh;
@@ -9251,11 +9252,11 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       goto epistasis_report_ret_INVALID_CMDLINE_2;
     } else if (!is_set_by_set) {
       if (sip->ct > 1) {
-	logprint("Error: --{fast-}epistasis set-by-all requires exactly one set.  (--set-names or\n--set-collapse-all may be handy here.\n");
+	logerrprint("Error: --{fast-}epistasis set-by-all requires exactly one set.  (--set-names or\n--set-collapse-all may be handy here.\n");
 	goto epistasis_report_ret_INVALID_CMDLINE;
       }
     } else if (sip->ct > 2) {
-      logprint("Error: --{fast-}epistasis set-by-set requires exactly one or two sets.\n(--set-names or --set-collapse-all may be handy here.)\n");
+      logerrprint("Error: --{fast-}epistasis set-by-set requires exactly one or two sets.\n(--set-names or --set-collapse-all may be handy here.)\n");
       goto epistasis_report_ret_INVALID_CMDLINE;
     }
     if (wkspace_alloc_ul_checked(&marker_exclude1, unfiltered_marker_ctl * sizeof(intptr_t))) {
@@ -9273,7 +9274,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   if (pheno_nm_ct >= 0x20000000) {
     // may as well document the existence of sub-2b overflow conditions even
     // though they'll never come up
-    logprint("Error: --{fast-}epistasis does not support >= 2^29 samples.\n");
+    logerrprint("Error: --{fast-}epistasis does not support >= 2^29 samples.\n");
     goto epistasis_report_ret_INVALID_CMDLINE;
   }
   if (!pheno_d) {
@@ -10178,21 +10179,21 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   epistasis_report_ret_TOO_FEW_MARKERS:
     if (pheno_d) {
       if (is_triangular) {
-        logprint("Error: --epistasis requires 2+ non-monomorphic autosomal diploid loci.\n");
+        logerrprint("Error: --epistasis requires 2+ non-monomorphic autosomal diploid loci.\n");
       } else {
-        logprint("Error: Each --epistasis set must contain at least one non-monomorphic autosomal\ndiploid site.\n");
+        logerrprint("Error: Each --epistasis set must contain at least one non-monomorphic autosomal\ndiploid site.\n");
       }
     } else {
       if (is_triangular) {
-        logprint("Error: --{fast-}epistasis requires 2+ autosomal diploid loci not monomorphic in\neither cases or controls.\n");
+        logerrprint("Error: --{fast-}epistasis requires 2+ autosomal diploid loci not monomorphic in\neither cases or controls.\n");
       } else {
-        logprint("Error: Each --{fast-}epistasis set must contain at least one autosomal diploid\nlocus not monomorphic in either cases or controls.\n");
+        logerrprint("Error: Each --{fast-}epistasis set must contain at least one autosomal diploid\nlocus not monomorphic in either cases or controls.\n");
       }
     }
     retval = RET_INVALID_CMDLINE;
     break;
   epistasis_report_ret_INVALID_CMDLINE_2:
-    logprintb();
+    logerrprintb();
   epistasis_report_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
@@ -10274,7 +10275,7 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
   uint32_t pct;
   uint32_t uii;
   if (founder_ct < 2) {
-    logprint("Warning: Skipping --indep-pairphase since there are less than two founders.\n(--make-founders may come in handy here.)\n");
+    logerrprint("Warning: Skipping --indep-pairphase since there are less than two founders.\n(--make-founders may come in handy here.)\n");
     goto indep_pairphase_ret_1;
   }
   if (is_set(chrom_info_ptr->chrom_mask, 0)) {
@@ -10289,7 +10290,7 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
     LOGPRINTF("--indep-pairphase: Ignoring %" PRIuPTR " chromosome 0 variant%s.\n", ulii, (ulii == 1)? "" : "s");
   }
   if (marker_ct < 2) {
-    logprint("Error: Too few variants for --indep-pairphase.\n");
+    logerrprint("Error: Too few variants for --indep-pairphase.\n");
     goto indep_pairphase_ret_INVALID_FORMAT;
   }
 
@@ -10711,7 +10712,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
   }
   bufptr = &(inprefix[ulii - 2]);
   if (memcmp(".epi.", &(inprefix[ulii - 7]), 5) || (memcmp("cc", bufptr, 2) && memcmp("co", bufptr, 2) && memcmp("qt", bufptr, 2))) {
-    LOGPRINTFWW("Error: Invalid --epistasis-summary-merge filename prefix '%s'. (*.epi.cc, *.epi.co, or *.epi.qt expected.)\n", inprefix);
+    LOGERRPRINTFWW("Error: Invalid --epistasis-summary-merge filename prefix '%s'. (*.epi.cc, *.epi.co, or *.epi.qt expected.)\n", inprefix);
     goto epi_summary_merge_ret_INVALID_CMDLINE;
   }
   inprefix_end = memcpya(inprefix_end, ".summary.", 9);
@@ -11008,33 +11009,33 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
     retval = RET_INVALID_CMDLINE;
     break;
   epi_summary_merge_ret_MISMATCH:
-    logprint("Error: --epistasis-summary-merge files were generated from different datasets\nand/or settings.\n");
+    logerrprint("Error: --epistasis-summary-merge files were generated from different datasets\nand/or settings.\n");
     retval = RET_INVALID_FORMAT;
     break;
   epi_summary_merge_ret_INVALID_NSIG:
-    LOGPRINTFWW("Error: Invalid N_SIG value on line %" PRIuPTR " of %s .\n", line_idx, inprefix);
+    LOGERRPRINTFWW("Error: Invalid N_SIG value on line %" PRIuPTR " of %s .\n", line_idx, inprefix);
     retval = RET_INVALID_FORMAT;
     break;
   epi_summary_merge_ret_INVALID_NTOT:
-    LOGPRINTFWW("Error: Invalid N_SIG value on line %" PRIuPTR " of %s .\n", line_idx, inprefix);
+    LOGERRPRINTFWW("Error: Invalid N_SIG value on line %" PRIuPTR " of %s .\n", line_idx, inprefix);
     retval = RET_INVALID_FORMAT;
     break;
   epi_summary_merge_ret_INVALID_CHISQ:
-    LOGPRINTFWW("Error: Invalid BEST_CHISQ value on line %" PRIuPTR " of %s .\n", line_idx, inprefix);
+    LOGERRPRINTFWW("Error: Invalid BEST_CHISQ value on line %" PRIuPTR " of %s .\n", line_idx, inprefix);
     retval = RET_INVALID_FORMAT;
     break;
   epi_summary_merge_ret_MISSING_TOKENS:
-    LOGPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, inprefix);
+    LOGERRPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, inprefix);
     retval = RET_INVALID_FORMAT;
     break;
   epi_summary_merge_ret_LONG_LINE:
-    LOGPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, inprefix);
+    LOGERRPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, inprefix);
     retval = RET_INVALID_FORMAT;
     break;
   epi_summary_merge_ret_INVALID_HEADER:
     LOGPREPRINTFWW(logbuf, "Error: Invalid --epistasis-summary-merge header in %s.\n", inprefix);
   epi_summary_merge_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -11188,11 +11189,11 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   uint32_t ukk;
   uint32_t umm;
   if (is_set(chrom_info_ptr->haploid_mask, 1)) {
-    logprint("Error: --test-mishap can only be used on diploid genomes.\n");
+    logerrprint("Error: --test-mishap can only be used on diploid genomes.\n");
     goto test_mishap_ret_INVALID_CMDLINE;
   }
   if (sample_ct >= 0x40000000) {
-    logprint("Error: --test-mishap does not support >= 2^30 samples.\n");
+    logerrprint("Error: --test-mishap does not support >= 2^30 samples.\n");
     goto test_mishap_ret_INVALID_CMDLINE;
   }
   if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_sample_ctl2 * sizeof(intptr_t)) ||
@@ -11682,7 +11683,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   uint32_t range_start;
   uint32_t uii;
   if (!founder_ct) {
-    logprint("Error: Cannot construct LD map, since there are no founders with nonmissing\nphenotypes.  (--make-founders may come in handy here.)\n");
+    logerrprint("Error: Cannot construct LD map, since there are no founders with nonmissing\nphenotypes.  (--make-founders may come in handy here.)\n");
     goto construct_ld_map_ret_INVALID_CMDLINE;
   }
   ld_map = (uint32_t**)wkspace_alloc(marker_ct * sizeof(intptr_t));
@@ -12203,7 +12204,7 @@ int32_t set_test_common_init(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
     }
   }
   if (!set_ct) {
-    logprint("Warning: No significant variants in any set.  Skipping permutation-based set\ntest.\n");
+    logerrprint("Warning: No significant variants in any set.  Skipping permutation-based set\ntest.\n");
     goto set_test_common_init_ret_1;
   }
   LOGPRINTFWW("%s set test: Testing %" PRIuPTR " set%s with at least one significant variant.\n", flag_descrip, set_ct, (set_ct == 1)? "" : "s");
@@ -12607,11 +12608,11 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   index_tots[4] = 0;
 
   if (annot_flattened && (!clump_verbose) && (!clump_best)) {
-    logprint("Error: --clump-annotate must be used with --clump-verbose or --clump-best.\n");
+    logerrprint("Error: --clump-annotate must be used with --clump-verbose or --clump-best.\n");
     goto clump_reports_ret_INVALID_CMDLINE;
   }
   if (!founder_ct) {
-    logprint("Warning: Skipping --clump since there are no founders.  (--make-founders may\ncome in handy here.)\n");
+    logerrprint("Warning: Skipping --clump since there are no founders.  (--make-founders may\ncome in handy here.)\n");
     goto clump_reports_ret_1;
   }
   if (clump_best) {
@@ -12716,7 +12717,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     goto clump_reports_ret_NOMEM;
   }
   if (scan_for_duplicate_ids(sorted_header_dict, header_dict_ct, max_header_len)) {
-    logprint("Error: Duplicate --clump-snp-field/--clump-field/--clump-annotate field name.\n");
+    logerrprint("Error: Duplicate --clump-snp-field/--clump-field/--clump-annotate field name.\n");
     goto clump_reports_ret_INVALID_CMDLINE;
   }
 
@@ -12744,11 +12745,11 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   if (clump_best) {
     if (file_ct == 2) {
       if (!clump_index_first) {
-        logprint("Error: --clump-best can no longer be used with two --clump files unless\n--clump-index-first is also specified.  (Contact the developers if this is\nproblematic.)\n");
+        logerrprint("Error: --clump-best can no longer be used with two --clump files unless\n--clump-index-first is also specified.  (Contact the developers if this is\nproblematic.)\n");
         goto clump_reports_ret_INVALID_CMDLINE;
       }
     } else if (file_ct > 2) {
-      logprint("Error: --clump-best can no longer be used with more than two --clump files.\n(Contact the developers if this is problematic.)\n");
+      logerrprint("Error: --clump-best can no longer be used with more than two --clump files.\n(Contact the developers if this is problematic.)\n");
       goto clump_reports_ret_INVALID_CMDLINE;
     }
     // only draw proxies from this file
@@ -13004,7 +13005,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   // 4. sort p-val array, greedily form clumps
   index_ct = popcount_longs(cur_bitfield, marker_ctl);
   if (!index_ct) {
-    logprint("Warning: No significant --clump results.  Skipping.\n");
+    logerrprint("Warning: No significant --clump results.  Skipping.\n");
     goto clump_reports_ret_1;
   }
   wkspace_left -= topsize;
@@ -13843,10 +13844,10 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     } else {
       uljj = MINV(missing_variant_ct, 3);
       for (ulii = 0; ulii < uljj; ulii++) {
-	LOGPRINTFWW("Warning: '%s' is missing from the main dataset, and is a top variant.\n", &(sorted_missing_variant_ids[ulii * max_missing_id_len]));
+	LOGERRPRINTFWW("Warning: '%s' is missing from the main dataset, and is a top variant.\n", &(sorted_missing_variant_ids[ulii * max_missing_id_len]));
       }
       if (missing_variant_ct > 3) {
-        printf("%" PRIuPTR " more top variant ID%s missing; see log file.\n", missing_variant_ct - 3, (missing_variant_ct == 4)? "" : "s");
+        fprintf(stderr, "%" PRIuPTR " more top variant ID%s missing; see log file.\n", missing_variant_ct - 3, (missing_variant_ct == 4)? "" : "s");
 	for (ulii = 3; ulii < missing_variant_ct; ulii++) {
 	  LOGPREPRINTFWW("Warning: '%s' is missing from the main dataset, and is a top variant.\n", &(sorted_missing_variant_ids[ulii * max_missing_id_len]));
 	  logstr(logbuf);
@@ -13891,7 +13892,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     *bufptr2 = '\0';
     LOGPREPRINTFWW("Error: Duplicate column header '%s' in %s.\n", bufptr, fname_ptr);
   clump_reports_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }

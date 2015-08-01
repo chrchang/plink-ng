@@ -2739,10 +2739,10 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   LOGPRINTFWW("Results saved to %s.hom + %s.hom.indiv + %s.hom.summary .\n", outname, outname, outname);
   if (hp->modifier & (HOMOZYG_GROUP | HOMOZYG_GROUP_VERBOSE)) {
     if (max_pool_size < hp->pool_size_min) {
-      LOGPRINTF("Warning: Skipping --homozyg group%s report since there are no pools.\n", (hp->modifier & HOMOZYG_GROUP_VERBOSE)? "-verbose" : "");
+      LOGERRPRINTF("Warning: Skipping --homozyg group%s report since there are no pools.\n", (hp->modifier & HOMOZYG_GROUP_VERBOSE)? "-verbose" : "");
 #ifndef __LP64__
     } else if (max_pool_size > 65536) {
-      logprint("Error: 32-bit " PROG_NAME_STR "'s --homozyg group cannot handle a pool of size >65536.\n");
+      logerrprint("Error: 32-bit " PROG_NAME_STR "'s --homozyg group cannot handle a pool of size >65536.\n");
       goto calc_homozyg_ret_NOMEM;
 #endif
     } else {

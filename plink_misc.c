@@ -210,7 +210,7 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
     retval = RET_READ_FAIL;
     break;
   makepheno_load_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -293,7 +293,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
 	  do {
 	    bufptr = next_token(bufptr);
 	    if (no_more_tokens_kns(bufptr)) {
-	      logprint("Error: --pheno-name column not found.\n");
+	      logerrprint("Error: --pheno-name column not found.\n");
               goto load_pheno_ret_INVALID_FORMAT;
 	    }
 	    mpheno_col++;
@@ -306,13 +306,13 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
 	  }
 	  tmp_len = strlen_se(bufptr);
 	  if (tmp_len > max_pheno_name_len) {
-	    logprint("Error: Excessively long phenotype name in --pheno file.\n");
+	    logerrprint("Error: Excessively long phenotype name in --pheno file.\n");
             goto load_pheno_ret_INVALID_FORMAT;
 	  }
           memcpyx(phenoname_load, bufptr, tmp_len, '\0');
 	}
       } else if (phenoname_str) {
-	logprint("Error: --pheno-name requires the --pheno file to have a header line with first\ntwo columns 'FID' and 'IID'.\n");
+	logerrprint("Error: --pheno-name requires the --pheno file to have a header line with first\ntwo columns 'FID' and 'IID'.\n");
 	goto load_pheno_ret_INVALID_FORMAT;
       } else {
 	header_processed = 1;
@@ -400,7 +400,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
   load_pheno_ret_MISSING_TOKENS:
     sprintf(logbuf, "Error: Line %" PRIuPTR " of --pheno file has fewer tokens than expected.\n", line_idx);
   load_pheno_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
   load_pheno_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -416,7 +416,7 @@ int32_t convert_tail_pheno(uint32_t unfiltered_sample_ct, uintptr_t* pheno_nm, u
   uint32_t sample_uidx_stop;
   double dxx;
   if (!(*pheno_d_ptr)) {
-    logprint("Error: --tail-pheno requires scalar phenotype data.\n");
+    logerrprint("Error: --tail-pheno requires scalar phenotype data.\n");
     return RET_INVALID_FORMAT;
   }
   sample_uidx = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
@@ -505,7 +505,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
       bufptr = uint32_write(fname_write, uii);
       memcpy(bufptr, at_sign_ptr, post_at_sign_len);
       if (fopen_checked(&shapeitfile, fname_buf, "r")) {
-	LOGPRINTFWW("Warning: --cm-map failed to open %s.\n", fname_buf);
+	LOGERRPRINTFWW("Warning: --cm-map failed to open %s.\n", fname_buf);
         continue;
       }
     } else {
@@ -555,7 +555,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
         goto apply_cm_map_ret_INVALID_FORMAT_2;
       }
       if (bp_new <= bp_old) {
-        logprint("Error: bp coordinates in --cm-map file are not in increasing order.\n");
+        logerrprint("Error: bp coordinates in --cm-map file are not in increasing order.\n");
         goto apply_cm_map_ret_INVALID_FORMAT;
       }
       bufptr2 = next_token_mult(bufptr, 2);
@@ -595,7 +595,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
       goto apply_cm_map_ret_READ_FAIL;
     }
     if (irreg_line_ct) {
-      LOGPRINTFWW("Warning: %" PRIuPTR " irregular line%s skipped in %s.\n", irreg_line_ct, (irreg_line_ct == 1)? "" : "s", fname_buf);
+      LOGERRPRINTFWW("Warning: %" PRIuPTR " irregular line%s skipped in %s.\n", irreg_line_ct, (irreg_line_ct == 1)? "" : "s", fname_buf);
     }
   }
   LOGPRINTF("--cm-map: %u chromosome%s updated.\n", updated_chrom_ct, (updated_chrom_ct == 1)? "" : "s");
@@ -607,13 +607,13 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
     retval = RET_READ_FAIL;
     break;
   apply_cm_map_ret_INVALID_CMDLINE_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_CMDLINE;
     break;
   apply_cm_map_ret_MISSING_TOKENS:
     sprintf(logbuf, "Error: Line %" PRIuPTR " of --cm-map file has fewer tokens than expected.\n", line_idx);
   apply_cm_map_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
   apply_cm_map_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -733,7 +733,7 @@ int32_t update_marker_cms(Two_col_params* update_cm, uint32_t* marker_id_htable,
   update_marker_cms_ret_MISSING_TOKENS:
     sprintf(logbuf, "Error: Line %" PRIuPTR " of --update-cm file has fewer tokens than expected.\n", line_idx);
   update_marker_cms_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -858,7 +858,7 @@ int32_t update_marker_pos(Two_col_params* update_map, uint32_t* marker_id_htable
   logprintb();
   *marker_exclude_ct_ptr = unfiltered_marker_ct - marker_ct;
   if (!marker_ct) {
-    logprint("Error: All variants excluded by --update-map (due to negative marker\npositions).\n");
+    logerrprint("Error: All variants excluded by --update-map (due to negative marker\npositions).\n");
     goto update_marker_pos_ret_ALL_MARKERS_EXCLUDED;
   }
   for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
@@ -870,7 +870,7 @@ int32_t update_marker_pos(Two_col_params* update_map, uint32_t* marker_id_htable
     if (last_pos > marker_pos[marker_uidx]) {
       map_is_unsorted |= UNSORTED_BP;
       if (!((*map_is_unsorted_ptr) & UNSORTED_BP)) {
-	logprint("Warning: Base-pair positions are now unsorted!\n");
+	logerrprint("Warning: Base-pair positions are now unsorted!\n");
       }
       break;
     }
@@ -890,7 +890,7 @@ int32_t update_marker_pos(Two_col_params* update_map, uint32_t* marker_id_htable
   update_marker_pos_ret_MISSING_TOKENS:
     sprintf(logbuf, "Error: Line %" PRIuPTR " of --update-map file has fewer tokens than expected.\n", line_idx);
   update_marker_pos_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   update_marker_pos_ret_ALL_MARKERS_EXCLUDED:
@@ -999,7 +999,7 @@ int32_t update_marker_names(Two_col_params* update_name, uint32_t* marker_id_hta
     retval = RET_READ_FAIL;
     break;
   update_marker_names_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -1169,9 +1169,9 @@ int32_t update_marker_alleles(char* update_alleles_fname, uint32_t* marker_id_ht
     retval = RET_WRITE_FAIL;
     break;
   update_marker_alleles_ret_DUPLICATE_ALLELE_CODE:
-    LOGPRINTF("Error: Duplicate allele code on line %" PRIuPTR " of --update-alleles file.\n", line_idx);
+    LOGERRPRINTF("Error: Duplicate allele code on line %" PRIuPTR " of --update-alleles file.\n", line_idx);
   update_marker_alleles_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -1286,7 +1286,7 @@ int32_t flip_strand(char* flip_fname, uint32_t* marker_id_htable, uint32_t marke
       curtoklen = (uintptr_t)(bufptr2 - bufptr);
       if (bufptr2 == &(tbuf[MAXLINELEN * 2])) {
         if (curtoklen > MAX_ID_LEN) {
-	  logprint("Error: Excessively long ID in --flip file.\n");
+	  logerrprint("Error: Excessively long ID in --flip file.\n");
 	  goto flip_strand_ret_INVALID_FORMAT;
 	}
         bufptr3 = &(tbuf[MAXLINELEN - curtoklen]);
@@ -1309,7 +1309,7 @@ int32_t flip_strand(char* flip_fname, uint32_t* marker_id_htable, uint32_t marke
   }
   logprintb();
   if (non_acgt_ct) {
-    LOGPRINTF("Warning: %u variant%s had at least one non-A/C/G/T allele name.\n", non_acgt_ct, (non_acgt_ct == 1)? "" : "s");
+    LOGERRPRINTF("Warning: %u variant%s had at least one non-A/C/G/T allele name.\n", non_acgt_ct, (non_acgt_ct == 1)? "" : "s");
   }
   while (0) {
   flip_strand_ret_NOMEM:
@@ -1322,7 +1322,7 @@ int32_t flip_strand(char* flip_fname, uint32_t* marker_id_htable, uint32_t marke
     retval = RET_READ_FAIL;
     break;
   flip_strand_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
   flip_strand_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -1416,7 +1416,7 @@ int32_t update_sample_ids(char* update_ids_fname, char* sorted_sample_ids, uintp
     retval = RET_READ_FAIL;
     break;
   update_sample_ids_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -1519,7 +1519,7 @@ int32_t update_sample_parents(char* update_parents_fname, char* sorted_sample_id
     retval = RET_READ_FAIL;
     break;
   update_sample_parents_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -1638,7 +1638,7 @@ int32_t update_sample_sexes(char* update_sex_fname, uint32_t update_sex_col, cha
   update_sample_sexes_ret_MISSING_TOKENS:
     sprintf(logbuf, "Error: Line %" PRIuPTR " of --update-sex file has fewer tokens than expected.\n", line_idx);
   update_sample_sexes_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -1886,7 +1886,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
   loadbuf[loadbuf_size - 1] = ' ';
   do {
     if (!fgets(loadbuf, loadbuf_size, freqfile)) {
-      logprint("Error: Empty --read-freq file.\n");
+      logerrprint("Error: Empty --read-freq file.\n");
       goto read_external_freqs_ret_INVALID_FORMAT;
     }
     line_idx++;
@@ -1897,7 +1897,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
   } while (is_eoln_kns(*bufptr));
   uii = get_freq_file_type(bufptr);
   if (!uii) {
-    logprint("Error: Invalid --read-freq file header.\n");
+    logerrprint("Error: Invalid --read-freq file header.\n");
     goto read_external_freqs_ret_INVALID_FORMAT;
   }
   if (uii < 3) {
@@ -2073,7 +2073,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
     // Also support GCTA-style frequency files:
     // [marker ID]\t[reference allele]\t[frequency of reference allele]\n
     if (nchrobs) {
-      logprint("Error: The current run requires an allele frequency file with observation\ncounts.\n");
+      logerrprint("Error: The current run requires an allele frequency file with observation\ncounts.\n");
       goto read_external_freqs_ret_INVALID_FORMAT;
     }
 
@@ -2132,7 +2132,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
   while (0) {
   read_external_freqs_ret_TOO_LONG_LINE:
     if (loadbuf_size == MAXLINEBUFLEN) {
-      LOGPRINTF("Error: Line %" PRIuPTR " of --read-freq file is pathologically long.\n", line_idx);
+      LOGERRPRINTF("Error: Line %" PRIuPTR " of --read-freq file is pathologically long.\n", line_idx);
       retval = RET_INVALID_FORMAT;
       break;
     }
@@ -2143,41 +2143,41 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
     retval = RET_OPEN_FAIL;
     break;
   read_external_freqs_ret_INVALID_HOM_A1:
-    LOGPRINTF("Error: Invalid hom. A1 count on line %" PRIuPTR " of --read-freq file.\n", line_idx);
+    LOGERRPRINTF("Error: Invalid hom. A1 count on line %" PRIuPTR " of --read-freq file.\n", line_idx);
     retval = RET_INVALID_FORMAT;
     break;
   read_external_freqs_ret_INVALID_HOM_A2:
-    LOGPRINTF("Error: Invalid hom. A2 count on line %" PRIuPTR " of --read-freq file.\n", line_idx);
+    LOGERRPRINTF("Error: Invalid hom. A2 count on line %" PRIuPTR " of --read-freq file.\n", line_idx);
     retval = RET_INVALID_FORMAT;
     break;
   read_external_freqs_ret_INVALID_NCHROBS:
-    LOGPRINTF("Error: Invalid NCHROBS value on line %" PRIuPTR " of --read-freq file.\n", line_idx);
+    LOGERRPRINTF("Error: Invalid NCHROBS value on line %" PRIuPTR " of --read-freq file.\n", line_idx);
     retval = RET_INVALID_FORMAT;
     break;
   read_external_freqs_ret_INVALID_MAF:
-    LOGPRINTF("Error: Invalid MAF on line %" PRIuPTR " of --read-freq file.\n", line_idx);
+    LOGERRPRINTF("Error: Invalid MAF on line %" PRIuPTR " of --read-freq file.\n", line_idx);
     retval = RET_INVALID_FORMAT;
     break;
   read_external_freqs_ret_A1_A2_SAME:
-    LOGPRINTF("Error: A1 and A2 alleles match on line %" PRIuPTR " of --read-freq file.\n", line_idx);
+    LOGERRPRINTF("Error: A1 and A2 alleles match on line %" PRIuPTR " of --read-freq file.\n", line_idx);
     retval = RET_INVALID_FORMAT;
     break;
   read_external_freqs_ret_INVALID_CHROM:
     sprintf(logbuf, "Error: Invalid chromosome code on line %" PRIuPTR" of --read-freq file.\n", line_idx);
   read_external_freqs_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
   read_external_freqs_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
   read_external_freqs_ret_MISSING_TOKENS:
-    LOGPRINTF("Error: Line %" PRIuPTR " of --read-freq file has fewer tokens than expected.\n", line_idx);
+    LOGERRPRINTF("Error: Line %" PRIuPTR " of --read-freq file has fewer tokens than expected.\n", line_idx);
     retval = RET_INVALID_FORMAT;
     break;
   read_external_freqs_ret_ALLELE_MISMATCH:
     if (retval == RET_NOMEM) {
       break;
     }
-    LOGPRINTF("Error: Allele(s) on line %" PRIuPTR " of --read-freq file don't match loaded\nvalues.\n", line_idx);
+    LOGERRPRINTF("Error: Allele(s) on line %" PRIuPTR " of --read-freq file don't match loaded\nvalues.\n", line_idx);
     break;
   }
  read_external_freqs_ret_1:
@@ -2304,7 +2304,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
       }
     } else {
       colid_ptr[idlen] = '\0';
-      LOGPRINTF("Warning: Impossible A%c allele assignment for variant %s.\n", is_a2? '2' : '1', colid_ptr);
+      LOGERRPRINTF("Warning: Impossible A%c allele assignment for variant %s.\n", is_a2? '2' : '1', colid_ptr);
     }
   }
   if (!feof(infile)) {
@@ -2321,7 +2321,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
     retval = RET_READ_FAIL;
     break;
   load_ax_alleles_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -3123,10 +3123,10 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	}
       }
     } else if (yonly) {
-      logprint("Error: --check-sex/--impute-sex y-only requires Y chromosome data.\n");
+      logerrprint("Error: --check-sex/--impute-sex y-only requires Y chromosome data.\n");
       goto sexcheck_ret_INVALID_CMDLINE;
     } else {
-      LOGPRINTF("Warning: No Y chromosome data for --%s-sex ycount.\n", do_impute? "impute" : "check");
+      LOGERRPRINTF("Warning: No Y chromosome data for --%s-sex ycount.\n", do_impute? "impute" : "check");
     }
   }
   memcpy(outname_end, ".sexcheck", 10);
@@ -3250,7 +3250,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     retval = RET_WRITE_FAIL;
     break;
   sexcheck_ret_NO_X_VAR:
-    logprint("Error: --check-sex/--impute-sex requires at least one polymorphic X chromosome\nlocus.\n");
+    logerrprint("Error: --check-sex/--impute-sex requires at least one polymorphic X chromosome\nlocus.\n");
   sexcheck_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
@@ -3339,7 +3339,7 @@ int32_t write_var_ranges(char* outname, char* outname_end, uintptr_t unfiltered_
   uintptr_t new_marker_idx;
   uint32_t block_idx;
   if (write_var_range_ct > marker_ct) {
-    logprint("Error: --write-var-ranges block count exceeds the total number of variants.\n");
+    logerrprint("Error: --write-var-ranges block count exceeds the total number of variants.\n");
     goto write_var_ranges_ret_INVALID_CMDLINE;
   }
   memcpy(outname_end, ".var.ranges", 12);
@@ -3624,7 +3624,7 @@ int32_t list_duplicate_vars(char* outname, char* outname_end, uint32_t dupvar_mo
       next_unset_ul_unsafe_ck(uniqueness_check_bitfield, &marker_uidx2);
       wptr = &(marker_ids[marker_uidx2 * max_marker_id_len]);
       if (id_htable_find(wptr, strlen(wptr), reported_id_htable, reported_id_htable_size, marker_ids, max_marker_id_len) != 0xffffffffU) {
-        LOGPRINTFWW("Error: Duplicate ID '%s'.\n", wptr);
+        LOGERRPRINTFWW("Error: Duplicate ID '%s'.\n", wptr);
 	goto list_duplicate_vars_ret_INVALID_FORMAT;
       }
     }
@@ -3710,7 +3710,7 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
   uint32_t obs_ct;
   pzwrite_init_null(&ps);
   if (is_set(chrom_info_ptr->haploid_mask, 0)) {
-    logprint("Error: --het cannot be used on haploid genomes.\n");
+    logerrprint("Error: --het cannot be used on haploid genomes.\n");
     goto het_report_ret_INVALID_CMDLINE;
   }
   if (wkspace_alloc_uc_checked(&overflow_buf, PIGZ_BLOCK_SIZE + MAXLINELEN) ||
@@ -3882,7 +3882,7 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
     retval = RET_WRITE_FAIL;
     break;
   het_report_ret_INVALID_CMDLINE:
-    logprint("Error: --het requires at least one polymorphic autosomal marker.\n");
+    logerrprint("Error: --het requires at least one polymorphic autosomal marker.\n");
     retval = RET_INVALID_CMDLINE;
     break;
   }
@@ -3952,7 +3952,7 @@ int32_t fst_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
   uint32_t ujj;
   marker_ct -= count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
   if (!marker_ct) {
-    logprint("Error: No autosomal diploid variants for --fst.\n");
+    logerrprint("Error: No autosomal diploid variants for --fst.\n");
     goto fst_report_ret_INVALID_CMDLINE;
   }
   if (pheno_c) {
@@ -3969,7 +3969,7 @@ int32_t fst_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
     cur_sample_ct = popcount_longs(pheno_nm, unfiltered_sample_ctl);
     uii = popcount_longs(pheno_c, unfiltered_sample_ctl);
     if ((!uii) || (cur_sample_ct == uii)) {
-      logprint("Error: --fst case-control requires at least one case and one control.\n");
+      logerrprint("Error: --fst case-control requires at least one case and one control.\n");
       goto fst_report_ret_INVALID_CMDLINE;
     }
     cluster_sizes[0] = cur_sample_ct - uii;
@@ -3999,7 +3999,7 @@ int32_t fst_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
     }
     cluster_ct = uii;
     if (cluster_ct < 2) {
-      logprint("Error: --fst requires at least two nonempty clusters.\n");
+      logerrprint("Error: --fst requires at least two nonempty clusters.\n");
       goto fst_report_ret_INVALID_CMDLINE;
     }
     wkspace_shrink_top(cluster_sizes, cluster_ct * sizeof(int32_t));
@@ -4389,14 +4389,14 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   }
   cur_marker_ct = unfiltered_marker_ct - popcount_longs(marker_exclude, unfiltered_marker_ctl);
   if (!cur_marker_ct) {
-    logprint("Error: No valid entries in --score file.\n");
+    logerrprint("Error: No valid entries in --score file.\n");
     goto score_report_ret_INVALID_FORMAT;
   } else if (cur_marker_ct >= 0x40000000) {
-    logprint("Error: --score does not support >= 2^30 variants.\n");
+    logerrprint("Error: --score does not support >= 2^30 variants.\n");
     goto score_report_ret_INVALID_FORMAT;
   }
   if (miss_ct) {
-    LOGPRINTF("Warning: %" PRIuPTR " line%s skipped in --score file.\n", miss_ct, (miss_ct == 1)? "" : "s");
+    LOGERRPRINTF("Warning: %" PRIuPTR " line%s skipped in --score file.\n", miss_ct, (miss_ct == 1)? "" : "s");
   }
   if (sc_ip->data_fname) {
     effect_sizes_cur = dptr; // not collapsed yet
@@ -4484,7 +4484,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
     }
     marker_ct = unfiltered_marker_ct - popcount_longs(marker_exclude_main, unfiltered_marker_ctl);
     if (!marker_ct) {
-      logprint("Error: No valid entries in --q-score-range data file.\n");
+      logerrprint("Error: No valid entries in --q-score-range data file.\n");
       goto score_report_ret_INVALID_FORMAT;
     }
     wkspace_left -= topsize;
@@ -4504,7 +4504,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
       goto score_report_ret_NOMEM;
     }
     if (miss_ct) {
-      LOGPRINTF("Warning: %" PRIuPTR " line%s skipped in --q-score-range data file.\n", miss_ct, (miss_ct == 1)? "" : "s");
+      LOGERRPRINTF("Warning: %" PRIuPTR " line%s skipped in --q-score-range data file.\n", miss_ct, (miss_ct == 1)? "" : "s");
     }
     miss_ct = 0;
     if (fopen_checked(&infile, sc_ip->range_fname, "r")) {
@@ -4839,13 +4839,13 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
     retval = RET_WRITE_FAIL;
     break;
   score_report_ret_MISSING_TOKENS_Q:
-    LOGPRINTF("Error: Line %" PRIuPTR " of --q-score-range data file has fewer tokens than\nexpected.\n", line_idx);
+    LOGERRPRINTF("Error: Line %" PRIuPTR " of --q-score-range data file has fewer tokens than\nexpected.\n", line_idx);
     retval = RET_INVALID_FORMAT;
     break;
   score_report_ret_MISSING_TOKENS:
     sprintf(logbuf, "Error: Line %" PRIuPTR " of --score file has fewer tokens than expected.\n", line_idx);
   score_report_ret_INVALID_FORMAT_2:
-    logprintb();
+    logerrprintb();
   score_report_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -5054,7 +5054,7 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
     sprintf(logbuf, "Error: Duplicate column header '%s' in %s.\n", bufptr, fname);
   meta_analysis_open_and_read_header_ret_INVALID_FORMAT_WW:
     wordwrap(logbuf, 0);
-    logprintb();
+    logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -5337,7 +5337,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
     goto meta_analysis_ret_NOMEM;
   }
   if (scan_for_duplicate_ids(sorted_header_dict, header_dict_ct, max_header_len)) {
-    logprint("Error: Duplicate/invalid --meta-analysis-...-field field name.\n");
+    logerrprint("Error: Duplicate/invalid --meta-analysis-...-field field name.\n");
     goto meta_analysis_ret_INVALID_CMDLINE;
   }
 
@@ -5367,11 +5367,11 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
       goto meta_analysis_ret_1;
     }
     if (!extract_ct) {
-      logprint("Error: Empty --extract file.\n");
+      logerrprint("Error: Empty --extract file.\n");
       goto meta_analysis_ret_INVALID_FORMAT;
     }
     if (max_extract_id_len > MAX_ID_LEN_P1) {
-      logprint("Error: --extract IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+      logerrprint("Error: --extract IDs are limited to " MAX_ID_LEN_STR " characters.\n");
       goto meta_analysis_ret_INVALID_FORMAT;
     }
     if (wkspace_alloc_c_checked(&sorted_extract_ids, extract_ct * max_extract_id_len)) {
@@ -5640,11 +5640,11 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   //    [A1+A2 len] are also included past the end of each entry, to remove the
   //    need for an auxiliary index and let us free the hash table.
   if (!final_variant_ct) {
-    logprint("Error: No --meta-analysis variants.\n");
+    logerrprint("Error: No --meta-analysis variants.\n");
     goto meta_analysis_ret_INVALID_CMDLINE;
 #ifdef __LP64__
   } else if (final_variant_ct > 0x7fffffff) {
-    logprint("Error: Too many distinct --meta-analysis variants (max 2^31 - 1).\n");
+    logerrprint("Error: Too many distinct --meta-analysis variants (max 2^31 - 1).\n");
 #endif
   }
   if (!no_allele) {
@@ -6171,7 +6171,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
     break;
   meta_analysis_ret_INVALID_FORMAT_WW:
     wordwrap(logbuf, 0);
-    logprintb();
+    logerrprintb();
   meta_analysis_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
