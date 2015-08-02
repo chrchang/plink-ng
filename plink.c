@@ -13393,8 +13393,8 @@ int32_t main(int32_t argc, char** argv) {
     } else {
       logerrprint("Warning: No output requested.  Exiting.\n");
     }
-    fputs(cmdline_format_str, stderr);
-    fputs(notestr_null_calc2, stderr);
+    fputs(cmdline_format_str, stdout);
+    fputs(notestr_null_calc2, stdout);
     retval = RET_NULL_CALC;
 #ifdef STABLE_BUILD
     break;
