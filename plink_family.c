@@ -2759,6 +2759,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
     for (sample_idx = 1; sample_idx < cur_sample_ct; sample_idx++) {
       slen = strlen(bufptr) + 1;
       bufptr2 = &(merged_ids[sample_idx * max_merged_id_len]);
+      printf("%s  %s  %lu  %lu\n", bufptr, bufptr2, sample_idx, cur_sample_ct); // debug
       if (!memcmp(bufptr, bufptr2, slen)) {
         fs_starts[family_idx] = fssc_idx;
 	uii = *((uint32_t*)(&(bufptr[slen])));
@@ -3305,7 +3306,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     }
   }
   // DEBUG
-  printf("%u %u %u %u\n", family_all_case_children_ct, family_mixed_ct, sibship_mixed_ct, unrelated_cluster_ct);
+  printf("** %u %u %u %u\n", family_all_case_children_ct, family_mixed_ct, sibship_mixed_ct, unrelated_cluster_ct);
   wkspace_reset((unsigned char*)uidx_to_idx);
   if (wkspace_alloc_ul_checked(&dfam_pheno_c, dfam_sample_ctl2 * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_sample_ctl2 * sizeof(intptr_t)) ||

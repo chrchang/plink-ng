@@ -11676,12 +11676,18 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   char* pzwritep = NULL;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
+  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
   uintptr_t sample_ctv2 = 2 * ((sample_ct + (BITCT - 1)) / BITCT);
   uintptr_t final_mask = get_final_mask(sample_ct);
+  uintptr_t cur_final_mask = 0;
+  uintptr_t sample_ct_y = 0;
+  uintptr_t cur_sample_ct = 0;
   uintptr_t topsize = 0;
   unsigned char* wkspace_mark = wkspace_base;
   char delimiter = (recode_modifier & RECODE_TAB)? '\t' : ' ';
   uintptr_t* recode_allele_reverse = NULL;
+  uintptr_t* sample_exclude_y = NULL;
+  uintptr_t* cur_sample_exclude = NULL;
   char** mk_allele_ptrs = marker_allele_ptrs;
   char** allele_missing = NULL;
   char* recode_allele_extra = NULL;
@@ -11689,7 +11695,11 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   const char* missing_geno_ptr = g_missing_geno_ptr;
   char delim2 = delimiter;
   uintptr_t* sample_include2 = NULL;
+  uintptr_t* sample_include2_y = NULL;
+  uintptr_t* cur_sample_include2 = NULL;
   uintptr_t* sample_male_include2 = NULL;
+  uintptr_t* sample_male_include2_y = NULL;
+  uintptr_t* cur_sample_male_include2 = NULL;
   uint32_t lgen_ref = (recode_modifier & RECODE_LGEN_REF);
   uint32_t rlist = (recode_modifier & RECODE_RLIST);
   uint32_t beagle_nomap = (recode_modifier & RECODE_BEAGLE_NOMAP);
@@ -11702,6 +11712,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   uint32_t set_hh_missing = (misc_flags / MISC_SET_HH_MISSING) & 1;
   uint32_t real_ref_alleles = (misc_flags / MISC_REAL_REF_ALLELES) & 1;
   uint32_t xmhh_exists_orig = hh_exists & XMHH_EXISTS;
+  uint32_t omit_nonmale_y = recode_modifier & RECODE_OMIT_NONMALE_Y;
   uintptr_t header_len = 0;
   uintptr_t max_chrom_size = 0;
   uintptr_t max_fid_len = 0;
@@ -11715,6 +11726,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   uintptr_t* loadbuf_collapsed = NULL;
   uintptr_t* loadbuf_collapsed_end = NULL;
   char* sample_ids_collapsed = NULL;
+  char* sample_ids_collapsed_y = NULL;
+  char* cur_sample_ids_collapsed = NULL;
   char* writebuf = NULL;
   char* writebuf2 = NULL;
   char* writebuf3 = NULL;
@@ -11816,9 +11829,26 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     if (recode_modifier & (RECODE_LGEN | RECODE_LGEN_REF | RECODE_LIST | RECODE_RLIST)) {
       // need to collapse sample_ids to remove need for sample_uidx in inner
       // loop
-      sample_ids_collapsed = alloc_and_init_collapsed_arr(sample_ids, max_sample_id_len, unfiltered_sample_ct, sample_exclude, sample_ct, 1);
+      sample_ids_collapsed = alloc_and_init_collapsed_arr(sample_ids, max_sample_id_len, unfiltered_sample_ct, sample_exclude, sample_ct, (delimiter == '\t'));
       if (!sample_ids_collapsed) {
         goto recode_ret_NOMEM;
+      }
+      if (omit_nonmale_y) {
+	if (wkspace_alloc_ul_checked(&sample_exclude_y, unfiltered_sample_ctl * sizeof(intptr_t))) {
+	  goto recode_ret_NOMEM;
+	}
+	memcpy(sample_exclude_y, sample_exclude, unfiltered_sample_ctl * sizeof(intptr_t));
+	bitfield_ornot(sample_exclude_y, sex_male, unfiltered_sample_ctl);
+	zero_trailing_bits(sample_exclude_y, unfiltered_sample_ct);
+	sample_ct_y = unfiltered_sample_ct - popcount_longs(sample_exclude_y, unfiltered_sample_ctl);
+        uii = 2 * ((sample_ct_y + (BITCT - 1)) / BITCT);
+	if (wkspace_alloc_ul_checked(&sample_include2_y, uii * sizeof(intptr_t)) ||
+            wkspace_alloc_ul_checked(&sample_male_include2_y, uii * sizeof(intptr_t))) {
+	  goto recode_ret_NOMEM;
+	}
+	fill_vec_55(sample_include2_y, sample_ct_y);
+	fill_vec_55(sample_male_include2_y, sample_ct_y);
+	sample_ids_collapsed_y = alloc_and_init_collapsed_arr(sample_ids, max_sample_id_len, unfiltered_sample_ct, sample_exclude_y, sample_ct_y, (delimiter == '\t'));
       }
     }
   }
@@ -13521,13 +13551,19 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       }
     }
   } else if (recode_modifier & (RECODE_LIST | RECODE_RLIST)) {
-    // todo: fix
     strcpy(outname_end, rlist? ".rlist" : ".list");
     if (fopen_checked(&outfile, outname, "w")) {
       goto recode_ret_OPEN_FAIL;
     }
     if (delimiter != '\t') {
-      sample_delim_convert(unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, '\t', ' ');
+      if (wkspace_alloc_ul_checked(&ulptr, (sample_ctv2 / 2) * sizeof(intptr_t))) {
+	goto recode_ret_NOMEM;
+      }
+      fill_ulong_zero(ulptr, sample_ctv2 / 2);
+      sample_delim_convert(sample_ct, ulptr, sample_ct, sample_ids_collapsed, max_sample_id_len, '\t', ' ');
+      if (omit_nonmale_y) {
+        sample_delim_convert(sample_ct_y, ulptr, sample_ct_y, sample_ids_collapsed_y, max_sample_id_len, '\t', ' ');
+      }
     }
     if (rlist) {
       *outname_end = '\0';
@@ -13543,6 +13579,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     cur_mk_allelesx[1][1] = delimiter;
     cur_mk_allelesx[1][2] = missing_geno;
     cmalen[1] = 3;
+    chrom_fo_idx = 0xffffffffU;
+    chrom_end = 0;
     for (pct = 1; pct <= 100; pct++) {
       loop_end = (((uint64_t)pct) * marker_ct) / 100;
       for (; marker_idx < loop_end; marker_uidx++, marker_idx++) {
@@ -13555,13 +13593,28 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
 	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
+	  if (omit_nonmale_y && is_y) {
+	    cur_final_mask = get_final_mask(sample_ct_y);
+	    cur_sample_ct = sample_ct_y;
+	    cur_sample_exclude = sample_exclude_y;
+	    cur_sample_ids_collapsed = sample_ids_collapsed_y;
+	    cur_sample_include2 = sample_include2_y;
+	    cur_sample_male_include2 = sample_male_include2_y;
+	  } else {
+	    cur_final_mask = final_mask;
+	    cur_sample_ct = sample_ct;
+	    cur_sample_exclude = sample_exclude;
+	    cur_sample_ids_collapsed = sample_ids_collapsed;
+	    cur_sample_include2 = sample_include2;
+	    cur_sample_male_include2 = sample_male_include2;
+	  }
 	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	}
-	if (load_and_collapse(bedfile, (uintptr_t*)loadbuf, unfiltered_sample_ct, loadbuf_collapsed, sample_ct, sample_exclude, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+	if (load_and_collapse(bedfile, (uintptr_t*)loadbuf, unfiltered_sample_ct, loadbuf_collapsed, cur_sample_ct, cur_sample_exclude, cur_final_mask, IS_SET(marker_reverse, marker_uidx))) {
 	  goto recode_ret_READ_FAIL;
 	}
 	if (is_haploid && set_hh_missing) {
-          haploid_fix(hh_exists, sample_include2, sample_male_include2, sample_ct, is_x, is_y, (unsigned char*)loadbuf_collapsed);
+          haploid_fix(hh_exists, cur_sample_include2, cur_sample_male_include2, cur_sample_ct, is_x, is_y, (unsigned char*)loadbuf_collapsed);
 	}
 	init_recode_cmax(mk_allele_ptrs[2 * marker_uidx], mk_allele_ptrs[2 * marker_uidx + 1], cur_mk_allelesx, cmalen, '\0', delimiter);
 	cmalen[0] -= 1;
@@ -13598,7 +13651,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  writebuflp[ulii] = wbufptr;
 	}
 	ulptr = loadbuf_collapsed;
-	ulptr_end = &(loadbuf_collapsed[sample_ct / BITCT2]);
+	ulptr_end = &(loadbuf_collapsed[cur_sample_ct / BITCT2]);
 	sample_idx = 0;
 	sample_uidx = BITCT2; // repurposed as stop value
 	if (rlist) {
@@ -13612,7 +13665,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
                 ulii = cur_word & 3;
 		if (ulii != 3) {
 		  *(writebuflp[ulii]++) = delimiter;
-		  writebuflp[ulii] = strcpya(writebuflp[ulii], &(sample_ids_collapsed[sample_idx * max_sample_id_len]));
+		  writebuflp[ulii] = strcpya(writebuflp[ulii], &(cur_sample_ids_collapsed[sample_idx * max_sample_id_len]));
 		}
 	      }
 	      sample_uidx += BITCT2;
@@ -13621,7 +13674,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	      break;
 	    }
             ulptr_end++;
-	    sample_uidx = sample_ct;
+	    sample_uidx = cur_sample_ct;
 	  }
 	  if (writebuflp[2] != writebuflps[2]) {
 	    *(writebuflp[2]++) = '\n';
@@ -13648,7 +13701,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	      for (; sample_idx < sample_uidx; sample_idx++, cur_word >>= 2) {
                 ulii = cur_word & 3;
 		*(writebuflp[ulii]++) = delimiter;
-		writebuflp[ulii] = strcpya(writebuflp[ulii], &(sample_ids_collapsed[sample_idx * max_sample_id_len]));
+		writebuflp[ulii] = strcpya(writebuflp[ulii], &(cur_sample_ids_collapsed[sample_idx * max_sample_id_len]));
 	      }
 	      sample_uidx += BITCT2;
 	    }
@@ -13656,7 +13709,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	      break;
 	    }
             ulptr_end++;
-	    sample_uidx = sample_ct;
+	    sample_uidx = cur_sample_ct;
 	  }
 	  *(writebuflp[0]++) = '\n';
 	  *(writebuflp[1]++) = '\n';
@@ -13683,9 +13736,6 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	printf("\b\b%u%%", pct);
 	fflush(stdout);
       }
-    }
-    if (delimiter != '\t') {
-      sample_delim_convert(unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, ' ', '\t');
     }
   } else if (recode_modifier & (RECODE_HV | RECODE_HV_1CHR)) {
     if (wkspace_left < ((uint64_t)unfiltered_sample_ct4) * max_chrom_size) {

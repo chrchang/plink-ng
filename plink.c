@@ -91,7 +91,7 @@
 
 const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b3v"
+  "PLINK v1.90b3w"
 #else
   "PLINK v1.90p"
 #endif
@@ -103,7 +103,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (1 Aug 2015)";
+  " (4 Aug 2015)";
 const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -10605,6 +10605,8 @@ int32_t main(int32_t argc, char** argv) {
 	    recode_modifier |= RECODE_IID;
 	  } else if (!strcmp(argv[cur_arg + uii], "include-alt")) {
 	    recode_modifier |= RECODE_INCLUDE_ALT;
+	  } else if (!strcmp(argv[cur_arg + uii], "omit-nonmale-y")) {
+	    recode_modifier |= RECODE_OMIT_NONMALE_Y;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --recode parameter '%s'.%s\n", argv[cur_arg + uii], ((uii == param_ct) && (!outname_end))? "  (Did you forget '--out'?)" : "");
 	    goto main_ret_INVALID_CMDLINE_WWA;
@@ -10612,6 +10614,10 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if ((recode_modifier & RECODE_INCLUDE_ALT) && (!(recode_modifier & (RECODE_A | RECODE_AD)))) {
 	  logerrprint("Error: --recode 'include-alt' modifier must be used with 'A' or 'AD'.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
+	if ((recode_modifier & RECODE_OMIT_NONMALE_Y) && (!(recode_modifier & (RECODE_LIST | RECODE_RLIST)))) {
+	  logerrprint("Error: --recode 'omit-nonmale-y' modifier must be used with 'list' or 'rlist'.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if ((recode_modifier & RECODE_BGZ) && (!(recode_modifier & RECODE_VCF))) {

@@ -15,7 +15,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define PROG_NAME_STR "plink"
 #define PROG_NAME_CAPS "PLINK"
@@ -404,6 +404,7 @@
 #define RECODE_INCLUDE_ALT 0x8000000
 #define RECODE_BGZ 0x10000000
 #define RECODE_GEN_GZ 0x20000000
+#define RECODE_OMIT_NONMALE_Y 0x40000000
 
 #define GENOME_OUTPUT_GZ 1
 #define GENOME_REL_CHECK 2
