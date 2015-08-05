@@ -2759,7 +2759,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
     for (sample_idx = 1; sample_idx < cur_sample_ct; sample_idx++) {
       slen = strlen(bufptr) + 1;
       bufptr2 = &(merged_ids[sample_idx * max_merged_id_len]);
-      printf("%s  %s  %lu  %lu\n", bufptr, bufptr2, sample_idx, cur_sample_ct); // debug
+      // printf("%s  %s  %lu  %lu\n", bufptr, bufptr2, sample_idx, cur_sample_ct); // debug
       if (!memcmp(bufptr, bufptr2, slen)) {
         fs_starts[family_idx] = fssc_idx;
 	uii = *((uint32_t*)(&(bufptr[slen])));
