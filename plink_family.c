@@ -2998,7 +2998,6 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   double* maxt_extreme_stat = NULL;
   uint32_t mu_table[MODEL_BLOCKSIZE];
   char* outname_end2;
-  char* wptr_start;
   char* wptr;
   uint64_t* family_list;
   uint64_t* trio_list;
@@ -3025,6 +3024,8 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   double case_proportion;
   double case_expected_a1_ct;
   double case_var_a1_ct;
+  double chisq;
+  double pval;
   double dxx;
   uint32_t family_ct;
   uint32_t fs_ct;
@@ -3480,7 +3481,6 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       }
       erase_mendel_errors(unfiltered_sample_ct, loadbuf_raw, workbuf, sex_male, trio_error_lookup, trio_ct, 0, multigen);
       collapse_copy_2bitarr(loadbuf_raw, &(g_loadbuf[block_size * dfam_sample_ctl2]), unfiltered_sample_ct, dfam_sample_ct, dfam_sample_exclude);
-      printf("dfam_sample_exclude: %lx\n", dfam_sample_exclude[0]);
       if (perm_adapt_nst) {
 	g_adapt_m_table[block_size] = marker_idx2++;
       }
@@ -3550,7 +3550,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       //      case_expected_a1_ct := [case ct] * [A1 ct] / [cluster size]
       //      case_var_a1_ct      := ([case ct] * [ctrl ct]
       //                              [A1 ct] * [A2 ct]) /
-      //                             (([clst size]^2) * ([clst size] - 1))
+      //                             (([clst size]^2) * (2 * [clst size] - 1))
       //      numer          += case_a1_ct - case_expected_a1_ct
       //      denom          += case_var_a1_ct
       //      total_count    += case_a1_ct
@@ -3595,7 +3595,6 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	    total_count += case_a1_ct;
 	    twice_total_expected += cur_case_ct * parental_a1_ct;
 	  }
-	  printf("case-only family: %g %g %g\n", ((double)twice_numer) * 0.5, ((double)quad_denom) * 0.25, ((double)twice_total_expected) * 0.5);
 	}
 	for (fs_idx = 0; fs_idx < family_mixed_ct; fs_idx++) {
           paternal_id = *cur_dfam_ptr++;
@@ -3641,16 +3640,13 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	  }
           if (!parental_a1_ct) {
 	    dfam_sibship_calc(cur_case_ct, case_hom_a1_ct, case_het_ct, cur_ctrl_ct, ctrl_hom_a1_ct, ctrl_het_ct, &total_count, &numer, &denom, &total_expected);
-	    printf("sibship shunt");
 	  } else {
 	    case_a1_ct = 2 * case_hom_a1_ct + case_het_ct;
 	    twice_numer += (int32_t)(2 * case_a1_ct) - (int32_t)(cur_case_ct * parental_a1_ct);
 	    quad_denom += 2 - (parental_a1_ct & 1);
 	    total_count += case_a1_ct;
 	    twice_total_expected += cur_case_ct * parental_a1_ct;
-	    printf("mixed family");
 	  }
-	  printf(": %g %g %g\n", ((double)twice_numer) * 0.5, ((double)quad_denom) * 0.25, ((double)twice_total_expected) * 0.5);
 	}
 	numer += 0.5 * ((double)twice_numer);
 	denom += 0.25 * ((double)quad_denom);
@@ -3693,7 +3689,6 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	    continue;
 	  }
 	  dfam_sibship_calc(cur_case_ct, case_hom_a1_ct, case_het_ct, cur_ctrl_ct, ctrl_hom_a1_ct, ctrl_het_ct, &total_count, &numer, &denom, &total_expected);
-	  printf("sibship regular: %g %g %g\n", numer, denom, total_expected);
 	}
 	for (unrelated_cluster_idx = 0; unrelated_cluster_idx < unrelated_cluster_ct; unrelated_cluster_idx++) {
 	  sibling_ct = *cur_dfam_ptr++; // not actually siblings
@@ -3706,7 +3701,6 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
           for (sib_idx = 0; sib_idx < sibling_ct; sib_idx++) {
             sample_idx = *cur_dfam_ptr++;
 	    cur_geno = (loadbuf_ptr[sample_idx / BITCT2] >> (2 * (sample_idx % BITCT2))) & 3;
-	    printf("sample_idx, geno: %u %u\n", sample_idx, cur_geno);
 	    if (cur_geno == 1) {
 	      continue;
 	    }
@@ -3737,25 +3731,44 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	  if ((uii <= 1) || ((!hom_a1_ct) && (!het_ct)) || (hom_a1_ct == uii) || (het_ct == uii)) {
 	    continue;
 	  }
-	  printf("nonmissing sibling ct: %u\n", cur_case_ct + cur_ctrl_ct);
 	  total_count += case_a1_ct;
 	  if ((!cur_case_ct) || (!cur_ctrl_ct)) {
 	    total_expected += (double)((int32_t)case_a1_ct);
-	    printf("unrelated shunt: %g %g %g\n", numer, denom, total_expected);
 	    continue;
 	  }
 	  dxx = ((double)((int32_t)uii));
 	  case_proportion = ((double)((int32_t)cur_case_ct)) / dxx;
 	  ujj = 2 * hom_a1_ct + het_ct;
 	  case_expected_a1_ct = case_proportion * ((double)((int32_t)ujj));
-	  case_var_a1_ct = case_expected_a1_ct * cur_ctrl_ct * ((double)((int32_t)(2 * uii - ujj))) / (dxx * (dxx - 1));
+	  case_var_a1_ct = case_expected_a1_ct * ((double)((int32_t)(2 * uii - ujj))) * ((double)((int32_t)cur_ctrl_ct)) / (dxx * (2 * dxx - 1));
           numer += case_a1_ct - case_expected_a1_ct;
 	  denom += case_var_a1_ct;
 	  total_expected += case_expected_a1_ct;
-	  printf("unrelated: %g %g %g\n", numer, denom, total_expected);
 	}
-	// debug
-	printf("%g %g %u %g\n\n", numer, denom, total_count, total_expected);
+	chisq = numer * numer / denom;
+	pval = chiprob_p(chisq, 1);
+	if ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0))) {
+	  wptr = width_force(4, textbuf, chrom_name_write(textbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx2)));
+	  *wptr++ = ' ';
+	  wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), wptr);
+	  *wptr++ = ' ';
+	  wptr = fw_strcpy(4, marker_allele_ptrs[2 * marker_uidx2], wptr);
+	  *wptr++ = ' ';
+	  wptr = fw_strcpy(4, marker_allele_ptrs[2 * marker_uidx2 + 1], wptr);
+	  *wptr++ = ' ';
+	  wptr = uint32_writew8x(wptr, total_count, ' ');
+	  wptr = double_g_writewx4x(wptr, total_expected, 8, ' ');
+	  if (denom != 0.0) {
+	    wptr = double_g_writewx4x(wptr, chisq, 12, ' ');
+	    wptr = double_g_writewx4(wptr, pval, 12);
+	  } else {
+	    wptr = memcpya(wptr, "          NA           NA", 25);
+	  }
+	  wptr = memcpya(wptr, " \n", 2);
+	  if (fwrite_checked(textbuf, wptr - textbuf, outfile)) {
+	    goto dfam_ret_WRITE_FAIL;
+	  }
+	}
       }
     }
     marker_idx += block_size;
