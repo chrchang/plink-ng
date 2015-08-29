@@ -2909,6 +2909,7 @@ static double g_adaptive_slope;
 static double g_aperm_alpha;
 static double g_adaptive_ci_zt;
 
+// note that 4 is encoded as 0 since they're treated the same.
 // tried encoding this in a single 32-bit integer, but that appears to be
 // slower.
 const uint8_t dfam_allele_ct_table[] =
@@ -3587,7 +3588,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	  }
 	  if (cur_case_ct) {
 	    twice_numer += (int32_t)(2 * case_a1_ct) - (int32_t)(cur_case_ct * parental_a1_ct);
-	    quad_denom += (2 - (parental_a1_ct & 1)) * sibling_ct;
+	    quad_denom += (2 - (parental_a1_ct & 1)) * cur_case_ct;
 	    total_count += case_a1_ct;
 	    twice_total_expected += cur_case_ct * parental_a1_ct;
 	  }
@@ -3639,7 +3640,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	  } else {
 	    case_a1_ct = 2 * case_hom_a1_ct + case_het_ct;
 	    twice_numer += (int32_t)(2 * case_a1_ct) - (int32_t)(cur_case_ct * parental_a1_ct);
-	    quad_denom += 2 - (parental_a1_ct & 1);
+	    quad_denom += (2 - (parental_a1_ct & 1)) * (cur_case_ct + cur_ctrl_ct);
 	    total_count += case_a1_ct;
 	    twice_total_expected += cur_case_ct * parental_a1_ct;
 	  }
