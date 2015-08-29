@@ -3305,11 +3305,6 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     retval = RET_CALC_NOT_YET_SUPPORTED;
     goto dfam_ret_1;
   }
-  if (mtest_adjust || do_perms) {
-    if (wkspace_alloc_d_checked(&orig_chisq, marker_ct * sizeof(double))) {
-      goto dfam_ret_NOMEM;
-    }
-  }
   dfam_sample_ct = unfiltered_sample_ct - popcount_longs(dfam_sample_exclude, unfiltered_sample_ctl);
   dfam_sample_ctl2 = (dfam_sample_ct + (BITCT2 - 1)) / BITCT2;
   if (wkspace_alloc_ui_checked(&uidx_to_idx, unfiltered_sample_ct * sizeof(int32_t))) {
@@ -3357,9 +3352,10 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   // no X/haploid/MT, so no haploid filters
 
   if (fill_orig_chisq) {
-    if (wkspace_alloc_d_checked(&g_orig_stat, marker_ct * sizeof(double))) {
+    if (wkspace_alloc_d_checked(&orig_chisq, marker_ct * sizeof(double))) {
       goto dfam_ret_NOMEM;
     }
+    g_orig_stat = orig_chisq;
   }
 
   ulii = 2 * max_marker_allele_len + plink_maxsnp + MAX_ID_LEN + 256;
@@ -3746,6 +3742,9 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	  total_expected += case_expected_a1_ct;
 	}
 	chisq = numer * numer / denom;
+	if (fill_orig_chisq) {
+	  orig_chisq[marker_idx + marker_bidx] = chisq;
+	}
 	pval = chiprob_p(chisq, 1);
 	if ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0))) {
 	  wptr = width_force(4, textbuf, chrom_name_write(textbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx2)));

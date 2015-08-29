@@ -214,7 +214,7 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mi
     // tail 1 = upper
     while (curr_hets_t2 > 1.5) {
       // het_probs[curr_hets] = 1
-      // het_probs[curr_hets - 2] = het_probs[curr_hets] * curr_hets * (curr_hets
+      // het_probs[curr_hets - 2] = het_probs[curr_hets] * curr_hets * (curr_hets - 1.0)
       curr_homr_t2 += 1;
       curr_homc_t2 += 1;
       lastp2 *= (curr_hets_t2 * (curr_hets_t2 - 1)) / (4 * curr_homr_t2 * curr_homc_t2);
@@ -397,18 +397,11 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
     }
 
     // An initial upper bound on the tail sum is useful, since it lets us
-    // report test failure before summing the entire center.
-    // The immediate tail is easy: if the next element out on the tail is r,
-    // then 1 + r + r^2 + ... = 1 / (1-r) works.
-    // For the far tail, we currently use the trivial bound of
-    //   1 + floor[het_exp_floor / 2]
-    // (each far tail element must be no greater than 1 and there are at
-    // most that many of them).  This bound could be improved, but it might not
-    // be worth the precomputational effort.
-    // ...and as long as we're using such a weak bound for the far tail,
-    // there's no point to carefully calculating the near tail since we're very
-    // unlikely to use the partial result before exiting from the function.
-    exit_thresh = rare_copies * thresh * EXACT_TEST_BIAS;
+    // report test failure before summing the entire center.  We use the
+    // trivial bound of 1 + floor(rare_copies / 2): that's the total number
+    // of possible het counts, and the relative probability for each count must
+    // be <= 1 if it's in the tail.
+    exit_thresh = (1 + (rare_copies / 2)) * thresh * EXACT_TEST_BIAS;
 
     // het_probs[curr_hets] = 1
     // het_probs[curr_hets - 2] = het_probs[curr_hets] * curr_hets * (curr_hets - 1) / (4 * (curr_homr + 1) * (curr_homc + 1))
@@ -487,7 +480,7 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
     if (!obs_homr) {
       return 0;
     }
-    exit_thresh = rare_copies * thresh * EXACT_TEST_BIAS;
+    exit_thresh = (1 + (rare_copies / 2)) * thresh * EXACT_TEST_BIAS;
     do {
       curr_hets_t2 += 2;
       lastp2 *= (4 * curr_homr_t2 * curr_homc_t2) / (curr_hets_t2 * (curr_hets_t2 - 1));
@@ -598,7 +591,7 @@ int32_t SNPHWE_midp_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, doub
     if (obs_hets < 2) {
       return 0;
     }
-    exit_thresh = rare_copies * thresh * EXACT_TEST_BIAS;
+    exit_thresh = (1 + (rare_copies / 2)) * thresh * EXACT_TEST_BIAS;
     do {
       curr_homr_t2 += 1;
       curr_homc_t2 += 1;
@@ -679,7 +672,7 @@ int32_t SNPHWE_midp_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, doub
     if (!obs_homr) {
       return 0;
     }
-    exit_thresh = rare_copies * thresh * EXACT_TEST_BIAS;
+    exit_thresh = (1 + (rare_copies / 2)) * thresh * EXACT_TEST_BIAS;
     do {
       curr_hets_t2 += 2;
       lastp2 *= (4 * curr_homr_t2 * curr_homc_t2) / (curr_hets_t2 * (curr_hets_t2 - 1));
