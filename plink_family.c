@@ -2866,9 +2866,12 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
 
 // multithread globals
 static double* g_maxt_extreme_stat;
-static double* g_maxt_thread_results;
+// static double* g_maxt_thread_results;
 static double* g_mperm_save_all;
 static uintptr_t* g_pheno_c;
+// static uintptr_t* g_dfam_flipa;
+// static uintptr_t* g_dfam_perm_vecs;
+// static uintptr_t* g_dfam_perm_vecst;
 
 static uintptr_t* g_loadbuf;
 static uintptr_t* g_lm_eligible;
@@ -2952,8 +2955,6 @@ void dfam_sibship_calc(uint32_t cur_case_ct, uint32_t case_hom_a1_ct, uint32_t c
 }
 
 int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* sample_ids, uintptr_t max_sample_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, Chrom_info* chrom_info_ptr, uint32_t hh_exists, uint32_t within_cmdflag, uint32_t perm_batch_size, Family_info* fam_ip, Set_info* sip) {
-  // logerrprint("Error: --dfam is currently under development.\n");
-  // return RET_CALC_NOT_YET_SUPPORTED;
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   FILE* outfile_msa = NULL;
@@ -2975,7 +2976,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t perm_maxt_nst = (fam_ip->dfam_modifier & DFAM_MPERM) && (!is_set_test);
   uint32_t do_perms = fam_ip->dfam_modifier & (DFAM_PERM | DFAM_MPERM);
   uint32_t do_perms_nst = do_perms && (!is_set_test);
-  uint32_t perm_count = fam_ip->dfam_modifier & DFAM_PERM_COUNT;
+  // uint32_t perm_count = fam_ip->dfam_modifier & DFAM_PERM_COUNT;
   uint32_t fill_orig_chisq = do_perms || mtest_adjust;
   uint32_t no_unrelateds = (fam_ip->dfam_modifier & DFAM_NO_UNRELATEDS) || (within_cmdflag && (!cluster_ct));
   uint32_t family_all_case_children_ct = 0;
@@ -2983,7 +2984,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t sibship_mixed_ct = 0;
   uint32_t unrelated_cluster_ct = 0;
   uint32_t pct = 0;
-  uint32_t max_thread_ct = g_thread_ct;
+  // uint32_t max_thread_ct = g_thread_ct;
   uint32_t perm_pass_idx = 0;
   uint32_t perms_total = 0;
   uint32_t perms_done = 0;
@@ -3368,6 +3369,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 
   // permutation test boilerplate mostly copied from qassoc() in plink_assoc.c,
   // since it's also restricted to autosomes
+  g_perms_done = 0;
   g_mperm_save_all = NULL;
   if (perm_maxt_nst) {
     perms_total = fam_ip->dfam_mperm_val;
@@ -3437,11 +3439,28 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   fputs("0%", stdout);
   fflush(stdout);
   // ----- begin main loop -----
- dfam_more_perms:
+  // dfam_more_perms:
   if (do_perms_nst) {
-    if (!perm_pass_idx) {
-      // ...
+    logerrprint("Error: --dfam permutation tests are currently under development.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto dfam_ret_1;
+    /*
+    if (perm_adapt_nst && perm_pass_idx) {
+      while (g_first_adapt_check <= g_perms_done) {
+	// APERM_MAX prevents infinite loop here
+	g_first_adapt_check += (int32_t)(apip->init_interval + ((int32_t)g_first_adapt_check) * apip->interval_slope);
+      }
     }
+    // g_perm_vec_ct memory allocation dependencies:
+    //   ;;;
+    g_perm_vec_ct = perm_batch_size;
+    if (g_perm_vec_ct > perms_total - g_perms_done) {
+      g_perm_vec_ct = perms_total - g_perms_done;
+    }
+    if (wkspace_alloc_ul_checked(&g_dfam_perm_vecs, g_perm_vec_ct * sample_ctv2 * sizeof(intptr_t))) {
+      goto dfam_ret_NOMEM;
+    }
+    */
   }
   chrom_fo_idx = 0xffffffffU;
   marker_uidx = next_unset_unsafe(marker_exclude, 0);
@@ -3861,9 +3880,9 @@ void uint32_permute(uint32_t* perm_arr, uint32_t* precomputed_mods, sfmt_t* sfmt
     do {
       urand = sfmt_genrand_uint32(sfmtp);
     } while (urand < lbound);
-    // integer modulus is slow.  some of the other permutation generator handle
-    // many at once, in a manner that allows magic number divide to be employed
-    // efficiently.
+    // integer modulus is slow.  some of the other permutation generators
+    // handle many at once, in a manner that allows magic number divide to be
+    // employed efficiently.
     urand %= write_idx + 1;
     perm_arr[write_idx] = perm_arr[urand];
     perm_arr[urand] = write_idx;

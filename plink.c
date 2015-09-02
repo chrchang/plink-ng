@@ -103,10 +103,10 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (28 Aug 2015)";
+  " (2 Sep 2015)";
 const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
 #else

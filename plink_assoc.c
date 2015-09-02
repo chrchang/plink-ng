@@ -9204,12 +9204,10 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   // ----- begin main loop -----
  qassoc_more_perms:
   if (do_perms_nst) {
-    if (perm_adapt_nst) {
-      if (perm_pass_idx) {
-	while (g_first_adapt_check <= g_perms_done) {
-	  // APERM_MAX prevents infinite loop here
-	  g_first_adapt_check += (int32_t)(apip->init_interval + ((int32_t)g_first_adapt_check) * apip->interval_slope);
-	}
+    if (perm_adapt_nst && perm_pass_idx) {
+      while (g_first_adapt_check <= g_perms_done) {
+	// APERM_MAX prevents infinite loop here
+	g_first_adapt_check += (int32_t)(apip->init_interval + ((int32_t)g_first_adapt_check) * apip->interval_slope);
       }
     }
     // g_perm_vec_ct memory allocation dependencies:

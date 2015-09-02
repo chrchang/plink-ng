@@ -4180,6 +4180,8 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   uintptr_t final_mask = get_final_mask(sample_ct);
   uintptr_t topsize = 0;
   uintptr_t miss_ct = 0;
+  uint32_t miss_varid_ct = 0;
+  uint32_t miss_allele_ct = 0;
   uintptr_t range_ct = 0;
   uintptr_t range_skip = 0;
   uintptr_t ulii = 0;
@@ -4336,6 +4338,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   if (modifier & SCORE_HEADER) {
     goto score_report_load_next;
   }
+  memcpy(outname_end, ".nopred", 8);
   while (1) {
     bufptr_arr[0] = next_token_multz(bufptr, first_col_m1);
     bufptr_arr[1] = next_token_mult(bufptr_arr[0], col_01_delta);
@@ -4349,6 +4352,16 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
       uii = strcmp(bufptr_arr[allele_idx], marker_allele_ptrs[2 * marker_uidx]);
       if ((!uii) || (!strcmp(bufptr_arr[allele_idx], marker_allele_ptrs[2 * marker_uidx + 1]))) {
         if (scan_double(bufptr_arr[effect_idx], &(dptr[marker_uidx]))) {
+	  if (!miss_ct) {
+	    if (fopen_checked(&outfile, outname, "w")) {
+	      goto score_report_ret_OPEN_FAIL;
+	    }
+	  }
+	  fputs("BADVAL\t", outfile);
+	  if (fwrite_checked(bufptr_arr[varid_idx], strlen_se(bufptr_arr[varid_idx]), outfile)) {
+	    goto score_report_ret_WRITE_FAIL;
+	  }
+	  putc('\n', outfile);
           miss_ct++;
 	} else {
 	  if (!IS_SET(marker_exclude, marker_uidx)) {
@@ -4362,10 +4375,38 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
 	  }
 	}
       } else {
+	if (!miss_ct) {
+	  if (fopen_checked(&outfile, outname, "w")) {
+	    goto score_report_ret_OPEN_FAIL;
+	  }
+	}
+	fputs("NOALLELE\t", outfile);
+	if (fwrite_checked(bufptr_arr[varid_idx], strlen_se(bufptr_arr[varid_idx]), outfile)) {
+	  goto score_report_ret_WRITE_FAIL;
+	}
+	putc(' ', outfile);
+	fputs(bufptr_arr[allele_idx], outfile);
+	fputs(" vs ", outfile);
+	fputs(marker_allele_ptrs[2 * marker_uidx], outfile);
+	putc(' ', outfile);
+	fputs(marker_allele_ptrs[2 * marker_uidx + 1], outfile);
+	putc('\n', outfile);
 	miss_ct++;
+	miss_allele_ct++;
       }
     } else {
+      if (!miss_ct) {
+	if (fopen_checked(&outfile, outname, "w")) {
+	  goto score_report_ret_OPEN_FAIL;
+	}
+      }
+      fputs("NOSNP\t", outfile);
+      if (fwrite_checked(bufptr_arr[varid_idx], strlen_se(bufptr_arr[varid_idx]), outfile)) {
+	goto score_report_ret_WRITE_FAIL;
+      }
+      putc('\n', outfile);
       miss_ct++;
+      miss_varid_ct++;
     }
   score_report_load_next:
     line_idx++;
@@ -4396,8 +4437,12 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
     goto score_report_ret_INVALID_FORMAT;
   }
   if (miss_ct) {
-    LOGERRPRINTF("Warning: %" PRIuPTR " line%s skipped in --score file.\n", miss_ct, (miss_ct == 1)? "" : "s");
+    LOGERRPRINTFWW("Warning: %" PRIuPTR " line%s skipped in --score file (%u due to variant ID mismatch, %u due to allele code mismatch); see %s for details.\n", miss_ct, (miss_ct == 1)? "" : "s", miss_varid_ct, miss_allele_ct, outname);
+    if (fclose_null(&outfile)) {
+      goto score_report_ret_WRITE_FAIL;
+    }
   }
+  LOGPRINTF("--score: %u valid predictor%s loaded.\n", cur_marker_ct, (cur_marker_ct == 1)? "" : "s");
   if (sc_ip->data_fname) {
     effect_sizes_cur = dptr; // not collapsed yet
     ulii = topsize;
