@@ -2999,7 +2999,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uintptr_t* size_one_sibships;
   double* maxt_extreme_stat = NULL;
   uint32_t mu_table[MODEL_BLOCKSIZE];
-  char* outname_end2;
+  // char* outname_end2;
   char* wptr;
   uint64_t* family_list;
   uint64_t* trio_list;
