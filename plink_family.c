@@ -3045,7 +3045,6 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t dfam_sample_ctl2;
   uint32_t chrom_fo_idx;
   uint32_t chrom_idx;
-  uint32_t chrom_end;
   uint32_t block_size;
   uint32_t block_end;
   uint32_t marker_bidx;
@@ -3413,7 +3412,8 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     }
   }
 
-  outname_end2 = memcpyb(outname_end, ".dfam", 6);
+  memcpy(outname_end, ".dfam", 6);
+  // outname_end2 = memcpyb(outname_end, ".dfam", 6);
   if (fopen_checked(&outfile, outname, "w")) {
     goto dfam_ret_OPEN_FAIL;
   }
@@ -3469,7 +3469,6 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   }
   marker_idx = 0;
   marker_idx2 = 0;
-  chrom_end = 0;
   do {
     // since X/haploid/MT is not supported, ignore chromosome boundaries in
     // this loop
