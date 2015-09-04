@@ -8221,7 +8221,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     cc = *bufptr;
     // ',' < '.'
     while (1) {
-      if ((unsigned char)cc <= ',') {
+      if ((unsigned char)cc <= ',' && (unsigned char)cc != '*') {
 	sprintf(logbuf, "Error: Invalid alternate allele on line %" PRIuPTR  " of .vcf file.\n", line_idx);
 	goto vcf_to_bed_ret_INVALID_FORMAT_2N;
       }
