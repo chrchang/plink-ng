@@ -103,7 +103,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (2 Sep 2015)";
+  " (3 Sep 2015)";
 const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -126,9 +126,9 @@ const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip
   #endif
 #else
   #ifndef NOLAPACK
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --pca, --neighbour, --ibs-test, --regress-distance,\n--model, --bd, --gxe, --logistic, --dosage, --lasso, --test-missing,\n--make-perm-pheno, --unrelated-heritability, --tdt, --qfam, --annotate,\n--clump, --gene-report, --meta-analysis, --epistasis, --fast-epistasis, and\n--score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --pca, --neighbour, --ibs-test, --regress-distance,\n--model, --bd, --gxe, --logistic, --dosage, --lasso, --test-missing,\n--make-perm-pheno, --unrelated-heritability, --tdt, --dfam, --qfam, --annotate,\n--clump, --gene-report, --meta-analysis, --epistasis, --fast-epistasis, and\n--score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --neighbour, --ibs-test, --regress-distance, --model,\n--bd, --gxe, --logistic, --dosage, --lasso, --test-missing, --make-perm-pheno,\n--tdt, --qfam, --annotate, --clump, --gene-report, --meta-analysis,\n--epistasis, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --neighbour, --ibs-test, --regress-distance, --model,\n--bd, --gxe, --logistic, --dosage, --lasso, --test-missing, --make-perm-pheno,\n--tdt, --dfam, --qfam, --annotate, --clump, --gene-report, --meta-analysis,\n--epistasis, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #endif
 #endif
 
