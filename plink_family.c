@@ -482,10 +482,10 @@ uint32_t erase_mendel_errors(uintptr_t unfiltered_sample_ct, uintptr_t* loadbuf,
       uii = *uiptr++;
       ujj = *uiptr++;
       ukk = *uiptr++;
-      umm = (workbuf[uii / BITCT2] >> (2 * (uii % BITCT2))) & 3;
-      unn = (workbuf[ukk / BITCT2] >> (2 * (ukk % BITCT2))) & 3;
+      umm = EXTRACT_2BIT_GENO(workbuf, uii);
+      unn = EXTRACT_2BIT_GENO(workbuf, ukk);
       if ((!is_x) || (!is_set(sex_male, uii))) {
-        umm = mendel_error_table[umm | (((workbuf[ujj / BITCT2] >> (2 * (ujj % BITCT2))) & 3) << 2) | (unn << 4)];
+        umm = mendel_error_table[umm | (EXTRACT_2BIT_GENO(workbuf, ujj) << 2) | (unn << 4)];
       } else {
 	umm = mendel_error_table_male_x[umm | (unn << 2)];
       }
@@ -887,10 +887,10 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	  uii = *uiptr++;
 	  ujj = *uiptr++;
 	  ukk = *uiptr++;
-	  umm = (loadbuf[uii / BITCT2] >> (2 * (uii % BITCT2))) & 3;
-	  unn = (loadbuf[ukk / BITCT2] >> (2 * (ukk % BITCT2))) & 3;
+	  umm = EXTRACT_2BIT_GENO(loadbuf, uii);
+	  unn = EXTRACT_2BIT_GENO(loadbuf, ukk);
 	  if ((!is_x) || (!is_set(sex_male, uii))) {
-            umm = mendel_error_table[umm | (((loadbuf[ujj / BITCT2] >> (2 * (ujj % BITCT2))) & 3) << 2) | (unn << 4)];
+            umm = mendel_error_table[umm | (EXTRACT_2BIT_GENO(loadbuf, ujj) << 2) | (unn << 4)];
 	  } else {
 	    umm = mendel_error_table_male_x[umm | (unn << 2)];
 	  }
@@ -924,7 +924,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	  ujj = *uiptr++;
 	  ukk = *uiptr++;
           trio_idx = *uiptr++;
-          uljj = ((loadbuf[ujj / BITCT2] >> (2 * (ujj % BITCT2))) & 3) | (((loadbuf[ukk / BITCT2] >> (2 * (ukk % BITCT2))) & 3) << 2);
+          uljj = EXTRACT_2BIT_GENO(loadbuf, ujj) | (EXTRACT_2BIT_GENO(loadbuf, ukk) << 2);
 	  umm = uii / BITCT2;
 	  ujj = 2 * (uii % BITCT2);
 	  ulii = (loadbuf[umm] >> ujj) & 3;
@@ -1847,8 +1847,8 @@ int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* o
         uii = *lookup_ptr++;
         ujj = *lookup_ptr++;
         cur_child_ct = *lookup_ptr++;
-        ulii = (loadbuf[uii / BITCT2] >> (2 * (uii % BITCT2))) & 3;
-        uljj = (loadbuf[ujj / BITCT2] >> (2 * (ujj % BITCT2))) & 3;
+        ulii = EXTRACT_2BIT_GENO(loadbuf, uii);
+        uljj = EXTRACT_2BIT_GENO(loadbuf, ujj);
         ukk = ulii | (uljj << 2);
 	if ((0x4d04 >> ukk) & 1) {
 	  // 1+ het parents, no missing
@@ -1857,7 +1857,7 @@ int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* o
 	  poo_table_ptr = &(poo_table[4 * ukk]);
           for (child_idx = 0; child_idx < cur_child_ct; child_idx++) {
             ukk = *lookup_ptr++;
-            poo_acc += poo_table_ptr[(loadbuf[ukk / BITCT2] >> (2 * (ukk % BITCT2))) & 3];
+            poo_acc += poo_table_ptr[EXTRACT_2BIT_GENO(loadbuf, ukk)];
 	    if (++poo_acc_ct == 127) {
 	      // accumulator about to overflow, unpack it
               poo_obs_pat_x2 += (unsigned char)poo_acc;
@@ -2296,8 +2296,8 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
 	uii = *lookup_ptr++;
 	ujj = *lookup_ptr++;
 	cur_child_ct = *lookup_ptr++;
-        ulii = (loadbuf[uii / BITCT2] >> (2 * (uii % BITCT2))) & 3;
-        uljj = (loadbuf[ujj / BITCT2] >> (2 * (ujj % BITCT2))) & 3;
+        ulii = EXTRACT_2BIT_GENO(loadbuf, uii);
+        uljj = EXTRACT_2BIT_GENO(loadbuf, ujj);
         ukk = ulii | (uljj << 2);
 	if (cur_child_ct & 0x80000000U) {
           // discordant
@@ -2326,7 +2326,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
           tdt_table_ptr = &(tdt_table[4 * (ulii ^ uljj)]);
           for (child_idx = 0; child_idx < cur_child_ct; child_idx++) {
             ukk = *lookup_ptr++;
-	    umm = tdt_table_ptr[(loadbuf[ukk / BITCT2] >> (2 * (ukk % BITCT2))) & 3];
+	    umm = tdt_table_ptr[EXTRACT_2BIT_GENO(loadbuf, ukk)];
 	    tdt_obs_ct += (uint16_t)umm;
             tdt_a1_trans_ct += umm >> 16;
 	  }
@@ -2866,12 +2866,13 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
 
 // multithread globals
 static double* g_maxt_extreme_stat;
-// static double* g_maxt_thread_results;
+static double* g_maxt_thread_results;
 static double* g_mperm_save_all;
 static uintptr_t* g_pheno_c;
-// static uintptr_t* g_dfam_flipa;
-// static uintptr_t* g_dfam_perm_vecs;
-// static uintptr_t* g_dfam_perm_vecst;
+static uintptr_t* g_dfam_flipa;
+static uintptr_t* g_dfam_perm_vecs;
+static uintptr_t* g_dfam_perm_vecst;
+static uintptr_t g_perm_vec_ct;
 
 static uintptr_t* g_loadbuf;
 static uintptr_t* g_lm_eligible;
@@ -2899,7 +2900,7 @@ static uintptr_t g_cur_perm_ct;
 static double g_qt_sum_all;
 static double g_qt_ssq_all;
 static uint32_t g_test_type;
-static uint32_t g_qfam_thread_ct;
+static uint32_t g_xfam_thread_ct;
 static uint32_t g_fs_ct;
 static uint32_t g_singleton_ct;
 static uint32_t g_lm_ct;
@@ -2920,6 +2921,43 @@ const uint8_t dfam_allele_ct_table[] =
  0, 0, 0, 0,
  3, 0, 2, 1,
  0, 0, 1, 0};
+
+/*
+THREAD_RET_TYPE dfam_adapt_thread(void* arg) {
+  uintptr_t tidx = (uintptr_t)arg;
+  uint32_t dfam_thread_ct = g_xfam_thread_ct;
+  uint32_t first_adapt_check = g_first_adapt_check;
+  while (1) {
+    if (g_block_size <= dfam_thread_ct) {
+      if (g_block_size <= tidx) {
+	goto dfam_adapt_thread_skip_all;
+      }
+      marker_bidx = tidx;
+      marker_bceil = tidx + 1;
+    } else {
+      marker_bidx = (((uint64_t)tidx) * g_block_size) / dfam_thread_ct;
+      marker_bceil = (((uint64_t)tidx + 1) * g_block_size) / dfam_thread_ct;
+    }
+    for (; marker_bidx < marker_bceil; marker_bidx++) {
+      marker_idx = g_adapt_m_table[marker_bidx];
+      next_adapt_check = first_adapt_check;
+      // ...
+      for (fs_idx = 0; fs_idx < family_all_case_children_ct; fs_idx++) {
+	paternal_id = *cur_dfam_ptr++;
+	maternal_id = *cur_dfam_ptr++;
+	sibling_ct = *cur_dfam_ptr++;
+	paternal_geno = EXTRACT_2BIT_GENO(loadbuf_ptr, paternal_id);
+	;;;
+      }
+    }
+  dfam_adapt_thread_skip_all:
+    if ((!tidx) || g_is_last_thread_block) {
+      THREAD_RETURN;
+    }
+    THREAD_BLOCK_FINISH(tidx);
+  }
+}
+*/
 
 void dfam_sibship_calc(uint32_t cur_case_ct, uint32_t case_hom_a1_ct, uint32_t case_het_ct, uint32_t cur_ctrl_ct, uint32_t ctrl_hom_a1_ct, uint32_t ctrl_het_ct, uint32_t* total_a1_count_ptr, double* numer_ptr, double* denom_ptr, double* total_expected_ptr) {
   if (!cur_ctrl_ct) {
@@ -2976,7 +3014,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t perm_maxt_nst = (fam_ip->dfam_modifier & DFAM_MPERM) && (!is_set_test);
   uint32_t do_perms = fam_ip->dfam_modifier & (DFAM_PERM | DFAM_MPERM);
   uint32_t do_perms_nst = do_perms && (!is_set_test);
-  // uint32_t perm_count = fam_ip->dfam_modifier & DFAM_PERM_COUNT;
+  uint32_t perm_count = fam_ip->dfam_modifier & DFAM_PERM_COUNT;
   uint32_t fill_orig_chisq = do_perms || mtest_adjust;
   uint32_t no_unrelateds = (fam_ip->dfam_modifier & DFAM_NO_UNRELATEDS) || (within_cmdflag && (!cluster_ct));
   uint32_t family_all_case_children_ct = 0;
@@ -2984,7 +3022,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t sibship_mixed_ct = 0;
   uint32_t unrelated_cluster_ct = 0;
   uint32_t pct = 0;
-  // uint32_t max_thread_ct = g_thread_ct;
+  uint32_t max_thread_ct = g_thread_ct;
   uint32_t perm_pass_idx = 0;
   uint32_t perms_total = 0;
   uint32_t perms_done = 0;
@@ -2999,7 +3037,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uintptr_t* size_one_sibships;
   double* maxt_extreme_stat = NULL;
   uint32_t mu_table[MODEL_BLOCKSIZE];
-  // char* outname_end2;
+  char* outname_end2;
   char* wptr;
   uint64_t* family_list;
   uint64_t* trio_list;
@@ -3043,6 +3081,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t cur_case_ct;
   uint32_t dfam_sample_ct;
   uint32_t dfam_sample_ctl2;
+  uint32_t dfam_sample_ctv2;
   uint32_t chrom_fo_idx;
   uint32_t chrom_idx;
   uint32_t block_size;
@@ -3308,6 +3347,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   }
   dfam_sample_ct = unfiltered_sample_ct - popcount_longs(dfam_sample_exclude, unfiltered_sample_ctl);
   dfam_sample_ctl2 = (dfam_sample_ct + (BITCT2 - 1)) / BITCT2;
+  dfam_sample_ctv2 = 2 * ((dfam_sample_ct + (BITCT - 1)) / BITCT);
   if (wkspace_alloc_ui_checked(&uidx_to_idx, unfiltered_sample_ct * sizeof(int32_t))) {
     goto dfam_ret_NOMEM;
   }
@@ -3412,8 +3452,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     }
   }
 
-  memcpy(outname_end, ".dfam", 6);
-  // outname_end2 = memcpyb(outname_end, ".dfam", 6);
+  outname_end2 = memcpyb(outname_end, ".dfam", 6);
   if (fopen_checked(&outfile, outname, "w")) {
     goto dfam_ret_OPEN_FAIL;
   }
@@ -3439,12 +3478,8 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   fputs("0%", stdout);
   fflush(stdout);
   // ----- begin main loop -----
-  // dfam_more_perms:
+ dfam_more_perms:
   if (do_perms_nst) {
-    logerrprint("Error: --dfam permutation tests are currently under development.\n");
-    retval = RET_CALC_NOT_YET_SUPPORTED;
-    goto dfam_ret_1;
-    /*
     if (perm_adapt_nst && perm_pass_idx) {
       while (g_first_adapt_check <= g_perms_done) {
 	// APERM_MAX prevents infinite loop here
@@ -3457,10 +3492,9 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     if (g_perm_vec_ct > perms_total - g_perms_done) {
       g_perm_vec_ct = perms_total - g_perms_done;
     }
-    if (wkspace_alloc_ul_checked(&g_dfam_perm_vecs, g_perm_vec_ct * sample_ctv2 * sizeof(intptr_t))) {
+    if (wkspace_alloc_ul_checked(&g_dfam_perm_vecs, g_perm_vec_ct * dfam_sample_ctv2 * sizeof(intptr_t))) {
       goto dfam_ret_NOMEM;
     }
-    */
   }
   chrom_fo_idx = 0xffffffffU;
   marker_uidx = next_unset_unsafe(marker_exclude, 0);
@@ -3586,8 +3620,8 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
           paternal_id = *cur_dfam_ptr++;
 	  maternal_id = *cur_dfam_ptr++;
 	  sibling_ct = *cur_dfam_ptr++;
-	  paternal_geno = (loadbuf_ptr[paternal_id / BITCT2] >> (2 * (paternal_id % BITCT2))) & 3;
-	  maternal_geno = (loadbuf_ptr[maternal_id / BITCT2] >> (2 * (maternal_id % BITCT2))) & 3;
+	  paternal_geno = EXTRACT_2BIT_GENO(loadbuf_ptr, paternal_id);
+	  maternal_geno = EXTRACT_2BIT_GENO(loadbuf_ptr, maternal_id);
 	  parental_a1_ct = dfam_allele_ct_table[paternal_geno * 4 + maternal_geno];
 	  if (!parental_a1_ct) {
 	    cur_dfam_ptr = &(cur_dfam_ptr[sibling_ct]);
@@ -3597,7 +3631,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	  case_a1_ct = 0;
           for (sib_idx = 0; sib_idx < sibling_ct; sib_idx++) {
             sample_idx = *cur_dfam_ptr++;
-	    cur_geno = (loadbuf_ptr[sample_idx / BITCT2] >> (2 * (sample_idx % BITCT2))) & 3;
+	    cur_geno = EXTRACT_2BIT_GENO(loadbuf_ptr, sample_idx);
 	    if (cur_geno == 1) {
 	      continue;
 	    }
@@ -3615,8 +3649,8 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
           paternal_id = *cur_dfam_ptr++;
 	  maternal_id = *cur_dfam_ptr++;
 	  sibling_ct = *cur_dfam_ptr++;
-	  paternal_geno = (loadbuf_ptr[paternal_id / BITCT2] >> (2 * (paternal_id % BITCT2))) & 3;
-	  maternal_geno = (loadbuf_ptr[maternal_id / BITCT2] >> (2 * (maternal_id % BITCT2))) & 3;
+	  paternal_geno = EXTRACT_2BIT_GENO(loadbuf_ptr, paternal_id);
+	  maternal_geno = EXTRACT_2BIT_GENO(loadbuf_ptr, maternal_id);
 	  parental_a1_ct = dfam_allele_ct_table[paternal_geno * 4 + maternal_geno];
 	  cur_case_ct = 0;
 	  cur_ctrl_ct = 0;
@@ -3626,7 +3660,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	  ctrl_het_ct = 0;
           for (sib_idx = 0; sib_idx < sibling_ct; sib_idx++) {
             sample_idx = *cur_dfam_ptr++;
-	    cur_geno = (loadbuf_ptr[sample_idx / BITCT2] >> (2 * (sample_idx % BITCT2))) & 3;
+	    cur_geno = EXTRACT_2BIT_GENO(loadbuf_ptr, sample_idx);
 	    if (cur_geno == 1) {
 	      continue;
 	    }
@@ -3676,7 +3710,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	  ctrl_het_ct = 0;
           for (sib_idx = 0; sib_idx < sibling_ct; sib_idx++) {
             sample_idx = *cur_dfam_ptr++;
-	    cur_geno = (loadbuf_ptr[sample_idx / BITCT2] >> (2 * (sample_idx % BITCT2))) & 3;
+	    cur_geno = EXTRACT_2BIT_GENO(loadbuf_ptr, sample_idx);
 	    if (cur_geno == 1) {
 	      continue;
 	    }
@@ -3715,7 +3749,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	  ctrl_het_ct = 0;
           for (sib_idx = 0; sib_idx < sibling_ct; sib_idx++) {
             sample_idx = *cur_dfam_ptr++;
-	    cur_geno = (loadbuf_ptr[sample_idx / BITCT2] >> (2 * (sample_idx % BITCT2))) & 3;
+	    cur_geno = EXTRACT_2BIT_GENO(loadbuf_ptr, sample_idx);
 	    if (cur_geno == 1) {
 	      continue;
 	    }
@@ -3912,8 +3946,8 @@ void qfam_compute_bw(uintptr_t* loadbuf, uintptr_t sample_ct, uint32_t* fs_start
     cur_end = *fs_starts_ptr++;
     sample_uidx = fss_contents[cur_start];
     uii = fss_contents[cur_start + 1];
-    ulii = (loadbuf[sample_uidx / BITCT2] >> (2 * (sample_uidx % BITCT2))) & 3;
-    uljj = (loadbuf[uii / BITCT2] >> (2 * (uii % BITCT2))) & 3;
+    ulii = EXTRACT_2BIT_GENO(loadbuf, sample_uidx);
+    uljj = EXTRACT_2BIT_GENO(loadbuf, uii);
     if ((ulii != 1) && (uljj != 1)) {
       // both parents nonmissing
       qfam_b[cur_idx] = 0.5 * (double)(4 - ((intptr_t)((ulii + (ulii == 0)) + (uljj + (uljj == 0)))));
@@ -3925,7 +3959,7 @@ void qfam_compute_bw(uintptr_t* loadbuf, uintptr_t sample_ct, uint32_t* fs_start
       uljj = 0;
       do {
         sample_uidx = *fss_ptr++;
-        ulii = (loadbuf[sample_uidx / BITCT2] >> (2 * (sample_uidx % BITCT2))) & 3;
+        ulii = EXTRACT_2BIT_GENO(loadbuf, sample_uidx);
         if (ulii != 1) {
           uljj += ulii + (ulii == 0);
 	} else {
@@ -3949,7 +3983,7 @@ void qfam_compute_bw(uintptr_t* loadbuf, uintptr_t sample_ct, uint32_t* fs_start
     uljj = 0;
     do {
       sample_uidx = *fss_ptr++;
-      ulii = (loadbuf[sample_uidx / BITCT2] >> (2 * (sample_uidx % BITCT2))) & 3;
+      ulii = EXTRACT_2BIT_GENO(loadbuf, sample_uidx);
       if (ulii != 1) {
         uljj += ulii + (ulii == 0);
       } else {
@@ -3966,7 +4000,7 @@ void qfam_compute_bw(uintptr_t* loadbuf, uintptr_t sample_ct, uint32_t* fs_start
   for (; cur_idx < fss_ct; cur_idx++) {
     // singletons
     sample_uidx = *fss_ptr++;
-    ulii = (loadbuf[sample_uidx / BITCT2] >> (2 * (sample_uidx % BITCT2))) & 3;
+    ulii = EXTRACT_2BIT_GENO(loadbuf, sample_uidx);
     if (ulii != 1) {
       qfam_b[cur_idx] = (double)(2 - (intptr_t)(ulii + (ulii == 0)));
     } else {
@@ -3976,7 +4010,7 @@ void qfam_compute_bw(uintptr_t* loadbuf, uintptr_t sample_ct, uint32_t* fs_start
   fill_all_bits(nm_lm, lm_ct);
   for (sample_uidx = 0, sample_idx = 0; sample_idx < lm_ct; sample_uidx++, sample_idx++) {
     next_set_unsafe_ck(lm_eligible, &sample_uidx);
-    ulii = (loadbuf[sample_uidx / BITCT2] >> (2 * (sample_uidx % BITCT2))) & 3;
+    ulii = EXTRACT_2BIT_GENO(loadbuf, sample_uidx);
     if (ulii != 1) {
       fss_idx = sample_lm_to_fss_idx[sample_idx];
       if (!is_set(nm_fss, fss_idx)) {
@@ -3990,7 +4024,7 @@ void qfam_compute_bw(uintptr_t* loadbuf, uintptr_t sample_ct, uint32_t* fs_start
 	  // assert: fss_contents[uii + 1] == sample_uidx
           uii = fss_contents[uii];
 	}
-        if (((loadbuf[uii / BITCT2] >> (2 * (uii % BITCT2))) & 3) == 1) {
+        if (EXTRACT_2BIT_GENO(loadbuf, uii) == 1) {
 	  goto qfam_compute_bw_skip;
 	}
       }
@@ -4115,7 +4149,7 @@ static inline uint32_t qfam_regress(uint32_t test_type, uint32_t nind, uint32_t 
 
 THREAD_RET_TYPE qfam_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
-  uint32_t qfam_thread_ct = g_qfam_thread_ct;
+  uint32_t qfam_thread_ct = g_xfam_thread_ct;
   uint32_t fs_ct = g_fs_ct;
   uint32_t lm_ct = g_lm_ct;
   uint32_t singleton_ct = g_singleton_ct;
@@ -4460,7 +4494,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   g_fs_ct = fs_ct;
   g_singleton_ct = singleton_ct;
   g_lm_ct = lm_ct;
-  g_qfam_thread_ct = qfam_thread_ct;
+  g_xfam_thread_ct = qfam_thread_ct;
   fss_ctl = (fss_ct + BITCT - 1) / BITCT;
   lm_ctl = (lm_ct + BITCT - 1) / BITCT;
   flip_ctl = only_within? lm_ctl : fss_ctl;

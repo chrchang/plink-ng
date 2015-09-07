@@ -7892,7 +7892,7 @@ void collapse_copy_2bitarr(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfil
     sample_idx += sample_uidx_stop - sample_uidx;
     do {
       // er, this can totally be sped up
-      cur_write |= (((rawbuf[sample_uidx / BITCT2] >> ((sample_uidx % BITCT2) * 2)) & 3) << (ii_rem * 2));
+      cur_write |= EXTRACT_2BIT_GENO(rawbuf, sample_uidx) << (ii_rem * 2);
       if (++ii_rem == BITCT2) {
         *mainbuf++ = cur_write;
         cur_write = 0;
@@ -7942,7 +7942,7 @@ void collapse_copy_2bitarr_incl(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t 
     sample_uidx_stop = next_unset(sample_include, sample_uidx, unfiltered_sample_ct);
     sample_idx += sample_uidx_stop - sample_uidx;
     do {
-      cur_write |= (((rawbuf[sample_uidx / BITCT2] >> ((sample_uidx % BITCT2) * 2)) & 3) << (ii_rem * 2));
+      cur_write |= EXTRACT_2BIT_GENO(rawbuf, sample_uidx) << (ii_rem * 2);
       if (++ii_rem == BITCT2) {
         *mainbuf++ = cur_write;
         cur_write = 0;

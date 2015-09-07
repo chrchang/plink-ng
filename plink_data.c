@@ -3139,7 +3139,7 @@ int32_t make_bed_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32_t unfilter
       do {
 	sample_uidx2 = sample_sort_map[sample_uidx++];
       } while (IS_SET(sample_exclude, sample_uidx2));
-      cur_word |= (((loadbuf[sample_uidx2 / BITCT2] >> ((sample_uidx2 % BITCT2) * 2)) & 3) << (ii_rem * 2));
+      cur_word |= EXTRACT_2BIT_GENO(loadbuf, sample_uidx2) << (ii_rem * 2);
       if (++ii_rem == BITCT2) {
 	*writeptr++ = cur_word;
 	cur_word = 0;
@@ -3186,7 +3186,7 @@ int32_t make_bed_me_missing_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32
       do {
 	sample_uidx2 = sample_sort_map[sample_uidx++];
       } while (IS_SET(sample_exclude, sample_uidx2));
-      cur_word |= (((loadbuf[sample_uidx2 / BITCT2] >> ((sample_uidx2 % BITCT2) * 2)) & 3) << (ii_rem * 2));
+      cur_word |= EXTRACT_2BIT_GENO(loadbuf, sample_uidx2) << (ii_rem * 2);
       if (++ii_rem == BITCT2) {
 	*writeptr++ = cur_word;
 	cur_word = 0;

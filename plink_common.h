@@ -610,6 +610,10 @@
 #define BITCT2 (BITCT / 2)
 #define BYTECT (BITCT / 8)
 
+// defined as a macro since type of idx can vary; might want a debug
+// compilation mode which performs type-checking, though
+#define EXTRACT_2BIT_GENO(ulptr, idx) ((ulptr[idx / BITCT2] >> (2 * (idx % BITCT2))) & 3)
+
 // generic maximum line length.  .ped/.vcf/etc. lines can of course be longer
 #define MAXLINELEN 131072
 

@@ -3824,6 +3824,8 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
       chisq2_ptr = &(best_chisq2[block_idx2]);
       for (; block_idx2 < cur_idx2_block_size; block_idx2++, chisq2_ptr++, cur_geno2 = &(cur_geno2[tot_ctsplit])) {
 	cur_tot2 = &(tot2[block_idx2 * tot_stride]);
+	// this operation isn't extracting a 2-bit genotype, so don't use the
+	// macro
 	cur_zmiss2 = (zmiss2[block_idx2 / BITCT2] >> (2 * (block_idx2 % BITCT2))) & 3;
 	cur_zmiss2_tmp = cur_zmiss2 & 1;
 	if (nm_case_fixed) {
