@@ -83,7 +83,18 @@
   #include <algorithm>
 #endif
 
+// It would be useful to disable compilation on big-endian platforms, but I
+// don't see a decent portable way to do this (see e.g. discussion at
+// http://esr.ibiblio.org/?p=5095 ).
+
 #ifdef __LP64__
+  #ifndef __SSE2__
+    // It's obviously possible to support this by writing 64-bit non-SSE2 code
+    // shadowing each SSE2 intrinsic, but this almost certainly isn't worth the
+    // development/testing effort until regular PLINK 2.0 development is
+    // complete.  No researcher has ever asked me for this feature.
+    #error "64-bit builds currently require SSE2.  Try producing a 32-bit build instead."
+  #endif
   #include <emmintrin.h>
   #define FIVEMASK 0x5555555555555555LLU
   typedef union {
@@ -572,19 +583,19 @@
 #define CACHELINE_WORD (CACHELINE / BYTECT)
 #define CACHELINE_DBL (CACHELINE / 8)
 
-#define CACHEALIGN(val) ((val + (CACHELINE - 1)) & (~(CACHELINE - ONELU)))
-#define CACHEALIGN_INT32(val) ((val + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - ONELU)))
-#define CACHEALIGN_WORD(val) ((val + (CACHELINE_WORD - 1)) & (~(CACHELINE_WORD - ONELU)))
-#define CACHEALIGN_DBL(val) ((val + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - ONELU)))
+#define CACHEALIGN(val) (((val) + (CACHELINE - 1)) & (~(CACHELINE - ONELU)))
+#define CACHEALIGN_INT32(val) (((val) + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - ONELU)))
+#define CACHEALIGN_WORD(val) (((val) + (CACHELINE_WORD - 1)) & (~(CACHELINE_WORD - ONELU)))
+#define CACHEALIGN_DBL(val) (((val) + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - ONELU)))
 
 // 32-bit instead of word-length bitwise not here, when val can be assumed to
 // be 32-bit.
 // (note that the sizeof operator "returns" an uintptr_t, not a uint32_t; hence
 // the lack of sizeof in the CACHELINE_INT32, etc. definitions.)
-#define CACHEALIGN32(val) ((val + (CACHELINE - 1)) & (~(CACHELINE - 1)))
-#define CACHEALIGN32_INT32(val) ((val + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1)))
-#define CACHEALIGN32_WORD(val) ((val + (CACHELINE_WORD - 1)) & (~(CACHELINE_WORD - 1)))
-#define CACHEALIGN32_DBL(val) ((val + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
+#define CACHEALIGN32(val) (((val) + (CACHELINE - 1)) & (~(CACHELINE - 1)))
+#define CACHEALIGN32_INT32(val) (((val) + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1)))
+#define CACHEALIGN32_WORD(val) (((val) + (CACHELINE_WORD - 1)) & (~(CACHELINE_WORD - 1)))
+#define CACHEALIGN32_DBL(val) (((val) + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
 
 #define MAXV(aa, bb) (((bb) > (aa))? (bb) : (aa))
 #define MINV(aa, bb) (((aa) > (bb))? (bb) : (aa))
@@ -612,7 +623,7 @@
 
 // defined as a macro since type of idx can vary; might want a debug
 // compilation mode which performs type-checking, though
-#define EXTRACT_2BIT_GENO(ulptr, idx) ((ulptr[idx / BITCT2] >> (2 * (idx % BITCT2))) & 3)
+#define EXTRACT_2BIT_GENO(ulptr, idx) (((ulptr)[(idx) / BITCT2] >> (2 * ((idx) % BITCT2))) & 3)
 
 // generic maximum line length.  .ped/.vcf/etc. lines can of course be longer
 #define MAXLINELEN 131072

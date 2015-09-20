@@ -2866,12 +2866,12 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
 
 // multithread globals
 static double* g_maxt_extreme_stat;
-static double* g_maxt_thread_results;
+// static double* g_maxt_thread_results;
 static double* g_mperm_save_all;
 static uintptr_t* g_pheno_c;
-static uintptr_t* g_dfam_flipa;
+// static uintptr_t* g_dfam_flipa;
 static uintptr_t* g_dfam_perm_vecs;
-static uintptr_t* g_dfam_perm_vecst;
+// static uintptr_t* g_dfam_perm_vecst;
 static uintptr_t g_perm_vec_ct;
 
 static uintptr_t* g_loadbuf;
@@ -2922,15 +2922,15 @@ const uint8_t dfam_allele_ct_table[] =
  3, 0, 2, 1,
  0, 0, 1, 0};
 
-/*
-THREAD_RET_TYPE dfam_adapt_thread(void* arg) {
+  /*
+THREAD_RET_TYPE dfam_perm_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
   uint32_t dfam_thread_ct = g_xfam_thread_ct;
   uint32_t first_adapt_check = g_first_adapt_check;
   while (1) {
     if (g_block_size <= dfam_thread_ct) {
       if (g_block_size <= tidx) {
-	goto dfam_adapt_thread_skip_all;
+	goto dfam_perm_thread_skip_all;
       }
       marker_bidx = tidx;
       marker_bceil = tidx + 1;
@@ -2941,23 +2941,102 @@ THREAD_RET_TYPE dfam_adapt_thread(void* arg) {
     for (; marker_bidx < marker_bceil; marker_bidx++) {
       marker_idx = g_adapt_m_table[marker_bidx];
       next_adapt_check = first_adapt_check;
+      // initialize twice_numers, numers, denoms, total_counts, total_expecteds
+      // arrays (elements correspond to permutations)
+
       // ...
-      for (fs_idx = 0; fs_idx < family_all_case_children_ct; fs_idx++) {
+      for (fs_idx = 0; fs_idx < family_all_case_children_ct; fs_idx++, cur_dfam_ptr = &(cur_dfam_ptr[sibling_ct])) {
 	paternal_id = *cur_dfam_ptr++;
 	maternal_id = *cur_dfam_ptr++;
 	sibling_ct = *cur_dfam_ptr++;
 	paternal_geno = EXTRACT_2BIT_GENO(loadbuf_ptr, paternal_id);
-	;;;
+	maternal_geno = EXTRACT_2BIT_GENO(loadbuf_ptr, maternal_id);
+	parental_a1_ct = dfam_allele_ct_table[paternal_geno * 4 + maternal_geno];
+	// skip if parent has missing genotype, or neither parent is het
+	if (!paternal_a1_ct) {
+	  cur_dfam_ptr = &(cur_dfam_ptr[sibling_ct]);
+	  continue;
+	}
+
+	for (sib_idx = 0; sib_idx < sibling_ct; sib_idx++) {
+	  sample_idx = cur_dfam_ptr[sib_idx];
+	  cur_geno = EXTRACT_2BIT_GENO(loadbuf_ptr, sample_idx);
+	  if (cur_geno != 1) {
+	    break;
+	  }
+	}
+	// skip if all children have missing genotypes
+	if (sib_idx == sibling_ct) {
+	  cur_dfam_ptr = &(cur_dfam_ptr[sibling_ct]);
+	  continue;
+	}
+
+	// okay, compute array of case_a1_ct values.  Most all-case families
+	// should have 7 or fewer children, so it's worthwhile to use 4-bit
+	// accumulators in the inner loop (similar to calc_git() in
+	// plink_assoc.c).
+
+	// then update twice_numers and total_counts arrays
+	// (quad_denom, twice_total_expected are independent of case_a1_ct, can
+	// store those in single variables)
+
+	// ...
+      }
+      for (fs_idx = 0; fs_idx < family_mixed_ct; fs_idx++) {
+	paternal_id = *cur_dfam_ptr++;
+	maternal_id = *cur_dfam_ptr++;
+	sibling_ct = *cur_dfam_ptr++;
+	paternal_geno = EXTRACT_2BIT_GENO(loadbuf_ptr, paternal_id);
+	maternal_geno = EXTRACT_2BIT_GENO(loadbuf_ptr, maternal_id);
+	parental_a1_ct = dfam_allele_ct_table[paternal_geno * 4 + maternal_geno];
+	if (!parental_a1_ct) {
+	  // treat as sibling permutation
+	} else {
+	}
+      }
+      for (fs_idx = 0; fs_idx < sibship_mixed_ct; fs_idx++) {
+	// call sibling permutation routine
+      }
+      for (unrelated_cluster_idx = 0; unrelated_cluster_idx < unrelated_cluster_ct; unrelated_cluster_idx++) {
+	sibling_ct = *cur_dfam_ptr++;
+	// call sibling permutation routine with unrelated bool set (most of
+	// the code should be identical so this should be one function)
+      }
+      if (perm_adapt) {
+	for (pidx = 0; pidx < perm_vec_ct;) {
+	  // now harvest the chi-square values, check adaptive termination
+	  // condition, etc.
+	  // ...
+	  if (++pidx == next_adapt_check - pidx_offset) {
+	    uii = success_2start + success_2incr;
+	    if (uii) {
+	      pval = ((double)((int32_t)uii + 2)) / ((double)(2 * ((int32_t)next_adapt_check + 1)));
+	      dxx = adaptive_ci_zt * sqrt(pval * (1 - pval) / ((int32_t)next_adapt_check));
+	      dyy = pval - dxx; // lower bound
+	      dzz = pval + dxx; // upper bound
+	      if ((dyy > aperm_alpha) || (dzz < aperm_alpha)) {
+		perm_adapt_stop[marker_idx] = 1;
+		perm_attempt_ct[marker_idx] = next_adapt_check;
+		break;
+	      }
+	    }
+	    next_adapt_check += (int32_t)(adaptive_intercept + ((int32_t)next_adapt_check) * adaptive_slope);
+	  }
+	}
+	perm_2success_ct[marker_idx] += success_2incr;
+      } else {
+	for (pidx = 0; pidx < perm_vec_ct;) {
+	}
       }
     }
-  dfam_adapt_thread_skip_all:
+  dfam_perm_thread_skip_all:
     if ((!tidx) || g_is_last_thread_block) {
       THREAD_RETURN;
     }
     THREAD_BLOCK_FINISH(tidx);
   }
 }
-*/
+  */
 
 void dfam_sibship_calc(uint32_t cur_case_ct, uint32_t case_hom_a1_ct, uint32_t case_het_ct, uint32_t cur_ctrl_ct, uint32_t ctrl_hom_a1_ct, uint32_t ctrl_het_ct, uint32_t* total_a1_count_ptr, double* numer_ptr, double* denom_ptr, double* total_expected_ptr) {
   if (!cur_ctrl_ct) {
@@ -3014,7 +3093,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t perm_maxt_nst = (fam_ip->dfam_modifier & DFAM_MPERM) && (!is_set_test);
   uint32_t do_perms = fam_ip->dfam_modifier & (DFAM_PERM | DFAM_MPERM);
   uint32_t do_perms_nst = do_perms && (!is_set_test);
-  uint32_t perm_count = fam_ip->dfam_modifier & DFAM_PERM_COUNT;
+  // uint32_t perm_count = fam_ip->dfam_modifier & DFAM_PERM_COUNT;
   uint32_t fill_orig_chisq = do_perms || mtest_adjust;
   uint32_t no_unrelateds = (fam_ip->dfam_modifier & DFAM_NO_UNRELATEDS) || (within_cmdflag && (!cluster_ct));
   uint32_t family_all_case_children_ct = 0;
@@ -3022,7 +3101,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t sibship_mixed_ct = 0;
   uint32_t unrelated_cluster_ct = 0;
   uint32_t pct = 0;
-  uint32_t max_thread_ct = g_thread_ct;
+  // uint32_t max_thread_ct = g_thread_ct;
   uint32_t perm_pass_idx = 0;
   uint32_t perms_total = 0;
   uint32_t perms_done = 0;
@@ -3478,7 +3557,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   fputs("0%", stdout);
   fflush(stdout);
   // ----- begin main loop -----
- dfam_more_perms:
+  // dfam_more_perms:
   if (do_perms_nst) {
     if (perm_adapt_nst && perm_pass_idx) {
       while (g_first_adapt_check <= g_perms_done) {
