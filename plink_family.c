@@ -2872,6 +2872,12 @@ static uintptr_t* g_pheno_c;
 // static uintptr_t* g_dfam_flipa;
 static uintptr_t* g_dfam_perm_vecs;
 // static uintptr_t* g_dfam_perm_vecst;
+// static uintptr_t* g_dfam_twice_numers;
+// static uintptr_t* g_dfam_total_counts;
+// static double* g_dfam_numers;
+// static double* g_dfam_denoms;
+// static double* g_dfam_total_expecteds;
+// static uintptr_t* g_dfam_acc;
 static uintptr_t g_perm_vec_ct;
 
 static uintptr_t* g_loadbuf;
@@ -2922,11 +2928,50 @@ const uint8_t dfam_allele_ct_table[] =
  3, 0, 2, 1,
  0, 0, 1, 0};
 
-  /*
+/*
 THREAD_RET_TYPE dfam_perm_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
+  uintptr_t perm_vec_ct = g_perm_vec_ct;
+  uintptr_t perm_vec_ct16 = (perm_vec_ct + 15) / 16;
+  uintptr_t perm_vec_cta16 = perm_vec_ct15 * 16;
   uint32_t dfam_thread_ct = g_xfam_thread_ct;
   uint32_t first_adapt_check = g_first_adapt_check;
+  int32_t* twice_numers = &(g_dfam_twice_numers[tidx * perm_vec_cta16]);
+  uint32_t* total_counts = &(g_dfam_total_counts[tidx * perm_vec_cta16]);
+  double* numers = &(g_dfam_numers[tidx * perm_vec_cta16]);
+  double* denoms = &(g_dfam_denoms[tidx * perm_vec_cta16]);
+  double* total_expecteds = &(g_dfam_total_expecteds[tidx * perm_vec_cta16]);
+#ifdef __LP64__
+  // acc8 (8-bit accumulator) requires (perm_vec_ct + 7) / 8 words; this is
+  //   16-byte aligned when perm_vec_ct is divisible by 16
+  // acc4 requires (perm_vec_ct + 15) / 16 words
+  // sum reduces to (perm_vec_ct16 * 3)
+  uintptr_t acc_thread_offset = CACHEALIGN_WORD(perm_vec_ct16 * 3);
+  uintptr_t acc8_word_ct = perm_vec_ct16 * 2;
+  uintptr_t acc4_word_ct = perm_vec_ct16;
+  __m128i* acc8 = &(g_dfam_acc[tidx * acc_thread_offset]);
+  __m128i* acc4 = &(g_dfam_acc[tidx * acc_thread_offset + acc8_word_ct]);
+#else
+  // acc8 requires (perm_vec_ct + 3) / 4 words
+  // acc4 requires (perm_vec_ct + 7) / 8 words
+  // sum reduces to perm_vec_ct16 * 6
+  uintptr_t acc_thread_offset = CACHEALIGN_WORD(perm_vec_ct16 * 6);
+  uintptr_t acc8_word_ct = perm_vec_ct16 * 4;
+  uintptr_t acc4_word_ct = perm_vec_ct16 * 2;
+  uint32_t* acc8 = &(g_dfam_acc[tidx * acc_thread_offset]);
+  uint32_t* acc4 = &(g_dfam_acc[tidx * acc_thread_offset + acc8_word_ct]);
+#endif
+  uint32_t quad_denom;
+  uint32_t twice_total_expected;
+  uint32_t paternal_id;
+  uint32_t maternal_id;
+  uint32_t sibling_ct;
+  uint32_t paternal_geno;
+  uint32_t maternal_geno;
+  uint32_t parental_a1_ct;
+  uint32_t sib_idx;
+  uint32_t nonmissing_sib_idx;
+  uint32_t cur_geno;
   while (1) {
     if (g_block_size <= dfam_thread_ct) {
       if (g_block_size <= tidx) {
@@ -2943,7 +2988,13 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
       next_adapt_check = first_adapt_check;
       // initialize twice_numers, numers, denoms, total_counts, total_expecteds
       // arrays (elements correspond to permutations)
-
+      fill_int_zero(twice_numers, perm_vec_ct);
+      fill_uint_zero(total_counts, perm_vec_ct);
+      fill_double_zero(numers, perm_vec_ct);
+      fill_double_zero(denoms, perm_vec_ct);
+      fill_double_zero(total_expecteds, perm_vec_ct);
+      quad_denom = 0;
+      twice_total_expected = 0;
       // ...
       for (fs_idx = 0; fs_idx < family_all_case_children_ct; fs_idx++, cur_dfam_ptr = &(cur_dfam_ptr[sibling_ct])) {
 	paternal_id = *cur_dfam_ptr++;
@@ -2975,6 +3026,24 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	// should have 7 or fewer children, so it's worthwhile to use 4-bit
 	// accumulators in the inner loop (similar to calc_git() in
 	// plink_assoc.c).
+	fill_ulong_zero(acc8, acc8_word_ct);
+	fill_ulong_zero(acc4, acc4_word_ct);
+	for (sib_idx = 0, nonmissing_sib_idx = 0; sib_idx < sibling_ct; sib_idx++) {
+	  sample_idx = cur_dfam_ptr[sib_idx];
+	  cur_geno = EXTRACT_2BIT_GENO(loadbuf_ptr, sample_idx);
+	  if (cur_geno == 1) {
+	    continue;
+	  }
+	  ++nonmissing_sib_idx;
+	  if (!(nonmissing_sib_idx % 7)) {
+	    if (!(nonmissing_sib_idx % 126)) {
+	    }
+	  }
+	}
+	if (nonmissing_sib_idx % 126) {
+	  if (nonmissing_sib_idx % 7) {
+	  }
+	}
 
 	// then update twice_numers and total_counts arrays
 	// (quad_denom, twice_total_expected are independent of case_a1_ct, can
@@ -3036,7 +3105,7 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
     THREAD_BLOCK_FINISH(tidx);
   }
 }
-  */
+*/
 
 void dfam_sibship_calc(uint32_t cur_case_ct, uint32_t case_hom_a1_ct, uint32_t case_het_ct, uint32_t cur_ctrl_ct, uint32_t ctrl_hom_a1_ct, uint32_t ctrl_het_ct, uint32_t* total_a1_count_ptr, double* numer_ptr, double* denom_ptr, double* total_expected_ptr) {
   if (!cur_ctrl_ct) {
@@ -3116,7 +3185,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uintptr_t* size_one_sibships;
   double* maxt_extreme_stat = NULL;
   uint32_t mu_table[MODEL_BLOCKSIZE];
-  // char* outname_end2;
+  char* outname_end2;
   char* wptr;
   uint64_t* family_list;
   uint64_t* trio_list;
@@ -3531,7 +3600,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     }
   }
 
-  // outname_end2 = memcpyb(outname_end, ".dfam", 6);
+  outname_end2 = memcpyb(outname_end, ".dfam", 6);
   if (fopen_checked(&outfile, outname, "w")) {
     goto dfam_ret_OPEN_FAIL;
   }

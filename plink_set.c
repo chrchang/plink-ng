@@ -2142,7 +2142,7 @@ uint32_t setdefs_compress(Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, 
         fill_bits(cur_bitfield, marker_midx_to_idx[range_offset + range_stop], marker_ct_orig - range_offset - range_stop);
         range_end = marker_ct;
       } else {
-        range_end = 1 + last_set_bit(cur_bitfield, (range_offset + range_stop + (BITCT - 1)) / BITCT);
+        range_end = 1 + last_set_bit(cur_bitfield, 1 + (marker_midx_to_idx[marker_ct_orig - 1] / BITCT));
       }
       if (range_start) {
         range_start = marker_midx_to_idx[next_set_unsafe(read_bitfield, 0) + range_offset];
