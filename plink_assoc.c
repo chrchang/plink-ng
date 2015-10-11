@@ -996,11 +996,17 @@ void calc_git(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uintptr_t* __restrict_
       perm_ptr = &(permsv[(ujj / 2) * perm_ct128]);
       for (pbidx = 0; pbidx < perm_ct128; pbidx++) {
 	loader = *perm_ptr++;
-	git_merge4[0] = _mm_add_epi64(git_merge4[0], _mm_and_si128(loader, m1x4));
-	git_merge4[1] = _mm_add_epi64(git_merge4[1], _mm_and_si128(_mm_srli_epi64(loader, 1), m1x4));
-	git_merge4[2] = _mm_add_epi64(git_merge4[2], _mm_and_si128(_mm_srli_epi64(loader, 2), m1x4));
-	git_merge4[3] = _mm_add_epi64(git_merge4[3], _mm_and_si128(_mm_srli_epi64(loader, 3), m1x4));
-	git_merge4 = &(git_merge4[4]);
+	*git_merge4 = _mm_add_epi64(*git_merge4, _mm_and_si128(loader, m1x4));
+	git_merge4++;
+	loader = _mm_srli_epi64(loader, 1);
+	*git_merge4 = _mm_add_epi64(*git_merge4, _mm_and_si128(loader, m1x4));
+	git_merge4++;
+	loader = _mm_srli_epi64(loader, 1);
+	*git_merge4 = _mm_add_epi64(*git_merge4, _mm_and_si128(loader, m1x4));
+	git_merge4++;
+	loader = _mm_srli_epi64(loader, 1);
+	*git_merge4 = _mm_add_epi64(*git_merge4, _mm_and_si128(loader, m1x4));
+	git_merge4++;
       }
       ukk = cur_cts[sample_type] + 1;
       cur_cts[sample_type] = ukk;
@@ -1020,9 +1026,12 @@ void calc_git(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uintptr_t* __restrict_
 	  for (pbidx = 0; pbidx < perm_ct16; pbidx++) {
 	    loader = *git_merge8;
 	    git_write[0] = _mm_add_epi64(git_write[0], _mm_and_si128(loader, m8x32));
-	    git_write[1] = _mm_add_epi64(git_write[1], _mm_and_si128(_mm_srli_epi64(loader, 8), m8x32));
-	    git_write[2] = _mm_add_epi64(git_write[2], _mm_and_si128(_mm_srli_epi64(loader, 16), m8x32));
-	    git_write[3] = _mm_add_epi64(git_write[3], _mm_and_si128(_mm_srli_epi64(loader, 24), m8x32));
+	    loader = _mm_srli_epi64(loader, 8);
+	    git_write[1] = _mm_add_epi64(git_write[1], _mm_and_si128(loader, m8x32));
+	    loader = _mm_srli_epi64(loader, 8);
+	    git_write[2] = _mm_add_epi64(git_write[2], _mm_and_si128(loader, m8x32));
+	    loader = _mm_srli_epi64(loader, 8);
+	    git_write[3] = _mm_add_epi64(git_write[3], _mm_and_si128(loader, m8x32));
 	    git_write = &(git_write[4]);
 	    *git_merge8++ = _mm_setzero_si128();
 	  }
@@ -1092,9 +1101,12 @@ void calc_git(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uintptr_t* __restrict_
       for (pbidx = 0; pbidx < perm_ct16; pbidx++) {
 	loader = *git_merge8++;
 	git_write[0] = _mm_add_epi64(git_write[0], _mm_and_si128(loader, m8x32));
-	git_write[1] = _mm_add_epi64(git_write[1], _mm_and_si128(_mm_srli_epi64(loader, 8), m8x32));
-	git_write[2] = _mm_add_epi64(git_write[2], _mm_and_si128(_mm_srli_epi64(loader, 16), m8x32));
-	git_write[3] = _mm_add_epi64(git_write[3], _mm_and_si128(_mm_srli_epi64(loader, 24), m8x32));
+	loader = _mm_srli_epi64(loader, 8);
+	git_write[1] = _mm_add_epi64(git_write[1], _mm_and_si128(loader, m8x32));
+	loader = _mm_srli_epi64(loader, 8);
+	git_write[2] = _mm_add_epi64(git_write[2], _mm_and_si128(loader, m8x32));
+	loader = _mm_srli_epi64(loader, 8);
+	git_write[3] = _mm_add_epi64(git_write[3], _mm_and_si128(loader, m8x32));
 	git_write = &(git_write[4]);
       }
     }
