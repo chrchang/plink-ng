@@ -932,8 +932,8 @@ void calc_git(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uintptr_t* __restrict_
   uint32_t perm_ct8 = (perm_vec_ct + 7) / 8;
   uint32_t perm_ct4 = (perm_vec_ct + 3) / 4;
   uint32_t perm_ct16x16 = 16 * perm_ct16;
-  uint32_t* permsv = perm_vecst;
-  uint32_t* gitv[9];
+  uintptr_t* permsv = (uintptr_t*)perm_vecst;
+  uintptr_t* gitv[9];
 #endif
   uint32_t cur_cts[3];
   uintptr_t ulii;
@@ -953,15 +953,15 @@ void calc_git(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uintptr_t* __restrict_
   gitv[7] = &(((__m128i*)results_bufs)[perm_ct16x4]);
   gitv[8] = (__m128i*)results_bufs;
 #else
-  gitv[0] = thread_wkspace;
-  gitv[1] = &(thread_wkspace[perm_ct32x4]);
-  gitv[2] = &(thread_wkspace[2 * perm_ct32x4]);
-  gitv[3] = &(thread_wkspace[3 * perm_ct32x4]);
-  gitv[4] = &(thread_wkspace[3 * perm_ct32x4 + 2 * perm_ct8]);
-  gitv[5] = &(thread_wkspace[3 * perm_ct32x4 + 4 * perm_ct8]);
-  gitv[6] = &(results_bufs[2 * perm_ct16x16]);
-  gitv[7] = &(results_bufs[perm_ct16x16]);
-  gitv[8] = results_bufs;
+  gitv[0] = (uintptr_t*)thread_wkspace;
+  gitv[1] = (uintptr_t*)(&(thread_wkspace[perm_ct32x4]));
+  gitv[2] = (uintptr_t*)(&(thread_wkspace[2 * perm_ct32x4]));
+  gitv[3] = (uintptr_t*)(&(thread_wkspace[3 * perm_ct32x4]));
+  gitv[4] = (uintptr_t*)(&(thread_wkspace[3 * perm_ct32x4 + 2 * perm_ct8]));
+  gitv[5] = (uintptr_t*)(&(thread_wkspace[3 * perm_ct32x4 + 4 * perm_ct8]));
+  gitv[6] = (uintptr_t*)(&(results_bufs[2 * perm_ct16x16]));
+  gitv[7] = (uintptr_t*)(&(results_bufs[perm_ct16x16]));
+  gitv[8] = (uintptr_t*)results_bufs;
 #endif
   cur_cts[0] = 0;
   cur_cts[1] = 0;
