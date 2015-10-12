@@ -1658,6 +1658,13 @@ static inline void fill_ulong_zero(uintptr_t* ularr, size_t size) {
 static inline void fill_ull_zero(uint64_t* ullarr, size_t size) {
   fill_ulong_zero((uintptr_t*)ullarr, size);
 }
+
+static inline void fill_v128_zero(__m128i* v128arr, size_t size) {
+  size_t ulii;
+  for (ulii = 0; ulii < size; ulii++) {
+    *v128arr++ = _mm_setzero_si128();
+  }
+}
 #else
 static inline void fill_ull_zero(uint64_t* ullarr, size_t size) {
   fill_ulong_zero((uintptr_t*)ullarr, size * 2);
@@ -2200,7 +2207,7 @@ static inline void unroll_zero_incr_8_32(__m128i* acc8, __m128i* acc32, uint32_t
   }
 }
 #else
-void unroll_incr_1_4(const uintptr_t* acc1, uintptr_t acc4, uint32_t acc1_word_ct) {
+static inline void unroll_incr_1_4(const uintptr_t* acc1, uintptr_t acc4, uint32_t acc1_word_ct) {
   uint32_t widx;
   uint32_t loader;
   for (widx = 0; widx < acc1_word_ct; widx++) {
@@ -2219,7 +2226,7 @@ void unroll_incr_1_4(const uintptr_t* acc1, uintptr_t acc4, uint32_t acc1_word_c
   }
 }
 
-void unroll_incr_4_8(const uintptr_t* acc4, uintptr_t acc8, uint32_t acc4_word_ct) {
+static inline void unroll_incr_4_8(const uintptr_t* acc4, uintptr_t acc8, uint32_t acc4_word_ct) {
   uint32_t widx;
   uint32_t loader;
   for (widx = 0; widx < acc4_word_ct; widx++) {
@@ -2232,7 +2239,7 @@ void unroll_incr_4_8(const uintptr_t* acc4, uintptr_t acc8, uint32_t acc4_word_c
   }
 }
 
-void unroll_zero_incr_4_8(uintptr_t* acc4, uintptr_t acc8, uint32_t acc4_word_ct) {
+static inline void unroll_zero_incr_4_8(uintptr_t* acc4, uintptr_t acc8, uint32_t acc4_word_ct) {
   uint32_t widx;
   uint32_t loader;
   for (widx = 0; widx < acc4_word_ct; widx++) {
@@ -2246,7 +2253,7 @@ void unroll_zero_incr_4_8(uintptr_t* acc4, uintptr_t acc8, uint32_t acc4_word_ct
   }
 }
 
-void unroll_incr_8_32(const uintptr_t* acc8, uintptr_t* acc32, uint32_t acc8_word_ct) {
+static inline void unroll_incr_8_32(const uintptr_t* acc8, uintptr_t* acc32, uint32_t acc8_word_ct) {
   uint32_t widx;
   uint32_t loader;
   for (widx = 0; widx < acc8_word_ct; widx++) {
@@ -2265,7 +2272,7 @@ void unroll_incr_8_32(const uintptr_t* acc8, uintptr_t* acc32, uint32_t acc8_wor
   }
 }
 
-void unroll_zero_incr_8_32(uintptr_t* acc8, uintptr_t* acc32, uint32_t acc8_word_ct) {
+static inline void unroll_zero_incr_8_32(uintptr_t* acc8, uintptr_t* acc32, uint32_t acc8_word_ct) {
   uint32_t widx;
   uint32_t loader;
   for (widx = 0; widx < acc8_word_ct; widx++) {

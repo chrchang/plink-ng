@@ -2987,10 +2987,7 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
   uint32_t cur_case_a1_ct_flip[2];
 #ifdef __LP64__
   const __m128i m1x8 = {0x0101010101010101LLU, 0x0101010101010101LLU};
-  const __m128i m1x4 = {0x1111111111111111LLU, 0x1111111111111111LLU};
   const __m128i m1x4ls1 = {0x2222222222222222LLU, 0x2222222222222222LLU};
-  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
-  const __m128i m8x32 = {0x000000ff000000ffLLU, 0x000000ff000000ffLLU};
   __m128i diff_vec;
   __m128i incr8;
   __m128i loader;
@@ -3079,9 +3076,7 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 
       twice_numer_subtract = 0;
 #ifdef __LP64__
-      for (vidx = 0; vidx < acc8_vec_ct; vidx++) {
-	case_a1_ct_acc8[vidx] = _mm_setzero_si128();
-      }
+      fill_v128_zero(case_a1_ct_acc8, acc8_vec_ct);
       base_incr = 0;
       max_incr = 0;
 #endif
@@ -3199,12 +3194,8 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	  cur_flipa = &(flipa[fs_idx * perm_vec_wcta]);
 	  fill_uint_zero(cur_case_a1_cts, perm_vec_ct);
 #ifdef __LP64__
-	  for (vidx = 0; vidx < acc4_vec_ct; vidx++) {
-	    acc4[vidx] = _mm_setzero_si128();
-	  }
-	  for (vidx = 0; vidx < acc8_vec_ct; vidx++) {
-	    acc8[vidx] = _mm_setzero_si128();
-	  }
+	  fill_v128_zero(acc4, acc4_vec_ct);
+	  fill_v128_zero(acc8, acc8_vec_ct);
 #else
 	  fill_ulong_zero(acc4, acc4_word_ct);
 	  fill_ulong_zero(acc8, acc8_word_ct);
@@ -3225,15 +3216,6 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 #ifdef __LP64__
 	    if (base_incr + cur_max_incr > 15) {
 	      unroll_zero_incr_4_8(acc4, acc8, acc4_vec_ct);
-	      acc4_ptr = acc4;
-	      acc8_ptr = acc8;
-	      for (vidx = 0; vidx < acc4_vec_ct; vidx++) {
-		loader = *acc4_ptr;
-		acc8_ptr[0] = _mm_add_epi64(acc8_ptr[0], _mm_and_si128(loader, m4));
-		acc8_ptr[1] = _mm_add_epi64(acc8_ptr[1], _mm_and_si128(_mm_srli_epi64(loader, 4), m4));
-		acc8_ptr = &(acc8_ptr[2]);
-		*acc4_ptr++ = _mm_setzero_si128();
-	      }
 	      max_incr += base_incr;
 	      if (max_incr > 240) {
 	        unroll_zero_incr_8_32(acc8, (__m128i*)cur_case_a1_cts, acc8_vec_ct);
@@ -3246,17 +3228,7 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	    pheno_perm_ptr = &(perm_vecst[sample_idx * perm_vec_wcta]);
 	    acc4_ptr = acc4;
 	    if (cur_max_incr == 1) {
-	      for (vidx = 0; vidx < acc4_vec_ct; vidx++) {
-		loader = *pheno_perm_ptr++;
-		acc4_ptr[0] = _mm_add_epi64(acc4_ptr[0], _mm_and_si128(loader, m1x4));
-		loader = _mm_srli_epi64(loader, 1);
-		acc4_ptr[1] = _mm_add_epi64(acc4_ptr[1], _mm_and_si128(loader, m1x4));
-		loader = _mm_srli_epi64(loader, 1);
-		acc4_ptr[2] = _mm_add_epi64(acc4_ptr[2], _mm_and_si128(loader, m1x4));
-		loader = _mm_srli_epi64(loader, 1);
-		acc4_ptr[3] = _mm_add_epi64(acc4_ptr[3], _mm_and_si128(loader, m1x4));
-		acc4_ptr = &(acc4_ptr[4]);
-	      }
+	      unroll_incr_1_4(pheno_perm_ptr, acc4_ptr, acc4_vec_ct);
 	    } else {
 	      // add 2 whenever this sample is a case
 	      for (vidx = 0; vidx < acc4_vec_ct; vidx++) {
@@ -3272,28 +3244,10 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	    }
 #else
 	    if (base_incr + cur_max_incr > 15) {
-	      acc4_ptr = acc4;
-	      acc8_ptr = acc8;
-	      for (widx = 0; widx < acc4_word_ct; widx++) {
-		loader = *acc4_ptr;
-		acc8_ptr[0] += loader & 0x0f0f0f0fU;
-		acc8_ptr[1] += (loader >> 4) & 0x0f0f0f0fU;
-		acc8_ptr = &(acc8_ptr[2]);
-		*acc4_ptr++ = 0;
-	      }
+	      unroll_zero_incr_4_8(acc4, acc8, acc4_word_ct);
 	      max_incr += base_incr;
 	      if (max_incr > 240) {
-		acc8_ptr = acc8;
-		acc32_ptr = cur_case_a1_cts;
-		for (widx = 0; widx < acc8_word_ct; widx++) {
-		  loader = *acc8_ptr;
-		  acc32_ptr[0] += (uint8_t)loader;
-		  acc32_ptr[1] += (uint8_t)(loader >> 8);
-		  acc32_ptr[2] += (uint8_t)(loader >> 16);
-		  acc32_ptr[3] += loader >> 24;
-		  acc32_ptr = &(acc32_ptr[4]);
-		  *acc8_ptr++ = 0;
-		}
+		unroll_zero_incr_8_32(acc8, cur_case_a1_cts, acc8_word_ct);
 		max_incr = 0;
 	      }
 	      base_incr = 0;
@@ -3303,14 +3257,7 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	    pheno_perm_ptr = &(perm_vecst[sample_idx * perm_vec_wcta]);
 	    acc4_ptr = acc4;
 	    if (cur_max_incr == 1) {
-	      for (widx = 0; widx < acc4_word_ct; widx++) {
-		loader = *pheno_perm_ptr++;
-		acc4_ptr[0] += loader & 0x11111111U;
-		acc4_ptr[1] += (loader >> 1) & 0x11111111U;
-		acc4_ptr[2] += (loader >> 2) & 0x11111111U;
-		acc4_ptr[3] += (loader >> 3) & 0x11111111U;
-		acc4_ptr = &(acc4_ptr[4]);
-	      }
+	      unroll_incr_1_4(pheno_perm_ptr, acc4_ptr, acc4_word_ct);
 	    } else {
 	      for (widx = 0; widx < acc4_word_ct; widx++) {
 		loader = *pheno_perm_ptr++;
@@ -3327,50 +3274,13 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	  // base_incr guaranteed to be nonzero unless no child had any A1
 	  // alleles
 	  if (base_incr) {
-	    acc4_ptr = acc4;
-	    acc8_ptr = acc8;
-	    for (vidx = 0; vidx < acc4_vec_ct; vidx++) {
-	      loader = *acc4_ptr;
-	      acc8_ptr[0] = _mm_add_epi64(acc8_ptr[0], _mm_and_si128(loader, m4));
-	      acc8_ptr[1] = _mm_add_epi64(acc8_ptr[1], _mm_and_si128(_mm_srli_epi64(loader, 4), m4));
-	      acc8_ptr = &(acc8_ptr[2]);
-	      acc4_ptr++;
-	    }
-	    acc8_ptr = acc8;
-	    acc32_ptr = (__m128i*)cur_case_a1_cts;
-	    for (vidx = 0; vidx < acc8_vec_ct; vidx++) {
-	      loader = *acc8_ptr;
-	      acc32_ptr[0] = _mm_add_epi64(acc32_ptr[0], _mm_and_si128(loader, m8x32));
-	      loader = _mm_srli_epi64(loader, 8);
-	      acc32_ptr[1] = _mm_add_epi64(acc32_ptr[1], _mm_and_si128(loader, m8x32));
-	      loader = _mm_srli_epi64(loader, 8);
-	      acc32_ptr[2] = _mm_add_epi64(acc32_ptr[2], _mm_and_si128(loader, m8x32));
-	      loader = _mm_srli_epi64(loader, 8);
-	      acc32_ptr[3] = _mm_add_epi64(acc32_ptr[3], _mm_and_si128(loader, m8x32));
-	      acc32_ptr = &(acc32_ptr[4]);
-	      acc8_ptr++;
-	    }
+	    unroll_incr_4_8(acc4, acc8, acc4_vec_ct);
+	    unroll_incr_8_32(acc8, (__m128i*)cur_case_a1_cts, acc8_vec_ct);
 	  }
 #else
 	  if (base_incr) {
-	    acc4_ptr = acc4;
-	    acc8_ptr = acc8;
-	    for (widx = 0; widx < acc4_word_ct; widx++) {
-	      loader = *acc4_ptr++;
-	      acc8_ptr[0] += loader & 0x0f0f0f0fU;
-	      acc8_ptr[1] += (loader >> 4) & 0x0f0f0f0fU;
-	      acc8_ptr = &(acc8_ptr[2]);
-	    }
-	    acc8_ptr = acc8;
-	    acc32_ptr = cur_case_a1_cts;
-	    for (widx = 0; widx < acc8_word_ct; widx++) {
-	      loader = *acc8_ptr++;
-	      acc32_ptr[0] += (uint8_t)loader;
-	      acc32_ptr[1] += (uint8_t)(loader >> 8);
-	      acc32_ptr[2] += (uint8_t)(loader >> 16);
-	      acc32_ptr[3] += loader >> 24;
-	      acc32_ptr = &(acc32_ptr[4]);
-	    }
+	    unroll_incr_4_8(acc4, acc8, acc4_word_ct);
+	    unroll_incr_8_32(acc8, cur_case_a1_cts, acc8_word_ct);
 	  }
 #endif
 	  if (nonmissing_sib_ct == sibling_ct) {
@@ -3395,12 +3305,8 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	    max_incr = 0;
 	    fill_uint_zero(cur_case_missing_cts, perm_vec_ct);
 #ifdef __LP64__
-	    for (vidx = 0; vidx < acc4_vec_ct; vidx++) {
-	      acc4[vidx] = _mm_setzero_si128();
-	    }
-	    for (vidx = 0; vidx < acc8_vec_ct; vidx++) {
-	      acc8[vidx] = _mm_setzero_si128();
-	    }
+	    fill_v128_zero(acc4, acc4_vec_ct);
+	    fill_v128_zero(acc8, acc8_vec_ct);
 #else
 	    fill_ulong_zero(acc4, acc4_word_ct);
 	    fill_ulong_zero(acc8, acc8_word_ct);

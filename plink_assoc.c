@@ -1556,9 +1556,12 @@ static inline void calc_rem_merge32_minus(uint32_t perm_ct16, __m128i* __restric
   for (pbidx = 0; pbidx < perm_ct16; pbidx++) {
     loader = *rem_merge8;
     rem_write[0] = _mm_sub_epi64(rem_write[0], _mm_and_si128(loader, m8x32));
-    rem_write[1] = _mm_sub_epi64(rem_write[1], _mm_and_si128(_mm_srli_epi64(loader, 8), m8x32));
-    rem_write[2] = _mm_sub_epi64(rem_write[2], _mm_and_si128(_mm_srli_epi64(loader, 16), m8x32));
-    rem_write[3] = _mm_sub_epi64(rem_write[3], _mm_and_si128(_mm_srli_epi64(loader, 24), m8x32));
+    loader = _mm_srli_epi64(loader, 8);
+    rem_write[1] = _mm_sub_epi64(rem_write[1], _mm_and_si128(loader, m8x32));
+    loader = _mm_srli_epi64(loader, 8);
+    rem_write[2] = _mm_sub_epi64(rem_write[2], _mm_and_si128(loader, m8x32));
+    loader = _mm_srli_epi64(loader, 8);
+    rem_write[3] = _mm_sub_epi64(rem_write[3], _mm_and_si128(loader, m8x32));
     rem_write = &(rem_write[4]);
     *rem_merge8++ = _mm_setzero_si128();
   }
@@ -1592,10 +1595,13 @@ static inline void calc_rem_merge32_minus(uint32_t perm_ct4, uintptr_t* __restri
   uint32_t pbidx;
   for (pbidx = 0; pbidx < perm_ct4; pbidx++) {
     loader = *rem_merge8;
-    rem_write[0] -= loader & 0x000000ff;
-    rem_write[1] -= (loader >> 8) & 0x000000ff;
-    rem_write[2] -= (loader >> 16) & 0x000000ff;
-    rem_write[3] -= loader >> 24;
+    rem_write[0] -= (uint8_t)loader;
+    loader >>= 8;
+    rem_write[1] -= (uint8_t)loader;
+    loader >>= 8;
+    rem_write[2] -= (uint8_t)loader;
+    loader >>= 8;
+    rem_write[3] -= loader;
     rem_write = &(rem_write[4]);
     *rem_merge8++ = 0;
   }
@@ -10260,16 +10266,8 @@ void calc_git_missing(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uintptr_t* __r
   uint32_t perm_ct128 = (perm_vec_ct + 127) / 128;
   uint32_t perm_ct128x4 = perm_ct128 * 4;
   uint32_t perm_ct32 = (perm_vec_ct + 31) / 32;
-  const __m128i m1x4 = {0x1111111111111111LLU, 0x1111111111111111LLU};
-  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
-  const __m128i m8x32 = {0x000000ff000000ffLLU, 0x000000ff000000ffLLU};
   __m128i* permsv = (__m128i*)perm_vecst;
   __m128i* gitv[3];
-  __m128i* __restrict__ git_merge4;
-  __m128i* __restrict__ git_merge8;
-  __m128i* __restrict__ git_write;
-  __m128i* __restrict__ perm_ptr;
-  __m128i loader;
 #else
   uint32_t perm_ct32 = (perm_vec_ct + 31) / 32;
   uint32_t perm_ct32x4 = perm_ct32 * 4;
@@ -10277,15 +10275,9 @@ void calc_git_missing(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uintptr_t* __r
   uint32_t perm_ct4 = (perm_vec_ct + 3) / 4;
   uint32_t* permsv = perm_vecst;
   uint32_t* gitv[3];
-  uint32_t* git_merge4;
-  uint32_t* git_merge8;
-  uint32_t* git_write;
-  uint32_t* perm_ptr;
-  uintptr_t loader;
 #endif
   uint32_t cur_ct;
   uintptr_t ulii;
-  uint32_t pbidx;
   uint32_t uii;
   uint32_t ujj;
 #ifdef __LP64__
@@ -10309,75 +10301,21 @@ void calc_git_missing(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uintptr_t* __r
     }
     while (ulii) {
       ujj = CTZLU(ulii);
-      git_merge4 = gitv[0];
-#ifdef __LP64__
-      perm_ptr = &(permsv[ujj * perm_ct128]);
-      for (pbidx = 0; pbidx < perm_ct128; pbidx++) {
-	loader = *perm_ptr++;
-	git_merge4[0] = _mm_add_epi64(git_merge4[0], _mm_and_si128(loader, m1x4));
-	git_merge4[1] = _mm_add_epi64(git_merge4[1], _mm_and_si128(_mm_srli_epi64(loader, 1), m1x4));
-	git_merge4[2] = _mm_add_epi64(git_merge4[2], _mm_and_si128(_mm_srli_epi64(loader, 2), m1x4));
-	git_merge4[3] = _mm_add_epi64(git_merge4[3], _mm_and_si128(_mm_srli_epi64(loader, 3), m1x4));
-	git_merge4 = &(git_merge4[4]);
-      }
       cur_ct++;
+#ifdef __LP64__
+      unroll_incr_1_4(&(permsv[ujj * perm_ct128]), gitv[0], perm_ct128);
       if (!(cur_ct % 15)) {
-	git_merge4 = gitv[0];
-	git_merge8 = gitv[1];
-	for (pbidx = 0; pbidx < perm_ct32; pbidx++) {
-	  loader = *git_merge4;
-	  git_merge8[0] = _mm_add_epi64(git_merge8[0], _mm_and_si128(loader, m4));
-	  git_merge8[1] = _mm_add_epi64(git_merge8[1], _mm_and_si128(_mm_srli_epi64(loader, 4), m4));
-	  git_merge8 = &(git_merge8[2]);
-	  *git_merge4++ = _mm_setzero_si128();
-	}
+	unroll_zero_incr_4_8(gitv[0], gitv[1], perm_ct32);
 	if (!(cur_ct % 255)) {
-	  git_merge8 = gitv[1];
-	  git_write = gitv[2];
-	  for (pbidx = 0; pbidx < perm_ct16; pbidx++) {
-	    loader = *git_merge8;
-	    git_write[0] = _mm_add_epi64(git_write[0], _mm_and_si128(loader, m8x32));
-	    git_write[1] = _mm_add_epi64(git_write[1], _mm_and_si128(_mm_srli_epi64(loader, 8), m8x32));
-	    git_write[2] = _mm_add_epi64(git_write[2], _mm_and_si128(_mm_srli_epi64(loader, 16), m8x32));
-	    git_write[3] = _mm_add_epi64(git_write[3], _mm_and_si128(_mm_srli_epi64(loader, 24), m8x32));
-	    git_write = &(git_write[4]);
-	    *git_merge8++ = _mm_setzero_si128();
-	  }
+	  unroll_zero_incr_8_32(gitv[1], gitv[2], perm_ct16);
 	}
       }
 #else
-      perm_ptr = &(permsv[ujj * perm_ct32]);
-      for (pbidx = 0; pbidx < perm_ct32; pbidx++) {
-	loader = *perm_ptr++;
-	git_merge4[0] += loader & 0x11111111;
-	git_merge4[1] += (loader >> 1) & 0x11111111;
-	git_merge4[2] += (loader >> 2) & 0x11111111;
-	git_merge4[3] += (loader >> 3) & 0x11111111;
-	git_merge4 = &(git_merge4[4]);
-      }
-      cur_ct++;
+      unroll_incr_1_4(&(permsv[ujj * perm_ct32]), gitv[0], perm_ct32);
       if (!(cur_ct % 15)) {
-	git_merge4 = gitv[0];
-	git_merge8 = gitv[1];
-	for (pbidx = 0; pbidx < perm_ct8; pbidx++) {
-	  loader = *git_merge4;
-	  git_merge8[0] += loader & 0x0f0f0f0f;
-	  git_merge8[1] += (loader >> 4) & 0x0f0f0f0f;
-	  git_merge8 = &(git_merge8[2]);
-	  *git_merge4++ = 0;
-	}
+	unroll_zero_incr_4_8(gitv[0], gitv[1], perm_ct8);
 	if (!(cur_ct % 255)) {
-	  git_merge8 = gitv[1];
-	  git_write = gitv[2];
-	  for (pbidx = 0; pbidx < perm_ct4; pbidx++) {
-	    loader = *git_merge8;
-	    git_write[0] += loader & 0x000000ff;
-	    git_write[1] += (loader >> 8) & 0x000000ff;
-	    git_write[2] += (loader >> 16) & 0x000000ff;
-	    git_write[3] += loader >> 24;
-	    git_write = &(git_write[4]);
-	    *git_merge8++ = 0;
-	  }
+	  unroll_zero_incr_8_32(gitv[1], gitv[2], perm_ct4);
 	}
       }
 #endif
@@ -10391,49 +10329,17 @@ void calc_git_missing(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uintptr_t* __r
   }
 #ifdef __LP64__
   if (cur_ct % 15) {
-    git_merge4 = gitv[0];
-    git_merge8 = gitv[1];
-    for (pbidx = 0; pbidx < perm_ct32; pbidx++) {
-      loader = *git_merge4++;
-      git_merge8[0] = _mm_add_epi64(git_merge8[0], _mm_and_si128(loader, m4));
-      git_merge8[1] = _mm_add_epi64(git_merge8[1], _mm_and_si128(_mm_srli_epi64(loader, 4), m4));
-      git_merge8 = &(git_merge8[2]);
-    }
+    unroll_incr_4_8(gitv[0], gitv[1], perm_ct32);
   }
   if (cur_ct % 255) {
-    git_merge8 = gitv[1];
-    git_write = gitv[2];
-    for (pbidx = 0; pbidx < perm_ct16; pbidx++) {
-      loader = *git_merge8++;
-      git_write[0] = _mm_add_epi64(git_write[0], _mm_and_si128(loader, m8x32));
-      git_write[1] = _mm_add_epi64(git_write[1], _mm_and_si128(_mm_srli_epi64(loader, 8), m8x32));
-      git_write[2] = _mm_add_epi64(git_write[2], _mm_and_si128(_mm_srli_epi64(loader, 16), m8x32));
-      git_write[3] = _mm_add_epi64(git_write[3], _mm_and_si128(_mm_srli_epi64(loader, 24), m8x32));
-      git_write = &(git_write[4]);
-    }
+    unroll_incr_8_32(gitv[1], gitv[2], perm_ct16);
   }
 #else
   if (cur_ct % 15) {
-    git_merge4 = gitv[0];
-    git_merge8 = gitv[1];
-    for (pbidx = 0; pbidx < perm_ct8; pbidx++) {
-      loader = *git_merge4++;
-      git_merge8[0] += loader & 0x0f0f0f0f;
-      git_merge8[1] += (loader >> 4) & 0x0f0f0f0f;
-      git_merge8 = &(git_merge8[2]);
-    }
+    unroll_incr_4_8(gitv[0], gitv[1], perm_ct8);
   }
   if (cur_ct % 255) {
-    git_merge8 = gitv[1];
-    git_write = gitv[2];
-    for (pbidx = 0; pbidx < perm_ct4; pbidx++) {
-      loader = *git_merge8++;
-      git_write[0] += loader & 0x000000ff;
-      git_write[1] += (loader >> 8) & 0x000000ff;
-      git_write[2] += (loader >> 16) & 0x000000ff;
-      git_write[3] += loader >> 24;
-      git_write = &(git_write[4]);
-    }
+    unroll_incr_8_32(gitv[1], gitv[2], perm_ct4);
   }
 #endif
 }
