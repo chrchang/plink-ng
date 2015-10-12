@@ -1523,11 +1523,11 @@ static inline void clear_bit_ul(uintptr_t* bit_arr, uintptr_t loc) {
 #define IS_SET_DBL(aa, bb) (((aa)[(bb) / BITCT2] >> (2 * ((bb) % BITCT2))) & 1)
 
 // use this instead of IS_SET() for signed 32-bit integers
-static inline uint32_t is_set(uintptr_t* exclude_arr, uint32_t loc) {
+static inline uint32_t is_set(const uintptr_t* exclude_arr, uint32_t loc) {
   return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 
-static inline uint32_t is_set_ul(uintptr_t* exclude_arr, uintptr_t loc) {
+static inline uint32_t is_set_ul(const uintptr_t* exclude_arr, uintptr_t loc) {
   return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 
@@ -2108,6 +2108,183 @@ uintptr_t popcount2_longs(uintptr_t* lptr, uintptr_t word_ct);
 #define popcount01_longs popcount2_longs
 
 uintptr_t popcount_bit_idx(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx);
+
+#ifdef __LP64__
+static inline void unroll_incr_1_4(const __m128i* acc1, __m128i* acc4, uint32_t acc1_vec_ct) {
+  const __m128i m1x4 = {0x1111111111111111LLU, 0x1111111111111111LLU};
+  __m128i loader;
+  uint32_t vidx;
+  for (vidx = 0; vidx < acc1_vec_ct; vidx++) {
+    loader = *acc1++;
+    *acc4 = _mm_add_epi64(*acc4, _mm_and_si128(loader, m1x4));
+    acc4++;
+    loader = _mm_srli_epi64(loader, 1);
+    *acc4 = _mm_add_epi64(*acc4, _mm_and_si128(loader, m1x4));
+    acc4++;
+    loader = _mm_srli_epi64(loader, 1);
+    *acc4 = _mm_add_epi64(*acc4, _mm_and_si128(loader, m1x4));
+    acc4++;
+    loader = _mm_srli_epi64(loader, 1);
+    *acc4 = _mm_add_epi64(*acc4, _mm_and_si128(loader, m1x4));
+    acc4++;
+  }
+}
+
+static inline void unroll_incr_4_8(const __m128i* acc4, __m128i* acc8, uint32_t acc4_vec_ct) {
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  __m128i loader;
+  uint32_t vidx;
+  for (vidx = 0; vidx < acc4_vec_ct; vidx++) {
+    loader = *acc4++;
+    *acc8 = _mm_add_epi64(*acc8, _mm_and_si128(loader, m4));
+    acc8++;
+    loader = _mm_srli_epi64(loader, 4);
+    *acc8 = _mm_add_epi64(*acc8, _mm_and_si128(loader, m4));
+    acc8++;
+  }
+}
+
+static inline void unroll_zero_incr_4_8(__m128i* acc4, __m128i* acc8, uint32_t acc4_vec_ct) {
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  __m128i loader;
+  uint32_t vidx;
+  for (vidx = 0; vidx < acc4_vec_ct; vidx++) {
+    loader = *acc4;
+    *acc4++ = _mm_setzero_si128();
+    *acc8 = _mm_add_epi64(*acc8, _mm_and_si128(loader, m4));
+    acc8++;
+    loader = _mm_srli_epi64(loader, 4);
+    *acc8 = _mm_add_epi64(*acc8, _mm_and_si128(loader, m4));
+    acc8++;
+  }
+}
+
+static inline void unroll_incr_8_32(const __m128i* acc8, __m128i* acc32, uint32_t acc8_vec_ct) {
+  const __m128i m8x32 = {0x000000ff000000ffLLU, 0x000000ff000000ffLLU};
+  __m128i loader;
+  uint32_t vidx;
+  for (vidx = 0; vidx < acc8_vec_ct; vidx++) {
+    loader = *acc8++;
+    *acc32 = _mm_add_epi64(*acc32, _mm_and_si128(loader, m8x32));
+    acc32++;
+    loader = _mm_srli_epi64(loader, 8);
+    *acc32 = _mm_add_epi64(*acc32, _mm_and_si128(loader, m8x32));
+    acc32++;
+    loader = _mm_srli_epi64(loader, 8);
+    *acc32 = _mm_add_epi64(*acc32, _mm_and_si128(loader, m8x32));
+    acc32++;
+    loader = _mm_srli_epi64(loader, 8);
+    *acc32 = _mm_add_epi64(*acc32, _mm_and_si128(loader, m8x32));
+    acc32++;
+  }
+}
+
+static inline void unroll_zero_incr_8_32(__m128i* acc8, __m128i* acc32, uint32_t acc8_vec_ct) {
+  const __m128i m8x32 = {0x000000ff000000ffLLU, 0x000000ff000000ffLLU};
+  __m128i loader;
+  uint32_t vidx;
+  for (vidx = 0; vidx < acc8_vec_ct; vidx++) {
+    loader = *acc8;
+    *acc8++ = _mm_setzero_si128();
+    *acc32 = _mm_add_epi64(*acc32, _mm_and_si128(loader, m8x32));
+    acc32++;
+    loader = _mm_srli_epi64(loader, 8);
+    *acc32 = _mm_add_epi64(*acc32, _mm_and_si128(loader, m8x32));
+    acc32++;
+    loader = _mm_srli_epi64(loader, 8);
+    *acc32 = _mm_add_epi64(*acc32, _mm_and_si128(loader, m8x32));
+    acc32++;
+    loader = _mm_srli_epi64(loader, 8);
+    *acc32 = _mm_add_epi64(*acc32, _mm_and_si128(loader, m8x32));
+    acc32++;
+  }
+}
+#else
+void unroll_incr_1_4(const uintptr_t* acc1, uintptr_t acc4, uint32_t acc1_word_ct) {
+  uint32_t widx;
+  uint32_t loader;
+  for (widx = 0; widx < acc1_word_ct; widx++) {
+    loader = *acc1++;
+    *acc4 += loader & 0x11111111U;
+    acc4++;
+    loader >>= 1;
+    *acc4 += loader & 0x11111111U;
+    acc4++;
+    loader >>= 1;
+    *acc4 += loader & 0x11111111U;
+    acc4++;
+    loader >>= 1;
+    *acc4 += loader & 0x11111111U;
+    acc4++;
+  }
+}
+
+void unroll_incr_4_8(const uintptr_t* acc4, uintptr_t acc8, uint32_t acc4_word_ct) {
+  uint32_t widx;
+  uint32_t loader;
+  for (widx = 0; widx < acc4_word_ct; widx++) {
+    loader = *acc4++;
+    *acc8 += loader & 0x0f0f0f0fU;
+    acc8++;
+    loader >>= 4;
+    *acc8 += loader & 0x0f0f0f0fU;
+    acc8++;
+  }
+}
+
+void unroll_zero_incr_4_8(uintptr_t* acc4, uintptr_t acc8, uint32_t acc4_word_ct) {
+  uint32_t widx;
+  uint32_t loader;
+  for (widx = 0; widx < acc4_word_ct; widx++) {
+    loader = *acc4;
+    *acc4++ = 0;
+    *acc8 += loader & 0x0f0f0f0fU;
+    acc8++;
+    loader >>= 4;
+    *acc8 += loader & 0x0f0f0f0fU;
+    acc8++;
+  }
+}
+
+void unroll_incr_8_32(const uintptr_t* acc8, uintptr_t* acc32, uint32_t acc8_word_ct) {
+  uint32_t widx;
+  uint32_t loader;
+  for (widx = 0; widx < acc8_word_ct; widx++) {
+    loader = *acc8++;
+    *acc32 += (uint8_t)loader;
+    acc32++;
+    loader >>= 8;
+    *acc32 += (uint8_t)loader;
+    acc32++;
+    loader >>= 8;
+    *acc32 += (uint8_t)loader;
+    acc32++;
+    loader >>= 8;
+    *acc32 += loader;
+    acc32++;
+  }
+}
+
+void unroll_zero_incr_8_32(uintptr_t* acc8, uintptr_t* acc32, uint32_t acc8_word_ct) {
+  uint32_t widx;
+  uint32_t loader;
+  for (widx = 0; widx < acc8_word_ct; widx++) {
+    loader = *acc8;
+    *acc8++ = 0;
+    *acc32 += (uint8_t)loader;
+    acc32++;
+    loader >>= 8;
+    *acc32 += (uint8_t)loader;
+    acc32++;
+    loader >>= 8;
+    *acc32 += (uint8_t)loader;
+    acc32++;
+    loader >>= 8;
+    *acc32 += loader;
+    acc32++;
+  }
+}
+#endif
 
 uint32_t chrom_window_max(uint32_t* marker_pos, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t ct_max, uint32_t bp_max, uint32_t cur_window_max);
 

@@ -2932,12 +2932,12 @@ const uint8_t dfam_allele_ct_table[] =
  3, 0, 2, 1,
  0, 0, 1, 0};
 
+/*
 void dfam_sibship_or_unrelated_perm_calc() {
   // okay, compute array of familial/sibship case_a1_ct values.  Most
   // families/sibships should have 7 or fewer children, so it makes sense
   // to use 4-bit accumulators in the inner loop (similar to calc_git()
   // in plink_assoc.c).
-  /*
   fill_ulong_zero(acc8, acc8_word_ct);
   fill_ulong_zero(acc4, acc4_word_ct);
 
@@ -2959,10 +2959,10 @@ void dfam_sibship_or_unrelated_perm_calc() {
   // single variable)
 
   // ...
-  */
 }
+*/
 
-  /*
+/*
 THREAD_RET_TYPE dfam_perm_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
   uintptr_t perm_vec_ct = g_perm_vec_ct;
@@ -3010,7 +3010,8 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
   uint32_t* cur_case_a1_cts = (uint32_t*)(&(g_dfam_acc[tidx * acc_thread_offset + acc4_word_ct + 3 * acc8_word_ct]));
   uint32_t* cur_case_missing_cts = (uint32_t*)(&(g_dfam_acc[tidx * acc_thread_offset + acc4_word_ct + 7 * acc8_word_ct]));
   uintptr_t* flipa_shuffled = &(g_dfam_flipa_shuffled[tidx * ]);
-  __m128i* perm8v_ptr;
+  const __m128i* pheno_perm_ptr;
+  const __m128i* flipa_perm_ptr;
   __m128i* acc4_ptr;
   __m128i* acc8_ptr;
   __m128i* acc32_ptr;
@@ -3026,6 +3027,7 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
   uintptr_t* acc8 = &(g_dfam_acc[tidx * acc_thread_offset + acc4_word_ct]);
   uint32_t* cur_case_a1_cts = &(g_dfam_acc[tidx * acc_thread_offset + acc4_word_ct + acc8_word_ct]);
   uint32_t* cur_case_missing_cts = &(g_dfam_acc[tidx * acc_thread_offset + acc4_word_ct + 5 * acc8_word_ct]);
+  const uintptr_t* pheno_perm_ptr;
   uintptr_t* acc4_ptr;
   uintptr_t* acc8_ptr;
   uintptr_t* acc32_ptr;
@@ -3126,10 +3128,15 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	// also tried 16-bit accumulators, but that has ~50% greater runtime on
 	// typical datasets
 	if (max_incr >= 256) {
-	  unroll_incr_8_32(case_a1_ct_acc8, (__m128i*)total_counts, base_incr, acc8_vec_ct);
-	  for (vidx = 0; vidx < acc8_vec_ct; vidx++) {
-	    case_a1_ct_acc8[vidx] = _mm_setzero_si128();
+	  if (base_incr) {
+	    loader = _mm_set1_epi8(base_incr);
+	    acc8_ptr = case_a1_ct_acc8;
+	    for (vidx = 0; vidx < acc8_vec_ct; vidx++) {
+	      *acc8_ptr = _mm_add_epi8(*acc8_ptr, loader);
+	      acc8_ptr++;
+	    }
 	  }
+	  unroll_zero_incr_8_32(case_a1_ct_acc8, (__m128i*)total_counts, acc8_vec_ct);
 	  max_incr = cur_max_incr;
 	  base_incr = 0;
 	}
@@ -3137,9 +3144,9 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
           base_incr += cur_case_a1_ct_flip[0];
 	  diff_vec = _mm_set1_epi8((uint8_t)(cur_case_a1_ct_flip[1] - cur_case_a1_ct_flip[0]));
 	  acc8_ptr = case_a1_ct_acc8;
-	  perm8v_ptr = (__m128i*)(&(flipa_shuffled[fs_idx * perm_vec_wcta]));
+	  flipa_perm_ptr = (__m128i*)(&(flipa_shuffled[fs_idx * perm_vec_wcta]));
 	  for (vidx = 0; vidx < perm_vec_ct128; vidx++) {
-	    loader = *perm8v_ptr++;
+	    loader = *flipa_perm_ptr++;
 	    for (uii = 0; uii < 8; uii++) {
 	      // set incr8 to (cur_case_a1_ct_flip[1] - cur_case_a1_ct_flip[0])
 	      // where (specially permuted) flipA is set, zero when it is not
@@ -3217,6 +3224,7 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	    cur_max_incr = (4 - cur_geno) / 2;
 #ifdef __LP64__
 	    if (base_incr + cur_max_incr > 15) {
+	      unroll_zero_incr_4_8(acc4, acc8, acc4_vec_ct);
 	      acc4_ptr = acc4;
 	      acc8_ptr = acc8;
 	      for (vidx = 0; vidx < acc4_vec_ct; vidx++) {
@@ -3228,27 +3236,18 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	      }
 	      max_incr += base_incr;
 	      if (max_incr > 240) {
-		acc8_ptr = acc8;
-		acc32_ptr = (__m128i*)cur_case_a1_cts;
-		for (vidx = 0; vidx < acc8_vec_ct; vidx++) {
-		  loader = *acc8_ptr;
-		  acc32_ptr[0] = _mm_add_epi64(acc32_ptr[0], _mm_and_si128(loader, m8x32));
-		  acc32_ptr[1] = _mm_add_epi64(acc32_ptr[1], _mm_and_si128(loader, m8x32));
-		  acc32_ptr[2] = _mm_add_epi64(acc32_ptr[2], _mm_and_si128(loader, m8x32));
-		  acc32_ptr[3] = _mm_add_epi64(acc32_ptr[3], _mm_and_si128(loader, m8x32));
-		  *acc8_ptr++ = _mm_setzero_si128();
-		}
+	        unroll_zero_incr_8_32(acc8, (__m128i*)cur_case_a1_cts, acc8_vec_ct);
 		max_incr = 0;
 	      }
 	      base_incr = 0;
 	    }
 	    base_incr += cur_max_incr;
 
-	    perm_ptr = &(perm_vecst[sample_idx * perm_vec_wcta]);
+	    pheno_perm_ptr = &(perm_vecst[sample_idx * perm_vec_wcta]);
 	    acc4_ptr = acc4;
 	    if (cur_max_incr == 1) {
 	      for (vidx = 0; vidx < acc4_vec_ct; vidx++) {
-		loader = *perm_ptr++;
+		loader = *pheno_perm_ptr++;
 		acc4_ptr[0] = _mm_add_epi64(acc4_ptr[0], _mm_and_si128(loader, m1x4));
 		loader = _mm_srli_epi64(loader, 1);
 		acc4_ptr[1] = _mm_add_epi64(acc4_ptr[1], _mm_and_si128(loader, m1x4));
@@ -3261,7 +3260,7 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	    } else {
 	      // add 2 whenever this sample is a case
 	      for (vidx = 0; vidx < acc4_vec_ct; vidx++) {
-		loader = *perm_ptr++;
+		loader = *pheno_perm_ptr++;
 		acc4_ptr[0] = _mm_add_epi64(acc4_ptr[0], _mm_slli_epi64(_mm_and_si128(loader, m1x4), 1));
 		acc4_ptr[1] = _mm_add_epi64(acc4_ptr[1], _mm_and_si128(loader, m1x4ls1));
 		loader = _mm_srli_epi64(loader, 1);
@@ -3275,7 +3274,7 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	    if (base_incr + cur_max_incr > 15) {
 	      acc4_ptr = acc4;
 	      acc8_ptr = acc8;
-	      for (widx = 0; widx < acc4_word_ct; vidx++) {
+	      for (widx = 0; widx < acc4_word_ct; widx++) {
 		loader = *acc4_ptr;
 		acc8_ptr[0] += loader & 0x0f0f0f0fU;
 		acc8_ptr[1] += (loader >> 4) & 0x0f0f0f0fU;
@@ -3292,6 +3291,7 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 		  acc32_ptr[1] += (uint8_t)(loader >> 8);
 		  acc32_ptr[2] += (uint8_t)(loader >> 16);
 		  acc32_ptr[3] += loader >> 24;
+		  acc32_ptr = &(acc32_ptr[4]);
 		  *acc8_ptr++ = 0;
 		}
 		max_incr = 0;
@@ -3300,11 +3300,11 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	    }
 	    base_incr += cur_max_incr;
 
-	    perm_ptr = &(perm_vecst[sample_idx * perm_vec_wcta]);
+	    pheno_perm_ptr = &(perm_vecst[sample_idx * perm_vec_wcta]);
 	    acc4_ptr = acc4;
 	    if (cur_max_incr == 1) {
 	      for (widx = 0; widx < acc4_word_ct; widx++) {
-		loader = *perm_ptr++;
+		loader = *pheno_perm_ptr++;
 		acc4_ptr[0] += loader & 0x11111111U;
 		acc4_ptr[1] += (loader >> 1) & 0x11111111U;
 		acc4_ptr[2] += (loader >> 2) & 0x11111111U;
@@ -3313,7 +3313,7 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	      }
 	    } else {
 	      for (widx = 0; widx < acc4_word_ct; widx++) {
-		loader = *perm_ptr++;
+		loader = *pheno_perm_ptr++;
 		acc4_ptr[0] += (loader & 0x11111111U) << 1;
 		acc4_ptr[1] += loader & 0x22222222U;
 		acc4_ptr[2] += (loader >> 1) & 0x22222222U;
@@ -3336,23 +3336,41 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	      acc8_ptr = &(acc8_ptr[2]);
 	      acc4_ptr++;
 	    }
+	    acc8_ptr = acc8;
+	    acc32_ptr = (__m128i*)cur_case_a1_cts;
 	    for (vidx = 0; vidx < acc8_vec_ct; vidx++) {
-	      acc8_ptr = acc8;
-	      acc32_ptr = (__m128i*)cur_case_a1_cts;
-	      for (vidx = 0; vidx < acc8_vec_ct; vidx++) {
-		loader = *acc8_ptr;
-		acc32_ptr[0] = _mm_add_epi64(acc32_ptr[0], _mm_and_si128(loader, m8x32));
-		loader = _mm_srli_epi64(loader, 8);
-		acc32_ptr[1] = _mm_add_epi64(acc32_ptr[1], _mm_and_si128(loader, m8x32));
-		loader = _mm_srli_epi64(loader, 8);
-		acc32_ptr[2] = _mm_add_epi64(acc32_ptr[2], _mm_and_si128(loader, m8x32));
-		loader = _mm_srli_epi64(loader, 8);
-		acc32_ptr[3] = _mm_add_epi64(acc32_ptr[3], _mm_and_si128(loader, m8x32));
-	      }
+	      loader = *acc8_ptr;
+	      acc32_ptr[0] = _mm_add_epi64(acc32_ptr[0], _mm_and_si128(loader, m8x32));
+	      loader = _mm_srli_epi64(loader, 8);
+	      acc32_ptr[1] = _mm_add_epi64(acc32_ptr[1], _mm_and_si128(loader, m8x32));
+	      loader = _mm_srli_epi64(loader, 8);
+	      acc32_ptr[2] = _mm_add_epi64(acc32_ptr[2], _mm_and_si128(loader, m8x32));
+	      loader = _mm_srli_epi64(loader, 8);
+	      acc32_ptr[3] = _mm_add_epi64(acc32_ptr[3], _mm_and_si128(loader, m8x32));
+	      acc32_ptr = &(acc32_ptr[4]);
+	      acc8_ptr++;
 	    }
 	  }
 #else
 	  if (base_incr) {
+	    acc4_ptr = acc4;
+	    acc8_ptr = acc8;
+	    for (widx = 0; widx < acc4_word_ct; widx++) {
+	      loader = *acc4_ptr++;
+	      acc8_ptr[0] += loader & 0x0f0f0f0fU;
+	      acc8_ptr[1] += (loader >> 4) & 0x0f0f0f0fU;
+	      acc8_ptr = &(acc8_ptr[2]);
+	    }
+	    acc8_ptr = acc8;
+	    acc32_ptr = cur_case_a1_cts;
+	    for (widx = 0; widx < acc8_word_ct; widx++) {
+	      loader = *acc8_ptr++;
+	      acc32_ptr[0] += (uint8_t)loader;
+	      acc32_ptr[1] += (uint8_t)(loader >> 8);
+	      acc32_ptr[2] += (uint8_t)(loader >> 16);
+	      acc32_ptr[3] += loader >> 24;
+	      acc32_ptr = &(acc32_ptr[4]);
+	    }
 	  }
 #endif
 	  if (nonmissing_sib_ct == sibling_ct) {
@@ -3375,6 +3393,7 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	    // case, but we focus our attention on the far more common sparse
 	    // missingness scenario.)
 	    max_incr = 0;
+	    fill_uint_zero(cur_case_missing_cts, perm_vec_ct);
 #ifdef __LP64__
 	    for (vidx = 0; vidx < acc4_vec_ct; vidx++) {
 	      acc4[vidx] = _mm_setzero_si128();
@@ -3392,11 +3411,87 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	      if (cur_geno != 1) {
 		continue;
 	      }
+#ifdef __LP64__
 	      if (!(max_incr % 15)) {
+		unroll_zero_incr_4_8(acc4, acc8, acc4_vec_ct);
+		acc4_ptr = acc4;
+		acc8_ptr = acc8;
+		for (vidx = 0; vidx < acc4_vec_ct; vidx++) {
+		  loader = *acc4_ptr;
+		  acc8_ptr[0] = _mm_add_epi64(acc8_ptr[0], _mm_and_si128(loader, m4));
+		  acc8_ptr[1] = _mm_add_epi64(acc8_ptr[1], _mm_and_si128(_mm_srli_epi64(loader, 4), m4));
+		  acc8_ptr = &(acc8_ptr[2]);
+		  *acc4_ptr++ = _mm_setzero_si128();
+		}
 		if (!(max_incr % 255)) {
+		  acc8_ptr = acc8;
+		  acc32_ptr = (__m128i*)cur_case_missing_cts;
+		  for (vidx = 0; vidx < acc8_vec_ct; vidx++) {
+		    loader = *acc8_ptr;
+		    acc32_ptr[0] = _mm_add_epi64(acc32_ptr[0], _mm_and_si128(loader, m8x32));
+		    loader = _mm_srli_epi64(loader, 8);
+		    acc32_ptr[1] = _mm_add_epi64(acc32_ptr[1], _mm_and_si128(loader, m8x32));
+		    loader = _mm_srli_epi64(loader, 8);
+		    acc32_ptr[2] = _mm_add_epi64(acc32_ptr[2], _mm_and_si128(loader, m8x32));
+		    loader = _mm_srli_epi64(loader, 8);
+		    acc32_ptr[3] = _mm_add_epi64(acc32_ptr[3], _mm_and_si128(loader, m8x32));
+		    *acc8_ptr++ = _mm_setzero_si128();
+		  }
 		}
 	      }
+	      pheno_perm_ptr = &(perm_vecst[sample_idx * perm_vec_wcta]);
+	      acc4_ptr = acc4;
+	      for (vidx = 0; vidx < acc4_vec_ct; vidx++) {
+		loader = *pheno_perm_ptr++;
+		acc4_ptr[0] = _mm_add_epi64(acc4_ptr[0], _mm_and_si128(loader, m1x4));
+		loader = _mm_srli_epi64(loader, 1);
+		acc4_ptr[1] = _mm_add_epi64(acc4_ptr[1], _mm_and_si128(loader, m1x4));
+		loader = _mm_srli_epi64(loader, 1);
+		acc4_ptr[2] = _mm_add_epi64(acc4_ptr[2], _mm_and_si128(loader, m1x4));
+		loader = _mm_srli_epi64(loader, 1);
+		acc4_ptr[3] = _mm_add_epi64(acc4_ptr[3], _mm_and_si128(loader, m1x4));
+	        acc4_ptr = &(acc4_ptr[4]);
+	      }
+#else
+	      if (!(max_incr % 15)) {
+		acc4_ptr = acc4;
+		acc8_ptr = acc8;
+		for (widx = 0; widx < acc4_word_ct; widx++) {
+		  loader = *acc4_ptr;
+		  acc8_ptr[0] += loader & 0x0f0f0f0fU;
+		  acc8_ptr[1] += (loader >> 4) & 0x0f0f0f0fU;
+		  acc8_ptr = &(acc8_ptr[2]);
+		  *acc4_ptr++ = 0;
+		}
+		if (!(max_incr % 255)) {
+		  acc8_ptr = acc8;
+		  acc32_ptr = cur_case_missing_cts;
+		  for (widx = 0; widx < acc8_word_ct; widx++) {
+		    loader = *acc8_ptr;
+		    acc32_ptr[0] += (uint8_t)loader;
+		    acc32_ptr[1] += (uint8_t)(loader >> 8);
+		    acc32_ptr[2] += (uint8_t)(loader >> 16);
+		    acc32_ptr[3] += loader >> 24;
+		    acc32_ptr = &(acc32_ptr[4]);
+		    *acc8_ptr++ = 0;
+		  }
+		}
+	      }
+	      for (widx = 0; widx < acc4_word_ct; widx++) {
+		loader = *pheno_perm_ptr++;
+		acc4_ptr[0] += loader & 0x11111111U;
+		acc4_ptr[1] += (loader >> 1) & 0x11111111U;
+		acc4_ptr[2] += (loader >> 2) & 0x11111111U;
+		acc4_ptr[3] += (loader >> 3) & 0x11111111U;
+		acc4_ptr = &(acc4_ptr[4]);
+	      }
+#endif
+	      max_incr++;
 	    }
+#ifdef __LP64__
+	    ;;;
+#else
+#endif
 	  }
 	}
       }
@@ -3444,7 +3539,7 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
     THREAD_BLOCK_FINISH(tidx);
   }
 }
-  */
+*/
 
 void dfam_sibship_calc(uint32_t cur_case_ct, uint32_t case_hom_a1_ct, uint32_t case_het_ct, uint32_t cur_ctrl_ct, uint32_t ctrl_hom_a1_ct, uint32_t ctrl_het_ct, uint32_t* total_a1_count_ptr, double* numer_ptr, double* denom_ptr, double* total_expected_ptr) {
   if (!cur_ctrl_ct) {
