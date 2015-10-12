@@ -10273,8 +10273,8 @@ void calc_git_missing(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uintptr_t* __r
   uint32_t perm_ct32x4 = perm_ct32 * 4;
   uint32_t perm_ct8 = (perm_vec_ct + 7) / 8;
   uint32_t perm_ct4 = (perm_vec_ct + 3) / 4;
-  uint32_t* permsv = perm_vecst;
-  uint32_t* gitv[3];
+  uintptr_t* permsv = (uintptr_t*)perm_vecst;
+  uintptr_t* gitv[3];
 #endif
   uint32_t cur_ct;
   uintptr_t ulii;
@@ -10286,9 +10286,9 @@ void calc_git_missing(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uintptr_t* __r
   gitv[1] = &(((__m128i*)thread_wkspace)[9 * perm_ct128x4]);
   gitv[2] = (__m128i*)thread_wkspace;
 #else
-  gitv[0] = &(thread_wkspace[8 * perm_ct32x4]);
-  gitv[1] = &(thread_wkspace[9 * perm_ct32x4]);
-  gitv[2] = thread_wkspace;
+  gitv[0] = (uintptr_t*)(&(thread_wkspace[8 * perm_ct32x4]));
+  gitv[1] = (uintptr_t*)(&(thread_wkspace[9 * perm_ct32x4]));
+  gitv[2] = (uintptr_t*)thread_wkspace;
 #endif
   cur_ct = 0;
   for (uii = 0; uii < pheno_nm_ctl; uii++) {
