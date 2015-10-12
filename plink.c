@@ -103,7 +103,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (11 Oct 2015)";
+  " (12 Oct 2015)";
 const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -11157,7 +11157,7 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "tandard-beta", 13)) {
 	if (((!(calculation_type & CALC_GLM)) || (glm_modifier & GLM_LOGISTIC)) && (!(dosage_info.modifier & DOSAGE_GLM))) {
-	  logerrprint("Error: --standard-beta must be used wtih --linear or --dosage.\n");
+	  logerrprint("Error: --standard-beta must be used with --linear or --dosage.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	logprint("Note: --standard-beta flag deprecated.  Use e.g. '--linear standard-beta'.\n");
@@ -11391,7 +11391,7 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	  dosage_info.modifier += (DOSAGE_SCORE - DOSAGE_GLM);
 	}
-        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 8)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 9)) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
 	retval = alloc_fname(&score_info.fname, argv[cur_arg + 1], argptr, 0);
@@ -11434,6 +11434,8 @@ int32_t main(int32_t argc, char** argv) {
 	    dosage_info.modifier |= DOSAGE_SCORE_NOSUM;
 	  } else if (!strcmp(argv[cur_arg + uii], "include-cnt")) {
             dosage_info.modifier |= DOSAGE_SCORE_CNT;
+	  } else if (!strcmp(argv[cur_arg + uii], "double-dosage")) {
+	    dosage_info.modifier |= DOSAGE_SCORE_DOUBLE;
 	  } else if (ujj == 3) {
             logerrprint("Error: --score takes at most three numeric parameters.\n");
             goto main_ret_INVALID_CMDLINE_A;

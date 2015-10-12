@@ -24,7 +24,7 @@ void dosage_cleanup(Dosage_info* doip) {
 
 #define DOSAGE_EPSILON 0.000244140625
 
-int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_end, uintptr_t* score_marker_ct_ptr, uintptr_t* max_score_marker_id_len_ptr, char** score_marker_ids_ptr, char*** score_allele_codes_ptr, double** score_effect_sizes_ptr, uintptr_t** score_qrange_key_exists_ptr, double** score_qrange_keys_ptr, uintptr_t* qrange_ct_ptr, uintptr_t* max_qrange_name_len_ptr, char** score_qrange_names_ptr, double** score_qrange_bounds_ptr) {
+int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_end, uint32_t double_dosage, uintptr_t* score_marker_ct_ptr, uintptr_t* max_score_marker_id_len_ptr, char** score_marker_ids_ptr, char*** score_allele_codes_ptr, double** score_effect_sizes_ptr, uintptr_t** score_qrange_key_exists_ptr, double** score_qrange_keys_ptr, uintptr_t* qrange_ct_ptr, uintptr_t* max_qrange_name_len_ptr, char** score_qrange_names_ptr, double** score_qrange_bounds_ptr) {
   // We don't necessarily have the whole variant ID list in advance, so it
   // makes sense to deviate a bit from score_report().
   //
@@ -268,6 +268,9 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
       // guaranteed to succeed unless the user is overwriting the file between
       // load passes, which we won't bother defending against
       marker_idx = (uint32_t)bsearch_str(bufptr_arr[varid_idx], strlen_se(bufptr_arr[varid_idx]), score_marker_ids, max_score_marker_id_len, score_marker_ct);
+      if (double_dosage) {
+	dxx *= 2;
+      }
       score_effect_sizes[marker_idx] = dxx;
       slen = strlen_se(bufptr_arr[allele_idx]);
       if (slen == 1) {
@@ -1102,7 +1105,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 #endif
   }
   if (do_score) {
-    retval = dosage_load_score_files(sc_ip, outname, outname_end, &score_marker_ct, &max_score_marker_id_len, &score_marker_ids, &score_allele_codes, &score_effect_sizes, &score_qrange_key_exists, &score_qrange_keys, &qrange_ct, &max_qrange_name_len, &score_qrange_names, &score_qrange_bounds);
+    retval = dosage_load_score_files(sc_ip, outname, outname_end, (doip->modifier & DOSAGE_SCORE_DOUBLE), &score_marker_ct, &max_score_marker_id_len, &score_marker_ids, &score_allele_codes, &score_effect_sizes, &score_qrange_key_exists, &score_qrange_keys, &qrange_ct, &max_qrange_name_len, &score_qrange_names, &score_qrange_bounds);
     if (retval) {
       goto plink1_dosage_ret_1;
     }
@@ -1516,15 +1519,15 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     }
     bufptr2 = memcpyb(outname_end, ".out.dosage", 12);
   }
-  if (output_gz) {
-    memcpy(bufptr2, ".gz", 4);
-  }
-  if (flex_pzwrite_init(output_gz, outname, overflow_buf, 0, &ps)) {
-    goto plink1_dosage_ret_OPEN_FAIL;
-  }
-  pzwritep = (char*)overflow_buf;
 
   if (!do_score) {
+    if (output_gz) {
+      memcpy(bufptr2, ".gz", 4);
+    }
+    if (flex_pzwrite_init(output_gz, outname, overflow_buf, 0, &ps)) {
+      goto plink1_dosage_ret_OPEN_FAIL;
+    }
+    pzwritep = (char*)overflow_buf;
     if (do_glm) {
       pzwritep = memcpya(pzwritep, tbuf, bufptr - tbuf);
     } else if (!count_occur) {

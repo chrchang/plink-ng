@@ -2866,19 +2866,19 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
 
 // multithread globals
 static double* g_maxt_extreme_stat;
-static double* g_maxt_thread_results;
+// static double* g_maxt_thread_results;
 static double* g_mperm_save_all;
 static uintptr_t* g_pheno_c;
-static uintptr_t* g_dfam_flipa;
-static uintptr_t* g_dfam_flipa_shuffled;
+// static uintptr_t* g_dfam_flipa;
+// static uintptr_t* g_dfam_flipa_shuffled;
 static uintptr_t* g_dfam_perm_vecs;
-static uintptr_t* g_dfam_perm_vecst;
-static uintptr_t* g_dfam_twice_numers;
-static uintptr_t* g_dfam_total_counts;
-static double* g_dfam_numers;
-static double* g_dfam_denoms;
-static double* g_dfam_total_expecteds;
-static uintptr_t* g_dfam_acc;
+// static uintptr_t* g_dfam_perm_vecst;
+// static uintptr_t* g_dfam_twice_numers;
+// static uintptr_t* g_dfam_total_counts;
+// static double* g_dfam_numers;
+// static double* g_dfam_denoms;
+// static double* g_dfam_total_expecteds;
+// static uintptr_t* g_dfam_acc;
 static uintptr_t g_perm_vec_ct;
 static uint32_t g_dfam_family_all_case_children_ct;
 static uint32_t g_dfam_family_mixed_ct;
@@ -2960,9 +2960,7 @@ void dfam_sibship_or_unrelated_perm_calc() {
 
   // ...
 }
-*/
 
-/*
 THREAD_RET_TYPE dfam_perm_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
   uintptr_t perm_vec_ct = g_perm_vec_ct;
@@ -3502,7 +3500,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t perm_maxt_nst = (fam_ip->dfam_modifier & DFAM_MPERM) && (!is_set_test);
   uint32_t do_perms = fam_ip->dfam_modifier & (DFAM_PERM | DFAM_MPERM);
   uint32_t do_perms_nst = do_perms && (!is_set_test);
-  uint32_t perm_count = fam_ip->dfam_modifier & DFAM_PERM_COUNT;
+  // uint32_t perm_count = fam_ip->dfam_modifier & DFAM_PERM_COUNT;
   uint32_t fill_orig_chisq = do_perms || mtest_adjust;
   uint32_t no_unrelateds = (fam_ip->dfam_modifier & DFAM_NO_UNRELATEDS) || (within_cmdflag && (!cluster_ct));
   uint32_t family_all_case_children_ct = 0;
@@ -3510,7 +3508,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t sibship_mixed_ct = 0;
   uint32_t unrelated_cluster_ct = 0;
   uint32_t pct = 0;
-  uint32_t max_thread_ct = g_thread_ct;
+  // uint32_t max_thread_ct = g_thread_ct;
   uint32_t perm_pass_idx = 0;
   uint32_t perms_total = 0;
   uint32_t perms_done = 0;
@@ -3525,7 +3523,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uintptr_t* size_one_sibships;
   double* maxt_extreme_stat = NULL;
   uint32_t mu_table[MODEL_BLOCKSIZE];
-  char* outname_end2;
+  // char* outname_end2;
   char* wptr;
   uint64_t* family_list;
   uint64_t* trio_list;
@@ -3943,7 +3941,8 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     }
   }
 
-  outname_end2 = memcpyb(outname_end, ".dfam", 6);
+  memcpyb(outname_end, ".dfam", 6);
+  // outname_end2 = memcpyb(outname_end, ".dfam", 6);
   if (fopen_checked(&outfile, outname, "w")) {
     goto dfam_ret_OPEN_FAIL;
   }

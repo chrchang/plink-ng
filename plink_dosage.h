@@ -15,8 +15,9 @@
 #define DOSAGE_SCORE 0x100
 #define DOSAGE_SCORE_NOSUM 0x200
 #define DOSAGE_SCORE_CNT 0x400
-#define DOSAGE_SEX 0x800
-#define DOSAGE_FREQ_CC 0x1000
+#define DOSAGE_SCORE_DOUBLE 0x800
+#define DOSAGE_SEX 0x1000
+#define DOSAGE_FREQ_CC 0x2000
 
 typedef struct {
   char* fname;

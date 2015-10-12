@@ -1044,7 +1044,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      * 'occur' requests a simple variant occurrence report.\n"
 "      * --write-dosage causes a simple merged file matching the 'format'\n"
 "        specification (not including 'dose1') to be generated.\n"
-"      * --score applies a linear scoring system to the dosages.\n\n"
+"      * --score applies a linear scoring system to the dosages.  Note that the\n"
+"        scores are multiplied by 0..1 frequencies, not 0..2 diploid allele\n"
+"        counts, unless the 'double-dosage' modifier is added.\n\n"
 	       );
     help_print("lasso", &help_ctrl, 1,
 "  --lasso [h2 estimate] {min lambda} <report-zeroes>\n"
@@ -1236,7 +1238,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("score\tscore-no-mean-imputation", &help_ctrl, 1,
 "  --score [filename] {i} {j} {k} <header> <sum | no-sum>\n"
-"          <no-mean-imputation | center> <include-cnt>\n"
+"          <no-mean-imputation | center> <include-cnt> <double-dosage>\n"
 "    Apply a linear scoring system to each sample.\n"
 "    The input file should have one line per scored variant.  Variant IDs are\n"
 "    read from column #i, allele codes are read from column #j, and scores are\n"
@@ -1257,7 +1259,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      mean zero.\n"
 "    * This command can be used with dosage data.  By default, the 'CNT' column\n"
 "      is omitted from the output file in this case; use 'include-cnt' to keep\n"
-"      it.\n\n"
+"      it.  Also, note that scores are multiplied by 0..1 dosages, not 0..2\n"
+"      diploid allele counts, unless the 'double-dosage' modifier is present.\n\n"
 	       );
 #if defined __cplusplus && !defined _WIN32 && !defined STABLE_BUILD
     help_print("R\tR-debug", &help_ctrl, 1,
