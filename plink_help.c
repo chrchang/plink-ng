@@ -1044,9 +1044,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      * 'occur' requests a simple variant occurrence report.\n"
 "      * --write-dosage causes a simple merged file matching the 'format'\n"
 "        specification (not including 'dose1') to be generated.\n"
-"      * --score applies a linear scoring system to the dosages.  Note that the\n"
-"        scores are multiplied by 0..1 frequencies, not 0..2 diploid allele\n"
-"        counts, unless the 'double-dosage' modifier is added.\n\n"
+"      * --score applies a linear scoring system to the dosages.\n\n"
 	       );
     help_print("lasso", &help_ctrl, 1,
 "  --lasso [h2 estimate] {min lambda} <report-zeroes>\n"
