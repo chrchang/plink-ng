@@ -745,6 +745,10 @@ uint32_t save_set_bitfield(uintptr_t* marker_bitfield_tmp, uint32_t marker_ct, u
   save_set_bitfield_standard:
     bound_bottom_d128 *= 128;
     bound_top_d128 *= 128;
+    // bugfix
+    if (bound_top_d128 > marker_ct) {
+      bound_top_d128 = marker_ct;
+    }
     (*set_range_pp)[0] = 0xffffffffU;
     (*set_range_pp)[1] = bound_bottom_d128;
     (*set_range_pp)[2] = bound_top_d128 - bound_bottom_d128;
