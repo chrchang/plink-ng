@@ -9975,11 +9975,14 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	*wptr_start++ = ' ';
 	marker_uidx2 = next_unset_ul_unsafe(marker_exclude2, marker_uidx_base);
 	for (chrom_fo_idx2 = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx2); chrom_fo_idx2 < chrom_ct; chrom_fo_idx2++) {
-          chrom_idx2 = chrom_info_ptr->chrom_file_order[chrom_fo_idx2];
 	  chrom_end2 = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx2 + 1];
+	  if (marker_uidx2 >= chrom_end2) {
+	    continue;
+	  }
+          chrom_idx2 = chrom_info_ptr->chrom_file_order[chrom_fo_idx2];
           wptr_start2 = width_force(4, wptr_start, chrom_name_write(wptr_start, chrom_info_ptr, chrom_idx2));
 	  *wptr_start2++ = ' ';
-	  for (; marker_uidx2 < chrom_end2; next_unset_ul_ck(marker_exclude2, &marker_uidx2, chrom_end2), marker_idx2++, dptr++) {
+	  for (; marker_uidx2 < chrom_end2; next_unset_ul_ck(marker_exclude2, &marker_uidx2, unfiltered_marker_ct), marker_idx2++, dptr++) {
 	    if (marker_idx2 == ujj) {
 	      marker_idx2 = g_epi_geno1_offsets[2 * block_idx1 + 1];
 	      if (marker_idx2 == marker_ct2) {
