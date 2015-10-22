@@ -2091,17 +2091,17 @@ uint32_t ld_matrix_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	goto ld_matrix_emitn_ret;
       }
     }
-    if (is_square0) {
-      while (marker_idx < marker_ct) {
-        ulii = (((uintptr_t)(readbuf_end - sptr_cur)) + 1) / 2;
-        if (ulii <= marker_ct - marker_idx) {
-	  sptr_cur = memcpya(sptr_cur, tbuf, ulii * 2);
-	  marker_idx += ulii;
-	  goto ld_matrix_emitn_ret;
-	} else {
-          sptr_cur = memcpya(sptr_cur, tbuf, (marker_ct - marker_idx) * 2);
-          marker_idx = marker_ct;
-	}
+    if (is_square0 && (marker_idx < marker_ct)) {
+      ulii = (((uintptr_t)(readbuf_end - sptr_cur)) + 1) / 2;
+      // bugfix: can't be <= since tab delimiter wouldn't be handled correctly
+      // on subsequent pass
+      if (ulii < marker_ct - marker_idx) {
+	sptr_cur = memcpya(sptr_cur, tbuf, ulii * 2);
+	marker_idx += ulii;
+	goto ld_matrix_emitn_ret;
+      } else {
+	sptr_cur = memcpya(sptr_cur, tbuf, (marker_ct - marker_idx) * 2);
+	marker_idx = marker_ct;
       }
     }
     if (delimiter == '\t') {
