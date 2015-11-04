@@ -1496,19 +1496,20 @@ void incr_dists_rm_inv(uint32_t* idists, uintptr_t* mmasks, uintptr_t sample_ct_
   uintptr_t uljj;
   uint32_t uii;
   uint32_t ujj;
+  uint32_t ukk;
   for (uii = start_idx; uii < end_idx; uii++) {
     ulii = mmasks[uii];
+    ukk = sample_ct_m1 - uii;
     if (ulii) {
       glptr = &(mmasks[uii + 1]);
-      // ujj is deliberately biased down by 1
-      for (ujj = uii; ujj < sample_ct_m1; ujj++) {
+      for (ujj = 0; ujj < ukk; ujj++) {
         uljj = (*glptr++) & ulii;
 	if (uljj) {
 	  idists[ujj] += popcount_long(uljj);
 	}
       }
     }
-    idists = &(idists[sample_ct_m1 - uii - 1]);
+    idists = &(idists[ukk]);
   }
 }
 
@@ -1520,8 +1521,8 @@ THREAD_RET_TYPE calc_genome_thread(void* arg) {
   uintptr_t uljj = g_thread_start[0];
   // this is different from the regular offset because incr_dists_rm_inv() has
   // custom arithmetic
-  uintptr_t offsetm = ((uint64_t)sample_ct) * (ulii - uljj) - ((((uint64_t)(ulii + 1)) * (ulii + 2) - ((uint64_t)(uljj + 1)) * (uljj + 2)) / 2);
-  uintptr_t offset = (((uint64_t)sample_ct) * (ulii - uljj) - ((((uint64_t)ulii) * (ulii + 1) - ((uint64_t)uljj) * (uljj + 1)) / 2)) * 5;
+  uintptr_t offsetm = ((uint64_t)sample_ct) * (ulii - uljj) - ((((uint64_t)ulii) * (ulii + 1) - ((uint64_t)uljj) * (uljj + 1)) / 2);
+  uintptr_t offset = offsetm * 5;
   uint32_t* missing_ptr = &(g_missing_dbl_excluded[offsetm]);
   uint32_t* genome_main_ptr = &(g_genome_main[offset]);
   uintptr_t* geno_ptr = (uintptr_t*)g_geno;
