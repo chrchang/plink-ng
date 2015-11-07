@@ -2866,18 +2866,18 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
 
 // multithread globals
 static double* g_maxt_extreme_stat;
-// static double* g_maxt_thread_results;
+static double* g_maxt_thread_results;
 static double* g_mperm_save_all;
 static uintptr_t* g_pheno_c;
-// static uintptr_t* g_dfam_flipa;
-// static uintptr_t* g_dfam_flipa_shuffled;
+static uintptr_t* g_dfam_flipa;
+static uintptr_t* g_dfam_flipa_shuffled;
 static uintptr_t* g_dfam_perm_vecs;
-// static uintptr_t* g_dfam_perm_vecst;
-// static double* g_dfam_numers;
-// static double* g_dfam_denoms;
-// static uintptr_t* g_dfam_acc;
-// static int32_t* g_dfam_twice_numers;
-// static uint32_t* g_dfam_total_counts;
+static uintptr_t* g_dfam_perm_vecst; // sample-major, shuffled
+static double* g_dfam_numers;
+static double* g_dfam_denoms;
+static uintptr_t* g_dfam_acc;
+static int32_t* g_dfam_twice_numers;
+static uint32_t* g_dfam_total_counts;
 static uint32_t* g_dfam_iteration_order;
 static uintptr_t g_perm_vec_ct;
 static uint32_t g_dfam_family_all_case_children_ct;
@@ -2934,14 +2934,13 @@ const uint8_t dfam_allele_ct_table[] =
  3, 0, 2, 1,
  0, 0, 1, 0};
 
-/*
 void dfam_sibship_or_unrelated_perm_calc(uintptr_t* loadbuf_ptr, const uint32_t* cur_dfam_ptr, const uintptr_t* perm_vecst, const uintptr_t* orig_pheno_c, uint32_t sibling_ct, uint32_t is_unrelated_calc, uintptr_t perm_vec_ct,
 #ifdef __LP64__
 					 __m128i* acc4, __m128i* acc8,
 #else
 					 uintptr_t* acc4, uintptr_t* acc8,
 #endif
-					 uint32_t* case_genotype_cts, int32_t* twice_numers, double* numers, double* denoms, uint32_t* total_counts) {
+					 uint32_t* cur_case_a1_cts, uint32_t* cur_case_missing_cts, int32_t* twice_numers, double* numers, double* denoms, uint32_t* total_counts) {
   // okay, compute array of familial/sibship case_a1_ct values.  Most
   // families/sibships should have 7 or fewer children, so it makes sense
   // to use 4-bit accumulators in the inner loop (similar to calc_git()
@@ -2950,35 +2949,52 @@ void dfam_sibship_or_unrelated_perm_calc(uintptr_t* loadbuf_ptr, const uint32_t*
   const uintptr_t perm_vec_wcta = perm_vec_ct128 * (128 / BITCT);
   uint32_t cur_genotype_cts[4];
 #ifdef __LP64__
+  const __m128i m1x4 = {0x1111111111111111LLU, 0x1111111111111111LLU};
+  const __m128i m1x4ls1 = {0x2222222222222222LLU, 0x2222222222222222LLU};
   uintptr_t acc4_word_ct = perm_vec_ct128 * 8;
-  uintptr_t acc8_word_ct = perm_vec_ct128 * 16;
+  // uintptr_t acc8_word_ct = perm_vec_ct128 * 16;
   uintptr_t acc4_vec_ct = perm_vec_ct128 * 4;
   uintptr_t acc8_vec_ct = acc4_word_ct;
   const __m128i* pheno_perm_ptr;
+  __m128i* acc4_ptr;
+  __m128i loader;
 #else
   uintptr_t acc4_word_ct = perm_vec_ct128 * 16;
   uintptr_t acc8_word_ct = perm_vec_ct128 * 32;
   uintptr_t perm_vec_wct = (perm_vec_ct + (BITCT - 1)) / BITCT;
   const uintptr_t* pheno_perm_ptr;
+  uintptr_t* acc4_ptr;
+  uintptr_t loader;
 #endif
-  uintptr_t case_genotype_stride = 4 * acc8_word_ct;
   uint32_t case_ct_base = 0;
   uintptr_t perm_idx;
-  uint32_t* case_genotype_cts_ptr;
+  double total_ctd;
+  double total_ct_recip;
+  double xxm1_recip;
   double hom_a1_ctd;
   double het_ctd;
   double case_ctd;
   double ctrl_ctd;
+  double case_proportion;
+  double case_expected_hom_a1;
+  double case_expected_het;
+  double case_ctrl_div_xxxm1;
+  double case_var_hom_a1;
+  double case_var_het;
+  double case_neg_covar;
+  double case_expected_a1_ct;
+  double case_var_a1_ct;
   uint32_t sib_idx;
   uint32_t sample_idx;
   uint32_t cur_geno;
   uint32_t geno_match;
   uint32_t cur_case_ct;
-  uint32_t cur_case_missing_ct;
-  uint32_t cur_case_hom_a1_ct;
-  uint32_t cur_case_het_ct;
-  uint32_t cur_total_ct;
+  uint32_t case_missing_ct;
+  uint32_t case_a1_ct;
+  uint32_t total_ct;
   uint32_t cur_ctrl_ct;
+  uint32_t max_incr4;
+  uint32_t max_incr8;
   uint32_t uii;
   // first check if all genotypes are identical
   fill_uint_zero(cur_genotype_cts, 4);
@@ -3011,10 +3027,87 @@ void dfam_sibship_or_unrelated_perm_calc(uintptr_t* loadbuf_ptr, const uint32_t*
     return;
   }
 
-  for (geno_match = 0; geno_match < 3; geno_match++) {
-    if (cur_genotype_cts[geno_match]) {
+#ifdef __LP64__
+  fill_v128_zero(acc4, acc4_vec_ct);
+  fill_v128_zero(acc8, acc8_vec_ct);
+#else
+  fill_ulong_zero(acc4, acc4_word_ct);
+  fill_ulong_zero(acc8, acc8_word_ct);
+#endif
+  fill_uint_zero(cur_case_a1_cts, perm_vec_ct);
+  max_incr4 = 0;
+  max_incr8 = 0;
+  for (sib_idx = 0; sib_idx < sibling_ct; sib_idx++) {
+    sample_idx = cur_dfam_ptr[sib_idx];
+    cur_geno = EXTRACT_2BIT_GENO(loadbuf_ptr, sample_idx);
+    if (cur_geno & 1) {
       continue;
     }
+    uii = 2 - (cur_geno / 2);
+#ifdef __LP64__
+    if (max_incr4 + uii > 15) {
+      unroll_zero_incr_4_8(acc4, acc8, acc4_vec_ct);
+      max_incr8 += max_incr4;
+      if (max_incr8 > 240) {
+	unroll_zero_incr_8_32(acc8, (__m128i*)cur_case_a1_cts, acc8_vec_ct);
+	max_incr8 = 0;
+      }
+      max_incr4 = 0;
+    }
+    max_incr4 += uii;
+    pheno_perm_ptr = (const __m128i*)(&(perm_vecst[sample_idx * perm_vec_wcta]));
+    if (cur_geno) {
+      unroll_incr_1_4(pheno_perm_ptr, acc4, perm_vec_ct128);
+    } else {
+      // add 2 whenever this sample x permutation is a case
+      acc4_ptr = acc4;
+      for (uii = 0; uii < acc4_vec_ct; uii++) {
+	loader = *pheno_perm_ptr++;
+	acc4_ptr[0] = _mm_add_epi64(acc4_ptr[0], _mm_slli_epi64(_mm_and_si128(loader, m1x4), 1));
+	acc4_ptr[1] = _mm_add_epi64(acc4_ptr[1], _mm_and_si128(loader, m1x4ls1));
+	loader = _mm_srli_epi64(loader, 1);
+	acc4_ptr[2] = _mm_add_epi64(acc4_ptr[2], _mm_and_si128(loader, m1x4ls1));
+	loader = _mm_srli_epi64(loader, 1);
+	acc4_ptr[3] = _mm_add_epi64(acc4_ptr[3], _mm_and_si128(loader, m1x4ls1));
+	acc4_ptr = &(acc4_ptr[4]);
+      }
+    }
+#else
+    if (max_incr4 + uii > 15) {
+      unroll_zero_incr_4_8(acc4, acc8, acc4_word_ct);
+      max_incr8 += max_incr4;
+      if (max_incr8 > 240) {
+	unroll_zero_incr_8_32(acc8, (uintptr_t*)cur_case_a1_cts, acc8_word_ct);
+	max_incr8 = 0;
+      }
+      max_incr4 = 0;
+    }
+    max_incr4 += uii;
+    pheno_perm_ptr = &(perm_vecst[sample_idx * perm_vec_wcta]);
+    if (cur_geno) {
+      unroll_incr_1_4(pheno_perm_ptr, acc4, perm_vec_wct);
+    } else {
+      acc4_ptr = acc4;
+      for (uii = 0; uii < perm_vec_wct; uii++) {
+	loader = *pheno_perm_ptr++;
+	acc4_ptr[0] += (loader & 0x11111111U) << 1;
+	acc4_ptr[1] += loader & 0x22222222U;
+	acc4_ptr[2] += (loader >> 1) & 0x22222222U;
+	acc4_ptr[3] += (loader >> 2) & 0x22222222U;
+	acc4_ptr = &(acc4_ptr[4]);
+      }
+    }
+#endif
+  }
+#ifdef __LP64__
+  unroll_incr_4_8(acc4, acc8, acc4_vec_ct);
+  unroll_incr_8_32(acc8, (__m128i*)cur_case_a1_cts, acc8_vec_ct);
+#else
+  unroll_incr_4_8(acc4, acc8, acc4_word_ct);
+  unroll_incr_8_32(acc8, (uintptr_t*)cur_case_a1_cts, acc8_word_ct);
+#endif
+
+  if (cur_genotype_cts[1]) {
 #ifdef __LP64__
     fill_v128_zero(acc4, acc4_vec_ct);
     fill_v128_zero(acc8, acc8_vec_ct);
@@ -3022,8 +3115,7 @@ void dfam_sibship_or_unrelated_perm_calc(uintptr_t* loadbuf_ptr, const uint32_t*
     fill_ulong_zero(acc4, acc4_word_ct);
     fill_ulong_zero(acc8, acc8_word_ct);
 #endif
-    case_genotype_cts_ptr = &(case_genotype_cts[geno_match * case_genotype_stride]);
-    fill_uint_zero(case_genotype_cts_ptr, perm_vec_ct);
+    fill_uint_zero(cur_case_missing_cts, perm_vec_ct);
     uii = 0;
     for (sib_idx = 0; sib_idx < sibling_ct; sib_idx++) {
       sample_idx = cur_dfam_ptr[sib_idx];
@@ -3038,7 +3130,7 @@ void dfam_sibship_or_unrelated_perm_calc(uintptr_t* loadbuf_ptr, const uint32_t*
       if (!(uii % 15)) {
 	unroll_zero_incr_4_8(acc4, acc8, acc4_vec_ct);
 	if (!(uii % 255)) {
-	  unroll_zero_incr_8_32(acc8, (__m128i*)case_genotype_cts_ptr, acc8_vec_ct);
+	  unroll_zero_incr_8_32(acc8, (__m128i*)cur_case_missing_cts, acc8_vec_ct);
 	}
       }
 #else
@@ -3047,7 +3139,7 @@ void dfam_sibship_or_unrelated_perm_calc(uintptr_t* loadbuf_ptr, const uint32_t*
       if (!(uii % 15)) {
 	unroll_zero_incr_4_8(acc4, acc8, acc4_word_ct);
 	if (!(uii % 255)) {
-	  unroll_zero_incr_8_32(acc8, case_genotype_cts_ptr, acc8_word_ct);
+	  unroll_zero_incr_8_32(acc8, (uintptr_t*)cur_case_missing_cts, acc8_word_ct);
 	}
       }
 #endif
@@ -3057,34 +3149,41 @@ void dfam_sibship_or_unrelated_perm_calc(uintptr_t* loadbuf_ptr, const uint32_t*
       if (uii % 15) {
 	unroll_incr_4_8(acc4, acc8, acc4_vec_ct);
       }
-      unroll_incr_8_32(acc8, (__m128i*)case_genotype_cts_ptr, acc8_vec_ct);
+      unroll_incr_8_32(acc8, (__m128i*)cur_case_missing_cts, acc8_vec_ct);
 #else
       if (uii % 15) {
 	unroll_incr_4_8(acc4, acc8, acc4_word_ct);
       }
-      unroll_incr_8_32(acc8, case_genotype_cts_ptr, acc8_word_ct);
+      unroll_incr_8_32(acc8, (uintptr_t*)cur_case_missing_cts, acc8_word_ct);
 #endif
     }
   }
 
   // now update numers, denoms, and total_counts arrays
+  total_ct = sibling_ct - cur_genotype_cts[1];
+  total_ctd = (double)((int32_t)total_ct);
+  total_ct_recip = 1.0 / total_ctd;
   if (!is_unrelated_calc) {
+    xxm1_recip = total_ct_recip / ((double)((int32_t)(total_ct - 1)));
     hom_a1_ctd = (double)((int32_t)cur_genotype_cts[0]);
     het_ctd = (double)((int32_t)cur_genotype_cts[2]);
+    // todo: more precomputation when there are no missing genotypes
     for (perm_idx = 0; perm_idx < perm_vec_ct; perm_idx++) {
-      case_missing_ct = case_genotype_cts[case_genotype_stride + perm_idx];
+      case_missing_ct = cur_case_missing_cts[perm_idx];
       cur_case_ct = case_ct_base - case_missing_ct;
-      cur_total_ct = sibling_ct - cur_genotype_cts[1];
-      cur_ctrl_ct = cur_total_ct - cur_case_ct;
+      cur_ctrl_ct = total_ct - cur_case_ct;
       if ((!cur_case_ct) || (!cur_ctrl_ct)) {
 	continue;
       }
       case_ctd = (double)((int32_t)cur_case_ct);
       ctrl_ctd = (double)((int32_t)cur_ctrl_ct);
-      case_hom_a1_ct = case_genotype_cts[perm_idx];
-      case_het_ct = case_genotype_cts[2 * case_genotype_stride + perm_idx];
-      case_a1_ct = 2 * case_hom_a1_ct + case_het_ct;
-      // ...
+      case_a1_ct = cur_case_a1_cts[perm_idx];
+      case_proportion = case_ctd * total_ct_recip;
+      case_expected_hom_a1 = case_proportion * hom_a1_ctd;
+      case_expected_het = case_proportion * het_ctd;
+      case_ctrl_div_xxxm1 = case_proportion * ctrl_ctd * xxm1_recip;
+      case_var_hom_a1 = case_ctrl_div_xxxm1 * hom_a1_ctd * (total_ctd - hom_a1_ctd);
+      case_var_het = case_ctrl_div_xxxm1 * het_ctd * (total_ctd - het_ctd);
       case_neg_covar = case_ctrl_div_xxxm1 * het_ctd;
       case_expected_a1_ct = 2 * case_expected_hom_a1 + case_expected_het;
       case_var_a1_ct = 4 * (case_var_hom_a1 + case_neg_covar) + case_var_het;
@@ -3093,6 +3192,25 @@ void dfam_sibship_or_unrelated_perm_calc(uintptr_t* loadbuf_ptr, const uint32_t*
       denoms[perm_idx] += case_var_a1_ct;
     }
   } else {
+
+    // actually 1/(x(2x-1)), not 1/(x(x-1))
+    xxm1_recip = total_ct_recip / ((double)((int32_t)(2 * total_ct - 1)));
+
+    for (perm_idx = 0; perm_idx < perm_vec_ct; perm_idx++) {
+      case_missing_ct = cur_case_missing_cts[perm_idx];
+      cur_case_ct = case_ct_base - case_missing_ct;
+      cur_ctrl_ct = total_ct - cur_case_ct;
+      if ((!cur_case_ct) || (!cur_ctrl_ct)) {
+	continue;
+      }
+      case_proportion = ((double)((int32_t)cur_case_ct)) * total_ct_recip;
+      case_a1_ct = cur_case_a1_cts[perm_idx];
+      case_expected_a1_ct = case_proportion * ((double)((int32_t)case_a1_ct));
+      case_var_a1_ct = case_expected_a1_ct * ((double)((int32_t)(2 * total_ct - case_a1_ct))) * ((double)((int32_t)cur_ctrl_ct)) * xxm1_recip;
+      total_counts[perm_idx] += case_a1_ct;
+      numers[perm_idx] += (double)((int32_t)case_a1_ct) - case_expected_a1_ct;
+      denoms[perm_idx] += case_var_a1_ct;
+    }
   }
 }
 
@@ -3143,8 +3261,8 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
   // acc8 (8-bit accumulator) requires (perm_vec_ct + 7) / 8 words; this is
   //   16-byte aligned when perm_vec_ct is divisible by 16
   // acc4 requires (perm_vec_ct + 15) / 16 words
-  // sum reduces to (perm_vec_ct128 * 248) since we have 3 acc8s and 3 acc32s
-  const uintptr_t acc_thread_offset = perm_vec_ct128 * 248;
+  // sum reduces to (perm_vec_ct128 * 248) since we have 3 acc8s and 2 acc32s
+  const uintptr_t acc_thread_offset = perm_vec_ct128 * 184;
   const uintptr_t acc4_word_ct = perm_vec_ct128 * 8;
   const uintptr_t acc8_word_ct = perm_vec_ct128 * 16;
   const uintptr_t acc4_vec_ct = perm_vec_ct128 * 4;
@@ -3154,11 +3272,8 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
   __m128i* case_a1_ct_acc8 = (__m128i*)(&(g_dfam_acc[tidx * acc_thread_offset + acc4_word_ct + acc8_word_ct]));
   // __m128i* cur_case_ct_acc8 = (__m128i*)(&(g_dfam_acc[tidx * acc_thread_offset + acc4_word_ct + 2 * acc8_word_ct]));
 
-  // these three currently must be next to each other for
-  // dfam_sibship_or_unrelated_perm_calc() to work properly
   uint32_t* cur_case_a1_cts = (uint32_t*)(&(g_dfam_acc[tidx * acc_thread_offset + acc4_word_ct + 3 * acc8_word_ct]));
   uint32_t* cur_case_missing_cts = (uint32_t*)(&(g_dfam_acc[tidx * acc_thread_offset + acc4_word_ct + 7 * acc8_word_ct]));
-  // uint32_t* case_het_ct_buf = (uint32_t*)(&(g_dfam_acc[tidx * acc_thread_offset + acc4_word_ct + 11 * acc8_word_ct]));
 
   uintptr_t* flipa_shuffled = &(g_dfam_flipa_shuffled[tidx * family_ct * perm_vec_wcta]); // or family_all_case_children_ct?
   const __m128i* pheno_perm_ptr;
@@ -3169,19 +3284,18 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 #else
   // acc8 requires (perm_vec_ct + 3) / 4 words
   // acc4 requires (perm_vec_ct + 7) / 8 words
-  // sum reduces to perm_vec_ct128 * 432 since we also have 3 acc32s
-  const uintptr_t acc_thread_offset = perm_vec_ct128 * 432;
+  // sum reduces to perm_vec_ct128 * 304 since we also have 2 acc32s
+  const uintptr_t acc_thread_offset = perm_vec_ct128 * 304;
   const uintptr_t acc4_word_ct = perm_vec_ct128 * 16;
   const uintptr_t acc8_word_ct = perm_vec_ct128 * 32;
   uintptr_t* acc4 = &(g_dfam_acc[tidx * acc_thread_offset]);
   uintptr_t* acc8 = &(g_dfam_acc[tidx * acc_thread_offset + acc4_word_ct]);
-  uint32_t* cur_case_a1_cts = &(g_dfam_acc[tidx * acc_thread_offset + acc4_word_ct + acc8_word_ct]);
-  uint32_t* cur_case_missing_cts = &(g_dfam_acc[tidx * acc_thread_offset + acc4_word_ct + 5 * acc8_word_ct]);
-  // uint32_t* case_het_ct_buf = (uint32_t*)(&(g_dfam_acc[tidx * acc_thread_offset + acc4_word_ct + 9 * acc8_word_ct])); 
+  uint32_t* cur_case_a1_cts = (uint32_t*)(&(g_dfam_acc[tidx * acc_thread_offset + acc4_word_ct + acc8_word_ct]));
+  uint32_t* cur_case_missing_cts = (uint32_t*)(&(g_dfam_acc[tidx * acc_thread_offset + acc4_word_ct + 5 * acc8_word_ct]));
   const uintptr_t* pheno_perm_ptr;
   uintptr_t* acc4_ptr;
-  uintptr_t* acc8_ptr;
   uintptr_t loader;
+  uintptr_t widx;
 #endif
   uintptr_t perm_idx;
   const uintptr_t* cur_flipa;
@@ -3213,8 +3327,8 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
   uint32_t nonmissing_sib_ct;
   uint32_t cur_geno;
   uint32_t is_flipped;
-  uint32_t base_incr;
-  uint32_t max_incr;
+  uint32_t max_incr4;
+  uint32_t max_incr8;
   uint32_t cur_max_incr;
   uint32_t orig_case_ct;
   uint32_t success_2start;
@@ -3261,8 +3375,8 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
       chisq_low = orig_chisq[marker_idx] - EPSILON;
 #ifdef __LP64__
       fill_v128_zero(case_a1_ct_acc8, acc8_vec_ct);
-      base_incr = 0;
-      max_incr = 0;
+      max_incr4 = 0;
+      max_incr8 = 0;
 #endif
       for (fs_idx = 0; fs_idx < family_all_case_children_ct; fs_idx++, cur_dfam_ptr = &(cur_dfam_ptr[sibling_ct])) {
 	paternal_id = *cur_dfam_ptr++;
@@ -3302,12 +3416,12 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 
 #ifdef __LP64__
 	cur_max_incr = MAXV(cur_case_a1_ct_flip[0], cur_case_a1_ct_flip[1]);
-	max_incr += cur_max_incr;
+	max_incr8 += cur_max_incr;
 	// also tried 16-bit accumulators, but that has ~50% greater runtime on
 	// typical datasets
-	if (max_incr >= 256) {
-	  if (base_incr) {
-	    loader = _mm_set1_epi8(base_incr);
+	if (max_incr8 >= 256) {
+	  if (max_incr4) {
+	    loader = _mm_set1_epi8(max_incr4);
 	    acc8_ptr = case_a1_ct_acc8;
 	    for (vidx = 0; vidx < acc8_vec_ct; vidx++) {
 	      *acc8_ptr = _mm_add_epi8(*acc8_ptr, loader);
@@ -3315,11 +3429,11 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	    }
 	  }
 	  unroll_zero_incr_8_32(case_a1_ct_acc8, (__m128i*)total_counts, acc8_vec_ct);
-	  max_incr = cur_max_incr;
-	  base_incr = 0;
+	  max_incr8 = cur_max_incr;
+	  max_incr4 = 0;
 	}
 	if (cur_max_incr < 256) {
-          base_incr += cur_case_a1_ct_flip[0];
+          max_incr4 += cur_case_a1_ct_flip[0];
 	  diff_vec = _mm_set1_epi8((uint8_t)(cur_case_a1_ct_flip[1] - cur_case_a1_ct_flip[0]));
 	  acc8_ptr = case_a1_ct_acc8;
 	  flipa_perm_ptr = (__m128i*)(&(flipa_shuffled[fs_idx * perm_vec_wcta]));
@@ -3340,7 +3454,7 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	    is_flipped = IS_SET(cur_flipa, uii);
 	    total_counts[uii] += cur_case_a1_ct_flip[is_flipped];
 	  }
-	  max_incr = 0;
+	  max_incr8 = 0;
 	}
 #else
 	cur_flipa = &(flipa[fs_idx * perm_vec_wcta]);
@@ -3361,7 +3475,7 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	maternal_geno = EXTRACT_2BIT_GENO(loadbuf_ptr, maternal_id);
 	parental_a1_ct = dfam_allele_ct_table[paternal_geno * 4 + maternal_geno];
 	if (!parental_a1_ct) {
-	  dfam_sibship_or_unrelated_perm_calc(loadbuf_ptr, cur_dfam_ptr, perm_vecst, orig_pheno_c, sibling_ct, 0, perm_vec_ct, acc4, acc8, cur_case_a1_cts, twice_numers, numers, denoms, total_counts);
+	  dfam_sibship_or_unrelated_perm_calc(loadbuf_ptr, cur_dfam_ptr, perm_vecst, orig_pheno_c, sibling_ct, 0, perm_vec_ct, acc4, acc8, cur_case_a1_cts, cur_case_missing_cts, twice_numers, numers, denoms, total_counts);
 	} else {
 	  for (sib_idx = 0, nonmissing_sib_ct = 0; sib_idx < sibling_ct; sib_idx++) {
 	    sample_idx = cur_dfam_ptr[sib_idx];
@@ -3384,8 +3498,8 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	  fill_ulong_zero(acc8, acc8_word_ct);
 #endif
 	  // compute (unflipped) case_a1_ct for each permutation
-	  base_incr = 0; // maximum possible value in acc4
-	  max_incr = 0; // maximum possible value in acc8
+	  max_incr4 = 0; // maximum possible value in acc4
+	  max_incr8 = 0; // maximum possible value in acc8
 	  orig_case_ct = 0;
 	  for (sib_idx = 0; sib_idx < sibling_ct; sib_idx++) {
 	    sample_idx = cur_dfam_ptr[sib_idx];
@@ -3397,23 +3511,23 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	    }
 	    cur_max_incr = (4 - cur_geno) / 2;
 #ifdef __LP64__
-	    if (base_incr + cur_max_incr > 15) {
+	    if (max_incr4 + cur_max_incr > 15) {
 	      unroll_zero_incr_4_8(acc4, acc8, acc4_vec_ct);
-	      max_incr += base_incr;
-	      if (max_incr > 240) {
+	      max_incr8 += max_incr4;
+	      if (max_incr8 > 240) {
 	        unroll_zero_incr_8_32(acc8, (__m128i*)cur_case_a1_cts, acc8_vec_ct);
-		max_incr = 0;
+		max_incr8 = 0;
 	      }
-	      base_incr = 0;
+	      max_incr4 = 0;
 	    }
-	    base_incr += cur_max_incr;
+	    max_incr4 += cur_max_incr;
 
 	    pheno_perm_ptr = (const __m128i*)(&(perm_vecst[sample_idx * perm_vec_wcta]));
-	    acc4_ptr = acc4;
 	    if (cur_max_incr == 1) {
-	      unroll_incr_1_4(pheno_perm_ptr, acc4_ptr, perm_vec_ct128);
+	      unroll_incr_1_4(pheno_perm_ptr, acc4, perm_vec_ct128);
 	    } else {
 	      // add 2 whenever this sample is a case
+	      acc4_ptr = acc4;
 	      for (vidx = 0; vidx < acc4_vec_ct; vidx++) {
 		loader = *pheno_perm_ptr++;
 		acc4_ptr[0] = _mm_add_epi64(acc4_ptr[0], _mm_slli_epi64(_mm_and_si128(loader, m1x4), 1));
@@ -3426,22 +3540,22 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	      }
 	    }
 #else
-	    if (base_incr + cur_max_incr > 15) {
+	    if (max_incr4 + cur_max_incr > 15) {
 	      unroll_zero_incr_4_8(acc4, acc8, acc4_word_ct);
-	      max_incr += base_incr;
-	      if (max_incr > 240) {
-		unroll_zero_incr_8_32(acc8, cur_case_a1_cts, acc8_word_ct);
-		max_incr = 0;
+	      max_incr8 += max_incr4;
+	      if (max_incr8 > 240) {
+		unroll_zero_incr_8_32(acc8, (uintptr_t*)cur_case_a1_cts, acc8_word_ct);
+		max_incr8 = 0;
 	      }
-	      base_incr = 0;
+	      max_incr4 = 0;
 	    }
-	    base_incr += cur_max_incr;
+	    max_incr4 += cur_max_incr;
 
 	    pheno_perm_ptr = &(perm_vecst[sample_idx * perm_vec_wcta]);
-	    acc4_ptr = acc4;
 	    if (cur_max_incr == 1) {
-	      unroll_incr_1_4(pheno_perm_ptr, acc4_ptr, perm_vec_wct);
+	      unroll_incr_1_4(pheno_perm_ptr, acc4, perm_vec_wct);
 	    } else {
+	      acc4_ptr = acc4;
 	      for (widx = 0; widx < perm_vec_wct; widx++) {
 		loader = *pheno_perm_ptr++;
 		acc4_ptr[0] += (loader & 0x11111111U) << 1;
@@ -3454,28 +3568,28 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 #endif
 	  }
 #ifdef __LP64__
-	  // base_incr guaranteed to be nonzero unless no child had any A1
+	  // max_incr4 guaranteed to be nonzero unless no child had any A1
 	  // alleles
-	  if (base_incr) {
+	  if (max_incr4) {
 	    unroll_incr_4_8(acc4, acc8, acc4_vec_ct);
 	    unroll_incr_8_32(acc8, (__m128i*)cur_case_a1_cts, acc8_vec_ct);
 	  }
 #else
-	  if (base_incr) {
+	  if (max_incr4) {
 	    unroll_incr_4_8(acc4, acc8, acc4_word_ct);
-	    unroll_incr_8_32(acc8, cur_case_a1_cts, acc8_word_ct);
+	    unroll_incr_8_32(acc8, (uintptr_t*)cur_case_a1_cts, acc8_word_ct);
 	  }
 #endif
 	  if (nonmissing_sib_ct == sibling_ct) {
 	    cur_flipa = &(flipa[fs_idx * perm_vec_wcta]);
-	    max_incr = orig_case_ct * parental_a1_ct;
+	    cur_max_incr = orig_case_ct * parental_a1_ct;
 	    for (perm_idx = 0; perm_idx < perm_vec_ct; perm_idx++) {
 	      uii = cur_case_a1_cts[perm_idx];
 	      if (IS_SET(cur_flipa, perm_idx)) {
-		uii = max_incr - uii;
+		uii = cur_max_incr - uii;
 	      }
 	      total_counts[perm_idx] += uii;
-	      twice_numers[perm_idx] += (int32_t)(2 * uii) - (int32_t)max_incr;
+	      twice_numers[perm_idx] += (int32_t)(2 * uii) - (int32_t)cur_max_incr;
 	    }
 	  } else {
 	    // cur_case_ct also varies; need to compute case_missing_ct for
@@ -3484,7 +3598,7 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	    // (technically could separate out >50% missingness as a special
 	    // case, but we focus our attention on the far more common sparse
 	    // missingness scenario.)
-	    max_incr = 0;
+	    cur_max_incr = 0;
 	    fill_uint_zero(cur_case_missing_cts, perm_vec_ct);
 #ifdef __LP64__
 	    fill_v128_zero(acc4, acc4_vec_ct);
@@ -3500,30 +3614,30 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 		continue;
 	      }
 #ifdef __LP64__
-	      if (!(max_incr % 15)) {
+	      if (!(cur_max_incr % 15)) {
 		unroll_zero_incr_4_8(acc4, acc8, acc4_vec_ct);
-		if (!(max_incr % 255)) {
+		if (!(cur_max_incr % 255)) {
 		  unroll_zero_incr_8_32(acc8, (__m128i*)cur_case_missing_cts, acc8_vec_ct);
 		}
 	      }
 	      unroll_incr_1_4((__m128i*)(&(perm_vecst[sample_idx * perm_vec_wcta])), acc4, perm_vec_ct128);
 #else
-	      if (!(max_incr % 15)) {
+	      if (!(cur_max_incr % 15)) {
 		unroll_zero_incr_4_8(acc4, acc8, acc4_word_ct);
-		if (!(max_incr % 255)) {
-		  unroll_zero_incr_8_32(acc8, cur_case_missing_cts, acc8_word_ct);
+		if (!(cur_max_incr % 255)) {
+		  unroll_zero_incr_8_32(acc8, (uintptr_t*)cur_case_missing_cts, acc8_word_ct);
 		}
 	      }
 	      unroll_incr_1_4(&(perm_vecst[sample_idx * perm_vec_wcta]), acc4, perm_vec_wct);
 #endif
-	      max_incr++;
+	      cur_max_incr++;
 	    }
 #ifdef __LP64__
 	    unroll_incr_4_8(acc4, acc8, acc4_vec_ct);
 	    unroll_incr_8_32(acc8, (__m128i*)cur_case_missing_cts, acc8_vec_ct);
 #else
 	    unroll_incr_4_8(acc4, acc8, acc4_word_ct);
-	    unroll_incr_8_32(acc8, cur_case_missing_cts, acc8_word_ct);
+	    unroll_incr_8_32(acc8, (uintptr_t*)cur_case_missing_cts, acc8_word_ct);
 #endif
 	    for (perm_idx = 0; perm_idx < perm_vec_ct; perm_idx++) {
 	      uii = cur_case_a1_cts[perm_idx];
@@ -3536,13 +3650,13 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
       }
       for (fs_idx = 0; fs_idx < sibship_mixed_ct; fs_idx++, cur_dfam_ptr = &(cur_dfam_ptr[sibling_ct])) {
 	sibling_ct = *cur_dfam_ptr++;
-	dfam_sibship_or_unrelated_perm_calc(loadbuf_ptr, cur_dfam_ptr, perm_vecst, orig_pheno_c, sibling_ct, 0, perm_vec_ct, acc4, acc8, cur_case_a1_cts, twice_numers, numers, denoms, total_counts);
+	dfam_sibship_or_unrelated_perm_calc(loadbuf_ptr, cur_dfam_ptr, perm_vecst, orig_pheno_c, sibling_ct, 0, perm_vec_ct, acc4, acc8, cur_case_a1_cts, cur_case_missing_cts, twice_numers, numers, denoms, total_counts);
       }
       for (unrelated_cluster_idx = 0; unrelated_cluster_idx < unrelated_cluster_ct; unrelated_cluster_idx++, cur_dfam_ptr = &(cur_dfam_ptr[sibling_ct])) {
 	sibling_ct = *cur_dfam_ptr++;
 	// call sibling permutation routine with unrelated bool set (most of
 	// the code should be identical so this should be one function)
-	dfam_sibship_or_unrelated_perm_calc(loadbuf_ptr, cur_dfam_ptr, perm_vecst, orig_pheno_c, sibling_ct, 1, perm_vec_ct, acc4, acc8, cur_case_a1_cts, twice_numers, numers, denoms, total_counts);
+	dfam_sibship_or_unrelated_perm_calc(loadbuf_ptr, cur_dfam_ptr, perm_vecst, orig_pheno_c, sibling_ct, 1, perm_vec_ct, acc4, acc8, cur_case_a1_cts, cur_case_missing_cts, twice_numers, numers, denoms, total_counts);
       }
       if (perm_adapt) {
 	for (perm_idx = 0; perm_idx < perm_vec_ct;) {
@@ -3596,7 +3710,6 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
     THREAD_BLOCK_FINISH(tidx);
   }
 }
-*/
 
 void dfam_sibship_calc(uint32_t cur_case_ct, uint32_t case_hom_a1_ct, uint32_t case_het_ct, uint32_t cur_ctrl_ct, uint32_t ctrl_hom_a1_ct, uint32_t ctrl_het_ct, uint32_t* total_a1_count_ptr, double* numer_ptr, double* denom_ptr, double* total_expected_ptr) {
   if (!cur_ctrl_ct) {
@@ -3653,7 +3766,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t perm_maxt_nst = (fam_ip->dfam_modifier & DFAM_MPERM) && (!is_set_test);
   uint32_t do_perms = fam_ip->dfam_modifier & (DFAM_PERM | DFAM_MPERM);
   uint32_t do_perms_nst = do_perms && (!is_set_test);
-  // uint32_t perm_count = fam_ip->dfam_modifier & DFAM_PERM_COUNT;
+  uint32_t perm_count = fam_ip->dfam_modifier & DFAM_PERM_COUNT;
   uint32_t fill_orig_chisq = do_perms || mtest_adjust;
   uint32_t no_unrelateds = (fam_ip->dfam_modifier & DFAM_NO_UNRELATEDS) || (within_cmdflag && (!cluster_ct));
   uint32_t family_all_case_children_ct = 0;
@@ -3661,7 +3774,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t sibship_mixed_ct = 0;
   uint32_t unrelated_cluster_ct = 0;
   uint32_t pct = 0;
-  // uint32_t max_thread_ct = g_thread_ct;
+  uint32_t max_thread_ct = g_thread_ct;
   uint32_t perm_pass_idx = 0;
   uint32_t perms_total = 0;
   uint32_t perms_done = 0;
@@ -3676,7 +3789,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uintptr_t* size_one_sibships;
   double* maxt_extreme_stat = NULL;
   uint32_t mu_table[MODEL_BLOCKSIZE];
-  // char* outname_end2;
+  char* outname_end2;
   char* wptr;
   uint64_t* family_list;
   uint64_t* trio_list;
@@ -4098,8 +4211,8 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     }
   }
 
-  memcpyb(outname_end, ".dfam", 6);
-  // outname_end2 = memcpyb(outname_end, ".dfam", 6);
+  // memcpyb(outname_end, ".dfam", 6);
+  outname_end2 = memcpyb(outname_end, ".dfam", 6);
   if (fopen_checked(&outfile, outname, "w")) {
     goto dfam_ret_OPEN_FAIL;
   }
