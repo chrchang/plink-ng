@@ -6830,14 +6830,11 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
       if (ii != -1) {
 	marker_idx = marker_id_map[(uint32_t)ii];
 	a1len = strlen_se(a1ptr);
-	ucc = (unsigned char)(*a1ptr);
-	if ((a1len != 1) || (ucc < 48) || (ucc > 50)) {
+	uii = ((uint32_t)((unsigned char)(*a1ptr))) - 48;
+	if ((a1len != 1) || (uii > 2)) {
 	  uii = 1;
-	} else {
-	  uii = ucc - 48;
-	  if (uii) {
-	    uii++;
-	  }
+	} else if (uii) {
+	  uii++;
 	}
 	ulii = marker_idx * sample_ct4 + (sample_idx / 4);
 	ujj = (sample_idx % 4) * 2;
@@ -7022,7 +7019,8 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
     retval = RET_INVALID_FORMAT;
     break;
   lgen_to_bed_ret_NOT_BIALLELIC:
-    LOGERRPRINTFWW("Error: Variant '%s' in .lgen file has 3+ different alleles.\n", id_buf);
+    *cptr4 = '\0';
+    LOGERRPRINTFWW("Error: Variant '%s' in .lgen file has 3+ different alleles.\n", cptr3);
     retval = RET_INVALID_FORMAT;
     break;
   lgen_to_bed_ret_INVALID_CMDLINE:
