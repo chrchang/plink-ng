@@ -774,8 +774,9 @@ void transpose_perms(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_
   // Transpose permutations so PRESTO/PERMORY-style genotype indexing can work.
   //
   // We used a 32-ply interleaved format, to allow counts up to the uint32_t
-  // limit without giving up highly parallel adds in the calc_git() inner loop.
-  // The index order used here is:
+  // limit without giving up highly parallel adds in the calc_git() inner loop
+  // (performed with a combination of unroll_incr_1_4, unroll_incr_4_8, and
+  // unroll_incr_8_32).  The index order is:
   // 64-bit build:
   //   first 16 bytes: 0 32 64 96 16 48 80 112 4 36 68 100 20 52 84 116
   //     8 40 72 104 24 56 88 120 12 44 76 108 28 60 92 124 1...

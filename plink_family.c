@@ -2870,7 +2870,9 @@ static double* g_maxt_thread_results;
 static double* g_mperm_save_all;
 static uintptr_t* g_pheno_c;
 static uintptr_t* g_dfam_flipa;
+#ifdef __LP64__
 static uintptr_t* g_dfam_flipa_shuffled;
+#endif
 static uintptr_t* g_dfam_perm_vecs;
 static uintptr_t* g_dfam_perm_vecst; // sample-major, shuffled
 static double* g_dfam_numers;
@@ -2984,6 +2986,8 @@ void dfam_sibship_or_unrelated_perm_calc(uintptr_t* loadbuf_ptr, const uint32_t*
   double case_neg_covar;
   double case_expected_a1_ct;
   double case_var_a1_ct;
+  double case_a1_ctd;
+  double dbl_total_ctd;
   uint32_t sib_idx;
   uint32_t sample_idx;
   uint32_t cur_geno;
@@ -3107,59 +3111,100 @@ void dfam_sibship_or_unrelated_perm_calc(uintptr_t* loadbuf_ptr, const uint32_t*
   unroll_incr_8_32(acc8, (uintptr_t*)cur_case_a1_cts, acc8_word_ct);
 #endif
 
-  if (cur_genotype_cts[1]) {
-#ifdef __LP64__
-    fill_v128_zero(acc4, acc4_vec_ct);
-    fill_v128_zero(acc8, acc8_vec_ct);
-#else
-    fill_ulong_zero(acc4, acc4_word_ct);
-    fill_ulong_zero(acc8, acc8_word_ct);
-#endif
-    fill_uint_zero(cur_case_missing_cts, perm_vec_ct);
-    uii = 0;
-    for (sib_idx = 0; sib_idx < sibling_ct; sib_idx++) {
-      sample_idx = cur_dfam_ptr[sib_idx];
-      cur_geno = EXTRACT_2BIT_GENO(loadbuf_ptr, sample_idx);
-      if (cur_geno != geno_match) {
-	continue;
+  if (!cur_genotype_cts[1]) {
+    // optimize the common no-missing-genotypes case
+    total_ctd = (double)((int32_t)sibling_ct);
+    total_ct_recip = 1.0 / total_ctd;
+    case_ctd = (double)((int32_t)case_ct_base);
+    case_proportion = case_ctd * total_ct_recip;
+    cur_ctrl_ct = sibling_ct - case_ct_base;
+    ctrl_ctd = (double)((int32_t)cur_ctrl_ct);
+    if (!is_unrelated_calc) {
+      // actually ctrl_ct/(x(x-1)), not 1/(x(x-1))
+      xxm1_recip = ctrl_ctd * total_ct_recip / ((double)((int32_t)(sibling_ct - 1)));
+      hom_a1_ctd = (double)((int32_t)cur_genotype_cts[0]);
+      het_ctd = (double)((int32_t)cur_genotype_cts[2]);
+      case_expected_hom_a1 = case_proportion * hom_a1_ctd;
+      case_expected_het = case_proportion * het_ctd;
+      case_ctrl_div_xxxm1 = case_proportion * xxm1_recip;
+      case_var_hom_a1 = case_ctrl_div_xxxm1 * hom_a1_ctd * (total_ctd - hom_a1_ctd);
+      case_var_het = case_ctrl_div_xxxm1 * het_ctd * (total_ctd - het_ctd);
+      case_neg_covar = case_ctrl_div_xxxm1 * het_ctd;
+      case_expected_a1_ct = 2 * case_expected_hom_a1 + case_expected_het;
+      case_var_a1_ct = 4 * (case_var_hom_a1 + case_neg_covar) + case_var_het;
+      for (perm_idx = 0; perm_idx < perm_vec_ct; perm_idx++) {
+	case_a1_ct = cur_case_a1_cts[perm_idx];
+	total_counts[perm_idx] += case_a1_ct;
+	numers[perm_idx] += (double)((int32_t)case_a1_ct) - case_expected_a1_ct;
+	denoms[perm_idx] += case_var_a1_ct;
       }
-      
-#ifdef __LP64__
-      pheno_perm_ptr = (const __m128i*)(&(perm_vecst[sample_idx * perm_vec_wcta]));
-      unroll_incr_1_4(pheno_perm_ptr, acc4, perm_vec_ct128);
-      if (!(uii % 15)) {
-	unroll_zero_incr_4_8(acc4, acc8, acc4_vec_ct);
-	if (!(uii % 255)) {
-	  unroll_zero_incr_8_32(acc8, (__m128i*)cur_case_missing_cts, acc8_vec_ct);
-	}
+    } else {
+      // actually ctrl_ct/(x(2x-1)), not 1/(x(x-1))
+      xxm1_recip = ctrl_ctd * total_ct_recip / ((double)((int32_t)(2 * sibling_ct - 1)));
+      dbl_total_ctd = 2 * total_ctd;
+      for (perm_idx = 0; perm_idx < perm_vec_ct; perm_idx++) {
+	case_a1_ct = cur_case_a1_cts[perm_idx];
+	case_a1_ctd = (double)((int32_t)case_a1_ct);
+	case_expected_a1_ct = case_proportion * case_a1_ctd;
+	case_var_a1_ct = case_expected_a1_ct * (dbl_total_ctd - case_a1_ctd) * xxm1_recip;
+	total_counts[perm_idx] += case_a1_ct;
+	numers[perm_idx] += case_a1_ctd - case_expected_a1_ct;
+	denoms[perm_idx] += case_var_a1_ct;
       }
-#else
-      pheno_perm_ptr = &(perm_vecst[sample_idx * perm_vec_wcta]);
-      unroll_incr_1_4(pheno_perm_ptr, acc4, perm_vec_wct);
-      if (!(uii % 15)) {
-	unroll_zero_incr_4_8(acc4, acc8, acc4_word_ct);
-	if (!(uii % 255)) {
-	  unroll_zero_incr_8_32(acc8, (uintptr_t*)cur_case_missing_cts, acc8_word_ct);
-	}
-      }
-#endif
     }
-    if (uii % 255) {
-#ifdef __LP64__
-      if (uii % 15) {
-	unroll_incr_4_8(acc4, acc8, acc4_vec_ct);
-      }
-      unroll_incr_8_32(acc8, (__m128i*)cur_case_missing_cts, acc8_vec_ct);
-#else
-      if (uii % 15) {
-	unroll_incr_4_8(acc4, acc8, acc4_word_ct);
-      }
-      unroll_incr_8_32(acc8, (uintptr_t*)cur_case_missing_cts, acc8_word_ct);
-#endif
-    }
+    return;
   }
 
-  // now update numers, denoms, and total_counts arrays
+#ifdef __LP64__
+  fill_v128_zero(acc4, acc4_vec_ct);
+  fill_v128_zero(acc8, acc8_vec_ct);
+#else
+  fill_ulong_zero(acc4, acc4_word_ct);
+  fill_ulong_zero(acc8, acc8_word_ct);
+#endif
+  fill_uint_zero(cur_case_missing_cts, perm_vec_ct);
+  uii = 0;
+  for (sib_idx = 0; sib_idx < sibling_ct; sib_idx++) {
+    sample_idx = cur_dfam_ptr[sib_idx];
+    cur_geno = EXTRACT_2BIT_GENO(loadbuf_ptr, sample_idx);
+    if (cur_geno != geno_match) {
+      continue;
+    }
+
+#ifdef __LP64__
+    pheno_perm_ptr = (const __m128i*)(&(perm_vecst[sample_idx * perm_vec_wcta]));
+    unroll_incr_1_4(pheno_perm_ptr, acc4, perm_vec_ct128);
+    if (!(uii % 15)) {
+      unroll_zero_incr_4_8(acc4, acc8, acc4_vec_ct);
+      if (!(uii % 255)) {
+	unroll_zero_incr_8_32(acc8, (__m128i*)cur_case_missing_cts, acc8_vec_ct);
+      }
+    }
+#else
+    pheno_perm_ptr = &(perm_vecst[sample_idx * perm_vec_wcta]);
+    unroll_incr_1_4(pheno_perm_ptr, acc4, perm_vec_wct);
+    if (!(uii % 15)) {
+      unroll_zero_incr_4_8(acc4, acc8, acc4_word_ct);
+      if (!(uii % 255)) {
+	unroll_zero_incr_8_32(acc8, (uintptr_t*)cur_case_missing_cts, acc8_word_ct);
+      }
+    }
+#endif
+  }
+  if (uii % 255) {
+#ifdef __LP64__
+    if (uii % 15) {
+      unroll_incr_4_8(acc4, acc8, acc4_vec_ct);
+    }
+    unroll_incr_8_32(acc8, (__m128i*)cur_case_missing_cts, acc8_vec_ct);
+#else
+    if (uii % 15) {
+      unroll_incr_4_8(acc4, acc8, acc4_word_ct);
+    }
+    unroll_incr_8_32(acc8, (uintptr_t*)cur_case_missing_cts, acc8_word_ct);
+#endif
+  }
+
   total_ct = sibling_ct - cur_genotype_cts[1];
   total_ctd = (double)((int32_t)total_ct);
   total_ct_recip = 1.0 / total_ctd;
@@ -3167,7 +3212,6 @@ void dfam_sibship_or_unrelated_perm_calc(uintptr_t* loadbuf_ptr, const uint32_t*
     xxm1_recip = total_ct_recip / ((double)((int32_t)(total_ct - 1)));
     hom_a1_ctd = (double)((int32_t)cur_genotype_cts[0]);
     het_ctd = (double)((int32_t)cur_genotype_cts[2]);
-    // todo: more precomputation when there are no missing genotypes
     for (perm_idx = 0; perm_idx < perm_vec_ct; perm_idx++) {
       case_missing_ct = cur_case_missing_cts[perm_idx];
       cur_case_ct = case_ct_base - case_missing_ct;
@@ -3192,9 +3236,9 @@ void dfam_sibship_or_unrelated_perm_calc(uintptr_t* loadbuf_ptr, const uint32_t*
       denoms[perm_idx] += case_var_a1_ct;
     }
   } else {
-
     // actually 1/(x(2x-1)), not 1/(x(x-1))
     xxm1_recip = total_ct_recip / ((double)((int32_t)(2 * total_ct - 1)));
+    dbl_total_ctd = 2 * total_ctd;
 
     for (perm_idx = 0; perm_idx < perm_vec_ct; perm_idx++) {
       case_missing_ct = cur_case_missing_cts[perm_idx];
@@ -3205,10 +3249,11 @@ void dfam_sibship_or_unrelated_perm_calc(uintptr_t* loadbuf_ptr, const uint32_t*
       }
       case_proportion = ((double)((int32_t)cur_case_ct)) * total_ct_recip;
       case_a1_ct = cur_case_a1_cts[perm_idx];
-      case_expected_a1_ct = case_proportion * ((double)((int32_t)case_a1_ct));
-      case_var_a1_ct = case_expected_a1_ct * ((double)((int32_t)(2 * total_ct - case_a1_ct))) * ((double)((int32_t)cur_ctrl_ct)) * xxm1_recip;
+      case_a1_ctd = (double)((int32_t)case_a1_ct);
+      case_expected_a1_ct = case_proportion * case_a1_ctd;
+      case_var_a1_ct = case_expected_a1_ct * (dbl_total_ctd - case_a1_ctd) * ((double)((int32_t)cur_ctrl_ct)) * xxm1_recip;
       total_counts[perm_idx] += case_a1_ct;
-      numers[perm_idx] += (double)((int32_t)case_a1_ct) - case_expected_a1_ct;
+      numers[perm_idx] += case_a1_ctd - case_expected_a1_ct;
       denoms[perm_idx] += case_var_a1_ct;
     }
   }
@@ -3225,20 +3270,20 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
   uint32_t first_adapt_check = g_first_adapt_check;
   uint32_t family_all_case_children_ct = g_dfam_family_all_case_children_ct;
   uint32_t family_mixed_ct = g_dfam_family_mixed_ct;
-  uint32_t family_ct = family_all_case_children_ct + family_mixed_ct;
   uint32_t sibship_mixed_ct = g_dfam_sibship_mixed_ct;
   uint32_t unrelated_cluster_ct = g_dfam_unrelated_cluster_ct;
   uint32_t dfam_sample_ct = g_dfam_sample_ct;
   uint32_t dfam_sample_ctl2 = (dfam_sample_ct + (BITCT2 - 1)) / BITCT2;
-  const uintptr_t perm_vec_wct = (perm_vec_ct + (BITCT - 1)) / BITCT;
   const uintptr_t perm_vec_wcta = perm_vec_ct128 * (128 / BITCT);
-  const uintptr_t* flipa = &(g_dfam_flipa[tidx * family_ct * perm_vec_wct]);
-  const uintptr_t* perm_vecst = &(g_dfam_perm_vecst[tidx * dfam_sample_ct * perm_vec_wcta]);
+  const uintptr_t* flipa = g_dfam_flipa;
+  const uintptr_t* perm_vecst = g_dfam_perm_vecst;
   const uintptr_t* orig_pheno_c = g_pheno_c;
   int32_t* __restrict__ twice_numers = &(g_dfam_twice_numers[tidx * perm_vec_cta128]);
   uint32_t* __restrict__ total_counts = &(g_dfam_total_counts[tidx * perm_vec_cta128]);
   uint32_t* __restrict__ perm_attempt_ct = g_perm_attempt_ct;
   uint32_t* __restrict__ perm_2success_ct = g_perm_2success_ct;
+  double* __restrict__ mperm_save_all = g_mperm_save_all;
+  double* msa_ptr = NULL;
   double* numers = &(g_dfam_numers[tidx * perm_vec_cta128]);
   double* denoms = &(g_dfam_denoms[tidx * perm_vec_cta128]);
   const uint32_t* dfam_iteration_order = g_dfam_iteration_order;
@@ -3275,13 +3320,14 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
   uint32_t* cur_case_a1_cts = (uint32_t*)(&(g_dfam_acc[tidx * acc_thread_offset + acc4_word_ct + 3 * acc8_word_ct]));
   uint32_t* cur_case_missing_cts = (uint32_t*)(&(g_dfam_acc[tidx * acc_thread_offset + acc4_word_ct + 7 * acc8_word_ct]));
 
-  uintptr_t* flipa_shuffled = &(g_dfam_flipa_shuffled[tidx * family_ct * perm_vec_wcta]); // or family_all_case_children_ct?
+  const uintptr_t* flipa_shuffled = g_dfam_flipa_shuffled;
   const __m128i* pheno_perm_ptr;
   const __m128i* flipa_perm_ptr;
   __m128i* acc4_ptr;
   __m128i* acc8_ptr;
   uintptr_t vidx;
 #else
+  const uintptr_t perm_vec_wct = (perm_vec_ct + (BITCT - 1)) / BITCT;
   // acc8 requires (perm_vec_ct + 3) / 4 words
   // acc4 requires (perm_vec_ct + 7) / 8 words
   // sum reduces to perm_vec_ct128 * 304 since we also have 2 acc32s
@@ -3361,6 +3407,8 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
       loadbuf_ptr = &(g_loadbuf[marker_bidx * dfam_sample_ctl2]);
       if (perm_adapt) {
 	next_adapt_check = first_adapt_check;
+      } else if (mperm_save_all) {
+	msa_ptr = &(mperm_save_all[marker_idx * perm_vec_ct]);
       }
       quad_denom = 0;
       twice_numer_subtract = 0;
@@ -3686,7 +3734,6 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	    next_adapt_check += (int32_t)(adaptive_intercept + ((int32_t)next_adapt_check) * adaptive_slope);
 	  }
 	}
-	perm_2success_ct[marker_idx] += success_2incr;
       } else {
 	for (perm_idx = 0; perm_idx < perm_vec_ct;) {
 	  dxx = numers[perm_idx] + ((double)((int32_t)twice_numers[perm_idx])) * 0.5;
@@ -3697,11 +3744,15 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	  } else if (chisq > chisq_low) {
 	    success_2incr++;
 	  }
-	  if (1) {
-	    ;;;
+	  if (maxt_results[perm_idx] < chisq) {
+	    maxt_results[perm_idx] = chisq;
+	  }
+	  if (msa_ptr) {
+	    *msa_ptr++ = chisq;
 	  }
 	}
       }
+      perm_2success_ct[marker_idx] += success_2incr;
     }
   dfam_perm_thread_skip_all:
     if ((!tidx) || g_is_last_thread_block) {
@@ -3744,6 +3795,35 @@ void dfam_sibship_calc(uint32_t cur_case_ct, uint32_t case_hom_a1_ct, uint32_t c
   *total_expected_ptr += case_expected_a1_ct;
 }
 
+#ifdef __LP64__
+void dfam_flipa_shuffle(uintptr_t* perms, uintptr_t* shuffled_perms, uint32_t perm_ct) {
+  // 0 16 32 48 64 80 96 112 4 20 36 52 68 84 100 116 8 24 40 56 72 88 104 120 12 28 44 60 76 92 108 124
+  // 1 17 ...
+  uint32_t vct = (perm_ct + 127) / 128;
+  uint32_t vidx;
+  uint32_t offset1;
+  uint32_t offset8;
+  uint32_t read_offset;
+  uint32_t write_offset;
+  for (vidx = 0; vidx < vct; ++vidx) {
+    shuffled_perms[0] = 0;
+    shuffled_perms[1] = 0;
+    for (offset1 = 0; offset1 < 8; offset1++) {
+      for (offset8 = 0; offset8 < 4; offset8++) {
+	read_offset = offset1 * 16 + offset8 * 4;
+	write_offset = offset1 + offset8 * 8;
+	shuffled_perms[0] |= IS_SET(perms, read_offset) << write_offset;
+	shuffled_perms[0] |= IS_SET(perms, read_offset + 1) << (write_offset + 32);
+	shuffled_perms[1] |= IS_SET(perms, read_offset + 2) << write_offset;
+	shuffled_perms[1] |= IS_SET(perms, read_offset + 3) << (write_offset + 32);
+      }
+    }
+    perms = &(perms[2]);
+    shuffled_perms = &(shuffled_perms[2]);
+  }
+}
+#endif
+
 int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* sample_ids, uintptr_t max_sample_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, Chrom_info* chrom_info_ptr, uint32_t hh_exists, uint32_t within_cmdflag, uint32_t perm_batch_size, Family_info* fam_ip, Set_info* sip) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
@@ -3756,6 +3836,11 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t unfiltered_sample_ctp1l2 = 1 + (unfiltered_sample_ct / BITCT2);
   uintptr_t final_mask = get_final_mask(unfiltered_sample_ct);
+  uintptr_t perm_vec_ct128 = 0;
+  uintptr_t perm_vec_cta128 = 0;
+  uintptr_t perm_vec_wct = 0;
+  uintptr_t perm_vec_wcta = 0;
+  uintptr_t perm_vec_ctcl8m = 0;
   uintptr_t* marker_exclude_orig_autosomal = marker_exclude_orig;
   uintptr_t* founder_pnm = NULL;
   double* orig_chisq = NULL;
@@ -3777,7 +3862,6 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t max_thread_ct = g_thread_ct;
   uint32_t perm_pass_idx = 0;
   uint32_t perms_total = 0;
-  uint32_t perms_done = 0;
   int32_t retval = 0;
   uintptr_t* pheno_nm;
   uintptr_t* dfam_pheno_c;
@@ -3791,6 +3875,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t mu_table[MODEL_BLOCKSIZE];
   char* outname_end2;
   char* wptr;
+  char* wptr_start;
   uint64_t* family_list;
   uint64_t* trio_list;
   uint32_t* trio_error_lookup;
@@ -3819,6 +3904,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   double chisq;
   double pval;
   double dxx;
+  double dyy;
   uint32_t family_ct;
   uint32_t fs_ct;
   uint32_t sample_uidx;
@@ -3835,6 +3921,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t dfam_sample_ctl2;
   uint32_t dfam_sample_ctv2;
   uint32_t chrom_fo_idx;
+  uint32_t chrom_end;
   uint32_t chrom_idx;
   uint32_t block_size;
   uint32_t block_end;
@@ -4169,6 +4256,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   // since it's also restricted to autosomes
   g_perms_done = 0;
   g_mperm_save_all = NULL;
+  g_dfam_perm_vecs = NULL;
   if (perm_maxt_nst) {
     perms_total = fam_ip->dfam_mperm_val;
     if (wkspace_alloc_d_checked(&maxt_extreme_stat, perms_total * sizeof(double))) {
@@ -4211,7 +4299,6 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     }
   }
 
-  // memcpyb(outname_end, ".dfam", 6);
   outname_end2 = memcpyb(outname_end, ".dfam", 6);
   if (fopen_checked(&outfile, outname, "w")) {
     goto dfam_ret_OPEN_FAIL;
@@ -4238,7 +4325,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   fputs("0%", stdout);
   fflush(stdout);
   // ----- begin main loop -----
-  // dfam_more_perms:
+ dfam_more_perms:
   if (do_perms_nst) {
     if (perm_adapt_nst && perm_pass_idx) {
       while (g_first_adapt_check <= g_perms_done) {
@@ -4246,14 +4333,46 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	g_first_adapt_check += (int32_t)(apip->init_interval + ((int32_t)g_first_adapt_check) * apip->interval_slope);
       }
     }
-    // g_perm_vec_ct memory allocation dependencies:
-    //   ;;;
+    // todo: check whether larger batches make sense
     g_perm_vec_ct = perm_batch_size;
     if (g_perm_vec_ct > perms_total - g_perms_done) {
       g_perm_vec_ct = perms_total - g_perms_done;
     }
-    if (wkspace_alloc_ul_checked(&g_dfam_perm_vecs, g_perm_vec_ct * dfam_sample_ctv2 * sizeof(intptr_t))) {
+    perm_vec_ct128 = (g_perm_vec_ct + 127) / 128;
+    perm_vec_cta128 = perm_vec_ct128 * 128;
+    perm_vec_wct = (g_perm_vec_ct + (BITCT - 1)) / BITCT;
+    perm_vec_wcta = perm_vec_ct128 * (128 / BITCT);
+    perm_vec_ctcl8m = CACHEALIGN32_DBL(g_perm_vec_ct);
+
+    if (wkspace_alloc_ul_checked(&g_dfam_perm_vecs, g_perm_vec_ct * dfam_sample_ctv2 * sizeof(intptr_t)) ||
+	wkspace_alloc_ul_checked(&g_dfam_perm_vecst, dfam_sample_ct * perm_vec_wcta * sizeof(intptr_t)) ||
+	wkspace_alloc_ul_checked(&g_dfam_flipa, family_ct * perm_vec_wct * sizeof(intptr_t)) ||
+#ifdef __LP64__
+        wkspace_alloc_ul_checked(&g_dfam_flipa_shuffled, family_all_case_children_ct * perm_vec_wcta * sizeof(intptr_t)) ||
+#endif
+	wkspace_alloc_i_checked(&g_dfam_twice_numers, max_thread_ct * perm_vec_cta128 * sizeof(int32_t)) ||
+	wkspace_alloc_ui_checked(&g_dfam_total_counts, max_thread_ct * perm_vec_cta128 * sizeof(int32_t)) ||
+	wkspace_alloc_d_checked(&g_dfam_numers, max_thread_ct * perm_vec_cta128 * sizeof(double)) ||
+	wkspace_alloc_d_checked(&g_dfam_denoms, max_thread_ct * perm_vec_cta128 * sizeof(double))
+	) {
       goto dfam_ret_NOMEM;
+    }
+    // ...initialize phenotype and flipa permutations...
+
+#ifdef __LP64__
+    for (fs_idx = 0; fs_idx < family_all_case_children_ct; fs_idx++) {
+      dfam_flipa_shuffle(&(g_dfam_flipa[fs_idx * perm_vec_wcta]), &(g_dfam_flipa_shuffled[fs_idx * perm_vec_wcta]), g_perm_vec_ct);
+    }
+#endif
+    if (perm_maxt_nst) {
+      if (wkspace_alloc_d_checked(&g_maxt_thread_results, max_thread_ct * perm_vec_ctcl8m * sizeof(double))) {
+	goto dfam_ret_NOMEM;
+      }
+    }
+    if (mperm_save & MPERM_DUMP_ALL) {
+      if (wkspace_alloc_d_checked(&g_mperm_save_all, marker_ct * g_perm_vec_ct * sizeof(double))) {
+	goto dfam_ret_NOMEM;
+      }
     }
   }
   chrom_fo_idx = 0xffffffffU;
@@ -4290,7 +4409,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       }
       erase_mendel_errors(unfiltered_sample_ct, loadbuf_raw, workbuf, sex_male, trio_error_lookup, trio_ct, 0, multigen);
       collapse_copy_2bitarr(loadbuf_raw, &(g_loadbuf[block_size * dfam_sample_ctl2]), unfiltered_sample_ct, dfam_sample_ct, dfam_sample_exclude);
-      if (perm_adapt_nst) {
+      if (do_perms_nst) {
 	g_adapt_m_table[block_size] = marker_idx2++;
       }
       mu_table[block_size++] = marker_uidx;
@@ -4583,6 +4702,9 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	}
       }
     }
+    if (do_perms_nst) {
+      // ...
+    }
     marker_idx += block_size;
     if ((!perm_pass_idx) && (marker_idx >= loop_end)) {
       if (marker_idx < marker_unstopped_ct) {
@@ -4609,6 +4731,9 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       goto dfam_ret_WRITE_FAIL;
     }
     if (!is_set_test) {
+      if (do_perms_nst) {
+	wkspace_reset(g_dfam_perm_vecs);
+      }
       if (mtest_adjust) {
 	if (wkspace_alloc_ui_checked(&idx_to_uidx, marker_ct * sizeof(int32_t))) {
 	  goto dfam_ret_NOMEM;
@@ -4630,9 +4755,117 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   }
   if (do_perms_nst) {
     // if (mperm_save & MPERM_DUMP_ALL) { ...
-    // wkspace_reset();
-    if (perms_done < perms_total) {
+    wkspace_reset(g_dfam_perm_vecs);
+    if (g_perms_done < perms_total) {
+      if (perm_adapt_nst) {
+	marker_unstopped_ct = marker_ct - popcount_longs((uintptr_t*)g_perm_adapt_stop, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
+	if (!marker_unstopped_ct) {
+	  goto dfam_adapt_perm_count;
+	}
+      }
+      printf("\r%u permutation%s complete.", g_perms_done, (g_perms_done != 1)? "s" : "");
+      fflush(stdout);
+      perm_pass_idx++;
+      goto dfam_more_perms;
     }
+    if (perm_adapt_nst) {
+    dfam_adapt_perm_count:
+      g_perms_done = 0;
+      for (uii = 0; uii < marker_ct; uii++) {
+	if (g_perm_attempt_ct[uii] > g_perms_done) {
+	  g_perms_done = g_perm_attempt_ct[uii];
+	  if (g_perms_done == perms_total) {
+	    break;
+	  }
+	}
+      }
+    }
+    putchar('\r');
+    LOGPRINTF("%u %s permutation%s complete.\n", g_perms_done, perm_maxt_nst? "max(T)" : "adaptive", (g_perms_done != 1)? "s" : "");
+    if (perm_adapt_nst) {
+      memcpy(outname_end2, ".perm", 6);
+    } else {
+      if (mperm_save & MPERM_DUMP_BEST) {
+	memcpy(outname_end, ".mperm.dump.best", 17);
+	// ...
+	memcpy(outname_end, ".qassoc", 7);
+      }
+      memcpy(outname_end2, ".mperm", 7);
+    }
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto dfam_ret_OPEN_FAIL;
+    }
+    if (perm_adapt_nst) {
+      sprintf(tbuf, " CHR %%%us    CHISQ_TDT         EMP1           NP \n", plink_maxsnp);
+    } else {
+      sprintf(tbuf, " CHR %%%us    CHISQ_TDT         EMP1         EMP2 \n", plink_maxsnp);
+#ifdef __cplusplus
+      std::sort(g_maxt_extreme_stat, &(g_maxt_extreme_stat[perms_total]));
+#else
+      qsort(g_maxt_extreme_stat, perms_total, sizeof(double), double_cmp);
+#endif
+    }
+    fprintf(outfile, tbuf, "SNP");
+    chrom_fo_idx = 0xffffffffU;
+    marker_uidx = next_unset_unsafe(marker_exclude, 0);
+    marker_idx = 0;
+    dyy = 1.0 / ((double)((int32_t)perms_total + 1));
+    dxx = 0.5 * dyy;
+    while (1) {
+      do {
+	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1U];
+      } while (marker_uidx >= chrom_end);
+      uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+      wptr_start = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, uii));
+      *wptr_start++ = ' ';
+      wptr_start[plink_maxsnp] = ' ';
+      for (; marker_uidx < chrom_end;) {
+	if (perm_adapt_nst) {
+	  pval = ((double)(g_perm_2success_ct[marker_idx] + 2)) / ((double)(2 * (g_perm_attempt_ct[marker_idx + 1])));
+	} else {
+	  pval = ((double)(g_perm_2success_ct[marker_idx + 2])) * dxx;
+	}
+	if (pval <= pfilter) {
+	  fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr_start);
+	  wptr = &(wptr_start[1 + plink_maxsnp]);
+	  if (perm_adapt_nst && (!g_perm_attempt_ct[marker_idx])) {
+	    // invalid
+	    wptr = memcpya(wptr, "          NA           NA           NA", 38);
+	  } else {
+	    wptr = double_g_writewx4x(wptr, orig_chisq[marker_idx], 12, ' ');
+	    if (!perm_count) {
+	      wptr = double_g_writewx4(wptr, pval, 12);
+	    } else {
+	      wptr = double_g_writewx4(wptr, ((double)g_perm_2success_ct[marker_idx]) * 0.5, 12);
+	    }
+	    *wptr++ = ' ';
+	    if (perm_adapt_nst) {
+	      wptr = memseta(wptr, 32, 2);
+	      wptr = uint32_writew10(wptr, g_perm_attempt_ct[marker_idx]);
+	    } else {
+	      // ...
+	      if (!perm_count) {
+	      } else {
+	      }
+	    }
+	    *wptr++ = '\n';
+	    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	      goto dfam_ret_WRITE_FAIL;
+	    }
+	  }
+	  if (++marker_idx == marker_ct) {
+	    goto dfam_loop_end;
+	  }
+	  marker_uidx++;
+	  next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
+	}
+      }
+    }
+  dfam_loop_end:
+    if (fclose_null(&outfile)) {
+      goto dfam_ret_WRITE_FAIL;
+    }
+    LOGPRINTFWW("Permutation test report written to %s .\n", outname);
   }
   // ...
   
