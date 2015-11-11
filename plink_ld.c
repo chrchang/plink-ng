@@ -642,10 +642,7 @@ void ld_prune_start_chrom(uint32_t ld_window_kb, uint32_t* cur_chrom_ptr, uint32
   if (ld_window_kb) {
     window_size = 1;
     uii = window_unfiltered_end;
-    while (1) {
-      if ((uii == chrom_end) || (marker_pos[uii] > marker_pos[window_unfiltered_start] + (1000 * ld_window_size))) {
-	break;
-      }
+    while ((uii < chrom_end) && (marker_pos[uii] <= marker_pos[window_unfiltered_start] + (1000 * ld_window_size))) {
       window_size++;
       uii++;
       next_unset_ck(marker_exclude, &uii, chrom_end);
@@ -1241,13 +1238,10 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
       if (window_is_kb) {
 	ujj = 0;
 	ukk = window_unfiltered_end;
-	while (1) {
-	  next_unset_ck(marker_exclude, &ukk, chrom_end);
-          if ((ukk == chrom_end) || (marker_pos[ukk] > marker_pos[window_unfiltered_start] + (1000 * ld_window_size))) {
-	    break;
-	  }
+	while ((ukk < chrom_end) && (marker_pos[ukk] <= marker_pos[window_unfiltered_start] + (1000 * ld_window_size))) {
 	  ujj++;
 	  ukk++;
+	  next_unset_ck(marker_exclude, &ukk, chrom_end);
 	}
       } else {
 	ujj = ld_window_incr;
@@ -1261,7 +1255,6 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	if (cur_window_size > prev_end) {
 	  start_arr[cur_window_size - 1] = window_unfiltered_end;
 	}
-	fprintf(debugfile, "%u\n", marker_pos[window_unfiltered_end]);
 	if (fseeko(bedfile, bed_offset + (window_unfiltered_end * ((uint64_t)unfiltered_sample_ct4)), SEEK_SET)) {
 	  goto ld_prune_ret_READ_FAIL;
 	}
@@ -10494,16 +10487,11 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
 	} while (at_least_one_prune);
       }
       for (uii = 0; uii < ld_window_incr; uii++) {
-	while (IS_SET(marker_exclude, window_unfiltered_start)) {
-	  if (window_unfiltered_start == chrom_end) {
-	    break;
-	  }
-	  window_unfiltered_start++;
-	}
 	if (window_unfiltered_start == chrom_end) {
 	  break;
 	}
 	window_unfiltered_start++;
+	next_unset_ck(marker_exclude, &window_unfiltered_start, chrom_end);
       }
       if (window_unfiltered_start == chrom_end) {
 	break;
@@ -10515,6 +10503,9 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
 	pct_thresh = chrom_info_ptr->chrom_start[cur_chrom] + (((uint64_t)pct * (chrom_end - chrom_info_ptr->chrom_start[cur_chrom])) / 100);
       }
       uljj = 0;
+      if (window_unfiltered_end < window_unfiltered_start) {
+	window_unfiltered_end = window_unfiltered_start;
+      }
       // copy back previously loaded/computed results
       while (live_indices[uljj] < window_unfiltered_start) {
 	uljj++;
@@ -10537,14 +10528,17 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
       cur_window_size = ulii;
       if (window_is_kb) {
 	uljj = 0;
-	while ((window_unfiltered_end + uljj < chrom_end) && (marker_pos[window_unfiltered_end + uljj] <= marker_pos[window_unfiltered_start] + (1000 * ld_window_size))) {
+	ulkk = window_unfiltered_end;
+	while ((window_unfiltered_end < chrom_end) && (marker_pos[window_unfiltered_end] <= marker_pos[window_unfiltered_start] + (1000 * ld_window_size))) {
 	  uljj++;
+	  window_unfiltered_end++;
+	  next_unset_ck(marker_exclude, &window_unfiltered_end, chrom_end);
 	}
+	window_unfiltered_end = ulkk;
       } else {
 	uljj = ld_window_incr;
       }
-      for (ulii = 0; ulii < uljj; window_unfiltered_end++, ulii++) {
-	next_unset_ck(marker_exclude, &window_unfiltered_end, chrom_end);
+      for (ulii = 0; ulii < uljj; ulii++) {
 	if (window_unfiltered_end == chrom_end) {
 	  break;
 	}
@@ -10573,6 +10567,8 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
 	  SET_BIT(zmiss, cur_window_size);
 	}
 	cur_window_size++;
+	window_unfiltered_end++;
+	next_unset_ck(marker_exclude, &window_unfiltered_end, chrom_end);
       }
       if (cur_window_size > prev_end) {
 	start_arr[cur_window_size] = window_unfiltered_end;
