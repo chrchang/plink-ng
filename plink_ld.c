@@ -638,27 +638,30 @@ void ld_prune_start_chrom(uint32_t ld_window_kb, uint32_t* cur_chrom_ptr, uint32
   uint32_t uii = 0;
   uint32_t window_size;
   live_indices[0] = window_unfiltered_start;
+  next_unset_ck(marker_exclude, &window_unfiltered_end, chrom_end);
   if (ld_window_kb) {
     window_size = 1;
+    uii = window_unfiltered_end;
     while (1) {
-      next_unset_ck(marker_exclude, &window_unfiltered_end, chrom_end);
-      if ((window_unfiltered_end == chrom_end) || (marker_pos[window_unfiltered_end] > marker_pos[window_unfiltered_start] + (1000 * ld_window_size))) {
+      if ((uii == chrom_end) || (marker_pos[uii] > marker_pos[window_unfiltered_start] + (1000 * ld_window_size))) {
 	break;
       }
       window_size++;
-      window_unfiltered_end++;
+      uii++;
+      next_unset_ck(marker_exclude, &uii, chrom_end);
     }
-    window_unfiltered_end = window_unfiltered_start + 1;
+    uii = 0;
   } else {
     window_size = ld_window_size;
   }
-  for (uii = 1; uii < window_size; window_unfiltered_end++, uii++) {
-    next_unset_ck(marker_exclude, &window_unfiltered_end, chrom_end);
+  for (uii = 1; uii < window_size; uii++) {
     if (window_unfiltered_end == chrom_end) {
       break;
     }
     start_arr[uii - 1] = window_unfiltered_end;
     live_indices[uii] = window_unfiltered_end;
+    window_unfiltered_end++;
+    next_unset_ck(marker_exclude, &window_unfiltered_end, chrom_end);
   }
   *cur_window_size_ptr = uii;
   start_arr[uii - 1] = window_unfiltered_end;
@@ -823,6 +826,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   uint32_t bsearch_max;
   uint32_t bsearch_cur;
   double prune_ld_thresh;
+
   if (founder_ct < 2) {
     LOGERRPRINTF("Warning: Skipping --indep%s since there are less than two founders.\n(--make-founders may come in handy here.)\n", pairwise? "-pairwise" : "");
     goto ld_prune_ret_1;
@@ -970,15 +974,6 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
     }
     pct = 1;
     pct_thresh = window_unfiltered_start + ((uint64_t)pct * (chrom_end - chrom_info_ptr->chrom_start[cur_chrom])) / 100;
-    /*
-      if (cur_chrom == 1) {
-	printf("cur_window_size: %u\n", cur_window_size);
-	printf("window_unfiltered_start: %u\n", window_unfiltered_start);
-	printf("window_unfiltered_end: %u\n", window_unfiltered_end);
-	printf("live_indices[0]: %u\n", live_indices[0]);
-	printf("live_indices[cur_window_size - 1]: %u\n", live_indices[cur_window_size - 1]);
-      }
-    */
     while ((window_unfiltered_start < chrom_end) || (cur_window_size > 1)) {
       if (cur_window_size > 1) {
 	do {
@@ -1188,11 +1183,11 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	}
       }
       for (uii = 0; uii < ld_window_incr; uii++) {
-	next_unset_ck(marker_exclude, &window_unfiltered_start, chrom_end);
 	if (window_unfiltered_start == chrom_end) {
 	  break;
 	}
 	window_unfiltered_start++;
+	next_unset_ck(marker_exclude, &window_unfiltered_start, chrom_end);
       }
       if (window_unfiltered_start == chrom_end) {
 	break;
@@ -1205,7 +1200,6 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
       }
       ujj = 0;
 
-      // um, is this needed???
       if (window_unfiltered_end < window_unfiltered_start) {
 	window_unfiltered_end = window_unfiltered_start;
       }
@@ -1259,8 +1253,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	ujj = ld_window_incr;
       }
       old_window_size = cur_window_size;
-      for (uii = 0; uii < ujj; window_unfiltered_end++, uii++) {
-	next_unset_ck(marker_exclude, &window_unfiltered_end, chrom_end);
+      for (uii = 0; uii < ujj; uii++) {
 	if (window_unfiltered_end == chrom_end) {
 	  break;
 	}
@@ -1268,6 +1261,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	if (cur_window_size > prev_end) {
 	  start_arr[cur_window_size - 1] = window_unfiltered_end;
 	}
+	fprintf(debugfile, "%u\n", marker_pos[window_unfiltered_end]);
 	if (fseeko(bedfile, bed_offset + (window_unfiltered_end * ((uint64_t)unfiltered_sample_ct4)), SEEK_SET)) {
 	  goto ld_prune_ret_READ_FAIL;
 	}
@@ -1282,6 +1276,8 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	  cur_exclude_ct++;
 	}
 	cur_window_size++;
+	window_unfiltered_end++;
+	next_unset_ck(marker_exclude, &window_unfiltered_end, chrom_end);
       }
       if (cur_window_size > prev_end) {
 	start_arr[cur_window_size] = window_unfiltered_end;
