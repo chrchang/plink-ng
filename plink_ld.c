@@ -639,10 +639,16 @@ void ld_prune_start_chrom(uint32_t ld_window_kb, uint32_t* cur_chrom_ptr, uint32
   uint32_t window_size;
   live_indices[0] = window_unfiltered_start;
   if (ld_window_kb) {
-    window_size = 0;
-    while ((window_unfiltered_start + window_size < chrom_end) && (marker_pos[window_unfiltered_start + window_size] <= marker_pos[window_unfiltered_start] + (1000 * ld_window_size))) {
+    window_size = 1;
+    while (1) {
+      next_unset_ck(marker_exclude, &window_unfiltered_end, chrom_end);
+      if ((window_unfiltered_end == chrom_end) || (marker_pos[window_unfiltered_end] > marker_pos[window_unfiltered_start] + (1000 * ld_window_size))) {
+	break;
+      }
       window_size++;
+      window_unfiltered_end++;
     }
+    window_unfiltered_end = window_unfiltered_start + 1;
   } else {
     window_size = ld_window_size;
   }
@@ -964,6 +970,15 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
     }
     pct = 1;
     pct_thresh = window_unfiltered_start + ((uint64_t)pct * (chrom_end - chrom_info_ptr->chrom_start[cur_chrom])) / 100;
+    /*
+      if (cur_chrom == 1) {
+	printf("cur_window_size: %u\n", cur_window_size);
+	printf("window_unfiltered_start: %u\n", window_unfiltered_start);
+	printf("window_unfiltered_end: %u\n", window_unfiltered_end);
+	printf("live_indices[0]: %u\n", live_indices[0]);
+	printf("live_indices[cur_window_size - 1]: %u\n", live_indices[cur_window_size - 1]);
+      }
+    */
     while ((window_unfiltered_start < chrom_end) || (cur_window_size > 1)) {
       if (cur_window_size > 1) {
 	do {
@@ -1173,12 +1188,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	}
       }
       for (uii = 0; uii < ld_window_incr; uii++) {
-	while (IS_SET(marker_exclude, window_unfiltered_start)) {
-	  if (window_unfiltered_start == chrom_end) {
-	    break;
-	  }
-	  window_unfiltered_start++;
-	}
+	next_unset_ck(marker_exclude, &window_unfiltered_start, chrom_end);
 	if (window_unfiltered_start == chrom_end) {
 	  break;
 	}
@@ -1194,6 +1204,12 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	pct_thresh = chrom_info_ptr->chrom_start[cur_chrom] + (((uint64_t)pct * (chrom_end - chrom_info_ptr->chrom_start[cur_chrom])) / 100);
       }
       ujj = 0;
+
+      // um, is this needed???
+      if (window_unfiltered_end < window_unfiltered_start) {
+	window_unfiltered_end = window_unfiltered_start;
+      }
+
       // copy back previously loaded/computed results
       while (live_indices[ujj] < window_unfiltered_start) {
 	ujj++;
@@ -1230,8 +1246,14 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
       cur_window_size = uii;
       if (window_is_kb) {
 	ujj = 0;
-	while ((window_unfiltered_end + ujj < chrom_end) && (marker_pos[window_unfiltered_end + ujj] <= marker_pos[window_unfiltered_start] + (1000 * ld_window_size))) {
+	ukk = window_unfiltered_end;
+	while (1) {
+	  next_unset_ck(marker_exclude, &ukk, chrom_end);
+          if ((ukk == chrom_end) || (marker_pos[ukk] > marker_pos[window_unfiltered_start] + (1000 * ld_window_size))) {
+	    break;
+	  }
 	  ujj++;
+	  ukk++;
 	}
       } else {
 	ujj = ld_window_incr;
