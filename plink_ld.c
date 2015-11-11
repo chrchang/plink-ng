@@ -10290,6 +10290,7 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
   uint32_t cur_zmiss2;
   uint32_t pct;
   uint32_t uii;
+  // FILE* debugfile = fopen("debug.txt", "w");
   if (founder_ct < 2) {
     logerrprint("Warning: Skipping --indep-pairphase since there are less than two founders.\n(--make-founders may come in handy here.)\n");
     goto indep_pairphase_ret_1;
@@ -10452,6 +10453,7 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
                   counts[17] = tot1[5] - counts[15] - counts[16];
 		}
 	      }
+	      // fprintf(debugfile, "%u %u  %u %u %u %u %u %u %u %u %u\n", marker_pos[live_indices[ulii]], marker_pos[live_indices[uljj]], counts[0], counts[1], counts[2], counts[3], counts[4], counts[5], counts[6], counts[7], counts[8]);
 	      if (!em_phase_hethet_nobase(counts, is_x, is_x, &freq1x, &freq2x, &freqx1, &freqx2, &freq11)) {
 		freq11_expected = freqx1 * freq1x;
 		rsq = freq11 - freq11_expected;
