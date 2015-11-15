@@ -10233,7 +10233,7 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
   uintptr_t founder_ct = popcount_longs(founder_info, unfiltered_sample_ctl2 / 2);
   uintptr_t founder_ctl = (founder_ct + BITCT - 1) / BITCT;
   uintptr_t founder_ctv3 = 2 * ((founder_ct + (2 * BITCT - 1)) / (2 * BITCT));
-  // no actual case/control split here, but keep the variable name the same to
+  // no actual case/control split here, but keep the variables the same to
   // minimize divergence from ld_report_dprime()
   uintptr_t founder_ctsplit = 3 * founder_ctv3;
   uintptr_t final_mask = get_final_mask(founder_ct);
@@ -10290,7 +10290,6 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
   uint32_t cur_zmiss2;
   uint32_t pct;
   uint32_t uii;
-  // FILE* debugfile = fopen("debug.txt", "w");
   if (founder_ct < 2) {
     logerrprint("Warning: Skipping --indep-pairphase since there are less than two founders.\n(--make-founders may come in handy here.)\n");
     goto indep_pairphase_ret_1;
@@ -10351,7 +10350,8 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
   loadbuf[founder_ctl * 2 - 2] = 0;
   loadbuf[founder_ctl * 2 - 1] = 0;
   fill_all_bits(dummy_nm, founder_ct);
-  for (ulii = 1; ulii <= window_max; ulii++) {
+  // bugfix: this loop must start at 0, not 1
+  for (ulii = 0; ulii < window_max; ulii++) {
     geno[ulii * founder_ctsplit + founder_ctv3 - 1] = 0;
     geno[ulii * founder_ctsplit + 2 * founder_ctv3 - 1] = 0;
     geno[ulii * founder_ctsplit + founder_ctsplit - 1] = 0;
@@ -10453,7 +10453,6 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
                   counts[17] = tot1[5] - counts[15] - counts[16];
 		}
 	      }
-	      // fprintf(debugfile, "%u %u  %u %u %u %u %u %u %u %u %u\n", marker_pos[live_indices[ulii]], marker_pos[live_indices[uljj]], counts[0], counts[1], counts[2], counts[3], counts[4], counts[5], counts[6], counts[7], counts[8]);
 	      if (!em_phase_hethet_nobase(counts, is_x, is_x, &freq1x, &freq2x, &freqx1, &freqx2, &freq11)) {
 		freq11_expected = freqx1 * freq1x;
 		rsq = freq11 - freq11_expected;
@@ -10523,8 +10522,15 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
 	live_indices[ulii] = live_indices[uljj];
 	start_arr[ulii] = start_arr[uljj];
 	memcpy(&(cur_tots[ulii * 3]), &(cur_tots[uljj * 3]), 3 * sizeof(int32_t));
+	// bugfix: forgot to update zmiss
+	if (IS_SET(zmiss, uljj)) {
+	  SET_BIT(zmiss, ulii);
+	} else {
+	  CLEAR_BIT(zmiss, ulii);
+	}
 	ulii++;
       }
+      clear_bits(zmiss, ulii, window_max);
 
       prev_end = ulii;
       cur_window_size = ulii;
