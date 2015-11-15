@@ -1914,6 +1914,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	retval = load_pheno(phenofile, unfiltered_sample_ct, sample_exclude_ct, cptr, max_sample_id_len, uiptr, missing_pheno, (misc_flags / MISC_AFFECTION_01) & 1, uii, NULL, pheno_nm, &pheno_c, &pheno_d, &(outname_end[1]), (uintptr_t)((&(outname[FNAMESIZE - 32])) - outname_end));
 	if (retval == LOAD_PHENO_LAST_COL) {
 	  wkspace_reset(wkspace_mark);
+	  retval = 0; // exit code bugfix
 	  break;
 	} else if (retval) {
 	  goto plink_ret_1;
