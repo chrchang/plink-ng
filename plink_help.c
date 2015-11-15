@@ -1463,12 +1463,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                            unspecified, it is equal to Lt; otherwise,\n"
 "                            in-between phenotype values are set to missing.\n"
 	       );
-    help_print("covar\tcovar-name\tcovar-number", &help_ctrl, 0,
+    help_print("covar\tcovar-name\tcovar-number\tno-const-covar", &help_ctrl, 0,
 "  --covar [filename] <keep-pheno-on-missing-cov> : Specify covariate file.\n"
 "  --covar-name [...]      : Specify covariate(s) in --covar file by name.\n"
 "                            Separate multiple names with spaces or commas, and\n"
 "                            use dashes to designate ranges.\n"
 "  --covar-number [...]    : Specify covariate(s) in --covar file by index.\n"
+"  --no-const-covar        : Exclude constant covariates.\n"
 	       );
     help_print("within\tmwithin\tfamily", &help_ctrl, 0,
 "  --within [f] <keep-NA>  : Specify initial cluster assignments.\n"

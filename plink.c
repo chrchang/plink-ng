@@ -9537,6 +9537,13 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --nop flag deprecated.  Use '--fast-epistasis nop'.\n");
         epi_info.modifier |= EPI_FAST_NO_P_VALUE;
         goto main_param_zero;
+      } else if (!memcmp(argptr2, "o-const-covar", 14)) {
+	if (!covar_fname) {
+	  logerrprint("Error: --no-const-covar must be used with --covar.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	covar_modifier |= COVAR_NO_CONST;
+	goto main_param_zero;
       } else if (!memcmp(argptr2, "oweb", 5)) {
         logprint("Note: --noweb has no effect since no web check is implemented yet.\n");
 	goto main_param_zero;

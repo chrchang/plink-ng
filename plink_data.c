@@ -1357,6 +1357,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
   // similar to load_clusters() in plink_cluster.c
   // sex_nm and sex_male should be NULL unless sex is supposed to be added as
   // an extra covariate
+  // covar_range_list_ptr is NULL iff --gxe was specified
   unsigned char* wkspace_mark = wkspace_base;
   unsigned char* wkspace_mark2 = NULL;
   FILE* covar_file = NULL;
@@ -1494,7 +1495,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
       if (numeric_range_list_to_bitfield(covar_range_list_ptr, covar_raw_ct, covars_active, 1, 0)) {
 	goto load_covars_ret_MISSING_TOKENS;
       }
-    } else {
+    } else if (covar_modifier & COVAR_NAME) {
       if (header_absent) {
 	logerrprint("Error: --covar file doesn't have a header line for --covar-name.\n");
 	goto load_covars_ret_INVALID_FORMAT;
@@ -1512,10 +1513,15 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
     fill_all_bits(covars_active, covar_raw_ct);
     covar_ct = covar_raw_ct;
   } else {
+    // --gxe only
     fill_ulong_zero(covars_active, covar_raw_ctl);
     covar_ct = 0;
   }
   covar_ctx = covar_ct + (sex_nm? 1 : 0);
+  if (!covar_ctx) {
+    logerrprint("Error: No --covar values loaded.\n");
+    goto load_covars_ret_INVALID_FORMAT;
+  }
   min_covar_col_ct = last_set_bit(covars_active, covar_raw_ctl) + 1;
   if (min_covar_col_ct < gxe_mcovar) {
     min_covar_col_ct = gxe_mcovar;
@@ -1696,6 +1702,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
 	  *dptr++ = (double)((int32_t)is_set(sex_male, sample_uidx));
 	} else {
 	  covar_missing = 1;
+	  *dptr++ = missing_phenod;
 	}
       }
       if (!covar_missing) {
@@ -1714,10 +1721,6 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
   }
   if (!feof(covar_file)) {
     goto load_covars_ret_READ_FAIL;
-  }
-  if (loaded_sample_ct == missing_cov_ct) {
-    logerrprint("Error: No --covar values loaded.\n");
-    goto load_covars_ret_INVALID_FORMAT;
   }
   if (covar_range_list_ptr) {
     if ((covar_ct < covar_raw_ct - 1) || ((covar_ct == covar_raw_ct - 1) && ((!gxe_mcovar) || is_set(covars_active, gxe_mcovar - 1)))) {
@@ -1739,6 +1742,78 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
   }
   if (ulii) {
     LOGPRINTF("%" PRIuPTR " %s %s not seen in the covariate file.\n", ulii, species_str(ulii), (ulii == 1)? "was" : "were");
+  }
+
+  if (covar_modifier & COVAR_NO_CONST) {
+    if (gxe_mcovar) {
+      uii = popcount_longs(gxe_covar_c, sample_ctl);
+      if ((!uii) || (uii == popcount_longs(gxe_covar_nm, sample_ctl))) {
+	logerrprint("Error: --gxe covariate is constant and --no-const-covar was specified.\n");
+	goto load_covars_ret_INVALID_FORMAT;
+      }
+    }
+    if (covar_range_list_ptr) {
+      // redefinition
+      covar_raw_ctl = (covar_ctx + BITCT - 1) / BITCT;
+      if (wkspace_alloc_ul_checked(&already_seen, covar_raw_ctl * sizeof(intptr_t))) {
+	goto load_covars_ret_NOMEM;
+      }
+      // is covariate nonconstant?
+      fill_ulong_zero(already_seen, covar_raw_ctl);
+      for (covar_idx = 0; covar_idx < covar_ctx; covar_idx++) {
+	dptr = &(covar_d[covar_idx]);
+	dxx = missing_phenod;
+	for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
+	  if (dptr[sample_idx * covar_ctx] != missing_phenod) {
+	    dxx = dptr[sample_idx * covar_ctx];
+	    break;
+	  }
+	}
+	for (; sample_idx < sample_ct; sample_idx++) {
+	  if ((dptr[sample_idx * covar_ctx] != missing_phenod) && (dptr[sample_idx * covar_ctx] != dxx)) {
+	    break;
+	  }
+	}
+	if (sample_idx < sample_ct) {
+	  SET_BIT(already_seen, covar_idx);
+	}
+      }
+      uii = popcount_longs(already_seen, covar_raw_ctl);
+      if (!uii) {
+	logerrprint("Error: All covariates are constant.\n");
+	goto load_covars_ret_INVALID_FORMAT;
+      } else if (uii < covar_ctx) {
+	LOGPRINTF("--no-const-covar: %" PRIuPTR " constant covariate%s excluded.\n", covar_ctx - uii, (covar_ctx - uii == 1)? "" : "s");
+	*covar_ctx_ptr = uii;
+	dptr = covar_d;
+        for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
+	  uii = 0;
+	  for (covar_idx = 0; covar_idx < covar_ctx; covar_idx++) {
+	    if (IS_SET(already_seen, covar_idx)) {
+	      dxx = covar_d[sample_idx * covar_ctx + covar_idx];
+	      if (dxx == missing_phenod) {
+		uii = 1;
+	      }
+	      *dptr++ = dxx;
+	    }
+	  }
+	  if (!uii) {
+	    // if this sample had some missing covariate values, but all those
+	    // covariates were excluded by --no-const-covar, set covar_nm bit
+	    SET_BIT(covar_nm, sample_idx);
+	  }
+	}
+	covar_idx = next_unset_unsafe(already_seen, 0);
+	uii = covar_idx;
+	for (; covar_idx < covar_ctx; covar_idx++) {
+	  if (IS_SET(already_seen, covar_idx)) {
+	    strcpy(&(covar_names[uii * max_covar_name_len]), &(covar_names[covar_idx * max_covar_name_len]));
+	    uii++;
+	  }
+	}
+	// don't worry about memory overallocation for now
+      }
+    }
   }
 
   wkspace_reset(wkspace_mark2);
