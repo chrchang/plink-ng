@@ -11263,31 +11263,26 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
 int32_t recode_allele_load(char* loadbuf, uintptr_t loadbuf_size, char* recode_allele_name, char*** allele_missing_ptr, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* recode_allele_reverse, char* recode_allele_extra) {
   FILE* rafile = NULL;
   uint32_t missing_allele = 0;
+  uint32_t marker_id_htable_size = get_id_htable_size(marker_ct);
   uintptr_t rae_size = 0;
   uintptr_t line_idx = 0;
   uintptr_t topsize = 0;
-  char* sorted_ids;
-  uint32_t* id_map;
+  uint32_t* marker_id_htable;
   char* bufptr;
   char* bufptr2;
   int32_t retval;
   uint32_t slen;
   uint32_t alen;
-  int32_t ii;
   uintptr_t marker_uidx;
   if (fopen_checked(&rafile, recode_allele_name, "r")) {
     goto recode_allele_load_ret_OPEN_FAIL;
   }
-  sorted_ids = (char*)top_alloc(&topsize, marker_ct * max_marker_id_len);
-  if (!sorted_ids) {
-    goto recode_allele_load_ret_NOMEM;
-  }
-  id_map = (uint32_t*)top_alloc(&topsize, marker_ct * sizeof(int32_t));
-  if (!id_map) {
+  marker_id_htable = (uint32_t*)top_alloc(&topsize, marker_id_htable_size * sizeof(int32_t));
+  if (!marker_id_htable) {
     goto recode_allele_load_ret_NOMEM;
   }
   wkspace_left -= topsize;
-  retval = sort_item_ids_noalloc(sorted_ids, id_map, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
+  retval = populate_id_htable(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, marker_id_htable, marker_id_htable_size);
   if (retval) {
     wkspace_left += topsize;
     goto recode_allele_load_ret_1;
@@ -11310,9 +11305,8 @@ int32_t recode_allele_load(char* loadbuf, uintptr_t loadbuf_size, char* recode_a
       goto recode_allele_load_ret_INVALID_FORMAT_3;
     }
     alen = strlen_se(bufptr2);
-    ii = bsearch_str(bufptr, slen, sorted_ids, max_marker_id_len, marker_ct);
-    if (ii != -1) {
-      marker_uidx = id_map[(uint32_t)ii];
+    marker_uidx = id_htable_find(bufptr, slen, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len);
+    if (marker_uidx != 0xffffffffU) {
       bufptr2[alen++] = '\0';
       if (!strcmp(bufptr2, marker_allele_ptrs[2 * marker_uidx])) {
 	CLEAR_BIT(recode_allele_reverse, marker_uidx);
