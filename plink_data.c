@@ -11265,6 +11265,7 @@ int32_t recode_allele_load(char* loadbuf, uintptr_t loadbuf_size, char* recode_a
   uint32_t missing_allele = 0;
   uintptr_t rae_size = 0;
   uintptr_t line_idx = 0;
+  uintptr_t topsize = 0;
   char* sorted_ids;
   uint32_t* id_map;
   char* bufptr;
@@ -11277,8 +11278,18 @@ int32_t recode_allele_load(char* loadbuf, uintptr_t loadbuf_size, char* recode_a
   if (fopen_checked(&rafile, recode_allele_name, "r")) {
     goto recode_allele_load_ret_OPEN_FAIL;
   }
-  retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
+  sorted_ids = (char*)top_alloc(&topsize, marker_ct * max_marker_id_len);
+  if (!sorted_ids) {
+    goto recode_allele_load_ret_NOMEM;
+  }
+  id_map = (uint32_t*)top_alloc(&topsize, marker_ct * sizeof(int32_t));
+  if (!id_map) {
+    goto recode_allele_load_ret_NOMEM;
+  }
+  wkspace_left -= topsize;
+  retval = sort_item_ids_noalloc(sorted_ids, id_map, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
   if (retval) {
+    wkspace_left += topsize;
     goto recode_allele_load_ret_1;
   }
   loadbuf[loadbuf_size - 1] = ' ';
@@ -11286,7 +11297,7 @@ int32_t recode_allele_load(char* loadbuf, uintptr_t loadbuf_size, char* recode_a
     line_idx++;
     if (!loadbuf[loadbuf_size - 1]) {
       sprintf(logbuf, "Error: Line %" PRIuPTR " of --recode-allele file is pathologically long.\n", line_idx);
-      goto recode_allele_load_ret_INVALID_FORMAT_2;
+      goto recode_allele_load_ret_INVALID_FORMAT_3;
     }
     bufptr = skip_initial_spaces(loadbuf);
     if (is_eoln_kns(*bufptr)) {
@@ -11296,7 +11307,7 @@ int32_t recode_allele_load(char* loadbuf, uintptr_t loadbuf_size, char* recode_a
     bufptr2 = skip_initial_spaces(&(bufptr[slen]));
     if (is_eoln_kns(*bufptr2)) {
       sprintf(logbuf, "Error: Line %" PRIuPTR " of --recode-allele file has fewer tokens than expected.\n", line_idx);
-      goto recode_allele_load_ret_INVALID_FORMAT_2;
+      goto recode_allele_load_ret_INVALID_FORMAT_3;
     }
     alen = strlen_se(bufptr2);
     ii = bsearch_str(bufptr, slen, sorted_ids, max_marker_id_len, marker_ct);
@@ -11309,7 +11320,7 @@ int32_t recode_allele_load(char* loadbuf, uintptr_t loadbuf_size, char* recode_a
 	SET_BIT(recode_allele_reverse, marker_uidx);
       } else {
 	if (rae_size + alen > wkspace_left) {
-	  goto recode_allele_load_ret_NOMEM;
+	  goto recode_allele_load_ret_NOMEM2;
 	}
 	missing_allele = 1;
 	(*allele_missing_ptr)[marker_uidx] = &(recode_allele_extra[rae_size]);
@@ -11318,10 +11329,13 @@ int32_t recode_allele_load(char* loadbuf, uintptr_t loadbuf_size, char* recode_a
       }
     }
   }
+  wkspace_left += topsize;
   if (!feof(rafile)) {
     goto recode_allele_load_ret_READ_FAIL;
   }
   while (0) {
+  recode_allele_load_ret_NOMEM2:
+    wkspace_left += topsize;
   recode_allele_load_ret_NOMEM:
     retval = RET_NOMEM;
     break;
@@ -11331,7 +11345,8 @@ int32_t recode_allele_load(char* loadbuf, uintptr_t loadbuf_size, char* recode_a
   recode_allele_load_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  recode_allele_load_ret_INVALID_FORMAT_2:
+  recode_allele_load_ret_INVALID_FORMAT_3:
+    wkspace_left += topsize;
     logerrprintb();
     retval = RET_INVALID_FORMAT;
   }
