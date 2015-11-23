@@ -1818,9 +1818,9 @@ void get_set_wrange_align(uintptr_t* bitfield, uintptr_t word_ct, uintptr_t* fir
 
 // Maximum accepted chromosome index is this minus 1.  Currently cannot exceed
 // 2^14 due to SMALL_INTERVAL_BITS setting in plink_cnv.c...
-#define MAX_POSSIBLE_CHROM 5120
+#define MAX_POSSIBLE_CHROM 64000
 // ...unless this is uncommented (it removes the entire CNV module).
-// #define HIGH_MAX_CHROM
+#define HIGH_MAX_CHROM
 
 // assumes MAX_POSSIBLE_CHROM is a multiple of 64, otherwise add round-up
 #define CHROM_MASK_WORDS (MAX_POSSIBLE_CHROM / BITCT)
