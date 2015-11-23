@@ -14,6 +14,7 @@
 #define METAANAL_LOGSCALE 0x10
 #define METAANAL_QT 0x20
 #define METAANAL_WEIGHTED_Z 0x40
+#define METAANAL_REPORT_DUPS 0x80
 
 typedef struct {
   char* fname;

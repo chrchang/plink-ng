@@ -2051,6 +2051,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                     size should be\n"
 "                                       4 / (1/[# cases] + 1/[# controls]).\n"
 	       );
+    help_print("meta-analysis-report-dups\tmeta-analysis", &help_ctrl, 0,
+"  --meta-analysis-report-dups      : When a variant appears multiple times in\n"
+"                                     in the same file, report that.\n"
+	       );
     help_print("gene-list-border\tgene-report\tgene-subset\tgene-list\tgene-report-snp-field", &help_ctrl, 0,
 "  --gene-list-border [kbs]   : Extend --gene-report regions by given # of kbs.\n"
 "  --gene-subset [filename]   : Specify gene name subset for --gene-report.\n"

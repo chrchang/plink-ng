@@ -3667,7 +3667,7 @@ uintptr_t geqprime(uintptr_t floor) {
   return floor;
 }
 
-int32_t populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, const char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t* id_htable, uint32_t id_htable_size) {
+int32_t populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, const char* item_ids, uintptr_t max_id_len, uint32_t store_dups, uint32_t* id_htable, uint32_t id_htable_size) {
   // While unique IDs are normally assumed (and enforced) here, --extract and
   // --exclude are an exception, since we want to be able to e.g. exclude all
   // variants named '.'.  Since there could be millions of them, ordinary
@@ -3691,7 +3691,7 @@ int32_t populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uint
   uint32_t hash_result;
   uint32_t cur_dup;
   fill_uint_one(id_htable, id_htable_size);
-  if (!allow_dups) {
+  if (!store_dups) {
     for (; item_idx < item_ct; item_uidx++, item_idx++) {
       next_unset_ul_unsafe_ck(exclude_arr, &item_uidx);
       sptr = &(item_ids[item_uidx * max_id_len]);
@@ -3704,6 +3704,8 @@ int32_t populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uint
 	  id_htable[hashval] = item_uidx;
 	  break;
 	} else if (!memcmp(sptr, &(item_ids[hash_result * max_id_len]), slen + 1)) {
+	  // could add an allow_dups parameter which controls whether this is
+	  // an error
 	  LOGERRPRINTFWW("Error: Duplicate ID '%s'.\n", sptr);
 	  return RET_INVALID_FORMAT;
 	}

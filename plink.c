@@ -103,7 +103,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (17 Nov 2015)";
+  " (22 Nov 2015)";
 const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -2113,8 +2113,8 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   return retval;
 }
 
-// output-missing-phenotype + terminating null, or 'recode 01 fastphase-1chr'
-#define MAX_FLAG_LEN 25
+// meta-analysis-report-dups + terminating null, or 'recode 01 fastphase-1chr'
+#define MAX_FLAG_LEN 26
 
 static inline int32_t is_flag(char* param) {
   unsigned char ucc = param[1];
@@ -9380,6 +9380,12 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_NOMEM;
 	}
+      } else if (!memcmp(argptr2, "eta-analysis-report-dups", 25)) {
+	if (!metaanal_fnames) {
+	  logerrprint("Error: --meta-analysis-report-dups must be used with --meta-analysis.\n");
+	}
+	metaanal_flags |= METAANAL_REPORT_DUPS;
+	goto main_param_zero;
       } else if (!memcmp(argptr2, "ac", 3)) {
 	UNSTABLE("mac");
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {

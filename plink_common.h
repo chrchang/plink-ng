@@ -15,7 +15,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define PROG_NAME_STR "plink"
 #define PROG_NAME_CAPS "PLINK"
@@ -578,6 +578,15 @@
 #define WKSPACE_MIN_MB 64
 #define WKSPACE_DEFAULT_MB 2048
 
+#ifdef __LP64__
+  #define BITCT 64
+#else
+  #define BITCT 32
+#endif
+
+#define BITCT2 (BITCT / 2)
+#define BYTECT (BITCT / 8)
+
 #define CACHELINE 64 // assumed number of bytes per cache line, for alignment
 #define CACHELINE_INT32 (CACHELINE / 4)
 #define CACHELINE_INT64 (CACHELINE / 8)
@@ -612,15 +621,6 @@
   #define MAX_THREADS 512
   #define MAX_THREADS_P1 513
 #endif
-
-#ifdef __LP64__
-  #define BITCT 64
-#else
-  #define BITCT 32
-#endif
-
-#define BITCT2 (BITCT / 2)
-#define BYTECT (BITCT / 8)
 
 // defined as a macro since type of idx can vary; might want a debug
 // compilation mode which performs type-checking, though
@@ -1750,7 +1750,7 @@ static inline uint32_t get_id_htable_size(uintptr_t item_ct) {
   return (item_ct < 32761)? 65521 : geqprime(item_ct * 2 + 1);
 }
 
-int32_t populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, const char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t* id_htable, uint32_t id_htable_size);
+int32_t populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, const char* item_ids, uintptr_t max_id_len, uint32_t store_dups, uint32_t* id_htable, uint32_t id_htable_size);
 
 static inline int32_t alloc_and_populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, const char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t** id_htable_ptr, uint32_t* id_htable_size_ptr) {
   uint32_t id_htable_size = get_id_htable_size(item_ct);
