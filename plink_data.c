@@ -7428,13 +7428,13 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       }
       axptr = cptr2;
       axlen = strlen_se(cptr2);
+      if (!axlen) {
+	goto transposed_to_bed_ret_MISSING_TOKENS;
+      }
       cptr2 = &(axptr[axlen]);
       // only way for this to happen if it isn't at end of buffer is if we're
       // at EOF, which is an error anyway
       if (!(*cptr2)) {
-	if (!axlen) {
-	  goto transposed_to_bed_ret_MISSING_TOKENS;
-	}
 	cptr3 = memcpya(allele_buf, axptr, axlen);
         axptr = allele_buf;
 	do {
