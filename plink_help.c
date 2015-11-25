@@ -962,7 +962,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       */
 "  --logistic <perm | mperm=[value]> <perm-count> <set-test>\n"
 "             <genotypic | hethom | dominant | recessive | no-snp> <hide-covar>\n"
-"             <sex | no-x-sex> <interaction> <beta>\n"
+"             <sex | no-x-sex> <interaction> <beta> <intercept>\n"
 "    Multi-covariate association analysis on a quantitative (--linear) or\n"
 "    case/control (--logistic) phenotype.  Normally used with --covar.\n"
 "    * 'perm' normally causes an adaptive permutation test to be performed on\n"
@@ -991,11 +991,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * 'interaction' adds genotype x covariate interactions to the model.  This\n"
 "      cannot be used with the usual permutation tests; use --tests to define\n"
 "      the permutation test statistic instead.\n"
+"    * 'intercept' causes intercepts to be included in the main report.\n"
 "    * For logistic regressions, the 'beta' modifier causes regression\n"
 "      coefficients instead of odds ratios to be reported.\n"
 "    * With --linear, the 'standard-beta' modifier standardizes the phenotype\n"
-"      and all predictors to zero mean and unit variance before regression, and\n"
-"      the 'intercept' modifier adds intercepts to the main report.\n\n"
+"      and all predictors to zero mean and unit variance before regression.\n\n"
 	       );
     help_print("dosage\twrite-dosage", &help_ctrl, 1,
 "  --dosage [allele dosage file] <noheader> <skip0=[i]> <skip1=[j]> <skip2=[k]>\n"

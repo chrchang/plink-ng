@@ -103,7 +103,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (23 Nov 2015)";
+  " (25 Nov 2015)";
 const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -8016,10 +8016,6 @@ int32_t main(int32_t argc, char** argv) {
 	      }
 	      glm_modifier |= GLM_STANDARD_BETA;
 	    } else if (!strcmp(argv[cur_arg + uii], "intercept")) {
-	      if (glm_modifier & GLM_LOGISTIC) {
-		logerrprint("Error: --logistic does not currently have a 'intercept' modifier.  (Did you\nmean --linear or 'beta'?)\n");
-		goto main_ret_INVALID_CMDLINE_A;
-	      }
 	      glm_modifier |= GLM_INTERCEPT;
 	    } else if (!strcmp(argv[cur_arg + uii], "beta")) {
 	      glm_modifier |= GLM_BETA;
