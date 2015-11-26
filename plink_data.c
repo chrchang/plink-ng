@@ -14253,7 +14253,7 @@ static inline Ll_entry2* top_alloc_ll2(uintptr_t* topsize_ptr, uint32_t size) {
   return (Ll_entry2*)top_alloc(topsize_ptr, size + sizeof(Ll_entry2));
 }
 
-int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_sample_id_len_ptr, uint32_t* max_sample_full_len_ptr, uint32_t* is_dichot_pheno_ptr, Ll_entry** htable, uintptr_t* topsize_ptr, uint64_t* tot_sample_ct_ptr, uint32_t* ped_buflen_ptr, uint32_t* cur_sample_ct_ptr, uint32_t* orig_idx_ptr) {
+int32_t merge_fam_id_scan(char* bedname, char* famname, uint32_t allow_no_samples, uintptr_t* max_sample_id_len_ptr, uint32_t* max_sample_full_len_ptr, uint32_t* is_dichot_pheno_ptr, Ll_entry** htable, uintptr_t* topsize_ptr, uint64_t* tot_sample_ct_ptr, uint32_t* ped_buflen_ptr, uint32_t* cur_sample_ct_ptr, uint32_t* orig_idx_ptr) {
   uint64_t tot_sample_ct = *tot_sample_ct_ptr;
   uintptr_t max_sample_id_len = *max_sample_id_len_ptr;
   uintptr_t topsize = *topsize_ptr;
@@ -14417,7 +14417,7 @@ int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_sample_id
   if (!feof(infile)) {
     goto merge_fam_id_scan_ret_READ_FAIL;
   }
-  if (!cur_sample_ct) {
+  if ((!cur_sample_ct) && (!allow_no_samples)) {
     LOGPREPRINTFWW("Error: No %s in %s.\n", g_species_plural, famname);
     goto merge_fam_id_scan_ret_INVALID_FORMAT_2;
   }
@@ -15648,6 +15648,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   uint32_t merge_mode = merge_type & MERGE_MODE_MASK;
   uint32_t merge_nsort = ((!sample_sort) || (sample_sort == SAMPLE_SORT_NATURAL))? 1 : 0;
   uint32_t merge_equal_pos = (merge_type & MERGE_EQUAL_POS)? 1 : 0;
+  uint32_t allow_no_samples = (misc_flags / MISC_ALLOW_NO_SAMPLES) & 1;
   Ll_entry** htable = (Ll_entry**)(&(wkspace_base[wkspace_left - HASHMEM_S]));
   Ll_entry2** htable2 = (Ll_entry2**)(&(wkspace_base[wkspace_left - HASHMEM]));
   Ll_str* non_biallelics = NULL;
@@ -15875,7 +15876,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   ullxx = 0;
   mlpos = 0;
   for (mlpos = 0; mlpos < merge_ct; mlpos++) {
-    retval = merge_fam_id_scan(mergelist_bed[mlpos], mergelist_fam[mlpos], &max_sample_id_len, &max_sample_full_len, &is_dichot_pheno, htable, &topsize, &ullxx, &ped_buflen, &cur_sample_ct, &orig_idx);
+    retval = merge_fam_id_scan(mergelist_bed[mlpos], mergelist_fam[mlpos], allow_no_samples, &max_sample_id_len, &max_sample_full_len, &is_dichot_pheno, htable, &topsize, &ullxx, &ped_buflen, &cur_sample_ct, &orig_idx);
     if (retval) {
       goto merge_datasets_ret_1;
     }

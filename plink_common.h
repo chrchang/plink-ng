@@ -15,7 +15,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define PROG_NAME_STR "plink"
 #define PROG_NAME_CAPS "PLINK"
@@ -234,6 +234,8 @@
 #define MISC_MISSING_GZ 0x4000000000LLU
 #define MISC_FREQ_GZ 0x8000000000LLU
 #define MISC_HET_GZ 0x10000000000LLU
+#define MISC_ALLOW_NO_SAMPLES 0x20000000000LLU
+#define MISC_ALLOW_NO_VARS 0x40000000000LLU
 
 // assume for now that .bed must always be accompanied by both .bim and .fam
 #define FILTER_ALL_REQ 1LLU

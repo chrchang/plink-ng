@@ -1424,8 +1424,14 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                   one chromosome, include a '@' in the first\n"
 "                                   parameter where the chrom. number belongs,\n"
 "                                   e.g. 'genetic_map_chr@_combined_b37.txt'.\n"
-"  --zero-cms       : Zero out centimorgan positions.\n"
+"  --zero-cms         : Zero out centimorgan positions.\n"
 	       );
+#ifndef STABLE_BUILD
+    help_print("allow-no-samples\tallow-no-vars", &help_ctrl, 0,
+"  --allow-no-samples : Allow the input fileset to contain no samples.\n"
+"  --allow-no-vars    : Allow the input fileset to contain no variants.\n"
+	       );
+#endif
     help_print("pheno\tall-pheno\tmpheno\tpheno-name\tpheno-merge", &help_ctrl, 0,
 "  --pheno [fname]  : Load phenotype data from the specified file, instead of\n"
 "                     using the values in the main input fileset.\n"

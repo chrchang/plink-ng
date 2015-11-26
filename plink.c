@@ -91,7 +91,7 @@
 
 const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b3z"
+  "PLINK v1.90b3.26"
 #else
   "PLINK v1.90p"
 #endif
@@ -103,19 +103,19 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (25 Nov 2015)";
+  " (26 Nov 2015)";
 const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
 #else
-  "  " // (don't want this when version number has e.g. "b3" before "p")
+  "    " // (don't want this when version number has e.g. "b3" before "p")
 #endif
 #ifndef NOLAPACK
   "  "
 #endif
-  "      https://www.cog-genomics.org/plink2\n"
+  "    https://www.cog-genomics.org/plink2\n"
   "(C) 2005-2015 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
 const char errstr_append[] = "For more information, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
 #ifdef STABLE_BUILD
@@ -4244,6 +4244,20 @@ int32_t main(int32_t argc, char** argv) {
 	misc_flags |= MISC_ALLOW_EXTRA_CHROMS;
       } else if (!memcmp(argptr2, "llow-no-sex", 12)) {
         sex_missing_pheno |= ALLOW_NO_SEX;
+	goto main_param_zero;
+      } else if (!memcmp(argptr2, "llow-no-samples", 16)) {
+	UNSTABLE("allow-no-samples");
+	logerrprint("Error: --allow-no-samples is currently under development.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+	goto main_ret_1;
+	misc_flags |= MISC_ALLOW_NO_SAMPLES;
+	goto main_param_zero;
+      } else if (!memcmp(argptr2, "llow-no-vars", 13)) {
+	UNSTABLE("allow-no-vars");
+	logerrprint("Error: --allow-no-vars is currently under development.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+	goto main_ret_1;
+	misc_flags |= MISC_ALLOW_NO_VARS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ll", 3)) {
 	logprint("Note: --all flag has no effect.\n");

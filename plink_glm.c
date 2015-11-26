@@ -2873,7 +2873,6 @@ static uintptr_t* g_active_params;
 static uintptr_t* g_haploid_params;
 static uint32_t g_include_sex;
 static uint32_t g_male_x_01;
-static uint32_t g_skip_intercept;
 static uintptr_t* g_sex_male_collapsed;
 #ifndef NOLAPACK
 static __CLPK_integer g_dgels_lwork;
@@ -3094,6 +3093,7 @@ THREAD_RET_TYPE glm_logistic_adapt_thread(void* arg) {
   double adaptive_ci_zt = g_adaptive_ci_zt;
   double aperm_alpha = g_aperm_alpha;
   uintptr_t cur_param_ct = g_cur_param_ct;
+  uintptr_t cur_param_cta4 = (cur_param_ct + 3) & (~3);
   uintptr_t cur_constraint_ct = g_cur_constraint_ct;
   uint32_t coding_flags = g_coding_flags;
   uint32_t glm_xchr_model = g_glm_xchr_model;
@@ -3106,7 +3106,6 @@ THREAD_RET_TYPE glm_logistic_adapt_thread(void* arg) {
   uint32_t male_x_01 = g_male_x_01;
   uintptr_t* sex_male_collapsed = g_sex_male_collapsed;
   uint32_t is_nonx_haploid = g_min_ploidy_1 && (!g_is_x);
-  uint32_t skip_intercept = g_skip_intercept;
   float* fixed_covars_cov_major = g_fixed_covars_cov_major_f;
   double* constraints_con_major = g_constraints_con_major;
   float* cur_covars_cov_major = g_logistic_mt[tidx].cur_covars_cov_major;
@@ -3169,12 +3168,12 @@ THREAD_RET_TYPE glm_logistic_adapt_thread(void* arg) {
     success_2incr = 0;
     cur_fail_ct = 0;
     // todo: try better starting position
-    fill_float_zero(coef, ((cur_param_ct + 3) & (~3)) * perm_vec_ct);
-    glm_logistic(perm_vec_ct, cur_param_ct, cur_sample_valid_ct, cur_missing_ct, skip_intercept, loadbuf_ptr, cur_covars_cov_major, perm_vecs, coef, pp, sample_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, cur_constraint_ct, constraints_con_major, param_1d_dbuf, param_2d_dbuf, param_2d_dbuf2, param_df_dbuf, df_df_dbuf, mi_buf, df_dbuf, perm_fails);
+    fill_float_zero(coef, cur_param_cta4 * perm_vec_ct);
+    glm_logistic(perm_vec_ct, cur_param_ct, cur_sample_valid_ct, cur_missing_ct, 1, loadbuf_ptr, cur_covars_cov_major, perm_vecs, coef, pp, sample_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, cur_constraint_ct, constraints_con_major, param_1d_dbuf, param_2d_dbuf, param_2d_dbuf2, param_df_dbuf, df_df_dbuf, mi_buf, df_dbuf, perm_fails);
     for (pidx = 0; pidx < perm_vec_ct;) {
       if (!IS_SET(perm_fails, pidx)) {
 	if (!joint_test_params) {
-	  dxx = (double)coef[pidx * cur_param_ct + 1];
+	  dxx = (double)coef[pidx * cur_param_cta4 + 1]; // bugfix, forgot a4
 	  dxx *= dxx;
           dxx /= (double)regression_results[pidx * param_ctx_m1];
 	  if (dxx > stat_high) {
@@ -3430,7 +3429,6 @@ THREAD_RET_TYPE glm_logistic_maxt_thread(void* arg) {
   uintptr_t perm_batch_max = g_perm_batch_max;
   uintptr_t* sex_male_collapsed = g_sex_male_collapsed;
   uint32_t is_nonx_haploid = g_min_ploidy_1 && (!g_is_x);
-  uint32_t skip_intercept = g_skip_intercept;
   float* fixed_covars_cov_major = g_fixed_covars_cov_major_f;
   double* constraints_con_major = g_constraints_con_major;
   double* msa_ptr = NULL;
@@ -3494,7 +3492,7 @@ THREAD_RET_TYPE glm_logistic_maxt_thread(void* arg) {
     success_2incr = 0;
     // todo: try better starting position
     fill_float_zero(coef, cur_param_cta4 * perm_vec_ct);
-    perm_fail_ct = glm_logistic(perm_vec_ct, cur_param_ct, cur_sample_valid_ct, cur_missing_ct, skip_intercept, loadbuf_ptr, cur_covars_cov_major, perm_vecs, coef, pp, sample_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, cur_constraint_ct, constraints_con_major, param_1d_dbuf, param_2d_dbuf, param_2d_dbuf2, param_df_dbuf, df_df_dbuf, mi_buf, df_dbuf, perm_fails);
+    perm_fail_ct = glm_logistic(perm_vec_ct, cur_param_ct, cur_sample_valid_ct, cur_missing_ct, 1, loadbuf_ptr, cur_covars_cov_major, perm_vecs, coef, pp, sample_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, cur_constraint_ct, constraints_con_major, param_1d_dbuf, param_2d_dbuf, param_2d_dbuf2, param_df_dbuf, df_df_dbuf, mi_buf, df_dbuf, perm_fails);
     for (pidx = 0; pidx < perm_vec_ct; pidx++) {
       if (!IS_SET(perm_fails, pidx)) {
 	if (!joint_test_params) {
@@ -3652,11 +3650,10 @@ THREAD_RET_TYPE glm_logistic_set_thread(void* arg) {
   uintptr_t marker_blocks = g_block_diff / CACHELINE_INT32;
   uint32_t marker_bidx = CACHELINE_INT32 * ((((uint64_t)tidx) * marker_blocks) / g_assoc_thread_ct);
   uint32_t marker_bceil = CACHELINE_INT32 * ((((uint64_t)(tidx + 1)) * marker_blocks) / g_assoc_thread_ct);
-  uint32_t skip_intercept = g_skip_intercept;
   uintptr_t* loadbuf = g_loadbuf;
   uintptr_t* perm_vecs = g_perm_vecs;
   uintptr_t cur_param_ct = g_cur_param_ct;
-  uintptr_t param_ct_msi = cur_param_ct - skip_intercept;
+  uintptr_t param_ct_m1 = cur_param_ct - 1;
   uintptr_t cur_param_cta4 = (cur_param_ct + 3) & (~3);
   uint32_t coding_flags = g_coding_flags;
   uint32_t glm_xchr_model = g_glm_xchr_model;
@@ -3697,12 +3694,12 @@ THREAD_RET_TYPE glm_logistic_set_thread(void* arg) {
     cur_sample_valid_ct = sample_valid_ct - cur_missing_ct;
     // todo: try better starting position
     fill_float_zero(coef, cur_param_cta4 * perm_vec_ct);
-    glm_logistic(perm_vec_ct, cur_param_ct, cur_sample_valid_ct, cur_missing_ct, skip_intercept, loadbuf_ptr, cur_covars_cov_major, perm_vecs, coef, pp, sample_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, perm_fails);
+    glm_logistic(perm_vec_ct, cur_param_ct, cur_sample_valid_ct, cur_missing_ct, 1, loadbuf_ptr, cur_covars_cov_major, perm_vecs, coef, pp, sample_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, perm_fails);
     for (pidx = 0; pidx < perm_vec_ct; pidx++) {
       if (!IS_SET(perm_fails, pidx)) {
 	dxx = (double)coef[pidx * cur_param_cta4 + 1];
 	dxx *= dxx;
-	dxx /= (double)regression_results[pidx * param_ct_msi];
+	dxx /= (double)regression_results[pidx * param_ct_m1];
       } else {
 	dxx = -9;
       }
@@ -6514,7 +6511,6 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     }
   }
   if (do_perms) {
-    g_skip_intercept = skip_intercept;
     if (cluster_starts) {
       retval = cluster_include_and_reindex(unfiltered_sample_ct, load_mask, 1, pheno_c, sample_valid_ct, 0, cluster_ct, cluster_map, cluster_starts, &g_cluster_ct, &g_cluster_map, &g_cluster_starts, &g_cluster_case_cts, &g_cluster_cc_perm_preimage);
       if (retval) {
@@ -6552,6 +6548,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     // (no need to worry about 1D 16-byte alignment requirements since
     // wkspace_alloc actually forces 64-byte alignment, and allocation sizes
     // are automatically rounded up)
+    uii = (tidx || (orig_perm_batch_size > 1) || skip_intercept)? 1 : 0;
     if (wkspace_alloc_f_checked(&(g_logistic_mt[tidx].cur_covars_cov_major), param_ct_max * sample_valid_cta4 * sizeof(float)) ||
 	wkspace_alloc_f_checked(&(g_logistic_mt[tidx].coef), param_ct_maxa4 * orig_perm_batch_size * sizeof(float)) ||
 	wkspace_alloc_f_checked(&(g_logistic_mt[tidx].pp), sample_valid_cta4 * sizeof(float)) ||
@@ -6561,7 +6558,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
         wkspace_alloc_f_checked(&(g_logistic_mt[tidx].param_1d_buf2), param_ct_max * sizeof(float)) ||
         wkspace_alloc_f_checked(&(g_logistic_mt[tidx].param_2d_buf), param_ct_max * param_ct_maxa4 * sizeof(float)) ||
         wkspace_alloc_f_checked(&(g_logistic_mt[tidx].param_2d_buf2), param_ct_max * param_ct_maxa4 * sizeof(float)) ||
-        wkspace_alloc_f_checked(&(g_logistic_mt[tidx].regression_results), orig_perm_batch_size * (param_ctx_max - skip_intercept) * sizeof(float)) ||
+        wkspace_alloc_f_checked(&(g_logistic_mt[tidx].regression_results), orig_perm_batch_size * (param_ctx_max - uii) * sizeof(float)) ||
         wkspace_alloc_ul_checked(&(g_logistic_mt[tidx].perm_fails), ulii * sizeof(intptr_t))) {
       goto glm_logistic_assoc_ret_NOMEM;
     }
@@ -8196,7 +8193,6 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   uintptr_t param_ct;
   uintptr_t param_cta4;
   uintptr_t param_ctx; // param_ct + 1 if joint test needed, param_ct otherwise
-  uintptr_t param_ctx_msi;
   uintptr_t param_idx;
   uintptr_t constraint_idx;
   uintptr_t final_mask;
@@ -8387,7 +8383,6 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       logerrprint("Warning: Ignoring --tests since fewer than two parameter indices are in range.\n");
     }
   }
-  param_ctx_msi = param_ctx - skip_intercept;
 
   ulii = condition_ct + covar_ct + 1;
   if (variation_in_sex && IS_SET(active_params, ulii)) {
@@ -8530,6 +8525,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     mperm_save = 0;
   }
   ulii = (perm_batch_size + (BITCT - 1)) / BITCT;
+  uii = ((perm_batch_size > 1) || skip_intercept)? 1 : 0;
   if (wkspace_alloc_f_checked(&coef, param_cta4 * perm_batch_size * sizeof(float)) ||
       wkspace_alloc_f_checked(&pp, sample_valid_cta4 * sizeof(float)) ||
       wkspace_alloc_f_checked(&sample_1d_buf, sample_valid_ct * sizeof(float)) ||
@@ -8538,7 +8534,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       wkspace_alloc_f_checked(&param_1d_buf2, param_ct * sizeof(float)) ||
       wkspace_alloc_f_checked(&param_2d_buf, param_ct * param_cta4 * sizeof(float)) ||
       wkspace_alloc_f_checked(&param_2d_buf2, param_ct * param_cta4 * sizeof(float)) ||
-      wkspace_alloc_f_checked(&regression_results, perm_batch_size * param_ctx_msi * sizeof(float)) ||
+      wkspace_alloc_f_checked(&regression_results, perm_batch_size * (param_ctx - uii) * sizeof(float)) ||
       wkspace_alloc_ul_checked(&perm_fails, ulii * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&g_perm_vecs, perm_batch_size * sample_valid_ctv2 * sizeof(intptr_t))) {
     goto glm_logistic_nosnp_ret_NOMEM;
@@ -8733,7 +8729,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     }
     join_threads(threads, g_assoc_thread_ct);
     fill_float_zero(coef, cur_batch_size * param_cta4);
-    perm_fail_total += glm_logistic(cur_batch_size, param_ct, sample_valid_ct, 0, skip_intercept, NULL, covars_cov_major, g_perm_vecs, coef, pp, sample_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, constraint_ct, constraints_con_major, param_1d_dbuf, param_2d_dbuf, param_2d_dbuf2, param_df_dbuf, df_df_dbuf, mi_buf, df_dbuf, perm_fails);
+    perm_fail_total += glm_logistic(cur_batch_size, param_ct, sample_valid_ct, 0, 1, NULL, covars_cov_major, g_perm_vecs, coef, pp, sample_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, constraint_ct, constraints_con_major, param_1d_dbuf, param_2d_dbuf, param_2d_dbuf2, param_df_dbuf, df_df_dbuf, mi_buf, df_dbuf, perm_fails);
     ulii = param_ct - 1;
     uljj = param_ctx - 1;
     for (perm_idx = 0; perm_idx < cur_batch_size; perm_idx++) {
@@ -8746,7 +8742,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	continue;
       }
       fptr = &(coef[perm_idx * param_ct + 1]);
-      fptr2 = &(regression_results[perm_idx * param_ctx_msi]);
+      fptr2 = &(regression_results[perm_idx * uljj]);
       dptr = orig_stats;
       for (param_idx = 0; param_idx < ulii; param_idx++) {
 	dxx = (double)(*fptr++);
