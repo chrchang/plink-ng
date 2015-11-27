@@ -303,9 +303,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("lfile\treference\tallele-count", &help_ctrl, 1,
 "  --lfile {prefix} : Specify .lgen + .map + .fam (long-format fileset) prefix.\n"
-"  --reference [fn] : Specify default allele file accompanying --lfile input.\n"
-"  --allele-count   : When used with --lfile + --reference, specifies that the\n"
-"                     .lgen file contains reference allele counts.\n\n"
+"  --lgen [fname]   : Specify full name of .lgen file.\n"
+"  --reference [fn] : Specify default allele file accompanying .lgen input.\n"
+"  --allele-count   : When used with --lfile/--lgen + --reference, specifies\n"
+"                     that the .lgen file contains reference allele counts.\n\n"
 	       );
     help_print("vcf\tbcf", &help_ctrl, 1,
 "  --vcf [filename] : Specify full name of .vcf or .vcf.gz file.\n"

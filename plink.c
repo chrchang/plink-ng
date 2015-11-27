@@ -573,7 +573,8 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
     }
 
-    retval = load_fam(famname, fam_cols, uii, missing_pheno, (misc_flags / MISC_AFFECTION_01) & 1, &unfiltered_sample_ct, &sample_ids, &max_sample_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_nm, &sex_male, &affection, &pheno_nm, &pheno_c, &pheno_d, &founder_info, &sample_exclude);
+    // todo: --allow-no-samples
+    retval = load_fam(famname, fam_cols, uii, missing_pheno, (misc_flags / MISC_AFFECTION_01) & 1, 0, &unfiltered_sample_ct, &sample_ids, &max_sample_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_nm, &sex_male, &affection, &pheno_nm, &pheno_c, &pheno_d, &founder_info, &sample_exclude);
     if (retval) {
       goto plink_ret_1;
     }
@@ -3373,6 +3374,7 @@ int32_t main(int32_t argc, char** argv) {
   time_t rawtime;
   char* argptr;
   char* sptr;
+  const char* csptr;
   int32_t ii;
   int32_t jj;
   int32_t kk;
@@ -4247,16 +4249,10 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "llow-no-samples", 16)) {
 	UNSTABLE("allow-no-samples");
-	logerrprint("Error: --allow-no-samples is currently under development.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
 	misc_flags |= MISC_ALLOW_NO_SAMPLES;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "llow-no-vars", 13)) {
 	UNSTABLE("allow-no-vars");
-	logerrprint("Error: --allow-no-vars is currently under development.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
 	misc_flags |= MISC_ALLOW_NO_VARS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ll", 3)) {
@@ -4607,20 +4603,20 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (param_ct) {
-	  sptr = argv[cur_arg + 1];
-	  if (strlen(sptr) > (FNAMESIZE - 5)) {
+	  csptr = argv[cur_arg + 1];
+	  if (strlen(csptr) > (FNAMESIZE - 5)) {
 	    logerrprint("Error: --bfile parameter too long.\n");
 	    goto main_ret_OPEN_FAIL;
 	  }
 	} else {
-	  sptr = (char*)PROG_NAME_STR;
+	  csptr = PROG_NAME_STR;
 	}
 	if (!(load_params & LOAD_PARAMS_BED)) {
-	  memcpy(strcpya(pedname, sptr), ".bed", 5);
+	  memcpy(strcpya(pedname, csptr), ".bed", 5);
 	  load_params |= LOAD_PARAMS_BED;
 	}
-	memcpy(strcpya(mapname, sptr), ".bim", 5);
-	memcpy(strcpya(famname, sptr), ".fam", 5);
+	memcpy(strcpya(mapname, csptr), ".bim", 5);
+	memcpy(strcpya(famname, csptr), ".fam", 5);
 	load_params |= LOAD_PARAMS_BIM | LOAD_PARAMS_FAM;
       } else if (!memcmp(argptr2, "ed", 3)) {
 	if (load_rare) {
@@ -5991,20 +5987,20 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (param_ct) {
-	  sptr = argv[cur_arg + 1];
-	  if (strlen(sptr) > (FNAMESIZE - 8)) {
+	  csptr = argv[cur_arg + 1];
+	  if (strlen(csptr) > (FNAMESIZE - 8)) {
 	    logerrprint("Error: --data parameter too long.\n");
 	    goto main_ret_OPEN_FAIL;
 	  }
 	} else {
-	  sptr = (char*)PROG_NAME_STR;
+	  csptr = PROG_NAME_STR;
 	}
 	if (!(load_params & LOAD_PARAMS_OXBGEN)) {
-	  memcpy(strcpya(pedname, sptr), ".gen", 5);
+	  memcpy(strcpya(pedname, csptr), ".gen", 5);
 	  load_params |= LOAD_PARAMS_OXGEN;
 	}
 	// cheating: this is of course more like a .fam file
-	memcpy(strcpya(mapname, sptr), ".sample", 8);
+	memcpy(strcpya(mapname, csptr), ".sample", 8);
 	load_params |= LOAD_PARAMS_OXSAMPLE;
       } else if (!memcmp(argptr2, "ecompress", 10)) {
 	logerrprint("Error: --decompress flag retired.  Use e.g. 'gunzip [filename]'.\n");
@@ -6544,16 +6540,16 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (param_ct) {
-	  sptr = argv[cur_arg + 1];
-	  if (strlen(sptr) > (FNAMESIZE - 5)) {
+	  csptr = argv[cur_arg + 1];
+	  if (strlen(csptr) > (FNAMESIZE - 5)) {
 	    logerrprint("Error: --file parameter too long.\n");
 	    goto main_ret_OPEN_FAIL;
 	  }
 	} else {
-	  sptr = (char*)PROG_NAME_STR;
+	  csptr = PROG_NAME_STR;
 	}
-	memcpy(strcpya(pedname, sptr), ".ped", 5);
-	memcpy(strcpya(mapname, sptr), ".map", 5);
+	memcpy(strcpya(pedname, csptr), ".ped", 5);
+	memcpy(strcpya(mapname, csptr), ".map", 5);
       } else if (!memcmp(argptr2, "am", 3)) {
 	if (load_params & (LOAD_PARAMS_TEXT_ALL | LOAD_PARAMS_OX_ALL)) {
 	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
@@ -7853,21 +7849,39 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'l':
       if (!memcmp(argptr2, "file", 5)) {
-	if (load_rare || load_params) {
+	if (load_rare || (load_params & (~LOAD_PARAMS_FAM))) {
 	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (param_ct) {
-	  if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 6) {
+	  csptr = argv[cur_arg + 1];
+	  if (strlen(csptr) > FNAMESIZE - 6) {
 	    logerrprint("Error: --lfile filename prefix too long.\n");
 	    goto main_ret_OPEN_FAIL;
 	  }
-	  strcpy(pedname, argv[cur_arg + 1]);
 	} else {
-	  memcpy(pedname, PROG_NAME_STR, 6);
+	  csptr = PROG_NAME_STR;
 	}
+	memcpy(strcpya(pedname, csptr), ".lgen", 6);
+	memcpy(strcpya(mapname, csptr), ".map", 5);
+	if (!famname[0]) {
+	  memcpy(strcpya(famname, csptr), ".fam", 5);
+	}
+	load_rare = LOAD_RARE_LGEN;
+      } else if (!memcmp(argptr2, "gen", 4)) {
+	if ((load_rare & (~LOAD_RARE_LGEN)) || (load_params != LOAD_PARAMS_FAM)) {
+	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+	if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
+	  logerrprint("Error: --lgen parameter too long.\n");
+	  goto main_ret_OPEN_FAIL;
+	}
+	strcpy(pedname, argv[cur_arg + 1]);
 	load_rare = LOAD_RARE_LGEN;
       } else if (!memcmp(argptr2, "oop-assoc", 10)) {
 	if (pheno_modifier & PHENO_ALL) {
@@ -8211,7 +8225,7 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'm':
       if (!memcmp(argptr2, "ap", 3)) {
-	if (((load_params & (LOAD_PARAMS_BFILE_ALL | LOAD_PARAMS_OX_ALL)) || (load_rare & (~(LOAD_RARE_CNV | LOAD_RARE_GVAR)))) && ((load_rare != LOAD_RARE_DOSAGE) || (load_params != LOAD_PARAMS_FAM))) {
+	if (((load_params & (LOAD_PARAMS_BFILE_ALL | LOAD_PARAMS_OX_ALL)) || (load_rare & (~(LOAD_RARE_CNV | LOAD_RARE_GVAR)))) && ((load_rare != LOAD_RARE_DOSAGE) || (load_params != LOAD_PARAMS_FAM)) && (load_rare != LOAD_RARE_LGEN)) {
 	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
 	}
 	load_params |= LOAD_PARAMS_MAP;
@@ -13338,7 +13352,7 @@ int32_t main(int32_t argc, char** argv) {
       }
       uii = (sptr - outname);
       if (load_rare == LOAD_RARE_LGEN) {
-        retval = lgen_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, lgen_modifier, lgen_reference_fname, &chrom_info);
+        retval = lgen_to_bed(pedname, mapname, famname, outname, sptr, missing_pheno, misc_flags, lgen_modifier, lgen_reference_fname, &chrom_info);
       } else if (load_rare & LOAD_RARE_TRANSPOSE_MASK) {
         retval = transposed_to_bed(pedname, famname, outname, sptr, misc_flags, &chrom_info);
       } else if (load_rare & LOAD_RARE_VCF) {
