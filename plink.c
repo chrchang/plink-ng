@@ -103,7 +103,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (26 Nov 2015)";
+  " (27 Nov 2015)";
 const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -7871,8 +7871,12 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	load_rare = LOAD_RARE_LGEN;
       } else if (!memcmp(argptr2, "gen", 4)) {
-	if ((load_rare & (~LOAD_RARE_LGEN)) || (load_params != LOAD_PARAMS_FAM)) {
+	if ((load_rare & (~LOAD_RARE_LGEN)) || (load_params & (~LOAD_PARAMS_FAM))) {
 	  goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
+	}
+	if ((load_params != LOAD_PARAMS_FAM) && (!load_rare)) {
+	  logerrprint("Error: --lgen must be used with --fam or --lfile.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -13156,6 +13160,10 @@ int32_t main(int32_t argc, char** argv) {
     goto main_ret_INVALID_CMDLINE_A;
   }
 
+  if ((load_rare == LOAD_RARE_LGEN) && (!mapname[0])) {
+    logerrprint("Error: --lgen must be used with --lfile or --map.\n");
+    goto main_ret_INVALID_CMDLINE_A;
+  }
   uii = load_params & LOAD_PARAMS_OX_ALL;
   if ((uii == LOAD_PARAMS_OXGEN) || (uii == LOAD_PARAMS_OXBGEN)) {
     logerrprint("Error: --gen/--bgen cannot be used without --data or --sample.\n");

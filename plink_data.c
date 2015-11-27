@@ -7175,6 +7175,8 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   uintptr_t sample_ct = 0;
   uintptr_t line_idx = 0;
   uint32_t no_extra_cols = 1;
+  uint32_t allow_no_samples = (misc_flags / MISC_ALLOW_NO_SAMPLES) & 1;
+  uint32_t allow_no_variants = (misc_flags / MISC_ALLOW_NO_VARS) & 1;
   int32_t retval = 0;
   uint32_t pct = 0;
   uint32_t map_is_unsorted = 0;
@@ -7270,7 +7272,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   if (!feof(infile)) {
     goto transposed_to_bed_ret_READ_FAIL;
   }
-  if (!sample_ct) {
+  if ((!sample_ct) && (!allow_no_samples)) {
     sprintf(logbuf, "Error: No %s in .tfam file.\n", g_species_plural);
     goto transposed_to_bed_ret_INVALID_FORMAT_2R;
   }
@@ -7303,9 +7305,6 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     goto transposed_to_bed_ret_WRITE_FAIL;
   }
 
-  // given e.g. 6MB indels in real datasets, there's legitimate reason for a
-  // .tped line to be even longer than 2GB, so we use ftoken_...() over
-  // fgets().
   if (fopen_checked(&infile, tpedname, "r")) {
     goto transposed_to_bed_ret_OPEN_FAIL;
   }
@@ -7327,7 +7326,9 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       break;
     }
     // assume first four fields are within MAXLINELEN characters, but after
-    // that, anything goes
+    // that, anything goes.  given e.g. 6MB indels in real datasets, there's
+    // legitimate reason for a .tped line to be even longer than 2GB, so we use
+    // a custom loading loop.
     cptr = skip_initial_spaces(tbuf);
     if (is_eoln_kns(*cptr)) {
       if (!tbuf[MAXLINELEN - 1]) {
@@ -7685,6 +7686,11 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   }
   if (fclose_null(&outfile)) {
     goto transposed_to_bed_ret_WRITE_FAIL;
+  }
+  if ((!marker_ct) && (!allow_no_variants)) {
+    fputs("\b\b\b\b\b     \r", stdout);
+    logerrprint("Error: Empty .tped file.\n");
+    goto transposed_to_bed_ret_INVALID_FORMAT;
   }
 
   chrom_info_ptr->zero_extra_chroms = 0;
@@ -8084,6 +8090,8 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   uint32_t biallelic_only = (misc_flags / MISC_BIALLELIC_ONLY) & 1;
   uint32_t biallelic_strict = (misc_flags / MISC_BIALLELIC_ONLY_STRICT) & 1;
   uint32_t skip3_list = (misc_flags / MISC_BIALLELIC_ONLY_LIST) & 1;
+  uint32_t allow_no_samples = (misc_flags / MISC_ALLOW_NO_SAMPLES) & 1;
+  uint32_t allow_no_variants = (misc_flags / MISC_ALLOW_NO_VARS) & 1;
   uint32_t marker_ct = 0;
   uint32_t marker_skip_ct = 0;
   uint32_t gq_field_pos = 0;
@@ -8201,12 +8209,15 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   }
   bufptr = &(bufptr[38]);
   if (memcmp(bufptr, "\tFORMAT\t", 8) || (((unsigned char)bufptr[8]) <= ' ')) {
-    logerrprint("Error: No genotype data in .vcf file.\n");
-    goto vcf_to_bed_ret_INVALID_FORMAT;
-  }
-  retval = vcf_sample_line(outname, outname_end, missing_pheno, &(bufptr[8]), const_fid, double_id, id_delim, vcf_idspace_to, 'v', &sample_ct);
-  if (retval) {
-    goto vcf_to_bed_ret_1;
+    if (!allow_no_samples) {
+      logerrprint("Error: No genotype data in .vcf file.\n");
+      goto vcf_to_bed_ret_INVALID_FORMAT;
+    }
+  } else {
+    retval = vcf_sample_line(outname, outname_end, missing_pheno, &(bufptr[8]), const_fid, double_id, id_delim, vcf_idspace_to, 'v', &sample_ct);
+    if (retval) {
+      goto vcf_to_bed_ret_1;
+    }
   }
   sample_ct4 = (sample_ct + 3) / 4;
   sample_ctl2 = (sample_ct + BITCT2 - 1) / BITCT2;
@@ -8372,6 +8383,10 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	goto vcf_to_bed_check_filter;
       }
       bufptr2[-1] = '\t';
+    }
+    if (!sample_ct) {
+      alt_allele_idx = 1;
+      goto vcf_to_bed_skip_genotype_write;
     }
     bufptr = bufptr2;
     bufptr2 = strchr(bufptr, '\t');
@@ -8795,6 +8810,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     if (fwrite_checked(base_bitfields, sample_ct4, outfile)) {
       goto vcf_to_bed_ret_WRITE_FAIL;
     }
+  vcf_to_bed_skip_genotype_write:
     chrom_ptr[chrom_len] = '\0';
     fputs(chrom_ptr, bimfile);
     putc('\t', bimfile);
@@ -8856,6 +8872,16 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     }
   }
   putchar('\r');
+  if ((!marker_ct) && (!allow_no_variants)) {
+    if (marker_skip_ct) {
+      logerrprint("Error: All variants in VCF skipped.\n");
+      retval = RET_ALL_MARKERS_EXCLUDED;
+      goto vcf_to_bed_ret_1;
+    } else {
+      logerrprint("Error: No variants in VCF file.\n");
+      goto vcf_to_bed_ret_INVALID_FORMAT;
+    }
+  }
   *outname_end = '\0';
   LOGPRINTFWW("--vcf: %s.bed + %s.bim + %s.fam written.\n", outname, outname, outname);
   if (marker_skip_ct) {
@@ -9029,6 +9055,8 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   uint32_t biallelic_strict = (misc_flags / MISC_BIALLELIC_ONLY_STRICT) & 1;
   uint32_t skip3_list = (misc_flags / MISC_BIALLELIC_ONLY_LIST) & 1;
   uint32_t vcf_filter = (misc_flags / MISC_VCF_FILTER) & 1;
+  // uint32_t allow_no_samples = (misc_flags / MISC_ALLOW_NO_SAMPLES) & 1;
+  // uint32_t allow_no_vars = (misc_flags / MISC_ALLOW_NO_VARS) & 1;
   uint32_t stringdict_ct = 1;
   uint32_t gt_idx = 0;
   uint32_t marker_ct = 0;
@@ -9096,7 +9124,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     if (memcmp(tbuf, "BCF\4", 4)) {
       LOGPREPRINTFWW("Error: %s is not a BCF2 file.\n", bcfname);
     } else {
-      LOGPREPRINTFWW("Error: %s appears to be a BCF1 file; --bcf only supports BCF2. Use 'bcftools view' to convert to a readable VCF.\n", bcfname);
+      LOGPREPRINTFWW("Error: %s appears to be a BCF1 file; --bcf only supports BCF2. Use 'bcftools view' to convert it to a PLINK-readable VCF.\n", bcfname);
     }
     goto bcf_to_bed_ret_INVALID_FORMAT_2;
   }
