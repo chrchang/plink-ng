@@ -103,7 +103,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (28 Nov 2015)";
+  " (29 Nov 2015)";
 const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -12424,6 +12424,13 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: '%s' is not a valid mode for --vcf-half-call.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
+      } else if (!memcmp(argptr2, "cf-require-gt", 14)) {
+        if (!(load_rare & (LOAD_RARE_VCF | LOAD_RARE_BCF))) {
+	  logerrprint("Error: --vcf-require-gt must be used with --vcf/--bcf.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	misc_flags |= MISC_VCF_REQUIRE_GT;
+	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
       }

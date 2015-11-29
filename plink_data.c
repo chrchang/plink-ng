@@ -7933,7 +7933,7 @@ int32_t vcf_sample_line(char* outname, char* outname_end, int32_t missing_pheno,
       } while (bufptr2);
     }
   }
-  do {
+  while (((unsigned char)bufptr[0]) >= ' ') {
     sample_ct++;
     bufptr2 = strchr(bufptr, '\t');
     if (bufptr2) {
@@ -8001,13 +8001,9 @@ int32_t vcf_sample_line(char* outname, char* outname_end, int32_t missing_pheno,
       break;
     }
     bufptr = &(bufptr2[1]);
-  } while (((unsigned char)bufptr[0]) > ' ');
+  }
   if (fclose_null(&outfile)) {
     goto vcf_sample_line_ret_WRITE_FAIL;
-  }
-  if (!sample_ct) {
-    sprintf(logbuf, "Error: No samples in .%ccf file.\n", flag_char);
-    goto vcf_sample_line_ret_INVALID_FORMAT_2;
   }
   *sample_ct_ptr = sample_ct;
   while (0) {
@@ -8084,6 +8080,8 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   uintptr_t fexcept_ct = 0;
   uintptr_t max_fexcept_len = 5;
   uintptr_t sample_ct = 0;
+  uintptr_t marker_skip_ct = 0;
+  uintptr_t missing_gt_ct = 0;
   uint32_t double_id = (misc_flags / MISC_DOUBLE_ID) & 1;
   uint32_t check_qual = (vcf_min_qual != -1);
   uint32_t allow_extra_chroms = (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1;
@@ -8092,8 +8090,8 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   uint32_t skip3_list = (misc_flags / MISC_BIALLELIC_ONLY_LIST) & 1;
   uint32_t allow_no_samples = (misc_flags / MISC_ALLOW_NO_SAMPLES) & 1;
   uint32_t allow_no_variants = (misc_flags / MISC_ALLOW_NO_VARS) & 1;
+  uint32_t require_gt = (misc_flags / MISC_VCF_REQUIRE_GT) & 1;
   uint32_t marker_ct = 0;
-  uint32_t marker_skip_ct = 0;
   uint32_t gq_field_pos = 0;
   uint32_t gp_field_pos = 0;
   uint32_t vcf_half_call_explicit_error = (vcf_half_call == VCF_HALF_CALL_ERROR);
@@ -8208,16 +8206,23 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     goto vcf_to_bed_ret_INVALID_FORMAT;
   }
   bufptr = &(bufptr[38]);
-  if (memcmp(bufptr, "\tFORMAT\t", 8) || (((unsigned char)bufptr[8]) <= ' ')) {
-    if (!allow_no_samples) {
-      logerrprint("Error: No genotype data in .vcf file.\n");
-      goto vcf_to_bed_ret_INVALID_FORMAT;
-    }
-  } else {
+  if (!memcmp(bufptr, "\tFORMAT\t", 8)) {
     retval = vcf_sample_line(outname, outname_end, missing_pheno, &(bufptr[8]), const_fid, double_id, id_delim, vcf_idspace_to, 'v', &sample_ct);
     if (retval) {
       goto vcf_to_bed_ret_1;
     }
+  } else if (allow_no_samples) {
+    memcpy(outname_end, ".fam", 5);
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto vcf_to_bed_ret_OPEN_FAIL;
+    }
+    if (fclose_null(&outfile)) {
+      goto vcf_to_bed_ret_WRITE_FAIL;
+    }
+  }
+  if ((!sample_ct) && (!allow_no_samples)) {
+    logerrprint("Error: No samples in .vcf file.\n");
+    goto vcf_to_bed_ret_INVALID_FORMAT;
   }
   sample_ct4 = (sample_ct + 3) / 4;
   sample_ctl2 = (sample_ct + BITCT2 - 1) / BITCT2;
@@ -8399,8 +8404,16 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       goto vcf_to_bed_ret_MISSING_TOKENS;
     }
     if (memcmp(bufptr, "GT", 2)) {
-      marker_skip_ct++;
-      continue;
+      // We previously always skipped this case, but that's inconsistent with
+      // how we now handle zero-sample VCFs.
+      if (require_gt) {
+	marker_skip_ct++;
+	continue;
+      }
+      fill_vec_55(base_bitfields, sample_ct);
+      missing_gt_ct++;
+      alt_allele_idx = 1;
+      goto vcf_to_bed_genotype_write;
     }
     bufptr2++;
     if (vcf_min_gq != -1) {
@@ -8807,6 +8820,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       *ref_ptr++ = (uljj & ulii) | (((~ulkk) >> 1) & FIVEMASK);
     }
     ref_ptr[-1] &= final_mask;
+  vcf_to_bed_genotype_write:
     if (fwrite_checked(base_bitfields, sample_ct4, outfile)) {
       goto vcf_to_bed_ret_WRITE_FAIL;
     }
@@ -8885,7 +8899,10 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   *outname_end = '\0';
   LOGPRINTFWW("--vcf: %s.bed + %s.bim + %s.fam written.\n", outname, outname, outname);
   if (marker_skip_ct) {
-    LOGPRINTF("(%u variant%s skipped.)\n", marker_skip_ct, (marker_skip_ct == 1)? "" : "s");
+    LOGPRINTF("(%" PRIuPTR " variant%s skipped.)\n", marker_skip_ct, (marker_skip_ct == 1)? "" : "s");
+  }
+  if (missing_gt_ct) {
+    LOGERRPRINTF("Warning: %" PRIuPTR " variant record%s had no GT field.\n", missing_gt_ct, (missing_gt_ct == 1)? "" : "s");
   }
   while (0) {
   vcf_to_bed_ret_NOMEM:
@@ -8941,44 +8958,47 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   return retval;
 }
 
-int32_t read_bcf_typed_integer(gzFile gz_infile, uint32_t* int_ptr) {
+int32_t read_bcf_typed_nonnegative_integer(gzFile gz_infile, uint32_t* int_ptr) {
+  // errors out on missing and negative values.
   int32_t retval = 0;
   int32_t ii = gzgetc(gz_infile);
   uint32_t uii;
   if (ii == -1) {
-    goto read_bcf_typed_integer_ret_READ_OR_FORMAT_FAIL;
+    goto read_bcf_typed_nonnegative_integer_ret_READ_OR_FORMAT_FAIL;
   }
   if (ii == 0x11) {
     ii = gzgetc(gz_infile);
-    if (ii == -1) {
-      goto read_bcf_typed_integer_ret_READ_OR_FORMAT_FAIL;
-    } else if (((uint32_t)ii) > 127) {
-      goto read_bcf_typed_integer_ret_INVALID_FORMAT_GENERIC;
+    if (((uint32_t)ii) > 127) {
+      if (ii == -1) {
+	goto read_bcf_typed_nonnegative_integer_ret_READ_OR_FORMAT_FAIL;
+      }
+      goto read_bcf_typed_nonnegative_integer_ret_INVALID_FORMAT_GENERIC;
     }
     *int_ptr = (uint32_t)ii;
   } else if (ii == 0x12) {
     uii = gzgetc(gz_infile);
     ii = gzgetc(gz_infile);
-    if (ii == -1) {
-      goto read_bcf_typed_integer_ret_READ_OR_FORMAT_FAIL;
-    } else if (((uint32_t)ii) > 127) {
-      goto read_bcf_typed_integer_ret_INVALID_FORMAT_GENERIC;
+    if (((uint32_t)ii) > 127) {
+      if (ii == -1) {
+	goto read_bcf_typed_nonnegative_integer_ret_READ_OR_FORMAT_FAIL;
+      }
+      goto read_bcf_typed_nonnegative_integer_ret_INVALID_FORMAT_GENERIC;
     }
     *int_ptr = uii | (((uint32_t)ii) << 8);
   } else if (ii == 0x13) {
     if (gzread(gz_infile, int_ptr, 4) < 4) {
-      goto read_bcf_typed_integer_ret_READ_OR_FORMAT_FAIL;
+      goto read_bcf_typed_nonnegative_integer_ret_READ_OR_FORMAT_FAIL;
     }
   } else {
-    goto read_bcf_typed_integer_ret_INVALID_FORMAT_GENERIC;
+    goto read_bcf_typed_nonnegative_integer_ret_INVALID_FORMAT_GENERIC;
   }
   while (0) {
-  read_bcf_typed_integer_ret_READ_OR_FORMAT_FAIL:
+  read_bcf_typed_nonnegative_integer_ret_READ_OR_FORMAT_FAIL:
     if (!gzeof(gz_infile)) {
       retval = RET_READ_FAIL;
       break;
     }
-  read_bcf_typed_integer_ret_INVALID_FORMAT_GENERIC:
+  read_bcf_typed_nonnegative_integer_ret_INVALID_FORMAT_GENERIC:
     logerrprint("Error: Improperly formatted .bcf file.\n");
     retval = RET_INVALID_FORMAT;
     break;
@@ -8995,7 +9015,7 @@ int32_t read_bcf_typed_string(gzFile gz_infile, char* readbuf, uint32_t maxlen, 
     goto read_bcf_typed_string_ret_READ_OR_FORMAT_FAIL;
   }
   if (((uint32_t)ii) == 0xf7) {
-    retval = read_bcf_typed_integer(gz_infile, &slen);
+    retval = read_bcf_typed_nonnegative_integer(gz_infile, &slen);
     if (retval) {
       goto read_bcf_typed_string_ret_1;
     }
@@ -9047,6 +9067,8 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   uintptr_t max_contig_len = 0;
   uintptr_t max_fexcept_len = 0;
   uintptr_t fexcept_ct = 0;
+  uintptr_t marker_skip_ct = 0;
+  uintptr_t missing_gt_ct = 0;
   uintptr_t topsize = 0;
   uint32_t double_id = (misc_flags / MISC_DOUBLE_ID) & 1;
   uint32_t check_qual = (vcf_min_qual != -1);
@@ -9057,11 +9079,11 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   uint32_t vcf_filter = (misc_flags / MISC_VCF_FILTER) & 1;
   uint32_t allow_no_samples = (misc_flags / MISC_ALLOW_NO_SAMPLES) & 1;
   uint32_t allow_no_variants = (misc_flags / MISC_ALLOW_NO_VARS) & 1;
+  uint32_t require_gt = (misc_flags / MISC_VCF_REQUIRE_GT) & 1;
   uint32_t sample_ct = 0;
   uint32_t stringdict_ct = 1;
   uint32_t gt_idx = 0;
   uint32_t marker_ct = 0;
-  uint32_t marker_skip_ct = 0;
   uint32_t umm = 0;
   int32_t retval = 0;
   float vcf_min_qualf = vcf_min_qual;
@@ -9251,29 +9273,38 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
     }
   }
-  if (!allow_no_variants) {
-    if ((!gt_idx) && (!allow_no_samples)) {
-      logerrprint("Error: No GT field in .bcf header.\n");
-      goto bcf_to_bed_ret_INVALID_FORMAT;
-    }
-    if (!contig_ct) {
-      logerrprint("Error: No contig fields in .bcf header.\n");
-      goto bcf_to_bed_ret_INVALID_FORMAT;
-    }
+  if ((!allow_no_variants) && (!contig_ct)) {
+    logerrprint("Error: No contig fields in .bcf header.\n");
+    goto bcf_to_bed_ret_INVALID_FORMAT;
   }
   if (memcmp(linebuf, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO", 38)) {
     goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
   }
-  if (!allow_no_samples) {
-    if (memcmp(&(linebuf[38]), "\tFORMAT\t", 8)) {
-      goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
-    }
+  if (!memcmp(&(linebuf[38]), "\tFORMAT\t", 8)) {
     *linebuf_end = '\0';
     retval = vcf_sample_line(outname, outname_end, missing_pheno, &(linebuf[46]), const_fid, double_id, id_delim, vcf_idspace_to, 'b', &ulii);
     if (retval) {
       goto bcf_to_bed_ret_1;
     }
+    if (ulii >= 0x1000000) {
+      // variant records only have 24 bits allocated for n_sample
+      logerrprint("Error: .bcf file contains >= 2^24 sample IDs.\n");
+      goto bcf_to_bed_ret_INVALID_FORMAT;
+    }
     sample_ct = ulii;
+  } else if (allow_no_samples) {
+    gt_idx = 0;
+    memcpy(outname_end, ".fam", 5);
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto bcf_to_bed_ret_OPEN_FAIL;
+    }
+    if (fclose_null(&outfile)) {
+      goto bcf_to_bed_ret_WRITE_FAIL;
+    }
+  }
+  if ((!sample_ct) && (!allow_no_samples)) {
+    logerrprint("Error: No samples in .bcf file.\n");
+    goto bcf_to_bed_ret_INVALID_FORMAT;
   }
   sample_ct4 = (sample_ct + 3) / 4;
   sample_ctl2 = (sample_ct + (BITCT2 - 1)) / BITCT2;
@@ -9350,6 +9381,18 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   if (fwrite_checked("l\x1b\x01", 3, outfile)) {
     goto bcf_to_bed_ret_WRITE_FAIL;
   }
+  if ((!gt_idx) && require_gt) {
+    if (!allow_no_variants) {
+      logerrprint("Error: .bcf header doesn't define FORMAT:GT.\n");
+      retval = RET_ALL_MARKERS_EXCLUDED;
+      goto bcf_to_bed_ret_1;
+    }
+    logerrprint("Warning: Skipping all variants since .bcf header doesn't define FORMAT:GT.\n");
+    goto bcf_to_bed_skip_all_variants;
+  }
+  // possible todo: optimize other no-GT cases.  e.g. if no sample information
+  // is needed, don't write the .bed or .fam.
+
   memcpyl3(tbuf2, "\t0\t");
   while (1) {
     lastloc = gztell(gz_infile) + 8;
@@ -9376,11 +9419,6 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       goto bcf_to_bed_ret_1;
     }
     n_allele = bcf_var_header[6] >> 16;
-    if (!n_allele) {
-      // skip instead of error out on zero alleles?
-      // (todo: sample_ct == 0 case)
-      goto bcf_to_bed_marker_skip;
-    }
     if (biallelic_strict && (n_allele > 2)) {
       goto bcf_to_bed_skip3;
     }
@@ -9389,18 +9427,30 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     }
     ujj = NON_WKSPACE_MIN; // remaining allele name buffer space
     bufptr = allele_buf;
-    for (uii = 0; uii < n_allele; uii++) {
-      retval = read_bcf_typed_string(gz_infile, bufptr, ujj, &ukk);
-      if (retval) {
-	goto bcf_to_bed_ret_1;
+    if (n_allele) {
+      for (uii = 0; uii < n_allele; uii++) {
+	retval = read_bcf_typed_string(gz_infile, bufptr, ujj, &ukk);
+	if (retval) {
+	  goto bcf_to_bed_ret_1;
+	}
+	if ((!uii) && ((!ukk) || ((ukk == 1) && (*bufptr == 'N')))) {
+	  // convert ref 'N' or '.' to missing genotype.  ('.' case was skipped
+	  // the past, and 'N' was not converted.)
+	  allele_lens[0] = 1;
+	  allele_ptrs[0] = bufptr;
+	  *bufptr++ = missing_geno;
+	} else {
+	  allele_lens[uii] = ukk;
+	  allele_ptrs[uii] = bufptr;
+	  bufptr = &(bufptr[ukk]);
+	}
       }
-      if ((!uii) && (!ukk)) {
-	// skip instead of error out on missing ref allele?
-        goto bcf_to_bed_marker_skip;
-      }
-      allele_lens[uii] = ukk;
-      allele_ptrs[uii] = bufptr;
-      bufptr = &(bufptr[ukk]);
+    } else {
+      // n_allele == 0 case was previously skipped, but it might have a place
+      // with --allow-no-samples.
+      allele_lens[0] = 1;
+      allele_ptrs[0] = bufptr;
+      *bufptr = missing_geno;
     }
     if (vcf_filter) {
       ii = gzgetc(gz_infile);
@@ -9409,7 +9459,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       } else {
 	ujj = ((uint32_t)ii) >> 4;
 	if (ujj == 15) {
-          retval = read_bcf_typed_integer(gz_infile, &ujj);
+          retval = read_bcf_typed_nonnegative_integer(gz_infile, &ujj);
 	  if (retval) {
 	    goto bcf_to_bed_ret_1;
 	  }
@@ -9478,15 +9528,30 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	}
       }
     }
+    alt_allele_idx = 1;
+    if ((!gt_idx) || (!bcf_var_header[1])) {
+      if (require_gt) {
+	goto bcf_to_bed_marker_skip;
+      }
+      ulljj = gztell(gz_infile);
+      ullii = lastloc + bcf_var_header[0] + bcf_var_header[1];
+      // fill_vec_55() assumes positive sample_ct
+      if (!sample_ct) {
+	goto bcf_to_bed_skip_genotype_write;
+      }
+      missing_gt_ct++;
+      fill_vec_55(base_bitfields, sample_ct);
+      goto bcf_to_bed_genotype_write;
+    }
+
     // skip INFO
     ullii = lastloc + bcf_var_header[0];
     if (gzseek(gz_infile, ullii, SEEK_SET) == -1) {
       goto bcf_to_bed_ret_READ_FAIL;
     }
-
     ullii += bcf_var_header[1];
     while (1) {
-      retval = read_bcf_typed_integer(gz_infile, &uii);
+      retval = read_bcf_typed_nonnegative_integer(gz_infile, &uii);
       if (retval) {
 	goto bcf_to_bed_ret_1;
       }
@@ -9496,7 +9561,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       }
       ujj = ((uint32_t)ii) >> 4;
       if (ujj == 15) {
-	retval = read_bcf_typed_integer(gz_infile, &ujj);
+	retval = read_bcf_typed_nonnegative_integer(gz_infile, &ujj);
 	if (retval) {
 	  goto bcf_to_bed_ret_1;
 	}
@@ -9505,17 +9570,17 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
         ukk = ((uint32_t)ii) & 0x0f;
 	if ((ukk == 3) || (ukk == 5)) {
 	  umm = 4; // int32, float = 4 bytes
-	} else if (ukk && (ukk > 2)) {
+	} else if ((!ukk) || (ukk > 2)) {
 	  logerrprint("Error: Unrecognized type in .bcf file.\n");
 	  goto bcf_to_bed_ret_INVALID_FORMAT;
 	} else {
 	  umm = ukk;
 	}
       }
-      ulljj = gztell(gz_infile) + ujj * umm * sample_ct;
-      // uii = format code
-      // ujj = vector length
-      // ukk = type code
+      ulljj = gztell(gz_infile) + ((uint64_t)ujj) * umm * sample_ct;
+      // uii = format key
+      // ujj = for GT, max ploidy
+      // ukk = integer/float/character type code
       // umm = bytes per entry
       if (ulljj > ullii) {
 	goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
@@ -9523,17 +9588,26 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       if (uii == gt_idx) {
 	break;
       }
+      // possible todo: --vcf-min-gq and --vcf-min-gp support
       if (ujj) {
-	if (gzseek(gz_infile, ujj * umm * sample_ct, SEEK_CUR) == -1) {
+	if (gzseek(gz_infile, ((uint64_t)ujj) * umm * sample_ct, SEEK_CUR) == -1) {
 	  goto bcf_to_bed_ret_READ_FAIL;
 	}
 	if (ulljj == ullii) {
-	  goto bcf_to_bed_marker_skip2;
+	  if (require_gt) {
+	    goto bcf_to_bed_marker_skip2;
+	  } else {
+	    missing_gt_ct++;
+	    fill_vec_55(base_bitfields, sample_ct);
+	    goto bcf_to_bed_genotype_write;
+	  }
 	}
       }
     }
     if (!ujj) {
-      goto bcf_to_bed_marker_skip;
+      // ploidy zero previously caused the variant to be skipped
+      fill_vec_55(base_bitfields, sample_ct);
+      goto bcf_to_bed_genotype_write;
     }
     if (ukk == 5) {
       logerrprint("Error: GT field cannot contain floating point values.\n");
@@ -9545,6 +9619,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       logerrprint("Error: --bcf does not support GT vectors requiring >12 bytes per sample.\n");
       goto bcf_to_bed_ret_INVALID_FORMAT;
     }
+    // ujj * umm <= 12 and sample_ct < 2^24, so no uint64_t cast needed there
     if ((uint32_t)((uint64_t)gzread(gz_infile, loadbuf, ujj * umm * sample_ct)) < ujj * umm * sample_ct) {
       goto bcf_to_bed_ret_READ_OR_FORMAT_FAIL;
     }
@@ -9687,7 +9762,6 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	}
       }
     }
-    alt_allele_idx = 1;
     if (n_allele > 2) {
       ulii = popcount2_longs(&(base_bitfields[sample_ctv2]), sample_ctl2);
       for (ulkk = 2; ulkk < n_allele; ulkk++) {
@@ -9719,9 +9793,11 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       *ref_ptr++ = (uljj & ulii) | (((~ulkk) >> 1) & FIVEMASK);
     }
     ref_ptr[-1] &= final_mask;
+  bcf_to_bed_genotype_write:
     if (fwrite_checked(base_bitfields, sample_ct4, outfile)) {
       goto bcf_to_bed_ret_WRITE_FAIL;
     }
+  bcf_to_bed_skip_genotype_write:
     fputs(&(contigdict[bcf_var_header[2] * max_contig_len]), bimfile);
     putc('\t', bimfile);
     if (marker_id_len) {
@@ -9730,8 +9806,8 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       putc('.', bimfile);
     }
     // bcf2 coordinates are 0-based while vcf is 1-based... (seriously, whose
-    // idea was this?  this is basically a bug in the spec, but we have to play
-    // along)
+    // idea was this?  this is basically a bug in the spec due to how e.g.
+    // telomeres are supposed to be encoded, but we have to play along)
     bufptr = uint32_writex(&(tbuf2[3]), bcf_var_header[3] + 1, '\t');
     if (fwrite_checked(tbuf2, bufptr - tbuf2, bimfile)) {
       goto bcf_to_bed_ret_WRITE_FAIL;
@@ -9805,10 +9881,14 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     goto bcf_to_bed_ret_WRITE_FAIL;
   }
   putchar('\r');
+ bcf_to_bed_skip_all_variants:
   *outname_end = '\0';
   LOGPRINTFWW("--bcf: %s.bed + %s.bim + %s.fam written.\n", outname, outname, outname);
   if (marker_skip_ct) {
-    LOGPRINTF("(%u variant%s skipped.)\n", marker_skip_ct, (marker_skip_ct == 1)? "" : "s");
+    LOGPRINTF("(%" PRIuPTR " variant%s skipped.)\n", marker_skip_ct, (marker_skip_ct == 1)? "" : "s");
+  }
+  if (missing_gt_ct) {
+    LOGERRPRINTF("Warning: %" PRIuPTR " variant record%s had no GT field.\n", missing_gt_ct, (missing_gt_ct == 1)? "" : "s");
   }
   while (0) {
   bcf_to_bed_ret_NOMEM2:
@@ -11757,7 +11837,7 @@ uint32_t valid_vcf_allele_code(const char* allele_code) {
   // returns 1 if probably valid (angle-bracket case is not exhaustively
   // checked), 0 if definitely not
   uint32_t uii = (unsigned char)(*allele_code);
-  if (uii == '<') {
+  if ((uii == '<') || ((uii == '*') && (!allele_code[1]))) {
     return 1;
   }
   do {
@@ -14101,7 +14181,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   if (!(recode_modifier & (RECODE_BEAGLE | RECODE_FASTPHASE | RECODE_FASTPHASE_1CHR | RECODE_HV))) {
     logprint("done.\n");
     if (invalid_allele_code_seen) {
-      logerrprint("Warning: At least one VCF allele code violates the official specification;\nother tools may not accept the file.  (Valid codes must either start with a\n'<', only contain characters in {A,C,G,T,N,a,c,g,t,n}, or represent a\nbreakend.)\n");
+      logerrprint("Warning: At least one VCF allele code violates the official specification;\nother tools may not accept the file.  (Valid codes must either start with a\n'<', only contain characters in {A,C,G,T,N,a,c,g,t,n}, be an isolated '*', or\nrepresent a breakend.)\n");
     }
   } else {
     fputs("done.\n", stdout);
