@@ -44,7 +44,7 @@ int32_t make_founders(uintptr_t unfiltered_sample_ct, uintptr_t sample_ct, char*
   }
   bitfield_exclude_to_include(sample_exclude, nf_bitarr, unfiltered_sample_ct);
   bitfield_andnot(nf_bitarr, founder_info, unfiltered_sample_ctl);
-  sample_uidx = next_set(nf_bitarr, 0, unfiltered_sample_ct);
+  sample_uidx = unfiltered_sample_ct? next_set(nf_bitarr, 0, unfiltered_sample_ct) : 0;
   if (sample_uidx == unfiltered_sample_ct) {
     logprint("Note: Skipping --make-founders since there are no nonfounders.\n");
     goto make_founders_ret_1;

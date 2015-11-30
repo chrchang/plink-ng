@@ -789,7 +789,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
       if (extractname) {
 	if (!(misc_flags & MISC_EXTRACT_RANGE)) {
-	  retval = extract_exclude_flag_norange(extractname, marker_id_htable, marker_id_htable_size, 0, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
+	  retval = extract_exclude_flag_norange(extractname, marker_id_htable, marker_id_htable_size, 0, 0, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
 	  if (retval) {
 	    goto plink1_dosage_ret_1;
 	  }
@@ -798,7 +798,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    logerrprint("Error: '--extract range' requires a sorted .bim.  Retry this command after\nusing --make-bed to sort your data.\n");
 	    goto plink1_dosage_ret_INVALID_CMDLINE;
 	  }
-	  retval = extract_exclude_range(extractname, marker_pos, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0, chrom_info_ptr);
+	  retval = extract_exclude_range(extractname, marker_pos, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0, 0, chrom_info_ptr);
 	  if (retval) {
 	    goto plink1_dosage_ret_1;
 	  }
@@ -808,7 +808,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
       if (excludename) {
 	if (!(misc_flags & MISC_EXCLUDE_RANGE)) {
-	  retval = extract_exclude_flag_norange(excludename, marker_id_htable, marker_id_htable_size, 1, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
+	  retval = extract_exclude_flag_norange(excludename, marker_id_htable, marker_id_htable_size, 1, 0, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
 	  if (retval) {
 	    goto plink1_dosage_ret_1;
 	  }
@@ -817,7 +817,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    logerrprint("Error: '--exclude range' requires a sorted .bim.  Retry this command after\nusing --make-bed to sort your data.\n");
 	    goto plink1_dosage_ret_INVALID_CMDLINE;
 	  }
-	  retval = extract_exclude_range(excludename, marker_pos, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 1, chrom_info_ptr);
+	  retval = extract_exclude_range(excludename, marker_pos, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 1, 0, chrom_info_ptr);
 	  if (retval) {
 	    goto plink1_dosage_ret_1;
 	  }
@@ -826,13 +826,13 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	}
       }
       if (filter_attrib_fname) {
-	retval = filter_attrib(filter_attrib_fname, filter_attrib_liststr, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
+	retval = filter_attrib(filter_attrib_fname, filter_attrib_liststr, marker_id_htable, marker_id_htable_size, 0, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
 	if (retval) {
 	  goto plink1_dosage_ret_1;
 	}
       }
       if (qual_filter) {
-	retval = filter_qual_scores(qual_filter, qual_min_thresh, qual_max_thresh, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
+	retval = filter_qual_scores(qual_filter, qual_min_thresh, qual_max_thresh, marker_id_htable, marker_id_htable_size, 0, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
 	if (retval) {
 	  goto plink1_dosage_ret_1;
 	}
@@ -840,10 +840,10 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       wkspace_reset(wkspace_mark);
     }
     if (thin_keep_prob != 1.0) {
-      if (random_thin_markers(thin_keep_prob, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct)) {
+      if (random_thin_markers(thin_keep_prob, unfiltered_marker_ct, 0, marker_exclude, &marker_exclude_ct)) {
 	goto plink1_dosage_ret_ALL_MARKERS_EXCLUDED;
       }
-    } else if (thin_keep_ct) {
+    } else if (thin_keep_ct != 0xffffffffU) {
       retval = random_thin_markers_ct(thin_keep_ct, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
       if (retval) {
 	goto plink1_dosage_ret_1;
@@ -877,31 +877,31 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
     }
     if (keepfamname) {
-      retval = keep_or_remove(keepfamname, sorted_sample_ids, ulii, max_sample_id_len, sample_id_map, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, 2);
+      retval = keep_or_remove(keepfamname, sorted_sample_ids, ulii, max_sample_id_len, sample_id_map, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, 2, 0);
       if (retval) {
 	goto plink1_dosage_ret_1;
       }
     }
     if (keepname) {
-      retval = keep_or_remove(keepname, sorted_sample_ids, ulii, max_sample_id_len, sample_id_map, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, 0);
+      retval = keep_or_remove(keepname, sorted_sample_ids, ulii, max_sample_id_len, sample_id_map, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, 0, 0);
       if (retval) {
 	goto plink1_dosage_ret_1;
       }
     }
     if (removefamname) {
-      retval = keep_or_remove(removefamname, sorted_sample_ids, ulii, max_sample_id_len, sample_id_map, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, 3);
+      retval = keep_or_remove(removefamname, sorted_sample_ids, ulii, max_sample_id_len, sample_id_map, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, 3, 0);
       if (retval) {
 	goto plink1_dosage_ret_1;
       }
     }
     if (removename) {
-      retval = keep_or_remove(removename, sorted_sample_ids, ulii, max_sample_id_len, sample_id_map, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, 1);
+      retval = keep_or_remove(removename, sorted_sample_ids, ulii, max_sample_id_len, sample_id_map, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, 1, 0);
       if (retval) {
 	goto plink1_dosage_ret_1;
       }
     }
     if (filter_attrib_sample_fname) {
-      retval = filter_attrib_sample(filter_attrib_sample_fname, filter_attrib_sample_liststr, sorted_sample_ids, ulii, max_sample_id_len, sample_id_map, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct);
+      retval = filter_attrib_sample(filter_attrib_sample_fname, filter_attrib_sample_liststr, sorted_sample_ids, ulii, max_sample_id_len, sample_id_map, unfiltered_sample_ct, 0, sample_exclude, &sample_exclude_ct);
       if (retval) {
 	goto plink1_dosage_ret_1;
       }
@@ -910,7 +910,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       if (!mfilter_col) {
 	mfilter_col = 1;
       }
-      retval = filter_samples_file(filtername, sorted_sample_ids, ulii, max_sample_id_len, sample_id_map, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, filtervals_flattened, mfilter_col);
+      retval = filter_samples_file(filtername, sorted_sample_ids, ulii, max_sample_id_len, sample_id_map, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, filtervals_flattened, mfilter_col, 0);
       if (retval) {
 	goto plink1_dosage_ret_1;
       }

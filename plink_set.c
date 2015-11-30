@@ -539,7 +539,10 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
   return retval;
 }
 
-int32_t extract_exclude_range(char* fname, uint32_t* marker_pos, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uint32_t is_exclude, Chrom_info* chrom_info_ptr) {
+int32_t extract_exclude_range(char* fname, uint32_t* marker_pos, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uint32_t is_exclude, uint32_t allow_no_variants, Chrom_info* chrom_info_ptr) {
+  if (unfiltered_marker_ct == *marker_exclude_ct_ptr) {
+    return 0;
+  }
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   FILE* infile = NULL;
@@ -580,7 +583,7 @@ int32_t extract_exclude_range(char* fname, uint32_t* marker_pos, uintptr_t unfil
     bitfield_or(marker_exclude, marker_exclude_new, unfiltered_marker_ctl);
   }
   *marker_exclude_ct_ptr = popcount_longs(marker_exclude, unfiltered_marker_ctl);
-  if (*marker_exclude_ct_ptr == unfiltered_marker_ct) {
+  if ((*marker_exclude_ct_ptr == unfiltered_marker_ct) && (!allow_no_variants)) {
     LOGERRPRINTF("Error: All variants excluded by '--%s range'.\n", is_exclude? "exclude" : "extract");
     retval = RET_ALL_MARKERS_EXCLUDED;
   } else if (*marker_exclude_ct_ptr == orig_marker_exclude_ct) {

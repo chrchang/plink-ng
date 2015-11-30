@@ -3306,6 +3306,7 @@ void magic_num(uint32_t divisor, uint64_t* multp, uint32_t* pre_shiftp, uint32_t
 }
 
 void fill_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len) {
+  // requires bit_arr to be nonempty
   uintptr_t maj_start = loc_start / BITCT;
   uintptr_t maj_end = (loc_start + len) / BITCT;
   uintptr_t minor;
@@ -3322,6 +3323,7 @@ void fill_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len) {
 }
 
 void clear_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len) {
+  // requires bit_arr to be nonempty
   uintptr_t maj_start = loc_start / BITCT;
   uintptr_t maj_end = (loc_start + len) / BITCT;
   uintptr_t minor;
@@ -3783,7 +3785,7 @@ int32_t populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uint
 }
 
 uint32_t id_htable_find(const char* id_buf, uintptr_t cur_id_len, const uint32_t* id_htable, uint32_t id_htable_size, const char* item_ids, uintptr_t max_id_len) {
-  // assumes no duplicate entries
+  // assumes no duplicate entries, and a nonempty table
   // returns 0xffffffffU on failure
   if (cur_id_len >= max_id_len) {
     return 0xffffffffU;
@@ -5264,15 +5266,16 @@ void bitfield_andnot(uintptr_t* vv, uintptr_t* exclude_vec, uintptr_t word_ct) {
   }
 #else
   uintptr_t* vec_end = &(vv[word_ct]);
-  do {
+  while (vv < vec_end) {
     *vv++ &= ~(*exclude_vec++);
-  } while (vv < vec_end);
+  }
 #endif
 }
 
 void bitfield_andnot_reversed_args(uintptr_t* vv, uintptr_t* include_vec, uintptr_t word_ct) {
   // vv := (~vv) AND include_vec
   // on 64-bit systems, assumes vv and exclude_vec are 16-byte aligned
+  // assumes word_ct is nonzero
 #ifdef __LP64__
   __m128i* vv128 = (__m128i*)vv;
   __m128i* iv128 = (__m128i*)include_vec;
@@ -5339,9 +5342,9 @@ void bitfield_ornot(uintptr_t* vv, uintptr_t* inverted_or_vec, uintptr_t word_ct
   }
 #else
   uintptr_t* vec_end = &(vv[word_ct]);
-  do {
+  while (vv < vec_end) {
     *vv++ |= ~(*inverted_or_vec++);
-  } while (vv < vec_end);
+  }
 #endif
 }
 
@@ -7522,6 +7525,7 @@ uintptr_t count_01(uintptr_t* lptr, uintptr_t word_ct) {
 
 void fill_all_bits(uintptr_t* bit_arr, uintptr_t ct) {
   // leaves bits beyond the end unset
+  // ok for ct == 0
   uintptr_t quotient = ct / BITCT;
   uintptr_t remainder = ct % BITCT;
   fill_ulong_one(bit_arr, quotient);

@@ -45,7 +45,7 @@ const char* keep_or_remove_flag_str(uint32_t flags) {
   return NULL;
 }
 
-int32_t keep_or_remove(char* fname, char* sorted_ids, uintptr_t sorted_ids_ct, uintptr_t max_id_len, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* exclude_ct_ptr, uint32_t flags) {
+int32_t keep_or_remove(char* fname, char* sorted_ids, uintptr_t sorted_ids_ct, uintptr_t max_id_len, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* exclude_ct_ptr, uint32_t flags, uint32_t allow_no_samples) {
   FILE* infile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t* exclude_arr_new = NULL;
@@ -143,7 +143,7 @@ int32_t keep_or_remove(char* fname, char* sorted_ids, uintptr_t sorted_ids_ct, u
   }
   memcpy(exclude_arr, exclude_arr_new, unfiltered_ctl * sizeof(intptr_t));
   *exclude_ct_ptr = popcount_longs(exclude_arr, unfiltered_ctl);
-  if (*exclude_ct_ptr == unfiltered_ct) {
+  if ((*exclude_ct_ptr == unfiltered_ct) && (!allow_no_samples)) {
     LOGERRPRINTF("Error: No %s remaining after --%s.\n", g_species_plural, keep_or_remove_flag_str(flags));
     goto keep_or_remove_ret_ALL_SAMPLES_EXCLUDED;
   }
@@ -235,7 +235,7 @@ void extract_exclude_process_token(const char* tok_start, const uint32_t* marker
   }
 }
 
-int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, uint32_t marker_id_htable_size, uint32_t do_exclude, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr) {
+int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, uint32_t marker_id_htable_size, uint32_t do_exclude, uint32_t allow_no_variants, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
@@ -313,7 +313,7 @@ int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, ui
     zero_trailing_bits(marker_exclude, unfiltered_marker_ct);
   }
   *marker_exclude_ct_ptr = popcount_longs(marker_exclude, unfiltered_marker_ctl);
-  if (*marker_exclude_ct_ptr == unfiltered_marker_ct) {
+  if ((*marker_exclude_ct_ptr == unfiltered_marker_ct) && (!allow_no_variants)) {
     LOGERRPRINTF("Error: No variants remaining after --%s.\n", do_exclude? "exclude" : "extract");
     goto extract_exclude_flag_norange_ret_ALL_MARKERS_EXCLUDED;
   }
@@ -347,7 +347,7 @@ int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, ui
   return retval;
 }
 
-int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uint32_t id_htable_size, char* item_ids, uintptr_t max_id_len, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* exclude_ct_ptr) {
+int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uint32_t id_htable_size, uint32_t allow_no_variants, char* item_ids, uintptr_t max_id_len, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* exclude_ct_ptr) {
   gzFile gz_infile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t include_ct = 0;
@@ -548,7 +548,7 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
     clear_bit(exclude_arr_new, item_uidx);
     include_ct++;
   }
-  if (!include_ct) {
+  if ((!include_ct) && (!allow_no_variants)) {
     logerrprint("Error: No variants remaining after --attrib.\n");
     retval = RET_ALL_MARKERS_EXCLUDED;
     goto filter_attrib_ret_1;
@@ -582,7 +582,7 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
   return retval;
 }
 
-int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids, uintptr_t sorted_ids_ct, uintptr_t max_id_len, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* exclude_ct_ptr) {
+int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids, uintptr_t sorted_ids_ct, uintptr_t max_id_len, uint32_t* id_map, uintptr_t unfiltered_ct, uint32_t allow_no_samples, uintptr_t* exclude_arr, uintptr_t* exclude_ct_ptr) {
   // re-merge this with filter_attrib() after making sample ID lookup
   // hash-based
   gzFile gz_infile = NULL;
@@ -612,7 +612,7 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
   uint32_t unfiltered_idx;
   uint32_t pos_match_needed;
   int32_t sorted_idx;
-  
+
   if (wkspace_alloc_ul_checked(&exclude_arr_new, unfiltered_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&already_seen, unfiltered_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_c_checked(&id_buf, max_id_len)) { 
@@ -761,6 +761,10 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
     }
     set_bit(already_seen, sorted_idx);
     unfiltered_idx = id_map[(uint32_t)sorted_idx];
+    if (is_set(exclude_arr, unfiltered_idx)) {
+      // bugfix: don't proceed here
+      continue;
+    }
     pos_match_needed = pos_match_ct;
     while (!is_eoln_kns(*cond_ptr)) {
       bufptr2 = cond_ptr;
@@ -784,7 +788,7 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
     clear_bit(exclude_arr_new, unfiltered_idx);
     include_ct++;
   }
-  if (!include_ct) {
+  if ((!include_ct) && (!allow_no_samples)) {
     LOGERRPRINTF("Error: No %s remaining after --attrib-indiv.\n", g_species_plural);
     retval = RET_ALL_SAMPLES_EXCLUDED;
     goto filter_attrib_sample_ret_1;
@@ -792,6 +796,7 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
   LOGPRINTF("--attrib-indiv: %" PRIuPTR " %s remaining.\n", include_ct, species_str(include_ct));
   memcpy(exclude_arr, exclude_arr_new, unfiltered_ctl * sizeof(intptr_t));
   *exclude_ct_ptr = unfiltered_ct - include_ct;
+
   while (0) {
   filter_attrib_sample_ret_NOMEM:
     retval = RET_NOMEM;
@@ -818,7 +823,7 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
   return retval;
 }
 
-int32_t filter_qual_scores(Two_col_params* qual_filter, double qual_min_thresh, double qual_max_thresh, uint32_t* marker_id_htable, uint32_t marker_id_htable_size, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr) {
+int32_t filter_qual_scores(Two_col_params* qual_filter, double qual_min_thresh, double qual_max_thresh, uint32_t* marker_id_htable, uint32_t marker_id_htable_size, uint32_t allow_no_variants, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
@@ -916,6 +921,11 @@ int32_t filter_qual_scores(Two_col_params* qual_filter, double qual_min_thresh, 
   }
   *marker_exclude_ct_ptr = popcount_longs(marker_exclude, unfiltered_marker_ctl);
   marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
+  if ((!marker_ct) && (!allow_no_variants)) {
+    logerrprint("Error: No variants remaining after --qual-scores.\n");
+    retval = RET_ALL_MARKERS_EXCLUDED;
+    goto filter_qual_scores_ret_1;
+  }
   if (miss_ct) {
     sprintf(logbuf, "--qual-scores: %" PRIuPTR " variant%s remaining, %" PRIuPTR " ID%s missing.\n", marker_ct, (marker_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
   } else {
@@ -942,7 +952,7 @@ int32_t filter_qual_scores(Two_col_params* qual_filter, double qual_min_thresh, 
   return retval;
 }
 
-uint32_t random_thin_markers(double thin_keep_prob, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr) {
+uint32_t random_thin_markers(double thin_keep_prob, uintptr_t unfiltered_marker_ct, uint32_t allow_no_variants, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr) {
   uint32_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
   uint32_t marker_uidx = 0;
   uint32_t markers_done = 0;
@@ -960,7 +970,7 @@ uint32_t random_thin_markers(double thin_keep_prob, uintptr_t unfiltered_marker_
       }
     } while (++marker_uidx < marker_uidx_stop);
   }
-  if (marker_ct == removed_ct) {
+  if ((marker_ct == removed_ct) && (!allow_no_variants)) {
     logerrprint("Error: All variants removed by --thin.  Try a higher probability.\n");
     return 1;
   }
@@ -981,17 +991,23 @@ int32_t random_thin_markers_ct(uint32_t thin_keep_ct, uintptr_t unfiltered_marke
     LOGERRPRINTF("Error: --thin-count parameter exceeds number of remaining variants.\n");
     goto random_thin_markers_ct_ret_INVALID_CMDLINE;
   }
-  if (wkspace_alloc_ul_checked(&perm_buf, marker_ctl * sizeof(intptr_t))) {
-    goto random_thin_markers_ct_ret_NOMEM;
-  }
-  // no actual interleaving here, but may as well use this function
-  generate_perm1_interleaved(marker_ct, marker_ct - thin_keep_ct, 0, 1, perm_buf);
-  marker_uidx = 0;
-  for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-    next_unset_unsafe_ck(marker_exclude, &marker_uidx);
-    if (is_set(perm_buf, marker_idx)) {
-      set_bit(marker_exclude, marker_uidx);
+  if (marker_ct > 1) {
+    if (wkspace_alloc_ul_checked(&perm_buf, marker_ctl * sizeof(intptr_t))) {
+      goto random_thin_markers_ct_ret_NOMEM;
     }
+    // no actual interleaving here, but may as well use this function
+    // note that this requires marker_ct >= 2
+    generate_perm1_interleaved(marker_ct, marker_ct - thin_keep_ct, 0, 1, perm_buf);
+    marker_uidx = 0;
+    for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+      next_unset_unsafe_ck(marker_exclude, &marker_uidx);
+      if (is_set(perm_buf, marker_idx)) {
+	set_bit(marker_exclude, marker_uidx);
+      }
+    }
+  } else if ((!thin_keep_ct) && marker_ct) {
+    marker_uidx = next_unset_unsafe(marker_exclude, 0);
+    set_bit(marker_exclude, marker_uidx);
   }
   LOGPRINTF("--thin-count: %u variant%s removed (%u remaining).\n", marker_ct - thin_keep_ct, (marker_ct - thin_keep_ct == 1)? "" : "s", thin_keep_ct);
   *marker_exclude_ct_ptr = unfiltered_marker_ct - thin_keep_ct;
@@ -1007,7 +1023,7 @@ int32_t random_thin_markers_ct(uint32_t thin_keep_ct, uintptr_t unfiltered_marke
   return retval;
 }
 
-uint32_t random_thin_samples(double thin_keep_prob, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr) {
+uint32_t random_thin_samples(double thin_keep_prob, uintptr_t unfiltered_sample_ct, uint32_t allow_no_samples, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr) {
   uint32_t sample_ct = unfiltered_sample_ct - *sample_exclude_ct_ptr;
   uint32_t sample_uidx = 0;
   uint32_t samples_done = 0;
@@ -1025,7 +1041,7 @@ uint32_t random_thin_samples(double thin_keep_prob, uintptr_t unfiltered_sample_
       }
     } while (++sample_uidx < sample_uidx_stop);
   }
-  if (sample_ct == removed_ct) {
+  if ((sample_ct == removed_ct) && (!allow_no_samples)) {
     LOGERRPRINTF("Error: All %s removed by --thin-indiv. Try a higher probability.\n", g_species_plural);
     return 1;
   }
@@ -1073,7 +1089,7 @@ int32_t random_thin_samples_ct(uint32_t thin_keep_ct, uintptr_t unfiltered_sampl
 }
 
 
-int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char* marker_ids, uintptr_t max_marker_id_len, char* sorted_sample_ids, uintptr_t sorted_sample_ct, uintptr_t max_sample_id_len, uint32_t* sample_id_map, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sex_male, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip) {
+int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char* marker_ids, uintptr_t max_marker_id_len, char* sorted_sample_ids, uintptr_t sorted_sample_ct, uintptr_t max_sample_id_len, uint32_t* sample_id_map, uintptr_t unfiltered_sample_ct, uintptr_t* sex_male, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip) {
   // 1. load and validate cluster file
   // 2. load marker file, sort by uidx
   // 3. check for early exit (no clusters and/or no .zero entries)
@@ -1378,7 +1394,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
   return retval;
 }
 
-int32_t filter_samples_file(char* filtername, char* sorted_sample_ids, uintptr_t sorted_ids_len, uintptr_t max_sample_id_len, uint32_t* id_map, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* filtervals_flattened, uint32_t mfilter_col) {
+int32_t filter_samples_file(char* filtername, char* sorted_sample_ids, uintptr_t sorted_ids_len, uintptr_t max_sample_id_len, uint32_t* id_map, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* filtervals_flattened, uint32_t mfilter_col, uint32_t allow_no_samples) {
   FILE* infile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
@@ -1446,7 +1462,7 @@ int32_t filter_samples_file(char* filtername, char* sorted_sample_ids, uintptr_t
   if (!feof(infile)) {
     goto filter_samples_file_ret_READ_FAIL;
   }
-  if (!include_ct) {
+  if ((!include_ct) && (!allow_no_samples)) {
     LOGERRPRINTF("Error: All %s excluded by --filter.\n", g_species_plural);
     goto filter_samples_file_ret_ALL_SAMPLES_EXCLUDED;
   }
