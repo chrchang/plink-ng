@@ -5191,7 +5191,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 }
 
 // side effect: initializes tbuf to first nonempty line of .map/.bim
-int32_t check_cm_col(FILE* bimfile, char* tbuf, uint32_t is_binary, uint32_t allow_no_variants, uint32_t bufsize, uint32_t* gd_col_ptr, uintptr_t* line_idx_ptr) {
+int32_t check_cm_col(FILE* bimfile, char* tbuf, uint32_t is_binary, uint32_t allow_no_variants, uint32_t bufsize, uint32_t* cm_col_exists_ptr, uintptr_t* line_idx_ptr) {
   uintptr_t line_idx = 0;
   char* bufptr;
   while (fgets(tbuf, bufsize, bimfile)) {
@@ -5206,9 +5206,9 @@ int32_t check_cm_col(FILE* bimfile, char* tbuf, uint32_t is_binary, uint32_t all
       return -1;
     }
     if (no_more_tokens_kns(next_token(bufptr))) {
-      *gd_col_ptr = 0;
+      *cm_col_exists_ptr = 0;
     } else {
-      *gd_col_ptr = 1;
+      *cm_col_exists_ptr = 1;
     }
     return 0;
   }
@@ -5336,19 +5336,20 @@ char* get_llstr(Ll_str* llptr, uint32_t allele_idx) {
 
 static inline char* write_token_nt(char* read_ptr, FILE* outfile) {
   // assumes read_ptr is at the beginning of an item to write
+  // nt = "no tab"
   uint32_t slen = strlen_se(read_ptr);
   fwrite(read_ptr, 1, slen, outfile);
-  return skip_initial_spaces(&(read_ptr[slen + 1]));
+  return skip_initial_spaces(&(read_ptr[slen]));
 }
 
 static inline char* write_token(char* read_ptr, FILE* outfile) {
   uint32_t slen = strlen_se(read_ptr);
   fwrite(read_ptr, 1, slen, outfile);
   putc('\t', outfile);
-  return skip_initial_spaces(&(read_ptr[slen + 1]));
+  return skip_initial_spaces(&(read_ptr[slen]));
 }
 
-int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char* outname, char* outname_end, FILE** mapfile_ptr, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_alleles_f, uint32_t map_is_unsorted, uint32_t fam_cols, uint32_t ped_col_skip_iid, uint32_t ped_col_skip, uint32_t gd_col, uint32_t* map_reverse, int64_t ped_size, char* missing_pheno_str) {
+int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char* outname, char* outname_end, FILE** mapfile_ptr, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_alleles_f, uint32_t map_is_unsorted, uint32_t fam_cols, uint32_t ped_col_skip_iid, uint32_t ped_col_skip, uint32_t cm_col_exists, uint32_t* map_reverse, int64_t ped_size, char* missing_pheno_str) {
   // maintain allele counts and linked lists of observed alleles at FAR end of
   // wkspace.
   int32_t retval = 0;
@@ -5504,7 +5505,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
       }
       if ((*aptr1 == missing_geno) && (alen1 == 1)) {
 	if ((alen2 != 1) || (*aptr2 != missing_geno)) {
-          goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_4;
+	  goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_4;
 	}
 	marker_idx++;
 	continue;
@@ -5545,10 +5546,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
   }
   putchar('\r');
   logprint(".ped scan complete (for binary autoconversion).\n");
-  if (!sample_ct) {
-    sprintf(logbuf, "Error: No %s in .ped file.\n", g_species_plural);
-    goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_2;
-  }
+  // sample_ct == 0 impossible
   if (fclose_null(outfile_ptr)) {
     goto ped_to_bed_multichar_allele_ret_WRITE_FAIL;
   }
@@ -5629,7 +5627,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
       putc('\t', outfile);
       bufptr = skip_initial_spaces(&(bufptr[uii + 1]));
       bufptr = write_token(bufptr, outfile);
-      if (gd_col) {
+      if (cm_col_exists) {
         ucc = (unsigned char)(*bufptr);
 	// should be good enough at detecting nonnumeric values...
 	if (((ucc >= '0') && (ucc <= '9')) || (ucc == '-') || (ucc == '+')) {
@@ -5882,13 +5880,15 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   uintptr_t marker_ct = 0;
   uintptr_t sample_ct = 0;
   uint32_t allow_extra_chroms = (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1;
+  uint32_t allow_no_samples = (misc_flags / MISC_ALLOW_NO_SAMPLES) & 1;
+  uint32_t allow_no_variants = (misc_flags / MISC_ALLOW_NO_VARS) & 1;
   uint32_t map_is_unsorted = 0;
   int32_t last_chrom = 0;
   uint32_t last_mpos = 0;
   uint32_t ped_buflen = 1;
   int32_t retval = 0;
-  uint32_t ped_col_skip_iid = 1 + 2 * ((fam_cols & FAM_COL_34) / FAM_COL_34) + ((fam_cols & FAM_COL_5) / FAM_COL_5) + ((fam_cols & FAM_COL_6) / FAM_COL_6);
-  uint32_t ped_col_skip = ped_col_skip_iid + ((fam_cols & FAM_COL_1) / FAM_COL_1);
+  uint32_t ped_col_skip_iid_m1 = ((fam_cols & FAM_COL_34) / (FAM_COL_34 / 2)) + ((fam_cols & FAM_COL_5) / FAM_COL_5) + ((fam_cols & FAM_COL_6) / FAM_COL_6);
+  uint32_t ped_col_skip = ped_col_skip_iid_m1 + 1 + ((fam_cols & FAM_COL_1) / FAM_COL_1);
   uint32_t last_pass = 0;
   int64_t* line_starts = NULL;
 
@@ -5908,7 +5908,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   uintptr_t line_idx;
   uintptr_t sample_idx;
   uintptr_t ulii;
-  uint32_t cm_col;
+  uint32_t cm_col_exists;
   uint32_t markers_per_pass;
   uint32_t marker_start;
   uint32_t marker_end;
@@ -5949,14 +5949,17 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     goto ped_to_bed_ret_OPEN_FAIL;
   }
   tbuf[MAXLINELEN - 6] = ' ';
-  // todo: --allow_no_vars
-  if (check_cm_col(mapfile, tbuf, 0, 0, MAXLINELEN - 5, &cm_col, &line_idx)) {
+  if (check_cm_col(mapfile, tbuf, 0, allow_no_variants, MAXLINELEN - 5, &cm_col_exists, &line_idx)) {
     if (line_idx) {
       goto ped_to_bed_ret_MISSING_TOKENS_MAP;
     } else {
       logerrprint("Error: Empty .map file.\n");
       goto ped_to_bed_ret_INVALID_FORMAT;
     }
+  }
+  if (!line_idx) {
+    // no variants
+    goto ped_to_bed_empty_map_with_allow_no_vars;
   }
   line_idx--;
   do {
@@ -5970,7 +5973,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       continue;
     }
     col2_ptr = next_token(col1_ptr);
-    bufptr = next_token_mult(col2_ptr, 1 + cm_col);
+    bufptr = next_token_mult(col2_ptr, 1 + cm_col_exists);
     if (no_more_tokens_kns(bufptr)) {
       goto ped_to_bed_ret_MISSING_TOKENS_MAP;
     }
@@ -6026,18 +6029,19 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     goto ped_to_bed_ret_READ_FAIL;
   }
   marker_ct = unfiltered_marker_ct - marker_exclude_ct;
-  if (!marker_ct) {
+  if ((!marker_ct) && (!allow_no_variants)) {
     logprint("Error: No variants in current analysis.\n");
     goto ped_to_bed_ret_ALL_MARKERS_EXCLUDED;
   }
+ ped_to_bed_empty_map_with_allow_no_vars:
   marker_exclude = (uintptr_t*)wkspace_alloc(((unfiltered_marker_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t));
 
   if (map_is_unsorted) {
-    retval = load_sort_and_write_map(&map_reverse, mapfile, 3 + cm_col, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, max_marker_id_len, 1, chrom_info_ptr);
+    retval = load_sort_and_write_map(&map_reverse, mapfile, 3 + cm_col_exists, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, max_marker_id_len, 1, chrom_info_ptr);
     if (retval) {
       goto ped_to_bed_ret_1;
     }
-    cm_col = 1;
+    cm_col_exists = 1;
     fclose_null(&mapfile);
   }
   // provisionally assume max_marker_allele_len == 1
@@ -6100,10 +6104,11 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     } else {
       col2_ptr = col1_ptr;
     }
-    bufptr = next_token_mult(col2_ptr, ped_col_skip_iid);
+    bufptr = next_token_multz(col2_ptr, ped_col_skip_iid_m1);
     if (no_more_tokens_kns(bufptr)) {
       goto ped_to_bed_ret_MISSING_TOKENS_PED;
     }
+    bufptr = token_endnn(bufptr);
     if ((bufptr - col1_ptr) > (MAXLINELEN / 2) - 4) {
       logprint("\n");
       sprintf(logbuf, "Error: Line %" PRIuPTR " of .ped file has a pathologically long token.\n", line_idx);
@@ -6135,10 +6140,11 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       goto ped_to_bed_ret_WRITE_FAIL;
     }
     marker_idx = 0;
+    bufptr = skip_initial_spaces(bufptr);
     for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
       cc = *bufptr++;
       if (!cc) {
-        goto ped_to_bed_ret_MISSING_TOKENS_PED;
+	goto ped_to_bed_ret_MISSING_TOKENS_PED;
       }
       bufptr = skip_initial_spaces(bufptr);
       cc2 = *bufptr++;
@@ -6172,6 +6178,10 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       // either multi-character alleles, or invalid format.  Restart scan.
       putchar('\r');
       logstr("\n");
+      if (!marker_ct) {
+        sprintf(logbuf, "Error: Line %" PRIuPTR " of .ped file has more tokens than expected.\n", line_idx);
+        goto ped_to_bed_ret_INVALID_FORMAT_2;
+      }
       logprint("Possibly irregular .ped line.  Restarting scan, assuming multichar alleles.\n");
       is_single_char_alleles = 0;
       break;
@@ -6195,7 +6205,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     if (!feof(pedfile)) {
       goto ped_to_bed_ret_READ_FAIL;
     }
-    if (!sample_ct) {
+    if ((!sample_ct) && (!allow_no_samples)) {
       logprint("\n");
       sprintf(logbuf, "Error: No %s in .ped file.\n", g_species_plural);
       goto ped_to_bed_ret_INVALID_FORMAT_2;
@@ -6280,7 +6290,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       } else {
 	bufptr = write_token(bufptr, outfile);
 	bufptr = write_token(bufptr, outfile);
-	if (cm_col) {
+	if (cm_col_exists) {
 	  ucc = (unsigned char)(*bufptr);
 	  if (((ucc >= '0') && (ucc <= '9')) || (ucc == '-') || (ucc == '+')) {
 	    bufptr = write_token_nt(bufptr, outfile);
@@ -6316,7 +6326,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     if (wkspace_left >= marker_ct * sample_ct4) {
       markers_per_pass = marker_ct;
       sprintf(logbuf, "Performing single-pass .bed write (%" PRIuPTR " variant%s, %" PRIuPTR " %s).\n", marker_ct, (marker_ct == 1)? "" : "s", sample_ct, species_str(sample_ct));
-      pass_ct = 1;
+      pass_ct = (marker_ct * sample_ct4)? 1 : 0;
     } else {
       if (!map_is_unsorted) {
 	if (wkspace_alloc_ll_checked(&line_starts, sample_ct * sizeof(int64_t))) {
@@ -6466,7 +6476,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       }
     }
   } else {
-    retval = ped_to_bed_multichar_allele(&pedfile, &outfile, outname, outname_end, &mapfile, unfiltered_marker_ct, marker_exclude, marker_ct, marker_alleles_f, map_is_unsorted, fam_cols, ped_col_skip_iid, ped_col_skip, cm_col, map_reverse, ped_size, missing_pheno_str);
+    retval = ped_to_bed_multichar_allele(&pedfile, &outfile, outname, outname_end, &mapfile, unfiltered_marker_ct, marker_exclude, marker_ct, marker_alleles_f, map_is_unsorted, fam_cols, ped_col_skip_iid_m1 + 1, ped_col_skip, cm_col_exists, map_reverse, ped_size, missing_pheno_str);
     if (retval) {
       goto ped_to_bed_ret_1;
     }
@@ -14629,7 +14639,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uint32_t allow_no_vari
   Ll_str* ll_string_new;
   int64_t llxx;
   uintptr_t line_idx;
-  uint32_t cm_col;
+  uint32_t cm_col_exists;
   uint32_t allele_ct;
   uint32_t name_match;
   uint32_t uii;
@@ -14651,7 +14661,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uint32_t allow_no_vari
   }
   loadbuf = (char*)wkspace_alloc(loadbuf_size);
   loadbuf[loadbuf_size - 1] = ' ';
-  if (check_cm_col(infile, loadbuf, is_binary, allow_no_variants, loadbuf_size, &cm_col, &line_idx)) {
+  if (check_cm_col(infile, loadbuf, is_binary, allow_no_variants, loadbuf_size, &cm_col_exists, &line_idx)) {
     goto merge_bim_scan_ret_MISSING_TOKENS;
   }
   if (!line_idx) {
@@ -14696,7 +14706,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uint32_t allow_no_vari
     if (no_more_tokens_kns(bufptr2)) {
       goto merge_bim_scan_ret_MISSING_TOKENS;
     }
-    if (cm_col) {
+    if (cm_col_exists) {
       if (scan_double(bufptr2, &cm)) {
 	cm = 0;
       }
@@ -15175,7 +15185,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
   uintptr_t uljj = 0;
   uintptr_t* mbufptr2;
   uintptr_t* rbufptr;
-  uint32_t cm_col;
+  uint32_t cm_col_exists;
   char* aptr1;
   char* aptr2;
   char* bufptr;
@@ -15245,7 +15255,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
   if (fopen_checked(&infile2, bimname, "r")) {
     goto merge_main_ret_OPEN_FAIL;
   }
-  if (check_cm_col(infile2, bim_loadbuf, is_binary, 1, max_bim_linelen, &cm_col, &ulii)) {
+  if (check_cm_col(infile2, bim_loadbuf, is_binary, 1, max_bim_linelen, &cm_col_exists, &ulii)) {
     goto merge_main_ret_READ_FAIL;
   }
   if (!ulii) {
@@ -15278,7 +15288,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
     }
     ++marker_in_idx;
     bufptr = next_token(bufptr);
-    bufptr2 = next_token_mult(bufptr, 1 + cm_col);
+    bufptr2 = next_token_mult(bufptr, 1 + cm_col_exists);
     if (!bufptr2) {
       goto merge_main_ret_READ_FAIL;
     }
