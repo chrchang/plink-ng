@@ -4252,7 +4252,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	fputs("Writing...", stdout);
 	fflush(stdout);
         if (!bin4) {
-	  if (fwrite_checkedz(dists, sample_idx_ct * sizeof(double), *outfile_ptr)) {
+	  if (fwrite_checked(dists, sample_idx_ct * sizeof(double), *outfile_ptr)) {
 	    goto distance_d_write_ret_WRITE_FAIL;
 	  }
 	} else {
@@ -4323,12 +4323,12 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	dxx = 0.0;
 	dist_ptr = dists;
 	for (ii = first_sample_idx; ii < end_sample_idx; ii++) {
-	  if (fwrite_checkedz(dist_ptr, ii * sizeof(double), *outfile_ptr)) {
+	  if (fwrite_checked(dist_ptr, ii * sizeof(double), *outfile_ptr)) {
 	    goto distance_d_write_ret_WRITE_FAIL;
 	  }
 	  dist_ptr = &(dist_ptr[(uint32_t)ii]);
 	  if (shape == DISTANCE_SQ0) {
-	    if (fwrite_checkedz(membuf, (sample_ct - ii) * sizeof(double), *outfile_ptr)) {
+	    if (fwrite_checked(membuf, (sample_ct - ii) * sizeof(double), *outfile_ptr)) {
 	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  } else {
@@ -4365,7 +4365,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	    }
 	  }
 	  if (shape == DISTANCE_SQ0) {
-	    if (fwrite_checkedz(membuf, (sample_ct - ii) * sizeof(double), *outfile2_ptr)) {
+	    if (fwrite_checked(membuf, (sample_ct - ii) * sizeof(double), *outfile2_ptr)) {
 	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  } else {
@@ -4403,7 +4403,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	    }
 	  }
 	  if (shape == DISTANCE_SQ0) {
-	    if (fwrite_checkedz(membuf, (sample_ct - ii) * sizeof(double), *outfile3_ptr)) {
+	    if (fwrite_checked(membuf, (sample_ct - ii) * sizeof(double), *outfile3_ptr)) {
 	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  } else {
@@ -4443,7 +4443,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  }
 	  dist_ptr = &(dist_ptr[(uint32_t)ii]);
 	  if (shape == DISTANCE_SQ0) {
-	    if (fwrite_checkedz(membuf, (sample_ct - ii) * sizeof(float), *outfile_ptr)) {
+	    if (fwrite_checked(membuf, (sample_ct - ii) * sizeof(float), *outfile_ptr)) {
 	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  } else {
@@ -4479,7 +4479,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	    }
 	  }
 	  if (shape == DISTANCE_SQ0) {
-	    if (fwrite_checkedz(membuf, (sample_ct - ii) * sizeof(float), *outfile2_ptr)) {
+	    if (fwrite_checked(membuf, (sample_ct - ii) * sizeof(float), *outfile2_ptr)) {
 	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  } else {
@@ -4515,7 +4515,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	    }
 	  }
 	  if (shape == DISTANCE_SQ0) {
-	    if (fwrite_checkedz(membuf, (sample_ct - ii) * sizeof(float), *outfile3_ptr)) {
+	    if (fwrite_checked(membuf, (sample_ct - ii) * sizeof(float), *outfile3_ptr)) {
 	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  } else {
@@ -7167,7 +7167,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	goto calc_rel_ret_OPEN_FAIL;
       }
       for (sample_idx = min_sample; sample_idx < max_parallel_sample; sample_idx++) {
-	if (fwrite_checkedz(&(rel_dists[((int64_t)sample_idx * (sample_idx - 1)) / 2 - start_offset]), sample_idx * sizeof(double), outfile)) {
+	if (fwrite_checked(&(rel_dists[((int64_t)sample_idx * (sample_idx - 1)) / 2 - start_offset]), sample_idx * sizeof(double), outfile)) {
 	  goto calc_rel_ret_WRITE_FAIL;
 	}
 	if (fwrite_checked(dptr2++, sizeof(double), outfile)) {
@@ -7181,7 +7181,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	  }
 	} else {
 	  if (rel_shape == REL_CALC_SQ0) {
-	    if (fwrite_checkedz(geno, (sample_ct - sample_idx - 1) * sizeof(double), outfile)) {
+	    if (fwrite_checked(geno, (sample_ct - sample_idx - 1) * sizeof(double), outfile)) {
 	      goto calc_rel_ret_WRITE_FAIL;
 	    }
 	  } else {
@@ -7277,7 +7277,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	  }
 	} else {
 	  if (rel_shape == REL_CALC_SQ0) {
-	    if (fwrite_checkedz(geno, (sample_ct - sample_idx - 1) * sizeof(float), outfile)) {
+	    if (fwrite_checked(geno, (sample_ct - sample_idx - 1) * sizeof(float), outfile)) {
 	      goto calc_rel_ret_WRITE_FAIL;
 	    }
 	  } else {

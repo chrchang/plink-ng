@@ -3887,6 +3887,7 @@ void fill_midx_to_idx(uintptr_t* exclude_arr_orig, uintptr_t* exclude_arr, uint3
 }
 
 void fill_vec_55(uintptr_t* vec, uint32_t ct) {
+  // Assumes ct is nonzero.
   uint32_t ctl = 2 * ((ct + (BITCT - 1)) / BITCT);
   uint32_t rem = ct & (BITCT - 1);
   uintptr_t* second_to_last = &(vec[ctl - 2]);

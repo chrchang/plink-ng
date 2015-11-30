@@ -4090,6 +4090,8 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 
   uint32_t snpid_chr = (misc_flags / MISC_OXFORD_SNPID_CHR) & 1;
   uint32_t allow_extra_chroms = (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1;
+  uint32_t allow_no_samples = (misc_flags / MISC_ALLOW_NO_SAMPLES) & 1;
+  uint32_t allow_no_variants = (misc_flags / MISC_ALLOW_NO_VARS) & 1;
   uint32_t sample_ct = 0;
   uint32_t col_ct = 3;
   uint32_t is_binary_pheno = 0;
@@ -4422,7 +4424,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     }
     sample_ct++;
   }
-  if (!sample_ct) {
+  if ((!sample_ct) && (!allow_no_samples)) {
     logerrprint("Error: No samples in .sample file.\n");
     goto oxford_to_bed_ret_INVALID_FORMAT;
   }
@@ -4542,148 +4544,150 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
       if (putc_checked('\n', outfile_bim)) {
 	goto oxford_to_bed_ret_WRITE_FAIL;
       }
-      cur_word = 0;
-      shiftval = 0;
-      ulptr = writebuf;
-      bufptr = skip_initial_spaces(&(bufptr4[1]));
-      for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
-	if (is_eoln_kns(*bufptr)) {
-	  goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
-	}
-	// fast handling of common cases
-	cc = bufptr[1];
-	if ((cc == ' ') || (cc == '\t')) {
-	  cc = bufptr[3];
-	  cc2 = bufptr[5];
-	  if (((cc == ' ') || (cc == '\t')) && ((cc2 == ' ') || (cc2 == '\t'))) {
-	    cc = *bufptr;
-	    if (cc == '0') {
-	      bufptr2 = &(bufptr[2]);
-	      cc = *bufptr2;
-	      cc2 = bufptr2[2];
+      if (sample_ct) {
+	cur_word = 0;
+	shiftval = 0;
+	ulptr = writebuf;
+	bufptr = skip_initial_spaces(bufptr4);
+	for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
+	  if (is_eoln_kns(*bufptr)) {
+	    goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
+	  }
+	  // fast handling of common cases
+	  cc = bufptr[1];
+	  if ((cc == ' ') || (cc == '\t')) {
+	    cc = bufptr[3];
+	    cc2 = bufptr[5];
+	    if (((cc == ' ') || (cc == '\t')) && ((cc2 == ' ') || (cc2 == '\t'))) {
+	      cc = *bufptr;
 	      if (cc == '0') {
-		if (cc2 == '1') {
-		  ulii = 3;
-		} else if (cc2 == '0') {
-		  ulii = 1;
+		bufptr2 = &(bufptr[2]);
+		cc = *bufptr2;
+		cc2 = bufptr2[2];
+		if (cc == '0') {
+		  if (cc2 == '1') {
+		    ulii = 3;
+		  } else if (cc2 == '0') {
+		    ulii = 1;
+		  } else {
+		    // could be a space...
+		    goto oxford_to_bed_full_parse_2;
+		  }
+		} else if ((cc == '1') && (cc2 == '0')) {
+		  ulii = 2;
 		} else {
-		  // could be a space...
 		  goto oxford_to_bed_full_parse_2;
 		}
-	      } else if ((cc == '1') && (cc2 == '0')) {
-		ulii = 2;
+	      } else if ((cc == '1') && (bufptr[2] == '0') && (bufptr[4] == '0')) {
+		ulii = 0;
 	      } else {
-		goto oxford_to_bed_full_parse_2;
+		goto oxford_to_bed_full_parse;
 	      }
-	    } else if ((cc == '1') && (bufptr[2] == '0') && (bufptr[4] == '0')) {
-	      ulii = 0;
+	      bufptr = &(bufptr[6]);
 	    } else {
 	      goto oxford_to_bed_full_parse;
 	    }
-	    bufptr = &(bufptr[6]);
 	  } else {
-	    goto oxford_to_bed_full_parse;
-	  }
-	} else {
-	  // okay, gotta do things the slow way
-	oxford_to_bed_full_parse:
-	  bufptr2 = token_endnn(bufptr);
-	oxford_to_bed_full_parse_2:
-	  bufptr2 = skip_initial_spaces(bufptr2);
-	  if (is_eoln_kns(*bufptr2)) {
-	    goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
-	  }
-	  bufptr3 = token_endnn(bufptr2);
-	  dzz = strtod(bufptr3, &bufptr4);
-	  if (!is_randomized) {
-	    if (dzz >= hard_call_floor) {
-	      ulii = 3;
-	    } else {
-	      if (bufptr3 == bufptr4) {
-		goto oxford_to_bed_ret_INVALID_DOSAGE;
-	      }
-	      dyy = strtod(bufptr2, &bufptr3);
-	      if (dyy >= hard_call_floor) {
-		ulii = 2;
+	    // okay, gotta do things the slow way
+	  oxford_to_bed_full_parse:
+	    bufptr2 = token_endnn(bufptr);
+	  oxford_to_bed_full_parse_2:
+	    bufptr2 = skip_initial_spaces(bufptr2);
+	    if (is_eoln_kns(*bufptr2)) {
+	      goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
+	    }
+	    bufptr3 = token_endnn(bufptr2);
+	    dzz = strtod(bufptr3, &bufptr4);
+	    if (!is_randomized) {
+	      if (dzz >= hard_call_floor) {
+		ulii = 3;
 	      } else {
-		if (bufptr2 == bufptr3) {
+		if (bufptr3 == bufptr4) {
 		  goto oxford_to_bed_ret_INVALID_DOSAGE;
 		}
-		dxx = strtod(bufptr, &bufptr2);
-		if (dxx >= hard_call_floor) {
-		  ulii = 0;
+		dyy = strtod(bufptr2, &bufptr3);
+		if (dyy >= hard_call_floor) {
+		  ulii = 2;
 		} else {
-		  if (bufptr == bufptr2) {
+		  if (bufptr2 == bufptr3) {
 		    goto oxford_to_bed_ret_INVALID_DOSAGE;
 		  }
-		  ulii = 1;
+		  dxx = strtod(bufptr, &bufptr2);
+		  if (dxx >= hard_call_floor) {
+		    ulii = 0;
+		  } else {
+		    if (bufptr == bufptr2) {
+		      goto oxford_to_bed_ret_INVALID_DOSAGE;
+		    }
+		    ulii = 1;
+		  }
 		}
 	      }
-	    }
-	  } else {
-	    drand = rand_unif();
-	    if (drand < dzz) {
-	      ulii = 3;
 	    } else {
-	      if (bufptr3 == bufptr4) {
-		goto oxford_to_bed_ret_INVALID_DOSAGE;
-	      }
-	      dyy = strtod(bufptr2, &bufptr3) + dzz;
-	      if (drand < dyy) {
-		ulii = 2;
+	      drand = rand_unif();
+	      if (drand < dzz) {
+		ulii = 3;
 	      } else {
-		if (bufptr2 == bufptr3) {
+		if (bufptr3 == bufptr4) {
 		  goto oxford_to_bed_ret_INVALID_DOSAGE;
 		}
-		dxx = strtod(bufptr, &bufptr2) + dyy;
+		dyy = strtod(bufptr2, &bufptr3) + dzz;
 		if (drand < dyy) {
-		  ulii = 0;
-		} else if (dxx < 1 - D_EPSILON) {
-		  ulii = 1;
+		  ulii = 2;
 		} else {
-		  // fully called genotype probabilities may add up to less
-		  // than one due to rounding error.  If this appears to have
-		  // happened, do NOT make a missing call; instead rescale
-		  // everything to add to one and reinterpret the random
-		  // number.  (D_EPSILON is currently set to make 4 decimal
-		  // place precision safe to use.)
-		  drand *= dxx;
-		  if (drand < dzz) {
-		    ulii = 3;
-		  } else if (drand < dyy) {
-		    ulii = 2;
-		  } else {
+		  if (bufptr2 == bufptr3) {
+		    goto oxford_to_bed_ret_INVALID_DOSAGE;
+		  }
+		  dxx = strtod(bufptr, &bufptr2) + dyy;
+		  if (drand < dyy) {
 		    ulii = 0;
+		  } else if (dxx < 1 - D_EPSILON) {
+		    ulii = 1;
+		  } else {
+		    // fully called genotype probabilities may add up to less
+		    // than one due to rounding error.  If this appears to have
+		    // happened, do NOT make a missing call; instead rescale
+		    // everything to add to one and reinterpret the random
+		    // number.  (D_EPSILON is currently set to make 4 decimal
+		    // place precision safe to use.)
+		    drand *= dxx;
+		    if (drand < dzz) {
+		      ulii = 3;
+		    } else if (drand < dyy) {
+		      ulii = 2;
+		    } else {
+		      ulii = 0;
+		    }
 		  }
 		}
 	      }
 	    }
+	    bufptr = skip_initial_spaces(bufptr4);
 	  }
-	  bufptr = skip_initial_spaces(bufptr4);
+	  cur_word |= ulii << shiftval;
+	  shiftval += 2;
+	  if (shiftval == BITCT) {
+	    *ulptr++ = cur_word;
+	    cur_word = 0;
+	    shiftval = 0;
+	  }
 	}
-	cur_word |= ulii << shiftval;
-	shiftval += 2;
-	if (shiftval == BITCT) {
+	if (shiftval) {
 	  *ulptr++ = cur_word;
-	  cur_word = 0;
-	  shiftval = 0;
 	}
-      }
-      if (shiftval) {
-	*ulptr++ = cur_word;
-      }
-      if (identical_alleles) {
-	// keep missing calls, but convert hom/het A1 to hom A2.
-	for (ulptr = writebuf; ulptr < (&(writebuf[sample_ctl2])); ulptr++) {
-	  ulii = *ulptr;
-	  *ulptr = ((~ulii) << 1) | ulii | FIVEMASK;
+	if (identical_alleles) {
+	  // keep missing calls, but convert hom/het A1 to hom A2.
+	  for (ulptr = writebuf; ulptr < (&(writebuf[sample_ctl2])); ulptr++) {
+	    ulii = *ulptr;
+	    *ulptr = ((~ulii) << 1) | ulii | FIVEMASK;
+	  }
+	  if (sample_ct % 4) {
+	    writebuf[sample_ctl2 - 1] &= (ONELU << (2 * (sample_ct % BITCT2))) - ONELU;
+	  }
 	}
-	if (sample_ct % 4) {
-	  writebuf[sample_ctl2 - 1] &= (ONELU << (2 * (sample_ct % BITCT2))) - ONELU;
+	if (fwrite_checked(writebuf, sample_ct4, outfile)) {
+	  goto oxford_to_bed_ret_WRITE_FAIL;
 	}
-      }
-      if (fwrite_checked(writebuf, sample_ct4, outfile)) {
-	goto oxford_to_bed_ret_WRITE_FAIL;
       }
       marker_ct++;
       if (!(marker_ct % 1000)) {
@@ -4691,7 +4695,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	fflush(stdout);
       }
     }
-    if (!marker_ct) {
+    if ((!marker_ct) && (!allow_no_variants)) {
       logerrprint("Error: Empty .gen file.\n");
       goto oxford_to_bed_ret_INVALID_FORMAT;
     }
@@ -4707,7 +4711,6 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     loadbuf = (char*)wkspace_base;
     loadbuf_size = wkspace_left;
     if (loadbuf_size > MAXLINEBUFLEN) {
-      // halve the limit since there are two alleles
       loadbuf_size = MAXLINEBUFLEN;
     } else if (loadbuf_size < 3 * 65536) {
       goto oxford_to_bed_ret_NOMEM;
@@ -4720,8 +4723,8 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
       goto oxford_to_bed_ret_INVALID_FORMAT;
     }
     raw_marker_ct = uint_arr[2];
-    if (!raw_marker_ct) {
-      logerrprint("Error: .bgen file contains no markers.\n");
+    if ((!raw_marker_ct) && (!allow_no_variants)) {
+      logerrprint("Error: .bgen file contains no variants.\n");
       goto oxford_to_bed_ret_INVALID_FORMAT;
     }
     if (uint_arr[3] != sample_ct) {
@@ -4771,6 +4774,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	goto oxford_to_bed_ret_INVALID_FORMAT;
       }
       if (bgen_multichar_alleles) {
+	// v1.1
         if (fread(&usii, 1, 2, infile) < 2) {
 	  goto oxford_to_bed_ret_READ_FAIL;
 	}
@@ -4875,6 +4879,9 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
         fwrite(bufptr, 1, usjj, outfile_bim);
 	bufptr = uint32_writex(&(tbuf[3]), uint_arr[0], ' ');
 	fwrite(tbuf, 1, bufptr - tbuf, outfile_bim);
+
+        // halve the limit since there are two alleles
+	// (may want to enforce NON_WKSPACE_MIN allele length limit?)
         if (uint_arr[1] >= loadbuf_size / 2) {
 	  if (loadbuf_size < MAXLINEBUFLEN) {
 	    goto oxford_to_bed_ret_NOMEM;
@@ -4913,6 +4920,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	  }
 	}
       } else {
+	// v1.0
 	uii = 0;
 	if (fread(&uii, 1, 1, infile) < 1) {
 	  goto oxford_to_bed_ret_READ_FAIL;
@@ -4926,8 +4934,10 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	  ii = ((unsigned char)(loadbuf[2 * uii + 2]));
 	  if (ii > 24) {
 	    if (ii == 255) {
+	      // unknown
 	      ii = 0;
 	    } else if (ii > 252) {
+	      // XY or MT
 	      ii = ii - 228;
 	    } else {
 	      logerrprint("Error: Invalid chromosome code in BGEN v1.0 file.\n");
@@ -4995,7 +5005,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	  goto oxford_to_bed_ret_READ_FAIL;
 	}
 	if (uii > loadbuf_size) {
-	  if (loadbuf_size < MAXLINEBUFLEN / 2) {
+	  if (loadbuf_size < MAXLINEBUFLEN) {
 	    goto oxford_to_bed_ret_NOMEM;
 	  }
 	  logerrprint("Error: Excessively long compressed SNP block in .bgen file.\n");
@@ -9948,7 +9958,7 @@ uint32_t write_23_cached_chrom(char* write_cache, uint32_t markers_left, char ch
   return 0;
 }
 
-int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_t modifier_23, char* fid_23, char* iid_23, double pheno_23, char* paternal_id_23, char* maternal_id_23, Chrom_info* chrom_info_ptr) {
+int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_t modifier_23, char* fid_23, char* iid_23, double pheno_23, uint64_t misc_flags, char* paternal_id_23, char* maternal_id_23, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile_23 = NULL;
   FILE* outfile_bed = NULL;
@@ -9956,6 +9966,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   uintptr_t line_idx = 0;
   uint32_t is_male = modifier_23 & M23_MALE;
   uint32_t is_female = modifier_23 & M23_FEMALE;
+  uint32_t allow_no_variants = (misc_flags / MISC_ALLOW_NO_VARS) & 1;
   uint32_t x_present = 0;
   uint32_t haploid_x_present = 0;
   uint32_t y_present = 0;
@@ -10126,7 +10137,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   if (!feof(infile_23)) {
     goto bed_from_23_ret_READ_FAIL;
   }
-  if ((writebuf_cur == &(writebuf[3])) && (writebuf[0] == 'l')) {
+  if ((writebuf_cur == &(writebuf[3])) && (writebuf[0] == 'l') && (!allow_no_variants)) {
     if (chrom_mask_23 == 0x7ffffff) {
       logerrprint("Error: No --23file variants.\n");
       goto bed_from_23_ret_INVALID_FORMAT;

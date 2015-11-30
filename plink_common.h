@@ -856,13 +856,6 @@ static inline int32_t fputs_checked(const char* ss, FILE* outfile) {
 
 int32_t fwrite_checked(const void* buf, size_t len, FILE* outfile);
 
-static inline int32_t fwrite_checkedz(const void* buf, size_t len, FILE* outfile) {
-  if (len) {
-    return fwrite_checked(buf, len, outfile);
-  }
-  return ferror(outfile);
-}
-
 static inline int32_t fread_checked(char* buf, uintptr_t len, FILE* infile, uintptr_t* bytes_read_ptr) {
   *bytes_read_ptr = fread(buf, 1, len, infile);
   return ferror(infile);

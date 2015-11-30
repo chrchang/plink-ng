@@ -6144,11 +6144,19 @@ int32_t main(int32_t argc, char** argv) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 6)) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
-	if (scan_posint_defcap(argv[cur_arg + 1], &dummy_sample_ct)) {
+	if (scan_uint_defcap(argv[cur_arg + 1], &dummy_sample_ct)) {
 	  logerrprint("Error: Invalid --dummy sample count.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	if (scan_posint_defcap(argv[cur_arg + 2], &dummy_marker_ct)) {
+	if ((!dummy_sample_ct) && (!(misc_flags & MISC_ALLOW_NO_SAMPLES))) {
+	  logerrprint("Error: Invalid --dummy sample count.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
+	if (scan_uint_defcap(argv[cur_arg + 2], &dummy_marker_ct)) {
+	  logerrprint("Error: Invalid --dummy variant count.\n");
+	  goto main_ret_INVALID_CMDLINE_A;
+	}
+	if ((!dummy_marker_ct) && (!(misc_flags & MISC_ALLOW_NO_VARS))) {
 	  logerrprint("Error: Invalid --dummy variant count.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
@@ -13375,10 +13383,12 @@ int32_t main(int32_t argc, char** argv) {
       } else if (load_rare & LOAD_RARE_BCF) {
 	retval = bcf_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, const_fid, id_delim, vcf_idspace_to, vcf_min_qual, vcf_filter_exceptions_flattened, &chrom_info);
       } else if (load_rare == LOAD_RARE_23) {
-        retval = bed_from_23(pedname, outname, sptr, modifier_23, fid_23, iid_23, (pheno_23 == HUGE_DOUBLE)? ((double)missing_pheno) : pheno_23, paternal_id_23, maternal_id_23, &chrom_info);
+        retval = bed_from_23(pedname, outname, sptr, modifier_23, fid_23, iid_23, (pheno_23 == HUGE_DOUBLE)? ((double)missing_pheno) : pheno_23, misc_flags, paternal_id_23, maternal_id_23, &chrom_info);
       } else if (load_rare & LOAD_RARE_DUMMY) {
 	retval = generate_dummy(outname, sptr, dummy_flags, dummy_marker_ct, dummy_sample_ct, dummy_missing_geno, dummy_missing_pheno, missing_pheno);
       } else if (load_rare & LOAD_RARE_SIMULATE) {
+	// no need to support zero samples/variants here since --dummy takes
+	// care of generating those test cases
 	retval = simulate_dataset(outname, sptr, simulate_flags, simulate_fname, simulate_cases, simulate_controls, simulate_prevalence, simulate_qt_samples, simulate_missing, simulate_label);
 	free(simulate_fname);
 	simulate_fname = NULL;

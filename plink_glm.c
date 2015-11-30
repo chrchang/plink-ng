@@ -8070,7 +8070,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	    wptr = tbuf;
 	  }
 	}
-	if (fwrite_checkedz(tbuf, wptr - tbuf, outfile)) {
+	if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
 	  goto glm_linear_nosnp_ret_WRITE_FAIL;
 	}
 	if (fclose_null(&outfile)) {
@@ -8867,7 +8867,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	    wptr = tbuf;
 	  }
 	}
-	if (fwrite_checkedz(tbuf, wptr - tbuf, outfile)) {
+	if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
 	  goto glm_logistic_nosnp_ret_WRITE_FAIL;
 	}
 	if (fclose_null(&outfile)) {
