@@ -1526,7 +1526,12 @@ void filter_samples_bitfields(uintptr_t unfiltered_sample_ct, uintptr_t* sample_
   *sample_exclude_ct_ptr = popcount_longs(sample_exclude, unfiltered_sample_ctl);
 }
 
-int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double mind_thresh, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t* sex_male, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip) {
+int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double mind_thresh, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t* sex_male, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, uint32_t allow_no_samples) {
+  uint32_t sample_exclude_ct = *sample_exclude_ct_ptr;
+  uint32_t sample_ct = unfiltered_sample_ct - sample_exclude_ct;
+  if (!sample_ct) {
+    return 0;
+  }
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uint32_t marker_ct = unfiltered_marker_ct - marker_exclude_ct;
@@ -1539,8 +1544,6 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   uintptr_t y_end = 0;
   uintptr_t* sample_male_include2 = NULL;
   uint32_t unfiltered_sample_ctl2m1 = (unfiltered_sample_ct - 1) / BITCT2;
-  uint32_t sample_exclude_ct = *sample_exclude_ct_ptr;
-  uint32_t sample_ct = unfiltered_sample_ct - sample_exclude_ct;
   uint32_t sample_uidx = 0;
   uint32_t sample_idx = 0;
   uint32_t removed_ct = 0;
@@ -1680,7 +1683,7 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
     }
   }
   *sample_exclude_ct_ptr += removed_ct;
-  if (*sample_exclude_ct_ptr == unfiltered_sample_ct) {
+  if ((*sample_exclude_ct_ptr == unfiltered_sample_ct) && (!allow_no_samples)) {
     LOGERRPRINTF("Error: All %s removed due to missing genotype data (--mind).\n", g_species_plural);
     LOGPRINTFWW("IDs written to %s .\n", outname);
     goto mind_filter_ret_ALL_SAMPLES_EXCLUDED;

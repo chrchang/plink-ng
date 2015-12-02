@@ -974,7 +974,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     LOGPRINTF("%d %s removed due to founder status (--filter-%s).\n", ii, species_str(ii), (filter_flags & FILTER_BINARY_FOUNDERS)? "founders" : "nonfounders");
   }
   if (cluster_ptr->fname || (misc_flags & MISC_FAMILY_CLUSTERS)) {
-    retval = load_clusters(cluster_ptr->fname, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, sample_ids, max_sample_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len, cluster_ptr->keep_fname, cluster_ptr->keep_flattened, cluster_ptr->remove_fname, cluster_ptr->remove_flattened);
+    retval = load_clusters(cluster_ptr->fname, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, sample_ids, max_sample_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len, cluster_ptr->keep_fname, cluster_ptr->keep_flattened, cluster_ptr->remove_fname, cluster_ptr->remove_flattened, 0);
     if (retval) {
       goto plink1_dosage_ret_1;
     }
@@ -1925,19 +1925,26 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
           dxx = dzz * (1.0 - dzz); // now dxx = theoretical var
 	  dyy = 2 * dyy * sample_valid_ct_recip; // and dyy = empirical
 	  rsq = (dxx > 0.0)? (dyy / dxx) : 0.0;
+	  if ((dxx >= 0.0098999999999999) && (rsq >= 0.1) && (rsq <= 2.0)) {
 #ifndef NOLAPACK
-	  if (pheno_d) {
-	    is_valid = glm_linear_dosage(sample_ct, cur_samples, sample_valid_ct, pheno_nm_collapsed, pheno_d_collapsed, perm_fails, covar_ct, covar_d, cur_dosages, pheno_d2, covars_cov_major_buf, covars_sample_major_buf, param_2d_buf, mi_buf, param_2d_buf2, regression_results, dgels_a, dgels_b, dgels_work, dgels_lwork, standard_beta, glm_vif_thresh, &beta, &se, &pval);
-	    if (is_valid == 2) {
-	      // NOMEM special case
-	      goto plink1_dosage_ret_NOMEM;              
+	    if (pheno_d) {
+	      is_valid = glm_linear_dosage(sample_ct, cur_samples, sample_valid_ct, pheno_nm_collapsed, pheno_d_collapsed, perm_fails, covar_ct, covar_d, cur_dosages, pheno_d2, covars_cov_major_buf, covars_sample_major_buf, param_2d_buf, mi_buf, param_2d_buf2, regression_results, dgels_a, dgels_b, dgels_work, dgels_lwork, standard_beta, glm_vif_thresh, &beta, &se, &pval);
+	      if (is_valid == 2) {
+		// NOMEM special case
+		goto plink1_dosage_ret_NOMEM;              
+	      }
+	    } else {
+#endif
+	      is_valid = glm_logistic_dosage(sample_ct, cur_samples, sample_valid_ct, pheno_nm_collapsed, pheno_c_collapsed, perm_vec, perm_fails, covar_ct, covar_f, cur_dosages, coef_f, pp_f, pheno_buf_f, covars_cov_major_f_buf, param_1d_buf_f, param_1d_buf2_f, param_2d_buf_f, param_2d_buf2_f, regression_results_f, sample_1d_buf_f, &beta, &se, &pval);
+#ifndef NOLAPACK
 	    }
+#endif
 	  } else {
-#endif
-	    is_valid = glm_logistic_dosage(sample_ct, cur_samples, sample_valid_ct, pheno_nm_collapsed, pheno_c_collapsed, perm_vec, perm_fails, covar_ct, covar_f, cur_dosages, coef_f, pp_f, pheno_buf_f, covars_cov_major_f_buf, param_1d_buf_f, param_1d_buf2_f, param_2d_buf_f, param_2d_buf2_f, regression_results_f, sample_1d_buf_f, &beta, &se, &pval);
-#ifndef NOLAPACK
+	    is_valid = 0;
+	    if (rsq > 2.0) {
+	      rsq = 2.0;
+	    }
 	  }
-#endif
 	  if (load_map) {
 	    pzwritep = width_force(4, pzwritep, chrom_name_write(pzwritep, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_idx)));
 	    *pzwritep++ = ' ';

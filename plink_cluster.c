@@ -42,7 +42,7 @@ void cluster_cleanup(Cluster_info* cluster_ptr) {
   free_cond(cluster_ptr->zerofname);
 }
 
-int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* sample_ids, uintptr_t max_sample_id_len, uint32_t mwithin_col, uint32_t keep_na, uintptr_t* cluster_ct_ptr, uint32_t** cluster_map_ptr, uint32_t** cluster_starts_ptr, char** cluster_ids_ptr, uintptr_t* max_cluster_id_len_ptr, char* keep_fname, char* keep_flattened, char* remove_fname, char* remove_flattened) {
+int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* sample_ids, uintptr_t max_sample_id_len, uint32_t mwithin_col, uint32_t keep_na, uintptr_t* cluster_ct_ptr, uint32_t** cluster_map_ptr, uint32_t** cluster_starts_ptr, char** cluster_ids_ptr, uintptr_t* max_cluster_id_len_ptr, char* keep_fname, char* keep_flattened, char* remove_fname, char* remove_flattened, uint32_t allow_no_samples) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   uintptr_t* sample_exclude_new = NULL;
@@ -196,7 +196,6 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 	}
         uii = next_set(already_seen, 0, cluster_kr_ct);
 	if (uii < cluster_kr_ct) {
-	  read_idx = uii + 1;
           for (read_idx = uii + 1; read_idx < cluster_kr_ct; read_idx++) {
             if (!IS_SET(already_seen, read_idx)) {
               strcpy(&(sorted_keep_ids[uii * max_cluster_kr_len]), &(sorted_keep_ids[read_idx * max_cluster_kr_len]));
@@ -455,9 +454,12 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
       LOGPRINTF("--within: %" PRIuPTR " cluster%s loaded, covering a total of %" PRIuPTR " %s.\n", cluster_ct, (cluster_ct == 1)? "" : "s", assigned_ct, species_str(assigned_ct));
     } else {
       if (sorted_keep_ids) {
-	logerrprint("Error: No samples named in --within file remain in the current analysis, so\n--keep-clusters/--keep-cluster-names excludes everyone.\n");
-	goto load_clusters_ret_INVALID_FORMAT;
+        if (!allow_no_samples) {
+	  logerrprint("Error: No samples named in --within file remain in the current analysis, so\n--keep-clusters/--keep-cluster-names excludes everyone.\n");
+	  goto load_clusters_ret_INVALID_FORMAT;
+	}
       }
+      ;;;
       logerrprint("Warning: No samples named in --within file remain in the current analysis.\n");
       goto load_clusters_ret_1;
     }

@@ -103,10 +103,10 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (29 Nov 2015)";
+  " (1 Dec 2015)";
 const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
 #else
@@ -997,6 +997,8 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       if ((unfiltered_sample_ct == sample_exclude_ct) || (unfiltered_marker_ct == marker_exclude_ct)) {
 	// don't need this if everything that refers to om_ip is skipped
         oblig_missing_cleanup(om_ip);
+	om_ip->cluster_ct = 0;
+	om_ip->entry_ct = 0;
       } else {
 	retval = load_oblig_missing(bedfile, bed_offset, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, cptr, unfiltered_sample_ct, max_sample_id_len, uiptr, unfiltered_sample_ct, sex_male, chrom_info_ptr, om_ip);
 	if (retval) {
@@ -1096,7 +1098,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     }
 
     if (mind_thresh < 1.0) {
-      retval = mind_filter(bedfile, bed_offset, outname, outname_end, mind_thresh, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, sample_ids, max_sample_id_len, sex_male, chrom_info_ptr, om_ip);
+      retval = mind_filter(bedfile, bed_offset, outname, outname_end, mind_thresh, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, sample_ids, max_sample_id_len, sex_male, chrom_info_ptr, om_ip, allow_no_samples);
       if (retval) {
 	goto plink_ret_1;
       }
@@ -1105,7 +1107,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       // could save off wkspace_mark here and free immediately after
       // load_clusters(), if clusters are *only* used for filtering.  But not a
       // big deal.
-      retval = load_clusters(cluster_ptr->fname, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, sample_ids, max_sample_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len, cluster_ptr->keep_fname, cluster_ptr->keep_flattened, cluster_ptr->remove_fname, cluster_ptr->remove_flattened);
+      retval = load_clusters(cluster_ptr->fname, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, sample_ids, max_sample_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len, cluster_ptr->keep_fname, cluster_ptr->keep_flattened, cluster_ptr->remove_fname, cluster_ptr->remove_flattened, allow_no_samples);
       if (retval) {
 	goto plink_ret_1;
       }
@@ -1862,7 +1864,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     uii = 0; // phenotype/cluster number
     *outname_end = '.';
     if (loop_assoc_fname) {
-      retval = load_clusters(loop_assoc_fname, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, sample_ids, max_sample_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len, NULL, NULL, NULL, NULL);
+      retval = load_clusters(loop_assoc_fname, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, sample_ids, max_sample_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len, NULL, NULL, NULL, NULL, 0);
       if (retval) {
 	goto plink_ret_1;
       }
