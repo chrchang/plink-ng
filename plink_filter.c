@@ -3068,7 +3068,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   return retval;
 }
 
-int32_t hardy_report_write_line(Pigz_state* ps_ptr, char** pzwritep_ptr, char* prefix_buf, uint32_t prefix_len, uint32_t reverse, uint32_t ll_ct, uint32_t lh_ct, uint32_t hh_ct, char* midbuf_ptr, double pval, double output_min_p) {
+int32_t hardy_report_write_line(Pigz_state* ps_ptr, char** pzwritep_ptr, char* prefix_buf, uint32_t prefix_len, uint32_t reverse, uint32_t ll_ct, uint32_t lh_ct, uint32_t hh_ct, uint32_t hwe_midp, char* midbuf_ptr, double pval, double output_min_p) {
   char* pzwritep = *pzwritep_ptr;
   char wbuf[48];
   char* cptr;
@@ -3089,7 +3089,8 @@ int32_t hardy_report_write_line(Pigz_state* ps_ptr, char** pzwritep_ptr, char* p
     minor_freq = (2 * ll_ct + lh_ct) * drecip;
     pzwritep = double_g_writewx4(double_g_writewx4x(double_g_writewx4x(pzwritep, (lh_ct * 2) * drecip, 8, ' '), minor_freq * (2 * hh_ct + lh_ct) * drecip * 2, 8, ' '), MAXV(pval, output_min_p), 12);
   } else {
-    pzwritep = memcpya(pzwritep, "     nan      nan           NA", 30);
+    pzwritep = memcpya(pzwritep, "     nan      nan          ", 27);
+    pzwritep = memcpyl3a(pzwritep, hwe_midp? "0.5" : "  1");
   }
   append_binary_eoln(&pzwritep);
   if (flex_pzwrite(ps_ptr, &pzwritep)) {
@@ -3108,7 +3109,6 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
   uint32_t hwe_midp = hwe_modifier & HWE_MIDP;
   uint32_t output_gz = (hwe_modifier / HWE_GZ) & 1;
   int32_t retval = 0;
-  uint32_t skip_chrom = 0;
   uint32_t pct = 0;
   Pigz_state ps;
   uint32_t prefix_len;
@@ -3175,7 +3175,6 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
 
   chrom_fo_idx = 0;
   refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
-  skip_chrom = (is_haploid && (!is_x)) || is_mt;
   cptr0 = width_force(4, writebuf, chrom_name_write(writebuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx]));
   *cptr0++ = ' ';
   cptr = &(cptr0[10 + plink_maxsnp]);
@@ -3194,7 +3193,6 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
 	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
-	  skip_chrom = (is_haploid && (!is_x)) || is_mt;
 	  cptr0 = width_force(4, writebuf, chrom_name_write(writebuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx]));
 	  *cptr0++ = ' ';
 	  cptr = &(cptr0[10 + plink_maxsnp]);
@@ -3206,9 +3204,6 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
 	  }
 	  cptr2 = &(cptr[18 + 2 * max_marker_allele_len]);
 	}
-        if (skip_chrom) {
-	  continue;
-	}
 	fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), cptr0);
 	reverse = IS_SET(marker_reverse, marker_uidx);
 	cptr3 = marker_allele_ptrs[2 * marker_uidx];
@@ -3218,7 +3213,7 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
 	cptr5 = fw_strcpy(4, cptr4, &(cptr5[1]));
 	*cptr5 = ' ';
 	prefix_len = 1 + (cptr5 - writebuf);
-	if (hardy_report_write_line(&ps, &pzwritep, writebuf, prefix_len, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], cptr2, p_values[marker_idx], output_min_p)) {
+	if (hardy_report_write_line(&ps, &pzwritep, writebuf, prefix_len, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], hwe_midp, cptr2, p_values[marker_idx], output_min_p)) {
 	  goto hardy_report_ret_WRITE_FAIL;
 	}
       }
@@ -3240,16 +3235,12 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
 	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
-	  skip_chrom = (is_haploid && (!is_x)) || is_mt;
 	  cptr0 = width_force(4, writebuf, chrom_name_write(writebuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx]));
 	  *cptr0++ = ' ';
           memset(&(cptr0[plink_maxsnp]), 32, 20);
 	  cptr = &(cptr0[10 + plink_maxsnp]);
 	  cptr2 = &(cptr[18 + 2 * max_marker_allele_len]);
 	  prefix_len = 10 + ((uintptr_t)(cptr - writebuf));
-	}
-	if (skip_chrom) {
-	  continue;
 	}
 	fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), cptr0);
 	memcpy(&(cptr0[4 + plink_maxsnp]), "  ALL", 5);
@@ -3261,17 +3252,17 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
 	cptr5 = fw_strcpy(4, cptr4, &(cptr5[1]));
 	*cptr5 = ' ';
 	prefix_len = 1 + (cptr5 - writebuf);
-	if (hardy_report_write_line(&ps, &pzwritep, writebuf, prefix_len, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], cptr2, p_values[3 * marker_idx], output_min_p)) {
+	if (hardy_report_write_line(&ps, &pzwritep, writebuf, prefix_len, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], hwe_midp, cptr2, p_values[3 * marker_idx], output_min_p)) {
 	  goto hardy_report_ret_WRITE_FAIL;
 	}
 
 	memcpy(&(cptr0[7 + plink_maxsnp]), "FF", 2);
-	if (hardy_report_write_line(&ps, &pzwritep, writebuf, prefix_len, reverse, hwe_ll_cases[marker_uidx], hwe_lh_cases[marker_uidx], hwe_hh_cases[marker_uidx], cptr2, p_values[3 * marker_idx + 1], output_min_p)) {
+	if (hardy_report_write_line(&ps, &pzwritep, writebuf, prefix_len, reverse, hwe_ll_cases[marker_uidx], hwe_lh_cases[marker_uidx], hwe_hh_cases[marker_uidx], hwe_midp, cptr2, p_values[3 * marker_idx + 1], output_min_p)) {
 	  goto hardy_report_ret_WRITE_FAIL;
 	}
 
 	memcpy(&(cptr0[4 + plink_maxsnp]), "UN", 2);
-	if (hardy_report_write_line(&ps, &pzwritep, writebuf, prefix_len, reverse, hwe_lls[marker_uidx], hwe_lhs[marker_uidx], hwe_hhs[marker_uidx], cptr2, p_values[3 * marker_idx + 2], output_min_p)) {
+	if (hardy_report_write_line(&ps, &pzwritep, writebuf, prefix_len, reverse, hwe_lls[marker_uidx], hwe_lhs[marker_uidx], hwe_hhs[marker_uidx], hwe_midp, cptr2, p_values[3 * marker_idx + 2], output_min_p)) {
 	  goto hardy_report_ret_WRITE_FAIL;
 	}
       }
