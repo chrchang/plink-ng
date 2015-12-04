@@ -372,6 +372,7 @@
 #define COVAR_NAME 2
 #define COVAR_NUMBER 4
 #define COVAR_NO_CONST 8
+#define COVAR_ALLOW_NONE 0x10
 
 #define DISTANCE_SQ 1
 #define DISTANCE_SQ0 2

@@ -1478,15 +1478,41 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
     goto load_covars_ret_NOMEM;
   }
   loadbuf = (char*)wkspace_base;
-  retval = open_and_load_to_first_token(&covar_file, covar_fname, loadbuf_size, '\0', "--covar file", loadbuf, &bufptr, &line_idx);
-  if (retval) {
-    goto load_covars_ret_1;
+  // was using open_and_load_to_first_token(), but we now don't want to
+  // automatically print an error message on an empty file.
+  loadbuf[loadbuf_size - 1] = ' ';
+  if (fopen_checked(&covar_file, covar_fname, "r")) {
+    goto load_covars_ret_OPEN_FAIL;
   }
+  line_idx = 0;
+  do {
+    if (!fgets(loadbuf, loadbuf_size, covar_file)) {
+      if (!feof(covar_file)) {
+	goto load_covars_ret_READ_FAIL;
+      }
+      strcpy(tbuf, "Empty --covar file.\n");
+      goto load_covars_none;
+    }
+    line_idx++;
+    if (!(loadbuf[loadbuf_size - 1])) {
+      if (loadbuf_size == MAXLINEBUFLEN) {
+	LOGERRPRINTF("Error: Line %" PRIuPTR " of --covar file is pathologically long.\n", line_idx);
+	goto load_covars_ret_INVALID_FORMAT;
+      } else {
+	goto load_covars_ret_NOMEM;
+      }
+    }
+    bufptr = skip_initial_spaces(loadbuf);
+  } while (is_eoln_kns(*bufptr));
   covar_raw_ct = count_tokens(bufptr);
-  if ((covar_raw_ct < 3) || (covar_raw_ct < 2 + gxe_mcovar)) {
+  if ((covar_raw_ct < 2) || (covar_raw_ct < 2 + gxe_mcovar)) {
     goto load_covars_ret_MISSING_TOKENS;
   }
   covar_raw_ct -= 2;
+  if ((!covar_raw_ct) && (!sex_nm)) {
+    strcpy(tbuf, "No covariate columns in --covar file.\n");
+    goto load_covars_none;
+  }
   covar_raw_ctl = (covar_raw_ct + (BITCT - 1)) / BITCT;
   covars_active = (uintptr_t*)top_alloc(&topsize, covar_raw_ctl * sizeof(intptr_t));
 
@@ -1495,7 +1521,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
   header_absent = (strcmp_se(bufptr, "FID", 3) || strcmp_se(bufptr2, "IID", 3));
   bufptr = next_token(bufptr2);
 
-  if (covar_modifier & (COVAR_NAME | COVAR_NUMBER)) {
+  if ((covar_modifier & (COVAR_NAME | COVAR_NUMBER)) && covar_raw_ct) {
     fill_ulong_zero(covars_active, covar_raw_ctl);
     if (covar_modifier & COVAR_NUMBER) {
       if (numeric_range_list_to_bitfield(covar_range_list_ptr, covar_raw_ct, covars_active, 1, 0)) {
@@ -1525,16 +1551,16 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
   }
   covar_ctx = covar_ct + (sex_nm? 1 : 0);
   if ((!covar_ctx) && (!gxe_mcovar)) {
-    logerrprint("Error: No --covar values loaded.\n");
-    goto load_covars_ret_INVALID_FORMAT;
+    strcpy(tbuf, "No --covar values loaded.\n");
+    goto load_covars_none;
   }
-  min_covar_col_ct = last_set_bit(covars_active, covar_raw_ctl) + 1;
+  min_covar_col_ct = covar_ct? (last_set_bit(covars_active, covar_raw_ctl) + 1) : 0;
   if (min_covar_col_ct < gxe_mcovar) {
     min_covar_col_ct = gxe_mcovar;
   }
   if (header_absent) {
     max_covar_name_len = 4 + intlen(min_covar_col_ct);
-  } else {
+  } else if (min_covar_col_ct) {
     uii = 0;
     while (1) {
       bufptr2 = token_endnn(bufptr);
@@ -1611,7 +1637,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
       }
     }
     line_idx = 0;
-  } else {
+  } else if (covar_ct) {
     covar_idx = 0;
     retval = load_to_first_token(covar_file, loadbuf_size, '\0', "--covar file", loadbuf, &bufptr, &line_idx);
     if (retval) {
@@ -1659,11 +1685,13 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
     set_bit(already_seen, ii);
     sample_idx = id_map[(uint32_t)ii];
     bufptr = bufptr2;
-    if (min_covar_col_ct > 1) {
-      bufptr = next_token_mult(bufptr, min_covar_col_ct - 1);
-    }
-    if (no_more_tokens_kns(bufptr)) {
-      goto load_covars_ret_MISSING_TOKENS;
+    if (min_covar_col_ct) {
+      if (min_covar_col_ct > 1) {
+	bufptr = next_token_mult(bufptr, min_covar_col_ct - 1);
+      }
+      if (no_more_tokens_kns(bufptr)) {
+	goto load_covars_ret_MISSING_TOKENS;
+      }
     }
     if (covar_range_list_ptr) {
       dptr = &(covar_d[sample_idx * covar_ctx]);
@@ -1728,7 +1756,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
     goto load_covars_ret_READ_FAIL;
   }
   if (covar_range_list_ptr) {
-    if ((covar_ct < covar_raw_ct - 1) || ((covar_ct == covar_raw_ct - 1) && ((!gxe_mcovar) || is_set(covars_active, gxe_mcovar - 1)))) {
+    if ((covar_ct + 1 < covar_raw_ct) || ((covar_ct + 1 == covar_raw_ct) && ((!gxe_mcovar) || is_set(covars_active, gxe_mcovar - 1)))) {
       if (gxe_mcovar && (!is_set(covars_active, gxe_mcovar - 1))) {
         sprintf(logbuf, "--covar: 1 C/C cov. loaded for --gxe, %" PRIuPTR "/%" PRIuPTR " for other operations.\n", covar_ct, covar_raw_ct);
       } else {
@@ -1785,8 +1813,8 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
       }
       uii = popcount_longs(already_seen, covar_raw_ctl);
       if (!uii) {
-	logerrprint("Error: All covariates are constant.\n");
-	goto load_covars_ret_INVALID_FORMAT;
+	strcpy(tbuf, "All covariates are constant.\n");
+	goto load_covars_none;
       } else if (uii < covar_ctx) {
 	LOGPRINTF("--no-const-covar: %" PRIuPTR " constant covariate%s excluded.\n", covar_ctx - uii, (covar_ctx - uii == 1)? "" : "s");
 	*covar_ctx_ptr = uii;
@@ -1828,6 +1856,9 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
   load_covars_ret_NOMEM:
     retval = RET_NOMEM;
     break;
+  load_covars_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
   load_covars_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
@@ -1838,6 +1869,21 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
   load_covars_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
+  load_covars_none:
+    if (covar_modifier & COVAR_ALLOW_NONE) {
+      *covar_ctx_ptr = 0;
+      *covar_names_ptr = NULL;
+      *max_covar_name_len_ptr = 1;
+      *covar_nm_ptr = NULL;
+      *covar_d_ptr = NULL;
+      // --gxe not possible
+      wkspace_reset(wkspace_mark);
+      logerrprint("Warning: ");
+    } else {
+      retval = RET_INVALID_FORMAT;
+      logerrprint("Error: ");
+    }
+    logerrprint(tbuf);
   }
  load_covars_ret_1:
   if (retval) {

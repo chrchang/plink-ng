@@ -1570,7 +1570,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       memcpy(pheno_nm_datagen, pheno_nm, unfiltered_sample_ctl * sizeof(intptr_t));
       bitfield_and(pheno_nm_datagen, sex_nm, unfiltered_sample_ctl);
     }
-    if (covar_fname && (calculation_type & (CALC_WRITE_COVAR | CALC_MAKE_BED | CALC_MAKE_FAM | CALC_RECODE)) && sample_ct) {
+    if (covar_ct && (calculation_type & (CALC_WRITE_COVAR | CALC_MAKE_BED | CALC_MAKE_FAM | CALC_RECODE)) && sample_ct) {
       retval = write_covars(outname, outname_end, write_covar_modifier, write_covar_dummy_max_categories, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm_datagen? pheno_nm_datagen : pheno_nm, pheno_c, pheno_d, missing_phenod, output_missing_pheno, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d);
       if (retval) {
 	goto plink_ret_1;
@@ -4293,6 +4293,10 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "llow-no-vars", 13)) {
 	UNSTABLE("allow-no-vars");
 	misc_flags |= MISC_ALLOW_NO_VARS;
+	goto main_param_zero;
+      } else if (!memcmp(argptr2, "llow-no-covars", 15)) {
+	UNSTABLE("allow-no-covars");
+	covar_modifier |= COVAR_ALLOW_NONE;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ll", 3)) {
 	logprint("Note: --all flag has no effect.\n");
