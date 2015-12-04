@@ -1036,6 +1036,9 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 		at_least_one_prune = 1;
 		cur_exclude_ct++;
 		// remove marker with lower MAF
+		// could cache MAFs of all current-window variants, but
+		// get_maf() is too cheap for this to make a noticeable
+		// difference
 		if (get_maf(set_allele_freqs[live_indices[uii]]) < get_maf(set_allele_freqs[live_indices[ujj]])) {
 		  SET_BIT(pruned_arr, live_indices[uii]);
 		} else {

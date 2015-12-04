@@ -91,7 +91,7 @@
 
 const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b3.26"
+  "PLINK v1.90b3.27"
 #else
   "PLINK v1.90p"
 #endif
@@ -103,7 +103,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (3 Dec 2015)";
+  " (4 Dec 2015)";
 const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -3376,7 +3376,11 @@ int32_t main(int32_t argc, char** argv) {
   double lasso_minlambda = -1;
   uint32_t testmiss_modifier = 0;
   uint32_t testmiss_mperm_val = 0;
+
+  // this default limit plays well with e.g. fbstring small-string optimization
   uint32_t new_id_max_allele_len = 23;
+
+  uint32_t aperm_present = 0;
   char* segment_spanning_fname = NULL;
   char* missing_code = NULL;
   char range_delim = '-';
@@ -4475,6 +4479,7 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	  }
 	}
+	aperm_present = 1;
       } else if (!memcmp(argptr2, "1-allele", 9)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 4)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -13146,6 +13151,12 @@ int32_t main(int32_t argc, char** argv) {
     if ((calculation_type & CALC_TDT) && ((family_info.tdt_modifier & (TDT_MPERM | TDT_SET_TEST)) == TDT_MPERM)) {
       uii++;
     }
+    if ((calculation_type & CALC_DFAM) && ((family_info.dfam_modifier & (DFAM_MPERM | DFAM_SET_TEST)) == DFAM_MPERM)) {
+      uii++;
+    }
+
+    // no qfam since that's a nonstandard permutation test
+
     if ((calculation_type & CALC_CMH) && ((cluster.modifier & (CLUSTER_CMH_MPERM | CLUSTER_CMH_SET_TEST)) == CLUSTER_CMH_MPERM)) {
       uii++;
     }
@@ -13169,6 +13180,21 @@ int32_t main(int32_t argc, char** argv) {
     if ((model_modifier & (MODEL_PERM | MODEL_MPERM | MODEL_GENEDROP)) == MODEL_GENEDROP) {
       model_modifier |= MODEL_PERM;
     }
+  }
+  if (aperm_present && (calculation_type & (CALC_MODEL | CALC_GLM | CALC_TESTMISS | CALC_TDT | CALC_DFAM | CALC_QFAM | CALC_CMH)) &&
+      (!(model_modifier & MODEL_PERM)) &&
+      (!(glm_modifier & GLM_PERM)) &&
+      (!(testmiss_modifier & TESTMISS_PERM)) &&
+      (!(family_info.tdt_modifier & TDT_PERM)) &&
+      (!(family_info.dfam_modifier & DFAM_PERM)) &&
+      (!(family_info.qfam_modifier & QFAM_PERM)) &&
+      (!(cluster.modifier & (CLUSTER_CMH_PERM | CLUSTER_CMH_PERM_BD)))) {
+    // If --aperm is present, at least one association analysis command which
+    // supports adaptive permutation testing was also specified, but no actual
+    // adaptive permutation test is happening, the user is likely to be
+    // confused.  Produce a warning.  (Not an error since a sophisticated user
+    // may want to use --script with different --aperm defaults.)
+    logerrprint("Warning: --aperm only controls the settings for adaptive permutation tests; it\ndoes not cause such a test to be performed.  (Did you forget to add the 'perm'\nmodifier to an association analysis flag?)\n");
   }
   if ((mtest_adjust & (ADJUST_LAMBDA + 1)) == ADJUST_LAMBDA) {
     logerrprint("Error: --lambda must be used with --adjust.\n");
