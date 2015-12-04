@@ -7927,6 +7927,7 @@ void collapse_copy_2bitarr(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfil
 }
 
 uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* mainbuf, uint32_t sample_ct, uintptr_t* sample_exclude, uintptr_t final_mask, uint32_t do_reverse) {
+  // assumes unfiltered_sample_ct is positive
   uint32_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   if (unfiltered_sample_ct == sample_ct) {
     rawbuf = mainbuf;
@@ -9194,14 +9195,14 @@ char* alloc_and_init_collapsed_arr(char* item_arr, uintptr_t item_len, uintptr_t
   }
   wptr = new_arr;
   wptr_end = &(new_arr[filtered_ct * item_len]);
-  do {
+  while (wptr < wptr_end) {
     item_uidx = next_unset_ul_unsafe(exclude_arr, item_uidx);
     item_uidx_stop = next_set_ul(exclude_arr, item_uidx, unfiltered_ct);
     delta = item_uidx_stop - item_uidx;
     memcpy(wptr, &(item_arr[item_uidx * item_len]), delta * item_len);
     wptr = &(wptr[delta * item_len]);
     item_uidx = item_uidx_stop;
-  } while (wptr < wptr_end);
+  }
   return new_arr;
 }
 
