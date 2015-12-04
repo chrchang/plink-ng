@@ -250,7 +250,7 @@ uint32_t alloc_and_populate_nonempty_set_incl(Set_info* sip, uint32_t* nonempty_
   return 0;
 }
 
-int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_extend, uint32_t collapse_group, uint32_t fail_on_no_sets, uint32_t c_prefix, uintptr_t subset_ct, char* sorted_subset_ids, uintptr_t max_subset_id_len, uint32_t* marker_pos, Chrom_info* chrom_info_ptr, uintptr_t* topsize_ptr, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_len_ptr, Make_set_range*** make_set_range_arr_ptr, uint64_t** range_sort_buf_ptr, const char* file_descrip) {
+int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_extend, uint32_t collapse_group, uint32_t fail_on_no_sets, uint32_t c_prefix, uint32_t allow_no_variants, uintptr_t subset_ct, char* sorted_subset_ids, uintptr_t max_subset_id_len, uint32_t* marker_pos, Chrom_info* chrom_info_ptr, uintptr_t* topsize_ptr, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_len_ptr, Make_set_range*** make_set_range_arr_ptr, uint64_t** range_sort_buf_ptr, const char* file_descrip) {
   // Called directly by extract_exclude_range(), define_sets(), and indirectly
   // by annotate(), gene_report(), and clump_reports().
   // Assumes topsize has not been subtracted off wkspace_left.  (This remains
@@ -349,9 +349,12 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
     if (!set_ct) {
       if (fail_on_no_sets) {
 	if (marker_pos) {
-	  // okay, this is a kludge
-	  logerrprint("Error: All variants excluded by --gene{-all}, since no sets were defined from\n--make-set file.\n");
-	  retval = RET_ALL_MARKERS_EXCLUDED;
+	  if (!allow_no_variants) {
+	    // okay, this is a kludge
+	    logerrprint("Error: All variants excluded by --gene{-all}, since no sets were defined from\n--make-set file.\n");
+	    retval = RET_ALL_MARKERS_EXCLUDED;
+	    goto load_range_list_ret_1;
+	  }
 	} else {
 	  if (subset_ct) {
 	    logerrprint("Error: No --gene-subset genes present in --gene-report file.\n");
@@ -359,8 +362,8 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	    logerrprint("Error: Empty --gene-report file.\n");
 	  }
 	  retval = RET_INVALID_FORMAT;
+	  goto load_range_list_ret_1;
 	}
-	goto load_range_list_ret_1;
       }
       LOGERRPRINTF("Warning: No valid ranges in %s file.\n", file_descrip);
       goto load_range_list_ret_1;
@@ -555,7 +558,7 @@ int32_t extract_exclude_range(char* fname, uint32_t* marker_pos, uintptr_t unfil
   if (fopen_checked(&infile, fname, "r")) {
     goto extract_exclude_range_ret_OPEN_FAIL;
   }
-  retval = load_range_list(infile, 0, 0, 0, 0, 0, 0, NULL, 0, marker_pos, chrom_info_ptr, &topsize, NULL, NULL, NULL, &range_arr, NULL, is_exclude? "--exclude range" : "--extract range");
+  retval = load_range_list(infile, 0, 0, 0, 0, 0, allow_no_variants, 0, NULL, 0, marker_pos, chrom_info_ptr, &topsize, NULL, NULL, NULL, &range_arr, NULL, is_exclude? "--exclude range" : "--extract range");
   if (retval) {
     goto extract_exclude_range_ret_1;
   }
@@ -947,7 +950,7 @@ uint32_t save_set_range(uint64_t* range_sort_buf, uint32_t marker_ct, uint32_t r
   return 0;
 }
 
-int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* marker_pos, uintptr_t* marker_exclude_ct_ptr, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr) {
+int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* marker_pos, uintptr_t* marker_exclude_ct_ptr, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, uint32_t allow_no_variants) {
   FILE* infile = NULL;
   uintptr_t topsize = 0;
   char* sorted_marker_ids = NULL;
@@ -1011,7 +1014,11 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	}
 	bufptr = &(bufptr[slen + 1]);
 	if (!(*bufptr)) {
-	  goto define_sets_ret_ALL_MARKERS_EXCLUDED;
+	  if (!allow_no_variants) {
+	    goto define_sets_ret_ALL_MARKERS_EXCLUDED;
+	  } else {
+	    goto define_sets_ret_EXCLUDE_ALL_MARKERS_ALLOWED;
+	  }
 	}
       }
       free(sip->genekeep_flattened);
@@ -1029,8 +1036,12 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	bufptr = &(bufptr[slen]);
       } while (*bufptr);
       if (!genekeep_ct) {
-	logerrprint("Error: All variants excluded by --gene.\n");
-	goto define_sets_ret_ALL_MARKERS_EXCLUDED_2;
+	if (!allow_no_variants) {
+	  logerrprint("Error: All variants excluded by --gene.\n");
+	  goto define_sets_ret_ALL_MARKERS_EXCLUDED_2;
+	} else {
+	  goto define_sets_ret_EXCLUDE_ALL_MARKERS_ALLOWED;
+	}
       }
       sorted_genekeep_ids = (char*)top_alloc(&topsize, genekeep_ct * max_genekeep_len);
       if (!sorted_genekeep_ids) {
@@ -1069,12 +1080,16 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     }
     if (!subset_ct) {
       if ((gene_all || sip->genekeep_flattened) && ((!sip->merged_set_name) || (!complement_sets))) {
-	if (sip->subset_fname) {
-	  logerrprint("Error: All variants excluded, since --subset file is empty.\n");
+	if (!allow_no_variants) {
+	  if (sip->subset_fname) {
+	    logerrprint("Error: All variants excluded, since --subset file is empty.\n");
+	  } else {
+	    logerrprint("Error: All variants excluded, since --set-names was given no parameters.\n");
+	  }
+	  goto define_sets_ret_ALL_MARKERS_EXCLUDED_2;
 	} else {
-	  logerrprint("Error: All variants excluded, since --set-names was given no parameters.\n");
+	  goto define_sets_ret_EXCLUDE_ALL_MARKERS_ALLOWED;
 	}
-	goto define_sets_ret_ALL_MARKERS_EXCLUDED_2;
       }
       if (sip->merged_set_name) {
 	goto define_sets_merge_nothing;
@@ -1124,7 +1139,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   }
   // 3. load --make-set range list
   if (make_set) {
-    retval = load_range_list(infile, !sip->merged_set_name, sip->make_set_border, sip->modifier & SET_MAKE_COLLAPSE_GROUP, gene_all || sip->genekeep_flattened, c_prefix, subset_ct, sorted_subset_ids, max_subset_id_len, marker_pos, chrom_info_ptr, &topsize, &set_ct, &set_names, &max_set_id_len, &make_set_range_arr, &range_sort_buf, "--make-set");
+    retval = load_range_list(infile, !sip->merged_set_name, sip->make_set_border, sip->modifier & SET_MAKE_COLLAPSE_GROUP, gene_all || sip->genekeep_flattened, c_prefix, allow_no_variants, subset_ct, sorted_subset_ids, max_subset_id_len, marker_pos, chrom_info_ptr, &topsize, &set_ct, &set_names, &max_set_id_len, &make_set_range_arr, &range_sort_buf, "--make-set");
     if (retval) {
       goto define_sets_ret_1;
     }
@@ -1258,11 +1273,16 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       }
       if (!set_ct) {
 	if (!complement_sets) {
-	  logerrprint("Error: All variants excluded by --gene{-all}, since no sets were defined from\n--set file.\n");
-	  goto define_sets_ret_ALL_MARKERS_EXCLUDED_2;
+	  if (!allow_no_variants) {
+	    logerrprint("Error: All variants excluded by --gene{-all}, since no sets were defined from\n--set file.\n");
+	    goto define_sets_ret_ALL_MARKERS_EXCLUDED_2;
+	  } else {
+	    goto define_sets_ret_EXCLUDE_ALL_MARKERS_ALLOWED;
+	  }
+	} else {
+	  logerrprint("Warning: No sets defined from --set file.\n");
+	  goto define_sets_ret_1;
 	}
-	logerrprint("Warning: No sets defined from --set file.\n");
-	goto define_sets_ret_1;
       }
     }
     if (!complement_sets) {
@@ -1270,10 +1290,14 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     }
     bitfield_or(marker_exclude, marker_exclude_new, unfiltered_marker_ctl);
     marker_exclude_ct = popcount_longs(marker_exclude, unfiltered_marker_ctl);
-    if (marker_exclude_ct == unfiltered_marker_ct) {
-      goto define_sets_ret_ALL_MARKERS_EXCLUDED;
-    }
     *marker_exclude_ct_ptr = marker_exclude_ct;
+    if (marker_exclude_ct == unfiltered_marker_ct) {
+      if (!allow_no_variants) {
+        goto define_sets_ret_ALL_MARKERS_EXCLUDED;
+      } else {
+	goto define_sets_ret_1;
+      }
+    }
     marker_ct = unfiltered_marker_ct - marker_exclude_ct;
     rewind(infile);
     topsize = topsize_bak;
@@ -1630,6 +1654,10 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     logerrprint("Error: All variants excluded by --gene/--gene-all.\n");
   define_sets_ret_ALL_MARKERS_EXCLUDED_2:
     retval = RET_ALL_MARKERS_EXCLUDED;
+    break;
+  define_sets_ret_EXCLUDE_ALL_MARKERS_ALLOWED:
+    fill_all_bits(marker_exclude, unfiltered_marker_ct);
+    *marker_exclude_ct_ptr = unfiltered_marker_ct;
     break;
   define_sets_ret_INVALID_FORMAT_EXTRA_END:
     logerrprint("Error: Extra 'END' token in --set file.\n");
@@ -2195,7 +2223,7 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
   if (fopen_checked(&infile, fname, "r")) {
     goto load_range_list_sortpos_ret_OPEN_FAIL;
   }
-  retval = load_range_list(infile, 1, border_extend, 0, 0, 0, subset_ct, sorted_subset_ids, 0, NULL, chrom_info_ptr, &topsize, &gene_ct, gene_names_ptr, &max_gene_id_len, &gene_arr, &range_sort_buf, file_descrip);
+  retval = load_range_list(infile, 1, border_extend, 0, 0, 0, 0, subset_ct, sorted_subset_ids, 0, NULL, chrom_info_ptr, &topsize, &gene_ct, gene_names_ptr, &max_gene_id_len, &gene_arr, &range_sort_buf, file_descrip);
   if (retval) {
     goto load_range_list_sortpos_ret_1;
   }

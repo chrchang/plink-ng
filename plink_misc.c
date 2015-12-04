@@ -1660,7 +1660,7 @@ void calc_plink_maxfid(uint32_t unfiltered_sample_ct, uintptr_t* sample_exclude,
   // imitate PLINK 1.07 behavior (see Plink::prettyPrintLengths() in
   // helper.cpp), to simplify testing and avoid randomly breaking existing
   // scripts
-  do {
+  while (samples_done < sample_ct) {
     sample_uidx = next_unset_unsafe(sample_exclude, sample_uidx);
     sample_uidx_stop = next_set(sample_exclude, sample_uidx, unfiltered_sample_ct);
     samples_done += sample_uidx_stop - sample_uidx;
@@ -1679,7 +1679,7 @@ void calc_plink_maxfid(uint32_t unfiltered_sample_ct, uintptr_t* sample_exclude,
       }
       cptr = &(cptr[max_sample_id_len]);
     } while (cptr < cptr_end);
-  } while (samples_done < sample_ct);
+  }
   *plink_maxfid_ptr = plink_maxfid;
   *plink_maxiid_ptr = plink_maxiid;
 }
@@ -1991,8 +1991,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
       logprint("--read-freq: .frq file loaded.\n");
     }
   } else if (uii == 3) {
-    // changed from strcmp to avoid eoln problems
-    // known --freqx format, WDIST v0.15.3 or later
+    // --freqx format
     while (fgets(loadbuf, loadbuf_size, freqfile) != NULL) {
       line_idx++;
       if (!loadbuf[loadbuf_size - 1]) {
@@ -2332,6 +2331,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
 }
 
 int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t output_gz, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t unfiltered_sample_ct, uintptr_t sample_ct, uint32_t sample_f_ct, uintptr_t* founder_info, uint32_t nonfounders, uintptr_t* sex_male, uint32_t sample_f_male_ct, uintptr_t* marker_reverse, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len) {
+  // unfiltered_sample_ct == 0 ok
   unsigned char* wkspace_mark = wkspace_base;
   char* writebuf = tbuf;
   char* pzwritep = NULL;
@@ -2620,6 +2620,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
 }
 
 int32_t write_cc_freqs(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t output_gz, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t unfiltered_sample_ct, uintptr_t* founder_info, uint32_t nonfounders, uintptr_t* sex_male, uintptr_t* marker_reverse, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
+  // unfiltered_sample_ct must be positive
   unsigned char* wkspace_mark = wkspace_base;
   char* pzwritep = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
@@ -2803,6 +2804,7 @@ int32_t write_cc_freqs(FILE* bedfile, uintptr_t bed_offset, char* outname, char*
 }
 
 int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, double* set_allele_freqs, Chrom_info* chrom_info_ptr, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, int32_t* ll_cts, int32_t* lh_cts, int32_t* hh_cts, int32_t* hapl_cts, int32_t* haph_cts, uint32_t sample_f_ct, uint32_t sample_f_male_ct, uint32_t nonfounders, uint64_t misc_flags, uintptr_t* marker_reverse) {
+  // unfiltered_sample_ct == 0 ok
   unsigned char* wkspace_mark = wkspace_base;
   char* pzwritep = NULL;
   uint32_t reverse = 0;
@@ -3282,7 +3284,7 @@ int32_t write_snplist(char* outname, char* outname_end, uintptr_t unfiltered_mar
     goto write_snplist_ret_OPEN_FAIL;
   }
   if (!list_23_indels) {
-    do {
+    while (markers_done < marker_ct) {
       marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
       marker_uidx_stop = next_set_ul(marker_exclude, marker_uidx, unfiltered_marker_ct);
       markers_done += marker_uidx_stop - marker_uidx;
@@ -3296,7 +3298,7 @@ int32_t write_snplist(char* outname, char* outname_end, uintptr_t unfiltered_mar
 	}
         cptr = &(cptr[max_marker_id_len]);
       } while (cptr < cptr_end);
-    } while (markers_done < marker_ct);
+    }
   } else {
     for (; markers_done < marker_ct; marker_uidx++, markers_done++) {
       next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);

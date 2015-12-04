@@ -704,7 +704,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       goto plink1_dosage_ret_1;
     }
   }
-  retval = load_fam(famname, fam_cols, uii, missing_pheno, (misc_flags / MISC_AFFECTION_01) & 1, 0, &unfiltered_sample_ct, &sample_ids, &max_sample_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_nm, &sex_male, &affection, &pheno_nm, &pheno_c, &pheno_d, &founder_info, &sample_exclude);
+  retval = load_fam(famname, fam_cols, uii, missing_pheno, (misc_flags / MISC_AFFECTION_01) & 1, &unfiltered_sample_ct, &sample_ids, &max_sample_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_nm, &sex_male, &affection, &pheno_nm, &pheno_c, &pheno_d, &founder_info, &sample_exclude, 0);
   if (retval) {
     goto plink1_dosage_ret_1;
   }
@@ -789,7 +789,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
       if (extractname) {
 	if (!(misc_flags & MISC_EXTRACT_RANGE)) {
-	  retval = extract_exclude_flag_norange(extractname, marker_id_htable, marker_id_htable_size, 0, 0, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
+	  retval = extract_exclude_flag_norange(extractname, marker_id_htable, marker_id_htable_size, 0, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0);
 	  if (retval) {
 	    goto plink1_dosage_ret_1;
 	  }
@@ -808,7 +808,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
       if (excludename) {
 	if (!(misc_flags & MISC_EXCLUDE_RANGE)) {
-	  retval = extract_exclude_flag_norange(excludename, marker_id_htable, marker_id_htable_size, 1, 0, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
+	  retval = extract_exclude_flag_norange(excludename, marker_id_htable, marker_id_htable_size, 1, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0);
 	  if (retval) {
 	    goto plink1_dosage_ret_1;
 	  }
@@ -840,7 +840,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       wkspace_reset(wkspace_mark);
     }
     if (thin_keep_prob != 1.0) {
-      if (random_thin_markers(thin_keep_prob, unfiltered_marker_ct, 0, marker_exclude, &marker_exclude_ct)) {
+      if (random_thin_markers(thin_keep_prob, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0)) {
 	goto plink1_dosage_ret_ALL_MARKERS_EXCLUDED;
       }
     } else if (thin_keep_ct != 0xffffffffU) {

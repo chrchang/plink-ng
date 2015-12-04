@@ -459,9 +459,10 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 	  goto load_clusters_ret_INVALID_FORMAT;
 	}
       }
-      ;;;
       logerrprint("Warning: No samples named in --within file remain in the current analysis.\n");
-      goto load_clusters_ret_1;
+      if (!sorted_keep_ids) {
+        goto load_clusters_ret_1;
+      }
     }
   } else {
     // --family
@@ -498,7 +499,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
       }
       assigned_ct++;
     }
-    if (!assigned_ct) {
+    if ((!assigned_ct) && (!allow_no_samples)) {
       logerrprint("Error: --keep-clusters/--keep-cluster-names excludes everyone.\n");
       goto load_clusters_ret_INVALID_FORMAT;
     }

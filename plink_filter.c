@@ -235,7 +235,7 @@ void extract_exclude_process_token(const char* tok_start, const uint32_t* marker
   }
 }
 
-int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, uint32_t marker_id_htable_size, uint32_t do_exclude, uint32_t allow_no_variants, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr) {
+int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, uint32_t marker_id_htable_size, uint32_t do_exclude, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uint32_t allow_no_variants) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
@@ -952,7 +952,7 @@ int32_t filter_qual_scores(Two_col_params* qual_filter, double qual_min_thresh, 
   return retval;
 }
 
-uint32_t random_thin_markers(double thin_keep_prob, uintptr_t unfiltered_marker_ct, uint32_t allow_no_variants, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr) {
+uint32_t random_thin_markers(double thin_keep_prob, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uint32_t allow_no_variants) {
   uint32_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
   uint32_t marker_uidx = 0;
   uint32_t markers_done = 0;
@@ -3294,7 +3294,7 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
   return retval;
 }
 
-uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, int32_t* hwe_lls, int32_t* hwe_lhs, int32_t* hwe_hhs, uint32_t hwe_modifier, int32_t* hwe_ll_allfs, int32_t* hwe_lh_allfs, int32_t* hwe_hh_allfs, Chrom_info* chrom_info_ptr) {
+uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, int32_t* hwe_lls, int32_t* hwe_lhs, int32_t* hwe_hhs, uint32_t hwe_modifier, uint32_t allow_no_variants, int32_t* hwe_ll_allfs, int32_t* hwe_lh_allfs, int32_t* hwe_hh_allfs, Chrom_info* chrom_info_ptr) {
   uint32_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
   uint32_t marker_uidx = 0;
   uint32_t removed_ct = 0;
@@ -3357,7 +3357,7 @@ uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct
   if (((uint64_t)max_obs) * 9 > ((uint64_t)min_obs) * 10) {
     logerrprint("Warning: --hwe observation counts vary by more than 10%.  Consider using\n--geno, and/or applying different p-value thresholds to distinct subsets of\nyour data.\n");
   }
-  if (marker_ct == removed_ct) {
+  if ((marker_ct == removed_ct) && (!allow_no_variants)) {
     logerrprint("Error: All variants removed due to Hardy-Weinberg exact test (--hwe).\n");
     return 1;
   }
@@ -3366,7 +3366,7 @@ uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct
   return 0;
 }
 
-uint32_t enforce_minor_allele_thresholds(double min_maf, double max_maf, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* ac_excl_bitfield, uintptr_t* marker_exclude_ct_ptr, double* set_allele_freqs) {
+uint32_t enforce_minor_allele_thresholds(double min_maf, double max_maf, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* ac_excl_bitfield, uintptr_t* marker_exclude_ct_ptr, double* set_allele_freqs, uint32_t allow_no_variants) {
   uint32_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uint32_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
   uint32_t marker_uidx = 0;
@@ -3393,7 +3393,7 @@ uint32_t enforce_minor_allele_thresholds(double min_maf, double max_maf, uintptr
     bitfield_or(marker_exclude, ac_excl_bitfield, unfiltered_marker_ctl);
   }
   removed_ct = popcount_longs(marker_exclude, unfiltered_marker_ctl) - (*marker_exclude_ct_ptr);
-  if (marker_ct == removed_ct) {
+  if ((marker_ct == removed_ct) && (!allow_no_variants)) {
     logerrprint("Error: All variants removed due to minor allele threshold(s)\n(--maf/--max-maf/--mac/--max-mac).\n");
     return 1;
   }

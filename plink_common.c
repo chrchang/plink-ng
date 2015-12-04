@@ -3785,7 +3785,7 @@ int32_t populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uint
 }
 
 uint32_t id_htable_find(const char* id_buf, uintptr_t cur_id_len, const uint32_t* id_htable, uint32_t id_htable_size, const char* item_ids, uintptr_t max_id_len) {
-  // assumes no duplicate entries, and a nonempty table
+  // assumes no duplicate entries, and nonzero id_htable_size
   // returns 0xffffffffU on failure
   if (cur_id_len >= max_id_len) {
     return 0xffffffffU;
@@ -3818,26 +3818,26 @@ void fill_idx_to_uidx(uintptr_t* exclude_arr, uintptr_t unfiltered_item_ct, uint
   uint32_t* idx_to_uidx_end = &(idx_to_uidx[item_ct]);
   uint32_t item_uidx = 0;
   uint32_t item_uidx_stop;
-  do {
+  while (idx_to_uidx < idx_to_uidx_end) {
     item_uidx = next_unset_unsafe(exclude_arr, item_uidx);
     item_uidx_stop = next_set(exclude_arr, item_uidx, unfiltered_item_ct);
     do {
       *idx_to_uidx++ = item_uidx++;
     } while (item_uidx < item_uidx_stop);
-  } while (idx_to_uidx < idx_to_uidx_end);
+  }
 }
 
 void fill_idx_to_uidx_incl(uintptr_t* include_arr, uintptr_t unfiltered_item_ct, uintptr_t item_ct, uint32_t* idx_to_uidx) {
   uint32_t* idx_to_uidx_end = &(idx_to_uidx[item_ct]);
   uint32_t item_uidx = 0;
   uint32_t item_uidx_stop;
-  do {
+  while (idx_to_uidx < idx_to_uidx_end) {
     item_uidx = next_set_unsafe(include_arr, item_uidx);
     item_uidx_stop = next_unset(include_arr, item_uidx, unfiltered_item_ct);
     do {
       *idx_to_uidx++ = item_uidx++;
     } while (item_uidx < item_uidx_stop);
-  } while (idx_to_uidx < idx_to_uidx_end);
+  }
 }
 
 void fill_uidx_to_idx(uintptr_t* exclude_arr, uint32_t unfiltered_item_ct, uint32_t item_ct, uint32_t* uidx_to_idx) {
@@ -3845,7 +3845,7 @@ void fill_uidx_to_idx(uintptr_t* exclude_arr, uint32_t unfiltered_item_ct, uint3
   uint32_t item_idx = 0;
   uint32_t* uidx_to_idx_ptr;
   uint32_t* uidx_to_idx_stop;
-  do {
+  while (item_idx < item_ct) {
     item_uidx = next_unset_unsafe(exclude_arr, item_uidx);
     uidx_to_idx_ptr = &(uidx_to_idx[item_uidx]);
     item_uidx = next_set(exclude_arr, item_uidx, unfiltered_item_ct);
@@ -3853,7 +3853,7 @@ void fill_uidx_to_idx(uintptr_t* exclude_arr, uint32_t unfiltered_item_ct, uint3
     do {
       *uidx_to_idx_ptr++ = item_idx++;
     } while (uidx_to_idx_ptr < uidx_to_idx_stop);
-  } while (item_idx < item_ct);
+  }
 }
 
 void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t unfiltered_item_ct, uint32_t item_ct, uint32_t* uidx_to_idx) {
@@ -3861,7 +3861,7 @@ void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t unfiltered_item_ct, 
   uint32_t item_idx = 0;
   uint32_t* uidx_to_idx_ptr;
   uint32_t* uidx_to_idx_stop;
-  do {
+  while (item_idx < item_ct) {
     item_uidx = next_set_unsafe(include_arr, item_uidx);
     uidx_to_idx_ptr = &(uidx_to_idx[item_uidx]);
     item_uidx = next_unset(include_arr, item_uidx, unfiltered_item_ct);
@@ -3869,7 +3869,7 @@ void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t unfiltered_item_ct, 
     do {
       *uidx_to_idx_ptr++ = item_idx++;
     } while (uidx_to_idx_ptr < uidx_to_idx_stop);
-  } while (item_idx < item_ct);
+  }
 }
 
 void fill_midx_to_idx(uintptr_t* exclude_arr_orig, uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* midx_to_idx) {
@@ -3889,29 +3889,40 @@ void fill_midx_to_idx(uintptr_t* exclude_arr_orig, uintptr_t* exclude_arr, uint3
 }
 
 void fill_vec_55(uintptr_t* vec, uint32_t ct) {
-  // Assumes ct is nonzero.
-  uint32_t ctl = 2 * ((ct + (BITCT - 1)) / BITCT);
   uint32_t rem = ct & (BITCT - 1);
-  uintptr_t* second_to_last = &(vec[ctl - 2]);
 #ifdef __LP64__
   const __m128i m1 = {FIVEMASK, FIVEMASK};
   __m128i* vecp = (__m128i*)vec;
-  __m128i* vec_end = (__m128i*)(&(vec[ctl]));
-  do {
+  __m128i* vec_end = (__m128i*)(&(vec[2 * (ct / BITCT)]));
+  uintptr_t* second_to_last;
+  while (vecp < vec_end) {
     *vecp++ = m1;
-  } while (vecp < vec_end);
-#else
-  uintptr_t* vec_end = &(vec[ctl]);
-  do {
-    *vec++ = FIVEMASK;
-  } while (vec < vec_end);
-#endif
-  if (rem > BITCT2) {
-    second_to_last[1] &= (~ZEROLU) >> ((BITCT - rem) * 2);
-  } else if (rem) {
-    *second_to_last &= (~ZEROLU) >> ((BITCT2 - rem) * 2);
-    second_to_last[1] = 0;
   }
+  if (rem) {
+    second_to_last = (uintptr_t*)vecp;
+    if (rem > BITCT2) {
+      second_to_last[0] = FIVEMASK;
+      second_to_last[1] = FIVEMASK >> ((BITCT - rem) * 2);
+    } else {
+      second_to_last[0] = FIVEMASK >> ((BITCT2 - rem) * 2);
+      second_to_last[1] = 0;
+    }
+  }
+#else
+  uintptr_t* vec_end = &(vec[2 * (ct / BITCT)]);
+  while (vec < vec_end) {
+    *vec++ = FIVEMASK;
+  }
+  if (rem) {
+    if (rem > BITCT2) {
+      vec[0] = FIVEMASK;
+      vec[1] = FIVEMASK >> ((BITCT - rem) * 2);
+    } else {
+      vec[0] = FIVEMASK >> ((BITCT2 - rem) * 2);
+      vec[1] = 0;
+    }
+  }
+#endif
 }
 
 void vec_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_bitarr, uint32_t filtered_ct, uintptr_t* output_vec) {
@@ -3923,7 +3934,7 @@ void vec_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uin
   uint32_t write_bit = 0;
   uint32_t item_idx = 0;
   uint32_t item_uidx_stop;
-  do {
+  while (item_idx < filtered_ct) {
     item_uidx = next_set_unsafe(filter_bitarr, item_uidx);
     item_uidx_stop = next_unset(filter_bitarr, item_uidx, unfiltered_ct);
     item_idx += item_uidx_stop - item_uidx;
@@ -3935,7 +3946,7 @@ void vec_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uin
 	write_bit = 0;
       }
     } while (++item_uidx < item_uidx_stop);
-  } while (item_idx < filtered_ct);
+  }
   if (write_bit) {
     *output_vec++ = cur_write;
   }
@@ -3950,7 +3961,7 @@ void vec_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfiltered
   uint32_t write_bit = 0;
   uint32_t item_idx = 0;
   uint32_t item_uidx_stop;
-  do {
+  while (item_idx < filtered_ct) {
     item_uidx = next_unset_unsafe(filter_exclude_bitarr, item_uidx);
     item_uidx_stop = next_set(filter_exclude_bitarr, item_uidx, unfiltered_ct);
     item_idx += item_uidx_stop - item_uidx;
@@ -3962,7 +3973,7 @@ void vec_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfiltered
 	write_bit = 0;
       }
     } while (++item_uidx < item_uidx_stop);
-  } while (item_idx < filtered_ct);
+  }
   if (write_bit) {
     *output_vec++ = cur_write;
   }
@@ -4410,6 +4421,7 @@ int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int3
 }
 
 void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* is_mt_ptr, uint32_t* is_haploid_ptr) {
+  // assumes marker_uidx < unfiltered_marker_ct
   int32_t chrom_idx;
   *chrom_end_ptr = chrom_info_ptr->chrom_file_order_marker_idx[(*chrom_fo_idx_ptr) + 1];
   while (marker_uidx >= (*chrom_end_ptr)) {
@@ -5242,9 +5254,9 @@ void bitfield_and(uintptr_t* vv, uintptr_t* include_vec, uintptr_t word_ct) {
   }
 #else
   uintptr_t* vec_end = &(vv[word_ct]);
-  do {
+  while (vv < vec_end) {
     *vv++ &= *include_vec++;
-  } while (vv < vec_end);
+  }
 #endif
 }
 
@@ -5290,10 +5302,10 @@ void bitfield_andnot_reversed_args(uintptr_t* vv, uintptr_t* include_vec, uintpt
   }
 #else
   uintptr_t* vec_end = &(vv[word_ct]);
-  do {
+  while (vv < vec_end) {
     *vv = (~(*vv)) & (*include_vec++);
     vv++;
-  } while (vv < vec_end);
+  }
 #endif
 }
 
@@ -5314,9 +5326,9 @@ void bitfield_or(uintptr_t* vv, uintptr_t* or_vec, uintptr_t word_ct) {
   }
 #else
   uintptr_t* vec_end = &(vv[word_ct]);
-  do {
+  while (vv < vec_end) {
     *vv++ |= *or_vec++;
-  } while (vv < vec_end);
+  }
 #endif
 }
 
@@ -5365,9 +5377,9 @@ void bitfield_xor(uintptr_t* bit_arr, uintptr_t* xor_arr, uintptr_t word_ct) {
   }
 #else
   uintptr_t* bit_arr_end = &(bit_arr[word_ct]);
-  do {
+  while (bit_arr < bit_arr_end) {
     *bit_arr++ ^= *xor_arr++;
-  } while (bit_arr < bit_arr_end);
+  }
 #endif
 }
 
@@ -7788,6 +7800,7 @@ uint32_t get_max_chrom_size(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclud
 }
 
 void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uint32_t* male_ct_ptr, uint32_t* female_ct_ptr, uint32_t* unk_ct_ptr) {
+  // unfiltered_sample_ct can be zero
   uint32_t male_ct = 0;
   uint32_t female_ct = 0;
   uint32_t unk_ct = 0;
@@ -7817,6 +7830,7 @@ void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_
 }
 
 void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_sample_ct) {
+  // unfiltered_sample_ct can be zero
   uintptr_t sample_bidx = 0;
   unsigned char* loadbuf_end = &(loadbuf[(unfiltered_sample_ct + 3) / 4]);
   unsigned char ucc;
@@ -8039,13 +8053,14 @@ uint32_t load_and_split(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sa
 }
 
 void vec_include_init(uintptr_t unfiltered_sample_ct, uintptr_t* new_include2, uintptr_t* old_include) {
+  // allows unfiltered_sample_ct == 0
   uint32_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
   uintptr_t ulii;
   uintptr_t uljj;
   uintptr_t ulkk;
   uintptr_t ulmm;
   uint32_t bit_idx;
-  do {
+  while (unfiltered_sample_ctl) {
     ulii = ~(*old_include++);
     ulkk = FIVEMASK;
     ulmm = FIVEMASK;
@@ -8073,7 +8088,8 @@ void vec_include_init(uintptr_t unfiltered_sample_ct, uintptr_t* new_include2, u
     }
     *new_include2++ = ulkk;
     *new_include2++ = ulmm;
-  } while (--unfiltered_sample_ctl);
+    --unfiltered_sample_ctl;
+  }
   ulii = unfiltered_sample_ct & (BITCT - 1);
   if (ulii) {
     new_include2--;
@@ -8087,13 +8103,14 @@ void vec_include_init(uintptr_t unfiltered_sample_ct, uintptr_t* new_include2, u
 }
 
 void exclude_to_vec_include(uintptr_t unfiltered_sample_ct, uintptr_t* include_vec, uintptr_t* exclude_arr) {
+  // allows unfiltered_sample_ct == 0
   uint32_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
   uintptr_t ulii;
   uintptr_t uljj;
   uintptr_t ulkk;
   uintptr_t ulmm;
   uint32_t bit_idx;
-  do {
+  while (unfiltered_sample_ctl) {
     ulii = *exclude_arr++;
     ulkk = FIVEMASK;
     ulmm = FIVEMASK;
@@ -8121,7 +8138,8 @@ void exclude_to_vec_include(uintptr_t unfiltered_sample_ct, uintptr_t* include_v
     }
     *include_vec++ = ulkk;
     *include_vec++ = ulmm;
-  } while (--unfiltered_sample_ctl);
+    --unfiltered_sample_ctl;
+  }
   ulii = unfiltered_sample_ct & (BITCT - 1);
   if (ulii) {
     include_vec--;
@@ -8138,31 +8156,44 @@ void vec_init_invert(uintptr_t entry_ct, uintptr_t* target_arr, uintptr_t* sourc
   // Initializes a half-bitfield as the inverse of another.  Assumes target_arr
   // and source_arr are doubleword-aligned.
   uint32_t vec_wsize = 2 * ((entry_ct + (BITCT - 1)) / BITCT);
-  uintptr_t* second_to_last = &(target_arr[vec_wsize - 2]);
   uint32_t rem = entry_ct & (BITCT - 1);
 #ifdef __LP64__
   const __m128i m1 = {FIVEMASK, FIVEMASK};
   __m128i* tptr = (__m128i*)target_arr;
   __m128i* sptr = (__m128i*)source_arr;
   __m128i* tptr_end = (__m128i*)(&(target_arr[vec_wsize]));
-  do {
+  uintptr_t* second_to_last;
+  while (tptr < tptr_end) {
     *tptr++ = _mm_andnot_si128(*sptr++, m1);
-  } while (tptr < tptr_end);
+  }
+  if (rem) {
+    second_to_last = &(((uintptr_t*)tptr_end)[-2]);
+    if (rem > BITCT2) {
+      second_to_last[1] &= (~ZEROLU) >> ((BITCT - rem) * 2);
+    } else {
+      *second_to_last &= (~ZEROLU) >> ((BITCT2 - rem) * 2);
+      second_to_last[1] = 0;
+    }
+  }
 #else
   uintptr_t* tptr_end = &(target_arr[vec_wsize]);
-  do {
+  while (target_arr < tptr_end) {
     *target_arr++ = FIVEMASK & (~(*source_arr++));
-  } while (target_arr < tptr_end);
-#endif
-  if (rem > BITCT2) {
-    second_to_last[1] &= (~ZEROLU) >> ((BITCT - rem) * 2);
-  } else if (rem) {
-    *second_to_last &= (~ZEROLU) >> ((BITCT2 - rem) * 2);
-    second_to_last[1] = 0;
   }
+  if (rem) {
+    if (rem > BITCT2) {
+      target_arr[-1] &= (~ZEROLU) >> ((BITCT - rem) * 2);
+    } else {
+      target_arr[-2] &= (~ZEROLU) >> ((BITCT2 - rem) * 2);
+      target_arr[-1] = 0;
+    }
+  }
+
+#endif
 }
 
 void bitfield_andnot_copy(uintptr_t word_ct, uintptr_t* target_arr, uintptr_t* source_arr, uintptr_t* exclude_arr) {
+  // assumes word_ct is positive
   // target_arr := source_arr ANDNOT exclude_arr
   // may write an extra word
 #ifdef __LP64__
@@ -8182,13 +8213,14 @@ void bitfield_andnot_copy(uintptr_t word_ct, uintptr_t* target_arr, uintptr_t* s
 }
 
 void vec_include_mask_in(uintptr_t unfiltered_sample_ct, uintptr_t* include_arr, uintptr_t* mask_arr) {
+  // allows unfiltered_sample_ct == 0
   uint32_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
   uintptr_t ulii;
   uintptr_t uljj;
   uintptr_t ulkk;
   uintptr_t ulmm;
   uint32_t bit_idx;
-  do {
+  while (unfiltered_sample_ctl) {
     ulii = ~(*mask_arr++);
     ulkk = *include_arr;
     ulmm = include_arr[1];
@@ -8216,10 +8248,12 @@ void vec_include_mask_in(uintptr_t unfiltered_sample_ct, uintptr_t* include_arr,
     }
     *include_arr++ = ulkk;
     *include_arr++ = ulmm;
-  } while (--unfiltered_sample_ctl);
+    --unfiltered_sample_ctl;
+  }
 }
 
 void vec_include_mask_out(uintptr_t unfiltered_sample_ct, uintptr_t* include_arr, uintptr_t* mask_arr) {
+  // assumes unfiltered_sample_ct is positive
   uint32_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
   uintptr_t ulii;
   uintptr_t uljj;
@@ -8258,6 +8292,7 @@ void vec_include_mask_out(uintptr_t unfiltered_sample_ct, uintptr_t* include_arr
 }
 
 void vec_include_mask_out_intersect(uintptr_t unfiltered_sample_ct, uintptr_t* include_arr, uintptr_t* mask_arr, uintptr_t* mask2_arr) {
+  // assumes unfiltered_sample_ct is positive
   uint32_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
   uintptr_t ulii;
   uintptr_t uljj;
@@ -8296,6 +8331,7 @@ void vec_include_mask_out_intersect(uintptr_t unfiltered_sample_ct, uintptr_t* i
 }
 
 void vec_init_01(uintptr_t unfiltered_sample_ct, uintptr_t* data_ptr, uintptr_t* result_ptr) {
+  // assumes unfiltered_sample_ct is positive
   // initializes result_ptr bits 01 iff data_ptr bits are 01
 #ifdef __LP64__
   const __m128i m1 = {FIVEMASK, FIVEMASK};
@@ -8345,6 +8381,7 @@ void vec_invert(uintptr_t unfiltered_sample_ct, uintptr_t* vec2) {
 }
 
 void vec_datamask(uintptr_t unfiltered_sample_ct, uint32_t matchval, uintptr_t* data_ptr, uintptr_t* mask_ptr, uintptr_t* result_ptr) {
+  // assumes unfiltered_sample_ct is positive
   // vec_ptr assumed to be standard 00/01 bit vector
   // sets result_vec bits to 01 iff data_ptr bits are equal to matchval and
   // vec_ptr bit is set, 00 otherwise.
@@ -8431,6 +8468,7 @@ void vec_rotate_plink1_to_plink2(uintptr_t* lptr, uint32_t word_ct) {
 */
 
 void rotate_plink1_to_plink2_and_copy(uintptr_t* loadbuf, uintptr_t* writebuf, uintptr_t word_ct) {
+  // assumes positive word_ct
   uintptr_t* loadbuf_end = &(loadbuf[word_ct]);
   uintptr_t ulii;
   uintptr_t uljj;
@@ -9425,9 +9463,12 @@ uint32_t collapse_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max
   // Collapses array of sorted IDs to remove duplicates, and writes
   // pre-collapse positions to id_starts (so e.g. duplication count of any
   // sample ID can be determined via subtraction) if it isn't NULL.
-  // Assumes id_ct is positive.  Returns id_ct of collapsed array.
+  // Returns id_ct of collapsed array.
   uintptr_t read_idx;
   uintptr_t write_idx;
+  if (!id_ct) {
+    return 0;
+  }
   if (id_starts) {
     id_starts[0] = 0;
     for (read_idx = 1; read_idx < id_ct; read_idx++) {

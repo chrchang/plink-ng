@@ -1524,7 +1524,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
     covar_ct = 0;
   }
   covar_ctx = covar_ct + (sex_nm? 1 : 0);
-  if (!covar_ctx) {
+  if ((!covar_ctx) && (!gxe_mcovar)) {
     logerrprint("Error: No --covar values loaded.\n");
     goto load_covars_ret_INVALID_FORMAT;
   }
@@ -1605,8 +1605,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
   rewind(covar_file);
   if (header_absent) {
     if (covar_range_list_ptr) {
-      covar_uidx = 0;
-      for (covar_idx = 0; covar_idx < covar_ct; covar_idx++) {
+      for (covar_uidx = 0, covar_idx = 0; covar_idx < covar_ct; covar_idx++) {
 	covar_uidx = next_set_ul_unsafe(covars_active, covar_uidx);
 	uint32_writex(memcpyl3a(&(covar_names[covar_idx * max_covar_name_len]), "COV"), ++covar_uidx, '\0');
       }
@@ -2572,8 +2571,8 @@ int32_t load_bim_split_chrom(char* bimname, uintptr_t* marker_exclude, uintptr_t
   FILE* infile = NULL;
   char* loadbuf = tbuf;
   uint32_t marker_uidx = 0xffffffffU; // deliberate overflow
-  uintptr_t marker_idx = 0;
   int32_t retval = 0;
+  uintptr_t marker_idx;
   char* bufptr;
   uint64_t chrom_idx;
   if (max_bim_linelen > MAXLINELEN) {
@@ -2584,7 +2583,7 @@ int32_t load_bim_split_chrom(char* bimname, uintptr_t* marker_exclude, uintptr_t
   if (fopen_checked(&infile, bimname, "r")) {
     goto load_bim_split_chrom_ret_OPEN_FAIL;
   }
-  do {
+  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
   load_bim_split_chrom_reread:
     if (!fgets(loadbuf, max_bim_linelen, infile)) {
       goto load_bim_split_chrom_ret_READ_FAIL;
@@ -2600,7 +2599,7 @@ int32_t load_bim_split_chrom(char* bimname, uintptr_t* marker_exclude, uintptr_t
     // already validated
     chrom_idx = ((uint32_t)get_chrom_code(chrom_info_ptr, bufptr));
     ll_buf[marker_idx] = (int64_t)((chrom_idx << 32) | ((uint64_t)marker_idx));
-  } while ((++marker_idx) < marker_ct);
+  }
   while (0) {
   load_bim_split_chrom_ret_NOMEM:
     retval = RET_NOMEM;
@@ -3083,8 +3082,8 @@ int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t un
     }
     a1ptr = marker_allele_ptrs[2 * marker_uidx];
     a2ptr = marker_allele_ptrs[2 * marker_uidx + 1];
-    ucc = a1ptr[0];
-    if (a1ptr[1] || a2ptr[1] || (ucc < 'A') || (ucc > 'T') || (reverse_complements[ucc - 'A'] != a2ptr[0])) {
+    ucc = ((unsigned char)a1ptr[0]) - 'A';
+    if (a1ptr[1] || a2ptr[1] || (ucc > 19) || (reverse_complements[ucc] != a2ptr[0])) {
       sprintf(logbuf, "Error: Invalid alleles (not reverse complement single bases) on line\n%" PRIuPTR " of --flip file.\n", line_idx);
       goto flip_subset_init_ret_INVALID_FORMAT_2;
     }
@@ -3338,22 +3337,22 @@ void reverse_subset(uintptr_t* writebuf, uintptr_t* subset_vec2, uintptr_t word_
   __m128i* wvec_end = (__m128i*)(&(writebuf[word_ct]));
   __m128i vii;
   __m128i vjj;
-  do {
+  while (wvec < wvec_end) {
     vii = *wvec;
     vjj = _mm_andnot_si128(_mm_xor_si128(vii, _mm_srli_epi64(vii, 1)), *svec++);
     vjj = _mm_or_si128(vjj, _mm_slli_epi64(vjj, 1));
     *wvec++ = _mm_xor_si128(vii, vjj);
-  } while (wvec < wvec_end);
+  }
 #else
   uintptr_t* writebuf_end = &(writebuf[word_ct]);
   uintptr_t ulii;
   uintptr_t uljj;
-  do {
+  while (writebuf < writebuf_end) {
     ulii = *writebuf;
     uljj = (*subset_vec2++) & (~(ulii ^ (ulii >> 1)));
     uljj *= 3;
     *writebuf++ = ulii ^ uljj;
-  } while (writebuf < writebuf_end);
+  }
 #endif
 }
 
@@ -3412,7 +3411,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   uint32_t unfiltered_sample_ctl2m1 = (unfiltered_sample_ct - 1) / BITCT2;
   uint32_t family_ct = 0;
   uint32_t set_hh_missing = (misc_flags / MISC_SET_HH_MISSING) & 1;
-  uint32_t set_me_missing = (misc_flags / MISC_SET_ME_MISSING) & 1;
+  uint32_t set_me_missing = ((misc_flags / MISC_SET_ME_MISSING) & 1) && sample_ct;
   uint32_t fill_missing_a2 = (misc_flags / MISC_FILL_MISSING_A2) & 1;
   uint32_t mendel_include_duos = (mendel_modifier / MENDEL_DUOS) & 1;
   uint32_t mendel_multigen = (mendel_modifier / MENDEL_MULTIGEN) & 1;
@@ -3787,7 +3786,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   return retval;
 }
 
-int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32_t missing_pheno, uint32_t affection_01, uint32_t allow_no_samples, uintptr_t* unfiltered_sample_ct_ptr, char** sample_ids_ptr, uintptr_t* max_sample_id_len_ptr, char** paternal_ids_ptr, uintptr_t* max_paternal_id_len_ptr, char** maternal_ids_ptr, uintptr_t* max_maternal_id_len_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, uint32_t* affection_ptr, uintptr_t** pheno_nm_ptr, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, uintptr_t** founder_info_ptr, uintptr_t** sample_exclude_ptr) {
+int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32_t missing_pheno, uint32_t affection_01, uintptr_t* unfiltered_sample_ct_ptr, char** sample_ids_ptr, uintptr_t* max_sample_id_len_ptr, char** paternal_ids_ptr, uintptr_t* max_paternal_id_len_ptr, char** maternal_ids_ptr, uintptr_t* max_maternal_id_len_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, uint32_t* affection_ptr, uintptr_t** pheno_nm_ptr, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, uintptr_t** founder_info_ptr, uintptr_t** sample_exclude_ptr, uint32_t allow_no_samples) {
   unsigned char* wkspace_mark = wkspace_base;
   double missing_phenod = (double)missing_pheno;
   uintptr_t* pheno_c = NULL;
@@ -6638,7 +6637,7 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
   memcpy(marker_ids, sorted_marker_ids, marker_ct * max_marker_id_len);
   wkspace_reset(sorted_marker_ids);
 
-  retval = load_fam(famname, FAM_COL_13456, 1, missing_pheno, affection_01, allow_no_samples, &sample_ct, &sample_ids, &max_sample_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_nm, &sex_male, &affection, &pheno_nm, &pheno_c, &pheno_d, &founder_info, &sample_exclude);
+  retval = load_fam(famname, FAM_COL_13456, 1, missing_pheno, affection_01, &sample_ct, &sample_ids, &max_sample_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_nm, &sex_male, &affection, &pheno_nm, &pheno_c, &pheno_d, &founder_info, &sample_exclude, allow_no_samples);
   if (retval) {
     goto lgen_to_bed_ret_1;
   }
@@ -9558,7 +9557,6 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       }
       ulljj = gztell(gz_infile);
       ullii = lastloc + bcf_var_header[0] + bcf_var_header[1];
-      // fill_vec_55() assumes positive sample_ct
       if (!sample_ct) {
 	goto bcf_to_bed_skip_genotype_write;
       }
