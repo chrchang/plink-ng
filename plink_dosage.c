@@ -974,9 +974,13 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     LOGPRINTF("%d %s removed due to founder status (--filter-%s).\n", ii, species_str(ii), (filter_flags & FILTER_BINARY_FOUNDERS)? "founders" : "nonfounders");
   }
   if (cluster_ptr->fname || (misc_flags & MISC_FAMILY_CLUSTERS)) {
-    retval = load_clusters(cluster_ptr->fname, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, sample_ids, max_sample_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len, cluster_ptr->keep_fname, cluster_ptr->keep_flattened, cluster_ptr->remove_fname, cluster_ptr->remove_flattened, 0);
-    if (retval) {
-      goto plink1_dosage_ret_1;
+    if (cluster_ptr->keep_fname || cluster_ptr->keep_flattened || cluster_ptr->remove_fname || cluster_ptr->remove_flattened) {
+      retval = load_clusters(cluster_ptr->fname, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, sample_ids, max_sample_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len, cluster_ptr->keep_fname, cluster_ptr->keep_flattened, cluster_ptr->remove_fname, cluster_ptr->remove_flattened, 0);
+      if (retval) {
+        goto plink1_dosage_ret_1;
+      }
+    } else {
+      logerrprint("Warning: Ignoring --within/--family since it has no effect.  (PLINK 1.07's\nundocumented Huber-White standard error computation is currently disabled.)\n");
     }
   }
   sample_ct = unfiltered_sample_ct - sample_exclude_ct;

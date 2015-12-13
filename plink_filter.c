@@ -2865,23 +2865,23 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
     chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
     marker_uidx = next_unset(marker_exclude, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx], chrom_end);
-    is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code);
-    is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code);
-    is_haploid = is_set(chrom_info_ptr->haploid_mask, chrom_idx);
-    if (!is_y) {
-      cur_nm = sample_include2;
-      cur_tot = sample_ct;
-      cur_cluster_sizes = cluster_sizes;
-      om_ycorr = 0;
-    } else {
-      cur_nm = sample_male_include2;
-      cur_tot = sample_male_ct;
-      cur_cluster_sizes = cluster_sizes_y;
-      om_ycorr = om_cluster_ct;
-    }
-    cptr = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, chrom_idx));
-    *cptr++ = ' ';
     if (marker_uidx < chrom_end) {
+      is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code);
+      is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code);
+      is_haploid = is_set(chrom_info_ptr->haploid_mask, chrom_idx);
+      if (!is_y) {
+	cur_nm = sample_include2;
+	cur_tot = sample_ct;
+	cur_cluster_sizes = cluster_sizes;
+	om_ycorr = 0;
+      } else {
+	cur_nm = sample_male_include2;
+	cur_tot = sample_male_ct;
+	cur_cluster_sizes = cluster_sizes_y;
+	om_ycorr = om_cluster_ct;
+      }
+      cptr = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, chrom_idx));
+      *cptr++ = ' ';
       if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
 	goto write_missingness_reports_ret_READ_FAIL;
       }
@@ -3300,62 +3300,67 @@ uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct
   uint32_t removed_ct = 0;
   uint32_t hwe_all = hwe_modifier & HWE_THRESH_ALL;
   uint32_t hwe_thresh_midp = hwe_modifier & HWE_THRESH_MIDP;
-  uint32_t min_obs = 0xffffffffU;
+  uint32_t min_obs_nonx = 0xffffffffU;
+  uint32_t min_obs_x = 0xffffffffU;
   uint32_t max_obs = 0;
-  int32_t mt_code = chrom_info_ptr->mt_code;
-  uint32_t mt_start = 0;
-  uint32_t mt_end = 0;
-  uint32_t markers_done;
+  uint32_t chrom_fo_idx;
+  uint32_t chrom_idx;
+  uint32_t chrom_end;
   uint32_t cur_obs;
+  uint32_t cur_min_obs;
+  int32_t is_x;
+  int32_t test_failed;
+  if (chrom_info_ptr->haploid_mask[0] & 1) {
+    logerrprint("Warning: --hwe has no effect since entire genome is haploid.\n");
+    return 0;
+  }
   hwe_thresh *= 1 + SMALL_EPSILON;
   if (hwe_all) {
     hwe_lhs = hwe_lh_allfs;
     hwe_lls = hwe_ll_allfs;
     hwe_hhs = hwe_hh_allfs;
   }
-  if ((mt_code != -1) && is_set(chrom_info_ptr->chrom_mask, mt_code)) {
-    mt_start = chrom_info_ptr->chrom_start[(uint32_t)mt_code];
-    mt_end = chrom_info_ptr->chrom_end[(uint32_t)mt_code];
-  }
-  if (hwe_thresh_midp) {
-    for (markers_done = 0; markers_done < marker_ct; marker_uidx++, markers_done++) {
-      next_unset_unsafe_ck(marker_exclude, &marker_uidx);
-      if ((marker_uidx < mt_end) && (marker_uidx >= mt_start)) {
-        continue;
+  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
+    chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+    chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+    marker_uidx = next_unset(marker_exclude, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx], chrom_end);
+    if (marker_uidx < chrom_end) {
+      is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code);
+      if ((((int32_t)chrom_idx) == chrom_info_ptr->mt_code) || (is_set(chrom_info_ptr->haploid_mask, chrom_idx) && (!is_x))) {
+	continue;
       }
-      if (SNPHWE_midp_t(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx], hwe_thresh)) {
-	SET_BIT(marker_exclude, marker_uidx);
-	removed_ct++;
-      }
-      cur_obs = hwe_lhs[marker_uidx] + hwe_lls[marker_uidx] + hwe_hhs[marker_uidx];
-      if (cur_obs < min_obs) {
-	min_obs = cur_obs;
-      }
-      if (cur_obs > max_obs) {
-	max_obs = cur_obs;
-      }
-    }
-  } else {
-    for (markers_done = 0; markers_done < marker_ct; marker_uidx++, markers_done++) {
-      next_unset_unsafe_ck(marker_exclude, &marker_uidx);
-      if ((marker_uidx < mt_end) && (marker_uidx >= mt_start)) {
-        continue;
-      }
-      if (SNPHWE_t(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx], hwe_thresh)) {
-	SET_BIT(marker_exclude, marker_uidx);
-	removed_ct++;
-      }
-      cur_obs = hwe_lhs[marker_uidx] + hwe_lls[marker_uidx] + hwe_hhs[marker_uidx];
-      if (cur_obs < min_obs) {
-	min_obs = cur_obs;
-      }
-      if (cur_obs > max_obs) {
-	max_obs = cur_obs;
+      // okay if min_obs_x is an underestimate
+      cur_min_obs = min_obs_nonx;
+      do {
+	if (hwe_thresh_midp) {
+	  test_failed = SNPHWE_midp_t(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx], hwe_thresh);
+	} else {
+	  test_failed = SNPHWE_t(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx], hwe_thresh);
+	}
+	if (test_failed) {
+	  SET_BIT(marker_exclude, marker_uidx);
+	  removed_ct++;
+	}
+	cur_obs = hwe_lhs[marker_uidx] + hwe_lls[marker_uidx] + hwe_hhs[marker_uidx];
+	if (cur_obs < cur_min_obs) {
+	  cur_min_obs = cur_obs;
+	}
+	if (cur_obs > max_obs) {
+	  max_obs = cur_obs;
+	}
+	marker_uidx = next_unset(marker_exclude, marker_uidx + 1, chrom_end);
+      } while (marker_uidx < chrom_end);
+      if (is_x) {
+	min_obs_x = cur_min_obs;
+      } else {
+	min_obs_nonx = cur_min_obs;
       }
     }
   }
-  if (((uint64_t)max_obs) * 9 > ((uint64_t)min_obs) * 10) {
+  if (((uint64_t)max_obs) * 9 > ((uint64_t)min_obs_nonx) * 10) {
     logerrprint("Warning: --hwe observation counts vary by more than 10%.  Consider using\n--geno, and/or applying different p-value thresholds to distinct subsets of\nyour data.\n");
+  } else if (((uint64_t)max_obs) * 9 > ((uint64_t)min_obs_x) * 10) {
+    logerrprint("Warning: --hwe observation counts vary by more than 10%, due to the X\nchromosome.  You may want to use a less stringent --hwe p-value threshold for X\nchromosome variants.\n");
   }
   if ((marker_ct == removed_ct) && (!allow_no_variants)) {
     logerrprint("Error: All variants removed due to Hardy-Weinberg exact test (--hwe).\n");
