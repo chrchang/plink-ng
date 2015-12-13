@@ -3960,7 +3960,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t ctrl_het_ct;
   uint32_t hom_a1_ct;
   uint32_t het_ct;
-  uint32_t dfam_cluster_ct;
+  // uint32_t dfam_cluster_ct;
   uint32_t uii;
   uint32_t ujj;
   int32_t twice_numer;
@@ -4251,7 +4251,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     g_orig_stat = orig_chisq;
   }
 
-  dfam_cluster_ct = family_mixed_ct + sibship_mixed_ct + unrelated_cluster_ct;
+  // dfam_cluster_ct = family_mixed_ct + sibship_mixed_ct + unrelated_cluster_ct;
   if (do_perms_nst) {
     logerrprint("Error: --dfam permutation tests are currently under development.\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
