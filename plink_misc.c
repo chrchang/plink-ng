@@ -4337,10 +4337,10 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
     }
   }
   first_col_m1--;
+  memcpy(outname_end, ".nopred", 8); // bugfix, this was after the goto before
   if (modifier & SCORE_HEADER) {
     goto score_report_load_next;
   }
-  memcpy(outname_end, ".nopred", 8);
   while (1) {
     bufptr_arr[0] = next_token_multz(bufptr, first_col_m1);
     bufptr_arr[1] = next_token_mult(bufptr_arr[0], col_01_delta);

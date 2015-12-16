@@ -4261,6 +4261,9 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 
   dfam_cluster_ct = family_mixed_ct + sibship_mixed_ct + unrelated_cluster_ct;
   if (do_perms_nst) {
+    logerrprint("Error: --dfam permutation tests are currently under development.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto dfam_ret_1;
     if (wkspace_alloc_ui_checked(&dfam_cluster_map, dfam_cluster_map_size * sizeof(int32_t)) ||
         wkspace_alloc_ui_checked(&dfam_cluster_starts, (dfam_cluster_ct + 1) * sizeof(int32_t)) ||
         wkspace_alloc_ui_checked(&dfam_cluster_case_cts, dfam_cluster_ct * sizeof(int32_t)) ||
