@@ -6290,7 +6290,12 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	for (file_idx = 0; file_idx < file_ct; file_idx++) {
 	  if (is_set(ulptr, file_idx)) {
 	    uii++;
-	    double_f_writew74x(&(tbuf[1]), exp(cur_data_ptr[((int32_t)(uii + weighted_z)) * (-2)]), '\0');
+	    dxx = cur_data_ptr[((int32_t)(uii + weighted_z)) * (-2)];
+	    if (!output_beta) {
+	      // finish fixing PLINK 1.07 bug
+	      dxx = exp(dxx);
+	    }
+	    double_f_writew74x(&(tbuf[1]), dxx, '\0');
 	    fputs(tbuf, outfile);
 	  } else {
 	    fputs("      NA", outfile);
