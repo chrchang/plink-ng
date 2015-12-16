@@ -3,6 +3,7 @@
 #include "plink_assoc.h"
 #include "plink_cluster.h"
 #include "plink_family.h"
+#include "plink_perm.h"
 #include "plink_stats.h"
 
 void family_init(Family_info* fam_ip) {
@@ -3843,7 +3844,9 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uintptr_t perm_vec_ctcl8m = 0;
   uintptr_t* marker_exclude_orig_autosomal = marker_exclude_orig;
   uintptr_t* founder_pnm = NULL;
+  uintptr_t* perm_preimage = NULL;
   double* orig_chisq = NULL;
+  double* maxt_extreme_stat = NULL;
   uint32_t* dfam_cluster_map = NULL;
   uint32_t* dfam_cluster_starts = NULL;
   uint32_t* dfam_cluster_case_cts = NULL;
@@ -3880,8 +3883,6 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uintptr_t* marker_exclude;
   uintptr_t* dfam_sample_exclude;
   uintptr_t* size_one_sibships;
-  uintptr_t* perm_preimage;
-  double* maxt_extreme_stat = NULL;
   uint32_t mu_table[MODEL_BLOCKSIZE];
   char* outname_end2;
   char* wptr;
@@ -4260,40 +4261,55 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 
   dfam_cluster_ct = family_mixed_ct + sibship_mixed_ct + unrelated_cluster_ct;
   if (do_perms_nst) {
-    logprint("Error: --dfam permutation tests are under development.\n");
-    retval = RET_CALC_NOT_YET_SUPPORTED;
-    goto dfam_ret_1;
     if (wkspace_alloc_ui_checked(&dfam_cluster_map, dfam_cluster_map_size * sizeof(int32_t)) ||
         wkspace_alloc_ui_checked(&dfam_cluster_starts, (dfam_cluster_ct + 1) * sizeof(int32_t)) ||
         wkspace_alloc_ui_checked(&dfam_cluster_case_cts, dfam_cluster_ct * sizeof(int32_t)) ||
         wkspace_alloc_ul_checked(&perm_preimage, dfam_sample_ctl * sizeof(intptr_t))) {
       goto dfam_ret_NOMEM;
     }
+    fill_ulong_zero(perm_preimage, dfam_sample_ctl);
     cur_dfam_ptr = dfam_mixed_start;
     write_idx = 0;
     for (uii = 0; uii < family_mixed_ct; uii++) {
       dfam_cluster_starts[uii] = write_idx;
       cur_dfam_ptr = &(cur_dfam_ptr[2]);
       sibling_ct = *cur_dfam_ptr++;
+      cur_case_ct = 0;
       for (sib_idx = 0; sib_idx < sibling_ct; sib_idx++) {
-	dfam_cluster_map[write_idx++] = *cur_dfam_ptr++;
+	sample_idx = cur_dfam_ptr[sib_idx];
+	dfam_cluster_map[write_idx++] = sample_idx;
+	cur_case_ct += IS_SET(dfam_pheno_c, sample_idx);
       }
+      if (cur_case_ct * 2 >= sibling_ct) {
+	for (sib_idx = 0; sib_idx < sibling_ct; sib_idx++) {
+	  SET_BIT(perm_preimage, cur_dfam_ptr[sib_idx]);
+	}
+      }
+      cur_dfam_ptr = &(cur_dfam_ptr[sibling_ct]);
+      dfam_cluster_case_cts[uii] = cur_case_ct;
     }
     for (; uii < dfam_cluster_ct; uii++) {
       dfam_cluster_starts[uii] = write_idx;
       sibling_ct = *cur_dfam_ptr++;
+      cur_case_ct = 0;
       for (sib_idx = 0; sib_idx < sibling_ct; sib_idx++) {
-	dfam_cluster_map[write_idx++] = *cur_dfam_ptr++;
+	sample_idx = cur_dfam_ptr[sib_idx];
+	dfam_cluster_map[write_idx++] = sample_idx;
+	cur_case_ct += IS_SET(dfam_pheno_c, sample_idx);
       }
+      if (cur_case_ct * 2 >= sibling_ct) {
+	for (sib_idx = 0; sib_idx < sibling_ct; sib_idx++) {
+	  SET_BIT(perm_preimage, cur_dfam_ptr[sib_idx]);
+	}
+      }
+      cur_dfam_ptr = &(cur_dfam_ptr[sibling_ct]);
+      dfam_cluster_case_cts[uii] = cur_case_ct;
     }
     if (write_idx != dfam_cluster_map_size) {
       logerrprint("assert failure: write_idx != dfam_cluster_map_size\n");
       exit(1);
     }
     dfam_cluster_starts[dfam_cluster_ct] = write_idx;
-
-    // all clusters contain at least one case and at least one control
-    fill_ulong_zero(perm_preimage, dfam_sample_ctl);
 
     retval = cluster_alloc_and_populate_magic_nums(dfam_cluster_ct, dfam_cluster_map, dfam_cluster_starts, &dfam_tot_quotients, &dfam_totq_magics, &dfam_totq_preshifts, &dfam_totq_postshifts, &dfam_totq_incrs);
     if (retval) {
@@ -4415,7 +4431,14 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     }
     // initialize phenotype and flipa permutations.
     // don't bother multithreading for now
-    // generate_cc_cluster_perm1(, perm_preimage);
+    for (ulii = 0; ulii < g_perm_vec_ct; ulii++) {
+      generate_cc_cluster_perm1(dfam_sample_ct, perm_preimage, dfam_cluster_ct, dfam_cluster_map, dfam_cluster_starts, dfam_cluster_case_cts, dfam_tot_quotients, dfam_totq_magics, dfam_totq_preshifts, dfam_totq_postshifts, dfam_totq_incrs, &(g_dfam_perm_vecs[ulii * dfam_sample_ctl]), &sfmt);
+    }
+    transpose_perm1s(g_dfam_perm_vecs, g_perm_vec_ct, sample_ct, (uint32_t*)g_dfam_perm_vecst);
+    /*
+    for () {
+    }
+    */
 
 #ifdef __LP64__
     for (fs_idx = 0; fs_idx < family_all_case_children_ct; fs_idx++) {

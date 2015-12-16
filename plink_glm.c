@@ -4,6 +4,7 @@
 #include "plink_cluster.h"
 #include "plink_ld.h"
 #include "plink_matrix.h"
+#include "plink_perm.h"
 #include "plink_set.h"
 #include "plink_stats.h"
 
