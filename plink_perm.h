@@ -3,6 +3,39 @@
 // Permutation generation and interpretation code common to many association
 // tests.
 
+// Inputs/outputs for multithreaded permutation generators.
+extern uint32_t g_perm_pheno_nm_ct;
+extern uint32_t g_perm_case_ct;
+extern uint32_t g_perm_tot_quotient;
+extern uint64_t g_perm_totq_magic;
+extern uint32_t g_perm_totq_preshift;
+extern uint32_t g_perm_totq_postshift;
+extern uint32_t g_perm_totq_incr;
+extern uint32_t g_perm_is_1bit;
+extern uint32_t g_perm_generation_thread_ct;
+extern uintptr_t g_perm_vec_ct;
+
+extern uint32_t g_perm_cluster_ct;
+extern uint32_t* g_perm_cluster_map;
+extern uint32_t* g_perm_cluster_starts;
+extern uint32_t* g_perm_cluster_case_cts;
+extern uintptr_t* g_perm_cluster_cc_preimage;
+extern uint32_t* g_perm_tot_quotients;
+extern uint64_t* g_perm_totq_magics;
+extern uint32_t* g_perm_totq_preshifts;
+extern uint32_t* g_perm_totq_postshifts;
+extern uint32_t* g_perm_totq_incrs;
+
+extern uintptr_t* g_perm_vecs;
+
+extern double* g_perm_vecstd;
+extern double* g_perm_pheno_d2;
+extern uint32_t* g_perm_sample_to_cluster;
+extern uint32_t* g_perm_qt_cluster_thread_wkspace;
+
+extern double* g_perm_pmajor;
+extern uint32_t* g_perm_precomputed_mods; // [n] = 2^32 mod (n-2)
+
 void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotient, uint64_t totq_magic, uint32_t totq_preshift, uint32_t totq_postshift, uint32_t totq_incr, uintptr_t* perm_vec, sfmt_t* sfmtp);
 
 void generate_cc_perm1(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotient, uint64_t totq_magic, uint32_t totq_preshift, uint32_t totq_postshift, uint32_t totq_incr, uintptr_t* perm_vec, sfmt_t* sfmtp);
@@ -10,6 +43,18 @@ void generate_cc_perm1(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotient, 
 void generate_cc_cluster_perm_vec(uint32_t tot_ct, uintptr_t* preimage, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* cluster_case_cts, uint32_t* tot_quotients, uint64_t* totq_magics, uint32_t* totq_preshifts, uint32_t* totq_postshifts, uint32_t* totq_incrs, uintptr_t* perm_vec, sfmt_t* sfmtp);
 
 void generate_cc_cluster_perm1(uint32_t tot_ct, uintptr_t* preimage, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* cluster_case_cts, uint32_t* tot_quotients, uint64_t* totq_magics, uint32_t* totq_preshifts, uint32_t* totq_postshifts, uint32_t* totq_incrs, uintptr_t* perm_vec, sfmt_t* sfmtp);
+
+THREAD_RET_TYPE generate_cc_perms_thread(void* arg);
+
+THREAD_RET_TYPE generate_cc_cluster_perms_thread(void* arg);
+
+THREAD_RET_TYPE generate_qt_perms_smajor_thread(void* arg);
+
+THREAD_RET_TYPE generate_qt_cluster_perms_smajor_thread(void* arg);
+
+THREAD_RET_TYPE generate_qt_perms_pmajor_thread(void* arg);
+
+THREAD_RET_TYPE generate_qt_cluster_perms_pmajor_thread(void* arg);
 
 // Efficient "vertical popcount" support.
 void transpose_perms(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_nm_ct, uint32_t* perm_vecst);
@@ -192,5 +237,7 @@ static inline void unroll_zero_incr_8_32(uintptr_t* acc8, uintptr_t* acc32, uint
   }
 }
 #endif
+
+int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t permphe_ct);
 
 #endif // __PLINK_PERM_H__

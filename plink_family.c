@@ -2882,7 +2882,6 @@ static uintptr_t* g_dfam_acc;
 static int32_t* g_dfam_twice_numers;
 static uint32_t* g_dfam_total_counts;
 static uint32_t* g_dfam_iteration_order;
-static uintptr_t g_perm_vec_ct;
 static uint32_t g_dfam_family_all_case_children_ct;
 static uint32_t g_dfam_family_mixed_ct;
 static uint32_t g_dfam_sibship_mixed_ct;

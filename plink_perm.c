@@ -1,5 +1,43 @@
 #include "plink_common.h"
 
+#include "plink_cluster.h"
+
+// Inputs/outputs for multithreaded permutation generators.
+uint32_t g_perm_pheno_nm_ct;
+uint32_t g_perm_case_ct;
+uint32_t g_perm_tot_quotient;
+uint64_t g_perm_totq_magic;
+uint32_t g_perm_totq_preshift;
+uint32_t g_perm_totq_postshift;
+uint32_t g_perm_totq_incr;
+uint32_t g_perm_is_1bit;
+uint32_t g_perm_generation_thread_ct;
+uintptr_t g_perm_vec_ct;
+
+uint32_t g_perm_cluster_ct;
+uint32_t* g_perm_cluster_map;
+uint32_t* g_perm_cluster_starts;
+uint32_t* g_perm_cluster_case_cts;
+uintptr_t* g_perm_cluster_cc_preimage;
+uint32_t* g_perm_tot_quotients;
+uint64_t* g_perm_totq_magics;
+uint32_t* g_perm_totq_preshifts;
+uint32_t* g_perm_totq_postshifts;
+uint32_t* g_perm_totq_incrs;
+
+uintptr_t* g_perm_vecs;
+
+// always use genotype indexing for QT --assoc
+double* g_perm_vecstd;
+double* g_perm_pheno_d2;
+uint32_t* g_perm_sample_to_cluster;
+uint32_t* g_perm_qt_cluster_thread_wkspace;
+
+// permutation-major instead of sample-major order for --linear (PERMORY
+// speedups do not apply)
+double* g_perm_pmajor;
+uint32_t* g_perm_precomputed_mods; // [n] = 2^32 mod (n-2)
+
 void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotient, uint64_t totq_magic, uint32_t totq_preshift, uint32_t totq_postshift, uint32_t totq_incr, uintptr_t* perm_vec, sfmt_t* sfmtp) {
   // Assumes tot_quotient is 2^32 / tot_ct, and
   // totq_magic/totq_preshift/totq_postshift/totq_incr have been precomputed
@@ -208,6 +246,323 @@ void generate_cc_cluster_perm1(uint32_t tot_ct, uintptr_t* preimage, uint32_t cl
   }
 }
 
+THREAD_RET_TYPE generate_cc_perms_thread(void* arg) {
+  intptr_t tidx = (intptr_t)arg;
+  uint32_t pheno_nm_ct = g_perm_pheno_nm_ct;
+  uint32_t case_ct = g_perm_case_ct;
+  uint32_t tot_quotient = g_perm_tot_quotient;
+  uint64_t totq_magic = g_perm_totq_magic;
+  uint32_t totq_preshift = g_perm_totq_preshift;
+  uint32_t totq_postshift = g_perm_totq_postshift;
+  uint32_t totq_incr = g_perm_totq_incr;
+  uintptr_t* __restrict__ perm_vecs = g_perm_vecs;
+  sfmt_t* __restrict__ sfmtp = g_sfmtp_arr[tidx];
+  uintptr_t pheno_nm_ctv = (pheno_nm_ct + (BITCT - 1)) / BITCT;
+  uint32_t pidx = (((uint64_t)tidx) * g_perm_vec_ct) / g_perm_generation_thread_ct;
+  uint32_t pmax = (((uint64_t)tidx + 1) * g_perm_vec_ct) / g_perm_generation_thread_ct;
+  if (!g_perm_is_1bit) {
+    pheno_nm_ctv *= 2;
+    for (; pidx < pmax; pidx++) {
+      generate_cc_perm_vec(pheno_nm_ct, case_ct, tot_quotient, totq_magic, totq_preshift, totq_postshift, totq_incr, &(perm_vecs[pidx * pheno_nm_ctv]), sfmtp);
+    }
+  } else {
+    pheno_nm_ctv = (pheno_nm_ctv + 1) & (~1);
+    for (; pidx < pmax; pidx++) {
+      generate_cc_perm1(pheno_nm_ct, case_ct, tot_quotient, totq_magic, totq_preshift, totq_postshift, totq_incr, &(perm_vecs[pidx * pheno_nm_ctv]), sfmtp);
+    }
+  }
+  THREAD_RETURN;
+}
+
+THREAD_RET_TYPE generate_cc_cluster_perms_thread(void* arg) {
+  intptr_t tidx = (intptr_t)arg;
+  uint32_t pheno_nm_ct = g_perm_pheno_nm_ct;
+  uintptr_t* __restrict__ perm_vecs = g_perm_vecs;
+  sfmt_t* __restrict__ sfmtp = g_sfmtp_arr[tidx];
+  uintptr_t pheno_nm_ctv = (pheno_nm_ct + (BITCT - 1)) / BITCT;
+  uint32_t pidx = (((uint64_t)tidx) * g_perm_vec_ct) / g_perm_generation_thread_ct;
+  uint32_t pmax = (((uint64_t)tidx + 1) * g_perm_vec_ct) / g_perm_generation_thread_ct;
+  uint32_t cluster_ct = g_perm_cluster_ct;
+  uint32_t* cluster_map = g_perm_cluster_map;
+  uint32_t* cluster_starts = g_perm_cluster_starts;
+  uint32_t* cluster_case_cts = g_perm_cluster_case_cts;
+  uintptr_t* perm_cluster_cc_preimage = g_perm_cluster_cc_preimage;
+  uint32_t* tot_quotients = g_perm_tot_quotients;
+  uint64_t* totq_magics = g_perm_totq_magics;
+  uint32_t* totq_preshifts = g_perm_totq_preshifts;
+  uint32_t* totq_postshifts = g_perm_totq_postshifts;
+  uint32_t* totq_incrs = g_perm_totq_incrs;
+  if (!g_perm_is_1bit) {
+    pheno_nm_ctv *= 2;
+    for (; pidx < pmax; pidx++) {
+      generate_cc_cluster_perm_vec(pheno_nm_ct, perm_cluster_cc_preimage, cluster_ct, cluster_map, cluster_starts, cluster_case_cts, tot_quotients, totq_magics, totq_preshifts, totq_postshifts, totq_incrs, &(perm_vecs[pidx * pheno_nm_ctv]), sfmtp);
+    }
+  } else {
+    pheno_nm_ctv = (pheno_nm_ctv + 1) & (~1);
+    for (; pidx < pmax; pidx++) {
+      generate_cc_cluster_perm1(pheno_nm_ct, perm_cluster_cc_preimage, cluster_ct, cluster_map, cluster_starts, cluster_case_cts, tot_quotients, totq_magics, totq_preshifts, totq_postshifts, totq_incrs, &(perm_vecs[pidx * pheno_nm_ctv]), sfmtp);
+    }
+  }
+  THREAD_RETURN;
+}
+
+THREAD_RET_TYPE generate_qt_perms_smajor_thread(void* arg) {
+  // Used by QT --assoc and --make-perm-pheno.
+  //
+  // Takes an array of phenotype values in g_perm_pheno_d2 of length
+  // g_perm_pheno_nm_ct, and populates g_perm_vecstd[] with permutations of
+  // those values.  Also requires g_sfmtp_arr[] and
+  // g_perm_generation_thread_ct to be initialized.
+  //
+  // g_perm_vecstd is sample-major.  The nth permutation is stored across
+  //   g_perm_vecstd[n]
+  //   g_perm_vecstd[n + perm_vec_ctcl8m]
+  //   g_perm_vecstd[n + 2 * perm_vec_ctcl8m]
+  //   ...
+  uintptr_t tidx = (uintptr_t)arg;
+  uint32_t pheno_nm_ct = g_perm_pheno_nm_ct;
+  uintptr_t perm_vec_ctcl8 = (g_perm_vec_ct + (CACHELINE_DBL - 1)) / CACHELINE_DBL;
+  uintptr_t perm_vec_ctcl8m = perm_vec_ctcl8 * CACHELINE_DBL;
+  double* pheno_d2 = g_perm_pheno_d2;
+  sfmt_t* sfmtp = g_sfmtp_arr[tidx];
+  uint32_t pmin = CACHELINE_DBL * ((((uint64_t)tidx) * perm_vec_ctcl8) / g_perm_generation_thread_ct);
+  uint32_t pmax = CACHELINE_DBL * ((((uint64_t)tidx + 1) * perm_vec_ctcl8) / g_perm_generation_thread_ct);
+  double* perm_vecstd = &(g_perm_vecstd[pmin]);
+  uint32_t poffset = 0;
+  uint32_t sample_idx = 1;
+  uint32_t pdiff;
+  uint32_t tot_quotient;
+  uint32_t upper_bound;
+  uint64_t totq_magic;
+  uint32_t totq_preshift;
+  uint32_t totq_postshift;
+  uint32_t totq_incr;
+  uint32_t urand;
+  uint32_t uii;
+  double* wptr;
+  double* wptr2;
+  double* wptr3;
+  double cur_source;
+  if (tidx + 1 == g_perm_generation_thread_ct) {
+    pmax = g_perm_vec_ct;
+  }
+  pdiff = pmax - pmin;
+  cur_source = *pheno_d2++;
+  wptr = perm_vecstd;
+  for (; poffset < pdiff; poffset++) {
+    *wptr++ = cur_source;
+  }
+  for (; sample_idx < pheno_nm_ct; sample_idx++) {
+    tot_quotient = 0x100000000LLU / (sample_idx + 1);
+    upper_bound = (sample_idx + 1) * tot_quotient - 1;
+    magic_num(tot_quotient, &totq_magic, &totq_preshift, &totq_postshift, &totq_incr);
+    cur_source = *pheno_d2++;
+    wptr = &(perm_vecstd[sample_idx * perm_vec_ctcl8m]);
+    wptr2 = perm_vecstd;
+    for (poffset = 0; poffset < pdiff; poffset++) {
+      do {
+	urand = sfmt_genrand_uint32(sfmtp);
+      } while (urand > upper_bound);
+      uii = (totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift;
+      wptr3 = &(wptr2[uii * perm_vec_ctcl8m]);
+      *wptr++ = *wptr3;
+      *wptr3 = cur_source;
+      wptr2++;
+    }
+  }
+  THREAD_RETURN;
+}
+
+THREAD_RET_TYPE generate_qt_cluster_perms_smajor_thread(void* arg) {
+  // Variant of generate_qt_perms_smajor_thread() which restricts permutations
+  // to be within-cluster.
+  // On top of the generate_qt_perms_smajor_thread requirements, this also
+  // needs g_perm_cluster_ct, g_perm_cluster_map, g_perm_cluster_starts,
+  // g_perm_qt_cluster_thread_wkspace, and g_perm_sample_to_cluster to be
+  // initialized.
+  uintptr_t tidx = (uintptr_t)arg;
+  uint32_t pheno_nm_ct = g_perm_pheno_nm_ct;
+  uintptr_t perm_vec_ctcl8 = (g_perm_vec_ct + (CACHELINE_DBL - 1)) / CACHELINE_DBL;
+  uintptr_t perm_vec_ctcl8m = perm_vec_ctcl8 * CACHELINE_DBL;
+  double* pheno_d2 = g_perm_pheno_d2;
+  sfmt_t* sfmtp = g_sfmtp_arr[tidx];
+  uint32_t pmin = CACHELINE_DBL * ((((uint64_t)tidx) * perm_vec_ctcl8) / g_perm_generation_thread_ct);
+  uint32_t pmax = CACHELINE_DBL * ((((uint64_t)tidx + 1) * perm_vec_ctcl8) / g_perm_generation_thread_ct);
+  double* perm_vecstd = &(g_perm_vecstd[pmin]);
+  uint32_t cluster_ct = g_perm_cluster_ct;
+  uint32_t cluster_ctcl = (cluster_ct + (CACHELINE_INT32 - 1)) / CACHELINE_INT32;
+  uint32_t* cluster_map = g_perm_cluster_map;
+  uint32_t* cluster_starts = g_perm_cluster_starts;
+  uint32_t* in_cluster_positions = &(g_perm_qt_cluster_thread_wkspace[tidx * cluster_ctcl * CACHELINE_INT32]);
+  uint32_t* sample_to_cluster = g_perm_sample_to_cluster;
+  uint32_t poffset = 0;
+  uint32_t sample_idx = 0;
+  uint32_t* cur_map_start;
+  uint32_t pdiff;
+  uint32_t cluster_idx;
+  uint32_t cur_in_cluster_pos;
+  uint32_t tot_quotient;
+  uint32_t upper_bound;
+  uint64_t totq_magic;
+  uint32_t totq_preshift;
+  uint32_t totq_postshift;
+  uint32_t totq_incr;
+  uint32_t urand;
+  uint32_t uii;
+  double* wptr;
+  double* wptr2;
+  double* wptr3;
+  double cur_source;
+  if (tidx + 1 == g_perm_generation_thread_ct) {
+    pmax = g_perm_vec_ct;
+  }
+  pdiff = pmax - pmin;
+  fill_uint_zero(in_cluster_positions, cluster_ct);
+  for (; sample_idx < pheno_nm_ct; sample_idx++) {
+    cur_source = *pheno_d2++;
+    cluster_idx = sample_to_cluster[sample_idx];
+    if (cluster_idx == 0xffffffffU) {
+      cur_in_cluster_pos = 0;
+    } else {
+      cur_in_cluster_pos = in_cluster_positions[cluster_idx];
+      in_cluster_positions[cluster_idx] += 1;
+    }
+    wptr = &(perm_vecstd[sample_idx * perm_vec_ctcl8m]);
+    if (!cur_in_cluster_pos) {
+      for (poffset = 0; poffset < pdiff; poffset++) {
+        *wptr++ = cur_source;
+      }
+    } else {
+      cur_map_start = &(cluster_map[cluster_starts[cluster_idx]]);
+      tot_quotient = 0x100000000LLU / (cur_in_cluster_pos + 1);
+      upper_bound = (cur_in_cluster_pos + 1) * tot_quotient - 1;
+      magic_num(tot_quotient, &totq_magic, &totq_preshift, &totq_postshift, &totq_incr);
+      wptr2 = perm_vecstd;
+      for (poffset = 0; poffset < pdiff; poffset++) {
+	do {
+	  urand = sfmt_genrand_uint32(sfmtp);
+	} while (urand > upper_bound);
+	uii = (totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift;
+	wptr3 = &(wptr2[cur_map_start[uii] * perm_vec_ctcl8m]);
+	*wptr++ = *wptr3;
+	*wptr3 = cur_source;
+	wptr2++;
+      }
+    }
+  }
+  THREAD_RETURN;
+}
+
+THREAD_RET_TYPE generate_qt_perms_pmajor_thread(void* arg) {
+  // Used by --linear.  Requires g_perm_pheno_nm_ct, g_perm_pheno_d2,
+  // g_sfmtp_arr, g_perm_generation_thread_ct, and g_perm_vec_ct to be
+  // initialized, and space must be allocated for g_perm_pmajor.  The nth
+  // permutation (0-based) is stored in g_perm_pmajor indices
+  //   [n * sample_valid_ct] to [(n + 1) * sample_valid_ct - 1]
+  // inclusive.
+  uintptr_t tidx = (uintptr_t)arg;
+  uint32_t sample_valid_ct = g_perm_pheno_nm_ct;
+  uintptr_t perm_vec_ctcl = (g_perm_vec_ct + (CACHELINE_INT32 - 1)) / CACHELINE_INT32;
+  sfmt_t* sfmtp = g_sfmtp_arr[tidx];
+  uintptr_t pmin = CACHELINE_INT32 * ((((uint64_t)tidx) * perm_vec_ctcl) / g_perm_generation_thread_ct);
+  uintptr_t pmax = CACHELINE_INT32 * ((((uint64_t)tidx + 1) * perm_vec_ctcl) / g_perm_generation_thread_ct);
+  double* perm_pmajor = &(g_perm_pmajor[pmin * sample_valid_ct]);
+  double* pheno_d2 = g_perm_pheno_d2;
+  uint32_t* precomputed_mods = g_perm_precomputed_mods;
+  uint32_t* lbound_ptr;
+  double* pheno_ptr;
+  uint32_t poffset;
+  uint32_t pdiff;
+  uint32_t sample_idx;
+  uint32_t urand;
+  uint32_t lbound;
+  if (tidx + 1 == g_perm_generation_thread_ct) {
+    pmax = g_perm_vec_ct;
+  }
+  pdiff = pmax - pmin;
+  for (poffset = 0; poffset < pdiff; poffset++) {
+    lbound_ptr = precomputed_mods;
+    pheno_ptr = pheno_d2;
+    perm_pmajor[0] = *pheno_ptr++;
+    for (sample_idx = 1; sample_idx < sample_valid_ct; sample_idx++) {
+      lbound = *lbound_ptr++;
+      do {
+        urand = sfmt_genrand_uint32(sfmtp);
+      } while (urand < lbound);
+      // er, this modulus operation is slow.  but doesn't seem to be worthwhile
+      // to use magic numbers here.
+      urand %= sample_idx + 1;
+      perm_pmajor[sample_idx] = perm_pmajor[urand];
+      perm_pmajor[urand] = *pheno_ptr++;
+    }
+    perm_pmajor = &(perm_pmajor[sample_valid_ct]);
+  }
+  THREAD_RETURN;
+}
+
+THREAD_RET_TYPE generate_qt_cluster_perms_pmajor_thread(void* arg) {
+  // On top of the linear_gen_perms_thread requirements, this also needs
+  // g_perm_cluster_ct, g_perm_cluster_map, g_perm_cluster_starts,
+  // g_perm_qt_cluster_thread_wkspace, and g_perm_sample_to_cluster to be
+  // initialized.
+  uintptr_t tidx = (uintptr_t)arg;
+  uint32_t sample_valid_ct = g_perm_pheno_nm_ct;
+  uintptr_t perm_vec_ctcl = (g_perm_vec_ct + (CACHELINE_INT32 - 1)) / CACHELINE_INT32;
+  sfmt_t* sfmtp = g_sfmtp_arr[tidx];
+  uintptr_t pmin = CACHELINE_INT32 * ((((uint64_t)tidx) * perm_vec_ctcl) / g_perm_generation_thread_ct);
+  uintptr_t pmax = CACHELINE_INT32 * ((((uint64_t)tidx + 1) * perm_vec_ctcl) / g_perm_generation_thread_ct);
+  double* perm_pmajor = &(g_perm_pmajor[pmin * sample_valid_ct]);
+  double* pheno_d2 = g_perm_pheno_d2;
+  uint32_t* precomputed_mods = &(g_perm_precomputed_mods[-1]);
+  uint32_t cluster_ct = g_perm_cluster_ct;
+  uint32_t cluster_ctcl = (cluster_ct + (CACHELINE_INT32 - 1)) / CACHELINE_INT32;
+  uint32_t* cluster_map = g_perm_cluster_map;
+  uint32_t* cluster_starts = g_perm_cluster_starts;
+  uint32_t* in_cluster_positions = &(g_perm_qt_cluster_thread_wkspace[tidx * cluster_ctcl * CACHELINE_INT32]);
+  uint32_t* sample_to_cluster = g_perm_sample_to_cluster;
+  double* pheno_ptr;
+  uint32_t poffset;
+  uint32_t pdiff;
+  uint32_t cluster_idx;
+  uint32_t cur_in_cluster_pos;
+  uint32_t sample_idx;
+  uint32_t urand;
+  uint32_t lbound;
+  uint32_t uii;
+  if (tidx + 1 == g_perm_generation_thread_ct) {
+    pmax = g_perm_vec_ct;
+  }
+  pdiff = pmax - pmin;
+  for (poffset = 0; poffset < pdiff; poffset++) {
+    fill_uint_zero(in_cluster_positions, cluster_ct);
+    pheno_ptr = pheno_d2;
+    for (sample_idx = 0; sample_idx < sample_valid_ct; sample_idx++) {
+      cluster_idx = sample_to_cluster[sample_idx];
+      if (cluster_idx == 0xffffffffU) {
+	cur_in_cluster_pos = 0;
+      } else {
+	cur_in_cluster_pos = in_cluster_positions[cluster_idx];
+	in_cluster_positions[cluster_idx] += 1;
+      }
+      if (!cur_in_cluster_pos) {
+        perm_pmajor[sample_idx] = *pheno_ptr++;
+      } else {
+        lbound = precomputed_mods[cur_in_cluster_pos];
+        do {
+	  urand = sfmt_genrand_uint32(sfmtp);
+	} while (urand < lbound);
+	urand %= (cur_in_cluster_pos + 1);
+	uii = cluster_map[cluster_starts[cluster_idx] + urand];
+        perm_pmajor[sample_idx] = perm_pmajor[uii];
+	perm_pmajor[uii] = *pheno_ptr++;
+      }
+    }
+    perm_pmajor = &(perm_pmajor[sample_valid_ct]);
+  }
+  THREAD_RETURN;
+}
+
+
 void transpose_perms(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_nm_ct, uint32_t* perm_vecst) {
   // Transpose permutations so PRESTO/PERMORY-style genotype indexing can work.
   //
@@ -330,4 +685,172 @@ void transpose_perm1s(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno
   }
 }
 
-// todo: add multithread globals with extern linkage
+
+int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t permphe_ct) {
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* outfile = NULL;
+  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
+  uintptr_t pheno_nm_ctl = (pheno_nm_ct + (BITCT - 1)) / BITCT;
+  uintptr_t pheno_nm_ctv = (pheno_nm_ctl + 1) & (~1);
+  uintptr_t perm_vec_ctcl8m = 0;
+  char* writebuf = NULL;
+  int32_t retval = 0;
+  uintptr_t* ulptr;
+  double* dptr;
+  char* wptr;
+  uintptr_t sample_uidx;
+  uintptr_t sample_idx;
+  uintptr_t perm_idx;
+  uintptr_t ulii;
+  uint32_t sample_nmidx;
+  uint32_t rshift;
+  if (!pheno_nm_ct) {
+    logerrprint("Error: --make-perm-pheno requires phenotype data.\n");
+    goto make_perm_pheno_ret_INVALID_CMDLINE;
+  }
+  g_perm_generation_thread_ct = MINV(g_thread_ct, permphe_ct);
+  if (wkspace_init_sfmtp(g_perm_generation_thread_ct)) {
+    goto make_perm_pheno_ret_NOMEM;
+  }
+  g_perm_pheno_nm_ct = pheno_nm_ct;
+  g_perm_vec_ct = permphe_ct;
+  ulii = 0;
+  if (pheno_c) {
+    g_perm_is_1bit = 1;
+    g_perm_case_ct = popcount_longs(pheno_c, unfiltered_sample_ctl);
+    // could seamlessly support multipass by using different permutation logic,
+    // but pointless in practice; better to just generate multiple files
+    if (wkspace_alloc_ul_checked(&g_perm_vecs, permphe_ct * pheno_nm_ctv * sizeof(intptr_t))) {
+      goto make_perm_pheno_ret_NOMEM;
+    }
+    if (cluster_starts) {
+      // most similar to testmiss()
+      retval = cluster_include_and_reindex(unfiltered_sample_ct, pheno_nm, 1, pheno_c, pheno_nm_ct, 1, cluster_ct, cluster_map, cluster_starts, &g_perm_cluster_ct, &g_perm_cluster_map, &g_perm_cluster_starts, &g_perm_cluster_case_cts, &g_perm_cluster_cc_preimage);
+      if (retval) {
+	goto make_perm_pheno_ret_1;
+      }
+      if (!g_perm_cluster_ct) {
+        logerrprint("Error: Degenerate --make-perm-pheno invocation (no size 2+ clusters).\n");
+        goto make_perm_pheno_ret_INVALID_CMDLINE;
+      }
+      retval = cluster_alloc_and_populate_magic_nums(g_perm_cluster_ct, g_perm_cluster_map, g_perm_cluster_starts, &g_perm_tot_quotients, &g_perm_totq_magics, &g_perm_totq_preshifts, &g_perm_totq_postshifts, &g_perm_totq_incrs);
+      if (retval) {
+        goto make_perm_pheno_ret_1;
+      }
+      // not actually much of a point to multithreading since this is I/O
+      // bound, but what the hell, the permutation generators already support
+      // it
+      if (spawn_threads(threads, &generate_cc_cluster_perms_thread, g_perm_generation_thread_ct)) {
+	goto make_perm_pheno_ret_THREAD_CREATE_FAIL;
+      }
+      generate_cc_cluster_perms_thread((void*)ulii);
+    } else {
+      g_perm_cluster_starts = NULL;
+      g_perm_tot_quotient = 0x100000000LLU / pheno_nm_ct;
+      magic_num(g_perm_tot_quotient, &g_perm_totq_magic, &g_perm_totq_preshift, &g_perm_totq_postshift, &g_perm_totq_incr);
+      if (spawn_threads(threads, &generate_cc_perms_thread, g_perm_generation_thread_ct)) {
+	goto make_perm_pheno_ret_THREAD_CREATE_FAIL;
+      }
+      generate_cc_perms_thread((void*)ulii);
+    }
+  } else {
+    g_perm_pheno_d2 = (double*)alloc_and_init_collapsed_arr_incl((char*)pheno_d, sizeof(double), unfiltered_sample_ct, pheno_nm, pheno_nm_ct, 1);
+    if (!g_perm_pheno_d2) {
+      goto make_perm_pheno_ret_NOMEM;
+    }
+    perm_vec_ctcl8m = CACHEALIGN32_DBL(permphe_ct);
+    if (wkspace_alloc_d_checked(&g_perm_vecstd, perm_vec_ctcl8m * sizeof(double) * pheno_nm_ct)) {
+      goto make_perm_pheno_ret_NOMEM;
+    }
+    if (cluster_starts) {
+      retval = cluster_include_and_reindex(unfiltered_sample_ct, pheno_nm, 1, NULL, pheno_nm_ct, 0, cluster_ct, cluster_map, cluster_starts, &g_perm_cluster_ct, &g_perm_cluster_map, &g_perm_cluster_starts, NULL, NULL);
+      if (retval) {
+	goto make_perm_pheno_ret_1;
+      }
+      if (!g_perm_cluster_ct) {
+        logerrprint("Error: Degenerate --make-perm-pheno invocation (no size 2+ clusters).\n");
+        goto make_perm_pheno_ret_INVALID_CMDLINE;
+      }
+      if (wkspace_alloc_ui_checked(&g_perm_sample_to_cluster, pheno_nm_ct * sizeof(int32_t)) ||
+          wkspace_alloc_ui_checked(&g_perm_qt_cluster_thread_wkspace, g_perm_generation_thread_ct * ((g_perm_cluster_ct + (CACHELINE_INT32 - 1)) / CACHELINE_INT32) * CACHELINE)) {
+	goto make_perm_pheno_ret_NOMEM;
+      }
+      fill_unfiltered_sample_to_cluster(pheno_nm_ct, g_perm_cluster_ct, g_perm_cluster_map, g_perm_cluster_starts, g_perm_sample_to_cluster);
+      if (spawn_threads(threads, &generate_qt_cluster_perms_smajor_thread, g_perm_generation_thread_ct)) {
+	goto make_perm_pheno_ret_THREAD_CREATE_FAIL;
+      }
+      generate_qt_cluster_perms_smajor_thread((void*)ulii);
+    } else {
+      if (spawn_threads(threads, &generate_qt_perms_smajor_thread, g_perm_generation_thread_ct)) {
+	goto make_perm_pheno_ret_THREAD_CREATE_FAIL;
+      }
+      generate_qt_perms_smajor_thread((void*)ulii);
+    }
+    if (wkspace_alloc_c_checked(&writebuf, permphe_ct * 16)) {
+      goto make_perm_pheno_ret_NOMEM;
+    }
+  }
+  join_threads(threads, g_perm_generation_thread_ct);
+  memcpy(outname_end, ".pphe", 6);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto make_perm_pheno_ret_OPEN_FAIL;
+  }
+  sample_nmidx = 0;
+  for (sample_uidx = 0, sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
+    next_unset_ul_unsafe_ck(sample_exclude, &sample_uidx);
+    fputs(&(sample_ids[sample_uidx * max_sample_id_len]), outfile);
+    if (!IS_SET(pheno_nm, sample_uidx)) {
+      for (perm_idx = 0; perm_idx < permphe_ct; perm_idx++) {
+	putc('\t', outfile);
+	fputs(output_missing_pheno, outfile);
+      }
+    } else if (pheno_c) {
+      ulptr = &(g_perm_vecs[sample_nmidx / BITCT]);
+      rshift = sample_nmidx % BITCT;
+      for (perm_idx = 0; perm_idx < permphe_ct; perm_idx++) {
+	putc('\t', outfile);
+        putc('1' + ((ulptr[perm_idx * pheno_nm_ctv] >> rshift) & 1), outfile);
+      }
+      sample_nmidx++;
+    } else {
+      wptr = writebuf;
+      dptr = &(g_perm_vecstd[sample_nmidx * perm_vec_ctcl8m]);
+      for (perm_idx = 0; perm_idx < permphe_ct; perm_idx++) {
+	*wptr++ = '\t';
+        wptr = double_g_write(wptr, *dptr++);
+      }
+      if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
+	goto make_perm_pheno_ret_WRITE_FAIL;
+      }
+      sample_nmidx++;
+    }
+    if (putc_checked('\n', outfile)) {
+      goto make_perm_pheno_ret_WRITE_FAIL;
+    }
+  }
+  if (fclose_null(&outfile)) {
+    goto make_perm_pheno_ret_WRITE_FAIL;
+  }
+  LOGPRINTFWW("--make-perm-pheno: Permuted phenotypes written to %s .\n", outname);
+  while (0) {
+  make_perm_pheno_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  make_perm_pheno_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  make_perm_pheno_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  make_perm_pheno_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+  make_perm_pheno_ret_THREAD_CREATE_FAIL:
+    retval = RET_THREAD_CREATE_FAIL;
+    break;
+  }
+ make_perm_pheno_ret_1:
+  wkspace_reset(wkspace_mark);
+  fclose_cond(outfile);
+  return retval;
+}

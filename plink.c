@@ -40,6 +40,7 @@
 #include "plink_lasso.h"
 #include "plink_ld.h"
 #include "plink_misc.h"
+#include "plink_perm.h"
 #ifdef __cplusplus
   #ifndef _WIN32
     #include "plink_rserve.h"
@@ -103,7 +104,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (16 Dec 2015)";
+  " (20 Dec 2015)";
 const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
