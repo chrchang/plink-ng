@@ -633,7 +633,7 @@ void transpose_perms(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_
 
 void transpose_perm1s(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_nm_ct, uint32_t* perm_vecst) {
   uintptr_t sample_idx = 0;
-  uintptr_t pheno_nm_ctl = (pheno_nm_ct + (BITCT - 1)) / BITCT;
+  uintptr_t pheno_nm_ctv = 2 * ((pheno_nm_ct + (2 * BITCT - 1)) / (2 * BITCT));
 #ifdef __LP64__
   uint32_t wbuf[4];
   uint32_t* wbptr;
@@ -663,7 +663,7 @@ void transpose_perm1s(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno
 	}
 	wbptr = wbuf;
       }
-      *wbptr |= ((pvptr[perm_idx * pheno_nm_ctl] >> rshift) & 1) << wshift;
+      *wbptr |= ((pvptr[perm_idx * pheno_nm_ctv] >> rshift) & 1) << wshift;
       wbptr++;
     } while (++perm_idx < perm_vec_ct);
     memcpy(perm_vecst, wbuf, 16);
@@ -678,7 +678,7 @@ void transpose_perm1s(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno
 	wval = 0;
 	wshift = 0;
       }
-      wval |= ((pvptr[perm_idx * pheno_nm_ctl] >> rshift) & 1) << wshift;
+      wval |= ((pvptr[perm_idx * pheno_nm_ctv] >> rshift) & 1) << wshift;
     } while (++perm_idx < perm_vec_ct);
     *perm_vecst++ = wval;
 #endif
