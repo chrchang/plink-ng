@@ -3,7 +3,6 @@
  * Version 1.3  13 Jan 2012  Mark Adler
  * For conditions of distribution and use, see copyright notice in yarn.h
  */
-
 #ifndef _WIN32
 
 /* Basic thread operations implemented using the POSIX pthread library.  All

@@ -4439,6 +4439,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       goto dfam_ret_NOMEM;
     }
     // initialize flipa permutations.
+    ;;;
 
     /*
     for () {

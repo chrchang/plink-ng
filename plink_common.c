@@ -34,11 +34,11 @@ uint32_t aligned_malloc(uintptr_t** aligned_pp, uintptr_t size) {
   // Avoid random segfaults on 64-bit machines which have 8-byte- instead of
   // 16-byte-aligned malloc().  (Slightly different code is needed if malloc()
   // does not even guarantee 8-byte alignment.)
-  uintptr_t* malloc_ptr = (uintptr_t*)malloc(size + 16);
+  uintptr_t* malloc_ptr = (uintptr_t*)malloc(size + VEC_BYTES);
   if (!malloc_ptr) {
     return 1;
   }
-  *aligned_pp = (uintptr_t*)((((uintptr_t)malloc_ptr) + 16) & (~(15 * ONELU)));
+  *aligned_pp = (uintptr_t*)((((uintptr_t)malloc_ptr) + VEC_BYTES) & (~(VEC_BYTES_M1 * ONELU)));
   (*aligned_pp)[-1] = (uintptr_t)malloc_ptr;
 #else
   // no SSE2 concerns here
@@ -3888,12 +3888,12 @@ void fill_midx_to_idx(uintptr_t* exclude_arr_orig, uintptr_t* exclude_arr, uint3
   }
 }
 
-void fill_vec_55(uintptr_t* vec, uint32_t ct) {
+void fill_fourvec_55(uintptr_t* fourvec, uint32_t ct) {
   uint32_t rem = ct & (BITCT - 1);
 #ifdef __LP64__
   const __m128i m1 = {FIVEMASK, FIVEMASK};
-  __m128i* vecp = (__m128i*)vec;
-  __m128i* vec_end = (__m128i*)(&(vec[2 * (ct / BITCT)]));
+  __m128i* vecp = (__m128i*)fourvec;
+  __m128i* vec_end = (__m128i*)(&(fourvec[2 * (ct / BITCT)]));
   uintptr_t* second_to_last;
   while (vecp < vec_end) {
     *vecp++ = m1;
@@ -3909,26 +3909,26 @@ void fill_vec_55(uintptr_t* vec, uint32_t ct) {
     }
   }
 #else
-  uintptr_t* vec_end = &(vec[2 * (ct / BITCT)]);
-  while (vec < vec_end) {
-    *vec++ = FIVEMASK;
+  uintptr_t* vec_end = &(fourvec[2 * (ct / BITCT)]);
+  while (fourvec < vec_end) {
+    *fourvec++ = FIVEMASK;
   }
   if (rem) {
     if (rem > BITCT2) {
-      vec[0] = FIVEMASK;
-      vec[1] = FIVEMASK >> ((BITCT - rem) * 2);
+      fourvec[0] = FIVEMASK;
+      fourvec[1] = FIVEMASK >> ((BITCT - rem) * 2);
     } else {
-      vec[0] = FIVEMASK >> ((BITCT2 - rem) * 2);
-      vec[1] = 0;
+      fourvec[0] = FIVEMASK >> ((BITCT2 - rem) * 2);
+      fourvec[1] = 0;
     }
   }
 #endif
 }
 
-void vec_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_bitarr, uint32_t filtered_ct, uintptr_t* output_vec) {
-  // Used to unpack e.g. unfiltered sex_male to a filtered 2-bit vector usable
+void fourfield_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_bitarr, uint32_t filtered_ct, uintptr_t* output_fourfield) {
+  // Used to unpack e.g. unfiltered sex_male to a filtered fourfield usable
   // as a raw input bitmask.
-  // Assumes output_vec is sized to a multiple of 16 bytes.
+  // Assumes output_fourfield is sized to a multiple of 16 bytes.
   uintptr_t cur_write = 0;
   uint32_t item_uidx = 0;
   uint32_t write_bit = 0;
@@ -3941,21 +3941,21 @@ void vec_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uin
     do {
       cur_write |= ((unfiltered_bitarr[item_uidx / BITCT] >> (item_uidx % BITCT)) & 1) << (write_bit * 2);
       if (++write_bit == BITCT2) {
-	*output_vec++ = cur_write;
+	*output_fourfield++ = cur_write;
         cur_write = 0;
 	write_bit = 0;
       }
     } while (++item_uidx < item_uidx_stop);
   }
   if (write_bit) {
-    *output_vec++ = cur_write;
+    *output_fourfield++ = cur_write;
   }
   if ((filtered_ct + (BITCT2 - 1)) & BITCT2) {
-    *output_vec = 0;
+    *output_fourfield = 0;
   }
 }
 
-void vec_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_exclude_bitarr, uint32_t filtered_ct, uintptr_t* output_vec) {
+void fourfield_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_exclude_bitarr, uint32_t filtered_ct, uintptr_t* output_fourfield) {
   uintptr_t cur_write = 0;
   uint32_t item_uidx = 0;
   uint32_t write_bit = 0;
@@ -3968,43 +3968,43 @@ void vec_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfiltered
     do {
       cur_write |= ((unfiltered_bitarr[item_uidx / BITCT] >> (item_uidx % BITCT)) & 1) << (write_bit * 2);
       if (++write_bit == BITCT2) {
-	*output_vec++ = cur_write;
+	*output_fourfield++ = cur_write;
         cur_write = 0;
 	write_bit = 0;
       }
     } while (++item_uidx < item_uidx_stop);
   }
   if (write_bit) {
-    *output_vec++ = cur_write;
+    *output_fourfield++ = cur_write;
   }
   if ((filtered_ct + (BITCT2 - 1)) & BITCT2) {
-    *output_vec = 0;
+    *output_fourfield = 0;
   }
 }
 
-uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* sample_bitarr, uintptr_t* sex_male, uintptr_t** sample_include2_ptr, uintptr_t** sample_male_include2_ptr) {
+uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* sample_bitarr, uintptr_t* sex_male, uintptr_t** sample_include_fourvec_ptr, uintptr_t** sample_male_include_fourvec_ptr) {
   uintptr_t sample_ctv2 = 2 * ((sample_ct + (BITCT - 1)) / BITCT);
   if (hh_exists & (Y_FIX_NEEDED | NXMHH_EXISTS)) {
     // if already allocated, we assume this is fully initialized
-    if (!(*sample_include2_ptr)) {
-      if (wkspace_alloc_ul_checked(sample_include2_ptr, sample_ctv2 * sizeof(intptr_t))) {
+    if (!(*sample_include_fourvec_ptr)) {
+      if (wkspace_alloc_ul_checked(sample_include_fourvec_ptr, sample_ctv2 * sizeof(intptr_t))) {
 	return 1;
       }
-      fill_vec_55(*sample_include2_ptr, sample_ct);
+      fill_fourvec_55(*sample_include_fourvec_ptr, sample_ct);
     }
   }
   if (hh_exists & (XMHH_EXISTS | Y_FIX_NEEDED)) {
     // if already allocated, we assume it's been top_alloc'd but not
     // initialized
-    if (!(*sample_male_include2_ptr)) {
-      if (wkspace_alloc_ul_checked(sample_male_include2_ptr, sample_ctv2 * sizeof(intptr_t))) {
+    if (!(*sample_male_include_fourvec_ptr)) {
+      if (wkspace_alloc_ul_checked(sample_male_include_fourvec_ptr, sample_ctv2 * sizeof(intptr_t))) {
 	return 1;
       }
     }
     if (is_include) {
-      vec_collapse_init(sex_male, unfiltered_sample_ct, sample_bitarr, sample_ct, *sample_male_include2_ptr);
+      fourfield_collapse_init(sex_male, unfiltered_sample_ct, sample_bitarr, sample_ct, *sample_male_include_fourvec_ptr);
     } else {
-      vec_collapse_init_exclude(sex_male, unfiltered_sample_ct, sample_bitarr, sample_ct, *sample_male_include2_ptr);
+      fourfield_collapse_init_exclude(sex_male, unfiltered_sample_ct, sample_bitarr, sample_ct, *sample_male_include_fourvec_ptr);
     }
   }
   return 0;
@@ -5237,11 +5237,10 @@ void bitfield_exclude_to_include(uintptr_t* exclude_arr, uintptr_t* include_arr,
   }
 }
 
-void bitfield_and(uintptr_t* vv, uintptr_t* include_vec, uintptr_t word_ct) {
-  // vv := vv AND include_vec
-  // on 64-bit systems, assumes vv and include_vec are 16-byte aligned
+void bitfield_and(uintptr_t* main_vec, uintptr_t* include_vec, uintptr_t word_ct) {
+  // main_vec := main_vec AND include_vec
 #ifdef __LP64__
-  __m128i* vv128 = (__m128i*)vv;
+  __m128i* vv128 = (__m128i*)main_vec;
   __m128i* iv128 = (__m128i*)include_vec;
   __m128i* vv128_end = &(vv128[word_ct / 2]);
   while (vv128 < vv128_end) {
@@ -5250,12 +5249,12 @@ void bitfield_and(uintptr_t* vv, uintptr_t* include_vec, uintptr_t word_ct) {
   }
   if (word_ct & 1) {
     word_ct--;
-    vv[word_ct] &= include_vec[word_ct];
+    main_vec[word_ct] &= include_vec[word_ct];
   }
 #else
-  uintptr_t* vec_end = &(vv[word_ct]);
-  while (vv < vec_end) {
-    *vv++ &= *include_vec++;
+  uintptr_t* vec_end = &(main_vec[word_ct]);
+  while (main_vec < vec_end) {
+    *main_vec++ &= *include_vec++;
   }
 #endif
 }

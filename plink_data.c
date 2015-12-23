@@ -8480,7 +8480,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	marker_skip_ct++;
 	continue;
       }
-      fill_vec_55(base_bitfields, sample_ct);
+      fill_fourvec_55(base_bitfields, sample_ct);
       missing_gt_ct++;
       alt_allele_idx = 1;
       goto vcf_to_bed_genotype_write;
@@ -9609,7 +9609,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	goto bcf_to_bed_skip_genotype_write;
       }
       missing_gt_ct++;
-      fill_vec_55(base_bitfields, sample_ct);
+      fill_fourvec_55(base_bitfields, sample_ct);
       goto bcf_to_bed_genotype_write;
     }
 
@@ -9667,7 +9667,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	    goto bcf_to_bed_marker_skip2;
 	  } else {
 	    missing_gt_ct++;
-	    fill_vec_55(base_bitfields, sample_ct);
+	    fill_fourvec_55(base_bitfields, sample_ct);
 	    goto bcf_to_bed_genotype_write;
 	  }
 	}
@@ -9675,7 +9675,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     }
     if (!ujj) {
       // ploidy zero previously caused the variant to be skipped
-      fill_vec_55(base_bitfields, sample_ct);
+      fill_fourvec_55(base_bitfields, sample_ct);
       goto bcf_to_bed_genotype_write;
     }
     if (ukk == 5) {
@@ -12134,8 +12134,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
             wkspace_alloc_ul_checked(&sample_male_include2_y, uii * sizeof(intptr_t))) {
 	  goto recode_ret_NOMEM;
 	}
-	fill_vec_55(sample_include2_y, sample_ct_y);
-	fill_vec_55(sample_male_include2_y, sample_ct_y);
+	fill_fourvec_55(sample_include2_y, sample_ct_y);
+	fill_fourvec_55(sample_male_include2_y, sample_ct_y);
 	sample_ids_collapsed_y = alloc_and_init_collapsed_arr(sample_ids, max_sample_id_len, unfiltered_sample_ct, sample_exclude_y, sample_ct_y, (delimiter == '\t'));
       }
     }

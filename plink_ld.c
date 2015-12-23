@@ -1584,7 +1584,7 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
     neg_uidx_buf[uljj * ulii + 1] = 0.0;
   }
   for (is_case = 0; is_case < 2; is_case++) {
-    vec_collapse_init(sex_male, unfiltered_sample_ct, founder_phenos[is_case], pheno_ct[is_case], pheno_male_include2[is_case]);
+    fourfield_collapse_init(sex_male, unfiltered_sample_ct, founder_phenos[is_case], pheno_ct[is_case], pheno_male_include2[is_case]);
     window_geno_ptr = window_geno[is_case];
     window_mask_ptr = window_mask[is_case];
     cur_192_long = pheno_ct_192_long[is_case];
@@ -9336,7 +9336,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     if (wkspace_alloc_ul_checked(&ulptr, ulii * sizeof(intptr_t))) {
       goto epistasis_report_ret_NOMEM;
     }
-    fill_vec_55(ulptr, ulii * BITCT2);
+    fill_fourvec_55(ulptr, ulii * BITCT2);
   }
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
     chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];

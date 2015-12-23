@@ -6416,7 +6416,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       goto model_assoc_ret_NOMEM;
     }
     g_sample_male_include2 = sample_male_include2;
-    vec_collapse_init(sex_male, unfiltered_sample_ct, pheno_nm, pheno_nm_ct, sample_male_include2);
+    fourfield_collapse_init(sex_male, unfiltered_sample_ct, pheno_nm, pheno_nm_ct, sample_male_include2);
     male_ct = popcount01_longs(sample_male_include2, pheno_nm_ctv2);
     vec_init_invert(pheno_nm_ct, g_sample_nonmale_include2, sample_male_include2);
     nonmale_ct = pheno_nm_ct - male_ct;
@@ -6549,7 +6549,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       wkspace_alloc_ul_checked(&sample_case_include2, pheno_nm_ctv2 * sizeof(intptr_t))) {
     goto model_assoc_ret_NOMEM;
   }
-  vec_collapse_init(pheno_c, unfiltered_sample_ct, pheno_nm, pheno_nm_ct, sample_case_include2);
+  fourfield_collapse_init(pheno_c, unfiltered_sample_ct, pheno_nm, pheno_nm_ct, sample_case_include2);
   case_ct = popcount01_longs(sample_case_include2, pheno_nm_ctv2);
   g_perm_case_ct = case_ct;
   vec_init_invert(pheno_nm_ct, sample_ctrl_include2, sample_case_include2);
@@ -6563,7 +6563,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	wkspace_alloc_ul_checked(&sample_male_case_include2, pheno_nm_ctv2 * sizeof(intptr_t))) {
       goto model_assoc_ret_NOMEM;
     }
-    vec_collapse_init(sex_male, unfiltered_sample_ct, pheno_nm, pheno_nm_ct, sample_male_case_include2);
+    fourfield_collapse_init(sex_male, unfiltered_sample_ct, pheno_nm, pheno_nm_ct, sample_male_case_include2);
     bitfield_and(sample_male_case_include2, sample_case_include2, pheno_nm_ctv2);
     case_male_ct = popcount01_longs(sample_male_case_include2, pheno_nm_ctv2);
     bitfield_andnot_copy(pheno_nm_ctv2, sample_male_ctrl_include2, sample_male_include2, sample_male_case_include2);
@@ -8423,7 +8423,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       wkspace_alloc_ul_checked(&sample_include2, pheno_nm_ctv2 * sizeof(intptr_t))) {
     goto qassoc_ret_NOMEM;
   }
-  fill_vec_55(sample_include2, pheno_nm_ct);
+  fill_fourvec_55(sample_include2, pheno_nm_ct);
   if (alloc_collapsed_haploid_filters(unfiltered_sample_ct, pheno_nm_ct, hh_or_mt_exists, 1, pheno_nm, sex_male, &sample_include2, &sample_male_include2)) {
     goto qassoc_ret_NOMEM;
   }
@@ -9355,7 +9355,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
       wkspace_alloc_ul_checked(&group2_include2, covar_nm_ctl * 2 * sizeof(intptr_t))) {
     goto gxe_assoc_ret_NOMEM;
   }
-  fill_vec_55(group1_include2, covar_nm_ct);
+  fill_fourvec_55(group1_include2, covar_nm_ct);
   fill_ulong_zero(group2_include2, covar_nm_ctl * 2);
   sample_idx = 0;
   sample_idx2 = 0;
@@ -9376,7 +9376,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
     if (wkspace_alloc_ul_checked(&sample_include2, covar_nm_ctl * 2 * sizeof(intptr_t))) {
       goto gxe_assoc_ret_NOMEM;
     }
-    fill_vec_55(sample_include2, covar_nm_ct);
+    fill_fourvec_55(sample_include2, covar_nm_ct);
   }
   if ((hh_or_mt_exists & XMHH_EXISTS) || y_exists) {
     if (wkspace_alloc_ul_checked(&sample_male_include2, covar_nm_ctl * 2 * sizeof(intptr_t))) {
@@ -9416,8 +9416,8 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
 	  wkspace_alloc_ul_checked(&covar_nm_male_raw, unfiltered_sample_ctl * sizeof(intptr_t))) {
 	goto gxe_assoc_ret_NOMEM;
       }
-      fill_vec_55(sample_male_all_include2, male_ct);
-      fill_vec_55(group1_male_include2, male_ct);
+      fill_fourvec_55(sample_male_all_include2, male_ct);
+      fill_fourvec_55(group1_male_include2, male_ct);
       fill_ulong_zero(group2_male_include2, male_ctl * 2);
       sample_idx = 0;
       for (sample_idx2 = 0; sample_idx2 < covar_nm_ct; sample_idx2++) {

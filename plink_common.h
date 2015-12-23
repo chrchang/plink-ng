@@ -131,6 +131,8 @@
 
   #endif // Win64
 
+  #define VEC_BYTES 16
+
 #else // not __LP64__
 
   #define FIVEMASK 0x55555555
@@ -144,7 +146,16 @@
   #endif
   #define PRIxPTR2 "08lx"
 
+  // todo: update code so this still works when reduced to 4
+  #define VEC_BYTES 8
+
 #endif // __LP64__
+
+// use constexpr for this as soon as compiler support is available on all
+// platforms
+#define VEC_BYTES_M1 (VEC_BYTES - 1)
+#define VEC_BITS (VEC_BYTES * 8)
+#define VEC_BITS_M1 (VEC_BITS - 1)
 
 #include "zlib-1.2.8/zlib.h"
 #include "SFMT.h"
@@ -590,6 +601,7 @@
 
 #define BITCT2 (BITCT / 2)
 #define BYTECT (BITCT / 8)
+#define VEC_WORDS (VEC_BITS / BITCT)
 
 #define CACHELINE 64 // assumed number of bytes per cache line, for alignment
 #define CACHELINE_INT32 (CACHELINE / 4)
@@ -1770,13 +1782,20 @@ void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t unfiltered_item_ct, 
 
 void fill_midx_to_idx(uintptr_t* exclude_arr_orig, uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* midx_to_idx);
 
-void fill_vec_55(uintptr_t* vec, uint32_t ct);
 
-void vec_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_bitarr, uint32_t filtered_ct, uintptr_t* output_vec);
+// "fourfield" refers to a packed group of 2-bit elements; it's the analogue of
+// "bitfield" for base-4 values.  "fourvec" indicates that vector-alignment is
+// also required.
+void fill_fourvec_55(uintptr_t* fourvec, uint32_t ct);
 
-void vec_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_exclude_bitarr, uint32_t filtered_ct, uintptr_t* output_vec);
+// Used to unpack e.g. unfiltered sex_male to a filtered fourfield usable as a
+// raw input bitmask.
+// Assumes output_fourfield is sized to a multiple of 16 bytes.
+void fourfield_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_bitarr, uint32_t filtered_ct, uintptr_t* output_fourfield);
 
-uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* sample_bitarr, uintptr_t* sex_male, uintptr_t** sample_include2_ptr, uintptr_t** sample_male_include2_ptr);
+void fourfield_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_exclude_bitarr, uint32_t filtered_ct, uintptr_t* output_fourfield);
+
+uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* sample_bitarr, uintptr_t* sex_male, uintptr_t** sample_include_fourvec_ptr, uintptr_t** sample_male_include_fourvec_ptr);
 
 static inline void free_cond(void* memptr) {
   if (memptr) {
@@ -1865,6 +1884,7 @@ typedef struct {
   uint32_t max_code;
 
   uint32_t autosome_ct;
+
   // this is a misnomer--it includes X and excludes MT.  Underlying concept is
   // "are some calls guaranteed to be homozygous (assuming >= 1 male)", which
   // is no longer true for MT since heteroplasmy is a thing.
@@ -2053,7 +2073,7 @@ void bitfield_invert(uintptr_t* bit_arr, uintptr_t bit_ct);
 
 void bitfield_exclude_to_include(uintptr_t* exclude_arr, uintptr_t* include_arr, uintptr_t bit_ct);
 
-void bitfield_and(uintptr_t* vv, uintptr_t* include_vec, uintptr_t word_ct);
+void bitfield_and(uintptr_t* main_vec, uintptr_t* include_vec, uintptr_t word_ct);
 
 void bitfield_andnot(uintptr_t* vv, uintptr_t* exclude_vec, uintptr_t word_ct);
 

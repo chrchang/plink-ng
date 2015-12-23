@@ -64,7 +64,7 @@ void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotien
       perm_vec[widx] = pv_val | wcomp;
     }
   } else {
-    fill_vec_55(perm_vec, tot_ct);
+    fill_fourvec_55(perm_vec, tot_ct);
     set_ct = tot_ct - set_ct;
     for (; num_set < set_ct; num_set++) {
       do {
@@ -266,6 +266,9 @@ THREAD_RET_TYPE generate_cc_perms_thread(void* arg) {
       generate_cc_perm_vec(pheno_nm_ct, case_ct, tot_quotient, totq_magic, totq_preshift, totq_postshift, totq_incr, &(perm_vecs[pidx * pheno_nm_ctv]), sfmtp);
     }
   } else {
+    // 16-byte alignment currently isn't needed; but it might be useful in the
+    // future, and the cost is low enough that I won't bother with writing the
+    // tiny-bit-more-efficient-half-the-time 8-byte alignment version for now.
     pheno_nm_ctv = (pheno_nm_ctv + 1) & (~1);
     for (; pidx < pmax; pidx++) {
       generate_cc_perm1(pheno_nm_ct, case_ct, tot_quotient, totq_magic, totq_preshift, totq_postshift, totq_incr, &(perm_vecs[pidx * pheno_nm_ctv]), sfmtp);
