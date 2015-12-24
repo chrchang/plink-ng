@@ -205,11 +205,14 @@ int32_t fwrite_checked(const void* buf, size_t len, FILE* outfile) {
   return ferror(outfile);
 }
 
-int32_t gzopen_checked(gzFile* target_ptr, const char* fname, const char* mode) {
-  *target_ptr = gzopen(fname, mode);
+int32_t gzopen_read_checked(const char* fname, gzFile* target_ptr) {
+  *target_ptr = gzopen(fname, "rb");
   if (!(*target_ptr)) {
     LOGPRINTFWW(errstr_fopen, fname);
-    return -1;
+    return RET_OPEN_FAIL;
+  }
+  if (gzbuffer(*target_ptr, 131072)) {
+    return RET_NOMEM;
   }
   return 0;
 }

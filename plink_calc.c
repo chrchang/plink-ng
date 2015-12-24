@@ -2600,8 +2600,9 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
     fclose_null(&grm_binfile);
   } else {
     memcpy(grmname_end, ".grm.gz", 8);
-    if (gzopen_checked(&grm_gzfile, grmname, "rb")) {
-      goto unrelated_herit_batch_ret_OPEN_FAIL;
+    retval = gzopen_read_checked(grmname, &grm_gzfile);
+    if (retval) {
+      goto unrelated_herit_batch_ret_1;
     }
     ulii = 0;
     for (sample_uidx = 0; sample_uidx < pheno_nm_ct; sample_uidx++) {
@@ -5997,11 +5998,9 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
     fclose_null(&in_binfile);
   } else {
     memcpy(grmname_end, ".grm.gz", 8);
-    if (gzopen_checked(&cur_gzfile, grmname, "rb")) {
-      goto rel_cutoff_batch_ret_OPEN_FAIL;
-    }
-    if (gzbuffer(cur_gzfile, 131072)) {
-      goto rel_cutoff_batch_ret_NOMEM;
+    retval = gzopen_read_checked(grmname, &cur_gzfile);
+    if (retval) {
+      goto rel_cutoff_batch_ret_1;
     }
     for (pct = 1; pct <= 100; pct++) {
       wl_floor = (((uint64_t)tot_words) * (100 - pct)) / 100;
@@ -6266,13 +6265,11 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
       g_rcb_in_bin_nfile = in_bin_nfile;
     } else {
       memcpy(grmname_end, ".grm.gz", 8);
-      if (gzopen_checked(&cur_gzfile, grmname, "rb")) {
-	goto rel_cutoff_batch_ret_OPEN_FAIL;
+      retval = gzopen_read_checked(grmname, &cur_gzfile);
+      if (retval) {
+	goto rel_cutoff_batch_ret_1;
       }
       g_rcb_cur_gzfile = cur_gzfile;
-      if (gzbuffer(cur_gzfile, 131072)) {
-	goto rel_cutoff_batch_ret_NOMEM;
-      }
     }
     fputs("Rewriting matrix... 0%", stdout);
     fflush(stdout);

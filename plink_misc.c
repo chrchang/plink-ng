@@ -4924,11 +4924,9 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
   if (line_idx_ptr) {
     line_max = *line_max_ptr;
   }
-  if (gzopen_checked(gz_infile_ptr, fname, "rb")) {
-    goto meta_analysis_open_and_read_header_ret_OPEN_FAIL;
-  }
-  if (gzbuffer(*gz_infile_ptr, 131072)) {
-    goto meta_analysis_open_and_read_header_ret_NOMEM;
+  retval = gzopen_read_checked(fname, gz_infile_ptr);
+  if (retval) {
+    goto meta_analysis_open_and_read_header_ret_1;
   }
 
   while (1) {
@@ -5090,9 +5088,6 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
   meta_analysis_open_and_read_header_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  meta_analysis_open_and_read_header_ret_OPEN_FAIL:
-    retval = RET_OPEN_FAIL;
-    break;
   meta_analysis_open_and_read_header_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
@@ -5105,6 +5100,7 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
     retval = RET_INVALID_FORMAT;
     break;
   }
+ meta_analysis_open_and_read_header_ret_1:
   return retval;
 }
 

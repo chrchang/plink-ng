@@ -878,7 +878,10 @@ static inline int32_t fclose_null(FILE** fptr_ptr) {
   return ii || jj;
 }
 
-int32_t gzopen_checked(gzFile* target_ptr, const char* fname, const char* mode);
+// Also sets 128k read buffer.  Can return RET_OPEN_FAIL or RET_NOMEM.
+int32_t gzopen_read_checked(const char* fname, gzFile* target_ptr);
+
+// pigz interface should be used for writing .gz files.
 
 static inline int32_t gzclose_null(gzFile* gzf_ptr) {
   int32_t ii = gzclose(*gzf_ptr);

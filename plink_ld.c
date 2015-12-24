@@ -12804,11 +12804,9 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   }
   // load in reverse order since we're adding to the front of the linked lists
   for (file_idx = file_ct; file_idx; file_idx--) {
-    if (gzopen_checked(&gz_infile, fname_ptr, "rb")) {
-      goto clump_reports_ret_OPEN_FAIL;
-    }
-    if (gzbuffer(gz_infile, 131072)) {
-      goto clump_reports_ret_NOMEM;
+    retval = gzopen_read_checked(fname_ptr, &gz_infile);
+    if (retval) {
+      goto clump_reports_ret_1;
     }
     loadbuft_size = wkspace_left - topsize;
     if (loadbuft_size <= 2 * MAXLINELEN + extra_annot_space) {

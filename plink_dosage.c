@@ -1585,8 +1585,9 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     for (file_idx = 0; file_idx < cur_batch_size; file_idx++) {
       read_idx_start = read_idx;
       if (sepheader) {
-	if (gzopen_checked(&(gz_infiles[file_idx]), &(sep_fnames[(file_idx + file_idx_start) * max_sepheader_len]), "rb")) {
-	  goto plink1_dosage_ret_OPEN_FAIL;
+	retval = gzopen_read_checked(&(sep_fnames[(file_idx + file_idx_start) * max_sepheader_len]), &(gz_infiles[file_idx]));
+	if (retval) {
+	  goto plink1_dosage_ret_1;
 	}
 	line_idx = 0;
 	uii = 1 + skip2; // current skip value
@@ -1630,7 +1631,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
           goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	}
       }
-      if (gzopen_checked(&(gz_infiles[file_idx]), &(fnames[(file_idx + file_idx_start) * max_fn_len]), "rb")) {
+      retval = gzopen_read_checked(&(fnames[(file_idx + file_idx_start) * max_fn_len]), &(gz_infiles[file_idx]));
+      if (retval) {
 	goto plink1_dosage_ret_OPEN_FAIL;
       }
       line_idx = 0;

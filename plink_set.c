@@ -2487,11 +2487,9 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
       }
     }
     if (aip->attrib_fname) {
-      if (gzopen_checked(&gz_attribfile, aip->attrib_fname, "rb")) {
-	goto annotate_ret_OPEN_FAIL;
-      }
-      if (gzbuffer(gz_attribfile, 131072)) {
-	goto annotate_ret_NOMEM;
+      retval = gzopen_read_checked(aip->attrib_fname, &gz_attribfile);
+      if (retval) {
+	goto annotate_ret_1;
       }
       line_idx = 0;
       tbuf[MAXLINELEN - 1] = ' ';

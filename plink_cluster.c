@@ -1341,8 +1341,9 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uin
   if (retval) {
     goto read_genome_ret_1;
   }
-  if (gzopen_checked(&gz_infile, read_genome_fname, "rb")) {
-    goto read_genome_ret_OPEN_FAIL;
+  retval = gzopen_read_checked(read_genome_fname, &gz_infile);
+  if (retval) {
+    goto read_genome_ret_1;
   }
   tbuf[MAXLINELEN - 1] = ' ';
   // header line
@@ -1449,9 +1450,6 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uin
     goto read_genome_ret_INVALID_FORMAT_2;
   }
   while (0) {
-  read_genome_ret_OPEN_FAIL:
-    retval = RET_OPEN_FAIL;
-    break;
   read_genome_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;

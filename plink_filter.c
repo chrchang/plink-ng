@@ -485,11 +485,9 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
   } else if (loadbuf_size <= MAXLINELEN) {
     goto filter_attrib_ret_NOMEM;
   }
-  if (gzopen_checked(&gz_infile, fname, "rb")) {
-    goto filter_attrib_ret_OPEN_FAIL;
-  }
-  if (gzbuffer(gz_infile, 131072)) {
-    goto filter_attrib_ret_NOMEM;
+  retval = gzopen_read_checked(fname, &gz_infile);
+  if (retval) {
+    goto filter_attrib_ret_1;
   }
   loadbuf = (char*)wkspace_base;
   loadbuf[loadbuf_size - 1] = ' ';
@@ -559,9 +557,6 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
   while (0) {
   filter_attrib_ret_NOMEM:
     retval = RET_NOMEM;
-    break;
-  filter_attrib_ret_OPEN_FAIL:
-    retval = RET_OPEN_FAIL;
     break;
   filter_attrib_ret_READ_FAIL:
     retval = RET_READ_FAIL;
@@ -720,11 +715,9 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
   } else if (loadbuf_size <= MAXLINELEN) {
     goto filter_attrib_sample_ret_NOMEM;
   }
-  if (gzopen_checked(&gz_infile, fname, "rb")) {
-    goto filter_attrib_sample_ret_OPEN_FAIL;
-  }
-  if (gzbuffer(gz_infile, 131072)) {
-    goto filter_attrib_sample_ret_NOMEM;
+  retval = gzopen_read_checked(fname, &gz_infile);
+  if (retval) {
+    goto filter_attrib_sample_ret_1;
   }
   loadbuf = (char*)wkspace_base;
   loadbuf[loadbuf_size - 1] = ' ';
@@ -800,9 +793,6 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
   while (0) {
   filter_attrib_sample_ret_NOMEM:
     retval = RET_NOMEM;
-    break;
-  filter_attrib_sample_ret_OPEN_FAIL:
-    retval = RET_OPEN_FAIL;
     break;
   filter_attrib_sample_ret_READ_FAIL:
     retval = RET_READ_FAIL;
