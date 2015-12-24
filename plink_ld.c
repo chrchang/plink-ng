@@ -679,7 +679,7 @@ int32_t ld_prune_write(char* outname, char* outname_end, uintptr_t* marker_exclu
   fputs("Writing...", stdout);
   fflush(stdout);
   strcpy(outname_end, ".prune.in");
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto ld_prune_write_ret_OPEN_FAIL;
   }
   for (cur_chrom = 1; cur_chrom < chrom_code_end; cur_chrom++) {
@@ -696,7 +696,7 @@ int32_t ld_prune_write(char* outname, char* outname_end, uintptr_t* marker_exclu
     goto ld_prune_write_ret_WRITE_FAIL;
   }
   strcpy(outname_end, ".prune.out");
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto ld_prune_write_ret_OPEN_FAIL;
   }
   for (cur_chrom = 1; cur_chrom < chrom_code_end; cur_chrom++) {
@@ -1584,7 +1584,7 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
     neg_uidx_buf[uljj * ulii + 1] = 0.0;
   }
   for (is_case = 0; is_case < 2; is_case++) {
-    quaterfield_collapse_init(sex_male, unfiltered_sample_ct, founder_phenos[is_case], pheno_ct[is_case], pheno_male_include2[is_case]);
+    quaterarr_collapse_init(sex_male, unfiltered_sample_ct, founder_phenos[is_case], pheno_ct[is_case], pheno_male_include2[is_case]);
     window_geno_ptr = window_geno[is_case];
     window_mask_ptr = window_mask[is_case];
     cur_192_long = pheno_ct_192_long[is_case];
@@ -1596,7 +1596,7 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   }
 
   memcpy(outname_end, ".flipscan", 10);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto flipscan_ret_OPEN_FAIL;
   }
   wptr = memcpya(textbuf, "   CHR ", 7);
@@ -1607,7 +1607,7 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   }
   if (verbose) {
     memcpy(&(outname_end[9]), ".verbose", 9);
-    if (fopen_checked(&outfile_verbose, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile_verbose)) {
       goto flipscan_ret_OPEN_FAIL;
     }
     outname_end[9] = '\0';
@@ -1676,7 +1676,7 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	r_matrix_ptr = &(r_matrix[is_case]);
 	geno_fixed_vec_ptr = &(window_geno_ptr[window_cidx * cur_192_long]);
 	mask_fixed_vec_ptr = &(window_mask_ptr[window_cidx * cur_192_long]);
-        collapse_copy_2bitarr_incl(loadbuf_raw, geno_fixed_vec_ptr, unfiltered_sample_ct, cur_pheno_ct, founder_phenos[is_case]);
+        collapse_copy_quaterarr_incl(loadbuf_raw, geno_fixed_vec_ptr, unfiltered_sample_ct, cur_pheno_ct, founder_phenos[is_case]);
         ld_process_load2(geno_fixed_vec_ptr, mask_fixed_vec_ptr, &fixed_missing_ct, cur_pheno_ct, is_x && (!ignore_x), pheno_male_include2[is_case]);
 	fixed_non_missing_ct = cur_pheno_ct - fixed_missing_ct;
         missing_cts_ptr[window_cidx] = fixed_missing_ct;
@@ -2195,7 +2195,7 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     marker_ctm8 = (marker_ctm8 + 8) & (~15);
   }
   if (is_binary) {
-    if (fopen_checked(&outfile, outname, "wb")) {
+    if (fopen_checked(outname, "wb", &outfile)) {
       goto ld_report_matrix_ret_OPEN_FAIL;
     }
   }
@@ -2325,7 +2325,7 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   }
   g_ld_keep_sign = 0;
   sprintf(logbuf, "--r%s %s%s to %s ... ", g_ld_is_r2? "2" : "", is_square? "square" : (is_square0? "square0" : "triangle"), is_binary? (output_single_prec? " bin4" : " bin") : (output_gz? " gz" : ""), outname);
-  wordwrap(logbuf, 16); // strlen("99% [processing]")
+  wordwrap(16, logbuf); // strlen("99% [processing]")
   logprintb();
   fputs("0%", stdout);
   do {
@@ -5665,7 +5665,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 	goto ld_report_regular_ret_1;
       }
       if (snp_list_file) {
-        if (fopen_checked(&infile, ldip->snpstr, "rb")) {
+        if (fopen_checked(ldip->snpstr, "rb", &infile)) {
 	  goto ld_report_regular_ret_OPEN_FAIL;
 	}
 	snplist_ct = 0;
@@ -5810,7 +5810,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
     marker_uidx1 = jump_forward_unset_unsafe(marker_exclude_idx1, marker_uidx1 + 1, marker_idx1);
   }
   sprintf(logbuf, "--r%s%s%s%s to %s ... ", g_ld_is_r2? "2" : "", is_inter_chr? " inter-chr" : "", g_ld_marker_allele_ptrs? " in-phase" : "", g_ld_set_allele_freqs? " with-freqs" : "", outname);
-  wordwrap(logbuf, 16); // strlen("99% [processing]")
+  wordwrap(16, logbuf); // strlen("99% [processing]")
   logprintb();
   fputs("0%", stdout);
   while (1) {
@@ -6264,7 +6264,7 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
     if (retval) {
       goto show_tags_ret_1;
     }
-    if (fopen_checked(&infile, ldip->show_tags_fname, "r")) {
+    if (fopen_checked(ldip->show_tags_fname, "r", &infile)) {
       goto show_tags_ret_OPEN_FAIL;
     }
     tbuf[MAXLINELEN - 1] = ' ';
@@ -6322,7 +6322,7 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
       LOGERRPRINTF("Warning: %" PRIuPTR " unrecognized variant ID%s in --show-tags file.\n", unrecog_ct, (unrecog_ct == 1)? "" : "s");
     }
   } else {
-    bitfield_exclude_to_include(marker_exclude, targets, unfiltered_marker_ct);
+    bitarr_invert_copy(marker_exclude, unfiltered_marker_ct, targets);
   }
   // force founder_male_include2 allocation
   if (alloc_collapsed_haploid_filters(unfiltered_sample_ct, founder_ct, XMHH_EXISTS | hh_exists, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
@@ -6362,7 +6362,7 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
 
   if (tags_list) {
     memcpy(outname_end, ".tags.list", 11);
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto show_tags_ret_WRITE_FAIL;
     }
     sprintf(tbuf, "%%%us  CHR         BP NTAG       LEFT      RIGHT   KBSPAN TAGS\n", plink_maxsnp);
@@ -6556,7 +6556,7 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
   }
   if (final_set) {
     memcpy(outname_end, ".tags", 6);
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto show_tags_ret_OPEN_FAIL;
     }
     if (!twocolumn) {
@@ -7097,14 +7097,14 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
     goto haploview_blocks_ret_NOMEM;
   }
   memcpy(outname_end, ".blocks.det", 12);
-  if (fopen_checked(&outfile_det, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile_det)) {
     goto haploview_blocks_ret_OPEN_FAIL;
   }
   if (fputs_checked(" CHR          BP1          BP2           KB  NSNPS SNPS\n", outfile_det)) {
     goto haploview_blocks_ret_WRITE_FAIL;
   }
   outname_end[7] = '\0';
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto haploview_blocks_ret_OPEN_FAIL;
   }
   wkspace_mark2 = wkspace_base;
@@ -7795,7 +7795,7 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
     if (wkspace_alloc_ul_checked(&loadbuf_raw, ulkk * sizeof(intptr_t))) {
       goto twolocus_ret_NOMEM;
     }
-    bitfield_exclude_to_include(sample_exclude, loadbuf_raw, unfiltered_sample_ct);
+    bitarr_invert_copy(sample_exclude, unfiltered_sample_ct, loadbuf_raw);
     sample_exclude = loadbuf_raw;
   }
   sample_ctl2 = (sample_ct + (BITCT2 - 1)) / BITCT2;
@@ -7913,7 +7913,7 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
   alen11 = strlen(marker_allele_ptrs[2 * marker_uidxs[1] + 1]);
   if (outname) {
     memcpy(outname_end, ".twolocus", 10);
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto twolocus_ret_OPEN_FAIL;
     }
     fputs("\nAll individuals\n===============\n", outfile);
@@ -8346,7 +8346,7 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
     outname_end[7] = '.';
     uint32_writex(&(outname_end[8]), parallel_idx + 1, '\0');
   }
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto epistasis_linear_regression_ret_OPEN_FAIL;
   }
   if (!parallel_idx) {
@@ -8387,7 +8387,7 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
   wptr = memcpya(logbuf, "QT --epistasis to ", 18);
   wptr = strcpya(wptr, outname);
   memcpy(wptr, " ... ", 6);
-  wordwrap(logbuf, 16); // strlen("99% [processing]")
+  wordwrap(16, logbuf); // strlen("99% [processing]")
   logprintb();
   fputs("0%", stdout);
   do {
@@ -8812,7 +8812,7 @@ int32_t epistasis_logistic_regression(pthread_t* threads, Epi_info* epi_ip, FILE
     outname_end[7] = '.';
     uint32_writex(&(outname_end[8]), parallel_idx + 1, '\0');
   }
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto epistasis_logistic_regression_ret_OPEN_FAIL;
   }
   if (!parallel_idx) {
@@ -8851,7 +8851,7 @@ int32_t epistasis_logistic_regression(pthread_t* threads, Epi_info* epi_ip, FILE
   wptr = memcpya(logbuf, "C/C --epistasis to ", 19);
   wptr = strcpya(wptr, outname);
   memcpy(wptr, " ... ", 6);
-  wordwrap(logbuf, 16); // strlen("99% [processing]")
+  wordwrap(16, logbuf); // strlen("99% [processing]")
   logprintb();
   fputs("0%", stdout);
   do {
@@ -9568,7 +9568,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       uint32_writex(&(outname_end[8]), parallel_idx + 1, '\0');
     }
     tot_ctsplit = case_ctsplit + ctrl_ctsplit;
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto epistasis_report_ret_OPEN_FAIL;
     }
     if (!parallel_idx) {
@@ -9685,7 +9685,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     wptr = memcpya(wptr, " to ", 4);
     wptr = strcpya(wptr, outname);
     memcpy(wptr, " ... ", 6);
-    wordwrap(logbuf, 16); // strlen("99% [processing]") 
+    wordwrap(16, logbuf); // strlen("99% [processing]") 
     logprintb();
     fputs("0%", stdout);
     do {
@@ -10091,7 +10091,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     outname_end[15] = '.';
     uint32_writex(&(outname_end[16]), parallel_idx + 1, '\0');
   }
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto epistasis_report_ret_OPEN_FAIL;
   }
   wptr = memcpya(tbuf, " CHR ", 5);
@@ -10761,7 +10761,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
 
   tbuf[MAXLINELEN - 1] = ' ';
   memcpy(inprefix_end, "1", 2);
-  if (fopen_checked(&infile, inprefix, "r")) {
+  if (fopen_checked(inprefix, "r", &infile)) {
     goto epi_summary_merge_ret_OPEN_FAIL;
   }
   retval = load_to_first_token(infile, MAXLINELEN, '\0', "--epistasis-summary-merge file", tbuf, &bufptr, &line_idx);
@@ -10773,12 +10773,12 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
     if (retval == -1) {
       // switch to cat mode.  meow.
       fclose_null(&infile);
-      if (fopen_checked(&outfile, outname, "wb")) {
+      if (fopen_checked(outname, "wb", &outfile)) {
 	goto epi_summary_merge_ret_OPEN_FAIL;
       }
       for (file_idx = 1; file_idx <= file_ct; file_idx++) {
         uint32_writex(inprefix_end, file_idx, '\0');
-	if (fopen_checked(&infile, inprefix, "rb")) {
+	if (fopen_checked(inprefix, "rb", &infile)) {
 	  goto epi_summary_merge_ret_OPEN_FAIL;
 	}
 	while (1) {
@@ -10870,7 +10870,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
   last_start = list_start->next;
   for (file_idx = 2; file_idx <= file_ct; file_idx++) {
     uint32_writex(inprefix_end, file_idx, '\0');
-    if (fopen_checked(&infile, inprefix, "r")) {
+    if (fopen_checked(inprefix, "r", &infile)) {
       goto epi_summary_merge_ret_OPEN_FAIL;
     }
     retval = load_to_first_token(infile, MAXLINELEN, '\0', "--epistasis-summary-merge file", tbuf, &bufptr, &line_idx);
@@ -10977,7 +10977,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
     }
   }
 
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto epi_summary_merge_ret_OPEN_FAIL;
   }
   bufptr = memcpya(tbuf, " CHR ", 5);
@@ -11244,7 +11244,7 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   loadbuf_end = &(loadbuf[sample_ctv2 * 3]);
   tbuf2[0] = ' ';
   memcpy(outname_end, ".missing.hap", 13);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto test_mishap_ret_OPEN_FAIL;
   }
   sprintf(tbuf, "%%%us  HAPLOTYPE      F_0      F_1                 M_H1                 M_H2    CHISQ        P FLANKING\n", plink_maxsnp);
@@ -11989,7 +11989,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   if (sip->modifier & SET_R2_WRITE) {
     memcpy(charbuf, outname_end, 8);
     memcpy(outname_end, ".ldset", 7);
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto construct_ld_map_ret_OPEN_FAIL;
     }
     set_uidx = 0;
@@ -12376,7 +12376,7 @@ int32_t write_set_test_results(char* outname, char* outname_end2, Set_info* sip,
       goto write_set_test_results_ret_NOMEM;
     }
   }
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto write_set_test_results_ret_OPEN_FAIL;
   }
   fprintf(outfile, "         SET   NSNP   NSIG   ISIG         EMP1 %sSNPS\n", perm_count? "          NP " : "");
@@ -13094,7 +13094,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   fill_ulong_zero(cur_bitfield, marker_ctl);
   // 5. iterate through clumps, calculate r^2 and write output
   memcpy(outname_end, ".clumped", 9);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto clump_reports_ret_OPEN_FAIL;
   }
   bufptr = tbuf2;
@@ -13113,7 +13113,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     }
     if (rg_setdefs) {
       memcpy(&(outname_end[8]), ".ranges", 8);
-      if (fopen_checked(&outfile_ranges, outname, "w")) {
+      if (fopen_checked(outname, "w", &outfile_ranges)) {
 	goto clump_reports_ret_OPEN_FAIL;
       }
       bufptr = fw_strcpyn(plink_maxsnp, 3, "SNP", &(tbuf2[5]));
@@ -13137,7 +13137,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   }
   if (clump_best) {
     memcpy(&(outname_end[8]), ".best", 6);
-    if (fopen_checked(&outfile_best, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile_best)) {
       goto clump_reports_ret_OPEN_FAIL;
     }
     bufptr = fw_strcpyn(plink_maxsnp, 5, "INDEX", tbuf);

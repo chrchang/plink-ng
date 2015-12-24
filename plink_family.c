@@ -825,14 +825,14 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
     }
     if (full_error_list) {
       memcpy(outname_end, ".mendel", 8);
-      if (fopen_checked(&outfile, outname, "w")) {
+      if (fopen_checked(outname, "w", &outfile)) {
 	goto mendel_error_scan_ret_OPEN_FAIL;
       }
       sprintf(tbuf, "%%%us %%%us  CHR %%%us   CODE                 ERROR\n", plink_maxfid, plink_maxiid, plink_maxsnp);
       fprintf(outfile, tbuf, "FID", "KID", "SNP");
     }
     memcpy(outname_end, ".lmendel", 9);
-    if (fopen_checked(&outfile_l, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile_l)) {
       goto mendel_error_scan_ret_OPEN_FAIL;
     }
     // replicate harmless 'N' misalignment bug
@@ -1064,7 +1064,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
       goto mendel_error_scan_ret_WRITE_FAIL;
     }
     outname_end[1] = 'f';
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto mendel_error_scan_ret_OPEN_FAIL;
     }
     sprintf(tbuf, "%%%us %%%us %%%us   CHLD    N\n", plink_maxfid, plink_maxiid, plink_maxiid);
@@ -1122,7 +1122,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
       goto mendel_error_scan_ret_WRITE_FAIL;
     }
     outname_end[1] = 'i';
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto mendel_error_scan_ret_OPEN_FAIL;
     }
     sprintf(tbuf, "%%%us %%%us   N\n", plink_maxfid, plink_maxiid);
@@ -1802,7 +1802,7 @@ int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* o
   uint32_t ujj;
   uint32_t ukk;
   memcpy(outname_end, ".tdt.poo", 9);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto tdt_poo_ret_OPEN_FAIL;
   }
   sprintf(textbuf, " CHR %%%us  A1:A2      T:U_PAT    CHISQ_PAT        P_PAT      T:U_MAT    CHISQ_MAT        P_MAT        Z_POO        P_POO \n", plink_maxsnp);
@@ -2224,7 +2224,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   }
   pct_thresh = marker_ct / 100;
   memcpy(outname_end, ".tdt", 5);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto tdt_ret_OPEN_FAIL;
   }
   sprintf(textbuf, " CHR %%%us           BP  A1  A2      T      U           OR ", plink_maxsnp);
@@ -2649,7 +2649,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
     fill_ulong_zero(tmp_within2_founder, unfiltered_sample_ctl);
   }
 
-  bitfield_exclude_to_include(sample_exclude, not_in_family, unfiltered_sample_ct);
+  bitarr_invert_copy(sample_exclude, unfiltered_sample_ct, not_in_family);
   fill_uint_one(sample_to_fss_idx, sample_ct);
   fill_uidx_to_idx(sample_exclude, unfiltered_sample_ct, sample_ct, sample_uidx_to_idx);
   fill_ulong_zero(ulptr, unfiltered_sample_ctl); // is a double-parent
@@ -2713,7 +2713,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   if (test_type) {
     bitfield_andnot(ulptr, ulptr2, unfiltered_sample_ctl);
   } else {
-    bitfield_exclude_to_include(ulptr2, ulptr, unfiltered_sample_ct);
+    bitarr_invert_copy(ulptr2, unfiltered_sample_ct, ulptr);
   }
   // qfam: ulptr = double-parents who aren't also a child of two parents in
   //               immediate dataset
@@ -3987,7 +3987,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   if (wkspace_alloc_ul_checked(&pheno_nm, unfiltered_sample_ctl * sizeof(intptr_t))) {
     goto dfam_ret_NOMEM;
   }
-  bitfield_exclude_to_include(sample_exclude, pheno_nm, unfiltered_sample_ct);
+  bitarr_invert_copy(sample_exclude, unfiltered_sample_ct, pheno_nm);
   if (is_set_test) {
     if (wkspace_alloc_ul_checked(&founder_pnm, unfiltered_sample_ctl * sizeof(intptr_t))) {
       goto dfam_ret_NOMEM;
@@ -4330,7 +4330,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     fill_double_zero(maxt_extreme_stat, perms_total);
     if (mperm_save & MPERM_DUMP_ALL) {
       memcpy(outname_end, ".mperm.dump.all", 16);
-      if (fopen_checked(&outfile_msa, outname, "w")) {
+      if (fopen_checked(outname, "w", &outfile_msa)) {
         goto dfam_ret_OPEN_FAIL;
       }
       if (putc_checked('0', outfile_msa)) {
@@ -4364,7 +4364,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   }
 
   outname_end2 = memcpyb(outname_end, ".dfam", 6);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto dfam_ret_OPEN_FAIL;
   }
   LOGPRINTFWW5("Writing --dfam results to %s ... ", outname);
@@ -4495,7 +4495,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	reverse_loadbuf((unsigned char*)loadbuf_raw, unfiltered_sample_ct);
       }
       erase_mendel_errors(unfiltered_sample_ct, loadbuf_raw, workbuf, sex_male, trio_error_lookup, trio_ct, 0, multigen);
-      collapse_copy_2bitarr(loadbuf_raw, &(g_loadbuf[block_size * dfam_sample_ctl2]), unfiltered_sample_ct, dfam_sample_ct, dfam_sample_exclude);
+      collapse_copy_quaterarr(loadbuf_raw, &(g_loadbuf[block_size * dfam_sample_ctl2]), unfiltered_sample_ct, dfam_sample_ct, dfam_sample_exclude);
       if (do_perms_nst) {
 	g_adapt_m_table[block_size] = marker_idx2++;
       }
@@ -4881,7 +4881,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       }
       memcpy(outname_end2, ".mperm", 7);
     }
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto dfam_ret_OPEN_FAIL;
     }
     if (perm_adapt_nst) {
@@ -5628,7 +5628,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   }
   loadbuf_raw[unfiltered_sample_ctl2 - 1] = 0;
   workbuf[unfiltered_sample_ctp1l2 - 1] = 0;
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto qfam_ret_OPEN_FAIL;
   }
   if (perms_total < perm_batch_size) {
@@ -5797,7 +5797,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	}
 	erase_mendel_errors(unfiltered_sample_ct, loadbuf_raw, workbuf, sex_male, trio_error_lookup, trio_ct, 0, multigen);
 	loadbuf_ptr = &(g_loadbuf[block_idx * sample_ctl2]);
-	collapse_copy_2bitarr(loadbuf_raw, loadbuf_ptr, unfiltered_sample_ct, sample_ct, sample_exclude);
+	collapse_copy_quaterarr(loadbuf_raw, loadbuf_ptr, unfiltered_sample_ct, sample_ct, sample_exclude);
 	g_adapt_m_table[block_idx] = marker_idx;
 	mu_table[block_idx++] = marker_uidx;
       }
@@ -5898,7 +5898,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   }
   putchar('\r');
   memcpy(outname_end, ".perm", 6);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto qfam_ret_OPEN_FAIL;
   }
   sprintf(tbuf, emp_se? " CHR %%%us         BETA     EMP_BETA       EMP_SE         EMP1           NP \n" : " CHR %%%us         EMP1           NP \n", plink_maxsnp);

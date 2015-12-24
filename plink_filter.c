@@ -73,7 +73,7 @@ int32_t keep_or_remove(char* fname, char* sorted_ids, uintptr_t sorted_ids_ct, u
   } else {
     fill_all_bits(exclude_arr_new, unfiltered_ct);
   }
-  if (fopen_checked(&infile, fname, "r")) {
+  if (fopen_checked(fname, "r", &infile)) {
     goto keep_or_remove_ret_OPEN_FAIL;
   }
   tbuf[MAXLINELEN - 1] = ' ';
@@ -255,7 +255,7 @@ int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, ui
     goto extract_exclude_flag_norange_ret_NOMEM;
   }
   fill_ulong_zero(already_seen, unfiltered_marker_ctl);
-  if (fopen_checked(&infile, fname, "rb")) {
+  if (fopen_checked(fname, "rb", &infile)) {
     goto extract_exclude_flag_norange_ret_OPEN_FAIL;
   }
   while (1) {
@@ -1149,7 +1149,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
     goto load_oblig_missing_ret_NOMEM;
   }
   loadbuf_end = &(loadbuf[unfiltered_sample_ctl2]);
-  if (fopen_checked(&infile, om_ip->sample_fname, "r")) {
+  if (fopen_checked(om_ip->sample_fname, "r", &infile)) {
     goto load_oblig_missing_ret_OPEN_FAIL;
   }
   tbuf[MAXLINELEN - 1] = ' ';
@@ -1252,7 +1252,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
     goto load_oblig_missing_ret_READ_FAIL;
   }
   if (y_present) {
-    vec_include_init(unfiltered_sample_ct, loadbuf, sex_male);
+    quaterarr_include_init(unfiltered_sample_ct, loadbuf, sex_male);
     cur_cluster_zmask2 = cluster_zmask2s;
     ulptr = &(cur_cluster_zmask2[cluster_ct * unfiltered_sample_ctl2]);
     for (cluster_idx = 0; cluster_idx < cluster_ct; cluster_idx++) {
@@ -1279,7 +1279,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
   zc_entries = (int64_t*)wkspace_base;
   zc_entries_end = zc_entries;
   wkspace_end = (int64_t*)(&(wkspace_base[wkspace_left]));
-  if (fopen_checked(&infile, om_ip->marker_fname, "r")) {
+  if (fopen_checked(om_ip->marker_fname, "r", &infile)) {
     goto load_oblig_missing_ret_OPEN_FAIL;
   }
   line_idx = 0;
@@ -1424,7 +1424,7 @@ int32_t filter_samples_file(char* filtername, char* sorted_sample_ids, uintptr_t
   }
   qsort(sorted_filtervals, filterval_ct, max_filterval_len, strcmp_casted);
 
-  if (fopen_checked(&infile, filtername, "r")) {
+  if (fopen_checked(filtername, "r", &infile)) {
     goto filter_samples_file_ret_OPEN_FAIL;
   }
   tbuf[MAXLINELEN - 1] = ' ';
@@ -1573,7 +1573,7 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
     if (wkspace_alloc_ul_checked(&sample_male_include2, unfiltered_sample_ctl2 * sizeof(intptr_t))) {
       goto mind_filter_ret_NOMEM;
     }
-    vec_include_init(unfiltered_sample_ct, sample_male_include2, sex_male);
+    quaterarr_include_init(unfiltered_sample_ct, sample_male_include2, sex_male);
     nony_marker_ct = marker_ct - (y_end - y_start - popcount_bit_idx(marker_exclude, y_start, y_end));
   }
   if (wkspace_alloc_ui_checked(&missing_cts, unfiltered_sample_ct * sizeof(int32_t)) ||
@@ -1669,7 +1669,7 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   if (removed_ct) {
     bitfield_or(sample_exclude, newly_excluded, unfiltered_sample_ctl);
     memcpy(outname_end, ".irem", 6);
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto mind_filter_ret_OPEN_FAIL;
     }
     sample_uidx = 0;
@@ -2604,7 +2604,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	if (hethap_incr) {
 	  if (!hhfile) {
 	    memcpy(outname_end, ".hh", 4);
-	    if (fopen_checked(&hhfile, outname, "w")) {
+	    if (fopen_checked(outname, "w", &hhfile)) {
 	      goto calc_freqs_and_hwe_ret_OPEN_FAIL;
 	    }
 	  }

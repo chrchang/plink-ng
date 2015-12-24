@@ -2451,7 +2451,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
   // 3. collapse phenotypes if necessary,  load (subset of) relationship matrix
   // 4. call reml_em_one_trait()
   memcpy(grmname_end, ".grm.id", 8);
-  if (fopen_checked(&infile, grmname, "r")) {
+  if (fopen_checked(grmname, "r", &infile)) {
     goto unrelated_herit_batch_ret_OPEN_FAIL;
   }
   tbuf[MAXLINELEN - 1] = ' ';
@@ -2526,7 +2526,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
   wkspace_left += topsize;
 
   fclose_null(&infile);
-  if (fopen_checked(&infile, phenoname, "r")) {
+  if (fopen_checked(phenoname, "r", &infile)) {
     goto unrelated_herit_batch_ret_OPEN_FAIL;
   }
   wkspace_left -= topsize;
@@ -2559,7 +2559,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
   sample_uidx = 0;
   if (load_grm_bin) {
     memcpy(grmname_end, ".grm.bin", 9);
-    if (fopen_checked(&grm_binfile, grmname, "rb")) {
+    if (fopen_checked(grmname, "rb", &grm_binfile)) {
       goto unrelated_herit_batch_ret_OPEN_FAIL;
     }
     if (fseeko(grm_binfile, 0, SEEK_END)) {
@@ -3268,7 +3268,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     evecfile = fopen(evecname, "r");
     if (!evecfile) {
       strcpy(&(evecname[ulii]), ".eigenvec");
-      if (fopen_checked(&evecfile, evecname, "r")) {
+      if (fopen_checked(evecname, "r", &evecfile)) {
         goto calc_regress_pcs_ret_OPEN_FAIL;
       }
     }
@@ -3402,7 +3402,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
   // bits instead of the ~20 you get from printf("%g", dxx)), and there's no
   // need for repeated random access.
   strcpy(outname_end, ".gen");
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto calc_regress_pcs_ret_OPEN_FAIL;
   }
   if (fseeko(bedfile, bed_offset, SEEK_SET)) {
@@ -3554,7 +3554,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     goto calc_regress_pcs_ret_WRITE_FAIL;
   }
   strcpy(outname_end, ".sample");
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto calc_regress_pcs_ret_OPEN_FAIL;
   }
   if (fputs_checked("ID_1 ID_2 missing sex phenotype\n0 0 0 D P\n", outfile)) {
@@ -3715,7 +3715,7 @@ static double g_dw_half_marker_ct_recip;
 int32_t write_ids(char* outname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, char* sample_ids, uintptr_t max_sample_id_len) {
   uintptr_t sample_uidx = 0;
   FILE* outfile;
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     return RET_OPEN_FAIL;
   }
   while (1) {
@@ -3769,7 +3769,7 @@ int32_t distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_p
       sprintf(outname_end, ".dist%s", varsuffix);
     }
     strcpy(tbuf, outname_end);
-    if (fopen_checked(outfile_ptr, outname, mode)) {
+    if (fopen_checked(outname, mode, outfile_ptr)) {
       return 1;
     }
   }
@@ -3780,7 +3780,7 @@ int32_t distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_p
       sprintf(outname_end, ".mibs%s", varsuffix);
     }
     strcpy(&(tbuf[MAX_POST_EXT]), outname_end);
-    if (fopen_checked(outfile2_ptr, outname, mode)) {
+    if (fopen_checked(outname, mode, outfile2_ptr)) {
       return 1;
     }
   }
@@ -3791,7 +3791,7 @@ int32_t distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_p
       sprintf(outname_end, ".mdist%s", varsuffix);
     }
     strcpy(&(tbuf[MAX_POST_EXT * 2]), outname_end);
-    if (fopen_checked(outfile3_ptr, outname, mode)) {
+    if (fopen_checked(outname, mode, outfile3_ptr)) {
       return 1;
     }
   }
@@ -3810,7 +3810,7 @@ void distance_print_done(int32_t format_code, char* outname, char* outname_end) 
     strcpy(outname_end, &(tbuf[MAX_POST_EXT * 2]));
     sprintf(logbuf, "Distances (proportions) written to %s .\n", outname);
   }
-  wordwrap(logbuf, 0);
+  wordwrap(0, logbuf);
   logprintb();
 }
 
@@ -5338,7 +5338,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
 
   if (calculation_type & CALC_PLINK1_IBS_MATRIX) {
     strcpy(outname_end, ".mibs");
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto calc_genome_ret_OPEN_FAIL;
     }
     giptr = genome_main;
@@ -5385,7 +5385,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
 
   if (calculation_type & CALC_PLINK1_DISTANCE_MATRIX) {
     strcpy(outname_end, ".mdist");
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto calc_genome_ret_OPEN_FAIL;
     }
     giptr = genome_main;
@@ -5903,7 +5903,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
     goto rel_cutoff_batch_ret_INVALID_CMDLINE;
   }
   memcpy(grmname_end, ".grm.id", 8);
-  if (fopen_checked(&idfile, grmname, "r")) {
+  if (fopen_checked(grmname, "r", &idfile)) {
     goto rel_cutoff_batch_ret_OPEN_FAIL;
   }
   tbuf[MAXLINELEN - 1] = ' ';
@@ -5948,7 +5948,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   col = 0;
   if (load_grm_bin) {
     memcpy(grmname_end, ".grm.bin", 9);
-    if (fopen_checked(&in_binfile, grmname, "rb")) {
+    if (fopen_checked(grmname, "rb", &in_binfile)) {
       goto rel_cutoff_batch_ret_OPEN_FAIL;
     }
     rel_cutoff_f = (float)rel_cutoff;
@@ -6223,12 +6223,12 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   }
 
   memcpy(grmname_end, ".grm.id", 8);
-  if (fopen_checked(&idfile, grmname, "r")) {
+  if (fopen_checked(grmname, "r", &idfile)) {
     goto rel_cutoff_batch_ret_OPEN_FAIL;
   }
 
   memcpy(outname_end, ".grm.id", 8);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto rel_cutoff_batch_ret_OPEN_FAIL;
   }
 
@@ -6255,12 +6255,12 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   if (rel_calc_type & (REL_CALC_GRM | REL_CALC_GRM_BIN)) {
     if (load_grm_bin) {
       memcpy(grmname_end, ".grm.bin", 9);
-      if (fopen_checked(&in_binfile, grmname, "rb")) {
+      if (fopen_checked(grmname, "rb", &in_binfile)) {
 	goto rel_cutoff_batch_ret_OPEN_FAIL;
       }
       g_rcb_in_binfile = in_binfile;
       memcpy(grmname_end, ".grm.N.bin", 11);
-      if (fopen_checked(&in_bin_nfile, grmname, "rb")) {
+      if (fopen_checked(grmname, "rb", &in_bin_nfile)) {
 	goto rel_cutoff_batch_ret_OPEN_FAIL;
       }
       g_rcb_in_bin_nfile = in_bin_nfile;
@@ -6317,11 +6317,11 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
       progress = 0;
       hundredth = 1 + ((((uint64_t)sample_ct) * (sample_ct - 1)) / 200);
       memcpy(outname_end, ".grm.N.bin", 11);
-      if (fopen_checked(&out_bin_nfile, outname, "wb")) {
+      if (fopen_checked(outname, "wb", &out_bin_nfile)) {
 	goto rel_cutoff_batch_ret_OPEN_FAIL;
       }
       memcpy(outname_end, ".grm.bin", 9);
-      if (fopen_checked(&outfile, outname, "wb")) {
+      if (fopen_checked(outname, "wb", &outfile)) {
 	goto rel_cutoff_batch_ret_OPEN_FAIL;
       }
       while (row < sample_ct) {
@@ -6714,7 +6714,7 @@ int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_
   if (retval) {
     goto load_distance_wts_ret_1;
   }
-  if (fopen_checked(&infile, distance_wts_fname, "r")) {
+  if (fopen_checked(distance_wts_fname, "r", &infile)) {
     goto load_distance_wts_ret_OPEN_FAIL;
   }
   tbuf[MAXLINELEN - 1] = ' ';
@@ -6776,7 +6776,7 @@ int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_
 	goto load_distance_wts_ret_NOMEM2;
       }
     }
-    bitfield_exclude_to_include(marker_include, *marker_exclude_ptr, unfiltered_marker_ct);
+    bitarr_invert_copy(marker_include, unfiltered_marker_ct, *marker_exclude_ptr);
     *marker_ct_ptr = marker_ct;
   }
   if (wkspace_alloc_d_checked(main_weights_ptr, marker_ct * sizeof(double))) {
@@ -7104,7 +7104,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 
   if (calculation_type & CALC_IBC) {
     strcpy(outname_end, ".ibc");
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto calc_rel_ret_OPEN_FAIL;
     }
     dptr2 = rel_ibc;
@@ -7163,7 +7163,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       if (parallel_tot > 1) {
 	sprintf(&(outname_end[8]), ".%u", parallel_idx + 1);
       }
-      if (fopen_checked(&outfile, outname, "wb")) {
+      if (fopen_checked(outname, "wb", &outfile)) {
 	goto calc_rel_ret_OPEN_FAIL;
       }
       for (sample_idx = min_sample; sample_idx < max_parallel_sample; sample_idx++) {
@@ -7208,7 +7208,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	outname_end[10] = '.';
 	uint32_writex(&(outname_end[11]), parallel_idx + 1, '\0');
       }
-      if (fopen_checked(&out_bin_nfile, outname, "wb")) {
+      if (fopen_checked(outname, "wb", &out_bin_nfile)) {
 	goto calc_rel_ret_OPEN_FAIL;
       }
       memcpy(outname_end, ".grm.bin", 9);
@@ -7216,7 +7216,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	outname_end[8] = '.';
 	uint32_writex(&(outname_end[9]), parallel_idx + 1, '\0');
       }
-      if (fopen_checked(&outfile, outname, "wb")) {
+      if (fopen_checked(outname, "wb", &outfile)) {
 	goto calc_rel_ret_OPEN_FAIL;
       }
       mdeptr = g_missing_dbl_excluded;
@@ -7256,7 +7256,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       if (parallel_tot > 1) {
 	sprintf(&(outname_end[8]), ".%u", parallel_idx + 1);
       }
-      if (fopen_checked(&outfile, outname, "wb")) {
+      if (fopen_checked(outname, "wb", &outfile)) {
 	goto calc_rel_ret_OPEN_FAIL;
       }
       for (sample_idx = min_sample; sample_idx < max_parallel_sample; sample_idx++) {
@@ -7403,7 +7403,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
     } else {
       sprintf(logbuf, "Relationship matrix component written to %s .\n", outname);
     }
-    wordwrap(logbuf, 0);
+    wordwrap(0, logbuf);
     logprintb();
   }
   if (all_missing_warning) {
@@ -7636,7 +7636,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     }
     if (var_wts) {
       memcpy(outname_end, ".eigenvec.var", 14);
-      if (fopen_checked(&outfile, outname, "w")) {
+      if (fopen_checked(outname, "w", &outfile)) {
 	goto calc_pca_ret_OPEN_FAIL;
       }
       if (write_headers) {
@@ -7679,7 +7679,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	    }
 	  }
 	  // if projecting, loadbuf_raw contains raw data, so we can just
-	  // follow up with collapse_copy_2bitarr() and reverse_loadbuf()
+	  // follow up with collapse_copy_quaterarr() and reverse_loadbuf()
 	  if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, pca_sample_ct, pca_sample_exclude, final_mask, IS_SET(marker_reverse, marker_uidx))) {
 	    goto calc_pca_ret_READ_FAIL;
 	  }
@@ -7720,7 +7720,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	    cur_var_wts[pc_idx] *= eigval_inv_sqrts[pc_idx];
 	  }
 	  if (proj_sample_ct) {
-	    collapse_copy_2bitarr(loadbuf_raw, loadbuf_proj, unfiltered_sample_ct, proj_sample_ct, sample_exclude_proj);
+	    collapse_copy_quaterarr(loadbuf_raw, loadbuf_proj, unfiltered_sample_ct, proj_sample_ct, sample_exclude_proj);
 	    if (IS_SET(marker_reverse, marker_uidx)) {
 	      reverse_loadbuf((unsigned char*)loadbuf_proj, proj_sample_ct);
 	    }
@@ -7809,7 +7809,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   }
 
   memcpy(outname_end, ".eigenval", 10);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto calc_pca_ret_OPEN_FAIL;
   }
   wptr = tbuf;
@@ -7825,7 +7825,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     goto calc_pca_ret_WRITE_FAIL;
   }
   memcpy(outname_end, ".eigenvec", 10);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto calc_pca_ret_OPEN_FAIL;
   }
   if (write_headers) {
@@ -8464,7 +8464,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   }
   if (calculation_type & CALC_PLINK1_DISTANCE_MATRIX) {
     strcpy(outname_end, ".mdist");
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto calc_distance_ret_OPEN_FAIL;
     }
     iptr = g_idists;
@@ -8510,12 +8510,12 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     } else {
       sprintf(logbuf, "Distances (proportions) written to %s .\n", outname);
     }
-    wordwrap(logbuf, 0);
+    wordwrap(0, logbuf);
     logprintb();
   }
   if (calculation_type & CALC_PLINK1_IBS_MATRIX) {
     strcpy(outname_end, ".mibs");
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto calc_distance_ret_OPEN_FAIL;
     }
     iptr = g_idists;
@@ -9027,7 +9027,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   fill_idx_to_uidx(sample_exclude, unfiltered_sample_ct, sample_ct, sample_idx_to_uidx);
   if (do_neighbor) {
     memcpy(outname_end, ".nearest", 9);
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto calc_cluster_neighbor_ret_OPEN_FAIL;
     }
     if (fputs_checked("         FID          IID     NN      MIN_DST            Z         FID2         IID2 ", outfile)) {
@@ -9108,7 +9108,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     dxx1 = 1.0 / ((double)((int32_t)marker_ct));
     if (cluster_missing) {
       memcpy(outname_end, ".mdist.missing", 15);
-      if (fopen_checked(&outfile, outname, "w")) {
+      if (fopen_checked(outname, "w", &outfile)) {
 	goto calc_cluster_neighbor_ret_OPEN_FAIL;
       }
       fputs("Writing IBM matrix... 0%    \b\b\b\b", stdout);

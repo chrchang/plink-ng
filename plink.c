@@ -507,7 +507,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     memcpy(memcpya(famname, bedname, uljj), ".fam", 5);
     memcpy(memcpya(bimname, bedname, uljj), ".bim", 5);
     if ((calculation_type & CALC_MAKE_BED) && ulii) {
-      if (push_ll_str(file_delete_list_ptr, bedname) || push_ll_str(file_delete_list_ptr, famname) || push_ll_str(file_delete_list_ptr, bimname)) {
+      if (push_ll_str(bedname, file_delete_list_ptr) || push_ll_str(famname, file_delete_list_ptr) || push_ll_str(bimname, file_delete_list_ptr)) {
 	goto plink_ret_NOMEM;
       }
     }
@@ -591,12 +591,12 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     }
 
     if ((pheno_modifier & PHENO_MERGE) && pheno_all) {
-      if (aligned_malloc(&orig_pheno_nm, unfiltered_sample_ctl * sizeof(intptr_t))) {
+      if (aligned_malloc(unfiltered_sample_ctl * sizeof(intptr_t), &orig_pheno_nm)) {
 	goto plink_ret_NOMEM;
       }
       memcpy(orig_pheno_nm, pheno_nm, unfiltered_sample_ctl * sizeof(intptr_t));
       if (pheno_c) {
-	if (aligned_malloc(&orig_pheno_c, unfiltered_sample_ctl * sizeof(intptr_t))) {
+	if (aligned_malloc(unfiltered_sample_ctl * sizeof(intptr_t), &orig_pheno_c)) {
 	  goto plink_ret_NOMEM;
 	}
 	memcpy(orig_pheno_c, pheno_c, unfiltered_sample_ctl * sizeof(intptr_t));
@@ -624,7 +624,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	LOGPRINTF("%u phenotype value%s loaded from .fam.\n", uii, (uii == 1)? "" : "s");
       }
 
-      if (phenoname && fopen_checked(&phenofile, phenoname, "r")) {
+      if (phenoname && fopen_checked(phenoname, "r", &phenofile)) {
 	goto plink_ret_OPEN_FAIL;
       }
 
@@ -930,7 +930,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
       LOGPRINTFWW("Variant-major .bed written to %s .\n", outname);
       strcpy(bedname, outname);
-      if (fopen_checked(&bedfile, bedname, "rb")) {
+      if (fopen_checked(bedname, "rb", &bedfile)) {
 	goto plink_ret_OPEN_FAIL;
       }
       bed_offset = 3;
@@ -1418,7 +1418,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       } else {
 	sprintf(logbuf, "Among remaining phenotypes, %u %s and %u %s.\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "is a case" : "are cases", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "is a control" : "are controls");
       }
-      wordwrap(logbuf, 0);
+      wordwrap(0, logbuf);
       logprintb();
     } else {
       logprint("Phenotype data is quantitative.\n");
@@ -1565,7 +1565,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 
   if (calculation_type & (CALC_WRITE_COVAR | CALC_MAKE_BED | CALC_MAKE_BIM | CALC_MAKE_FAM | CALC_RECODE)) {
     if (gender_unk_ct && (sex_missing_pheno & MUST_HAVE_SEX)) {
-      if (aligned_malloc(&pheno_nm_datagen, unfiltered_sample_ctl * sizeof(intptr_t))) {
+      if (aligned_malloc(unfiltered_sample_ctl * sizeof(intptr_t), &pheno_nm_datagen)) {
 	goto plink_ret_NOMEM;
       }
       memcpy(pheno_nm_datagen, pheno_nm, unfiltered_sample_ctl * sizeof(intptr_t));
@@ -1897,7 +1897,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	pheno_d = NULL;
       }
       if (!pheno_c) {
-	if (aligned_malloc(&pheno_c, unfiltered_sample_ctl * sizeof(intptr_t))) {
+	if (aligned_malloc(unfiltered_sample_ctl * sizeof(intptr_t), &pheno_c)) {
 	  goto plink_ret_NOMEM;
 	}
       }
@@ -1928,7 +1928,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	    if (!pheno_c) {
 	      free(pheno_d);
 	      pheno_d = NULL;
-	      if (aligned_malloc(&pheno_c, unfiltered_sample_ctl * sizeof(intptr_t))) {
+	      if (aligned_malloc(unfiltered_sample_ctl * sizeof(intptr_t), &pheno_c)) {
 		goto plink_ret_NOMEM;
 	      }
 	    }
@@ -2289,7 +2289,7 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
 	} else if (range_end) {
 	  goto parse_chrom_ranges_ret_INVALID_CMDLINE_NONSTD;
 	}
-        if (push_ll_str(&(chrom_info_ptr->incl_excl_name_stack), range_start)) {
+        if (push_ll_str(range_start, &(chrom_info_ptr->incl_excl_name_stack))) {
 	  goto parse_chrom_ranges_ret_NOMEM;
 	}
       } else if (range_end) {
@@ -2329,7 +2329,7 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
     retval = RET_INVALID_CMDLINE;
     break;
   parse_chrom_ranges_ret_INVALID_CMDLINE_WWA:
-    wordwrap(logbuf, 0);
+    wordwrap(0, logbuf);
     logerrprintb();
     logerrprint(errstr_append);
     retval = RET_INVALID_CMDLINE;
@@ -3123,7 +3123,7 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
   }
   while (0) {
   init_delim_and_species_ret_INVALID_CMDLINE_WWA:
-    wordwrap(logbuf, 0);
+    wordwrap(0, logbuf);
   init_delim_and_species_ret_INVALID_CMDLINE_2A:
     logerrprintb();
   init_delim_and_species_ret_INVALID_CMDLINE_A:
@@ -13474,7 +13474,7 @@ int32_t main(int32_t argc, char** argv) {
       memcpy(memcpya(mapname, outname, uii), ".bim", 5);
       memcpy(memcpya(famname, outname, uii), ".fam", 5);
       if (calculation_type && (!(misc_flags & MISC_KEEP_AUTOCONV))) {
-	if (push_ll_str(&file_delete_list, pedname) || push_ll_str(&file_delete_list, mapname) || push_ll_str(&file_delete_list, famname)) {
+	if (push_ll_str(pedname, &file_delete_list) || push_ll_str(mapname, &file_delete_list) || push_ll_str(famname, &file_delete_list)) {
 	  goto main_ret_NOMEM;
 	}
       }
@@ -13508,7 +13508,7 @@ int32_t main(int32_t argc, char** argv) {
     retval = RET_INVALID_CMDLINE;
     break;
   main_ret_INVALID_CMDLINE_WWA:
-    wordwrap(logbuf, 0);
+    wordwrap(0, logbuf);
   main_ret_INVALID_CMDLINE_2A:
     logerrprintb();
   main_ret_INVALID_CMDLINE_A:
@@ -13516,7 +13516,7 @@ int32_t main(int32_t argc, char** argv) {
     retval = RET_INVALID_CMDLINE;
     break;
   main_ret_INVALID_CMDLINE_WW:
-    wordwrap(logbuf, 0);
+    wordwrap(0, logbuf);
   main_ret_INVALID_CMDLINE_2:
     logerrprintb();
   main_ret_INVALID_CMDLINE:
@@ -13537,7 +13537,7 @@ int32_t main(int32_t argc, char** argv) {
     // see the UNSTABLE macro in plink_common.h
     memcpy(logbuf, "Error: --", 9);
     strcpy(sptr, " is either unfinished or not yet well-tested. If you wish to help with testing, use the latest development build.\n");
-    wordwrap(logbuf, 0);
+    wordwrap(0, logbuf);
     logerrprintb();
     retval = RET_CALC_NOT_YET_SUPPORTED;
 #endif

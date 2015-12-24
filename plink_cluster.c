@@ -96,7 +96,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 	cluster_kr_ct = count_and_measure_multistr(keep_flattened, &max_cluster_kr_len);
       }
       if (keep_fname) {
-	if (fopen_checked(&infile, keep_fname, "r")) {
+	if (fopen_checked(keep_fname, "r", &infile)) {
 	  goto load_clusters_ret_OPEN_FAIL;
 	}
 	line_idx = 0;
@@ -174,7 +174,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 	  } while (*cluster_name_ptr);
 	}
 	if (remove_fname) {
-	  if (fopen_checked(&infile, remove_fname, "r")) {
+	  if (fopen_checked(remove_fname, "r", &infile)) {
             goto load_clusters_ret_OPEN_FAIL;
 	  }
 	  line_idx = 0;
@@ -212,7 +212,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
         cluster_kr_ct += count_and_measure_multistr(remove_flattened, &max_cluster_kr_len);
       }
       if (remove_fname) {
-	if (fopen_checked(&infile, remove_fname, "r")) {
+	if (fopen_checked(remove_fname, "r", &infile)) {
 	  goto load_clusters_ret_OPEN_FAIL;
 	}
 	line_idx = 0;
@@ -299,7 +299,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
     // intermission. sort cluster names, purge duplicates, allocate memory for
     //               return values
     // 2. populate return arrays
-    if (fopen_checked(&infile, fname, "r")) {
+    if (fopen_checked(fname, "r", &infile)) {
       goto load_clusters_ret_OPEN_FAIL;
     }
     if (!mwithin_col) {
@@ -662,7 +662,7 @@ int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_sa
   }
   fill_unfiltered_sample_to_cluster(unfiltered_sample_ct, cluster_ct, cluster_map, cluster_starts, sample_to_cluster);
   memcpy(outname_end, ".clst", 6);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto write_cluster_ret_OPEN_FAIL;
   }
   for (sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
@@ -743,7 +743,7 @@ int32_t extract_clusters(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
     } while (*bufptr);
   }
   if (clusters_fname) {
-    if (fopen_checked(&infile, clusters_fname, "r")) {
+    if (fopen_checked(clusters_fname, "r", &infile)) {
       goto extract_clusters_ret_OPEN_FAIL;
     }
     tbuf[MAXLINELEN - 1] = ' ';
@@ -895,7 +895,7 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_sample_ct, uintptr_t* s
     }
     cluster_cc_perm_preimage = *cluster_cc_perm_preimage_ptr;
     if (!is_perm1) {
-      quaterfield_collapse_init(pheno_c, unfiltered_sample_ct, sample_include, sample_ct, cluster_cc_perm_preimage);
+      quaterarr_collapse_init(pheno_c, unfiltered_sample_ct, sample_include, sample_ct, cluster_cc_perm_preimage);
     } else {
       collapse_copy_bitarr_incl(unfiltered_sample_ct, pheno_c, sample_include, sample_ct, cluster_cc_perm_preimage);
     }
@@ -1075,7 +1075,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample
   double cur_ibs;
   uint32_t uii;
   int32_t ii;
-  if (fopen_checked(&dist_file, dist_fname, "rb")) {
+  if (fopen_checked(dist_fname, "rb", &dist_file)) {
     goto read_dists_ret_OPEN_FAIL;
   }
   if (fseeko(dist_file, 0, SEEK_END)) {
@@ -1086,7 +1086,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample
       goto read_dists_ret_NOMEM;
     }
     fill_ull_one(fidx_to_memidx, sample_ct);
-    if (fopen_checked(&id_file, id_fname, "r")) {
+    if (fopen_checked(id_fname, "r", &id_file)) {
       goto read_dists_ret_OPEN_FAIL;
     }
     retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_sample_ct, sample_exclude, unfiltered_sample_ct - sample_ct, sample_ids, max_sample_id_len, 0, 1, strcmp_deref);
@@ -1537,7 +1537,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       missing_len = strlen(missing_str);
     }
     if (cp->match_type_fname) {
-      if (fopen_checked(&typefile, cp->match_type_fname, "r")) {
+      if (fopen_checked(cp->match_type_fname, "r", &typefile)) {
 	goto cluster_enforce_match_ret_OPEN_FAIL;
       }
       cov_idx = 0;
@@ -1771,7 +1771,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       missing_str = intbuf;
     }
     missing_len = strlen(missing_str);
-    if (fopen_checked(&typefile, cp->qt_fname, "r")) {
+    if (fopen_checked(cp->qt_fname, "r", &typefile)) {
       goto cluster_enforce_match_ret_OPEN_FAIL;
     }
     line_idx = 0;
@@ -1816,7 +1816,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       goto cluster_enforce_match_ret_NOMEM;
     }
     dptr = (double*)wkspace_base;
-    if (fopen_checked(&matchfile, cp->qmatch_fname, "r")) {
+    if (fopen_checked(cp->qmatch_fname, "r", &matchfile)) {
       goto cluster_enforce_match_ret_OPEN_FAIL;
     }
     line_idx = 0;
@@ -2758,7 +2758,7 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
     }
   }
   memcpy(outname_end, ".cluster2", 10);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto write_cluster_solution_ret_OPEN_FAIL;
   }
   fputs("Writing cluster solution...", stdout);
@@ -2783,7 +2783,7 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
   }
   if (!only2) {
     outname_end[8] = '1';
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto write_cluster_solution_ret_OPEN_FAIL;
     }
     memcpy(tbuf, "SOL-", 4);
@@ -2811,7 +2811,7 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
     } else {
       outname_end[8] = '3';
     }
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto write_cluster_solution_ret_WRITE_FAIL;
     }
     clidx = 0;
@@ -3118,7 +3118,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
   logprint(" done.\n");
 
   memcpy(outname_end, ".mds", 5);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto mds_plot_ret_OPEN_FAIL;
   }
   sprintf(tbuf, "%%%us %%%us    SOL ", plink_maxfid, plink_maxiid);
@@ -3191,7 +3191,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
   } else {
     LOGPREPRINTFWW("MDS solution written to %s (eigenvalues in %s.eigvals ).\n", outname, outname);
     memcpy(&(outname_end[4]), ".eigvals", 9);
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto mds_plot_ret_OPEN_FAIL;
     }
     for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
@@ -3433,7 +3433,7 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
   logprint(" done.\n");
 
   memcpy(outname_end, ".mds", 5);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto mds_plot_eigendecomp_ret_OPEN_FAIL;
   }
   sprintf(tbuf, "%%%us %%%us    SOL ", plink_maxfid, plink_maxiid);
@@ -3506,7 +3506,7 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
   } else {
     LOGPREPRINTFWW("MDS solution written to %s (eigenvalues in %s.eigvals ).\n", outname, outname);
     memcpy(&(outname_end[4]), ".eigvals", 9);
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto mds_plot_eigendecomp_ret_OPEN_FAIL;
     }
     for (dim_idx = dim_ct; dim_idx; dim_idx--) {

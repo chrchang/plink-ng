@@ -958,7 +958,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
     goto lasso_ret_1;
   }
   memcpy(outname_end, ".lasso", 7);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto lasso_ret_OPEN_FAIL;
   }
   if (fputs_checked("CHR\tSNP\tA1\tEFFECT\n", outfile)) {

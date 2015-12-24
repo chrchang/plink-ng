@@ -104,7 +104,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
   uint32_t cur_chrom;
   uint32_t uii;
   unsigned char ucc;
-  if (fopen_checked(&intersect_file, intersect_filter_fname, "r")) {
+  if (fopen_checked(intersect_filter_fname, "r", &intersect_file)) {
     goto cnv_intersect_load_ret_OPEN_FAIL;
   }
   while (fgets(tbuf, MAXLINELEN, intersect_file)) {
@@ -480,7 +480,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
   int32_t ii;
   double dxx;
   logprintb();
-  if (fopen_checked(&new_mapfile, new_mapname, "w")) {
+  if (fopen_checked(new_mapname, "w", &new_mapfile)) {
     goto cnv_make_map_ret_OPEN_FAIL;
   }
   retval = cnv_first_nonheader_line(cnvfile, &line_idx);
@@ -698,7 +698,7 @@ int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, int32_t* marker_pos_
   if ((*marker_pos_end_ptr) != -1) {
     marker_pos_end = *marker_pos_end_ptr;
   }
-  if (fopen_checked(mapfile_ptr, mapname, "r")) {
+  if (fopen_checked(mapname, "r", mapfile_ptr)) {
     goto validate_cnv_map_ret_OPEN_FAIL;
   }
   marker_chrom_start[0] = 0;
@@ -920,11 +920,11 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
     goto plink_cnv_ret_NOMEM;
   }
   wkspace_mark2 = wkspace_base;
-  if (fopen_checked(&cnvfile, cnvname, "r")) {
+  if (fopen_checked(cnvname, "r", &cnvfile)) {
     goto plink_cnv_ret_OPEN_FAIL;
   }
   if (cnv_calc_type & (~CNV_MAKE_MAP)) {
-    if (fopen_checked(&famfile, famname, "r")) {
+    if (fopen_checked(famname, "r", &famfile)) {
       goto plink_cnv_ret_OPEN_FAIL;
     }
   }
@@ -960,7 +960,7 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
 	}
       }
       sprintf(logbuf, "Autogenerating missing %s ... ", mapname);
-      wordwrap(logbuf, 5);
+      wordwrap(5, logbuf);
       retval = cnv_make_map(cnvfile, mapname, 0, 0, 0xffffffffU, -HUGE_DOUBLE, HUGE_DOUBLE, 0, 0xffffffffU, NULL, NULL, NULL, NULL, NULL, NULL, 0, 0, 0.0, -1, -1, allow_extra_chroms, 0, chrom_info_ptr, &max_marker_id_len, marker_chrom_start);
     } else {
       retval = validate_cnv_map(&mapfile, mapname, &marker_pos_start, &marker_pos_end, allow_extra_chroms, chrom_info_ptr, &max_marker_id_len, marker_chrom_start);
@@ -971,14 +971,14 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
   } else {
     memcpy(outname_end, ".cnv.map", 9);
     sprintf(logbuf, "Generating %s ... ", outname);
-    wordwrap(logbuf, 5);
+    wordwrap(5, logbuf);
     retval = cnv_make_map(cnvfile, outname, cnv_calc_type, min_seglen, max_seglen, min_score, max_score, min_sites, max_sites, il_chrom_start_small, il_chrom_start_large, il_chrom_max_width_small, il_chrom_max_width_large, il_small, il_large, intersect_filter_type, overlap_type, overlap_val, marker_pos_start, marker_pos_end, allow_extra_chroms, 0, chrom_info_ptr, &max_marker_id_len, marker_chrom_start);
     if (retval || (!(cnv_calc_type & (CNV_MAKE_MAP | CNV_DEL | CNV_DUP)))) {
       goto plink_cnv_ret_1;
     }
   }
   if (!mapfile) {
-    if (fopen_checked(&mapfile, mapname, "r")) {
+    if (fopen_checked(mapname, "r", &mapfile)) {
       goto plink_cnv_ret_OPEN_FAIL;
     }
   }

@@ -81,7 +81,7 @@ int32_t sample_major_to_snp_major(char* sample_major_fname, char* outname, uintp
   uintptr_t cur_word1;
   uintptr_t cur_word2;
   uintptr_t cur_word3;
-  if (fopen_checked(&outfile, outname, "wb")) {
+  if (fopen_checked(outname, "wb", &outfile)) {
     goto sample_major_to_snp_major_ret_OPEN_FAIL;
   }
   if (fwrite_checked("l\x1b\x01", 3, outfile)) {
@@ -97,7 +97,7 @@ int32_t sample_major_to_snp_major(char* sample_major_fname, char* outname, uintp
     }
     writebuf = (unsigned char*)wkspace_base;
     write_marker_ct = BITCT2 * (wkspace_left / (unfiltered_sample_ct4 * BITCT2));
-    if (fopen_checked(&infile, sample_major_fname, "rb")) {
+    if (fopen_checked(sample_major_fname, "rb", &infile)) {
       goto sample_major_to_snp_major_ret_OPEN_FAIL;
     }
     loadbuf[unfiltered_marker_ctl2 - 1] = 0;
@@ -232,7 +232,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
   int32_t ii;
   int32_t jj;
   fill_ulong_zero(loaded_chrom_mask, CHROM_MASK_WORDS);
-  if (fopen_checked(mapfile_ptr, mapname, "r")) {
+  if (fopen_checked(mapname, "r", mapfile_ptr)) {
     goto load_map_ret_OPEN_FAIL;
   }
   // first pass: count columns, determine raw marker count, determine maximum
@@ -647,7 +647,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       }
     }
   }
-  if (fopen_checked(&bimfile, bimname, "r")) {
+  if (fopen_checked(bimname, "r", &bimfile)) {
     goto load_bim_ret_OPEN_FAIL;
   }
   // first pass: count columns, determine raw marker count, determine maximum
@@ -1481,7 +1481,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
   // was using open_and_load_to_first_token(), but we now don't want to
   // automatically print an error message on an empty file.
   loadbuf[loadbuf_size - 1] = ' ';
-  if (fopen_checked(&covar_file, covar_fname, "r")) {
+  if (fopen_checked(covar_fname, "r", &covar_file)) {
     goto load_covars_ret_OPEN_FAIL;
   }
   line_idx = 0;
@@ -1936,7 +1936,7 @@ int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modi
   uint32_t uii;
   uint32_t ujj;
   memcpy(outname_end, ".cov", 5);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto write_covars_ret_OPEN_FAIL;
   }
   if (fputs_checked("FID IID ", outfile)) {
@@ -2366,7 +2366,7 @@ int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintp
   fill_uidx_to_idx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_uidx_to_idx);
   // cluster IDs are already natural-sorted
 
-  if (fopen_checked(&zcfile, zerofname, "r")) {
+  if (fopen_checked(zerofname, "r", &zcfile)) {
     goto zero_cluster_init_ret_OPEN_FAIL;
   }
   // simplify cluster_idx loop
@@ -2506,7 +2506,7 @@ int32_t write_fam(char* outname, uintptr_t unfiltered_sample_ct, uintptr_t* samp
   char* bufptr;
   uintptr_t sample_idx;
   uintptr_t clen;
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto write_fam_ret_OPEN_FAIL;
   }
   for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
@@ -2567,7 +2567,7 @@ int32_t write_map_or_bim(char* outname, uintptr_t* marker_exclude, uintptr_t mar
   char* buf_start = NULL;
   uintptr_t marker_idx;
   char* bufptr;
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto write_map_or_bim_ret_OPEN_FAIL;
   }
   for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
@@ -2626,7 +2626,7 @@ int32_t load_bim_split_chrom(char* bimname, uintptr_t* marker_exclude, uintptr_t
       goto load_bim_split_chrom_ret_NOMEM;
     }
   }
-  if (fopen_checked(&infile, bimname, "r")) {
+  if (fopen_checked(bimname, "r", &infile)) {
     goto load_bim_split_chrom_ret_OPEN_FAIL;
   }
   for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
@@ -2917,7 +2917,7 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
   }
   fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, unpack_map);
   sort_marker_chrom_pos(ll_buf, marker_ct, marker_pos, chrom_start, chrom_id, unpack_map, &chrom_ct);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto sort_and_write_bim_ret_OPEN_FAIL;
   }
 
@@ -3027,7 +3027,7 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
   sort_marker_chrom_pos(ll_buf, marker_ct, pos_buf, chrom_start, chrom_id, NULL, &chrom_ct);
 
   strcpy(outname_end, ".map.tmp");
-  if (fopen_checked(&map_outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &map_outfile)) {
     goto load_sort_and_write_map_ret_OPEN_FAIL;
   }
 
@@ -3107,7 +3107,7 @@ int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t un
   if (retval) {
     goto flip_subset_init_ret_1;
   }
-  if (fopen_checked(&infile, flip_fname, "r")) {
+  if (fopen_checked(flip_fname, "r", &infile)) {
     goto flip_subset_init_ret_OPEN_FAIL;
   }
   tbuf[MAXLINELEN - 1] = ' ';
@@ -3158,7 +3158,7 @@ int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t un
     }
     fill_uidx_to_idx(sample_exclude, unfiltered_sample_ct, sample_ct, sample_uidx_to_idx);
   }
-  if (fopen_checked(&infile, flip_subset_fname, "r")) {
+  if (fopen_checked(flip_subset_fname, "r", &infile)) {
     goto flip_subset_init_ret_OPEN_FAIL;
   }
   fill_ulong_zero(flip_subset_vec2, sample_ctv2);
@@ -3328,7 +3328,7 @@ int32_t make_bed_me_missing_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32
       *writeptr = cur_word;
     }
   } else if (unfiltered_sample_ct != sample_ct) {
-    collapse_copy_2bitarr(loadbuf, writebuf, unfiltered_sample_ct, sample_ct, sample_exclude);
+    collapse_copy_quaterarr(loadbuf, writebuf, unfiltered_sample_ct, sample_ct, sample_exclude);
   }
   return 0;
 }
@@ -3515,7 +3515,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
       }
     }
     memcpy(outname_end, ".bed", 5);
-    if (fopen_checked(&bedoutfile, outname, "wb")) {
+    if (fopen_checked(outname, "wb", &bedoutfile)) {
       goto make_bed_ret_OPEN_FAIL;
     }
 
@@ -3876,7 +3876,7 @@ int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32
   }
   loadbuf = (char*)wkspace_base;
   loadbuf[loadbuf_size - 1] = ' ';
-  if (fopen_checked(&famfile, famname, "r")) {
+  if (fopen_checked(famname, "r", &famfile)) {
     goto load_fam_ret_OPEN_FAIL;
   }
   // ----- .fam read, first pass -----
@@ -3973,7 +3973,7 @@ int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32
   // force either pheno_c or pheno_d to be allocated even if there is no
   // phenotype data
   if ((!tmp_fam_col_6) || affection) {
-    if (aligned_malloc(pheno_c_ptr, unfiltered_sample_ctl * sizeof(intptr_t))) {
+    if (aligned_malloc(unfiltered_sample_ctl * sizeof(intptr_t), pheno_c_ptr)) {
       goto load_fam_ret_NOMEM;
     }
     pheno_c = *pheno_c_ptr;
@@ -4251,11 +4251,11 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
       qsort(sorted_mc, mc_ct, max_mc_len, strcmp_casted);
     }
   }
-  if (fopen_checked(&infile, samplename, "r")) {
+  if (fopen_checked(samplename, "r", &infile)) {
     goto oxford_to_bed_ret_OPEN_FAIL;
   }
   memcpy(outname_end, ".fam", 5);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto oxford_to_bed_ret_OPEN_FAIL;
   }
   tbuf[MAXLINELEN - 1] = ' ';
@@ -4490,11 +4490,11 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     goto oxford_to_bed_ret_NOMEM;
   }
   memcpy(outname_end, ".bim", 5);
-  if (fopen_checked(&outfile_bim, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile_bim)) {
     goto oxford_to_bed_ret_OPEN_FAIL;
   }
   memcpy(outname_end, ".bed", 5);
-  if (fopen_checked(&outfile, outname, "wb")) {
+  if (fopen_checked(outname, "wb", &outfile)) {
     goto oxford_to_bed_ret_OPEN_FAIL;
   }
   if (fwrite_checked("l\x1b\x01", 3, outfile)) {
@@ -4750,7 +4750,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
       goto oxford_to_bed_ret_INVALID_FORMAT;
     }
   } else {
-    if (fopen_checked(&infile, genname, "rb")) {
+    if (fopen_checked(genname, "rb", &infile)) {
       goto oxford_to_bed_ret_OPEN_FAIL;
     }
     // supports BGEN v1.0 and v1.1.
@@ -5463,7 +5463,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
     goto ped_to_bed_multichar_allele_ret_WRITE_FAIL;
   }
   memcpy(outname_end, ".fam", 5);
-  if (fopen_checked(outfile_ptr, outname, "w")) {
+  if (fopen_checked(outname, "w", outfile_ptr)) {
     goto ped_to_bed_multichar_allele_ret_OPEN_FAIL;
   }
   outfile = *outfile_ptr;
@@ -5605,13 +5605,13 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
   }
   marker_allele_ptrs = (char**)wkspace_alloc(marker_ct * 2 * sizeof(intptr_t));
   memcpy(outname_end, ".bim", 5);
-  if (fopen_checked(outfile_ptr, outname, "w")) {
+  if (fopen_checked(outname, "w", outfile_ptr)) {
     goto ped_to_bed_multichar_allele_ret_OPEN_FAIL;
   }
   outfile = *outfile_ptr;
   if (map_is_unsorted) {
     memcpy(outname_end, ".map.tmp", 9);
-    if (fopen_checked(mapfile_ptr, outname, "r")) {
+    if (fopen_checked(outname, "r", mapfile_ptr)) {
       goto ped_to_bed_multichar_allele_ret_OPEN_FAIL;
     }
   } else {
@@ -5731,7 +5731,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
   logprintb();
   writebuf = wkspace_base;
   memcpy(outname_end, ".bed", 5);
-  if (fopen_checked(outfile_ptr, outname, "wb")) {
+  if (fopen_checked(outname, "wb", outfile_ptr)) {
     goto ped_to_bed_multichar_allele_ret_OPEN_FAIL;
   }
   if (fwrite_checked("l\x1b\x01", 3, *outfile_ptr)) {
@@ -6104,11 +6104,11 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   memset(marker_alleles, 0, marker_ct * 4);
 
   // first .ped scan: count samples, write .fam, note alleles at each locus
-  if (fopen_checked(&pedfile, pedname, "rb")) {
+  if (fopen_checked(pedname, "rb", &pedfile)) {
     goto ped_to_bed_ret_OPEN_FAIL;
   }
   memcpy(outname_end, ".fam", 5);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto ped_to_bed_ret_OPEN_FAIL;
   }
   loadbuf = (char*)wkspace_base;
@@ -6264,12 +6264,12 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       goto ped_to_bed_ret_WRITE_FAIL;
     }
     memcpy(outname_end, ".bim", 5);
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto ped_to_bed_ret_OPEN_FAIL;
     }
     if (map_is_unsorted) {
       memcpy(outname_end, ".map.tmp", 9);
-      if (fopen_checked(&mapfile, outname, "r")) {
+      if (fopen_checked(outname, "r", &mapfile)) {
 	goto ped_to_bed_ret_OPEN_FAIL;
       }
     } else {
@@ -6393,7 +6393,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     logprintb();
     writebuf = wkspace_base;
     memcpy(outname_end, ".bed", 5);
-    if (fopen_checked(&outfile, outname, "wb")) {
+    if (fopen_checked(outname, "wb", &outfile)) {
       goto ped_to_bed_ret_OPEN_FAIL;
     }
     if (fwrite_checked("l\x1b\x01", 3, outfile)) {
@@ -6724,7 +6724,7 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
   loadbuf = (char*)wkspace_base;
   loadbuf[loadbuf_size - 1] = ' ';
   if (lgen_modifier & LGEN_REFERENCE) {
-    if (fopen_checked(&infile, lgen_reference_fname, "r")) {
+    if (fopen_checked(lgen_reference_fname, "r", &infile)) {
       goto lgen_to_bed_ret_OPEN_FAIL;
     }
     line_idx = 0;
@@ -6794,13 +6794,13 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
   // Thus we just use the obvious one-pass load, and save proper handling of
   // triallelic sites, etc. for the future .pgen engine.
   memcpy(outname_end, ".bed", 5);
-  if (fopen_checked(&outfile, outname, "wb")) {
+  if (fopen_checked(outname, "wb", &outfile)) {
     goto lgen_to_bed_ret_OPEN_FAIL;
   }
   if (fwrite_checked("l\x1b\x01", 3, outfile)) {
     goto lgen_to_bed_ret_WRITE_FAIL;
   }
-  if (fopen_checked(&infile, lgenname, "r")) {
+  if (fopen_checked(lgenname, "r", &infile)) {
     goto lgen_to_bed_ret_OPEN_FAIL;
   }
   if (fseeko(infile, 0, SEEK_END)) {
@@ -7035,16 +7035,16 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
   }
   if (map_is_unsorted) {
     memcpy(outname_end, ".map.tmp", 9);
-    if (fopen_checked(&infile, outname, "r")) {
+    if (fopen_checked(outname, "r", &infile)) {
       goto lgen_to_bed_ret_OPEN_FAIL;
     }
   } else {
-    if (fopen_checked(&infile, mapname, "r")) {
+    if (fopen_checked(mapname, "r", &infile)) {
       goto lgen_to_bed_ret_OPEN_FAIL;
     }
   }
   memcpy(outname_end, ".bim", 5);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto lgen_to_bed_ret_OPEN_FAIL;
   }
   uii = 2 * marker_ct;
@@ -7111,10 +7111,10 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
   if (!(cptr && (!strcmp(tbuf, &(tbuf[FNAMESIZE + 64])))))
 #endif
   {
-    if (fopen_checked(&infile, famname, "r")) {
+    if (fopen_checked(famname, "r", &infile)) {
       goto lgen_to_bed_ret_OPEN_FAIL;
     }
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto lgen_to_bed_ret_OPEN_FAIL;
     }
     while (fgets(tbuf, MAXLINELEN, infile)) {
@@ -7312,11 +7312,11 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     goto transposed_to_bed_ret_NOMEM;
   }
 
-  if (fopen_checked(&infile, tfamname, "r")) {
+  if (fopen_checked(tfamname, "r", &infile)) {
     goto transposed_to_bed_ret_OPEN_FAIL;
   }
   memcpy(outname_end, ".fam", 5);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto transposed_to_bed_ret_OPEN_FAIL;
   }
   tbuf[MAXLINELEN - 1] = ' ';
@@ -7351,11 +7351,11 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   fclose_null(&outfile);
 
   memcpy(outname_end, ".bim.tmp", 9);
-  if (fopen_checked(&bimfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &bimfile)) {
     goto transposed_to_bed_ret_OPEN_FAIL;
   }
   memcpy(outname_end, ".bed.tmp", 9);
-  if (fopen_checked(&outfile, outname, "wb")) {
+  if (fopen_checked(outname, "wb", &outfile)) {
     goto transposed_to_bed_ret_OPEN_FAIL;
   }
   if (wkspace_alloc_uc_checked(&writebuf, sample_ct4) ||
@@ -7375,7 +7375,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     goto transposed_to_bed_ret_WRITE_FAIL;
   }
 
-  if (fopen_checked(&infile, tpedname, "r")) {
+  if (fopen_checked(tpedname, "r", &infile)) {
     goto transposed_to_bed_ret_OPEN_FAIL;
   }
   if (fseeko(infile, 0, SEEK_END)) {
@@ -7789,11 +7789,11 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     sort_marker_chrom_pos(ll_buf, marker_ct, pos_buf, chrom_start, chrom_id, NULL, &chrom_ct);
 
     memcpy(outname_end, ".bim.tmp", 9);
-    if (fopen_checked(&infile, outname, "r")) {
+    if (fopen_checked(outname, "r", &infile)) {
       goto transposed_to_bed_ret_OPEN_FAIL;
     }
     outname_end[4] = '\0';
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto transposed_to_bed_ret_OPEN_FAIL;
     }
     marker_idx = 0;
@@ -7858,11 +7858,11 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
 
     outname_end[2] = 'e';
     outname_end[3] = 'd';
-    if (fopen_checked(&infile, outname, "rb")) {
+    if (fopen_checked(outname, "rb", &infile)) {
       goto transposed_to_bed_ret_OPEN_FAIL;
     }
     outname_end[4] = '\0';
-    if (fopen_checked(&outfile, outname, "wb")) {
+    if (fopen_checked(outname, "wb", &outfile)) {
       goto transposed_to_bed_ret_OPEN_FAIL;
     }
     if (fwrite_checked("l\x1b\x01", 3, outfile)) {
@@ -7980,7 +7980,7 @@ int32_t vcf_sample_line(char* outname, char* outname_end, int32_t missing_pheno,
   fam_trailer_len = (uintptr_t)(bufptr2 - fam_trailer);
 
   memcpy(outname_end, ".fam", 5);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto vcf_sample_line_ret_OPEN_FAIL;
   }
   if (const_fid) {
@@ -8283,7 +8283,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     }
   } else if (allow_no_samples) {
     memcpy(outname_end, ".fam", 5);
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto vcf_to_bed_ret_OPEN_FAIL;
     }
     if (fclose_null(&outfile)) {
@@ -8303,11 +8303,11 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     goto vcf_to_bed_ret_NOMEM;
   }
   memcpy(outname_end, ".bim", 5);
-  if (fopen_checked(&bimfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &bimfile)) {
     goto vcf_to_bed_ret_OPEN_FAIL;
   }
   memcpyl3(&(outname_end[2]), "ed");
-  if (fopen_checked(&outfile, outname, "wb")) {
+  if (fopen_checked(outname, "wb", &outfile)) {
     goto vcf_to_bed_ret_OPEN_FAIL;
   }
   if (fwrite_checked("l\x1b\x01", 3, outfile)) {
@@ -8934,7 +8934,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     if (skip3_list) {
       if (!marker_skip_ct) {
 	memcpy(outname_end, ".skip.3allele", 14);
-	if (fopen_checked(&skip3file, outname, "w")) {
+	if (fopen_checked(outname, "w", &skip3file)) {
 	  goto vcf_to_bed_ret_OPEN_FAIL;
 	}
 	memcpy(outname_end, ".bed", 5);
@@ -9365,7 +9365,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   } else if (allow_no_samples) {
     gt_idx = 0;
     memcpy(outname_end, ".fam", 5);
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto bcf_to_bed_ret_OPEN_FAIL;
     }
     if (fclose_null(&outfile)) {
@@ -9441,11 +9441,11 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   }
   base_bitfields = (uintptr_t*)wkspace_alloc(sample_ctv2 * max_allele_ct * sizeof(intptr_t));
   memcpy(outname_end, ".bim", 5);
-  if (fopen_checked(&bimfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &bimfile)) {
     goto bcf_to_bed_ret_OPEN_FAIL;
   }
   memcpy(outname_end, ".bed", 5);
-  if (fopen_checked(&outfile, outname, "wb")) {
+  if (fopen_checked(outname, "wb", &outfile)) {
     goto bcf_to_bed_ret_OPEN_FAIL;
   }
   if (fwrite_checked("l\x1b\x01", 3, outfile)) {
@@ -9906,7 +9906,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     if (skip3_list) {
       if (!marker_skip_ct) {
 	memcpy(outname_end, ".skip.3allele", 14);
-	if (fopen_checked(&skip3file, outname, "w")) {
+	if (fopen_checked(outname, "w", &skip3file)) {
 	  goto bcf_to_bed_ret_OPEN_FAIL;
 	}
 	memcpy(outname_end, ".bed", 5);
@@ -10054,15 +10054,15 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   if (wkspace_alloc_c_checked(&writebuf2, MAXLINELEN)) {
     goto bed_from_23_ret_NOMEM;
   }
-  if (fopen_checked(&infile_23, infile_name, "r")) {
+  if (fopen_checked(infile_name, "r", &infile_23)) {
     goto bed_from_23_ret_OPEN_FAIL;
   }
   memcpy(outname_end, ".bim", 5);
-  if (fopen_checked(&outfile_txt, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile_txt)) {
     goto bed_from_23_ret_OPEN_FAIL;
   }
   memcpy(&(outname_end[2]), "ed", 2);
-  if (fopen_checked(&outfile_bed, outname, "wb")) {
+  if (fopen_checked(outname, "wb", &outfile_bed)) {
     goto bed_from_23_ret_OPEN_FAIL;
   }
   if (wkspace_left < MAXLINELEN) {
@@ -10212,7 +10212,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
     goto bed_from_23_ret_WRITE_FAIL;
   }
   memcpy(outname_end, ".fam", 5);
-  if (fopen_checked(&outfile_txt, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile_txt)) {
     goto bed_from_23_ret_OPEN_FAIL;
   }
   if (fid_23) {
@@ -10353,7 +10353,7 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
     goto generate_dummy_ret_NOMEM;
   }
   memcpy(outname_end, ".bim", 5);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto generate_dummy_ret_OPEN_FAIL;
   }
   memcpy(wbuf, "1\tsnp", 5);
@@ -10397,7 +10397,7 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
     goto generate_dummy_ret_WRITE_FAIL;
   }
   memcpy(outname_end, ".fam", 5);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto generate_dummy_ret_OPEN_FAIL;
   }
   wptr = memcpyl3a(wbuf, "per");
@@ -10442,7 +10442,7 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
     goto generate_dummy_ret_WRITE_FAIL;
   }
   memcpy(outname_end, ".bed", 5);
-  if (fopen_checked(&outfile, outname, "wb")) {
+  if (fopen_checked(outname, "wb", &outfile)) {
     goto generate_dummy_ret_OPEN_FAIL;
   }
   if (fwrite_checked("l\x1b\x01", 3, outfile)) {
@@ -10955,19 +10955,19 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
       goto simulate_ret_NOMEM;
     }
   }
-  if (fopen_checked(&infile, simulate_fname, "r")) {
+  if (fopen_checked(simulate_fname, "r", &infile)) {
     goto simulate_ret_OPEN_FAIL;
   }
   memcpy(outname_end, ".bim", 5);
-  if (fopen_checked(&outfile_txt, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile_txt)) {
     goto simulate_ret_OPEN_FAIL;
   }
   memcpy(outname_end, ".simfreq", 9);
-  if (fopen_checked(&outfile_simfreq, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile_simfreq)) {
     goto simulate_ret_OPEN_FAIL;
   }
   memcpy(outname_end, ".bed", 5);
-  if (fopen_checked(&outfile_bed, outname, "wb")) {
+  if (fopen_checked(outname, "wb", &outfile_bed)) {
     goto simulate_ret_OPEN_FAIL;
   }
   if (fwrite_checked("l\x1b\x01", 3, outfile_bed)) {
@@ -11381,7 +11381,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     goto simulate_ret_WRITE_FAIL;
   }
   memcpy(outname_end, ".fam", 5);
-  if (fopen_checked(&outfile_txt, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile_txt)) {
     goto simulate_ret_OPEN_FAIL;
   }
   wptr = tbuf;
@@ -11476,7 +11476,7 @@ int32_t recode_allele_load(char* loadbuf, uintptr_t loadbuf_size, char* recode_a
   uint32_t slen;
   uint32_t alen;
   uintptr_t marker_uidx;
-  if (fopen_checked(&rafile, recode_allele_name, "r")) {
+  if (fopen_checked(recode_allele_name, "r", &rafile)) {
     goto recode_allele_load_ret_OPEN_FAIL;
   }
   marker_id_htable = (uint32_t*)top_alloc(&topsize, marker_id_htable_size * sizeof(int32_t));
@@ -11742,11 +11742,11 @@ int32_t recode_beagle_new_chrom(char* outname, char* outname_end2, uintptr_t* ma
 
   wbufptr = chrom_name_write(outname_end2, chrom_info_ptr, chrom_idx);
   memcpy(wbufptr, ".dat", 5);
-  if (fopen_checked(datfile_ptr, outname, "w")) {
+  if (fopen_checked(outname, "w", datfile_ptr)) {
     goto recode_beagle_new_chrom_ret_OPEN_FAIL;
   }
   memcpy(wbufptr, ".map", 5);
-  if (fopen_checked(mapfile_ptr, outname, "w")) {
+  if (fopen_checked(outname, "w", mapfile_ptr)) {
     goto recode_beagle_new_chrom_ret_OPEN_FAIL;
   }
   if (fwrite_checked(dat_header, dat_header_len, *datfile_ptr)) {
@@ -11773,7 +11773,7 @@ int32_t open_and_write_fastphase_header(FILE** outfile_ptr, char* outname, uintp
   char wbuf[16];
   char* wptr;
   uint32_t marker_idx;
-  if (fopen_checked(outfile_ptr, outname, "w")) {
+  if (fopen_checked(outname, "w", outfile_ptr)) {
     return RET_OPEN_FAIL;
   }
   wptr = uint32_writex(wbuf, sample_ct, '\n');
@@ -12548,7 +12548,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   }
   if (recode_modifier & RECODE_TRANSPOSE) {
     strcpy(outname_end, ".tped");
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto recode_ret_OPEN_FAIL;
     }
     *outname_end = '\0';
@@ -12632,7 +12632,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     }
   } else if (recode_modifier & RECODE_A_TRANSPOSE) {
     strcpy(outname_end, ".traw");
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto recode_ret_OPEN_FAIL;
     }
     fputs((delimiter == '\t')? "CHR\tSNP\t(C)M\tPOS\tCOUNTED\tALT" : "CHR SNP (C)M POS COUNTED ALT", outfile);
@@ -12751,7 +12751,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   } else if (recode_modifier & RECODE_VCF) {
     if (!output_bgz) {
       memcpy(outname_end, ".vcf", 5);
-      if (fopen_checked(&outfile, outname, "w")) {
+      if (fopen_checked(outname, "w", &outfile)) {
 	goto recode_ret_OPEN_FAIL;
       }
     } else {
@@ -13079,7 +13079,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       goto recode_ret_WRITE_FAIL;
     }
     memcpy(outname_end, ".sample", 8);
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto recode_ret_OPEN_FAIL;
     }
     if (fputs_checked(
@@ -13116,7 +13116,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     }
   } else if (recode_modifier & RECODE_23) {
     memcpy(outname_end, ".txt", 5);
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto recode_ret_OPEN_FAIL;
     }
     LOGPRINTFWW5("--recode 23 to %s ... ", outname);
@@ -13206,7 +13206,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     if (!beagle_nomap) {
       memcpy(outname_end, ".chr-", 6);
       sprintf(logbuf, "--recode beagle to %s*.dat + %s*.map... ", outname, outname);
-      wordwrap(logbuf, 5);
+      wordwrap(5, logbuf);
       fputs(logbuf, stdout);
     } else {
       memcpy(outname_end, ".beagle.dat", 12);
@@ -13220,7 +13220,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       goto recode_ret_1;
     }
     if (beagle_nomap) {
-      if (fopen_checked(&outfile, outname, "w")) {
+      if (fopen_checked(outname, "w", &outfile)) {
 	goto recode_ret_OPEN_FAIL;
       }
       if (fwrite_checked(writebuf2, header_len, outfile)) {
@@ -13345,7 +13345,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     fputs("0%", stdout);
     fflush(stdout);
     memcpy(&(outname_end[8]), "pos.txt", 8);
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto recode_ret_OPEN_FAIL;
     }
     writebuf2[0] = ' ';
@@ -13371,7 +13371,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       goto recode_ret_WRITE_FAIL;
     }
     memcpy(&(outname_end[8]), "pheno.txt", 10);
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto recode_ret_OPEN_FAIL;
     }
     sample_uidx = 0;
@@ -13405,7 +13405,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       goto recode_ret_WRITE_FAIL;
     }
     memcpy(&(outname_end[8]), "geno.txt", 9);
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto recode_ret_OPEN_FAIL;
     }
     wbufptr = uint32_writex(writebuf2, sample_ct, '\n');
@@ -13515,7 +13515,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       *outname_end = '\0';
     }
     sprintf(logbuf, "--recode fastphase%s to %s.recode.phase.inp ... ", (recode_modifier & RECODE_FASTPHASE)? "" : "-1chr", outname);
-    wordwrap(logbuf, 15); // strlen("[chromosome 10]")
+    wordwrap(15, logbuf); // strlen("[chromosome 10]")
     fputs(logbuf, stdout);
     chrom_fo_idx = 0xffffffffU; // exploit overflow for initialization
     if (recode_modifier & RECODE_FASTPHASE) {
@@ -13629,12 +13629,12 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   } else if (recode_modifier & (RECODE_LGEN | RECODE_LGEN_REF)) {
     if (lgen_ref) {
       strcpy(outname_end, ".ref");
-      if (fopen_checked(&outfile2, outname, "w")) {
+      if (fopen_checked(outname, "w", &outfile2)) {
 	goto recode_ret_OPEN_FAIL;
       }
     }
     strcpy(outname_end, ".lgen");
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto recode_ret_OPEN_FAIL;
     }
     if (delimiter == ' ') {
@@ -13754,7 +13754,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     if (wkspace_left < ((uint64_t)unfiltered_sample_ct4) * marker_ct) {
       goto recode_ret_NO_MULTIPASS_YET;
     }
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto recode_ret_OPEN_FAIL;
     }
     if (fputs_checked((delimiter == ' ')? "FID IID PAT MAT SEX PHENOTYPE" : "FID\tIID\tPAT\tMAT\tSEX\tPHENOTYPE", outfile)) {
@@ -13878,7 +13878,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     }
   } else if (recode_modifier & (RECODE_LIST | RECODE_RLIST)) {
     strcpy(outname_end, rlist? ".rlist" : ".list");
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto recode_ret_OPEN_FAIL;
     }
     if (delimiter != '\t') {
@@ -13897,7 +13897,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     } else {
       sprintf(logbuf, "--recode list to %s ... ", outname);
     }
-    wordwrap(logbuf, 5);
+    wordwrap(5, logbuf);
     logprintb();
     fputs("0%", stdout);
     fflush(stdout);
@@ -14076,7 +14076,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     if (recode_modifier & RECODE_HV) {
       memcpy(outname_end, ".chr-", 5);
       sprintf(logbuf, "--recode HV to %s*.ped + .info... ", outname);
-      wordwrap(logbuf, 15); // strlen("[chromosome 10]");
+      wordwrap(15, logbuf); // strlen("[chromosome 10]");
       fputs(logbuf, stdout);
       fputs("[chromosome   ", stdout);
     } else {
@@ -14104,7 +14104,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
         wbufptr = outname_end;
       }
       memcpy(wbufptr, ".ped", 5);
-      if (fopen_checked(&outfile, outname, "w")) {
+      if (fopen_checked(outname, "w", &outfile)) {
 	goto recode_ret_OPEN_FAIL;
       }
       marker_uidx_start = marker_uidx;
@@ -14123,7 +14123,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	goto recode_ret_WRITE_FAIL;
       }
       memcpy(wbufptr, ".info", 6);
-      if (fopen_checked(&outfile, outname, "w")) {
+      if (fopen_checked(outname, "w", &outfile)) {
 	goto recode_ret_OPEN_FAIL;
       }
       if (write_haploview_map(outfile, marker_exclude, marker_uidx_start, ulii, marker_ids, max_marker_id_len, marker_pos)) {
@@ -14149,7 +14149,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     if (wkspace_left < ((uint64_t)unfiltered_sample_ct4) * marker_ct) {
       goto recode_ret_NO_MULTIPASS_YET;
     }
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto recode_ret_OPEN_FAIL;
     }
     LOGPRINTFWW5("--recode structure to %s ... ", outname);
@@ -14236,7 +14236,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     if (wkspace_left < ((uint64_t)unfiltered_sample_ct4) * marker_ct) {
       goto recode_ret_NO_MULTIPASS_YET;
     }
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto recode_ret_OPEN_FAIL;
     }
     *outname_end = '\0';
@@ -14393,7 +14393,7 @@ int32_t sample_sort_file_map(char* sample_sort_fname, uintptr_t unfiltered_sampl
     }
   }
   fill_ulong_zero(already_seen, sample_ctl);
-  if (fopen_checked(&infile, sample_sort_fname, "r")) {
+  if (fopen_checked(sample_sort_fname, "r", &infile)) {
     goto sample_sort_file_map_ret_OPEN_FAIL;
   }
   tbuf[MAXLINELEN - 1] = ' ';
@@ -14747,7 +14747,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uint32_t allow_no_vari
   uint32_t ukk;
   int32_t ii;
   int32_t jj;
-  if (fopen_checked(&infile, bimname, "r")) {
+  if (fopen_checked(bimname, "r", &infile)) {
     goto merge_bim_scan_ret_OPEN_FAIL;
   }
   if (is_binary) {
@@ -15040,7 +15040,7 @@ int32_t report_non_biallelics(char* outname, char* outname_end, Ll_str* non_bial
   } while (cur_ptr);
   qsort(id_arr, nbmarker_ct_dup, max_nbmarker_id_len, strcmp_casted);
   memcpy(outname_end, ".missnp", 8);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto report_non_biallelics_ret_OPEN_FAIL;
   }
   id_arr_ptr = id_arr;
@@ -15313,7 +15313,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
   unsigned char ucc4;
   char cc;
   if (is_binary) {
-    if (fopen_checked(&infile2, famname, "r")) {
+    if (fopen_checked(famname, "r", &infile2)) {
       goto merge_main_ret_OPEN_FAIL;
     }
     while (fgets(tbuf, MAXLINELEN, infile2)) {
@@ -15352,7 +15352,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
     bim_loadbuf = tbuf;
     max_bim_linelen = MAXLINELEN;
   }
-  if (fopen_checked(&infile2, bimname, "r")) {
+  if (fopen_checked(bimname, "r", &infile2)) {
     goto merge_main_ret_OPEN_FAIL;
   }
   if (check_cm_col(infile2, bim_loadbuf, is_binary, 1, max_bim_linelen, &cm_col_exists, &ulii)) {
@@ -15361,7 +15361,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
   if (!ulii) {
     bim_loadbuf[0] = '\0';
   }
-  if (fopen_checked(&bedfile, bedname, is_binary? "rb" : "r")) {
+  if (fopen_checked(bedname, is_binary? "rb" : "r", &bedfile)) {
     goto merge_main_ret_OPEN_FAIL;
   }
   if (is_binary) {
@@ -15997,7 +15997,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     merge_mode = 1;
   }
   if (merge_list) {
-    if (fopen_checked(&mergelistfile, mergename1, "r")) {
+    if (fopen_checked(mergename1, "r", &mergelistfile)) {
       goto merge_datasets_ret_READ_FAIL;
     }
     merge_ct = (famname[0] != '\0');
@@ -16276,7 +16276,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   wkspace_left += topsize; // deallocate first hash table
   if (merge_mode < 6) {
     memcpy(outname_end, ".fam", 5);
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto merge_datasets_ret_OPEN_FAIL;
     }
   }
@@ -16557,7 +16557,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   pcptr = (uintptr_t*)wkspace_base;
   if (merge_mode < 6) {
     memcpy(outname_end, ".bed", 5);
-    if (fopen_checked(&outfile, outname, "wb")) {
+    if (fopen_checked(outname, "wb", &outfile)) {
       goto merge_datasets_ret_OPEN_FAIL;
     }
     if (fwrite_checked("l\x1b\x01", 3, outfile)) {
@@ -16570,7 +16570,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     }
   } else {
     memcpy(outname_end, ".diff", 6);
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto merge_datasets_ret_OPEN_FAIL;
     }
     if (fputs_checked("                 SNP                  FID                  IID      NEW      OLD \n", outfile)) {
@@ -16640,7 +16640,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   }
   if (merge_mode < 6) {
     memcpy(outname_end, ".bim", 5);
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto merge_datasets_ret_OPEN_FAIL;
     }
     uii = tot_marker_ct;

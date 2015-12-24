@@ -744,14 +744,10 @@ extern const char* g_missing_geno_ptr;
 extern const char* g_output_missing_geno_ptr;
 
 static inline const char* cond_replace(const char* ss, const char* match_str, const char* replace_str) {
-  if (ss != match_str) {
-    return ss;
-  } else {
-    return replace_str;
-  }
+  return (ss != match_str)? ss : replace_str;
 }
 
-uint32_t aligned_malloc(uintptr_t** aligned_pp, uintptr_t size);
+uint32_t aligned_malloc(uintptr_t size, uintptr_t** aligned_pp);
 
 void aligned_free(uintptr_t* aligned_pp);
 
@@ -812,7 +808,8 @@ typedef struct range_list_struct {
   uint32_t name_max_len;
 } Range_list;
 
-uint32_t push_ll_str(Ll_str** ll_stack_ptr, const char* ss);
+// Pushes a copy of ss (allocated via malloc) onto ll_stack.
+uint32_t push_ll_str(const char* ss, Ll_str** ll_stack_ptr);
 
 // warning: do NOT include allele codes (unless they're guaranteed to be SNPs)
 // in log strings; they can overflow the buffer.
@@ -832,16 +829,16 @@ void logerrprintb();
 
 // input for wordwrap/LOGPRINTFWW should have no intermediate '\n's.  If
 // suffix_len is 0, there should be a terminating \n.
-void wordwrap(char* ss, uint32_t suffix_len);
+void wordwrap(uint32_t suffix_len, char* ss);
 
-#define LOGPREPRINTFWW(...) sprintf(logbuf, __VA_ARGS__); wordwrap(logbuf, 0);
+#define LOGPREPRINTFWW(...) sprintf(logbuf, __VA_ARGS__); wordwrap(0, logbuf);
 
-#define LOGPRINTFWW(...) sprintf(logbuf, __VA_ARGS__); wordwrap(logbuf, 0); logprintb();
+#define LOGPRINTFWW(...) sprintf(logbuf, __VA_ARGS__); wordwrap(0, logbuf); logprintb();
 
-#define LOGERRPRINTFWW(...) sprintf(logbuf, __VA_ARGS__); wordwrap(logbuf, 0); logerrprintb();
+#define LOGERRPRINTFWW(...) sprintf(logbuf, __VA_ARGS__); wordwrap(0, logbuf); logerrprintb();
 
 // 5 = length of "done." suffix, which is commonly used
-#define LOGPRINTFWW5(...) sprintf(logbuf, __VA_ARGS__); wordwrap(logbuf, 5); logprintb();
+#define LOGPRINTFWW5(...) sprintf(logbuf, __VA_ARGS__); wordwrap(5, logbuf); logprintb();
 
 #ifdef STABLE_BUILD
   #define UNSTABLE(val) sptr = strcpya(&(logbuf[9]), val); goto main_unstable_disabled
@@ -849,7 +846,7 @@ void wordwrap(char* ss, uint32_t suffix_len);
   #define UNSTABLE(val)
 #endif
 
-int32_t fopen_checked(FILE** target_ptr, const char* fname, const char* mode);
+int32_t fopen_checked(const char* fname, const char* mode, FILE** target_ptr);
 
 static inline int32_t putc_checked(int32_t ii, FILE* outfile) {
   putc(ii, outfile);
@@ -1504,28 +1501,28 @@ static inline uint32_t tri_coord_no_diag_32(uint32_t small_coord, uint32_t big_c
 
 #define SET_BIT_DBL(aa, bb) ((aa)[(bb) / BITCT2] |= ONELU << (2 * ((bb) % BITCT2)))
 
-static inline void set_bit(uintptr_t* bit_arr, uint32_t loc) {
-  bit_arr[loc / BITCT] |= (ONELU << (loc % BITCT));
+static inline void set_bit(uintptr_t* bitarr, uint32_t loc) {
+  bitarr[loc / BITCT] |= (ONELU << (loc % BITCT));
 }
 
-static inline void set_bit_ul(uintptr_t* bit_arr, uintptr_t loc) {
-  bit_arr[loc / BITCT] |= (ONELU << (loc % BITCT));
+static inline void set_bit_ul(uintptr_t* bitarr, uintptr_t loc) {
+  bitarr[loc / BITCT] |= (ONELU << (loc % BITCT));
 }
 
-void fill_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len);
+void fill_bits(uintptr_t* bitarr, uintptr_t loc_start, uintptr_t len);
 
-void clear_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len);
+void clear_bits(uintptr_t* bitarr, uintptr_t loc_start, uintptr_t len);
 
 #define CLEAR_BIT(aa, bb) ((aa)[(bb) / BITCT] &= ~(ONELU << ((bb) % BITCT)))
 
 #define CLEAR_BIT_DBL(aa, bb) ((aa)[(bb) / BITCT2] &= ~(ONELU << (2 * ((bb) % BITCT2))))
 
-static inline void clear_bit(uintptr_t* bit_arr, uint32_t loc) {
-  bit_arr[loc / BITCT] &= ~(ONELU << (loc % BITCT));
+static inline void clear_bit(uintptr_t* bitarr, uint32_t loc) {
+  bitarr[loc / BITCT] &= ~(ONELU << (loc % BITCT));
 }
 
-static inline void clear_bit_ul(uintptr_t* bit_arr, uintptr_t loc) {
-  bit_arr[loc / BITCT] &= ~(ONELU << (loc % BITCT));
+static inline void clear_bit_ul(uintptr_t* bitarr, uintptr_t loc) {
+  bitarr[loc / BITCT] &= ~(ONELU << (loc % BITCT));
 }
 
 #define IS_SET(aa, bb) (((aa)[(bb) / BITCT] >> ((bb) % BITCT)) & 1)
@@ -1543,109 +1540,109 @@ static inline uint32_t is_set_ul(const uintptr_t* exclude_arr, uintptr_t loc) {
 
 #define IS_NONNULL_AND_SET(aa, bb) ((aa) && IS_SET(aa, bb))
 
-uint32_t next_unset_unsafe(uintptr_t* bit_arr, uint32_t loc);
+uint32_t next_unset_unsafe(uintptr_t* bitarr, uint32_t loc);
 
-static inline void next_unset_unsafe_ck(uintptr_t* bit_arr, uint32_t* loc_ptr) {
-  if (IS_SET(bit_arr, *loc_ptr)) {
-    *loc_ptr = next_unset_unsafe(bit_arr, *loc_ptr);
+static inline void next_unset_unsafe_ck(uintptr_t* bitarr, uint32_t* loc_ptr) {
+  if (IS_SET(bitarr, *loc_ptr)) {
+    *loc_ptr = next_unset_unsafe(bitarr, *loc_ptr);
   }
 }
 
 #ifdef __LP64__
-uintptr_t next_unset_ul_unsafe(uintptr_t* bit_arr, uintptr_t loc);
+uintptr_t next_unset_ul_unsafe(uintptr_t* bitarr, uintptr_t loc);
 #else
-static inline uintptr_t next_unset_ul_unsafe(uintptr_t* bit_arr, uintptr_t loc) {
-  return (uintptr_t)next_unset_unsafe(bit_arr, loc);
+static inline uintptr_t next_unset_ul_unsafe(uintptr_t* bitarr, uintptr_t loc) {
+  return (uintptr_t)next_unset_unsafe(bitarr, loc);
 }
 #endif
 
-static inline void next_unset_ul_unsafe_ck(uintptr_t* bit_arr, uintptr_t* loc_ptr) {
-  if (IS_SET(bit_arr, *loc_ptr)) {
-    *loc_ptr = next_unset_ul_unsafe(bit_arr, *loc_ptr);
+static inline void next_unset_ul_unsafe_ck(uintptr_t* bitarr, uintptr_t* loc_ptr) {
+  if (IS_SET(bitarr, *loc_ptr)) {
+    *loc_ptr = next_unset_ul_unsafe(bitarr, *loc_ptr);
   }
 }
 
-uint32_t next_unset(uintptr_t* bit_arr, uint32_t loc, uint32_t ceil);
+uint32_t next_unset(uintptr_t* bitarr, uint32_t loc, uint32_t ceil);
 
-static inline void next_unset_ck(uintptr_t* bit_arr, uint32_t* loc_ptr, uint32_t ceil) {
-  if (IS_SET(bit_arr, *loc_ptr)) {
-    *loc_ptr = next_unset(bit_arr, *loc_ptr, ceil);
+static inline void next_unset_ck(uintptr_t* bitarr, uint32_t* loc_ptr, uint32_t ceil) {
+  if (IS_SET(bitarr, *loc_ptr)) {
+    *loc_ptr = next_unset(bitarr, *loc_ptr, ceil);
   }
 }
 
 #ifdef __LP64__
-uintptr_t next_unset_ul(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil);
+uintptr_t next_unset_ul(uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil);
 #else
-static inline uintptr_t next_unset_ul(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil) {
-  return (uintptr_t)next_unset(bit_arr, loc, ceil);
+static inline uintptr_t next_unset_ul(uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
+  return (uintptr_t)next_unset(bitarr, loc, ceil);
 }
 #endif
 
-static inline void next_unset_ul_ck(uintptr_t* bit_arr, uintptr_t* loc_ptr, uintptr_t ceil) {
-  if (IS_SET(bit_arr, *loc_ptr)) {
-    *loc_ptr = next_unset_ul(bit_arr, *loc_ptr, ceil);
+static inline void next_unset_ul_ck(uintptr_t* bitarr, uintptr_t* loc_ptr, uintptr_t ceil) {
+  if (IS_SET(bitarr, *loc_ptr)) {
+    *loc_ptr = next_unset_ul(bitarr, *loc_ptr, ceil);
   }
 }
 
-uint32_t next_set_unsafe(uintptr_t* bit_arr, uint32_t loc);
+uint32_t next_set_unsafe(uintptr_t* bitarr, uint32_t loc);
 
-static inline void next_set_unsafe_ck(uintptr_t* bit_arr, uint32_t* loc_ptr) {
-  if (!IS_SET(bit_arr, *loc_ptr)) {
-    *loc_ptr = next_set_unsafe(bit_arr, *loc_ptr);
+static inline void next_set_unsafe_ck(uintptr_t* bitarr, uint32_t* loc_ptr) {
+  if (!IS_SET(bitarr, *loc_ptr)) {
+    *loc_ptr = next_set_unsafe(bitarr, *loc_ptr);
   }
 }
 
 #ifdef __LP64__
-uintptr_t next_set_ul_unsafe(uintptr_t* bit_arr, uintptr_t loc);
+uintptr_t next_set_ul_unsafe(uintptr_t* bitarr, uintptr_t loc);
 #else
-static inline uintptr_t next_set_ul_unsafe(uintptr_t* bit_arr, uintptr_t loc) {
-  return (uintptr_t)next_set_unsafe(bit_arr, loc);
+static inline uintptr_t next_set_ul_unsafe(uintptr_t* bitarr, uintptr_t loc) {
+  return (uintptr_t)next_set_unsafe(bitarr, loc);
 }
 #endif
 
-static inline void next_set_ul_unsafe_ck(uintptr_t* bit_arr, uintptr_t* loc_ptr) {
-  if (!IS_SET(bit_arr, *loc_ptr)) {
-    *loc_ptr = next_set_ul_unsafe(bit_arr, *loc_ptr);
+static inline void next_set_ul_unsafe_ck(uintptr_t* bitarr, uintptr_t* loc_ptr) {
+  if (!IS_SET(bitarr, *loc_ptr)) {
+    *loc_ptr = next_set_ul_unsafe(bitarr, *loc_ptr);
   }
 }
 
-uint32_t next_set(uintptr_t* bit_arr, uint32_t loc, uint32_t ceil);
+uint32_t next_set(uintptr_t* bitarr, uint32_t loc, uint32_t ceil);
 
-static inline void next_set_ck(uintptr_t* bit_arr, uint32_t* loc_ptr, uint32_t ceil) {
-  if (!IS_SET(bit_arr, *loc_ptr)) {
-    *loc_ptr = next_set(bit_arr, *loc_ptr, ceil);
+static inline void next_set_ck(uintptr_t* bitarr, uint32_t* loc_ptr, uint32_t ceil) {
+  if (!IS_SET(bitarr, *loc_ptr)) {
+    *loc_ptr = next_set(bitarr, *loc_ptr, ceil);
   }
 }
 
 #ifdef __LP64__
-uintptr_t next_set_ul(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil);
+uintptr_t next_set_ul(uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil);
 #else
-static inline uintptr_t next_set_ul(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil) {
-  return (uintptr_t)next_set(bit_arr, loc, ceil);
+static inline uintptr_t next_set_ul(uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
+  return (uintptr_t)next_set(bitarr, loc, ceil);
 }
 #endif
 
-static inline void next_set_ul_ck(uintptr_t* bit_arr, uintptr_t* loc_ptr, uintptr_t ceil) {
-  if (!IS_SET(bit_arr, *loc_ptr)) {
-    *loc_ptr = next_set_ul(bit_arr, *loc_ptr, ceil);
+static inline void next_set_ul_ck(uintptr_t* bitarr, uintptr_t* loc_ptr, uintptr_t ceil) {
+  if (!IS_SET(bitarr, *loc_ptr)) {
+    *loc_ptr = next_set_ul(bitarr, *loc_ptr, ceil);
   }
 }
 
-int32_t last_set_bit(uintptr_t* bit_arr, uint32_t word_ct);
+int32_t last_set_bit(uintptr_t* bitarr, uint32_t word_ct);
 
 // note different interface from last_set_bit()
-// int32_t last_clear_bit(uintptr_t* bit_arr, uint32_t ceil);
+// int32_t last_clear_bit(uintptr_t* bitarr, uint32_t ceil);
 
 // unlike the next_[un]set family, this always returns a STRICTLY earlier
 // position
-uint32_t prev_unset_unsafe(uintptr_t* bit_arr, uint32_t loc);
+uint32_t prev_unset_unsafe(uintptr_t* bitarr, uint32_t loc);
 
-// uint32_t prev_unset(uintptr_t* bit_arr, uint32_t loc, uint32_t floor);
+// uint32_t prev_unset(uintptr_t* bitarr, uint32_t loc, uint32_t floor);
 
-static inline void prev_unset_unsafe_ck(uintptr_t* bit_arr, uint32_t* loc_ptr) {
+static inline void prev_unset_unsafe_ck(uintptr_t* bitarr, uint32_t* loc_ptr) {
   *loc_ptr -= 1;
-  if (IS_SET(bit_arr, *loc_ptr)) {
-    *loc_ptr = prev_unset_unsafe(bit_arr, *loc_ptr);
+  if (IS_SET(bitarr, *loc_ptr)) {
+    *loc_ptr = prev_unset_unsafe(bitarr, *loc_ptr);
   }
 }
 
@@ -1783,17 +1780,17 @@ void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t unfiltered_item_ct, 
 void fill_midx_to_idx(uintptr_t* exclude_arr_orig, uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* midx_to_idx);
 
 
-// "quaterfield" refers to a packed group of base-4 (2-bit) elements, analogous
-// to "bitfield".  "quatervec" indicates that vector-alignment is also
-// required.
+// "quaterarr" refers to a packed group of base-4 (2-bit) elements, analogous
+// to "bitarr".  (Based on "quaternary", not "quarter".)  "quatervec"
+// indicates that vector-alignment is also required.
 void fill_quatervec_55(uintptr_t* quatervec, uint32_t ct);
 
-// Used to unpack e.g. unfiltered sex_male to a filtered quaterfield usable as
-// a raw input bitmask.
-// Assumes output_quaterfield is sized to a multiple of 16 bytes.
-void quaterfield_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_bitarr, uint32_t filtered_ct, uintptr_t* output_quaterfield);
+// Used to unpack e.g. unfiltered sex_male to a filtered quaterarr usable as a
+// raw input bitmask.
+// Assumes output_quaterarr is sized to a multiple of 16 bytes.
+void quaterarr_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_bitarr, uint32_t filtered_ct, uintptr_t* output_quaterarr);
 
-void quaterfield_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_exclude_bitarr, uint32_t filtered_ct, uintptr_t* output_quaterfield);
+void quaterarr_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_exclude_bitarr, uint32_t filtered_ct, uintptr_t* output_quaterarr);
 
 uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* sample_bitarr, uintptr_t* sex_male, uintptr_t** sample_include_quatervec_ptr, uintptr_t** sample_male_include_quatervec_ptr);
 
@@ -1830,7 +1827,7 @@ static inline int32_t filename_exists(char* fname, char* fname_end, const char* 
 
 void sample_delim_convert(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uint32_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, char oldc, char newc);
 
-void get_set_wrange_align(uintptr_t* bitfield, uintptr_t word_ct, uintptr_t* firstw_ptr, uintptr_t* wlen_ptr);
+void get_set_wrange_align(uintptr_t* bitarr, uintptr_t word_ct, uintptr_t* firstw_ptr, uintptr_t* wlen_ptr);
 
 // Maximum accepted chromosome index is this minus 1.  Currently cannot exceed
 // 2^14 due to SMALL_INTERVAL_BITS setting in plink_cnv.c...
@@ -2069,9 +2066,11 @@ uint32_t bsearch_read_fam_indiv(char* id_buf, char* lptr, uintptr_t max_id_len, 
 
 void bsearch_fam(char* id_buf, char* lptr, uintptr_t max_id_len, uint32_t filter_line_ct, char* fam_id, uint32_t* first_idx_ptr, uint32_t* last_idx_ptr);
 
-void bitfield_invert(uintptr_t* bit_arr, uintptr_t bit_ct);
+// These ensure the trailing bits are zeroed out.
+void bitarr_invert(uintptr_t bit_ct, uintptr_t* bitarr);
 
-void bitfield_exclude_to_include(uintptr_t* exclude_arr, uintptr_t* include_arr, uintptr_t bit_ct);
+void bitarr_invert_copy(const uintptr_t* input_bitarr, uintptr_t bit_ct, uintptr_t* output_bitarr);
+
 
 void bitfield_and(uintptr_t* main_vec, uintptr_t* include_vec, uintptr_t word_ct);
 
@@ -2083,7 +2082,7 @@ void bitfield_or(uintptr_t* vv, uintptr_t* or_vec, uintptr_t word_ct);
 
 void bitfield_ornot(uintptr_t* vv, uintptr_t* inverted_or_vec, uintptr_t word_ct);
 
-void bitfield_xor(uintptr_t* bit_arr, uintptr_t* xor_arr, uintptr_t word_ct);
+void bitfield_xor(uintptr_t* bitarr, uintptr_t* xor_bitarr, uintptr_t word_ct);
 
 static inline uint32_t popcount2_long(uintptr_t val) {
 #ifdef __LP64__
@@ -2140,7 +2139,7 @@ uint32_t window_back(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t m
 
 uint32_t window_forward(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t marker_uidx_start, uint32_t marker_uidx_last, uint32_t count_max, uint32_t bp_max, uint32_t* window_lead_ct_ptr);
 
-uintptr_t jump_forward_unset_unsafe(uintptr_t* bit_arr, uintptr_t cur_pos, uintptr_t forward_ct);
+uintptr_t jump_forward_unset_unsafe(uintptr_t* bitarr, uintptr_t cur_pos, uintptr_t forward_ct);
 
 static inline uintptr_t popcount_chars(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
   return popcount_bit_idx(lptr, start_idx * 8, end_idx * 8);
@@ -2150,12 +2149,12 @@ uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintpt
 
 uintptr_t popcount_longs_intersect(uintptr_t* lptr1, uintptr_t* lptr2, uintptr_t word_ct);
 
-void vertical_bitct_subtract(uintptr_t* bit_arr, uint32_t item_ct, uint32_t* sum_arr);
+void vertical_bitct_subtract(uintptr_t* bitarr, uint32_t item_ct, uint32_t* sum_arr);
 
 #ifdef __LP64__
-void count_2freq_dbl_960b(__m128i* vptr, __m128i* vend, __m128i* mask1vp, __m128i* mask2vp, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp);
+void count_2freq_dbl_960b(VECITYPE* vptr, VECITYPE* vend, VECITYPE* mask1vp, VECITYPE* mask2vp, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp);
 
-void count_3freq_1920b(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp);
+void count_3freq_1920b(VECITYPE* vptr, VECITYPE* vend, VECITYPE* maskvp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp);
 #else
 void count_2freq_dbl_24b(uintptr_t* lptr, uintptr_t* mask1p, uintptr_t* mask2p, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp);
 
@@ -2179,7 +2178,7 @@ static inline void zero_trailing_bits(uintptr_t* bitfield, uintptr_t unfiltered_
   }
 }
 
-void fill_all_bits(uintptr_t* bit_arr, uintptr_t ct);
+void fill_all_bits(uintptr_t* bitarr, uintptr_t ct);
 
 uint32_t numeric_range_list_to_bitfield(Range_list* range_list_ptr, uint32_t item_ct, uintptr_t* bitfield, uint32_t offset, uint32_t ignore_overflow);
 
@@ -2210,7 +2209,7 @@ void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_
 
 void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_sample_ct);
 
-void collapse_copy_2bitarr(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uintptr_t* sample_exclude);
+void collapse_copy_quaterarr(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uintptr_t* sample_exclude);
 
 static inline uint32_t load_raw(FILE* bedfile, uintptr_t* rawbuf, uintptr_t unfiltered_sample_ct4) {
   // only use this if all accesses to the data involve
@@ -2240,13 +2239,13 @@ static inline uint32_t load_raw2(FILE* bedfile, uintptr_t* rawbuf, uintptr_t unf
 
 uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* mainbuf, uint32_t sample_ct, uintptr_t* sample_exclude, uintptr_t final_mask, uint32_t do_reverse);
 
-void collapse_copy_2bitarr_incl(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uintptr_t* sample_include);
+void collapse_copy_quaterarr_incl(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uintptr_t* sample_include);
 
 uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* mainbuf, uint32_t sample_ct, uintptr_t* sample_include, uintptr_t final_mask, uint32_t do_reverse);
 
 uint32_t load_and_split(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* casebuf, uintptr_t* ctrlbuf, uintptr_t* pheno_nm, uintptr_t* pheno_c);
 
-void vec_include_init(uintptr_t unfiltered_sample_ct, uintptr_t* new_include2, uintptr_t* old_include);
+void quaterarr_include_init(uintptr_t unfiltered_sample_ct, uintptr_t* new_include_quaterarr, uintptr_t* old_include);
 
 void exclude_to_vec_include(uintptr_t unfiltered_sample_ct, uintptr_t* include_vec, uintptr_t* exclude_arr);
 
@@ -2270,27 +2269,27 @@ void vec_datamask(uintptr_t unfiltered_sample_ct, uint32_t matchval, uintptr_t* 
 
 void rotate_plink1_to_plink2_and_copy(uintptr_t* loadbuf, uintptr_t* writebuf, uintptr_t word_ct);
 
-void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_sample_ct, uintptr_t* sample_include2, uintptr_t sample_ct, uintptr_t* missing_bitfield);
+void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_sample_ct, uintptr_t* sample_include_quaterarr, uintptr_t sample_ct, uintptr_t* missing_bitfield);
 
-void hh_reset(unsigned char* loadbuf, uintptr_t* sample_include2, uintptr_t unfiltered_sample_ct);
+void hh_reset(unsigned char* loadbuf, uintptr_t* sample_include_quaterarr, uintptr_t unfiltered_sample_ct);
 
-void hh_reset_y(unsigned char* loadbuf, uintptr_t* sample_include2, uintptr_t* sample_male_include2, uintptr_t unfiltered_sample_ct);
+void hh_reset_y(unsigned char* loadbuf, uintptr_t* sample_include_quaterarr, uintptr_t* sample_male_include_quaterarr, uintptr_t unfiltered_sample_ct);
 
-static inline void haploid_fix(uint32_t hh_exists, uintptr_t* sample_include2, uintptr_t* sample_male_include2, uintptr_t sample_ct, uint32_t is_x, uint32_t is_y, unsigned char* loadbuf) {
+static inline void haploid_fix(uint32_t hh_exists, uintptr_t* sample_include_quaterarr, uintptr_t* sample_male_include_quaterarr, uintptr_t sample_ct, uint32_t is_x, uint32_t is_y, unsigned char* loadbuf) {
   if (is_x) {
     if (hh_exists & XMHH_EXISTS) {
-      hh_reset(loadbuf, sample_male_include2, sample_ct);
+      hh_reset(loadbuf, sample_male_include_quaterarr, sample_ct);
     }
   } else if (is_y) {
     if (hh_exists & Y_FIX_NEEDED) {
-      hh_reset_y(loadbuf, sample_include2, sample_male_include2, sample_ct);
+      hh_reset_y(loadbuf, sample_include_quaterarr, sample_male_include_quaterarr, sample_ct);
     }
   } else if (hh_exists & NXMHH_EXISTS) {
-    hh_reset(loadbuf, sample_include2, sample_ct);
+    hh_reset(loadbuf, sample_include_quaterarr, sample_ct);
   }
 }
 
-uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* sample_bitarr, uintptr_t* sex_male, uintptr_t** sample_raw_include2_ptr, uintptr_t** sample_raw_male_include2_ptr);
+uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* sample_bitarr, uintptr_t* sex_male, uintptr_t** sample_raw_include_quatervec_ptr, uintptr_t** sample_raw_male_quatervec_ptr);
 
 void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t hh_exists, uintptr_t* sample_raw_include2, uintptr_t* sample_raw_male_include2, uintptr_t unfiltered_sample_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf);
 
@@ -2326,9 +2325,9 @@ void inplace_delta_collapse_arr(char* item_arr, uintptr_t item_len, uintptr_t fi
 
 void inplace_delta_collapse_bitfield(uintptr_t* read_ptr, uint32_t filtered_ct_new, uintptr_t* exclude_orig, uintptr_t* exclude_new);
 
-void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr);
+void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr);
 
-void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_arr);
+void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_arr);
 
 void uncollapse_copy_flip_include_arr(uintptr_t* collapsed_include_arr, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* output_exclude_arr);
 

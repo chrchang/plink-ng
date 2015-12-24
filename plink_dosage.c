@@ -364,7 +364,7 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
     if (miss_ct) {
       LOGERRPRINTF("Warning: %" PRIuPTR " line%s skipped in --q-score-range data file.\n", miss_ct, (miss_ct == 1)? "" : "s");
     }
-    if (fopen_checked(&infile, sc_ip->range_fname, "r")) {
+    if (fopen_checked(sc_ip->range_fname, "r", &infile)) {
       goto dosage_load_score_files_ret_OPEN_FAIL;
     }
     rangename_len_limit = (FNAMESIZE - 10) - ((uintptr_t)(outname_end - outname));
@@ -729,7 +729,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   if (uii) {
     LOGPRINTF("%u phenotype value%s loaded from .fam.\n", uii, (uii == 1)? "" : "s");
   }
-  if (phenoname && fopen_checked(&phenofile, phenoname, "r")) {
+  if (phenoname && fopen_checked(phenoname, "r", &phenofile)) {
     goto plink1_dosage_ret_OPEN_FAIL;
   }
   if (phenofile || update_ids_fname || update_parents_fname || update_sex_fname || (filter_flags & FILTER_TAIL_PHENO)) {
@@ -1093,7 +1093,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     } else {
       sprintf(logbuf, "Among remaining phenotypes, %u %s and %u %s.\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "is a case" : "are cases", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "is a control" : "are controls");
     }
-    wordwrap(logbuf, 0);
+    wordwrap(0, logbuf);
     logprintb();
     if (standard_beta) {
       logerrprint("Error: --dosage 'standard-beta' modifier cannot be used with a case/control\nphenotype.\n");
@@ -1580,7 +1580,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       bufptr = strcpya(bufptr, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
     }
     memcpyl3(bufptr, ".\n");
-    wordwrap(logbuf, 0);
+    wordwrap(0, logbuf);
     logprintb();
     for (file_idx = 0; file_idx < cur_batch_size; file_idx++) {
       read_idx_start = read_idx;
@@ -2190,7 +2190,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
       // this is not affected by 'gz' in PLINK 1.07; retain that for backward
       // compatibility.
-      if (fopen_checked(&profile_outfile, outname, "w")) {
+      if (fopen_checked(outname, "w", &profile_outfile)) {
 	goto plink1_dosage_ret_OPEN_FAIL;
       }
       sprintf(tbuf, "%%%us %%%us  PHENO%s %s\n", plink_maxfid, plink_maxiid, dosage_score_cnt? "    CNT" : "", score_report_average? "   SCORE" : "SCORESUM");
@@ -2319,7 +2319,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   plink1_dosage_ret_MISSING_TOKENS:
     sprintf(logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
   plink1_dosage_ret_INVALID_FORMAT_WW:
-    wordwrap(logbuf, 0);
+    wordwrap(0, logbuf);
   plink1_dosage_ret_INVALID_FORMAT_2:
     logerrprintb();
   plink1_dosage_ret_INVALID_FORMAT:

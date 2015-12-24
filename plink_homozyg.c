@@ -428,13 +428,13 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
   uint32_t slen;
   uint32_t uii;
   memcpy(outname_end, ".hom", 5);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto write_main_roh_reports_ret_OPEN_FAIL;
   }
   sprintf(tbuf, "%%%us %%%us      PHE  CHR %%%us %%%us         POS1         POS2         KB     NSNP  DENSITY     PHOM     PHET\n", plink_maxfid, plink_maxiid, plink_maxsnp, plink_maxsnp);
   fprintf(outfile, tbuf, "FID", "IID", "SNP1", "SNP2");
   memcpy(&(outname_end[4]), ".indiv", 7);
-  if (fopen_checked(&outfile_indiv, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile_indiv)) {
     goto write_main_roh_reports_ret_OPEN_FAIL;
   }
   sprintf(tbuf, "%%%us %%%us  PHE     NSEG       KB    KBAVG\n", plink_maxfid, plink_maxiid);
@@ -553,7 +553,7 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
     goto write_main_roh_reports_ret_WRITE_FAIL;
   }
   memcpy(&(outname_end[5]), "summary", 8);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto write_main_roh_reports_ret_WRITE_FAIL;
   }
   sprintf(tbuf, " CHR %%%us           BP      AFF    UNAFF\n", plink_maxsnp);
@@ -1875,7 +1875,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	wptr = uint32_write(&(outname_end[14]), (uint32_t)cur_pool[-1]);
 #endif
 	memcpy(wptr, ".verbose", 9);
-	if (fopen_checked(&outfile, outname, "w")) {
+	if (fopen_checked(outname, "w", &outfile)) {
 	  goto roh_pool_ret_OPEN_FAIL;
 	}
 
@@ -2209,7 +2209,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   fputs("\b\b\b\b\b\b\b\b\b\b\b\b\b\b               \b\b\b\b\b\b\b\b\b\b\b\b\b\b\bdone.\n", stdout);
 
   outname_end[12] = '\0';
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto roh_pool_ret_OPEN_FAIL;
   }
   sprintf(tbuf, " POOL %%%us %%%us      PHE  CHR %%%us %%%us            BP1            BP2       KB     NSNP NSIM    GRP\n", plink_maxfid, plink_maxiid, plink_maxsnp, plink_maxsnp);

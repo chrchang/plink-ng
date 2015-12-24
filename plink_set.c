@@ -455,7 +455,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
     }
     if (range_last < range_first) {
       sprintf(logbuf, "Error: Range end position smaller than range start on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
-      wordwrap(logbuf, 0);
+      wordwrap(0, logbuf);
       goto load_range_list_ret_INVALID_FORMAT_2;
     }
     if (border_extend > range_first) {
@@ -555,7 +555,7 @@ int32_t extract_exclude_range(char* fname, uint32_t* marker_pos, uintptr_t unfil
   int32_t retval = 0;
   Make_set_range* msr_tmp;
   uintptr_t* marker_exclude_new;
-  if (fopen_checked(&infile, fname, "r")) {
+  if (fopen_checked(fname, "r", &infile)) {
     goto extract_exclude_range_ret_OPEN_FAIL;
   }
   retval = load_range_list(infile, 0, 0, 0, 0, 0, allow_no_variants, 0, NULL, 0, marker_pos, chrom_info_ptr, &topsize, NULL, NULL, NULL, &range_arr, NULL, is_exclude? "--exclude range" : "--extract range");
@@ -761,7 +761,7 @@ uint32_t save_set_bitfield(uintptr_t* marker_bitfield_tmp, uint32_t marker_ct, u
     (*set_range_pp)[3] = set_bits_outer;
     memcpy(&((*set_range_pp)[4]), &(marker_bitfield_tmp[bound_bottom_d128 / BITCT]), mem_req - 16);
     if (complement_sets) {
-      bitfield_invert((uintptr_t*)(&((*set_range_pp)[4])), bound_top_d128 - bound_bottom_d128);
+      bitarr_invert(bound_top_d128 - bound_bottom_d128, (uintptr_t*)(&((*set_range_pp)[4])));
     }
   }
   wkspace_left -= mem_req;
@@ -1063,7 +1063,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   // 2. if --set-names and/or --subset is present, (load and) sort those lists
   if (sip->setnames_flattened || sip->subset_fname) {
     if (sip->subset_fname) {
-      if (fopen_checked(&infile, sip->subset_fname, "rb")) {
+      if (fopen_checked(sip->subset_fname, "rb", &infile)) {
 	goto define_sets_ret_OPEN_FAIL;
       }
       retval = scan_token_ct_len(infile, tbuf, MAXLINELEN, &subset_ct, &max_subset_id_len);
@@ -1134,7 +1134,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     qsort(sorted_subset_ids, subset_ct, max_subset_id_len, strcmp_casted);
     subset_ct = collapse_duplicate_ids(sorted_subset_ids, subset_ct, max_subset_id_len, NULL);
   }
-  if (fopen_checked(&infile, sip->fname, make_set? "r" : "rb")) {
+  if (fopen_checked(sip->fname, make_set? "r" : "rb", &infile)) {
     goto define_sets_ret_OPEN_FAIL;
   }
   // 3. load --make-set range list
@@ -1701,7 +1701,7 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
   uint32_t ukk;
   if (sip->modifier & SET_WRITE_TABLE) {
     memcpy(outname_end, ".set.table", 11);
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto write_set_ret_OPEN_FAIL;
     }
     fputs("SNP\tCHR\tBP", outfile);
@@ -1804,7 +1804,7 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
   }
   if (sip->modifier & SET_WRITE_LIST) {
     memcpy(outname_end, ".set", 5);
-    if (fopen_checked(&outfile, outname, "w")) {
+    if (fopen_checked(outname, "w", &outfile)) {
       goto write_set_ret_OPEN_FAIL;
     }
     if (wkspace_alloc_ui_checked(&marker_idx_to_uidx, marker_ct * sizeof(int32_t))) {
@@ -2220,7 +2220,7 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
   uint32_t ukk;
   uint32_t umm;
   int32_t retval;
-  if (fopen_checked(&infile, fname, "r")) {
+  if (fopen_checked(fname, "r", &infile)) {
     goto load_range_list_sortpos_ret_OPEN_FAIL;
   }
   retval = load_range_list(infile, 1, border_extend, 0, 0, 0, 0, subset_ct, sorted_subset_ids, 0, NULL, chrom_info_ptr, &topsize, &gene_ct, gene_names_ptr, &max_gene_id_len, &gene_arr, &range_sort_buf, file_descrip);
@@ -2454,7 +2454,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
       snp_field_len = 3;
     }
     if (aip->snps_fname) {
-      if (fopen_checked(&infile, aip->snps_fname, "rb")) {
+      if (fopen_checked(aip->snps_fname, "rb", &infile)) {
 	goto annotate_ret_OPEN_FAIL;
       }
       retval = scan_token_ct_len(infile, tbuf, MAXLINELEN, &snplist_ct, &max_snplist_id_len);
@@ -2644,7 +2644,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
   if (need_pos) {
     if (aip->ranges_fname) {
       if (aip->subset_fname) {
-	if (fopen_checked(&infile, aip->subset_fname, "rb")) {
+	if (fopen_checked(aip->subset_fname, "rb", &infile)) {
 	  goto annotate_ret_OPEN_FAIL;
 	}
 	retval = scan_token_ct_len(infile, tbuf, MAXLINELEN, &subset_ct, &max_subset_id_len);
@@ -2862,7 +2862,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
     goto annotate_ret_INVALID_FORMAT_WW;
   }
   memcpy(outname_end, ".annot", 7);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto annotate_ret_OPEN_FAIL;
   }
   if (fwrite_checked(loadbuf, (uintptr_t)(bufptr - loadbuf), outfile)) {
@@ -3170,7 +3170,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
     retval = RET_WRITE_FAIL;
     break;
   annotate_ret_INVALID_FORMAT_WW:
-    wordwrap(logbuf, 0);
+    wordwrap(0, logbuf);
     logerrprintb();
   annotate_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
@@ -3245,7 +3245,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   uint32_t ujj;
   int32_t chrom_idx;
   if (subset_fname) {
-    if (fopen_checked(&infile, subset_fname, "rb")) {
+    if (fopen_checked(subset_fname, "rb", &infile)) {
       goto gene_report_ret_OPEN_FAIL;
     }
     retval = scan_token_ct_len(infile, tbuf, MAXLINELEN, &subset_ct, &max_subset_id_len);
@@ -3279,7 +3279,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     subset_ct = collapse_duplicate_ids(sorted_subset_ids, subset_ct, max_subset_id_len, NULL);
   }
   if (extractname) {
-    if (fopen_checked(&infile, extractname, "rb")) {
+    if (fopen_checked(extractname, "rb", &infile)) {
       goto gene_report_ret_OPEN_FAIL;
     }
     retval = scan_token_ct_len(infile, tbuf, MAXLINELEN, &extract_ct, &max_extract_id_len);
@@ -3559,7 +3559,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
 #endif
 
   memcpy(outname_end, ".range.report", 14);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto gene_report_ret_OPEN_FAIL;
   }
   ulii = ~ZEROLU; // current gene index
@@ -3640,7 +3640,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     retval = RET_WRITE_FAIL;
     break;
   gene_report_ret_INVALID_FORMAT_WW:
-    wordwrap(logbuf, 0);
+    wordwrap(0, logbuf);
     logerrprintb();
   gene_report_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;

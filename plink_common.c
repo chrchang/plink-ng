@@ -29,7 +29,7 @@ uint32_t g_log_failed = 0;
 uintptr_t g_sample_ct;
 uint32_t g_thread_ct;
 
-uint32_t aligned_malloc(uintptr_t** aligned_pp, uintptr_t size) {
+uint32_t aligned_malloc(uintptr_t size, uintptr_t** aligned_pp) {
 #ifdef __LP64__
   // Avoid random segfaults on 64-bit machines which have 8-byte- instead of
   // 16-byte-aligned malloc().  (Slightly different code is needed if malloc()
@@ -58,7 +58,7 @@ void aligned_free(uintptr_t* aligned_pp) {
 #endif
 }
 
-uint32_t push_ll_str(Ll_str** ll_stack_ptr, const char* ss) {
+uint32_t push_ll_str(const char* ss, Ll_str** ll_stack_ptr) {
   uint32_t slen = strlen(ss);
   Ll_str* new_ll_str = (Ll_str*)malloc(sizeof(Ll_str) + slen + 1);
   if (!new_ll_str) {
@@ -119,7 +119,7 @@ void logerrprintb() {
   fputs(logbuf, stderr);
 }
 
-void wordwrap(char* ss, uint32_t suffix_len) {
+void wordwrap(uint32_t suffix_len, char* ss) {
   // This should have been written eons ago.
 
   // Input: A null-terminated string with no intermediate newlines.  If
@@ -185,7 +185,7 @@ void wordwrap(char* ss, uint32_t suffix_len) {
   }
 }
 
-int32_t fopen_checked(FILE** target_ptr, const char* fname, const char* mode) {
+int32_t fopen_checked(const char* fname, const char* mode, FILE** target_ptr) {
   *target_ptr = fopen(fname, mode);
   if (!(*target_ptr)) {
     LOGPRINTFWW(errstr_fopen, fname);
@@ -3305,245 +3305,245 @@ void magic_num(uint32_t divisor, uint64_t* multp, uint32_t* pre_shiftp, uint32_t
   }
 }
 
-void fill_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len) {
-  // requires bit_arr to be nonempty
+void fill_bits(uintptr_t* bitarr, uintptr_t loc_start, uintptr_t len) {
+  // requires bitarr to be nonempty
   uintptr_t maj_start = loc_start / BITCT;
   uintptr_t maj_end = (loc_start + len) / BITCT;
   uintptr_t minor;
   if (maj_start == maj_end) {
-    bit_arr[maj_start] |= (ONELU << ((loc_start + len) % BITCT)) - (ONELU << (loc_start % BITCT));
+    bitarr[maj_start] |= (ONELU << ((loc_start + len) % BITCT)) - (ONELU << (loc_start % BITCT));
   } else {
-    bit_arr[maj_start] |= ~((ONELU << (loc_start % BITCT)) - ONELU);
-    fill_ulong_one(&(bit_arr[maj_start + 1]), maj_end - maj_start - 1);
+    bitarr[maj_start] |= ~((ONELU << (loc_start % BITCT)) - ONELU);
+    fill_ulong_one(&(bitarr[maj_start + 1]), maj_end - maj_start - 1);
     minor = (loc_start + len) % BITCT;
     if (minor) {
-      bit_arr[maj_end] |= (ONELU << minor) - ONELU;
+      bitarr[maj_end] |= (ONELU << minor) - ONELU;
     }
   }
 }
 
-void clear_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len) {
-  // requires bit_arr to be nonempty
+void clear_bits(uintptr_t* bitarr, uintptr_t loc_start, uintptr_t len) {
+  // requires bitarr to be nonempty
   uintptr_t maj_start = loc_start / BITCT;
   uintptr_t maj_end = (loc_start + len) / BITCT;
   uintptr_t minor;
   if (maj_start == maj_end) {
-    bit_arr[maj_start] &= ~((ONELU << ((loc_start + len) % BITCT)) - (ONELU << (loc_start % BITCT)));
+    bitarr[maj_start] &= ~((ONELU << ((loc_start + len) % BITCT)) - (ONELU << (loc_start % BITCT)));
   } else {
-    bit_arr[maj_start] &= ((ONELU << (loc_start % BITCT)) - ONELU);
-    fill_ulong_zero(&(bit_arr[maj_start + 1]), maj_end - maj_start - 1);
+    bitarr[maj_start] &= ((ONELU << (loc_start % BITCT)) - ONELU);
+    fill_ulong_zero(&(bitarr[maj_start + 1]), maj_end - maj_start - 1);
     minor = (loc_start + len) % BITCT;
     if (minor) {
-      bit_arr[maj_end] &= ~((ONELU << minor) - ONELU);
+      bitarr[maj_end] &= ~((ONELU << minor) - ONELU);
     }
   }
 }
 
-uint32_t next_unset_unsafe(uintptr_t* bit_arr, uint32_t loc) {
-  uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
-  uintptr_t ulii = (~(*bit_arr_ptr)) >> (loc % BITCT);
+uint32_t next_unset_unsafe(uintptr_t* bitarr, uint32_t loc) {
+  uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
+  uintptr_t ulii = (~(*bitarr_ptr)) >> (loc % BITCT);
   if (ulii) {
     return loc + CTZLU(ulii);
   }
   do {
-    ulii = *(++bit_arr_ptr);
+    ulii = *(++bitarr_ptr);
   } while (ulii == ~ZEROLU);
-  return ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + CTZLU(~ulii);
+  return ((uintptr_t)(bitarr_ptr - bitarr)) * BITCT + CTZLU(~ulii);
 }
 
 #ifdef __LP64__
-uintptr_t next_unset_ul_unsafe(uintptr_t* bit_arr, uintptr_t loc) {
-  uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
-  uintptr_t ulii = (~(*bit_arr_ptr)) >> (loc % BITCT);
+uintptr_t next_unset_ul_unsafe(uintptr_t* bitarr, uintptr_t loc) {
+  uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
+  uintptr_t ulii = (~(*bitarr_ptr)) >> (loc % BITCT);
   if (ulii) {
     return loc + CTZLU(ulii);
   }
   do {
-    ulii = *(++bit_arr_ptr);
+    ulii = *(++bitarr_ptr);
   } while (ulii == ~ZEROLU);
-  return (((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + CTZLU(~ulii));
+  return (((uintptr_t)(bitarr_ptr - bitarr)) * BITCT + CTZLU(~ulii));
 }
 #endif
 
-uint32_t next_unset(uintptr_t* bit_arr, uint32_t loc, uint32_t ceil) {
+uint32_t next_unset(uintptr_t* bitarr, uint32_t loc, uint32_t ceil) {
   // safe version.  ceil >= 1.
-  uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
-  uintptr_t ulii = (~(*bit_arr_ptr)) >> (loc % BITCT);
-  uintptr_t* bit_arr_last;
+  uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
+  uintptr_t ulii = (~(*bitarr_ptr)) >> (loc % BITCT);
+  uintptr_t* bitarr_last;
   if (ulii) {
     loc += CTZLU(ulii);
     return MINV(loc, ceil);
   }
-  bit_arr_last = &(bit_arr[(ceil - 1) / BITCT]);
+  bitarr_last = &(bitarr[(ceil - 1) / BITCT]);
   do {
-    if (bit_arr_ptr >= bit_arr_last) {
+    if (bitarr_ptr >= bitarr_last) {
       return ceil;
     }
-    ulii = *(++bit_arr_ptr);
+    ulii = *(++bitarr_ptr);
   } while (ulii == ~ZEROLU);
-  loc = ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + CTZLU(~ulii);
+  loc = ((uintptr_t)(bitarr_ptr - bitarr)) * BITCT + CTZLU(~ulii);
   return MINV(loc, ceil);
 }
 
 #ifdef __LP64__
-uintptr_t next_unset_ul(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil) {
-  uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
-  uintptr_t ulii = (~(*bit_arr_ptr)) >> (loc % BITCT);
-  uintptr_t* bit_arr_last;
+uintptr_t next_unset_ul(uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
+  uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
+  uintptr_t ulii = (~(*bitarr_ptr)) >> (loc % BITCT);
+  uintptr_t* bitarr_last;
   if (ulii) {
     ulii = loc + CTZLU(ulii);
     return MINV(ulii, ceil);
   }
-  bit_arr_last = &(bit_arr[(ceil - 1) / BITCT]);
+  bitarr_last = &(bitarr[(ceil - 1) / BITCT]);
   do {
-    if (bit_arr_ptr >= bit_arr_last) {
+    if (bitarr_ptr >= bitarr_last) {
       return ceil;
     }
-    ulii = *(++bit_arr_ptr);
+    ulii = *(++bitarr_ptr);
   } while (ulii == ~ZEROLU);
-  ulii = ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + CTZLU(~ulii);
+  ulii = ((uintptr_t)(bitarr_ptr - bitarr)) * BITCT + CTZLU(~ulii);
   return MINV(ulii, ceil);
 }
 #endif
 
-uint32_t next_set_unsafe(uintptr_t* bit_arr, uint32_t loc) {
-  uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
-  uintptr_t ulii = (*bit_arr_ptr) >> (loc % BITCT);
+uint32_t next_set_unsafe(uintptr_t* bitarr, uint32_t loc) {
+  uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
+  uintptr_t ulii = (*bitarr_ptr) >> (loc % BITCT);
   if (ulii) {
     return loc + CTZLU(ulii);
   }
   do {
-    ulii = *(++bit_arr_ptr);
+    ulii = *(++bitarr_ptr);
   } while (!ulii);
-  return ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + CTZLU(ulii);
+  return ((uintptr_t)(bitarr_ptr - bitarr)) * BITCT + CTZLU(ulii);
 }
 
 #ifdef __LP64__
-uintptr_t next_set_ul_unsafe(uintptr_t* bit_arr, uintptr_t loc) {
-  uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
-  uintptr_t ulii = (*bit_arr_ptr) >> (loc % BITCT);
+uintptr_t next_set_ul_unsafe(uintptr_t* bitarr, uintptr_t loc) {
+  uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
+  uintptr_t ulii = (*bitarr_ptr) >> (loc % BITCT);
   if (ulii) {
     return loc + CTZLU(ulii);
   }
   do {
-    ulii = *(++bit_arr_ptr);
+    ulii = *(++bitarr_ptr);
   } while (!ulii);
-  return ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + CTZLU(ulii);
+  return ((uintptr_t)(bitarr_ptr - bitarr)) * BITCT + CTZLU(ulii);
 }
 #endif
 
-uint32_t next_set(uintptr_t* bit_arr, uint32_t loc, uint32_t ceil) {
-  uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
-  uintptr_t ulii = (*bit_arr_ptr) >> (loc % BITCT);
-  uintptr_t* bit_arr_last;
+uint32_t next_set(uintptr_t* bitarr, uint32_t loc, uint32_t ceil) {
+  uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
+  uintptr_t ulii = (*bitarr_ptr) >> (loc % BITCT);
+  uintptr_t* bitarr_last;
   uint32_t rval;
   if (ulii) {
     rval = loc + CTZLU(ulii);
     return MINV(rval, ceil);
   }
-  bit_arr_last = &(bit_arr[(ceil - 1) / BITCT]);
+  bitarr_last = &(bitarr[(ceil - 1) / BITCT]);
   do {
-    if (bit_arr_ptr >= bit_arr_last) {
+    if (bitarr_ptr >= bitarr_last) {
       return ceil;
     }
-    ulii = *(++bit_arr_ptr);
+    ulii = *(++bitarr_ptr);
   } while (!ulii);
-  rval = ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + CTZLU(ulii);
+  rval = ((uintptr_t)(bitarr_ptr - bitarr)) * BITCT + CTZLU(ulii);
   return MINV(rval, ceil);
 }
 
 #ifdef __LP64__
-uintptr_t next_set_ul(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil) {
-  uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
-  uintptr_t ulii = (*bit_arr_ptr) >> (loc % BITCT);
-  uintptr_t* bit_arr_last;
+uintptr_t next_set_ul(uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
+  uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
+  uintptr_t ulii = (*bitarr_ptr) >> (loc % BITCT);
+  uintptr_t* bitarr_last;
   if (ulii) {
     ulii = loc + CTZLU(ulii);
     return MINV(ulii, ceil);
   }
-  bit_arr_last = &(bit_arr[(ceil - 1) / BITCT]);
+  bitarr_last = &(bitarr[(ceil - 1) / BITCT]);
   do {
-    if (bit_arr_ptr >= bit_arr_last) {
+    if (bitarr_ptr >= bitarr_last) {
       return ceil;
     }
-    ulii = *(++bit_arr_ptr);
+    ulii = *(++bitarr_ptr);
   } while (!ulii);
-  ulii = ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + CTZLU(ulii);
+  ulii = ((uintptr_t)(bitarr_ptr - bitarr)) * BITCT + CTZLU(ulii);
   return MINV(ulii, ceil);
 }
 #endif
 
-int32_t last_set_bit(uintptr_t* bit_arr, uint32_t word_ct) {
-  uintptr_t* bit_arr_ptr = &(bit_arr[word_ct]);
+int32_t last_set_bit(uintptr_t* bitarr, uint32_t word_ct) {
+  uintptr_t* bitarr_ptr = &(bitarr[word_ct]);
   uintptr_t ulii;
   do {
-    ulii = *(--bit_arr_ptr);
+    ulii = *(--bitarr_ptr);
     if (ulii) {
-      return ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + BITCT - 1 - CLZLU(ulii);
+      return ((uintptr_t)(bitarr_ptr - bitarr)) * BITCT + BITCT - 1 - CLZLU(ulii);
     }
-  } while (bit_arr_ptr > bit_arr);
+  } while (bitarr_ptr > bitarr);
   return -1;
 }
 
-int32_t last_clear_bit(uintptr_t* bit_arr, uint32_t ceil) {
+int32_t last_clear_bit(uintptr_t* bitarr, uint32_t ceil) {
   // can return ceil or any lower number
-  uintptr_t* bit_arr_ptr = &(bit_arr[ceil / BITCT]);
+  uintptr_t* bitarr_ptr = &(bitarr[ceil / BITCT]);
   uint32_t remainder = ceil % BITCT;
   uintptr_t ulii;
   if (remainder) {
-    ulii = (~(*bit_arr_ptr)) & ((ONELU << remainder) - ONELU);
+    ulii = (~(*bitarr_ptr)) & ((ONELU << remainder) - ONELU);
     if (ulii) {
       return (ceil | (BITCT - 1)) - CLZLU(ulii);
     }
   }
-  while (bit_arr_ptr > bit_arr) {
-    ulii = ~(*(--bit_arr_ptr));
+  while (bitarr_ptr > bitarr) {
+    ulii = ~(*(--bitarr_ptr));
     if (ulii) {
-      return ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + BITCT - 1 - CLZLU(ulii);
+      return ((uintptr_t)(bitarr_ptr - bitarr)) * BITCT + BITCT - 1 - CLZLU(ulii);
     }
   }
   return -1;
 }
 
-uint32_t prev_unset_unsafe(uintptr_t* bit_arr, uint32_t loc) {
+uint32_t prev_unset_unsafe(uintptr_t* bitarr, uint32_t loc) {
 // unlike the next_{un}set family, this always returns a STRICTLY earlier
 // position
-  uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
+  uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
   uint32_t remainder = loc % BITCT;
   uintptr_t ulii;
   if (remainder) {
-    ulii = (~(*bit_arr_ptr)) & ((ONELU << remainder) - ONELU);
+    ulii = (~(*bitarr_ptr)) & ((ONELU << remainder) - ONELU);
     if (ulii) {
       return (loc | (BITCT - 1)) - CLZLU(ulii);
     }
   }
   do {
-    ulii = ~(*(--bit_arr_ptr));
+    ulii = ~(*(--bitarr_ptr));
   } while (!ulii);
-  return ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + BITCT - 1 - CLZLU(ulii);
+  return ((uintptr_t)(bitarr_ptr - bitarr)) * BITCT + BITCT - 1 - CLZLU(ulii);
 }
 
 /*
-uint32_t prev_unset(uintptr_t* bit_arr, uint32_t loc, uint32_t floor) {
-  uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
+uint32_t prev_unset(uintptr_t* bitarr, uint32_t loc, uint32_t floor) {
+  uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
   uint32_t remainder = loc % BITCT;
-  uintptr_t* bit_arr_first;
+  uintptr_t* bitarr_first;
   uintptr_t ulii;
   if (remainder) {
-    ulii = (~(*bit_arr_ptr)) & ((ONELU << remainder) - ONELU);
+    ulii = (~(*bitarr_ptr)) & ((ONELU << remainder) - ONELU);
     if (ulii) {
       loc = (loc | (BITCT - 1)) - CLZLU(ulii);
       return MAXV(loc, floor);
     }
   }
-  bit_arr_first = &(bit_arr[floor / BITCT]);
+  bitarr_first = &(bitarr[floor / BITCT]);
   do {
-    if (bit_arr_ptr == bit_arr_first) {
+    if (bitarr_ptr == bitarr_first) {
       return floor;
     }
-    ulii = ~(*(--bit_arr_ptr));
+    ulii = ~(*(--bitarr_ptr));
   } while (!ulii);
-  loc = ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + BITCT - 1 - CLZLU(ulii);
+  loc = ((uintptr_t)(bitarr_ptr - bitarr)) * BITCT + BITCT - 1 - CLZLU(ulii);
   return MAXV(loc, floor);
 }
 */
@@ -3925,10 +3925,10 @@ void fill_quatervec_55(uintptr_t* quatervec, uint32_t ct) {
 #endif
 }
 
-void quaterfield_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_bitarr, uint32_t filtered_ct, uintptr_t* output_quaterfield) {
-  // Used to unpack e.g. unfiltered sex_male to a filtered quaterfield usable
-  // as a raw input bitmask.
-  // Assumes output_quaterfield is sized to a multiple of 16 bytes.
+void quaterarr_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_bitarr, uint32_t filtered_ct, uintptr_t* output_quaterarr) {
+  // Used to unpack e.g. unfiltered sex_male to a filtered quaterarr usable as
+  // a raw input bitmask.
+  // Assumes output_quaterarr is sized to a multiple of 16 bytes.
   uintptr_t cur_write = 0;
   uint32_t item_uidx = 0;
   uint32_t write_bit = 0;
@@ -3941,21 +3941,21 @@ void quaterfield_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered
     do {
       cur_write |= ((unfiltered_bitarr[item_uidx / BITCT] >> (item_uidx % BITCT)) & 1) << (write_bit * 2);
       if (++write_bit == BITCT2) {
-	*output_quaterfield++ = cur_write;
+	*output_quaterarr++ = cur_write;
         cur_write = 0;
 	write_bit = 0;
       }
     } while (++item_uidx < item_uidx_stop);
   }
   if (write_bit) {
-    *output_quaterfield++ = cur_write;
+    *output_quaterarr++ = cur_write;
   }
   if ((filtered_ct + (BITCT2 - 1)) & BITCT2) {
-    *output_quaterfield = 0;
+    *output_quaterarr = 0;
   }
 }
 
-void quaterfield_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_exclude_bitarr, uint32_t filtered_ct, uintptr_t* output_quaterfield) {
+void quaterarr_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_exclude_bitarr, uint32_t filtered_ct, uintptr_t* output_quaterarr) {
   uintptr_t cur_write = 0;
   uint32_t item_uidx = 0;
   uint32_t write_bit = 0;
@@ -3968,17 +3968,17 @@ void quaterfield_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t un
     do {
       cur_write |= ((unfiltered_bitarr[item_uidx / BITCT] >> (item_uidx % BITCT)) & 1) << (write_bit * 2);
       if (++write_bit == BITCT2) {
-	*output_quaterfield++ = cur_write;
+	*output_quaterarr++ = cur_write;
         cur_write = 0;
 	write_bit = 0;
       }
     } while (++item_uidx < item_uidx_stop);
   }
   if (write_bit) {
-    *output_quaterfield++ = cur_write;
+    *output_quaterarr++ = cur_write;
   }
   if ((filtered_ct + (BITCT2 - 1)) & BITCT2) {
-    *output_quaterfield = 0;
+    *output_quaterarr = 0;
   }
 }
 
@@ -4002,9 +4002,9 @@ uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t
       }
     }
     if (is_include) {
-      quaterfield_collapse_init(sex_male, unfiltered_sample_ct, sample_bitarr, sample_ct, *sample_male_include_quatervec_ptr);
+      quaterarr_collapse_init(sex_male, unfiltered_sample_ct, sample_bitarr, sample_ct, *sample_male_include_quatervec_ptr);
     } else {
-      quaterfield_collapse_init_exclude(sex_male, unfiltered_sample_ct, sample_bitarr, sample_ct, *sample_male_include_quatervec_ptr);
+      quaterarr_collapse_init_exclude(sex_male, unfiltered_sample_ct, sample_bitarr, sample_ct, *sample_male_include_quatervec_ptr);
     }
   }
   return 0;
@@ -4022,34 +4022,34 @@ void sample_delim_convert(uintptr_t unfiltered_sample_ct, uintptr_t* sample_excl
   }
 }
 
-void get_set_wrange_align(uintptr_t* bitfield, uintptr_t word_ct, uintptr_t* firstw_ptr, uintptr_t* wlen_ptr) {
-  uintptr_t* bitfield_ptr = bitfield;
-  uintptr_t* bitfield_end = &(bitfield[word_ct]);
+void get_set_wrange_align(uintptr_t* bitarr, uintptr_t word_ct, uintptr_t* firstw_ptr, uintptr_t* wlen_ptr) {
+  uintptr_t* bitarr_ptr = bitarr;
+  uintptr_t* bitarr_end = &(bitarr[word_ct]);
 #ifdef __LP64__
-  uintptr_t* bitfield_end2 = &(bitfield[word_ct & (~ONELU)]);
-  while (bitfield_ptr < bitfield_end2) {
-    if (bitfield_ptr[0] || bitfield_ptr[1]) {
-      *firstw_ptr = (uintptr_t)(bitfield_ptr - bitfield);
-      while (!(*(--bitfield_end)));
-      *wlen_ptr = 1 + (uintptr_t)(bitfield_end - bitfield_ptr);
+  uintptr_t* bitarr_end2 = &(bitarr[word_ct & (~ONELU)]);
+  while (bitarr_ptr < bitarr_end2) {
+    if (bitarr_ptr[0] || bitarr_ptr[1]) {
+      *firstw_ptr = (uintptr_t)(bitarr_ptr - bitarr);
+      while (!(*(--bitarr_end)));
+      *wlen_ptr = 1 + (uintptr_t)(bitarr_end - bitarr_ptr);
       return;
     }
-    bitfield_ptr = &(bitfield_ptr[2]);
+    bitarr_ptr = &(bitarr_ptr[2]);
   }
-  if ((bitfield_end2 != bitfield_end) && (*bitfield_end2)) {
+  if ((bitarr_end2 != bitarr_end) && (*bitarr_end2)) {
     *firstw_ptr = word_ct - 1;
     *wlen_ptr = 1;
     return;
   }
 #else
-  while (bitfield_ptr < bitfield_end) {
-    if (*bitfield_ptr) {
-      *firstw_ptr = (uintptr_t)(bitfield_ptr - bitfield);
-      while (!(*(--bitfield_end)));
-      *wlen_ptr = 1 + (uintptr_t)(bitfield_end - bitfield_ptr);
+  while (bitarr_ptr < bitarr_end) {
+    if (*bitarr_ptr) {
+      *firstw_ptr = (uintptr_t)(bitarr_ptr - bitarr);
+      while (!(*(--bitarr_end)));
+      *wlen_ptr = 1 + (uintptr_t)(bitarr_end - bitarr_ptr);
       return;
     }
-    bitfield_ptr++;
+    bitarr_ptr++;
   }
 #endif
   *firstw_ptr = 0;
@@ -5215,25 +5215,24 @@ void bsearch_fam(char* id_buf, char* lptr, uintptr_t max_id_len, uint32_t filter
   *last_idx_ptr = 0;
 }
 
-void bitfield_invert(uintptr_t* bit_arr, uintptr_t bit_ct) {
-  uintptr_t* bit_arr_stop = &(bit_arr[bit_ct / BITCT]);
-  while (bit_arr < bit_arr_stop) {
-    *bit_arr = ~(*bit_arr);
-    bit_arr++;
+void bitarr_invert(uintptr_t bit_ct, uintptr_t* bitarr) {
+  uintptr_t* bitarr_stop = &(bitarr[bit_ct / BITCT]);
+  while (bitarr < bitarr_stop) {
+    *bitarr = ~(*bitarr);
+    bitarr++;
   }
   if (bit_ct % BITCT) {
-    *bit_arr = (~(*bit_arr)) & ((ONELU << (bit_ct % BITCT)) - ONELU);
+    *bitarr = (~(*bitarr)) & ((ONELU << (bit_ct % BITCT)) - ONELU);
   }
 }
 
-void bitfield_exclude_to_include(uintptr_t* exclude_arr, uintptr_t* include_arr, uintptr_t bit_ct) {
-  // works the other way around too
-  uintptr_t* exclude_stop = &(exclude_arr[bit_ct / BITCT]);
-  while (exclude_arr < exclude_stop) {
-    *include_arr++ = ~(*exclude_arr++);
+void bitarr_invert_copy(const uintptr_t* input_bitarr, uintptr_t bit_ct, uintptr_t* output_bitarr) {
+  const uintptr_t* input_stop = &(input_bitarr[bit_ct / BITCT]);
+  while (input_bitarr < input_stop) {
+    *output_bitarr++ = ~(*input_bitarr++);
   }
   if (bit_ct % BITCT) {
-    *include_arr = (~(*exclude_arr)) & ((ONELU << (bit_ct % BITCT)) - ONELU);
+    *output_bitarr = (~(*input_bitarr)) & ((ONELU << (bit_ct % BITCT)) - ONELU);
   }
 }
 
@@ -5359,12 +5358,12 @@ void bitfield_ornot(uintptr_t* vv, uintptr_t* inverted_or_vec, uintptr_t word_ct
 #endif
 }
 
-void bitfield_xor(uintptr_t* bit_arr, uintptr_t* xor_arr, uintptr_t word_ct) {
-  // bit_arr := bit_arr XOR xor_arr
-  // on 64-bit systems, assumes bit_arr and xor_arr are 16-byte aligned
+void bitfield_xor(uintptr_t* bitarr, uintptr_t* xor_bitarr, uintptr_t word_ct) {
+  // bitarr := bitarr XOR xor_bitarr
+  // on 64-bit systems, assumes bitarr and xor_bitarr are 16-byte aligned
 #ifdef __LP64__
-  __m128i* bitv128 = (__m128i*)bit_arr;
-  __m128i* xorv128 = (__m128i*)xor_arr;
+  __m128i* bitv128 = (__m128i*)bitarr;
+  __m128i* xorv128 = (__m128i*)xor_bitarr;
   __m128i* bitv128_end = &(bitv128[word_ct / 2]);
   while (bitv128 < bitv128_end) {
     *bitv128 = _mm_xor_si128(*xorv128++, *bitv128);
@@ -5372,12 +5371,12 @@ void bitfield_xor(uintptr_t* bit_arr, uintptr_t* xor_arr, uintptr_t word_ct) {
   }
   if (word_ct & 1) {
     word_ct--;
-    bit_arr[word_ct] ^= xor_arr[word_ct];
+    bitarr[word_ct] ^= xor_bitarr[word_ct];
   }
 #else
-  uintptr_t* bit_arr_end = &(bit_arr[word_ct]);
-  while (bit_arr < bit_arr_end) {
-    *bit_arr++ ^= *xor_arr++;
+  uintptr_t* bitarr_end = &(bitarr[word_ct]);
+  while (bitarr < bitarr_end) {
+    *bitarr++ ^= *xor_bitarr++;
   }
 #endif
 }
@@ -6041,15 +6040,15 @@ uint32_t window_forward(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_
   return marker_uwidx_prev;
 }
 
-uintptr_t jump_forward_unset_unsafe(uintptr_t* bit_arr, uintptr_t cur_pos, uintptr_t forward_ct) {
+uintptr_t jump_forward_unset_unsafe(uintptr_t* bitarr, uintptr_t cur_pos, uintptr_t forward_ct) {
   // advances forward_ct unset bits; forward_ct must be positive.  (stays put
   // if forward_ct == 1 and current bit is unset.  may want to tweak this
   // interface, easy to introduce off-by-one bugs...)
-  // In usual 64-bit case, also assumes bit_arr is 16-byte aligned and the end
+  // In usual 64-bit case, also assumes bitarr is 16-byte aligned and the end
   // of the trailing 16-byte block can be safely read from.
   uintptr_t widx = cur_pos / BITCT;
   uintptr_t ulii = cur_pos % BITCT;
-  uintptr_t* bptr = &(bit_arr[widx]);
+  uintptr_t* bptr = &(bitarr[widx]);
   uintptr_t uljj;
   uintptr_t ulkk;
 #ifdef __LP64__
@@ -6105,7 +6104,7 @@ uintptr_t jump_forward_unset_unsafe(uintptr_t* bit_arr, uintptr_t cur_pos, uintp
     uljj = ~(*bptr);
     ulkk = popcount_long(uljj);
     if (ulkk >= forward_ct) {
-      widx = (uintptr_t)(bptr - bit_arr);
+      widx = (uintptr_t)(bptr - bitarr);
       goto jump_forward_unset_unsafe_finish;
     }
     forward_ct -= ulkk;
@@ -6215,13 +6214,13 @@ uintptr_t popcount_longs_intersect(uintptr_t* lptr1, uintptr_t* lptr2, uintptr_t
   return tot;
 }
 
-void vertical_bitct_subtract(uintptr_t* bit_arr, uint32_t item_ct, uint32_t* sum_arr) {
+void vertical_bitct_subtract(uintptr_t* bitarr, uint32_t item_ct, uint32_t* sum_arr) {
   // assumes trailing bits are zeroed out
   uintptr_t cur_word;
   uint32_t idx_offset;
   uint32_t last_set_bit;
   for (idx_offset = 0; idx_offset < item_ct; idx_offset += BITCT) {
-    cur_word = *bit_arr++;
+    cur_word = *bitarr++;
     while (cur_word) {
       last_set_bit = CTZLU(cur_word);
       sum_arr[idx_offset + last_set_bit] -= 1;
@@ -6231,7 +6230,7 @@ void vertical_bitct_subtract(uintptr_t* bit_arr, uint32_t item_ct, uint32_t* sum
 }
 
 #ifdef __LP64__
-void count_2freq_dbl_960b(__m128i* vptr, __m128i* vend, __m128i* mask1vp, __m128i* mask2vp, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp) {
+void count_2freq_dbl_960b(VECITYPE* vptr, VECITYPE* vend, VECITYPE* mask1vp, VECITYPE* mask2vp, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp) {
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   __m128i loader;
@@ -6313,7 +6312,7 @@ void count_2freq_dbl_960b(__m128i* vptr, __m128i* vend, __m128i* mask1vp, __m128
   *ct2cp += ((acc2_c.u8[0] + acc2_c.u8[1]) * 0x1000100010001LLU) >> 48;
 }
 
-void count_3freq_1920b(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t* even_ctp, uint32_t* odd_ctp, uint32_t* homset_ctp) {
+void count_3freq_1920b(VECITYPE* vptr, VECITYPE* vend, VECITYPE* maskvp, uint32_t* even_ctp, uint32_t* odd_ctp, uint32_t* homset_ctp) {
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   __m128i loader;
@@ -7534,14 +7533,14 @@ uintptr_t count_01(uintptr_t* lptr, uintptr_t word_ct) {
   return acc;
 }
 
-void fill_all_bits(uintptr_t* bit_arr, uintptr_t ct) {
+void fill_all_bits(uintptr_t* bitarr, uintptr_t ct) {
   // leaves bits beyond the end unset
   // ok for ct == 0
   uintptr_t quotient = ct / BITCT;
   uintptr_t remainder = ct % BITCT;
-  fill_ulong_one(bit_arr, quotient);
+  fill_ulong_one(bitarr, quotient);
   if (remainder) {
-    bit_arr[quotient] = (ONELU << remainder) - ONELU;
+    bitarr[quotient] = (ONELU << remainder) - ONELU;
   }
 }
 
@@ -7893,7 +7892,7 @@ void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_sample_ct) {
   }
 }
 
-void collapse_copy_2bitarr(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uintptr_t* sample_exclude) {
+void collapse_copy_quaterarr(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uintptr_t* sample_exclude) {
   uintptr_t cur_write = 0;
   uint32_t sample_uidx = 0;
   uint32_t sample_idx = 0;
@@ -7935,7 +7934,7 @@ uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered
     return RET_READ_FAIL;
   }
   if (unfiltered_sample_ct != sample_ct) {
-    collapse_copy_2bitarr(rawbuf, mainbuf, unfiltered_sample_ct, sample_ct, sample_exclude);
+    collapse_copy_quaterarr(rawbuf, mainbuf, unfiltered_sample_ct, sample_ct, sample_exclude);
   } else {
     rawbuf[(unfiltered_sample_ct - 1) / BITCT2] &= final_mask;
   }
@@ -7945,8 +7944,8 @@ uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered
   return 0;
 }
 
-void collapse_copy_2bitarr_incl(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uintptr_t* sample_include) {
-  // mirror image of collapse_copy_2bitarr()
+void collapse_copy_quaterarr_incl(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uintptr_t* sample_include) {
+  // mirror image of collapse_copy_quaterarr()
   uintptr_t cur_write = 0;
   uint32_t sample_uidx = 0;
   uint32_t sample_idx = 0;
@@ -7985,7 +7984,7 @@ uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfil
     return RET_READ_FAIL;
   }
   if (unfiltered_sample_ct != sample_ct) {
-    collapse_copy_2bitarr_incl(rawbuf, mainbuf, unfiltered_sample_ct, sample_ct, sample_include);
+    collapse_copy_quaterarr_incl(rawbuf, mainbuf, unfiltered_sample_ct, sample_ct, sample_include);
   } else {
     mainbuf[(unfiltered_sample_ct - 1) / BITCT2] &= final_mask;
   }
@@ -8052,7 +8051,7 @@ uint32_t load_and_split(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sa
   }
 }
 
-void vec_include_init(uintptr_t unfiltered_sample_ct, uintptr_t* new_include2, uintptr_t* old_include) {
+void quaterarr_include_init(uintptr_t unfiltered_sample_ct, uintptr_t* new_include_quaterarr, uintptr_t* old_include) {
   // allows unfiltered_sample_ct == 0
   uint32_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
   uintptr_t ulii;
@@ -8086,19 +8085,19 @@ void vec_include_init(uintptr_t unfiltered_sample_ct, uintptr_t* new_include2, u
 	} while (uljj);
       }
     }
-    *new_include2++ = ulkk;
-    *new_include2++ = ulmm;
+    *new_include_quaterarr++ = ulkk;
+    *new_include_quaterarr++ = ulmm;
     --unfiltered_sample_ctl;
   }
   ulii = unfiltered_sample_ct & (BITCT - 1);
   if (ulii) {
-    new_include2--;
+    new_include_quaterarr--;
     if (ulii < BITCT2) {
-      *new_include2-- = 0;
+      *new_include_quaterarr-- = 0;
     } else {
       ulii -= BITCT2;
     }
-    *new_include2 &= (ONELU << (ulii * 2)) - ONELU;
+    *new_include_quaterarr &= (ONELU << (ulii * 2)) - ONELU;
   }
 }
 
@@ -8480,7 +8479,7 @@ void rotate_plink1_to_plink2_and_copy(uintptr_t* loadbuf, uintptr_t* writebuf, u
   } while (loadbuf < loadbuf_end);
 }
 
-void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_sample_ct, uintptr_t* sample_include2, uintptr_t sample_ct, uintptr_t* missing_bitfield) {
+void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_sample_ct, uintptr_t* sample_include_quaterarr, uintptr_t sample_ct, uintptr_t* missing_bitfield) {
   uint32_t word_ct = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t sample_idx;
   uintptr_t cur_word;
@@ -8494,7 +8493,7 @@ void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_sa
     woffset = 0;
     for (widx = 0; widx < word_ct; widx++) {
       cur_word = *lptr++;
-      cur_word = cur_word & ((~cur_word) >> 1) & (*sample_include2++);
+      cur_word = cur_word & ((~cur_word) >> 1) & (*sample_include_quaterarr++);
       while (cur_word) {
         uii = CTZLU(cur_word) / 2;
         cur_write |= ONELU << (woffset + uii);
@@ -8515,7 +8514,7 @@ void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_sa
     fill_ulong_zero(missing_bitfield, (sample_ct + (BITCT - 1)) / BITCT);
     sample_idx = 0;
     for (widx = 0; sample_idx < sample_ct; widx++, lptr++) {
-      cur_mask = *sample_include2++;
+      cur_mask = *sample_include_quaterarr++;
       if (cur_mask) {
         cur_word = *lptr;
         cur_word = cur_word & ((~cur_word) >> 1) & cur_mask;
@@ -8547,7 +8546,7 @@ void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_sa
   }
 }
 
-void hh_reset(unsigned char* loadbuf, uintptr_t* sample_include2, uintptr_t unfiltered_sample_ct) {
+void hh_reset(unsigned char* loadbuf, uintptr_t* sample_include_quaterarr, uintptr_t unfiltered_sample_ct) {
   uintptr_t sample_bidx = 0;
   unsigned char* loadbuf_end = &(loadbuf[(unfiltered_sample_ct + 3) / 4]);
   unsigned char* iicp;
@@ -8558,14 +8557,14 @@ void hh_reset(unsigned char* loadbuf, uintptr_t* sample_include2, uintptr_t unfi
   uint32_t uii;
   uint32_t ujj;
 #ifdef __LP64__
-  uint32_t* sample_include2_alias32;
+  uint32_t* sample_include_quaterarr_alias32;
   __m128i* loadbuf_alias;
   __m128i* iivp;
   __m128i vii;
   __m128i vjj;
   if (!(((uintptr_t)loadbuf) & 15)) {
     loadbuf_alias = (__m128i*)loadbuf;
-    iivp = (__m128i*)sample_include2;
+    iivp = (__m128i*)sample_include_quaterarr;
     unfiltered_sample_ctd = unfiltered_sample_ct / 64;
     for (; sample_bidx < unfiltered_sample_ctd; sample_bidx++) {
       vii = *loadbuf_alias;
@@ -8576,17 +8575,17 @@ void hh_reset(unsigned char* loadbuf, uintptr_t* sample_include2, uintptr_t unfi
     iicp = (unsigned char*)iivp;
   } else if (!(((uintptr_t)loadbuf) & 3)) {
     loadbuf_alias32 = (uint32_t*)loadbuf;
-    sample_include2_alias32 = (uint32_t*)sample_include2;
+    sample_include_quaterarr_alias32 = (uint32_t*)sample_include_quaterarr;
     unfiltered_sample_ctd = unfiltered_sample_ct / BITCT2;
     for (; sample_bidx < unfiltered_sample_ctd; sample_bidx++) {
       uii = *loadbuf_alias32;
-      ujj = ((uii >> 1) & (~uii)) & (*sample_include2_alias32++);
+      ujj = ((uii >> 1) & (~uii)) & (*sample_include_quaterarr_alias32++);
       *loadbuf_alias32++ = uii - ujj;
     }
     loadbuf = (unsigned char*)loadbuf_alias32;
-    iicp = (unsigned char*)sample_include2_alias32;
+    iicp = (unsigned char*)sample_include_quaterarr_alias32;
   } else {
-    iicp = (unsigned char*)sample_include2;
+    iicp = (unsigned char*)sample_include_quaterarr;
   }
 #else
   if (!(((uintptr_t)loadbuf) & 3)) {
@@ -8594,12 +8593,12 @@ void hh_reset(unsigned char* loadbuf, uintptr_t* sample_include2, uintptr_t unfi
     unfiltered_sample_ctd = unfiltered_sample_ct / BITCT2;
     for (; sample_bidx < unfiltered_sample_ctd; sample_bidx++) {
       uii = *loadbuf_alias32;
-      ujj = ((uii >> 1) & (~uii)) & (*sample_include2++);
+      ujj = ((uii >> 1) & (~uii)) & (*sample_include_quaterarr++);
       *loadbuf_alias32++ = uii - ujj;
     }
     loadbuf = (unsigned char*)loadbuf_alias32;
   }
-  iicp = (unsigned char*)sample_include2;
+  iicp = (unsigned char*)sample_include_quaterarr;
 #endif
   for (; loadbuf < loadbuf_end;) {
     ucc = *loadbuf;
@@ -8608,7 +8607,7 @@ void hh_reset(unsigned char* loadbuf, uintptr_t* sample_include2, uintptr_t unfi
   }
 }
 
-void hh_reset_y(unsigned char* loadbuf, uintptr_t* sample_include2, uintptr_t* sample_male_include2, uintptr_t unfiltered_sample_ct) {
+void hh_reset_y(unsigned char* loadbuf, uintptr_t* sample_include_quaterarr, uintptr_t* sample_male_include_quaterarr, uintptr_t unfiltered_sample_ct) {
   uintptr_t sample_bidx = 0;
   unsigned char* loadbuf_end = &(loadbuf[(unfiltered_sample_ct + 3) / 4]);
   unsigned char* iicp;
@@ -8623,8 +8622,8 @@ void hh_reset_y(unsigned char* loadbuf, uintptr_t* sample_include2, uintptr_t* s
   uint32_t ukk;
 #ifdef __LP64__
   const __m128i m1 = {FIVEMASK, FIVEMASK};
-  uint32_t* sample_include2_alias32;
-  uint32_t* sample_male_include2_alias32;
+  uint32_t* sample_include_quaterarr_alias32;
+  uint32_t* sample_male_include_quaterarr_alias32;
   __m128i* loadbuf_alias;
   __m128i* iivp;
   __m128i* imivp;
@@ -8633,12 +8632,12 @@ void hh_reset_y(unsigned char* loadbuf, uintptr_t* sample_include2, uintptr_t* s
   __m128i vkk;
   if (!(((uintptr_t)loadbuf) & 15)) {
     loadbuf_alias = (__m128i*)loadbuf;
-    iivp = (__m128i*)sample_include2;
-    imivp = (__m128i*)sample_male_include2;
+    iivp = (__m128i*)sample_include_quaterarr;
+    imivp = (__m128i*)sample_male_include_quaterarr;
     unfiltered_sample_ctd = unfiltered_sample_ct / 64;
     for (; sample_bidx < unfiltered_sample_ctd; sample_bidx++) {
-      // sample_include2 & ~sample_male_include2: force to 01
-      // sample_male_include2: convert 10 to 01, keep everything else
+      // sample_include_quaterarr & ~sample_male_include_quaterarr: force to 01
+      // sample_male_include_quaterarr: convert 10 to 01, keep everything else
       vii = *imivp++;
       vjj = *iivp++;
       vkk = _mm_and_si128(*loadbuf_alias, _mm_or_si128(vii, _mm_slli_epi64(vii, 1)));
@@ -8649,36 +8648,36 @@ void hh_reset_y(unsigned char* loadbuf, uintptr_t* sample_include2, uintptr_t* s
     imicp = (unsigned char*)imivp;
   } else if (!(((uintptr_t)loadbuf) & 3)) {
     loadbuf_alias32 = (uint32_t*)loadbuf;
-    sample_include2_alias32 = (uint32_t*)sample_include2;
-    sample_male_include2_alias32 = (uint32_t*)sample_male_include2;
+    sample_include_quaterarr_alias32 = (uint32_t*)sample_include_quaterarr;
+    sample_male_include_quaterarr_alias32 = (uint32_t*)sample_male_include_quaterarr;
     unfiltered_sample_ctd = unfiltered_sample_ct / 16;
     for (; sample_bidx < unfiltered_sample_ctd; sample_bidx++) {
-      uii = *sample_male_include2_alias32++;
-      ujj = *sample_include2_alias32++;
+      uii = *sample_male_include_quaterarr_alias32++;
+      ujj = *sample_include_quaterarr_alias32++;
       ukk = (*loadbuf_alias32) & (uii * 3);
       *loadbuf_alias32++ = ((~uii) & ujj) | (ukk - ((~ukk) & (ukk >> 1) & 0x55555555));
     }
     loadbuf = (unsigned char*)loadbuf_alias32;
-    iicp = (unsigned char*)sample_include2_alias32;
-    imicp = (unsigned char*)sample_male_include2_alias32;
+    iicp = (unsigned char*)sample_include_quaterarr_alias32;
+    imicp = (unsigned char*)sample_male_include_quaterarr_alias32;
   } else {
-    iicp = (unsigned char*)sample_include2;
-    imicp = (unsigned char*)sample_male_include2;
+    iicp = (unsigned char*)sample_include_quaterarr;
+    imicp = (unsigned char*)sample_male_include_quaterarr;
   }
 #else
   if (!(((uintptr_t)loadbuf) & 3)) {
     loadbuf_alias32 = (uint32_t*)loadbuf;
     unfiltered_sample_ctd = unfiltered_sample_ct / 16;
     for (; sample_bidx < unfiltered_sample_ctd; sample_bidx++) {
-      uii = *sample_male_include2++;
-      ujj = *sample_include2++;
+      uii = *sample_male_include_quaterarr++;
+      ujj = *sample_include_quaterarr++;
       ukk = (*loadbuf_alias32) & (uii * 3);
       *loadbuf_alias32++ = ((~uii) & ujj) | (ukk - ((~ukk) & (ukk >> 1) & 0x55555555));
     }
     loadbuf = (unsigned char*)loadbuf_alias32;
   }
-  iicp = (unsigned char*)sample_include2;
-  imicp = (unsigned char*)sample_male_include2;
+  iicp = (unsigned char*)sample_include_quaterarr;
+  imicp = (unsigned char*)sample_male_include_quaterarr;
 #endif
   for (; loadbuf < loadbuf_end;) {
     ucc = *imicp++;
@@ -8688,34 +8687,34 @@ void hh_reset_y(unsigned char* loadbuf, uintptr_t* sample_include2, uintptr_t* s
   }
 }
 
-uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* sample_bitarr, uintptr_t* sex_male, uintptr_t** sample_raw_include2_ptr, uintptr_t** sample_raw_male_include2_ptr) {
+uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* sample_bitarr, uintptr_t* sex_male, uintptr_t** sample_raw_include_quatervec_ptr, uintptr_t** sample_raw_male_include_quatervec_ptr) {
   uintptr_t unfiltered_sample_ctv2 = 2 * ((unfiltered_sample_ct + (BITCT - 1)) / BITCT);
-  uintptr_t* sample_raw_male_include2;
+  uintptr_t* sample_raw_male_include_quatervec;
   if (hh_exists & (Y_FIX_NEEDED | NXMHH_EXISTS)) {
-    if (wkspace_alloc_ul_checked(sample_raw_include2_ptr, unfiltered_sample_ctv2 * sizeof(intptr_t))) {
+    if (wkspace_alloc_ul_checked(sample_raw_include_quatervec_ptr, unfiltered_sample_ctv2 * sizeof(intptr_t))) {
       return 1;
     }
     if (is_include) {
-      vec_include_init(unfiltered_sample_ct, *sample_raw_include2_ptr, sample_bitarr);
+      quaterarr_include_init(unfiltered_sample_ct, *sample_raw_include_quatervec_ptr, sample_bitarr);
     } else {
-      exclude_to_vec_include(unfiltered_sample_ct, *sample_raw_include2_ptr, sample_bitarr);
+      exclude_to_vec_include(unfiltered_sample_ct, *sample_raw_include_quatervec_ptr, sample_bitarr);
     }
   }
   if (hh_exists & (XMHH_EXISTS | Y_FIX_NEEDED)) {
-    if (wkspace_alloc_ul_checked(sample_raw_male_include2_ptr, unfiltered_sample_ctv2 * sizeof(intptr_t))) {
+    if (wkspace_alloc_ul_checked(sample_raw_male_include_quatervec_ptr, unfiltered_sample_ctv2 * sizeof(intptr_t))) {
       return 1;
     }
-    sample_raw_male_include2 = *sample_raw_male_include2_ptr;
+    sample_raw_male_include_quatervec = *sample_raw_male_include_quatervec_ptr;
     if (hh_exists & (Y_FIX_NEEDED | NXMHH_EXISTS)) {
-      memcpy(sample_raw_male_include2, *sample_raw_include2_ptr, unfiltered_sample_ctv2 * sizeof(intptr_t));
+      memcpy(sample_raw_male_include_quatervec, *sample_raw_include_quatervec_ptr, unfiltered_sample_ctv2 * sizeof(intptr_t));
     } else {
       if (is_include) {
-	vec_include_init(unfiltered_sample_ct, sample_raw_male_include2, sample_bitarr);
+	quaterarr_include_init(unfiltered_sample_ct, sample_raw_male_include_quatervec, sample_bitarr);
       } else {
-	exclude_to_vec_include(unfiltered_sample_ct, sample_raw_male_include2, sample_bitarr);
+	exclude_to_vec_include(unfiltered_sample_ct, sample_raw_male_include_quatervec, sample_bitarr);
       }
     }
-    vec_include_mask_in(unfiltered_sample_ct, sample_raw_male_include2, sex_male);
+    vec_include_mask_in(unfiltered_sample_ct, sample_raw_male_include_quatervec, sex_male);
   }
   return 0;
 }
@@ -8842,7 +8841,7 @@ int32_t open_and_size_string_list(char* fname, FILE** infile_ptr, uintptr_t* lis
   int32_t retval = 0;
   char* bufptr;
   uint32_t cur_len;
-  if (fopen_checked(infile_ptr, fname, "r")) {
+  if (fopen_checked(fname, "r", infile_ptr)) {
     goto open_and_size_string_list_ret_OPEN_FAIL;
   }
   tbuf[MAXLINELEN - 1] = ' ';
@@ -8913,7 +8912,7 @@ int32_t load_string_list(FILE** infile_ptr, uintptr_t max_str_len, char* str_lis
 int32_t open_and_skip_first_lines(FILE** infile_ptr, char* fname, char* loadbuf, uintptr_t loadbuf_size, uint32_t lines_to_skip) {
   uint32_t line_idx;
   loadbuf[loadbuf_size - 1] = ' ';
-  if (fopen_checked(infile_ptr, fname, "r")) {
+  if (fopen_checked(fname, "r", infile_ptr)) {
     return RET_OPEN_FAIL;
   }
   for (line_idx = 1; line_idx <= lines_to_skip; line_idx++) {
@@ -8975,7 +8974,7 @@ int32_t load_to_first_token(FILE* infile, uintptr_t loadbuf_size, char comment_c
 
 int32_t open_and_load_to_first_token(FILE** infile_ptr, char* fname, uintptr_t loadbuf_size, char comment_char, const char* file_descrip, char* loadbuf, char** bufptr_ptr, uintptr_t* line_idx_ptr) {
   loadbuf[loadbuf_size - 1] = ' ';
-  if (fopen_checked(infile_ptr, fname, "r")) {
+  if (fopen_checked(fname, "r", infile_ptr)) {
     return RET_OPEN_FAIL;
   }
   return load_to_first_token(*infile_ptr, loadbuf_size, comment_char, file_descrip, loadbuf, bufptr_ptr, line_idx_ptr);
@@ -9310,7 +9309,7 @@ void inplace_delta_collapse_bitfield(uintptr_t* read_ptr, uint32_t filtered_ct_n
   }
 }
 
-void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr) {
+void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr) {
   uintptr_t cur_write = 0;
   uint32_t item_uidx = 0;
   uint32_t write_bit = 0;
@@ -9318,7 +9317,7 @@ void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* exclu
   uint32_t item_uidx_stop;
   if (!exclude_arr[0]) {
     item_uidx = next_set(exclude_arr, 0, orig_ct & (~(BITCT - 1))) & (~(BITCT - 1));
-    memcpy(output_arr, bit_arr, item_uidx / 8);
+    memcpy(output_arr, bitarr, item_uidx / 8);
     item_idx = item_uidx;
     output_arr = &(output_arr[item_uidx / BITCT]);
   }
@@ -9327,7 +9326,7 @@ void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* exclu
     item_uidx_stop = next_set(exclude_arr, item_uidx, orig_ct);
     item_idx += item_uidx_stop - item_uidx;
     do {
-      cur_write |= ((bit_arr[item_uidx / BITCT] >> (item_uidx % BITCT)) & 1) << write_bit;
+      cur_write |= ((bitarr[item_uidx / BITCT] >> (item_uidx % BITCT)) & 1) << write_bit;
       if (++write_bit == BITCT) {
 	*output_arr++ = cur_write;
         cur_write = 0;
@@ -9340,7 +9339,7 @@ void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* exclu
   }
 }
 
-void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_arr) {
+void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_arr) {
   uintptr_t cur_write = 0;
   uint32_t item_uidx = 0;
   uint32_t write_bit = 0;
@@ -9348,7 +9347,7 @@ void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* 
   uint32_t item_uidx_stop;
   if (!(~include_arr[0])) {
     item_uidx = next_unset(include_arr, 0, orig_ct & (~(BITCT - 1))) & (~(BITCT - 1));
-    memcpy(output_arr, bit_arr, item_uidx / 8);
+    memcpy(output_arr, bitarr, item_uidx / 8);
     item_idx = item_uidx;
     output_arr = &(output_arr[item_uidx / BITCT]);
   }
@@ -9357,7 +9356,7 @@ void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* 
     item_uidx_stop = next_unset(include_arr, item_uidx, orig_ct);
     item_idx += item_uidx_stop - item_uidx;
     do {
-      cur_write |= ((bit_arr[item_uidx / BITCT] >> (item_uidx % BITCT)) & 1) << write_bit;
+      cur_write |= ((bitarr[item_uidx / BITCT] >> (item_uidx % BITCT)) & 1) << write_bit;
       if (++write_bit == BITCT) {
 	*output_arr++ = cur_write;
         cur_write = 0;

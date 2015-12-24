@@ -795,7 +795,7 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
   }
   join_threads(threads, g_perm_generation_thread_ct);
   memcpy(outname_end, ".pphe", 6);
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto make_perm_pheno_ret_OPEN_FAIL;
   }
   sample_nmidx = 0;

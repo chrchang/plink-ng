@@ -64,7 +64,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
   uint32_t cur_data_len;
   uint32_t uii;
   int32_t ii;
-  if (fopen_checked(&infile, rplugin_fname, "r")) {
+  if (fopen_checked(rplugin_fname, "r", &infile)) {
     goto rserve_call_ret_OPEN_FAIL;
   }
   if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_sample_ctl2 * sizeof(intptr_t)) ||
@@ -178,7 +178,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
   } else {
     memcpy(outname_end, ".debug.R", 9);
   }
-  if (fopen_checked(&outfile, outname, "w")) {
+  if (fopen_checked(outname, "w", &outfile)) {
     goto rserve_call_ret_OPEN_FAIL;
   }
   LOGPRINTFWW5("--R%s: writing to %s ... ", rplugin_debug? " debug" : "", outname);
