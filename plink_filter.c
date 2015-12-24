@@ -1726,8 +1726,8 @@ void freq_hwe_haploid_count_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, 
   __m128i to_ct_hmaj1;
   __m128i to_ct_nm2;
   __m128i to_ct_hmaj2;
-  __uni16 acc_nm;
-  __uni16 acc_hmaj;
+  __univec acc_nm;
+  __univec acc_hmaj;
 
   acc_nm.vi = _mm_setzero_si128();
   acc_hmaj.vi = _mm_setzero_si128();

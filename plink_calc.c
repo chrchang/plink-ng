@@ -584,7 +584,7 @@ static inline uint32_t popcount_xor_1mask_multiword(__m128i** xor1p, __m128i* xo
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
   __m128i count1, count2, half1, half2;
-  __uni16 acc;
+  __univec acc;
   __m128i* xor2_end = &(xor2[MULTIPLEX_2DIST / 128]);
 
   acc.vi = _mm_setzero_si128();
@@ -619,7 +619,7 @@ static inline uint32_t popcount_xor_2mask_multiword(__m128i** xor1p, __m128i* xo
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
   __m128i count1, count2, half1, half2;
-  __uni16 acc;
+  __univec acc;
   __m128i* xor2_end = &(xor2[MULTIPLEX_2DIST / 128]);
 
   acc.vi = _mm_setzero_si128();
@@ -1123,8 +1123,8 @@ void incr_genome(uint32_t* genome_main, uintptr_t* geno, uintptr_t* masks, uintp
   __m128i count_ibs0;
   __m128i count2_ibs1;
   __m128i count2_ibs0;
-  __uni16 acc_ibs1;
-  __uni16 acc_ibs0;
+  __univec acc_ibs1;
+  __univec acc_ibs0;
   uintptr_t* lptr;
   __m128i* glptr;
   __m128i* glptr_fixed;

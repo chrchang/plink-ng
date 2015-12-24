@@ -149,11 +149,11 @@ static inline void ld_dot_prod_batch(__m128i* vec1, __m128i* vec2, __m128i* mask
   __m128i tmp_sum1;
   __m128i tmp_sum2;
   __m128i tmp_sum12;
-  __uni16 acc;
-  __uni16 acc1;
-  __uni16 acc2;
-  __uni16 acc11;
-  __uni16 acc22;
+  __univec acc;
+  __univec acc1;
+  __univec acc2;
+  __univec acc11;
+  __univec acc22;
   acc.vi = _mm_setzero_si128();
   acc1.vi = _mm_setzero_si128();
   acc2.vi = _mm_setzero_si128();
@@ -265,7 +265,7 @@ static inline int32_t ld_dot_prod_nm_batch(__m128i* vec1, __m128i* vec2, uint32_
   __m128i loader2;
   __m128i sum12;
   __m128i tmp_sum12;
-  __uni16 acc;
+  __univec acc;
   acc.vi = _mm_setzero_si128();
   do {
     loader1 = *vec1++;
@@ -1362,7 +1362,7 @@ uint32_t ld_missing_ct_intersect(uintptr_t* lptr1, uintptr_t* lptr2, uintptr_t w
   __m128i* vend1;
   __m128i loader1;
   __m128i loader2;
-  __uni16 acc;
+  __univec acc;
 
   while (word12_ct >= 10) {
     word12_ct -= 10;
@@ -2849,9 +2849,9 @@ static void two_locus_3x3_tablev(__m128i* vec1, __m128i* vec2, uint32_t* counts_
   __m128i count20;
   __m128i count21;
   __m128i count22;
-  __uni16 acc0;
-  __uni16 acc1;
-  __uni16 acc2;
+  __univec acc0;
+  __univec acc1;
+  __univec acc2;
   uint32_t ct;
   uint32_t ct2;
   while (iter_ct--) {
@@ -2970,10 +2970,10 @@ static inline void two_locus_3x3_zmiss_tablev(__m128i* veca0, __m128i* vecb0, ui
   __m128i county01;
   __m128i county11;
   __m128i county10;
-  __uni16 acc00;
-  __uni16 acc01;
-  __uni16 acc11;
-  __uni16 acc10;
+  __univec acc00;
+  __univec acc01;
+  __univec acc11;
+  __univec acc10;
   uint32_t ct2;
   while (sample_ctv6 >= 30) {
     sample_ctv6 -= 30;
@@ -3497,7 +3497,7 @@ uint32_t boost_calc_p_ca(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2_ct
   return (df_adj > 1);
 }
 
-double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, double* alpha1sq_ptr, double* alpha2sq_ptr, uint32_t df_adj, double* chisq_ptr, uint32_t* sig_ct1_ptr, uint32_t* sig_ct2_ptr) {
+double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, double* alpha1sq_ptr, double* alpha2sq_ptr, uintptr_t df_adj, double* chisq_ptr, uint32_t* sig_ct1_ptr, uint32_t* sig_ct2_ptr) {
   // see BOOSTx64.c lines 625-903.
   double interaction_measure = 0.0;
   double tau = 0.0;
@@ -3513,8 +3513,10 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
   double dxx;
   double dyy;
   double mu_error;
+
   // dirty hack: encode df adjustment in low bits of *chisq_ptr
-  __double_ulong du;
+  uintptr_t ularr[sizeof(double) / BYTECT];
+
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -3666,11 +3668,11 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
       }
     }
     interaction_measure = (interaction_measure + log(tau)) * ((int32_t)(sum * 2));
-    du.dd = interaction_measure;
+    memcpy(ularr, &interaction_measure, sizeof(double));
     // save df_adj in low two bits
-    du.uu[0] &= ~(3 * ONELU);
-    du.uu[0] |= df_adj;
-    *chisq_ptr = du.dd;
+    ularr[0] &= ~(3 * ONELU);
+    ularr[0] |= df_adj;
+    memcpy(chisq_ptr, ularr, sizeof(double));
     if (interaction_measure < alpha1sq_ptr[df_adj]) {
       interaction_measure = alpha1sq_ptr[df_adj];
     }
@@ -9210,6 +9212,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   uintptr_t* ctrlbuf = NULL;
   uintptr_t* marker_exclude1 = NULL;
   uintptr_t* ulptr = NULL;
+  uintptr_t ularr[sizeof(double) / BYTECT];
   uintptr_t* casebuf;
   uintptr_t* loadbuf;
   uintptr_t* marker_exclude2;
@@ -9251,7 +9254,6 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   uintptr_t ulii;
   uintptr_t uljj;
   uintptr_t chrom_end2;
-  __double_ulong du;
   uint32_t chrom_fo_idx;
   uint32_t chrom_fo_idx2;
   uint32_t chrom_idx2;
@@ -10018,11 +10020,11 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	      *wptr++ = ' ';
 	      if (is_boost) {
 		if (dxx == dxx) { // not nan
-		  du.dd = dxx;
-		  uii = 4 >> (du.uu[0] & 3);
+		  memcpy(ularr, &dxx, sizeof(double));
+		  uii = 4 >> (ularr[0] & 3);
 		  // don't want ugly e-324s when zero belongs
-		  du.uu[0] &= ~(3 * ONELU);
-		  dxx = du.dd;
+		  ularr[0] &= ~(3 * ONELU);
+		  memcpy(&dxx, ularr, sizeof(double));
 		  wptr = width_force(12, wptr, double_g_write(wptr, dxx));
 		  wptr = memseta(wptr, 32, 4);
 		  *wptr++ = '0' + uii;

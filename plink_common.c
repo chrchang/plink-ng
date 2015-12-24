@@ -5570,7 +5570,7 @@ static inline uintptr_t popcount_vecs(__m128i* vptr, uintptr_t ct) {
   __m128i count2;
   __m128i half1;
   __m128i half2;
-  __uni16 acc;
+  __univec acc;
 
   while (ct >= 30) {
     ct -= 30;
@@ -5619,7 +5619,7 @@ static inline uintptr_t popcount2_vecs(__m128i* vptr, uintptr_t ct) {
   __m128i loader2;
   __m128i count1;
   __m128i count2;
-  __uni16 acc;
+  __univec acc;
 
   while (ct >= 30) {
     ct -= 30;
@@ -5665,7 +5665,7 @@ static inline uintptr_t popcount_vecs_exclude(__m128i* vptr, __m128i* exclude_pt
   uintptr_t tot = 0;
   __m128i* vend;
   __m128i count1, count2, half1, half2;
-  __uni16 acc;
+  __univec acc;
 
   while (ct >= 30) {
     ct -= 30;
@@ -5707,7 +5707,7 @@ static inline uintptr_t popcount_vecs_intersect(__m128i* vptr1, __m128i* vptr2, 
   uintptr_t tot = 0;
   __m128i* vend1;
   __m128i count1, count2, half1, half2;
-  __uni16 acc;
+  __univec acc;
 
   while (ct >= 30) {
     ct -= 30;
@@ -6242,10 +6242,10 @@ void count_2freq_dbl_60v(__m128i* vptr, __m128i* vend, __m128i* mask1vp, __m128i
   __m128i to_ct1_c;
   __m128i to_ct2_ab;
   __m128i to_ct2_c;
-  __uni16 acc1_ab;
-  __uni16 acc1_c;
-  __uni16 acc2_ab;
-  __uni16 acc2_c;
+  __univec acc1_ab;
+  __univec acc1_c;
+  __univec acc2_ab;
+  __univec acc2_c;
 
   acc1_ab.vi = _mm_setzero_si128();
   acc1_c.vi = _mm_setzero_si128();
@@ -6325,9 +6325,9 @@ void count_3freq_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t* e
   __m128i even2;
   __m128i odd2;
   __m128i homset2;
-  __uni16 acc_even;
-  __uni16 acc_odd;
-  __uni16 acc_homset;
+  __univec acc_even;
+  __univec acc_odd;
+  __univec acc_homset;
 
   acc_even.vi = _mm_setzero_si128();
   acc_odd.vi = _mm_setzero_si128();
@@ -6622,8 +6622,8 @@ void count_set_freq_60v(__m128i* vptr, __m128i* vend, __m128i* include_vec, uint
   __m128i odds;
   __m128i evens;
   __m128i missings;
-  __uni16 acc;
-  __uni16 accm;
+  __univec acc;
+  __univec accm;
   acc.vi = _mm_setzero_si128();
   accm.vi = _mm_setzero_si128();
   do {
@@ -6671,8 +6671,8 @@ void count_set_freq_hap_120v(__m128i* vptr, __m128i* vend, __m128i* include_vec,
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
-  __uni16 acc;
-  __uni16 accm;
+  __univec acc;
+  __univec accm;
   __m128i loader;
   __m128i loader2;
   __m128i loader3;
@@ -6740,8 +6740,8 @@ void count_set_freq_x_60v(__m128i* vptr, __m128i* vend, __m128i* include_vec, __
   __m128i missings_nm;
   __m128i missings_m;
   __m128i males;
-  __uni16 acc;
-  __uni16 accm;
+  __univec acc;
+  __univec accm;
   acc.vi = _mm_setzero_si128();
   accm.vi = _mm_setzero_si128();
   do {
@@ -6809,8 +6809,8 @@ void count_set_freq_y_120v(__m128i* vptr, __m128i* vend, __m128i* include_vec, _
   __m128i missings1;
   __m128i sets2;
   __m128i missings2;
-  __uni16 acc;
-  __uni16 accm;
+  __univec acc;
+  __univec accm;
   acc.vi = _mm_setzero_si128();
   accm.vi = _mm_setzero_si128();
   do {
@@ -6881,7 +6881,7 @@ uintptr_t count_01_vecs(__m128i* vptr, uintptr_t vct) {
   __m128i loader2;
   __m128i count1;
   __m128i count2;
-  __uni16 acc;
+  __univec acc;
 
   while (vct >= 60) {
     vct -= 60;

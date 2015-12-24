@@ -1139,7 +1139,7 @@ static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, fl
   __m128 a2;
   __m128 a3;
   __m128 a4;
-  __uni16 u16;
+  __univec uvec;
   uint32_t row_ctm3;
   uint32_t col_idx;
   if (row_ct > 3) {
@@ -1167,14 +1167,14 @@ static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, fl
         s4 = _mm_add_ps(s4, a4);
       }
       // refrain from using SSE3 _mm_hadd_ps() for now
-      u16.vf = s1;
-      *dest++ = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
-      u16.vf = s2;
-      *dest++ = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
-      u16.vf = s3;
-      *dest++ = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
-      u16.vf = s4;
-      *dest++ = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
+      uvec.vf = s1;
+      *dest++ = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
+      uvec.vf = s2;
+      *dest++ = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
+      uvec.vf = s3;
+      *dest++ = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
+      uvec.vf = s4;
+      *dest++ = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
     }
   }
   s1 = _mm_setzero_ps();
@@ -1195,12 +1195,12 @@ static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, fl
       s2 = _mm_add_ps(s2, a2);
       s3 = _mm_add_ps(s3, a3);
     }
-    u16.vf = s1;
-    *dest++ = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
-    u16.vf = s2;
-    *dest++ = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
-    u16.vf = s3;
-    *dest = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
+    uvec.vf = s1;
+    *dest++ = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
+    uvec.vf = s2;
+    *dest++ = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
+    uvec.vf = s3;
+    *dest = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
     break;
   case 2:
     for (col_idx = 0; col_idx < col_ct; col_idx += 4) {
@@ -1213,10 +1213,10 @@ static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, fl
       s1 = _mm_add_ps(s1, a1);
       s2 = _mm_add_ps(s2, a2);
     }
-    u16.vf = s1;
-    *dest++ = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
-    u16.vf = s2;
-    *dest = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
+    uvec.vf = s1;
+    *dest++ = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
+    uvec.vf = s2;
+    *dest = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
     break;
   case 1:
     for (col_idx = 0; col_idx < col_ct; col_idx += 4) {
@@ -1225,8 +1225,8 @@ static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, fl
       a1 = _mm_mul_ps(a1, vv);
       s1 = _mm_add_ps(s1, a1);
     }
-    u16.vf = s1;
-    *dest = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
+    uvec.vf = s1;
+    *dest = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
     break;
   }
 }
@@ -1236,7 +1236,7 @@ static inline float triple_product(const float* v1, const float* v2, const float
   __m128 aa;
   __m128 bb;
   __m128 cc;
-  __uni16 u16;
+  __univec uvec;
   uint32_t uii;
   for (uii = 0; uii < nn; uii += 4) {
     aa = _mm_load_ps(&(v1[uii]));
@@ -1244,8 +1244,8 @@ static inline float triple_product(const float* v1, const float* v2, const float
     cc = _mm_load_ps(&(v3[uii]));
     sum = _mm_add_ps(sum, _mm_mul_ps(_mm_mul_ps(aa, bb), cc));
   }
-  u16.vf = sum;
-  return u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
+  uvec.vf = sum;
+  return uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
 }
 
 static inline void compute_two_diag_triple_product(const float* aa, const float* bb, const float* vv, float* raa_ptr, float* rab_ptr, float* rbb_ptr, uint32_t nn) {
@@ -1257,7 +1257,7 @@ static inline void compute_two_diag_triple_product(const float* aa, const float*
   __m128 btmp;
   __m128 av;
   __m128 bv;
-  __uni16 u16;
+  __univec uvec;
   uint32_t uii;
   for (uii = 0; uii < nn; uii += 4) {
     vtmp = _mm_load_ps(&(vv[uii]));
@@ -1269,12 +1269,12 @@ static inline void compute_two_diag_triple_product(const float* aa, const float*
     sab = _mm_add_ps(sab, _mm_mul_ps(atmp, bv));
     sbb = _mm_add_ps(sbb, _mm_mul_ps(btmp, bv));
   }
-  u16.vf = saa;
-  *raa_ptr = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
-  u16.vf = sab;
-  *rab_ptr = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
-  u16.vf = sbb;
-  *rbb_ptr = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
+  uvec.vf = saa;
+  *raa_ptr = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
+  uvec.vf = sab;
+  *rab_ptr = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
+  uvec.vf = sbb;
+  *rbb_ptr = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
 }
 
 static inline void compute_three_triple_product(const float* bb, const float* a1, const float* a2, const float* a3, const float* vv, float* r1_ptr, float* r2_ptr, float* r3_ptr, uint32_t nn) {
@@ -1286,7 +1286,7 @@ static inline void compute_three_triple_product(const float* bb, const float* a1
   __m128 a3tmp;
   __m128 vtmp;
   __m128 btmp;
-  __uni16 u16;
+  __univec uvec;
   uint32_t uii;
   for (uii = 0; uii < nn; uii += 4) {
     a1tmp = _mm_load_ps(&(a1[uii]));
@@ -1299,12 +1299,12 @@ static inline void compute_three_triple_product(const float* bb, const float* a1
     s2 = _mm_add_ps(s2, _mm_mul_ps(a2tmp, btmp));
     s3 = _mm_add_ps(s3, _mm_mul_ps(a3tmp, btmp));
   }
-  u16.vf = s1;
-  *r1_ptr = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
-  u16.vf = s2;
-  *r2_ptr = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
-  u16.vf = s3;
-  *r3_ptr = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
+  uvec.vf = s1;
+  *r1_ptr = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
+  uvec.vf = s2;
+  *r2_ptr = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
+  uvec.vf = s3;
+  *r3_ptr = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
 }
 
 static inline void compute_two_plus_one_triple_product(const float* bb, const float* a1, const float* a2, const float* vv, float* r1_ptr, float* r2_ptr, float* r3_ptr, uint32_t nn) {
@@ -1316,7 +1316,7 @@ static inline void compute_two_plus_one_triple_product(const float* bb, const fl
   __m128 btmp;
   __m128 vtmp;
   __m128 bv;
-  __uni16 u16;
+  __univec uvec;
   uint32_t uii;
   for (uii = 0; uii < nn; uii += 4) {
     a1tmp = _mm_load_ps(&(a1[uii]));
@@ -1328,12 +1328,12 @@ static inline void compute_two_plus_one_triple_product(const float* bb, const fl
     s2 = _mm_add_ps(s2, _mm_mul_ps(a1tmp, bv));
     s3 = _mm_add_ps(s3, _mm_mul_ps(a2tmp, bv));
   }
-  u16.vf = s1;
-  *r1_ptr = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
-  u16.vf = s2;
-  *r2_ptr = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
-  u16.vf = s3;
-  *r3_ptr = u16.f4[0] + u16.f4[1] + u16.f4[2] + u16.f4[3];
+  uvec.vf = s1;
+  *r1_ptr = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
+  uvec.vf = s2;
+  *r2_ptr = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
+  uvec.vf = s3;
+  *r3_ptr = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
 }
 #else // no __LP64__ (and hence, unsafe to assume presence of SSE2)
 static inline void logistic_sse(float* vect, uint32_t nn) {

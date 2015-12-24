@@ -910,8 +910,8 @@ static inline uint32_t is_allelic_match(double mismatch_max, uintptr_t* roh_slot
   __m128i mismatch_sum1;
   __m128i joint_sum2;
   __m128i mismatch_sum2;
-  __uni16 accj;
-  __uni16 accm;
+  __univec accj;
+  __univec accm;
   __m128i* vptrl;
   __m128i* vptrs;
   __m128i* vptrl_end;

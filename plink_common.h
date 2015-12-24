@@ -97,15 +97,11 @@
   #endif
   #include <emmintrin.h>
   #define FIVEMASK 0x5555555555555555LLU
-  typedef union {
-    __m128 vf;
-    __m128i vi;
-    __m128d vd;
-    uintptr_t u8[2];
-    double d8[2];
-    float f4[4];
-    uint32_t u4[4];
-  } __uni16;
+
+  #define VECFTYPE __m128
+  #define VECITYPE __m128i
+  #define VECDTYPE __m128d
+
   #define ZEROLU 0LLU
   #define ONELU 1LLU
 
@@ -595,6 +591,18 @@
 
 #ifdef __LP64__
   #define BITCT 64
+
+  // unions generally shouldn't be used for reinterpret_cast's job (memcpy is
+  // the right C-compatible way), but vectors are an exception to this rule.
+  typedef union {
+    VECFTYPE vf;
+    VECITYPE vi;
+    VECDTYPE vd;
+    uintptr_t u8[VEC_BITS / BITCT];
+    double d8[VEC_BYTES / sizeof(double)];
+    float f4[VEC_BYTES / sizeof(float)];
+    uint32_t u4[VEC_BYTES / sizeof(int32_t)];
+  } __univec;
 #else
   #define BITCT 32
 #endif
@@ -662,8 +670,8 @@
 
 // Default --perm-batch-size value in most contexts.  It may actually be better
 // to *avoid* a power of two due to the need for transpositions involving this
-// stride; see e.g. http://danluu.com/3c-conflict/ .  This should be tested
-// during PLINK 2.0 development.
+// stride; see e.g. http://danluu.com/3c-conflict/ ; try 448 instead?  This
+// should be tested during PLINK 2.0 development.
 #define DEFAULT_PERM_BATCH_SIZE 512
 
 // note that this is NOT foolproof: see e.g.
@@ -803,20 +811,6 @@ typedef struct range_list_struct {
   uint32_t name_ct;
   uint32_t name_max_len;
 } Range_list;
-
-typedef union {
-  float ff;
-  int32_t ii;
-} __floatint32;
-
-typedef union {
-  double dd;
-#ifdef __LP64__
-  uintptr_t uu[1];
-#else
-  uintptr_t uu[2];
-#endif
-} __double_ulong;
 
 uint32_t push_ll_str(Ll_str** ll_stack_ptr, const char* ss);
 
@@ -993,8 +987,11 @@ void wkspace_reset(void* new_base);
 
 void wkspace_shrink_top(void* rebase, uintptr_t new_size);
 
+#define TOP_ALLOC_CHUNK 16
+#define TOP_ALLOC_CHUNK_M1 (TOP_ALLOC_CHUNK - 1)
+
 static inline unsigned char* top_alloc(uintptr_t* topsize_ptr, uintptr_t size) {
-  uintptr_t ts = *topsize_ptr + ((size + 15) & (~(15 * ONELU)));
+  uintptr_t ts = *topsize_ptr + ((size + TOP_ALLOC_CHUNK_M1) & (~(TOP_ALLOC_CHUNK_M1 * ONELU)));
   if (ts > wkspace_left) {
     return NULL;
   } else {
@@ -1002,6 +999,8 @@ static inline unsigned char* top_alloc(uintptr_t* topsize_ptr, uintptr_t size) {
     return &(wkspace_base[wkspace_left - ts]);
   }
 }
+
+#define top_alloc_aligned top_alloc
 
 static inline Ll_str* top_alloc_llstr(uintptr_t* topsize_ptr, uint32_t size) {
   return (Ll_str*)top_alloc(topsize_ptr, size + sizeof(Ll_str));
@@ -1783,9 +1782,8 @@ void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t unfiltered_item_ct, 
 void fill_midx_to_idx(uintptr_t* exclude_arr_orig, uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* midx_to_idx);
 
 
-// "fourfield" refers to a packed group of 2-bit elements; it's the analogue of
-// "bitfield" for base-4 values.  "fourvec" indicates that vector-alignment is
-// also required.
+// "fourfield" refers to a packed group of base-4 (2-bit) elements, analogous
+// to "bitfield".  "fourvec" indicates that vector-alignment is also required.
 void fill_fourvec_55(uintptr_t* fourvec, uint32_t ct);
 
 // Used to unpack e.g. unfiltered sex_male to a filtered fourfield usable as a

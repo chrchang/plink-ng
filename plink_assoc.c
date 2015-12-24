@@ -898,7 +898,7 @@ uintptr_t rem_cost_60v(__m128i* vec1, __m128i* vend, __m128i* vec2) {
   __m128i result_a;
   __m128i acc_a;
   __m128i acc_b;
-  __uni16 acc;
+  __univec acc;
   acc.vi = _mm_setzero_si128();
   do {
     loader = *vec1++;
@@ -944,7 +944,7 @@ uintptr_t qrem_cost2_40v(__m128i* vec1, __m128i* vend, __m128i* vec2) {
   __m128i result_b;
   __m128i result_c;
   __m128i inner_acc;
-  __uni16 acc;
+  __univec acc;
   acc.vi = _mm_setzero_si128();
   do {
     loader = *vec1++;

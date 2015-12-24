@@ -9190,6 +9190,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   uint64_t lastloc;
   uint64_t ullii;
   uint64_t ulljj;
+  float fxx;
   uint32_t sample_ct4;
   uint32_t sample_ctl2;
   uint32_t header_size;
@@ -9200,7 +9201,6 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   uint32_t ujj;
   uint32_t ukk;
   int32_t ii;
-  __floatint32 fi;
   // todo: check if a specialized bgzf reader can do faster forward seeks when
   // we don't have precomputed virtual offsets
   if (gzopen_checked(&gz_infile, bcfname, "rb")) {
@@ -9479,8 +9479,8 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       if (bcf_var_header[5] == 0x7f800001) {
         goto bcf_to_bed_marker_skip;
       }
-      fi.ii = bcf_var_header[5];
-      if (fi.ii < vcf_min_qualf) {
+      memcpy(&fxx, &(bcf_var_header[5]), 4);
+      if (fxx < vcf_min_qualf) {
 	goto bcf_to_bed_marker_skip;
       }
     }
