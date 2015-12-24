@@ -3030,8 +3030,8 @@ void dfam_sibship_or_unrelated_perm_calc(uintptr_t* loadbuf_ptr, const uint32_t*
   }
 
 #ifdef __LP64__
-  fill_v128_zero(acc4, acc4_vec_ct);
-  fill_v128_zero(acc8, acc8_vec_ct);
+  fill_vec_zero(acc4, acc4_vec_ct);
+  fill_vec_zero(acc8, acc8_vec_ct);
 #else
   fill_ulong_zero(acc4, acc4_word_ct);
   fill_ulong_zero(acc8, acc8_word_ct);
@@ -3154,8 +3154,8 @@ void dfam_sibship_or_unrelated_perm_calc(uintptr_t* loadbuf_ptr, const uint32_t*
   }
 
 #ifdef __LP64__
-  fill_v128_zero(acc4, acc4_vec_ct);
-  fill_v128_zero(acc8, acc8_vec_ct);
+  fill_vec_zero(acc4, acc4_vec_ct);
+  fill_vec_zero(acc8, acc8_vec_ct);
 #else
   fill_ulong_zero(acc4, acc4_word_ct);
   fill_ulong_zero(acc8, acc8_word_ct);
@@ -3420,7 +3420,7 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
       chisq_high = orig_chisq[marker_idx] + EPSILON;
       chisq_low = orig_chisq[marker_idx] - EPSILON;
 #ifdef __LP64__
-      fill_v128_zero(case_a1_ct_acc8, acc8_vec_ct);
+      fill_vec_zero(case_a1_ct_acc8, acc8_vec_ct);
       max_incr4 = 0;
       max_incr8 = 0;
 #endif
@@ -3537,8 +3537,8 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	  cur_flipa = &(flipa[fs_idx * perm_vec_wcta]);
 	  fill_uint_zero(cur_case_a1_cts, perm_vec_ct);
 #ifdef __LP64__
-	  fill_v128_zero(acc4, acc4_vec_ct);
-	  fill_v128_zero(acc8, acc8_vec_ct);
+	  fill_vec_zero(acc4, acc4_vec_ct);
+	  fill_vec_zero(acc8, acc8_vec_ct);
 #else
 	  fill_ulong_zero(acc4, acc4_word_ct);
 	  fill_ulong_zero(acc8, acc8_word_ct);
@@ -3647,8 +3647,8 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	    cur_max_incr = 0;
 	    fill_uint_zero(cur_case_missing_cts, perm_vec_ct);
 #ifdef __LP64__
-	    fill_v128_zero(acc4, acc4_vec_ct);
-	    fill_v128_zero(acc8, acc8_vec_ct);
+	    fill_vec_zero(acc4, acc4_vec_ct);
+	    fill_vec_zero(acc8, acc8_vec_ct);
 #else
 	    fill_ulong_zero(acc4, acc4_word_ct);
 	    fill_ulong_zero(acc8, acc8_word_ct);

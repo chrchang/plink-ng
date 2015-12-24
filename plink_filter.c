@@ -307,9 +307,9 @@ int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, ui
     goto extract_exclude_flag_norange_ret_READ_FAIL;
   }
   if (do_exclude) {
-    bitfield_or(marker_exclude, already_seen, unfiltered_marker_ctl * sizeof(intptr_t));
+    bitfield_or(marker_exclude, already_seen, unfiltered_marker_ctl);
   } else {
-    bitfield_ornot(marker_exclude, already_seen, unfiltered_marker_ctl * sizeof(intptr_t));
+    bitfield_ornot(marker_exclude, already_seen, unfiltered_marker_ctl);
     zero_trailing_bits(marker_exclude, unfiltered_marker_ct);
   }
   *marker_exclude_ct_ptr = popcount_longs(marker_exclude, unfiltered_marker_ctl);
@@ -1979,13 +1979,13 @@ static inline void single_marker_freqs_and_hwe(uintptr_t unfiltered_sample_ctl2,
   while (unfiltered_sample_ctl2 >= 120) {
   single_marker_freqs_and_hwe_loop:
     lptr_12x_end = &(lptr[cur_decr]);
-    count_3freq_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)sample_include2, &tot_a, &tot_b, &tot_c);
-    count_3freq_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)founder_include2, &tot_a_f, &tot_b_f, &tot_c_f);
+    count_3freq_1920b((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)sample_include2, &tot_a, &tot_b, &tot_c);
+    count_3freq_1920b((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)founder_include2, &tot_a_f, &tot_b_f, &tot_c_f);
     if (hwe_or_geno_needed) {
-      count_3freq_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)founder_ctrl_include2, &tot_a_hwe, &tot_b_hwe, &tot_c_hwe);
+      count_3freq_1920b((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)founder_ctrl_include2, &tot_a_hwe, &tot_b_hwe, &tot_c_hwe);
       founder_ctrl_include2 = &(founder_ctrl_include2[cur_decr]);
       if (hardy_needed) {
-	count_3freq_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)founder_case_include2, &tot_a_chwe, &tot_b_chwe, &tot_c_chwe);
+	count_3freq_1920b((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)founder_case_include2, &tot_a_chwe, &tot_b_chwe, &tot_c_chwe);
 	founder_case_include2 = &(founder_case_include2[cur_decr]);
       }
     }
@@ -2001,13 +2001,13 @@ static inline void single_marker_freqs_and_hwe(uintptr_t unfiltered_sample_ctl2,
 #else
   uintptr_t* lptr_twelve_end = &(lptr[unfiltered_sample_ctl2 - unfiltered_sample_ctl2 % 12]);
   while (lptr < lptr_twelve_end) {
-    count_3freq_12(lptr, sample_include2, &tot_a, &tot_b, &tot_c);
-    count_3freq_12(lptr, founder_include2, &tot_a_f, &tot_b_f, &tot_c_f);
+    count_3freq_48b(lptr, sample_include2, &tot_a, &tot_b, &tot_c);
+    count_3freq_48b(lptr, founder_include2, &tot_a_f, &tot_b_f, &tot_c_f);
     if (hwe_or_geno_needed) {
-      count_3freq_12(lptr, founder_ctrl_include2, &tot_a_hwe, &tot_b_hwe, &tot_c_hwe);
+      count_3freq_48b(lptr, founder_ctrl_include2, &tot_a_hwe, &tot_b_hwe, &tot_c_hwe);
       founder_ctrl_include2 = &(founder_ctrl_include2[12]);
       if (hardy_needed) {
-	count_3freq_12(lptr, founder_case_include2, &tot_a_chwe, &tot_b_chwe, &tot_c_chwe);
+	count_3freq_48b(lptr, founder_case_include2, &tot_a_chwe, &tot_b_chwe, &tot_c_chwe);
 	founder_case_include2 = &(founder_case_include2[12]);
       }
     }
@@ -2117,7 +2117,7 @@ static inline void haploid_single_marker_freqs(uintptr_t unfiltered_sample_ct, u
   //   popcount(B) = het ct + homozyg major ct
   //   popcount(A) = missing_ct + homozyg major ct
   //               = sample_ct - homozyg minor ct - het ct
-    count_3freq_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)sample_include2, &tot_a, &tot_b, &tot_hmaj);
+    count_3freq_1920b((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)sample_include2, &tot_a, &tot_b, &tot_hmaj);
     freq_hwe_haploid_count_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)founder_include2, &tot_nm_f, &tot_hmaj_f);
     lptr = lptr_12x_end;
     sample_include2 = &(sample_include2[cur_decr]);
@@ -2131,7 +2131,7 @@ static inline void haploid_single_marker_freqs(uintptr_t unfiltered_sample_ct, u
 #else
   uintptr_t* lptr_twelve_end = &(lptr[unfiltered_sample_ctl2 - unfiltered_sample_ctl2 % 12]);
   while (lptr < lptr_twelve_end) {
-    count_3freq_12(lptr, sample_include2, &tot_a, &tot_b, &tot_hmaj);
+    count_3freq_48b(lptr, sample_include2, &tot_a, &tot_b, &tot_hmaj);
     freq_hwe_haploid_count_12(lptr, founder_include2, &tot_nm_f, &tot_hmaj_f);
     lptr = &(lptr[12]);
     sample_include2 = &(sample_include2[12]);

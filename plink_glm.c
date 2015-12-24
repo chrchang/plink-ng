@@ -3620,7 +3620,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
       if (!sample_include2) {
 	goto glm_common_init_ret_NOMEM;
       }
-      fill_fourvec_55(sample_include2, unfiltered_sample_ct);
+      fill_quatervec_55(sample_include2, unfiltered_sample_ct);
     }
     if (hh_or_mt_exists & (XMHH_EXISTS | Y_FIX_NEEDED)) {
       sample_male_include2 = (uintptr_t*)top_alloc(&topsize, unfiltered_sample_ctv2 * sizeof(intptr_t));
@@ -7157,7 +7157,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       if (!sample_include2) {
         goto glm_linear_nosnp_ret_NOMEM;
       }
-      fill_fourvec_55(sample_include2, unfiltered_sample_ct); // harmless
+      fill_quatervec_55(sample_include2, unfiltered_sample_ct); // harmless
     }
     if (hh_or_mt_exists & (XMHH_EXISTS | Y_FIX_NEEDED)) {
       sample_male_include2 = (uintptr_t*)top_alloc(&topsize, unfiltered_sample_ctv2 * sizeof(intptr_t));
@@ -7212,7 +7212,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     // initialize collapsed sample_include2, sample_male_include2, sex_male
     if (hh_or_mt_exists & (Y_FIX_NEEDED | NXMHH_EXISTS)) {
       sample_include2 = (uintptr_t*)top_alloc(&topsize, sample_valid_ctv2 * sizeof(intptr_t));
-      fill_fourvec_55(sample_include2, sample_valid_ct);
+      fill_quatervec_55(sample_include2, sample_valid_ct);
     }
     if (hh_or_mt_exists & (XMHH_EXISTS | Y_FIX_NEEDED)) {
       sample_male_include2 = (uintptr_t*)top_alloc(&topsize, sample_valid_ctv2 * sizeof(intptr_t));
@@ -8035,7 +8035,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       if (!sample_include2) {
         goto glm_logistic_nosnp_ret_NOMEM;
       }
-      fill_fourvec_55(sample_include2, unfiltered_sample_ct); // harmless
+      fill_quatervec_55(sample_include2, unfiltered_sample_ct); // harmless
     }
     if (hh_or_mt_exists & (XMHH_EXISTS | Y_FIX_NEEDED)) {
       sample_male_include2 = (uintptr_t*)top_alloc(&topsize, unfiltered_sample_ctv2 * sizeof(intptr_t));
@@ -8092,7 +8092,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     // initialize collapsed sample_include2, sample_male_include2, sex_male
     if (hh_or_mt_exists & (Y_FIX_NEEDED | NXMHH_EXISTS)) {
       sample_include2 = (uintptr_t*)top_alloc(&topsize, sample_valid_ctv2 * sizeof(intptr_t));
-      fill_fourvec_55(sample_include2, sample_valid_ct);
+      fill_quatervec_55(sample_include2, sample_valid_ct);
     }
     if (hh_or_mt_exists & (XMHH_EXISTS | Y_FIX_NEEDED)) {
       sample_male_include2 = (uintptr_t*)top_alloc(&topsize, sample_valid_ctv2 * sizeof(intptr_t));

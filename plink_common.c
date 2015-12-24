@@ -3888,12 +3888,12 @@ void fill_midx_to_idx(uintptr_t* exclude_arr_orig, uintptr_t* exclude_arr, uint3
   }
 }
 
-void fill_fourvec_55(uintptr_t* fourvec, uint32_t ct) {
+void fill_quatervec_55(uintptr_t* quatervec, uint32_t ct) {
   uint32_t rem = ct & (BITCT - 1);
 #ifdef __LP64__
   const __m128i m1 = {FIVEMASK, FIVEMASK};
-  __m128i* vecp = (__m128i*)fourvec;
-  __m128i* vec_end = (__m128i*)(&(fourvec[2 * (ct / BITCT)]));
+  __m128i* vecp = (__m128i*)quatervec;
+  __m128i* vec_end = (__m128i*)(&(quatervec[2 * (ct / BITCT)]));
   uintptr_t* second_to_last;
   while (vecp < vec_end) {
     *vecp++ = m1;
@@ -3909,26 +3909,26 @@ void fill_fourvec_55(uintptr_t* fourvec, uint32_t ct) {
     }
   }
 #else
-  uintptr_t* vec_end = &(fourvec[2 * (ct / BITCT)]);
-  while (fourvec < vec_end) {
-    *fourvec++ = FIVEMASK;
+  uintptr_t* vec_end = &(quatervec[2 * (ct / BITCT)]);
+  while (quatervec < vec_end) {
+    *quatervec++ = FIVEMASK;
   }
   if (rem) {
     if (rem > BITCT2) {
-      fourvec[0] = FIVEMASK;
-      fourvec[1] = FIVEMASK >> ((BITCT - rem) * 2);
+      quatervec[0] = FIVEMASK;
+      quatervec[1] = FIVEMASK >> ((BITCT - rem) * 2);
     } else {
-      fourvec[0] = FIVEMASK >> ((BITCT2 - rem) * 2);
-      fourvec[1] = 0;
+      quatervec[0] = FIVEMASK >> ((BITCT2 - rem) * 2);
+      quatervec[1] = 0;
     }
   }
 #endif
 }
 
-void fourfield_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_bitarr, uint32_t filtered_ct, uintptr_t* output_fourfield) {
-  // Used to unpack e.g. unfiltered sex_male to a filtered fourfield usable
+void quaterfield_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_bitarr, uint32_t filtered_ct, uintptr_t* output_quaterfield) {
+  // Used to unpack e.g. unfiltered sex_male to a filtered quaterfield usable
   // as a raw input bitmask.
-  // Assumes output_fourfield is sized to a multiple of 16 bytes.
+  // Assumes output_quaterfield is sized to a multiple of 16 bytes.
   uintptr_t cur_write = 0;
   uint32_t item_uidx = 0;
   uint32_t write_bit = 0;
@@ -3941,21 +3941,21 @@ void fourfield_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_c
     do {
       cur_write |= ((unfiltered_bitarr[item_uidx / BITCT] >> (item_uidx % BITCT)) & 1) << (write_bit * 2);
       if (++write_bit == BITCT2) {
-	*output_fourfield++ = cur_write;
+	*output_quaterfield++ = cur_write;
         cur_write = 0;
 	write_bit = 0;
       }
     } while (++item_uidx < item_uidx_stop);
   }
   if (write_bit) {
-    *output_fourfield++ = cur_write;
+    *output_quaterfield++ = cur_write;
   }
   if ((filtered_ct + (BITCT2 - 1)) & BITCT2) {
-    *output_fourfield = 0;
+    *output_quaterfield = 0;
   }
 }
 
-void fourfield_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_exclude_bitarr, uint32_t filtered_ct, uintptr_t* output_fourfield) {
+void quaterfield_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_exclude_bitarr, uint32_t filtered_ct, uintptr_t* output_quaterfield) {
   uintptr_t cur_write = 0;
   uint32_t item_uidx = 0;
   uint32_t write_bit = 0;
@@ -3968,43 +3968,43 @@ void fourfield_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfi
     do {
       cur_write |= ((unfiltered_bitarr[item_uidx / BITCT] >> (item_uidx % BITCT)) & 1) << (write_bit * 2);
       if (++write_bit == BITCT2) {
-	*output_fourfield++ = cur_write;
+	*output_quaterfield++ = cur_write;
         cur_write = 0;
 	write_bit = 0;
       }
     } while (++item_uidx < item_uidx_stop);
   }
   if (write_bit) {
-    *output_fourfield++ = cur_write;
+    *output_quaterfield++ = cur_write;
   }
   if ((filtered_ct + (BITCT2 - 1)) & BITCT2) {
-    *output_fourfield = 0;
+    *output_quaterfield = 0;
   }
 }
 
-uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* sample_bitarr, uintptr_t* sex_male, uintptr_t** sample_include_fourvec_ptr, uintptr_t** sample_male_include_fourvec_ptr) {
+uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* sample_bitarr, uintptr_t* sex_male, uintptr_t** sample_include_quatervec_ptr, uintptr_t** sample_male_include_quatervec_ptr) {
   uintptr_t sample_ctv2 = 2 * ((sample_ct + (BITCT - 1)) / BITCT);
   if (hh_exists & (Y_FIX_NEEDED | NXMHH_EXISTS)) {
     // if already allocated, we assume this is fully initialized
-    if (!(*sample_include_fourvec_ptr)) {
-      if (wkspace_alloc_ul_checked(sample_include_fourvec_ptr, sample_ctv2 * sizeof(intptr_t))) {
+    if (!(*sample_include_quatervec_ptr)) {
+      if (wkspace_alloc_ul_checked(sample_include_quatervec_ptr, sample_ctv2 * sizeof(intptr_t))) {
 	return 1;
       }
-      fill_fourvec_55(*sample_include_fourvec_ptr, sample_ct);
+      fill_quatervec_55(*sample_include_quatervec_ptr, sample_ct);
     }
   }
   if (hh_exists & (XMHH_EXISTS | Y_FIX_NEEDED)) {
     // if already allocated, we assume it's been top_alloc'd but not
     // initialized
-    if (!(*sample_male_include_fourvec_ptr)) {
-      if (wkspace_alloc_ul_checked(sample_male_include_fourvec_ptr, sample_ctv2 * sizeof(intptr_t))) {
+    if (!(*sample_male_include_quatervec_ptr)) {
+      if (wkspace_alloc_ul_checked(sample_male_include_quatervec_ptr, sample_ctv2 * sizeof(intptr_t))) {
 	return 1;
       }
     }
     if (is_include) {
-      fourfield_collapse_init(sex_male, unfiltered_sample_ct, sample_bitarr, sample_ct, *sample_male_include_fourvec_ptr);
+      quaterfield_collapse_init(sex_male, unfiltered_sample_ct, sample_bitarr, sample_ct, *sample_male_include_quatervec_ptr);
     } else {
-      fourfield_collapse_init_exclude(sex_male, unfiltered_sample_ct, sample_bitarr, sample_ct, *sample_male_include_fourvec_ptr);
+      quaterfield_collapse_init_exclude(sex_male, unfiltered_sample_ct, sample_bitarr, sample_ct, *sample_male_include_quatervec_ptr);
     }
   }
   return 0;
@@ -6231,7 +6231,7 @@ void vertical_bitct_subtract(uintptr_t* bit_arr, uint32_t item_ct, uint32_t* sum
 }
 
 #ifdef __LP64__
-void count_2freq_dbl_60v(__m128i* vptr, __m128i* vend, __m128i* mask1vp, __m128i* mask2vp, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp) {
+void count_2freq_dbl_960b(__m128i* vptr, __m128i* vend, __m128i* mask1vp, __m128i* mask2vp, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp) {
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   __m128i loader;
@@ -6313,7 +6313,7 @@ void count_2freq_dbl_60v(__m128i* vptr, __m128i* vend, __m128i* mask1vp, __m128i
   *ct2cp += ((acc2_c.u8[0] + acc2_c.u8[1]) * 0x1000100010001LLU) >> 48;
 }
 
-void count_3freq_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t* even_ctp, uint32_t* odd_ctp, uint32_t* homset_ctp) {
+void count_3freq_1920b(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t* even_ctp, uint32_t* odd_ctp, uint32_t* homset_ctp) {
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   __m128i loader;
@@ -6390,7 +6390,7 @@ void count_3freq_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t* e
   *homset_ctp += ((acc_homset.u8[0] + acc_homset.u8[1]) * 0x1000100010001LLU) >> 48;
 }
 #else
-void count_2freq_dbl_6(uintptr_t* lptr, uintptr_t* mask1p, uintptr_t* mask2p, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp) {
+void count_2freq_dbl_24b(uintptr_t* lptr, uintptr_t* mask1p, uintptr_t* mask2p, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp) {
   uintptr_t loader = *lptr++;
   uintptr_t loader2 = *mask1p++;
   uintptr_t loader3 = (loader >> 1) & loader2;
@@ -6505,7 +6505,7 @@ void count_2freq_dbl_6(uintptr_t* lptr, uintptr_t* mask1p, uintptr_t* mask2p, ui
   *ct2cp += (partial2_c * 0x01010101) >> 24;
 }
 
-void count_3freq_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp) {
+void count_3freq_48b(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp) {
   uintptr_t loader = *lptr++;
   uintptr_t loader2 = *maskp++;
   uint32_t to_ct_a1 = loader & loader2;
@@ -7479,7 +7479,7 @@ void vec_3freq(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec, u
   while (sample_ctl2 >= 120) {
   vec_3freq_loop:
     lptr_12x_end = &(lptr[cur_decr]);
-    count_3freq_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)include_vec, &acc_even, &acc_odd, &acc_and);
+    count_3freq_1920b((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)include_vec, &acc_even, &acc_odd, &acc_and);
     lptr = lptr_12x_end;
     include_vec = &(include_vec[cur_decr]);
     sample_ctl2 -= cur_decr;
@@ -7491,7 +7491,7 @@ void vec_3freq(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec, u
 #else
   uintptr_t* lptr_twelve_end = &(lptr[sample_ctl2 - (sample_ctl2 % 12)]);
   while (lptr < lptr_twelve_end) {
-    count_3freq_12(lptr, include_vec, &acc_even, &acc_odd, &acc_and);
+    count_3freq_48b(lptr, include_vec, &acc_even, &acc_odd, &acc_and);
     lptr = &(lptr[12]);
     include_vec = &(include_vec[12]);
   }

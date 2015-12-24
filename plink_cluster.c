@@ -895,7 +895,7 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_sample_ct, uintptr_t* s
     }
     cluster_cc_perm_preimage = *cluster_cc_perm_preimage_ptr;
     if (!is_perm1) {
-      fourfield_collapse_init(pheno_c, unfiltered_sample_ct, sample_include, sample_ct, cluster_cc_perm_preimage);
+      quaterfield_collapse_init(pheno_c, unfiltered_sample_ct, sample_include, sample_ct, cluster_cc_perm_preimage);
     } else {
       collapse_copy_bitarr_incl(unfiltered_sample_ct, pheno_c, sample_include, sample_ct, cluster_cc_perm_preimage);
     }

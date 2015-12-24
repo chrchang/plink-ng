@@ -991,6 +991,7 @@ void wkspace_shrink_top(void* rebase, uintptr_t new_size);
 #define TOP_ALLOC_CHUNK_M1 (TOP_ALLOC_CHUNK - 1)
 
 static inline unsigned char* top_alloc(uintptr_t* topsize_ptr, uintptr_t size) {
+  // multiplication by ONELU is one way to widen an integer to word-size.
   uintptr_t ts = *topsize_ptr + ((size + TOP_ALLOC_CHUNK_M1) & (~(TOP_ALLOC_CHUNK_M1 * ONELU)));
   if (ts > wkspace_left) {
     return NULL;
@@ -1668,10 +1669,10 @@ static inline void fill_ull_zero(uint64_t* ullarr, size_t size) {
   fill_ulong_zero((uintptr_t*)ullarr, size);
 }
 
-static inline void fill_v128_zero(__m128i* v128arr, size_t size) {
+static inline void fill_vec_zero(VECITYPE* vec, size_t size) {
   size_t ulii;
   for (ulii = 0; ulii < size; ulii++) {
-    *v128arr++ = _mm_setzero_si128();
+    *vec++ = _mm_setzero_si128();
   }
 }
 #else
@@ -1782,18 +1783,19 @@ void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t unfiltered_item_ct, 
 void fill_midx_to_idx(uintptr_t* exclude_arr_orig, uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* midx_to_idx);
 
 
-// "fourfield" refers to a packed group of base-4 (2-bit) elements, analogous
-// to "bitfield".  "fourvec" indicates that vector-alignment is also required.
-void fill_fourvec_55(uintptr_t* fourvec, uint32_t ct);
+// "quaterfield" refers to a packed group of base-4 (2-bit) elements, analogous
+// to "bitfield".  "quatervec" indicates that vector-alignment is also
+// required.
+void fill_quatervec_55(uintptr_t* quatervec, uint32_t ct);
 
-// Used to unpack e.g. unfiltered sex_male to a filtered fourfield usable as a
-// raw input bitmask.
-// Assumes output_fourfield is sized to a multiple of 16 bytes.
-void fourfield_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_bitarr, uint32_t filtered_ct, uintptr_t* output_fourfield);
+// Used to unpack e.g. unfiltered sex_male to a filtered quaterfield usable as
+// a raw input bitmask.
+// Assumes output_quaterfield is sized to a multiple of 16 bytes.
+void quaterfield_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_bitarr, uint32_t filtered_ct, uintptr_t* output_quaterfield);
 
-void fourfield_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_exclude_bitarr, uint32_t filtered_ct, uintptr_t* output_fourfield);
+void quaterfield_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_exclude_bitarr, uint32_t filtered_ct, uintptr_t* output_quaterfield);
 
-uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* sample_bitarr, uintptr_t* sex_male, uintptr_t** sample_include_fourvec_ptr, uintptr_t** sample_male_include_fourvec_ptr);
+uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* sample_bitarr, uintptr_t* sex_male, uintptr_t** sample_include_quatervec_ptr, uintptr_t** sample_male_include_quatervec_ptr);
 
 static inline void free_cond(void* memptr) {
   if (memptr) {
@@ -2151,13 +2153,13 @@ uintptr_t popcount_longs_intersect(uintptr_t* lptr1, uintptr_t* lptr2, uintptr_t
 void vertical_bitct_subtract(uintptr_t* bit_arr, uint32_t item_ct, uint32_t* sum_arr);
 
 #ifdef __LP64__
-void count_2freq_dbl_60v(__m128i* vptr, __m128i* vend, __m128i* mask1vp, __m128i* mask2vp, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp);
+void count_2freq_dbl_960b(__m128i* vptr, __m128i* vend, __m128i* mask1vp, __m128i* mask2vp, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp);
 
-void count_3freq_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp);
+void count_3freq_1920b(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp);
 #else
-void count_2freq_dbl_6(uintptr_t* lptr, uintptr_t* mask1p, uintptr_t* mask2p, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp);
+void count_2freq_dbl_24b(uintptr_t* lptr, uintptr_t* mask1p, uintptr_t* mask2p, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp);
 
-void count_3freq_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp);
+void count_3freq_48b(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp);
 #endif
 
 void vec_set_freq(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* set_ctp, uint32_t* missing_ctp);

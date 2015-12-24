@@ -2073,6 +2073,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    }
 	  } while (++qrange_idx < qrange_ct);
 	} else if (!count_occur) {
+	  // --write-dosage
 	  pzwritep = strcpyax(pzwritep, cur_marker_id_buf, ' ');
 	  if (flex_pzputs_allele(&ps, &pzwritep, a1_ptr, a1_len)) {
 	    goto plink1_dosage_ret_WRITE_FAIL;

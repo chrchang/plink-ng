@@ -3742,7 +3742,7 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
           wkspace_alloc_ul_checked(&loadbuf_f, sample_ctl2 * sizeof(intptr_t))) {
 	goto het_report_ret_NOMEM;
       }
-      fourfield_collapse_init_exclude(founder_info, unfiltered_sample_ct, sample_exclude, sample_ct, founder_vec11);
+      quaterfield_collapse_init_exclude(founder_info, unfiltered_sample_ct, sample_exclude, sample_ct, founder_vec11);
       lptr = founder_vec11;
       for (ulii = 0; ulii < sample_ctl2; ulii++) {
 	*lptr = (*lptr) * 3;
