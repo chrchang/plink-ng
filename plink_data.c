@@ -9144,7 +9144,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   uint32_t gt_idx = 0;
   uint32_t marker_ct = 0;
   uint32_t umm = 0;
-  int32_t vcf_min_qualf_bits = 0;
+  uint32_t vcf_min_qualf_compare_bits = 0;
   int32_t retval = 0;
   char missing_geno = *g_missing_geno_ptr;
   uint32_t bcf_var_header[8];
@@ -9196,7 +9196,10 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       goto bcf_to_bed_ret_INVALID_CMDLINE;
     }
     vcf_min_qualf = (float)vcf_min_qual;
-    memcpy(&vcf_min_qualf_bits, &vcf_min_qualf, 4);
+    memcpy(&vcf_min_qualf_compare_bits, &vcf_min_qualf, 4);
+    // +infinity = 0x7f800000; this should pass the comparison
+    // quiet nan = 0x7f800001; this (and other nans) should fail
+    vcf_min_qualf_compare_bits += 0x807fffffU;
   }
   // todo: check if a specialized bgzf reader can do faster forward seeks when
   // we don't have precomputed virtual offsets
@@ -9469,7 +9472,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       goto bcf_to_bed_marker_skip;
     }
     if (check_qual) {
-      if ((bcf_var_header[5] == 0x7f800001) || (((int32_t)bcf_var_header[5]) < vcf_min_qualf_bits)) {
+      if (bcf_var_header[5] + 0x807fffffU < vcf_min_qualf_compare_bits) {
         goto bcf_to_bed_marker_skip;
       }
     }
