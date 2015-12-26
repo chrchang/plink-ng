@@ -3,7 +3,9 @@
 #include "plink_lasso.h"
 #include "plink_matrix.h"
 
+// need to force to 64-bit integer if >= 2^16
 #define WARM_START_ITERS 1000
+
 #define NLAMBDA 100
 #define DELTA_THRESHOLD 0.0001
 

@@ -789,7 +789,7 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
       }
       generate_qt_perms_smajor_thread((void*)ulii);
     }
-    if (bigstack_alloc_c(permphe_ct * 16, &writebuf)) {
+    if (bigstack_alloc_c(permphe_ct * 16LU, &writebuf)) {
       goto make_perm_pheno_ret_NOMEM;
     }
   }

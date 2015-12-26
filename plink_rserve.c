@@ -147,7 +147,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
     }
   }
   if (!rplugin_debug) {
-    if (bigstack_alloc_i(RPLUGIN_BLOCK_SIZE * pheno_nm_ct, &geno_int_buf)) {
+    if (bigstack_alloc_i(RPLUGIN_BLOCK_SIZE * ((uintptr_t)pheno_nm_ct), &geno_int_buf)) {
       goto rserve_call_ret_NOMEM;
     }
     rc = new Rconnection("127.0.0.1", rplugin_port);

@@ -520,7 +520,10 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   uint32_t from_slen = markername_from? strlen(markername_from) : 0;
   uint32_t to_slen = markername_to? strlen(markername_to) : 0;
   uint32_t snp_slen = markername_snp? strlen(markername_snp) : 0;
+  // "sf" = "snp filter" (could rename to "vf"...)
   uint32_t sf_ct = sf_range_list_ptr->name_ct;
+  // assume for now that sf_ct * sf_max_len < 2^32, since these are based on
+  // command-line parameters
   uint32_t sf_max_len = sf_range_list_ptr->name_max_len;
   uint32_t slen_check = from_slen || to_slen || snp_slen || sf_ct;
   uint32_t from_chrom = MAX_POSSIBLE_CHROM;
@@ -4743,7 +4746,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
       goto oxford_to_bed_ret_OPEN_FAIL;
     }
     // supports BGEN v1.0 and v1.1.
-    bgen_probs = (uint16_t*)bigstack_alloc(6 * sample_ct);
+    bgen_probs = (uint16_t*)bigstack_alloc(6LU * sample_ct);
     if (!bgen_probs) {
       goto oxford_to_bed_ret_NOMEM;
     }
@@ -9141,8 +9144,8 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   uint32_t gt_idx = 0;
   uint32_t marker_ct = 0;
   uint32_t umm = 0;
+  uint32_t vcf_min_qualf_bits = 0;
   int32_t retval = 0;
-  float vcf_min_qualf = vcf_min_qual;
   char missing_geno = *g_missing_geno_ptr;
   uint32_t bcf_var_header[8];
   Ll_str* ll_ptr;
@@ -9176,7 +9179,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   uint64_t lastloc;
   uint64_t ullii;
   uint64_t ulljj;
-  float fxx;
+  float vcf_min_qualf;
   uint32_t sample_ct4;
   uint32_t sample_ctl2;
   uint32_t header_size;
@@ -9187,6 +9190,14 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   uint32_t ujj;
   uint32_t ukk;
   int32_t ii;
+  if (check_qual) {
+    if (vcf_min_qual > FLT_MAXD) {
+      logerrprint("Error: --vcf-min-qual parameter too large.\n");
+      goto bcf_to_bed_ret_INVALID_CMDLINE;
+    }
+    vcf_min_qualf = (float)vcf_min_qual;
+    memcpy(&vcf_min_qualf_bits, &vcf_min_qualf, 4);
+  }
   // todo: check if a specialized bgzf reader can do faster forward seeks when
   // we don't have precomputed virtual offsets
   retval = gzopen_read_checked(bcfname, &gz_infile);
@@ -9458,12 +9469,8 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       goto bcf_to_bed_marker_skip;
     }
     if (check_qual) {
-      if (bcf_var_header[5] == 0x7f800001) {
+      if ((bcf_var_header[5] == 0x7f800001) || (bcf_var_header[5] < vcf_min_qualf_bits)) {
         goto bcf_to_bed_marker_skip;
-      }
-      memcpy(&fxx, &(bcf_var_header[5]), 4);
-      if (fxx < vcf_min_qualf) {
-	goto bcf_to_bed_marker_skip;
       }
     }
     retval = read_bcf_typed_string(gz_infile, marker_id, 65535, &marker_id_len);
@@ -9959,6 +9966,9 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     break;
   bcf_to_bed_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
+    break;
+  bcf_to_bed_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
     break;
   bcf_to_bed_ret_INVALID_FORMAT_GENERIC:
     logerrprint("Error: Improperly formatted .bcf file.\n");

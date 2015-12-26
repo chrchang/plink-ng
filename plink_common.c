@@ -4959,7 +4959,7 @@ void qsort_ext2(char* main_arr, uintptr_t arr_length, uintptr_t item_length, int
 
 // This actually tends to be faster than just sorting an array of indices,
 // because of memory locality issues.
-int32_t qsort_ext(char* main_arr, intptr_t arr_length, intptr_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, intptr_t secondary_item_len) {
+int32_t qsort_ext(char* main_arr, uintptr_t arr_length, uintptr_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, intptr_t secondary_item_len) {
   // main_arr = packed array of equal-length items to sort
   // arr_length = number of items
   // item_length = byte count of each main_arr item
@@ -4973,7 +4973,7 @@ int32_t qsort_ext(char* main_arr, intptr_t arr_length, intptr_t item_length, int
   //                 be a lookup table for the original position of each
   //                 main_arr item.)
   // secondary_item_len = byte count of each secondary_arr item
-  intptr_t proxy_len = secondary_item_len + sizeof(void*);
+  uintptr_t proxy_len = secondary_item_len + sizeof(void*);
   unsigned char* bigstack_mark = g_bigstack_base;
   char* proxy_arr;
   if (!arr_length) {

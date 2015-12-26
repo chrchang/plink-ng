@@ -771,6 +771,12 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
     LOGERRPRINTF("Warning: Skipping --me/--mendel since there are no %strios.\n", include_duos? "duos or " : "");
     goto mendel_error_scan_ret_1;
   }
+  if (family_ct > 0x55555555U) {
+    // may as well document this limit
+    logerrprint("Error: Too many families for --me/--mendel.\n");
+    goto mendel_error_scan_ret_INVALID_CMDLINE;
+  }
+
   trio_ct4 = (trio_ct + 3) / 4;
   trio_ctl = (trio_ct + (BITCT - 1)) / BITCT;
   var_error_max = (int32_t)(fam_ip->mendel_max_var_error * (1 + SMALL_EPSILON) * ((intptr_t)trio_ct));
@@ -1237,6 +1243,9 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
   mendel_error_scan_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
+  mendel_error_scan_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
   mendel_error_scan_ret_ALL_MARKERS_EXCLUDED:
     retval = RET_ALL_MARKERS_EXCLUDED;
     break;
@@ -1254,6 +1263,16 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfiltered_sample_ct, char* sample_ids, uintptr_t max_sample_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info) {
   // possible todo: if any families have been entirely filtered out, don't
   // construct pedigree for them
+  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_sample_ctlm = unfiltered_sample_ctl * BITCT;
+  uintptr_t max_family_id_len = 0;
+  uintptr_t max_indiv_id_len = 0;
+  uintptr_t max_pm_id_len = MAXV(max_paternal_id_len, max_maternal_id_len);
+  char* last_family_id = NULL;
+  double* tmp_rel_space = NULL;
+  double* tmp_rel_writer = NULL;
+  uint32_t* uiptr2 = NULL;
+  int32_t max_family_nf = 0;
   unsigned char* bigstack_mark;
   unsigned char* bigstack_mark2;
   int32_t ii;
@@ -1269,39 +1288,29 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   uint64_t ullii;
   char* family_ids;
   char* cur_sample_id;
-  char* last_family_id = NULL;
   char* cur_family_id;
   char* id_ptr;
   uint32_t* family_sizes;
   uint32_t* uiptr;
-  uint32_t* uiptr2 = NULL;
   uint32_t fidx;
   int32_t family_size;
   uint32_t* remaining_sample_idxs;
   int32_t* remaining_sample_parent_idxs; // -1 = no parent (or nonshared)
   uint32_t remaining_sample_ct;
   uint32_t sample_idx_write;
-  uintptr_t max_family_id_len = 0;
-  char* indiv_ids;
+  char* indiv_ids; // within a single family
   uint32_t* sample_id_lookup;
-  uintptr_t max_indiv_id_len = 0;
-  uintptr_t max_pm_id_len;
   uint32_t family_id_ct;
   uint32_t* fis_ptr;
   char* stray_parent_ids;
   intptr_t stray_parent_ct;
   uintptr_t* processed_samples;
   uint32_t founder_ct;
-  int32_t max_family_nf = 0;
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
-  uintptr_t unfiltered_sample_ctlm = unfiltered_sample_ctl * BITCT;
   uint32_t* complete_sample_idxs;
   uintptr_t complete_sample_idx_ct;
   double* rs_ptr;
   double* rel_writer;
   double dxx;
-  double* tmp_rel_space = NULL;
-  double* tmp_rel_writer = NULL;
 
   for (sample_uidx = 0; sample_uidx < unfiltered_sample_ct; sample_uidx++) {
     ujj = strlen_se(&(sample_ids[sample_uidx * max_sample_id_len])) + 1;
@@ -1312,11 +1321,6 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
     if (ujj >= max_indiv_id_len) {
       max_indiv_id_len = ujj + 1;
     }
-  }
-  if (max_paternal_id_len > max_maternal_id_len) {
-    max_pm_id_len = max_paternal_id_len;
-  } else {
-    max_pm_id_len = max_maternal_id_len;
   }
   if (bigstack_alloc_ui(unfiltered_sample_ct, &(pri_ptr->family_info_space)) ||
       bigstack_alloc_ui(unfiltered_sample_ct, &(pri_ptr->family_rel_nf_idxs)) ||
@@ -2100,7 +2104,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
     goto tdt_ret_1;
   }
   // now assemble list of nuclear families with at least one case child
-  if (bigstack_alloc_ui(3 * family_ct + trio_ct, &trio_nuclear_lookup)) {
+  if (bigstack_alloc_ui(3LU * family_ct + trio_ct, &trio_nuclear_lookup)) {
     goto tdt_ret_NOMEM;
   }
   lookup_ptr = trio_nuclear_lookup;

@@ -3988,7 +3988,7 @@ int32_t fst_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
     }
     bigstack_shrink_top(cluster_sizes, cluster_ct * sizeof(int32_t));
   }
-  cluster_ctd = (double)((int32_t)cluster_ct);
+  cluster_ctd = (double)((intptr_t)cluster_ct);
   cluster_ct_recip = 1.0 / cluster_ctd;
   cluster_ctm1_recip = 1.0 / (cluster_ctd - 1.0);
   one_minus_cluster_ct_recip = 1.0 - cluster_ct_recip;

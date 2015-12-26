@@ -892,21 +892,20 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   if (!window_is_kb) {
     window_max = ld_window_size;
   }
-  ulii = window_max;
-  if (bigstack_alloc_ui(ulii, &live_indices) ||
-      bigstack_alloc_ui(ulii, &start_arr) ||
+  if (bigstack_alloc_ui(window_max, &live_indices) ||
+      bigstack_alloc_ui(window_max, &start_arr) ||
       bigstack_alloc_ul(unfiltered_sample_ctl2, &loadbuf) ||
-      bigstack_alloc_ul(ulii * founder_ct_192_long, &geno) ||
-      bigstack_alloc_ul(ulii * founder_ct_192_long, &geno_masks) ||
-      bigstack_alloc_ul(ulii * founder_ctv, &geno_mmasks) ||
-      bigstack_alloc_ui(ulii, &missing_cts) ||
-      bigstack_alloc_d(ulii, &sums) ||
-      bigstack_alloc_d(ulii, &variance_recips)) {
+      bigstack_alloc_ul(window_max * founder_ct_192_long, &geno) ||
+      bigstack_alloc_ul(window_max * founder_ct_192_long, &geno_masks) ||
+      bigstack_alloc_ul(window_max * founder_ctv, &geno_mmasks) ||
+      bigstack_alloc_ui(window_max, &missing_cts) ||
+      bigstack_alloc_d(window_max, &sums) ||
+      bigstack_alloc_d(window_max, &variance_recips)) {
     goto ld_prune_ret_NOMEM;
   }
   if (weighted_x) {
-    if (bigstack_alloc_ul(ulii * founder_ct_192_long, &nonmale_geno) ||
-        bigstack_alloc_ul(ulii * founder_ct_192_long, &nonmale_masks)) {
+    if (bigstack_alloc_ul(window_max * founder_ct_192_long, &nonmale_geno) ||
+        bigstack_alloc_ul(window_max * founder_ct_192_long, &nonmale_masks)) {
       goto ld_prune_ret_NOMEM;
     }
   }
@@ -10335,16 +10334,15 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
   if (!window_is_kb) {
     window_max = ld_window_size;
   }
-  ulii = window_max;
   window_maxl = (window_max + (BITCT - 1)) / BITCT;
-  if (bigstack_alloc_ui(ulii, &live_indices) ||
-      bigstack_alloc_ui(ulii, &start_arr) ||
+  if (bigstack_alloc_ui(window_max, &live_indices) ||
+      bigstack_alloc_ui(window_max, &start_arr) ||
       bigstack_alloc_ul(unfiltered_sample_ctl2, &loadbuf_raw) ||
       bigstack_alloc_ul(founder_ctl * 2, &loadbuf) ||
       bigstack_alloc_ul(founder_ctl, &dummy_nm) ||
-      bigstack_alloc_ul(founder_ctsplit * ulii, &geno) ||
+      bigstack_alloc_ul(founder_ctsplit * window_max, &geno) ||
       bigstack_alloc_ul(window_maxl, &zmiss) ||
-      bigstack_alloc_ui(ulii * 3, &cur_tots)) {
+      bigstack_alloc_ui(window_max * 3, &cur_tots)) {
     goto indep_pairphase_ret_NOMEM;
   }
   loadbuf[founder_ctl * 2 - 2] = 0;
@@ -12267,7 +12265,7 @@ int32_t set_test_common_init(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
       bigstack_alloc_d(max_sigset_size, sorted_chisq_buf_ptr) ||
       bigstack_alloc_ui(max_sigset_size, sorted_marker_idx_buf_ptr) ||
       // 3 int32s = max(sizeof(double), sizeof(intptr_t)) + sizeof(int32_t)
-      bigstack_alloc_ui(max_sigset_size * 3, proxy_arr_ptr)) {
+      bigstack_alloc_ui(max_sigset_size * 3LU, proxy_arr_ptr)) {
     goto set_test_common_init_ret_NOMEM;
   }
   orig_set_scores = *orig_set_scores_ptr;

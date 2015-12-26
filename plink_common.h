@@ -180,9 +180,15 @@
 // allow tail sum to be up to 2^30.)
 #define EXACT_TEST_BIAS 0.00000000000000000000000010339757656912845935892608650874535669572651386260986328125
 
-// sometimes an infinity substitute that avoids the 32-bit Windows performance
-// penalty
-#define HUGE_DOUBLE 1.7976931348623157e308
+// occasionally used as an infinity substitute that avoids the 32-bit Windows
+// performance penalty
+// can import from limits.h, we don't bother to include that for now
+#ifndef DBL_MAX
+  #define DBL_MAX 1.7976931348623157e308
+#endif
+
+// not quite the same as FLT_MAX since it's a double-precision constant
+#define FLT_MAXD 3.4028234663852886e38
 
 #define RET_SUCCESS 0
 #define RET_NOMEM 1
@@ -2072,7 +2078,7 @@ int32_t llcmp(const void* aa, const void* bb);
 
 void qsort_ext2(char* main_arr, uintptr_t arr_length, uintptr_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, uintptr_t secondary_item_len, char* proxy_arr, uintptr_t proxy_len);
 
-int32_t qsort_ext(char* main_arr, intptr_t arr_length, intptr_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, intptr_t secondary_item_len);
+int32_t qsort_ext(char* main_arr, uintptr_t arr_length, uintptr_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, intptr_t secondary_item_len);
 
 int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t collapse_idxs, int(* comparator_deref)(const void*, const void*));
 

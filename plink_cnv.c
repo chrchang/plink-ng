@@ -458,7 +458,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
   uint32_t req_fields = 3;
   uint32_t filter_seglen = min_seglen || (max_seglen < 0xffffffffU);
   uint32_t cnv_del = cnv_calc_type & CNV_DEL;
-  uint32_t filter_score = (min_score > -HUGE_DOUBLE) || (max_score < HUGE_DOUBLE);
+  uint32_t filter_score = (min_score > -DBL_MAX) || (max_score < DBL_MAX);
   uint32_t filter_sites = min_sites || (max_sites < 0xffffffffU);
   uint32_t make_map_long = cnv_calc_type & CNV_MAKE_MAP_LONG;
   uint32_t is_autogen = (!il_chrom_start_small)? 1 : 0;
@@ -961,7 +961,7 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
       }
       sprintf(logbuf, "Autogenerating missing %s ... ", mapname);
       wordwrap(5, logbuf);
-      retval = cnv_make_map(cnvfile, mapname, 0, 0, 0xffffffffU, -HUGE_DOUBLE, HUGE_DOUBLE, 0, 0xffffffffU, NULL, NULL, NULL, NULL, NULL, NULL, 0, 0, 0.0, -1, -1, allow_extra_chroms, 0, chrom_info_ptr, &max_marker_id_len, marker_chrom_start);
+      retval = cnv_make_map(cnvfile, mapname, 0, 0, 0xffffffffU, -DBL_MAX, DBL_MAX, 0, 0xffffffffU, NULL, NULL, NULL, NULL, NULL, NULL, 0, 0, 0.0, -1, -1, allow_extra_chroms, 0, chrom_info_ptr, &max_marker_id_len, marker_chrom_start);
     } else {
       retval = validate_cnv_map(&mapfile, mapname, &marker_pos_start, &marker_pos_end, allow_extra_chroms, chrom_info_ptr, &max_marker_id_len, marker_chrom_start);
     }

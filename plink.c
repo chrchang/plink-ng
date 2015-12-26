@@ -104,7 +104,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (25 Dec 2015)";
+  " (26 Dec 2015)";
 const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -1778,7 +1778,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     // use delayed and specialized load for --cluster/--neighbour, since PPC
     // values may be needed, and user may want to process a distance matrix too
     // large to be loaded in memory by doing some pre-clustering
-    if (bigstack_alloc_d((((uint64_t)sample_ct) * (sample_ct - 1)) / 2, &g_dists)) {
+    if (bigstack_alloc_d((sample_ct * (sample_ct - 1)) / 2, &g_dists)) {
       goto plink_ret_NOMEM;
     }
     retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, 0, NULL, NULL, 0, 0, g_dists, 0, NULL, NULL);
@@ -3239,7 +3239,7 @@ int32_t main(int32_t argc, char** argv) {
   double vcf_min_gq = -1;
   double vcf_min_gp = -1;
   double qual_min_thresh = 0.0;
-  double qual_max_thresh = HUGE_DOUBLE;
+  double qual_max_thresh = DBL_MAX;
   char id_delim = '\0';
   char vcf_idspace_to = '\0';
   unsigned char vcf_half_call = 0;
@@ -3353,8 +3353,8 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t cnv_enrichment_test_mperms = 0;
   uint32_t cnv_min_seglen = 0;
   uint32_t cnv_max_seglen = 0xffffffffU;
-  double cnv_min_score = -HUGE_DOUBLE;
-  double cnv_max_score = HUGE_DOUBLE;
+  double cnv_min_score = -DBL_MAX;
+  double cnv_max_score = DBL_MAX;
   uint32_t cnv_min_sites = 0;
   uint32_t cnv_max_sites = 0xffffffffU;
   uint32_t cnv_intersect_filter_type = 0;
@@ -3385,7 +3385,7 @@ int32_t main(int32_t argc, char** argv) {
   char* missing_code = NULL;
   char range_delim = '-';
   uint32_t modifier_23 = 0;
-  double pheno_23 = HUGE_DOUBLE;
+  double pheno_23 = DBL_MAX;
   char* fid_23 = NULL;
   char* iid_23 = NULL;
   char* paternal_id_23 = NULL;
@@ -13222,7 +13222,7 @@ int32_t main(int32_t argc, char** argv) {
       goto main_ret_INVALID_CMDLINE_A;
     }
   }
-  if (qual_max_thresh != HUGE_DOUBLE) {
+  if (qual_max_thresh != DBL_MAX) {
     if (!qual_filter) {
       logerrprint("Error: --qual-max-threshold must be used with --qual-scores.\n");
       goto main_ret_INVALID_CMDLINE;
@@ -13444,7 +13444,7 @@ int32_t main(int32_t argc, char** argv) {
       } else if (load_rare & LOAD_RARE_BCF) {
 	retval = bcf_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, const_fid, id_delim, vcf_idspace_to, vcf_min_qual, vcf_filter_exceptions_flattened, &chrom_info);
       } else if (load_rare == LOAD_RARE_23) {
-        retval = bed_from_23(pedname, outname, sptr, modifier_23, fid_23, iid_23, (pheno_23 == HUGE_DOUBLE)? ((double)missing_pheno) : pheno_23, misc_flags, paternal_id_23, maternal_id_23, &chrom_info);
+        retval = bed_from_23(pedname, outname, sptr, modifier_23, fid_23, iid_23, (pheno_23 == DBL_MAX)? ((double)missing_pheno) : pheno_23, misc_flags, paternal_id_23, maternal_id_23, &chrom_info);
       } else if (load_rare & LOAD_RARE_DUMMY) {
 	retval = generate_dummy(outname, sptr, dummy_flags, dummy_marker_ct, dummy_sample_ct, dummy_missing_geno, dummy_missing_pheno, missing_pheno);
       } else if (load_rare & LOAD_RARE_SIMULATE) {

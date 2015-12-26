@@ -8714,7 +8714,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   uintptr_t sample_ctl = (sample_ct + (BITCT - 1)) / BITCT;
   double sample_ct_recip = 1.0 / ((double)((intptr_t)sample_ct));
   uint32_t do_neighbor = (calculation_type / CALC_NEIGHBOR) & 1;
-  uint32_t is_group_avg = cp->modifier & CLUSTER_GROUP_AVG;
+  uint32_t is_group_avg = (cp->modifier / CLUSTER_GROUP_AVG) & 1;
   uint32_t is_mds_cluster = cp->modifier & CLUSTER_MDS;
   uint32_t is_old_tiebreaks = cp->modifier & CLUSTER_OLD_TIEBREAKS;
   uint32_t mds_fill_nonclust = (!is_mds_cluster) && mds_plot_dmatrix_copy;
@@ -9464,7 +9464,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       goto calc_cluster_neighbor_ret_INVALID_CMDLINE;
     }
     bigstack_reset(cluster_sorted_ibs);
-    if (bigstack_alloc_ui(((is_group_avg? 4 : 3) * heap_size * sizeof(int32_t)) + CACHELINE_INT32, &cluster_sorted_ibs_indices)) {
+    if (bigstack_alloc_ui((3 + is_group_avg) * heap_size + CACHELINE_INT32, &cluster_sorted_ibs_indices)) {
       goto calc_cluster_neighbor_ret_NOMEM;
     }
     ulii = initial_triangle_size - 1;

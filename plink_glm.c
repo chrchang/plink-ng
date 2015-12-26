@@ -4773,7 +4773,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
           goto glm_linear_assoc_ret_NOMEM;
 	}
 	if (mperm_save_all) {
-	  if (bigstack_alloc_d(marker_initial_ct * perm_batch_size, &g_mperm_save_all)) {
+	  if (bigstack_alloc_d(((uintptr_t)marker_initial_ct) * perm_batch_size, &g_mperm_save_all)) {
 	    goto glm_linear_assoc_ret_NOMEM;
 	  }
 	  memcpy(outname_end, ".mperm.dump.all", 16);
@@ -6284,7 +6284,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
           goto glm_logistic_assoc_ret_NOMEM;
 	}
 	if (mperm_save_all) {
-	  if (bigstack_alloc_d(marker_initial_ct * perm_batch_size, &g_mperm_save_all)) {
+	  if (bigstack_alloc_d(((uintptr_t)marker_initial_ct) * perm_batch_size, &g_mperm_save_all)) {
 	    goto glm_logistic_assoc_ret_NOMEM;
 	  }
 	  memcpy(outname_end, ".mperm.dump.all", 16);
