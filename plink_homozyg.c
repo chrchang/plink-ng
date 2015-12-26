@@ -393,7 +393,7 @@ uint32_t roh_update(Homozyg_info* hp, uintptr_t* readbuf_cur, uintptr_t* swbuf_c
 }
 
 int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t sample_ct, uintptr_t* sample_exclude, char* sample_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_sample_id_len, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* missing_pheno_str, uint32_t omp_is_numeric, uint32_t missing_pheno_len, uint32_t is_new_lengths, uintptr_t roh_ct, uint32_t* roh_list, uintptr_t* roh_list_chrom_starts, uintptr_t* sample_to_last_roh, uint32_t* max_pool_size_ptr, uint32_t* max_roh_len_ptr) {
-  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = NULL;
   FILE* outfile_indiv = NULL;
   char* wptr_iid = &(tbuf[plink_maxfid + 1]);
@@ -564,16 +564,14 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
     uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
     chrom_start = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
     chrom_len = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1] - chrom_start;
-    wkspace_reset(wkspace_mark);
-    if (wkspace_alloc_i_checked(&roh_ct_unaff_adj, (chrom_len + 1) * sizeof(int32_t))) {
+    bigstack_reset(bigstack_mark);
+    if (bigstack_calloc_i(chrom_len + 1, &roh_ct_unaff_adj)) {
       goto write_main_roh_reports_ret_NOMEM;
     }
-    fill_int_zero(roh_ct_unaff_adj, chrom_len);
     if (pheno_c) {
-      if (wkspace_alloc_i_checked(&roh_ct_aff_adj, (chrom_len + 1) * sizeof(int32_t))) {
+      if (bigstack_calloc_i(chrom_len + 1, &roh_ct_aff_adj)) {
         goto write_main_roh_reports_ret_NOMEM;
       }
-      fill_int_zero(roh_ct_aff_adj, chrom_len);
     }
     cur_roh = &(roh_list[chrom_roh_start * ROH_ENTRY_INTS]);
     for (cur_roh_idx = 0; cur_roh_idx < chrom_roh_ct; cur_roh_idx++) {
@@ -640,7 +638,7 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
     retval = RET_WRITE_FAIL;
     break;
   }
-  wkspace_reset(wkspace_mark);
+  bigstack_reset(bigstack_mark);
   fclose_cond(outfile);
   fclose_cond(outfile_indiv);
   return retval;
@@ -1317,7 +1315,7 @@ char* roh_pool_write_middle(char* wptr, char* marker_ids, uintptr_t max_marker_i
 }
 
 int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* outname, char* outname_end, uintptr_t* rawbuf, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t sample_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, char* sample_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_sample_id_len, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* missing_pheno_str, uint32_t missing_pheno_len, uint32_t is_new_lengths, uintptr_t roh_ct, uint32_t* roh_list, uintptr_t* roh_list_chrom_starts, uint32_t max_pool_size, uint32_t max_roh_len) {
-  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = NULL;
   uint64_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
@@ -1412,7 +1410,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
-  if (wkspace_alloc_ui_checked(&chrom_fo_idx_to_pidx, (chrom_info_ptr->chrom_ct + 1) * sizeof(int32_t))) {
+  if (bigstack_alloc_ui(chrom_info_ptr->chrom_ct + 1, &chrom_fo_idx_to_pidx)) {
     goto roh_pool_ret_NOMEM;
   }
   uii = 0; // max chrom len
@@ -1436,31 +1434,31 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   // max_roh_len in {2..17} -> 2 words, etc.
   roh_slot_wsize = (max_roh_len + 30) / 16;
 #endif
-  if (wkspace_alloc_ul_checked(&pool_size_first_plidx, pool_size_ct * sizeof(intptr_t)) ||
-      wkspace_alloc_ui_checked(&marker_uidx_to_cidx, uii * sizeof(int32_t)) ||
-      wkspace_alloc_ul_checked(&roh_slots, max_pool_size * roh_slot_wsize * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&roh_slot_occupied, max_pool_sizel * sizeof(intptr_t)) ||
-      wkspace_alloc_ull_checked(&roh_slot_map, (max_pool_size + 1) * sizeof(int64_t)) ||
-      wkspace_alloc_ui_checked(&roh_slot_cidx_start, max_pool_size * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(&roh_slot_cidx_end, max_pool_size * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(&roh_slot_end_uidx, max_pool_size * sizeof(int32_t))) {
+  if (bigstack_alloc_ul(pool_size_ct, &pool_size_first_plidx) ||
+      bigstack_alloc_ui(uii, &marker_uidx_to_cidx) ||
+      bigstack_alloc_ul(max_pool_size * roh_slot_wsize, &roh_slots) ||
+      bigstack_calloc_ul(max_pool_sizel, &roh_slot_occupied) ||
+      bigstack_alloc_ull(max_pool_size + 1, &roh_slot_map) ||
+      bigstack_alloc_ui(max_pool_size, &roh_slot_cidx_start) ||
+      bigstack_alloc_ui(max_pool_size, &roh_slot_cidx_end) ||
+      bigstack_alloc_ui(max_pool_size, &roh_slot_end_uidx)) {
     goto roh_pool_ret_NOMEM;
   }
   if (!is_consensus_match) {
-    if (wkspace_alloc_ul_checked(&roh_slot_uncached, max_pool_sizel * sizeof(intptr_t))) {
+    if (bigstack_alloc_ul(max_pool_sizel, &roh_slot_uncached)) {
       goto roh_pool_ret_NOMEM;
     }
   }
   if (is_verbose) {
-    if (wkspace_alloc_ull_checked(&verbose_group_sort_buf, max_pool_size * sizeof(int64_t)) ||
-        wkspace_alloc_ui_checked(&verbose_uidx_bounds, max_pool_size * 2 * sizeof(int32_t)) ||
-        wkspace_alloc_ui_checked(&verbose_sample_uidx, max_pool_size * sizeof(int32_t)) ||
-        wkspace_alloc_c_checked(&writebuf, 2 * max_marker_allele_len + 5)) {
+    if (bigstack_alloc_ull(max_pool_size, &verbose_group_sort_buf) ||
+        bigstack_alloc_ui(max_pool_size * 2, &verbose_uidx_bounds) ||
+        bigstack_alloc_ui(max_pool_size, &verbose_sample_uidx) ||
+        bigstack_alloc_c(2 * max_marker_allele_len + 5, &writebuf)) {
       goto roh_pool_ret_NOMEM;
     }
   }
-  if (wkspace_alloc_ui_checked(&allelic_match_cts, max_pool_size * sizeof(int32_t)) ||
-      wkspace_alloc_ul_checked(&allelic_match_matrix, (((uintptr_t)max_pool_size) * (max_pool_size - 1)) * (sizeof(intptr_t) / 2))) {
+  if (bigstack_alloc_ui(max_pool_size, &allelic_match_cts) ||
+      bigstack_alloc_ul((((uintptr_t)max_pool_size) * (max_pool_size - 1)) / 2, &allelic_match_matrix)) {
     goto roh_pool_ret_NOMEM;
   }
   // roh_slot_map / roh_slot_cidx_start... not used at the same time as
@@ -1469,10 +1467,9 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   sample_uidx_sort_buf = roh_slot_cidx_start;
 
   fill_ulong_one(pool_size_first_plidx, pool_size_ct);
-  fill_ulong_zero(roh_slot_occupied, max_pool_sizel);
 
-  pool_list = (uintptr_t*)wkspace_base;
-  max_pool_list_size = wkspace_left / sizeof(intptr_t);
+  pool_list = (uintptr_t*)g_bigstack_base;
+  max_pool_list_size = g_bigstack_left / sizeof(intptr_t);
   // Since our ROH are sorted by *last* SNP, it's easiest to scan for pools
   // from back to front if we wish to painlessly produce sorted lists.
   chrom_fo_idx = chrom_info_ptr->chrom_ct;
@@ -1599,9 +1596,9 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 
   // Now we know how much memory the pools require, so we can assign the rest
   // to a lookahead buffer.
-  wkspace_alloc(pool_list_size * sizeof(intptr_t)); // pool_list
-  max_lookahead = wkspace_left / (unfiltered_sample_ctl2 * sizeof(intptr_t));
-  lookahead_buf = (uintptr_t*)wkspace_base;
+  bigstack_alloc(pool_list_size * sizeof(intptr_t)); // pool_list
+  max_lookahead = g_bigstack_left / (unfiltered_sample_ctl2 * sizeof(intptr_t));
+  lookahead_buf = (uintptr_t*)g_bigstack_base;
 
   // Now assign ID numbers.
   // We do not precisely imitate PLINK 1.07 here.  This is because
@@ -2405,13 +2402,13 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
     break;
   }
  roh_pool_ret_1:
-  wkspace_reset(wkspace_mark);
+  bigstack_reset(bigstack_mark);
   fclose_cond(outfile);
   return retval;
 }
 
 int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t sample_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, char* sample_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_sample_id_len, char* outname, char* outname_end, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uintptr_t* sex_male) {
-  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* bigstack_mark = g_bigstack_base;
   uint64_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t sample_ctl = (sample_ct + (BITCT - 1)) / BITCT;
@@ -2506,8 +2503,8 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
     }
   }
 
-  if (wkspace_alloc_ul_checked(&roh_list_chrom_starts, (chrom_ct + 1) * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&rawbuf, unfiltered_sample_ctl2 * sizeof(intptr_t))) {
+  if (bigstack_alloc_ul(chrom_ct + 1, &roh_list_chrom_starts) ||
+      bigstack_alloc_ul(unfiltered_sample_ctl2, &rawbuf)) {
     goto calc_homozyg_ret_NOMEM;
   }
 
@@ -2571,8 +2568,8 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   }
   // no other workspace allocations during main scan, so we can assign it all
   // to the ROH list
-  max_roh_ct = ((wkspace_left - topsize) & (~(CACHELINE - ONELU))) / (ROH_ENTRY_INTS * sizeof(int32_t));
-  roh_list = (uint32_t*)wkspace_base;
+  max_roh_ct = ((g_bigstack_left - topsize) & (~(CACHELINE - ONELU))) / (ROH_ENTRY_INTS * sizeof(int32_t));
+  roh_list = (uint32_t*)g_bigstack_base;
   ulii = sample_ctl2 - 1;
   rawbuf[unfiltered_sample_ctl2 - 1] = 0;
   for (widx = 0; widx < window_size; widx++) {
@@ -2730,7 +2727,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   roh_list_chrom_starts[chrom_ct] = roh_ct;
   // "truncate" the completed list so we can start making workspace allocations
   // again
-  wkspace_alloc(roh_ct * ROH_ENTRY_INTS * sizeof(int32_t)); // roh_list
+  bigstack_alloc(roh_ct * ROH_ENTRY_INTS * sizeof(int32_t)); // roh_list
   retval = write_main_roh_reports(outname, outname_end, marker_exclude, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, marker_pos, sample_ct, sample_exclude, sample_ids, plink_maxfid, plink_maxiid, max_sample_id_len, pheno_nm, pheno_c, pheno_d, missing_pheno_str, omp_is_numeric, missing_pheno_len, is_new_lengths, roh_ct, roh_list, roh_list_chrom_starts, sample_to_last_roh, &max_pool_size, &max_roh_len);
   if (retval) {
     goto calc_homozyg_ret_1;
@@ -2767,6 +2764,6 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
     break;
   }
  calc_homozyg_ret_1:
-  wkspace_reset(wkspace_mark);
+  bigstack_reset(bigstack_mark);
   return retval;
 }

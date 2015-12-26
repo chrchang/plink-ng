@@ -690,7 +690,7 @@ void transpose_perm1s(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno
 
 
 int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t permphe_ct) {
-  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = NULL;
   uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
   uintptr_t pheno_nm_ctl = (pheno_nm_ct + (BITCT - 1)) / BITCT;
@@ -712,7 +712,7 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
     goto make_perm_pheno_ret_INVALID_CMDLINE;
   }
   g_perm_generation_thread_ct = MINV(g_thread_ct, permphe_ct);
-  if (wkspace_init_sfmtp(g_perm_generation_thread_ct)) {
+  if (bigstack_init_sfmtp(g_perm_generation_thread_ct)) {
     goto make_perm_pheno_ret_NOMEM;
   }
   g_perm_pheno_nm_ct = pheno_nm_ct;
@@ -723,7 +723,7 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
     g_perm_case_ct = popcount_longs(pheno_c, unfiltered_sample_ctl);
     // could seamlessly support multipass by using different permutation logic,
     // but pointless in practice; better to just generate multiple files
-    if (wkspace_alloc_ul_checked(&g_perm_vecs, permphe_ct * pheno_nm_ctv * sizeof(intptr_t))) {
+    if (bigstack_alloc_ul(permphe_ct * pheno_nm_ctv, &g_perm_vecs)) {
       goto make_perm_pheno_ret_NOMEM;
     }
     if (cluster_starts) {
@@ -762,7 +762,7 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
       goto make_perm_pheno_ret_NOMEM;
     }
     perm_vec_ctcl8m = CACHEALIGN32_DBL(permphe_ct);
-    if (wkspace_alloc_d_checked(&g_perm_vecstd, perm_vec_ctcl8m * sizeof(double) * pheno_nm_ct)) {
+    if (bigstack_alloc_d(perm_vec_ctcl8m * pheno_nm_ct, &g_perm_vecstd)) {
       goto make_perm_pheno_ret_NOMEM;
     }
     if (cluster_starts) {
@@ -774,8 +774,8 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
         logerrprint("Error: Degenerate --make-perm-pheno invocation (no size 2+ clusters).\n");
         goto make_perm_pheno_ret_INVALID_CMDLINE;
       }
-      if (wkspace_alloc_ui_checked(&g_perm_sample_to_cluster, pheno_nm_ct * sizeof(int32_t)) ||
-          wkspace_alloc_ui_checked(&g_perm_qt_cluster_thread_wkspace, g_perm_generation_thread_ct * ((g_perm_cluster_ct + (CACHELINE_INT32 - 1)) / CACHELINE_INT32) * CACHELINE)) {
+      if (bigstack_alloc_ui(pheno_nm_ct, &g_perm_sample_to_cluster) ||
+          bigstack_alloc_ui(g_perm_generation_thread_ct * CACHEALIGN_INT32(g_perm_cluster_ct), &g_perm_qt_cluster_thread_wkspace)) {
 	goto make_perm_pheno_ret_NOMEM;
       }
       fill_unfiltered_sample_to_cluster(pheno_nm_ct, g_perm_cluster_ct, g_perm_cluster_map, g_perm_cluster_starts, g_perm_sample_to_cluster);
@@ -789,7 +789,7 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
       }
       generate_qt_perms_smajor_thread((void*)ulii);
     }
-    if (wkspace_alloc_c_checked(&writebuf, permphe_ct * 16)) {
+    if (bigstack_alloc_c(permphe_ct * 16, &writebuf)) {
       goto make_perm_pheno_ret_NOMEM;
     }
   }
@@ -853,7 +853,7 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
     break;
   }
  make_perm_pheno_ret_1:
-  wkspace_reset(wkspace_mark);
+  bigstack_reset(bigstack_mark);
   fclose_cond(outfile);
   return retval;
 }

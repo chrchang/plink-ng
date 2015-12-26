@@ -218,31 +218,31 @@ int32_t gzopen_read_checked(const char* fname, gzFile* target_ptr) {
 }
 
 // manually managed, very large stack
-unsigned char* wkspace_base;
-uintptr_t wkspace_left;
+unsigned char* g_bigstack_base;
+uintptr_t g_bigstack_left;
 
-unsigned char* wkspace_alloc(uintptr_t size) {
-  unsigned char* retval;
-  if (wkspace_left < size) {
+unsigned char* bigstack_alloc(uintptr_t size) {
+  unsigned char* alloc_ptr;
+  if (g_bigstack_left < size) {
     return NULL;
   }
   size = CACHEALIGN(size);
-  retval = wkspace_base;
-  wkspace_base += size;
-  wkspace_left -= size;
-  return retval;
+  alloc_ptr = g_bigstack_base;
+  g_bigstack_base += size;
+  g_bigstack_left -= size;
+  return alloc_ptr;
 }
 
-void wkspace_reset(void* new_base) {
-  uintptr_t freed_bytes = wkspace_base - (unsigned char*)new_base;
-  wkspace_base = (unsigned char*)new_base;
-  wkspace_left += freed_bytes;
+void bigstack_reset(const void* new_base) {
+  uintptr_t freed_bytes = g_bigstack_base - (unsigned char*)new_base;
+  g_bigstack_base = (unsigned char*)new_base;
+  g_bigstack_left += freed_bytes;
 }
 
-void wkspace_shrink_top(void* rebase, uintptr_t new_size) {
-  uintptr_t freed_bytes = ((uintptr_t)(wkspace_base - ((unsigned char*)rebase))) - CACHEALIGN(new_size);
-  wkspace_base -= freed_bytes;
-  wkspace_left += freed_bytes;
+void bigstack_shrink_top(const void* rebase, uintptr_t new_size) {
+  uintptr_t freed_bytes = ((uintptr_t)(g_bigstack_base - ((unsigned char*)rebase))) - CACHEALIGN(new_size);
+  g_bigstack_base -= freed_bytes;
+  g_bigstack_left += freed_bytes;
 }
 
 uint32_t match_upper(char* ss, const char* fixed_str) {
@@ -3551,6 +3551,62 @@ uint32_t prev_unset(uintptr_t* bitarr, uint32_t loc, uint32_t floor) {
 }
 */
 
+
+int32_t bigstack_calloc_uc(uintptr_t ct, unsigned char** ucp_ptr) {
+  *ucp_ptr = (unsigned char*)bigstack_alloc(ct);
+  if (!(*ucp_ptr)) {
+    return 1;
+  }
+  memset(*ucp_ptr, 0, ct);
+  return 0;
+}
+
+int32_t bigstack_calloc_d(uintptr_t ct, double** dp_ptr) {
+  *dp_ptr = (double*)bigstack_alloc(ct * sizeof(double));
+  if (!(*dp_ptr)) {
+    return 1;
+  }
+  fill_double_zero(*dp_ptr, ct);
+  return 0;
+}
+
+int32_t bigstack_calloc_f(uintptr_t ct, float** fp_ptr) {
+  *fp_ptr = (float*)bigstack_alloc(ct * sizeof(float));
+  if (!(*fp_ptr)) {
+    return 1;
+  }
+  fill_float_zero(*fp_ptr, ct);
+  return 0;
+}
+
+int32_t bigstack_calloc_ui(uintptr_t ct, uint32_t** uip_ptr) {
+  *uip_ptr = (uint32_t*)bigstack_alloc(ct * sizeof(int32_t));
+  if (!(*uip_ptr)) {
+    return 1;
+  }
+  fill_uint_zero(*uip_ptr, ct);
+  return 0;
+}
+
+int32_t bigstack_calloc_ul(uintptr_t ct, uintptr_t** ulp_ptr) {
+  *ulp_ptr = (uintptr_t*)bigstack_alloc(ct * sizeof(intptr_t));
+  if (!(*ulp_ptr)) {
+    return 1;
+  }
+  fill_ulong_zero(*ulp_ptr, ct);
+  return 0;
+}
+
+int32_t bigstack_calloc_ull(uintptr_t ct, uint64_t** ullp_ptr) {
+  *ullp_ptr = (uint64_t*)bigstack_alloc(ct * sizeof(int64_t));
+  if (!(*ullp_ptr)) {
+    return 1;
+  }
+  fill_ull_zero(*ullp_ptr, ct);
+  return 0;
+}
+
+
 // MurmurHash3, from
 // https://code.google.com/p/smhasher/source/browse/trunk/MurmurHash3.cpp
 
@@ -3684,7 +3740,7 @@ int32_t populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uint
   uint32_t extra_alloc = 0;
   uint32_t prev_llidx = 0;
   // needs to be synced with extract_exclude_flag_norange()
-  uint32_t* extra_alloc_base = (uint32_t*)wkspace_base;
+  uint32_t* extra_alloc_base = (uint32_t*)g_bigstack_base;
   uint32_t item_idx = 0;
   const char* sptr;
   uintptr_t prev_uidx;
@@ -3726,13 +3782,13 @@ int32_t populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uint
     }
   } else {
 #ifdef __LP64__
-    if (wkspace_left >= 0x400000000LLU) {
+    if (g_bigstack_left >= 0x400000000LLU) {
       max_extra_alloc = 0xfffffffeU;
     } else {
-      max_extra_alloc = wkspace_left / sizeof(int32_t);
+      max_extra_alloc = g_bigstack_left / sizeof(int32_t);
     }
 #else
-    max_extra_alloc = wkspace_left / sizeof(int32_t);
+    max_extra_alloc = g_bigstack_left / sizeof(int32_t);
 #endif
     for (; item_idx < item_ct; item_uidx++, item_idx++) {
       next_unset_ul_unsafe_ck(exclude_arr, &item_uidx);
@@ -3781,7 +3837,7 @@ int32_t populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uint
       }
     }
     if (extra_alloc) {
-      wkspace_alloc(extra_alloc * sizeof(int32_t));
+      bigstack_alloc(extra_alloc * sizeof(int32_t));
     }
   }
   return 0;
@@ -3990,7 +4046,7 @@ uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t
   if (hh_exists & (Y_FIX_NEEDED | NXMHH_EXISTS)) {
     // if already allocated, we assume this is fully initialized
     if (!(*sample_include_quatervec_ptr)) {
-      if (wkspace_alloc_ul_checked(sample_include_quatervec_ptr, sample_ctv2 * sizeof(intptr_t))) {
+      if (bigstack_alloc_ul(sample_ctv2, sample_include_quatervec_ptr)) {
 	return 1;
       }
       fill_quatervec_55(*sample_include_quatervec_ptr, sample_ct);
@@ -4000,7 +4056,7 @@ uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t
     // if already allocated, we assume it's been top_alloc'd but not
     // initialized
     if (!(*sample_male_include_quatervec_ptr)) {
-      if (wkspace_alloc_ul_checked(sample_male_include_quatervec_ptr, sample_ctv2 * sizeof(intptr_t))) {
+      if (bigstack_alloc_ul(sample_ctv2, sample_male_include_quatervec_ptr)) {
 	return 1;
       }
     }
@@ -4883,8 +4939,8 @@ int32_t llcmp(const void* aa, const void* bb) {
 
 // alas, qsort_r not available on some Linux distributions
 
-// Normally use qsort_ext(), but this version is necessary before wkspace has
-// been allocated.
+// Normally use qsort_ext(), but this version is necessary before g_bigstack
+// has been allocated.
 void qsort_ext2(char* main_arr, uintptr_t arr_length, uintptr_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, uintptr_t secondary_item_len, char* proxy_arr, uintptr_t proxy_len) {
   uintptr_t ulii;
   for (ulii = 0; ulii < arr_length; ulii++) {
@@ -4918,7 +4974,7 @@ int32_t qsort_ext(char* main_arr, intptr_t arr_length, intptr_t item_length, int
   //                 main_arr item.)
   // secondary_item_len = byte count of each secondary_arr item
   intptr_t proxy_len = secondary_item_len + sizeof(void*);
-  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* bigstack_mark = g_bigstack_base;
   char* proxy_arr;
   if (!arr_length) {
     return 0;
@@ -4926,11 +4982,11 @@ int32_t qsort_ext(char* main_arr, intptr_t arr_length, intptr_t item_length, int
   if (proxy_len < item_length) {
     proxy_len = item_length;
   }
-  if (wkspace_alloc_c_checked(&proxy_arr, arr_length * proxy_len)) {
+  if (bigstack_alloc_c(arr_length * proxy_len, &proxy_arr)) {
     return -1;
   }
   qsort_ext2(main_arr, arr_length, item_length, comparator_deref, secondary_arr, secondary_item_len, proxy_arr, proxy_len);
-  wkspace_reset(wkspace_mark);
+  bigstack_reset(bigstack_mark);
   return 0;
 }
 
@@ -4982,8 +5038,8 @@ int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfi
 int32_t sort_item_ids(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t exclude_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t collapse_idxs, int(* comparator_deref)(const void*, const void*)) {
   uintptr_t item_ct = unfiltered_ct - exclude_ct;
   // id_map on bottom because --indiv-sort frees *sorted_ids_ptr
-  if (wkspace_alloc_ui_checked(id_map_ptr, item_ct * sizeof(int32_t)) ||
-      wkspace_alloc_c_checked(sorted_ids_ptr, item_ct * max_id_len)) {
+  if (bigstack_alloc_ui(item_ct, id_map_ptr) ||
+      bigstack_alloc_c(item_ct * max_id_len, sorted_ids_ptr)) {
     return RET_NOMEM;
   }
   return sort_item_ids_noalloc(*sorted_ids_ptr, *id_map_ptr, unfiltered_ct, exclude_arr, item_ct, item_ids, max_id_len, allow_dups, collapse_idxs, comparator_deref);
@@ -7647,11 +7703,10 @@ int32_t string_range_list_to_bitfield_alloc(char* header_line, uint32_t item_ct,
   int32_t* seen_idxs;
   char* sorted_ids;
   uint32_t* id_map;
-  if (wkspace_alloc_ul_checked(bitfield_ptr, item_ctl * sizeof(intptr_t)) ||
-      wkspace_alloc_i_checked(&seen_idxs, name_ct)) {
+  if (bigstack_calloc_ul(item_ctl, bitfield_ptr) ||
+      bigstack_alloc_i(name_ct, &seen_idxs)) {
     return RET_NOMEM;
   }
-  fill_ulong_zero(*bitfield_ptr, item_ctl);
   // kludge to use sort_item_ids()
   fill_ulong_zero((uintptr_t*)seen_idxs, (name_ct + (BITCT - 1)) / BITCT);
   if (sort_item_ids(&sorted_ids, &id_map, name_ct, (uintptr_t*)seen_idxs, 0, range_list_ptr->names, range_list_ptr->name_max_len, 0, 0, strcmp_deref)) {
@@ -7659,7 +7714,7 @@ int32_t string_range_list_to_bitfield_alloc(char* header_line, uint32_t item_ct,
   }
   fill_int_one(seen_idxs, name_ct);
   retval = string_range_list_to_bitfield(header_line, item_ct, fixed_len, range_list_ptr, sorted_ids, id_map, seen_idxs, range_list_flag, file_descrip, *bitfield_ptr);
-  wkspace_reset(seen_idxs);
+  bigstack_reset(seen_idxs);
   return retval;
 }
 
@@ -7763,7 +7818,7 @@ int32_t conditional_allocate_non_autosomal_markers(Chrom_info* chrom_info_ptr, u
   if (!(*newly_excluded_ct_ptr)) {
     return 0;
   }
-  if (wkspace_alloc_ul_checked(marker_exclude_ptr, unfiltered_marker_ctl * sizeof(intptr_t))) {
+  if (bigstack_alloc_ul(unfiltered_marker_ctl, marker_exclude_ptr)) {
     return RET_NOMEM;
   }
   memcpy(*marker_exclude_ptr, marker_exclude_orig, unfiltered_marker_ctl * sizeof(intptr_t));
@@ -8694,7 +8749,7 @@ uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t hh_ex
   uintptr_t unfiltered_sample_ctv2 = 2 * ((unfiltered_sample_ct + (BITCT - 1)) / BITCT);
   uintptr_t* sample_raw_male_include_quatervec;
   if (hh_exists & (Y_FIX_NEEDED | NXMHH_EXISTS)) {
-    if (wkspace_alloc_ul_checked(sample_raw_include_quatervec_ptr, unfiltered_sample_ctv2 * sizeof(intptr_t))) {
+    if (bigstack_alloc_ul(unfiltered_sample_ctv2, sample_raw_include_quatervec_ptr)) {
       return 1;
     }
     if (is_include) {
@@ -8704,7 +8759,7 @@ uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t hh_ex
     }
   }
   if (hh_exists & (XMHH_EXISTS | Y_FIX_NEEDED)) {
-    if (wkspace_alloc_ul_checked(sample_raw_male_include_quatervec_ptr, unfiltered_sample_ctv2 * sizeof(intptr_t))) {
+    if (bigstack_alloc_ul(unfiltered_sample_ctv2, sample_raw_male_include_quatervec_ptr)) {
       return 1;
     }
     sample_raw_male_include_quatervec = *sample_raw_male_include_quatervec_ptr;
@@ -8988,10 +9043,10 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
   // is scanned.
   // Includes terminating null in lengths.
   FILE* infile = NULL;
-  uintptr_t loadbuf_size = wkspace_left;
+  uintptr_t loadbuf_size = g_bigstack_left;
   uintptr_t max_str_len = *max_str_len_ptr;
   uintptr_t max_str2_len = 0;
-  char* loadbuf = (char*)wkspace_base;
+  char* loadbuf = (char*)g_bigstack_base;
   uint32_t colmin;
   uint32_t coldiff;
   char* str1_ptr;
@@ -9091,10 +9146,10 @@ int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_s
   // assumed to follow.
   // Includes terminating null in lengths.
   FILE* infile = NULL;
-  uintptr_t loadbuf_size = wkspace_left;
+  uintptr_t loadbuf_size = g_bigstack_left;
   uintptr_t max_sample_id_len = *max_sample_id_len_ptr;
   uintptr_t line_idx = 0;
-  char* loadbuf = (char*)wkspace_base;
+  char* loadbuf = (char*)g_bigstack_base;
   char* bufptr;
   char* bufptr2;
   uintptr_t cur_sample_id_len;
@@ -9191,7 +9246,7 @@ char* alloc_and_init_collapsed_arr(char* item_arr, uintptr_t item_len, uintptr_t
   if (read_only && (unfiltered_ct == filtered_ct)) {
     return item_arr;
   }
-  if (wkspace_alloc_c_checked(&new_arr, filtered_ct * item_len)) {
+  if (bigstack_alloc_c(filtered_ct * item_len, &new_arr)) {
     return NULL;
   }
   wptr = new_arr;
@@ -9217,7 +9272,7 @@ char* alloc_and_init_collapsed_arr_incl(char* item_arr, uintptr_t item_len, uint
   if (read_only && (unfiltered_ct == filtered_ct)) {
     return item_arr;
   }
-  if (wkspace_alloc_c_checked(&new_arr, filtered_ct * item_len)) {
+  if (bigstack_alloc_c(filtered_ct * item_len, &new_arr)) {
     return NULL;
   }
   wptr = new_arr;
@@ -9935,18 +9990,18 @@ int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintpt
 
 sfmt_t** g_sfmtp_arr;
 
-uint32_t wkspace_init_sfmtp(uint32_t thread_ct) {
+uint32_t bigstack_init_sfmtp(uint32_t thread_ct) {
   uint32_t uibuf[4];
   uint32_t tidx;
   uint32_t uii;
-  g_sfmtp_arr = (sfmt_t**)wkspace_alloc(thread_ct * sizeof(intptr_t));
+  g_sfmtp_arr = (sfmt_t**)bigstack_alloc(thread_ct * sizeof(intptr_t));
   if (!g_sfmtp_arr) {
     return 1;
   }
   g_sfmtp_arr[0] = &sfmt;
   if (thread_ct > 1) {
     for (tidx = 1; tidx < thread_ct; tidx++) {
-      g_sfmtp_arr[tidx] = (sfmt_t*)wkspace_alloc(sizeof(sfmt_t));
+      g_sfmtp_arr[tidx] = (sfmt_t*)bigstack_alloc(sizeof(sfmt_t));
       if (!g_sfmtp_arr[tidx]) {
 	return 1;
       }

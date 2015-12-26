@@ -77,7 +77,7 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
   // with no adverse consequences.  For backward compatibility, we replicate
   // this.  (Possible todo: report a warning exactly once when this happens.)
   // It won't be replicated in PLINK 2.0.
-  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* bigstack_mark = g_bigstack_base;
   uint64_t* edge_list = NULL;
   uint32_t* toposort_queue = NULL;
   char* fids = NULL;
@@ -169,20 +169,19 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
   if (!idbuf) {
     goto get_trios_and_families_ret_NOMEM;
   }
-  wkspace_left -= topsize;
+  g_bigstack_left -= topsize;
   if (sort_item_ids_noalloc(sorted_sample_ids, sample_id_map, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, 0, 0, strcmp_deref)) {
-    wkspace_left += topsize;
+    g_bigstack_left += topsize;
     goto get_trios_and_families_ret_1;
   }
   // over-allocate here, we shrink family_list later when we know how many
   // families there are
-  if (wkspace_alloc_ull_checked(&family_list, sample_ct * sizeof(int64_t)) ||
-      wkspace_alloc_ull_checked(&family_htable, htable_size * sizeof(int64_t)) ||
-      wkspace_alloc_ui_checked(&family_idxs, htable_size * sizeof(int32_t))) {
+  if (bigstack_alloc_ull(sample_ct, &family_list) ||
+      bigstack_calloc_ull(htable_size, &family_htable) ||
+      bigstack_alloc_ui(htable_size, &family_idxs)) {
     goto get_trios_and_families_ret_NOMEM2;
   }
-  fill_ull_zero(family_htable, htable_size);
-  wkspace_left += topsize;
+  g_bigstack_left += topsize;
   // 1. populate family_list (while using family_htable to track duplicates),
   //    determine max_iid_len, count qualifying trios
   trio_write = trio_list_tmp;
@@ -304,14 +303,14 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
     *trio_write++ = (((uint64_t)family_idx) << 32) | ((uint64_t)sample_uidx);
   }
   trio_ct = (uintptr_t)(trio_write - trio_list_tmp);
-  wkspace_reset(wkspace_mark);
-  wkspace_alloc(family_ct * sizeof(int64_t)); // family_list
+  bigstack_reset(bigstack_mark);
+  bigstack_alloc(family_ct * sizeof(int64_t)); // family_list
   topsize = topsize_bak2;
-  wkspace_left -= topsize;
-  if (wkspace_alloc_ull_checked(&trio_write, trio_ct * sizeof(int64_t))) {
+  g_bigstack_left -= topsize;
+  if (bigstack_alloc_ull(trio_ct, &trio_write)) {
     goto get_trios_and_families_ret_NOMEM2;
   }
-  wkspace_left += topsize;
+  g_bigstack_left += topsize;
   topsize = topsize_bak;
   memcpy(trio_write, trio_list_tmp, trio_ct * sizeof(int64_t));
 #ifdef __cplusplus
@@ -319,18 +318,18 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
 #else
   qsort(trio_write, trio_ct, sizeof(int64_t), llcmp);
 #endif
-  wkspace_left -= topsize;
-  if (wkspace_alloc_ui_checked(&trio_lookup, trio_ct * (3 + toposort) * sizeof(int32_t))) {
+  g_bigstack_left -= topsize;
+  if (bigstack_alloc_ui(trio_ct * (3 + toposort), &trio_lookup)) {
     goto get_trios_and_families_ret_NOMEM2;
   }
   if (fids_ptr) {
-    if (wkspace_alloc_c_checked(&fids, trio_ct * max_fid_len) ||
-	wkspace_alloc_c_checked(&iids, (unfiltered_sample_ct + include_duos) * max_iid_len)) {
+    if (bigstack_alloc_c(trio_ct * max_fid_len, &fids) ||
+	bigstack_alloc_c((unfiltered_sample_ct + include_duos) * max_iid_len, &iids)) {
       goto get_trios_and_families_ret_NOMEM2;
     }
   }
   if (toposort) {
-    if (wkspace_alloc_ull_checked(&edge_list, trio_ct * 2 * sizeof(int64_t))) {
+    if (bigstack_alloc_ull(trio_ct * 2, &edge_list)) {
       goto get_trios_and_families_ret_NOMEM2;
     }
     // Edge list excludes founder parents; edge codes have parental uidx in
@@ -353,13 +352,13 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
       qsort(edge_list, edge_ct, sizeof(int64_t), llcmp);
 #endif
     }
-    wkspace_shrink_top(edge_list, edge_ct * sizeof(int64_t));
-    if (wkspace_alloc_ui_checked(&toposort_queue, trio_ct * sizeof(int32_t))) {
+    bigstack_shrink_top(edge_list, edge_ct * sizeof(int64_t));
+    if (bigstack_alloc_ui(trio_ct, &toposort_queue)) {
       goto get_trios_and_families_ret_NOMEM2;
     }
     remaining_edge_ct = edge_ct;
   }
-  wkspace_left += topsize;
+  g_bigstack_left += topsize;
   *family_list_ptr = family_list;
   *family_ct_ptr = family_ct;
   *trio_list_ptr = trio_write;
@@ -441,11 +440,11 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
       logerrprint("Error: Pedigree graph is cyclic.  Check for evidence of time travel abuse in\nyour cohort.\n");
       goto get_trios_and_families_ret_INVALID_FORMAT;
     }
-    wkspace_reset(edge_list);
+    bigstack_reset(edge_list);
   }
   while (0) {
   get_trios_and_families_ret_NOMEM2:
-    wkspace_left += topsize;
+    g_bigstack_left += topsize;
   get_trios_and_families_ret_NOMEM:
     retval = RET_NOMEM;
     break;
@@ -457,7 +456,7 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
   }
  get_trios_and_families_ret_1:
   if (retval) {
-    wkspace_reset(wkspace_mark);
+    bigstack_reset(bigstack_mark);
   }
   return retval;
 }
@@ -686,7 +685,7 @@ void fill_mendel_errstr(uint32_t error_code, char** allele_ptrs, uint32_t* alens
 }
 
 int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t plink_maxfid, uint32_t plink_maxiid, uint32_t plink_maxsnp, uint32_t allow_no_variants, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* sample_ids, uintptr_t max_sample_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t hh_exists, Chrom_info* chrom_info_ptr, uint32_t calc_mendel) {
-  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = NULL;
   FILE* outfile_l = NULL;
   uintptr_t* sample_male_include2 = NULL;
@@ -775,22 +774,19 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
   trio_ct4 = (trio_ct + 3) / 4;
   trio_ctl = (trio_ct + (BITCT - 1)) / BITCT;
   var_error_max = (int32_t)(fam_ip->mendel_max_var_error * (1 + SMALL_EPSILON) * ((intptr_t)trio_ct));
-  if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_sample_ctp1l2 * sizeof(intptr_t)) ||
-      wkspace_alloc_ui_checked(&error_cts, trio_ct * 3 * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(&error_cts_tmp, trio_ct4 * 4 * sizeof(int32_t))) {
+  if (bigstack_alloc_ul(unfiltered_sample_ctp1l2, &loadbuf) ||
+      bigstack_calloc_ui(trio_ct * 3, &error_cts) ||
+      bigstack_calloc_ui(trio_ct4 * 4, &error_cts_tmp)) {
     goto mendel_error_scan_ret_NOMEM;
   }
   if (!var_first) {
     error_cts_tmp2 = error_cts_tmp;
   } else {
-    if (wkspace_alloc_ui_checked(&error_cts_tmp2, trio_ct4 * 4 * sizeof(int32_t))) {
+    if (bigstack_calloc_ui(trio_ct4 * 4, &error_cts_tmp2)) {
       goto mendel_error_scan_ret_NOMEM;
     }
-    fill_uint_zero(error_cts_tmp2, trio_ct4 * 4);
   }
   loadbuf[unfiltered_sample_ctp1l2 - 1] = 0;
-  fill_uint_zero(error_cts, trio_ct * 3);
-  fill_uint_zero(error_cts_tmp, trio_ct4 * 4);
   hh_exists &= XMHH_EXISTS;
   if (alloc_raw_haploid_filters(unfiltered_sample_ct, hh_exists, 0, sample_exclude, sex_male, NULL, &sample_male_include2)) {
     goto mendel_error_scan_ret_NOMEM;
@@ -808,20 +804,19 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
     if (ulii < 25) {
       ulii = 25;
     }
-    if (wkspace_alloc_ull_checked(&family_error_cts, family_ct * 3 * sizeof(int64_t)) ||
-        wkspace_alloc_ui_checked(&child_cts, family_ct * sizeof(int32_t)) ||
-        wkspace_alloc_c_checked(&(errstrs[0]), ulii * 10)) {
+    if (bigstack_alloc_ull(family_ct * 3, &family_error_cts) ||
+        bigstack_alloc_ui(family_ct, &child_cts) ||
+        bigstack_alloc_c(ulii * 10, &(errstrs[0]))) {
       goto mendel_error_scan_ret_NOMEM;
     }
     for (uii = 1; uii < 10; uii++) {
       errstrs[uii] = &(errstrs[0][uii * ulii]);
     }
     if (multigen && full_error_list) {
-      if (wkspace_alloc_ul_checked(&error_locs, trio_ctl * sizeof(intptr_t)) ||
-	  wkspace_alloc_uc_checked(&cur_errors, trio_ct)) {
+      if (bigstack_calloc_ul(trio_ctl, &error_locs) ||
+	  bigstack_alloc_uc(trio_ct, &cur_errors)) {
 	goto mendel_error_scan_ret_NOMEM;
       }
-      fill_ulong_zero(error_locs, trio_ctl);
     }
     if (full_error_list) {
       memcpy(outname_end, ".mendel", 8);
@@ -1250,7 +1245,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
     break;
   }
  mendel_error_scan_ret_1:
-  wkspace_reset(wkspace_mark);
+  bigstack_reset(bigstack_mark);
   fclose_cond(outfile);
   fclose_cond(outfile_l);
   return retval;
@@ -1259,8 +1254,8 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfiltered_sample_ct, char* sample_ids, uintptr_t max_sample_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info) {
   // possible todo: if any families have been entirely filtered out, don't
   // construct pedigree for them
-  unsigned char* wkspace_mark;
-  unsigned char* wkspace_mark2;
+  unsigned char* bigstack_mark;
+  unsigned char* bigstack_mark2;
   int32_t ii;
   int32_t jj;
   int32_t kk;
@@ -1323,11 +1318,11 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   } else {
     max_pm_id_len = max_maternal_id_len;
   }
-  if (wkspace_alloc_ui_checked(&(pri_ptr->family_info_space), unfiltered_sample_ct * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(&(pri_ptr->family_rel_nf_idxs), unfiltered_sample_ct * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(&(pri_ptr->family_idxs), unfiltered_sample_ct * sizeof(int32_t)) ||
-      wkspace_alloc_c_checked(&family_ids, unfiltered_sample_ct * max_family_id_len) ||
-      wkspace_alloc_ui_checked(&family_sizes, unfiltered_sample_ct * sizeof(int32_t))) {
+  if (bigstack_alloc_ui(unfiltered_sample_ct, &(pri_ptr->family_info_space)) ||
+      bigstack_alloc_ui(unfiltered_sample_ct, &(pri_ptr->family_rel_nf_idxs)) ||
+      bigstack_alloc_ui(unfiltered_sample_ct, &(pri_ptr->family_idxs)) ||
+      bigstack_alloc_c(unfiltered_sample_ct * max_family_id_len, &family_ids) ||
+      bigstack_alloc_ui(unfiltered_sample_ct, &family_sizes)) {
     return RET_NOMEM;
   }
 
@@ -1400,8 +1395,8 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 
   if (family_id_ct < unfiltered_sample_ct) {
     uiptr = family_sizes;
-    wkspace_shrink_top(family_ids, family_id_ct * max_family_id_len);
-    family_sizes = (uint32_t*)wkspace_alloc(family_id_ct * sizeof(int32_t));
+    bigstack_shrink_top(family_ids, family_id_ct * max_family_id_len);
+    bigstack_alloc_ui(family_id_ct, &family_sizes);
     if (family_sizes < uiptr) {
       // copy back
       for (uii = 0; uii < family_id_ct; uii++) {
@@ -1414,12 +1409,11 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   pri_ptr->max_family_id_len = max_family_id_len;
   pri_ptr->family_sizes = family_sizes;
 
-  if (wkspace_alloc_ui_checked(&(pri_ptr->family_info_offsets), (family_id_ct + 1) * sizeof(int32_t)) ||
-      wkspace_alloc_ul_checked(&(pri_ptr->family_rel_space_offsets), (family_id_ct + 1) * sizeof(intptr_t)) ||
-      wkspace_alloc_ui_checked(&(pri_ptr->family_founder_cts), family_id_ct * sizeof(int32_t))) {
+  if (bigstack_alloc_ui(family_id_ct + 1, &(pri_ptr->family_info_offsets)) ||
+      bigstack_alloc_ul(family_id_ct + 1, &(pri_ptr->family_rel_space_offsets)) ||
+      bigstack_calloc_ui(family_id_ct, &(pri_ptr->family_founder_cts))) {
     return RET_NOMEM;
   }
-  fill_int_zero((int32_t*)(pri_ptr->family_founder_cts), family_id_ct);
 
   ii = 0; // running family_info offset
   for (fidx = 0; fidx < family_id_ct; fidx++) {
@@ -1428,10 +1422,9 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
     ii += family_size;
   }
 
-  if (wkspace_alloc_ui_checked(&uiptr, family_id_ct * sizeof(int32_t))) {
+  if (bigstack_calloc_ui(family_id_ct, &uiptr)) {
     return RET_NOMEM;
   }
-  fill_uint_zero(uiptr, family_id_ct);
 
   // Fill family_idxs, family_founder_cts, and founder portion of
   // family_rel_nf_idxs.
@@ -1446,7 +1439,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
     }
     cur_sample_id = &(cur_sample_id[max_sample_id_len]);
   }
-  wkspace_reset(uiptr);
+  bigstack_reset(uiptr);
   ulii = 0; // running rel_space offset
   for (fidx = 0; fidx < family_id_ct; fidx++) {
     family_size = pri_ptr->family_sizes[fidx];
@@ -1464,12 +1457,12 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   // offset, even if we're at the last family
   pri_ptr->family_info_offsets[family_id_ct] = unfiltered_sample_ct;
   pri_ptr->family_rel_space_offsets[family_id_ct] = ulii;
-  if (wkspace_alloc_d_checked(&(pri_ptr->rel_space), ulii * sizeof(double))) {
+  if (bigstack_alloc_d(ulii, &(pri_ptr->rel_space))) {
     return RET_NOMEM;
   }
 
-  wkspace_mark = wkspace_base;
-  if (wkspace_alloc_ui_checked(&uiptr, family_id_ct * sizeof(int32_t))) {
+  bigstack_mark = g_bigstack_base;
+  if (bigstack_alloc_ui(family_id_ct, &uiptr)) {
     return RET_NOMEM;
   }
   // populate family_info_space
@@ -1481,14 +1474,14 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
     pri_ptr->family_info_space[uiptr[fidx]] = sample_uidx;
     uiptr[fidx] += 1;
   }
-  wkspace_reset(wkspace_mark);
+  bigstack_reset(bigstack_mark);
 
-  if (wkspace_alloc_ul_checked(&processed_samples, (unfiltered_sample_ctl + (max_family_nf + (BITCT2 - 1)) / BITCT2) * sizeof(intptr_t))) {
+  if (bigstack_alloc_ul(unfiltered_sample_ctl + (max_family_nf + (BITCT2 - 1)) / BITCT2, &processed_samples)) {
     return RET_NOMEM;
   }
   fill_ulong_one(&(processed_samples[unfiltered_sample_ctl]), (max_family_nf + (BITCT2 - 1)) / BITCT2);
 
-  wkspace_mark2 = wkspace_base;
+  bigstack_mark2 = g_bigstack_base;
   for (fidx = 0; fidx < family_id_ct; fidx++) {
     family_size = family_sizes[fidx];
     founder_ct = pri_ptr->family_founder_cts[fidx];
@@ -1496,12 +1489,12 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
     stray_parent_ct = 0;
     if (remaining_sample_ct) {
       memcpy(processed_samples, founder_info, unfiltered_sample_ctl * sizeof(intptr_t));
-      if (wkspace_alloc_ui_checked(&complete_sample_idxs, family_size * sizeof(int32_t)) ||
-          wkspace_alloc_ui_checked(&remaining_sample_idxs, remaining_sample_ct * sizeof(int32_t)) ||
-          wkspace_alloc_c_checked(&indiv_ids, family_size * max_indiv_id_len) ||
-          wkspace_alloc_ui_checked(&sample_id_lookup, family_size * sizeof(int32_t)) ||
-          wkspace_alloc_i_checked(&remaining_sample_parent_idxs, remaining_sample_ct * 2 * sizeof(int32_t)) ||
-          wkspace_alloc_c_checked(&stray_parent_ids, remaining_sample_ct * 2 * max_pm_id_len)) {
+      if (bigstack_alloc_ui(family_size, &complete_sample_idxs) ||
+          bigstack_alloc_ui(remaining_sample_ct, &remaining_sample_idxs) ||
+          bigstack_alloc_c(family_size * max_indiv_id_len, &indiv_ids) ||
+          bigstack_alloc_ui(family_size, &sample_id_lookup) ||
+          bigstack_alloc_i(remaining_sample_ct * 2, &remaining_sample_parent_idxs) ||
+          bigstack_alloc_c(remaining_sample_ct * 2 * max_pm_id_len, &stray_parent_ids)) {
 	return RET_NOMEM;
       }
       ii = pri_ptr->family_info_offsets[fidx];
@@ -1593,7 +1586,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
       // Now allocate temporary relatedness table between nonfounders and
       // stray parents with multiple references.
       if (stray_parent_ct) {
-        if (wkspace_alloc_d_checked(&tmp_rel_space, (family_size - founder_ct) * stray_parent_ct * sizeof(double))) {
+        if (bigstack_alloc_d((family_size - founder_ct) * stray_parent_ct, &tmp_rel_space)) {
 	  return RET_NOMEM;
         }
 	tmp_rel_writer = tmp_rel_space;
@@ -1726,10 +1719,10 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 	}
 	remaining_sample_ct = sample_idx_write;
       }
-      wkspace_reset(wkspace_mark2);
+      bigstack_reset(bigstack_mark2);
     }
   }
-  wkspace_reset(wkspace_mark);
+  bigstack_reset(bigstack_mark);
   return 0;
 }
 
@@ -1986,7 +1979,7 @@ int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* o
 }
 
 int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double ci_size, double ci_zt, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, Aperm_info* apip, uint32_t mperm_save, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* sample_ids, uintptr_t max_sample_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, Chrom_info* chrom_info_ptr, uint32_t hh_exists, Family_info* fam_ip) {
-  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = NULL;
   char* textbuf = tbuf;
   double* orig_chisq = NULL; // pval if exact test
@@ -2107,7 +2100,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
     goto tdt_ret_1;
   }
   // now assemble list of nuclear families with at least one case child
-  if (wkspace_alloc_ui_checked(&trio_nuclear_lookup, (3 * family_ct + trio_ct) * sizeof(int32_t))) {
+  if (bigstack_alloc_ui(3 * family_ct + trio_ct, &trio_nuclear_lookup)) {
     goto tdt_ret_NOMEM;
   }
   lookup_ptr = trio_nuclear_lookup;
@@ -2183,15 +2176,15 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
     LOGERRPRINTF("Warning: Skipping --tdt%s since there are no trios with an affected child%s.\n", poo_test? " poo" : "", poo_test? "" : ", and no\ndiscordant parent pairs");
     goto tdt_ret_1;
   }
-  wkspace_shrink_top(trio_nuclear_lookup, ((uintptr_t)(lookup_ptr - trio_nuclear_lookup)) * sizeof(int32_t));
+  bigstack_shrink_top(trio_nuclear_lookup, ((uintptr_t)(lookup_ptr - trio_nuclear_lookup)) * sizeof(int32_t));
 
   if (mtest_adjust) {
-    if (wkspace_alloc_d_checked(&orig_chisq, marker_ct * sizeof(double))) {
+    if (bigstack_alloc_d(marker_ct, &orig_chisq)) {
       goto tdt_ret_NOMEM;
     }
   }
-  if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_sample_ctl2 * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&workbuf, unfiltered_sample_ctp1l2 * sizeof(intptr_t))) {
+  if (bigstack_alloc_ul(unfiltered_sample_ctl2, &loadbuf) ||
+      bigstack_alloc_ul(unfiltered_sample_ctp1l2, &workbuf)) {
     goto tdt_ret_NOMEM;
   }
   loadbuf[unfiltered_sample_ctl2 - 1] = 0;
@@ -2207,7 +2200,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   }
   ulii = 2 * max_marker_allele_len + plink_maxsnp + MAX_ID_LEN + 256;
   if (ulii > MAXLINELEN) {
-    if (wkspace_alloc_c_checked(&textbuf, ulii)) {
+    if (bigstack_alloc_c(ulii, &textbuf)) {
       goto tdt_ret_NOMEM;
     }
   }
@@ -2498,8 +2491,8 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   if (mtest_adjust) {
   tdt_multcomp:
     ulii = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
-    if (wkspace_alloc_ui_checked(&marker_idx_to_uidx, marker_ct * sizeof(int32_t)) ||
-        wkspace_alloc_ul_checked(&marker_exclude_tmp, ulii * sizeof(intptr_t))) {
+    if (bigstack_alloc_ui(marker_ct, &marker_idx_to_uidx) ||
+        bigstack_alloc_ul(ulii, &marker_exclude_tmp)) {
       goto tdt_ret_NOMEM;
     }
     // need a custom marker_exclude that's set at Y/haploid/MT
@@ -2532,7 +2525,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
     break;
   }
  tdt_ret_1:
-  wkspace_reset(wkspace_mark);
+  bigstack_reset(bigstack_mark);
   fclose_cond(outfile);
   return retval;
 }
@@ -2590,17 +2583,17 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   uint32_t umm;
   if (test_type) {
     if (is_within2) {
-      if (wkspace_alloc_ul_checked(&lm_within2_founder, sample_ctl * sizeof(intptr_t))) {
+      if (bigstack_alloc_ul(sample_ctl, &lm_within2_founder)) {
 	goto get_sibship_info_ret_NOMEM2;
       }
     }
-    if (wkspace_alloc_ul_checked(&lm_eligible, sample_ctl * sizeof(intptr_t))) {
+    if (bigstack_alloc_ul(sample_ctl, &lm_eligible)) {
       goto get_sibship_info_ret_NOMEM;
     }
   }
   if (test_type) {
     // shrink later
-    if (wkspace_alloc_ui_checked(&fss_contents, (sample_ct + 2 * family_ct) * sizeof(int32_t))) {
+    if (bigstack_alloc_ui(sample_ct + 2 * family_ct, &fss_contents)) {
       goto get_sibship_info_ret_NOMEM;
     }
     // this is the equivalent of PLINK 1.07's family pointers
@@ -2609,11 +2602,11 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
       goto get_sibship_info_ret_NOMEM;
     }
   } else {
-    if (wkspace_alloc_ui_checked(&sample_to_fss_idx, sample_ct * sizeof(int32_t))) {
+    if (bigstack_alloc_ui(sample_ct, &sample_to_fss_idx)) {
       goto get_sibship_info_ret_NOMEM;
     }
     // shrink later
-    if (wkspace_alloc_ui_checked(&fss_contents, (sample_ct + 2 * family_ct) * sizeof(int32_t))) {
+    if (bigstack_alloc_ui(sample_ct + 2 * family_ct, &fss_contents)) {
       goto get_sibship_info_ret_NOMEM;
     }
   }
@@ -2709,7 +2702,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   }
  get_sibship_info_first_pass_done:
   bitfield_andnot(not_in_family, ulptr2, unfiltered_sample_ctl);
-  wkspace_shrink_top(fss_contents, (fssc_idx + popcount_longs(not_in_family, unfiltered_sample_ctl)) * sizeof(int32_t));
+  bigstack_shrink_top(fss_contents, (fssc_idx + popcount_longs(not_in_family, unfiltered_sample_ctl)) * sizeof(int32_t));
   if (test_type) {
     bitfield_andnot(ulptr, ulptr2, unfiltered_sample_ctl);
   } else {
@@ -2745,11 +2738,11 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
 
   cur_sample_ct = popcount_longs(ulptr, unfiltered_sample_ctl);
 
-  wkspace_left -= topsize;
-  if (wkspace_alloc_ui_checked(&fs_starts, (1 + family_ct + (cur_sample_ct / 2)) * sizeof(int32_t))) {
+  g_bigstack_left -= topsize;
+  if (bigstack_alloc_ui(1 + family_ct + (cur_sample_ct / 2), &fs_starts)) {
     goto get_sibship_info_ret_NOMEM2;
   }
-  wkspace_left += topsize;
+  g_bigstack_left += topsize;
   family_idx = 0;
   if (trio_ct) {
     fs_starts[0] = 0;
@@ -2812,7 +2805,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
  get_sibship_info_second_pass_done:
   *fs_ct_ptr = family_idx;
   fs_starts[family_idx] = fssc_idx;
-  wkspace_shrink_top(fs_starts, (family_idx + 1) * sizeof(int32_t));
+  bigstack_shrink_top(fs_starts, (family_idx + 1) * sizeof(int32_t));
   if (test_type) {
     // for qfam, save singletons, and collapse sample_to_fss_idx to
     // sample_lm_to_fss_idx
@@ -2825,12 +2818,12 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
     }
     *singleton_ct_ptr = ulii;
     topsize = topsize_bak;
-    wkspace_left -= topsize;
+    g_bigstack_left -= topsize;
     ulii = popcount_longs(lm_eligible, sample_ctl);
-    if (wkspace_alloc_ui_checked(&sample_lm_to_fss_idx, ulii * sizeof(int32_t))) {
+    if (bigstack_alloc_ui(ulii, &sample_lm_to_fss_idx)) {
       goto get_sibship_info_ret_NOMEM2;
     }
-    wkspace_left += topsize;
+    g_bigstack_left += topsize;
     for (sample_uidx = 0, sample_idx = 0; sample_idx < ulii; sample_uidx++, sample_idx++) {
       next_set_ul_unsafe_ck(lm_eligible, &sample_uidx);
       sample_lm_to_fss_idx[sample_idx] = sample_to_fss_idx[sample_uidx];
@@ -2842,7 +2835,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   } else {
     // bugfix: for DFAM, we also need to prevent size-1 sibships from being
     // included in the unrelated cluster
-    if (wkspace_alloc_ul_checked(size_one_sibships_ptr, unfiltered_sample_ctl * sizeof(intptr_t))) {
+    if (bigstack_alloc_ul(unfiltered_sample_ctl, size_one_sibships_ptr)) {
       goto get_sibship_info_ret_NOMEM2;
     }
     memcpy(*size_one_sibships_ptr, not_in_family, unfiltered_sample_ctl * sizeof(intptr_t));
@@ -2857,7 +2850,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
 
   while (0) {
   get_sibship_info_ret_NOMEM2:
-    wkspace_left += topsize;
+    g_bigstack_left += topsize;
   get_sibship_info_ret_NOMEM:
     retval = RET_NOMEM;
     break;
@@ -3823,7 +3816,7 @@ void dfam_flipa_shuffle(uintptr_t* perms, uintptr_t* shuffled_perms, uint32_t pe
 #endif
 
 int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* sample_ids, uintptr_t max_sample_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, Chrom_info* chrom_info_ptr, uint32_t hh_exists, uint32_t within_cmdflag, uint32_t perm_batch_size, Family_info* fam_ip, Set_info* sip) {
-  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = NULL;
   FILE* outfile_msa = NULL;
   char* textbuf = tbuf;
@@ -3960,7 +3953,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       goto dfam_ret_INVALID_CMDLINE;
     }
     marker_ct_orig_autosomal -= uii;
-    if (wkspace_alloc_ul_checked(&marker_exclude_orig_autosomal, unfiltered_marker_ctl * sizeof(intptr_t))) {
+    if (bigstack_alloc_ul(unfiltered_marker_ctl, &marker_exclude_orig_autosomal)) {
       goto dfam_ret_NOMEM;
     }
     memcpy(marker_exclude_orig_autosomal, marker_exclude_orig, unfiltered_marker_ctl * sizeof(intptr_t));
@@ -3984,12 +3977,12 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   marker_ct = marker_ct_orig_autosomal;
 
   // PLINK 1.07 treats missing phenotypes as controls here
-  if (wkspace_alloc_ul_checked(&pheno_nm, unfiltered_sample_ctl * sizeof(intptr_t))) {
+  if (bigstack_alloc_ul(unfiltered_sample_ctl, &pheno_nm)) {
     goto dfam_ret_NOMEM;
   }
   bitarr_invert_copy(sample_exclude, unfiltered_sample_ct, pheno_nm);
   if (is_set_test) {
-    if (wkspace_alloc_ul_checked(&founder_pnm, unfiltered_sample_ctl * sizeof(intptr_t))) {
+    if (bigstack_alloc_ul(unfiltered_sample_ctl, &founder_pnm)) {
       goto dfam_ret_NOMEM;
     }
     memcpy(founder_pnm, pheno_nm, unfiltered_sample_ctl * sizeof(intptr_t));
@@ -4028,10 +4021,10 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   // computation is nearly I/O-bound without it.  Phenotypes are permuted
   // within each sibship/unrelated cluster, while transmitted alleles are
   // permuted in case-containing families.
-  if (wkspace_alloc_ul_checked(&dfam_sample_exclude, unfiltered_sample_ctl * sizeof(intptr_t)) ||
+  if (bigstack_alloc_ul(unfiltered_sample_ctl, &dfam_sample_exclude) ||
       // shrink this later
-      wkspace_alloc_ui_checked(&dfam_iteration_order, (sample_ct + (sample_ct / 2)) * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(&idx_to_uidx, sample_ct * sizeof(int32_t))) {
+      bigstack_alloc_ui(sample_ct + (sample_ct / 2), &dfam_iteration_order) ||
+      bigstack_alloc_ui(sample_ct, &idx_to_uidx)) {
     goto dfam_ret_NOMEM;
   }
   fill_all_bits(dfam_sample_exclude, unfiltered_sample_ct);
@@ -4123,7 +4116,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   }
   dfam_cluster_map_size = ((uintptr_t)(cur_dfam_ptr - dfam_mixed_start)) - 3 * family_mixed_ct - sibship_mixed_ct;
   if (!no_unrelateds) {
-    if (wkspace_alloc_ui_checked(&sample_to_cluster, sample_ct * sizeof(int32_t))) {
+    if (bigstack_alloc_ui(sample_ct, &sample_to_cluster)) {
       goto dfam_ret_NOMEM;
     }
     // --within on an empty file actually causes --dfam to behave differently
@@ -4145,11 +4138,10 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       }
     }
 
-    if (wkspace_alloc_ui_checked(&cluster_ctrl_case_cts, cluster_ct * 2 * sizeof(int32_t)) ||
-        wkspace_alloc_ui_checked(&cluster_write_idxs, cluster_ct * sizeof(int32_t))) {
+    if (bigstack_calloc_ui(cluster_ct * 2, &cluster_ctrl_case_cts) ||
+        bigstack_alloc_ui(cluster_ct, &cluster_write_idxs)) {
       goto dfam_ret_NOMEM;
     }
-    fill_uint_zero(cluster_ctrl_case_cts, 2 * cluster_ct);
     for (sample_uidx = 0, sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
       unrelated_cluster_idx = sample_to_cluster[sample_idx];
       if (unrelated_cluster_idx != 0xffffffffU) {
@@ -4186,13 +4178,13 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     }
     cur_dfam_ptr = &(cur_dfam_ptr[write_idx]);
   }
-  wkspace_reset((unsigned char*)idx_to_uidx);
-  wkspace_shrink_top(dfam_iteration_order, (cur_dfam_ptr - dfam_iteration_order) * sizeof(int32_t));
+  bigstack_reset((unsigned char*)idx_to_uidx);
+  bigstack_shrink_top(dfam_iteration_order, (cur_dfam_ptr - dfam_iteration_order) * sizeof(int32_t));
   dfam_sample_ct = unfiltered_sample_ct - popcount_longs(dfam_sample_exclude, unfiltered_sample_ctl);
   dfam_sample_ctl = (dfam_sample_ct + (BITCT - 1)) / BITCT;
   dfam_sample_ctl2 = (dfam_sample_ct + (BITCT2 - 1)) / BITCT2;
   dfam_sample_ctv = 2 * ((dfam_sample_ct + (2 * BITCT - 1)) / (2 * BITCT));
-  if (wkspace_alloc_ui_checked(&sample_uidx_to_idx, unfiltered_sample_ct * sizeof(int32_t))) {
+  if (bigstack_alloc_ui(unfiltered_sample_ct, &sample_uidx_to_idx)) {
     goto dfam_ret_NOMEM;
   }
   fill_uidx_to_idx(dfam_sample_exclude, unfiltered_sample_ct, dfam_sample_ct, sample_uidx_to_idx);
@@ -4217,11 +4209,11 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       cur_dfam_ptr++;
     }
   }
-  wkspace_reset((unsigned char*)sample_uidx_to_idx);
-  if (wkspace_alloc_ul_checked(&dfam_pheno_c, dfam_sample_ctl2 * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_sample_ctl2 * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&workbuf, unfiltered_sample_ctp1l2 * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&g_loadbuf, MODEL_BLOCKSIZE * dfam_sample_ctl2 * sizeof(intptr_t))) {
+  bigstack_reset((unsigned char*)sample_uidx_to_idx);
+  if (bigstack_alloc_ul(dfam_sample_ctl2, &dfam_pheno_c) ||
+      bigstack_alloc_ul(unfiltered_sample_ctl2, &loadbuf_raw) ||
+      bigstack_alloc_ul(unfiltered_sample_ctp1l2, &workbuf) ||
+      bigstack_alloc_ul(MODEL_BLOCKSIZE * ((uintptr_t)dfam_sample_ctl2), &g_loadbuf)) {
     goto dfam_ret_NOMEM;
   }
   collapse_copy_bitarr(sample_ct, pheno_c, dfam_sample_exclude, dfam_sample_ct, dfam_pheno_c);
@@ -4242,7 +4234,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   // no X/haploid/MT, so no haploid filters
 
   if (fill_orig_chisq) {
-    if (wkspace_alloc_d_checked(&orig_chisq, marker_ct * sizeof(double))) {
+    if (bigstack_alloc_d(marker_ct, &orig_chisq)) {
       goto dfam_ret_NOMEM;
     }
     g_orig_stat = orig_chisq;
@@ -4253,13 +4245,12 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     logerrprint("Error: --dfam permutation tests are currently under development.\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
     goto dfam_ret_1;
-    if (wkspace_alloc_ui_checked(&g_perm_cluster_map, dfam_cluster_map_size * sizeof(int32_t)) ||
-        wkspace_alloc_ui_checked(&g_perm_cluster_starts, (g_perm_cluster_ct + 1) * sizeof(int32_t)) ||
-        wkspace_alloc_ui_checked(&g_perm_cluster_case_cts, g_perm_cluster_ct * sizeof(int32_t)) ||
-        wkspace_alloc_ul_checked(&g_perm_cluster_cc_preimage, dfam_sample_ctl * sizeof(intptr_t))) {
+    if (bigstack_alloc_ui(dfam_cluster_map_size, &g_perm_cluster_map) ||
+        bigstack_alloc_ui(g_perm_cluster_ct + 1, &g_perm_cluster_starts) ||
+        bigstack_alloc_ui(g_perm_cluster_ct, &g_perm_cluster_case_cts) ||
+        bigstack_calloc_ul(dfam_sample_ctl, &g_perm_cluster_cc_preimage)) {
       goto dfam_ret_NOMEM;
     }
-    fill_ulong_zero(g_perm_cluster_cc_preimage, dfam_sample_ctl);
     cur_dfam_ptr = dfam_mixed_start;
     write_idx = 0;
     for (uii = 0; uii < family_mixed_ct; uii++) {
@@ -4311,7 +4302,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 
   ulii = 2 * max_marker_allele_len + plink_maxsnp + MAX_ID_LEN + 256;
   if (ulii > MAXLINELEN) {
-    if (wkspace_alloc_c_checked(&textbuf, ulii)) {
+    if (bigstack_alloc_c(ulii, &textbuf)) {
       goto dfam_ret_NOMEM;
     }
   }
@@ -4323,11 +4314,10 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   g_perm_vecs = NULL;
   if (perm_maxt_nst) {
     perms_total = fam_ip->dfam_mperm_val;
-    if (wkspace_alloc_d_checked(&maxt_extreme_stat, perms_total * sizeof(double))) {
+    if (bigstack_calloc_d(perms_total, &maxt_extreme_stat)) {
       goto dfam_ret_NOMEM;
     }
     g_maxt_extreme_stat = maxt_extreme_stat;
-    fill_double_zero(maxt_extreme_stat, perms_total);
     if (mperm_save & MPERM_DUMP_ALL) {
       memcpy(outname_end, ".mperm.dump.all", 16);
       if (fopen_checked(outname, "w", &outfile_msa)) {
@@ -4343,8 +4333,8 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     if (perm_adapt_nst) {
       g_aperm_alpha = apip->alpha;
       perms_total = apip->max;
-      if (wkspace_alloc_ui_checked(&g_perm_attempt_ct, marker_ct * sizeof(int32_t)) ||
-          wkspace_alloc_uc_checked(&g_perm_adapt_stop, marker_ct)) {
+      if (bigstack_alloc_ui(marker_ct, &g_perm_attempt_ct) ||
+          bigstack_alloc_uc(marker_ct, &g_perm_adapt_stop)) {
         goto dfam_ret_NOMEM;
       }
       ujj = apip->max;
@@ -4384,7 +4374,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
         perm_batch_size = fam_ip->dfam_mperm_val;
       }
     }
-    if (wkspace_init_sfmtp(max_thread_ct)) {
+    if (bigstack_init_sfmtp(max_thread_ct)) {
       goto dfam_ret_NOMEM;
     }
     g_perm_is_1bit = 1;
@@ -4412,8 +4402,8 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     perm_vec_wcta = perm_vec_ct128 * (128 / BITCT);
     perm_vec_ctcl8m = CACHEALIGN32_DBL(g_perm_vec_ct);
 
-    if (wkspace_alloc_ul_checked(&g_dfam_perm_vecst, dfam_sample_ct * perm_vec_wcta * sizeof(intptr_t)) ||
-        wkspace_alloc_ul_checked(&g_perm_vecs, g_perm_vec_ct * dfam_sample_ctv * sizeof(intptr_t))) {
+    if (bigstack_alloc_ul(dfam_sample_ct * perm_vec_wcta, &g_dfam_perm_vecst) ||
+        bigstack_alloc_ul(g_perm_vec_ct * dfam_sample_ctv, &g_perm_vecs)) {
       goto dfam_ret_NOMEM;
     }
     // initialize phenotype permutations.
@@ -4426,16 +4416,16 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     join_threads(threads, g_perm_generation_thread_ct);
 
     transpose_perm1s(g_perm_vecs, g_perm_vec_ct, sample_ct, (uint32_t*)g_dfam_perm_vecst);
-    wkspace_reset(g_perm_vecs);
+    bigstack_reset(g_perm_vecs);
 
-    if (wkspace_alloc_ul_checked(&g_dfam_flipa, family_ct * perm_vec_wct * sizeof(intptr_t)) ||
+    if (bigstack_alloc_ul(family_ct * perm_vec_wct, &g_dfam_flipa) ||
 #ifdef __LP64__
-        wkspace_alloc_ul_checked(&g_dfam_flipa_shuffled, family_all_case_children_ct * perm_vec_wcta * sizeof(intptr_t)) ||
+        bigstack_alloc_ul(family_all_case_children_ct * perm_vec_wcta, &g_dfam_flipa_shuffled) ||
 #endif
-	wkspace_alloc_i_checked(&g_dfam_twice_numers, max_thread_ct * perm_vec_cta128 * sizeof(int32_t)) ||
-	wkspace_alloc_ui_checked(&g_dfam_total_counts, max_thread_ct * perm_vec_cta128 * sizeof(int32_t)) ||
-	wkspace_alloc_d_checked(&g_dfam_numers, max_thread_ct * perm_vec_cta128 * sizeof(double)) ||
-	wkspace_alloc_d_checked(&g_dfam_denoms, max_thread_ct * perm_vec_cta128 * sizeof(double))) {
+	bigstack_alloc_i(max_thread_ct * perm_vec_cta128, &g_dfam_twice_numers) ||
+	bigstack_alloc_ui(max_thread_ct * perm_vec_cta128, &g_dfam_total_counts) ||
+	bigstack_alloc_d(max_thread_ct * perm_vec_cta128, &g_dfam_numers) ||
+	bigstack_alloc_d(max_thread_ct * perm_vec_cta128, &g_dfam_denoms)) {
       goto dfam_ret_NOMEM;
     }
     // initialize flipa permutations.
@@ -4452,11 +4442,11 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     }
 #endif
     if (perm_maxt_nst) {
-      if (wkspace_alloc_d_checked(&g_maxt_thread_results, max_thread_ct * perm_vec_ctcl8m * sizeof(double))) {
+      if (bigstack_alloc_d(max_thread_ct * perm_vec_ctcl8m, &g_maxt_thread_results)) {
 	goto dfam_ret_NOMEM;
       }
       if (mperm_save & MPERM_DUMP_ALL) {
-	if (wkspace_alloc_d_checked(&g_mperm_save_all, marker_ct * g_perm_vec_ct * sizeof(double))) {
+	if (bigstack_alloc_d(marker_ct * g_perm_vec_ct, &g_mperm_save_all)) {
 	  goto dfam_ret_NOMEM;
 	}
       }
@@ -4814,17 +4804,17 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     fputs("\b\b", stdout);
     logprint("done.\n");
     if (do_perms_nst) {
-      // wkspace_reset();
+      // bigstack_reset();
     }
     if (fclose_null(&outfile)) {
       goto dfam_ret_WRITE_FAIL;
     }
     if (!is_set_test) {
       if (do_perms_nst) {
-	wkspace_reset(g_dfam_perm_vecst);
+	bigstack_reset(g_dfam_perm_vecst);
       }
       if (mtest_adjust) {
-	if (wkspace_alloc_ui_checked(&idx_to_uidx, marker_ct * sizeof(int32_t))) {
+	if (bigstack_alloc_ui(marker_ct, &idx_to_uidx)) {
 	  goto dfam_ret_NOMEM;
 	}
 	fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, idx_to_uidx);
@@ -4832,7 +4822,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	if (retval) {
 	  goto dfam_ret_1;
 	}
-	wkspace_reset(idx_to_uidx);
+	bigstack_reset(idx_to_uidx);
       }
       // if (mperm_save & MPERM_DUMP_ALL) { ...
     } else {
@@ -4844,7 +4834,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   }
   if (do_perms_nst) {
     // if (mperm_save & MPERM_DUMP_ALL) { ...
-    wkspace_reset(g_dfam_perm_vecst);
+    bigstack_reset(g_dfam_perm_vecst);
     if (g_perms_done < perms_total) {
       if (perm_adapt_nst) {
 	marker_unstopped_ct = marker_ct - popcount_longs((uintptr_t*)g_perm_adapt_stop, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
@@ -4979,7 +4969,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     break;
   }
  dfam_ret_1:
-  wkspace_reset(wkspace_mark);
+  bigstack_reset(bigstack_mark);
   fclose_cond(outfile);
   fclose_cond(outfile_msa);
   return retval;
@@ -5422,7 +5412,7 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
 int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, Aperm_info* apip, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* sample_ids, uintptr_t max_sample_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, Chrom_info* chrom_info_ptr, uint32_t hh_exists, uint32_t perm_batch_size, Family_info* fam_ip) {
   // Fortunately, this can use some of qassoc()'s logic instead of punting to
   // LAPACK, since it doesn't support covariates.
-  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
@@ -5584,18 +5574,17 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   lm_ctl = (lm_ct + BITCT - 1) / BITCT;
   flip_ctl = only_within? lm_ctl : fss_ctl;
 
-  if (wkspace_alloc_uc_checked(&perm_adapt_stop, marker_ct) ||
-      wkspace_alloc_ui_checked(&g_perm_2success_ct, marker_ct * sizeof(int32_t))) {
+  if (bigstack_alloc_uc(marker_ct, &perm_adapt_stop) ||
+      bigstack_calloc_ui(marker_ct, &g_perm_2success_ct)) {
     goto qfam_ret_NOMEM;
   }
   fill_ulong_zero((uintptr_t*)perm_adapt_stop, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
-  fill_uint_zero(g_perm_2success_ct, marker_ct);
   g_perm_adapt_stop = perm_adapt_stop;
 
   if (perm_adapt) {
     g_aperm_alpha = apip->alpha;
     perms_total = apip->max;
-    if (wkspace_alloc_ui_checked(&g_perm_attempt_ct, marker_ct * sizeof(int32_t))) {
+    if (bigstack_alloc_ui(marker_ct, &g_perm_attempt_ct)) {
       goto qfam_ret_NOMEM;
     }
     ujj = apip->max;
@@ -5622,8 +5611,8 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   outname_end = memcpya(outname_end, ".qfam.", 6);
   outname_end = strcpya(outname_end, flag_suffix);
   *outname_end = '\0';
-  if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_sample_ctl2 * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&workbuf, unfiltered_sample_ctp1l2 * sizeof(intptr_t))) {
+  if (bigstack_alloc_ul(unfiltered_sample_ctl2, &loadbuf_raw) ||
+      bigstack_alloc_ul(unfiltered_sample_ctp1l2, &workbuf)) {
     goto qfam_ret_NOMEM;
   }
   loadbuf_raw[unfiltered_sample_ctl2 - 1] = 0;
@@ -5634,39 +5623,35 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   if (perms_total < perm_batch_size) {
     perm_batch_size = perms_total;
   }
-  ulii = CACHELINE * ((uintptr_t)qfam_thread_ct);
   if (!only_within) {
-    if (wkspace_alloc_ui_checked(&g_qfam_permute, perm_batch_size * fss_ct * sizeof(intptr_t)) ||
-        wkspace_alloc_ui_checked(&g_permute_edit, ((fss_ct + CACHELINE_INT32 - 1) / CACHELINE_INT32) * ulii)) {
+    if (bigstack_alloc_ui(perm_batch_size * fss_ct, &g_qfam_permute) ||
+        bigstack_alloc_ui(CACHEALIGN_INT32(fss_ct) * qfam_thread_ct, &g_permute_edit)) {
       goto qfam_ret_NOMEM;
     }
   }
   if (emp_se) {
-    if (wkspace_alloc_d_checked(&orig_beta, marker_ct * sizeof(double)) ||
-        wkspace_alloc_d_checked(&g_beta_sum, marker_ct * sizeof(double)) ||
-        wkspace_alloc_d_checked(&g_beta_ssq, marker_ct * sizeof(double)) ||
-        wkspace_alloc_ui_checked(&g_beta_fail_cts, marker_ct * sizeof(double))) {
+    if (bigstack_alloc_d(marker_ct, &orig_beta) ||
+        bigstack_calloc_d(marker_ct, &g_beta_sum) ||
+        bigstack_calloc_d(marker_ct, &g_beta_ssq) ||
+        bigstack_calloc_ui(marker_ct, &g_beta_fail_cts)) {
       goto qfam_ret_NOMEM;
     }
-    fill_double_zero(g_beta_sum, marker_ct);
-    fill_double_zero(g_beta_ssq, marker_ct);
-    fill_uint_zero(g_beta_fail_cts, marker_ct);
   } else {
     g_beta_sum = NULL;
     g_beta_ssq = NULL;
     g_beta_fail_cts = NULL;
   }
-  if (wkspace_alloc_ul_checked(&g_loadbuf, MODEL_BLOCKSIZE * sample_ctl2 * sizeof(intptr_t)) ||
-      wkspace_alloc_d_checked(&g_orig_stat, marker_ct * sizeof(double)) ||
-      wkspace_alloc_ul_checked(&g_qfam_flip, perm_batch_size * flip_ctl * sizeof(intptr_t)) ||
-      wkspace_alloc_ui_checked(&precomputed_mods, (fss_ct - 1) * sizeof(int32_t)) ||
-      wkspace_alloc_ul_checked(&nm_fss, ((fss_ct + (CACHELINE * 8 - 1)) / (CACHELINE * 8)) * ulii) ||
-      wkspace_alloc_ul_checked(&nm_lm, ((lm_ct + (CACHELINE * 8 - 1)) / (CACHELINE * 8)) * ulii) ||
-      wkspace_alloc_d_checked(&pheno_d2, lm_ct * sizeof(double)) ||
-      wkspace_alloc_d_checked(&qfam_b, ((fss_ct + CACHELINE_DBL - 1) / CACHELINE_DBL) * ulii) ||
-      wkspace_alloc_d_checked(&qfam_w, ((lm_ct + CACHELINE_DBL - 1) / CACHELINE_DBL) * ulii) ||
-      wkspace_alloc_ui_checked(&dummy_perm, fss_ct * sizeof(int32_t)) ||
-      wkspace_alloc_ul_checked(&dummy_flip, fss_ctl * sizeof(intptr_t))) {
+  if (bigstack_alloc_ul(MODEL_BLOCKSIZE * sample_ctl2, &g_loadbuf) ||
+      bigstack_alloc_d(marker_ct, &g_orig_stat) ||
+      bigstack_alloc_ul(perm_batch_size * flip_ctl, &g_qfam_flip) ||
+      bigstack_alloc_ui(fss_ct - 1, &precomputed_mods) ||
+      bigstack_alloc_ul(CACHEALIGN_BIT(fss_ct) * qfam_thread_ct, &nm_fss) ||
+      bigstack_alloc_ul(CACHEALIGN_BIT(lm_ct) * qfam_thread_ct, &nm_lm) ||
+      bigstack_alloc_d(lm_ct, &pheno_d2) ||
+      bigstack_alloc_d(CACHEALIGN_DBL(fss_ct) * qfam_thread_ct, &qfam_b) ||
+      bigstack_alloc_d(CACHEALIGN_DBL(lm_ct) * qfam_thread_ct, &qfam_w) ||
+      bigstack_alloc_ui(fss_ct, &dummy_perm) ||
+      bigstack_alloc_ul(fss_ctl, &dummy_flip)) {
     goto qfam_ret_NOMEM;
   }
   for (uii = 0, ujj = 0, ukk = 0; ujj < sample_ct; uii++, ujj++) {
@@ -5985,7 +5970,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     break;
   }
  qfam_ret_1:
-  wkspace_reset(wkspace_mark);
+  bigstack_reset(bigstack_mark);
   fclose_cond(outfile);
   return retval;
 }

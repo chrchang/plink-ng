@@ -43,7 +43,7 @@ void cluster_cleanup(Cluster_info* cluster_ptr) {
 }
 
 int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* sample_ids, uintptr_t max_sample_id_len, uint32_t mwithin_col, uint32_t keep_na, uintptr_t* cluster_ct_ptr, uint32_t** cluster_map_ptr, uint32_t** cluster_starts_ptr, char** cluster_ids_ptr, uintptr_t* max_cluster_id_len_ptr, char* keep_fname, char* keep_flattened, char* remove_fname, char* remove_flattened, uint32_t allow_no_samples) {
-  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* bigstack_mark = g_bigstack_base;
   FILE* infile = NULL;
   uintptr_t* sample_exclude_new = NULL;
   uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
@@ -286,9 +286,9 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
       goto load_clusters_ret_NOMEM;
     }
     fill_ulong_zero(already_seen, sample_ctl);
-    wkspace_left -= topsize;
+    g_bigstack_left -= topsize;
     retval = sort_item_ids_noalloc(sorted_ids, id_map, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, 0, 0, strcmp_deref);
-    wkspace_left += topsize;
+    g_bigstack_left += topsize;
     if (retval) {
       goto load_clusters_ret_1;
     }
@@ -369,8 +369,8 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 	goto load_clusters_ret_INVALID_FORMAT;
       }
       *max_cluster_id_len_ptr = max_cluster_id_len;
-      wkspace_left -= topsize;
-      if (wkspace_alloc_c_checked(cluster_ids_ptr, assigned_ct * max_cluster_id_len)) {
+      g_bigstack_left -= topsize;
+      if (bigstack_alloc_c(assigned_ct * max_cluster_id_len, cluster_ids_ptr)) {
 	goto load_clusters_ret_NOMEM2;
       }
       cluster_ids = *cluster_ids_ptr;
@@ -380,23 +380,23 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
       }
       // deallocate cluster ID linked list and duplicate sample ID detector
       // from top of stack, allocate cluster size tracker
-      wkspace_left += topsize;
+      g_bigstack_left += topsize;
       topsize = topsize_bak;
       tmp_cluster_starts = (uint32_t*)top_alloc(&topsize, assigned_ct * sizeof(int32_t));
       if (!tmp_cluster_starts) {
 	goto load_clusters_ret_NOMEM;
       }
-      wkspace_left -= topsize;
+      g_bigstack_left -= topsize;
       // may as well use natural sort of cluster names
       qsort(cluster_ids, assigned_ct, max_cluster_id_len, strcmp_natural);
       cluster_ct = collapse_duplicate_ids(cluster_ids, assigned_ct, max_cluster_id_len, tmp_cluster_starts);
       *cluster_ct_ptr = cluster_ct;
-      wkspace_shrink_top(cluster_ids, cluster_ct * max_cluster_id_len);
-      if (wkspace_alloc_ui_checked(cluster_map_ptr, assigned_ct * sizeof(int32_t)) ||
-	  wkspace_alloc_ui_checked(cluster_starts_ptr, (cluster_ct + 1) * sizeof(int32_t))) {
+      bigstack_shrink_top(cluster_ids, cluster_ct * max_cluster_id_len);
+      if (bigstack_alloc_ui(assigned_ct, cluster_map_ptr) ||
+	  bigstack_alloc_ui(cluster_ct + 1, cluster_starts_ptr)) {
 	goto load_clusters_ret_NOMEM2;
       }
-      wkspace_left += topsize;
+      g_bigstack_left += topsize;
       cluster_map = *cluster_map_ptr;
       cluster_starts = *cluster_starts_ptr;
       memcpy(cluster_starts, tmp_cluster_starts, cluster_ct * sizeof(int32_t));
@@ -504,8 +504,8 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
       goto load_clusters_ret_INVALID_FORMAT;
     }
     *max_cluster_id_len_ptr = max_cluster_id_len;
-    wkspace_left -= topsize;
-    if (wkspace_alloc_c_checked(cluster_ids_ptr, assigned_ct * max_cluster_id_len)) {
+    g_bigstack_left -= topsize;
+    if (bigstack_alloc_c(assigned_ct * max_cluster_id_len, cluster_ids_ptr)) {
       goto load_clusters_ret_NOMEM2;
     }
     cluster_ids = *cluster_ids_ptr;
@@ -520,21 +520,21 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
       slen = (uintptr_t)((char*)memchr(cluster_name_ptr, '\t', max_sample_id_len) - cluster_name_ptr);
       memcpyx(&(cluster_ids[sample_idx * max_cluster_id_len]), cluster_name_ptr, slen, '\0');
     }
-    wkspace_left += topsize;
+    g_bigstack_left += topsize;
     tmp_cluster_starts = (uint32_t*)top_alloc(&topsize, assigned_ct * sizeof(int32_t));
     if (!tmp_cluster_starts) {
       goto load_clusters_ret_NOMEM;
     }
-    wkspace_left -= topsize;
+    g_bigstack_left -= topsize;
     qsort(cluster_ids, assigned_ct, max_cluster_id_len, strcmp_natural);
     cluster_ct = collapse_duplicate_ids(cluster_ids, assigned_ct, max_cluster_id_len, tmp_cluster_starts);
     *cluster_ct_ptr = cluster_ct;
-    wkspace_shrink_top(cluster_ids, cluster_ct * max_cluster_id_len);
-    if (wkspace_alloc_ui_checked(cluster_map_ptr, assigned_ct * sizeof(int32_t)) ||
-        wkspace_alloc_ui_checked(cluster_starts_ptr, (cluster_ct + 1) * sizeof(int32_t))) {
+    bigstack_shrink_top(cluster_ids, cluster_ct * max_cluster_id_len);
+    if (bigstack_alloc_ui(assigned_ct, cluster_map_ptr) ||
+        bigstack_alloc_ui(cluster_ct + 1, cluster_starts_ptr)) {
       goto load_clusters_ret_NOMEM2;
     }
-    wkspace_left += topsize;
+    g_bigstack_left += topsize;
     cluster_map = *cluster_map_ptr;
     cluster_starts = *cluster_starts_ptr;
     memcpy(cluster_starts, tmp_cluster_starts, cluster_ct * sizeof(int32_t));
@@ -562,7 +562,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 
   while (0) {
   load_clusters_ret_NOMEM2:
-    wkspace_left += topsize;
+    g_bigstack_left += topsize;
   load_clusters_ret_NOMEM:
     retval = RET_NOMEM;
     break;
@@ -582,7 +582,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
   }
  load_clusters_ret_1:
   if (retval) {
-    wkspace_reset(wkspace_mark);
+    bigstack_reset(bigstack_mark);
   }
   fclose_cond(infile);
   return retval;
@@ -608,7 +608,7 @@ int32_t fill_sample_to_cluster(uintptr_t unfiltered_sample_ct, uintptr_t* sample
   // filled with the cluster index -> sample uidx mapping.
   // (Yes, this is a strange interface; it may be switched to filtered sample
   // indexes later.)
-  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* bigstack_mark = g_bigstack_base;
   uint32_t* cluster_map_pos = cluster_map;
   int32_t retval = 0;
   uint32_t* uidx_to_idx;
@@ -616,7 +616,7 @@ int32_t fill_sample_to_cluster(uintptr_t unfiltered_sample_ct, uintptr_t* sample
   uint32_t cluster_idx;
   uint32_t sample_uidx;
   uint32_t sample_idx;
-  if (wkspace_alloc_ui_checked(&uidx_to_idx, unfiltered_sample_ct * sizeof(int32_t))) {
+  if (bigstack_alloc_ui(unfiltered_sample_ct, &uidx_to_idx)) {
     goto fill_sample_to_cluster_ret_NOMEM;
   }
   fill_uidx_to_idx(sample_exclude, unfiltered_sample_ct, sample_ct, uidx_to_idx);
@@ -642,12 +642,12 @@ int32_t fill_sample_to_cluster(uintptr_t unfiltered_sample_ct, uintptr_t* sample
     retval = RET_NOMEM;
     break;
   }
-  wkspace_reset(wkspace_mark);
+  bigstack_reset(bigstack_mark);
   return retval;
 }
 
 int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uint32_t omit_unassigned, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len) {
-  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = NULL;
   uintptr_t sample_uidx = 0;
   int32_t retval = 0;
@@ -657,7 +657,7 @@ int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_sa
   uintptr_t sample_idx;
   uint32_t cluster_idx;
   uint32_t slen;
-  if (wkspace_alloc_ui_checked(&sample_to_cluster, unfiltered_sample_ct * sizeof(int32_t))) {
+  if (bigstack_alloc_ui(unfiltered_sample_ct, &sample_to_cluster)) {
     goto write_cluster_ret_NOMEM;
   }
   fill_unfiltered_sample_to_cluster(unfiltered_sample_ct, cluster_ct, cluster_map, cluster_starts, sample_to_cluster);
@@ -699,12 +699,12 @@ int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_sa
     break;
   }
   fclose_cond(outfile);
-  wkspace_reset(wkspace_mark);
+  bigstack_reset(bigstack_mark);
   return retval;
 }
 
 int32_t extract_clusters(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, char* cluster_names_flattened, char* clusters_fname, uintptr_t** new_sample_exclude_ptr, uintptr_t* new_sample_ct_ptr) {
-  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* bigstack_mark = g_bigstack_base;
   FILE* infile = NULL;
   uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
   uintptr_t line_idx = 0;
@@ -716,11 +716,11 @@ int32_t extract_clusters(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   uint32_t slen;
   uint32_t sample_uidx;
   int32_t ii;
-  if (wkspace_alloc_ul_checked(new_sample_exclude_ptr, unfiltered_sample_ctl * sizeof(intptr_t))) {
+  if (bigstack_alloc_ul(unfiltered_sample_ctl, new_sample_exclude_ptr)) {
     goto extract_clusters_ret_NOMEM;
   }
   new_sample_exclude = *new_sample_exclude_ptr;
-  wkspace_mark = wkspace_base;
+  bigstack_mark = g_bigstack_base;
   fill_all_bits(new_sample_exclude, unfiltered_sample_ct);
   if (cluster_names_flattened) {
     bufptr = cluster_names_flattened;
@@ -795,7 +795,7 @@ int32_t extract_clusters(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
     break;
   }
   fclose_cond(infile);
-  wkspace_reset(wkspace_mark);
+  bigstack_reset(bigstack_mark);
   return retval;
 }
 
@@ -870,7 +870,7 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_sample_ct, uintptr_t* s
   //
   // If pheno_c is set, this also allocates and populates an array of
   // per-cluster case counts, and a permutation preimage.
-  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* bigstack_mark = g_bigstack_base;
   uint32_t old_assigned_ct = cluster_starts[cluster_ct];
   uint32_t new_cluster_ct = 0;
   uint32_t sample_uidx = 0;
@@ -890,7 +890,7 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_sample_ct, uintptr_t* s
   uint32_t last_case_ct_incr;
   uint32_t shrink_map;
   if (pheno_c) {
-    if (wkspace_alloc_ul_checked(cluster_cc_perm_preimage_ptr, (2 - is_perm1) * ((sample_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t))) {
+    if (bigstack_alloc_ul((2 - is_perm1) * ((sample_ct + (BITCT - 1)) / BITCT), cluster_cc_perm_preimage_ptr)) {
       goto cluster_include_and_reindex_ret_NOMEM;
     }
     cluster_cc_perm_preimage = *cluster_cc_perm_preimage_ptr;
@@ -905,7 +905,7 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_sample_ct, uintptr_t* s
     *new_cluster_ct_ptr = cluster_ct;
     *new_cluster_starts_ptr = cluster_starts;
     if (pheno_c) {
-      if (wkspace_alloc_ui_checked(cluster_case_cts_ptr, cluster_ct * sizeof(int32_t))) {
+      if (bigstack_alloc_ui(cluster_ct, cluster_case_cts_ptr)) {
 	goto cluster_include_and_reindex_ret_NOMEM;
       }
       populate_cluster_case_cts(pheno_c, cluster_ct, cluster_map, cluster_starts, *cluster_case_cts_ptr);
@@ -926,13 +926,13 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_sample_ct, uintptr_t* s
     }
   }
   // possibly +1 to simplify remove_size1 logic
-  if (wkspace_alloc_ui_checked(new_cluster_map_ptr, (assigned_ct + remove_size1) * sizeof(int32_t))) {
+  if (bigstack_alloc_ui(assigned_ct + remove_size1, new_cluster_map_ptr)) {
     goto cluster_include_and_reindex_ret_NOMEM;
   }
   new_cluster_map = *new_cluster_map_ptr;
   shrink_map = (assigned_ct < old_assigned_ct);
   if (shrink_map) {
-    if (wkspace_alloc_ui_checked(new_cluster_starts_ptr, (new_cluster_ct + 1) * sizeof(int32_t))) {
+    if (bigstack_alloc_ui(new_cluster_ct + 1, new_cluster_starts_ptr)) {
       goto cluster_include_and_reindex_ret_NOMEM;
     }
     new_cluster_starts = *new_cluster_starts_ptr;
@@ -942,12 +942,12 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_sample_ct, uintptr_t* s
     *new_cluster_starts_ptr = cluster_starts;
   }
   if (pheno_c) {
-    if (wkspace_alloc_ui_checked(cluster_case_cts_ptr, new_cluster_ct * sizeof(int32_t))) {
+    if (bigstack_alloc_ui(new_cluster_ct, cluster_case_cts_ptr)) {
       goto cluster_include_and_reindex_ret_NOMEM;
     }
     cluster_case_cts = *cluster_case_cts_ptr;
   }
-  if (wkspace_alloc_ui_checked(&uidx_to_idx, unfiltered_sample_ct * sizeof(int32_t))) {
+  if (bigstack_alloc_ui(unfiltered_sample_ct, &uidx_to_idx)) {
     goto cluster_include_and_reindex_ret_NOMEM;
   }
   fill_uidx_to_idx_incl(sample_include, unfiltered_sample_ct, sample_ct, uidx_to_idx);
@@ -1008,28 +1008,28 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_sample_ct, uintptr_t* s
   if (pheno_c && new_cluster_ct) {
     adjust_cc_perm_preimage(new_cluster_ct, new_cluster_map, new_cluster_starts, cluster_case_cts, cluster_cc_perm_preimage, is_perm1);
   }
-  wkspace_reset(uidx_to_idx);
+  bigstack_reset(uidx_to_idx);
   return 0;
  cluster_include_and_reindex_ret_NOMEM:
-  wkspace_reset(wkspace_mark);
+  bigstack_reset(bigstack_mark);
   return RET_NOMEM;
 }
 
 int32_t cluster_alloc_and_populate_magic_nums(uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t** tot_quotients_ptr, uint64_t** totq_magics_ptr, uint32_t** totq_preshifts_ptr, uint32_t** totq_postshifts_ptr, uint32_t** totq_incrs_ptr) {
   // assumes all clusters are of size > 1
-  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* bigstack_mark = g_bigstack_base;
   uint32_t* tot_quotients;
   uint64_t* totq_magics;
   uint32_t* totq_preshifts;
   uint32_t* totq_postshifts;
   uint32_t* totq_incrs;
   uint32_t cluster_idx;
-  if (wkspace_alloc_ui_checked(tot_quotients_ptr, cluster_ct * sizeof(int32_t)) ||
-      wkspace_alloc_ull_checked(totq_magics_ptr, cluster_ct * sizeof(int64_t)) ||
-      wkspace_alloc_ui_checked(totq_preshifts_ptr, cluster_ct * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(totq_postshifts_ptr, cluster_ct * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(totq_incrs_ptr, cluster_ct * sizeof(int32_t))) {
-    wkspace_reset(wkspace_mark);
+  if (bigstack_alloc_ui(cluster_ct, tot_quotients_ptr) ||
+      bigstack_alloc_ull(cluster_ct, totq_magics_ptr) ||
+      bigstack_alloc_ui(cluster_ct, totq_preshifts_ptr) ||
+      bigstack_alloc_ui(cluster_ct, totq_postshifts_ptr) ||
+      bigstack_alloc_ui(cluster_ct, totq_incrs_ptr)) {
+    bigstack_reset(bigstack_mark);
     return RET_NOMEM;
   }
   tot_quotients = *tot_quotients_ptr;
@@ -1045,7 +1045,7 @@ int32_t cluster_alloc_and_populate_magic_nums(uint32_t cluster_ct, uint32_t* clu
 }
 
 int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* sample_to_cluster, uint32_t for_cluster_flag, uint32_t is_max_dist, double* dists, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices) {
-  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* bigstack_mark = g_bigstack_base;
   FILE* dist_file = NULL;
   FILE* id_file = NULL;
   uintptr_t id_entry_ct = sample_ct;
@@ -1082,7 +1082,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample
     goto read_dists_ret_READ_FAIL;
   }
   if (id_fname) {
-    if (wkspace_alloc_ull_checked(&fidx_to_memidx, sample_ct * sizeof(int64_t))) {
+    if (bigstack_alloc_ull(sample_ct, &fidx_to_memidx)) {
       goto read_dists_ret_NOMEM;
     }
     fill_ull_one(fidx_to_memidx, sample_ct);
@@ -1143,7 +1143,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample
       goto read_dists_ret_INVALID_FORMAT;
     }
   } else if (cluster_ct) {
-    if (wkspace_alloc_ull_checked(&fidx_to_memidx, sample_ct * sizeof(int64_t))) {
+    if (bigstack_alloc_ull(sample_ct, &fidx_to_memidx)) {
       goto read_dists_ret_NOMEM;
     }
     if (neighbor_n2) {
@@ -1287,7 +1287,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample
     break;
   }
  read_dists_ret_1:
-  wkspace_reset(wkspace_mark);
+  bigstack_reset(bigstack_mark);
   fclose_cond(dist_file);
   fclose_cond(id_file);
   return retval;
@@ -1317,7 +1317,7 @@ void update_neighbor(uintptr_t sample_ct, uint32_t neighbor_n2, uintptr_t sample
 }
 
 int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t* cluster_merge_prevented, double* cluster_sorted_ibs, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices, uint32_t* ppc_fail_counts, double min_ppc, uint32_t is_max_dist, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* sample_to_cluster) {
-  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* bigstack_mark = g_bigstack_base;
   gzFile gz_infile = NULL;
   uint32_t neighbor_load_quantiles = neighbor_quantiles && cluster_sorted_ibs;
   uint32_t ppc_warning = cluster_merge_prevented? 0 : 1;
@@ -1466,13 +1466,13 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uin
     break;
   }
  read_genome_ret_1:
-  wkspace_reset(wkspace_mark);
+  bigstack_reset(bigstack_mark);
   gzclose_cond(gz_infile);
   return retval;
 }
 
 int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* sample_to_cluster, uintptr_t* merge_prevented) {
-  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* bigstack_mark = g_bigstack_base;
   FILE* matchfile = NULL;
   FILE* typefile = NULL;
   char* id_buf = &(tbuf[MAXLINELEN]);
@@ -1488,7 +1488,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
   uint32_t* id_map;
   char** sample_idx_to_match_str;
   double** sample_idx_to_dvals;
-  unsigned char* wkspace_mark2;
+  unsigned char* bigstack_mark2;
   unsigned char* cov_type_arr;
   double* tol_arr;
   char* bufptr;
@@ -1516,18 +1516,18 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
     goto cluster_enforce_match_ret_1;
   }
   
-  wkspace_mark2 = wkspace_base;
+  bigstack_mark2 = g_bigstack_base;
   tbuf[MAXLINELEN - 1] = ' ';
   if (cp->match_fname) {
-    sample_idx_to_match_str = (char**)wkspace_alloc(sample_ct * sizeof(intptr_t));
+    sample_idx_to_match_str = (char**)bigstack_alloc(sample_ct * sizeof(intptr_t));
     if (!sample_idx_to_match_str) {
       goto cluster_enforce_match_ret_NOMEM;
     }
     for (sample_idx1 = 0; sample_idx1 < sample_ct; sample_idx1++) {
       sample_idx_to_match_str[sample_idx1] = NULL;
     }
-    cov_type_arr = wkspace_base;
-    if (wkspace_left < MAXLINELEN) {
+    cov_type_arr = g_bigstack_base;
+    if (g_bigstack_left < MAXLINELEN) {
       goto cluster_enforce_match_ret_NOMEM;
     }
     if (cp->match_missing_str) {
@@ -1587,7 +1587,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       while (!cov_type_arr[cov_ct - 1]) {
 	cov_ct--;
       }
-      wkspace_alloc(cov_ct * sizeof(char)); // cov_type_arr
+      bigstack_alloc(cov_ct * sizeof(char)); // cov_type_arr
     }
     retval = open_and_load_to_first_token(&matchfile, cp->match_fname, MAXLINELEN, '\0', "--match file", tbuf, &bufptr, &line_idx);
     if (retval) {
@@ -1600,11 +1600,11 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	goto cluster_enforce_match_ret_MISSING_TOKENS;
       }
       cov_ct -= 2;
-      wkspace_alloc(cov_ct * sizeof(char)); // cov_type_arr
+      bigstack_alloc(cov_ct * sizeof(char)); // cov_type_arr
       memset(cov_type_arr, 2, cov_ct);
       non_null_cov_ct = cov_ct;
     }
-    wptr = (char*)wkspace_base;
+    wptr = (char*)g_bigstack_base;
     do {
       line_idx++;
       if (!tbuf[MAXLINELEN - 1]) {
@@ -1643,7 +1643,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	  }
 	}
       }
-      if ((uintptr_t)(((unsigned char*)wptr) - wkspace_base) > wkspace_left - MAXLINELEN) {
+      if ((uintptr_t)(((unsigned char*)wptr) - g_bigstack_base) > g_bigstack_left - MAXLINELEN) {
 	goto cluster_enforce_match_ret_NOMEM;
       }
     } while (fgets(tbuf, MAXLINELEN, matchfile));
@@ -1742,18 +1742,18 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
     }
     cov_ct = 0;
     non_null_cov_ct = 0;
-    wkspace_reset(wkspace_mark2);
+    bigstack_reset(bigstack_mark2);
   }
   if (cp->qmatch_fname) {
-    sample_idx_to_dvals = (double**)wkspace_alloc(sample_ct * sizeof(intptr_t));
+    sample_idx_to_dvals = (double**)bigstack_alloc(sample_ct * sizeof(intptr_t));
     if (!sample_idx_to_dvals) {
       goto cluster_enforce_match_ret_NOMEM;
     }
     for (sample_idx1 = 0; sample_idx1 < sample_ct; sample_idx1++) {
       sample_idx_to_dvals[sample_idx1] = NULL;
     }
-    tol_arr = (double*)wkspace_base;
-    if (wkspace_left <= MAXLINELEN * 4) {
+    tol_arr = (double*)g_bigstack_base;
+    if (g_bigstack_left <= MAXLINELEN * 4) {
       goto cluster_enforce_match_ret_NOMEM;
     }
     if (cp->qmatch_missing_str) {
@@ -1809,11 +1809,11 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       logerrprint("Error: Empty --qt file.\n");
       goto cluster_enforce_match_ret_INVALID_FORMAT;
     }
-    wkspace_alloc(cov_ct * sizeof(double)); // tol_arr
-    if (wkspace_left < non_null_cov_ct * sizeof(double)) {
+    bigstack_alloc(cov_ct * sizeof(double)); // tol_arr
+    if (g_bigstack_left < non_null_cov_ct * sizeof(double)) {
       goto cluster_enforce_match_ret_NOMEM;
     }
-    dptr = (double*)wkspace_base;
+    dptr = (double*)g_bigstack_base;
     if (fopen_checked(cp->qmatch_fname, "r", &matchfile)) {
       goto cluster_enforce_match_ret_OPEN_FAIL;
     }
@@ -1859,7 +1859,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	bufptr = token_endnn(bufptr);
       }
 
-      if (wkspace_left < (uintptr_t)(((unsigned char*)(&(dptr[non_null_cov_ct]))) - wkspace_base)) {
+      if (g_bigstack_left < (uintptr_t)(((unsigned char*)(&(dptr[non_null_cov_ct]))) - g_bigstack_base)) {
 	goto cluster_enforce_match_ret_NOMEM;
       }
     }
@@ -1966,7 +1966,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
     break;
   }
  cluster_enforce_match_ret_1:
-  wkspace_reset(wkspace_mark);
+  bigstack_reset(bigstack_mark);
   fclose_cond(matchfile);
   fclose_cond(typefile);
   return retval;
@@ -2732,7 +2732,7 @@ void write_cluster1_oitc(FILE* outfile, uint32_t clidx, char* sample_ids, uintpt
 }
 
 int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_sample_to_cluster, uintptr_t sample_ct, uint32_t* orig_cluster_map, uint32_t* orig_cluster_starts, uint32_t* late_clidx_to_sample_uidx, uint32_t orig_within_ct, uint32_t orig_cluster_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t* pheno_c, uint32_t* sample_idx_to_uidx, Cluster_info* cp, uint32_t* cluster_remap, uint32_t* clidx_table_space, uint32_t merge_ct, uint32_t* merge_sequence) {
-  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = NULL;
   uint32_t only2 = cp->modifier & CLUSTER_ONLY2;
   uint32_t report_pheno = (cp->modifier & CLUSTER_CC) || (cp->max_ctrls != 0xffffffffU);
@@ -2914,7 +2914,7 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
     break;
   }
   fclose_cond(outfile);
-  wkspace_reset(wkspace_mark);
+  bigstack_reset(bigstack_mark);
   return retval;
 }
 
@@ -2967,12 +2967,10 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
     }
   }
   if (is_mds_cluster) {
-    if (wkspace_alloc_d_checked(&main_matrix, final_cluster_ct * final_cluster_ct * sizeof(double)) ||
-        wkspace_alloc_ui_checked(&final_cluster_sizes, final_cluster_ct * sizeof(int32_t))) {
+    if (bigstack_calloc_d(final_cluster_ct * final_cluster_ct, &main_matrix) ||
+        bigstack_alloc_ui(final_cluster_ct, &final_cluster_sizes)) {
       goto mds_plot_ret_NOMEM;
     }
-    fill_double_zero(main_matrix, final_cluster_ct * final_cluster_ct);
-    fill_uint_zero(final_cluster_sizes, final_cluster_ct);
     dptr = dists;
     final_cluster_sizes[final_cluster_remap[0]] = 1;
     for (uii = 1; uii < cur_cluster_ct; uii++) {
@@ -2999,8 +2997,8 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
     }
     ulii = final_cluster_ct;
   } else {
-    wkspace_reset(dists);
-    if (wkspace_alloc_d_checked(&main_matrix, sample_ct * sample_ct * sizeof(double))) {
+    bigstack_reset(dists);
+    if (bigstack_alloc_d(sample_ct * sample_ct, &main_matrix)) {
       goto mds_plot_ret_NOMEM;
     }
     // expand triangular diagonal-free matrix to bottom-left of square matrix
@@ -3015,10 +3013,9 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
     }
     ulii = sample_ct;
   }
-  if (wkspace_alloc_d_checked(&column_means, ulii * sizeof(double))) {
+  if (bigstack_calloc_d(ulii, &column_means)) {
     goto mds_plot_ret_NOMEM;
   }
-  fill_double_zero(column_means, ulii);
   // bottom left filled with IBS values.  Now subtract them from 1 and square
   // them, and extract column means...
   for (clidx1 = 0; clidx1 < ulii; clidx1++) {
@@ -3068,16 +3065,16 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
   fflush(stdout);
 
   mdim = ulii;
-  if (wkspace_alloc_d_checked(&sqrt_eigvals, ulii * sizeof(double)) ||
-      wkspace_alloc_d_checked(&out_u, ulii * ulii * sizeof(double)) ||
-      wkspace_alloc_d_checked(&out_v, ulii * ulii * sizeof(double))) {
+  if (bigstack_alloc_d(ulii, &sqrt_eigvals) ||
+      bigstack_alloc_d(ulii * ulii, &out_u) ||
+      bigstack_alloc_d(ulii * ulii, &out_v)) {
     goto mds_plot_ret_NOMEM;
   }
   // fill_double_zero(sqrt_eigvals, ulii);
   // fill_double_zero(out_u, ulii * ulii);
   // fill_double_zero(out_v, ulii * ulii);
 
-  iwork = (__CLPK_integer*)wkspace_alloc(8 * ulii * sizeof(__CLPK_integer));
+  iwork = (__CLPK_integer*)bigstack_alloc(8 * ulii * sizeof(__CLPK_integer));
   if (!iwork) {
     goto mds_plot_ret_NOMEM;
   }
@@ -3086,7 +3083,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
   // workspace query
   dgesdd_(&jobz, &mdim, &mdim, main_matrix, &mdim, sqrt_eigvals, out_u, &mdim, out_v, &mdim, &optim_lwork, &lwork, iwork, &info);
   lwork = (int32_t)optim_lwork;
-  if (wkspace_alloc_d_checked(&work, lwork * sizeof(double))) {
+  if (bigstack_alloc_d(lwork, &work)) {
     goto mds_plot_ret_NOMEM;
   }
   // fill_double_zero(work, lwork);
@@ -3215,7 +3212,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
   }
   fclose_cond(outfile);
   free_cond(final_cluster_remap);
-  wkspace_reset(dists);
+  bigstack_reset(dists);
   return retval;
 }
 
@@ -3279,12 +3276,10 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
     }
   }
   if (is_mds_cluster) {
-    if (wkspace_alloc_d_checked(&main_matrix, final_cluster_ct * final_cluster_ct * sizeof(double)) ||
-        wkspace_alloc_ui_checked(&final_cluster_sizes, final_cluster_ct * sizeof(int32_t))) {
+    if (bigstack_calloc_d(final_cluster_ct * final_cluster_ct, &main_matrix) ||
+        bigstack_calloc_ui(final_cluster_ct, &final_cluster_sizes)) {
       goto mds_plot_eigendecomp_ret_NOMEM;
     }
-    fill_double_zero(main_matrix, final_cluster_ct * final_cluster_ct);
-    fill_uint_zero(final_cluster_sizes, final_cluster_ct);
     dptr = dists;
     final_cluster_sizes[final_cluster_remap[0]] = 1;
     for (uii = 1; uii < cur_cluster_ct; uii++) {
@@ -3311,8 +3306,8 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
     }
     ulii = final_cluster_ct;
   } else {
-    wkspace_reset(dists);
-    if (wkspace_alloc_d_checked(&main_matrix, sample_ct * sample_ct * sizeof(double))) {
+    bigstack_reset(dists);
+    if (bigstack_alloc_d(sample_ct * sample_ct, &main_matrix)) {
       goto mds_plot_eigendecomp_ret_NOMEM;
     }
     // expand triangular diagonal-free matrix to square matrix
@@ -3327,10 +3322,9 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
     }
     ulii = sample_ct;
   }
-  if (wkspace_alloc_d_checked(&column_means, ulii * sizeof(double))) {
+  if (bigstack_calloc_d(ulii, &column_means)) {
     goto mds_plot_eigendecomp_ret_NOMEM;
   }
-  fill_double_zero(column_means, ulii);
   // bottom left filled with IBS values.  Now subtract them from 1 and square
   // them, and extract column means...
   for (clidx1 = 1; clidx1 < ulii; clidx1++) {
@@ -3379,13 +3373,11 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
   mdim = ulii;
   i2 = mdim;
   i1 = i2 + 1 - dim_ct;
-  if (wkspace_alloc_d_checked(&out_w, dim_ct * sizeof(double)) ||
-      wkspace_alloc_d_checked(&out_z, dim_ct * ulii * sizeof(double))) {
+  if (bigstack_calloc_d(dim_ct, &out_w) ||
+      bigstack_calloc_d(dim_ct * ulii, &out_z)) {
     goto mds_plot_eigendecomp_ret_NOMEM;
   }
-  fill_double_zero(out_w, dim_ct);
-  fill_double_zero(out_z, dim_ct * ulii);
-  isuppz = (__CLPK_integer*)wkspace_alloc(2 * dim_ct * sizeof(__CLPK_integer));
+  isuppz = (__CLPK_integer*)bigstack_alloc(2 * dim_ct * sizeof(__CLPK_integer));
   if (!isuppz) {
     goto mds_plot_eigendecomp_ret_NOMEM;
   }
@@ -3394,23 +3386,22 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
 
   dsyevr_(&jobz, &range, &uplo, &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, &optim_lwork, &lwork, &optim_liwork, &liwork, &info);
   lwork = (int32_t)optim_lwork;
-  if (wkspace_alloc_d_checked(&work, lwork * sizeof(double))) {
+  if (bigstack_calloc_d(lwork, &work)) {
     goto mds_plot_eigendecomp_ret_NOMEM;
   }
   liwork = optim_liwork;
-  iwork = (__CLPK_integer*)wkspace_alloc(liwork * sizeof(__CLPK_integer));
+  iwork = (__CLPK_integer*)bigstack_alloc(liwork * sizeof(__CLPK_integer));
   if (!iwork) {
     goto mds_plot_eigendecomp_ret_NOMEM;
   }
-  fill_double_zero(work, lwork);
   fill_int_zero((int32_t*)iwork, liwork * (sizeof(__CLPK_integer) / sizeof(int32_t)));
   dsyevr_(&jobz, &range, &uplo, &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, work, &lwork, iwork, &liwork, &info);
 
   // * out_w[0..(dim_ct-1)] contains eigenvalues
   // * out_z[(ii*ulii)..(ii*ulii + ulii - 1)] is eigenvector corresponding to
   //   out_w[ii]
-  wkspace_reset(isuppz);
-  if (wkspace_alloc_d_checked(&sqrt_eigvals, dim_ct * sizeof(double))) {
+  bigstack_reset(isuppz);
+  if (bigstack_alloc_d(dim_ct, &sqrt_eigvals)) {
     goto mds_plot_eigendecomp_ret_NOMEM;
   }
   for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
@@ -3530,7 +3521,7 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
   }
   fclose_cond(outfile);
   free_cond(final_cluster_remap);
-  wkspace_reset(dists);
+  bigstack_reset(dists);
   return retval;
 }
 #endif

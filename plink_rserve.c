@@ -15,10 +15,10 @@
 
 int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin_debug, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uint32_t* marker_pos, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uintptr_t* pheno_c, double* pheno_d, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uintptr_t covar_ct, double* covar_d, char* outname, char* outname_end) {
   // See PLINK 1.07 r.cpp.
-  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* bigstack_mark = g_bigstack_base;
   FILE* infile = NULL;
   FILE* outfile = NULL;
-  char* wkspace_end = (char*)(&(wkspace_base[wkspace_left]));
+  char* bigstack_end = (char*)(&(g_bigstack_base[g_bigstack_left]));
   int32_t* geno_int_buf = NULL;
   Rinteger* r_n = NULL;
   Rinteger* r_s = NULL;
@@ -67,18 +67,18 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
   if (fopen_checked(rplugin_fname, "r", &infile)) {
     goto rserve_call_ret_OPEN_FAIL;
   }
-  if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_sample_ctl2 * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&loadbuf, pheno_nm_ctl2 * RPLUGIN_BLOCK_SIZE * sizeof(intptr_t))) {
+  if (bigstack_alloc_ul(unfiltered_sample_ctl2, &loadbuf_raw) ||
+      bigstack_alloc_ul(pheno_nm_ctl2 * RPLUGIN_BLOCK_SIZE, &loadbuf)) {
     goto rserve_call_ret_NOMEM;
   }
   loadbuf_raw[unfiltered_sample_ctl2 - 1] = 0;
   for (ulii = 1; ulii <= RPLUGIN_BLOCK_SIZE; ulii++) {
     loadbuf[ulii * pheno_nm_ctl2 - 1] = 0;
   }
-  inbuf_start = (char*)wkspace_base;
+  inbuf_start = (char*)g_bigstack_base;
   inbuf_end = inbuf_start;
   while (1) {
-    if ((uintptr_t)(wkspace_end - inbuf_start) < MAXLINELEN) {
+    if ((uintptr_t)(bigstack_end - inbuf_start) < MAXLINELEN) {
       goto rserve_call_ret_NOMEM;
     }
     inbuf_end[MAXLINELEN - 1] = ' ';
@@ -116,9 +116,9 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
     goto rserve_call_ret_INVALID_FORMAT;
   }
   *inbuf_end = '\0';
-  wkspace_alloc(1 + ((uintptr_t)(inbuf_end - inbuf_start)));
+  bigstack_alloc(1 + ((uintptr_t)(inbuf_end - inbuf_start)));
   if (pheno_c) {
-    if (wkspace_alloc_d_checked(&pheno_d2, pheno_nm_ct * sizeof(double))) {
+    if (bigstack_alloc_d(pheno_nm_ct, &pheno_d2)) {
       goto rserve_call_ret_NOMEM;
     }
     for (sample_uidx = 0, sample_idx = 0; sample_idx < pheno_nm_ct; sample_uidx++, sample_idx++) {
@@ -134,21 +134,20 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
     pheno_d2 = pheno_d;
   }
   if (cluster_ct) {
-    if (wkspace_alloc_i_checked(&sample_to_cluster, unfiltered_sample_ct * sizeof(int32_t))) {
+    if (bigstack_alloc_i(unfiltered_sample_ct, &sample_to_cluster)) {
       goto rserve_call_ret_NOMEM;
     }
     fill_int_one(sample_to_cluster, pheno_nm_ct);
     fill_unfiltered_sample_to_cluster(unfiltered_sample_ct, cluster_ct, cluster_map, cluster_starts, (uint32_t*)sample_to_cluster);
     inplace_collapse_uint32_incl((uint32_t*)sample_to_cluster, unfiltered_sample_ct, pheno_nm, pheno_nm_ct);
-    wkspace_shrink_top(sample_to_cluster, pheno_nm_ct * sizeof(int32_t));
+    bigstack_shrink_top(sample_to_cluster, pheno_nm_ct * sizeof(int32_t));
   } else {
-    if (wkspace_alloc_i_checked(&sample_to_cluster, pheno_nm_ct * sizeof(int32_t))) {
+    if (bigstack_calloc_i(pheno_nm_ct, &sample_to_cluster)) {
       goto rserve_call_ret_NOMEM;
     }
-    fill_int_zero(sample_to_cluster, pheno_nm_ct);
   }
   if (!rplugin_debug) {
-    if (wkspace_alloc_i_checked(&geno_int_buf, RPLUGIN_BLOCK_SIZE * pheno_nm_ct * sizeof(int32_t))) {
+    if (bigstack_alloc_i(RPLUGIN_BLOCK_SIZE * pheno_nm_ct, &geno_int_buf)) {
       goto rserve_call_ret_NOMEM;
     }
     rc = new Rconnection("127.0.0.1", rplugin_port);
@@ -435,7 +434,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
   }
   fclose_cond(infile);
   fclose_cond(outfile);
-  wkspace_reset(wkspace_mark);
+  bigstack_reset(bigstack_mark);
   delete r_n;
   delete r_p;
   delete r_s;

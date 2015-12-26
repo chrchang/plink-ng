@@ -18,7 +18,7 @@ int32_t cnv_subset_load(char* subset_fname, char** subset_list_ptr, uintptr_t* s
     goto cnv_subset_load_ret_NOMEM;
   }
 #endif
-  if (wkspace_alloc_c_checked(subset_list_ptr, subset_ct * max_subset_name_len)) {
+  if (bigstack_alloc_c(subset_ct * max_subset_name_len, subset_list_ptr)) {
     goto cnv_subset_load_ret_NOMEM;
   }
   retval = load_string_list(&subset_file, max_subset_name_len, *subset_list_ptr);
@@ -72,7 +72,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
   // almost all the "small tier" intervals regardless of the largest interval
   // size.
   FILE* intersect_file = NULL;
-  uintptr_t max_interval_ct = wkspace_left / 9;
+  uintptr_t max_interval_ct = g_bigstack_left / 9;
   uintptr_t small_interval_ct = 0;
   uintptr_t large_interval_ct = 0;
   uintptr_t reverse_warning_ct = 0;
@@ -82,9 +82,9 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
   //        bottom 16 bits = size
   // Large: top bit = zero, next 32 bits = center pos * 2, bottom 31 = size
   //        [chrom information stored separately, initially in reverse order]
-  unsigned char* tmp_il_large_chroms = wkspace_base; // grows up
+  unsigned char* tmp_il_large_chroms = g_bigstack_base; // grows up
   uint64_t* tmp_il_small = (uint64_t*)(&(tmp_il_large_chroms[(max_interval_ct + 7) & (~(7 * ONELU))])); // grows up
-  uint64_t* il_large = (uint64_t*)(&(wkspace_base[wkspace_left])); // grows down
+  uint64_t* il_large = (uint64_t*)(&(g_bigstack_base[g_bigstack_left])); // grows down
   uintptr_t* chrom_mask = chrom_info_ptr->chrom_mask;
   const char* cift_str = cnv_intersect_filter_type_to_str(intersect_filter_type);
   int32_t retval = 0;
@@ -289,7 +289,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
     fill_ulong_zero(il_chrom_start_large, chrom_code_end + 1);
   }
   *topsize_ptr = CACHELINE * ((small_interval_ct + large_interval_ct + CACHELINE_INT64 - 1) / CACHELINE_INT64);
-  wkspace_left -= (*topsize_ptr);
+  g_bigstack_left -= (*topsize_ptr);
   while (0) {
   cnv_intersect_load_ret_NOMEM:
     retval = RET_NOMEM;
@@ -451,7 +451,7 @@ int32_t cnv_make_map_write(FILE* new_mapfile, Chrom_info* chrom_info_ptr, uint32
 }
 
 int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, uint32_t min_seglen, uint32_t max_seglen, double min_score, double max_score, uint32_t min_sites, uint32_t max_sites, uintptr_t* il_chrom_start_small, uintptr_t* il_chrom_start_large, uint32_t* il_chrom_max_width_small, uint32_t* il_chrom_max_width_large, uint64_t* il_small, uint64_t* il_large, uint32_t intersect_filter_type, uint32_t overlap_type, double overlap_val, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t allow_extra_chroms, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t* max_marker_id_len_ptr, uint32_t* marker_chrom_start) {
-  int64_t* marker_pos_arr = (int64_t*)wkspace_base;
+  int64_t* marker_pos_arr = (int64_t*)g_bigstack_base;
   FILE* new_mapfile = NULL;
   uintptr_t raw_marker_ct = 0;
   uint32_t distinct_marker_ct = 1;
@@ -487,7 +487,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
   if (retval) {
     goto cnv_make_map_ret_1;
   }
-  max_marker_ct = wkspace_left / sizeof(int64_t);
+  max_marker_ct = g_bigstack_left / sizeof(int64_t);
   // allow SCORE/SITES to be missing if they aren't being filtered on
   if (filter_sites) {
     req_fields = 5;
@@ -674,7 +674,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
   }
  cnv_make_map_ret_1:
   fclose_cond(new_mapfile);
-  wkspace_reset(marker_pos_arr);
+  bigstack_reset(marker_pos_arr);
   return retval;
 }
 
@@ -886,7 +886,7 @@ int32_t load_cnv_map(FILE* mapfile, int32_t marker_pos_start, int32_t marker_pos
 }
 
 int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname, char* famname, char* phenoname, char* keepname, char* removename, char* filtername, uint64_t misc_flags, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* filtervals_flattened, uint64_t filter_flags, uint32_t cnv_calc_type, uint32_t min_seglen, uint32_t max_seglen, double min_score, double max_score, uint32_t min_sites, uint32_t max_sites, uint32_t intersect_filter_type, char* intersect_filter_fname, char* subset_fname, uint32_t overlap_type, double overlap_val, uint32_t freq_type, uint32_t freq_val, double freq_val2, uint32_t test_window, uint32_t segment_modifier, char* segment_spanning_fname, uint32_t sample_mperms, uint32_t test_mperms, uint32_t test_region_mperms, uint32_t enrichment_test_mperms, int32_t marker_pos_start, int32_t marker_pos_end, Chrom_info* chrom_info_ptr) {
-  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* bigstack_mark = g_bigstack_base;
   FILE* cnvfile = NULL;
   FILE* famfile = NULL;
   FILE* mapfile = NULL;
@@ -901,7 +901,7 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
   uint64_t* il_large = NULL;
   uintptr_t* il_chrom_start_small;
   uintptr_t* il_chrom_start_large;
-  unsigned char* wkspace_mark2;
+  unsigned char* bigstack_mark2;
   uint32_t* il_chrom_max_width_small;
   uint32_t* il_chrom_max_width_large;
   uint32_t* marker_chrom_start;
@@ -912,14 +912,14 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
   char* sptr;
   uintptr_t ulii;
   uint32_t uii;
-  if (wkspace_alloc_ul_checked(&il_chrom_start_small, (MAX_POSSIBLE_CHROM + 1) * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&il_chrom_start_large, (MAX_POSSIBLE_CHROM + 1) * sizeof(intptr_t)) ||
-      wkspace_alloc_ui_checked(&il_chrom_max_width_small, MAX_POSSIBLE_CHROM * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(&il_chrom_max_width_large, MAX_POSSIBLE_CHROM * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(&marker_chrom_start, (MAX_POSSIBLE_CHROM + 1) * sizeof(int32_t))) {
+  if (bigstack_alloc_ul(MAX_POSSIBLE_CHROM + 1, &il_chrom_start_small) ||
+      bigstack_alloc_ul(MAX_POSSIBLE_CHROM + 1, &il_chrom_start_large) ||
+      bigstack_alloc_ui(MAX_POSSIBLE_CHROM, &il_chrom_max_width_small) ||
+      bigstack_alloc_ui(MAX_POSSIBLE_CHROM, &il_chrom_max_width_large) ||
+      bigstack_alloc_ui(MAX_POSSIBLE_CHROM + 1, &marker_chrom_start)) {
     goto plink_cnv_ret_NOMEM;
   }
-  wkspace_mark2 = wkspace_base;
+  bigstack_mark2 = g_bigstack_base;
   if (fopen_checked(cnvname, "r", &cnvfile)) {
     goto plink_cnv_ret_OPEN_FAIL;
   }
@@ -940,7 +940,7 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
     if (retval) {
       goto plink_cnv_ret_1;
     }
-    wkspace_reset(wkspace_mark2);
+    bigstack_reset(bigstack_mark2);
   }
   if (!(cnv_calc_type & CNV_MAKE_MAP)) {
     sptr = (char*)memchr(mapname, 0, FNAMESIZE);
@@ -988,8 +988,8 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
     goto plink_cnv_ret_NOMEM;
   }
 #endif
-  if (wkspace_alloc_ui_checked(&marker_pos, ulii * sizeof(int32_t)) ||
-      wkspace_alloc_c_checked(&marker_ids, ulii * max_marker_id_len)) {
+  if (bigstack_alloc_ui(ulii, &marker_pos) ||
+      bigstack_alloc_c(ulii * max_marker_id_len, &marker_ids)) {
     goto plink_cnv_ret_NOMEM;
   }
   retval = load_cnv_map(mapfile, marker_pos_start, marker_pos_end, chrom_info_ptr, max_marker_id_len, marker_pos, marker_ids);
@@ -1010,13 +1010,13 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
   }
  plink_cnv_ret_1:
   if (topsize) {
-    wkspace_left += topsize;
+    g_bigstack_left += topsize;
   }
   fclose_cond(cnvfile);
   fclose_cond(famfile);
   fclose_cond(mapfile);
   fclose_cond(outfile);
-  wkspace_reset(wkspace_mark);
+  bigstack_reset(bigstack_mark);
   return 0;
 }
 #endif // HIGH_MAX_CHROM

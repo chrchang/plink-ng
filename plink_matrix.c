@@ -40,7 +40,7 @@ int32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
   // Note that this function is NOT thread-safe, due to the buffer allocated
   // from the workspace stack.  Pass in a preallocated buffer if that's not
   // okay.
-  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* bigstack_mark = g_bigstack_base;
   int32_t n = m;
   int32_t flag;
   int32_t l = 0; // suppress compile warning
@@ -48,7 +48,7 @@ int32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
   double anorm,c,f,g,h,s,scale,x,y,z;
   double volatile temp;
   double* rv1;
-  if (wkspace_alloc_d_checked(&rv1, m * sizeof(double))) {
+  if (bigstack_alloc_d(m, &rv1)) {
     return -1;
   }
 
@@ -225,7 +225,7 @@ int32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
       w[k]=x;
     }
   }
-  wkspace_reset(wkspace_mark);
+  bigstack_reset(bigstack_mark);
   return 1;
 }
 

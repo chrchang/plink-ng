@@ -156,8 +156,9 @@
 #include "zlib-1.2.8/zlib.h"
 #include "SFMT.h"
 
-// 64MB of non-workspace memory guaranteed for now
-#define NON_WKSPACE_MIN 67108864
+// 64MB of non-workspace memory guaranteed for now.
+// Currently also serves as the maximum allele length.
+#define NON_BIGSTACK_MIN 67108864
 
 #define PI 3.1415926535897932
 #define RECIP_2_32 0.00000000023283064365386962890625
@@ -586,8 +587,8 @@
 #define ITERS_DEFAULT 100000
 #define MAX_PCS_DEFAULT 20
 
-#define WKSPACE_MIN_MB 64
-#define WKSPACE_DEFAULT_MB 2048
+#define BIGSTACK_MIN_MB 64
+#define BIGSTACK_DEFAULT_MB 2048
 
 #ifdef __LP64__
   #define BITCT 64
@@ -612,12 +613,14 @@
 #define VEC_WORDS (VEC_BITS / BITCT)
 
 #define CACHELINE 64 // assumed number of bytes per cache line, for alignment
+#define CACHELINE_BIT (CACHELINE * 8)
 #define CACHELINE_INT32 (CACHELINE / 4)
 #define CACHELINE_INT64 (CACHELINE / 8)
 #define CACHELINE_WORD (CACHELINE / BYTECT)
 #define CACHELINE_DBL (CACHELINE / 8)
 
 #define CACHEALIGN(val) (((val) + (CACHELINE - 1)) & (~(CACHELINE - ONELU)))
+#define CACHEALIGN_BIT(val) (((val) + (CACHELINE_BIT - 1)) & (~(CACHELINE_BIT - ONELU)))
 #define CACHEALIGN_INT32(val) (((val) + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - ONELU)))
 #define CACHEALIGN_WORD(val) (((val) + (CACHELINE_WORD - 1)) & (~(CACHELINE_WORD - ONELU)))
 #define CACHEALIGN_DBL(val) (((val) + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - ONELU)))
@@ -627,6 +630,7 @@
 // (note that the sizeof operator "returns" an uintptr_t, not a uint32_t; hence
 // the lack of sizeof in the CACHELINE_INT32, etc. definitions.)
 #define CACHEALIGN32(val) (((val) + (CACHELINE - 1)) & (~(CACHELINE - 1)))
+#define CACHEALIGN32_BIT(val) (((val) + (CACHELINE_BIT - 1)) & (~(CACHELINE_BIT - 1)))
 #define CACHEALIGN32_INT32(val) (((val) + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1)))
 #define CACHEALIGN32_WORD(val) (((val) + (CACHELINE_WORD - 1)) & (~(CACHELINE_WORD - 1)))
 #define CACHEALIGN32_DBL(val) (((val) + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
@@ -928,64 +932,65 @@ static inline int32_t flexclose_null(uint32_t output_gz, FILE** fptr_ptr, gzFile
   }
 }
 
-static inline int32_t bed_suffix_conflict(uint64_t calculation_type, uint32_t recode_modifier) {
-  return (calculation_type & CALC_MAKE_BED) || ((calculation_type & CALC_RECODE) && (recode_modifier & (RECODE_LGEN | RECODE_LGEN_REF | RECODE_RLIST)));
-}
+// manually managed, very large double-ended stack
+extern unsigned char* g_bigstack_base;
+extern uintptr_t g_bigstack_left;
 
-// manually managed, very large stack
-extern unsigned char* wkspace_base;
-extern uintptr_t wkspace_left;
 
-unsigned char* wkspace_alloc(uintptr_t size);
+// Basic 64-byte-aligned allocation at bottom of stack.
+unsigned char* bigstack_alloc(uintptr_t size);
 
-static inline int32_t wkspace_alloc_c_checked(char** dc_ptr, uintptr_t size) {
-  *dc_ptr = (char*)wkspace_alloc(size);
+
+// Typesafe, return-0-iff-success interfaces.  (See also bigstack_calloc_...
+// further below.)
+static inline int32_t bigstack_alloc_c(uintptr_t ct, char** dc_ptr) {
+  *dc_ptr = (char*)bigstack_alloc(ct);
   return !(*dc_ptr);
 }
 
-static inline int32_t wkspace_alloc_d_checked(double** dp_ptr, uintptr_t size) {
-  *dp_ptr = (double*)wkspace_alloc(size);
+static inline int32_t bigstack_alloc_d(uintptr_t ct, double** dp_ptr) {
+  *dp_ptr = (double*)bigstack_alloc(ct * sizeof(double));
   return !(*dp_ptr);
 }
 
-static inline int32_t wkspace_alloc_f_checked(float** fp_ptr, uintptr_t size) {
-  *fp_ptr = (float*)wkspace_alloc(size);
+static inline int32_t bigstack_alloc_f(uintptr_t ct, float** fp_ptr) {
+  *fp_ptr = (float*)bigstack_alloc(ct * sizeof(float));
   return !(*fp_ptr);
 }
 
-static inline int32_t wkspace_alloc_i_checked(int32_t** ip_ptr, uintptr_t size) {
-  *ip_ptr = (int32_t*)wkspace_alloc(size);
+static inline int32_t bigstack_alloc_i(uintptr_t ct, int32_t** ip_ptr) {
+  *ip_ptr = (int32_t*)bigstack_alloc(ct * sizeof(int32_t));
   return !(*ip_ptr);
 }
 
-static inline int32_t wkspace_alloc_uc_checked(unsigned char** ucp_ptr, uintptr_t size) {
-  *ucp_ptr = wkspace_alloc(size);
+static inline int32_t bigstack_alloc_uc(uintptr_t ct, unsigned char** ucp_ptr) {
+  *ucp_ptr = bigstack_alloc(ct);
   return !(*ucp_ptr);
 }
 
-static inline int32_t wkspace_alloc_ui_checked(uint32_t** uip_ptr, uintptr_t size) {
-  *uip_ptr = (uint32_t*)wkspace_alloc(size);
+static inline int32_t bigstack_alloc_ui(uintptr_t ct, uint32_t** uip_ptr) {
+  *uip_ptr = (uint32_t*)bigstack_alloc(ct * sizeof(int32_t));
   return !(*uip_ptr);
 }
 
-static inline int32_t wkspace_alloc_ul_checked(uintptr_t** ulp_ptr, uintptr_t size) {
-  *ulp_ptr = (uintptr_t*)wkspace_alloc(size);
+static inline int32_t bigstack_alloc_ul(uintptr_t ct, uintptr_t** ulp_ptr) {
+  *ulp_ptr = (uintptr_t*)bigstack_alloc(ct * sizeof(intptr_t));
   return !(*ulp_ptr);
 }
 
-static inline int32_t wkspace_alloc_ll_checked(int64_t** llp_ptr, uintptr_t size) {
-  *llp_ptr = (int64_t*)wkspace_alloc(size);
+static inline int32_t bigstack_alloc_ll(uintptr_t ct, int64_t** llp_ptr) {
+  *llp_ptr = (int64_t*)bigstack_alloc(ct * sizeof(int64_t));
   return !(*llp_ptr);
 }
 
-static inline int32_t wkspace_alloc_ull_checked(uint64_t** ullp_ptr, uintptr_t size) {
-  *ullp_ptr = (uint64_t*)wkspace_alloc(size);
+static inline int32_t bigstack_alloc_ull(uintptr_t ct, uint64_t** ullp_ptr) {
+  *ullp_ptr = (uint64_t*)bigstack_alloc(ct * sizeof(int64_t));
   return !(*ullp_ptr);
 }
 
-void wkspace_reset(void* new_base);
+void bigstack_reset(const void* new_base);
 
-void wkspace_shrink_top(void* rebase, uintptr_t new_size);
+void bigstack_shrink_top(const void* rebase, uintptr_t new_size);
 
 #define TOP_ALLOC_CHUNK 16
 #define TOP_ALLOC_CHUNK_M1 (TOP_ALLOC_CHUNK - 1)
@@ -993,11 +998,11 @@ void wkspace_shrink_top(void* rebase, uintptr_t new_size);
 static inline unsigned char* top_alloc(uintptr_t* topsize_ptr, uintptr_t size) {
   // multiplication by ONELU is one way to widen an integer to word-size.
   uintptr_t ts = *topsize_ptr + ((size + TOP_ALLOC_CHUNK_M1) & (~(TOP_ALLOC_CHUNK_M1 * ONELU)));
-  if (ts > wkspace_left) {
+  if (ts > g_bigstack_left) {
     return NULL;
   } else {
     *topsize_ptr = ts;
-    return &(wkspace_base[wkspace_left - ts]);
+    return &(g_bigstack_base[g_bigstack_left - ts]);
   }
 }
 
@@ -1649,7 +1654,9 @@ static inline void prev_unset_unsafe_ck(uintptr_t* bitarr, uint32_t* loc_ptr) {
   }
 }
 
-// These functions seem to optimize better than memset(arr, 0, x) under gcc.
+// These functions seem to optimize better than memset(arr, 0, x) under OS X's
+// gcc, and they should be equivalent for later versions (looks like
+// memcpy/memset were redone in gcc 4.3).
 static inline void fill_long_zero(intptr_t* larr, size_t size) {
   size_t ulii;
   for (ulii = 0; ulii < size; ulii++) {
@@ -1747,6 +1754,32 @@ static inline void fill_double_zero(double* darr, size_t size) {
   }
 }
 
+
+int32_t bigstack_calloc_uc(uintptr_t ct, unsigned char** ucp_ptr);
+
+int32_t bigstack_calloc_d(uintptr_t ct, double** dp_ptr);
+
+int32_t bigstack_calloc_f(uintptr_t ct, float** fp_ptr);
+
+int32_t bigstack_calloc_ui(uintptr_t ct, uint32_t** uip_ptr);
+
+int32_t bigstack_calloc_ul(uintptr_t ct, uintptr_t** ulp_ptr);
+
+int32_t bigstack_calloc_ull(uintptr_t ct, uint64_t** ullp_ptr);
+
+static inline int32_t bigstack_calloc_c(uintptr_t ct, char** dc_ptr) {
+  return bigstack_calloc_uc(ct, (unsigned char**)dc_ptr);
+}
+
+static inline int32_t bigstack_calloc_i(uintptr_t ct, int32_t** ip_ptr) {
+  return bigstack_calloc_ui(ct, (uint32_t**)ip_ptr);
+}
+
+static inline int32_t bigstack_calloc_ll(uintptr_t ct, int64_t** llp_ptr) {
+  return bigstack_calloc_ull(ct, (uint64_t**)llp_ptr);
+}
+
+
 uint32_t murmurhash3_32(const void* key, uint32_t len);
 
 static inline uint32_t hashval2(char* idstr, uint32_t idlen) {
@@ -1763,7 +1796,7 @@ int32_t populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uint
 
 static inline int32_t alloc_and_populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, const char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t** id_htable_ptr, uint32_t* id_htable_size_ptr) {
   uint32_t id_htable_size = get_id_htable_size(item_ct);
-  if (wkspace_alloc_ui_checked(id_htable_ptr, id_htable_size * sizeof(int32_t))) {
+  if (bigstack_alloc_ui(id_htable_size * sizeof(int32_t), id_htable_ptr)) {
     return RET_NOMEM;
   }
   *id_htable_size_ptr = id_htable_size;
@@ -2397,6 +2430,6 @@ int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintpt
 
 extern sfmt_t** g_sfmtp_arr;
 
-uint32_t wkspace_init_sfmtp(uint32_t thread_ct);
+uint32_t bigstack_init_sfmtp(uint32_t thread_ct);
 
 #endif // __PLINK_COMMON_H__

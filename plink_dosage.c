@@ -70,13 +70,13 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
   uint32_t rangename_len_limit;
   uint32_t slen;
   int32_t ii;
-  loadbuf_size = wkspace_left;
+  loadbuf_size = g_bigstack_left;
   if (loadbuf_size > MAXLINEBUFLEN) {
     loadbuf_size = MAXLINEBUFLEN;
   } else if (loadbuf_size <= MAXLINELEN) {
     goto dosage_load_score_files_ret_NOMEM;
   }
-  loadbuf = (char*)wkspace_base;
+  loadbuf = (char*)g_bigstack_base;
   retval = open_and_load_to_first_token(&infile, sc_ip->fname, loadbuf_size, '\0', "--score file", loadbuf, &bufptr, &line_idx);
   if (retval) {
     goto dosage_load_score_files_ret_1;
@@ -182,36 +182,35 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
     goto dosage_load_score_files_ret_NOMEM;
   }
 #endif
-  if (wkspace_alloc_c_checked(score_marker_ids_ptr, score_marker_ct * max_score_marker_id_len) ||
-      wkspace_alloc_d_checked(score_effect_sizes_ptr, score_marker_ct * sizeof(double)) ||
-      wkspace_alloc_c_checked(&allele_code_buf, (uintptr_t)allele_code_buf_len)) {
+  if (bigstack_alloc_c(score_marker_ct * max_score_marker_id_len, score_marker_ids_ptr) ||
+      bigstack_alloc_d(score_marker_ct, score_effect_sizes_ptr) ||
+      bigstack_alloc_c((uintptr_t)allele_code_buf_len, &allele_code_buf)) {
     goto dosage_load_score_files_ret_NOMEM;
   }
   score_marker_ids = *score_marker_ids_ptr;
   score_effect_sizes = *score_effect_sizes_ptr;
   score_marker_ctl = (score_marker_ct + (BITCT - 1)) / BITCT;
   if (sc_ip->data_fname) {
-    if (wkspace_alloc_ul_checked(score_qrange_key_exists_ptr, score_marker_ctl * sizeof(intptr_t)) ||
-        wkspace_alloc_d_checked(score_qrange_keys_ptr, score_marker_ct * sizeof(double))) {
+    if (bigstack_calloc_ul(score_marker_ctl, score_qrange_key_exists_ptr) ||
+        bigstack_alloc_d(score_marker_ct, score_qrange_keys_ptr)) {
       goto dosage_load_score_files_ret_NOMEM;
     }
     score_qrange_key_exists = *score_qrange_key_exists_ptr;
     score_qrange_keys = *score_qrange_keys_ptr;
-    fill_ulong_zero(score_qrange_key_exists, score_marker_ctl);
   }
-  score_allele_codes = (char**)wkspace_alloc(score_marker_ct * sizeof(intptr_t));
+  score_allele_codes = (char**)bigstack_alloc(score_marker_ct * sizeof(intptr_t));
   if (!score_allele_codes) {
     goto dosage_load_score_files_ret_NOMEM;
   }
   *score_allele_codes_ptr = score_allele_codes;
   rewind(infile);
-  loadbuf_size = wkspace_left;
+  loadbuf_size = g_bigstack_left;
   if (loadbuf_size > MAXLINEBUFLEN) {
     loadbuf_size = MAXLINEBUFLEN;
   } else if (loadbuf_size <= MAXLINELEN) {
     goto dosage_load_score_files_ret_NOMEM;
   }
-  loadbuf = (char*)wkspace_base;
+  loadbuf = (char*)g_bigstack_base;
   loadbuf[loadbuf_size - 1] = ' ';
   // pass 2: load and sort variant IDs
   retval = load_to_first_token(infile, loadbuf_size, '\0', "--score file", loadbuf, &bufptr, &line_idx);
@@ -402,8 +401,8 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
       logerrprint("Error: No valid entries in --q-score-range range file.\n");
       goto dosage_load_score_files_ret_INVALID_FORMAT;
     }
-    if (wkspace_alloc_c_checked(score_qrange_names_ptr, qrange_ct * max_qrange_name_len) ||
-        wkspace_alloc_d_checked(score_qrange_bounds_ptr, qrange_ct * 2 * sizeof(double))) {
+    if (bigstack_alloc_c(qrange_ct * max_qrange_name_len, score_qrange_names_ptr) ||
+        bigstack_alloc_d(qrange_ct * 2, score_qrange_bounds_ptr)) {
       goto dosage_load_score_files_ret_NOMEM;
     }
     score_qrange_names = *score_qrange_names_ptr;
@@ -616,7 +615,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 #endif
   char missing_pheno_str[32];
   Pigz_state ps;
-  unsigned char* wkspace_mark;
+  unsigned char* bigstack_mark;
   unsigned char* overflow_buf;
   char* fnames;
   char* loadbuf;
@@ -733,7 +732,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     goto plink1_dosage_ret_OPEN_FAIL;
   }
   if (phenofile || update_ids_fname || update_parents_fname || update_sex_fname || (filter_flags & FILTER_TAIL_PHENO)) {
-    wkspace_mark = wkspace_base;
+    bigstack_mark = g_bigstack_base;
     retval = sort_item_ids(&sorted_sample_ids, &sample_id_map, unfiltered_sample_ct, sample_exclude, 0, sample_ids, max_sample_id_len, 0, 0, strcmp_deref);
     if (retval) {
       goto plink1_dosage_ret_1;
@@ -750,7 +749,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	if (retval == LOAD_PHENO_LAST_COL) {
 	  logprintb();
 	  retval = RET_INVALID_FORMAT;
-	  wkspace_reset(wkspace_mark);
+	  bigstack_reset(bigstack_mark);
 	}
         goto plink1_dosage_ret_1;
       }
@@ -761,12 +760,12 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
         goto plink1_dosage_ret_1;
       }
     }
-    wkspace_reset(wkspace_mark);
+    bigstack_reset(bigstack_mark);
   }
   if (load_map) {
     uii = update_map || update_name || filter_attrib_fname || qual_filter;
     if (uii || extractname || excludename) {
-      wkspace_mark = wkspace_base;
+      bigstack_mark = g_bigstack_base;
       retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, !uii, &marker_id_htable, &marker_id_htable_size);
       if (retval) {
 	goto plink1_dosage_ret_1;
@@ -780,7 +779,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  goto plink1_dosage_ret_1;
 	}
 	if (extractname || excludename) {
-	  wkspace_reset(wkspace_mark);
+	  bigstack_reset(bigstack_mark);
 	  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
 	  if (retval) {
 	    goto plink1_dosage_ret_1;
@@ -837,7 +836,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  goto plink1_dosage_ret_1;
 	}
       }
-      wkspace_reset(wkspace_mark);
+      bigstack_reset(bigstack_mark);
     }
     if (thin_keep_prob != 1.0) {
       if (random_thin_markers(thin_keep_prob, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0)) {
@@ -851,7 +850,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     }
   }
   if (update_ids_fname || update_parents_fname || update_sex_fname || keepname || keepfamname || removename || removefamname || filter_attrib_sample_fname || filtername) {
-    wkspace_mark = wkspace_base;
+    bigstack_mark = g_bigstack_base;
     retval = sort_item_ids(&sorted_sample_ids, &sample_id_map, unfiltered_sample_ct, sample_exclude, sample_exclude_ct, sample_ids, max_sample_id_len, 0, 0, strcmp_deref);
     if (retval) {
       goto plink1_dosage_ret_1;
@@ -915,7 +914,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	goto plink1_dosage_ret_1;
       }
     }
-    wkspace_reset(wkspace_mark);
+    bigstack_reset(bigstack_mark);
   }
   if (gender_unk_ct && (!(sex_missing_pheno & ALLOW_NO_SEX))) {
     uii = popcount_longs_exclude(pheno_nm, sex_nm, unfiltered_sample_ctl);
@@ -1025,9 +1024,9 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
     }
   } else if (sex_covar) {
-    if (wkspace_alloc_c_checked(&covar_names, 4) ||
-        wkspace_alloc_ul_checked(&covar_nm, sample_ctl * sizeof(intptr_t)) ||
-        wkspace_alloc_d_checked(&covar_d, sample_ct * sizeof(double))) {
+    if (bigstack_alloc_c(4, &covar_names) ||
+        bigstack_alloc_ul(sample_ctl, &covar_nm) ||
+        bigstack_alloc_d(sample_ct, &covar_d)) {
       goto plink1_dosage_ret_NOMEM;
     }
     covar_ct = 1;
@@ -1114,28 +1113,20 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       goto plink1_dosage_ret_1;
     }
     if (qrange_ct) {
-      if (wkspace_alloc_d_checked(&cur_scores, sample_ct * qrange_ct * sizeof(double)) ||
-          wkspace_alloc_d_checked(&score_bases, qrange_ct * sizeof(double)) ||
-          wkspace_alloc_ui_checked(&score_range_obs_cts, qrange_ct * sizeof(int32_t)) ||
-          wkspace_alloc_ui_checked(&score_miss_cts, sample_ct * qrange_ct * sizeof(int32_t))) {
+      if (bigstack_calloc_d(sample_ct * qrange_ct, &cur_scores) ||
+          bigstack_calloc_d(qrange_ct, &score_bases) ||
+          bigstack_alloc_ui(qrange_ct, &score_range_obs_cts) ||
+          bigstack_alloc_ui(sample_ct * qrange_ct, &score_miss_cts)) {
 	goto plink1_dosage_ret_NOMEM;
       }
-      fill_double_zero(cur_scores, sample_ct * qrange_ct);
-      fill_double_zero(score_bases, qrange_ct);
-      fill_uint_zero(score_range_obs_cts, qrange_ct);
-      fill_uint_zero(score_miss_cts, sample_ct * qrange_ct);
       *outname_end = '.';
     } else {
-      if (wkspace_alloc_d_checked(&cur_scores, sample_ct * sizeof(double)) ||
-          wkspace_alloc_d_checked(&score_bases, sizeof(double)) ||
-          wkspace_alloc_ui_checked(&score_range_obs_cts, sizeof(int32_t)) ||
-          wkspace_alloc_ui_checked(&score_miss_cts, sample_ct * sizeof(int32_t))) {
+      if (bigstack_calloc_d(sample_ct, &cur_scores) ||
+          bigstack_calloc_d(1, &score_bases) ||
+          bigstack_calloc_ui(1, &score_range_obs_cts) ||
+          bigstack_calloc_ui(sample_ct, &score_miss_cts)) {
 	goto plink1_dosage_ret_NOMEM;
       }
-      fill_double_zero(cur_scores, sample_ct);
-      score_bases[0] = 0.0;
-      score_range_obs_cts[0] = 0;
-      fill_uint_zero(score_miss_cts, sample_ct);
     }
     calc_plink_maxfid(unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, &plink_maxfid, &plink_maxiid);
     missing_pheno_len = strlen(output_missing_pheno);
@@ -1180,11 +1171,11 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
         logerrprint("Error: Unexpected number of columns in --dosage list file.\n");
 	goto plink1_dosage_ret_INVALID_FORMAT;
       }
-      batch_sizes = (uint32_t*)wkspace_base;
+      batch_sizes = (uint32_t*)g_bigstack_base;
       uiptr = batch_sizes;
-      uiptr2 = (uint32_t*)(&(wkspace_base[wkspace_left / 2]));
+      uiptr2 = (uint32_t*)(&(g_bigstack_base[g_bigstack_left / 2]));
     } else {
-      if (wkspace_alloc_ui_checked(&batch_sizes, sizeof(int32_t))) {
+      if (bigstack_alloc_ui(1, &batch_sizes)) {
 	goto plink1_dosage_ret_NOMEM;
       }
     }
@@ -1253,7 +1244,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 #else
       qsort(batch_sizes, infile_ct, sizeof(int32_t), intcmp2);
 #endif
-      batch_sizes = (uint32_t*)wkspace_alloc(infile_ct * sizeof(int32_t));
+      bigstack_alloc_ui(infile_ct, &batch_sizes);
       // temporary batch size buffer
       uiptr3 = (uint32_t*)top_alloc(&topsize, infile_ct * sizeof(int32_t));
 
@@ -1288,7 +1279,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	goto plink1_dosage_ret_NOMEM;
       }
       memcpy(uiptr, batch_sizes, batch_ct * sizeof(int32_t));
-      wkspace_shrink_top(batch_sizes, batch_ct * sizeof(int32_t));
+      bigstack_shrink_top(batch_sizes, batch_ct * sizeof(int32_t));
       memcpy(batch_sizes, uiptr3, batch_ct * sizeof(int32_t));
       // convert uiptr3 to write offset array
       uii = uiptr3[0];
@@ -1298,20 +1289,20 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	uii += uiptr3[ujj];
         uiptr3[ujj] = ukk;
       }
-      wkspace_left -= topsize;
+      g_bigstack_left -= topsize;
     } else {
       uiptr3 = batch_sizes;
       uiptr3[0] = 0;
     }
-    if (wkspace_alloc_c_checked(&fnames, infile_ct * max_fn_len)) {
+    if (bigstack_alloc_c(infile_ct * max_fn_len, &fnames)) {
       goto plink1_dosage_ret_NOMEM2;
     }
     if (sepheader) {
-      if (wkspace_alloc_c_checked(&sep_fnames, infile_ct * max_sepheader_len)) {
+      if (bigstack_alloc_c(infile_ct * max_sepheader_len, &sep_fnames)) {
 	goto plink1_dosage_ret_NOMEM2;
       }
     }
-    wkspace_left += topsize;
+    g_bigstack_left += topsize;
     topsize = 0;
     rewind(infile);
     while (fgets(tbuf, MAXLINELEN, infile)) {
@@ -1352,26 +1343,26 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     }
   } else {
     uii = strlen(doip->fname) + 1;
-    if (wkspace_alloc_ui_checked(&batch_sizes, sizeof(int32_t)) ||
-        wkspace_alloc_c_checked(&fnames, uii + 1)) {
+    if (bigstack_alloc_ui(1, &batch_sizes) ||
+        bigstack_alloc_c(uii + 1, &fnames)) {
       goto plink1_dosage_ret_NOMEM;
     }
     batch_sizes[0] = 1;
     memcpy(fnames, doip->fname, uii);
     infile_ct = 1;
   }
-  if (wkspace_alloc_uc_checked(&overflow_buf, 2 * PIGZ_BLOCK_SIZE) ||
-      wkspace_alloc_ui_checked(&file_icts, max_batch_size * sizeof(int32_t)) ||
-      wkspace_alloc_ul_checked(&line_idx_arr, max_batch_size * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&batch_samples, sample_ctl * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&cur_samples, sample_ctl * sizeof(intptr_t)) ||
-      wkspace_alloc_ui_checked(&read_idx_to_sample_idx, sample_ct * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(&skip_vals, sample_ct * sizeof(int32_t)) ||
-      wkspace_alloc_d_checked(&cur_dosages, sample_ct * sizeof(double)) ||
-      wkspace_alloc_c_checked(&cur_marker_id_buf, MAX_ID_LEN)) {
+  if (bigstack_alloc_uc(2 * PIGZ_BLOCK_SIZE, &overflow_buf) ||
+      bigstack_alloc_ui(max_batch_size, &file_icts) ||
+      bigstack_alloc_ul(max_batch_size, &line_idx_arr) ||
+      bigstack_alloc_ul(sample_ctl, &batch_samples) ||
+      bigstack_alloc_ul(sample_ctl, &cur_samples) ||
+      bigstack_alloc_ui(sample_ct, &read_idx_to_sample_idx) ||
+      bigstack_alloc_ui(sample_ct, &skip_vals) ||
+      bigstack_alloc_d(sample_ct, &cur_dosages) ||
+      bigstack_alloc_c(MAX_ID_LEN, &cur_marker_id_buf)) {
     goto plink1_dosage_ret_NOMEM;
   }
-  gz_infiles = (gzFile*)wkspace_alloc(infile_ct * sizeof(gzFile));
+  gz_infiles = (gzFile*)bigstack_alloc(infile_ct * sizeof(gzFile));
   if (!gz_infiles) {
     infile_ct = 0;
     goto plink1_dosage_ret_NOMEM;
@@ -1411,7 +1402,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 #endif
       pheno_c_collapsed = pheno_c;
     } else {
-      if (wkspace_alloc_ul_checked(&pheno_nm_collapsed, sample_ctl * sizeof(intptr_t))) {
+      if (bigstack_alloc_ul(sample_ctl, &pheno_nm_collapsed)) {
 	goto plink1_dosage_ret_NOMEM;
       }
       collapse_copy_bitarr(unfiltered_sample_ct, pheno_nm, sample_exclude, sample_ct, pheno_nm_collapsed);
@@ -1423,7 +1414,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	}
       } else {
 #endif
-	if (wkspace_alloc_ul_checked(&pheno_c_collapsed, sample_ctl * sizeof(intptr_t))) {
+	if (bigstack_alloc_ul(sample_ctl, &pheno_c_collapsed)) {
 	  goto plink1_dosage_ret_NOMEM;
 	}
 	collapse_copy_bitarr(unfiltered_sample_ct, pheno_c, sample_exclude, sample_ct, pheno_c_collapsed);
@@ -1433,17 +1424,17 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     }
 #ifndef NOLAPACK
     if (pheno_d) {
-      if (wkspace_alloc_d_checked(&pheno_d2, sample_ct * sizeof(double)) ||
-	  wkspace_alloc_d_checked(&covars_cov_major_buf, param_ct * sample_ct * sizeof(double)) ||
-	  wkspace_alloc_d_checked(&covars_sample_major_buf, param_ct * sample_ct * sizeof(double)) ||
-	  wkspace_alloc_d_checked(&param_2d_buf, param_ct * param_ct * sizeof(double)) ||
-	  wkspace_alloc_d_checked(&param_2d_buf2, param_ct * param_ct * sizeof(double)) ||
-	  wkspace_alloc_d_checked(&regression_results, (param_ct - 1) * sizeof(double)) ||
-	  wkspace_alloc_d_checked(&dgels_a, param_ct * sample_ct * sizeof(double)) ||
-	  wkspace_alloc_d_checked(&dgels_b, sample_ct * sizeof(double))) {
+      if (bigstack_alloc_d(sample_ct, &pheno_d2) ||
+	  bigstack_alloc_d(param_ct * sample_ct, &covars_cov_major_buf) ||
+	  bigstack_alloc_d(param_ct * sample_ct, &covars_sample_major_buf) ||
+	  bigstack_alloc_d(param_ct * param_ct, &param_2d_buf) ||
+	  bigstack_alloc_d(param_ct * param_ct, &param_2d_buf2) ||
+	  bigstack_alloc_d(param_ct - 1, &regression_results) ||
+	  bigstack_alloc_d(param_ct * sample_ct, &dgels_a) ||
+	  bigstack_alloc_d(sample_ct, &dgels_b)) {
 	goto plink1_dosage_ret_NOMEM;
       }
-      mi_buf = (MATRIX_INVERT_BUF1_TYPE*)wkspace_alloc(param_ct * sizeof(MATRIX_INVERT_BUF1_TYPE));
+      mi_buf = (MATRIX_INVERT_BUF1_TYPE*)bigstack_alloc(param_ct * sizeof(MATRIX_INVERT_BUF1_TYPE));
       if (!mi_buf) {
 	goto plink1_dosage_ret_NOMEM;
       }
@@ -1460,14 +1451,14 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	goto plink1_dosage_ret_1;
       }
       dgels_lwork = (int32_t)dxx;
-      if (wkspace_alloc_d_checked(&dgels_work, dgels_lwork * sizeof(double))) {
+      if (bigstack_alloc_d(dgels_lwork, &dgels_work)) {
 	goto plink1_dosage_ret_NOMEM;
       }
     } else {
 #endif
       if (covar_ct) {
 	ulii = covar_ct * sample_ct;
-	if (wkspace_alloc_f_checked(&covar_f, ulii * sizeof(float))) {
+	if (bigstack_alloc_f(ulii, &covar_f)) {
 	  goto plink1_dosage_ret_NOMEM;
 	}
 	fptr = covar_f;
@@ -1476,24 +1467,23 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  *fptr++ = (float)(*dptr++);
 	}
       }
-      if (
-          wkspace_alloc_ul_checked(&perm_vec, ((sample_ct + (2 * BITCT - 1)) / (2 * BITCT)) * 2 * sizeof(intptr_t)) ||
-	  wkspace_alloc_f_checked(&covars_cov_major_f_buf, param_ct * sample_cta4 * sizeof(float)) ||
-	  wkspace_alloc_f_checked(&coef_f, param_cta4 * sizeof(float)) ||
-	  wkspace_alloc_f_checked(&pp_f, sample_cta4 * sizeof(float)) ||
-	  wkspace_alloc_f_checked(&sample_1d_buf_f, sample_ct * sizeof(float)) ||
-	  wkspace_alloc_f_checked(&pheno_buf_f, sample_ct * sizeof(float)) ||
-	  wkspace_alloc_f_checked(&param_1d_buf_f, param_ct * sizeof(float)) ||
-	  wkspace_alloc_f_checked(&param_1d_buf2_f, param_ct * sizeof(float)) ||
-	  wkspace_alloc_f_checked(&param_2d_buf_f, param_ct * param_cta4 * sizeof(float)) ||
-	  wkspace_alloc_f_checked(&param_2d_buf2_f, param_ct * param_cta4 * sizeof(float)) ||
-	  wkspace_alloc_f_checked(&regression_results_f, (param_ct - 1) * sizeof(float))) {
+      if (bigstack_alloc_ul(((sample_ct + (2 * BITCT - 1)) / (2 * BITCT)) * 2, &perm_vec) ||
+	  bigstack_alloc_f(param_ct * sample_cta4, &covars_cov_major_f_buf) ||
+	  bigstack_alloc_f(param_cta4, &coef_f) ||
+	  bigstack_alloc_f(sample_cta4, &pp_f) ||
+	  bigstack_alloc_f(sample_ct, &sample_1d_buf_f) ||
+	  bigstack_alloc_f(sample_ct, &pheno_buf_f) ||
+	  bigstack_alloc_f(param_ct, &param_1d_buf_f) ||
+	  bigstack_alloc_f(param_ct, &param_1d_buf2_f) ||
+	  bigstack_alloc_f(param_ct * param_cta4, &param_2d_buf_f) ||
+	  bigstack_alloc_f(param_ct * param_cta4, &param_2d_buf2_f) ||
+	  bigstack_alloc_f(param_ct - 1, &regression_results_f)) {
 	goto plink1_dosage_ret_NOMEM;
       }
 #ifndef NOLAPACK
     }
 #endif
-    if (wkspace_alloc_ul_checked(&perm_fails, sizeof(intptr_t))) {
+    if (bigstack_alloc_ul(1, &perm_fails)) {
       goto plink1_dosage_ret_NOMEM;
     }
     if (load_map) {
@@ -1508,7 +1498,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     bufptr2 = memcpyb(outname_end, ".assoc.dosage", 14);
   } else if (count_occur) {
     // could just use a uint32_t array if .map provided
-    htable = (Ll_ctstr_entry**)wkspace_alloc(HASHSIZE * sizeof(intptr_t));
+    htable = (Ll_ctstr_entry**)bigstack_alloc(HASHSIZE * sizeof(intptr_t));
     if (!htable) {
       goto plink1_dosage_ret_NOMEM;
     }
@@ -1518,7 +1508,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     bufptr2 = memcpyb(outname_end, ".occur.dosage", 14);
   } else if (!do_score) {
     if (format_val != 1) {
-      if (wkspace_alloc_d_checked(&cur_dosages2, sample_ct * sizeof(double))) {
+      if (bigstack_alloc_d(sample_ct, &cur_dosages2)) {
 	goto plink1_dosage_ret_NOMEM;
       }
     }
@@ -1551,17 +1541,17 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       append_binary_eoln(&pzwritep);
     }
   }
-  wkspace_mark = wkspace_base;
+  bigstack_mark = g_bigstack_base;
   for (batch_idx = 0; batch_idx < batch_ct; batch_idx++, file_idx_start += cur_batch_size) {
     cur_batch_size = batch_sizes[batch_idx];
     read_idx = 0;
-    loadbuf_size = wkspace_left;
+    loadbuf_size = g_bigstack_left;
     if (loadbuf_size > MAXLINEBUFLEN) {
       loadbuf_size = MAXLINEBUFLEN;
     } else if (loadbuf_size <= MAXLINELEN) {
       goto plink1_dosage_ret_NOMEM;
     }
-    loadbuf = (char*)wkspace_base;
+    loadbuf = (char*)g_bigstack_base;
     loadbuf[loadbuf_size - 1] = ' ';
     fill_ulong_zero(batch_samples, sample_ctl);
     bufptr = memcpya(logbuf, "--dosage: Reading from ", 23);
@@ -1820,8 +1810,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    if (!ll_ptr) {
 	      distinct_id_ct++;
 	      topsize += ((slen + sizeof(Ll_ctstr_entry) + 15) & (~(15 * ONELU)));
-	      loadbuf_size = wkspace_left - topsize;
-              ll_ptr = (Ll_ctstr_entry*)(&(wkspace_base[loadbuf_size]));
+	      loadbuf_size = g_bigstack_left - topsize;
+              ll_ptr = (Ll_ctstr_entry*)(&(g_bigstack_base[loadbuf_size]));
 	      ll_ptr->next = NULL;
 	      memcpy(ll_ptr->ss, cur_marker_id_buf, slen);
 	      if (slen > max_occur_id_len) {
@@ -2179,7 +2169,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
       gz_infiles[file_idx] = NULL;
     }
-    wkspace_reset(wkspace_mark);
+    bigstack_reset(bigstack_mark);
   }
   if (do_score) {
     qrange_idx = 0;
@@ -2247,8 +2237,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   } else {
     if (count_occur) {
       max_occur_id_len += sizeof(int32_t) + 1; // null, uint32_t
-      wkspace_left -= topsize;
-      if (wkspace_alloc_c_checked(&bufptr, max_occur_id_len * distinct_id_ct)) {
+      g_bigstack_left -= topsize;
+      if (bigstack_alloc_c(max_occur_id_len * distinct_id_ct, &bufptr)) {
 	goto plink1_dosage_ret_NOMEM2;
       }
       ulii = 0; // write idx
@@ -2266,7 +2256,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  ll_ptr = ll_ptr->next;
 	}
       }
-      wkspace_left += topsize;
+      g_bigstack_left += topsize;
       qsort(bufptr, distinct_id_ct, max_occur_id_len, strcmp_natural);
       for (ulii = 0; ulii < distinct_id_ct; ulii++) {
 	bufptr2 = &(bufptr[ulii * max_occur_id_len]);
@@ -2294,7 +2284,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 
   while (0) {
   plink1_dosage_ret_NOMEM2:
-    wkspace_left += topsize;
+    g_bigstack_left += topsize;
   plink1_dosage_ret_NOMEM:
     retval = RET_NOMEM;
     break;

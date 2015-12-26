@@ -104,7 +104,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (24 Dec 2015)";
+  " (25 Dec 2015)";
 const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -132,8 +132,6 @@ const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip
 const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --neighbour, --ibs-test, --regress-distance, --model,\n--bd, --gxe, --logistic, --dosage, --lasso, --test-missing, --make-perm-pheno,\n--tdt, --dfam, --qfam, --annotate, --clump, --gene-report, --meta-analysis,\n--epistasis, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #endif
 #endif
-
-unsigned char* wkspace;
 
 void disp_exit_msg(int32_t retval) {
   switch (retval) {
@@ -266,6 +264,10 @@ void swap_reversed_marker_alleles(uintptr_t unfiltered_marker_ct, uintptr_t* mar
   }
 }
 
+static inline int32_t bed_suffix_conflict(uint64_t calculation_type, uint32_t recode_modifier) {
+  return (calculation_type & CALC_MAKE_BED) || ((calculation_type & CALC_RECODE) && (recode_modifier & (RECODE_LGEN | RECODE_LGEN_REF | RECODE_RLIST)));
+}
+
 static inline uint32_t are_marker_pos_needed(uint64_t calculation_type, uint64_t misc_flags, char* cm_map_fname, char* set_fname, uint32_t min_bp_space, uint32_t genome_skip_write, uint32_t ld_modifier, uint32_t epi_modifier, uint32_t cluster_modifier) {
   return (calculation_type & (CALC_MAKE_BED | CALC_MAKE_BIM | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_CLUMP | CALC_BLOCKS | CALC_FLIPSCAN | CALC_TDT | CALC_QFAM | CALC_FST | CALC_SHOW_TAGS | CALC_DUPVAR | CALC_RPLUGIN)) || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)) || cm_map_fname || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || ((calculation_type & CALC_EPI) && (epi_modifier & EPI_FAST_CASE_ONLY)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2)));
 }
@@ -355,7 +357,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   uintptr_t max_paternal_id_len = 2;
   char* maternal_ids = NULL;
   uintptr_t max_maternal_id_len = 2;
-  unsigned char* wkspace_mark = NULL;
+  unsigned char* bigstack_mark = NULL;
   uintptr_t cluster_ct = 0;
   uint32_t* cluster_map = NULL; // unfiltered sample IDs
   // index for cluster_map, length (cluster_ct + 1)
@@ -367,7 +369,6 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   uintptr_t* cluster_merge_prevented = NULL;
   double* cluster_sorted_ibs = NULL;
   char* cptr = NULL;
-  uint64_t dists_alloc = 0;
   double missing_phenod = (double)missing_pheno;
   double ci_zt = 0.0;
   uintptr_t bed_offset = 3;
@@ -392,9 +393,9 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   uint32_t sample_male_ct = 0;
   uint32_t sample_f_ct = 0;
   uint32_t sample_f_male_ct = 0;
-  unsigned char* wkspace_mark2 = NULL;
-  unsigned char* wkspace_mark_precluster = NULL;
-  unsigned char* wkspace_mark_postcluster = NULL;
+  unsigned char* bigstack_mark2 = NULL;
+  unsigned char* bigstack_mark_precluster = NULL;
+  unsigned char* bigstack_mark_postcluster = NULL;
   uint32_t* nchrobs = NULL;
   int32_t* hwe_lls = NULL;
   int32_t* hwe_lhs = NULL;
@@ -629,7 +630,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
 
       if (phenofile || update_ids_fname || update_parents_fname || update_sex_fname || (filter_flags & FILTER_TAIL_PHENO)) {
-	wkspace_mark = wkspace_base;
+	bigstack_mark = g_bigstack_base;
 	retval = sort_item_ids(&cptr, &uiptr, unfiltered_sample_ct, sample_exclude, 0, sample_ids, max_sample_id_len, 0, 0, strcmp_deref);
 	if (retval) {
 	  goto plink_ret_1;
@@ -646,7 +647,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	    if (retval == LOAD_PHENO_LAST_COL) {
 	      logerrprintb();
 	      retval = RET_INVALID_FORMAT;
-	      wkspace_reset(wkspace_mark);
+	      bigstack_reset(bigstack_mark);
 	    }
 	    goto plink_ret_1;
 	  }
@@ -657,7 +658,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	    goto plink_ret_1;
 	  }
 	}
-	wkspace_reset(wkspace_mark);
+	bigstack_reset(bigstack_mark);
       }
 
       if (pheno_c) {
@@ -760,7 +761,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     uii = update_cm || update_map || update_name || (marker_alleles_needed && (update_alleles_fname || (flip_fname && (!flip_subset_fname)))) || filter_attrib_fname || qual_filter;
     if (uii || extractname || excludename) {
       // only permit duplicate marker IDs for --extract/--exclude
-      wkspace_mark = wkspace_base;
+      bigstack_mark = g_bigstack_base;
       retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, !uii, &marker_id_htable, &marker_id_htable_size);
       if (retval) {
 	goto plink_ret_1;
@@ -782,7 +783,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	  goto plink_ret_1;
 	}
 	if (update_alleles_fname || (marker_alleles_needed && flip_fname && (!flip_subset_fname)) || extractname || excludename) {
-	  wkspace_reset(wkspace_mark);
+	  bigstack_reset(bigstack_mark);
 	  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
 	  if (retval) {
 	    goto plink_ret_1;
@@ -853,7 +854,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	  goto plink_ret_1;
 	}
       }
-      wkspace_reset(wkspace_mark);
+      bigstack_reset(bigstack_mark);
     }
 
     if (allelexxxx) {
@@ -938,7 +939,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   }
 
   if (unfiltered_sample_ct && (update_ids_fname || update_parents_fname || update_sex_fname || keepname || keepfamname || removename || removefamname || filter_attrib_sample_fname || om_ip->marker_fname || filtername)) {
-    wkspace_mark = wkspace_base;
+    bigstack_mark = g_bigstack_base;
     retval = sort_item_ids(&cptr, &uiptr, unfiltered_sample_ct, sample_exclude, 0, sample_ids, max_sample_id_len, 0, 0, strcmp_deref);
     if (retval) {
       goto plink_ret_1;
@@ -948,7 +949,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       if (retval) {
 	goto plink_ret_1;
       }
-      wkspace_reset(wkspace_base);
+      bigstack_reset(g_bigstack_base);
       retval = sort_item_ids(&cptr, &uiptr, unfiltered_sample_ct, sample_exclude, 0, sample_ids, max_sample_id_len, 0, 0, strcmp_deref);
       if (retval) {
 	goto plink_ret_1;
@@ -1022,7 +1023,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	goto plink_ret_1;
       }
     }
-    wkspace_reset(wkspace_mark);
+    bigstack_reset(bigstack_mark);
   }
 
   if (famname[0] && (unfiltered_sample_ct != sample_exclude_ct)) {
@@ -1111,7 +1112,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
     }
     if (cluster_ptr->fname || (misc_flags & MISC_FAMILY_CLUSTERS)) {
-      // could save off wkspace_mark here and free immediately after
+      // could save off bigstack_mark here and free immediately after
       // load_clusters(), if clusters are *only* used for filtering.  But not a
       // big deal.
       retval = load_clusters(cluster_ptr->fname, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, sample_ids, max_sample_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len, cluster_ptr->keep_fname, cluster_ptr->keep_flattened, cluster_ptr->remove_fname, cluster_ptr->remove_flattened, allow_no_samples);
@@ -1185,7 +1186,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	goto plink_ret_1;
       }
       sample_sort_map = uiptr;
-      wkspace_reset(cptr);
+      bigstack_reset(cptr);
     } else if (sample_sort == SAMPLE_SORT_FILE) {
       retval = sample_sort_file_map(sample_sort_fname, unfiltered_sample_ct, sample_exclude, unfiltered_sample_ct - sample_exclude_ct, sample_ids, max_sample_id_len, &sample_sort_map);
       if (retval) {
@@ -1252,10 +1253,9 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   if (bimname[0] && (unfiltered_marker_ct != marker_exclude_ct)) {
     plink_maxsnp = calc_plink_maxsnp(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len);
     uii = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
-    if (wkspace_alloc_ul_checked(&marker_reverse, uii * sizeof(intptr_t))) {
+    if (bigstack_calloc_ul(uii, &marker_reverse)) {
       goto plink_ret_NOMEM;
     }
-    fill_ulong_zero(marker_reverse, uii);
     if (bedfile && sample_ct) {
       retval = calc_freqs_and_hwe(bedfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, unfiltered_sample_ct, sample_exclude, sample_exclude_ct, sample_ids, max_sample_id_len, founder_info, nonfounders, (misc_flags / MISC_MAF_SUCC) & 1, set_allele_freqs, bed_offset, (hwe_thresh > 0.0) || (calculation_type & CALC_HARDY), hwe_modifier & HWE_THRESH_ALL, (pheno_nm_ct && pheno_c)? ((calculation_type / CALC_HARDY) & 1) : 0, min_ac, max_ac, geno_thresh, pheno_nm, pheno_nm_ct? pheno_c : NULL, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_cases, &hwe_lh_cases, &hwe_hh_cases, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &geno_excl_bitfield, &ac_excl_bitfield, &sample_male_ct, &sample_f_ct, &sample_f_male_ct, &topsize, chrom_info_ptr, om_ip, sex_nm, sex_male, map_is_unsorted & UNSORTED_SPLIT_CHROM, &hh_exists);
       if (retval) {
@@ -1376,7 +1376,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	  }
 	}
       }
-      wkspace_reset(hwe_lls);
+      bigstack_reset(hwe_lls);
     }
     if (sip->fname) {
       if (map_is_unsorted & UNSORTED_BP) {
@@ -1489,7 +1489,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	  retval = calc_unrelated_herit(calculation_type, relip, unfiltered_sample_ct, sample_exclude, sample_ct, pheno_d, rel_ibc);
 	}
 #endif
-	wkspace_reset(g_sample_missing_unwt);
+	bigstack_reset(g_sample_missing_unwt);
 	if (retval) {
 	  goto plink_ret_1;
 	}
@@ -1704,7 +1704,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   // load at far end of stack to make this workable...)
 
   if (calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) {
-    wkspace_mark_postcluster = wkspace_base;
+    bigstack_mark_postcluster = g_bigstack_base;
     ulii = (sample_ct * (sample_ct - 1)) >> 1;
     if (cluster_ptr->mds_dim_ct) {
 #ifndef __LP64__
@@ -1715,12 +1715,12 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 #endif
       if (((!read_dists_fname) && (!read_genome_fname)) || (cluster_ptr->modifier & CLUSTER_MISSING)) {
 	if ((!(cluster_ptr->modifier & CLUSTER_MDS)) || (!cluster_ct)) {
-          if (wkspace_alloc_d_checked(&mds_plot_dmatrix_copy, ulii * sizeof(double))) {
+          if (bigstack_alloc_d(ulii, &mds_plot_dmatrix_copy)) {
             goto plink_ret_NOMEM;
           }
 	} else {
 	  ulii = cluster_ct + sample_ct - cluster_starts[cluster_ct];
-          if (wkspace_alloc_d_checked(&mds_plot_dmatrix_copy, (ulii * (ulii - 1)) * (sizeof(double) / 2))) {
+          if (bigstack_alloc_d((ulii * (ulii - 1)) / 2, &mds_plot_dmatrix_copy)) {
             goto plink_ret_NOMEM;
           }
 	}
@@ -1740,11 +1740,11 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       goto plink_ret_NOMEM;
 #endif
     }
-    if (wkspace_alloc_ul_checked(&cluster_merge_prevented, ((ulii + (BITCT - 1)) / BITCT) * sizeof(intptr_t))) {
+    if (bigstack_alloc_ul((ulii + (BITCT - 1)) / BITCT, &cluster_merge_prevented)) {
       goto plink_ret_NOMEM;
     }
     if (cluster_ct || (calculation_type & CALC_GENOME) || genome_skip_write) {
-      if (wkspace_alloc_d_checked(&cluster_sorted_ibs, ulii * sizeof(double))) {
+      if (bigstack_alloc_d(ulii, &cluster_sorted_ibs)) {
 	goto plink_ret_NOMEM;
       }
       if (cluster_ptr->modifier & CLUSTER_GROUP_AVG) {
@@ -1755,10 +1755,10 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	}
       }
     }
-    wkspace_mark_precluster = wkspace_base;
+    bigstack_mark_precluster = g_bigstack_base;
   }
 
-  wkspace_mark2 = wkspace_base;
+  bigstack_mark2 = g_bigstack_base;
 
   /*
   if (calculation_type & CALC_REGRESS_PCS_DISTANCE) {
@@ -1778,8 +1778,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     // use delayed and specialized load for --cluster/--neighbour, since PPC
     // values may be needed, and user may want to process a distance matrix too
     // large to be loaded in memory by doing some pre-clustering
-    dists_alloc = (sample_ct * (sample_ct - 1)) * (sizeof(double) / 2);
-    if (wkspace_alloc_d_checked(&g_dists, dists_alloc)) {
+    if (bigstack_alloc_d((((uint64_t)sample_ct) * (sample_ct - 1)) / 2, &g_dists)) {
       goto plink_ret_NOMEM;
     }
     retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, 0, NULL, NULL, 0, 0, g_dists, 0, NULL, NULL);
@@ -1817,12 +1816,12 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   }
 
   if (read_dists_fname && (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))) {
-    wkspace_reset(g_dists);
+    bigstack_reset(g_dists);
     g_dists = NULL;
   }
 
   if ((calculation_type & CALC_GENOME) || genome_skip_write) {
-    wkspace_reset(wkspace_mark2);
+    bigstack_reset(bigstack_mark2);
     g_dists = NULL;
     retval = calc_genome(threads, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, marker_pos, set_allele_freqs, nchrobs, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, plink_maxfid, plink_maxiid, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, founder_info, parallel_idx, parallel_tot, outname, outname_end, nonfounders, calculation_type, genome_modifier, ppc_gap, genome_min_pi_hat, genome_max_pi_hat, pheno_nm, pheno_c, pri, genome_skip_write);
     if (retval) {
@@ -1845,7 +1844,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   }
 
   if (calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) {
-    retval = calc_cluster_neighbor(threads, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, set_allele_freqs, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, plink_maxfid, plink_maxiid, max_sample_id_len, read_dists_fname, read_dists_id_fname, read_genome_fname, outname, outname_end, calculation_type, cluster_ct, cluster_map, cluster_starts, cluster_ptr, missing_pheno, neighbor_n1, neighbor_n2, ppc_gap, pheno_c, mds_plot_dmatrix_copy, cluster_merge_prevented, cluster_sorted_ibs, wkspace_mark_precluster, wkspace_mark_postcluster);
+    retval = calc_cluster_neighbor(threads, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, set_allele_freqs, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, plink_maxfid, plink_maxiid, max_sample_id_len, read_dists_fname, read_dists_id_fname, read_genome_fname, outname, outname_end, calculation_type, cluster_ct, cluster_map, cluster_starts, cluster_ptr, missing_pheno, neighbor_n1, neighbor_n2, ppc_gap, pheno_c, mds_plot_dmatrix_copy, cluster_merge_prevented, cluster_sorted_ibs, bigstack_mark_precluster, bigstack_mark_postcluster);
     if (retval) {
       goto plink_ret_1;
     }
@@ -1902,7 +1901,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	}
       }
     } else {
-      wkspace_mark = wkspace_base;
+      bigstack_mark = g_bigstack_base;
       retval = sort_item_ids(&cptr, &uiptr, unfiltered_sample_ct, sample_exclude, sample_exclude_ct, sample_ids, max_sample_id_len, 0, 0, strcmp_deref);
       if (retval) {
 	goto plink_ret_1;
@@ -1950,7 +1949,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	outname_end[1] = '\0';
 	retval = load_pheno(phenofile, unfiltered_sample_ct, sample_exclude_ct, cptr, max_sample_id_len, uiptr, missing_pheno, (misc_flags / MISC_AFFECTION_01) & 1, uii, NULL, pheno_nm, &pheno_c, &pheno_d, &(outname_end[1]), (uintptr_t)((&(outname[FNAMESIZE - 32])) - outname_end));
 	if (retval == LOAD_PHENO_LAST_COL) {
-	  wkspace_reset(wkspace_mark);
+	  bigstack_reset(bigstack_mark);
 	  retval = 0; // exit code bugfix
 	  break;
 	} else if (retval) {
@@ -2128,7 +2127,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   }
  plink_ret_1:
   if (topsize) {
-    wkspace_left += topsize;
+    g_bigstack_left += topsize;
   }
   aligned_free_cond(pheno_nm_datagen);
   free_cond(orig_pheno_d);
@@ -3408,8 +3407,9 @@ int32_t main(int32_t argc, char** argv) {
   int32_t mib[2];
   size_t sztmp;
 #endif
-  unsigned char* wkspace_ua = NULL;
+  unsigned char* bigstack_ua = NULL; // ua = unaligned
   char* bubble = NULL;
+  unsigned char* bigstack_initial_base;
   uint32_t param_ct;
   time_t rawtime;
   char* argptr;
@@ -8365,8 +8365,8 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --memory parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
-	if (malloc_size_mb < WKSPACE_MIN_MB) {
-	  sprintf(logbuf, "Error: Invalid --memory parameter '%s' (minimum %u).\n", argv[cur_arg + 1], WKSPACE_MIN_MB);
+	if (malloc_size_mb < BIGSTACK_MIN_MB) {
+	  sprintf(logbuf, "Error: Invalid --memory parameter '%s' (minimum %u).\n", argv[cur_arg + 1], BIGSTACK_MIN_MB);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 #ifndef __LP64__
@@ -13293,7 +13293,7 @@ int32_t main(int32_t argc, char** argv) {
     rseeds = NULL;
   }
   // guarantee contiguous malloc space outside of main workspace
-  bubble = (char*)malloc(NON_WKSPACE_MIN * sizeof(char));
+  bubble = (char*)malloc(NON_BIGSTACK_MIN * sizeof(char));
   if (!bubble) {
     goto main_ret_NOMEM;
   }
@@ -13316,16 +13316,16 @@ int32_t main(int32_t argc, char** argv) {
 #endif
 #endif
   if (!llxx) {
-    default_alloc_mb = WKSPACE_DEFAULT_MB;
-  } else if (llxx < (WKSPACE_MIN_MB * 2)) {
-    default_alloc_mb = WKSPACE_MIN_MB;
+    default_alloc_mb = BIGSTACK_DEFAULT_MB;
+  } else if (llxx < (BIGSTACK_MIN_MB * 2)) {
+    default_alloc_mb = BIGSTACK_MIN_MB;
   } else {
     default_alloc_mb = llxx / 2;
   }
   if (!malloc_size_mb) {
     malloc_size_mb = default_alloc_mb;
-  } else if (malloc_size_mb < WKSPACE_MIN_MB) {
-    malloc_size_mb = WKSPACE_MIN_MB;
+  } else if (malloc_size_mb < BIGSTACK_MIN_MB) {
+    malloc_size_mb = BIGSTACK_MIN_MB;
   }
 #ifndef __LP64__
   if (malloc_size_mb > 2047) {
@@ -13338,23 +13338,23 @@ int32_t main(int32_t argc, char** argv) {
     sprintf(logbuf, "Failed to calculate system memory.  Attempting to reserve %" PRIdPTR " MB.\n", malloc_size_mb);
   }
   logprintb();
-  wkspace_ua = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
-  while (!wkspace_ua) {
+  bigstack_ua = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
+  while (!bigstack_ua) {
     malloc_size_mb = (malloc_size_mb * 3) / 4;
-    if (malloc_size_mb < WKSPACE_MIN_MB) {
-      malloc_size_mb = WKSPACE_MIN_MB;
+    if (malloc_size_mb < BIGSTACK_MIN_MB) {
+      malloc_size_mb = BIGSTACK_MIN_MB;
     }
-    wkspace_ua = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
-    if (wkspace_ua) {
+    bigstack_ua = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
+    if (bigstack_ua) {
       LOGPRINTF("Allocated %" PRIdPTR " MB successfully, after larger attempt(s) failed.\n", malloc_size_mb);
-    } else if (malloc_size_mb == WKSPACE_MIN_MB) {
+    } else if (malloc_size_mb == BIGSTACK_MIN_MB) {
       goto main_ret_NOMEM;
     }
   }
   // force 64-byte align to make cache line sensitivity work
-  wkspace = (unsigned char*)CACHEALIGN((uintptr_t)wkspace_ua);
-  wkspace_base = wkspace;
-  wkspace_left = (malloc_size_mb * 1048576 - (uintptr_t)(wkspace - wkspace_ua)) & (~(CACHELINE - ONELU));
+  bigstack_initial_base = (unsigned char*)CACHEALIGN((uintptr_t)bigstack_ua);
+  g_bigstack_base = bigstack_initial_base;
+  g_bigstack_left = (malloc_size_mb * 1048576 - (uintptr_t)(bigstack_initial_base - bigstack_ua)) & (~(CACHELINE - ONELU));
   free(bubble);
   bubble = NULL;
 
@@ -13546,7 +13546,7 @@ int32_t main(int32_t argc, char** argv) {
   fclose_cond(scriptfile);
   disp_exit_msg(retval);
   free_cond(bubble);
-  free_cond(wkspace_ua);
+  free_cond(bigstack_ua);
   free_cond(subst_argv);
   free_cond(script_buf);
   free_cond(rerun_buf);
