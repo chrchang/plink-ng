@@ -2906,6 +2906,7 @@ static double* g_beta_sum;
 static double* g_beta_ssq;
 static uint32_t* g_beta_fail_cts;
 static uintptr_t g_cur_perm_ct;
+static uintptr_t g_qfam_sample_ct;
 static double g_qt_sum_all;
 static double g_qt_ssq_all;
 static uint32_t g_test_type;
@@ -5257,7 +5258,7 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
   uint32_t* perm_ptr = NULL;
   uint32_t* beta_fail_cts = g_beta_fail_cts;
   uintptr_t cur_perm_ct = g_cur_perm_ct;
-  uintptr_t sample_ct = g_sample_ct;
+  uintptr_t sample_ct = g_qfam_sample_ct;
   uintptr_t sample_ctl2 = (sample_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t flip_ctl = only_within? lm_ctl : fss_ctl;
   double adaptive_intercept = g_adaptive_intercept;
@@ -5569,7 +5570,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   g_lm_eligible = lm_eligible;
   g_lm_within2_founder = lm_within2_founder;
   g_test_type = test_type;
-  g_sample_ct = sample_ct;
+  g_qfam_sample_ct = sample_ct;
   g_fs_ct = fs_ct;
   g_singleton_ct = singleton_ct;
   g_lm_ct = lm_ct;

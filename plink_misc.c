@@ -5076,7 +5076,7 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
     bufptr[slen] = '\0';
     sprintf(g_logbuf, "Error: Duplicate column header '%s' in %s.\n", bufptr, fname);
   meta_analysis_open_and_read_header_ret_INVALID_FORMAT_WW:
-    wordwrap(0, g_logbuf);
+    wordwrapb(0);
     logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
@@ -6310,7 +6310,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
     retval = RET_INVALID_CMDLINE;
     break;
   meta_analysis_ret_INVALID_FORMAT_WW:
-    wordwrap(0, g_logbuf);
+    wordwrapb(0);
     logerrprintb();
   meta_analysis_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;

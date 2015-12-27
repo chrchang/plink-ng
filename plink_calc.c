@@ -736,6 +736,7 @@ static double g_reg_tot_xx;
 static double g_reg_tot_yy;
 static uint32_t g_ctrl_ct;
 static uint32_t g_case_ct;
+static uintptr_t g_sample_ct;
 static uintptr_t g_jackknife_iters;
 static uint32_t g_jackknife_d;
 static double g_calc_result[MAX_THREADS_P1][9];
@@ -3805,7 +3806,7 @@ void distance_print_done(int32_t format_code, char* outname, char* outname_end) 
     strcpy(outname_end, &(g_textbuf[MAX_POST_EXT * 2]));
     sprintf(g_logbuf, "Distances (proportions) written to %s .\n", outname);
   }
-  wordwrap(0, g_logbuf);
+  wordwrapb(0);
   logprintb();
 }
 
@@ -7384,7 +7385,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
     } else {
       sprintf(g_logbuf, "Relationship matrix component written to %s .\n", outname);
     }
-    wordwrap(0, g_logbuf);
+    wordwrapb(0);
     logprintb();
   }
   if (all_missing_warning) {
@@ -8471,7 +8472,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     } else {
       sprintf(g_logbuf, "Distances (proportions) written to %s .\n", outname);
     }
-    wordwrap(0, g_logbuf);
+    wordwrapb(0);
     logprintb();
   }
   if (calculation_type & CALC_PLINK1_IBS_MATRIX) {

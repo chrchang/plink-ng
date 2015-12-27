@@ -3,9 +3,9 @@
 #include "pigz.h"
 
 // no leading \n since this is used in LOGPRINTFWW expressions
-const char errstr_fopen[] = "Error: Failed to open %s.\n";
+const char g_errstr_fopen[] = "Error: Failed to open %s.\n";
 
-const char cmdline_format_str[] = "\n  " PROG_NAME_STR " [input flag(s)...] {command flag(s)...} {other flag(s)...}\n  " PROG_NAME_STR " --help {flag name(s)...}\n\n";
+const char g_cmdline_format_str[] = "\n  " PROG_NAME_STR " [input flag(s)...] {command flag(s)...} {other flag(s)...}\n  " PROG_NAME_STR " --help {flag name(s)...}\n\n";
 
 char g_textbuf[TEXTBUF_SIZE];
 
@@ -20,13 +20,10 @@ sfmt_t g_sfmt;
 
 FILE* g_logfile = NULL;
 
-// mostly-safe sprintf buffer.  warning: do NOT put allele codes or
-// arbitrary-length lists in here.
 char g_logbuf[MAXLINELEN * 2];
 
 uint32_t g_debug_on = 0;
 uint32_t g_log_failed = 0;
-uintptr_t g_sample_ct;
 uint32_t g_thread_ct;
 
 uint32_t aligned_malloc(uintptr_t size, uintptr_t** aligned_pp) {
@@ -185,10 +182,14 @@ void wordwrap(uint32_t suffix_len, char* ss) {
   }
 }
 
+void wordwrapb(uint32_t suffix_len) {
+  wordwrap(suffix_len, g_logbuf);
+}
+
 int32_t fopen_checked(const char* fname, const char* mode, FILE** target_ptr) {
   *target_ptr = fopen(fname, mode);
   if (!(*target_ptr)) {
-    LOGPRINTFWW(errstr_fopen, fname);
+    LOGPRINTFWW(g_errstr_fopen, fname);
     return -1;
   }
   return 0;
@@ -208,7 +209,7 @@ int32_t fwrite_checked(const void* buf, size_t len, FILE* outfile) {
 int32_t gzopen_read_checked(const char* fname, gzFile* target_ptr) {
   *target_ptr = gzopen(fname, "rb");
   if (!(*target_ptr)) {
-    LOGPRINTFWW(errstr_fopen, fname);
+    LOGPRINTFWW(g_errstr_fopen, fname);
     return RET_OPEN_FAIL;
   }
   if (gzbuffer(*target_ptr, 131072)) {

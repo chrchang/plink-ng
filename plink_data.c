@@ -5986,7 +5986,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     if ((uii > 8) && ((!memcmp(&(mapname[uii - 8]), ".ped.map", 8)) || (!memcmp(&(mapname[uii - 8]), ".map.map", 8)))) {
       LOGERRPRINTFWW("Error: Failed to open %s. (--file expects a filename *prefix*; '.ped' and '.map' are automatically appended.)\n", mapname);
     } else {
-      LOGERRPRINTFWW(errstr_fopen, mapname);
+      LOGERRPRINTFWW(g_errstr_fopen, mapname);
     }
     goto ped_to_bed_ret_OPEN_FAIL;
   }
@@ -13198,7 +13198,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     if (!beagle_nomap) {
       memcpy(outname_end, ".chr-", 6);
       sprintf(g_logbuf, "--recode beagle to %s*.dat + %s*.map... ", outname, outname);
-      wordwrap(5, g_logbuf);
+      wordwrapb(5);
       fputs(g_logbuf, stdout);
     } else {
       memcpy(outname_end, ".beagle.dat", 12);
@@ -13507,7 +13507,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       *outname_end = '\0';
     }
     sprintf(g_logbuf, "--recode fastphase%s to %s.recode.phase.inp ... ", (recode_modifier & RECODE_FASTPHASE)? "" : "-1chr", outname);
-    wordwrap(15, g_logbuf); // strlen("[chromosome 10]")
+    wordwrapb(15); // strlen("[chromosome 10]")
     fputs(g_logbuf, stdout);
     chrom_fo_idx = 0xffffffffU; // exploit overflow for initialization
     if (recode_modifier & RECODE_FASTPHASE) {
@@ -13888,7 +13888,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     } else {
       sprintf(g_logbuf, "--recode list to %s ... ", outname);
     }
-    wordwrap(5, g_logbuf);
+    wordwrapb(5);
     logprintb();
     fputs("0%", stdout);
     fflush(stdout);
@@ -14067,7 +14067,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     if (recode_modifier & RECODE_HV) {
       memcpy(outname_end, ".chr-", 5);
       sprintf(g_logbuf, "--recode HV to %s*.ped + .info... ", outname);
-      wordwrap(15, g_logbuf); // strlen("[chromosome 10]");
+      wordwrapb(15); // strlen("[chromosome 10]");
       fputs(g_logbuf, stdout);
       fputs("[chromosome   ", stdout);
     } else {
@@ -14540,7 +14540,7 @@ int32_t merge_fam_id_scan(char* bedname, char* famname, uint32_t allow_no_sample
       // with a specialized error message for that case.
       LOGERRPRINTFWW("Error: Failed to open %s. (--bfile expects a filename *prefix*; '.bed', '.bim', and '.fam' are automatically appended.)\n", famname);
     } else {
-      LOGERRPRINTFWW(errstr_fopen, famname);
+      LOGERRPRINTFWW(g_errstr_fopen, famname);
     }
     goto merge_fam_id_scan_ret_OPEN_FAIL;
   }

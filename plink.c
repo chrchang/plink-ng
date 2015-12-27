@@ -90,7 +90,7 @@
 // shouldn't be larger than 2^31 - 1
 #define PARALLEL_MAX 32768
 
-const char ver_str[] =
+static const char ver_str[] =
 #ifdef STABLE_BUILD
   "PLINK v1.90b3.29"
 #else
@@ -105,7 +105,7 @@ const char ver_str[] =
   " 32-bit"
 #endif
   " (27 Dec 2015)";
-const char ver_str2[] =
+static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
 #ifdef STABLE_BUILD
@@ -118,18 +118,18 @@ const char ver_str2[] =
 #endif
   "    https://www.cog-genomics.org/plink2\n"
   "(C) 2005-2015 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
-const char errstr_append[] = "For more information, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
+static const char errstr_append[] = "For more information, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
 #ifdef STABLE_BUILD
   #ifndef NOLAPACK
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --pca, --neighbour, --ibs-test, --regress-distance,\n--model, --bd, --gxe, --logistic, --dosage, --lasso, --test-missing,\n--make-perm-pheno, --tdt, --qfam, --annotate, --clump, --gene-report,\n--meta-analysis, --epistasis, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+static const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --pca, --neighbour, --ibs-test, --regress-distance,\n--model, --bd, --gxe, --logistic, --dosage, --lasso, --test-missing,\n--make-perm-pheno, --tdt, --qfam, --annotate, --clump, --gene-report,\n--meta-analysis, --epistasis, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --neighbour, --ibs-test, --regress-distance, --model,\n--bd, --gxe, --logistic, --dosage, --lasso, --test-missing, --make-perm-pheno,\n--tdt, --qfam, --annotate, --clump, --gene-report, --meta-analysis,\n--epistasis, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+static const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --neighbour, --ibs-test, --regress-distance, --model,\n--bd, --gxe, --logistic, --dosage, --lasso, --test-missing, --make-perm-pheno,\n--tdt, --qfam, --annotate, --clump, --gene-report, --meta-analysis,\n--epistasis, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #endif
 #else
   #ifndef NOLAPACK
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --pca, --neighbour, --ibs-test, --regress-distance,\n--model, --bd, --gxe, --logistic, --dosage, --lasso, --test-missing,\n--make-perm-pheno, --unrelated-heritability, --tdt, --dfam, --qfam, --annotate,\n--clump, --gene-report, --meta-analysis, --epistasis, --fast-epistasis, and\n--score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+static const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --pca, --neighbour, --ibs-test, --regress-distance,\n--model, --bd, --gxe, --logistic, --dosage, --lasso, --test-missing,\n--make-perm-pheno, --unrelated-heritability, --tdt, --dfam, --qfam, --annotate,\n--clump, --gene-report, --meta-analysis, --epistasis, --fast-epistasis, and\n--score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --neighbour, --ibs-test, --regress-distance, --model,\n--bd, --gxe, --logistic, --dosage, --lasso, --test-missing, --make-perm-pheno,\n--tdt, --dfam, --qfam, --annotate, --clump, --gene-report, --meta-analysis,\n--epistasis, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+static const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --neighbour, --ibs-test, --regress-distance, --model,\n--bd, --gxe, --logistic, --dosage, --lasso, --test-missing, --make-perm-pheno,\n--tdt, --dfam, --qfam, --annotate, --clump, --gene-report, --meta-analysis,\n--epistasis, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #endif
 #endif
 
@@ -448,7 +448,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       if ((uii > 8) && ((!memcmp(&(bedname[uii - 8]), ".bed.bed", 8)) || (!memcmp(&(bedname[uii - 8]), ".bim.bed", 8)) || (!memcmp(&(bedname[uii - 8]), ".fam.bed", 8)))) {
 	LOGERRPRINTFWW("Error: Failed to open %s. (--bfile expects a filename *prefix*; '.bed', '.bim', and '.fam' are automatically appended.)\n", bedname);
       } else {
-        LOGERRPRINTFWW(errstr_fopen, bedname);
+        LOGERRPRINTFWW(g_errstr_fopen, bedname);
       }
       goto plink_ret_OPEN_FAIL;
     }
@@ -523,7 +523,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       if ((uii > 8) && ((!memcmp(&(bedname[uii - 8]), ".bed.bed", 8)) || (!memcmp(&(bedname[uii - 8]), ".bim.bed", 8)) || (!memcmp(&(bedname[uii - 8]), ".fam.bed", 8)))) {
 	LOGERRPRINTFWW("Error: Failed to open %s. (--bfile expects a filename *prefix*; '.bed', '.bim', and '.fam' are automatically appended.)\n", bedname);
       } else {
-	LOGERRPRINTFWW(errstr_fopen, bedname);
+	LOGERRPRINTFWW(g_errstr_fopen, bedname);
       }
       goto plink_ret_OPEN_FAIL;
     }
@@ -1418,7 +1418,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       } else {
 	sprintf(g_logbuf, "Among remaining phenotypes, %u %s and %u %s.\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "is a case" : "are cases", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "is a control" : "are controls");
       }
-      wordwrap(0, g_logbuf);
+      wordwrapb(0);
       logprintb();
     } else {
       logprint("Phenotype data is quantitative.\n");
@@ -2328,7 +2328,7 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
     retval = RET_INVALID_CMDLINE;
     break;
   parse_chrom_ranges_ret_INVALID_CMDLINE_WWA:
-    wordwrap(0, g_logbuf);
+    wordwrapb(0);
     logerrprintb();
     logerrprint(errstr_append);
     retval = RET_INVALID_CMDLINE;
@@ -2891,9 +2891,10 @@ uint32_t valid_varid_template_string(char* varid_str, const char* flag_name) {
   return 1;
 }
 
-// these need global scope to stay around on all systems
-const char species_singular_constants[][7] = {"person", "cow", "dog", "horse", "mouse", "plant", "sheep", "sample"};
-const char species_plural_constants[][8] = {"people", "cattle", "dogs", "horses", "mice", "plants", "sheep", "samples"};
+// if these are defined within init_delim_and_species, they may not persist
+// after function exit
+static const char species_singular_constants[][7] = {"person", "cow", "dog", "horse", "mouse", "plant", "sheep", "sample"};
+static const char species_plural_constants[][8] = {"people", "cattle", "dogs", "horses", "mice", "plants", "sheep", "samples"};
 
 int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_map, int32_t argc, char** argv, char* range_delim_ptr, Chrom_info* chrom_info_ptr) {
   // human: 22, X, Y, XY, MT
@@ -3122,7 +3123,7 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
   }
   while (0) {
   init_delim_and_species_ret_INVALID_CMDLINE_WWA:
-    wordwrap(0, g_logbuf);
+    wordwrapb(0);
   init_delim_and_species_ret_INVALID_CMDLINE_2A:
     logerrprintb();
   init_delim_and_species_ret_INVALID_CMDLINE_A:
@@ -3500,7 +3501,7 @@ int32_t main(int32_t argc, char** argv) {
       scriptfile = fopen(argv[uii + 1], "rb");
       if (!scriptfile) {
 	print_ver();
-	printf(errstr_fopen, argv[uii + 1]);
+	printf(g_errstr_fopen, argv[uii + 1]);
 	goto main_ret_OPEN_FAIL;
       }
       if (fseeko(scriptfile, 0, SEEK_END)) {
@@ -3619,7 +3620,7 @@ int32_t main(int32_t argc, char** argv) {
 	if ((cur_arg != 1) || (uii != 1) || subst_argv) {
 	  printf("-%s present, ignoring other flags.\n", argptr);
 	}
-	fputs(cmdline_format_str, stdout);
+	fputs(g_cmdline_format_str, stdout);
 	fputs(notestr_null_calc2, stdout);
         retval = RET_HELP;
 	goto main_ret_1;
@@ -3641,7 +3642,7 @@ int32_t main(int32_t argc, char** argv) {
   }
   if (!flag_ct) {
     print_ver();
-    fputs(cmdline_format_str, stdout);
+    fputs(g_cmdline_format_str, stdout);
     fputs(notestr_null_calc2, stdout);
     retval = RET_NULL_CALC;
     goto main_ret_1;
@@ -13508,7 +13509,7 @@ int32_t main(int32_t argc, char** argv) {
     retval = RET_INVALID_CMDLINE;
     break;
   main_ret_INVALID_CMDLINE_WWA:
-    wordwrap(0, g_logbuf);
+    wordwrapb(0);
   main_ret_INVALID_CMDLINE_2A:
     logerrprintb();
   main_ret_INVALID_CMDLINE_A:
@@ -13516,7 +13517,7 @@ int32_t main(int32_t argc, char** argv) {
     retval = RET_INVALID_CMDLINE;
     break;
   main_ret_INVALID_CMDLINE_WW:
-    wordwrap(0, g_logbuf);
+    wordwrapb(0);
   main_ret_INVALID_CMDLINE_2:
     logerrprintb();
   main_ret_INVALID_CMDLINE:
@@ -13528,7 +13529,7 @@ int32_t main(int32_t argc, char** argv) {
     } else {
       logerrprint("Warning: No output requested.  Exiting.\n");
     }
-    fputs(cmdline_format_str, stdout);
+    fputs(g_cmdline_format_str, stdout);
     fputs(notestr_null_calc2, stdout);
     retval = RET_NULL_CALC;
 #ifdef STABLE_BUILD
@@ -13537,7 +13538,7 @@ int32_t main(int32_t argc, char** argv) {
     // see the UNSTABLE macro in plink_common.h
     memcpy(g_logbuf, "Error: --", 9);
     strcpy(sptr, " is either unfinished or not yet well-tested. If you wish to help with testing, use the latest development build.\n");
-    wordwrap(0, g_logbuf);
+    wordwrapb(0);
     logerrprintb();
     retval = RET_CALC_NOT_YET_SUPPORTED;
 #endif

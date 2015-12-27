@@ -26,10 +26,10 @@ void oblig_missing_cleanup(Oblig_missing_info* om_ip) {
   }
 }
 
-const char keep_str[] = "keep";
-const char keep_fam_str[] = "keep-fam";
-const char remove_str[] = "remove";
-const char remove_fam_str[] = "remove-fam";
+static const char keep_str[] = "keep";
+static const char keep_fam_str[] = "keep-fam";
+static const char remove_str[] = "remove";
+static const char remove_fam_str[] = "remove-fam";
 
 const char* keep_or_remove_flag_str(uint32_t flags) {
   switch (flags) {

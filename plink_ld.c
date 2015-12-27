@@ -2324,7 +2324,7 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   }
   g_ld_keep_sign = 0;
   sprintf(g_logbuf, "--r%s %s%s to %s ... ", g_ld_is_r2? "2" : "", is_square? "square" : (is_square0? "square0" : "triangle"), is_binary? (output_single_prec? " bin4" : " bin") : (output_gz? " gz" : ""), outname);
-  wordwrap(16, g_logbuf); // strlen("99% [processing]")
+  wordwrapb(16); // strlen("99% [processing]")
   logprintb();
   fputs("0%", stdout);
   do {
@@ -5809,7 +5809,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
     marker_uidx1 = jump_forward_unset_unsafe(marker_exclude_idx1, marker_uidx1 + 1, marker_idx1);
   }
   sprintf(g_logbuf, "--r%s%s%s%s to %s ... ", g_ld_is_r2? "2" : "", is_inter_chr? " inter-chr" : "", g_ld_marker_allele_ptrs? " in-phase" : "", g_ld_set_allele_freqs? " with-freqs" : "", outname);
-  wordwrap(16, g_logbuf); // strlen("99% [processing]")
+  wordwrapb(16); // strlen("99% [processing]")
   logprintb();
   fputs("0%", stdout);
   while (1) {
@@ -8386,7 +8386,7 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
   wptr = memcpya(g_logbuf, "QT --epistasis to ", 18);
   wptr = strcpya(wptr, outname);
   memcpy(wptr, " ... ", 6);
-  wordwrap(16, g_logbuf); // strlen("99% [processing]")
+  wordwrapb(16); // strlen("99% [processing]")
   logprintb();
   fputs("0%", stdout);
   do {
@@ -8850,7 +8850,7 @@ int32_t epistasis_logistic_regression(pthread_t* threads, Epi_info* epi_ip, FILE
   wptr = memcpya(g_logbuf, "C/C --epistasis to ", 19);
   wptr = strcpya(wptr, outname);
   memcpy(wptr, " ... ", 6);
-  wordwrap(16, g_logbuf); // strlen("99% [processing]")
+  wordwrapb(16); // strlen("99% [processing]")
   logprintb();
   fputs("0%", stdout);
   do {
@@ -9679,7 +9679,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     wptr = memcpya(wptr, " to ", 4);
     wptr = strcpya(wptr, outname);
     memcpy(wptr, " ... ", 6);
-    wordwrap(16, g_logbuf); // strlen("99% [processing]") 
+    wordwrapb(16); // strlen("99% [processing]") 
     logprintb();
     fputs("0%", stdout);
     do {

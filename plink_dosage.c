@@ -1092,7 +1092,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     } else {
       sprintf(g_logbuf, "Among remaining phenotypes, %u %s and %u %s.\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "is a case" : "are cases", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "is a control" : "are controls");
     }
-    wordwrap(0, g_logbuf);
+    wordwrapb(0);
     logprintb();
     if (standard_beta) {
       logerrprint("Error: --dosage 'standard-beta' modifier cannot be used with a case/control\nphenotype.\n");
@@ -1570,7 +1570,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       bufptr = strcpya(bufptr, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
     }
     memcpyl3(bufptr, ".\n");
-    wordwrap(0, g_logbuf);
+    wordwrapb(0);
     logprintb();
     for (file_idx = 0; file_idx < cur_batch_size; file_idx++) {
       read_idx_start = read_idx;
@@ -2311,7 +2311,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   plink1_dosage_ret_MISSING_TOKENS:
     sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
   plink1_dosage_ret_INVALID_FORMAT_WW:
-    wordwrap(0, g_logbuf);
+    wordwrapb(0);
   plink1_dosage_ret_INVALID_FORMAT_2:
     logerrprintb();
   plink1_dosage_ret_INVALID_FORMAT:

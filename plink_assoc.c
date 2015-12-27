@@ -6300,7 +6300,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       goto model_assoc_ret_OPEN_FAIL;
     }
     sprintf(g_logbuf, "Writing C/C --assoc report to %s ... ", outname);
-    wordwrap(25, g_logbuf); // strlen("[generating permutations]")
+    wordwrapb(25); // strlen("[generating permutations]")
     logprintb();
     fflush(stdout);
     sprintf(g_textbuf, " CHR %%%us         BP   A1 ", plink_maxsnp);
@@ -6354,7 +6354,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       goto model_assoc_ret_OPEN_FAIL;
     }
     sprintf(g_logbuf, "Writing --model report to %s ... ", outname);
-    wordwrap(25, g_logbuf);
+    wordwrapb(25);
     logprintb();
     fflush(stdout);
     if (model_perm_best && model_perms) {

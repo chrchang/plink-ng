@@ -96,13 +96,19 @@
     #error "64-bit builds currently require SSE2.  Try producing a 32-bit build instead."
   #endif
   #include <emmintrin.h>
-  #define FIVEMASK 0x5555555555555555LLU
 
   #define VECFTYPE __m128
   #define VECITYPE __m128i
   #define VECDTYPE __m128d
 
+  // useful because of its bitwise complement: ~ZEROLU is a word with all 1
+  // bits, while ~0 is always 32 1 bits.
   #define ZEROLU 0LLU
+
+  // mainly useful for bitshifts: (ONELU << 32) works in 64-bit builds, while
+  // (1 << 32) is undefined.  also used to cast some numbers/expressions to
+  // uintptr_t (e.g. multiplying an int constant by ONELU widens it to 64 bits
+  // in 64-bit builds).
   #define ONELU 1LLU
 
   #ifdef _WIN32 // i.e. Win64
@@ -131,7 +137,6 @@
 
 #else // not __LP64__
 
-  #define FIVEMASK 0x55555555
   #define ZEROLU 0LU
   #define ONELU 1LU
   #ifndef PRIuPTR
@@ -147,8 +152,11 @@
 
 #endif // __LP64__
 
-// use constexpr for this as soon as compiler support is available on all
+// use constexpr for these as soon as compiler support is available on all
 // platforms
+#define FIVEMASK ((~ZEROLU) / 3)
+#define AAAAMASK (FIVEMASK * 2)
+
 #define VEC_BYTES_M1 (VEC_BYTES - 1)
 #define VEC_BITS (VEC_BYTES * 8)
 #define VEC_BITS_M1 (VEC_BITS - 1)
@@ -698,7 +706,6 @@
 #define JACKKNIFE_VALS_GROUPDIST 3
 
 #ifdef __LP64__
-  #define AAAAMASK 0xaaaaaaaaaaaaaaaaLLU
   // number of snp-major .bed lines to read at once for distance calc if
   // exponent is nonzero.
   #define MULTIPLEX_DIST_EXP 64
@@ -707,7 +714,6 @@
 #else
   // N.B. 32-bit version not as carefully tested or optimized, but I'll try to
   // make sure it works properly
-  #define AAAAMASK 0xaaaaaaaaU
   #define MULTIPLEX_DIST_EXP 28
   #define MULTIPLEX_REL 30
 #endif
@@ -746,7 +752,9 @@ typedef struct {
   double interval_slope;
 } Aperm_info;
 
-// fit 4 pathologically long IDs plus a bit extra
+// Generic text I/O buffer: any function which reads from/writes to a text file
+// or the console may clobber it.  Sized to fit two MAXLINELEN-length lines
+// plus a bit extra.
 extern char g_textbuf[];
 
 extern const char g_one_char_strs[];
@@ -781,15 +789,22 @@ static inline void aligned_free_cond_null(uintptr_t** aligned_pp) {
 
 extern sfmt_t g_sfmt;
 
-extern const char errstr_fopen[];
-extern const char cmdline_format_str[];
+// file-scope string constants don't always have the g_ prefix, but multi-file
+// constants are always tagged.
+extern const char g_errstr_fopen[];
+extern const char g_cmdline_format_str[];
 
 extern FILE* g_logfile;
+
+// mostly-safe sprintf buffer.  warning: do NOT put allele codes or
+// arbitrary-length lists in here.
 extern char g_logbuf[];
+
 extern uint32_t g_debug_on;
 extern uint32_t g_log_failed;
 
-extern uintptr_t g_sample_ct;
+// should remove this global: multithreaded functions should use a file-local
+// thread_ct which will occasionally be smaller due to job size.
 extern uint32_t g_thread_ct;
 
 typedef struct ll_str_struct {
@@ -839,16 +854,18 @@ void logerrprintb();
 
 // input for wordwrap/LOGPRINTFWW should have no intermediate '\n's.  If
 // suffix_len is 0, there should be a terminating \n.
-void wordwrap(uint32_t suffix_len, char* ss);
+// void wordwrap(uint32_t suffix_len, char* ss);
 
-#define LOGPREPRINTFWW(...) sprintf(g_logbuf, __VA_ARGS__); wordwrap(0, g_logbuf);
+void wordwrapb(uint32_t suffix_len);
 
-#define LOGPRINTFWW(...) sprintf(g_logbuf, __VA_ARGS__); wordwrap(0, g_logbuf); logprintb();
+#define LOGPREPRINTFWW(...) sprintf(g_logbuf, __VA_ARGS__); wordwrapb(0);
 
-#define LOGERRPRINTFWW(...) sprintf(g_logbuf, __VA_ARGS__); wordwrap(0, g_logbuf); logerrprintb();
+#define LOGPRINTFWW(...) sprintf(g_logbuf, __VA_ARGS__); wordwrapb(0); logprintb();
+
+#define LOGERRPRINTFWW(...) sprintf(g_logbuf, __VA_ARGS__); wordwrapb(0); logerrprintb();
 
 // 5 = length of "done." suffix, which is commonly used
-#define LOGPRINTFWW5(...) sprintf(g_logbuf, __VA_ARGS__); wordwrap(5, g_logbuf); logprintb();
+#define LOGPRINTFWW5(...) sprintf(g_logbuf, __VA_ARGS__); wordwrapb(5); logprintb();
 
 #ifdef STABLE_BUILD
   #define UNSTABLE(val) sptr = strcpya(&(g_logbuf[9]), val); goto main_unstable_disabled

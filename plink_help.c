@@ -268,7 +268,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  * An ellipsis (...) indicates that you may enter multiple parameters of the\n"
 "    specified type.\n"
 , stdout);
-    fputs(cmdline_format_str, stdout);
+    fputs(g_cmdline_format_str, stdout);
     fputs(
 "Most " PROG_NAME_CAPS " runs require exactly one main input fileset.  The following flags\n"
 "are available for defining its form and location:\n\n"

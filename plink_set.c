@@ -454,7 +454,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
     }
     if (range_last < range_first) {
       sprintf(g_logbuf, "Error: Range end position smaller than range start on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
-      wordwrap(0, g_logbuf);
+      wordwrapb(0);
       goto load_range_list_ret_INVALID_FORMAT_2;
     }
     if (border_extend > range_first) {
@@ -3164,7 +3164,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
     retval = RET_WRITE_FAIL;
     break;
   annotate_ret_INVALID_FORMAT_WW:
-    wordwrap(0, g_logbuf);
+    wordwrapb(0);
     logerrprintb();
   annotate_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
@@ -3634,7 +3634,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     retval = RET_WRITE_FAIL;
     break;
   gene_report_ret_INVALID_FORMAT_WW:
-    wordwrap(0, g_logbuf);
+    wordwrapb(0);
     logerrprintb();
   gene_report_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;

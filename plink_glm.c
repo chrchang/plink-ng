@@ -2690,7 +2690,7 @@ static double* g_constraints_con_major;
 static uint32_t g_perm_batch_max;
 static float* g_fixed_covars_cov_major_f;
 
-const char glm_main_effects[] = "REC\0DOM\0HOM\0ADD";
+static const char glm_main_effects[] = "REC\0DOM\0HOM\0ADD";
 
 #ifndef NOLAPACK
 THREAD_RET_TYPE glm_linear_adapt_thread(void* arg) {
