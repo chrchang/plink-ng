@@ -664,7 +664,7 @@
 #define MAXLINELEN 131072
 
 // must be at least 2 * MAXLINELEN + 2 to support generic token loader.
-#define TBUF_SIZE (2 * MAXLINELEN + 256)
+#define TEXTBUF_SIZE (2 * MAXLINELEN + 256)
 
 // Maximum length of chromosome, variant, FID, IID, cluster, and set IDs (not
 // including terminating null, that's what _P1 is for).  This value supports up
@@ -747,7 +747,7 @@ typedef struct {
 } Aperm_info;
 
 // fit 4 pathologically long IDs plus a bit extra
-extern char tbuf[];
+extern char g_textbuf[];
 
 extern const char g_one_char_strs[];
 extern const char* g_missing_geno_ptr;
@@ -779,13 +779,13 @@ static inline void aligned_free_cond_null(uintptr_t** aligned_pp) {
   }
 }
 
-extern sfmt_t sfmt;
+extern sfmt_t g_sfmt;
 
 extern const char errstr_fopen[];
 extern const char cmdline_format_str[];
 
-extern FILE* logfile;
-extern char logbuf[];
+extern FILE* g_logfile;
+extern char g_logbuf[];
 extern uint32_t g_debug_on;
 extern uint32_t g_log_failed;
 
@@ -833,25 +833,25 @@ void logprintb();
 
 void logerrprintb();
 
-#define LOGPRINTF(...) sprintf(logbuf, __VA_ARGS__); logprintb();
+#define LOGPRINTF(...) sprintf(g_logbuf, __VA_ARGS__); logprintb();
 
-#define LOGERRPRINTF(...) sprintf(logbuf, __VA_ARGS__); logerrprintb();
+#define LOGERRPRINTF(...) sprintf(g_logbuf, __VA_ARGS__); logerrprintb();
 
 // input for wordwrap/LOGPRINTFWW should have no intermediate '\n's.  If
 // suffix_len is 0, there should be a terminating \n.
 void wordwrap(uint32_t suffix_len, char* ss);
 
-#define LOGPREPRINTFWW(...) sprintf(logbuf, __VA_ARGS__); wordwrap(0, logbuf);
+#define LOGPREPRINTFWW(...) sprintf(g_logbuf, __VA_ARGS__); wordwrap(0, g_logbuf);
 
-#define LOGPRINTFWW(...) sprintf(logbuf, __VA_ARGS__); wordwrap(0, logbuf); logprintb();
+#define LOGPRINTFWW(...) sprintf(g_logbuf, __VA_ARGS__); wordwrap(0, g_logbuf); logprintb();
 
-#define LOGERRPRINTFWW(...) sprintf(logbuf, __VA_ARGS__); wordwrap(0, logbuf); logerrprintb();
+#define LOGERRPRINTFWW(...) sprintf(g_logbuf, __VA_ARGS__); wordwrap(0, g_logbuf); logerrprintb();
 
 // 5 = length of "done." suffix, which is commonly used
-#define LOGPRINTFWW5(...) sprintf(logbuf, __VA_ARGS__); wordwrap(5, logbuf); logprintb();
+#define LOGPRINTFWW5(...) sprintf(g_logbuf, __VA_ARGS__); wordwrap(5, g_logbuf); logprintb();
 
 #ifdef STABLE_BUILD
-  #define UNSTABLE(val) sptr = strcpya(&(logbuf[9]), val); goto main_unstable_disabled
+  #define UNSTABLE(val) sptr = strcpya(&(g_logbuf[9]), val); goto main_unstable_disabled
 #else
   #define UNSTABLE(val)
 #endif
@@ -2378,7 +2378,7 @@ void copy_when_nonmissing(uintptr_t* loadbuf, char* source, uintptr_t elem_size,
 uint32_t collapse_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len, uint32_t* id_starts);
 
 static inline double rand_unif(void) {
-  return (sfmt_genrand_uint32(&sfmt) + 0.5) * RECIP_2_32;
+  return (sfmt_genrand_uint32(&g_sfmt) + 0.5) * RECIP_2_32;
 }
 
 void range_list_init(Range_list* range_list_ptr);

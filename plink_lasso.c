@@ -965,7 +965,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   if (fputs_checked("CHR\tSNP\tA1\tEFFECT\n", outfile)) {
     goto lasso_ret_WRITE_FAIL;
   }
-  tbuf[MAXLINELEN] = '\t';
+  g_textbuf[MAXLINELEN] = '\t';
   if (select_covars) {
     if (select_covars_bitfield) {
       marker_idx = covar_ct - popcount_longs(select_covars_bitfield, (covar_ct + (BITCT - 1)) / BITCT);
@@ -980,11 +980,11 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
       if ((!report_zeroes) && (dxx == 0)) {
 	continue;
       }
-      wptr = memcpya(tbuf, "COV\t", 4);
+      wptr = memcpya(g_textbuf, "COV\t", 4);
       wptr = strcpyax(wptr, &(covar_names[marker_uidx * max_covar_name_len]), '\t');
       wptr = memcpyl3a(wptr, "NA\t");
       wptr = double_g_writex(wptr, dxx, '\n');
-      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+      if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	goto lasso_ret_WRITE_FAIL;
       }
     }
@@ -995,7 +995,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
       chrom_fo_idx++;
       refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &uii, &min_ploidy_1);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      wptr_start = chrom_name_write(tbuf, chrom_info_ptr, uii);
+      wptr_start = chrom_name_write(g_textbuf, chrom_info_ptr, uii);
       *wptr_start++ = '\t';
     }
     wptr = strcpyax(wptr_start, &(marker_ids[marker_uidx * max_marker_id_len]), '\t');
@@ -1004,18 +1004,18 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
       if ((!report_zeroes) && (dxx == 0)) {
 	continue;
       }
-      wptr2 = double_g_writex(&(tbuf[MAXLINELEN + 1]), dxx, '\n');
+      wptr2 = double_g_writex(&(g_textbuf[MAXLINELEN + 1]), dxx, '\n');
     } else {
       if (!report_zeroes) {
 	continue;
       }
-      wptr2 = memcpyl3a(&(tbuf[MAXLINELEN + 1]), "NA\n");
+      wptr2 = memcpyl3a(&(g_textbuf[MAXLINELEN + 1]), "NA\n");
     }
-    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+    if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
       goto lasso_ret_WRITE_FAIL;
     }
     fputs(marker_allele_ptrs[2 * marker_uidx], outfile);
-    if (fwrite_checked(&(tbuf[MAXLINELEN]), (uintptr_t)(wptr2 - (&(tbuf[MAXLINELEN]))), outfile)) {
+    if (fwrite_checked(&(g_textbuf[MAXLINELEN]), (uintptr_t)(wptr2 - (&(g_textbuf[MAXLINELEN]))), outfile)) {
       goto lasso_ret_WRITE_FAIL;
     }
   }

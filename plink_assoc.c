@@ -407,15 +407,15 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
     goto multcomp_ret_OPEN_FAIL;
   }
   if (!is_set_test) {
-    sprintf(tbuf, " CHR %%%us      UNADJ %s", plink_maxsnp, skip_gc? "" : "        GC ");
-    fprintf(outfile, tbuf, "SNP");
+    sprintf(g_textbuf, " CHR %%%us      UNADJ %s", plink_maxsnp, skip_gc? "" : "        GC ");
+    fprintf(outfile, g_textbuf, "SNP");
   } else {
     plink_maxsnp = max_marker_id_len - 1;
     if (plink_maxsnp < 3) {
       plink_maxsnp = 3;
     }
-    sprintf(tbuf, " %%%us      UNADJ ", plink_maxsnp);
-    fprintf(outfile, tbuf, "SET");
+    sprintf(g_textbuf, " %%%us      UNADJ ", plink_maxsnp);
+    fprintf(outfile, g_textbuf, "SET");
   }
   if (qq_plot) {
     fputs("        QQ ", outfile);
@@ -457,14 +457,14 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
       }
       marker_uidx = new_order[cur_idx];
       if (!is_set_test) {
-        bufptr = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx)));
+        bufptr = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx)));
       } else {
-        bufptr = tbuf;
+        bufptr = g_textbuf;
       }
       *bufptr++ = ' ';
       bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), bufptr);
       *bufptr++ = ' ';
-      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+      if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
 	goto multcomp_ret_WRITE_FAIL;
       }
       bonf = pval * dct;
@@ -500,7 +500,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
 	pv_sidak_sd = dyy;
       }
 
-      bufptr = tbuf;
+      bufptr = g_textbuf;
       if (!is_log10) {
 	adjust_print(unadj_pval, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
 	if (!skip_gc) {
@@ -531,7 +531,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
 	adjust_print_log10(pv_by[cur_idx], output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
       }
       *bufptr++ = '\n';
-      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+      if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
 	goto multcomp_ret_WRITE_FAIL;
       }
     }
@@ -5711,7 +5711,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uintptr_t* loadbuf = g_loadbuf;
   uintptr_t* sample_male_include2 = g_sample_male_include2;
   uintptr_t* perm_adapt_set_unstopped = NULL;
-  char* tbuf2 = &(tbuf[MAXLINELEN]);
+  char* tbuf2 = &(g_textbuf[MAXLINELEN]);
   double* orig_chisq = g_orig_chisq;
   double* sorted_chisq_buf = NULL;
   uint32_t* marker_idx_to_uidx = NULL;
@@ -6155,7 +6155,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   uint32_t model_fisher = model_modifier & MODEL_FISHER;
   uint32_t model_fisherx = model_fisher && (!(model_modifier & MODEL_PTREND));
   uint32_t fisher_midp = model_modifier & MODEL_FISHER_MIDP;
-  char* writebuf = tbuf;
+  char* writebuf = g_textbuf;
   char* chrom_name_ptr = NULL;
   uint32_t chrom_name_len = 0;
   char chrom_name_buf[3 + MAX_CHROM_TEXTNUM_LEN];
@@ -6299,12 +6299,12 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     if (fopen_checked(outname, "w", &outfile)) {
       goto model_assoc_ret_OPEN_FAIL;
     }
-    sprintf(logbuf, "Writing C/C --assoc report to %s ... ", outname);
-    wordwrap(25, logbuf); // strlen("[generating permutations]")
+    sprintf(g_logbuf, "Writing C/C --assoc report to %s ... ", outname);
+    wordwrap(25, g_logbuf); // strlen("[generating permutations]")
     logprintb();
     fflush(stdout);
-    sprintf(tbuf, " CHR %%%us         BP   A1 ", plink_maxsnp);
-    fprintf(outfile, tbuf, "SNP");
+    sprintf(g_textbuf, " CHR %%%us         BP   A1 ", plink_maxsnp);
+    fprintf(outfile, g_textbuf, "SNP");
     if (assoc_counts) {
       fputs("     C_A      C_U   A2 ", outfile);
     } else {
@@ -6353,8 +6353,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     if (fopen_checked(outname, "w", &outfile)) {
       goto model_assoc_ret_OPEN_FAIL;
     }
-    sprintf(logbuf, "Writing --model report to %s ... ", outname);
-    wordwrap(25, logbuf);
+    sprintf(g_logbuf, "Writing --model report to %s ... ", outname);
+    wordwrap(25, g_logbuf);
     logprintb();
     fflush(stdout);
     if (model_perm_best && model_perms) {
@@ -6368,8 +6368,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     } else if (model_modifier & MODEL_PTREND) {
       outname_end2 = memcpyb(outname_end2, ".trend", 7);
     }
-    sprintf(tbuf, " CHR %%%us   A1   A2     TEST            AFF          UNAFF ", plink_maxsnp);
-    fprintf(outfile, tbuf, "SNP");
+    sprintf(g_textbuf, " CHR %%%us   A1   A2     TEST            AFF          UNAFF ", plink_maxsnp);
+    fprintf(outfile, g_textbuf, "SNP");
     if (!model_fisher) {
       fputs("       CHISQ   DF ", outfile);
     } else {
@@ -7549,9 +7549,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
         bigstack_reset(marker_idx_to_uidx);
       }
       if (mperm_save & MPERM_DUMP_ALL) {
-	tbuf[0] = '0';
-	wptr = &(tbuf[1]);
-	a1ptr = &(tbuf[MAXLINELEN]);
+	g_textbuf[0] = '0';
+	wptr = &(g_textbuf[1]);
+	a1ptr = &(g_textbuf[MAXLINELEN]);
 	if (model_fisherx) {
 	  for (uii = 0; uii < marker_ct; uii++) {
 	    *wptr++ = ' ';
@@ -7562,10 +7562,10 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	      wptr = memcpya(wptr, "NA", 2);
 	    }
 	    if (wptr >= a1ptr) {
-	      if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile_msa)) {
+	      if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile_msa)) {
 		goto model_assoc_ret_WRITE_FAIL;
 	      }
-	      wptr = tbuf;
+	      wptr = g_textbuf;
 	    }
 	  }
 	} else {
@@ -7578,15 +7578,15 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	      wptr = memcpya(wptr, "NA", 2);
 	    }
 	    if (wptr >= a1ptr) {
-	      if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile_msa)) {
+	      if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile_msa)) {
 		goto model_assoc_ret_WRITE_FAIL;
 	      }
-	      wptr = tbuf;
+	      wptr = g_textbuf;
 	    }
 	  }
 	}
 	*wptr++ = '\n';
-	if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile_msa)) {
+	if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile_msa)) {
 	  goto model_assoc_ret_WRITE_FAIL;
 	}
       }
@@ -7606,8 +7606,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       fflush(stdout);
       ulii = perm_vec_ct;
       ujj = 1 + perms_done - ulii;
-      wptr = tbuf;
-      a1ptr = &(tbuf[MAXLINELEN]);
+      wptr = g_textbuf;
+      a1ptr = &(g_textbuf[MAXLINELEN]);
       for (uii = 0; uii < ulii; uii++) {
 	wptr = uint32_write(wptr, uii + ujj);
         orig_pvals_ptr = &(g_mperm_save_all[uii]);
@@ -7620,15 +7620,15 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	    wptr = memcpya(wptr, "NA", 2);
 	  }
 	  if (wptr >= a1ptr) {
-	    if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile_msa)) {
+	    if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile_msa)) {
 	      goto model_assoc_ret_WRITE_FAIL;
 	    }
-	    wptr = tbuf;
+	    wptr = g_textbuf;
 	  }
 	}
 	*wptr++ = '\n';
       }
-      if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile_msa)) {
+      if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile_msa)) {
 	goto model_assoc_ret_WRITE_FAIL;
       }
       fputs("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b               ", stdout);
@@ -7692,15 +7692,15 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	    }
 	  }
 	}
-        memcpy(tbuf, "0 ", 2);
-	wptr = double_g_writex(&(tbuf[2]), dxx, '\n');
-	if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile)) {
+        memcpy(g_textbuf, "0 ", 2);
+	wptr = double_g_writex(&(g_textbuf[2]), dxx, '\n');
+	if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile)) {
 	  goto model_assoc_ret_WRITE_FAIL;
 	}
 	for (uii = 0; uii < perms_total; uii++) {
-	  wptr = uint32_writex(tbuf, uii + 1, ' ');
+	  wptr = uint32_writex(g_textbuf, uii + 1, ' ');
 	  wptr = double_g_writex(wptr, maxt_extreme_stat[uii], '\n');
-	  if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile)) {
+	  if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile)) {
 	    goto model_assoc_ret_WRITE_FAIL;
 	  }
 	}
@@ -7714,9 +7714,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       goto model_assoc_ret_OPEN_FAIL;
     }
     if (model_adapt_nst) {
-      sprintf(tbuf, " CHR %%%us         EMP1           NP \n", plink_maxsnp);
+      sprintf(g_textbuf, " CHR %%%us         EMP1           NP \n", plink_maxsnp);
     } else {
-      sprintf(tbuf, " CHR %%%us         EMP1         EMP2 \n", plink_maxsnp);
+      sprintf(g_textbuf, " CHR %%%us         EMP1         EMP2 \n", plink_maxsnp);
 #ifdef __cplusplus
       std::sort(maxt_extreme_stat, &(maxt_extreme_stat[perms_total]));
 #else
@@ -7728,7 +7728,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       printf("extreme stats: %g %g\n", maxt_extreme_stat[0], maxt_extreme_stat[perms_total - 1]);
     }
     */
-    fprintf(outfile, tbuf, "SNP");
+    fprintf(outfile, g_textbuf, "SNP");
     chrom_fo_idx = 0xffffffffU;
     marker_uidx = next_unset_unsafe(marker_exclude, 0);
     marker_idx = 0;
@@ -7746,7 +7746,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	}
 	marker_uidx = next_unset_unsafe(marker_exclude, chrom_end);
       }
-      wptr_start = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, uii));
+      wptr_start = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, uii));
       *wptr_start++ = ' ';
       wptr_start[plink_maxsnp] = ' ';
       for (; marker_uidx < chrom_end;) {
@@ -7786,7 +7786,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	    }
 	  }
 	  wptr = memcpya(wptr, " \n", 2);
-	  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	  if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	    goto model_assoc_ret_WRITE_FAIL;
 	  }
 	}
@@ -8339,8 +8339,8 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     if (fopen_checked(outname, "w", &outfile_qtm)) {
       goto qassoc_ret_OPEN_FAIL;
     }
-    sprintf(tbuf, " CHR %%%us  VALUE      G11      G12      G22\n", plink_maxsnp);
-    fprintf(outfile_qtm, tbuf, "SNP");
+    sprintf(g_textbuf, " CHR %%%us  VALUE      G11      G12      G22\n", plink_maxsnp);
+    fprintf(outfile_qtm, g_textbuf, "SNP");
     *outname_end2 = '\0';
   }
   if (haploid_chrom_present(chrom_info_ptr) || mt_exists) {
@@ -8348,8 +8348,8 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   }
   LOGPRINTFWW5("Writing QT --assoc report to %s ... ", outname);
   fflush(stdout);
-  sprintf(tbuf, " CHR %%%us         BP    NMISS       BETA         SE         R2        T            P ", plink_maxsnp);
-  fprintf(outfile, tbuf, "SNP");
+  sprintf(g_textbuf, " CHR %%%us         BP    NMISS       BETA         SE         R2        T            P ", plink_maxsnp);
+  fprintf(outfile, g_textbuf, "SNP");
   if (do_lin) {
     fputs("         LIN        LIN_P ", outfile);
   }
@@ -8586,7 +8586,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	loadbuf_ptr = &(g_loadbuf[marker_bidx * pheno_nm_ctv2]);
 	vec_3freq(pheno_nm_ctv2, loadbuf_ptr, sample_include2, &missing_ct, &het_ct, &homcom_ct);
 	nanal = pheno_nm_ct - missing_ct;
-	wptr = memcpya(tbuf, chrom_name_ptr, chrom_name_len);
+	wptr = memcpya(g_textbuf, chrom_name_ptr, chrom_name_len);
 	*wptr++ = ' ';
         wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), wptr);
 	*wptr++ = ' ';
@@ -8734,11 +8734,11 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	  }
 	  *wptr++ = '\n';
 	}
-	if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	  goto qassoc_ret_WRITE_FAIL;
 	}
 	if (qt_means) {
-	  wptr_restart = &(tbuf[2 + chrom_name_len + plink_maxsnp]);
+	  wptr_restart = &(g_textbuf[2 + chrom_name_len + plink_maxsnp]);
 	  wptr = memcpya(wptr_restart, "  GENO ", 7);
 	  a1ptr = marker_allele_ptrs[2 * marker_uidx2];
 	  a2ptr = marker_allele_ptrs[2 * marker_uidx2 + 1];
@@ -8747,7 +8747,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	  if (uii < 4) {
 	    wptr = memseta(wptr, 32, 7 - 2 * uii);
 	  }
-	  if (fwrite_checked(tbuf, wptr - tbuf, outfile_qtm)) {
+	  if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile_qtm)) {
 	    goto qassoc_ret_WRITE_FAIL;
 	  }
 	  fputs(a1ptr, outfile_qtm);
@@ -8775,14 +8775,14 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	  *wptr++ = ' ';
 	  wptr = uint32_writew8(wptr, homcom_ct);
 	  *wptr++ = '\n';
-	  if (fwrite_checked(tbuf, wptr - tbuf, outfile_qtm)) {
+	  if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile_qtm)) {
 	    goto qassoc_ret_WRITE_FAIL;
 	  }
 	  wptr = memcpya(wptr_restart, "  FREQ ", 7);
 	  wptr = double_g_writewx4x(wptr, nanal_recip * ((intptr_t)homrar_ct), 8, ' ');
 	  wptr = double_g_writewx4x(wptr, nanal_recip * ((intptr_t)het_ct), 8, ' ');
 	  wptr = double_g_writewx4x(wptr, nanal_recip * ((intptr_t)homcom_ct), 8, '\n');
-	  if (fwrite_checked(tbuf, wptr - tbuf, outfile_qtm)) {
+	  if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile_qtm)) {
 	    goto qassoc_ret_WRITE_FAIL;
 	  }
 	  wptr = memcpya(wptr_restart, "  MEAN ", 7);
@@ -8808,7 +8808,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	    wptr = memcpya(wptr, "      NA", 8);
 	  }
 	  *wptr++ = '\n';
-	  if (fwrite_checked(tbuf, wptr - tbuf, outfile_qtm)) {
+	  if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile_qtm)) {
 	    goto qassoc_ret_WRITE_FAIL;
 	  }
 	  wptr = memcpya(wptr_restart, "    SD ", 7);
@@ -8839,7 +8839,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	    wptr = memcpya(wptr, "      NA", 8);
 	  }
 	  *wptr++ = '\n';
-	  if (fwrite_checked(tbuf, wptr - tbuf, outfile_qtm)) {
+	  if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile_qtm)) {
 	    goto qassoc_ret_WRITE_FAIL;
 	  }
 	}
@@ -8959,8 +8959,8 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       fflush(stdout);
       ulii = g_perm_vec_ct;
       ujj = 1 + g_perms_done - ulii;
-      wptr = tbuf;
-      a1ptr = &(tbuf[MAXLINELEN]);
+      wptr = g_textbuf;
+      a1ptr = &(g_textbuf[MAXLINELEN]);
       for (uii = 0; uii < ulii; uii++) {
 	wptr = uint32_write(wptr, uii + ujj);
 	ooptr = &(g_mperm_save_all[uii]);
@@ -8973,15 +8973,15 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	    wptr = memcpya(wptr, "NA", 2);
 	  }
 	  if (wptr >= a1ptr) {
-	    if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile_msa)) {
+	    if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile_msa)) {
 	      goto qassoc_ret_WRITE_FAIL;
 	    }
-	    wptr = tbuf;
+	    wptr = g_textbuf;
 	  }
 	}
 	*wptr++ = '\n';
       }
-      if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile_msa)) {
+      if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile_msa)) {
 	goto qassoc_ret_WRITE_FAIL;
       }
       fputs("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b               ", stdout);
@@ -9038,15 +9038,15 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	    }
 	  }
 	}
-        memcpy(tbuf, "0 ", 2);
-	wptr = double_g_writex(&(tbuf[2]), dxx, '\n');
-	if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile)) {
+        memcpy(g_textbuf, "0 ", 2);
+	wptr = double_g_writex(&(g_textbuf[2]), dxx, '\n');
+	if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile)) {
 	  goto qassoc_ret_WRITE_FAIL;
 	}
 	for (uii = 0; uii < perms_total; uii++) {
-	  wptr = uint32_writex(tbuf, uii + 1, ' ');
+	  wptr = uint32_writex(g_textbuf, uii + 1, ' ');
 	  wptr = double_g_writex(wptr, g_maxt_extreme_stat[uii], '\n');
-	  if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile)) {
+	  if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile)) {
 	    goto qassoc_ret_WRITE_FAIL;
 	  }
 	}
@@ -9061,9 +9061,9 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       goto qassoc_ret_OPEN_FAIL;
     }
     if (perm_adapt_nst) {
-      sprintf(tbuf, " CHR %%%us         EMP1           NP \n", plink_maxsnp);
+      sprintf(g_textbuf, " CHR %%%us         EMP1           NP \n", plink_maxsnp);
     } else {
-      sprintf(tbuf, " CHR %%%us         EMP1         EMP2 \n", plink_maxsnp);
+      sprintf(g_textbuf, " CHR %%%us         EMP1         EMP2 \n", plink_maxsnp);
 #ifdef __cplusplus
       std::sort(g_maxt_extreme_stat, &(g_maxt_extreme_stat[perms_total]));
 #else
@@ -9074,7 +9074,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     // if (perm_maxt) {
     //   printf("extreme stats: %g %g %g\n", g_maxt_extreme_stat[0], g_maxt_extreme_stat[(perms_total - 1) / 2], g_maxt_extreme_stat[perms_total - 1]);
     // }
-    fprintf(outfile, tbuf, "SNP");
+    fprintf(outfile, g_textbuf, "SNP");
     chrom_fo_idx = 0xffffffffU;
     marker_uidx = next_unset_unsafe(marker_exclude, 0);
     marker_idx = 0;
@@ -9085,7 +9085,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1U];
       } while (marker_uidx >= chrom_end);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      wptr_start = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, uii));
+      wptr_start = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, uii));
       *wptr_start++ = ' ';
       wptr_start[plink_maxsnp] = ' ';
       for (; marker_uidx < chrom_end;) {
@@ -9127,7 +9127,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	    }
 	  }
 	  wptr = memcpya(wptr, " \n", 2);
-	  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	  if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	    goto qassoc_ret_WRITE_FAIL;
 	  }
 	}
@@ -9432,8 +9432,8 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
   LOGPRINTFWW5("Writing --gxe report to %s ... ", outname);
   fputs("0%", stdout);
   fflush(stdout);
-  sprintf(tbuf, " CHR %%%us   NMISS1      BETA1        SE1   NMISS2      BETA2        SE2    Z_GXE        P_GXE \n", plink_maxsnp);
-  fprintf(outfile, tbuf, "SNP");
+  sprintf(g_textbuf, " CHR %%%us   NMISS1      BETA1        SE1   NMISS2      BETA2        SE2    Z_GXE        P_GXE \n", plink_maxsnp);
+  fprintf(outfile, g_textbuf, "SNP");
 
   if (fseeko(bedfile, bed_offset, SEEK_SET)) {
     goto gxe_assoc_ret_READ_FAIL;
@@ -9485,7 +9485,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
           cur_pheno_d = pheno_d_male_collapsed;
 	  cur_covar_nm_raw = covar_nm_male_raw;
 	}
-	wptr_start = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx]));
+	wptr_start = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx]));
 	*wptr_start++ = ' ';
 	cur_sample_ctl2 = ((cur_sample_ct + (BITCT - 1)) / BITCT) * 2;
         loadbuf[cur_sample_ctl2 - 1] = 0;
@@ -9614,7 +9614,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
       gxe_assoc_nan_line:
         wptr = memcpya(wptr, "      NA         NA         NA       NA         NA         NA       NA           NA\n", 84);
       }
-      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+      if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	goto gxe_assoc_ret_WRITE_FAIL;
       }
       marker_uidx++;
@@ -10047,7 +10047,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
   uintptr_t* pheno_c_collapsed_male = NULL;
   uintptr_t* sex_male_collapsed = NULL;
   char* wptr_start = NULL;
-  char* tbuf2 = &(tbuf[MAXLINELEN]);
+  char* tbuf2 = &(g_textbuf[MAXLINELEN]);
   uint32_t perm_adapt = testmiss_modifier & TESTMISS_PERM;
   uint32_t perm_maxt = testmiss_modifier & TESTMISS_MPERM;
   uint32_t perm_count = testmiss_modifier & TESTMISS_PERM_COUNT;
@@ -10180,8 +10180,8 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
   }
   LOGPRINTFWW5("Writing --test-missing report to %s ... ", outname);
   fflush(stdout);
-  sprintf(tbuf, " CHR %%%us     F_MISS_A     F_MISS_U            P \n", plink_maxsnp);
-  fprintf(outfile, tbuf, "SNP");
+  sprintf(g_textbuf, " CHR %%%us     F_MISS_A     F_MISS_U            P \n", plink_maxsnp);
+  fprintf(outfile, g_textbuf, "SNP");
   if (ferror(outfile)) {
     goto testmiss_ret_WRITE_FAIL;
   }
@@ -10235,7 +10235,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	continue;
       }
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      wptr_start = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, uii));
+      wptr_start = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, uii));
       *wptr_start++ = ' ';
     }
     if (load_raw(bedfile, loadbuf_raw, unfiltered_sample_ct4)) {
@@ -10262,7 +10262,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
     wptr = double_g_writewx4x(wptr, ((int32_t)uii) * cur_case_ct_recip, 12, ' ');
     wptr = double_g_writewx4x(wptr, ((int32_t)ujj) * cur_ctrl_ct_recip, 12, ' ');
     wptr = double_g_writewx4x(wptr, MAXV(pval, output_min_p), 12, '\n');
-    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+    if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
       goto testmiss_ret_WRITE_FAIL;
     }
   }
@@ -10289,8 +10289,8 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
     }
     LOGPRINTF("Including %" PRIuPTR " loc%s in --test-missing permutation test.\n", marker_ct, (marker_ct == 1)? "us" : "i");
     if (mperm_dump_all) {
-      tbuf[0] = '0';
-      wptr = &(tbuf[1]);
+      g_textbuf[0] = '0';
+      wptr = &(g_textbuf[1]);
       for (uii = 0; uii < marker_ct; uii++) {
         *wptr++ = ' ';
         dxx = g_orig_pvals[uii];
@@ -10300,14 +10300,14 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	  wptr = memcpya(wptr, "NA", 2);
 	}
 	if (wptr >= tbuf2) {
-	  if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile_msa)) {
+	  if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile_msa)) {
 	    goto testmiss_ret_WRITE_FAIL;
 	  }
-	  wptr = tbuf;
+	  wptr = g_textbuf;
 	}
       }
       *wptr++ = '\n';
-      if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile_msa)) {
+      if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile_msa)) {
 	goto testmiss_ret_WRITE_FAIL;
       }
     }
@@ -10632,8 +10632,8 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
       fflush(stdout);
       ulii = g_perm_vec_ct;
       ujj = 1 + g_perms_done;
-      wptr = tbuf;
-      tbuf2 = &(tbuf[MAXLINELEN]);
+      wptr = g_textbuf;
+      tbuf2 = &(g_textbuf[MAXLINELEN]);
       for (uii = 0; uii < ulii; uii++) {
 	wptr = uint32_write(wptr, uii + ujj);
 	dptr = &(g_mperm_save_all[uii]);
@@ -10646,15 +10646,15 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	    wptr = memcpya(wptr, "NA", 2);
 	  }
 	  if (wptr >= tbuf2) {
-	    if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile_msa)) {
+	    if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile_msa)) {
 	      goto testmiss_ret_WRITE_FAIL;
 	    }
-	    wptr = tbuf;
+	    wptr = g_textbuf;
 	  }
 	}
 	*wptr++ = '\n';
       }
-      if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile_msa)) {
+      if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile_msa)) {
 	goto testmiss_ret_WRITE_FAIL;
       }
       fputs("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b               ", stdout);
@@ -10703,15 +10703,15 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	    dxx = g_orig_pvals[marker_idx];
 	  }
 	}
-	memcpy(tbuf, "0 ", 2);
-	wptr = double_g_writex(&(tbuf[2]), dxx, '\n');
-	if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile)) {
+	memcpy(g_textbuf, "0 ", 2);
+	wptr = double_g_writex(&(g_textbuf[2]), dxx, '\n');
+	if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile)) {
 	  goto testmiss_ret_WRITE_FAIL;
 	}
 	for (uii = 0; uii < perms_total; uii++) {
-	  wptr = uint32_writex(tbuf, uii + 1, ' ');
+	  wptr = uint32_writex(g_textbuf, uii + 1, ' ');
 	  wptr = double_g_writex(wptr, g_maxt_extreme_stat[uii], '\n');
-	  if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile)) {
+	  if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile)) {
 	    goto testmiss_ret_WRITE_FAIL;
 	  }
 	}
@@ -10726,9 +10726,9 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
       goto testmiss_ret_OPEN_FAIL;
     }
     if (perm_adapt) {
-      sprintf(tbuf, " CHR %%%us         EMP1           NP \n", plink_maxsnp);
+      sprintf(g_textbuf, " CHR %%%us         EMP1           NP \n", plink_maxsnp);
     } else {
-      sprintf(tbuf, " CHR %%%us         EMP1         EMP2 \n", plink_maxsnp);
+      sprintf(g_textbuf, " CHR %%%us         EMP1         EMP2 \n", plink_maxsnp);
 #ifdef __cplusplus
       std::sort(g_maxt_extreme_stat, &(g_maxt_extreme_stat[perms_total]));
 #else
@@ -10740,7 +10740,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
       printf("extreme stats: %g %g\n", g_maxt_extreme_stat[0], g_maxt_extreme_stat[perms_total - 1]);
     }
     */
-    fprintf(outfile, tbuf, "SNP");
+    fprintf(outfile, g_textbuf, "SNP");
     chrom_fo_idx = 0xffffffffU;
     marker_uidx = next_unset_unsafe(marker_exclude, 0);
     marker_idx = 0;
@@ -10751,7 +10751,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1U];
       } while (marker_uidx >= chrom_end);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      wptr_start = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, uii));
+      wptr_start = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, uii));
       *wptr_start++ = ' ';
       wptr_start[plink_maxsnp] = ' ';
       for (; marker_uidx < chrom_end;) {
@@ -10781,7 +10781,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	    }
 	  }
 	  wptr = memcpya(wptr, " \n", 2);
-	  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	  if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	    goto testmiss_ret_WRITE_FAIL;
 	  }
 	}
@@ -11007,7 +11007,7 @@ int32_t cluster_assoc_load_one(FILE* bedfile, uintptr_t bed_offset, uintptr_t* m
       *chrom_name_pp = chrom_name_buf5w4write(chrom_name_buf, chrom_info_ptr, chrom_idx, chrom_name_len_ptr);
     } else {
       // --mh2
-      // chrom_name_buf = tbuf in this case, and we return wptr_start
+      // chrom_name_buf = g_textbuf in this case, and we return wptr_start
       *chrom_name_pp = chrom_name_write(chrom_name_buf, chrom_info_ptr, chrom_idx);
       *(*chrom_name_pp)++ = '\t';
     }
@@ -11170,8 +11170,8 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   LOGPRINTFWW5("Writing report to %s ... ", outname);
   fputs("0%", stdout);
   fflush(stdout);
-  sprintf(tbuf, " CHR %%%us         BP   A1      MAF   A2      CHISQ          P         OR         SE        ", plink_maxsnp);
-  fprintf(outfile, tbuf, "SNP");
+  sprintf(g_textbuf, " CHR %%%us         BP   A1      MAF   A2      CHISQ          P         OR         SE        ", plink_maxsnp);
+  fprintf(outfile, g_textbuf, "SNP");
   uii = (uint32_t)((int32_t)(ci_size * 100));
   if (uii >= 10) {
     fprintf(outfile, "L%u        U%u ", uii, uii);
@@ -11254,26 +11254,26 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       *dptr++ = -9;
     }
     if ((pfilter == 2.0) || ((pval <= pfilter) && (pval != -9))) {
-      wptr = memcpyax(tbuf, chrom_name_ptr, chrom_name_len, ' ');
+      wptr = memcpyax(g_textbuf, chrom_name_ptr, chrom_name_len, ' ');
       wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr);
       *wptr++ = ' ';
       wptr = uint32_writew10x(wptr, marker_pos[marker_uidx], ' ');
-      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+      if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	goto cmh_assoc_ret_WRITE_FAIL;
       }
       fputs_w4(marker_allele_ptrs[marker_uidx * 2], outfile);
-      tbuf[0] = ' ';
-      wptr = double_g_writewx4x(&(tbuf[1]), 1.0 - set_allele_freqs[marker_uidx], 8, ' ');
-      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+      g_textbuf[0] = ' ';
+      wptr = double_g_writewx4x(&(g_textbuf[1]), 1.0 - set_allele_freqs[marker_uidx], 8, ' ');
+      if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	goto cmh_assoc_ret_WRITE_FAIL;
       }
       fputs_w4(marker_allele_ptrs[marker_uidx * 2 + 1], outfile);
       if (realnum(cmh_stat)) {
-	tbuf[0] = ' ';
-	wptr = double_g_writewx4x(&(tbuf[1]), cmh_stat, 10, ' ');
+	g_textbuf[0] = ' ';
+	wptr = double_g_writewx4x(&(g_textbuf[1]), cmh_stat, 10, ' ');
 	wptr = double_g_writewx4x(wptr, MAXV(pval, output_min_p), 10, ' ');
       } else {
-        wptr = memcpya(tbuf, "         NA         NA ", 23);
+        wptr = memcpya(g_textbuf, "         NA         NA ", 23);
       }
       if (realnum(odds_ratio)) {
         wptr = double_g_writewx4x(wptr, odds_ratio, 10, ' ');
@@ -11344,7 +11344,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
 	}
       }
       *wptr++ = '\n';
-      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+      if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	goto cmh_assoc_ret_WRITE_FAIL;
       }
     }
@@ -11543,7 +11543,7 @@ int32_t cmh2_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
   }
   loop_end = marker_ct / 100;
   for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-    if (cluster_assoc_load_one(bedfile, bed_offset, marker_exclude, unfiltered_sample_ct, sample_hh_include2, sample_hh_male_include2, loadbuf_raw, pheno_nm_11, pheno_nm_nonmale_11, pheno_nm_male_11, marker_reverse, chrom_info_ptr, hh_or_mt_exists, tbuf, cluster_ct1, sample_to_cluster_pheno, cluster_pheno_gtots, cur_cluster_pheno_gtots, cluster_geno_cts, &marker_uidx, &chrom_end, &chrom_fo_idx, &min_ploidy_1, &is_x, &is_y, &wptr_start, NULL)) {
+    if (cluster_assoc_load_one(bedfile, bed_offset, marker_exclude, unfiltered_sample_ct, sample_hh_include2, sample_hh_male_include2, loadbuf_raw, pheno_nm_11, pheno_nm_nonmale_11, pheno_nm_male_11, marker_reverse, chrom_info_ptr, hh_or_mt_exists, g_textbuf, cluster_ct1, sample_to_cluster_pheno, cluster_pheno_gtots, cur_cluster_pheno_gtots, cluster_geno_cts, &marker_uidx, &chrom_end, &chrom_fo_idx, &min_ploidy_1, &is_x, &is_y, &wptr_start, NULL)) {
       goto cmh2_assoc_ret_READ_FAIL;
     }
     wptr = strcpyax(wptr_start, &(marker_ids[marker_uidx * max_marker_id_len]), '\t');
@@ -11635,7 +11635,7 @@ int32_t cmh2_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
       wptr = memcpya(wptr, "NA\tNA\tNA\n", 9);
     }
   cmh2_assoc_fail2:
-    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+    if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
       goto cmh2_assoc_ret_WRITE_FAIL;
     }
     if (marker_idx >= loop_end) {
@@ -11685,7 +11685,7 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   FILE* outfile = NULL;
   uintptr_t* sample_hh_include2 = NULL;
   uintptr_t* sample_hh_male_include2 = NULL;
-  char* writebuf = tbuf;
+  char* writebuf = g_textbuf;
   char* chrom_name_ptr = NULL;
   uintptr_t topsize = 0;
   uint32_t cluster_ct2 = 0;
@@ -11785,8 +11785,8 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   fputs("0%", stdout);
   fflush(stdout);
   // misaligned for backward compatibility
-  sprintf(tbuf, " CHR %%%us   A1   A2      F_A      F_U      N_A      N_U     TEST      CHISQ   DF          P         OR\n", plink_maxsnp);
-  fprintf(outfile, tbuf, "SNP");
+  sprintf(g_textbuf, " CHR %%%us   A1   A2      F_A      F_U      N_A      N_U     TEST      CHISQ   DF          P         OR\n", plink_maxsnp);
+  fprintf(outfile, g_textbuf, "SNP");
   if (chrom_info_ptr->mt_code != -1) {
     hh_or_mt_exists |= NXMHH_EXISTS;
   }

@@ -75,10 +75,10 @@ void help_print(const char* cur_params, Help_ctrl* help_ctrl_ptr, uint32_t postp
   char* line_end;
   char* payload_end;
   if (help_ctrl_ptr->param_ct) {
-    strcpy(tbuf, cur_params);
+    strcpy(g_textbuf, cur_params);
     cur_param_ct = 1;
-    cur_param_start[0] = tbuf;
-    payload_ptr = strchr(tbuf, '\t');
+    cur_param_start[0] = g_textbuf;
+    payload_ptr = strchr(g_textbuf, '\t');
     while (payload_ptr) {
       *payload_ptr++ = '\0';
       cur_param_start[cur_param_ct++] = payload_ptr;
@@ -180,8 +180,8 @@ void help_print(const char* cur_params, Help_ctrl* help_ctrl_ptr, uint32_t postp
 	    payload_ptr = &(payload_ptr[2]);
 	    uii -= 2;
 	  }
-	  memcpyx(tbuf, payload_ptr, uii, 0);
-	  fputs(tbuf, stdout);
+	  memcpyx(g_textbuf, payload_ptr, uii, 0);
+	  fputs(g_textbuf, stdout);
 	  payload_ptr = line_end;
 	} while (payload_ptr < payload_end);
       }

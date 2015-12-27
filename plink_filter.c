@@ -76,23 +76,23 @@ int32_t keep_or_remove(char* fname, char* sorted_ids, uintptr_t sorted_ids_ct, u
   if (fopen_checked(fname, "r", &infile)) {
     goto keep_or_remove_ret_OPEN_FAIL;
   }
-  tbuf[MAXLINELEN - 1] = ' ';
+  g_textbuf[MAXLINELEN - 1] = ' ';
   if (bigstack_alloc_c(max_id_len, &id_buf)) {
     goto keep_or_remove_ret_NOMEM;
   }
-  while (fgets(tbuf, MAXLINELEN, infile) != NULL) {
+  while (fgets(g_textbuf, MAXLINELEN, infile) != NULL) {
     line_idx++;
-    if (!tbuf[MAXLINELEN - 1]) {
-      sprintf(logbuf, "Error: Line %" PRIuPTR " of --%s file is pathologically long.\n", line_idx, keep_or_remove_flag_str(flags));
+    if (!g_textbuf[MAXLINELEN - 1]) {
+      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --%s file is pathologically long.\n", line_idx, keep_or_remove_flag_str(flags));
       goto keep_or_remove_ret_INVALID_FORMAT_2;
     }
-    bufptr0 = skip_initial_spaces(tbuf);
+    bufptr0 = skip_initial_spaces(g_textbuf);
     if (is_eoln_kns(*bufptr0)) {
       continue;
     }
     if (!families_only) {
       if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_ct, bufptr0, NULL, &ii)) {
-	sprintf(logbuf, "Error: Line %" PRIuPTR " of --%s file has fewer tokens than expected.\n", line_idx, keep_or_remove_flag_str(flags));
+	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --%s file has fewer tokens than expected.\n", line_idx, keep_or_remove_flag_str(flags));
 	goto keep_or_remove_ret_INVALID_FORMAT_2;
       }
       if (ii != -1) {
@@ -242,7 +242,7 @@ int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, ui
   uintptr_t duplicate_ct = 0;
   // needs to be synced with populate_id_htable
   const uint32_t* extra_alloc_base = &(marker_id_htable[CACHEALIGN32_INT32(marker_id_htable_size)]);
-  char* midbuf = &(tbuf[MAXLINELEN]);
+  char* midbuf = &(g_textbuf[MAXLINELEN]);
   uint32_t curtoklen = 0;
   int32_t retval = 0;
   uintptr_t bufsize;
@@ -263,14 +263,14 @@ int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, ui
     }
     if (!bufsize) {
       if (curtoklen) {
-        extract_exclude_process_token(&(tbuf[MAXLINELEN - curtoklen]), marker_id_htable, marker_id_htable_size, extra_alloc_base, marker_ids, max_marker_id_len, marker_exclude, already_seen, &duplicate_ct, do_exclude, curtoklen);
+        extract_exclude_process_token(&(g_textbuf[MAXLINELEN - curtoklen]), marker_id_htable, marker_id_htable_size, extra_alloc_base, marker_ids, max_marker_id_len, marker_exclude, already_seen, &duplicate_ct, do_exclude, curtoklen);
       }
       break;
     }
     bufptr0 = &(midbuf[bufsize]);
     *bufptr0 = ' ';
     bufptr0[1] = '0';
-    bufptr = &(tbuf[MAXLINELEN - curtoklen]);
+    bufptr = &(g_textbuf[MAXLINELEN - curtoklen]);
     bufptr2 = midbuf;
     if (curtoklen) {
       goto extract_exclude_flag_norange_tok_start;
@@ -289,12 +289,12 @@ int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, ui
 	bufptr2++;
       }
       curtoklen = (uintptr_t)(bufptr2 - bufptr);
-      if (bufptr2 == &(tbuf[MAXLINELEN * 2])) {
+      if (bufptr2 == &(g_textbuf[MAXLINELEN * 2])) {
         if (curtoklen > MAXLINELEN) {
-	  sprintf(logbuf, "Error: Excessively long ID in --%s file.\n", do_exclude? "exclude" : "extract");
+	  sprintf(g_logbuf, "Error: Excessively long ID in --%s file.\n", do_exclude? "exclude" : "extract");
           goto extract_exclude_flag_norange_ret_INVALID_FORMAT_2;
 	}
-	bufptr3 = &(tbuf[MAXLINELEN - curtoklen]);
+	bufptr3 = &(g_textbuf[MAXLINELEN - curtoklen]);
         memcpy(bufptr3, bufptr, curtoklen);
 	break;
       }
@@ -499,7 +499,7 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
     }
     if (!loadbuf[loadbuf_size - 1]) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-	sprintf(logbuf, "Error: Line %" PRIuPTR" of --attrib file is pathologically long.\n", line_idx);
+	sprintf(g_logbuf, "Error: Line %" PRIuPTR" of --attrib file is pathologically long.\n", line_idx);
         goto filter_attrib_ret_INVALID_FORMAT_2;
       }
       goto filter_attrib_ret_NOMEM;
@@ -728,7 +728,7 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
     }
     if (!loadbuf[loadbuf_size - 1]) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-	sprintf(logbuf, "Error: Line %" PRIuPTR" of --attrib-indiv file is pathologically long.\n", line_idx);
+	sprintf(g_logbuf, "Error: Line %" PRIuPTR" of --attrib-indiv file is pathologically long.\n", line_idx);
         goto filter_attrib_sample_ret_INVALID_FORMAT_2;
       }
       goto filter_attrib_sample_ret_NOMEM;
@@ -738,7 +738,7 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
       continue;
     }
     if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_ct, bufptr, &cond_ptr, &sorted_idx)) {
-      sprintf(logbuf, "Error: Line %" PRIuPTR " of --attrib-indiv file has fewer tokens than\nexpected.\n", line_idx);
+      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --attrib-indiv file has fewer tokens than\nexpected.\n", line_idx);
       goto filter_attrib_sample_ret_INVALID_FORMAT_2;
     }
     if (sorted_idx == -1) {
@@ -862,7 +862,7 @@ int32_t filter_qual_scores(Two_col_params* qual_filter, double qual_min_thresh, 
     line_idx++;
     if (!loadbuf[loadbuf_size - 1]) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-        sprintf(logbuf, "Error: Line %" PRIuPTR " of --qual-scores file is pathologically long.\n", line_idx);
+        sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --qual-scores file is pathologically long.\n", line_idx);
         goto filter_qual_scores_ret_INVALID_FORMAT_2;
       } else {
 	goto filter_qual_scores_ret_NOMEM;
@@ -913,9 +913,9 @@ int32_t filter_qual_scores(Two_col_params* qual_filter, double qual_min_thresh, 
     goto filter_qual_scores_ret_1;
   }
   if (miss_ct) {
-    sprintf(logbuf, "--qual-scores: %" PRIuPTR " variant%s remaining, %" PRIuPTR " ID%s missing.\n", marker_ct, (marker_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+    sprintf(g_logbuf, "--qual-scores: %" PRIuPTR " variant%s remaining, %" PRIuPTR " ID%s missing.\n", marker_ct, (marker_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
   } else {
-    sprintf(logbuf, "--qual-scores: %" PRIuPTR " variant%s remaining.\n", marker_ct, (marker_ct == 1)? "" : "s");
+    sprintf(g_logbuf, "--qual-scores: %" PRIuPTR " variant%s remaining.\n", marker_ct, (marker_ct == 1)? "" : "s");
   }
   logprintb();
   while (0) {
@@ -926,7 +926,7 @@ int32_t filter_qual_scores(Two_col_params* qual_filter, double qual_min_thresh, 
     retval = RET_READ_FAIL;
     break;
   filter_qual_scores_ret_MISSING_TOKENS:
-    sprintf(logbuf, "Error: Line %" PRIuPTR " of --qual-scores file has fewer tokens than expected.\n", line_idx);
+    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --qual-scores file has fewer tokens than expected.\n", line_idx);
   filter_qual_scores_ret_INVALID_FORMAT_2:
     logerrprintb();
     retval = RET_INVALID_FORMAT;
@@ -950,7 +950,7 @@ uint32_t random_thin_markers(double thin_keep_prob, uintptr_t unfiltered_marker_
     marker_uidx_stop = next_set(marker_exclude, marker_uidx, unfiltered_marker_ct);
     markers_done += marker_uidx_stop - marker_uidx;
     do {
-      if (sfmt_genrand_uint32(&sfmt) >= uint32_thresh) {
+      if (sfmt_genrand_uint32(&g_sfmt) >= uint32_thresh) {
 	SET_BIT(marker_exclude, marker_uidx);
 	removed_ct++;
       }
@@ -1021,7 +1021,7 @@ uint32_t random_thin_samples(double thin_keep_prob, uintptr_t unfiltered_sample_
     sample_uidx_stop = next_set(sample_exclude, sample_uidx, unfiltered_sample_ct);
     samples_done += sample_uidx_stop - sample_uidx;
     do {
-      if(sfmt_genrand_uint32(&sfmt) >= uint32_thresh) {
+      if(sfmt_genrand_uint32(&g_sfmt) >= uint32_thresh) {
         SET_BIT(sample_exclude, sample_uidx);
         removed_ct++;
       }
@@ -1082,7 +1082,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
   // 4. scan through .bed sequentially, update oblig_missing_..._cts
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* infile = NULL;
-  char* idbuf = &(tbuf[MAXLINELEN]);
+  char* idbuf = &(g_textbuf[MAXLINELEN]);
   Ll_str* cluster_names = NULL;
   uint64_t tot_missing = 0;
   uintptr_t marker_ct = unfiltered_marker_ct - marker_exclude_ct;
@@ -1138,18 +1138,18 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
   if (fopen_checked(om_ip->sample_fname, "r", &infile)) {
     goto load_oblig_missing_ret_OPEN_FAIL;
   }
-  tbuf[MAXLINELEN - 1] = ' ';
+  g_textbuf[MAXLINELEN - 1] = ' ';
 
   // two-pass load, same as load_clusters()
   // use loadbuf as duplicate IID detector
   fill_ulong_zero(loadbuf, sorted_sample_ctl);
-  while (fgets(tbuf, MAXLINELEN, infile)) {
+  while (fgets(g_textbuf, MAXLINELEN, infile)) {
     line_idx++;
-    if (!tbuf[MAXLINELEN - 1]) {
+    if (!g_textbuf[MAXLINELEN - 1]) {
       LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, om_ip->sample_fname);
       goto load_oblig_missing_ret_INVALID_FORMAT_2;
     }
-    bufptr = skip_initial_spaces(tbuf);
+    bufptr = skip_initial_spaces(g_textbuf);
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
@@ -1215,8 +1215,8 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
 
   // second pass
   rewind(infile);
-  while (fgets(tbuf, MAXLINELEN, infile)) {
-    bufptr = skip_initial_spaces(tbuf);
+  while (fgets(g_textbuf, MAXLINELEN, infile)) {
+    bufptr = skip_initial_spaces(g_textbuf);
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
@@ -1267,13 +1267,13 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
     goto load_oblig_missing_ret_OPEN_FAIL;
   }
   line_idx = 0;
-  while (fgets(tbuf, MAXLINELEN, infile)) {
+  while (fgets(g_textbuf, MAXLINELEN, infile)) {
     line_idx++;
-    if (!tbuf[MAXLINELEN - 1]) {
+    if (!g_textbuf[MAXLINELEN - 1]) {
       LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, om_ip->marker_fname);
       goto load_oblig_missing_ret_INVALID_FORMAT_2;
     }
-    bufptr = skip_initial_spaces(tbuf);
+    bufptr = skip_initial_spaces(g_textbuf);
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
@@ -1411,14 +1411,14 @@ int32_t filter_samples_file(char* filtername, char* sorted_sample_ids, uintptr_t
   if (fopen_checked(filtername, "r", &infile)) {
     goto filter_samples_file_ret_OPEN_FAIL;
   }
-  tbuf[MAXLINELEN - 1] = ' ';
-  while (fgets(tbuf, MAXLINELEN, infile)) {
+  g_textbuf[MAXLINELEN - 1] = ' ';
+  while (fgets(g_textbuf, MAXLINELEN, infile)) {
     line_idx++;
-    if (!tbuf[MAXLINELEN - 1]) {
-      sprintf(logbuf, "Error: Line %" PRIuPTR " of --filter file is pathologically long.\n", line_idx);
+    if (!g_textbuf[MAXLINELEN - 1]) {
+      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --filter file is pathologically long.\n", line_idx);
       goto filter_samples_file_ret_INVALID_FORMAT_2;
     }
-    bufptr = skip_initial_spaces(tbuf);
+    bufptr = skip_initial_spaces(g_textbuf);
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
@@ -1465,7 +1465,7 @@ int32_t filter_samples_file(char* filtername, char* sorted_sample_ids, uintptr_t
     retval = RET_READ_FAIL;
     break;
   filter_samples_file_ret_MISSING_TOKENS:
-    sprintf(logbuf, "Error: Line %" PRIuPTR " of --filter file has fewer tokens than expected.\n", line_idx);
+    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --filter file has fewer tokens than expected.\n", line_idx);
   filter_samples_file_ret_INVALID_FORMAT_2:
     logerrprintb();
     retval = RET_INVALID_FORMAT;
@@ -2804,7 +2804,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   }
   ujj = unfiltered_sample_ctl2 * BITCT2;
   if (!cluster_ct) {
-    sprintf(tbuf, " CHR %%%us   N_MISS   N_GENO   F_MISS" EOLN_STR, plink_maxsnp);
+    sprintf(g_textbuf, " CHR %%%us   N_MISS   N_GENO   F_MISS" EOLN_STR, plink_maxsnp);
   } else {
     if (bigstack_calloc_ui(unfiltered_sample_ct, &sample_to_cluster) ||
         bigstack_alloc_ui(cluster_ct, &missing_ct_by_cluster) ||
@@ -2827,10 +2827,10 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	}
       }
     }
-    sprintf(tbuf, " CHR %%%us       CLST   N_MISS   N_CLST   N_GENO   F_MISS" EOLN_STR, plink_maxsnp);
+    sprintf(g_textbuf, " CHR %%%us       CLST   N_MISS   N_CLST   N_GENO   F_MISS" EOLN_STR, plink_maxsnp);
   }
 
-  pzwritep += sprintf(pzwritep, tbuf, "SNP");
+  pzwritep += sprintf(pzwritep, g_textbuf, "SNP");
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
     chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
@@ -2850,7 +2850,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	cur_cluster_sizes = cluster_sizes_y;
 	om_ycorr = om_cluster_ct;
       }
-      cptr = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, chrom_idx));
+      cptr = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, chrom_idx));
       *cptr++ = ' ';
       if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
 	goto write_missingness_reports_ret_READ_FAIL;
@@ -2892,7 +2892,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	      ulii &= ulii - 1;
 	    }
 	  }
-          pzwritep = memcpya(pzwritep, tbuf, cptr2 - tbuf);
+          pzwritep = memcpya(pzwritep, g_textbuf, cptr2 - g_textbuf);
 	  pzwritep = uint32_writew8x(pzwritep, ukk - oblig_ct, ' ');
           pzwritep = uint32_writew8x(pzwritep, cur_tot - oblig_ct, ' ');
 	  pzwritep = double_g_writewx4(pzwritep, ((double)((int32_t)(ukk - oblig_ct))) / ((double)((int32_t)(cur_tot - oblig_ct))), 8);
@@ -2941,7 +2941,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	    }
 	  }
 	  for (clidx = 0; clidx < cluster_ct; clidx++) {
-            pzwritep = memcpya(pzwritep, tbuf, cptr2 - tbuf);
+            pzwritep = memcpya(pzwritep, g_textbuf, cptr2 - g_textbuf);
             pzwritep = fw_strcpy(10, &(cluster_ids[clidx * max_cluster_id_len]), pzwritep);
 	    *pzwritep++ = ' ';
 	    uii = missing_ct_by_cluster[clidx];
@@ -2977,8 +2977,8 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
     goto write_missingness_reports_ret_OPEN_FAIL;
   }
   pzwritep = (char*)overflow_buf;
-  sprintf(tbuf, "%%%us %%%us MISS_PHENO   N_MISS   N_GENO   F_MISS" EOLN_STR, plink_maxfid, plink_maxiid);
-  pzwritep += sprintf(pzwritep, tbuf, "FID", "IID");
+  sprintf(g_textbuf, "%%%us %%%us MISS_PHENO   N_MISS   N_GENO   F_MISS" EOLN_STR, plink_maxfid, plink_maxiid);
+  pzwritep += sprintf(pzwritep, g_textbuf, "FID", "IID");
   do {
     sample_uidx = next_unset_unsafe(sample_exclude, sample_uidx);
     sample_uidx_stop = next_set(sample_exclude, sample_uidx, unfiltered_sample_ct);

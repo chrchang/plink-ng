@@ -2337,8 +2337,8 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
     fflush(stdout);
   } while (ll_change > tol);
   putchar('\n');
-  sprintf(logbuf, "covg: %g  covr: %g\n", *covg_ref, *covr_ref);
-  logstr(logbuf);
+  sprintf(g_logbuf, "covg: %g  covr: %g\n", *covg_ref, *covr_ref);
+  logstr(g_logbuf);
 }
 
 void mean_zero_var_one_in_place(uint32_t sample_ct, double* pheno_d) {
@@ -2453,14 +2453,14 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
   if (fopen_checked(grmname, "r", &infile)) {
     goto unrelated_herit_batch_ret_OPEN_FAIL;
   }
-  tbuf[MAXLINELEN - 1] = ' ';
-  while (fgets(tbuf, MAXLINELEN, infile)) {
+  g_textbuf[MAXLINELEN - 1] = ' ';
+  while (fgets(g_textbuf, MAXLINELEN, infile)) {
     line_idx++;
-    if (!tbuf[MAXLINELEN - 1]) {
+    if (!g_textbuf[MAXLINELEN - 1]) {
       LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, grmname);
       goto unrelated_herit_batch_ret_INVALID_FORMAT_2;
     }
-    bufptr = skip_initial_spaces(tbuf);
+    bufptr = skip_initial_spaces(g_textbuf);
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
@@ -2497,8 +2497,8 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
   if (!id_map) {
     goto unrelated_herit_batch_ret_NOMEM;
   }
-  while (fgets(tbuf, MAXLINELEN, infile)) {
-    bufptr = skip_initial_spaces(tbuf);
+  while (fgets(g_textbuf, MAXLINELEN, infile)) {
+    bufptr = skip_initial_spaces(g_textbuf);
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
@@ -2606,24 +2606,24 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
     for (sample_uidx = 0; sample_uidx < pheno_nm_ct; sample_uidx++) {
       if (!IS_SET(pheno_nm, sample_uidx)) {
         for (sample_uidx2 = 0; sample_uidx2 <= sample_uidx; sample_uidx2++) {
-          if (!gzgets(grm_gzfile, tbuf, MAXLINELEN)) {
+          if (!gzgets(grm_gzfile, g_textbuf, MAXLINELEN)) {
 	    goto unrelated_herit_batch_ret_READ_FAIL;
 	  }
-	  if (!tbuf[MAXLINELEN - 1]) {
+	  if (!g_textbuf[MAXLINELEN - 1]) {
 	    goto unrelated_herit_batch_ret_INVALID_FORMAT_3;
 	  }
 	}
       } else {
 	row_ptr = &(rel_base[ulii * pheno_nm_ct]);
 	for (sample_uidx2 = 0; sample_uidx2 <= sample_uidx; sample_uidx2++) {
-	  if (!gzgets(grm_gzfile, tbuf, MAXLINELEN)) {
+	  if (!gzgets(grm_gzfile, g_textbuf, MAXLINELEN)) {
 	    goto unrelated_herit_batch_ret_READ_FAIL;
 	  }
-	  if (!tbuf[MAXLINELEN - 1]) {
+	  if (!g_textbuf[MAXLINELEN - 1]) {
 	    goto unrelated_herit_batch_ret_INVALID_FORMAT_3;
 	  }
 	  if (IS_SET(pheno_nm, sample_uidx2)) {
-	    bufptr = next_token_mult(tbuf, 3);
+	    bufptr = next_token_mult(g_textbuf, 3);
 	    if (no_more_tokens_kns(bufptr)) {
 	      goto unrelated_herit_batch_ret_INVALID_FORMAT_3;
 	    }
@@ -3271,20 +3271,20 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     }
   }
 
-  tbuf[MAXLINELEN - 7] = ' ';
-  tbuf[MAXLINELEN - 1] = ' ';
-  if (!fgets(tbuf, MAXLINELEN - 6, evecfile)) {
+  g_textbuf[MAXLINELEN - 7] = ' ';
+  g_textbuf[MAXLINELEN - 1] = ' ';
+  if (!fgets(g_textbuf, MAXLINELEN - 6, evecfile)) {
     if (feof(evecfile)) {
       goto calc_regress_pcs_ret_INVALID_FORMAT_2G;
     } else {
       goto calc_regress_pcs_ret_READ_FAIL;
     }
   }
-  if (!tbuf[MAXLINELEN - 7]) {
+  if (!g_textbuf[MAXLINELEN - 7]) {
     logerrprint("Error: Excessively long line in .evec/.eigenvec file.\n");
     goto calc_regress_pcs_ret_INVALID_FORMAT;
   }
-  bufptr = skip_initial_spaces(tbuf);
+  bufptr = skip_initial_spaces(g_textbuf);
   if (no_more_tokens_kns(bufptr)) {
     goto calc_regress_pcs_ret_INVALID_FORMAT_2G;
   }
@@ -3301,10 +3301,10 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     goto calc_regress_pcs_ret_INVALID_FORMAT_2G;
   }
   if (pc_ct > max_pcs) {
-    sprintf(logbuf, "%svec format detected.  Regressing on %d PC%s (out of %d).\n", is_eigenvec? "GCTA .eigen" : "SMARTPCA .e", max_pcs, (max_pcs == 1)? "" : "s", pc_ct);
+    sprintf(g_logbuf, "%svec format detected.  Regressing on %d PC%s (out of %d).\n", is_eigenvec? "GCTA .eigen" : "SMARTPCA .e", max_pcs, (max_pcs == 1)? "" : "s", pc_ct);
     pc_ct = max_pcs;
   } else {
-    sprintf(logbuf, "%svec format detected.  Regressing on %d principal component%s.\n", is_eigenvec? "GCTA .eigen" : "SMARTPCA .e", pc_ct, (pc_ct == 1)? "" : "s");
+    sprintf(g_logbuf, "%svec format detected.  Regressing on %d principal component%s.\n", is_eigenvec? "GCTA .eigen" : "SMARTPCA .e", pc_ct, (pc_ct == 1)? "" : "s");
   }
   logprintb();
   pc_ct_p1 = pc_ct + 1;
@@ -3326,7 +3326,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     sample_idx = 0;
     while (1) {
       // todo: validate, and perhaps permute, sample IDs
-      bufptr = next_token_mult(skip_initial_spaces(tbuf), 2);
+      bufptr = next_token_mult(skip_initial_spaces(g_textbuf), 2);
       for (uii = 0; uii < pc_ct; uii++) {
 	if (no_more_tokens_kns(bufptr)) {
 	  goto calc_regress_pcs_ret_INVALID_FORMAT_2G;
@@ -3340,9 +3340,9 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
       if (++sample_idx >= sample_ct) {
 	break;
       }
-      if (!fgets(tbuf, MAXLINELEN, evecfile)) {
+      if (!fgets(g_textbuf, MAXLINELEN, evecfile)) {
 	if (feof(evecfile)) {
-	  sprintf(logbuf, "Error: Fewer %s in .eigenvec file than expected.\n", g_species_plural);
+	  sprintf(g_logbuf, "Error: Fewer %s in .eigenvec file than expected.\n", g_species_plural);
 	  goto calc_regress_pcs_ret_INVALID_FORMAT_3;
 	} else {
 	  goto calc_regress_pcs_ret_READ_FAIL;
@@ -3351,15 +3351,15 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     }
   } else {
     for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
-      if (!fgets(tbuf, MAXLINELEN, evecfile)) {
+      if (!fgets(g_textbuf, MAXLINELEN, evecfile)) {
 	if (feof(evecfile)) {
-	  sprintf(logbuf, "Error: Fewer %s in .evec file than expected.\n", g_species_plural);
+	  sprintf(g_logbuf, "Error: Fewer %s in .evec file than expected.\n", g_species_plural);
 	  goto calc_regress_pcs_ret_INVALID_FORMAT_3;
 	} else {
 	  goto calc_regress_pcs_ret_READ_FAIL;
 	}
       }
-      bufptr = next_token(skip_initial_spaces(tbuf));
+      bufptr = next_token(skip_initial_spaces(g_textbuf));
       for (uii = 0; uii < pc_ct; uii++) {
 	if (no_more_tokens_kns(bufptr)) {
 	  goto calc_regress_pcs_ret_INVALID_FORMAT_2G;
@@ -3372,9 +3372,9 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
       pc_matrix[pc_ct * sample_ct + sample_idx] = 1.0;
     }
   }
-  if (fgets(tbuf, MAXLINELEN, evecfile)) {
-    if (!no_more_tokens_kns(skip_initial_spaces(tbuf))) {
-      sprintf(logbuf, "Error: More %s in .e%svec file than expected.\n", g_species_plural, is_eigenvec? "igen" : "");
+  if (fgets(g_textbuf, MAXLINELEN, evecfile)) {
+    if (!no_more_tokens_kns(skip_initial_spaces(g_textbuf))) {
+      sprintf(g_logbuf, "Error: More %s in .e%svec file than expected.\n", g_species_plural, is_eigenvec? "igen" : "");
       goto calc_regress_pcs_ret_INVALID_FORMAT_3;
     }
   }
@@ -3420,13 +3420,13 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     if (is_haploid && hh_exists) {
       haploid_fix(hh_exists, sample_include2, sample_male_include2, sample_ct, is_x, is_y, (unsigned char*)loadbuf);
     }
-    bufptr = chrom_name_write(tbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx));
+    bufptr = chrom_name_write(g_textbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx));
     *bufptr++ = ' ';
-    fwrite(tbuf, 1, bufptr - tbuf, outfile);
+    fwrite(g_textbuf, 1, bufptr - g_textbuf, outfile);
     fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
-    tbuf[0] = ' ';
-    bufptr = uint32_writex(&(tbuf[1]), marker_pos[marker_uidx], ' ');
-    fwrite(tbuf, 1, bufptr - tbuf, outfile);
+    g_textbuf[0] = ' ';
+    bufptr = uint32_writex(&(g_textbuf[1]), marker_pos[marker_uidx], ' ');
+    fwrite(g_textbuf, 1, bufptr - g_textbuf, outfile);
     fputs(marker_allele_ptrs[2 * marker_uidx], outfile);
     putc(' ', outfile);
     if (fputs_checked(marker_allele_ptrs[2 * marker_uidx + 1], outfile)) {
@@ -3608,12 +3608,12 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     fwrite(sample_id_ptr, 1, uii, outfile);
     putc(' ', outfile);
     fputs(&(sample_id_ptr[uii + 1]), outfile);
-    tbuf[0] = ' ';
-    bufptr = double_g_writex(&(tbuf[1]), ((double)missing_cts[sample_uidx]) / (double)marker_ct, ' ');
+    g_textbuf[0] = ' ';
+    bufptr = double_g_writex(&(g_textbuf[1]), ((double)missing_cts[sample_uidx]) / (double)marker_ct, ' ');
     *bufptr = sexchar(sex_nm, sex_male, sample_uidx);
     bufptr[1] = ' ';
     bufptr = double_g_writex(&(bufptr[2]), residual_vec[sample_idx], '\n');
-    if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+    if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
       goto calc_regress_pcs_ret_WRITE_FAIL;
     }
   }
@@ -3763,7 +3763,7 @@ int32_t distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_p
     } else {
       sprintf(outname_end, ".dist%s", varsuffix);
     }
-    strcpy(tbuf, outname_end);
+    strcpy(g_textbuf, outname_end);
     if (fopen_checked(outname, mode, outfile_ptr)) {
       return 1;
     }
@@ -3774,7 +3774,7 @@ int32_t distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_p
     } else {
       sprintf(outname_end, ".mibs%s", varsuffix);
     }
-    strcpy(&(tbuf[MAX_POST_EXT]), outname_end);
+    strcpy(&(g_textbuf[MAX_POST_EXT]), outname_end);
     if (fopen_checked(outname, mode, outfile2_ptr)) {
       return 1;
     }
@@ -3785,7 +3785,7 @@ int32_t distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_p
     } else {
       sprintf(outname_end, ".mdist%s", varsuffix);
     }
-    strcpy(&(tbuf[MAX_POST_EXT * 2]), outname_end);
+    strcpy(&(g_textbuf[MAX_POST_EXT * 2]), outname_end);
     if (fopen_checked(outname, mode, outfile3_ptr)) {
       return 1;
     }
@@ -3796,16 +3796,16 @@ int32_t distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_p
 void distance_print_done(int32_t format_code, char* outname, char* outname_end) {
   putchar('\r');
   if (!format_code) {
-    strcpy(outname_end, tbuf);
-    sprintf(logbuf, "Distances (allele counts) written to %s .\n", outname);
+    strcpy(outname_end, g_textbuf);
+    sprintf(g_logbuf, "Distances (allele counts) written to %s .\n", outname);
   } else if (format_code == 1) {
-    strcpy(outname_end, &(tbuf[MAX_POST_EXT]));
-    sprintf(logbuf, "IBS matrix written to %s .\n", outname);
+    strcpy(outname_end, &(g_textbuf[MAX_POST_EXT]));
+    sprintf(g_logbuf, "IBS matrix written to %s .\n", outname);
   } else if (format_code == 2) {
-    strcpy(outname_end, &(tbuf[MAX_POST_EXT * 2]));
-    sprintf(logbuf, "Distances (proportions) written to %s .\n", outname);
+    strcpy(outname_end, &(g_textbuf[MAX_POST_EXT * 2]));
+    sprintf(g_logbuf, "Distances (proportions) written to %s .\n", outname);
   }
-  wordwrap(0, logbuf);
+  wordwrap(0, g_logbuf);
   logprintb();
 }
 
@@ -4750,11 +4750,11 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   if (!sample2idx) {
     // first line, if not 2nd or later part of parallel write
     if (!sample1idx) {
-      sptr_cur += sprintf(sptr_cur, tbuf, " FID1", " IID1", " FID2", " IID2");
+      sptr_cur += sprintf(sptr_cur, g_textbuf, " FID1", " IID1", " FID2", " IID2");
     }
     sample1idx = g_thread_start[0];
     sample2idx = sample1idx + 1;
-    tbuf[0] = ' ';
+    g_textbuf[0] = ' ';
   }
   while (sample1idx < tstc) {
     if (sample2idx == sample1idx + 1) {
@@ -4769,7 +4769,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       family_id_fixed = g_cg_pri.family_idxs[sample1uidx];
       founder_ct = g_cg_pri.family_founder_cts[family_id_fixed];
       llfct = ((int64_t)founder_ct * (founder_ct - 1)) - 2 * g_cg_pri.family_rel_space_offsets[family_id_fixed];
-      sptr_start = fw_strcpyn(max_sample_fid_len - 1, uii, fam1, &(tbuf[1]));
+      sptr_start = fw_strcpyn(max_sample_fid_len - 1, uii, fam1, &(g_textbuf[1]));
       *sptr_start++ = ' ';
       sptr_start = fw_strcpy(max_sample_iid_len - 1, sample1, sptr_start);
       *sptr_start++ = ' ';
@@ -4777,7 +4777,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
     while (sample2idx < sample_ct) {
       next_unset_ul_unsafe_ck(sample_exclude, &sample2uidx);
       sptr_cur_start = sptr_cur;
-      sptr_cur = memcpya(sptr_cur, tbuf, sptr_start - tbuf);
+      sptr_cur = memcpya(sptr_cur, g_textbuf, sptr_start - g_textbuf);
       cptr = &(sample_ids[sample2uidx * max_sample_id_len]);
       uii = strlen_se(cptr);
       memcpyx(fam2, cptr, uii, '\0');
@@ -5427,9 +5427,9 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
 
   if (!parallel_idx) {
     if (genome_modifier & GENOME_OUTPUT_FULL) {
-      sprintf(tbuf, "%%%us%%%us%%%us%%%us RT    EZ      Z0      Z1      Z2  PI_HAT PHE       DST     PPC   RATIO    IBS0    IBS1    IBS2  HOMHOM  HETHET\n", plink_maxfid, plink_maxiid, plink_maxfid, plink_maxiid);
+      sprintf(g_textbuf, "%%%us%%%us%%%us%%%us RT    EZ      Z0      Z1      Z2  PI_HAT PHE       DST     PPC   RATIO    IBS0    IBS1    IBS2  HOMHOM  HETHET\n", plink_maxfid, plink_maxiid, plink_maxfid, plink_maxiid);
     } else {
-      sprintf(tbuf, "%%%us%%%us%%%us%%%us RT    EZ      Z0      Z1      Z2  PI_HAT PHE       DST     PPC   RATIO\n", plink_maxfid, plink_maxiid, plink_maxfid, plink_maxiid);
+      sprintf(g_textbuf, "%%%us%%%us%%%us%%%us RT    EZ      Z0      Z1      Z2  PI_HAT PHE       DST     PPC   RATIO\n", plink_maxfid, plink_maxiid, plink_maxfid, plink_maxiid);
     }
   }
   g_pct = 1;
@@ -5726,15 +5726,15 @@ uint32_t rel_cutoff_batch_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   while (row < sample_ct) {
     if (rel_ct_arr[row] == -1) {
       for (uii = 0; uii <= row; uii++) {
-	gzgets(cur_gzfile, tbuf, MAXLINELEN);
+	gzgets(cur_gzfile, g_textbuf, MAXLINELEN);
       }
     } else {
       cptr = uint32_writex(wbuf, new_row, '\t');
       wbuf_ct = (uintptr_t)(cptr - wbuf);
       while (col <= row) {
-        gzgets(cur_gzfile, tbuf, MAXLINELEN);
+        gzgets(cur_gzfile, g_textbuf, MAXLINELEN);
 	if (rel_ct_arr[col++] != -1) {
-	  cptr = next_token_mult(tbuf, 2);
+	  cptr = next_token_mult(g_textbuf, 2);
           uii = strlen(cptr);
           sptr_cur = memcpya(uint32_writex(memcpya(sptr_cur, wbuf, wbuf_ct), ++new_col, '\t'), cptr, uii);
 	  if (sptr_cur >= readbuf_end) {
@@ -5900,14 +5900,14 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   if (fopen_checked(grmname, "r", &idfile)) {
     goto rel_cutoff_batch_ret_OPEN_FAIL;
   }
-  tbuf[MAXLINELEN - 1] = ' ';
-  while (fgets(tbuf, MAXLINELEN, idfile)) {
+  g_textbuf[MAXLINELEN - 1] = ' ';
+  while (fgets(g_textbuf, MAXLINELEN, idfile)) {
     line_idx++;
-    if (!tbuf[MAXLINELEN - 1]) {
+    if (!g_textbuf[MAXLINELEN - 1]) {
       LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, grmname);
       goto rel_cutoff_batch_ret_INVALID_FORMAT_2;
     }
-    if (is_eoln_kns(*(skip_initial_spaces(tbuf)))) {
+    if (is_eoln_kns(*(skip_initial_spaces(g_textbuf)))) {
       continue;
     }
     sample_ct++;
@@ -6006,17 +6006,17 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
 	  }
 	}
 	for (inword_idx = 0; inword_idx < inword_bound; inword_idx++) {
-	  if (!gzgets(cur_gzfile, tbuf, MAXLINELEN)) {
+	  if (!gzgets(cur_gzfile, g_textbuf, MAXLINELEN)) {
 	    goto rel_cutoff_batch_ret_READ_FAIL;
 	  }
 	  if (row == col) {
 	    row++;
 	    col = 0;
-	    if (!gzgets(cur_gzfile, tbuf, MAXLINELEN)) {
+	    if (!gzgets(cur_gzfile, g_textbuf, MAXLINELEN)) {
 	      goto rel_cutoff_batch_ret_READ_FAIL;
 	    }
 	  }
-	  bufptr = next_token_mult(tbuf, 3);
+	  bufptr = next_token_mult(g_textbuf, 3);
 	  if (no_more_tokens_kns(bufptr)) {
 	    goto rel_cutoff_batch_ret_INVALID_FORMAT_GENERIC;
 	  }
@@ -6040,10 +6040,10 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
 	fflush(stdout);
       }
     }
-    if (!gzgets(cur_gzfile, tbuf, MAXLINELEN)) {
+    if (!gzgets(cur_gzfile, g_textbuf, MAXLINELEN)) {
       goto rel_cutoff_batch_ret_READ_FAIL;
     }
-    if (gzgets(cur_gzfile, tbuf, MAXLINELEN)) {
+    if (gzgets(cur_gzfile, g_textbuf, MAXLINELEN)) {
       goto rel_cutoff_batch_ret_INVALID_FORMAT_GENERIC;
     }
     gzclose(cur_gzfile);
@@ -6221,14 +6221,14 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   }
 
   for (sample_idx = 0; sample_idx < sample_ct;) {
-    if (fgets(tbuf, MAXLINELEN, idfile) == NULL) {
+    if (fgets(g_textbuf, MAXLINELEN, idfile) == NULL) {
       goto rel_cutoff_batch_ret_READ_FAIL;
     }
-    if (is_eoln_kns(*(skip_initial_spaces(tbuf)))) {
+    if (is_eoln_kns(*(skip_initial_spaces(g_textbuf)))) {
       continue;
     }
     if (rel_ct_arr[sample_idx] != -1) {
-      if (fputs_checked(tbuf, outfile)) {
+      if (fputs_checked(g_textbuf, outfile)) {
 	goto rel_cutoff_batch_ret_WRITE_FAIL;
       }
     }
@@ -6317,7 +6317,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
 	    fseeko(in_bin_nfile, (row + 1) * sizeof(float), SEEK_CUR);
 	  } else {
 	    for (uii = 0; uii <= row; uii++) {
-	      gzgets(cur_gzfile, tbuf, MAXLINELEN);
+	      gzgets(cur_gzfile, g_textbuf, MAXLINELEN);
 	    }
 	  }
 	} else {
@@ -6344,9 +6344,9 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
 	    }
 	  } else {
 	    while (col <= row) {
-	      gzgets(cur_gzfile, tbuf, MAXLINELEN);
+	      gzgets(cur_gzfile, g_textbuf, MAXLINELEN);
 	      if (rel_ct_arr[col++] != -1) {
-		bufptr = next_token_mult(tbuf, 2);
+		bufptr = next_token_mult(g_textbuf, 2);
 		if (scan_float(bufptr, &fxx)) {
 		  goto rel_cutoff_batch_ret_INVALID_FORMAT_GENERIC;
 		}
@@ -6703,14 +6703,14 @@ int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_
   if (fopen_checked(distance_wts_fname, "r", &infile)) {
     goto load_distance_wts_ret_OPEN_FAIL;
   }
-  tbuf[MAXLINELEN - 1] = ' ';
-  while (fgets(tbuf, MAXLINELEN, infile)) {
+  g_textbuf[MAXLINELEN - 1] = ' ';
+  while (fgets(g_textbuf, MAXLINELEN, infile)) {
     line_idx++;
-    if (!tbuf[MAXLINELEN - 1]) {
+    if (!g_textbuf[MAXLINELEN - 1]) {
       LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, distance_wts_fname);
       goto load_distance_wts_ret_INVALID_FORMAT_2;
     }
-    bufptr = skip_initial_spaces(tbuf);
+    bufptr = skip_initial_spaces(g_textbuf);
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
@@ -6732,7 +6732,7 @@ int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_
     set_bit(marker_include, marker_uidx);
     bufptr = skip_initial_spaces(&(bufptr[idlen]));
     if (is_eoln_kns(*bufptr)) {
-      sprintf(logbuf, "Error: Line %" PRIuPTR " of --distance-wts file has fewer tokens than expected.\n", line_idx);
+      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --distance-wts file has fewer tokens than expected.\n", line_idx);
       goto load_distance_wts_ret_INVALID_FORMAT_2;
     }
     if (scan_double(bufptr, &dxx)) {
@@ -6793,7 +6793,7 @@ int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_
     retval = RET_READ_FAIL;
     break;
   load_distance_wts_ret_INVALID_WEIGHT:
-    sprintf(logbuf, "Error: Invalid weight on line %" PRIuPTR " of --distance-wts file.\n", line_idx);
+    sprintf(g_logbuf, "Error: Invalid weight on line %" PRIuPTR " of --distance-wts file.\n", line_idx);
   load_distance_wts_ret_INVALID_FORMAT_2:
     logerrprintb();
   load_distance_wts_ret_INVALID_FORMAT:
@@ -7369,7 +7369,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
     }
     putchar('\r');
     if (!parallel_idx) {
-      wptr = strcpya(logbuf, "Relationship matrix ");
+      wptr = strcpya(g_logbuf, "Relationship matrix ");
       if (parallel_tot > 1) {
 	wptr = strcpya(wptr, "component ");
       }
@@ -7382,9 +7382,9 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       }
       sprintf(wptr, " , and IDs written to %s .\n", outname);
     } else {
-      sprintf(logbuf, "Relationship matrix component written to %s .\n", outname);
+      sprintf(g_logbuf, "Relationship matrix component written to %s .\n", outname);
     }
-    wordwrap(0, logbuf);
+    wordwrap(0, g_logbuf);
     logprintb();
   }
   if (all_missing_warning) {
@@ -7502,10 +7502,10 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   if ((pc_ct > pca_sample_ct) || (pc_ct > marker_ct)) {
     if (pca_sample_ct <= marker_ct) {
       pc_ct = pca_sample_ct;
-      sprintf(logbuf, "Warning: calculating %u PCs, since there are only %u samples.\n", pc_ct, pc_ct);
+      sprintf(g_logbuf, "Warning: calculating %u PCs, since there are only %u samples.\n", pc_ct, pc_ct);
     } else {
       pc_ct = marker_ct;
-      sprintf(logbuf, "Warning: calculating %u PCs, since there are only %u autosomal markers.\n", pc_ct, pc_ct);
+      sprintf(g_logbuf, "Warning: calculating %u PCs, since there are only %u autosomal markers.\n", pc_ct, pc_ct);
     }
     logerrprintb();
   }
@@ -7614,7 +7614,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	goto calc_pca_ret_OPEN_FAIL;
       }
       if (write_headers) {
-	wptr = memcpyl3a(tbuf, "CHR");
+	wptr = memcpyl3a(g_textbuf, "CHR");
 	*wptr++ = delimiter;
 	wptr = memcpyl3a(wptr, "VAR");
 	for (pc_idx = 1; pc_idx <= pc_ct; pc_idx++) {
@@ -7623,7 +7623,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	  wptr = uint32_write(wptr, pc_idx);
 	}
 	*wptr++ = '\n';
-	if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	  goto calc_pca_ret_WRITE_FAIL;
 	}
       }
@@ -7636,7 +7636,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
       }
       marker_uidx = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
       chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
-      wptr_start = chrom_name_write(tbuf, chrom_info_ptr, chrom_idx);
+      wptr_start = chrom_name_write(g_textbuf, chrom_info_ptr, chrom_idx);
       *wptr_start++ = delimiter;
       if (marker_uidx < chrom_end) {
 	if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
@@ -7739,7 +7739,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	      wptr = double_g_write(wptr, *(--dptr));
 	    } while (dptr > dptr2);
 	    *wptr++ = '\n';
-	    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	    if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	      goto calc_pca_ret_WRITE_FAIL;
 	    }
 	  }
@@ -7786,13 +7786,13 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   if (fopen_checked(outname, "w", &outfile)) {
     goto calc_pca_ret_OPEN_FAIL;
   }
-  wptr = tbuf;
+  wptr = g_textbuf;
   pc_idx = pc_ct;
   do {
     pc_idx--;
     wptr = double_g_writex(wptr, out_w[pc_idx], '\n');
   } while (pc_idx);
-  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+  if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
     goto calc_pca_ret_WRITE_FAIL;
   }
   if (fclose_null(&outfile)) {
@@ -7803,7 +7803,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     goto calc_pca_ret_OPEN_FAIL;
   }
   if (write_headers) {
-    wptr = memcpyl3a(tbuf, "FID");
+    wptr = memcpyl3a(g_textbuf, "FID");
     *wptr++ = delimiter;
     wptr = memcpyl3a(wptr, "IID");
     for (pc_idx = 1; pc_idx <= pc_ct; pc_idx++) {
@@ -7812,7 +7812,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
       wptr = uint32_write(wptr, pc_idx);
     }
     *wptr++ = '\n';
-    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+    if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
       goto calc_pca_ret_WRITE_FAIL;
     }
   }
@@ -7820,10 +7820,10 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     next_unset_ul_unsafe_ck(sample_exclude, &sample_uidx);
     cptr = &(sample_ids[sample_uidx * max_sample_id_len]);
     if (delimiter == '\t') {
-      wptr = strcpya(tbuf, cptr);
+      wptr = strcpya(g_textbuf, cptr);
     } else {
       wptr_start = (char*)memchr(cptr, '\t', max_sample_id_len);
-      wptr = memcpya(tbuf, cptr, wptr_start - cptr);
+      wptr = memcpya(g_textbuf, cptr, wptr_start - cptr);
       *wptr++ = ' ';
       wptr = strcpya(wptr, &(wptr_start[1]));
     }
@@ -7834,7 +7834,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
       wptr = double_g_write(wptr, *(--dptr));
     } while (dptr > dptr2);
     *wptr++ = '\n';
-    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+    if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
       goto calc_pca_ret_WRITE_FAIL;
     }
   }
@@ -8460,7 +8460,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     }
     putchar('\r');
     if (!parallel_idx) {
-      wptr = strcpya(logbuf, "Distances (proportions) written to ");
+      wptr = strcpya(g_logbuf, "Distances (proportions) written to ");
       wptr = strcpya(wptr, outname);
       strcpy(outname_end, ".mdist.id");
       retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, sample_ids, max_sample_id_len);
@@ -8469,9 +8469,9 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
       }
       sprintf(wptr, " , and IDs to %s .\n", outname);
     } else {
-      sprintf(logbuf, "Distances (proportions) written to %s .\n", outname);
+      sprintf(g_logbuf, "Distances (proportions) written to %s .\n", outname);
     }
-    wordwrap(0, logbuf);
+    wordwrap(0, g_logbuf);
     logprintb();
   }
   if (calculation_type & CALC_PLINK1_IBS_MATRIX) {
@@ -9014,7 +9014,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     for (sample_idx1 = 0; sample_idx1 < sample_ct; sample_idx1++) {
       fam_id = &(sample_ids[sample_idx_to_uidx[sample_idx1] * max_sample_id_len]);
       sample_id = (char*)memchr(fam_id, '\t', max_sample_id_len);
-      wptr_start = fw_strcpyn(12, (uint32_t)(sample_id - fam_id), fam_id, tbuf);
+      wptr_start = fw_strcpyn(12, (uint32_t)(sample_id - fam_id), fam_id, g_textbuf);
       *wptr_start++ = ' ';
       wptr_start = fw_strcpy(12, &(sample_id[1]), wptr_start);
       *wptr_start++ = ' ';
@@ -9038,7 +9038,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
           wptr = double_g_writewx4x(wptr, dyy, 12, ' ');
 	}
         *wptr++ = '\n';
-        if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+        if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	  goto calc_cluster_neighbor_ret_WRITE_FAIL;
 	}
       }
@@ -9092,8 +9092,8 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	    dxx = 1.0 - ((double)((int32_t)(uii + (*sample_missing_ptr++) - 2 * (*dbl_exclude_ptr++)))) * dxx1;
 	    if (cluster_missing) {
 	      *dptr++ = dxx;
-	      wptr = double_g_writex(tbuf, dxx, ' ');
-	      fwrite(tbuf, 1, wptr - tbuf, outfile);
+	      wptr = double_g_writex(g_textbuf, dxx, ' ');
+	      fwrite(g_textbuf, 1, wptr - g_textbuf, outfile);
 	    }
 	    if (dxx < min_ibm) {
 	      set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(sample_idx2, sample_idx1));
@@ -9122,8 +9122,8 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 		  *dptr2 += dxx;
 		}
 	      }
-	      wptr = double_g_writex(tbuf, dxx, ' ');
-	      fwrite(tbuf, 1, wptr - tbuf, outfile);
+	      wptr = double_g_writex(g_textbuf, dxx, ' ');
+	      fwrite(g_textbuf, 1, wptr - g_textbuf, outfile);
 	    }
 	    if (dxx < min_ibm) {
 	      if (clidx1 < clidx2) {
@@ -9144,8 +9144,8 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	    dbl_exclude_ptr = &(dbl_exclude_ptr[ulii - sample_idx2]);
 	    if (cluster_missing) {
 	      *dptr++ = dxx;
-	      wptr = double_g_writex(tbuf, dxx, ' ');
-	      fwrite(tbuf, 1, wptr - tbuf, outfile);
+	      wptr = double_g_writex(g_textbuf, dxx, ' ');
+	      fwrite(g_textbuf, 1, wptr - g_textbuf, outfile);
 	    }
 	    if (dxx < min_ibm) {
 	      set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(sample_idx2, sample_idx1));
@@ -9175,8 +9175,8 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 		  *dptr2 += dxx;
 		}
 	      }
-	      wptr = double_g_writex(tbuf, dxx, ' ');
-	      fwrite(tbuf, 1, wptr - tbuf, outfile);
+	      wptr = double_g_writex(g_textbuf, dxx, ' ');
+	      fwrite(g_textbuf, 1, wptr - g_textbuf, outfile);
 	    }
 	    if (dxx < min_ibm) {
 	      if (clidx1 < clidx2) {
@@ -9198,8 +9198,8 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	if (!genome_main) {
 	  for (sample_idx2 = sample_idx1 + 1; sample_idx2 < sample_ct; sample_idx2++) {
 	    dxx = 1.0 - ((double)((int32_t)(uii + (*(++sample_missing_ptr)) - 2 * missing_dbl_excluded[((sample_idx2 * (sample_idx2 - 1)) >> 1) + sample_idx1]))) * dxx1;
-	    wptr = double_g_writex(tbuf, dxx, ' ');
-	    fwrite(tbuf, 1, wptr - tbuf, outfile);
+	    wptr = double_g_writex(g_textbuf, dxx, ' ');
+	    fwrite(g_textbuf, 1, wptr - g_textbuf, outfile);
 	  }
 	} else {
 	  // f(0) = 0
@@ -9210,8 +9210,8 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	  dbl_exclude_ptr = &(missing_dbl_excluded[sample_ct * sample_idx1 - ((sample_idx1 * (sample_idx1 + 1)) >> 1)]);
 	  for (sample_idx2 = sample_idx1 + 1; sample_idx2 < sample_ct; sample_idx2++) {
 	    dxx = 1.0 - ((double)((int32_t)(uii + (*(++sample_missing_ptr)) - 2 * (*dbl_exclude_ptr++)))) * dxx1;
-	    wptr = double_g_writex(tbuf, dxx, ' ');
-	    fwrite(tbuf, 1, wptr - tbuf, outfile);
+	    wptr = double_g_writex(g_textbuf, dxx, ' ');
+	    fwrite(g_textbuf, 1, wptr - g_textbuf, outfile);
 	  }
 	}
 	if (putc_checked('\n', outfile)) {

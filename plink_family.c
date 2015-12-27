@@ -829,16 +829,16 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
       if (fopen_checked(outname, "w", &outfile)) {
 	goto mendel_error_scan_ret_OPEN_FAIL;
       }
-      sprintf(tbuf, "%%%us %%%us  CHR %%%us   CODE                 ERROR\n", plink_maxfid, plink_maxiid, plink_maxsnp);
-      fprintf(outfile, tbuf, "FID", "KID", "SNP");
+      sprintf(g_textbuf, "%%%us %%%us  CHR %%%us   CODE                 ERROR\n", plink_maxfid, plink_maxiid, plink_maxsnp);
+      fprintf(outfile, g_textbuf, "FID", "KID", "SNP");
     }
     memcpy(outname_end, ".lmendel", 9);
     if (fopen_checked(outname, "w", &outfile_l)) {
       goto mendel_error_scan_ret_OPEN_FAIL;
     }
     // replicate harmless 'N' misalignment bug
-    sprintf(tbuf, " CHR %%%us   N\n", plink_maxsnp);
-    fprintf(outfile_l, tbuf, "SNP");
+    sprintf(g_textbuf, " CHR %%%us   N\n", plink_maxsnp);
+    fprintf(outfile_l, g_textbuf, "SNP");
   } else {
     // suppress warning
     fill_ulong_zero((uintptr_t*)errstrs, 10);
@@ -901,14 +901,14 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	    cur_error_ct++;
 	    if (full_error_list) {
 	      umm >>= 24;
-	      wptr = fw_strcpy(plink_maxfid, &(fids[trio_idx * max_fid_len]), tbuf);
+	      wptr = fw_strcpy(plink_maxfid, &(fids[trio_idx * max_fid_len]), g_textbuf);
 	      *wptr++ = ' ';
 	      wptr = fw_strcpy(plink_maxiid, &(iids[uii * max_iid_len]), wptr);
 	      *wptr++ = ' ';
 	      wptr = memcpyax(wptr, chrom_name_ptr, chrom_name_len, ' ');
 	      wptr = fw_strcpyn(plink_maxsnp, varlen, varptr, wptr);
 	      wptr = memseta(wptr, 32, 5);
-	      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	      if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 		goto mendel_error_scan_ret_WRITE_FAIL;
 	      }
 	      if (!errstr_lens[umm]) {
@@ -955,14 +955,14 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
           trio_idx = 0;
 	  for (uii = 0; uii < cur_error_ct; trio_idx++, uii++) {
             next_set_ul_unsafe_ck(error_locs, &trio_idx);
-	    wptr = fw_strcpy(plink_maxfid, &(fids[trio_idx * max_fid_len]), tbuf);
+	    wptr = fw_strcpy(plink_maxfid, &(fids[trio_idx * max_fid_len]), g_textbuf);
 	    *wptr++ = ' ';
 	    wptr = fw_strcpy(plink_maxiid, &(iids[((uint32_t)trio_list[trio_idx]) * max_iid_len]), wptr);
 	    *wptr++ = ' ';
 	    wptr = memcpyax(wptr, chrom_name_ptr, chrom_name_len, ' ');
 	    wptr = fw_strcpyn(plink_maxsnp, varlen, varptr, wptr);
 	    wptr = memseta(wptr, 32, 5);
-	    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	    if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	      goto mendel_error_scan_ret_WRITE_FAIL;
 	    }
 	    umm = cur_errors[trio_idx];
@@ -980,11 +980,11 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	if (fwrite_checked(chrom_name_ptr, chrom_name_len, outfile_l)) {
 	  goto mendel_error_scan_ret_WRITE_FAIL;
 	}
-	tbuf[0] = ' ';
-	wptr = fw_strcpyn(plink_maxsnp, varlen, varptr, &(tbuf[1]));
+	g_textbuf[0] = ' ';
+	wptr = fw_strcpyn(plink_maxsnp, varlen, varptr, &(g_textbuf[1]));
         *wptr++ = ' ';
         wptr = uint32_writew4x(wptr, cur_error_ct, '\n');
-	if (fwrite_checked(tbuf, wptr - tbuf, outfile_l)) {
+	if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile_l)) {
 	  goto mendel_error_scan_ret_WRITE_FAIL;
 	}
       }
@@ -1068,8 +1068,8 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
     if (fopen_checked(outname, "w", &outfile)) {
       goto mendel_error_scan_ret_OPEN_FAIL;
     }
-    sprintf(tbuf, "%%%us %%%us %%%us   CHLD    N\n", plink_maxfid, plink_maxiid, plink_maxiid);
-    fprintf(outfile, tbuf, "FID", "PAT", "MAT");
+    sprintf(g_textbuf, "%%%us %%%us %%%us   CHLD    N\n", plink_maxfid, plink_maxiid, plink_maxiid);
+    fprintf(outfile, g_textbuf, "FID", "PAT", "MAT");
     fill_ull_zero(family_error_cts, family_ct * 3);
     fill_uint_zero(child_cts, family_ct);
     for (trio_idx = 0; trio_idx < trio_ct; trio_idx++) {
@@ -1086,11 +1086,11 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
       if (ujj < unfiltered_sample_ct) {
 	// bleah, fids[] isn't in right order for this lookup
 	cptr = &(sample_ids[ujj * max_sample_id_len]);
-	wptr = fw_strcpyn(plink_maxfid, (uintptr_t)(((char*)memchr(cptr, '\t', max_sample_id_len)) - cptr), cptr, tbuf);
+	wptr = fw_strcpyn(plink_maxfid, (uintptr_t)(((char*)memchr(cptr, '\t', max_sample_id_len)) - cptr), cptr, g_textbuf);
       } else {
 	cptr = &(sample_ids[ukk * max_sample_id_len]);
-	wptr = fw_strcpyn(plink_maxfid, (uintptr_t)(((char*)memchr(cptr, '\t', max_sample_id_len)) - cptr), cptr, tbuf);
-	// wptr = memseta(tbuf, 32, plink_maxfid - 1);
+	wptr = fw_strcpyn(plink_maxfid, (uintptr_t)(((char*)memchr(cptr, '\t', max_sample_id_len)) - cptr), cptr, g_textbuf);
+	// wptr = memseta(g_textbuf, 32, plink_maxfid - 1);
 	// *wptr++ = '0';
       }
       *wptr++ = ' ';
@@ -1115,7 +1115,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
         wptr = int64_write(wptr, family_error_cts[uii * 3]);
       }
       *wptr++ = '\n';
-      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+      if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	goto mendel_error_scan_ret_WRITE_FAIL;
       }
     }
@@ -1126,8 +1126,8 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
     if (fopen_checked(outname, "w", &outfile)) {
       goto mendel_error_scan_ret_OPEN_FAIL;
     }
-    sprintf(tbuf, "%%%us %%%us   N\n", plink_maxfid, plink_maxiid);
-    fprintf(outfile, tbuf, "FID", "IID");
+    sprintf(g_textbuf, "%%%us %%%us   N\n", plink_maxfid, plink_maxiid);
+    fprintf(outfile, g_textbuf, "FID", "IID");
     uii = 0xffffffffU; // family idx
     for (trio_idx = 0; trio_idx < trio_ct; trio_idx++) {
       trio_code = trio_list[trio_idx];
@@ -1135,7 +1135,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
       if (ujj != uii) {
 	uii = ujj;
         family_code = family_list[uii];
-	wptr = fw_strcpy(plink_maxfid, &(fids[trio_idx * max_fid_len]), tbuf);
+	wptr = fw_strcpy(plink_maxfid, &(fids[trio_idx * max_fid_len]), g_textbuf);
 	*wptr++ = ' ';
 	ujj = (uint32_t)family_code;
 	if (ujj != unfiltered_sample_ct) {
@@ -1146,7 +1146,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	  } else {
 	    wptr = int64_write(wptr, family_error_cts[3 * uii + 1]);
 	  }
-	  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	  if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	    goto mendel_error_scan_ret_WRITE_FAIL;
 	  }
 	}
@@ -1155,24 +1155,24 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	  if (ujj != unfiltered_sample_ct) {
 	    putc('\n', outfile);
 	  }
-	  wptr = fw_strcpy(plink_maxiid, &(iids[ukk * max_iid_len]), &(tbuf[plink_maxfid + 1]));
+	  wptr = fw_strcpy(plink_maxiid, &(iids[ukk * max_iid_len]), &(g_textbuf[plink_maxfid + 1]));
 	  *wptr++ = ' ';
 	  if (family_error_cts[3 * uii + 2] < 10000) {
 	    wptr = uint32_writew4(wptr, (uint32_t)family_error_cts[3 * uii + 2]);
 	  } else {
 	    wptr = int64_write(wptr, family_error_cts[3 * uii + 2]);
 	  }
-	  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	  if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	    goto mendel_error_scan_ret_WRITE_FAIL;
 	  }
 	}
 	putc(' ', outfile); // PLINK 1.07 formatting quirk
 	putc('\n', outfile);
       }
-      wptr = fw_strcpy(plink_maxiid, &(iids[((uint32_t)trio_code) * max_iid_len]), &(tbuf[plink_maxfid + 1]));
+      wptr = fw_strcpy(plink_maxiid, &(iids[((uint32_t)trio_code) * max_iid_len]), &(g_textbuf[plink_maxfid + 1]));
       *wptr++ = ' ';
       wptr = uint32_writew4x(wptr, error_cts[trio_idx * 3], '\n');
-      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+      if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	goto mendel_error_scan_ret_WRITE_FAIL;
       }
     }
@@ -1985,7 +1985,7 @@ int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* o
 int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double ci_size, double ci_zt, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, Aperm_info* apip, uint32_t mperm_save, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* sample_ids, uintptr_t max_sample_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, Chrom_info* chrom_info_ptr, uint32_t hh_exists, Family_info* fam_ip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = NULL;
-  char* textbuf = tbuf;
+  char* textbuf = g_textbuf;
   double* orig_chisq = NULL; // pval if exact test
   uint64_t last_parents = 0;
   // uint64_t mendel_error_ct = 0;
@@ -3823,7 +3823,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = NULL;
   FILE* outfile_msa = NULL;
-  char* textbuf = tbuf;
+  char* textbuf = g_textbuf;
   uintptr_t marker_ct_orig_autosomal = marker_ct_orig;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
@@ -4879,16 +4879,16 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       goto dfam_ret_OPEN_FAIL;
     }
     if (perm_adapt_nst) {
-      sprintf(tbuf, " CHR %%%us    CHISQ_TDT         EMP1           NP \n", plink_maxsnp);
+      sprintf(g_textbuf, " CHR %%%us    CHISQ_TDT         EMP1           NP \n", plink_maxsnp);
     } else {
-      sprintf(tbuf, " CHR %%%us    CHISQ_TDT         EMP1         EMP2 \n", plink_maxsnp);
+      sprintf(g_textbuf, " CHR %%%us    CHISQ_TDT         EMP1         EMP2 \n", plink_maxsnp);
 #ifdef __cplusplus
       std::sort(g_maxt_extreme_stat, &(g_maxt_extreme_stat[perms_total]));
 #else
       qsort(g_maxt_extreme_stat, perms_total, sizeof(double), double_cmp);
 #endif
     }
-    fprintf(outfile, tbuf, "SNP");
+    fprintf(outfile, g_textbuf, "SNP");
     chrom_fo_idx = 0xffffffffU;
     marker_uidx = next_unset_unsafe(marker_exclude, 0);
     marker_idx = 0;
@@ -4899,7 +4899,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1U];
       } while (marker_uidx >= chrom_end);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      wptr_start = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, uii));
+      wptr_start = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, uii));
       *wptr_start++ = ' ';
       wptr_start[plink_maxsnp] = ' ';
       for (; marker_uidx < chrom_end;) {
@@ -4932,7 +4932,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	      }
 	    }
 	    *wptr++ = '\n';
-	    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	    if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	      goto dfam_ret_WRITE_FAIL;
 	    }
 	  }
@@ -5690,8 +5690,8 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   fflush(stdout);
   // deliberately rename last field to RAW_P to reduce likelihood of
   // misinterpretation.  --adjust also disabled.
-  sprintf(tbuf, " CHR %%%us         BP   A1       TEST     NIND       BETA         STAT        RAW_P\n", plink_maxsnp);
-  fprintf(outfile, tbuf, "SNP");
+  sprintf(g_textbuf, " CHR %%%us         BP   A1       TEST     NIND       BETA         STAT        RAW_P\n", plink_maxsnp);
+  fprintf(outfile, g_textbuf, "SNP");
   marker_unstopped_ct = marker_ct;
   loop_end = marker_ct / 100;
 
@@ -5719,7 +5719,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       for (ulii = 0; ulii < cur_perm_ct; ulii++) {
         uiptr = (uint32_t*)dummy_flip;
 	for (uii = 0; uii < ujj; uii++) {
-          uiptr[uii] = sfmt_genrand_uint32(&sfmt);
+          uiptr[uii] = sfmt_genrand_uint32(&g_sfmt);
 	}
         for (uii = 0; uii < lm_ct; uii++) {
           if (is_set(dummy_flip, sample_lm_to_fss_idx[uii])) {
@@ -5731,12 +5731,12 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       fill_ulong_zero(dummy_flip, fss_ctl);
     } else {
       for (ulii = 0; ulii < cur_perm_ct; ulii++) {
-	uint32_permute(&(g_qfam_permute[ulii * fss_ct]), &(precomputed_mods[-1]), &sfmt, fss_ct);
+	uint32_permute(&(g_qfam_permute[ulii * fss_ct]), &(precomputed_mods[-1]), &g_sfmt, fss_ct);
       }
       uiptr = (uint32_t*)g_qfam_flip;
       uljj = cur_perm_ct * fss_ctl * (BITCT / 32);
       for (ulii = 0; ulii < uljj; ulii++) {
-	*uiptr++ = sfmt_genrand_uint32(&sfmt);
+	*uiptr++ = sfmt_genrand_uint32(&g_sfmt);
       }
     }
     marker_uidx = next_unset_unsafe(marker_exclude, 0);
@@ -5804,18 +5804,18 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	    chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
 	    chrom_name_ptr = chrom_name_buf5w4write(chrom_name_buf, chrom_info_ptr, chrom_idx, &chrom_name_len);
 	  }
-	  bufptr = memcpyax(tbuf, chrom_name_ptr, chrom_name_len, ' ');
+	  bufptr = memcpyax(g_textbuf, chrom_name_ptr, chrom_name_len, ' ');
 	  bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx_cur * max_marker_id_len]), bufptr);
 	  *bufptr++ = ' ';
 	  bufptr = uint32_writew10x(bufptr, marker_pos[marker_uidx_cur], ' ');
-	  if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	  if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
 	    goto qfam_ret_WRITE_FAIL;
 	  }
 	  fputs_w4(marker_allele_ptrs[marker_uidx_cur * 2], outfile);
 	  loadbuf_ptr = &(g_loadbuf[block_idx * sample_ctl2]);
 	  qfam_compute_bw(loadbuf_ptr, sample_ct, fs_starts, fss_contents, sample_lm_to_fss_idx, lm_eligible, lm_within2_founder, family_ct, fs_ct, singleton_ct, lm_ct, nm_fss, nm_lm, pheno_d2, qt_sum_all, qt_ssq_all, qfam_b, qfam_w, &qt_sum, &qt_ssq);
 	  nind = popcount_longs(nm_lm, lm_ctl);
-	  bufptr = memseta(tbuf, 32, 7);
+	  bufptr = memseta(g_textbuf, 32, 7);
 	  bufptr = memcpya(bufptr, qfam_test_ptr, 5);
 	  bufptr = uint32_writew8x(bufptr, nind, ' ');
 	  nind_recip = 1.0 / ((double)((int32_t)nind));
@@ -5838,7 +5838,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	    *orig_stat_ptr++ = -9;
 	    regress_fail_ct++;
 	  }
-	  if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	  if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
 	    goto qfam_ret_WRITE_FAIL;
 	  }
 	}
@@ -5890,8 +5890,8 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   if (fopen_checked(outname, "w", &outfile)) {
     goto qfam_ret_OPEN_FAIL;
   }
-  sprintf(tbuf, emp_se? " CHR %%%us         BETA     EMP_BETA       EMP_SE         EMP1           NP \n" : " CHR %%%us         EMP1           NP \n", plink_maxsnp);
-  fprintf(outfile, tbuf, "SNP");
+  sprintf(g_textbuf, emp_se? " CHR %%%us         BETA     EMP_BETA       EMP_SE         EMP1           NP \n" : " CHR %%%us         EMP1           NP \n", plink_maxsnp);
+  fprintf(outfile, g_textbuf, "SNP");
   chrom_fo_idx = 0xffffffffU;
   chrom_end = 0;
   for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
@@ -5909,7 +5909,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       }
       chrom_name_ptr = chrom_name_buf5w4write(chrom_name_buf, chrom_info_ptr, chrom_idx, &chrom_name_len);
     }
-    bufptr = memcpyax(tbuf, chrom_name_ptr, chrom_name_len, ' ');
+    bufptr = memcpyax(g_textbuf, chrom_name_ptr, chrom_name_len, ' ');
     bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), bufptr);
     *bufptr++ = ' ';
     if (g_orig_stat[marker_idx] == -9) {
@@ -5945,7 +5945,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       bufptr = memseta(bufptr, 32, 3);
       bufptr = uint32_writew10x(bufptr, ujj, '\n');
     }
-    if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+    if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
       goto qfam_ret_WRITE_FAIL;
     }
   }

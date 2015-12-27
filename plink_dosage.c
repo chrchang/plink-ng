@@ -159,7 +159,7 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
     }
     if (!(loadbuf[loadbuf_size - 1])) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-        sprintf(logbuf, "Error: Line %" PRIuPTR " of --score file is pathologically long.\n", line_idx);
+        sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --score file is pathologically long.\n", line_idx);
         goto dosage_load_score_files_ret_INVALID_FORMAT_2;
       }
       goto dosage_load_score_files_ret_NOMEM;
@@ -235,7 +235,7 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
     }
     if (!(loadbuf[loadbuf_size - 1])) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-        sprintf(logbuf, "Error: Line %" PRIuPTR " of --score file is pathologically long.\n", line_idx);
+        sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --score file is pathologically long.\n", line_idx);
         goto dosage_load_score_files_ret_INVALID_FORMAT_2;
       }
       goto dosage_load_score_files_ret_NOMEM;
@@ -347,7 +347,7 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
       }
       if (!(loadbuf[loadbuf_size - 1])) {
 	if (loadbuf_size == MAXLINEBUFLEN) {
-	  sprintf(logbuf, "Error: Line %" PRIuPTR " of --q-score-range data file is pathologically long.\n", line_idx);
+	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --q-score-range data file is pathologically long.\n", line_idx);
 	  goto dosage_load_score_files_ret_INVALID_FORMAT_2;
 	}
 	goto dosage_load_score_files_ret_NOMEM;
@@ -367,14 +367,14 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
       goto dosage_load_score_files_ret_OPEN_FAIL;
     }
     rangename_len_limit = (FNAMESIZE - 10) - ((uintptr_t)(outname_end - outname));
-    tbuf[MAXLINELEN - 1] = ' ';
-    while (fgets(tbuf, MAXLINELEN, infile)) {
+    g_textbuf[MAXLINELEN - 1] = ' ';
+    while (fgets(g_textbuf, MAXLINELEN, infile)) {
       line_idx++;
-      if (!tbuf[MAXLINELEN - 1]) {
-        sprintf(logbuf, "Error: Line %" PRIuPTR " of --q-score-range range file is pathologically long.\n", line_idx);
+      if (!g_textbuf[MAXLINELEN - 1]) {
+        sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --q-score-range range file is pathologically long.\n", line_idx);
         goto dosage_load_score_files_ret_INVALID_FORMAT_2;
       }
-      bufptr = skip_initial_spaces(tbuf);
+      bufptr = skip_initial_spaces(g_textbuf);
       if (is_eoln_kns(*bufptr)) {
         continue;
       }
@@ -386,7 +386,7 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
 	continue;
       }
       if (slen > rangename_len_limit) {
-        sprintf(logbuf, "Error: Excessively long range name on line %" PRIuPTR " of --q-score-range range\nfile.\n", line_idx);
+        sprintf(g_logbuf, "Error: Excessively long range name on line %" PRIuPTR " of --q-score-range range\nfile.\n", line_idx);
         goto dosage_load_score_files_ret_INVALID_FORMAT_2;
       }
       qrange_ct++;
@@ -409,8 +409,8 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
     score_qrange_bounds = *score_qrange_bounds_ptr;
     rewind(infile);
     ulii = 0; // range index
-    while (fgets(tbuf, MAXLINELEN, infile)) {
-      bufptr = skip_initial_spaces(tbuf);
+    while (fgets(g_textbuf, MAXLINELEN, infile)) {
+      bufptr = skip_initial_spaces(g_textbuf);
       if (is_eoln_kns(*bufptr)) {
         continue;
       }
@@ -451,7 +451,7 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
     retval = RET_INVALID_FORMAT;
     break;
   dosage_load_score_files_ret_MISSING_TOKENS:
-    sprintf(logbuf, "Error: Line %" PRIuPTR " of --score file has fewer tokens than expected.\n", line_idx);
+    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --score file has fewer tokens than expected.\n", line_idx);
   dosage_load_score_files_ret_INVALID_FORMAT_2:
     logerrprintb();
   dosage_load_score_files_ret_INVALID_FORMAT:
@@ -1088,11 +1088,11 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   } else if (pheno_c) {
     pheno_ctrl_ct = pheno_nm_ct - popcount_longs(pheno_c, unfiltered_sample_ctl);
     if (pheno_nm_ct != sample_ct) {
-      sprintf(logbuf, "Among remaining phenotypes, %u %s and %u %s.  (%" PRIuPTR " phenotype%s missing.)\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "is a case" : "are cases", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "is a control" : "are controls", sample_ct - pheno_nm_ct, (sample_ct - pheno_nm_ct == 1)? " is" : "s are");
+      sprintf(g_logbuf, "Among remaining phenotypes, %u %s and %u %s.  (%" PRIuPTR " phenotype%s missing.)\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "is a case" : "are cases", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "is a control" : "are controls", sample_ct - pheno_nm_ct, (sample_ct - pheno_nm_ct == 1)? " is" : "s are");
     } else {
-      sprintf(logbuf, "Among remaining phenotypes, %u %s and %u %s.\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "is a case" : "are cases", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "is a control" : "are controls");
+      sprintf(g_logbuf, "Among remaining phenotypes, %u %s and %u %s.\n", pheno_nm_ct - pheno_ctrl_ct, (pheno_nm_ct - pheno_ctrl_ct == 1)? "is a case" : "are cases", pheno_ctrl_ct, (pheno_ctrl_ct == 1)? "is a control" : "are controls");
     }
-    wordwrap(0, logbuf);
+    wordwrap(0, g_logbuf);
     logprintb();
     if (standard_beta) {
       logerrprint("Error: --dosage 'standard-beta' modifier cannot be used with a case/control\nphenotype.\n");
@@ -1161,7 +1161,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   //       know how large all our other memory allocations are.
   // 4. final write loop if necessary
   if (doip->modifier & DOSAGE_LIST) {
-    retval = open_and_load_to_first_token(&infile, doip->fname, MAXLINELEN, '\0', "--dosage list file", tbuf, &bufptr, &line_idx);
+    retval = open_and_load_to_first_token(&infile, doip->fname, MAXLINELEN, '\0', "--dosage list file", g_textbuf, &bufptr, &line_idx);
     if (retval) {
       goto plink1_dosage_ret_1;
     }
@@ -1187,13 +1187,13 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	}
 	bufptr2 = token_endnn(bufptr);
         if (scan_int32(bufptr, (int32_t*)uiptr)) {
-	  sprintf(logbuf, "Error: Invalid batch number on line %" PRIuPTR " of --dosage list file.\n", line_idx);
+	  sprintf(g_logbuf, "Error: Invalid batch number on line %" PRIuPTR " of --dosage list file.\n", line_idx);
           goto plink1_dosage_ret_INVALID_FORMAT_2;
 	}
 	uiptr++;
 	bufptr = skip_initial_spaces(bufptr2);
 	if (is_eoln_kns(*bufptr)) {
-          sprintf(logbuf, "Error: Line %" PRIuPTR " of --dosage list file has fewer tokens than expected.\n", line_idx);
+          sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --dosage list file has fewer tokens than expected.\n", line_idx);
 	  goto plink1_dosage_ret_INVALID_FORMAT_2;
 	}
       }
@@ -1205,7 +1205,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       if (sepheader) {
 	bufptr = skip_initial_spaces(bufptr2);
 	if (!bufptr) {
-          sprintf(logbuf, "Error: Line %" PRIuPTR " of --dosage list file has fewer tokens than expected.\n", line_idx);
+          sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --dosage list file has fewer tokens than expected.\n", line_idx);
 	  goto plink1_dosage_ret_INVALID_FORMAT_2;
 	}
 	bufptr2 = token_endnn(bufptr);
@@ -1216,23 +1216,23 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
       bufptr = skip_initial_spaces(bufptr2);
       if (!is_eoln_kns(*bufptr)) {
-	sprintf(logbuf, "Error: Line %" PRIuPTR " of --dosage list file has more tokens than expected.\n", line_idx);
+	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --dosage list file has more tokens than expected.\n", line_idx);
 	goto plink1_dosage_ret_INVALID_FORMAT_2;
       }
       infile_ct++;
     plink1_dosage_next_list_line:
-      if (!fgets(tbuf, MAXLINELEN, infile)) {
+      if (!fgets(g_textbuf, MAXLINELEN, infile)) {
 	if (ferror(infile)) {
 	  goto plink1_dosage_ret_READ_FAIL;
 	}
 	break;
       }
       line_idx++;
-      if (!tbuf[MAXLINELEN - 1]) {
-        sprintf(logbuf, "Error: Line %" PRIuPTR " of --dosage list file is pathologically long.\n", line_idx);
+      if (!g_textbuf[MAXLINELEN - 1]) {
+        sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --dosage list file is pathologically long.\n", line_idx);
         goto plink1_dosage_ret_INVALID_FORMAT_2;
       }
-      bufptr = skip_initial_spaces(tbuf);
+      bufptr = skip_initial_spaces(g_textbuf);
       if (is_eoln_kns(*bufptr)) {
 	goto plink1_dosage_next_list_line;
       }
@@ -1305,8 +1305,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     g_bigstack_left += topsize;
     topsize = 0;
     rewind(infile);
-    while (fgets(tbuf, MAXLINELEN, infile)) {
-      bufptr = skip_initial_spaces(tbuf);
+    while (fgets(g_textbuf, MAXLINELEN, infile)) {
+      bufptr = skip_initial_spaces(g_textbuf);
       if (is_eoln_kns(*bufptr)) {
 	continue;
       }
@@ -1487,9 +1487,9 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       goto plink1_dosage_ret_NOMEM;
     }
     if (load_map) {
-      bufptr = memcpya(tbuf, " CHR         SNP          BP", 28);
+      bufptr = memcpya(g_textbuf, " CHR         SNP          BP", 28);
     } else {
-      bufptr = memcpya(tbuf, "         SNP", 12);
+      bufptr = memcpya(g_textbuf, "         SNP", 12);
     }
     bufptr = memcpya(bufptr, freq_cc? "  A1  A2   FRQ_A   FRQ_U    INFO    " : "  A1  A2     FRQ    INFO    ", freq_cc? 36 : 28);
     bufptr = memcpya(bufptr, pheno_c? "  OR" : "BETA", 4);
@@ -1524,7 +1524,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     }
     pzwritep = (char*)overflow_buf;
     if (do_glm) {
-      pzwritep = memcpya(pzwritep, tbuf, bufptr - tbuf);
+      pzwritep = memcpya(pzwritep, g_textbuf, bufptr - g_textbuf);
     } else if (!count_occur) {
       pzwritep = memcpya(pzwritep, "SNP A1 A2 ", 10);
       for (sample_uidx = 0, sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
@@ -1554,7 +1554,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     loadbuf = (char*)g_bigstack_base;
     loadbuf[loadbuf_size - 1] = ' ';
     fill_ulong_zero(batch_samples, sample_ctl);
-    bufptr = memcpya(logbuf, "--dosage: Reading from ", 23);
+    bufptr = memcpya(g_logbuf, "--dosage: Reading from ", 23);
     if (cur_batch_size == 1) {
       bufptr = strcpya(bufptr, &(fnames[file_idx_start * max_fn_len]));
     } else if (cur_batch_size == 2) {
@@ -1570,7 +1570,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       bufptr = strcpya(bufptr, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
     }
     memcpyl3(bufptr, ".\n");
-    wordwrap(0, logbuf);
+    wordwrap(0, g_logbuf);
     logprintb();
     for (file_idx = 0; file_idx < cur_batch_size; file_idx++) {
       read_idx_start = read_idx;
@@ -1581,18 +1581,18 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	}
 	line_idx = 0;
 	uii = 1 + skip2; // current skip value
-	while (gzgets(gz_infiles[file_idx], tbuf, MAXLINELEN)) {
+	while (gzgets(gz_infiles[file_idx], g_textbuf, MAXLINELEN)) {
 	  line_idx++;
-	  if (!tbuf[MAXLINELEN - 1]) {
-	    sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, &(sep_fnames[(file_idx + file_idx_start) * max_sepheader_len]));
+	  if (!g_textbuf[MAXLINELEN - 1]) {
+	    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, &(sep_fnames[(file_idx + file_idx_start) * max_sepheader_len]));
 	    goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	  }
-          bufptr = skip_initial_spaces(tbuf);
+          bufptr = skip_initial_spaces(g_textbuf);
           if (is_eoln_kns(*bufptr)) {
 	    continue;
 	  }
-          if (bsearch_read_fam_indiv(&(tbuf[MAXLINELEN]), sorted_sample_ids, max_sample_id_len, sample_ct, bufptr, &bufptr2, &ii)) {
-            sprintf(logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, &(sep_fnames[(file_idx + file_idx_start) * max_sepheader_len]));
+          if (bsearch_read_fam_indiv(&(g_textbuf[MAXLINELEN]), sorted_sample_ids, max_sample_id_len, sample_ct, bufptr, &bufptr2, &ii)) {
+            sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, &(sep_fnames[(file_idx + file_idx_start) * max_sepheader_len]));
 	    goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	  }
 	  if (ii == -1) {
@@ -1602,7 +1602,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    if (is_set(batch_samples, ii)) {
 	      bufptr = &(sorted_sample_ids[((uint32_t)ii) * max_sample_id_len]);
 	      *strchr(bufptr, '\t') = ' ';
-	      sprintf(logbuf, "Error: '%s' appears multiple times.\n", bufptr);
+	      sprintf(g_logbuf, "Error: '%s' appears multiple times.\n", bufptr);
 	      goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	    }
 	    set_bit(batch_samples, ii);
@@ -1617,7 +1617,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	}
 	gz_infiles[file_idx] = NULL;
 	if (read_idx_start == read_idx) {
-          sprintf(logbuf, "Error: %s is empty.\n", &(sep_fnames[(file_idx + file_idx_start) * max_sepheader_len]));
+          sprintf(g_logbuf, "Error: %s is empty.\n", &(sep_fnames[(file_idx + file_idx_start) * max_sepheader_len]));
           goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	}
       }
@@ -1645,7 +1645,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       } else if (!sepheader) {
 	do {
 	  if (!gzgets(gz_infiles[file_idx], loadbuf, loadbuf_size)) {
-            sprintf(logbuf, "Error: %s is empty.\n", &(fnames[(file_idx + file_idx_start) * max_fn_len]));
+            sprintf(g_logbuf, "Error: %s is empty.\n", &(fnames[(file_idx + file_idx_start) * max_fn_len]));
 	    goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	  }
 	  line_idx++;
@@ -1660,10 +1660,10 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  goto plink1_dosage_ret_MISSING_TOKENS;
 	}
 	if (strcmp_se(bufptr, "SNP", 3)) {
-	  sprintf(logbuf, "Error: Column %u of %s's header isn't 'SNP'.\n", skip0 + 1, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
+	  sprintf(g_logbuf, "Error: Column %u of %s's header isn't 'SNP'.\n", skip0 + 1, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
 	  goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	} else if (strcmp_se(bufptr2, "A1", 2)) {
-	  sprintf(logbuf, "Error: Column %u of %s's header isn't 'A1'.\n", skip0 + skip1p1 + 1, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
+	  sprintf(g_logbuf, "Error: Column %u of %s's header isn't 'A1'.\n", skip0 + skip1p1 + 1, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
 	  goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	}
 	bufptr = next_token(bufptr2);
@@ -1672,14 +1672,14 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  goto plink1_dosage_ret_MISSING_TOKENS;
 	}
 	if (strcmp_se(bufptr, "A2", 2)) {
-	  sprintf(logbuf, "Error: Column %u of %s's header isn't 'A2'.\n", skip0 + skip1p1 + 2, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
+	  sprintf(g_logbuf, "Error: Column %u of %s's header isn't 'A2'.\n", skip0 + skip1p1 + 2, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
 	  goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	}
 	uii = 1 + skip2;
 	bufptr = skip_initial_spaces(token_endnn(bufptr2));
 	while (!is_eoln_kns(*bufptr)) {
-          if (bsearch_read_fam_indiv(tbuf, sorted_sample_ids, max_sample_id_len, sample_ct, bufptr, &bufptr2, &ii)) {
-	    sprintf(logbuf, "Error: Header of %s has an odd number of tokens in the FID/IID section.\n", &(fnames[(file_idx + file_idx_start) * max_fn_len]));
+          if (bsearch_read_fam_indiv(g_textbuf, sorted_sample_ids, max_sample_id_len, sample_ct, bufptr, &bufptr2, &ii)) {
+	    sprintf(g_logbuf, "Error: Header of %s has an odd number of tokens in the FID/IID section.\n", &(fnames[(file_idx + file_idx_start) * max_fn_len]));
 	    goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	  }
 	  if (ii == -1) {
@@ -1689,7 +1689,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    if (is_set(batch_samples, ii)) {
 	      bufptr = &(sorted_sample_ids[((uint32_t)ii) * max_sample_id_len]);
 	      *strchr(bufptr, '\t') = ' ';
-	      sprintf(logbuf, "Error: '%s' appears multiple times.\n", bufptr);
+	      sprintf(g_logbuf, "Error: '%s' appears multiple times.\n", bufptr);
 	      goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	    }
 	    set_bit(batch_samples, ii);
@@ -1700,7 +1700,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  bufptr = bufptr2;
 	}
 	if (read_idx_start == read_idx) {
-	  sprintf(logbuf, "Error: Header of %s has no tokens in the FID/IID section.\n", &(fnames[(file_idx + file_idx_start) * max_fn_len]));
+	  sprintf(g_logbuf, "Error: Header of %s has no tokens in the FID/IID section.\n", &(fnames[(file_idx + file_idx_start) * max_fn_len]));
 	  goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	}
       }
@@ -1745,7 +1745,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	bufptr6 = token_endnn(bufptr5);
         slen = (uintptr_t)(bufptr2 - bufptr);
 	if (slen > MAX_ID_LEN) {
-	  sprintf(logbuf, "Error: Line %" PRIuPTR " of %s has an excessively long variant ID.\n", line_idx, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
+	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s has an excessively long variant ID.\n", line_idx, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
 	  goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	}
 	if (!file_idx) {
@@ -1790,11 +1790,11 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  }
 	} else {
 	  if ((slen != cur_marker_id_len) || memcmp(bufptr, cur_marker_id_buf, slen)) {
-	    sprintf(logbuf, "Error: Variant ID mismatch between line %" PRIuPTR " of %s and line %" PRIuPTR " of %s.\n", line_idx_arr[0], &(fnames[file_idx_start * max_fn_len]), line_idx, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
+	    sprintf(g_logbuf, "Error: Variant ID mismatch between line %" PRIuPTR " of %s and line %" PRIuPTR " of %s.\n", line_idx_arr[0], &(fnames[file_idx_start * max_fn_len]), line_idx, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
 	    goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	  }
 	  if (((uintptr_t)(bufptr4 - bufptr3) != a1_len) || memcmp(bufptr3, a1_ptr, a1_len) || ((uintptr_t)(bufptr6 - bufptr5) != a2_len) || memcmp(bufptr5, a2_ptr, a2_len)) {
-	    sprintf(logbuf, "Error: Allele code mismatch between line %" PRIuPTR " of %s and line %" PRIuPTR " of %s.\n", line_idx_arr[0], &(fnames[file_idx_start * max_fn_len]), line_idx, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
+	    sprintf(g_logbuf, "Error: Allele code mismatch between line %" PRIuPTR " of %s and line %" PRIuPTR " of %s.\n", line_idx_arr[0], &(fnames[file_idx_start * max_fn_len]), line_idx, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
 	    goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	  }
 	  if ((marker_idx == ~ZEROLU) || (score_marker_idx == 0xffffffffU)) {
@@ -2185,8 +2185,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       if (fopen_checked(outname, "w", &profile_outfile)) {
 	goto plink1_dosage_ret_OPEN_FAIL;
       }
-      sprintf(tbuf, "%%%us %%%us  PHENO%s %s\n", plink_maxfid, plink_maxiid, dosage_score_cnt? "    CNT" : "", score_report_average? "   SCORE" : "SCORESUM");
-      fprintf(profile_outfile, tbuf, "FID", "IID");
+      sprintf(g_textbuf, "%%%us %%%us  PHENO%s %s\n", plink_maxfid, plink_maxiid, dosage_score_cnt? "    CNT" : "", score_report_average? "   SCORE" : "SCORESUM");
+      fprintf(profile_outfile, g_textbuf, "FID", "IID");
       uii = score_range_obs_cts[qrange_idx];
       uiptr = &(score_miss_cts[sample_ct * qrange_idx]);
       dxx = score_bases[qrange_idx];
@@ -2195,7 +2195,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	next_unset_unsafe_ck(sample_exclude, &sample_uidx);
 	bufptr = &(sample_ids[sample_uidx * max_sample_id_len]);
 	bufptr2 = strchr(bufptr, '\t');
-	bufptr = fw_strcpyn(plink_maxfid, (uintptr_t)(bufptr2 - bufptr), bufptr, tbuf);
+	bufptr = fw_strcpyn(plink_maxfid, (uintptr_t)(bufptr2 - bufptr), bufptr, g_textbuf);
 	*bufptr++ = ' ';
 	bufptr = fw_strcpy(plink_maxiid, &(bufptr2[1]), bufptr);
 	*bufptr++ = ' ';
@@ -2225,7 +2225,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	}
 	bufptr = width_force(8, bufptr, double_g_write(bufptr, dyy));
 	*bufptr++ = '\n';
-        if (fwrite_checked(tbuf, bufptr - tbuf, profile_outfile)) {
+        if (fwrite_checked(g_textbuf, bufptr - g_textbuf, profile_outfile)) {
 	  goto plink1_dosage_ret_WRITE_FAIL;
 	}
       }
@@ -2309,9 +2309,9 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     retval = RET_NOMEM;
     break;
   plink1_dosage_ret_MISSING_TOKENS:
-    sprintf(logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
+    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
   plink1_dosage_ret_INVALID_FORMAT_WW:
-    wordwrap(0, logbuf);
+    wordwrap(0, g_logbuf);
   plink1_dosage_ret_INVALID_FORMAT_2:
     logerrprintb();
   plink1_dosage_ret_INVALID_FORMAT:

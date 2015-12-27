@@ -7,7 +7,7 @@ const char errstr_fopen[] = "Error: Failed to open %s.\n";
 
 const char cmdline_format_str[] = "\n  " PROG_NAME_STR " [input flag(s)...] {command flag(s)...} {other flag(s)...}\n  " PROG_NAME_STR " --help {flag name(s)...}\n\n";
 
-char tbuf[TBUF_SIZE];
+char g_textbuf[TEXTBUF_SIZE];
 
 // note that \xxx character constants are interpreted in octal.
 // technically no need to represent 0-31, but 64 extra bytes of data is
@@ -16,13 +16,13 @@ const char g_one_char_strs[] = "\0\0\1\0\2\0\3\0\4\0\5\0\6\0\7\0\10\0\11\0\12\0\
 const char* g_missing_geno_ptr = &(g_one_char_strs[96]);
 const char* g_output_missing_geno_ptr = &(g_one_char_strs[96]);
 
-sfmt_t sfmt;
+sfmt_t g_sfmt;
 
-FILE* logfile = NULL;
+FILE* g_logfile = NULL;
 
 // mostly-safe sprintf buffer.  warning: do NOT put allele codes or
 // arbitrary-length lists in here.
-char logbuf[MAXLINELEN * 2];
+char g_logbuf[MAXLINELEN * 2];
 
 uint32_t g_debug_on = 0;
 uint32_t g_log_failed = 0;
@@ -72,8 +72,8 @@ uint32_t push_ll_str(const char* ss, Ll_str** ll_stack_ptr) {
 
 void logstr(const char* ss) {
   if (!g_debug_on) {
-    fputs(ss, logfile);
-    if (ferror(logfile)) {
+    fputs(ss, g_logfile);
+    if (ferror(g_logfile)) {
       putchar('\n');
       fflush(stdout);
       fprintf(stderr, "Warning: Logging failure on:\n%s\nFurther logging will not be attempted in this run.\n", ss);
@@ -84,14 +84,14 @@ void logstr(const char* ss) {
       fflush(stdout);
       fputs(ss, stderr);
     } else {
-      fputs(ss, logfile);
-      if (ferror(logfile)) {
+      fputs(ss, g_logfile);
+      if (ferror(g_logfile)) {
 	putchar('\n');
 	fflush(stdout);
         fprintf(stderr, "Error: Debug logging failure.  Dumping to stderr:\n%s", ss);
 	g_log_failed = 1;
       } else {
-	fflush(logfile);
+	fflush(g_logfile);
       }
     }
   }
@@ -109,14 +109,14 @@ void logerrprint(const char* ss) {
 }
 
 void logprintb() {
-  logstr(logbuf);
-  fputs(logbuf, stdout);
+  logstr(g_logbuf);
+  fputs(g_logbuf, stdout);
 }
 
 void logerrprintb() {
-  logstr(logbuf);
+  logstr(g_logbuf);
   fflush(stdout);
-  fputs(logbuf, stderr);
+  fputs(g_logbuf, stderr);
 }
 
 void wordwrap(uint32_t suffix_len, char* ss) {
@@ -609,11 +609,11 @@ int32_t gzputs_w4(gzFile gz_outfile, const char* ss) {
 int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr, uintptr_t* line_idx_ptr) {
   char* lptr;
   do {
-    if (!fgets(tbuf, MAXLINELEN, fptr)) {
+    if (!fgets(g_textbuf, MAXLINELEN, fptr)) {
       return -1;
     }
     *line_idx_ptr += 1;
-    lptr = skip_initial_spaces(tbuf);
+    lptr = skip_initial_spaces(g_textbuf);
   } while (is_eoln_or_comment(*lptr));
   *lptr_ptr = lptr;
   return 0;
@@ -7651,7 +7651,7 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint3
     if (ii != -1) {
       cmdline_pos = id_map[(uint32_t)ii];
       if (seen_idxs[cmdline_pos] != -1) {
-	sprintf(logbuf, "Error: Duplicate --%s token in %s.\n", range_list_flag, file_descrip);
+	sprintf(g_logbuf, "Error: Duplicate --%s token in %s.\n", range_list_flag, file_descrip);
         goto string_range_list_to_bitfield_ret_INVALID_FORMAT_2;
       }
       seen_idxs[cmdline_pos] = item_idx;
@@ -7681,7 +7681,7 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint3
   }
   while (0) {
   string_range_list_to_bitfield_ret_INVALID_CMDLINE_3:
-    sprintf(logbuf, "Error: Missing --%s token in %s.\n", range_list_flag, file_descrip);
+    sprintf(g_logbuf, "Error: Missing --%s token in %s.\n", range_list_flag, file_descrip);
   string_range_list_to_bitfield_ret_INVALID_CMDLINE_2:
     logerrprintb();
     retval = RET_INVALID_CMDLINE;
@@ -7748,7 +7748,7 @@ int32_t string_range_list_to_bitfield2(char* sorted_ids, uint32_t* id_map, uintp
       }
       item_uidx2 = id_map[(uint32_t)ii];
       if (item_uidx2 < item_uidx) {
-	sprintf(logbuf, "Error: Second element of --%s range appears before first.\n", range_list_flag);
+	sprintf(g_logbuf, "Error: Second element of --%s range appears before first.\n", range_list_flag);
 	goto string_range_list_to_bitfield2_ret_INVALID_CMDLINE_2;
       }
       clear_bits(bitfield_excl, item_uidx, item_uidx2 - item_uidx + 1);
@@ -7758,7 +7758,7 @@ int32_t string_range_list_to_bitfield2(char* sorted_ids, uint32_t* id_map, uintp
   }
   while (0) {
   string_range_list_to_bitfield2_ret_INVALID_CMDLINE_3:
-    sprintf(logbuf, "Error: --%s ID not found.\n", range_list_flag);
+    sprintf(g_logbuf, "Error: --%s ID not found.\n", range_list_flag);
   string_range_list_to_bitfield2_ret_INVALID_CMDLINE_2:
     logerrprintb();
     retval = RET_INVALID_CMDLINE;
@@ -8892,7 +8892,7 @@ void force_missing(unsigned char* loadbuf, uintptr_t* force_missing_include2, ui
 }
 
 int32_t open_and_size_string_list(char* fname, FILE** infile_ptr, uintptr_t* list_len_ptr, uintptr_t* max_str_len_ptr) {
-  // assumes file is not open yet, and tbuf is safe to clobber
+  // assumes file is not open yet, and g_textbuf is safe to clobber
   uint32_t max_len = 0;
   uintptr_t line_idx = 0;
   uintptr_t list_len = 0;
@@ -8902,14 +8902,14 @@ int32_t open_and_size_string_list(char* fname, FILE** infile_ptr, uintptr_t* lis
   if (fopen_checked(fname, "r", infile_ptr)) {
     goto open_and_size_string_list_ret_OPEN_FAIL;
   }
-  tbuf[MAXLINELEN - 1] = ' ';
-  while (fgets(tbuf, MAXLINELEN, *infile_ptr)) {
+  g_textbuf[MAXLINELEN - 1] = ' ';
+  while (fgets(g_textbuf, MAXLINELEN, *infile_ptr)) {
     line_idx++;
-    if (!tbuf[MAXLINELEN - 1]) {
+    if (!g_textbuf[MAXLINELEN - 1]) {
       LOGERRPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, fname);
       goto open_and_size_string_list_ret_INVALID_FORMAT;
     }
-    bufptr = skip_initial_spaces(tbuf);
+    bufptr = skip_initial_spaces(g_textbuf);
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
@@ -8940,14 +8940,14 @@ int32_t open_and_size_string_list(char* fname, FILE** infile_ptr, uintptr_t* lis
 }
 
 int32_t load_string_list(FILE** infile_ptr, uintptr_t max_str_len, char* str_list) {
-  // assumes file is open (probably by open_and_size_string_list), and tbuf is
-  // safe to clobber
+  // assumes file is open (probably by open_and_size_string_list), and
+  // g_textbuf is safe to clobber
   int32_t retval = 0;
   char* bufptr;
   uint32_t cur_len;
   rewind(*infile_ptr);
-  while (fgets(tbuf, MAXLINELEN, *infile_ptr)) {
-    bufptr = skip_initial_spaces(tbuf);
+  while (fgets(g_textbuf, MAXLINELEN, *infile_ptr)) {
+    bufptr = skip_initial_spaces(g_textbuf);
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
@@ -9630,7 +9630,7 @@ void generate_perm1_interleaved(uint32_t tot_ct, uint32_t set_ct, uintptr_t perm
       for (num_set = 0; num_set < set_ct; num_set++) {
 	do {
 	  do {
-	    urand = sfmt_genrand_uint32(&sfmt);
+	    urand = sfmt_genrand_uint32(&g_sfmt);
 	  } while (urand > upper_bound);
 	  // this is identical to ulii = urand / tot_quotient
 	  ulii = (totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift;
@@ -9651,7 +9651,7 @@ void generate_perm1_interleaved(uint32_t tot_ct, uint32_t set_ct, uintptr_t perm
       for (num_set = 0; num_set < set_ct; num_set++) {
 	do {
 	  do {
-	    urand = sfmt_genrand_uint32(&sfmt);
+	    urand = sfmt_genrand_uint32(&g_sfmt);
 	  } while (urand > upper_bound);
 	  ulii = (totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift;
 	  uljj = ulii / BITCT;
@@ -9998,7 +9998,7 @@ uint32_t bigstack_init_sfmtp(uint32_t thread_ct) {
   if (!g_sfmtp_arr) {
     return 1;
   }
-  g_sfmtp_arr[0] = &sfmt;
+  g_sfmtp_arr[0] = &g_sfmt;
   if (thread_ct > 1) {
     for (tidx = 1; tidx < thread_ct; tidx++) {
       g_sfmtp_arr[tidx] = (sfmt_t*)bigstack_alloc(sizeof(sfmt_t));
@@ -10006,7 +10006,7 @@ uint32_t bigstack_init_sfmtp(uint32_t thread_ct) {
 	return 1;
       }
       for (uii = 0; uii < 4; uii++) {
-	uibuf[uii] = sfmt_genrand_uint32(&sfmt);
+	uibuf[uii] = sfmt_genrand_uint32(&g_sfmt);
       }
       sfmt_init_by_array(g_sfmtp_arr[tidx], uibuf, 4);
     }

@@ -145,14 +145,14 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
     if (fopen_checked(condition_fname, "r", &condition_file)) {
       goto glm_scan_conditions_ret_OPEN_FAIL;
     }
-    tbuf[MAXLINELEN - 1] = ' ';
-    while (fgets(tbuf, MAXLINELEN, condition_file)) {
+    g_textbuf[MAXLINELEN - 1] = ' ';
+    while (fgets(g_textbuf, MAXLINELEN, condition_file)) {
       line_idx++;
-      if (!tbuf[MAXLINELEN - 1]) {
-        sprintf(logbuf, "Error: Line %" PRIuPTR " of --condition-list file is pathologically long.\n", line_idx);
+      if (!g_textbuf[MAXLINELEN - 1]) {
+        sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --condition-list file is pathologically long.\n", line_idx);
         goto glm_scan_conditions_ret_INVALID_FORMAT_2;
       }
-      bufptr = skip_initial_spaces(tbuf);
+      bufptr = skip_initial_spaces(g_textbuf);
       while (!is_eoln_kns(*bufptr)) {
         bufptr2 = token_endnn(bufptr);
 	ii = bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_ids, max_marker_id_len, marker_ct);
@@ -183,9 +183,9 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
       goto glm_scan_conditions_ret_1;
     }
     if (miss_ct) {
-      sprintf(logbuf, "--condition-list: %" PRIuPTR " of %" PRIuPTR " variant ID%s loaded from %s.\n", condition_ct, condition_ct + miss_ct, (condition_ct + miss_ct == 1)? "" : "s", condition_fname);
+      sprintf(g_logbuf, "--condition-list: %" PRIuPTR " of %" PRIuPTR " variant ID%s loaded from %s.\n", condition_ct, condition_ct + miss_ct, (condition_ct + miss_ct == 1)? "" : "s", condition_fname);
     } else {
-      sprintf(logbuf, "--condition-list: %" PRIuPTR " variant ID%s loaded from %s.\n", condition_ct, (condition_ct == 1)? "" : "s", condition_fname);
+      sprintf(g_logbuf, "--condition-list: %" PRIuPTR " variant ID%s loaded from %s.\n", condition_ct, (condition_ct == 1)? "" : "s", condition_fname);
     }
     logprintb();
   }
@@ -3575,7 +3575,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
       goto glm_common_init_ret_NOMEM;
     }
   } else {
-    *writebuf_ptr = tbuf;
+    *writebuf_ptr = g_textbuf;
   }
   g_standard_beta = standard_beta;
   g_coding_flags = glm_modifier & (GLM_HETHOM | GLM_DOMINANT | GLM_RECESSIVE);
@@ -4915,8 +4915,8 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   }
   LOGPRINTFWW5("Writing linear model association results to %s ... ", outname);
   fflush(stdout);
-  sprintf(tbuf, " CHR %%%us         BP   A1       TEST    NMISS       BETA ", plink_maxsnp);
-  fprintf(outfile, tbuf, "SNP");
+  sprintf(g_textbuf, " CHR %%%us         BP   A1       TEST    NMISS       BETA ", plink_maxsnp);
+  fprintf(outfile, g_textbuf, "SNP");
   if (display_ci) {
     uii = (uint32_t)((int32_t)(ci_size * 100));
     if (uii >= 10) {
@@ -5386,8 +5386,8 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       fflush(stdout);
       ulii = g_perm_vec_ct;
       ujj = 1 + g_perms_done;
-      wptr = tbuf;
-      cptr = &(tbuf[MAXLINELEN]);
+      wptr = g_textbuf;
+      cptr = &(g_textbuf[MAXLINELEN]);
       for (uii = 0; uii < ulii; uii++) {
 	wptr = uint32_write(wptr, uii + ujj);
 	dptr = &(g_mperm_save_all[uii]);
@@ -5400,15 +5400,15 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	    wptr = memcpya(wptr, "NA", 2);
 	  }
 	  if (wptr >= cptr) {
-	    if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile_msa)) {
+	    if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile_msa)) {
 	      goto glm_linear_assoc_ret_WRITE_FAIL;
 	    }
-	    wptr = tbuf;
+	    wptr = g_textbuf;
 	  }
 	}
 	*wptr++ = '\n';
       }
-      if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile_msa)) {
+      if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile_msa)) {
 	goto glm_linear_assoc_ret_WRITE_FAIL;
       }
       fputs("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b               ", stdout);
@@ -5456,15 +5456,15 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	    dxx = g_orig_stats[marker_idx];
 	  }
 	}
-	memcpy(tbuf, "0 ", 2);
-	wptr = double_g_writex(&(tbuf[2]), dxx, '\n');
-        if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile)) {
+	memcpy(g_textbuf, "0 ", 2);
+	wptr = double_g_writex(&(g_textbuf[2]), dxx, '\n');
+        if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile)) {
 	  goto glm_linear_assoc_ret_WRITE_FAIL;
 	}
         for (uii = 0; uii < perms_total; uii++) {
-          wptr = uint32_writex(tbuf, uii + 1, ' ');
+          wptr = uint32_writex(g_textbuf, uii + 1, ' ');
           wptr = double_g_writex(wptr, g_maxt_extreme_stat[uii], '\n');
-          if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile)) {
+          if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile)) {
 	    goto glm_linear_assoc_ret_WRITE_FAIL;
 	  }
 	}
@@ -5479,9 +5479,9 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       goto glm_linear_assoc_ret_OPEN_FAIL;
     }
     if (perm_adapt_nst) {
-      sprintf(tbuf, " CHR %%%us         EMP1           NP \n", plink_maxsnp);
+      sprintf(g_textbuf, " CHR %%%us         EMP1           NP \n", plink_maxsnp);
     } else {
-      sprintf(tbuf, " CHR %%%us         EMP1         EMP2 \n", plink_maxsnp);
+      sprintf(g_textbuf, " CHR %%%us         EMP1         EMP2 \n", plink_maxsnp);
 #ifdef __cplusplus
       std::sort(g_maxt_extreme_stat, &(g_maxt_extreme_stat[perms_total]));
 #else
@@ -5494,7 +5494,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	g_perm_attempt_ct[marker_idx] = perms_total - g_perm_attempt_ct[marker_idx];
       }
     }
-    fprintf(outfile, tbuf, "SNP");
+    fprintf(outfile, g_textbuf, "SNP");
     chrom_fo_idx = 0xffffffffU;
     marker_uidx = next_unset_unsafe(marker_exclude, 0);
     marker_idx = 0;
@@ -5503,7 +5503,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1];
       } while (marker_uidx >= chrom_end);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      wptr_start = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, uii));
+      wptr_start = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, uii));
       *wptr_start++ = ' ';
       wptr_start[plink_maxsnp] = ' ';
       for (; marker_uidx < chrom_end;) {
@@ -5532,7 +5532,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	    }
 	  }
 	  wptr = memcpya(wptr, " \n", 2);
-	  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	  if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	    goto glm_linear_assoc_ret_WRITE_FAIL;
 	  }
 	}
@@ -6396,8 +6396,8 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   }
   LOGPRINTFWW5("Writing logistic model association results to %s ... ", outname);
   fflush(stdout);
-  sprintf(tbuf, " CHR %%%us         BP   A1       TEST    NMISS       %s ", plink_maxsnp, report_odds? "  OR" : "BETA");
-  fprintf(outfile, tbuf, "SNP");
+  sprintf(g_textbuf, " CHR %%%us         BP   A1       TEST    NMISS       %s ", plink_maxsnp, report_odds? "  OR" : "BETA");
+  fprintf(outfile, g_textbuf, "SNP");
   if (display_ci) {
     uii = (uint32_t)((int32_t)(ci_size * 100));
     if (uii >= 10) {
@@ -6824,8 +6824,8 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       fflush(stdout);
       ulii = g_perm_vec_ct;
       ujj = 1 + g_perms_done;
-      wptr = tbuf;
-      cptr = &(tbuf[MAXLINELEN]);
+      wptr = g_textbuf;
+      cptr = &(g_textbuf[MAXLINELEN]);
       for (uii = 0; uii < ulii; uii++) {
 	wptr = uint32_write(wptr, uii + ujj);
 	dptr = &(g_mperm_save_all[uii]);
@@ -6838,15 +6838,15 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	    wptr = memcpya(wptr, "NA", 2);
 	  }
 	  if (wptr >= cptr) {
-	    if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile_msa)) {
+	    if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile_msa)) {
 	      goto glm_logistic_assoc_ret_WRITE_FAIL;
 	    }
-	    wptr = tbuf;
+	    wptr = g_textbuf;
 	  }
 	}
 	*wptr++ = '\n';
       }
-      if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile_msa)) {
+      if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile_msa)) {
 	goto glm_logistic_assoc_ret_WRITE_FAIL;
       }
       fputs("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b               ", stdout);
@@ -6894,15 +6894,15 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	    dxx = g_orig_stats[marker_idx];
 	  }
 	}
-	memcpy(tbuf, "0 ", 2);
-	wptr = double_g_writex(&(tbuf[2]), dxx, '\n');
-        if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile)) {
+	memcpy(g_textbuf, "0 ", 2);
+	wptr = double_g_writex(&(g_textbuf[2]), dxx, '\n');
+        if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile)) {
 	  goto glm_logistic_assoc_ret_WRITE_FAIL;
 	}
         for (uii = 0; uii < perms_total; uii++) {
-          wptr = uint32_writex(tbuf, uii + 1, ' ');
+          wptr = uint32_writex(g_textbuf, uii + 1, ' ');
           wptr = double_g_writex(wptr, g_maxt_extreme_stat[uii], '\n');
-          if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile)) {
+          if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile)) {
 	    goto glm_logistic_assoc_ret_WRITE_FAIL;
 	  }
 	}
@@ -6917,9 +6917,9 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       goto glm_logistic_assoc_ret_OPEN_FAIL;
     }
     if (perm_adapt_nst) {
-      sprintf(tbuf, " CHR %%%us         EMP1           NP \n", plink_maxsnp);
+      sprintf(g_textbuf, " CHR %%%us         EMP1           NP \n", plink_maxsnp);
     } else {
-      sprintf(tbuf, " CHR %%%us         EMP1         EMP2 \n", plink_maxsnp);
+      sprintf(g_textbuf, " CHR %%%us         EMP1         EMP2 \n", plink_maxsnp);
 #ifdef __cplusplus
       std::sort(g_maxt_extreme_stat, &(g_maxt_extreme_stat[perms_total]));
 #else
@@ -6932,7 +6932,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	g_perm_attempt_ct[marker_idx] = perms_total - g_perm_attempt_ct[marker_idx];
       }
     }
-    fprintf(outfile, tbuf, "SNP");
+    fprintf(outfile, g_textbuf, "SNP");
     chrom_fo_idx = 0xffffffffU;
     marker_uidx = next_unset_unsafe(marker_exclude, 0);
     marker_idx = 0;
@@ -6941,7 +6941,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1];
       } while (marker_uidx >= chrom_end);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      wptr_start = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, uii));
+      wptr_start = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, uii));
       *wptr_start++ = ' ';
       wptr_start[plink_maxsnp] = ' ';
       for (; marker_uidx < chrom_end;) {
@@ -6970,7 +6970,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	    }
 	  }
 	  wptr = memcpya(wptr, " \n", 2);
-	  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	  if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	    goto glm_logistic_assoc_ret_WRITE_FAIL;
 	  }
 	}
@@ -7587,8 +7587,8 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       goto glm_linear_nosnp_ret_NOMEM;
     }
     *outname_end = '\0';
-    LOGPREPRINTFWW(logbuf, "Dumping all permutation absolute t-stats to %s.[testID].mperm.dump.all.\n", outname);
-    fputs(logbuf, stdout);
+    LOGPREPRINTFWW(g_logbuf, "Dumping all permutation absolute t-stats to %s.[testID].mperm.dump.all.\n", outname);
+    fputs(g_logbuf, stdout);
     if (constraint_ct) {
       logprint("(exception: chi-square values will be dumped for joint test)\n");
     }
@@ -7619,7 +7619,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     orig_stats[param_idx - 1] = fabs(zval);
     pval = calc_tprob(zval, sample_valid_ct - param_ct);
     if ((!hide_covar) && ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0)))) {
-      wptr = fw_strcpy(10, &(param_names[param_idx * max_param_name_len]), tbuf);
+      wptr = fw_strcpy(10, &(param_names[param_idx * max_param_name_len]), g_textbuf);
       *wptr++ = ' ';
       wptr = uint32_writew8x(wptr, (uint32_t)sample_valid_ct, ' ');
       wptr = double_g_writewx4x(wptr, dxx, 10, ' ');
@@ -7631,13 +7631,13 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       }
       wptr = double_g_writewx4x(wptr, zval, 12, ' ');
       wptr = double_g_writewx4x(wptr, MAXV(pval, output_min_p), 12, '\n');
-      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+      if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	goto glm_linear_nosnp_ret_WRITE_FAIL;
       }
     }      
   }
   if (report_intercept) {
-    wptr = memcpya(tbuf, " INTERCEPT ", 11);
+    wptr = memcpya(g_textbuf, " INTERCEPT ", 11);
     wptr = uint32_writew8x(wptr, (uint32_t)sample_valid_ct, ' ');
     wptr = double_g_writewx4x(wptr, dgels_b[0], 10, ' ');
     if (display_ci) {
@@ -7648,7 +7648,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       wptr = double_g_writewx4x(wptr, dgels_b[0] + dyy, 8, ' ');
     }
     wptr = memcpya(wptr, "          NA           NA\n", 26);
-    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+    if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
       goto glm_linear_nosnp_ret_WRITE_FAIL;
     }
   }
@@ -7657,7 +7657,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     orig_stats[param_ct - 1] = dxx;
     pval = chiprob_p(dxx, constraint_ct);
     if ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0))) {
-      wptr = fw_strcpy(10, &(param_names[param_ct * max_param_name_len]), tbuf);
+      wptr = fw_strcpy(10, &(param_names[param_ct * max_param_name_len]), g_textbuf);
       *wptr++ = ' ';
       wptr = uint32_writew8(wptr, (uint32_t)sample_valid_ct);
       wptr = memcpya(wptr, "         NA ", 12);
@@ -7666,7 +7666,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       }
       wptr = double_g_writewx4x(wptr, dxx, 12, ' ');
       wptr = double_g_writewx4x(wptr, MAXV(pval, output_min_p), 12, '\n');
-      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+      if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	goto glm_linear_nosnp_ret_WRITE_FAIL;
       }
     }
@@ -7778,7 +7778,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     }
     dxx = 0.5 / ((double)((int32_t)(glm_mperm_val - perm_fail_total) + 1));
     for (param_idx = 1; param_idx < param_ct; param_idx++) {
-      wptr = fw_strcpy(10, &(param_names[param_idx * max_param_name_len]), tbuf);
+      wptr = fw_strcpy(10, &(param_names[param_idx * max_param_name_len]), g_textbuf);
       *wptr++ = ' ';
       pval = ((double)(perm_2success_ct[param_idx - 1] + 2)) * dxx;
       if (pval <= pfilter) {
@@ -7790,13 +7790,13 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
         wptr = memseta(wptr, 32, 3);
         wptr = uint32_writew10(wptr, glm_mperm_val - perm_fail_total);
         wptr = memcpya(wptr, " \n", 2);
-	if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	  goto glm_linear_nosnp_ret_WRITE_FAIL;
 	}
       }
     }
     if (constraint_ct) {
-      wptr = fw_strcpy(10, &(param_names[param_ct * max_param_name_len]), tbuf);
+      wptr = fw_strcpy(10, &(param_names[param_ct * max_param_name_len]), g_textbuf);
       *wptr++ = ' ';
       pval = ((double)(perm_2success_ct[param_ct - 1] + 2)) * 0.5 / ((double)((int32_t)(glm_mperm_val - perm_fail_total - joint_perm_fail_extra) + 1));
       if (pval <= pfilter) {
@@ -7808,7 +7808,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
         wptr = memseta(wptr, 32, 3);
         wptr = uint32_writew10(wptr, glm_mperm_val - perm_fail_total - joint_perm_fail_extra);
         wptr = memcpya(wptr, " \n", 2);
-	if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	  goto glm_linear_nosnp_ret_WRITE_FAIL;
 	}
       }
@@ -7831,9 +7831,9 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	  goto glm_linear_nosnp_ret_OPEN_FAIL;
 	}
 	ulii = param_ctx - 1;
-	wptr = memcpya(tbuf, "0 ", 2);
+	wptr = memcpya(g_textbuf, "0 ", 2);
 	wptr = double_g_writex(wptr, orig_stats[param_idx - 1], '\n');
-	wptr2 = &(tbuf[MAXLINELEN]);
+	wptr2 = &(g_textbuf[MAXLINELEN]);
 	dptr = &(mperm_save_stats[param_idx - 1]);
 	for (perm_idx = 0; perm_idx < glm_mperm_val; perm_idx++) {
 	  wptr = uint32_writex(wptr, perm_idx + 1, ' ');
@@ -7844,20 +7844,20 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	    wptr = memcpyl3a(wptr, "NA\n");
 	  }
 	  if (wptr >= wptr2) {
-	    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	    if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	      goto glm_linear_nosnp_ret_WRITE_FAIL;
 	    }
-	    wptr = tbuf;
+	    wptr = g_textbuf;
 	  }
 	}
-	if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	  goto glm_linear_nosnp_ret_WRITE_FAIL;
 	}
 	if (fclose_null(&outfile)) {
 	  goto glm_linear_nosnp_ret_WRITE_FAIL;
 	}
 	LOGPREPRINTFWW("%s written.\n", outname);
-	logstr(logbuf);
+	logstr(g_logbuf);
       }
     }
   }
@@ -8388,7 +8388,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     }
     *outname_end = '\0';
     LOGPREPRINTFWW("Dumping all permutation chi-square values to %s.[testID].mperm.dump.all.\n", outname);
-    fputs(logbuf, stdout);
+    fputs(g_logbuf, stdout);
   }
   outname_end2 = memcpyb(outname_end, ".assoc.logistic", 16);
   if (fopen_checked(outname, "w", &outfile)) {
@@ -8416,7 +8416,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     orig_stats[param_idx - 1] = zval * zval;
     pval = chiprob_p(zval * zval, 1);
     if ((!hide_covar) && ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0)))) {
-      wptr = fw_strcpy(10, &(param_names[param_idx * max_param_name_len]), tbuf);
+      wptr = fw_strcpy(10, &(param_names[param_idx * max_param_name_len]), g_textbuf);
       *wptr++ = ' ';
       wptr = uint32_writew8x(wptr, (uint32_t)sample_valid_ct, ' ');
       wptr = double_g_writewx4x(wptr, report_odds? exp(dxx) : dxx, 10, ' ');
@@ -8433,14 +8433,14 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       }
       wptr = double_g_writewx4x(wptr, zval, 12, ' ');
       wptr = double_g_writewx4x(wptr, MAXV(pval, output_min_p), 12, '\n');
-      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+      if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	goto glm_logistic_nosnp_ret_WRITE_FAIL;
       }
     }
   }
   if (!skip_intercept) {
     dxx = (double)coef[0];
-    wptr = memcpya(tbuf, " INTERCEPT ", 11);
+    wptr = memcpya(g_textbuf, " INTERCEPT ", 11);
     wptr = uint32_writew8x(wptr, (uint32_t)sample_valid_ct, ' ');
     wptr = double_g_writewx4x(wptr, report_odds? exp(dxx) : dxx, 10, ' ');
     if (display_ci) {
@@ -8455,7 +8455,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	wptr = double_g_writewx4x(wptr, dxx + dyy, 8, ' ');
       }
     }
-    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+    if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
       goto glm_logistic_nosnp_ret_WRITE_FAIL;
     }
   }
@@ -8464,7 +8464,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     orig_stats[param_ct - 1] = dxx;
     pval = chiprob_p(dxx, constraint_ct);
     if ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0))) {
-      wptr = fw_strcpy(10, &(param_names[param_ct * max_param_name_len]), tbuf);
+      wptr = fw_strcpy(10, &(param_names[param_ct * max_param_name_len]), g_textbuf);
       *wptr++ = ' ';
       wptr = uint32_writew8(wptr, (uint32_t)sample_valid_ct);
       wptr = memcpya(wptr, "         NA ", 12);
@@ -8473,7 +8473,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       }
       wptr = double_g_writewx4x(wptr, dxx, 12, ' ');
       wptr = double_g_writewx4x(wptr, MAXV(pval, output_min_p), 12, '\n');
-      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+      if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	goto glm_logistic_nosnp_ret_WRITE_FAIL;
       }
     }
@@ -8576,7 +8576,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     }
     dxx = 0.5 / ((double)((int32_t)(glm_mperm_val - perm_fail_total) + 1));
     for (param_idx = 1; param_idx < param_ct; param_idx++) {
-      wptr = fw_strcpy(10, &(param_names[param_idx * max_param_name_len]), tbuf);
+      wptr = fw_strcpy(10, &(param_names[param_idx * max_param_name_len]), g_textbuf);
       *wptr++ = ' ';
       pval = ((double)(perm_2success_ct[param_idx - 1] + 2)) * dxx;
       if (pval <= pfilter) {
@@ -8588,13 +8588,13 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
         wptr = memseta(wptr, 32, 3);
         wptr = uint32_writew10(wptr, glm_mperm_val - perm_fail_total);
         wptr = memcpya(wptr, " \n", 2);
-	if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	  goto glm_logistic_nosnp_ret_WRITE_FAIL;
 	}
       }
     }
     if (constraint_ct) {
-      wptr = fw_strcpy(10, &(param_names[param_ct * max_param_name_len]), tbuf);
+      wptr = fw_strcpy(10, &(param_names[param_ct * max_param_name_len]), g_textbuf);
       *wptr++ = ' ';
       pval = ((double)(perm_2success_ct[param_ct - 1] + 2)) * 0.5 / ((double)((int32_t)(glm_mperm_val - perm_fail_total - joint_perm_fail_extra) + 1));
       if (pval <= pfilter) {
@@ -8606,7 +8606,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
         wptr = memseta(wptr, 32, 3);
         wptr = uint32_writew10(wptr, glm_mperm_val - perm_fail_total - joint_perm_fail_extra);
         wptr = memcpya(wptr, " \n", 2);
-	if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	  goto glm_logistic_nosnp_ret_WRITE_FAIL;
 	}
       }
@@ -8629,9 +8629,9 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	  goto glm_logistic_nosnp_ret_OPEN_FAIL;
 	}
 	ulii = param_ctx - 1;
-	wptr = memcpya(tbuf, "0 ", 2);
+	wptr = memcpya(g_textbuf, "0 ", 2);
 	wptr = double_g_writex(wptr, orig_stats[param_idx - 1], '\n');
-	wptr2 = &(tbuf[MAXLINELEN]);
+	wptr2 = &(g_textbuf[MAXLINELEN]);
 	dptr = &(mperm_save_stats[param_idx - 1]);
 	for (perm_idx = 0; perm_idx < glm_mperm_val; perm_idx++) {
 	  wptr = uint32_writex(wptr, perm_idx + 1, ' ');
@@ -8642,20 +8642,20 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	    wptr = memcpyl3a(wptr, "NA\n");
 	  }
 	  if (wptr >= wptr2) {
-	    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	    if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	      goto glm_logistic_nosnp_ret_WRITE_FAIL;
 	    }
-	    wptr = tbuf;
+	    wptr = g_textbuf;
 	  }
 	}
-	if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	  goto glm_logistic_nosnp_ret_WRITE_FAIL;
 	}
 	if (fclose_null(&outfile)) {
 	  goto glm_logistic_nosnp_ret_WRITE_FAIL;
 	}
 	LOGPREPRINTFWW("%s written.\n", outname);
-	logstr(logbuf);
+	logstr(g_logbuf);
       }
     }
   }

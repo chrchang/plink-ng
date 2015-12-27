@@ -87,7 +87,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
     }
     line_idx++;
     if (!(inbuf_end[MAXLINELEN - 1])) {
-      sprintf(logbuf, "Error: Line %" PRIuPTR " of --R file is pathologically long.\n", line_idx);
+      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --R file is pathologically long.\n", line_idx);
       goto rserve_call_ret_INVALID_FORMAT_2;
     }
     uii = strlen(inbuf_end);
@@ -153,8 +153,8 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
     rc = new Rconnection("127.0.0.1", rplugin_port);
     ii = rc->connect();
     if (ii) {
-      sockerrorchecks(tbuf, 128, -1);
-      LOGERRPRINTFWW("Error: Unable to connect (code %d: %s).\n", ii, tbuf);
+      sockerrorchecks(g_textbuf, 128, -1);
+      LOGERRPRINTFWW("Error: Unable to connect (code %d: %s).\n", ii, g_textbuf);
       goto rserve_call_ret_NETWORK;
     }
     rc->eval("options(echo=F)");
@@ -185,32 +185,32 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
   fflush(stdout);
   loop_end = marker_ct / 100;
   if (rplugin_debug) {
-    bufptr = memcpya(tbuf, "n <- ", 5);
+    bufptr = memcpya(g_textbuf, "n <- ", 5);
     bufptr = uint32_write(bufptr, pheno_nm_ct);
     bufptr = memcpya(bufptr, "\nPHENO <- c( ", 13);
-    if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+    if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
       goto rserve_call_ret_WRITE_FAIL;
     }
     for (sample_idx = 0; sample_idx < pheno_nm_ct - 1; sample_idx++) {
-      bufptr = double_g_write(tbuf, pheno_d2[sample_idx]);
+      bufptr = double_g_write(g_textbuf, pheno_d2[sample_idx]);
       bufptr = memcpya(bufptr, ", ", 2);
-      fwrite(tbuf, 1, (uintptr_t)(bufptr - tbuf), outfile);
+      fwrite(g_textbuf, 1, (uintptr_t)(bufptr - g_textbuf), outfile);
     }
-    bufptr = double_g_write(tbuf, pheno_d2[sample_idx]);
+    bufptr = double_g_write(g_textbuf, pheno_d2[sample_idx]);
     bufptr = memcpya(bufptr, " ) \n", 4);
-    if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+    if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
       goto rserve_call_ret_WRITE_FAIL;
     }
     if (covar_ct) {
       fputs("c <- c( ", outfile);
       uljj = pheno_nm_ct * covar_ct - 1;
       for (ulii = 0; ulii < uljj; ulii++) {
-	bufptr = double_g_write(tbuf, covar_d[ulii]);
+	bufptr = double_g_write(g_textbuf, covar_d[ulii]);
 	bufptr = memcpya(bufptr, ", ", 2);
-	fwrite(tbuf, 1, (uintptr_t)(bufptr - tbuf), outfile);
+	fwrite(g_textbuf, 1, (uintptr_t)(bufptr - g_textbuf), outfile);
       }
-      bufptr = double_g_write(tbuf, covar_d[ulii]);
-      fwrite(tbuf, 1, (uintptr_t)(bufptr - tbuf), outfile);
+      bufptr = double_g_write(g_textbuf, covar_d[ulii]);
+      fwrite(g_textbuf, 1, (uintptr_t)(bufptr - g_textbuf), outfile);
       fputs(" ) \nCOVAR <- matrix( c , nrow = n , byrow=T)\n", outfile);
     } else {
       // old code (this might be better?  but --R backward compatibility is
@@ -220,14 +220,14 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
     }
     fputs("CLUSTER <- c( ", outfile);
     for (sample_idx = 0; sample_idx < pheno_nm_ct - 1; sample_idx++) {
-      bufptr = int32_write(tbuf, sample_to_cluster[sample_idx]);
+      bufptr = int32_write(g_textbuf, sample_to_cluster[sample_idx]);
       bufptr = memcpya(bufptr, ", ", 2);
-      fwrite(tbuf, 1, (uintptr_t)(bufptr - tbuf), outfile);
+      fwrite(g_textbuf, 1, (uintptr_t)(bufptr - g_textbuf), outfile);
     }
-    bufptr = int32_write(tbuf, sample_to_cluster[sample_idx]);
+    bufptr = int32_write(g_textbuf, sample_to_cluster[sample_idx]);
     bufptr = memcpya(bufptr, " ) \n", 4);
     fputs("CLUSTER[CLUSTER==-1] <- NA\n", outfile);
-    if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+    if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
       goto rserve_call_ret_WRITE_FAIL;
     }
   }
@@ -299,16 +299,16 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
 	    uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	    chrom_name_ptr = chrom_name_buf5w4write(chrom_name_buf, chrom_info_ptr, uii, &chrom_name_len);
 	  }
-	  bufptr = memcpyax(tbuf, chrom_name_ptr, chrom_name_len, ' ');
+	  bufptr = memcpyax(g_textbuf, chrom_name_ptr, chrom_name_len, ' ');
 	  bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), bufptr);
 	  *bufptr++ = ' ';
 	  bufptr = uint32_writew10x(bufptr, marker_pos[marker_uidx], ' ');
-	  if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	  if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
 	    goto rserve_call_ret_WRITE_FAIL;
 	  }
 	  fputs_w4(marker_allele_ptrs[2 * marker_uidx], outfile);
-	  tbuf[0] = ' ';
-	  bufptr = &(tbuf[1]);
+	  g_textbuf[0] = ' ';
+	  bufptr = &(g_textbuf[1]);
 	  cur_data_len = (int32_t)(*dptr++);
 	  for (uii = 0; uii < cur_data_len; uii++) {
 	    dxx = *dptr++;
@@ -318,15 +318,15 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
 	      bufptr = memcpya(bufptr, "NA", 2);
 	    }
 	    *bufptr++ = '\t';
-	    if (bufptr > &(tbuf[MAXLINELEN])) {
-	      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	    if (bufptr > &(g_textbuf[MAXLINELEN])) {
+	      if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
 		goto rserve_call_ret_WRITE_FAIL;
 	      }
-	      bufptr = tbuf;
+	      bufptr = g_textbuf;
 	    }
 	  }
 	  *bufptr++ = '\n';
-	  if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	  if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
 	    goto rserve_call_ret_WRITE_FAIL;
 	  }
 	}
@@ -341,11 +341,11 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
 	    uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	    chrom_name_ptr = chrom_name_buf5w4write(chrom_name_buf, chrom_info_ptr, uii, &chrom_name_len);
 	  }
-	  bufptr = memcpyax(tbuf, chrom_name_ptr, chrom_name_len, ' ');
+	  bufptr = memcpyax(g_textbuf, chrom_name_ptr, chrom_name_len, ' ');
 	  bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), bufptr);
 	  *bufptr++ = ' ';
 	  bufptr = uint32_writew10x(bufptr, marker_pos[marker_uidx], ' ');
-	  if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	  if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
 	    goto rserve_call_ret_WRITE_FAIL;
 	  }
 	  fputs_w4(marker_allele_ptrs[2 * marker_uidx], outfile);
@@ -353,16 +353,16 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
 	}
       }
     } else {
-      bufptr = memcpya(tbuf, "l <- ", 5);
+      bufptr = memcpya(g_textbuf, "l <- ", 5);
       bufptr = uint32_write(bufptr, block_size);
       bufptr = memcpya(bufptr, "\ng <- c( ", 9);
-      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+      if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
 	goto rserve_call_ret_WRITE_FAIL;
       }
       block_offset = 0;
       sample_idx = 0;
       while (1) {
-        bufptr = tbuf;
+        bufptr = g_textbuf;
 	ulptr = &(loadbuf[sample_idx / BITCT2]);
 	uii = 2 * (sample_idx & (BITCT2 - 1));
 	for (block_offset = 0; block_offset < block_size; block_offset++, ulptr = &(ulptr[pheno_nm_ctl2])) {
@@ -378,12 +378,12 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
 	if (++sample_idx == pheno_nm_ct) {
 	  break;
 	}
-	if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
 	  goto rserve_call_ret_WRITE_FAIL;
 	}
       }
       bufptr = memcpya(&(bufptr[-2]), " ) \nGENO <- matrix( g , nrow = n ,byrow=T)\nGENO[GENO == -1 ] <- NA \n\n\n", 70);
-      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+      if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
 	goto rserve_call_ret_WRITE_FAIL;
       }
       if (fwrite_checked(inbuf_start, inbuf_end - inbuf_start, outfile)) {

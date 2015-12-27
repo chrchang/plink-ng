@@ -55,7 +55,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
   uint32_t cluster_filter = (keep_fname || keep_flattened || remove_fname || remove_flattened);
   uint32_t cluster_kr_ct = 0;
   int32_t retval = 0;
-  char* idbuf = &(tbuf[MAXLINELEN]);
+  char* idbuf = &(g_textbuf[MAXLINELEN]);
   // even if both --keep-clusters and --remove-clusters were specified, only
   // one is effectively active (i.e. any names in both lists are deleted from
   // the keep list, and then the function proceeds as if --remove-clusters
@@ -88,7 +88,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
   uint32_t sample_idx;
   uint32_t slen;
   uint32_t uii;
-  tbuf[MAXLINELEN - 1] = ' ';
+  g_textbuf[MAXLINELEN - 1] = ' ';
   if (cluster_filter) {
     sample_exclude_new = (uintptr_t*)top_alloc(&topsize, unfiltered_sample_ctl * sizeof(intptr_t));
     if (keep_flattened || keep_fname) {
@@ -100,13 +100,13 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 	  goto load_clusters_ret_OPEN_FAIL;
 	}
 	line_idx = 0;
-	while (fgets(tbuf, MAXLINELEN, infile)) {
+	while (fgets(g_textbuf, MAXLINELEN, infile)) {
 	  line_idx++;
-	  if (!tbuf[MAXLINELEN - 1]) {
-	    sprintf(logbuf, "Error: Line %" PRIuPTR " of --keep-clusters file is pathologically long.\n", line_idx);
+	  if (!g_textbuf[MAXLINELEN - 1]) {
+	    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --keep-clusters file is pathologically long.\n", line_idx);
 	    goto load_clusters_ret_INVALID_FORMAT_2;
 	  }
-	  cluster_name_ptr = skip_initial_spaces(tbuf);
+	  cluster_name_ptr = skip_initial_spaces(g_textbuf);
 	  if (is_eoln_kns(*cluster_name_ptr)) {
 	    continue;
 	  }
@@ -138,8 +138,8 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
       }
       if (keep_fname) {
 	rewind(infile);
-	while (fgets(tbuf, MAXLINELEN, infile)) {
-	  cluster_name_ptr = skip_initial_spaces(tbuf);
+	while (fgets(g_textbuf, MAXLINELEN, infile)) {
+	  cluster_name_ptr = skip_initial_spaces(g_textbuf);
 	  if (is_eoln_kns(*cluster_name_ptr)) {
 	    continue;
 	  }
@@ -178,13 +178,13 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
             goto load_clusters_ret_OPEN_FAIL;
 	  }
 	  line_idx = 0;
-          while (fgets(tbuf, MAXLINELEN, infile)) {
+          while (fgets(g_textbuf, MAXLINELEN, infile)) {
 	    line_idx++;
-            if (!tbuf[MAXLINELEN - 1]) {
-	      sprintf(logbuf, "Error: Line %" PRIuPTR " of --remove-clusters file is pathologically long.\n", line_idx);
+            if (!g_textbuf[MAXLINELEN - 1]) {
+	      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --remove-clusters file is pathologically long.\n", line_idx);
 	      goto load_clusters_ret_INVALID_FORMAT_2;
 	    }
-	    cluster_name_ptr = skip_initial_spaces(tbuf);
+	    cluster_name_ptr = skip_initial_spaces(g_textbuf);
 	    if (is_eoln_kns(*cluster_name_ptr)) {
 	      continue;
 	    }
@@ -216,13 +216,13 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 	  goto load_clusters_ret_OPEN_FAIL;
 	}
 	line_idx = 0;
-	while (fgets(tbuf, MAXLINELEN, infile)) {
+	while (fgets(g_textbuf, MAXLINELEN, infile)) {
 	  line_idx++;
-	  if (!tbuf[MAXLINELEN - 1]) {
-	    sprintf(logbuf, "Error: Line %" PRIuPTR " of --remove-clusters file is pathologically long.\n", line_idx);
+	  if (!g_textbuf[MAXLINELEN - 1]) {
+	    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --remove-clusters file is pathologically long.\n", line_idx);
 	    goto load_clusters_ret_INVALID_FORMAT_2;
 	  }
-	  cluster_name_ptr = skip_initial_spaces(tbuf);
+	  cluster_name_ptr = skip_initial_spaces(g_textbuf);
 	  if (is_eoln_kns(*cluster_name_ptr)) {
 	    continue;
 	  }
@@ -250,8 +250,8 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 	}
 	if (remove_fname) {
 	  rewind(infile);
-	  while (fgets(tbuf, MAXLINELEN, infile)) {
-	    cluster_name_ptr = skip_initial_spaces(tbuf);
+	  while (fgets(g_textbuf, MAXLINELEN, infile)) {
+	    cluster_name_ptr = skip_initial_spaces(g_textbuf);
 	    if (is_eoln_kns(*cluster_name_ptr)) {
 	      continue;
 	    }
@@ -306,13 +306,13 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
       mwithin_col = 1;
     }
     line_idx = 0;
-    while (fgets(tbuf, MAXLINELEN, infile)) {
+    while (fgets(g_textbuf, MAXLINELEN, infile)) {
       line_idx++;
-      if (!tbuf[MAXLINELEN - 1]) {
-	sprintf(logbuf, "Error: Line %" PRIuPTR " of --within file is pathologically long.\n", line_idx);
+      if (!g_textbuf[MAXLINELEN - 1]) {
+	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --within file is pathologically long.\n", line_idx);
 	goto load_clusters_ret_INVALID_FORMAT_2;
       }
-      fam_id = skip_initial_spaces(tbuf);
+      fam_id = skip_initial_spaces(g_textbuf);
       if (is_eoln_kns(*fam_id)) {
 	continue;
       }
@@ -403,8 +403,8 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
       cluster_starts[cluster_ct] = assigned_ct;
       rewind(infile);
       // second pass
-      while (fgets(tbuf, MAXLINELEN, infile)) {
-	fam_id = skip_initial_spaces(tbuf);
+      while (fgets(g_textbuf, MAXLINELEN, infile)) {
+	fam_id = skip_initial_spaces(g_textbuf);
 	if (is_eoln_kns(*fam_id)) {
 	  continue;
 	}
@@ -542,8 +542,8 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
     for (sample_uidx = 0, sample_idx = 0; sample_idx < assigned_ct; sample_uidx++, sample_idx++) {
       next_unset_unsafe_ck(ulptr, &sample_uidx);
       cluster_name_ptr = &(sample_ids[sample_uidx * max_sample_id_len]);
-      memcpyx(tbuf, cluster_name_ptr, (uintptr_t)((char*)memchr(cluster_name_ptr, '\t', max_cluster_id_len) - cluster_name_ptr), '\0');
-      sorted_idx = bsearch_str_natural(tbuf, cluster_ids, max_cluster_id_len, cluster_ct);
+      memcpyx(g_textbuf, cluster_name_ptr, (uintptr_t)((char*)memchr(cluster_name_ptr, '\t', max_cluster_id_len) - cluster_name_ptr), '\0');
+      sorted_idx = bsearch_str_natural(g_textbuf, cluster_ids, max_cluster_id_len, cluster_ct);
       uii = tmp_cluster_starts[(uint32_t)sorted_idx];
       tmp_cluster_starts[(uint32_t)sorted_idx] += 1;
       cluster_map[uii] = sample_uidx;
@@ -573,7 +573,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
     retval = RET_READ_FAIL;
     break;
   load_clusters_ret_MISSING_TOKENS:
-    sprintf(logbuf, "Error: Line %" PRIuPTR " of --within file has fewer tokens than expected.\n", line_idx);
+    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --within file has fewer tokens than expected.\n", line_idx);
   load_clusters_ret_INVALID_FORMAT_2:
     logerrprintb();
   load_clusters_ret_INVALID_FORMAT:
@@ -671,14 +671,14 @@ int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_sa
     if ((!omit_unassigned) || (cluster_idx != 0xffffffffU)) {
       sample_id_ptr = &(sample_ids[sample_uidx * max_sample_id_len]);
       slen = strlen_se(sample_id_ptr);
-      bufptr = memcpyax(tbuf, sample_id_ptr, slen, ' ');
+      bufptr = memcpyax(g_textbuf, sample_id_ptr, slen, ' ');
       bufptr = strcpyax(bufptr, &(sample_id_ptr[slen + 1]), ' ');
       if (cluster_idx != 0xffffffffU) {
         bufptr = strcpyax(bufptr, &(cluster_ids[cluster_idx * max_cluster_id_len]), '\n');
       } else {
         bufptr = memcpyl3a(bufptr, "NA\n");
       }
-      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+      if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
 	goto write_cluster_ret_WRITE_FAIL;
       }
     }
@@ -746,14 +746,14 @@ int32_t extract_clusters(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
     if (fopen_checked(clusters_fname, "r", &infile)) {
       goto extract_clusters_ret_OPEN_FAIL;
     }
-    tbuf[MAXLINELEN - 1] = ' ';
-    while (fgets(tbuf, MAXLINELEN, infile)) {
+    g_textbuf[MAXLINELEN - 1] = ' ';
+    while (fgets(g_textbuf, MAXLINELEN, infile)) {
       line_idx++;
-      if (!tbuf[MAXLINELEN - 1]) {
-	LOGPREPRINTFWW(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, clusters_fname);
+      if (!g_textbuf[MAXLINELEN - 1]) {
+	LOGPREPRINTFWW(g_logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, clusters_fname);
         goto extract_clusters_ret_INVALID_FORMAT_2;
       }
-      bufptr = skip_initial_spaces(tbuf);
+      bufptr = skip_initial_spaces(g_textbuf);
       if (is_eoln_kns(*bufptr)) {
         continue;
       }
@@ -1051,7 +1051,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample
   uintptr_t id_entry_ct = sample_ct;
   uintptr_t matching_entry_ct = sample_ct;
   uintptr_t line_idx = 0;
-  char* id_buf = &(tbuf[MAXLINELEN]);
+  char* id_buf = &(g_textbuf[MAXLINELEN]);
   uint64_t* fidx_to_memidx = NULL; // high 32 bits = fidx, low 32 = memidx
   uint32_t is_presorted = cluster_ct? 0 : 1;
   int32_t retval = 0;
@@ -1095,14 +1095,14 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample
     }
     id_entry_ct = 0;
     matching_entry_ct = 0;
-    tbuf[MAXLINELEN - 1] = ' ';
-    while (fgets(tbuf, MAXLINELEN, id_file)) {
+    g_textbuf[MAXLINELEN - 1] = ' ';
+    while (fgets(g_textbuf, MAXLINELEN, id_file)) {
       line_idx++;
-      if (!tbuf[MAXLINELEN - 1]) {
+      if (!g_textbuf[MAXLINELEN - 1]) {
 	LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, id_fname);
         goto read_dists_ret_INVALID_FORMAT_2;
       }
-      fam_id = skip_initial_spaces(tbuf);
+      fam_id = skip_initial_spaces(g_textbuf);
       if (is_eoln_kns(*fam_id)) {
         continue;
       }
@@ -1324,7 +1324,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uin
   uintptr_t loaded_entry_ct = 0;
   uintptr_t line_idx = 1;
   uint32_t ppc_fail = 0;
-  char* idbuf = &(tbuf[MAXLINELEN]);
+  char* idbuf = &(g_textbuf[MAXLINELEN]);
   char* sorted_ids;
   uint32_t* id_map;
   char* bufptr;
@@ -1345,28 +1345,28 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uin
   if (retval) {
     goto read_genome_ret_1;
   }
-  tbuf[MAXLINELEN - 1] = ' ';
+  g_textbuf[MAXLINELEN - 1] = ' ';
   // header line
   do {
-    if (!gzgets(gz_infile, tbuf, MAXLINELEN)) {
+    if (!gzgets(gz_infile, g_textbuf, MAXLINELEN)) {
       goto read_genome_ret_READ_FAIL;
     }
-    if (!tbuf[MAXLINELEN - 1]) {
+    if (!g_textbuf[MAXLINELEN - 1]) {
       goto read_genome_ret_LONG_LINE;
     }
-    bufptr = skip_initial_spaces(tbuf);
+    bufptr = skip_initial_spaces(g_textbuf);
   } while (is_eoln_kns(*bufptr));
   // a little bit of input validation
   if (memcmp(bufptr, "FID1", 4)) {
     logerrprint("Error: Invalid --read-genome file header line.\n");
     goto read_genome_ret_INVALID_FORMAT;
   }
-  while (gzgets(gz_infile, tbuf, MAXLINELEN)) {
+  while (gzgets(gz_infile, g_textbuf, MAXLINELEN)) {
     line_idx++;
-    if (!tbuf[MAXLINELEN - 1]) {
+    if (!g_textbuf[MAXLINELEN - 1]) {
       goto read_genome_ret_LONG_LINE;
     }
-    fam_id = skip_initial_spaces(tbuf);
+    fam_id = skip_initial_spaces(g_textbuf);
     if (is_eoln_kns(*fam_id)) {
       continue;
     }
@@ -1385,7 +1385,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uin
     }
     sample_idx2 = id_map[(uint32_t)ii];
     if (sample_idx2 == sample_idx1) {
-      sprintf(logbuf, "Error: FID1/IID1 matches FID2/IID2 on line %" PRIuPTR " of --read-genome file.\n", line_idx);
+      sprintf(g_logbuf, "Error: FID1/IID1 matches FID2/IID2 on line %" PRIuPTR " of --read-genome file.\n", line_idx);
       goto read_genome_ret_INVALID_FORMAT_2;
     }
     bufptr = next_token_mult(bufptr, 7); // distance
@@ -1395,7 +1395,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uin
     }
     if (min_ppc != 0.0) {
       if (scan_double(fam_id, &cur_ppc)) {
-	sprintf(logbuf, "Error: Invalid PPC test value on line %" PRIuPTR " of --read-genome file.\n", line_idx);
+	sprintf(g_logbuf, "Error: Invalid PPC test value on line %" PRIuPTR " of --read-genome file.\n", line_idx);
 	goto read_genome_ret_INVALID_FORMAT_2;
       }
       ppc_fail = (cur_ppc < min_ppc);
@@ -1405,7 +1405,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uin
       }
     }
     if (scan_double(bufptr, &cur_ibs)) {
-      sprintf(logbuf, "Error: Invalid IBS value on line %" PRIuPTR " of --read-genome file.\n", line_idx);
+      sprintf(g_logbuf, "Error: Invalid IBS value on line %" PRIuPTR " of --read-genome file.\n", line_idx);
       goto read_genome_ret_INVALID_FORMAT_2;
     }
     if (neighbor_load_quantiles) {
@@ -1458,7 +1458,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uin
     retval = RET_INVALID_FORMAT;
     break;
   read_genome_ret_LONG_LINE:
-    sprintf(logbuf, "Error: Line %" PRIuPTR " of --read-genome file is pathologically long.\n", line_idx);
+    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --read-genome file is pathologically long.\n", line_idx);
   read_genome_ret_INVALID_FORMAT_2:
     logerrprintb();
   read_genome_ret_INVALID_FORMAT:
@@ -1475,7 +1475,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* matchfile = NULL;
   FILE* typefile = NULL;
-  char* id_buf = &(tbuf[MAXLINELEN]);
+  char* id_buf = &(g_textbuf[MAXLINELEN]);
   char* missing_str = NULL;
   uintptr_t cur_coord = 0;
   uint32_t cluster_mismatch_warning = 0;
@@ -1517,7 +1517,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
   }
   
   bigstack_mark2 = g_bigstack_base;
-  tbuf[MAXLINELEN - 1] = ' ';
+  g_textbuf[MAXLINELEN - 1] = ' ';
   if (cp->match_fname) {
     sample_idx_to_match_str = (char**)bigstack_alloc(sample_ct * sizeof(intptr_t));
     if (!sample_idx_to_match_str) {
@@ -1540,13 +1540,13 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       }
       cov_idx = 0;
       line_idx = 0;
-      while (fgets(tbuf, MAXLINELEN, typefile)) {
+      while (fgets(g_textbuf, MAXLINELEN, typefile)) {
 	line_idx++;
-        if (!tbuf[MAXLINELEN - 1]) {
-	  sprintf(logbuf, "Error: Line %" PRIuPTR " of --match-type file is pathologically long.\n", line_idx);
+        if (!g_textbuf[MAXLINELEN - 1]) {
+	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --match-type file is pathologically long.\n", line_idx);
           goto cluster_enforce_match_ret_INVALID_FORMAT_2;
 	}
-        bufptr = skip_initial_spaces(tbuf);
+        bufptr = skip_initial_spaces(g_textbuf);
 	cc = *bufptr;
         while (!is_eoln_kns(cc)) {
 	  slen = strlen_se(bufptr);
@@ -1559,7 +1559,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
             cov_type_arr[cov_ct] = 0;
 	    cov_idx++;
 	  } else {
-            sprintf(logbuf, "Error: Line %" PRIuPTR " of --match-type file has an invalid token\n(0/1/-1/-/+/* expected).\n", line_idx);
+            sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --match-type file has an invalid token\n(0/1/-1/-/+/* expected).\n", line_idx);
 	    goto cluster_enforce_match_ret_INVALID_FORMAT_2;
 	  }
 	  cov_ct++;
@@ -1589,7 +1589,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       }
       bigstack_alloc(cov_ct * sizeof(char)); // cov_type_arr
     }
-    retval = open_and_load_to_first_token(&matchfile, cp->match_fname, MAXLINELEN, '\0', "--match file", tbuf, &bufptr, &line_idx);
+    retval = open_and_load_to_first_token(&matchfile, cp->match_fname, MAXLINELEN, '\0', "--match file", g_textbuf, &bufptr, &line_idx);
     if (retval) {
       goto cluster_enforce_match_ret_1;
     }
@@ -1607,11 +1607,11 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
     wptr = (char*)g_bigstack_base;
     do {
       line_idx++;
-      if (!tbuf[MAXLINELEN - 1]) {
-	sprintf(logbuf, "Error: Line %" PRIuPTR " of --match file is pathologically long.\n", line_idx);
+      if (!g_textbuf[MAXLINELEN - 1]) {
+	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --match file is pathologically long.\n", line_idx);
 	goto cluster_enforce_match_ret_INVALID_FORMAT_2;
       }
-      bufptr = skip_initial_spaces(tbuf);
+      bufptr = skip_initial_spaces(g_textbuf);
       if (is_eoln_kns(*bufptr)) {
 	continue;
       }
@@ -1646,7 +1646,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       if ((uintptr_t)(((unsigned char*)wptr) - g_bigstack_base) > g_bigstack_left - MAXLINELEN) {
 	goto cluster_enforce_match_ret_NOMEM;
       }
-    } while (fgets(tbuf, MAXLINELEN, matchfile));
+    } while (fgets(g_textbuf, MAXLINELEN, matchfile));
     if (!feof(matchfile)) {
       goto cluster_enforce_match_ret_READ_FAIL;
     }
@@ -1773,21 +1773,21 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       goto cluster_enforce_match_ret_OPEN_FAIL;
     }
     line_idx = 0;
-    while (fgets(tbuf, MAXLINELEN, typefile)) {
+    while (fgets(g_textbuf, MAXLINELEN, typefile)) {
       line_idx++;
-      if (!tbuf[MAXLINELEN - 1]) {
-	sprintf(logbuf, "Error: Line %" PRIuPTR " of --qt file is pathologically long.\n", line_idx);
+      if (!g_textbuf[MAXLINELEN - 1]) {
+	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --qt file is pathologically long.\n", line_idx);
 	goto cluster_enforce_match_ret_INVALID_FORMAT_2;
       }
-      bufptr = skip_initial_spaces(tbuf);
+      bufptr = skip_initial_spaces(g_textbuf);
       while (!is_eoln_kns(*bufptr)) {
         if (scan_double(bufptr, &dxx)) {
-	  sprintf(logbuf, "Error: Line %" PRIuPTR " of --qt file has a non-numeric value.\n", line_idx);
+	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --qt file has a non-numeric value.\n", line_idx);
 	  goto cluster_enforce_match_ret_INVALID_FORMAT_2;
 	}
 	if (dxx < 0) {
 	  if (dxx != -1) {
-	    sprintf(logbuf, "Error: Line %" PRIuPTR " of --qt file has an invalid tolerance (-1 = ignore,\nother values must be nonnegative).\n", line_idx);
+	    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --qt file has an invalid tolerance (-1 = ignore,\nother values must be nonnegative).\n", line_idx);
             goto cluster_enforce_match_ret_INVALID_FORMAT_2;
 	  }
 	} else {
@@ -1818,13 +1818,13 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       goto cluster_enforce_match_ret_OPEN_FAIL;
     }
     line_idx = 0;
-    while (fgets(tbuf, MAXLINELEN, matchfile)) {
+    while (fgets(g_textbuf, MAXLINELEN, matchfile)) {
       line_idx++;
-      if (!tbuf[MAXLINELEN - 1]) {
-	sprintf(logbuf, "Error: Line %" PRIuPTR " of --qmatch file is pathologically long.\n", line_idx);
+      if (!g_textbuf[MAXLINELEN - 1]) {
+	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --qmatch file is pathologically long.\n", line_idx);
 	goto cluster_enforce_match_ret_INVALID_FORMAT_2;
       }
-      bufptr = skip_initial_spaces(tbuf);
+      bufptr = skip_initial_spaces(g_textbuf);
       if (is_eoln_kns(*bufptr)) {
 	continue;
       }
@@ -1851,7 +1851,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	    *dptr++ = -DBL_MAX;
 	  } else {
             if (scan_double(bufptr, dptr++)) {
-	      sprintf(logbuf, "Error: Line %" PRIuPTR " of --qmatch file has a non-numeric covariate.\n", line_idx);
+	      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --qmatch file has a non-numeric covariate.\n", line_idx);
 	      goto cluster_enforce_match_ret_INVALID_FORMAT_2;
 	    }
 	  }
@@ -1958,7 +1958,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
     retval = RET_INVALID_FORMAT;
     break;
   cluster_enforce_match_ret_MISSING_TOKENS:
-    sprintf(logbuf, "Error: Line %" PRIuPTR " of --match file has fewer tokens than expected.\n", line_idx);
+    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --match file has fewer tokens than expected.\n", line_idx);
   cluster_enforce_match_ret_INVALID_FORMAT_2:
     logerrprintb();
   cluster_enforce_match_ret_INVALID_FORMAT:
@@ -2769,10 +2769,10 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
     }
     sptr = &(sample_ids[sample_idx_to_uidx[sample_idx] * max_sample_id_len]);
     sptr2 = (char*)memchr(sptr, '\t', max_sample_id_len);
-    wptr = memcpyax(tbuf, sptr, (sptr2 - sptr), ' ');
+    wptr = memcpyax(g_textbuf, sptr, (sptr2 - sptr), ' ');
     wptr = strcpyax(wptr, &(sptr2[1]), '\t');
     wptr = uint32_writex(wptr, clidx_remap[clidx], '\n');
-    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+    if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
       goto write_cluster_solution_ret_WRITE_FAIL;
     }
   }
@@ -2784,11 +2784,11 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
     if (fopen_checked(outname, "w", &outfile)) {
       goto write_cluster_solution_ret_OPEN_FAIL;
     }
-    memcpy(tbuf, "SOL-", 4);
+    memcpy(g_textbuf, "SOL-", 4);
     for (clidx = 0; clidx < orig_cluster_ct; clidx++) {
       if (cluster_remap[clidx] == clidx) {
-        wptr = uint32_writex(&(tbuf[4]), clidx_remap[clidx], '\t');
-        if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+        wptr = uint32_writex(&(g_textbuf[4]), clidx_remap[clidx], '\t');
+        if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	  goto write_cluster_solution_ret_WRITE_FAIL;
 	}
         if (!orig_sample_to_cluster) {
@@ -3116,16 +3116,16 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
   if (fopen_checked(outname, "w", &outfile)) {
     goto mds_plot_ret_OPEN_FAIL;
   }
-  sprintf(tbuf, "%%%us %%%us    SOL ", plink_maxfid, plink_maxiid);
-  fprintf(outfile, tbuf, "FID", "IID");
-  tbuf[22] = ' ';
+  sprintf(g_textbuf, "%%%us %%%us    SOL ", plink_maxfid, plink_maxiid);
+  fprintf(outfile, g_textbuf, "FID", "IID");
+  g_textbuf[22] = ' ';
   for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
-    wptr = uint32_write(tbuf, dim_idx + 1);
-    uii = wptr - tbuf;
-    wptr2 = memseta(&(tbuf[10]), 32, 11 - uii);
+    wptr = uint32_write(g_textbuf, dim_idx + 1);
+    uii = wptr - g_textbuf;
+    wptr2 = memseta(&(g_textbuf[10]), 32, 11 - uii);
     *wptr2++ = 'C';
-    memcpy(wptr2, tbuf, uii);
-    fwrite(&(tbuf[10]), 1, 13, outfile);
+    memcpy(wptr2, g_textbuf, uii);
+    fwrite(&(g_textbuf[10]), 1, 13, outfile);
   }
   if (putc_checked('\n', outfile)) {
     goto mds_plot_ret_WRITE_FAIL;
@@ -3133,7 +3133,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
   for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
     wptr2 = &(sample_ids[sample_idx_to_uidx[sample_idx] * max_sample_id_len]);
     uii = strlen_se(wptr2);
-    wptr = fw_strcpyn(plink_maxfid, uii, wptr2, tbuf);
+    wptr = fw_strcpyn(plink_maxfid, uii, wptr2, g_textbuf);
     *wptr++ = ' ';
     wptr = fw_strcpy(plink_maxiid, &(wptr2[uii + 1]), wptr);
     *wptr++ = ' ';
@@ -3144,32 +3144,32 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
     }
     uii = final_cluster_remap[uii];
     wptr = uint32_writew6x(wptr, uii, ' ');
-    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+    if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
       goto mds_plot_ret_WRITE_FAIL;
     }
     if (!is_mds_cluster) {
       dptr = &(main_matrix[sample_idx * dim_ct]);
       for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
-        wptr = double_g_writex(&(tbuf[11]), *(dptr++), ' ');
-	uii = wptr - (&(tbuf[11]));
+        wptr = double_g_writex(&(g_textbuf[11]), *(dptr++), ' ');
+	uii = wptr - (&(g_textbuf[11]));
 	if (uii < 13) {
 	  wptr2 = &(wptr[-13]);
 	  memset(wptr2, 32, 13 - uii);
 	} else {
-	  wptr2 = &(tbuf[11]);
+	  wptr2 = &(g_textbuf[11]);
 	}
 	fwrite(wptr2, 1, wptr - wptr2, outfile);
       }
     } else {
       dptr = &(main_matrix[uii * dim_ct]);
       for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
-        wptr = double_g_writex(&(tbuf[11]), *(dptr++), ' ');
-	uii = wptr - (&(tbuf[11]));
+        wptr = double_g_writex(&(g_textbuf[11]), *(dptr++), ' ');
+	uii = wptr - (&(g_textbuf[11]));
 	if (uii < 13) {
 	  wptr2 = &(wptr[-13]);
 	  memset(wptr2, 32, 13 - uii);
 	} else {
-	  wptr2 = &(tbuf[11]);
+	  wptr2 = &(g_textbuf[11]);
 	}
 	fwrite(wptr2, 1, wptr - wptr2, outfile);
       }
@@ -3190,9 +3190,9 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
       goto mds_plot_ret_OPEN_FAIL;
     }
     for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
-      wptr = double_g_writex(tbuf, sqrt_eigvals[dim_idx] * sqrt_eigvals[dim_idx], '\n');
+      wptr = double_g_writex(g_textbuf, sqrt_eigvals[dim_idx] * sqrt_eigvals[dim_idx], '\n');
       *wptr = '\0';
-      fputs(tbuf, outfile);
+      fputs(g_textbuf, outfile);
     }
     if (fclose_null(&outfile)) {
       goto mds_plot_ret_WRITE_FAIL;
@@ -3425,16 +3425,16 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
   if (fopen_checked(outname, "w", &outfile)) {
     goto mds_plot_eigendecomp_ret_OPEN_FAIL;
   }
-  sprintf(tbuf, "%%%us %%%us    SOL ", plink_maxfid, plink_maxiid);
-  fprintf(outfile, tbuf, "FID", "IID");
-  tbuf[22] = ' ';
+  sprintf(g_textbuf, "%%%us %%%us    SOL ", plink_maxfid, plink_maxiid);
+  fprintf(outfile, g_textbuf, "FID", "IID");
+  g_textbuf[22] = ' ';
   for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
-    wptr = uint32_write(tbuf, dim_idx + 1);
-    uii = wptr - tbuf;
-    wptr2 = memseta(&(tbuf[10]), 32, 11 - uii);
+    wptr = uint32_write(g_textbuf, dim_idx + 1);
+    uii = wptr - g_textbuf;
+    wptr2 = memseta(&(g_textbuf[10]), 32, 11 - uii);
     *wptr2++ = 'C';
-    memcpy(wptr2, tbuf, uii);
-    fwrite(&(tbuf[10]), 1, 13, outfile);
+    memcpy(wptr2, g_textbuf, uii);
+    fwrite(&(g_textbuf[10]), 1, 13, outfile);
   }
   if (putc_checked('\n', outfile)) {
     goto mds_plot_eigendecomp_ret_WRITE_FAIL;
@@ -3442,7 +3442,7 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
   for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
     wptr2 = &(sample_ids[sample_idx_to_uidx[sample_idx] * max_sample_id_len]);
     uii = strlen_se(wptr2);
-    wptr = fw_strcpyn(plink_maxfid, uii, wptr2, tbuf);
+    wptr = fw_strcpyn(plink_maxfid, uii, wptr2, g_textbuf);
     *wptr++ = ' ';
     wptr = fw_strcpy(plink_maxiid, &(wptr2[uii + 1]), wptr);
     *wptr++ = ' ';
@@ -3453,32 +3453,32 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
     }
     uii = final_cluster_remap[uii];
     wptr = uint32_writew6x(wptr, uii, ' ');
-    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+    if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
       goto mds_plot_eigendecomp_ret_WRITE_FAIL;
     }
     if (!is_mds_cluster) {
       dptr = &(main_matrix[(sample_idx + 1) * dim_ct]);
       for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
-        wptr = double_g_writex(&(tbuf[11]), *(--dptr), ' ');
-	uii = wptr - (&(tbuf[11]));
+        wptr = double_g_writex(&(g_textbuf[11]), *(--dptr), ' ');
+	uii = wptr - (&(g_textbuf[11]));
 	if (uii < 13) {
 	  wptr2 = &(wptr[-13]);
 	  memset(wptr2, 32, 13 - uii);
 	} else {
-	  wptr2 = &(tbuf[11]);
+	  wptr2 = &(g_textbuf[11]);
 	}
 	fwrite(wptr2, 1, wptr - wptr2, outfile);
       }
     } else {
       dptr = &(main_matrix[(uii + 1) * dim_ct]);
       for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
-        wptr = double_g_writex(&(tbuf[11]), *(--dptr), ' ');
-	uii = wptr - (&(tbuf[11]));
+        wptr = double_g_writex(&(g_textbuf[11]), *(--dptr), ' ');
+	uii = wptr - (&(g_textbuf[11]));
 	if (uii < 13) {
 	  wptr2 = &(wptr[-13]);
 	  memset(wptr2, 32, 13 - uii);
 	} else {
-	  wptr2 = &(tbuf[11]);
+	  wptr2 = &(g_textbuf[11]);
 	}
 	fwrite(wptr2, 1, wptr - wptr2, outfile);
       }
@@ -3499,9 +3499,9 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
       goto mds_plot_eigendecomp_ret_OPEN_FAIL;
     }
     for (dim_idx = dim_ct; dim_idx; dim_idx--) {
-      wptr = double_g_writex(tbuf, sqrt_eigvals[dim_idx - 1] * sqrt_eigvals[dim_idx - 1], '\n');
+      wptr = double_g_writex(g_textbuf, sqrt_eigvals[dim_idx - 1] * sqrt_eigvals[dim_idx - 1], '\n');
       *wptr = '\0';
-      fputs(tbuf, outfile);
+      fputs(g_textbuf, outfile);
     }
     if (fclose_null(&outfile)) {
       goto mds_plot_eigendecomp_ret_WRITE_FAIL;

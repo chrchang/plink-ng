@@ -276,16 +276,16 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
   uint32_t uii;
   uint32_t ujj;
   int32_t ii;
-  tbuf[MAXLINELEN - 1] = ' ';
+  g_textbuf[MAXLINELEN - 1] = ' ';
   // if we need to track set names, put together a sorted list
   if (track_set_names) {
-    while (fgets(tbuf, MAXLINELEN, infile)) {
+    while (fgets(g_textbuf, MAXLINELEN, infile)) {
       line_idx++;
-      if (!tbuf[MAXLINELEN - 1]) {
-	sprintf(logbuf, "Error: Line %" PRIuPTR " of %s file is pathologically long.\n", line_idx, file_descrip);
+      if (!g_textbuf[MAXLINELEN - 1]) {
+	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s file is pathologically long.\n", line_idx, file_descrip);
 	goto load_range_list_ret_INVALID_FORMAT_2;
       }
-      bufptr = skip_initial_spaces(tbuf);
+      bufptr = skip_initial_spaces(g_textbuf);
       if (is_eoln_kns(*bufptr)) {
 	continue;
       }
@@ -296,12 +296,12 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	bufptr3 = next_token(bufptr2);
       }
       if (no_more_tokens_kns(bufptr3)) {
-	sprintf(logbuf, "Error: Line %" PRIuPTR " of %s file has fewer tokens than expected.\n", line_idx, file_descrip);
+	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s file has fewer tokens than expected.\n", line_idx, file_descrip);
 	goto load_range_list_ret_INVALID_FORMAT_2;
       }
       ii = get_chrom_code(chrom_info_ptr, bufptr);
       if (ii < 0) {
-	sprintf(logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
+	sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
 	goto load_range_list_ret_INVALID_FORMAT_2;
       }
       // chrom_mask check removed, we want to track empty sets
@@ -402,13 +402,13 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
     make_set_range_arr[set_idx] = NULL;
   }
   line_idx = 0;
-  while (fgets(tbuf, MAXLINELEN, infile)) {
+  while (fgets(g_textbuf, MAXLINELEN, infile)) {
     line_idx++;
-    if (!tbuf[MAXLINELEN - 1]) {
-      sprintf(logbuf, "Error: Line %" PRIuPTR " of %s file is pathologically long.\n", line_idx, file_descrip);
+    if (!g_textbuf[MAXLINELEN - 1]) {
+      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s file is pathologically long.\n", line_idx, file_descrip);
       goto load_range_list_ret_INVALID_FORMAT_2;
     }
-    bufptr = skip_initial_spaces(tbuf);
+    bufptr = skip_initial_spaces(g_textbuf);
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
@@ -419,12 +419,12 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       bufptr3 = next_token(bufptr2);
     }
     if (no_more_tokens_kns(bufptr3)) {
-      sprintf(logbuf, "Error: Line %" PRIuPTR " of %s file has fewer tokens than expected.\n", line_idx, file_descrip);
+      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s file has fewer tokens than expected.\n", line_idx, file_descrip);
       goto load_range_list_ret_INVALID_FORMAT_2;
     }
     ii = get_chrom_code(chrom_info_ptr, bufptr);
     if (ii < 0) {
-      sprintf(logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
+      sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
       goto load_range_list_ret_INVALID_FORMAT_2;
     }
     if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
@@ -444,17 +444,17 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
     }
     bufptr = next_token(bufptr);
     if (scan_uint_defcap(bufptr, &range_first)) {
-      sprintf(logbuf, "Error: Invalid range start position on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
+      sprintf(g_logbuf, "Error: Invalid range start position on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
       goto load_range_list_ret_INVALID_FORMAT_2;
     }
     bufptr = next_token(bufptr);
     if (scan_uint_defcap(bufptr, &range_last)) {
-      sprintf(logbuf, "Error: Invalid range end position on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
+      sprintf(g_logbuf, "Error: Invalid range end position on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
       goto load_range_list_ret_INVALID_FORMAT_2;
     }
     if (range_last < range_first) {
-      sprintf(logbuf, "Error: Range end position smaller than range start on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
-      wordwrap(0, logbuf);
+      sprintf(g_logbuf, "Error: Range end position smaller than range start on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
+      wordwrap(0, g_logbuf);
       goto load_range_list_ret_INVALID_FORMAT_2;
     }
     if (border_extend > range_first) {
@@ -971,7 +971,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   uintptr_t max_genekeep_len = 0;
   uintptr_t max_set_id_len = 0;
   Make_set_range** make_set_range_arr = NULL;
-  char* midbuf = &(tbuf[MAXLINELEN]);
+  char* midbuf = &(g_textbuf[MAXLINELEN]);
   char* sorted_subset_ids = NULL;
   char* set_names = NULL;
   char* bufptr = NULL;
@@ -1065,7 +1065,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       if (fopen_checked(sip->subset_fname, "rb", &infile)) {
 	goto define_sets_ret_OPEN_FAIL;
       }
-      retval = scan_token_ct_len(infile, tbuf, MAXLINELEN, &subset_ct, &max_subset_id_len);
+      retval = scan_token_ct_len(infile, g_textbuf, MAXLINELEN, &subset_ct, &max_subset_id_len);
       if (retval) {
 	if (retval == RET_INVALID_FORMAT) {
 	  logerrprint("Error: Pathologically long token in --subset file.\n");
@@ -1112,7 +1112,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     if (sip->subset_fname) {
       if (ulii) {
 	rewind(infile);
-	retval = read_tokens(infile, tbuf, MAXLINELEN, ulii, max_subset_id_len, sorted_subset_ids);
+	retval = read_tokens(infile, g_textbuf, MAXLINELEN, ulii, max_subset_id_len, sorted_subset_ids);
 	if (retval) {
 	  goto define_sets_ret_1;
 	}
@@ -1209,7 +1209,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
         buf_end = &(midbuf[bufsize]);
         *buf_end = ' ';
         buf_end[1] = '0';
-        bufptr = &(tbuf[MAXLINELEN - curtoklen]);
+        bufptr = &(g_textbuf[MAXLINELEN - curtoklen]);
         bufptr2 = midbuf;
         if (curtoklen) {
           goto define_sets_tok_start_1;
@@ -1228,12 +1228,12 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	    bufptr2++;
 	  }
           curtoklen = (uintptr_t)(bufptr2 - bufptr);
-          if (bufptr2 == &(tbuf[MAXLINELEN * 2])) {
+          if (bufptr2 == &(g_textbuf[MAXLINELEN * 2])) {
 	    if (curtoklen > MAXLINELEN) {
 	      logerrprint("Error: Excessively long token in --set file.\n");
 	      goto define_sets_ret_INVALID_FORMAT;
 	    }
-            bufptr3 = &(tbuf[MAXLINELEN - curtoklen]);
+            bufptr3 = &(g_textbuf[MAXLINELEN - curtoklen]);
             memcpy(bufptr3, bufptr, curtoklen);
             bufptr = bufptr3;
 	    break;
@@ -1322,7 +1322,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       buf_end = &(midbuf[bufsize]);
       *buf_end = ' ';
       buf_end[1] = '0';
-      bufptr = &(tbuf[MAXLINELEN - curtoklen]);
+      bufptr = &(g_textbuf[MAXLINELEN - curtoklen]);
       bufptr2 = midbuf;
       if (curtoklen) {
 	goto define_sets_tok_start_2;
@@ -1341,8 +1341,8 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	  bufptr2++;
 	}
         curtoklen = (uintptr_t)(bufptr2 - bufptr);
-        if (bufptr2 == &(tbuf[MAXLINELEN * 2])) {
-          bufptr3 = &(tbuf[MAXLINELEN - curtoklen]);
+        if (bufptr2 == &(g_textbuf[MAXLINELEN * 2])) {
+          bufptr3 = &(g_textbuf[MAXLINELEN - curtoklen]);
           memcpy(bufptr3, bufptr, curtoklen);
 	  bufptr = bufptr3;
 	  break;
@@ -1534,7 +1534,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       buf_end = &(midbuf[bufsize]);
       *buf_end = ' ';
       buf_end[1] = '0';
-      bufptr = &(tbuf[MAXLINELEN - curtoklen]);
+      bufptr = &(g_textbuf[MAXLINELEN - curtoklen]);
       bufptr2 = midbuf;
       if (curtoklen) {
 	goto define_sets_tok_start_3;
@@ -1553,8 +1553,8 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	  bufptr2++;
 	}
 	curtoklen = (uintptr_t)(bufptr2 - bufptr);
-        if ((bufptr2 == buf_end) && (buf_end == &(tbuf[MAXLINELEN * 2]))) {
-	  bufptr3 = &(tbuf[MAXLINELEN - curtoklen]);
+        if ((bufptr2 == buf_end) && (buf_end == &(g_textbuf[MAXLINELEN * 2]))) {
+	  bufptr3 = &(g_textbuf[MAXLINELEN - curtoklen]);
           memcpy(bufptr3, bufptr, curtoklen);
           bufptr = bufptr3;
           break;
@@ -1718,7 +1718,7 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
       goto write_set_ret_NOMEM;
     }
     marker_uidx = 0;
-    tbuf[0] = '\t';
+    g_textbuf[0] = '\t';
     chrom_end = 0;
     for (set_idx = 1; set_idx < set_ct; set_idx++) {
       writebuf[2 * set_idx - 1] = '\t';
@@ -1732,12 +1732,12 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
         chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[uii];
       }
       fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
-      bufptr = chrom_name_write(&(tbuf[1]), chrom_info_ptr, chrom_idx);
+      bufptr = chrom_name_write(&(g_textbuf[1]), chrom_info_ptr, chrom_idx);
       *bufptr++ = '\t';
       bufptr = uint32_writex(bufptr, marker_pos[marker_uidx], '\t');
       // do not keep double-tab (if it was intentional, it should have been in
       // the header line too...)
-      fwrite(tbuf, 1, bufptr - tbuf, outfile);
+      fwrite(g_textbuf, 1, bufptr - g_textbuf, outfile);
       bufptr = writebuf;
       cptr = cur_setting;
       for (set_idx = 0; set_idx < set_ct; set_idx++) {
@@ -2454,7 +2454,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
       if (fopen_checked(aip->snps_fname, "rb", &infile)) {
 	goto annotate_ret_OPEN_FAIL;
       }
-      retval = scan_token_ct_len(infile, tbuf, MAXLINELEN, &snplist_ct, &max_snplist_id_len);
+      retval = scan_token_ct_len(infile, g_textbuf, MAXLINELEN, &snplist_ct, &max_snplist_id_len);
       if (retval) {
 	if (retval == RET_INVALID_FORMAT) {
 	  logerrprint("Error: Pathologically long token in --annotate snps file.\n");
@@ -2462,14 +2462,14 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	goto annotate_ret_1;
       }
       if (!snplist_ct) {
-	sprintf(logbuf, "Error: %s is empty.\n", aip->snps_fname);
+	sprintf(g_logbuf, "Error: %s is empty.\n", aip->snps_fname);
 	goto annotate_ret_INVALID_FORMAT_WW;
       }
       if (bigstack_alloc_c(snplist_ct * max_snplist_id_len, &sorted_snplist)) {
 	goto annotate_ret_NOMEM;
       }
       rewind(infile);
-      retval = read_tokens(infile, tbuf, MAXLINELEN, snplist_ct, max_snplist_id_len, sorted_snplist);
+      retval = read_tokens(infile, g_textbuf, MAXLINELEN, snplist_ct, max_snplist_id_len, sorted_snplist);
       if (retval) {
 	goto annotate_ret_1;
       }
@@ -2489,7 +2489,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	goto annotate_ret_1;
       }
       line_idx = 0;
-      tbuf[MAXLINELEN - 1] = ' ';
+      g_textbuf[MAXLINELEN - 1] = ' ';
       // two-pass load.
       // 1. determine attribute set, as well as relevant variant ID count and
       //    max length
@@ -2502,17 +2502,17 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
       }
       while (1) {
 	line_idx++;
-	if (!gzgets(gz_attribfile, tbuf, MAXLINELEN)) {
+	if (!gzgets(gz_attribfile, g_textbuf, MAXLINELEN)) {
 	  if (!gzeof(gz_attribfile)) {
 	    goto annotate_ret_READ_FAIL;
 	  }
 	  break;
 	}
-	if (!tbuf[MAXLINELEN - 1]) {
-	  sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, aip->attrib_fname);
+	if (!g_textbuf[MAXLINELEN - 1]) {
+	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, aip->attrib_fname);
 	  goto annotate_ret_INVALID_FORMAT_WW;
 	}
-	bufptr = skip_initial_spaces(tbuf);
+	bufptr = skip_initial_spaces(g_textbuf);
 	if (is_eoln_kns(*bufptr)) {
 	  continue;
 	}
@@ -2541,7 +2541,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 #ifdef __LP64__
 	      // we'll run out of memory way earlier in 32-bit mode
 	      if (attr_id_ct == 0x80000000LLU) {
-	        sprintf(logbuf, "Error: Too many unique attributes in %s (max 2147483648).\n", aip->attrib_fname);
+	        sprintf(g_logbuf, "Error: Too many unique attributes in %s (max 2147483648).\n", aip->attrib_fname);
 	        goto annotate_ret_INVALID_FORMAT_WW;
 	      }
 #endif
@@ -2570,7 +2570,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	}
       }
       if (!attr_id_ct) {
-	sprintf(logbuf, "Error: No attributes in %s.\n", aip->attrib_fname);
+	sprintf(g_logbuf, "Error: No attributes in %s.\n", aip->attrib_fname);
 	goto annotate_ret_INVALID_FORMAT_WW;
       }
       if (max_onevar_attr_ct > attr_id_ct) {
@@ -2602,10 +2602,10 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
       }
       for (ulii = 0; ulii < snplist_attr_ct; ulii++) {
       annotate_skip_line:
-	if (!gzgets(gz_attribfile, tbuf, MAXLINELEN)) {
+	if (!gzgets(gz_attribfile, g_textbuf, MAXLINELEN)) {
 	  goto annotate_ret_READ_FAIL;
 	}
-	bufptr = skip_initial_spaces(tbuf);
+	bufptr = skip_initial_spaces(g_textbuf);
 	if (is_eoln_kns(*bufptr)) {
 	  goto annotate_skip_line;
 	}
@@ -2641,7 +2641,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	if (fopen_checked(aip->subset_fname, "rb", &infile)) {
 	  goto annotate_ret_OPEN_FAIL;
 	}
-	retval = scan_token_ct_len(infile, tbuf, MAXLINELEN, &subset_ct, &max_subset_id_len);
+	retval = scan_token_ct_len(infile, g_textbuf, MAXLINELEN, &subset_ct, &max_subset_id_len);
 	if (retval) {
 	  if (retval == RET_INVALID_FORMAT) {
 	    logerrprint("Error: Pathologically long token in --annotate subset file.\n");
@@ -2661,7 +2661,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	  goto annotate_ret_NOMEM;
 	}
 	rewind(infile);
-	retval = read_tokens(infile, tbuf, MAXLINELEN, subset_ct, max_subset_id_len, sorted_subset_ids);
+	retval = read_tokens(infile, g_textbuf, MAXLINELEN, subset_ct, max_subset_id_len, sorted_subset_ids);
 	if (retval) {
 	  goto annotate_ret_1;
 	}
@@ -2678,7 +2678,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
       }
 #ifdef __LP64__
       if (range_ct > 0x80000000LLU) {
-	sprintf(logbuf, "Error: Too many annotations in %s (max 2147483648, counting multi-chromosome annotations once per spanned chromosome).\n", aip->ranges_fname);
+	sprintf(g_logbuf, "Error: Too many annotations in %s (max 2147483648, counting multi-chromosome annotations once per spanned chromosome).\n", aip->ranges_fname);
 	goto annotate_ret_INVALID_FORMAT_WW;
       }
 #endif
@@ -2836,7 +2836,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
       if (uii != 4) {
         if ((ujj >> uii) & 1) {
 	  *bufptr2 = '\0';
-          sprintf(logbuf, "Error: Duplicate column header '%s' in %s.\n", bufptr, aip->fname);
+          sprintf(g_logbuf, "Error: Duplicate column header '%s' in %s.\n", bufptr, aip->fname);
           goto annotate_ret_INVALID_FORMAT_WW;
 	}
 	ujj |= 1 << uii;
@@ -2852,7 +2852,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
     col_idx++;
   } while (!is_eoln_kns(*bufptr));
   if (seq_idx != token_ct) {
-    sprintf(logbuf, "Error: Missing column header%s in %s.\n", (seq_idx + 1 == token_ct)? "" : "s", aip->fname);
+    sprintf(g_logbuf, "Error: Missing column header%s in %s.\n", (seq_idx + 1 == token_ct)? "" : "s", aip->fname);
     goto annotate_ret_INVALID_FORMAT_WW;
   }
   memcpy(outname_end, ".annot", 7);
@@ -2896,7 +2896,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
     line_idx++;
     if (!loadbuf[loadbuf_size - 1]) {
       if (loadbuf_size == MAXLINEBUFLEN) {
-        sprintf(logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, aip->fname);
+        sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, aip->fname);
 	goto annotate_ret_INVALID_FORMAT_WW;
       } else {
         goto annotate_ret_NOMEM;
@@ -3099,7 +3099,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
     }
     if (track_distance) {
       if (abs_min_dist != 0x80000000U) {
-	bufptr2 = width_force(12, tbuf, double_g_write(tbuf, ((double)((int32_t)abs_min_dist)) * 0.001));
+	bufptr2 = width_force(12, g_textbuf, double_g_write(g_textbuf, ((double)((int32_t)abs_min_dist)) * 0.001));
 	if (!abs_min_dist) {
           bufptr2 = memcpya(bufptr2, no_sign_str, 4);
 	} else {
@@ -3111,11 +3111,11 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	  }
 	}
       } else {
-	bufptr2 = memseta(tbuf, 32, 8);
+	bufptr2 = memseta(g_textbuf, 32, 8);
 	bufptr2 = memcpya(bufptr2, no_sign_str, 4);
 	bufptr2 = memcpya(bufptr2, no_sign_str, 4);
       }
-      if (fwrite_checked(tbuf, bufptr2 - tbuf, outfile)) {
+      if (fwrite_checked(g_textbuf, bufptr2 - g_textbuf, outfile)) {
 	goto annotate_ret_WRITE_FAIL;
       }
     }
@@ -3164,7 +3164,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
     retval = RET_WRITE_FAIL;
     break;
   annotate_ret_INVALID_FORMAT_WW:
-    wordwrap(0, logbuf);
+    wordwrap(0, g_logbuf);
     logerrprintb();
   annotate_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
@@ -3242,7 +3242,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     if (fopen_checked(subset_fname, "rb", &infile)) {
       goto gene_report_ret_OPEN_FAIL;
     }
-    retval = scan_token_ct_len(infile, tbuf, MAXLINELEN, &subset_ct, &max_subset_id_len);
+    retval = scan_token_ct_len(infile, g_textbuf, MAXLINELEN, &subset_ct, &max_subset_id_len);
     if (retval) {
       if (retval == RET_INVALID_FORMAT) {
 	logerrprint("Error: Pathologically long token in --gene-subset file.\n");
@@ -3262,7 +3262,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       goto gene_report_ret_NOMEM;
     }
     rewind(infile);
-    retval = read_tokens(infile, tbuf, MAXLINELEN, subset_ct, max_subset_id_len, sorted_subset_ids);
+    retval = read_tokens(infile, g_textbuf, MAXLINELEN, subset_ct, max_subset_id_len, sorted_subset_ids);
     if (retval) {
       goto gene_report_ret_1;
     }
@@ -3276,7 +3276,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     if (fopen_checked(extractname, "rb", &infile)) {
       goto gene_report_ret_OPEN_FAIL;
     }
-    retval = scan_token_ct_len(infile, tbuf, MAXLINELEN, &extract_ct, &max_extract_id_len);
+    retval = scan_token_ct_len(infile, g_textbuf, MAXLINELEN, &extract_ct, &max_extract_id_len);
     if (retval) {
       goto gene_report_ret_1;
     }
@@ -3295,7 +3295,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     g_bigstack_left += topsize;
     rewind(infile);
     // todo: switch to hash table to avoid sort
-    retval = read_tokens(infile, tbuf, MAXLINELEN, extract_ct, max_extract_id_len, sorted_extract_ids);
+    retval = read_tokens(infile, g_textbuf, MAXLINELEN, extract_ct, max_extract_id_len, sorted_extract_ids);
     if (retval) {
       goto gene_report_ret_1;
     }
@@ -3316,7 +3316,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   }
 #ifdef __LP64__
   if (gene_ct > 0x80000000LLU) {
-    sprintf(logbuf, "Error: Too many genes in %s (max 2147483648).\n", glist);
+    sprintf(g_logbuf, "Error: Too many genes in %s (max 2147483648).\n", glist);
     goto gene_report_ret_INVALID_FORMAT_WW;
   }
 #endif
@@ -3408,7 +3408,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       if (ujj != 4) {
 	if ((found_header_bitfield >> ujj) & 1) {
 	  *bufptr2 = '\0';
-	  sprintf(logbuf, "Error: Duplicate column header '%s' in %s.\n", bufptr, fname);
+	  sprintf(g_logbuf, "Error: Duplicate column header '%s' in %s.\n", bufptr, fname);
 	  goto gene_report_ret_INVALID_FORMAT_WW;
 	}
 	found_header_bitfield |= 1 << ujj;
@@ -3424,7 +3424,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     col_idx++;
   } while (!is_eoln_kns(*bufptr));
   if (seq_idx != token_ct) {
-    sprintf(logbuf, "Error: Missing column header%s in %s.\n", (seq_idx + 1 == token_ct)? "" : "s", fname);
+    sprintf(g_logbuf, "Error: Missing column header%s in %s.\n", (seq_idx + 1 == token_ct)? "" : "s", fname);
     goto gene_report_ret_INVALID_FORMAT_WW;
   }
   // assume *bufptr is now \n (if it isn't, header line is never written to
@@ -3526,7 +3526,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     linebuf_top = &(linebuf_top[slen + 8]);
 #ifdef __LP64__
     if (saved_line_ct == 0x100000000LLU) {
-      sprintf(logbuf, "Error: Too many valid lines in %s (--gene-report can only handle 4294967296).\n", fname);
+      sprintf(g_logbuf, "Error: Too many valid lines in %s (--gene-report can only handle 4294967296).\n", fname);
       goto gene_report_ret_INVALID_FORMAT_WW;
     }
 #endif
@@ -3582,16 +3582,16 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
 	  fputs(", ", outfile);
 	}
         cur_bp = *uiptr++;
-        bufptr = uint32_write(tbuf, cur_bp);
+        bufptr = uint32_write(g_textbuf, cur_bp);
 	bufptr = memcpya(bufptr, "..", 2);
         uii = *uiptr++;
         bufptr = uint32_write(bufptr, uii - 1);
-        fwrite(tbuf, 1, bufptr - tbuf, outfile);
+        fwrite(g_textbuf, 1, bufptr - g_textbuf, outfile);
 	ujj += uii - cur_bp;
       }
-      bufptr = memcpyl3a(tbuf, " ( ");
+      bufptr = memcpyl3a(g_textbuf, " ( ");
       bufptr = double_g_write(bufptr, ((double)((int32_t)ujj)) * 0.001);
-      fwrite(tbuf, 1, bufptr - tbuf, outfile);
+      fwrite(g_textbuf, 1, bufptr - g_textbuf, outfile);
       if (fwrite_checked(header_ptr, header_len, outfile)) {
 	goto gene_report_ret_WRITE_FAIL;
       }
@@ -3600,9 +3600,9 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     bufptr = line_lookup[(uint32_t)ullii];
     uii = *((uint32_t*)bufptr); // line length
     ujj = ((uint32_t*)bufptr)[1]; // bp
-    bufptr2 = double_g_writewx4(tbuf, ((double)((int32_t)(ujj - cur_bp))) * 0.001, 10);
+    bufptr2 = double_g_writewx4(g_textbuf, ((double)((int32_t)(ujj - cur_bp))) * 0.001, 10);
     bufptr2 = memcpyl3a(bufptr2, "kb ");
-    fwrite(tbuf, 1, bufptr2 - tbuf, outfile);
+    fwrite(g_textbuf, 1, bufptr2 - g_textbuf, outfile);
     fwrite(&(bufptr[8]), 1, uii, outfile);
   }
   if (ulii != ~ZEROLU) {
@@ -3634,7 +3634,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     retval = RET_WRITE_FAIL;
     break;
   gene_report_ret_INVALID_FORMAT_WW:
-    wordwrap(0, logbuf);
+    wordwrap(0, g_logbuf);
     logerrprintb();
   gene_report_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
