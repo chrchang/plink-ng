@@ -5841,7 +5841,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   //   perm_vec_ct * (9 * max_thread_ct + 20 * MODEL_BLOCKSIZE +
   //                    pheno_nm_ct / 8 + sizeof(intptr_t) * pheno_nm_ctv2
   //                    + marker_ct * sizeof(double))
-  perm_vec_ct = 128 * (g_bigstack_left / (128LL * sizeof(intptr_t) * pheno_nm_ctv2 + 1152LL * max_thread_ct + 2560LL * MODEL_BLOCKSIZE + 16LL * pheno_nm_ct + 128LL * sizeof(double) * marker_ct));
+  perm_vec_ct = 128 * (bigstack_left() / (128LL * sizeof(intptr_t) * pheno_nm_ctv2 + 1152LL * max_thread_ct + 2560LL * MODEL_BLOCKSIZE + 16LL * pheno_nm_ct + 128LL * sizeof(double) * marker_ct));
   if (perm_vec_ct > perm_batch_size) {
     perm_vec_ct = perm_batch_size;
   }
@@ -6574,7 +6574,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     loadbuf[uii * pheno_nm_ctv2 - 1] = 0;
   }
   if (model_perms) {
-    if (g_bigstack_left < pheno_nm_ctv2 * sizeof(intptr_t)) {
+    if (bigstack_left() < pheno_nm_ctv2 * sizeof(intptr_t)) {
       goto model_assoc_ret_NOMEM;
     }
   }
@@ -6597,7 +6597,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	}
 	g_first_adapt_check = uii;
       }
-      perm_vec_ct = g_bigstack_left / (pheno_nm_ctv2 * sizeof(intptr_t));
+      perm_vec_ct = bigstack_left() / (pheno_nm_ctv2 * sizeof(intptr_t));
     } else {
       // perm_vec_ct memory allocation dependencies:
       //   g_maxt_thread_results: (8 * perm_vec_ct, cacheline-aligned) *
@@ -6624,9 +6624,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       // 8 * perm_vec_ct bytes, multiplying by 128 yields 1024, and
       // 1152 + 1024 = 2176.
       if (mperm_save & MPERM_DUMP_ALL) {
-        perm_vec_ct = 128 * (g_bigstack_left / (128LL * sizeof(intptr_t) * pheno_nm_ctv2 + 2176LL * max_thread_ct + 1536LL * MODEL_BLOCKSIZE + 16LL * pheno_nm_ct + 128LL * sizeof(double) * marker_ct));
+        perm_vec_ct = 128 * (bigstack_left() / (128LL * sizeof(intptr_t) * pheno_nm_ctv2 + 2176LL * max_thread_ct + 1536LL * MODEL_BLOCKSIZE + 16LL * pheno_nm_ct + 128LL * sizeof(double) * marker_ct));
       } else {
-        perm_vec_ct = 128 * (g_bigstack_left / (128LL * sizeof(intptr_t) * pheno_nm_ctv2 + 2176LL * max_thread_ct + 1536LL * MODEL_BLOCKSIZE + 16LL * pheno_nm_ct));
+        perm_vec_ct = 128 * (bigstack_left() / (128LL * sizeof(intptr_t) * pheno_nm_ctv2 + 2176LL * max_thread_ct + 1536LL * MODEL_BLOCKSIZE + 16LL * pheno_nm_ct));
       }
     }
     if (perm_vec_ct > perms_total - perms_done) {
@@ -10405,7 +10405,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	g_adaptive_intercept = apip->init_interval;
 	g_adaptive_slope = apip->interval_slope;
       }
-      g_perm_vec_ct = (g_bigstack_left - CACHELINE + sizeof(int32_t)) / (pheno_nm_ctv * sizeof(intptr_t) + (1 - skip_y) * sizeof(int32_t));
+      g_perm_vec_ct = (bigstack_left() - CACHELINE + sizeof(int32_t)) / (pheno_nm_ctv * sizeof(intptr_t) + (1 - skip_y) * sizeof(int32_t));
     } else {
       // g_perm_vec_ct memory allocation dependencies:
       //   g_maxt_thread_results: (8 * g_perm_vec_ct, cacheline-aligned) *
@@ -10421,9 +10421,9 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
       //                    sizeof(intptr_t) * pheno_nm_ctv
       //                    [+ marker_ct * sizeof(double) * mperm_save_all])
       if (mperm_dump_all) {
-	g_perm_vec_ct = 128 * (g_bigstack_left / (128 * sizeof(intptr_t) * pheno_nm_ctv + 1728LL * max_thread_ct + 16LL * pheno_nm_ct + 512 * (1 - skip_y) + 128LL * sizeof(double) * marker_ct));
+	g_perm_vec_ct = 128 * (bigstack_left() / (128 * sizeof(intptr_t) * pheno_nm_ctv + 1728LL * max_thread_ct + 16LL * pheno_nm_ct + 512 * (1 - skip_y) + 128LL * sizeof(double) * marker_ct));
       } else {
-	g_perm_vec_ct = 128 * (g_bigstack_left / (128 * sizeof(intptr_t) * pheno_nm_ctv + 1728LL * max_thread_ct + 16LL * pheno_nm_ct + 512 * (1 - skip_y)));
+	g_perm_vec_ct = 128 * (bigstack_left() / (128 * sizeof(intptr_t) * pheno_nm_ctv + 1728LL * max_thread_ct + 16LL * pheno_nm_ct + 512 * (1 - skip_y)));
       }
     }
     if (g_perm_vec_ct > perms_total - g_perms_done) {
@@ -11682,12 +11682,12 @@ int32_t cmh2_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
 
 int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double output_min_p, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uintptr_t unfiltered_sample_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_male, uint32_t hh_or_mt_exists) {
   unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* outfile = NULL;
   uintptr_t* sample_hh_include2 = NULL;
   uintptr_t* sample_hh_male_include2 = NULL;
   char* writebuf = g_textbuf;
   char* chrom_name_ptr = NULL;
-  uintptr_t topsize = 0;
   uint32_t cluster_ct2 = 0;
   uint32_t chrom_fo_idx = 0xffffffffU;
   uint32_t chrom_end = 0;
@@ -11744,20 +11744,17 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
     }
   }
   ulii = ((cluster_ct + (BITCT - 1)) / BITCT);
-  cluster_bitfield = (uintptr_t*)top_alloc(&topsize, ulii * sizeof(intptr_t));
+  cluster_bitfield = (uintptr_t*)bigstack_end_alloc(ulii * sizeof(intptr_t));
   fill_ulong_zero(cluster_bitfield, ulii);
-  g_bigstack_left -= topsize;
   // Factor out common initialization with cmh_assoc().
   retval = cluster_assoc_init("--homog", unfiltered_sample_ct, pheno_nm, pheno_c, sex_male, cluster_ct, cluster_map, cluster_starts, cluster_bitfield, &pheno_nm_11, &pheno_nm_nonmale_11, &pheno_nm_male_11, &sample_to_cluster_pheno, &cluster_pheno_gtots, &cur_cluster_pheno_gtots, &cluster_geno_cts, &loadbuf_raw, &cluster_ct2);
   if (retval) {
-    g_bigstack_left += topsize;
     goto homog_assoc_ret_1;
   }
   if (cluster_ct == cluster_ct2) {
     cluster_ids_collapsed = cluster_ids;
   } else {
     if (bigstack_alloc_c(cluster_ct2 * max_cluster_id_len, &cluster_ids_collapsed)) {
-      g_bigstack_left += topsize;
       goto homog_assoc_ret_NOMEM;
     }
     for (ulii = 0, cluster_idx = 0; cluster_idx < cluster_ct2; ulii++, cluster_idx++) {
@@ -11765,7 +11762,7 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
       memcpy(&(cluster_ids_collapsed[cluster_idx * max_cluster_id_len]), &(cluster_ids[ulii * max_cluster_id_len]), max_cluster_id_len);
     }
   }
-  g_bigstack_left += topsize;
+  bigstack_end_reset(bigstack_end_mark);
   cluster_ct2d = (double)((int32_t)cluster_ct2);
   cluster_ct2m1d = (double)((int32_t)cluster_ct2 - 1);
   if (bigstack_alloc_d(cluster_ct2 * 4, &cluster_tables) ||
@@ -11934,7 +11931,7 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
     break;
   }
  homog_assoc_ret_1:
-  bigstack_reset(bigstack_mark);
+  bigstack_double_reset(bigstack_mark, bigstack_end_mark);
   fclose_cond(outfile);
   return retval;
 }

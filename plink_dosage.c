@@ -70,7 +70,7 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
   uint32_t rangename_len_limit;
   uint32_t slen;
   int32_t ii;
-  loadbuf_size = g_bigstack_left;
+  loadbuf_size = bigstack_left();
   if (loadbuf_size > MAXLINEBUFLEN) {
     loadbuf_size = MAXLINEBUFLEN;
   } else if (loadbuf_size <= MAXLINELEN) {
@@ -204,7 +204,7 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
   }
   *score_allele_codes_ptr = score_allele_codes;
   rewind(infile);
-  loadbuf_size = g_bigstack_left;
+  loadbuf_size = bigstack_left();
   if (loadbuf_size > MAXLINEBUFLEN) {
     loadbuf_size = MAXLINEBUFLEN;
   } else if (loadbuf_size <= MAXLINELEN) {
@@ -466,6 +466,7 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
 int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* outname, char* outname_end, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* makepheno_str, char* phenoname_str, char* covar_fname, Two_col_params* qual_filter, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* filtervals_flattened, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_sample_fname, char* filter_attrib_sample_liststr, double qual_min_thresh, double qual_max_thresh, double thin_keep_prob, uint32_t thin_keep_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t fam_cols, int32_t missing_pheno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t filter_flags, uint32_t sex_missing_pheno, uint32_t update_sex_col, Cluster_info* cluster_ptr, int32_t marker_pos_start, int32_t marker_pos_end, int32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t mwithin_col, uint32_t glm_modifier, double glm_vif_thresh, double output_min_p, int32_t known_procs, Score_info* sc_ip) {
   // sucks to duplicate so much, but this code will be thrown out later so
   // there's no long-term maintenance problem
+  unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* phenofile = NULL;
   FILE* infile = NULL;
   FILE* profile_outfile = NULL;
@@ -542,7 +543,6 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   uint32_t* uiptr = NULL;
   uint32_t* uiptr2 = NULL;
   uint32_t* uiptr3 = NULL;
-  uintptr_t topsize = 0;
   uintptr_t unfiltered_marker_ct = 0;
   uintptr_t marker_exclude_ct = 0;
   uintptr_t max_marker_id_len = 0;
@@ -1173,7 +1173,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
       batch_sizes = (uint32_t*)g_bigstack_base;
       uiptr = batch_sizes;
-      uiptr2 = (uint32_t*)(&(g_bigstack_base[g_bigstack_left / 2]));
+      uiptr2 = (uint32_t*)(&(g_bigstack_base[bigstack_left() / 2]));
     } else {
       if (bigstack_alloc_ui(1, &batch_sizes)) {
 	goto plink1_dosage_ret_NOMEM;
@@ -1246,7 +1246,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 #endif
       bigstack_alloc_ui(infile_ct, &batch_sizes);
       // temporary batch size buffer
-      uiptr3 = (uint32_t*)top_alloc(&topsize, infile_ct * sizeof(int32_t));
+      uiptr3 = (uint32_t*)bigstack_end_alloc(infile_ct * sizeof(int32_t));
 
       uii = batch_sizes[0];
       uiptr2 = &(batch_sizes[1]);
@@ -1274,7 +1274,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
 
       // batch numbers
-      uiptr = (uint32_t*)top_alloc(&topsize, batch_ct * sizeof(int32_t));
+      uiptr = (uint32_t*)bigstack_end_alloc(batch_ct * sizeof(int32_t));
       if (!uiptr) {
 	goto plink1_dosage_ret_NOMEM;
       }
@@ -1289,21 +1289,19 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	uii += uiptr3[ujj];
         uiptr3[ujj] = ukk;
       }
-      g_bigstack_left -= topsize;
     } else {
       uiptr3 = batch_sizes;
       uiptr3[0] = 0;
     }
     if (bigstack_alloc_c(infile_ct * max_fn_len, &fnames)) {
-      goto plink1_dosage_ret_NOMEM2;
+      goto plink1_dosage_ret_NOMEM;
     }
     if (sepheader) {
       if (bigstack_alloc_c(infile_ct * max_sepheader_len, &sep_fnames)) {
-	goto plink1_dosage_ret_NOMEM2;
+	goto plink1_dosage_ret_NOMEM;
       }
     }
-    g_bigstack_left += topsize;
-    topsize = 0;
+    bigstack_end_reset(bigstack_end_mark);
     rewind(infile);
     while (fgets(g_textbuf, MAXLINELEN, infile)) {
       bufptr = skip_initial_spaces(g_textbuf);
@@ -1545,7 +1543,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   for (batch_idx = 0; batch_idx < batch_ct; batch_idx++, file_idx_start += cur_batch_size) {
     cur_batch_size = batch_sizes[batch_idx];
     read_idx = 0;
-    loadbuf_size = g_bigstack_left;
+    loadbuf_size = bigstack_left();
     if (loadbuf_size > MAXLINEBUFLEN) {
       loadbuf_size = MAXLINEBUFLEN;
     } else if (loadbuf_size <= MAXLINELEN) {
@@ -1809,20 +1807,19 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    ll_ptr = *ll_pptr;
 	    if (!ll_ptr) {
 	      distinct_id_ct++;
-	      topsize += ((slen + sizeof(Ll_ctstr_entry) + 15) & (~(15 * ONELU)));
-	      loadbuf_size = g_bigstack_left - topsize;
-              ll_ptr = (Ll_ctstr_entry*)(&(g_bigstack_base[loadbuf_size]));
-	      ll_ptr->next = NULL;
-	      memcpy(ll_ptr->ss, cur_marker_id_buf, slen);
-	      if (slen > max_occur_id_len) {
-		max_occur_id_len = slen;
-	      }
+	      ll_ptr = (Ll_ctstr_entry*)bigstack_end_alloc(slen + sizeof(Ll_ctstr_entry));
+	      loadbuf_size = bigstack_left();
 	      if (loadbuf_size >= MAXLINEBUFLEN) {
 		loadbuf_size = MAXLINEBUFLEN;
 	      } else if (loadbuf_size > MAXLINELEN) {
                 loadbuf[loadbuf_size - 1] = ' ';
 	      } else {
-		goto plink1_dosage_ret_NOMEM2;
+		goto plink1_dosage_ret_NOMEM;
+	      }
+	      ll_ptr->next = NULL;
+	      memcpy(ll_ptr->ss, cur_marker_id_buf, slen);
+	      if (slen > max_occur_id_len) {
+		max_occur_id_len = slen;
 	      }
 	      ll_ptr->ct = 1;
 	      *ll_pptr = ll_ptr;
@@ -2237,9 +2234,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   } else {
     if (count_occur) {
       max_occur_id_len += sizeof(int32_t) + 1; // null, uint32_t
-      g_bigstack_left -= topsize;
       if (bigstack_alloc_c(max_occur_id_len * distinct_id_ct, &bufptr)) {
-	goto plink1_dosage_ret_NOMEM2;
+	goto plink1_dosage_ret_NOMEM;
       }
       ulii = 0; // write idx
       ujj = 0; // number of counts > 1
@@ -2256,7 +2252,6 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  ll_ptr = ll_ptr->next;
 	}
       }
-      g_bigstack_left += topsize;
       qsort(bufptr, distinct_id_ct, max_occur_id_len, strcmp_natural);
       for (ulii = 0; ulii < distinct_id_ct; ulii++) {
 	bufptr2 = &(bufptr[ulii * max_occur_id_len]);
@@ -2283,8 +2278,6 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   }
 
   while (0) {
-  plink1_dosage_ret_NOMEM2:
-    g_bigstack_left += topsize;
   plink1_dosage_ret_NOMEM:
     retval = RET_NOMEM;
     break;
@@ -2342,6 +2335,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       gzclose_cond(gz_infiles[uii]);
     }
   }
+  bigstack_end_reset(bigstack_end_mark);
 
   return retval;
 }

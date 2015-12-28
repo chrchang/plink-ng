@@ -682,8 +682,9 @@
 #define MAX_ID_LEN_P1 (MAX_ID_LEN + 1)
 #define MAX_ID_LEN_STR "16000"
 
-// maximum size of "dynamically" allocated line load buffer.  (this is the
-// limit that applies to .vcf and similar files)
+// Maximum size of "dynamically" allocated line load buffer.  (This is the
+// limit that applies to .vcf and similar files.)  Inconvenient to go higher
+// since fgets() takes a int32_t size argument.
 #define MAXLINEBUFLEN 0x7fffffc0
 
 // Default --perm-batch-size value in most contexts.  It may actually be better
@@ -737,10 +738,8 @@
 
 #ifdef __LP64__
 #define HASHMEM 4194304
-#define HASHMEM_S 4194304
 #else
 #define HASHMEM 2097152
-#define HASHMEM_S 2097152
 #endif
 
 typedef struct {
@@ -957,8 +956,11 @@ static inline int32_t flexclose_null(uint32_t output_gz, FILE** fptr_ptr, gzFile
 
 // manually managed, very large double-ended stack
 extern unsigned char* g_bigstack_base;
-extern uintptr_t g_bigstack_left;
+extern unsigned char* g_bigstack_end;
 
+static inline uintptr_t bigstack_left() {
+  return (((uintptr_t)g_bigstack_end) - ((uintptr_t)g_bigstack_base));
+}
 
 // Basic 64-byte-aligned allocation at bottom of stack.
 unsigned char* bigstack_alloc(uintptr_t size);
@@ -1011,28 +1013,34 @@ static inline int32_t bigstack_alloc_ull(uintptr_t ct, uint64_t** ullp_ptr) {
   return !(*ullp_ptr);
 }
 
-void bigstack_reset(const void* new_base);
+static inline void bigstack_reset(const void* new_base) {
+  g_bigstack_base = (unsigned char*)new_base;
+}
+
+static inline void bigstack_end_reset(const void* new_end) {
+  g_bigstack_end = (unsigned char*)new_end;
+}
+
+static inline void bigstack_double_reset(const void* new_base, const void* new_end) {
+  bigstack_reset(new_base);
+  bigstack_end_reset(new_end);
+}
 
 void bigstack_shrink_top(const void* rebase, uintptr_t new_size);
 
-#define TOP_ALLOC_CHUNK 16
-#define TOP_ALLOC_CHUNK_M1 (TOP_ALLOC_CHUNK - 1)
+#define END_ALLOC_CHUNK 16
+#define END_ALLOC_CHUNK_M1 (END_ALLOC_CHUNK - 1)
 
-static inline unsigned char* top_alloc(uintptr_t* topsize_ptr, uintptr_t size) {
-  // multiplication by ONELU is one way to widen an integer to word-size.
-  uintptr_t ts = *topsize_ptr + ((size + TOP_ALLOC_CHUNK_M1) & (~(TOP_ALLOC_CHUNK_M1 * ONELU)));
-  if (ts > g_bigstack_left) {
-    return NULL;
-  } else {
-    *topsize_ptr = ts;
-    return &(g_bigstack_base[g_bigstack_left - ts]);
-  }
+static inline void bigstack_end_set(const void* unaligned_end) {
+  g_bigstack_end = (unsigned char*)(((uintptr_t)unaligned_end) & (~(END_ALLOC_CHUNK_M1 * ONELU)));
 }
 
-#define top_alloc_aligned top_alloc
+unsigned char* bigstack_end_alloc(uintptr_t size);
 
-static inline Ll_str* top_alloc_llstr(uintptr_t* topsize_ptr, uint32_t size) {
-  return (Ll_str*)top_alloc(topsize_ptr, size + sizeof(Ll_str));
+#define bigstack_end_aligned_alloc bigstack_end_alloc
+
+static inline Ll_str* bigstack_end_alloc_llstr(uint32_t size) {
+  return (Ll_str*)bigstack_end_alloc(size + sizeof(Ll_str));
 }
 
 static inline int32_t is_letter(unsigned char ucc) {

@@ -18,7 +18,6 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* infile = NULL;
   FILE* outfile = NULL;
-  char* bigstack_end = (char*)(&(g_bigstack_base[g_bigstack_left]));
   int32_t* geno_int_buf = NULL;
   Rinteger* r_n = NULL;
   Rinteger* r_s = NULL;
@@ -78,7 +77,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
   inbuf_start = (char*)g_bigstack_base;
   inbuf_end = inbuf_start;
   while (1) {
-    if ((uintptr_t)(bigstack_end - inbuf_start) < MAXLINELEN) {
+    if (((uintptr_t)g_bigstack_end) - ((uintptr_t)inbuf_start) < MAXLINELEN) {
       goto rserve_call_ret_NOMEM;
     }
     inbuf_end[MAXLINELEN - 1] = ' ';

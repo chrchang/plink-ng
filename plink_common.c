@@ -220,30 +220,34 @@ int32_t gzopen_read_checked(const char* fname, gzFile* target_ptr) {
 
 // manually managed, very large stack
 unsigned char* g_bigstack_base;
-uintptr_t g_bigstack_left;
+unsigned char* g_bigstack_end;
 
 unsigned char* bigstack_alloc(uintptr_t size) {
   unsigned char* alloc_ptr;
-  if (g_bigstack_left < size) {
+  size = CACHEALIGN(size);
+  if (bigstack_left() < size) {
     return NULL;
   }
-  size = CACHEALIGN(size);
   alloc_ptr = g_bigstack_base;
   g_bigstack_base += size;
-  g_bigstack_left -= size;
   return alloc_ptr;
-}
-
-void bigstack_reset(const void* new_base) {
-  uintptr_t freed_bytes = g_bigstack_base - (unsigned char*)new_base;
-  g_bigstack_base = (unsigned char*)new_base;
-  g_bigstack_left += freed_bytes;
 }
 
 void bigstack_shrink_top(const void* rebase, uintptr_t new_size) {
   uintptr_t freed_bytes = ((uintptr_t)(g_bigstack_base - ((unsigned char*)rebase))) - CACHEALIGN(new_size);
   g_bigstack_base -= freed_bytes;
-  g_bigstack_left += freed_bytes;
+}
+
+unsigned char* bigstack_end_alloc(uintptr_t size) {
+  uintptr_t cur_bigstack_left = bigstack_left();
+  // multiplication by ONELU is one way to widen an integer to word-size.
+  size = (size + END_ALLOC_CHUNK_M1) & (~(END_ALLOC_CHUNK_M1 * ONELU));
+  if (size > cur_bigstack_left) {
+    return NULL;
+  } else {
+    g_bigstack_end -= size;
+    return g_bigstack_end;
+  }
 }
 
 uint32_t match_upper(char* ss, const char* fixed_str) {
@@ -3736,7 +3740,8 @@ int32_t populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uint
   // O(n^2) hash table duplicate resolution is unacceptably slow; instead, we
   // allocate additional linked lists past the end of id_htable to track all
   // unfiltered indexes of duplicate names.  (This requires the
-  // alloc_and_populate_id_htable interface; top_alloc doesn't work there.)
+  // alloc_and_populate_id_htable interface; bigstack_end_alloc doesn't work
+  // there.)
   uintptr_t item_uidx = 0;
   uint32_t extra_alloc = 0;
   uint32_t prev_llidx = 0;
@@ -3745,6 +3750,7 @@ int32_t populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uint
   uint32_t item_idx = 0;
   const char* sptr;
   uintptr_t prev_uidx;
+  uintptr_t cur_bigstack_left;
   uint32_t max_extra_alloc;
   uint32_t slen;
   uint32_t hashval;
@@ -3782,14 +3788,15 @@ int32_t populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uint
       }
     }
   } else {
+    cur_bigstack_left = bigstack_left();
 #ifdef __LP64__
-    if (g_bigstack_left >= 0x400000000LLU) {
+    if (cur_bigstack_left >= 0x400000000LLU) {
       max_extra_alloc = 0xfffffffeU;
     } else {
-      max_extra_alloc = g_bigstack_left / sizeof(int32_t);
+      max_extra_alloc = cur_bigstack_left / sizeof(int32_t);
     }
 #else
-    max_extra_alloc = g_bigstack_left / sizeof(int32_t);
+    max_extra_alloc = cur_bigstack_left / sizeof(int32_t);
 #endif
     for (; item_idx < item_ct; item_uidx++, item_idx++) {
       next_unset_ul_unsafe_ck(exclude_arr, &item_uidx);
@@ -4054,7 +4061,7 @@ uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t
     }
   }
   if (hh_exists & (XMHH_EXISTS | Y_FIX_NEEDED)) {
-    // if already allocated, we assume it's been top_alloc'd but not
+    // if already allocated, we assume it's been bigstack_end_alloc'd but not
     // initialized
     if (!(*sample_male_include_quatervec_ptr)) {
       if (bigstack_alloc_ul(sample_ctv2, sample_male_include_quatervec_ptr)) {
@@ -9044,7 +9051,7 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
   // is scanned.
   // Includes terminating null in lengths.
   FILE* infile = NULL;
-  uintptr_t loadbuf_size = g_bigstack_left;
+  uintptr_t loadbuf_size = bigstack_left();
   uintptr_t max_str_len = *max_str_len_ptr;
   uintptr_t max_str2_len = 0;
   char* loadbuf = (char*)g_bigstack_base;
@@ -9147,7 +9154,7 @@ int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_s
   // assumed to follow.
   // Includes terminating null in lengths.
   FILE* infile = NULL;
-  uintptr_t loadbuf_size = g_bigstack_left;
+  uintptr_t loadbuf_size = bigstack_left();
   uintptr_t max_sample_id_len = *max_sample_id_len_ptr;
   uintptr_t line_idx = 0;
   char* loadbuf = (char*)g_bigstack_base;

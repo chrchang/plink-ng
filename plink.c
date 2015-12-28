@@ -104,7 +104,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (27 Dec 2015)";
+  " (28 Dec 2015)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -302,7 +302,6 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   // set_allele_freqs = .bed set bit frequency in middle of loading process, A2
   //   allele frequency later.
   double* set_allele_freqs = NULL;
-  uintptr_t topsize = 0;
   uintptr_t unfiltered_sample_ct = 0;
   uintptr_t unfiltered_sample_ct4 = 0;
   uintptr_t unfiltered_sample_ctl = 0;
@@ -1257,7 +1256,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       goto plink_ret_NOMEM;
     }
     if (bedfile && sample_ct) {
-      retval = calc_freqs_and_hwe(bedfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, unfiltered_sample_ct, sample_exclude, sample_exclude_ct, sample_ids, max_sample_id_len, founder_info, nonfounders, (misc_flags / MISC_MAF_SUCC) & 1, set_allele_freqs, bed_offset, (hwe_thresh > 0.0) || (calculation_type & CALC_HARDY), hwe_modifier & HWE_THRESH_ALL, (pheno_nm_ct && pheno_c)? ((calculation_type / CALC_HARDY) & 1) : 0, min_ac, max_ac, geno_thresh, pheno_nm, pheno_nm_ct? pheno_c : NULL, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_cases, &hwe_lh_cases, &hwe_hh_cases, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &geno_excl_bitfield, &ac_excl_bitfield, &sample_male_ct, &sample_f_ct, &sample_f_male_ct, &topsize, chrom_info_ptr, om_ip, sex_nm, sex_male, map_is_unsorted & UNSORTED_SPLIT_CHROM, &hh_exists);
+      retval = calc_freqs_and_hwe(bedfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, unfiltered_sample_ct, sample_exclude, sample_exclude_ct, sample_ids, max_sample_id_len, founder_info, nonfounders, (misc_flags / MISC_MAF_SUCC) & 1, set_allele_freqs, bed_offset, (hwe_thresh > 0.0) || (calculation_type & CALC_HARDY), hwe_modifier & HWE_THRESH_ALL, (pheno_nm_ct && pheno_c)? ((calculation_type / CALC_HARDY) & 1) : 0, min_ac, max_ac, geno_thresh, pheno_nm, pheno_nm_ct? pheno_c : NULL, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_cases, &hwe_lh_cases, &hwe_hh_cases, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &geno_excl_bitfield, &ac_excl_bitfield, &sample_male_ct, &sample_f_ct, &sample_f_male_ct, chrom_info_ptr, om_ip, sex_nm, sex_male, map_is_unsorted & UNSORTED_SPLIT_CHROM, &hh_exists);
       if (retval) {
 	goto plink_ret_1;
       }
@@ -2126,9 +2125,6 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     break;
   }
  plink_ret_1:
-  if (topsize) {
-    g_bigstack_left += topsize;
-  }
   aligned_free_cond(pheno_nm_datagen);
   free_cond(orig_pheno_d);
   aligned_free_cond(orig_pheno_c);
@@ -13355,7 +13351,7 @@ int32_t main(int32_t argc, char** argv) {
   // force 64-byte align to make cache line sensitivity work
   bigstack_initial_base = (unsigned char*)CACHEALIGN((uintptr_t)bigstack_ua);
   g_bigstack_base = bigstack_initial_base;
-  g_bigstack_left = (malloc_size_mb * 1048576 - (uintptr_t)(bigstack_initial_base - bigstack_ua)) & (~(CACHELINE - ONELU));
+  g_bigstack_end = &(bigstack_initial_base[(malloc_size_mb * 1048576 - (uintptr_t)(bigstack_initial_base - bigstack_ua)) & (~(CACHELINE - ONELU))]);
   free(bubble);
   bubble = NULL;
 

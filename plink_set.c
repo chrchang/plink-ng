@@ -249,11 +249,10 @@ uint32_t alloc_and_populate_nonempty_set_incl(Set_info* sip, uint32_t* nonempty_
   return 0;
 }
 
-int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_extend, uint32_t collapse_group, uint32_t fail_on_no_sets, uint32_t c_prefix, uint32_t allow_no_variants, uintptr_t subset_ct, char* sorted_subset_ids, uintptr_t max_subset_id_len, uint32_t* marker_pos, Chrom_info* chrom_info_ptr, uintptr_t* topsize_ptr, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_len_ptr, Make_set_range*** make_set_range_arr_ptr, uint64_t** range_sort_buf_ptr, const char* file_descrip) {
+int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_extend, uint32_t collapse_group, uint32_t fail_on_no_sets, uint32_t c_prefix, uint32_t allow_no_variants, uintptr_t subset_ct, char* sorted_subset_ids, uintptr_t max_subset_id_len, uint32_t* marker_pos, Chrom_info* chrom_info_ptr, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_len_ptr, Make_set_range*** make_set_range_arr_ptr, uint64_t** range_sort_buf_ptr, const char* file_descrip) {
   // Called directly by extract_exclude_range(), define_sets(), and indirectly
   // by annotate(), gene_report(), and clump_reports().
-  // Assumes topsize has not been subtracted off g_bigstack_left.  (This remains
-  // true on exit.)
+  // Assumes caller will reset g_bigstack_end later.
   Ll_str* make_set_ll = NULL;
   char* set_names = NULL;
   uintptr_t set_ct = 0;
@@ -331,7 +330,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       if (uii > max_set_id_len) {
 	max_set_id_len = uii;
       }
-      ll_tmp = top_alloc_llstr(topsize_ptr, uii);
+      ll_tmp = bigstack_end_alloc_llstr(uii);
       ll_tmp->next = make_set_ll;
       if (marker_pos) {
         memcpy(ll_tmp->ss, bufptr3, uii);
@@ -372,11 +371,9 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       logerrprint("Error: Set IDs are limited to " MAX_ID_LEN_STR " characters.\n");
       goto load_range_list_ret_INVALID_FORMAT;
     }
-    g_bigstack_left -= *topsize_ptr;
     if (bigstack_alloc_c(set_ct, set_names_ptr)) {
-      goto load_range_list_ret_NOMEM2;
+      goto load_range_list_ret_NOMEM;
     }
-    g_bigstack_left += *topsize_ptr;
     set_names = *set_names_ptr;
     if (!c_prefix) {
       for (ulii = 0; ulii < set_ct; ulii++) {
@@ -397,7 +394,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
   } else {
     set_ct = 1;
   }
-  make_set_range_arr = (Make_set_range**)top_alloc(topsize_ptr, set_ct * sizeof(intptr_t));
+  make_set_range_arr = (Make_set_range**)bigstack_end_alloc(set_ct * sizeof(intptr_t));
   for (set_idx = 0; set_idx < set_ct; set_idx++) {
     make_set_range_arr[set_idx] = NULL;
   }
@@ -485,7 +482,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       range_first = uint32arr_greater_than(&(marker_pos[chrom_start]), chrom_end - chrom_start, range_first);
       range_last = uint32arr_greater_than(&(marker_pos[chrom_start]), chrom_end - chrom_start, range_last + 1);
       if (range_last > range_first) {
-	msr_tmp = (Make_set_range*)top_alloc(topsize_ptr, sizeof(Make_set_range));
+	msr_tmp = (Make_set_range*)bigstack_end_alloc(sizeof(Make_set_range));
 	msr_tmp->next = make_set_range_arr[set_idx];
 	// normally, I'd keep chrom_idx here since that enables by-chromosome
 	// sorting, but that's probably not worth bloating Make_set_range from
@@ -495,7 +492,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	make_set_range_arr[set_idx] = msr_tmp;
       }
     } else {
-      msr_tmp = (Make_set_range*)top_alloc(topsize_ptr, sizeof(Make_set_range));
+      msr_tmp = (Make_set_range*)bigstack_end_alloc(sizeof(Make_set_range));
       msr_tmp->next = make_set_range_arr[set_idx];
       msr_tmp->uidx_start = range_first;
       msr_tmp->uidx_end = range_last + 1;
@@ -516,7 +513,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
     }
   }
   if (range_sort_buf_ptr) {
-    *range_sort_buf_ptr = (uint64_t*)top_alloc(topsize_ptr, uii * sizeof(int64_t));
+    *range_sort_buf_ptr = (uint64_t*)bigstack_end_alloc(uii * sizeof(int64_t));
   }
   if (set_ct_ptr) {
     *set_ct_ptr = set_ct;
@@ -526,9 +523,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
   }
   *make_set_range_arr_ptr = make_set_range_arr;
   while (0) {
-  load_range_list_ret_NOMEM2:
-    g_bigstack_left += *topsize_ptr;
-    *topsize_ptr = 0;
+  load_range_list_ret_NOMEM:
     retval = RET_NOMEM;
     break;
   load_range_list_ret_INVALID_FORMAT_2:
@@ -546,9 +541,9 @@ int32_t extract_exclude_range(char* fname, uint32_t* marker_pos, uintptr_t unfil
     return 0;
   }
   unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   FILE* infile = NULL;
-  uintptr_t topsize = 0;
   uintptr_t orig_marker_exclude_ct = *marker_exclude_ct_ptr;
   Make_set_range** range_arr = NULL;
   int32_t retval = 0;
@@ -557,7 +552,7 @@ int32_t extract_exclude_range(char* fname, uint32_t* marker_pos, uintptr_t unfil
   if (fopen_checked(fname, "r", &infile)) {
     goto extract_exclude_range_ret_OPEN_FAIL;
   }
-  retval = load_range_list(infile, 0, 0, 0, 0, 0, allow_no_variants, 0, NULL, 0, marker_pos, chrom_info_ptr, &topsize, NULL, NULL, NULL, &range_arr, NULL, is_exclude? "--exclude range" : "--extract range");
+  retval = load_range_list(infile, 0, 0, 0, 0, 0, allow_no_variants, 0, NULL, 0, marker_pos, chrom_info_ptr, NULL, NULL, NULL, &range_arr, NULL, is_exclude? "--exclude range" : "--extract range");
   if (retval) {
     goto extract_exclude_range_ret_1;
   }
@@ -571,9 +566,7 @@ int32_t extract_exclude_range(char* fname, uint32_t* marker_pos, uintptr_t unfil
       msr_tmp = msr_tmp->next;
     }
   } else {
-    g_bigstack_base -= topsize;
     bigstack_alloc_ul(unfiltered_marker_ctl, &marker_exclude_new);
-    g_bigstack_base += topsize;
     if (!marker_exclude_new) {
       goto extract_exclude_range_ret_NOMEM;
     }
@@ -607,7 +600,7 @@ int32_t extract_exclude_range(char* fname, uint32_t* marker_pos, uintptr_t unfil
   }
  extract_exclude_range_ret_1:
   fclose_cond(infile);
-  bigstack_reset(bigstack_mark);
+  bigstack_double_reset(bigstack_mark, bigstack_end_mark);
   return retval;
 }
 
@@ -624,14 +617,13 @@ uint32_t save_set_bitfield(uintptr_t* marker_bitfield_tmp, uint32_t marker_ct, u
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
-  if (g_bigstack_left < mem_req) {
+  if (bigstack_left() < mem_req) {
     return 1;
   }
   *set_range_pp = (uint32_t*)g_bigstack_base;
   if (range_start == marker_ct) {
     // empty or full set
   save_set_bitfield_degen:
-    g_bigstack_left -= 16;
     g_bigstack_base = &(g_bigstack_base[16]);
     if (complement_sets) {
       (*set_range_pp)[0] = 1;
@@ -763,7 +755,6 @@ uint32_t save_set_bitfield(uintptr_t* marker_bitfield_tmp, uint32_t marker_ct, u
       bitarr_invert(bound_top_d128 - bound_bottom_d128, (uintptr_t*)(&((*set_range_pp)[4])));
     }
   }
-  g_bigstack_left -= mem_req;
   g_bigstack_base = &(g_bigstack_base[mem_req]);
   return 0;
 }
@@ -784,7 +775,7 @@ uint32_t save_set_range(uint64_t* range_sort_buf, uint32_t marker_ct, uint32_t r
   uintptr_t ulii;
   uint32_t uii;
   uint32_t ujj;
-  if (g_bigstack_left < (rsb_last_idx / 2) * 16 + 32) {
+  if (bigstack_left() < (rsb_last_idx / 2) * 16 + 32) {
     return 1;
   }
   *set_range_pp = uiptr;
@@ -796,7 +787,6 @@ uint32_t save_set_range(uint64_t* range_sort_buf, uint32_t marker_ct, uint32_t r
         range_start = uii;
 	range_end = (uint32_t)(range_sort_buf[rsb_last_idx] >> 32);
       } else {
-	g_bigstack_left -= 16;
 	g_bigstack_base = &(g_bigstack_base[16]);
 	if (!complement_sets) {
 	  uiptr[0] = 1;
@@ -868,7 +858,6 @@ uint32_t save_set_range(uint64_t* range_sort_buf, uint32_t marker_ct, uint32_t r
       }
       goto save_set_range_bitfield_finish_encode;
     }
-    g_bigstack_left -= ulii;
     g_bigstack_base = &(g_bigstack_base[ulii]);
     *uiptr++ = rsb_last_idx + 1;
     for (; rsb_idx <= rsb_last_idx; rsb_idx++) {
@@ -919,14 +908,12 @@ uint32_t save_set_range(uint64_t* range_sort_buf, uint32_t marker_ct, uint32_t r
 	clear_bits(bitfield_ptr, uii - range_start, ujj - uii);
       }
     save_set_range_bitfield_finish_encode:
-      g_bigstack_left -= mem_req;
       g_bigstack_base = &(g_bigstack_base[mem_req]);
       uiptr[0] = 0xffffffffU;
       uiptr[1] = range_start;
       uiptr[2] = range_end - range_start;
       uiptr[3] = set_bits_outer;
     } else {
-      g_bigstack_left -= ulii;
       g_bigstack_base = &(g_bigstack_base[ulii]);
       if (range_start) {
 	*uiptr++ = range_ct;
@@ -950,8 +937,8 @@ uint32_t save_set_range(uint64_t* range_sort_buf, uint32_t marker_ct, uint32_t r
 }
 
 int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* marker_pos, uintptr_t* marker_exclude_ct_ptr, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, uint32_t allow_no_variants) {
+  unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* infile = NULL;
-  uintptr_t topsize = 0;
   char* sorted_marker_ids = NULL;
   char* sorted_genekeep_ids = NULL;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
@@ -980,6 +967,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   char* bufptr3;
   char* buf_end;
   Make_set_range* msr_tmp;
+  unsigned char* bigstack_end_mark2;
   uint32_t* marker_id_map;
   uint32_t* marker_uidx_to_idx;
   uint32_t** all_setdefs;
@@ -987,7 +975,6 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   uintptr_t* marker_bitfield_tmp;
   uintptr_t set_idx;
   uintptr_t bufsize;
-  uintptr_t topsize_bak;
   uintptr_t marker_ctp2l;
   uintptr_t ulii;
   uint64_t ullii;
@@ -1042,7 +1029,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	  goto define_sets_ret_EXCLUDE_ALL_MARKERS_ALLOWED;
 	}
       }
-      sorted_genekeep_ids = (char*)top_alloc(&topsize, genekeep_ct * max_genekeep_len);
+      sorted_genekeep_ids = (char*)bigstack_end_alloc(genekeep_ct * max_genekeep_len);
       if (!sorted_genekeep_ids) {
 	goto define_sets_ret_NOMEM;
       }
@@ -1105,7 +1092,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       logerrprint("Error: Subset IDs are limited to " MAX_ID_LEN_STR " characters.\n");
       goto define_sets_ret_INVALID_FORMAT;
     }
-    sorted_subset_ids = (char*)top_alloc(&topsize, subset_ct * max_subset_id_len);
+    sorted_subset_ids = (char*)bigstack_end_alloc(subset_ct * max_subset_id_len);
     if (!sorted_subset_ids) {
       goto define_sets_ret_NOMEM;
     }
@@ -1138,7 +1125,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   }
   // 3. load --make-set range list
   if (make_set) {
-    retval = load_range_list(infile, !sip->merged_set_name, sip->make_set_border, sip->modifier & SET_MAKE_COLLAPSE_GROUP, gene_all || sip->genekeep_flattened, c_prefix, allow_no_variants, subset_ct, sorted_subset_ids, max_subset_id_len, marker_pos, chrom_info_ptr, &topsize, &set_ct, &set_names, &max_set_id_len, &make_set_range_arr, &range_sort_buf, "--make-set");
+    retval = load_range_list(infile, !sip->merged_set_name, sip->make_set_border, sip->modifier & SET_MAKE_COLLAPSE_GROUP, gene_all || sip->genekeep_flattened, c_prefix, allow_no_variants, subset_ct, sorted_subset_ids, max_subset_id_len, marker_pos, chrom_info_ptr, &set_ct, &set_names, &max_set_id_len, &make_set_range_arr, &range_sort_buf, "--make-set");
     if (retval) {
       goto define_sets_ret_1;
     }
@@ -1146,12 +1133,12 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 
   // 4. if --gene or --gene-all is present, pre-filter variants.
   if (gene_all || sip->genekeep_flattened) {
-    topsize_bak = topsize;
-    marker_bitfield_tmp = (uintptr_t*)top_alloc(&topsize, unfiltered_marker_ctl * sizeof(intptr_t));
+    bigstack_end_mark2 = g_bigstack_end;
+    marker_bitfield_tmp = (uintptr_t*)bigstack_end_alloc(unfiltered_marker_ctl * sizeof(intptr_t));
     if (!marker_bitfield_tmp) {
       goto define_sets_ret_NOMEM;
     }
-    marker_exclude_new = (uintptr_t*)top_alloc(&topsize, unfiltered_marker_ctl * sizeof(intptr_t));
+    marker_exclude_new = (uintptr_t*)bigstack_end_alloc(unfiltered_marker_ctl * sizeof(intptr_t));
     if (!marker_exclude_new) {
       goto define_sets_ret_NOMEM;
     }
@@ -1174,17 +1161,15 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	}
       }
     } else {
-      sorted_marker_ids = (char*)top_alloc(&topsize, marker_ct * max_marker_id_len);
+      sorted_marker_ids = (char*)bigstack_end_alloc(marker_ct * max_marker_id_len);
       if (!sorted_marker_ids) {
 	goto define_sets_ret_NOMEM;
       }
-      marker_id_map = (uint32_t*)top_alloc(&topsize, marker_ct * sizeof(int32_t));
+      marker_id_map = (uint32_t*)bigstack_end_alloc(marker_ct * sizeof(int32_t));
       if (!marker_id_map) {
 	goto define_sets_ret_NOMEM;
       }
-      g_bigstack_left -= topsize;
       retval = sort_item_ids_noalloc(sorted_marker_ids, marker_id_map, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
-      g_bigstack_left += topsize;
       if (retval) {
 	goto define_sets_ret_NOMEM;
       }
@@ -1299,7 +1284,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     }
     marker_ct = unfiltered_marker_ct - marker_exclude_ct;
     rewind(infile);
-    topsize = topsize_bak;
+    bigstack_end_reset(bigstack_end_mark2);
   } else if ((!make_set) && (!sip->merged_set_name)) {
     // 5. otherwise, with --set and no --set-collapse-all, count number of sets
     //    and max_name_len.
@@ -1374,12 +1359,11 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     rewind(infile);
   }
   // 6. allocate sip->names[], setdefs[] on stack
-  marker_uidx_to_idx = (uint32_t*)top_alloc(&topsize, unfiltered_marker_ct * sizeof(int32_t));
+  marker_uidx_to_idx = (uint32_t*)bigstack_end_alloc(unfiltered_marker_ct * sizeof(int32_t));
   if (!marker_uidx_to_idx) {
     goto define_sets_ret_NOMEM;
   }
   fill_uidx_to_idx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_uidx_to_idx);
-  g_bigstack_left -= topsize;
   if (!set_names) {
     if (sip->merged_set_name) {
       set_ct = 1;
@@ -1389,7 +1373,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	goto define_sets_ret_INVALID_FORMAT;
       }
       if (bigstack_alloc_c(max_set_id_len, &set_names)) {
-	goto define_sets_ret_NOMEM2;
+	goto define_sets_ret_NOMEM;
       }
       memcpy(set_names, sip->merged_set_name, max_set_id_len);
     } else {
@@ -1398,13 +1382,13 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	goto define_sets_ret_INVALID_FORMAT;
       }
       if (bigstack_alloc_c(set_ct * max_set_id_len, &set_names)) {
-	goto define_sets_ret_NOMEM2;
+	goto define_sets_ret_NOMEM;
       }
     }
   }
   all_setdefs = (uint32_t**)bigstack_alloc(set_ct * sizeof(intptr_t));
   if (!all_setdefs) {
-    goto define_sets_ret_NOMEM2;
+    goto define_sets_ret_NOMEM;
   }
   if (make_set) {
     // 7. If --make-set, allocate entries on stack
@@ -1438,11 +1422,10 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       }
       if (!uii) {
 	// special case: empty set
-	if (g_bigstack_left < 16) {
+	if (bigstack_left() < 16) {
 	  goto define_sets_ret_NOMEM;
 	}
 	all_setdefs[set_idx] = (uint32_t*)g_bigstack_base;
-	g_bigstack_left -= 16;
 	g_bigstack_base = &(g_bigstack_base[16]);
 	if (!complement_sets) {
 	  all_setdefs[set_idx][0] = 0;
@@ -1485,30 +1468,26 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     set_idx = 0;
     in_set = 0;
     curtoklen = 0;
-    topsize_bak = topsize;
     range_first = marker_ct;
     range_last = 0;
     // guarantee two free bits at end to simplify loop termination checks (may
     // want to default to doing this...)
     marker_ctp2l = (marker_ct + (BITCT + 1)) / BITCT;
-    marker_bitfield_tmp = (uintptr_t*)top_alloc(&topsize, marker_ctp2l * sizeof(intptr_t));
+    marker_bitfield_tmp = (uintptr_t*)bigstack_end_alloc(marker_ctp2l * sizeof(intptr_t));
     if (!marker_bitfield_tmp) {
-      goto define_sets_ret_NOMEM2;
+      goto define_sets_ret_NOMEM;
     }
-    sorted_marker_ids = (char*)top_alloc(&topsize, marker_ct * max_marker_id_len);
+    sorted_marker_ids = (char*)bigstack_end_alloc(marker_ct * max_marker_id_len);
     if (!sorted_marker_ids) {
-      g_bigstack_left += topsize_bak;
       goto define_sets_ret_NOMEM;
     }
-    marker_id_map = (uint32_t*)top_alloc(&topsize, marker_ct * sizeof(int32_t));
+    marker_id_map = (uint32_t*)bigstack_end_alloc(marker_ct * sizeof(int32_t));
     if (!marker_id_map) {
-      g_bigstack_left += topsize_bak;
       goto define_sets_ret_NOMEM;
     }
-    g_bigstack_left -= topsize - topsize_bak;
     retval = sort_item_ids_noalloc(sorted_marker_ids, marker_id_map, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, 1, strcmp_deref);
     if (retval) {
-      goto define_sets_ret_NOMEM2;
+      goto define_sets_ret_NOMEM;
     }
 #ifdef __LP64__
     fill_ulong_zero(marker_bitfield_tmp, (marker_ctp2l + 1) & (~1));
@@ -1605,7 +1584,6 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       }
     }
   }
-  g_bigstack_left += topsize;
   if (fclose_null(&infile)) {
     goto define_sets_ret_READ_FAIL;
   }
@@ -1618,7 +1596,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   define_sets_merge_nothing:
     sip->ct = 1;
     uii = strlen(sip->merged_set_name) + 1;
-    // topsize = 0;
+    bigstack_end_reset(bigstack_end_mark);
     sip->setdefs = (uint32_t**)bigstack_alloc(sizeof(intptr_t));
     if (!sip->setdefs) {
       goto define_sets_ret_NOMEM;
@@ -1638,8 +1616,6 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     }
     LOGPRINTF("--%sset: 1 set defined.\n", make_set? "make-" : "");
     break;
-  define_sets_ret_NOMEM2:
-    g_bigstack_left += topsize;
   define_sets_ret_NOMEM:
     retval = RET_NOMEM;
     break;
@@ -1669,6 +1645,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     break;
   }
  define_sets_ret_1:
+  bigstack_end_reset(bigstack_end_mark);
   fclose_cond(infile);
   return retval;
 }
@@ -2106,8 +2083,8 @@ uint32_t extract_set_union_unfiltered(Set_info* sip, uintptr_t* set_incl, uintpt
 uint32_t setdefs_compress(Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude, uintptr_t marker_ct, uint32_t*** new_setdefs_ptr) {
   // currently assumes marker_exclude does not exclude anything in the union of
   // the remaining sets
+  unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t marker_ctlv = ((marker_ct + 127) / 128) * (128 / BITCT);
-  uintptr_t topsize = 0;
   uint32_t set_uidx = 0;
   uintptr_t* cur_bitfield;
   uintptr_t* read_bitfield;
@@ -2127,16 +2104,16 @@ uint32_t setdefs_compress(Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, 
   if (!new_setdefs) {
     return 1;
   }
-  cur_bitfield = (uintptr_t*)top_alloc(&topsize, marker_ctlv * sizeof(intptr_t));
+  cur_bitfield = (uintptr_t*)bigstack_end_alloc(marker_ctlv * sizeof(intptr_t));
   if (!cur_bitfield) {
     return 1;
   }
-  marker_midx_to_idx = (uint32_t*)top_alloc(&topsize, marker_ct_orig * sizeof(int32_t));
+  marker_midx_to_idx = (uint32_t*)bigstack_end_alloc(marker_ct_orig * sizeof(int32_t));
   if (!marker_midx_to_idx) {
+    bigstack_end_reset(bigstack_end_mark);
     return 1;
   }
   fill_midx_to_idx(marker_exclude_orig, marker_exclude, marker_ct, marker_midx_to_idx);
-  g_bigstack_left -= topsize;
   for (set_idx = 0; set_idx < set_ct; set_uidx++, set_idx++) {
     if (set_incl) {
       next_set_unsafe_ck(set_incl, &set_uidx);
@@ -2181,22 +2158,22 @@ uint32_t setdefs_compress(Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, 
       }
     }
     if (save_set_bitfield(cur_bitfield, marker_ct, range_start, range_end, 0, &(new_setdefs[set_idx]))) {
-      g_bigstack_left += topsize;
+      bigstack_end_reset(bigstack_end_mark);
       return 1;
     }
   }
   *new_setdefs_ptr = new_setdefs;
-  g_bigstack_left += topsize;
+  bigstack_end_reset(bigstack_end_mark);
   return 0;
 }
 
 int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t subset_ct, char* sorted_subset_ids, uintptr_t max_subset_id_len, Chrom_info* chrom_info_ptr, uintptr_t* gene_ct_ptr, char** gene_names_ptr, uintptr_t* max_gene_id_len_ptr, uintptr_t** chrom_bounds_ptr, uint32_t*** genedefs_ptr, uintptr_t* chrom_max_gene_ct_ptr, const char* file_descrip) {
   // --annotate, --clump-range, --gene-report
+  unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* infile = NULL;
   uintptr_t gene_ct = 0;
   uintptr_t max_gene_id_len = 0;
   uintptr_t chrom_max_gene_ct = 0;
-  uintptr_t topsize = 0;
   uint32_t chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
   uint32_t chrom_idx = 0;
   Make_set_range** gene_arr;
@@ -2220,20 +2197,19 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
   if (fopen_checked(fname, "r", &infile)) {
     goto load_range_list_sortpos_ret_OPEN_FAIL;
   }
-  retval = load_range_list(infile, 1, border_extend, 0, 0, 0, 0, subset_ct, sorted_subset_ids, 0, NULL, chrom_info_ptr, &topsize, &gene_ct, gene_names_ptr, &max_gene_id_len, &gene_arr, &range_sort_buf, file_descrip);
+  retval = load_range_list(infile, 1, border_extend, 0, 0, 0, 0, subset_ct, sorted_subset_ids, 0, NULL, chrom_info_ptr, &gene_ct, gene_names_ptr, &max_gene_id_len, &gene_arr, &range_sort_buf, file_descrip);
   if (retval) {
     goto load_range_list_sortpos_ret_1;
   }
   gene_names = *gene_names_ptr;
-  g_bigstack_left -= topsize;
   if (bigstack_alloc_ul(chrom_code_end + 1, chrom_bounds_ptr)) {
-    goto load_range_list_sortpos_ret_NOMEM2;
+    goto load_range_list_sortpos_ret_NOMEM;
   }
   chrom_bounds = *chrom_bounds_ptr;
   chrom_bounds[0] = 0;
   genedefs = (uint32_t**)bigstack_alloc(gene_ct * sizeof(intptr_t));
   if (!genedefs) {
-    goto load_range_list_sortpos_ret_NOMEM2;
+    goto load_range_list_sortpos_ret_NOMEM;
   }
   for (gene_idx = 0; gene_idx < gene_ct; gene_idx++) {
     bufptr = &(gene_names[gene_idx * max_gene_id_len]);
@@ -2259,11 +2235,10 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
       msr_tmp = msr_tmp->next;
     }
     if (!uii) {
-      if (g_bigstack_left < 16) {
-	goto load_range_list_sortpos_ret_NOMEM2;
+      if (bigstack_left() < 16) {
+	goto load_range_list_sortpos_ret_NOMEM;
       }
       genedefs[gene_idx] = (uint32_t*)g_bigstack_base;
-      g_bigstack_left -= 16;
       g_bigstack_base = &(g_bigstack_base[16]);
       genedefs[gene_idx][0] = 0;
       continue;
@@ -2291,12 +2266,14 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
 	range_last = (uint32_t)ullii;
       }
     }
+
+    // this boilerplate can be removed once a 16-instead-of-64-byte-aligned
+    // bigstack_alloc() exists
     ulii = (((++ukk) * 2 + 4) * sizeof(int32_t)) & (~(15 * ONELU));
-    if (g_bigstack_left < ulii) {
-      goto load_range_list_sortpos_ret_NOMEM2;
+    if (bigstack_left() < ulii) {
+      goto load_range_list_sortpos_ret_NOMEM;
     }
     genedefs[gene_idx] = (uint32_t*)g_bigstack_base;
-    g_bigstack_left -= ulii;
     g_bigstack_base = &(g_bigstack_base[ulii]);
     uiptr = genedefs[gene_idx];
     *uiptr++ = ukk;
@@ -2313,7 +2290,6 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
   while (chrom_idx < chrom_code_end) {
     chrom_bounds[++chrom_idx] = gene_ct;
   }
-  g_bigstack_left += topsize;
   if (fclose_null(&infile)) {
     goto load_range_list_sortpos_ret_READ_FAIL;
   }
@@ -2322,8 +2298,7 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
   *chrom_max_gene_ct_ptr = chrom_max_gene_ct;
   *genedefs_ptr = genedefs;
   while (0) {
-  load_range_list_sortpos_ret_NOMEM2:
-    g_bigstack_left += topsize;
+  load_range_list_sortpos_ret_NOMEM:
     retval = RET_NOMEM;
     break;
   load_range_list_sortpos_ret_OPEN_FAIL:
@@ -2334,12 +2309,14 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
     break;
   }
  load_range_list_sortpos_ret_1:
+  bigstack_end_reset(bigstack_end_mark);
   fclose_cond(infile);
   return retval;
 }
 
 int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
   gzFile gz_attribfile = NULL;
   FILE* infile = NULL;
   FILE* outfile = NULL;
@@ -2366,7 +2343,6 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
   const char constna4str[] = "  NA";
   const char* no_annot_str = (aip->modifier & ANNOT_NA)? constnastr : constdotstr;
   const char* no_sign_str = (aip->modifier & ANNOT_NA)? constna4str : constdot4str;
-  uintptr_t topsize = 0;
   uintptr_t snplist_ct = 0;
   uintptr_t max_snplist_id_len = 0;
   uintptr_t snplist_attr_ct = 0;
@@ -2424,7 +2400,6 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
   uintptr_t* ulptr;
   uint32_t* uiptr;
   uintptr_t loadbuf_size;
-  uintptr_t topsize_bak;
   uintptr_t line_idx;
   uintptr_t range_idx;
   uintptr_t ulii;
@@ -2496,7 +2471,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
       // intermission. extract attribute names from hash table, natural sort,
       //               deallocate hash table
       // 2. save relevant variant IDs and attribute bitfields, then qsort_ext()
-      attr_id_htable = (Ll_str**)top_alloc(&topsize, HASHMEM);
+      attr_id_htable = (Ll_str**)bigstack_end_alloc(HASHMEM);
       for (uii = 0; uii < HASHSIZE; uii++) {
 	attr_id_htable[uii] = NULL;
       }
@@ -2546,7 +2521,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	      }
 #endif
 	      attr_id_ct++;
-	      ll_ptr = top_alloc_llstr(&topsize, slen);
+	      ll_ptr = bigstack_end_alloc_llstr(slen);
 	      if (!ll_ptr) {
 	        goto annotate_ret_NOMEM;
 	      }
@@ -2578,11 +2553,9 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	// attribute repeated over and over again for some reason
 	max_onevar_attr_ct = attr_id_ct;
       }
-      g_bigstack_left -= topsize;
       if (bigstack_alloc_c(attr_id_ct * max_attr_id_len, &sorted_attr_ids)) {
-	goto annotate_ret_NOMEM2;
+	goto annotate_ret_NOMEM;
       }
-      g_bigstack_left += topsize;
       ulii = 0;
       for (uii = 0; uii < HASHSIZE; uii++) {
 	ll_ptr = attr_id_htable[uii];
@@ -2593,7 +2566,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	}
       }
       qsort(sorted_attr_ids, attr_id_ct, max_attr_id_len, strcmp_natural);
-      topsize = 0;
+      bigstack_end_reset(bigstack_end_mark);
       gzrewind(gz_attribfile);
       attr_id_ctl = (attr_id_ct + (BITCT - 1)) / BITCT;
       if (bigstack_alloc_c(snplist_attr_ct * max_snplist_attr_id_len, &sorted_snplist_attr_ids) ||
@@ -2656,7 +2629,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	  logerrprint("Error: --annotate subset IDs are limited to " MAX_ID_LEN_STR " characters.\n");
 	  goto annotate_ret_INVALID_FORMAT;
 	}
-	sorted_subset_ids = (char*)top_alloc(&topsize, subset_ct * max_subset_id_len);
+	sorted_subset_ids = (char*)bigstack_end_alloc(subset_ct * max_subset_id_len);
 	if (!sorted_subset_ids) {
 	  goto annotate_ret_NOMEM;
 	}
@@ -2688,7 +2661,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	LOGPRINTFWW("--annotate ranges: 1 annotation loaded from %s.\n", aip->ranges_fname);
       }
     }
-    topsize = 0;
+    bigstack_end_reset(bigstack_end_mark);
     if (aip->filter_fname) {
       retval = load_range_list_sortpos(aip->filter_fname, border, 0, NULL, 0, chrom_info_ptr, &filter_range_ct, &filter_range_names, &max_filter_range_name_len, &chrom_filter_bounds, &filter_rangedefs, &chrom_max_filter_range_ct, "--annotate filter");
       if (retval) {
@@ -2714,14 +2687,13 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
       // create a master natural-sorted annotation ID list
 
       // this must persist until the output header line has been written
-      merged_attr_idx_buf = (uint32_t*)top_alloc(&topsize, ulii * sizeof(int32_t));
+      merged_attr_idx_buf = (uint32_t*)bigstack_end_alloc(ulii * sizeof(int32_t));
       if (!merged_attr_idx_buf) {
 	goto annotate_ret_NOMEM;
       }
       uii = MAXV((max_range_name_len - 4), max_attr_id_len);
       // this is larger and doesn't need to persist
-      topsize_bak = topsize;
-      merged_attr_ids = (char*)top_alloc(&topsize, ulii * uii);
+      merged_attr_ids = (char*)bigstack_end_alloc(ulii * uii);
       if (!merged_attr_ids) {
 	goto annotate_ret_NOMEM;
       }
@@ -2736,12 +2708,10 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	  *uiptr++ = ujj + 0x80000000U;
 	}
       }
-      g_bigstack_left -= topsize;
       if (qsort_ext(merged_attr_ids, ulii, uii, strcmp_natural_deref, (char*)merged_attr_idx_buf, sizeof(int32_t))) {
-	goto annotate_ret_NOMEM2;
+	goto annotate_ret_NOMEM;
       }
-      g_bigstack_left += topsize;
-      topsize = topsize_bak;
+      bigstack_end_reset(merged_attr_idx_buf);
 
       // similar to collapse_duplicate_ids(), except we need to save lookup
       // info
@@ -2781,9 +2751,8 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
     if (unique_annot_ct > 1000) {
       logerrprint("Warning: Output file may be very large.  Are you sure you want >1000 additional\ncolumns per line?  If not, restart without 'block'.\n");
     }
-    g_bigstack_left -= topsize;
     if (bigstack_alloc_c(unique_annot_ctlw * sizeof(intptr_t), &writebuf)) {
-      goto annotate_ret_NOMEM2;
+      goto annotate_ret_NOMEM;
     }
     ulptr = (uintptr_t*)writebuf;
     for (ulii = 0; ulii < unique_annot_ctlw; ulii++) {
@@ -2803,8 +2772,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
     }
   }
   loadbuf = (char*)g_bigstack_base;
-  loadbuf_size = g_bigstack_left;
-  g_bigstack_left += topsize;
+  loadbuf_size = bigstack_left();
   if (loadbuf_size > MAXLINEBUFLEN) {
     loadbuf_size = MAXLINEBUFLEN;
   } else if (loadbuf_size <= MAXLINELEN) {
@@ -2881,8 +2849,8 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	  fputs(&(sorted_attr_ids[(ujj & 0x7fffffff) * max_attr_id_len]), outfile);
 	}
       }
-      loadbuf_size += topsize;
-      topsize = 0;
+      bigstack_end_reset(bigstack_end_mark);
+      loadbuf_size = bigstack_left();
       if (loadbuf_size > MAXLINEBUFLEN) {
 	loadbuf_size = MAXLINEBUFLEN;
       }
@@ -3149,8 +3117,6 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
     LOGPRINTFWW("--annotate: %" PRIuPTR " row%s annotated; new report written to %s .\n", total_row_ct, (total_row_ct == 1)? "" : "s", outname);
   }
   while (0) {
-  annotate_ret_NOMEM2:
-    g_bigstack_left += topsize;
   annotate_ret_NOMEM:
     retval = RET_NOMEM;
     break;
@@ -3171,7 +3137,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
     break;
   }
  annotate_ret_1:
-  bigstack_reset(bigstack_mark);
+  bigstack_double_reset(bigstack_mark, bigstack_end_mark);
   fclose_cond(infile);
   gzclose_cond(gz_attribfile);
   fclose_cond(outfile);
@@ -3181,9 +3147,9 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t border, char* extractname, const char* snp_field, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr) {
   // similar to define_sets() and --clump
   unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* infile = NULL;
   FILE* outfile = NULL;
-  uintptr_t topsize = 0;
   uintptr_t subset_ct = 0;
   uintptr_t max_subset_id_len = 0;
   uintptr_t extract_ct = 0;
@@ -3257,7 +3223,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       logerrprint("Error: --gene-subset IDs are limited to " MAX_ID_LEN_STR " characters.\n");
       goto gene_report_ret_INVALID_FORMAT;
     }
-    sorted_subset_ids = (char*)top_alloc(&topsize, subset_ct * max_subset_id_len);
+    sorted_subset_ids = (char*)bigstack_end_alloc(subset_ct * max_subset_id_len);
     if (!sorted_subset_ids) {
       goto gene_report_ret_NOMEM;
     }
@@ -3288,11 +3254,9 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       logerrprint("Error: --extract IDs are limited to " MAX_ID_LEN_STR " characters.\n");
       goto gene_report_ret_INVALID_FORMAT;
     }
-    g_bigstack_left -= topsize;
     if (bigstack_alloc_c(extract_ct * max_extract_id_len, &sorted_extract_ids)) {
-      goto gene_report_ret_NOMEM2;
+      goto gene_report_ret_NOMEM;
     }
-    g_bigstack_left += topsize;
     rewind(infile);
     // todo: switch to hash table to avoid sort
     retval = read_tokens(infile, g_textbuf, MAXLINELEN, extract_ct, max_extract_id_len, sorted_extract_ids);
@@ -3310,7 +3274,6 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     }
   }
   retval = load_range_list_sortpos(glist, 0, subset_ct, sorted_subset_ids, max_subset_id_len, chrom_info_ptr, &gene_ct, &gene_names, &max_gene_name_len, &chrom_bounds, &genedefs, &chrom_max_gene_ct, "--gene-report");
-  g_bigstack_left += topsize;
   if (retval) {
     goto gene_report_ret_1;
   }
@@ -3321,7 +3284,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   }
 #endif
 
-  topsize = 0;
+  bigstack_end_reset(bigstack_end_mark);
   // gene_names is sorted primarily by chromosome index, and secondarily by
   // gene name.  Final output will be the other way around, so we need a
   // remapping table.
@@ -3350,14 +3313,14 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   }
   bigstack_reset((unsigned char*)loadbuf);
 
-  if (g_bigstack_left < MAXLINELEN + 64) {
+  linebuf_left = bigstack_left();
+  if (linebuf_left < MAXLINELEN + 64) {
     goto gene_report_ret_NOMEM;
   }
   // mirror g_bigstack_base/g_bigstack_base since we'll be doing
   // nonstandard-size allocations
   linebuf_top = (char*)g_bigstack_base;
-  linebuf_left = g_bigstack_left;
-  gene_match_list_end = (uint64_t*)(&(g_bigstack_base[g_bigstack_left]));
+  gene_match_list_end = (uint64_t*)g_bigstack_end;
   gene_match_list = gene_match_list_end;
 
   header_ptr = linebuf_top;
@@ -3619,8 +3582,6 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       retval = RET_INVALID_FORMAT;
       break;
     }
-  gene_report_ret_NOMEM2:
-    g_bigstack_left += topsize;
   gene_report_ret_NOMEM:
     retval = RET_NOMEM;
     break;
@@ -3641,7 +3602,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     break;
   }
  gene_report_ret_1:
-  bigstack_reset(bigstack_mark);
+  bigstack_double_reset(bigstack_mark, bigstack_end_mark);
   fclose_cond(infile);
   fclose_cond(outfile);
   return retval;

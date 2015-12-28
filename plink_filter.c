@@ -477,7 +477,7 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
       }
     }
   }
-  loadbuf_size = g_bigstack_left;
+  loadbuf_size = bigstack_left();
   if (loadbuf_size > MAXLINEBUFLEN) {
     loadbuf_size = MAXLINEBUFLEN;
   } else if (loadbuf_size <= MAXLINELEN) {
@@ -706,7 +706,7 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
       }
     }
   }
-  loadbuf_size = g_bigstack_left;
+  loadbuf_size = bigstack_left();
   if (loadbuf_size > MAXLINEBUFLEN) {
     loadbuf_size = MAXLINEBUFLEN;
   } else if (loadbuf_size <= MAXLINELEN) {
@@ -839,7 +839,7 @@ int32_t filter_qual_scores(Two_col_params* qual_filter, double qual_min_thresh, 
   memcpy(marker_exclude_orig, marker_exclude, unfiltered_marker_ctl * sizeof(intptr_t));
 
   loadbuf = (char*)g_bigstack_base;
-  loadbuf_size = g_bigstack_left;
+  loadbuf_size = bigstack_left();
   if (loadbuf_size > MAXLINEBUFLEN) {
     loadbuf_size = MAXLINEBUFLEN;
   }
@@ -1081,6 +1081,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
   // 3. check for early exit (no clusters and/or no .zero entries)
   // 4. scan through .bed sequentially, update oblig_missing_..._cts
   unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* infile = NULL;
   char* idbuf = &(g_textbuf[MAXLINELEN]);
   Ll_str* cluster_names = NULL;
@@ -1089,7 +1090,6 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + BITCT2 - 1) / BITCT2;
   uintptr_t sorted_sample_ctl = (sorted_sample_ct + BITCT - 1) / BITCT;
-  uintptr_t topsize = 0;
   uintptr_t max_cluster_id_len = 0;
   uintptr_t possible_distinct_ct = 0;
   uintptr_t missing_cluster_ct = 0;
@@ -1116,7 +1116,6 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
   char* bufptr2;
   int64_t* zc_entries;
   int64_t* zc_entries_end;
-  int64_t* bigstack_end;
   uintptr_t cluster_ct;
   uintptr_t cluster_mct; // doubled if Y chrom present
   uintptr_t marker_uidx;
@@ -1170,7 +1169,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
       }
       bufptr2[slen] = '\0';
       if ((!cluster_names) || (strcmp(cluster_names->ss, bufptr2) && ((!cluster_names->next) || strcmp(cluster_names->next->ss, bufptr2)))) {
-	llptr = top_alloc_llstr(&topsize, slen + 1);
+	llptr = bigstack_end_alloc_llstr(slen + 1);
 	if (!llptr) {
 	  goto load_oblig_missing_ret_NOMEM;
 	}
@@ -1188,16 +1187,14 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
     LOGERRPRINTFWW("Warning: --oblig-missing ignored, since no valid blocks were defined in %s.\n", om_ip->sample_fname);
     goto load_oblig_missing_ret_1;
   }
-  g_bigstack_left -= topsize;
   if (bigstack_alloc_c(possible_distinct_ct * max_cluster_id_len, &cluster_ids)) {
-    goto load_oblig_missing_ret_NOMEM2;
+    goto load_oblig_missing_ret_NOMEM;
   }
   for (ulii = 0; ulii < possible_distinct_ct; ulii++) {
     strcpy(&(cluster_ids[ulii * max_cluster_id_len]), cluster_names->ss);
     cluster_names = cluster_names->next;
   }
-  g_bigstack_left += topsize;
-  topsize = 0;
+  bigstack_end_reset(bigstack_end_mark);
   qsort(cluster_ids, possible_distinct_ct, max_cluster_id_len, strcmp_casted);
   cluster_ct = collapse_duplicate_ids(cluster_ids, possible_distinct_ct, max_cluster_id_len, NULL);
   bigstack_shrink_top(cluster_ids, cluster_ct * max_cluster_id_len);
@@ -1262,7 +1259,6 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
   }
   zc_entries = (int64_t*)g_bigstack_base;
   zc_entries_end = zc_entries;
-  bigstack_end = (int64_t*)(&(g_bigstack_base[g_bigstack_left]));
   if (fopen_checked(om_ip->marker_fname, "r", &infile)) {
     goto load_oblig_missing_ret_OPEN_FAIL;
   }
@@ -1289,7 +1285,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
       slen = strlen_se(bufptr);
       ii = bsearch_str(bufptr, slen, cluster_ids, max_cluster_id_len, cluster_ct);
       if (ii != -1) {
-	if (zc_entries_end == bigstack_end) {
+	if (((unsigned char*)zc_entries_end) == g_bigstack_end) {
           goto load_oblig_missing_ret_NOMEM;
 	}
 	cluster_idx = (uint32_t)ii;
@@ -1356,8 +1352,6 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
   } while (zc_entries < zc_entries_end);
   LOGPRINTF("--oblig-missing: %" PRIu64 " call%s confirmed missing.\n", tot_missing, (tot_missing == 1)? "" : "s");
   while (0) {
-  load_oblig_missing_ret_NOMEM2:
-    g_bigstack_left += topsize;
   load_oblig_missing_ret_NOMEM:
     retval = RET_NOMEM;
     break;
@@ -1373,7 +1367,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
     break;
   }
  load_oblig_missing_ret_1:
-  bigstack_reset(bigstack_mark);
+  bigstack_double_reset(bigstack_mark, bigstack_end_mark);
   fclose_cond(infile);
   return retval;
 }
@@ -2147,7 +2141,7 @@ static inline void haploid_single_marker_freqs(uintptr_t unfiltered_sample_ct, u
   *hethap_incr_ptr = hethap_incr;
 }
 
-int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_exclude_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t* founder_info, int32_t nonfounders, int32_t maf_succ, double* set_allele_freqs, uintptr_t bed_offset, uint32_t hwe_needed, uint32_t hwe_all, uint32_t hardy_needed, uint32_t min_ac, uint32_t max_ac, double geno_thresh, uintptr_t* pheno_nm, uintptr_t* pheno_c, int32_t** hwe_lls_ptr, int32_t** hwe_lhs_ptr, int32_t** hwe_hhs_ptr, int32_t** hwe_ll_cases_ptr, int32_t** hwe_lh_cases_ptr, int32_t** hwe_hh_cases_ptr, int32_t** hwe_ll_allfs_ptr, int32_t** hwe_lh_allfs_ptr, int32_t** hwe_hh_allfs_ptr, int32_t** hwe_hapl_allfs_ptr, int32_t** hwe_haph_allfs_ptr, uintptr_t** geno_excl_bitfield_ptr, uintptr_t** ac_excl_bitfield_ptr, uint32_t* sample_male_ct_ptr, uint32_t* sample_f_ct_ptr, uint32_t* sample_f_male_ct_ptr, uintptr_t* topsize_ptr, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t is_split_chrom, uint32_t* hh_exists_ptr) {
+int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_exclude_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t* founder_info, int32_t nonfounders, int32_t maf_succ, double* set_allele_freqs, uintptr_t bed_offset, uint32_t hwe_needed, uint32_t hwe_all, uint32_t hardy_needed, uint32_t min_ac, uint32_t max_ac, double geno_thresh, uintptr_t* pheno_nm, uintptr_t* pheno_c, int32_t** hwe_lls_ptr, int32_t** hwe_lhs_ptr, int32_t** hwe_hhs_ptr, int32_t** hwe_ll_cases_ptr, int32_t** hwe_lh_cases_ptr, int32_t** hwe_hh_cases_ptr, int32_t** hwe_ll_allfs_ptr, int32_t** hwe_lh_allfs_ptr, int32_t** hwe_hh_allfs_ptr, int32_t** hwe_hapl_allfs_ptr, int32_t** hwe_haph_allfs_ptr, uintptr_t** geno_excl_bitfield_ptr, uintptr_t** ac_excl_bitfield_ptr, uint32_t* sample_male_ct_ptr, uint32_t* sample_f_ct_ptr, uint32_t* sample_f_male_ct_ptr, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t is_split_chrom, uint32_t* hh_exists_ptr) {
   FILE* hhfile = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + BITCT - 1) / BITCT;

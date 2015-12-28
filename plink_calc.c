@@ -2416,7 +2416,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
   FILE* grm_binfile = NULL;
   gzFile grm_gzfile = NULL;
   unsigned char* bigstack_mark = g_bigstack_base;
-  uintptr_t topsize = 0;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t max_sample_id_len = 4;
   uintptr_t unfiltered_sample_ct = 0;
   uintptr_t sample_uidx = 0;
@@ -2490,11 +2490,11 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
   if (bigstack_calloc_ul(unfiltered_sample_ctl, &pheno_nm)) {
     goto unrelated_herit_batch_ret_NOMEM;
   }
-  sorted_ids = (char*)top_alloc(&topsize, unfiltered_sample_ct * max_sample_id_len);
+  sorted_ids = (char*)bigstack_end_alloc(unfiltered_sample_ct * max_sample_id_len);
   if (!sorted_ids) {
     goto unrelated_herit_batch_ret_NOMEM;
   }
-  id_map = (uint32_t*)top_alloc(&topsize, unfiltered_sample_ct * sizeof(int32_t));
+  id_map = (uint32_t*)bigstack_end_alloc(unfiltered_sample_ct * sizeof(int32_t));
   if (!id_map) {
     goto unrelated_herit_batch_ret_NOMEM;
   }
@@ -2518,20 +2518,16 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
   for (sample_uidx = 0; sample_uidx < unfiltered_sample_ct; sample_uidx++) {
     id_map[sample_uidx] = sample_uidx;
   }
-  g_bigstack_left -= topsize;
   if (qsort_ext(sorted_ids, unfiltered_sample_ct, max_sample_id_len, strcmp_deref, (char*)id_map, sizeof(int32_t))) {
-    goto unrelated_herit_batch_ret_NOMEM2;
+    goto unrelated_herit_batch_ret_NOMEM;
   }
-  g_bigstack_left += topsize;
 
   fclose_null(&infile);
   if (fopen_checked(phenoname, "r", &infile)) {
     goto unrelated_herit_batch_ret_OPEN_FAIL;
   }
-  g_bigstack_left -= topsize;
   retval = load_pheno(infile, unfiltered_sample_ct, 0, sorted_ids, max_sample_id_len, id_map, missing_pheno, 0, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d, NULL, 0);
-  g_bigstack_left += topsize;
-  // topsize = 0; (sorted_ids and id_map no longer used)
+  bigstack_end_reset(bigstack_end_mark);
   fclose_null(&infile);
   if (retval) {
     goto unrelated_herit_batch_ret_1;
@@ -2651,8 +2647,6 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
   reml_em_one_trait(matrix_wkbase, pheno_ptr, &unrelated_herit_covg, &unrelated_herit_covr, unrelated_herit_tol, is_strict);
   LOGPRINTF("h^2 estimate: %g\n", unrelated_herit_covg);
   while (0) {
-  unrelated_herit_batch_ret_NOMEM2:
-    g_bigstack_left += topsize;
   unrelated_herit_batch_ret_NOMEM:
     retval = RET_NOMEM;
     break;
@@ -2680,7 +2674,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
   fclose_cond(infile);
   fclose_cond(grm_binfile);
   gzclose_cond(grm_gzfile);
-  bigstack_reset(bigstack_mark);
+  bigstack_double_reset(bigstack_mark, bigstack_end_mark);
   return retval;
 }
 #endif
@@ -6663,10 +6657,10 @@ void copy_set_allele_freqs(uintptr_t marker_uidx, uintptr_t* marker_exclude, uin
 }
 
 int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t noheader, uint32_t conditional_alloc_exclude, uintptr_t** marker_exclude_ptr, uint32_t* marker_ct_ptr, double** main_weights_ptr) {
+  unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* infile = NULL;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t line_idx = 0;
-  uintptr_t topsize = 0;
 
   // special case: weight-0 assignment effectively doesn't exist, but we still
   // want to check for repeated IDs there.
@@ -6685,19 +6679,17 @@ int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_
   uint32_t marker_idx;
   uint32_t idlen;
   uint32_t marker_ct;
-  marker_include = (uintptr_t*)top_alloc(&topsize, unfiltered_marker_ctl * sizeof(intptr_t));
+  marker_include = (uintptr_t*)bigstack_end_alloc(unfiltered_marker_ctl * sizeof(intptr_t));
   if (!marker_include) {
     goto load_distance_wts_ret_NOMEM;
   }
   fill_ulong_zero(marker_include, unfiltered_marker_ctl);
-  main_weights_tmp = (double*)top_alloc(&topsize, unfiltered_marker_ct * sizeof(double));
+  main_weights_tmp = (double*)bigstack_end_alloc(unfiltered_marker_ct * sizeof(double));
   if (!main_weights_tmp) {
     goto load_distance_wts_ret_NOMEM;
   }
-  g_bigstack_left -= topsize;
   bigstack_mark = g_bigstack_base;
   retval = alloc_and_populate_id_htable(unfiltered_marker_ct, *marker_exclude_ptr, *marker_ct_ptr, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
-  g_bigstack_left += topsize;
   if (retval) {
     goto load_distance_wts_ret_1;
   }
@@ -6756,20 +6748,18 @@ int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_
     logerrprint("Error: No valid nonzero entries in --distance-wts file.\n");
     goto load_distance_wts_ret_INVALID_FORMAT;
   }
-  g_bigstack_left -= topsize;
   if ((marker_ct != (*marker_ct_ptr))) {
     if (conditional_alloc_exclude) {
       if (bigstack_alloc_ul(unfiltered_marker_ctl, marker_exclude_ptr)) {
-	goto load_distance_wts_ret_NOMEM2;
+	goto load_distance_wts_ret_NOMEM;
       }
     }
     bitarr_invert_copy(marker_include, unfiltered_marker_ct, *marker_exclude_ptr);
     *marker_ct_ptr = marker_ct;
   }
   if (bigstack_alloc_d(marker_ct, main_weights_ptr)) {
-    goto load_distance_wts_ret_NOMEM2;
+    goto load_distance_wts_ret_NOMEM;
   }
-  g_bigstack_left += topsize;
   dptr = *main_weights_ptr;
   *marker_ct_ptr = marker_ct;
   for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++) {
@@ -6780,10 +6770,7 @@ int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_
       marker_idx++;
     }
   }
-  // topsize = 0;
   while (0) {
-  load_distance_wts_ret_NOMEM2:
-    g_bigstack_left += topsize;
   load_distance_wts_ret_NOMEM:
     retval = RET_NOMEM;
     break;
@@ -6802,6 +6789,7 @@ int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_
     break;
   }
  load_distance_wts_ret_1:
+  bigstack_end_reset(bigstack_end_mark);
   fclose_cond(infile);
   return retval;
 }

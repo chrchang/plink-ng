@@ -78,6 +78,7 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
   // this.  (Possible todo: report a warning exactly once when this happens.)
   // It won't be replicated in PLINK 2.0.
   unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
   uint64_t* edge_list = NULL;
   uint32_t* toposort_queue = NULL;
   char* fids = NULL;
@@ -87,7 +88,6 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
   uintptr_t sample_uidx = next_unset_unsafe(sample_exclude, 0);
   // does *not* use populate_id_htable
   uintptr_t htable_size = geqprime(2 * unfiltered_sample_ct + 1);
-  uintptr_t topsize = 0;
   uintptr_t max_fid_len = 2;
   uintptr_t max_iid_len = 2;
   uint64_t family_code = 0;
@@ -126,8 +126,6 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
   uint64_t trio_code;
   uint64_t edge_code;
   uint64_t ullii;
-  uintptr_t topsize_bak;
-  uintptr_t topsize_bak2;
   uintptr_t family_idx;
   uintptr_t trio_ct;
   uintptr_t trio_idx;
@@ -141,7 +139,7 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
   uint32_t first_sex;
   uint32_t uii;
   int32_t sorted_idx;
-  founder_info2 = (uintptr_t*)top_alloc(&topsize, unfiltered_sample_ctp1l * sizeof(intptr_t));
+  founder_info2 = (uintptr_t*)bigstack_end_alloc(unfiltered_sample_ctp1l * sizeof(intptr_t));
   if (!founder_info2) {
     goto get_trios_and_families_ret_NOMEM;
   }
@@ -151,27 +149,23 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
   } else {
     founder_info2[unfiltered_sample_ctl] = 1;
   }
-  topsize_bak = topsize;
-  trio_list_tmp = (uint64_t*)top_alloc(&topsize, sample_ct * sizeof(int64_t));
+  trio_list_tmp = (uint64_t*)bigstack_end_alloc(sample_ct * sizeof(int64_t));
   if (!trio_list_tmp) {
     goto get_trios_and_families_ret_NOMEM;
   }
-  topsize_bak2 = topsize;
-  sorted_sample_ids = (char*)top_alloc(&topsize, sample_ct * max_sample_id_len);
+  sorted_sample_ids = (char*)bigstack_end_alloc(sample_ct * max_sample_id_len);
   if (!sorted_sample_ids) {
     goto get_trios_and_families_ret_NOMEM;
   }
-  sample_id_map = (uint32_t*)top_alloc(&topsize, sample_ct * sizeof(int32_t));
+  sample_id_map = (uint32_t*)bigstack_end_alloc(sample_ct * sizeof(int32_t));
   if (!sample_id_map) {
     goto get_trios_and_families_ret_NOMEM;
   }
-  idbuf = (char*)top_alloc(&topsize, max_sample_id_len);
+  idbuf = (char*)bigstack_end_alloc(max_sample_id_len);
   if (!idbuf) {
     goto get_trios_and_families_ret_NOMEM;
   }
-  g_bigstack_left -= topsize;
   if (sort_item_ids_noalloc(sorted_sample_ids, sample_id_map, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, 0, 0, strcmp_deref)) {
-    g_bigstack_left += topsize;
     goto get_trios_and_families_ret_1;
   }
   // over-allocate here, we shrink family_list later when we know how many
@@ -179,9 +173,8 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
   if (bigstack_alloc_ull(sample_ct, &family_list) ||
       bigstack_calloc_ull(htable_size, &family_htable) ||
       bigstack_alloc_ui(htable_size, &family_idxs)) {
-    goto get_trios_and_families_ret_NOMEM2;
+    goto get_trios_and_families_ret_NOMEM;
   }
-  g_bigstack_left += topsize;
   // 1. populate family_list (while using family_htable to track duplicates),
   //    determine max_iid_len, count qualifying trios
   trio_write = trio_list_tmp;
@@ -305,32 +298,29 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
   trio_ct = (uintptr_t)(trio_write - trio_list_tmp);
   bigstack_reset(bigstack_mark);
   bigstack_alloc(family_ct * sizeof(int64_t)); // family_list
-  topsize = topsize_bak2;
-  g_bigstack_left -= topsize;
+  bigstack_end_reset(trio_list_tmp);
   if (bigstack_alloc_ull(trio_ct, &trio_write)) {
-    goto get_trios_and_families_ret_NOMEM2;
+    goto get_trios_and_families_ret_NOMEM;
   }
-  g_bigstack_left += topsize;
-  topsize = topsize_bak;
   memcpy(trio_write, trio_list_tmp, trio_ct * sizeof(int64_t));
 #ifdef __cplusplus
   std::sort((int64_t*)trio_write, (int64_t*)(&(trio_write[trio_ct])));
 #else
   qsort(trio_write, trio_ct, sizeof(int64_t), llcmp);
 #endif
-  g_bigstack_left -= topsize;
+  bigstack_end_reset(founder_info2);
   if (bigstack_alloc_ui(trio_ct * (3 + toposort), &trio_lookup)) {
-    goto get_trios_and_families_ret_NOMEM2;
+    goto get_trios_and_families_ret_NOMEM;
   }
   if (fids_ptr) {
     if (bigstack_alloc_c(trio_ct * max_fid_len, &fids) ||
 	bigstack_alloc_c((unfiltered_sample_ct + include_duos) * max_iid_len, &iids)) {
-      goto get_trios_and_families_ret_NOMEM2;
+      goto get_trios_and_families_ret_NOMEM;
     }
   }
   if (toposort) {
     if (bigstack_alloc_ull(trio_ct * 2, &edge_list)) {
-      goto get_trios_and_families_ret_NOMEM2;
+      goto get_trios_and_families_ret_NOMEM;
     }
     // Edge list excludes founder parents; edge codes have parental uidx in
     // high 32 bits, trio idx in low 32.
@@ -354,11 +344,10 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
     }
     bigstack_shrink_top(edge_list, edge_ct * sizeof(int64_t));
     if (bigstack_alloc_ui(trio_ct, &toposort_queue)) {
-      goto get_trios_and_families_ret_NOMEM2;
+      goto get_trios_and_families_ret_NOMEM;
     }
     remaining_edge_ct = edge_ct;
   }
-  g_bigstack_left += topsize;
   *family_list_ptr = family_list;
   *family_ct_ptr = family_ct;
   *trio_list_ptr = trio_write;
@@ -443,8 +432,6 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
     bigstack_reset(edge_list);
   }
   while (0) {
-  get_trios_and_families_ret_NOMEM2:
-    g_bigstack_left += topsize;
   get_trios_and_families_ret_NOMEM:
     retval = RET_NOMEM;
     break;
@@ -458,6 +445,7 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
   if (retval) {
     bigstack_reset(bigstack_mark);
   }
+  bigstack_end_reset(bigstack_end_mark);
   return retval;
 }
 
@@ -2549,11 +2537,11 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   // It's probably appropriate to split this into two functions in the future,
   // one for dfam and one for qfam; the differences make this difficult to
   // maintain.
+  unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
   uintptr_t sample_ctl = (sample_ct + (BITCT - 1)) / BITCT;
   uintptr_t max_merged_id_len = max_fid_len + max_paternal_id_len + max_maternal_id_len + sizeof(int32_t);
   uintptr_t trio_idx = 0;
-  uintptr_t topsize = 0;
   uintptr_t* tmp_within2_founder = NULL;
   uintptr_t* lm_within2_founder = NULL;
   uintptr_t* lm_eligible = NULL;
@@ -2573,8 +2561,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   uint32_t* sample_lm_to_fss_idx;
   uint32_t* fs_starts;
   uint32_t* fss_contents;
-  uintptr_t topsize_bak;
-  uintptr_t topsize_bak2;
+  unsigned char* bigstack_end_mark2;
   uintptr_t cur_sample_ct;
   uintptr_t sample_uidx;
   uintptr_t sample_idx;
@@ -2588,7 +2575,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   if (test_type) {
     if (is_within2) {
       if (bigstack_alloc_ul(sample_ctl, &lm_within2_founder)) {
-	goto get_sibship_info_ret_NOMEM2;
+	goto get_sibship_info_ret_NOMEM;
       }
     }
     if (bigstack_alloc_ul(sample_ctl, &lm_eligible)) {
@@ -2601,7 +2588,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
       goto get_sibship_info_ret_NOMEM;
     }
     // this is the equivalent of PLINK 1.07's family pointers
-    sample_to_fss_idx = (uint32_t*)top_alloc(&topsize, sample_ct * sizeof(int32_t));
+    sample_to_fss_idx = (uint32_t*)bigstack_end_alloc(sample_ct * sizeof(int32_t));
     if (!sample_to_fss_idx) {
       goto get_sibship_info_ret_NOMEM;
     }
@@ -2614,8 +2601,8 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
       goto get_sibship_info_ret_NOMEM;
     }
   }
-  topsize_bak = topsize;
-  not_in_family = (uintptr_t*)top_alloc(&topsize, unfiltered_sample_ctl * sizeof(intptr_t));
+  bigstack_end_mark2 = g_bigstack_end;
+  not_in_family = (uintptr_t*)bigstack_end_alloc(unfiltered_sample_ctl * sizeof(intptr_t));
   if (!not_in_family) {
     goto get_sibship_info_ret_NOMEM;
   }
@@ -2625,23 +2612,22 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   // dependent on the order of samples in the dataset, we now exclude these
   // parents from the QFAM permutation.  (todo: compute an average in this case
   // instead?)
-  sample_uidx_to_idx = (uint32_t*)top_alloc(&topsize, unfiltered_sample_ct * sizeof(int32_t));
+  sample_uidx_to_idx = (uint32_t*)bigstack_end_alloc(unfiltered_sample_ct * sizeof(int32_t));
   if (!sample_uidx_to_idx) {
-    goto get_sibship_info_ret_NOMEM2;
+    goto get_sibship_info_ret_NOMEM;
   }
-  ulptr = (uintptr_t*)top_alloc(&topsize, unfiltered_sample_ctl * sizeof(intptr_t));
+  ulptr = (uintptr_t*)bigstack_end_alloc(unfiltered_sample_ctl * sizeof(intptr_t));
   if (!ulptr) {
-    goto get_sibship_info_ret_NOMEM2;
+    goto get_sibship_info_ret_NOMEM;
   }
-  topsize_bak2 = topsize;
-  ulptr2 = (uintptr_t*)top_alloc(&topsize, unfiltered_sample_ctl * sizeof(intptr_t));
+  ulptr2 = (uintptr_t*)bigstack_end_alloc(unfiltered_sample_ctl * sizeof(intptr_t));
   if (!ulptr2) {
-    goto get_sibship_info_ret_NOMEM2;
+    goto get_sibship_info_ret_NOMEM;
   }
   if (is_within2) {
-    tmp_within2_founder = (uintptr_t*)top_alloc(&topsize, unfiltered_sample_ctl * sizeof(intptr_t));
+    tmp_within2_founder = (uintptr_t*)bigstack_end_alloc(unfiltered_sample_ctl * sizeof(intptr_t));
     if (!tmp_within2_founder) {
-      goto get_sibship_info_ret_NOMEM2;
+      goto get_sibship_info_ret_NOMEM;
     }
     fill_ulong_zero(tmp_within2_founder, unfiltered_sample_ctl);
   }
@@ -2735,18 +2721,16 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
     bitfield_and(ulptr, pheno_nm, unfiltered_sample_ctl);
     bitfield_andnot(ulptr, founder_info, unfiltered_sample_ctl);
   }
-  topsize = topsize_bak2;
+  bigstack_end_reset(ulptr);
 
   // qfam: not a parent or child in a trio, not a founder
   // dfam: not a child in a trio, not a founder; parent ok
 
   cur_sample_ct = popcount_longs(ulptr, unfiltered_sample_ctl);
 
-  g_bigstack_left -= topsize;
   if (bigstack_alloc_ui(1 + family_ct + (cur_sample_ct / 2), &fs_starts)) {
-    goto get_sibship_info_ret_NOMEM2;
+    goto get_sibship_info_ret_NOMEM;
   }
-  g_bigstack_left += topsize;
   family_idx = 0;
   if (trio_ct) {
     fs_starts[0] = 0;
@@ -2763,10 +2747,9 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   }
   if (cur_sample_ct > 1) {
     // identify size-2+ sibships
-    ulii = topsize;
-    merged_ids = (char*)top_alloc(&topsize, max_merged_id_len * cur_sample_ct);
+    merged_ids = (char*)bigstack_end_alloc(max_merged_id_len * cur_sample_ct);
     if (!merged_ids) {
-      goto get_sibship_info_ret_NOMEM2;
+      goto get_sibship_info_ret_NOMEM;
     }
     for (sample_uidx = 0, sample_idx = 0; sample_idx < cur_sample_ct; sample_uidx++, sample_idx++) {
       next_set_ul_unsafe_ck(ulptr, &sample_uidx);
@@ -2821,13 +2804,11 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
       sample_to_fss_idx[ujj] = family_idx + sample_idx;
     }
     *singleton_ct_ptr = ulii;
-    topsize = topsize_bak;
-    g_bigstack_left -= topsize;
+    bigstack_end_reset(bigstack_end_mark2);
     ulii = popcount_longs(lm_eligible, sample_ctl);
     if (bigstack_alloc_ui(ulii, &sample_lm_to_fss_idx)) {
-      goto get_sibship_info_ret_NOMEM2;
+      goto get_sibship_info_ret_NOMEM;
     }
-    g_bigstack_left += topsize;
     for (sample_uidx = 0, sample_idx = 0; sample_idx < ulii; sample_uidx++, sample_idx++) {
       next_set_ul_unsafe_ck(lm_eligible, &sample_uidx);
       sample_lm_to_fss_idx[sample_idx] = sample_to_fss_idx[sample_uidx];
@@ -2840,7 +2821,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
     // bugfix: for DFAM, we also need to prevent size-1 sibships from being
     // included in the unrelated cluster
     if (bigstack_alloc_ul(unfiltered_sample_ctl, size_one_sibships_ptr)) {
-      goto get_sibship_info_ret_NOMEM2;
+      goto get_sibship_info_ret_NOMEM;
     }
     memcpy(*size_one_sibships_ptr, not_in_family, unfiltered_sample_ctl * sizeof(intptr_t));
     bitfield_and(*size_one_sibships_ptr, ulptr, unfiltered_sample_ctl);
@@ -2850,15 +2831,13 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   }
   *fs_starts_ptr = fs_starts;
   *fss_contents_ptr = fss_contents;
-  // topsize = 0;
 
   while (0) {
-  get_sibship_info_ret_NOMEM2:
-    g_bigstack_left += topsize;
   get_sibship_info_ret_NOMEM:
     retval = RET_NOMEM;
     break;
   }
+  bigstack_end_reset(bigstack_end_mark);
   return retval;
 }
 
