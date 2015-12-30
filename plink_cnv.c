@@ -288,7 +288,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
   } else {
     fill_ulong_zero(il_chrom_start_large, chrom_code_end + 1);
   }
-  bigstack_end_alloc(CACHELINE * ((small_interval_ct + large_interval_ct + CACHELINE_INT64 - 1) / CACHELINE_INT64));
+  bigstack_end_alloc(CACHEALIGN_INT64(small_interval_ct + large_interval_ct) * sizeof(int64_t));
   while (0) {
   cnv_intersect_load_ret_NOMEM:
     retval = RET_NOMEM;

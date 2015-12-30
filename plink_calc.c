@@ -2487,15 +2487,9 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
   }
   rewind(infile);
   unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
-  if (bigstack_calloc_ul(unfiltered_sample_ctl, &pheno_nm)) {
-    goto unrelated_herit_batch_ret_NOMEM;
-  }
-  sorted_ids = (char*)bigstack_end_alloc(unfiltered_sample_ct * max_sample_id_len);
-  if (!sorted_ids) {
-    goto unrelated_herit_batch_ret_NOMEM;
-  }
-  id_map = (uint32_t*)bigstack_end_alloc(unfiltered_sample_ct * sizeof(int32_t));
-  if (!id_map) {
+  if (bigstack_calloc_ul(unfiltered_sample_ctl, &pheno_nm) ||
+      bigstack_end_alloc_c(unfiltered_sample_ct * max_sample_id_len, &sorted_ids) ||
+      bigstack_end_alloc_ui(unfiltered_sample_ct, &id_map)) {
     goto unrelated_herit_batch_ret_NOMEM;
   }
   while (fgets(g_textbuf, MAXLINELEN, infile)) {
@@ -6657,6 +6651,7 @@ void copy_set_allele_freqs(uintptr_t marker_uidx, uintptr_t* marker_exclude, uin
 }
 
 int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t noheader, uint32_t conditional_alloc_exclude, uintptr_t** marker_exclude_ptr, uint32_t* marker_ct_ptr, double** main_weights_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* infile = NULL;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
@@ -6667,7 +6662,6 @@ int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_
   uint32_t zcount = 0;
 
   int32_t retval = 0;
-  unsigned char* bigstack_mark;
   uintptr_t* marker_include;
   double* main_weights_tmp;
   double* dptr;
@@ -6679,16 +6673,10 @@ int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_
   uint32_t marker_idx;
   uint32_t idlen;
   uint32_t marker_ct;
-  marker_include = (uintptr_t*)bigstack_end_alloc(unfiltered_marker_ctl * sizeof(intptr_t));
-  if (!marker_include) {
+  if (bigstack_end_calloc_ul(unfiltered_marker_ctl, &marker_include) ||
+      bigstack_end_alloc_d(unfiltered_marker_ct, &main_weights_tmp)) {
     goto load_distance_wts_ret_NOMEM;
   }
-  fill_ulong_zero(marker_include, unfiltered_marker_ctl);
-  main_weights_tmp = (double*)bigstack_end_alloc(unfiltered_marker_ct * sizeof(double));
-  if (!main_weights_tmp) {
-    goto load_distance_wts_ret_NOMEM;
-  }
-  bigstack_mark = g_bigstack_base;
   retval = alloc_and_populate_id_htable(unfiltered_marker_ct, *marker_exclude_ptr, *marker_ct_ptr, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
   if (retval) {
     goto load_distance_wts_ret_1;

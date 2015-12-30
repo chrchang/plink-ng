@@ -11743,9 +11743,9 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
       goto homog_assoc_ret_NOMEM;
     }
   }
-  ulii = ((cluster_ct + (BITCT - 1)) / BITCT);
-  cluster_bitfield = (uintptr_t*)bigstack_end_alloc(ulii * sizeof(intptr_t));
-  fill_ulong_zero(cluster_bitfield, ulii);
+  if (bigstack_end_calloc_ul((cluster_ct + (BITCT - 1)) / BITCT, &cluster_bitfield)) {
+    goto homog_assoc_ret_NOMEM;
+  }
   // Factor out common initialization with cmh_assoc().
   retval = cluster_assoc_init("--homog", unfiltered_sample_ct, pheno_nm, pheno_c, sex_male, cluster_ct, cluster_map, cluster_starts, cluster_bitfield, &pheno_nm_11, &pheno_nm_nonmale_11, &pheno_nm_male_11, &sample_to_cluster_pheno, &cluster_pheno_gtots, &cur_cluster_pheno_gtots, &cluster_geno_cts, &loadbuf_raw, &cluster_ct2);
   if (retval) {

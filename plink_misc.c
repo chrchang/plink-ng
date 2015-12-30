@@ -4238,19 +4238,15 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   int32_t delta1;
   int32_t delta2;
   int32_t deltam;
-  marker_id_htable = (uint32_t*)bigstack_end_alloc(marker_id_htable_size * sizeof(int32_t));
-  if (!marker_id_htable) {
+  if (bigstack_end_alloc_ui(marker_id_htable_size, &marker_id_htable)) {
     goto score_report_ret_NOMEM;
   }
   retval = populate_id_htable(unfiltered_marker_ct, marker_exclude_orig, marker_ct, marker_ids, max_marker_id_len, 0, marker_id_htable, marker_id_htable_size);
   if (retval) {
     goto score_report_ret_1;
   }
-  dptr = (double*)bigstack_end_alloc(unfiltered_marker_ct * sizeof(double));
-  if (!dptr) {
-    goto score_report_ret_NOMEM;
-  }
-  if (bigstack_alloc_ul(unfiltered_marker_ctl, &marker_exclude) ||
+  if (bigstack_end_alloc_d(unfiltered_marker_ct, &dptr) ||
+      bigstack_alloc_ul(unfiltered_marker_ctl, &marker_exclude) ||
       bigstack_calloc_ul(unfiltered_marker_ctl, &a2_effect)) {
     goto score_report_ret_NOMEM;
   }
@@ -4423,11 +4419,8 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   LOGPRINTF("--score: %u valid predictor%s loaded.\n", cur_marker_ct, (cur_marker_ct == 1)? "" : "s");
   if (sc_ip->data_fname) {
     effect_sizes_cur = dptr; // not collapsed yet
-    dptr = (double*)bigstack_end_alloc(unfiltered_marker_ct * sizeof(double));
-    if (!dptr) {
-      goto score_report_ret_NOMEM;
-    }
-    if (bigstack_alloc_ul(unfiltered_marker_ctl, &marker_exclude_main)) {
+    if (bigstack_end_alloc_d(unfiltered_marker_ct, &dptr) ||
+        bigstack_alloc_ul(unfiltered_marker_ctl, &marker_exclude_main)) {
       goto score_report_ret_NOMEM;
     }
     fill_all_bits(marker_exclude_main, unfiltered_marker_ct);
@@ -5721,12 +5714,9 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   // bp coordinate, if present, expands from 4 to 5 bytes
   master_var_entry_len = slen_base + use_map + max_var_id_len_p1 + combined_allele_len_byte_width;
   loadbuf_size = (line_max + 15) & (~15);
-  loadbuf = (char*)bigstack_end_alloc(loadbuf_size);
-  if (!loadbuf) {
-    goto meta_analysis_ret_NOMEM;
-  }
-  master_var_list = (char*)bigstack_end_alloc(final_variant_ct * master_var_entry_len);
-  if ((!master_var_list) || (((uintptr_t)htable_write) > ((uintptr_t)master_var_list))) {
+  if (bigstack_end_alloc_c(loadbuf_size, &loadbuf) ||
+      bigstack_end_alloc_c(final_variant_ct * master_var_entry_len, &master_var_list) ||
+      (((uintptr_t)htable_write) > ((uintptr_t)master_var_list))) {
     goto meta_analysis_ret_NOMEM;
   }
   // instead of following hash table pointers, we just plow through the table

@@ -636,6 +636,7 @@
 #define CACHEALIGN(val) (((val) + (CACHELINE - 1)) & (~(CACHELINE - ONELU)))
 #define CACHEALIGN_BIT(val) (((val) + (CACHELINE_BIT - 1)) & (~(CACHELINE_BIT - ONELU)))
 #define CACHEALIGN_INT32(val) (((val) + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - ONELU)))
+#define CACHEALIGN_INT64(val) (((val) + (CACHELINE_INT64 - 1)) & (~(CACHELINE_INT64 - ONELU)))
 #define CACHEALIGN_WORD(val) (((val) + (CACHELINE_WORD - 1)) & (~(CACHELINE_WORD - ONELU)))
 #define CACHEALIGN_DBL(val) (((val) + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - ONELU)))
 
@@ -646,6 +647,7 @@
 #define CACHEALIGN32(val) (((val) + (CACHELINE - 1)) & (~(CACHELINE - 1)))
 #define CACHEALIGN32_BIT(val) (((val) + (CACHELINE_BIT - 1)) & (~(CACHELINE_BIT - 1)))
 #define CACHEALIGN32_INT32(val) (((val) + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1)))
+#define CACHEALIGN32_INT64(val) (((val) + (CACHELINE_INT64 - 1)) & (~(CACHELINE_INT64 - 1)))
 #define CACHEALIGN32_WORD(val) (((val) + (CACHELINE_WORD - 1)) & (~(CACHELINE_WORD - 1)))
 #define CACHEALIGN32_DBL(val) (((val) + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
 
@@ -968,9 +970,9 @@ unsigned char* bigstack_alloc(uintptr_t size);
 
 // Typesafe, return-0-iff-success interfaces.  (See also bigstack_calloc_...
 // further below.)
-static inline int32_t bigstack_alloc_c(uintptr_t ct, char** dc_ptr) {
-  *dc_ptr = (char*)bigstack_alloc(ct);
-  return !(*dc_ptr);
+static inline int32_t bigstack_alloc_c(uintptr_t ct, char** cp_ptr) {
+  *cp_ptr = (char*)bigstack_alloc(ct);
+  return !(*cp_ptr);
 }
 
 static inline int32_t bigstack_alloc_d(uintptr_t ct, double** dp_ptr) {
@@ -1039,9 +1041,56 @@ unsigned char* bigstack_end_alloc(uintptr_t size);
 
 #define bigstack_end_aligned_alloc bigstack_end_alloc
 
-static inline Ll_str* bigstack_end_alloc_llstr(uint32_t size) {
-  return (Ll_str*)bigstack_end_alloc(size + sizeof(Ll_str));
+static inline int32_t bigstack_end_alloc_c(uintptr_t ct, char** cp_ptr) {
+  *cp_ptr = (char*)bigstack_end_alloc(ct);
+  return !(*cp_ptr);
 }
+
+static inline int32_t bigstack_end_alloc_d(uintptr_t ct, double** dp_ptr) {
+  *dp_ptr = (double*)bigstack_end_alloc(ct * sizeof(double));
+  return !(*dp_ptr);
+}
+
+static inline int32_t bigstack_end_alloc_f(uintptr_t ct, float** fp_ptr) {
+  *fp_ptr = (float*)bigstack_end_alloc(ct * sizeof(float));
+  return !(*fp_ptr);
+}
+
+static inline int32_t bigstack_end_alloc_i(uintptr_t ct, int32_t** ip_ptr) {
+  *ip_ptr = (int32_t*)bigstack_end_alloc(ct * sizeof(int32_t));
+  return !(*ip_ptr);
+}
+
+static inline int32_t bigstack_end_alloc_uc(uintptr_t ct, unsigned char** ucp_ptr) {
+  *ucp_ptr = bigstack_end_alloc(ct);
+  return !(*ucp_ptr);
+}
+
+static inline int32_t bigstack_end_alloc_ui(uintptr_t ct, uint32_t** uip_ptr) {
+  *uip_ptr = (uint32_t*)bigstack_end_alloc(ct * sizeof(int32_t));
+  return !(*uip_ptr);
+}
+
+static inline int32_t bigstack_end_alloc_ul(uintptr_t ct, uintptr_t** ulp_ptr) {
+  *ulp_ptr = (uintptr_t*)bigstack_end_alloc(ct * sizeof(intptr_t));
+  return !(*ulp_ptr);
+}
+
+static inline int32_t bigstack_end_alloc_ll(uintptr_t ct, int64_t** llp_ptr) {
+  *llp_ptr = (int64_t*)bigstack_end_alloc(ct * sizeof(int64_t));
+  return !(*llp_ptr);
+}
+
+static inline int32_t bigstack_end_alloc_ull(uintptr_t ct, uint64_t** ullp_ptr) {
+  *ullp_ptr = (uint64_t*)bigstack_end_alloc(ct * sizeof(int64_t));
+  return !(*ullp_ptr);
+}
+
+static inline int32_t bigstack_end_alloc_llstr(uintptr_t str_bytes, Ll_str** llstrp_ptr) {
+  *llstrp_ptr = (Ll_str*)bigstack_end_alloc(str_bytes + sizeof(Ll_str));
+  return !(*llstrp_ptr);
+}
+
 
 static inline int32_t is_letter(unsigned char ucc) {
   return (((ucc & 192) == 64) && (((ucc - 1) & 31) < 26));
@@ -1798,8 +1847,8 @@ int32_t bigstack_calloc_ul(uintptr_t ct, uintptr_t** ulp_ptr);
 
 int32_t bigstack_calloc_ull(uintptr_t ct, uint64_t** ullp_ptr);
 
-static inline int32_t bigstack_calloc_c(uintptr_t ct, char** dc_ptr) {
-  return bigstack_calloc_uc(ct, (unsigned char**)dc_ptr);
+static inline int32_t bigstack_calloc_c(uintptr_t ct, char** cp_ptr) {
+  return bigstack_calloc_uc(ct, (unsigned char**)cp_ptr);
 }
 
 static inline int32_t bigstack_calloc_i(uintptr_t ct, int32_t** ip_ptr) {
@@ -1808,6 +1857,30 @@ static inline int32_t bigstack_calloc_i(uintptr_t ct, int32_t** ip_ptr) {
 
 static inline int32_t bigstack_calloc_ll(uintptr_t ct, int64_t** llp_ptr) {
   return bigstack_calloc_ull(ct, (uint64_t**)llp_ptr);
+}
+
+int32_t bigstack_end_calloc_uc(uintptr_t ct, unsigned char** ucp_ptr);
+
+int32_t bigstack_end_calloc_d(uintptr_t ct, double** dp_ptr);
+
+int32_t bigstack_end_calloc_f(uintptr_t ct, float** fp_ptr);
+
+int32_t bigstack_end_calloc_ui(uintptr_t ct, uint32_t** uip_ptr);
+
+int32_t bigstack_end_calloc_ul(uintptr_t ct, uintptr_t** ulp_ptr);
+
+int32_t bigstack_end_calloc_ull(uintptr_t ct, uint64_t** ullp_ptr);
+
+static inline int32_t bigstack_end_calloc_c(uintptr_t ct, char** cp_ptr) {
+  return bigstack_end_calloc_uc(ct, (unsigned char**)cp_ptr);
+}
+
+static inline int32_t bigstack_end_calloc_i(uintptr_t ct, int32_t** ip_ptr) {
+  return bigstack_end_calloc_ui(ct, (uint32_t**)ip_ptr);
+}
+
+static inline int32_t bigstack_end_calloc_ll(uintptr_t ct, int64_t** llp_ptr) {
+  return bigstack_end_calloc_ull(ct, (uint64_t**)llp_ptr);
 }
 
 

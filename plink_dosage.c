@@ -1245,8 +1245,9 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       qsort(batch_sizes, infile_ct, sizeof(int32_t), intcmp2);
 #endif
       bigstack_alloc_ui(infile_ct, &batch_sizes);
+
       // temporary batch size buffer
-      uiptr3 = (uint32_t*)bigstack_end_alloc(infile_ct * sizeof(int32_t));
+      bigstack_end_alloc_ui(infile_ct, &uiptr3);
 
       uii = batch_sizes[0];
       uiptr2 = &(batch_sizes[1]);
@@ -1274,8 +1275,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       }
 
       // batch numbers
-      uiptr = (uint32_t*)bigstack_end_alloc(batch_ct * sizeof(int32_t));
-      if (!uiptr) {
+      if (bigstack_end_alloc_ui(batch_ct, &uiptr)) {
 	goto plink1_dosage_ret_NOMEM;
       }
       memcpy(uiptr, batch_sizes, batch_ct * sizeof(int32_t));

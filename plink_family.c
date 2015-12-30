@@ -139,8 +139,11 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
   uint32_t first_sex;
   uint32_t uii;
   int32_t sorted_idx;
-  founder_info2 = (uintptr_t*)bigstack_end_alloc(unfiltered_sample_ctp1l * sizeof(intptr_t));
-  if (!founder_info2) {
+  if (bigstack_end_alloc_ul(unfiltered_sample_ctp1l, &founder_info2) ||
+      bigstack_end_alloc_ull(sample_ct, &trio_list_tmp) ||
+      bigstack_end_alloc_c(sample_ct * max_sample_id_len, &sorted_sample_ids) ||
+      bigstack_end_alloc_ui(sample_ct, &sample_id_map) ||
+      bigstack_end_alloc_c(max_sample_id_len, &idbuf)) {
     goto get_trios_and_families_ret_NOMEM;
   }
   memcpy(founder_info2, founder_info, unfiltered_sample_ctl * sizeof(intptr_t));
@@ -148,22 +151,6 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
     SET_BIT(founder_info2, unfiltered_sample_ct);
   } else {
     founder_info2[unfiltered_sample_ctl] = 1;
-  }
-  trio_list_tmp = (uint64_t*)bigstack_end_alloc(sample_ct * sizeof(int64_t));
-  if (!trio_list_tmp) {
-    goto get_trios_and_families_ret_NOMEM;
-  }
-  sorted_sample_ids = (char*)bigstack_end_alloc(sample_ct * max_sample_id_len);
-  if (!sorted_sample_ids) {
-    goto get_trios_and_families_ret_NOMEM;
-  }
-  sample_id_map = (uint32_t*)bigstack_end_alloc(sample_ct * sizeof(int32_t));
-  if (!sample_id_map) {
-    goto get_trios_and_families_ret_NOMEM;
-  }
-  idbuf = (char*)bigstack_end_alloc(max_sample_id_len);
-  if (!idbuf) {
-    goto get_trios_and_families_ret_NOMEM;
   }
   if (sort_item_ids_noalloc(sorted_sample_ids, sample_id_map, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, 0, 0, strcmp_deref)) {
     goto get_trios_and_families_ret_1;
@@ -2588,8 +2575,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
       goto get_sibship_info_ret_NOMEM;
     }
     // this is the equivalent of PLINK 1.07's family pointers
-    sample_to_fss_idx = (uint32_t*)bigstack_end_alloc(sample_ct * sizeof(int32_t));
-    if (!sample_to_fss_idx) {
+    if (bigstack_end_alloc_ui(sample_ct, &sample_to_fss_idx)) {
       goto get_sibship_info_ret_NOMEM;
     }
   } else {
@@ -2602,41 +2588,30 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
     }
   }
   bigstack_end_mark2 = g_bigstack_end;
-  not_in_family = (uintptr_t*)bigstack_end_alloc(unfiltered_sample_ctl * sizeof(intptr_t));
-  if (!not_in_family) {
-    goto get_sibship_info_ret_NOMEM;
-  }
 
-  // Temporary bitfields used to track which parents are (i) part of multiple
-  // families, and (ii) not a child in any of them.  To ensure results are not
-  // dependent on the order of samples in the dataset, we now exclude these
-  // parents from the QFAM permutation.  (todo: compute an average in this case
-  // instead?)
-  sample_uidx_to_idx = (uint32_t*)bigstack_end_alloc(unfiltered_sample_ct * sizeof(int32_t));
-  if (!sample_uidx_to_idx) {
-    goto get_sibship_info_ret_NOMEM;
-  }
-  ulptr = (uintptr_t*)bigstack_end_alloc(unfiltered_sample_ctl * sizeof(intptr_t));
-  if (!ulptr) {
-    goto get_sibship_info_ret_NOMEM;
-  }
-  ulptr2 = (uintptr_t*)bigstack_end_alloc(unfiltered_sample_ctl * sizeof(intptr_t));
-  if (!ulptr2) {
+  if (bigstack_end_alloc_ul(unfiltered_sample_ctl, &not_in_family) ||
+
+      // Temporary bitfields used to track which parents are (i) part of
+      // multiple families, and (ii) not a child in any of them.  To ensure
+      // results are not dependent on the order of samples in the dataset, we
+      // now exclude these parents from the QFAM permutation.  (todo: compute
+      // an average in this case instead?)
+      // ulptr = is a double-parent
+      // ulptr2 = is a child
+      bigstack_end_alloc_ui(unfiltered_sample_ct, &sample_uidx_to_idx) ||
+      bigstack_end_calloc_ul(unfiltered_sample_ctl, &ulptr) ||
+      bigstack_end_calloc_ul(unfiltered_sample_ctl, &ulptr2)) {
     goto get_sibship_info_ret_NOMEM;
   }
   if (is_within2) {
-    tmp_within2_founder = (uintptr_t*)bigstack_end_alloc(unfiltered_sample_ctl * sizeof(intptr_t));
-    if (!tmp_within2_founder) {
+    if (bigstack_end_calloc_ul(unfiltered_sample_ctl, &tmp_within2_founder)) {
       goto get_sibship_info_ret_NOMEM;
     }
-    fill_ulong_zero(tmp_within2_founder, unfiltered_sample_ctl);
   }
 
   bitarr_invert_copy(sample_exclude, unfiltered_sample_ct, not_in_family);
   fill_uint_one(sample_to_fss_idx, sample_ct);
   fill_uidx_to_idx(sample_exclude, unfiltered_sample_ct, sample_ct, sample_uidx_to_idx);
-  fill_ulong_zero(ulptr, unfiltered_sample_ctl); // is a double-parent
-  fill_ulong_zero(ulptr2, unfiltered_sample_ctl); // is a child
   if (family_ct) {
     // iterate over all parents
     while (1) {
@@ -2747,8 +2722,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   }
   if (cur_sample_ct > 1) {
     // identify size-2+ sibships
-    merged_ids = (char*)bigstack_end_alloc(max_merged_id_len * cur_sample_ct);
-    if (!merged_ids) {
+    if (bigstack_end_alloc_c(max_merged_id_len * cur_sample_ct, &merged_ids)) {
       goto get_sibship_info_ret_NOMEM;
     }
     for (sample_uidx = 0, sample_idx = 0; sample_idx < cur_sample_ct; sample_uidx++, sample_idx++) {

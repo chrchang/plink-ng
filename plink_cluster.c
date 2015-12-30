@@ -76,7 +76,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
   uint32_t* cluster_starts;
   uint32_t* tmp_cluster_starts;
   uintptr_t line_idx;
-  Ll_str* llptr;
+  Ll_str* ll_ptr;
   char* sorted_ids;
   uint32_t* id_map;
   char* fam_id;
@@ -90,7 +90,9 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
   uint32_t uii;
   g_textbuf[MAXLINELEN - 1] = ' ';
   if (cluster_filter) {
-    sample_exclude_new = (uintptr_t*)bigstack_end_alloc(unfiltered_sample_ctl * sizeof(intptr_t));
+    if (bigstack_end_alloc_ul(unfiltered_sample_ctl, &sample_exclude_new)) {
+      goto load_clusters_ret_NOMEM;
+    }
     if (keep_flattened || keep_fname) {
       if (keep_flattened) {
 	cluster_kr_ct = count_and_measure_multistr(keep_flattened, &max_cluster_kr_len);
@@ -122,8 +124,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 	}
       }
       fill_all_bits(sample_exclude_new, unfiltered_sample_ct);
-      sorted_keep_ids = (char*)bigstack_end_alloc(cluster_kr_ct * max_cluster_kr_len);
-      if (!sorted_keep_ids) {
+      if (bigstack_end_alloc_c(cluster_kr_ct * max_cluster_kr_len, &sorted_keep_ids)) {
 	goto load_clusters_ret_NOMEM;
       }
       ulii = 0;
@@ -155,13 +156,10 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
       cluster_kr_ct = collapse_duplicate_ids(sorted_keep_ids, cluster_kr_ct, max_cluster_kr_len, NULL);
       if (remove_flattened || remove_fname) {
 	bigstack_end_mark2 = g_bigstack_end;
-	ulii = (cluster_kr_ct + (BITCT - 1)) / BITCT;
 	// track deletions
-	already_seen = (uintptr_t*)bigstack_end_alloc(ulii * sizeof(intptr_t));
-	if (!already_seen) {
+	if (bigstack_end_calloc_ul((cluster_kr_ct + (BITCT - 1)) / BITCT, &already_seen)) {
 	  goto load_clusters_ret_NOMEM;
 	}
-	fill_ulong_zero(already_seen, ulii);
 	if (remove_flattened) {
 	  cluster_name_ptr = remove_flattened;
 	  do {
@@ -234,8 +232,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 	}
       }
       if (cluster_kr_ct) {
-	sorted_remove_ids = (char*)bigstack_end_alloc(cluster_kr_ct * max_cluster_kr_len);
-	if (!sorted_remove_ids) {
+	if (bigstack_end_alloc_c(cluster_kr_ct * max_cluster_kr_len, &sorted_remove_ids)) {
 	  goto load_clusters_ret_NOMEM;
 	}
 	ulii = 0;
@@ -272,20 +269,12 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
   }
 
   if (fname) {
-    sorted_ids = (char*)bigstack_end_alloc(sample_ct * max_sample_id_len);
-    if (!sorted_ids) {
+    if (bigstack_end_alloc_c(sample_ct * max_sample_id_len, &sorted_ids) ||
+        bigstack_end_alloc_ui(sample_ct, &id_map) ||
+        bigstack_end_calloc_ul(sample_ctl, &already_seen)) {
       goto load_clusters_ret_NOMEM;
     }
-    id_map = (uint32_t*)bigstack_end_alloc(sample_ct * sizeof(int32_t));
-    if (!id_map) {
-      goto load_clusters_ret_NOMEM;
-    }
-    bigstack_end_mark2 = g_bigstack_end;
-    already_seen = (uintptr_t*)bigstack_end_alloc(sample_ctl * sizeof(intptr_t));
-    if (!already_seen) {
-      goto load_clusters_ret_NOMEM;
-    }
-    fill_ulong_zero(already_seen, sample_ctl);
+    bigstack_end_mark2 = (unsigned char*)id_map;
     retval = sort_item_ids_noalloc(sorted_ids, id_map, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, 0, 0, strcmp_deref);
     if (retval) {
       goto load_clusters_ret_1;
@@ -349,13 +338,12 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
       cluster_name_ptr[slen] = '\0';
       // do NOT optimize common case because current logic uses
       // collapse_duplicate_ids() last parameter to determine cluster sizes
-      llptr = bigstack_end_alloc_llstr(slen + 1);
-      if (!llptr) {
+      if (bigstack_end_alloc_llstr(slen + 1, &ll_ptr)) {
 	goto load_clusters_ret_NOMEM;
       }
-      llptr->next = cluster_names;
-      memcpy(llptr->ss, cluster_name_ptr, slen + 1);
-      cluster_names = llptr;
+      ll_ptr->next = cluster_names;
+      memcpy(ll_ptr->ss, cluster_name_ptr, slen + 1);
+      cluster_names = ll_ptr;
       assigned_ct++;
     }
     if (!feof(infile)) {
@@ -378,8 +366,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
       // deallocate cluster ID linked list and duplicate sample ID detector
       // from top of stack, allocate cluster size tracker
       bigstack_end_reset(bigstack_end_mark2);
-      tmp_cluster_starts = (uint32_t*)bigstack_end_alloc(assigned_ct * sizeof(int32_t));
-      if (!tmp_cluster_starts) {
+      if (bigstack_end_alloc_ui(assigned_ct, &tmp_cluster_starts)) {
 	goto load_clusters_ret_NOMEM;
       }
       // may as well use natural sort of cluster names
@@ -513,8 +500,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
       slen = (uintptr_t)((char*)memchr(cluster_name_ptr, '\t', max_sample_id_len) - cluster_name_ptr);
       memcpyx(&(cluster_ids[sample_idx * max_cluster_id_len]), cluster_name_ptr, slen, '\0');
     }
-    tmp_cluster_starts = (uint32_t*)bigstack_end_alloc(assigned_ct * sizeof(int32_t));
-    if (!tmp_cluster_starts) {
+    if (bigstack_end_alloc_ui(assigned_ct, &tmp_cluster_starts)) {
       goto load_clusters_ret_NOMEM;
     }
     qsort(cluster_ids, assigned_ct, max_cluster_id_len, strcmp_natural);

@@ -330,7 +330,9 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       if (uii > max_set_id_len) {
 	max_set_id_len = uii;
       }
-      ll_tmp = bigstack_end_alloc_llstr(uii);
+      if (bigstack_end_alloc_llstr(uii, &ll_tmp)) {
+        goto load_range_list_ret_NOMEM;
+      }
       ll_tmp->next = make_set_ll;
       if (marker_pos) {
         memcpy(ll_tmp->ss, bufptr3, uii);
@@ -371,7 +373,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       logerrprint("Error: Set IDs are limited to " MAX_ID_LEN_STR " characters.\n");
       goto load_range_list_ret_INVALID_FORMAT;
     }
-    if (bigstack_alloc_c(set_ct, set_names_ptr)) {
+    if (bigstack_alloc_c(set_ct * max_set_id_len, set_names_ptr)) {
       goto load_range_list_ret_NOMEM;
     }
     set_names = *set_names_ptr;
@@ -395,6 +397,9 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
     set_ct = 1;
   }
   make_set_range_arr = (Make_set_range**)bigstack_end_alloc(set_ct * sizeof(intptr_t));
+  if (!make_set_range_arr) {
+    goto load_range_list_ret_NOMEM;
+  }
   for (set_idx = 0; set_idx < set_ct; set_idx++) {
     make_set_range_arr[set_idx] = NULL;
   }
@@ -513,7 +518,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
     }
   }
   if (range_sort_buf_ptr) {
-    *range_sort_buf_ptr = (uint64_t*)bigstack_end_alloc(uii * sizeof(int64_t));
+    bigstack_end_alloc_ull(uii, range_sort_buf_ptr);
   }
   if (set_ct_ptr) {
     *set_ct_ptr = set_ct;
@@ -1029,8 +1034,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	  goto define_sets_ret_EXCLUDE_ALL_MARKERS_ALLOWED;
 	}
       }
-      sorted_genekeep_ids = (char*)bigstack_end_alloc(genekeep_ct * max_genekeep_len);
-      if (!sorted_genekeep_ids) {
+      if (bigstack_end_alloc_c(genekeep_ct * max_genekeep_len, &sorted_genekeep_ids)) {
 	goto define_sets_ret_NOMEM;
       }
       bufptr = sip->genekeep_flattened;
@@ -1092,8 +1096,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       logerrprint("Error: Subset IDs are limited to " MAX_ID_LEN_STR " characters.\n");
       goto define_sets_ret_INVALID_FORMAT;
     }
-    sorted_subset_ids = (char*)bigstack_end_alloc(subset_ct * max_subset_id_len);
-    if (!sorted_subset_ids) {
+    if (bigstack_end_alloc_c(subset_ct * max_subset_id_len, &sorted_subset_ids)) {
       goto define_sets_ret_NOMEM;
     }
     if (sip->subset_fname) {
@@ -1134,15 +1137,10 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   // 4. if --gene or --gene-all is present, pre-filter variants.
   if (gene_all || sip->genekeep_flattened) {
     bigstack_end_mark2 = g_bigstack_end;
-    marker_bitfield_tmp = (uintptr_t*)bigstack_end_alloc(unfiltered_marker_ctl * sizeof(intptr_t));
-    if (!marker_bitfield_tmp) {
+    if (bigstack_end_calloc_ul(unfiltered_marker_ctl, &marker_bitfield_tmp) ||
+        bigstack_end_alloc_ul(unfiltered_marker_ctl, &marker_exclude_new)) {
       goto define_sets_ret_NOMEM;
     }
-    marker_exclude_new = (uintptr_t*)bigstack_end_alloc(unfiltered_marker_ctl * sizeof(intptr_t));
-    if (!marker_exclude_new) {
-      goto define_sets_ret_NOMEM;
-    }
-    fill_ulong_zero(marker_bitfield_tmp, unfiltered_marker_ctl);
     fill_all_bits(marker_exclude_new, unfiltered_marker_ct);
     // then include every variant that appears, or include every variant that
     // fails to appear in a fully loaded set in the complement case
@@ -1161,12 +1159,8 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	}
       }
     } else {
-      sorted_marker_ids = (char*)bigstack_end_alloc(marker_ct * max_marker_id_len);
-      if (!sorted_marker_ids) {
-	goto define_sets_ret_NOMEM;
-      }
-      marker_id_map = (uint32_t*)bigstack_end_alloc(marker_ct * sizeof(int32_t));
-      if (!marker_id_map) {
+      if (bigstack_end_alloc_c(marker_ct * max_marker_id_len, &sorted_marker_ids) ||
+          bigstack_end_alloc_ui(marker_ct, &marker_id_map)) {
 	goto define_sets_ret_NOMEM;
       }
       retval = sort_item_ids_noalloc(sorted_marker_ids, marker_id_map, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
@@ -1359,8 +1353,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     rewind(infile);
   }
   // 6. allocate sip->names[], setdefs[] on stack
-  marker_uidx_to_idx = (uint32_t*)bigstack_end_alloc(unfiltered_marker_ct * sizeof(int32_t));
-  if (!marker_uidx_to_idx) {
+  if (bigstack_end_alloc_ui(unfiltered_marker_ct, &marker_uidx_to_idx)) {
     goto define_sets_ret_NOMEM;
   }
   fill_uidx_to_idx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_uidx_to_idx);
@@ -1473,16 +1466,9 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     // guarantee two free bits at end to simplify loop termination checks (may
     // want to default to doing this...)
     marker_ctp2l = (marker_ct + (BITCT + 1)) / BITCT;
-    marker_bitfield_tmp = (uintptr_t*)bigstack_end_alloc(marker_ctp2l * sizeof(intptr_t));
-    if (!marker_bitfield_tmp) {
-      goto define_sets_ret_NOMEM;
-    }
-    sorted_marker_ids = (char*)bigstack_end_alloc(marker_ct * max_marker_id_len);
-    if (!sorted_marker_ids) {
-      goto define_sets_ret_NOMEM;
-    }
-    marker_id_map = (uint32_t*)bigstack_end_alloc(marker_ct * sizeof(int32_t));
-    if (!marker_id_map) {
+    if (bigstack_end_alloc_ul(marker_ctp2l, &marker_bitfield_tmp) ||
+        bigstack_end_alloc_c(marker_ct * max_marker_id_len, &sorted_marker_ids) ||
+        bigstack_end_alloc_ui(marker_ct, &marker_id_map)) {
       goto define_sets_ret_NOMEM;
     }
     retval = sort_item_ids_noalloc(sorted_marker_ids, marker_id_map, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, 1, strcmp_deref);
@@ -2104,12 +2090,8 @@ uint32_t setdefs_compress(Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, 
   if (!new_setdefs) {
     return 1;
   }
-  cur_bitfield = (uintptr_t*)bigstack_end_alloc(marker_ctlv * sizeof(intptr_t));
-  if (!cur_bitfield) {
-    return 1;
-  }
-  marker_midx_to_idx = (uint32_t*)bigstack_end_alloc(marker_ct_orig * sizeof(int32_t));
-  if (!marker_midx_to_idx) {
+  if (bigstack_end_alloc_ul(marker_ctlv, &cur_bitfield) ||
+      bigstack_end_alloc_ui(marker_ct_orig, &marker_midx_to_idx)) {
     bigstack_end_reset(bigstack_end_mark);
     return 1;
   }
@@ -2472,6 +2454,9 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
       //               deallocate hash table
       // 2. save relevant variant IDs and attribute bitfields, then qsort_ext()
       attr_id_htable = (Ll_str**)bigstack_end_alloc(HASHMEM);
+      if (!attr_id_htable) {
+	goto annotate_ret_NOMEM;
+      }
       for (uii = 0; uii < HASHSIZE; uii++) {
 	attr_id_htable[uii] = NULL;
       }
@@ -2521,8 +2506,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	      }
 #endif
 	      attr_id_ct++;
-	      ll_ptr = bigstack_end_alloc_llstr(slen);
-	      if (!ll_ptr) {
+	      if (bigstack_end_alloc_llstr(slen, &ll_ptr)) {
 	        goto annotate_ret_NOMEM;
 	      }
 	      ll_ptr->next = NULL;
@@ -2629,8 +2613,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	  logerrprint("Error: --annotate subset IDs are limited to " MAX_ID_LEN_STR " characters.\n");
 	  goto annotate_ret_INVALID_FORMAT;
 	}
-	sorted_subset_ids = (char*)bigstack_end_alloc(subset_ct * max_subset_id_len);
-	if (!sorted_subset_ids) {
+	if (bigstack_end_alloc_c(subset_ct * max_subset_id_len, &sorted_subset_ids)) {
 	  goto annotate_ret_NOMEM;
 	}
 	rewind(infile);
@@ -2686,15 +2669,11 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
       }
       // create a master natural-sorted annotation ID list
 
-      // this must persist until the output header line has been written
-      merged_attr_idx_buf = (uint32_t*)bigstack_end_alloc(ulii * sizeof(int32_t));
-      if (!merged_attr_idx_buf) {
-	goto annotate_ret_NOMEM;
-      }
       uii = MAXV((max_range_name_len - 4), max_attr_id_len);
-      // this is larger and doesn't need to persist
-      merged_attr_ids = (char*)bigstack_end_alloc(ulii * uii);
-      if (!merged_attr_ids) {
+      // this must persist until the output header line has been written
+      if (bigstack_end_alloc_ui(ulii, &merged_attr_idx_buf) ||
+          // this is larger and doesn't need to persist
+          bigstack_end_alloc_c(ulii * uii, &merged_attr_ids)) {
 	goto annotate_ret_NOMEM;
       }
       uiptr = merged_attr_idx_buf;
@@ -3223,8 +3202,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       logerrprint("Error: --gene-subset IDs are limited to " MAX_ID_LEN_STR " characters.\n");
       goto gene_report_ret_INVALID_FORMAT;
     }
-    sorted_subset_ids = (char*)bigstack_end_alloc(subset_ct * max_subset_id_len);
-    if (!sorted_subset_ids) {
+    if (bigstack_end_alloc_c(subset_ct * max_subset_id_len, &sorted_subset_ids)) {
       goto gene_report_ret_NOMEM;
     }
     rewind(infile);

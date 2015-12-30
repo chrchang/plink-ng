@@ -3611,6 +3611,60 @@ int32_t bigstack_calloc_ull(uintptr_t ct, uint64_t** ullp_ptr) {
   return 0;
 }
 
+int32_t bigstack_end_calloc_uc(uintptr_t ct, unsigned char** ucp_ptr) {
+  *ucp_ptr = (unsigned char*)bigstack_end_alloc(ct);
+  if (!(*ucp_ptr)) {
+    return 1;
+  }
+  memset(*ucp_ptr, 0, ct);
+  return 0;
+}
+
+int32_t bigstack_end_calloc_d(uintptr_t ct, double** dp_ptr) {
+  *dp_ptr = (double*)bigstack_end_alloc(ct * sizeof(double));
+  if (!(*dp_ptr)) {
+    return 1;
+  }
+  fill_double_zero(*dp_ptr, ct);
+  return 0;
+}
+
+int32_t bigstack_end_calloc_f(uintptr_t ct, float** fp_ptr) {
+  *fp_ptr = (float*)bigstack_end_alloc(ct * sizeof(float));
+  if (!(*fp_ptr)) {
+    return 1;
+  }
+  fill_float_zero(*fp_ptr, ct);
+  return 0;
+}
+
+int32_t bigstack_end_calloc_ui(uintptr_t ct, uint32_t** uip_ptr) {
+  *uip_ptr = (uint32_t*)bigstack_end_alloc(ct * sizeof(int32_t));
+  if (!(*uip_ptr)) {
+    return 1;
+  }
+  fill_uint_zero(*uip_ptr, ct);
+  return 0;
+}
+
+int32_t bigstack_end_calloc_ul(uintptr_t ct, uintptr_t** ulp_ptr) {
+  *ulp_ptr = (uintptr_t*)bigstack_end_alloc(ct * sizeof(intptr_t));
+  if (!(*ulp_ptr)) {
+    return 1;
+  }
+  fill_ulong_zero(*ulp_ptr, ct);
+  return 0;
+}
+
+int32_t bigstack_end_calloc_ull(uintptr_t ct, uint64_t** ullp_ptr) {
+  *ullp_ptr = (uint64_t*)bigstack_end_alloc(ct * sizeof(int64_t));
+  if (!(*ullp_ptr)) {
+    return 1;
+  }
+  fill_ull_zero(*ullp_ptr, ct);
+  return 0;
+}
+
 
 // MurmurHash3, from
 // https://code.google.com/p/smhasher/source/browse/trunk/MurmurHash3.cpp

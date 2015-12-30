@@ -11764,14 +11764,13 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   // 4. dump .ldset file if necessary
   loadbuf = (uintptr_t*)bigstack_end_alloc(unfiltered_sample_ct4);
   if (!loadbuf) {
+    // separate since unfiltered_sample_ct4 is a byte, not word, count
     goto construct_ld_map_ret_NOMEM;
   }
-  load2_bitfield = (uintptr_t*)bigstack_end_alloc(marker_ctv * sizeof(intptr_t));
-  if (!load2_bitfield) {
-    goto construct_ld_map_ret_NOMEM;
-  }
-  tmp_set_bitfield = (uintptr_t*)bigstack_end_alloc(marker_ctv * sizeof(intptr_t));
-  if (!tmp_set_bitfield) {
+  if (bigstack_end_alloc_ul(marker_ctv, &load2_bitfield) ||
+      bigstack_end_alloc_ul(marker_ctv, &tmp_set_bitfield) ||
+      bigstack_end_alloc_ul(founder_ctv2, &founder_include2) ||
+      bigstack_end_alloc_ul(founder_ctv2, &founder_male_include2)) {
     goto construct_ld_map_ret_NOMEM;
   }
   // bugfix: last word might not be initialized by unpack_set().  Also
@@ -11779,14 +11778,6 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   // implementation change.
   tmp_set_bitfield[marker_ctv - 2] = 0;
   tmp_set_bitfield[marker_ctv - 1] = 0;
-  founder_include2 = (uintptr_t*)bigstack_end_alloc(founder_ctv2 * sizeof(intptr_t));
-  if (!founder_include2) {
-    goto construct_ld_map_ret_NOMEM;
-  }
-  founder_male_include2 = (uintptr_t*)bigstack_end_alloc(founder_ctv2 * sizeof(intptr_t));
-  if (!founder_male_include2) {
-    goto construct_ld_map_ret_NOMEM;
-  }
   g_ld_load2_bitfield = load2_bitfield;
   alloc_collapsed_haploid_filters(unfiltered_sample_ct, founder_ct, XMHH_EXISTS | hh_exists, 1, founder_pnm, sex_male, &founder_include2, &founder_male_include2);
   memreq2 = founder_ct_192_long * sizeof(intptr_t) * 2 + 4;
@@ -11827,13 +11818,13 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     }
     g_ld_block_idx1 = marker_idx;
     g_ld_idx1_block_size = idx1_block_size;
-    geno1 = (uintptr_t*)bigstack_end_alloc(idx1_block_size * founder_ct_192_long * sizeof(intptr_t));
-    geno_masks1 = (uintptr_t*)bigstack_end_alloc(idx1_block_size * founder_ct_192_long * sizeof(intptr_t));
-    g_ld_missing_cts1 = (uint32_t*)bigstack_end_alloc(idx1_block_size * sizeof(int32_t));
-    geno2 = (uintptr_t*)bigstack_end_alloc(idx2_block_size * founder_ct_192_long * sizeof(intptr_t));
-    geno_masks2 = (uintptr_t*)bigstack_end_alloc(idx2_block_size * founder_ct_192_long * sizeof(intptr_t));
-    g_ld_missing_cts2 = (uint32_t*)bigstack_end_alloc(idx2_block_size * sizeof(int32_t));
-    result_bitfield = (uintptr_t*)bigstack_end_alloc(idx1_block_size * marker_ctv * sizeof(intptr_t));
+    bigstack_end_alloc_ul(idx1_block_size * founder_ct_192_long, &geno1);
+    bigstack_end_alloc_ul(idx1_block_size * founder_ct_192_long, &geno_masks1);
+    bigstack_end_alloc_ui(idx1_block_size, &g_ld_missing_cts1);
+    bigstack_end_alloc_ul(idx2_block_size * founder_ct_192_long, &geno2);
+    bigstack_end_alloc_ul(idx2_block_size * founder_ct_192_long, &geno_masks2);
+    bigstack_end_alloc_ui(idx2_block_size, &g_ld_missing_cts2);
+    bigstack_end_alloc_ul(idx1_block_size * marker_ctv, &result_bitfield);
     uljj = founder_trail_ct + 2;
     for (ulii = 1; ulii <= idx1_block_size; ulii++) {
       fill_ulong_zero(&(geno1[ulii * founder_ct_192_long - uljj]), uljj);

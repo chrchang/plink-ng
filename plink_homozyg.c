@@ -2504,71 +2504,31 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   }
 
   if (bigstack_alloc_ul(chrom_ct + 1, &roh_list_chrom_starts) ||
-      bigstack_alloc_ul(unfiltered_sample_ctl2, &rawbuf)) {
-    goto calc_homozyg_ret_NOMEM;
-  }
-
-  readbuf = (uintptr_t*)bigstack_end_alloc(sample_ctl2 * window_size * sizeof(intptr_t));
-  if (!readbuf) {
-    goto calc_homozyg_ret_NOMEM;
-  }
-  swbuf = (uintptr_t*)bigstack_end_alloc(sample_ctl * window_size * sizeof(intptr_t));
-  if (!swbuf) {
-    goto calc_homozyg_ret_NOMEM;
-  }
-  het_cts = (uint32_t*)bigstack_end_alloc(sample_ct * sizeof(int32_t));
-  if (!het_cts) {
-    goto calc_homozyg_ret_NOMEM;
-  }
-  missing_cts = (uint32_t*)bigstack_end_alloc(sample_ct * sizeof(int32_t));
-  if (!missing_cts) {
-    goto calc_homozyg_ret_NOMEM;
-  }
-  swhit_cts = (uint32_t*)bigstack_end_alloc(sample_ct * sizeof(int32_t));
-  if (!swhit_cts) {
-    goto calc_homozyg_ret_NOMEM;
-  }
-  cur_roh_uidx_starts = (uint32_t*)bigstack_end_alloc(sample_ct * sizeof(int32_t));
-  if (!cur_roh_uidx_starts) {
-    goto calc_homozyg_ret_NOMEM;
-  }
-  cur_roh_cidx_starts = (uint32_t*)bigstack_end_alloc(sample_ct * sizeof(int32_t));
-  if (!cur_roh_cidx_starts) {
+      bigstack_alloc_ul(unfiltered_sample_ctl2, &rawbuf) ||
+      bigstack_end_alloc_ul(sample_ctl2 * window_size, &readbuf) ||
+      bigstack_end_alloc_ul(sample_ctl * window_size, &swbuf) ||
+      bigstack_end_alloc_ui(sample_ct, &het_cts) ||
+      bigstack_end_alloc_ui(sample_ct, &missing_cts) ||
+      bigstack_end_alloc_ui(sample_ct, &swhit_cts) ||
+      bigstack_end_alloc_ui(sample_ct, &cur_roh_uidx_starts) ||
+      bigstack_end_alloc_ui(sample_ct, &cur_roh_cidx_starts)) {
     goto calc_homozyg_ret_NOMEM;
   }
   if (hp->modifier & HOMOZYG_EXTEND) {
-    prev_roh_end_cidxs = (uint32_t*)bigstack_end_alloc(sample_ct * sizeof(int32_t));
-    if (!prev_roh_end_cidxs) {
-      goto calc_homozyg_ret_NOMEM;
-    }
-    end_nonhom_uidxs = (uint32_t*)bigstack_end_alloc(sample_ct * sizeof(int32_t));
-    if (!end_nonhom_uidxs) {
-      goto calc_homozyg_ret_NOMEM;
-    }
-    cur_roh_earliest_extend_uidxs = (uint32_t*)bigstack_end_alloc(sample_ct * sizeof(int32_t));
-    if (!cur_roh_earliest_extend_uidxs) {
+    if (bigstack_end_alloc_ui(sample_ct, &prev_roh_end_cidxs) ||
+        bigstack_end_alloc_ui(sample_ct, &end_nonhom_uidxs) ||
+        bigstack_end_alloc_ui(sample_ct, &cur_roh_earliest_extend_uidxs)) {
       goto calc_homozyg_ret_NOMEM;
     }
   }
-  cur_roh_het_cts = (uint32_t*)bigstack_end_alloc(sample_ct * sizeof(int32_t));
-  if (!cur_roh_het_cts) {
-    goto calc_homozyg_ret_NOMEM;
-  }
-  cur_roh_missing_cts = (uint32_t*)bigstack_end_alloc(sample_ct * sizeof(int32_t));
-  if (!cur_roh_missing_cts) {
-    goto calc_homozyg_ret_NOMEM;
-  }
-  sample_to_last_roh = (uintptr_t*)bigstack_end_alloc(sample_ct * sizeof(intptr_t));
-  if (!sample_to_last_roh) {
-    goto calc_homozyg_ret_NOMEM;
-  }
-  uidx_buf = (uint32_t*)bigstack_end_alloc(window_size * sizeof(int32_t));
-  if (!uidx_buf) {
+  if (bigstack_end_alloc_ui(sample_ct, &cur_roh_het_cts) ||
+      bigstack_end_alloc_ui(sample_ct, &cur_roh_missing_cts) ||
+      bigstack_end_alloc_ul(sample_ct, &sample_to_last_roh) ||
+      bigstack_end_alloc_ui(window_size, &uidx_buf)) {
     goto calc_homozyg_ret_NOMEM;
   }
   if ((x_code != -1) && is_set(chrom_info_ptr->chrom_mask, x_code)) {
-    sample_male = (uintptr_t*)bigstack_end_alloc(sample_ctl * sizeof(intptr_t));
-    if (!sample_male) {
+    if (bigstack_end_alloc_ul(sample_ctl, &sample_male)) {
       goto calc_homozyg_ret_NOMEM;
     }
     collapse_copy_bitarr(sample_ct, sex_male, sample_exclude, popcount_longs_exclude(sex_male, sample_exclude, sample_ctl), sample_male);

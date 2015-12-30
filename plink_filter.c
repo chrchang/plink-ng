@@ -1099,7 +1099,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
   int32_t y_code = chrom_info_ptr->y_code;
   uint32_t y_present = ((y_code != -1) && is_set(chrom_info_ptr->chrom_mask, y_code));
   int32_t retval = 0;
-  Ll_str* llptr;
+  Ll_str* ll_ptr;
   uintptr_t* loadbuf;
   uintptr_t* loadbuf_end;
   uintptr_t* cluster_zmask2s;
@@ -1169,13 +1169,12 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
       }
       bufptr2[slen] = '\0';
       if ((!cluster_names) || (strcmp(cluster_names->ss, bufptr2) && ((!cluster_names->next) || strcmp(cluster_names->next->ss, bufptr2)))) {
-	llptr = bigstack_end_alloc_llstr(slen + 1);
-	if (!llptr) {
+	if (bigstack_end_alloc_llstr(slen + 1, &ll_ptr)) {
 	  goto load_oblig_missing_ret_NOMEM;
 	}
-	llptr->next = cluster_names;
-	memcpy(llptr->ss, bufptr2, slen + 1);
-	cluster_names = llptr;
+	ll_ptr->next = cluster_names;
+	memcpy(ll_ptr->ss, bufptr2, slen + 1);
+	cluster_names = ll_ptr;
 	possible_distinct_ct++;
       }
     }
