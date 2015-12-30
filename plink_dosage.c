@@ -987,7 +987,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     LOGERRPRINTF("Error: No %s pass QC.\n", g_species_plural);
     goto plink1_dosage_ret_ALL_SAMPLES_EXCLUDED;
   }
-  sample_cta4 = (sample_ct + 3) & (~3);
+  sample_cta4 = round_up_pow2(sample_ct, 4);
   sample_ctl = (sample_ct + (BITCT - 1)) / BITCT;
   uii = do_glm && pheno_d;
   if (g_thread_ct > 1) {
@@ -1044,7 +1044,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     }
   }
   param_ct = covar_ct + 2;
-  param_cta4 = (param_ct + 3) & (~3);
+  param_cta4 = round_up_pow2(param_ct, 4);
   bitfield_andnot(pheno_nm, sample_exclude, unfiltered_sample_ctl);
   if (pheno_c) {
     bitfield_and(pheno_c, pheno_nm, unfiltered_sample_ctl);

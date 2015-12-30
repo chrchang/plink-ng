@@ -1033,7 +1033,7 @@ static inline void mult_tmatrix_nxd_vect_d(const float* tm, const float* vect, f
   __m128 r2;
   __m128 r3;
   __m128 r4;
-  uintptr_t col_cta4 = (col_ct + 3) & (~3);
+  uintptr_t col_cta4 = round_up_pow2(col_ct, 4);
   uint32_t row_idx = 0;
   uint32_t row_ctm3;
   uint32_t col_idx;
@@ -1124,7 +1124,7 @@ static inline void mult_tmatrix_nxd_vect_d(const float* tm, const float* vect, f
 }
 
 static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, float* dest, uint32_t col_ct, uint32_t row_ct) {
-  uintptr_t col_cta4 = (col_ct + 3) & (~3);
+  uintptr_t col_cta4 = round_up_pow2(col_ct, 4);
   uint32_t row_idx = 0;
   const float* mm_ptr;
   __m128 s1;
@@ -1349,7 +1349,7 @@ static inline void compute_v_and_p_minus_y(float* pp, float* vv, const float* yy
 }
 
 static inline void mult_tmatrix_nxd_vect_d(const float* tm, const float* vect, float* dest, uint32_t col_ct, uint32_t row_ct) {
-  uintptr_t col_cta4 = (col_ct + 3) & (~3);
+  uintptr_t col_cta4 = round_up_pow2(col_ct, 4);
   const float* tm_ptr;
   float vect_val;
   uint32_t col_idx;
@@ -1365,7 +1365,7 @@ static inline void mult_tmatrix_nxd_vect_d(const float* tm, const float* vect, f
 }
 
 static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, float* dest, uint32_t col_ct, uint32_t row_ct) {
-  uintptr_t col_cta4 = (col_ct + 3) & (~3);
+  uintptr_t col_cta4 = round_up_pow2(col_ct, 4);
   const float* mm_ptr;
   const float* vect_ptr;
   uint32_t row_idx;
@@ -1451,8 +1451,8 @@ static inline void compute_two_plus_one_triple_product(const float* bb, const fl
 #endif
 
 static inline void compute_hessian(const float* mm, const float* vv, float* dest, uint32_t col_ct, uint32_t row_ct) {
-  uintptr_t col_cta4 = (col_ct + 3) & (~3);
-  uintptr_t row_cta4 = (row_ct + 3) & (~3);
+  uintptr_t col_cta4 = round_up_pow2(col_ct, 4);
+  uintptr_t row_cta4 = round_up_pow2(row_ct, 4);
   uintptr_t row_cta4p1 = row_cta4 + 1;
   const float* mm_cur;
   uint32_t row_ctm3;
@@ -1484,7 +1484,7 @@ static inline void compute_hessian(const float* mm, const float* vv, float* dest
 void solve_linear_system(const float* ll, const float* yy, float* xx, uint32_t dd) {
   // if we're ever able to produce 32-bit Linux builds with statically linked
   // LAPACK, we might want to use it in place of this hardcoded stuff
-  uintptr_t dim_cta4 = (dd + 3) & (~3);
+  uintptr_t dim_cta4 = round_up_pow2(dd, 4);
   const float* ll_ptr;
   float* xx_ptr;
   uint32_t row_idx;
@@ -1510,7 +1510,7 @@ void solve_linear_system(const float* ll, const float* yy, float* xx, uint32_t d
 }
 
 float compute_wald(const float* ll, uint32_t dd, float* xbuf) {
-  uintptr_t dim_cta4 = (dd + 3) & (~3);
+  uintptr_t dim_cta4 = round_up_pow2(dd, 4);
   uint32_t row_idx = 0;
   const float* ll_ptr;
   float* xbuf_ptr;
@@ -1533,7 +1533,7 @@ float compute_wald(const float* ll, uint32_t dd, float* xbuf) {
 }
 
 void cholesky_decomposition(const float* aa, float* ll, uint32_t dd) {
-  uintptr_t dim_cta4 = (dd + 3) & (~3);
+  uintptr_t dim_cta4 = round_up_pow2(dd, 4);
   uintptr_t dim_cta4p1 = dim_cta4 + 1;
   float* ll_ptr;
   float* ll_ptr2;
@@ -1592,7 +1592,7 @@ uint32_t logistic_regression(uint32_t sample_ct, uint32_t param_ct, float* vv, f
   // pp    = final likelihoods minus Y[]
   //
   // Returns 0 on success, 1 on convergence failure.
-  uintptr_t param_cta4 = (param_ct + 3) & (~3);
+  uintptr_t param_cta4 = round_up_pow2(param_ct, 4);
   uint32_t iteration = 0;
   float min_delta_coef = 1e9;
   float delta_coef;
@@ -1660,7 +1660,7 @@ uint32_t glm_logistic(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t sa
   //   also need to add restart logic.)
   // * covars_cov_major must now have 16-byte aligned rows.
   // Returns number of regression failures.
-  uintptr_t param_cta4 = (param_ct + 3) & (~3);
+  uintptr_t param_cta4 = round_up_pow2(param_ct, 4);
   uintptr_t param_ct_p1 = param_ct + 1;
   uintptr_t param_ct_msi = param_ct - skip_intercept;
   uintptr_t joint_test_requested = (constraints_con_major? 1 : 0);
@@ -2221,7 +2221,7 @@ uint32_t glm_fill_design_float(uintptr_t* loadbuf_collapsed, float* fixed_covars
     return missing_ct;
   }
   cur_sample_valid_ct = sample_valid_ct - missing_ct;
-  cur_sample_valid_cta4 = (cur_sample_valid_ct + 3) & (~3);
+  cur_sample_valid_cta4 = round_up_pow2(cur_sample_valid_ct, 4);
   align_skip = cur_sample_valid_cta4 - cur_sample_valid_ct;
   for (sample_idx = 0; sample_idx < cur_sample_valid_ct; sample_idx++) {
     *fptr++ = 1;
@@ -2901,7 +2901,7 @@ THREAD_RET_TYPE glm_logistic_adapt_thread(void* arg) {
   double adaptive_ci_zt = g_adaptive_ci_zt;
   double aperm_alpha = g_aperm_alpha;
   uintptr_t cur_param_ct = g_cur_param_ct;
-  uintptr_t cur_param_cta4 = (cur_param_ct + 3) & (~3);
+  uintptr_t cur_param_cta4 = round_up_pow2(cur_param_ct, 4);
   uintptr_t cur_constraint_ct = g_cur_constraint_ct;
   uint32_t coding_flags = g_coding_flags;
   uint32_t glm_xchr_model = g_glm_xchr_model;
@@ -3040,7 +3040,7 @@ THREAD_RET_TYPE glm_linear_maxt_thread(void* arg) {
   uintptr_t* loadbuf = g_loadbuf;
   uint32_t* adapt_m_table = &(g_adapt_m_table[marker_bidx]);
   double* perm_pmajor = g_perm_pmajor;
-  uintptr_t perm_vec_ctcl8m = CACHEALIGN32_DBL(perm_vec_ct);
+  uintptr_t perm_vec_ctcl8m = round_up_pow2(perm_vec_ct, CACHELINE_DBL);
   double* __restrict__ results = &(g_maxt_thread_results[perm_vec_ctcl8m * tidx]);
   unsigned char* __restrict__ perm_adapt_stop = g_perm_adapt_stop;
   uint32_t* __restrict__ perm_fail_cts = g_perm_attempt_ct;
@@ -3215,7 +3215,7 @@ THREAD_RET_TYPE glm_logistic_maxt_thread(void* arg) {
   uintptr_t* loadbuf = g_loadbuf;
   uint32_t* adapt_m_table = &(g_adapt_m_table[marker_bidx]);
   uintptr_t* perm_vecs = g_perm_vecs;
-  uintptr_t perm_vec_ctcl8m = CACHEALIGN32_DBL(perm_vec_ct);
+  uintptr_t perm_vec_ctcl8m = round_up_pow2(perm_vec_ct, CACHELINE_DBL);
   double* __restrict__ results = &(g_maxt_thread_results[perm_vec_ctcl8m * tidx]);
   unsigned char* __restrict__ perm_adapt_stop = g_perm_adapt_stop;
   uint32_t* __restrict__ perm_fail_cts = g_perm_attempt_ct;
@@ -3223,7 +3223,7 @@ THREAD_RET_TYPE glm_logistic_maxt_thread(void* arg) {
   uintptr_t* joint_test_params = g_joint_test_params;
   double* __restrict__ orig_stats = g_orig_stats;
   uintptr_t cur_param_ct = g_cur_param_ct;
-  uintptr_t cur_param_cta4 = (cur_param_ct + 3) & (~3);
+  uintptr_t cur_param_cta4 = round_up_pow2(cur_param_ct, 4);
   uintptr_t cur_constraint_ct = g_cur_constraint_ct;
   uint32_t coding_flags = g_coding_flags;
   uint32_t glm_xchr_model = g_glm_xchr_model;
@@ -3462,7 +3462,7 @@ THREAD_RET_TYPE glm_logistic_set_thread(void* arg) {
   uintptr_t* perm_vecs = g_perm_vecs;
   uintptr_t cur_param_ct = g_cur_param_ct;
   uintptr_t param_ct_m1 = cur_param_ct - 1;
-  uintptr_t cur_param_cta4 = (cur_param_ct + 3) & (~3);
+  uintptr_t cur_param_cta4 = round_up_pow2(cur_param_ct, 4);
   uint32_t coding_flags = g_coding_flags;
   uint32_t glm_xchr_model = g_glm_xchr_model;
   uintptr_t condition_list_start_idx = g_condition_list_start_idx;
@@ -4762,8 +4762,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	max_thread_ct = uii;
       }
       if (!perm_adapt_nst) {
-	ulii = CACHEALIGN32_DBL(perm_batch_size);
-        if (bigstack_alloc_d(ulii * max_thread_ct, &g_maxt_thread_results) ||
+        if (bigstack_alloc_d(round_up_pow2(perm_batch_size, CACHELINE_DBL) * max_thread_ct, &g_maxt_thread_results) ||
             bigstack_calloc_d(perms_total, &g_maxt_extreme_stat)) {
           goto glm_linear_assoc_ret_NOMEM;
 	}
@@ -4794,7 +4793,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       if (!g_perm_cluster_ct) {
 	goto glm_linear_assoc_ret_NO_PERMUTATION_CLUSTERS;
       }
-      if (bigstack_alloc_ui(max_thread_ct * CACHEALIGN_INT32(g_perm_cluster_ct), &g_perm_qt_cluster_thread_wkspace) ||
+      if (bigstack_alloc_ui(max_thread_ct * round_up_pow2(g_perm_cluster_ct, CACHELINE_INT32), &g_perm_qt_cluster_thread_wkspace) ||
           bigstack_alloc_ui(sample_valid_ct, &g_perm_sample_to_cluster)) {
 	goto glm_linear_assoc_ret_NOMEM;
       }
@@ -5317,7 +5316,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	}
 	glm_linear_maxt_thread((void*)ulii);
 	join_threads(threads, g_assoc_thread_ct);
-        ulii = CACHEALIGN32_DBL(g_perm_vec_ct);
+        ulii = round_up_pow2(g_perm_vec_ct, CACHELINE_DBL);
 	ukk = g_perms_done + g_perm_vec_ct;
         for (uii = 0; uii < g_assoc_thread_ct; uii++) {
           dptr = &(g_maxt_thread_results[uii * ulii]);
@@ -6026,11 +6025,11 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     }
     goto glm_logistic_assoc_ret_1;
   }
-  sample_valid_cta4 = (sample_valid_ct + 3) & (~3);
+  sample_valid_cta4 = round_up_pow2(sample_valid_ct, 4);
   sample_valid_ctv = 2 * ((sample_valid_ct + (2 * BITCT - 1)) / (2 * BITCT));
   sample_valid_ctv2 = 2 * ((sample_valid_ct + BITCT - 1) / BITCT);
   final_mask = get_final_mask(sample_valid_ct);
-  param_ct_maxa4 = (param_ct_max + 3) & (~3);
+  param_ct_maxa4 = round_up_pow2(param_ct_max, 4);
   if (bigstack_alloc_d(marker_initial_ct, &g_orig_stats) ||
       bigstack_alloc_c(param_ctx_max * max_param_name_len, &param_names) ||
       bigstack_alloc_f((variation_in_sex + interaction_start_idx - condition_list_start_idx) * sample_valid_ct, &g_fixed_covars_cov_major_f) ||
@@ -6273,8 +6272,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	max_thread_ct = uii;
       }
       if (!perm_adapt_nst) {
-	ulii = CACHEALIGN32_DBL(perm_batch_size);
-        if (bigstack_alloc_d(ulii * max_thread_ct, &g_maxt_thread_results) ||
+        if (bigstack_alloc_d(round_up_pow2(perm_batch_size, CACHELINE_DBL) * max_thread_ct, &g_maxt_thread_results) ||
             bigstack_calloc_d(perms_total, &g_maxt_extreme_stat)) {
           goto glm_logistic_assoc_ret_NOMEM;
 	}
@@ -6591,7 +6589,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	g_nm_cts[marker_idx3] = cur_sample_valid_ct;
 	if (cur_sample_valid_ct > cur_param_ct) {
 	  // todo: try better starting position
-	  fill_float_zero(g_logistic_mt[0].coef, (cur_param_ct + 3) & (~3));
+	  fill_float_zero(g_logistic_mt[0].coef, round_up_pow2(cur_param_ct, 4));
 	  regression_fail = glm_logistic(1, cur_param_ct, cur_sample_valid_ct, cur_missing_ct, skip_intercept, loadbuf_ptr, g_logistic_mt[0].cur_covars_cov_major, pheno_c_collapsed, g_logistic_mt[0].coef, g_logistic_mt[0].pp, g_logistic_mt[0].sample_1d_buf, g_logistic_mt[0].pheno_buf, g_logistic_mt[0].param_1d_buf, g_logistic_mt[0].param_1d_buf2, g_logistic_mt[0].param_2d_buf, g_logistic_mt[0].param_2d_buf2, g_logistic_mt[0].regression_results, cur_constraint_ct, constraints_con_major, g_logistic_mt[0].param_1d_dbuf, g_logistic_mt[0].param_2d_dbuf, g_logistic_mt[0].param_2d_dbuf2, g_logistic_mt[0].param_df_dbuf, g_logistic_mt[0].df_df_dbuf, g_logistic_mt[0].mi_buf, g_logistic_mt[0].df_dbuf, g_logistic_mt[0].perm_fails);
 	} else {
 	  regression_fail = 1;
@@ -6755,7 +6753,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	}
 	glm_logistic_maxt_thread((void*)ulii);
 	join_threads(threads, g_assoc_thread_ct);
-        ulii = CACHEALIGN32_DBL(g_perm_vec_ct);
+        ulii = round_up_pow2(g_perm_vec_ct, CACHELINE_DBL);
 	ukk = g_perms_done + g_perm_vec_ct;
         for (uii = 0; uii < g_assoc_thread_ct; uii++) {
           dptr = &(g_maxt_thread_results[uii * ulii]);
@@ -7537,7 +7535,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     if (!g_perm_cluster_ct) {
       goto glm_linear_nosnp_ret_NO_PERMUTATION_CLUSTERS;
     }
-    if (bigstack_alloc_ui(max_thread_ct * CACHEALIGN_INT32(g_perm_cluster_ct), &g_perm_qt_cluster_thread_wkspace)) {
+    if (bigstack_alloc_ui(max_thread_ct * round_up_pow2(g_perm_cluster_ct, CACHELINE_INT32), &g_perm_qt_cluster_thread_wkspace)) {
       goto glm_linear_nosnp_ret_NOMEM;
     }
     if (bigstack_alloc_ui(sample_valid_ct, &g_perm_sample_to_cluster)) {
@@ -8040,7 +8038,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       logerrprint("Warning: Ignoring --logistic 'sex' modifier since sex is invariant.\n");
     }
   }
-  sample_valid_cta4 = (sample_valid_ct + 3) & (~(3 * ONELU));
+  sample_valid_cta4 = round_up_pow2(sample_valid_ct, 4);
   sample_valid_ctv = 2 * ((sample_valid_ct + (2 * BITCT - 1)) / (2 * BITCT));
   sample_valid_ctv2 = 2 * ((sample_valid_ct + BITCT - 1) / BITCT);
 
@@ -8076,7 +8074,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     fill_all_bits(active_params, param_raw_ct);
     param_ct = param_raw_ct;
   }
-  param_cta4 = (param_ct + 3) & (~(3 * ONELU));
+  param_cta4 = round_up_pow2(param_ct, 4);
   if (param_ct == 1) {
     logerrprint("Warning: Skipping --logistic since the intercept is the only variable.\n");
     goto glm_logistic_nosnp_ret_1;
@@ -8779,9 +8777,9 @@ uint32_t glm_logistic_dosage(uintptr_t sample_ct, uintptr_t* cur_samples, uintpt
   if (sample_valid_ct <= param_ct) {
     return 0;
   }
-  uintptr_t sample_valid_cta4 = (sample_valid_ct + 3) & (~(3 * ONELU));
+  uintptr_t sample_valid_cta4 = round_up_pow2(sample_valid_ct, 4);
   uintptr_t sample_valid_ctv = 2 * ((sample_valid_ct + (2 * BITCT - 1)) / (2 * BITCT));
-  uintptr_t param_cta4 = (param_ct + 3) & (~3);
+  uintptr_t param_cta4 = round_up_pow2(param_ct, 4);
   float* fptr = covars_cov_major;
   uintptr_t case_ct;
   uintptr_t sample_uidx;

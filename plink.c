@@ -104,7 +104,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (29 Dec 2015)";
+  " (30 Dec 2015)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -2509,7 +2509,7 @@ int32_t rerun(uint32_t rerun_argv_pos, uint32_t rerun_parameter_present, int32_t
   if ((g_textbuf[0] >= '0') && (g_textbuf[0] <= '9')) {
     // Old "xx arguments: --aa bb --cc --dd" format
     fclose_null(&rerunfile);
-    if (scan_posint_capped(g_textbuf, &loaded_arg_ct, (MAXLINELEN / 2) / 10, (MAXLINELEN / 2) % 10)) {
+    if (scan_posint_capped(g_textbuf, (MAXLINELEN / 2) / 10, (MAXLINELEN / 2) % 10, &loaded_arg_ct)) {
       print_ver();
       fflush(stdout);
       fputs("Error: Invalid argument count on line 2 of --rerun log file.\n", stderr);
@@ -2923,7 +2923,7 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
     if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
       goto init_delim_and_species_ret_INVALID_CMDLINE_2A;
     }
-    if (scan_posint_capped(argv[cur_arg + 1], (uint32_t*)(&ii), MAX_CHROM_TEXTNUM / 10, MAX_CHROM_TEXTNUM % 10)) {
+    if (scan_posint_capped(argv[cur_arg + 1], MAX_CHROM_TEXTNUM / 10, MAX_CHROM_TEXTNUM % 10, (uint32_t*)(&ii))) {
       sprintf(g_logbuf, "Error: Invalid --autosome-num parameter '%s'.\n", argv[cur_arg + 1]);
       goto init_delim_and_species_ret_INVALID_CMDLINE_WWA;
     }
@@ -2944,7 +2944,7 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
     if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 5)) {
       goto init_delim_and_species_ret_INVALID_CMDLINE_2A;
     }
-    if (scan_int_abs_bounded(argv[cur_arg + 1], &ii, MAX_CHROM_TEXTNUM / 10, MAX_CHROM_TEXTNUM % 10) || (!ii)) {
+    if (scan_int_abs_bounded(argv[cur_arg + 1], MAX_CHROM_TEXTNUM / 10, MAX_CHROM_TEXTNUM % 10, &ii) || (!ii)) {
       sprintf(g_logbuf, "Error: Invalid --chr-set parameter '%s'.\n", argv[cur_arg + 1]);
       goto init_delim_and_species_ret_INVALID_CMDLINE_WWA;
     }
@@ -4220,7 +4220,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-	if (scan_posint_capped(argv[cur_arg + 1], &rplugin_port, 65535 / 10, 65535 % 10)) {
+	if (scan_posint_capped(argv[cur_arg + 1], 65535 / 10, 65535 % 10, &rplugin_port)) {
 	  sprintf(g_logbuf, "Error: Invalid --R-port parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
@@ -4438,7 +4438,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	aperm.min++;
 	if (param_ct > 1) {
-	  if (scan_posint_capped(argv[cur_arg + 2], &aperm.max, APERM_MAX / 10, APERM_MAX % 10)) {
+	  if (scan_posint_capped(argv[cur_arg + 2], APERM_MAX / 10, APERM_MAX % 10, &aperm.max)) {
 	    sprintf(g_logbuf, "Error: Invalid --aperm max permutation count '%s'.\n", argv[cur_arg + 2]);
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
@@ -6525,7 +6525,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	if (scan_posint_capped(argv[cur_arg + 2], &epi_info.summary_merge_ct, PARALLEL_MAX / 10, PARALLEL_MAX % 10) || (epi_info.summary_merge_ct == 1)) {
+	if (scan_posint_capped(argv[cur_arg + 2], PARALLEL_MAX / 10, PARALLEL_MAX % 10, &epi_info.summary_merge_ct) || (epi_info.summary_merge_ct == 1)) {
 	  sprintf(g_logbuf, "Error: Invalid --epistasis-summary-merge job count '%s'.\n", argv[cur_arg + 2]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
@@ -7824,7 +7824,7 @@ int32_t main(int32_t argc, char** argv) {
           goto main_ret_INVALID_CMDLINE_2A;
 	}
 	// may as well enforce 2^29 / 18 limit...
-	if (scan_uint_capped(argv[cur_arg + 1], &epi_info.je_cellmin, 29826161 / 10, 29826161 % 10)) {
+	if (scan_uint_capped(argv[cur_arg + 1], 29826161 / 10, 29826161 % 10, &epi_info.je_cellmin)) {
 	  sprintf(g_logbuf, "Error: Invalid --je-cellmin parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
@@ -9576,7 +9576,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-	if (scan_posint_capped(argv[cur_arg + 1], &new_id_max_allele_len, (MAX_ID_LEN - 2) / 10, (MAX_ID_LEN - 2) % 10)) {
+	if (scan_posint_capped(argv[cur_arg + 1], (MAX_ID_LEN - 2) / 10, (MAX_ID_LEN - 2) % 10, &new_id_max_allele_len)) {
 	  sprintf(g_logbuf, "Error: Invalid --new-id-max-allele-len parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
@@ -9838,11 +9838,11 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-	if (scan_posint_capped(argv[cur_arg + 1], &parallel_idx, PARALLEL_MAX / 10, PARALLEL_MAX % 10)) {
+	if (scan_posint_capped(argv[cur_arg + 1], PARALLEL_MAX / 10, PARALLEL_MAX % 10, &parallel_idx)) {
 	  sprintf(g_logbuf, "Error: Invalid --parallel job index '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
-	if (scan_posint_capped(argv[cur_arg + 2], &parallel_tot, PARALLEL_MAX / 10, PARALLEL_MAX % 10) || (parallel_tot == 1) || (parallel_tot < parallel_idx)) {
+	if (scan_posint_capped(argv[cur_arg + 2], PARALLEL_MAX / 10, PARALLEL_MAX % 10, &parallel_tot) || (parallel_tot == 1) || (parallel_tot < parallel_idx)) {
 	  sprintf(g_logbuf, "Error: Invalid --parallel total job count '%s'.\n", argv[cur_arg + 2]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
@@ -10159,7 +10159,7 @@ int32_t main(int32_t argc, char** argv) {
               logerrprint("Error: --q-score-range takes at most two numeric parameters.\n");
               goto main_ret_INVALID_CMDLINE_A;
 	    } else {
-	      if (scan_posint_capped(argv[cur_arg + uii], (uint32_t*)&ii, (MAXLINEBUFLEN / 2) / 10, (MAXLINEBUFLEN / 2) % 10)) {
+	      if (scan_posint_capped(argv[cur_arg + uii], (MAXLINEBUFLEN / 2) / 10, (MAXLINEBUFLEN / 2) % 10, (uint32_t*)&ii)) {
                 sprintf(g_logbuf, "Error: Invalid --q-score-range parameter '%s'.\n", argv[cur_arg + uii]);
                 goto main_ret_INVALID_CMDLINE_WWA;
 	      }
@@ -10971,7 +10971,7 @@ int32_t main(int32_t argc, char** argv) {
 	rseed_ct = param_ct;
 	rseeds = (uint32_t*)malloc(param_ct * sizeof(int32_t));
 	for (uii = 1; uii <= param_ct; uii++) {
-	  if (scan_uint_capped(argv[cur_arg + uii], &(rseeds[uii - 1]), 0xffffffffU / 10, 0xffffffffU % 10)) {
+	  if (scan_uint_capped(argv[cur_arg + uii], 0xffffffffU / 10, 0xffffffffU % 10, &(rseeds[uii - 1]))) {
 	    sprintf(g_logbuf, "Error: Invalid --seed parameter '%s'.\n", argv[cur_arg + uii]);
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
@@ -11527,7 +11527,7 @@ int32_t main(int32_t argc, char** argv) {
             logerrprint("Error: --score takes at most three numeric parameters.\n");
             goto main_ret_INVALID_CMDLINE_A;
 	  } else {
-	    if (scan_posint_capped(argv[cur_arg + uii], (uint32_t*)&ii, (MAXLINEBUFLEN / 2) / 10, (MAXLINEBUFLEN / 2) % 10)) {
+	    if (scan_posint_capped(argv[cur_arg + uii], (MAXLINEBUFLEN / 2) / 10, (MAXLINEBUFLEN / 2) % 10, (uint32_t*)&ii)) {
               sprintf(g_logbuf, "Error: Invalid --score parameter '%s'.\n", argv[cur_arg + uii]);
               goto main_ret_INVALID_CMDLINE_WWA;
 	    }
@@ -13349,7 +13349,7 @@ int32_t main(int32_t argc, char** argv) {
     }
   }
   // force 64-byte align to make cache line sensitivity work
-  bigstack_initial_base = (unsigned char*)CACHEALIGN((uintptr_t)bigstack_ua);
+  bigstack_initial_base = (unsigned char*)round_up_pow2((uintptr_t)bigstack_ua, CACHELINE);
   g_bigstack_base = bigstack_initial_base;
   g_bigstack_end = &(bigstack_initial_base[(malloc_size_mb * 1048576 - (uintptr_t)(bigstack_initial_base - bigstack_ua)) & (~(CACHELINE - ONELU))]);
   free(bubble);

@@ -2313,9 +2313,9 @@ int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintp
     goto zero_cluster_init_ret_NOMEM;
   }
 #ifdef __LP64__
-  fill_ulong_zero(marker_bitfield_tmp, (marker_ctp2l + 1) & (~1));
+  fill_ulong_zero(marker_bitfield_tmp, round_up_pow2(marker_ctp2l, 2));
 #else
-  fill_ulong_zero(marker_bitfield_tmp, (marker_ctp2l + 3) & (~3));
+  fill_ulong_zero(marker_bitfield_tmp, round_up_pow2(marker_ctp2l, 4));
 #endif
   zc_entries_end = (int64_t*)marker_bitfield_tmp;
   zc_entries = &(zc_entries_end[-1]);
@@ -5574,7 +5574,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
 	goto ped_to_bed_multichar_allele_ret_READ_FAIL;
       }
     } else {
-      if (get_next_noncomment_excl(*mapfile_ptr, &bufptr, &line_idx, marker_exclude, &marker_uidx)) {
+      if (get_next_noncomment_excl(marker_exclude, *mapfile_ptr, &bufptr, &line_idx, &marker_uidx)) {
 	goto ped_to_bed_multichar_allele_ret_READ_FAIL;
       }
     }
@@ -5586,7 +5586,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
         sprintf(g_logbuf, "Warning: Variant %" PRIuPTR " %sallelic; setting rarest alleles missing.\n", marker_idx + 1, (uii? "quad" : "tri"));
       }
       logerrprintb();
-      get_top_two(&(marker_allele_cts[4 * marker_idx]), uii? 4 : 3, &ulii, &uljj);
+      get_top_two_ui(&(marker_allele_cts[4 * marker_idx]), uii? 4 : 3, &ulii, &uljj);
       uii = map_is_unsorted? map_reverse[marker_idx] : marker_idx;
     } else {
       ulii = (marker_allele_cts[4 * marker_idx] < marker_allele_cts[4 * marker_idx + 1])? 1 : 0;
@@ -6233,7 +6233,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
 	  goto ped_to_bed_ret_READ_FAIL;
 	}
       } else {
-	if (get_next_noncomment_excl(mapfile, &bufptr, &line_idx, marker_exclude, &marker_uidx)) {
+	if (get_next_noncomment_excl(marker_exclude, mapfile, &bufptr, &line_idx, &marker_uidx)) {
 	  goto ped_to_bed_ret_READ_FAIL;
 	}
       }
@@ -12224,7 +12224,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	goto recode_ret_NOMEM;
       }
     }
-    if (bigstack_left() < ((uint64_t)unfiltered_sample_ct4) * max_chrom_size + 2 * ((max_chrom_size + 63) & (~(63 * ONELU)))) {
+    if (bigstack_left() < ((uint64_t)unfiltered_sample_ct4) * max_chrom_size + 2 * round_up_pow2(max_chrom_size, CACHELINE)) {
       goto recode_ret_NO_MULTIPASS_YET;
     }
     if (bigstack_alloc_c(max_chrom_size, &writebuf) ||
@@ -12426,8 +12426,9 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       }
       recode_allele_extra = (char*)g_bigstack_base;
       fill_ulong_zero((uintptr_t*)allele_missing, unfiltered_marker_ct);
-      ulii = (max_marker_allele_len + MAXLINELEN + 15) & (~(15 * ONELU));
-      if (bigstack_end_alloc_uc(ulii, &loadbuf)) {
+      ulii = round_up_pow2(max_marker_allele_len + MAXLINELEN, END_ALLOC_CHUNK);
+      loadbuf = (unsigned char*)bigstack_end_alloc_presized(ulii);
+      if (!loadbuf) {
 	goto recode_ret_NOMEM;
       }
       // When '12' and 'A'/'AD' are simultaneously present, most sensible
@@ -13213,9 +13214,9 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	wbufptr = memcpyax(&(cur_mk_allelesx[2][1]), aptr, alen, ' ');
 	memcpy(wbufptr, aptr2, alen2);
 	if (outfile2) {
-	  fputs(replace_if_zstr(aptr, "X"), outfile2);
+	  fputs((aptr != missing_geno_ptr)? aptr : "X", outfile2);
 	  putc('\t', outfile2);
-	  fputs(replace_if_zstr(aptr2, "X"), outfile2);
+	  fputs((aptr2 != missing_geno_ptr)? aptr2 : "X", outfile2);
 	}
 	cmalen[2] = alen + alen2 + 2;
 	wbufptr = memcpyax(&(cur_mk_allelesx[3][1]), aptr2, alen2, ' ');

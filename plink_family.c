@@ -3213,7 +3213,7 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uintptr_t perm_vec_ct128 = (perm_vec_ct + 127) / 128;
   uintptr_t perm_vec_cta128 = perm_vec_ct128 * 128;
-  uintptr_t perm_vec_ctcl8m = CACHEALIGN32_DBL(perm_vec_ct);
+  uintptr_t perm_vec_ctcl8m = round_up_pow2(perm_vec_ct, CACHELINE_DBL);
   uint32_t dfam_thread_ct = g_xfam_thread_ct;
   uint32_t pidx_offset = g_perms_done;
   uint32_t first_adapt_check = g_first_adapt_check;
@@ -4358,7 +4358,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     perm_vec_cta128 = perm_vec_ct128 * 128;
     perm_vec_wct = (g_perm_vec_ct + (BITCT - 1)) / BITCT;
     perm_vec_wcta = perm_vec_ct128 * (128 / BITCT);
-    perm_vec_ctcl8m = CACHEALIGN32_DBL(g_perm_vec_ct);
+    perm_vec_ctcl8m = round_up_pow2(g_perm_vec_ct, CACHELINE_DBL);
 
     if (bigstack_alloc_ul(dfam_sample_ct * perm_vec_wcta, &g_dfam_perm_vecst) ||
         bigstack_alloc_ul(g_perm_vec_ct * dfam_sample_ctv, &g_perm_vecs)) {
@@ -5194,15 +5194,15 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
   uintptr_t* lm_eligible = g_lm_eligible;
   uintptr_t* lm_within2_founder = g_lm_within2_founder;
   uintptr_t* qfam_flip = g_qfam_flip;
-  uintptr_t* nm_fss = &(g_nm_fss[tidx * CACHEALIGN32_WORD(fss_ctl)]);
-  uintptr_t* nm_lm = &(g_nm_lm[tidx * CACHEALIGN32_WORD(lm_ctl)]);
-  double* qfam_b = &(g_qfam_b[tidx * CACHEALIGN32_DBL(fss_ct)]);
-  double* qfam_w = &(g_qfam_w[tidx * CACHEALIGN32_DBL(lm_ct)]);
+  uintptr_t* nm_fss = &(g_nm_fss[tidx * round_up_pow2(fss_ctl, CACHELINE_WORD)]);
+  uintptr_t* nm_lm = &(g_nm_lm[tidx * round_up_pow2(lm_ctl, CACHELINE_WORD)]);
+  double* qfam_b = &(g_qfam_b[tidx * round_up_pow2(fss_ct, CACHELINE_DBL)]);
+  double* qfam_w = &(g_qfam_w[tidx * round_up_pow2(lm_ct, CACHELINE_DBL)]);
   double* pheno_d2 = g_pheno_d2;
   double* beta_sum = g_beta_sum;
   double* beta_ssq = g_beta_ssq;
   uint32_t* qfam_permute = only_within? NULL : g_qfam_permute;
-  uint32_t* permute_edit_buf = only_within? NULL : (&(g_permute_edit[tidx * CACHEALIGN32_INT32(fss_ct)]));
+  uint32_t* permute_edit_buf = only_within? NULL : (&(g_permute_edit[tidx * round_up_pow2(fss_ct, CACHELINE_INT32)]));
   uint32_t* perm_2success_ct = g_perm_2success_ct;
   uint32_t* perm_attempt_ct = g_perm_attempt_ct;
   uint32_t* fs_starts = g_fs_starts;
@@ -5583,7 +5583,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   }
   if (!only_within) {
     if (bigstack_alloc_ui(perm_batch_size * fss_ct, &g_qfam_permute) ||
-        bigstack_alloc_ui(CACHEALIGN_INT32(fss_ct) * qfam_thread_ct, &g_permute_edit)) {
+        bigstack_alloc_ui(round_up_pow2(fss_ct, CACHELINE_INT32) * qfam_thread_ct, &g_permute_edit)) {
       goto qfam_ret_NOMEM;
     }
   }
@@ -5603,11 +5603,11 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       bigstack_alloc_d(marker_ct, &g_orig_stat) ||
       bigstack_alloc_ul(perm_batch_size * flip_ctl, &g_qfam_flip) ||
       bigstack_alloc_ui(fss_ct - 1, &precomputed_mods) ||
-      bigstack_alloc_ul(CACHEALIGN_BIT(fss_ct) * qfam_thread_ct, &nm_fss) ||
-      bigstack_alloc_ul(CACHEALIGN_BIT(lm_ct) * qfam_thread_ct, &nm_lm) ||
+      bigstack_alloc_ul(round_up_pow2(fss_ct, CACHELINE_BIT) * qfam_thread_ct, &nm_fss) ||
+      bigstack_alloc_ul(round_up_pow2(lm_ct, CACHELINE_BIT) * qfam_thread_ct, &nm_lm) ||
       bigstack_alloc_d(lm_ct, &pheno_d2) ||
-      bigstack_alloc_d(CACHEALIGN_DBL(fss_ct) * qfam_thread_ct, &qfam_b) ||
-      bigstack_alloc_d(CACHEALIGN_DBL(lm_ct) * qfam_thread_ct, &qfam_w) ||
+      bigstack_alloc_d(round_up_pow2(fss_ct, CACHELINE_DBL) * qfam_thread_ct, &qfam_b) ||
+      bigstack_alloc_d(round_up_pow2(lm_ct, CACHELINE_DBL) * qfam_thread_ct, &qfam_w) ||
       bigstack_alloc_ui(fss_ct, &dummy_perm) ||
       bigstack_alloc_ul(fss_ctl, &dummy_flip)) {
     goto qfam_ret_NOMEM;

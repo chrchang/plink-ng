@@ -1838,8 +1838,8 @@ THREAD_RET_TYPE groupdist_jack_thread(void* arg) {
   uint32_t case_ct = g_case_ct;
   uint32_t ctrl_ct = g_ctrl_ct;
   uint32_t jackknife_d = g_jackknife_d;
-  uint32_t* uibuf = (uint32_t*)(&(g_geno[tidx * CACHEALIGN(case_ct + ctrl_ct + (jackknife_d + 1) * sizeof(int32_t))]));
-  unsigned char* cbuf = &(g_geno[tidx * CACHEALIGN(case_ct + ctrl_ct + (jackknife_d + 1) * sizeof(int32_t)) + (jackknife_d + 1) * sizeof(int32_t)]);
+  uint32_t* uibuf = (uint32_t*)(&(g_geno[tidx * round_up_pow2(case_ct + ctrl_ct + (jackknife_d + 1) * sizeof(int32_t), CACHELINE)]));
+  unsigned char* cbuf = &(g_geno[tidx * round_up_pow2(case_ct + ctrl_ct + (jackknife_d + 1) * sizeof(int32_t), CACHELINE) + (jackknife_d + 1) * sizeof(int32_t)]);
   uintptr_t jackknife_iters = g_jackknife_iters;
   uintptr_t uljj = jackknife_iters / 100;
   double reg_tot_x = g_reg_tot_x;
@@ -1941,8 +1941,8 @@ THREAD_RET_TYPE regress_rel_jack_thread(void* arg) {
   double reg_tot_xx = g_reg_tot_xx;
   double reg_tot_yy = g_reg_tot_yy;
   uint32_t jackknife_d = g_jackknife_d;
-  uint32_t* uibuf = (uint32_t*)(&(g_geno[tidx * CACHEALIGN(sample_ct + (jackknife_d + 1) * sizeof(int32_t))]));
-  unsigned char* cbuf = &(g_geno[tidx * CACHEALIGN(sample_ct + (jackknife_d + 1) * sizeof(int32_t)) + (jackknife_d + 1) * sizeof(int32_t)]);
+  uint32_t* uibuf = (uint32_t*)(&(g_geno[tidx * round_up_pow2(sample_ct + (jackknife_d + 1) * sizeof(int32_t), CACHELINE)]));
+  unsigned char* cbuf = &(g_geno[tidx * round_up_pow2(sample_ct + (jackknife_d + 1) * sizeof(int32_t), CACHELINE) + (jackknife_d + 1) * sizeof(int32_t)]);
   double* jackknife_precomp = g_jackknife_precomp;
   double* rel_dists = g_rel_dists;
   double* pheno_packed = g_pheno_packed;
@@ -2078,7 +2078,7 @@ int32_t regress_rel_main(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   } else {
     g_jackknife_d = set_default_jackknife_d(sample_ct);
   }
-  if (bigstack_alloc_uc(g_thread_ct * CACHEALIGN(sample_ct * (g_jackknife_d + 1) * sizeof(int32_t)), &g_geno)) {
+  if (bigstack_alloc_uc(g_thread_ct * round_up_pow2(sample_ct * (g_jackknife_d + 1) * sizeof(int32_t), CACHELINE), &g_geno)) {
     return RET_NOMEM;
   }
   if (bigstack_init_sfmtp(g_thread_ct)) {
@@ -2216,7 +2216,7 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
   char blas_char;
   int32_t sample_ct_i32 = sample_ct;
 #endif
-  mat_offset = CACHEALIGN_DBL(mat_offset * mat_offset);
+  mat_offset = round_up_pow2_ull(mat_offset * mat_offset, CACHELINE);
   rel_dists = &(wkbase[mat_offset]);
   row = &(wkbase[mat_offset * 3]);
   irow = (MATRIX_INVERT_BUF1_TYPE*)row;
@@ -2382,15 +2382,15 @@ int32_t calc_unrelated_herit(uint64_t calculation_type, Rel_info* relip, uintptr
   g_sample_ct = sample_ct;
   g_missing_dbl_excluded = NULL;
   ulii = sample_ct;
-  ulii = CACHEALIGN_DBL(ulii * ulii);
+  ulii = round_up_pow2(ulii * ulii, CACHELINE_DBL);
   rel_base = &(g_rel_dists[ulii]);
-  ulii = ulii * 3 + CACHEALIGN_DBL(sample_ct) * 3;
+  ulii = ulii * 3 + round_up_pow2(sample_ct, CACHELINE_DBL) * 3;
   // no bigstack_shrink_top here since this actually grows the allocation...
   bigstack_reset(g_rel_dists);
   if (bigstack_alloc_d(ulii, &g_rel_dists)) {
     return RET_NOMEM;
   }
-  pheno_ptr = &(g_rel_dists[ulii - CACHEALIGN_DBL(sample_ct)]);
+  pheno_ptr = &(g_rel_dists[ulii - round_up_pow2(sample_ct, CACHELINE_DBL)]);
   collapse_copy_phenod(pheno_ptr, pheno_d, sample_exclude, unfiltered_sample_ct, sample_ct);
   mean_zero_var_one_in_place(sample_ct, pheno_ptr);
   if (calculation_type & CALC_IBC) {
@@ -2535,13 +2535,13 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
     logerrprint("Error: Less than two phenotypes present.\n");
     goto unrelated_herit_batch_ret_INVALID_FORMAT;
   }
-  ulii = CACHEALIGN_DBL(pheno_nm_ct * pheno_nm_ct);
-  uljj = ulii * 3 + CACHEALIGN_DBL(pheno_nm_ct) * 3;
+  ulii = round_up_pow2(pheno_nm_ct * pheno_nm_ct, CACHELINE_DBL);
+  uljj = ulii * 3 + round_up_pow2(pheno_nm_ct, CACHELINE_DBL) * 3;
   if (bigstack_alloc_d(ulii, &matrix_wkbase)) {
     goto unrelated_herit_batch_ret_NOMEM;
   }
   g_sample_ct = pheno_nm_ct;
-  pheno_ptr = &(matrix_wkbase[uljj - CACHEALIGN_DBL(pheno_nm_ct)]);
+  pheno_ptr = &(matrix_wkbase[uljj - round_up_pow2(pheno_nm_ct, CACHELINE_DBL)]);
   collapse_copy_phenod_incl(pheno_ptr, pheno_d, pheno_nm, unfiltered_sample_ct, pheno_nm_ct);
   rel_base = &(matrix_wkbase[ulii]);
   mean_zero_var_one_in_place(pheno_nm_ct, pheno_ptr);
@@ -2956,7 +2956,7 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_sample_ct, uintpt
   if (bigstack_alloc_d(ll_size, &ll_pool) ||
       bigstack_alloc_d(lh_size, &lh_pool) ||
       bigstack_alloc_d(hh_size, &hh_pool) ||
-      bigstack_alloc_uc(g_thread_ct * CACHEALIGN(g_case_ct + g_ctrl_ct + (g_jackknife_d + 1) * sizeof(int32_t)), &g_geno)) {
+      bigstack_alloc_uc(g_thread_ct * round_up_pow2(g_case_ct + g_ctrl_ct + (g_jackknife_d + 1) * sizeof(int32_t), CACHELINE), &g_geno)) {
     goto groupdist_calc_ret_NOMEM;
   }
   ll_poolp = ll_pool;
@@ -8062,7 +8062,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 
   ujj = distance_wts_fname || (distance_exp != 0.0); // special weights?
   if (!ujj) {
-    g_idists = (int32_t*)((char*)bigstack_mark - CACHEALIGN(llxx * sizeof(int32_t)));
+    g_idists = (int32_t*)((char*)bigstack_mark - round_up_pow2(llxx * sizeof(int32_t), CACHELINE));
     fill_int_zero(g_idists, llxx);
   } else {
     fill_double_zero(g_dists, llxx);
@@ -9503,7 +9503,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	// this guarantees write_cluster_solution() has enough space
 	ulii = cur_cluster_ct;
       }
-      bigstack_reset((&(cluster_sorted_ibs_indices[CACHEALIGN_INT32(ulii)])));
+      bigstack_reset((&(cluster_sorted_ibs_indices[round_up_pow2(ulii, CACHELINE_INT32)])));
     } else {
       uiptr = &(cluster_sorted_ibs_indices[CACHELINE_INT32 + 3 * heap_size]);
       for (ulii = 0; ulii < heap_size; ulii++) {
@@ -9696,8 +9696,8 @@ THREAD_RET_TYPE regress_jack_thread(void* arg) {
   uintptr_t jackknife_iters = g_jackknife_iters;
   uintptr_t sample_ct = g_sample_ct;
   uint32_t jackknife_d = g_jackknife_d;
-  uint32_t* uibuf = (uint32_t*)(&(g_generic_buf[tidx * CACHEALIGN(sample_ct + (jackknife_d + 1) * sizeof(int32_t))]));
-  unsigned char* cbuf = &(g_generic_buf[tidx * CACHEALIGN(sample_ct + (jackknife_d + 1) * sizeof(int32_t)) + (jackknife_d + 1) * sizeof(int32_t)]);
+  uint32_t* uibuf = (uint32_t*)(&(g_generic_buf[tidx * round_up_pow2(sample_ct + (jackknife_d + 1) * sizeof(int32_t), CACHELINE)]));
+  unsigned char* cbuf = &(g_generic_buf[tidx * round_up_pow2(sample_ct + (jackknife_d + 1) * sizeof(int32_t), CACHELINE) + (jackknife_d + 1) * sizeof(int32_t)]);
   uintptr_t uljj = jackknife_iters / 100;
   double* jackknife_precomp = g_jackknife_precomp;
   double* dists = g_dists;
@@ -9836,7 +9836,7 @@ int32_t regress_distance(pthread_t* threads, uint64_t calculation_type, double* 
   } else {
     g_jackknife_d = set_default_jackknife_d(sample_ct);
   }
-  if (bigstack_alloc_uc(thread_ct * CACHEALIGN(sample_ct + (g_jackknife_d + 1) * sizeof(int32_t)), &g_generic_buf)) {
+  if (bigstack_alloc_uc(thread_ct * round_up_pow2(sample_ct + (g_jackknife_d + 1) * sizeof(int32_t), CACHELINE), &g_generic_buf)) {
     goto regress_distance_ret_NOMEM;
   }
   if (spawn_threads(threads, &regress_jack_thread, thread_ct)) {

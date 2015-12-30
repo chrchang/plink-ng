@@ -811,6 +811,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   double dyy;
   double dzz;
   uint64_t ullii;
+  uint64_t ulljj;
   uintptr_t sample_valid_ct;
   uintptr_t sample_valid_ctv2;
   uintptr_t marker_idx;
@@ -936,24 +937,23 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   // or
   //   3. prod_matrix: WARM_START_ITERS * WARM_START_ITERS * sizeof(double)
   // (whichever is larger)
-  ullii = CACHEALIGN(((uint64_t)uii) * sizeof(double)) + CACHEALIGN(((uii + 7) / 8));
+  ullii = round_up_pow2(((uint64_t)uii) * sizeof(double), CACHELINE) + round_up_pow2((uii + 7) / 8, CACHELINE);
   // assumes WARM_START_ITERS is even
   if (rand_matrix) {
     uljj = (sample_valid_ct * WARM_START_ITERS) - 1;
     for (ulii = 0; ulii < uljj; ulii += 2) {
       rand_matrix[ulii] = rand_normal(&(rand_matrix[ulii + 1]));
     }
-    if (ullii < CACHEALIGN(WARM_START_ITERS * WARM_START_ITERS * sizeof(double))) {
-      ullii = CACHEALIGN(WARM_START_ITERS * WARM_START_ITERS * sizeof(double));
+    ulljj = round_up_pow2(WARM_START_ITERS * WARM_START_ITERS * sizeof(double), CACHELINE);
+    if (ullii < ulljj) {
+      ullii = ulljj;
     }
   }
-  ullii += CACHEALIGN(((uint64_t)uii) * sample_valid_ct * sizeof(double));
-  // if (0) {
+  ullii += round_up_pow2(((uint64_t)uii) * sample_valid_ct * sizeof(double), CACHELINE);
   if (ullii <= bigstack_left()) {
     retval = lasso_bigmem(bedfile, bed_offset, marker_exclude, marker_ct, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, pheno_nm2, lasso_h2, lasso_minlambda, select_covars, select_covars_bitfield, pheno_d_collapsed, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, hh_or_mt_exists, sample_valid_ct, sample_include2, sample_male_include2, loadbuf_raw, loadbuf_collapsed, rand_matrix, misc_arr, residuals, polymorphic_markers, &polymorphic_marker_ct, &iter_tot, &xhat);
   } else {
     retval = lasso_smallmem(threads, bedfile, bed_offset, marker_exclude, marker_ct, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, pheno_nm2, lasso_h2, lasso_minlambda, select_covars, select_covars_bitfield, pheno_d_collapsed, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, hh_or_mt_exists, sample_valid_ct, sample_include2, sample_male_include2, loadbuf_raw, loadbuf_collapsed, rand_matrix, misc_arr, residuals, polymorphic_markers, &polymorphic_marker_ct, &iter_tot, &xhat);
-    // retval = RET_NOMEM;
   }
   if (retval || (!polymorphic_marker_ct)) {
     goto lasso_ret_1;

@@ -1056,7 +1056,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       if (fopen_checked(sip->subset_fname, "rb", &infile)) {
 	goto define_sets_ret_OPEN_FAIL;
       }
-      retval = scan_token_ct_len(infile, g_textbuf, MAXLINELEN, &subset_ct, &max_subset_id_len);
+      retval = scan_token_ct_len(MAXLINELEN, infile, g_textbuf, &subset_ct, &max_subset_id_len);
       if (retval) {
 	if (retval == RET_INVALID_FORMAT) {
 	  logerrprint("Error: Pathologically long token in --subset file.\n");
@@ -1102,7 +1102,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     if (sip->subset_fname) {
       if (ulii) {
 	rewind(infile);
-	retval = read_tokens(infile, g_textbuf, MAXLINELEN, ulii, max_subset_id_len, sorted_subset_ids);
+	retval = read_tokens(MAXLINELEN, ulii, max_subset_id_len, infile, g_textbuf, sorted_subset_ids);
 	if (retval) {
 	  goto define_sets_ret_1;
 	}
@@ -1476,9 +1476,9 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       goto define_sets_ret_NOMEM;
     }
 #ifdef __LP64__
-    fill_ulong_zero(marker_bitfield_tmp, (marker_ctp2l + 1) & (~1));
+    fill_ulong_zero(marker_bitfield_tmp, round_up_pow2(marker_ctp2l, 2));
 #else
-    fill_ulong_zero(marker_bitfield_tmp, (marker_ctp2l + 3) & (~3));
+    fill_ulong_zero(marker_bitfield_tmp, round_up_pow2(marker_ctp2l, 4));
 #endif
     while (1) {
       if (fread_checked(midbuf, MAXLINELEN, infile, &bufsize)) {
@@ -2411,7 +2411,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
       if (fopen_checked(aip->snps_fname, "rb", &infile)) {
 	goto annotate_ret_OPEN_FAIL;
       }
-      retval = scan_token_ct_len(infile, g_textbuf, MAXLINELEN, &snplist_ct, &max_snplist_id_len);
+      retval = scan_token_ct_len(MAXLINELEN, infile, g_textbuf, &snplist_ct, &max_snplist_id_len);
       if (retval) {
 	if (retval == RET_INVALID_FORMAT) {
 	  logerrprint("Error: Pathologically long token in --annotate snps file.\n");
@@ -2426,7 +2426,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	goto annotate_ret_NOMEM;
       }
       rewind(infile);
-      retval = read_tokens(infile, g_textbuf, MAXLINELEN, snplist_ct, max_snplist_id_len, sorted_snplist);
+      retval = read_tokens(MAXLINELEN, snplist_ct, max_snplist_id_len, infile, g_textbuf, sorted_snplist);
       if (retval) {
 	goto annotate_ret_1;
       }
@@ -2598,7 +2598,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	if (fopen_checked(aip->subset_fname, "rb", &infile)) {
 	  goto annotate_ret_OPEN_FAIL;
 	}
-	retval = scan_token_ct_len(infile, g_textbuf, MAXLINELEN, &subset_ct, &max_subset_id_len);
+	retval = scan_token_ct_len(MAXLINELEN, infile, g_textbuf, &subset_ct, &max_subset_id_len);
 	if (retval) {
 	  if (retval == RET_INVALID_FORMAT) {
 	    logerrprint("Error: Pathologically long token in --annotate subset file.\n");
@@ -2617,7 +2617,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	  goto annotate_ret_NOMEM;
 	}
 	rewind(infile);
-	retval = read_tokens(infile, g_textbuf, MAXLINELEN, subset_ct, max_subset_id_len, sorted_subset_ids);
+	retval = read_tokens(MAXLINELEN, subset_ct, max_subset_id_len, infile, g_textbuf, sorted_subset_ids);
 	if (retval) {
 	  goto annotate_ret_1;
 	}
@@ -3187,7 +3187,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     if (fopen_checked(subset_fname, "rb", &infile)) {
       goto gene_report_ret_OPEN_FAIL;
     }
-    retval = scan_token_ct_len(infile, g_textbuf, MAXLINELEN, &subset_ct, &max_subset_id_len);
+    retval = scan_token_ct_len(MAXLINELEN, infile, g_textbuf, &subset_ct, &max_subset_id_len);
     if (retval) {
       if (retval == RET_INVALID_FORMAT) {
 	logerrprint("Error: Pathologically long token in --gene-subset file.\n");
@@ -3206,7 +3206,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       goto gene_report_ret_NOMEM;
     }
     rewind(infile);
-    retval = read_tokens(infile, g_textbuf, MAXLINELEN, subset_ct, max_subset_id_len, sorted_subset_ids);
+    retval = read_tokens(MAXLINELEN, subset_ct, max_subset_id_len, infile, g_textbuf, sorted_subset_ids);
     if (retval) {
       goto gene_report_ret_1;
     }
@@ -3220,7 +3220,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     if (fopen_checked(extractname, "rb", &infile)) {
       goto gene_report_ret_OPEN_FAIL;
     }
-    retval = scan_token_ct_len(infile, g_textbuf, MAXLINELEN, &extract_ct, &max_extract_id_len);
+    retval = scan_token_ct_len(MAXLINELEN, infile, g_textbuf, &extract_ct, &max_extract_id_len);
     if (retval) {
       goto gene_report_ret_1;
     }
@@ -3237,7 +3237,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     }
     rewind(infile);
     // todo: switch to hash table to avoid sort
-    retval = read_tokens(infile, g_textbuf, MAXLINELEN, extract_ct, max_extract_id_len, sorted_extract_ids);
+    retval = read_tokens(MAXLINELEN, extract_ct, max_extract_id_len, infile, g_textbuf, sorted_extract_ids);
     if (retval) {
       goto gene_report_ret_1;
     }

@@ -5349,7 +5349,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
     if (fopen_checked(extractname, "rb", &infile)) {
       goto meta_analysis_ret_OPEN_FAIL;
     }
-    retval = scan_token_ct_len(infile, g_textbuf, MAXLINELEN, &extract_ct, &max_extract_id_len);
+    retval = scan_token_ct_len(MAXLINELEN, infile, g_textbuf, &extract_ct, &max_extract_id_len);
     if (retval) {
       goto meta_analysis_ret_1;
     }
@@ -5371,7 +5371,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
     // revisiting this decision in the future, though, since there are
     // reasonable use cases involving 40-80 million line --extract files, and
     // skipping the sort step there is a big win.
-    retval = read_tokens(infile, g_textbuf, MAXLINELEN, extract_ct, max_extract_id_len, sorted_extract_ids);
+    retval = read_tokens(MAXLINELEN, extract_ct, max_extract_id_len, infile, g_textbuf, sorted_extract_ids);
     if (retval) {
       goto meta_analysis_ret_1;
     }
@@ -5531,7 +5531,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	}
 	// word-align for now
 	// note that it is NOT safe to use uii here.
-	ulii = sizeof(intptr_t) + ((var_id_len + BYTECT - 1) & (~(BYTECT - 1)));
+	ulii = sizeof(intptr_t) + round_up_pow2(var_id_len, BYTECT);
 	if (((uintptr_t)htable_write) + ulii > ((uintptr_t)duplicate_id_htable_write)) {
 	  goto meta_analysis_ret_NOMEM;
 	}
@@ -5634,7 +5634,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	if (report_all) {
 	  final_variant_ct++;
 	}
-	htable_write = (Ll_str*)((((uintptr_t)wptr) + sizeof(uintptr_t) - 1) & (~(sizeof(uintptr_t) - ONELU)));
+	htable_write = (Ll_str*)round_up_pow2((uintptr_t)wptr, sizeof(uintptr_t));
 	if ((((uintptr_t)htable_write) > ((uintptr_t)duplicate_id_htable_write)) || (((uintptr_t)htable_write) > htable_write_limit)) {
 	  goto meta_analysis_ret_NOMEM;
 	}
@@ -5713,8 +5713,9 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   }
   // bp coordinate, if present, expands from 4 to 5 bytes
   master_var_entry_len = slen_base + use_map + max_var_id_len_p1 + combined_allele_len_byte_width;
-  loadbuf_size = (line_max + 15) & (~15);
-  if (bigstack_end_alloc_c(loadbuf_size, &loadbuf) ||
+  loadbuf_size = round_up_pow2(line_max, END_ALLOC_CHUNK);
+  loadbuf = (char*)bigstack_end_alloc_presized(loadbuf_size);
+  if ((!loadbuf) ||
       bigstack_end_alloc_c(final_variant_ct * master_var_entry_len, &master_var_list) ||
       (((uintptr_t)htable_write) > ((uintptr_t)master_var_list))) {
     goto meta_analysis_ret_NOMEM;
@@ -5757,7 +5758,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
     // now bufptr points to the byte past the end of the hash table entry
     // allocation, and we know the next allocation starts at [this byte,
     // rounded up to nearest word boundary]
-    ll_ptr = (Ll_str*)((((uintptr_t)bufptr) + sizeof(uintptr_t) - 1) & (~(sizeof(uintptr_t) - ONELU)));
+    ll_ptr = (Ll_str*)round_up_pow2((uintptr_t)bufptr, sizeof(intptr_t));
   }
   qsort(master_var_list, final_variant_ct, master_var_entry_len, strcmp_natural);
   // don't need htable anymore

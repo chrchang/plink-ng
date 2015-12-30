@@ -241,7 +241,7 @@ int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, ui
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t duplicate_ct = 0;
   // needs to be synced with populate_id_htable
-  const uint32_t* extra_alloc_base = &(marker_id_htable[CACHEALIGN32_INT32(marker_id_htable_size)]);
+  const uint32_t* extra_alloc_base = &(marker_id_htable[round_up_pow2_ui(marker_id_htable_size, CACHELINE_INT32)]);
   char* midbuf = &(g_textbuf[MAXLINELEN]);
   uint32_t curtoklen = 0;
   int32_t retval = 0;
@@ -2687,7 +2687,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
-  uintptr_t unfiltered_sample_ctv2 = (unfiltered_sample_ctl2 + 1) & (~1);
+  uintptr_t unfiltered_sample_ctv2 = round_up_pow2(unfiltered_sample_ctl2, 2);
   uintptr_t marker_ct_y = 0;
   uintptr_t* sample_male_include2 = NULL;
   uint64_t* om_entry_ptr = NULL;

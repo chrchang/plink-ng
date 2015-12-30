@@ -10,6 +10,9 @@
 #include <stdint.h>
 #include <inttypes.h>
 
+#define NDEBUG
+#include <assert.h>
+
 // Uncomment this to build this without CBLAS/CLAPACK.
 // #define NOLAPACK
 
@@ -626,30 +629,41 @@
 #define BYTECT (BITCT / 8)
 #define VEC_WORDS (VEC_BITS / BITCT)
 
-#define CACHELINE 64 // assumed number of bytes per cache line, for alignment
+// assumed number of bytes per cache line, for alignment
+#define CACHELINE 64
+
 #define CACHELINE_BIT (CACHELINE * 8)
 #define CACHELINE_INT32 (CACHELINE / 4)
 #define CACHELINE_INT64 (CACHELINE / 8)
 #define CACHELINE_WORD (CACHELINE / BYTECT)
 #define CACHELINE_DBL (CACHELINE / 8)
 
-#define CACHEALIGN(val) (((val) + (CACHELINE - 1)) & (~(CACHELINE - ONELU)))
-#define CACHEALIGN_BIT(val) (((val) + (CACHELINE_BIT - 1)) & (~(CACHELINE_BIT - ONELU)))
-#define CACHEALIGN_INT32(val) (((val) + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - ONELU)))
-#define CACHEALIGN_INT64(val) (((val) + (CACHELINE_INT64 - 1)) & (~(CACHELINE_INT64 - ONELU)))
-#define CACHEALIGN_WORD(val) (((val) + (CACHELINE_WORD - 1)) & (~(CACHELINE_WORD - ONELU)))
-#define CACHEALIGN_DBL(val) (((val) + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - ONELU)))
+// alignment must be a power of 2
+static inline uintptr_t round_up_pow2(uintptr_t val, uintptr_t alignment) {
+  uintptr_t alignment_m1 = alignment - 1;
+  assert(!(alignment & alignment_m1));
+  return (val + alignment_m1) & (~alignment_m1);
+}
+
+#ifdef __LP64__
+#define round_up_pow2_ull round_up_pow2
+#else
+static inline uint64_t round_up_pow2_ull(uint64_t val, uint64_t alignment) {
+  uint64_t alignment_m1 = alignment - 1;
+  assert(!(alignment & alignment_m1));
+  return (val + alignment_m1) & (~alignment_m1);
+}
+#endif
 
 // 32-bit instead of word-length bitwise not here, when val can be assumed to
 // be 32-bit.
 // (note that the sizeof operator "returns" an uintptr_t, not a uint32_t; hence
 // the lack of sizeof in the CACHELINE_INT32, etc. definitions.)
-#define CACHEALIGN32(val) (((val) + (CACHELINE - 1)) & (~(CACHELINE - 1)))
-#define CACHEALIGN32_BIT(val) (((val) + (CACHELINE_BIT - 1)) & (~(CACHELINE_BIT - 1)))
-#define CACHEALIGN32_INT32(val) (((val) + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1)))
-#define CACHEALIGN32_INT64(val) (((val) + (CACHELINE_INT64 - 1)) & (~(CACHELINE_INT64 - 1)))
-#define CACHEALIGN32_WORD(val) (((val) + (CACHELINE_WORD - 1)) & (~(CACHELINE_WORD - 1)))
-#define CACHEALIGN32_DBL(val) (((val) + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
+static inline uint32_t round_up_pow2_ui(uint32_t val, uint32_t alignment) {
+  uint32_t alignment_m1 = alignment - 1;
+  assert(!(alignment & alignment_m1));
+  return (val + alignment_m1) & (~alignment_m1);
+}
 
 #define MAXV(aa, bb) (((bb) > (aa))? (bb) : (aa))
 #define MINV(aa, bb) (((aa) > (bb))? (bb) : (aa))
@@ -886,6 +900,8 @@ static inline int32_t fputs_checked(const char* ss, FILE* outfile) {
   return ferror(outfile);
 }
 
+// This must be used for all fwrite() calls where len could be >= 2^31, since
+// OS X raw fwrite() doesn't work in that case.
 int32_t fwrite_checked(const void* buf, size_t len, FILE* outfile);
 
 static inline int32_t fread_checked(char* buf, uintptr_t len, FILE* infile, uintptr_t* bytes_read_ptr) {
@@ -907,7 +923,7 @@ static inline int32_t fclose_null(FILE** fptr_ptr) {
 }
 
 // Also sets 128k read buffer.  Can return RET_OPEN_FAIL or RET_NOMEM.
-int32_t gzopen_read_checked(const char* fname, gzFile* target_ptr);
+int32_t gzopen_read_checked(const char* fname, gzFile* gzf_ptr);
 
 // pigz interface should be used for writing .gz files.
 
@@ -1037,7 +1053,16 @@ static inline void bigstack_end_set(const void* unaligned_end) {
   g_bigstack_end = (unsigned char*)(((uintptr_t)unaligned_end) & (~(END_ALLOC_CHUNK_M1 * ONELU)));
 }
 
-unsigned char* bigstack_end_alloc(uintptr_t size);
+// assumes size is divisible by END_ALLOC_CHUNK
+// (no value in directly calling this with a constant size parameter: the
+// compiler will properly optimize a bigstack_end_alloc() call)
+unsigned char* bigstack_end_alloc_presized(uintptr_t size);
+
+static inline unsigned char* bigstack_end_alloc(uintptr_t size) {
+  // multiplication by ONELU is one way to widen an int to word-size.
+  size = round_up_pow2(size, END_ALLOC_CHUNK);
+  return bigstack_end_alloc_presized(size);
+}
 
 #define bigstack_end_aligned_alloc bigstack_end_alloc
 
@@ -1127,7 +1152,7 @@ static inline int32_t no_more_tokens(char* sptr) {
   return ((!sptr) || is_eoln(*sptr));
 }
 
-static inline int32_t no_more_tokens_kns(char* sptr) {
+static inline int32_t no_more_tokens_kns(const char* sptr) {
   return ((!sptr) || is_eoln_kns(*sptr));
 }
 
@@ -1152,62 +1177,47 @@ static inline int32_t is_space_or_eoln(unsigned char ucc) {
   return (ucc <= 32);
 }
 
-uint32_t match_upper(char* ss, const char* fixed_str);
+uint32_t match_upper(const char* ss, const char* fixed_str);
 
-uint32_t match_upper_nt(char* ss, const char* fixed_str, uint32_t ct);
+uint32_t match_upper_nt(const char* ss, const char* fixed_str, uint32_t ct);
 
-uint32_t scan_posint_capped(char* ss, uint32_t* valp, uint32_t cap_div_10, uint32_t cap_mod_10);
+uint32_t scan_posint_capped(const char* ss, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp);
 
-uint32_t scan_uint_capped(char* ss, uint32_t* valp, uint32_t cap_div_10, uint32_t cap_mod_10);
+uint32_t scan_uint_capped(const char* ss, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp);
 
-uint32_t scan_int_abs_bounded(char* ss, int32_t* valp, uint32_t bound_div_10, uint32_t bound_mod_10);
+uint32_t scan_int_abs_bounded(const char* ss, uint32_t bound_div_10, uint32_t bound_mod_10, int32_t* valp);
 
 // intentionally rejects -2^31 for now
-static inline uint32_t scan_int32(char* ss, int32_t* valp) {
-  return scan_int_abs_bounded(ss, valp, 0x7fffffff / 10, 0x7fffffff % 10);
+static inline uint32_t scan_int32(const char* ss, int32_t* valp) {
+  return scan_int_abs_bounded(ss, 0x7fffffff / 10, 0x7fffffff % 10, valp);
 }
 
 // default cap = 0x7ffffffe
-static inline uint32_t scan_posint_defcap(char* ss, uint32_t* valp) {
-  return scan_posint_capped(ss, valp, 0x7ffffffe / 10, 0x7ffffffe % 10);
+static inline uint32_t scan_posint_defcap(const char* ss, uint32_t* valp) {
+  return scan_posint_capped(ss, 0x7ffffffe / 10, 0x7ffffffe % 10, valp);
 }
 
-static inline uint32_t scan_uint_defcap(char* ss, uint32_t* valp) {
-  return scan_uint_capped(ss, valp, 0x7ffffffe / 10, 0x7ffffffe % 10);
+static inline uint32_t scan_uint_defcap(const char* ss, uint32_t* valp) {
+  return scan_uint_capped(ss, 0x7ffffffe / 10, 0x7ffffffe % 10, valp);
 }
 
-static inline uint32_t scan_int_abs_defcap(char* ss, int32_t* valp) {
-  return scan_int_abs_bounded(ss, valp, 0x7ffffffe / 10, 0x7ffffffe % 10);
+static inline uint32_t scan_int_abs_defcap(const char* ss, int32_t* valp) {
+  return scan_int_abs_bounded(ss, 0x7ffffffe / 10, 0x7ffffffe % 10, valp);
 }
 
-static inline uint32_t scan_uint_icap(char* ss, uint32_t* valp) {
-  return scan_uint_capped(ss, valp, 0x7fffffff / 10, 0x7fffffff % 10);
+static inline uint32_t scan_uint_icap(const char* ss, uint32_t* valp) {
+  return scan_uint_capped(ss, 0x7fffffff / 10, 0x7fffffff % 10, valp);
 }
 
-uint32_t scan_posintptr(char* ss, uintptr_t* valp);
+uint32_t scan_posintptr(const char* ss, uintptr_t* valp);
 
-static inline char replace_if_zero(char cc, char replacement) {
-  if (cc != '0') {
-    return cc;
-  } else {
-    return replacement;
-  }
-}
-
-static inline const char* replace_if_zstr(char* ss, const char* replacement) {
-  if ((ss[0] != '0') || ss[1]) {
-    return ss;
-  }
-  return replacement;
-}
-
-static inline uint32_t scan_double(char* ss, double* valp) {
+static inline uint32_t scan_double(const char* ss, double* valp) {
   char* ss2;
   *valp = strtod(ss, &ss2);
   return (ss == ss2);
 }
 
-static inline uint32_t scan_float(char* ss, float* valp) {
+static inline uint32_t scan_float(const char* ss, float* valp) {
   char* ss2;
   *valp = strtof(ss, &ss2);
   return (ss == ss2);
@@ -1215,21 +1225,24 @@ static inline uint32_t scan_float(char* ss, float* valp) {
 
 uint32_t scan_two_doubles(char* ss, double* val1p, double* val2p);
 
-int32_t scan_token_ct_len(FILE* infile, char* buf, uintptr_t half_bufsize, uintptr_t* token_ct_ptr, uintptr_t* max_token_len_ptr);
+// __restrict isn't very important for newer x86 processors since loads/stores
+// tend to be automatically reordered, but may as well use it properly in
+// 64-bit plink_common.
+int32_t scan_token_ct_len(uintptr_t half_bufsize, FILE* infile, char* buf, uintptr_t* __restrict token_ct_ptr, uintptr_t* __restrict max_token_len_ptr);
 
-int32_t read_tokens(FILE* infile, char* buf, uintptr_t half_bufsize, uintptr_t token_ct, uintptr_t max_token_len, char* token_name_buf);
+int32_t read_tokens(uintptr_t half_bufsize, uintptr_t token_ct, uintptr_t max_token_len, FILE* infile, char* __restrict buf, char* __restrict token_name_buf);
 
 static inline char* memseta(char* target, unsigned char val, uintptr_t ct) {
   memset(target, val, ct);
   return &(target[ct]);
 }
 
-static inline char* memcpya(char* target, const void* source, uintptr_t ct) {
+static inline char* memcpya(char* __restrict target, const void* __restrict source, uintptr_t ct) {
   memcpy(target, source, ct);
   return &(target[ct]);
 }
 
-static inline char* memcpyb(char* target, const void* source, uint32_t ct) {
+static inline char* memcpyb(char* __restrict target, const void* __restrict source, uint32_t ct) {
   // Same as memcpya, except the return value is one byte earlier.  Generally
   // used when source is a null-terminated string of known length and we want
   // to copy the null, but sometimes we need to append later.
@@ -1237,34 +1250,34 @@ static inline char* memcpyb(char* target, const void* source, uint32_t ct) {
   return &(target[ct - 1]);
 }
 
-static inline char* memcpyax(char* target, const void* source, uint32_t ct, char extra_char) {
+static inline char* memcpyax(char* __restrict target, const void* __restrict source, uint32_t ct, char extra_char) {
   memcpy(target, source, ct);
   target[ct] = extra_char;
   return &(target[ct + 1]);
 }
 
-static inline void memcpyx(char* target, const void* source, uint32_t ct, char extra_char) {
+static inline void memcpyx(char* __restrict target, const void* __restrict source, uint32_t ct, char extra_char) {
   memcpy(target, source, ct);
   target[ct] = extra_char;
 }
 
-static inline void memcpyl3(char* target, const void* source) {
+static inline void memcpyl3(char* __restrict target, const void* __restrict source) {
   // when it's safe to clobber the fourth character, this is faster
   *((uint32_t*)target) = *((uint32_t*)source);
 }
 
-static inline char* memcpyl3a(char* target, const void* source) {
+static inline char* memcpyl3a(char* __restrict target, const void* __restrict source) {
   memcpyl3(target, source);
   return &(target[3]);
 }
 
-static inline char* strcpya(char* target, const void* source) {
+static inline char* strcpya(char* __restrict target, const void* __restrict source) {
   uintptr_t slen = strlen((char*)source);
   memcpy(target, source, slen);
   return &(target[slen]);
 }
 
-static inline char* strcpyax(char* target, const void* source, char extra_char) {
+static inline char* strcpyax(char* __restrict target, const void* __restrict source, char extra_char) {
   uintptr_t slen = strlen((char*)source);
   memcpy(target, source, slen);
   target[slen] = extra_char;
@@ -1282,7 +1295,7 @@ static inline void append_binary_eoln(char** target_ptr) {
 #endif
 }
 
-static inline void fputs_w4(char* ss, FILE* outfile) {
+static inline void fputs_w4(const char* ss, FILE* outfile) {
   // for efficient handling of width-4 allele columns; don't want to call
   // strlen() since that's redundant with fputs
   if (!ss[1]) {
@@ -1303,7 +1316,7 @@ int32_t gzputs_w4(gzFile gz_outfile, const char* ss);
 
 int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr, uintptr_t* line_idx_ptr);
 
-int32_t get_next_noncomment_excl(FILE* fptr, char** lptr_ptr, uintptr_t* line_idx_ptr, uintptr_t* marker_exclude, uintptr_t* marker_uidx_ptr);
+int32_t get_next_noncomment_excl(const uintptr_t* marker_exclude, FILE* fptr, char** lptr_ptr, uintptr_t* line_idx_ptr, uintptr_t* marker_uidx_ptr);
 
 char* token_end(char* sptr);
 
@@ -1317,7 +1330,7 @@ static inline char* token_endnn(char* sptr) {
   return sptr;
 }
 
-void get_top_two(uint32_t* uint_arr, uintptr_t uia_size, uintptr_t* top_idx_ptr, uintptr_t* second_idx_ptr);
+void get_top_two_ui(const uint32_t* uint_arr, uintptr_t uia_size, uintptr_t* __restrict top_idx_ptr, uintptr_t* __restrict second_idx_ptr);
 
 static inline char* uint32_encode_5_hi_uchar(char* start, uint32_t uii) {
   // tried a few bit hacks here, but turns out nothing really beats this

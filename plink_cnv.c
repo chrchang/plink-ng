@@ -83,7 +83,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
   // Large: top bit = zero, next 32 bits = center pos * 2, bottom 31 = size
   //        [chrom information stored separately, initially in reverse order]
   unsigned char* tmp_il_large_chroms = g_bigstack_base; // grows up
-  uint64_t* tmp_il_small = (uint64_t*)(&(tmp_il_large_chroms[(max_interval_ct + 7) & (~(7 * ONELU))])); // grows up
+  uint64_t* tmp_il_small = (uint64_t*)(&(tmp_il_large_chroms[round_up_pow2(max_interval_ct, sizeof(int64_t))])); // grows up
   uint64_t* il_large = (uint64_t*)g_bigstack_end; // grows down
   uintptr_t* chrom_mask = chrom_info_ptr->chrom_mask;
   const char* cift_str = cnv_intersect_filter_type_to_str(intersect_filter_type);
@@ -288,7 +288,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
   } else {
     fill_ulong_zero(il_chrom_start_large, chrom_code_end + 1);
   }
-  bigstack_end_alloc(CACHEALIGN_INT64(small_interval_ct + large_interval_ct) * sizeof(int64_t));
+  bigstack_end_alloc_presized(round_up_pow2(small_interval_ct + large_interval_ct, CACHELINE_INT64) * sizeof(int64_t));
   while (0) {
   cnv_intersect_load_ret_NOMEM:
     retval = RET_NOMEM;

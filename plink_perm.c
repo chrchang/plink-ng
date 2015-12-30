@@ -269,7 +269,7 @@ THREAD_RET_TYPE generate_cc_perms_thread(void* arg) {
     // 16-byte alignment currently isn't needed; but it might be useful in the
     // future, and the cost is low enough that I won't bother with writing the
     // tiny-bit-more-efficient-half-the-time 8-byte alignment version for now.
-    pheno_nm_ctv = (pheno_nm_ctv + 1) & (~1);
+    pheno_nm_ctv = round_up_pow2(pheno_nm_ctv, 2);
     for (; pidx < pmax; pidx++) {
       generate_cc_perm1(pheno_nm_ct, case_ct, tot_quotient, totq_magic, totq_preshift, totq_postshift, totq_incr, &(perm_vecs[pidx * pheno_nm_ctv]), sfmtp);
     }
@@ -301,7 +301,7 @@ THREAD_RET_TYPE generate_cc_cluster_perms_thread(void* arg) {
       generate_cc_cluster_perm_vec(pheno_nm_ct, perm_cluster_cc_preimage, cluster_ct, cluster_map, cluster_starts, cluster_case_cts, tot_quotients, totq_magics, totq_preshifts, totq_postshifts, totq_incrs, &(perm_vecs[pidx * pheno_nm_ctv]), sfmtp);
     }
   } else {
-    pheno_nm_ctv = (pheno_nm_ctv + 1) & (~1);
+    pheno_nm_ctv = round_up_pow2(pheno_nm_ctv, 2);
     for (; pidx < pmax; pidx++) {
       generate_cc_cluster_perm1(pheno_nm_ct, perm_cluster_cc_preimage, cluster_ct, cluster_map, cluster_starts, cluster_case_cts, tot_quotients, totq_magics, totq_preshifts, totq_postshifts, totq_incrs, &(perm_vecs[pidx * pheno_nm_ctv]), sfmtp);
     }
@@ -694,7 +694,7 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
   FILE* outfile = NULL;
   uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
   uintptr_t pheno_nm_ctl = (pheno_nm_ct + (BITCT - 1)) / BITCT;
-  uintptr_t pheno_nm_ctv = (pheno_nm_ctl + 1) & (~1);
+  uintptr_t pheno_nm_ctv = round_up_pow2(pheno_nm_ctl, 2);
   uintptr_t perm_vec_ctcl8m = 0;
   char* writebuf = NULL;
   int32_t retval = 0;
@@ -761,7 +761,7 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
     if (!g_perm_pheno_d2) {
       goto make_perm_pheno_ret_NOMEM;
     }
-    perm_vec_ctcl8m = CACHEALIGN32_DBL(permphe_ct);
+    perm_vec_ctcl8m = round_up_pow2(permphe_ct, CACHELINE_DBL);
     if (bigstack_alloc_d(perm_vec_ctcl8m * pheno_nm_ct, &g_perm_vecstd)) {
       goto make_perm_pheno_ret_NOMEM;
     }
@@ -775,7 +775,7 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
         goto make_perm_pheno_ret_INVALID_CMDLINE;
       }
       if (bigstack_alloc_ui(pheno_nm_ct, &g_perm_sample_to_cluster) ||
-          bigstack_alloc_ui(g_perm_generation_thread_ct * CACHEALIGN_INT32(g_perm_cluster_ct), &g_perm_qt_cluster_thread_wkspace)) {
+          bigstack_alloc_ui(g_perm_generation_thread_ct * round_up_pow2(g_perm_cluster_ct, CACHELINE_INT32), &g_perm_qt_cluster_thread_wkspace)) {
 	goto make_perm_pheno_ret_NOMEM;
       }
       fill_unfiltered_sample_to_cluster(pheno_nm_ct, g_perm_cluster_ct, g_perm_cluster_map, g_perm_cluster_starts, g_perm_sample_to_cluster);

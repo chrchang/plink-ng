@@ -27,7 +27,7 @@ uint32_t g_log_failed = 0;
 uint32_t g_thread_ct;
 
 uint32_t aligned_malloc(uintptr_t size, uintptr_t** aligned_pp) {
-#ifdef __LP64__
+#if defined __LP64__ && !defined __APPLE__
   // Avoid random segfaults on 64-bit machines which have 8-byte- instead of
   // 16-byte-aligned malloc().  (Slightly different code is needed if malloc()
   // does not even guarantee 8-byte alignment.)
@@ -48,7 +48,7 @@ uint32_t aligned_malloc(uintptr_t size, uintptr_t** aligned_pp) {
 }
 
 void aligned_free(uintptr_t* aligned_pp) {
-#ifdef __LP64__
+#if defined __LP64__ && !defined __APPLE__
   free((uintptr_t*)(aligned_pp[-1]));
 #else
   free(aligned_pp);
@@ -56,13 +56,13 @@ void aligned_free(uintptr_t* aligned_pp) {
 }
 
 uint32_t push_ll_str(const char* ss, Ll_str** ll_stack_ptr) {
-  uint32_t slen = strlen(ss);
-  Ll_str* new_ll_str = (Ll_str*)malloc(sizeof(Ll_str) + slen + 1);
+  uintptr_t str_bytes = strlen(ss) + 1;
+  Ll_str* new_ll_str = (Ll_str*)malloc(sizeof(Ll_str) + str_bytes);
   if (!new_ll_str) {
     return 1;
   }
   new_ll_str->next = *ll_stack_ptr;
-  memcpy(new_ll_str->ss, ss, slen + 1);
+  memcpy(new_ll_str->ss, ss, str_bytes);
   *ll_stack_ptr = new_ll_str;
   return 0;
 }
@@ -117,8 +117,6 @@ void logerrprintb() {
 }
 
 void wordwrap(uint32_t suffix_len, char* ss) {
-  // This should have been written eons ago.
-
   // Input: A null-terminated string with no intermediate newlines.  If
   //        suffix_len is zero, there should be a terminating \n; otherwise,
   //        the last character should be a space.
@@ -147,8 +145,8 @@ void wordwrap(uint32_t suffix_len, char* ss) {
       if (!suffix_len) {
 	if (token_end <= &(line_end[1])) {
 	  // okay if end-of-string is one past the end, because function
-	  // assumes last character is \n in suffix_len == 0 case (might want
-	  // to add a debug option to enforce that)
+	  // assumes last character is \n in suffix_len == 0 case
+	  assert(token_end[-1] == '\n');
 	  return;
 	}
       } else {
@@ -157,6 +155,7 @@ void wordwrap(uint32_t suffix_len, char* ss) {
 	}
 	// because of terminal space assumption, token_start actually points
 	// to the end of the string
+	assert(token_start[-1] == ' ');
       }
       token_start[-1] = '\n';
       return;
@@ -196,23 +195,25 @@ int32_t fopen_checked(const char* fname, const char* mode, FILE** target_ptr) {
 }
 
 int32_t fwrite_checked(const void* buf, size_t len, FILE* outfile) {
-  while (len > 0x7ffe0000) {
-    // OS X can't perform >2GB writes
-    fwrite(buf, 1, 0x7ffe0000, outfile);
-    buf = &(((unsigned char*)buf)[0x7ffe0000]);
-    len -= 0x7ffe0000;
+  while (len > 0x7ffff000) {
+    // OS X can't perform 2GB+ writes
+    // typical disk block size is 4kb, so 0x7ffff000 is the largest sensible
+    // write size
+    fwrite(buf, 1, 0x7ffff000, outfile);
+    buf = &(((unsigned char*)buf)[0x7ffff000]);
+    len -= 0x7ffff000;
   }
   fwrite(buf, 1, len, outfile);
   return ferror(outfile);
 }
 
-int32_t gzopen_read_checked(const char* fname, gzFile* target_ptr) {
-  *target_ptr = gzopen(fname, "rb");
-  if (!(*target_ptr)) {
+int32_t gzopen_read_checked(const char* fname, gzFile* gzf_ptr) {
+  *gzf_ptr = gzopen(fname, "rb");
+  if (!(*gzf_ptr)) {
     LOGPRINTFWW(g_errstr_fopen, fname);
     return RET_OPEN_FAIL;
   }
-  if (gzbuffer(*target_ptr, 131072)) {
+  if (gzbuffer(*gzf_ptr, 131072)) {
     return RET_NOMEM;
   }
   return 0;
@@ -224,7 +225,7 @@ unsigned char* g_bigstack_end;
 
 unsigned char* bigstack_alloc(uintptr_t size) {
   unsigned char* alloc_ptr;
-  size = CACHEALIGN(size);
+  size = round_up_pow2(size, CACHELINE);
   if (bigstack_left() < size) {
     return NULL;
   }
@@ -234,23 +235,22 @@ unsigned char* bigstack_alloc(uintptr_t size) {
 }
 
 void bigstack_shrink_top(const void* rebase, uintptr_t new_size) {
-  uintptr_t freed_bytes = ((uintptr_t)(g_bigstack_base - ((unsigned char*)rebase))) - CACHEALIGN(new_size);
+  uintptr_t freed_bytes = ((uintptr_t)(g_bigstack_base - ((unsigned char*)rebase))) - round_up_pow2(new_size, CACHELINE);
   g_bigstack_base -= freed_bytes;
 }
 
-unsigned char* bigstack_end_alloc(uintptr_t size) {
+unsigned char* bigstack_end_alloc_presized(uintptr_t size) {
+  assert(!(size & (~(END_ALLOC_CHUNK_M1 * ONELU))));
   uintptr_t cur_bigstack_left = bigstack_left();
-  // multiplication by ONELU is one way to widen an integer to word-size.
-  size = (size + END_ALLOC_CHUNK_M1) & (~(END_ALLOC_CHUNK_M1 * ONELU));
   if (size > cur_bigstack_left) {
     return NULL;
   } else {
     g_bigstack_end -= size;
     return g_bigstack_end;
-  }
+  }  
 }
 
-uint32_t match_upper(char* ss, const char* fixed_str) {
+uint32_t match_upper(const char* ss, const char* fixed_str) {
   // Returns whether uppercased ss matches nonempty fixed_str.  Assumes
   // fixed_str contains nothing but letters and a null terminator.
   char cc = *fixed_str++;
@@ -263,7 +263,7 @@ uint32_t match_upper(char* ss, const char* fixed_str) {
   return !(*ss);
 }
 
-uint32_t match_upper_nt(char* ss, const char* fixed_str, uint32_t ct) {
+uint32_t match_upper_nt(const char* ss, const char* fixed_str, uint32_t ct) {
   do {
     if ((((unsigned char)(*ss++)) & 0xdf) != ((unsigned char)(*fixed_str++))) {
       return 0;
@@ -272,7 +272,7 @@ uint32_t match_upper_nt(char* ss, const char* fixed_str, uint32_t ct) {
   return 1;
 }
 
-uint32_t scan_posint_capped(char* ss, uint32_t* valp, uint32_t cap_div_10, uint32_t cap_mod_10) {
+uint32_t scan_posint_capped(const char* ss, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp) {
   // Reads an integer in [1, cap].  Assumes first character is nonspace.  Has
   // the overflow detection atoi() lacks.
   // A funny-looking div_10/mod_10 interface is used since the cap will usually
@@ -309,7 +309,7 @@ uint32_t scan_posint_capped(char* ss, uint32_t* valp, uint32_t cap_div_10, uint3
   return 1;
 }
 
-uint32_t scan_uint_capped(char* ss, uint32_t* valp, uint32_t cap_div_10, uint32_t cap_mod_10) {
+uint32_t scan_uint_capped(const char* ss, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp) {
   // Reads an integer in [0, cap].  Assumes first character is nonspace. 
   uint32_t val = (uint32_t)((unsigned char)*ss) - 48;
   uint32_t cur_digit;
@@ -347,7 +347,7 @@ uint32_t scan_uint_capped(char* ss, uint32_t* valp, uint32_t cap_div_10, uint32_
   return ((uint32_t)((unsigned char)(*ss)) - 48) < 10;
 }
 
-uint32_t scan_int_abs_bounded(char* ss, int32_t* valp, uint32_t bound_div_10, uint32_t bound_mod_10) {
+uint32_t scan_int_abs_bounded(const char* ss, uint32_t bound_div_10, uint32_t bound_mod_10, int32_t* valp) {
   // Reads an integer in [-bound, bound].  Assumes first character is nonspace.
   uint32_t val = (uint32_t)((unsigned char)*ss) - 48;
   int32_t sign = 1;
@@ -378,7 +378,7 @@ uint32_t scan_int_abs_bounded(char* ss, int32_t* valp, uint32_t bound_div_10, ui
   return 1;
 }
 
-uint32_t scan_posintptr(char* ss, uintptr_t* valp) {
+uint32_t scan_posintptr(const char* ss, uintptr_t* valp) {
   // Reads an integer in [1, 2^BITCT - 1].  Assumes first character is
   // nonspace. 
   uintptr_t val = (uint32_t)((unsigned char)*ss) - 48;
@@ -457,7 +457,7 @@ uint32_t scan_two_doubles(char* ss, double* val1p, double* val2p) {
   return (ss == ss2)? 1 : 0;
 }
 
-int32_t scan_token_ct_len(FILE* infile, char* buf, uintptr_t half_bufsize, uintptr_t* token_ct_ptr, uintptr_t* max_token_len_ptr) {
+int32_t scan_token_ct_len(uintptr_t half_bufsize, FILE* infile, char* buf, uintptr_t* __restrict token_ct_ptr, uintptr_t* __restrict max_token_len_ptr) {
   // buf must be of size >= (2 * half_bufsize + 2)
   // max_token_len includes trailing null
   uintptr_t full_bufsize = half_bufsize * 2;
@@ -529,7 +529,7 @@ int32_t scan_token_ct_len(FILE* infile, char* buf, uintptr_t half_bufsize, uintp
   return 0;
 }
 
-int32_t read_tokens(FILE* infile, char* buf, uintptr_t half_bufsize, uintptr_t token_ct, uintptr_t max_token_len, char* token_name_buf) {
+int32_t read_tokens(uintptr_t half_bufsize, uintptr_t token_ct, uintptr_t max_token_len, FILE* infile, char* __restrict buf, char* __restrict token_name_buf) {
   // buf must be of size >= (2 * half_bufsize + 2).
   // max_token_len includes trailing null
   uintptr_t full_bufsize = half_bufsize * 2;
@@ -624,7 +624,7 @@ int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr, uintptr_t* line_idx_ptr
   return 0;
 }
 
-int32_t get_next_noncomment_excl(FILE* fptr, char** lptr_ptr, uintptr_t* line_idx_ptr, uintptr_t* marker_exclude, uintptr_t* marker_uidx_ptr) {
+int32_t get_next_noncomment_excl(const uintptr_t* marker_exclude, FILE* fptr, char** lptr_ptr, uintptr_t* line_idx_ptr, uintptr_t* marker_uidx_ptr) {
   while (!get_next_noncomment(fptr, lptr_ptr, line_idx_ptr)) {
     if (!is_set_ul(marker_exclude, *marker_uidx_ptr)) {
       return 0;
@@ -656,22 +656,15 @@ char* token_endl(char* sptr) {
   return sptr;
 }
 
-void get_top_two(uint32_t* uint_arr, uintptr_t uia_size, uintptr_t* top_idx_ptr, uintptr_t* second_idx_ptr) {
-  uintptr_t cur_idx = 2;
-  uintptr_t top_idx;
-  uint32_t top_val;
-  uintptr_t second_idx;
-  uint32_t second_val;
+void get_top_two_ui(const uint32_t* uint_arr, uintptr_t uia_size, uintptr_t* __restrict top_idx_ptr, uintptr_t* __restrict second_idx_ptr) {
+  assert(uia_size > 1);
+  uintptr_t top_idx = (uint_arr[1] > uint_arr[0])? 1 : 0;
+  uintptr_t second_idx = 1 ^ top_idx;
+  uint32_t top_val = uint_arr[top_idx];
+  uint32_t second_val = uint_arr[second_idx];
+  uintptr_t cur_idx;
   uintptr_t cur_val;
-  if (uint_arr[1] > uint_arr[0]) {
-    top_idx = 1;
-  } else {
-    top_idx = 0;
-  }
-  second_idx = 1 ^ top_idx;
-  top_val = uint_arr[top_idx];
-  second_val = uint_arr[second_idx];
-  do {
+  for (cur_idx = 2; cur_idx < uia_size; ++cur_idx) {
     cur_val = uint_arr[cur_idx];
     if (cur_val > second_val) {
       if (cur_val > top_val) {
@@ -684,7 +677,7 @@ void get_top_two(uint32_t* uint_arr, uintptr_t uia_size, uintptr_t* top_idx_ptr,
 	second_idx = cur_idx;
       }
     }
-  } while (++cur_idx < uia_size);
+  }
   *top_idx_ptr = top_idx;
   *second_idx_ptr = second_idx;
 }
@@ -7675,7 +7668,7 @@ uint32_t numeric_range_list_to_bitfield(Range_list* range_list_ptr, uint32_t ite
   uint32_t idx1;
   uint32_t idx2;
   for (name_idx = 0; name_idx < name_ct; name_idx++) {
-    if (scan_uint_capped(&(names[name_idx * name_max_len]), &idx1, idx_max / 10, idx_max % 10)) {
+    if (scan_uint_capped(&(names[name_idx * name_max_len]), idx_max / 10, idx_max % 10, &idx1)) {
       if (ignore_overflow) {
 	continue;
       }
@@ -7683,7 +7676,7 @@ uint32_t numeric_range_list_to_bitfield(Range_list* range_list_ptr, uint32_t ite
     }
     if (starts_range[name_idx]) {
       name_idx++;
-      if (scan_uint_capped(&(names[name_idx * name_max_len]), &idx2, idx_max / 10, idx_max % 10)) {
+      if (scan_uint_capped(&(names[name_idx * name_max_len]), idx_max / 10, idx_max % 10, &idx2)) {
 	if (!ignore_overflow) {
 	  return 1;
 	}
