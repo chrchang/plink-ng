@@ -2461,13 +2461,10 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
   uint32_t pidx_offset = g_perms_done - perm_vec_ct;
   uint32_t model_fisher = g_model_fisher;
   uint32_t fisher_midp = g_fisher_midp;
-#ifdef __LP64__
-  uint32_t perm_ct128 = (perm_vec_ct + 127) / 128;
-  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct128 * 288]);
-#else
-  uint32_t perm_ct64 = (perm_vec_ct + 63) / 64;
-  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct64 * 144]);
-#endif
+
+  // currently safe for this to be uint32_t since perm_vec_ct < 2^30
+  uint32_t perm_ctvc = BITCT_TO_VECCT(perm_vec_ct);
+  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ctvc * 144 * BYTECT4]);
   uint32_t* git_homrar_cts = NULL;
   uint32_t* git_missing_cts = NULL;
   uint32_t* git_het_cts = NULL;
@@ -2623,17 +2620,9 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
 	  ldrefs[marker_idx] = ldref;
 	}
 	if (ldref == marker_bidx) {
-#ifdef __LP64__
-	  fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * (perm_vec_ctcl4m / 2));
-#else
-	  fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * perm_vec_ctcl4m);
-#endif
+	  fill_uint_zero(git_homrar_cts, 3 * perm_vec_ctcl4m);
 	  calc_git(pheno_nm_ct, perm_vec_ct, loadbuf_cur, perm_vecst, git_homrar_cts, thread_git_wkspace);
-#ifdef __LP64__
-	  fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 72);
-#else
-	  fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 72);
-#endif
+	  fill_uint_zero(thread_git_wkspace, perm_ctvc * 72 * BYTECT4);
 	} else {
 	  memcpy(git_homrar_cts, &(resultbuf[3 * ldref * perm_vec_ctcl4m]), 3 * perm_vec_ctcl4m * sizeof(int32_t));
 	  calc_rem(pheno_nm_ct, perm_vec_ct, loadbuf_cur, &(loadbuf[ldref * pheno_nm_ctv2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
@@ -2742,13 +2731,8 @@ THREAD_RET_TYPE assoc_set_thread(void* arg) {
   uint32_t assoc_thread_ct = g_assoc_thread_ct;
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uintptr_t pheno_nm_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(pheno_nm_ct);
-#ifdef __LP64__
-  uint32_t perm_ct128 = (perm_vec_ct + 127) / 128;
-  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct128 * 288]);
-#else
-  uint32_t perm_ct64 = (perm_vec_ct + 63) / 64;
-  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct64 * 144]);
-#endif
+  uint32_t perm_ctvc = BITCT_TO_VECCT(perm_vec_ct);
+  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ctvc * 144 * BYTECT4]);
   uint32_t* git_homrar_cts = NULL;
   uint32_t* git_missing_cts = NULL;
   uint32_t* git_het_cts = NULL;
@@ -2820,17 +2804,9 @@ THREAD_RET_TYPE assoc_set_thread(void* arg) {
 	git_homrar_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
 	git_missing_cts = &(git_homrar_cts[perm_vec_ctcl4m]);
 	git_het_cts = &(git_homrar_cts[2 * perm_vec_ctcl4m]);
-#ifdef __LP64__
-	fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * (perm_vec_ctcl4m / 2));
-#else
-	fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * perm_vec_ctcl4m);
-#endif
+	fill_uint_zero(git_homrar_cts, 3 * perm_vec_ctcl4m);
 	calc_git(pheno_nm_ct, perm_vec_ct, loadbuf_cur, perm_vecst, git_homrar_cts, thread_git_wkspace);
-#ifdef __LP64__
-	fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 72);
-#else
-	fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 72);
-#endif
+	fill_uint_zero(thread_git_wkspace, perm_ctvc * 72 * BYTECT4);
       }
       for (pidx = 0; pidx < perm_vec_ct; pidx++) {
 	if (!is_x_or_y) {
@@ -3883,13 +3859,8 @@ THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
   uint32_t pidx_offset = g_perms_done - perm_vec_ct;
   uint32_t model_fisher = g_model_fisher;
   uint32_t fisher_midp = g_fisher_midp;
-#ifdef __LP64__
-  uint32_t perm_ct128 = (perm_vec_ct + 127) / 128;
-  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct128 * 288]);
-#else
-  uint32_t perm_ct64 = (perm_vec_ct + 63) / 64;
-  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct64 * 144]);
-#endif
+  uint32_t perm_ctvc = BITCT_TO_VECCT(perm_vec_ct);
+  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ctvc * 144 * BYTECT4]);
   uint32_t* git_homrar_cts = NULL;
   uint32_t* git_missing_cts = NULL;
   uint32_t* git_het_cts = NULL;
@@ -4024,17 +3995,9 @@ THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
 	ldrefs[marker_idx] = ldref;
       }
       if (ldref == marker_bidx) {
-#ifdef __LP64__
-	fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * (perm_vec_ctcl4m / 2));
-#else
-	fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * perm_vec_ctcl4m);
-#endif
+	fill_uint_zero(git_homrar_cts, 3 * perm_vec_ctcl4m);
 	calc_git(pheno_nm_ct, perm_vec_ct, &(loadbuf[marker_bidx * pheno_nm_ctv2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
-#ifdef __LP64__
-	fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 72);
-#else
-	fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 72);
-#endif
+	fill_uint_zero(thread_git_wkspace, perm_ctvc * 72 * BYTECT4);
       } else {
 	memcpy(git_homrar_cts, &(resultbuf[3 * ldref * perm_vec_ctcl4m]), 3 * perm_vec_ctcl4m * sizeof(int32_t));
 	calc_rem(pheno_nm_ct, perm_vec_ct, loadbuf_cur, &(loadbuf[ldref * pheno_nm_ctv2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
@@ -4126,13 +4089,8 @@ THREAD_RET_TYPE model_set_domrec_thread(void* arg) {
   uint32_t assoc_thread_ct = g_assoc_thread_ct;
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uintptr_t pheno_nm_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(pheno_nm_ct);
-#ifdef __LP64__
-  uint32_t perm_ct128 = (perm_vec_ct + 127) / 128;
-  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct128 * 288]);
-#else
-  uint32_t perm_ct64 = (perm_vec_ct + 63) / 64;
-  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct64 * 144]);
-#endif
+  uint32_t perm_ctvc = BITCT_TO_VECCT(perm_vec_ct);
+  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ctvc * 144 * BYTECT4]);
   uint32_t* git_homrar_cts = NULL;
   uint32_t* git_missing_cts = NULL;
   uint32_t* git_het_cts = NULL;
@@ -4193,17 +4151,9 @@ THREAD_RET_TYPE model_set_domrec_thread(void* arg) {
       git_homrar_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
       git_missing_cts = &(git_homrar_cts[perm_vec_ctcl4m]);
       git_het_cts = &(git_homrar_cts[2 * perm_vec_ctcl4m]);
-#ifdef __LP64__
-      fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * (perm_vec_ctcl4m / 2));
-#else
-      fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * perm_vec_ctcl4m);
-#endif
+      fill_uint_zero(git_homrar_cts, 3 * perm_vec_ctcl4m);
       calc_git(pheno_nm_ct, perm_vec_ct, loadbuf_cur, perm_vecst, git_homrar_cts, thread_git_wkspace);
-#ifdef __LP64__
-      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 72);
-#else
-      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 72);
-#endif
+      fill_uint_zero(thread_git_wkspace, perm_ctvc * 72 * BYTECT4);
       for (pidx = 0; pidx < perm_vec_ct; pidx++) {
 	case_missing_ct = git_missing_cts[pidx];
         if (is_model_prec) {
@@ -4368,13 +4318,8 @@ THREAD_RET_TYPE model_maxt_trend_thread(void* arg) {
   uintptr_t pheno_nm_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(pheno_nm_ct);
   uint32_t assoc_thread_ct = g_assoc_thread_ct;
   uint32_t pidx_offset = g_perms_done - perm_vec_ct;
-#ifdef __LP64__
-  uint32_t perm_ct128 = (perm_vec_ct + 127) / 128;
-  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct128 * 288]);
-#else
-  uint32_t perm_ct64 = (perm_vec_ct + 63) / 64;
-  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct64 * 144]);
-#endif
+  uint32_t perm_ctvc = BITCT_TO_VECCT(perm_vec_ct);
+  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ctvc * 144 * BYTECT4]);
   uint32_t* git_homrar_cts = NULL;
   uint32_t* git_missing_cts = NULL;
   uint32_t* git_het_cts = NULL;
@@ -4485,17 +4430,9 @@ THREAD_RET_TYPE model_maxt_trend_thread(void* arg) {
 	ldrefs[marker_idx] = ldref;
       }
       if (ldref == marker_bidx) {
-#ifdef __LP64__
-	fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * (perm_vec_ctcl4m / 2));
-#else
-	fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * perm_vec_ctcl4m);
-#endif
+	fill_uint_zero(git_homrar_cts, 3 * perm_vec_ctcl4m);
 	calc_git(pheno_nm_ct, perm_vec_ct, loadbuf_cur, perm_vecst, git_homrar_cts, thread_git_wkspace);
-#ifdef __LP64__
-	fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 72);
-#else
-	fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 72);
-#endif
+	fill_uint_zero(thread_git_wkspace, perm_ctvc * 72 * BYTECT4);
       } else {
 	memcpy(git_homrar_cts, &(resultbuf[3 * ldref * perm_vec_ctcl4m]), 3 * perm_vec_ctcl4m * sizeof(int32_t));
 	calc_rem(pheno_nm_ct, perm_vec_ct, loadbuf_cur, &(loadbuf[ldref * pheno_nm_ctv2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
@@ -4563,13 +4500,8 @@ THREAD_RET_TYPE model_set_trend_thread(void* arg) {
   uint32_t assoc_thread_ct = g_assoc_thread_ct;
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uintptr_t pheno_nm_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(pheno_nm_ct);
-#ifdef __LP64__
-  uint32_t perm_ct128 = (perm_vec_ct + 127) / 128;
-  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct128 * 288]);
-#else
-  uint32_t perm_ct64 = (perm_vec_ct + 63) / 64;
-  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct64 * 144]);
-#endif
+  uint32_t perm_ctvc = BITCT_TO_VECCT(perm_vec_ct);
+  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ctvc * 144 * BYTECT4]);
   uint32_t* git_homrar_cts = NULL;
   uint32_t* git_missing_cts = NULL;
   uint32_t* git_het_cts = NULL;
@@ -4623,17 +4555,9 @@ THREAD_RET_TYPE model_set_trend_thread(void* arg) {
       git_homrar_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
       git_missing_cts = &(git_homrar_cts[perm_vec_ctcl4m]);
       git_het_cts = &(git_homrar_cts[2 * perm_vec_ctcl4m]);
-#ifdef __LP64__
-      fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * (perm_vec_ctcl4m / 2));
-#else
-      fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * perm_vec_ctcl4m);
-#endif
+      fill_uint_zero(git_homrar_cts, 3 * perm_vec_ctcl4m);
       calc_git(pheno_nm_ct, perm_vec_ct, loadbuf_cur, perm_vecst, git_homrar_cts, thread_git_wkspace);
-#ifdef __LP64__
-      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 72);
-#else
-      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 72);
-#endif
+      fill_uint_zero(thread_git_wkspace, perm_ctvc * 72 * BYTECT4);
       for (pidx = 0; pidx < perm_vec_ct; pidx++) {
 	case_missing_ct = git_missing_cts[pidx];
 	case_com_ct = 2 * (case_ct - case_missing_ct - git_homrar_cts[pidx]) - git_het_cts[pidx];
@@ -4806,13 +4730,8 @@ THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
   uint32_t pidx_offset = g_perms_done - perm_vec_ct;
   uint32_t model_fisher = g_model_fisher;
   uint32_t fisher_midp = g_fisher_midp;
-#ifdef __LP64__
-  uint32_t perm_ct128 = (perm_vec_ct + 127) / 128;
-  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct128 * 288]);
-#else
-  uint32_t perm_ct64 = (perm_vec_ct + 63) / 64;
-  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct64 * 144]);
-#endif
+  uint32_t perm_ctvc = BITCT_TO_VECCT(perm_vec_ct);
+  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ctvc * 144 * BYTECT4]);
   uint32_t* git_homrar_cts = NULL;
   uint32_t* git_missing_cts = NULL;
   uint32_t* git_het_cts = NULL;
@@ -4929,17 +4848,9 @@ THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
 	ldrefs[marker_idx] = ldref;
       }
       if (ldref == marker_bidx) {
-#ifdef __LP64__
-	fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * (perm_vec_ctcl4m / 2));
-#else
-	fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * perm_vec_ctcl4m);
-#endif
+	fill_uint_zero(git_homrar_cts, 3 * perm_vec_ctcl4m);
 	calc_git(pheno_nm_ct, perm_vec_ct, loadbuf_cur, perm_vecst, git_homrar_cts, thread_git_wkspace);
-#ifdef __LP64__
-	fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 72);
-#else
-	fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 72);
-#endif
+	fill_uint_zero(thread_git_wkspace, perm_ctvc * 72 * BYTECT4);
       } else {
 	memcpy(git_homrar_cts, &(resultbuf[3 * ldref * perm_vec_ctcl4m]), 3 * perm_vec_ctcl4m * sizeof(int32_t));
 	calc_rem(pheno_nm_ct, perm_vec_ct, loadbuf_cur, &(loadbuf[ldref * pheno_nm_ctv2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
@@ -5235,13 +5146,8 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
   uint32_t pidx_offset = g_perms_done - perm_vec_ct;
   uint32_t model_fisher = g_model_fisher;
   uint32_t fisher_midp = g_fisher_midp;
-#ifdef __LP64__
-  uint32_t perm_ct128 = (perm_vec_ct + 127) / 128;
-  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct128 * 288]);
-#else
-  uint32_t perm_ct64 = (perm_vec_ct + 63) / 64;
-  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct64 * 144]);
-#endif
+  uint32_t perm_ctvc = BITCT_TO_VECCT(perm_vec_ct);
+  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ctvc * 144 * BYTECT4]);
   uint32_t* git_homrar_cts = NULL;
   uint32_t* git_missing_cts = NULL;
   uint32_t* git_het_cts = NULL;
@@ -5376,17 +5282,9 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
 	ldrefs[marker_idx] = ldref;
       }
       if (ldref == marker_bidx) {
-#ifdef __LP64__
-	fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * (perm_vec_ctcl4m / 2));
-#else
-	fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * perm_vec_ctcl4m);
-#endif
+	fill_uint_zero(git_homrar_cts, 3 * perm_vec_ctcl4m);
 	calc_git(pheno_nm_ct, perm_vec_ct, &(loadbuf[marker_bidx * pheno_nm_ctv2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
-#ifdef __LP64__
-	fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 72);
-#else
-	fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 72);
-#endif
+	fill_uint_zero(thread_git_wkspace, perm_ctvc * 72 * BYTECT4);
       } else {
 	memcpy(git_homrar_cts, &(resultbuf[3 * ldref * perm_vec_ctcl4m]), 3 * perm_vec_ctcl4m * sizeof(int32_t));
 	calc_rem(pheno_nm_ct, perm_vec_ct, loadbuf_cur, &(loadbuf[ldref * pheno_nm_ctv2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
@@ -5571,13 +5469,8 @@ THREAD_RET_TYPE model_set_best_thread(void* arg) {
   uint32_t assoc_thread_ct = g_assoc_thread_ct;
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uintptr_t pheno_nm_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(pheno_nm_ct);
-#ifdef __LP64__
-  uint32_t perm_ct128 = (perm_vec_ct + 127) / 128;
-  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct128 * 288]);
-#else
-  uint32_t perm_ct64 = (perm_vec_ct + 63) / 64;
-  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct64 * 144]);
-#endif
+  uint32_t perm_ctvc = BITCT_TO_VECCT(perm_vec_ct);
+  uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ctvc * 144 * BYTECT4]);
   uint32_t* git_homrar_cts = NULL;
   uint32_t* git_missing_cts = NULL;
   uint32_t* git_het_cts = NULL;
@@ -5645,17 +5538,9 @@ THREAD_RET_TYPE model_set_best_thread(void* arg) {
       git_homrar_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
       git_missing_cts = &(git_homrar_cts[perm_vec_ctcl4m]);
       git_het_cts = &(git_homrar_cts[2 * perm_vec_ctcl4m]);
-#ifdef __LP64__
-      fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * (perm_vec_ctcl4m / 2));
-#else
-      fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * perm_vec_ctcl4m);
-#endif
+      fill_uint_zero(git_homrar_cts, 3 * perm_vec_ctcl4m);
       calc_git(pheno_nm_ct, perm_vec_ct, loadbuf_cur, perm_vecst, git_homrar_cts, thread_git_wkspace);
-#ifdef __LP64__
-      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 72);
-#else
-      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 72);
-#endif
+      fill_uint_zero(thread_git_wkspace, perm_ctvc * 72 * BYTECT4);
       for (pidx = 0; pidx < perm_vec_ct; pidx++) {
 	case_missing_ct = git_missing_cts[pidx];
 	case_het_ct = git_het_cts[pidx];
@@ -6518,7 +6403,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       g_perm_2success_ct = perm_2success_ct;
       if (model_adapt_nst) {
 	if (bigstack_alloc_ui(marker_ct, &perm_attempt_ct) ||
-	    bigstack_alloc_uc(marker_ct, &perm_adapt_stop)) {
+
+	    // we need to zero out trailing bytes of the last word
+	    bigstack_calloc_uc(round_up_pow2(marker_ct, BYTECT), &perm_adapt_stop)) {
 	  goto model_assoc_ret_NOMEM;
 	}
 	g_perm_attempt_ct = perm_attempt_ct;
@@ -6527,10 +6414,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	for (uii = 0; uii < marker_ct; uii++) {
 	  perm_attempt_ct[uii] = ujj;
 	}
-
-	// we need to zero out trailing bytes of the last word, so calloc isn't
-	// always enough
-	fill_ulong_zero((uintptr_t*)perm_adapt_stop, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
       }
     }
     if (!cluster_starts) {
@@ -8297,14 +8180,13 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       g_aperm_alpha = apip->alpha;
       perms_total = apip->max;
       if (bigstack_alloc_ui(marker_ct, &g_perm_attempt_ct) ||
-	  bigstack_alloc_uc(marker_ct, &g_perm_adapt_stop)) {
+	  bigstack_calloc_uc(round_up_pow2(marker_ct, BYTECT), &g_perm_adapt_stop)) {
 	goto qassoc_ret_NOMEM;
       }
       ujj = apip->max;
       for (uii = 0; uii < marker_ct; uii++) {
 	g_perm_attempt_ct[uii] = ujj;
       }
-      fill_ulong_zero((uintptr_t*)g_perm_adapt_stop, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
       g_adaptive_ci_zt = ltqnorm(1 - apip->beta / (2.0 * ((intptr_t)marker_ct)));
       if (apip->min < apip->init_interval) {
 	g_first_adapt_check = (int32_t)(apip->init_interval);
@@ -8989,7 +8871,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     bigstack_reset(g_perm_vecstd);
     if (g_perms_done < perms_total) {
       if (perm_adapt_nst) {
-	marker_unstopped_ct = marker_ct - popcount_longs((uintptr_t*)g_perm_adapt_stop, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
+	marker_unstopped_ct = marker_ct - popcount01_longs((uintptr_t*)g_perm_adapt_stop, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
 	if (!marker_unstopped_ct) {
 	  goto qassoc_adapt_perm_count;
 	}
@@ -10367,14 +10249,13 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
       }
     } else {
       if (bigstack_alloc_ui(marker_ct, &g_perm_attempt_ct) ||
-	  bigstack_alloc_uc(marker_ct, &g_perm_adapt_stop) ||
+	  bigstack_calloc_uc(round_up_pow2(marker_ct, BYTECT), &g_perm_adapt_stop) ||
 	  bigstack_alloc_ui(4 * MODEL_BLOCKSIZE, &g_precomp_ui)) {
 	goto testmiss_ret_NOMEM;
       }
       for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
 	g_perm_attempt_ct[marker_idx] = perms_total;
       }
-      fill_ulong_zero((uintptr_t*)g_perm_adapt_stop, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
       g_adaptive_ci_zt = ltqnorm(1 - apip->beta / (2.0 * ((intptr_t)marker_ct)));
     }
     if (!cluster_starts) {

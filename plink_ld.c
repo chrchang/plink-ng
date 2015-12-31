@@ -739,7 +739,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   uintptr_t founder_ct = popcount_longs(founder_info, unfiltered_sample_ctv2 / 2);
   uintptr_t founder_ctl = BITCT_TO_WORDCT(founder_ct);
 #ifdef __LP64__
-  uintptr_t founder_ctv = 2 * ((founder_ct + 127) / 128);
+  uintptr_t founder_ctv = BITCT_TO_ALIGNED_WORDCT(founder_ct);
 #else
   uintptr_t founder_ctv = founder_ctl;
 #endif
@@ -11544,6 +11544,7 @@ static uintptr_t* g_ld_result_bitfield;
 THREAD_RET_TYPE ld_map_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
   uint32_t thread_ct = g_ld_thread_ct;
+  // er, this use of "ctv" is nonstandard, probably want to fix this later
   uintptr_t marker_ctv = ((g_ld_marker_ct + 127) / 128) * (128 / BITCT);
   uintptr_t idx1_offset = g_ld_block_idx1;
   uintptr_t block_idx1_start = (tidx * g_ld_idx1_block_size) / thread_ct;

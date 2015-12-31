@@ -3749,7 +3749,7 @@ void dfam_sibship_calc(uint32_t cur_case_ct, uint32_t case_hom_a1_ct, uint32_t c
 void dfam_flipa_shuffle(uintptr_t* perms, uintptr_t* shuffled_perms, uint32_t perm_ct) {
   // 0 16 32 48 64 80 96 112 4 20 36 52 68 84 100 116 8 24 40 56 72 88 104 120 12 28 44 60 76 92 108 124
   // 1 17 ...
-  uint32_t vct = (perm_ct + 127) / 128;
+  uint32_t vct = BITCT_TO_VECCT(perm_ct);
   uint32_t vidx;
   uint32_t offset1;
   uint32_t offset8;
@@ -4293,14 +4293,13 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       g_aperm_alpha = apip->alpha;
       perms_total = apip->max;
       if (bigstack_alloc_ui(marker_ct, &g_perm_attempt_ct) ||
-          bigstack_alloc_uc(marker_ct, &g_perm_adapt_stop)) {
+          bigstack_calloc_uc(round_up_pow2(marker_ct, BYTECT), &g_perm_adapt_stop)) {
         goto dfam_ret_NOMEM;
       }
       ujj = apip->max;
       for (uii = 0; uii < marker_ct; uii++) {
 	g_perm_attempt_ct[uii] = ujj;
       }
-      fill_ulong_zero((uintptr_t*)g_perm_adapt_stop, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
       g_adaptive_ci_zt = ltqnorm(1 - apip->beta / (2.0 * ((intptr_t)marker_ct)));
       if (apip->min < apip->init_interval) {
         g_first_adapt_check = (int32_t)(apip->init_interval);
@@ -5533,11 +5532,10 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   lm_ctl = BITCT_TO_WORDCT(lm_ct);
   flip_ctl = only_within? lm_ctl : fss_ctl;
 
-  if (bigstack_alloc_uc(marker_ct, &perm_adapt_stop) ||
+  if (bigstack_calloc_uc(round_up_pow2(marker_ct, BYTECT), &perm_adapt_stop) ||
       bigstack_calloc_ui(marker_ct, &g_perm_2success_ct)) {
     goto qfam_ret_NOMEM;
   }
-  fill_ulong_zero((uintptr_t*)perm_adapt_stop, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
   g_perm_adapt_stop = perm_adapt_stop;
 
   if (perm_adapt) {

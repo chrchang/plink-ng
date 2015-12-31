@@ -627,6 +627,7 @@
 
 #define BITCT2 (BITCT / 2)
 #define BYTECT (BITCT / 8)
+#define BYTECT4 (BITCT / 32)
 #define VEC_WORDS (VEC_BITS / BITCT)
 
 // assumed number of bytes per cache line, for alignment

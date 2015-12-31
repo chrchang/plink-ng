@@ -4511,11 +4511,10 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     goto glm_linear_assoc_ret_NOMEM;
   }
   if (!is_set_test) {
-    if (bigstack_alloc_uc(marker_initial_ct, &g_perm_adapt_stop)) {
+    // use this array to track regression failures even in max(T) case
+    if (bigstack_calloc_uc(round_up_pow2(marker_initial_ct, BYTECT), &g_perm_adapt_stop)) {
       goto glm_linear_assoc_ret_NOMEM;
     }
-    // use this array to track regression failures even in max(T) case
-    fill_ulong_zero((uintptr_t*)g_perm_adapt_stop, (marker_initial_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
   } else {
     g_perm_adapt_stop = NULL;
     if (bigstack_calloc_ul(BITCT_TO_WORDCT(marker_initial_ct), &regression_skip)) {
@@ -5410,7 +5409,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     g_perms_done += g_perm_vec_ct;
     if (g_perms_done < perms_total) {
       if (perm_adapt_nst || (!perm_pass_idx)) {
-        marker_unstopped_ct = marker_initial_ct - popcount_longs((uintptr_t*)g_perm_adapt_stop, (marker_initial_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
+        marker_unstopped_ct = marker_initial_ct - popcount01_longs((uintptr_t*)g_perm_adapt_stop, (marker_initial_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
         if (!marker_unstopped_ct) {
           goto glm_linear_assoc_perm_count;
 	}
@@ -6037,11 +6036,10 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     goto glm_logistic_assoc_ret_NOMEM;
   }
   if (!is_set_test) {
-    if (bigstack_alloc_uc(marker_initial_ct, &g_perm_adapt_stop)) {
+    // use this array to track regression failures even in max(T) case
+    if (bigstack_calloc_uc(round_up_pow2(marker_initial_ct, BYTECT), &g_perm_adapt_stop)) {
       goto glm_logistic_assoc_ret_NOMEM;
     }
-    // use this array to track regression failures even in max(T) case
-    fill_ulong_zero((uintptr_t*)g_perm_adapt_stop, (marker_initial_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
   } else {
     g_perm_adapt_stop = NULL;
     if (bigstack_calloc_ul(BITCT_TO_WORDCT(marker_initial_ct), &regression_skip)) {
@@ -6847,7 +6845,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     g_perms_done += g_perm_vec_ct;
     if (g_perms_done < perms_total) {
       if (perm_adapt_nst || (!perm_pass_idx)) {
-        marker_unstopped_ct = marker_initial_ct - popcount_longs((uintptr_t*)g_perm_adapt_stop, (marker_initial_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
+        marker_unstopped_ct = marker_initial_ct - popcount01_longs((uintptr_t*)g_perm_adapt_stop, (marker_initial_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
         if (!marker_unstopped_ct) {
           goto glm_logistic_assoc_perm_count;
 	}
