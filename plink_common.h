@@ -1158,6 +1158,7 @@ static inline int32_t is_space_or_eoln(unsigned char ucc) {
   return (ucc <= 32);
 }
 
+// could assert ucc is not a space/tab
 #define is_eoln_kns is_space_or_eoln
 
 static inline int32_t is_eoln_or_comment_kns(unsigned char ucc) {
@@ -1186,10 +1187,17 @@ static inline int32_t is_space_or_eoln(unsigned char cc) {
 }
 */
 
+// Returns whether uppercased ss matches nonempty fixed_str.  Assumes fixed_str
+// contains nothing but letters and a null terminator.
 uint32_t match_upper(const char* ss, const char* fixed_str);
 
 uint32_t match_upper_nt(const char* ss, const char* fixed_str, uint32_t ct);
 
+// Reads an integer in [1, cap].  Assumes first character is nonspace.  Has the
+// overflow detection atoi() lacks.
+// A funny-looking div_10/mod_10 interface is used since the cap will usually
+// be a constant, and we want the integer division/modulus to occur at compile
+// time.
 uint32_t scan_posint_capped(const char* ss, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp);
 
 uint32_t scan_uint_capped(const char* ss, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp);
@@ -1232,11 +1240,11 @@ static inline uint32_t scan_float(const char* ss, float* valp) {
   return (ss == ss2);
 }
 
-uint32_t scan_two_doubles(char* ss, double* __restrict val1p, double* __restrict val2p);
-
 // __restrict isn't very important for newer x86 processors since loads/stores
 // tend to be automatically reordered, but may as well use it properly in
-// 64-bit plink_common.
+// plink_common.
+uint32_t scan_two_doubles(char* ss, double* __restrict val1p, double* __restrict val2p);
+
 int32_t scan_token_ct_len(uintptr_t half_bufsize, FILE* infile, char* buf, uintptr_t* __restrict token_ct_ptr, uintptr_t* __restrict max_token_len_ptr);
 
 int32_t read_tokens(uintptr_t half_bufsize, uintptr_t token_ct, uintptr_t max_token_len, FILE* infile, char* __restrict buf, char* __restrict token_name_buf);
@@ -1357,8 +1365,8 @@ static inline uint32_t uint32_decode_5_hi_uchar(char* start) {
 uint32_t intlen(int32_t num);
 
 // safer than token_endnn(), since it handles length zero
-static inline uintptr_t strlen_se(char* ss) {
-  char* ss2 = ss;
+static inline uintptr_t strlen_se(const char* ss) {
+  const char* ss2 = ss;
   while (!is_space_or_eoln(*ss2)) {
     ss2++;
   }

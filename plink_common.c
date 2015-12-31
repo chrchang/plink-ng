@@ -251,8 +251,6 @@ unsigned char* bigstack_end_alloc_presized(uintptr_t size) {
 }
 
 uint32_t match_upper(const char* ss, const char* fixed_str) {
-  // Returns whether uppercased ss matches nonempty fixed_str.  Assumes
-  // fixed_str contains nothing but letters and a null terminator.
   char cc = *fixed_str++;
   do {
     if ((((unsigned char)(*ss++)) & 0xdf) != ((unsigned char)cc)) {
@@ -273,12 +271,6 @@ uint32_t match_upper_nt(const char* ss, const char* fixed_str, uint32_t ct) {
 }
 
 uint32_t scan_posint_capped(const char* ss, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp) {
-  // Reads an integer in [1, cap].  Assumes first character is nonspace.  Has
-  // the overflow detection atoi() lacks.
-  // A funny-looking div_10/mod_10 interface is used since the cap will usually
-  // be a constant, and we want the integer division/modulus to occur at
-  // compile time.
-
   // '0' has ascii code 48
   uint32_t val = (uint32_t)((unsigned char)*ss) - 48;
   uint32_t cur_digit;
@@ -662,12 +654,19 @@ void get_top_two_ui(const uint32_t* __restrict uint_arr, uintptr_t uia_size, uin
 
 uint32_t intlen(int32_t num) {
   int32_t retval = 1;
+  uint32_t absnum;
   if (num < 0) {
-    num = -num;
+    absnum = -num;
     retval++;
+  } else {
+    absnum = num;
   }
-  while (num > 9) {
-    num /= 10;
+  while (absnum > 99) {
+    // division by a constant is faster for unsigned ints
+    absnum /= 100;
+    retval += 2;
+  }
+  if (absnum > 9) {
     retval++;
   }
   return retval;
@@ -681,13 +680,14 @@ char* next_token(char* sptr) {
   if (!sptr) {
     return NULL;
   }
-  while ((*sptr != ' ') && (*sptr != '\t')) {
-    if (!(*sptr)) {
-      return NULL;
-    }
-    sptr++;
+  unsigned char ucc = *sptr;
+  while (ucc > 32) {
+    ucc = *(++sptr);
   }
-  return skip_initial_spaces(sptr);
+  while ((ucc == ' ') || (ucc == '\t')) {
+    ucc = *(++sptr);
+  }
+  return (ucc > 32)? sptr : NULL;
 }
 
 char* next_token_mult(char* sptr, uint32_t ct) {
@@ -695,14 +695,17 @@ char* next_token_mult(char* sptr, uint32_t ct) {
   if (!sptr) {
     return NULL;
   }
+  unsigned char ucc = *sptr;
   do {
-    while ((*sptr != ' ') && (*sptr != '\t')) {
-      if (!(*sptr)) {
-	return NULL;
-      }
-      sptr++;
+    while (ucc > 32) {
+      ucc = *(++sptr);
     }
-    sptr = skip_initial_spaces(sptr);
+    while ((ucc == ' ') || (ucc == '\t')) {
+      ucc = *(++sptr);
+    }
+    if (ucc <= 32) {
+      return NULL;
+    }
   } while (--ct);
   return sptr;
 }
