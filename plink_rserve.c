@@ -185,7 +185,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
   loop_end = marker_ct / 100;
   if (rplugin_debug) {
     bufptr = memcpya(g_textbuf, "n <- ", 5);
-    bufptr = uint32_write(bufptr, pheno_nm_ct);
+    bufptr = uint32toa(pheno_nm_ct, bufptr);
     bufptr = memcpya(bufptr, "\nPHENO <- c( ", 13);
     if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
       goto rserve_call_ret_WRITE_FAIL;
@@ -219,11 +219,11 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
     }
     fputs("CLUSTER <- c( ", outfile);
     for (sample_idx = 0; sample_idx < pheno_nm_ct - 1; sample_idx++) {
-      bufptr = int32_write(g_textbuf, sample_to_cluster[sample_idx]);
+      bufptr = int32toa(sample_to_cluster[sample_idx], g_textbuf);
       bufptr = memcpya(bufptr, ", ", 2);
       fwrite(g_textbuf, 1, (uintptr_t)(bufptr - g_textbuf), outfile);
     }
-    bufptr = int32_write(g_textbuf, sample_to_cluster[sample_idx]);
+    bufptr = int32toa(sample_to_cluster[sample_idx], g_textbuf);
     bufptr = memcpya(bufptr, " ) \n", 4);
     fputs("CLUSTER[CLUSTER==-1] <- NA\n", outfile);
     if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
@@ -353,7 +353,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
       }
     } else {
       bufptr = memcpya(g_textbuf, "l <- ", 5);
-      bufptr = uint32_write(bufptr, block_size);
+      bufptr = uint32toa(block_size, bufptr);
       bufptr = memcpya(bufptr, "\ng <- c( ", 9);
       if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
 	goto rserve_call_ret_WRITE_FAIL;

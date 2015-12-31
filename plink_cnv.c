@@ -437,7 +437,7 @@ int32_t cnv_make_map_write(FILE* new_mapfile, Chrom_info* chrom_info_ptr, uint32
   // this just needs to be an arbitrary unique name, so it's fine if we don't
   // use chrom_name_write() here
   wptr2 = uint32_writex(wptr2, chrom_idx, '-');
-  wptr2 = uint32_write(wptr2, bp_pos);
+  wptr2 = uint32toa(bp_pos, wptr2);
   cur_marker_id_len = (uintptr_t)(wptr2 - wptr);
   if (cur_marker_id_len > (*max_marker_id_len_ptr)) {
     // includes an extra character at the start, to compensate for missing

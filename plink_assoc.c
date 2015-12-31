@@ -6849,10 +6849,14 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	  wptr_mid = wptr;
 	  if (!model_trendonly) {
 	    memcpy(wptr, "   GENO ", 8);
-	    wptr2 = uint32_write(uint32_writex(uint32_writex(wbuf, uoo, '/'), unn, '/'), umm);
+	    wptr2 = uint32_writex(wbuf, uoo, '/');
+	    wptr2 = uint32_writex(wptr2, unn, '/');
+	    wptr2 = uint32toa(umm, wptr2);
 	    wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, &(wptr[8]));
 	    *wptr++ = ' ';
-	    wptr2 = uint32_write(uint32_writex(uint32_writex(wbuf, ukk, '/'), ujj, '/'), uii);
+	    wptr2 = uint32_writex(wbuf, ukk, '/');
+	    wptr2 = uint32_writex(wptr2, ujj, '/');
+	    wptr2 = uint32toa(uii, wptr2);
 	    wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, wptr);
 	    *wptr++ = ' ';
 	    if (is_invalid) {
@@ -6890,10 +6894,12 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	    }
 	  }
 	  memcpy(wptr_mid, "  TREND ", 8);
-	  wptr2 = uint32_write(uint32_writex(wbuf, uoo * 2 + unn, '/'), umm * 2 + unn);
+	  wptr2 = uint32_writex(wbuf, uoo * 2 + unn, '/');
+	  wptr2 = uint32toa(umm * 2 + unn, wptr2);
 	  wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, &(wptr_mid[8]));
 	  *wptr++ = ' ';
-	  wptr2 = uint32_write(uint32_writex(wbuf, ukk * 2 + ujj, '/'), uii * 2 + ujj);
+	  wptr2 = uint32_writex(wbuf, ukk * 2 + ujj, '/');
+	  wptr2 = uint32toa(uii * 2 + ujj, wptr2);
 	  wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, wptr);
 	  *wptr++ = ' ';
 	  wptr_mid2 = wptr; // save this for next line
@@ -6938,10 +6944,12 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	      goto model_assoc_ret_WRITE_FAIL;
 	    }
 	    memcpy(wptr_mid, "    DOM", 7);
-	    wptr2 = uint32_write(uint32_writex(wbuf, uoo + unn, '/'), umm);
+	    wptr2 = uint32_writex(wbuf, uoo + unn, '/');
+	    wptr2 = uint32toa(umm, wptr2);
 	    wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, &(wptr_mid[8]));
 	    *wptr++ = ' ';
-	    wptr2 = uint32_write(uint32_writex(wbuf, ukk + ujj, '/'), uii);
+	    wptr2 = uint32_writex(wbuf, ukk + ujj, '/');
+	    wptr2 = uint32toa(uii, wptr2);
 	    wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, wptr);
 	    *wptr++ = ' ';
 	    if (is_invalid) {
@@ -6976,10 +6984,12 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	      goto model_assoc_ret_WRITE_FAIL;
 	    }
 	    memcpy(&(wptr_mid[4]), "REC", 3);
-	    wptr2 = uint32_write(uint32_writex(wbuf, uoo, '/'), unn + umm);
+	    wptr2 = uint32_writex(wbuf, uoo, '/');
+	    wptr2 = uint32toa(unn + umm, wptr2);
 	    wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, &(wptr_mid[8]));
 	    *wptr++ = ' ';
-	    wptr2 = uint32_write(uint32_writex(wbuf, ukk, '/'), ujj + uii);
+	    wptr2 = uint32_writex(wbuf, ukk, '/');
+	    wptr2 = uint32toa(ujj + uii, wptr2);
 	    wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, wptr);
 	    *wptr++ = ' ';
 	    if (is_invalid) {
@@ -7492,7 +7502,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       wptr = g_textbuf;
       a1ptr = &(g_textbuf[MAXLINELEN]);
       for (uii = 0; uii < ulii; uii++) {
-	wptr = uint32_write(wptr, uii + ujj);
+	wptr = uint32toa(uii + ujj, wptr);
         orig_pvals_ptr = &(g_mperm_save_all[uii]);
 	for (ukk = 0; ukk < marker_ct; ukk++) {
 	  *wptr++ = ' ';
@@ -8844,7 +8854,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       wptr = g_textbuf;
       a1ptr = &(g_textbuf[MAXLINELEN]);
       for (uii = 0; uii < ulii; uii++) {
-	wptr = uint32_write(wptr, uii + ujj);
+	wptr = uint32toa(uii + ujj, wptr);
 	ooptr = &(g_mperm_save_all[uii]);
 	for (ukk = 0; ukk < marker_ct; ukk++) {
 	  *wptr++ = ' ';
@@ -10516,7 +10526,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
       wptr = g_textbuf;
       tbuf2 = &(g_textbuf[MAXLINELEN]);
       for (uii = 0; uii < ulii; uii++) {
-	wptr = uint32_write(wptr, uii + ujj);
+	wptr = uint32toa(uii + ujj, wptr);
 	dptr = &(g_mperm_save_all[uii]);
 	for (ukk = 0; ukk < marker_ct; ukk++) {
 	  *wptr++ = ' ';

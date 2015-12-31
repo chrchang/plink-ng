@@ -2257,7 +2257,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	bufptr2 = &(bufptr[ulii * max_occur_id_len]);
 	slen = strlen(bufptr2);
 	pzwritep = memcpyax(pzwritep, bufptr2, slen, ' ');
-	pzwritep = uint32_write(pzwritep, *((uint32_t*)(&(bufptr2[slen + 1]))));
+	pzwritep = uint32toa(*((uint32_t*)(&(bufptr2[slen + 1]))), pzwritep);
 	append_binary_eoln(&pzwritep);
 	if (flex_pzwrite(&ps, &pzwritep)) {
 	  goto plink1_dosage_ret_WRITE_FAIL;

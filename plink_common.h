@@ -1363,6 +1363,7 @@ char* next_token_mult(char* sptr, uint32_t ct);
 static inline char* next_token_multz(char* sptr, uint32_t ct) {
   // tried replacing this with ternary operator, but that actually seemed to
   // slow things down a bit under gcc 4.2.1 (tail call optimization issue?).
+  // todo: recheck this under newer gcc/clang.
   if (ct) {
     return next_token_mult(sptr, ct);
   } else {
@@ -1388,11 +1389,13 @@ static inline char* fw_strcpy(uint32_t min_width, const char* source, char* dest
 
 uint32_t count_and_measure_multistr(const char* multistr, uintptr_t* max_slen_ptr);
 
-char* uint32_write(char* start, uint32_t uii);
+char* uint32toa(uint32_t uii, char* start);
 
-char* int32_write(char* start, int32_t ii);
+char* int32toa(int32_t ii, char* start);
 
-void uint32_write4(char* start, uint32_t uii);
+// Write exactly four digits (padding with zeroes if necessary); useful for
+// e.g. floating point encoders.  uii must not be >= 10^4.
+void uint32toa_z4(uint32_t uii, char* start);
 
 char* int64_write(char* start, int64_t llii);
 
@@ -1478,13 +1481,13 @@ char* double_g_writewx4(char* start, double dxx, uint32_t min_width);
 char* double_g_writewx8(char* start, double dxx, uint32_t min_width);
 
 static inline char* uint32_writex(char* start, uint32_t uii, char extra_char) {
-  char* penult = uint32_write(start, uii);
+  char* penult = uint32toa(uii, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
 static inline char* int32_writex(char* start, int32_t ii, char extra_char) {
-  char* penult = int32_write(start, ii);
+  char* penult = int32toa(ii, start);
   *penult = extra_char;
   return &(penult[1]);
 }

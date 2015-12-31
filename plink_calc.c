@@ -7597,7 +7597,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	for (pc_idx = 1; pc_idx <= pc_ct; pc_idx++) {
 	  *wptr++ = delimiter;
 	  wptr = memcpya(wptr, "PC", 2);
-	  wptr = uint32_write(wptr, pc_idx);
+	  wptr = uint32toa(pc_idx, wptr);
 	}
 	*wptr++ = '\n';
 	if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
@@ -7786,7 +7786,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     for (pc_idx = 1; pc_idx <= pc_ct; pc_idx++) {
       *wptr++ = delimiter;
       wptr = memcpya(wptr, "PC", 2);
-      wptr = uint32_write(wptr, pc_idx);
+      wptr = uint32toa(pc_idx, wptr);
     }
     *wptr++ = '\n';
     if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {

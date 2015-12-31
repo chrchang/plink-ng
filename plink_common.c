@@ -767,14 +767,10 @@ static const char digit2_table[200] = {
   '9', '0', '9', '1', '9', '2', '9', '3', '9', '4',
   '9', '5', '9', '6', '9', '7', '9', '8', '9', '9'};
 
-char* uint32_write(char* start, uint32_t uii) {
+char* uint32toa(uint32_t uii, char* start) {
   // Memory-efficient fast integer writer.  (You can do a bit better sometimes
   // by using a larger lookup table, but on average I doubt that pays off.)
-  //
-  // Originally the arguments were in the other order (was trying to follow
-  // Google's "inputs first, than outputs" coding style guidelines), but then I
-  // realized that chained invocation of this function is much easier to read
-  // if I make the target buffer the first argument.
+  // Returns a pointer to the end of the integer (not null-terminated).
   uint32_t quotient;
   if (uii < 1000) {
     if (uii < 10) {
@@ -789,13 +785,13 @@ char* uint32_write(char* start, uint32_t uii) {
   } else if (uii < 10000000) {
     if (uii >= 100000) {
       if (uii < 1000000) {
-	goto uint32_write_6;
+	goto uint32toa_6;
       }
       quotient = uii / 1000000;
       *start++ = '0' + quotient;
-      goto uint32_write_6b;
+      goto uint32toa_6b;
     } else if (uii < 10000) {
-      goto uint32_write_4;
+      goto uint32toa_4;
     }
     quotient = uii / 10000;
     *start++ = '0' + quotient;
@@ -811,46 +807,46 @@ char* uint32_write(char* start, uint32_t uii) {
     }
     quotient = uii / 1000000;
     start = memcpya(start, &(digit2_table[quotient * 2]), 2);
-  uint32_write_6b:
+  uint32toa_6b:
     uii -= 1000000 * quotient;
-  uint32_write_6:
+  uint32toa_6:
     quotient = uii / 10000;
     start = memcpya(start, &(digit2_table[quotient * 2]), 2);
   }
   uii -= 10000 * quotient;
- uint32_write_4:
+ uint32toa_4:
   quotient = uii / 100;
   uii -= 100 * quotient;
   return memcpya(memcpya(start, &(digit2_table[quotient * 2]), 2), &(digit2_table[uii * 2]), 2);
 }
 
-char* int32_write(char* start, int32_t ii) {
+char* int32toa(int32_t ii, char* start) {
   if (ii < 0) {
+    // -INT_MIN is undefined
     if (ii < -2147483647) {
       return memcpya(start, "-2147483648", 11);
     }
     *start++ = '-';
     ii = -ii;
   }
-  return uint32_write(start, (uint32_t)ii);
+  return uint32toa((uint32_t)ii, start);
 }
 
-void uint32_write4(char* start, uint32_t uii) {
-  // Write exactly four digits (padding with zeroes if necessary); useful for
-  // e.g. floating point encoders.
+void uint32toa_z4(uint32_t uii, char* start) {
   uint32_t quotient = uii / 100;
+  assert(quotient < 100);
   uii -= 100 * quotient;
   memcpy(memcpya(start, &(digit2_table[quotient * 2]), 2), &(digit2_table[uii * 2]), 2);
 }
 
-static inline void uint32_write6(char* start, uint32_t uii) {
+static inline void uint32toa_z6(uint32_t uii, char* start) {
   uint32_t quotient = uii / 10000;
-  uint32_write4(memcpya(start, &(digit2_table[quotient * 2]), 2), uii - 10000 * quotient);
+  uint32toa_z4(uii - 10000 * quotient, memcpya(start, &(digit2_table[quotient * 2]), 2));
 }
 
-static inline void uint32_write8(char* start, uint32_t uii) {
+static inline void uint32toa_z8(uint32_t uii, char* start) {
   uint32_t quotient = uii / 1000000;
-  uint32_write6(memcpya(start, &(digit2_table[quotient * 2]), 2), uii - 1000000 * quotient);
+  uint32toa_z6(uii - 1000000 * quotient, memcpya(start, &(digit2_table[quotient * 2]), 2));
 }
 
 char* int64_write(char* start, int64_t llii) {
@@ -866,20 +862,20 @@ char* int64_write(char* start, int64_t llii) {
     llii = -llii;
   }
   if (llii <= 0xffffffffLL) {
-    return uint32_write(start, (uint32_t)llii);
+    return uint32toa((uint32_t)llii, start);
   }
   top_digits = llii / 100000000LL;
   bottom_eight = (uint32_t)(llii - (top_digits * 100000000));
   if (top_digits <= 0xffffffffLL) {
-    start = uint32_write(start, (uint32_t)top_digits);
-    uint32_write8(start, bottom_eight);
+    start = uint32toa((uint32_t)top_digits, start);
+    uint32toa_z8(bottom_eight, start);
     return &(start[8]);
   }
   llii = top_digits / 100000000LL;
   middle_eight = (uint32_t)(top_digits - (llii * 100000000));
-  start = uint32_write(start, (uint32_t)llii);
-  uint32_write8(start, middle_eight);
-  uint32_write8(&(start[8]), bottom_eight);
+  start = uint32toa((uint32_t)llii, start);
+  uint32toa_z8(middle_eight, start);
+  uint32toa_z8(bottom_eight, &(start[8]));
   return &(start[16]);
 }
 
@@ -901,7 +897,7 @@ char* uint32_writew4(char* start, uint32_t uii) {
     }
     return memcpya(&(start[2]), &(digit2_table[uii * 2]), 2);
   } else {
-    return uint32_write(start, uii);
+    return uint32toa(uii, start);
   }
 }
 
@@ -1484,7 +1480,7 @@ char* double_write6(char* start, double dxx) {
     *start = '0' + remainder;
     return &(start[1]);
   } else {
-    uint32_write6(start, double_bround(dxx, banker_round8));
+    uint32toa_z6(double_bround(dxx, banker_round8), start);
     return &(start[6]);
   }
 }
@@ -1615,7 +1611,7 @@ char* float_write6(char* start, float fxx) {
     start[1] = '0' + remainder;
     return &(start[2]);
   } else {
-    uint32_write6(start, float_round(fxx));
+    uint32toa_z6(float_round(fxx), start);
     return &(start[6]);
   }
 }
@@ -1689,7 +1685,7 @@ char* double_write4(char* start, double dxx) {
     start[1] = '0' + remainder;
     return &(start[2]);
   } else {
-    uint32_write4(start, double_bround(dxx, banker_round10));
+    uint32toa_z4(double_bround(dxx, banker_round10), start);
     return &(start[4]);
   }
 }
@@ -1816,7 +1812,7 @@ char* double_write8(char* start, double dxx) {
     start[1] = '0' + remainder;
     return &(start[2]);
   } else {
-    uint32_write8(start, double_bround(dxx, banker_round6));
+    uint32toa_z8(double_bround(dxx, banker_round6), start);
     return &(start[8]);
   }
 }
@@ -1927,7 +1923,7 @@ char* double_e_write(char* start, double dxx) {
   double_bround6(dxx, banker_round7, &quotient, &remainder);
   *start++ = '0' + quotient;
   *start++ = '.';
-  uint32_write6(start, remainder);
+  uint32toa_z6(remainder, start);
   start += 6;
   *start++ = 'e';
   *start++ = sign;
@@ -2015,7 +2011,7 @@ char* float_e_write(char* start, float fxx) {
   float_round6(fxx, &quotient, &remainder);
   *start++ = '0' + quotient;
   *start++ = '.';
-  uint32_write6(start, remainder);
+  uint32toa_z6(remainder, start);
   start += 6;
   *start++ = 'e';
   *start++ = sign;
@@ -2063,7 +2059,7 @@ char* double_f_writew2(char* start, double dxx) {
       br_ptr = banker_round5;
     }
     double_bround2(dxx, br_ptr, &quotient, &remainder);
-    start = uint32_write(start, quotient);
+    start = uint32toa(quotient, start);
     goto double_f_writew2_dec;
   }
   if (dxx == INFINITY) {
@@ -2117,7 +2113,7 @@ char* double_f_writew3(char* start, double dxx) {
       br_ptr = banker_round5;
     }
     double_bround3(dxx, br_ptr, &quotient, &remainder);
-    start = uint32_write(start, quotient);
+    start = uint32toa(quotient, start);
     goto double_f_writew3_dec;
   }
   if (dxx == INFINITY) {
@@ -2147,13 +2143,13 @@ char* double_f_writew96(char* start, double dxx) {
     *start++ = '0' + quotient;
   double_f_writew96_dec:
     *start++ = '.';
-    uint32_write6(start, remainder);
+    uint32toa_z6(remainder, start);
     return &(start[6]);
   }
  double_f_writew96_10:
   if (dxx < 999.99999949999) {
     double_bround6(dxx, (dxx < 99.999999499999)? banker_round6 : banker_round5, &quotient, &remainder);
-    start = uint32_write(start, quotient);
+    start = uint32toa(quotient, start);
     goto double_f_writew96_dec;
   }
   if (dxx == INFINITY) {
@@ -2201,7 +2197,7 @@ char* double_f_writew74(char* start, double dxx) {
       br_ptr = banker_round5;
     }
     double_bround4(dxx, br_ptr, &quotient, &remainder);
-    start = uint32_write(start, quotient);
+    start = uint32toa(quotient, start);
     goto double_f_writew74_dec;
   }
   if (dxx == INFINITY) {
@@ -4192,7 +4188,7 @@ char* chrom_name_std(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx) 
     buf = memcpyl3a(buf, "chr");
   }
   if ((!(output_encoding & (CHR_OUTPUT_M | CHR_OUTPUT_MT))) || (chrom_idx <= chrom_info_ptr->autosome_ct)) {
-    return uint32_write(buf, chrom_idx);
+    return uint32toa(chrom_idx, buf);
   } else if ((int32_t)chrom_idx == chrom_info_ptr->x_code) {
     *buf++ = 'X';
   } else if ((int32_t)chrom_idx == chrom_info_ptr->y_code) {

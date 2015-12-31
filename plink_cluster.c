@@ -1740,7 +1740,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	*bufptr++ = '-';
 	missing_pheno = -missing_pheno;
       }
-      bufptr = uint32_write(bufptr, (uint32_t)missing_pheno);
+      bufptr = uint32toa((uint32_t)missing_pheno, bufptr);
       *bufptr = '\0';
       missing_str = intbuf;
     }
@@ -3096,7 +3096,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
   fprintf(outfile, g_textbuf, "FID", "IID");
   g_textbuf[22] = ' ';
   for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
-    wptr = uint32_write(g_textbuf, dim_idx + 1);
+    wptr = uint32toa(dim_idx + 1, g_textbuf);
     uii = wptr - g_textbuf;
     wptr2 = memseta(&(g_textbuf[10]), 32, 11 - uii);
     *wptr2++ = 'C';
@@ -3405,7 +3405,7 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
   fprintf(outfile, g_textbuf, "FID", "IID");
   g_textbuf[22] = ' ';
   for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
-    wptr = uint32_write(g_textbuf, dim_idx + 1);
+    wptr = uint32toa(dim_idx + 1, g_textbuf);
     uii = wptr - g_textbuf;
     wptr2 = memseta(&(g_textbuf[10]), 32, 11 - uii);
     *wptr2++ = 'C';

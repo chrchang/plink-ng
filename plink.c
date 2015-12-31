@@ -1964,7 +1964,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	}
 	if (!outname_end[1]) {
 	  outname_end[1] = 'P';
-	  outname_end2 = uint32_write(&(outname_end[2]), uii);
+	  outname_end2 = uint32toa(uii, &(outname_end[2]));
 	} else {
           outname_end2 = (char*)memchr(&(outname_end[1]), '\0', FNAMESIZE);
 	}

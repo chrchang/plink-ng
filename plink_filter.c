@@ -3040,9 +3040,13 @@ int32_t hardy_report_write_line(Pigz_state* ps_ptr, char** pzwritep_ptr, char* p
   double minor_freq;
   pzwritep = memcpya(pzwritep, prefix_buf, prefix_len);
   if (reverse) {
-    cptr = uint32_write(uint32_writex(uint32_writex(wbuf, hh_ct, '/'), lh_ct, '/'), ll_ct);
+    cptr = uint32_writex(wbuf, hh_ct, '/');
+    cptr = uint32_writex(cptr, lh_ct, '/');
+    cptr = uint32toa(ll_ct, cptr);
   } else {
-    cptr = uint32_write(uint32_writex(uint32_writex(wbuf, ll_ct, '/'), lh_ct, '/'), hh_ct);
+    cptr = uint32_writex(wbuf, ll_ct, '/');
+    cptr = uint32_writex(cptr, lh_ct, '/');
+    cptr = uint32toa(hh_ct, cptr);
   }
   pzwritep = fw_strcpyn(20, cptr - wbuf, wbuf, pzwritep);
   *pzwritep++ = ' ';

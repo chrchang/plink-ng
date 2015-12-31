@@ -6128,7 +6128,7 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
   }
   if (parallel_tot > 1) {
     *bufptr++ = '.';
-    bufptr = uint32_write(bufptr, parallel_idx + 1);
+    bufptr = uint32toa(parallel_idx + 1, bufptr);
   }
   if (!is_binary) {
     g_ld_delimiter = (ld_modifier & LD_MATRIX_SPACES)? ' ' : '\t';
@@ -13578,16 +13578,16 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
         bufptr = uint32_writew6x(bufptr, cur_window_size + 1, ' ');
 	if (clump_chrom_idx <= chrom_info_ptr->max_code) {
 	  bufptr2 = memcpyl3a(bufptr, "chr");
-	  bufptr2 = uint32_write(bufptr2, clump_chrom_idx);
+	  bufptr2 = uint32toa(clump_chrom_idx, bufptr2);
 	} else if (chrom_info_ptr->zero_extra_chroms) {
 	  bufptr2 = memcpya(bufptr, "chr0", 4);
 	} else {
 	  bufptr2 = strcpya(bufptr, chrom_info_ptr->nonstd_names[clump_chrom_idx]);
 	}
         *bufptr2++ = ':';
-        bufptr2 = uint32_write(bufptr2, min_bp);
+        bufptr2 = uint32toa(min_bp, bufptr2);
         bufptr2 = memcpya(bufptr2, "..", 2);
-        bufptr2 = uint32_write(bufptr2, max_bp);
+        bufptr2 = uint32toa(max_bp, bufptr2);
         bufptr = width_force(28, bufptr, bufptr2);
         *bufptr++ = ' ';
         bufptr = width_force(10, bufptr, double_g_write(bufptr, ((int32_t)(max_bp - min_bp + 1)) * 0.001));
@@ -13744,18 +13744,18 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	bufptr = memcpya(g_textbuf, "\n          RANGE: ", 18);
 	if (clump_chrom_idx <= chrom_info_ptr->max_code) {
 	  bufptr = memcpyl3a(bufptr, "chr");
-	  bufptr = uint32_write(bufptr, clump_chrom_idx);
+	  bufptr = uint32toa(clump_chrom_idx, bufptr);
 	} else if (chrom_info_ptr->zero_extra_chroms) {
 	  bufptr = memcpya(bufptr, "chr0", 4);
 	} else {
 	  bufptr = strcpya(bufptr, chrom_info_ptr->nonstd_names[clump_chrom_idx]);
 	}
 	*bufptr++ = ':';
-	bufptr = uint32_write(bufptr, min_bp);
+	bufptr = uint32toa(min_bp, bufptr);
 	bufptr = memcpya(bufptr, "..", 2);
-	bufptr = uint32_write(bufptr, max_bp);
+	bufptr = uint32toa(max_bp, bufptr);
 	bufptr = memcpya(bufptr, "\n           SPAN: ", 18);
-	bufptr = uint32_write(bufptr, (max_bp - min_bp + 1) / 1000);
+	bufptr = uint32toa((max_bp - min_bp + 1) / 1000, bufptr);
 	bufptr = memcpyl3a(bufptr, "kb\n");
 	if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
 	  goto clump_reports_ret_WRITE_FAIL;

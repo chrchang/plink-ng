@@ -337,7 +337,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       if (marker_pos) {
         memcpy(ll_tmp->ss, bufptr3, uii);
       } else {
-	uint32_write4(ll_tmp->ss, (uint32_t)ii);
+	uint32toa_z4((uint32_t)ii, ll_tmp->ss);
 	// if first character of gene name is a digit, natural sort has strange
 	// effects unless we force [3] to be nonnumeric...
 	ll_tmp->ss[3] -= 15;
@@ -474,7 +474,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	memcpy(bufptr3, "C_", 2);
       } else if (!marker_pos) {
 	bufptr3 = &(bufptr3[-4]);
-	uint32_write4(bufptr3, chrom_idx);
+	uint32toa_z4(chrom_idx, bufptr3);
 	bufptr3[3] -= 15;
       }
       // this should never fail
@@ -3523,10 +3523,10 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
 	  fputs(", ", outfile);
 	}
         cur_bp = *uiptr++;
-        bufptr = uint32_write(g_textbuf, cur_bp);
+        bufptr = uint32toa(cur_bp, g_textbuf);
 	bufptr = memcpya(bufptr, "..", 2);
         uii = *uiptr++;
-        bufptr = uint32_write(bufptr, uii - 1);
+        bufptr = uint32toa(uii - 1, bufptr);
         fwrite(g_textbuf, 1, bufptr - g_textbuf, outfile);
 	ujj += uii - cur_bp;
       }

@@ -1582,7 +1582,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   } while (chrom_fo_idx);
   chrom_fo_idx_to_pidx[0] = pool_ct;
 
-  wptr = uint32_write(g_logbuf, pool_ct);
+  wptr = uint32toa(pool_ct, g_logbuf);
   if (pool_size_min > 2) {
     wptr = memcpya(wptr, " size-", 6);
     wptr = uint32_writex(wptr, pool_size_min, '+');
@@ -1867,9 +1867,9 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 
       if (is_verbose) {
 #ifdef __LP64__
-	wptr = uint32_write(&(outname_end[14]), (uint32_t)(cur_pool[-1] >> 32));
+	wptr = uint32toa((uint32_t)(cur_pool[-1] >> 32), &(outname_end[14]));
 #else
-	wptr = uint32_write(&(outname_end[14]), (uint32_t)cur_pool[-1]);
+	wptr = uint32toa((uint32_t)cur_pool[-1], &(outname_end[14]));
 #endif
 	memcpy(wptr, ".verbose", 9);
 	if (fopen_checked(outname, "w", &outfile)) {
@@ -1899,7 +1899,8 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	  verbose_uidx_bounds[slot_idx1 * 2 + 1] = cur_roh[1];
 	  verbose_sample_uidx[slot_idx1] = cur_roh[5];
 	  sample_uidx1 = cur_roh[5];
-          wptr = width_force(4, g_textbuf, uint32_write(g_textbuf, slot_idx1 + 1));
+	  wptr = uint32toa(slot_idx1 + 1, g_textbuf);
+          wptr = width_force(4, g_textbuf, wptr);
 	  wptr = memcpyl3a(wptr, ")  ");
 	  cptr = &(sample_ids[sample_uidx1 * max_sample_id_len]);
 	  cptr2 = (char*)memchr(cptr, '\t', max_sample_id_len);
@@ -1907,7 +1908,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
           *wptr++ = ' ';
           wptr = fw_strcpy(plink_maxiid, &(cptr2[1]), wptr);
           wptr = memseta(wptr, 32, 3);
-          wptr = uint32_write(wptr, (uint32_t)(verbose_group_sort_buf[slot_idx1] >> 32));
+          wptr = uint32toa((uint32_t)(verbose_group_sort_buf[slot_idx1] >> 32), wptr);
 	  *wptr++ = '\n';
 	  if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	    goto roh_pool_ret_WRITE_FAIL;
@@ -1918,7 +1919,8 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	wptr = memcpya(wptr, "SNP ", 4);
         fwrite(g_textbuf, 1, wptr - g_textbuf, outfile);
 	for (slot_idx1 = 0; slot_idx1 < pool_size; slot_idx1++) {
-          wptr = width_force(4, g_textbuf, uint32_write(g_textbuf, slot_idx1 + 1));
+	  wptr = uint32toa(slot_idx1 + 1, g_textbuf);
+          wptr = width_force(4, g_textbuf, wptr);
 	  wptr = memseta(wptr, 32, 2);
 	  fwrite(g_textbuf, 1, wptr - g_textbuf, outfile);
 	}
@@ -1996,13 +1998,13 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	    group_slot_end++;
 	  }
 	  wptr = memcpya(g_textbuf, "Group ", 6);
-	  wptr = uint32_write(wptr, ujj);
+	  wptr = uint32toa(ujj, wptr);
 	  wptr = memcpya(wptr, "\n\n", 2);
 	  if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	    goto roh_pool_ret_WRITE_FAIL;
 	  }
 	  for (slot_idx2 = slot_idx1; slot_idx2 < group_slot_end; slot_idx2++) {
-	    wptr = width_force(4, g_textbuf, uint32_write(g_textbuf, slot_idx2 + 1));
+            wptr = uint32_writew4(g_textbuf, slot_idx2 + 1);
 	    wptr = memcpya(wptr, ") ", 2);
 	    sample_uidx1 = verbose_sample_uidx[slot_idx2];
 	    cptr = &(sample_ids[sample_uidx1 * max_sample_id_len]);
@@ -2033,7 +2035,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	    goto roh_pool_ret_WRITE_FAIL;
 	  }
 	  for (slot_idx2 = slot_idx1; slot_idx2 < group_slot_end; slot_idx2++) {
-	    wptr = width_force(4, g_textbuf, uint32_write(g_textbuf, slot_idx2 + 1));
+	    wptr = uint32_writew4(g_textbuf, slot_idx2 + 1);
 	    wptr = memseta(wptr, 32, 2);
 	    fwrite(g_textbuf, 1, wptr - g_textbuf, outfile);
 	  }
@@ -2226,7 +2228,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 #endif
       case_ct = 0;
       g_textbuf[0] = 'S';
-      wptr_start = width_force(5, g_textbuf, uint32_write(&(g_textbuf[1]), uii));
+      wptr_start = width_force(5, g_textbuf, uint32toa(uii, &(g_textbuf[1])));
       *wptr_start++ = ' ';
       cur_roh = &(roh_list[cur_pool[0] * ROH_ENTRY_INTS]);
       con_uidx1 = cur_roh[0];
@@ -2293,9 +2295,8 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	wptr = uint32_writew8x(wptr, cur_roh[2], ' ');
 #ifdef __LP64__
 	ulii = cur_pool[pool_size + slot_idx2];
-        wptr = width_force(4, wptr, uint32_write(wptr, (uint32_t)(ulii >> 32)));
-        *wptr++ = ' ';
-        wptr = width_force(5, wptr, uint32_write(wptr, ((uint32_t)ulii) & 0x7fffffff));
+        wptr = uint32_writew4x(wptr, (uint32_t)(ulii >> 32), ' ');
+        wptr = width_force(5, wptr, uint32toa(ulii & 0x7fffffff, wptr));
         if (ulii & 0x80000000LLU) {
           *wptr++ = '*';
 	} else {
@@ -2303,9 +2304,8 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	}
 #else
 	ulii = cur_pool[pool_size + 2 * slot_idx2];
-        wptr = width_force(4, wptr, uint32_write(wptr, cur_pool[pool_size + 2 * slot_idx2 + 1]));
-	*wptr++ = ' ';
-        wptr = width_force(5, wptr, uint32_write(wptr, ulii & 0x7fffffff));
+        wptr = uint32_writew4x(wptr, cur_pool[pool_size + 2 * slot_idx2 + 1], ' ');
+        wptr = width_force(5, wptr, uint32toa(ulii & 0x7fffffff, wptr));
 	if (ulii & 0x80000000U) {
 	  *wptr++ = '*';
 	} else {
@@ -2339,11 +2339,11 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 #endif
 	}
         *wptr++ = ' ';
-	wptr = width_force(plink_maxiid, wptr, uint32_write(wptr, pool_size));
+	wptr = width_force(plink_maxiid, wptr, uint32toa(pool_size, wptr));
         *wptr++ = ' ';
-        cptr = uint32_write(wptr, case_ct);
+        cptr = uint32toa(case_ct, wptr);
 	*cptr++ = ':';
-	cptr = uint32_write(cptr, pool_size - case_ct);
+	cptr = uint32toa(pool_size - case_ct, cptr);
         wptr = width_force(8, wptr, cptr);
 	*wptr++ = ' ';
 	wptr = width_force(4, wptr, chrom_name_write(wptr, chrom_info_ptr, chrom_start));
@@ -2380,7 +2380,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
       wptr = memcpya(wptr, "{1,2}", 5);
     } else {
       wptr = memcpya(wptr, "{1,...,", 7);
-      wptr = uint32_write(wptr, pool_ct);
+      wptr = uint32toa(pool_ct, wptr);
       *wptr++ = '}';
     }
     wptr = memcpya(wptr, ".verbose.\n", 11);

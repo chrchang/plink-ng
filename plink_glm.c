@@ -5051,7 +5051,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	    constraints_con_major[constraint_idx * cur_param_ct + ulii + 1] = 1;
 	  }
 	}
-        wptr = uint32_write(&(param_names[param_ct_max * max_param_name_len + 5]), cur_constraint_ct);
+        wptr = uint32toa(cur_constraint_ct, &(param_names[param_ct_max * max_param_name_len + 5]));
 	memcpy(wptr, "DF", 3);
       }
     }
@@ -5382,7 +5382,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       wptr = g_textbuf;
       cptr = &(g_textbuf[MAXLINELEN]);
       for (uii = 0; uii < ulii; uii++) {
-	wptr = uint32_write(wptr, uii + ujj);
+	wptr = uint32toa(uii + ujj, wptr);
 	dptr = &(g_mperm_save_all[uii]);
 	for (ukk = 0; ukk < marker_ct; ukk++) {
 	  *wptr++ = ' ';
@@ -6523,7 +6523,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	    constraints_con_major[constraint_idx * cur_param_ct + ulii + 1] = 1;
 	  }
 	}
-        wptr = uint32_write(&(param_names[param_ct_max * max_param_name_len + 5]), cur_constraint_ct);
+        wptr = uint32toa(cur_constraint_ct, &(param_names[param_ct_max * max_param_name_len + 5]));
 	memcpy(wptr, "DF", 3);
       }
     }
@@ -6818,7 +6818,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       wptr = g_textbuf;
       cptr = &(g_textbuf[MAXLINELEN]);
       for (uii = 0; uii < ulii; uii++) {
-	wptr = uint32_write(wptr, uii + ujj);
+	wptr = uint32toa(uii + ujj, wptr);
 	dptr = &(g_mperm_save_all[uii]);
 	for (ukk = 0; ukk < marker_ct; ukk++) {
 	  *wptr++ = ' ';
@@ -7345,7 +7345,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     }
     wptr = memcpya(&(param_names[param_ct * max_param_name_len]), (glm_modifier & GLM_TEST_ALL)? "FULL" : "USER", 4);
     *wptr++ = '_';
-    wptr = uint32_write(wptr, constraint_ct);
+    wptr = uint32toa(constraint_ct, wptr);
     memcpy(wptr, "DF", 3);
   }
   if (bigstack_alloc_d(param_ct * sample_valid_ct, &covars_sample_major) ||
@@ -8217,7 +8217,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     }
     wptr = memcpya(&(param_names[param_ct * max_param_name_len]), (glm_modifier & GLM_TEST_ALL)? "FULL" : "USER", 4);
     *wptr++ = '_';
-    wptr = uint32_write(wptr, constraint_ct);
+    wptr = uint32toa(constraint_ct, wptr);
     memcpy(wptr, "DF", 3);
   }
   fill_uint_zero(perm_2success_ct, param_ctx - 1);

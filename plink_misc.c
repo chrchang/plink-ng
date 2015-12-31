@@ -500,7 +500,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
       if ((!uii) || (uii > autosome_ct)) {
         continue;
       }
-      bufptr = uint32_write(fname_write, uii);
+      bufptr = uint32toa(uii, fname_write);
       memcpy(bufptr, at_sign_ptr, post_at_sign_len);
       if (fopen_checked(fname_buf, "r", &shapeitfile)) {
 	LOGERRPRINTFWW("Warning: --cm-map failed to open %s.\n", fname_buf);
@@ -2883,7 +2883,7 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
           pzwritep = uint32_writex(pzwritep, reverse? ll_cts[marker_uidx] : hh_cts[marker_uidx], '\t');
           pzwritep = uint32_writex(pzwritep, reverse? haph_cts[marker_uidx] : hapl_cts[marker_uidx], '\t');
           pzwritep = uint32_writex(pzwritep, reverse? hapl_cts[marker_uidx] : haph_cts[marker_uidx], '\t');
-          pzwritep = uint32_write(pzwritep, missing_ct);
+          pzwritep = uint32toa(missing_ct, pzwritep);
 	} else {
 	  pzwritep = width_force(4, pzwritep, chrom_name_write(pzwritep, chrom_info_ptr, chrom_idx));
 	  *pzwritep++ = ' ';
@@ -5809,7 +5809,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
     for (file_idx = 0; file_idx < file_ct; file_idx++) {
       g_textbuf[0] = ' ';
       g_textbuf[1] = 'F';
-      wptr = uint32_write(&(g_textbuf[2]), file_idx);
+      wptr = uint32toa(file_idx, &(g_textbuf[2]));
       wptr = width_force(8, g_textbuf, wptr);
       if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	goto meta_analysis_ret_WRITE_FAIL;
@@ -6158,7 +6158,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
       }
       g_textbuf[0] = ' ';
       wptr = &(g_textbuf[1]);
-      wptr = width_force(3, wptr, uint32_write(wptr, cur_file_ct));
+      wptr = width_force(3, wptr, uint32toa(cur_file_ct, wptr));
       if (cur_file_ct >= 2) {
 	// and here's the actual computation.
 	numer = 0.0;

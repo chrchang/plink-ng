@@ -2374,7 +2374,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
 	  uii = parentdt_case_a2_excess1 + 2 * parentdt_case_a2_excess2;
 	  ujj = parentdt_obs_ct1 + 2 * parentdt_obs_ct2;
 	  wptr2 = uint32_writex(wptr, uii, ':');
-	  wptr2 = uint32_write(wptr2, ujj - uii);
+	  wptr2 = uint32toa(ujj - uii, wptr2);
           wptr = width_force(12, wptr, wptr2);
           *wptr++ = ' ';
 	  // No exact test for now since we're dealing with a sum of step-1 and
