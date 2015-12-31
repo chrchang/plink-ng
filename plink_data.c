@@ -6782,37 +6782,34 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
       if (is_eoln_kns(*cptr)) {
 	continue;
       }
-      if (bsearch_read_fam_indiv(id_buf, sorted_sample_ids, max_sample_id_len, sample_ct, cptr, &cptr3, &ii)) {
+      if (bsearch_read_fam_indiv(id_buf, sorted_sample_ids, max_sample_id_len, sample_ct, cptr, &cptr3, &ii) || is_eoln_kns(*cptr3)) {
 	goto lgen_to_bed_ret_MISSING_TOKENS;
       }
       if (ii == -1) {
 	goto lgen_to_bed_ret_MISSING_IID;
       }
       sample_idx = sample_id_map[(uint32_t)ii];
-      cptr4 = token_end(cptr3);
-      if (!cptr4) {
+      cptr4 = token_endnn(cptr3);
+      a1ptr = skip_initial_spaces(cptr4);
+      if (is_eoln_kns(*a1ptr)) {
 	goto lgen_to_bed_ret_MISSING_TOKENS;
       }
-      a1ptr = skip_initial_spaces(cptr4);
-      sptr = token_end(a1ptr);
-      a2ptr = next_token(sptr);
+      sptr = token_endnn(a1ptr);
+      a2ptr = skip_initial_spaces(sptr);
       if (compound_genotypes == 1) {
-	if (no_more_tokens_kns(a2ptr)) {
+	if (is_eoln_kns(*a2ptr)) {
 	  compound_genotypes = 2;
 	} else {
 	  compound_genotypes = 0;
 	}
       }
       if (!compound_genotypes) {
-	if (no_more_tokens_kns(a2ptr)) {
+	if (is_eoln_kns(*a2ptr)) {
 	  goto lgen_to_bed_ret_MISSING_TOKENS;
 	}
         a1len = (uintptr_t)(sptr - a1ptr);
 	a2len = strlen_se(a2ptr);
       } else {
-	if (!sptr) {
-	  goto lgen_to_bed_ret_MISSING_TOKENS;
-	}
 	if ((uintptr_t)(sptr - a1ptr) != 2) {
 	  sprintf(g_logbuf, "Error: Invalid compound genotype on line %" PRIuPTR " of .lgen file.\n", line_idx);
 	  goto lgen_to_bed_ret_INVALID_FORMAT_2;
@@ -6921,26 +6918,24 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
       if (is_eoln_kns(*cptr)) {
 	continue;
       }
-      if (bsearch_read_fam_indiv(id_buf, sorted_sample_ids, max_sample_id_len, sample_ct, cptr, &cptr3, &ii)) {
+      if (bsearch_read_fam_indiv(id_buf, sorted_sample_ids, max_sample_id_len, sample_ct, cptr, &cptr3, &ii) || is_eoln_kns(*cptr3)) {
 	goto lgen_to_bed_ret_MISSING_TOKENS;
       }
       if (ii == -1) {
 	goto lgen_to_bed_ret_MISSING_IID;
       }
       sample_idx = sample_id_map[(uint32_t)ii];
-      cptr4 = token_end(cptr3);
-      if (!cptr4) {
-	goto lgen_to_bed_ret_MISSING_TOKENS;
-      }
+      cptr4 = token_endnn(cptr3);
       a1ptr = skip_initial_spaces(cptr4);
-      if (no_more_tokens_kns(a1ptr)) {
+      ucc = *a1ptr;
+      if (is_eoln_kns(ucc)) {
 	goto lgen_to_bed_ret_MISSING_TOKENS;
       }
       ii = bsearch_str(cptr3, (uintptr_t)(cptr4 - cptr3), marker_ids, max_marker_id_len, marker_ct);
       if (ii != -1) {
 	marker_idx = marker_id_map[(uint32_t)ii];
 	a1len = strlen_se(a1ptr);
-	uii = ((uint32_t)((unsigned char)(*a1ptr))) - 48;
+	uii = ((uint32_t)ucc) - 48;
 	if ((a1len != 1) || (uii > 2)) {
 	  uii = 1;
 	} else if (uii) {
@@ -7753,8 +7748,8 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     while (fgets(loadbuf, loadbuf_size, infile)) {
       line_idx++;
       // .tmp file, guaranteed to be no spaces in front
-      cptr = next_token(loadbuf);
-      cptr2 = token_endl(cptr);
+      cptr = skip_initial_spaces(token_endnn(loadbuf));
+      cptr2 = token_endnn(cptr);
       cptr3 = skip_initial_spaces(cptr2);
       cptr4 = next_token_mult(cptr3, 2);
       uii = cptr2 - cptr;
@@ -14745,11 +14740,14 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uint32_t allow_no_vari
       }
     }
     // do not filter on chrom_mask here, since that happens later
-    bufptr = next_token(bufptr);
-    bufptr2 = token_endl(bufptr);
+    bufptr = skip_initial_spaces(token_endnn(bufptr));
+    if (is_eoln_kns(*bufptr)) {
+      goto merge_bim_scan_ret_MISSING_TOKENS;
+    }
+    bufptr2 = token_endnn(bufptr);
     uii = bufptr2 - bufptr;
     bufptr2 = skip_initial_spaces(bufptr2);
-    if (no_more_tokens_kns(bufptr2)) {
+    if (is_eoln_kns(*bufptr2)) {
       goto merge_bim_scan_ret_MISSING_TOKENS;
     }
     if (cm_col_exists) {

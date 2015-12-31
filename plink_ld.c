@@ -10818,9 +10818,9 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
     }
     goto epi_summary_merge_ret_INVALID_HEADER;
   }
-  bufptr2 = token_end(bufptr);
+  bufptr2 = token_endnn(bufptr);
   bufptr = skip_initial_spaces(bufptr2);
-  plink_maxsnp = ((uintptr_t)(token_end(bufptr) - bufptr2)) - 1;
+  plink_maxsnp = ((uintptr_t)(token_endnn(bufptr) - bufptr2)) - 1;
   while (fgets(g_textbuf, MAXLINELEN, infile)) {
     line_idx++;
     if (!g_textbuf[MAXLINELEN - 1]) {

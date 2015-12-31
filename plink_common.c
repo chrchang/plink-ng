@@ -446,7 +446,7 @@ uint32_t scan_uintptr(char* ss, uintptr_t* valp) {
 }
 */
 
-uint32_t scan_two_doubles(char* ss, double* val1p, double* val2p) {
+uint32_t scan_two_doubles(char* ss, double* __restrict val1p, double* __restrict val2p) {
   char* ss2;
   *val1p = strtod(ss, &ss2);
   if (ss == ss2) {
@@ -624,7 +624,7 @@ int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr, uintptr_t* line_idx_ptr
   return 0;
 }
 
-int32_t get_next_noncomment_excl(const uintptr_t* marker_exclude, FILE* fptr, char** lptr_ptr, uintptr_t* line_idx_ptr, uintptr_t* marker_uidx_ptr) {
+int32_t get_next_noncomment_excl(const uintptr_t* __restrict marker_exclude, FILE* fptr, char** lptr_ptr, uintptr_t* __restrict line_idx_ptr, uintptr_t* __restrict marker_uidx_ptr) {
   while (!get_next_noncomment(fptr, lptr_ptr, line_idx_ptr)) {
     if (!is_set_ul(marker_exclude, *marker_uidx_ptr)) {
       return 0;
@@ -634,29 +634,7 @@ int32_t get_next_noncomment_excl(const uintptr_t* marker_exclude, FILE* fptr, ch
   return -1;
 }
 
-char* token_end(char* sptr) {
-  char cc;
-  if (!sptr) {
-    return NULL;
-  }
-  cc = *sptr;
-  while (!is_space_or_eoln(cc)) {
-    cc = *(++sptr);
-  }
-  return cc? sptr : NULL;
-}
-
-char* token_endl(char* sptr) {
-  if (!sptr) {
-    return NULL;
-  }
-  while (!is_space_or_eoln(*sptr)) {
-    sptr++;
-  }
-  return sptr;
-}
-
-void get_top_two_ui(const uint32_t* uint_arr, uintptr_t uia_size, uintptr_t* __restrict top_idx_ptr, uintptr_t* __restrict second_idx_ptr) {
+void get_top_two_ui(const uint32_t* __restrict uint_arr, uintptr_t uia_size, uintptr_t* __restrict top_idx_ptr, uintptr_t* __restrict second_idx_ptr) {
   assert(uia_size > 1);
   uintptr_t top_idx = (uint_arr[1] > uint_arr[0])? 1 : 0;
   uintptr_t second_idx = 1 ^ top_idx;
@@ -713,6 +691,7 @@ char* next_token(char* sptr) {
 }
 
 char* next_token_mult(char* sptr, uint32_t ct) {
+  assert(ct);
   if (!sptr) {
     return NULL;
   }

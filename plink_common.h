@@ -1232,7 +1232,7 @@ static inline uint32_t scan_float(const char* ss, float* valp) {
   return (ss == ss2);
 }
 
-uint32_t scan_two_doubles(char* ss, double* val1p, double* val2p);
+uint32_t scan_two_doubles(char* ss, double* __restrict val1p, double* __restrict val2p);
 
 // __restrict isn't very important for newer x86 processors since loads/stores
 // tend to be automatically reordered, but may as well use it properly in
@@ -1325,21 +1325,15 @@ int32_t gzputs_w4(gzFile gz_outfile, const char* ss);
 
 int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr, uintptr_t* line_idx_ptr);
 
-int32_t get_next_noncomment_excl(const uintptr_t* marker_exclude, FILE* fptr, char** lptr_ptr, uintptr_t* line_idx_ptr, uintptr_t* marker_uidx_ptr);
+int32_t get_next_noncomment_excl(const uintptr_t* __restrict marker_exclude, FILE* fptr, char** lptr_ptr, uintptr_t* __restrict line_idx_ptr, uintptr_t* __restrict marker_uidx_ptr);
 
-char* token_end(char* sptr);
-
-// does not return NULL if token ends with null char
-char* token_endl(char* sptr);
-
-// token_endl without checking if sptr == NULL
-// also assumes we are currently in a token -- UNSAFE OTHERWISE
+// assumes we are currently in a token -- UNSAFE OTHERWISE
 static inline char* token_endnn(char* sptr) {
   while (!is_space_or_eoln(*(++sptr)));
   return sptr;
 }
 
-void get_top_two_ui(const uint32_t* uint_arr, uintptr_t uia_size, uintptr_t* __restrict top_idx_ptr, uintptr_t* __restrict second_idx_ptr);
+void get_top_two_ui(const uint32_t* __restrict uint_arr, uintptr_t uia_size, uintptr_t* __restrict top_idx_ptr, uintptr_t* __restrict second_idx_ptr);
 
 static inline char* uint32_encode_5_hi_uchar(uint32_t uii, char* start) {
   // tried a few bit hacks here, but turns out nothing really beats this
