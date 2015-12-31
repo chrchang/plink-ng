@@ -240,7 +240,7 @@ void bigstack_shrink_top(const void* rebase, uintptr_t new_size) {
 }
 
 unsigned char* bigstack_end_alloc_presized(uintptr_t size) {
-  assert(!(size & (~(END_ALLOC_CHUNK_M1 * ONELU))));
+  assert(!(size & END_ALLOC_CHUNK_M1));
   uintptr_t cur_bigstack_left = bigstack_left();
   if (size > cur_bigstack_left) {
     return NULL;
@@ -682,13 +682,11 @@ void get_top_two_ui(const uint32_t* uint_arr, uintptr_t uia_size, uintptr_t* __r
   *second_idx_ptr = second_idx;
 }
 
-int32_t intlen(int32_t num) {
-  int32_t retval;
+uint32_t intlen(int32_t num) {
+  int32_t retval = 1;
   if (num < 0) {
     num = -num;
-    retval = 2;
-  } else {
-    retval = 1;
+    retval++;
   }
   while (num > 9) {
     num /= 10;

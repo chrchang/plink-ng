@@ -1363,7 +1363,7 @@ static inline uint32_t uint32_decode_5_hi_uchar(char* start) {
   return uii;
 }
 
-int32_t intlen(int32_t num);
+uint32_t intlen(int32_t num);
 
 // safer than token_endnn(), since it handles length zero
 static inline uintptr_t strlen_se(char* ss) {
