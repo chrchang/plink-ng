@@ -1,6 +1,6 @@
 #include "plink_common.h"
 
-#include "pigz.h"
+// #include "pigz.h"
 
 // no leading \n since this is used in LOGPRINTFWW expressions
 const char g_errstr_fopen[] = "Error: Failed to open %s.\n";

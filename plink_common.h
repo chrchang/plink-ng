@@ -1343,25 +1343,6 @@ static inline char* token_endnn(char* sptr) {
 
 void get_top_two_ui(const uint32_t* __restrict uint_arr, uintptr_t uia_size, uintptr_t* __restrict top_idx_ptr, uintptr_t* __restrict second_idx_ptr);
 
-static inline char* uint32_encode_5_hi_uchar(uint32_t uii, char* start) {
-  // tried a few bit hacks here, but turns out nothing really beats this
-  *start++ = (unsigned char)((uii >> 28) | 0x80);
-  *start++ = (unsigned char)((uii >> 21) | 0x80);
-  *start++ = (unsigned char)((uii >> 14) | 0x80);
-  *start++ = (unsigned char)((uii >> 7) | 0x80);
-  *start++ = (unsigned char)(uii | 0x80);
-  return start;
-}
-
-static inline uint32_t uint32_decode_5_hi_uchar(char* start) {
-  uint32_t uii = ((uint32_t)((unsigned char)(*start++))) << 28;
-  uii |= (((uint32_t)((unsigned char)(*start++))) & 0x7f) << 21;
-  uii |= (((uint32_t)((unsigned char)(*start++))) & 0x7f) << 14;
-  uii |= (((uint32_t)((unsigned char)(*start++))) & 0x7f) << 7;
-  uii |= ((uint32_t)((unsigned char)(*start))) & 0x7f;
-  return uii;
-}
-
 uint32_t intlen(int32_t num);
 
 // safer than token_endnn(), since it handles length zero
@@ -1380,10 +1361,12 @@ char* next_token(char* sptr);
 char* next_token_mult(char* sptr, uint32_t ct);
 
 static inline char* next_token_multz(char* sptr, uint32_t ct) {
-  if (!ct) {
-    return sptr;
-  } else {
+  // tried replacing this with ternary operator, but that actually seemed to
+  // slow things down a bit under gcc 4.2.1 (tail call optimization issue?).
+  if (ct) {
     return next_token_mult(sptr, ct);
+  } else {
+    return sptr;
   }
 }
 
@@ -1423,6 +1406,12 @@ char* uint32_writew8(char* start, uint32_t uii);
 
 char* uint32_writew10(char* start, uint32_t uii);
 
+// These limited-precision converters are usually several times as fast as
+// grisu2's descendants; and let's not even speak of sprintf.  (I'm guessing
+// that the algorithm cannot be made round-trip-safe without throwing away its
+// performance advantage, since we currently multiply by numbers like 1.0e256
+// which don't have an exact representation.  But these functions are very,
+// very good at what they do.)
 char* double_e_write(char* start, double dxx);
 
 char* float_e_write(char* start, float dxx);
@@ -1917,7 +1906,11 @@ static inline uint32_t hashval2(char* idstr, uint32_t idlen) {
 uintptr_t geqprime(uintptr_t floor);
 
 static inline uint32_t get_id_htable_size(uintptr_t item_ct) {
-  return (item_ct < 32761)? 65521 : geqprime(item_ct * 2 + 1);
+  if (item_ct < 32761) {
+    return 65521;
+  } else {
+    return geqprime(item_ct * 2 + 1);
+  }
 }
 
 int32_t populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, const char* item_ids, uintptr_t max_id_len, uint32_t store_dups, uint32_t* id_htable, uint32_t id_htable_size);
@@ -1969,11 +1962,7 @@ static inline uint32_t realnum(double dd) {
 }
 
 static inline double get_maf(double allele_freq) {
-  if (allele_freq < 0.5) {
-    return allele_freq;
-  } else {
-    return (1.0 - allele_freq);
-  }
+  return (allele_freq <= 0.5)? allele_freq : (1.0 - allele_freq);
 }
 
 static inline int32_t filename_exists(char* fname, char* fname_end, const char* fname_append) {
@@ -2460,7 +2449,11 @@ void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start
 void force_missing(unsigned char* loadbuf, uintptr_t* force_missing_include2, uintptr_t unfiltered_sample_ct);
 
 static inline char sexchar(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t sample_uidx) {
-  return is_set(sex_nm, sample_uidx)? (is_set(sex_male, sample_uidx)? '1' : '2') : '0';
+  if (is_set(sex_nm, sample_uidx)) {
+    return '2' - is_set(sex_male, sample_uidx);
+  } else {
+    return '0';
+  }
 }
 
 int32_t open_and_size_string_list(char* fname, FILE** infile_ptr, uintptr_t* list_len_ptr, uintptr_t* max_str_len_ptr);

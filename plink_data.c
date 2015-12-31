@@ -15853,7 +15853,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   uint32_t merge_list = merge_type & MERGE_LIST;
   uint32_t merge_mode = merge_type & MERGE_MODE_MASK;
   uint32_t merge_nsort = ((!sample_sort) || (sample_sort == SAMPLE_SORT_NATURAL))? 1 : 0;
-  uint32_t merge_equal_pos = (merge_type & MERGE_EQUAL_POS)? 1 : 0;
+  uint32_t merge_equal_pos = (merge_type / MERGE_EQUAL_POS) & 1;
   uint32_t allow_no_samples = (misc_flags / MISC_ALLOW_NO_SAMPLES) & 1;
   uint32_t allow_no_variants = (misc_flags / MISC_ALLOW_NO_VARS) & 1;
   Ll_str* non_biallelics = NULL;

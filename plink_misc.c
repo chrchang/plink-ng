@@ -5072,6 +5072,25 @@ uint32_t meta_analysis_allelic_match(const char* existing_a1ptr, char** token_pt
   return ((!(token_ct & 1)) || (!memcmp(&(existing_a1ptr[a1lenp1]), token_ptrs[8], a2lenp1)));
 }
 
+static inline char* uint32_encode_5_hi_uchar(uint32_t uii, char* start) {
+  // tried a few bit hacks here, but turns out nothing really beats this
+  *start++ = (unsigned char)((uii >> 28) | 0x80);
+  *start++ = (unsigned char)((uii >> 21) | 0x80);
+  *start++ = (unsigned char)((uii >> 14) | 0x80);
+  *start++ = (unsigned char)((uii >> 7) | 0x80);
+  *start++ = (unsigned char)(uii | 0x80);
+  return start;
+}
+
+static inline uint32_t uint32_decode_5_hi_uchar(const char* start) {
+  uint32_t uii = ((uint32_t)((unsigned char)(*start++))) << 28;
+  uii |= (((uint32_t)((unsigned char)(*start++))) & 0x7f) << 21;
+  uii |= (((uint32_t)((unsigned char)(*start++))) & 0x7f) << 14;
+  uii |= (((uint32_t)((unsigned char)(*start++))) & 0x7f) << 7;
+  uii |= ((uint32_t)((unsigned char)(*start))) & 0x7f;
+  return uii;
+}
+
 int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1field_search_order, char* a2field_search_order, char* pfield_search_order, char* essfield_search_order, uint32_t flags, char* extractname, char* outname, char* outname_end, double output_min_p, Chrom_info* chrom_info_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
