@@ -247,7 +247,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
       goto load_map_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(g_textbuf);
-    if (is_eoln_or_comment(*bufptr)) {
+    if (is_eoln_or_comment_kns(*bufptr)) {
       continue;
     }
     bufptr = next_token(bufptr);
@@ -681,7 +681,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     }
     // bufptr3 = col 1 start
     bufptr3 = skip_initial_spaces(loadbuf);
-    if (is_eoln_or_comment(*bufptr3)) {
+    if (is_eoln_or_comment_kns(*bufptr3)) {
       continue;
     }
     jj = get_chrom_code(chrom_info_ptr, bufptr3);
@@ -1119,7 +1119,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	goto load_bim_ret_READ_FAIL;
       }
       bufptr3 = skip_initial_spaces(loadbuf2);
-    } while (is_eoln_or_comment(*bufptr3));
+    } while (is_eoln_or_comment_kns(*bufptr3));
     jj = get_chrom_code(chrom_info_ptr, bufptr3);
     if (jj != prev_chrom) {
       if (!split_chrom) {
@@ -2591,7 +2591,7 @@ int32_t load_bim_split_chrom(char* bimname, uintptr_t* marker_exclude, uintptr_t
       goto load_bim_split_chrom_ret_READ_FAIL;
     }
     bufptr = skip_initial_spaces(loadbuf);
-    if (is_eoln_or_comment(*bufptr)) {
+    if (is_eoln_or_comment_kns(*bufptr)) {
       goto load_bim_split_chrom_reread;
     }
     marker_uidx++;
@@ -5200,7 +5200,7 @@ int32_t check_cm_col(FILE* bimfile, char* textbuf, uint32_t is_binary, uint32_t 
   while (fgets(textbuf, bufsize, bimfile)) {
     line_idx++;
     bufptr = skip_initial_spaces(textbuf);
-    if (is_eoln_or_comment(*bufptr)) {
+    if (is_eoln_or_comment_kns(*bufptr)) {
       continue;
     }
     bufptr = next_token_mult(bufptr, 2 + 2 * is_binary);
@@ -5449,7 +5449,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
       ped_buflen = ulii;
     }
     col1_ptr = skip_initial_spaces(loadbuf);
-    if (is_eoln_or_comment(*col1_ptr)) {
+    if (is_eoln_or_comment_kns(*col1_ptr)) {
       goto ped_to_bed_multichar_allele_loop_1_start;
     }
     // check for top-of-stack allocations colliding with load buffer
@@ -5714,7 +5714,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
 	      goto ped_to_bed_multichar_allele_ret_READ_FAIL;
 	    }
 	    col1_ptr = skip_initial_spaces(loadbuf);
-	  } while (is_eoln_or_comment(*col1_ptr));
+	  } while (is_eoln_or_comment_kns(*col1_ptr));
 	  bufptr = next_token_mult(col1_ptr, ped_col_skip);
 	} else {
 	  ped_next_thresh = line_starts[sample_idx];
@@ -5975,7 +5975,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       goto ped_to_bed_ret_INVALID_FORMAT_2;
     }
     col1_ptr = skip_initial_spaces(g_textbuf);
-    if (is_eoln_or_comment(*col1_ptr)) {
+    if (is_eoln_or_comment_kns(*col1_ptr)) {
       continue;
     }
     col2_ptr = next_token(col1_ptr);
@@ -6097,7 +6097,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       }
     }
     col1_ptr = skip_initial_spaces(loadbuf);
-    if (is_eoln_or_comment(*col1_ptr)) {
+    if (is_eoln_or_comment_kns(*col1_ptr)) {
       ulii = strlen(loadbuf) + 1;
       if (ulii > ped_buflen) {
 	ped_buflen = ulii;
@@ -6381,7 +6381,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
 		goto ped_to_bed_ret_READ_FAIL;
 	      }
 	      col1_ptr = skip_initial_spaces(loadbuf);
-	    } while (is_eoln_or_comment(*col1_ptr));
+	    } while (is_eoln_or_comment_kns(*col1_ptr));
 	    bufptr = next_token_mult(col1_ptr, ped_col_skip);
 	  } else {
 	    ped_next_thresh = line_starts[sample_idx];
@@ -7011,7 +7011,7 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
   uii = 0;
   marker_idx = 0;
   while (fgets(g_textbuf, MAXLINELEN, infile)) {
-    if (is_eoln_or_comment(*(skip_initial_spaces(g_textbuf)))) {
+    if (is_eoln_or_comment_kns(*(skip_initial_spaces(g_textbuf)))) {
       continue;
     }
     if (IS_SET(marker_exclude, uii)) {
@@ -10985,11 +10985,11 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
       penult_ptr = next_token_mult(freq_lb_ptr, 2);
     }
     last_ptr = next_token(penult_ptr);
-    if (no_more_tokens(last_ptr)) {
+    if (no_more_tokens_kns(last_ptr)) {
       sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --simulate%s file has fewer tokens than expected.\n", line_idx, is_qt? "-qt" : "");
       goto simulate_ret_INVALID_FORMAT_2N;
     }
-    if (!no_more_tokens(next_token(last_ptr))) {
+    if (!no_more_tokens_kns(next_token(last_ptr))) {
       sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --simulate%s file has more tokens than expected.\n", line_idx, is_qt? "-qt" : "");
       goto simulate_ret_INVALID_FORMAT_2N;
     }
@@ -14503,7 +14503,7 @@ int32_t merge_fam_id_scan(char* bedname, char* famname, uint32_t allow_no_sample
     line_idx++;
     col1_start_ptr = skip_initial_spaces(g_textbuf);
     cc = *col1_start_ptr;
-    if (!is_eoln_or_comment(cc)) {
+    if (!is_eoln_or_comment_kns(cc)) {
       col1_end_ptr = token_endnn(col1_start_ptr);
       col1_len = col1_end_ptr - col1_start_ptr;
       col2_start_ptr = skip_initial_spaces(col1_end_ptr);
@@ -14731,7 +14731,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uint32_t allow_no_vari
       max_bim_linelen = uii + 1;
     }
     bufptr = skip_initial_spaces(loadbuf);
-    if (is_eoln_or_comment(*bufptr)) {
+    if (is_eoln_or_comment_kns(*bufptr)) {
       continue;
     }
     ii = get_chrom_code(chrom_info_ptr, bufptr);
@@ -15325,7 +15325,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
   }
   do {
     bufptr = skip_initial_spaces(bim_loadbuf);
-    if (is_eoln_or_comment(*bufptr)) {
+    if (is_eoln_or_comment_kns(*bufptr)) {
       continue;
     }
     ++marker_in_idx;
@@ -15583,7 +15583,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
       line_idx++;
       bufptr = skip_initial_spaces((char*)readbuf);
       cc = *bufptr;
-      if (is_eoln_or_comment(cc)) {
+      if (is_eoln_or_comment_kns(cc)) {
 	continue;
       }
       // only possible to get here if sample_ct and marker_ct are positive

@@ -619,7 +619,7 @@ int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr, uintptr_t* line_idx_ptr
     }
     *line_idx_ptr += 1;
     lptr = skip_initial_spaces(g_textbuf);
-  } while (is_eoln_or_comment(*lptr));
+  } while (is_eoln_or_comment_kns(*lptr));
   *lptr_ptr = lptr;
   return 0;
 }
@@ -695,8 +695,8 @@ uint32_t intlen(int32_t num) {
   return retval;
 }
 
-int32_t strcmp_se(char* s_read, const char* s_const, uint32_t len) {
-  return memcmp(s_read, s_const, len) || (!is_space_or_eoln(s_read[len]));
+int32_t strcmp_se(const char* s_read, const char* s_const, uint32_t s_const_len) {
+  return memcmp(s_read, s_const, s_const_len) || (!is_space_or_eoln(s_read[s_const_len]));
 }
 
 char* next_token(char* sptr) {
@@ -763,12 +763,27 @@ uint32_t count_and_measure_multistr(const char* multistr, uintptr_t* max_slen_pt
 
 // number-to-string encoders
 
-static const char digit2_table[] = {
-  "0001020304050607080910111213141516171819"
-  "2021222324252627282930313233343536373839"
-  "4041424344454647484950515253545556575859"
-  "6061626364656667686970717273747576777879"
-  "8081828384858687888990919293949596979899"};
+static const char digit2_table[200] = {
+  '0', '0', '0', '1', '0', '2', '0', '3', '0', '4',
+  '0', '5', '0', '6', '0', '7', '0', '8', '0', '9',
+  '1', '0', '1', '1', '1', '2', '1', '3', '1', '4',
+  '1', '5', '1', '6', '1', '7', '1', '8', '1', '9',
+  '2', '0', '2', '1', '2', '2', '2', '3', '2', '4',
+  '2', '5', '2', '6', '2', '7', '2', '8', '2', '9',
+  '3', '0', '3', '1', '3', '2', '3', '3', '3', '4',
+  '3', '5', '3', '6', '3', '7', '3', '8', '3', '9',
+  '4', '0', '4', '1', '4', '2', '4', '3', '4', '4',
+  '4', '5', '4', '6', '4', '7', '4', '8', '4', '9',
+  '5', '0', '5', '1', '5', '2', '5', '3', '5', '4',
+  '5', '5', '5', '6', '5', '7', '5', '8', '5', '9',
+  '6', '0', '6', '1', '6', '2', '6', '3', '6', '4',
+  '6', '5', '6', '6', '6', '7', '6', '8', '6', '9',
+  '7', '0', '7', '1', '7', '2', '7', '3', '7', '4',
+  '7', '5', '7', '6', '7', '7', '7', '8', '7', '9',
+  '8', '0', '8', '1', '8', '2', '8', '3', '8', '4',
+  '8', '5', '8', '6', '8', '7', '8', '8', '8', '9',
+  '9', '0', '9', '1', '9', '2', '9', '3', '9', '4',
+  '9', '5', '9', '6', '9', '7', '9', '8', '9', '9'};
 
 char* uint32_write(char* start, uint32_t uii) {
   // Memory-efficient fast integer writer.  (You can do a bit better sometimes

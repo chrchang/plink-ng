@@ -1365,7 +1365,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uin
     }
     bufptr = next_token_mult(bufptr, 7); // distance
     fam_id = next_token(bufptr); // repurposed to PPC test value
-    if (no_more_tokens(fam_id)) {
+    if (no_more_tokens_kns(fam_id)) {
       goto read_genome_ret_MISSING_TOKENS;
     }
     if (min_ppc != 0.0) {

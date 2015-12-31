@@ -5733,7 +5733,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
       if (use_map) {
 	*wptr++ = ll_ptr->ss[file_ct_byte_width];
 	memcpy(&uii, &(ll_ptr->ss[file_ct_byte_width + 1]), 4);
-	wptr = uint32_encode_5_hi_uchar(wptr, uii);
+	wptr = uint32_encode_5_hi_uchar(uii, wptr);
       }
       bufptr = &(ll_ptr->ss[slen_base]);
       slen = strlen(bufptr) + 1;

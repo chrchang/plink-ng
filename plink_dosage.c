@@ -1654,7 +1654,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	} while (is_eoln_kns(*bufptr));
 	bufptr = next_token_multz(bufptr, skip0);
 	bufptr2 = next_token_mult(bufptr, skip1p1);
-	if (no_more_tokens(bufptr2)) {
+	if (no_more_tokens_kns(bufptr2)) {
 	  goto plink1_dosage_ret_MISSING_TOKENS;
 	}
 	if (strcmp_se(bufptr, "SNP", 3)) {
@@ -1666,7 +1666,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	}
 	bufptr = next_token(bufptr2);
 	bufptr2 = next_token_multz(bufptr, skip2);
-	if (no_more_tokens(bufptr2)) {
+	if (no_more_tokens_kns(bufptr2)) {
 	  goto plink1_dosage_ret_MISSING_TOKENS;
 	}
 	if (strcmp_se(bufptr, "A2", 2)) {
@@ -1735,7 +1735,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	bufptr = next_token_multz(bufptr, skip0);
 	bufptr3 = next_token_mult(bufptr, skip1p1);
 	bufptr5 = next_token(bufptr3);
-	if (no_more_tokens(bufptr5)) {
+	if (no_more_tokens_kns(bufptr5)) {
 	  goto plink1_dosage_ret_MISSING_TOKENS;
 	}
 	bufptr2 = token_endnn(bufptr);
@@ -1860,7 +1860,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    for (; read_idx_start < read_idx; read_idx_start++) {
 	      bufptr2 = next_token_mult(bufptr, skip_vals[read_idx_start]);
 	      bufptr = next_token(bufptr2);
-	      if (no_more_tokens(bufptr)) {
+	      if (no_more_tokens_kns(bufptr)) {
 		goto plink1_dosage_ret_MISSING_TOKENS;
 	      }
 	      if (scan_double(bufptr2, &dxx) || scan_double(bufptr, &dyy)) {

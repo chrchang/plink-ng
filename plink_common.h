@@ -1147,21 +1147,21 @@ static inline int32_t is_not_nzdigit(unsigned char ucc) {
 }
 
 // may as well treat all chars < 32, except tab, as eoln...
-static inline int32_t is_eoln(unsigned char ucc) {
-  return (ucc < 32) && (ucc != '\t');
-}
-
 // kns = "known non-space" (where tab counts as a space)
+/*
 static inline int32_t is_eoln_kns(unsigned char ucc) {
   return (ucc < 32);
 }
+*/
 
-static inline int32_t is_eoln_or_comment(unsigned char ucc) {
-  return (ucc < 32) || (ucc == '#');
+static inline int32_t is_space_or_eoln(unsigned char ucc) {
+  return (ucc <= 32);
 }
 
-static inline int32_t no_more_tokens(char* sptr) {
-  return ((!sptr) || is_eoln(*sptr));
+#define is_eoln_kns is_space_or_eoln
+
+static inline int32_t is_eoln_or_comment_kns(unsigned char ucc) {
+  return (ucc < 32) || (ucc == '#');
 }
 
 static inline int32_t no_more_tokens_kns(const char* sptr) {
@@ -1185,9 +1185,6 @@ static inline int32_t is_space_or_eoln(unsigned char cc) {
 #endif
 }
 */
-static inline int32_t is_space_or_eoln(unsigned char ucc) {
-  return (ucc <= 32);
-}
 
 uint32_t match_upper(const char* ss, const char* fixed_str);
 
@@ -1344,7 +1341,7 @@ static inline char* token_endnn(char* sptr) {
 
 void get_top_two_ui(const uint32_t* uint_arr, uintptr_t uia_size, uintptr_t* __restrict top_idx_ptr, uintptr_t* __restrict second_idx_ptr);
 
-static inline char* uint32_encode_5_hi_uchar(char* start, uint32_t uii) {
+static inline char* uint32_encode_5_hi_uchar(uint32_t uii, char* start) {
   // tried a few bit hacks here, but turns out nothing really beats this
   *start++ = (unsigned char)((uii >> 28) | 0x80);
   *start++ = (unsigned char)((uii >> 21) | 0x80);
@@ -1374,7 +1371,7 @@ static inline uintptr_t strlen_se(char* ss) {
   return (uintptr_t)(ss2 - ss);
 }
 
-int32_t strcmp_se(char* s_read, const char* s_const, uint32_t len);
+int32_t strcmp_se(const char* s_read, const char* s_const, uint32_t s_const_len);
 
 char* next_token(char* sptr);
 
