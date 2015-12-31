@@ -61,7 +61,7 @@ int32_t sample_major_to_snp_major(char* sample_major_fname, char* outname, uintp
   FILE* infile = NULL;
   FILE* outfile = NULL;
   uintptr_t unfiltered_marker_ct4 = (unfiltered_marker_ct + 3) / 4;
-  uintptr_t unfiltered_marker_ctl2 = (unfiltered_marker_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t unfiltered_marker_ctl2 = QUATERCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t marker_idx_end = 0;
   uint32_t bed_offset = fsize - unfiltered_sample_ct * ((uint64_t)unfiltered_marker_ct4);
@@ -279,7 +279,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
   *unfiltered_marker_ct_ptr = unfiltered_marker_ct;
   *max_marker_id_len_ptr = max_marker_id_len;
   rewind(*mapfile_ptr);
-  unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
 
   // unfiltered_marker_ct can be very large, so use bigstack for all
   // allocations that are a multiple of it
@@ -1031,7 +1031,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   *unfiltered_marker_ct_ptr = unfiltered_marker_ct;
   *max_marker_id_len_ptr = max_marker_id_len;
   rewind(bimfile);
-  unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
 
   // unfiltered_marker_ct can be very large, so use bigstack for all
   // allocations that are a multiple of it
@@ -1369,7 +1369,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
   unsigned char* bigstack_end_mark = g_bigstack_end;
   unsigned char* bigstack_mark2 = NULL;
   FILE* covar_file = NULL;
-  uintptr_t sample_ctl = (sample_ct + (BITCT - 1)) / BITCT;
+  uintptr_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
   uintptr_t covar_raw_ct = 0;
   uintptr_t loaded_sample_ct = 0;
   uintptr_t missing_cov_ct = 0;
@@ -1430,7 +1430,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
     }
 
     // kludge to use sort_item_ids_noalloc()
-    fill_ulong_zero((uintptr_t*)covar_name_flag_seen_idxs, (ulii + (BITCT - 1)) / BITCT);
+    fill_ulong_zero((uintptr_t*)covar_name_flag_seen_idxs, BITCT_TO_WORDCT(ulii));
     retval = sort_item_ids_noalloc(sorted_covar_name_flag_ids, covar_name_flag_id_map, ulii, (uintptr_t*)covar_name_flag_seen_idxs, ulii, covar_range_list_ptr->names, covar_range_list_ptr->name_max_len, 0, 0, strcmp_deref);
     if (retval) {
       if (retval == RET_INVALID_FORMAT) {
@@ -1493,7 +1493,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
     strcpy(g_textbuf, "No covariate columns in --covar file.\n");
     goto load_covars_none;
   }
-  covar_raw_ctl = (covar_raw_ct + (BITCT - 1)) / BITCT;
+  covar_raw_ctl = BITCT_TO_WORDCT(covar_raw_ct);
   if (bigstack_end_alloc_ul(covar_raw_ctl, &covars_active)) {
     goto load_covars_ret_NOMEM;
   }
@@ -1764,7 +1764,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
     }
     if (covar_range_list_ptr) {
       // redefinition
-      covar_raw_ctl = (covar_ctx + BITCT - 1) / BITCT;
+      covar_raw_ctl = BITCT_TO_WORDCT(covar_ctx);
       if (bigstack_calloc_ul(covar_raw_ctl, &already_seen)) {
 	goto load_covars_ret_NOMEM;
       }
@@ -2282,7 +2282,7 @@ int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintp
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* zcfile = NULL;
   uintptr_t marker_ctp2l = (marker_ct + (BITCT + 1)) / BITCT;
-  uintptr_t sample_ctv2 = 2 * ((sample_ct + (BITCT - 1)) / BITCT);
+  uintptr_t sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
   uintptr_t zc_item_ct = 0;
   uintptr_t line_idx = 0;
   uint32_t range_first = marker_ct;
@@ -2641,7 +2641,7 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
   FILE* infile = NULL;
   char skipchar = update_chr->skipchar;
   uint32_t colid_first = (update_chr->colid < update_chr->colx);
-  uint32_t marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
+  uint32_t marker_ctl = BITCT_TO_WORDCT(marker_ct);
   uintptr_t hit_ct = 0;
   uintptr_t miss_ct = 0;
   uintptr_t marker_uidx = 0;
@@ -3034,8 +3034,8 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
 int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uint32_t* sample_sort_map, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t* flip_subset_markers, uintptr_t* flip_subset_vec2) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* infile = NULL;
-  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
-  uintptr_t sample_ctv2 = 2 * ((sample_ct + (BITCT - 1)) / BITCT);
+  uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
+  uintptr_t sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
   uintptr_t miss_ct = 0;
   uintptr_t line_idx = 0;
   uint32_t* sample_uidx_to_idx = NULL;
@@ -3384,12 +3384,12 @@ void replace_missing_a2(uintptr_t* writebuf, uintptr_t* subset_vec2, uintptr_t w
 
 int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t map_cols, char* outname, char* outname_end, uint64_t calculation_type, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t map_is_unsorted, uint32_t* sample_sort_map, uint64_t misc_flags, uint32_t splitx_bound1, uint32_t splitx_bound2, Two_col_params* update_chr, char* flip_fname, char* flip_subset_fname, char* zerofname, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, uint32_t hh_exists, Chrom_info* chrom_info_ptr, uint32_t mendel_modifier, uint32_t max_bim_linelen) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + BITCT2 - 1) / BITCT2;
+  uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t unfiltered_sample_ctp1l2 = 1 + (unfiltered_sample_ct / BITCT2);
   uintptr_t sample_ct4 = (sample_ct + 3) / 4;
-  uintptr_t sample_ctv2 = 2 * ((sample_ct + (BITCT - 1)) / BITCT);
+  uintptr_t sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
   uintptr_t trio_ct = 0;
@@ -3912,7 +3912,7 @@ int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32
     goto load_fam_ret_INVALID_FORMAT;
   }
   bigstack_reset(bigstack_mark);
-  unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
+  unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   // could make paternal_ids/maternal_ids conditional, but memory footprint is
   // typically negligible
   if (bigstack_alloc_c(unfiltered_sample_ct * max_sample_id_len, sample_ids_ptr) ||
@@ -4440,7 +4440,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     goto oxford_to_bed_ret_WRITE_FAIL;
   }
   sample_ct4 = (sample_ct + 3) / 4;
-  sample_ctl2 = (sample_ct + (BITCT2 - 1)) / BITCT2;
+  sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
   if (bigstack_alloc_ul(sample_ctl2, &writebuf)) {
     goto oxford_to_bed_ret_NOMEM;
   }
@@ -5920,6 +5920,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   int32_t jj;
   char* loadbuf;
   uintptr_t loadbuf_size;
+  uintptr_t unfiltered_marker_ct_limit;
   char* col1_ptr;
   char* col2_ptr;
   char* bufptr;
@@ -5961,6 +5962,12 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     goto ped_to_bed_empty_map_with_allow_no_vars;
   }
   line_idx--;
+  unfiltered_marker_ct_limit = bigstack_left();
+  if (unfiltered_marker_ct_limit > 0xfffffff) {
+    unfiltered_marker_ct_limit = 0x80000000U;
+  } else {
+    unfiltered_marker_ct_limit *= 8;
+  }
   do {
     line_idx++;
     if (!g_textbuf[MAXLINELEN - 6]) {
@@ -6018,7 +6025,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       goto ped_to_bed_ret_INVALID_FORMAT;
     }
     if (!(unfiltered_marker_ct & (BITCT - 1))) {
-      if ((unfiltered_marker_ct / 8) == bigstack_left()) {
+      if (unfiltered_marker_ct == unfiltered_marker_ct_limit) {
 	goto ped_to_bed_ret_NOMEM;
       }
       marker_exclude[unfiltered_marker_ct / BITCT] = 0;
@@ -6033,7 +6040,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     goto ped_to_bed_ret_ALL_MARKERS_EXCLUDED;
   }
  ped_to_bed_empty_map_with_allow_no_vars:
-  bigstack_alloc_ul((unfiltered_marker_ct + (BITCT - 1)) / BITCT, &marker_exclude);
+  bigstack_alloc_ul(BITCT_TO_WORDCT(unfiltered_marker_ct), &marker_exclude);
 
   if (map_is_unsorted) {
     retval = load_sort_and_write_map(&map_reverse, mapfile, 3 + cm_col_exists, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, max_marker_id_len, 1, chrom_info_ptr);
@@ -8238,8 +8245,8 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     goto vcf_to_bed_ret_INVALID_FORMAT;
   }
   sample_ct4 = (sample_ct + 3) / 4;
-  sample_ctl2 = (sample_ct + BITCT2 - 1) / BITCT2;
-  sample_ctv2 = 2 * ((sample_ct + BITCT - 1) / BITCT);
+  sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
+  sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
   final_mask = (~ZEROLU) >> (2 * ((0x7fffffe0 - sample_ct) % BITCT2));
   if (bigstack_alloc_ul(sample_ctv2 * 10, &base_bitfields) ||
       bigstack_alloc_ui(MAX_VCF_ALT, &vcf_alt_cts)) {
@@ -9331,10 +9338,10 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     goto bcf_to_bed_ret_INVALID_FORMAT;
   }
   sample_ct4 = (sample_ct + 3) / 4;
-  sample_ctl2 = (sample_ct + (BITCT2 - 1)) / BITCT2;
-  sample_ctv2 = 2 * ((sample_ct + (BITCT - 1)) / BITCT);
+  sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
+  sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
   bigstack_reset(loadbuf);
-  ulii = (contig_ct + (BITCT - 1)) / BITCT;
+  ulii = BITCT_TO_WORDCT(contig_ct);
   if (bigstack_calloc_ul(ulii, &contig_bitfield) ||
       bigstack_alloc_c(contig_ct * max_contig_len, &contigdict)) {
     goto bcf_to_bed_ret_NOMEM;
@@ -9359,7 +9366,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     contig_list = contig_list->next;
   }
   if (vcf_filter) {
-    uii = (stringdict_ct + (BITCT - 1)) / BITCT;
+    uii = BITCT_TO_WORDCT(stringdict_ct);
     if (bigstack_calloc_ul(uii, &fexcept_bitfield)) {
       goto bcf_to_bed_ret_NOMEM;
     }
@@ -10877,7 +10884,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     }
   }
   sample_ct4 = (sample_ct + 3) / 4;
-  sample_ctl2 = (sample_ct + BITCT2 - 1) / BITCT2;
+  sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
   if (randomize_alleles) {
     if (flags & SIMULATE_ACGT) {
       memcpy(alleles, "ACAGATCGCTGTA", 13);
@@ -11904,10 +11911,10 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   FILE* outfile2 = NULL;
   BGZF* bgz_outfile = NULL;
   char* pzwritep = NULL;
-  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
-  uintptr_t sample_ctv2 = 2 * ((sample_ct + (BITCT - 1)) / BITCT);
+  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
+  uintptr_t sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
   uintptr_t final_mask = get_final_mask(sample_ct);
   uintptr_t cur_final_mask = 0;
   uintptr_t sample_ct_y = 0;
@@ -12055,7 +12062,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     if (bigstack_alloc_ul(sample_ctv2, &loadbuf_collapsed)) {
       goto recode_ret_NOMEM;
     }
-    loadbuf_collapsed_end = &(loadbuf_collapsed[(sample_ct + (BITCT2 - 1)) / BITCT2]);
+    loadbuf_collapsed_end = &(loadbuf_collapsed[QUATERCT_TO_WORDCT(sample_ct)]);
     if (recode_modifier & (RECODE_LGEN | RECODE_LGEN_REF | RECODE_LIST | RECODE_RLIST)) {
       // need to collapse sample_ids to remove need for sample_uidx in inner
       // loop
@@ -12071,7 +12078,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	bitfield_ornot(sample_exclude_y, sex_male, unfiltered_sample_ctl);
 	zero_trailing_bits(sample_exclude_y, unfiltered_sample_ct);
 	sample_ct_y = unfiltered_sample_ct - popcount_longs(sample_exclude_y, unfiltered_sample_ctl);
-        uii = 2 * ((sample_ct_y + (BITCT - 1)) / BITCT);
+        uii = QUATERCT_TO_ALIGNED_WORDCT(sample_ct_y);
 	if (bigstack_alloc_ul(uii, &sample_include2_y) ||
             bigstack_alloc_ul(uii, &sample_male_include2_y)) {
 	  goto recode_ret_NOMEM;
@@ -14293,7 +14300,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 
 int32_t sample_sort_file_map(char* sample_sort_fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uint32_t** sample_sort_map_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  uintptr_t sample_ctl = (sample_ct + (BITCT - 1)) / BITCT;
+  uintptr_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
   FILE* infile = NULL;
   // temporary: sample_id_map[ascii-sorted idx] = uidx in input fileset
   uint32_t* sample_id_map = NULL;
@@ -15201,7 +15208,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
   // bugfix: there was a potential integer overflow back when these were
   // uint32_t
   uintptr_t tot_sample_ct4 = (tot_sample_ct + 3) / 4;
-  uintptr_t tot_sample_ctl = (tot_sample_ct + (BITCT - 1)) / BITCT;
+  uintptr_t tot_sample_ctl = BITCT_TO_WORDCT(tot_sample_ct);
   uint32_t end_marker_idx = start_marker_idx + marker_window_size;
   uint32_t marker_in_idx = 0xffffffffU; // overflow to zero on first add
   uint32_t last_marker_in_idx = 0xfffffffeU;
@@ -15282,7 +15289,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
     }
     fclose_null(&infile2);
     cur_sample_ct4 = (cur_sample_ct + 3) / 4;
-    cur_sample_ctl2 = (cur_sample_ct + (BITCT2 - 1)) / BITCT2;
+    cur_sample_ctl2 = QUATERCT_TO_WORDCT(cur_sample_ct);
   } else {
     bim_loadbuf = g_textbuf;
     max_bim_linelen = MAXLINELEN;
@@ -16437,7 +16444,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   tot_sample_ct4 = (tot_sample_ct + 3) / 4;
 
   if (!keep_allele_order) {
-    if (bigstack_calloc_ul((tot_marker_ct + (BITCT - 1)) / BITCT, &reversed)) {
+    if (bigstack_calloc_ul(BITCT_TO_WORDCT(tot_marker_ct), &reversed)) {
       goto merge_datasets_ret_NOMEM;
     }
   }
@@ -16451,7 +16458,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     goto merge_datasets_ret_NOMEM;
   }
   if (merge_must_track_write(merge_mode)) {
-    ulii = (tot_sample_ct + (BITCT - 1)) / BITCT;
+    ulii = BITCT_TO_WORDCT(tot_sample_ct);
     if (ulii) {
       markers_per_pass = bigstack_left() / (3 * sizeof(intptr_t) * ulii);
       if (markers_per_pass > dedup_marker_ct) {

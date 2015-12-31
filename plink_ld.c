@@ -498,7 +498,7 @@ int32_t ld_dot_prod_nm(uintptr_t* vec1, uintptr_t* vec2, uint32_t founder_ct, ui
 
 uint32_t ld_process_load(uintptr_t* geno_buf, uintptr_t* mask_buf, uintptr_t* missing_buf, uint32_t* missing_ct_ptr, double* sum_ptr, double* variance_recip_ptr, uint32_t founder_ct, uint32_t is_x, uint32_t weighted_x, uint32_t nonmale_founder_ct, uintptr_t* founder_male_include2, uintptr_t* nonmale_geno, uintptr_t* nonmale_masks, uintptr_t nonmale_offset) {
   uintptr_t* geno_ptr = geno_buf;
-  uintptr_t founder_ctl2 = (founder_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t founder_ctl2 = QUATERCT_TO_WORDCT(founder_ct);
   uintptr_t* geno_end = &(geno_buf[founder_ctl2]);
   uintptr_t* mask_buf_ptr = mask_buf;
   uintptr_t* missing_ptr = missing_buf;
@@ -733,11 +733,11 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 
   // for future consideration: chromosome-based multithread/parallel?
   unsigned char* bigstack_mark = g_bigstack_base;
-  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctl2 = 2 * ((unfiltered_sample_ct + (BITCT - 1)) / BITCT);
-  uintptr_t founder_ct = popcount_longs(founder_info, unfiltered_sample_ctl2 / 2);
-  uintptr_t founder_ctl = (founder_ct + BITCT - 1) / BITCT;
+  uintptr_t unfiltered_sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(unfiltered_sample_ct);
+  uintptr_t founder_ct = popcount_longs(founder_info, unfiltered_sample_ctv2 / 2);
+  uintptr_t founder_ctl = BITCT_TO_WORDCT(founder_ct);
 #ifdef __LP64__
   uintptr_t founder_ctv = 2 * ((founder_ct + 127) / 128);
 #else
@@ -894,7 +894,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   }
   if (bigstack_alloc_ui(window_max, &live_indices) ||
       bigstack_alloc_ui(window_max, &start_arr) ||
-      bigstack_alloc_ul(unfiltered_sample_ctl2, &loadbuf) ||
+      bigstack_alloc_ul(unfiltered_sample_ctv2, &loadbuf) ||
       bigstack_alloc_ul(window_max * founder_ct_192_long, &geno) ||
       bigstack_alloc_ul(window_max * founder_ct_192_long, &geno_masks) ||
       bigstack_alloc_ul(window_max * founder_ctv, &geno_mmasks) ||
@@ -1319,7 +1319,7 @@ void ld_process_load2(uintptr_t* geno_buf, uintptr_t* mask_buf, uint32_t* missin
   // --ld-xchr 3 support yet), and no zero-variance check (we just want to
   // dump nans in that case)
   uintptr_t* geno_ptr = geno_buf;
-  uintptr_t founder_ctl2 = (founder_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t founder_ctl2 = QUATERCT_TO_WORDCT(founder_ct);
   uintptr_t* geno_end = &(geno_buf[founder_ctl2]);
   uintptr_t* mask_buf_ptr = mask_buf;
   uintptr_t cur_geno;
@@ -1435,8 +1435,8 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   uintptr_t* sample_male_include2 = NULL;
   double min_corr = ldip->flipscan_thresh * (1 - SMALL_EPSILON);
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
-  uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
+  uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t marker_idx = 0;
   uintptr_t max_window_size = 1;
   uintptr_t pct = 1;
@@ -1548,7 +1548,7 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
     goto flipscan_ret_INVALID_CMDLINE;
   }
   for (is_case = 0; is_case < 2; is_case++) {
-    pheno_ctl[is_case] = (pheno_ct[is_case] + (BITCT - 1)) / BITCT;
+    pheno_ctl[is_case] = BITCT_TO_WORDCT(pheno_ct[is_case]);
     ulii = (pheno_ct[is_case] + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
     pheno_ct_mld_m1[is_case] = ulii - 1;
 #ifdef __LP64__
@@ -2147,7 +2147,7 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t marker_ctm8 = round_up_pow2(marker_ct, 8);
   uintptr_t founder_ct = g_ld_founder_ct;
-  uintptr_t founder_ctl = (founder_ct + BITCT - 1) / BITCT;
+  uintptr_t founder_ctl = BITCT_TO_WORDCT(founder_ct);
   uintptr_t founder_ct_192_long = g_ld_founder_ct_192_long;
   uintptr_t final_mask = get_final_mask(founder_ct);
   uintptr_t marker_uidx_base = next_unset_unsafe(marker_exclude, 0);
@@ -3692,8 +3692,8 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   uintptr_t marker_ct = g_epi_marker_ct;
   uint32_t case_ct = g_epi_case_ct;
   uint32_t ctrl_ct = g_epi_ctrl_ct;
-  uint32_t case_ctv3 = 2 * ((case_ct + (2 * BITCT - 1)) / (2 * BITCT));
-  uint32_t ctrl_ctv3 = 2 * ((ctrl_ct + (2 * BITCT - 1)) / (2 * BITCT));
+  uint32_t case_ctv3 = BITCT_TO_ALIGNED_WORDCT(case_ct);
+  uint32_t ctrl_ctv3 = BITCT_TO_ALIGNED_WORDCT(ctrl_ct);
   uint32_t case_ctsplit = 3 * case_ctv3;
   uint32_t ctrl_ctsplit = 3 * ctrl_ctv3;
   uint32_t tot_ctsplit = case_ctsplit + ctrl_ctsplit;
@@ -4103,7 +4103,7 @@ THREAD_RET_TYPE epi_linear_thread(void* arg) {
   uint32_t pheno_nm_ct = g_epi_pheno_nm_ct;
   uint32_t best_id_fixed = 0;
   uint32_t is_first_half = 0;
-  uintptr_t pheno_nm_ctl2 = (pheno_nm_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t pheno_nm_ctl2 = QUATERCT_TO_WORDCT(pheno_nm_ct);
   uintptr_t* geno1 = g_epi_geno1;
   double* pheno_d2 = g_epi_pheno_d2;
   uint32_t* geno1_offsets = g_epi_geno1_offsets;
@@ -4544,7 +4544,7 @@ THREAD_RET_TYPE epi_logistic_thread(void* arg) {
   uint32_t pheno_nm_ct = g_epi_pheno_nm_ct;
   uint32_t best_id_fixed = 0;
   uint32_t is_first_half = 0;
-  uintptr_t pheno_nm_ctl2 = (pheno_nm_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t pheno_nm_ctl2 = QUATERCT_TO_WORDCT(pheno_nm_ct);
   uintptr_t* geno1 = g_epi_geno1;
   uintptr_t* pheno_c = g_epi_pheno_c;
   float* covars_cov_major = g_epi_logistic_mt[tidx].cur_covars_cov_major;
@@ -5005,7 +5005,7 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
   uintptr_t block_idx1_end = ((tidx + 1) * g_ld_idx1_block_size) / g_ld_thread_ct;
   uintptr_t marker_idx2_maxw = g_ld_marker_ctm8;
   uintptr_t founder_ct = g_ld_founder_ct;
-  uint32_t founder_ctv3 = 2 * ((founder_ct + (2 * BITCT - 1)) / (2 * BITCT));
+  uint32_t founder_ctv3 = BITCT_TO_ALIGNED_WORDCT(founder_ct);
   uint32_t founder_ctsplit = 3 * founder_ctv3;
   uintptr_t* geno1 = g_ld_geno1;
   uintptr_t* zmiss1 = g_epi_zmiss1;
@@ -5166,8 +5166,8 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   uintptr_t marker_ct = g_ld_marker_ct;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t founder_ct = g_ld_founder_ct;
-  uintptr_t founder_ctl = (founder_ct + (BITCT - 1)) / BITCT;
-  uintptr_t founder_ctv3 = 2 * ((founder_ct + (2 * BITCT - 1)) / (2 * BITCT));
+  uintptr_t founder_ctl = BITCT_TO_WORDCT(founder_ct);
+  uintptr_t founder_ctv3 = BITCT_TO_ALIGNED_WORDCT(founder_ct);
   uintptr_t founder_ctsplit = 3 * founder_ctv3;
   uintptr_t final_mask = get_final_mask(founder_ct);
   uintptr_t orig_marker_ctm8 = g_ld_marker_ctm8;
@@ -5260,7 +5260,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     idx1_block_size = job_size;
   }
   if (bigstack_alloc_ul(founder_ctsplit * idx1_block_size, &g_ld_geno1) ||
-      bigstack_alloc_ul((idx1_block_size + BITCT - 1) / BITCT, &g_epi_zmiss1) ||
+      bigstack_alloc_ul(BITCT_TO_WORDCT(idx1_block_size), &g_epi_zmiss1) ||
       bigstack_alloc_ui(idx1_block_size * 2, &g_ld_interval1) ||
       // double size since both r/r^2 and dprime are needed
       // (marker_idx2_maxw only needs to be divisible by 4 as a result)
@@ -5288,7 +5288,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
       goto ld_report_dprime_ret_NOMEM;
     }
     if (!(bigstack_alloc_ul(founder_ctsplit * idx2_block_size, &g_ld_geno2) ||
-          bigstack_alloc_ul((idx2_block_size + (BITCT - 1)) / BITCT, &g_epi_zmiss2) ||
+          bigstack_alloc_ul(BITCT_TO_WORDCT(idx2_block_size), &g_epi_zmiss2) ||
           bigstack_alloc_ui(idx2_block_size * 3, &g_epi_tot2))) {
       break;
     }
@@ -5347,7 +5347,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
       goto ld_report_dprime_ret_READ_FAIL;
     }
     chrom_end = 0;
-    fill_ulong_zero(g_epi_zmiss1, (idx1_block_size + (BITCT - 1)) / BITCT);
+    fill_ulong_zero(g_epi_zmiss1, BITCT_TO_WORDCT(idx1_block_size));
     for (block_idx1 = 0; block_idx1 < idx1_block_size; marker_uidx1_tmp++, block_idx1++, marker_idx2++) {
       if (IS_SET(marker_exclude_idx1, marker_uidx1_tmp)) {
         ulii = next_unset_ul_unsafe(marker_exclude_idx1, marker_uidx1_tmp);
@@ -5469,7 +5469,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 	g_ld_xstart2 = uii - marker_idx2;
 	g_ld_xend2 = MINV(xend, marker_idx2 + cur_idx2_block_size) - uii;
       }
-      fill_ulong_zero(g_epi_zmiss2, (cur_idx2_block_size + (BITCT - 1)) / BITCT);
+      fill_ulong_zero(g_epi_zmiss2, BITCT_TO_WORDCT(cur_idx2_block_size));
       for (block_idx2 = 0; block_idx2 < cur_idx2_block_size; marker_uidx2++, block_idx2++) {
 	if (IS_SET(marker_exclude, marker_uidx2)) {
           marker_uidx2 = next_unset_ul_unsafe(marker_exclude, marker_uidx2);
@@ -5574,10 +5574,10 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
   uint32_t snp_list_file = ld_modifier & LD_SNP_LIST_FILE;
   uintptr_t marker_ct = g_ld_marker_ct;
   uintptr_t marker_ct1 = marker_ct;
-  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t founder_ct = g_ld_founder_ct;
-  uintptr_t founder_ctl = (founder_ct + BITCT - 1) / BITCT;
+  uintptr_t founder_ctl = BITCT_TO_WORDCT(founder_ct);
   uintptr_t founder_ct_192_long = g_ld_founder_ct_mld_m1 * (MULTIPLEX_LD / BITCT2) + g_ld_founder_ct_mld_rem * (192 / BITCT2);
   uintptr_t final_mask = get_final_mask(founder_ct);
   uintptr_t pct = 1;
@@ -6073,7 +6073,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 
 int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, double* set_allele_freqs, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_sample_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  uintptr_t unfiltered_sample_ctv2 = 2 * ((unfiltered_sample_ct + (BITCT - 1)) / BITCT);
+  uintptr_t unfiltered_sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(unfiltered_sample_ct);
   uintptr_t founder_ct = popcount_longs(founder_info, unfiltered_sample_ctv2 / 2);
   uintptr_t* founder_include2 = NULL;
   uintptr_t* founder_male_include2 = NULL;
@@ -6172,12 +6172,12 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
 int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* founder_info, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
   // Similar to ld_prune() and flipscan().
   unsigned char* bigstack_mark = g_bigstack_base;
-  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
-  uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
+  uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t founder_ct = popcount_longs(founder_info, unfiltered_sample_ctl);
-  uintptr_t founder_ctl = (founder_ct + BITCT - 1) / BITCT;
+  uintptr_t founder_ctl = BITCT_TO_WORDCT(founder_ct);
   uintptr_t final_mask = get_final_mask(founder_ct);
   uintptr_t marker_idx = 0;
   uintptr_t max_window_size = 1;
@@ -6352,7 +6352,7 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
     max_window_size = chrom_window_max(marker_pos, marker_exclude, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], 0x7fffffff, window_bp * 2, max_window_size);
   }
-  max_window_ctl = (max_window_size + (BITCT - 1)) / BITCT;
+  max_window_ctl = BITCT_TO_WORDCT(max_window_size);
   max_window_ctal = max_window_ctl * BITCT;
   if (bigstack_alloc_ui(max_window_size, &window_uidxs) ||
       bigstack_alloc_ui(max_window_size, &window_cidx_starts) ||
@@ -6945,10 +6945,10 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
   // when present, while Haploview completely ignores them.  We replicate
   // Haploview's behavior.
   unsigned char* bigstack_mark = g_bigstack_base;
-  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
-  uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
+  uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
   FILE* outfile = NULL;
   FILE* outfile_det = NULL;
   // circular.  [2n] = numStrong, [2n+1] = numRec
@@ -7097,8 +7097,8 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
   pct_thresh = marker_ct / 100;
   fill_ulong_zero(in_haploblock, unfiltered_marker_ctl);
   loadbuf_raw[unfiltered_sample_ctl2 - 1] = 0;
-  founder_ctl2 = (founder_ct + (BITCT2 - 1)) / BITCT2;
-  founder_ctv2 = 2 * ((founder_ct + (BITCT - 1)) / BITCT);
+  founder_ctl2 = QUATERCT_TO_WORDCT(founder_ct);
+  founder_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(founder_ct);
   if (bigstack_alloc_ul(5 * founder_ctv2, &index_data)) {
     goto haploview_blocks_ret_NOMEM;
   }
@@ -7748,7 +7748,7 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
   uintptr_t* sample_include2 = NULL;
   uintptr_t* sample_male_include2 = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t ulii = strlen(mkr1) + 1;
   uintptr_t uljj = strlen(mkr2) + 1;
   uint32_t hwe_midp = epi_ip->modifier & EPI_HWE_MIDP;
@@ -7794,7 +7794,7 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
   uint32_t alen11;
   uint32_t count_total;
   if (!outname) {
-    ulkk = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
+    ulkk = BITCT_TO_WORDCT(unfiltered_sample_ct);
     // ulkk = (unfiltered_sample_ctl2 + 1) / 2;
     sample_ct = popcount_longs(sample_exclude, ulkk);
     if (!sample_ct) {
@@ -7807,7 +7807,7 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
     bitarr_invert_copy(sample_exclude, unfiltered_sample_ct, loadbuf_raw);
     sample_exclude = loadbuf_raw;
   }
-  sample_ctl2 = (sample_ct + (BITCT2 - 1)) / BITCT2;
+  sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
   final_mask = get_final_mask(sample_ct);
   if ((ulii > max_marker_id_len) || (uljj > max_marker_id_len)) {
     goto twolocus_ret_MARKER_NOT_FOUND;
@@ -8235,7 +8235,7 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
   // first two.  So we're able to use variations of the QT --assoc bit hacks.
   FILE* outfile = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t pheno_nm_ctl2 = (pheno_nm_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t pheno_nm_ctl2 = QUATERCT_TO_WORDCT(pheno_nm_ct);
   uintptr_t final_mask = get_final_mask(pheno_nm_ct);
   uintptr_t marker_uidx = marker_uidx_base;
   uintptr_t pct = 1;
@@ -8712,7 +8712,7 @@ int32_t epistasis_logistic_regression(pthread_t* threads, Epi_info* epi_ip, FILE
   FILE* outfile = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t pheno_nm_cta4 = round_up_pow2(pheno_nm_ct, 4);
-  uintptr_t pheno_nm_ctl2 = (pheno_nm_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t pheno_nm_ctl2 = QUATERCT_TO_WORDCT(pheno_nm_ct);
   uintptr_t final_mask = get_final_mask(pheno_nm_ct);
   uintptr_t marker_uidx = marker_uidx_base;
   uintptr_t pct = 1;
@@ -9187,9 +9187,9 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctv2 = 2 * ((unfiltered_sample_ct + (BITCT - 1)) / BITCT);
+  uintptr_t unfiltered_sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(unfiltered_sample_ct);
   uintptr_t final_mask = get_final_mask(pheno_nm_ct);
-  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t marker_uidx_base = next_unset_unsafe(marker_exclude, 0);
   uintptr_t marker_uidx = marker_uidx_base;
   uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
@@ -9208,11 +9208,11 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   uint32_t is_case_only_window = (is_case_only && case_only_gap);
   uint32_t case_ct = pheno_nm_ct - ctrl_ct;
   uint32_t cellminx3 = 0;
-  uintptr_t case_ctl2 = (case_ct + (BITCT2 - 1)) / BITCT2;
-  uintptr_t case_ctv2 = 2 * ((case_ct + (BITCT - 1)) / BITCT);
-  uintptr_t ctrl_ctl2 = (ctrl_ct + (BITCT2 - 1)) / BITCT2;
-  uintptr_t case_ctv3 = 2 * ((case_ct + (2 * BITCT - 1)) / (2 * BITCT));
-  uintptr_t ctrl_ctv3 = 2 * ((ctrl_ct + (2 * BITCT - 1)) / (2 * BITCT));
+  uintptr_t case_ctl2 = QUATERCT_TO_WORDCT(case_ct);
+  uintptr_t case_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(case_ct);
+  uintptr_t ctrl_ctl2 = QUATERCT_TO_WORDCT(ctrl_ct);
+  uintptr_t case_ctv3 = BITCT_TO_ALIGNED_WORDCT(case_ct);
+  uintptr_t ctrl_ctv3 = BITCT_TO_ALIGNED_WORDCT(ctrl_ct);
   uintptr_t case_ctsplit = 3 * case_ctv3;
   uintptr_t ctrl_ctsplit = 3 * ctrl_ctv3;
   uintptr_t pct = 1;
@@ -9328,7 +9328,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     ctrlbuf = &(casebuf[case_ctv2]);
     ctrlbuf[ctrl_ctl2 - 1] = 0;
   } else {
-    case_ctv2 = 2 * (pheno_nm_ct + (BITCT - 1)) / BITCT;
+    case_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(pheno_nm_ct);
     if (bigstack_alloc_ul(case_ctv2, &casebuf)) {
       goto epistasis_report_ret_NOMEM;
     }
@@ -9636,7 +9636,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     // close" variants are
     bigstack_alloc_ui(idx1_block_size * 2, &g_epi_geno1_offsets);
     bigstack_alloc_ul(tot_ctsplit * idx1_block_size, &g_epi_geno1);
-    bigstack_alloc_ul((idx1_block_size + (BITCT2 - 1)) / BITCT2, &g_epi_zmiss1);
+    bigstack_alloc_ul(QUATERCT_TO_WORDCT(idx1_block_size), &g_epi_zmiss1);
     bigstack_alloc_d(idx1_block_size * marker_ct2, &g_epi_all_chisq);
     bigstack_alloc_d(ulii, &g_epi_best_chisq1);
     bigstack_alloc_ui(ulii, &g_epi_best_id1);
@@ -9668,7 +9668,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	goto epistasis_report_ret_NOMEM;
       }
       if (!(bigstack_alloc_ul(tot_ctsplit * idx2_block_size, &g_epi_geno2) ||
-            bigstack_alloc_ul((idx2_block_size + (BITCT2 - 1)) / BITCT2, &g_epi_zmiss2) ||
+            bigstack_alloc_ul(QUATERCT_TO_WORDCT(idx2_block_size), &g_epi_zmiss2) ||
 	    bigstack_alloc_ui(idx2_block_size * tot_stride, &g_epi_tot2) ||
 	    bigstack_alloc_d(max_thread_ct * idx2_block_size, &g_epi_best_chisq2) ||
 	    bigstack_alloc_ui(max_thread_ct * idx2_block_size, &g_epi_best_id2) ||
@@ -9770,7 +9770,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
         g_epi_idx1_block_bounds16[tidx] = g_epi_idx1_block_bounds16[tidx - 1] + round_up_pow2_ui(uii, 16);
       }
       g_epi_idx1_block_bounds[max_thread_ct] = idx1_block_size;
-      fill_ulong_zero(g_epi_zmiss1, (idx1_block_size + (BITCT2 - 1)) / BITCT2);
+      fill_ulong_zero(g_epi_zmiss1, QUATERCT_TO_WORDCT(idx1_block_size));
       chrom_end = 0;
       for (block_idx1 = 0; block_idx1 < idx1_block_size; marker_uidx_tmp++, block_idx1++) {
         if (IS_SET(marker_exclude1, marker_uidx_tmp)) {
@@ -9883,7 +9883,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	if (cur_idx2_block_size > marker_ct2 - marker_idx2) {
 	  cur_idx2_block_size = marker_ct2 - marker_idx2;
 	}
-	fill_ulong_zero(g_epi_zmiss2, (cur_idx2_block_size + (BITCT2 - 1)) / BITCT2);
+	fill_ulong_zero(g_epi_zmiss2, QUATERCT_TO_WORDCT(cur_idx2_block_size));
         for (block_idx2 = 0; block_idx2 < cur_idx2_block_size; marker_uidx2++, block_idx2++) {
           if (IS_SET(marker_exclude2, marker_uidx2)) {
 	    marker_uidx2 = next_unset_ul_unsafe(marker_exclude2, marker_uidx2);
@@ -10254,12 +10254,12 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
   // Like ld_prune(), except that it computes the full 3x3 contingency table,
   // and is always in pairwise mode.
   unsigned char* bigstack_mark = g_bigstack_base;
-  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctl2 = 2 * ((unfiltered_sample_ct + (BITCT - 1)) / BITCT);
-  uintptr_t founder_ct = popcount_longs(founder_info, unfiltered_sample_ctl2 / 2);
-  uintptr_t founder_ctl = (founder_ct + BITCT - 1) / BITCT;
-  uintptr_t founder_ctv3 = 2 * ((founder_ct + (2 * BITCT - 1)) / (2 * BITCT));
+  uintptr_t unfiltered_sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(unfiltered_sample_ct);
+  uintptr_t founder_ct = popcount_longs(founder_info, unfiltered_sample_ctv2 / 2);
+  uintptr_t founder_ctl = BITCT_TO_WORDCT(founder_ct);
+  uintptr_t founder_ctv3 = BITCT_TO_ALIGNED_WORDCT(founder_ct);
   // no actual case/control split here, but keep the variables the same to
   // minimize divergence from ld_report_dprime()
   uintptr_t founder_ctsplit = 3 * founder_ctv3;
@@ -10362,10 +10362,10 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
   if (!window_is_kb) {
     window_max = ld_window_size;
   }
-  window_maxl = (window_max + (BITCT - 1)) / BITCT;
+  window_maxl = BITCT_TO_WORDCT(window_max);
   if (bigstack_alloc_ui(window_max, &live_indices) ||
       bigstack_alloc_ui(window_max, &start_arr) ||
-      bigstack_alloc_ul(unfiltered_sample_ctl2, &loadbuf_raw) ||
+      bigstack_alloc_ul(unfiltered_sample_ctv2, &loadbuf_raw) ||
       bigstack_alloc_ul(founder_ctl * 2, &loadbuf) ||
       bigstack_alloc_ul(founder_ctl, &dummy_nm) ||
       bigstack_alloc_ul(founder_ctsplit * window_max, &geno) ||
@@ -11178,9 +11178,9 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + BITCT2 - 1) / BITCT2;
-  uintptr_t sample_ctl2 = (sample_ct + BITCT2 - 1) / BITCT2;
-  uintptr_t sample_ctv2 = 2 * ((sample_ct + BITCT - 1) / BITCT);
+  uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
+  uintptr_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
+  uintptr_t sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
   uintptr_t final_mask = get_final_mask(sample_ct);
   char* tbuf2 = &(g_textbuf[MAXLINELEN]);
   char* wptr2 = NULL;
@@ -11661,10 +11661,10 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t marker_ctv = ((marker_ct + 127) / 128) * (128 / BITCT);
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t max_set_id_len = sip->max_name_len;
   uintptr_t founder_ct = popcount_longs(founder_pnm, unfiltered_sample_ctl);
-  uintptr_t founder_ctl = (founder_ct + BITCT - 1) / BITCT;
+  uintptr_t founder_ctl = BITCT_TO_WORDCT(founder_ct);
   uintptr_t founder_ctv2 = founder_ctl * 2;
   uintptr_t founder_ct_mld = (founder_ct + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
   uint32_t founder_ct_mld_m1 = ((uint32_t)founder_ct_mld) - 1;
@@ -12134,7 +12134,7 @@ int32_t set_test_common_init(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uintptr_t marker_ct_mid = *marker_ct_ptr;
   uintptr_t marker_ct = marker_ct_mid;
   uintptr_t raw_set_ct = sip->ct;
-  uintptr_t raw_set_ctl = (raw_set_ct + (BITCT - 1)) / BITCT;
+  uintptr_t raw_set_ctl = BITCT_TO_WORDCT(raw_set_ct);
   uintptr_t set_ct = 0;
   uintptr_t* marker_exclude_mid = *marker_exclude_ptr;
   double chisq_threshold = inverse_chiprob(sip->set_p, 1);
@@ -12286,10 +12286,10 @@ int32_t set_test_common_init(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   }
   // just treat --mperm as --perm with min_perms == max_perms, since this isn't
   // a proper max(T) test
-  if (bigstack_alloc_ul((set_ct + (BITCT - 1)) / BITCT, perm_adapt_set_unstopped_ptr) ||
+  if (bigstack_alloc_ul(BITCT_TO_WORDCT(set_ct), perm_adapt_set_unstopped_ptr) ||
       bigstack_calloc_ui(set_ct, perm_2success_ct_ptr) ||
       bigstack_alloc_ui(set_ct, perm_attempt_ct_ptr) ||
-      bigstack_alloc_ul((marker_ct + (BITCT - 1)) / BITCT, unstopped_markers_ptr)) {
+      bigstack_alloc_ul(BITCT_TO_WORDCT(marker_ct), unstopped_markers_ptr)) {
     goto set_test_common_init_ret_NOMEM;
   }
   fill_all_bits(*perm_adapt_set_unstopped_ptr, set_ct);
@@ -12500,13 +12500,13 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   FILE* outfile = NULL;
   FILE* outfile_ranges = NULL;
   FILE* outfile_best = NULL;
-  uintptr_t marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t marker_ctl = BITCT_TO_WORDCT(marker_ct);
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
-  uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
+  uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t founder_ct = popcount_longs(founder_info, unfiltered_sample_ctl);
-  uintptr_t founder_ctl2 = (founder_ct + (BITCT2 - 1)) / BITCT2;
-  uintptr_t founder_ctv2 = 2 * ((founder_ct + (BITCT - 1)) / BITCT);
+  uintptr_t founder_ctl2 = QUATERCT_TO_WORDCT(founder_ct);
+  uintptr_t founder_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(founder_ct);
   uintptr_t final_mask = get_final_mask(founder_ct);
   uintptr_t range_group_ct = 0;
   uintptr_t max_range_group_id_len = 0;
@@ -13074,7 +13074,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     goto clump_reports_ret_NOMEM; 
  }
   if (clump_verbose && rg_setdefs) {
-    if (bigstack_alloc_ul((range_chrom_max + (BITCT - 1)) / BITCT, &rangematch_bitfield)) {
+    if (bigstack_alloc_ul(BITCT_TO_WORDCT(range_chrom_max), &rangematch_bitfield)) {
       goto clump_reports_ret_NOMEM;
     }
   }
@@ -13656,7 +13656,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	fputs("\n\n", outfile);
 	last_marker_idx = ~ZEROLU;
 	if (rg_setdefs) {
-	  fill_ulong_zero(rangematch_bitfield, (cur_rg_ct + (BITCT - 1)) / BITCT);
+	  fill_ulong_zero(rangematch_bitfield, BITCT_TO_WORDCT(cur_rg_ct));
 	  unmatched_group_ct = cur_rg_ct;
 	}
 	for (ulii = 0; ulii < cur_window_size; ulii++) {

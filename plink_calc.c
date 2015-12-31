@@ -1454,7 +1454,7 @@ void incr_genome(uint32_t* genome_main, uintptr_t* geno, uintptr_t* masks, uintp
 	  do {
 	    offset = next_ppc_marker_hybrid / BITCT;
 	    marker_window_ptr = &(g_marker_window[offset * BITCT]);
-	    next_ppc_marker_hybrid = ~ZEROLU << (next_ppc_marker_hybrid & (BITCT - 1));
+	    next_ppc_marker_hybrid = (~ZEROLU) << (next_ppc_marker_hybrid & (BITCT - 1));
 	  incr_genome_1mask_loop:
 	    uland = glptr_back[offset] & (((uintptr_t*)glptr_fixed)[offset]);
 	    ulval = ((uland & (uland << 1)) & AAAAMASK) | (((uintptr_t*)xor_buf)[offset]);
@@ -2486,7 +2486,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
     goto unrelated_herit_batch_ret_INVALID_FORMAT;
   }
   rewind(infile);
-  unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
+  unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   if (bigstack_calloc_ul(unfiltered_sample_ctl, &pheno_nm) ||
       bigstack_end_alloc_c(unfiltered_sample_ct * max_sample_id_len, &sorted_ids) ||
       bigstack_end_alloc_ui(unfiltered_sample_ct, &id_map)) {
@@ -2675,11 +2675,11 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
 
 int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t perm_ct, uintptr_t pheno_nm_ct, uintptr_t pheno_ctrl_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
-  uintptr_t pheno_nm_ctl = (pheno_nm_ct + (BITCT - 1)) / BITCT;
-  uintptr_t perm_ctcl = (perm_ct + (CACHELINE * 8)) / (CACHELINE * 8);
+  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
+  uintptr_t pheno_nm_ctl = BITCT_TO_WORDCT(pheno_nm_ct);
+  uintptr_t perm_ctcl = 1 + (perm_ct / CACHELINE_BIT);
   uintptr_t perm_ctclm = perm_ctcl * (CACHELINE / sizeof(intptr_t));
-  uintptr_t perm_ctcld = (perm_ct + CACHELINE_DBL) / CACHELINE_DBL;
+  uintptr_t perm_ctcld = 1 + (perm_ct / CACHELINE_DBL);
   uintptr_t perm_ctcldm = perm_ctcld * CACHELINE_DBL;
   uintptr_t case_ct = pheno_nm_ct - pheno_ctrl_ct;
   uint32_t tidx = 1;
@@ -2889,7 +2889,7 @@ int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfi
 
 int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t groupdist_iters, uint32_t groupdist_d, uint32_t pheno_nm_ct, uint32_t pheno_ctrl_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   double* dist_ptr = g_dists;
   double dhh_ssq = 0.0;
   double dhl_ssq = 0.0;
@@ -3186,8 +3186,8 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
   uintptr_t* sample_include2 = NULL;
   uintptr_t* sample_male_include2 = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctl2 = 2 * ((unfiltered_sample_ct + BITCT - 1) / BITCT);
-  uintptr_t sample_ctl2 = 2 * ((sample_ct + BITCT - 1) / BITCT);
+  uintptr_t unfiltered_sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(unfiltered_sample_ct);
+  uintptr_t sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
   uintptr_t marker_uidx = 0;
   uint32_t pc_ct = 0;
   uint32_t pct = 1;
@@ -3231,8 +3231,8 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
   MATRIX_INVERT_BUF1_TYPE* inv_1d_buf;
   double* dbl_2d_buf;
   double dxx;
-  if (bigstack_alloc_ul(unfiltered_sample_ctl2, &loadbuf_raw) ||
-      bigstack_alloc_ul(sample_ctl2, &loadbuf) ||
+  if (bigstack_alloc_ul(unfiltered_sample_ctv2, &loadbuf_raw) ||
+      bigstack_alloc_ul(sample_ctv2, &loadbuf) ||
       bigstack_alloc_ui(sample_ct, &missing_cts) ||
       bigstack_alloc_c(max_sample_id_len, &id_buf)) {
     goto calc_regress_pcs_ret_NOMEM;
@@ -5906,7 +5906,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   }
   fclose_null(&idfile);
   ullii = sample_ct;
-  ullii = ((ullii * (ullii - 1)) / 2 + BITCT - 1) / BITCT;
+  ullii = BITCT_TO_WORDCT((ullii * (ullii - 1)) / 2);
 #ifndef __LP64__
   if (ullii >= 0x20000000) {
     goto rel_cutoff_batch_ret_NOMEM;
@@ -6654,7 +6654,7 @@ int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* infile = NULL;
-  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t line_idx = 0;
 
   // special case: weight-0 assignment effectively doesn't exist, but we still
@@ -7407,11 +7407,11 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   // exist.  EIGENSOFT is not *that* hard to use.)
   FILE* outfile = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
-  uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
-  uintptr_t pca_sample_ctl2 = (pca_sample_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
+  uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
+  uintptr_t pca_sample_ctl2 = QUATERCT_TO_WORDCT(pca_sample_ct);
   uintptr_t proj_sample_ct = sample_ct - pca_sample_ct;
-  uintptr_t proj_sample_ctl2 = (proj_sample_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t proj_sample_ctl2 = QUATERCT_TO_WORDCT(proj_sample_ct);
   uintptr_t final_mask = get_final_mask(pca_sample_ct);
   double nz = 0.0;
   double zz = -1.0;
@@ -8687,8 +8687,8 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   double min_ibm = cp->min_ibm;
   double min_zx = 0.0;
   uint32_t ibm_constraint = (min_ibm != 0.0);
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
-  uintptr_t sample_ctl = (sample_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
+  uintptr_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
   double sample_ct_recip = 1.0 / ((double)((intptr_t)sample_ct));
   uint32_t do_neighbor = (calculation_type / CALC_NEIGHBOR) & 1;
   uint32_t is_group_avg = (cp->modifier / CLUSTER_GROUP_AVG) & 1;
@@ -8802,7 +8802,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     }
     fill_double_zero(neighbor_quantiles, ulii);
   }
-  fill_ulong_zero(cluster_merge_prevented, (initial_triangle_size + (BITCT - 1)) / BITCT);
+  fill_ulong_zero(cluster_merge_prevented, BITCT_TO_WORDCT(initial_triangle_size));
   if ((min_ppc != 0.0) || genome_main || read_genome_fname) {
     if (do_neighbor && (min_ppc != 0.0)) {
       ppc_fail_counts = (uint32_t*)malloc(sample_ct * sizeof(int32_t));
@@ -9434,7 +9434,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       if (tcoord >= (umm * (umm + 1)) / 2) {
 	umm++;
       }
-      heap_size -= popcount_longs_nzbase(cluster_merge_prevented, tcoord / BITCT, (initial_triangle_size + (BITCT - 1)) / BITCT);
+      heap_size -= popcount_longs_nzbase(cluster_merge_prevented, tcoord / BITCT, BITCT_TO_WORDCT(initial_triangle_size));
     }
     if (!heap_size) {
       logerrprint("Error: No cluster merges possible.\n");

@@ -4097,7 +4097,7 @@ void quaterarr_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfi
 }
 
 uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* sample_bitarr, uintptr_t* sex_male, uintptr_t** sample_include_quatervec_ptr, uintptr_t** sample_male_include_quatervec_ptr) {
-  uintptr_t sample_ctv2 = 2 * ((sample_ct + (BITCT - 1)) / BITCT);
+  uintptr_t sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
   if (hh_exists & (Y_FIX_NEEDED | NXMHH_EXISTS)) {
     // if already allocated, we assume this is fully initialized
     if (!(*sample_include_quatervec_ptr)) {
@@ -5646,7 +5646,7 @@ uint32_t has_three_genotypes(uintptr_t* lptr, uint32_t sample_ct) {
   }
   cur_lptr = lptr;
   // zero-padding is benign for het and hom A2 checks
-  lptr_end = &(lptr[(sample_ct + (BITCT2 - 1)) / BITCT2]);
+  lptr_end = &(lptr[QUATERCT_TO_WORDCT(sample_ct)]);
   while (1) {
     ulii = *cur_lptr;
     uljj = (ulii >> 1) & FIVEMASK;
@@ -7752,7 +7752,7 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint3
 int32_t string_range_list_to_bitfield_alloc(char* header_line, uint32_t item_ct, uint32_t fixed_len, Range_list* range_list_ptr, uintptr_t** bitfield_ptr, const char* range_list_flag, const char* file_descrip) {
   // wrapper for string_range_list_to_bitfield which allocates the bitfield and
   // temporary buffers on the heap
-  uintptr_t item_ctl = (item_ct + (BITCT - 1)) / BITCT;
+  uintptr_t item_ctl = BITCT_TO_WORDCT(item_ct);
   uintptr_t name_ct = range_list_ptr->name_ct;
   int32_t retval = 0;
   int32_t* seen_idxs;
@@ -7763,7 +7763,7 @@ int32_t string_range_list_to_bitfield_alloc(char* header_line, uint32_t item_ct,
     return RET_NOMEM;
   }
   // kludge to use sort_item_ids()
-  fill_ulong_zero((uintptr_t*)seen_idxs, (name_ct + (BITCT - 1)) / BITCT);
+  fill_ulong_zero((uintptr_t*)seen_idxs, BITCT_TO_WORDCT(name_ct));
   if (sort_item_ids(&sorted_ids, &id_map, name_ct, (uintptr_t*)seen_idxs, 0, range_list_ptr->names, range_list_ptr->name_max_len, 0, 0, strcmp_deref)) {
     return RET_NOMEM;
   }
@@ -7842,7 +7842,7 @@ uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* mark
 }
 
 int32_t conditional_allocate_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uint32_t marker_ct, uint32_t count_x, uint32_t count_mt, const char* calc_descrip, uintptr_t** marker_exclude_ptr, uint32_t* newly_excluded_ct_ptr) {
-  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   int32_t x_code = chrom_info_ptr->x_code;
   int32_t y_code = chrom_info_ptr->y_code;
   int32_t mt_code = chrom_info_ptr->mt_code;
@@ -8164,16 +8164,16 @@ uint32_t load_and_split(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sa
   }
 }
 
-void quaterarr_include_init(uintptr_t unfiltered_sample_ct, uintptr_t* new_include_quaterarr, uintptr_t* old_include) {
+void quaterarr_include_init(uintptr_t unfiltered_sample_ct, uintptr_t* new_include_quaterarr, uintptr_t* old_include_bitarr) {
   // allows unfiltered_sample_ct == 0
-  uint32_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
+  uint32_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t ulii;
   uintptr_t uljj;
   uintptr_t ulkk;
   uintptr_t ulmm;
   uint32_t bit_idx;
   while (unfiltered_sample_ctl) {
-    ulii = ~(*old_include++);
+    ulii = ~(*old_include_bitarr++);
     ulkk = FIVEMASK;
     ulmm = FIVEMASK;
     if (ulii) {
@@ -8214,16 +8214,16 @@ void quaterarr_include_init(uintptr_t unfiltered_sample_ct, uintptr_t* new_inclu
   }
 }
 
-void exclude_to_vec_include(uintptr_t unfiltered_sample_ct, uintptr_t* include_vec, uintptr_t* exclude_arr) {
+void exclude_to_vec_include(uintptr_t unfiltered_sample_ct, uintptr_t* include_vec, uintptr_t* exclude_bitarr) {
   // allows unfiltered_sample_ct == 0
-  uint32_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
+  uint32_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t ulii;
   uintptr_t uljj;
   uintptr_t ulkk;
   uintptr_t ulmm;
   uint32_t bit_idx;
   while (unfiltered_sample_ctl) {
-    ulii = *exclude_arr++;
+    ulii = *exclude_bitarr++;
     ulkk = FIVEMASK;
     ulmm = FIVEMASK;
     if (ulii) {
@@ -8264,16 +8264,16 @@ void exclude_to_vec_include(uintptr_t unfiltered_sample_ct, uintptr_t* include_v
   }
 }
 
-void vec_init_invert(uintptr_t entry_ct, uintptr_t* target_arr, uintptr_t* source_arr) {
-  // Initializes a half-bitfield as the inverse of another.  Assumes target_arr
-  // and source_arr are doubleword-aligned.
-  uint32_t vec_wsize = 2 * ((entry_ct + (BITCT - 1)) / BITCT);
+void vec_init_invert(uintptr_t entry_ct, uintptr_t* target_quatervec, uintptr_t* source_quatervec) {
+  // Initializes a quatervec as the inverse of another.
+  // Some modifications needed for AVX2.
+  uint32_t vec_wsize = QUATERCT_TO_ALIGNED_WORDCT(entry_ct);
   uint32_t rem = entry_ct & (BITCT - 1);
 #ifdef __LP64__
   const __m128i m1 = {FIVEMASK, FIVEMASK};
-  __m128i* tptr = (__m128i*)target_arr;
-  __m128i* sptr = (__m128i*)source_arr;
-  __m128i* tptr_end = (__m128i*)(&(target_arr[vec_wsize]));
+  __m128i* tptr = (__m128i*)target_quatervec;
+  __m128i* sptr = (__m128i*)source_quatervec;
+  __m128i* tptr_end = (__m128i*)(&(target_quatervec[vec_wsize]));
   uintptr_t* second_to_last;
   while (tptr < tptr_end) {
     *tptr++ = _mm_andnot_si128(*sptr++, m1);
@@ -8288,54 +8288,54 @@ void vec_init_invert(uintptr_t entry_ct, uintptr_t* target_arr, uintptr_t* sourc
     }
   }
 #else
-  uintptr_t* tptr_end = &(target_arr[vec_wsize]);
-  while (target_arr < tptr_end) {
-    *target_arr++ = FIVEMASK & (~(*source_arr++));
+  uintptr_t* tptr_end = &(target_quatervec[vec_wsize]);
+  while (target_quatervec < tptr_end) {
+    *target_quatervec++ = FIVEMASK & (~(*source_quatervec++));
   }
   if (rem) {
     if (rem > BITCT2) {
-      target_arr[-1] &= (~ZEROLU) >> ((BITCT - rem) * 2);
+      target_quatervec[-1] &= (~ZEROLU) >> ((BITCT - rem) * 2);
     } else {
-      target_arr[-2] &= (~ZEROLU) >> ((BITCT2 - rem) * 2);
-      target_arr[-1] = 0;
+      target_quatervec[-2] &= (~ZEROLU) >> ((BITCT2 - rem) * 2);
+      target_quatervec[-1] = 0;
     }
   }
 
 #endif
 }
 
-void bitfield_andnot_copy(uintptr_t word_ct, uintptr_t* target_arr, uintptr_t* source_arr, uintptr_t* exclude_arr) {
-  // assumes word_ct is positive
-  // target_arr := source_arr ANDNOT exclude_arr
+void bitfield_andnot_copy(uintptr_t word_ct, uintptr_t* target_vec, uintptr_t* source_vec, uintptr_t* exclude_vec) {
+  // target_vec := source_vec ANDNOT exclude_vec
   // may write an extra word
+  assert(word_ct);
 #ifdef __LP64__
-  __m128i* tptr = (__m128i*)target_arr;
-  __m128i* sptr = (__m128i*)source_arr;
-  __m128i* xptr = (__m128i*)exclude_arr;
-  __m128i* tptr_end = (__m128i*)(&(target_arr[word_ct]));
+  __m128i* tptr = (__m128i*)target_vec;
+  __m128i* sptr = (__m128i*)source_vec;
+  __m128i* xptr = (__m128i*)exclude_vec;
+  __m128i* tptr_end = (__m128i*)(&(target_vec[round_up_pow2(word_ct, VEC_WORDS)]));
   do {
     *tptr++ = _mm_andnot_si128(*xptr++, *sptr++);
   } while (tptr < tptr_end);
 #else
-  uintptr_t* tptr_end = &(target_arr[word_ct]);
+  uintptr_t* tptr_end = &(target_vec[word_ct]);
   do {
-    *target_arr++ = (*source_arr++) & (~(*exclude_arr++));
-  } while (target_arr < tptr_end);
+    *target_vec++ = (*source_vec++) & (~(*exclude_vec++));
+  } while (target_vec < tptr_end);
 #endif
 }
 
-void vec_include_mask_in(uintptr_t unfiltered_sample_ct, uintptr_t* include_arr, uintptr_t* mask_arr) {
+void vec_include_mask_in(uintptr_t unfiltered_sample_ct, uintptr_t* include_quaterarr, uintptr_t* mask_bitarr) {
   // allows unfiltered_sample_ct == 0
-  uint32_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
+  uint32_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t ulii;
   uintptr_t uljj;
   uintptr_t ulkk;
   uintptr_t ulmm;
   uint32_t bit_idx;
   while (unfiltered_sample_ctl) {
-    ulii = ~(*mask_arr++);
-    ulkk = *include_arr;
-    ulmm = include_arr[1];
+    ulii = ~(*mask_bitarr++);
+    ulkk = *include_quaterarr;
+    ulmm = include_quaterarr[1];
     if (ulii) {
       uljj = ulii >> BITCT2;
 #ifdef __LP64__
@@ -8358,24 +8358,24 @@ void vec_include_mask_in(uintptr_t unfiltered_sample_ct, uintptr_t* include_arr,
 	} while (uljj);
       }
     }
-    *include_arr++ = ulkk;
-    *include_arr++ = ulmm;
+    *include_quaterarr++ = ulkk;
+    *include_quaterarr++ = ulmm;
     --unfiltered_sample_ctl;
   }
 }
 
-void vec_include_mask_out(uintptr_t unfiltered_sample_ct, uintptr_t* include_arr, uintptr_t* mask_arr) {
-  // assumes unfiltered_sample_ct is positive
-  uint32_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
+void vec_include_mask_out(uintptr_t unfiltered_sample_ct, uintptr_t* include_quaterarr, uintptr_t* mask_bitarr) {
+  assert(unfiltered_sample_ct);
+  uint32_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t ulii;
   uintptr_t uljj;
   uintptr_t ulkk;
   uintptr_t ulmm;
   uint32_t bit_idx;
   do {
-    ulii = *mask_arr++;
-    ulkk = *include_arr;
-    ulmm = include_arr[1];
+    ulii = *mask_bitarr++;
+    ulkk = *include_quaterarr;
+    ulmm = include_quaterarr[1];
     if (ulii) {
       uljj = ulii >> BITCT2;
 #ifdef __LP64__
@@ -8398,23 +8398,23 @@ void vec_include_mask_out(uintptr_t unfiltered_sample_ct, uintptr_t* include_arr
 	} while (uljj);
       }
     }
-    *include_arr++ = ulkk;
-    *include_arr++ = ulmm;
+    *include_quaterarr++ = ulkk;
+    *include_quaterarr++ = ulmm;
   } while (--unfiltered_sample_ctl);
 }
 
-void vec_include_mask_out_intersect(uintptr_t unfiltered_sample_ct, uintptr_t* include_arr, uintptr_t* mask_arr, uintptr_t* mask2_arr) {
-  // assumes unfiltered_sample_ct is positive
-  uint32_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
+void vec_include_mask_out_intersect(uintptr_t unfiltered_sample_ct, uintptr_t* include_quaterarr, uintptr_t* mask_bitarr, uintptr_t* mask2_bitarr) {
+  assert(unfiltered_sample_ct);
+  uint32_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t ulii;
   uintptr_t uljj;
   uintptr_t ulkk;
   uintptr_t ulmm;
   uint32_t bit_idx;
   do {
-    ulii = (*mask_arr++) & (*mask2_arr++);
-    ulkk = *include_arr;
-    ulmm = include_arr[1];
+    ulii = (*mask_bitarr++) & (*mask2_bitarr++);
+    ulkk = *include_quaterarr;
+    ulmm = include_quaterarr[1];
     if (ulii) {
       uljj = ulii >> BITCT2;
 #ifdef __LP64__
@@ -8437,18 +8437,18 @@ void vec_include_mask_out_intersect(uintptr_t unfiltered_sample_ct, uintptr_t* i
 	} while (uljj);
       }
     }
-    *include_arr++ = ulkk;
-    *include_arr++ = ulmm;
+    *include_quaterarr++ = ulkk;
+    *include_quaterarr++ = ulmm;
   } while (--unfiltered_sample_ctl);
 }
 
 void vec_init_01(uintptr_t unfiltered_sample_ct, uintptr_t* data_ptr, uintptr_t* result_ptr) {
-  // assumes unfiltered_sample_ct is positive
   // initializes result_ptr bits 01 iff data_ptr bits are 01
+  assert(unfiltered_sample_ct);
 #ifdef __LP64__
   const __m128i m1 = {FIVEMASK, FIVEMASK};
   __m128i* vec2_read = (__m128i*)data_ptr;
-  __m128i* read_end = &(vec2_read[(unfiltered_sample_ct + (BITCT - 1)) / BITCT]);
+  __m128i* read_end = &(vec2_read[QUATERCT_TO_VECCT(unfiltered_sample_ct)]);
   __m128i* vec2_write = (__m128i*)result_ptr;
   __m128i loader;
   do {
@@ -8456,7 +8456,7 @@ void vec_init_01(uintptr_t unfiltered_sample_ct, uintptr_t* data_ptr, uintptr_t*
     *vec2_write++ = _mm_and_si128(_mm_andnot_si128(_mm_srli_epi64(loader, 1), loader), m1);
   } while (vec2_read < read_end);
 #else
-  uintptr_t* read_end = &(data_ptr[2 * ((unfiltered_sample_ct + (BITCT - 1)) / BITCT)]);
+  uintptr_t* read_end = &(data_ptr[QUATERCT_TO_ALIGNED_WORDCT(unfiltered_sample_ct)]);
   uintptr_t loader;
   do {
     loader = *data_ptr++;
@@ -8493,19 +8493,19 @@ void vec_invert(uintptr_t unfiltered_sample_ct, uintptr_t* vec2) {
 }
 
 void vec_datamask(uintptr_t unfiltered_sample_ct, uint32_t matchval, uintptr_t* data_ptr, uintptr_t* mask_ptr, uintptr_t* result_ptr) {
-  // assumes unfiltered_sample_ct is positive
   // vec_ptr assumed to be standard 00/01 bit vector
   // sets result_vec bits to 01 iff data_ptr bits are equal to matchval and
   // vec_ptr bit is set, 00 otherwise.
   // currently assumes matchval is not 1.
+  assert(unfiltered_sample_ct);
 #ifdef __LP64__
   __m128i* data_read = (__m128i*)data_ptr;
   __m128i* mask_read = (__m128i*)mask_ptr;
-  __m128i* data_read_end = &(data_read[(unfiltered_sample_ct + (BITCT - 1)) / BITCT]);
+  __m128i* data_read_end = &(data_read[QUATERCT_TO_VECCT(unfiltered_sample_ct)]);
   __m128i* writer = (__m128i*)result_ptr;
   __m128i loader;
 #else
-  uintptr_t* data_read_end = &(data_ptr[2 * (unfiltered_sample_ct + (BITCT - 1)) / BITCT]);
+  uintptr_t* data_read_end = &(data_ptr[QUATERCT_TO_ALIGNED_WORDCT(unfiltered_sample_ct)]);
   uintptr_t loader;
 #endif
   if (matchval) {
@@ -8593,7 +8593,7 @@ void rotate_plink1_to_plink2_and_copy(uintptr_t* loadbuf, uintptr_t* writebuf, u
 }
 
 void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_sample_ct, uintptr_t* sample_include_quaterarr, uintptr_t sample_ct, uintptr_t* missing_bitfield) {
-  uint32_t word_ct = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
+  uint32_t word_ct = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t sample_idx;
   uintptr_t cur_word;
   uintptr_t cur_mask;
@@ -8624,7 +8624,7 @@ void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_sa
       *missing_bitfield++ = cur_write;
     }
   } else {
-    fill_ulong_zero(missing_bitfield, (sample_ct + (BITCT - 1)) / BITCT);
+    fill_ulong_zero(missing_bitfield, BITCT_TO_WORDCT(sample_ct));
     sample_idx = 0;
     for (widx = 0; sample_idx < sample_ct; widx++, lptr++) {
       cur_mask = *sample_include_quaterarr++;
@@ -8801,7 +8801,7 @@ void hh_reset_y(unsigned char* loadbuf, uintptr_t* sample_include_quaterarr, uin
 }
 
 uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* sample_bitarr, uintptr_t* sex_male, uintptr_t** sample_raw_include_quatervec_ptr, uintptr_t** sample_raw_male_include_quatervec_ptr) {
-  uintptr_t unfiltered_sample_ctv2 = 2 * ((unfiltered_sample_ct + (BITCT - 1)) / BITCT);
+  uintptr_t unfiltered_sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(unfiltered_sample_ct);
   uintptr_t* sample_raw_male_include_quatervec;
   if (hh_exists & (Y_FIX_NEEDED | NXMHH_EXISTS)) {
     if (bigstack_alloc_ul(unfiltered_sample_ctv2, sample_raw_include_quatervec_ptr)) {
@@ -9483,7 +9483,7 @@ void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* i
 }
 
 void uncollapse_copy_flip_include_arr(uintptr_t* collapsed_include_arr, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* output_exclude_arr) {
-  uintptr_t unfiltered_ctl = (unfiltered_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_ctl = BITCT_TO_WORDCT(unfiltered_ct);
   uintptr_t* output_exclude_true_end = &(output_exclude_arr[unfiltered_ctl]);
   uintptr_t* output_exclude_end = &(output_exclude_arr[unfiltered_ct / BITCT]);
   uintptr_t cea_read = 0;
@@ -9539,7 +9539,7 @@ void uncollapse_copy_flip_include_arr(uintptr_t* collapsed_include_arr, uintptr_
 }
 
 void copy_when_nonmissing(uintptr_t* loadbuf, char* source, uintptr_t elem_size, uintptr_t unfiltered_sample_ct, uintptr_t missing_ct, char* dest) {
-  uintptr_t* loadbuf_end = &(loadbuf[(unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2]);
+  uintptr_t* loadbuf_end = &(loadbuf[QUATERCT_TO_WORDCT(unfiltered_sample_ct)]);
   uintptr_t last_missing_p1 = 0;
   uintptr_t sample_idx_offset = 0;
   uintptr_t cur_word;
@@ -9660,7 +9660,7 @@ void init_sfmt64_from_sfmt32(sfmt_t* sfmt32, sfmt_t* sfmt64) {
 }
 
 void generate_perm1_interleaved(uint32_t tot_ct, uint32_t set_ct, uintptr_t perm_idx, uintptr_t perm_ct, uintptr_t* perm_buf) {
-  uintptr_t tot_ctl = (tot_ct + (BITCT - 1)) / BITCT;
+  uintptr_t tot_ctl = BITCT_TO_WORDCT(tot_ct);
   uintptr_t tot_rem = tot_ct & (BITCT - 1);
   uint32_t tot_quotient = (uint32_t)(0x100000000LLU / tot_ct);
   uint32_t upper_bound = tot_ct * tot_quotient - 1;

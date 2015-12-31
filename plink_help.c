@@ -194,7 +194,7 @@ void help_print(const char* cur_params, Help_ctrl* help_ctrl_ptr, uint32_t postp
 int32_t disp_help(uint32_t param_ct, char** argv) {
   // yes, this is overkill.  But it should be a good template for other
   // command-line programs to use.
-  uint32_t param_ctl = (param_ct + (BITCT - 1)) / BITCT;
+  uint32_t param_ctl = BITCT_TO_WORDCT(param_ct);
   int32_t retval = 0;
   Help_ctrl help_ctrl;
   uint32_t arg_uidx;

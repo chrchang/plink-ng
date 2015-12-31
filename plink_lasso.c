@@ -46,7 +46,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
   double lambda_max = 0.0;
   double err_cur = 0.0;
   uint64_t iter_tot = 0;
-  uintptr_t sample_valid_ctl2 = (sample_valid_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t sample_valid_ctl2 = QUATERCT_TO_WORDCT(sample_valid_ct);
   uintptr_t polymorphic_marker_ct = 0;
   uintptr_t unselected_covar_ct = 0;
   uintptr_t final_mask = get_final_mask(sample_valid_ct);
@@ -200,7 +200,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
     return 0;
   }
   col_ct = covar_ct + polymorphic_marker_ct;
-  col_ctl = (col_ct + (BITCT - 1)) / BITCT;
+  col_ctl = BITCT_TO_WORDCT(col_ct);
   bigstack_shrink_top(data_arr, col_ct * sample_valid_ct * sizeof(double));
   sige = sqrt(1.0 - lasso_h2 + 1.0 / ((double)((intptr_t)sample_valid_ct)));
   zz = sige * sqrt_n_recip;
@@ -356,7 +356,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
 }
 
 uint32_t load_and_normalize(FILE* bedfile, uintptr_t* loadbuf_raw, uintptr_t unfiltered_sample_ct, uintptr_t* loadbuf_collapsed, uintptr_t sample_valid_ct, uintptr_t* pheno_nm2, uintptr_t final_mask, uint32_t do_reverse, uint32_t min_ploidy_1, uint32_t hh_or_mt_exists, uintptr_t* sample_include2, uintptr_t* sample_male_include2, uint32_t is_x, uint32_t is_y, double sqrt_n_recip, double* data_window_ptr) {
-  uintptr_t sample_valid_ctl2 = (sample_valid_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t sample_valid_ctl2 = QUATERCT_TO_WORDCT(sample_valid_ct);
   uintptr_t sample_idx = 0;
   uintptr_t sample_idx_stop = BITCT2;
   uintptr_t* ulptr_end_init = &(loadbuf_collapsed[sample_valid_ct / BITCT2]);
@@ -606,7 +606,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
   col_ct = covar_ct + polymorphic_marker_ct;
   bigstack_reset(data_window);
   bigstack_shrink_top(xhat, col_ct * sizeof(double));
-  col_ctl = (col_ct + (BITCT - 1)) / BITCT;
+  col_ctl = BITCT_TO_WORDCT(col_ct);
   *xhat_ptr = xhat;
   if (lambda_min >= lambda_max) {
     logprint("\n");
@@ -775,9 +775,9 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   // a performance benefit will be a bit tricky.)
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = NULL;
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
-  uintptr_t unfiltered_sample_ctv2 = 2 * ((unfiltered_sample_ct + (BITCT - 1)) / BITCT);
-  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
+  uintptr_t unfiltered_sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(unfiltered_sample_ct);
+  uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t polymorphic_marker_ct = 0;
   uint64_t iter_tot = 0;
   double* xhat = NULL;
@@ -826,7 +826,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   if (!covar_ct) {
     sample_valid_ct = pheno_nm_ct;
   } else {
-    sample_valid_ct = popcount_longs(covar_nm, (pheno_nm_ct + (BITCT - 1)) / BITCT);
+    sample_valid_ct = popcount_longs(covar_nm, BITCT_TO_WORDCT(pheno_nm_ct));
   }
   if (sample_valid_ct < 2) {
     if (pheno_nm_ct < 2) {
@@ -849,7 +849,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
       }
     }
   }
-  sample_valid_ctv2 = 2 * ((sample_valid_ct + (BITCT - 1)) / BITCT);
+  sample_valid_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_valid_ct);
   sqrt_n_recip = sqrt(1.0 / ((double)((intptr_t)sample_valid_ct)));
   if (bigstack_alloc_ul(sample_valid_ctv2, &sample_include2) ||
       bigstack_alloc_ul(unfiltered_sample_ctv2, &loadbuf_raw) ||
@@ -968,7 +968,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   g_textbuf[MAXLINELEN] = '\t';
   if (select_covars) {
     if (select_covars_bitfield) {
-      marker_idx = covar_ct - popcount_longs(select_covars_bitfield, (covar_ct + (BITCT - 1)) / BITCT);
+      marker_idx = covar_ct - popcount_longs(select_covars_bitfield, BITCT_TO_WORDCT(covar_ct));
     } else {
       marker_idx = 0;
     }

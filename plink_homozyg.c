@@ -23,7 +23,7 @@ void homozyg_init(Homozyg_info* homozyg_ptr) {
 void mask_out_homozyg_major(uintptr_t* readbuf_cur, uint32_t sample_ct) {
   // if readbuf_cur were 16-byte aligned, this could be vectorized, but it
   // isn't, and this isn't a limiting step anyway
-  uintptr_t* readbuf_cur_end = &(readbuf_cur[(sample_ct + (BITCT2 - 1)) / BITCT2]);
+  uintptr_t* readbuf_cur_end = &(readbuf_cur[QUATERCT_TO_WORDCT(sample_ct)]);
   uintptr_t cur_word;
   do {
     cur_word = *readbuf_cur;
@@ -1318,11 +1318,11 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = NULL;
   uint64_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
   double mismatch_max = 1 - (hp->overlap_min * (1 - EPSILON)); // fuzz
   uint32_t is_consensus_match = hp->modifier & HOMOZYG_CONSENSUS_MATCH;
   uint32_t is_verbose = hp->modifier & HOMOZYG_GROUP_VERBOSE;
-  uint32_t max_pool_sizel = (max_pool_size + (BITCT - 1)) / BITCT;
+  uint32_t max_pool_sizel = BITCT_TO_WORDCT(max_pool_size);
   uint32_t pool_size_min = hp->pool_size_min;
   uint32_t pool_size_ct = max_pool_size + 1 - pool_size_min;
   uint32_t marker_uidx2 = 0;
@@ -1685,7 +1685,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
           slot_idx1++;
 	}
       } else {
-        fill_ulong_zero(roh_slot_uncached, (pool_size + (BITCT - 1)) / BITCT);
+        fill_ulong_zero(roh_slot_uncached, BITCT_TO_WORDCT(pool_size));
       }
       slot_idx1 = 0;
       while (1) {
@@ -2411,9 +2411,9 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uint64_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
-  uintptr_t sample_ctl = (sample_ct + (BITCT - 1)) / BITCT;
-  uintptr_t sample_ctl2 = (sample_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
+  uintptr_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
+  uintptr_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
   uintptr_t window_size = hp->window_size;
   double hit_threshold = hp->hit_threshold;
   uint32_t is_new_lengths = 1 ^ ((hp->modifier / HOMOZYG_OLD_LENGTHS) & 1);

@@ -231,7 +231,7 @@ uint32_t setdef_iter(uint32_t* setdef, uint32_t* cur_idx_ptr, uint32_t* aux_ptr)
 
 uint32_t alloc_and_populate_nonempty_set_incl(Set_info* sip, uint32_t* nonempty_set_ct_ptr, uintptr_t** nonempty_set_incl_ptr) {
   uint32_t raw_set_ct = sip->ct;
-  uint32_t raw_set_ctl = (raw_set_ct + (BITCT - 1)) / BITCT;
+  uint32_t raw_set_ctl = BITCT_TO_WORDCT(raw_set_ct);
   uint32_t nonempty_set_ct = 0;
   uintptr_t* nonempty_set_incl;
   uint32_t set_uidx;
@@ -547,7 +547,7 @@ int32_t extract_exclude_range(char* fname, uint32_t* marker_pos, uintptr_t unfil
   }
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   FILE* infile = NULL;
   uintptr_t orig_marker_exclude_ct = *marker_exclude_ct_ptr;
   Make_set_range** range_arr = NULL;
@@ -946,7 +946,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   FILE* infile = NULL;
   char* sorted_marker_ids = NULL;
   char* sorted_genekeep_ids = NULL;
-  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t marker_exclude_ct = *marker_exclude_ct_ptr;
   uintptr_t marker_ct = unfiltered_marker_ct - marker_exclude_ct;
   uintptr_t set_ct = 0;
@@ -1837,7 +1837,7 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
 }
 
 void unpack_set(uintptr_t marker_ct, uint32_t* setdef, uintptr_t* include_bitfield) {
-  uintptr_t marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t marker_ctl = BITCT_TO_WORDCT(marker_ct);
   uint32_t range_ct = setdef[0];
   uint32_t keep_outer;
   uint32_t range_start;
@@ -1872,7 +1872,7 @@ void unpack_set(uintptr_t marker_ct, uint32_t* setdef, uintptr_t* include_bitfie
 }
 
 void unpack_set_unfiltered(uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* setdef, uintptr_t* new_exclude) {
-  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t last_uidx = next_unset_unsafe(marker_exclude, 0);
   uintptr_t marker_uidx = last_uidx;
   uint32_t range_ct = setdef[0];
@@ -1933,7 +1933,7 @@ void unpack_set_unfiltered(uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, 
 }
 
 uint32_t extract_set_union(uint32_t** setdefs, uintptr_t set_ct, uintptr_t* set_incl, uintptr_t* filtered_union, uintptr_t marker_ct) {
-  uintptr_t marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t marker_ctl = BITCT_TO_WORDCT(marker_ct);
 
   // these track known filled words at the beginning and end.  (just intended
   // to detect early exit opportunities; doesn't need to be perfect.)
@@ -2045,9 +2045,9 @@ uint32_t extract_set_union_unfiltered(Set_info* sip, uintptr_t* set_incl, uintpt
   // point to marker_exclude.  Otherwise, allocates union_marker_exclude on the
   // "stack".
   // Assumes marker_ct is initial value of *union_marker_ct_ptr.
-  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t orig_marker_ct = *union_marker_ct_ptr;
-  uintptr_t orig_marker_ctl = (orig_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t orig_marker_ctl = BITCT_TO_WORDCT(orig_marker_ct);
   uintptr_t* union_marker_exclude;
   uintptr_t* filtered_union;
   if (bigstack_alloc_ul(unfiltered_marker_ctl, &union_marker_exclude) ||
@@ -2133,7 +2133,7 @@ uint32_t setdefs_compress(Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, 
         fill_bits(cur_bitfield, marker_midx_to_idx[range_offset + range_stop], marker_ct_orig - range_offset - range_stop);
         range_end = marker_ct;
       } else {
-        range_end = 1 + last_set_bit(cur_bitfield, (marker_ct + (BITCT - 1)) / BITCT);
+        range_end = 1 + last_set_bit(cur_bitfield, BITCT_TO_WORDCT(marker_ct));
       }
       if (range_start) {
         range_start = marker_midx_to_idx[next_set_unsafe(read_bitfield, 0) + range_offset];
@@ -2552,7 +2552,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
       qsort(sorted_attr_ids, attr_id_ct, max_attr_id_len, strcmp_natural);
       bigstack_end_reset(bigstack_end_mark);
       gzrewind(gz_attribfile);
-      attr_id_ctl = (attr_id_ct + (BITCT - 1)) / BITCT;
+      attr_id_ctl = BITCT_TO_WORDCT(attr_id_ct);
       if (bigstack_alloc_c(snplist_attr_ct * max_snplist_attr_id_len, &sorted_snplist_attr_ids) ||
 	  bigstack_calloc_ul(snplist_attr_ct * attr_id_ctl, &attr_bitfields)) {
 	goto annotate_ret_NOMEM;

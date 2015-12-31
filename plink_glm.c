@@ -77,9 +77,9 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* condition_file = NULL;
   uint32_t* condition_uidxs = NULL;
-  uintptr_t marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t marker_ctl = BITCT_TO_WORDCT(marker_ct);
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctv2 = 2 * ((unfiltered_sample_ct + (BITCT - 1)) / BITCT);
+  uintptr_t unfiltered_sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(unfiltered_sample_ct);
   uintptr_t sample_valid_ct = *sample_valid_ct_ptr;
   uintptr_t miss_ct = 0;
   uintptr_t condition_ct = 0;
@@ -91,7 +91,7 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
   __m128i* loadbuf_vend;
   __m128i vii;
 #else
-  uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t* loadbuf_end;
 #endif
   uintptr_t* loadbuf_ptr;
@@ -496,7 +496,7 @@ uint32_t glm_linear(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t samp
   double dxx;
   double dyy;
   double dzz;
-  fill_ulong_zero(perm_fails, (cur_batch_size + (BITCT - 1)) / BITCT);
+  fill_ulong_zero(perm_fails, BITCT_TO_WORDCT(cur_batch_size));
   col_major_matrix_multiply((uint32_t)param_ct, (uint32_t)param_ct, (uint32_t)sample_valid_ct, covars_sample_major, covars_cov_major, param_2d_buf);
   if (invert_matrix((uint32_t)param_ct, param_2d_buf, mi_buf, param_2d_buf2)) {
     return 1;
@@ -1666,7 +1666,7 @@ uint32_t glm_logistic(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t sa
   uintptr_t joint_test_requested = (constraints_con_major? 1 : 0);
   uintptr_t param_ctx = param_ct + joint_test_requested;
   uintptr_t param_ctx_msi = param_ctx - skip_intercept;
-  uintptr_t sample_validx_ctv = 2 * ((sample_valid_ct + missing_ct + (2 * BITCT - 1)) / (2 * BITCT));
+  uintptr_t sample_validx_ctv = BITCT_TO_ALIGNED_WORDCT(sample_valid_ct + missing_ct);
   uintptr_t perm_fail_ct = 0;
   uintptr_t cur_word = 0;
   uintptr_t perm_idx;
@@ -1678,7 +1678,7 @@ uint32_t glm_logistic(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t sa
   float* fptr2;
   double dxx;
   float fxx;
-  fill_ulong_zero(perm_fails, (cur_batch_size + (BITCT - 1)) / BITCT);
+  fill_ulong_zero(perm_fails, BITCT_TO_WORDCT(cur_batch_size));
   for (perm_idx = 0; perm_idx < cur_batch_size; perm_idx++) {
     fptr = pheno_buf;
     if (!missing_ct) {
@@ -1797,7 +1797,7 @@ uint32_t glm_fill_design(uintptr_t* loadbuf_collapsed, double* fixed_covars_cov_
   double dzz;
   // don't need to recompute this during permutations, but it's so cheap that
   // it hardly matters
-  missing_ct = count_01(loadbuf_collapsed, (sample_valid_ct + BITCT2 - 1) / BITCT2);
+  missing_ct = count_01(loadbuf_collapsed, QUATERCT_TO_WORDCT(sample_valid_ct));
   if (missing_ct >= sample_valid_ct - 1) {
     // regression will be skipped in this case
     return missing_ct;
@@ -2215,7 +2215,7 @@ uint32_t glm_fill_design_float(uintptr_t* loadbuf_collapsed, float* fixed_covars
   uint32_t align_skip;
   // don't need to recompute this during permutations, but it's so cheap that
   // it hardly matters
-  missing_ct = count_01(loadbuf_collapsed, (sample_valid_ct + BITCT2 - 1) / BITCT2);
+  missing_ct = count_01(loadbuf_collapsed, QUATERCT_TO_WORDCT(sample_valid_ct));
   if (missing_ct >= sample_valid_ct - 1) {
     // regression will be skipped in this case
     return missing_ct;
@@ -2695,7 +2695,7 @@ static const char glm_main_effects[] = "REC\0DOM\0HOM\0ADD";
 THREAD_RET_TYPE glm_linear_adapt_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
   uintptr_t sample_valid_ct = g_perm_pheno_nm_ct;
-  uintptr_t sample_valid_ctv2 = 2 * ((sample_valid_ct + (BITCT - 1)) / BITCT);
+  uintptr_t sample_valid_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_valid_ct);
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   // unlike the other permutation loops, g_perms_done is not preincremented
   // here
@@ -2881,7 +2881,7 @@ THREAD_RET_TYPE glm_linear_adapt_thread(void* arg) {
 THREAD_RET_TYPE glm_logistic_adapt_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
   uintptr_t sample_valid_ct = g_perm_pheno_nm_ct;
-  uintptr_t sample_valid_ctv2 = 2 * ((sample_valid_ct + (BITCT - 1)) / BITCT);
+  uintptr_t sample_valid_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_valid_ct);
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uint32_t pidx_offset = g_perms_done;
   uintptr_t marker_blocks = g_block_diff / CACHELINE_INT32;
@@ -3031,7 +3031,7 @@ THREAD_RET_TYPE glm_linear_maxt_thread(void* arg) {
   // isn't a good idea
   uintptr_t tidx = (uintptr_t)arg;
   uintptr_t sample_valid_ct = g_perm_pheno_nm_ct;
-  uintptr_t sample_valid_ctv2 = 2 * ((sample_valid_ct + (BITCT - 1)) / BITCT);
+  uintptr_t sample_valid_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_valid_ct);
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uint32_t pidx_offset = g_perms_done;
   uintptr_t marker_blocks = g_block_diff / CACHELINE_INT32;
@@ -3206,7 +3206,7 @@ THREAD_RET_TYPE glm_linear_maxt_thread(void* arg) {
 THREAD_RET_TYPE glm_logistic_maxt_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
   uintptr_t sample_valid_ct = g_perm_pheno_nm_ct;
-  uintptr_t sample_valid_ctv2 = 2 * ((sample_valid_ct + (BITCT - 1)) / BITCT);
+  uintptr_t sample_valid_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_valid_ct);
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uint32_t pidx_offset = g_perms_done;
   uintptr_t marker_blocks = g_block_diff / CACHELINE_INT32;
@@ -3345,7 +3345,7 @@ THREAD_RET_TYPE glm_linear_set_thread(void* arg) {
   // Simplified version of what glm_linear_maxt_thread() does.
   uintptr_t tidx = (uintptr_t)arg;
   uintptr_t sample_valid_ct = g_perm_pheno_nm_ct;
-  uintptr_t sample_valid_ctv2 = 2 * ((sample_valid_ct + (BITCT - 1)) / BITCT);
+  uintptr_t sample_valid_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_valid_ct);
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uintptr_t marker_blocks = g_block_diff / CACHELINE_INT32;
   uint32_t marker_bidx = CACHELINE_INT32 * ((((uint64_t)tidx) * marker_blocks) / g_assoc_thread_ct);
@@ -3453,7 +3453,7 @@ THREAD_RET_TYPE glm_logistic_set_thread(void* arg) {
   // Simplified version of what glm_logistic_maxt_thread() does.
   uintptr_t tidx = (uintptr_t)arg;
   uintptr_t sample_valid_ct = g_perm_pheno_nm_ct;
-  uintptr_t sample_valid_ctv2 = 2 * ((sample_valid_ct + (BITCT - 1)) / BITCT);
+  uintptr_t sample_valid_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_valid_ct);
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uintptr_t marker_blocks = g_block_diff / CACHELINE_INT32;
   uint32_t marker_bidx = CACHELINE_INT32 * ((((uint64_t)tidx) * marker_blocks) / g_assoc_thread_ct);
@@ -3519,7 +3519,7 @@ THREAD_RET_TYPE glm_logistic_set_thread(void* arg) {
 
 int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifier, uint32_t standard_beta, uint32_t glm_xchr_model, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, uint32_t mtest_adjust, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, char* condition_mname, char* condition_fname, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t sample_ct, uintptr_t* sample_exclude, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t covar_ct, char* covar_names, uintptr_t max_covar_name_len, uintptr_t* covar_nm, double* covar_d, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t hh_or_mt_exists, uint32_t do_perms, uint32_t is_set_test, uint32_t* perm_batch_size_ptr, uintptr_t* max_param_name_len_ptr, uintptr_t* np_diploid_ptr, uintptr_t* condition_ct_ptr, uintptr_t* np_sex_ptr, uint32_t* marker_initial_ct_ptr, uint32_t* sex_covar_everywhere_ptr, uint32_t* variation_in_sex_ptr, uint32_t* x_sex_interaction_ptr, uintptr_t* constraint_ct_max_ptr, uintptr_t* param_idx_end_ptr, uintptr_t** loadbuf_raw_ptr, uintptr_t** load_mask_ptr, uintptr_t** sex_male_collapsed_ptr, uintptr_t** sample_include2_ptr, uintptr_t** sample_male_include2_ptr, uintptr_t** active_params_ptr, uintptr_t** haploid_params_ptr, uint32_t** condition_uidxs_ptr, char** writebuf_ptr, uintptr_t* sample_valid_ct_ptr, uintptr_t* param_ctx_max_ptr, uintptr_t* param_ctl_max_ptr, uintptr_t* condition_list_start_idx_ptr, uintptr_t* covar_start_idx_ptr, uintptr_t* interaction_start_idx_ptr, uintptr_t* sex_start_idx_ptr, uintptr_t* np_base_ptr, uintptr_t* param_ct_max_ptr) {
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + BITCT - 1) / BITCT;
+  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t unfiltered_sample_ctv2 = 2 * unfiltered_sample_ctl;
   uintptr_t sample_uidx = 0;
   uintptr_t max_param_name_len = 2;
@@ -3703,7 +3703,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
     }
   }
 
-  sample_valid_ctv2 = 2 * ((sample_valid_ct + BITCT - 1) / BITCT);
+  sample_valid_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_valid_ct);
   if (alloc_collapsed_haploid_filters(unfiltered_sample_ct, sample_valid_ct, hh_or_mt_exists, 1, load_mask, sex_male, &sample_include2, &sample_male_include2)) {
     goto glm_common_init_ret_NOMEM;
   }
@@ -3717,7 +3717,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
   }
   collapse_copy_bitarr_incl(unfiltered_sample_ct, sex_male, load_mask, sample_valid_ct, sex_male_collapsed);
   param_raw_ct_max = np_base_raw + np_diploid_raw + np_sex_raw;
-  param_raw_ctl = (param_raw_ct_max + BITCT - 1) / BITCT;
+  param_raw_ctl = BITCT_TO_WORDCT(param_raw_ct_max);
   if (bigstack_alloc_ul(param_raw_ctl, &active_params)) {
     goto glm_common_init_ret_NOMEM;
   }
@@ -3904,7 +3904,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
     }
   }
   param_ctx_max = param_ct_max;
-  param_ctl_max = (param_ct_max + BITCT - 1) / BITCT;
+  param_ctl_max = BITCT_TO_WORDCT(param_ct_max);
   if (bigstack_alloc_ul(param_ctl_max, &haploid_params)) {
     goto glm_common_init_ret_NOMEM;
   }
@@ -4041,7 +4041,7 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
   uintptr_t marker_ct = marker_ct_mid;
   uintptr_t set_ct = 0;
   uintptr_t final_mask = get_final_mask(pheno_nm_ct);
-  uintptr_t sample_valid_ctv2 = 2 * ((sample_valid_ct + BITCT - 1) / BITCT);
+  uintptr_t sample_valid_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_valid_ct);
   double adaptive_ci_zt = 0.0;
   uint32_t max_thread_ct = g_thread_ct;
   uint32_t perm_count = glm_modifier & GLM_PERM_COUNT;
@@ -4099,7 +4099,7 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
   if (!set_ct) {
     goto glm_linear_assoc_set_test_write;
   }
-  marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
+  marker_ctl = BITCT_TO_WORDCT(marker_ct);
   if (marker_ct_mid != marker_ct) {
     inplace_delta_collapse_arr((char*)tcnt, sizeof(int32_t), marker_ct_mid, marker_ct, marker_exclude_mid, marker_exclude);
     inplace_delta_collapse_bitfield(regression_skip, marker_ct, marker_exclude_mid, marker_exclude);
@@ -4330,7 +4330,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   // todo: investigate pre-orthogonalization of covariates
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   FILE* outfile = NULL;
   FILE* outfile_msa = NULL;
   uintptr_t marker_ct = marker_ct_orig;
@@ -4501,7 +4501,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     }
     goto glm_linear_assoc_ret_1;
   }
-  sample_valid_ctv2 = 2 * ((sample_valid_ct + BITCT - 1) / BITCT);
+  sample_valid_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_valid_ct);
   final_mask = get_final_mask(sample_valid_ct);
   param_ctx_max_m1 = param_ctx_max - 1;
   if (bigstack_alloc_d(marker_initial_ct, &g_orig_stats) ||
@@ -4518,7 +4518,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     fill_ulong_zero((uintptr_t*)g_perm_adapt_stop, (marker_initial_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
   } else {
     g_perm_adapt_stop = NULL;
-    if (bigstack_calloc_ul((marker_initial_ct + (BITCT - 1)) / BITCT, &regression_skip)) {
+    if (bigstack_calloc_ul(BITCT_TO_WORDCT(marker_initial_ct), &regression_skip)) {
       goto glm_linear_assoc_ret_NOMEM;
     }
   }
@@ -4814,7 +4814,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   if (!g_linear_mt) {
     goto glm_linear_assoc_ret_NOMEM;
   }
-  ulii = (orig_perm_batch_size + (BITCT - 1)) / BITCT;
+  ulii = BITCT_TO_WORDCT(orig_perm_batch_size);
   for (tidx = 0; tidx < max_thread_ct; tidx++) {
     if (bigstack_alloc_d(param_ct_max * sample_valid_ct, &(g_linear_mt[tidx].cur_covars_cov_major)) ||
         bigstack_alloc_d(param_ct_max * sample_valid_ct, &(g_linear_mt[tidx].cur_covars_sample_major)) ||
@@ -5596,7 +5596,7 @@ int32_t glm_logistic_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t
   uintptr_t marker_ct = marker_ct_mid;
   uintptr_t set_ct = 0;
   uintptr_t final_mask = get_final_mask(pheno_nm_ct);
-  uintptr_t sample_valid_ctv2 = 2 * ((sample_valid_ct + BITCT - 1) / BITCT);
+  uintptr_t sample_valid_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_valid_ct);
   double adaptive_ci_zt = 0.0;
   uint32_t max_thread_ct = g_thread_ct;
   uint32_t perm_count = glm_modifier & GLM_PERM_COUNT;
@@ -5648,7 +5648,7 @@ int32_t glm_logistic_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t
   if (!set_ct) {
     goto glm_logistic_assoc_set_test_write;
   }
-  marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
+  marker_ctl = BITCT_TO_WORDCT(marker_ct);
   if (marker_ct_mid != marker_ct) {
     inplace_delta_collapse_bitfield(regression_skip, marker_ct, marker_exclude_mid, marker_exclude);
   }
@@ -5860,7 +5860,7 @@ int32_t glm_logistic_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t
 int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double ci_zt, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, char* condition_mname, char* condition_fname, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t sample_ct, uintptr_t* sample_exclude, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t covar_ct, char* covar_names, uintptr_t max_covar_name_len, uintptr_t* covar_nm, double* covar_d, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t ld_ignore_x, uint32_t hh_exists, uint32_t orig_perm_batch_size, Set_info* sip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   FILE* outfile = NULL;
   FILE* outfile_msa = NULL;
   uintptr_t marker_ct = marker_ct_orig;
@@ -6026,8 +6026,8 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     goto glm_logistic_assoc_ret_1;
   }
   sample_valid_cta4 = round_up_pow2(sample_valid_ct, 4);
-  sample_valid_ctv = 2 * ((sample_valid_ct + (2 * BITCT - 1)) / (2 * BITCT));
-  sample_valid_ctv2 = 2 * ((sample_valid_ct + BITCT - 1) / BITCT);
+  sample_valid_ctv = BITCT_TO_ALIGNED_WORDCT(sample_valid_ct);
+  sample_valid_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_valid_ct);
   final_mask = get_final_mask(sample_valid_ct);
   param_ct_maxa4 = round_up_pow2(param_ct_max, 4);
   if (bigstack_alloc_d(marker_initial_ct, &g_orig_stats) ||
@@ -6044,7 +6044,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     fill_ulong_zero((uintptr_t*)g_perm_adapt_stop, (marker_initial_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
   } else {
     g_perm_adapt_stop = NULL;
-    if (bigstack_calloc_ul((marker_initial_ct + (BITCT - 1)) / BITCT, &regression_skip)) {
+    if (bigstack_calloc_ul(BITCT_TO_WORDCT(marker_initial_ct), &regression_skip)) {
       goto glm_logistic_assoc_ret_NOMEM;
     }
   }
@@ -6341,7 +6341,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
         bigstack_alloc_f(param_ct_max * param_ct_maxa4, &(g_logistic_mt[tidx].param_2d_buf)) ||
         bigstack_alloc_f(param_ct_max * param_ct_maxa4, &(g_logistic_mt[tidx].param_2d_buf2)) ||
         bigstack_alloc_f(orig_perm_batch_size * (param_ctx_max - uii), &(g_logistic_mt[tidx].regression_results)) ||
-        bigstack_alloc_ul((orig_perm_batch_size + (BITCT - 1)) / BITCT, &(g_logistic_mt[tidx].perm_fails))) {
+        bigstack_alloc_ul(BITCT_TO_WORDCT(orig_perm_batch_size), &(g_logistic_mt[tidx].perm_fails))) {
       goto glm_logistic_assoc_ret_NOMEM;
     }
     if (constraint_ct_max) {
@@ -7018,7 +7018,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + BITCT - 1) / BITCT;
+  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t unfiltered_sample_ctv2 = 2 * unfiltered_sample_ctl;
   FILE* outfile = NULL;
   uintptr_t sample_uidx = 0;
@@ -7177,7 +7177,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       logerrprint("Warning: Ignoring --linear 'sex' modifier since sex is invariant.\n");
     }
   }
-  sample_valid_ctv2 = 2 * ((sample_valid_ct + BITCT - 1) / BITCT);
+  sample_valid_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_valid_ct);
 
   if (condition_mname || condition_fname) {
     // now that we've determined which samples will be in the regression,
@@ -7198,7 +7198,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     loadbuf_collapsed[sample_valid_ctv2 - 1] = 0;
     collapse_copy_bitarr_incl(unfiltered_sample_ct, sex_male, load_mask, sample_valid_ct, sex_male_collapsed);
   }
-  param_raw_ctl = (param_raw_ct + BITCT - 1) / BITCT;
+  param_raw_ctl = BITCT_TO_WORDCT(param_raw_ct);
   if (aligned_malloc(param_raw_ctl * sizeof(intptr_t), &active_params)) {
     goto glm_linear_nosnp_ret_NOMEM;
   }
@@ -7245,7 +7245,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   }
   param_ctx = param_ct;
   if (tests_range_list_ptr->name_ct || (glm_modifier & GLM_TEST_ALL)) {
-    ulii = (param_ct + (BITCT - 1)) / BITCT;
+    ulii = BITCT_TO_WORDCT(param_ct);
     if (aligned_malloc(ulii * sizeof(intptr_t), &joint_test_params)) {
       goto glm_linear_nosnp_ret_NOMEM;
     }
@@ -7471,7 +7471,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     perm_batch_size = 1;
     mperm_save = 0;
   }
-  if (bigstack_alloc_ul((perm_batch_size + (BITCT - 1)) / BITCT, &perm_fails) ||
+  if (bigstack_alloc_ul(BITCT_TO_WORDCT(perm_batch_size), &perm_fails) ||
       bigstack_alloc_d(perm_batch_size * (param_ctx - 1), &regression_results)) {
     goto glm_linear_nosnp_ret_NOMEM;
   }
@@ -7881,7 +7881,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + BITCT - 1) / BITCT;
+  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t unfiltered_sample_ctv2 = 2 * unfiltered_sample_ctl;
   FILE* outfile = NULL;
   uintptr_t sample_uidx = 0;
@@ -8039,8 +8039,8 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     }
   }
   sample_valid_cta4 = round_up_pow2(sample_valid_ct, 4);
-  sample_valid_ctv = 2 * ((sample_valid_ct + (2 * BITCT - 1)) / (2 * BITCT));
-  sample_valid_ctv2 = 2 * ((sample_valid_ct + BITCT - 1) / BITCT);
+  sample_valid_ctv = BITCT_TO_ALIGNED_WORDCT(sample_valid_ct);
+  sample_valid_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_valid_ct);
 
   if (condition_mname || condition_fname) {
     // now that we've determined which samples will be in the regression,
@@ -8061,7 +8061,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     loadbuf_collapsed[sample_valid_ctv2 - 1] = 0;
     collapse_copy_bitarr_incl(unfiltered_sample_ct, sex_male, load_mask, sample_valid_ct, sex_male_collapsed);
   }
-  param_raw_ctl = (param_raw_ct + BITCT - 1) / BITCT;
+  param_raw_ctl = BITCT_TO_WORDCT(param_raw_ct);
   if (aligned_malloc(param_raw_ctl * sizeof(intptr_t), &active_params)) {
     goto glm_logistic_nosnp_ret_NOMEM;
   }
@@ -8109,7 +8109,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   }
   param_ctx = param_ct;
   if (tests_range_list_ptr->name_ct || (glm_modifier & GLM_TEST_ALL)) {
-    ulii = (param_ct + (BITCT - 1)) / BITCT;
+    ulii = BITCT_TO_WORDCT(param_ct);
     if (aligned_malloc(ulii * sizeof(intptr_t), &joint_test_params)) {
       goto glm_logistic_nosnp_ret_NOMEM;
     }
@@ -8282,7 +8282,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       bigstack_alloc_f(param_ct * param_cta4, &param_2d_buf) ||
       bigstack_alloc_f(param_ct * param_cta4, &param_2d_buf2) ||
       bigstack_alloc_f(perm_batch_size * (param_ctx - uii), &regression_results) ||
-      bigstack_alloc_ul((perm_batch_size + (BITCT - 1)) / BITCT, &perm_fails) ||
+      bigstack_alloc_ul(BITCT_TO_WORDCT(perm_batch_size), &perm_fails) ||
       bigstack_alloc_ul(perm_batch_size * sample_valid_ctv, &g_perm_vecs)) {
     goto glm_logistic_nosnp_ret_NOMEM;
   }
@@ -8778,7 +8778,7 @@ uint32_t glm_logistic_dosage(uintptr_t sample_ct, uintptr_t* cur_samples, uintpt
     return 0;
   }
   uintptr_t sample_valid_cta4 = round_up_pow2(sample_valid_ct, 4);
-  uintptr_t sample_valid_ctv = 2 * ((sample_valid_ct + (2 * BITCT - 1)) / (2 * BITCT));
+  uintptr_t sample_valid_ctv = BITCT_TO_ALIGNED_WORDCT(sample_valid_ct);
   uintptr_t param_cta4 = round_up_pow2(param_ct, 4);
   float* fptr = covars_cov_major;
   uintptr_t case_ct;

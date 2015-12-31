@@ -49,7 +49,7 @@ int32_t keep_or_remove(char* fname, char* sorted_ids, uintptr_t sorted_ids_ct, u
   FILE* infile = NULL;
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t* exclude_arr_new = NULL;
-  uintptr_t unfiltered_ctl = (unfiltered_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_ctl = BITCT_TO_WORDCT(unfiltered_ct);
   uintptr_t duplicate_ct = 0;
   uintptr_t line_idx = 0;
   uint32_t do_exclude = flags & 1;
@@ -238,7 +238,7 @@ void extract_exclude_process_token(const char* tok_start, const uint32_t* marker
 int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, uint32_t marker_id_htable_size, uint32_t do_exclude, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uint32_t allow_no_variants) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* infile = NULL;
-  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t duplicate_ct = 0;
   // needs to be synced with populate_id_htable
   const uint32_t* extra_alloc_base = &(marker_id_htable[round_up_pow2_ui(marker_id_htable_size, CACHELINE_INT32)]);
@@ -350,7 +350,7 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
   gzFile gz_infile = NULL;
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t include_ct = 0;
-  uintptr_t unfiltered_ctl = (unfiltered_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_ctl = BITCT_TO_WORDCT(unfiltered_ct);
   char* sorted_pos_match = NULL;
   char* sorted_neg_match = NULL;
   char* bufptr2 = NULL;
@@ -581,7 +581,7 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
   gzFile gz_infile = NULL;
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t include_ct = 0;
-  uintptr_t unfiltered_ctl = (unfiltered_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_ctl = BITCT_TO_WORDCT(unfiltered_ct);
   char* sorted_pos_match = NULL;
   char* sorted_neg_match = NULL;
   char* id_buf = NULL;
@@ -813,7 +813,7 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
 int32_t filter_qual_scores(Two_col_params* qual_filter, double qual_min_thresh, double qual_max_thresh, uint32_t* marker_id_htable, uint32_t marker_id_htable_size, uint32_t allow_no_variants, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* infile = NULL;
-  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t miss_ct = 0;
   uint32_t varid_first = (qual_filter->colid < qual_filter->colx);
   char skipchar = qual_filter->skipchar;
@@ -969,7 +969,7 @@ int32_t random_thin_markers_ct(uint32_t thin_keep_ct, uintptr_t unfiltered_marke
   unsigned char* bigstack_mark = g_bigstack_base;
   uint32_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
   uint32_t marker_uidx = 0;
-  uintptr_t marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t marker_ctl = BITCT_TO_WORDCT(marker_ct);
   int32_t retval = 0;
   uintptr_t* perm_buf;
   uint32_t marker_idx;
@@ -1040,7 +1040,7 @@ int32_t random_thin_samples_ct(uint32_t thin_keep_ct, uintptr_t unfiltered_sampl
   unsigned char* bigstack_mark = g_bigstack_base;
   uint32_t sample_ct = unfiltered_sample_ct - *sample_exclude_ct_ptr;
   uint32_t sample_uidx = 0;
-  uintptr_t sample_ctl = (sample_ct + (BITCT - 1)) / BITCT;
+  uintptr_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
   int32_t retval = 0;
   uintptr_t* perm_buf;
   uint32_t sample_idx;
@@ -1088,8 +1088,8 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
   uint64_t tot_missing = 0;
   uintptr_t marker_ct = unfiltered_marker_ct - marker_exclude_ct;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + BITCT2 - 1) / BITCT2;
-  uintptr_t sorted_sample_ctl = (sorted_sample_ct + BITCT - 1) / BITCT;
+  uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
+  uintptr_t sorted_sample_ctl = BITCT_TO_WORDCT(sorted_sample_ct);
   uintptr_t max_cluster_id_len = 0;
   uintptr_t possible_distinct_ct = 0;
   uintptr_t missing_cluster_ct = 0;
@@ -1374,7 +1374,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
 int32_t filter_samples_file(char* filtername, char* sorted_sample_ids, uintptr_t sorted_ids_len, uintptr_t max_sample_id_len, uint32_t* id_map, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* filtervals_flattened, uint32_t mfilter_col, uint32_t allow_no_samples) {
   FILE* infile = NULL;
   unsigned char* bigstack_mark = g_bigstack_base;
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t include_ct = 0;
   uintptr_t max_filterval_len = 0;
   uintptr_t line_idx = 0;
@@ -1475,7 +1475,7 @@ int32_t filter_samples_file(char* filtername, char* sorted_sample_ids, uintptr_t
 void filter_samples_bitfields(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, uintptr_t* orfield, int32_t orfield_flip, uintptr_t* ornot) {
   // sample_exclude := sample_exclude | orfield | (~ornot) if !orfield_flip
   //                := sample_exclude | (~orfield) | (~ornot) otherwise
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t* ieptr = sample_exclude;
   uintptr_t* ieend = &(sample_exclude[unfiltered_sample_ctl]);
   if (orfield_flip) {
@@ -1513,8 +1513,8 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   FILE* outfile = NULL;
   uint32_t marker_ct = unfiltered_marker_ct - marker_exclude_ct;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
+  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t final_mask = get_final_mask(unfiltered_sample_ct);
   uintptr_t marker_idx = 0;
   uintptr_t y_start = 0;
@@ -2143,9 +2143,9 @@ static inline void haploid_single_marker_freqs(uintptr_t unfiltered_sample_ct, u
 int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_exclude_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t* founder_info, int32_t nonfounders, int32_t maf_succ, double* set_allele_freqs, uintptr_t bed_offset, uint32_t hwe_needed, uint32_t hwe_all, uint32_t hardy_needed, uint32_t min_ac, uint32_t max_ac, double geno_thresh, uintptr_t* pheno_nm, uintptr_t* pheno_c, int32_t** hwe_lls_ptr, int32_t** hwe_lhs_ptr, int32_t** hwe_hhs_ptr, int32_t** hwe_ll_cases_ptr, int32_t** hwe_lh_cases_ptr, int32_t** hwe_hh_cases_ptr, int32_t** hwe_ll_allfs_ptr, int32_t** hwe_lh_allfs_ptr, int32_t** hwe_hh_allfs_ptr, int32_t** hwe_hapl_allfs_ptr, int32_t** hwe_haph_allfs_ptr, uintptr_t** geno_excl_bitfield_ptr, uintptr_t** ac_excl_bitfield_ptr, uint32_t* sample_male_ct_ptr, uint32_t* sample_f_ct_ptr, uint32_t* sample_f_male_ct_ptr, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t is_split_chrom, uint32_t* hh_exists_ptr) {
   FILE* hhfile = NULL;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + BITCT - 1) / BITCT;
+  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t unfiltered_sample_ctv2 = 2 * unfiltered_sample_ctl;
-  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   int32_t retval = 0;
   uint32_t pct = 1;
   uint32_t sample_ct = unfiltered_sample_ct - sample_exclude_ct;
@@ -2686,7 +2686,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t output_gz, uint32_t plink_maxfid, uint32_t plink_maxiid, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_sample_ct, uintptr_t sample_ct, uintptr_t* sample_exclude, uintptr_t* pheno_nm, uintptr_t* sex_male, uint32_t sample_male_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, uint32_t hh_exists) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t unfiltered_sample_ctv2 = round_up_pow2(unfiltered_sample_ctl2, 2);
   uintptr_t marker_ct_y = 0;
   uintptr_t* sample_male_include2 = NULL;
@@ -2771,9 +2771,9 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
     om_cluster_ref_cts = om_ip->cluster_ref_cts;
     cur_om_entry = *om_entry_ptr;
     om_cluster_ct = om_ip->cluster_ct;
-    // divide by BITCT2 instead of BITCT due to Ychr
-    om_cluster_ctl = (om_cluster_ct + BITCT - 1) / BITCT;
+    om_cluster_ctl = BITCT_TO_WORDCT(om_cluster_ct);
     om_sample_lookup = om_ip->sample_lookup;
+    // doubled because of Ychr
     if (bigstack_calloc_ui(om_cluster_ct * 2, &om_cluster_sizes)) {
       goto write_missingness_reports_ret_NOMEM;
     }
@@ -3335,7 +3335,7 @@ uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct
 }
 
 uint32_t enforce_minor_allele_thresholds(double min_maf, double max_maf, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* ac_excl_bitfield, uintptr_t* marker_exclude_ct_ptr, double* set_allele_freqs, uint32_t allow_no_variants) {
-  uint32_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  uint32_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uint32_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
   uint32_t marker_uidx = 0;
   uint32_t removed_ct = 0;

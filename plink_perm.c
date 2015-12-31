@@ -50,7 +50,7 @@ void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotien
   uint32_t urand;
   uint32_t uii;
   if (set_ct * 2 < tot_ct) {
-    fill_ulong_zero(perm_vec, 2 * ((tot_ct + (BITCT - 1)) / BITCT));
+    fill_ulong_zero(perm_vec, QUATERCT_TO_ALIGNED_WORDCT(tot_ct));
     for (; num_set < set_ct; num_set++) {
       do {
 	do {
@@ -91,7 +91,7 @@ void generate_cc_perm1(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotient, 
   uint32_t urand;
   uint32_t uii;
   if (set_ct * 2 < tot_ct) {
-    fill_ulong_zero(perm_vec, (tot_ct + (BITCT - 1)) / BITCT);
+    fill_ulong_zero(perm_vec, BITCT_TO_WORDCT(tot_ct));
     for (; num_set < set_ct; num_set++) {
       do {
 	do {
@@ -123,7 +123,6 @@ void generate_cc_perm1(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotient, 
 }
 
 void generate_cc_cluster_perm_vec(uint32_t tot_ct, uintptr_t* preimage, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* cluster_case_cts, uint32_t* tot_quotients, uint64_t* totq_magics, uint32_t* totq_preshifts, uint32_t* totq_postshifts, uint32_t* totq_incrs, uintptr_t* perm_vec, sfmt_t* sfmtp) {
-  uint32_t tot_ctl2 = 2 * ((tot_ct + (BITCT - 1)) / BITCT);
   uint32_t cluster_idx;
   uint32_t target_ct;
   uint32_t cluster_end;
@@ -140,7 +139,7 @@ void generate_cc_cluster_perm_vec(uint32_t tot_ct, uintptr_t* preimage, uint32_t
   uintptr_t pv_val;
   uint32_t urand;
   uint32_t uii;
-  memcpy(perm_vec, preimage, tot_ctl2 * sizeof(intptr_t));
+  memcpy(perm_vec, preimage, QUATERCT_TO_ALIGNED_WORDCT(tot_ct) * sizeof(intptr_t));
   for (cluster_idx = 0; cluster_idx < cluster_ct; cluster_idx++) {
     target_ct = cluster_case_cts[cluster_idx];
     cluster_end = cluster_starts[cluster_idx + 1];
@@ -185,7 +184,7 @@ void generate_cc_cluster_perm_vec(uint32_t tot_ct, uintptr_t* preimage, uint32_t
 }
 
 void generate_cc_cluster_perm1(uint32_t tot_ct, uintptr_t* preimage, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* cluster_case_cts, uint32_t* tot_quotients, uint64_t* totq_magics, uint32_t* totq_preshifts, uint32_t* totq_postshifts, uint32_t* totq_incrs, uintptr_t* perm_vec, sfmt_t* sfmtp) {
-  uint32_t tot_ctl = (tot_ct + (BITCT - 1)) / BITCT;
+  uint32_t tot_ctl = BITCT_TO_WORDCT(tot_ct);
   uint32_t cluster_idx;
   uint32_t target_ct;
   uint32_t cluster_end;
@@ -257,7 +256,7 @@ THREAD_RET_TYPE generate_cc_perms_thread(void* arg) {
   uint32_t totq_incr = g_perm_totq_incr;
   uintptr_t* __restrict__ perm_vecs = g_perm_vecs;
   sfmt_t* __restrict__ sfmtp = g_sfmtp_arr[tidx];
-  uintptr_t pheno_nm_ctv = (pheno_nm_ct + (BITCT - 1)) / BITCT;
+  uintptr_t pheno_nm_ctv = BITCT_TO_WORDCT(pheno_nm_ct);
   uint32_t pidx = (((uint64_t)tidx) * g_perm_vec_ct) / g_perm_generation_thread_ct;
   uint32_t pmax = (((uint64_t)tidx + 1) * g_perm_vec_ct) / g_perm_generation_thread_ct;
   if (!g_perm_is_1bit) {
@@ -282,7 +281,7 @@ THREAD_RET_TYPE generate_cc_cluster_perms_thread(void* arg) {
   uint32_t pheno_nm_ct = g_perm_pheno_nm_ct;
   uintptr_t* __restrict__ perm_vecs = g_perm_vecs;
   sfmt_t* __restrict__ sfmtp = g_sfmtp_arr[tidx];
-  uintptr_t pheno_nm_ctv = (pheno_nm_ct + (BITCT - 1)) / BITCT;
+  uintptr_t pheno_nm_ctv = BITCT_TO_WORDCT(pheno_nm_ct);
   uint32_t pidx = (((uint64_t)tidx) * g_perm_vec_ct) / g_perm_generation_thread_ct;
   uint32_t pmax = (((uint64_t)tidx + 1) * g_perm_vec_ct) / g_perm_generation_thread_ct;
   uint32_t cluster_ct = g_perm_cluster_ct;
@@ -582,7 +581,7 @@ void transpose_perms(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_
   //   first 4 bytes: 0 8 16 24 4 12 20 28 1 9 17 25 5 13 21 29 2 10 18...
   //   next 4 bytes: 32 40 48...
   uintptr_t sample_idx = 0;
-  uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
+  uintptr_t pheno_nm_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(pheno_nm_ct);
 #ifdef __LP64__
   uint32_t wbuf[4];
   uint32_t* wbptr;
@@ -612,7 +611,7 @@ void transpose_perms(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_
 	}
 	wbptr = wbuf;
       }
-      *wbptr |= ((pvptr[perm_idx * pheno_nm_ctl2] >> rshift) & 1) << wshift;
+      *wbptr |= ((pvptr[perm_idx * pheno_nm_ctv2] >> rshift) & 1) << wshift;
       wbptr++;
     } while (++perm_idx < perm_vec_ct);
     memcpy(perm_vecst, wbuf, 16);
@@ -627,7 +626,7 @@ void transpose_perms(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_
 	wval = 0;
 	wshift = 0;
       }
-      wval |= ((pvptr[perm_idx * pheno_nm_ctl2] >> rshift) & 1) << wshift;
+      wval |= ((pvptr[perm_idx * pheno_nm_ctv2] >> rshift) & 1) << wshift;
     } while (++perm_idx < perm_vec_ct);
     *perm_vecst++ = wval;
 #endif
@@ -636,7 +635,7 @@ void transpose_perms(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_
 
 void transpose_perm1s(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_nm_ct, uint32_t* perm_vecst) {
   uintptr_t sample_idx = 0;
-  uintptr_t pheno_nm_ctv = 2 * ((pheno_nm_ct + (2 * BITCT - 1)) / (2 * BITCT));
+  uintptr_t pheno_nm_ctv = BITCT_TO_ALIGNED_WORDCT(pheno_nm_ct);
 #ifdef __LP64__
   uint32_t wbuf[4];
   uint32_t* wbptr;
@@ -692,9 +691,9 @@ void transpose_perm1s(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno
 int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t permphe_ct) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = NULL;
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
-  uintptr_t pheno_nm_ctl = (pheno_nm_ct + (BITCT - 1)) / BITCT;
-  uintptr_t pheno_nm_ctv = round_up_pow2(pheno_nm_ctl, 2);
+  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
+  uintptr_t pheno_nm_ctl = BITCT_TO_WORDCT(pheno_nm_ct);
+  uintptr_t pheno_nm_ctv = round_up_pow2(pheno_nm_ctl, VEC_WORDS);
   uintptr_t perm_vec_ctcl8m = 0;
   char* writebuf = NULL;
   int32_t retval = 0;

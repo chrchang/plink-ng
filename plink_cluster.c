@@ -47,10 +47,10 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* infile = NULL;
   uintptr_t* sample_exclude_new = NULL;
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t sample_exclude_ct = *sample_exclude_ct_ptr;
   uintptr_t sample_ct = unfiltered_sample_ct - sample_exclude_ct;
-  uintptr_t sample_ctl = (sample_ct + (BITCT - 1)) / BITCT;
+  uintptr_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
   uintptr_t max_cluster_kr_len = 0;
   uint32_t cluster_filter = (keep_fname || keep_flattened || remove_fname || remove_flattened);
   uint32_t cluster_kr_ct = 0;
@@ -157,7 +157,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
       if (remove_flattened || remove_fname) {
 	bigstack_end_mark2 = g_bigstack_end;
 	// track deletions
-	if (bigstack_end_calloc_ul((cluster_kr_ct + (BITCT - 1)) / BITCT, &already_seen)) {
+	if (bigstack_end_calloc_ul(BITCT_TO_WORDCT(cluster_kr_ct), &already_seen)) {
 	  goto load_clusters_ret_NOMEM;
 	}
 	if (remove_flattened) {
@@ -681,7 +681,7 @@ int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_sa
 int32_t extract_clusters(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, char* cluster_names_flattened, char* clusters_fname, uintptr_t** new_sample_exclude_ptr, uintptr_t* new_sample_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* infile = NULL;
-  uintptr_t unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
+  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t line_idx = 0;
   int32_t retval = 0;
   char* bufptr;
@@ -865,7 +865,7 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_sample_ct, uintptr_t* s
   uint32_t last_case_ct_incr;
   uint32_t shrink_map;
   if (pheno_c) {
-    if (bigstack_alloc_ul((2 - is_perm1) * ((sample_ct + (BITCT - 1)) / BITCT), cluster_cc_perm_preimage_ptr)) {
+    if (bigstack_alloc_ul((2 - is_perm1) * BITCT_TO_WORDCT(sample_ct), cluster_cc_perm_preimage_ptr)) {
       goto cluster_include_and_reindex_ret_NOMEM;
     }
     cluster_cc_perm_preimage = *cluster_cc_perm_preimage_ptr;

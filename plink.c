@@ -582,7 +582,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     }
 
     unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-    unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
+    unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
 
     if (misc_flags & MISC_MAKE_FOUNDERS_FIRST) {
       if (make_founders(unfiltered_sample_ct, unfiltered_sample_ct, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, (misc_flags / MISC_MAKE_FOUNDERS_REQUIRE_2_MISSING) & 1, sample_exclude, founder_info)) {
@@ -1251,7 +1251,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 
   if (bimname[0] && (unfiltered_marker_ct != marker_exclude_ct)) {
     plink_maxsnp = calc_plink_maxsnp(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len);
-    uii = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+    uii = BITCT_TO_WORDCT(unfiltered_marker_ct);
     if (bigstack_calloc_ul(uii, &marker_reverse)) {
       goto plink_ret_NOMEM;
     }
@@ -1315,7 +1315,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 
       if (geno_excl_bitfield) {
 	ulii = marker_exclude_ct;
-	uljj = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+	uljj = BITCT_TO_WORDCT(unfiltered_marker_ct);
 	bitfield_or(marker_exclude, geno_excl_bitfield, uljj);
 	marker_exclude_ct = popcount_longs(marker_exclude, uljj);
 	if ((marker_exclude_ct == unfiltered_marker_ct) && (!allow_no_variants)) {
@@ -1739,7 +1739,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       goto plink_ret_NOMEM;
 #endif
     }
-    if (bigstack_alloc_ul((ulii + (BITCT - 1)) / BITCT, &cluster_merge_prevented)) {
+    if (bigstack_alloc_ul(BITCT_TO_WORDCT(ulii), &cluster_merge_prevented)) {
       goto plink_ret_NOMEM;
     }
     if (cluster_ct || (calculation_type & CALC_GENOME) || genome_skip_write) {

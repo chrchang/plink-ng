@@ -645,6 +645,17 @@ static inline uintptr_t round_up_pow2(uintptr_t val, uintptr_t alignment) {
   return (val + alignment_m1) & (~alignment_m1);
 }
 
+#define BITCT_TO_VECCT(val) (((val) + (VEC_BITS - 1)) / VEC_BITS)
+#define BITCT_TO_WORDCT(val) (((val) + (BITCT - 1)) / BITCT)
+#define BITCT_TO_ALIGNED_WORDCT(val) (VEC_WORDS * BITCT_TO_VECCT(val))
+
+#define QUATERCT_TO_VECCT(val) (((val) + ((VEC_BITS / 2) - 1)) / (VEC_BITS / 2))
+#define QUATERCT_TO_WORDCT(val) (((val) + (BITCT2 - 1)) / BITCT2)
+#define QUATERCT_TO_ALIGNED_WORDCT(val) (VEC_WORDS * QUATERCT_TO_VECCT(val))
+
+// todo: get rid of (BITCT_TO_WORDCT(x) == QUATERCT_TO_VECCT(x)) and similar
+// assumptions, in preparation for AVX2
+
 #ifdef __LP64__
 #define round_up_pow2_ull round_up_pow2
 #else
@@ -2398,19 +2409,19 @@ uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfil
 
 uint32_t load_and_split(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* casebuf, uintptr_t* ctrlbuf, uintptr_t* pheno_nm, uintptr_t* pheno_c);
 
-void quaterarr_include_init(uintptr_t unfiltered_sample_ct, uintptr_t* new_include_quaterarr, uintptr_t* old_include);
+void quaterarr_include_init(uintptr_t unfiltered_sample_ct, uintptr_t* new_include_quaterarr, uintptr_t* old_include_bitarr);
 
-void exclude_to_vec_include(uintptr_t unfiltered_sample_ct, uintptr_t* include_vec, uintptr_t* exclude_arr);
+void exclude_to_vec_include(uintptr_t unfiltered_sample_ct, uintptr_t* include_vec, uintptr_t* exclude_bitarr);
 
-void vec_init_invert(uintptr_t entry_ct, uintptr_t* target_arr, uintptr_t* source_arr);
+void vec_init_invert(uintptr_t entry_ct, uintptr_t* target_quatervec, uintptr_t* source_quatervec);
 
-void bitfield_andnot_copy(uintptr_t word_ct, uintptr_t* target_arr, uintptr_t* source_arr, uintptr_t* exclude_arr);
+void bitfield_andnot_copy(uintptr_t word_ct, uintptr_t* target_vec, uintptr_t* source_vec, uintptr_t* exclude_vec);
 
-void vec_include_mask_in(uintptr_t unfiltered_sample_ct, uintptr_t* include_arr, uintptr_t* mask_arr);
+void vec_include_mask_in(uintptr_t unfiltered_sample_ct, uintptr_t* include_quaterarr, uintptr_t* mask_bitarr);
 
-void vec_include_mask_out(uintptr_t unfiltered_sample_ct, uintptr_t* include_arr, uintptr_t* mask_arr);
+void vec_include_mask_out(uintptr_t unfiltered_sample_ct, uintptr_t* include_quaterarr, uintptr_t* mask_bitarr);
 
-void vec_include_mask_out_intersect(uintptr_t unfiltered_sample_ct, uintptr_t* include_arr, uintptr_t* mask_arr, uintptr_t* mask2_arr);
+void vec_include_mask_out_intersect(uintptr_t unfiltered_sample_ct, uintptr_t* include_quaterarr, uintptr_t* mask_bitarr, uintptr_t* mask2_bitarr);
 
 void vec_init_01(uintptr_t unfiltered_sample_ct, uintptr_t* data_ptr, uintptr_t* result_ptr);
 

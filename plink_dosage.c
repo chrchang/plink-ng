@@ -189,7 +189,7 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
   }
   score_marker_ids = *score_marker_ids_ptr;
   score_effect_sizes = *score_effect_sizes_ptr;
-  score_marker_ctl = (score_marker_ct + (BITCT - 1)) / BITCT;
+  score_marker_ctl = BITCT_TO_WORDCT(score_marker_ct);
   if (sc_ip->data_fname) {
     if (bigstack_calloc_ul(score_marker_ctl, score_qrange_key_exists_ptr) ||
         bigstack_alloc_d(score_marker_ct, score_qrange_keys_ptr)) {
@@ -707,7 +707,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   if (retval) {
     goto plink1_dosage_ret_1;
   }
-  unfiltered_sample_ctl = (unfiltered_sample_ct + (BITCT - 1)) / BITCT;
+  unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   if (misc_flags & MISC_MAKE_FOUNDERS_FIRST) {
     if (make_founders(unfiltered_sample_ct, unfiltered_sample_ct, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, (misc_flags / MISC_MAKE_FOUNDERS_REQUIRE_2_MISSING) & 1, sample_exclude, founder_info)) {
       goto plink1_dosage_ret_NOMEM;
@@ -988,7 +988,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     goto plink1_dosage_ret_ALL_SAMPLES_EXCLUDED;
   }
   sample_cta4 = round_up_pow2(sample_ct, 4);
-  sample_ctl = (sample_ct + (BITCT - 1)) / BITCT;
+  sample_ctl = BITCT_TO_WORDCT(sample_ct);
   uii = do_glm && pheno_d;
   if (g_thread_ct > 1) {
     if (output_gz) {
@@ -1465,7 +1465,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  *fptr++ = (float)(*dptr++);
 	}
       }
-      if (bigstack_alloc_ul(((sample_ct + (2 * BITCT - 1)) / (2 * BITCT)) * 2, &perm_vec) ||
+      if (bigstack_alloc_ul(BITCT_TO_ALIGNED_WORDCT(sample_ct), &perm_vec) ||
 	  bigstack_alloc_f(param_ct * sample_cta4, &covars_cov_major_f_buf) ||
 	  bigstack_alloc_f(param_cta4, &coef_f) ||
 	  bigstack_alloc_f(sample_cta4, &pp_f) ||
