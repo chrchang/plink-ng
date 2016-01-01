@@ -821,15 +821,13 @@ char* uint32toa(uint32_t uii, char* start) {
 }
 
 char* int32toa(int32_t ii, char* start) {
+  uint32_t uii = ii;
   if (ii < 0) {
-    // -INT_MIN is undefined
-    if (ii < -2147483647) {
-      return memcpya(start, "-2147483648", 11);
-    }
+    // -INT_MIN is undefined, but negating the unsigned int equivalent works
     *start++ = '-';
-    ii = -ii;
+    uii = -uii;
   }
-  return uint32toa((uint32_t)ii, start);
+  return uint32toa(uii, start);
 }
 
 void uint32toa_z4(uint32_t uii, char* start) {
@@ -849,74 +847,65 @@ static inline void uint32toa_z8(uint32_t uii, char* start) {
   uint32toa_z6(uii - 1000000 * quotient, memcpya(start, &(digit2_table[quotient * 2]), 2));
 }
 
-char* int64_write(char* start, int64_t llii) {
-  int64_t top_digits;
+char* int64toa(int64_t llii, char* start) {
+  uint64_t ullii = llii;
+  uint64_t top_digits;
   uint32_t bottom_eight;
   uint32_t middle_eight;
   if (llii < 0) {
-    if (llii < -9223372036854775807LL) {
-      // special case, can't be represented positive
-      return memcpya(start, "-9223372036854775808", 20);
-    }
     *start++ = '-';
-    llii = -llii;
+    ullii = -ullii;
   }
-  if (llii <= 0xffffffffLL) {
-    return uint32toa((uint32_t)llii, start);
+  if (ullii <= 0xffffffffLLU) {
+    return uint32toa((uint32_t)ullii, start);
   }
-  top_digits = llii / 100000000LL;
-  bottom_eight = (uint32_t)(llii - (top_digits * 100000000));
-  if (top_digits <= 0xffffffffLL) {
+  top_digits = ullii / 100000000;
+  bottom_eight = (uint32_t)(ullii - (top_digits * 100000000));
+  if (top_digits <= 0xffffffffLLU) {
     start = uint32toa((uint32_t)top_digits, start);
     uint32toa_z8(bottom_eight, start);
     return &(start[8]);
   }
-  llii = top_digits / 100000000LL;
-  middle_eight = (uint32_t)(top_digits - (llii * 100000000));
-  start = uint32toa((uint32_t)llii, start);
+  ullii = top_digits / 100000000;
+  middle_eight = (uint32_t)(top_digits - (ullii * 100000000));
+  start = uint32toa((uint32_t)ullii, start);
   uint32toa_z8(middle_eight, start);
   uint32toa_z8(bottom_eight, &(start[8]));
   return &(start[16]);
 }
 
-char* uint32_writew4(char* start, uint32_t uii) {
-  // Minimum field width 4.
+char* uint32toa_w3s(uint32_t uii, char* start) {
+  // 's' = small, known to be less than 1000
   uint32_t quotient;
+  if (uii < 10) {
+    memset(start, 32, 2);
+    start[2] = '0' + uii;
+    return &(start[3]);
+  } else if (uii < 100) {
+    start[0] = ' ';
+  } else {
+    quotient = uii / 100;
+    start[0] = '0' + quotient;
+    uii -= quotient * 100;
+  }
+  return memcpya(&(start[1]), &(digit2_table[uii * 2]), 2);
+}
+
+char* uint32toa_w4(uint32_t uii, char* start) {
   if (uii < 1000) {
-    if (uii < 10) {
-      memset(start, 32, 3);
-      start[3] = '0' + uii;
-      return &(start[4]);
-    } else if (uii < 100) {
-      memset(start, 32, 2);
-    } else {
-      quotient = uii / 100;
-      *start = ' ';
-      start[1] = '0' + quotient;
-      uii -= quotient * 100;
-    }
-    return memcpya(&(start[2]), &(digit2_table[uii * 2]), 2);
+    *start++ = ' ';
+    return uint32toa_w3s(uii, start);
   } else {
     return uint32toa(uii, start);
   }
 }
 
-char* uint32_writew6(char* start, uint32_t uii) {
+char* uint32toa_w6(uint32_t uii, char* start) {
   uint32_t quotient;
   if (uii < 1000) {
-    if (uii < 10) {
-      memset(start, 32, 5);
-      start[5] = '0' + uii;
-      return &(start[6]);
-    } else if (uii < 100) {
-      memset(start, 32, 4);
-    } else {
-      memset(start, 32, 3);
-      quotient = uii / 100;
-      start[3] = '0' + quotient;
-      uii -= quotient * 100;
-    }
-    return memcpya(&(start[4]), &(digit2_table[uii * 2]), 2);
+    // todo: check whether memcpyl3a is better here
+    start = memseta(start, 32, 3);
+    return uint32toa_w3s(uii, start);
   } else if (uii < 10000000) {
     if (uii >= 100000) {
       if (uii >= 1000000) {
@@ -958,22 +947,11 @@ char* uint32_writew6(char* start, uint32_t uii) {
   return memcpya(memcpya(start, &(digit2_table[quotient * 2]), 2), &(digit2_table[uii * 2]), 2);
 }
 
-char* uint32_writew7(char* start, uint32_t uii) {
+char* uint32toa_w7(uint32_t uii, char* start) {
   uint32_t quotient;
   if (uii < 1000) {
-    if (uii < 10) {
-      memset(start, 32, 6);
-      start[6] = '0' + uii;
-      return &(start[7]);
-    } else if (uii < 100) {
-      memset(start, 32, 5);
-    } else {
-      memset(start, 32, 4);
-      quotient = uii / 100;
-      start[4] = '0' + quotient;
-      uii -= quotient * 100;
-    }
-    return memcpya(&(start[5]), &(digit2_table[uii * 2]), 2);
+    start = memseta(start, 32, 4);
+    return uint32toa_w3s(uii, start);
   } else if (uii < 10000000) {
     if (uii >= 100000) {
       if (uii >= 1000000) {
@@ -1016,22 +994,11 @@ char* uint32_writew7(char* start, uint32_t uii) {
   return memcpya(memcpya(start, &(digit2_table[quotient * 2]), 2), &(digit2_table[uii * 2]), 2);
 }
 
-char* uint32_writew8(char* start, uint32_t uii) {
+char* uint32toa_w8(uint32_t uii, char* start) {
   uint32_t quotient;
   if (uii < 1000) {
-    if (uii < 10) {
-      memset(start, 32, 7);
-      start[7] = '0' + uii;
-      return &(start[8]);
-    } else if (uii < 100) {
-      memset(start, 32, 6);
-    } else {
-      memset(start, 32, 5);
-      quotient = uii / 100;
-      start[5] = '0' + quotient;
-      uii -= quotient * 100;
-    }
-    return memcpya(&(start[6]), &(digit2_table[uii * 2]), 2);
+    start = memseta(start, 32, 5);
+    return uint32toa_w3s(uii, start);
   } else if (uii < 10000000) {
     if (uii >= 100000) {
       if (uii < 1000000) {
@@ -1076,22 +1043,11 @@ char* uint32_writew8(char* start, uint32_t uii) {
   return memcpya(memcpya(start, &(digit2_table[quotient * 2]), 2), &(digit2_table[uii * 2]), 2);
 }
 
-char* uint32_writew10(char* start, uint32_t uii) {
+char* uint32toa_w10(uint32_t uii, char* start) {
   uint32_t quotient;
   if (uii < 1000) {
-    if (uii < 10) {
-      memset(start, 32, 9);
-      start[9] = '0' + uii;
-      return &(start[10]);
-    } else if (uii < 100) {
-      memset(start, 32, 8);
-    } else {
-      memset(start, 32, 7);
-      quotient = uii / 100;
-      start[7] = '0' + quotient;
-      uii -= quotient * 100;
-    }
-    return memcpya(&(start[8]), &(digit2_table[uii * 2]), 2);
+    start = memseta(start, 32, 7);
+    return uint32toa_w3s(uii, start);
   } else if (uii < 10000000) {
     if (uii >= 100000) {
       if (uii < 1000000) {
@@ -1817,15 +1773,14 @@ char* double_write8(char* start, double dxx) {
   }
 }
 
-char* double_e_write(char* start, double dxx) {
+char* dtoa_e(double dxx, char* start) {
   uint32_t xp10 = 0;
   uint32_t quotient;
   uint32_t remainder;
   char sign;
   if (dxx != dxx) {
     // do this first to avoid generating exception
-    *((uint32_t*)start) = *((uint32_t*)"nan");
-    return &(start[3]);
+    return memcpyl3a(start, "nan");
   } else if (dxx < 0) {
     *start++ = '-';
     dxx = -dxx;
@@ -1834,8 +1789,7 @@ char* double_e_write(char* start, double dxx) {
     if (dxx >= 9.9999994999999e7) {
       if (dxx >= 9.9999994999999e127) {
 	if (dxx == INFINITY) {
-	  *((uint32_t*)start) = *((uint32_t*)"inf");
-	  return &(start[3]);
+	  return memcpyl3a(start, "inf");
 	} else if (dxx >= 9.9999994999999e255) {
 	  dxx *= 1.0e-256;
 	  xp10 |= 256;
@@ -1942,8 +1896,7 @@ char* float_e_write(char* start, float fxx) {
   char sign;
   if (fxx != fxx) {
     // do this first to avoid generating exception
-    *((uint32_t*)start) = *((uint32_t*)"nan");
-    return &(start[3]);
+    return memcpyl3a(start, "nan");
   } else if (fxx < 0) {
     *start++ = '-';
     fxx = -fxx;
@@ -1951,8 +1904,7 @@ char* float_e_write(char* start, float fxx) {
   if (fxx >= 9.9999995e-1) {
     if (fxx >= 9.9999995e15) {
       if (fxx == INFINITY) {
-	*((uint32_t*)start) = *((uint32_t*)"inf");
-	return &(start[3]);
+	return memcpyl3a(start, "inf");
       } else if (fxx >= 9.9999995e31) {
 	fxx *= 1.0e-32;
 	xp10 |= 32;
@@ -2023,8 +1975,7 @@ char* double_f_writew2(char* start, double dxx) {
   uint32_t quotient;
   uint32_t remainder;
   if (dxx != dxx) {
-    *((uint32_t*)start) = *((uint32_t*)"nan");
-    return &(start[3]);
+    return memcpyl3a(start, "nan");
   } else if (dxx < 9.9949999999999) {
     if (dxx < 0) {
       *start++ = '-';
@@ -2063,8 +2014,7 @@ char* double_f_writew2(char* start, double dxx) {
     goto double_f_writew2_dec;
   }
   if (dxx == INFINITY) {
-    *((uint32_t*)start) = *((uint32_t*)"inf");
-    return &(start[3]);
+    return memcpyl3a(start, "inf");
   }
   // just punt larger numbers to glibc for now, this isn't a bottleneck
   start += sprintf(start, "%.2f", dxx);
@@ -2076,8 +2026,7 @@ char* double_f_writew3(char* start, double dxx) {
   uint32_t quotient;
   uint32_t remainder;
   if (dxx != dxx) {
-    *((uint32_t*)start) = *((uint32_t*)"nan");
-    return &(start[3]);
+    return memcpyl3a(start, "nan");
   } else if (dxx < 9.9994999999999) {
     if (dxx < 0) {
       *start++ = '-';
@@ -2117,8 +2066,7 @@ char* double_f_writew3(char* start, double dxx) {
     goto double_f_writew3_dec;
   }
   if (dxx == INFINITY) {
-    *((uint32_t*)start) = *((uint32_t*)"inf");
-    return &(start[3]);
+    return memcpyl3a(start, "inf");
   }
   start += sprintf(start, "%.3f", dxx);
   return start;
@@ -2235,8 +2183,7 @@ char* double_g_write(char* start, double dxx) {
   uint32_t quotient;
   uint32_t remainder;
   if (dxx != dxx) {
-    *((uint32_t*)start) = *((uint32_t*)"nan");
-    return &(start[3]);
+    return memcpyl3a(start, "nan");
   } else if (dxx < 0) {
     *start++ = '-';
     dxx = -dxx;
@@ -2298,8 +2245,7 @@ char* double_g_write(char* start, double dxx) {
     if (dxx >= 9.9999949999999e15) {
       if (dxx >= 9.9999949999999e127) {
 	if (dxx == INFINITY) {
-	  *((uint32_t*)start) = *((uint32_t*)"inf");
-	  return &(start[3]);
+	  return memcpyl3a(start, "inf");
 	} else if (dxx >= 9.9999949999999e255) {
 	  dxx *= 1.0e-256;
 	  xp10 |= 256;
@@ -2367,8 +2313,7 @@ char* float_g_write(char* start, float fxx) {
   uint32_t quotient;
   uint32_t remainder;
   if (fxx != fxx) {
-    *((uint32_t*)start) = *((uint32_t*)"nan");
-    return &(start[3]);
+    return memcpyl3a(start, "nan");
   } else if (fxx < 0) {
     *start++ = '-';
     fxx = -fxx;
@@ -2407,8 +2352,7 @@ char* float_g_write(char* start, float fxx) {
   } else if (fxx >= 999999.44) {
     if (fxx >= 9.9999944e15) {
       if (fxx == INFINITY) {
-	*((uint32_t*)start) = *((uint32_t*)"inf");
-	return &(start[3]);
+	return memcpyl3a(start, "inf");
       } else if (fxx >= 9.9999944e31) {
 	fxx *= 1.0e-32;
 	xp10 |= 32;

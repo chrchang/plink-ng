@@ -1397,17 +1397,18 @@ char* int32toa(int32_t ii, char* start);
 // e.g. floating point encoders.  uii must not be >= 10^4.
 void uint32toa_z4(uint32_t uii, char* start);
 
-char* int64_write(char* start, int64_t llii);
+char* int64toa(int64_t llii, char* start);
 
-char* uint32_writew4(char* start, uint32_t uii);
+// Minimum field width 4 (padding with spaces on left).
+char* uint32toa_w4(uint32_t uii, char* start);
 
-char* uint32_writew6(char* start, uint32_t uii);
+char* uint32toa_w6(uint32_t uii, char* start);
 
-char* uint32_writew7(char* start, uint32_t uii);
+char* uint32toa_w7(uint32_t uii, char* start);
 
-char* uint32_writew8(char* start, uint32_t uii);
+char* uint32toa_w8(uint32_t uii, char* start);
 
-char* uint32_writew10(char* start, uint32_t uii);
+char* uint32toa_w10(uint32_t uii, char* start);
 
 // These limited-precision converters are usually several times as fast as
 // grisu2's descendants; and let's not even speak of sprintf.  (I'm guessing
@@ -1415,7 +1416,7 @@ char* uint32_writew10(char* start, uint32_t uii);
 // performance advantage, since we currently multiply by numbers like 1.0e256
 // which don't have an exact representation.  But these functions are very,
 // very good at what they do.)
-char* double_e_write(char* start, double dxx);
+char* dtoa_e(double dxx, char* start);
 
 char* float_e_write(char* start, float dxx);
 
@@ -1493,37 +1494,37 @@ static inline char* int32_writex(char* start, int32_t ii, char extra_char) {
 }
 
 static inline char* uint32_writew4x(char* start, uint32_t uii, char extra_char) {
-  char* penult = uint32_writew4(start, uii);
+  char* penult = uint32toa_w4(uii, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
 static inline char* uint32_writew6x(char* start, uint32_t uii, char extra_char) {
-  char* penult = uint32_writew6(start, uii);
+  char* penult = uint32toa_w6(uii, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
 static inline char* uint32_writew7x(char* start, uint32_t uii, char extra_char) {
-  char* penult = uint32_writew7(start, uii);
+  char* penult = uint32toa_w7(uii, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
 static inline char* uint32_writew8x(char* start, uint32_t uii, char extra_char) {
-  char* penult = uint32_writew8(start, uii);
+  char* penult = uint32toa_w8(uii, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
 static inline char* uint32_writew10x(char* start, uint32_t uii, char extra_char) {
-  char* penult = uint32_writew10(start, uii);
+  char* penult = uint32toa_w10(uii, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
 static inline char* double_e_writex(char* start, double dxx, char extra_char) {
-  char* penult = double_e_write(start, dxx);
+  char* penult = dtoa_e(dxx, start);
   *penult = extra_char;
   return &(penult[1]);
 }

@@ -2499,8 +2499,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
 	  if (tot_obs) {
             pzwritep = double_g_writewx4x(pzwritep, ((double)((int32_t)a1_obs)) / ((double)tot_obs), 8, ' ');
 	    pzwritep = uint32_writew6x(pzwritep, a1_obs, ' ');
-	    pzwritep = uint32_writew8(pzwritep, tot_obs);
-	    *pzwritep++ = ' ';
+	    pzwritep = uint32_writew8x(pzwritep, tot_obs, ' ');
 	  } else {
 	    pzwritep = memcpya(pzwritep, "       0      0        0 ", 25);
 	  }
@@ -2531,8 +2530,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
 	  if (tot_obs) {
             pzwritep = double_g_writewx4x(pzwritep, ((double)((int32_t)a1_obs)) / ((double)tot_obs), 8, ' ');
 	    pzwritep = uint32_writew6x(pzwritep, a1_obs, ' ');
-	    pzwritep = uint32_writew8(pzwritep, tot_obs);
-	    *pzwritep++ = ' ';
+	    pzwritep = uint32_writew8x(pzwritep, tot_obs, ' ');
 	  } else {
 	    pzwritep = memcpya(pzwritep, "       0      0        0 ", 25);
 	  }
@@ -2563,8 +2561,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
 	  if (tot_obs) {
             pzwritep = double_g_writewx4x(pzwritep, ((double)((int32_t)a1_obs)) / ((double)tot_obs), 8, ' ');
 	    pzwritep = uint32_writew6x(pzwritep, a1_obs, ' ');
-	    pzwritep = uint32_writew8(pzwritep, tot_obs);
-	    *pzwritep++ = ' ';
+	    pzwritep = uint32_writew8x(pzwritep, tot_obs, ' ');
 	  } else {
 	    pzwritep = memcpya(pzwritep, "       0      0        0 ", 25);
 	  }
@@ -2753,7 +2750,7 @@ int32_t write_cc_freqs(FILE* bedfile, uintptr_t bed_offset, char* outname, char*
       }
 
       pzwritep = uint32_writew10x(pzwritep, case_obs, ' ');
-      pzwritep = uint32_writew10(pzwritep, ctrl_obs);
+      pzwritep = uint32toa_w10(ctrl_obs, pzwritep);
       append_binary_eoln(&pzwritep);
       if (flex_pzwrite(&ps, &pzwritep)) {
 	goto write_cc_freqs_ret_WRITE_FAIL;
@@ -2895,7 +2892,7 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
 	  *pzwritep++ = ' ';
           pzwritep = uint32_writew6x(pzwritep, 2 * ll_cts[marker_uidx] + lh_cts[marker_uidx] + hapl_cts[marker_uidx], ' ');
 	  pzwritep = uint32_writew6x(pzwritep, 2 * hh_cts[marker_uidx] + lh_cts[marker_uidx] + haph_cts[marker_uidx], ' ');
-	  pzwritep = uint32_writew6(pzwritep, missing_ct);
+	  pzwritep = uint32toa_w6(missing_ct, pzwritep);
 	}
       } else {
 	pzwritep = width_force(4, pzwritep, chrom_name_write(pzwritep, chrom_info_ptr, chrom_idx));
@@ -2913,7 +2910,7 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
 	  pzwritep = memcpya(pzwritep, "          NA", 12);
 	}
 	*pzwritep++ = ' ';
-	pzwritep = uint32_writew8(pzwritep, uii);
+	pzwritep = uint32toa_w8(uii, pzwritep);
       }
       append_binary_eoln(&pzwritep);
       if (flex_pzwrite(&ps, &pzwritep)) {
@@ -3167,7 +3164,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
       }
       if (check_y) {
 	*wptr++ = ' ';
-	wptr = uint32_writew8(wptr, ytotal - ymiss_cts[sample_idx]);
+	wptr = uint32toa_w8(ytotal - ymiss_cts[sample_idx], wptr);
       }
     } else {
       if (ymiss_cts[sample_idx] + min_m_yobs <= ytotal) {
@@ -3182,7 +3179,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	wptr = memcpya(wptr, "      PROBLEM ", 14);
 	problem_ct++;
       }
-      wptr = uint32_writew8(wptr, ytotal - ymiss_cts[sample_idx]);
+      wptr = uint32toa_w8(ytotal - ymiss_cts[sample_idx], wptr);
     }
     *wptr++ = '\n';
     if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
@@ -6110,7 +6107,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	wptr = memseta(wptr, 32, 2);
 	cur_bp = uint32_decode_5_hi_uchar(bufptr);
 	bufptr = &(bufptr[5]);
-	wptr = uint32_writew10(wptr, cur_bp);
+	wptr = uint32toa_w10(cur_bp, wptr);
       }
       *wptr++ = ' ';
       var_id_len = strlen(bufptr);

@@ -5162,8 +5162,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	}
 	wptr_start2 = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), wptr_start);
 	*wptr_start2++ = ' ';
-	wptr_start2 = uint32_writew10(wptr_start2, marker_pos[marker_uidx2]);
-	*wptr_start2++ = ' ';
+	wptr_start2 = uint32_writew10x(wptr_start2, marker_pos[marker_uidx2], ' ');
 	wptr_start2 = fw_strcpy(4, marker_allele_ptrs[marker_uidx2 * 2], wptr_start2);
 	*wptr_start2++ = ' ';
 	orig_stats_ptr = &(g_orig_stats[marker_idx3]);
@@ -5234,7 +5233,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	    if ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0))) {
 	      wptr = fw_strcpy(10, &(param_names[param_ct_max * max_param_name_len]), wptr_start2);
               *wptr++ = ' ';
-              wptr = uint32_writew8(wptr, (uint32_t)cur_sample_valid_ct);
+              wptr = uint32toa_w8((uint32_t)cur_sample_valid_ct, wptr);
               wptr = memcpya(wptr, "         NA ", 12);
               if (display_ci) {
 		wptr = memcpya(wptr, "      NA       NA       NA ", 27);
@@ -5272,7 +5271,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 		  wptr = fw_strcpy(10, &(param_names[param_ct_max * max_param_name_len]), wptr_start2);
 		}
 		*wptr++ = ' ';
-		wptr = uint32_writew8(wptr, (uint32_t)cur_sample_valid_ct);
+		wptr = uint32toa_w8((uint32_t)cur_sample_valid_ct, wptr);
 		wptr = memcpya(wptr, "         NA ", 12);
 		if (display_ci) {
 		  wptr = memcpya(wptr, "      NA       NA       NA ", 27);
@@ -5514,7 +5513,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	    }
 	    if (perm_adapt_nst) {
 	      wptr = memseta(wptr, 32, 2);
-	      wptr = uint32_writew10(wptr, g_perm_attempt_ct[marker_idx]);
+	      wptr = uint32toa_w10(g_perm_attempt_ct[marker_idx], wptr);
 	    } else {
 	      dzz = (int32_t)(perms_total - doublearr_greater_than(g_maxt_extreme_stat, perms_total, g_orig_stats[marker_idx] - EPSILON) + 1);
               if (!perm_count) {
@@ -6594,8 +6593,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	}
 	wptr_start2 = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), wptr_start);
 	*wptr_start2++ = ' ';
-	wptr_start2 = uint32_writew10(wptr_start2, marker_pos[marker_uidx2]);
-	*wptr_start2++ = ' ';
+	wptr_start2 = uint32_writew10x(wptr_start2, marker_pos[marker_uidx2], ' ');
 	wptr_start2 = fw_strcpy(4, marker_allele_ptrs[marker_uidx2 * 2], wptr_start2);
 	*wptr_start2++ = ' ';
 	orig_stats_ptr = &(g_orig_stats[marker_idx3]);
@@ -6672,7 +6670,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	    if ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0))) {
 	      wptr = fw_strcpy(10, &(param_names[param_ct_max * max_param_name_len]), wptr_start2);
               *wptr++ = ' ';
-              wptr = uint32_writew8(wptr, (uint32_t)cur_sample_valid_ct);
+              wptr = uint32toa_w8((uint32_t)cur_sample_valid_ct, wptr);
               wptr = memcpya(wptr, "         NA ", 12);
               if (display_ci) {
 		wptr = memcpya(wptr, "      NA       NA       NA ", 27);
@@ -6710,7 +6708,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 		  wptr = fw_strcpy(10, &(param_names[param_ct_max * max_param_name_len]), wptr_start2);
 		}
 		*wptr++ = ' ';
-		wptr = uint32_writew8(wptr, (uint32_t)cur_sample_valid_ct);
+		wptr = uint32toa_w8((uint32_t)cur_sample_valid_ct, wptr);
 		wptr = memcpya(wptr, "         NA ", 12);
 		if (display_ci) {
 		  wptr = memcpya(wptr, "      NA       NA       NA ", 27);
@@ -6950,7 +6948,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	    }
 	    if (perm_adapt_nst) {
 	      wptr = memseta(wptr, 32, 2);
-	      wptr = uint32_writew10(wptr, g_perm_attempt_ct[marker_idx]);
+	      wptr = uint32toa_w10(g_perm_attempt_ct[marker_idx], wptr);
 	    } else {
 	      dzz = (int32_t)(perms_total - doublearr_greater_than(g_maxt_extreme_stat, perms_total, g_orig_stats[marker_idx] - EPSILON) + 1);
               if (!perm_count) {
@@ -7638,7 +7636,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     if ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0))) {
       wptr = fw_strcpy(10, &(param_names[param_ct * max_param_name_len]), g_textbuf);
       *wptr++ = ' ';
-      wptr = uint32_writew8(wptr, (uint32_t)sample_valid_ct);
+      wptr = uint32toa_w8((uint32_t)sample_valid_ct, wptr);
       wptr = memcpya(wptr, "         NA ", 12);
       if (display_ci) {
 	wptr = memcpya(wptr, "      NA       NA       NA ", 27);
@@ -7767,7 +7765,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
           wptr = double_g_writewx4(wptr, ((double)perm_2success_ct[param_idx - 1]) * 0.5, 12);
 	}
         wptr = memseta(wptr, 32, 3);
-        wptr = uint32_writew10(wptr, glm_mperm_val - perm_fail_total);
+        wptr = uint32toa_w10(glm_mperm_val - perm_fail_total, wptr);
         wptr = memcpya(wptr, " \n", 2);
 	if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	  goto glm_linear_nosnp_ret_WRITE_FAIL;
@@ -7785,7 +7783,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
           wptr = double_g_writewx4(wptr, ((double)perm_2success_ct[param_ct - 1]) * 0.5, 12);
 	}
         wptr = memseta(wptr, 32, 3);
-        wptr = uint32_writew10(wptr, glm_mperm_val - perm_fail_total - joint_perm_fail_extra);
+        wptr = uint32toa_w10(glm_mperm_val - perm_fail_total - joint_perm_fail_extra, wptr);
         wptr = memcpya(wptr, " \n", 2);
 	if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	  goto glm_linear_nosnp_ret_WRITE_FAIL;
@@ -8431,7 +8429,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     if ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0))) {
       wptr = fw_strcpy(10, &(param_names[param_ct * max_param_name_len]), g_textbuf);
       *wptr++ = ' ';
-      wptr = uint32_writew8(wptr, (uint32_t)sample_valid_ct);
+      wptr = uint32toa_w8((uint32_t)sample_valid_ct, wptr);
       wptr = memcpya(wptr, "         NA ", 12);
       if (display_ci) {
 	wptr = memcpya(wptr, "      NA       NA       NA ", 27);
@@ -8551,7 +8549,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
           wptr = double_g_writewx4(wptr, ((double)perm_2success_ct[param_idx - 1]) * 0.5, 12);
 	}
         wptr = memseta(wptr, 32, 3);
-        wptr = uint32_writew10(wptr, glm_mperm_val - perm_fail_total);
+        wptr = uint32toa_w10(glm_mperm_val - perm_fail_total, wptr);
         wptr = memcpya(wptr, " \n", 2);
 	if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	  goto glm_logistic_nosnp_ret_WRITE_FAIL;
@@ -8569,7 +8567,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
           wptr = double_g_writewx4(wptr, ((double)perm_2success_ct[param_ct - 1]) * 0.5, 12);
 	}
         wptr = memseta(wptr, 32, 3);
-        wptr = uint32_writew10(wptr, glm_mperm_val - perm_fail_total - joint_perm_fail_extra);
+        wptr = uint32toa_w10(glm_mperm_val - perm_fail_total - joint_perm_fail_extra, wptr);
         wptr = memcpya(wptr, " \n", 2);
 	if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	  goto glm_logistic_nosnp_ret_WRITE_FAIL;

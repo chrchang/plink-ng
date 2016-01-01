@@ -493,7 +493,7 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
       slen = strlen(cptr);
       wptr = memcpya(memseta(wptr, 32, plink_maxsnp - slen), cptr, slen);
       wptr = memseta(wptr, 32, 3);
-      wptr = uint32_writew10(wptr, marker_pos[marker_uidx1]);
+      wptr = uint32toa_w10(marker_pos[marker_uidx1], wptr);
       wptr = memseta(wptr, 32, 3);
       wptr = uint32_writew10x(wptr, marker_pos[marker_uidx2], ' ');
       dxx = ((double)(marker_pos[marker_uidx2] + is_new_lengths - marker_pos[marker_uidx1])) / (1000.0 - EPSILON);
@@ -607,7 +607,7 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
       cptr = &(marker_ids[marker_uidx1 * max_marker_id_len]);
       slen = strlen(cptr);
       memcpy(memseta(wptr_chr, 32, plink_maxsnp - slen), cptr, slen);
-      uint32_writew10(wptr_bp1, marker_pos[marker_uidx1]);
+      uint32toa_w10(marker_pos[marker_uidx1], wptr_bp1);
       if (!pheno_c) {
         wptr = &(wptr_bp1[20]);
       } else {
@@ -1306,7 +1306,7 @@ char* roh_pool_write_middle(char* wptr, char* marker_ids, uintptr_t max_marker_i
   *wptr++ = ' ';
   wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), wptr);
   wptr = memseta(wptr, 32, 5);
-  wptr = uint32_writew10(wptr, marker_pos[marker_uidx1]);
+  wptr = uint32toa_w10(marker_pos[marker_uidx1], wptr);
   wptr = memseta(wptr, 32, 5);
   wptr = uint32_writew10x(wptr, marker_pos[marker_uidx2], ' ');
   wptr = double_g_writewx8(wptr, ((double)(marker_pos[marker_uidx2] + is_new_lengths - marker_pos[marker_uidx1])) / 1000.0, 8);
@@ -2004,7 +2004,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	    goto roh_pool_ret_WRITE_FAIL;
 	  }
 	  for (slot_idx2 = slot_idx1; slot_idx2 < group_slot_end; slot_idx2++) {
-            wptr = uint32_writew4(g_textbuf, slot_idx2 + 1);
+            wptr = uint32toa_w4(slot_idx2 + 1, g_textbuf);
 	    wptr = memcpya(wptr, ") ", 2);
 	    sample_uidx1 = verbose_sample_uidx[slot_idx2];
 	    cptr = &(sample_ids[sample_uidx1 * max_sample_id_len]);
@@ -2035,7 +2035,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	    goto roh_pool_ret_WRITE_FAIL;
 	  }
 	  for (slot_idx2 = slot_idx1; slot_idx2 < group_slot_end; slot_idx2++) {
-	    wptr = uint32_writew4(g_textbuf, slot_idx2 + 1);
+	    wptr = uint32toa_w4(slot_idx2 + 1, g_textbuf);
 	    wptr = memseta(wptr, 32, 2);
 	    fwrite(g_textbuf, 1, wptr - g_textbuf, outfile);
 	  }
@@ -2348,7 +2348,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	*wptr++ = ' ';
 	wptr = width_force(4, wptr, chrom_name_write(wptr, chrom_info_ptr, chrom_start));
         wptr = roh_pool_write_middle(wptr, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, is_new_lengths, marker_uidx1, marker_uidx2);
-        wptr = uint32_writew8(wptr, marker_cidx);
+        wptr = uint32toa_w8(marker_cidx, wptr);
         wptr = memcpya(wptr, "    NA     NA \n", 15);
 	if (ujj) {
 	  *wptr++ = '\n';

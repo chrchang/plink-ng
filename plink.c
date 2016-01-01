@@ -1,5 +1,5 @@
 // PLINK 1.90
-// Copyright (C) 2005-2015 Shaun Purcell, Christopher Chang
+// Copyright (C) 2005-2016 Shaun Purcell, Christopher Chang
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -104,10 +104,10 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (31 Dec 2015)";
+  " (1 Jan 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
 #else
@@ -117,7 +117,7 @@ static const char ver_str2[] =
   "  "
 #endif
   "    https://www.cog-genomics.org/plink2\n"
-  "(C) 2005-2015 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
+  "(C) 2005-2016 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
 static const char errstr_append[] = "For more information, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
 #ifdef STABLE_BUILD
   #ifndef NOLAPACK

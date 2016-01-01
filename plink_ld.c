@@ -7438,7 +7438,7 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
       block_cidx = candidate_pairs[2 * candidate_idx];
       block_cidx2 = candidate_pairs[2 * candidate_idx + 1];
       marker_uidx = block_cidx;
-      wptr = uint32_writew10(wptr_start, marker_pos[block_cidx]);
+      wptr = uint32toa_w10(marker_pos[block_cidx], wptr_start);
       wptr = memseta(wptr, 32, 3);
       wptr = uint32_writew10x(wptr, marker_pos[block_cidx2], ' ');
       wptr = width_force(12, wptr, double_g_write(wptr, ((int32_t)(marker_pos[block_cidx2] + 1 - marker_pos[block_cidx])) * 0.001));
@@ -10170,7 +10170,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       }
       wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr_start);
       wptr = memcpyl3a(wptr, "   ");
-      wptr = uint32_writew10(wptr, uii);
+      wptr = uint32toa_w10(uii, wptr);
       wptr = memcpyl3a(wptr, "   ");
       wptr = uint32_writew10x(wptr, ujj, ' ');
       if (parallel_tot == 1) {
@@ -11016,7 +11016,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
     nsig = lle_ptr->n_sig;
     ntot = lle_ptr->n_tot;
     bufptr = memcpyl3a(bufptr, "   ");
-    bufptr = uint32_writew10(bufptr, nsig);
+    bufptr = uint32toa_w10(nsig, bufptr);
     bufptr = memcpyl3a(bufptr, "   ");
     bufptr = uint32_writew10x(bufptr, ntot, ' ');
     bufptr = double_g_writewx4x(bufptr, ((double)((int32_t)nsig)) / ((double)((int32_t)ntot)), 12, ' ');
@@ -13505,7 +13505,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     }
     bufptr = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, clump_chrom_idx));
     *bufptr++ = ' ';
-    bufptr = uint32_writew4(bufptr, index_fidx);
+    bufptr = uint32toa_w4(index_fidx, bufptr);
     *bufptr++ = ' ';
     bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[ivar_uidx * max_marker_id_len]), bufptr);
     *bufptr++ = ' ';
@@ -13513,10 +13513,10 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     bufptr = double_g_writewx3x(bufptr, pval, 10, ' ');
 #ifdef __LP64__
     // may as well be paranoid
-    bufptr = width_force(8, bufptr, int64_write(bufptr, (int64_t)(histo[0] + histo[1] + histo[2] + histo[3] + histo[4])));
+    bufptr = width_force(8, bufptr, int64toa((int64_t)(histo[0] + histo[1] + histo[2] + histo[3] + histo[4]), bufptr));
     *bufptr++ = ' ';
     for (uii = 0; uii < 5; uii++) {
-      bufptr = width_force(6, bufptr, int64_write(bufptr, (int64_t)((uintptr_t)histo[uii])));
+      bufptr = width_force(6, bufptr, int64toa((int64_t)((uintptr_t)histo[uii]), bufptr));
       *bufptr++ = ' ';
     }
 #else

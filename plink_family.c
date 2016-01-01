@@ -1085,9 +1085,9 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
       *wptr++ = ' ';
       wptr = uint32_writew6x(wptr, child_cts[uii], ' ');
       if (family_error_cts[uii * 3] < 10000) {
-	wptr = uint32_writew4(wptr, (uint32_t)family_error_cts[uii * 3]);
+	wptr = uint32toa_w4((uint32_t)family_error_cts[uii * 3], wptr);
       } else {
-        wptr = int64_write(wptr, family_error_cts[uii * 3]);
+        wptr = int64toa(family_error_cts[uii * 3], wptr);
       }
       *wptr++ = '\n';
       if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
@@ -1117,9 +1117,9 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	  wptr = fw_strcpy(plink_maxiid, &(iids[ujj * max_iid_len]), wptr);
 	  *wptr++ = ' ';
 	  if (family_error_cts[3 * uii + 1] < 10000) {
-	    wptr = uint32_writew4(wptr, (uint32_t)family_error_cts[3 * uii + 1]);
+	    wptr = uint32toa_w4((uint32_t)family_error_cts[3 * uii + 1], wptr);
 	  } else {
-	    wptr = int64_write(wptr, family_error_cts[3 * uii + 1]);
+	    wptr = int64toa(family_error_cts[3 * uii + 1], wptr);
 	  }
 	  if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	    goto mendel_error_scan_ret_WRITE_FAIL;
@@ -1133,9 +1133,9 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	  wptr = fw_strcpy(plink_maxiid, &(iids[ukk * max_iid_len]), &(g_textbuf[plink_maxfid + 1]));
 	  *wptr++ = ' ';
 	  if (family_error_cts[3 * uii + 2] < 10000) {
-	    wptr = uint32_writew4(wptr, (uint32_t)family_error_cts[3 * uii + 2]);
+	    wptr = uint32toa_w4((uint32_t)family_error_cts[3 * uii + 2], wptr);
 	  } else {
-	    wptr = int64_write(wptr, family_error_cts[3 * uii + 2]);
+	    wptr = int64toa(family_error_cts[3 * uii + 2], wptr);
 	  }
 	  if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	    goto mendel_error_scan_ret_WRITE_FAIL;
@@ -4878,7 +4878,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	    *wptr++ = ' ';
 	    if (perm_adapt_nst) {
 	      wptr = memseta(wptr, 32, 2);
-	      wptr = uint32_writew10(wptr, g_perm_attempt_ct[marker_idx]);
+	      wptr = uint32toa_w10(g_perm_attempt_ct[marker_idx], wptr);
 	    } else {
 	      // ...
 	      if (!perm_count) {

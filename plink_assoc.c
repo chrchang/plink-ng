@@ -6759,13 +6759,12 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	    wptr = memcpyax(writebuf, chrom_name_ptr, chrom_name_len, ' ');
 	    wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), wptr);
 	    *wptr++ = ' ';
-	    wptr = uint32_writew10(wptr, marker_pos[marker_uidx2]);
-	    *wptr = ' ';
-	    wptr = fw_strcpy(4, a1ptr, &(wptr[1]));
+	    wptr = uint32_writew10x(wptr, marker_pos[marker_uidx2], ' ');
+	    wptr = fw_strcpy(4, a1ptr, wptr);
 	    *wptr++ = ' ';
 	    if (umm + ukk) {
 	      if (assoc_counts) {
-		wptr = uint32_writew8(wptr, umm);
+		wptr = uint32toa_w8(umm, wptr);
 	      } else {
 		wptr = double_g_writewx4(wptr, da1 / (da1 + da2), 8);
 	      }
@@ -6775,7 +6774,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	    }
 	    if (ujj + uii) {
 	      if (assoc_counts) {
-		wptr = uint32_writew8(wptr, ujj);
+		wptr = uint32toa_w8(ujj, wptr);
 	      } else {
 		wptr = double_g_writewx4(wptr, du1 / (du1 + du2), 8);
 	      }
@@ -7662,7 +7661,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	    }
 	    if (model_adapt_nst) {
 	      wptr = memseta(wptr, 32, 2);
-	      wptr = uint32_writew10(wptr, perm_attempt_ct[marker_idx]);
+	      wptr = uint32toa_w10(perm_attempt_ct[marker_idx], wptr);
 	    } else {
 	      if (model_fisherx) {
 		// minimum p-value
@@ -8482,10 +8481,8 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	*wptr++ = ' ';
         wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), wptr);
 	*wptr++ = ' ';
-	wptr = uint32_writew10(wptr, marker_pos[marker_uidx2]);
-	*wptr++ = ' ';
-	wptr = uint32_writew8(wptr, nanal);
-	*wptr++ = ' ';
+	wptr = uint32_writew10x(wptr, marker_pos[marker_uidx2], ' ');
+	wptr = uint32_writew8x(wptr, nanal, ' ');
 	homrar_ct = nanal - het_ct - homcom_ct;
 	if (do_perms) {
 	  g_missing_cts[marker_idx + marker_bidx] = missing_ct;
@@ -8661,12 +8658,9 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
           fputs(a2ptr, outfile_qtm);
 	  putc('\n', outfile_qtm);
 	  wptr = memcpya(wptr_restart, "COUNTS ", 7);
-	  wptr = uint32_writew8(wptr, homrar_ct);
-	  *wptr++ = ' ';
-	  wptr = uint32_writew8(wptr, het_ct);
-	  *wptr++ = ' ';
-	  wptr = uint32_writew8(wptr, homcom_ct);
-	  *wptr++ = '\n';
+	  wptr = uint32_writew8x(wptr, homrar_ct, ' ');
+	  wptr = uint32_writew8x(wptr, het_ct, ' ');
+	  wptr = uint32_writew8x(wptr, homcom_ct, '\n');
 	  if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile_qtm)) {
 	    goto qassoc_ret_WRITE_FAIL;
 	  }
@@ -9000,7 +8994,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	    }
 	    if (perm_adapt_nst) {
 	      wptr = memseta(wptr, 32, 2);
-	      wptr = uint32_writew10(wptr, g_perm_attempt_ct[marker_idx]);
+	      wptr = uint32toa_w10(g_perm_attempt_ct[marker_idx], wptr);
 	    } else {
 	      // maximum chisq
 	      // N.B. numbers in maxt_extreme_stat[] have been pre-squared
@@ -10661,7 +10655,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	  }
 	  if (perm_adapt) {
 	    wptr = memseta(wptr, 32, 2);
-	    wptr = uint32_writew10(wptr, g_perm_attempt_ct[marker_idx]);
+	    wptr = uint32toa_w10(g_perm_attempt_ct[marker_idx], wptr);
 	  } else {
 	    // minimum p-value
 	    dzz = (int32_t)(doublearr_greater_than(g_maxt_extreme_stat, perms_total, g_orig_pvals[marker_idx] * (1.0 + EPSILON)) + 1);

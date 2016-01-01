@@ -1944,7 +1944,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    *pzwritep++ = ' ';
 	    pzwritep = fw_strcpyn(11, cur_marker_id_len, cur_marker_id_buf, pzwritep);
             pzwritep = memseta(pzwritep, 32, 2);
-            pzwritep = uint32_writew10(pzwritep, marker_pos[marker_idx]);
+            pzwritep = uint32toa_w10(marker_pos[marker_idx], pzwritep);
 	  } else {
 	    *pzwritep++ = ' ';
 	    pzwritep = fw_strcpyn(11, cur_marker_id_len, cur_marker_id_buf, pzwritep);
