@@ -6230,7 +6230,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	} else {
 	  wptr = memcpya(wptr, "     NA ", 8);
 	}
-	wptr = width_force(7, wptr, double_f_writew2(wptr, meta_i));
+	wptr = width_force(7, wptr, dtoa_f_p2(meta_i, wptr));
 	if (weighted_z) {
 	  numer = cur_data_ptr[-2];
 	  denom2 = cur_data_ptr[-1];

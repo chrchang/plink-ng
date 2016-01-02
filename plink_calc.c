@@ -4868,7 +4868,10 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	dxx1 = dxx2 * dxx2;
       }
       *sptr_cur++ = ' ';
-      sptr_cur = double_f_writew74(double_f_writew74x(double_f_writew74x(double_f_writew74x(sptr_cur, dxx, ' '), dyy, ' '), dxx1, ' '), dxx2);
+      sptr_cur = double_f_writew74x(sptr_cur, dxx, ' ');
+      sptr_cur = double_f_writew74x(sptr_cur, dyy, ' ');
+      sptr_cur = double_f_writew74x(sptr_cur, dxx1, ' ');
+      sptr_cur = dtoa_f_w7p4(dxx2, sptr_cur);
 
       if (pheno_c) {
 	uii = IS_SET(g_cg_pheno_nm, sample1uidx);
@@ -4897,13 +4900,17 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	sptr_cur = double_f_writew74x(sptr_cur, dxx2, ' ');
       }
       if (genome_main[gmcell + 3]) {
-	sptr_cur = double_f_writew74(sptr_cur, dxx / dyy);
+	sptr_cur = dtoa_f_w7p4(dxx / dyy, sptr_cur);
       } else {
 	sptr_cur = memcpya(sptr_cur, "     NA", 7);
       }
       if (output_full) {
-	*sptr_cur = ' ';
-	sptr_cur = double_f_writew74(double_f_writew74x(uint32_writew7x(uint32_writew7x(uint32_writew7x(&(sptr_cur[1]), genome_main[gmcell + 1], ' '), genome_main[gmcell], ' '), oo, ' '), dyy, ' '), dxx);
+	*sptr_cur++ = ' ';
+	sptr_cur = uint32_writew7x(sptr_cur, genome_main[gmcell + 1], ' ');
+	sptr_cur = uint32_writew7x(sptr_cur, genome_main[gmcell], ' ');
+	sptr_cur = uint32_writew7x(sptr_cur, oo, ' ');
+	sptr_cur = double_f_writew74x(sptr_cur, dyy, ' ');
+	sptr_cur = dtoa_f_w7p4(dxx, sptr_cur);
       }
       *sptr_cur++ = '\n';
     calc_genome_emitn_skip_line:

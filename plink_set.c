@@ -337,7 +337,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       if (marker_pos) {
         memcpy(ll_tmp->ss, bufptr3, uii);
       } else {
-	uint32toa_z4((uint32_t)ii, ll_tmp->ss);
+	uitoa_z4((uint32_t)ii, ll_tmp->ss);
 	// if first character of gene name is a digit, natural sort has strange
 	// effects unless we force [3] to be nonnumeric...
 	ll_tmp->ss[3] -= 15;
@@ -474,7 +474,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	memcpy(bufptr3, "C_", 2);
       } else if (!marker_pos) {
 	bufptr3 = &(bufptr3[-4]);
-	uint32toa_z4(chrom_idx, bufptr3);
+	uitoa_z4(chrom_idx, bufptr3);
 	bufptr3[3] -= 15;
       }
       // this should never fail

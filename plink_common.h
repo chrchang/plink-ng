@@ -1395,7 +1395,7 @@ char* int32toa(int32_t ii, char* start);
 
 // Write exactly four digits (padding with zeroes if necessary); useful for
 // e.g. floating point encoders.  uii must not be >= 10^4.
-void uint32toa_z4(uint32_t uii, char* start);
+void uitoa_z4(uint32_t uii, char* start);
 
 char* int64toa(int64_t llii, char* start);
 
@@ -1418,17 +1418,17 @@ char* uint32toa_w10(uint32_t uii, char* start);
 // very good at what they do.)
 char* dtoa_e(double dxx, char* start);
 
-char* float_e_write(char* start, float dxx);
+char* ftoa_e(float dxx, char* start);
 
-char* double_f_writew2(char* start, double dxx);
+char* dtoa_f_p2(double dxx, char* start);
 
-char* double_f_writew3(char* start, double dxx);
+char* dtoa_f_p3(double dxx, char* start);
 
-char* double_f_writew96(char* start, double dxx);
+char* dtoa_f_w9p6(double dxx, char* start);
 
-char* double_f_writew74(char* start, double dxx);
+char* dtoa_f_w7p4(double dxx, char* start);
 
-static inline void zeroes_to_spaces(char* start) {
+static inline void trailing_zeroes_to_spaces(char* start) {
   // removes trailing zeroes
   start--;
   while (*start == '0') {
@@ -1440,19 +1440,16 @@ static inline void zeroes_to_spaces(char* start) {
 }
 
 static inline char* clip_zeroes(char* start) {
-  start--;
-  while (*start == '0') {
-    *(start--) = ' ';
-  }
-  if (*start == '.') {
-    start--;
-  }
-  return &(start[1]);
+  char cc;
+  do {
+    cc = *(--start);
+  } while (cc == '0');
+  return &(start[(cc != '.')]);
 }
 
-char* double_f_writew96_spaced(char* start, double dxx);
+char* dtoa_f_w9p6_spaced(double dxx, char* start);
 
-char* double_f_writew96_clipped(char* start, double dxx);
+char* dtoa_f_w9p6_clipped(double dxx, char* start);
 
 char* double_g_write(char* start, double dxx);
 
@@ -1529,20 +1526,20 @@ static inline char* double_e_writex(char* start, double dxx, char extra_char) {
   return &(penult[1]);
 }
 
-static inline char* float_e_writex(char* start, float dxx, char extra_char) {
-  char* penult = float_e_write(start, dxx);
+static inline char* float_e_writex(char* start, float fxx, char extra_char) {
+  char* penult = ftoa_e(fxx, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
 static inline char* double_f_writew96x(char* start, double dxx, char extra_char) {
-  char* penult = double_f_writew96(start, dxx);
+  char* penult = dtoa_f_w9p6(dxx, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
 static inline char* double_f_writew74x(char* start, double dxx, char extra_char) {
-  char* penult = double_f_writew74(start, dxx);
+  char* penult = dtoa_f_w7p4(dxx, start);
   *penult = extra_char;
   return &(penult[1]);
 }

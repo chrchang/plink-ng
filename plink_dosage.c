@@ -1992,16 +1992,16 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    }
 	    uii = sample_valid_ct - uii;
 	    if (uii) {
-	      pzwritep = double_f_writew74(pzwritep, dyy / ((double)((int32_t)uii)));
+	      pzwritep = dtoa_f_w7p4(dyy / ((double)((int32_t)uii)), pzwritep);
 	    } else {
 	      pzwritep = memcpya(pzwritep, "     NA", 7);
 	    }
 	  } else {
-            pzwritep = double_f_writew74(pzwritep, dzz);
+            pzwritep = dtoa_f_w7p4(dzz, pzwritep);
 	    // remove this kludge once scripts stop depending on it
 	    if (freq_cc) {
 	      *pzwritep++ = ' ';
-	      pzwritep = double_f_writew74(pzwritep, dzz);
+	      pzwritep = dtoa_f_w7p4(dzz, pzwritep);
 	    }
 	  }
 	  *pzwritep++ = ' ';

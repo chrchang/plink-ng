@@ -456,7 +456,7 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
       wptr_chr = memseta(wptr_phe, 32, 7);
       *wptr_chr++ = '1' + IS_SET(pheno_c, sample_uidx);
     } else {
-      wptr_chr = width_force(8, wptr_phe, double_f_writew3(wptr_phe, pheno_d[sample_uidx]));
+      wptr_chr = width_force(8, wptr_phe, dtoa_f_p3(pheno_d[sample_uidx], wptr_phe));
     }
     *wptr_chr++ = ' ';
     // traverse roh_list backwards, reversing the direction of [5], then
@@ -498,19 +498,19 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
       wptr = uint32_writew10x(wptr, marker_pos[marker_uidx2], ' ');
       dxx = ((double)(marker_pos[marker_uidx2] + is_new_lengths - marker_pos[marker_uidx1])) / (1000.0 - EPSILON);
       kb_tot += dxx;
-      wptr = width_force(10, wptr, double_f_writew3(wptr, dxx));
+      wptr = width_force(10, wptr, dtoa_f_p3(dxx, wptr));
       *wptr++ = ' ';
       if (cur_roh[2] > max_roh_len) {
 	max_roh_len = cur_roh[2];
       }
       wptr = uint32_writew8x(wptr, cur_roh[2], ' ');
       dyy = (1.0 + SMALLISH_EPSILON) / ((double)((int32_t)cur_roh[2]));
-      wptr = width_force(8, wptr, double_f_writew3(wptr, dxx * dyy));
+      wptr = width_force(8, wptr, dtoa_f_p3(dxx * dyy, wptr));
       // next two decimals guaranteed to be length 5
       wptr = memseta(wptr, 32, 4);
-      wptr = double_f_writew3(wptr, ((double)((int32_t)cur_roh[3])) * dyy);
+      wptr = dtoa_f_p3(((double)((int32_t)cur_roh[3])) * dyy, wptr);
       wptr = memseta(wptr, 32, 4);
-      wptr = double_f_writew3(wptr, ((double)((int32_t)cur_roh[4])) * dyy);
+      wptr = dtoa_f_p3(((double)((int32_t)cur_roh[4])) * dyy, wptr);
       *wptr++ = '\n';
       if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	goto write_main_roh_reports_ret_WRITE_FAIL;
