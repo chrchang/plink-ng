@@ -528,16 +528,16 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
       wptr = memseta(wptr_phe, 32, 3);
       *wptr++ = '1' + IS_SET(pheno_c, sample_uidx);
     } else {
-      wptr = width_force(4, wptr_phe, double_g_write(wptr_phe, pheno_d[sample_uidx]));
+      wptr = width_force(4, wptr_phe, dtoa_g(pheno_d[sample_uidx], wptr_phe));
     }
     *wptr++ = ' ';
     wptr = uint32_writew8x(wptr, cur_roh_ct, ' ');
-    wptr = width_force(8, wptr, double_g_write(wptr, kb_tot));
+    wptr = width_force(8, wptr, dtoa_g(kb_tot, wptr));
     *wptr++ = ' ';
     if (cur_roh_ct) {
       kb_tot /= (double)((int32_t)cur_roh_ct);
     }
-    wptr = width_force(8, wptr, double_g_write(wptr, kb_tot));
+    wptr = width_force(8, wptr, dtoa_g(kb_tot, wptr));
     if (cur_roh_ct) {
       *wptr++ = ' ';
     }
@@ -1309,8 +1309,7 @@ char* roh_pool_write_middle(char* wptr, char* marker_ids, uintptr_t max_marker_i
   wptr = uint32toa_w10(marker_pos[marker_uidx1], wptr);
   wptr = memseta(wptr, 32, 5);
   wptr = uint32_writew10x(wptr, marker_pos[marker_uidx2], ' ');
-  wptr = double_g_writewx8(wptr, ((double)(marker_pos[marker_uidx2] + is_new_lengths - marker_pos[marker_uidx1])) / 1000.0, 8);
-  *wptr++ = ' ';
+  wptr = double_g_writewx8x(wptr, ((double)(marker_pos[marker_uidx2] + is_new_lengths - marker_pos[marker_uidx1])) / 1000.0, 8, ' ');
   return wptr;
 }
 
@@ -2018,7 +2017,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 		wptr = memseta(wptr, 32, 7);
 		*wptr++ = '1' + IS_SET(pheno_c, sample_uidx1);
 	      } else {
-		wptr = double_g_writewx2(wptr, pheno_d[sample_uidx1], 8);
+		wptr = dtoa_g_wxp2(pheno_d[sample_uidx1], 8, wptr);
 	      }
 	    } else {
               wptr = fw_strcpyn(8, missing_pheno_len, missing_pheno_str, wptr);
@@ -2272,7 +2271,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
               wptr = memcpya(wptr, "       1", 8);
 	    }
 	  } else {
-	    wptr = double_g_writewx4(wptr, pheno_d[sample_uidx1], 8);
+	    wptr = dtoa_g_wxp4(pheno_d[sample_uidx1], 8, wptr);
 	  }
 	} else {
           wptr = fw_strcpyn(8, missing_pheno_len, missing_pheno_str, wptr);
@@ -2705,7 +2704,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
     } else {
       if (omp_is_numeric) {
 	scan_double(output_missing_pheno, &dxx);
-	wptr = double_g_writewx4(missing_pheno_str, dxx, 8);
+	wptr = dtoa_g_wxp4(dxx, 8, missing_pheno_str);
 	missing_pheno_len = (uintptr_t)(wptr - missing_pheno_str);
       }
       retval = roh_pool(hp, bedfile, bed_offset, outname, outname_end, rawbuf, marker_exclude, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, chrom_info_ptr, marker_pos, sample_ct, unfiltered_sample_ct, sample_exclude, sample_ids, plink_maxfid, plink_maxiid, max_sample_id_len, pheno_nm, pheno_c, pheno_d, missing_pheno_str, missing_pheno_len, is_new_lengths, roh_ct, roh_list, roh_list_chrom_starts, max_pool_size, max_roh_len);

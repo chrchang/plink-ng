@@ -2905,7 +2905,7 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
 	*pzwritep++ = ' ';
 	uii = 2 * (ll_cts[marker_uidx] + lh_cts[marker_uidx] + hh_cts[marker_uidx]) + hapl_cts[marker_uidx] + haph_cts[marker_uidx];
 	if (maf_succ || uii || (set_allele_freqs[marker_uidx] != 0.5)) {
-	  pzwritep = double_g_writewx4(pzwritep, 1.0 - set_allele_freqs[marker_uidx], 12);
+	  pzwritep = dtoa_g_wxp4(1.0 - set_allele_freqs[marker_uidx], 12, pzwritep);
 	} else {
 	  pzwritep = memcpya(pzwritep, "          NA", 12);
 	}
@@ -3157,7 +3157,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	  wptr = memcpya(wptr, "      PROBLEM ", 14);
 	  problem_ct++;
         }
-        wptr = double_g_writewx4(wptr, dff, 12);
+        wptr = dtoa_g_wxp4(dff, 12, wptr);
       } else {
         wptr = memcpya(wptr, "0      PROBLEM          nan", 27);
         problem_ct++;
@@ -3829,12 +3829,12 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
     if (obs_ct) {
       pzwritep = uint32_writew10x(pzwritep, obs_ct - het_cts[sample_idx], ' ');
       dee = nei_sum - nei_offsets[sample_idx];
-      pzwritep = double_g_writewx4(pzwritep, dee, 12);
+      pzwritep = dtoa_g_wxp4(dee, 12, pzwritep);
       pzwritep = memseta(pzwritep, 32, 3);
       pzwritep = uint32_writew10x(pzwritep, obs_ct, ' ');
       dtot = (double)((int32_t)obs_ct) - dee;
       dff = (dtot - ((double)((int32_t)(het_cts[sample_idx])))) / dtot;
-      pzwritep = double_g_writewx4(pzwritep, dff, 12);
+      pzwritep = dtoa_g_wxp4(dff, 12, pzwritep);
     } else {
       pzwritep = memcpya(pzwritep, "         0            0            0          nan", 49);
     }
@@ -4793,7 +4793,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
 	bufptr = memseta(bufptr, 32, 5);
 	*bufptr++ = '1' + IS_SET(pheno_c, sample_uidx);
       } else {
-	bufptr = width_force(6, bufptr, double_g_write(bufptr, pheno_d[sample_uidx]));
+	bufptr = width_force(6, bufptr, dtoa_g(pheno_d[sample_uidx], bufptr));
       }
     } else {
       bufptr = memcpya(bufptr, missing_pheno_str, missing_pheno_len);
@@ -4812,7 +4812,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
     } else if (report_average) {
       dxx /= ((double)((int32_t)uii));
     }
-    bufptr = width_force(8, bufptr, double_g_write(bufptr, dxx));
+    bufptr = width_force(8, bufptr, dtoa_g(dxx, bufptr));
     *bufptr++ = '\n';
     if (fwrite_checked(tbuf2, bufptr - tbuf2, outfile)) {
       goto score_report_ret_WRITE_FAIL;
@@ -6238,7 +6238,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	  *wptr++ = ' ';
 	  wptr = double_g_writewx4x(wptr, dxx, 11, ' ');
 	  dxx = 1.0 - 2 * fabs(normdist(fabs(dxx)) - 0.5);
-	  wptr = double_g_writewx4(wptr, MAXV(dxx, output_min_p), 11);
+	  wptr = dtoa_g_wxp4(MAXV(dxx, output_min_p), 11, wptr);
 	}
       } else {
 	wptr = memcpya(wptr, "          NA          NA      NA      NA      NA      NA", 56);

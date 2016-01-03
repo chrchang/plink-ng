@@ -2936,7 +2936,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 		  if (ii > 0) {
 		    *wptr++ = '+';
 		  }
-		  wptr = double_g_writewx4(wptr, ((double)ii) * 0.001, 1);
+		  wptr = dtoa_g_wxp4(((double)ii) * 0.001, 1, wptr);
 		  wptr = memcpya(wptr, "kb)|", 4);
 		}
 	      } else {
@@ -3046,16 +3046,12 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
     }
     if (track_distance) {
       if (abs_min_dist != 0x80000000U) {
-	bufptr2 = width_force(12, g_textbuf, double_g_write(g_textbuf, ((double)((int32_t)abs_min_dist)) * 0.001));
+	bufptr2 = width_force(12, g_textbuf, dtoa_g(((double)((int32_t)abs_min_dist)) * 0.001, g_textbuf));
 	if (!abs_min_dist) {
           bufptr2 = memcpya(bufptr2, no_sign_str, 4);
 	} else {
-          bufptr2 = memcpyl3a(bufptr2, "   ");
-          if (min_dist > 0) {
-	    *bufptr2++ = '+';
-	  } else {
-	    *bufptr2++ = '-';
-	  }
+          bufptr2 = memseta(bufptr2, 32, 3);
+	  *bufptr2++ = (min_dist > 0)? '+' : '-';
 	}
       } else {
 	bufptr2 = memseta(g_textbuf, 32, 8);
@@ -3305,7 +3301,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   loadbuf = memcpya(header_ptr, "kb ) ", 5);
   if (border) {
     loadbuf = memcpya(loadbuf, " plus ", 6);
-    loadbuf = double_g_write(loadbuf, ((double)((int32_t)border)) * 0.001);
+    loadbuf = dtoa_g(((double)((int32_t)border)) * 0.001, loadbuf);
     loadbuf = memcpya(loadbuf, "kb border ", 10);
   }
   loadbuf = memcpya(loadbuf, "\n\n        DIST ", 15);
@@ -3531,7 +3527,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
 	ujj += uii - cur_bp;
       }
       bufptr = memcpyl3a(g_textbuf, " ( ");
-      bufptr = double_g_write(bufptr, ((double)((int32_t)ujj)) * 0.001);
+      bufptr = dtoa_g(((double)((int32_t)ujj)) * 0.001, bufptr);
       fwrite(g_textbuf, 1, bufptr - g_textbuf, outfile);
       if (fwrite_checked(header_ptr, header_len, outfile)) {
 	goto gene_report_ret_WRITE_FAIL;
@@ -3541,7 +3537,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     bufptr = line_lookup[(uint32_t)ullii];
     uii = *((uint32_t*)bufptr); // line length
     ujj = ((uint32_t*)bufptr)[1]; // bp
-    bufptr2 = double_g_writewx4(g_textbuf, ((double)((int32_t)(ujj - cur_bp))) * 0.001, 10);
+    bufptr2 = dtoa_g_wxp4(((double)((int32_t)(ujj - cur_bp))) * 0.001, 10, g_textbuf);
     bufptr2 = memcpyl3a(bufptr2, "kb ");
     fwrite(g_textbuf, 1, bufptr2 - g_textbuf, outfile);
     fwrite(&(bufptr[8]), 1, uii, outfile);

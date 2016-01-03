@@ -819,7 +819,7 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
       dptr = &(g_perm_vecstd[sample_nmidx * perm_vec_ctcl8m]);
       for (perm_idx = 0; perm_idx < permphe_ct; perm_idx++) {
 	*wptr++ = '\t';
-        wptr = double_g_write(wptr, *dptr++);
+        wptr = dtoa_g(*dptr++, wptr);
       }
       if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
 	goto make_perm_pheno_ret_WRITE_FAIL;

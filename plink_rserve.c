@@ -191,11 +191,11 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
       goto rserve_call_ret_WRITE_FAIL;
     }
     for (sample_idx = 0; sample_idx < pheno_nm_ct - 1; sample_idx++) {
-      bufptr = double_g_write(g_textbuf, pheno_d2[sample_idx]);
+      bufptr = dtoa_g(pheno_d2[sample_idx], g_textbuf);
       bufptr = memcpya(bufptr, ", ", 2);
       fwrite(g_textbuf, 1, (uintptr_t)(bufptr - g_textbuf), outfile);
     }
-    bufptr = double_g_write(g_textbuf, pheno_d2[sample_idx]);
+    bufptr = dtoa_g(pheno_d2[sample_idx], g_textbuf);
     bufptr = memcpya(bufptr, " ) \n", 4);
     if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
       goto rserve_call_ret_WRITE_FAIL;
@@ -204,11 +204,11 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
       fputs("c <- c( ", outfile);
       uljj = pheno_nm_ct * covar_ct - 1;
       for (ulii = 0; ulii < uljj; ulii++) {
-	bufptr = double_g_write(g_textbuf, covar_d[ulii]);
+	bufptr = dtoa_g(covar_d[ulii], g_textbuf);
 	bufptr = memcpya(bufptr, ", ", 2);
 	fwrite(g_textbuf, 1, (uintptr_t)(bufptr - g_textbuf), outfile);
       }
-      bufptr = double_g_write(g_textbuf, covar_d[ulii]);
+      bufptr = dtoa_g(covar_d[ulii], g_textbuf);
       fwrite(g_textbuf, 1, (uintptr_t)(bufptr - g_textbuf), outfile);
       fputs(" ) \nCOVAR <- matrix( c , nrow = n , byrow=T)\n", outfile);
     } else {
@@ -312,7 +312,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
 	  for (uii = 0; uii < cur_data_len; uii++) {
 	    dxx = *dptr++;
 	    if (realnum(dxx)) {
-	      bufptr = double_g_write(bufptr, dxx);
+	      bufptr = dtoa_g(dxx, bufptr);
 	    } else {
 	      bufptr = memcpya(bufptr, "NA", 2);
 	    }

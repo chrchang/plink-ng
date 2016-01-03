@@ -1395,7 +1395,7 @@ char* int32toa(int32_t ii, char* start);
 
 // Write exactly four digits (padding with zeroes if necessary); useful for
 // e.g. floating point encoders.  uii must not be >= 10^4.
-void uitoa_z4(uint32_t uii, char* start);
+char* uitoa_z4(uint32_t uii, char* start);
 
 char* int64toa(int64_t llii, char* start);
 
@@ -1439,7 +1439,7 @@ static inline void trailing_zeroes_to_spaces(char* start) {
   }
 }
 
-static inline char* clip_zeroes(char* start) {
+static inline char* clip_trailing_zeroes(char* start) {
   char cc;
   do {
     cc = *(--start);
@@ -1451,9 +1451,9 @@ char* dtoa_f_w9p6_spaced(double dxx, char* start);
 
 char* dtoa_f_w9p6_clipped(double dxx, char* start);
 
-char* double_g_write(char* start, double dxx);
+char* dtoa_g(double dxx, char* start);
 
-char* float_g_write(char* start, float dxx);
+char* ftoa_g(float dxx, char* start);
 
 static inline char* width_force(uint32_t min_width, char* startp, char* endp) {
   uintptr_t diff = (endp - startp);
@@ -1470,13 +1470,17 @@ static inline char* width_force(uint32_t min_width, char* startp, char* endp) {
   }
 }
 
-char* double_g_writewx2(char* start, double dxx, uint32_t min_width);
+// assumes min_width >= 5.
+char* dtoa_g_wxp2(double dxx, uint32_t min_width, char* start);
 
-char* double_g_writewx3(char* start, double dxx, uint32_t min_width);
+// assumes min_width >= 5.
+char* dtoa_g_wxp3(double dxx, uint32_t min_width, char* start);
 
-char* double_g_writewx4(char* start, double dxx, uint32_t min_width);
+// only requires min_width to be positive; less than 5 is ok
+char* dtoa_g_wxp4(double dxx, uint32_t min_width, char* start);
 
-char* double_g_writewx8(char* start, double dxx, uint32_t min_width);
+// only requires min_width to be positive; less than 8 is ok
+char* dtoa_g_wxp8(double dxx, uint32_t min_width, char* start);
 
 static inline char* uint32_writex(char* start, uint32_t uii, char extra_char) {
   char* penult = uint32toa(uii, start);
@@ -1545,31 +1549,31 @@ static inline char* double_f_writew74x(char* start, double dxx, char extra_char)
 }
 
 static inline char* double_g_writex(char* start, double dxx, char extra_char) {
-  char* penult = double_g_write(start, dxx);
+  char* penult = dtoa_g(dxx, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
 static inline char* float_g_writex(char* start, float dxx, char extra_char) {
-  char* penult = float_g_write(start, dxx);
+  char* penult = ftoa_g(dxx, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
 static inline char* double_g_writewx3x(char* start, double dxx, uint32_t min_width, char extra_char) {
-  char* penult = double_g_writewx3(start, dxx, min_width);
+  char* penult = dtoa_g_wxp3(dxx, min_width, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
 static inline char* double_g_writewx4x(char* start, double dxx, uint32_t min_width, char extra_char) {
-  char* penult = double_g_writewx4(start, dxx, min_width);
+  char* penult = dtoa_g_wxp4(dxx, min_width, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
 static inline char* double_g_writewx8x(char* start, double dxx, uint32_t min_width, char extra_char) {
-  char* penult = double_g_writewx8(start, dxx, min_width);
+  char* penult = dtoa_g_wxp8(dxx, min_width, start);
   *penult = extra_char;
   return &(penult[1]);
 }

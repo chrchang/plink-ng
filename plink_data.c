@@ -2060,7 +2060,7 @@ int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modi
 	  if (qsort_ext((char*)sorted_downcoding_buf, covar_nm_ct, sizeof(double), double_cmp_deref, (char*)downcoding_buf_idxs, sizeof(int32_t))) {
 	    goto write_covars_ret_NOMEM;
 	  }
-	  wptr_start = double_g_write(downcoding_string_buf, sorted_downcoding_buf[0]);
+	  wptr_start = dtoa_g(sorted_downcoding_buf[0], downcoding_string_buf);
 	  slen = (uintptr_t)(wptr_start - downcoding_string_buf);
 	  *wptr_start = '\0';
 	  wptr_start = downcoding_string_buf;
@@ -2071,7 +2071,7 @@ int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modi
 	    // a bit inefficient, but this is a safe way to achieve "two
 	    // doubles are equal if they yield the same printf %g output"
 	    // behavior
-	    wptr = double_g_write(bufptr, sorted_downcoding_buf[sample_idx2]);
+	    wptr = dtoa_g(sorted_downcoding_buf[sample_idx2], bufptr);
 	    ujj = downcoding_buf_idxs[sample_idx2];
 	    if (((uintptr_t)(wptr - bufptr) != slen) || memcmp(wptr_start, bufptr, slen)) {
 	      *wptr = '\0';
@@ -2190,7 +2190,7 @@ int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modi
       } else if (pheno_c) {
         putc('1' + IS_SET(pheno_c, sample_uidx), outfile);
       } else {
-        wptr = double_g_write(g_textbuf, pheno_d[sample_uidx]);
+        wptr = dtoa_g(pheno_d[sample_uidx], g_textbuf);
 	fwrite(g_textbuf, 1, wptr - g_textbuf, outfile);
       }
       putc(' ', outfile);
@@ -2488,7 +2488,7 @@ int32_t write_fam(char* outname, uintptr_t unfiltered_sample_ct, uintptr_t* samp
     } else if (pheno_c) {
       *bufptr++ = '1' + IS_SET(pheno_c, sample_uidx);
     } else {
-      bufptr = double_g_write(bufptr, pheno_d[sample_uidx]);
+      bufptr = dtoa_g(pheno_d[sample_uidx], bufptr);
     }
     *bufptr++ = '\n';
     if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
@@ -2538,7 +2538,7 @@ int32_t write_map_or_bim(char* outname, uintptr_t* marker_exclude, uintptr_t mar
     if (!marker_cms) {
       *bufptr++ = '0';
     } else {
-      bufptr = double_g_writewx8(bufptr, marker_cms[marker_uidx], 1);
+      bufptr = dtoa_g_wxp8(marker_cms[marker_uidx], 1, bufptr);
     }
     *bufptr++ = delim;
     bufptr = uint32toa(marker_pos[marker_uidx], bufptr);
@@ -2888,7 +2888,7 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
       if (!marker_cms) {
 	*bufptr++ = '0';
       } else {
-        bufptr = double_g_writewx8(bufptr, marker_cms[marker_uidx], 1);
+        bufptr = dtoa_g_wxp8(marker_cms[marker_uidx], 1, bufptr);
       }
       *bufptr++ = '\t';
       bufptr = uint32_writex(bufptr, (uint32_t)(ll_buf[marker_idx] >> 32), '\t');
@@ -11372,7 +11372,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
       } else {
 	dzz = qt_vals[sample_idx] + dyy * rand_normal(&dxx);
       }
-      wptr = double_g_write(wptr, dzz);
+      wptr = dtoa_g(dzz, wptr);
     } else {
       if (sample_idx < case_ct) {
 	*wptr++ = '2';
@@ -11572,7 +11572,7 @@ static inline int32_t recode_write_first_cols(FILE* outfile, uintptr_t sample_ui
   } else if (pheno_c) {
     putc('1' + IS_SET(pheno_c, sample_uidx), outfile);
   } else {
-    cptr = double_g_write(wbuf, pheno_d[sample_uidx]);
+    cptr = dtoa_g(pheno_d[sample_uidx], wbuf);
     fwrite(wbuf, 1, cptr - wbuf, outfile);
   }
   if (putc_checked(delimiter, outfile)) {
@@ -12533,7 +12533,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	if (!marker_cms) {
 	  *wbufptr++ = '0';
 	} else {
-	  wbufptr = double_g_write(wbufptr, marker_cms[marker_uidx]);
+	  wbufptr = dtoa_g(marker_cms[marker_uidx], wbufptr);
 	}
 	*wbufptr++ = delimiter;
 	wbufptr = uint32toa(marker_pos[marker_uidx], wbufptr);
@@ -12630,7 +12630,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	if (!marker_cms) {
 	  *wbufptr++ = '0';
 	} else {
-	  wbufptr = double_g_write(wbufptr, marker_cms[marker_uidx]);
+	  wbufptr = dtoa_g(marker_cms[marker_uidx], wbufptr);
 	}
 	*wbufptr++ = delimiter;
 	wbufptr = uint32_writex(wbufptr, marker_pos[marker_uidx], delimiter);
@@ -13052,7 +13052,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       *wbufptr++ = ' ';
       if (IS_SET(pheno_nm, sample_uidx)) {
         if (pheno_d) {
-          wbufptr = double_g_write(wbufptr, pheno_d[sample_uidx]);
+          wbufptr = dtoa_g(pheno_d[sample_uidx], wbufptr);
         } else {
           *wbufptr++ = '0' + IS_SET(pheno_c, sample_uidx);
 	}
@@ -13341,7 +13341,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       for (sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
 	next_unset_ul_unsafe_ck(sample_exclude, &sample_uidx);
 	if (IS_SET(pheno_nm, sample_uidx)) {
-          wbufptr = double_g_write(writebuf2, pheno_d[sample_uidx]);
+          wbufptr = dtoa_g(pheno_d[sample_uidx], writebuf2);
 	  fwrite(writebuf2, 1, (uintptr_t)(wbufptr - writebuf2), outfile);
 	} else {
           fputs(output_missing_pheno, outfile);

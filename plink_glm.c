@@ -5387,7 +5387,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	  *wptr++ = ' ';
 	  dxx = dptr[ukk * ulii];
 	  if (dxx >= 0) {
-	    wptr = double_g_write(wptr, dxx);
+	    wptr = dtoa_g(dxx, wptr);
 	  } else {
 	    wptr = memcpya(wptr, "NA", 2);
 	  }
@@ -5517,9 +5517,9 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	    } else {
 	      dzz = (int32_t)(perms_total - doublearr_greater_than(g_maxt_extreme_stat, perms_total, g_orig_stats[marker_idx] - EPSILON) + 1);
               if (!perm_count) {
-		wptr = double_g_writewx4(wptr, dzz / ((double)((int32_t)perms_total + 1)), 12);
+		wptr = dtoa_g_wxp4(dzz / ((double)((int32_t)perms_total + 1)), 12, wptr);
 	      } else {
-                wptr = double_g_writewx4(wptr, dzz - 1, 12);
+                wptr = dtoa_g_wxp4(dzz - 1, 12, wptr);
 	      }
 	    }
 	  }
@@ -6822,7 +6822,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	  *wptr++ = ' ';
 	  dxx = dptr[ukk * ulii];
 	  if (dxx >= 0) {
-	    wptr = double_g_write(wptr, dxx);
+	    wptr = dtoa_g(dxx, wptr);
 	  } else {
 	    wptr = memcpya(wptr, "NA", 2);
 	  }
@@ -6952,9 +6952,9 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	    } else {
 	      dzz = (int32_t)(perms_total - doublearr_greater_than(g_maxt_extreme_stat, perms_total, g_orig_stats[marker_idx] - EPSILON) + 1);
               if (!perm_count) {
-		wptr = double_g_writewx4(wptr, dzz / ((double)((int32_t)perms_total + 1)), 12);
+		wptr = dtoa_g_wxp4(dzz / ((double)((int32_t)perms_total + 1)), 12, wptr);
 	      } else {
-                wptr = double_g_writewx4(wptr, dzz - 1, 12);
+                wptr = dtoa_g_wxp4(dzz - 1, 12, wptr);
 	      }
 	    }
 	  }
@@ -7760,9 +7760,9 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       pval = ((double)(perm_2success_ct[param_idx - 1] + 2)) * dxx;
       if (pval <= pfilter) {
 	if (!perm_count) {
-	  wptr = double_g_writewx4(wptr, pval, 12);
+	  wptr = dtoa_g_wxp4(pval, 12, wptr);
 	} else {
-          wptr = double_g_writewx4(wptr, ((double)perm_2success_ct[param_idx - 1]) * 0.5, 12);
+          wptr = dtoa_g_wxp4(((double)perm_2success_ct[param_idx - 1]) * 0.5, 12, wptr);
 	}
         wptr = memseta(wptr, 32, 3);
         wptr = uint32toa_w10(glm_mperm_val - perm_fail_total, wptr);
@@ -7778,9 +7778,9 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       pval = ((double)(perm_2success_ct[param_ct - 1] + 2)) * 0.5 / ((double)((int32_t)(glm_mperm_val - perm_fail_total - joint_perm_fail_extra) + 1));
       if (pval <= pfilter) {
 	if (!perm_count) {
-	  wptr = double_g_writewx4(wptr, pval, 12);
+	  wptr = dtoa_g_wxp4(pval, 12, wptr);
 	} else {
-          wptr = double_g_writewx4(wptr, ((double)perm_2success_ct[param_ct - 1]) * 0.5, 12);
+          wptr = dtoa_g_wxp4(((double)perm_2success_ct[param_ct - 1]) * 0.5, 12, wptr);
 	}
         wptr = memseta(wptr, 32, 3);
         wptr = uint32toa_w10(glm_mperm_val - perm_fail_total - joint_perm_fail_extra, wptr);
@@ -8544,9 +8544,9 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       pval = ((double)(perm_2success_ct[param_idx - 1] + 2)) * dxx;
       if (pval <= pfilter) {
 	if (!perm_count) {
-	  wptr = double_g_writewx4(wptr, pval, 12);
+	  wptr = dtoa_g_wxp4(pval, 12, wptr);
 	} else {
-          wptr = double_g_writewx4(wptr, ((double)perm_2success_ct[param_idx - 1]) * 0.5, 12);
+          wptr = dtoa_g_wxp4(((double)perm_2success_ct[param_idx - 1]) * 0.5, 12, wptr);
 	}
         wptr = memseta(wptr, 32, 3);
         wptr = uint32toa_w10(glm_mperm_val - perm_fail_total, wptr);
@@ -8562,9 +8562,9 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       pval = ((double)(perm_2success_ct[param_ct - 1] + 2)) * 0.5 / ((double)((int32_t)(glm_mperm_val - perm_fail_total - joint_perm_fail_extra) + 1));
       if (pval <= pfilter) {
 	if (!perm_count) {
-	  wptr = double_g_writewx4(wptr, pval, 12);
+	  wptr = dtoa_g_wxp4(pval, 12, wptr);
 	} else {
-          wptr = double_g_writewx4(wptr, ((double)perm_2success_ct[param_ct - 1]) * 0.5, 12);
+          wptr = dtoa_g_wxp4(((double)perm_2success_ct[param_ct - 1]) * 0.5, 12, wptr);
 	}
         wptr = memseta(wptr, 32, 3);
         wptr = uint32toa_w10(glm_mperm_val - perm_fail_total - joint_perm_fail_extra, wptr);

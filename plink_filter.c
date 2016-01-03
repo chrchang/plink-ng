@@ -2888,7 +2888,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
           pzwritep = memcpya(pzwritep, g_textbuf, cptr2 - g_textbuf);
 	  pzwritep = uint32_writew8x(pzwritep, ukk - oblig_ct, ' ');
           pzwritep = uint32_writew8x(pzwritep, cur_tot - oblig_ct, ' ');
-	  pzwritep = double_g_writewx4(pzwritep, ((double)((int32_t)(ukk - oblig_ct))) / ((double)((int32_t)(cur_tot - oblig_ct))), 8);
+	  pzwritep = dtoa_g_wxp4(((double)((int32_t)(ukk - oblig_ct))) / ((double)((int32_t)(cur_tot - oblig_ct))), 8, pzwritep);
           append_binary_eoln(&pzwritep);
 	  if (flex_pzwrite(&ps, &pzwritep)) {
 	    goto write_missingness_reports_ret_WRITE_FAIL;
@@ -2943,7 +2943,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	    pzwritep = uint32_writew8x(pzwritep, umm, ' ');
 	    umm -= oblig_missing_ct_by_cluster[clidx];
 	    pzwritep = uint32_writew8x(pzwritep, umm, ' ');
-            pzwritep = double_g_writewx4(pzwritep, ((double)((int32_t)uii)) / ((double)((int32_t)umm)), 8);
+            pzwritep = dtoa_g_wxp4(((double)((int32_t)uii)) / ((double)((int32_t)umm)), 8, pzwritep);
 	    append_binary_eoln(&pzwritep);
 	    if (flex_pzwrite(&ps, &pzwritep)) {
 	      goto write_missingness_reports_ret_WRITE_FAIL;
@@ -2999,7 +2999,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
       }
       pzwritep = uint32_writew8x(pzwritep, uii, ' ');
       pzwritep = uint32_writew8x(pzwritep, ujj, ' ');
-      pzwritep = double_g_writewx4(pzwritep, ((double)((int32_t)uii)) / ((double)((int32_t)ujj)), 8);
+      pzwritep = dtoa_g_wxp4(((double)((int32_t)uii)) / ((double)((int32_t)ujj)), 8, pzwritep);
       append_binary_eoln(&pzwritep);
       if (flex_pzwrite(&ps, &pzwritep)) {
 	goto write_missingness_reports_ret_WRITE_FAIL;
@@ -3054,7 +3054,8 @@ int32_t hardy_report_write_line(Pigz_state* ps_ptr, char** pzwritep_ptr, char* p
   if (denom && (!is_mt)) {
     drecip = 1.0 / ((double)denom);
     minor_freq = (2 * ll_ct + lh_ct) * drecip;
-    pzwritep = double_g_writewx4(double_g_writewx4x(double_g_writewx4x(pzwritep, (lh_ct * 2) * drecip, 8, ' '), minor_freq * (2 * hh_ct + lh_ct) * drecip * 2, 8, ' '), MAXV(pval, output_min_p), 12);
+    pzwritep = double_g_writewx4x(double_g_writewx4x(pzwritep, (lh_ct * 2) * drecip, 8, ' '), minor_freq * (2 * hh_ct + lh_ct) * drecip * 2, 8, ' ');
+    pzwritep = dtoa_g_wxp4(MAXV(pval, output_min_p), 12, pzwritep);
   } else {
     pzwritep = memcpya(pzwritep, "     nan      nan          ", 27);
     pzwritep = memcpyl3a(pzwritep, hwe_midp? "0.5" : "  1");

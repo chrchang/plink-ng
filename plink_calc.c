@@ -3494,11 +3494,15 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
 		if (regress_pcs_clip) {
 		  fputs(" 1 0 0", outfile);
 		} else {
-		  bufptr = double_g_write(memcpyl3a(double_g_write(&(wbuf[1]), 1.0 - dxx * 0.5), " 0 "), dxx * 0.5);
+		  bufptr = dtoa_g(1.0 - dxx * 0.5, &(wbuf[1]));
+                  bufptr = memcpyl3a(bufptr, " 0 ");
+		  bufptr = dtoa_g(dxx * 0.5, bufptr);
 		  fwrite(wbuf, 1, bufptr - wbuf, outfile);
 		}
 	      } else {
-		bufptr = memcpya(double_g_write(double_g_writex(&(wbuf[1]), 1.0 - dxx, ' '), dxx), " 0", 2);
+	        bufptr = double_g_writex(&(wbuf[1]), 1.0 - dxx, ' ');
+		bufptr = dtoa_g(dxx, bufptr);
+		bufptr = memcpya(bufptr, " 0", 2);
 		fwrite(wbuf, 1, bufptr - wbuf, outfile);
 	      }
 	    } else {
@@ -3506,11 +3510,15 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
 		if (regress_pcs_clip) {
 		  fputs(" 0 0 1", outfile);
 		} else {
-		  bufptr = double_g_write(memcpyl3a(double_g_write(&(wbuf[1]), 1.0 - dxx * 0.5), " 0 "), dxx * 0.5);
+		  bufptr = dtoa_g(1.0 - dxx * 0.5, &(wbuf[1]));
+		  bufptr = memcpyl3a(bufptr, " 0 ");
+		  bufptr = dtoa_g(dxx * 0.5, bufptr);
 		  fwrite(wbuf, 1, bufptr - wbuf, outfile);
 		}
 	      } else {
-		bufptr = double_g_write(double_g_writex(memcpya(&(wbuf[1]), "0 ", 2), 2.0 - dxx, ' '), dxx - 1.0);
+	        bufptr = memcpya(&(wbuf[1]), "0 ", 2);
+		bufptr = double_g_writex(bufptr, 2.0 - dxx, ' ');
+		bufptr = dtoa_g(dxx - 1.0, bufptr);
 		fwrite(wbuf, 1, bufptr - wbuf, outfile);
 	      }
 	    }
@@ -3903,8 +3911,8 @@ uint32_t distance_d_write_sq_emitn(uint32_t overflow_ct, unsigned char* readbuf)
       sample2idx++;
     }
     while (sample2idx < sample_ct) {
-      *sptr_cur = '\t';
-      sptr_cur = double_g_write(&(sptr_cur[1]), dists[((sample2idx * (sample2idx - 1)) / 2) + sample1idx]);
+      *sptr_cur++ = '\t';
+      sptr_cur = dtoa_g(dists[((sample2idx * (sample2idx - 1)) / 2) + sample1idx], sptr_cur);
       sample2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_sq_emitn_ret;
@@ -4042,8 +4050,8 @@ uint32_t distance_d_write_ibs_sq_emitn(uint32_t overflow_ct, unsigned char* read
       sample2idx++;
     }
     while (sample2idx < sample_ct) {
-      *sptr_cur = '\t';
-      sptr_cur = double_g_write(&(sptr_cur[1]), 1.0 - (dists[((sample2idx * (sample2idx - 1)) / 2) + sample1idx]) * half_marker_ct_recip);
+      *sptr_cur++ = '\t';
+      sptr_cur = dtoa_g(1.0 - (dists[((sample2idx * (sample2idx - 1)) / 2) + sample1idx]) * half_marker_ct_recip, sptr_cur);
       sample2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_ibs_sq_emitn_ret;
@@ -4174,8 +4182,8 @@ uint32_t distance_d_write_1mibs_sq_emitn(uint32_t overflow_ct, unsigned char* re
       sample2idx++;
     }
     while (sample2idx < sample_ct) {
-      *sptr_cur = '\t';
-      sptr_cur = double_g_write(&(sptr_cur[1]), (dists[((sample2idx * (sample2idx - 1)) / 2) + sample1idx]) * half_marker_ct_recip);
+      *sptr_cur++ = '\t';
+      sptr_cur = dtoa_g((dists[((sample2idx * (sample2idx - 1)) / 2) + sample1idx]) * half_marker_ct_recip, sptr_cur);
       sample2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_1mibs_sq_emitn_ret;
@@ -4813,7 +4821,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	    dxx = g_cg_pri.rel_space[nn + ((int64_t)rel_space_id_fixed * (rel_space_id_fixed - 1) - llfct) / 2];
 	  }
 	}
-	sptr_cur = width_force(5, sptr_cur, double_g_write(sptr_cur, dxx));
+	sptr_cur = width_force(5, sptr_cur, dtoa_g(dxx, sptr_cur));
       } else if (!is_rel_check) {
 	sptr_cur = memcpya(sptr_cur, "UN    NA", 8);
       } else {
@@ -6481,7 +6489,7 @@ uint32_t calc_rel_sq0_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       }
     }
     if (sample2idx == sample1idx) {
-      sptr_cur = double_g_write(sptr_cur, *ibc_ptr++);
+      sptr_cur = dtoa_g(*ibc_ptr++, sptr_cur);
       sample2idx++;
     }
     if (sptr_cur >= readbuf_end) {
@@ -6535,12 +6543,12 @@ uint32_t calc_rel_sq_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       }
     }
     if (sample2idx == sample1idx) {
-      sptr_cur = double_g_write(sptr_cur, *ibc_ptr++);
+      sptr_cur = dtoa_g(*ibc_ptr++, sptr_cur);
       sample2idx++;
     }
     while (sample2idx < sample_ct) {
-      *sptr_cur = '\t';
-      sptr_cur = double_g_write(&(sptr_cur[1]), rel_dists[tri_coord_no_diag(sample1idx, sample2idx)]);
+      *sptr_cur++ = '\t';
+      sptr_cur = dtoa_g(rel_dists[tri_coord_no_diag(sample1idx, sample2idx)], sptr_cur);
       sample2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto calc_rel_sq_emitn_ret;
@@ -7720,7 +7728,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	    dptr2 = cur_var_wts;
 	    do {
 	      *wptr++ = delimiter;
-	      wptr = double_g_write(wptr, *(--dptr));
+	      wptr = dtoa_g(*(--dptr), wptr);
 	    } while (dptr > dptr2);
 	    *wptr++ = '\n';
 	    if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
@@ -7815,7 +7823,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     dptr2 = &(sample_loadings[sample_idx * pc_ct]);
     do {
       *wptr++ = delimiter;
-      wptr = double_g_write(wptr, *(--dptr));
+      wptr = dtoa_g(*(--dptr), wptr);
     } while (dptr > dptr2);
     *wptr++ = '\n';
     if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {

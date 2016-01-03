@@ -6766,7 +6766,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	      if (assoc_counts) {
 		wptr = uint32toa_w8(umm, wptr);
 	      } else {
-		wptr = double_g_writewx4(wptr, da1 / (da1 + da2), 8);
+		wptr = dtoa_g_wxp4(da1 / (da1 + da2), 8, wptr);
 	      }
 	      *wptr++ = ' ';
 	    } else {
@@ -6776,7 +6776,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	      if (assoc_counts) {
 		wptr = uint32toa_w8(ujj, wptr);
 	      } else {
-		wptr = double_g_writewx4(wptr, du1 / (du1 + du2), 8);
+		wptr = dtoa_g_wxp4(du1 / (du1 + du2), 8, wptr);
 	      }
 	    } else {
 	      wptr = memcpya(wptr, "      NA", 8);
@@ -6785,10 +6785,11 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	    wptr = fw_strcpy(4, a2ptr, &(wptr[1]));
 	    *wptr++ = ' ';
 	    if (model_fisher) {
-	      wptr = double_g_writewx4(wptr, MAXV(pval, output_min_p), 12);
+	      wptr = dtoa_g_wxp4(MAXV(pval, output_min_p), 12, wptr);
 	    } else {
 	      if (pval > -1) {
-		wptr = double_g_writewx4(double_g_writewx4x(wptr, dxx, 12, ' '), MAXV(pval, output_min_p), 12);
+		wptr = double_g_writewx4x(wptr, dxx, 12, ' ');
+		wptr = dtoa_g_wxp4(MAXV(pval, output_min_p), 12, wptr);
 	      } else {
 		wptr = memcpya(wptr, "          NA           NA", 25);
 	      }
@@ -6800,7 +6801,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 		wptr = memcpya(wptr, "           NA           NA           NA", 39);
 	      }
 	    } else {
-	      wptr = double_g_writewx4(wptr, *ooptr, 12);
+	      wptr = dtoa_g_wxp4(*ooptr, 12, wptr);
 	      if (display_ci) {
 		dxx = log(*ooptr);
 		dyy = sqrt(1 / da1 + 1 / da2 + 1 / du1 + 1 / du2);
@@ -6808,7 +6809,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 		dww = exp(dxx - dzz);
 		dvv = exp(dxx + dzz);
 		*wptr++ = ' ';
-		wptr = double_g_writewx4(double_g_writewx4x(double_g_writewx4x(wptr, dyy, 12, ' '), dww, 12, ' '), dvv, 12);
+		wptr = double_g_writewx4x(wptr, dyy, 12, ' ');
+		wptr = double_g_writewx4x(wptr, dww, 12, ' ');
+		wptr = dtoa_g_wxp4(dvv, 12, wptr);
 	      }
 	    }
 	    wptr = memcpya(wptr, " \n", 2);
@@ -6882,7 +6885,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	      wptr = model_assoc_tna(model_fisher, wptr);
 	    } else {
 	      if (!model_fisher) {
-		wptr = memcpya(double_g_writewx4(wptr, dvv, 12), "    ", 4);
+		wptr = dtoa_g_wxp4(dvv, 12, wptr);
+		wptr = memcpya(wptr, "    ", 4);
 		*wptr++ = '0' + upp;
 		*wptr++ = ' ';
 	      }
@@ -6913,7 +6917,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	  }
 	  if (ca_p > -1) {
 	    if (!model_fisher) {
-	      wptr = memcpya(double_g_writewx4(wptr, ca_chisq, 12), "    1 ", 6);
+	      wptr = dtoa_g_wxp4(ca_chisq, 12, wptr);
+	      wptr = memcpya(wptr, "    1 ", 6);
 	    }
 	    wptr = double_g_writewx4x(wptr, MAXV(ca_p, output_min_p), 12, '\n');
 	  } else {
@@ -6933,7 +6938,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	    }
 	    if (mult_p > -1) {
 	      if (!model_fisher) {
-		wptr = memcpya(double_g_writewx4(wptr, dww, 12), "    1 ", 6);
+		wptr = dtoa_g_wxp4(dww, 12, wptr);
+		wptr = memcpya(wptr, "    1 ", 6);
 	      }
 	      wptr = double_g_writewx4x(wptr, MAXV(mult_p, output_min_p), 12, '\n');
 	    } else {
@@ -6975,7 +6981,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	      wptr = model_assoc_tna(model_fisher, wptr);
 	    } else {
 	      if (!model_fisher) {
-		wptr = memcpya(double_g_writewx4(wptr, dww, 12), "    1 ", 6);
+		wptr = dtoa_g_wxp4(dww, 12, wptr);
+		wptr = memcpya(wptr, "    1 ", 6);
 	      }
 	      wptr = double_g_writewx4x(wptr, MAXV(dom_p, output_min_p), 12, '\n');
 	    }
@@ -7015,7 +7022,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	      wptr = model_assoc_tna(model_fisher, wptr);
 	    } else {
 	      if (!model_fisher) {
-		wptr = memcpya(double_g_writewx4(wptr, dww, 12), "    1 ", 6);
+		wptr = dtoa_g_wxp4(dww, 12, wptr);
+		wptr = memcpya(wptr, "    1 ", 6);
 	      }
 	      wptr = double_g_writewx4x(wptr, MAXV(rec_p, output_min_p), 12, '\n');
 	    }
@@ -7449,7 +7457,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	    *wptr++ = ' ';
 	    dxx = orig_pvals[uii];
 	    if (dxx >= 0) {
-	      wptr = double_g_write(wptr, dxx);
+	      wptr = dtoa_g(dxx, wptr);
 	    } else {
 	      wptr = memcpya(wptr, "NA", 2);
 	    }
@@ -7465,7 +7473,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	    *wptr++ = ' ';
 	    dxx = orig_chisq[uii];
 	    if (dxx >= 0) {
-	      wptr = double_g_write(wptr, dxx);
+	      wptr = dtoa_g(dxx, wptr);
 	    } else {
 	      wptr = memcpya(wptr, "NA", 2);
 	    }
@@ -7507,7 +7515,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	  *wptr++ = ' ';
 	  dxx = orig_pvals_ptr[ukk * ulii];
 	  if (dxx >= 0) {
-	    wptr = double_g_write(wptr, dxx);
+	    wptr = dtoa_g(dxx, wptr);
 	  } else {
 	    wptr = memcpya(wptr, "NA", 2);
 	  }
@@ -7671,9 +7679,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 		dzz = (int32_t)(perms_total - doublearr_greater_than(maxt_extreme_stat, perms_total, orig_chisq[marker_idx] - EPSILON) + 1);
 	      }
 	      if (!model_perm_count) {
-		wptr = double_g_writewx4(wptr, dzz * dyy, 12);
+		wptr = dtoa_g_wxp4(dzz * dyy, 12, wptr);
 	      } else {
-		wptr = double_g_writewx4(wptr, dzz - 1, 12);
+		wptr = dtoa_g_wxp4(dzz - 1, 12, wptr);
 	      }
 	    }
 	  }
@@ -8594,7 +8602,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	  }
 	  if (tp >= 0) {
 	    wptr = double_g_writewx4x(wptr, tstat, 8, ' ');
-	    wptr = double_g_writewx4(wptr, MAXV(tp, output_min_p), 12);
+	    wptr = dtoa_g_wxp4(MAXV(tp, output_min_p), 12, wptr);
 	  } else {
 	    wptr = memcpya(wptr, "      NA           NA", 21);
 	  }
@@ -8605,7 +8613,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	      dxx = sqrt(dxx);
 	      wptr = double_g_writewx4x(wptr, dxx, 12, ' ');
 	      dxx = calc_tprob(dxx, nanal - 2);
-	      wptr = double_g_writewx4(wptr, MAXV(dxx, output_min_p), 12);
+	      wptr = dtoa_g_wxp4(MAXV(dxx, output_min_p), 12, wptr);
 	    } else {
 	      wptr = memcpya(wptr, "           NA           NA", 26);
 	    }
@@ -8675,21 +8683,21 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	  qt_homcom_sum = qt_sum - qt_homrar_sum - qt_het_sum;
 	  if (homrar_ct) {
 	    x11 = qt_homrar_sum / ((double)homrar_ct);
-	    wptr = double_g_writewx4(wptr, x11, 8);
+	    wptr = dtoa_g_wxp4(x11, 8, wptr);
 	  } else {
 	    wptr = memcpya(wptr, "      NA", 8);
 	  }
 	  *wptr++ = ' ';
 	  if (het_ct) {
 	    x12 = qt_het_sum / ((double)het_ct);
-	    wptr = double_g_writewx4(wptr, x12, 8);
+	    wptr = dtoa_g_wxp4(x12, 8, wptr);
 	  } else {
 	    wptr = memcpya(wptr, "      NA", 8);
 	  }
 	  *wptr++ = ' ';
 	  if (homcom_ct) {
 	    x22 = qt_homcom_sum / ((double)homcom_ct);
-	    wptr = double_g_writewx4(wptr, x22, 8);
+	    wptr = dtoa_g_wxp4(x22, 8, wptr);
 	  } else {
 	    wptr = memcpya(wptr, "      NA", 8);
 	  }
@@ -8700,7 +8708,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	  wptr = memcpya(wptr_restart, "    SD ", 7);
 	  if (homrar_ct > 1) {
             dxx = sqrt((qt_homrar_ssq - qt_homrar_sum * x11) / ((double)((intptr_t)homrar_ct - 1)));
-	    wptr = double_g_writewx4(wptr, dxx, 8);
+	    wptr = dtoa_g_wxp4(dxx, 8, wptr);
 	  } else if (homrar_ct == 1) {
 	    wptr = memcpya(wptr, "       0", 8);
 	  } else {
@@ -8709,7 +8717,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	  *wptr++ = ' ';
 	  if (het_ct > 1) {
             dxx = sqrt((qt_het_ssq - qt_het_sum * x12) / ((double)((intptr_t)het_ct - 1)));
-	    wptr = double_g_writewx4(wptr, dxx, 8);
+	    wptr = dtoa_g_wxp4(dxx, 8, wptr);
 	  } else if (het_ct == 1) {
 	    wptr = memcpya(wptr, "       0", 8);
 	  } else {
@@ -8718,7 +8726,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	  *wptr++ = ' ';
 	  if (homcom_ct > 1) {
             dxx = sqrt((qt_ssq - qt_het_ssq - qt_homrar_ssq - qt_homcom_sum * x22) / ((double)((intptr_t)homcom_ct - 1)));
-	    wptr = double_g_writewx4(wptr, dxx, 8);
+	    wptr = dtoa_g_wxp4(dxx, 8, wptr);
 	  } else if (homcom_ct == 1) {
 	    wptr = memcpya(wptr, "       0", 8);
 	  } else {
@@ -8854,7 +8862,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	  *wptr++ = ' ';
 	  dxx = ooptr[ukk * ulii];
 	  if (dxx >= 0) {
-	    wptr = double_g_write(wptr, dxx);
+	    wptr = dtoa_g(dxx, wptr);
 	  } else {
 	    wptr = memcpya(wptr, "NA", 2);
 	  }
@@ -9006,9 +9014,9 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	      }
 	      dzz = (int32_t)(perms_total - doublearr_greater_than(g_maxt_extreme_stat, perms_total, dzz - EPSILON) + 1);
 	      if (!perm_count) {
-		wptr = double_g_writewx4(wptr, dzz * dyy, 12);
+		wptr = dtoa_g_wxp4(dzz * dyy, 12, wptr);
 	      } else {
-		wptr = double_g_writewx4(wptr, dzz - 1, 12);
+		wptr = dtoa_g_wxp4(dzz - 1, 12, wptr);
 	      }
 	    }
 	  }
@@ -10181,7 +10189,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
         *wptr++ = ' ';
         dxx = g_orig_pvals[uii];
 	if (dxx >= 0) {
-	  wptr = double_g_write(wptr, dxx);
+	  wptr = dtoa_g(dxx, wptr);
 	} else {
 	  wptr = memcpya(wptr, "NA", 2);
 	}
@@ -10526,7 +10534,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	  *wptr++ = ' ';
 	  dxx = dptr[ukk * ulii];
 	  if (dxx >= 0) {
-	    wptr = double_g_write(wptr, dxx);
+	    wptr = dtoa_g(dxx, wptr);
 	  } else {
 	    wptr = memcpya(wptr, "NA", 2);
 	  }
@@ -10660,9 +10668,9 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	    // minimum p-value
 	    dzz = (int32_t)(doublearr_greater_than(g_maxt_extreme_stat, perms_total, g_orig_pvals[marker_idx] * (1.0 + EPSILON)) + 1);
 	    if (!perm_count) {
-	      wptr = double_g_writewx4(wptr, dzz * dyy, 12);
+	      wptr = dtoa_g_wxp4(dzz * dyy, 12, wptr);
 	    } else {
-	      wptr = double_g_writewx4(wptr, dzz - 1, 12);
+	      wptr = dtoa_g_wxp4(dzz - 1, 12, wptr);
 	    }
 	  }
 	  wptr = memcpya(wptr, " \n", 2);
@@ -11729,7 +11737,7 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
       goto homog_assoc_ret_WRITE_FAIL;
     }
     wptr = memcpya(wptr_start, " ASSOC ", 7);
-    wptr = double_g_writewx4(wptr, x_assoc, 10);
+    wptr = dtoa_g_wxp4(x_assoc, 10, wptr);
     wptr = memcpya(wptr, "    1 ", 6);
     wptr = double_g_writewx4x(wptr, chiprob_p(x_assoc, 1), 10, ' ');
     wptr = memcpya(wptr, "        NA\n", 11);
@@ -11767,7 +11775,7 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
 	  // probably rounding error
 	  dxx = 0;
 	}
-        wptr = double_g_writewx4(wptr, dxx, 10);
+        wptr = dtoa_g_wxp4(dxx, 10, wptr);
         wptr = memcpya(wptr, "    1 ", 6);
 	wptr = double_g_writewx4x(wptr, MAXV(chiprob_p(dxx, 1), output_min_p), 10, ' ');
 	dxx = cluster_or[cluster_idx];
