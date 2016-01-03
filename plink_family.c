@@ -958,7 +958,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	g_textbuf[0] = ' ';
 	wptr = fw_strcpyn(plink_maxsnp, varlen, varptr, &(g_textbuf[1]));
         *wptr++ = ' ';
-        wptr = uint32_writew4x(wptr, cur_error_ct, '\n');
+        wptr = uint32toa_w4x(cur_error_ct, '\n', wptr);
 	if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile_l)) {
 	  goto mendel_error_scan_ret_WRITE_FAIL;
 	}
@@ -1083,7 +1083,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	*wptr++ = '0';
       }
       *wptr++ = ' ';
-      wptr = uint32_writew6x(wptr, child_cts[uii], ' ');
+      wptr = uint32toa_w6x(child_cts[uii], ' ', wptr);
       if (family_error_cts[uii * 3] < 10000) {
 	wptr = uint32toa_w4((uint32_t)family_error_cts[uii * 3], wptr);
       } else {
@@ -1146,7 +1146,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
       }
       wptr = fw_strcpy(plink_maxiid, &(iids[((uint32_t)trio_code) * max_iid_len]), &(g_textbuf[plink_maxfid + 1]));
       *wptr++ = ' ';
-      wptr = uint32_writew4x(wptr, error_cts[trio_idx * 3], '\n');
+      wptr = uint32toa_w4x(error_cts[trio_idx * 3], '\n', wptr);
       if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	goto mendel_error_scan_ret_WRITE_FAIL;
       }
@@ -2329,14 +2329,14 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
       if ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0))) {
 	wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr_start);
 	wptr = memseta(wptr, 32, 3);
-	wptr = uint32_writew10x(wptr, marker_pos[marker_uidx], ' ');
+	wptr = uint32toa_w10x(marker_pos[marker_uidx], ' ', wptr);
 	wptr = fw_strcpy(3, marker_allele_ptrs[2 * marker_uidx], wptr);
 	*wptr++ = ' ';
 	wptr = fw_strcpy(3, marker_allele_ptrs[2 * marker_uidx + 1], wptr);
 	*wptr++ = ' ';
-	wptr = uint32_writew6x(wptr, tdt_a1_trans_ct, ' ');
+	wptr = uint32toa_w6x(tdt_a1_trans_ct, ' ', wptr);
 	uii = tdt_obs_ct - tdt_a1_trans_ct; // untransmitted
-	wptr = uint32_writew6x(wptr, uii, ' ');
+	wptr = uint32toa_w6x(uii, ' ', wptr);
 	if (uii) {
 	  untransmitted_recip = 1.0 / ((double)((int32_t)uii));
 	  dxx = (double)((int32_t)tdt_a1_trans_ct);
@@ -2373,7 +2373,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
 	  }
 	  uii = parentdt_case_a2_excess1 + 2 * parentdt_case_a2_excess2;
 	  ujj = parentdt_obs_ct1 + 2 * parentdt_obs_ct2;
-	  wptr2 = uint32_writex(wptr, uii, ':');
+	  wptr2 = uint32toa_x(uii, ':', wptr);
 	  wptr2 = uint32toa(ujj - uii, wptr2);
           wptr = width_force(12, wptr, wptr2);
           *wptr++ = ' ';
@@ -4722,7 +4722,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	  *wptr++ = ' ';
 	  wptr = fw_strcpy(4, marker_allele_ptrs[2 * marker_uidx2 + 1], wptr);
 	  *wptr++ = ' ';
-	  wptr = uint32_writew8x(wptr, total_count, ' ');
+	  wptr = uint32toa_w8x(total_count, ' ', wptr);
 	  wptr = double_g_writewx4x(wptr, total_expected, 8, ' ');
 	  if (denom != 0.0) {
 	    wptr = double_g_writewx4x(wptr, chisq, 12, ' ');
@@ -5760,7 +5760,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	  bufptr = memcpyax(g_textbuf, chrom_name_ptr, chrom_name_len, ' ');
 	  bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx_cur * max_marker_id_len]), bufptr);
 	  *bufptr++ = ' ';
-	  bufptr = uint32_writew10x(bufptr, marker_pos[marker_uidx_cur], ' ');
+	  bufptr = uint32toa_w10x(marker_pos[marker_uidx_cur], ' ', bufptr);
 	  if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
 	    goto qfam_ret_WRITE_FAIL;
 	  }
@@ -5770,7 +5770,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	  nind = popcount_longs(nm_lm, lm_ctl);
 	  bufptr = memseta(g_textbuf, 32, 7);
 	  bufptr = memcpya(bufptr, qfam_test_ptr, 5);
-	  bufptr = uint32_writew8x(bufptr, nind, ' ');
+	  bufptr = uint32toa_w8x(nind, ' ', bufptr);
 	  nind_recip = 1.0 / ((double)((int32_t)nind));
 	  if (only_within) {
 	    flip_precalc(lm_ct, qfam_w, pheno_d2, nm_lm, &geno_sum, &geno_ssq, &qt_g_prod);
@@ -5896,7 +5896,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       }
       bufptr = dtoa_g_wxp4(dxx, 12, bufptr);
       bufptr = memseta(bufptr, 32, 3);
-      bufptr = uint32_writew10x(bufptr, ujj, '\n');
+      bufptr = uint32toa_w10x(ujj, '\n', bufptr);
     }
     if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
       goto qfam_ret_WRITE_FAIL;

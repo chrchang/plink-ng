@@ -2886,8 +2886,8 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	    }
 	  }
           pzwritep = memcpya(pzwritep, g_textbuf, cptr2 - g_textbuf);
-	  pzwritep = uint32_writew8x(pzwritep, ukk - oblig_ct, ' ');
-          pzwritep = uint32_writew8x(pzwritep, cur_tot - oblig_ct, ' ');
+	  pzwritep = uint32toa_w8x(ukk - oblig_ct, ' ', pzwritep);
+          pzwritep = uint32toa_w8x(cur_tot - oblig_ct, ' ', pzwritep);
 	  pzwritep = dtoa_g_wxp4(((double)((int32_t)(ukk - oblig_ct))) / ((double)((int32_t)(cur_tot - oblig_ct))), 8, pzwritep);
           append_binary_eoln(&pzwritep);
 	  if (flex_pzwrite(&ps, &pzwritep)) {
@@ -2938,11 +2938,11 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
             pzwritep = fw_strcpy(10, &(cluster_ids[clidx * max_cluster_id_len]), pzwritep);
 	    *pzwritep++ = ' ';
 	    uii = missing_ct_by_cluster[clidx];
-            pzwritep = uint32_writew8x(pzwritep, uii, ' ');
+            pzwritep = uint32toa_w8x(uii, ' ', pzwritep);
 	    umm = cur_cluster_sizes[clidx];
-	    pzwritep = uint32_writew8x(pzwritep, umm, ' ');
+	    pzwritep = uint32toa_w8x(umm, ' ', pzwritep);
 	    umm -= oblig_missing_ct_by_cluster[clidx];
-	    pzwritep = uint32_writew8x(pzwritep, umm, ' ');
+	    pzwritep = uint32toa_w8x(umm, ' ', pzwritep);
             pzwritep = dtoa_g_wxp4(((double)((int32_t)uii)) / ((double)((int32_t)umm)), 8, pzwritep);
 	    append_binary_eoln(&pzwritep);
 	    if (flex_pzwrite(&ps, &pzwritep)) {
@@ -2997,8 +2997,8 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	  ujj -= umm;
 	}
       }
-      pzwritep = uint32_writew8x(pzwritep, uii, ' ');
-      pzwritep = uint32_writew8x(pzwritep, ujj, ' ');
+      pzwritep = uint32toa_w8x(uii, ' ', pzwritep);
+      pzwritep = uint32toa_w8x(ujj, ' ', pzwritep);
       pzwritep = dtoa_g_wxp4(((double)((int32_t)uii)) / ((double)((int32_t)ujj)), 8, pzwritep);
       append_binary_eoln(&pzwritep);
       if (flex_pzwrite(&ps, &pzwritep)) {
@@ -3040,12 +3040,12 @@ int32_t hardy_report_write_line(Pigz_state* ps_ptr, char** pzwritep_ptr, char* p
   double minor_freq;
   pzwritep = memcpya(pzwritep, prefix_buf, prefix_len);
   if (reverse) {
-    cptr = uint32_writex(wbuf, hh_ct, '/');
-    cptr = uint32_writex(cptr, lh_ct, '/');
+    cptr = uint32toa_x(hh_ct, '/', wbuf);
+    cptr = uint32toa_x(lh_ct, '/', cptr);
     cptr = uint32toa(ll_ct, cptr);
   } else {
-    cptr = uint32_writex(wbuf, ll_ct, '/');
-    cptr = uint32_writex(cptr, lh_ct, '/');
+    cptr = uint32toa_x(ll_ct, '/', wbuf);
+    cptr = uint32toa_x(lh_ct, '/', cptr);
     cptr = uint32toa(hh_ct, cptr);
   }
   pzwritep = fw_strcpyn(20, cptr - wbuf, wbuf, pzwritep);

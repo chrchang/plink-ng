@@ -1610,7 +1610,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
     if (covar_range_list_ptr) {
       for (covar_uidx = 0, covar_idx = 0; covar_idx < covar_ct; covar_idx++) {
 	covar_uidx = next_set_ul_unsafe(covars_active, covar_uidx);
-	uint32_writex(memcpyl3a(&(covar_names[covar_idx * max_covar_name_len]), "COV"), ++covar_uidx, '\0');
+	uint32toa_x(++covar_uidx, '\0', memcpyl3a(&(covar_names[covar_idx * max_covar_name_len]), "COV"));
       }
     }
     line_idx = 0;
@@ -1985,7 +1985,7 @@ int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modi
 		break;
 	      }
 	      // save phenotype string
-	      int32_writex(&(downcoding_string_buf[16 * downcode_category_ct]), (int32_t)(((uint32_t)ullii) ^ 0x80000000U), '\0');
+	      int32toa_x((int32_t)(((uint32_t)ullii) ^ 0x80000000U), '\0', &(downcoding_string_buf[16 * downcode_category_ct]));
 
 	      // bits 0-31: initial category assignment
 	      // bits 32-63: smallest sample_idx2
@@ -2005,7 +2005,7 @@ int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modi
 	// probably want to make this part its own function since it's
 	// practically identical when downcoding_no_round is set
         if (downcode_category_ct > 1) {
-	  int32_writex(&(downcoding_string_buf[16 * downcode_category_ct]), (int32_t)(((uint32_t)ullii) ^ 0x80000000U), '\0');
+	  int32toa_x((int32_t)(((uint32_t)ullii) ^ 0x80000000U), '\0', &(downcoding_string_buf[16 * downcode_category_ct]));
 	  category_idx_sort_buf[downcode_category_ct] = (int64_t)((((uint64_t)ulii) << 32) | ((uint64_t)downcode_category_ct));
 	  downcode_category_ct++;
           // now recover PLINK 1.07 category order
@@ -2891,7 +2891,7 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
         bufptr = dtoa_g_wxp8(marker_cms[marker_uidx], 1, bufptr);
       }
       *bufptr++ = '\t';
-      bufptr = uint32_writex(bufptr, (uint32_t)(ll_buf[marker_idx] >> 32), '\t');
+      bufptr = uint32toa_x((uint32_t)(ll_buf[marker_idx] >> 32), '\t', bufptr);
       if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
 	goto sort_and_write_bim_ret_WRITE_FAIL;
       }
@@ -3000,7 +3000,7 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
       marker_uidx = unpack_map[marker_idx2];
       bufptr = strcpyax(bufptr0, &(marker_ids[marker_idx2 * max_marker_id_len]), '\t');
       bufptr = double_g_writewx8x(bufptr, marker_cms[marker_idx2], 1, '\t');
-      bufptr = uint32_writex(bufptr, (uint32_t)(ll_buf[marker_idx] >> 32), '\n');
+      bufptr = uint32toa_x((uint32_t)(ll_buf[marker_idx] >> 32), '\n', bufptr);
       if (fwrite_checked(g_textbuf, bufptr - g_textbuf, map_outfile)) {
 	goto load_sort_and_write_map_ret_WRITE_FAIL;
       }
@@ -4880,7 +4880,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	  goto oxford_to_bed_ret_WRITE_FAIL;
 	}
         fwrite(bufptr, 1, usjj, outfile_bim);
-	bufptr = uint32_writex(&(g_textbuf[3]), uint_arr[0], ' ');
+	bufptr = uint32toa_x(uint_arr[0], ' ', &(g_textbuf[3]));
 	fwrite(g_textbuf, 1, bufptr - g_textbuf, outfile_bim);
 
         // halve the limit since there are two alleles
@@ -4947,7 +4947,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	      goto oxford_to_bed_ret_INVALID_FORMAT;
 	    }
 	  }
-	  uint32_writex(loadbuf, (uint32_t)ii, '\0');
+	  uint32toa_x((uint32_t)ii, '\0', loadbuf);
 	  bufptr = loadbuf;
 	} else {
 	  ujj = (unsigned char)loadbuf[0];
@@ -4989,7 +4989,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	}
 	fwrite(&(loadbuf[uii + 2]), 1, ukk, outfile_bim);
 	memcpy(&ujj, &(loadbuf[2 * uii + 3]), 4);
-	bufptr = uint32_writex(&(g_textbuf[3]), ujj, ' ');
+	bufptr = uint32toa_x(ujj, ' ', &(g_textbuf[3]));
 	identical_alleles = (loadbuf[2 * uii + 7] == loadbuf[2 * uii + 8]);
 	if (!identical_alleles) {
 	  *bufptr++ = loadbuf[2 * uii + 7];
@@ -5933,7 +5933,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   unsigned char* wbufptr;
   int64_t ped_size;
   int64_t ped_next_thresh;
-  int32_writex(missing_pheno_str, missing_pheno, '\0');
+  int32toa_x(missing_pheno, '\0', missing_pheno_str);
   marker_exclude = (uintptr_t*)g_bigstack_base;
   marker_exclude[0] = 0;
   // don't use fopen_checked() here, since we want to customize the error
@@ -7784,7 +7784,8 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
 	fwrite(&(g_textbuf[MAXLINELEN]), 1, cptr2 - (&(g_textbuf[MAXLINELEN])), outfile);
 	fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
 	g_textbuf[0] = '\t';
-	cptr = uint32_writex(double_g_writex(&(g_textbuf[1]), marker_cms[marker_uidx], '\t'), (uint32_t)(ll_buf[marker_idx] >> 32), '\t');
+	cptr = double_g_writex(&(g_textbuf[1]), marker_cms[marker_uidx], '\t');
+	cptr = uint32toa_x((uint32_t)(ll_buf[marker_idx] >> 32), '\t', cptr);
 	if (fwrite_checked(g_textbuf, (uintptr_t)(cptr - g_textbuf), outfile)) {
 	  goto transposed_to_bed_ret_WRITE_FAIL;
 	}
@@ -7923,7 +7924,7 @@ int32_t vcf_sample_line(char* outname, char* outname_end, int32_t missing_pheno,
   char* wptr;
   uintptr_t slen;
   bufptr2 = memcpya(fam_trailer, "\t0\t0\t0\t", 7);
-  bufptr2 = int32_writex(bufptr2, missing_pheno, '\n');
+  bufptr2 = int32toa_x(missing_pheno, '\n', bufptr2);
   fam_trailer_len = (uintptr_t)(bufptr2 - fam_trailer);
 
   memcpy(outname_end, ".fam", 5);
@@ -9825,7 +9826,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     // bcf2 coordinates are 0-based while vcf is 1-based... (seriously, whose
     // idea was this?  this is basically a bug in the spec due to how e.g.
     // telomeres are supposed to be encoded, but we have to play along)
-    bufptr = uint32_writex(&(tbuf2[3]), bcf_var_header[3] + 1, '\t');
+    bufptr = uint32toa_x(bcf_var_header[3] + 1, '\t', &(tbuf2[3]));
     if (fwrite_checked(tbuf2, bufptr - tbuf2, bimfile)) {
       goto bcf_to_bed_ret_WRITE_FAIL;
     }
@@ -10318,7 +10319,7 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
       urand = ukk;
       wptr2 = uint32toa(uii, wptr);
       wptr2 = memcpyl3a(wptr2, "\t0\t");
-      wptr2 = uint32_writex(wptr2, uii, '\t');
+      wptr2 = uint32toa_x(uii, '\t', wptr2);
       wptr2[0] = alleles[ujj];
       wptr2[1] = '\t';
       wptr2[2] = alleles[ujj + 1];
@@ -10336,7 +10337,7 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
       urand >>= 1;
       wptr2 = uint32toa(uii, wptr);
       wptr2 = memcpyl3a(wptr2, "\t0\t");
-      wptr2 = uint32_writex(wptr2, uii, '\t');
+      wptr2 = uint32toa_x(uii, '\t', wptr2);
       wptr2[0] = alleles[ujj];
       wptr2[1] = '\t';
       wptr2[2] = alleles[ujj + 1];
@@ -11286,7 +11287,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
 	wptr = memcpya(wptr, "_M", 2);
       }
       wptr = memcpyl3a(wptr, "\t0\t");
-      wptr = uint32_writex(wptr, marker_pos++, '\t');
+      wptr = uint32toa_x(marker_pos++, '\t', wptr);
       *wptr++ = cur_alleles[0];
       *wptr++ = '\t';
       *wptr++ = cur_alleles[1];
@@ -11307,7 +11308,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
 	wptr = &(g_textbuf[2 + snp_label_len]);
 	wptr = uint32toa(cur_marker_idx, wptr);
 	wptr = memcpya(wptr, "_M\t0\t", 5);
-	wptr = uint32_writex(wptr, marker_pos++, '\t');
+	wptr = uint32toa_x(marker_pos++, '\t', wptr);
 	*wptr++ = cur_alleles[2];
 	*wptr++ = '\t';
 	*wptr++ = cur_alleles[3];
@@ -11359,7 +11360,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     }
   }
   for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
-    wptr = uint32_writex(&(g_textbuf[uii]), sample_idx, ' ');
+    wptr = uint32toa_x(sample_idx, ' ', &(g_textbuf[uii]));
     if (name_prefix_len) {
       wptr = memcpyax(wptr, name_prefix, name_prefix_len, '-');
     }
@@ -11730,7 +11731,7 @@ int32_t open_and_write_fastphase_header(FILE** outfile_ptr, char* outname, uintp
   if (fopen_checked(outname, "w", outfile_ptr)) {
     return RET_OPEN_FAIL;
   }
-  wptr = uint32_writex(wbuf, sample_ct, '\n');
+  wptr = uint32toa_x(sample_ct, '\n', wbuf);
   if (fwrite_checked(wbuf, wptr - wbuf, *outfile_ptr)) {
     return RET_WRITE_FAIL;
   }
@@ -11739,7 +11740,7 @@ int32_t open_and_write_fastphase_header(FILE** outfile_ptr, char* outname, uintp
   fputs("\nP ", *outfile_ptr);
   for (marker_idx = 0; marker_idx < chrom_size; marker_uidx++, marker_idx++) {
     next_unset_unsafe_ck(marker_exclude, &marker_uidx);
-    wptr = uint32_writex(wbuf, marker_pos[marker_uidx], ' ');
+    wptr = uint32toa_x(marker_pos[marker_uidx], ' ', wbuf);
     fwrite(wbuf, 1, wptr - wbuf, *outfile_ptr);
   }
   if (putc_checked('\n', *outfile_ptr)) {
@@ -11852,7 +11853,7 @@ uint32_t write_haploview_map(FILE* outfile, uintptr_t* marker_exclude, uintptr_t
     next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx_start);
     fputs(&(marker_ids[marker_uidx_start * max_marker_id_len]), outfile);
     putc('\t', outfile);
-    wptr = uint32_writex(wbuf, marker_pos[marker_uidx_start], '\n');
+    wptr = uint32toa_x(marker_pos[marker_uidx_start], '\n', wbuf);
     fwrite(wbuf, 1, wptr - wbuf, outfile);
   }
   if (ferror(outfile)) {
@@ -12633,7 +12634,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  wbufptr = dtoa_g(marker_cms[marker_uidx], wbufptr);
 	}
 	*wbufptr++ = delimiter;
-	wbufptr = uint32_writex(wbufptr, marker_pos[marker_uidx], delimiter);
+	wbufptr = uint32toa_x(marker_pos[marker_uidx], delimiter, wbufptr);
         if (fwrite_checked(g_textbuf, wbufptr - g_textbuf, outfile)) {
 	  goto recode_ret_WRITE_FAIL;
 	}
@@ -12832,7 +12833,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	}
 	wbufptr = chrom_name_write(&(g_textbuf[1]), chrom_info_ptr, chrom_idx);
 	*wbufptr++ = '\t';
-	wbufptr = uint32_writex(wbufptr, marker_pos[marker_uidx], '\t');
+	wbufptr = uint32toa_x(marker_pos[marker_uidx], '\t', wbufptr);
 	wbufptr = strcpyax(wbufptr, &(marker_ids[marker_uidx * max_marker_id_len]), '\t');
 	if (flexbwrite_checked(g_textbuf, wbufptr - g_textbuf, output_bgz, outfile, bgz_outfile)) {
 	  goto recode_ret_WRITE_FAIL;
@@ -12979,7 +12980,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	pzwritep = chrom_name_write(pzwritep, chrom_info_ptr, chrom_idx);
 	*pzwritep++ = ' ';
 	pzwritep = strcpyax(pzwritep, &(marker_ids[marker_uidx * max_marker_id_len]), ' ');
-	pzwritep = uint32_writex(pzwritep, marker_pos[marker_uidx], ' ');
+	pzwritep = uint32toa_x(marker_pos[marker_uidx], ' ', pzwritep);
 	pzwritep = strcpyax(pzwritep, mk_allele_ptrs[2 * marker_uidx], ' ');
 	pzwritep = strcpya(pzwritep, mk_allele_ptrs[2 * marker_uidx + 1]);
 	if (sample_ct) {
@@ -13117,7 +13118,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       if (IS_SET(marker_reverse, marker_uidx)) {
 	cur_word = cur_word ^ (((~(cur_word ^ (cur_word >> 1))) & 1) * 3);
       }
-      aptr = uint32_writex(cptr, marker_pos[marker_uidx], '\t');
+      aptr = uint32toa_x(marker_pos[marker_uidx], '\t', cptr);
       if (cur_word) {
 	if (cur_word == 3) {
 	  *aptr++ = mk_allele_ptrs[2 * marker_uidx + 1][0];
@@ -13213,7 +13214,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	    goto recode_ret_WRITE_FAIL;
 	  }
 	  putc('\t', outfile2);
-	  wbufptr = uint32_writex(g_textbuf, marker_pos[marker_uidx], '\t');
+	  wbufptr = uint32toa_x(marker_pos[marker_uidx], '\t', g_textbuf);
 	  fwrite(g_textbuf, 1, wbufptr - g_textbuf, outfile2);
 	}
 	aptr = mk_allele_ptrs[2 * marker_uidx];
@@ -13358,7 +13359,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     if (fopen_checked(outname, "w", &outfile)) {
       goto recode_ret_OPEN_FAIL;
     }
-    wbufptr = uint32_writex(writebuf2, sample_ct, '\n');
+    wbufptr = uint32toa_x(sample_ct, '\n', writebuf2);
     wbufptr = uint32toa(marker_ct, wbufptr);
     wbufptr = memcpya(wbufptr, "\nIND", 4);
     if (fwrite_checked(writebuf2, wbufptr - writebuf2, outfile)) {
@@ -14121,7 +14122,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	} while (marker_uidx >= chrom_end);
 	fputs("-1 ", outfile);
       } else {
-        wbufptr = uint32_writex(writebuf2, marker_pos[marker_uidx] - last_pos, ' ');
+        wbufptr = uint32toa_x(marker_pos[marker_uidx] - last_pos, ' ', writebuf2);
         fwrite(writebuf2, 1, wbufptr - writebuf2, outfile);
       }
       last_pos = marker_pos[marker_uidx];

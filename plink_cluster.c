@@ -2747,7 +2747,7 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
     sptr2 = (char*)memchr(sptr, '\t', max_sample_id_len);
     wptr = memcpyax(g_textbuf, sptr, (sptr2 - sptr), ' ');
     wptr = strcpyax(wptr, &(sptr2[1]), '\t');
-    wptr = uint32_writex(wptr, clidx_remap[clidx], '\n');
+    wptr = uint32toa_x(clidx_remap[clidx], '\n', wptr);
     if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
       goto write_cluster_solution_ret_WRITE_FAIL;
     }
@@ -2763,7 +2763,7 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
     memcpy(g_textbuf, "SOL-", 4);
     for (clidx = 0; clidx < orig_cluster_ct; clidx++) {
       if (cluster_remap[clidx] == clidx) {
-        wptr = uint32_writex(&(g_textbuf[4]), clidx_remap[clidx], '\t');
+        wptr = uint32toa_x(clidx_remap[clidx], '\t', &(g_textbuf[4]));
         if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	  goto write_cluster_solution_ret_WRITE_FAIL;
 	}
@@ -2832,7 +2832,7 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
       } else {
 	clidx = sample_idx;
       }
-      wptr = uint32_writex(wbuf, clidx, ' ');
+      wptr = uint32toa_x(clidx, ' ', wbuf);
       fwrite(wbuf, 1, wptr - wbuf, outfile);
       uii = 0;
       if (merge_ct) {
@@ -2843,7 +2843,7 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
 	    ujj = merge_ct;
 	  }
 	  for (; uii < ujj; uii++) {
-	    wptr = uint32_writex(wbuf, *cur_remap++, ' ');
+	    wptr = uint32toa_x(*cur_remap++, ' ', wbuf);
 	    fwrite(wbuf, 1, wptr - wbuf, outfile);
 	  }
 	  if (ujj == merge_ct) {
@@ -3119,7 +3119,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
       uii = sample_idx;
     }
     uii = final_cluster_remap[uii];
-    wptr = uint32_writew6x(wptr, uii, ' ');
+    wptr = uint32toa_w6x(uii, ' ', wptr);
     if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
       goto mds_plot_ret_WRITE_FAIL;
     }
@@ -3428,7 +3428,7 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
       uii = sample_idx;
     }
     uii = final_cluster_remap[uii];
-    wptr = uint32_writew6x(wptr, uii, ' ');
+    wptr = uint32toa_w6x(uii, ' ', wptr);
     if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
       goto mds_plot_eigendecomp_ret_WRITE_FAIL;
     }

@@ -495,7 +495,7 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
       wptr = memseta(wptr, 32, 3);
       wptr = uint32toa_w10(marker_pos[marker_uidx1], wptr);
       wptr = memseta(wptr, 32, 3);
-      wptr = uint32_writew10x(wptr, marker_pos[marker_uidx2], ' ');
+      wptr = uint32toa_w10x(marker_pos[marker_uidx2], ' ', wptr);
       dxx = ((double)(marker_pos[marker_uidx2] + is_new_lengths - marker_pos[marker_uidx1])) / (1000.0 - EPSILON);
       kb_tot += dxx;
       wptr = width_force(10, wptr, dtoa_f_p3(dxx, wptr));
@@ -503,7 +503,7 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
       if (cur_roh[2] > max_roh_len) {
 	max_roh_len = cur_roh[2];
       }
-      wptr = uint32_writew8x(wptr, cur_roh[2], ' ');
+      wptr = uint32toa_w8x(cur_roh[2], ' ', wptr);
       dyy = (1.0 + SMALLISH_EPSILON) / ((double)((int32_t)cur_roh[2]));
       wptr = width_force(8, wptr, dtoa_f_p3(dxx * dyy, wptr));
       // next two decimals guaranteed to be length 5
@@ -531,7 +531,7 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
       wptr = width_force(4, wptr_phe, dtoa_g(pheno_d[sample_uidx], wptr_phe));
     }
     *wptr++ = ' ';
-    wptr = uint32_writew8x(wptr, cur_roh_ct, ' ');
+    wptr = uint32toa_w8x(cur_roh_ct, ' ', wptr);
     wptr = width_force(8, wptr, dtoa_g(kb_tot, wptr));
     *wptr++ = ' ';
     if (cur_roh_ct) {
@@ -611,12 +611,12 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
       if (!pheno_c) {
         wptr = &(wptr_bp1[20]);
       } else {
-        wptr = uint32_writew8x(&(wptr_bp1[11]), uii, ' ');
+        wptr = uint32toa_w8x(uii, ' ', &(wptr_bp1[11]));
       }
       if (cur_roh_ct + uii > max_pool_size) {
         max_pool_size = cur_roh_ct + uii;
       }
-      wptr = uint32_writew8x(wptr, cur_roh_ct, '\n');
+      wptr = uint32toa_w8x(cur_roh_ct, '\n', wptr);
       if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
         goto write_main_roh_reports_ret_WRITE_FAIL;
       }
@@ -1308,7 +1308,7 @@ char* roh_pool_write_middle(char* wptr, char* marker_ids, uintptr_t max_marker_i
   wptr = memseta(wptr, 32, 5);
   wptr = uint32toa_w10(marker_pos[marker_uidx1], wptr);
   wptr = memseta(wptr, 32, 5);
-  wptr = uint32_writew10x(wptr, marker_pos[marker_uidx2], ' ');
+  wptr = uint32toa_w10x(marker_pos[marker_uidx2], ' ', wptr);
   wptr = double_g_writewx8x(wptr, ((double)(marker_pos[marker_uidx2] + is_new_lengths - marker_pos[marker_uidx1])) / 1000.0, 8, ' ');
   return wptr;
 }
@@ -1584,7 +1584,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   wptr = uint32toa(pool_ct, g_logbuf);
   if (pool_size_min > 2) {
     wptr = memcpya(wptr, " size-", 6);
-    wptr = uint32_writex(wptr, pool_size_min, '+');
+    wptr = uint32toa_x(pool_size_min, '+', wptr);
   }
   wptr = memcpya(wptr, " pool", 5);
   if (pool_ct != 1) {
@@ -2291,10 +2291,10 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	  union_uidx2 = marker_uidx2;
 	}
         wptr = roh_pool_write_middle(wptr, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, is_new_lengths, marker_uidx1, marker_uidx2);
-	wptr = uint32_writew8x(wptr, cur_roh[2], ' ');
+	wptr = uint32toa_w8x(cur_roh[2], ' ', wptr);
 #ifdef __LP64__
 	ulii = cur_pool[pool_size + slot_idx2];
-        wptr = uint32_writew4x(wptr, (uint32_t)(ulii >> 32), ' ');
+        wptr = uint32toa_w4x((uint32_t)(ulii >> 32), ' ', wptr);
         wptr = width_force(5, wptr, uint32toa(ulii & 0x7fffffff, wptr));
         if (ulii & 0x80000000LLU) {
           *wptr++ = '*';
@@ -2303,7 +2303,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	}
 #else
 	ulii = cur_pool[pool_size + 2 * slot_idx2];
-        wptr = uint32_writew4x(wptr, cur_pool[pool_size + 2 * slot_idx2 + 1], ' ');
+        wptr = uint32toa_w4x(cur_pool[pool_size + 2 * slot_idx2 + 1], ' ', wptr);
         wptr = width_force(5, wptr, uint32toa(ulii & 0x7fffffff, wptr));
 	if (ulii & 0x80000000U) {
 	  *wptr++ = '*';

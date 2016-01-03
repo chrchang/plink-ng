@@ -1697,7 +1697,7 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
       fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
       bufptr = chrom_name_write(&(g_textbuf[1]), chrom_info_ptr, chrom_idx);
       *bufptr++ = '\t';
-      bufptr = uint32_writex(bufptr, marker_pos[marker_uidx], '\t');
+      bufptr = uint32toa_x(marker_pos[marker_uidx], '\t', bufptr);
       // do not keep double-tab (if it was intentional, it should have been in
       // the header line too...)
       fwrite(g_textbuf, 1, bufptr - g_textbuf, outfile);

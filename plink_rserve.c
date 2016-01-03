@@ -301,7 +301,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
 	  bufptr = memcpyax(g_textbuf, chrom_name_ptr, chrom_name_len, ' ');
 	  bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), bufptr);
 	  *bufptr++ = ' ';
-	  bufptr = uint32_writew10x(bufptr, marker_pos[marker_uidx], ' ');
+	  bufptr = uint32toa_w10x(marker_pos[marker_uidx], ' ', bufptr);
 	  if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
 	    goto rserve_call_ret_WRITE_FAIL;
 	  }
@@ -343,7 +343,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
 	  bufptr = memcpyax(g_textbuf, chrom_name_ptr, chrom_name_len, ' ');
 	  bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), bufptr);
 	  *bufptr++ = ' ';
-	  bufptr = uint32_writew10x(bufptr, marker_pos[marker_uidx], ' ');
+	  bufptr = uint32toa_w10x(marker_pos[marker_uidx], ' ', bufptr);
 	  if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
 	    goto rserve_call_ret_WRITE_FAIL;
 	  }

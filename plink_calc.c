@@ -3414,7 +3414,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     fwrite(g_textbuf, 1, bufptr - g_textbuf, outfile);
     fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
     g_textbuf[0] = ' ';
-    bufptr = uint32_writex(&(g_textbuf[1]), marker_pos[marker_uidx], ' ');
+    bufptr = uint32toa_x(marker_pos[marker_uidx], ' ', &(g_textbuf[1]));
     fwrite(g_textbuf, 1, bufptr - g_textbuf, outfile);
     fputs(marker_allele_ptrs[2 * marker_uidx], outfile);
     putc(' ', outfile);
@@ -4876,9 +4876,9 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	dxx1 = dxx2 * dxx2;
       }
       *sptr_cur++ = ' ';
-      sptr_cur = double_f_writew74x(sptr_cur, dxx, ' ');
-      sptr_cur = double_f_writew74x(sptr_cur, dyy, ' ');
-      sptr_cur = double_f_writew74x(sptr_cur, dxx1, ' ');
+      sptr_cur = dtoa_f_w7p4x(dxx, ' ', sptr_cur);
+      sptr_cur = dtoa_f_w7p4x(dyy, ' ', sptr_cur);
+      sptr_cur = dtoa_f_w7p4x(dxx1, ' ', sptr_cur);
       sptr_cur = dtoa_f_w7p4(dxx2, sptr_cur);
 
       if (pheno_c) {
@@ -4901,11 +4901,11 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       dyy = (double)genome_main[gmcell + 3];
       dxx1 = 1.0 / ((double)(genome_main[gmcell + 4] + genome_main[gmcell + 3]));
       dxx2 = normdist((dxx * dxx1 - 0.666666) / (sqrt(0.2222222 * dxx1)));
-      sptr_cur = double_f_writew96x(sptr_cur, 1.0 - (genome_main[gmcell] + 2 * genome_main[gmcell + 1]) / ((double)(2 * nn)), ' ');
+      sptr_cur = dtoa_f_w9p6x(1.0 - (genome_main[gmcell] + 2 * genome_main[gmcell + 1]) / ((double)(2 * nn)), ' ', sptr_cur);
       if (dxx2 != dxx2) {
 	sptr_cur = memcpya(sptr_cur, "     NA ", 8);
       } else {
-	sptr_cur = double_f_writew74x(sptr_cur, dxx2, ' ');
+	sptr_cur = dtoa_f_w7p4x(dxx2, ' ', sptr_cur);
       }
       if (genome_main[gmcell + 3]) {
 	sptr_cur = dtoa_f_w7p4(dxx / dyy, sptr_cur);
@@ -4914,10 +4914,10 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       }
       if (output_full) {
 	*sptr_cur++ = ' ';
-	sptr_cur = uint32_writew7x(sptr_cur, genome_main[gmcell + 1], ' ');
-	sptr_cur = uint32_writew7x(sptr_cur, genome_main[gmcell], ' ');
-	sptr_cur = uint32_writew7x(sptr_cur, oo, ' ');
-	sptr_cur = double_f_writew74x(sptr_cur, dyy, ' ');
+	sptr_cur = uint32toa_w7x(genome_main[gmcell + 1], ' ', sptr_cur);
+	sptr_cur = uint32toa_w7x(genome_main[gmcell], ' ', sptr_cur);
+	sptr_cur = uint32toa_w7x(oo, ' ', sptr_cur);
+	sptr_cur = dtoa_f_w7p4x(dyy, ' ', sptr_cur);
 	sptr_cur = dtoa_f_w7p4(dxx, sptr_cur);
       }
       *sptr_cur++ = '\n';
@@ -5733,14 +5733,16 @@ uint32_t rel_cutoff_batch_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	gzgets(cur_gzfile, g_textbuf, MAXLINELEN);
       }
     } else {
-      cptr = uint32_writex(wbuf, new_row, '\t');
+      cptr = uint32toa_x(new_row, '\t', wbuf);
       wbuf_ct = (uintptr_t)(cptr - wbuf);
       while (col <= row) {
         gzgets(cur_gzfile, g_textbuf, MAXLINELEN);
 	if (rel_ct_arr[col++] != -1) {
 	  cptr = next_token_mult(g_textbuf, 2);
           uii = strlen(cptr);
-          sptr_cur = memcpya(uint32_writex(memcpya(sptr_cur, wbuf, wbuf_ct), ++new_col, '\t'), cptr, uii);
+	  sptr_cur = memcpya(sptr_cur, wbuf, wbuf_ct);
+	  sptr_cur = uint32toa_x(++new_col, '\t', sptr_cur);
+          sptr_cur = memcpya(sptr_cur, cptr, uii);
 	  if (sptr_cur >= readbuf_end) {
 	    goto rel_cutoff_batch_emitn_ret;
 	  }
@@ -5796,7 +5798,7 @@ uint32_t rel_cutoff_batch_rbin_emitn(uint32_t overflow_ct, unsigned char* readbu
       fseeko(in_binfile, (row + 1) * sizeof(float), SEEK_CUR);
       fseeko(in_bin_nfile, (row + 1) * sizeof(float), SEEK_CUR);
     } else {
-      cptr = uint32_writex(wbuf, new_row, '\t');
+      cptr = uint32toa_x(new_row, '\t', wbuf);
       wbuf_ct = (uintptr_t)(cptr - wbuf);
       while (col <= row) {
 	if (rel_ct_arr[col] == -1) {
@@ -5812,11 +5814,12 @@ uint32_t rel_cutoff_batch_rbin_emitn(uint32_t overflow_ct, unsigned char* readbu
 	    break;
 	  }
 	}
-	sptr_cur = uint32_writex(memcpya(sptr_cur, wbuf, wbuf_ct), ++new_col, '\t');
+	sptr_cur = memcpya(sptr_cur, wbuf, wbuf_ct);
+	sptr_cur = uint32toa_x(++new_col, '\t', sptr_cur);
 	fread(&fxx, 4, 1, in_bin_nfile);
-	sptr_cur = uint32_writex(sptr_cur, (int32_t)fxx, '\t');
+	sptr_cur = uint32toa_x((int32_t)fxx, '\t', sptr_cur);
 	fread(&fxx, 4, 1, in_binfile);
-	sptr_cur = float_e_writex(sptr_cur, fxx, '\n');
+	sptr_cur = ftoa_ex(fxx, '\n', sptr_cur);
 	col++;
 	if (sptr_cur >= readbuf_end) {
 	  goto rel_cutoff_batch_rbin_emitn_ret;
@@ -6592,16 +6595,22 @@ uint32_t calc_rel_grm_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   uint32_t uii;
   while (sample1idx < max_sample1idx) {
     uii = marker_ct - sample_missing_unwt[sample1idx];
-    wbuf_end = uint32_writex(wbuf, sample1idx + 1, '\t');
+    wbuf_end = uint32toa_x(sample1idx + 1, '\t', wbuf);
     wbuf_len = (uintptr_t)(wbuf_end - wbuf);
     while (sample2idx < sample1idx) {
-      sptr_cur = double_e_writex(uint32_writex(uint32_writex(memcpya(sptr_cur, wbuf, wbuf_len), sample2idx + 1, '\t'), (uii - sample_missing_unwt[sample2idx]) + (*mdeptr++), '\t'), *dist_ptr++, '\n');
+      sptr_cur = memcpya(sptr_cur, wbuf, wbuf_len);
+      sptr_cur = uint32toa_x(sample2idx + 1, '\t', sptr_cur);
+      sptr_cur = uint32toa_x((uii - sample_missing_unwt[sample2idx]) + (*mdeptr++), '\t', sptr_cur);
+      sptr_cur = dtoa_ex(*dist_ptr++, '\n', sptr_cur);
       sample2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto calc_rel_grm_emitn_ret;
       }
     }
-    sptr_cur = double_e_writex(uint32_writex(uint32_writex(memcpya(sptr_cur, wbuf, wbuf_len), ++sample1idx, '\t'), uii, '\t'), *ibc_ptr++, '\n');
+    sptr_cur = memcpya(sptr_cur, wbuf, wbuf_len);
+    sptr_cur = uint32toa_x(++sample1idx, '\t', sptr_cur);
+    sptr_cur = uint32toa_x(uii, '\t', sptr_cur);
+    sptr_cur = dtoa_ex(*ibc_ptr++, '\n', sptr_cur);
     if ((((uint64_t)sample1idx) * (sample1idx + 1) / 2 - start_offset) >= hundredth * pct) {
       pct = (((uint64_t)sample1idx) * (sample1idx + 1) / 2 - start_offset) / hundredth;
       printf("\rWriting... %u%%", pct++);
@@ -7093,7 +7102,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       sample_id = (char*)memchr(fam_id, '\t', max_sample_id_len);
       wptr = memcpyax(wbuf, fam_id, (uintptr_t)(sample_id - fam_id), '\t');
       wptr = strcpyax(wptr, &(sample_id[1]), '\t');
-      wptr = uint32_writex(wptr, marker_ct - sample_missing_unwt[sample_idx], '\t');
+      wptr = uint32toa_x(marker_ct - sample_missing_unwt[sample_idx], '\t', wptr);
       wptr = double_g_writex(wptr, *dptr3++ - 1.0, '\t');
       wptr = double_g_writex(wptr, *dptr4++ - 1.0, '\t');
       wptr = double_g_writex(wptr, *dptr2++ - 1.0, '\n');
@@ -7179,7 +7188,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       memcpy(outname_end, ".grm.N.bin", 11);
       if (parallel_tot > 1) {
 	outname_end[10] = '.';
-	uint32_writex(&(outname_end[11]), parallel_idx + 1, '\0');
+	uint32toa_x(parallel_idx + 1, '\0', &(outname_end[11]));
       }
       if (fopen_checked(outname, "wb", &out_bin_nfile)) {
 	goto calc_rel_ret_OPEN_FAIL;
@@ -7187,7 +7196,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       memcpy(outname_end, ".grm.bin", 9);
       if (parallel_tot > 1) {
 	outname_end[8] = '.';
-	uint32_writex(&(outname_end[9]), parallel_idx + 1, '\0');
+	uint32toa_x(parallel_idx + 1, '\0', &(outname_end[9]));
       }
       if (fopen_checked(outname, "wb", &outfile)) {
 	goto calc_rel_ret_OPEN_FAIL;
@@ -9014,7 +9023,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
         dyy = ((double)((int32_t)ppc_fail_counts[sample_idx1])) * dxx1;
       }
       for (ulii = 0; ulii < neighbor_row_ct; ulii++) {
-        wptr = uint32_writew6x(wptr_start, ulii + neighbor_n1, ' ');
+        wptr = uint32toa_w6x(ulii + neighbor_n1, ' ', wptr_start);
 	sample_idx2 = sample_idx1 + ulii * sample_ct;
         dxx = neighbor_quantiles[sample_idx2];
 	wptr = double_g_writewx4x(wptr, dxx, 12, ' ');

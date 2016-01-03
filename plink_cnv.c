@@ -436,7 +436,7 @@ int32_t cnv_make_map_write(FILE* new_mapfile, Chrom_info* chrom_info_ptr, uint32
   uintptr_t cur_marker_id_len;
   // this just needs to be an arbitrary unique name, so it's fine if we don't
   // use chrom_name_write() here
-  wptr2 = uint32_writex(wptr2, chrom_idx, '-');
+  wptr2 = uint32toa_x(chrom_idx, '-', wptr2);
   wptr2 = uint32toa(bp_pos, wptr2);
   cur_marker_id_len = (uintptr_t)(wptr2 - wptr);
   if (cur_marker_id_len > (*max_marker_id_len_ptr)) {
@@ -445,7 +445,7 @@ int32_t cnv_make_map_write(FILE* new_mapfile, Chrom_info* chrom_info_ptr, uint32
     *max_marker_id_len_ptr = cur_marker_id_len;
   }
   wptr2 = memcpyl3a(wptr2, "\t0\t");
-  wptr2 = uint32_writex(wptr2, bp_pos, '\n');
+  wptr2 = uint32toa_x(bp_pos, '\n', wptr2);
   return fwrite_checked(g_textbuf, wptr2 - g_textbuf, new_mapfile);
 }
 

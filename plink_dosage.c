@@ -1986,7 +1986,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	      }
 	    }
 	    if (uii) {
-	      pzwritep = double_f_writew74x(pzwritep, dxx / ((double)((int32_t)uii)), ' ');
+	      pzwritep = dtoa_f_w7p4x(dxx / ((double)((int32_t)uii)), ' ', pzwritep);
 	    } else {
 	      pzwritep = memcpya(pzwritep, "     NA ", 8);
 	    }
@@ -2005,10 +2005,10 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    }
 	  }
 	  *pzwritep++ = ' ';
-	  pzwritep = double_f_writew74x(pzwritep, rsq, ' ');
+	  pzwritep = dtoa_f_w7p4x(rsq, ' ', pzwritep);
 	  if (is_valid) {
-	    pzwritep = double_f_writew74x(pzwritep, pheno_c? exp(beta * 0.5) : (beta * 0.5), ' ');
-	    pzwritep = double_f_writew74x(pzwritep, se * 0.5, ' ');
+	    pzwritep = dtoa_f_w7p4x(pheno_c? exp(beta * 0.5) : (beta * 0.5), ' ', pzwritep);
+	    pzwritep = dtoa_f_w7p4x(se * 0.5, ' ', pzwritep);
 	    pzwritep = dtoa_g_wxp4(MAXV(pval, output_min_p), 7, pzwritep);
 	  } else {
 	    pzwritep = memcpya(pzwritep, "     NA      NA      NA", 23);
@@ -2209,7 +2209,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
         *bufptr++ = ' ';
 	ujj = uii - score_miss_cts[sample_idx];
 	if (dosage_score_cnt) {
-	  bufptr = uint32_writew6x(bufptr, uii, ' ');
+	  bufptr = uint32toa_w6x(uii, ' ', bufptr);
 	}
         if (score_mean_impute) {
 	  ujj = uii;

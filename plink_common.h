@@ -1482,67 +1482,67 @@ char* dtoa_g_wxp4(double dxx, uint32_t min_width, char* start);
 // only requires min_width to be positive; less than 8 is ok
 char* dtoa_g_wxp8(double dxx, uint32_t min_width, char* start);
 
-static inline char* uint32_writex(char* start, uint32_t uii, char extra_char) {
+static inline char* uint32toa_x(uint32_t uii, char extra_char, char* start) {
   char* penult = uint32toa(uii, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* int32_writex(char* start, int32_t ii, char extra_char) {
+static inline char* int32toa_x(int32_t ii, char extra_char, char* start) {
   char* penult = int32toa(ii, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* uint32_writew4x(char* start, uint32_t uii, char extra_char) {
+static inline char* uint32toa_w4x(uint32_t uii, char extra_char, char* start) {
   char* penult = uint32toa_w4(uii, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* uint32_writew6x(char* start, uint32_t uii, char extra_char) {
+static inline char* uint32toa_w6x(uint32_t uii, char extra_char, char* start) {
   char* penult = uint32toa_w6(uii, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* uint32_writew7x(char* start, uint32_t uii, char extra_char) {
+static inline char* uint32toa_w7x(uint32_t uii, char extra_char, char* start) {
   char* penult = uint32toa_w7(uii, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* uint32_writew8x(char* start, uint32_t uii, char extra_char) {
+static inline char* uint32toa_w8x(uint32_t uii, char extra_char, char* start) {
   char* penult = uint32toa_w8(uii, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* uint32_writew10x(char* start, uint32_t uii, char extra_char) {
+static inline char* uint32toa_w10x(uint32_t uii, char extra_char, char* start) {
   char* penult = uint32toa_w10(uii, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* double_e_writex(char* start, double dxx, char extra_char) {
+static inline char* dtoa_ex(double dxx, char extra_char, char* start) {
   char* penult = dtoa_e(dxx, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* float_e_writex(char* start, float fxx, char extra_char) {
+static inline char* ftoa_ex(float fxx, char extra_char, char* start) {
   char* penult = ftoa_e(fxx, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* double_f_writew96x(char* start, double dxx, char extra_char) {
+static inline char* dtoa_f_w9p6x(double dxx, char extra_char, char* start) {
   char* penult = dtoa_f_w9p6(dxx, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* double_f_writew74x(char* start, double dxx, char extra_char) {
+static inline char* dtoa_f_w7p4x(double dxx, char extra_char, char* start) {
   char* penult = dtoa_f_w7p4(dxx, start);
   *penult = extra_char;
   return &(penult[1]);
