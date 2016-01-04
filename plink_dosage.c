@@ -2091,7 +2091,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 		if (!is_set(cur_samples, sample_idx)) {
 		  pzwritep = memcpyl3a(pzwritep, "NA ");
 		} else {
-		  pzwritep = double_g_writex(pzwritep, 2 * cur_dosages[sample_idx], ' ');
+		  pzwritep = dtoa_gx(2 * cur_dosages[sample_idx], ' ', pzwritep);
 		}
 	      }
 	      if (flex_pzwrite(&ps, &pzwritep)) {
@@ -2109,8 +2109,8 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 		if (!is_set(cur_samples, sample_idx)) {
 		  pzwritep = memcpya(pzwritep, "NA NA ", 6);
 		} else {
-		  pzwritep = double_g_writex(pzwritep, cur_dosages[sample_idx], ' ');
-		  pzwritep = double_g_writex(pzwritep, cur_dosages2[sample_idx], ' ');
+		  pzwritep = dtoa_gx(cur_dosages[sample_idx], ' ', pzwritep);
+		  pzwritep = dtoa_gx(cur_dosages2[sample_idx], ' ', pzwritep);
 		}
 	      }
 	      if (flex_pzwrite(&ps, &pzwritep)) {
@@ -2129,14 +2129,14 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 		  pzwritep = memcpya(pzwritep, "NA NA NA ", 9);
 		} else {
 		  dxx = cur_dosages[sample_idx];
-		  pzwritep = double_g_writex(pzwritep, dxx, ' ');
+		  pzwritep = dtoa_gx(dxx, ' ', pzwritep);
 		  dyy = cur_dosages2[sample_idx];
-		  pzwritep = double_g_writex(pzwritep, dyy, ' ');
+		  pzwritep = dtoa_gx(dyy, ' ', pzwritep);
 		  dxx = 1.0 - dxx - dyy;
 		  if (fabs(dxx) < SMALL_EPSILON) {
 		    dxx = 0.0;
 		  }
-		  pzwritep = double_g_writex(pzwritep, dxx, ' ');
+		  pzwritep = dtoa_gx(dxx, ' ', pzwritep);
 		}
 	      }
 	      if (flex_pzwrite(&ps, &pzwritep)) {

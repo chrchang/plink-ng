@@ -1548,31 +1548,33 @@ static inline char* dtoa_f_w7p4x(double dxx, char extra_char, char* start) {
   return &(penult[1]);
 }
 
-static inline char* double_g_writex(char* start, double dxx, char extra_char) {
+static inline char* dtoa_gx(double dxx, char extra_char, char* start) {
   char* penult = dtoa_g(dxx, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* float_g_writex(char* start, float dxx, char extra_char) {
+/*
+static inline char* ftoa_gx(float dxx, char extra_char, char* start) {
   char* penult = ftoa_g(dxx, start);
   *penult = extra_char;
   return &(penult[1]);
 }
+*/
 
-static inline char* double_g_writewx3x(char* start, double dxx, uint32_t min_width, char extra_char) {
+static inline char* dtoa_g_wxp3x(double dxx, uint32_t min_width, char extra_char, char* start) {
   char* penult = dtoa_g_wxp3(dxx, min_width, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* double_g_writewx4x(char* start, double dxx, uint32_t min_width, char extra_char) {
+static inline char* dtoa_g_wxp4x(double dxx, uint32_t min_width, char extra_char, char* start) {
   char* penult = dtoa_g_wxp4(dxx, min_width, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* double_g_writewx8x(char* start, double dxx, uint32_t min_width, char extra_char) {
+static inline char* dtoa_g_wxp8x(double dxx, uint32_t min_width, char extra_char, char* start) {
   char* penult = dtoa_g_wxp8(dxx, min_width, start);
   *penult = extra_char;
   return &(penult[1]);

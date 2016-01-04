@@ -1860,7 +1860,7 @@ int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* o
       *wptr++ = ' ';
       pat_a1transmit = 0.5 * ((double)poo_pat_a1transmit_x2);
       cur_a2transmit = 0.5 * ((double)(poo_obs_pat_x2 - poo_pat_a1transmit_x2));
-      wptr2 = double_g_writewx4x(wptr, pat_a1transmit, 1, ':');
+      wptr2 = dtoa_g_wxp4x(pat_a1transmit, 1, ':', wptr);
       wptr2 = dtoa_g_wxp4(cur_a2transmit, 1, wptr2);
       wptr = width_force(12, wptr, wptr2);
       *wptr++ = ' ';
@@ -1868,7 +1868,7 @@ int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* o
 	pat_a2transmit_recip = 1.0 / cur_a2transmit;
 	dxx = pat_a1transmit - cur_a2transmit;
 	chisq = dxx * dxx / (pat_a1transmit + cur_a2transmit);
-	wptr = double_g_writewx4x(wptr, chisq, 12, ' ');
+	wptr = dtoa_g_wxp4x(chisq, 12, ' ', wptr);
 	wptr = dtoa_g_wxp4(chiprob_p(chisq, 1), 12, wptr);
       } else {
 	wptr = memcpya(wptr, "          NA           NA", 25);
@@ -1876,7 +1876,7 @@ int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* o
       *wptr++ = ' ';
       dxx = 0.5 * ((double)poo_mat_a1transmit_x2);
       cur_a2transmit = 0.5 * ((double)(poo_obs_mat_x2 - poo_mat_a1transmit_x2));
-      wptr2 = double_g_writewx4x(wptr, dxx, 1, ':');
+      wptr2 = dtoa_g_wxp4x(dxx, 1, ':', wptr);
       wptr2 = dtoa_g_wxp4(cur_a2transmit, 1, wptr2);
       wptr = width_force(12, wptr, wptr2);
       *wptr++ = ' ';
@@ -1884,7 +1884,7 @@ int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* o
 	mat_a1transmit_recip = 1.0 / dxx;
 	chisq = dxx - cur_a2transmit;
 	chisq = chisq * chisq / (dxx + cur_a2transmit);
-	wptr = double_g_writewx4x(wptr, chisq, 12, ' ');
+	wptr = dtoa_g_wxp4x(chisq, 12, ' ', wptr);
 	wptr = dtoa_g_wxp4(chiprob_p(chisq, 1), 12, wptr);
       } else {
 	wptr = memcpya(wptr, "          NA           NA", 25);
@@ -1894,7 +1894,7 @@ int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* o
 	// Z-score
 	dxx = (log(pat_a1transmit * pat_a2transmit_recip * mat_a1transmit_recip * cur_a2transmit) / sqrt(1.0 / pat_a1transmit + pat_a2transmit_recip + mat_a1transmit_recip + 1.0 / cur_a2transmit));
 
-        wptr = double_g_writewx4x(wptr, dxx, 12, ' ');
+        wptr = dtoa_g_wxp4x(dxx, 12, ' ', wptr);
 	if (orig_chisq) {
 	  // todo: --pat/--mat support
 	  orig_chisq[markers_done] = dxx * dxx;
@@ -2341,12 +2341,12 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
 	  untransmitted_recip = 1.0 / ((double)((int32_t)uii));
 	  dxx = (double)((int32_t)tdt_a1_trans_ct);
 	  odds_ratio = dxx * untransmitted_recip;
-	  wptr = double_g_writewx4x(wptr, odds_ratio, 12, ' ');
+	  wptr = dtoa_g_wxp4x(odds_ratio, 12, ' ', wptr);
 	  if (display_ci) {
 	    odds_ratio = log(odds_ratio);
 	    dxx = ci_zt * sqrt(1.0 / dxx + untransmitted_recip);
-	    wptr = double_g_writewx4x(wptr, exp(odds_ratio - dxx), 12, ' ');
-	    wptr = double_g_writewx4x(wptr, exp(odds_ratio + dxx), 12, ' ');
+	    wptr = dtoa_g_wxp4x(exp(odds_ratio - dxx), 12, ' ', wptr);
+	    wptr = dtoa_g_wxp4x(exp(odds_ratio + dxx), 12, ' ', wptr);
 	  }
 	} else {
 	  wptr = memcpya(wptr, "          NA ", 13);
@@ -2355,11 +2355,11 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
 	  }
 	}
         if (is_exact) {
-	  wptr = double_g_writewx4x(wptr, MAXV(pval, output_min_p), 12, ' ');
+	  wptr = dtoa_g_wxp4x(MAXV(pval, output_min_p), 12, ' ', wptr);
 	} else {
 	  if (pval >= 0) {
-	    wptr = double_g_writewx4x(wptr, chisq, 12, ' ');
-            wptr = double_g_writewx4x(wptr, MAXV(pval, output_min_p), 12, ' ');
+	    wptr = dtoa_g_wxp4x(chisq, 12, ' ', wptr);
+            wptr = dtoa_g_wxp4x(MAXV(pval, output_min_p), 12, ' ', wptr);
 	  } else {
 	    wptr = memcpya(wptr, "          NA           NA ", 26);
 	  }
@@ -2414,7 +2414,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
 	  } else {
 	    dxx = (double)(((int32_t)ujj) - 2 * ((int32_t)uii));
 	    chisq = dxx * dxx / ((double)((intptr_t)((uintptr_t)(ujj + 2 * parentdt_obs_ct2))));
-	    wptr = double_g_writewx4x(wptr, chisq, 12, ' ');
+	    wptr = dtoa_g_wxp4x(chisq, 12, ' ', wptr);
 	    dxx = chiprob_p(chisq, 1);
 	    wptr = dtoa_g_wxp4(MAXV(dxx, output_min_p), 12, wptr);
 	  }
@@ -2429,7 +2429,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
 	    // them consistent with each other.
             dxx = (double)((intptr_t)((uintptr_t)ujj) - 2 * ((intptr_t)((uintptr_t)uii)));
 	    chisq = dxx * dxx / ((double)((intptr_t)(((uintptr_t)ujj) + 2 * parentdt_obs_ct2)));
-	    wptr = double_g_writewx4x(wptr, chisq, 12, ' ');
+	    wptr = dtoa_g_wxp4x(chisq, 12, ' ', wptr);
 	    dxx = chiprob_p(chisq, 1);
 	    wptr = dtoa_g_wxp4(MAXV(dxx, output_min_p), 12, wptr);
 	  }
@@ -4723,9 +4723,9 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	  wptr = fw_strcpy(4, marker_allele_ptrs[2 * marker_uidx2 + 1], wptr);
 	  *wptr++ = ' ';
 	  wptr = uint32toa_w8x(total_count, ' ', wptr);
-	  wptr = double_g_writewx4x(wptr, total_expected, 8, ' ');
+	  wptr = dtoa_g_wxp4x(total_expected, 8, ' ', wptr);
 	  if (denom != 0.0) {
-	    wptr = double_g_writewx4x(wptr, chisq, 12, ' ');
+	    wptr = dtoa_g_wxp4x(chisq, 12, ' ', wptr);
 	    wptr = dtoa_g_wxp4(pval, 12, wptr);
 	  } else {
 	    wptr = memcpya(wptr, "          NA           NA", 25);
@@ -4869,7 +4869,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	    // invalid
 	    wptr = memcpya(wptr, "          NA           NA           NA", 38);
 	  } else {
-	    wptr = double_g_writewx4x(wptr, orig_chisq[marker_idx], 12, ' ');
+	    wptr = dtoa_g_wxp4x(orig_chisq[marker_idx], 12, ' ', wptr);
 	    if (!perm_count) {
 	      wptr = dtoa_g_wxp4(pval, 12, wptr);
 	    } else {
@@ -5776,11 +5776,11 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	    flip_precalc(lm_ct, qfam_w, pheno_d2, nm_lm, &geno_sum, &geno_ssq, &qt_g_prod);
           }
 	  if (!qfam_regress(test_type, nind, lm_ct, sample_lm_to_fss_idx, nm_lm, pheno_d2, qfam_b, qfam_w, dummy_perm, dummy_flip, nind_recip, qt_sum, qt_ssq, geno_sum, geno_ssq, qt_g_prod, &beta, &tstat)) {
-	    bufptr = double_g_writewx4x(bufptr, beta, 10, ' ');
-	    bufptr = double_g_writewx4x(bufptr, tstat, 12, ' ');
+	    bufptr = dtoa_g_wxp4x(beta, 10, ' ', bufptr);
+	    bufptr = dtoa_g_wxp4x(tstat, 12, ' ', bufptr);
 	    // do not apply --output-min-p since only the empirical p-value is
 	    // supposed to be postprocessed here, not this one
-	    bufptr = double_g_writewx4x(bufptr, calc_tprob(tstat, nind - 2), 12, '\n');
+	    bufptr = dtoa_g_wxp4x(calc_tprob(tstat, nind - 2), 12, '\n', bufptr);
 	    if (emp_se) {
 	      orig_beta[marker_idx_base + block_idx] = beta;
 	    }
@@ -5878,15 +5878,15 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	ujj = perms_total;
       }
       if (emp_se) {
-	bufptr = double_g_writewx4x(bufptr, orig_beta[marker_idx], 12, ' ');
+	bufptr = dtoa_g_wxp4x(orig_beta[marker_idx], 12, ' ', bufptr);
 	ukk = ujj - g_beta_fail_cts[marker_idx];
 	if (ukk <= 1) {
           bufptr = memcpya(bufptr, "          NA ", 13);
 	} else {
 	  dxx = g_beta_sum[marker_idx] / ((double)((int32_t)ukk));
-	  bufptr = double_g_writewx4x(bufptr, dxx, 12, ' ');
+	  bufptr = dtoa_g_wxp4x(dxx, 12, ' ', bufptr);
 	  dxx = sqrt((g_beta_ssq[marker_idx] - g_beta_sum[marker_idx] * dxx) / ((double)((int32_t)(ukk - 1))));
-          bufptr = double_g_writewx4x(bufptr, dxx, 12, ' ');
+          bufptr = dtoa_g_wxp4x(dxx, 12, ' ', bufptr);
 	}
       }
       if (!perm_count) {

@@ -1309,7 +1309,7 @@ char* roh_pool_write_middle(char* wptr, char* marker_ids, uintptr_t max_marker_i
   wptr = uint32toa_w10(marker_pos[marker_uidx1], wptr);
   wptr = memseta(wptr, 32, 5);
   wptr = uint32toa_w10x(marker_pos[marker_uidx2], ' ', wptr);
-  wptr = double_g_writewx8x(wptr, ((double)(marker_pos[marker_uidx2] + is_new_lengths - marker_pos[marker_uidx1])) / 1000.0, 8, ' ');
+  wptr = dtoa_g_wxp8x(((double)(marker_pos[marker_uidx2] + is_new_lengths - marker_pos[marker_uidx1])) / 1000.0, 8, ' ', wptr);
   return wptr;
 }
 

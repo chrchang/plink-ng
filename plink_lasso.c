@@ -983,7 +983,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
       wptr = memcpya(g_textbuf, "COV\t", 4);
       wptr = strcpyax(wptr, &(covar_names[marker_uidx * max_covar_name_len]), '\t');
       wptr = memcpyl3a(wptr, "NA\t");
-      wptr = double_g_writex(wptr, dxx, '\n');
+      wptr = dtoa_gx(dxx, '\n', wptr);
       if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	goto lasso_ret_WRITE_FAIL;
       }
@@ -1004,7 +1004,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
       if ((!report_zeroes) && (dxx == 0)) {
 	continue;
       }
-      wptr2 = double_g_writex(&(g_textbuf[MAXLINELEN + 1]), dxx, '\n');
+      wptr2 = dtoa_gx(dxx, '\n', &(g_textbuf[MAXLINELEN + 1]));
     } else {
       if (!report_zeroes) {
 	continue;

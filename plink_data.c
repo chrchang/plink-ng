@@ -2224,7 +2224,7 @@ int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modi
 	    }
 	    downcode_idx++;
 	  } else {
-	    wptr = double_g_writex(g_textbuf, dxx, ' ');
+	    wptr = dtoa_gx(dxx, ' ', g_textbuf);
 	    fwrite(g_textbuf, 1, wptr - g_textbuf, outfile);
 	  }
 	} else {
@@ -2241,7 +2241,7 @@ int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modi
     } else {
       dptr = &(covar_d[sample_idx * covar_ct]);
       for (covar_idx = 0; covar_idx < covar_ct; covar_idx++) {
-	wptr = double_g_writex(g_textbuf, dptr[covar_idx], ' ');
+	wptr = dtoa_gx(dptr[covar_idx], ' ', g_textbuf);
         fwrite(g_textbuf, 1, wptr - g_textbuf, outfile);
       }
     }
@@ -2999,7 +2999,7 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
       marker_idx2 = (uint32_t)ll_buf[marker_idx];
       marker_uidx = unpack_map[marker_idx2];
       bufptr = strcpyax(bufptr0, &(marker_ids[marker_idx2 * max_marker_id_len]), '\t');
-      bufptr = double_g_writewx8x(bufptr, marker_cms[marker_idx2], 1, '\t');
+      bufptr = dtoa_g_wxp8x(marker_cms[marker_idx2], 1, '\t', bufptr);
       bufptr = uint32toa_x((uint32_t)(ll_buf[marker_idx] >> 32), '\n', bufptr);
       if (fwrite_checked(g_textbuf, bufptr - g_textbuf, map_outfile)) {
 	goto load_sort_and_write_map_ret_WRITE_FAIL;
@@ -7784,7 +7784,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
 	fwrite(&(g_textbuf[MAXLINELEN]), 1, cptr2 - (&(g_textbuf[MAXLINELEN])), outfile);
 	fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
 	g_textbuf[0] = '\t';
-	cptr = double_g_writex(&(g_textbuf[1]), marker_cms[marker_uidx], '\t');
+	cptr = dtoa_gx(marker_cms[marker_uidx], '\t', &(g_textbuf[1]));
 	cptr = uint32toa_x((uint32_t)(ll_buf[marker_idx] >> 32), '\t', cptr);
 	if (fwrite_checked(g_textbuf, (uintptr_t)(cptr - g_textbuf), outfile)) {
 	  goto transposed_to_bed_ret_WRITE_FAIL;
@@ -10372,7 +10372,7 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
       wptr2 = memcpya(wptr2, " per", 4);
       wptr2 = uint32toa(uii, wptr2);
       wptr2 = memcpya(wptr2, " 0 0 2 ", 7);
-      wptr2 = double_g_writex(wptr2, dxx, '\n');
+      wptr2 = dtoa_gx(dxx, '\n', wptr2);
       if (fwrite_checked(wbuf, wptr2 - wbuf, outfile)) {
 	goto generate_dummy_ret_WRITE_FAIL;
       }
@@ -11115,20 +11115,20 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
       }
       *wptr++ = '\t';
       dxx = freqs[0];
-      wptr = double_g_writex(wptr, dxx, ' ');
-      wptr = double_g_writex(wptr, dxx, '\t');
+      wptr = dtoa_gx(dxx, ' ', wptr);
+      wptr = dtoa_gx(dxx, '\t', wptr);
       if (tags_or_haps) {
 	dxx = freqs[1];
-	wptr = double_g_writex(wptr, dxx, ' ');
-	wptr = double_g_writex(wptr, dxx, '\t');
-	wptr = double_g_writex(wptr, dprime, '\t');
+	wptr = dtoa_gx(dxx, ' ', wptr);
+	wptr = dtoa_gx(dxx, '\t', wptr);
+	wptr = dtoa_gx(dprime, '\t', wptr);
       }
       if (is_qt) {
-	wptr = double_g_writex(wptr, qt_var, '\t');
-	wptr = double_g_writex(wptr, qt_dom, '\n');
+	wptr = dtoa_gx(qt_var, '\t', wptr);
+	wptr = dtoa_gx(qt_dom, '\n', wptr);
       } else {
-	wptr = double_g_writex(wptr, het_odds, '\t');
-	wptr = double_g_writex(wptr, hom0_odds, '\n');
+	wptr = dtoa_gx(het_odds, '\t', wptr);
+	wptr = dtoa_gx(hom0_odds, '\n', wptr);
       }
       if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile_simfreq)) {
 	goto simulate_ret_WRITE_FAIL;
@@ -12163,7 +12163,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       for (sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
 	next_unset_ul_unsafe_ck(sample_exclude, &sample_uidx);
         if (IS_SET(pheno_nm, sample_uidx)) {
-	  cptr = double_g_writex(wbufptr, pheno_d[sample_uidx], ' ');
+	  cptr = dtoa_gx(pheno_d[sample_uidx], ' ', wbufptr);
           wbufptr = memcpya(cptr, wbufptr, (uintptr_t)(cptr - wbufptr));
 	} else {
 	  wbufptr = memcpya(wbufptr, writebuf, ulii);
@@ -13048,7 +13048,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       aptr = (char*)memchr(cptr, '\t', max_sample_id_len);
       wbufptr = memcpyax(g_textbuf, cptr, aptr - cptr, ' ');
       wbufptr = strcpyax(wbufptr, &(aptr[1]), ' ');
-      wbufptr = double_g_writex(wbufptr, ((double)((int32_t)missing_cts[sample_idx])) * dxx, ' ');
+      wbufptr = dtoa_gx(((double)((int32_t)missing_cts[sample_idx])) * dxx, ' ', wbufptr);
       *wbufptr++ = sexchar(sex_nm, sex_male, sample_uidx);
       *wbufptr++ = ' ';
       if (IS_SET(pheno_nm, sample_uidx)) {

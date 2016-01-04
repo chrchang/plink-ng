@@ -3054,7 +3054,8 @@ int32_t hardy_report_write_line(Pigz_state* ps_ptr, char** pzwritep_ptr, char* p
   if (denom && (!is_mt)) {
     drecip = 1.0 / ((double)denom);
     minor_freq = (2 * ll_ct + lh_ct) * drecip;
-    pzwritep = double_g_writewx4x(double_g_writewx4x(pzwritep, (lh_ct * 2) * drecip, 8, ' '), minor_freq * (2 * hh_ct + lh_ct) * drecip * 2, 8, ' ');
+    pzwritep = dtoa_g_wxp4x((lh_ct * 2) * drecip, 8, ' ', pzwritep);
+    pzwritep = dtoa_g_wxp4x(minor_freq * (2 * hh_ct + lh_ct) * drecip * 2, 8, ' ', pzwritep);
     pzwritep = dtoa_g_wxp4(MAXV(pval, output_min_p), 12, pzwritep);
   } else {
     pzwritep = memcpya(pzwritep, "     nan      nan          ", 27);

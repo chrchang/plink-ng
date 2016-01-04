@@ -200,7 +200,7 @@ static inline void adjust_print(double pval, double output_min_p, const char* ou
   } else if (pval <= output_min_p) {
     *bufpp = memcpya(*bufpp, output_min_p_str, output_min_p_strlen);
   } else {
-    *bufpp = double_g_writewx4x(*bufpp, pval, 10, ' ');
+    *bufpp = dtoa_g_wxp4x(pval, 10, ' ', *bufpp);
   }
 }
 
@@ -210,7 +210,7 @@ static inline void adjust_print_log10(double pval, double output_min_p, const ch
   } else if (pval <= output_min_p) {
     *bufpp = memcpya(*bufpp, output_min_logp_str, output_min_logp_strlen);
   } else if (pval < 1) {
-    *bufpp = double_g_writewx4x(*bufpp, -log10(pval), 10, ' ');
+    *bufpp = dtoa_g_wxp4x(-log10(pval), 10, ' ', *bufpp);
   } else {
     *bufpp = memcpya(*bufpp, "         0 ", 11);
   }
@@ -430,14 +430,14 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
     if (output_min_p == 0.0) {
       memcpy(output_min_p_str, "       INF ", 11);
     } else {
-      bufptr = double_g_writewx4x(output_min_p_str, output_min_p, 10, ' ');
+      bufptr = dtoa_g_wxp4x(output_min_p, 10, ' ', output_min_p_str);
       output_min_p_strlen = (uintptr_t)(bufptr - output_min_p_str);
     }
   } else {
     if (output_min_p == 0.0) {
       memcpy(output_min_p_str, "       INF ", 11);
     } else {
-      bufptr = double_g_writewx4x(output_min_p_str, -log10(output_min_p), 10, ' ');
+      bufptr = dtoa_g_wxp4x(-log10(output_min_p), 10, ' ', output_min_p_str);
       output_min_p_strlen = (uintptr_t)(bufptr - output_min_p_str);
     }
   }
@@ -507,7 +507,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
 	  adjust_print(pv_gc[cur_idx], output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
 	}
 	if (qq_plot) {
-	  bufptr = double_g_writewx4x(bufptr, (((double)((int32_t)cur_idx)) + 0.5) * dzz, 10, ' ');
+	  bufptr = dtoa_g_wxp4x((((double)((int32_t)cur_idx)) + 0.5) * dzz, 10, ' ', bufptr);
 	}
 	adjust_print(bonf, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
 	adjust_print(pv_holm, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
@@ -521,7 +521,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
 	  adjust_print_log10(pv_gc[cur_idx], output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
 	}
 	if (qq_plot) {
-	  bufptr = double_g_writewx4x(bufptr, (((double)((int32_t)cur_idx)) + 0.5) * dzz, 10, ' ');
+	  bufptr = dtoa_g_wxp4x((((double)((int32_t)cur_idx)) + 0.5) * dzz, 10, ' ', bufptr);
 	}
 	adjust_print_log10(bonf, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
 	adjust_print_log10(pv_holm, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
@@ -6788,7 +6788,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	      wptr = dtoa_g_wxp4(MAXV(pval, output_min_p), 12, wptr);
 	    } else {
 	      if (pval > -1) {
-		wptr = double_g_writewx4x(wptr, dxx, 12, ' ');
+		wptr = dtoa_g_wxp4x(dxx, 12, ' ', wptr);
 		wptr = dtoa_g_wxp4(MAXV(pval, output_min_p), 12, wptr);
 	      } else {
 		wptr = memcpya(wptr, "          NA           NA", 25);
@@ -6809,8 +6809,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 		dww = exp(dxx - dzz);
 		dvv = exp(dxx + dzz);
 		*wptr++ = ' ';
-		wptr = double_g_writewx4x(wptr, dyy, 12, ' ');
-		wptr = double_g_writewx4x(wptr, dww, 12, ' ');
+		wptr = dtoa_g_wxp4x(dyy, 12, ' ', wptr);
+		wptr = dtoa_g_wxp4x(dww, 12, ' ', wptr);
 		wptr = dtoa_g_wxp4(dvv, 12, wptr);
 	      }
 	    }
@@ -6890,7 +6890,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 		*wptr++ = '0' + upp;
 		*wptr++ = ' ';
 	      }
-	      wptr = double_g_writewx4x(wptr, MAXV(gen_p, output_min_p), 12, '\n');
+	      wptr = dtoa_g_wxp4x(MAXV(gen_p, output_min_p), 12, '\n', wptr);
 	    }
 	    if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
 	      goto model_assoc_ret_WRITE_FAIL;
@@ -6920,7 +6920,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	      wptr = dtoa_g_wxp4(ca_chisq, 12, wptr);
 	      wptr = memcpya(wptr, "    1 ", 6);
 	    }
-	    wptr = double_g_writewx4x(wptr, MAXV(ca_p, output_min_p), 12, '\n');
+	    wptr = dtoa_g_wxp4x(MAXV(ca_p, output_min_p), 12, '\n', wptr);
 	  } else {
 	    wptr = model_assoc_tna(model_fisher, wptr);
 	  }
@@ -6941,7 +6941,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 		wptr = dtoa_g_wxp4(dww, 12, wptr);
 		wptr = memcpya(wptr, "    1 ", 6);
 	      }
-	      wptr = double_g_writewx4x(wptr, MAXV(mult_p, output_min_p), 12, '\n');
+	      wptr = dtoa_g_wxp4x(MAXV(mult_p, output_min_p), 12, '\n', wptr);
 	    } else {
 	      wptr = model_assoc_tna(model_fisher, wptr);
 	    }
@@ -6984,7 +6984,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 		wptr = dtoa_g_wxp4(dww, 12, wptr);
 		wptr = memcpya(wptr, "    1 ", 6);
 	      }
-	      wptr = double_g_writewx4x(wptr, MAXV(dom_p, output_min_p), 12, '\n');
+	      wptr = dtoa_g_wxp4x(MAXV(dom_p, output_min_p), 12, '\n', wptr);
 	    }
 	    if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
 	      goto model_assoc_ret_WRITE_FAIL;
@@ -7025,7 +7025,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 		wptr = dtoa_g_wxp4(dww, 12, wptr);
 		wptr = memcpya(wptr, "    1 ", 6);
 	      }
-	      wptr = double_g_writewx4x(wptr, MAXV(rec_p, output_min_p), 12, '\n');
+	      wptr = dtoa_g_wxp4x(MAXV(rec_p, output_min_p), 12, '\n', wptr);
 	    }
 	    if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
 	      goto model_assoc_ret_WRITE_FAIL;
@@ -7593,13 +7593,13 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	  }
 	}
         memcpy(g_textbuf, "0 ", 2);
-	wptr = double_g_writex(&(g_textbuf[2]), dxx, '\n');
+	wptr = dtoa_gx(dxx, '\n', &(g_textbuf[2]));
 	if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile)) {
 	  goto model_assoc_ret_WRITE_FAIL;
 	}
 	for (uii = 0; uii < perms_total; uii++) {
 	  wptr = uint32toa_x(uii + 1, ' ', g_textbuf);
-	  wptr = double_g_writex(wptr, maxt_extreme_stat[uii], '\n');
+	  wptr = dtoa_gx(maxt_extreme_stat[uii], '\n', wptr);
 	  if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile)) {
 	    goto model_assoc_ret_WRITE_FAIL;
 	  }
@@ -7663,9 +7663,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
             wptr = memcpya(wptr, "          NA           NA", 25);
 	  } else {
 	    if (!model_perm_count) {
-	      wptr = double_g_writewx4x(wptr, pval, 12, ' ');
+	      wptr = dtoa_g_wxp4x(pval, 12, ' ', wptr);
 	    } else {
-	      wptr = double_g_writewx4x(wptr, ((double)perm_2success_ct[marker_idx]) * 0.5, 12, ' ');
+	      wptr = dtoa_g_wxp4x(((double)perm_2success_ct[marker_idx]) * 0.5, 12, ' ', wptr);
 	    }
 	    if (model_adapt_nst) {
 	      wptr = memseta(wptr, 32, 2);
@@ -8575,7 +8575,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	  if (mperm_save & MPERM_DUMP_ALL) {
 	    if (!do_lin) {
 	      if (tp >= 0) {
-		double_g_writex(&(numbuf[1]), tstat * tstat, '\0');
+		dtoa_gx(tstat * tstat, '\0', &(numbuf[1]));
 		fputs(numbuf, outfile_msa);
 	      } else {
 		fputs(" NA", outfile_msa);
@@ -8583,7 +8583,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	    } else {
 	      dxx = g_orig_linsq[marker_idx + marker_bidx];
 	      if ((nanal > 2) && realnum(dxx)) {
-		double_g_writex(&(numbuf[1]), dxx, '\0');
+		dtoa_gx(dxx, '\0', &(numbuf[1]));
 		fputs(numbuf, outfile_msa);
 	      } else {
 		fputs(" NA", outfile_msa);
@@ -8596,12 +8596,12 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	  if (!realnum(beta)) {
 	    wptr = memcpya(wptr, "        NA         NA         NA ", 33);
 	  } else {
-	    wptr = double_g_writewx4x(wptr, beta, 10, ' ');
-	    wptr = double_g_writewx4x(wptr, vbeta_sqrt, 10, ' ');
-	    wptr = double_g_writewx4x(wptr, rsq, 10, ' ');
+	    wptr = dtoa_g_wxp4x(beta, 10, ' ', wptr);
+	    wptr = dtoa_g_wxp4x(vbeta_sqrt, 10, ' ', wptr);
+	    wptr = dtoa_g_wxp4x(rsq, 10, ' ', wptr);
 	  }
 	  if (tp >= 0) {
-	    wptr = double_g_writewx4x(wptr, tstat, 8, ' ');
+	    wptr = dtoa_g_wxp4x(tstat, 8, ' ', wptr);
 	    wptr = dtoa_g_wxp4(MAXV(tp, output_min_p), 12, wptr);
 	  } else {
 	    wptr = memcpya(wptr, "      NA           NA", 21);
@@ -8611,7 +8611,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	    if (realnum(dxx)) {
 	      *wptr++ = ' ';
 	      dxx = sqrt(dxx);
-	      wptr = double_g_writewx4x(wptr, dxx, 12, ' ');
+	      wptr = dtoa_g_wxp4x(dxx, 12, ' ', wptr);
 	      dxx = calc_tprob(dxx, nanal - 2);
 	      wptr = dtoa_g_wxp4(MAXV(dxx, output_min_p), 12, wptr);
 	    } else {
@@ -8673,9 +8673,9 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	    goto qassoc_ret_WRITE_FAIL;
 	  }
 	  wptr = memcpya(wptr_restart, "  FREQ ", 7);
-	  wptr = double_g_writewx4x(wptr, nanal_recip * ((intptr_t)homrar_ct), 8, ' ');
-	  wptr = double_g_writewx4x(wptr, nanal_recip * ((intptr_t)het_ct), 8, ' ');
-	  wptr = double_g_writewx4x(wptr, nanal_recip * ((intptr_t)homcom_ct), 8, '\n');
+	  wptr = dtoa_g_wxp4x(nanal_recip * ((intptr_t)homrar_ct), 8, ' ', wptr);
+	  wptr = dtoa_g_wxp4x(nanal_recip * ((intptr_t)het_ct), 8, ' ', wptr);
+	  wptr = dtoa_g_wxp4x(nanal_recip * ((intptr_t)homcom_ct), 8, '\n', wptr);
 	  if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile_qtm)) {
 	    goto qassoc_ret_WRITE_FAIL;
 	  }
@@ -8933,13 +8933,13 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	  }
 	}
         memcpy(g_textbuf, "0 ", 2);
-	wptr = double_g_writex(&(g_textbuf[2]), dxx, '\n');
+	wptr = dtoa_gx(dxx, '\n', &(g_textbuf[2]));
 	if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile)) {
 	  goto qassoc_ret_WRITE_FAIL;
 	}
 	for (uii = 0; uii < perms_total; uii++) {
 	  wptr = uint32toa_x(uii + 1, ' ', g_textbuf);
-	  wptr = double_g_writex(wptr, g_maxt_extreme_stat[uii], '\n');
+	  wptr = dtoa_gx(g_maxt_extreme_stat[uii], '\n', wptr);
 	  if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile)) {
 	    goto qassoc_ret_WRITE_FAIL;
 	  }
@@ -8996,9 +8996,9 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
             wptr = memcpya(wptr, "          NA           NA", 25);
 	  } else {
 	    if (!perm_count) {
-	      wptr = double_g_writewx4x(wptr, pval, 12, ' ');
+	      wptr = dtoa_g_wxp4x(pval, 12, ' ', wptr);
 	    } else {
-	      wptr = double_g_writewx4x(wptr, ((double)g_perm_2success_ct[marker_idx]) * 0.5, 12, ' ');
+	      wptr = dtoa_g_wxp4x(((double)g_perm_2success_ct[marker_idx]) * 0.5, 12, ' ', wptr);
 	    }
 	    if (perm_adapt_nst) {
 	      wptr = memseta(wptr, 32, 2);
@@ -9496,14 +9496,14 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
 	}
         zval = (beta1 - beta2) / sqrt(vbeta1 + vbeta2);
         wptr = uint32toa_w8x(nanal1, ' ', wptr);
-        wptr = double_g_writewx4x(wptr, beta1, 10, ' ');
-        wptr = double_g_writewx4x(wptr, sqrt(vbeta1), 10, ' ');
+        wptr = dtoa_g_wxp4x(beta1, 10, ' ', wptr);
+        wptr = dtoa_g_wxp4x(sqrt(vbeta1), 10, ' ', wptr);
         wptr = uint32toa_w8x(nanal2, ' ', wptr);
-        wptr = double_g_writewx4x(wptr, beta2, 10, ' ');
-        wptr = double_g_writewx4x(wptr, sqrt(vbeta2), 10, ' ');
-        wptr = double_g_writewx4x(wptr, zval, 8, ' ');
+        wptr = dtoa_g_wxp4x(beta2, 10, ' ', wptr);
+        wptr = dtoa_g_wxp4x(sqrt(vbeta2), 10, ' ', wptr);
+        wptr = dtoa_g_wxp4x(zval, 8, ' ', wptr);
 	dxx = chiprob_p(zval * zval, 1);
-        wptr = double_g_writewx4x(wptr, MAXV(dxx, output_min_p), 12, '\n');
+        wptr = dtoa_g_wxp4x(MAXV(dxx, output_min_p), 12, '\n', wptr);
       } else {
       gxe_assoc_nan_line:
         wptr = memcpya(wptr, "      NA         NA         NA       NA         NA         NA       NA           NA\n", 84);
@@ -10153,9 +10153,9 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
     }
     wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr_start);
     *wptr++ = ' ';
-    wptr = double_g_writewx4x(wptr, ((int32_t)uii) * cur_case_ct_recip, 12, ' ');
-    wptr = double_g_writewx4x(wptr, ((int32_t)ujj) * cur_ctrl_ct_recip, 12, ' ');
-    wptr = double_g_writewx4x(wptr, MAXV(pval, output_min_p), 12, '\n');
+    wptr = dtoa_g_wxp4x(((int32_t)uii) * cur_case_ct_recip, 12, ' ', wptr);
+    wptr = dtoa_g_wxp4x(((int32_t)ujj) * cur_ctrl_ct_recip, 12, ' ', wptr);
+    wptr = dtoa_g_wxp4x(MAXV(pval, output_min_p), 12, '\n', wptr);
     if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
       goto testmiss_ret_WRITE_FAIL;
     }
@@ -10597,13 +10597,13 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	  }
 	}
 	memcpy(g_textbuf, "0 ", 2);
-	wptr = double_g_writex(&(g_textbuf[2]), dxx, '\n');
+	wptr = dtoa_gx(dxx, '\n', &(g_textbuf[2]));
 	if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile)) {
 	  goto testmiss_ret_WRITE_FAIL;
 	}
 	for (uii = 0; uii < perms_total; uii++) {
 	  wptr = uint32toa_x(uii + 1, ' ', g_textbuf);
-	  wptr = double_g_writex(wptr, g_maxt_extreme_stat[uii], '\n');
+	  wptr = dtoa_gx(g_maxt_extreme_stat[uii], '\n', wptr);
 	  if (fwrite_checked(g_textbuf, (uintptr_t)(wptr - g_textbuf), outfile)) {
 	    goto testmiss_ret_WRITE_FAIL;
 	  }
@@ -10657,9 +10657,9 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	  fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr_start);
 	  wptr = &(wptr_start[1 + plink_maxsnp]);
 	  if (!perm_count) {
-	    wptr = double_g_writewx4x(wptr, pval, 12, ' ');
+	    wptr = dtoa_g_wxp4x(pval, 12, ' ', wptr);
 	  } else {
-	    wptr = double_g_writewx4x(wptr, ((double)g_perm_2success_ct[marker_idx]) * 0.5, 12, ' ');
+	    wptr = dtoa_g_wxp4x(((double)g_perm_2success_ct[marker_idx]) * 0.5, 12, ' ', wptr);
 	  }
 	  if (perm_adapt) {
 	    wptr = memseta(wptr, 32, 2);
@@ -11156,35 +11156,35 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       }
       fputs_w4(marker_allele_ptrs[marker_uidx * 2], outfile);
       g_textbuf[0] = ' ';
-      wptr = double_g_writewx4x(&(g_textbuf[1]), 1.0 - set_allele_freqs[marker_uidx], 8, ' ');
+      wptr = dtoa_g_wxp4x(1.0 - set_allele_freqs[marker_uidx], 8, ' ', &(g_textbuf[1]));
       if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	goto cmh_assoc_ret_WRITE_FAIL;
       }
       fputs_w4(marker_allele_ptrs[marker_uidx * 2 + 1], outfile);
       if (realnum(cmh_stat)) {
 	g_textbuf[0] = ' ';
-	wptr = double_g_writewx4x(&(g_textbuf[1]), cmh_stat, 10, ' ');
-	wptr = double_g_writewx4x(wptr, MAXV(pval, output_min_p), 10, ' ');
+	wptr = dtoa_g_wxp4x(cmh_stat, 10, ' ', &(g_textbuf[1]));
+	wptr = dtoa_g_wxp4x(MAXV(pval, output_min_p), 10, ' ', wptr);
       } else {
         wptr = memcpya(g_textbuf, "         NA         NA ", 23);
       }
       if (realnum(odds_ratio)) {
-        wptr = double_g_writewx4x(wptr, odds_ratio, 10, ' ');
+        wptr = dtoa_g_wxp4x(odds_ratio, 10, ' ', wptr);
       } else {
 	wptr = memcpya(wptr, "        NA ", 11);
       }
       if (realnum(se)) {
-        wptr = double_g_writewx4x(wptr, se, 10, ' ');
+        wptr = dtoa_g_wxp4x(se, 10, ' ', wptr);
 	dxx = ci_zt * se;
 	dyy = exp(log_or - dxx);
 	if (realnum(dyy)) {
-          wptr = double_g_writewx4x(wptr, dyy, 10, ' ');
+          wptr = dtoa_g_wxp4x(dyy, 10, ' ', wptr);
 	} else {
 	  wptr = memcpya(wptr, "        NA ", 11);
 	}
 	dyy = exp(log_or + dxx);
         if (realnum(dyy)) {
-          wptr = double_g_writewx4x(wptr, dyy, 10, ' ');
+          wptr = dtoa_g_wxp4x(dyy, 10, ' ', wptr);
 	} else {
 	  wptr = memcpya(wptr, "        NA ", 11);
 	}
@@ -11226,8 +11226,8 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
 	  }
 	  pval = chiprob_p(bdx2, cur_df);
 	  if (pval > -1) {
-	    wptr = double_g_writewx4x(wptr, bdx2, 10, ' ');
-	    wptr = double_g_writewx4x(wptr, MAXV(pval, output_min_p), 10, ' ');
+	    wptr = dtoa_g_wxp4x(bdx2, 10, ' ', wptr);
+	    wptr = dtoa_g_wxp4x(MAXV(pval, output_min_p), 10, ' ', wptr);
 	  } else {
 	    goto cmh_assoc_bd_fail;
 	  }
@@ -11519,10 +11519,10 @@ int32_t cmh2_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
 	}
 	chisq += dxx * (dbl_2d_buf[cluster_idx]);
       }
-      wptr = double_g_writex(wptr, chisq, '\t');
+      wptr = dtoa_gx(chisq, '\t', wptr);
       wptr = uint32toa_x(cur_cluster_ctm1, '\t', wptr);
       dxx = chiprob_p(chisq, (int32_t)cur_cluster_ctm1);
-      wptr = double_g_writex(wptr, MAXV(dxx, output_min_p), '\n');
+      wptr = dtoa_gx(MAXV(dxx, output_min_p), '\n', wptr);
     } else {
     cmh2_assoc_fail:
       wptr = memcpya(wptr, "NA\tNA\tNA\n", 9);
@@ -11729,9 +11729,9 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
     *wptr_start++ = ' ';
     wptr_start = memcpya(wptr_start, "      NA       NA       NA       NA ", 36);
     wptr = memcpya(wptr_start, " TOTAL ", 7);
-    wptr = double_g_writewx4x(wptr, x_total, 10, ' ');
+    wptr = dtoa_g_wxp4x(x_total, 10, ' ', wptr);
     wptr = uint32toa_w4x(cluster_ct2, ' ', wptr);
-    wptr = double_g_writewx4x(wptr, chiprob_p(x_total, cluster_ct2d), 10, ' ');
+    wptr = dtoa_g_wxp4x(chiprob_p(x_total, cluster_ct2d), 10, ' ', wptr);
     wptr = memcpya(wptr, "        NA\n", 11);
     if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
       goto homog_assoc_ret_WRITE_FAIL;
@@ -11739,16 +11739,16 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
     wptr = memcpya(wptr_start, " ASSOC ", 7);
     wptr = dtoa_g_wxp4(x_assoc, 10, wptr);
     wptr = memcpya(wptr, "    1 ", 6);
-    wptr = double_g_writewx4x(wptr, chiprob_p(x_assoc, 1), 10, ' ');
+    wptr = dtoa_g_wxp4x(chiprob_p(x_assoc, 1), 10, ' ', wptr);
     wptr = memcpya(wptr, "        NA\n", 11);
     if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
       goto homog_assoc_ret_WRITE_FAIL;
     }
     dxx = x_total - x_assoc;
     wptr = memcpya(wptr_start, " HOMOG ", 7);
-    wptr = double_g_writewx4x(wptr, dxx, 10, ' ');
+    wptr = dtoa_g_wxp4x(dxx, 10, ' ', wptr);
     wptr = uint32toa_w4x(cluster_ct2 - 1, ' ', wptr);
-    wptr = double_g_writewx4x(wptr, chiprob_p(dxx, cluster_ct2m1d), 10, ' ');
+    wptr = dtoa_g_wxp4x(chiprob_p(dxx, cluster_ct2m1d), 10, ' ', wptr);
     wptr = memcpya(wptr, "        NA\n", 11);
     if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
       goto homog_assoc_ret_WRITE_FAIL;
@@ -11759,15 +11759,15 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
       ctrl_ctd = dptr[2] + dptr[3];
       if ((case_ctd < 1.5) || (ctrl_ctd < 1.5)) {
 	wptr = memcpya(wptr_start, "      NA       NA ", 18);
-	wptr = double_g_writewx4x(wptr, case_ctd - 1, 8, ' ');
-	wptr = double_g_writewx4x(wptr, ctrl_ctd - 1, 8, ' ');
+	wptr = dtoa_g_wxp4x(case_ctd - 1, 8, ' ', wptr);
+	wptr = dtoa_g_wxp4x(ctrl_ctd - 1, 8, ' ', wptr);
 	wptr = fw_strcpy(6, &(cluster_ids_collapsed[cluster_idx * max_cluster_id_len]), wptr);
         wptr = memcpya(wptr, "         NA   NA         NA         NA\n", 39);
       } else {
-        wptr = double_g_writewx4x(wptr_start, dptr[0] / case_ctd, 8, ' ');
-        wptr = double_g_writewx4x(wptr, dptr[2] / ctrl_ctd, 8, ' ');
-	wptr = double_g_writewx4x(wptr, case_ctd - 1, 8, ' ');
-	wptr = double_g_writewx4x(wptr, ctrl_ctd - 1, 8, ' ');
+        wptr = dtoa_g_wxp4x(dptr[0] / case_ctd, 8, ' ', wptr_start);
+        wptr = dtoa_g_wxp4x(dptr[2] / ctrl_ctd, 8, ' ', wptr);
+	wptr = dtoa_g_wxp4x(case_ctd - 1, 8, ' ', wptr);
+	wptr = dtoa_g_wxp4x(ctrl_ctd - 1, 8, ' ', wptr);
 	wptr = fw_strcpy(6, &(cluster_ids_collapsed[cluster_idx * max_cluster_id_len]), wptr);
 	*wptr++ = ' ';
 	dxx = cluster_chisq[cluster_idx];
@@ -11777,10 +11777,10 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
 	}
         wptr = dtoa_g_wxp4(dxx, 10, wptr);
         wptr = memcpya(wptr, "    1 ", 6);
-	wptr = double_g_writewx4x(wptr, MAXV(chiprob_p(dxx, 1), output_min_p), 10, ' ');
+	wptr = dtoa_g_wxp4x(MAXV(chiprob_p(dxx, 1), output_min_p), 10, ' ', wptr);
 	dxx = cluster_or[cluster_idx];
         if (realnum(dxx)) {
-          wptr = double_g_writewx4x(wptr, dxx, 10, '\n');
+          wptr = dtoa_g_wxp4x(dxx, 10, '\n', wptr);
 	} else {
 	  wptr = memcpya(wptr, "        NA\n", 11);
 	}

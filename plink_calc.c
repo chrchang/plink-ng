@@ -3500,7 +3500,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
 		  fwrite(wbuf, 1, bufptr - wbuf, outfile);
 		}
 	      } else {
-	        bufptr = double_g_writex(&(wbuf[1]), 1.0 - dxx, ' ');
+	        bufptr = dtoa_gx(1.0 - dxx, ' ', &(wbuf[1]));
 		bufptr = dtoa_g(dxx, bufptr);
 		bufptr = memcpya(bufptr, " 0", 2);
 		fwrite(wbuf, 1, bufptr - wbuf, outfile);
@@ -3517,7 +3517,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
 		}
 	      } else {
 	        bufptr = memcpya(&(wbuf[1]), "0 ", 2);
-		bufptr = double_g_writex(bufptr, 2.0 - dxx, ' ');
+		bufptr = dtoa_gx(2.0 - dxx, ' ', bufptr);
 		bufptr = dtoa_g(dxx - 1.0, bufptr);
 		fwrite(wbuf, 1, bufptr - wbuf, outfile);
 	      }
@@ -3606,10 +3606,10 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     putc(' ', outfile);
     fputs(&(sample_id_ptr[uii + 1]), outfile);
     g_textbuf[0] = ' ';
-    bufptr = double_g_writex(&(g_textbuf[1]), ((double)missing_cts[sample_uidx]) / (double)marker_ct, ' ');
+    bufptr = dtoa_gx(((double)missing_cts[sample_uidx]) / (double)marker_ct, ' ', &(g_textbuf[1]));
     *bufptr = sexchar(sex_nm, sex_male, sample_uidx);
     bufptr[1] = ' ';
-    bufptr = double_g_writex(&(bufptr[2]), residual_vec[sample_idx], '\n');
+    bufptr = dtoa_gx(residual_vec[sample_idx], '\n', &(bufptr[2]));
     if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
       goto calc_regress_pcs_ret_WRITE_FAIL;
     }
@@ -3818,14 +3818,14 @@ uint32_t distance_d_write_tri_emitn(uint32_t overflow_ct, unsigned char* readbuf
   uint32_t pct = g_pct;
   while (sample1idx < max_sample1idx) {
     while (sample2idx + 1 < sample1idx) {
-      sptr_cur = double_g_writex(sptr_cur, *dist_ptr++, '\t');
+      sptr_cur = dtoa_gx(*dist_ptr++, '\t', sptr_cur);
       sample2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_tri_emitn_ret;
       }
     }
     if (sample2idx + 1 == sample1idx) {
-      sptr_cur = double_g_writex(sptr_cur, *dist_ptr++, '\n');
+      sptr_cur = dtoa_gx(*dist_ptr++, '\n', sptr_cur);
     }
     if ((((uint64_t)sample1idx) * (sample1idx + 1) / 2 - start_offset) >= hundredth * pct) {
       pct = (((uint64_t)sample1idx) * (sample1idx + 1) / 2 - start_offset) / hundredth;
@@ -3857,7 +3857,7 @@ uint32_t distance_d_write_sq0_emitn(uint32_t overflow_ct, unsigned char* readbuf
   uintptr_t ulii;
   while (sample1idx < max_sample1idx) {
     while (sample2idx < sample1idx) {
-      sptr_cur = double_g_writex(sptr_cur, *dist_ptr++, '\t');
+      sptr_cur = dtoa_gx(*dist_ptr++, '\t', sptr_cur);
       sample2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_sq0_emitn_ret;
@@ -3900,7 +3900,7 @@ uint32_t distance_d_write_sq_emitn(uint32_t overflow_ct, unsigned char* readbuf)
   uint32_t pct = g_pct;
   while (sample1idx < max_sample1idx) {
     while (sample2idx < sample1idx) {
-      sptr_cur = double_g_writex(sptr_cur, *dist_ptr++, '\t');
+      sptr_cur = dtoa_gx(*dist_ptr++, '\t', sptr_cur);
       sample2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_sq_emitn_ret;
@@ -3948,7 +3948,7 @@ uint32_t distance_d_write_ibs_tri_emitn(uint32_t overflow_ct, unsigned char* rea
   uint32_t pct = g_pct;
   while (sample1idx < max_sample1idx) {
     while (sample2idx < sample1idx) {
-      sptr_cur = double_g_writex(sptr_cur, 1.0 - (*dist_ptr++) * half_marker_ct_recip, '\t');
+      sptr_cur = dtoa_gx(1.0 - (*dist_ptr++) * half_marker_ct_recip, '\t', sptr_cur);
       sample2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_ibs_tri_emitn_ret;
@@ -3988,7 +3988,7 @@ uint32_t distance_d_write_ibs_sq0_emitn(uint32_t overflow_ct, unsigned char* rea
   uintptr_t ulii;
   while (sample1idx < max_sample1idx) {
     while (sample2idx < sample1idx) {
-      sptr_cur = double_g_writex(sptr_cur, 1.0 - (*dist_ptr++) * half_marker_ct_recip, '\t');
+      sptr_cur = dtoa_gx(1.0 - (*dist_ptr++) * half_marker_ct_recip, '\t', sptr_cur);
       sample2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_ibs_sq0_emitn_ret;
@@ -4039,7 +4039,7 @@ uint32_t distance_d_write_ibs_sq_emitn(uint32_t overflow_ct, unsigned char* read
   uint32_t pct = g_pct;
   while (sample1idx < max_sample1idx) {
     while (sample2idx < sample1idx) {
-      sptr_cur = double_g_writex(sptr_cur, 1.0 - (*dist_ptr++) * half_marker_ct_recip, '\t');
+      sptr_cur = dtoa_gx(1.0 - (*dist_ptr++) * half_marker_ct_recip, '\t', sptr_cur);
       sample2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_ibs_sq_emitn_ret;
@@ -4087,14 +4087,14 @@ uint32_t distance_d_write_1mibs_tri_emitn(uint32_t overflow_ct, unsigned char* r
   uint32_t pct = g_pct;
   while (sample1idx < max_sample1idx) {
     while (sample2idx + 1 < sample1idx) {
-      sptr_cur = double_g_writex(sptr_cur, (*dist_ptr++) * half_marker_ct_recip, '\t');
+      sptr_cur = dtoa_gx((*dist_ptr++) * half_marker_ct_recip, '\t', sptr_cur);
       sample2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_1mibs_tri_emitn_ret;
       }
     }
     if (sample2idx + 1 == sample1idx) {
-      sptr_cur = double_g_writex(sptr_cur, (*dist_ptr++) * half_marker_ct_recip, '\n');
+      sptr_cur = dtoa_gx((*dist_ptr++) * half_marker_ct_recip, '\n', sptr_cur);
     }
     if ((((uint64_t)sample1idx) * (sample1idx + 1) / 2 - start_offset) >= hundredth * pct) {
       pct = (((uint64_t)sample1idx) * (sample1idx + 1) / 2 - start_offset) / hundredth;
@@ -4127,7 +4127,7 @@ uint32_t distance_d_write_1mibs_sq0_emitn(uint32_t overflow_ct, unsigned char* r
   uintptr_t ulii;
   while (sample1idx < max_sample1idx) {
     while (sample2idx < sample1idx) {
-      sptr_cur = double_g_writex(sptr_cur, (*dist_ptr++) * half_marker_ct_recip, '\t');
+      sptr_cur = dtoa_gx((*dist_ptr++) * half_marker_ct_recip, '\t', sptr_cur);
       sample2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_1mibs_sq0_emitn_ret;
@@ -4171,7 +4171,7 @@ uint32_t distance_d_write_1mibs_sq_emitn(uint32_t overflow_ct, unsigned char* re
   uint32_t pct = g_pct;
   while (sample1idx < max_sample1idx) {
     while (sample2idx < sample1idx) {
-      sptr_cur = double_g_writex(sptr_cur, (*dist_ptr++) * half_marker_ct_recip, '\t');
+      sptr_cur = dtoa_gx((*dist_ptr++) * half_marker_ct_recip, '\t', sptr_cur);
       sample2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto distance_d_write_1mibs_sq_emitn_ret;
@@ -5348,7 +5348,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
       uii = marker_ct - giptr3[sample_idx];
       uljj = sample_idx - 1; // not referenced when sample_idx == 0
       for (ulii = 0; ulii < sample_idx; ulii++) {
-        cptr = double_g_writex(wbuf, 1.0 - ((double)(genome_main[uljj * 5] + 2 * genome_main[uljj * 5 + 1])) / ((double)(2 * (uii - (*giptr3++) + missing_dbl_excluded[uljj]))), ' ');
+        cptr = dtoa_gx(1.0 - ((double)(genome_main[uljj * 5] + 2 * genome_main[uljj * 5 + 1])) / ((double)(2 * (uii - (*giptr3++) + missing_dbl_excluded[uljj]))), ' ', wbuf);
         fwrite(wbuf, 1, cptr - wbuf, outfile);
 	uljj += sample_ct - ulii - 2;
       }
@@ -5356,7 +5356,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
       putc(' ', outfile);
       giptr3++;
       for (ujj = sample_idx + 1; ujj < sample_ct; ujj++) {
-	cptr = double_g_writex(wbuf, 1.0 - ((double)((*giptr) + 2 * giptr[1])) / ((double)(2 * (uii - (*giptr3++) + (*giptr2++)))), ' ');
+	cptr = dtoa_gx(1.0 - ((double)((*giptr) + 2 * giptr[1])) / ((double)(2 * (uii - (*giptr3++) + (*giptr2++)))), ' ', wbuf);
 	fwrite(wbuf, 1, cptr - wbuf, outfile);
 	giptr = &(giptr[5]);
       }
@@ -5395,7 +5395,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
       uii = marker_ct - giptr3[sample_idx];
       uljj = sample_idx - 1;
       for (ulii = 0; ulii < sample_idx; ulii++) {
-	cptr = double_g_writex(wbuf, ((double)(genome_main[uljj * 5] + 2 * genome_main[uljj * 5 + 1])) / ((double)(2 * (uii - (*giptr3++) + missing_dbl_excluded[uljj]))), ' ');
+	cptr = dtoa_gx(((double)(genome_main[uljj * 5] + 2 * genome_main[uljj * 5 + 1])) / ((double)(2 * (uii - (*giptr3++) + missing_dbl_excluded[uljj]))), ' ', wbuf);
 	fwrite(wbuf, 1, cptr - wbuf, outfile);
 	uljj += sample_ct - ulii - 2;
       }
@@ -5403,7 +5403,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
       putc(' ', outfile);
       giptr3++;
       for (ujj = sample_idx + 1; ujj < sample_ct; ujj++) {
-	cptr = double_g_writex(wbuf, ((double)((*giptr) + 2 * giptr[1])) / ((double)(2 * (uii - (*giptr3++) + (*giptr2++)))), ' ');
+	cptr = dtoa_gx(((double)((*giptr) + 2 * giptr[1])) / ((double)(2 * (uii - (*giptr3++) + (*giptr2++)))), ' ', wbuf);
         fwrite(wbuf, 1, cptr - wbuf, outfile);
 	giptr = &(giptr[5]);
       }
@@ -6446,13 +6446,13 @@ uint32_t calc_rel_tri_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   uint32_t pct = g_pct;
   while (sample1idx < max_sample1idx) {
     while (sample2idx < sample1idx) {
-      sptr_cur = double_g_writex(sptr_cur, *dist_ptr++, '\t');
+      sptr_cur = dtoa_gx(*dist_ptr++, '\t', sptr_cur);
       sample2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto calc_rel_tri_emitn_ret;
       }
     }
-    sptr_cur = double_g_writex(sptr_cur, *ibc_ptr++, '\n');
+    sptr_cur = dtoa_gx(*ibc_ptr++, '\n', sptr_cur);
     sample1idx++;
     if ((((uint64_t)sample1idx) * (sample1idx + 1) / 2 - start_offset) >= hundredth * pct) {
       pct = (((uint64_t)sample1idx) * (sample1idx + 1) / 2 - start_offset) / hundredth;
@@ -6485,7 +6485,7 @@ uint32_t calc_rel_sq0_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   uintptr_t ulii;
   while (sample1idx < max_sample1idx) {
     while (sample2idx < sample1idx) {
-      sptr_cur = double_g_writex(sptr_cur, *dist_ptr++, '\t');
+      sptr_cur = dtoa_gx(*dist_ptr++, '\t', sptr_cur);
       sample2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto calc_rel_sq0_emitn_ret;
@@ -6539,7 +6539,7 @@ uint32_t calc_rel_sq_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   uint32_t pct = g_pct;
   while (sample1idx < max_sample1idx) {
     while (sample2idx < sample1idx) {
-      sptr_cur = double_g_writex(sptr_cur, *dist_ptr++, '\t');
+      sptr_cur = dtoa_gx(*dist_ptr++, '\t', sptr_cur);
       sample2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto calc_rel_sq_emitn_ret;
@@ -7103,9 +7103,9 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       wptr = memcpyax(wbuf, fam_id, (uintptr_t)(sample_id - fam_id), '\t');
       wptr = strcpyax(wptr, &(sample_id[1]), '\t');
       wptr = uint32toa_x(marker_ct - sample_missing_unwt[sample_idx], '\t', wptr);
-      wptr = double_g_writex(wptr, *dptr3++ - 1.0, '\t');
-      wptr = double_g_writex(wptr, *dptr4++ - 1.0, '\t');
-      wptr = double_g_writex(wptr, *dptr2++ - 1.0, '\n');
+      wptr = dtoa_gx(*dptr3++ - 1.0, '\t', wptr);
+      wptr = dtoa_gx(*dptr4++ - 1.0, '\t', wptr);
+      wptr = dtoa_gx(*dptr2++ - 1.0, '\n', wptr);
 
       if (fwrite_checked(wbuf, wptr - wbuf, outfile)) {
 	goto calc_rel_ret_WRITE_FAIL;
@@ -7791,7 +7791,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   pc_idx = pc_ct;
   do {
     pc_idx--;
-    wptr = double_g_writex(wptr, out_w[pc_idx], '\n');
+    wptr = dtoa_gx(out_w[pc_idx], '\n', wptr);
   } while (pc_idx);
   if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
     goto calc_pca_ret_WRITE_FAIL;
@@ -8438,13 +8438,13 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
       uii = marker_ct - giptr2[sample_idx];
       wptr = writebuf;
       for (ujj = 0; ujj < sample_idx; ujj++) {
-	wptr = double_g_writex(wptr, ((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++))), ' ');
+	wptr = dtoa_gx(((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++))), ' ', wptr);
       }
       wptr = memcpya(wptr, "0 ", 2);
       giptr2++;
       for (ulii = sample_idx + 1; ulii < sample_ct; ulii++) {
 	uljj = tri_coord_no_diag(sample_idx, ulii);
-	wptr = double_g_writex(wptr, ((double)g_idists[uljj]) / (2 * (uii - (*giptr2++) + g_missing_dbl_excluded[uljj])), ' ');
+	wptr = dtoa_gx(((double)g_idists[uljj]) / (2 * (uii - (*giptr2++) + g_missing_dbl_excluded[uljj])), ' ', wptr);
       }
       *wptr++ = '\n';
       if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
@@ -8488,13 +8488,13 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
       uii = marker_ct - giptr2[sample_idx];
       wptr = writebuf;
       for (ujj = 0; ujj < sample_idx; ujj++) {
-	wptr = double_g_writex(wptr, 1.0 - (((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++)))), ' ');
+	wptr = dtoa_gx(1.0 - (((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++)))), ' ', wptr);
       }
       wptr = memcpya(wptr, "1 ", 2);
       giptr2++;
       for (ulii = sample_idx + 1; ulii < sample_ct; ulii++) {
 	uljj = tri_coord_no_diag(sample_idx, ulii);
-	wptr = double_g_writex(wptr, 1.0 - (((double)g_idists[uljj]) / (2 * (uii - (*giptr2++) + g_missing_dbl_excluded[uljj]))), ' ');
+	wptr = dtoa_gx(1.0 - (((double)g_idists[uljj]) / (2 * (uii - (*giptr2++) + g_missing_dbl_excluded[uljj]))), ' ', wptr);
       }
       *wptr++ = '\n';
       if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
@@ -9026,8 +9026,8 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
         wptr = uint32toa_w6x(ulii + neighbor_n1, ' ', wptr_start);
 	sample_idx2 = sample_idx1 + ulii * sample_ct;
         dxx = neighbor_quantiles[sample_idx2];
-	wptr = double_g_writewx4x(wptr, dxx, 12, ' ');
-        wptr = double_g_writewx4x(wptr, (dxx - neighbor_quantile_means[ulii]) * neighbor_quantile_stdev_recips[ulii], 12, ' ');
+	wptr = dtoa_g_wxp4x(dxx, 12, ' ', wptr);
+        wptr = dtoa_g_wxp4x((dxx - neighbor_quantile_means[ulii]) * neighbor_quantile_stdev_recips[ulii], 12, ' ', wptr);
 	sample_idx2 = neighbor_qindices[sample_idx2];
         fam_id = &(sample_ids[sample_idx_to_uidx[sample_idx2] * max_sample_id_len]);
         sample_id = (char*)memchr(fam_id, '\t', max_sample_id_len);
@@ -9036,7 +9036,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
         wptr = fw_strcpy(12, &(sample_id[1]), wptr);
         *wptr++ = ' ';
 	if (min_ppc != 0.0) {
-          wptr = double_g_writewx4x(wptr, dyy, 12, ' ');
+          wptr = dtoa_g_wxp4x(dyy, 12, ' ', wptr);
 	}
         *wptr++ = '\n';
         if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
@@ -9093,7 +9093,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	    dxx = 1.0 - ((double)((int32_t)(uii + (*sample_missing_ptr++) - 2 * (*dbl_exclude_ptr++)))) * dxx1;
 	    if (cluster_missing) {
 	      *dptr++ = dxx;
-	      wptr = double_g_writex(g_textbuf, dxx, ' ');
+	      wptr = dtoa_gx(dxx, ' ', g_textbuf);
 	      fwrite(g_textbuf, 1, wptr - g_textbuf, outfile);
 	    }
 	    if (dxx < min_ibm) {
@@ -9123,7 +9123,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 		  *dptr2 += dxx;
 		}
 	      }
-	      wptr = double_g_writex(g_textbuf, dxx, ' ');
+	      wptr = dtoa_gx(dxx, ' ', g_textbuf);
 	      fwrite(g_textbuf, 1, wptr - g_textbuf, outfile);
 	    }
 	    if (dxx < min_ibm) {
@@ -9145,7 +9145,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	    dbl_exclude_ptr = &(dbl_exclude_ptr[ulii - sample_idx2]);
 	    if (cluster_missing) {
 	      *dptr++ = dxx;
-	      wptr = double_g_writex(g_textbuf, dxx, ' ');
+	      wptr = dtoa_gx(dxx, ' ', g_textbuf);
 	      fwrite(g_textbuf, 1, wptr - g_textbuf, outfile);
 	    }
 	    if (dxx < min_ibm) {
@@ -9176,7 +9176,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 		  *dptr2 += dxx;
 		}
 	      }
-	      wptr = double_g_writex(g_textbuf, dxx, ' ');
+	      wptr = dtoa_gx(dxx, ' ', g_textbuf);
 	      fwrite(g_textbuf, 1, wptr - g_textbuf, outfile);
 	    }
 	    if (dxx < min_ibm) {
@@ -9199,7 +9199,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	if (!genome_main) {
 	  for (sample_idx2 = sample_idx1 + 1; sample_idx2 < sample_ct; sample_idx2++) {
 	    dxx = 1.0 - ((double)((int32_t)(uii + (*(++sample_missing_ptr)) - 2 * missing_dbl_excluded[((sample_idx2 * (sample_idx2 - 1)) >> 1) + sample_idx1]))) * dxx1;
-	    wptr = double_g_writex(g_textbuf, dxx, ' ');
+	    wptr = dtoa_gx(dxx, ' ', g_textbuf);
 	    fwrite(g_textbuf, 1, wptr - g_textbuf, outfile);
 	  }
 	} else {
@@ -9211,7 +9211,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	  dbl_exclude_ptr = &(missing_dbl_excluded[sample_ct * sample_idx1 - ((sample_idx1 * (sample_idx1 + 1)) >> 1)]);
 	  for (sample_idx2 = sample_idx1 + 1; sample_idx2 < sample_ct; sample_idx2++) {
 	    dxx = 1.0 - ((double)((int32_t)(uii + (*(++sample_missing_ptr)) - 2 * (*dbl_exclude_ptr++)))) * dxx1;
-	    wptr = double_g_writex(g_textbuf, dxx, ' ');
+	    wptr = dtoa_gx(dxx, ' ', g_textbuf);
 	    fwrite(g_textbuf, 1, wptr - g_textbuf, outfile);
 	  }
 	}

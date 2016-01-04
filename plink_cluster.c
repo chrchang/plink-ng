@@ -3126,7 +3126,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
     if (!is_mds_cluster) {
       dptr = &(main_matrix[sample_idx * dim_ct]);
       for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
-        wptr = double_g_writex(&(g_textbuf[11]), *(dptr++), ' ');
+        wptr = dtoa_gx(*(dptr++), ' ', &(g_textbuf[11]));
 	uii = wptr - (&(g_textbuf[11]));
 	if (uii < 13) {
 	  wptr2 = &(wptr[-13]);
@@ -3139,7 +3139,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
     } else {
       dptr = &(main_matrix[uii * dim_ct]);
       for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
-        wptr = double_g_writex(&(g_textbuf[11]), *(dptr++), ' ');
+        wptr = dtoa_gx(*(dptr++), ' ', &(g_textbuf[11]));
 	uii = wptr - (&(g_textbuf[11]));
 	if (uii < 13) {
 	  wptr2 = &(wptr[-13]);
@@ -3166,7 +3166,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
       goto mds_plot_ret_OPEN_FAIL;
     }
     for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
-      wptr = double_g_writex(g_textbuf, sqrt_eigvals[dim_idx] * sqrt_eigvals[dim_idx], '\n');
+      wptr = dtoa_gx(sqrt_eigvals[dim_idx] * sqrt_eigvals[dim_idx], '\n', g_textbuf);
       *wptr = '\0';
       fputs(g_textbuf, outfile);
     }
@@ -3435,7 +3435,7 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
     if (!is_mds_cluster) {
       dptr = &(main_matrix[(sample_idx + 1) * dim_ct]);
       for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
-        wptr = double_g_writex(&(g_textbuf[11]), *(--dptr), ' ');
+        wptr = dtoa_gx(*(--dptr), ' ', &(g_textbuf[11]));
 	uii = wptr - (&(g_textbuf[11]));
 	if (uii < 13) {
 	  wptr2 = &(wptr[-13]);
@@ -3448,7 +3448,7 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
     } else {
       dptr = &(main_matrix[(uii + 1) * dim_ct]);
       for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
-        wptr = double_g_writex(&(g_textbuf[11]), *(--dptr), ' ');
+        wptr = dtoa_gx(*(--dptr), ' ', &(g_textbuf[11]));
 	uii = wptr - (&(g_textbuf[11]));
 	if (uii < 13) {
 	  wptr2 = &(wptr[-13]);
@@ -3475,7 +3475,7 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
       goto mds_plot_eigendecomp_ret_OPEN_FAIL;
     }
     for (dim_idx = dim_ct; dim_idx; dim_idx--) {
-      wptr = double_g_writex(g_textbuf, sqrt_eigvals[dim_idx - 1] * sqrt_eigvals[dim_idx - 1], '\n');
+      wptr = dtoa_gx(sqrt_eigvals[dim_idx - 1] * sqrt_eigvals[dim_idx - 1], '\n', g_textbuf);
       *wptr = '\0';
       fputs(g_textbuf, outfile);
     }
