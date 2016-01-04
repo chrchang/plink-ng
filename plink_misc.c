@@ -80,7 +80,7 @@ int32_t make_founders(uintptr_t unfiltered_sample_ct, uintptr_t sample_ct, char*
       }
     }
     if (missing_parent_ct > require_two) {
-      SET_BIT(founder_info, sample_uidx);
+      SET_BIT(sample_uidx, founder_info);
       memcpy(pat_ptr, "0", 2);
       memcpy(mat_ptr, "0", 2);
       new_founder_ct++;
@@ -187,12 +187,12 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
     if (ii != -1) {
       sample_idx = id_map[(uint32_t)ii];
       if (makepheno_all) {
-	SET_BIT(pheno_c, sample_idx);
+	SET_BIT(sample_idx, pheno_c);
       } else {
-	SET_BIT(pheno_nm, sample_idx);
+	SET_BIT(sample_idx, pheno_nm);
         tmp_len = strlen_se(bufptr);
 	if ((tmp_len == mp_strlen) && (!memcmp(bufptr, makepheno_str, mp_strlen))) {
-	  SET_BIT(pheno_c, sample_idx);
+	  SET_BIT(sample_idx, pheno_c);
 	}
       }
     }
@@ -345,16 +345,16 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
 	      // we know the phenotype is scalar, we need to not set the
 	      // phenotype to zero during the binary -> scalar conversion step.
 	      if (*bufptr == '0') {
-		set_bit(isz, sample_idx);
+		set_bit(sample_idx, isz);
 	      }
 	      clear_bit(pheno_c, sample_idx);
 	    } else {
 	      if (*bufptr == case_char) {
-		set_bit(pheno_c, sample_idx);
+		set_bit(sample_idx, pheno_c);
 	      } else {
 		clear_bit(pheno_c, sample_idx);
 	      }
-	      set_bit(pheno_nm, sample_idx);
+	      set_bit(sample_idx, pheno_nm);
 	    }
 	  } else {
 	    pheno_d = (double*)malloc(unfiltered_sample_ct * sizeof(double));
@@ -365,7 +365,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
 	    for (uii = 0; uii < unfiltered_sample_ct; uii++) {
 	      if (is_set(isz, uii)) {
 		pheno_d[uii] = 0.0;
-		set_bit(pheno_nm, uii);
+		set_bit(uii, pheno_nm);
 	      } else if (is_set(pheno_nm, uii)) {
 		pheno_d[uii] = (double)((int32_t)(1 + is_set(pheno_c, uii)));
 	      }
@@ -377,7 +377,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
 	if (!affection) {
 	  if ((!scan_double(bufptr, &dxx)) && (dxx != missing_phenod)) {
 	    pheno_d[(uint32_t)sample_idx] = dxx;
-	    set_bit(pheno_nm, sample_idx);
+	    set_bit(sample_idx, pheno_nm);
 	  }
 	}
       }
@@ -433,7 +433,7 @@ int32_t convert_tail_pheno(uint32_t unfiltered_sample_ct, uintptr_t* pheno_nm, u
       dxx = pheno_d[sample_uidx];
       if (dxx > tail_bottom) {
         if (dxx > tail_top) {
-          SET_BIT(pheno_c, sample_uidx);
+          SET_BIT(sample_uidx, pheno_c);
         } else {
 	  CLEAR_BIT(pheno_nm, sample_uidx);
         }
@@ -704,7 +704,7 @@ int32_t update_marker_cms(Two_col_params* update_cm, uint32_t* marker_id_htable,
       LOGPREPRINTFWW("Error: Duplicate variant '%s' in --update-cm file.\n", colid_ptr);
       goto update_marker_cms_ret_INVALID_FORMAT_2;
     }
-    set_bit(already_seen, marker_uidx);
+    set_bit(marker_uidx, already_seen);
     if (scan_double(colx_ptr, &(marker_cms[marker_uidx]))) {
       sprintf(g_logbuf, "Error: Invalid centimorgan position on line %" PRIuPTR " of --update-cm file.\n", line_idx);
       goto update_marker_cms_ret_INVALID_FORMAT_2;
@@ -830,13 +830,13 @@ int32_t update_marker_pos(Two_col_params* update_map, uint32_t* marker_id_htable
       LOGPREPRINTFWW("Error: Duplicate variant '%s' in --update-map file.\n", colid_ptr);
       goto update_marker_pos_ret_INVALID_FORMAT_2;
     }
-    set_bit(already_seen, marker_uidx);
+    set_bit(marker_uidx, already_seen);
     if (scan_int_abs_defcap(colx_ptr, &bp_coord)) {
       sprintf(g_logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of --update-map file.\n", line_idx);
       goto update_marker_pos_ret_INVALID_FORMAT_2;
     }
     if (bp_coord < 0) {
-      set_bit(marker_exclude, marker_uidx);
+      set_bit(marker_uidx, marker_exclude);
       marker_ct--;
     } else {
       marker_pos[marker_uidx] = bp_coord;
@@ -971,7 +971,7 @@ int32_t update_marker_names(Two_col_params* update_name, uint32_t* marker_id_hta
       LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --update-name file.\n", colold_ptr);
       goto update_marker_names_ret_INVALID_FORMAT_2;
     }
-    set_bit(already_seen, marker_uidx);
+    set_bit(marker_uidx, already_seen);
     slen = strlen_se(colnew_ptr);
     colnew_ptr[slen] = '\0';
     memcpy(&(marker_ids[marker_uidx * max_marker_id_len]), colnew_ptr, slen + 1);
@@ -1073,7 +1073,7 @@ int32_t update_marker_alleles(char* update_alleles_fname, uint32_t* marker_id_ht
       LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --update-alleles file.\n", bufptr3);
       goto update_marker_alleles_ret_INVALID_FORMAT_2;
     }
-    SET_BIT(already_seen, marker_uidx);
+    SET_BIT(marker_uidx, already_seen);
     bufptr2 = skip_initial_spaces(bufptr2);
     len2 = strlen_se(bufptr2);
     bufptr = &(bufptr2[len2]);
@@ -1113,8 +1113,8 @@ int32_t update_marker_alleles(char* update_alleles_fname, uint32_t* marker_id_ht
       if (len2 >= max_marker_allele_len) {
 	max_marker_allele_len = len2 + 1;
       }
-      allele_reset(&(marker_allele_ptrs[2 * marker_uidx]), bufptr2, len2);
-      allele_reset(&(marker_allele_ptrs[2 * marker_uidx + 1]), bufptr, len);
+      allele_reset(bufptr2, len2, &(marker_allele_ptrs[2 * marker_uidx]));
+      allele_reset(bufptr, len, &(marker_allele_ptrs[2 * marker_uidx + 1]));
       hit_ct++;
     } else {
       if (!err_ct) {
@@ -1210,7 +1210,7 @@ uint32_t flip_process_token(char* tok_start, uint32_t* marker_id_htable, uint32_
     LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --flip file.\n", tok_start);
     return 1;
   }
-  SET_BIT(already_seen, marker_uidx);
+  SET_BIT(marker_uidx, already_seen);
   cur_non_acgt0 = 0;
   cur_non_acgt0 |= flip_str(&(marker_allele_ptrs[2 * marker_uidx]));
   cur_non_acgt0 |= flip_str(&(marker_allele_ptrs[2 * marker_uidx + 1]));
@@ -1372,7 +1372,7 @@ int32_t update_sample_ids(char* update_ids_fname, char* sorted_sample_ids, uintp
       LOGPREPRINTFWW("Error: Duplicate sample ID '%s' in --update-ids file.\n", idbuf);
       goto update_sample_ids_ret_INVALID_FORMAT_2;
     }
-    set_bit(already_seen, sorted_idx);
+    set_bit(sorted_idx, already_seen);
     sample_uidx = sample_id_map[((uint32_t)sorted_idx)];
     wptr = &(sample_ids[sample_uidx * max_sample_id_len]);
     len = strlen_se(bufptr);
@@ -1471,7 +1471,7 @@ int32_t update_sample_parents(char* update_parents_fname, char* sorted_sample_id
       LOGPREPRINTFWW("Error: Duplicate sample ID '%s' in --update-parents file.\n", idbuf);
       goto update_sample_parents_ret_INVALID_FORMAT_2;
     }
-    set_bit(already_seen, sorted_idx);
+    set_bit(sorted_idx, already_seen);
     sample_uidx = sample_id_map[((uint32_t)sorted_idx)];
     wptr = &(paternal_ids[sample_uidx * max_paternal_id_len]);
     len = strlen_se(bufptr);
@@ -1482,7 +1482,7 @@ int32_t update_sample_parents(char* update_parents_fname, char* sorted_sample_id
     len2 = strlen_se(bufptr3);
     memcpyx(wptr, bufptr3, len2, '\0');
     if ((len == 1) && (*bufptr == '0') && (len2 == 1) && (*bufptr3 == '0')) {
-      SET_BIT(founder_info, sample_uidx);
+      SET_BIT(sample_uidx, founder_info);
     } else {
       CLEAR_BIT(founder_info, sample_uidx);
     }
@@ -1578,7 +1578,7 @@ int32_t update_sample_sexes(char* update_sex_fname, uint32_t update_sex_col, cha
       LOGPREPRINTFWW("Error: Duplicate sample ID '%s' in --update-sex file.\n", idbuf);
       goto update_sample_sexes_ret_INVALID_FORMAT_2;
     }
-    set_bit(already_seen, sorted_idx);
+    set_bit(sorted_idx, already_seen);
     sample_uidx = sample_id_map[((uint32_t)sorted_idx)];
     bufptr = next_token_multz(bufptr, update_sex_col);
     if (no_more_tokens_kns(bufptr)) {
@@ -1594,9 +1594,9 @@ int32_t update_sample_sexes(char* update_sex_fname, uint32_t update_sex_col, cha
       CLEAR_BIT(sex_nm, sample_uidx);
       CLEAR_BIT(sex_male, sample_uidx);
     } else {
-      SET_BIT(sex_nm, sample_uidx);
+      SET_BIT(sample_uidx, sex_nm);
       if ((cc == '1') || (ucc == 'M')) {
-	SET_BIT(sex_male, sample_uidx);
+	SET_BIT(sample_uidx, sex_male);
       } else {
 	CLEAR_BIT(sex_male, sample_uidx);
       }
@@ -1722,7 +1722,7 @@ int32_t load_one_freq(uint32_t alen1, const char* aptr1, uint32_t alen2, const c
   if ((malen0 == alen1) && (!memcmp(mastrs_ptr[0], aptr1, alen1))) {
     if (((malen1 != alen2)) || memcmp(mastrs_ptr[1], aptr2, alen2)) {
       if (missing1) {
-	if (allele_set(&(mastrs_ptr[1]), aptr2, alen2)) {
+	if (allele_set(aptr2, alen2, &(mastrs_ptr[1]))) {
 	  return RET_NOMEM;
 	}
       } else {
@@ -1733,7 +1733,7 @@ int32_t load_one_freq(uint32_t alen1, const char* aptr1, uint32_t alen2, const c
   } else if ((malen1 == alen1) && (!memcmp(mastrs_ptr[1], aptr1, alen1))) {
     if ((malen0 != alen2) || memcmp(mastrs_ptr[0], aptr2, alen2)) {
       if (missing0) {
-        if (allele_set(&(mastrs_ptr[0]), aptr2, alen2)) {
+        if (allele_set(aptr2, alen2, &(mastrs_ptr[0]))) {
 	  return RET_NOMEM;
 	}
       } else {
@@ -1742,12 +1742,12 @@ int32_t load_one_freq(uint32_t alen1, const char* aptr1, uint32_t alen2, const c
     }
     *set_allele_freq_ptr = maf;
   } else if (missing0 && (!missing1) && (malen1 == alen2) && (!memcmp(mastrs_ptr[1], aptr2, alen2))) {
-    if (allele_set(&(mastrs_ptr[0]), aptr1, alen1)) {
+    if (allele_set(aptr1, alen1, &(mastrs_ptr[0]))) {
       return RET_NOMEM;
     }
     *set_allele_freq_ptr = 1.0 - maf;
   } else if (missing1 && (!missing0) && (malen0 == alen2) && (!memcmp(mastrs_ptr[0], aptr2, alen2))) {
-    if (allele_set(&(mastrs_ptr[1]), aptr1, alen1)) {
+    if (allele_set(aptr1, alen1, &(mastrs_ptr[1]))) {
       return RET_NOMEM;
     }
     *set_allele_freq_ptr = maf;
@@ -2256,7 +2256,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
       LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --a%c-allele file.\n", colid_ptr, is_a2? '2' : '1');
       goto load_ax_alleles_ret_INVALID_FORMAT_2;
     }
-    set_bit(already_seen, marker_uidx);
+    set_bit(marker_uidx, already_seen);
     alen = strlen_se(colx_ptr);
     colx_ptr[alen] = '\0';
     if (!strcmp(colx_ptr, marker_allele_ptrs[marker_uidx * 2 + is_a2])) {
@@ -2267,11 +2267,11 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
     } else if (!strcmp(colx_ptr, marker_allele_ptrs[marker_uidx * 2 + 1 - is_a2])) {
       if (!IS_SET(marker_reverse, marker_uidx)) {
         set_allele_freqs[marker_uidx] = 1.0 - set_allele_freqs[marker_uidx];
-        SET_BIT(marker_reverse, marker_uidx);
+        SET_BIT(marker_uidx, marker_reverse);
       }
     } else if ((marker_allele_ptrs[marker_uidx * 2] == missing_geno_ptr) || (marker_allele_ptrs[marker_uidx * 2 + 1] == missing_geno_ptr)) {
       replace_other = (marker_allele_ptrs[marker_uidx * 2 + is_a2] != missing_geno_ptr);
-      if (allele_reset(&(marker_allele_ptrs[marker_uidx * 2 + (is_a2 ^ replace_other)]), colx_ptr, alen)) {
+      if (allele_reset(colx_ptr, alen, &(marker_allele_ptrs[marker_uidx * 2 + (is_a2 ^ replace_other)]))) {
 	goto load_ax_alleles_ret_NOMEM;
       }
       if (alen >= max_marker_allele_len) {
@@ -2285,7 +2285,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
       } else {
 	if (!IS_SET(marker_reverse, marker_uidx)) {
 	  set_allele_freqs[marker_uidx] = 1.0 - set_allele_freqs[marker_uidx];
-	  SET_BIT(marker_reverse, marker_uidx);
+	  SET_BIT(marker_uidx, marker_reverse);
 	}
       }
     } else {
@@ -3187,9 +3187,9 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     }
     if (do_impute) {
       if (imputed_sex_code) {
-	SET_BIT(sex_nm, sample_uidx);
+	SET_BIT(sample_uidx, sex_nm);
 	if (imputed_sex_code == 1) {
-	  SET_BIT(sex_male, sample_uidx);
+	  SET_BIT(sample_uidx, sex_male);
 	} else {
 	  CLEAR_BIT(sex_male, sample_uidx);
 	}
@@ -4342,7 +4342,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
 	  }
           CLEAR_BIT(marker_exclude, marker_uidx);
 	  if (uii) {
-	    SET_BIT(a2_effect, marker_uidx);
+	    SET_BIT(marker_uidx, a2_effect);
 	  }
 	}
       } else {
@@ -5531,7 +5531,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	  problem_mask = 0x200;
 	  goto meta_analysis_report_error;
 	}
-	set_bit(duplicate_id_bitfield, ii);
+	set_bit(ii, duplicate_id_bitfield);
       } else {
 	ll_pptr = &(duplicate_id_htable[uii]);
 	while (1) {
@@ -5958,7 +5958,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	  if (is_set(duplicate_id_bitfield, ii)) {
 	    continue;
 	  }
-	  set_bit(duplicate_id_bitfield, ii);
+	  set_bit(ii, duplicate_id_bitfield);
 	} else {
 	  uii = hashval2(bufptr, var_id_len);
 	  ll_pptr = &(duplicate_id_htable[uii]);
@@ -6073,7 +6073,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	  }
 	}
 	if (report_study_specific) {
-          set_bit((uintptr_t*)cur_data_ptr, file_idx);
+          set_bit(file_idx, (uintptr_t*)cur_data_ptr);
 	}
 	if (weighted_z) {
 	  dxx = ltqnorm(1.0 - cur_p * 0.5) * sqrt(cur_ess);

@@ -62,7 +62,7 @@ uint32_t glm_init_load_mask(uintptr_t* sample_exclude, uintptr_t* pheno_nm, uint
     for (sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
       next_unset_unsafe_ck(sample_exclude, &sample_uidx);
       if (IS_SET(pheno_nm, sample_uidx) & IS_SET(covar_nm, sample_idx)) {
-	SET_BIT(load_mask, sample_uidx);
+	SET_BIT(sample_uidx, load_mask);
       }
     }
   } else {
@@ -165,7 +165,7 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
 	  if (condition_ct == condition_ct_max) {
 	    goto glm_scan_conditions_ret_NOMEM;
 	  }
-	  set_bit(already_seen, ii);
+	  set_bit(ii, already_seen);
 	  condition_uidxs_tmp[condition_ct++] = marker_idx_to_uidx[id_map[(uint32_t)ii]];
 	}
         bufptr = skip_initial_spaces(bufptr2);
@@ -290,7 +290,7 @@ uint32_t glm_loadbuf_to_doubles(uintptr_t* loadbuf_collapsed, uint32_t sample_va
         if (cur_genotype != 1) {
           *covar_row = geno_map[cur_genotype];
 	} else {
-          SET_BIT(cur_missing, sample_idx);
+          SET_BIT(sample_idx, cur_missing);
 	}
       }
       sample_idx_stop += BITCT2;
@@ -318,7 +318,7 @@ uint32_t glm_loadbuf_to_doubles_x(uintptr_t* loadbuf_collapsed, uintptr_t* sex_m
         if (cur_genotype != 1) {
           *covar_row = geno_map[cur_genotype + 4 * IS_SET(sex_male_collapsed, sample_idx)];
 	} else {
-          SET_BIT(cur_missing, sample_idx);
+          SET_BIT(sample_idx, cur_missing);
 	}
       }
       sample_idx_stop += BITCT2;
@@ -347,7 +347,7 @@ uint32_t glm_loadbuf_to_floats(uintptr_t* loadbuf_collapsed, uint32_t sample_val
         if (cur_genotype != 1) {
           *covar_row = geno_map[cur_genotype];
 	} else {
-          SET_BIT(cur_missing, sample_idx);
+          SET_BIT(sample_idx, cur_missing);
 	}
       }
       sample_idx_stop += BITCT2;
@@ -375,7 +375,7 @@ uint32_t glm_loadbuf_to_floats_x(uintptr_t* loadbuf_collapsed, uintptr_t* sex_ma
         if (cur_genotype != 1) {
           *covar_row = geno_map[cur_genotype + 4 * IS_SET(sex_male_collapsed, sample_idx)];
 	} else {
-          SET_BIT(cur_missing, sample_idx);
+          SET_BIT(sample_idx, cur_missing);
 	}
       }
       sample_idx_stop += BITCT2;
@@ -613,7 +613,7 @@ uint32_t glm_linear(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t samp
       dyy = 0;
       perm_fail_ct++;
       dptr = &(dptr[param_ctx_m1]);
-      SET_BIT(perm_fails, perm_idx);
+      SET_BIT(perm_idx, perm_fails);
     } else {
       dptr2 = param_2d_buf2;
       if (!joint_test_requested) {
@@ -1763,7 +1763,7 @@ uint32_t glm_logistic(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t sa
     if (0) {
     glm_logistic_fail:
       fill_float_zero(&(logistic_results[perm_idx * param_ctx_msi]), param_ct_msi);
-      SET_BIT(perm_fails, perm_idx);
+      SET_BIT(perm_idx, perm_fails);
       perm_fail_ct++;
       if (joint_test_requested) {
         logistic_results[perm_idx * param_ctx_msi + param_ct_msi] = -9;
@@ -3915,7 +3915,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
     for (uii = 0, param_idx = 0; uii < ujj; uii++, param_idx++) {
       next_set_unsafe_ck(active_params, &uii);
       if ((uii != 2) && ((uii < interaction_start_idx) || (!((uii - interaction_start_idx) & 1)))) {
-        SET_BIT(haploid_params, param_idx);
+        SET_BIT(param_idx, haploid_params);
       }
     }
   } else {
@@ -5151,13 +5151,13 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	  if (glm_linear(1, cur_param_ct, cur_sample_valid_ct, cur_missing_ct, loadbuf_ptr, standard_beta, g_pheno_sum, g_pheno_ssq, g_linear_mt[0].cur_covars_cov_major, g_linear_mt[0].cur_covars_sample_major, g_perm_pheno_d2, g_linear_mt[0].dgels_b, g_linear_mt[0].param_2d_buf, g_linear_mt[0].mi_buf, g_linear_mt[0].param_2d_buf2, g_linear_mt[0].regression_results, cur_constraint_ct, constraints_con_major, g_linear_mt[0].param_df_buf, g_linear_mt[0].param_df_buf2, g_linear_mt[0].df_df_buf, g_linear_mt[0].df_buf, &perm_fail_ct, g_linear_mt[0].perm_fails) || perm_fail_ct) {
 	    regression_fail = 1;
 	    if (is_set_test && is_monomorphic(loadbuf_ptr, sample_valid_ct)) {
-	      set_bit(regression_skip, marker_idx3);
+	      set_bit(marker_idx3, regression_skip);
 	    }
 	  }
 	} else {
 	  regression_fail = 1;
 	  if (is_set_test) {
-	    set_bit(regression_skip, marker_idx3);
+	    set_bit(marker_idx3, regression_skip);
 	  }
 	}
 	wptr_start2 = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), wptr_start);

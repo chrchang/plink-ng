@@ -335,7 +335,7 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
 	    goto dosage_load_score_files_ret_INVALID_FORMAT_2;
 	  }
 	  score_qrange_keys[(uint32_t)ii] = dxx;
-	  set_bit(score_qrange_key_exists, ii);
+	  set_bit(ii, score_qrange_key_exists);
 	}
       } else {
 	miss_ct++;
@@ -1603,7 +1603,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	      sprintf(g_logbuf, "Error: '%s' appears multiple times.\n", bufptr);
 	      goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	    }
-	    set_bit(batch_samples, ii);
+	    set_bit(ii, batch_samples);
 	    read_idx_to_sample_idx[read_idx] = (uint32_t)ii;
             skip_vals[read_idx++] = uii;
 	    uii = 1 + (format_val == 3);
@@ -1690,7 +1690,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	      sprintf(g_logbuf, "Error: '%s' appears multiple times.\n", bufptr);
 	      goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	    }
-	    set_bit(batch_samples, ii);
+	    set_bit(ii, batch_samples);
 	    read_idx_to_sample_idx[read_idx] = (uint32_t)ii;
             skip_vals[read_idx++] = uii;
 	    uii = 1 + (format_val == 3);
@@ -1750,11 +1750,11 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  memcpyx(cur_marker_id_buf, bufptr, slen, '\0');
 	  cur_marker_id_len = slen;
 	  a1_len = (uintptr_t)(bufptr4 - bufptr3);
-	  if (allele_set(&a1_ptr, bufptr3, a1_len)) {
+	  if (allele_set(bufptr3, a1_len, &a1_ptr)) {
 	    goto plink1_dosage_ret_NOMEM;
 	  }
 	  a2_len = (uintptr_t)(bufptr6 - bufptr5);
-	  if (allele_set(&a2_ptr, bufptr5, a2_len)) {
+	  if (allele_set(bufptr5, a2_len, &a2_ptr)) {
 	    goto plink1_dosage_ret_NOMEM;
 	  }
 	  if (load_map) {

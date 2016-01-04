@@ -538,7 +538,7 @@ void exclude_multi(uintptr_t* exclude_arr, int32_t* new_excl, uint32_t unfiltere
     sample_uidx_stop = next_set(exclude_arr, sample_uidx, unfiltered_sample_ct);
     do {
       if (*new_excl++ == -1) {
-        SET_BIT(exclude_arr, sample_uidx);
+        SET_BIT(sample_uidx, exclude_arr);
 	exclude_ct++;
       }
     } while (++sample_uidx < sample_uidx_stop);
@@ -6734,7 +6734,7 @@ int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_
       LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --distance-wts file.\n", bufptr);
       goto load_distance_wts_ret_INVALID_FORMAT_2;
     }
-    set_bit(marker_include, marker_uidx);
+    set_bit(marker_uidx, marker_include);
     bufptr = skip_initial_spaces(&(bufptr[idlen]));
     if (is_eoln_kns(*bufptr)) {
       sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --distance-wts file has fewer tokens than expected.\n", line_idx);
@@ -8896,10 +8896,10 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 		ppc_fail_counts[sample_idx2] += 1;
 	      }
 	      if (!cluster_ct) {
-		set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(sample_idx1, sample_idx2));
+		set_bit_ul(tri_coord_no_diag(sample_idx1, sample_idx2), cluster_merge_prevented);
 	      } else {
 		if (clidx1 != clidx2) {
-		  SET_BIT(cluster_merge_prevented, tcoord);
+		  SET_BIT(tcoord, cluster_merge_prevented);
 		} else if (!ppc_warning) {
 		  logerrprint("Warning: Initial cluster assignment violates PPC test constraint.\n");
 		  ppc_warning = 1;
@@ -9097,7 +9097,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	      fwrite(g_textbuf, 1, wptr - g_textbuf, outfile);
 	    }
 	    if (dxx < min_ibm) {
-	      set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(sample_idx2, sample_idx1));
+	      set_bit_ul(tri_coord_no_diag(sample_idx2, sample_idx1), cluster_merge_prevented);
 	    }
 	  }
 	} else {
@@ -9128,9 +9128,9 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	    }
 	    if (dxx < min_ibm) {
 	      if (clidx1 < clidx2) {
-		set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+		set_bit_ul(tri_coord_no_diag(clidx1, clidx2), cluster_merge_prevented);
 	      } else if (clidx1 > clidx2) {
-		set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx2, clidx1));
+		set_bit_ul(tri_coord_no_diag(clidx2, clidx1), cluster_merge_prevented);
 	      } else {
 		ibm_warning = 1;
 	      }
@@ -9149,7 +9149,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	      fwrite(g_textbuf, 1, wptr - g_textbuf, outfile);
 	    }
 	    if (dxx < min_ibm) {
-	      set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(sample_idx2, sample_idx1));
+	      set_bit_ul(tri_coord_no_diag(sample_idx2, sample_idx1), cluster_merge_prevented);
 	    }
 	  }
 	} else {
@@ -9181,9 +9181,9 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	    }
 	    if (dxx < min_ibm) {
 	      if (clidx1 < clidx2) {
-		set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+		set_bit_ul(tri_coord_no_diag(clidx1, clidx2), cluster_merge_prevented);
 	      } else if (clidx1 > clidx2) {
-		set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx2, clidx1));
+		set_bit_ul(tri_coord_no_diag(clidx2, clidx1), cluster_merge_prevented);
 	      } else {
 		ibm_warning = 1;
 	      }
@@ -9292,18 +9292,18 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	}
 	fill_bits(cluster_merge_prevented, (clidx1 * (clidx1 - 1)) >> 1, clidx1);
 	for (clidx2 = clidx1 + 1; clidx2 < cur_cluster_ct; clidx2++) {
-	  set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+	  set_bit_ul(tri_coord_no_diag(clidx1, clidx2), cluster_merge_prevented);
 	}
       } else if (ujj > uii / 2) {
 	ujj = uii - ujj;
 	for (clidx2 = 0; clidx2 < clidx1; clidx2++) {
 	  if (cluster_starts[clidx2 + 1] - cluster_starts[clidx2] > ujj) {
-	    set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx2, clidx1));
+	    set_bit_ul(tri_coord_no_diag(clidx2, clidx1), cluster_merge_prevented);
 	  }
 	}
 	for (clidx2 = clidx1 + 1; clidx2 < cluster_ct; clidx2++) {
 	  if (cluster_starts[clidx2 + 1] - cluster_starts[clidx2] > ujj) {
-	    set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+	    set_bit_ul(tri_coord_no_diag(clidx1, clidx2), cluster_merge_prevented);
 	  }
 	}
       }
@@ -9323,24 +9323,24 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	    mcc_warning = 1;
 	    fill_bits(cluster_merge_prevented, (clidx1 * (clidx1 - 1)) >> 1, clidx1);
 	    for (clidx2 = clidx1 + 1; clidx2 < cur_cluster_ct; clidx2++) {
-	      set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+	      set_bit_ul(tri_coord_no_diag(clidx1, clidx2), cluster_merge_prevented);
 	    }
 	  } else if (ujj > uii / 2) {
 	    ujj = uii - ujj;
 	    for (clidx2 = 0; clidx2 < clidx1; clidx2++) {
 	      if (cur_cluster_case_cts[clidx2] > ujj) {
-		set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx2, clidx1));
+		set_bit_ul(tri_coord_no_diag(clidx2, clidx1), cluster_merge_prevented);
 	      }
 	    }
 	    for (clidx2 = clidx1 + 1; clidx2 < cluster_ct; clidx2++) {
 	      if (cur_cluster_case_cts[clidx2] > ujj) {
-		set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+		set_bit_ul(tri_coord_no_diag(clidx1, clidx2), cluster_merge_prevented);
 	      }
 	    }
 	    if (!ujj) {
 	      for (clidx2 = cluster_ct; clidx2 < cur_cluster_ct; clidx2++) {
                 if (cur_cluster_case_cts[clidx2]) {
-		  set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+		  set_bit_ul(tri_coord_no_diag(clidx1, clidx2), cluster_merge_prevented);
 		}
 	      }
 	    }
@@ -9351,7 +9351,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	    if (cur_cluster_case_cts[clidx1]) {
 	      for (clidx2 = clidx1 + 1; clidx2 < cur_cluster_ct; clidx2++) {
 		if (cur_cluster_case_cts[clidx2]) {
-		  set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+		  set_bit_ul(tri_coord_no_diag(clidx1, clidx2), cluster_merge_prevented);
 		}
 	      }
 	    }
@@ -9366,24 +9366,24 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	    mcc_warning = 1;
 	    fill_bits(cluster_merge_prevented, (clidx1 * (clidx1 - 1)) >> 1, clidx1);
 	    for (clidx2 = clidx1 + 1; clidx2 < cur_cluster_ct; clidx2++) {
-	      set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+	      set_bit_ul(tri_coord_no_diag(clidx1, clidx2), cluster_merge_prevented);
 	    }
 	  } else if (ujj > uii / 2) {
 	    ujj = uii - ujj;
 	    for (clidx2 = 0; clidx2 < clidx1; clidx2++) {
 	      if (cur_cluster_sizes[clidx2] - cur_cluster_case_cts[clidx2] > ujj) {
-		set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx2, clidx1));
+		set_bit_ul(tri_coord_no_diag(clidx2, clidx1), cluster_merge_prevented);
 	      }
 	    }
 	    for (clidx2 = clidx1 + 1; clidx2 < cluster_ct; clidx2++) {
 	      if (cur_cluster_sizes[clidx2] - cur_cluster_case_cts[clidx2] > ujj) {
-		set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+		set_bit_ul(tri_coord_no_diag(clidx1, clidx2), cluster_merge_prevented);
 	      }
 	    }
 	    if (!ujj) {
 	      for (clidx2 = cluster_ct; clidx2 < cur_cluster_ct; clidx2++) {
                 if (!cur_cluster_case_cts[clidx2]) {
-		  set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+		  set_bit_ul(tri_coord_no_diag(clidx1, clidx2), cluster_merge_prevented);
 		}
 	      }
 	    }
@@ -9394,7 +9394,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	    if (!cur_cluster_case_cts[clidx1]) {
 	      for (clidx2 = clidx1 + 1; clidx2 < cur_cluster_ct; clidx2++) {
 		if (!cur_cluster_case_cts[clidx2]) {
-		  set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+		  set_bit_ul(tri_coord_no_diag(clidx1, clidx2), cluster_merge_prevented);
 		}
 	      }
 	    }
@@ -9516,7 +9516,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	uljj = heap_size - 1;
 	for (ulii = 0; ulii < uljj; ulii++) {
 	  if ((cluster_sorted_ibs_indices[ulii * 3 + CACHELINE_INT32] == cluster_sorted_ibs_indices[ulii * 3 + 3 + CACHELINE_INT32]) && (cluster_sorted_ibs_indices[ulii * 3 + 1 + CACHELINE_INT32] == cluster_sorted_ibs_indices[ulii * 3 + 4 + CACHELINE_INT32])) {
-	    SET_BIT(ibs_ties, ulii);
+	    SET_BIT(ulii, ibs_ties);
 	  }
 	}
       }

@@ -242,7 +242,7 @@ void calc_marker_reverse_bin(uintptr_t* marker_reverse, uintptr_t* marker_exclud
     for (; marker_uidx < marker_uidx_stop; marker_uidx++) {
       dxx = set_allele_freqs[marker_uidx];
       if (dxx < 0.5) {
-	SET_BIT(marker_reverse, marker_uidx);
+	SET_BIT(marker_uidx, marker_reverse);
 	set_allele_freqs[marker_uidx] = 1.0 - dxx;
       }
     }
@@ -1915,7 +1915,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	fill_ulong_zero(pheno_c, unfiltered_sample_ctl);
 	ukk = cluster_starts[uii + 1];
 	for (ujj = cluster_starts[uii]; ujj < ukk; ujj++) {
-	  SET_BIT(pheno_c, cluster_map[ujj]);
+	  SET_BIT(cluster_map[ujj], pheno_c);
 	}
 	uii++;
       } else {
@@ -2306,7 +2306,7 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
 	}
 	fill_bits(chrom_mask, chrom_code_start, chrom_code_end + 1 - chrom_code_start);
       } else {
-        set_bit(chrom_mask, chrom_code_start);
+        set_bit(chrom_code_start, chrom_mask);
       }
       argct++;
     }
@@ -2933,7 +2933,7 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
     chrom_info_ptr->mt_code = -1;
     chrom_info_ptr->max_code = ii + 1;
     chrom_info_ptr->autosome_ct = ii;
-    set_bit(chrom_info_ptr->haploid_mask, ii + 1);
+    set_bit(ii + 1, chrom_info_ptr->haploid_mask);
   }
   if (flag_match("chr-set", &flag_idx, flag_ct, flag_buf)) {
     if (species_flag(&species_code, SPECIES_UNKNOWN)) {
@@ -2967,8 +2967,8 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
       chrom_info_ptr->y_code = ii + 2;
       chrom_info_ptr->xy_code = ii + 3;
       chrom_info_ptr->mt_code = ii + 4;
-      set_bit(chrom_info_ptr->haploid_mask, ii + 1);
-      set_bit(chrom_info_ptr->haploid_mask, ii + 2);
+      set_bit(ii + 1, chrom_info_ptr->haploid_mask);
+      set_bit(ii + 2, chrom_info_ptr->haploid_mask);
       for (param_idx = 2; param_idx <= param_ct; param_idx++) {
 	if (!strcmp(argv[cur_arg + param_idx], "no-x")) {
 	  chrom_info_ptr->x_code = -1;
@@ -3140,16 +3140,16 @@ void fill_chrom_mask(Chrom_info* chrom_info_ptr) {
     fill_all_bits(chrom_info_ptr->chrom_mask, chrom_info_ptr->autosome_ct + 1);
     // --chr-set support
     if (chrom_info_ptr->x_code != -1) {
-      set_bit(chrom_info_ptr->chrom_mask, chrom_info_ptr->x_code);
+      set_bit(chrom_info_ptr->x_code, chrom_info_ptr->chrom_mask);
     }
     if (chrom_info_ptr->y_code != -1) {
-      set_bit(chrom_info_ptr->chrom_mask, chrom_info_ptr->y_code);
+      set_bit(chrom_info_ptr->y_code, chrom_info_ptr->chrom_mask);
     }
     if (chrom_info_ptr->xy_code != -1) {
-      set_bit(chrom_info_ptr->chrom_mask, chrom_info_ptr->xy_code);
+      set_bit(chrom_info_ptr->xy_code, chrom_info_ptr->chrom_mask);
     }
     if (chrom_info_ptr->mt_code != -1) {
-      set_bit(chrom_info_ptr->chrom_mask, chrom_info_ptr->mt_code);
+      set_bit(chrom_info_ptr->mt_code, chrom_info_ptr->chrom_mask);
     }
   }
 }
@@ -4262,7 +4262,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	fill_bits(chrom_info.chrom_mask, 1, chrom_info.autosome_ct);
-	set_bit(chrom_info.chrom_mask, chrom_info.xy_code);
+	set_bit(chrom_info.xy_code, chrom_info.chrom_mask);
 	chrom_info.is_include_stack = 1;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "llow-extra-chr", 15)) {

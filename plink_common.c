@@ -3183,7 +3183,7 @@ char* dtoa_g_wxp8(double dxx, uint32_t min_width, char* start) {
   }
 }
 
-char* chrom_print_human(char* buf, uint32_t num) {
+char* chrom_print_human(uint32_t num, char* buf) {
   uint32_t n10;
   if (num < 10) {
     *buf = '0' + num;
@@ -3210,9 +3210,7 @@ char* chrom_print_human(char* buf, uint32_t num) {
   }
 }
 
-uint32_t allele_set(char** allele_ptr, const char* newval, uint32_t slen) {
-  // newval does not need to be null-terminated, and slen does not include
-  // terminator
+uint32_t allele_set(const char* newval, uint32_t slen, char** allele_ptr) {
   char* newptr;
   if (slen == 1) {
     newptr = (char*)(&(g_one_char_strs[((unsigned char)*newval) * 2]));
@@ -3227,7 +3225,7 @@ uint32_t allele_set(char** allele_ptr, const char* newval, uint32_t slen) {
   return 0;
 }
 
-uint32_t allele_reset(char** allele_ptr, const char* newval, uint32_t slen) {
+uint32_t allele_reset(const char* newval, uint32_t slen, char** allele_ptr) {
   char* newptr;
   if (slen == 1) {
     newptr = (char*)(&(g_one_char_strs[((unsigned char)*newval) * 2]));
@@ -3245,10 +3243,11 @@ uint32_t allele_reset(char** allele_ptr, const char* newval, uint32_t slen) {
   return 0;
 }
 
-void magic_num(uint32_t divisor, uint64_t* multp, uint32_t* pre_shiftp, uint32_t* post_shiftp, uint32_t* incrp) {
+void magic_num(uint32_t divisor, uint64_t* multp, uint32_t* __restrict pre_shiftp, uint32_t* __restrict post_shiftp, uint32_t* __restrict incrp) {
   // Enables fast integer division by a constant not known until runtime.  See
   // http://ridiculousfish.com/blog/posts/labor-of-division-episode-iii.html .
   // Assumes divisor is not zero, of course.
+  // May want to populate a struct instead.
   uint32_t down_multiplier = 0;
   uint32_t down_exponent = 0;
   uint32_t has_magic_down = 0;
@@ -4519,7 +4518,7 @@ int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int3
     name_stack_ptr = name_stack_ptr->next;
   }
   if ((in_name_stack && chrom_info_ptr->is_include_stack) || ((!in_name_stack) && (!chrom_info_ptr->is_include_stack))) {
-    SET_BIT(chrom_info_ptr->chrom_mask, chrom_code_end);
+    SET_BIT(chrom_code_end, chrom_info_ptr->chrom_mask);
   }
   memcpy(nonstd_names[chrom_code_end], bufptr, slen);
   nonstd_names[chrom_code_end][slen] = '\0';
@@ -7682,7 +7681,7 @@ uint32_t numeric_range_list_to_bitfield(Range_list* range_list_ptr, uint32_t ite
       }
       fill_bits(bitfield, idx1 - offset, (idx2 - idx1) + 1);
     } else {
-      set_bit(bitfield, idx1 - offset);
+      set_bit(idx1 - offset, bitfield);
     }
   }
   return 0;
@@ -7715,7 +7714,7 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint3
 	}
 	fill_bits(bitfield, seen_idxs[cmdline_pos - 1], (item_idx - seen_idxs[cmdline_pos - 1]) + 1);
       } else if (!(range_list_ptr->starts_range[cmdline_pos])) {
-	SET_BIT(bitfield, item_idx);
+	SET_BIT(item_idx, bitfield);
       }
     }
     if (++item_idx == item_ct) {
@@ -8633,7 +8632,7 @@ void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_sa
           if (cur_word) {
 	    uii = sample_idx;
             do {
-              set_bit(missing_bitfield, (CTZLU(cur_word) / 2) + uii);
+              set_bit((CTZLU(cur_word) / 2) + uii, missing_bitfield);
               cur_word &= cur_word - 1;
 	    } while (cur_word);
 	  }
@@ -8643,7 +8642,7 @@ void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_sa
 	    do {
 	      uii = CTZLU(cur_mask);
 	      if ((cur_word >> uii) & 1) {
-                set_bit_ul(missing_bitfield, sample_idx);
+                set_bit_ul(sample_idx, missing_bitfield);
 	      }
 	      sample_idx++;
 	      cur_mask &= cur_mask - 1;

@@ -102,7 +102,7 @@ int32_t keep_or_remove(char* fname, char* sorted_ids, uintptr_t sorted_ids_ct, u
 	    if (IS_SET(exclude_arr_new, unfiltered_idx)) {
 	      duplicate_ct++;
 	    } else {
-	      SET_BIT(exclude_arr_new, unfiltered_idx);
+	      SET_BIT(unfiltered_idx, exclude_arr_new);
 	    }
 	  } else {
 	    if (!IS_SET(exclude_arr_new, unfiltered_idx)) {
@@ -123,7 +123,7 @@ int32_t keep_or_remove(char* fname, char* sorted_ids, uintptr_t sorted_ids_ct, u
 	    if (IS_SET(exclude_arr_new, unfiltered_idx)) {
 	      ii = 1;
 	    } else {
-	      SET_BIT(exclude_arr_new, unfiltered_idx);
+	      SET_BIT(unfiltered_idx, exclude_arr_new);
 	    }
 	  } else {
 	    if (!IS_SET(exclude_arr_new, unfiltered_idx)) {
@@ -211,7 +211,7 @@ void extract_exclude_process_token(const char* tok_start, const uint32_t* marker
       if (IS_SET(already_seen, marker_uidx)) {
 	*duplicate_ct_ptr += 1;
       } else {
-	SET_BIT(already_seen, marker_uidx);
+	SET_BIT(marker_uidx, already_seen);
 	if (!cur_dup) {
 	  return;
 	}
@@ -220,7 +220,7 @@ void extract_exclude_process_token(const char* tok_start, const uint32_t* marker
 	  if (cur_llidx == 0xffffffffU) {
 	    return;
 	  }
-	  SET_BIT(already_seen, extra_alloc_base[cur_llidx]);
+	  SET_BIT(extra_alloc_base[cur_llidx], already_seen);
 	}
       }
     }
@@ -520,7 +520,7 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
       LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --attrib file.\n", bufptr);
       goto filter_attrib_ret_INVALID_FORMAT_2;
     }
-    set_bit(already_seen, item_uidx);
+    set_bit(item_uidx, already_seen);
     pos_match_needed = pos_match_ct;
     while (!is_eoln_kns(*cond_ptr)) {
       bufptr2 = cond_ptr;
@@ -749,7 +749,7 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
       LOGPREPRINTFWW("Error: Duplicate sample ID '%s' in --attrib-indiv file.\n", id_buf);
       goto filter_attrib_sample_ret_INVALID_FORMAT_2;
     }
-    set_bit(already_seen, sorted_idx);
+    set_bit(sorted_idx, already_seen);
     unfiltered_idx = id_map[(uint32_t)sorted_idx];
     if (is_set(exclude_arr, unfiltered_idx)) {
       // bugfix: don't proceed here
@@ -897,9 +897,9 @@ int32_t filter_qual_scores(Two_col_params* qual_filter, double qual_min_thresh, 
       LOGPREPRINTFWW("Error: Duplicate variant '%s' in --qual-scores file.\n", colid_ptr);
       goto filter_qual_scores_ret_INVALID_FORMAT_2;
     }
-    set_bit(already_seen, marker_uidx);
+    set_bit(marker_uidx, already_seen);
     if (scan_double(colx_ptr, &dxx) || (dxx < qual_min_thresh) || (dxx > qual_max_thresh)) {
-      set_bit(marker_exclude, marker_uidx);
+      set_bit(marker_uidx, marker_exclude);
     }
   }
   if (!feof(infile)) {
@@ -951,7 +951,7 @@ uint32_t random_thin_markers(double thin_keep_prob, uintptr_t unfiltered_marker_
     markers_done += marker_uidx_stop - marker_uidx;
     do {
       if (sfmt_genrand_uint32(&g_sfmt) >= uint32_thresh) {
-	SET_BIT(marker_exclude, marker_uidx);
+	SET_BIT(marker_uidx, marker_exclude);
 	removed_ct++;
       }
     } while (++marker_uidx < marker_uidx_stop);
@@ -988,12 +988,12 @@ int32_t random_thin_markers_ct(uint32_t thin_keep_ct, uintptr_t unfiltered_marke
     for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
       next_unset_unsafe_ck(marker_exclude, &marker_uidx);
       if (is_set(perm_buf, marker_idx)) {
-	set_bit(marker_exclude, marker_uidx);
+	set_bit(marker_uidx, marker_exclude);
       }
     }
   } else if ((!thin_keep_ct) && marker_ct) {
     marker_uidx = next_unset_unsafe(marker_exclude, 0);
-    set_bit(marker_exclude, marker_uidx);
+    set_bit(marker_uidx, marker_exclude);
   }
   LOGPRINTF("--thin-count: %u variant%s removed (%u remaining).\n", marker_ct - thin_keep_ct, (marker_ct - thin_keep_ct == 1)? "" : "s", thin_keep_ct);
   *marker_exclude_ct_ptr = unfiltered_marker_ct - thin_keep_ct;
@@ -1022,7 +1022,7 @@ uint32_t random_thin_samples(double thin_keep_prob, uintptr_t unfiltered_sample_
     samples_done += sample_uidx_stop - sample_uidx;
     do {
       if(sfmt_genrand_uint32(&g_sfmt) >= uint32_thresh) {
-        SET_BIT(sample_exclude, sample_uidx);
+        SET_BIT(sample_uidx, sample_exclude);
         removed_ct++;
       }
     } while (++sample_uidx < sample_uidx_stop);
@@ -1057,7 +1057,7 @@ int32_t random_thin_samples_ct(uint32_t thin_keep_ct, uintptr_t unfiltered_sampl
   for (sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
     next_unset_unsafe_ck(sample_exclude, &sample_uidx);
     if (is_set(perm_buf, sample_idx)) {
-      set_bit(sample_exclude, sample_uidx);
+      set_bit(sample_uidx, sample_exclude);
     }
   }
   LOGPRINTF("--thin-indiv-count: %u %s removed (%u remaining).\n", sample_ct - thin_keep_ct, (sample_ct - thin_keep_ct == 1)? g_species_singular : g_species_plural, thin_keep_ct);
@@ -1162,7 +1162,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
         LOGPREPRINTFWW("Error: Duplicate sample ID '%s' in %s.\n", idbuf, om_ip->sample_fname);
 	goto load_oblig_missing_ret_INVALID_FORMAT_2;
       }
-      set_bit(loadbuf, ii);
+      set_bit(ii, loadbuf);
       slen = strlen_se(bufptr2);
       if (slen >= max_cluster_id_len) {
 	max_cluster_id_len = slen + 1;
@@ -1224,7 +1224,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
     slen = strlen_se(bufptr2);
     // guaranteed to succeed
     ii = bsearch_str(bufptr2, slen, cluster_ids, max_cluster_id_len, cluster_ct);
-    set_bit(&(cluster_zmask2s[((uintptr_t)((uint32_t)ii)) * unfiltered_sample_ctl2]), sample_uidx * 2);
+    set_bit(sample_uidx * 2, &(cluster_zmask2s[((uintptr_t)((uint32_t)ii)) * unfiltered_sample_ctl2]));
     cluster_sizes[(uint32_t)ii] += 1;
     sample_lookup[sample_uidx] = (uint32_t)ii;
   }
@@ -1608,7 +1608,7 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
       sample_idx += sample_uidx_stop - sample_uidx;
       do {
 	if (missing_cts[sample_uidx] > mind_int_thresh[is_set(sex_male, sample_uidx)]) {
-	  SET_BIT(newly_excluded, sample_uidx);
+	  SET_BIT(sample_uidx, newly_excluded);
 	  removed_ct++;
 	}
       } while (++sample_uidx < sample_uidx_stop);
@@ -1636,7 +1636,7 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
 	  }
 	}
 	if ((missing_cts[sample_uidx] - ujj) > (uint32_t)((int32_t)(mind_thresh * ((int32_t)(cur_marker_ct - ujj)) * (1 + SMALL_EPSILON)))) {
-	  SET_BIT(newly_excluded, sample_uidx);
+	  SET_BIT(sample_uidx, newly_excluded);
 	  removed_ct++;
 	}
       } while (++sample_uidx < sample_uidx_stop);
@@ -2492,7 +2492,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	    uii = 2 * hh_ctf + lh_ctf;
 	  }
 	  if ((uii < min_ac) || (uii > max_ac)) {
-	    set_bit(ac_excl_bitfield, marker_uidx);
+	    set_bit(marker_uidx, ac_excl_bitfield);
 	  }
 	}
 	uii = 2 * (ll_ctf + lh_ctf + hh_ctf + maf_succ);
@@ -2626,7 +2626,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	    ukk = uii - ujj;
 	  }
 	  if ((ukk < min_ac) || (ukk > max_ac)) {
-	    set_bit(ac_excl_bitfield, marker_uidx);
+	    set_bit(marker_uidx, ac_excl_bitfield);
 	  }
 	}
 	uii += 2 * maf_succ;
@@ -2640,7 +2640,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
       }
       nonmissing_rate_tot += cur_genotyping_rate;
       if (geno_excl_bitfield && (cur_genotyping_rate < geno_thresh)) {
-	SET_BIT(geno_excl_bitfield, marker_uidx);
+	SET_BIT(marker_uidx, geno_excl_bitfield);
       }
     }
     if (pct < 100) {
@@ -2912,7 +2912,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	  } else {
 	    fill_ulong_zero(cur_omidxs, om_cluster_ctl);
 	    do {
-              set_bit(cur_omidxs, ((uint32_t)cur_om_entry) - om_ycorr);
+              set_bit(((uint32_t)cur_om_entry) - om_ycorr, cur_omidxs);
 	      cur_om_entry = *(++om_entry_ptr);
 	    } while ((cur_om_entry >> 32) == marker_uidx);
 	    for (uii = 0; uii < ujj; uii += BITCT2) {
@@ -3307,7 +3307,7 @@ uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct
 	  test_failed = SNPHWE_t(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx], hwe_thresh);
 	}
 	if (test_failed) {
-	  SET_BIT(marker_exclude, marker_uidx);
+	  SET_BIT(marker_uidx, marker_exclude);
 	  removed_ct++;
 	}
 	cur_obs = hwe_lhs[marker_uidx] + hwe_lls[marker_uidx] + hwe_hhs[marker_uidx];
@@ -3358,7 +3358,7 @@ uint32_t enforce_minor_allele_thresholds(double min_maf, double max_maf, uintptr
       do {
 	dxx = get_maf(set_allele_freqs[marker_uidx]);
 	if ((dxx < min_maf) || (dxx > max_maf)) {
-	  SET_BIT(marker_exclude, marker_uidx);
+	  SET_BIT(marker_uidx, marker_exclude);
 	}
       } while (++marker_uidx < marker_uidx_stop);
     }
@@ -3397,7 +3397,7 @@ void enforce_min_bp_space(int32_t min_bp_space, uint32_t unfiltered_marker_ct, u
       do {
         cur_pos = marker_pos[marker_uidx];
         if (cur_pos < last_pos + min_bp_space) {
-          SET_BIT(marker_exclude, marker_uidx);
+          SET_BIT(marker_uidx, marker_exclude);
 	  removed_ct++;
 	} else {
 	  last_pos = cur_pos;

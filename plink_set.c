@@ -241,7 +241,7 @@ uint32_t alloc_and_populate_nonempty_set_incl(Set_info* sip, uint32_t* nonempty_
   nonempty_set_incl = *nonempty_set_incl_ptr;
   for (set_uidx = 0; set_uidx < raw_set_ct; set_uidx++) {
     if (sip->setdefs[set_uidx][0]) {
-      set_bit(nonempty_set_incl, set_uidx);
+      set_bit(set_uidx, nonempty_set_incl);
       nonempty_set_ct++;
     }
   }
@@ -707,7 +707,7 @@ uint32_t save_set_bitfield(uintptr_t* marker_bitfield_tmp, uint32_t marker_ct, u
       *uiptr++ = bit_idx;
     } while (bit_idx < range_end);
   } else {
-    set_bit(marker_bitfield_tmp, ujj);
+    set_bit(ujj, marker_bitfield_tmp);
     clear_bit(marker_bitfield_tmp, ujj + 1);
     ukk = ujj;
     if (ukk > marker_ct) {
@@ -1240,7 +1240,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	  } else if (in_set == 1) {
 	    ii = bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_marker_ids, max_marker_id_len, marker_ct);
 	    if (ii != -1) {
-	      set_bit(marker_bitfield_tmp, marker_id_map[(uint32_t)ii]);
+	      set_bit(marker_id_map[(uint32_t)ii], marker_bitfield_tmp);
 	    }
 	  }
 	  bufptr = &(bufptr2[1]);
@@ -1558,7 +1558,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	    if (uii > range_last) {
 	      range_last = uii;
 	    }
-	    set_bit(marker_bitfield_tmp, uii);
+	    set_bit(uii, marker_bitfield_tmp);
 	  }
 	}
 	bufptr = &(bufptr2[1]);
@@ -1900,7 +1900,7 @@ void unpack_set_unfiltered(uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, 
       // we know that range representation is not more compact, so probably not
       // worthwhile to use next_unset/next_set/fill_bits() here
       if (!IS_SET(bitfield_ptr, range_idx)) {
-	SET_BIT(new_exclude, marker_uidx);
+	SET_BIT(marker_uidx, new_exclude);
       }
     }
     if ((!keep_outer) && (range_start + range_ct < marker_ct)) {
@@ -2126,7 +2126,7 @@ uint32_t setdefs_compress(Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, 
       }
       for (marker_midx = 0; marker_midx < range_stop; marker_midx++) {
         if (IS_SET(read_bitfield, marker_midx)) {
-          set_bit(cur_bitfield, marker_midx_to_idx[marker_midx + range_offset]);
+          set_bit(marker_midx_to_idx[marker_midx + range_offset], cur_bitfield);
 	}
       }
       if (include_out_of_bounds && (range_offset + range_stop < marker_ct_orig)) {
@@ -2580,7 +2580,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	  bufptr = skip_initial_spaces(bufptr);
 	  bufptr2[slen] = '\0';
 	  sorted_idx = bsearch_str_natural(bufptr2, sorted_attr_ids, max_attr_id_len, attr_id_ct);
-	  set_bit(ulptr, sorted_idx);
+	  set_bit(sorted_idx, ulptr);
 	  bufptr2 = bufptr;
 	} while (!is_eoln_kns(*bufptr2));
       }

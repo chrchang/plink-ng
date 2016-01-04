@@ -1580,20 +1580,24 @@ static inline char* dtoa_g_wxp8x(double dxx, uint32_t min_width, char extra_char
   return &(penult[1]);
 }
 
-static inline void read_next_terminate(char* target, char* source) {
+static inline void read_next_terminate(char* __restrict target, const char* __restrict source) {
   while (!is_space_or_eoln(*source)) {
     *target++ = *source++;
   }
   *target = '\0';
 }
 
-char* chrom_print_human(char* buf, uint32_t num);
+char* chrom_print_human(uint32_t num, char* buf);
 
-uint32_t allele_set(char** allele_ptr, const char* newval, uint32_t slen);
+// newval does not need to be null-terminated, and slen does not include
+// terminator
+// assumes *allele_ptr is not initialized
+uint32_t allele_set(const char* newval, uint32_t slen, char** allele_ptr);
 
-uint32_t allele_reset(char** allele_ptr, const char* newval, uint32_t slen);
+// *allele_ptr must be initialized; frees *allele_ptr if necessary
+uint32_t allele_reset(const char* newval, uint32_t slen, char** allele_ptr);
 
-void magic_num(uint32_t divisor, uint64_t* multp, uint32_t* pre_shiftp, uint32_t* post_shiftp, uint32_t* incrp);
+void magic_num(uint32_t divisor, uint64_t* multp, uint32_t* __restrict pre_shiftp, uint32_t* __restrict post_shiftp, uint32_t* __restrict incrp);
 
 static inline uintptr_t tri_coord_no_diag(uintptr_t small_coord, uintptr_t big_coord) {
   // small_coord and big_coord are 0-based indices, small_coord < big_coord
@@ -1605,15 +1609,16 @@ static inline uint32_t tri_coord_no_diag_32(uint32_t small_coord, uint32_t big_c
 }
 
 // let the compiler worry about the second argument's bit width here
-#define SET_BIT(aa, bb) ((aa)[(bb) / BITCT] |= ONELU << ((bb) % BITCT))
+#define SET_BIT(idx, arr) ((arr)[(idx) / BITCT] |= ONELU << ((idx) % BITCT))
 
-#define SET_BIT_DBL(aa, bb) ((aa)[(bb) / BITCT2] |= ONELU << (2 * ((bb) % BITCT2)))
+#define SET_BIT_DBL(idx, arr) ((arr)[(idx) / BITCT2] |= ONELU << (2 * ((idx) % BITCT2)))
 
-static inline void set_bit(uintptr_t* bitarr, uint32_t loc) {
+// useful for coercing int32_t loc to unsigned
+static inline void set_bit(uint32_t loc, uintptr_t* bitarr) {
   bitarr[loc / BITCT] |= (ONELU << (loc % BITCT));
 }
 
-static inline void set_bit_ul(uintptr_t* bitarr, uintptr_t loc) {
+static inline void set_bit_ul(uintptr_t loc, uintptr_t* bitarr) {
   bitarr[loc / BITCT] |= (ONELU << (loc % BITCT));
 }
 

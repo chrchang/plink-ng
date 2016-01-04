@@ -7042,7 +7042,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	      }
 	    }
 	    if (model_perms && is_invalid) {
-	      set_bit_ul(is_invalid_bitfield, marker_idx + marker_bidx);
+	      set_bit_ul(marker_idx + marker_bidx, is_invalid_bitfield);
 	    }
 	    if (fill_orig_chisq) {
 	      if (dxx != -9) {
@@ -7827,7 +7827,7 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     uii = tcnt[marker_idx] + 2;
     if ((uii == 2) || (g_homcom_cts[marker_idx] == uii) || (g_het_cts[marker_idx] == uii) || (g_het_cts[marker_idx] + g_homcom_cts[marker_idx] == 0)) {
       // 0 df or no genotype variation, regression always fails
-      SET_BIT(regression_skip, marker_idx);
+      SET_BIT(marker_idx, regression_skip);
     }
   }
   if (model_modifier & MODEL_PERM) {
@@ -9214,7 +9214,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
     sample_uidx_stop = next_set_ul(sample_exclude, sample_uidx, unfiltered_sample_ct);
     do {
       if (IS_SET(gxe_covar_nm, sample_idx)) {
-        SET_BIT(covar_nm_raw, sample_uidx);
+        SET_BIT(sample_uidx, covar_nm_raw);
         dxx = pheno_d[sample_uidx];
         if (IS_SET(gxe_covar_c, sample_idx)) {
 	  pheno_sum_g2 += dxx;
@@ -9241,7 +9241,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
     sample_uidx_stop = next_unset_ul(gxe_covar_nm, sample_idx, sample_ct);
     do {
       if (IS_SET(gxe_covar_c, sample_idx)) {
-	SET_BIT_DBL(group2_include2, sample_idx2);
+	SET_BIT_DBL(sample_idx2, group2_include2);
       }
       sample_idx2++;
     } while (++sample_idx < sample_uidx_stop);
@@ -9268,7 +9268,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
       do {
         if (IS_SET(gxe_covar_nm, sample_idx)) {
           if (IS_SET(sex_male, sample_uidx)) {
-	    SET_BIT_DBL(sample_male_include2, sample_idx2);
+	    SET_BIT_DBL(sample_idx2, sample_male_include2);
 	    male_ct++;
 	  }
 	  sample_idx2++;
@@ -9299,7 +9299,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
 	if (IS_SET_DBL(sample_male_include2, sample_idx2)) {
 	  dxx = pheno_d_collapsed[sample_idx2];
 	  if (IS_SET_DBL(group2_include2, sample_idx2)) {
-	    SET_BIT_DBL(group2_male_include2, sample_idx);
+	    SET_BIT_DBL(sample_idx, group2_male_include2);
 	    pheno_sum_male_g2 += dxx;
 	    pheno_ssq_male_g2 += dxx * dxx;
 	  } else {
@@ -10141,7 +10141,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
     extract_collapsed_missing_bitfield(loadbuf_raw, unfiltered_sample_ct, cur_pheno_nm2, cur_pheno_nm_ct, missing_bitfield);
     missing_ct = popcount_longs(missing_bitfield, cur_sample_ctl);
     if ((!missing_ct) || (missing_ct == cur_pheno_nm_ct)) {
-      SET_BIT(marker_exclude, marker_uidx);
+      SET_BIT(marker_uidx, marker_exclude);
       continue;
     }
     uii = popcount_longs_intersect(missing_bitfield, cur_pheno_c_collapsed, cur_sample_ctl);
@@ -10820,7 +10820,7 @@ int32_t cluster_assoc_init(const char* flag_name, uintptr_t unfiltered_sample_ct
     sample_ct += ctrl_ct + case_ct;
     case_ct_total += case_ct;
     if (cluster_bitfield) {
-      SET_BIT(cluster_bitfield, cluster_idx);
+      SET_BIT(cluster_idx, cluster_bitfield);
     }
     cluster_ct2++;
   }

@@ -148,7 +148,7 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
   }
   memcpy(founder_info2, founder_info, unfiltered_sample_ctl * sizeof(intptr_t));
   if (unfiltered_sample_ct & (BITCT - 1)) {
-    SET_BIT(founder_info2, unfiltered_sample_ct);
+    SET_BIT(unfiltered_sample_ct, founder_info2);
   } else {
     founder_info2[unfiltered_sample_ctl] = 1;
   }
@@ -193,7 +193,7 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
     first_sex = 0;
     if (sorted_idx == -1) {
       if (!include_duos) {
-	SET_BIT(founder_info2, sample_uidx);
+	SET_BIT(sample_uidx, founder_info2);
 	continue;
       }
       uidx1 = unfiltered_sample_ct;
@@ -219,7 +219,7 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
     }
     if (sorted_idx == -1) {
       if ((!include_duos) || (uidx1 == unfiltered_sample_ct)) {
-	SET_BIT(founder_info2, sample_uidx);
+	SET_BIT(sample_uidx, founder_info2);
 	continue;
       }
       if (first_sex == 1) {
@@ -392,7 +392,7 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
       *uiptr++ = (uint32_t)(family_code >> 32);
       *uiptr++ = trio_idx;
       if (remaining_edge_ct) {
-        SET_BIT(founder_info2, sample_uidx);
+        SET_BIT(sample_uidx, founder_info2);
         ullii = ((uint64_t)sample_uidx) << 32;
         uii = uint64arr_greater_than(edge_list, edge_ct, ullii);
         ullii |= 0xffffffffLLU;
@@ -451,7 +451,7 @@ uint32_t erase_mendel_errors(uintptr_t unfiltered_sample_ct, uintptr_t* loadbuf,
   uint32_t uoo;
   uint32_t upp;
   memcpy(workbuf, loadbuf, (unfiltered_sample_ct + 3) / 4);
-  SET_BIT_DBL(workbuf, unfiltered_sample_ct);
+  SET_BIT_DBL(unfiltered_sample_ct, workbuf);
   if (!multigen) {
     for (trio_idx = 0; trio_idx < trio_ct; trio_idx++) {
       uii = *uiptr++;
@@ -849,7 +849,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
       // missing parents are treated as having uidx equal to
       // unfiltered_sample_ct, and we set the corresponding genotype to always
       // be missing.  This lets us avoid special-casing duos.
-      SET_BIT_DBL(loadbuf, unfiltered_sample_ct);
+      SET_BIT_DBL(unfiltered_sample_ct, loadbuf);
       uiptr = trio_lookup;
       cur_error_ct = 0;
       if (calc_mendel) {
@@ -915,7 +915,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	      error_cts_tmp2[trio_idx] += umm & 0xffffff;
 	      cur_error_ct++;
 	      if (full_error_list) {
-	        set_bit(error_locs, trio_idx);
+	        set_bit(trio_idx, error_locs);
 		umm >>= 24;
                 cur_errors[trio_idx] = (unsigned char)umm;
 	      }
@@ -965,7 +965,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
       }
       if (cur_error_ct) {
 	if (cur_error_ct > var_error_max) {
-	  SET_BIT(marker_exclude, marker_uidx);
+	  SET_BIT(marker_uidx, marker_exclude);
 	  new_marker_exclude_ct++;
 	}
 	if ((cur_error_ct <= var_error_max) || (!var_first)) {
@@ -1173,24 +1173,24 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	  ujj = (uint32_t)family_code;
 	  ukk = (uint32_t)(family_code >> 32);
           if (exclude_one_ratio == 0.0) {
-	    set_bit(sample_exclude, (uint32_t)trio_code);
+	    set_bit((uint32_t)trio_code, sample_exclude);
 	    if (ujj < unfiltered_sample_ct) {
-	      set_bit(sample_exclude, ujj);
+	      set_bit(ujj, sample_exclude);
 	    }
 	    if (ukk < unfiltered_sample_ct) {
-	      set_bit(sample_exclude, ukk);
+	      set_bit(ukk, sample_exclude);
 	    }
 	  } else if ((exclude_one_ratio == -1) || (ujj == unfiltered_sample_ct) || (ukk == unfiltered_sample_ct)) {
-            set_bit(sample_exclude, (uint32_t)trio_code);
+            set_bit((uint32_t)trio_code, sample_exclude);
 	  } else {
 	    dxx = (double)((int32_t)trio_list[trio_idx * 3 + 1]);
 	    dyy = (double)((int32_t)trio_list[trio_idx * 3 + 2]);
 	    if (dxx > exclude_one_ratio * dyy) {
-	      set_bit(sample_exclude, ujj);
+	      set_bit(ujj, sample_exclude);
 	    } else if (dyy > exclude_one_ratio * dxx) {
-	      set_bit(sample_exclude, ukk);
+	      set_bit(ukk, sample_exclude);
 	    } else {
-	      set_bit(sample_exclude, (uint32_t)trio_code);
+	      set_bit((uint32_t)trio_code, sample_exclude);
 	    }
 	  }
 	}
@@ -1686,7 +1686,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 	    }
 	    pri_ptr->family_rel_nf_idxs[jj] = complete_sample_idx_ct;
 	    complete_sample_idxs[complete_sample_idx_ct++] = jj;
-	    set_bit(processed_samples, jj);
+	    set_bit(jj, processed_samples);
 	  } else {
             remaining_sample_parent_idxs[sample_idx_write * 2] = kk;
 	    remaining_sample_parent_idxs[sample_idx_write * 2 + 1] = mm;
@@ -2626,8 +2626,8 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
       umm = sample_uidx_to_idx[ukk];
       if (is_within2) {
 	if (is_set(pheno_nm, uii) && is_set(pheno_nm, ukk)) {
-	  set_bit(tmp_within2_founder, uii);
-	  set_bit(tmp_within2_founder, ukk);
+	  set_bit(uii, tmp_within2_founder);
+	  set_bit(ukk, tmp_within2_founder);
 	}
       }
       if (is_set(not_in_family, uii)) {
@@ -2637,7 +2637,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
 	}
 	clear_bit(not_in_family, uii);
       } else {
-	set_bit(ulptr, uii);
+	set_bit(uii, ulptr);
       }
       fss_contents[fssc_idx++] = umm;
       if (is_set(not_in_family, ukk)) {
@@ -2647,7 +2647,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
 	}
 	clear_bit(not_in_family, ukk);
       } else {
-	set_bit(ulptr, ukk);
+	set_bit(ukk, ulptr);
       }
 
       ullii = trio_list[trio_idx];
@@ -2657,7 +2657,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
 	ujj = sample_uidx_to_idx[uii];
 	fss_contents[fssc_idx++] = ujj;
 	sample_to_fss_idx[ujj] = family_idx;
-	set_bit(ulptr2, uii);
+	set_bit(uii, ulptr2);
 	if (++trio_idx == trio_ct) {
 	  goto get_sibship_info_first_pass_done;
 	}
@@ -4224,7 +4224,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       }
       if (cur_case_ct * 2 >= sibling_ct) {
 	for (sib_idx = 0; sib_idx < sibling_ct; sib_idx++) {
-	  SET_BIT(g_perm_cluster_cc_preimage, cur_dfam_ptr[sib_idx]);
+	  SET_BIT(cur_dfam_ptr[sib_idx], g_perm_cluster_cc_preimage);
 	}
       }
       cur_dfam_ptr = &(cur_dfam_ptr[sibling_ct]);
@@ -4241,7 +4241,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       }
       if (cur_case_ct * 2 >= sibling_ct) {
 	for (sib_idx = 0; sib_idx < sibling_ct; sib_idx++) {
-	  SET_BIT(g_perm_cluster_cc_preimage, cur_dfam_ptr[sib_idx]);
+	  SET_BIT(cur_dfam_ptr[sib_idx], g_perm_cluster_cc_preimage);
 	}
       }
       cur_dfam_ptr = &(cur_dfam_ptr[sibling_ct]);
@@ -5676,7 +5676,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	}
         for (uii = 0; uii < lm_ct; uii++) {
           if (is_set(dummy_flip, sample_lm_to_fss_idx[uii])) {
-	    set_bit(ulptr, uii);
+	    set_bit(uii, ulptr);
 	  }
 	}
 	ulptr = &(ulptr[lm_ctl]);

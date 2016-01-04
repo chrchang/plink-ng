@@ -164,7 +164,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
     homrar_ct = uii - het_ct - homset_ct;
     if (!(((!homrar_ct) && ((!het_ct) || (!homset_ct))) || ((!het_ct) && (!homset_ct)))) {
       // ok, not monomorphic.  standardize to zero mean, unit variance
-      SET_BIT(polymorphic_markers, marker_uidx);
+      SET_BIT(marker_uidx, polymorphic_markers);
       dyy = (double)(2 * homrar_ct + het_ct); // sum
       dxx = dyy / ((double)((int32_t)uii)); // mean
       dyy = sqrt_n_recip * sqrt(((double)((int32_t)(uii - 1))) / (4 * ((double)((int32_t)homrar_ct)) + ((double)((int32_t)het_ct)) - dyy * dxx)); // 1/(stdev * sqrt(n))
@@ -547,7 +547,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
     if (uii == 1) {
       continue;
     }
-    SET_BIT(polymorphic_markers, marker_uidx);
+    SET_BIT(marker_uidx, polymorphic_markers);
     dxx = 0.0;
     for (sample_idx = 0; sample_idx < sample_valid_ct; sample_idx++) {
       dxx += dptr[sample_idx] * pheno_d_collapsed[sample_idx];
@@ -845,7 +845,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
     for (sample_uidx = 0, sample_idx = 0; sample_idx < pheno_nm_ct; sample_uidx++, sample_idx++) {
       next_set_ul_unsafe_ck(pheno_nm, &sample_uidx);
       if (IS_SET(covar_nm, sample_idx)) {
-        SET_BIT(pheno_nm2, sample_uidx);
+        SET_BIT(sample_uidx, pheno_nm2);
       }
     }
   }
