@@ -9360,7 +9360,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     if (bigstack_alloc_ul(ulii, &ulptr)) {
       goto epistasis_report_ret_NOMEM;
     }
-    fill_quatervec_55(ulptr, ulii * BITCT2);
+    fill_quatervec_55(ulii * BITCT2, ulptr);
   }
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
     chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];

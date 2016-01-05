@@ -909,7 +909,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
     *dptr = ((*dptr) - dzz) * dyy;
     dptr++;
   }
-  fill_quatervec_55(sample_include2, sample_valid_ct);
+  fill_quatervec_55(sample_valid_ct, sample_include2);
   fill_ulong_zero(polymorphic_markers, unfiltered_marker_ctl);
   if ((chrom_info_ptr->mt_code != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->mt_code)) {
     hh_or_mt_exists |= NXMHH_EXISTS;

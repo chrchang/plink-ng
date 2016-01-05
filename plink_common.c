@@ -3926,7 +3926,7 @@ uint32_t id_htable_find(const char* id_buf, uintptr_t cur_id_len, const uint32_t
   }
 }
 
-void fill_idx_to_uidx(uintptr_t* exclude_arr, uintptr_t unfiltered_item_ct, uintptr_t item_ct, uint32_t* idx_to_uidx) {
+void fill_idx_to_uidx(const uintptr_t* exclude_arr, uintptr_t unfiltered_item_ct, uintptr_t item_ct, uint32_t* idx_to_uidx) {
   uint32_t* idx_to_uidx_end = &(idx_to_uidx[item_ct]);
   uint32_t item_uidx = 0;
   uint32_t item_uidx_stop;
@@ -3939,7 +3939,7 @@ void fill_idx_to_uidx(uintptr_t* exclude_arr, uintptr_t unfiltered_item_ct, uint
   }
 }
 
-void fill_idx_to_uidx_incl(uintptr_t* include_arr, uintptr_t unfiltered_item_ct, uintptr_t item_ct, uint32_t* idx_to_uidx) {
+void fill_idx_to_uidx_incl(const uintptr_t* include_arr, uintptr_t unfiltered_item_ct, uintptr_t item_ct, uint32_t* idx_to_uidx) {
   uint32_t* idx_to_uidx_end = &(idx_to_uidx[item_ct]);
   uint32_t item_uidx = 0;
   uint32_t item_uidx_stop;
@@ -3952,7 +3952,7 @@ void fill_idx_to_uidx_incl(uintptr_t* include_arr, uintptr_t unfiltered_item_ct,
   }
 }
 
-void fill_uidx_to_idx(uintptr_t* exclude_arr, uint32_t unfiltered_item_ct, uint32_t item_ct, uint32_t* uidx_to_idx) {
+void fill_uidx_to_idx(const uintptr_t* exclude_arr, uint32_t unfiltered_item_ct, uint32_t item_ct, uint32_t* uidx_to_idx) {
   uint32_t item_uidx = 0;
   uint32_t item_idx = 0;
   uint32_t* uidx_to_idx_ptr;
@@ -3968,7 +3968,7 @@ void fill_uidx_to_idx(uintptr_t* exclude_arr, uint32_t unfiltered_item_ct, uint3
   }
 }
 
-void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t unfiltered_item_ct, uint32_t item_ct, uint32_t* uidx_to_idx) {
+void fill_uidx_to_idx_incl(const uintptr_t* include_arr, uint32_t unfiltered_item_ct, uint32_t item_ct, uint32_t* uidx_to_idx) {
   uint32_t item_uidx = 0;
   uint32_t item_idx = 0;
   uint32_t* uidx_to_idx_ptr;
@@ -3984,7 +3984,7 @@ void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t unfiltered_item_ct, 
   }
 }
 
-void fill_midx_to_idx(uintptr_t* exclude_arr_orig, uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* midx_to_idx) {
+void fill_midx_to_idx(const uintptr_t* exclude_arr_orig, const uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* midx_to_idx) {
   // Assumes item_ct is nonzero.
 
   // May want to switch to alternate behavior: when current midx is excluded,
@@ -4000,7 +4000,7 @@ void fill_midx_to_idx(uintptr_t* exclude_arr_orig, uintptr_t* exclude_arr, uint3
   }
 }
 
-void fill_quatervec_55(uintptr_t* quatervec, uint32_t ct) {
+void fill_quatervec_55(uint32_t ct, uintptr_t* quatervec) {
   uint32_t rem = ct & (BITCT - 1);
 #ifdef __LP64__
   const __m128i m1 = {FIVEMASK, FIVEMASK};
@@ -4102,7 +4102,7 @@ uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t
       if (bigstack_alloc_ul(sample_ctv2, sample_include_quatervec_ptr)) {
 	return 1;
       }
-      fill_quatervec_55(*sample_include_quatervec_ptr, sample_ct);
+      fill_quatervec_55(sample_ct, *sample_include_quatervec_ptr);
     }
   }
   if (hh_exists & (XMHH_EXISTS | Y_FIX_NEEDED)) {

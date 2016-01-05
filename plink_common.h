@@ -1940,21 +1940,21 @@ static inline int32_t alloc_and_populate_id_htable(uintptr_t unfiltered_ct, cons
 
 uint32_t id_htable_find(const char* id_buf, uintptr_t cur_id_len, const uint32_t* id_htable, uint32_t id_htable_size, const char* item_ids, uintptr_t max_id_len);
 
-void fill_idx_to_uidx(uintptr_t* exclude_arr, uintptr_t unfiltered_item_ct, uintptr_t item_ct, uint32_t* idx_to_uidx);
+void fill_idx_to_uidx(const uintptr_t* exclude_arr, uintptr_t unfiltered_item_ct, uintptr_t item_ct, uint32_t* idx_to_uidx);
 
-void fill_idx_to_uidx_incl(uintptr_t* include_arr, uintptr_t unfiltered_item_ct, uintptr_t item_ct, uint32_t* idx_to_uidx);
+void fill_idx_to_uidx_incl(const uintptr_t* include_arr, uintptr_t unfiltered_item_ct, uintptr_t item_ct, uint32_t* idx_to_uidx);
 
-void fill_uidx_to_idx(uintptr_t* exclude_arr, uint32_t unfiltered_item_ct, uint32_t item_ct, uint32_t* uidx_to_idx);
+void fill_uidx_to_idx(const uintptr_t* exclude_arr, uint32_t unfiltered_item_ct, uint32_t item_ct, uint32_t* uidx_to_idx);
 
-void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t unfiltered_item_ct, uint32_t item_ct, uint32_t* uidx_to_idx);
+void fill_uidx_to_idx_incl(const uintptr_t* include_arr, uint32_t unfiltered_item_ct, uint32_t item_ct, uint32_t* uidx_to_idx);
 
-void fill_midx_to_idx(uintptr_t* exclude_arr_orig, uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* midx_to_idx);
+void fill_midx_to_idx(const uintptr_t* exclude_arr_orig, const uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* midx_to_idx);
 
 
 // "quaterarr" refers to a packed group of base-4 (2-bit) elements, analogous
 // to "bitarr".  (Based on "quaternary", not "quarter".)  "quatervec"
 // indicates that vector-alignment is also required.
-void fill_quatervec_55(uintptr_t* quatervec, uint32_t ct);
+void fill_quatervec_55(uint32_t ct, uintptr_t* quatervec);
 
 // Used to unpack e.g. unfiltered sex_male to a filtered quaterarr usable as a
 // raw input bitmask.

@@ -8308,7 +8308,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       bigstack_alloc_ul(pheno_nm_ctv2, &sample_include2)) {
     goto qassoc_ret_NOMEM;
   }
-  fill_quatervec_55(sample_include2, pheno_nm_ct);
+  fill_quatervec_55(pheno_nm_ct, sample_include2);
   if (alloc_collapsed_haploid_filters(unfiltered_sample_ct, pheno_nm_ct, hh_or_mt_exists, 1, pheno_nm, sex_male, &sample_include2, &sample_male_include2)) {
     goto qassoc_ret_NOMEM;
   }
@@ -9233,7 +9233,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
       bigstack_calloc_ul(covar_nm_ctl * 2, &group2_include2)) {
     goto gxe_assoc_ret_NOMEM;
   }
-  fill_quatervec_55(group1_include2, covar_nm_ct);
+  fill_quatervec_55(covar_nm_ct, group1_include2);
   sample_idx = 0;
   sample_idx2 = 0;
   do {
@@ -9253,7 +9253,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
     if (bigstack_alloc_ul(covar_nm_ctl * 2, &sample_include2)) {
       goto gxe_assoc_ret_NOMEM;
     }
-    fill_quatervec_55(sample_include2, covar_nm_ct);
+    fill_quatervec_55(covar_nm_ct, sample_include2);
   }
   if ((hh_or_mt_exists & XMHH_EXISTS) || y_exists) {
     if (bigstack_calloc_ul(covar_nm_ctl * 2, &sample_male_include2)) {
@@ -9292,8 +9292,8 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
 	  bigstack_alloc_ul(unfiltered_sample_ctl, &covar_nm_male_raw)) {
 	goto gxe_assoc_ret_NOMEM;
       }
-      fill_quatervec_55(sample_male_all_include2, male_ct);
-      fill_quatervec_55(group1_male_include2, male_ct);
+      fill_quatervec_55(male_ct, sample_male_all_include2);
+      fill_quatervec_55(male_ct, group1_male_include2);
       sample_idx = 0;
       for (sample_idx2 = 0; sample_idx2 < covar_nm_ct; sample_idx2++) {
 	if (IS_SET_DBL(sample_male_include2, sample_idx2)) {
