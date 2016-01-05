@@ -1959,11 +1959,11 @@ void fill_quatervec_55(uint32_t ct, uintptr_t* quatervec);
 // Used to unpack e.g. unfiltered sex_male to a filtered quaterarr usable as a
 // raw input bitmask.
 // Assumes output_quaterarr is sized to a multiple of 16 bytes.
-void quaterarr_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_bitarr, uint32_t filtered_ct, uintptr_t* output_quaterarr);
+void quaterarr_collapse_init(const uintptr_t* __restrict unfiltered_bitarr, uint32_t unfiltered_ct, const uintptr_t* __restrict filter_bitarr, uint32_t filtered_ct, uintptr_t* __restrict output_quaterarr);
 
-void quaterarr_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_exclude_bitarr, uint32_t filtered_ct, uintptr_t* output_quaterarr);
+void quaterarr_collapse_init_exclude(const uintptr_t* __restrict unfiltered_bitarr, uint32_t unfiltered_ct, const uintptr_t* __restrict filter_exclude_bitarr, uint32_t filtered_ct, uintptr_t* __restrict output_quaterarr);
 
-uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* sample_bitarr, uintptr_t* sex_male, uintptr_t** sample_include_quatervec_ptr, uintptr_t** sample_male_include_quatervec_ptr);
+uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t sample_ct, uint32_t hh_exists, uint32_t is_include, const uintptr_t* sample_bitarr, const uintptr_t* sex_male, uintptr_t** sample_include_quatervec_ptr, uintptr_t** sample_male_include_quatervec_ptr);
 
 static inline void free_cond(void* memptr) {
   if (memptr) {
@@ -1992,13 +1992,13 @@ static inline int32_t filename_exists(char* fname, char* fname_end, const char* 
 #endif
 }
 
-void sample_delim_convert(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uint32_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, char oldc, char newc);
+void sample_delim_convert(uintptr_t unfiltered_sample_ct, const uintptr_t* sample_exclude, uint32_t sample_ct, uintptr_t max_sample_id_len, char oldc, char newc, char* sample_ids);
 
-void get_set_wrange_align(uintptr_t* bitarr, uintptr_t word_ct, uintptr_t* firstw_ptr, uintptr_t* wlen_ptr);
+void get_set_wrange_align(const uintptr_t* __restrict bitarr, uintptr_t word_ct, uintptr_t* __restrict firstw_ptr, uintptr_t* __restrict wlen_ptr);
 
 // Maximum accepted chromosome index is this minus 1.  Currently cannot exceed
 // 2^14 due to SMALL_INTERVAL_BITS setting in plink_cnv.c...
-#define MAX_POSSIBLE_CHROM 64000
+#define MAX_POSSIBLE_CHROM 5120
 // ...unless this is uncommented (it removes the entire CNV module).
 // #define HIGH_MAX_CHROM
 
@@ -2054,7 +2054,7 @@ typedef struct {
   // is no longer true for MT since heteroplasmy is a thing.
   uintptr_t haploid_mask[CHROM_MASK_WORDS];
 
-  // --allow-extra-chroms support
+  // --allow-extra-chr support
   uint32_t zero_extra_chroms;
   uint32_t name_ct;
   Ll_str* incl_excl_name_stack;

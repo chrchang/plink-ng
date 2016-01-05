@@ -4037,7 +4037,7 @@ void fill_quatervec_55(uint32_t ct, uintptr_t* quatervec) {
 #endif
 }
 
-void quaterarr_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_bitarr, uint32_t filtered_ct, uintptr_t* output_quaterarr) {
+void quaterarr_collapse_init(const uintptr_t* __restrict unfiltered_bitarr, uint32_t unfiltered_ct, const uintptr_t* __restrict filter_bitarr, uint32_t filtered_ct, uintptr_t* __restrict output_quaterarr) {
   // Used to unpack e.g. unfiltered sex_male to a filtered quaterarr usable as
   // a raw input bitmask.
   // Assumes output_quaterarr is sized to a multiple of 16 bytes.
@@ -4067,7 +4067,7 @@ void quaterarr_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_c
   }
 }
 
-void quaterarr_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_exclude_bitarr, uint32_t filtered_ct, uintptr_t* output_quaterarr) {
+void quaterarr_collapse_init_exclude(const uintptr_t* __restrict unfiltered_bitarr, uint32_t unfiltered_ct, const uintptr_t* __restrict filter_exclude_bitarr, uint32_t filtered_ct, uintptr_t* __restrict output_quaterarr) {
   uintptr_t cur_write = 0;
   uint32_t item_uidx = 0;
   uint32_t write_bit = 0;
@@ -4094,7 +4094,7 @@ void quaterarr_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfi
   }
 }
 
-uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* sample_bitarr, uintptr_t* sex_male, uintptr_t** sample_include_quatervec_ptr, uintptr_t** sample_male_include_quatervec_ptr) {
+uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t sample_ct, uint32_t hh_exists, uint32_t is_include, const uintptr_t* sample_bitarr, const uintptr_t* sex_male, uintptr_t** sample_include_quatervec_ptr, uintptr_t** sample_male_include_quatervec_ptr) {
   uintptr_t sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
   if (hh_exists & (Y_FIX_NEEDED | NXMHH_EXISTS)) {
     // if already allocated, we assume this is fully initialized
@@ -4122,7 +4122,7 @@ uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t
   return 0;
 }
 
-void sample_delim_convert(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uint32_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, char oldc, char newc) {
+void sample_delim_convert(uintptr_t unfiltered_sample_ct, const uintptr_t* sample_exclude, uint32_t sample_ct, uintptr_t max_sample_id_len, char oldc, char newc, char* sample_ids) {
   // assumes there is exactly one delimiter to convert per name
   uintptr_t sample_uidx = 0;
   uint32_t sample_idx;
@@ -4134,11 +4134,11 @@ void sample_delim_convert(uintptr_t unfiltered_sample_ct, uintptr_t* sample_excl
   }
 }
 
-void get_set_wrange_align(uintptr_t* bitarr, uintptr_t word_ct, uintptr_t* firstw_ptr, uintptr_t* wlen_ptr) {
-  uintptr_t* bitarr_ptr = bitarr;
-  uintptr_t* bitarr_end = &(bitarr[word_ct]);
+void get_set_wrange_align(const uintptr_t* __restrict bitarr, uintptr_t word_ct, uintptr_t* __restrict firstw_ptr, uintptr_t* __restrict wlen_ptr) {
+  const uintptr_t* bitarr_ptr = bitarr;
+  const uintptr_t* bitarr_end = &(bitarr[word_ct]);
 #ifdef __LP64__
-  uintptr_t* bitarr_end2 = &(bitarr[word_ct & (~ONELU)]);
+  const uintptr_t* bitarr_end2 = &(bitarr[word_ct & (~ONELU)]);
   while (bitarr_ptr < bitarr_end2) {
     if (bitarr_ptr[0] || bitarr_ptr[1]) {
       *firstw_ptr = (uintptr_t)(bitarr_ptr - bitarr);
