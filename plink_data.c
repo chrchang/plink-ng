@@ -937,7 +937,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     ukk = 0;
     for (uii = 0; uii <= ujj; uii++) {
       if (sf_start_idxs[uii] == 1) {
-	CLEAR_BIT(sf_mask, uii);
+	CLEAR_BIT(uii, sf_mask);
 	sf_start_idxs[uii] = ukk;
 	continue;
       }
@@ -1694,7 +1694,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
 	    // --write-covar does not, so handle 0 separately for backward
 	    // compatibility
 	    if (!keep_pheno_on_missing_cov) {
-	      CLEAR_BIT(pheno_nm, sample_uidx);
+	      CLEAR_BIT(sample_uidx, pheno_nm);
 	    }
 	  } else if (dxx != 0.0) {
 	    SET_BIT(sample_idx, gxe_covar_nm);
@@ -1722,7 +1722,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
 	if (!keep_pheno_on_missing_cov) {
 	  sample_uidx = sample_idx_to_uidx[sample_idx];
 	  if (IS_SET(pheno_nm, sample_uidx)) {
-	    CLEAR_BIT(pheno_nm, sample_uidx);
+	    CLEAR_BIT(sample_uidx, pheno_nm);
 	  }
 	}
       }
@@ -11469,7 +11469,7 @@ int32_t recode_allele_load(char* loadbuf, uintptr_t loadbuf_size, char* recode_a
     if (marker_uidx != 0xffffffffU) {
       bufptr2[alen++] = '\0';
       if (!strcmp(bufptr2, marker_allele_ptrs[2 * marker_uidx])) {
-	CLEAR_BIT(recode_allele_reverse, marker_uidx);
+	CLEAR_BIT(marker_uidx, recode_allele_reverse);
       } else if (!strcmp(bufptr2, marker_allele_ptrs[2 * marker_uidx + 1])) {
 	SET_BIT(marker_uidx, recode_allele_reverse);
       } else {
@@ -11541,7 +11541,7 @@ uint32_t recode_load_to(unsigned char* loadbuf, FILE* bedfile, uintptr_t bed_off
       return 1;
     }
     while (1) {
-      next_set_ul_ck(marker_reverse, &marker_uidx, marker_uidx_stop);
+      next_set_ul_ck(marker_reverse, marker_uidx_stop, &marker_uidx);
       if (marker_uidx == marker_uidx_stop) {
 	break;
       }
@@ -12387,7 +12387,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 		alen2 = strlen(mk_allele_ptrs[marker_uidx * 2 + 1]);
 		uljj += MAXV(alen, alen2) + 1;
 		marker_uidx++;
-		next_unset_ul_ck(marker_exclude, &marker_uidx, chrom_end);
+		next_unset_ul_ck(marker_exclude, chrom_end, &marker_uidx);
 	      }
 	      if (uljj > ulii) {
 		ulii = uljj;

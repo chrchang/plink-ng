@@ -10123,7 +10123,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
         cur_case_ct_recip = 1.0 / ((double)((int32_t)cur_case_ct));
         cur_ctrl_ct_recip = 1.0 / ((double)((int32_t)cur_ctrl_ct));
       } else if (g_is_y) {
-        fill_bits(marker_exclude, marker_uidx, chrom_end - marker_uidx);
+        fill_bits(marker_uidx, chrom_end - marker_uidx, marker_exclude);
 	marker_idx += chrom_end - marker_uidx - 1 - popcount_bit_idx(marker_exclude_orig, marker_uidx, chrom_end);
 	marker_uidx = chrom_end - 1;
 	continue;

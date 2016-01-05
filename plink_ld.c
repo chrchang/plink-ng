@@ -638,14 +638,14 @@ void ld_prune_start_chrom(uint32_t ld_window_kb, uint32_t* cur_chrom_ptr, uint32
   uint32_t uii = 0;
   uint32_t window_size;
   live_indices[0] = window_unfiltered_start;
-  next_unset_ck(marker_exclude, &window_unfiltered_end, chrom_end);
+  next_unset_ck(marker_exclude, chrom_end, &window_unfiltered_end);
   if (ld_window_kb) {
     window_size = 1;
     uii = window_unfiltered_end;
     while ((uii < chrom_end) && (marker_pos[uii] <= marker_pos[window_unfiltered_start] + (1000 * ld_window_size))) {
       window_size++;
       uii++;
-      next_unset_ck(marker_exclude, &uii, chrom_end);
+      next_unset_ck(marker_exclude, chrom_end, &uii);
     }
     uii = 0;
   } else {
@@ -658,7 +658,7 @@ void ld_prune_start_chrom(uint32_t ld_window_kb, uint32_t* cur_chrom_ptr, uint32
     start_arr[uii - 1] = window_unfiltered_end;
     live_indices[uii] = window_unfiltered_end;
     window_unfiltered_end++;
-    next_unset_ck(marker_exclude, &window_unfiltered_end, chrom_end);
+    next_unset_ck(marker_exclude, chrom_end, &window_unfiltered_end);
   }
   *cur_window_size_ptr = uii;
   start_arr[uii - 1] = window_unfiltered_end;
@@ -1186,7 +1186,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	  break;
 	}
 	window_unfiltered_start++;
-	next_unset_ck(marker_exclude, &window_unfiltered_start, chrom_end);
+	next_unset_ck(marker_exclude, chrom_end, &window_unfiltered_start);
       }
       if (window_unfiltered_start == chrom_end) {
 	break;
@@ -1243,7 +1243,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	while ((ukk < chrom_end) && (marker_pos[ukk] <= marker_pos[window_unfiltered_start] + (1000 * ld_window_size))) {
 	  ujj++;
 	  ukk++;
-	  next_unset_ck(marker_exclude, &ukk, chrom_end);
+	  next_unset_ck(marker_exclude, chrom_end, &ukk);
 	}
       } else {
 	ujj = ld_window_incr;
@@ -1272,7 +1272,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	}
 	cur_window_size++;
 	window_unfiltered_end++;
-	next_unset_ck(marker_exclude, &window_unfiltered_end, chrom_end);
+	next_unset_ck(marker_exclude, chrom_end, &window_unfiltered_end);
       }
       if (cur_window_size > prev_end) {
 	start_arr[cur_window_size] = window_unfiltered_end;
@@ -5664,7 +5664,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
       if (marker_idx1 == marker_ct) {
 	goto ld_report_regular_ret_EMPTY_SET1;
       }
-      clear_bit_ul(marker_exclude_idx1, marker_uidx1);
+      clear_bit_ul(marker_uidx1, marker_exclude_idx1);
       marker_ct1 = 1;
     } else {
       marker_ct1 = 0;
@@ -5704,7 +5704,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 	      logerrprint("Error: Duplicate variant ID in --ld-snp-list file.\n");
 	      goto ld_report_regular_ret_INVALID_FORMAT;
 	    }
-            clear_bit(marker_exclude_idx1, uii);
+            clear_bit(uii, marker_exclude_idx1);
             marker_ct1++;
 	  }
 	}
@@ -6406,7 +6406,7 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
       if (is_target) {
 	SET_BIT(window_cidx, cur_targets);
       } else {
-	CLEAR_BIT(cur_targets, window_cidx);
+	CLEAR_BIT(window_cidx, cur_targets);
       }
 
       // circular index of beginning of window starting at current marker
@@ -6483,7 +6483,7 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
 	  max_bp = marker_pos[marker_uidx2];
 	  window_cidx3 = window_cidx_starts[window_cidx2];
 	  for (uii = 0; uii < tag_ct; uii++, window_cidx3++) {
-	    next_set_ul_ck(tag_matrix_row_ptr, &window_cidx3, max_window_size);
+	    next_set_ul_ck(tag_matrix_row_ptr, max_window_size, &window_cidx3);
 	    if (window_cidx3 == max_window_size) {
 	      window_cidx3 = next_set_unsafe(tag_matrix_row_ptr, 0);
 	    }
@@ -6515,7 +6515,7 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
 	    }
 	    window_cidx3 = window_cidx_starts[window_cidx2];
 	    for (uii = 0; uii < tag_ct; uii++, window_cidx3++) {
-	      next_set_ul_ck(tag_matrix_row_ptr, &window_cidx3, max_window_size);
+	      next_set_ul_ck(tag_matrix_row_ptr, max_window_size, &window_cidx3);
 	      if (window_cidx3 == max_window_size) {
 		window_cidx3 = next_set_unsafe(tag_matrix_row_ptr, 0);
 	      }
@@ -6574,7 +6574,7 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
 	fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
 	putc('\n', outfile);
 	marker_uidx++;
-	next_set_ul_ck(final_set, &marker_uidx, unfiltered_marker_ct);
+	next_set_ul_ck(final_set, unfiltered_marker_ct, &marker_uidx);
       }
     } else {
       for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
@@ -7255,7 +7255,7 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
       }
       while (marker_pos_thresh >= marker_pos[forward_scan_uidx]) {
 	uii = forward_scan_uidx + 1;
-	next_unset_ck(marker_exclude, &uii, chrom_end);
+	next_unset_ck(marker_exclude, chrom_end, &uii);
 	if (uii == chrom_end) {
 	  break;
 	}
@@ -7423,7 +7423,7 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
       }
       candidate_pairs[2 * ulii] = block_cidx;
       candidate_pairs[2 * ulii + 1] = block_cidx2;
-      fill_bits(in_haploblock, block_cidx, block_cidx2 + 1 - block_cidx);
+      fill_bits(block_cidx, block_cidx2 + 1 - block_cidx, in_haploblock);
       ulii++;
     }
 #ifdef __cplusplus
@@ -8622,7 +8622,7 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
 	chrom_end2 = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx2 + 1];
 	wptr_start2 = width_force(4, wptr_start, chrom_name_write(wptr_start, chrom_info_ptr, chrom_idx2));
 	*wptr_start2++ = ' ';
-	for (; marker_uidx2 < chrom_end2; next_unset_ul_ck(marker_exclude2, &marker_uidx2, chrom_end2), marker_idx2++, dptr = &(dptr[2])) {
+	for (; marker_uidx2 < chrom_end2; next_unset_ul_ck(marker_exclude2, chrom_end2, &marker_uidx2), marker_idx2++, dptr = &(dptr[2])) {
 	  if (marker_idx2 == ujj) {
 	    marker_idx2 = g_epi_geno1_offsets[2 * block_idx1 + 1];
 	    if (marker_idx2 == marker_ct2) {
@@ -9099,7 +9099,7 @@ int32_t epistasis_logistic_regression(pthread_t* threads, Epi_info* epi_ip, FILE
 	chrom_end2 = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx2 + 1];
 	wptr_start2 = width_force(4, wptr_start, chrom_name_write(wptr_start, chrom_info_ptr, chrom_idx2));
 	*wptr_start2++ = ' ';
-	for (; marker_uidx2 < chrom_end2; next_unset_ul_ck(marker_exclude2, &marker_uidx2, chrom_end2), marker_idx2++, fptr = &(fptr[2])) {
+	for (; marker_uidx2 < chrom_end2; next_unset_ul_ck(marker_exclude2, chrom_end2, &marker_uidx2), marker_idx2++, fptr = &(fptr[2])) {
 	  if (marker_idx2 == ujj) {
 	    marker_idx2 = g_epi_geno1_offsets[2 * block_idx1 + 1];
 	    if (marker_idx2 == marker_ct2) {
@@ -9367,7 +9367,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
     if (is_set(chrom_info_ptr->haploid_mask, chrom_idx)) {
       uii = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
-      fill_bits(marker_exclude2, uii, chrom_end - uii);
+      fill_bits(uii, chrom_end - uii, marker_exclude2);
       marker_uidx = chrom_end;
       continue;
     }
@@ -9825,7 +9825,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	  while (last_pos < cur_window_end) {
 	    marker_idx2++;
 	    marker_uidx2++;
-	    next_unset_ul_ck(marker_exclude2, &marker_uidx2, chrom_end);
+	    next_unset_ul_ck(marker_exclude2, chrom_end, &marker_uidx2);
 	    if (marker_uidx2 != chrom_end) {
 	      last_pos = marker_pos[marker_uidx2];
 	    } else {
@@ -9844,7 +9844,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	    while (first_pos + case_only_gap <= uii) {
 	      marker_idx2_trail++;
 	      marker_uidx2_trail++;
-	      next_unset_ul_ck(marker_exclude2, &marker_uidx2_trail, chrom_end);
+	      next_unset_ul_ck(marker_exclude2, chrom_end, &marker_uidx2_trail);
               if (marker_uidx2_trail != chrom_end) {
 		first_pos = marker_pos[marker_uidx2_trail];
 	      } else {
@@ -10020,7 +10020,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
           chrom_idx2 = chrom_info_ptr->chrom_file_order[chrom_fo_idx2];
           wptr_start2 = width_force(4, wptr_start, chrom_name_write(wptr_start, chrom_info_ptr, chrom_idx2));
 	  *wptr_start2++ = ' ';
-	  for (; marker_uidx2 < chrom_end2; next_unset_ul_ck(marker_exclude2, &marker_uidx2, unfiltered_marker_ct), marker_idx2++, dptr++) {
+	  for (; marker_uidx2 < chrom_end2; next_unset_ul_ck(marker_exclude2, unfiltered_marker_ct, &marker_uidx2), marker_idx2++, dptr++) {
 	    if (marker_idx2 == ujj) {
 	      marker_idx2 = g_epi_geno1_offsets[2 * block_idx1 + 1];
 	      if (marker_idx2 == marker_ct2) {
@@ -10146,7 +10146,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
     wptr_start = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, chrom_idx));
     *wptr_start++ = ' ';
-    for (; marker_uidx < chrom_end; marker_uidx++, next_unset_ul_ck(marker_exclude1, &marker_uidx, unfiltered_marker_ct), marker_idx1++) {
+    for (; marker_uidx < chrom_end; marker_uidx++, next_unset_ul_ck(marker_exclude1, unfiltered_marker_ct, &marker_uidx), marker_idx1++) {
       uii = n_sig_cts[marker_idx1];
       ujj = fail_cts[marker_idx1];
       if (gap_cts) {
@@ -10518,7 +10518,7 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
 	  break;
 	}
 	window_unfiltered_start++;
-	next_unset_ck(marker_exclude, &window_unfiltered_start, chrom_end);
+	next_unset_ck(marker_exclude, chrom_end, &window_unfiltered_start);
       }
       if (window_unfiltered_start == chrom_end) {
 	break;
@@ -10552,11 +10552,11 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
 	if (IS_SET(zmiss, uljj)) {
 	  SET_BIT(ulii, zmiss);
 	} else {
-	  CLEAR_BIT(zmiss, ulii);
+	  CLEAR_BIT(ulii, zmiss);
 	}
 	ulii++;
       }
-      clear_bits(zmiss, ulii, window_max);
+      clear_bits(ulii, window_max, zmiss);
 
       prev_end = ulii;
       cur_window_size = ulii;
@@ -10566,7 +10566,7 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
 	while ((window_unfiltered_end < chrom_end) && (marker_pos[window_unfiltered_end] <= marker_pos[window_unfiltered_start] + (1000 * ld_window_size))) {
 	  uljj++;
 	  window_unfiltered_end++;
-	  next_unset_ck(marker_exclude, &window_unfiltered_end, chrom_end);
+	  next_unset_ck(marker_exclude, chrom_end, &window_unfiltered_end);
 	}
 	window_unfiltered_end = ulkk;
       } else {
@@ -10602,7 +10602,7 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
 	}
 	cur_window_size++;
 	window_unfiltered_end++;
-	next_unset_ck(marker_exclude, &window_unfiltered_end, chrom_end);
+	next_unset_ck(marker_exclude, chrom_end, &window_unfiltered_end);
       }
       if (cur_window_size > prev_end) {
 	start_arr[cur_window_size] = window_unfiltered_end;
@@ -11626,7 +11626,7 @@ THREAD_RET_TYPE ld_map_thread(void* arg) {
         dyy = dp_result[2];
         cov12 = dp_result[0] * non_missing_ctd - dxx * dyy;
         if (cov12 * cov12 <= r2_thresh * ((dp_result[3] * non_missing_ctd + dxx * dxx) * (dp_result[4] * non_missing_ctd + dyy * dyy))) {
-          clear_bit(rb_cur, marker_idx2);
+          clear_bit(marker_idx2, rb_cur);
 	}
 	uii = marker_idx2++;
 	if (is_set(rb_cur, marker_idx2)) {
@@ -11856,7 +11856,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	  do {
 	    bitfield_or(&(result_bitfield[((marker_idx2 - marker_idx) * marker_ctv + firstw)]), &(tmp_set_bitfield[firstw]), wlen);
 	    marker_idx2++;
-	    next_set_ck(tmp_set_bitfield, &marker_idx2, idx1_block_end);
+	    next_set_ck(tmp_set_bitfield, idx1_block_end, &marker_idx2);
 	  } while (marker_idx2 < idx1_block_end);
 	  // don't need to load the first intersecting member or anything
 	  // before it, since we're only traversing the upper right triangle
@@ -11866,7 +11866,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 #else
 	  firstw = uii / 32;
 #endif
-	  clear_bits(&(tmp_set_bitfield[firstw]), 0, uii + 1 - firstw * BITCT);
+	  clear_bits(0, uii + 1 - firstw * BITCT, &(tmp_set_bitfield[firstw]));
 	  bitfield_or(&(load2_bitfield[firstw]), &(tmp_set_bitfield[firstw]), wlen - firstw);
 	}
       }
@@ -11975,11 +11975,11 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       while (1) {
 	marker_idx2 = next_set(rb_ptr, marker_idx2, block_idx1);
 	if (marker_idx2 == block_idx1) {
-	  clear_bit(rb_ptr, block_idx1);
+	  clear_bit(block_idx1, rb_ptr);
 	  break;
 	}
 	if (!in_setdef(ld_map[marker_idx2], block_idx1)) {
-	  clear_bit(rb_ptr, marker_idx2);
+	  clear_bit(marker_idx2, rb_ptr);
 	}
 	marker_idx2++;
       }
@@ -12338,7 +12338,7 @@ void compute_set_scores(uintptr_t marker_ct, uintptr_t perm_vec_ct, uintptr_t se
 	    pval = ((double)((int32_t)uii + 2)) / ((double)(2 * ((int32_t)next_adapt_check + 1)));
 	    dxx = adaptive_ci_zt * sqrt(pval * (1 - pval) / ((int32_t)next_adapt_check));
 	    if ((pval - dxx > apip->alpha) || (pval + dxx < apip->alpha)) {
-	      CLEAR_BIT(perm_adapt_set_unstopped, set_idx);
+	      CLEAR_BIT(set_idx, perm_adapt_set_unstopped);
 	      perm_attempt_ct[set_idx] = next_adapt_check;
 	      break;
 	    }

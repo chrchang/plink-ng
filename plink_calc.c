@@ -3711,7 +3711,7 @@ int32_t write_ids(char* outname, uintptr_t unfiltered_sample_ct, uintptr_t* samp
     return RET_OPEN_FAIL;
   }
   while (1) {
-    next_unset_ul_ck(sample_exclude, &sample_uidx, unfiltered_sample_ct);
+    next_unset_ul_ck(sample_exclude, unfiltered_sample_ct, &sample_uidx);
     if (sample_uidx == unfiltered_sample_ct) {
       break;
     }
@@ -9290,7 +9290,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	if (ujj != uii) {
 	  mc_warning = 1;
 	}
-	fill_bits(cluster_merge_prevented, (clidx1 * (clidx1 - 1)) >> 1, clidx1);
+	fill_bits((clidx1 * (clidx1 - 1)) >> 1, clidx1, cluster_merge_prevented);
 	for (clidx2 = clidx1 + 1; clidx2 < cur_cluster_ct; clidx2++) {
 	  set_bit_ul(tri_coord_no_diag(clidx1, clidx2), cluster_merge_prevented);
 	}
@@ -9321,7 +9321,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	  ujj = cur_cluster_case_cts[clidx1];
 	  if (ujj > uii) {
 	    mcc_warning = 1;
-	    fill_bits(cluster_merge_prevented, (clidx1 * (clidx1 - 1)) >> 1, clidx1);
+	    fill_bits((clidx1 * (clidx1 - 1)) >> 1, clidx1, cluster_merge_prevented);
 	    for (clidx2 = clidx1 + 1; clidx2 < cur_cluster_ct; clidx2++) {
 	      set_bit_ul(tri_coord_no_diag(clidx1, clidx2), cluster_merge_prevented);
 	    }
@@ -9364,7 +9364,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	  ujj = cur_cluster_sizes[clidx1] - cur_cluster_case_cts[clidx1];
 	  if (ujj > uii) {
 	    mcc_warning = 1;
-	    fill_bits(cluster_merge_prevented, (clidx1 * (clidx1 - 1)) >> 1, clidx1);
+	    fill_bits((clidx1 * (clidx1 - 1)) >> 1, clidx1, cluster_merge_prevented);
 	    for (clidx2 = clidx1 + 1; clidx2 < cur_cluster_ct; clidx2++) {
 	      set_bit_ul(tri_coord_no_diag(clidx1, clidx2), cluster_merge_prevented);
 	    }

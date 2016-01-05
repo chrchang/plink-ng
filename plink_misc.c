@@ -86,7 +86,7 @@ int32_t make_founders(uintptr_t unfiltered_sample_ct, uintptr_t sample_ct, char*
       new_founder_ct++;
     }
     sample_uidx++;
-    next_set_ul_ck(nf_bitarr, &sample_uidx, unfiltered_sample_ct);
+    next_set_ul_ck(nf_bitarr, unfiltered_sample_ct, &sample_uidx);
   } while (sample_uidx < unfiltered_sample_ct);
   LOGPRINTF("--make-founders: %u sample%s affected.\n", new_founder_ct, (new_founder_ct == 1)? "" : "s");
   while (0) {
@@ -347,12 +347,12 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
 	      if (*bufptr == '0') {
 		set_bit(sample_idx, isz);
 	      }
-	      clear_bit(pheno_c, sample_idx);
+	      clear_bit(sample_idx, pheno_c);
 	    } else {
 	      if (*bufptr == case_char) {
 		set_bit(sample_idx, pheno_c);
 	      } else {
-		clear_bit(pheno_c, sample_idx);
+		clear_bit(sample_idx, pheno_c);
 	      }
 	      set_bit(sample_idx, pheno_nm);
 	    }
@@ -435,7 +435,7 @@ int32_t convert_tail_pheno(uint32_t unfiltered_sample_ct, uintptr_t* pheno_nm, u
         if (dxx > tail_top) {
           SET_BIT(sample_uidx, pheno_c);
         } else {
-	  CLEAR_BIT(pheno_nm, sample_uidx);
+	  CLEAR_BIT(sample_uidx, pheno_nm);
         }
       }
     }
@@ -577,7 +577,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
       while (marker_pos[marker_uidx] <= ((uint32_t)bp_new)) {
 	marker_cms[marker_uidx] = cm_new - ((int32_t)(((uint32_t)bp_new) - marker_pos[marker_uidx])) * dxx;
 	marker_uidx++;
-	next_unset_ck(marker_exclude, &marker_uidx, chrom_end);
+	next_unset_ck(marker_exclude, chrom_end, &marker_uidx);
 	if (marker_uidx == chrom_end) {
 	  goto apply_cm_map_chrom_done;
 	}
@@ -1484,7 +1484,7 @@ int32_t update_sample_parents(char* update_parents_fname, char* sorted_sample_id
     if ((len == 1) && (*bufptr == '0') && (len2 == 1) && (*bufptr3 == '0')) {
       SET_BIT(sample_uidx, founder_info);
     } else {
-      CLEAR_BIT(founder_info, sample_uidx);
+      CLEAR_BIT(sample_uidx, founder_info);
     }
     hit_ct++;
   }
@@ -1591,14 +1591,14 @@ int32_t update_sample_sexes(char* update_sex_fname, uint32_t update_sex_col, cha
       goto update_sample_sexes_ret_INVALID_FORMAT_2;
     }
     if (cc == '0') {
-      CLEAR_BIT(sex_nm, sample_uidx);
-      CLEAR_BIT(sex_male, sample_uidx);
+      CLEAR_BIT(sample_uidx, sex_nm);
+      CLEAR_BIT(sample_uidx, sex_male);
     } else {
       SET_BIT(sample_uidx, sex_nm);
       if ((cc == '1') || (ucc == 'M')) {
 	SET_BIT(sample_uidx, sex_male);
       } else {
-	CLEAR_BIT(sex_male, sample_uidx);
+	CLEAR_BIT(sample_uidx, sex_male);
       }
     }
     hit_ct++;
@@ -2262,7 +2262,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
     if (!strcmp(colx_ptr, marker_allele_ptrs[marker_uidx * 2 + is_a2])) {
       if (IS_SET(marker_reverse, marker_uidx)) {
         set_allele_freqs[marker_uidx] = 1.0 - set_allele_freqs[marker_uidx];
-        CLEAR_BIT(marker_reverse, marker_uidx);
+        CLEAR_BIT(marker_uidx, marker_reverse);
       }
     } else if (!strcmp(colx_ptr, marker_allele_ptrs[marker_uidx * 2 + 1 - is_a2])) {
       if (!IS_SET(marker_reverse, marker_uidx)) {
@@ -2280,7 +2280,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
       if (!replace_other) {
 	if (IS_SET(marker_reverse, marker_uidx)) {
 	  set_allele_freqs[marker_uidx] = 1.0 - set_allele_freqs[marker_uidx];
-	  CLEAR_BIT(marker_reverse, marker_uidx);
+	  CLEAR_BIT(marker_uidx, marker_reverse);
 	}
       } else {
 	if (!IS_SET(marker_reverse, marker_uidx)) {
@@ -3191,10 +3191,10 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	if (imputed_sex_code == 1) {
 	  SET_BIT(sample_uidx, sex_male);
 	} else {
-	  CLEAR_BIT(sex_male, sample_uidx);
+	  CLEAR_BIT(sample_uidx, sex_male);
 	}
       } else {
-	CLEAR_BIT(sex_nm, sample_uidx);
+	CLEAR_BIT(sample_uidx, sex_nm);
       }
     }
   }
@@ -3429,7 +3429,7 @@ int32_t list_duplicate_vars(char* outname, char* outname_end, uint32_t dupvar_mo
     while (1) {
       last_uidx = marker_uidx;
       marker_uidx++;
-      next_unset_ck(marker_exclude, &marker_uidx, chrom_end);
+      next_unset_ck(marker_exclude, chrom_end, &marker_uidx);
       if (marker_uidx == chrom_end) {
 	break;
       }
@@ -3444,7 +3444,7 @@ int32_t list_duplicate_vars(char* outname, char* outname_end, uint32_t dupvar_mo
 	  }
 	  *(--uidx_list) = marker_uidx;
 	  marker_uidx++;
-	  next_unset_ck(marker_exclude, &marker_uidx, chrom_end);
+	  next_unset_ck(marker_exclude, chrom_end, &marker_uidx);
 	  if (marker_uidx == chrom_end) {
 	    break;
 	  }
@@ -3593,7 +3593,7 @@ int32_t list_duplicate_vars(char* outname, char* outname_end, uint32_t dupvar_mo
     }
     fill_all_bits(uniqueness_check_bitfield, unfiltered_marker_ct);
     for (uii = 0; uii < htable_entry_ct; uii++) {
-      clear_bit(uniqueness_check_bitfield, (group_list_start[uii] & 0x7fffffff));
+      clear_bit((group_list_start[uii] & 0x7fffffff), uniqueness_check_bitfield);
     }
     retval = alloc_and_populate_id_htable(unfiltered_marker_ct, uniqueness_check_bitfield, htable_entry_ct, marker_ids, max_marker_id_len, 0, &reported_id_htable, &reported_id_htable_size);
     if (retval) {
@@ -4340,7 +4340,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
             LOGPREPRINTFWW("Error: Duplicate variant '%s' in --score file.\n", bufptr_arr[varid_idx]);
             goto score_report_ret_INVALID_FORMAT_2;
 	  }
-          CLEAR_BIT(marker_exclude, marker_uidx);
+          CLEAR_BIT(marker_uidx, marker_exclude);
 	  if (uii) {
 	    SET_BIT(marker_uidx, a2_effect);
 	  }
@@ -4464,7 +4464,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
 	      LOGPREPRINTFWW("Error: Duplicate variant '%s' in --q-score-range data file.\n", bufptr_arr[varid_idx]);
 	      goto score_report_ret_INVALID_FORMAT_2;
 	    }
-            CLEAR_BIT(marker_exclude_main, marker_uidx);
+            CLEAR_BIT(marker_uidx, marker_exclude_main);
 	  }
 	} else {
 	  miss_ct++;
@@ -4594,7 +4594,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
       next_unset_ul_unsafe_ck(marker_exclude_main, &marker_uidx);
       dxx = qrange_keys[marker_idx];
       if ((dxx >= lbound) && (dxx <= ubound)) {
-	CLEAR_BIT(marker_exclude, marker_uidx);
+	CLEAR_BIT(marker_uidx, marker_exclude);
 	*dptr++ = effect_sizes[marker_idx];
       }
     }

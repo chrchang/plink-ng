@@ -308,7 +308,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
 	}
         xhat[col_uidx] = dxx;
         if (dxx == 0.0) {
-          CLEAR_BIT(active_set, col_uidx);
+          CLEAR_BIT(col_uidx, active_set);
 	  col_to_z++;
 	}
         dptr = residuals;
@@ -713,7 +713,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
 	}
         xhat[col_uidx] = dxx;
         if (dxx == 0.0) {
-          CLEAR_BIT(active_set, col_uidx);
+          CLEAR_BIT(col_uidx, active_set);
 	  col_to_z++;
 	}
         dptr = residuals;

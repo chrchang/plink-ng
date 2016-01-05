@@ -108,7 +108,7 @@ int32_t keep_or_remove(char* fname, char* sorted_ids, uintptr_t sorted_ids_ct, u
 	    if (!IS_SET(exclude_arr_new, unfiltered_idx)) {
 	      duplicate_ct++;
 	    } else {
-	      CLEAR_BIT(exclude_arr_new, unfiltered_idx);
+	      CLEAR_BIT(unfiltered_idx, exclude_arr_new);
 	    }
 	  }
 	}
@@ -129,7 +129,7 @@ int32_t keep_or_remove(char* fname, char* sorted_ids, uintptr_t sorted_ids_ct, u
 	    if (!IS_SET(exclude_arr_new, unfiltered_idx)) {
 	      ii = 1;
 	    } else {
-	      CLEAR_BIT(exclude_arr_new, unfiltered_idx);
+	      CLEAR_BIT(unfiltered_idx, exclude_arr_new);
 	    }
 	  }
 	}
@@ -541,7 +541,7 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
     if (pos_match_needed) {
       continue;
     }
-    clear_bit(exclude_arr_new, item_uidx);
+    clear_bit(item_uidx, exclude_arr_new);
     include_ct++;
   }
   if ((!include_ct) && (!allow_no_variants)) {
@@ -775,7 +775,7 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
     if (pos_match_needed) {
       continue;
     }
-    clear_bit(exclude_arr_new, unfiltered_idx);
+    clear_bit(unfiltered_idx, exclude_arr_new);
     include_ct++;
   }
   if ((!include_ct) && (!allow_no_samples)) {
@@ -1429,7 +1429,7 @@ int32_t filter_samples_file(char* filtername, char* sorted_sample_ids, uintptr_t
 	}
 	if (bsearch_str(bufptr, strlen_se(bufptr), sorted_filtervals, max_filterval_len, filterval_ct) != -1) {
 	  if (is_set(sample_exclude_new, sample_idx)) {
-	    clear_bit(sample_exclude_new, sample_idx);
+	    clear_bit(sample_idx, sample_exclude_new);
 	    include_ct++;
 	  }
 	}

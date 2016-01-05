@@ -2481,7 +2481,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
       chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       if ((is_set(chrom_info_ptr->haploid_mask, chrom_idx) && ((int32_t)chrom_idx != chrom_info_ptr->x_code)) || ((int32_t)chrom_idx == chrom_info_ptr->mt_code)) {
 	uii = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
-	fill_bits(marker_exclude_tmp, uii, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1] - uii);
+	fill_bits(uii, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1] - uii, marker_exclude_tmp);
       }
     }
     fill_idx_to_uidx(marker_exclude_tmp, unfiltered_marker_ct, marker_ct, marker_idx_to_uidx);
@@ -2635,7 +2635,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
 	  // missing father
 	  sample_to_fss_idx[ujj] = family_idx;
 	}
-	clear_bit(not_in_family, uii);
+	clear_bit(uii, not_in_family);
       } else {
 	set_bit(uii, ulptr);
       }
@@ -2645,7 +2645,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
 	  // missing mother
 	  sample_to_fss_idx[umm] = family_idx;
 	}
-	clear_bit(not_in_family, ukk);
+	clear_bit(ukk, not_in_family);
       } else {
 	set_bit(ukk, ulptr);
       }
@@ -2743,13 +2743,13 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
       if (!memcmp(bufptr, bufptr2, slen)) {
         fs_starts[family_idx] = fssc_idx;
 	uii = *((uint32_t*)(&(bufptr[slen])));
-	clear_bit(not_in_family, uii);
+	clear_bit(uii, not_in_family);
 	ujj = sample_uidx_to_idx[uii];
         fss_contents[fssc_idx++] = ujj;
         sample_to_fss_idx[ujj] = family_idx;
 	do {
 	  uii = *((uint32_t*)(&(bufptr2[slen])));
-	  clear_bit(not_in_family, uii);
+	  clear_bit(uii, not_in_family);
 	  ujj = sample_uidx_to_idx[uii];
           sample_to_fss_idx[ujj] = family_idx;
           fss_contents[fssc_idx++] = ujj;
@@ -3920,7 +3920,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       if (is_set(chrom_info_ptr->haploid_mask, chrom_idx) || ((int32_t)chrom_idx == chrom_info_ptr->mt_code)) {
 	uii = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
-	fill_bits(marker_exclude_orig_autosomal, uii, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1] - uii);
+	fill_bits(uii, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1] - uii, marker_exclude_orig_autosomal);
       }
     }
   } else if (is_set(chrom_info_ptr->haploid_mask, 0)) {
@@ -4007,17 +4007,17 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       // [3...]: child uidxs
       // We collapse the indexes again later.
       sample_uidx = idx_to_uidx[fss_contents[fssc_start - 2]];
-      clear_bit(dfam_sample_exclude, sample_uidx);
+      clear_bit(sample_uidx, dfam_sample_exclude);
       *cur_dfam_ptr++ = sample_uidx;
 
       sample_uidx = idx_to_uidx[fss_contents[fssc_start - 1]];
-      clear_bit(dfam_sample_exclude, sample_uidx);
+      clear_bit(sample_uidx, dfam_sample_exclude);
       *cur_dfam_ptr++ = sample_uidx;
 
       *cur_dfam_ptr++ = cur_case_ct;
       for (fssc_idx = fssc_start; fssc_idx < fssc_end; fssc_idx++) {
 	sample_uidx = idx_to_uidx[fss_contents[fssc_idx]];
-	clear_bit(dfam_sample_exclude, sample_uidx);
+	clear_bit(sample_uidx, dfam_sample_exclude);
 	*cur_dfam_ptr++ = sample_uidx;
       }
     }
@@ -4035,18 +4035,18 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     if (cur_case_ct && (cur_case_ct != sibling_ct)) {
       family_mixed_ct++;
       sample_uidx = idx_to_uidx[fss_contents[fssc_start - 2]];
-      clear_bit(dfam_sample_exclude, sample_uidx);
+      clear_bit(sample_uidx, dfam_sample_exclude);
       *cur_dfam_ptr++ = sample_uidx;
 
       sample_uidx = idx_to_uidx[fss_contents[fssc_start - 1]];
-      clear_bit(dfam_sample_exclude, sample_uidx);
+      clear_bit(sample_uidx, dfam_sample_exclude);
       *cur_dfam_ptr++ = sample_uidx;
 
       dfam_cluster_map_size += sibling_ct;
       *cur_dfam_ptr++ = sibling_ct;
       for (fssc_idx = fssc_start; fssc_idx < fssc_end; fssc_idx++) {
 	sample_uidx = idx_to_uidx[fss_contents[fssc_idx]];
-	clear_bit(dfam_sample_exclude, sample_uidx);
+	clear_bit(sample_uidx, dfam_sample_exclude);
 	*cur_dfam_ptr++ = sample_uidx;
       }
     }
@@ -4068,7 +4068,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       *cur_dfam_ptr++ = sibling_ct;
       for (fssc_idx = fssc_start; fssc_idx < fssc_end; fssc_idx++) {
 	sample_uidx = idx_to_uidx[fss_contents[fssc_idx]];
-	clear_bit(dfam_sample_exclude, sample_uidx);
+	clear_bit(sample_uidx, dfam_sample_exclude);
 	*cur_dfam_ptr++ = sample_uidx;
       }
     }
@@ -4130,7 +4130,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	if (cur_ctrl_ct && cur_case_ct) {
 	  uii = cluster_write_idxs[unrelated_cluster_idx];
 	  cur_dfam_ptr[uii] = sample_uidx;
-	  clear_bit(dfam_sample_exclude, sample_uidx);
+	  clear_bit(sample_uidx, dfam_sample_exclude);
 	  cluster_write_idxs[unrelated_cluster_idx] = uii + 1;
 	}
       }
@@ -5002,7 +5002,7 @@ void qfam_compute_bw(uintptr_t* loadbuf, uintptr_t sample_ct, uint32_t* fs_start
       if (sib_ct) {
         qfam_b[cur_idx] = ((double)((intptr_t)(2 * (uintptr_t)sib_ct) - ((intptr_t)uljj))) / ((double)((int32_t)sib_ct));
       } else {
-	clear_bit(nm_fss, cur_idx);
+	clear_bit(cur_idx, nm_fss);
       }
     }
     cur_start = cur_end;
@@ -5026,7 +5026,7 @@ void qfam_compute_bw(uintptr_t* loadbuf, uintptr_t sample_ct, uint32_t* fs_start
     if (sib_ct) {
       qfam_b[cur_idx] = ((double)((intptr_t)(2 * (uintptr_t)sib_ct) - ((intptr_t)uljj))) / ((double)((int32_t)sib_ct));
     } else {
-      clear_bit(nm_fss, cur_idx);
+      clear_bit(cur_idx, nm_fss);
     }
     cur_start = cur_end;
   }
@@ -5037,7 +5037,7 @@ void qfam_compute_bw(uintptr_t* loadbuf, uintptr_t sample_ct, uint32_t* fs_start
     if (ulii != 1) {
       qfam_b[cur_idx] = (double)(2 - (intptr_t)(ulii + (ulii == 0)));
     } else {
-      clear_bit(nm_fss, cur_idx);
+      clear_bit(cur_idx, nm_fss);
     }
   }
   fill_all_bits(nm_lm, lm_ct);
@@ -5067,7 +5067,7 @@ void qfam_compute_bw(uintptr_t* loadbuf, uintptr_t sample_ct, uint32_t* fs_start
       dxx = pheno_d2[sample_idx];
       qt_sum -= dxx;
       qt_ssq -= dxx * dxx;
-      clear_bit(nm_lm, sample_idx);
+      clear_bit(sample_idx, nm_lm);
     }
   }
   // 1.07 also excludes the nonmissing parent when only one out of two parents
@@ -5097,7 +5097,7 @@ void flip_precalc(uint32_t lm_ct, double* qfam_w, double* pheno_d2, uintptr_t* n
     }
     cur_geno = qfam_w[sample_idx];
     if (fabs(cur_geno) < SMALL_EPSILON) {
-      clear_bit(nm_lm, sample_idx);
+      clear_bit(sample_idx, nm_lm);
     } else {
       geno_sum += cur_geno;
       geno_ssq += cur_geno * cur_geno;

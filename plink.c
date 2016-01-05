@@ -104,7 +104,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (3 Jan 2016)";
+  " (4 Jan 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -253,7 +253,7 @@ void swap_reversed_marker_alleles(uintptr_t unfiltered_marker_ct, uintptr_t* mar
   uintptr_t marker_uidx = 0;
   char* swap_ptr;
   while (1) {
-    next_set_ul_ck(marker_reverse, &marker_uidx, unfiltered_marker_ct);
+    next_set_ul_ck(marker_reverse, unfiltered_marker_ct, &marker_uidx);
     if (marker_uidx == unfiltered_marker_ct) {
       return;
     }
@@ -2304,7 +2304,7 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
 	  sprintf(g_logbuf, "Error: --%s chromosome code '%s' is not greater than '%s'.\n", cur_flag_str, range_end, range_start);
 	  goto parse_chrom_ranges_ret_INVALID_CMDLINE_WWA;
 	}
-	fill_bits(chrom_mask, chrom_code_start, chrom_code_end + 1 - chrom_code_start);
+	fill_bits(chrom_code_start, chrom_code_end + 1 - chrom_code_start, chrom_mask);
       } else {
         set_bit(chrom_code_start, chrom_mask);
       }
@@ -2972,10 +2972,10 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
       for (param_idx = 2; param_idx <= param_ct; param_idx++) {
 	if (!strcmp(argv[cur_arg + param_idx], "no-x")) {
 	  chrom_info_ptr->x_code = -1;
-	  clear_bit(chrom_info_ptr->haploid_mask, ii + 1);
+	  clear_bit(ii + 1, chrom_info_ptr->haploid_mask);
 	} else if (!strcmp(argv[cur_arg + param_idx], "no-y")) {
 	  chrom_info_ptr->y_code = -1;
-	  clear_bit(chrom_info_ptr->haploid_mask, ii + 2);
+	  clear_bit(ii + 2, chrom_info_ptr->haploid_mask);
 	} else if (!strcmp(argv[cur_arg + param_idx], "no-xy")) {
 	  chrom_info_ptr->xy_code = -1;
 	} else if (!strcmp(argv[cur_arg + param_idx], "no-mt")) {
@@ -4248,7 +4248,7 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'a':
       if (!memcmp(argptr2, "utosome", 8)) {
-	fill_bits(chrom_info.chrom_mask, 1, chrom_info.autosome_ct);
+	fill_bits(1, chrom_info.autosome_ct, chrom_info.chrom_mask);
 	chrom_info.is_include_stack = 1;
 	chrom_flag_present = 1;
 	goto main_param_zero;
@@ -4261,7 +4261,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --autosome-xy used with a species lacking an XY region.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	fill_bits(chrom_info.chrom_mask, 1, chrom_info.autosome_ct);
+	fill_bits(1, chrom_info.autosome_ct, chrom_info.chrom_mask);
 	set_bit(chrom_info.xy_code, chrom_info.chrom_mask);
 	chrom_info.is_include_stack = 1;
 	goto main_param_zero;

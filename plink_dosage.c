@@ -1038,7 +1038,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       if (is_set(sex_nm, sample_uidx)) {
         covar_d[sample_idx] = (double)((int32_t)is_set(sex_male, sample_idx));
       } else {
-	CLEAR_BIT(covar_nm, sample_idx);
+	CLEAR_BIT(sample_idx, covar_nm);
         covar_d[sample_idx] = missing_phenod;
       }
     }
@@ -1842,14 +1842,14 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 		goto plink1_dosage_ret_MISSING_TOKENS;
 	      }
 	      if (scan_double(bufptr, &dxx)) {
-		clear_bit(cur_samples, read_idx_to_sample_idx[read_idx_start]);
+		clear_bit(read_idx_to_sample_idx[read_idx_start], cur_samples);
 		continue;
 	      }
 	      if (!dose1) {
 		dxx *= 0.5;
 	      }
 	      if ((dxx > 1.0 + DOSAGE_EPSILON) || (dxx < 0.0)) {
-		clear_bit(cur_samples, read_idx_to_sample_idx[read_idx_start]);
+		clear_bit(read_idx_to_sample_idx[read_idx_start], cur_samples);
 		continue;
 	      } else if (dxx > 1.0) {
 		dxx = 1.0;
@@ -1864,12 +1864,12 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 		goto plink1_dosage_ret_MISSING_TOKENS;
 	      }
 	      if (scan_double(bufptr2, &dxx) || scan_double(bufptr, &dyy)) {
-		clear_bit(cur_samples, read_idx_to_sample_idx[read_idx_start]);
+		clear_bit(read_idx_to_sample_idx[read_idx_start], cur_samples);
 		continue;
 	      }
 	      dzz = dxx + dyy;
 	      if ((dyy < 0.0) || (dxx < 0.0) || (dzz > 1.0 + DOSAGE_EPSILON)) {
-		clear_bit(cur_samples, read_idx_to_sample_idx[read_idx_start]);
+		clear_bit(read_idx_to_sample_idx[read_idx_start], cur_samples);
 		continue;
 	      } else if (dzz > 1.0) {
 		dzz = 1.0 / dzz;

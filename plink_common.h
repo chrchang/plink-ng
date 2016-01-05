@@ -1622,133 +1622,135 @@ static inline void set_bit_ul(uintptr_t loc, uintptr_t* bitarr) {
   bitarr[loc / BITCT] |= (ONELU << (loc % BITCT));
 }
 
-void fill_bits(uintptr_t* bitarr, uintptr_t loc_start, uintptr_t len);
+// requires positive len
+void fill_bits(uintptr_t loc_start, uintptr_t len, uintptr_t* bitarr);
 
-void clear_bits(uintptr_t* bitarr, uintptr_t loc_start, uintptr_t len);
+// requires positive len
+void clear_bits(uintptr_t loc_start, uintptr_t len, uintptr_t* bitarr);
 
-#define CLEAR_BIT(aa, bb) ((aa)[(bb) / BITCT] &= ~(ONELU << ((bb) % BITCT)))
+#define CLEAR_BIT(idx, arr) ((arr)[(idx) / BITCT] &= ~(ONELU << ((idx) % BITCT)))
 
-#define CLEAR_BIT_DBL(aa, bb) ((aa)[(bb) / BITCT2] &= ~(ONELU << (2 * ((bb) % BITCT2))))
+#define CLEAR_BIT_DBL(idx, arr) ((arr)[(idx) / BITCT2] &= ~(ONELU << (2 * ((idx) % BITCT2))))
 
-static inline void clear_bit(uintptr_t* bitarr, uint32_t loc) {
+static inline void clear_bit(uint32_t loc, uintptr_t* bitarr) {
   bitarr[loc / BITCT] &= ~(ONELU << (loc % BITCT));
 }
 
-static inline void clear_bit_ul(uintptr_t* bitarr, uintptr_t loc) {
+static inline void clear_bit_ul(uintptr_t loc, uintptr_t* bitarr) {
   bitarr[loc / BITCT] &= ~(ONELU << (loc % BITCT));
 }
 
-#define IS_SET(aa, bb) (((aa)[(bb) / BITCT] >> ((bb) % BITCT)) & 1)
+#define IS_SET(arr, idx) (((arr)[(idx) / BITCT] >> ((idx) % BITCT)) & 1)
 
-#define IS_SET_DBL(aa, bb) (((aa)[(bb) / BITCT2] >> (2 * ((bb) % BITCT2))) & 1)
+#define IS_SET_DBL(arr, idx) (((arr)[(idx) / BITCT2] >> (2 * ((idx) % BITCT2))) & 1)
 
 // use this instead of IS_SET() for signed 32-bit integers
-static inline uint32_t is_set(const uintptr_t* exclude_arr, uint32_t loc) {
-  return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
+static inline uint32_t is_set(const uintptr_t* bitarr, uint32_t loc) {
+  return (bitarr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 
-static inline uint32_t is_set_ul(const uintptr_t* exclude_arr, uintptr_t loc) {
-  return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
+static inline uint32_t is_set_ul(const uintptr_t* bitarr, uintptr_t loc) {
+  return (bitarr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 
-#define IS_NONNULL_AND_SET(aa, bb) ((aa) && IS_SET(aa, bb))
+#define IS_NONNULL_AND_SET(arr, idx) ((arr) && IS_SET(arr, idx))
 
-uint32_t next_unset_unsafe(uintptr_t* bitarr, uint32_t loc);
+uint32_t next_unset_unsafe(const uintptr_t* bitarr, uint32_t loc);
 
-static inline void next_unset_unsafe_ck(uintptr_t* bitarr, uint32_t* loc_ptr) {
+static inline void next_unset_unsafe_ck(const uintptr_t* __restrict bitarr, uint32_t* __restrict loc_ptr) {
   if (IS_SET(bitarr, *loc_ptr)) {
     *loc_ptr = next_unset_unsafe(bitarr, *loc_ptr);
   }
 }
 
 #ifdef __LP64__
-uintptr_t next_unset_ul_unsafe(uintptr_t* bitarr, uintptr_t loc);
+uintptr_t next_unset_ul_unsafe(const uintptr_t* bitarr, uintptr_t loc);
 #else
-static inline uintptr_t next_unset_ul_unsafe(uintptr_t* bitarr, uintptr_t loc) {
+static inline uintptr_t next_unset_ul_unsafe(const uintptr_t* bitarr, uintptr_t loc) {
   return (uintptr_t)next_unset_unsafe(bitarr, loc);
 }
 #endif
 
-static inline void next_unset_ul_unsafe_ck(uintptr_t* bitarr, uintptr_t* loc_ptr) {
+static inline void next_unset_ul_unsafe_ck(const uintptr_t* __restrict bitarr, uintptr_t* __restrict loc_ptr) {
   if (IS_SET(bitarr, *loc_ptr)) {
     *loc_ptr = next_unset_ul_unsafe(bitarr, *loc_ptr);
   }
 }
 
-uint32_t next_unset(uintptr_t* bitarr, uint32_t loc, uint32_t ceil);
+uint32_t next_unset(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil);
 
-static inline void next_unset_ck(uintptr_t* bitarr, uint32_t* loc_ptr, uint32_t ceil) {
+static inline void next_unset_ck(const uintptr_t* __restrict bitarr, uint32_t ceil, uint32_t* __restrict loc_ptr) {
   if (IS_SET(bitarr, *loc_ptr)) {
     *loc_ptr = next_unset(bitarr, *loc_ptr, ceil);
   }
 }
 
 #ifdef __LP64__
-uintptr_t next_unset_ul(uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil);
+uintptr_t next_unset_ul(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil);
 #else
-static inline uintptr_t next_unset_ul(uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
+static inline uintptr_t next_unset_ul(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
   return (uintptr_t)next_unset(bitarr, loc, ceil);
 }
 #endif
 
-static inline void next_unset_ul_ck(uintptr_t* bitarr, uintptr_t* loc_ptr, uintptr_t ceil) {
+static inline void next_unset_ul_ck(const uintptr_t* __restrict bitarr, uintptr_t ceil, uintptr_t* __restrict loc_ptr) {
   if (IS_SET(bitarr, *loc_ptr)) {
     *loc_ptr = next_unset_ul(bitarr, *loc_ptr, ceil);
   }
 }
 
-uint32_t next_set_unsafe(uintptr_t* bitarr, uint32_t loc);
+uint32_t next_set_unsafe(const uintptr_t* bitarr, uint32_t loc);
 
-static inline void next_set_unsafe_ck(uintptr_t* bitarr, uint32_t* loc_ptr) {
+static inline void next_set_unsafe_ck(const uintptr_t* __restrict bitarr, uint32_t* __restrict loc_ptr) {
   if (!IS_SET(bitarr, *loc_ptr)) {
     *loc_ptr = next_set_unsafe(bitarr, *loc_ptr);
   }
 }
 
 #ifdef __LP64__
-uintptr_t next_set_ul_unsafe(uintptr_t* bitarr, uintptr_t loc);
+uintptr_t next_set_ul_unsafe(const uintptr_t* bitarr, uintptr_t loc);
 #else
-static inline uintptr_t next_set_ul_unsafe(uintptr_t* bitarr, uintptr_t loc) {
+static inline uintptr_t next_set_ul_unsafe(const uintptr_t* bitarr, uintptr_t loc) {
   return (uintptr_t)next_set_unsafe(bitarr, loc);
 }
 #endif
 
-static inline void next_set_ul_unsafe_ck(uintptr_t* bitarr, uintptr_t* loc_ptr) {
+static inline void next_set_ul_unsafe_ck(const uintptr_t* __restrict bitarr, uintptr_t* __restrict loc_ptr) {
   if (!IS_SET(bitarr, *loc_ptr)) {
     *loc_ptr = next_set_ul_unsafe(bitarr, *loc_ptr);
   }
 }
 
-uint32_t next_set(uintptr_t* bitarr, uint32_t loc, uint32_t ceil);
+uint32_t next_set(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil);
 
-static inline void next_set_ck(uintptr_t* bitarr, uint32_t* loc_ptr, uint32_t ceil) {
+static inline void next_set_ck(const uintptr_t* __restrict bitarr, uint32_t ceil, uint32_t* __restrict loc_ptr) {
   if (!IS_SET(bitarr, *loc_ptr)) {
     *loc_ptr = next_set(bitarr, *loc_ptr, ceil);
   }
 }
 
 #ifdef __LP64__
-uintptr_t next_set_ul(uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil);
+uintptr_t next_set_ul(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil);
 #else
-static inline uintptr_t next_set_ul(uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
+static inline uintptr_t next_set_ul(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
   return (uintptr_t)next_set(bitarr, loc, ceil);
 }
 #endif
 
-static inline void next_set_ul_ck(uintptr_t* bitarr, uintptr_t* loc_ptr, uintptr_t ceil) {
+static inline void next_set_ul_ck(const uintptr_t* __restrict bitarr, uintptr_t ceil, uintptr_t* loc_ptr) {
   if (!IS_SET(bitarr, *loc_ptr)) {
     *loc_ptr = next_set_ul(bitarr, *loc_ptr, ceil);
   }
 }
 
-int32_t last_set_bit(uintptr_t* bitarr, uint32_t word_ct);
+int32_t last_set_bit(const uintptr_t* bitarr, uint32_t word_ct);
 
 // note different interface from last_set_bit()
 // int32_t last_clear_bit(uintptr_t* bitarr, uint32_t ceil);
 
 // unlike the next_[un]set family, this always returns a STRICTLY earlier
 // position
-uint32_t prev_unset_unsafe(uintptr_t* bitarr, uint32_t loc);
+uint32_t prev_unset_unsafe(const uintptr_t* bitarr, uint32_t loc);
 
 // uint32_t prev_unset(uintptr_t* bitarr, uint32_t loc, uint32_t floor);
 
@@ -1911,7 +1913,7 @@ static inline int32_t bigstack_end_calloc_ll(uintptr_t ct, int64_t** llp_ptr) {
 
 uint32_t murmurhash3_32(const void* key, uint32_t len);
 
-static inline uint32_t hashval2(char* idstr, uint32_t idlen) {
+static inline uint32_t hashval2(const char* idstr, uint32_t idlen) {
   return murmurhash3_32(idstr, idlen) % HASHSIZE;
 }
 

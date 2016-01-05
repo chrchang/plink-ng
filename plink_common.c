@@ -3303,8 +3303,8 @@ void magic_num(uint32_t divisor, uint64_t* multp, uint32_t* __restrict pre_shift
   }
 }
 
-void fill_bits(uintptr_t* bitarr, uintptr_t loc_start, uintptr_t len) {
-  // requires bitarr to be nonempty
+void fill_bits(uintptr_t loc_start, uintptr_t len, uintptr_t* bitarr) {
+  assert(len);
   uintptr_t maj_start = loc_start / BITCT;
   uintptr_t maj_end = (loc_start + len) / BITCT;
   uintptr_t minor;
@@ -3320,8 +3320,8 @@ void fill_bits(uintptr_t* bitarr, uintptr_t loc_start, uintptr_t len) {
   }
 }
 
-void clear_bits(uintptr_t* bitarr, uintptr_t loc_start, uintptr_t len) {
-  // requires bitarr to be nonempty
+void clear_bits(uintptr_t loc_start, uintptr_t len, uintptr_t* bitarr) {
+  assert(len);
   uintptr_t maj_start = loc_start / BITCT;
   uintptr_t maj_end = (loc_start + len) / BITCT;
   uintptr_t minor;
@@ -3337,8 +3337,8 @@ void clear_bits(uintptr_t* bitarr, uintptr_t loc_start, uintptr_t len) {
   }
 }
 
-uint32_t next_unset_unsafe(uintptr_t* bitarr, uint32_t loc) {
-  uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
+uint32_t next_unset_unsafe(const uintptr_t* bitarr, uint32_t loc) {
+  const uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
   uintptr_t ulii = (~(*bitarr_ptr)) >> (loc % BITCT);
   if (ulii) {
     return loc + CTZLU(ulii);
@@ -3350,8 +3350,8 @@ uint32_t next_unset_unsafe(uintptr_t* bitarr, uint32_t loc) {
 }
 
 #ifdef __LP64__
-uintptr_t next_unset_ul_unsafe(uintptr_t* bitarr, uintptr_t loc) {
-  uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
+uintptr_t next_unset_ul_unsafe(const uintptr_t* bitarr, uintptr_t loc) {
+  const uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
   uintptr_t ulii = (~(*bitarr_ptr)) >> (loc % BITCT);
   if (ulii) {
     return loc + CTZLU(ulii);
@@ -3363,11 +3363,12 @@ uintptr_t next_unset_ul_unsafe(uintptr_t* bitarr, uintptr_t loc) {
 }
 #endif
 
-uint32_t next_unset(uintptr_t* bitarr, uint32_t loc, uint32_t ceil) {
-  // safe version.  ceil >= 1.
-  uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
+uint32_t next_unset(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil) {
+  // safe version.
+  assert(ceil >= 1);
+  const uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
   uintptr_t ulii = (~(*bitarr_ptr)) >> (loc % BITCT);
-  uintptr_t* bitarr_last;
+  const uintptr_t* bitarr_last;
   if (ulii) {
     loc += CTZLU(ulii);
     return MINV(loc, ceil);
@@ -3384,10 +3385,10 @@ uint32_t next_unset(uintptr_t* bitarr, uint32_t loc, uint32_t ceil) {
 }
 
 #ifdef __LP64__
-uintptr_t next_unset_ul(uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
-  uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
+uintptr_t next_unset_ul(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
+  const uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
   uintptr_t ulii = (~(*bitarr_ptr)) >> (loc % BITCT);
-  uintptr_t* bitarr_last;
+  const uintptr_t* bitarr_last;
   if (ulii) {
     ulii = loc + CTZLU(ulii);
     return MINV(ulii, ceil);
@@ -3404,8 +3405,8 @@ uintptr_t next_unset_ul(uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
 }
 #endif
 
-uint32_t next_set_unsafe(uintptr_t* bitarr, uint32_t loc) {
-  uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
+uint32_t next_set_unsafe(const uintptr_t* bitarr, uint32_t loc) {
+  const uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
   uintptr_t ulii = (*bitarr_ptr) >> (loc % BITCT);
   if (ulii) {
     return loc + CTZLU(ulii);
@@ -3417,8 +3418,8 @@ uint32_t next_set_unsafe(uintptr_t* bitarr, uint32_t loc) {
 }
 
 #ifdef __LP64__
-uintptr_t next_set_ul_unsafe(uintptr_t* bitarr, uintptr_t loc) {
-  uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
+uintptr_t next_set_ul_unsafe(const uintptr_t* bitarr, uintptr_t loc) {
+  const uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
   uintptr_t ulii = (*bitarr_ptr) >> (loc % BITCT);
   if (ulii) {
     return loc + CTZLU(ulii);
@@ -3430,10 +3431,10 @@ uintptr_t next_set_ul_unsafe(uintptr_t* bitarr, uintptr_t loc) {
 }
 #endif
 
-uint32_t next_set(uintptr_t* bitarr, uint32_t loc, uint32_t ceil) {
-  uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
+uint32_t next_set(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil) {
+  const uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
   uintptr_t ulii = (*bitarr_ptr) >> (loc % BITCT);
-  uintptr_t* bitarr_last;
+  const uintptr_t* bitarr_last;
   uint32_t rval;
   if (ulii) {
     rval = loc + CTZLU(ulii);
@@ -3451,10 +3452,10 @@ uint32_t next_set(uintptr_t* bitarr, uint32_t loc, uint32_t ceil) {
 }
 
 #ifdef __LP64__
-uintptr_t next_set_ul(uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
-  uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
+uintptr_t next_set_ul(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
+  const uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
   uintptr_t ulii = (*bitarr_ptr) >> (loc % BITCT);
-  uintptr_t* bitarr_last;
+  const uintptr_t* bitarr_last;
   if (ulii) {
     ulii = loc + CTZLU(ulii);
     return MINV(ulii, ceil);
@@ -3471,8 +3472,8 @@ uintptr_t next_set_ul(uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
 }
 #endif
 
-int32_t last_set_bit(uintptr_t* bitarr, uint32_t word_ct) {
-  uintptr_t* bitarr_ptr = &(bitarr[word_ct]);
+int32_t last_set_bit(const uintptr_t* bitarr, uint32_t word_ct) {
+  const uintptr_t* bitarr_ptr = &(bitarr[word_ct]);
   uintptr_t ulii;
   do {
     ulii = *(--bitarr_ptr);
@@ -3503,10 +3504,10 @@ int32_t last_clear_bit(uintptr_t* bitarr, uint32_t ceil) {
   return -1;
 }
 
-uint32_t prev_unset_unsafe(uintptr_t* bitarr, uint32_t loc) {
-// unlike the next_{un}set family, this always returns a STRICTLY earlier
-// position
-  uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
+uint32_t prev_unset_unsafe(const uintptr_t* bitarr, uint32_t loc) {
+  // unlike the next_{un}set family, this always returns a STRICTLY earlier
+  // position
+  const uintptr_t* bitarr_ptr = &(bitarr[loc / BITCT]);
   uint32_t remainder = loc % BITCT;
   uintptr_t ulii;
   if (remainder) {
@@ -7679,7 +7680,7 @@ uint32_t numeric_range_list_to_bitfield(Range_list* range_list_ptr, uint32_t ite
 	}
         idx2 = idx_max - 1;
       }
-      fill_bits(bitfield, idx1 - offset, (idx2 - idx1) + 1);
+      fill_bits(idx1 - offset, (idx2 - idx1) + 1, bitfield);
     } else {
       set_bit(idx1 - offset, bitfield);
     }
@@ -7712,7 +7713,7 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint3
           LOGPREPRINTFWW("Error: Second element of --%s range appears before first element in %s.\n", range_list_flag, file_descrip);
           goto string_range_list_to_bitfield_ret_INVALID_CMDLINE_2;
 	}
-	fill_bits(bitfield, seen_idxs[cmdline_pos - 1], (item_idx - seen_idxs[cmdline_pos - 1]) + 1);
+	fill_bits(seen_idxs[cmdline_pos - 1], (item_idx - seen_idxs[cmdline_pos - 1]) + 1, bitfield);
       } else if (!(range_list_ptr->starts_range[cmdline_pos])) {
 	SET_BIT(item_idx, bitfield);
       }
@@ -7803,9 +7804,9 @@ int32_t string_range_list_to_bitfield2(char* sorted_ids, uint32_t* id_map, uintp
 	sprintf(g_logbuf, "Error: Second element of --%s range appears before first.\n", range_list_flag);
 	goto string_range_list_to_bitfield2_ret_INVALID_CMDLINE_2;
       }
-      clear_bits(bitfield_excl, item_uidx, item_uidx2 - item_uidx + 1);
+      clear_bits(item_uidx, item_uidx2 - item_uidx + 1, bitfield_excl);
     } else {
-      clear_bit(bitfield_excl, item_uidx);
+      clear_bit(item_uidx, bitfield_excl);
     }
   }
   while (0) {
@@ -7875,13 +7876,13 @@ int32_t conditional_allocate_non_autosomal_markers(Chrom_info* chrom_info_ptr, u
   }
   memcpy(*marker_exclude_ptr, marker_exclude_orig, unfiltered_marker_ctl * sizeof(intptr_t));
   if (x_ct) {
-    fill_bits(*marker_exclude_ptr, chrom_info_ptr->chrom_start[(uint32_t)x_code], chrom_info_ptr->chrom_end[(uint32_t)x_code] - chrom_info_ptr->chrom_start[(uint32_t)x_code]);
+    fill_bits(chrom_info_ptr->chrom_start[(uint32_t)x_code], chrom_info_ptr->chrom_end[(uint32_t)x_code] - chrom_info_ptr->chrom_start[(uint32_t)x_code], *marker_exclude_ptr);
   }
   if (y_ct) {
-    fill_bits(*marker_exclude_ptr, chrom_info_ptr->chrom_start[(uint32_t)y_code], chrom_info_ptr->chrom_end[(uint32_t)y_code] - chrom_info_ptr->chrom_start[(uint32_t)y_code]);
+    fill_bits(chrom_info_ptr->chrom_start[(uint32_t)y_code], chrom_info_ptr->chrom_end[(uint32_t)y_code] - chrom_info_ptr->chrom_start[(uint32_t)y_code], *marker_exclude_ptr);
   }
   if (mt_ct) {
-    fill_bits(*marker_exclude_ptr, chrom_info_ptr->chrom_start[(uint32_t)mt_code], chrom_info_ptr->chrom_end[(uint32_t)mt_code] - chrom_info_ptr->chrom_start[(uint32_t)mt_code]);
+    fill_bits(chrom_info_ptr->chrom_start[(uint32_t)mt_code], chrom_info_ptr->chrom_end[(uint32_t)mt_code] - chrom_info_ptr->chrom_start[(uint32_t)mt_code], *marker_exclude_ptr);
   }
   return 0;
 }

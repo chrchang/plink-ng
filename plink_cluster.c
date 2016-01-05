@@ -406,7 +406,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 	  if (sorted_idx == -1) {
 	    continue;
 	  }
-	  clear_bit(sample_exclude_new, sample_uidx);
+	  clear_bit(sample_uidx, sample_exclude_new);
 	} else if (sorted_remove_ids) {
 	  sorted_idx = bsearch_str(cluster_name_ptr, slen, sorted_remove_ids, max_cluster_kr_len, cluster_kr_ct);
 	  if (sorted_idx != -1) {
@@ -468,7 +468,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 	if (sorted_idx == -1) {
 	  continue;
 	}
-	clear_bit(sample_exclude_new, sample_uidx);
+	clear_bit(sample_uidx, sample_exclude_new);
       } else if (sorted_remove_ids) {
 	sorted_idx = bsearch_str(cluster_name_ptr, slen, sorted_remove_ids, max_cluster_kr_len, cluster_kr_ct);
 	if (sorted_idx != -1) {
@@ -709,7 +709,7 @@ int32_t extract_clusters(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
 	  while (uiptr < cluster_end) {
 	    sample_uidx = *uiptr++;
 	    if (!is_set(sample_exclude, sample_uidx)) {
-	      clear_bit(new_sample_exclude, sample_uidx);
+	      clear_bit(sample_uidx, new_sample_exclude);
 	    }
 	  }
 	}
@@ -744,7 +744,7 @@ int32_t extract_clusters(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
 	while (uiptr < cluster_end) {
 	  sample_uidx = *uiptr++;
 	  if (!is_set(sample_exclude, sample_uidx)) {
-	    clear_bit(new_sample_exclude, sample_uidx);
+	    clear_bit(sample_uidx, new_sample_exclude);
 	  }
 	}
       }
@@ -809,7 +809,7 @@ void adjust_cc_perm_preimage(uint32_t cluster_ct, uint32_t* cluster_map, uint32_
       cluster_end = cluster_starts[cluster_idx + 1];
       if (cluster_case_cts[cluster_idx] * 2 < cluster_end - map_idx) {
 	do {
-	  CLEAR_BIT_DBL(cluster_cc_perm_preimage, cluster_map[map_idx]);
+	  CLEAR_BIT_DBL(cluster_map[map_idx], cluster_cc_perm_preimage);
 	} while (++map_idx < cluster_end);
       } else {
 	do {
@@ -823,7 +823,7 @@ void adjust_cc_perm_preimage(uint32_t cluster_ct, uint32_t* cluster_map, uint32_
       cluster_end = cluster_starts[cluster_idx + 1];
       if (cluster_case_cts[cluster_idx] * 2 < cluster_end - map_idx) {
 	do {
-	  CLEAR_BIT(cluster_cc_perm_preimage, cluster_map[map_idx]);
+	  CLEAR_BIT(cluster_map[map_idx], cluster_cc_perm_preimage);
 	} while (++map_idx < cluster_end);
       } else {
 	do {

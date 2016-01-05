@@ -243,7 +243,7 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
       ulii = (*loadbuf_ptr++) & (~(*loadbuf_mask_ptr++));
       while (ulii) {
         uljj = CTZLU(ulii);
-        clear_bit_ul(load_mask, sample_uidx_offset + (uljj / 2));
+        clear_bit_ul(sample_uidx_offset + (uljj / 2), load_mask);
         sample_valid_ct--;
         ulii &= ulii - 1;
       }
@@ -3932,7 +3932,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
       constraint_ct_max = popcount_longs(g_joint_test_params, param_ctl_max);
     } else if (glm_modifier & GLM_TEST_ALL) {
       constraint_ct_max = param_ct_max - 1;
-      fill_bits(g_joint_test_params, 0, constraint_ct_max);
+      fill_bits(0, constraint_ct_max, g_joint_test_params);
     } else {
       // genotypic/hethom, neither of first two terms excluded by --parameters,
       // no --tests
@@ -4658,7 +4658,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     fill_double_zero(dptr, sample_valid_ct);
     sample_idx = 0;
     while (1) {
-      next_set_ul_ck(sex_male_collapsed, &sample_idx, sample_valid_ct);
+      next_set_ul_ck(sex_male_collapsed, sample_valid_ct, &sample_idx);
       if (sample_idx == sample_valid_ct) {
 	break;
       }
@@ -6181,7 +6181,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     fill_float_zero(fptr, sample_valid_ct);
     sample_idx = 0;
     while (1) {
-      next_set_ul_ck(sex_male_collapsed, &sample_idx, sample_valid_ct);
+      next_set_ul_ck(sex_male_collapsed, sample_valid_ct, &sample_idx);
       if (sample_idx == sample_valid_ct) {
 	break;
       }
@@ -7251,7 +7251,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       constraint_ct = popcount_longs(joint_test_params, ulii);
     } else {
       constraint_ct = param_ct - 1;
-      fill_bits(joint_test_params, 0, constraint_ct);
+      fill_bits(0, constraint_ct, joint_test_params);
     }
     if ((constraint_ct > 1) || (hide_covar && (constraint_ct == 1))) {
       // permit hide-covar + single --tests parameter combination
@@ -7686,7 +7686,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
     if (glm_linear(cur_batch_size, param_ct, sample_valid_ct, 0, NULL, 0, 0, 0, covars_cov_major, covars_sample_major, g_perm_pmajor, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, regression_results, constraint_ct, constraints_con_major, param_df_buf, param_df_buf2, df_df_buf, df_buf, &perm_fail_ct, perm_fails)) {
       perm_fail_ct = cur_batch_size;
-      fill_bits(perm_fails, 0, cur_batch_size);
+      fill_bits(0, cur_batch_size, perm_fails);
     }
     perm_fail_total += perm_fail_ct;
     ulii = param_ct - 1;
@@ -8115,7 +8115,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       constraint_ct = popcount_longs(joint_test_params, ulii);
     } else {
       constraint_ct = param_ct - 1;
-      fill_bits(joint_test_params, 0, constraint_ct);
+      fill_bits(0, constraint_ct, joint_test_params);
     }
     if ((constraint_ct > 1) || (hide_covar && (constraint_ct == 1))) {
       // permit hide-covar + single --tests parameter combination
