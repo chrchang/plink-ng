@@ -761,7 +761,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     if (uii || extractname || excludename) {
       // only permit duplicate marker IDs for --extract/--exclude
       bigstack_mark = g_bigstack_base;
-      retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, !uii, &marker_id_htable, &marker_id_htable_size);
+      retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, !uii, &marker_id_htable_size, &marker_id_htable);
       if (retval) {
 	goto plink_ret_1;
       }
@@ -783,7 +783,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	}
 	if (update_alleles_fname || (marker_alleles_needed && flip_fname && (!flip_subset_fname)) || extractname || excludename) {
 	  bigstack_reset(bigstack_mark);
-	  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
+	  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable_size, &marker_id_htable);
 	  if (retval) {
 	    goto plink_ret_1;
 	  }

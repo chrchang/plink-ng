@@ -2319,7 +2319,7 @@ int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintp
 #endif
   zc_entries_end = (int64_t*)marker_bitfield_tmp;
   zc_entries = &(zc_entries_end[-1]);
-  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
+  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable_size, &marker_id_htable);
   if (retval) {
     goto zero_cluster_init_ret_1;
   }
@@ -2661,7 +2661,7 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
   int32_t sorted_idx;
   int32_t retval;
   char cc;
-  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
+  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable_size, &marker_id_htable);
   if (retval) {
     goto update_marker_chroms_ret_1;
   }
@@ -3058,7 +3058,7 @@ int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t un
   unsigned char ucc;
   // load --flip file, then --flip-subset
   fill_ulong_zero(flip_subset_markers, unfiltered_marker_ctl);
-  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
+  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable_size, &marker_id_htable);
   if (retval) {
     goto flip_subset_init_ret_1;
   }
@@ -11442,7 +11442,7 @@ int32_t recode_allele_load(char* loadbuf, uintptr_t loadbuf_size, char* recode_a
   if (bigstack_end_alloc_ui(marker_id_htable_size, &marker_id_htable)) {
     goto recode_allele_load_ret_NOMEM;
   }
-  retval = populate_id_htable(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, marker_id_htable, marker_id_htable_size);
+  retval = populate_id_htable(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, marker_id_htable_size, marker_id_htable);
   if (retval) {
     goto recode_allele_load_ret_1;
   }

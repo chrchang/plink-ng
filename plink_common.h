@@ -1927,15 +1927,15 @@ static inline uint32_t get_id_htable_size(uintptr_t item_ct) {
   }
 }
 
-int32_t populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, const char* item_ids, uintptr_t max_id_len, uint32_t store_dups, uint32_t* id_htable, uint32_t id_htable_size);
+int32_t populate_id_htable(uintptr_t unfiltered_ct, const uintptr_t* exclude_arr, uintptr_t item_ct, const char* item_ids, uintptr_t max_id_len, uint32_t store_dups, uint32_t id_htable_size, uint32_t* id_htable);
 
-static inline int32_t alloc_and_populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, const char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t** id_htable_ptr, uint32_t* id_htable_size_ptr) {
+static inline int32_t alloc_and_populate_id_htable(uintptr_t unfiltered_ct, const uintptr_t* exclude_arr, uintptr_t item_ct, const char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t* id_htable_size_ptr, uint32_t** id_htable_ptr) {
   uint32_t id_htable_size = get_id_htable_size(item_ct);
-  if (bigstack_alloc_ui(id_htable_size * sizeof(int32_t), id_htable_ptr)) {
+  if (bigstack_alloc_ui(id_htable_size, id_htable_ptr)) {
     return RET_NOMEM;
   }
   *id_htable_size_ptr = id_htable_size;
-  return populate_id_htable(unfiltered_ct, exclude_arr, item_ct, item_ids, max_id_len, allow_dups, *id_htable_ptr, id_htable_size);
+  return populate_id_htable(unfiltered_ct, exclude_arr, item_ct, item_ids, max_id_len, allow_dups, id_htable_size, *id_htable_ptr);
 }
 
 uint32_t id_htable_find(const char* id_buf, uintptr_t cur_id_len, const uint32_t* id_htable, uint32_t id_htable_size, const char* item_ids, uintptr_t max_id_len);

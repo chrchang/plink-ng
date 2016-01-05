@@ -766,7 +766,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     uii = update_map || update_name || filter_attrib_fname || qual_filter;
     if (uii || extractname || excludename) {
       bigstack_mark = g_bigstack_base;
-      retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, !uii, &marker_id_htable, &marker_id_htable_size);
+      retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, !uii, &marker_id_htable_size, &marker_id_htable);
       if (retval) {
 	goto plink1_dosage_ret_1;
       }
@@ -780,7 +780,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	}
 	if (extractname || excludename) {
 	  bigstack_reset(bigstack_mark);
-	  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
+	  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable_size, &marker_id_htable);
 	  if (retval) {
 	    goto plink1_dosage_ret_1;
 	  }
@@ -1071,7 +1071,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       enforce_min_bp_space(min_bp_space, unfiltered_marker_ct, marker_exclude, marker_pos, &marker_exclude_ct, chrom_info_ptr);
     }
     marker_ct = unfiltered_marker_ct - marker_exclude_ct;
-    retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
+    retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable_size, &marker_id_htable);
     if (retval) {
       goto plink1_dosage_ret_1;
     }

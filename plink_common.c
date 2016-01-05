@@ -3778,7 +3778,7 @@ uintptr_t geqprime(uintptr_t floor) {
   return floor;
 }
 
-int32_t populate_id_htable(uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, const char* item_ids, uintptr_t max_id_len, uint32_t store_dups, uint32_t* id_htable, uint32_t id_htable_size) {
+int32_t populate_id_htable(uintptr_t unfiltered_ct, const uintptr_t* exclude_arr, uintptr_t item_ct, const char* item_ids, uintptr_t max_id_len, uint32_t store_dups, uint32_t id_htable_size, uint32_t* id_htable) {
   // While unique IDs are normally assumed (and enforced) here, --extract and
   // --exclude are an exception, since we want to be able to e.g. exclude all
   // variants named '.'.  Since there could be millions of them, ordinary

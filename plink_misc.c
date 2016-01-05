@@ -2198,7 +2198,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
   char cc;
   uint32_t replace_other;
   int32_t retval;
-  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
+  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable_size, &marker_id_htable);
   if (retval) {
     goto load_ax_alleles_ret_1;
   }
@@ -3595,7 +3595,7 @@ int32_t list_duplicate_vars(char* outname, char* outname_end, uint32_t dupvar_mo
     for (uii = 0; uii < htable_entry_ct; uii++) {
       clear_bit((group_list_start[uii] & 0x7fffffff), uniqueness_check_bitfield);
     }
-    retval = alloc_and_populate_id_htable(unfiltered_marker_ct, uniqueness_check_bitfield, htable_entry_ct, marker_ids, max_marker_id_len, 0, &reported_id_htable, &reported_id_htable_size);
+    retval = alloc_and_populate_id_htable(unfiltered_marker_ct, uniqueness_check_bitfield, htable_entry_ct, marker_ids, max_marker_id_len, 0, &reported_id_htable_size, &reported_id_htable);
     if (retval) {
       goto list_duplicate_vars_ret_1;
     }
@@ -4238,7 +4238,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   if (bigstack_end_alloc_ui(marker_id_htable_size, &marker_id_htable)) {
     goto score_report_ret_NOMEM;
   }
-  retval = populate_id_htable(unfiltered_marker_ct, marker_exclude_orig, marker_ct, marker_ids, max_marker_id_len, 0, marker_id_htable, marker_id_htable_size);
+  retval = populate_id_htable(unfiltered_marker_ct, marker_exclude_orig, marker_ct, marker_ids, max_marker_id_len, 0, marker_id_htable_size, marker_id_htable);
   if (retval) {
     goto score_report_ret_1;
   }

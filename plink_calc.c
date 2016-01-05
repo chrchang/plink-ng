@@ -6701,7 +6701,7 @@ int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_
       bigstack_end_alloc_d(unfiltered_marker_ct, &main_weights_tmp)) {
     goto load_distance_wts_ret_NOMEM;
   }
-  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, *marker_exclude_ptr, *marker_ct_ptr, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
+  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, *marker_exclude_ptr, *marker_ct_ptr, marker_ids, max_marker_id_len, 0, &marker_id_htable_size, &marker_id_htable);
   if (retval) {
     goto load_distance_wts_ret_1;
   }

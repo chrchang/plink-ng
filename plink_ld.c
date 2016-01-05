@@ -12669,7 +12669,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     }
   }
   // 2. create marker ID hash table, allocate index-tracking bitfield
-  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable, &marker_id_htable_size);
+  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable_size, &marker_id_htable);
   if (retval) {
     goto clump_reports_ret_1;
   }
