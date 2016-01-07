@@ -1635,7 +1635,7 @@ uint32_t logistic_regression(uint32_t sample_ct, uint32_t param_ct, float* vv, f
       return 1;
     }
     if (iteration > 4) {
-      if (((delta_coef > 20.0) && (delta_coef > 2 * min_delta_coef)) || ((iteration >= 8) && fabsf(1.0 - delta_coef) < 1e-3)) {
+      if (((delta_coef > 20.0) && (delta_coef > 2 * min_delta_coef)) || ((iteration >= 8) && fabsf(1.0f - delta_coef) < 1e-3)) {
 	return 1;
       }
       if (iteration >= 15) {

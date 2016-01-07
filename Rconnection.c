@@ -371,7 +371,7 @@ const char **Rexp::attributeNames() {
 }
 
 void Rinteger::fix_content() {
-    if (len<0 || !data) return;
+    if (!data) return;
 #ifdef SWAPEND
     int *i = (int*) data;
     int *j = (int*) (data+len);
@@ -380,7 +380,7 @@ void Rinteger::fix_content() {
 }
 
 void Rdouble::fix_content() {
-    if (len<0 || !data) return;
+    if (!data) return;
 #ifdef SWAPEND
     double *i = (double*) data;
     double *j = (double*) (data+len);
