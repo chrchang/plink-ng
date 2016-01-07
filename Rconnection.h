@@ -229,7 +229,7 @@ public:
     /*Rstring(const char *str) : Rexp(XT_STR, str, strlen(str)+1) {}*/
     
     char **strings() { return cont; }
-    char *stringAt(unsigned int i) { return (i < 0 || i >= nel) ? 0 : cont[i]; }
+    char *stringAt(unsigned int i) { return (i >= nel) ? 0 : cont[i]; }
     char *string() { return stringAt(0); }
     virtual Rsize_t length() { return nel; }
 

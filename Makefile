@@ -34,17 +34,17 @@ SRC = plink.c plink_assoc.c plink_calc.c plink_cluster.c plink_cnv.c plink_commo
 OBJ = $(SRC:.c=.o)
 
 %.o: %.c
-	g++ -c $(CFLAGS) $(ARCH64) -o $@ $<
+	g++ -x c++ -c $(CFLAGS) $(ARCH64) -o $@ $<
 
 plink: $(SRC)
-	g++ $(CFLAGS) $(SRC) -m32 -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
+	g++ -x c++ $(CFLAGS) $(SRC) -m32 -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
 
 plinkw: $(SRC)
 	g++ $(CFLAGS) $(SRC) -c
 	gfortran -O2 $(OBJ) -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
 
 plinkc: $(SRC)
-	gcc $(CFLAGS) $(SRC) -o plink $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
+	gcc -x c $(CFLAGS) $(SRC) -o plink $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
 
 plinks: $(SRC)
 	g++ $(CFLAGS) $(SRC) -o plink_linux_s -Wl,-Bstatic $(BLASFLAGS) -Wl,-Bdynamic $(LINKFLAGS) -L. $(ZLIB)
@@ -64,7 +64,7 @@ plink64w: $(SRC)
 	gfortran -O2 $(OBJ) -o plink64 $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
 
 plink64c: $(SRC)
-	gcc $(CFLAGS) $(ARCH64) $(SRC) -o plink $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
+	gcc -x c $(CFLAGS) $(ARCH64) $(SRC) -o plink $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
 
 plink64nl: $(SRC)
 	g++ $(CFLAGS) $(ARCH64) $(SRC) -o plink $(LINKFLAGS) -L. $(ZLIB64)

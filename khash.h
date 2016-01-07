@@ -194,7 +194,7 @@ static const double __ac_HASH_UPPER = 0.77;
 #define __KHASH_PROTOTYPES(name, khkey_t, khval_t)	 					\
 	extern kh_##name##_t *kh_init_##name(void);							\
 	extern void kh_destroy_##name(kh_##name##_t *h);					\
-	extern void kh_clear_##name(kh_##name##_t *h);						\
+	/* extern void kh_clear_##name(kh_##name##_t *h); */		\
 	extern khint_t kh_get_##name(const kh_##name##_t *h, khkey_t key); 	\
 	extern int kh_resize_##name(kh_##name##_t *h, khint_t new_n_buckets); \
 	extern khint_t kh_put_##name(kh_##name##_t *h, khkey_t key, int *ret); \
@@ -212,13 +212,15 @@ static const double __ac_HASH_UPPER = 0.77;
 			kfree(h);													\
 		}																\
 	}																	\
+	/*
 	SCOPE void kh_clear_##name(kh_##name##_t *h)						\
 	{																	\
 		if (h && h->flags) {											\
 			memset(h->flags, 0xaa, __ac_fsize(h->n_buckets) * sizeof(khint32_t)); \
 			h->size = h->n_occupied = 0;								\
 		}																\
-	}																	\
+	}
+*/									\
 	SCOPE khint_t kh_get_##name(const kh_##name##_t *h, khkey_t key) 	\
 	{																	\
 		if (h->n_buckets) {												\

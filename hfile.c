@@ -486,6 +486,7 @@ typedef struct {
     size_t length, pos;
 } hFILE_mem;
 
+/*
 static ssize_t mem_read(hFILE *fpv, void *buffer, size_t nbytes)
 {
     hFILE_mem *fp = (hFILE_mem *) fpv;
@@ -529,7 +530,6 @@ static const struct hFILE_backend mem_backend =
     mem_read, NULL, mem_seek, NULL, mem_close
 };
 
-/*
 static hFILE *hopen_mem(const char *data, const char *mode)
 {
     // TODO Implement write modes, which will require memory allocation
