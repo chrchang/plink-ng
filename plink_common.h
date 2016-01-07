@@ -1979,7 +1979,7 @@ static inline double get_maf(double allele_freq) {
   return (allele_freq <= 0.5)? allele_freq : (1.0 - allele_freq);
 }
 
-static inline int32_t filename_exists(char* fname, char* fname_end, const char* fname_append) {
+static inline int32_t filename_exists(const char* fname_append, char* fname, char* fname_end) {
 #ifdef _WIN32
   DWORD file_attr;
   strcpy(fname_end, fname_append);

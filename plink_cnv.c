@@ -943,7 +943,7 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
   }
   if (!(cnv_calc_type & CNV_MAKE_MAP)) {
     sptr = (char*)memchr(mapname, 0, FNAMESIZE);
-    if ((mapname[0] == '\0') || (!filename_exists(mapname, sptr, ""))) {
+    if ((mapname[0] == '\0') || (!filename_exists("", mapname, sptr))) {
       if (mapname[0] == '\0') {
         uii = strlen(cnvname);
         if ((uii < 5) || (cnvname[uii - 4] != '.') || (!match_upper_nt(&(cnvname[uii - 3]), "CNV", 3))) {
@@ -953,7 +953,7 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
 	memcpy(mapname, cnvname, uii);
 	memcpy(&(mapname[uii]), ".map", 5);
 	sptr = &(mapname[uii + 4]);
-	if (filename_exists(mapname, sptr, "")) {
+	if (filename_exists("", mapname, sptr)) {
 	  LOGERRPRINTFWW("Error: No .cnv.map filename specified, and natural autogeneration target\n(%s) already exists.\n", mapname);
 	  goto plink_cnv_ret_INVALID_CMDLINE;
 	}
