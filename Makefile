@@ -44,7 +44,7 @@ plinkw: $(SRC)
 	gfortran -O2 $(OBJ) -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
 
 plinkc: $(SRC)
-	gcc -x c $(CFLAGS) $(SRC) -o plink $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
+	gcc -x c $(CFLAGS) $(SRC) -m32 -x none -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
 
 plinks: $(SRC)
 	g++ $(CFLAGS) $(SRC) -o plink_linux_s -Wl,-Bstatic $(BLASFLAGS) -Wl,-Bdynamic $(LINKFLAGS) -L. $(ZLIB)
@@ -64,7 +64,7 @@ plink64w: $(SRC)
 	gfortran -O2 $(OBJ) -o plink64 $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
 
 plink64c: $(SRC)
-	gcc -x c $(CFLAGS) $(ARCH64) $(SRC) -o plink $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
+	gcc -x c $(CFLAGS) $(ARCH64) $(SRC) -x none -o plink $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
 
 plink64nl: $(SRC)
 	g++ $(CFLAGS) $(ARCH64) $(SRC) -o plink $(LINKFLAGS) -L. $(ZLIB64)

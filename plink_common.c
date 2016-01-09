@@ -8055,7 +8055,86 @@ uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered
   return 0;
 }
 
-void collapse_copy_quaterarr_incl(const uintptr_t* __restrict rawbuf, const uintptr_t* __restrict sample_include, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uintptr_t* __restrict mainbuf) {
+void collapse_copy_quaterarr_incl(const uintptr_t* __restrict input_quaterarr, const uintptr_t* __restrict sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t* __restrict output_quaterarr) {
+  assert(sample_ct);
+  // just copy first words when possible
+  if (!(~sample_include[0])) {
+    const uintptr_t* sample_include_ptr = &(sample_include[1]);
+    const uintptr_t* sample_include_last = &(sample_include[raw_sample_ct / BITCT]);
+    for (; sample_include_ptr < sample_include_last; sample_include_ptr++) {
+      if (~(*sample_include_ptr)) {
+	break;
+      }
+    }
+    const uint32_t initial_exact_copy_half_wct = (uintptr_t)(sample_include_ptr - sample_include);
+    sample_include = sample_include_ptr;
+    const uint32_t initial_exact_copy_wct = initial_exact_copy_half_wct * 2;
+    memcpy(output_quaterarr, input_quaterarr, initial_exact_copy_wct * sizeof(intptr_t));
+    input_quaterarr = &(input_quaterarr[initial_exact_copy_wct]);
+    output_quaterarr = &(output_quaterarr[initial_exact_copy_wct]);
+    const uint32_t initial_exact_copy_ct = initial_exact_copy_half_wct * BITCT;
+    raw_sample_ct -= initial_exact_copy_ct;
+    sample_ct -= initial_exact_copy_ct;
+  }
+  uintptr_t cur_write = 0;
+  uint32_t word_write_halfshift = 0;
+  // if remainder is less than 7/8-filled, use sparse copy algorithm
+  if (1) {
+  // if (raw_sample_ct - sample_ct >= raw_sample_ct / 8) {
+    uint32_t sample_include_widx = 0;
+    uintptr_t* output_quaterarr_last = &(output_quaterarr[sample_ct / BITCT2]);
+    const uint32_t word_write_halfshift_end = sample_ct % BITCT2;
+    while (1) {
+      const uintptr_t cur_include_word = sample_include[sample_include_widx];
+      if (cur_include_word) {
+	uint32_t wordhalf_idx = 0;
+#ifdef __LP64__
+	uint32_t cur_include_halfword = (uint32_t)cur_include_word;
+#else
+	uint32_t cur_include_halfword = (uint16_t)cur_include_word;
+#endif
+	while (1) {
+	  if (cur_include_halfword) {
+	    uintptr_t input_quaterarr_word = input_quaterarr[sample_include_widx * 2 + wordhalf_idx];
+	    do {
+	      uint32_t sample_uidx_lowbits = __builtin_ctz(cur_include_halfword);
+	      cur_write |= ((input_quaterarr_word >> (sample_uidx_lowbits * 2)) & 3) << (word_write_halfshift * 2);
+	      if (++word_write_halfshift == BITCT2) {
+		*output_quaterarr++ = cur_write;
+		word_write_halfshift = 0;
+		cur_write = 0;
+	      }
+	      cur_include_halfword &= cur_include_halfword - 1;
+	    } while (cur_include_halfword);
+	  }
+	  if (wordhalf_idx) {
+	    break;
+	  }
+	  wordhalf_idx++;
+#ifdef __LP64__
+	  cur_include_halfword = cur_include_word >> 32;
+#else
+	  cur_include_halfword = cur_include_word >> 16;
+#endif
+	}
+	if (output_quaterarr == output_quaterarr_last) {
+	  if (word_write_halfshift == word_write_halfshift_end) {
+            if (word_write_halfshift_end) {
+	      *output_quaterarr_last = cur_write;
+	    }
+	    return;
+	  }
+	}
+      }
+      sample_include_widx++;	
+    }
+  }
+  // blocked copy
+  ;;;
+}
+
+/*
+void collapse_copy_quaterarr_incl(const uintptr_t* __restrict input_quaterarr, const uintptr_t* __restrict sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t* __restrict output_quaterarr) {
   // mirror image of collapse_copy_quaterarr()
   uintptr_t cur_write = 0;
   uint32_t sample_uidx = 0;
@@ -8063,28 +8142,29 @@ void collapse_copy_quaterarr_incl(const uintptr_t* __restrict rawbuf, const uint
   uint32_t ii_rem = 0;
   uint32_t sample_uidx_stop;
   if (!(~sample_include[0])) {
-    sample_uidx = next_unset(sample_include, 0, unfiltered_sample_ct & (~(BITCT2 - 1))) & (~(BITCT2 - 1));
-    memcpy(mainbuf, rawbuf, sample_uidx / 4);
+    sample_uidx = next_unset(sample_include, 0, raw_sample_ct & (~(BITCT2 - 1))) & (~(BITCT2 - 1));
+    memcpy(output_quaterarr, input_quaterarr, sample_uidx / 4);
     sample_idx = sample_uidx;
-    mainbuf = &(mainbuf[sample_uidx / BITCT2]);
+    output_quaterarr = &(output_quaterarr[sample_uidx / BITCT2]);
   }
   while (sample_idx < sample_ct) {
     sample_uidx = next_set_unsafe(sample_include, sample_uidx);
-    sample_uidx_stop = next_unset(sample_include, sample_uidx, unfiltered_sample_ct);
+    sample_uidx_stop = next_unset(sample_include, sample_uidx, raw_sample_ct);
     sample_idx += sample_uidx_stop - sample_uidx;
     do {
-      cur_write |= EXTRACT_2BIT_GENO(rawbuf, sample_uidx) << (ii_rem * 2);
+      cur_write |= EXTRACT_2BIT_GENO(input_quaterarr, sample_uidx) << (ii_rem * 2);
       if (++ii_rem == BITCT2) {
-        *mainbuf++ = cur_write;
+        *output_quaterarr++ = cur_write;
         cur_write = 0;
         ii_rem = 0;
       }
     } while (++sample_uidx < sample_uidx_stop);
   }
   if (ii_rem) {
-    *mainbuf = cur_write;
+    *output_quaterarr = cur_write;
   }
 }
+*/
 
 uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* mainbuf, uint32_t sample_ct, uintptr_t* sample_include, uintptr_t final_mask, uint32_t do_reverse) {
   uint32_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;

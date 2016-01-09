@@ -2410,7 +2410,7 @@ static inline uint32_t load_raw2(FILE* bedfile, uintptr_t* rawbuf, uintptr_t unf
 
 uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* mainbuf, uint32_t sample_ct, uintptr_t* sample_exclude, uintptr_t final_mask, uint32_t do_reverse);
 
-void collapse_copy_quaterarr_incl(const uintptr_t* __restrict rawbuf, const uintptr_t* __restrict sample_include, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uintptr_t* __restrict mainbuf);
+void collapse_copy_quaterarr_incl(const uintptr_t* __restrict input_quaterarr, const uintptr_t* __restrict sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t* __restrict output_quaterarr);
 
 uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* mainbuf, uint32_t sample_ct, uintptr_t* sample_include, uintptr_t final_mask, uint32_t do_reverse);
 

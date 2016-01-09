@@ -53,9 +53,10 @@ inline static void do_recursion(w128_t * r, w128_t * a, w128_t * b,
 				w128_t * c, w128_t * d);
 #endif
 
-  // inline static void rshift128(w128_t *out,  w128_t const *in, int shift);
-  // inline static void lshift128(w128_t *out,  w128_t const *in, int shift);
-
+#ifndef __LP64__
+  inline static void rshift128(w128_t *out,  w128_t const *in, int shift);
+  inline static void lshift128(w128_t *out,  w128_t const *in, int shift);
+  
 /**
  * This function simulates SIMD 128-bit right shift by the standard C.
  * The 128-bit integer given in in is shifted by (shift * 8) bits.
@@ -64,7 +65,6 @@ inline static void do_recursion(w128_t * r, w128_t * a, w128_t * b,
  * @param in the 128-bit data to be shifted
  * @param shift the shift value
  */
-  /*
 inline static void rshift128(w128_t *out, w128_t const *in, int shift)
 {
     uint64_t th, tl, oh, ol;
@@ -80,7 +80,7 @@ inline static void rshift128(w128_t *out, w128_t const *in, int shift)
     out->u[3] = (uint32_t)(oh >> 32);
     out->u[2] = (uint32_t)oh;
 }
-  */
+
 /**
  * This function simulates SIMD 128-bit left shift by the standard C.
  * The 128-bit integer given in in is shifted by (shift * 8) bits.
@@ -89,7 +89,6 @@ inline static void rshift128(w128_t *out, w128_t const *in, int shift)
  * @param in the 128-bit data to be shifted
  * @param shift the shift value
  */
-  /*
 inline static void lshift128(w128_t *out, w128_t const *in, int shift)
 {
     uint64_t th, tl, oh, ol;
@@ -105,7 +104,7 @@ inline static void lshift128(w128_t *out, w128_t const *in, int shift)
     out->u[3] = (uint32_t)(oh >> 32);
     out->u[2] = (uint32_t)oh;
 }
-  */
+
 /**
  * This function represents the recursion formula.
  * @param r output
@@ -114,7 +113,6 @@ inline static void lshift128(w128_t *out, w128_t const *in, int shift)
  * @param c a 128-bit part of the internal state array
  * @param d a 128-bit part of the internal state array
  */
-#ifndef __LP64__
 inline static void do_recursion(w128_t *r, w128_t *a, w128_t *b,
 				w128_t *c, w128_t *d)
 {
@@ -137,8 +135,10 @@ inline static void do_recursion(w128_t *r, w128_t *a, w128_t *b,
 /**
  * parameters used by sse2.
  */
+#ifdef __LP64__
 static const w128_t sse2_param_mask = {{SFMT_MSK1, SFMT_MSK2,
 					SFMT_MSK3, SFMT_MSK4}};
+#endif
 /*----------------
   STATIC FUNCTIONS
   ----------------*/
