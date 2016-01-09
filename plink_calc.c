@@ -2746,8 +2746,8 @@ int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfi
       bigstack_alloc_ul(unfiltered_sample_ctl, &g_pheno_c)) {
     goto ibs_test_calc_ret_NOMEM;
   }
-  collapse_copy_bitarr(unfiltered_sample_ct, pheno_nm, sample_exclude, sample_ct, g_pheno_nm);
-  collapse_copy_bitarr(unfiltered_sample_ct, pheno_c, sample_exclude, sample_ct, g_pheno_c);
+  copy_bitarr_subset_excl(pheno_nm, sample_exclude, unfiltered_sample_ct, sample_ct, g_pheno_nm);
+  copy_bitarr_subset_excl(pheno_c, sample_exclude, unfiltered_sample_ct, sample_ct, g_pheno_c);
   if (bigstack_alloc_d(g_thread_ct * 32 * BITCT, &g_ibs_test_partial_sums) ||
       bigstack_alloc_ul(perm_ct * pheno_nm_ctl, &perm_rows) ||
       bigstack_alloc_ul(perm_ctclm * g_thread_ct, &g_perm_col_buf) ||
@@ -2758,7 +2758,7 @@ int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfi
   g_perm_rows = perm_rows;
 
   // first permutation = original
-  collapse_copy_bitarr_incl(unfiltered_sample_ct, g_pheno_c, g_pheno_nm, pheno_nm_ct, perm_rows);
+  copy_bitarr_subset(g_pheno_c, g_pheno_nm, unfiltered_sample_ct, pheno_nm_ct, perm_rows);
   for (ulii = pheno_nm_ctl - 1; ulii; ulii--) {
     perm_rows[ulii * perm_ct] = perm_rows[ulii];
   }
@@ -2940,8 +2940,8 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_sample_ct, uintpt
   }
   g_pheno_nm = pheno_nm_local;
   g_pheno_c = pheno_c_local;
-  collapse_copy_bitarr(unfiltered_sample_ct, pheno_nm, sample_exclude, sample_ct, pheno_nm_local);
-  collapse_copy_bitarr(unfiltered_sample_ct, pheno_c, sample_exclude, sample_ct, pheno_c_local);
+  copy_bitarr_subset_excl(pheno_nm, sample_exclude, unfiltered_sample_ct, sample_ct, pheno_nm_local);
+  copy_bitarr_subset_excl(pheno_c, sample_exclude, unfiltered_sample_ct, sample_ct, pheno_c_local);
   ll_size = ((uintptr_t)g_ctrl_ct * (g_ctrl_ct - 1)) / 2;
   lh_size = g_ctrl_ct * g_case_ct;
   hh_size = ((uintptr_t)g_case_ct * (g_case_ct - 1)) / 2;
@@ -9259,7 +9259,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       if (!cur_cluster_case_cts) {
 	goto calc_cluster_neighbor_ret_NOMEM;
       }
-      collapse_copy_bitarr(unfiltered_sample_ct, pheno_c, sample_exclude, sample_ct, collapsed_pheno_c);
+      copy_bitarr_subset_excl(pheno_c, sample_exclude, unfiltered_sample_ct, sample_ct, collapsed_pheno_c);
       fill_uint_zero(cur_cluster_case_cts, cur_cluster_ct);
       if (!cluster_ct) {
 	for (sample_idx1 = 0; sample_idx1 < sample_ct; sample_idx1++) {

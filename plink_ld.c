@@ -8764,7 +8764,7 @@ int32_t epistasis_logistic_regression(pthread_t* threads, Epi_info* epi_ip, FILE
   if (bigstack_alloc_ul(pheno_nm_ctl2, &g_epi_pheno_c)) {
     goto epistasis_logistic_regression_ret_NOMEM;
   }
-  collapse_copy_bitarr_incl(unfiltered_sample_ct, pheno_c, pheno_nm, pheno_nm_ct, g_epi_pheno_c);
+  copy_bitarr_subset(pheno_c, pheno_nm, unfiltered_sample_ct, pheno_nm_ct, g_epi_pheno_c);
   g_epi_pheno_nm_ct = pheno_nm_ct;
   // per-thread buffers
   g_epi_logistic_mt = (Epi_logistic_multithread*)bigstack_alloc(max_thread_ct * sizeof(Epi_logistic_multithread));
@@ -10387,7 +10387,7 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
         bigstack_alloc_ul(founder_ctsplit, &cur_geno1_male)) {
       goto indep_pairphase_ret_NOMEM;
     }
-    collapse_copy_bitarr_incl(unfiltered_sample_ct, sex_male, founder_info, founder_ct, sex_male_collapsed);
+    copy_bitarr_subset(sex_male, founder_info, unfiltered_sample_ct, founder_ct, sex_male_collapsed);
   }
   do {
     prev_end = 0;

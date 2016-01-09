@@ -3715,7 +3715,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
     g_loadbuf[uii * sample_valid_ctv2 - 2] = 0;
     g_loadbuf[uii * sample_valid_ctv2 - 1] = 0;
   }
-  collapse_copy_bitarr_incl(unfiltered_sample_ct, sex_male, load_mask, sample_valid_ct, sex_male_collapsed);
+  copy_bitarr_subset(sex_male, load_mask, unfiltered_sample_ct, sample_valid_ct, sex_male_collapsed);
   param_raw_ct_max = np_base_raw + np_diploid_raw + np_sex_raw;
   param_raw_ctl = BITCT_TO_WORDCT(param_raw_ct_max);
   if (bigstack_alloc_ul(param_raw_ctl, &active_params)) {
@@ -6368,7 +6368,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   if (bigstack_alloc_ul(sample_valid_ctv, &pheno_c_collapsed)) {
     goto glm_logistic_assoc_ret_NOMEM;
   }
-  collapse_copy_bitarr_incl(unfiltered_sample_ct, pheno_c, load_mask, sample_valid_ct, pheno_c_collapsed);
+  copy_bitarr_subset(pheno_c, load_mask, unfiltered_sample_ct, sample_valid_ct, pheno_c_collapsed);
   g_perm_case_ct = popcount_longs(pheno_c_collapsed, sample_valid_ctv);
   if ((!g_perm_case_ct) || (g_perm_case_ct == sample_valid_ct)) {
     goto glm_logistic_assoc_ret_PHENO_CONSTANT;
@@ -7192,7 +7192,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     }
     loadbuf_collapsed[sample_valid_ctv2 - 2] = 0;
     loadbuf_collapsed[sample_valid_ctv2 - 1] = 0;
-    collapse_copy_bitarr_incl(unfiltered_sample_ct, sex_male, load_mask, sample_valid_ct, sex_male_collapsed);
+    copy_bitarr_subset(sex_male, load_mask, unfiltered_sample_ct, sample_valid_ct, sex_male_collapsed);
   }
   param_raw_ctl = BITCT_TO_WORDCT(param_raw_ct);
   if (aligned_malloc(param_raw_ctl * sizeof(intptr_t), &active_params)) {
@@ -8055,7 +8055,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     }
     loadbuf_collapsed[sample_valid_ctv2 - 2] = 0;
     loadbuf_collapsed[sample_valid_ctv2 - 1] = 0;
-    collapse_copy_bitarr_incl(unfiltered_sample_ct, sex_male, load_mask, sample_valid_ct, sex_male_collapsed);
+    copy_bitarr_subset(sex_male, load_mask, unfiltered_sample_ct, sample_valid_ct, sex_male_collapsed);
   }
   param_raw_ctl = BITCT_TO_WORDCT(param_raw_ct);
   if (aligned_malloc(param_raw_ctl * sizeof(intptr_t), &active_params)) {
@@ -8282,7 +8282,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       bigstack_alloc_ul(perm_batch_size * sample_valid_ctv, &g_perm_vecs)) {
     goto glm_logistic_nosnp_ret_NOMEM;
   }
-  collapse_copy_bitarr_incl(unfiltered_sample_ct, pheno_c, load_mask, sample_valid_ct, g_perm_vecs);
+  copy_bitarr_subset(pheno_c, load_mask, unfiltered_sample_ct, sample_valid_ct, g_perm_vecs);
   g_perm_case_ct = popcount_longs(g_perm_vecs, sample_valid_ctv);
   if ((!g_perm_case_ct) || (g_perm_case_ct == sample_valid_ct)) {
     goto glm_logistic_nosnp_ret_PHENO_CONSTANT;
@@ -8783,7 +8783,7 @@ uint32_t glm_logistic_dosage(uintptr_t sample_ct, uintptr_t* cur_samples, uintpt
   uintptr_t covar_idx;
   double dxx;
   double dyy;
-  collapse_copy_bitarr_incl(sample_ct, pheno_c, cur_samples, sample_valid_ct, perm_vec);
+  copy_bitarr_subset(pheno_c, cur_samples, sample_ct, sample_valid_ct, perm_vec);
   case_ct = popcount_longs(perm_vec, sample_valid_ctv);
   if ((!case_ct) || (case_ct == sample_valid_ct)) {
     return 0;

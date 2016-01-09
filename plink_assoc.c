@@ -10054,7 +10054,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
   loadbuf_raw[unfiltered_sample_ctl2 - 1] = 0;
   quaterarr_include_init(unfiltered_sample_ct, pheno_nm2, pheno_nm);
   cur_pheno_nm2 = pheno_nm2;
-  collapse_copy_bitarr_incl(unfiltered_sample_ct, pheno_c, pheno_nm, pheno_nm_ct, pheno_c_collapsed);
+  copy_bitarr_subset(pheno_c, pheno_nm, unfiltered_sample_ct, pheno_nm_ct, pheno_c_collapsed);
   cur_pheno_c_collapsed = pheno_c_collapsed;
   if (!skip_y) {
     if (bigstack_alloc_ul(unfiltered_sample_ctl2, &pheno_male_nm2) ||
@@ -10064,7 +10064,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
     // temporary non-excluded male bitfield
     memcpy(pheno_male_nm2, pheno_nm, unfiltered_sample_ctl * sizeof(intptr_t));
     bitfield_and(pheno_male_nm2, sex_male, unfiltered_sample_ctl);
-    collapse_copy_bitarr_incl(unfiltered_sample_ct, pheno_c, pheno_male_nm2, male_ct, pheno_c_collapsed_male);
+    copy_bitarr_subset(pheno_c, pheno_male_nm2, unfiltered_sample_ct, male_ct, pheno_c_collapsed_male);
     memcpy(pheno_male_nm2, pheno_nm2, unfiltered_sample_ctl2 * sizeof(intptr_t));
     vec_include_mask_in(unfiltered_sample_ct, pheno_male_nm2, sex_male);
   }
@@ -10216,7 +10216,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	if (bigstack_alloc_ul(pheno_nm_ctl, &sex_male_collapsed)) {
 	  goto testmiss_ret_NOMEM;
 	}
-	collapse_copy_bitarr_incl(unfiltered_sample_ct, sex_male, pheno_nm, pheno_nm_ct, sex_male_collapsed);
+	copy_bitarr_subset(sex_male, pheno_nm, unfiltered_sample_ct, pheno_nm_ct, sex_male_collapsed);
       }
     }
 

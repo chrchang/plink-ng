@@ -872,7 +872,7 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_sample_ct, uintptr_t* s
     if (!is_perm1) {
       quaterarr_collapse_init(pheno_c, unfiltered_sample_ct, sample_include, sample_ct, cluster_cc_perm_preimage);
     } else {
-      collapse_copy_bitarr_incl(unfiltered_sample_ct, pheno_c, sample_include, sample_ct, cluster_cc_perm_preimage);
+      copy_bitarr_subset(pheno_c, sample_include, unfiltered_sample_ct, sample_ct, cluster_cc_perm_preimage);
     }
   }
   if ((sample_ct == unfiltered_sample_ct) && ((!remove_size1) || no_size1(cluster_ct, cluster_starts))) {

@@ -2521,17 +2521,9 @@ void inplace_delta_collapse_arr(char* item_arr, uintptr_t item_len, uintptr_t fi
 
 void inplace_delta_collapse_bitfield(uintptr_t* read_ptr, uint32_t filtered_ct_new, uintptr_t* exclude_orig, uintptr_t* exclude_new);
 
-void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr);
+void copy_bitarr_subset_excl(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_excl, uint32_t raw_bitarr_size, uint32_t subset_size, uintptr_t* __restrict output_bitarr);
 
-void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_arr);
-
-/*
 void copy_bitarr_subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t raw_bitarr_size, uint32_t subset_size, uintptr_t* __restrict output_bitarr);
-
-static inline void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* __restrict bitarr, uintptr_t* __restrict include_arr, uint32_t filtered_ct, uintptr_t* __restrict output_arr) {
-  copy_bitarr_subset(bitarr, include_arr, orig_ct, filtered_ct, output_arr);
-}
-*/
 
 void uncollapse_copy_flip_include_arr(uintptr_t* collapsed_include_arr, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* output_exclude_arr);
 

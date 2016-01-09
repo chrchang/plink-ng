@@ -1403,7 +1403,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       if (bigstack_alloc_ul(sample_ctl, &pheno_nm_collapsed)) {
 	goto plink1_dosage_ret_NOMEM;
       }
-      collapse_copy_bitarr(unfiltered_sample_ct, pheno_nm, sample_exclude, sample_ct, pheno_nm_collapsed);
+      copy_bitarr_subset_excl(pheno_nm, sample_exclude, unfiltered_sample_ct, sample_ct, pheno_nm_collapsed);
 #ifndef NOLAPACK
       if (pheno_d) {
 	pheno_d_collapsed = (double*)alloc_and_init_collapsed_arr((char*)pheno_d, sizeof(double), unfiltered_sample_ct, sample_exclude, sample_ct, 0);
@@ -1415,7 +1415,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	if (bigstack_alloc_ul(sample_ctl, &pheno_c_collapsed)) {
 	  goto plink1_dosage_ret_NOMEM;
 	}
-	collapse_copy_bitarr(unfiltered_sample_ct, pheno_c, sample_exclude, sample_ct, pheno_c_collapsed);
+	copy_bitarr_subset_excl(pheno_c, sample_exclude, unfiltered_sample_ct, sample_ct, pheno_c_collapsed);
 #ifndef NOLAPACK
       }
 #endif

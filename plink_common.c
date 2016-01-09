@@ -9726,155 +9726,68 @@ void inplace_delta_collapse_bitfield(uintptr_t* read_ptr, uint32_t filtered_ct_n
   }
 }
 
-void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr) {
+void copy_bitarr_subset_excl(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_excl, uint32_t raw_bitarr_size, uint32_t subset_size, uintptr_t* __restrict output_bitarr) {
   uintptr_t cur_write = 0;
   uint32_t item_uidx = 0;
   uint32_t write_bit = 0;
   uint32_t item_idx = 0;
   uint32_t item_uidx_stop;
-  if (!exclude_arr[0]) {
-    item_uidx = next_set(exclude_arr, 0, orig_ct & (~(BITCT - 1))) & (~(BITCT - 1));
-    memcpy(output_arr, bitarr, item_uidx / 8);
+  if (!subset_excl[0]) {
+    item_uidx = next_set(subset_excl, 0, raw_bitarr_size & (~(BITCT - 1))) & (~(BITCT - 1));
+    memcpy(output_bitarr, raw_bitarr, item_uidx / 8);
     item_idx = item_uidx;
-    output_arr = &(output_arr[item_uidx / BITCT]);
+    output_bitarr = &(output_bitarr[item_uidx / BITCT]);
   }
-  while (item_idx < filtered_ct) {
-    item_uidx = next_unset_unsafe(exclude_arr, item_uidx);
-    item_uidx_stop = next_set(exclude_arr, item_uidx, orig_ct);
+  while (item_idx < subset_size) {
+    item_uidx = next_unset_unsafe(subset_excl, item_uidx);
+    item_uidx_stop = next_set(subset_excl, item_uidx, raw_bitarr_size);
     item_idx += item_uidx_stop - item_uidx;
     do {
-      cur_write |= ((bitarr[item_uidx / BITCT] >> (item_uidx % BITCT)) & 1) << write_bit;
+      cur_write |= ((raw_bitarr[item_uidx / BITCT] >> (item_uidx % BITCT)) & 1) << write_bit;
       if (++write_bit == BITCT) {
-	*output_arr++ = cur_write;
+	*output_bitarr++ = cur_write;
         cur_write = 0;
 	write_bit = 0;
       }
     } while (++item_uidx < item_uidx_stop);
   }
   if (write_bit) {
-    *output_arr = cur_write;
+    *output_bitarr = cur_write;
   }
 }
 
-/*
 void copy_bitarr_subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t raw_bitarr_size, uint32_t subset_size, uintptr_t* __restrict output_bitarr) {
-  assert(raw_quaterarr_size >= subset_size);
-  uintptr_t cur_output_word = 0;
-  uintptr_t* output_bitarr_last = &(output_bitarr[subset_size / BITCT]);
-  const uint32_t word_write_shift_end = subset_size % BITCT;
-  uint32_t word_write_shift = 0;
-  // if <= 2/3-filled, use sparse copy algorithm
-  if (subset_size * (3 * ONELU) <= raw_bitarr_size * (2 * ONELU)) {
-    uint32_t subset_mask_widx = 0;
-    while (1) {
-      uintptr_t cur_include_word = subset_mask[subset_mask_widx];
-      if (cur_include_word) {
-	uintptr_t raw_bitarr_word = raw_bitarr[subset_mask_widx];
-	do {
-	  uint32_t rba_idx_lowbits = CTZLU(cur_include_word);
-	  cur_output_word |= ((raw_bitarr_word >> rba_idx_lowbits) & 1) << word_write_shift;
-	  if (++word_write_shift == BITCT) {
-	    *output_bitarr++ = cur_output_word;
-	    word_write_shift = 0;
-	    cur_output_word = 0;
-	  }
-	  cur_include_word &= cur_include_word - 1;
-	} while (cur_include_word);
-	if (output_bitarr == output_bitarr_last) {
-	  if (word_write_shift == word_write_shift_end) {
-            if (word_write_shift_end) {
-	      *output_bitarr_last = cur_output_word;
-	    }
-	    return;
-	  }
-	}
-      }
-      subset_mask_widx++;	
-    }
-  }
-  // blocked copy
-  while (1) {
-    uintptr_t cur_include_word = *subset_mask++;
-    uintptr_t cur_exclude_word = ~cur_include_word;
-    uintptr_t raw_bitarr_word = *raw_bitarr++;
-    while (cur_include_word) {
-      uint32_t rba_idx_lowbits = CTZLU(cur_include_word);
-      uintptr_t raw_bitarr_curblock_unmasked = raw_bitarr_word >> rba_idx_lowbits;
-      uintptr_t cur_exclude_word_shifted = cur_exclude_word >> rba_idx_lowbits;
-      uint32_t block_len_limit = BITCT - word_write_shift;
-      cur_output_word |= raw_bitarr_curblock_unmasked << word_write_shift;
-      if (cur_exclude_word_shifted) {
-	const uint32_t rba_block_len = CTZLU(cur_exclude_word >> rba_idx_lowbits);
-	if (rba_block_len < block_len_limit) {
-	  word_write_shift += rba_block_len;
-	  cur_output_word &= (ONELU << word_write_shift) - ONELU;
-	} else {
-	  // no need to mask, extra bits vanish off the high end
-	  *output_bitarr++ = cur_output_word;
-	  word_write_shift = rba_block_len - block_len_limit;
-	  if (word_write_shift) {
-	    // safe; we can't get here if block_len_limit == 64
-	    cur_output_word = (raw_bitarr_curblock_unmasked >> block_len_limit) & ((ONELU << word_write_shift) - ONELU);
-	  } else {
-	    cur_output_word = 0;
-	  }
-	}
-	cur_include_word &= (~(ONELU << (rba_block_len + rba_idx_lowbits))) + ONELU;
-      } else {
-	// special-cased since CTZLU undefined and bit-shift-by-word-width
-	// also undefined
-	word_write_shift += BITCT - rba_idx_lowbits;
-	if (word_write_shift >= BITCT) {
-	  word_write_shift -= BITCT;
-	  *output_bitarr++ = cur_output_word;
-	  // no masking needed since we're copying to the end of the input
-	  // word
-	  cur_output_word = word_write_shift? (raw_bitarr_curblock_unmasked >> block_len_limit) : 0;
-	}
-	break;
-      }
-    }
-    if (output_bitarr == output_bitarr_last) {
-      if (word_write_shift == word_write_shift_end) {
-	if (word_write_shift_end) {
-	  *output_bitarr_last = cur_output_word;
-	}
-	return;
-      }
-    }
-  }
-}
-*/
-
-void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_arr) {
   // full-blown blocked copy not worth it due to undefined CTZLU(0), >> 64,
   // << 64
-  uintptr_t cur_write = 0;
+  uintptr_t cur_output_word = 0;
   uint32_t item_uidx = 0;
-  uint32_t write_bit = 0;
+  uint32_t word_write_shift = 0;
   uint32_t item_idx = 0;
   uint32_t item_uidx_stop;
-  if (!(~include_arr[0])) {
-    item_uidx = next_unset(include_arr, 0, orig_ct & (~(BITCT - 1))) & (~(BITCT - 1));
-    memcpy(output_arr, bitarr, item_uidx / 8);
+  if (!(~subset_mask[0])) {
+    item_uidx = next_unset(subset_mask, 0, raw_bitarr_size & (~(BITCT - 1))) & (~(BITCT - 1));
+    memcpy(output_bitarr, raw_bitarr, item_uidx / 8);
     item_idx = item_uidx;
-    output_arr = &(output_arr[item_uidx / BITCT]);
+    output_bitarr = &(output_bitarr[item_uidx / BITCT]);
   }
-  while (item_idx < filtered_ct) {
-    item_uidx = next_set_unsafe(include_arr, item_uidx);
-    item_uidx_stop = next_unset(include_arr, item_uidx, orig_ct);
+  while (item_idx < subset_size) {
+    item_uidx = next_set_unsafe(subset_mask, item_uidx);
+    
+    // can speed this up a bit once we have a guaranteed unset bit at the end
+    item_uidx_stop = next_unset(subset_mask, item_uidx, raw_bitarr_size);
+    
     item_idx += item_uidx_stop - item_uidx;
     do {
-      cur_write |= ((bitarr[item_uidx / BITCT] >> (item_uidx % BITCT)) & 1) << write_bit;
-      if (++write_bit == BITCT) {
-	*output_arr++ = cur_write;
-        cur_write = 0;
-	write_bit = 0;
+      cur_output_word |= ((raw_bitarr[item_uidx / BITCT] >> (item_uidx % BITCT)) & 1) << word_write_shift;
+      if (++word_write_shift == BITCT) {
+	*output_bitarr++ = cur_output_word;
+        cur_output_word = 0;
+	word_write_shift = 0;
       }
     } while (++item_uidx < item_uidx_stop);
   }
-  if (write_bit) {
-    *output_arr = cur_write;
+  if (word_write_shift) {
+    *output_bitarr = cur_output_word;
   }
 }
 

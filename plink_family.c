@@ -2684,14 +2684,14 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
     bitfield_and(tmp_within2_founder, founder_info, unfiltered_sample_ctl);
     // now this only consists of founder parents who (i) aren't in multiple
     // families, and (ii) have a different phenotype from their partner.
-    collapse_copy_bitarr(unfiltered_sample_ct, tmp_within2_founder, sample_exclude, sample_ct, lm_within2_founder);
+    copy_bitarr_subset_excl(tmp_within2_founder, sample_exclude, unfiltered_sample_ct, sample_ct, lm_within2_founder);
   }
   if (test_type) {
     bitfield_andnot_reversed_args(ulptr, pheno_nm, unfiltered_sample_ctl);
     if (test_type == QFAM_WITHIN1) {
       bitfield_andnot(ulptr, founder_info, unfiltered_sample_ctl);
     }
-    collapse_copy_bitarr(unfiltered_sample_ct, ulptr, sample_exclude, sample_ct, lm_eligible);
+    copy_bitarr_subset_excl(ulptr, sample_exclude, unfiltered_sample_ct, sample_ct, lm_eligible);
     bitfield_andnot_copy(unfiltered_sample_ctl, ulptr, not_in_family, founder_info);
   } else {
     bitfield_and(ulptr, pheno_nm, unfiltered_sample_ctl);
@@ -4175,7 +4175,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       bigstack_alloc_ul(MODEL_BLOCKSIZE * ((uintptr_t)dfam_sample_ctl2), &g_loadbuf)) {
     goto dfam_ret_NOMEM;
   }
-  collapse_copy_bitarr(sample_ct, pheno_c, dfam_sample_exclude, dfam_sample_ct, dfam_pheno_c);
+  copy_bitarr_subset_excl(pheno_c, dfam_sample_exclude, sample_ct, dfam_sample_ct, dfam_pheno_c);
   g_pheno_c = dfam_pheno_c;
   g_dfam_iteration_order = dfam_iteration_order;
   g_dfam_family_all_case_children_ct = family_all_case_children_ct;

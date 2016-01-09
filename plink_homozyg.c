@@ -2530,7 +2530,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
     if (bigstack_end_alloc_ul(sample_ctl, &sample_male)) {
       goto calc_homozyg_ret_NOMEM;
     }
-    collapse_copy_bitarr(sample_ct, sex_male, sample_exclude, popcount_longs_exclude(sex_male, sample_exclude, sample_ctl), sample_male);
+    copy_bitarr_subset_excl(sex_male, sample_exclude, sample_ct, popcount_longs_exclude(sex_male, sample_exclude, sample_ctl), sample_male);
   }
   // no other workspace allocations during main scan, so we can assign it all
   // to the ROH list
