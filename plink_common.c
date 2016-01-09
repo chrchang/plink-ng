@@ -8077,13 +8077,12 @@ void collapse_copy_quaterarr_incl(const uintptr_t* __restrict input_quaterarr, c
     sample_ct -= initial_exact_copy_ct;
   }
   uintptr_t cur_write = 0;
+  uintptr_t* output_quaterarr_last = &(output_quaterarr[sample_ct / BITCT2]);
+  uint32_t sample_include_widx = 0;
+  const uint32_t word_write_halfshift_end = sample_ct % BITCT2;
   uint32_t word_write_halfshift = 0;
   // if remainder is less than 7/8-filled, use sparse copy algorithm
-  if (1) {
-  // if (raw_sample_ct - sample_ct >= raw_sample_ct / 8) {
-    uint32_t sample_include_widx = 0;
-    uintptr_t* output_quaterarr_last = &(output_quaterarr[sample_ct / BITCT2]);
-    const uint32_t word_write_halfshift_end = sample_ct % BITCT2;
+  if (raw_sample_ct - sample_ct >= raw_sample_ct / 8) {
     while (1) {
       const uintptr_t cur_include_word = sample_include[sample_include_widx];
       if (cur_include_word) {
@@ -8130,7 +8129,64 @@ void collapse_copy_quaterarr_incl(const uintptr_t* __restrict input_quaterarr, c
     }
   }
   // blocked copy
-  ;;;
+  while (1) {
+    const uintptr_t cur_include_word = sample_include[sample_include_widx];
+    if (cur_include_word) {
+      uint32_t wordhalf_idx = 0;
+#ifdef __LP64__
+      uintptr_t cur_include_halfword = (uint32_t)cur_include_word;
+#else
+      uint32_t cur_include_halfword = (uint16_t)cur_include_word;
+#endif
+      while (1) {
+	if (cur_include_halfword) {
+	  uintptr_t input_quaterarr_word = input_quaterarr[sample_include_widx * 2 + wordhalf_idx];
+	  do {
+	    uint32_t sample_uidx_lowbits = CTZLU(cur_include_halfword);
+	    uintptr_t halfword_invshifted = (~cur_include_halfword) >> sample_uidx_lowbits;
+	    uintptr_t input_quaterarr_curblock_unmasked = input_quaterarr_word >> (sample_uidx_lowbits * 2);
+	    uint32_t input_block_len = CTZLU(halfword_invshifted);
+	    uint32_t block_len_limit = BITCT2 - word_write_halfshift;
+	    uint32_t word_write_shift = 2 * word_write_halfshift;
+	    if (input_block_len < block_len_limit) {
+	      cur_write |= (input_quaterarr_curblock_unmasked & ((ONELU << (2 * input_block_len)) - ONELU)) << word_write_shift;
+	      word_write_halfshift += input_block_len;
+	    } else {
+	      // no need to mask, extra bits vanish off the high end
+	      cur_write |= input_quaterarr_curblock_unmasked << word_write_shift;
+	      
+	      *output_quaterarr++ = cur_write;
+	      word_write_halfshift = input_block_len - block_len_limit;
+	      if (word_write_halfshift) {
+		cur_write = (input_quaterarr_curblock_unmasked >> (2 * block_len_limit)) & ((ONELU << (2 * word_write_halfshift)) - ONELU);
+	      } else {
+		cur_write = 0;
+	      }
+	    }
+	    cur_include_halfword &= (~(ONELU << (input_block_len + sample_uidx_lowbits))) + ONELU;
+	  } while (cur_include_halfword);
+	}
+	if (wordhalf_idx) {
+	  break;
+	}
+	wordhalf_idx++;
+#ifdef __LP64__
+	cur_include_halfword = cur_include_word >> 32;
+#else
+	cur_include_halfword = cur_include_word >> 16;
+#endif
+      }
+      if (output_quaterarr == output_quaterarr_last) {
+	if (word_write_halfshift == word_write_halfshift_end) {
+	  if (word_write_halfshift_end) {
+	    *output_quaterarr_last = cur_write;
+	  }
+	  return;
+	}
+      }
+    }
+    sample_include_widx++;    
+  }
 }
 
 /*
