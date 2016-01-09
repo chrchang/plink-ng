@@ -2380,7 +2380,8 @@ void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_
 
 void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_sample_ct);
 
-void collapse_copy_quaterarr(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uintptr_t* sample_exclude);
+// deprecated, try to just use copy_quaterarr_subset()
+void copy_quaterarr_subset_excl(const uintptr_t* __restrict raw_quaterarr, const uintptr_t* __restrict subset_excl, uint32_t raw_quaterarr_size, uint32_t subset_size, uintptr_t* __restrict output_quaterarr);
 
 static inline uint32_t load_raw(FILE* bedfile, uintptr_t* rawbuf, uintptr_t unfiltered_sample_ct4) {
   // only use this if all accesses to the data involve
@@ -2410,9 +2411,29 @@ static inline uint32_t load_raw2(FILE* bedfile, uintptr_t* rawbuf, uintptr_t unf
 
 uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* mainbuf, uint32_t sample_ct, uintptr_t* sample_exclude, uintptr_t final_mask, uint32_t do_reverse);
 
-void collapse_copy_quaterarr_incl(const uintptr_t* __restrict input_quaterarr, const uintptr_t* __restrict sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t* __restrict output_quaterarr);
+// was "collapse_copy_quaterarr_incl", but this should be better way to think
+// about it
+void copy_quaterarr_subset(const uintptr_t* __restrict raw_quaterarr, const uintptr_t* __restrict subset_mask, uint32_t raw_quaterarr_size, uint32_t subset_size, uintptr_t* __restrict output_quaterarr);
+
+/*
+// in-place version of copy_quaterarr_subset (usually destroying original
+// data).
+// this doesn't seem to provide a meaningful advantage over
+// copy_quaterarr_subset in practice, and the latter is more versatile without
+// requiring much more memory.
+void inplace_quaterarr_proper_subset(const uintptr_t* __restrict subset_mask, uint32_t orig_quaterarr_size, uint32_t subset_size, uintptr_t* __restrict main_quaterarr);
+
+static inline void inplace_quaterarr_subset(const uintptr_t* __restrict subset_mask, uint32_t orig_quaterarr_size, uint32_t subset_size, uintptr_t* __restrict main_quaterarr) {
+  if (orig_quaterarr_size == subset_size) {
+    return;
+  }
+  inplace_quaterarr_proper_subset(subset_mask, orig_quaterarr_size, subset_size, main_quaterarr);
+}
+*/
 
 uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* mainbuf, uint32_t sample_ct, uintptr_t* sample_include, uintptr_t final_mask, uint32_t do_reverse);
+
+// uint32_t load_and_collapse_incl_inplace(const uintptr_t* __restrict sample_include, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uintptr_t final_mask, uint32_t do_reverse, FILE* bedfile, uintptr_t* __restrict mainbuf);
 
 uint32_t load_and_split(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* casebuf, uintptr_t* ctrlbuf, uintptr_t* pheno_nm, uintptr_t* pheno_c);
 
@@ -2503,6 +2524,14 @@ void inplace_delta_collapse_bitfield(uintptr_t* read_ptr, uint32_t filtered_ct_n
 void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr);
 
 void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_arr);
+
+/*
+void copy_bitarr_subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t raw_bitarr_size, uint32_t subset_size, uintptr_t* __restrict output_bitarr);
+
+static inline void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* __restrict bitarr, uintptr_t* __restrict include_arr, uint32_t filtered_ct, uintptr_t* __restrict output_arr) {
+  copy_bitarr_subset(bitarr, include_arr, orig_ct, filtered_ct, output_arr);
+}
+*/
 
 void uncollapse_copy_flip_include_arr(uintptr_t* collapsed_include_arr, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* output_exclude_arr);
 

@@ -1675,7 +1675,7 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	r_matrix_ptr = &(r_matrix[is_case]);
 	geno_fixed_vec_ptr = &(window_geno_ptr[window_cidx * cur_192_long]);
 	mask_fixed_vec_ptr = &(window_mask_ptr[window_cidx * cur_192_long]);
-        collapse_copy_quaterarr_incl(loadbuf_raw, founder_phenos[is_case], unfiltered_sample_ct, cur_pheno_ct, geno_fixed_vec_ptr);
+        copy_quaterarr_subset(loadbuf_raw, founder_phenos[is_case], unfiltered_sample_ct, cur_pheno_ct, geno_fixed_vec_ptr);
         ld_process_load2(geno_fixed_vec_ptr, mask_fixed_vec_ptr, &fixed_missing_ct, cur_pheno_ct, is_x && (!ignore_x), pheno_male_include2[is_case]);
 	fixed_non_missing_ct = cur_pheno_ct - fixed_missing_ct;
         missing_cts_ptr[window_cidx] = fixed_missing_ct;

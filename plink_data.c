@@ -3283,7 +3283,7 @@ int32_t make_bed_me_missing_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32
       *writeptr = cur_word;
     }
   } else if (unfiltered_sample_ct != sample_ct) {
-    collapse_copy_quaterarr(loadbuf, writebuf, unfiltered_sample_ct, sample_ct, sample_exclude);
+    copy_quaterarr_subset_excl(loadbuf, sample_exclude, unfiltered_sample_ct, sample_ct, writebuf);
   }
   return 0;
 }
