@@ -1240,7 +1240,7 @@ int32_t flip_strand(char* flip_fname, uint32_t* marker_id_htable, uint32_t marke
   }
   // Compatibility fix: PLINK 1.07 uses a token- rather than a line-based
   // loader here.
-  if (fopen_checked(flip_fname, "rb", &flipfile)) {
+  if (fopen_checked(flip_fname, FOPEN_RB, &flipfile)) {
     goto flip_strand_ret_OPEN_FAIL;
   }
   while (1) {
@@ -5362,7 +5362,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 
   // 2. If --extract specified, load and sort permitted variant list.
   if (extractname) {
-    if (fopen_checked(extractname, "rb", &infile)) {
+    if (fopen_checked(extractname, FOPEN_RB, &infile)) {
       goto meta_analysis_ret_OPEN_FAIL;
     }
     retval = scan_token_ct_len(MAXLINELEN, infile, g_textbuf, &extract_ct, &max_extract_id_len);

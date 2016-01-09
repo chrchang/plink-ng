@@ -1050,7 +1050,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample
   double cur_ibs;
   uint32_t uii;
   int32_t ii;
-  if (fopen_checked(dist_fname, "rb", &dist_file)) {
+  if (fopen_checked(dist_fname, FOPEN_RB, &dist_file)) {
     goto read_dists_ret_OPEN_FAIL;
   }
   if (fseeko(dist_file, 0, SEEK_END)) {

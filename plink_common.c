@@ -208,7 +208,7 @@ int32_t fwrite_checked(const void* buf, size_t len, FILE* outfile) {
 }
 
 int32_t gzopen_read_checked(const char* fname, gzFile* gzf_ptr) {
-  *gzf_ptr = gzopen(fname, "rb");
+  *gzf_ptr = gzopen(fname, FOPEN_RB);
   if (!(*gzf_ptr)) {
     LOGPRINTFWW(g_errstr_fopen, fname);
     return RET_OPEN_FAIL;
@@ -8055,7 +8055,7 @@ uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered
   return 0;
 }
 
-void collapse_copy_quaterarr_incl(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uintptr_t* sample_include) {
+void collapse_copy_quaterarr_incl(const uintptr_t* __restrict rawbuf, const uintptr_t* __restrict sample_include, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uintptr_t* __restrict mainbuf) {
   // mirror image of collapse_copy_quaterarr()
   uintptr_t cur_write = 0;
   uint32_t sample_uidx = 0;
@@ -8095,7 +8095,7 @@ uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfil
     return RET_READ_FAIL;
   }
   if (unfiltered_sample_ct != sample_ct) {
-    collapse_copy_quaterarr_incl(rawbuf, mainbuf, unfiltered_sample_ct, sample_ct, sample_include);
+    collapse_copy_quaterarr_incl(rawbuf, sample_include, unfiltered_sample_ct, sample_ct, mainbuf);
   } else {
     mainbuf[(unfiltered_sample_ct - 1) / BITCT2] &= final_mask;
   }

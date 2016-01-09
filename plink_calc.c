@@ -2548,7 +2548,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
   sample_uidx = 0;
   if (load_grm_bin) {
     memcpy(grmname_end, ".grm.bin", 9);
-    if (fopen_checked(grmname, "rb", &grm_binfile)) {
+    if (fopen_checked(grmname, FOPEN_RB, &grm_binfile)) {
       goto unrelated_herit_batch_ret_OPEN_FAIL;
     }
     if (fseeko(grm_binfile, 0, SEEK_END)) {
@@ -4236,7 +4236,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
   }
   g_pct = 1;
   if (dist_calc_type & (DISTANCE_BIN | DISTANCE_BIN4)) {
-    if (distance_open(outfile_ptr, outfile2_ptr, outfile3_ptr, outname, outname_end, ".bin", "wb", dist_calc_type, parallel_idx, parallel_tot)) {
+    if (distance_open(outfile_ptr, outfile2_ptr, outfile3_ptr, outname, outname_end, ".bin", FOPEN_WB, dist_calc_type, parallel_idx, parallel_tot)) {
       goto distance_d_write_ret_OPEN_FAIL;
     }
     if (shape == DISTANCE_TRI) {
@@ -5945,7 +5945,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   col = 0;
   if (load_grm_bin) {
     memcpy(grmname_end, ".grm.bin", 9);
-    if (fopen_checked(grmname, "rb", &in_binfile)) {
+    if (fopen_checked(grmname, FOPEN_RB, &in_binfile)) {
       goto rel_cutoff_batch_ret_OPEN_FAIL;
     }
     rel_cutoff_f = (float)rel_cutoff;
@@ -6250,12 +6250,12 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   if (rel_calc_type & (REL_CALC_GRM | REL_CALC_GRM_BIN)) {
     if (load_grm_bin) {
       memcpy(grmname_end, ".grm.bin", 9);
-      if (fopen_checked(grmname, "rb", &in_binfile)) {
+      if (fopen_checked(grmname, FOPEN_RB, &in_binfile)) {
 	goto rel_cutoff_batch_ret_OPEN_FAIL;
       }
       g_rcb_in_binfile = in_binfile;
       memcpy(grmname_end, ".grm.N.bin", 11);
-      if (fopen_checked(grmname, "rb", &in_bin_nfile)) {
+      if (fopen_checked(grmname, FOPEN_RB, &in_bin_nfile)) {
 	goto rel_cutoff_batch_ret_OPEN_FAIL;
       }
       g_rcb_in_bin_nfile = in_bin_nfile;
@@ -6310,11 +6310,11 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
       progress = 0;
       hundredth = 1 + ((((uint64_t)sample_ct) * (sample_ct - 1)) / 200);
       memcpy(outname_end, ".grm.N.bin", 11);
-      if (fopen_checked(outname, "wb", &out_bin_nfile)) {
+      if (fopen_checked(outname, FOPEN_WB, &out_bin_nfile)) {
 	goto rel_cutoff_batch_ret_OPEN_FAIL;
       }
       memcpy(outname_end, ".grm.bin", 9);
-      if (fopen_checked(outname, "wb", &outfile)) {
+      if (fopen_checked(outname, FOPEN_WB, &outfile)) {
 	goto rel_cutoff_batch_ret_OPEN_FAIL;
       }
       while (row < sample_ct) {
@@ -7145,7 +7145,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       if (parallel_tot > 1) {
 	sprintf(&(outname_end[8]), ".%u", parallel_idx + 1);
       }
-      if (fopen_checked(outname, "wb", &outfile)) {
+      if (fopen_checked(outname, FOPEN_WB, &outfile)) {
 	goto calc_rel_ret_OPEN_FAIL;
       }
       for (sample_idx = min_sample; sample_idx < max_parallel_sample; sample_idx++) {
@@ -7190,7 +7190,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	outname_end[10] = '.';
 	uint32toa_x(parallel_idx + 1, '\0', &(outname_end[11]));
       }
-      if (fopen_checked(outname, "wb", &out_bin_nfile)) {
+      if (fopen_checked(outname, FOPEN_WB, &out_bin_nfile)) {
 	goto calc_rel_ret_OPEN_FAIL;
       }
       memcpy(outname_end, ".grm.bin", 9);
@@ -7198,7 +7198,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	outname_end[8] = '.';
 	uint32toa_x(parallel_idx + 1, '\0', &(outname_end[9]));
       }
-      if (fopen_checked(outname, "wb", &outfile)) {
+      if (fopen_checked(outname, FOPEN_WB, &outfile)) {
 	goto calc_rel_ret_OPEN_FAIL;
       }
       mdeptr = g_missing_dbl_excluded;
@@ -7238,7 +7238,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       if (parallel_tot > 1) {
 	sprintf(&(outname_end[8]), ".%u", parallel_idx + 1);
       }
-      if (fopen_checked(outname, "wb", &outfile)) {
+      if (fopen_checked(outname, FOPEN_WB, &outfile)) {
 	goto calc_rel_ret_OPEN_FAIL;
       }
       for (sample_idx = min_sample; sample_idx < max_parallel_sample; sample_idx++) {

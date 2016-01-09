@@ -1053,7 +1053,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   // 2. if --set-names and/or --subset is present, (load and) sort those lists
   if (sip->setnames_flattened || sip->subset_fname) {
     if (sip->subset_fname) {
-      if (fopen_checked(sip->subset_fname, "rb", &infile)) {
+      if (fopen_checked(sip->subset_fname, FOPEN_RB, &infile)) {
 	goto define_sets_ret_OPEN_FAIL;
       }
       retval = scan_token_ct_len(MAXLINELEN, infile, g_textbuf, &subset_ct, &max_subset_id_len);
@@ -1123,7 +1123,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     qsort(sorted_subset_ids, subset_ct, max_subset_id_len, strcmp_casted);
     subset_ct = collapse_duplicate_ids(sorted_subset_ids, subset_ct, max_subset_id_len, NULL);
   }
-  if (fopen_checked(sip->fname, make_set? "r" : "rb", &infile)) {
+  if (fopen_checked(sip->fname, make_set? "r" : FOPEN_RB, &infile)) {
     goto define_sets_ret_OPEN_FAIL;
   }
   // 3. load --make-set range list
@@ -2408,7 +2408,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
       snp_field_len = 3;
     }
     if (aip->snps_fname) {
-      if (fopen_checked(aip->snps_fname, "rb", &infile)) {
+      if (fopen_checked(aip->snps_fname, FOPEN_RB, &infile)) {
 	goto annotate_ret_OPEN_FAIL;
       }
       retval = scan_token_ct_len(MAXLINELEN, infile, g_textbuf, &snplist_ct, &max_snplist_id_len);
@@ -2595,7 +2595,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
   if (need_pos) {
     if (aip->ranges_fname) {
       if (aip->subset_fname) {
-	if (fopen_checked(aip->subset_fname, "rb", &infile)) {
+	if (fopen_checked(aip->subset_fname, FOPEN_RB, &infile)) {
 	  goto annotate_ret_OPEN_FAIL;
 	}
 	retval = scan_token_ct_len(MAXLINELEN, infile, g_textbuf, &subset_ct, &max_subset_id_len);
@@ -3180,7 +3180,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   uint32_t ujj;
   int32_t chrom_idx;
   if (subset_fname) {
-    if (fopen_checked(subset_fname, "rb", &infile)) {
+    if (fopen_checked(subset_fname, FOPEN_RB, &infile)) {
       goto gene_report_ret_OPEN_FAIL;
     }
     retval = scan_token_ct_len(MAXLINELEN, infile, g_textbuf, &subset_ct, &max_subset_id_len);
@@ -3213,7 +3213,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     subset_ct = collapse_duplicate_ids(sorted_subset_ids, subset_ct, max_subset_id_len, NULL);
   }
   if (extractname) {
-    if (fopen_checked(extractname, "rb", &infile)) {
+    if (fopen_checked(extractname, FOPEN_RB, &infile)) {
       goto gene_report_ret_OPEN_FAIL;
     }
     retval = scan_token_ct_len(MAXLINELEN, infile, g_textbuf, &extract_ct, &max_extract_id_len);

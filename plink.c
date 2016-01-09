@@ -104,7 +104,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (7 Jan 2016)";
+  " (8 Jan 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -516,7 +516,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   // don't use fopen_checked() here, since we want to customize the error
   // message.
   if (bedname[0]) {
-    bedfile = fopen(bedname, "rb");
+    bedfile = fopen(bedname, FOPEN_RB);
     if (!bedfile) {
       uii = strlen(bedname);
       if ((uii > 8) && ((!memcmp(&(bedname[uii - 8]), ".bed.bed", 8)) || (!memcmp(&(bedname[uii - 8]), ".bim.bed", 8)) || (!memcmp(&(bedname[uii - 8]), ".fam.bed", 8)))) {
@@ -930,7 +930,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
       LOGPRINTFWW("Variant-major .bed written to %s .\n", outname);
       strcpy(bedname, outname);
-      if (fopen_checked(bedname, "rb", &bedfile)) {
+      if (fopen_checked(bedname, FOPEN_RB, &bedfile)) {
 	goto plink_ret_OPEN_FAIL;
       }
       bed_offset = 3;
@@ -3494,7 +3494,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
       }
       // logging not yet active, so don't use fopen_checked()
-      scriptfile = fopen(argv[uii + 1], "rb");
+      scriptfile = fopen(argv[uii + 1], FOPEN_RB);
       if (!scriptfile) {
 	print_ver();
 	printf(g_errstr_fopen, argv[uii + 1]);

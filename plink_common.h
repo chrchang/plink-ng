@@ -43,6 +43,8 @@
   #define THREAD_RET_TYPE unsigned __stdcall
   #define THREAD_RETURN return 0
   #define EOLN_STR "\r\n"
+  #define FOPEN_RB "rb"
+  #define FOPEN_WB "wb"
 #else
   #include <pthread.h>
   #define THREAD_RET_TYPE void*
@@ -53,6 +55,8 @@
     #endif
   #endif
   #define EOLN_STR "\n"
+  #define FOPEN_RB "r"
+  #define FOPEN_WB "w"
 #endif
 
 #ifdef __APPLE__
@@ -2406,7 +2410,7 @@ static inline uint32_t load_raw2(FILE* bedfile, uintptr_t* rawbuf, uintptr_t unf
 
 uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* mainbuf, uint32_t sample_ct, uintptr_t* sample_exclude, uintptr_t final_mask, uint32_t do_reverse);
 
-void collapse_copy_quaterarr_incl(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uintptr_t* sample_include);
+void collapse_copy_quaterarr_incl(const uintptr_t* __restrict rawbuf, const uintptr_t* __restrict sample_include, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uintptr_t* __restrict mainbuf);
 
 uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* mainbuf, uint32_t sample_ct, uintptr_t* sample_include, uintptr_t final_mask, uint32_t do_reverse);
 

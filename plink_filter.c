@@ -254,7 +254,7 @@ int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, ui
   if (bigstack_calloc_ul(unfiltered_marker_ctl, &already_seen)) {
     goto extract_exclude_flag_norange_ret_NOMEM;
   }
-  if (fopen_checked(fname, "rb", &infile)) {
+  if (fopen_checked(fname, FOPEN_RB, &infile)) {
     goto extract_exclude_flag_norange_ret_OPEN_FAIL;
   }
   while (1) {

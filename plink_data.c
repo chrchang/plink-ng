@@ -82,7 +82,7 @@ int32_t sample_major_to_snp_major(char* sample_major_fname, char* outname, uintp
   uintptr_t cur_word1;
   uintptr_t cur_word2;
   uintptr_t cur_word3;
-  if (fopen_checked(outname, "wb", &outfile)) {
+  if (fopen_checked(outname, FOPEN_WB, &outfile)) {
     goto sample_major_to_snp_major_ret_OPEN_FAIL;
   }
   if (fwrite_checked("l\x1b\x01", 3, outfile)) {
@@ -99,7 +99,7 @@ int32_t sample_major_to_snp_major(char* sample_major_fname, char* outname, uintp
     }
     writebuf = (unsigned char*)g_bigstack_base;
     write_marker_ct = BITCT2 * (cur_bigstack_left / (unfiltered_sample_ct4 * BITCT2));
-    if (fopen_checked(sample_major_fname, "rb", &infile)) {
+    if (fopen_checked(sample_major_fname, FOPEN_RB, &infile)) {
       goto sample_major_to_snp_major_ret_OPEN_FAIL;
     }
     loadbuf[unfiltered_marker_ctl2 - 1] = 0;
@@ -3471,7 +3471,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
       }
     }
     memcpy(outname_end, ".bed", 5);
-    if (fopen_checked(outname, "wb", &bedoutfile)) {
+    if (fopen_checked(outname, FOPEN_WB, &bedoutfile)) {
       goto make_bed_ret_OPEN_FAIL;
     }
 
@@ -4449,7 +4449,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     goto oxford_to_bed_ret_OPEN_FAIL;
   }
   memcpy(outname_end, ".bed", 5);
-  if (fopen_checked(outname, "wb", &outfile)) {
+  if (fopen_checked(outname, FOPEN_WB, &outfile)) {
     goto oxford_to_bed_ret_OPEN_FAIL;
   }
   if (fwrite_checked("l\x1b\x01", 3, outfile)) {
@@ -4703,7 +4703,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
       goto oxford_to_bed_ret_INVALID_FORMAT;
     }
   } else {
-    if (fopen_checked(genname, "rb", &infile)) {
+    if (fopen_checked(genname, FOPEN_RB, &infile)) {
       goto oxford_to_bed_ret_OPEN_FAIL;
     }
     // supports BGEN v1.0 and v1.1.
@@ -5681,7 +5681,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
   logprintb();
   writebuf = g_bigstack_base;
   memcpy(outname_end, ".bed", 5);
-  if (fopen_checked(outname, "wb", outfile_ptr)) {
+  if (fopen_checked(outname, FOPEN_WB, outfile_ptr)) {
     goto ped_to_bed_multichar_allele_ret_OPEN_FAIL;
   }
   if (fwrite_checked("l\x1b\x01", 3, *outfile_ptr)) {
@@ -6059,7 +6059,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   }
 
   // first .ped scan: count samples, write .fam, note alleles at each locus
-  if (fopen_checked(pedname, "rb", &pedfile)) {
+  if (fopen_checked(pedname, FOPEN_RB, &pedfile)) {
     goto ped_to_bed_ret_OPEN_FAIL;
   }
   memcpy(outname_end, ".fam", 5);
@@ -6348,7 +6348,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     logprintb();
     writebuf = g_bigstack_base;
     memcpy(outname_end, ".bed", 5);
-    if (fopen_checked(outname, "wb", &outfile)) {
+    if (fopen_checked(outname, FOPEN_WB, &outfile)) {
       goto ped_to_bed_ret_OPEN_FAIL;
     }
     if (fwrite_checked("l\x1b\x01", 3, outfile)) {
@@ -6749,7 +6749,7 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
   // Thus we just use the obvious one-pass load, and save proper handling of
   // triallelic sites, etc. for the future .pgen engine.
   memcpy(outname_end, ".bed", 5);
-  if (fopen_checked(outname, "wb", &outfile)) {
+  if (fopen_checked(outname, FOPEN_WB, &outfile)) {
     goto lgen_to_bed_ret_OPEN_FAIL;
   }
   if (fwrite_checked("l\x1b\x01", 3, outfile)) {
@@ -7305,7 +7305,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     goto transposed_to_bed_ret_OPEN_FAIL;
   }
   memcpy(outname_end, ".bed.tmp", 9);
-  if (fopen_checked(outname, "wb", &outfile)) {
+  if (fopen_checked(outname, FOPEN_WB, &outfile)) {
     goto transposed_to_bed_ret_OPEN_FAIL;
   }
   if (bigstack_alloc_uc(sample_ct4, &writebuf) ||
@@ -7806,11 +7806,11 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
 
     outname_end[2] = 'e';
     outname_end[3] = 'd';
-    if (fopen_checked(outname, "rb", &infile)) {
+    if (fopen_checked(outname, FOPEN_RB, &infile)) {
       goto transposed_to_bed_ret_OPEN_FAIL;
     }
     outname_end[4] = '\0';
-    if (fopen_checked(outname, "wb", &outfile)) {
+    if (fopen_checked(outname, FOPEN_WB, &outfile)) {
       goto transposed_to_bed_ret_OPEN_FAIL;
     }
     if (fwrite_checked("l\x1b\x01", 3, outfile)) {
@@ -8253,7 +8253,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     goto vcf_to_bed_ret_OPEN_FAIL;
   }
   memcpyl3(&(outname_end[2]), "ed");
-  if (fopen_checked(outname, "wb", &outfile)) {
+  if (fopen_checked(outname, FOPEN_WB, &outfile)) {
     goto vcf_to_bed_ret_OPEN_FAIL;
   }
   if (fwrite_checked("l\x1b\x01", 3, outfile)) {
@@ -9398,7 +9398,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     goto bcf_to_bed_ret_OPEN_FAIL;
   }
   memcpy(outname_end, ".bed", 5);
-  if (fopen_checked(outname, "wb", &outfile)) {
+  if (fopen_checked(outname, FOPEN_WB, &outfile)) {
     goto bcf_to_bed_ret_OPEN_FAIL;
   }
   if (fwrite_checked("l\x1b\x01", 3, outfile)) {
@@ -10012,7 +10012,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
     goto bed_from_23_ret_OPEN_FAIL;
   }
   memcpy(&(outname_end[2]), "ed", 2);
-  if (fopen_checked(outname, "wb", &outfile_bed)) {
+  if (fopen_checked(outname, FOPEN_WB, &outfile_bed)) {
     goto bed_from_23_ret_OPEN_FAIL;
   }
   if (bigstack_left() < MAXLINELEN) {
@@ -10384,7 +10384,7 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
       }
       wptr2 = uint32toa(uii, wptr);
       wptr2 = memcpya(wptr2, " per", 4);
-      wptr2 = uint32toa(uii, wptr);
+      wptr2 = uint32toa(uii, wptr2);
       wptr2 = memcpya(wptr2, " 0 0 2 ", 7);
       if (pheno_m_check && (sfmt_genrand_uint32(&g_sfmt) <= pheno_m32)) {
 	wptr2 = memcpya(wptr2, missing_pheno_str, missing_pheno_len);
@@ -10402,7 +10402,7 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
     goto generate_dummy_ret_WRITE_FAIL;
   }
   memcpy(outname_end, ".bed", 5);
-  if (fopen_checked(outname, "wb", &outfile)) {
+  if (fopen_checked(outname, FOPEN_WB, &outfile)) {
     goto generate_dummy_ret_OPEN_FAIL;
   }
   if (fwrite_checked("l\x1b\x01", 3, outfile)) {
@@ -10926,7 +10926,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     goto simulate_ret_OPEN_FAIL;
   }
   memcpy(outname_end, ".bed", 5);
-  if (fopen_checked(outname, "wb", &outfile_bed)) {
+  if (fopen_checked(outname, FOPEN_WB, &outfile_bed)) {
     goto simulate_ret_OPEN_FAIL;
   }
   if (fwrite_checked("l\x1b\x01", 3, outfile_bed)) {
@@ -15312,7 +15312,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
   if (!ulii) {
     bim_loadbuf[0] = '\0';
   }
-  if (fopen_checked(bedname, is_binary? "rb" : "r", &bedfile)) {
+  if (fopen_checked(bedname, is_binary? FOPEN_RB : "r", &bedfile)) {
     goto merge_main_ret_OPEN_FAIL;
   }
   if (is_binary) {
@@ -16498,7 +16498,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   pcptr = (uintptr_t*)g_bigstack_base;
   if (merge_mode < 6) {
     memcpy(outname_end, ".bed", 5);
-    if (fopen_checked(outname, "wb", &outfile)) {
+    if (fopen_checked(outname, FOPEN_WB, &outfile)) {
       goto merge_datasets_ret_OPEN_FAIL;
     }
     if (fwrite_checked("l\x1b\x01", 3, outfile)) {

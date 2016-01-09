@@ -1675,7 +1675,7 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	r_matrix_ptr = &(r_matrix[is_case]);
 	geno_fixed_vec_ptr = &(window_geno_ptr[window_cidx * cur_192_long]);
 	mask_fixed_vec_ptr = &(window_mask_ptr[window_cidx * cur_192_long]);
-        collapse_copy_quaterarr_incl(loadbuf_raw, geno_fixed_vec_ptr, unfiltered_sample_ct, cur_pheno_ct, founder_phenos[is_case]);
+        collapse_copy_quaterarr_incl(loadbuf_raw, founder_phenos[is_case], unfiltered_sample_ct, cur_pheno_ct, geno_fixed_vec_ptr);
         ld_process_load2(geno_fixed_vec_ptr, mask_fixed_vec_ptr, &fixed_missing_ct, cur_pheno_ct, is_x && (!ignore_x), pheno_male_include2[is_case]);
 	fixed_non_missing_ct = cur_pheno_ct - fixed_missing_ct;
         missing_cts_ptr[window_cidx] = fixed_missing_ct;
@@ -2194,7 +2194,7 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     marker_ctm8 = (marker_ctm8 + 8) & (~15);
   }
   if (is_binary) {
-    if (fopen_checked(outname, "wb", &outfile)) {
+    if (fopen_checked(outname, FOPEN_WB, &outfile)) {
       goto ld_report_matrix_ret_OPEN_FAIL;
     }
   }
@@ -5673,7 +5673,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 	goto ld_report_regular_ret_1;
       }
       if (snp_list_file) {
-        if (fopen_checked(ldip->snpstr, "rb", &infile)) {
+        if (fopen_checked(ldip->snpstr, FOPEN_RB, &infile)) {
 	  goto ld_report_regular_ret_OPEN_FAIL;
 	}
 	snplist_ct = 0;
@@ -10792,12 +10792,12 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
     if (retval == -1) {
       // switch to cat mode.  meow.
       fclose_null(&infile);
-      if (fopen_checked(outname, "wb", &outfile)) {
+      if (fopen_checked(outname, FOPEN_WB, &outfile)) {
 	goto epi_summary_merge_ret_OPEN_FAIL;
       }
       for (file_idx = 1; file_idx <= file_ct; file_idx++) {
         uint32toa_x(file_idx, '\0', inprefix_end);
-	if (fopen_checked(inprefix, "rb", &infile)) {
+	if (fopen_checked(inprefix, FOPEN_RB, &infile)) {
 	  goto epi_summary_merge_ret_OPEN_FAIL;
 	}
 	while (1) {
