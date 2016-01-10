@@ -3283,7 +3283,7 @@ int32_t make_bed_me_missing_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32
       *writeptr = cur_word;
     }
   } else if (unfiltered_sample_ct != sample_ct) {
-    copy_quaterarr_subset_excl(loadbuf, sample_exclude, unfiltered_sample_ct, sample_ct, writebuf);
+    copy_quaterarr_nonempty_subset_excl(loadbuf, sample_exclude, unfiltered_sample_ct, sample_ct, writebuf);
   }
   return 0;
 }
@@ -3649,51 +3649,53 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
       *outname_end = '\0';
       LOGPRINTFWW5("--make-bed to %s.bed + %s.bim + %s.fam ... ", outname, outname, outname);
       fputs("0%", stdout);
-      marker_uidx = 0;
-      for (pct = 1; pct <= 100; pct++) {
-	loop_end = (pct * ((uint64_t)marker_ct)) / 100;
-	for (; marker_idx < loop_end; marker_uidx++, marker_idx++) {
-	  if (IS_SET(marker_exclude, marker_uidx)) {
-	    marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-	    if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
-	      goto make_bed_ret_READ_FAIL;
+      if (sample_ct) {
+	marker_uidx = 0;
+	for (pct = 1; pct <= 100; pct++) {
+	  loop_end = (pct * ((uint64_t)marker_ct)) / 100;
+	  for (; marker_idx < loop_end; marker_uidx++, marker_idx++) {
+	    if (IS_SET(marker_exclude, marker_uidx)) {
+	      marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+	      if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
+		goto make_bed_ret_READ_FAIL;
+	      }
 	    }
-	  }
-	  if (marker_uidx >= chrom_end) {
-	    chrom_fo_idx++;
-	    refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
-	  }
-	  if ((!set_me_missing) || (is_haploid && (!is_x))) {
-	    retval = make_bed_one_marker(bedfile, loadbuf, unfiltered_sample_ct, unfiltered_sample_ct4, sample_exclude, sample_ct, sample_sort_map, final_mask, IS_SET(marker_reverse, marker_uidx), writebuf);
-	    if (is_haploid && set_hh_missing) {
-	      haploid_fix(hh_exists, sample_include2, sample_male_include2, sample_ct, is_x, is_y, (unsigned char*)writebuf);
+	    if (marker_uidx >= chrom_end) {
+	      chrom_fo_idx++;
+	      refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
 	    }
-	  } else {
-	    retval = make_bed_me_missing_one_marker(bedfile, loadbuf, unfiltered_sample_ct, unfiltered_sample_ct4, sample_exclude, sample_ct, sample_sort_map, final_mask, unfiltered_sample_ctl2m1, IS_SET(marker_reverse, marker_uidx), writebuf, workbuf, sex_male, sample_raw_male_include2, trio_lookup, trio_ct, set_hh_missing, is_x, mendel_multigen, &mendel_error_ct);
-	  }
-	  if (retval) {
-	    goto make_bed_ret_1;
-	  }
-	  if (zcdefs) {
-	    zeropatch(sample_ctv2, cluster_ct, cluster_zc_masks, zcdefs, patchbuf, marker_idx, writebuf);
-	  }
-	  if (flip_subset_markers && is_set(flip_subset_markers, marker_uidx)) {
-	    reverse_subset(writebuf, flip_subset_vec2, sample_ctv2);
-	  }
-	  if (fill_missing_a2) {
-	    replace_missing_a2(writebuf, is_y? sample_male_include2 : sample_include2, sample_ctv2);
-	  }
+	    if ((!set_me_missing) || (is_haploid && (!is_x))) {
+	      retval = make_bed_one_marker(bedfile, loadbuf, unfiltered_sample_ct, unfiltered_sample_ct4, sample_exclude, sample_ct, sample_sort_map, final_mask, IS_SET(marker_reverse, marker_uidx), writebuf);
+	      if (is_haploid && set_hh_missing) {
+		haploid_fix(hh_exists, sample_include2, sample_male_include2, sample_ct, is_x, is_y, (unsigned char*)writebuf);
+	      }
+	    } else {
+	      retval = make_bed_me_missing_one_marker(bedfile, loadbuf, unfiltered_sample_ct, unfiltered_sample_ct4, sample_exclude, sample_ct, sample_sort_map, final_mask, unfiltered_sample_ctl2m1, IS_SET(marker_reverse, marker_uidx), writebuf, workbuf, sex_male, sample_raw_male_include2, trio_lookup, trio_ct, set_hh_missing, is_x, mendel_multigen, &mendel_error_ct);
+	    }
+	    if (retval) {
+	      goto make_bed_ret_1;
+	    }
+	    if (zcdefs) {
+	      zeropatch(sample_ctv2, cluster_ct, cluster_zc_masks, zcdefs, patchbuf, marker_idx, writebuf);
+	    }
+	    if (flip_subset_markers && is_set(flip_subset_markers, marker_uidx)) {
+	      reverse_subset(writebuf, flip_subset_vec2, sample_ctv2);
+	    }
+	    if (fill_missing_a2) {
+	      replace_missing_a2(writebuf, is_y? sample_male_include2 : sample_include2, sample_ctv2);
+	    }
 
-	  if (fwrite_checked(writebuf, sample_ct4, bedoutfile)) {
-	    goto make_bed_ret_WRITE_FAIL;
+	    if (fwrite_checked(writebuf, sample_ct4, bedoutfile)) {
+	      goto make_bed_ret_WRITE_FAIL;
+	    }
 	  }
-	}
-	if (pct < 100) {
-	  if (pct > 10) {
-	    putchar('\b');
+	  if (pct < 100) {
+	    if (pct > 10) {
+	      putchar('\b');
+	    }
+	    printf("\b\b%u%%", pct);
+	    fflush(stdout);
 	  }
-	  printf("\b\b%u%%", pct);
-	  fflush(stdout);
 	}
       }
     }
@@ -13200,7 +13202,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	    goto recode_ret_1;
 	  }
 	}
-	if (load_and_collapse(bedfile, (uintptr_t*)loadbuf, unfiltered_sample_ct, loadbuf_collapsed, sample_ct, sample_exclude, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+	if (sample_ct && load_and_collapse(bedfile, (uintptr_t*)loadbuf, unfiltered_sample_ct, loadbuf_collapsed, sample_ct, sample_exclude, final_mask, IS_SET(marker_reverse, marker_uidx))) {
 	  goto recode_ret_READ_FAIL;
 	}
 	cptr = &(marker_ids[marker_uidx * max_marker_id_len]);
@@ -13886,7 +13888,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  }
 	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	}
-	if (unfiltered_sample_ct) {
+	if (cur_sample_ct) {
 	  if (load_and_collapse(bedfile, (uintptr_t*)loadbuf, unfiltered_sample_ct, loadbuf_collapsed, cur_sample_ct, cur_sample_exclude, cur_final_mask, IS_SET(marker_reverse, marker_uidx))) {
 	    goto recode_ret_READ_FAIL;
 	  }

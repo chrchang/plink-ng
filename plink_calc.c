@@ -7654,7 +7654,8 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	    }
 	  }
 	  // if projecting, loadbuf_raw contains raw data, so we can just
-	  // follow up with copy_quaterarr_subset_excl() and reverse_loadbuf()
+	  // follow up with copy_quaterarr_nonempty_subset_excl() and
+	  // reverse_loadbuf()
 	  if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, pca_sample_ct, pca_sample_exclude, final_mask, IS_SET(marker_reverse, marker_uidx))) {
 	    goto calc_pca_ret_READ_FAIL;
 	  }
@@ -7695,7 +7696,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	    cur_var_wts[pc_idx] *= eigval_inv_sqrts[pc_idx];
 	  }
 	  if (proj_sample_ct) {
-	    copy_quaterarr_subset_excl(loadbuf_raw, sample_exclude_proj, unfiltered_sample_ct, proj_sample_ct, loadbuf_proj);
+	    copy_quaterarr_nonempty_subset_excl(loadbuf_raw, sample_exclude_proj, unfiltered_sample_ct, proj_sample_ct, loadbuf_proj);
 	    if (IS_SET(marker_reverse, marker_uidx)) {
 	      reverse_loadbuf((unsigned char*)loadbuf_proj, proj_sample_ct);
 	    }

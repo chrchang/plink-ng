@@ -2381,8 +2381,8 @@ void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_
 
 void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_sample_ct);
 
-// deprecated, try to just use copy_quaterarr_subset()
-void copy_quaterarr_subset_excl(const uintptr_t* __restrict raw_quaterarr, const uintptr_t* __restrict subset_excl, uint32_t raw_quaterarr_size, uint32_t subset_size, uintptr_t* __restrict output_quaterarr);
+// deprecated, try to just use copy_quaterarr_nonempty_subset()
+void copy_quaterarr_nonempty_subset_excl(const uintptr_t* __restrict raw_quaterarr, const uintptr_t* __restrict subset_excl, uint32_t raw_quaterarr_size, uint32_t subset_size, uintptr_t* __restrict output_quaterarr);
 
 static inline uint32_t load_raw(FILE* bedfile, uintptr_t* rawbuf, uintptr_t unfiltered_sample_ct4) {
   // only use this if all accesses to the data involve
@@ -2414,7 +2414,7 @@ uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered
 
 // was "collapse_copy_quaterarr_incl", but this should be better way to think
 // about it
-void copy_quaterarr_subset(const uintptr_t* __restrict raw_quaterarr, const uintptr_t* __restrict subset_mask, uint32_t raw_quaterarr_size, uint32_t subset_size, uintptr_t* __restrict output_quaterarr);
+void copy_quaterarr_nonempty_subset(const uintptr_t* __restrict raw_quaterarr, const uintptr_t* __restrict subset_mask, uint32_t raw_quaterarr_size, uint32_t subset_size, uintptr_t* __restrict output_quaterarr);
 
 /*
 // in-place version of copy_quaterarr_subset (usually destroying original

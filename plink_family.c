@@ -4443,7 +4443,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	reverse_loadbuf((unsigned char*)loadbuf_raw, unfiltered_sample_ct);
       }
       erase_mendel_errors(unfiltered_sample_ct, loadbuf_raw, workbuf, sex_male, trio_error_lookup, trio_ct, 0, multigen);
-      copy_quaterarr_subset_excl(loadbuf_raw, dfam_sample_exclude, unfiltered_sample_ct, dfam_sample_ct, &(g_loadbuf[block_size * dfam_sample_ctl2]));
+      copy_quaterarr_nonempty_subset_excl(loadbuf_raw, dfam_sample_exclude, unfiltered_sample_ct, dfam_sample_ct, &(g_loadbuf[block_size * dfam_sample_ctl2]));
       if (do_perms_nst) {
 	g_adapt_m_table[block_size] = marker_idx2++;
       }
@@ -5739,7 +5739,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	}
 	erase_mendel_errors(unfiltered_sample_ct, loadbuf_raw, workbuf, sex_male, trio_error_lookup, trio_ct, 0, multigen);
 	loadbuf_ptr = &(g_loadbuf[block_idx * sample_ctl2]);
-	copy_quaterarr_subset_excl(loadbuf_raw, sample_exclude, unfiltered_sample_ct, sample_ct, loadbuf_ptr);
+	copy_quaterarr_nonempty_subset_excl(loadbuf_raw, sample_exclude, unfiltered_sample_ct, sample_ct, loadbuf_ptr);
 	g_adapt_m_table[block_idx] = marker_idx;
 	mu_table[block_idx++] = marker_uidx;
       }

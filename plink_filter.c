@@ -1574,7 +1574,7 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
     if (load_raw2(bedfile, loadbuf, unfiltered_sample_ct4, unfiltered_sample_ctl2m1, final_mask)) {
       goto mind_filter_ret_READ_FAIL;
     }
-    // er, why doesn't this use load_and_collapse?
+    // todo: switch to load_and_collapse()
     lptr = loadbuf;
     if ((marker_uidx >= y_end) || (marker_uidx < y_start)) {
       for (uii = 0; uii < ujj; uii += BITCT2) {

@@ -8003,15 +8003,16 @@ void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_sample_ct) {
   }
 }
 
-// deprecated, try to just use copy_quaterarr_subset()
-void copy_quaterarr_subset_excl(const uintptr_t* __restrict raw_quaterarr, const uintptr_t* __restrict subset_excl, uint32_t raw_quaterarr_size, uint32_t subset_size, uintptr_t* __restrict output_quaterarr) {
+// deprecated, try to just use copy_quaterarr_nonempty_subset()
+void copy_quaterarr_nonempty_subset_excl(const uintptr_t* __restrict raw_quaterarr, const uintptr_t* __restrict subset_excl, uint32_t raw_quaterarr_size, uint32_t subset_size, uintptr_t* __restrict output_quaterarr) {
+  assert(subset_size);
   assert(raw_quaterarr_size >= subset_size);
   uintptr_t cur_output_word = 0;
   uintptr_t* output_quaterarr_last = &(output_quaterarr[subset_size / BITCT2]);
   const uint32_t word_write_halfshift_end = subset_size % BITCT2;
   uint32_t word_write_halfshift = 0;
-  // if <= 2/3-filled, use sparse copy algorithm
-  if (subset_size * (3 * ONELU) <= raw_quaterarr_size * (2 * ONELU)) {
+  // if < 2/3-filled, use sparse copy algorithm
+  if (subset_size * (3 * ONELU) < raw_quaterarr_size * (2 * ONELU)) {
     const uint32_t subset_excl_widx_last = raw_quaterarr_size / BITCT;
     uint32_t subset_excl_widx = 0;
     while (1) {
@@ -8121,7 +8122,7 @@ void copy_quaterarr_subset_excl(const uintptr_t* __restrict raw_quaterarr, const
 }
 
 uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* mainbuf, uint32_t sample_ct, uintptr_t* sample_exclude, uintptr_t final_mask, uint32_t do_reverse) {
-  // assumes unfiltered_sample_ct is positive
+  assert(unfiltered_sample_ct);
   uint32_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   if (unfiltered_sample_ct == sample_ct) {
     rawbuf = mainbuf;
@@ -8130,7 +8131,7 @@ uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered
     return RET_READ_FAIL;
   }
   if (unfiltered_sample_ct != sample_ct) {
-    copy_quaterarr_subset_excl(rawbuf, sample_exclude, unfiltered_sample_ct, sample_ct, mainbuf);
+    copy_quaterarr_nonempty_subset_excl(rawbuf, sample_exclude, unfiltered_sample_ct, sample_ct, mainbuf);
   } else {
     rawbuf[(unfiltered_sample_ct - 1) / BITCT2] &= final_mask;
   }
@@ -8140,17 +8141,18 @@ uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered
   return 0;
 }
 
-void copy_quaterarr_subset(const uintptr_t* __restrict raw_quaterarr, const uintptr_t* __restrict subset_mask, uint32_t raw_quaterarr_size, uint32_t subset_size, uintptr_t* __restrict output_quaterarr) {
+void copy_quaterarr_nonempty_subset(const uintptr_t* __restrict raw_quaterarr, const uintptr_t* __restrict subset_mask, uint32_t raw_quaterarr_size, uint32_t subset_size, uintptr_t* __restrict output_quaterarr) {
   // in plink 2.0, we probably want (0-based) bit raw_quaterarr_size of
-  // subset_mask should always be allocated and unset.  This removes a few
-  // special cases re: iterating past the end of arrays.
+  // subset_mask to be always allocated and unset.  This removes a few special
+  // cases re: iterating past the end of arrays.
+  assert(subset_size);
   assert(raw_quaterarr_size >= subset_size);
   uintptr_t cur_output_word = 0;
   uintptr_t* output_quaterarr_last = &(output_quaterarr[subset_size / BITCT2]);
   const uint32_t word_write_halfshift_end = subset_size % BITCT2;
   uint32_t word_write_halfshift = 0;
-  // if <= 2/3-filled, use sparse copy algorithm
-  if (subset_size * (3 * ONELU) <= raw_quaterarr_size * (2 * ONELU)) {
+  // if < 2/3-filled, use sparse copy algorithm
+  if (subset_size * (3 * ONELU) < raw_quaterarr_size * (2 * ONELU)) {
     uint32_t subset_mask_widx = 0;
     while (1) {
       const uintptr_t cur_include_word = subset_mask[subset_mask_widx];
@@ -8379,6 +8381,7 @@ void inplace_quaterarr_proper_subset(const uintptr_t* __restrict subset_mask, ui
 */
 
 uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* mainbuf, uint32_t sample_ct, uintptr_t* sample_include, uintptr_t final_mask, uint32_t do_reverse) {
+  assert(unfiltered_sample_ct);
   uint32_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   if (unfiltered_sample_ct == sample_ct) {
     rawbuf = mainbuf;
@@ -8387,7 +8390,7 @@ uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfil
     return RET_READ_FAIL;
   }
   if (unfiltered_sample_ct != sample_ct) {
-    copy_quaterarr_subset(rawbuf, sample_include, unfiltered_sample_ct, sample_ct, mainbuf);
+    copy_quaterarr_nonempty_subset(rawbuf, sample_include, unfiltered_sample_ct, sample_ct, mainbuf);
   } else {
     mainbuf[(unfiltered_sample_ct - 1) / BITCT2] &= final_mask;
   }
