@@ -2459,7 +2459,7 @@ void vec_datamask(uintptr_t unfiltered_sample_ct, uint32_t matchval, uintptr_t* 
 
 // void vec_rotate_plink1_to_plink2(uintptr_t* lptr, uint32_t word_ct);
 
-void rotate_plink1_to_plink2_and_copy(uintptr_t* loadbuf, uintptr_t* writebuf, uintptr_t word_ct);
+void rotate_plink1_to_a2ct_and_copy(uintptr_t* loadbuf, uintptr_t* writebuf, uintptr_t word_ct);
 
 void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_sample_ct, uintptr_t* sample_include_quaterarr, uintptr_t sample_ct, uintptr_t* missing_bitfield);
 
