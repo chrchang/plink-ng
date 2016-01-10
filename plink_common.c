@@ -8141,9 +8141,9 @@ uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered
 }
 
 void copy_quaterarr_subset(const uintptr_t* __restrict raw_quaterarr, const uintptr_t* __restrict subset_mask, uint32_t raw_quaterarr_size, uint32_t subset_size, uintptr_t* __restrict output_quaterarr) {
-  // in plink 2.0, (0-based) bit raw_quaterarr_size of subset_mask should
-  // always be allocated and unset.  This removes a few special cases re:
-  // iterating past the end of arrays.
+  // in plink 2.0, we probably want (0-based) bit raw_quaterarr_size of
+  // subset_mask should always be allocated and unset.  This removes a few
+  // special cases re: iterating past the end of arrays.
   assert(raw_quaterarr_size >= subset_size);
   uintptr_t cur_output_word = 0;
   uintptr_t* output_quaterarr_last = &(output_quaterarr[subset_size / BITCT2]);
@@ -8222,7 +8222,12 @@ void copy_quaterarr_subset(const uintptr_t* __restrict raw_quaterarr, const uint
 	  // no need to mask, extra bits vanish off the high end
 	  *output_quaterarr++ = cur_output_word;
 	  word_write_halfshift = rqa_block_len - block_len_limit;
-	  cur_output_word = (raw_quaterarr_curblock_unmasked >> (2 * block_len_limit)) & ((ONELU << (2 * word_write_halfshift)) - ONELU);
+	  if (word_write_halfshift) {
+	    cur_output_word = (raw_quaterarr_curblock_unmasked >> (2 * block_len_limit)) & ((ONELU << (2 * word_write_halfshift)) - ONELU);
+	  } else {
+	    // avoid potential right-shift-64
+	    cur_output_word = 0;
+	  }
 	}
 	cur_include_halfword &= (~(ONELU << (rqa_block_len + rqa_idx_lowbits))) + ONELU;
       }
@@ -8883,7 +8888,9 @@ void vec_rotate_plink1_to_plink2(uintptr_t* lptr, uint32_t word_ct) {
 }
 */
 
-void rotate_plink1_to_plink2_and_copy(uintptr_t* loadbuf, uintptr_t* writebuf, uintptr_t word_ct) {
+// this was "rotate_plink1_to_plink2_...", until I noticed that the plink2
+// format should store alt allele counts instead of ref allele counts.
+void rotate_plink1_to_a2ct_and_copy(uintptr_t* loadbuf, uintptr_t* writebuf, uintptr_t word_ct) {
   // assumes positive word_ct
   uintptr_t* loadbuf_end = &(loadbuf[word_ct]);
   uintptr_t ulii;

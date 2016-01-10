@@ -8947,7 +8947,7 @@ int32_t epistasis_logistic_regression(pthread_t* threads, Epi_info* epi_ip, FILE
       // inner loop to use ordinary multiplication
       // this is a bit redundant with the forced reverse, but it's not a
       // bottleneck
-      rotate_plink1_to_plink2_and_copy(loadbuf, &(g_epi_geno1[block_idx1 * pheno_nm_ctl2]), pheno_nm_ctl2);
+      rotate_plink1_to_a2ct_and_copy(loadbuf, &(g_epi_geno1[block_idx1 * pheno_nm_ctl2]), pheno_nm_ctl2);
       if (!is_triangular) {
 	if (!IS_SET(marker_exclude2, marker_uidx_tmp)) {
           // do not compare against self
@@ -8986,7 +8986,7 @@ int32_t epistasis_logistic_regression(pthread_t* threads, Epi_info* epi_ip, FILE
 	if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, pheno_nm_ct, pheno_nm, final_mask, !IS_SET(marker_reverse, marker_uidx2))) {
 	  goto epistasis_logistic_regression_ret_READ_FAIL;
 	}
-	rotate_plink1_to_plink2_and_copy(loadbuf, ulptr, pheno_nm_ctl2);
+	rotate_plink1_to_a2ct_and_copy(loadbuf, ulptr, pheno_nm_ctl2);
       }
       g_epi_idx2_block_size = cur_idx2_block_size;
       g_epi_idx2_block_start = marker_idx2;
