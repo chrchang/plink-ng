@@ -115,7 +115,8 @@
   // mainly useful for bitshifts: (ONELU << 32) works in 64-bit builds, while
   // (1 << 32) is undefined.  also used to cast some numbers/expressions to
   // uintptr_t (e.g. multiplying an int constant by ONELU widens it to 64 bits
-  // in 64-bit builds).
+  // only in 64-bit builds; note that 1LU fails on Win64 while 1LLU doesn't do
+  // the right thing for 32-bit builds).
   #define ONELU 1LLU
 
   #ifdef _WIN32 // i.e. Win64

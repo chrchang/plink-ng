@@ -1947,7 +1947,11 @@ double chi23_eval(intptr_t m11, intptr_t m12, intptr_t row1_sum, intptr_t col1_s
   chisq += delta * delta / expect;
   expect = dxx * col3_sumd;
   delta = (col3_sum - m13) - expect;
-  return chisq + (delta * delta / expect);
+  chisq += delta * delta / expect;
+  if (chisq < (SMALL_EPSILON * SMALL_EPSILON)) {
+    chisq = 0;
+  }
+  return 0;
 }
 
 void chi23_evalx(intptr_t m11, intptr_t m12, intptr_t m13, intptr_t m21, intptr_t m22, intptr_t m23, double* chip, uint32_t* dfp) {
@@ -2013,7 +2017,11 @@ void chi23_evalx(intptr_t m11, intptr_t m12, intptr_t m13, intptr_t m21, intptr_
   chisq += delta * delta / expect;
   expect = dxx * col3_sumd;
   delta = m23 - expect;
-  *chip = chisq + (delta * delta / expect);
+  chisq += delta * delta / expect;
+  if (chisq < (SMALL_EPSILON * SMALL_EPSILON)) {
+    chisq = 0;
+  }
+  *chip = chisq;
   *dfp = 2;
 }
 

@@ -29,11 +29,18 @@ else
   endif
 endif
 
-SRC = plink.c plink_assoc.c plink_calc.c plink_cluster.c plink_cnv.c plink_common.c plink_data.c plink_dosage.c plink_family.c plink_filter.c plink_glm.c plink_help.c plink_homozyg.c plink_lasso.c plink_ld.c plink_matrix.c plink_misc.c plink_perm.c plink_rserve.c plink_set.c plink_stats.c SFMT.c dcdflib.c pigz.c yarn.c Rconnection.c hfile.c bgzf.c
+CSRC = plink.c plink_assoc.c plink_calc.c plink_cluster.c plink_cnv.c plink_common.c plink_data.c plink_dosage.c plink_family.c plink_filter.c plink_glm.c plink_help.c plink_homozyg.c plink_lasso.c plink_ld.c plink_matrix.c plink_misc.c plink_perm.c plink_rserve.c plink_set.c plink_stats.c SFMT.c dcdflib.c pigz.c yarn.c hfile.c bgzf.c
 
-OBJ = $(SRC:.c=.o)
+CCSRC = Rconnection.cc
+
+SRC = $(CSRC) $(CCSRC)
+
+OBJ = $(CSRC:.c=.o) $(CCSRC:.cc=.o)
 
 %.o: %.c
+	g++ -x c++ -c $(CFLAGS) $(ARCH64) -o $@ $<
+
+%.o: %.cc
 	g++ -x c++ -c $(CFLAGS) $(ARCH64) -o $@ $<
 
 plink: $(SRC)
@@ -44,7 +51,7 @@ plinkw: $(SRC)
 	gfortran -O2 $(OBJ) -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
 
 plinkc: $(SRC)
-	gcc -x c $(CFLAGS) $(SRC) -m32 -x none -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
+	gcc $(CFLAGS) $(CSRC) -m32 -x none -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
 
 plinks: $(SRC)
 	g++ $(CFLAGS) $(SRC) -o plink_linux_s -Wl,-Bstatic $(BLASFLAGS) -Wl,-Bdynamic $(LINKFLAGS) -L. $(ZLIB)
@@ -64,7 +71,7 @@ plink64w: $(SRC)
 	gfortran -O2 $(OBJ) -o plink64 $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
 
 plink64c: $(SRC)
-	gcc -x c $(CFLAGS) $(ARCH64) $(SRC) -x none -o plink $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
+	gcc $(CFLAGS) $(ARCH64) $(CSRC) -x none -o plink $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
 
 plink64nl: $(SRC)
 	g++ $(CFLAGS) $(ARCH64) $(SRC) -o plink $(LINKFLAGS) -L. $(ZLIB64)
