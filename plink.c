@@ -104,7 +104,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (10 Jan 2016)";
+  " (11 Jan 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -887,7 +887,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     llzz = ((uint64_t)unfiltered_sample_ct) * ((unfiltered_marker_ct + 3) / 4);
     if ((uii == 3) && (!memcmp(g_textbuf, "l\x1b\x01", 3))) {
       llyy += 3;
-    } else if ((uii == 3) && (!memcmp(g_textbuf, "l\x1b", 2))) {
+    } else if ((uii == 3) && (!memcmp(g_textbuf, "l\x1b", 3))) {
       // v1.00 sample-major
       llyy = llzz + 3;
       bed_offset = 2;
