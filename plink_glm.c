@@ -132,7 +132,7 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
       goto glm_scan_conditions_ret_NOMEM;
     }
     fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_idx_to_uidx);
-    retval = sort_item_ids_noalloc(sorted_ids, id_map, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, 1, strcmp_deref);
+    retval = sort_item_ids_noalloc(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, 1, strcmp_deref, sorted_ids, id_map);
     if (retval) {
       goto glm_scan_conditions_ret_1;
     }
@@ -3670,7 +3670,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
 	if (covar_interactions) {
 	  np_diploid_raw = genotypic_or_hethom;
 	}
-        bitfield_and(load_mask, sex_nm, unfiltered_sample_ctl);
+        bitvec_and(sex_nm, unfiltered_sample_ctl, load_mask);
         sample_valid_ct = popcount_longs(load_mask, unfiltered_sample_ctl);
       } else {
 	np_sex_raw = 1;
@@ -3704,7 +3704,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
   }
 
   sample_valid_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_valid_ct);
-  if (alloc_collapsed_haploid_filters(unfiltered_sample_ct, sample_valid_ct, hh_or_mt_exists, 1, load_mask, sex_male, &sample_include2, &sample_male_include2)) {
+  if (alloc_collapsed_haploid_filters(load_mask, sex_male, unfiltered_sample_ct, sample_valid_ct, hh_or_mt_exists, 1, &sample_include2, &sample_male_include2)) {
     goto glm_common_init_ret_NOMEM;
   }
   if (bigstack_alloc_ul(GLM_BLOCKSIZE * sample_valid_ctv2, &g_loadbuf) ||
@@ -4124,8 +4124,8 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
 
   bigstack_mark2 = g_bigstack_base;
  glm_linear_assoc_set_test_more_perms:
-  bitfield_and(regression_skip, unstopped_markers, marker_ctl);
-  bitfield_andnot(unstopped_markers, regression_skip, marker_ctl);
+  bitvec_and(unstopped_markers, marker_ctl, regression_skip);
+  bitvec_andnot(regression_skip, marker_ctl, unstopped_markers);
   skip_ct = popcount_longs(regression_skip, marker_ctl);
   marker_unstopped_ct = popcount_longs(unstopped_markers, marker_ctl);
 
@@ -4476,7 +4476,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       goto glm_linear_assoc_ret_NOMEM;
     }
     memcpy(founder_pnm, pheno_nm, unfiltered_sample_ctl * sizeof(intptr_t));
-    bitfield_and(founder_pnm, founder_info, unfiltered_sample_ctl);
+    bitvec_and(founder_info, unfiltered_sample_ctl, founder_pnm);
     if (extract_set_union_unfiltered(sip, NULL, unfiltered_marker_ct, marker_exclude_orig, &marker_exclude, &marker_ct)) {
       goto glm_linear_assoc_ret_NOMEM;
     }
@@ -4997,7 +4997,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	g_min_ploidy_1 |= uii;
       } while ((!glm_xchr_model) && g_min_ploidy_1);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      wptr_start = width_force(4, writebuf, chrom_name_write(writebuf, chrom_info_ptr, uii));
+      wptr_start = width_force(4, writebuf, chrom_name_write(chrom_info_ptr, uii, writebuf));
       *wptr_start++ = ' ';
       fill_double_zero(constraints_con_major, constraint_ct_max * param_ct_max);
       g_male_x_01 = 0;
@@ -5495,7 +5495,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1];
       } while (marker_uidx >= chrom_end);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      wptr_start = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, uii));
+      wptr_start = width_force(4, g_textbuf, chrom_name_write(chrom_info_ptr, uii, g_textbuf));
       *wptr_start++ = ' ';
       wptr_start[plink_maxsnp] = ' ';
       for (; marker_uidx < chrom_end;) {
@@ -5670,8 +5670,8 @@ int32_t glm_logistic_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t
 
   bigstack_mark2 = g_bigstack_base;
  glm_logistic_assoc_set_test_more_perms:
-  bitfield_and(regression_skip, unstopped_markers, marker_ctl);
-  bitfield_andnot(unstopped_markers, regression_skip, marker_ctl);
+  bitvec_and(unstopped_markers, marker_ctl, regression_skip);
+  bitvec_andnot(regression_skip, marker_ctl, unstopped_markers);
   skip_ct = popcount_longs(regression_skip, marker_ctl);
   marker_unstopped_ct = popcount_longs(unstopped_markers, marker_ctl);
 
@@ -5998,7 +5998,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       goto glm_logistic_assoc_ret_NOMEM;
     }
     memcpy(founder_pnm, pheno_nm, unfiltered_sample_ctl * sizeof(intptr_t));
-    bitfield_and(founder_pnm, founder_info, unfiltered_sample_ctl);
+    bitvec_and(founder_info, unfiltered_sample_ctl, founder_pnm);
     if (extract_set_union_unfiltered(sip, NULL, unfiltered_marker_ct, marker_exclude_orig, &marker_exclude, &marker_ct)) {
       goto glm_logistic_assoc_ret_NOMEM;
     }
@@ -6471,7 +6471,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	g_min_ploidy_1 |= uii;
       } while ((!glm_xchr_model) && g_min_ploidy_1);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      wptr_start = width_force(4, writebuf, chrom_name_write(writebuf, chrom_info_ptr, uii));
+      wptr_start = width_force(4, writebuf, chrom_name_write(chrom_info_ptr, uii, writebuf));
       *wptr_start++ = ' ';
       fill_double_zero(constraints_con_major, constraint_ct_max * param_ct_max);
       g_male_x_01 = 0;
@@ -6930,7 +6930,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1];
       } while (marker_uidx >= chrom_end);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      wptr_start = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, uii));
+      wptr_start = width_force(4, g_textbuf, chrom_name_write(chrom_info_ptr, uii, g_textbuf));
       *wptr_start++ = ' ';
       wptr_start[plink_maxsnp] = ' ';
       for (; marker_uidx < chrom_end;) {
@@ -7167,7 +7167,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     } while (sample_idx < sample_valid_ct);
     if (variation_in_sex) {
       param_raw_ct++;
-      bitfield_and(load_mask, sex_nm, unfiltered_sample_ctl);
+      bitvec_and(sex_nm, unfiltered_sample_ctl, load_mask);
       sample_valid_ct = popcount_longs(load_mask, unfiltered_sample_ctl);
     } else {
       logerrprint("Warning: Ignoring --linear 'sex' modifier since sex is invariant.\n");
@@ -7184,7 +7184,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     }
     if (hh_or_mt_exists & (XMHH_EXISTS | Y_FIX_NEEDED)) {
       bigstack_end_alloc_ul(sample_valid_ctv2, &sample_male_include2);
-      alloc_collapsed_haploid_filters(unfiltered_sample_ct, sample_valid_ct, hh_or_mt_exists, 1, load_mask, sex_male, &sample_include2, &sample_male_include2);
+      alloc_collapsed_haploid_filters(load_mask, sex_male, unfiltered_sample_ct, sample_valid_ct, hh_or_mt_exists, 1, &sample_include2, &sample_male_include2);
     }
     if (bigstack_end_alloc_ul(sample_valid_ctv2, &loadbuf_collapsed) ||
         bigstack_end_alloc_ul(sample_valid_ctv2 / 2, &sex_male_collapsed)) {
@@ -8028,7 +8028,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     } while (sample_idx < sample_valid_ct);
     if (variation_in_sex) {
       param_raw_ct++;
-      bitfield_and(load_mask, sex_nm, unfiltered_sample_ctl);
+      bitvec_and(sex_nm, unfiltered_sample_ctl, load_mask);
       sample_valid_ct = popcount_longs(load_mask, unfiltered_sample_ctl);
     } else {
       logerrprint("Warning: Ignoring --logistic 'sex' modifier since sex is invariant.\n");
@@ -8047,7 +8047,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     }
     if (hh_or_mt_exists & (XMHH_EXISTS | Y_FIX_NEEDED)) {
       bigstack_end_alloc_ul(sample_valid_ctv2, &sample_male_include2);
-      alloc_collapsed_haploid_filters(unfiltered_sample_ct, sample_valid_ct, hh_or_mt_exists, 1, load_mask, sex_male, &sample_include2, &sample_male_include2);
+      alloc_collapsed_haploid_filters(load_mask, sex_male, unfiltered_sample_ct, sample_valid_ct, hh_or_mt_exists, 1, &sample_include2, &sample_male_include2);
     }
     if (bigstack_end_alloc_ul(sample_valid_ctv2, &loadbuf_collapsed) ||
         bigstack_end_alloc_ul(sample_valid_ctv2 / 2, &sex_male_collapsed)) {

@@ -1766,8 +1766,8 @@ static inline void prev_unset_unsafe_ck(uintptr_t* bitarr, uint32_t* loc_ptr) {
   }
 }
 
-// These functions seem to optimize better than memset(arr, 0, x) under OS X's
-// gcc, and they should be equivalent for later versions (looks like
+// These functions seem to optimize better than memset(arr, 0, x) under OS X
+// <10.9's gcc, and they should be equivalent for later versions (looks like
 // memcpy/memset were redone in gcc 4.3).
 static inline void fill_long_zero(intptr_t* larr, size_t size) {
   size_t ulii;
@@ -1788,6 +1788,7 @@ static inline void fill_ull_zero(uint64_t* ullarr, size_t size) {
   fill_ulong_zero((uintptr_t*)ullarr, size);
 }
 
+// double v indicates that size is a vector count, not a word count.
 static inline void fill_vec_zero(VECITYPE* vec, size_t size) {
   size_t ulii;
   for (ulii = 0; ulii < size; ulii++) {
@@ -1968,7 +1969,7 @@ void quaterarr_collapse_init(const uintptr_t* __restrict unfiltered_bitarr, uint
 
 void quaterarr_collapse_init_exclude(const uintptr_t* __restrict unfiltered_bitarr, uint32_t unfiltered_ct, const uintptr_t* __restrict filter_exclude_bitarr, uint32_t filtered_ct, uintptr_t* __restrict output_quaterarr);
 
-uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t sample_ct, uint32_t hh_exists, uint32_t is_include, const uintptr_t* sample_bitarr, const uintptr_t* sex_male, uintptr_t** sample_include_quatervec_ptr, uintptr_t** sample_male_include_quatervec_ptr);
+uint32_t alloc_collapsed_haploid_filters(const uintptr_t* __restrict sample_bitarr, const uintptr_t* __restrict sex_male, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t** sample_include_quatervec_ptr, uintptr_t** sample_male_include_quatervec_ptr);
 
 static inline void free_cond(void* memptr) {
   if (memptr) {
@@ -1984,7 +1985,7 @@ static inline double get_maf(double allele_freq) {
   return (allele_freq <= 0.5)? allele_freq : (1.0 - allele_freq);
 }
 
-static inline int32_t filename_exists(const char* fname_append, char* fname, char* fname_end) {
+static inline int32_t filename_exists(const char* __restrict fname_append, char* fname, char* fname_end) {
 #ifdef _WIN32
   DWORD file_attr;
   strcpy(fname_end, fname_append);
@@ -2090,7 +2091,7 @@ static inline const char* species_str(uintptr_t ct) {
 #define CHR_OUTPUT_MT 4
 #define CHR_OUTPUT_0M 8
 
-static inline uint32_t all_words_zero(uintptr_t* word_arr, uintptr_t word_ct) {
+static inline uint32_t all_words_zero(const uintptr_t* word_arr, uintptr_t word_ct) {
   while (word_ct--) {
     if (*word_arr++) {
       return 0;
@@ -2099,33 +2100,35 @@ static inline uint32_t all_words_zero(uintptr_t* word_arr, uintptr_t word_ct) {
   return 1;
 }
 
-char* chrom_name_write(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx);
+char* chrom_name_write(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx, char* buf);
 
-char* chrom_name_buf5w4write(char* buf5, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t* chrom_name_len_ptr);
+char* chrom_name_buf5w4write(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t* chrom_name_len_ptr, char* buf5);
 
-uint32_t get_max_chrom_len(Chrom_info* chrom_info_ptr);
+uint32_t get_max_chrom_len(const Chrom_info* chrom_info_ptr);
 
 void forget_extra_chrom_names(Chrom_info* chrom_info_ptr);
 
-uint32_t haploid_chrom_present(Chrom_info* chrom_info_ptr);
+uint32_t haploid_chrom_present(const Chrom_info* chrom_info_ptr);
 
-int32_t get_chrom_code_raw(char* sptr);
+int32_t get_chrom_code_raw(const char* sptr);
 
-int32_t get_chrom_code(Chrom_info* chrom_info_ptr, char* sptr);
+int32_t get_chrom_code(const Chrom_info* chrom_info_ptr, const char* sptr);
 
-int32_t get_chrom_code2(Chrom_info* chrom_info_ptr, char* sptr, uint32_t slen);
+// when the chromosome name doesn't end with a space
+// currently requires sptr[slen] to be mutable
+int32_t get_chrom_code2(const Chrom_info* chrom_info_ptr, char* sptr, uint32_t slen);
 
-uint32_t get_marker_chrom_fo_idx(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx);
+uint32_t get_marker_chrom_fo_idx(const Chrom_info* chrom_info_ptr, uintptr_t marker_uidx);
 
-static inline uint32_t get_marker_chrom(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx) {
+static inline uint32_t get_marker_chrom(const Chrom_info* chrom_info_ptr, uintptr_t marker_uidx) {
   return chrom_info_ptr->chrom_file_order[get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx)];
 }
 
-static inline int32_t chrom_exists(Chrom_info* chrom_info_ptr, uint32_t chrom_idx) {
+static inline int32_t chrom_exists(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx) {
   return is_set(chrom_info_ptr->chrom_mask, chrom_idx);
 }
 
-int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int32_t* chrom_idx_ptr, uintptr_t line_idx, const char* file_descrip);
+int32_t resolve_or_add_chrom_name(const char* cur_chrom_name, const char* file_descrip, uintptr_t line_idx, Chrom_info* chrom_info_ptr, int32_t* chrom_idx_ptr);
 
 // no need for this; code is simpler if we just create a copy of marker_exclude
 // with all non-autosomal loci removed
@@ -2152,11 +2155,11 @@ static inline uintptr_t next_autosomal_unsafe(uintptr_t* marker_exclude, uintptr
 }
 */
 
-void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* is_mt_ptr, uint32_t* is_haploid_ptr);
+void refresh_chrom_info(const Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t* __restrict chrom_end_ptr, uint32_t* __restrict chrom_fo_idx_ptr, uint32_t* __restrict is_x_ptr, uint32_t* __restrict is_y_ptr, uint32_t* __restrict is_mt_ptr, uint32_t* __restrict is_haploid_ptr);
 
-int32_t single_chrom_start(Chrom_info* chrom_info_ptr, uint32_t unfiltered_marker_ct, uintptr_t* marker_exclude);
+int32_t single_chrom_start(const Chrom_info* chrom_info_ptr, const uintptr_t* marker_exclude, uint32_t unfiltered_marker_ct);
 
-double destructive_get_dmedian(double* unsorted_arr, uintptr_t len);
+double destructive_get_dmedian(uintptr_t len, double* unsorted_arr);
 
 int32_t strcmp_casted(const void* s1, const void* s2);
 
@@ -2166,23 +2169,25 @@ int32_t strcmp_deref(const void* s1, const void* s2);
 
 int32_t strcmp_natural_deref(const void* s1, const void* s2);
 
-int32_t get_uidx_from_unsorted(char* idstr, uintptr_t* exclude_arr, uint32_t id_ct, char* unsorted_ids, uintptr_t max_id_len);
+int32_t get_uidx_from_unsorted(const char* idstr, const uintptr_t* exclude_arr, uint32_t id_ct, const char* unsorted_ids, uintptr_t max_id_len);
 
+// sorted_ids contents not changed, but not worth the trouble of returning a
+// const char*
 char* scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len);
 
-char* scan_for_duplicate_or_overlap_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len, char* sorted_nonoverlap_ids, uintptr_t nonoverlap_id_ct, uintptr_t max_nonoverlap_id_len);
+char* scan_for_duplicate_or_overlap_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len, const char* sorted_nonoverlap_ids, uintptr_t nonoverlap_id_ct, uintptr_t max_nonoverlap_id_len);
 
-int32_t is_missing_pheno_cc(char* bufptr, double missing_phenod, uint32_t affection_01);
+int32_t is_missing_pheno_cc(const char* bufptr, double missing_phenod, uint32_t affection_01);
 
-int32_t eval_affection(char* bufptr, double missing_phenod);
+int32_t eval_affection(const char* bufptr, double missing_phenod);
 
 uint32_t triangle_divide(int64_t cur_prod, int32_t modif);
 
-void triangle_fill(uint32_t* target_arr, uint32_t ct, uint32_t pieces, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t start, uint32_t align);
+void triangle_fill(uint32_t ct, uint32_t pieces, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t start, uint32_t align, uint32_t* target_arr);
 
 int32_t relationship_req(uint64_t calculation_type);
 
-int32_t distance_req(uint64_t calculation_type, char* read_dists_fname);
+int32_t distance_req(const char* read_dists_fname, uint64_t calculation_type);
 
 int32_t double_cmp(const void* aa, const void* bb);
 
@@ -2210,33 +2215,33 @@ void qsort_ext2(char* main_arr, uintptr_t arr_length, uintptr_t item_length, int
 
 int32_t qsort_ext(char* main_arr, uintptr_t arr_length, uintptr_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, intptr_t secondary_item_len);
 
-int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t collapse_idxs, int(* comparator_deref)(const void*, const void*));
+int32_t sort_item_ids_noalloc(uintptr_t unfiltered_ct, const uintptr_t* exclude_arr, uintptr_t item_ct, const char* __restrict item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t collapse_idxs, int(* comparator_deref)(const void*, const void*), char* __restrict sorted_ids, uint32_t* id_map);
 
-int32_t sort_item_ids(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t exclude_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t collapse_idxs, int(* comparator_deref)(const void*, const void*));
+int32_t sort_item_ids(uintptr_t unfiltered_ct, const uintptr_t* exclude_arr, uintptr_t exclude_ct, const char* __restrict item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t collapse_idxs, int(* comparator_deref)(const void*, const void*), char** sorted_ids_ptr, uint32_t** id_map_ptr);
 
-uint32_t uint32arr_greater_than(uint32_t* sorted_uint32_arr, uint32_t arr_length, uint32_t uii);
+uint32_t uint32arr_greater_than(const uint32_t* sorted_uint32_arr, uint32_t arr_length, uint32_t uii);
 
-uint32_t int32arr_greater_than(int32_t* sorted_int32_arr, uint32_t arr_length, int32_t ii);
+uint32_t int32arr_greater_than(const int32_t* sorted_int32_arr, uint32_t arr_length, int32_t ii);
 
-uintptr_t uint64arr_greater_than(uint64_t* sorted_uint64_arr, uintptr_t arr_length, uint64_t ullii);
+uintptr_t uint64arr_greater_than(const uint64_t* sorted_uint64_arr, uintptr_t arr_length, uint64_t ullii);
 
-uintptr_t doublearr_greater_than(double* sorted_dbl_arr, uintptr_t arr_length, double dxx);
+uintptr_t doublearr_greater_than(const double* sorted_dbl_arr, uintptr_t arr_length, double dxx);
 
-uintptr_t nonincr_doublearr_leq_stride(double* nonincr_dbl_arr, uintptr_t arr_length, uintptr_t stride, double dxx);
+uintptr_t nonincr_doublearr_leq_stride(const double* nonincr_dbl_arr, uintptr_t arr_length, uintptr_t stride, double dxx);
 
-int32_t bsearch_str(const char* id_buf, uintptr_t cur_id_len, char* lptr, uintptr_t max_id_len, uintptr_t end_idx);
+int32_t bsearch_str(const char* id_buf, uintptr_t cur_id_len, const char* lptr, uintptr_t max_id_len, uintptr_t end_idx);
 
-static inline int32_t bsearch_str_nl(const char* id_buf, char* lptr, uintptr_t max_id_len, intptr_t end_idx) {
+static inline int32_t bsearch_str_nl(const char* id_buf, const char* lptr, uintptr_t max_id_len, intptr_t end_idx) {
   return bsearch_str(id_buf, strlen(id_buf), lptr, max_id_len, end_idx);
 }
 
-int32_t bsearch_str_natural(char* id_buf, char* lptr, uintptr_t max_id_len, uintptr_t end_idx);
+int32_t bsearch_str_natural(const char* id_buf, const char* lptr, uintptr_t max_id_len, uintptr_t end_idx);
 
-uintptr_t bsearch_str_lb(const char* id_buf, uintptr_t cur_id_len, char* lptr, uintptr_t max_id_len, uintptr_t end_idx);
+uintptr_t bsearch_str_lb(const char* id_buf, uintptr_t cur_id_len, const char* lptr, uintptr_t max_id_len, uintptr_t end_idx);
 
-uint32_t bsearch_read_fam_indiv(char* id_buf, char* lptr, uintptr_t max_id_len, uintptr_t filter_line_ct, char* read_ptr, char** read_pp_new, int32_t* retval_ptr);
+uint32_t bsearch_read_fam_indiv(char* __restrict read_ptr, const char* __restrict lptr, uintptr_t max_id_len, uintptr_t filter_line_ct, char** read_pp_new, int32_t* retval_ptr, char* __restrict id_buf);
 
-void bsearch_fam(char* id_buf, char* lptr, uintptr_t max_id_len, uint32_t filter_line_ct, char* fam_id, uint32_t* first_idx_ptr, uint32_t* last_idx_ptr);
+void bsearch_fam(const char* __restrict fam_id, const char* __restrict lptr, uintptr_t max_id_len, uint32_t filter_line_ct, uint32_t* __restrict first_idx_ptr, uint32_t* __restrict last_idx_ptr, char* __restrict id_buf);
 
 // These ensure the trailing bits are zeroed out.
 void bitarr_invert(uintptr_t bit_ct, uintptr_t* bitarr);
@@ -2244,11 +2249,12 @@ void bitarr_invert(uintptr_t bit_ct, uintptr_t* bitarr);
 void bitarr_invert_copy(const uintptr_t* input_bitarr, uintptr_t bit_ct, uintptr_t* output_bitarr);
 
 
-void bitfield_and(uintptr_t* main_vec, uintptr_t* include_vec, uintptr_t word_ct);
+// "bitvec" indicates that word count is used instead of vector count.
+void bitvec_and(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
 
-void bitfield_andnot(uintptr_t* vv, uintptr_t* exclude_vec, uintptr_t word_ct);
+void bitvec_andnot(const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
 
-void bitfield_andnot_reversed_args(uintptr_t* vv, uintptr_t* include_vec, uintptr_t word_ct);
+void bitvec_andnot_reversed_args(const uintptr_t* __restrict include_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
 
 void bitfield_or(uintptr_t* vv, uintptr_t* or_vec, uintptr_t word_ct);
 

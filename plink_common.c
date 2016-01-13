@@ -3484,9 +3484,9 @@ int32_t last_set_bit(const uintptr_t* bitarr, uint32_t word_ct) {
   return -1;
 }
 
-int32_t last_clear_bit(uintptr_t* bitarr, uint32_t ceil) {
+int32_t last_clear_bit(const uintptr_t* bitarr, uint32_t ceil) {
   // can return ceil or any lower number
-  uintptr_t* bitarr_ptr = &(bitarr[ceil / BITCT]);
+  const uintptr_t* bitarr_ptr = &(bitarr[ceil / BITCT]);
   uint32_t remainder = ceil % BITCT;
   uintptr_t ulii;
   if (remainder) {
@@ -4094,7 +4094,7 @@ void quaterarr_collapse_init_exclude(const uintptr_t* __restrict unfiltered_bita
   }
 }
 
-uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t sample_ct, uint32_t hh_exists, uint32_t is_include, const uintptr_t* sample_bitarr, const uintptr_t* sex_male, uintptr_t** sample_include_quatervec_ptr, uintptr_t** sample_male_include_quatervec_ptr) {
+uint32_t alloc_collapsed_haploid_filters(const uintptr_t* __restrict sample_bitarr, const uintptr_t* __restrict sex_male, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t** sample_include_quatervec_ptr, uintptr_t** sample_male_include_quatervec_ptr) {
   uintptr_t sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
   if (hh_exists & (Y_FIX_NEEDED | NXMHH_EXISTS)) {
     // if already allocated, we assume this is fully initialized
@@ -4173,7 +4173,7 @@ void get_set_wrange_align(const uintptr_t* __restrict bitarr, uintptr_t word_ct,
 const char* g_species_singular = NULL;
 const char* g_species_plural = NULL;
 
-char* chrom_name_std(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx) {
+char* chrom_name_std(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx, char* buf) {
   uint32_t output_encoding = chrom_info_ptr->output_encoding;
   if (output_encoding & (CHR_OUTPUT_PREFIX | CHR_OUTPUT_0M)) {
     if (output_encoding == CHR_OUTPUT_0M) {
@@ -4211,13 +4211,13 @@ char* chrom_name_std(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx) 
   return buf;
 }
 
-char* chrom_name_write(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx) {
+char* chrom_name_write(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx, char* buf) {
   // assumes chrom_idx is valid
   if (!chrom_idx) {
     *buf++ = '0';
     return buf;
   } else if (chrom_idx <= chrom_info_ptr->max_code) {
-    return chrom_name_std(buf, chrom_info_ptr, chrom_idx);
+    return chrom_name_std(chrom_info_ptr, chrom_idx, buf);
   } else if (chrom_info_ptr->zero_extra_chroms) {
     *buf++ = '0';
     return buf;
@@ -4226,16 +4226,16 @@ char* chrom_name_write(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx
   }
 }
 
-char* chrom_name_buf5w4write(char* buf5, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t* chrom_name_len_ptr) {
+char* chrom_name_buf5w4write(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t* chrom_name_len_ptr, char* buf5) {
   uint32_t slen;
   *chrom_name_len_ptr = 4;
   if (!chrom_idx) {
     memcpy(buf5, "   0", 4);
   } else if (chrom_idx <= chrom_info_ptr->max_code) {
     if (chrom_info_ptr->output_encoding & CHR_OUTPUT_PREFIX) {
-      *chrom_name_len_ptr = (uintptr_t)(chrom_name_std(buf5, chrom_info_ptr, chrom_idx) - buf5);
+      *chrom_name_len_ptr = (uintptr_t)(chrom_name_std(chrom_info_ptr, chrom_idx, buf5) - buf5);
     } else {
-      width_force(4, buf5, chrom_name_std(buf5, chrom_info_ptr, chrom_idx));
+      width_force(4, buf5, chrom_name_std(chrom_info_ptr, chrom_idx, buf5));
     }
   } else if (chrom_info_ptr->zero_extra_chroms) {
     memcpy(buf5, "   0", 4);
@@ -4251,7 +4251,7 @@ char* chrom_name_buf5w4write(char* buf5, Chrom_info* chrom_info_ptr, uint32_t ch
   return buf5;
 }
 
-uint32_t get_max_chrom_len(Chrom_info* chrom_info_ptr) {
+uint32_t get_max_chrom_len(const Chrom_info* chrom_info_ptr) {
   // does not include trailing null
   // can be overestimate
   // if more functions start calling this, it should just be built into
@@ -4295,9 +4295,9 @@ void forget_extra_chrom_names(Chrom_info* chrom_info_ptr) {
   }
 }
 
-uint32_t haploid_chrom_present(Chrom_info* chrom_info_ptr) {
-  uintptr_t* chrom_mask = chrom_info_ptr->chrom_mask;
-  uintptr_t* haploid_mask = chrom_info_ptr->haploid_mask;
+uint32_t haploid_chrom_present(const Chrom_info* chrom_info_ptr) {
+  const uintptr_t* chrom_mask = chrom_info_ptr->chrom_mask;
+  const uintptr_t* haploid_mask = chrom_info_ptr->haploid_mask;
   uint32_t uii;
   for (uii = 0; uii < CHROM_MASK_INITIAL_WORDS; uii++) {
     if (chrom_mask[uii] & haploid_mask[uii]) {
@@ -4307,13 +4307,13 @@ uint32_t haploid_chrom_present(Chrom_info* chrom_info_ptr) {
   return 0;
 }
 
-uint32_t bsearch_str_idx(const char* sptr, uint32_t slen, char** str_array, uint32_t* str_sorted_idxs, uint32_t end_idx, uint32_t* gt_ptr) {
+uint32_t bsearch_str_idx(const char* sptr, uint32_t slen, char* const* str_array, const uint32_t* __restrict str_sorted_idxs, uint32_t end_idx, uint32_t* __restrict gt_ptr) {
   // return 0 on success, 1 on failure
   // *gt_ptr is number of strings current string is lexicographically after
   // (so, on success, it's the correct index, and on failure, it's the
   // insertion point)
   uint32_t start_idx = 0;
-  char* sptr2;
+  const char* sptr2;
   uint32_t mid_idx;
   uint32_t slen2;
   int32_t ii;
@@ -4357,7 +4357,7 @@ static inline int32_t single_letter_chrom(uint32_t letter) {
   }
 }
 
-int32_t get_chrom_code_raw(char* sptr) {
+int32_t get_chrom_code_raw(const char* sptr) {
   // any character <= ' ' is considered a terminator
   // note that char arithmetic tends to be compiled to int32 operations, so we
   // mostly work with ints here
@@ -4411,7 +4411,7 @@ int32_t get_chrom_code_raw(char* sptr) {
   return -1;
 }
 
-int32_t get_chrom_code(Chrom_info* chrom_info_ptr, char* sptr) {
+int32_t get_chrom_code(const Chrom_info* chrom_info_ptr, const char* sptr) {
   // does not require string to be null-terminated, and does not perform
   // exhaustive error-checking
   // -1 = total fail, -2 = --allow-extra-chr ok
@@ -4446,7 +4446,7 @@ int32_t get_chrom_code(Chrom_info* chrom_info_ptr, char* sptr) {
   return ii;
 }
 
-int32_t get_chrom_code2(Chrom_info* chrom_info_ptr, char* sptr, uint32_t slen) {
+int32_t get_chrom_code2(const Chrom_info* chrom_info_ptr, char* sptr, uint32_t slen) {
   // when the chromosome name doesn't end with a space
   char* s_end = &(sptr[slen]);
   char tmpc = *s_end;
@@ -4457,8 +4457,8 @@ int32_t get_chrom_code2(Chrom_info* chrom_info_ptr, char* sptr, uint32_t slen) {
   return retval;
 }
 
-uint32_t get_marker_chrom_fo_idx(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx) {
-  uint32_t* marker_binsearch = chrom_info_ptr->chrom_file_order_marker_idx;
+uint32_t get_marker_chrom_fo_idx(const Chrom_info* chrom_info_ptr, uintptr_t marker_uidx) {
+  const uint32_t* marker_binsearch = chrom_info_ptr->chrom_file_order_marker_idx;
   uint32_t chrom_fo_min = 0;
   uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
   uint32_t chrom_fo_cur;
@@ -4473,22 +4473,22 @@ uint32_t get_marker_chrom_fo_idx(Chrom_info* chrom_info_ptr, uintptr_t marker_ui
   return chrom_fo_min;
 }
 
-int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int32_t* chrom_idx_ptr, uintptr_t line_idx, const char* file_descrip) {
+int32_t resolve_or_add_chrom_name(const char* cur_chrom_name, const char* file_descrip, uintptr_t line_idx, Chrom_info* chrom_info_ptr, int32_t* chrom_idx_ptr) {
   char** nonstd_names = chrom_info_ptr->nonstd_names;
   uint32_t* nonstd_name_order = chrom_info_ptr->nonstd_name_order;
   uint32_t max_code_p1 = chrom_info_ptr->max_code + 1;
   uint32_t name_ct = chrom_info_ptr->name_ct;
   uint32_t chrom_code_end = max_code_p1 + name_ct;
-  uint32_t slen = strlen_se(bufptr);
+  uint32_t slen = strlen_se(cur_chrom_name);
   Ll_str* name_stack_ptr = chrom_info_ptr->incl_excl_name_stack;
   uint32_t in_name_stack = 0;
   uint32_t chrom_idx;
   uint32_t slen2;
-  if (!bsearch_str_idx(bufptr, slen, &(nonstd_names[max_code_p1]), nonstd_name_order, chrom_info_ptr->name_ct, &chrom_idx)) {
+  if (!bsearch_str_idx(cur_chrom_name, slen, &(nonstd_names[max_code_p1]), nonstd_name_order, chrom_info_ptr->name_ct, &chrom_idx)) {
     *chrom_idx_ptr = (int32_t)(chrom_idx + max_code_p1);
     return 0;
   }
-  if (*bufptr == '#') {
+  if (*cur_chrom_name == '#') {
     // this breaks VCF and PLINK 2 binary
     logerrprint("Error: Chromosome/contig names may not begin with '#'.\n");
     return RET_INVALID_FORMAT;
@@ -4512,7 +4512,7 @@ int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int3
   while (name_stack_ptr) {
     // there shouldn't be many of these, so sorting is unimportant
     slen2 = strlen(name_stack_ptr->ss);
-    if ((slen == slen2) && (!memcmp(bufptr, name_stack_ptr->ss, slen))) {
+    if ((slen == slen2) && (!memcmp(cur_chrom_name, name_stack_ptr->ss, slen))) {
       in_name_stack = 1;
       break;
     }
@@ -4521,7 +4521,7 @@ int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int3
   if ((in_name_stack && chrom_info_ptr->is_include_stack) || ((!in_name_stack) && (!chrom_info_ptr->is_include_stack))) {
     SET_BIT(chrom_code_end, chrom_info_ptr->chrom_mask);
   }
-  memcpy(nonstd_names[chrom_code_end], bufptr, slen);
+  memcpy(nonstd_names[chrom_code_end], cur_chrom_name, slen);
   nonstd_names[chrom_code_end][slen] = '\0';
   *chrom_idx_ptr = (int32_t)chrom_code_end;
   for (slen2 = name_ct; slen2 > chrom_idx; slen2--) {
@@ -4532,7 +4532,7 @@ int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int3
   return 0;
 }
 
-void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* is_mt_ptr, uint32_t* is_haploid_ptr) {
+void refresh_chrom_info(const Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t* __restrict chrom_end_ptr, uint32_t* __restrict chrom_fo_idx_ptr, uint32_t* __restrict is_x_ptr, uint32_t* __restrict is_y_ptr, uint32_t* __restrict is_mt_ptr, uint32_t* __restrict is_haploid_ptr) {
   // assumes marker_uidx < unfiltered_marker_ct
   int32_t chrom_idx;
   *chrom_end_ptr = chrom_info_ptr->chrom_file_order_marker_idx[(*chrom_fo_idx_ptr) + 1];
@@ -4546,7 +4546,7 @@ void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint3
   *is_haploid_ptr = is_set(chrom_info_ptr->haploid_mask, chrom_idx);
 }
 
-int32_t single_chrom_start(Chrom_info* chrom_info_ptr, uint32_t unfiltered_marker_ct, uintptr_t* marker_exclude) {
+int32_t single_chrom_start(const Chrom_info* chrom_info_ptr, const uintptr_t* marker_exclude, uint32_t unfiltered_marker_ct) {
   // Assumes there is at least one marker, and there are no split chromosomes.
   // Returns first marker_uidx in chromosome if there is only one, or -1 if
   // there's more than one chromosome.
@@ -4559,7 +4559,7 @@ int32_t single_chrom_start(Chrom_info* chrom_info_ptr, uint32_t unfiltered_marke
 }
 
 #ifdef __cplusplus
-double destructive_get_dmedian(double* unsorted_arr, uintptr_t len) {
+double destructive_get_dmedian(uintptr_t len, double* unsorted_arr) {
   if (!len) {
     return 0.0;
   }
@@ -4573,7 +4573,7 @@ double destructive_get_dmedian(double* unsorted_arr, uintptr_t len) {
   }
 }
 #else
-double get_dmedian(double* sorted_arr, uintptr_t len) {
+double get_dmedian(const double* sorted_arr, uintptr_t len) {
   if (len) {
     if (len % 2) {
       return sorted_arr[len / 2];
@@ -4585,7 +4585,7 @@ double get_dmedian(double* sorted_arr, uintptr_t len) {
   }
 }
 
-double destructive_get_dmedian(double* unsorted_arr, uintptr_t len) {
+double destructive_get_dmedian(uintptr_t len, double* unsorted_arr) {
   // no, I'm not gonna bother reimplementing introselect just for folks who
   // insist on using gcc over g++
   qsort(unsorted_arr, len, sizeof(double), double_cmp);
@@ -4751,7 +4751,7 @@ int32_t strcmp_natural_deref(const void* s1, const void* s2) {
   return strcmp_natural_uncasted(*(unsigned char**)s1, *(unsigned char**)s2);
 }
 
-int32_t get_uidx_from_unsorted(char* idstr, uintptr_t* exclude_arr, uint32_t id_ct, char* unsorted_ids, uintptr_t max_id_len) {
+int32_t get_uidx_from_unsorted(const char* idstr, const uintptr_t* exclude_arr, uint32_t id_ct, const char* unsorted_ids, uintptr_t max_id_len) {
   uintptr_t id_uidx = 0;
   uintptr_t slen_p1 = strlen(idstr) + 1;
   uint32_t id_idx;
@@ -4778,7 +4778,7 @@ char* scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id
   return NULL;
 }
 
-char* scan_for_duplicate_or_overlap_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len, char* sorted_nonoverlap_ids, uintptr_t nonoverlap_id_ct, uintptr_t max_nonoverlap_id_len) {
+char* scan_for_duplicate_or_overlap_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len, const char* sorted_nonoverlap_ids, uintptr_t nonoverlap_id_ct, uintptr_t max_nonoverlap_id_len) {
   // extended scan_for_duplicate_ids() which also verifies that no entry in
   // sorted_ids matches any entry in sorted_nonoverlap_ids.
   // nonoverlap_id_ct == 0 and sorted_nonoverlap_ids == NULL ok.  id_ct cannot
@@ -4786,7 +4786,7 @@ char* scan_for_duplicate_or_overlap_ids(char* sorted_ids, uintptr_t id_ct, uintp
   uintptr_t nonoverlap_id_idx = 0;
   uintptr_t id_idx = 0;
   char* cur_id_ptr = sorted_ids;
-  char* nonoverlap_id_ptr;
+  const char* nonoverlap_id_ptr;
   char* other_id_ptr;
   int32_t ii;
   while (1) {
@@ -4812,7 +4812,7 @@ char* scan_for_duplicate_or_overlap_ids(char* sorted_ids, uintptr_t id_ct, uintp
   }
 }
 
-int32_t is_missing_pheno_cc(char* bufptr, double missing_phenod, uint32_t affection_01) {
+int32_t is_missing_pheno_cc(const char* bufptr, double missing_phenod, uint32_t affection_01) {
   char* ss;
   double dxx;
   dxx = strtod(bufptr, &ss);
@@ -4822,7 +4822,7 @@ int32_t is_missing_pheno_cc(char* bufptr, double missing_phenod, uint32_t affect
   return (!affection_01) && (bufptr[0] == '0') && is_space_or_eoln(bufptr[1]);
 }
 
-int32_t eval_affection(char* bufptr, double missing_phenod) {
+int32_t eval_affection(const char* bufptr, double missing_phenod) {
   // turns out --1 had the side-effect of *forcing* case/control
   // interpretation in 1.07.  We replicate that for backward compatibility, and
   // no longer call this function in that context.
@@ -4860,15 +4860,16 @@ uint32_t triangle_divide(int64_t cur_prod, int32_t modif) {
   return vv;
 }
 
-void parallel_bounds(uint32_t ct, int32_t start, uint32_t parallel_idx, uint32_t parallel_tot, int32_t* bound_start_ptr, int32_t* bound_end_ptr) {
+void parallel_bounds(uint32_t ct, int32_t start, uint32_t parallel_idx, uint32_t parallel_tot, int32_t* __restrict bound_start_ptr, int32_t* __restrict bound_end_ptr) {
   int32_t modif = 1 - start * 2;
   int64_t ct_tot = ((int64_t)ct) * (ct + modif);
   *bound_start_ptr = triangle_divide((ct_tot * parallel_idx) / parallel_tot, modif);
   *bound_end_ptr = triangle_divide((ct_tot * (parallel_idx + 1)) / parallel_tot, modif);
 }
 
+// this might belong in plink_calc instead, not being used anywhere else
 // set align to 1 for no alignment
-void triangle_fill(uint32_t* target_arr, uint32_t ct, uint32_t pieces, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t start, uint32_t align) {
+void triangle_fill(uint32_t ct, uint32_t pieces, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t start, uint32_t align, uint32_t* target_arr) {
   int32_t modif = 1 - start * 2;
   uint32_t cur_piece = 1;
   int64_t ct_tr;
@@ -4904,7 +4905,7 @@ int32_t relationship_req(uint64_t calculation_type) {
   return (calculation_type & (CALC_RELATIONSHIP | CALC_UNRELATED_HERITABILITY | CALC_REL_CUTOFF | CALC_REGRESS_REL | CALC_PCA))? 1 : 0;
 }
 
-int32_t distance_req(uint64_t calculation_type, char* read_dists_fname) {
+int32_t distance_req(const char* read_dists_fname, uint64_t calculation_type) {
   return ((calculation_type & CALC_DISTANCE) || ((calculation_type & (CALC_PLINK1_DISTANCE_MATRIX | CALC_PLINK1_IBS_MATRIX)) && (!(calculation_type & CALC_GENOME))) || ((!read_dists_fname) && (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))));
 }
 
@@ -5043,7 +5044,7 @@ int32_t qsort_ext(char* main_arr, uintptr_t arr_length, uintptr_t item_length, i
   return 0;
 }
 
-int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t collapse_idxs, int(* comparator_deref)(const void*, const void*)) {
+int32_t sort_item_ids_noalloc(uintptr_t unfiltered_ct, const uintptr_t* exclude_arr, uintptr_t item_ct, const char* __restrict item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t collapse_idxs, int(* comparator_deref)(const void*, const void*), char* __restrict sorted_ids, uint32_t* id_map) {
   // Stores a lexicographically sorted list of IDs in sorted_ids and the raw
   // positions of the corresponding markers/samples in *id_map_ptr.  Does not
   // include excluded markers/samples in the list.
@@ -5088,17 +5089,17 @@ int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfi
   return 0;
 }
 
-int32_t sort_item_ids(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t exclude_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t collapse_idxs, int(* comparator_deref)(const void*, const void*)) {
+int32_t sort_item_ids(uintptr_t unfiltered_ct, const uintptr_t* exclude_arr, uintptr_t exclude_ct, const char* __restrict item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t collapse_idxs, int(* comparator_deref)(const void*, const void*), char** sorted_ids_ptr, uint32_t** id_map_ptr) {
   uintptr_t item_ct = unfiltered_ct - exclude_ct;
   // id_map on bottom because --indiv-sort frees *sorted_ids_ptr
   if (bigstack_alloc_ui(item_ct, id_map_ptr) ||
       bigstack_alloc_c(item_ct * max_id_len, sorted_ids_ptr)) {
     return RET_NOMEM;
   }
-  return sort_item_ids_noalloc(*sorted_ids_ptr, *id_map_ptr, unfiltered_ct, exclude_arr, item_ct, item_ids, max_id_len, allow_dups, collapse_idxs, comparator_deref);
+  return sort_item_ids_noalloc(unfiltered_ct, exclude_arr, item_ct, item_ids, max_id_len, allow_dups, collapse_idxs, comparator_deref, *sorted_ids_ptr, *id_map_ptr);
 }
 
-uint32_t uint32arr_greater_than(uint32_t* sorted_uint32_arr, uint32_t arr_length, uint32_t uii) {
+uint32_t uint32arr_greater_than(const uint32_t* sorted_uint32_arr, uint32_t arr_length, uint32_t uii) {
   // assumes arr_length is nonzero, and sorted_uint32_arr is in nondecreasing
   // order.  (useful for searching marker_pos.)
   // uii guaranteed to be larger than sorted_uint32_arr[min_idx - 1] if it
@@ -5124,7 +5125,7 @@ uint32_t uint32arr_greater_than(uint32_t* sorted_uint32_arr, uint32_t arr_length
   }
 }
 
-uint32_t int32arr_greater_than(int32_t* sorted_int32_arr, uint32_t arr_length, int32_t ii) {
+uint32_t int32arr_greater_than(const int32_t* sorted_int32_arr, uint32_t arr_length, int32_t ii) {
   int32_t min_idx = 0;
   int32_t max_idx = arr_length - 1;
   uint32_t mid_idx;
@@ -5143,7 +5144,7 @@ uint32_t int32arr_greater_than(int32_t* sorted_int32_arr, uint32_t arr_length, i
   }
 }
 
-uintptr_t uint64arr_greater_than(uint64_t* sorted_uint64_arr, uintptr_t arr_length, uint64_t ullii) {
+uintptr_t uint64arr_greater_than(const uint64_t* sorted_uint64_arr, uintptr_t arr_length, uint64_t ullii) {
   intptr_t min_idx = 0;
   intptr_t max_idx = arr_length - 1;
   uintptr_t mid_idx;
@@ -5162,7 +5163,7 @@ uintptr_t uint64arr_greater_than(uint64_t* sorted_uint64_arr, uintptr_t arr_leng
   }
 }
 
-uintptr_t doublearr_greater_than(double* sorted_dbl_arr, uintptr_t arr_length, double dxx) {
+uintptr_t doublearr_greater_than(const double* sorted_dbl_arr, uintptr_t arr_length, double dxx) {
   // returns number of items in sorted_dbl_arr which dxx is greater than.
   // assumes array is nonempty and sorted in nondecreasing order
   intptr_t min_idx = 0;
@@ -5183,7 +5184,7 @@ uintptr_t doublearr_greater_than(double* sorted_dbl_arr, uintptr_t arr_length, d
   }
 }
 
-uintptr_t nonincr_doublearr_leq_stride(double* nonincr_dbl_arr, uintptr_t arr_length, uintptr_t stride, double dxx) {
+uintptr_t nonincr_doublearr_leq_stride(const double* nonincr_dbl_arr, uintptr_t arr_length, uintptr_t stride, double dxx) {
   // assumes relevant elements of array are sorted in nonincreasing order
   // instead, and they are spaced stride units apart
   intptr_t min_idx = 0;
@@ -5204,7 +5205,7 @@ uintptr_t nonincr_doublearr_leq_stride(double* nonincr_dbl_arr, uintptr_t arr_le
   }
 }
 
-int32_t bsearch_str(const char* id_buf, uintptr_t cur_id_len, char* lptr, uintptr_t max_id_len, uintptr_t end_idx) {
+int32_t bsearch_str(const char* id_buf, uintptr_t cur_id_len, const char* lptr, uintptr_t max_id_len, uintptr_t end_idx) {
   // does not assume null-terminated id_buf, or nonempty array.
   // N.B. max_id_len includes null terminator as usual, while cur_id_len does
   // NOT.
@@ -5228,7 +5229,7 @@ int32_t bsearch_str(const char* id_buf, uintptr_t cur_id_len, char* lptr, uintpt
   return -1;
 }
 
-int32_t bsearch_str_natural(char* id_buf, char* lptr, uintptr_t max_id_len, uintptr_t end_idx) {
+int32_t bsearch_str_natural(const char* id_buf, const char* lptr, uintptr_t max_id_len, uintptr_t end_idx) {
   // unlike bsearch_str(), caller is responsible for slen > max_id_len check
   // if appropriate here
   uintptr_t start_idx = 0;
@@ -5248,7 +5249,7 @@ int32_t bsearch_str_natural(char* id_buf, char* lptr, uintptr_t max_id_len, uint
   return -1;
 }
 
-uintptr_t bsearch_str_lb(const char* id_buf, uintptr_t cur_id_len, char* lptr, uintptr_t max_id_len, uintptr_t end_idx) {
+uintptr_t bsearch_str_lb(const char* id_buf, uintptr_t cur_id_len, const char* lptr, uintptr_t max_id_len, uintptr_t end_idx) {
   // returns number of elements in lptr[] less than id_buf.
   uintptr_t start_idx = 0;
   uintptr_t mid_idx;
@@ -5266,7 +5267,7 @@ uintptr_t bsearch_str_lb(const char* id_buf, uintptr_t cur_id_len, char* lptr, u
   return start_idx;
 }
 
-uint32_t bsearch_read_fam_indiv(char* id_buf, char* lptr, uintptr_t max_id_len, uintptr_t filter_line_ct, char* read_ptr, char** read_pp_new, int32_t* retval_ptr) {
+uint32_t bsearch_read_fam_indiv(char* __restrict read_ptr, const char* __restrict lptr, uintptr_t max_id_len, uintptr_t filter_line_ct, char** read_pp_new, int32_t* retval_ptr, char* __restrict id_buf) {
   // id_buf = workspace
   // lptr = packed, sorted list of ID strings to search over
   // read_ptr is assumed to point to beginning of FID.  FID is terminated by
@@ -5297,7 +5298,7 @@ uint32_t bsearch_read_fam_indiv(char* id_buf, char* lptr, uintptr_t max_id_len, 
   return 0;
 }
 
-void bsearch_fam(char* id_buf, char* lptr, uintptr_t max_id_len, uint32_t filter_line_ct, char* fam_id, uint32_t* first_idx_ptr, uint32_t* last_idx_ptr) {
+void bsearch_fam(const char* __restrict fam_id, const char* __restrict lptr, uintptr_t max_id_len, uint32_t filter_line_ct, uint32_t* __restrict first_idx_ptr, uint32_t* __restrict last_idx_ptr, char* __restrict id_buf) {
   uint32_t slen;
   uint32_t fidx;
   uint32_t loff;
@@ -5348,11 +5349,11 @@ void bitarr_invert_copy(const uintptr_t* input_bitarr, uintptr_t bit_ct, uintptr
   }
 }
 
-void bitfield_and(uintptr_t* main_vec, uintptr_t* include_vec, uintptr_t word_ct) {
-  // main_vec := main_vec AND include_vec
+void bitvec_and(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec) {
+  // main_bitvec := main_bitvec AND arg_bitvec
 #ifdef __LP64__
-  __m128i* vv128 = (__m128i*)main_vec;
-  __m128i* iv128 = (__m128i*)include_vec;
+  __m128i* vv128 = (__m128i*)main_bitvec;
+  const __m128i* iv128 = (const __m128i*)arg_bitvec;
   __m128i* vv128_end = &(vv128[word_ct / 2]);
   while (vv128 < vv128_end) {
     *vv128 = _mm_and_si128(*iv128++, *vv128);
@@ -5360,23 +5361,22 @@ void bitfield_and(uintptr_t* main_vec, uintptr_t* include_vec, uintptr_t word_ct
   }
   if (word_ct & 1) {
     word_ct--;
-    main_vec[word_ct] &= include_vec[word_ct];
+    main_bitvec[word_ct] &= arg_bitvec[word_ct];
   }
 #else
-  uintptr_t* vec_end = &(main_vec[word_ct]);
-  while (main_vec < vec_end) {
-    *main_vec++ &= *include_vec++;
+  uintptr_t* bitvec_end = &(main_bitvec[word_ct]);
+  while (main_bitvec < bitvec_end) {
+    *main_bitvec++ &= *arg_bitvec++;
   }
 #endif
 }
 
-void bitfield_andnot(uintptr_t* vv, uintptr_t* exclude_vec, uintptr_t word_ct) {
-  // vv := vv ANDNOT exclude_vec
-  // on 64-bit systems, assumes vv and exclude_vec are 16-byte aligned
+void bitvec_andnot(const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec) {
+  // main_bitvec := main_bitvec ANDNOT exclude_bitvec
   // note that this is the reverse of the _mm_andnot() operand order
 #ifdef __LP64__
-  __m128i* vv128 = (__m128i*)vv;
-  __m128i* ev128 = (__m128i*)exclude_vec;
+  __m128i* vv128 = (__m128i*)main_bitvec;
+  const __m128i* ev128 = (const __m128i*)exclude_bitvec;
   __m128i* vv128_end = &(vv128[word_ct / 2]);
   while (vv128 < vv128_end) {
     *vv128 = _mm_andnot_si128(*ev128++, *vv128);
@@ -5384,23 +5384,21 @@ void bitfield_andnot(uintptr_t* vv, uintptr_t* exclude_vec, uintptr_t word_ct) {
   }
   if (word_ct & 1) {
     word_ct--;
-    vv[word_ct] &= ~(exclude_vec[word_ct]);
+    main_bitvec[word_ct] &= ~(exclude_bitvec[word_ct]);
   }
 #else
-  uintptr_t* vec_end = &(vv[word_ct]);
-  while (vv < vec_end) {
-    *vv++ &= ~(*exclude_vec++);
+  uintptr_t* bitvec_end = &(main_bitvec[word_ct]);
+  while (main_bitvec < bitvec_end) {
+    *main_bitvec++ &= ~(*exclude_bitvec++);
   }
 #endif
 }
 
-void bitfield_andnot_reversed_args(uintptr_t* vv, uintptr_t* include_vec, uintptr_t word_ct) {
-  // vv := (~vv) AND include_vec
-  // on 64-bit systems, assumes vv and exclude_vec are 16-byte aligned
-  // assumes word_ct is nonzero
+void bitvec_andnot_reversed_args(const uintptr_t* __restrict include_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec) {
+  // main_bitvec := (~main_bitvec) AND include_bitvec
 #ifdef __LP64__
-  __m128i* vv128 = (__m128i*)vv;
-  __m128i* iv128 = (__m128i*)include_vec;
+  __m128i* vv128 = (__m128i*)main_bitvec;
+  const __m128i* iv128 = (const __m128i*)include_bitvec;
   __m128i* vv128_end = &(vv128[word_ct / 2]);
   while (vv128 < vv128_end) {
     *vv128 = _mm_andnot_si128(*vv128, *iv128++);
@@ -5408,13 +5406,13 @@ void bitfield_andnot_reversed_args(uintptr_t* vv, uintptr_t* include_vec, uintpt
   }
   if (word_ct & 1) {
     word_ct--;
-    vv[word_ct] = (~vv[word_ct]) & include_vec[word_ct];
+    main_bitvec[word_ct] = (~main_bitvec[word_ct]) & include_bitvec[word_ct];
   }
 #else
-  uintptr_t* vec_end = &(vv[word_ct]);
-  while (vv < vec_end) {
-    *vv = (~(*vv)) & (*include_vec++);
-    vv++;
+  uintptr_t* bitvec_end = &(main_bitvec[word_ct]);
+  while (main_bitvec < bitvec_end) {
+    *main_bitvec = (~(*main_bitvec)) & (*include_bitvec++);
+    main_bitvec++;
   }
 #endif
 }
@@ -7762,7 +7760,7 @@ int32_t string_range_list_to_bitfield_alloc(char* header_line, uint32_t item_ct,
   }
   // kludge to use sort_item_ids()
   fill_ulong_zero((uintptr_t*)seen_idxs, BITCT_TO_WORDCT(name_ct));
-  if (sort_item_ids(&sorted_ids, &id_map, name_ct, (uintptr_t*)seen_idxs, 0, range_list_ptr->names, range_list_ptr->name_max_len, 0, 0, strcmp_deref)) {
+  if (sort_item_ids(name_ct, (uintptr_t*)seen_idxs, 0, range_list_ptr->names, range_list_ptr->name_max_len, 0, 0, strcmp_deref, &sorted_ids, &id_map)) {
     return RET_NOMEM;
   }
   fill_int_one(seen_idxs, name_ct);

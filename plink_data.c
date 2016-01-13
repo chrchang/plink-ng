@@ -314,7 +314,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
       if (chrom_error(".map file", chrom_info_ptr, bufptr, line_idx, jj, allow_extra_chroms)) {
         goto load_map_ret_INVALID_FORMAT;
       }
-      retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &jj, line_idx, ".map file");
+      retval = resolve_or_add_chrom_name(bufptr, ".map file", line_idx, chrom_info_ptr, &jj);
       if (retval) {
 	goto load_map_ret_1;
       }
@@ -689,7 +689,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       if (chrom_error(ftype_str, chrom_info_ptr, bufptr3, line_idx, jj, allow_extra_chroms)) {
         goto load_bim_ret_INVALID_FORMAT;
       }
-      retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr3, &jj, line_idx, ftype_str);
+      retval = resolve_or_add_chrom_name(bufptr3, ftype_str, line_idx, chrom_info_ptr, &jj);
       if (retval) {
 	goto load_bim_ret_1;
       }
@@ -1226,6 +1226,8 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	    }
 	  }
 	  ulii = marker_uidx * 2;
+	  // possible todo: warn if a comma is present (could use memchr),
+	  // since that breaks VCF and PLINK 2.0.
 	  if (allele_set(bufptr4, ukk, &(marker_allele_ptrs[ulii]))) {
 	    goto load_bim_ret_NOMEM;
 	  }
@@ -1431,7 +1433,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
 
     // kludge to use sort_item_ids_noalloc()
     fill_ulong_zero((uintptr_t*)covar_name_flag_seen_idxs, BITCT_TO_WORDCT(ulii));
-    retval = sort_item_ids_noalloc(sorted_covar_name_flag_ids, covar_name_flag_id_map, ulii, (uintptr_t*)covar_name_flag_seen_idxs, ulii, covar_range_list_ptr->names, covar_range_list_ptr->name_max_len, 0, 0, strcmp_deref);
+    retval = sort_item_ids_noalloc(ulii, (const uintptr_t*)covar_name_flag_seen_idxs, ulii, covar_range_list_ptr->names, covar_range_list_ptr->name_max_len, 0, 0, strcmp_deref, sorted_covar_name_flag_ids, covar_name_flag_id_map);
     if (retval) {
       if (retval == RET_INVALID_FORMAT) {
 	logprint("(in --covar-name parameter sequence)\n");
@@ -1441,7 +1443,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
     }
     fill_int_one(covar_name_flag_seen_idxs, ulii);
   }
-  retval = sort_item_ids_noalloc(sorted_ids, id_map, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, 0, 1, strcmp_deref);
+  retval = sort_item_ids_noalloc(unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, 0, 1, strcmp_deref, sorted_ids, id_map);
   if (retval) {
     goto load_covars_ret_1;
   }
@@ -1649,7 +1651,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    if (bsearch_read_fam_indiv(g_textbuf, sorted_ids, max_sample_id_len, sample_ct, bufptr, &bufptr2, &ii)) {
+    if (bsearch_read_fam_indiv(bufptr, sorted_ids, max_sample_id_len, sample_ct, &bufptr2, &ii, g_textbuf)) {
       goto load_covars_ret_MISSING_TOKENS;
     }
     if (ii == -1) {
@@ -2531,7 +2533,7 @@ int32_t write_map_or_bim(char* outname, uintptr_t* marker_exclude, uintptr_t mar
     while (marker_uidx >= chrom_end) {
       chrom_idx = chrom_info_ptr->chrom_file_order[++chrom_fo_idx];
       chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
-      buf_start = chrom_name_write(g_textbuf, chrom_info_ptr, chrom_idx);
+      buf_start = chrom_name_write(chrom_info_ptr, chrom_idx, g_textbuf);
       *buf_start++ = delim;
     }
     bufptr = strcpyax(buf_start, &(marker_ids[marker_uidx * max_marker_id_len]), delim);
@@ -2736,7 +2738,7 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
 	sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of --update-chr file.\n", line_idx);
 	goto update_marker_chroms_ret_INVALID_FORMAT_2;
       }
-      retval = resolve_or_add_chrom_name(chrom_info_ptr, colx_ptr, &sorted_idx, line_idx, "--update-chr file");
+      retval = resolve_or_add_chrom_name(colx_ptr, "--update-chr file", line_idx, chrom_info_ptr, &sorted_idx);
       if (retval) {
 	goto update_marker_chroms_ret_1;
       }
@@ -2880,7 +2882,7 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
   for (uii = 0; uii < chrom_ct; uii++) {
     cur_chrom = chrom_id[uii];
     ujj = chrom_start[uii + 1];
-    chrom_name_end = chrom_name_write(g_textbuf, chrom_info_ptr, cur_chrom);
+    chrom_name_end = chrom_name_write(chrom_info_ptr, cur_chrom, g_textbuf);
     *chrom_name_end++ = '\t';
     for (; marker_idx < ujj; marker_idx++) {
       marker_uidx = unpack_map[(uint32_t)ll_buf[marker_idx]];
@@ -2993,7 +2995,7 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
   for (uii = 0; uii < chrom_ct; uii++) {
     cur_chrom = chrom_id[uii];
     ujj = chrom_start[uii + 1];
-    bufptr0 = chrom_name_write(g_textbuf, chrom_info_ptr, cur_chrom);
+    bufptr0 = chrom_name_write(chrom_info_ptr, cur_chrom, g_textbuf);
     *bufptr0++ = '\t';
     for (; marker_idx < ujj; marker_idx++) {
       marker_idx2 = (uint32_t)ll_buf[marker_idx];
@@ -3100,7 +3102,7 @@ int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t un
     goto flip_subset_init_ret_READ_FAIL;
   }
   bigstack_reset(bigstack_mark);
-  retval = sort_item_ids(&sorted_sample_ids, &sample_id_map, unfiltered_sample_ct, sample_exclude, unfiltered_sample_ct - sample_ct, sample_ids, max_sample_id_len, 0, 1, strcmp_deref);
+  retval = sort_item_ids(unfiltered_sample_ct, sample_exclude, unfiltered_sample_ct - sample_ct, sample_ids, max_sample_id_len, 0, 1, strcmp_deref, &sorted_sample_ids, &sample_id_map);
   if (retval) {
     goto flip_subset_init_ret_1;
   }
@@ -3128,7 +3130,7 @@ int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t un
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    if (bsearch_read_fam_indiv(id_buf, sorted_sample_ids, max_sample_id_len, sample_ct, bufptr, NULL, &sorted_idx) || (sorted_idx == -1)) {
+    if (bsearch_read_fam_indiv(bufptr, sorted_sample_ids, max_sample_id_len, sample_ct, NULL, &sorted_idx, id_buf) || (sorted_idx == -1)) {
       miss_ct++;
       continue;
     }
@@ -3616,7 +3618,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
       } else if (!set_hh_missing) {
 	hh_exists = 0;
       }
-      if (alloc_collapsed_haploid_filters(unfiltered_sample_ct, sample_ct, fill_missing_a2? Y_FIX_NEEDED : hh_exists, 0, sample_exclude, sex_male, &sample_include2, &sample_male_include2)) {
+      if (alloc_collapsed_haploid_filters(sample_exclude, sex_male, unfiltered_sample_ct, sample_ct, fill_missing_a2? Y_FIX_NEEDED : hh_exists, 0, &sample_include2, &sample_male_include2)) {
 	goto make_bed_ret_NOMEM;
       }
       if (set_me_missing) {
@@ -4499,7 +4501,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	    }
 	    goto oxford_to_bed_ret_INVALID_FORMAT;
 	  }
-	  retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii, line_idx, ".gen file");
+	  retval = resolve_or_add_chrom_name(bufptr, ".gen file", line_idx, chrom_info_ptr, &ii);
 	  if (retval) {
 	    goto oxford_to_bed_ret_1;
 	  }
@@ -4847,7 +4849,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	  if (chrom_error(".bgen file", chrom_info_ptr, bufptr2, 0, ii, allow_extra_chroms)) {
             goto oxford_to_bed_ret_INVALID_FORMAT;
 	  }
-	  retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr2, &ii, 0, ".bgen file");
+	  retval = resolve_or_add_chrom_name(bufptr2, ".bgen file", 0, chrom_info_ptr, &ii);
           if (retval) {
 	    goto oxford_to_bed_ret_1;
 	  }
@@ -4964,7 +4966,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	    if (chrom_error(".bgen file", chrom_info_ptr, bufptr, 0, ii, allow_extra_chroms)) {
 	      goto oxford_to_bed_ret_INVALID_FORMAT;
 	    }
-	    retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii, 0, ".bgen file");
+	    retval = resolve_or_add_chrom_name(bufptr, ".bgen file", 0, chrom_info_ptr, &ii);
 	    if (retval) {
 	      goto oxford_to_bed_ret_1;
 	    }
@@ -5991,7 +5993,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       if (chrom_error(".map file", chrom_info_ptr, col1_ptr, line_idx, ii, allow_extra_chroms)) {
 	goto ped_to_bed_ret_INVALID_FORMAT;
       }
-      retval = resolve_or_add_chrom_name(chrom_info_ptr, col1_ptr, &ii, line_idx, ".map file");
+      retval = resolve_or_add_chrom_name(col1_ptr, ".map file", line_idx, chrom_info_ptr, &ii);
       if (retval) {
 	goto ped_to_bed_ret_1;
       }
@@ -6614,7 +6616,7 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
     goto lgen_to_bed_ret_1;
   }
   marker_ct = unfiltered_marker_ct - marker_exclude_ct;
-  retval = sort_item_ids(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
+  retval = sort_item_ids(unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref, &sorted_marker_ids, &marker_id_map);
   if (retval) {
     goto lgen_to_bed_ret_1;
   }
@@ -6784,7 +6786,7 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
       if (is_eoln_kns(*cptr)) {
 	continue;
       }
-      if (bsearch_read_fam_indiv(id_buf, sorted_sample_ids, max_sample_id_len, sample_ct, cptr, &cptr3, &ii) || is_eoln_kns(*cptr3)) {
+      if (bsearch_read_fam_indiv(cptr, sorted_sample_ids, max_sample_id_len, sample_ct, &cptr3, &ii, id_buf) || is_eoln_kns(*cptr3)) {
 	goto lgen_to_bed_ret_MISSING_TOKENS;
       }
       if (ii == -1) {
@@ -6920,7 +6922,7 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
       if (is_eoln_kns(*cptr)) {
 	continue;
       }
-      if (bsearch_read_fam_indiv(id_buf, sorted_sample_ids, max_sample_id_len, sample_ct, cptr, &cptr3, &ii) || is_eoln_kns(*cptr3)) {
+      if (bsearch_read_fam_indiv(cptr, sorted_sample_ids, max_sample_id_len, sample_ct, &cptr3, &ii, id_buf) || is_eoln_kns(*cptr3)) {
 	goto lgen_to_bed_ret_MISSING_TOKENS;
       }
       if (ii == -1) {
@@ -7395,7 +7397,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       if (chrom_error(".tped file", chrom_info_ptr, cptr, line_idx, ii, allow_extra_chroms)) {
 	goto transposed_to_bed_ret_INVALID_FORMAT;
       }
-      retval = resolve_or_add_chrom_name(chrom_info_ptr, cptr, &ii, line_idx, ".tped file");
+      retval = resolve_or_add_chrom_name(cptr, ".tped file", line_idx, chrom_info_ptr, &ii);
       if (retval) {
 	goto transposed_to_bed_ret_1;
       }
@@ -7779,7 +7781,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     for (uii = 0; uii < chrom_ct; uii++) {
       cur_chrom = chrom_id[uii];
       ujj = chrom_start[uii + 1];
-      cptr2 = chrom_name_write(&(g_textbuf[MAXLINELEN]), chrom_info_ptr, cur_chrom);
+      cptr2 = chrom_name_write(chrom_info_ptr, cur_chrom, &(g_textbuf[MAXLINELEN]));
       *cptr2++ = '\t';
       for (; marker_idx < ujj; marker_idx++) {
 	marker_uidx = (uint32_t)ll_buf[marker_idx];
@@ -8299,7 +8301,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       if (chrom_error(".vcf file", chrom_info_ptr, bufptr, line_idx, ii, allow_extra_chroms)) {
 	goto vcf_to_bed_ret_INVALID_FORMAT;
       }
-      retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii, line_idx, ".vcf file");
+      retval = resolve_or_add_chrom_name(bufptr, ".vcf file", line_idx, chrom_info_ptr, &ii);
       if (retval) {
 	logprint("\n");
         goto vcf_to_bed_ret_1;
@@ -9352,7 +9354,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       if (chrom_error(".bcf file", chrom_info_ptr, contig_list->ss, 0, ii, allow_extra_chroms)) {
 	goto bcf_to_bed_ret_INVALID_FORMAT;
       }
-      retval = resolve_or_add_chrom_name(chrom_info_ptr, contig_list->ss, &ii, 0, ".bcf file");
+      retval = resolve_or_add_chrom_name(contig_list->ss, ".bcf file", 0, chrom_info_ptr, &ii);
       if (retval) {
         goto bcf_to_bed_ret_1;
       }
@@ -11697,7 +11699,7 @@ int32_t recode_beagle_new_chrom(char* outname, char* outname_end2, uintptr_t* ma
     return 0;
   }
 
-  wbufptr = chrom_name_write(outname_end2, chrom_info_ptr, chrom_idx);
+  wbufptr = chrom_name_write(chrom_info_ptr, chrom_idx, outname_end2);
   memcpy(wbufptr, ".dat", 5);
   if (fopen_checked(outname, "w", datfile_ptr)) {
     goto recode_beagle_new_chrom_ret_OPEN_FAIL;
@@ -12038,7 +12040,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     if (recode_modifier & (RECODE_23 | RECODE_A_TRANSPOSE | RECODE_BEAGLE | RECODE_BEAGLE_NOMAP | RECODE_BIMBAM | RECODE_BIMBAM_1CHR | RECODE_LGEN | RECODE_LGEN_REF | RECODE_LIST | RECODE_OXFORD | RECODE_RLIST | RECODE_TRANSPOSE | RECODE_VCF)) {
       // SNP-major and no need for sample_uidx in inner loop, so we can use
       // collapsed representation
-      if (alloc_collapsed_haploid_filters(unfiltered_sample_ct, sample_ct, hh_exists | ((recode_modifier & RECODE_VCF)? XMHH_EXISTS : 0), 0, sample_exclude, sex_male, &sample_include2, &sample_male_include2)) {
+      if (alloc_collapsed_haploid_filters(sample_exclude, sex_male, unfiltered_sample_ct, sample_ct, hh_exists | ((recode_modifier & RECODE_VCF)? XMHH_EXISTS : 0), 0, &sample_include2, &sample_male_include2)) {
 	goto recode_ret_NOMEM;
       }
     } else {
@@ -12514,7 +12516,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     cur_mk_allelesx[1][3] = output_missing_geno;
     cmalen[1] = 4;
 
-    cptr = chrom_name_write(g_textbuf, chrom_info_ptr, chrom_idx);
+    cptr = chrom_name_write(chrom_info_ptr, chrom_idx, g_textbuf);
     *cptr++ = delimiter;
     for (pct = 1; pct <= 100; pct++) {
       loop_end = (((uint64_t)pct) * marker_ct) / 100;
@@ -12529,7 +12531,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  chrom_fo_idx++;
 	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
 	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-	  cptr = chrom_name_write(g_textbuf, chrom_info_ptr, chrom_idx);
+	  cptr = chrom_name_write(chrom_info_ptr, chrom_idx, g_textbuf);
 	  *cptr++ = delimiter;
 	}
 	wbufptr = strcpyax(cptr, &(marker_ids[marker_uidx * max_marker_id_len]), delimiter);
@@ -12611,7 +12613,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     LOGPRINTFWW5("--recode A-transpose to %s ... ", outname);
     fputs("0%", stdout);
     fflush(stdout);
-    cptr = chrom_name_write(g_textbuf, chrom_info_ptr, chrom_idx);
+    cptr = chrom_name_write(chrom_info_ptr, chrom_idx, g_textbuf);
     *cptr++ = delimiter;
     for (pct = 1; pct <= 100; pct++) {
       loop_end = (((uint64_t)pct) * marker_ct) / 100;
@@ -12626,7 +12628,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  chrom_fo_idx++;
 	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
 	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-	  cptr = chrom_name_write(g_textbuf, chrom_info_ptr, chrom_idx);
+	  cptr = chrom_name_write(chrom_info_ptr, chrom_idx, g_textbuf);
 	  *cptr++ = delimiter;
 	}
 	wbufptr = strcpyax(cptr, &(marker_ids[marker_uidx * max_marker_id_len]), delimiter);
@@ -12734,7 +12736,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       if (!IS_SET(chrom_info_ptr->chrom_mask, chrom_idx)) {
 	continue;
       }
-      cptr = chrom_name_write(&(g_textbuf[13]), chrom_info_ptr, chrom_idx);
+      cptr = chrom_name_write(chrom_info_ptr, chrom_idx, &(g_textbuf[13]));
       if ((g_textbuf[13] == '0') && (cptr == &(g_textbuf[14]))) {
 	if (uii) {
 	  continue;
@@ -12833,7 +12835,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	    uii = 4;
 	  }
 	}
-	wbufptr = chrom_name_write(&(g_textbuf[1]), chrom_info_ptr, chrom_idx);
+	wbufptr = chrom_name_write(chrom_info_ptr, chrom_idx, &(g_textbuf[1]));
 	*wbufptr++ = '\t';
 	wbufptr = uint32toa_x(marker_pos[marker_uidx], '\t', wbufptr);
 	wbufptr = strcpyax(wbufptr, &(marker_ids[marker_uidx * max_marker_id_len]), '\t');
@@ -12979,7 +12981,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  // not clear from documentation whether anything special should be
 	  // done for Y/haploid chromosomes
 	}
-	pzwritep = chrom_name_write(pzwritep, chrom_info_ptr, chrom_idx);
+	pzwritep = chrom_name_write(chrom_info_ptr, chrom_idx, pzwritep);
 	*pzwritep++ = ' ';
 	pzwritep = strcpyax(pzwritep, &(marker_ids[marker_uidx * max_marker_id_len]), ' ');
 	pzwritep = uint32toa_x(marker_pos[marker_uidx], ' ', pzwritep);
@@ -13283,7 +13285,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	logerrprint("Error: No variants for --recode bimbam-1chr.\n");
 	goto recode_ret_ALL_MARKERS_EXCLUDED;
       }
-      ii = single_chrom_start(chrom_info_ptr, unfiltered_marker_ct, marker_exclude);
+      ii = single_chrom_start(chrom_info_ptr, marker_exclude, unfiltered_marker_ct);
       if (ii == -1) {
         logerrprint("Error: --recode bimbam-1chr requires a single-chromosome dataset.  Did you mean\n'--recode bimbam'?  (Note the lack of a dash in the middle.)\n");
         goto recode_ret_INVALID_CMDLINE;
@@ -13313,7 +13315,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
           chrom_end = chrom_info_ptr->chrom_end[chrom_idx];
 	}
         *wbufptr++ = ' ';
-        wbufptr = chrom_name_write(wbufptr, chrom_info_ptr, chrom_idx);
+        wbufptr = chrom_name_write(chrom_info_ptr, chrom_idx, wbufptr);
       }
       *wbufptr++ = '\n';
       if (fwrite_checked(writebuf2, wbufptr - writebuf2, outfile)) {
@@ -13483,7 +13485,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       ulii = count_chrom_markers(chrom_info_ptr, chrom_idx, marker_exclude);
       if (recode_modifier & RECODE_FASTPHASE) {
-        wbufptr = chrom_name_write(&(outname_end[5]), chrom_info_ptr, chrom_idx);
+        wbufptr = chrom_name_write(chrom_info_ptr, chrom_idx, &(outname_end[5]));
         if (chrom_idx <= chrom_info_ptr->max_code) {
           printf("\b\b%u] \b", chrom_idx);
 	} else {
@@ -13905,7 +13907,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	for (ulii = 0; ulii < 4; ulii++) {
 	  wbufptr = writebufl[ulii];
 	  if (!rlist) {
-	    wbufptr = chrom_name_write(wbufptr, chrom_info_ptr, chrom_idx);
+	    wbufptr = chrom_name_write(chrom_info_ptr, chrom_idx, wbufptr);
 	    *wbufptr++ = delimiter;
 	  }
 	  wbufptr = memcpyax(wbufptr, aptr, alen, delimiter);
@@ -14044,7 +14046,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       ulii = count_chrom_markers(chrom_info_ptr, chrom_idx, marker_exclude);
       if (recode_modifier & RECODE_HV) {
-        wbufptr = chrom_name_write(&(outname_end[5]), chrom_info_ptr, chrom_idx);
+        wbufptr = chrom_name_write(chrom_info_ptr, chrom_idx, &(outname_end[5]));
         if (chrom_idx <= chrom_info_ptr->max_code) {
           printf("\b\b%u] \b", chrom_idx);
         } else {
@@ -14339,7 +14341,7 @@ int32_t sample_sort_file_map(char* sample_sort_fname, uintptr_t unfiltered_sampl
     goto sample_sort_file_map_ret_NOMEM;
   }
   if (sample_exclude) {
-    retval = sort_item_ids(&sorted_sample_ids, &sample_id_map, unfiltered_sample_ct, sample_exclude, unfiltered_sample_ct - sample_ct, sample_ids, max_sample_id_len, 0, 0, strcmp_deref);
+    retval = sort_item_ids(unfiltered_sample_ct, sample_exclude, unfiltered_sample_ct - sample_ct, sample_ids, max_sample_id_len, 0, 0, strcmp_deref, &sorted_sample_ids, &sample_id_map);
     if (retval) {
       goto sample_sort_file_map_ret_1;
     }
@@ -14358,7 +14360,7 @@ int32_t sample_sort_file_map(char* sample_sort_fname, uintptr_t unfiltered_sampl
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    if (bsearch_read_fam_indiv(idbuf, sorted_sample_ids, max_sample_id_len, sample_ct, bufptr, NULL, &ii)) {
+    if (bsearch_read_fam_indiv(bufptr, sorted_sample_ids, max_sample_id_len, sample_ct, NULL, &ii, idbuf)) {
       sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --indiv-sort file has fewer tokens than expected.\n", line_idx);
       goto sample_sort_file_map_ret_INVALID_FORMAT_2;
     }
@@ -14747,7 +14749,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uint32_t allow_no_vari
       if (chrom_error(bimname, chrom_info_ptr, bufptr, line_idx, ii, allow_extra_chroms)) {
 	goto merge_bim_scan_ret_INVALID_FORMAT;
       }
-      retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii, line_idx, bimname);
+      retval = resolve_or_add_chrom_name(bufptr, bimname, line_idx, chrom_info_ptr, &ii);
       if (retval) {
 	goto merge_bim_scan_ret_1;
       }
@@ -16599,7 +16601,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       ukk = chrom_id[ulii];
       for (; ujj < uii; ujj++) {
 	umm = map_reverse[ujj];
-	bufptr = chrom_name_write(g_textbuf, chrom_info_ptr, ukk);
+	bufptr = chrom_name_write(chrom_info_ptr, ukk, g_textbuf);
 	fwrite(g_textbuf, 1, bufptr - g_textbuf, outfile);
 	if (keep_allele_order || (!IS_SET(reversed, ujj))) {
 	  bufptr = marker_allele_ptrs[2 * umm];

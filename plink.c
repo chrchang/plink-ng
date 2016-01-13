@@ -104,7 +104,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (11 Jan 2016)";
+  " (12 Jan 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -630,7 +630,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 
       if (phenofile || update_ids_fname || update_parents_fname || update_sex_fname || (filter_flags & FILTER_TAIL_PHENO)) {
 	bigstack_mark = g_bigstack_base;
-	retval = sort_item_ids(&cptr, &uiptr, unfiltered_sample_ct, sample_exclude, 0, sample_ids, max_sample_id_len, 0, 0, strcmp_deref);
+	retval = sort_item_ids(unfiltered_sample_ct, sample_exclude, 0, sample_ids, max_sample_id_len, 0, 0, strcmp_deref, &cptr, &uiptr);
 	if (retval) {
 	  goto plink_ret_1;
 	}
@@ -939,7 +939,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 
   if (unfiltered_sample_ct && (update_ids_fname || update_parents_fname || update_sex_fname || keepname || keepfamname || removename || removefamname || filter_attrib_sample_fname || om_ip->marker_fname || filtername)) {
     bigstack_mark = g_bigstack_base;
-    retval = sort_item_ids(&cptr, &uiptr, unfiltered_sample_ct, sample_exclude, 0, sample_ids, max_sample_id_len, 0, 0, strcmp_deref);
+    retval = sort_item_ids(unfiltered_sample_ct, sample_exclude, 0, sample_ids, max_sample_id_len, 0, 0, strcmp_deref, &cptr, &uiptr);
     if (retval) {
       goto plink_ret_1;
     }
@@ -949,7 +949,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	goto plink_ret_1;
       }
       bigstack_reset(g_bigstack_base);
-      retval = sort_item_ids(&cptr, &uiptr, unfiltered_sample_ct, sample_exclude, 0, sample_ids, max_sample_id_len, 0, 0, strcmp_deref);
+      retval = sort_item_ids(unfiltered_sample_ct, sample_exclude, 0, sample_ids, max_sample_id_len, 0, 0, strcmp_deref, &cptr, &uiptr);
       if (retval) {
 	goto plink_ret_1;
       }
@@ -1037,7 +1037,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	} else {
 	  // either --must-have-sex without --allow-no-sex, or no data
 	  // generation command
-	  bitfield_and(pheno_nm, sex_nm, unfiltered_sample_ctl);
+	  bitvec_and(sex_nm, unfiltered_sample_ctl, pheno_nm);
 	}
       }
       if (uii || pheno_all || loop_assoc_fname) {
@@ -1127,7 +1127,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       goto plink_ret_ALL_SAMPLES_EXCLUDED;
     }
 
-    if ((sample_ct < 2) && (relationship_or_ibc_req(calculation_type) || distance_req(calculation_type, read_dists_fname) || (calculation_type & (CALC_GENOME | CALC_CLUSTER | CALC_NEIGHBOR)))) {
+    if ((sample_ct < 2) && (relationship_or_ibc_req(calculation_type) || distance_req(read_dists_fname, calculation_type) || (calculation_type & (CALC_GENOME | CALC_CLUSTER | CALC_NEIGHBOR)))) {
       sprintf(g_logbuf, "Error: At least 2 %s required for pairwise analysis.\n", g_species_plural);
       goto plink_ret_INVALID_CMDLINE_2;
     }
@@ -1180,7 +1180,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     }
 
     if (sample_sort & (SAMPLE_SORT_NATURAL | SAMPLE_SORT_ASCII)) {
-      retval = sort_item_ids(&cptr, &uiptr, unfiltered_sample_ct, sample_exclude, sample_exclude_ct, sample_ids, max_sample_id_len, 0, 0, (sample_sort & SAMPLE_SORT_NATURAL)? strcmp_natural_deref : strcmp_deref);
+      retval = sort_item_ids(unfiltered_sample_ct, sample_exclude, sample_exclude_ct, sample_ids, max_sample_id_len, 0, 0, (sample_sort & SAMPLE_SORT_NATURAL)? strcmp_natural_deref : strcmp_deref, &cptr, &uiptr);
       if (retval) {
 	goto plink_ret_1;
       }
@@ -1222,16 +1222,16 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
     }
 
-    bitfield_andnot(pheno_nm, sample_exclude, unfiltered_sample_ctl);
+    bitvec_andnot(sample_exclude, unfiltered_sample_ctl, pheno_nm);
     if (pheno_c) {
-      bitfield_and(pheno_c, pheno_nm, unfiltered_sample_ctl);
+      bitvec_and(pheno_nm, unfiltered_sample_ctl, pheno_c);
     }
-    bitfield_andnot(founder_info, sample_exclude, unfiltered_sample_ctl);
-    bitfield_andnot(sex_nm, sample_exclude, unfiltered_sample_ctl);
+    bitvec_andnot(sample_exclude, unfiltered_sample_ctl, founder_info);
+    bitvec_andnot(sample_exclude, unfiltered_sample_ctl, sex_nm);
     if (gender_unk_ct) {
       gender_unk_ct = sample_ct - popcount_longs(sex_nm, unfiltered_sample_ctl);
     }
-    bitfield_and(sex_male, sex_nm, unfiltered_sample_ctl);
+    bitvec_and(sex_nm, unfiltered_sample_ctl, sex_male);
 
     pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_sample_ctl);
     if (!pheno_nm_ct) {
@@ -1362,14 +1362,14 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	if (fam_ip->mendel_modifier & MENDEL_FILTER) {
 	  // gah
 	  sample_ct = unfiltered_sample_ct - sample_exclude_ct;
-	  bitfield_andnot(founder_info, sample_exclude, unfiltered_sample_ctl);
-	  bitfield_andnot(sex_nm, sample_exclude, unfiltered_sample_ctl);
-	  bitfield_and(sex_male, sex_nm, unfiltered_sample_ctl);
+	  bitvec_andnot(sample_exclude, unfiltered_sample_ctl, founder_info);
+	  bitvec_andnot(sample_exclude, unfiltered_sample_ctl, sex_nm);
+	  bitvec_and(sex_nm, unfiltered_sample_ctl, sex_male);
 	  if (pheno_nm_ct) {
-	    bitfield_andnot(pheno_nm, sample_exclude, unfiltered_sample_ctl);
+	    bitvec_andnot(sample_exclude, unfiltered_sample_ctl, pheno_nm);
 	    pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_sample_ctl);
 	    if (pheno_c) {
-	      bitfield_and(pheno_c, pheno_nm, unfiltered_sample_ctl);
+	      bitvec_and(pheno_nm, unfiltered_sample_ctl, pheno_c);
 	      pheno_ctrl_ct = pheno_nm_ct - popcount_longs(pheno_c, unfiltered_sample_ctl);
 	    }
 	  }
@@ -1450,7 +1450,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	}
 	if ((!pca_sample_exclude) && (sample_ct != unfiltered_sample_ct + sample_exclude_ct)) {
 	  sample_ct = unfiltered_sample_ct - sample_exclude_ct;
-	  if ((sample_ct < 2) && (distance_req(calculation_type, read_dists_fname) || (calculation_type & (CALC_REGRESS_REL | CALC_PCA | CALC_GENOME | CALC_CLUSTER | CALC_NEIGHBOR)))) {
+	  if ((sample_ct < 2) && (distance_req(read_dists_fname, calculation_type) || (calculation_type & (CALC_REGRESS_REL | CALC_PCA | CALC_GENOME | CALC_CLUSTER | CALC_NEIGHBOR)))) {
 	    // pathological case
 	    sprintf(g_logbuf, "Error: Too many %s pruned for additional pairwise analysis steps.\n", g_species_plural);
 	    goto plink_ret_INVALID_CMDLINE_2;
@@ -1458,14 +1458,14 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	}
 	if (calculation_type & CALC_REL_CUTOFF) {
 	  // ugh, probably better to just stop supporting this
-	  bitfield_andnot(founder_info, sample_exclude, unfiltered_sample_ctl);
-	  bitfield_andnot(sex_nm, sample_exclude, unfiltered_sample_ctl);
-	  bitfield_and(sex_male, sex_nm, unfiltered_sample_ctl);
+	  bitvec_andnot(sample_exclude, unfiltered_sample_ctl, founder_info);
+	  bitvec_andnot(sample_exclude, unfiltered_sample_ctl, sex_nm);
+	  bitvec_and(sex_nm, unfiltered_sample_ctl, sex_male);
 	  if (pheno_nm_ct) {
-	    bitfield_andnot(pheno_nm, sample_exclude, unfiltered_sample_ctl);
+	    bitvec_andnot(sample_exclude, unfiltered_sample_ctl, pheno_nm);
 	    pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_sample_ctl);
 	    if (pheno_c) {
-	      bitfield_and(pheno_c, pheno_nm, unfiltered_sample_ctl);
+	      bitvec_and(pheno_nm, unfiltered_sample_ctl, pheno_c);
 	      pheno_ctrl_ct = pheno_nm_ct - popcount_longs(pheno_c, unfiltered_sample_ctl);
 	    }
 	  }
@@ -1568,7 +1568,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	goto plink_ret_NOMEM;
       }
       memcpy(pheno_nm_datagen, pheno_nm, unfiltered_sample_ctl * sizeof(intptr_t));
-      bitfield_and(pheno_nm_datagen, sex_nm, unfiltered_sample_ctl);
+      bitvec_and(sex_nm, unfiltered_sample_ctl, pheno_nm_datagen);
     }
     if (covar_ct && (calculation_type & (CALC_WRITE_COVAR | CALC_MAKE_BED | CALC_MAKE_FAM | CALC_RECODE)) && sample_ct) {
       retval = write_covars(outname, outname_end, write_covar_modifier, write_covar_dummy_max_categories, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm_datagen? pheno_nm_datagen : pheno_nm, pheno_c, pheno_d, missing_phenod, output_missing_pheno, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d);
@@ -1766,7 +1766,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     goto plink_ret_1;
   }
   */
-  if (distance_req(calculation_type, read_dists_fname)) {
+  if (distance_req(read_dists_fname, calculation_type)) {
     retval = calc_distance(threads, parallel_idx, parallel_tot, bedfile, bed_offset, outname, outname_end, read_dists_fname, distance_wts_fname, distance_exp, calculation_type, dist_calc_type, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, set_allele_freqs, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, chrom_info_ptr);
     if (retval) {
       goto plink_ret_1;
@@ -1901,7 +1901,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
     } else {
       bigstack_mark = g_bigstack_base;
-      retval = sort_item_ids(&cptr, &uiptr, unfiltered_sample_ct, sample_exclude, sample_exclude_ct, sample_ids, max_sample_id_len, 0, 0, strcmp_deref);
+      retval = sort_item_ids(unfiltered_sample_ct, sample_exclude, sample_exclude_ct, sample_ids, max_sample_id_len, 0, 0, strcmp_deref, &cptr, &uiptr);
       if (retval) {
 	goto plink_ret_1;
       }
@@ -1954,9 +1954,9 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	} else if (retval) {
 	  goto plink_ret_1;
 	}
-	bitfield_andnot(pheno_nm, sample_exclude, unfiltered_sample_ctl);
+	bitvec_andnot(sample_exclude, unfiltered_sample_ctl, pheno_nm);
 	if (gender_unk_ct && (!(sex_missing_pheno & ALLOW_NO_SEX))) {
-	  bitfield_and(pheno_nm, sex_nm, unfiltered_sample_ctl);
+	  bitvec_and(sex_nm, unfiltered_sample_ctl, pheno_nm);
 	}
 	pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_sample_ctl);
 	if (!pheno_nm_ct) {
@@ -1971,7 +1971,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
       *outname_end2 = '\0';
       if (pheno_c) {
-	bitfield_and(pheno_c, pheno_nm, unfiltered_sample_ctl);
+	bitvec_and(pheno_nm, unfiltered_sample_ctl, pheno_c);
         ujj = popcount_longs(pheno_c, unfiltered_sample_ctl);
 	ukk = pheno_nm_ct - ujj;
 	ulii = unfiltered_sample_ct - sample_exclude_ct - pheno_nm_ct;

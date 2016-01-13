@@ -127,7 +127,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
 	  sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, cift_str);
 	  goto cnv_intersect_load_ret_INVALID_FORMAT_2;
 	}
-        retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii, line_idx, cift_str);
+        retval = resolve_or_add_chrom_name(bufptr, cift_str, line_idx, chrom_info_ptr, &ii);
 	if (retval) {
 	  goto cnv_intersect_load_ret_1;
 	}
@@ -431,7 +431,7 @@ uint32_t is_cnv_overlap(uint32_t start_pos, uint32_t end_pos, uint32_t overlap_t
 }
 
 int32_t cnv_make_map_write(FILE* new_mapfile, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t bp_pos, uintptr_t* max_marker_id_len_ptr) {
-  char* wptr = chrom_name_write(g_textbuf, chrom_info_ptr, chrom_idx);
+  char* wptr = chrom_name_write(chrom_info_ptr, chrom_idx, g_textbuf);
   char* wptr2 = memcpya(wptr, "\tp", 2);
   uintptr_t cur_marker_id_len;
   // this just needs to be an arbitrary unique name, so it's fine if we don't
@@ -515,7 +515,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
 	  sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of .cnv file.\n", line_idx);
           goto cnv_make_map_ret_INVALID_FORMAT_2N;
 	}
-        retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii, line_idx, ".cnv file");
+        retval = resolve_or_add_chrom_name(bufptr, ".cnv file", line_idx, chrom_info_ptr, &ii);
 	if (retval) {
 	  goto cnv_make_map_ret_1;
 	}
@@ -743,7 +743,7 @@ int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, int32_t* marker_pos_
 	sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of .cnv.map file.\n", line_idx);
 	goto validate_cnv_map_ret_INVALID_FORMAT_2;
       }
-      retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii, line_idx, ".cnv.map file");
+      retval = resolve_or_add_chrom_name(bufptr, ".cnv.map file", line_idx, chrom_info_ptr, &ii);
       if (retval) {
 	goto validate_cnv_map_ret_1;
       }

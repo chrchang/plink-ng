@@ -275,7 +275,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
       goto load_clusters_ret_NOMEM;
     }
     bigstack_end_mark2 = (unsigned char*)id_map;
-    retval = sort_item_ids_noalloc(sorted_ids, id_map, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, 0, 0, strcmp_deref);
+    retval = sort_item_ids_noalloc(unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, 0, 0, strcmp_deref, sorted_ids, id_map);
     if (retval) {
       goto load_clusters_ret_1;
     }
@@ -303,7 +303,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
       if (is_eoln_kns(*fam_id)) {
 	continue;
       }
-      if (bsearch_read_fam_indiv(idbuf, sorted_ids, max_sample_id_len, sample_ct, fam_id, &cluster_name_ptr, &sorted_idx)) {
+      if (bsearch_read_fam_indiv(fam_id, sorted_ids, max_sample_id_len, sample_ct, &cluster_name_ptr, &sorted_idx, idbuf)) {
 	goto load_clusters_ret_MISSING_TOKENS;
       }
       if (sorted_idx == -1) {
@@ -389,7 +389,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 	if (is_eoln_kns(*fam_id)) {
 	  continue;
 	}
-	bsearch_read_fam_indiv(idbuf, sorted_ids, max_sample_id_len, sample_ct, fam_id, &cluster_name_ptr, &sorted_idx);
+	bsearch_read_fam_indiv(fam_id, sorted_ids, max_sample_id_len, sample_ct, &cluster_name_ptr, &sorted_idx, idbuf);
 	if (sorted_idx == -1) {
 	  continue;
 	}
@@ -1064,7 +1064,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample
     if (fopen_checked(id_fname, "r", &id_file)) {
       goto read_dists_ret_OPEN_FAIL;
     }
-    retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_sample_ct, sample_exclude, unfiltered_sample_ct - sample_ct, sample_ids, max_sample_id_len, 0, 1, strcmp_deref);
+    retval = sort_item_ids(unfiltered_sample_ct, sample_exclude, unfiltered_sample_ct - sample_ct, sample_ids, max_sample_id_len, 0, 1, strcmp_deref, &sorted_ids, &id_map);
     if (retval) {
       goto read_dists_ret_1;
     }
@@ -1081,7 +1081,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample
       if (is_eoln_kns(*fam_id)) {
         continue;
       }
-      if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_sample_id_len, sample_ct, fam_id, NULL, &ii)) {
+      if (bsearch_read_fam_indiv(fam_id, sorted_ids, max_sample_id_len, sample_ct, NULL, &ii, id_buf)) {
 	LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, id_fname);
         goto read_dists_ret_INVALID_FORMAT_2;
       }
@@ -1312,7 +1312,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uin
   uint32_t uii;
   int32_t ii;
   int32_t retval;
-  retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_sample_ct, sample_exclude, unfiltered_sample_ct - sample_ct, sample_ids, max_sample_id_len, 0, 1, strcmp_deref);
+  retval = sort_item_ids(unfiltered_sample_ct, sample_exclude, unfiltered_sample_ct - sample_ct, sample_ids, max_sample_id_len, 0, 1, strcmp_deref, &sorted_ids, &id_map);
   if (retval) {
     goto read_genome_ret_1;
   }
@@ -1345,14 +1345,14 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uin
     if (is_eoln_kns(*fam_id)) {
       continue;
     }
-    if (bsearch_read_fam_indiv(idbuf, sorted_ids, max_sample_id_len, sample_ct, fam_id, &fam_id, &ii)) {
+    if (bsearch_read_fam_indiv(fam_id, sorted_ids, max_sample_id_len, sample_ct, &fam_id, &ii, idbuf)) {
       goto read_genome_ret_MISSING_TOKENS;
     }
     if (ii == -1) {
       continue;
     }
     sample_idx1 = id_map[(uint32_t)ii];
-    if (bsearch_read_fam_indiv(idbuf, sorted_ids, max_sample_id_len, sample_ct, fam_id, &bufptr, &ii)) {
+    if (bsearch_read_fam_indiv(fam_id, sorted_ids, max_sample_id_len, sample_ct, &bufptr, &ii, idbuf)) {
       goto read_genome_ret_MISSING_TOKENS;
     }
     if (ii == -1) {
@@ -1487,7 +1487,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
   uint32_t uii;
   int32_t ii;
   char cc;
-  retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_sample_ct, sample_exclude, unfiltered_sample_ct - sample_ct, sample_ids, max_sample_id_len, 0, 1, strcmp_deref);
+  retval = sort_item_ids(unfiltered_sample_ct, sample_exclude, unfiltered_sample_ct - sample_ct, sample_ids, max_sample_id_len, 0, 1, strcmp_deref, &sorted_ids, &id_map);
   if (retval) {
     goto cluster_enforce_match_ret_1;
   }
@@ -1591,7 +1591,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       if (is_eoln_kns(*bufptr)) {
 	continue;
       }
-      if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_sample_id_len, sample_ct, bufptr, &bufptr2, &ii)) {
+      if (bsearch_read_fam_indiv(bufptr, sorted_ids, max_sample_id_len, sample_ct, &bufptr2, &ii, id_buf)) {
 	goto cluster_enforce_match_ret_MISSING_TOKENS;
       }
       if (ii == -1) {
@@ -1804,7 +1804,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       if (is_eoln_kns(*bufptr)) {
 	continue;
       }
-      if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_sample_id_len, sample_ct, bufptr, &bufptr, &ii)) {
+      if (bsearch_read_fam_indiv(bufptr, sorted_ids, max_sample_id_len, sample_ct, &bufptr, &ii, id_buf)) {
         goto cluster_enforce_match_ret_MISSING_TOKENS_Q;
       }
       if (ii == -1) {

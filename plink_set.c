@@ -1154,7 +1154,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	  }
 	}
         if (complement_sets) {
-	  bitfield_and(marker_exclude_new, marker_bitfield_tmp, unfiltered_marker_ctl);
+	  bitvec_and(marker_bitfield_tmp, unfiltered_marker_ctl, marker_exclude_new);
           fill_ulong_zero(marker_bitfield_tmp, unfiltered_marker_ctl);
 	}
       }
@@ -1163,7 +1163,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
           bigstack_end_alloc_ui(marker_ct, &marker_id_map)) {
 	goto define_sets_ret_NOMEM;
       }
-      retval = sort_item_ids_noalloc(sorted_marker_ids, marker_id_map, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
+      retval = sort_item_ids_noalloc(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref, sorted_marker_ids, marker_id_map);
       if (retval) {
 	goto define_sets_ret_NOMEM;
       }
@@ -1222,7 +1222,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	      goto define_sets_ret_INVALID_FORMAT_EXTRA_END;
 	    }
             if (complement_sets) {
-	      bitfield_and(marker_exclude_new, marker_bitfield_tmp, unfiltered_marker_ctl);
+	      bitvec_and(marker_bitfield_tmp, unfiltered_marker_ctl, marker_exclude_new);
               fill_ulong_zero(marker_bitfield_tmp, unfiltered_marker_ctl);
 	    }
             in_set = 0;
@@ -1264,7 +1264,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       }
     }
     if (!complement_sets) {
-      bitfield_andnot(marker_exclude_new, marker_bitfield_tmp, unfiltered_marker_ctl);
+      bitvec_andnot(marker_bitfield_tmp, unfiltered_marker_ctl, marker_exclude_new);
     }
     bitfield_or(marker_exclude, marker_exclude_new, unfiltered_marker_ctl);
     marker_exclude_ct = popcount_longs(marker_exclude, unfiltered_marker_ctl);
@@ -1471,7 +1471,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
         bigstack_end_alloc_ui(marker_ct, &marker_id_map)) {
       goto define_sets_ret_NOMEM;
     }
-    retval = sort_item_ids_noalloc(sorted_marker_ids, marker_id_map, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, 1, strcmp_deref);
+    retval = sort_item_ids_noalloc(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, 1, strcmp_deref, sorted_marker_ids, marker_id_map);
     if (retval) {
       goto define_sets_ret_NOMEM;
     }
@@ -1695,7 +1695,7 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
         chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[uii];
       }
       fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
-      bufptr = chrom_name_write(&(g_textbuf[1]), chrom_info_ptr, chrom_idx);
+      bufptr = chrom_name_write(chrom_info_ptr, chrom_idx, &(g_textbuf[1]));
       *bufptr++ = '\t';
       bufptr = uint32toa_x(marker_pos[marker_uidx], '\t', bufptr);
       // do not keep double-tab (if it was intentional, it should have been in

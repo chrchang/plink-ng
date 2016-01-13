@@ -2773,7 +2773,7 @@ int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfi
   for (ulii = 0; ulii < pheno_nm_ct; ulii++) {
     uljj += ((perm_rows[((ulii / BITCT) * perm_ct)] >> (ulii & (BITCT - 1))) & 1);
   }
-  triangle_fill(g_thread_start, pheno_nm_ct, g_thread_ct, 0, 1, 1, 1);
+  triangle_fill(pheno_nm_ct, g_thread_ct, 0, 1, 1, 1, g_thread_start);
   if (spawn_threads(threads, &ibs_test_thread, g_thread_ct)) {
     goto ibs_test_calc_ret_THREAD_CREATE_FAIL;
   }
@@ -3001,9 +3001,9 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_sample_ct, uintpt
       dist_ptr += sample_idx;
     }
   }
-  ll_med = destructive_get_dmedian(ll_pool, ll_size);
-  lh_med = destructive_get_dmedian(lh_pool, lh_size);
-  hh_med = destructive_get_dmedian(hh_pool, hh_size);
+  ll_med = destructive_get_dmedian(ll_size, ll_pool);
+  lh_med = destructive_get_dmedian(lh_size, lh_pool);
+  hh_med = destructive_get_dmedian(hh_size, hh_pool);
   logprint("Case/control distance analysis:\n");
   if (g_case_ct < 2) {
     dxx = 0.0;
@@ -3237,7 +3237,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
       bigstack_alloc_c(max_sample_id_len, &id_buf)) {
     goto calc_regress_pcs_ret_NOMEM;
   }
-  if (alloc_collapsed_haploid_filters(unfiltered_sample_ct, sample_ct, hh_exists, 0, sample_exclude, sex_male, &sample_include2, &sample_male_include2)) {
+  if (alloc_collapsed_haploid_filters(sample_exclude, sex_male, unfiltered_sample_ct, sample_ct, hh_exists, 0, &sample_include2, &sample_male_include2)) {
     goto calc_regress_pcs_ret_NOMEM;
   }
   
@@ -3409,7 +3409,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     if (is_haploid && hh_exists) {
       haploid_fix(hh_exists, sample_include2, sample_male_include2, sample_ct, is_x, is_y, (unsigned char*)loadbuf);
     }
-    bufptr = chrom_name_write(g_textbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx));
+    bufptr = chrom_name_write(chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx), g_textbuf);
     *bufptr++ = ' ';
     fwrite(g_textbuf, 1, bufptr - g_textbuf, outfile);
     fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
@@ -5055,7 +5055,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   g_cg_min_pi_hat = min_pi_hat;
   g_cg_max_pi_hat = max_pi_hat;
 
-  triangle_fill(g_thread_start, sample_ct, dist_thread_ct, parallel_tot - parallel_idx - 1, parallel_tot, 1, 1);
+  triangle_fill(sample_ct, dist_thread_ct, parallel_tot - parallel_idx - 1, parallel_tot, 1, 1, g_thread_start);
   // invert order, for --genome --parallel to naturally work
   for (uii = 0; uii <= dist_thread_ct / 2; uii++) {
     ujj = g_thread_start[uii];
@@ -6889,7 +6889,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   if (dist_thread_ct > sample_ct / 2) {
     dist_thread_ct = sample_ct / 2;
   }
-  triangle_fill(g_thread_start, sample_ct, dist_thread_ct, parallel_idx, parallel_tot, 1, 1);
+  triangle_fill(sample_ct, dist_thread_ct, parallel_idx, parallel_tot, 1, 1, g_thread_start);
   if (calculation_type & CALC_IBC) {
     uii = sample_ct * 3;
   } else {
@@ -7637,7 +7637,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
       }
       marker_uidx = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
       chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
-      wptr_start = chrom_name_write(g_textbuf, chrom_info_ptr, chrom_idx);
+      wptr_start = chrom_name_write(chrom_info_ptr, chrom_idx, g_textbuf);
       *wptr_start++ = delimiter;
       if (marker_uidx < chrom_end) {
 	if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
@@ -7898,7 +7898,7 @@ int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintpt
       dist_thread_ct = 1;
     }
   }
-  triangle_fill(g_thread_start, sample_ct, dist_thread_ct, 0, 1, 1, 1);
+  triangle_fill(sample_ct, dist_thread_ct, 0, 1, 1, 1, g_thread_start);
   llxx = g_thread_start[dist_thread_ct];
   llxx = (llxx * (llxx - 1)) / 2;
   if (bigstack_calloc_ui(llxx, &g_missing_dbl_excluded) ||
@@ -8048,7 +8048,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
       dist_thread_ct = 1;
     }
   }
-  triangle_fill(g_thread_start, sample_ct, dist_thread_ct, parallel_idx, parallel_tot, 1, 1);
+  triangle_fill(sample_ct, dist_thread_ct, parallel_idx, parallel_tot, 1, 1, g_thread_start);
   llxx = g_thread_start[dist_thread_ct];
   llxx = ((llxx * (llxx - 1)) - (int64_t)g_thread_start[0] * (g_thread_start[0] - 1)) / 2;
   dists_alloc = llxx * sizeof(double);

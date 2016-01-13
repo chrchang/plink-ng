@@ -457,7 +457,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
       }
       marker_uidx = new_order[cur_idx];
       if (!is_set_test) {
-        bufptr = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx)));
+        bufptr = width_force(4, g_textbuf, chrom_name_write(chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx), g_textbuf));
       } else {
         bufptr = g_textbuf;
       }
@@ -6132,7 +6132,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       goto model_assoc_ret_NOMEM;
     }
     memcpy(founder_pnm, pheno_nm, unfiltered_sample_ctl * sizeof(intptr_t));
-    bitfield_and(founder_pnm, founder_info, unfiltered_sample_ctl);
+    bitvec_and(founder_info, unfiltered_sample_ctl, founder_pnm);
     if (extract_set_union_unfiltered(sip, NULL, unfiltered_marker_ct, marker_exclude_orig, &marker_exclude, &marker_ct)) {
       goto model_assoc_ret_NOMEM;
     }
@@ -6442,7 +6442,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       goto model_assoc_ret_NOMEM;
     }
     quaterarr_collapse_init(sex_male, unfiltered_sample_ct, pheno_nm, pheno_nm_ct, sample_male_case_include2);
-    bitfield_and(sample_male_case_include2, sample_case_include2, pheno_nm_ctv2);
+    bitvec_and(sample_case_include2, pheno_nm_ctv2, sample_male_case_include2);
     case_male_ct = popcount01_longs(sample_male_case_include2, pheno_nm_ctv2);
     bitfield_andnot_copy(pheno_nm_ctv2, sample_male_ctrl_include2, sample_male_include2, sample_male_case_include2);
     bitfield_andnot_copy(pheno_nm_ctv2, sample_nonmale_case_include2, sample_case_include2, sample_male_case_include2);
@@ -6613,7 +6613,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	}
       }
       g_is_x = is_x;
-      chrom_name_ptr = chrom_name_buf5w4write(chrom_name_buf, chrom_info_ptr, uii, &chrom_name_len);
+      chrom_name_ptr = chrom_name_buf5w4write(chrom_info_ptr, uii, &chrom_name_len, chrom_name_buf);
     } else if (model_maxt_nst) {
       marker_idx -= MODEL_BLOCKKEEP;
       if (marker_idx) { // max(T) initial block special case, see below
@@ -7646,7 +7646,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	}
 	marker_uidx = next_unset_unsafe(marker_exclude, chrom_end);
       }
-      wptr_start = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, uii));
+      wptr_start = width_force(4, g_textbuf, chrom_name_write(chrom_info_ptr, uii, g_textbuf));
       *wptr_start++ = ' ';
       wptr_start[plink_maxsnp] = ' ';
       for (; marker_uidx < chrom_end;) {
@@ -7850,8 +7850,8 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
 
   bigstack_mark2 = g_bigstack_base;
  qassoc_set_test_more_perms:
-  bitfield_and(regression_skip, unstopped_markers, marker_ctl);
-  bitfield_andnot(unstopped_markers, regression_skip, marker_ctl);
+  bitvec_and(unstopped_markers, marker_ctl, regression_skip);
+  bitvec_andnot(regression_skip, marker_ctl, unstopped_markers);
   skip_ct = popcount_longs(regression_skip, marker_ctl);
   marker_unstopped_ct = popcount_longs(unstopped_markers, marker_ctl);
 
@@ -8156,7 +8156,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       goto qassoc_ret_NOMEM;
     }
     memcpy(founder_pnm, pheno_nm, unfiltered_sample_ctl * sizeof(intptr_t));
-    bitfield_and(founder_pnm, founder_info, unfiltered_sample_ctl);
+    bitvec_and(founder_info, unfiltered_sample_ctl, founder_pnm);
     if (extract_set_union_unfiltered(sip, NULL, unfiltered_marker_ct, marker_exclude_orig, &marker_exclude, &marker_ct)) {
       goto qassoc_ret_NOMEM;
     }
@@ -8309,7 +8309,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     goto qassoc_ret_NOMEM;
   }
   fill_quatervec_55(pheno_nm_ct, sample_include2);
-  if (alloc_collapsed_haploid_filters(unfiltered_sample_ct, pheno_nm_ct, hh_or_mt_exists, 1, pheno_nm, sex_male, &sample_include2, &sample_male_include2)) {
+  if (alloc_collapsed_haploid_filters(pheno_nm, sex_male, unfiltered_sample_ct, pheno_nm_ct, hh_or_mt_exists, 1, &sample_include2, &sample_male_include2)) {
     goto qassoc_ret_NOMEM;
   }
   marker_unstopped_ct = marker_ct;
@@ -8421,7 +8421,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &uii, &g_min_ploidy_1);
       g_min_ploidy_1 |= uii; // treat MT as haploid
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      chrom_name_ptr = chrom_name_buf5w4write(chrom_name_buf, chrom_info_ptr, uii, &chrom_name_len);
+      chrom_name_ptr = chrom_name_buf5w4write(chrom_info_ptr, uii, &chrom_name_len, chrom_name_buf);
     } else if (perm_maxt_nst) {
       marker_idx -= MODEL_BLOCKKEEP;
       memcpy(g_loadbuf, &(g_loadbuf[(MODEL_BLOCKSIZE - MODEL_BLOCKKEEP) * pheno_nm_ctv2]), MODEL_BLOCKKEEP * pheno_nm_ctv2 * sizeof(intptr_t));
@@ -8979,7 +8979,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1U];
       } while (marker_uidx >= chrom_end);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      wptr_start = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, uii));
+      wptr_start = width_force(4, g_textbuf, chrom_name_write(chrom_info_ptr, uii, g_textbuf));
       *wptr_start++ = ' ';
       wptr_start[plink_maxsnp] = ' ';
       for (; marker_uidx < chrom_end;) {
@@ -9246,7 +9246,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
       sample_idx2++;
     } while (++sample_idx < sample_uidx_stop);
   } while (sample_idx2 < covar_nm_ct);
-  bitfield_andnot(group1_include2, group2_include2, covar_nm_ctl * 2);
+  bitvec_andnot(group2_include2, covar_nm_ctl * 2, group1_include2);
 
   hh_or_mt_exists |= mt_exists * NXMHH_EXISTS;
   if ((hh_or_mt_exists & NXMHH_EXISTS) || y_exists) {
@@ -9309,7 +9309,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
 	  pheno_d_male_collapsed[sample_idx++] = dxx;
 	}
       }
-      bitfield_andnot(group1_male_include2, group2_male_include2, male_ctl * 2);
+      bitvec_andnot(group2_male_include2, male_ctl * 2, group1_male_include2);
       for (ulii = 0; ulii < unfiltered_sample_ctl; ulii++) {
 	covar_nm_male_raw[ulii] = covar_nm_raw[ulii] & sex_male[ulii];
       }
@@ -9379,7 +9379,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
           cur_pheno_d = pheno_d_male_collapsed;
 	  cur_covar_nm_raw = covar_nm_male_raw;
 	}
-	wptr_start = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx]));
+	wptr_start = width_force(4, g_textbuf, chrom_name_write(chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], g_textbuf));
 	*wptr_start++ = ' ';
 	cur_sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(cur_sample_ct);
         loadbuf[cur_sample_ctv2 - 1] = 0;
@@ -10063,7 +10063,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
     }
     // temporary non-excluded male bitfield
     memcpy(pheno_male_nm2, pheno_nm, unfiltered_sample_ctl * sizeof(intptr_t));
-    bitfield_and(pheno_male_nm2, sex_male, unfiltered_sample_ctl);
+    bitvec_and(sex_male, unfiltered_sample_ctl, pheno_male_nm2);
     copy_bitarr_subset(pheno_c, pheno_male_nm2, unfiltered_sample_ct, male_ct, pheno_c_collapsed_male);
     memcpy(pheno_male_nm2, pheno_nm2, unfiltered_sample_ctl2 * sizeof(intptr_t));
     vec_include_mask_in(unfiltered_sample_ct, pheno_male_nm2, sex_male);
@@ -10129,7 +10129,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	continue;
       }
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      wptr_start = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, uii));
+      wptr_start = width_force(4, g_textbuf, chrom_name_write(chrom_info_ptr, uii, g_textbuf));
       *wptr_start++ = ' ';
     }
     if (load_raw(bedfile, loadbuf_raw, unfiltered_sample_ct4)) {
@@ -10426,7 +10426,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	loadbuf_ptr = &(g_loadbuf[block_size * pheno_nm_ctv]);
 	extract_collapsed_missing_bitfield(loadbuf_raw, unfiltered_sample_ct, pheno_nm2, pheno_nm_ct, loadbuf_ptr);
 	if (g_is_y) {
-	  bitfield_and(loadbuf_ptr, sex_male_collapsed, pheno_nm_ctl);
+	  bitvec_and(sex_male_collapsed, pheno_nm_ctl, loadbuf_ptr);
 	}
 	if (!g_perms_done) {
 	  missing_ct = popcount_longs(loadbuf_ptr, pheno_nm_ctl);
@@ -10644,7 +10644,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1U];
       } while (marker_uidx >= chrom_end);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      wptr_start = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, uii));
+      wptr_start = width_force(4, g_textbuf, chrom_name_write(chrom_info_ptr, uii, g_textbuf));
       *wptr_start++ = ' ';
       wptr_start[plink_maxsnp] = ' ';
       for (; marker_uidx < chrom_end;) {
@@ -10897,11 +10897,11 @@ int32_t cluster_assoc_load_one(FILE* bedfile, uintptr_t bed_offset, uintptr_t* m
       }
     }
     if (chrom_name_len_ptr) {
-      *chrom_name_pp = chrom_name_buf5w4write(chrom_name_buf, chrom_info_ptr, chrom_idx, chrom_name_len_ptr);
+      *chrom_name_pp = chrom_name_buf5w4write(chrom_info_ptr, chrom_idx, chrom_name_len_ptr, chrom_name_buf);
     } else {
       // --mh2
       // chrom_name_buf = g_textbuf in this case, and we return wptr_start
-      *chrom_name_pp = chrom_name_write(chrom_name_buf, chrom_info_ptr, chrom_idx);
+      *chrom_name_pp = chrom_name_write(chrom_info_ptr, chrom_idx, chrom_name_buf);
       *(*chrom_name_pp)++ = '\t';
     }
   }

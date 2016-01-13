@@ -91,7 +91,7 @@ int32_t keep_or_remove(char* fname, char* sorted_ids, uintptr_t sorted_ids_ct, u
       continue;
     }
     if (!families_only) {
-      if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_ct, bufptr0, NULL, &ii)) {
+      if (bsearch_read_fam_indiv(bufptr0, sorted_ids, max_id_len, sorted_ids_ct, NULL, &ii, id_buf)) {
 	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --%s file has fewer tokens than expected.\n", line_idx, keep_or_remove_flag_str(flags));
 	goto keep_or_remove_ret_INVALID_FORMAT_2;
       }
@@ -114,7 +114,7 @@ int32_t keep_or_remove(char* fname, char* sorted_ids, uintptr_t sorted_ids_ct, u
 	}
       }
     } else {
-      bsearch_fam(id_buf, sorted_ids, max_id_len, sorted_ids_ct, bufptr0, &cur_idx, &last_idx);
+      bsearch_fam(bufptr0, sorted_ids, max_id_len, sorted_ids_ct, &cur_idx, &last_idx, id_buf);
       ii = 0;
       while (cur_idx < last_idx) {
 	unfiltered_idx = id_map[cur_idx++];
@@ -737,7 +737,7 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    if (bsearch_read_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_ct, bufptr, &cond_ptr, &sorted_idx)) {
+    if (bsearch_read_fam_indiv(bufptr, sorted_ids, max_id_len, sorted_ids_ct, &cond_ptr, &sorted_idx, id_buf)) {
       sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --attrib-indiv file has fewer tokens than\nexpected.\n", line_idx);
       goto filter_attrib_sample_ret_INVALID_FORMAT_2;
     }
@@ -1152,7 +1152,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    if (bsearch_read_fam_indiv(idbuf, sorted_sample_ids, max_sample_id_len, sorted_sample_ct, bufptr, &bufptr2, &ii)) {
+    if (bsearch_read_fam_indiv(bufptr, sorted_sample_ids, max_sample_id_len, sorted_sample_ct, &bufptr2, &ii, idbuf)) {
       LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, om_ip->sample_fname);
       goto load_oblig_missing_ret_INVALID_FORMAT_2;
     }
@@ -1216,7 +1216,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    bsearch_read_fam_indiv(idbuf, sorted_sample_ids, max_sample_id_len, sorted_sample_ct, bufptr, &bufptr2, &ii);
+    bsearch_read_fam_indiv(bufptr, sorted_sample_ids, max_sample_id_len, sorted_sample_ct, &bufptr2, &ii, idbuf);
     if (ii == -1) {
       continue;
     }
@@ -1252,7 +1252,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
   }
   om_ip->cluster_ref_cts = cluster_ref_cts;
   fill_uint_zero(cluster_ref_cts, cluster_ct * 2);
-  retval = sort_item_ids(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
+  retval = sort_item_ids(unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref, &sorted_marker_ids, &marker_id_map);
   if (retval) {
     goto load_oblig_missing_ret_1;
   }
@@ -1415,7 +1415,7 @@ int32_t filter_samples_file(char* filtername, char* sorted_sample_ids, uintptr_t
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    if (bsearch_read_fam_indiv(id_buf, sorted_sample_ids, max_sample_id_len, sorted_ids_len, bufptr, &bufptr, &sample_idx)) {
+    if (bsearch_read_fam_indiv(bufptr, sorted_sample_ids, max_sample_id_len, sorted_ids_len, &bufptr, &sample_idx, id_buf)) {
       goto filter_samples_file_ret_MISSING_TOKENS;
     }
     if (sample_idx != -1) {
@@ -2843,7 +2843,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	cur_cluster_sizes = cluster_sizes_y;
 	om_ycorr = om_cluster_ct;
       }
-      cptr = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, chrom_idx));
+      cptr = width_force(4, g_textbuf, chrom_name_write(chrom_info_ptr, chrom_idx, g_textbuf));
       *cptr++ = ' ';
       if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
 	goto write_missingness_reports_ret_READ_FAIL;
@@ -3144,7 +3144,7 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
 
   chrom_fo_idx = 0;
   refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
-  cptr0 = width_force(4, writebuf, chrom_name_write(writebuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx]));
+  cptr0 = width_force(4, writebuf, chrom_name_write(chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], writebuf));
   *cptr0++ = ' ';
   cptr = &(cptr0[10 + plink_maxsnp]);
   prefix_len = 10 + ((uintptr_t)(cptr - writebuf));
@@ -3162,7 +3162,7 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
 	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
-	  cptr0 = width_force(4, writebuf, chrom_name_write(writebuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx]));
+	  cptr0 = width_force(4, writebuf, chrom_name_write(chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], writebuf));
 	  *cptr0++ = ' ';
 	  cptr = &(cptr0[10 + plink_maxsnp]);
 	  prefix_len = 10 + ((uintptr_t)(cptr - writebuf));
@@ -3204,7 +3204,7 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
 	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
-	  cptr0 = width_force(4, writebuf, chrom_name_write(writebuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx]));
+	  cptr0 = width_force(4, writebuf, chrom_name_write(chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], writebuf));
 	  *cptr0++ = ' ';
           memset(&(cptr0[plink_maxsnp]), 32, 20);
 	  cptr = &(cptr0[10 + plink_maxsnp]);

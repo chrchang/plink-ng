@@ -733,7 +733,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   }
   if (phenofile || update_ids_fname || update_parents_fname || update_sex_fname || (filter_flags & FILTER_TAIL_PHENO)) {
     bigstack_mark = g_bigstack_base;
-    retval = sort_item_ids(&sorted_sample_ids, &sample_id_map, unfiltered_sample_ct, sample_exclude, 0, sample_ids, max_sample_id_len, 0, 0, strcmp_deref);
+    retval = sort_item_ids(unfiltered_sample_ct, sample_exclude, 0, sample_ids, max_sample_id_len, 0, 0, strcmp_deref, &sorted_sample_ids, &sample_id_map);
     if (retval) {
       goto plink1_dosage_ret_1;
     }
@@ -851,7 +851,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   }
   if (update_ids_fname || update_parents_fname || update_sex_fname || keepname || keepfamname || removename || removefamname || filter_attrib_sample_fname || filtername) {
     bigstack_mark = g_bigstack_base;
-    retval = sort_item_ids(&sorted_sample_ids, &sample_id_map, unfiltered_sample_ct, sample_exclude, sample_exclude_ct, sample_ids, max_sample_id_len, 0, 0, strcmp_deref);
+    retval = sort_item_ids(unfiltered_sample_ct, sample_exclude, sample_exclude_ct, sample_ids, max_sample_id_len, 0, 0, strcmp_deref, &sorted_sample_ids, &sample_id_map);
     if (retval) {
       goto plink1_dosage_ret_1;
     }
@@ -919,7 +919,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   if (gender_unk_ct && (!(sex_missing_pheno & ALLOW_NO_SEX))) {
     uii = popcount_longs_exclude(pheno_nm, sex_nm, unfiltered_sample_ctl);
     if (uii) {
-      bitfield_and(pheno_nm, sex_nm, unfiltered_sample_ctl);
+      bitvec_and(sex_nm, unfiltered_sample_ctl, pheno_nm);
       logerrprint("Warning: Ignoring phenotypes of missing-sex samples.  If you don't want those\nphenotypes to be ignored, use the --allow-no-sex flag.\n");
     }
   }
@@ -1045,16 +1045,16 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   }
   param_ct = covar_ct + 2;
   param_cta4 = round_up_pow2(param_ct, 4);
-  bitfield_andnot(pheno_nm, sample_exclude, unfiltered_sample_ctl);
+  bitvec_andnot(sample_exclude, unfiltered_sample_ctl, pheno_nm);
   if (pheno_c) {
-    bitfield_and(pheno_c, pheno_nm, unfiltered_sample_ctl);
+    bitvec_and(pheno_nm, unfiltered_sample_ctl, pheno_c);
   }
-  bitfield_andnot(founder_info, sample_exclude, unfiltered_sample_ctl);
-  bitfield_andnot(sex_nm, sample_exclude, unfiltered_sample_ctl);
+  bitvec_andnot(sample_exclude, unfiltered_sample_ctl, founder_info);
+  bitvec_andnot(sample_exclude, unfiltered_sample_ctl, sex_nm);
   if (gender_unk_ct) {
     gender_unk_ct = sample_ct - popcount_longs(sex_nm, unfiltered_sample_ctl);
   }
-  bitfield_and(sex_male, sex_nm, unfiltered_sample_ctl);
+  bitvec_and(sex_nm, unfiltered_sample_ctl, sex_male);
 
   pheno_nm_ct = popcount_longs(pheno_nm, unfiltered_sample_ctl);
 
@@ -1379,7 +1379,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     }
     // sorted_sample_ids = NULL;
   } else {
-    retval = sort_item_ids(&sorted_sample_ids, &sample_id_map, unfiltered_sample_ct, sample_exclude, sample_exclude_ct, sample_ids, max_sample_id_len, 0, 1, strcmp_deref);
+    retval = sort_item_ids(unfiltered_sample_ct, sample_exclude, sample_exclude_ct, sample_ids, max_sample_id_len, 0, 1, strcmp_deref, &sorted_sample_ids, &sample_id_map);
     if (retval) {
       goto plink1_dosage_ret_1;
     }
@@ -1589,7 +1589,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
           if (is_eoln_kns(*bufptr)) {
 	    continue;
 	  }
-          if (bsearch_read_fam_indiv(&(g_textbuf[MAXLINELEN]), sorted_sample_ids, max_sample_id_len, sample_ct, bufptr, &bufptr2, &ii)) {
+          if (bsearch_read_fam_indiv(bufptr, sorted_sample_ids, max_sample_id_len, sample_ct, &bufptr2, &ii, &(g_textbuf[MAXLINELEN]))) {
             sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, &(sep_fnames[(file_idx + file_idx_start) * max_sepheader_len]));
 	    goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	  }
@@ -1676,7 +1676,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	uii = 1 + skip2;
 	bufptr = skip_initial_spaces(token_endnn(bufptr2));
 	while (!is_eoln_kns(*bufptr)) {
-          if (bsearch_read_fam_indiv(g_textbuf, sorted_sample_ids, max_sample_id_len, sample_ct, bufptr, &bufptr2, &ii)) {
+          if (bsearch_read_fam_indiv(bufptr, sorted_sample_ids, max_sample_id_len, sample_ct, &bufptr2, &ii, g_textbuf)) {
 	    sprintf(g_logbuf, "Error: Header of %s has an odd number of tokens in the FID/IID section.\n", &(fnames[(file_idx + file_idx_start) * max_fn_len]));
 	    goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	  }
@@ -1894,7 +1894,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  if (covar_nm) {
 	    // it would be more efficient to make covar_nm act as a mask on
 	    // sample_exclude earlier, but this is throwaway code
-	    bitfield_and(cur_samples, covar_nm, sample_ctl);
+	    bitvec_and(covar_nm, sample_ctl, cur_samples);
 	  }
 	  sample_valid_ct = popcount_longs(cur_samples, sample_ctl);
 	  dxx = 0.0;
@@ -1940,7 +1940,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    }
 	  }
 	  if (load_map) {
-	    pzwritep = width_force(4, pzwritep, chrom_name_write(pzwritep, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_idx)));
+	    pzwritep = width_force(4, pzwritep, chrom_name_write(chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_idx), pzwritep));
 	    *pzwritep++ = ' ';
 	    pzwritep = fw_strcpyn(11, cur_marker_id_len, cur_marker_id_buf, pzwritep);
             pzwritep = memseta(pzwritep, 32, 2);

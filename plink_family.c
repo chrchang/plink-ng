@@ -152,7 +152,7 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
   } else {
     founder_info2[unfiltered_sample_ctl] = 1;
   }
-  if (sort_item_ids_noalloc(sorted_sample_ids, sample_id_map, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, 0, 0, strcmp_deref)) {
+  if (sort_item_ids_noalloc(unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, 0, 0, strcmp_deref, sorted_sample_ids, sample_id_map)) {
     goto get_trios_and_families_ret_1;
   }
   // over-allocate here, we shrink family_list later when we know how many
@@ -830,7 +830,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
       continue;
     }
     if (calc_mendel) {
-      chrom_name_ptr = chrom_name_buf5w4write(chrom_name_buf, chrom_info_ptr, chrom_idx, &chrom_name_len);
+      chrom_name_ptr = chrom_name_buf5w4write(chrom_info_ptr, chrom_idx, &chrom_name_len, chrom_name_buf);
     }
     if (uii != marker_uidx) {
       marker_uidx = uii;
@@ -1793,7 +1793,7 @@ int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* o
     if (uii == chrom_end) {
       continue;
     }
-    wptr_start = width_force(4, textbuf, chrom_name_write(textbuf, chrom_info_ptr, chrom_idx));
+    wptr_start = width_force(4, textbuf, chrom_name_write(chrom_info_ptr, chrom_idx, textbuf));
     *wptr_start++ = ' ';
     if (uii != marker_uidx) {
       marker_uidx = uii;
@@ -2233,7 +2233,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
     if (uii == chrom_end) {
       continue;
     }
-    wptr_start = width_force(4, textbuf, chrom_name_write(textbuf, chrom_info_ptr, chrom_idx));
+    wptr_start = width_force(4, textbuf, chrom_name_write(chrom_info_ptr, chrom_idx, textbuf));
     *wptr_start++ = ' ';
     if (uii != marker_uidx) {
       marker_uidx = uii;
@@ -2667,10 +2667,10 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
     }
   }
  get_sibship_info_first_pass_done:
-  bitfield_andnot(not_in_family, ulptr2, unfiltered_sample_ctl);
+  bitvec_andnot(ulptr2, unfiltered_sample_ctl, not_in_family);
   bigstack_shrink_top(fss_contents, (fssc_idx + popcount_longs(not_in_family, unfiltered_sample_ctl)) * sizeof(int32_t));
   if (test_type) {
-    bitfield_andnot(ulptr, ulptr2, unfiltered_sample_ctl);
+    bitvec_andnot(ulptr2, unfiltered_sample_ctl, ulptr);
   } else {
     bitarr_invert_copy(ulptr2, unfiltered_sample_ct, ulptr);
   }
@@ -2680,22 +2680,22 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   //               dataset
 
   if (is_within2) {
-    bitfield_andnot(tmp_within2_founder, ulptr, unfiltered_sample_ctl);
-    bitfield_and(tmp_within2_founder, founder_info, unfiltered_sample_ctl);
+    bitvec_andnot(ulptr, unfiltered_sample_ctl, tmp_within2_founder);
+    bitvec_and(founder_info, unfiltered_sample_ctl, tmp_within2_founder);
     // now this only consists of founder parents who (i) aren't in multiple
     // families, and (ii) have a different phenotype from their partner.
     copy_bitarr_subset_excl(tmp_within2_founder, sample_exclude, unfiltered_sample_ct, sample_ct, lm_within2_founder);
   }
   if (test_type) {
-    bitfield_andnot_reversed_args(ulptr, pheno_nm, unfiltered_sample_ctl);
+    bitvec_andnot_reversed_args(pheno_nm, unfiltered_sample_ctl, ulptr);
     if (test_type == QFAM_WITHIN1) {
-      bitfield_andnot(ulptr, founder_info, unfiltered_sample_ctl);
+      bitvec_andnot(founder_info, unfiltered_sample_ctl, ulptr);
     }
     copy_bitarr_subset_excl(ulptr, sample_exclude, unfiltered_sample_ct, sample_ct, lm_eligible);
     bitfield_andnot_copy(unfiltered_sample_ctl, ulptr, not_in_family, founder_info);
   } else {
-    bitfield_and(ulptr, pheno_nm, unfiltered_sample_ctl);
-    bitfield_andnot(ulptr, founder_info, unfiltered_sample_ctl);
+    bitvec_and(pheno_nm, unfiltered_sample_ctl, ulptr);
+    bitvec_andnot(founder_info, unfiltered_sample_ctl, ulptr);
   }
   bigstack_end_reset(ulptr);
 
@@ -2799,7 +2799,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
       goto get_sibship_info_ret_NOMEM;
     }
     memcpy(*size_one_sibships_ptr, not_in_family, unfiltered_sample_ctl * sizeof(intptr_t));
-    bitfield_and(*size_one_sibships_ptr, ulptr, unfiltered_sample_ctl);
+    bitvec_and(ulptr, unfiltered_sample_ctl, *size_one_sibships_ptr);
 
     // return sample_to_fss_idx in place of sample_lm_to_fss_idx
     *sample_lm_to_fss_idx_ptr = sample_to_fss_idx;
@@ -3945,7 +3945,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       goto dfam_ret_NOMEM;
     }
     memcpy(founder_pnm, pheno_nm, unfiltered_sample_ctl * sizeof(intptr_t));
-    bitfield_and(founder_pnm, founder_info, unfiltered_sample_ctl);
+    bitvec_and(founder_info, unfiltered_sample_ctl, founder_pnm);
     if (extract_set_union_unfiltered(sip, NULL, unfiltered_marker_ct, marker_exclude_orig_autosomal, &marker_exclude, &marker_ct)) {
       goto dfam_ret_NOMEM;
     }
@@ -4714,7 +4714,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	}
 	pval = chiprob_p(chisq, 1);
 	if ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0))) {
-	  wptr = width_force(4, textbuf, chrom_name_write(textbuf, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx2)));
+	  wptr = width_force(4, textbuf, chrom_name_write(chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx2), textbuf));
 	  *wptr++ = ' ';
 	  wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), wptr);
 	  *wptr++ = ' ';
@@ -4853,7 +4853,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1U];
       } while (marker_uidx >= chrom_end);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      wptr_start = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, uii));
+      wptr_start = width_force(4, g_textbuf, chrom_name_write(chrom_info_ptr, uii, g_textbuf));
       *wptr_start++ = ' ';
       wptr_start[plink_maxsnp] = ' ';
       for (; marker_uidx < chrom_end;) {
@@ -5755,7 +5755,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	    chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx_cur);
 	    chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	    chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
-	    chrom_name_ptr = chrom_name_buf5w4write(chrom_name_buf, chrom_info_ptr, chrom_idx, &chrom_name_len);
+	    chrom_name_ptr = chrom_name_buf5w4write(chrom_info_ptr, chrom_idx, &chrom_name_len, chrom_name_buf);
 	  }
 	  bufptr = memcpyax(g_textbuf, chrom_name_ptr, chrom_name_len, ' ');
 	  bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx_cur * max_marker_id_len]), bufptr);
@@ -5860,7 +5860,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	}
 	marker_uidx = next_unset_unsafe(marker_exclude, chrom_end);
       }
-      chrom_name_ptr = chrom_name_buf5w4write(chrom_name_buf, chrom_info_ptr, chrom_idx, &chrom_name_len);
+      chrom_name_ptr = chrom_name_buf5w4write(chrom_info_ptr, chrom_idx, &chrom_name_len, chrom_name_buf);
     }
     bufptr = memcpyax(g_textbuf, chrom_name_ptr, chrom_name_len, ' ');
     bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), bufptr);

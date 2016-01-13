@@ -483,7 +483,7 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
       cur_roh = &(roh_list[cur_roh_idx * ROH_ENTRY_INTS]);
       marker_uidx1 = cur_roh[0];
       marker_uidx2 = cur_roh[1];
-      wptr = width_force(4, wptr_chr, chrom_name_write(wptr_chr, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx1)));
+      wptr = width_force(4, wptr_chr, chrom_name_write(chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx1), wptr_chr));
       *wptr++ = ' ';
       cptr = &(marker_ids[marker_uidx1 * max_marker_id_len]);
       slen = strlen(cptr);
@@ -585,7 +585,7 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
       }
       cur_roh = &(cur_roh[ROH_ENTRY_INTS]);
     }
-    wptr_chr = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, uii));
+    wptr_chr = width_force(4, g_textbuf, chrom_name_write(chrom_info_ptr, uii, g_textbuf));
     *wptr_chr++ = ' ';
     memset(&(wptr_chr[plink_maxsnp]), 32, 3);
     wptr_bp1 = &(wptr_chr[plink_maxsnp + 3]);
@@ -2277,7 +2277,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
           wptr = fw_strcpyn(8, missing_pheno_len, missing_pheno_str, wptr);
 	}
 	*wptr++ = ' ';
-	wptr = width_force(4, wptr, chrom_name_write(wptr, chrom_info_ptr, chrom_start));
+	wptr = width_force(4, wptr, chrom_name_write(chrom_info_ptr, chrom_start, wptr));
 	marker_uidx1 = cur_roh[0];
 	marker_uidx2 = cur_roh[1];
 	if (marker_uidx1 > con_uidx1) {
@@ -2345,7 +2345,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	cptr = uint32toa(pool_size - case_ct, cptr);
         wptr = width_force(8, wptr, cptr);
 	*wptr++ = ' ';
-	wptr = width_force(4, wptr, chrom_name_write(wptr, chrom_info_ptr, chrom_start));
+	wptr = width_force(4, wptr, chrom_name_write(chrom_info_ptr, chrom_start, wptr));
         wptr = roh_pool_write_middle(wptr, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, is_new_lengths, marker_uidx1, marker_uidx2);
         wptr = uint32toa_w8(marker_cidx, wptr);
         wptr = memcpya(wptr, "    NA     NA \n", 15);

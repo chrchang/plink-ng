@@ -296,7 +296,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
 	      chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1];
 	    } while (marker_uidx >= chrom_end);
 	    uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-	    chrom_name_ptr = chrom_name_buf5w4write(chrom_name_buf, chrom_info_ptr, uii, &chrom_name_len);
+	    chrom_name_ptr = chrom_name_buf5w4write(chrom_info_ptr, uii, &chrom_name_len, chrom_name_buf);
 	  }
 	  bufptr = memcpyax(g_textbuf, chrom_name_ptr, chrom_name_len, ' ');
 	  bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), bufptr);
@@ -338,7 +338,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
 	      chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1];
 	    } while (marker_uidx >= chrom_end);
 	    uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-	    chrom_name_ptr = chrom_name_buf5w4write(chrom_name_buf, chrom_info_ptr, uii, &chrom_name_len);
+	    chrom_name_ptr = chrom_name_buf5w4write(chrom_info_ptr, uii, &chrom_name_len, chrom_name_buf);
 	  }
 	  bufptr = memcpyax(g_textbuf, chrom_name_ptr, chrom_name_len, ' ');
 	  bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), bufptr);

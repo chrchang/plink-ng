@@ -845,7 +845,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   }
 
   // force founder_male_include2 allocation
-  if (alloc_collapsed_haploid_filters(unfiltered_sample_ct, founder_ct, XMHH_EXISTS | hh_exists, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
+  if (alloc_collapsed_haploid_filters(founder_info, sex_male, unfiltered_sample_ct, founder_ct, XMHH_EXISTS | hh_exists, 1, &founder_include2, &founder_male_include2)) {
     goto ld_prune_ret_NOMEM;
   }
   if (weighted_x) {
@@ -1530,13 +1530,13 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   }
   loadbuf_raw[unfiltered_sample_ctl2 - 1] = 0;
   memcpy(founder_phenos[0], founder_info, unfiltered_sample_ctl * sizeof(intptr_t));
-  bitfield_and(founder_phenos[0], pheno_nm, unfiltered_sample_ctl);
+  bitvec_and(pheno_nm, unfiltered_sample_ctl, founder_phenos[0]);
   if (alloc_raw_haploid_filters(unfiltered_sample_ct, hh_exists, 0, founder_phenos[0], sex_male, &sample_include2, &sample_male_include2)) {
     goto flipscan_ret_NOMEM;
   }
   memcpy(founder_phenos[1], founder_phenos[0], unfiltered_sample_ctl * sizeof(intptr_t));
-  bitfield_and(founder_phenos[1], pheno_c, unfiltered_sample_ctl);
-  bitfield_andnot(founder_phenos[0], pheno_c, unfiltered_sample_ctl);
+  bitvec_and(pheno_c, unfiltered_sample_ctl, founder_phenos[1]);
+  bitvec_andnot(pheno_c, unfiltered_sample_ctl, founder_phenos[0]);
   pheno_ct[0] = popcount_longs(founder_phenos[0], unfiltered_sample_ctl);
   pheno_ct[1] = popcount_longs(founder_phenos[1], unfiltered_sample_ctl);
   if ((!pheno_ct[0]) || (!pheno_ct[1])) {
@@ -1631,7 +1631,7 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
       marker_idx += chrom_marker_ct;
       continue;
     }
-    wptr_start = width_force(6, textbuf, chrom_name_write(textbuf, chrom_info_ptr, chrom_idx));
+    wptr_start = width_force(6, textbuf, chrom_name_write(chrom_info_ptr, chrom_idx, textbuf));
     *wptr_start++ = ' ';
     is_haploid = is_set(chrom_info_ptr->haploid_mask, chrom_idx);
     is_x = (chrom_idx == ((uint32_t)chrom_info_ptr->x_code));
@@ -2636,7 +2636,7 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
     }
   ld_regular_emitn_start:
     marker_uidx2 = marker_uidx2_start;
-    sptr2 = width_force(6, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, chrom_idx1));
+    sptr2 = width_force(6, g_textbuf, chrom_name_write(chrom_info_ptr, chrom_idx1, g_textbuf));
     sptr2 = memseta(sptr2, 32, 3);
     sptr2 = uint32toa_w10x(marker_pos[marker_uidx1], ' ', sptr2);
     sptr2 = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx1 * max_marker_id_len]), sptr2);
@@ -2646,7 +2646,7 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       *sptr2++ = ' ';
     }
     if (!is_inter_chr) {
-      sptr2 = width_force(6, sptr2, chrom_name_write(sptr2, chrom_info_ptr, chrom_idx1));
+      sptr2 = width_force(6, sptr2, chrom_name_write(chrom_info_ptr, chrom_idx1, sptr2));
       sptr2 = memseta(sptr2, 32, 3);
     }
     prefix_len = (uintptr_t)(sptr2 - g_textbuf);
@@ -2671,7 +2671,7 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	    chrom_idx2 = chrom_info_ptr->chrom_file_order[chrom_fo_idx2];
 	    chrom_end2 = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx2 + 1];
 	  }
-	  sptr_cur = width_force(6, sptr_cur, chrom_name_write(sptr_cur, chrom_info_ptr, chrom_idx2));
+	  sptr_cur = width_force(6, sptr_cur, chrom_name_write(chrom_info_ptr, chrom_idx2, sptr_cur));
 	  sptr_cur = memseta(sptr_cur, 32, 3);
 	}
 	sptr_cur = uint32toa_w10x(marker_pos[marker_uidx2], ' ', sptr_cur);
@@ -5085,11 +5085,11 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
       tot1[2] = popcount_longs(&(cur_geno1[2 * founder_ctv3]), founder_ctv3);
       if (is_x1 || x2_present) {
 	memcpy(cur_geno1_male, cur_geno1, founder_ctsplit * sizeof(intptr_t));
-        bitfield_and(cur_geno1_male, sex_male, founder_ctv3);
+        bitvec_and(sex_male, founder_ctv3, cur_geno1_male);
         tot1[3] = popcount_longs(cur_geno1_male, founder_ctv3);
-        bitfield_and(&(cur_geno1_male[founder_ctv3]), sex_male, founder_ctv3);
+        bitvec_and(sex_male, founder_ctv3, &(cur_geno1_male[founder_ctv3]));
 	tot1[4] = popcount_longs(&(cur_geno1_male[founder_ctv3]), founder_ctv3);
-        bitfield_and(&(cur_geno1_male[2 * founder_ctv3]), sex_male, founder_ctv3);
+        bitvec_and(sex_male, founder_ctv3, &(cur_geno1_male[2 * founder_ctv3]));
 	tot1[5] = popcount_longs(&(cur_geno1_male[2 * founder_ctv3]), founder_ctv3);
       }
       cur_geno2 = &(geno2[block_idx2 * founder_ctsplit]);
@@ -5668,7 +5668,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
       marker_ct1 = 1;
     } else {
       marker_ct1 = 0;
-      retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
+      retval = sort_item_ids(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref, &sorted_ids, &id_map);
       if (retval) {
 	goto ld_report_regular_ret_1;
       }
@@ -6113,7 +6113,7 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
     logerrprint("Error: Gigantic (over 400k loci) --r/--r2 unfiltered, non-distributed\ncomputation.  Rerun with the 'yes-really' modifier if you are SURE you have\nenough hard drive space and want to do this.\n");
     goto ld_report_ret_INVALID_CMDLINE;
   }
-  if (alloc_collapsed_haploid_filters(unfiltered_sample_ct, founder_ct, XMHH_EXISTS | hh_exists, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
+  if (alloc_collapsed_haploid_filters(founder_info, sex_male, unfiltered_sample_ct, founder_ct, XMHH_EXISTS | hh_exists, 1, &founder_include2, &founder_male_include2)) {
     goto ld_report_ret_NOMEM;
   }
   if (bigstack_alloc_ul(unfiltered_sample_ctv2, &loadbuf)) {
@@ -6269,7 +6269,7 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
   loadbuf_raw[unfiltered_sample_ctl2 - 1] = 0;
   if (ldip->show_tags_fname) {
     fill_ulong_zero(targets, unfiltered_marker_ctl);
-    retval = sort_item_ids(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
+    retval = sort_item_ids(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref, &sorted_marker_ids, &marker_id_map);
     if (retval) {
       goto show_tags_ret_1;
     }
@@ -6334,7 +6334,7 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
     bitarr_invert_copy(marker_exclude, unfiltered_marker_ct, targets);
   }
   // force founder_male_include2 allocation
-  if (alloc_collapsed_haploid_filters(unfiltered_sample_ct, founder_ct, XMHH_EXISTS | hh_exists, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
+  if (alloc_collapsed_haploid_filters(founder_info, sex_male, unfiltered_sample_ct, founder_ct, XMHH_EXISTS | hh_exists, 1, &founder_include2, &founder_male_include2)) {
     goto show_tags_ret_NOMEM;
   }
   founder_ct_mld_m1 = (founder_ct - 1) / MULTIPLEX_LD;
@@ -6387,7 +6387,7 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
       marker_idx += chrom_marker_ct;
       continue;
     }
-    chrom_name_ptr = chrom_name_buf5w4write(chrom_name_buf, chrom_info_ptr, chrom_idx, &chrom_name_len);
+    chrom_name_ptr = chrom_name_buf5w4write(chrom_info_ptr, chrom_idx, &chrom_name_len, chrom_name_buf);
     is_haploid = is_set(chrom_info_ptr->haploid_mask, chrom_idx);
     is_x = (chrom_idx == ((uint32_t)chrom_info_ptr->x_code));
     is_y = (chrom_idx == ((uint32_t)chrom_info_ptr->y_code));
@@ -7065,7 +7065,7 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
   }
   memcpy(founder_pnm, founder_info, unfiltered_sample_ctl * sizeof(intptr_t));
   if (!no_pheno_req) {
-    bitfield_and(founder_pnm, pheno_nm, unfiltered_sample_ctl);
+    bitvec_and(pheno_nm, unfiltered_sample_ctl, founder_pnm);
   }
   founder_ct = popcount_longs(founder_pnm, unfiltered_sample_ctl);
   if (founder_ct < 2) {
@@ -7102,7 +7102,7 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
   if (bigstack_alloc_ul(5 * founder_ctv2, &index_data)) {
     goto haploview_blocks_ret_NOMEM;
   }
-  if (alloc_collapsed_haploid_filters(unfiltered_sample_ct, founder_ct, Y_FIX_NEEDED, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
+  if (alloc_collapsed_haploid_filters(founder_info, sex_male, unfiltered_sample_ct, founder_ct, Y_FIX_NEEDED, 1, &founder_include2, &founder_male_include2)) {
     goto haploview_blocks_ret_NOMEM;
   }
   memcpy(outname_end, ".blocks.det", 12);
@@ -7431,7 +7431,7 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
 #else
     qsort(candidate_pairs, ulii, sizeof(int64_t), llcmp);
 #endif
-    wptr_start = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, chrom_idx));
+    wptr_start = width_force(4, g_textbuf, chrom_name_write(chrom_info_ptr, chrom_idx, g_textbuf));
     wptr_start = memseta(wptr_start, 32, 3);
     for (candidate_idx = 0; candidate_idx < ulii; candidate_idx++) {
       putc('*', outfile);
@@ -7842,7 +7842,7 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
   loadbuf_raw[unfiltered_sample_ctl2 - 1] = 0;
   loadbufs[0][sample_ctl2 - 1] = 0;
   loadbufs[1][sample_ctl2 - 1] = 0;
-  if (alloc_collapsed_haploid_filters(unfiltered_sample_ct, sample_ct, hh_exists, 0, sample_exclude, sex_male, &sample_include2, &sample_male_include2)) {
+  if (alloc_collapsed_haploid_filters(sample_exclude, sex_male, unfiltered_sample_ct, sample_ct, hh_exists, 0, &sample_include2, &sample_male_include2)) {
     goto twolocus_ret_NOMEM;
   }
   is_haploid[0] = 0;
@@ -8612,7 +8612,7 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
 	chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
       }
-      wptr_start = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, chrom_idx));
+      wptr_start = width_force(4, g_textbuf, chrom_name_write(chrom_info_ptr, chrom_idx, g_textbuf));
       *wptr_start++ = ' ';
       wptr_start = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr_start);
       *wptr_start++ = ' ';
@@ -8620,7 +8620,7 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
       for (chrom_fo_idx2 = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx2); chrom_fo_idx2 < chrom_ct; chrom_fo_idx2++) {
 	chrom_idx2 = chrom_info_ptr->chrom_file_order[chrom_fo_idx2];
 	chrom_end2 = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx2 + 1];
-	wptr_start2 = width_force(4, wptr_start, chrom_name_write(wptr_start, chrom_info_ptr, chrom_idx2));
+	wptr_start2 = width_force(4, wptr_start, chrom_name_write(chrom_info_ptr, chrom_idx2, wptr_start));
 	*wptr_start2++ = ' ';
 	for (; marker_uidx2 < chrom_end2; next_unset_ul_ck(marker_exclude2, chrom_end2, &marker_uidx2), marker_idx2++, dptr = &(dptr[2])) {
 	  if (marker_idx2 == ujj) {
@@ -9089,7 +9089,7 @@ int32_t epistasis_logistic_regression(pthread_t* threads, Epi_info* epi_ip, FILE
 	chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
       }
-      wptr_start = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, chrom_idx));
+      wptr_start = width_force(4, g_textbuf, chrom_name_write(chrom_info_ptr, chrom_idx, g_textbuf));
       *wptr_start++ = ' ';
       wptr_start = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr_start);
       *wptr_start++ = ' ';
@@ -9097,7 +9097,7 @@ int32_t epistasis_logistic_regression(pthread_t* threads, Epi_info* epi_ip, FILE
       for (chrom_fo_idx2 = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx2); chrom_fo_idx2 < chrom_ct; chrom_fo_idx2++) {
 	chrom_idx2 = chrom_info_ptr->chrom_file_order[chrom_fo_idx2];
 	chrom_end2 = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx2 + 1];
-	wptr_start2 = width_force(4, wptr_start, chrom_name_write(wptr_start, chrom_info_ptr, chrom_idx2));
+	wptr_start2 = width_force(4, wptr_start, chrom_name_write(chrom_info_ptr, chrom_idx2, wptr_start));
 	*wptr_start2++ = ' ';
 	for (; marker_uidx2 < chrom_end2; next_unset_ul_ck(marker_exclude2, chrom_end2, &marker_uidx2), marker_idx2++, fptr = &(fptr[2])) {
 	  if (marker_idx2 == ujj) {
@@ -10007,7 +10007,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	  chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
 	}
-        wptr_start = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, chrom_idx));
+        wptr_start = width_force(4, g_textbuf, chrom_name_write(chrom_info_ptr, chrom_idx, g_textbuf));
 	*wptr_start++ = ' ';
 	wptr_start = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr_start);
 	*wptr_start++ = ' ';
@@ -10018,7 +10018,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	    continue;
 	  }
           chrom_idx2 = chrom_info_ptr->chrom_file_order[chrom_fo_idx2];
-          wptr_start2 = width_force(4, wptr_start, chrom_name_write(wptr_start, chrom_info_ptr, chrom_idx2));
+          wptr_start2 = width_force(4, wptr_start, chrom_name_write(chrom_info_ptr, chrom_idx2, wptr_start));
 	  *wptr_start2++ = ' ';
 	  for (; marker_uidx2 < chrom_end2; next_unset_ul_ck(marker_exclude2, unfiltered_marker_ct, &marker_uidx2), marker_idx2++, dptr++) {
 	    if (marker_idx2 == ujj) {
@@ -10144,7 +10144,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       continue;
     }
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-    wptr_start = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, chrom_idx));
+    wptr_start = width_force(4, g_textbuf, chrom_name_write(chrom_info_ptr, chrom_idx, g_textbuf));
     *wptr_start++ = ' ';
     for (; marker_uidx < chrom_end; marker_uidx++, next_unset_ul_ck(marker_exclude1, unfiltered_marker_ct, &marker_uidx), marker_idx1++) {
       uii = n_sig_cts[marker_idx1];
@@ -10185,7 +10185,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	  wptr = dtoa_g_wxp8x(best_chisq[marker_idx1], 12, ' ', wptr);
 	}
 	uii = marker_idx_to_uidx[best_ids[marker_idx1]];
-	wptr = width_force(4, wptr, chrom_name_write(wptr, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, uii)));
+	wptr = width_force(4, wptr, chrom_name_write(chrom_info_ptr, get_marker_chrom(chrom_info_ptr, uii), wptr));
 	*wptr++ = ' ';
 	wptr = fw_strcpy(plink_maxsnp, &(marker_ids[uii * max_marker_id_len]), wptr);
       } else {
@@ -10338,7 +10338,7 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
   }
 
   // no need to force founder_male_include2 initialization here
-  if (alloc_collapsed_haploid_filters(unfiltered_sample_ct, founder_ct, hh_exists, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
+  if (alloc_collapsed_haploid_filters(founder_info, sex_male, unfiltered_sample_ct, founder_ct, hh_exists, 1, &founder_include2, &founder_male_include2)) {
     goto indep_pairphase_ret_NOMEM;
   }
 
@@ -10440,11 +10440,11 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
 	    nm_fixed = is_set_ul(zmiss, ulii);
 	    if (is_x) {
 	      memcpy(cur_geno1_male, cur_geno1, founder_ctsplit * sizeof(intptr_t));
-              bitfield_and(cur_geno1_male, sex_male_collapsed, founder_ctv3);
+              bitvec_and(sex_male_collapsed, founder_ctv3, cur_geno1_male);
 	      tot1[3] = popcount_longs(cur_geno1_male, founder_ctv3);
-              bitfield_and(&(cur_geno1_male[founder_ctv3]), sex_male_collapsed, founder_ctv3);
+              bitvec_and(sex_male_collapsed, founder_ctv3, &(cur_geno1_male[founder_ctv3]));
 	      tot1[4] = popcount_longs(&(cur_geno1_male[founder_ctv3]), founder_ctv3);
-              bitfield_and(&(cur_geno1_male[2 * founder_ctv3]), sex_male_collapsed, founder_ctv3);
+              bitvec_and(sex_male_collapsed, founder_ctv3, &(cur_geno1_male[2 * founder_ctv3]));
 	      tot1[5] = popcount_longs(&(cur_geno1_male[2 * founder_ctv3]), founder_ctv3);
 	    }
 	    for (; uljj < cur_window_size; uljj++) {
@@ -11781,7 +11781,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   tmp_set_bitfield[marker_ctv - 2] = 0;
   tmp_set_bitfield[marker_ctv - 1] = 0;
   g_ld_load2_bitfield = load2_bitfield;
-  alloc_collapsed_haploid_filters(unfiltered_sample_ct, founder_ct, XMHH_EXISTS | hh_exists, 1, founder_pnm, sex_male, &founder_include2, &founder_male_include2);
+  alloc_collapsed_haploid_filters(founder_pnm, sex_male, unfiltered_sample_ct, founder_ct, XMHH_EXISTS | hh_exists, 1, &founder_include2, &founder_male_include2);
   memreq2 = founder_ct_192_long * sizeof(intptr_t) * 2 + 4;
 
   // this guarantees enough room for save_set_bitfield() worst case
@@ -13071,7 +13071,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     index_data[uii * founder_ctv2 - 2] = 0;
     index_data[uii * founder_ctv2 - 1] = 0;
   }
-  if (alloc_collapsed_haploid_filters(unfiltered_sample_ct, founder_ct, Y_FIX_NEEDED, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
+  if (alloc_collapsed_haploid_filters(founder_info, sex_male, unfiltered_sample_ct, founder_ct, Y_FIX_NEEDED, 1, &founder_include2, &founder_male_include2)) {
     goto clump_reports_ret_NOMEM; 
  }
   if (clump_verbose && rg_setdefs) {
@@ -13503,7 +13503,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	}
       }
     }
-    bufptr = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, clump_chrom_idx));
+    bufptr = width_force(4, g_textbuf, chrom_name_write(chrom_info_ptr, clump_chrom_idx, g_textbuf));
     *bufptr++ = ' ';
     bufptr = uint32toa_w4(index_fidx, bufptr);
     *bufptr++ = ' ';
@@ -13570,7 +13570,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
 	}
       }
       if (rg_setdefs) {
-        bufptr = width_force(4, g_textbuf, chrom_name_write(g_textbuf, chrom_info_ptr, clump_chrom_idx));
+        bufptr = width_force(4, g_textbuf, chrom_name_write(chrom_info_ptr, clump_chrom_idx, g_textbuf));
         *bufptr++ = ' ';
         bufptr = fw_strcpy(plink_maxsnp, &(marker_ids[ivar_uidx * max_marker_id_len]), bufptr);
         *bufptr++ = ' ';

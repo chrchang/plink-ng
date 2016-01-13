@@ -227,7 +227,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
 	}
       }
     }
-    lambda_min = destructive_get_dmedian(misc_arr, WARM_START_ITERS) * zz;
+    lambda_min = destructive_get_dmedian(WARM_START_ITERS, misc_arr) * zz;
     logstr("--lasso:");
     LOGPRINTF(" using min lambda = %g.\n", lambda_min);
     bigstack_reset(prod_matrix);
@@ -597,7 +597,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
 	}
       }
     }
-    lambda_min = destructive_get_dmedian(misc_arr, WARM_START_ITERS) * zz;
+    lambda_min = destructive_get_dmedian(WARM_START_ITERS, misc_arr) * zz;
     logstr("--lasso:");
     LOGPRINTF(" using min lambda = %g.\n", lambda_min);
   }
@@ -914,7 +914,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   if ((chrom_info_ptr->mt_code != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->mt_code)) {
     hh_or_mt_exists |= NXMHH_EXISTS;
   }
-  if (alloc_collapsed_haploid_filters(unfiltered_sample_ct, sample_valid_ct, hh_or_mt_exists, 1, pheno_nm2, sex_male, &sample_include2, &sample_male_include2)) {
+  if (alloc_collapsed_haploid_filters(pheno_nm2, sex_male, unfiltered_sample_ct, sample_valid_ct, hh_or_mt_exists, 1, &sample_include2, &sample_male_include2)) {
     goto lasso_ret_NOMEM;
   }
   if (select_covars && select_covars_range_list_ptr->name_ct) {
@@ -995,7 +995,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
       chrom_fo_idx++;
       refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &uii, &min_ploidy_1);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      wptr_start = chrom_name_write(g_textbuf, chrom_info_ptr, uii);
+      wptr_start = chrom_name_write(chrom_info_ptr, uii, g_textbuf);
       *wptr_start++ = '\t';
     }
     wptr = strcpyax(wptr_start, &(marker_ids[marker_uidx * max_marker_id_len]), '\t');

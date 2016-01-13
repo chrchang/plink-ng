@@ -43,7 +43,7 @@ int32_t make_founders(uintptr_t unfiltered_sample_ct, uintptr_t sample_ct, char*
     goto make_founders_ret_NOMEM;
   }
   bitarr_invert_copy(sample_exclude, unfiltered_sample_ct, nf_bitarr);
-  bitfield_andnot(nf_bitarr, founder_info, unfiltered_sample_ctl);
+  bitvec_andnot(founder_info, unfiltered_sample_ctl, nf_bitarr);
   sample_uidx = unfiltered_sample_ct? next_set(nf_bitarr, 0, unfiltered_sample_ct) : 0;
   if (sample_uidx == unfiltered_sample_ct) {
     logprint("Note: Skipping --make-founders since there are no nonfounders.\n");
@@ -111,7 +111,7 @@ int32_t write_nosex(char* outname, char* outname_end, uintptr_t unfiltered_sampl
     goto write_nosex_ret_NOMEM;
   }
   bitarr_invert_copy(sample_exclude, unfiltered_sample_ct, sex_missing);
-  bitfield_andnot(sex_missing, sex_nm, unfiltered_sample_ctl);
+  bitvec_andnot(sex_nm, unfiltered_sample_ctl, sex_missing);
   memcpy(outname_end, ".nosex", 7);
   if (fopen_checked(outname, "w", &outfile)) {
     goto write_nosex_ret_OPEN_FAIL;
@@ -180,7 +180,7 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
     if (is_eoln_kns(*bufptr0)) {
       continue;
     }
-    if (bsearch_read_fam_indiv(id_buf, sorted_sample_ids, max_sample_id_len, unfiltered_sample_ct, bufptr0, &bufptr, &ii)) {
+    if (bsearch_read_fam_indiv(bufptr0, sorted_sample_ids, max_sample_id_len, unfiltered_sample_ct, &bufptr, &ii, id_buf)) {
       sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --make-pheno file has fewer tokens than expected.\n", line_idx);
       goto makepheno_load_ret_INVALID_FORMAT_2;
     }
@@ -322,7 +322,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
     if (!header_processed) {
       header_processed = 1;
     } else {
-      if (bsearch_read_fam_indiv(g_textbuf, sorted_sample_ids, max_sample_id_len, sample_ct, bufptr0, &bufptr, &sample_idx)) {
+      if (bsearch_read_fam_indiv(bufptr0, sorted_sample_ids, max_sample_id_len, sample_ct, &bufptr, &sample_idx, g_textbuf)) {
 	goto load_pheno_ret_MISSING_TOKENS;
       }
       if (sample_idx != -1) {
@@ -1362,7 +1362,7 @@ int32_t update_sample_ids(char* update_ids_fname, char* sorted_sample_ids, uintp
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    bsearch_read_fam_indiv(idbuf, sorted_sample_ids, max_sample_id_len, sample_ct, bufptr, &bufptr, &sorted_idx);
+    bsearch_read_fam_indiv(bufptr, sorted_sample_ids, max_sample_id_len, sample_ct, &bufptr, &sorted_idx, idbuf);
     if (sorted_idx == -1) {
       miss_ct++;
       continue;
@@ -1461,7 +1461,7 @@ int32_t update_sample_parents(char* update_parents_fname, char* sorted_sample_id
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    bsearch_read_fam_indiv(idbuf, sorted_sample_ids, max_sample_id_len, sample_ct, bufptr, &bufptr, &sorted_idx);
+    bsearch_read_fam_indiv(bufptr, sorted_sample_ids, max_sample_id_len, sample_ct, &bufptr, &sorted_idx, idbuf);
     if (sorted_idx == -1) {
       miss_ct++;
       continue;
@@ -1566,7 +1566,7 @@ int32_t update_sample_sexes(char* update_sex_fname, uint32_t update_sex_col, cha
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    if (bsearch_read_fam_indiv(idbuf, sorted_sample_ids, max_sample_id_len, sample_ct, bufptr, &bufptr, &sorted_idx)) {
+    if (bsearch_read_fam_indiv(bufptr, sorted_sample_ids, max_sample_id_len, sample_ct, &bufptr, &sorted_idx, idbuf)) {
       goto update_sample_sexes_ret_MISSING_TOKENS;
     }
     if (sorted_idx == -1) {
@@ -1860,7 +1860,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
   if (fopen_checked(freqname, "r", &freqfile)) {
     goto read_external_freqs_ret_OPEN_FAIL;
   }
-  retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
+  retval = sort_item_ids(unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref, &sorted_ids, &id_map);
   if (retval) {
     goto read_external_freqs_ret_1;
   }
@@ -2452,7 +2452,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
     if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
       goto write_stratified_freqs_ret_READ_FAIL;
     }
-    col_2_start = width_force(4, writebuf, chrom_name_write(writebuf, chrom_info_ptr, chrom_idx));
+    col_2_start = width_force(4, writebuf, chrom_name_write(chrom_info_ptr, chrom_idx, writebuf));
     *col_2_start++ = ' ';
     do {
       sptr = &(marker_ids[marker_uidx * max_marker_id_len]);
@@ -2651,18 +2651,18 @@ int32_t write_cc_freqs(FILE* bedfile, uintptr_t bed_offset, char* outname, char*
   quaterarr_include_init(unfiltered_sample_ct, case_include2, pheno_c);
   quaterarr_include_init(unfiltered_sample_ct, ctrl_include2, pheno_nm);
   memcpy(nonmale_vec, ctrl_include2, unfiltered_sample_ctl2 * sizeof(intptr_t));
-  bitfield_andnot(ctrl_include2, case_include2, unfiltered_sample_ctl2);
+  bitvec_andnot(case_include2, unfiltered_sample_ctl2, ctrl_include2);
   quaterarr_include_init(unfiltered_sample_ct, male_vec, sex_male);
-  bitfield_andnot(nonmale_vec, male_vec, unfiltered_sample_ctl2);
+  bitvec_andnot(male_vec, unfiltered_sample_ctl2, nonmale_vec);
   if (!nonfounders) {
     if (bigstack_alloc_ul(unfiltered_sample_ctl2, &ulptr)) {
       goto write_cc_freqs_ret_NOMEM;
     }
     quaterarr_include_init(unfiltered_sample_ct, ulptr, founder_info);
-    bitfield_and(case_include2, ulptr, unfiltered_sample_ctl2);
-    bitfield_and(ctrl_include2, ulptr, unfiltered_sample_ctl2);
-    bitfield_and(male_vec, ulptr, unfiltered_sample_ctl2);
-    bitfield_and(nonmale_vec, ulptr, unfiltered_sample_ctl2);
+    bitvec_and(ulptr, unfiltered_sample_ctl2, case_include2);
+    bitvec_and(ulptr, unfiltered_sample_ctl2, ctrl_include2);
+    bitvec_and(ulptr, unfiltered_sample_ctl2, male_vec);
+    bitvec_and(ulptr, unfiltered_sample_ctl2, nonmale_vec);
     bigstack_reset(ulptr);
   }
   case_ct = popcount2_longs(case_include2, unfiltered_sample_ctl2);
@@ -2700,7 +2700,7 @@ int32_t write_cc_freqs(FILE* bedfile, uintptr_t bed_offset, char* outname, char*
       goto write_cc_freqs_ret_READ_FAIL;
     }
     do {
-      pzwritep = width_force(4, pzwritep, chrom_name_write(pzwritep, chrom_info_ptr, chrom_idx));
+      pzwritep = width_force(4, pzwritep, chrom_name_write(chrom_info_ptr, chrom_idx, pzwritep));
       *pzwritep++ = ' ';
       pzwritep = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), pzwritep);
       *pzwritep++ = ' ';
@@ -2870,7 +2870,7 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
 	  missing_ct = sample_f_ct - (ll_cts[marker_uidx] + lh_cts[marker_uidx] + hh_cts[marker_uidx]);
 	}
 	if (freqx) {
-	  pzwritep = chrom_name_write(pzwritep, chrom_info_ptr, chrom_idx);
+	  pzwritep = chrom_name_write(chrom_info_ptr, chrom_idx, pzwritep);
 	  *pzwritep++ = '\t';
 	  pzwritep = strcpyax(pzwritep, &(marker_ids[marker_uidx * max_marker_id_len]), '\t');
 	  pzwritep = strcpyax(pzwritep, minor_ptr, '\t');
@@ -2882,7 +2882,7 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
           pzwritep = uint32toa_x(reverse? hapl_cts[marker_uidx] : haph_cts[marker_uidx], '\t', pzwritep);
           pzwritep = uint32toa(missing_ct, pzwritep);
 	} else {
-	  pzwritep = width_force(4, pzwritep, chrom_name_write(pzwritep, chrom_info_ptr, chrom_idx));
+	  pzwritep = width_force(4, pzwritep, chrom_name_write(chrom_info_ptr, chrom_idx, pzwritep));
 	  *pzwritep++ = ' ';
 	  pzwritep = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), pzwritep);
 	  *pzwritep++ = ' ';
@@ -2895,7 +2895,7 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
 	  pzwritep = uint32toa_w6(missing_ct, pzwritep);
 	}
       } else {
-	pzwritep = width_force(4, pzwritep, chrom_name_write(pzwritep, chrom_info_ptr, chrom_idx));
+	pzwritep = width_force(4, pzwritep, chrom_name_write(chrom_info_ptr, chrom_idx, pzwritep));
 	*pzwritep++ = ' ';
 	pzwritep = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), pzwritep);
         *pzwritep++ = ' ';
@@ -3119,7 +3119,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   fprintf(outfile, g_textbuf, "FID", "IID");
   sample_uidx = 0;
   if (do_impute) {
-    bitfield_andnot(sex_nm, sample_exclude, unfiltered_sample_ctl);
+    bitvec_andnot(sample_exclude, unfiltered_sample_ctl, sex_nm);
   }
   for (sample_idx = 0; sample_idx < sample_ct; sample_idx++, sample_uidx++) {
     next_unset_ul_unsafe_ck(sample_exclude, &sample_uidx);
@@ -3202,7 +3202,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     goto sexcheck_ret_WRITE_FAIL;
   }
   if (do_impute) {
-    bitfield_and(sex_male, sex_nm, unfiltered_sample_ctl);
+    bitvec_and(sex_nm, unfiltered_sample_ctl, sex_male);
     gender_unk_ct = sample_ct - popcount_longs(sex_nm, unfiltered_sample_ctl);
     if (!gender_unk_ct) {
       LOGPREPRINTFWW("--impute-sex: %" PRIuPTR " Xchr and %" PRIuPTR " Ychr variant(s) scanned, all sexes imputed. Report written to %s .\n", x_variant_ct, ytotal, outname);
@@ -3423,7 +3423,7 @@ int32_t list_duplicate_vars(char* outname, char* outname_end, uint32_t dupvar_mo
     if (marker_uidx == chrom_end) {
       continue;
     }
-    wptr_start = chrom_name_write(g_textbuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx]);
+    wptr_start = chrom_name_write(chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], g_textbuf);
     *wptr_start++ = '\t';
     last_pos = marker_pos[marker_uidx];
     while (1) {
@@ -3763,7 +3763,7 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
     } else {
       if (founder_vec11) {
         memcpy(loadbuf_f, loadbuf, sample_ctl2 * sizeof(intptr_t));
-        bitfield_and(loadbuf_f, founder_vec11, sample_ctl2);
+        bitvec_and(founder_vec11, sample_ctl2, loadbuf_f);
         f_missing_ct = count_01(loadbuf_f, sample_ctl2);
       } else {
 	f_missing_ct = cur_missing_ct;
@@ -4018,7 +4018,7 @@ int32_t fst_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
 	seek_flag = 1;
 	marker_uidx = next_unset_unsafe(marker_exclude, chrom_end);
       }
-      wptr_start = chrom_name_write(g_textbuf, chrom_info_ptr, chrom_idx);
+      wptr_start = chrom_name_write(chrom_info_ptr, chrom_idx, g_textbuf);
       *wptr_start++ = '\t';
     }
     if (seek_flag) {
@@ -4536,7 +4536,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   loadbuf_raw[unfiltered_sample_ctl2 - 1] = 0;
   loadbuf[sample_ctl2 - 1] = 0;
   // force sample_male_include2 allocation
-  if (alloc_collapsed_haploid_filters(unfiltered_sample_ct, sample_ct, hh_exists | XMHH_EXISTS, 0, sample_exclude, sex_male, &sample_include2, &sample_male_include2)) {
+  if (alloc_collapsed_haploid_filters(sample_exclude, sex_male, unfiltered_sample_ct, sample_ct, hh_exists | XMHH_EXISTS, 0, &sample_include2, &sample_male_include2)) {
     goto score_report_ret_NOMEM;
   }
   missing_pheno_len = strlen(output_missing_pheno);
@@ -6103,7 +6103,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
       wptr = g_textbuf;
       if (use_map) {
 	cur_chrom = (uint32_t)((unsigned char)(*bufptr++));
-	wptr = width_force(4, wptr, chrom_name_write(wptr, chrom_info_ptr, cur_chrom));
+	wptr = width_force(4, wptr, chrom_name_write(chrom_info_ptr, cur_chrom, wptr));
 	wptr = memseta(wptr, 32, 2);
 	cur_bp = uint32_decode_5_hi_uchar(bufptr);
 	bufptr = &(bufptr[5]);
