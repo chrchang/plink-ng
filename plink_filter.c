@@ -71,7 +71,7 @@ int32_t keep_or_remove(char* fname, char* sorted_ids, uintptr_t sorted_ids_ct, u
     // the already_seen strategy
     memcpy(exclude_arr_new, exclude_arr, unfiltered_ctl * sizeof(intptr_t));
   } else {
-    fill_all_bits(exclude_arr_new, unfiltered_ct);
+    fill_all_bits(unfiltered_ct, exclude_arr_new);
   }
   if (fopen_checked(fname, "r", &infile)) {
     goto keep_or_remove_ret_OPEN_FAIL;
@@ -309,7 +309,7 @@ int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, ui
     bitvec_or(already_seen, unfiltered_marker_ctl, marker_exclude);
   } else {
     bitvec_ornot(already_seen, unfiltered_marker_ctl, marker_exclude);
-    zero_trailing_bits(marker_exclude, unfiltered_marker_ct);
+    zero_trailing_bits(unfiltered_marker_ct, marker_exclude);
   }
   *marker_exclude_ct_ptr = popcount_longs(marker_exclude, unfiltered_marker_ctl);
   if ((*marker_exclude_ct_ptr == unfiltered_marker_ct) && (!allow_no_variants)) {
@@ -378,7 +378,7 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
       bigstack_calloc_ul(unfiltered_ctl, &already_seen)) {
     goto filter_attrib_ret_NOMEM;
   }
-  fill_all_bits(exclude_arr_new, unfiltered_ct);
+  fill_all_bits(unfiltered_ct, exclude_arr_new);
   if (condition_str) {
     // allow NULL condition_str; this means all samples/variants named in the
     // file are included
@@ -611,7 +611,7 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
       bigstack_alloc_c(max_id_len, &id_buf)) { 
     goto filter_attrib_sample_ret_NOMEM;
   }
-  fill_all_bits(exclude_arr_new, unfiltered_ct);
+  fill_all_bits(unfiltered_ct, exclude_arr_new);
   if (condition_str) {
     // allow NULL condition_str; this means all samples/variants named in the
     // file are included
@@ -1392,7 +1392,7 @@ int32_t filter_samples_file(char* filtername, char* sorted_sample_ids, uintptr_t
       bigstack_alloc_c(filterval_ct * max_filterval_len, &sorted_filtervals)) {
     goto filter_samples_file_ret_NOMEM;
   }
-  fill_all_bits(sample_exclude_new, unfiltered_sample_ct);
+  fill_all_bits(unfiltered_sample_ct, sample_exclude_new);
   bufptr = filtervals_flattened;
   for (filterval_idx = 0; filterval_idx < filterval_ct; filterval_idx++) {
     slen = strlen(bufptr) + 1;
@@ -1499,7 +1499,7 @@ void filter_samples_bitfields(uintptr_t unfiltered_sample_ct, uintptr_t* sample_
       } while (++ieptr < ieend);
     }
   }
-  zero_trailing_bits(sample_exclude, unfiltered_sample_ct);
+  zero_trailing_bits(unfiltered_sample_ct, sample_exclude);
   *sample_exclude_ct_ptr = popcount_longs(sample_exclude, unfiltered_sample_ctl);
 }
 
@@ -2332,7 +2332,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
       goto calc_freqs_and_hwe_ret_NOMEM;
     }
     bitvec_ornot(founder_info, unfiltered_sample_ctl, tmp_sample_excl_mask);
-    zero_trailing_bits(tmp_sample_excl_mask, unfiltered_sample_ct);
+    zero_trailing_bits(unfiltered_sample_ct, tmp_sample_excl_mask);
     exclude_to_vec_include(unfiltered_sample_ct, founder_include2, tmp_sample_excl_mask);
     if (males_needed) {
       if (bigstack_alloc_ul(unfiltered_sample_ctv2, &founder_male_include2)) {
@@ -2368,7 +2368,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
     memcpy(tmp_sample_excl_mask2, tmp_sample_excl_mask, unfiltered_sample_ctl * sizeof(intptr_t));
     bitvec_ornot(pheno_nm, unfiltered_sample_ctl, tmp_sample_excl_mask2);
     bitvec_or(pheno_c, unfiltered_sample_ctl, tmp_sample_excl_mask2);
-    zero_trailing_bits(tmp_sample_excl_mask2, unfiltered_sample_ct);
+    zero_trailing_bits(unfiltered_sample_ct, tmp_sample_excl_mask2);
     // tmp_sample_excl_mask2 is now set for each sample who is excluded, or a
     // nonfounder, or is noncontrol.
     sample_f_ctrl_ct = unfiltered_sample_ct - popcount_longs(tmp_sample_excl_mask2, unfiltered_sample_ctl);
@@ -2387,7 +2387,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
       }
       bitvec_ornot(pheno_nm, unfiltered_sample_ctl, tmp_sample_excl_mask);
       bitvec_ornot(pheno_c, unfiltered_sample_ctl, tmp_sample_excl_mask);
-      zero_trailing_bits(tmp_sample_excl_mask, unfiltered_sample_ct);
+      zero_trailing_bits(unfiltered_sample_ct, tmp_sample_excl_mask);
       sample_f_case_ct = unfiltered_sample_ct - popcount_longs(tmp_sample_excl_mask, unfiltered_sample_ctl);
       exclude_to_vec_include(unfiltered_sample_ct, founder_case_include2, tmp_sample_excl_mask);
       if (nonmales_needed) {
@@ -2754,7 +2754,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   memcpy(sample_male_include2, sample_include2, unfiltered_sample_ctv2 * sizeof(intptr_t));
   vec_include_mask_in(unfiltered_sample_ct, sample_male_include2, sex_male);
   if (y_present) {
-    marker_ct_y = count_chrom_markers(chrom_info_ptr, chrom_info_ptr->y_code, marker_exclude);
+    marker_ct_y = count_chrom_markers(chrom_info_ptr, marker_exclude, chrom_info_ptr->y_code);
   }
   marker_ct_nony = marker_ct - marker_ct_y;
   if (fseeko(bedfile, bed_offset, SEEK_SET)) {

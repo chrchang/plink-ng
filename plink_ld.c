@@ -829,10 +829,10 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
     goto ld_prune_ret_1;
   }
   if (is_set(chrom_info_ptr->chrom_mask, 0)) {
-    ulii = count_chrom_markers(chrom_info_ptr, 0, marker_exclude);
+    ulii = count_chrom_markers(chrom_info_ptr, marker_exclude, 0);
     if (chrom_info_ptr->zero_extra_chroms) {
       for (uii = chrom_info_ptr->max_code + 1; uii < chrom_code_end; uii++) {
-	ulii += count_chrom_markers(chrom_info_ptr, uii, marker_exclude);
+	ulii += count_chrom_markers(chrom_info_ptr, marker_exclude, uii);
       }
       chrom_code_end = chrom_info_ptr->max_code + 1;
     }
@@ -5231,7 +5231,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   }
   loadbuf[founder_ctl * 2 - 2] = 0;
   loadbuf[founder_ctl * 2 - 1] = 0;
-  fill_all_bits(dummy_nm, founder_ct);
+  fill_all_bits(founder_ct, dummy_nm);
   g_ld_thread_wkspace = NULL;
   if ((x_code != -1) && is_set(chrom_info_ptr->chrom_mask, x_code)) {
     uii = chrom_info_ptr->chrom_start[(uint32_t)x_code];
@@ -5647,7 +5647,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
     if (bigstack_alloc_ul(unfiltered_marker_ctl, &marker_exclude_idx1)) {
       goto ld_report_regular_ret_NOMEM;
     }
-    fill_all_bits(marker_exclude_idx1, unfiltered_marker_ct);
+    fill_all_bits(unfiltered_marker_ct, marker_exclude_idx1);
     marker_uidx1 = next_unset_unsafe(marker_exclude, 0);
     if (ldip->snpstr && (!snp_list_file)) {
       bufptr = ldip->snpstr;
@@ -5709,7 +5709,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 	  }
 	}
       } else {
-        retval = string_range_list_to_bitfield2(sorted_ids, id_map, marker_ct, max_marker_id_len, &(ldip->snps_rl), "ld-snps", marker_exclude_idx1);
+        retval = string_range_list_to_bitarr2(sorted_ids, id_map, marker_ct, max_marker_id_len, &(ldip->snps_rl), "ld-snps", marker_exclude_idx1);
         bitvec_or(marker_exclude, unfiltered_marker_ctl, marker_exclude_idx1);
         marker_ct1 = marker_ct - popcount_longs(marker_exclude_idx1, unfiltered_marker_ctl);
       }
@@ -7309,17 +7309,17 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
           prev_strong = strong_rec_cts[block_cidx2 * 2];
 	}
 	window_data_ptr = &(window_data[block_cidx2 * founder_ctv2]);
-	vec_3freq(founder_ctl2, window_data_ptr, index_data, &(counts[0]), &(counts[1]), &(counts[2]));
+	genovec_3freq(window_data_ptr, index_data, founder_ctl2, &(counts[0]), &(counts[1]), &(counts[2]));
 	counts[0] = index_tots[0] - counts[0] - counts[1] - counts[2];
-	vec_3freq(founder_ctl2, window_data_ptr, &(index_data[founder_ctv2]), &(counts[3]), &(counts[4]), &(counts[5]));
+	genovec_3freq(window_data_ptr, &(index_data[founder_ctv2]), founder_ctl2, &(counts[3]), &(counts[4]), &(counts[5]));
 	counts[3] = index_tots[1] - counts[3] - counts[4] - counts[5];
-	vec_3freq(founder_ctl2, window_data_ptr, &(index_data[2 * founder_ctv2]), &(counts[6]), &(counts[7]), &(counts[8]));
+	genovec_3freq(window_data_ptr, &(index_data[2 * founder_ctv2]), founder_ctl2, &(counts[6]), &(counts[7]), &(counts[8]));
 	counts[6] = index_tots[2] - counts[6] - counts[7] - counts[8];
 	if (is_x) {
-	  vec_3freq(founder_ctl2, window_data_ptr, &(index_data[3 * founder_ctv2]), &(counts[9]), &(counts[10]), &(counts[11]));
+	  genovec_3freq(window_data_ptr, &(index_data[3 * founder_ctv2]), founder_ctl2, &(counts[9]), &(counts[10]), &(counts[11]));
 	  // counts[10] should always be zero
 	  counts[9] = index_tots[3] - counts[9] - counts[11];
-	  vec_3freq(founder_ctl2, window_data_ptr, &(index_data[4 * founder_ctv2]), &(counts[12]), &(counts[13]), &(counts[14]));
+	  genovec_3freq(window_data_ptr, &(index_data[4 * founder_ctv2]), founder_ctl2, &(counts[12]), &(counts[13]), &(counts[14]));
 	  counts[12] = index_tots[4] - counts[12] - counts[14];
 	}
 	cur_ci_type = haploview_blocks_classify(counts, lowci_max, lowci_min, recomb_highci, strong_highci, strong_lowci, strong_lowci_outer, is_x, recomb_fast_ln_thresh);
@@ -9408,11 +9408,11 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	    SET_BIT(marker_uidx, marker_exclude2);
 	  }
 	} else {
-	  vec_3freq(case_ctl2, casebuf, ulptr, &missing_ct, &uii, &ujj);
+	  genovec_3freq(casebuf, ulptr, case_ctl2, &missing_ct, &uii, &ujj);
 	  if ((uii < cellminx3) || (ujj < cellminx3) || (case_ct - uii - ujj - missing_ct < cellminx3)) {
 	    SET_BIT(marker_uidx, marker_exclude2);
 	  } else if (!is_case_only) {
-	    vec_3freq(ctrl_ctl2, ctrlbuf, ulptr, &missing_ct, &uii, &ujj);
+	    genovec_3freq(ctrlbuf, ulptr, ctrl_ctl2, &missing_ct, &uii, &ujj);
 	    if ((uii < cellminx3) || (ujj < cellminx3) || (ctrl_ct - uii - ujj - missing_ct < cellminx3)) {
 	      SET_BIT(marker_uidx, marker_exclude2);
 	    }
@@ -10322,10 +10322,10 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
     goto indep_pairphase_ret_1;
   }
   if (is_set(chrom_info_ptr->chrom_mask, 0)) {
-    ulii = count_chrom_markers(chrom_info_ptr, 0, marker_exclude);
+    ulii = count_chrom_markers(chrom_info_ptr, marker_exclude, 0);
     if (chrom_info_ptr->zero_extra_chroms) {
       for (uii = chrom_info_ptr->max_code + 1; uii < chrom_code_end; uii++) {
-	ulii += count_chrom_markers(chrom_info_ptr, uii, marker_exclude);
+	ulii += count_chrom_markers(chrom_info_ptr, marker_exclude, uii);
       }
       chrom_code_end = chrom_info_ptr->max_code + 1;
     }
@@ -10375,7 +10375,7 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
   }
   loadbuf[founder_ctl * 2 - 2] = 0;
   loadbuf[founder_ctl * 2 - 1] = 0;
-  fill_all_bits(dummy_nm, founder_ct);
+  fill_all_bits(founder_ct, dummy_nm);
   // bugfix: this loop must start at 0, not 1
   for (ulii = 0; ulii < window_max; ulii++) {
     geno[ulii * founder_ctsplit + founder_ctv3 - 1] = 0;
@@ -11328,7 +11328,7 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
         for (ujj = 0; ujj < 3; ujj++) {
           vec_datamask(unfiltered_sample_ct, ujj + (ujj + 1) / 2, prevsnp_ptr, maskbuf_mid, maskbuf);
 	  ukk = popcount01_longs(maskbuf, sample_ctl2);
-	  vec_3freq(sample_ctl2, nextsnp_ptr, maskbuf, &umm, &(uiptr[1]), &(uiptr[2]));
+	  genovec_3freq(nextsnp_ptr, maskbuf, sample_ctl2, &umm, &(uiptr[1]), &(uiptr[2]));
 	  uiptr[0] = ukk - umm - uiptr[1] - uiptr[2];
 	  uiptr = &(uiptr[3]);
 	}
@@ -12293,8 +12293,8 @@ int32_t set_test_common_init(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
       bigstack_alloc_ul(BITCT_TO_WORDCT(marker_ct), unstopped_markers_ptr)) {
     goto set_test_common_init_ret_NOMEM;
   }
-  fill_all_bits(*perm_adapt_set_unstopped_ptr, set_ct);
-  fill_all_bits(*unstopped_markers_ptr, marker_ct);
+  fill_all_bits(set_ct, *perm_adapt_set_unstopped_ptr);
+  fill_all_bits(marker_ct, *unstopped_markers_ptr);
   while (0) {
   set_test_common_init_ret_NOMEM:
     retval = RET_NOMEM;
@@ -13238,16 +13238,16 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       if (((!allow_overlap) && is_set(cur_bitfield, marker_idx)) || ((!clump_entry_ptr) && (!nsig_arr[marker_idx]))) {
 	continue;
       }
-      vec_3freq(founder_ctl2, window_data_ptr, index_data, &(counts[0]), &(counts[1]), &(counts[2]));
+      genovec_3freq(window_data_ptr, index_data, founder_ctl2, &(counts[0]), &(counts[1]), &(counts[2]));
       counts[0] = index_tots[0] - counts[0] - counts[1] - counts[2];
-      vec_3freq(founder_ctl2, window_data_ptr, &(index_data[founder_ctv2]), &(counts[3]), &(counts[4]), &(counts[5]));
+      genovec_3freq(window_data_ptr, &(index_data[founder_ctv2]), founder_ctl2, &(counts[3]), &(counts[4]), &(counts[5]));
       counts[3] = index_tots[1] - counts[3] - counts[4] - counts[5];
-      vec_3freq(founder_ctl2, window_data_ptr, &(index_data[2 * founder_ctv2]), &(counts[6]), &(counts[7]), &(counts[8]));
+      genovec_3freq(window_data_ptr, &(index_data[2 * founder_ctv2]), founder_ctl2, &(counts[6]), &(counts[7]), &(counts[8]));
       counts[6] = index_tots[2] - counts[6] - counts[7] - counts[8];
       if (is_x) {
-        vec_3freq(founder_ctl2, window_data_ptr, &(index_data[3 * founder_ctv2]), &(counts[9]), &(counts[10]), &(counts[11]));
+        genovec_3freq(window_data_ptr, &(index_data[3 * founder_ctv2]), founder_ctl2, &(counts[9]), &(counts[10]), &(counts[11]));
         counts[9] = index_tots[3] - counts[9] - counts[11];
-        vec_3freq(founder_ctl2, window_data_ptr, &(index_data[4 * founder_ctv2]), &(counts[15]), &(counts[16]), &(counts[17]));
+        genovec_3freq(window_data_ptr, &(index_data[4 * founder_ctv2]), founder_ctl2, &(counts[15]), &(counts[16]), &(counts[17]));
         counts[15] = index_tots[4] - counts[15] - counts[17];
       }
       if (!em_phase_hethet_nobase(counts, is_x, is_x, &freq1x, &freq2x, &freqx1, &freqx2, &freq11)) {
@@ -13368,16 +13368,16 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       if (is_haploid) {
         haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)window_data);
       }
-      vec_3freq(founder_ctl2, window_data, index_data, &(counts[0]), &(counts[1]), &(counts[2]));
+      genovec_3freq(window_data, index_data, founder_ctl2, &(counts[0]), &(counts[1]), &(counts[2]));
       counts[0] = index_tots[0] - counts[0] - counts[1] - counts[2];
-      vec_3freq(founder_ctl2, window_data, &(index_data[founder_ctv2]), &(counts[3]), &(counts[4]), &(counts[5]));
+      genovec_3freq(window_data, &(index_data[founder_ctv2]), founder_ctl2, &(counts[3]), &(counts[4]), &(counts[5]));
       counts[3] = index_tots[1] - counts[3] - counts[4] - counts[5];
-      vec_3freq(founder_ctl2, window_data, &(index_data[2 * founder_ctv2]), &(counts[6]), &(counts[7]), &(counts[8]));
+      genovec_3freq(window_data, &(index_data[2 * founder_ctv2]), founder_ctl2, &(counts[6]), &(counts[7]), &(counts[8]));
       counts[6] = index_tots[2] - counts[6] - counts[7] - counts[8];
       if (is_x) {
-        vec_3freq(founder_ctl2, window_data, &(index_data[3 * founder_ctv2]), &(counts[9]), &(counts[10]), &(counts[11]));
+        genovec_3freq(window_data, &(index_data[3 * founder_ctv2]), founder_ctl2, &(counts[9]), &(counts[10]), &(counts[11]));
         counts[9] = index_tots[3] - counts[9] - counts[11];
-        vec_3freq(founder_ctl2, window_data, &(index_data[4 * founder_ctv2]), &(counts[15]), &(counts[16]), &(counts[17]));
+        genovec_3freq(window_data, &(index_data[4 * founder_ctv2]), founder_ctl2, &(counts[15]), &(counts[16]), &(counts[17]));
         counts[15] = index_tots[4] - counts[15] - counts[17];
       }
       if (!em_phase_hethet_nobase(counts, is_x, is_x, &freq1x, &freq2x, &freqx1, &freqx2, &freq11)) {

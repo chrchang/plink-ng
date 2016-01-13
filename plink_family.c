@@ -3986,7 +3986,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       bigstack_alloc_ui(sample_ct, &idx_to_uidx)) {
     goto dfam_ret_NOMEM;
   }
-  fill_all_bits(dfam_sample_exclude, unfiltered_sample_ct);
+  fill_all_bits(unfiltered_sample_ct, dfam_sample_exclude);
   fill_idx_to_uidx(sample_exclude, unfiltered_sample_ct, sample_ct, idx_to_uidx);
   cur_dfam_ptr = dfam_iteration_order;
   for (fs_idx = 0; fs_idx < family_ct; fs_idx++) {
@@ -4973,7 +4973,7 @@ void qfam_compute_bw(uintptr_t* loadbuf, uintptr_t sample_ct, uint32_t* fs_start
   uint32_t sample_idx;
   uint32_t fss_idx;
   uint32_t uii;
-  fill_all_bits(nm_fss, fss_ct);
+  fill_all_bits(fss_ct, nm_fss);
   cur_start = *fs_starts_ptr++;
   for (cur_idx = 0; cur_idx < family_ct; cur_idx++) {
     cur_end = *fs_starts_ptr++;
@@ -5040,7 +5040,7 @@ void qfam_compute_bw(uintptr_t* loadbuf, uintptr_t sample_ct, uint32_t* fs_start
       clear_bit(cur_idx, nm_fss);
     }
   }
-  fill_all_bits(nm_lm, lm_ct);
+  fill_all_bits(lm_ct, nm_lm);
   for (sample_uidx = 0, sample_idx = 0; sample_idx < lm_ct; sample_uidx++, sample_idx++) {
     next_set_unsafe_ck(lm_eligible, &sample_uidx);
     ulii = EXTRACT_2BIT_GENO(loadbuf, sample_uidx);

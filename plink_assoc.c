@@ -2385,7 +2385,7 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
 	} else if (is_x) {
 	  genovec_set_freq_x(&(loadbuf[marker_bidx * pheno_nm_ctv2]), &(perm_vecs[pidx * pheno_nm_ctv2]), male_vec, pheno_nm_ctv2, &case_set_ct, &case_missing_ct);
 	} else if (!is_y) {
-	  vec_3freq(pheno_nm_ctv2, &(loadbuf[marker_bidx * pheno_nm_ctv2]), &(perm_vecs[pidx * pheno_nm_ctv2]), &case_missing_ct, &uii, &case_set_ct);
+	  genovec_3freq(&(loadbuf[marker_bidx * pheno_nm_ctv2]), &(perm_vecs[pidx * pheno_nm_ctv2]), pheno_nm_ctv2, &case_missing_ct, &uii, &case_set_ct);
 	  case_missing_ct += uii;
 	} else {
 	  genovec_set_freq_y(&(loadbuf[marker_bidx * pheno_nm_ctv2]), &(perm_vecs[pidx * pheno_nm_ctv2]), nonmale_vec, pheno_nm_ctv2, &case_set_ct, &case_missing_ct);
@@ -3784,7 +3784,7 @@ THREAD_RET_TYPE model_adapt_domrec_thread(void* arg) {
       success_2start = perm_2success_ct[marker_idx];
       success_2incr = 0;
       for (pidx = 0; pidx < perm_vec_ct;) {
-	vec_3freq(pheno_nm_ctv2, &(loadbuf[marker_bidx * pheno_nm_ctv2]), &(perm_vecs[pidx * pheno_nm_ctv2]), &case_missing_ct, &uii, &case_homx_ct);
+	genovec_3freq(&(loadbuf[marker_bidx * pheno_nm_ctv2]), &(perm_vecs[pidx * pheno_nm_ctv2]), pheno_nm_ctv2, &case_missing_ct, &uii, &case_homx_ct);
 	if (is_model_prec) {
 	  case_homx_ct = case_ct - case_homx_ct - case_missing_ct - uii;
 	}
@@ -4670,7 +4670,7 @@ THREAD_RET_TYPE model_adapt_gen_thread(void* arg) {
       success_2start = perm_2success_ct[marker_idx];
       success_2incr = 0;
       for (pidx = 0; pidx < perm_vec_ct;) {
-	vec_3freq(pheno_nm_ctv2, &(loadbuf[marker_bidx * pheno_nm_ctv2]), &(perm_vecs[pidx * pheno_nm_ctv2]), &case_missing_ct, &case_het_ct, &case_homcom_ct);
+	genovec_3freq(&(loadbuf[marker_bidx * pheno_nm_ctv2]), &(perm_vecs[pidx * pheno_nm_ctv2]), pheno_nm_ctv2, &case_missing_ct, &case_het_ct, &case_homcom_ct);
 	if (model_fisher) {
 	  uii = case_ct - case_het_ct - case_homcom_ct - case_missing_ct;
 	  // this is very slow.  a precomputed 2-dimensional table could
@@ -5006,7 +5006,7 @@ THREAD_RET_TYPE model_adapt_best_thread(void* arg) {
       success_2start = perm_2success_ct[marker_idx];
       success_2incr = 0;
       for (pidx = 0; pidx < perm_vec_ct;) {
-	vec_3freq(pheno_nm_ctv2, &(loadbuf[marker_bidx * pheno_nm_ctv2]), &(perm_vecs[pidx * pheno_nm_ctv2]), &case_missing_ct, &case_het_ct, &case_homcom_ct);
+	genovec_3freq(&(loadbuf[marker_bidx * pheno_nm_ctv2]), &(perm_vecs[pidx * pheno_nm_ctv2]), pheno_nm_ctv2, &case_missing_ct, &case_het_ct, &case_homcom_ct);
 	case_homrar_ct = case_ct - case_missing_ct - case_het_ct - case_homcom_ct;
 	case_com_ct = case_het_ct + 2 * case_homcom_ct;
 	ujj = 0; // best increment so far
@@ -8483,7 +8483,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	marker_uidx2 = mu_table[marker_bidx];
         marker_idx_to_uidx[marker_idx + marker_bidx] = marker_uidx2;
 	loadbuf_ptr = &(g_loadbuf[marker_bidx * pheno_nm_ctv2]);
-	vec_3freq(pheno_nm_ctv2, loadbuf_ptr, sample_include2, &missing_ct, &het_ct, &homcom_ct);
+	genovec_3freq(loadbuf_ptr, sample_include2, pheno_nm_ctv2, &missing_ct, &het_ct, &homcom_ct);
 	nanal = pheno_nm_ct - missing_ct;
 	wptr = memcpya(g_textbuf, chrom_name_ptr, chrom_name_len);
 	*wptr++ = ' ';

@@ -575,7 +575,7 @@ int32_t extract_exclude_range(char* fname, uint32_t* marker_pos, uintptr_t unfil
     if (!marker_exclude_new) {
       goto extract_exclude_range_ret_NOMEM;
     }
-    fill_all_bits(marker_exclude_new, unfiltered_marker_ct);
+    fill_all_bits(unfiltered_marker_ct, marker_exclude_new);
     while (msr_tmp) {
       clear_bits(msr_tmp->uidx_start, msr_tmp->uidx_end - msr_tmp->uidx_start, marker_exclude_new);
       msr_tmp = msr_tmp->next;
@@ -885,7 +885,7 @@ uint32_t save_set_range(uint64_t* range_sort_buf, uint32_t marker_ct, uint32_t r
     ulii *= 16;
     if (ulii > mem_req) {
       range_start = bound_bottom_d128 * 128;
-      fill_all_bits(bitfield_ptr, range_end - range_start);
+      fill_all_bits(range_end - range_start, bitfield_ptr);
       if (do_flip) {
 	rsb_last_idx--;
 	if (range_start) {
@@ -1141,7 +1141,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
         bigstack_end_alloc_ul(unfiltered_marker_ctl, &marker_exclude_new)) {
       goto define_sets_ret_NOMEM;
     }
-    fill_all_bits(marker_exclude_new, unfiltered_marker_ct);
+    fill_all_bits(unfiltered_marker_ct, marker_exclude_new);
     // then include every variant that appears, or include every variant that
     // fails to appear in a fully loaded set in the complement case
     if (make_set) {
@@ -1617,7 +1617,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     retval = RET_ALL_MARKERS_EXCLUDED;
     break;
   define_sets_ret_EXCLUDE_ALL_MARKERS_ALLOWED:
-    fill_all_bits(marker_exclude, unfiltered_marker_ct);
+    fill_all_bits(unfiltered_marker_ct, marker_exclude);
     *marker_exclude_ct_ptr = unfiltered_marker_ct;
     break;
   define_sets_ret_INVALID_FORMAT_EXTRA_END:
@@ -2036,7 +2036,7 @@ uint32_t extract_set_union(uint32_t** setdefs, uintptr_t set_ct, uintptr_t* set_
     }
   }
  extract_set_union_exit_early:
-  zero_trailing_bits(filtered_union, marker_ct);
+  zero_trailing_bits(marker_ct, filtered_union);
   return popcount_longs(filtered_union, marker_ctl);
 }
 

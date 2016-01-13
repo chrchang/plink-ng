@@ -104,7 +104,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (12 Jan 2016)";
+  " (13 Jan 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -1046,7 +1046,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     }
     if (filter_flags & FILTER_PRUNE) {
       bitvec_ornot(pheno_nm, unfiltered_sample_ctl, sample_exclude);
-      zero_trailing_bits(sample_exclude, unfiltered_sample_ct);
+      zero_trailing_bits(unfiltered_sample_ct, sample_exclude);
       sample_exclude_ct = popcount_longs(sample_exclude, unfiltered_sample_ctl);
       if ((sample_exclude_ct == unfiltered_sample_ct) && (!allow_no_samples)) {
 	LOGERRPRINTF("Error: All %s removed by --prune.\n", g_species_plural);
@@ -2960,7 +2960,7 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
       chrom_info_ptr->xy_code = -1;
       chrom_info_ptr->mt_code = -1;
       chrom_info_ptr->max_code = ii;
-      fill_all_bits(chrom_info_ptr->haploid_mask, ((uint32_t)ii) + 1);
+      fill_all_bits(((uint32_t)ii) + 1, chrom_info_ptr->haploid_mask);
     } else {
       chrom_info_ptr->autosome_ct = ii;
       chrom_info_ptr->x_code = ii + 1;
@@ -3135,9 +3135,9 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
 
 void fill_chrom_mask(Chrom_info* chrom_info_ptr) {
   if (chrom_info_ptr->species != SPECIES_UNKNOWN) {
-    fill_all_bits(chrom_info_ptr->chrom_mask, chrom_info_ptr->max_code + 1);
+    fill_all_bits(chrom_info_ptr->max_code + 1, chrom_info_ptr->chrom_mask);
   } else {
-    fill_all_bits(chrom_info_ptr->chrom_mask, chrom_info_ptr->autosome_ct + 1);
+    fill_all_bits(chrom_info_ptr->autosome_ct + 1, chrom_info_ptr->chrom_mask);
     // --chr-set support
     if (chrom_info_ptr->x_code != -1) {
       set_bit(chrom_info_ptr->x_code, chrom_info_ptr->chrom_mask);

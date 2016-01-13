@@ -2345,28 +2345,28 @@ void genovec_set_freq_x(const uintptr_t* __restrict geno_vec, const uintptr_t* _
 
 void genovec_set_freq_y(const uintptr_t* __restrict geno_vec, const uintptr_t* __restrict include_quatervec, const uintptr_t* __restrict nonmale_quatervec, uintptr_t sample_ctl2, uint32_t* __restrict set_ctp, uint32_t* __restrict missing_ctp);
 
-void vec_3freq(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* missing_ctp, uint32_t* het_ctp, uint32_t* homa2_ctp);
+void genovec_3freq(const uintptr_t* __restrict geno_vec, const uintptr_t* __restrict include_quatervec, uintptr_t sample_ctl2, uint32_t* __restrict missing_ctp, uint32_t* __restrict het_ctp, uint32_t* __restrict homset_ctp);
 
-uintptr_t count_01(uintptr_t* lptr, uintptr_t word_ct);
+uintptr_t count_01(const uintptr_t* quatervec, uintptr_t word_ct);
 
-static inline void zero_trailing_bits(uintptr_t* bitfield, uintptr_t unfiltered_ct) {
+static inline void zero_trailing_bits(uintptr_t unfiltered_ct, uintptr_t* bitarr) {
   uintptr_t trail_ct = unfiltered_ct & (BITCT - 1);
   if (trail_ct) {
-    bitfield[unfiltered_ct / BITCT] &= (ONELU << trail_ct) - ONELU;
+    bitarr[unfiltered_ct / BITCT] &= (ONELU << trail_ct) - ONELU;
   }
 }
 
-void fill_all_bits(uintptr_t* bitarr, uintptr_t ct);
+void fill_all_bits(uintptr_t ct, uintptr_t* bitarr);
 
-uint32_t numeric_range_list_to_bitfield(Range_list* range_list_ptr, uint32_t item_ct, uintptr_t* bitfield, uint32_t offset, uint32_t ignore_overflow);
+uint32_t numeric_range_list_to_bitarr(const Range_list* range_list_ptr, uint32_t item_ct, uint32_t offset, uint32_t ignore_overflow, uintptr_t* bitarr);
 
-int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint32_t fixed_len, Range_list* range_list_ptr, char* sorted_ids, uint32_t* id_map, int32_t* seen_idxs, const char* range_list_flag, const char* file_descrip, uintptr_t* bitfield);
+int32_t string_range_list_to_bitarr(char* header_line, uint32_t item_ct, uint32_t fixed_len, const Range_list* range_list_ptr, const char* __restrict sorted_ids, const uint32_t* __restrict id_map, const char* __restrict range_list_flag, const char* __restrict file_descrip, uintptr_t* bitarr, int32_t* __restrict seen_idxs);
 
-int32_t string_range_list_to_bitfield_alloc(char* header_line, uint32_t item_ct, uint32_t fixed_len, Range_list* range_list_ptr, uintptr_t** bitfield_ptr, const char* range_list_flag, const char* file_descrip);
+int32_t string_range_list_to_bitarr_alloc(char* header_line, uint32_t item_ct, uint32_t fixed_len, const Range_list* range_list_ptr, const char* __restrict range_list_flag, const char* __restrict file_descrip, uintptr_t** bitarr_ptr);
 
-int32_t string_range_list_to_bitfield2(char* sorted_ids, uint32_t* id_map, uintptr_t item_ct, uintptr_t max_id_len, Range_list* range_list_ptr, const char* range_list_flag, uintptr_t* bitfield_excl);
+int32_t string_range_list_to_bitarr2(const char* __restrict sorted_ids, const uint32_t* id_map, uintptr_t item_ct, uintptr_t max_id_len, const Range_list* __restrict range_list_ptr, const char* __restrict range_list_flag, uintptr_t* bitfield_excl);
 
-static inline uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uintptr_t* marker_exclude) {
+static inline uint32_t count_chrom_markers(const Chrom_info* chrom_info_ptr, const uintptr_t* marker_exclude, uint32_t chrom_idx) {
   uint32_t min_idx;
   uint32_t max_idx;
   if (!is_set(chrom_info_ptr->chrom_mask, chrom_idx)) {
@@ -2377,11 +2377,11 @@ static inline uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t 
   return (max_idx - min_idx) - ((uint32_t)popcount_bit_idx(marker_exclude, min_idx, max_idx));
 }
 
-uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t count_x, uint32_t count_mt);
+uint32_t count_non_autosomal_markers(const Chrom_info* chrom_info_ptr, const uintptr_t* marker_exclude, uint32_t count_x, uint32_t count_mt);
 
-int32_t conditional_allocate_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uint32_t marker_ct, uint32_t count_x, uint32_t count_mt, const char* calc_descrip, uintptr_t** marker_exclude_ptr, uint32_t* newly_excluded_ct_ptr);
+int32_t conditional_allocate_non_autosomal_markers(const Chrom_info* chrom_info_ptr, uintptr_t unfiltered_marker_ct, const uintptr_t* marker_exclude_orig, uint32_t marker_ct, uint32_t count_x, uint32_t count_mt, const char* calc_descrip, uintptr_t** marker_exclude_ptr, uint32_t* newly_excluded_ct_ptr);
 
-uint32_t get_max_chrom_size(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t* last_chrom_fo_idx_ptr);
+uint32_t get_max_chrom_size(const Chrom_info* chrom_info_ptr, const uintptr_t* marker_exclude, uint32_t* last_chrom_fo_idx_ptr);
 
 void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uint32_t* male_ct_ptr, uint32_t* female_ct_ptr, uint32_t* unk_ct_ptr);
 

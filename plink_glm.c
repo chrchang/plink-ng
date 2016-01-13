@@ -3742,7 +3742,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
   if (parameters_range_list_ptr->name_ct) {
     fill_ulong_zero(active_params, param_raw_ctl);
     active_params[0] = 1;
-    numeric_range_list_to_bitfield(parameters_range_list_ptr, param_raw_ct_max, active_params, 0, 1);
+    numeric_range_list_to_bitarr(parameters_range_list_ptr, param_raw_ct_max, 0, 1, active_params);
     if ((!(active_params[0] & 2)) && ((!np_diploid_raw) || (active_params[0] & 4)) && ((!covar_interactions) || ((!popcount_bit_idx(active_params, interaction_start_idx, sex_start_idx)) && ((!variation_in_sex) || (!popcount_bit_idx(active_params, sex_start_idx + 1, param_raw_ct_max)))))) {
       // force the user to explicitly use no-snp if that's their intention
       logerrprint("Error: --parameters must retain at least one dosage-dependent variable.  To\nperform one-off regression(s), use the --linear 'no-snp' modifier instead.\n");
@@ -3766,7 +3766,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
       }
     }
   } else {
-    fill_all_bits(active_params, param_raw_ct_max);
+    fill_all_bits(param_raw_ct_max, active_params);
     param_ct_max = param_raw_ct_max;
     np_base = np_base_raw;
     np_diploid = np_diploid_raw;
@@ -3919,7 +3919,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
       }
     }
   } else {
-    fill_all_bits(haploid_params, param_ct_max - np_sex);
+    fill_all_bits(param_ct_max - np_sex, haploid_params);
   }
   uii = 0;
   if ((genotypic_or_hethom && ((active_params[0] & 6) == 6)) || tests_range_list_ptr->name_ct || (glm_modifier & GLM_TEST_ALL)) {
@@ -3928,7 +3928,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
     }
     fill_ulong_zero(g_joint_test_params, param_ctl_max);
     if (tests_range_list_ptr->name_ct) {
-      numeric_range_list_to_bitfield(tests_range_list_ptr, param_ct_max - 1, g_joint_test_params, 1, 1);
+      numeric_range_list_to_bitarr(tests_range_list_ptr, param_ct_max - 1, 1, 1, g_joint_test_params);
       constraint_ct_max = popcount_longs(g_joint_test_params, param_ctl_max);
     } else if (glm_modifier & GLM_TEST_ALL) {
       constraint_ct_max = param_ct_max - 1;
@@ -7201,10 +7201,10 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   if (parameters_range_list_ptr->name_ct) {
     fill_ulong_zero(active_params, param_raw_ctl);
     active_params[0] = 1;
-    numeric_range_list_to_bitfield(parameters_range_list_ptr, param_raw_ct, active_params, 0, 1);
+    numeric_range_list_to_bitarr(parameters_range_list_ptr, param_raw_ct, 0, 1, active_params);
     param_ct = popcount_longs(active_params, param_raw_ctl);
   } else {
-    fill_all_bits(active_params, param_raw_ct);
+    fill_all_bits(param_raw_ct, active_params);
     param_ct = param_raw_ct;
   }
   if (param_ct == 1) {
@@ -7247,7 +7247,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     }
     fill_ulong_zero(joint_test_params, ulii);
     if (tests_range_list_ptr->name_ct) {
-      numeric_range_list_to_bitfield(tests_range_list_ptr, param_ct - 1, joint_test_params, 1, 1);
+      numeric_range_list_to_bitarr(tests_range_list_ptr, param_ct - 1, 1, 1, joint_test_params);
       constraint_ct = popcount_longs(joint_test_params, ulii);
     } else {
       constraint_ct = param_ct - 1;
@@ -8064,10 +8064,10 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   if (parameters_range_list_ptr->name_ct) {
     fill_ulong_zero(active_params, param_raw_ctl);
     active_params[0] = 1;
-    numeric_range_list_to_bitfield(parameters_range_list_ptr, param_raw_ct, active_params, 0, 1);
+    numeric_range_list_to_bitarr(parameters_range_list_ptr, param_raw_ct, 0, 1, active_params);
     param_ct = popcount_longs(active_params, param_raw_ctl);
   } else {
-    fill_all_bits(active_params, param_raw_ct);
+    fill_all_bits(param_raw_ct, active_params);
     param_ct = param_raw_ct;
   }
   param_cta4 = round_up_pow2(param_ct, 4);
@@ -8111,7 +8111,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     }
     fill_ulong_zero(joint_test_params, ulii);
     if (tests_range_list_ptr->name_ct) {
-      numeric_range_list_to_bitfield(tests_range_list_ptr, param_ct - 1, joint_test_params, 1, 1);
+      numeric_range_list_to_bitarr(tests_range_list_ptr, param_ct - 1, 1, 1, joint_test_params);
       constraint_ct = popcount_longs(joint_test_params, ulii);
     } else {
       constraint_ct = param_ct - 1;

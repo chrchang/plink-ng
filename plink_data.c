@@ -1508,7 +1508,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
   if ((covar_modifier & (COVAR_NAME | COVAR_NUMBER)) && covar_raw_ct) {
     fill_ulong_zero(covars_active, covar_raw_ctl);
     if (covar_modifier & COVAR_NUMBER) {
-      if (numeric_range_list_to_bitfield(covar_range_list_ptr, covar_raw_ct, covars_active, 1, 0)) {
+      if (numeric_range_list_to_bitarr(covar_range_list_ptr, covar_raw_ct, 1, 0, covars_active)) {
 	goto load_covars_ret_MISSING_TOKENS;
       }
     } else if (covar_modifier & COVAR_NAME) {
@@ -1516,7 +1516,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
 	logerrprint("Error: --covar file doesn't have a header line for --covar-name.\n");
 	goto load_covars_ret_INVALID_FORMAT;
       }
-      retval = string_range_list_to_bitfield(bufptr, covar_raw_ct, 0, covar_range_list_ptr, sorted_covar_name_flag_ids, covar_name_flag_id_map, covar_name_flag_seen_idxs, "covar-name", "--covar file header line", covars_active);
+      retval = string_range_list_to_bitarr(bufptr, covar_raw_ct, 0, covar_range_list_ptr, sorted_covar_name_flag_ids, covar_name_flag_id_map, "covar-name", "--covar file header line", covars_active, covar_name_flag_seen_idxs);
       if (retval) {
 	goto load_covars_ret_1;
       }
@@ -1525,7 +1525,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
     }
     covar_ct = popcount_longs(covars_active, covar_raw_ctl);
   } else if (covar_range_list_ptr) {
-    fill_all_bits(covars_active, covar_raw_ct);
+    fill_all_bits(covar_raw_ct, covars_active);
     covar_ct = covar_raw_ct;
   } else {
     // --gxe only
@@ -3973,7 +3973,7 @@ int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32
   if (fam_cols & FAM_COL_34) {
     fill_ulong_zero(founder_info, unfiltered_sample_ctl);
   } else {
-    fill_all_bits(founder_info, unfiltered_sample_ct);
+    fill_all_bits(unfiltered_sample_ct, founder_info);
   }
   fill_ulong_zero(sex_nm, unfiltered_sample_ctl);
   fill_ulong_zero(sex_male, unfiltered_sample_ctl);
@@ -12086,7 +12086,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	}
 	memcpy(sample_exclude_y, sample_exclude, unfiltered_sample_ctl * sizeof(intptr_t));
 	bitvec_ornot(sex_male, unfiltered_sample_ctl, sample_exclude_y);
-	zero_trailing_bits(sample_exclude_y, unfiltered_sample_ct);
+	zero_trailing_bits(unfiltered_sample_ct, sample_exclude_y);
 	sample_ct_y = unfiltered_sample_ct - popcount_longs(sample_exclude_y, unfiltered_sample_ctl);
         uii = QUATERCT_TO_ALIGNED_WORDCT(sample_ct_y);
 	if (bigstack_alloc_ul(uii, &sample_include2_y) ||
@@ -13151,7 +13151,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     // chromosomes, though, since chromosome 0 was actually processed
     autosomal_marker_ct = marker_ct - count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
     if (chrom_info_ptr->xy_code != -1) {
-      autosomal_marker_ct -= count_chrom_markers(chrom_info_ptr, chrom_info_ptr->xy_code, marker_exclude);
+      autosomal_marker_ct -= count_chrom_markers(chrom_info_ptr, marker_exclude, chrom_info_ptr->xy_code);
     }
     if (!autosomal_marker_ct) {
       // could allow this?
@@ -13483,7 +13483,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
       refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
       chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      ulii = count_chrom_markers(chrom_info_ptr, chrom_idx, marker_exclude);
+      ulii = count_chrom_markers(chrom_info_ptr, marker_exclude, chrom_idx);
       if (recode_modifier & RECODE_FASTPHASE) {
         wbufptr = chrom_name_write(chrom_info_ptr, chrom_idx, &(outname_end[5]));
         if (chrom_idx <= chrom_info_ptr->max_code) {
@@ -14044,7 +14044,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
       refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
       chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      ulii = count_chrom_markers(chrom_info_ptr, chrom_idx, marker_exclude);
+      ulii = count_chrom_markers(chrom_info_ptr, marker_exclude, chrom_idx);
       if (recode_modifier & RECODE_HV) {
         wbufptr = chrom_name_write(chrom_info_ptr, chrom_idx, &(outname_end[5]));
         if (chrom_idx <= chrom_info_ptr->max_code) {

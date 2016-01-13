@@ -159,7 +159,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
     if (min_ploidy_1) {
       haploid_fix(hh_or_mt_exists, sample_include2, sample_male_include2, sample_valid_ct, is_x, is_y, (unsigned char*)loadbuf_collapsed);
     }
-    vec_3freq(sample_valid_ctl2, loadbuf_collapsed, sample_include2, &missing_ct, &het_ct, &homset_ct);
+    genovec_3freq(loadbuf_collapsed, sample_include2, sample_valid_ctl2, &missing_ct, &het_ct, &homset_ct);
     uii = sample_valid_ct - missing_ct;
     homrar_ct = uii - het_ct - homset_ct;
     if (!(((!homrar_ct) && ((!het_ct) || (!homset_ct))) || ((!het_ct) && (!homset_ct)))) {
@@ -285,7 +285,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
       }
     }
     iter = 0;
-    fill_all_bits(active_set, col_ct);
+    fill_all_bits(col_ct, active_set);
     col_nz_ct = col_ct;
     while (1) {
       col_uidx = 0;
@@ -378,7 +378,7 @@ uint32_t load_and_normalize(FILE* bedfile, uintptr_t* loadbuf_raw, uintptr_t unf
   if (min_ploidy_1) {
     haploid_fix(hh_or_mt_exists, sample_include2, sample_male_include2, sample_valid_ct, is_x, is_y, (unsigned char*)loadbuf_collapsed);
   }
-  vec_3freq(sample_valid_ctl2, loadbuf_collapsed, sample_include2, &missing_ct, &het_ct, &homset_ct);
+  genovec_3freq(loadbuf_collapsed, sample_include2, sample_valid_ctl2, &missing_ct, &het_ct, &homset_ct);
   uii = sample_valid_ct - missing_ct;
   homrar_ct = uii - het_ct - homset_ct;
   if (((!homrar_ct) && ((!het_ct) || (!homset_ct))) || ((!het_ct) && (!homset_ct))) {
@@ -666,7 +666,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
       }
     }
     iter = 0;
-    fill_all_bits(active_set, col_ct);
+    fill_all_bits(col_ct, active_set);
     col_nz_ct = col_ct;
     while (1) {
       col_uidx = 0;
@@ -922,7 +922,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
       logerrprint("Error: No covariates loaded for --lasso-select-covars.\n");
       goto lasso_ret_INVALID_CMDLINE;
     }
-    retval = string_range_list_to_bitfield_alloc(covar_names, covar_ct, max_covar_name_len, select_covars_range_list_ptr, &select_covars_bitfield, "lasso-select-covars", "--covar file");
+    retval = string_range_list_to_bitarr_alloc(covar_names, covar_ct, max_covar_name_len, select_covars_range_list_ptr, "lasso-select-covars", "--covar file", &select_covars_bitfield);
     if (retval) {
       goto lasso_ret_1;
     }

@@ -7569,9 +7569,9 @@ void genovec_set_freq_y(const uintptr_t* __restrict geno_vec, const uintptr_t* _
   *missing_ctp = accm;
 }
 
-void vec_3freq(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* missing_ctp, uint32_t* het_ctp, uint32_t* homset_ctp) {
+void genovec_3freq(const uintptr_t* __restrict geno_vec, const uintptr_t* __restrict include_quatervec, uintptr_t sample_ctl2, uint32_t* __restrict missing_ctp, uint32_t* __restrict het_ctp, uint32_t* __restrict homset_ctp) {
   // generic routine for getting all counts.
-  uintptr_t* lptr_end = &(lptr[sample_ctl2]);
+  const uintptr_t* geno_vec_end = &(geno_vec[sample_ctl2]);
   uintptr_t loader;
   uintptr_t loader2;
   uintptr_t loader3;
@@ -7580,31 +7580,31 @@ void vec_3freq(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec, u
   uint32_t acc_and = 0;
 #ifdef __LP64__
   uintptr_t cur_decr = 120;
-  uintptr_t* lptr_12x_end;
+  const uintptr_t* geno_vec_12x_end;
   sample_ctl2 -= sample_ctl2 % 12;
   while (sample_ctl2 >= 120) {
-  vec_3freq_loop:
-    lptr_12x_end = &(lptr[cur_decr]);
-    count_3freq_1920b((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)include_vec, &acc_even, &acc_odd, &acc_and);
-    lptr = lptr_12x_end;
-    include_vec = &(include_vec[cur_decr]);
+  genovec_3freq_loop:
+    geno_vec_12x_end = &(geno_vec[cur_decr]);
+    count_3freq_1920b((const __m128i*)geno_vec, (const __m128i*)geno_vec_12x_end, (const __m128i*)include_quatervec, &acc_even, &acc_odd, &acc_and);
+    geno_vec = geno_vec_12x_end;
+    include_quatervec = &(include_quatervec[cur_decr]);
     sample_ctl2 -= cur_decr;
   }
   if (sample_ctl2) {
     cur_decr = sample_ctl2;
-    goto vec_3freq_loop;
+    goto genovec_3freq_loop;
   }
 #else
-  uintptr_t* lptr_twelve_end = &(lptr[sample_ctl2 - (sample_ctl2 % 12)]);
-  while (lptr < lptr_twelve_end) {
-    count_3freq_48b(lptr, include_vec, &acc_even, &acc_odd, &acc_and);
-    lptr = &(lptr[12]);
-    include_vec = &(include_vec[12]);
+  uintptr_t* geno_vec_twelve_end = &(geno_vec[sample_ctl2 - (sample_ctl2 % 12)]);
+  while (geno_vec < geno_vec_twelve_end) {
+    count_3freq_48b(geno_vec, include_quatervec, &acc_even, &acc_odd, &acc_and);
+    geno_vec = &(geno_vec[12]);
+    include_quatervec = &(include_quatervec[12]);
   }
 #endif
-  while (lptr < lptr_end) {
-    loader = *lptr++;
-    loader2 = *include_vec++;
+  while (geno_vec < geno_vec_end) {
+    loader = *geno_vec++;
+    loader2 = *include_quatervec++;
     loader3 = loader2 & (loader >> 1);
     acc_even += popcount2_long(loader & loader2);
     acc_odd += popcount2_long(loader3);
@@ -7615,32 +7615,32 @@ void vec_3freq(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec, u
   *homset_ctp = acc_and;
 }
 
-uintptr_t count_01(uintptr_t* lptr, uintptr_t word_ct) {
+uintptr_t count_01(const uintptr_t* quatervec, uintptr_t word_ct) {
   // really just for getting a missing count
-  // unlike popcount01_longs, this does not assume lptr[] has no 11s
-  uintptr_t* lptr_end = &(lptr[word_ct]);
+  // unlike popcount01_longs, this does not assume quatervec[] has no 11s
+  const uintptr_t* quatervec_end = &(quatervec[word_ct]);
   uintptr_t loader;
 #ifdef __LP64__
   uintptr_t acc;
   word_ct -= word_ct % 12;
-  acc = count_01_vecs((__m128i*)lptr, word_ct / 2);
-  lptr = &(lptr[word_ct]);
+  acc = count_01_vecs((__m128i*)quatervec, word_ct / 2);
+  quatervec = &(quatervec[word_ct]);
 #else
-  uintptr_t* lptr_twelve_end = &(lptr[word_ct - (word_ct % 12)]);
+  const uintptr_t* quatervec_twelve_end = &(quatervec[word_ct - (word_ct % 12)]);
   uintptr_t acc = 0;
-  while (lptr < lptr_twelve_end) {
-    acc += count_01_12(lptr);
-    lptr = &(lptr[12]);
+  while (quatervec < quatervec_twelve_end) {
+    acc += count_01_12(quatervec);
+    quatervec = &(quatervec[12]);
   }
 #endif
-  while (lptr < lptr_end) {
-    loader = *lptr++;
+  while (quatervec < quatervec_end) {
+    loader = *quatervec++;
     acc += popcount2_long(loader & (~(loader >> 1)) & FIVEMASK);
   }
   return acc;
 }
 
-void fill_all_bits(uintptr_t* bitarr, uintptr_t ct) {
+void fill_all_bits(uintptr_t ct, uintptr_t* bitarr) {
   // leaves bits beyond the end unset
   // ok for ct == 0
   uintptr_t quotient = ct / BITCT;
@@ -7651,9 +7651,10 @@ void fill_all_bits(uintptr_t* bitarr, uintptr_t ct) {
   }
 }
 
-uint32_t numeric_range_list_to_bitfield(Range_list* range_list_ptr, uint32_t item_ct, uintptr_t* bitfield, uint32_t offset, uint32_t ignore_overflow) {
-  char* names = range_list_ptr->names;
-  unsigned char* starts_range = range_list_ptr->starts_range;
+uint32_t numeric_range_list_to_bitarr(const Range_list* range_list_ptr, uint32_t item_ct, uint32_t offset, uint32_t ignore_overflow, uintptr_t* bitarr) {
+  // bitarr assumed to be initialized
+  const char* names = range_list_ptr->names;
+  const unsigned char* starts_range = range_list_ptr->starts_range;
   uint32_t name_ct = range_list_ptr->name_ct;
   uint32_t name_max_len = range_list_ptr->name_max_len;
   uint32_t idx_max = item_ct + offset;
@@ -7675,15 +7676,16 @@ uint32_t numeric_range_list_to_bitfield(Range_list* range_list_ptr, uint32_t ite
 	}
         idx2 = idx_max - 1;
       }
-      fill_bits(idx1 - offset, (idx2 - idx1) + 1, bitfield);
+      fill_bits(idx1 - offset, (idx2 - idx1) + 1, bitarr);
     } else {
-      set_bit(idx1 - offset, bitfield);
+      set_bit(idx1 - offset, bitarr);
     }
   }
   return 0;
 }
 
-int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint32_t fixed_len, Range_list* range_list_ptr, char* sorted_ids, uint32_t* id_map, int32_t* seen_idxs, const char* range_list_flag, const char* file_descrip, uintptr_t* bitfield) {
+int32_t string_range_list_to_bitarr(char* header_line, uint32_t item_ct, uint32_t fixed_len, const Range_list* range_list_ptr, const char* __restrict sorted_ids, const uint32_t* __restrict id_map, const char* __restrict range_list_flag, const char* __restrict file_descrip, uintptr_t* bitarr, int32_t* __restrict seen_idxs) {
+  // bitarr assumed to be initialized
   // if fixed_len is zero, header_line is assumed to be a list of
   // space-delimited unequal-length names
   uintptr_t max_id_len = range_list_ptr->name_max_len;
@@ -7700,17 +7702,17 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint3
       cmdline_pos = id_map[(uint32_t)ii];
       if (seen_idxs[cmdline_pos] != -1) {
 	sprintf(g_logbuf, "Error: Duplicate --%s token in %s.\n", range_list_flag, file_descrip);
-        goto string_range_list_to_bitfield_ret_INVALID_FORMAT_2;
+        goto string_range_list_to_bitarr_ret_INVALID_FORMAT_2;
       }
       seen_idxs[cmdline_pos] = item_idx;
       if (cmdline_pos && range_list_ptr->starts_range[cmdline_pos - 1]) {
         if (seen_idxs[cmdline_pos - 1] == -1) {
           LOGPREPRINTFWW("Error: Second element of --%s range appears before first element in %s.\n", range_list_flag, file_descrip);
-          goto string_range_list_to_bitfield_ret_INVALID_CMDLINE_2;
+          goto string_range_list_to_bitarr_ret_INVALID_CMDLINE_2;
 	}
-	fill_bits(seen_idxs[cmdline_pos - 1], (item_idx - seen_idxs[cmdline_pos - 1]) + 1, bitfield);
+	fill_bits(seen_idxs[cmdline_pos - 1], (item_idx - seen_idxs[cmdline_pos - 1]) + 1, bitarr);
       } else if (!(range_list_ptr->starts_range[cmdline_pos])) {
-	SET_BIT(item_idx, bitfield);
+	SET_BIT(item_idx, bitarr);
       }
     }
     if (++item_idx == item_ct) {
@@ -7724,17 +7726,17 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint3
   }
   for (cmdline_pos = 0; cmdline_pos < name_ct; cmdline_pos++) {
     if (seen_idxs[cmdline_pos] == -1) {
-      goto string_range_list_to_bitfield_ret_INVALID_CMDLINE_3;
+      goto string_range_list_to_bitarr_ret_INVALID_CMDLINE_3;
     }
   }
   while (0) {
-  string_range_list_to_bitfield_ret_INVALID_CMDLINE_3:
+  string_range_list_to_bitarr_ret_INVALID_CMDLINE_3:
     sprintf(g_logbuf, "Error: Missing --%s token in %s.\n", range_list_flag, file_descrip);
-  string_range_list_to_bitfield_ret_INVALID_CMDLINE_2:
+  string_range_list_to_bitarr_ret_INVALID_CMDLINE_2:
     logerrprintb();
     retval = RET_INVALID_CMDLINE;
     break;
-  string_range_list_to_bitfield_ret_INVALID_FORMAT_2:
+  string_range_list_to_bitarr_ret_INVALID_FORMAT_2:
     logerrprintb();
     retval = RET_INVALID_FORMAT;
     break;
@@ -7742,8 +7744,8 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint3
   return retval;
 }
 
-int32_t string_range_list_to_bitfield_alloc(char* header_line, uint32_t item_ct, uint32_t fixed_len, Range_list* range_list_ptr, uintptr_t** bitfield_ptr, const char* range_list_flag, const char* file_descrip) {
-  // wrapper for string_range_list_to_bitfield which allocates the bitfield and
+int32_t string_range_list_to_bitarr_alloc(char* header_line, uint32_t item_ct, uint32_t fixed_len, const Range_list* range_list_ptr, const char* __restrict range_list_flag, const char* __restrict file_descrip, uintptr_t** bitarr_ptr) {
+  // wrapper for string_range_list_to_bitarr which allocates the bitfield and
   // temporary buffers on the heap
   uintptr_t item_ctl = BITCT_TO_WORDCT(item_ct);
   uintptr_t name_ct = range_list_ptr->name_ct;
@@ -7751,7 +7753,7 @@ int32_t string_range_list_to_bitfield_alloc(char* header_line, uint32_t item_ct,
   int32_t* seen_idxs;
   char* sorted_ids;
   uint32_t* id_map;
-  if (bigstack_calloc_ul(item_ctl, bitfield_ptr) ||
+  if (bigstack_calloc_ul(item_ctl, bitarr_ptr) ||
       bigstack_alloc_i(name_ct, &seen_idxs)) {
     return RET_NOMEM;
   }
@@ -7761,17 +7763,17 @@ int32_t string_range_list_to_bitfield_alloc(char* header_line, uint32_t item_ct,
     return RET_NOMEM;
   }
   fill_int_one(seen_idxs, name_ct);
-  retval = string_range_list_to_bitfield(header_line, item_ct, fixed_len, range_list_ptr, sorted_ids, id_map, seen_idxs, range_list_flag, file_descrip, *bitfield_ptr);
+  retval = string_range_list_to_bitarr(header_line, item_ct, fixed_len, range_list_ptr, sorted_ids, id_map, range_list_flag, file_descrip, *bitarr_ptr, seen_idxs);
   bigstack_reset(seen_idxs);
   return retval;
 }
 
-int32_t string_range_list_to_bitfield2(char* sorted_ids, uint32_t* id_map, uintptr_t item_ct, uintptr_t max_id_len, Range_list* range_list_ptr, const char* range_list_flag, uintptr_t* bitfield_excl) {
+int32_t string_range_list_to_bitarr2(const char* __restrict sorted_ids, const uint32_t* id_map, uintptr_t item_ct, uintptr_t max_id_len, const Range_list* __restrict range_list_ptr, const char* __restrict range_list_flag, uintptr_t* bitfield_excl) {
   // sorted_ids/id_map is for e.g. marker IDs instead of command line
   // parameters.  bitfield_excl is assumed to be initialized (since its length
   // is not known by this function).
   char* names = range_list_ptr->names;
-  unsigned char* starts_range = range_list_ptr->starts_range;
+  const unsigned char* starts_range = range_list_ptr->starts_range;
   uintptr_t name_max_len = range_list_ptr->name_max_len;
   uint32_t name_ct = range_list_ptr->name_ct;
   int32_t retval = 0;
@@ -7784,7 +7786,7 @@ int32_t string_range_list_to_bitfield2(char* sorted_ids, uint32_t* id_map, uintp
     bufptr = &(names[param_idx * name_max_len]);
     ii = bsearch_str_nl(bufptr, sorted_ids, max_id_len, item_ct);
     if (ii == -1) {
-      goto string_range_list_to_bitfield2_ret_INVALID_CMDLINE_3;
+      goto string_range_list_to_bitarr2_ret_INVALID_CMDLINE_3;
     }
     item_uidx = id_map[(uint32_t)ii];
     if (starts_range[param_idx]) {
@@ -7792,12 +7794,12 @@ int32_t string_range_list_to_bitfield2(char* sorted_ids, uint32_t* id_map, uintp
       bufptr = &(names[param_idx * name_max_len]);
       ii = bsearch_str_nl(bufptr, sorted_ids, max_id_len, item_ct);
       if (ii == -1) {
-        goto string_range_list_to_bitfield2_ret_INVALID_CMDLINE_3;
+        goto string_range_list_to_bitarr2_ret_INVALID_CMDLINE_3;
       }
       item_uidx2 = id_map[(uint32_t)ii];
       if (item_uidx2 < item_uidx) {
 	sprintf(g_logbuf, "Error: Second element of --%s range appears before first.\n", range_list_flag);
-	goto string_range_list_to_bitfield2_ret_INVALID_CMDLINE_2;
+	goto string_range_list_to_bitarr2_ret_INVALID_CMDLINE_2;
       }
       clear_bits(item_uidx, item_uidx2 - item_uidx + 1, bitfield_excl);
     } else {
@@ -7805,9 +7807,9 @@ int32_t string_range_list_to_bitfield2(char* sorted_ids, uint32_t* id_map, uintp
     }
   }
   while (0) {
-  string_range_list_to_bitfield2_ret_INVALID_CMDLINE_3:
+  string_range_list_to_bitarr2_ret_INVALID_CMDLINE_3:
     sprintf(g_logbuf, "Error: --%s ID not found.\n", range_list_flag);
-  string_range_list_to_bitfield2_ret_INVALID_CMDLINE_2:
+  string_range_list_to_bitarr2_ret_INVALID_CMDLINE_2:
     logerrprintb();
     retval = RET_INVALID_CMDLINE;
     break;
@@ -7815,7 +7817,7 @@ int32_t string_range_list_to_bitfield2(char* sorted_ids, uint32_t* id_map, uintp
   return retval;
 }
 
-uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t count_x, uint32_t count_mt) {
+uint32_t count_non_autosomal_markers(const Chrom_info* chrom_info_ptr, const uintptr_t* marker_exclude, uint32_t count_x, uint32_t count_mt) {
   // for backward compatibility, unplaced markers are considered to be
   // autosomal here
   uint32_t ct = 0;
@@ -7823,18 +7825,18 @@ uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* mark
   int32_t y_code = chrom_info_ptr->y_code;
   int32_t mt_code = chrom_info_ptr->mt_code;
   if (count_x && (x_code != -1)) {
-    ct += count_chrom_markers(chrom_info_ptr, x_code, marker_exclude);
+    ct += count_chrom_markers(chrom_info_ptr, marker_exclude, x_code);
   }
   if (y_code != -1) {
-    ct += count_chrom_markers(chrom_info_ptr, y_code, marker_exclude);
+    ct += count_chrom_markers(chrom_info_ptr, marker_exclude, y_code);
   }
   if (count_mt && (mt_code != -1)) {
-    ct += count_chrom_markers(chrom_info_ptr, mt_code, marker_exclude);
+    ct += count_chrom_markers(chrom_info_ptr, marker_exclude, mt_code);
   }
   return ct;
 }
 
-int32_t conditional_allocate_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uint32_t marker_ct, uint32_t count_x, uint32_t count_mt, const char* calc_descrip, uintptr_t** marker_exclude_ptr, uint32_t* newly_excluded_ct_ptr) {
+int32_t conditional_allocate_non_autosomal_markers(const Chrom_info* chrom_info_ptr, uintptr_t unfiltered_marker_ct, const uintptr_t* marker_exclude_orig, uint32_t marker_ct, uint32_t count_x, uint32_t count_mt, const char* calc_descrip, uintptr_t** marker_exclude_ptr, uint32_t* newly_excluded_ct_ptr) {
   uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   int32_t x_code = chrom_info_ptr->x_code;
   int32_t y_code = chrom_info_ptr->y_code;
@@ -7846,13 +7848,13 @@ int32_t conditional_allocate_non_autosomal_markers(Chrom_info* chrom_info_ptr, u
     *newly_excluded_ct_ptr = marker_ct;
   } else {
     if (count_x && (x_code != -1)) {
-      x_ct = count_chrom_markers(chrom_info_ptr, x_code, marker_exclude_orig);
+      x_ct = count_chrom_markers(chrom_info_ptr, marker_exclude_orig, x_code);
     }
     if (y_code != -1) {
-      y_ct = count_chrom_markers(chrom_info_ptr, y_code, marker_exclude_orig);
+      y_ct = count_chrom_markers(chrom_info_ptr, marker_exclude_orig, y_code);
     }
     if (count_mt && (mt_code != -1)) {
-      mt_ct = count_chrom_markers(chrom_info_ptr, mt_code, marker_exclude_orig);
+      mt_ct = count_chrom_markers(chrom_info_ptr, marker_exclude_orig, mt_code);
     }
     *newly_excluded_ct_ptr = x_ct + y_ct + mt_ct;
   }
@@ -7882,14 +7884,14 @@ int32_t conditional_allocate_non_autosomal_markers(Chrom_info* chrom_info_ptr, u
   return 0;
 }
 
-uint32_t get_max_chrom_size(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t* last_chrom_fo_idx_ptr) {
+uint32_t get_max_chrom_size(const Chrom_info* chrom_info_ptr, const uintptr_t* marker_exclude, uint32_t* last_chrom_fo_idx_ptr) {
   uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
   uint32_t max_chrom_size = 0;
   uint32_t last_chrom_fo_idx = 0;
   uint32_t chrom_fo_idx;
   uint32_t cur_chrom_size;
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
-    cur_chrom_size = count_chrom_markers(chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], marker_exclude);
+    cur_chrom_size = count_chrom_markers(chrom_info_ptr, marker_exclude, chrom_info_ptr->chrom_file_order[chrom_fo_idx]);
     if (cur_chrom_size) {
       last_chrom_fo_idx = chrom_fo_idx;
       if (cur_chrom_size > max_chrom_size) {

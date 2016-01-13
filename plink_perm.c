@@ -105,7 +105,7 @@ void generate_cc_perm1(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotient, 
       perm_vec[widx] = pv_val | wcomp;
     }
   } else {
-    fill_all_bits(perm_vec, tot_ct);
+    fill_all_bits(tot_ct, perm_vec);
     set_ct = tot_ct - set_ct;
     for (; num_set < set_ct; num_set++) {
       do {

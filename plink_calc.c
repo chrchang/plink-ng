@@ -7606,7 +7606,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
       }
       memcpy(sample_exclude_proj, sample_exclude, unfiltered_sample_ctl * sizeof(intptr_t));
       bitvec_ornot(pca_sample_exclude, unfiltered_sample_ctl, sample_exclude_proj);
-      zero_trailing_bits(sample_exclude_proj, unfiltered_sample_ct);
+      zero_trailing_bits(unfiltered_sample_ct, sample_exclude_proj);
       loadbuf_proj[proj_sample_ctl2 - 1] = 0;
     }
     if (var_wts) {

@@ -926,7 +926,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   if (do_glm || (filter_flags & FILTER_PRUNE)) {
     ulii = sample_exclude_ct;
     bitvec_ornot(pheno_nm, unfiltered_sample_ctl, sample_exclude);
-    zero_trailing_bits(sample_exclude, unfiltered_sample_ct);
+    zero_trailing_bits(unfiltered_sample_ct, sample_exclude);
     sample_exclude_ct = popcount_longs(sample_exclude, unfiltered_sample_ctl);
     uii = do_glm && (!(filter_flags & FILTER_PRUNE));
     if (sample_exclude_ct == unfiltered_sample_ct) {
@@ -1032,7 +1032,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     covar_ct = 1;
     max_covar_name_len = 4;
     memcpy(covar_names, "SEX", 4);
-    fill_all_bits(covar_nm, sample_ct);
+    fill_all_bits(sample_ct, covar_nm);
     for (sample_uidx = 0, sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
       next_unset_unsafe_ck(sample_exclude, &sample_uidx);
       if (is_set(sex_nm, sample_uidx)) {
@@ -1639,7 +1639,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	for (read_idx = 0; read_idx < sample_ct; read_idx++) {
 	  read_idx_to_sample_idx[read_idx] = read_idx;
 	}
-	fill_all_bits(batch_samples, sample_ct);
+	fill_all_bits(sample_ct, batch_samples);
       } else if (!sepheader) {
 	do {
 	  if (!gzgets(gz_infiles[file_idx], loadbuf, loadbuf_size)) {

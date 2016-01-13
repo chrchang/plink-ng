@@ -166,7 +166,7 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
     fill_ulong_zero(pheno_c, unfiltered_sample_ctl);
   }
   if (makepheno_all) {
-    fill_all_bits(pheno_nm, unfiltered_sample_ct);
+    fill_all_bits(unfiltered_sample_ct, pheno_nm);
   }
   // probably want to permit long lines here
   g_textbuf[MAXLINELEN - 1] = ' '; 
@@ -2730,9 +2730,9 @@ int32_t write_cc_freqs(FILE* bedfile, uintptr_t bed_offset, char* outname, char*
 	  genovec_set_freq_y(loadbuf, case_include2, nonmale_vec, unfiltered_sample_ctl2, &case_set_ct, &case_missing_ct);
 	  genovec_set_freq_y(loadbuf, ctrl_include2, nonmale_vec, unfiltered_sample_ctl2, &ctrl_set_ct, &ctrl_missing_ct);
         } else {
-	  vec_3freq(unfiltered_sample_ctl2, loadbuf, case_include2, &case_missing_ct, &uii, &case_set_ct);
+	  genovec_3freq(loadbuf, case_include2, unfiltered_sample_ctl2, &case_missing_ct, &uii, &case_set_ct);
 	  case_missing_ct += uii;
-	  vec_3freq(unfiltered_sample_ctl2, loadbuf, ctrl_include2, &ctrl_missing_ct, &uii, &ctrl_set_ct);
+	  genovec_3freq(loadbuf, ctrl_include2, unfiltered_sample_ctl2, &ctrl_missing_ct, &uii, &ctrl_set_ct);
 	  ctrl_missing_ct += uii;
 	}
 	case_obs = case_ct - case_missing_ct;
@@ -3591,7 +3591,7 @@ int32_t list_duplicate_vars(char* outname, char* outname_end, uint32_t dupvar_mo
     if (bigstack_alloc_ul(unfiltered_marker_ctl, &uniqueness_check_bitfield)) {
       goto list_duplicate_vars_ret_NOMEM;
     }
-    fill_all_bits(uniqueness_check_bitfield, unfiltered_marker_ct);
+    fill_all_bits(unfiltered_marker_ct, uniqueness_check_bitfield);
     for (uii = 0; uii < htable_entry_ct; uii++) {
       clear_bit((group_list_start[uii] & 0x7fffffff), uniqueness_check_bitfield);
     }
@@ -4247,7 +4247,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
       bigstack_calloc_ul(unfiltered_marker_ctl, &a2_effect)) {
     goto score_report_ret_NOMEM;
   }
-  fill_all_bits(marker_exclude, unfiltered_marker_ct);
+  fill_all_bits(unfiltered_marker_ct, marker_exclude);
   loadbuf_size = bigstack_left();
   if (loadbuf_size > MAXLINEBUFLEN) {
     loadbuf_size = MAXLINEBUFLEN;
@@ -4420,7 +4420,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
         bigstack_alloc_ul(unfiltered_marker_ctl, &marker_exclude_main)) {
       goto score_report_ret_NOMEM;
     }
-    fill_all_bits(marker_exclude_main, unfiltered_marker_ct);
+    fill_all_bits(unfiltered_marker_ct, marker_exclude_main);
     loadbuf_size = bigstack_left();
     if (loadbuf_size > MAXLINEBUFLEN) {
       loadbuf_size = MAXLINEBUFLEN;
@@ -4587,7 +4587,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
       bufptr_arr[0] = bufptr;
       break;
     }
-    fill_all_bits(marker_exclude, unfiltered_marker_ct);
+    fill_all_bits(unfiltered_marker_ct, marker_exclude);
     marker_uidx = next_unset_unsafe(marker_exclude_main, 0);
     dptr = effect_sizes_cur;
     for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {

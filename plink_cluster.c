@@ -123,7 +123,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 	  goto load_clusters_ret_INVALID_FORMAT;
 	}
       }
-      fill_all_bits(sample_exclude_new, unfiltered_sample_ct);
+      fill_all_bits(unfiltered_sample_ct, sample_exclude_new);
       if (bigstack_end_alloc_c(cluster_kr_ct * max_cluster_kr_len, &sorted_keep_ids)) {
 	goto load_clusters_ret_NOMEM;
       }
@@ -696,7 +696,7 @@ int32_t extract_clusters(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   }
   new_sample_exclude = *new_sample_exclude_ptr;
   bigstack_mark = g_bigstack_base;
-  fill_all_bits(new_sample_exclude, unfiltered_sample_ct);
+  fill_all_bits(unfiltered_sample_ct, new_sample_exclude);
   if (cluster_names_flattened) {
     bufptr = cluster_names_flattened;
     do {
